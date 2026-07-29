@@ -1,0 +1,83 @@
+{
+  "source_repository": "https://github.com/morganmcg1/gemma-challenge-senpai",
+  "imports": [
+    {
+      "file": "run_eval.py",
+      "source_commit": "63616f139becd76a8cae191e1845e04920a243ea",
+      "source_path": "research/validity/downstream_quality_eval/run_eval.py",
+      "source_blob": "365d880f326ba95d0b181003140252102783443b",
+      "source_sha256": "4356525b6a099e17906e98b8be776b5f5ac563a63fa93dee2aaa5a9354c8a29e",
+      "local_adaptations": [
+        "Use the Laguna served-model name by default.",
+        "Persist every raw completion in per_sample.",
+        "Record a dataset_sha256 aggregate over the evaluated (id, prompt_sha) set.",
+        "Count endpoint/sample errors in the accuracy denominator and exit nonzero if any sample request fails or the expected sample set is incomplete.",
+        "Accept --expect-count and fail before inference when the effective dataset cardinality differs from the requested profile."
+      ]
+    },
+    {
+      "file": "aime_eval.py",
+      "source_commit": "1bb8f4747b12300199e57aac2b4cd31f4f74ec49",
+      "source_path": "research/downstream_quality_aime/aime_eval.py",
+      "source_blob": "728af3176fbac47d7ad7a19cfc56c33fcc47d340",
+      "source_sha256": "ebd6271dfcde8f313785e624f9cc012093273ea0d012fe0ab9a61bc8c46d8b44",
+      "local_adaptations": [
+        "Use the Laguna served-model name by default.",
+        "Persist raw completion texts by default.",
+        "Require an already-running OpenAI endpoint; remove the Gemma submission LocalServer branch.",
+        "Record a prompt_sha for each exact endpoint message payload plus gold answer, and a dataset_sha256 aggregate.",
+        "Accept --expect-count and reject empty or shortened datasets."
+      ]
+    },
+    {
+      "file": "gsm8k_eval.py",
+      "source_commit": "8c61cd30752ca516a7d2ab0d2373be0cbdbd1bb3",
+      "source_path": "research/downstream_quality_gsm8k/gsm8k_eval.py",
+      "source_blob": "22e68d5165514dc13333ca332728df54ce5e3eff",
+      "source_sha256": "6b50bd31378c4608d6d92e0b3cc7d1bdcef1d7d12e03a0d69c924b29b66ac520",
+      "local_adaptations": [
+        "Use the Laguna served-model name by default.",
+        "Persist raw completion text by default.",
+        "Require an already-running OpenAI endpoint; remove the Gemma submission LocalServer branch.",
+        "Record a prompt_sha for each exact endpoint message payload plus gold answer, and a dataset_sha256 aggregate.",
+        "Record n_error and exit nonzero after saving results if any endpoint request fails.",
+        "Accept --expect-count, reject empty or shortened test sets, and require the requested few-shot exemplar count."
+      ]
+    },
+    {
+      "file": "ppl_endpoint.py",
+      "source_commit": "7ce30a52eec3104457959a0106e9d0e933f32d76",
+      "source_last_changed_commit": "bce393cc52cf82585597d7791325ec0856c98faf",
+      "source_path": "official/main_bucket/shared_resources/speed_benchmark/scripts/ppl_endpoint.py",
+      "source_blob": "72a2d4fca8b904a71001cd1e5972e45573dff934",
+      "source_sha256": "5cf118e8ca60021ffe3c3902d44ba9d2d679f931a8236884ae1fd80225951d29",
+      "local_adaptations": [
+        "Persist prompt IDs, scoring boundaries, scored IDs, and token logprobs in each JSONL result.",
+        "Send score_token_start and score_token_end so the Laguna adapter can avoid unscored teacher-forced work; the official aggregate equation is unchanged.",
+        "Reject non-finite logprobs/aggregates and optionally enforce the manifest record count."
+      ]
+    },
+    {
+      "file": "check_prompt_sets.py",
+      "source_commit": "7ce30a52eec3104457959a0106e9d0e933f32d76",
+      "source_last_changed_commit": "cedd975d5f56579ff041c471b6232f871fd54d19",
+      "source_path": "research/readme_quality_refresh_20260621/check_prompt_sets.py",
+      "source_blob": "3e55781f5f03957f5a6949d42930956ed71cb7e6",
+      "source_sha256": "5866739303e957aa935b2a86862adc18529bf7eed0879434a263200e52608bb9",
+      "local_adaptations": [
+        "Validate any available MMLU-Pro, GPQA-Diamond, AIME, and GSM8K outputs across every supplied directory, requiring a task in every directory when present anywhere."
+      ]
+    },
+    {
+      "file": "summarize_five_pass.py",
+      "source_commit": "7ce30a52eec3104457959a0106e9d0e933f32d76",
+      "source_last_changed_commit": "cedd975d5f56579ff041c471b6232f871fd54d19",
+      "source_path": "research/readme_quality_refresh_20260621/summarize_five_pass.py",
+      "source_blob": "2eff2eeea35a6fa2ffe26c166effa4d62637097d",
+      "source_sha256": "7262782375a8792d9fe9c931a982370ebdcb60168ab1f6e87ca8f6784978cc50",
+      "local_adaptations": [
+        "Summarize the additional Laguna ranked-head GPQA greedy behavior-proxy metric."
+      ]
+    }
+  ]
+}

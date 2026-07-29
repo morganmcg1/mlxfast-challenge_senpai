@@ -27,6 +27,22 @@ scores are never silently compared with or migrated into v2.
 ./benchmark.sh --local-submit
 ```
 
+### Quality regression panel
+
+The optional evaluator panel runs PPL, MMLU-Pro, GPQA-Diamond, AIME, and
+GSM8K against the candidate linked from this checkout:
+
+```bash
+./senpai/quality-eval run .
+```
+
+It prints results and saves metrics, logs, and raw responses under
+`quality-results/`. See [Laguna quality evaluation](senpai/quality-evaluation.md)
+for five-pass runs, matched baseline comparisons, suite selection, and
+prepared-artifact usage. These downstream evaluations are regression screens,
+not replicas of the challenge's hidden quality or behavioral gates. The panel
+also runs a separate ranked-head GPQA greedy proxy for B=1 behavior-path drift.
+
 Full model setup needs a moderate local SSD. The reference checkpoint is
 `poolside/Laguna-XS-2.1-NVFP4-mlx` at revision
 `841778bda563a36104dd521e37d99218e46f4f25`, with 5 safetensors shards
@@ -196,9 +212,11 @@ hidden correctness gates as model changes: keep them prompt-independent and
 model-general, and be conservative with numeric reassociation, which can
 flip near-tie greedy argmaxes on the M5.
 
-The repository is Swift-only (no Python): setup, transform, correctness,
-and benchmark all run through the Swift package, plus the
+The challenge runtime is Swift-only: setup, transform, correctness, and
+benchmark all run through the Swift package, plus the
 `tools/build-mlx-metallib.sh` step for the vendored AOT Metal sources.
+The optional local quality evaluator uses Python tooling outside the submitted
+runtime.
 
 Submissions are made with the **Yukon CLI (`mlxfast`)**, a separate tool that
 manages your account and uploads across all Yukon benchmarks. The
@@ -367,7 +385,7 @@ content-addressed objects below
 `gpqa-reference-cases-<sha256>.json`, and
 `timed-decode-prompt-<sha256>.txt`. Each embeds its SHA-256 in the object key
 and is independently pinned by SHA-256 and byte count. The workflow merges the
-GPQA reference into the local golden as 5 hidden behavior checks. Generate
+GPQA reference into the local golden as 9 hidden behavior checks. Generate
 final hidden benchmark goldens outside the public repository and upload the
 resulting files to those protected private R2 paths. `benchmark.yml` keeps
 raw hidden material in a runner-only private directory, not the repository
