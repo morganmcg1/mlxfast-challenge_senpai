@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import platform
 import signal
 import subprocess
 import sys
@@ -16,13 +17,22 @@ from typing import Any
 from .artifact import Artifact, artifact_identity
 from .bridge import BridgeProcess
 from .ppl_manifest import build_manifest
-from .server import MODEL_NAME, LagunaAPI, QualityHTTPServer, RequestJournal
+from .public_probe import run_public_correctness_probe
+from .server import (
+    CHAT_PROMPT_FORMAT,
+    MODEL_NAME,
+    RAW_SINGLE_USER_PROMPT_FORMAT,
+    LagunaAPI,
+    QualityHTTPServer,
+    RequestJournal,
+)
 from .tokenizer import LagunaTokenizer
 
 
 ALL_SUITES = ("ppl", "mmlu_pro", "gpqa_diamond", "aime", "gsm8k")
 PROMPT_HASH_SUITES = {"mmlu_pro", "gpqa_diamond", "aime", "gsm8k"}
 RANKED_GPQA_MAX_TOKENS = 128
+TOKEN_IDS_PROMPT_FORMAT = "token_ids"
 
 
 @dataclass(frozen=True)
@@ -57,6 +67,23 @@ PROFILES = {
         ppl_target_tokens=24,
         max_connections=2,
         request_timeout_s=600,
+    ),
+    # Routine matched-regression panel for local use. Its bounded one-pass
+    # workload covers every evaluator and both Laguna head paths while staying
+    # small enough for a 10-20 minute pre-submission check on the 128 GB M4 Max.
+    "quick": Profile(
+        max_tokens=256,
+        min_tokens=8,
+        mmlu_n=20,
+        mmlu_limit=None,
+        gpqa_limit=9,
+        aime_limit=3,
+        gsm8k_n=12,
+        gsm8k_limit=None,
+        ppl_records=None,
+        ppl_target_tokens=32,
+        max_connections=1,
+        request_timeout_s=900,
     ),
     # A useful local panel that remains substantially smaller than the
     # challenge-era publication run on a serial Apple-Silicon endpoint.
@@ -103,6 +130,7 @@ class RunOptions:
     startup_timeout: float = 900.0
     keep_going: bool = False
     ppl_dataset: Path | None = None
+    preparation_wall_s: float = 0.0
 
 
 def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
@@ -150,6 +178,8 @@ def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
             }
             for mode in _head_modes(options.suites)
         },
+        "prompt_formats": _prompt_formats(options.suites),
+        "host_identity": _host_identity(),
         "model": MODEL_NAME,
         "evaluator_provenance": _evaluation_provenance(),
         "output": str(output),
@@ -157,6 +187,7 @@ def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
         "failures": [],
         "evaluation_valid": False,
         "quality_gate_passed": None,
+        "preparation_wall_s": options.preparation_wall_s,
     }
     _write_json(manifest_path, run_manifest)
 
@@ -220,14 +251,25 @@ def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
         run_manifest["summary"] = str(output / "summary.json")
         run_manifest["finished_at"] = _timestamp()
         run_manifest["wall_s"] = time.time() - started_at
+        run_manifest["total_wall_s"] = (
+            options.preparation_wall_s + run_manifest["wall_s"]
+        )
         _write_json(manifest_path, run_manifest)
         print(json.dumps(summary, indent=2, sort_keys=True), flush=True)
+        print(
+            f"[quality-eval] completed in {run_manifest['wall_s']:.1f}s "
+            f"({run_manifest['total_wall_s']:.1f}s including preparation)",
+            flush=True,
+        )
         print(f"[quality-eval] results saved to {output}", flush=True)
         return run_manifest
     except BaseException as error:
         run_manifest["status"] = "failed"
         run_manifest["finished_at"] = _timestamp()
         run_manifest["wall_s"] = time.time() - started_at
+        run_manifest["total_wall_s"] = (
+            options.preparation_wall_s + run_manifest["wall_s"]
+        )
         run_manifest["error"] = str(error)
         _write_json(manifest_path, run_manifest)
         raise
@@ -241,6 +283,45 @@ def _head_modes(suites: tuple[str, ...]) -> tuple[str, ...]:
     if "gpqa_diamond" in suites:
         modes.append("ranked")
     return tuple(modes)
+
+
+def _prompt_formats(suites: tuple[str, ...]) -> dict[str, dict[str, str]]:
+    formats: dict[str, dict[str, str]] = {}
+    for suite in suites:
+        formats[suite] = {
+            "full": (
+                TOKEN_IDS_PROMPT_FORMAT
+                if suite == "ppl"
+                else CHAT_PROMPT_FORMAT
+            )
+        }
+    if "gpqa_diamond" in formats:
+        formats["gpqa_diamond"]["ranked"] = RAW_SINGLE_USER_PROMPT_FORMAT
+    return formats
+
+
+def _host_identity() -> dict[str, str | None]:
+    return {
+        "system": platform.system(),
+        "system_release": platform.release(),
+        "machine": platform.machine(),
+        "macos_version": platform.mac_ver()[0] or None,
+        "hardware_model": _sysctl_value("hw.model"),
+        "cpu_brand": _sysctl_value("machdep.cpu.brand_string"),
+    }
+
+
+def _sysctl_value(name: str) -> str | None:
+    if platform.system() != "Darwin":
+        return None
+    completed = subprocess.run(
+        ["sysctl", "-n", name],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    value = completed.stdout.strip()
+    return value if completed.returncode == 0 and value else None
 
 
 def _run_head_phase(
@@ -258,6 +339,13 @@ def _run_head_phase(
     ppl_dataset: Path | None,
     request_timeout: float,
 ) -> None:
+    phase_started = time.time()
+    phase_record = run_manifest.setdefault("head_timings", {}).setdefault(
+        head_mode,
+        {},
+    )
+    phase_record["started_at"] = _timestamp(phase_started)
+    _write_json(manifest_path, run_manifest)
     full_logits = head_mode == "full"
     bridge = BridgeProcess(
         artifact,
@@ -283,7 +371,25 @@ def _run_head_phase(
     try:
         bridge_log.write(f"quality-eval: loading head_mode={head_mode}\n")
         bridge_log.flush()
+        startup_started = time.time()
         bridge.start()
+        phase_record["ready_at"] = _timestamp()
+        phase_record["startup_wall_s"] = time.time() - startup_started
+        if head_mode == "full":
+            probe = run_public_correctness_probe(
+                artifact.root,
+                bridge,
+                timeout=request_timeout,
+            )
+            run_manifest["local_public_correctness_probe"] = probe
+            if probe.get("available") and not probe.get("matches_m5_fixture"):
+                print(
+                    "[quality-eval] warning: this host diverges from the "
+                    "checked-in M5 public fixture on the first token; use a "
+                    "matched baseline comparison for generation regressions",
+                    flush=True,
+                )
+        _write_json(manifest_path, run_manifest)
         server_thread.start()
         server_started = True
         print(
@@ -313,9 +419,11 @@ def _run_head_phase(
                     "head_mode": head_mode,
                     "command": command,
                     "log": str(pass_dir / f"{name}.log"),
+                    "started_at": _timestamp(),
                 }
                 run_manifest["commands"].append(record)
                 _write_json(manifest_path, run_manifest)
+                command_started = time.time()
                 try:
                     _run_command(command, Path(record["log"]))
                     record["status"] = "passed"
@@ -330,9 +438,12 @@ def _run_head_phase(
                             "exit_code": error.returncode,
                         }
                     )
-                    _write_json(manifest_path, run_manifest)
                     if not options.keep_going:
                         raise
+                finally:
+                    record["finished_at"] = _timestamp()
+                    record["wall_s"] = time.time() - command_started
+                    _write_json(manifest_path, run_manifest)
     finally:
         if server_started:
             server.shutdown()
@@ -340,6 +451,9 @@ def _run_head_phase(
         bridge.close()
         if server_started:
             server_thread.join(timeout=5)
+        phase_record["finished_at"] = _timestamp()
+        phase_record["wall_s"] = time.time() - phase_started
+        _write_json(manifest_path, run_manifest)
 
 
 def summarize_runs(run_dirs: list[Path]) -> dict[str, Any]:
@@ -367,6 +481,7 @@ def compare_runs(
     candidate = candidate.expanduser().resolve()
     compatibility = _compare_contracts(baseline, candidate)
     baseline_manifest = json.loads((baseline / "run.json").read_text())
+    candidate_manifest = json.loads((candidate / "run.json").read_text())
     if check_prompts and PROMPT_HASH_SUITES.intersection(
         baseline_manifest.get("suites") or []
     ):
@@ -400,6 +515,10 @@ def compare_runs(
             ),
         }
     response_identity = _compare_responses(baseline, candidate)
+    response_identity["public_probe"] = _compare_public_probes(
+        baseline_manifest,
+        candidate_manifest,
+    )
     return {
         "baseline": str(baseline.resolve()),
         "candidate": str(candidate.resolve()),
@@ -616,6 +735,8 @@ def _pass_commands(
                 "--expect-count",
                 str(expected["gpqa_diamond"]),
                 *common_eval,
+                "--prompt-format",
+                RAW_SINGLE_USER_PROMPT_FORMAT,
             ]
             if profile.gpqa_limit is not None:
                 ranked.extend(["--limit", str(profile.gpqa_limit)])
@@ -768,6 +889,24 @@ def _compare_responses(baseline: Path, candidate: Path) -> dict[str, Any]:
     }
 
 
+def _compare_public_probes(
+    baseline_manifest: dict[str, Any],
+    candidate_manifest: dict[str, Any],
+) -> dict[str, Any]:
+    baseline = baseline_manifest["local_public_correctness_probe"]
+    candidate = candidate_manifest["local_public_correctness_probe"]
+    if not baseline["available"]:
+        return {"available": False, "matched": None}
+    baseline_token = baseline["actual_token"]
+    candidate_token = candidate["actual_token"]
+    return {
+        "available": True,
+        "baseline_token": baseline_token,
+        "candidate_token": candidate_token,
+        "matched": baseline_token == candidate_token,
+    }
+
+
 def _regression_decision(
     metrics: dict[str, Any],
     response_identity: dict[str, Any],
@@ -796,7 +935,9 @@ def _regression_decision(
     response_drift = any(
         response_identity.get(key, 0)
         for key in ("baseline_only", "candidate_only")
-    ) or bool(response_identity.get("mismatches"))
+    ) or bool(response_identity.get("mismatches")) or (
+        (response_identity.get("public_probe") or {}).get("matched") is False
+    )
     regression = bool(regressions) or response_drift
     return {
         "status": "regression" if regression else "matched_or_improved",
@@ -835,6 +976,15 @@ def _validate_run_outputs(root: Path, manifest: dict[str, Any]) -> None:
     }
     if manifest.get("head_modes") != expected_head_modes:
         raise ValueError(f"run has invalid head-mode policy: {root / 'run.json'}")
+    if manifest.get("prompt_formats") != _prompt_formats(tuple(suites)):
+        raise ValueError(f"run has invalid prompt-format policy: {root / 'run.json'}")
+    host_identity = manifest.get("host_identity")
+    if not isinstance(host_identity, dict) or any(
+        not isinstance(host_identity.get(name), str) or not host_identity[name]
+        for name in ("system", "system_release", "machine")
+    ):
+        raise ValueError(f"run lacks valid host identity: {root / 'run.json'}")
+    _public_probe_contract(manifest, root)
     provenance = manifest.get("evaluator_provenance")
     if not isinstance(provenance, dict) or not isinstance(provenance.get("sha256"), str):
         raise ValueError(f"run lacks evaluator provenance: {root / 'run.json'}")
@@ -1252,6 +1402,18 @@ def _compare_contracts(baseline: Path, candidate: Path) -> dict[str, Any]:
             baseline_manifest.get("head_modes"),
             candidate_manifest.get("head_modes"),
         ),
+        "prompt_formats": (
+            baseline_manifest.get("prompt_formats"),
+            candidate_manifest.get("prompt_formats"),
+        ),
+        "host_identity": (
+            baseline_manifest.get("host_identity"),
+            candidate_manifest.get("host_identity"),
+        ),
+        "public_correctness_probe": (
+            _public_probe_contract(baseline_manifest, baseline),
+            _public_probe_contract(candidate_manifest, candidate),
+        ),
         "ppl_sha256": (
             (baseline_manifest.get("ppl_manifest") or {}).get("sha256"),
             (candidate_manifest.get("ppl_manifest") or {}).get("sha256"),
@@ -1278,6 +1440,47 @@ def _compare_contracts(baseline: Path, candidate: Path) -> dict[str, Any]:
         details = ", ".join(sorted(mismatches))
         raise ValueError(f"runs are not comparable; mismatched {details}")
     return {"validated": True, "fields": sorted(compared)}
+
+
+def _public_probe_contract(
+    manifest: dict[str, Any],
+    root: Path,
+) -> dict[str, Any]:
+    probe = manifest.get("local_public_correctness_probe")
+    if not isinstance(probe, dict) or not isinstance(probe.get("available"), bool):
+        raise ValueError(
+            f"run lacks valid local public correctness probe: {root / 'run.json'}"
+        )
+    if not probe["available"]:
+        return {"available": False}
+    required = {
+        "fixture_sha256": str,
+        "prompt_token_count": int,
+        "expected_token": int,
+        "actual_token": int,
+    }
+    if any(
+        not isinstance(probe.get(name), expected_type)
+        or isinstance(probe.get(name), bool)
+        for name, expected_type in required.items()
+    ) or (
+        not probe["fixture_sha256"]
+        or probe["prompt_token_count"] < 1
+        or probe["expected_token"] < 0
+        or probe["actual_token"] < 0
+        or not isinstance(probe.get("matches_m5_fixture"), bool)
+        or probe["matches_m5_fixture"]
+        != (probe["actual_token"] == probe["expected_token"])
+    ):
+        raise ValueError(
+            f"run has invalid local public correctness probe: {root / 'run.json'}"
+        )
+    return {
+        "available": True,
+        "fixture_sha256": probe["fixture_sha256"],
+        "prompt_token_count": probe["prompt_token_count"],
+        "expected_token": probe["expected_token"],
+    }
 
 
 def _evaluation_provenance() -> dict[str, Any]:

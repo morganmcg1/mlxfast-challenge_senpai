@@ -14,7 +14,31 @@ sys.path.insert(0, str(QUALITY_EVAL))
 from laguna_quality.ppl_manifest import build_manifest
 from dataclasses import asdict
 
-from laguna_quality.runner import PROFILES, _pass_commands, compare_runs
+from laguna_quality.runner import (
+    PROFILES,
+    RANKED_GPQA_MAX_TOKENS,
+    _pass_commands,
+    compare_runs,
+)
+from upstream.aime_eval import _stratified_limit
+
+
+HOST_IDENTITY = {
+    "system": "Darwin",
+    "system_release": "25.0.0",
+    "machine": "arm64",
+    "macos_version": "26.0",
+    "hardware_model": "Mac16,7",
+    "cpu_brand": "Apple M4 Max",
+}
+PUBLIC_PROBE = {
+    "available": True,
+    "fixture_sha256": "fixture",
+    "prompt_token_count": 512,
+    "expected_token": 5991,
+    "actual_token": 8550,
+    "matches_m5_fixture": False,
+}
 
 
 class FakeTokenizer:
@@ -82,6 +106,26 @@ class RunnerCommandTests(unittest.TestCase):
         self.assertIn("1", sampled)
         self.assertIn("--limit", sampled)
 
+    def test_quick_profile_has_bounded_all_path_budget(self) -> None:
+        profile = PROFILES["quick"]
+        full_head_requests = (
+            profile.mmlu_n
+            + 2 * (profile.gpqa_limit or 0)
+            + (profile.aime_limit or 0)
+            + profile.gsm8k_n
+        )
+        ranked_head_requests = profile.gpqa_limit or 0
+        ppl_tokens = 8 * (profile.ppl_target_tokens or 0)
+
+        self.assertEqual(
+            full_head_requests * profile.max_tokens
+            + ranked_head_requests * RANKED_GPQA_MAX_TOKENS
+            + ppl_tokens,
+            14_976,
+        )
+        self.assertEqual(profile.max_connections, 1)
+        self.assertEqual(profile.gpqa_limit, 9)
+
     def test_dual_head_phases_split_ranked_greedy_from_full_distribution(self) -> None:
         arguments = {
             "pass_number": 1,
@@ -113,6 +157,25 @@ class RunnerCommandTests(unittest.TestCase):
         for _, command in ranked:
             self.assertEqual(command[command.index("--min-tokens") + 1], "0")
             self.assertEqual(command[command.index("--max-tokens") + 1], "128")
+            self.assertEqual(
+                command[command.index("--prompt-format") + 1],
+                "raw_single_user",
+            )
+        for _, command in full:
+            self.assertNotIn("--prompt-format", command)
+
+
+class LimitedDatasetTests(unittest.TestCase):
+    def test_aime_limit_round_robins_across_requested_years(self) -> None:
+        groups = [
+            [{"id": "2024-1"}, {"id": "2024-2"}],
+            [{"id": "2025-I-1"}, {"id": "2025-I-2"}],
+            [{"id": "2025-II-1"}, {"id": "2025-II-2"}],
+        ]
+        self.assertEqual(
+            [row["id"] for row in _stratified_limit(groups, 4)],
+            ["2024-1", "2025-I-1", "2025-II-1", "2024-2"],
+        )
 
 
 class ComparisonTests(unittest.TestCase):
@@ -160,6 +223,11 @@ class ComparisonTests(unittest.TestCase):
                             "role": "quality_panel",
                         }
                     },
+                    "prompt_formats": {
+                        "mmlu_pro": {"full": "chat_template"},
+                    },
+                    "host_identity": HOST_IDENTITY,
+                    "local_public_correctness_probe": PUBLIC_PROBE,
                     "evaluator_provenance": {"sha256": "same"},
                     "tokenizer_stop_token_ids": [2, 24],
                     "failures": [],
@@ -211,8 +279,49 @@ class ComparisonTests(unittest.TestCase):
             self.assertEqual(comparison["response_identity"]["mismatches"][0]["id"], "q1")
             self.assertTrue(comparison["decision"]["baseline_regression"])
             self.assertEqual(comparison["decision"]["status"], "regression")
+            self.assertIn("prompt_formats", comparison["compatibility"]["fields"])
+            self.assertIn("host_identity", comparison["compatibility"]["fields"])
+            self.assertTrue(
+                comparison["response_identity"]["public_probe"]["matched"]
+            )
 
             candidate_manifest = json.loads((candidate / "run.json").read_text())
+            candidate_manifest["prompt_formats"]["mmlu_pro"]["full"] = (
+                "raw_single_user"
+            )
+            (candidate / "run.json").write_text(json.dumps(candidate_manifest))
+            with self.assertRaisesRegex(ValueError, "prompt-format policy"):
+                compare_runs(baseline, candidate)
+
+            candidate_manifest["prompt_formats"]["mmlu_pro"]["full"] = (
+                "chat_template"
+            )
+            (candidate / "summary.json").write_text(
+                (baseline / "summary.json").read_text()
+            )
+            (candidate / "pass_1" / "mmlu_pro_greedy.json").write_text(
+                (baseline / "pass_1" / "mmlu_pro_greedy.json").read_text()
+            )
+            candidate_manifest["local_public_correctness_probe"]["actual_token"] = 42
+            candidate_manifest["local_public_correctness_probe"][
+                "matches_m5_fixture"
+            ] = False
+            (candidate / "run.json").write_text(json.dumps(candidate_manifest))
+            probe_comparison = compare_runs(baseline, candidate)
+            self.assertEqual(probe_comparison["decision"]["metric_regressions"], [])
+            self.assertEqual(probe_comparison["response_identity"]["mismatches"], [])
+            self.assertFalse(
+                probe_comparison["response_identity"]["public_probe"]["matched"]
+            )
+            self.assertTrue(probe_comparison["decision"]["baseline_regression"])
+
+            candidate_manifest["local_public_correctness_probe"]["actual_token"] = 8550
+            candidate_manifest["host_identity"]["hardware_model"] = "Mac15,1"
+            (candidate / "run.json").write_text(json.dumps(candidate_manifest))
+            with self.assertRaisesRegex(ValueError, "host_identity"):
+                compare_runs(baseline, candidate)
+
+            candidate_manifest["host_identity"]["hardware_model"] = "Mac16,7"
             candidate_manifest["artifact_identity"]["files"][
                 "tokenizer/tokenizer.json"
             ]["sha256"] = "different"
@@ -239,6 +348,9 @@ class ComparisonTests(unittest.TestCase):
                         "role": "quality_panel",
                     }
                 },
+                "prompt_formats": {"ppl": {"full": "token_ids"}},
+                "host_identity": HOST_IDENTITY,
+                "local_public_correctness_probe": PUBLIC_PROBE,
                 "ppl_manifest": {"sha256": "same", "num_records": 2},
                 "evaluator_provenance": {"sha256": "same"},
                 "tokenizer_stop_token_ids": [2, 24],

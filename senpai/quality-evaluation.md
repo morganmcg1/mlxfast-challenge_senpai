@@ -14,19 +14,64 @@ completed with a complete, internally consistent result set. It does not mean
 the model cleared a quality threshold—the hidden threshold is unknown. Make
 submission decisions from a matched baseline `compare` plus `--local-submit`.
 
+## What the challenge's behavioral gate means
+
+The public harness shows that “behavioral” is a reference-behavior regression
+gate, not a generic safety classifier or another PPL threshold. Ranked runs
+combine exact teacher-forced tokens, hidden logit anchors, short exact
+free-runs, and nine private GPQA prompts. GPQA is invoked as an already
+formatted raw string with BOS and up to 128 generated tokens; a semantic judge
+compares the candidate response with the pinned Laguna reference response.
+The current calibrated floor is seven matches out of nine. It intentionally
+tests preservation of the reference model's answer behavior, not whether an
+alternative answer is factually better.
+
+The hidden prompts and reference answers are unavailable locally, so this
+panel cannot reproduce that gate. Its ranked raw+BOS GPQA arm and exact
+baseline response comparison are conservative public proxies. PPL,
+MMLU-Pro, AIME, and GSM8K add broader quality-regression evidence.
+
 ## Run it
 
 Install `uv`, prepare the reference checkpoint with `./setup.sh`, then pass
 the checkout directory directly:
 
 ```bash
+./senpai/quality-eval run . \
+  --profile quick \
+  --output quality-results/candidate-quick
+```
+
+`quick` is the routine one-pass regression gate. It covers all eight built-in
+PPL records at 32 scored tokens each, 20 MMLU-Pro questions, nine GPQA-Diamond
+questions through full greedy, full sampled, and ranked greedy heads, three
+AIME problems distributed across the requested contests, and 12 GSM8K
+questions. Full-head generation is capped at 256 tokens, the ranked GPQA proxy
+at 128, and model requests are serialized.
+The 14,976-token worst-case budget completed in 595.9 seconds (9:56 including
+preparation) on the 128 GB M4 Max used for local development. One-time
+checkpoint download, setup, and weight transformation are outside that timing.
+
+The downstream quality panel retains the imported evaluators' chat-template
+prompts. Its separate ranked GPQA behavior proxy uses a raw single-user prompt
+with BOS, matching the challenge's hidden GPQA invocation boundary. `run.json`
+records prompt formats per suite and head; PPL uses pretokenized token IDs.
+
+Every checkout run also performs a one-token diagnostic against the checked-in
+M5 public fixture. On the development M4 Max, the current checkout produced
+token `8550` where the M5 fixture records `5991`; the run records this under
+`local_public_correctness_probe` and prints a warning. When that probe differs,
+absolute autoregressive accuracy is only diagnostic. Preserve one baseline run
+and rely on `compare` for PPL deltas and exact response drift on the same Mac.
+
+The default profile remains the tiny `smoke` plumbing check:
+
+```bash
 ./senpai/quality-eval run .
 ```
 
-That runs the one-pass `smoke` profile across all five suites and writes a
-new directory under `quality-results/`. The smoke profile is intentionally
-small: it verifies the entire evaluation path and catches gross regressions,
-but it is not a stable model-quality estimate.
+It exercises every evaluation path with two items per suite, but is not a
+meaningful model-quality estimate.
 
 For the exact five-pass downstream-quality shape, use:
 
@@ -69,7 +114,9 @@ Each run directory contains:
 
 - `run.json`: resolved artifact, content hashes for the bridge, Metal library,
   transformed shards, and tokenizer, checkout source identity, profile,
-  suites, commands, evaluator provenance, status, and failures;
+  suites, prompt formats, host hardware/OS identity, commands, per-command and
+  per-head timings, total wall time, the optional local public-fixture probe,
+  evaluator provenance, status, and failures;
 - `summary.json`: aggregate metrics across the completed passes;
 - `responses.jsonl`: every HTTP request and full response, including raw
   model text or prompt-token log probabilities;
@@ -88,24 +135,33 @@ Run the same profile and suites against a baseline and candidate, then use:
 
 ```bash
 ./senpai/quality-eval compare \
-  quality-results/baseline-full \
-  quality-results/candidate-full \
+  quality-results/baseline-quick \
+  quality-results/candidate-quick \
   --output quality-results/comparison.json
 ```
 
 `compare` fails closed if either run failed or is incomplete, or if the
-profile, effective profile settings, pass count, suite set, evaluator
+profile, effective profile settings, pass count, suite set, prompt-format
+policy, host hardware/OS identity, public-fixture identity, evaluator
 provenance, tokenizer identity, or PPL manifest differs. It verifies exact
 per-suite cardinality, finite and internally consistent metrics, and prompt
 hashes for every present downstream suite before reporting metric deltas and
 raw-response identity.
 
-The JSON `decision` marks any worse metric or raw-response drift against the
-matched baseline as a regression. `compare` still writes and prints the full
-report, then returns exit status 3 on regression so an agent can stop a
-submission. Use `--report-only` only when that nonzero policy is undesirable.
-`matched_or_improved` is evidence against an observed local regression, not a
-claim that the hidden gate passed.
+The JSON `decision` marks any worse metric, raw-response drift, or changed
+public-fixture probe token against the matched baseline as a regression.
+`compare` still writes and prints the full report, then returns exit status 3
+on regression so an agent can stop a submission. Use `--report-only` only when
+that nonzero policy is undesirable. `matched_or_improved` is evidence against
+an observed local regression, not a claim that the hidden gate passed.
+
+Create the baseline once for the exact checkout, hardware/OS identity, and
+profile you intend to use, then rerun only the candidate after model or kernel
+changes. `compare` enforces those identities along with prompt formats,
+tokenizer, PPL manifest, and evaluator provenance. This is especially
+important off-M5, where a first-token hardware divergence can make absolute
+autoregressive scores unrepresentative while same-host response stability
+remains a useful regression signal.
 
 The underlying operations are available separately:
 

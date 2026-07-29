@@ -115,9 +115,25 @@ def _rows_api(dataset: str, config: str, split: str, length: int = 100) -> list[
     raise RuntimeError(f"datasets-server unreachable after retries for {dataset}/{config}/{split}") from last_exc
 
 
+def _stratified_limit(
+    groups: list[list[dict[str, Any]]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Take a deterministic round-robin sample across requested contests."""
+    selected: list[dict[str, Any]] = []
+    for index in range(max((len(group) for group in groups), default=0)):
+        for group in groups:
+            if index < len(group):
+                selected.append(group[index])
+                if len(selected) == limit:
+                    return selected
+    return selected
+
+
 def load_aime(years: list[str], limit: int | None = None) -> list[dict[str, Any]]:
-    problems: list[dict[str, Any]] = []
+    groups: list[list[dict[str, Any]]] = []
     for year in years:
+        problems: list[dict[str, Any]] = []
         spec = AIME_REGISTRY[year]
         rows = _rows_api(spec["dataset"], spec["config"], spec["split"])
         url_col = spec.get("url_col")
@@ -142,9 +158,10 @@ def load_aime(years: list[str], limit: int | None = None) -> list[dict[str, Any]
                     "answer": ans,
                 }
             )
+        groups.append(problems)
     if limit is not None:
-        problems = problems[:limit]
-    return problems
+        return _stratified_limit(groups, limit)
+    return [problem for group in groups for problem in group]
 
 
 # --------------------------------------------------------------------------- #
@@ -470,7 +487,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", default="laguna-xs-2.1", help="served model name")
     ap.add_argument("--years", default="2024", help="comma list from {2024,2025-I,2025-II}")
     ap.add_argument("--k", type=int, default=8, help="maj@k samples per problem")
-    ap.add_argument("--limit", type=int, default=None, help="cap number of problems (smoke)")
+    ap.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="cap problems, round-robin across requested years",
+    )
     ap.add_argument(
         "--expect-count",
         type=int,

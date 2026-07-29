@@ -191,6 +191,12 @@ def main() -> int:
                          "Distinct from --seed (dataset construction). Vary for seed-CI.")
     ap.add_argument("--min-tokens", type=int, default=0,
                     help="endpoint min_tokens extension (0=disabled)")
+    ap.add_argument(
+        "--prompt-format",
+        choices=["chat_template", "raw_single_user"],
+        default="chat_template",
+        help="endpoint prompt tokenization; raw_single_user matches the ranked behavior gate",
+    )
     ap.add_argument("--ids-file", default=None,
                     help="optional JSON list of sample ids: build the dataset from --seed as "
                          "usual (so prompts stay byte-identical) then keep only these ids. Used "
@@ -233,6 +239,8 @@ def main() -> int:
         extra_body["min_tokens"] = args.min_tokens
     if args.top_k and args.top_k > 0:
         extra_body["top_k"] = args.top_k
+    if args.prompt_format == "raw_single_user":
+        extra_body["prompt_format"] = args.prompt_format
     extra_body = extra_body or None
     model = get_model(
         f"openai-api/local/{args.model}",

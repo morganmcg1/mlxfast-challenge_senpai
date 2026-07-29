@@ -18,7 +18,12 @@ sys.path.insert(0, str(QUALITY_EVAL))
 
 from laguna_quality.artifact import Artifact, ArtifactError, resolve_artifact
 from laguna_quality.bridge import BridgeError, BridgeProcess
-from laguna_quality.server import LagunaAPI, QualityHTTPServer, RequestJournal
+from laguna_quality.server import (
+    APIError,
+    LagunaAPI,
+    QualityHTTPServer,
+    RequestJournal,
+)
 from laguna_quality.run_lock import ModelRunLock, ModelRunLockError
 
 
@@ -168,6 +173,55 @@ class BridgeTests(unittest.TestCase):
                         "max_tokens": 1,
                     }
                 )
+
+    def test_raw_single_user_prompt_bypasses_chat_template(self) -> None:
+        class RecordingBridge:
+            full_logits = True
+
+            def __init__(self) -> None:
+                self.requests: list[dict[str, Any]] = []
+
+            def request(
+                self,
+                request: dict[str, Any],
+                *,
+                timeout: float | None = None,
+            ) -> dict[str, Any]:
+                self.requests.append(request)
+                return {"token_ids": [24], "finish_reason": "stop"}
+
+        bridge = RecordingBridge()
+        api = LagunaAPI(bridge, FakeTokenizer())  # type: ignore[arg-type]
+        common = {
+            "model": "laguna-xs-2.1",
+            "messages": [{"role": "user", "content": "GPQA"}],
+            "temperature": 0,
+            "max_tokens": 1,
+        }
+
+        api.chat_completion(common)
+        api.chat_completion({**common, "prompt_format": "raw_single_user"})
+
+        content_tokens = [ord(character) for character in "GPQA"]
+        self.assertEqual(
+            bridge.requests[0]["prompt_token_ids"],
+            [2, 0, 1, *content_tokens],
+        )
+        self.assertEqual(
+            bridge.requests[1]["prompt_token_ids"],
+            [2, *content_tokens],
+        )
+        with self.assertRaisesRegex(APIError, "exactly one user message"):
+            api.chat_completion(
+                {
+                    **common,
+                    "messages": [
+                        {"role": "system", "content": "system"},
+                        {"role": "user", "content": "GPQA"},
+                    ],
+                    "prompt_format": "raw_single_user",
+                }
+            )
 
 
 class ArtifactTests(unittest.TestCase):

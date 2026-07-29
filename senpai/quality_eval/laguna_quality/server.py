@@ -18,6 +18,8 @@ from .tokenizer import TokenizerError
 
 MODEL_NAME = "laguna-xs-2.1"
 MAX_REQUEST_BYTES = 32 * 1024 * 1024
+CHAT_PROMPT_FORMAT = "chat_template"
+RAW_SINGLE_USER_PROMPT_FORMAT = "raw_single_user"
 
 
 class APIError(ValueError):
@@ -89,11 +91,20 @@ class LagunaAPI:
     def chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._common(payload)
         messages = self._messages(payload)
-        prompt_ids = self.tokenizer.encode_messages(
-            messages,
-            add_generation_prompt=True,
-            enable_thinking=self._thinking(payload),
-        )
+        prompt_format = payload.get("prompt_format", CHAT_PROMPT_FORMAT)
+        if prompt_format == CHAT_PROMPT_FORMAT:
+            prompt_ids = self.tokenizer.encode_messages(
+                messages,
+                add_generation_prompt=True,
+                enable_thinking=self._thinking(payload),
+            )
+        elif prompt_format == RAW_SINGLE_USER_PROMPT_FORMAT:
+            prompt_ids = self._raw_single_user_prompt(messages)
+        else:
+            raise APIError(
+                f"prompt_format must be {CHAT_PROMPT_FORMAT!r} or "
+                f"{RAW_SINGLE_USER_PROMPT_FORMAT!r}"
+            )
         choices, generated_count = self._generate_choices(payload, prompt_ids, chat=True)
         return self._completion_envelope("chat.completion", payload, prompt_ids, choices, generated_count)
 
@@ -292,6 +303,21 @@ class LagunaAPI:
         if any(not isinstance(message, dict) for message in messages):
             raise APIError("each message must be an object")
         return messages
+
+    def _raw_single_user_prompt(self, messages: list[dict[str, Any]]) -> list[int]:
+        if (
+            len(messages) != 1
+            or messages[0].get("role") != "user"
+            or not isinstance(messages[0].get("content"), str)
+        ):
+            raise APIError(
+                "raw_single_user prompt_format requires exactly one user message "
+                "with string content"
+            )
+        return self.tokenizer.encode_text(
+            messages[0]["content"],
+            add_special_tokens=True,
+        )
 
     @staticmethod
     def _is_token_prompt(value: Any) -> bool:

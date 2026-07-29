@@ -12,7 +12,8 @@
         "Persist every raw completion in per_sample.",
         "Record a dataset_sha256 aggregate over the evaluated (id, prompt_sha) set.",
         "Count endpoint/sample errors in the accuracy denominator and exit nonzero if any sample request fails or the expected sample set is incomplete.",
-        "Accept --expect-count and fail before inference when the effective dataset cardinality differs from the requested profile."
+        "Accept --expect-count and fail before inference when the effective dataset cardinality differs from the requested profile.",
+        "Allow the ranked-head GPQA behavior proxy to request raw single-user prompt tokenization while full-head evaluators retain chat-template prompts."
       ]
     },
     {
@@ -26,7 +27,8 @@
         "Persist raw completion texts by default.",
         "Require an already-running OpenAI endpoint; remove the Gemma submission LocalServer branch.",
         "Record a prompt_sha for each exact endpoint message payload plus gold answer, and a dataset_sha256 aggregate.",
-        "Accept --expect-count and reject empty or shortened datasets."
+        "Accept --expect-count and reject empty or shortened datasets.",
+        "Select limited multi-contest runs round-robin across the requested contests."
       ]
     },
     {

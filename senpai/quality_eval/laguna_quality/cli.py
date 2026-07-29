@@ -96,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile",
         choices=sorted(PROFILES),
         default="smoke",
-        help="evaluation size/budget (full defaults to five passes)",
+        help="smoke checks plumbing; quick is the routine gate; full defaults to five passes",
     )
     run_parser.add_argument(
         "--passes",
@@ -243,12 +243,22 @@ def _serve_resolved(args: argparse.Namespace, artifact: Artifact) -> int:
 def _run(args: argparse.Namespace) -> int:
     label = str(Path(args.artifact).expanduser().resolve())
     with ModelRunLock(label):
+        preparation_started = time.monotonic()
         artifact = _resolve(args, build=not args.no_build)
         _require_metallib(artifact)
-        return _run_resolved(args, artifact)
+        return _run_resolved(
+            args,
+            artifact,
+            preparation_wall_s=time.monotonic() - preparation_started,
+        )
 
 
-def _run_resolved(args: argparse.Namespace, artifact: Artifact) -> int:
+def _run_resolved(
+    args: argparse.Namespace,
+    artifact: Artifact,
+    *,
+    preparation_wall_s: float = 0.0,
+) -> int:
     selected = ALL_SUITES if not args.suite or "all" in args.suite else args.suite
     suites = tuple(dict.fromkeys(selected))
     passes = args.passes if args.passes is not None else (5 if args.profile == "full" else 1)
@@ -266,6 +276,7 @@ def _run_resolved(args: argparse.Namespace, artifact: Artifact) -> int:
             startup_timeout=args.startup_timeout,
             keep_going=args.keep_going,
             ppl_dataset=args.ppl_dataset,
+            preparation_wall_s=preparation_wall_s,
         ),
     )
     return 0 if result["status"] == "completed" else 1

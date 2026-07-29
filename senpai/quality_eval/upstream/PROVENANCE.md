@@ -22,6 +22,8 @@ Local adaptations preserve dataset construction and scoring:
 - the default served name is `laguna-xs-2.1`;
 - AIME and GSM8K are endpoint-only and retain raw completions by default;
 - MMLU-Pro/GPQA output includes each raw completion;
+- limited multi-contest AIME runs select round-robin across the requested
+  contests instead of taking every item from the first year;
 - all downstream outputs include a deterministic aggregate over their evaluated
   `(id, prompt_sha)` set; AIME and GSM8K item hashes cover the exact endpoint
   messages plus the gold answer;
@@ -30,6 +32,9 @@ Local adaptations preserve dataset construction and scoring:
 - MMLU-Pro, GPQA, and GSM8K retain request-error diagnostics but exit nonzero
   when any item request fails; MMLU-Pro/GPQA also reject incomplete sample
   sets, so request failures cannot be accepted as quality scores;
+- the ranked-head GPQA behavior proxy uses raw single-user prompt tokenization
+  to match the challenge gate; full-head downstream evaluators retain their
+  original chat-template prompts;
 - profile-driven runs enforce exact MMLU-Pro, GPQA-Diamond, AIME, and GSM8K
   cardinalities, and GSM8K also enforces its requested few-shot count;
 - PPL output retains token IDs, score boundaries, and scored log-probabilities;
