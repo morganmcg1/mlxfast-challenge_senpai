@@ -91,7 +91,9 @@ at `quality-results/baseline-quick-final-v2-m4-20260730`. Evaluator provenance:
 
 The old PPL `262.0863`/all-zero table was invalid: a pre-NAX M4 output-layout
 mismatch corrupted the MoE logits. The corrected runtime matches the vendored
-model and checked-in M5 probe.
+model and checked-in M5 probe. See
+[`program.md`](program.md#pre-nax-moe-output-layout-compatibility) for the two
+layouts, fixed dispatch predicate, affected-host fingerprint, and diagnostics.
 
 Run a fresh baseline after changing the evaluator, tokenizer, OS/hardware, or
 base source.
