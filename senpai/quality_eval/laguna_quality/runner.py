@@ -32,6 +32,8 @@ from .tokenizer import LagunaTokenizer
 ALL_SUITES = ("ppl", "mmlu_pro", "gpqa_diamond", "aime", "gsm8k")
 PROMPT_HASH_SUITES = {"mmlu_pro", "gpqa_diamond", "aime", "gsm8k"}
 RANKED_GPQA_MAX_TOKENS = 128
+MMLU_DATASET_SEED = 12_345
+GPQA_DATASET_SEED = 2
 TOKEN_IDS_PROMPT_FORMAT = "token_ids"
 METRIC_RETENTION_FLOOR = 0.97
 BEHAVIOR_MATCH_NUMERATOR = 7
@@ -43,7 +45,12 @@ class Profile:
     max_tokens: int
     aime_max_tokens: int
     min_tokens: int
+    gpqa_sample_temperature: float
     multiple_choice_cot: bool
+    mmlu_ids_file: str | None
+    gpqa_ids_file: str | None
+    aime_ids_file: str | None
+    gsm8k_ids_file: str | None
     mmlu_n: int
     mmlu_limit: int | None
     gpqa_limit: int | None
@@ -60,10 +67,15 @@ PROFILES = {
     # Fast plumbing and gross-regression check. It deliberately exercises
     # every scoring path, including sampled GPQA and teacher-forced PPL.
     "smoke": Profile(
-        max_tokens=768,
-        aime_max_tokens=1_024,
+        max_tokens=1_024,
+        aime_max_tokens=2_048,
         min_tokens=0,
+        gpqa_sample_temperature=1.0,
         multiple_choice_cot=False,
+        mmlu_ids_file=None,
+        gpqa_ids_file=None,
+        aime_ids_file=None,
+        gsm8k_ids_file=None,
         mmlu_n=2,
         mmlu_limit=2,
         gpqa_limit=2,
@@ -79,10 +91,15 @@ PROFILES = {
     # workload covers every evaluator and both Laguna head paths while staying
     # small enough for a 10-20 minute pre-submission check on the 128 GB M4 Max.
     "quick": Profile(
-        max_tokens=768,
-        aime_max_tokens=1_024,
+        max_tokens=1_024,
+        aime_max_tokens=2_048,
         min_tokens=0,
+        gpqa_sample_temperature=0.5,
         multiple_choice_cot=False,
+        mmlu_ids_file="quick_mmlu_pro.json",
+        gpqa_ids_file="quick_gpqa_diamond.json",
+        aime_ids_file="quick_aime.json",
+        gsm8k_ids_file="quick_gsm8k.json",
         mmlu_n=20,
         mmlu_limit=None,
         gpqa_limit=9,
@@ -98,9 +115,14 @@ PROFILES = {
     # challenge-era publication run on a serial Apple-Silicon endpoint.
     "standard": Profile(
         max_tokens=1_024,
-        aime_max_tokens=1_024,
+        aime_max_tokens=2_048,
         min_tokens=8,
+        gpqa_sample_temperature=1.0,
         multiple_choice_cot=True,
+        mmlu_ids_file=None,
+        gpqa_ids_file=None,
+        aime_ids_file=None,
+        gsm8k_ids_file=None,
         mmlu_n=100,
         mmlu_limit=None,
         gpqa_limit=50,
@@ -118,7 +140,12 @@ PROFILES = {
         max_tokens=6_144,
         aime_max_tokens=6_144,
         min_tokens=8,
+        gpqa_sample_temperature=1.0,
         multiple_choice_cot=True,
+        mmlu_ids_file=None,
+        gpqa_ids_file=None,
+        aime_ids_file=None,
+        gsm8k_ids_file=None,
         mmlu_n=500,
         mmlu_limit=None,
         gpqa_limit=None,
@@ -553,6 +580,13 @@ def _check_prompt_sets(output: Path, passes: int) -> None:
 def _expected_counts(profile: Profile | dict[str, Any]) -> dict[str, int]:
     value = asdict(profile) if isinstance(profile, Profile) else profile
 
+    def manifest_count(setting: str) -> int | None:
+        filename = value.get(setting)
+        if filename is None:
+            return None
+        _, ids = _id_manifest(str(filename))
+        return len(ids)
+
     def capped(primary: str, limit: str, maximum: int | None = None) -> int:
         count = value.get(limit)
         if count is None:
@@ -570,11 +604,30 @@ def _expected_counts(profile: Profile | dict[str, Any]) -> dict[str, int]:
         return min(count, size)
 
     return {
-        "mmlu_pro": capped("mmlu_n", "mmlu_limit"),
-        "gpqa_diamond": canonical("gpqa_limit", 198),
-        "aime": canonical("aime_limit", 60),
-        "gsm8k": capped("gsm8k_n", "gsm8k_limit", 1_319),
+        "mmlu_pro": manifest_count("mmlu_ids_file")
+        or capped("mmlu_n", "mmlu_limit"),
+        "gpqa_diamond": manifest_count("gpqa_ids_file")
+        or canonical("gpqa_limit", 198),
+        "aime": manifest_count("aime_ids_file") or canonical("aime_limit", 60),
+        "gsm8k": manifest_count("gsm8k_ids_file")
+        or capped("gsm8k_n", "gsm8k_limit", 1_319),
     }
+
+
+def _id_manifest(filename: str) -> tuple[Path, list[str]]:
+    root = (_upstream_dir().parent / "manifests").resolve()
+    path = (root / filename).resolve()
+    if path.parent != root or not path.is_file():
+        raise ValueError(f"unknown question manifest: {filename}")
+    payload = json.loads(path.read_text())
+    if (
+        not isinstance(payload, list)
+        or not payload
+        or any(not isinstance(item, str) or not item for item in payload)
+        or len(set(payload)) != len(payload)
+    ):
+        raise ValueError(f"question manifest must contain unique string IDs: {path}")
+    return path, payload
 
 
 def _ppl_manifest_record_count(path: Path) -> int:
@@ -611,6 +664,26 @@ def _pass_commands(
     commands: list[tuple[str, list[str]]] = []
     timeout_s = request_timeout_s or profile.request_timeout_s
     expected = _expected_counts(profile)
+    mmlu_ids = (
+        _id_manifest(profile.mmlu_ids_file)[0]
+        if profile.mmlu_ids_file is not None
+        else None
+    )
+    gpqa_ids = (
+        _id_manifest(profile.gpqa_ids_file)[0]
+        if profile.gpqa_ids_file is not None
+        else None
+    )
+    aime_ids = (
+        _id_manifest(profile.aime_ids_file)[0]
+        if profile.aime_ids_file is not None
+        else None
+    )
+    gsm8k_ids = (
+        _id_manifest(profile.gsm8k_ids_file)[0]
+        if profile.gsm8k_ids_file is not None
+        else None
+    )
     common_eval = [
         "--max-tokens",
         str(
@@ -665,14 +738,16 @@ def _pass_commands(
             "--out",
             str(pass_dir / "mmlu_pro_greedy.json"),
             "--n",
-            str(profile.mmlu_n),
+            "0" if mmlu_ids is not None else str(profile.mmlu_n),
             "--expect-count",
             str(expected["mmlu_pro"]),
             "--seed",
-            "12345",
+            str(MMLU_DATASET_SEED),
             *common_eval,
         ]
-        if profile.mmlu_limit is not None:
+        if mmlu_ids is not None:
+            command.extend(["--ids-file", str(mmlu_ids)])
+        elif profile.mmlu_limit is not None:
             command.extend(["--limit", str(profile.mmlu_limit)])
         if not profile.multiple_choice_cot:
             command.append("--no-cot")
@@ -688,7 +763,7 @@ def _pass_commands(
             "--out",
             str(pass_dir / "gpqa_diamond_greedy.json"),
             "--seed",
-            "12345",
+            str(GPQA_DATASET_SEED),
             "--expect-count",
             str(expected["gpqa_diamond"]),
             *common_eval,
@@ -704,9 +779,9 @@ def _pass_commands(
             "--out",
             str(pass_dir / f"gpqa_diamond_sampled_s{sampled_seed}.json"),
             "--seed",
-            "12345",
+            str(GPQA_DATASET_SEED),
             "--temperature",
-            "1.0",
+            str(profile.gpqa_sample_temperature),
             "--top-p",
             "0.95",
             "--top-k",
@@ -717,7 +792,10 @@ def _pass_commands(
             str(expected["gpqa_diamond"]),
             *common_eval,
         ]
-        if profile.gpqa_limit is not None:
+        if gpqa_ids is not None:
+            for command in (greedy, sampled):
+                command.extend(["--ids-file", str(gpqa_ids)])
+        elif profile.gpqa_limit is not None:
             greedy.extend(["--limit", str(profile.gpqa_limit)])
             sampled.extend(["--limit", str(profile.gpqa_limit)])
         if not profile.multiple_choice_cot:
@@ -738,14 +816,16 @@ def _pass_commands(
                 "--out",
                 str(pass_dir / "gpqa_diamond_ranked_greedy.json"),
                 "--seed",
-                "12345",
+                str(GPQA_DATASET_SEED),
                 "--expect-count",
                 str(expected["gpqa_diamond"]),
                 *common_eval,
                 "--prompt-format",
                 RAW_SINGLE_USER_PROMPT_FORMAT,
             ]
-            if profile.gpqa_limit is not None:
+            if gpqa_ids is not None:
+                ranked.extend(["--ids-file", str(gpqa_ids)])
+            elif profile.gpqa_limit is not None:
                 ranked.extend(["--limit", str(profile.gpqa_limit)])
             commands.append(("gpqa_diamond_ranked_greedy", ranked))
     if "aime" in suites and head_mode in {"all", "full"}:
@@ -785,7 +865,9 @@ def _pass_commands(
             "--expect-count",
             str(expected["aime"]),
         ]
-        if profile.aime_limit is not None:
+        if aime_ids is not None:
+            command.extend(["--ids-file", str(aime_ids)])
+        elif profile.aime_limit is not None:
             command.extend(["--limit", str(profile.aime_limit)])
         commands.append(("aime_greedy", command))
     if "gsm8k" in suites and head_mode in {"all", "full"}:
@@ -820,7 +902,9 @@ def _pass_commands(
             "--out-dir",
             str(pass_dir),
         ]
-        if profile.gsm8k_limit is not None:
+        if gsm8k_ids is not None:
+            command.extend(["--ids-file", str(gsm8k_ids)])
+        elif profile.gsm8k_limit is not None:
             command.extend(["--limit", str(profile.gsm8k_limit)])
         commands.append(("gsm8k_greedy", command))
     return commands
@@ -1187,6 +1271,7 @@ def _validate_run_outputs(root: Path, manifest: dict[str, Any]) -> None:
             _validate_choice_output(
                 pass_dir / "gpqa_diamond_ranked_greedy.json",
                 expected["gpqa_diamond"],
+                allow_length_truncation=True,
             )
         if "aime" in suites:
             _validate_problem_output(
@@ -1211,7 +1296,12 @@ def _validate_run_outputs(root: Path, manifest: dict[str, Any]) -> None:
             )
 
 
-def _validate_choice_output(path: Path, expected: int) -> None:
+def _validate_choice_output(
+    path: Path,
+    expected: int,
+    *,
+    allow_length_truncation: bool = False,
+) -> None:
     payload = _read_json_object(path)
     rows = _prompt_rows(payload, "per_sample", path, expected)
     accuracy = _finite_metric(payload, "accuracy", path, minimum=0.0, maximum=1.0)
@@ -1229,6 +1319,10 @@ def _validate_choice_output(path: Path, expected: int) -> None:
         raise ValueError(f"{path}: evaluator recorded errors or an incomplete sample set")
     if any(not isinstance(row.get("completion"), str) for row in rows):
         raise ValueError(f"{path}: every sample must preserve its raw completion")
+    if not allow_length_truncation and any(
+        row.get("stop_reason") in {"max_tokens", "model_length"} for row in rows
+    ):
+        raise ValueError(f"{path}: quality answer was truncated before completion")
 
 
 def _validate_problem_output(
@@ -1282,6 +1376,12 @@ def _validate_problem_output(
         )
     if not valid_raw:
         raise ValueError(f"{path}: every problem must preserve raw response field {raw_field!r}")
+    if raw_field == "texts":
+        truncated = any(row["finish_reasons"][0] == "length" for row in rows)
+    else:
+        truncated = any(row["finish_reason"] == "length" for row in rows)
+    if truncated:
+        raise ValueError(f"{path}: quality answer was truncated before completion")
 
 
 def _prompt_rows(
@@ -1634,6 +1734,7 @@ def _evaluation_provenance() -> dict[str, Any]:
         root / "pyproject.toml",
         root / "uv.lock",
         *sorted((root / "laguna_quality").glob("*.py")),
+        *sorted((root / "manifests").glob("*.json")),
         *sorted((root / "upstream").glob("*.py")),
         root / "upstream" / "PROVENANCE.json",
         root / "bridge" / "Package.swift",

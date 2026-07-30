@@ -15,6 +15,7 @@ from laguna_quality.ppl_manifest import build_manifest
 from dataclasses import asdict
 
 from laguna_quality.runner import (
+    GPQA_DATASET_SEED,
     PROFILES,
     RANKED_GPQA_MAX_TOKENS,
     _compare_responses,
@@ -23,6 +24,7 @@ from laguna_quality.runner import (
     _required_behavior_matches,
     _regression_decision,
     _response_rows,
+    _validate_choice_output,
     compare_runs,
 )
 from upstream.aime_eval import _stratified_limit
@@ -127,11 +129,39 @@ class RunnerCommandTests(unittest.TestCase):
             + aime_requests * profile.aime_max_tokens
             + ranked_head_requests * RANKED_GPQA_MAX_TOKENS
             + ppl_tokens,
-            42_880,
+            58_752,
         )
         self.assertEqual(profile.max_connections, 1)
         self.assertEqual(profile.gpqa_limit, 9)
+        self.assertEqual(profile.gpqa_sample_temperature, 0.5)
         self.assertFalse(profile.multiple_choice_cot)
+
+    def test_quick_uses_frozen_question_manifests(self) -> None:
+        commands = _pass_commands(
+            pass_number=1,
+            pass_dir=Path("/tmp/run/pass_1"),
+            suites=("mmlu_pro", "gpqa_diamond", "aime", "gsm8k"),
+            profile=PROFILES["quick"],
+            base_url="http://127.0.0.1:1234",
+            ppl_dataset=None,
+            head_mode="full",
+        )
+        by_name = dict(commands)
+        for name in (
+            "mmlu_pro_greedy",
+            "gpqa_diamond_greedy",
+            "gpqa_diamond_sampled_s0",
+            "aime_greedy",
+            "gsm8k_greedy",
+        ):
+            self.assertIn("--ids-file", by_name[name])
+        self.assertNotIn("--limit", by_name["gpqa_diamond_greedy"])
+        self.assertEqual(
+            by_name["gpqa_diamond_greedy"][
+                by_name["gpqa_diamond_greedy"].index("--seed") + 1
+            ],
+            str(GPQA_DATASET_SEED),
+        )
 
     def test_dual_head_phases_split_ranked_greedy_from_full_distribution(self) -> None:
         arguments = {
@@ -192,6 +222,43 @@ class LimitedDatasetTests(unittest.TestCase):
             [row["id"] for row in _stratified_limit(groups, 4)],
             ["2024-1", "2025-I-1", "2025-II-1", "2024-2"],
         )
+
+
+class OutputValidationTests(unittest.TestCase):
+    def test_quality_choices_reject_truncation_but_ranked_proxy_allows_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "result.json"
+            rows = [
+                {
+                    "id": "q1",
+                    "prompt_sha": "prompt",
+                    "completion": "partial",
+                    "correct": False,
+                    "stop_reason": "max_tokens",
+                }
+            ]
+            dataset_sha = hashlib.sha256(
+                json.dumps([["q1", "prompt"]], separators=(",", ":")).encode()
+            ).hexdigest()
+            path.write_text(
+                json.dumps(
+                    {
+                        "accuracy": 0.0,
+                        "n_samples": 1,
+                        "n_expected": 1,
+                        "n_scored": 1,
+                        "n_correct": 0,
+                        "n_error": 0,
+                        "incomplete": False,
+                        "dataset_sha256": dataset_sha,
+                        "per_sample": rows,
+                    }
+                )
+            )
+
+            with self.assertRaisesRegex(ValueError, "truncated"):
+                _validate_choice_output(path, 1)
+            _validate_choice_output(path, 1, allow_length_truncation=True)
 
 
 class ComparisonTests(unittest.TestCase):

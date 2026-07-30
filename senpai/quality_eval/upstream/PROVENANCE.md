@@ -24,6 +24,8 @@ Local adaptations preserve dataset construction and scoring:
 - MMLU-Pro/GPQA output includes each raw completion;
 - limited multi-contest AIME runs select round-robin across the requested
   contests instead of taking every item from the first year;
+- AIME and GSM8K accept explicit, fail-closed ID manifests for frozen local
+  panels; manifest selection preserves each dataset's canonical seeded order;
 - all downstream outputs include a deterministic aggregate over their evaluated
   `(id, prompt_sha)` set; AIME and GSM8K item hashes cover the exact endpoint
   messages plus the gold answer;

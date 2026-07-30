@@ -130,6 +130,44 @@ def _stratified_limit(
     return selected
 
 
+def filter_by_ids(
+    items: list[dict[str, Any]],
+    requested_ids: list[Any],
+) -> list[dict[str, Any]]:
+    """Select requested IDs while preserving the dataset's existing order."""
+    requested = [str(item_id) for item_id in requested_ids]
+    duplicate_requests = sorted(
+        item_id for item_id, count in Counter(requested).items() if count > 1
+    )
+    if duplicate_requests:
+        raise ValueError(
+            f"duplicate requested IDs: {', '.join(duplicate_requests)}"
+        )
+
+    requested_set = set(requested)
+    selected: list[dict[str, Any]] = []
+    found: set[str] = set()
+    duplicate_items: set[str] = set()
+    for item in items:
+        item_id = str(item["id"])
+        if item_id not in requested_set:
+            continue
+        if item_id in found:
+            duplicate_items.add(item_id)
+        else:
+            selected.append(item)
+        found.add(item_id)
+    if duplicate_items:
+        raise ValueError(
+            f"duplicate dataset IDs: {', '.join(sorted(duplicate_items))}"
+        )
+
+    missing = [item_id for item_id in requested if item_id not in found]
+    if missing:
+        raise ValueError(f"requested IDs not found: {', '.join(missing)}")
+    return selected
+
+
 def load_aime(years: list[str], limit: int | None = None) -> list[dict[str, Any]]:
     groups: list[list[dict[str, Any]]] = []
     for year in years:
@@ -499,6 +537,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="fail unless exactly this many problems are loaded",
     )
+    ap.add_argument(
+        "--ids-file",
+        type=Path,
+        default=None,
+        help="JSON list of problem IDs; selects from the full requested years and supersedes --limit",
+    )
     ap.add_argument("--temperature", type=float, default=1.0)
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--top-k", type=int, default=64)
@@ -527,7 +571,15 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--base-url is required (or use --self-test)")
 
     years = [y.strip() for y in args.years.split(",") if y.strip()]
-    problems = load_aime(years, limit=args.limit)
+    if args.ids_file is not None:
+        requested_ids = json.loads(args.ids_file.read_text())
+        if not isinstance(requested_ids, list):
+            raise ValueError(
+                f"{args.ids_file}: IDs file must contain a JSON list"
+            )
+        problems = filter_by_ids(load_aime(years), requested_ids)
+    else:
+        problems = load_aime(years, limit=args.limit)
     if args.expect_count is not None and len(problems) != args.expect_count:
         raise RuntimeError(
             f"AIME loaded {len(problems)} problems; expected {args.expect_count}"

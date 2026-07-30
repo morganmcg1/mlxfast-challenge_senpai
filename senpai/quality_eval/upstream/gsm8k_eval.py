@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,44 @@ def _load_split(split: str, n: int | None) -> list[dict[str, str]]:
         if total is not None and offset >= total:
             break
     return out
+
+
+def filter_by_ids(
+    items: list[dict[str, Any]],
+    requested_ids: list[Any],
+) -> list[dict[str, Any]]:
+    """Select requested IDs while preserving the dataset's existing order."""
+    requested = [str(item_id) for item_id in requested_ids]
+    duplicate_requests = sorted(
+        item_id for item_id, count in Counter(requested).items() if count > 1
+    )
+    if duplicate_requests:
+        raise ValueError(
+            f"duplicate requested IDs: {', '.join(duplicate_requests)}"
+        )
+
+    requested_set = set(requested)
+    selected: list[dict[str, Any]] = []
+    found: set[str] = set()
+    duplicate_items: set[str] = set()
+    for item in items:
+        item_id = str(item["id"])
+        if item_id not in requested_set:
+            continue
+        if item_id in found:
+            duplicate_items.add(item_id)
+        else:
+            selected.append(item)
+        found.add(item_id)
+    if duplicate_items:
+        raise ValueError(
+            f"duplicate dataset IDs: {', '.join(sorted(duplicate_items))}"
+        )
+
+    missing = [item_id for item_id in requested if item_id not in found]
+    if missing:
+        raise ValueError(f"requested IDs not found: {', '.join(missing)}")
+    return selected
 
 
 # --------------------------------------------------------------------------- #
@@ -422,6 +461,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="fail unless exactly this many test items are loaded",
     )
+    ap.add_argument(
+        "--ids-file",
+        type=Path,
+        default=None,
+        help="JSON list of test IDs; selects from the full seeded order and supersedes --n/--limit",
+    )
     ap.add_argument("--seed", type=int, default=1234, help="seed for subset + fewshot (+ sampler unless --sampling-seed given)")
     ap.add_argument("--sampling-seed", type=int, default=None,
                     help="per-request decode RNG seed. Distinct from --seed "
@@ -466,9 +511,9 @@ def main(argv: list[str] | None = None) -> int:
     rng = random.Random(args.seed)
     order = list(range(len(full)))
     rng.shuffle(order)
-    if n_items is not None and n_items >= 0:
+    if args.ids_file is None and n_items is not None and n_items >= 0:
         order = order[:n_items]
-    problems = []
+    problems: list[dict[str, Any]] = []
     for rank, i in enumerate(order):
         problems.append(
             {
@@ -477,6 +522,14 @@ def main(argv: list[str] | None = None) -> int:
                 "gold": gold_answer(full[i]["answer"]),
             }
         )
+    if args.ids_file is not None:
+        requested_ids = json.loads(args.ids_file.read_text())
+        if not isinstance(requested_ids, list):
+            raise ValueError(
+                f"{args.ids_file}: IDs file must contain a JSON list"
+            )
+        problems = filter_by_ids(problems, requested_ids)
+        n_items = len(problems)
     if args.expect_count is not None and len(problems) != args.expect_count:
         raise RuntimeError(
             f"GSM8K loaded {len(problems)} test items; expected {args.expect_count}"
