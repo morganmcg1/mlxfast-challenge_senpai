@@ -41,7 +41,9 @@ BEHAVIOR_MATCH_DENOMINATOR = 9
 @dataclass(frozen=True)
 class Profile:
     max_tokens: int
+    aime_max_tokens: int
     min_tokens: int
+    multiple_choice_cot: bool
     mmlu_n: int
     mmlu_limit: int | None
     gpqa_limit: int | None
@@ -58,8 +60,10 @@ PROFILES = {
     # Fast plumbing and gross-regression check. It deliberately exercises
     # every scoring path, including sampled GPQA and teacher-forced PPL.
     "smoke": Profile(
-        max_tokens=256,
-        min_tokens=8,
+        max_tokens=768,
+        aime_max_tokens=1_024,
+        min_tokens=0,
+        multiple_choice_cot=False,
         mmlu_n=2,
         mmlu_limit=2,
         gpqa_limit=2,
@@ -75,8 +79,10 @@ PROFILES = {
     # workload covers every evaluator and both Laguna head paths while staying
     # small enough for a 10-20 minute pre-submission check on the 128 GB M4 Max.
     "quick": Profile(
-        max_tokens=256,
-        min_tokens=8,
+        max_tokens=768,
+        aime_max_tokens=1_024,
+        min_tokens=0,
+        multiple_choice_cot=False,
         mmlu_n=20,
         mmlu_limit=None,
         gpqa_limit=9,
@@ -92,7 +98,9 @@ PROFILES = {
     # challenge-era publication run on a serial Apple-Silicon endpoint.
     "standard": Profile(
         max_tokens=1_024,
+        aime_max_tokens=1_024,
         min_tokens=8,
+        multiple_choice_cot=True,
         mmlu_n=100,
         mmlu_limit=None,
         gpqa_limit=50,
@@ -108,7 +116,9 @@ PROFILES = {
     # caller normally pairs this with five passes; it can take many hours.
     "full": Profile(
         max_tokens=6_144,
+        aime_max_tokens=6_144,
         min_tokens=8,
+        multiple_choice_cot=True,
         mmlu_n=500,
         mmlu_limit=None,
         gpqa_limit=None,
@@ -664,6 +674,8 @@ def _pass_commands(
         ]
         if profile.mmlu_limit is not None:
             command.extend(["--limit", str(profile.mmlu_limit)])
+        if not profile.multiple_choice_cot:
+            command.append("--no-cot")
         commands.append(("mmlu_pro_greedy", command))
     if "gpqa_diamond" in suites:
         greedy = [
@@ -708,6 +720,9 @@ def _pass_commands(
         if profile.gpqa_limit is not None:
             greedy.extend(["--limit", str(profile.gpqa_limit)])
             sampled.extend(["--limit", str(profile.gpqa_limit)])
+        if not profile.multiple_choice_cot:
+            greedy.append("--no-cot")
+            sampled.append("--no-cot")
         if head_mode in {"all", "full"}:
             commands.append(("gpqa_diamond_greedy", greedy))
         if head_mode in {"all", "full"}:
@@ -752,7 +767,7 @@ def _pass_commands(
             "--top-k",
             "-1",
             "--max-tokens",
-            str(profile.max_tokens),
+            str(profile.aime_max_tokens),
             "--min-tokens",
             str(profile.min_tokens),
             "--no-thinking",

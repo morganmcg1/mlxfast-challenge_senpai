@@ -113,23 +113,25 @@ class RunnerCommandTests(unittest.TestCase):
 
     def test_quick_profile_has_bounded_all_path_budget(self) -> None:
         profile = PROFILES["quick"]
-        full_head_requests = (
+        standard_full_head_requests = (
             profile.mmlu_n
             + 2 * (profile.gpqa_limit or 0)
-            + (profile.aime_limit or 0)
             + profile.gsm8k_n
         )
+        aime_requests = profile.aime_limit or 0
         ranked_head_requests = profile.gpqa_limit or 0
         ppl_tokens = 8 * (profile.ppl_target_tokens or 0)
 
         self.assertEqual(
-            full_head_requests * profile.max_tokens
+            standard_full_head_requests * profile.max_tokens
+            + aime_requests * profile.aime_max_tokens
             + ranked_head_requests * RANKED_GPQA_MAX_TOKENS
             + ppl_tokens,
-            14_976,
+            42_880,
         )
         self.assertEqual(profile.max_connections, 1)
         self.assertEqual(profile.gpqa_limit, 9)
+        self.assertFalse(profile.multiple_choice_cot)
 
     def test_dual_head_phases_split_ranked_greedy_from_full_distribution(self) -> None:
         arguments = {
@@ -160,6 +162,7 @@ class RunnerCommandTests(unittest.TestCase):
             ],
         )
         for _, command in ranked:
+            self.assertNotIn("--no-cot", command)
             self.assertEqual(command[command.index("--min-tokens") + 1], "0")
             self.assertEqual(command[command.index("--max-tokens") + 1], "128")
             self.assertEqual(
@@ -168,6 +171,14 @@ class RunnerCommandTests(unittest.TestCase):
             )
         for _, command in full:
             self.assertNotIn("--prompt-format", command)
+        for name, command in full:
+            if name.startswith(("mmlu_pro", "gpqa_diamond")):
+                self.assertIn("--no-cot", command)
+        aime = dict(full)["aime_greedy"]
+        self.assertEqual(
+            aime[aime.index("--max-tokens") + 1],
+            str(PROFILES["smoke"].aime_max_tokens),
+        )
 
 
 class LimitedDatasetTests(unittest.TestCase):

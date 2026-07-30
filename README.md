@@ -43,11 +43,10 @@ prepared-artifact usage. These downstream evaluations are regression screens,
 not replicas of the challenge's hidden quality or behavioral gates. The panel
 also runs a separate ranked-head GPQA greedy proxy for B=1 behavior-path drift.
 Use the default `smoke` profile only to verify plumbing; `quick` is the bounded
-routine regression panel and has completed in roughly 10–17 minutes on the
-128 GB development M4 Max with warm transformed weights when runs are not
-stacked back-to-back. Off-M5 runs record a public-fixture
-first-token probe; if it differs, compare a same-host baseline and candidate
-instead of treating absolute downstream accuracy as authoritative.
+routine regression panel and completes in about 17 minutes on the 128 GB
+development M4 Max with warm transformed weights. Off-M5 runs record a
+public-fixture first-token probe; if it differs, compare a same-host baseline
+and candidate instead of treating absolute downstream accuracy as authoritative.
 
 Full model setup needs a moderate local SSD. The reference checkpoint is
 `poolside/Laguna-XS-2.1-NVFP4-mlx` at revision

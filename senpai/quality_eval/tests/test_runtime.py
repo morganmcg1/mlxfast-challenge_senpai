@@ -25,6 +25,7 @@ from laguna_quality.server import (
     RequestJournal,
 )
 from laguna_quality.run_lock import ModelRunLock, ModelRunLockError
+from laguna_quality.tokenizer import LagunaTokenizer
 
 
 class FakeTokenizer:
@@ -48,6 +49,26 @@ class FakeTokenizer:
 
     def decode(self, token_ids: list[int]) -> str:
         return "".join(chr(token_id) for token_id in token_ids)
+
+
+class TokenizerTests(unittest.TestCase):
+    def test_loads_frozen_tokenizer_without_regex_rewrite(self) -> None:
+        class Backend:
+            pass
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=Backend(),
+            ) as load:
+                LagunaTokenizer(root)
+
+        load.assert_called_once_with(
+            str(root),
+            local_files_only=True,
+            trust_remote_code=False,
+        )
 
 
 def fake_artifact(root: Path) -> Artifact:

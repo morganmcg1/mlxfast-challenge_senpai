@@ -28,7 +28,6 @@ class LagunaTokenizer:
                 str(directory),
                 local_files_only=True,
                 trust_remote_code=False,
-                fix_mistral_regex=True,
             )
         except Exception as error:
             raise TokenizerError(f"cannot load tokenizer from {directory}: {error}") from error

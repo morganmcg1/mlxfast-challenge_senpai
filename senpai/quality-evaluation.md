@@ -1,21 +1,19 @@
 # Laguna quality evaluation
 
 `senpai/quality-eval` runs PPL, MMLU-Pro, GPQA-Diamond, AIME, and
-GSM8K against the Laguna model built from a challenge checkout. It prints
-progress and the final JSON summary, and saves the manifest, metrics, logs,
-and raw responses.
+GSM8K against the Laguna model built from a challenge checkout. It streams
+progress and final metrics to stdout, then saves metrics, logs, prompts, and
+raw responses under `quality-results/`.
 
-This is a local regression screen, not the hidden challenge gate.
-`status: completed` and `evaluation_valid: true` mean the selected evaluators
-finished with consistent outputs; they do not mean the model passed a quality
-threshold.
+This is a local regression gate, not the hidden challenge gate.
+`evaluation_valid: true` means the selected evaluators completed consistently;
+use `compare` for the local pass/fail decision.
 
 ## Agent workflow
 
-Run the baseline before changing model or kernel code:
+Create a matched baseline before changing model or kernel code:
 
 ```bash
-# Requires uv on PATH.
 ./setup.sh
 
 ./senpai/quality-eval run . \
@@ -23,7 +21,7 @@ Run the baseline before changing model or kernel code:
   --output quality-results/baseline-quick
 ```
 
-After making an optimization:
+After an optimization:
 
 ```bash
 ./senpai/quality-eval run . \
@@ -38,147 +36,114 @@ After making an optimization:
 ./benchmark.sh --local-submit
 ```
 
-`compare` returns exit status 3 when the candidate fails the local gate.
-Baseline and candidate must use the same recorded host hardware/OS identity,
-profile, pass count, evaluator version, tokenizer, PPL manifest, prompts, and
-prompt formats. The command checks these identities before comparing results.
+`compare` exits with status 3 when the candidate fails. It rejects incompatible
+runs before scoring: baseline and candidate must share the host, evaluator,
+tokenizer, profile, prompts, PPL manifest, pass count, and prompt formats.
 
-`quick` is the routine profile. It runs:
+Do not overlap this command with another model-holding process. Laguna keeps
+about 21.6 GB of weights resident.
 
-- PPL: 8 records / 256 scored tokens;
-- MMLU-Pro: 20 questions;
-- GPQA-Diamond: 9 full-greedy, 9 sampled, and 9 ranked-greedy questions;
-- AIME: 3 problems across the configured contests;
-- GSM8K: 12 questions.
+## Quick profile and corrected baseline
 
-Two cool/warm runs completed in 9:56 and 16:55 on the development 128 GB M4
-Max. The final provenance-compatible capture, run immediately after those two,
-took 27:20. Create the baseline once, let the Mac cool before candidate runs,
-and use roughly 10–17 minutes as the routine target. Initial setup, checkpoint
-download, weight transformation, and dependency sync are excluded.
+`quick` is the routine 10–20 minute screen on the 128 GB development M4 Max:
 
-## Current untouched-model baseline
+- PPL: 8 records / 256 scored tokens
+- MMLU-Pro: 20 questions
+- GPQA-Diamond: 9 greedy, 9 sampled, and 9 ranked-behavior questions
+- AIME: 3 problems
+- GSM8K: 12 questions
 
-The unmodified challenge model produced this `quick` result on the
-development M4 Max:
+The full-head multiple-choice arms use concise answer prompts and a 768-token
+cap. AIME gets 1,024 tokens. Ranked GPQA deliberately uses the challenge-like
+raw+BOS prompt and a 128-token cap.
 
-| Metric | Baseline | Local 97% threshold |
+The corrected full-model baseline is:
+
+| Check | Baseline | Local gate |
 | --- | ---: | ---: |
-| Token-weighted PPL | 262.0863 | at most 270.1921 |
-| MMLU-Pro | 0/20 | uninformative |
-| GPQA full greedy | 0/9 | uninformative |
-| GPQA full sampled | 0/9 | uninformative |
-| GPQA ranked greedy | 0/9 | uninformative |
-| AIME | 0/3 | uninformative |
-| GSM8K | 0/12 | uninformative |
+| Token-weighted PPL | 13.9549 | ≤ 14.3865 |
+| MMLU-Pro | 9/20 (45.0%) | ≥ 43.65% (practically 9/20) |
+| GPQA greedy | 6/9 (66.7%) | ≥ 64.67% (practically 6/9) |
+| GPQA sampled | 6/9 (66.7%) | ≥ 64.67% (practically 6/9) |
+| AIME | 1/3 (33.3%) | ≥ 32.33% (practically 1/3) |
+| GSM8K | 12/12 (100%) | ≥ 97% (practically 12/12) |
+| Ranked GPQA behavior | 9 saved 128-token prefixes | ≥ 7/9 exact baseline matches |
+| Public first-token probe | 5991 | exact match |
 
-This final-schema baseline was captured on 2026-07-30 on a `Mac16,6`
-(Apple M4 Max, macOS 26.5.2), at Git commit
-`36ce51a14ceeda89b9d4ef6f970c69686e7db731`. The evaluator provenance is
-`b5fc971f564cab49f91361bb2244592e4a03efbf88dc2ae73daf0e04189c8d2f`;
-the challenge-editable source hash is
-`ab236d0ea1363a040d225666e723093e03ba9bf8611d20dc8aef88aefb2b1e1a`.
-On this workspace, the reusable result is
-`quality-results/baseline-quick-final-m4-20260730`.
+This run completed in 17:04.9, or 17:25.9 including an incremental bridge
+build, on a Mac16,6 M4 Max with macOS 26.5.2. It is stored locally at
+`quality-results/baseline-quick-corrected-m4-20260730`. Evaluator provenance:
+`f38b174557adb85d57401927780c60a4b904f20254cd939f417fdb586af3333e`;
+editable source:
+`a6b9b9f177b8f36c664fdf3df06341c3780a96c6a7309247cd92809bee1c21e9`.
 
-PPL is the only meaningful absolute scalar baseline on this Mac. The
-untouched model selects token `8550` where the checked-in M5 public fixture
-expects `5991`, and the observed downstream generations are repetitive and
-truncated. Those zero scores are real outputs of this M4 execution, but they
-are not credible measurements of Laguna's M5 quality and a 97% floor of zero
-would be vacuous. Use the ranked responses only for same-host comparison;
-other response drift is diagnostic.
+The earlier PPL `262.0863` and all-zero accuracy table was invalid. A pre-NAX
+M4 ran the generic MoE gather kernel, while Swift interpreted its output as
+the packed NAX/M5 layout. That corrupted logits and produced repetitive,
+truncated text. The runtime now gates the packed interpretation on the same
+hardware, OS, and stage variant as the backend. The corrected runtime matches
+the vendored model's greedy token behavior and the checked-in M5 probe.
 
-The official M5 remains the authority. On an M5, collect and compare against
-a fresh matched M5 baseline; do not reuse this M4 table.
+Run a fresh baseline after changing the evaluator, tokenizer, OS/hardware, or
+base source. Do not reuse the old
+`quality-results/baseline-quick-final-m4-20260730` result.
 
 ## Local 97% gate
 
-`compare` evaluates every metric separately; improvements in one suite never
-cancel regressions in another.
+Each metric is independent; improvements in one suite cannot offset a
+regression in another.
 
-- Accuracy-like metrics must satisfy `candidate / baseline >= 0.97`.
-- PPL is lower-is-better, so it must satisfy
-  `baseline / candidate >= 0.97`. For the current baseline this means
-  candidate PPL must be at most `262.0863 / 0.97 = 270.1921`.
-- A zero accuracy baseline is marked `informative: false`; it is not treated
-  as evidence of retained quality.
-- In `quick`, at least 7/9 ranked GPQA responses must exactly match the
-  same-host baseline. Larger profiles use the same 7/9 proportional floor.
-  This is a conservative local proxy for the hidden semantic check.
-- When available, the one-token public-fixture probe must exactly match the
-  baseline token.
-- Both runs must be complete, internally valid, and contract-compatible.
+- Accuracy retention: `candidate / baseline >= 0.97`
+- PPL retention: `baseline / candidate >= 0.97`
+- Ranked GPQA behavior: at least 7/9 exact decoded-prefix matches in `quick`
+- Public probe: exact baseline token
+- Both runs: complete, valid, and contract-compatible
 
-The comparison JSON records each metric's direction, retention, threshold,
-and pass/fail result. `local_retention_gate_passed` is the actionable local
-decision. `quality_gate_passed` remains `null` because the hidden gate cannot
-be run locally. Other completion drift remains visible for diagnosis but is
-blocking only for the ranked GPQA proxy; PPL changes are judged by the PPL
-threshold rather than exact floating-point identity.
+The small panel detects gross regressions, not a statistically precise 3%
+change. One MMLU miss is five percentage points. Use `standard` or `full` for
+a borderline result.
 
-The small `quick` sample is good for detecting gross regressions but cannot
-resolve a statistical 3% change precisely: one MMLU miss is five percentage
-points. Use `standard` or `full` to adjudicate a borderline result.
+`comparison.json` contains per-metric thresholds and
+`local_retention_gate_passed`. `quality_gate_passed` remains `null` because
+the hidden gate is unavailable locally.
 
-## Behavioral gate
+## What the behavioral gate likely means
 
-The public harness indicates that the hidden behavioral gate preserves
-reference-model behavior rather than applying a generic safety classifier.
-It combines exact teacher-forced tokens, hidden logit anchors, short exact
-free-runs, and nine private GPQA prompts. A semantic judge compares candidate
-GPQA responses with the pinned Laguna responses; the published floor is 7/9.
+The public harness shows a reference-behavior gate, not a generic safety
+classifier. It combines teacher-forced token checks, hidden logit anchors,
+short exact free-runs, and nine private GPQA prompts. A semantic judge compares
+candidate GPQA answers with the pinned Laguna responses; the published floor is
+7/9. The local ranked GPQA arm mirrors the raw+BOS request shape and budget,
+then strictly compares decoded 128-token prefixes. It is a trajectory proxy,
+not a substitute for the hidden prompts or semantic judge.
 
-The private prompts and answers are unavailable. Locally, the evaluator uses
-raw single-user prompts with BOS for its ranked GPQA arm and compares exact
-responses with the baseline. This is useful evidence, not proof that the
-hidden semantic gate passes.
+## Outputs and other profiles
 
-## Outputs
+Each result directory contains:
 
-Each run directory contains:
+- `run.json`: artifact/host identities, commands, timings, validity, and probe
+- `summary.json`: aggregate metrics
+- `responses.jsonl`: requests and raw responses
+- `pass_N/`: evaluator results and logs
+- `bridge.log`: Swift model-process diagnostics
 
-- `run.json`: artifact and host identities, profile, commands, timings,
-  validity, public probe, and failures;
-- `summary.json`: aggregate metrics;
-- `responses.jsonl`: complete requests and responses;
-- `pass_N/`: evaluator results, completions, PPL rows, and logs;
-- `bridge.log`: Swift model-process diagnostics.
-
-Evaluator output is also streamed to the terminal. Always set an explicit
-`--output` path in automation; it must be new or empty.
-
-## Other profiles and artifacts
-
-The default `smoke` profile exercises every code path with two examples and
-is only a plumbing check:
+Always give automation a new `--output` path. `smoke` runs two examples per
+suite to check plumbing. `standard` is larger; `full` defaults to five passes
+and can take many hours:
 
 ```bash
-./senpai/quality-eval run .
+./senpai/quality-eval run . --profile smoke
+./senpai/quality-eval run . --profile full --output quality-results/full
 ```
 
-`standard` is an intermediate panel. `full` defaults to five passes and can
-take many hours on the serial endpoint:
-
-```bash
-./senpai/quality-eval run . \
-  --profile full \
-  --output quality-results/candidate-full
-```
-
-Select a subset by repeating `--suite`; valid names are `ppl`, `mmlu_pro`,
-`gpqa_diamond`, `aime`, and `gsm8k`.
-
-The positional artifact may be a challenge checkout or a prepared directory
-containing `quality-artifact.json` with `weights`, `tokenizer`, `bridge`, and
-`metallib` paths. Inspect discovery without loading the model:
+Repeat `--suite` to select subsets. The positional artifact may be a checkout
+or a prepared `quality-artifact.json` bundle. Inspect discovery without
+loading the model:
 
 ```bash
 ./senpai/quality-eval inspect /path/to/checkout-or-bundle
 ```
 
-For a checkout, `run` automatically refreshes transformed weights and builds
-the candidate-linked bridge and Metal library when needed. The downstream
-suites need Hugging Face dataset access; built-in PPL is self-contained.
-Laguna holds about 21.6 GB of weights in memory, so do not overlap an
-evaluation with another model-holding benchmark or evaluator process.
+Checkout runs refresh transformed weights and incrementally rebuild the bridge
+and Metal library. Downstream suites require Hugging Face dataset access;
+built-in PPL is self-contained.

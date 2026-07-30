@@ -67,7 +67,7 @@ def _dataset_sha256(rows: list[dict]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def build_mmlu_pro_task(n: int, seed: int) -> Task:
+def build_mmlu_pro_task(n: int, seed: int, *, cot: bool = True) -> Task:
     # shuffle=False -> deterministic test-split order; solver already shuffle=False.
     base_task = mmlu_pro(shuffle=False)
     full = list(base_task.dataset)
@@ -82,12 +82,18 @@ def build_mmlu_pro_task(n: int, seed: int) -> Task:
     ds = MemoryDataset(samples=subset, name="mmlu_pro_subset")
     return Task(
         dataset=ds,
-        solver=[multiple_choice(template=MMLU_USER_PROMPT_TEMPLATE, shuffle=False)],
+        solver=[
+            multiple_choice(
+                template=MMLU_USER_PROMPT_TEMPLATE if cot else None,
+                cot=cot,
+                shuffle=False,
+            )
+        ],
         scorer=choice(),
     )
 
 
-def build_gpqa_diamond_task(seed: int) -> Task:
+def build_gpqa_diamond_task(seed: int, *, cot: bool = True) -> Task:
     # Load with correct-answer-always-A, then deterministically seed-shuffle the
     # choice order so position bias is removed AND both arms get the same layout.
     ds = get_gpqa_diamond_dataset(shuffle_choices=False)
@@ -97,7 +103,7 @@ def build_gpqa_diamond_task(seed: int) -> Task:
     ds2 = MemoryDataset(samples=samples, name="gpqa_diamond")
     return Task(
         dataset=ds2,
-        solver=multiple_choice(cot=True, shuffle=False),
+        solver=multiple_choice(cot=cot, shuffle=False),
         scorer=choice(),
         epochs=1,  # greedy is deterministic; repeating epochs is pointless
     )
@@ -121,7 +127,7 @@ GPQA_SPLIT_SHA256 = {
 }
 
 
-def build_gpqa_main_task(seed: int, split: str = "main") -> Task:
+def build_gpqa_main_task(seed: int, split: str = "main", *, cot: bool = True) -> Task:
     """GPQA-Main (n=448) / Extended (n=546) under the SAME construction as the
     Diamond path: load with shuffle_choices=False (correct answer at index 0),
     then a deterministic seeded choice-shuffle (removes position bias; identical
@@ -152,7 +158,7 @@ def build_gpqa_main_task(seed: int, split: str = "main") -> Task:
     ds2 = MemoryDataset(samples=samples, name=f"gpqa_{split}")
     return Task(
         dataset=ds2,
-        solver=multiple_choice(cot=True, shuffle=False),
+        solver=multiple_choice(cot=cot, shuffle=False),
         scorer=choice(),
         epochs=1,  # decode stochasticity is driven by --sampling-seed, not epochs
     )
@@ -192,6 +198,11 @@ def main() -> int:
     ap.add_argument("--min-tokens", type=int, default=0,
                     help="endpoint min_tokens extension (0=disabled)")
     ap.add_argument(
+        "--no-cot",
+        action="store_true",
+        help="request only 'ANSWER: LETTER' for a fast multiple-choice screen",
+    )
+    ap.add_argument(
         "--prompt-format",
         choices=["chat_template", "raw_single_user"],
         default="chat_template",
@@ -203,13 +214,14 @@ def main() -> int:
                          "to re-run just the zeroed subset under min_tokens without re-scoring all.")
     ap.add_argument("--log-dir", default=None)
     args = ap.parse_args()
+    cot = not args.no_cot
 
     if args.task == "mmlu_pro":
-        task = build_mmlu_pro_task(args.n, args.seed)
+        task = build_mmlu_pro_task(args.n, args.seed, cot=cot)
     elif args.task == "gpqa_diamond":
-        task = build_gpqa_diamond_task(args.seed)
+        task = build_gpqa_diamond_task(args.seed, cot=cot)
     else:  # gpqa_main (larger instrument; split selects main/extended)
-        task = build_gpqa_main_task(args.seed, args.gpqa_split)
+        task = build_gpqa_main_task(args.seed, args.gpqa_split, cot=cot)
 
     if args.ids_file:
         keep = {str(x) for x in json.load(open(args.ids_file))}
@@ -435,6 +447,7 @@ def main() -> int:
         "top_k": args.top_k or None,
         "sampling_seed": args.sampling_seed,
         "decode": ("greedy" if args.temperature == 0.0 else "sampling"),
+        "cot": cot,
         "base_url": args.base_url,
         "eval_log": getattr(log, "location", None),
         "per_sample": per_sample,
