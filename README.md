@@ -43,8 +43,9 @@ prepared-artifact usage. These downstream evaluations are regression screens,
 not replicas of the challenge's hidden quality or behavioral gates. The panel
 also runs a separate ranked-head GPQA greedy proxy for B=1 behavior-path drift.
 Use the default `smoke` profile only to verify plumbing; `quick` is the bounded
-routine regression panel and completed in 9:56 on the 128 GB development M4
-Max with warm transformed weights. Off-M5 runs record a public-fixture
+routine regression panel and has completed in roughly 10–17 minutes on the
+128 GB development M4 Max with warm transformed weights when runs are not
+stacked back-to-back. Off-M5 runs record a public-fixture
 first-token probe; if it differs, compare a same-host baseline and candidate
 instead of treating absolute downstream accuracy as authoritative.
 
