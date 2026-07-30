@@ -134,7 +134,7 @@ def filter_by_ids(
     items: list[dict[str, Any]],
     requested_ids: list[Any],
 ) -> list[dict[str, Any]]:
-    """Select requested IDs while preserving the dataset's existing order."""
+    """Select requested IDs in manifest order."""
     requested = [str(item_id) for item_id in requested_ids]
     duplicate_requests = sorted(
         item_id for item_id, count in Counter(requested).items() if count > 1
@@ -145,27 +145,25 @@ def filter_by_ids(
         )
 
     requested_set = set(requested)
-    selected: list[dict[str, Any]] = []
-    found: set[str] = set()
+    selected: dict[str, dict[str, Any]] = {}
     duplicate_items: set[str] = set()
     for item in items:
         item_id = str(item["id"])
         if item_id not in requested_set:
             continue
-        if item_id in found:
+        if item_id in selected:
             duplicate_items.add(item_id)
         else:
-            selected.append(item)
-        found.add(item_id)
+            selected[item_id] = item
     if duplicate_items:
         raise ValueError(
             f"duplicate dataset IDs: {', '.join(sorted(duplicate_items))}"
         )
 
-    missing = [item_id for item_id in requested if item_id not in found]
+    missing = [item_id for item_id in requested if item_id not in selected]
     if missing:
         raise ValueError(f"requested IDs not found: {', '.join(missing)}")
-    return selected
+    return [selected[item_id] for item_id in requested]
 
 
 def load_aime(years: list[str], limit: int | None = None) -> list[dict[str, Any]]:

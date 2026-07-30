@@ -545,10 +545,13 @@ regression evidence:
 ```
 
 See `senpai/quality-evaluation.md` for the frozen question set, baseline, 97%
-retention gates, and output contract. Use matched same-host baseline/candidate
-runs and only one model-holding process at a time. This panel is advisory,
-remains outside submitted runtime behavior, and cannot relax exact-token
-correctness or replace the official hidden M5 gates.
+retention gate, and output contract. The gate uses the summed correct count
+across MMLU-Pro, GPQA greedy, GPQA sampled, AIME, and GSM8K; individual suite
+scores are diagnostic, ranked GPQA is a separate behavior check, and PPL is a
+separate lower-is-better gate. Use matched same-host baseline/candidate runs
+and only one model-holding process at a time. This panel is advisory, remains
+outside submitted runtime behavior, and cannot relax exact-token correctness
+or replace the official hidden M5 gates.
 
 ## Serial Non-Speculative Integrity Boundary
 

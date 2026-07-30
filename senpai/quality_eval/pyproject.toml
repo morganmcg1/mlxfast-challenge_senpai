@@ -10,6 +10,7 @@ dependencies = [
   "markupsafe==3.0.3",
   "openai==2.40.0",
   "transformers==5.9.0",
+  "weave==0.53.3",
 ]
 
 [tool.uv]

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -12,20 +15,27 @@ QUALITY_EVAL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(QUALITY_EVAL))
 
 from laguna_quality.ppl_manifest import build_manifest
-from dataclasses import asdict
 
+from laguna_quality.cli import _parse_attribute, build_parser
 from laguna_quality.runner import (
     GPQA_DATASET_SEED,
     PROFILES,
     RANKED_GPQA_MAX_TOKENS,
     _compare_responses,
     _metric_comparison,
+    _overall_score_comparison,
     _pass_commands,
     _required_behavior_matches,
     _regression_decision,
     _response_rows,
+    _initialize_weave,
+    _run_command_async,
+    _run_weave_jobs,
     _validate_choice_output,
+    _validate_quick_prompt_contract,
+    _weave_score_summary,
     compare_runs,
+    summarize_runs,
 )
 from upstream.aime_eval import _stratified_limit
 
@@ -86,6 +96,38 @@ class PPLManifestTests(unittest.TestCase):
             )
 
 
+class CLITests(unittest.TestCase):
+    def test_run_defaults_to_one_pass_and_accepts_gate_metadata(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "run",
+                ".",
+                "--profile",
+                "full",
+                "--baseline",
+                "baseline",
+                "--weave-project",
+                "entity/project",
+                "--change-label",
+                "faster-moe",
+                "--attribute",
+                "hypothesis=fewer-copies",
+            ]
+        )
+        self.assertIsNone(args.passes)
+        self.assertEqual(args.baseline, Path("baseline"))
+        self.assertEqual(args.weave_project, "entity/project")
+        self.assertEqual(args.change_label, "faster-moe")
+        self.assertEqual(
+            _parse_attribute(args.attribute[0]),
+            ("hypothesis", "fewer-copies"),
+        )
+
+    def test_attribute_requires_key_value_form(self) -> None:
+        with self.assertRaisesRegex(ValueError, "KEY=VALUE"):
+            _parse_attribute("missing-separator")
+
+
 class RunnerCommandTests(unittest.TestCase):
     def test_smoke_profile_builds_every_suite(self) -> None:
         commands = _pass_commands(
@@ -129,10 +171,12 @@ class RunnerCommandTests(unittest.TestCase):
             + aime_requests * profile.aime_max_tokens
             + ranked_head_requests * RANKED_GPQA_MAX_TOKENS
             + ppl_tokens,
-            58_752,
+            64_896,
         )
         self.assertEqual(profile.max_connections, 1)
         self.assertEqual(profile.gpqa_limit, 9)
+        self.assertEqual(profile.aime_limit, 9)
+        self.assertEqual(profile.gsm8k_n, 6)
         self.assertEqual(profile.gpqa_sample_temperature, 0.5)
         self.assertFalse(profile.multiple_choice_cot)
 
@@ -260,6 +304,188 @@ class OutputValidationTests(unittest.TestCase):
                 _validate_choice_output(path, 1)
             _validate_choice_output(path, 1, allow_length_truncation=True)
 
+    def test_quick_prompt_contract_rejects_upstream_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pass_dir = Path(temporary)
+            path = pass_dir / "mmlu_pro_greedy.json"
+            expected = json.loads(
+                (
+                    QUALITY_EVAL
+                    / "manifests"
+                    / "quick_prompt_contract.json"
+                ).read_text()
+            )["mmlu_pro_greedy"]
+            path.write_text(json.dumps({"dataset_sha256": expected}))
+            _validate_quick_prompt_contract(pass_dir, ["mmlu_pro"])
+
+            path.write_text(json.dumps({"dataset_sha256": "0" * 64}))
+            with self.assertRaisesRegex(ValueError, "prompt contract drift"):
+                _validate_quick_prompt_contract(pass_dir, ["mmlu_pro"])
+
+
+class SummaryTests(unittest.TestCase):
+    def test_overall_score_sums_questions_and_excludes_ppl_and_ranked(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pass_dir = root / "pass_1"
+            pass_dir.mkdir()
+            files = {
+                "ppl_summary.json": {"ppl": 13.0},
+                "mmlu_pro_greedy.json": {
+                    "accuracy": 9 / 20,
+                    "n_correct": 9,
+                    "n_expected": 20,
+                },
+                "gpqa_diamond_greedy.json": {
+                    "accuracy": 6 / 9,
+                    "n_correct": 6,
+                    "n_expected": 9,
+                },
+                "gpqa_diamond_sampled_s0.json": {
+                    "accuracy": 4 / 9,
+                    "n_correct": 4,
+                    "n_expected": 9,
+                },
+                "gpqa_diamond_ranked_greedy.json": {
+                    "accuracy": 1.0,
+                    "n_correct": 9,
+                    "n_expected": 9,
+                },
+                "aime_greedy.json": {
+                    "maj_k_accuracy": 4 / 9,
+                    "n_correct_maj": 4,
+                    "n_problems": 9,
+                },
+                "candidate_gsm8k_greedy.json": {
+                    "accuracy": 0.5,
+                    "n_correct": 3,
+                    "n_problems": 6,
+                },
+            }
+            for name, payload in files.items():
+                (pass_dir / name).write_text(json.dumps(payload))
+
+            arm = summarize_runs([root])["arms"][0]
+
+            self.assertEqual(arm["overall_score"]["correct"], 26)
+            self.assertEqual(arm["overall_score"]["total"], 53)
+            self.assertEqual(arm["overall_score"]["score"], 26 / 53)
+            self.assertEqual(
+                set(arm["overall_score"]["components"]),
+                {"mmlu", "gpqa_greedy", "gpqa_sampled", "aime", "gsm8k"},
+            )
+
+
+class WeaveEvaluationTests(unittest.TestCase):
+    def test_weave_evaluation_runs_one_serial_trial(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            marker = root / "order.txt"
+            script = (
+                "import json,sys; from pathlib import Path; "
+                "marker=Path(sys.argv[1]); expected=sys.argv[2]; append=sys.argv[3]; "
+                "actual=marker.read_text() if marker.exists() else ''; "
+                "assert actual == expected; "
+                "marker.write_text(actual + append); "
+                "Path(sys.argv[4]).write_text(json.dumps("
+                "{'accuracy': float(sys.argv[5]), 'n_correct': int(sys.argv[6]), "
+                "'n_expected': int(sys.argv[7])}))"
+            )
+            jobs = []
+            for name, expected, append, correct, total in (
+                ("mmlu_pro_greedy", "", "a", 1, 2),
+                ("gpqa_diamond_greedy", "a", "b", 2, 3),
+            ):
+                result_path = root / f"{name}.json"
+                jobs.append(
+                    {
+                        "job_name": name,
+                        "command": [
+                            sys.executable,
+                            "-c",
+                            script,
+                            str(marker),
+                            expected,
+                            append,
+                            str(result_path),
+                            str(correct / total),
+                            str(correct),
+                            str(total),
+                        ],
+                        "log_path": str(root / f"{name}.log"),
+                        "result_path": str(result_path),
+                        "category": "downstream",
+                    }
+                )
+            weave, _ = _initialize_weave(None)
+            outcomes, records = _run_weave_jobs(
+                weave_module=weave,
+                jobs=jobs,
+                model_config={
+                    "profile": "test",
+                    "head_mode": "full",
+                    "artifact_sha256": "artifact",
+                    "git_commit": "commit",
+                    "change_label": "test",
+                },
+                evaluation_metadata={"trials": 1},
+                attributes={"test": "serial"},
+                display_prefix="quality-test",
+                keep_going=False,
+            )
+
+            self.assertEqual(marker.read_text(), "ab")
+            self.assertEqual(set(outcomes), {job["job_name"] for job in jobs})
+            self.assertTrue(all(row["status"] == "passed" for row in outcomes.values()))
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["trials"], 1)
+            self.assertEqual(records[0]["jobs"], [job["job_name"] for job in jobs])
+
+    def test_weave_summary_fails_closed_on_partial_results(self) -> None:
+        summary = _weave_score_summary(
+            "downstream",
+            [
+                {"passed": True, "correct": 1, "total": 2},
+                {"passed": False},
+            ],
+        )
+        self.assertFalse(summary["passed"])
+        self.assertIsNone(summary["overall_score"])
+
+    def test_async_command_cancellation_reaps_process_group(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pid_path = root / "pid"
+
+            async def cancel() -> int:
+                task = asyncio.create_task(
+                    _run_command_async(
+                        [
+                            sys.executable,
+                            "-c",
+                            (
+                                "import os,sys,time; "
+                                "open(sys.argv[1], 'w').write(str(os.getpid())); "
+                                "time.sleep(60)"
+                            ),
+                            str(pid_path),
+                        ],
+                        root / "cancel.log",
+                    )
+                )
+                for _ in range(100):
+                    if pid_path.exists():
+                        break
+                    await asyncio.sleep(0.01)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                return int(pid_path.read_text())
+
+            pid = asyncio.run(cancel())
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+
 
 class ComparisonTests(unittest.TestCase):
     def test_ranked_gpqa_behavior_floor_scales_by_profile_size(self) -> None:
@@ -378,6 +604,12 @@ class ComparisonTests(unittest.TestCase):
             "mmlu": _metric_comparison("mmlu", 0.80, 0.78),
             "ppl": _metric_comparison("ppl", 100.0, 102.0),
             "aime": _metric_comparison("aime", 0.0, 0.0),
+            "overall_score": _overall_score_comparison(
+                0.5,
+                0.5,
+                {"correct": 10, "total": 20},
+                {"correct": 10, "total": 20},
+            ),
         }
         response_identity = {
             "matched": 61,
@@ -399,12 +631,29 @@ class ComparisonTests(unittest.TestCase):
 
         decision = _regression_decision(metrics, response_identity)
 
-        self.assertEqual(metrics["mmlu"]["threshold"], 0.776)
+        self.assertIsNone(metrics["mmlu"]["threshold"])
+        self.assertIsNone(metrics["mmlu"]["gate_passed"])
+        self.assertEqual(metrics["overall_score"]["threshold"], 0.485)
+        self.assertEqual(metrics["overall_score"]["required_correct"], 10)
         self.assertAlmostEqual(metrics["ppl"]["threshold"], 100.0 / 0.97)
         self.assertFalse(metrics["aime"]["informative"])
         self.assertIsNone(metrics["aime"]["gate_passed"])
-        self.assertTrue(_metric_comparison("mmlu", 1.0, 0.970)["gate_passed"])
-        self.assertFalse(_metric_comparison("mmlu", 1.0, 0.969)["gate_passed"])
+        self.assertTrue(
+            _overall_score_comparison(
+                1.0,
+                0.97,
+                {"correct": 100, "total": 100},
+                {"correct": 97, "total": 100},
+            )["gate_passed"]
+        )
+        self.assertFalse(
+            _overall_score_comparison(
+                1.0,
+                0.96,
+                {"correct": 100, "total": 100},
+                {"correct": 96, "total": 100},
+            )["gate_passed"]
+        )
         self.assertTrue(
             _metric_comparison("ppl", 100.0, 100.0 / 0.97)["gate_passed"]
         )
@@ -416,7 +665,8 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(decision["status"], "retained")
         self.assertTrue(decision["response_drift"])
         self.assertTrue(decision["local_retention_gate_passed"])
-        self.assertEqual(decision["uninformative_metrics"], ["aime"])
+        self.assertEqual(decision["uninformative_metrics"], [])
+        self.assertEqual(decision["monitor_only_metrics"], ["mmlu", "aime"])
 
         response_identity["ranked_gpqa"]["matched"] = 6
         response_identity["ranked_gpqa"]["passed"] = False
@@ -427,9 +677,17 @@ class ComparisonTests(unittest.TestCase):
 
         response_identity["ranked_gpqa"]["matched"] = 7
         response_identity["ranked_gpqa"]["passed"] = True
-        metrics["mmlu"] = _metric_comparison("mmlu", 0.80, 0.77)
+        metrics["overall_score"] = _overall_score_comparison(
+            0.5,
+            0.45,
+            {"correct": 10, "total": 20},
+            {"correct": 9, "total": 20},
+        )
         decision = _regression_decision(metrics, response_identity)
-        self.assertEqual(decision["metric_regressions"][0]["metric"], "mmlu")
+        self.assertEqual(
+            decision["metric_regressions"][0]["metric"],
+            "overall_score",
+        )
 
         response_identity["ranked_gpqa"] = {
             "matched": 0,
@@ -439,7 +697,12 @@ class ComparisonTests(unittest.TestCase):
             "candidate_only": 0,
             "passed": None,
         }
-        metrics["mmlu"] = _metric_comparison("mmlu", 0.80, 0.78)
+        metrics["overall_score"] = _overall_score_comparison(
+            0.5,
+            0.5,
+            {"correct": 10, "total": 20},
+            {"correct": 10, "total": 20},
+        )
         response_identity["public_probe"] = {"matched": None}
         decision = _regression_decision(metrics, response_identity)
         self.assertIsNone(decision["behavior_response_passed"])
@@ -447,7 +710,14 @@ class ComparisonTests(unittest.TestCase):
         self.assertTrue(decision["local_retention_gate_passed"])
 
         decision = _regression_decision(
-            {"aime": _metric_comparison("aime", 0.0, 0.0)},
+            {
+                "overall_score": _overall_score_comparison(
+                    0.0,
+                    0.0,
+                    {"correct": 0, "total": 20},
+                    {"correct": 0, "total": 20},
+                )
+            },
             response_identity,
         )
         self.assertEqual(decision["status"], "insufficient_evidence")
@@ -455,7 +725,14 @@ class ComparisonTests(unittest.TestCase):
 
         response_identity["public_probe"] = {"matched": True}
         decision = _regression_decision(
-            {"aime": _metric_comparison("aime", 0.0, 0.0)},
+            {
+                "overall_score": _overall_score_comparison(
+                    0.0,
+                    0.0,
+                    {"correct": 0, "total": 20},
+                    {"correct": 0, "total": 20},
+                )
+            },
             response_identity,
         )
         self.assertEqual(decision["status"], "insufficient_evidence")
@@ -464,7 +741,14 @@ class ComparisonTests(unittest.TestCase):
 
         response_identity["public_probe"] = {"matched": False}
         decision = _regression_decision(
-            {"aime": _metric_comparison("aime", 0.0, 0.0)},
+            {
+                "overall_score": _overall_score_comparison(
+                    0.0,
+                    0.0,
+                    {"correct": 0, "total": 20},
+                    {"correct": 0, "total": 20},
+                )
+            },
             response_identity,
         )
         self.assertEqual(decision["status"], "regression")
@@ -553,8 +837,33 @@ class ComparisonTests(unittest.TestCase):
                                             "mean": accuracy,
                                             "stdev": 0.0,
                                             "n": 1,
-                                        }
-                                    }
+                                        },
+                                        "overall_score": {
+                                            "mean": accuracy,
+                                            "stdev": 0.0,
+                                            "n": 1,
+                                        },
+                                    },
+                                    "overall_score": {
+                                        "correct": int(accuracy * 2),
+                                        "total": 2,
+                                        "score": accuracy,
+                                        "components": {
+                                            "mmlu": {
+                                                "correct": int(accuracy * 2),
+                                                "total": 2,
+                                                "score": accuracy,
+                                            }
+                                        },
+                                        "passes": [
+                                            {
+                                                "pass": 1,
+                                                "correct": int(accuracy * 2),
+                                                "total": 2,
+                                                "score": accuracy,
+                                            }
+                                        ],
+                                    },
                                 }
                             ]
                         }
@@ -579,6 +888,10 @@ class ComparisonTests(unittest.TestCase):
             comparison = compare_runs(baseline, candidate)
 
             self.assertEqual(comparison["metrics"]["mmlu"]["delta"], -0.50)
+            self.assertIsNone(comparison["metrics"]["mmlu"]["gate_passed"])
+            self.assertFalse(
+                comparison["metrics"]["overall_score"]["gate_passed"]
+            )
             self.assertEqual(comparison["response_identity"]["match_rate"], 0.0)
             self.assertEqual(comparison["response_identity"]["mismatches"][0]["id"], "q1")
             self.assertTrue(comparison["decision"]["baseline_regression"])

@@ -38,15 +38,15 @@ GSM8K against the candidate linked from this checkout:
 
 It prints results and saves metrics, logs, and raw responses under
 `quality-results/`. See [Laguna quality evaluation](senpai/quality-evaluation.md)
-for five-pass runs, matched baseline comparisons, suite selection, and
-prepared-artifact usage. These downstream evaluations are regression screens,
-not replicas of the challenge's hidden quality or behavioral gates. The panel
-also runs a separate ranked-head GPQA greedy proxy for B=1 behavior-path drift.
-Use the default `smoke` profile only to verify plumbing; `quick` is the bounded
-routine regression panel and completes in about 17 minutes on the 128 GB
-development M4 Max with warm transformed weights. Off-M5 runs record a
-public-fixture first-token probe; if it differs, compare a same-host baseline
-and candidate instead of treating absolute downstream accuracy as authoritative.
+for the deterministic prompt contract, aggregate 97% retention gate, matched
+baseline comparisons, Weave logging, suite selection, and prepared-artifact
+usage. These downstream evaluations are regression screens, not replicas of
+the challenge's hidden quality or behavioral gates. The panel also runs a
+separate ranked-head GPQA greedy proxy for B=1 behavior-path drift. Use the
+default `smoke` profile only to verify plumbing; `quick` is the bounded routine
+regression panel. Off-M5 runs record a public-fixture first-token probe; if it
+differs, compare a same-host baseline and candidate instead of treating
+absolute downstream accuracy as authoritative.
 
 Full model setup needs a moderate local SSD. The reference checkpoint is
 `poolside/Laguna-XS-2.1-NVFP4-mlx` at revision

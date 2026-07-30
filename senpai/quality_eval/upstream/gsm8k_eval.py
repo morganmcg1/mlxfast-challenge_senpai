@@ -2,8 +2,8 @@
 
 The protocol mirrors lm-eval-harness conventions: deterministic train exemplars,
 strict extraction from ``The answer is N.`` with a last-number fallback, and
-numeric exact-match scoring. Seeded item IDs and few-shot signatures make runs
-directly comparable, and raw completions are saved by default.
+numeric exact-match scoring. Fixed item manifests and few-shot signatures make
+runs directly comparable, and raw completions are saved by default.
 """
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def filter_by_ids(
     items: list[dict[str, Any]],
     requested_ids: list[Any],
 ) -> list[dict[str, Any]]:
-    """Select requested IDs while preserving the dataset's existing order."""
+    """Select requested IDs in manifest order."""
     requested = [str(item_id) for item_id in requested_ids]
     duplicate_requests = sorted(
         item_id for item_id, count in Counter(requested).items() if count > 1
@@ -88,27 +88,25 @@ def filter_by_ids(
         )
 
     requested_set = set(requested)
-    selected: list[dict[str, Any]] = []
-    found: set[str] = set()
+    selected: dict[str, dict[str, Any]] = {}
     duplicate_items: set[str] = set()
     for item in items:
         item_id = str(item["id"])
         if item_id not in requested_set:
             continue
-        if item_id in found:
+        if item_id in selected:
             duplicate_items.add(item_id)
         else:
-            selected.append(item)
-        found.add(item_id)
+            selected[item_id] = item
     if duplicate_items:
         raise ValueError(
             f"duplicate dataset IDs: {', '.join(sorted(duplicate_items))}"
         )
 
-    missing = [item_id for item_id in requested if item_id not in found]
+    missing = [item_id for item_id in requested if item_id not in selected]
     if missing:
         raise ValueError(f"requested IDs not found: {', '.join(missing)}")
-    return selected
+    return [selected[item_id] for item_id in requested]
 
 
 # --------------------------------------------------------------------------- #
@@ -189,6 +187,8 @@ SYSTEM_INSTRUCTION = (
     "single number."
 )
 
+GSM8K_FEWSHOT_INDICES = (52, 28, 38, 23, 12, 45, 26, 25)
+
 
 def _clean_cot(answer_field: str) -> tuple[str, float | None]:
     """Turn a GSM8K train ``answer`` (CoT + '#### N') into a clean exemplar CoT.
@@ -204,14 +204,15 @@ def _clean_cot(answer_field: str) -> tuple[str, float | None]:
 
 
 def build_fewshot(n_shot: int, seed: int) -> tuple[list[dict[str, str]], list[str]]:
-    """Deterministic n_shot exemplars from the train split. Returns (exemplars, signature)."""
-    train = _load_split("train", n=max(n_shot * 4, 64))
-    import random
-
-    rng = random.Random(seed)
-    idxs = list(range(len(train)))
-    rng.shuffle(idxs)
-    chosen = idxs[:n_shot]
+    """Return the frozen GSM8K exemplars and their positional signatures."""
+    if n_shot > len(GSM8K_FEWSHOT_INDICES):
+        raise ValueError(
+            f"the frozen GSM8K prompt supports at most "
+            f"{len(GSM8K_FEWSHOT_INDICES)} few-shot exemplars"
+        )
+    _ = seed  # Kept in the public signature for CLI compatibility.
+    train = _load_split("train", n=max(GSM8K_FEWSHOT_INDICES) + 1)
+    chosen = GSM8K_FEWSHOT_INDICES[:n_shot]
     exemplars: list[dict[str, str]] = []
     sig: list[str] = []
     for i in chosen:
@@ -467,10 +468,15 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="JSON list of test IDs; selects from the full seeded order and supersedes --n/--limit",
     )
-    ap.add_argument("--seed", type=int, default=1234, help="seed for subset + fewshot (+ sampler unless --sampling-seed given)")
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=1234,
+        help="seed for an unmanifested subset (+ sampler unless --sampling-seed given)",
+    )
     ap.add_argument("--sampling-seed", type=int, default=None,
                     help="per-request decode RNG seed. Distinct from --seed "
-                         "(which fixes the test subset + few-shot). Vary across runs to estimate decode "
+                         "(which fixes the test subset). Vary across runs to estimate decode "
                          "variance with byte-identical prompts. Defaults to --seed.")
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--top-k", type=int, default=64)
@@ -501,7 +507,7 @@ def main(argv: list[str] | None = None) -> int:
         if r not in ("sampled", "greedy"):
             ap.error(f"unknown regime {r!r} (want sampled|greedy)")
 
-    # --- deterministic items + few-shot (shared across arms via seed) ---
+    # --- deterministic items + frozen few-shot exemplars ---
     n_items = args.n
     if args.limit is not None:
         n_items = args.limit
@@ -545,8 +551,8 @@ def main(argv: list[str] | None = None) -> int:
           f"fewshot_sig={','.join(fewshot_sig)}", flush=True)
 
     # Decode RNG seed: --sampling-seed if given, else --seed (back-compat). The
-    # subset/few-shot stay tied to --seed so the benchmark is byte-identical across
-    # sampling seeds; only the per-request sampler RNG moves (PR #590 multi-seed CI).
+    # An unmanifested subset stays tied to --seed and few-shot exemplars are frozen,
+    # so only the per-request sampler RNG moves (PR #590 multi-seed CI).
     req_seed = args.sampling_seed if args.sampling_seed is not None else args.seed
 
     def _sampling(regime: str) -> dict[str, Any]:

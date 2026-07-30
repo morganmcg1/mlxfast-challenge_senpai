@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import math
@@ -35,11 +36,13 @@ RANKED_GPQA_MAX_TOKENS = 128
 MMLU_DATASET_SEED = 12_345
 GPQA_DATASET_SEED = 2
 TOKEN_IDS_PROMPT_FORMAT = "token_ids"
-METRIC_RETENTION_FLOOR = 0.97
+METRIC_RETENTION_NUMERATOR = 97
+METRIC_RETENTION_DENOMINATOR = 100
+METRIC_RETENTION_FLOOR = (
+    METRIC_RETENTION_NUMERATOR / METRIC_RETENTION_DENOMINATOR
+)
 BEHAVIOR_MATCH_NUMERATOR = 7
 BEHAVIOR_MATCH_DENOMINATOR = 9
-
-
 @dataclass(frozen=True)
 class Profile:
     max_tokens: int
@@ -103,8 +106,8 @@ PROFILES = {
         mmlu_n=20,
         mmlu_limit=None,
         gpqa_limit=9,
-        aime_limit=3,
-        gsm8k_n=12,
+        aime_limit=9,
+        gsm8k_n=6,
         gsm8k_limit=None,
         ppl_records=None,
         ppl_target_tokens=32,
@@ -171,6 +174,9 @@ class RunOptions:
     keep_going: bool = False
     ppl_dataset: Path | None = None
     preparation_wall_s: float = 0.0
+    weave_project: str | None = None
+    change_label: str | None = None
+    attributes: tuple[tuple[str, str], ...] = ()
 
 
 def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
@@ -189,6 +195,13 @@ def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
         raise ValueError("request timeout must be positive")
     if options.startup_timeout <= 0:
         raise ValueError("startup timeout must be positive")
+    if options.weave_project is not None and not options.weave_project.strip():
+        raise ValueError("--weave-project cannot be empty")
+    attribute_keys = [key for key, _ in options.attributes]
+    if any(not key for key in attribute_keys) or len(set(attribute_keys)) != len(
+        attribute_keys
+    ):
+        raise ValueError("Weave attribute keys must be non-empty and unique")
 
     profile = PROFILES[options.profile]
     output = options.output.expanduser().resolve()
@@ -228,13 +241,29 @@ def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
         "evaluation_valid": False,
         "quality_gate_passed": None,
         "preparation_wall_s": options.preparation_wall_s,
+        "change_label": options.change_label,
+        "weave": {
+            "project": options.weave_project,
+            "logging_enabled": options.weave_project is not None,
+            "parallelism": 1,
+            "trials": 1,
+            "evaluations": [],
+        },
     }
     _write_json(manifest_path, run_manifest)
 
     bridge_log: Any = None
+    weave_module: Any = None
+    weave_client: Any = None
     try:
         print("[quality-eval] fingerprinting the executable model artifact", flush=True)
         run_manifest["artifact_identity"] = artifact_identity(artifact)
+        weave_module, weave_client = _initialize_weave(options.weave_project)
+        run_manifest["weave"]["attributes"] = _weave_attributes(
+            options,
+            run_manifest,
+            output,
+        )
         _write_json(manifest_path, run_manifest)
         tokenizer = LagunaTokenizer(artifact.tokenizer)
         run_manifest["tokenizer_stop_token_ids"] = tokenizer.stop_token_ids
@@ -278,8 +307,14 @@ def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
                 run_manifest=run_manifest,
                 ppl_dataset=ppl_dataset,
                 request_timeout=request_timeout,
+                weave_module=weave_module,
+                weave_attributes=run_manifest["weave"]["attributes"],
             )
 
+        if run_manifest["failures"]:
+            raise ValueError(
+                f"{len(run_manifest['failures'])} evaluator job(s) failed"
+            )
         _validate_run_outputs(output, run_manifest)
         if PROMPT_HASH_SUITES.intersection(options.suites):
             _check_prompt_sets(output, options.passes)
@@ -295,7 +330,8 @@ def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
             options.preparation_wall_s + run_manifest["wall_s"]
         )
         _write_json(manifest_path, run_manifest)
-        print(json.dumps(summary, indent=2, sort_keys=True), flush=True)
+        _print_run_metrics(summary)
+        print("[quality-eval] EVALUATION RUN: PASS", flush=True)
         print(
             f"[quality-eval] completed in {run_manifest['wall_s']:.1f}s "
             f"({run_manifest['total_wall_s']:.1f}s including preparation)",
@@ -312,10 +348,13 @@ def run_evaluations(artifact: Artifact, options: RunOptions) -> dict[str, Any]:
         )
         run_manifest["error"] = str(error)
         _write_json(manifest_path, run_manifest)
+        print(f"[quality-eval] EVALUATION RUN: FAIL ({error})", flush=True)
         raise
     finally:
         if bridge_log is not None:
             bridge_log.close()
+        if weave_client is not None and weave_module is not None:
+            weave_module.finish()
 
 
 def _head_modes(suites: tuple[str, ...]) -> tuple[str, ...]:
@@ -364,6 +403,318 @@ def _sysctl_value(name: str) -> str | None:
     return value if completed.returncode == 0 and value else None
 
 
+def _initialize_weave(project: str | None) -> tuple[Any, Any]:
+    os.environ["WEAVE_PARALLELISM"] = "1"
+    if project is None:
+        os.environ["WEAVE_DISABLED"] = "true"
+    else:
+        os.environ.pop("WEAVE_DISABLED", None)
+
+    import weave
+
+    if project is None:
+        return weave, None
+    return weave, weave.init(project)
+
+
+def _weave_attributes(
+    options: RunOptions,
+    manifest: dict[str, Any],
+    output: Path,
+) -> dict[str, Any]:
+    identity = manifest["artifact_identity"]
+    checkout = identity.get("checkout") or {}
+    attributes = dict(options.attributes)
+    attributes.update(
+        {
+            "quality.run_id": output.name,
+            "quality.profile": options.profile,
+            "quality.trials": 1,
+            "quality.passes": options.passes,
+            "quality.suites": ",".join(options.suites),
+            "quality.change_label": options.change_label,
+            "quality.evaluator_sha256": manifest["evaluator_provenance"]["sha256"],
+            "model.git_commit": checkout.get("git_head"),
+            "model.git_dirty": checkout.get("git_dirty"),
+            "model.editable_source_sha256": checkout.get("editable_source_sha256"),
+            "model.transform_source_sha256": identity.get("transform_source_sha256"),
+            "host.hardware_model": manifest["host_identity"].get("hardware_model"),
+            "host.cpu_brand": manifest["host_identity"].get("cpu_brand"),
+            "host.macos_version": manifest["host_identity"].get("macos_version"),
+        }
+    )
+    return {key: value for key, value in attributes.items() if value is not None}
+
+
+def _artifact_source_sha256(manifest: dict[str, Any]) -> str:
+    identity = manifest["artifact_identity"]
+    checkout = identity.get("checkout") or {}
+    source = checkout.get("editable_source_sha256")
+    if isinstance(source, str) and source:
+        return source
+    transform = identity.get("transform_source_sha256")
+    if isinstance(transform, str) and transform:
+        return transform
+    bridge = (identity.get("files") or {}).get("bridge") or {}
+    digest = bridge.get("sha256")
+    if isinstance(digest, str) and digest:
+        return digest
+    raise ValueError("model artifact has no source or executable identity")
+
+
+def _job_result_path(name: str, pass_dir: Path) -> Path:
+    if name == "ppl":
+        return pass_dir / "ppl_summary.json"
+    if name == "gsm8k_greedy":
+        return pass_dir / "candidate_gsm8k_greedy.json"
+    return pass_dir / f"{name}.json"
+
+
+def _job_category(name: str) -> str:
+    if name == "ppl":
+        return "ppl"
+    if name == "gpqa_diamond_ranked_greedy":
+        return "behavior"
+    return "downstream"
+
+
+def _read_job_result(name: str, path: Path) -> dict[str, Any]:
+    payload = _read_json_object(path)
+    result: dict[str, Any] = {
+        "status": "passed",
+        "exit_code": 0,
+        "job_name": name,
+        "result_path": str(path),
+    }
+    if name == "ppl":
+        total = payload.get("num_records")
+        if (
+            not isinstance(total, int)
+            or isinstance(total, bool)
+            or total < 1
+        ):
+            raise ValueError(f"{path}: invalid PPL record count")
+        result.update(
+            {
+                "ppl": _finite_metric(payload, "ppl", path, positive=True),
+                "total": total,
+            }
+        )
+        return result
+
+    if name == "aime_greedy":
+        correct_key, total_key, score_key = (
+            "n_correct_maj",
+            "n_problems",
+            "maj_k_accuracy",
+        )
+    elif name == "gsm8k_greedy":
+        correct_key, total_key, score_key = "n_correct", "n_problems", "accuracy"
+    else:
+        correct_key, total_key, score_key = "n_correct", "n_expected", "accuracy"
+    correct = payload.get(correct_key)
+    total = payload.get(total_key)
+    if (
+        not isinstance(correct, int)
+        or isinstance(correct, bool)
+        or not isinstance(total, int)
+        or isinstance(total, bool)
+        or total < 1
+        or not 0 <= correct <= total
+    ):
+        raise ValueError(f"{path}: invalid correct/total result")
+    score = _finite_metric(
+        payload,
+        score_key,
+        path,
+        minimum=0.0,
+        maximum=1.0,
+    )
+    if not math.isclose(score, correct / total, rel_tol=0.0, abs_tol=1e-15):
+        raise ValueError(f"{path}: score does not match correct/total")
+    result.update(
+        {
+            "correct": correct,
+            "total": total,
+            "score": score,
+        }
+    )
+    return result
+
+
+def _weave_score_summary(
+    category: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    failed = sum(
+        not isinstance(row, dict) or row.get("passed") is not True
+        for row in rows
+    )
+    summary: dict[str, Any] = {
+        "jobs": len(rows),
+        "failed_jobs": failed,
+        "passed": bool(rows) and failed == 0,
+    }
+    if category == "ppl":
+        ppls = [
+            float(row["ppl"])
+            for row in rows
+            if isinstance(row, dict)
+            and isinstance(row.get("ppl"), (int, float))
+            and not isinstance(row.get("ppl"), bool)
+        ]
+        summary["ppl"] = (
+            ppls[0] if summary["passed"] and len(ppls) == 1 else None
+        )
+    elif category == "downstream":
+        correct = sum(
+            int(row["correct"])
+            for row in rows
+            if isinstance(row, dict)
+            and isinstance(row.get("correct"), int)
+            and not isinstance(row.get("correct"), bool)
+        )
+        total = sum(
+            int(row["total"])
+            for row in rows
+            if isinstance(row, dict)
+            and isinstance(row.get("total"), int)
+            and not isinstance(row.get("total"), bool)
+        )
+        summary.update(
+            {
+                "correct": correct,
+                "total": total,
+                "overall_score": (
+                    correct / total if summary["passed"] and total else None
+                ),
+            }
+        )
+    return summary
+
+
+def _run_weave_jobs(
+    *,
+    weave_module: Any,
+    jobs: list[dict[str, Any]],
+    model_config: dict[str, Any],
+    evaluation_metadata: dict[str, Any],
+    attributes: dict[str, Any],
+    display_prefix: str,
+    keep_going: bool,
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    outcomes: dict[str, dict[str, Any]] = {}
+    lock = threading.Lock()
+    stop_requested = threading.Event()
+
+    class CommandModel(weave_module.Model):
+        profile: str
+        head_mode: str
+        artifact_sha256: str
+        git_commit: str | None = None
+        change_label: str | None = None
+
+        @weave_module.op
+        async def predict(
+            self,
+            job_name: str,
+            command: list[str],
+            log_path: str,
+            result_path: str,
+            category: str,
+        ) -> dict[str, Any]:
+            del category
+            if stop_requested.is_set():
+                outcome = {
+                    "status": "skipped",
+                    "exit_code": 1,
+                    "job_name": job_name,
+                    "error": "skipped after an earlier evaluator failure",
+                    "wall_s": 0.0,
+                }
+                with lock:
+                    outcomes[job_name] = outcome
+                return outcome
+            started = time.monotonic()
+            try:
+                await _run_command_async(command, Path(log_path))
+                outcome = _read_job_result(job_name, Path(result_path))
+            except subprocess.CalledProcessError as error:
+                outcome = {
+                    "status": "failed",
+                    "exit_code": error.returncode,
+                    "job_name": job_name,
+                    "error": f"evaluator exited with status {error.returncode}",
+                }
+            except Exception as error:
+                outcome = {
+                    "status": "failed",
+                    "exit_code": 1,
+                    "job_name": job_name,
+                    "error": f"{type(error).__name__}: {error}",
+                }
+            outcome["wall_s"] = time.monotonic() - started
+            if not keep_going and outcome.get("status") != "passed":
+                stop_requested.set()
+            with lock:
+                outcomes[job_name] = outcome
+            return outcome
+
+    class CommandScorer(weave_module.Scorer):
+        category: str
+
+        @weave_module.op
+        def score(self, *, output: dict[str, Any]) -> dict[str, Any]:
+            row = {
+                "passed": output.get("status") == "passed",
+                "correct": output.get("correct"),
+                "total": output.get("total"),
+                "score": output.get("score"),
+                "ppl": output.get("ppl"),
+            }
+            return {key: value for key, value in row.items() if value is not None}
+
+        @weave_module.op
+        def summarize(self, score_rows: list[dict[str, Any]]) -> dict[str, Any]:
+            return _weave_score_summary(self.category, score_rows)
+
+    async def evaluate_all() -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        model = CommandModel(**model_config)
+        for category in ("ppl", "downstream", "behavior"):
+            category_jobs = [job for job in jobs if job["category"] == category]
+            if not category_jobs:
+                continue
+            evaluation_name = f"{display_prefix}-{category}"
+            evaluation = weave_module.Evaluation(
+                dataset=category_jobs,
+                scorers=[CommandScorer(category=category)],
+                trials=1,
+                metadata={**evaluation_metadata, "category": category},
+                evaluation_name=evaluation_name,
+            )
+            with weave_module.attributes(attributes):
+                summary = await evaluation.evaluate(model)
+            records.append(
+                {
+                    "name": evaluation_name,
+                    "category": category,
+                    "trials": 1,
+                    "jobs": [job["job_name"] for job in category_jobs],
+                    "summary": _json_safe(summary),
+                }
+            )
+            if stop_requested.is_set():
+                break
+        return records
+
+    return outcomes, asyncio.run(evaluate_all())
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=str, allow_nan=False))
+
+
 def _run_head_phase(
     *,
     artifact: Artifact,
@@ -378,6 +729,8 @@ def _run_head_phase(
     run_manifest: dict[str, Any],
     ppl_dataset: Path | None,
     request_timeout: float,
+    weave_module: Any,
+    weave_attributes: dict[str, Any],
 ) -> None:
     phase_started = time.time()
     phase_record = run_manifest.setdefault("head_timings", {}).setdefault(
@@ -440,6 +793,7 @@ def _run_head_phase(
         for pass_number in range(1, options.passes + 1):
             pass_dir = output / f"pass_{pass_number}"
             pass_dir.mkdir(parents=True, exist_ok=True)
+            jobs: list[dict[str, Any]] = []
             for name, command in _pass_commands(
                 pass_number=pass_number,
                 pass_dir=pass_dir,
@@ -462,28 +816,80 @@ def _run_head_phase(
                     "started_at": _timestamp(),
                 }
                 run_manifest["commands"].append(record)
-                _write_json(manifest_path, run_manifest)
-                command_started = time.time()
-                try:
-                    _run_command(command, Path(record["log"]))
-                    record["status"] = "passed"
-                except subprocess.CalledProcessError as error:
-                    record["status"] = "failed"
-                    record["exit_code"] = error.returncode
+                jobs.append(
+                    {
+                        "job_name": name,
+                        "command": command,
+                        "log_path": record["log"],
+                        "result_path": str(_job_result_path(name, pass_dir)),
+                        "category": _job_category(name),
+                    }
+                )
+            _write_json(manifest_path, run_manifest)
+            outcomes, weave_results = _run_weave_jobs(
+                weave_module=weave_module,
+                jobs=jobs,
+                model_config={
+                    "profile": options.profile,
+                    "head_mode": head_mode,
+                    "artifact_sha256": _artifact_source_sha256(run_manifest),
+                    "git_commit": (
+                        run_manifest["artifact_identity"]
+                        .get("checkout", {})
+                        .get("git_head")
+                    ),
+                    "change_label": options.change_label,
+                },
+                evaluation_metadata={
+                    "evaluator_sha256": run_manifest["evaluator_provenance"]["sha256"],
+                    "profile": options.profile,
+                    "head_mode": head_mode,
+                    "pass": pass_number,
+                    "trials": 1,
+                },
+                attributes=weave_attributes,
+                display_prefix=f"{output.name}-{head_mode}-p{pass_number}",
+                keep_going=options.keep_going,
+            )
+            run_manifest["weave"]["evaluations"].extend(weave_results)
+            records = {
+                (record["pass"], record["head_mode"], record["name"]): record
+                for record in run_manifest["commands"]
+            }
+            first_failure: subprocess.CalledProcessError | None = None
+            for job in jobs:
+                name = job["job_name"]
+                outcome = outcomes.get(name) or {
+                    "status": "failed",
+                    "exit_code": 1,
+                    "error": "Weave returned no outcome",
+                }
+                record = records[(pass_number, head_mode, name)]
+                record.update(
+                    {
+                        key: value
+                        for key, value in outcome.items()
+                        if key in {"status", "exit_code", "error", "wall_s"}
+                    }
+                )
+                record["finished_at"] = _timestamp()
+                if outcome.get("status") != "passed":
+                    exit_code = int(outcome.get("exit_code") or 1)
                     run_manifest["failures"].append(
                         {
                             "pass": pass_number,
                             "name": name,
                             "head_mode": head_mode,
-                            "exit_code": error.returncode,
+                            "exit_code": exit_code,
                         }
                     )
-                    if not options.keep_going:
-                        raise
-                finally:
-                    record["finished_at"] = _timestamp()
-                    record["wall_s"] = time.time() - command_started
-                    _write_json(manifest_path, run_manifest)
+                    first_failure = first_failure or subprocess.CalledProcessError(
+                        exit_code,
+                        job["command"],
+                    )
+            _write_json(manifest_path, run_manifest)
+            if first_failure is not None and not options.keep_going:
+                raise first_failure
     finally:
         if server_started:
             server.shutdown()
@@ -509,6 +915,57 @@ def summarize_runs(run_dirs: list[Path]) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("summarizer returned a non-object")
     return value
+
+
+def _print_run_metrics(summary: dict[str, Any]) -> None:
+    arms = summary.get("arms")
+    if not isinstance(arms, list) or len(arms) != 1:
+        return
+    arm = arms[0]
+    metrics = arm.get("metrics") or {}
+    labels = (
+        ("mmlu", "MMLU-Pro"),
+        ("gpqa_greedy", "GPQA greedy"),
+        ("gpqa_sampled", "GPQA sampled"),
+        ("aime", "AIME"),
+        ("gsm8k", "GSM8K"),
+    )
+    print("[quality-eval] metrics", flush=True)
+    components = (arm.get("overall_score") or {}).get("components") or {}
+    for name, label in labels:
+        component = components.get(name)
+        if isinstance(component, dict):
+            print(
+                f"[quality-eval]   {label}: "
+                f"{component['correct']}/{component['total']} "
+                f"({100.0 * component['score']:.2f}%)",
+                flush=True,
+            )
+        else:
+            mean = (metrics.get(name) or {}).get("mean")
+            if isinstance(mean, (int, float)):
+                print(
+                    f"[quality-eval]   {label}: {100.0 * float(mean):.2f}%",
+                    flush=True,
+                )
+    overall = arm.get("overall_score")
+    if isinstance(overall, dict):
+        print(
+            f"[quality-eval]   Overall downstream: "
+            f"{overall['correct']}/{overall['total']} "
+            f"({100.0 * overall['score']:.2f}%)",
+            flush=True,
+        )
+    ppl = (metrics.get("ppl") or {}).get("mean")
+    if isinstance(ppl, (int, float)):
+        print(f"[quality-eval]   PPL: {float(ppl):.6f}", flush=True)
+    ranked = (metrics.get("gpqa_ranked") or {}).get("mean")
+    if isinstance(ranked, (int, float)):
+        print(
+            f"[quality-eval]   Ranked GPQA diagnostic: "
+            f"{100.0 * float(ranked):.2f}%",
+            flush=True,
+        )
 
 
 def compare_runs(
@@ -541,7 +998,15 @@ def compare_runs(
     for name in sorted(set(baseline_metrics) | set(candidate_metrics)):
         base = baseline_metrics.get(name, {}).get("mean")
         cand = candidate_metrics.get(name, {}).get("mean")
-        metrics[name] = _metric_comparison(name, base, cand)
+        if name == "overall_score":
+            metrics[name] = _overall_score_comparison(
+                base,
+                cand,
+                arms[0].get("overall_score"),
+                arms[1].get("overall_score"),
+            )
+        else:
+            metrics[name] = _metric_comparison(name, base, cand)
     response_identity = _compare_responses(baseline, candidate)
     response_identity["public_probe"] = _compare_public_probes(
         baseline_manifest,
@@ -910,52 +1375,48 @@ def _pass_commands(
     return commands
 
 
-def _run_command(command: list[str], log_path: Path) -> None:
+async def _run_command_async(command: list[str], log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"[quality-eval] running {log_path.stem}", flush=True)
-    with log_path.open("w") as log:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            start_new_session=True,
-        )
-        try:
-            assert process.stdout is not None
-            for line in process.stdout:
-                print(line, end="", flush=True)
-                log.write(line)
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        start_new_session=True,
+    )
+    try:
+        assert process.stdout is not None
+        with log_path.open("w") as log:
+            while line := await process.stdout.readline():
+                text = line.decode(errors="replace")
+                print(text, end="", flush=True)
+                log.write(text)
                 log.flush()
-            return_code = process.wait()
-        except BaseException:
-            _terminate_process_group(process)
-            raise
-        finally:
-            if process.stdout is not None:
-                process.stdout.close()
+        return_code = await process.wait()
+    except BaseException:
+        await _terminate_process_group_async(process)
+        raise
     if return_code:
         raise subprocess.CalledProcessError(return_code, command)
 
 
-def _terminate_process_group(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
+async def _terminate_process_group_async(
+    process: asyncio.subprocess.Process,
+) -> None:
+    if process.returncode is not None:
         return
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
         return
     try:
-        process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+        await asyncio.wait_for(process.wait(), timeout=10)
+    except asyncio.TimeoutError:
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        process.wait()
-
-
+        await process.wait()
 def _upstream_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "upstream"
 
@@ -1088,10 +1549,17 @@ def _regression_decision(
     uninformative_metrics = [
         name
         for name, values in metrics.items()
-        if values.get("available") and not values.get("informative")
+        if values.get("available")
+        and values.get("gate_role") != "monitor_only"
+        and not values.get("informative")
     ]
     unavailable_metrics = [
         name for name, values in metrics.items() if not values.get("available")
+    ]
+    monitor_only_metrics = [
+        name
+        for name, values in metrics.items()
+        if values.get("available") and values.get("gate_role") == "monitor_only"
     ]
     evidence_available = (
         bool(informative_metrics)
@@ -1116,6 +1584,7 @@ def _regression_decision(
         "informative_metrics": informative_metrics,
         "uninformative_metrics": uninformative_metrics,
         "unavailable_metrics": unavailable_metrics,
+        "monitor_only_metrics": monitor_only_metrics,
         "behavior_response_passed": behavior_passed,
         "public_probe_passed": probe_passed,
         "row_sets_match": not row_set_drift,
@@ -1135,6 +1604,13 @@ def _metric_comparison(
         "delta": None,
         "relative": None,
         "direction": "lower_is_better" if name == "ppl" else "higher_is_better",
+        "gate_role": (
+            "ppl"
+            if name == "ppl"
+            else "downstream_aggregate"
+            if name == "overall_score"
+            else "monitor_only"
+        ),
         "retention": None,
         "minimum_retention": METRIC_RETENTION_FLOOR,
         "threshold": None,
@@ -1161,13 +1637,66 @@ def _metric_comparison(
         result["threshold"] = baseline / METRIC_RETENTION_FLOOR
         result["informative"] = True
         result["gate_passed"] = candidate <= result["threshold"] + 1e-12
-    elif baseline > 0.0:
+    elif name == "overall_score" and baseline > 0.0:
         result["retention"] = candidate / baseline
         result["threshold"] = baseline * METRIC_RETENTION_FLOOR
         result["informative"] = True
         result["gate_passed"] = candidate + 1e-12 >= result["threshold"]
-    else:
+    elif name == "overall_score":
         result["threshold"] = baseline
+    return result
+
+
+def _overall_score_comparison(
+    baseline: Any,
+    candidate: Any,
+    baseline_counts: Any,
+    candidate_counts: Any,
+) -> dict[str, Any]:
+    result = _metric_comparison("overall_score", baseline, candidate)
+    if not isinstance(baseline_counts, dict) or not isinstance(
+        candidate_counts,
+        dict,
+    ):
+        result["available"] = False
+        result["informative"] = False
+        result["gate_passed"] = None
+        return result
+    base_correct = baseline_counts.get("correct")
+    base_total = baseline_counts.get("total")
+    candidate_correct = candidate_counts.get("correct")
+    candidate_total = candidate_counts.get("total")
+    if any(
+        not isinstance(value, int) or isinstance(value, bool)
+        for value in (base_correct, base_total, candidate_correct, candidate_total)
+    ):
+        result["available"] = False
+        result["informative"] = False
+        result["gate_passed"] = None
+        return result
+    result.update(
+        {
+            "baseline_correct": base_correct,
+            "baseline_total": base_total,
+            "candidate_correct": candidate_correct,
+            "candidate_total": candidate_total,
+            "required_correct": (
+                METRIC_RETENTION_NUMERATOR * base_correct
+                + METRIC_RETENTION_DENOMINATOR
+                - 1
+            )
+            // METRIC_RETENTION_DENOMINATOR,
+            "counts_match": base_total == candidate_total,
+        }
+    )
+    result["gate_passed"] = (
+        (
+            base_total == candidate_total
+            and candidate_correct >= result["required_correct"]
+        )
+        if result["informative"]
+        else None
+    )
     return result
 
 
@@ -1293,6 +1822,53 @@ def _validate_run_outputs(root: Path, manifest: dict[str, Any]) -> None:
                 metric="accuracy",
                 raw_field="text",
                 require_zero_errors=True,
+            )
+        if manifest.get("profile") == "quick":
+            _validate_quick_prompt_contract(pass_dir, suites)
+
+
+def _validate_quick_prompt_contract(
+    pass_dir: Path,
+    suites: list[str],
+) -> None:
+    contract_path = _upstream_dir().parent / "manifests" / "quick_prompt_contract.json"
+    contract = _read_json_object(contract_path)
+    paths: dict[str, Path] = {}
+    if "mmlu_pro" in suites:
+        paths["mmlu_pro_greedy"] = pass_dir / "mmlu_pro_greedy.json"
+    if "gpqa_diamond" in suites:
+        paths.update(
+            {
+                "gpqa_diamond_greedy": pass_dir / "gpqa_diamond_greedy.json",
+                "gpqa_diamond_ranked_greedy": (
+                    pass_dir / "gpqa_diamond_ranked_greedy.json"
+                ),
+            }
+        )
+        sampled = sorted(pass_dir.glob("gpqa_diamond_sampled_s*.json"))
+        if len(sampled) != 1:
+            raise ValueError(
+                f"expected one quick GPQA sampled result in {pass_dir}"
+            )
+        paths["gpqa_diamond_sampled"] = sampled[0]
+    if "aime" in suites:
+        paths["aime_greedy"] = pass_dir / "aime_greedy.json"
+    if "gsm8k" in suites:
+        gsm8k = sorted(pass_dir.glob("*gsm8k*_greedy*.json"))
+        if len(gsm8k) != 1:
+            raise ValueError(f"expected one quick GSM8K result in {pass_dir}")
+        paths["gsm8k_greedy"] = gsm8k[0]
+    for name, path in paths.items():
+        expected = contract.get(name)
+        actual = _read_json_object(path).get("dataset_sha256")
+        if (
+            not isinstance(expected, str)
+            or len(expected) != 64
+            or actual != expected
+        ):
+            raise ValueError(
+                f"{path}: prompt contract drift for {name}; "
+                f"expected {expected}, got {actual}"
             )
 
 
@@ -1568,6 +2144,50 @@ def _validate_summary(
                     )
                 _finite_metric(metric, "mean", Path("summary.json"), positive=name == "ppl")
                 _finite_metric(metric, "stdev", Path("summary.json"), minimum=0.0)
+        if set(suites) - {"ppl"}:
+            metric = metrics.get("overall_score")
+            if not isinstance(metric, dict) or metric.get("n") != passes:
+                raise ValueError(
+                    "quality summary overall_score does not contain "
+                    f"{passes} passes"
+                )
+            overall_mean = _finite_metric(
+                metric,
+                "mean",
+                Path("summary.json"),
+                minimum=0.0,
+                maximum=1.0,
+            )
+            _finite_metric(metric, "stdev", Path("summary.json"), minimum=0.0)
+            overall = arm.get("overall_score")
+            if not isinstance(overall, dict):
+                raise ValueError("quality summary arm has no overall score counts")
+            correct = overall.get("correct")
+            total = overall.get("total")
+            score = overall.get("score")
+            if (
+                not isinstance(correct, int)
+                or isinstance(correct, bool)
+                or not isinstance(total, int)
+                or isinstance(total, bool)
+                or total < 1
+                or not 0 <= correct <= total
+                or not isinstance(score, (int, float))
+                or isinstance(score, bool)
+                or not math.isclose(
+                    float(score),
+                    correct / total,
+                    rel_tol=0.0,
+                    abs_tol=1e-15,
+                )
+                or not math.isclose(
+                    overall_mean,
+                    correct / total,
+                    rel_tol=0.0,
+                    abs_tol=1e-15,
+                )
+            ):
+                raise ValueError("quality summary overall score is inconsistent")
 
 
 def _tokenizer_sha256s(manifest: dict[str, Any], root: Path) -> dict[str, str]:

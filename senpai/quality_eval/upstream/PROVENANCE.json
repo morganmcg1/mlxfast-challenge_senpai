@@ -29,7 +29,7 @@
         "Record a prompt_sha for each exact endpoint message payload plus gold answer, and a dataset_sha256 aggregate.",
         "Accept --expect-count and reject empty or shortened datasets.",
         "Select limited multi-contest runs round-robin across the requested contests.",
-        "Accept a fail-closed ID manifest that selects from the full requested contests in canonical order."
+        "Accept a fail-closed ID manifest that selects from the full requested contests in manifest order."
       ]
     },
     {
@@ -45,7 +45,8 @@
         "Record a prompt_sha for each exact endpoint message payload plus gold answer, and a dataset_sha256 aggregate.",
         "Record n_error and exit nonzero after saving results if any endpoint request fails.",
         "Accept --expect-count, reject empty or shortened test sets, and require the requested few-shot exemplar count.",
-        "Accept a fail-closed ID manifest that selects from the full seeded test order."
+        "Accept a fail-closed ID manifest that selects from the full test split in manifest order.",
+        "Freeze the eight few-shot train indices so prompt construction cannot drift with runtime sampling code."
       ]
     },
     {

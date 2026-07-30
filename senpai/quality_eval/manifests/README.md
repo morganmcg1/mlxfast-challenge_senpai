@@ -6,11 +6,12 @@ full-model baseline.
 - MMLU-Pro retains the original 9/20 mixed pass/fail panel.
 - GPQA retains the original nine questions but uses choice-shuffle seed `2`,
   giving a balanced `A=2, B=2, C=2, D=3` target distribution.
-- AIME retains one problem from each configured contest.
-- GSM8K was selected once from a deterministic 100-question calibration:
-  three easy passes, three medium passes, three harder passes, and three
-  naturally completed misses. The untouched model scored 9/12.
+- AIME contains nine fixed problems, three from each configured contest.
+- GSM8K contains six fixed problems: three baseline passes and three misses.
+- `quick_prompt_contract.json` pins the exact prompt-set digest produced for
+  each evaluator.
 
 The manifests are regression instruments, not claims about benchmark accuracy.
-Every evaluator preserves canonical dataset order, records prompt hashes, and
-fails if a requested ID is absent or duplicated.
+Every evaluator records prompt hashes and fails if a requested ID is absent or
+duplicated. AIME and GSM8K also preserve manifest order; MMLU-Pro and GPQA use
+their frozen upstream dataset order.

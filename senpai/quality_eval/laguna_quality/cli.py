@@ -96,12 +96,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--profile",
         choices=sorted(PROFILES),
         default="smoke",
-        help="smoke checks plumbing; quick is the routine gate; full defaults to five passes",
+        help="smoke checks plumbing; quick is the routine gate",
     )
     run_parser.add_argument(
         "--passes",
         type=int,
-        help="complete passes (default: 1, or 5 for --profile full)",
+        help="complete passes (default: 1)",
     )
     run_parser.add_argument(
         "--suite",
@@ -130,6 +130,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-build",
         action="store_true",
         help="do not refresh weights or incrementally rebuild the bridge/metallib",
+    )
+    run_parser.add_argument(
+        "--baseline",
+        type=Path,
+        help="compare this run with a matched baseline and exit 3 if the gate fails",
+    )
+    run_parser.add_argument(
+        "--weave-project",
+        help="optional ENTITY/PROJECT for online W&B Weave logging",
+    )
+    run_parser.add_argument(
+        "--change-label",
+        help="short description of the model change being evaluated",
+    )
+    run_parser.add_argument(
+        "--attribute",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="additional Weave metadata; repeat for multiple values",
     )
 
     summarize_parser = subparsers.add_parser(
@@ -261,10 +281,11 @@ def _run_resolved(
 ) -> int:
     selected = ALL_SUITES if not args.suite or "all" in args.suite else args.suite
     suites = tuple(dict.fromkeys(selected))
-    passes = args.passes if args.passes is not None else (5 if args.profile == "full" else 1)
+    passes = args.passes if args.passes is not None else 1
     output = args.output.expanduser() if args.output else Path("quality-results") / (
         time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-{args.profile}"
     )
+    attributes = tuple(_parse_attribute(value) for value in args.attribute)
     result = run_evaluations(
         artifact,
         RunOptions(
@@ -277,9 +298,32 @@ def _run_resolved(
             keep_going=args.keep_going,
             ppl_dataset=args.ppl_dataset,
             preparation_wall_s=preparation_wall_s,
+            weave_project=args.weave_project,
+            change_label=args.change_label,
+            attributes=attributes,
         ),
     )
-    return 0 if result["status"] == "completed" else 1
+    if result["status"] != "completed":
+        return 1
+    if args.baseline is None:
+        return 0
+    comparison = compare_runs(args.baseline, output)
+    comparison_path = output.expanduser().resolve() / "comparison.json"
+    _emit_json(comparison, comparison_path)
+    _print_comparison(comparison)
+    return (
+        0
+        if comparison["decision"]["local_retention_gate_passed"] is True
+        else 3
+    )
+
+
+def _parse_attribute(value: str) -> tuple[str, str]:
+    key, separator, attribute_value = value.partition("=")
+    key = key.strip()
+    if not separator or not key:
+        raise ValueError(f"invalid --attribute {value!r}; expected KEY=VALUE")
+    return key, attribute_value
 
 
 def _require_metallib(artifact: Artifact) -> None:
@@ -298,6 +342,54 @@ def _emit_json(payload: dict[str, Any], output: Path | None) -> None:
         output.write_text(text)
         print(f"quality-eval: wrote {output}", file=sys.stderr)
     print(text, end="")
+
+
+def _print_comparison(comparison: dict[str, Any]) -> None:
+    print("[quality-eval] gate metrics")
+    metrics = comparison.get("metrics") or {}
+    overall = metrics.get("overall_score") or {}
+    if overall.get("available"):
+        overall_status = (
+            "PASS"
+            if overall.get("gate_passed") is True
+            else "FAIL"
+            if overall.get("gate_passed") is False
+            else "N/A"
+        )
+        print(
+            "[quality-eval]   Overall downstream: "
+            f"baseline={overall.get('baseline_correct')}/{overall.get('baseline_total')} "
+            f"candidate={overall.get('candidate_correct')}/{overall.get('candidate_total')} "
+            f"required={overall.get('required_correct')}/{overall.get('baseline_total')} "
+            f"{overall_status}"
+        )
+    ppl = metrics.get("ppl") or {}
+    if ppl.get("available"):
+        print(
+            "[quality-eval]   PPL: "
+            f"baseline={float(ppl['baseline']):.6f} "
+            f"candidate={float(ppl['candidate']):.6f} "
+            f"maximum={float(ppl['threshold']):.6f} "
+            f"{'PASS' if ppl.get('gate_passed') else 'FAIL'}"
+        )
+    decision = comparison["decision"]
+    behavior = decision.get("behavior_response_passed")
+    if behavior is not None:
+        ranked = comparison["response_identity"]["ranked_gpqa"]
+        print(
+            "[quality-eval]   Ranked GPQA behavior: "
+            f"{ranked['matched']}/{ranked['total']} matched; "
+            f"required={ranked['required_matches']} "
+            f"{'PASS' if behavior else 'FAIL'}"
+        )
+    probe = decision.get("public_probe_passed")
+    if probe is not None:
+        print(
+            "[quality-eval]   Public first-token probe: "
+            f"{'PASS' if probe else 'FAIL'}"
+        )
+    passed = decision.get("local_retention_gate_passed") is True
+    print(f"[quality-eval] QUALITY GATE: {'PASS' if passed else 'FAIL'}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -323,7 +415,13 @@ def main(argv: list[str] | None = None) -> int:
                 args.candidate,
                 check_prompts=not args.skip_prompt_check,
             )
-            _emit_json(comparison, args.output)
+            output = (
+                args.output
+                if args.output is not None
+                else args.candidate.expanduser().resolve() / "comparison.json"
+            )
+            _emit_json(comparison, output)
+            _print_comparison(comparison)
             gate_passed = comparison["decision"]["local_retention_gate_passed"]
             return 3 if gate_passed is not True and not args.report_only else 0
         if args.command == "check-prompts":
