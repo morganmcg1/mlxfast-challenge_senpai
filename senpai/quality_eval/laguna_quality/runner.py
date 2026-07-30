@@ -33,6 +33,9 @@ ALL_SUITES = ("ppl", "mmlu_pro", "gpqa_diamond", "aime", "gsm8k")
 PROMPT_HASH_SUITES = {"mmlu_pro", "gpqa_diamond", "aime", "gsm8k"}
 RANKED_GPQA_MAX_TOKENS = 128
 TOKEN_IDS_PROMPT_FORMAT = "token_ids"
+METRIC_RETENTION_FLOOR = 0.97
+BEHAVIOR_MATCH_NUMERATOR = 7
+BEHAVIOR_MATCH_DENOMINATOR = 9
 
 
 @dataclass(frozen=True)
@@ -501,19 +504,7 @@ def compare_runs(
     for name in sorted(set(baseline_metrics) | set(candidate_metrics)):
         base = baseline_metrics.get(name, {}).get("mean")
         cand = candidate_metrics.get(name, {}).get("mean")
-        delta = cand - base if isinstance(base, (int, float)) and isinstance(cand, (int, float)) else None
-        metrics[name] = {
-            "baseline": base,
-            "candidate": cand,
-            "delta": delta,
-            "relative": (
-                cand / base
-                if isinstance(base, (int, float))
-                and isinstance(cand, (int, float))
-                and base != 0
-                else None
-            ),
-        }
+        metrics[name] = _metric_comparison(name, base, cand)
     response_identity = _compare_responses(baseline, candidate)
     response_identity["public_probe"] = _compare_public_probes(
         baseline_manifest,
@@ -523,6 +514,7 @@ def compare_runs(
         "baseline": str(baseline.resolve()),
         "candidate": str(candidate.resolve()),
         "compatibility": compatibility,
+        "minimum_retention": METRIC_RETENTION_FLOOR,
         "metrics": metrics,
         "response_identity": response_identity,
         "decision": _regression_decision(metrics, response_identity),
@@ -873,11 +865,49 @@ def _compare_responses(baseline: Path, candidate: Path) -> dict[str, Any]:
     baseline_rows = _response_rows(baseline)
     candidate_rows = _response_rows(candidate)
     common = sorted(set(baseline_rows) & set(candidate_rows))
-    mismatches = [
-        {"result": key[0], "id": key[1]}
-        for key in common
-        if baseline_rows[key] != candidate_rows[key]
+    mismatched_keys = [
+        key for key in common if baseline_rows[key] != candidate_rows[key]
     ]
+    mismatches = [{"result": key[0], "id": key[1]} for key in mismatched_keys]
+    ranked_results = sorted(
+        {
+            key[0]
+            for key in set(baseline_rows) | set(candidate_rows)
+            if key[0].endswith("gpqa_diamond_ranked_greedy.json")
+        }
+    )
+    ranked_by_result = []
+    for result in ranked_results:
+        baseline_keys = {key for key in baseline_rows if key[0] == result}
+        candidate_keys = {key for key in candidate_rows if key[0] == result}
+        common_keys = baseline_keys & candidate_keys
+        matched = sum(
+            baseline_rows[key] == candidate_rows[key] for key in common_keys
+        )
+        total = len(baseline_keys)
+        required = _required_behavior_matches(total)
+        baseline_only = len(baseline_keys - candidate_keys)
+        candidate_only = len(candidate_keys - baseline_keys)
+        ranked_by_result.append(
+            {
+                "result": result,
+                "matched": matched,
+                "total": total,
+                "compared": len(common_keys),
+                "match_rate": matched / total if total else None,
+                "required_matches": required,
+                "baseline_only": baseline_only,
+                "candidate_only": candidate_only,
+                "passed": (
+                    baseline_only == 0
+                    and candidate_only == 0
+                    and total > 0
+                    and matched >= required
+                ),
+            }
+        )
+    ranked_total = sum(result["total"] for result in ranked_by_result)
+    ranked_matched = sum(result["matched"] for result in ranked_by_result)
     return {
         "matched": len(common) - len(mismatches),
         "total": len(common),
@@ -886,6 +916,27 @@ def _compare_responses(baseline: Path, candidate: Path) -> dict[str, Any]:
         "candidate_only": len(set(candidate_rows) - set(baseline_rows)),
         "mismatches": mismatches[:100],
         "mismatches_truncated": len(mismatches) > 100,
+        "ranked_gpqa": {
+            "matched": ranked_matched,
+            "total": ranked_total,
+            "compared": sum(result["compared"] for result in ranked_by_result),
+            "match_rate": ranked_matched / ranked_total if ranked_total else None,
+            "required_matches": sum(
+                result["required_matches"] for result in ranked_by_result
+            ),
+            "baseline_only": sum(
+                result["baseline_only"] for result in ranked_by_result
+            ),
+            "candidate_only": sum(
+                result["candidate_only"] for result in ranked_by_result
+            ),
+            "passed": (
+                all(result["passed"] for result in ranked_by_result)
+                if ranked_by_result
+                else None
+            ),
+            "results": ranked_by_result,
+        },
     }
 
 
@@ -911,41 +962,120 @@ def _regression_decision(
     metrics: dict[str, Any],
     response_identity: dict[str, Any],
 ) -> dict[str, Any]:
-    regressions: list[dict[str, Any]] = []
-    for name, values in metrics.items():
-        baseline = values.get("baseline")
-        candidate = values.get("candidate")
-        if not isinstance(baseline, (int, float)) or not isinstance(candidate, (int, float)):
-            continue
-        tolerance = max(1e-12, abs(float(baseline)) * 1e-12)
-        worse = (
-            candidate > baseline + tolerance
-            if name == "ppl"
-            else candidate < baseline - tolerance
-        )
-        if worse:
-            regressions.append(
-                {
-                    "metric": name,
-                    "baseline": baseline,
-                    "candidate": candidate,
-                    "delta": candidate - baseline,
-                }
-            )
-    response_drift = any(
+    regressions = [
+        {"metric": name, **values}
+        for name, values in metrics.items()
+        if values.get("gate_passed") is False
+    ]
+    row_set_drift = any(
         response_identity.get(key, 0)
         for key in ("baseline_only", "candidate_only")
-    ) or bool(response_identity.get("mismatches")) or (
+    )
+    ranked_gpqa = response_identity["ranked_gpqa"]
+    behavior_passed = ranked_gpqa["passed"]
+    probe_passed = (response_identity.get("public_probe") or {}).get("matched")
+    response_drift = row_set_drift or bool(response_identity.get("mismatches")) or (
         (response_identity.get("public_probe") or {}).get("matched") is False
     )
-    regression = bool(regressions) or response_drift
+    regression = (
+        bool(regressions)
+        or row_set_drift
+        or behavior_passed is False
+        or probe_passed is False
+    )
+    informative_metrics = [
+        name for name, values in metrics.items() if values.get("informative")
+    ]
+    uninformative_metrics = [
+        name
+        for name, values in metrics.items()
+        if values.get("available") and not values.get("informative")
+    ]
+    unavailable_metrics = [
+        name for name, values in metrics.items() if not values.get("available")
+    ]
+    evidence_available = (
+        bool(informative_metrics)
+        or behavior_passed is not None
+    )
+    local_gate_passed = False if regression else True if evidence_available else None
     return {
-        "status": "regression" if regression else "matched_or_improved",
+        "status": (
+            "regression"
+            if regression
+            else "retained"
+            if evidence_available
+            else "insufficient_evidence"
+        ),
         "baseline_regression": regression,
+        "minimum_retention": METRIC_RETENTION_FLOOR,
         "metric_regressions": regressions,
         "response_drift": response_drift,
+        "metric_retention_passed": (
+            not regressions if informative_metrics else None
+        ),
+        "informative_metrics": informative_metrics,
+        "uninformative_metrics": uninformative_metrics,
+        "unavailable_metrics": unavailable_metrics,
+        "behavior_response_passed": behavior_passed,
+        "public_probe_passed": probe_passed,
+        "row_sets_match": not row_set_drift,
+        "local_retention_gate_passed": local_gate_passed,
         "quality_gate_passed": None,
     }
+
+
+def _metric_comparison(
+    name: str,
+    baseline: Any,
+    candidate: Any,
+) -> dict[str, Any]:
+    result = {
+        "baseline": baseline,
+        "candidate": candidate,
+        "delta": None,
+        "relative": None,
+        "direction": "lower_is_better" if name == "ppl" else "higher_is_better",
+        "retention": None,
+        "minimum_retention": METRIC_RETENTION_FLOOR,
+        "threshold": None,
+        "available": False,
+        "informative": False,
+        "gate_passed": None,
+    }
+    if not isinstance(baseline, (int, float)) or not isinstance(
+        candidate, (int, float)
+    ):
+        return result
+
+    baseline = float(baseline)
+    candidate = float(candidate)
+    result["available"] = True
+    result["delta"] = candidate - baseline
+    if baseline != 0.0:
+        result["relative"] = candidate / baseline
+    if name == "ppl":
+        if baseline <= 0.0 or candidate <= 0.0:
+            result["gate_passed"] = False
+            return result
+        result["retention"] = baseline / candidate
+        result["threshold"] = baseline / METRIC_RETENTION_FLOOR
+        result["informative"] = True
+        result["gate_passed"] = candidate <= result["threshold"] + 1e-12
+    elif baseline > 0.0:
+        result["retention"] = candidate / baseline
+        result["threshold"] = baseline * METRIC_RETENTION_FLOOR
+        result["informative"] = True
+        result["gate_passed"] = candidate + 1e-12 >= result["threshold"]
+    else:
+        result["threshold"] = baseline
+    return result
+
+
+def _required_behavior_matches(total: int) -> int:
+    return (
+        total * BEHAVIOR_MATCH_NUMERATOR + BEHAVIOR_MATCH_DENOMINATOR - 1
+    ) // BEHAVIOR_MATCH_DENOMINATOR
 
 
 def _validate_run_outputs(root: Path, manifest: dict[str, Any]) -> None:
@@ -1528,34 +1658,6 @@ def _evaluation_provenance() -> dict[str, Any]:
 
 def _response_rows(run_dir: Path) -> dict[tuple[str, str], str]:
     rows: dict[tuple[str, str], str] = {}
-    for path in sorted(run_dir.glob("pass_*/ppl_results.jsonl")):
-        relative = str(path.relative_to(run_dir))
-        try:
-            records = [
-                json.loads(line)
-                for line in path.read_text().splitlines()
-                if line.strip()
-            ]
-        except (OSError, json.JSONDecodeError):
-            records = []
-        for record in records:
-            if not isinstance(record, dict):
-                continue
-            response = {
-                key: record.get(key)
-                for key in (
-                    "scored_token_ids",
-                    "token_logprobs",
-                    "neg_log_likelihood",
-                    "ppl",
-                )
-            }
-            rows[(relative, str(record.get("id")))] = json.dumps(
-                response,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
     for path in sorted(run_dir.glob("pass_*/*.json")):
         if path.name.endswith("summary.json"):
             continue

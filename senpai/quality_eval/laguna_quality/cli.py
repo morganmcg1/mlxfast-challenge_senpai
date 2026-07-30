@@ -324,8 +324,8 @@ def main(argv: list[str] | None = None) -> int:
                 check_prompts=not args.skip_prompt_check,
             )
             _emit_json(comparison, args.output)
-            regression = comparison["decision"]["baseline_regression"]
-            return 3 if regression and not args.report_only else 0
+            gate_passed = comparison["decision"]["local_retention_gate_passed"]
+            return 3 if gate_passed is not True and not args.report_only else 0
         if args.command == "check-prompts":
             check_prompt_sets(args.run_dirs)
             return 0

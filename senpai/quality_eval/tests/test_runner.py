@@ -17,7 +17,12 @@ from dataclasses import asdict
 from laguna_quality.runner import (
     PROFILES,
     RANKED_GPQA_MAX_TOKENS,
+    _compare_responses,
+    _metric_comparison,
     _pass_commands,
+    _required_behavior_matches,
+    _regression_decision,
+    _response_rows,
     compare_runs,
 )
 from upstream.aime_eval import _stratified_limit
@@ -179,6 +184,227 @@ class LimitedDatasetTests(unittest.TestCase):
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_ranked_gpqa_behavior_floor_scales_by_profile_size(self) -> None:
+        for total, required in ((2, 2), (9, 7), (50, 39), (198, 154)):
+            with self.subTest(total=total):
+                self.assertEqual(_required_behavior_matches(total), required)
+
+    def test_ranked_gpqa_behavior_floor_uses_extracted_responses(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            baseline = Path(temporary) / "baseline"
+            candidate = Path(temporary) / "candidate"
+            for root in (baseline, candidate):
+                (root / "pass_1").mkdir(parents=True)
+            baseline_rows = [
+                {"id": f"q{index}", "completion": f"answer-{index}"}
+                for index in range(9)
+            ]
+            candidate_rows = [
+                {
+                    "id": row["id"],
+                    "completion": (
+                        row["completion"] if index < 7 else f"different-{index}"
+                    ),
+                }
+                for index, row in enumerate(baseline_rows)
+            ]
+            filename = "gpqa_diamond_ranked_greedy.json"
+            (baseline / "pass_1" / filename).write_text(
+                json.dumps({"per_sample": baseline_rows})
+            )
+            (candidate / "pass_1" / filename).write_text(
+                json.dumps({"per_sample": candidate_rows})
+            )
+
+            identity = _compare_responses(baseline, candidate)
+
+            self.assertEqual(identity["ranked_gpqa"]["matched"], 7)
+            self.assertEqual(identity["ranked_gpqa"]["required_matches"], 7)
+            self.assertTrue(identity["ranked_gpqa"]["passed"])
+
+            (candidate / "pass_1" / filename).write_text(
+                json.dumps({"per_sample": baseline_rows})
+            )
+            for root in (baseline, candidate):
+                (root / "pass_2").mkdir()
+            second_candidate_rows = [
+                {
+                    "id": row["id"],
+                    "completion": (
+                        row["completion"] if index < 6 else f"different-{index}"
+                    ),
+                }
+                for index, row in enumerate(baseline_rows)
+            ]
+            (baseline / "pass_2" / filename).write_text(
+                json.dumps({"per_sample": baseline_rows})
+            )
+            (candidate / "pass_2" / filename).write_text(
+                json.dumps({"per_sample": second_candidate_rows})
+            )
+
+            identity = _compare_responses(baseline, candidate)
+
+            self.assertEqual(identity["ranked_gpqa"]["matched"], 15)
+            self.assertEqual(identity["ranked_gpqa"]["required_matches"], 14)
+            self.assertFalse(identity["ranked_gpqa"]["passed"])
+            self.assertFalse(identity["ranked_gpqa"]["results"][1]["passed"])
+
+    def test_ranked_gpqa_missing_candidate_row_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            baseline = Path(temporary) / "baseline" / "pass_1"
+            candidate = Path(temporary) / "candidate" / "pass_1"
+            baseline.mkdir(parents=True)
+            candidate.mkdir(parents=True)
+            rows = [
+                {"id": f"q{index}", "completion": f"answer-{index}"}
+                for index in range(9)
+            ]
+            filename = "gpqa_diamond_ranked_greedy.json"
+            (baseline / filename).write_text(json.dumps({"per_sample": rows}))
+            (candidate / filename).write_text(
+                json.dumps({"per_sample": rows[:8]})
+            )
+
+            ranked = _compare_responses(
+                baseline.parent,
+                candidate.parent,
+            )["ranked_gpqa"]
+
+            self.assertEqual(ranked["total"], 9)
+            self.assertEqual(ranked["compared"], 8)
+            self.assertEqual(ranked["baseline_only"], 1)
+            self.assertEqual(ranked["required_matches"], 7)
+            self.assertEqual(ranked["match_rate"], 8 / 9)
+            self.assertFalse(ranked["passed"])
+
+    def test_ppl_rows_are_not_behavior_responses(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            pass_dir = Path(temporary) / "pass_1"
+            pass_dir.mkdir()
+            (pass_dir / "ppl_results.jsonl").write_text(
+                json.dumps(
+                    {
+                        "id": "ppl-1",
+                        "token_logprobs": [-1.0],
+                        "ppl": 2.0,
+                    }
+                )
+                + "\n"
+            )
+
+            self.assertEqual(_response_rows(Path(temporary)), {})
+
+    def test_retention_gate_handles_metric_direction_and_response_budget(self) -> None:
+        metrics = {
+            "mmlu": _metric_comparison("mmlu", 0.80, 0.78),
+            "ppl": _metric_comparison("ppl", 100.0, 102.0),
+            "aime": _metric_comparison("aime", 0.0, 0.0),
+        }
+        response_identity = {
+            "matched": 61,
+            "total": 62,
+            "match_rate": 61 / 62,
+            "baseline_only": 0,
+            "candidate_only": 0,
+            "mismatches": [{"result": "mmlu", "id": "q1"}],
+            "public_probe": {"matched": True},
+            "ranked_gpqa": {
+                "matched": 7,
+                "total": 9,
+                "required_matches": 7,
+                "baseline_only": 0,
+                "candidate_only": 0,
+                "passed": True,
+            },
+        }
+
+        decision = _regression_decision(metrics, response_identity)
+
+        self.assertEqual(metrics["mmlu"]["threshold"], 0.776)
+        self.assertAlmostEqual(metrics["ppl"]["threshold"], 100.0 / 0.97)
+        self.assertFalse(metrics["aime"]["informative"])
+        self.assertIsNone(metrics["aime"]["gate_passed"])
+        self.assertTrue(_metric_comparison("mmlu", 1.0, 0.970)["gate_passed"])
+        self.assertFalse(_metric_comparison("mmlu", 1.0, 0.969)["gate_passed"])
+        self.assertTrue(
+            _metric_comparison("ppl", 100.0, 100.0 / 0.97)["gate_passed"]
+        )
+        self.assertFalse(
+            _metric_comparison("ppl", 100.0, 100.0 / 0.97 + 0.001)[
+                "gate_passed"
+            ]
+        )
+        self.assertEqual(decision["status"], "retained")
+        self.assertTrue(decision["response_drift"])
+        self.assertTrue(decision["local_retention_gate_passed"])
+        self.assertEqual(decision["uninformative_metrics"], ["aime"])
+
+        response_identity["ranked_gpqa"]["matched"] = 6
+        response_identity["ranked_gpqa"]["passed"] = False
+        decision = _regression_decision(metrics, response_identity)
+        self.assertEqual(decision["status"], "regression")
+        self.assertEqual(decision["metric_regressions"], [])
+        self.assertFalse(decision["behavior_response_passed"])
+
+        response_identity["ranked_gpqa"]["matched"] = 7
+        response_identity["ranked_gpqa"]["passed"] = True
+        metrics["mmlu"] = _metric_comparison("mmlu", 0.80, 0.77)
+        decision = _regression_decision(metrics, response_identity)
+        self.assertEqual(decision["metric_regressions"][0]["metric"], "mmlu")
+
+        response_identity["ranked_gpqa"] = {
+            "matched": 0,
+            "total": 0,
+            "required_matches": 0,
+            "baseline_only": 0,
+            "candidate_only": 0,
+            "passed": None,
+        }
+        metrics["mmlu"] = _metric_comparison("mmlu", 0.80, 0.78)
+        response_identity["public_probe"] = {"matched": None}
+        decision = _regression_decision(metrics, response_identity)
+        self.assertIsNone(decision["behavior_response_passed"])
+        self.assertIsNone(decision["public_probe_passed"])
+        self.assertTrue(decision["local_retention_gate_passed"])
+
+        decision = _regression_decision(
+            {"aime": _metric_comparison("aime", 0.0, 0.0)},
+            response_identity,
+        )
+        self.assertEqual(decision["status"], "insufficient_evidence")
+        self.assertIsNone(decision["local_retention_gate_passed"])
+
+        response_identity["public_probe"] = {"matched": True}
+        decision = _regression_decision(
+            {"aime": _metric_comparison("aime", 0.0, 0.0)},
+            response_identity,
+        )
+        self.assertEqual(decision["status"], "insufficient_evidence")
+        self.assertTrue(decision["public_probe_passed"])
+        self.assertIsNone(decision["local_retention_gate_passed"])
+
+        response_identity["public_probe"] = {"matched": False}
+        decision = _regression_decision(
+            {"aime": _metric_comparison("aime", 0.0, 0.0)},
+            response_identity,
+        )
+        self.assertEqual(decision["status"], "regression")
+        self.assertFalse(decision["local_retention_gate_passed"])
+
+        response_identity["public_probe"] = {"matched": None}
+        decision = _regression_decision(
+            {
+                "ppl": _metric_comparison("ppl", 100.0, 102.0),
+                "mmlu": _metric_comparison("mmlu", None, None),
+            },
+            response_identity,
+        )
+        self.assertEqual(decision["informative_metrics"], ["ppl"])
+        self.assertEqual(decision["uninformative_metrics"], [])
+        self.assertEqual(decision["unavailable_metrics"], ["mmlu"])
+        self.assertTrue(decision["local_retention_gate_passed"])
+
     def test_compare_reports_metrics_and_raw_response_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
