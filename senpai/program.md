@@ -651,6 +651,10 @@ falsifiable change such as "avoid materializing this mask on one-token
 sliding-window decode; expect X microseconds from the profile; reject if any
 token differs or decode improves by less than the measured noise floor."
 
+Use `python3 senpai/exa_search.py "query"` for general web search; add
+`--category publication` for research literature. It reads `EXA_API_KEY` from
+the environment or `senpai/.env` and prints the Exa response as JSON.
+
 ## High-Value Research Areas
 
 Start from profiles and source inspection, not this list alone.
