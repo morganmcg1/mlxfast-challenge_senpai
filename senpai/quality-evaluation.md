@@ -8,9 +8,30 @@ and summaries under the selected output directory.
 This panel supplements the challenge's exact-token and hidden behavioral
 gates; it does not replace them.
 
+## First-time setup
+
+From the repository root:
+
+```bash
+# Downloads/verifies the 21.6 GB checkpoint and builds the Swift/Metal runtime.
+./setup.sh
+
+# Required by senpai/quality-eval; setup.sh does not install it.
+brew install uv
+```
+
+If `uv --version` already succeeds, skip the Homebrew command. The first
+`senpai/quality-eval` invocation creates the locked Python environment and
+fetches the public evaluation data automatically; no dataset path or Hugging
+Face token is required. Outbound internet access is required: MMLU-Pro and
+GPQA use their normal caches, while AIME and GSM8K read the Hugging Face
+datasets server on each run.
+
 ## Routine workflow
 
-Create a matched baseline before changing model or kernel code:
+Create and retain a matched baseline on untouched `main` before changing model
+or kernel code. `quality-results/` is gitignored, so a fresh checkout does not
+contain this baseline:
 
 ```bash
 ./setup.sh
@@ -31,10 +52,14 @@ Run the same panel after the change, then compare:
   --output quality-results/candidate-quick
 ```
 
-`compare` exits `0` on PASS and `3` on FAIL. It rejects incomplete or
-incompatible runs, including different hosts, evaluator versions, tokenizers,
-profiles, prompt sets, or pass counts. Run only one model-holding command at a
-time; Laguna keeps about 21.6 GB resident.
+`run --baseline` and, by default, `compare` exit `0` on quality PASS and `3`
+on a completed quality FAIL (`compare --report-only` suppresses exit `3`). A
+bare `run` only reports `EVALUATION RUN: PASS`, meaning the evaluator completed
+and produced valid outputs; it does not apply the retention gate. Other
+nonzero exits mean the evaluation was invalid, incomplete, or interrupted.
+Comparison rejects incompatible runs, including different hosts, evaluator
+versions, tokenizers, profiles, prompt sets, or pass counts. Run only one
+model-holding command at a time; Laguna keeps about 21.6 GB resident.
 
 ## Quick panel
 
@@ -140,7 +165,11 @@ Do not compare against a different prompt manifest or evaluator SHA.
 
 For a roughly 13-minute edit-loop check on this Mac, use PPL plus MMLU-Pro,
 AIME, and GSM8K. It scores 35 attempts and omits the GPQA behavior check.
-Create one matched subset baseline, then pass it with `--baseline`:
+The full-panel components imply an expected untouched aggregate of `16/35`,
+so the integer 97% gate still requires `16/35`; verify this when creating the
+subset baseline. PPL remains at most `14.386452`. Create a separate matched
+subset baseline, then pass it with `--baseline` (the full baseline is contract-
+incompatible with this subset):
 
 ```bash
 # Once, before modifying the model:
@@ -200,5 +229,19 @@ Inspect a checkout or `quality-artifact.json` bundle without loading it:
 ```bash
 ./senpai/quality-eval inspect /path/to/checkout-or-bundle
 ```
+
+A portable bundle is a directory containing `quality-artifact.json` plus the
+referenced files. Paths are relative to the bundle directory:
+
+```json
+{
+  "weights": "weights",
+  "tokenizer": "tokenizer",
+  "bridge": "bin/laguna-quality-bridge",
+  "metallib": "lib/mlx.metallib"
+}
+```
+
+Pass the bundle directory, not the JSON file, to `inspect`, `serve`, or `run`.
 
 Downstream suites need Hugging Face access; built-in PPL is self-contained.

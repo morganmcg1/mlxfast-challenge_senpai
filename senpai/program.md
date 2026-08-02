@@ -530,28 +530,84 @@ swift test --force-resolved-versions \
   --filter lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled
 ```
 
-The local quality panel adds PPL, MMLU-Pro, GPQA-Diamond, AIME, and GSM8K
-regression evidence:
+### Autoresearch quality checkpoint
+
+One-time setup from the repository root:
+
+```bash
+./setup.sh
+brew install uv  # skip when uv --version already succeeds
+```
+
+`setup.sh` downloads the pinned 21.6 GB checkpoint. `senpai/quality-eval`
+creates its locked Python environment and fetches the public benchmark data
+automatically; no dataset path or Hugging Face token is needed. Internet access
+is required, including live Hugging Face access for AIME and GSM8K.
+
+Before modifying untouched `main`, create and preserve separate matched
+baselines for the periodic 13-minute core panel and the full quick pre-submit
+panel:
 
 ```bash
 ./senpai/quality-eval run . \
   --profile quick \
-  --output quality-results/baseline-quick
+  --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
+  --change-label untouched-baseline-core \
+  --output quality-results/baseline-quick-core
 
-./senpai/quality-eval compare \
-  quality-results/baseline-quick \
-  quality-results/candidate-quick \
-  --output quality-results/comparison.json
+./senpai/quality-eval run . \
+  --profile quick \
+  --change-label untouched-baseline-full \
+  --output quality-results/baseline-quick
 ```
 
-See `senpai/quality-evaluation.md` for the frozen question set, baseline, 97%
-retention gate, and output contract. The gate uses the summed correct count
-across MMLU-Pro, GPQA greedy, GPQA sampled, AIME, and GSM8K; individual suite
-scores are diagnostic, ranked GPQA is a separate behavior check, and PPL is a
-separate lower-is-better gate. Use matched same-host baseline/candidate runs
-and only one model-holding process at a time. This panel is advisory, remains
-outside submitted runtime behavior, and cannot relax exact-token correctness
-or replace the official hidden M5 gates.
+Run the core gate periodically for promising changes; replace `my-change-001`
+with a unique experiment ID because output directories are immutable:
+
+```bash
+QUALITY_RUN_ID=my-change-001
+./senpai/quality-eval run . \
+  --profile quick \
+  --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
+  --change-label "${QUALITY_RUN_ID}" \
+  --baseline quality-results/baseline-quick-core \
+  --output "quality-results/candidate-quick-core-${QUALITY_RUN_ID}"
+```
+
+Run the full quick panel before submission:
+
+```bash
+QUALITY_RUN_ID=my-change-001
+./senpai/quality-eval run . \
+  --profile quick \
+  --change-label "${QUALITY_RUN_ID}" \
+  --baseline quality-results/baseline-quick \
+  --output "quality-results/candidate-quick-${QUALITY_RUN_ID}"
+```
+
+Only exit `0` with terminal `QUALITY GATE: PASS` permits promotion. Exit `3`
+means a completed quality regression; exits `1`, `2`, and `130` mean the run
+failed, was invalid, or was interrupted. Any nonzero exit rejects or blocks
+promotion. A bare `EVALUATION RUN: PASS` only means the run completed—it is not
+a quality decision.
+
+The frozen untouched reference and acceptable thresholds on this Mac are:
+
+| Gate | Baseline | Accept candidate |
+| --- | ---: | ---: |
+| Periodic core downstream | 16/35 | at least 16/35 |
+| Full quick downstream | 26/53 (49.06%) | at least 26/53 |
+| Token-weighted PPL | 13.954858 | at most 14.386452 |
+| Ranked GPQA response identity (full quick only) | 9 saved prefixes | at least 7/9 exact |
+| Public first-token probe | token 5991 | exact match |
+
+Full-panel diagnostics are MMLU-Pro `9/20`, GPQA greedy `6/9`, GPQA sampled
+`4/9`, AIME `4/9`, and GSM8K `3/6`; only their summed correct count gates.
+PPL and ranked GPQA are separate. Always use a same-host, contract-compatible
+baseline: `quality-results/` is gitignored and not shipped in a fresh clone.
+See `senpai/quality-evaluation.md` for the frozen prompts and output contract.
+This advisory panel cannot relax exact-token correctness or replace the hidden
+M5 quality and behavioral gates. Run only one model-holding process at a time.
 
 ## Serial Non-Speculative Integrity Boundary
 
