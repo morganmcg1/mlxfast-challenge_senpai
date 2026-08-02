@@ -193,12 +193,55 @@ let lagunaPrefillFusedRoutedGateUpEnabled =
 
 /// The expert-aligned gather-QMM consumes a 32-row gate/up-interleaved bank
 /// and writes the packed 512-wide SwiGLU result into the first half of its
-/// oversized MLX output allocation. The same environment switch controls the
-/// backend dispatch and this view interpretation, keeping its ablation path
-/// coherent.
+/// oversized MLX output allocation. The backend dispatch is NAX-only, so the
+/// Swift view interpretation must use the same hardware/OS capability gate.
+/// Otherwise pre-NAX GPUs run the generic 1024-wide kernel and this view would
+/// incorrectly treat its first half as packed SwiGLU output.
+func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
+    guard osSupportsNAX else { return false }
+    let bytes = Array(architecture.utf8)
+    guard bytes.count >= 3 else { return false }
+
+    func digit(_ value: UInt8) -> Int {
+        let digit = Int(value) - Int(Character("0").asciiValue!)
+        return (0..<10).contains(digit) ? digit : 0
+    }
+
+    let generation =
+        digit(bytes[bytes.count - 3]) * 10
+        + digit(bytes[bytes.count - 2])
+    let threshold = bytes.last == Character("p").asciiValue! ? 18 : 17
+    return generation >= threshold
+}
+
+func lagunaExpertAlignedStageEnabled(_ value: String?) -> Bool {
+    value == nil || value == "" || value == "4"
+}
+
+private let lagunaHardwareSupportsNAX: Bool = {
+    let osSupportsNAX: Bool
+    if #available(macOS 26.2, *) {
+        osSupportsNAX = true
+    } else {
+        osSupportsNAX = false
+    }
+    let environment = ProcessInfo.processInfo.environment
+    let architecture =
+        environment["MLX_METAL_GPU_ARCH"].flatMap { $0.isEmpty ? nil : $0 }
+        ?? GPU.deviceInfo().architecture
+    return lagunaNAXAvailable(
+        architecture: architecture,
+        osSupportsNAX: osSupportsNAX
+    )
+}()
+
 let lagunaExpertAlignedGatherEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
+    && lagunaHardwareSupportsNAX
+    && lagunaExpertAlignedStageEnabled(
+        ProcessInfo.processInfo.environment["DARKBLOOM_STAGE_BM128"]
+    )
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)

@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+import os
+from pathlib import Path
+import shutil
+import sys
+
+ROOT = Path(__file__).resolve().parent
+PROJECT = ROOT / "quality_eval"
+
+if os.environ.get("LAGUNA_QUALITY_BOOTSTRAPPED") != "1":
+    uv = shutil.which("uv")
+    if uv is None:
+        raise SystemExit("quality-eval requires uv (https://docs.astral.sh/uv/)")
+    environment = dict(os.environ)
+    environment["LAGUNA_QUALITY_BOOTSTRAPPED"] = "1"
+    environment.setdefault("UV_CACHE_DIR", str(PROJECT / ".uv-cache"))
+    os.execve(
+        uv,
+        [
+            uv,
+            "run",
+            "--project",
+            str(PROJECT),
+            "--locked",
+            "python",
+            str(Path(__file__).resolve()),
+            *sys.argv[1:],
+        ],
+        environment,
+    )
+
+sys.path.insert(0, str(PROJECT))
+from laguna_quality.cli import main
+
+raise SystemExit(main())

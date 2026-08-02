@@ -1,0 +1,17 @@
+[project]
+name = "laguna-quality-eval"
+version = "0.1.0"
+description = "Local quality evaluation tools for modified Laguna checkouts"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+  "inspect-ai==0.3.240",
+  "inspect-evals==0.14.0",
+  "jinja2==3.1.6",
+  "markupsafe==3.0.3",
+  "openai==2.40.0",
+  "transformers==5.9.0",
+  "weave==0.53.3",
+]
+
+[tool.uv]
+package = false

@@ -4,6 +4,7 @@ build/
 dist/
 .build/
 .build-worker/
+.build-quality/
 .tools/
 .mlxfast-cache/
 .mlxfast-private/
@@ -20,6 +21,7 @@ weights/*
 # Local results log
 results.tsv
 m5_artifacts/
+quality-results/
 
 # Benchmark contract outputs
 score.json
@@ -59,3 +61,6 @@ correctness_prompts/*gpqa_reference_cases*.json
 
 # Local-only working docs (not part of the benchmark)
 local-docs/
+.env
+__pycache__/
+**/__pycache__/

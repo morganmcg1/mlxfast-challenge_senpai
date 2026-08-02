@@ -7,6 +7,26 @@ import MLXFastCore
 import Testing
 
 @Test
+func lagunaExpertAlignedGatherRequiresNAXHardwareAndOS() {
+    #expect(!lagunaNAXAvailable(architecture: "agxg16s", osSupportsNAX: true))
+    #expect(lagunaNAXAvailable(architecture: "agxg17s", osSupportsNAX: true))
+    #expect(!lagunaNAXAvailable(architecture: "agxg17p", osSupportsNAX: true))
+    #expect(lagunaNAXAvailable(architecture: "agxg18p", osSupportsNAX: true))
+    #expect(!lagunaNAXAvailable(architecture: "agxg17s", osSupportsNAX: false))
+    #expect(!lagunaNAXAvailable(architecture: "unknown", osSupportsNAX: true))
+}
+
+@Test
+func lagunaExpertAlignedGatherRequiresPackedStageVariant() {
+    #expect(lagunaExpertAlignedStageEnabled(nil))
+    #expect(lagunaExpertAlignedStageEnabled(""))
+    #expect(lagunaExpertAlignedStageEnabled("4"))
+    #expect(!lagunaExpertAlignedStageEnabled("0"))
+    #expect(!lagunaExpertAlignedStageEnabled("5"))
+    #expect(!lagunaExpertAlignedStageEnabled("invalid"))
+}
+
+@Test
 func lagunaCorrectnessComparesExpectedTokenSequences() {
     let pass = LagunaCorrectness.compareTokens(
         expected: [4, 5, 6],

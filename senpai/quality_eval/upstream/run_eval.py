@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+"""Deterministic inspect_evals MMLU-Pro / GPQA driver.
+
+Hits an OpenAI-compatible local server with GREEDY decoding and scores
+with the original inspect_evals task and scoring definitions. Comparable artifacts
+must see byte-identical prompts. We guarantee that by constructing each dataset as a pure
+function of --seed (MMLU-Pro: seeded subset of the fixed test split; GPQA: seeded
+choice shuffle), then recording a per-question prompt hash that the compare step
+asserts is identical across arms.
+
+Evaluate one local endpoint at a time because the Laguna model is RAM-resident.
+
+Usage:
+  run_eval.py --task {mmlu_pro,gpqa_diamond,gpqa_main} --arm {base,ship} --out results.json \
+      [--n 250] [--seed 12345] [--limit 5] [--max-tokens 2048] [--gpqa-split main]
+
+The additive GPQA-Main / Extended path uses the Wanfq/gpqa mirror with a pinned
+SHA-256; the GPQA-Diamond path is unchanged.
+"""
+import argparse
+import hashlib
+import json
+import os
+import random
+import sys
+
+os.environ.setdefault("OPENAI_API_KEY", "EMPTY")
+# Be quiet + deterministic; never let HF try to phone home for a cached dataset.
+os.environ.setdefault("HF_HUB_OFFLINE", "0")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+from inspect_ai import Task, eval as inspect_eval  # noqa: E402
+from inspect_ai.dataset import MemoryDataset  # noqa: E402
+from inspect_ai.model import GenerateConfig, get_model  # noqa: E402
+from inspect_ai.scorer import CORRECT, choice  # noqa: E402
+from inspect_ai.solver import multiple_choice  # noqa: E402
+
+# inspect_evals task internals (we reuse their exact prompt templates + record maps)
+from inspect_evals.mmlu_pro.mmlu_pro import (  # noqa: E402
+    USER_PROMPT_TEMPLATE as MMLU_USER_PROMPT_TEMPLATE,
+    mmlu_pro,
+)
+from inspect_evals.gpqa.gpqa import (  # noqa: E402
+    get_gpqa_diamond_dataset,
+    record_to_sample as _gpqa_record_to_sample,
+)
+from inspect_evals.utils import load_csv_dataset  # noqa: E402
+
+
+def _sample_prompt_sha(sample) -> str:
+    """Stable hash of the model-visible content of a sample (question + ordered
+    choices + correct letter). Independent of the model, so identical seeds ->
+    identical hashes by construction; the compare step asserts base==ship."""
+    choices = list(sample.choices) if sample.choices is not None else []
+    payload = json.dumps(
+        {"input": str(sample.input), "choices": choices, "target": sample.target},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _dataset_sha256(rows: list[dict]) -> str:
+    """Order-independent aggregate of the evaluated ``(id, prompt_sha)`` set."""
+    pairs = sorted((str(row["id"]), str(row["prompt_sha"])) for row in rows)
+    payload = json.dumps(pairs, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def build_mmlu_pro_task(n: int, seed: int, *, cot: bool = True) -> Task:
+    # shuffle=False -> deterministic test-split order; solver already shuffle=False.
+    base_task = mmlu_pro(shuffle=False)
+    full = list(base_task.dataset)
+    ids = [s.id for s in full]
+    if n and n < len(ids):
+        rng = random.Random(seed)
+        keep = set(rng.sample(ids, n))
+        subset = [s for s in full if s.id in keep]
+    else:
+        subset = full
+    subset.sort(key=lambda s: str(s.id))  # stable, arm-independent order
+    ds = MemoryDataset(samples=subset, name="mmlu_pro_subset")
+    return Task(
+        dataset=ds,
+        solver=[
+            multiple_choice(
+                template=MMLU_USER_PROMPT_TEMPLATE if cot else None,
+                cot=cot,
+                shuffle=False,
+            )
+        ],
+        scorer=choice(),
+    )
+
+
+def build_gpqa_diamond_task(seed: int, *, cot: bool = True) -> Task:
+    # Load with correct-answer-always-A, then deterministically seed-shuffle the
+    # choice order so position bias is removed AND both arms get the same layout.
+    ds = get_gpqa_diamond_dataset(shuffle_choices=False)
+    ds.shuffle_choices(seed=seed)
+    samples = list(ds)
+    samples.sort(key=lambda s: str(s.id))  # stable, arm-independent order
+    ds2 = MemoryDataset(samples=samples, name="gpqa_diamond")
+    return Task(
+        dataset=ds2,
+        solver=multiple_choice(cot=cot, shuffle=False),
+        scorer=choice(),
+        epochs=1,  # greedy is deterministic; repeating epochs is pointless
+    )
+
+
+# PR #598: additive larger-instrument GPQA loader. inspect_evals ships only the
+# Diamond (n=198) loader; GPQA-Main (n=448) / Extended (n=546) live in the gated
+# Idavidrein/gpqa repo. We source them from the ungated Wanfq/gpqa mirror, which
+# carries the verbatim original CSVs (full 78-col schema incl. Canary String).
+# Proven faithful: Wanfq's gpqa_diamond.csv is a 198/198 model-visible match to
+# the canonical openaipublic gpqa_diamond.csv this harness uses for Diamond. The
+# pinned content SHA256 guards against the mirror changing under us. Main/Extended
+# reuse inspect_evals' own record_to_sample (correct-answer-first, target="A") and
+# the identical seed-shuffle as Diamond, so base and ship arms see byte-identical
+# prompts (asserted downstream via prompt_sha).
+GPQA_MIRROR_REPO = "Wanfq/gpqa"
+GPQA_SPLIT_FILE = {"main": "gpqa_main.csv", "extended": "gpqa_extended.csv"}
+GPQA_SPLIT_SHA256 = {
+    "main": "acdeeac8f622267f2cd727d7d474202ea08dec80f7d3c3593b3ef8644f19b8e3",
+    "extended": "0926ee24949d02ed6748eb75a2611546c34479e30ddc42efd01d6f1681aaa48a",
+}
+
+
+def build_gpqa_main_task(seed: int, split: str = "main", *, cot: bool = True) -> Task:
+    """GPQA-Main (n=448) / Extended (n=546) under the SAME construction as the
+    Diamond path: load with shuffle_choices=False (correct answer at index 0),
+    then a deterministic seeded choice-shuffle (removes position bias; identical
+    --seed -> identical layout across arms). Additive: does not touch
+    build_gpqa_diamond_task."""
+    import hashlib
+
+    from huggingface_hub import hf_hub_download
+
+    fn = GPQA_SPLIT_FILE[split]
+    path = hf_hub_download(
+        repo_id=GPQA_MIRROR_REPO, filename=fn, repo_type="dataset",
+        token=os.environ.get("HF_TOKEN") or None,
+    )
+    got = hashlib.sha256(open(path, "rb").read()).hexdigest()
+    want = GPQA_SPLIT_SHA256[split]
+    if got != want:
+        raise RuntimeError(
+            f"gpqa_{split} mirror SHA256 mismatch: got {got} want {want} "
+            f"({GPQA_MIRROR_REPO}/{fn} changed -- re-validate before trusting)."
+        )
+    ds = load_csv_dataset(
+        path, "gpqa", sample_fields=_gpqa_record_to_sample, shuffle_choices=False
+    )
+    ds.shuffle_choices(seed=seed)
+    samples = list(ds)
+    samples.sort(key=lambda s: str(s.id))  # stable, arm-independent order
+    ds2 = MemoryDataset(samples=samples, name=f"gpqa_{split}")
+    return Task(
+        dataset=ds2,
+        solver=multiple_choice(cot=cot, shuffle=False),
+        scorer=choice(),
+        epochs=1,  # decode stochasticity is driven by --sampling-seed, not epochs
+    )
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task", required=True,
+                    choices=["mmlu_pro", "gpqa_diamond", "gpqa_main"])
+    ap.add_argument("--gpqa-split", default="main", choices=["main", "extended"],
+                    help="for --task gpqa_main: larger GPQA instrument "
+                         "(main n=448 default; extended n=546 fallback).")
+    ap.add_argument("--arm", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--n", type=int, default=250, help="MMLU-Pro subset size")
+    ap.add_argument("--seed", type=int, default=12345)
+    ap.add_argument("--limit", type=int, default=0, help="cap to first N (smoke); 0=all")
+    ap.add_argument(
+        "--expect-count",
+        type=int,
+        default=None,
+        help="fail unless the effective evaluation set has exactly this many samples",
+    )
+    ap.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
+    ap.add_argument("--model", default="laguna-xs-2.1")
+    ap.add_argument("--max-tokens", type=int, default=2048)
+    ap.add_argument("--max-connections", type=int, default=16)
+    # Decode defaults to greedy. Dataset construction and sampler seeds are separate
+    # so sampling variance can move without changing the prompt set.
+    ap.add_argument("--temperature", type=float, default=0.0)
+    ap.add_argument("--top-p", type=float, default=1.0)
+    ap.add_argument("--top-k", type=int, default=0,
+                    help="endpoint top_k extension (0=disabled)")
+    ap.add_argument("--sampling-seed", type=int, default=0,
+                    help="per-request sampling RNG seed. "
+                         "Distinct from --seed (dataset construction). Vary for seed-CI.")
+    ap.add_argument("--min-tokens", type=int, default=0,
+                    help="endpoint min_tokens extension (0=disabled)")
+    ap.add_argument(
+        "--no-cot",
+        action="store_true",
+        help="request only 'ANSWER: LETTER' for a fast multiple-choice screen",
+    )
+    ap.add_argument(
+        "--prompt-format",
+        choices=["chat_template", "raw_single_user"],
+        default="chat_template",
+        help="endpoint prompt tokenization; raw_single_user matches the ranked behavior gate",
+    )
+    ap.add_argument("--ids-file", default=None,
+                    help="optional JSON list of sample ids: build the dataset from --seed as "
+                         "usual (so prompts stay byte-identical) then keep only these ids. Used "
+                         "to re-run just the zeroed subset under min_tokens without re-scoring all.")
+    ap.add_argument("--log-dir", default=None)
+    args = ap.parse_args()
+    cot = not args.no_cot
+
+    if args.task == "mmlu_pro":
+        task = build_mmlu_pro_task(args.n, args.seed, cot=cot)
+    elif args.task == "gpqa_diamond":
+        task = build_gpqa_diamond_task(args.seed, cot=cot)
+    else:  # gpqa_main (larger instrument; split selects main/extended)
+        task = build_gpqa_main_task(args.seed, args.gpqa_split, cot=cot)
+
+    if args.ids_file:
+        keep = {str(x) for x in json.load(open(args.ids_file))}
+        task.dataset = task.dataset.filter(lambda s: str(s.id) in keep)
+        print(f"[run_eval] ids-file: kept {len(task.dataset)}/{len(keep)} requested ids", flush=True)
+
+    # Record prompt hashes for the full constructed dataset (pre-limit), keyed by id.
+    prompt_sha = {str(s.id): _sample_prompt_sha(s) for s in task.dataset}
+
+    limit = args.limit if args.limit and args.limit > 0 else None
+    effective_count = min(len(prompt_sha), limit) if limit is not None else len(prompt_sha)
+    if args.expect_count is not None and effective_count != args.expect_count:
+        raise RuntimeError(
+            f"{args.task} constructed {effective_count} effective samples; "
+            f"expected {args.expect_count}"
+        )
+
+    # Use inspect's generic OpenAI-compatible provider (`openai-api/<service>/<model>`)
+    # rather than the `openai/` provider: the latter's frontier-model heuristic
+    # (is_latest_model is a catch-all -> True for any non-OpenAI name) misclassifies
+    # the local model as gpt-5/o-series and silently STRIPS `temperature` from the
+    # request. OpenAICompatibleAPI sends temperature=0 explicitly. responses_api=False
+    # forces the canonical /v1/chat/completions path.
+    # top_k and min_tokens are endpoint extensions, passed through extra_body.
+    extra_body = {}
+    if args.min_tokens and args.min_tokens > 0:
+        extra_body["min_tokens"] = args.min_tokens
+    if args.top_k and args.top_k > 0:
+        extra_body["top_k"] = args.top_k
+    if args.prompt_format == "raw_single_user":
+        extra_body["prompt_format"] = args.prompt_format
+    extra_body = extra_body or None
+    model = get_model(
+        f"openai-api/local/{args.model}",
+        base_url=args.base_url,
+        api_key=os.environ["OPENAI_API_KEY"],
+        responses_api=False,
+        config=GenerateConfig(
+            temperature=args.temperature,
+            top_p=args.top_p,
+            max_tokens=args.max_tokens,
+            max_connections=args.max_connections,
+            seed=args.sampling_seed,
+            extra_body=extra_body,
+        ),
+    )
+
+    log_dir = args.log_dir or os.path.join(
+        os.path.dirname(os.path.abspath(args.out)), "_inspect_logs"
+    )
+
+    logs = inspect_eval(
+        task,
+        model=model,
+        limit=limit,
+        log_dir=log_dir,
+        display="plain",
+        score=True,
+        score_on_error=True,
+        retry_on_error=2,
+        # Collect every sample/error so the JSON remains diagnostic, then reject
+        # the run below if even one request failed.
+        fail_on_error=False,
+    )
+    log = logs[0]
+
+    per_sample = []
+    n_correct = 0
+    n_scored = 0
+    n_error = 0
+    for s in log.samples or []:
+        sid = str(s.id)
+        err = None
+        if s.error is not None:
+            err = getattr(s.error, "message", None) or str(s.error)
+            n_error += 1
+        score = (s.scores or {}).get("choice")
+        val = getattr(score, "value", None) if score is not None else None
+        answer = getattr(score, "answer", None) if score is not None else None
+        correct = val == CORRECT
+        if score is not None and val in (CORRECT, "I"):
+            n_scored += 1
+            if correct:
+                n_correct += 1
+        # PR #548: additive empty/EOS-rate instrumentation (no scoring change).
+        # An immediate first-token-EOS yields an empty completion -> the choice
+        # scorer extracts no answer -> scored incorrect. Recording the raw
+        # completion length separates a recoverable EOS-artifact empty from a
+        # genuine wrong answer; `empty` is gated on err is None so a request
+        # error is not miscounted as an EOS empty. Reads the sample output only.
+        comp = ""
+        stop_reason = None
+        completion_tokens = None
+        try:
+            out_obj = getattr(s, "output", None)
+            if out_obj is not None:
+                comp = out_obj.completion or ""
+                choices = getattr(out_obj, "choices", None)
+                if choices:
+                    stop_reason = getattr(choices[0], "stop_reason", None)
+                usage = getattr(out_obj, "usage", None)
+                if usage is not None:
+                    completion_tokens = getattr(usage, "output_tokens", None)
+        except Exception:
+            comp = comp or ""
+        is_empty = bool(err is None and not comp.strip())
+        # PR #612: length-truncation diagnostic (#605 logged only empty/chars, never
+        # finish_reason). inspect_ai maps an endpoint max_tokens cap -> 'max_tokens' and a
+        # context cap -> 'model_length'; either means the generation was cut off
+        # before the model emitted its final answer. Additive only -- no scoring change.
+        is_length_trunc = bool(
+            err is None and stop_reason in ("max_tokens", "model_length")
+        )
+        # PR #614: same finish_reason signal under the #614 field names so the
+        # gpqa_bar_validity audit (finish_length_rate + the 2048-from-4096 derivation)
+        # stays reproducible. output_tokens aliases completion_tokens (same usage
+        # field); is_truncated is ungated on err to match the #614 committed numbers.
+        output_tokens = completion_tokens
+        is_truncated = bool(stop_reason in ("max_tokens", "model_length"))
+        tgt = s.target if isinstance(s.target, str) else json.dumps(s.target)
+        per_sample.append(
+            {
+                "id": sid,
+                "target": tgt,
+                "answer": answer,
+                "value": val,
+                "correct": bool(correct),
+                "error": err,
+                "empty": is_empty,
+                "completion": comp,
+                "completion_chars": len(comp),
+                "stop_reason": stop_reason,
+                "completion_tokens": completion_tokens,
+                "length_truncated": is_length_trunc,
+                "output_tokens": output_tokens,
+                "truncated": is_truncated,
+                "prompt_sha": prompt_sha.get(sid),
+            }
+        )
+
+    # Guardrail accuracy uses every returned sample as its denominator. A request
+    # error is therefore never silently omitted (and any such error also makes the
+    # process fail below after the diagnostic artifact has been written).
+    accuracy = (n_correct / len(per_sample)) if per_sample else float("nan")
+    n_empty = sum(1 for r in per_sample if r["empty"])
+    empty_rate = (n_empty / len(per_sample)) if per_sample else float("nan")
+
+    # PR #612: aggregate length-truncation diagnostics (the decisive evidence #605
+    # lacked). If the model is running out of generation room before answering, a
+    # high length_stop_rate at a tight max_tokens that collapses at a generous one
+    # is the truncation smoking gun.
+    n_len_trunc = sum(1 for r in per_sample if r["length_truncated"])
+    n_stop_max_tokens = sum(1 for r in per_sample if r["stop_reason"] == "max_tokens")
+    n_stop_model_length = sum(1 for r in per_sample if r["stop_reason"] == "model_length")
+    length_stop_rate = (n_len_trunc / len(per_sample)) if per_sample else float("nan")
+    _ctoks = sorted(r["completion_tokens"] for r in per_sample
+                    if isinstance(r["completion_tokens"], (int, float)))
+    if _ctoks:
+        _n = len(_ctoks)
+        ctok_mean = sum(_ctoks) / _n
+        ctok_p50 = _ctoks[_n // 2]
+        ctok_p95 = _ctoks[min(int(0.95 * _n), _n - 1)]
+        ctok_max = _ctoks[-1]
+    else:
+        ctok_mean = ctok_p50 = ctok_p95 = ctok_max = None
+    from collections import Counter
+    stop_reason_counts = dict(Counter(r["stop_reason"] for r in per_sample))
+
+    # PR #614: finish_reason=length truncation audit under the #614 field names.
+    # n_length counts items cut at THIS cap; _len_rate_at(C) derives a SMALLER cap C's
+    # rate by thresholding output_tokens (a completion that emitted >C tokens here
+    # would have been cut at cap C), so one 4096 run yields both 4096 and 2048 rates.
+    n_length = sum(1 for r in per_sample if r["truncated"])
+    finish_length_rate = (n_length / len(per_sample)) if per_sample else float("nan")
+
+    def _len_rate_at(cap: int):
+        have = [r for r in per_sample if r["output_tokens"] is not None]
+        if not have:
+            return None, None
+        n = sum(1 for r in have if r["output_tokens"] > cap)
+        return n, n / len(have)
+
+    n_length_at_2048, finish_length_rate_at_2048 = _len_rate_at(2048)
+    per_sample.sort(key=lambda row: row["id"])
+    expected_samples = args.expect_count if args.expect_count is not None else effective_count
+    incomplete = len(per_sample) != expected_samples or n_scored != len(per_sample)
+
+    out = {
+        "task": args.task,
+        "arm": args.arm,
+        "model": args.model,
+        "seed": args.seed,
+        "n_requested": (args.n if args.task == "mmlu_pro" else None),
+        "limit": limit,
+        "n_dataset": len(prompt_sha),
+        "n_samples": len(per_sample),
+        "n_expected": expected_samples,
+        "incomplete": incomplete,
+        "dataset_sha256": _dataset_sha256(per_sample),
+        "n_scored": n_scored,
+        "n_correct": n_correct,
+        "n_error": n_error,
+        "n_empty": n_empty,
+        "empty_rate": empty_rate,
+        "n_length_truncated": n_len_trunc,
+        "n_stop_max_tokens": n_stop_max_tokens,
+        "n_stop_model_length": n_stop_model_length,
+        "length_stop_rate": length_stop_rate,
+        "stop_reason_counts": stop_reason_counts,
+        "completion_tokens_mean": ctok_mean,
+        "completion_tokens_p50": ctok_p50,
+        "completion_tokens_p95": ctok_p95,
+        "completion_tokens_max": ctok_max,
+        "n_length": n_length,
+        "finish_length_rate": finish_length_rate,
+        "n_length_at_2048": n_length_at_2048,
+        "finish_length_rate_at_2048": finish_length_rate_at_2048,
+        "accuracy": accuracy,
+        "max_tokens": args.max_tokens,
+        "min_tokens": args.min_tokens or None,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
+        "top_k": args.top_k or None,
+        "sampling_seed": args.sampling_seed,
+        "decode": ("greedy" if args.temperature == 0.0 else "sampling"),
+        "cot": cot,
+        "base_url": args.base_url,
+        "eval_log": getattr(log, "location", None),
+        "per_sample": per_sample,
+    }
+    with open(args.out, "w") as f:
+        json.dump(out, f, indent=2)
+
+    _ctok_mean_s = f"{ctok_mean:.0f}" if ctok_mean is not None else "na"
+    _ctok_p95_s = f"{ctok_p95}" if ctok_p95 is not None else "na"
+    _flr2048 = finish_length_rate_at_2048 if finish_length_rate_at_2048 is not None else float("nan")
+    print(
+        f"[run_eval] task={args.task} arm={args.arm} acc={accuracy:.4f} "
+        f"scored={n_scored} correct={n_correct} err={n_error} "
+        f"empty={n_empty} empty_rate={empty_rate:.4f} "
+        f"len_trunc={n_len_trunc} (max_tok={n_stop_max_tokens} model_len={n_stop_model_length}) "
+        f"len_stop_rate={length_stop_rate:.4f} ctok_mean={_ctok_mean_s} ctok_p95={_ctok_p95_s} "
+        f"len@2048={_flr2048:.4f} "
+        f"-> {args.out}",
+        flush=True,
+    )
+    if n_error or incomplete:
+        print(
+            f"[run_eval] FATAL: errors={n_error} incomplete={incomplete} "
+            f"samples={len(per_sample)}/{expected_samples} scored={n_scored}; "
+            "results were saved but are not a valid quality score",
+            file=sys.stderr,
+        )
+        return 2
+    # NaN guard: a NaN accuracy means nothing scored -> a hard failure to surface.
+    if n_scored == 0:
+        print("[run_eval] FATAL: 0 samples scored (NaN accuracy)", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
