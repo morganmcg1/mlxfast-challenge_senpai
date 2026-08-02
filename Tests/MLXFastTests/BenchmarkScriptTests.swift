@@ -4347,30 +4347,32 @@ func benchmarkScriptPrintsNonM5CaveatOnlyForLocalTokenMismatchFailures() throws 
 }
 
 // Frozen or near-zero GPU temperature telemetry (observed: macmon 0.7.2 on
-// macOS 26 / M4 Pro reporting a constant 3.657C for 20+ minutes) makes the
-// local thermal gate pass instantly and silently, so gated timings are
-// effectively ungated. The gate prints one calm warning when the reading
-// looks implausible -- at/below the 5C plausibility floor or exactly constant
-// across the gate's samples -- without failing the run and without touching
-// the ranked box-side gate.
+// macOS 26 / M4 reporting 1.5C or a constant 3.657C) would make the local
+// thermal gate pass instantly. The gate must fail closed instead of attaching
+// a false thermal guarantee to the resulting timing.
 @Test
-func coolGateWarnsOnceWhenGpuTelemetryLooksImplausible() throws {
+func coolGateRejectsImplausibleGpuTelemetry() throws {
     let script = try String(contentsOfFile: "benchmark.sh", encoding: .utf8)
-    #expect(script.contains("warn_if_gpu_telemetry_implausible() {"))
+    #expect(script.contains("gpu_telemetry_implausibility() {"))
     #expect(script.contains("at or below the 5C plausibility floor"))
     #expect(script.contains("has read a constant $(format_temp_c \"${temp}\")C across ${sample_count} samples"))
-    #expect(script.contains("gated timings may effectively be ungated"))
-    // Warn-once bookkeeping; the warning never changes the gate outcome.
-    #expect(script.contains("telemetry_warned=1"))
+    #expect(script.contains("refusing to claim a thermally gated local timing"))
 
-    func runCoolGateOnly(gpuTempCommand: String) throws -> (status: Int32, stderr: String) {
+    func runCoolGateOnly(
+        gpuTempCommand: String,
+        strict: Bool = false
+    ) throws -> (status: Int32, stderr: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = ["benchmark.sh", "--local-cool-gate-only"]
         process.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        process.environment = benchmarkTestEnvironment([
+        var environment = [
             "MLXFAST_GPU_TEMP_CMD": gpuTempCommand,
-        ])
+        ]
+        if strict {
+            environment["MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY"] = "1"
+        }
+        process.environment = benchmarkTestEnvironment(environment)
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
         try process.run()
@@ -4379,15 +4381,21 @@ func coolGateWarnsOnceWhenGpuTelemetryLooksImplausible() throws {
         return (process.terminationStatus, String(data: stderrData, encoding: .utf8) ?? "")
     }
 
-    // The observed M4 Pro shape: a frozen 3.657C reading passes the gate
-    // immediately, so the warning must ride along with the pass.
+    // The observed broken-reader shape is rejected before the gate can pass.
     let frozen = try runCoolGateOnly(gpuTempCommand: "printf 3.657")
-    #expect(frozen.status == 0)
+    #expect(frozen.status != 0)
     #expect(frozen.stderr.contains(
-        "benchmark.sh: warning: the GPU temperature reads 3.7C, at or below the 5C plausibility floor"
+        "benchmark.sh: ERROR: the GPU temperature reads 3.7C, at or below the 5C plausibility floor"
     ))
-    #expect(frozen.stderr.contains("temperature reading looks implausible on this hardware/OS"))
-    #expect(frozen.stderr.contains("GPU cool-down gate passed"))
+    #expect(frozen.stderr.contains("after 3 implausible samples"))
+    #expect(!frozen.stderr.contains("GPU cool-down gate passed"))
+
+    // Audited automation rejects the first impossible sample; it does not
+    // allow a flaky reader to recover into an apparently valid receipt.
+    let strict = try runCoolGateOnly(gpuTempCommand: "printf 1.5", strict: true)
+    #expect(strict.status != 0)
+    #expect(strict.stderr.contains("strict local thermal telemetry rejected"))
+    #expect(!strict.stderr.contains("retrying the temperature reader"))
 
     // A plausible reading passes quietly, exactly as before.
     let plausible = try runCoolGateOnly(gpuTempCommand: "printf 39")
@@ -4405,7 +4413,7 @@ func coolGateWarnsOnceWhenGpuTelemetryLooksImplausible() throws {
 // store, or log the password, and the cached credential is dropped with
 // `sudo -k` right after the writes.
 @Test
-func coolGateFanBoostIsOptInSudoSafeAndHardCappedAtSeventyPercent() throws {
+func coolGateFanBoostIsOptInSudoSafeAndBoundedToSeventyOrEightyPercent() throws {
     let script = try String(contentsOfFile: "benchmark.sh", encoding: .utf8)
     let fan = try String(contentsOfFile: "tools/fan-control.sh", encoding: .utf8)
 
@@ -4429,8 +4437,10 @@ func coolGateFanBoostIsOptInSudoSafeAndHardCappedAtSeventyPercent() throws {
     #expect(!script.contains("sudo -S"))
     #expect(!script.contains("SUDO_ASKPASS"))
 
-    // Helper contract: hard 70% cap, explained sudo, credential hygiene.
-    #expect(fan.contains("readonly FAN_BOOST_PERCENT=70"))
+    // Helper contract: 70% default, bounded 80% operator fallback, explained
+    // sudo, and credential hygiene.
+    #expect(fan.contains("readonly FAN_BOOST_PERCENT=\"${MLXFAST_FAN_BOOST_PERCENT:-70}\""))
+    #expect(fan.contains("70|80)"))
     #expect(fan.contains("sudo -k"))
     #expect(!fan.contains("sudo -S"))
     #expect(!fan.contains("SUDO_ASKPASS"))
@@ -4442,6 +4452,204 @@ func coolGateFanBoostIsOptInSudoSafeAndHardCappedAtSeventyPercent() throws {
     #expect(fan.contains("-k \"F${i}Md\" -w 00"))
     #expect(fan.contains("-k \"F${i}Md\" -w 01"))
     #expect(fan.contains("-k \"F${i}Tg\" -w \"${hex}\""))
+}
+
+@Test
+func fanControlTreatsModeAsBitfieldAndVerifiesAutomaticRestore() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let modeFile = root.appendingPathComponent("mode")
+    let fakeSMC = root.appendingPathComponent("fake-smc")
+    let fakeSudo = root.appendingPathComponent("sudo")
+    try """
+    #!/bin/bash
+    set -eu
+    key="${2:-}"
+    operation="${3:-}"
+    if [[ "${key}" == "FNum" && "${operation}" == "-r" ]]; then
+      printf '  FNum  [ui8 ]  1 (bytes 01)\\n'
+      exit 0
+    fi
+    if [[ "${key}" == "F0Md" && "${operation}" == "-r" ]]; then
+      [[ "${FAKE_MODE_READ_FAIL:-0}" != "1" ]] || exit 1
+      mode="$(tr -d '[:space:]' < "${FAKE_FAN_MODE_FILE}")"
+      printf '  F0Md  [ui8 ]  %s (bytes 00)\\n' "${mode}"
+      exit 0
+    fi
+    if [[ "${key}" == "F0Md" && "${operation}" == "-w" ]]; then
+      if [[ "${FAKE_DROP_WRITE:-0}" != "1" ]]; then
+        case "$4" in
+          00) printf '0\\n' > "${FAKE_FAN_MODE_FILE}" ;;
+          01) printf '1\\n' > "${FAKE_FAN_MODE_FILE}" ;;
+          *) exit 1 ;;
+        esac
+      fi
+      exit 0
+    fi
+    exit 1
+    """.write(to: fakeSMC, atomically: true, encoding: .utf8)
+    try """
+    #!/bin/bash
+    if [[ "${1:-}" == "-n" ]]; then exit 1; fi
+    if [[ "${1:-}" == "-k" ]]; then exit 0; fi
+    exec "$@"
+    """.write(to: fakeSudo, atomically: true, encoding: .utf8)
+    for executable in [fakeSMC, fakeSudo] {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+    }
+
+    func run(_ command: String, mode: String, overrides: [String: String] = [:]) throws
+        -> (status: Int32, stdout: String, stderr: String)
+    {
+        try "\(mode)\n".write(to: modeFile, atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["tools/fan-control.sh", command]
+        process.currentDirectoryURL = URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath
+        )
+        process.environment = benchmarkTestEnvironment([
+            "PATH": "\(root.path):/usr/bin:/bin",
+            "MLXFAST_SMC_BIN": fakeSMC.path,
+            "FAKE_FAN_MODE_FILE": modeFile.path,
+        ].merging(overrides) { _, new in new })
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        process.waitUntilExit()
+        return (
+            process.terminationStatus,
+            String(
+                data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? "",
+            String(
+                data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+        )
+    }
+
+    let modeThree = try run("status", mode: "3")
+    #expect(modeThree.status == 0)
+    #expect(modeThree.stdout == "manual\n")
+
+    let modeTwo = try run("status", mode: "2")
+    #expect(modeTwo.status == 0)
+    #expect(modeTwo.stdout == "auto\n")
+
+    let unreadable = try run(
+        "status",
+        mode: "0",
+        overrides: ["FAKE_MODE_READ_FAIL": "1"]
+    )
+    #expect(unreadable.status != 0)
+    #expect(unreadable.stdout != "auto\n")
+
+    let restored = try run("normal", mode: "3")
+    let restoredMode = try String(contentsOf: modeFile, encoding: .utf8)
+    #expect(restored.status == 0)
+    #expect(restoredMode == "0\n")
+    #expect(restored.stderr.contains("read-back verified"))
+
+    let dropped = try run(
+        "normal",
+        mode: "3",
+        overrides: ["FAKE_DROP_WRITE": "1"]
+    )
+    #expect(dropped.status != 0)
+    #expect(dropped.stderr.contains("automatic fan control could not be verified"))
+}
+
+@Test
+func fanControlFinishesAutomaticRestoreWhenTerminatedMidWrite() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let modeZero = root.appendingPathComponent("mode-0")
+    let modeOne = root.appendingPathComponent("mode-1")
+    let pauseMarker = root.appendingPathComponent("first-write-started")
+    let fakeSMC = root.appendingPathComponent("fake-smc")
+    let fakeSudo = root.appendingPathComponent("sudo")
+    try "1\n".write(to: modeZero, atomically: true, encoding: .utf8)
+    try "1\n".write(to: modeOne, atomically: true, encoding: .utf8)
+    try """
+    #!/bin/bash
+    set -eu
+    key="${2:-}"
+    operation="${3:-}"
+    if [[ "${key}" == "FNum" && "${operation}" == "-r" ]]; then
+      printf '  FNum  [ui8 ]  2 (bytes 02)\\n'
+      exit 0
+    fi
+    case "${key}:${operation}" in
+      F0Md:-r)
+        printf '  F0Md  [ui8 ]  %s (bytes 00)\\n' "$(tr -d '[:space:]' < "${FAKE_MODE_ZERO}")"
+        ;;
+      F1Md:-r)
+        printf '  F1Md  [ui8 ]  %s (bytes 00)\\n' "$(tr -d '[:space:]' < "${FAKE_MODE_ONE}")"
+        ;;
+      F0Md:-w)
+        printf '0\\n' > "${FAKE_MODE_ZERO}"
+        if [[ ! -e "${FAKE_PAUSE_MARKER}" ]]; then
+          : > "${FAKE_PAUSE_MARKER}"
+          sleep 1
+        fi
+        ;;
+      F1Md:-w)
+        printf '0\\n' > "${FAKE_MODE_ONE}"
+        ;;
+      *) exit 1 ;;
+    esac
+    """.write(to: fakeSMC, atomically: true, encoding: .utf8)
+    try """
+    #!/bin/bash
+    if [[ "${1:-}" == "-n" ]]; then exit 1; fi
+    if [[ "${1:-}" == "-k" ]]; then exit 0; fi
+    exec "$@"
+    """.write(to: fakeSudo, atomically: true, encoding: .utf8)
+    for executable in [fakeSMC, fakeSudo] {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+    }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = ["tools/fan-control.sh", "normal"]
+    process.currentDirectoryURL = URL(
+        fileURLWithPath: FileManager.default.currentDirectoryPath
+    )
+    process.environment = benchmarkTestEnvironment([
+        "PATH": "\(root.path):/usr/bin:/bin",
+        "MLXFAST_SMC_BIN": fakeSMC.path,
+        "FAKE_MODE_ZERO": modeZero.path,
+        "FAKE_MODE_ONE": modeOne.path,
+        "FAKE_PAUSE_MARKER": pauseMarker.path,
+    ])
+    process.standardOutput = Pipe()
+    process.standardError = Pipe()
+    try process.run()
+
+    let deadline = Date().addingTimeInterval(5)
+    while !FileManager.default.fileExists(atPath: pauseMarker.path), Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.02)
+    }
+    #expect(FileManager.default.fileExists(atPath: pauseMarker.path))
+    process.terminate()
+    process.waitUntilExit()
+
+    #expect(process.terminationReason == .exit)
+    #expect(process.terminationStatus == 143)
+    #expect(try String(contentsOf: modeZero, encoding: .utf8) == "0\n")
+    #expect(try String(contentsOf: modeOne, encoding: .utf8) == "0\n")
 }
 
 // Robustness contract layered on top of the boost: (1) `smc -w` is
@@ -4464,18 +4672,21 @@ func fanBoostVerifiesWritesInspectsAllFansAndTracksRunRestoreState() throws {
     // automatic so no half-boosted state survives a reported failure.
     #expect(fan.contains("verify_fan_boost_write() {"))
     #expect(fan.contains("if verify_fan_boost_write \"${i}\" \"${target}\"; then"))
-    #expect(fan.contains("smc_read_number \"F${fan_index}Md\""))
+    #expect(fan.contains("read_fan_mode \"${fan_index}\""))
     #expect(fan.contains("smc_read_number \"F${fan_index}Tg\""))
     #expect(fan.contains("readonly FAN_TARGET_VERIFY_TOLERANCE_RPM="))
     #expect(fan.contains("write did not stick"))
     #expect(fan.contains("boost may not have taken effect for fan(s) ${failed_fans}"))
     #expect(fan.contains("if [[ -n \"${failed_fans}\" ]]; then"))
+    #expect(fan.contains("restore_fans_to_auto() {"))
+    #expect(fan.contains("automatic fan control could not be verified"))
 
     // (2) Foreign-controller detection: every fan's mode bit is inspected
     // (fan 0 alone no longer decides `status`), and `boost` refuses to
     // overwrite a manual hold it does not own instead of clobbering it.
     #expect(fan.contains("list_manual_fans() {"))
     #expect(fan.contains("fan_mode_is_manual \"${i}\""))
+    #expect(fan.contains("(10#${mode} & 1) != 0"))
     #expect(fan.contains("manual_fans=\"$(list_manual_fans \"${fan_count}\")\""))
     #expect(!fan.contains("smc_read_number \"F0Md\""))
     #expect(fan.contains("already in manual mode; another fan controller"))
@@ -4499,6 +4710,40 @@ func fanBoostVerifiesWritesInspectsAllFansAndTracksRunRestoreState() throws {
     #expect(script.contains("trap 'handle_benchmark_abort_signal TERM' TERM"))
     #expect(script.contains("if [[ -n \"${FAN_BOOST_STATE_FILE_OWNED}\" ]] && fan_boost_recorded; then"))
     #expect(script.contains("returning them to macOS automatic control"))
+}
+
+@Test
+func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
+    let runnerPath =
+        "senpai/competition_notes/top15_replication_2026-08-02/run-study.sh"
+    let runner = try String(contentsOfFile: runnerPath, encoding: .utf8)
+
+    // reset --hard restores the legacy warn-and-continue helper, so every
+    // arm must reinstall and verify the repaired trusted scripts afterward.
+    #expect(runner.contains("install_local_benchmark() {"))
+    #expect(runner.contains("install_local_benchmark\n  jq -n"))
+    #expect(runner.contains(
+        "study_local_benchmark_sha256=\"8827d1829db796836a87473dd730ff2c80a381df00626aabb526b8f20b3a8f57\""
+    ))
+    #expect(runner.contains("study_fan_control_sha256="))
+    #expect(runner.contains("study_macmon_sha256="))
+
+    // Caller-provided model, workload, sandbox, and thermal variables cannot
+    // leak into the frozen campaign subprocess.
+    #expect(runner.contains("/usr/bin/env -i"))
+    #expect(runner.contains("study_performance_environment_policy=\"env-i-v1\""))
+    #expect(runner.contains("environment_policy:$environment_policy"))
+    #expect(runner.contains("MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1"))
+    #expect(runner.contains("MLXFAST_MACMON_BIN=\"${study_macmon_source}\""))
+
+    // The receipt is exact, phase ordered, hash-bound for new attempts, and a
+    // status-0 process cannot make the cohort continue without it.
+    #expect(runner.contains("performance_log_thermal_valid() {"))
+    #expect(runner.contains("local thermal gate start phase=prefill$"))
+    #expect(runner.contains("state == 6 && passes == 2 && invalid == 0"))
+    #expect(runner.contains("log_sha256:$log_sha256"))
+    #expect(runner.contains("a status-0 attempt lacks two trustworthy ordered thermal gates"))
+    #expect(runner.contains("75|129|130|143) return \"${arm_status}\""))
 }
 
 // End-to-end over the real script: a local run that recorded a fan boost

@@ -15,6 +15,9 @@ set -euo pipefail
 #   MLXFAST_MACMON_BIN=...      explicit macmon binary path
 #   MLXFAST_GPU_TEMP_CMD=...    testing/portability seam: shell command whose
 #                               stdout is the current GPU temperature in C
+#   MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1
+#                               fail on the first bad sample and when macmon is
+#                               unavailable (for audited automation)
 #   MLXFAST_FAN_CONTROL_HELPER=...  override tools/fan-control.sh, used by the
 #                               stalled-cool-down fan-boost offer and by
 #                               ./benchmark.sh --fan-speed-normal
@@ -782,14 +785,13 @@ EOF
 }
 
 # Some hardware/OS combinations report frozen or near-zero GPU temperature
-# telemetry (observed: macmon 0.7.2 on macOS 26 / M4 Pro reads a constant
-# 3.657C for tens of minutes), which makes the local gate pass instantly and
-# turns the thermal guarantee decorative. Warn -- once per gate, calmly --
-# when the readings look implausible: at or below a 5C plausibility floor, or
-# exactly constant across the gate's samples. Never fails the run, and only
-# affects this local helper; the ranked M5 box keeps its own operator-side
+# telemetry (observed: macmon 0.7.2 on macOS 26 / M4 reads values around 1.5C
+# or 3.657C). Accepting those values would make the local gate pass instantly
+# and turn its thermal guarantee decorative. Fail closed when a reading is at
+# or below the 5C plausibility floor, or when a hot sensor stays exactly
+# constant across three samples. The ranked M5 box keeps its own operator-side
 # gate and contract.
-warn_if_gpu_telemetry_implausible() {
+gpu_telemetry_implausibility() {
   local temp="$1"
   local sample_count="$2"
   local temp_varied="$3"
@@ -800,7 +802,7 @@ warn_if_gpu_telemetry_implausible() {
     reason="the GPU temperature has read a constant $(format_temp_c "${temp}")C across ${sample_count} samples"
   fi
   if [[ -n "${reason}" ]]; then
-    echo "benchmark.sh: warning: ${reason}; the temperature reading looks implausible on this hardware/OS, so the thermal gate may be ineffective and gated timings may effectively be ungated" >&2
+    printf '%s\n' "${reason}"
     return 0
   fi
   return 1
@@ -825,6 +827,10 @@ run_local_cool_gate() {
 
   if [[ -z "${MLXFAST_GPU_TEMP_CMD:-}" ]]; then
     if ! COOL_GATE_MACMON_BIN="$(find_macmon)"; then
+      if [[ "${MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY:-0}" == "1" ]]; then
+        echo "benchmark.sh: ERROR: strict local thermal telemetry requires a working macmon reader; refusing to start a timed phase" >&2
+        return 1
+      fi
       cat >&2 <<EOF
 benchmark.sh: warning: skipping the GPU cool-down gate: no GPU temperature reader found.
 benchmark.sh: the ranked runner only starts timed runs below a ${COOL_GATE_TEMP_C}C GPU thermal gate;
@@ -838,31 +844,45 @@ EOF
   fi
 
   local temp waited=0 min_temp="" last_progress_waited=0 bad_samples=0 fan_boost_offered=0
-  local first_temp="" temp_varied=0 sample_count=0 telemetry_warned=0
+  local first_temp="" temp_varied=0 sample_count=0 telemetry_reason=""
   while :; do
     temp="$(local_gpu_temp || true)"
     if [[ ! "${temp}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-      # Tolerate a couple of flaky reads, then skip the gate rather than hang
-      # a participant behind a broken sensor path.
+      if [[ "${MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY:-0}" == "1" ]]; then
+        echo "benchmark.sh: ERROR: strict local thermal telemetry returned no usable sample (reader: ${MLXFAST_GPU_TEMP_CMD:-${COOL_GATE_MACMON_BIN}}); refusing to start a timed phase" >&2
+        return 1
+      fi
+      # Tolerate two transient read failures, then fail closed: a benchmark
+      # without usable telemetry cannot claim a comparable gated timing.
       bad_samples=$((bad_samples + 1))
       if [[ "${bad_samples}" -ge 3 ]]; then
-        echo "benchmark.sh: warning: skipping the GPU cool-down gate: temperature reader returned no usable sample (reader: ${MLXFAST_GPU_TEMP_CMD:-${COOL_GATE_MACMON_BIN}})" >&2
-        return 0
+        echo "benchmark.sh: ERROR: temperature reader returned no usable sample after 3 attempts (reader: ${MLXFAST_GPU_TEMP_CMD:-${COOL_GATE_MACMON_BIN}}); refusing to claim a thermally gated local timing" >&2
+        return 1
       fi
       sleep 2
       continue
     fi
-    bad_samples=0
     sample_count=$((sample_count + 1))
     if [[ -z "${first_temp}" ]]; then
       first_temp="${temp}"
     elif [[ "${temp}" != "${first_temp}" ]]; then
       temp_varied=1
     fi
-    if [[ "${telemetry_warned}" == "0" ]] \
-        && warn_if_gpu_telemetry_implausible "${temp}" "${sample_count}" "${temp_varied}"; then
-      telemetry_warned=1
+    if telemetry_reason="$(gpu_telemetry_implausibility "${temp}" "${sample_count}" "${temp_varied}")"; then
+      if [[ "${MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY:-0}" == "1" ]]; then
+        echo "benchmark.sh: ERROR: strict local thermal telemetry rejected ${telemetry_reason}; refusing to start a timed phase" >&2
+        return 1
+      fi
+      bad_samples=$((bad_samples + 1))
+      if [[ "${bad_samples}" -ge 3 ]]; then
+        echo "benchmark.sh: ERROR: ${telemetry_reason}; refusing to claim a thermally gated local timing after 3 implausible samples" >&2
+        return 1
+      fi
+      echo "benchmark.sh: warning: ${telemetry_reason}; retrying the temperature reader ($((3 - bad_samples)) attempts remain)" >&2
+      sleep 2
+      continue
     fi
+    bad_samples=0
 
     if awk -v t="${temp}" -v gate="${COOL_GATE_TEMP_C}" 'BEGIN { exit !(t <= gate) }'; then
       echo "benchmark.sh: GPU cool-down gate passed (current $(format_temp_c "${temp}")C, target <=${COOL_GATE_TEMP_C}C, waited ${waited}s)" >&2

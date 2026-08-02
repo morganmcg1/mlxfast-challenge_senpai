@@ -1,7 +1,7 @@
 # MLX Fast leaderboard wins and campaign bootstrap report
 
 Snapshot: **2026-08-02T09:07:21Z**<br>
-Report evidence cut: **2026-08-02T16:22:34Z**<br>
+Report evidence cut: **2026-08-02T22:57:02Z**<br>
 Track: `laguna-xs-2.1-serial-v2`<br>
 Official runner: **Apple M5 Max**<br>
 Local transfer host: **Apple M4 Max, 128 GB, Mac16,6**<br>
@@ -17,7 +17,8 @@ purpose is deliberately balanced:
 - state exactly where M4 transfer results disagree with official M5 outcomes;
 - preserve the completed negative-control calibration without overstating what
   one formal comparison and two bounded diagnostics can prove;
-- leave the unrun performance study visibly pending while preserving all four
+- preserve the stopped partial performance campaign without converting five
+  thermally invalid attempts into speed claims, while retaining all four
   completed extended-AIME diagnostics; and
 - retain search breadth beyond the mechanisms already explored by the leaders.
 
@@ -32,13 +33,16 @@ leaderboard](https://mlx.fast/) can move after this report's frozen snapshot.
 |---|---:|---|---|
 | Official promoted snapshots | 15 | 15/15 accepted on M5 | Complete; authoritative ranking evidence |
 | Local M4 quality comparisons | 15 | 11 formal comparisons; 4 bounded AIME non-completions; 0 invalid | Complete for the frozen quick-profile contract |
-| Local M4 performance arms | 16 including rank 111 comparator | **0 valid selected attempts; 16 pending** | Placeholder only; no local speed claims |
+| Local M4 performance arms | 16 including rank 111 comparator | **1 valid comparator; 5 thermally invalid candidate attempts; 10 pending** | Partial and stopped; no valid candidate speed comparison |
 | Negative controls | 3 | **3/3 processed: 1 formal regression; 2 bounded AIME non-completions; 0 invalid** | Complete for the frozen quick-profile control contract; no class-separating signal established |
 | Extended AIME diagnostics | 4 terminal ranks | **4/4 valid isolated diagnostics; all still length-bounded at 6,144 tokens** | Complete for the frozen diagnostic-only contract; primary quick-profile decisions remain unchanged |
 
 The report is therefore complete as an official-history, frozen local-quality,
 control, and extended-diagnostic synthesis, but **not** as a local performance
-replication. The calibration has a two-part conclusion: the current composite
+replication. Only rank 111 has a credible local timing receipt; the attempted
+candidate timings are retained as rejected diagnostics after an implausible
+`1.5C` telemetry value was allowed through the original gate. The calibration
+has a two-part conclusion: the current composite
 M4 gate is decisively unsuitable as a veto on this cohort because it rejects
 every formally comparable official success; the choice of a replacement rule
 and any inference about the private M5 gate remain inconclusive because only
@@ -418,11 +422,12 @@ failure too.
 
 These counts have important dependence and missingness limits. The 11 formal
 positive rows are a connected promotion lineage, not independent trials; they
-collapse to three metric signatures and two formal response-identity
-signatures. The controls were deliberately selected for available official
-failure evidence, not sampled from all failures, and only one of three is
-formally comparable. Six of 18 arms abstain because of AIME length, so the
-missingness may be informative. One pass per arm provides no run-to-run
+collapse to three metric signatures and two baseline response-match counts;
+the later two metric clusters both match `11/62` baseline responses but do not
+have identical response text. The controls were deliberately selected for
+available official failure evidence, not sampled from all failures, and only
+one of three is formally comparable. Six of 18 arms abstain because of AIME
+length, so the missingness may be informative. One pass per arm provides no run-to-run
 variance estimate. Do not infer population sensitivity, specificity, or
 false-pass rates from this table.
 
@@ -442,7 +447,7 @@ one-token public probe. None reproduces the private M5 contract.
 | AIME completion | No official AIME gate in the published correctness stack | Four primary successes hit both the 2,048- and 6,144-token local ceilings; two controls hit 2,048 | Persistent local bounded generation, not evidence about an official AIME predicate; terminal arms have no frozen-gate decision |
 | Negative-control calibration | One public-trajectory failure and two hidden-correctness failures | All three first tokens exact; rank 202 formally regressed; ranks 201 and 203 terminal | First-token coverage misses a known public failure; the sole formal reject is not selective because all formal successes also reject |
 | Local class separation | 15 official successes versus 3 selected official failures | 11 formal successes and rank 202 all reject; other 6 arms are terminal | No predeclared component or validated local rule separates the formally comparable labels |
-| Performance correctness | Official paired timing accepts only exact oracle tokens | **PENDING: 0/16 valid local performance arms** | No local performance/correctness comparison yet |
+| Performance correctness | Official paired timing accepts only exact oracle tokens | Rank 111 passed 1,025 checked steps behind credible `40.0C`/`39.9C` gates; ranks 113–117 passed the same correctness check but their timing gates accepted implausible `1.5C` samples | Correctness execution worked, but there is no valid candidate performance comparison |
 
 The observed discordance can arise from M4-versus-M5 numerical behavior,
 different kernel dispatch, the required gather override, and differences
@@ -477,6 +482,14 @@ single stricter-versus-looser axis.
    primary terminal ranks remain length-bounded after tripling the ceiling.
    That narrows the local failure mode, but the isolated reruns deliberately
    produce no formal gate decision and no private-M5 equivalence claim.
+9. **The stopped performance run exposed a fail-open local telemetry path.**
+   Rank 111 genuinely gated at `40.0C` and `39.9C`. Starting with rank 112,
+   `macmon` intermittently returned an impossible `1.5C`; the old helper
+   warned and then accepted it because `1.5 <= 40`. Candidate timings produced
+   after that event are rejected. The ordinary fixed local gate tolerates two
+   transient bad samples and fails on the third; the audited study runner is
+   stricter—it rejects the first missing or implausible sample and stops the
+   whole campaign on a thermal or telemetry failure.
 
 ## Campaign correctness policy pending M5 calibration
 
@@ -498,30 +511,47 @@ untouched baseline as the cumulative reference. Whether those additions yield
 a predictive local surrogate remains an experiment, not a conclusion of this
 report.
 
-## Clearly pending local performance study — 16 arms
+## Stopped partial local performance study — 16 arms
 
-**PLACEHOLDER STATUS: no local performance result is reported below.** The
-auditor finds `0/16` valid selected attempts and `16/16` pending. Empty metric
-cells are intentional. Do not substitute failed/interrupted attempt values or
-short local-iterate numbers.
+The audited state is **1/16 valid, 5/16 invalid, and 10/16 pending**. Rank 111
+is the sole valid local timing. Ranks 113–117 are retained, hash-bound
+correctness-passing attempts, but they are invalid for performance because
+both timed phases accepted implausible `1.5C` telemetry. Rank 112 failed its
+decode cool-down; rank 118 was interrupted during the prefill gate when this
+campaign was stopped; ranks 119–126 did not start.
 
 The executable local comparator is rank 111, submission
 `0682cc25-40a1-4f0e-bb96-c3b0f768b53c` at source
 `af085760e96a5d719a2ba9c5817454158d9edb86`. It is distinct from both the July
 30 quality baseline above and the organizer's pinned calibration source. Local
-`--local-submit` is a directional transfer measurement with a longer decode
-window; it is not a direct reproduction of the private official run.
+`--local-submit` is a directional transfer measurement with a 1,023-step
+decode path and one repeat, while the official frozen timing window uses 128
+decode steps. It is not a direct reproduction of the private official run.
+
+The `0.305–0.426` scores printed by the harness are comparisons between this
+M4 and the organizer's pinned **M5** calibration constants. Rank 111 itself
+prints only `0.426050`, so those values are not the study's intended
+same-M4 comparison and do not mean the snapshots achieved only 30–40% of rank
+111. The runner now labels that number as a pinned-M5 calibration estimate and
+prints the separate rank-111-normalized index.
+
+Rank 111 is a grandfathered pre-cutover receipt. Its original metadata did not
+bind the runner, thermal helper, reader, or log hashes; the repaired validators
+therefore admit that one legacy comparator only by source identity, finish-time
+cutover, exact ordered gate transcript, and frozen log SHA-256
+`f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130`.
+No candidate result receives that exception.
 
 | Rank | Submission / source | Required role | Audited status | Local decode | Local prefill | Index vs rank 111 |
 |---:|---|---|---|---:|---:|---:|
-| 111 | [0682cc25](https://mlx.fast/api/submissions/0682cc25-40a1-4f0e-bb96-c3b0f768b53c) · [`af085760`](https://github.com/Layr-Labs/mlxfast-challenge/commit/af085760e96a5d719a2ba9c5817454158d9edb86) | Same-contract comparator | **PENDING — no valid selected attempt** | — | — | — |
-| 112 | [aa6660cb](https://mlx.fast/api/submissions/aa6660cb-a3e4-410a-a365-bb117e3e98f1) · [`df0af746`](https://github.com/Layr-Labs/mlxfast-challenge/commit/df0af746de208e267ae16e7dc62f901aa5cff77a) | Candidate | **PENDING** | — | — | — |
-| 113 | [96bfd3b7](https://mlx.fast/api/submissions/96bfd3b7-49c2-4f0b-b0bd-288173ac284b) · [`274a909a`](https://github.com/Layr-Labs/mlxfast-challenge/commit/274a909ae2f8b65414ec7b1bbb5981c5cf091cde) | Candidate | **PENDING** | — | — | — |
-| 114 | [3223e19d](https://mlx.fast/api/submissions/3223e19d-8e7a-4001-a2c8-0176900a7005) · [`149892c3`](https://github.com/Layr-Labs/mlxfast-challenge/commit/149892c38865cdb78af6c1b1158fecc853446ed4) | Candidate | **PENDING** | — | — | — |
-| 115 | [dd341a52](https://mlx.fast/api/submissions/dd341a52-a695-4d0d-8bdf-75ef44a9c74a) · [`d4cb1ae8`](https://github.com/Layr-Labs/mlxfast-challenge/commit/d4cb1ae8d63cd3e59169bc7685d85ca7970241e6) | Candidate | **PENDING** | — | — | — |
-| 116 | [8449082c](https://mlx.fast/api/submissions/8449082c-4dc2-4526-b3bd-69712c3b8a8e) · [`5b46c79c`](https://github.com/Layr-Labs/mlxfast-challenge/commit/5b46c79cfd8d6496989ba5977950e969ba4107ac) | Candidate | **PENDING** | — | — | — |
-| 117 | [df2a7483](https://mlx.fast/api/submissions/df2a7483-9c5b-4f4c-8a2f-9fee780515d7) · [`500d92a0`](https://github.com/Layr-Labs/mlxfast-challenge/commit/500d92a0f486a0297f312d8f4d38d5ab3b58f900) | Candidate | **PENDING** | — | — | — |
-| 118 | [214fd89a](https://mlx.fast/api/submissions/214fd89a-69af-4858-af54-8a801672c78d) · [`fc306048`](https://github.com/Layr-Labs/mlxfast-challenge/commit/fc306048e61c2cb7e56a8ff406db40adafcc8e79) | Candidate | **PENDING** | — | — | — |
+| 111 | [0682cc25](https://mlx.fast/api/submissions/0682cc25-40a1-4f0e-bb96-c3b0f768b53c) · [`af085760`](https://github.com/Layr-Labs/mlxfast-challenge/commit/af085760e96a5d719a2ba9c5817454158d9edb86) | Same-contract comparator | **VALID** — gates `40.0C` / `39.9C`; correctness passed | 20.5638 ms/token | 3.4124 ms/token | 1.0000× |
+| 112 | [aa6660cb](https://mlx.fast/api/submissions/aa6660cb-a3e4-410a-a365-bb117e3e98f1) · [`df0af746`](https://github.com/Layr-Labs/mlxfast-challenge/commit/df0af746de208e267ae16e7dc62f901aa5cff77a) | Candidate | **PENDING / NO RESULT** — decode cool-down failed | — | — | — |
+| 113 | [96bfd3b7](https://mlx.fast/api/submissions/96bfd3b7-49c2-4f0b-b0bd-288173ac284b) · [`274a909a`](https://github.com/Layr-Labs/mlxfast-challenge/commit/274a909ae2f8b65414ec7b1bbb5981c5cf091cde) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 20.8950 ms/token† | 4.0655 ms/token† | 0.9458×† |
+| 114 | [3223e19d](https://mlx.fast/api/submissions/3223e19d-8e7a-4001-a2c8-0176900a7005) · [`149892c3`](https://github.com/Layr-Labs/mlxfast-challenge/commit/149892c38865cdb78af6c1b1158fecc853446ed4) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 21.3053 ms/token† | 3.8188 ms/token† | 0.9468×† |
+| 115 | [dd341a52](https://mlx.fast/api/submissions/dd341a52-a695-4d0d-8bdf-75ef44a9c74a) · [`d4cb1ae8`](https://github.com/Layr-Labs/mlxfast-challenge/commit/d4cb1ae8d63cd3e59169bc7685d85ca7970241e6) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 21.1201 ms/token† | 3.8492 ms/token† | 0.9511×† |
+| 116 | [8449082c](https://mlx.fast/api/submissions/8449082c-4dc2-4526-b3bd-69712c3b8a8e) · [`5b46c79c`](https://github.com/Layr-Labs/mlxfast-challenge/commit/5b46c79cfd8d6496989ba5977950e969ba4107ac) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 21.9334 ms/token† | 3.7576 ms/token† | 0.9301×† |
+| 117 | [df2a7483](https://mlx.fast/api/submissions/df2a7483-9c5b-4f4c-8a2f-9fee780515d7) · [`500d92a0`](https://github.com/Layr-Labs/mlxfast-challenge/commit/500d92a0f486a0297f312d8f4d38d5ab3b58f900) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 30.6693 ms/token† | 3.8998 ms/token† | 0.7166×† |
+| 118 | [214fd89a](https://mlx.fast/api/submissions/214fd89a-69af-4858-af54-8a801672c78d) · [`fc306048`](https://github.com/Layr-Labs/mlxfast-challenge/commit/fc306048e61c2cb7e56a8ff406db40adafcc8e79) | Candidate | **PENDING / INTERRUPTED** — stopped during prefill gate | — | — | — |
 | 119 | [5139da0f](https://mlx.fast/api/submissions/5139da0f-ac51-4a81-b3d8-880a8a74f58f) · [`c5206993`](https://github.com/Layr-Labs/mlxfast-challenge/commit/c5206993d510ca0c50861b1f5d3d26030d76a22b) | Candidate | **PENDING** | — | — | — |
 | 120 | [db173215](https://mlx.fast/api/submissions/db173215-a7d7-4863-a333-8132c33be279) · [`7b2c9407`](https://github.com/Layr-Labs/mlxfast-challenge/commit/7b2c9407032e41408fbfaba94625d9c53b1934ca) | Candidate | **PENDING** | — | — | — |
 | 121 | [9847ff8f](https://mlx.fast/api/submissions/9847ff8f-918e-4988-ba2f-a1137d23784b) · [`e6596576`](https://github.com/Layr-Labs/mlxfast-challenge/commit/e65965761f34afbabc696b3eccdd363863edd480) | Candidate | **PENDING** | — | — | — |
@@ -531,10 +561,24 @@ window; it is not a direct reproduction of the private official run.
 | 125 | [4173c401](https://mlx.fast/api/submissions/4173c401-0f25-41fd-bec7-cdea22a1aac3) · [`13496639`](https://github.com/Layr-Labs/mlxfast-challenge/commit/1349663988dacafe7ee4b5b11832a4891d1aa5cc) | Candidate | **PENDING** | — | — | — |
 | 126 | [05e7894f](https://mlx.fast/api/submissions/05e7894f-0eaf-4f6d-8622-499d1e44185d) · [`7702fab8`](https://github.com/Layr-Labs/mlxfast-challenge/commit/7702fab8a41fe2f4ff2ae281beeb1548b31e3406) | Candidate | **PENDING** | — | — | — |
 
-When valid attempts exist, report native local score, recomputed phase ratios,
-absolute seconds/token, correctness state, golden-drift signature, and both
-rank-111 and preceding-rank indexes. One full `--local-submit` observation per
-arm will still be directional, not a variance estimate.
+† Rejected diagnostic only—these values are shown to explain the terminal log,
+not as evidence that the candidate regressed. All five are below rank 111 in
+the discarded observation; rank 117 is the largest apparent loss. Snapshot
+application was independently checked: refs, harness bindings, hashes, weights,
+correctness, runtime binary changes, and the rank-117 mechanism-consistent
+memory shift all indicate that the candidate code did run. The plausible
+explanations are invalid thermal conditions, M4-specific transfer, and
+long-window/lazy-kernel effects—not a failure to apply the snapshots.
+
+Any resumed campaign must create new attempts behind two credible gates. One
+full `--local-submit` observation per arm will still be directional, not a
+variance estimate. The repaired runner reinstalls a content-pinned, local-only
+trusted `benchmark.sh` and fan helper after every reset to the rank-126 model
+harness, pins `macmon 0.7.2`, starts the benchmark under a clean `env -i`
+allowlist, rejects the first bad telemetry sample, aborts the cohort on a bad
+receipt, and binds the runner/tool/log hashes into new attempt metadata. No
+post-cutover model attempt has exercised that integration yet; only its script,
+state-machine, and repository regression tests have run.
 
 ## Completed negative-control cohort — 3 arms
 
@@ -690,6 +734,60 @@ blindly replayed on top of it.
 | Subsumed | NVFP4 boundaries 24 and 17 | 116–117 | Rollout evidence; final boundary is zero |
 | Default-off | Fused-tail sign/scale fold | 122 | Lives in fused norm/QKV/gate path disabled at rank 124 |
 | Default-off | All-layer fused norm/QKV/gate schedule | 120, reversed 124 | Format eligibility remains; separate schedule is faster at current multiplicity |
+
+### Rank-126 day-one code map
+
+This map is pinned to [`7702fab8a41fe2f4ff2ae281beeb1548b31e3406`](https://github.com/Layr-Labs/mlxfast-challenge/tree/7702fab8a41fe2f4ff2ae281beeb1548b31e3406),
+not to whatever `main` contains later. Every path below is covered by
+`benchmark.json` `editablePaths`; directory entries such as
+`Sources/MLXFastModel` cover the files named beneath them. `Twin` means the
+source copies that must move together for the edit to reach the ranked worker.
+For confidence, **H** means narrow or independently bracketed official
+evidence, **M** means a bundle or noisy marginal receipt, and **L** means an
+untested hypothesis. Portability risk refers mainly to changing Apple GPU
+generation, not to correctness risk. In the twin column, `kernels/X` expands
+to `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/X`, and
+`mlx-generated/X` expands to
+`Vendor/mlx-swift/Source/Cmlx/mlx-generated/X`.
+
+| State and mechanism | Exact rank-126 source and symbols | Phase and selected path | Twin obligation | Causal confidence / portability | Next falsifier |
+|---|---|---|---|---|---|
+| Active — all 40 attention QKV/O banks use NVFP4 | [`Sources/MLXFastModel/LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L2939-L3009): `lagunaNativeAffineNVFP4From`, `lagunaNativeAffineWeight`; same file at `prepareNativeAffineQKVWeight`, `prepareNativeAffineOProjWeight`, and `prepareFusedRuntimeWeights` | Decode selected path; default `DARKBLOOM_NATIVE_AFFINE_NVFP4_FROM=0`. The banks are prepared for every layer, but the native QKV/O call-site guards require `B=L=1`; prefill retains its BF16/fused projection path. | Swift selection has no twin. Any downstream NVFP4 kernel edit must keep `kernels/fp_quantized{,_nax}.h` synchronized with `mlx-generated/fp_quantized{,_nax}.cpp`; the `_nax` pair matters on M5. | **H** byte win; **M** portability/numerical-boundary risk. | Do not reopen the exhausted 32 → 24 → 17 → 0 ladder without a changed kernel or arithmetic contract. If reopened, test each boundary independently under exact-token M5 gates; the pass/fail surface was nonmonotonic. |
+| Active — producer-computed router ordinals | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L898-L1141): `lagunaResidualRMSNormRouterSource`, `lagunaResidualRMSNormRouter`; consumer at `lagunaRoutedSwiGLUQMVPackedTop8` and `LagunaRuntimeSparseMoEBlock.forward` | Decode only. `DARKBLOOM_ROUTER_PRECOMPUTED_KEYS` defaults on; one 256-key producer feeds the packed routed consumer. | Metal is embedded in this Swift file through `MLXFast.metalKernel`; no AOT/JIT twin. | **M–H** mechanism, **L–M** portability risk. The restored official marginal was small but the fan-out reduction is explicit. | Repeated cool decode bracket with `DARKBLOOM_ROUTER_PRECOMPUTED_KEYS=0`; require unchanged prefill, exact top-8/tie order, and a trace proving the producer-key consumer actually fired. |
+| Active — exact fused split-K | [`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp#L812-L894): `qmm_splitk`, reached from `QuantizedMatmul::eval_gpu`; kernel [`fp_quantized.h`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized.h#L1805-L1922): `fp_qmm_t_splitk_fused` | Prefill only on the scored path: transposed, unbatched, non-affine QMM with eligible 32-aligned matrix shapes. Decode's `M=1` routes to QMV, so its movement in the receipt is not causal evidence for this kernel. | Required pair: `kernels/fp_quantized.h` + runtime-effective `mlx-generated/fp_quantized.cpp`. This rank-126 kernel has no separate `_nax` body; audit both variants before broadening shared code. | **H** exact fusion, **M** portability risk. | Same-binary 512-token prefill bracket with `DARKBLOOM_QMM_SPLITK_FUSED=0`; log the qualifying shapes/kernel name and replay the old BF16 partition stores plus FP32 reduction order exactly. |
+| Active — separate RMSNorm, NVFP4 QKV, affine gate | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L5518-L5675): `LagunaRuntimeAttention.callAsFunction`; control source at `lagunaTailNormQKVGate` | Decode. Default branch is `inputNorm(input)` then NVFP4 `quantizedMM` QKV and affine `quantizedMM` gate. | The schedule edit is Swift-only. Its generic QMV consumers use the `fp_quantized` and `quantized` AOT-header/generated-JIT pairs if their kernels are changed. | **H** negative evidence for the fused schedule; **M** portability risk. Rank 124 had strong same-binary brackets and a clear repeated-producer cause. | Re-enable only with a design that computes RMS once, then bracket `DARKBLOOM_TAIL_NORM_QKV_GATE=1` against default while counting RMS reductions and barriers. |
+| Active — aligned `uchar4` affine-code loads | [`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized.h`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/quantized.h#L192-L292): `qdot<..., bits == 8>` | Decode-dominant affine QMV work, notably the attention gate; one aligned four-byte load retains four sequential multiply-adds. | Required pair: `kernels/quantized.h` + runtime-effective `mlx-generated/quantized.cpp`. Rank 125 did not change the `_nax` pair. | **M–H** bundled but independently positive on M5; **M** portability/alignment risk. | Add a distinct scalar-load control PSO without changing the four-FMA order; compare repeated M5 decode and inspect generated loads. There is no shipped environment selector that isolates this change. |
+| Active — layer-0 projection-ready `asyncEval` | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L748-L785): `lagunaAttentionProjectionAsyncEnabled`; call site in `LagunaRuntimeAttention.callAsFunction` after `qkv` and `gateLogits` construction | Decode only; layer 0, `B=L=1`. It enqueues an already-built graph and does not add model work. | Swift scheduling only; no kernel twin. | **M–H** bundled but independently positive on M5; **M–H** scheduler/driver portability risk. | Bracket `DARKBLOOM_ATTN_PROJECTION_ASYNC=0` with command-buffer/timeline evidence; confirm the layer-0 projection starts earlier and prefill is stationary. |
+| Active — R1 fused routed/shared down + residual | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L7844-L8021): `lagunaRoutedSharedDownResidualKernel`, `lagunaRoutedSharedDownResidual`; dispatch in `LagunaRuntimeSparseMoEBlock.forward` | Decode only. `outputs_per_simd=1`, 4× the rank-125 grid, nine expert slots, exact BF16 reduction/residual boundaries. | Metal is embedded in Swift; no AOT/JIT twin. | **H on M5**, **H portability risk**: roughly +0.4% M5 but about 12% slower on another Apple GPU. | Preserve a distinct rank-125 `outputs_per_simd=4` PSO in the same binary and bracket on M5. Turning the whole fusion off is not a causal geometry control. |
+| Default-off — fused-tail sign/scale fold | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L4282-L4311): `lagunaTailNVFP4ScaleFoldEnabled`, `lagunaTailNVFP4ScaleDecode`, `lagunaTailNVFP4QDotReturn` inside `lagunaTailNormQKVGateSource` | Decode, but unreachable on defaults because the owning fused norm/QKV/gate schedule is off. | Embedded Metal in Swift; no twin. | **H** arithmetic equivalence, **L** timing causality; **L–M** portability risk. | First force the owning fused path reachable, verify its trace, then toggle `DARKBLOOM_TAIL_NVFP4_SCALE_FOLD=0/1`. Measuring the fold while the owner remains off is a null experiment. |
+| Default-off — all-layer fused norm/QKV/gate schedule | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L4419-L4665): `lagunaTailNormQKVGateSource`, `lagunaTailNormQKVGateKernels`, `lagunaTailNormQKVGateEnabled`, `lagunaTailNormQKVGate` | Decode. Compiled kernel is selected only with `DARKBLOOM_TAIL_NORM_QKV_GATE=1`; default is the faster separate schedule. | Embedded Metal in Swift; no twin. | **H** evidence to leave it off; **M–H** occupancy/multiplicity portability risk. | Treat the current fused kernel as a negative control. A successor must amortize the 2,048-element norm producer once; measure producer count, barriers, and candidate decode before promotion. |
+
+The twin rule is asymmetric by design: the vendored MLX package executes the
+generated C++ source strings for JIT families, while `MLXFast.metalKernel`
+source embedded in Swift has only one authored copy. AOT-only SDPA/RoPE/RMS
+edits instead require rebuilding `mlx.metallib`.
+
+### First campaign targets, wired to code
+
+These are search entry points, not claims that the named edit will win. The
+first experiment in each row is meant to falsify reachability or the proposed
+bottleneck before a large implementation is attempted.
+
+| Priority / avenue | Exact editable entry points | Phase and twin rule | Confidence / portability | First falsifier |
+|---|---|---|---|---|
+| P1 — MoE gather-GEMM and routed/shared traffic | Decode: [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L9949-L10315), `LagunaRuntimeSparseMoEBlock.forward`, `lagunaRoutedSwiGLUQMVPackedTop8`, `lagunaRoutedSharedDownResidual`. Prefill fallback: [`SwitchLayers.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift#L360-L407), `QuantizedSwitchLinear.callAsFunction`; [`quantized.cpp`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp#L612-L1024), `gather_qmm(_nax)`, plus `gather_qmm_rhs(_nax)` later in the same file | Both; decode has Swift-embedded kernels, prefill uses `fp_gather_qmv*` / `fp_gather_qmm_{t,n,rhs}`. For the latter, update `fp_quantized{,_nax}.h` and both matching generated `.cpp` strings; M5 selects `_nax` where eligible. | **H** hotspot, **L** for any new marginal; **H** geometry portability risk. | Trace exact frozen-window kernel names, shapes, bytes, and barriers first. Then change one of layout, qdot reuse, router weighting, or down epilogue ownership in a same-binary PSO; preserve expert order and every BF16 boundary. |
+| P1 — KV-cache handling | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L5789-L5851): fused-attention cache branches; `LagunaRuntimeModel.newCache`. [`KVCache.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift#L327-L735): `KVCacheSimple.update`, `fusedAppendPrepare/Advance`, `RotatingKVCache.update`, `updateInPlace`, `fusedRingPrepare/Advance`. [`AttentionUtils.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift#L59-L109): `attentionWithCacheUpdate` | Decode-primary plus prefill-to-decode transition; Swift logic and embedded fused kernels have no twin. | **M** bottleneck hypothesis; **M** portability, **H** logical-position correctness risk. | The steady 512-row sliding ring is already fused. Trace the frozen 512+128 window to isolate remaining growth, contiguization, temporal-order, or full-cache append work; test offsets 511/512/wrap and exact logical/physical advance before optimizing. |
+| P1/P2 — attention scheduling and full-attention kernels | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L1244-L2360): `lagunaFullQKNormYaRN`, `lagunaSlidingQKNormRoPE`, `lagunaSlidingFusedAttention`, `lagunaFullFusedAttention`; dispatch in `LagunaRuntimeAttention.callAsFunction`. Generic boundary: [`AttentionUtils.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/AttentionUtils.swift#L59-L109) `attentionWithCacheUpdate` and [`RoPEApplication.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift#L43-L75) `applyRotaryPosition` | Both. Decode custom kernels are Swift-embedded. AOT `scaled_dot_product_attention.metal` + `sdpa_vector.h` has no generated twin and requires a metallib rebuild. Steel prefill edits must synchronize `kernels/steel/attn/` with `mlx-generated/steel_attention{,_nax}.cpp`; include `_nax` on M5. | **M** hotspot, **L** new marginal; **H** architecture and numerical-reassociation risk. | Capture per-layer dispatch for sliding versus full at the frozen lengths before editing. Attribute duplicated GQA broadcast, YaRN partial-RoPE, mask, or reduction work to a concrete kernel; bracket one producer/ownership change with exact cache offsets and tokens. |
+| P1 — value-graph fan-out | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L898-L1141): proven producer pattern; search consumers in `LagunaRuntimeAttention.callAsFunction`, `LagunaRuntimeSparseMoEBlock.forward`, and `LagunaRuntimeDecoderLayer.callAsFunction` | Decode-primary, possibly both. Swift graph edits and embedded Metal have no twin. | **M** pattern transfer, **L** for each candidate; **L–M** portability unless it changes occupancy. | Use graph/dispatch tracing to count identical small producers and consumer threadgroups. Hoist only a bit-exact, input-current value with at least three real consumers; the control must restore rank-126 dependency edges in the same binary. |
+| P1 — MLX scheduling and graph construction | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L684-L785): `lagunaDecodeAsyncStage`, `lagunaAttentionProjectionAsyncEnabled`, `lagunaPrefillAsyncLadderStride`; execution in `LagunaRuntimeModelInner.callAsFunction` and `LagunaRuntimeModel.callAsFunction` | Both; Swift scheduling only, no kernel twin. | **M** transferred evidence; **H** scheduler/driver portability risk. | Change one enqueue rung at a time using `DARKBLOOM_DECODE_ASYNC_STAGE`, `DARKBLOOM_ATTN_PROJECTION_ASYNC`, or `DARKBLOOM_PREFILL_ASYNC_LADDER`; collect command-buffer overlap, synchronization, peak memory, and both scored phases. |
+| P2 — deepen exact split-K prefill | Same `qmm_splitk` / `fp_qmm_t_splitk_fused` path mapped above | Prefill. Required `fp_quantized.h` + `mlx-generated/fp_quantized.cpp` pair; audit `_nax` before moving shared helpers. | **M** remaining headroom; **M** portability and **H** rounding-contract risk. | Profile only the frozen `M=512` qualifying shapes. Name the remaining intermediate or barrier, then replay partition-store BF16 rounding and FP32 order in a direct control before claiming removal. |
+| P2 — offline transform metadata | [`Sources/MLXFastTransform/Transform.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastTransform/Transform.swift#L98-L305): `SwiftTransform.run`; [`LagunaCheckpointValidation.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastTransform/LagunaCheckpointValidation.swift#L41-L230) `LagunaCheckpointValidation.validateSelectedTensors` | Untimed producer with possible prefill/decode consumer benefit; Swift only. Rank 126's `.laguna` branch deliberately emits no projection/tied-head sidecar. | **L** performance hypothesis; **L** hardware portability but **H** artifact-policy risk. | First prove the proposed metadata is allowed by the Laguna transform/validation contract and is consumed on the scored path. Reject any idea that only speeds untimed loading or creates an unused sidecar. |
+| P2 — weight views and input-independent preparation | [`LagunaRuntimeModel.swift`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/Sources/MLXFastModel/LagunaRuntimeModel.swift#L11118-L11183): `newCache`, `prepareFusedRuntimeWeights`; producers such as `prepareNativeAffineQKVWeight`, `prepareNativeAffineOProjWeight`, `preparePackedRoutedGateUpBank`, and `prepareRoPEAngleAtlases` | Both, only if preparation removes a scored-path materialization. Swift layout work has no twin; changing a consuming kernel reintroduces that family's twin obligation. | **M** reachability, **L** new marginal; **M** memory/architecture risk. | Trace per-token `contiguous`, gather, reshape-copy, and lazy materialization work after warmup. Promote only a load-time view/layout whose consumer proves one of those scored operations disappeared; report resident-memory cost. |
+
+The fastest first week is therefore diagnostic rather than imitative: trace
+rank 126, preserve direct controls, and attack the remaining producer or byte
+movement actually observed. The map prevents redoing landed work without
+turning the historical winners into a mandatory search vocabulary.
 
 ## Per-submission dossiers
 
@@ -1040,7 +1138,7 @@ paired baseline, and prefer independent official receipts.
 
 ## Appendix A — provenance and integrity
 
-### Frozen inputs and study tooling
+### Frozen study inputs
 
 | Input | SHA-256 |
 |---|---|
@@ -1049,18 +1147,41 @@ paired baseline, and prefer independent official receipts.
 | [README.md](README.md) | `61fa9af50f12185481e83b8b38a22e2d1f3805d648d3383cf0f405a66ecb1518` |
 | [negative-controls.json](negative-controls.json) | `b7a498ae1c8bb74c0287159e817e7dfa5f2a5c41aa29020c100be18b3089869f` |
 | [control-run.json](control-run.json) | `3586c24e184c8b7f9f3dd25403654a2b2bc568b6046e7932f1f9b50b68ec0c14` |
-| [build-report-data.py](build-report-data.py) | `1ef17456c7c63f0996e39d5e1ec62191c3ba3098f63b25532685991f3edce255` |
-| [run-study.sh](run-study.sh) | `78f97cd18f78885a55afe764563a027622f06daab88e424268be4bede3ef23bd` |
 | [run-quality-controls.sh](run-quality-controls.sh) | `c026afb9b2efb54569d4ad2822e40b8d2cde9945e7c5b833ab3f26b844d94ec0` |
 | [quality-bridge-wrapper.sh](quality-bridge-wrapper.sh) | `42d3ec349c53ced281baa787906ac04b07e806c01dd703a4510693c73af6678e` |
 | [run-extended-aime.py](run-extended-aime.py) | `338042981140aa08a6bcd1c8dcc527e924fc9988998099eb2649dea2646c180e` |
 | [extended-aime-ids.json](extended-aime-ids.json) | `fcb81147afd2be45b3aaf809cab88517b1bc8ce9e01c77889e7f70529fee9a59` |
 | [EXTENDED_AIME_DIAGNOSTICS.md](EXTENDED_AIME_DIAGNOSTICS.md) | `673288724fc75bafe1c15c69ec6af7fa92a4cd715379dbd5bc4fb3ae852bebd6` |
 
+### Campaign-executed performance tooling
+
+| Input | SHA-256 |
+|---|---|
+| Campaign runner from local commit `5bb0682` | `78f97cd18f78885a55afe764563a027622f06daab88e424268be4bede3ef23bd` |
+| [Legacy workspace `benchmark.sh` at `7702fab8`](https://github.com/Layr-Labs/mlxfast-challenge/blob/7702fab8a41fe2f4ff2ae281beeb1548b31e3406/benchmark.sh) | `7f9bd39ae5cdec18b9eda69da24db21ff29dab3c2b642c94151011e4c420d68e` |
+
+The legacy workspace benchmark is the code that admitted the impossible
+`1.5C` samples. The root checkout already contained later cooling work, but
+each study arm's `reset --hard 7702fab8…` replaced it before execution.
+
+### Current stopped-state audit and resume tooling
+
+| Input | SHA-256 |
+|---|---|
+| [build-report-data.py](build-report-data.py) | `728df9ec1bedf5ade2c3a7c0297a3a94c0682e367a4843ebb8ed6a50f1e012a1` |
+| [run-study.sh](run-study.sh) | `62ea33d51584c834a22444f28bf35f35e52c395d6eb81fa38891ad8ad16be84d` |
+| [Fail-closed `benchmark.sh`](../../../benchmark.sh) | `8827d1829db796836a87473dd730ff2c80a381df00626aabb526b8f20b3a8f57` |
+| [`tools/fan-control.sh`](../../../tools/fan-control.sh) | `d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a` |
+| Pinned local `macmon 0.7.2` | `495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19` |
+
 ### Harness and evaluator
 
-- Common harness / rank-126 source:
-  `7702fab8a41fe2f4ff2ae281beeb1548b31e3406`.
+- Common participant/model harness and rank-126 source:
+  `7702fab8a41fe2f4ff2ae281beeb1548b31e3406`. Pre-cutover arms also executed
+  that commit's legacy trusted `benchmark.sh`; post-cutover attempts retain
+  its model/editable surface but receive the local-only fail-closed trusted
+  wrapper listed above after every reset. No post-cutover model attempt exists
+  yet.
 - Evaluator commit: `dbb0a1d13223adf15b092dd88ed92ef6abdd4b8f`.
 - Evaluator SHA-256:
   `647af7530d7c9bf88801fd92146439fdba5f75407bbee6a363b1a3ede1c90150`.
@@ -1089,9 +1210,13 @@ records the full audited input set on `--write`.
 
 ### Known provenance limits
 
-- Performance artifacts are currently pending. When produced, they declare a
-  source ref but do not emit the applied editable-tree digest; attribution
-  relies on the checksummed runner's checkout contract.
+- Performance is partial: rank 111 is valid, five selected candidate attempts
+  are rejected for implausible telemetry, and ten arms remain pending. The
+  legacy rank-111 metadata does not bind its runner/tool/log hashes; its exact
+  log hash is frozen above and it is the only pre-cutover exception. New
+  attempts bind the runner, local benchmark, fan helper, macmon, clean-env
+  policy, and log, but still do not emit an applied editable-tree digest;
+  snapshot attribution relies on the checksummed runner's checkout contract.
 - The builder snapshots and rechecks inputs before publication, but the runner
   does not share its writer lock. A final-syscall race is detectable on the
   next audit rather than impossible by construction.
@@ -1109,9 +1234,10 @@ records the full audited input set on `--write`.
 
 ### Report validation at the evidence cut
 
-- `build-report-data.py --check` exited successfully and reported performance
-  `0/16` valid with 16 pending, plus 11 formal quality comparisons and four
-  bounded non-completions with no pending or invalid primary-quality arms.
+- `build-report-data.py --check` reported performance `1/16` valid, 5 invalid,
+  and 10 pending; every invalid arm names implausible GPU telemetry. It also
+  reported 11 formal quality comparisons and four bounded non-completions with
+  no pending or invalid primary-quality arms.
 - `run-quality-controls.sh status` reported `3/3` processed—one formal
   comparison and two bounded non-completions—with zero pending or invalid
   controls; performance remains disabled for this cohort.
@@ -1119,17 +1245,19 @@ records the full audited input set on `--write`.
   pending, and zero invalid. All four selected responses remained
   length-bounded at 6,144 tokens. Four retained infrastructure failures are
   recursively checksummed and unselected.
-- `build-report-data.py --check --require-complete` exited `2`, as intended,
-  because the 16 performance arms are still absent; the primary-quality,
-  control, and extended-diagnostic completeness requirements are satisfied.
+- `build-report-data.py --check --require-complete` remains non-zero, as
+  intended, because performance is incomplete and contains rejected attempts;
+  the primary-quality, control, and extended-diagnostic requirements are
+  satisfied.
 - An independent manifest-to-report check found all 16 official table rows,
-  all 16 performance placeholders, all 15 dossiers, all three control
+  all 16 performance rows, all 15 dossiers, all three control
   identities and outcome rows, and all four extended-AIME rows. Every frozen
   submission UUID, source ref, official score, paired speedup, and candidate
   phase time from `candidates.json` appears in the report.
-- The SHA-256 values in the frozen-input table were recomputed from the current
-  files. All local Markdown targets resolve, all tables have consistent column
-  counts, and the report passes Git's whitespace check as a new file.
+- Static-input and current-tool SHA-256 values were recomputed from their
+  named files; campaign-executed hashes were reproduced from the stated Git
+  objects. All local Markdown targets resolve, all tables have consistent
+  column counts, and the report passes Git's whitespace check.
 - The report-writing and builder-audit work invoked no build, benchmark,
   quality-evaluation workload, or model process. It read the completed control
   and extended-diagnostic artifacts produced by their separate runners.
@@ -1142,11 +1270,11 @@ records the full audited input set on `--write`.
 |---|---|---|
 | Official 15-snapshot history | Complete | Frozen manifest and findings cross-check |
 | Local quality positives | Complete | 11 formal + 4 valid terminal = 15 processed |
-| Local performance | **PENDING** | 16 valid selected full `--local-submit` attempts |
+| Local performance | **PARTIAL: 1 valid / 5 invalid / 10 pending** | 16 valid selected full `--local-submit` attempts behind two credible thermal gates |
 | Negative controls | Complete for quick profile | 3/3 processed: 1 formal regression + 2 hash-bound bounded non-completions |
 | Extended AIME | Complete for diagnostic contract | 4/4 valid; all four still length-bounded at 6,144 tokens; primary decisions unchanged |
 | Final report-data/checksum publication | **PENDING** | Run builder `--write --require-complete` only after all 16 performance arms are valid |
 
-Until the performance placeholders are resolved, the safe operational conclusion is:
+Until the performance cohort is valid and complete, the safe operational conclusion is:
 **bootstrap from the active rank-126 stack and the official mechanism record,
 but treat local M4 performance and local-gate selectivity as unestablished.**

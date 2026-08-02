@@ -38,6 +38,10 @@ RUNNER_PATH = SCRIPT_DIR / "run-study.sh"
 WRAPPER_PATH = SCRIPT_DIR / "quality-bridge-wrapper.sh"
 README_PATH = SCRIPT_DIR / "README.md"
 BUILDER_PATH = Path(__file__).resolve()
+FINAL_REPORT_PATH = SCRIPT_DIR / "REPORT.md"
+OFFICIAL_FINDINGS_PATH = SCRIPT_DIR / "official-findings.md"
+LOCAL_BENCHMARK_PATH = REPO / "benchmark.sh"
+FAN_CONTROL_PATH = REPO / "tools" / "fan-control.sh"
 PUBLIC_FIXTURE_PATH = (
     REPO / "correctness_prompts" / "public_longcopy_gate_english_512_256.json"
 )
@@ -51,6 +55,8 @@ DEFAULT_EXTENDED_AIME_RESULTS = (
 REPORT_PATH = SCRIPT_DIR / "report-data.json"
 CHECKSUMS_PATH = SCRIPT_DIR / "checksums.sha256"
 
+REQUIRED_PUBLICATION_PATHS = (FINAL_REPORT_PATH, OFFICIAL_FINDINGS_PATH)
+
 ATTEMPT_RE = re.compile(r"^attempt-([1-9][0-9]*)$")
 BOXED_ANSWER_RE = re.compile(r"\\boxed\s*\{")
 AIME_INTEGER_RE = re.compile(r"-?\d[\d,]*")
@@ -59,6 +65,40 @@ UUID_RE = re.compile(
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+LOCAL_GATE_PASS_RE = re.compile(
+    r"^benchmark\.sh: GPU cool-down gate passed "
+    r"\(current (?P<temperature>[0-9]+(?:\.[0-9]+)?)C, target <=40C, waited [0-9]+s\)$"
+)
+LOCAL_GATE_PHASE_RE = re.compile(
+    r"^mlxfast: benchmark elapsed=[0-9]+(?:\.[0-9]+)?s local thermal gate "
+    r"(?P<event>start|complete) phase=(?P<phase>prefill|decode)$"
+)
+LOCAL_THERMAL_REJECTION_MARKERS = (
+    "local GPU cool-down gate disabled",
+    "skipping the GPU cool-down gate",
+    "temperature reading looks implausible",
+    "plausibility floor",
+    "retrying the temperature reader",
+    "strict local thermal telemetry",
+    "refusing to claim a thermally gated local timing",
+    "temperature reader returned no usable sample",
+    "local thermal gate failed",
+)
+PINNED_LOCAL_BENCHMARK_SHA256 = (
+    "8827d1829db796836a87473dd730ff2c80a381df00626aabb526b8f20b3a8f57"
+)
+PINNED_FAN_CONTROL_SHA256 = (
+    "d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a"
+)
+PINNED_MACMON_SHA256 = (
+    "495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19"
+)
+PINNED_MACMON_VERSION = "macmon 0.7.2"
+LOCAL_BENCHMARK_CUTOVER = "2026-08-02T22:27:54Z"
+PERFORMANCE_ENVIRONMENT_POLICY = "env-i-v1"
+LEGACY_RANK111_LOG_SHA256 = (
+    "f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130"
+)
 
 QUALITY_SUITES = {"ppl", "mmlu_pro", "gpqa_diamond", "aime", "gsm8k"}
 QUALITY_COMMAND_NAMES = {
@@ -140,6 +180,55 @@ def close(left: Any, right: Any, tolerance: float = 1e-12) -> bool:
     return is_number(left) and is_number(right) and math.isclose(
         float(left), float(right), rel_tol=tolerance, abs_tol=tolerance
     )
+
+
+def validated_local_gate_temperatures(log_text: str, label: str) -> list[float]:
+    """Return the two credible prefill/decode gate temperatures in a local run."""
+
+    require(
+        not any(marker in log_text for marker in LOCAL_THERMAL_REJECTION_MARKERS),
+        f"{label} used implausible GPU telemetry",
+    )
+    events: list[tuple[str, str | float]] = []
+    temperatures: list[float] = []
+    for line in log_text.splitlines():
+        phase_match = LOCAL_GATE_PHASE_RE.fullmatch(line)
+        if phase_match:
+            events.append((phase_match.group("event"), phase_match.group("phase")))
+            continue
+        pass_match = LOCAL_GATE_PASS_RE.fullmatch(line)
+        if pass_match:
+            temperature = float(pass_match.group("temperature"))
+            temperatures.append(temperature)
+            events.append(("pass", temperature))
+            continue
+        require(
+            "GPU cool-down gate passed" not in line
+            and "local thermal gate start phase=" not in line
+            and "local thermal gate complete phase=" not in line,
+            f"{label} contains an untrusted or malformed thermal event",
+        )
+    require(
+        [event[0:2] if event[0] != "pass" else ("pass", None) for event in events]
+        == [
+            ("start", "prefill"),
+            ("pass", None),
+            ("complete", "prefill"),
+            ("start", "decode"),
+            ("pass", None),
+            ("complete", "decode"),
+        ],
+        f"{label} does not contain ordered prefill/decode thermal gates",
+    )
+    require(
+        len(temperatures) == 2,
+        f"{label} does not contain exactly two completed local thermal gates",
+    )
+    require(
+        all(5 < temperature <= 40 for temperature in temperatures),
+        f"{label} thermal-gate temperature is outside the credible (5, 40]C range",
+    )
+    return temperatures
 
 
 def aime_integer(value: Any) -> int | None:
@@ -292,6 +381,117 @@ def relative(path: Path) -> str:
         return resolved.relative_to(REPO).as_posix()
     except ValueError:
         return str(resolved)
+
+
+def has_unresolved_marker(text: str, marker: str) -> bool:
+    """Return whether ``marker`` is asserted rather than explicitly negated."""
+
+    for match in re.finditer(rf"\b{re.escape(marker)}s?\b", text):
+        prefix = text[max(0, match.start() - 48) : match.start()]
+        if re.search(r"\b(?:0|no|not|zero)\s+(?:[a-z0-9/-]+\s+){0,4}$", prefix):
+            continue
+        return True
+    return False
+
+
+def performance_completion_markers(report_text: str) -> list[dict[str, Any]]:
+    """Locate explicit signs that REPORT.md still lacks final performance data.
+
+    Final prose may say that there are ``0 pending`` arms or ``no performance
+    placeholders``. Positive placeholder/pending language, explicit unrun or
+    absent-performance language, and performance TODO/TBD markers are rejected.
+    The result is deterministic and suitable for embedding in report-data.json.
+    """
+
+    source_lines = report_text.splitlines()
+    plain_lines = [
+        re.sub(r"[`*_]", "", source_line).strip().lower()
+        for source_line in source_lines
+    ]
+    markers: list[dict[str, Any]] = []
+    section_heading = ""
+    for index, (source_line, text) in enumerate(
+        zip(source_lines, plain_lines, strict=True)
+    ):
+        if not text:
+            continue
+        if text.startswith("#"):
+            section_heading = text.lstrip("# ")
+        adjacent = [
+            plain_lines[neighbor]
+            for neighbor in (index - 1, index + 1)
+            if 0 <= neighbor < len(plain_lines)
+            and plain_lines[neighbor]
+            and not plain_lines[neighbor].startswith("#")
+        ]
+        context = " ".join([section_heading, text, *adjacent])
+        kinds: list[str] = []
+        if has_unresolved_marker(text, "placeholder"):
+            kinds.append("placeholder")
+        performance_context = "performance" in context
+        publication_context = "report-data/checksum publication" in context
+        if (performance_context or publication_context) and has_unresolved_marker(
+            text, "pending"
+        ):
+            kinds.append("performance_pending")
+        if performance_context and re.search(r"\b(?:todo|tbd|fixme)\b", text):
+            kinds.append("performance_todo")
+        if re.search(
+            r"\b(?:unrun performance|no local performance result|"
+            r"performance (?:artifacts?|arms?|results?) (?:are |is )?"
+            r"(?:still )?(?:absent|missing|unrun))\b",
+            text,
+        ):
+            kinds.append("performance_absent")
+        if performance_context and re.search(
+            r"\b0\s*(?:/|of)\s*16\b|\b0 valid selected attempts\b",
+            text,
+        ):
+            kinds.append("performance_zero_complete_arms")
+        if kinds:
+            markers.append(
+                {
+                    "line": index + 1,
+                    "kinds": sorted(set(kinds)),
+                    "text": source_line.strip(),
+                }
+            )
+    return markers
+
+
+def checksum_manifest_bytes(
+    input_checksums: dict[str, str], report_data_bytes: bytes
+) -> bytes:
+    """Build a final checksum manifest while deliberately excluding itself."""
+
+    checksums = dict(input_checksums)
+    required = [relative(path) for path in REQUIRED_PUBLICATION_PATHS]
+    missing = [path for path in required if path not in checksums]
+    require(
+        not missing,
+        "final checksum publication is missing required Markdown: "
+        + ", ".join(missing),
+    )
+    checksum_path = relative(CHECKSUMS_PATH)
+    report_data_path = relative(REPORT_PATH)
+    require(
+        checksum_path not in checksums,
+        "checksum manifest cannot checksum itself",
+    )
+    require(
+        report_data_path not in checksums,
+        "report-data checksum must be derived from the publication payload",
+    )
+    checksums[report_data_path] = hash_text(report_data_bytes)
+    for path, digest in checksums.items():
+        require("\n" not in path and "\r" not in path, "checksum path contains a newline")
+        require(
+            SHA256_RE.fullmatch(digest) is not None,
+            f"invalid checksum digest for {path}",
+        )
+    return "".join(
+        f"{digest}  {path}\n" for path, digest in sorted(checksums.items())
+    ).encode()
 
 
 def file_under(root: Path, value: str) -> Path:
@@ -1464,6 +1664,9 @@ def validate_performance_selected(
     log_path = arm_dir / f"{selected}.log"
     for path in (score_path, canonical_score_path, meta_path, integrity_path, log_path):
         require(path.is_file(), f"selected performance artifact is missing: {relative(path)}")
+    gate_temperatures = validated_local_gate_temperatures(
+        files.text(log_path), "selected performance"
+    )
     require(files.bytes(score_path) == files.bytes(canonical_score_path), "canonical score copy differs")
     score = files.json(score_path)
     meta = files.json(meta_path)
@@ -1516,7 +1719,9 @@ def validate_performance_selected(
         metrics.get("passed_prefill_speedup_floor") == prefill_floor_passed,
         "recorded prefill floor decision differs",
     )
-    require(decode_floor_passed and prefill_floor_passed, "selected performance failed a speed floor")
+    # These floor flags compare an M4 local timing with the organizer's pinned
+    # M5 calibration constants. They are useful receipts, but they are not a
+    # validity gate for this same-M4 rank-111-normalized transfer study.
     require(metrics.get("checked_steps") == 1025, "local-submit checked-step count differs")
     require(metrics.get("case_count") == 1, "local-submit case count differs")
     require(
@@ -1559,6 +1764,39 @@ def validate_performance_selected(
     require(
         environment.get("MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT") == allow_golden_drift,
         "performance golden drift differs",
+    )
+    finished_at = meta.get("finished_at")
+    legacy_thermal_provenance = (
+        all(
+            key not in meta
+            for key in (
+                "local_benchmark_sha256",
+                "runner_sha256",
+                "fan_control_sha256",
+                "macmon_sha256",
+                "macmon_version",
+                "log_sha256",
+                "environment_policy",
+            )
+        )
+        and isinstance(finished_at, str)
+        and finished_at <= LOCAL_BENCHMARK_CUTOVER
+        and identity["rank"] == 111
+        and files.digest(log_path) == LEGACY_RANK111_LOG_SHA256
+    )
+    current_thermal_provenance = (
+        meta.get("local_benchmark_sha256") == PINNED_LOCAL_BENCHMARK_SHA256
+        and meta.get("runner_sha256") == files.digest(RUNNER_PATH)
+        and meta.get("fan_control_sha256") == PINNED_FAN_CONTROL_SHA256
+        and meta.get("macmon_sha256") == PINNED_MACMON_SHA256
+        and meta.get("macmon_version") == PINNED_MACMON_VERSION
+        and meta.get("log_sha256") == files.digest(log_path)
+        and meta.get("environment_policy") == PERFORMANCE_ENVIRONMENT_POLICY
+        and environment.get("MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY") == "1"
+    )
+    require(
+        legacy_thermal_provenance or current_thermal_provenance,
+        "performance thermal-tool or log provenance differs",
     )
     score_sha = files.digest(score_path)
     integrity_sha = files.digest(integrity_path)
@@ -1613,6 +1851,31 @@ def validate_performance_selected(
             "decode_ms_per_token": float(metrics["decode_seconds_per_token"]) * 1000,
             "prefill_seconds_per_token": float(metrics["prefill_seconds_per_token"]),
             "prefill_ms_per_token": float(metrics["prefill_seconds_per_token"]) * 1000,
+            "thermal_gate_temperatures_c": gate_temperatures,
+            "thermal_provenance": {
+                "policy": (
+                    "legacy_pre_cutover_hashless_log"
+                    if legacy_thermal_provenance
+                    else "strict_hash_bound"
+                ),
+                "local_benchmark_sha256": meta.get("local_benchmark_sha256"),
+                "runner_sha256": meta.get("runner_sha256"),
+                "fan_control_sha256": meta.get("fan_control_sha256"),
+                "macmon_sha256": meta.get("macmon_sha256"),
+                "macmon_version": meta.get("macmon_version"),
+                "log_sha256": meta.get("log_sha256"),
+                "environment_policy": meta.get("environment_policy"),
+            },
+            "official_calibration_floor_receipt": {
+                "decode_floor": float(decode_floor),
+                "prefill_floor": float(prefill_floor),
+                "decode_passed": decode_floor_passed,
+                "prefill_passed": prefill_floor_passed,
+                "interpretation": (
+                    "Diagnostic comparison with pinned organizer M5 calibration; "
+                    "not a local M4 artifact-validity condition"
+                ),
+            },
             "passed_correctness": metrics.get("passed_correctness"),
             "allow_golden_drift": allow_golden_drift == "1",
             "controlled_drift_signature": {
@@ -3405,6 +3668,24 @@ def build_payload(
     manifest, candidates = load_manifest(files)
     manifest_ref = files.ref(MANIFEST_PATH)
     manifest_sha256 = manifest_ref["sha256"]
+    final_report_ref = files.ref(FINAL_REPORT_PATH)
+    official_findings_ref = files.ref(OFFICIAL_FINDINGS_PATH)
+    local_benchmark_ref = files.ref(LOCAL_BENCHMARK_PATH)
+    fan_control_ref = files.ref(FAN_CONTROL_PATH)
+    require(final_report_ref["bytes"] > 0, "REPORT.md is empty")
+    require(official_findings_ref["bytes"] > 0, "official-findings.md is empty")
+    require(
+        local_benchmark_ref["sha256"] == PINNED_LOCAL_BENCHMARK_SHA256,
+        "local fail-closed benchmark SHA differs",
+    )
+    require(
+        fan_control_ref["sha256"] == PINNED_FAN_CONTROL_SHA256,
+        "local fan-control SHA differs",
+    )
+    final_report_markers = performance_completion_markers(
+        files.text(FINAL_REPORT_PATH)
+    )
+    final_markdown_complete = not final_report_markers
     control_definition, control_run, controls = load_control_manifests(files, manifest)
     control_definition_ref = files.ref(CONTROL_DEFINITION_PATH)
     control_run_ref = files.ref(CONTROL_RUN_PATH)
@@ -3674,7 +3955,7 @@ def build_payload(
         control_statuses["valid_selected_attempt"]
         + control_statuses["terminal_noncompletion"]
     )
-    ready = (
+    artifact_data_complete = (
         performance_statuses["valid_selected_attempt"] == 16
         and processed_quality == 15
         and processed_controls == 3
@@ -3682,8 +3963,13 @@ def build_payload(
         and invalid == 0
         and unknown_result_directories == 0
     )
+    ready_for_final_publication = artifact_data_complete and final_markdown_complete
     inputs = {
         "manifest": manifest_ref,
+        "final_report": final_report_ref,
+        "official_findings": official_findings_ref,
+        "local_fail_closed_benchmark": local_benchmark_ref,
+        "local_fan_control": fan_control_ref,
         "runner": files.ref(RUNNER_PATH),
         "negative_control_definition": control_definition_ref,
         "negative_control_run": control_run_ref,
@@ -3773,6 +4059,17 @@ def build_payload(
             "evaluator": extended_evaluator,
             "arms": extended_rows,
         },
+        "final_markdown": {
+            "complete": final_markdown_complete,
+            "report_path": relative(FINAL_REPORT_PATH),
+            "official_findings_path": relative(OFFICIAL_FINDINGS_PATH),
+            "performance_completion_markers": final_report_markers,
+            "completion_rule": (
+                "REPORT.md must contain no positive placeholder marker, no "
+                "performance pending/TODO/TBD marker, and no explicit absent "
+                "or zero-of-16 performance-result marker"
+            ),
+        },
         "summary": {
             "performance": {
                 "expected": 16,
@@ -3816,7 +4113,10 @@ def build_payload(
                 "invalid": extended_statuses["invalid"],
                 "retained_infrastructure_failures": retained_extended_failures,
             },
-            "ready_for_final_report": ready,
+            "artifact_data_complete": artifact_data_complete,
+            "final_markdown_complete": final_markdown_complete,
+            "ready_for_final_report": ready_for_final_publication,
+            "ready_for_final_publication": ready_for_final_publication,
             "audit_valid": invalid == 0 and unknown_result_directories == 0,
             "integrity": {
                 "invalid_arms": invalid,
@@ -3840,6 +4140,10 @@ def build_payload(
             "format": "SHA256SUMS",
             "excludes_itself": True,
             "includes_report_data_when_written": True,
+            "includes_required_final_markdown_when_written": True,
+            "required_final_markdown": [
+                relative(path) for path in REQUIRED_PUBLICATION_PATHS
+            ],
         },
         "limitations": [
             "Local measurements use Apple M4 Max with DARKBLOOM_EXPERT_ALIGNED_GATHER=0; official results use Apple M5 Max.",
@@ -3904,11 +4208,7 @@ def write_outputs(payload: dict[str, Any], files: Files) -> None:
             report_bytes = canonical_json(payload)
         except ValueError as error:
             raise AuditFailure(f"report payload is not canonical JSON: {error}") from error
-        checksums = dict(files.checksums)
-        checksums[relative(REPORT_PATH)] = hash_text(report_bytes)
-        checksum_bytes = "".join(
-            f"{digest}  {path}\n" for path, digest in sorted(checksums.items())
-        ).encode()
+        checksum_bytes = checksum_manifest_bytes(files.checksums, report_bytes)
         try:
             report_tmp = stage(REPORT_PATH, ".report-data.", report_bytes)
             checksums_tmp = stage(CHECKSUMS_PATH, ".checksums.", checksum_bytes)
@@ -3956,6 +4256,16 @@ def print_summary(payload: dict[str, Any], wrote: bool) -> None:
         f"{extended['pending']} pending, {extended['invalid']} invalid, "
         f"{extended['retained_infrastructure_failures']} retained infrastructure failures"
     )
+    print(
+        "report-data audit: artifact_data_complete="
+        f"{str(summary['artifact_data_complete']).lower()}"
+    )
+    print(
+        "report-data audit: final_markdown_complete="
+        f"{str(summary['final_markdown_complete']).lower()} "
+        f"({len(payload['final_markdown']['performance_completion_markers'])} "
+        "performance completion markers)"
+    )
     print(f"report-data audit: ready_for_final_report={str(summary['ready_for_final_report']).lower()}")
     for cohort, scopes in payload["untracked_result_directories"].items():
         for scope, names in scopes.items():
@@ -3999,17 +4309,173 @@ def print_summary(payload: dict[str, Any], wrote: bool) -> None:
         print(f"wrote {relative(CHECKSUMS_PATH)}")
 
 
+def print_completion_blockers(payload: dict[str, Any]) -> None:
+    for marker in payload["final_markdown"]["performance_completion_markers"]:
+        kinds = ",".join(marker["kinds"])
+        print(
+            f"report-data audit: {relative(FINAL_REPORT_PATH)}:{marker['line']}: "
+            f"{kinds}: {marker['text']}",
+            file=sys.stderr,
+        )
+
+
+def run_self_test() -> int:
+    try:
+        complete = """# Final report
+
+Local performance is complete: 16/16 valid selected attempts and 0 pending arms.
+No performance placeholders remain.
+"""
+        require(
+            performance_completion_markers(complete) == [],
+            "negated completion language was treated as unresolved",
+        )
+
+        incomplete = """# Draft
+| Local performance | **PENDING** |
+**PLACEHOLDER STATUS:** no local performance result is reported.
+Performance TODO: add the measurements.
+Performance arms are still absent.
+Performance: 0/16 valid selected attempts.
+## Performance appendix
+**PENDING**
+"""
+        markers = performance_completion_markers(incomplete)
+        require(len(markers) == 6, "not every synthetic completion marker was found")
+        found_kinds = {kind for marker in markers for kind in marker["kinds"]}
+        require(
+            {
+                "placeholder",
+                "performance_pending",
+                "performance_todo",
+                "performance_absent",
+                "performance_zero_complete_arms",
+            }
+            <= found_kinds,
+            "synthetic completion marker kinds differ",
+        )
+
+        final_report_path = relative(FINAL_REPORT_PATH)
+        official_findings_path = relative(OFFICIAL_FINDINGS_PATH)
+        report_data_path = relative(REPORT_PATH)
+        checksum_path = relative(CHECKSUMS_PATH)
+        report_data_bytes = b'{"synthetic":true}\n'
+        checksum_bytes = checksum_manifest_bytes(
+            {
+                final_report_path: "a" * 64,
+                official_findings_path: "b" * 64,
+            },
+            report_data_bytes,
+        )
+        checksum_text = checksum_bytes.decode()
+        require(
+            f"{'a' * 64}  {final_report_path}\n" in checksum_text
+            and f"{'b' * 64}  {official_findings_path}\n" in checksum_text,
+            "required Markdown is absent from the synthetic checksum manifest",
+        )
+        require(
+            f"{hash_text(report_data_bytes)}  {report_data_path}\n" in checksum_text,
+            "report-data digest is absent from the synthetic checksum manifest",
+        )
+        require(
+            checksum_path not in checksum_text,
+            "synthetic checksum manifest contains a self-reference",
+        )
+
+        try:
+            checksum_manifest_bytes(
+                {final_report_path: "a" * 64}, report_data_bytes
+            )
+        except AuditFailure as error:
+            require(
+                official_findings_path in str(error),
+                "missing-Markdown failure does not identify the missing path",
+            )
+        else:
+            raise AuditFailure("missing required Markdown did not fail publication")
+
+        valid_gate_log = """
+mlxfast: benchmark elapsed=77.0s local thermal gate start phase=prefill
+benchmark.sh: GPU cool-down gate passed (current 40.0C, target <=40C, waited 240s)
+mlxfast: benchmark elapsed=529.3s local thermal gate complete phase=prefill
+mlxfast: benchmark elapsed=573.5s local thermal gate start phase=decode
+benchmark.sh: GPU cool-down gate passed (current 39.9C, target <=40C, waited 150s)
+mlxfast: benchmark elapsed=855.2s local thermal gate complete phase=decode
+"""
+        require(
+            validated_local_gate_temperatures(valid_gate_log, "synthetic")
+            == [40.0, 39.9],
+            "valid synthetic thermal gates were not parsed",
+        )
+        try:
+            validated_local_gate_temperatures(
+                "mlxfast: benchmark elapsed=1.0s local thermal gate start "
+                "phase=prefill\n"
+                "benchmark.sh: warning: the GPU temperature reads 1.5C, at "
+                "or below the 5C plausibility floor; retrying the temperature "
+                "reader (2 attempts remain)\n",
+                "synthetic",
+            )
+        except AuditFailure as error:
+            require(
+                "implausible GPU telemetry" in str(error),
+                "implausible synthetic telemetry failed for the wrong reason",
+            )
+        else:
+            raise AuditFailure("implausible synthetic telemetry was accepted")
+
+        try:
+            validated_local_gate_temperatures(
+                "\n".join(valid_gate_log.splitlines()[1:4]), "synthetic"
+            )
+        except AuditFailure as error:
+            require(
+                "ordered prefill/decode" in str(error),
+                "incomplete synthetic gate log failed for the wrong reason",
+            )
+        else:
+            raise AuditFailure("an incomplete synthetic thermal-gate log was accepted")
+
+        try:
+            validated_local_gate_temperatures(
+                valid_gate_log.replace(
+                    "benchmark.sh: GPU cool-down gate passed",
+                    "mlxfast-worker: benchmark.sh: GPU cool-down gate passed",
+                    1,
+                ),
+                "synthetic",
+            )
+        except AuditFailure as error:
+            require(
+                "untrusted or malformed" in str(error),
+                "worker-prefixed synthetic gate failed for the wrong reason",
+            )
+        else:
+            raise AuditFailure("a worker-prefixed thermal event was accepted")
+    except AuditFailure as error:
+        print(f"report-data self-test failed: {error}", file=sys.stderr)
+        return 1
+    print("report-data self-test: 11 deterministic checks passed")
+    return 0
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--check", action="store_true", help="audit without writing (default)")
     action.add_argument("--write", action="store_true", help="write report-data.json and checksums.sha256")
+    action.add_argument(
+        "--self-test",
+        action="store_true",
+        help="run deterministic Markdown/checksum tests without reading study results",
+    )
     parser.add_argument(
         "--require-complete",
         action="store_true",
         help=(
             "fail unless performance is 16/16 valid, primary quality is 15/15 "
-            "processed, controls are 3/3 processed, and extended AIME is 4/4 valid"
+            "processed, controls are 3/3 processed, extended AIME is 4/4 valid, "
+            "and REPORT.md has no performance completion markers"
         ),
     )
     parser.add_argument(
@@ -4035,6 +4501,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.self_test:
+        return run_self_test()
     try:
         payload, files = build_payload(
             args.results.expanduser().resolve(),
@@ -4047,6 +4515,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         if args.require_complete and not payload["summary"]["ready_for_final_report"]:
             print_summary(payload, False)
+            print_completion_blockers(payload)
             return 2
         if args.write:
             write_outputs(payload, files)

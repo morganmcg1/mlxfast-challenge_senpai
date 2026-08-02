@@ -2,6 +2,8 @@
 set -euo pipefail
 
 study_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+study_runner_source="${study_script_dir}/run-study.sh"
+study_runner_sha256="$(shasum -a 256 "${study_runner_source}" | awk '{print $1}')"
 study_manifest="${MLXFAST_TOP15_MANIFEST:-${study_script_dir}/candidates.json}"
 study_repo="$(git -C "${study_script_dir}" rev-parse --show-toplevel)"
 study_workspace="${MLXFAST_TOP15_WORKSPACE:-${study_repo}/quality-results/.top15-workspace-20260802}"
@@ -27,6 +29,19 @@ study_allow_golden_drift="${MLXFAST_TOP15_ALLOW_GOLDEN_DRIFT:-0}"
 study_owner_file="${study_workspace}/.mlxfast-top15-study-owner.json"
 study_quality_wrapper_source="${study_script_dir}/quality-bridge-wrapper.sh"
 study_quality_wrapper="${study_workspace}/senpai/top15-quality-bridge-wrapper.sh"
+study_local_benchmark_source="${study_repo}/benchmark.sh"
+study_fan_control_source="${study_repo}/tools/fan-control.sh"
+study_macmon_source="${HOME}/bin/macmon"
+# Deliberately frozen for this cohort. The rank-126 harness copy warned on
+# impossible telemetry but still timed; this content-identical replacement
+# changes only local cooling behavior and makes that gate fail closed.
+study_local_benchmark_sha256="8827d1829db796836a87473dd730ff2c80a381df00626aabb526b8f20b3a8f57"
+study_fan_control_sha256="d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a"
+study_macmon_sha256="495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19"
+study_macmon_version="macmon 0.7.2"
+study_local_benchmark_cutover="2026-08-02T22:27:54Z"
+study_performance_environment_policy="env-i-v1"
+study_legacy_baseline_log_sha256="f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130"
 
 die() {
   echo "top15-study: $*" >&2
@@ -112,12 +127,18 @@ require_inputs() {
   while IFS= read -r candidate_source_ref; do
     git -C "${study_repo}" cat-file -e "${candidate_source_ref}^{commit}" \
       || die "manifest candidate commit is unavailable: ${candidate_source_ref}"
+    git -C "${study_repo}" diff --quiet \
+      "${study_harness_commit}" "${candidate_source_ref}" -- Sources/MLXFastTransform \
+      || die "candidate ${candidate_source_ref} changes the offline transform but the study reuses shared weights"
   done < <(jq -r '.candidates[].source_ref' "${study_manifest}")
   if [[ "${study_performance_enabled}" == "true" ]]; then
     [[ -n "${study_baseline_commit}" && -n "${study_baseline_rank}" && -n "${study_baseline_id}" ]] \
       || die "performance-enabled manifest requires a complete baseline"
     git -C "${study_repo}" cat-file -e "${study_baseline_commit}^{commit}" \
       || die "manifest performance baseline commit is unavailable: ${study_baseline_commit}"
+    git -C "${study_repo}" diff --quiet \
+      "${study_harness_commit}" "${study_baseline_commit}" -- Sources/MLXFastTransform \
+      || die "performance baseline changes the offline transform but the study reuses shared weights"
   fi
   local control_definition_path control_definition_sha256
   control_definition_path="$(jq -r '.control_definition.path // empty' "${study_manifest}")"
@@ -151,6 +172,21 @@ require_inputs() {
   [[ -f "${study_quality_baseline}/run.json" ]] || die "quality baseline is missing: ${study_quality_baseline}"
   [[ -f "${study_quality_baseline}/summary.json" ]] || die "quality baseline summary is missing"
   [[ -x "${study_quality_wrapper_source}" ]] || die "quality bridge wrapper is not executable"
+  [[ -x "${study_local_benchmark_source}" ]] || die "pinned local benchmark is not executable"
+  [[ -x "${study_fan_control_source}" ]] || die "pinned fan-control helper is not executable"
+  [[ -x "${study_macmon_source}" ]] || die "pinned macmon reader is not executable"
+  [[ "$(sha256_file "${study_local_benchmark_source}")" == "${study_local_benchmark_sha256}" ]] \
+    || die "pinned local benchmark SHA mismatch: ${study_local_benchmark_source}"
+  [[ "$(sha256_file "${study_fan_control_source}")" == "${study_fan_control_sha256}" ]] \
+    || die "pinned fan-control SHA mismatch: ${study_fan_control_source}"
+  [[ "$(sha256_file "${study_macmon_source}")" == "${study_macmon_sha256}" ]] \
+    || die "pinned macmon SHA mismatch: ${study_macmon_source}"
+  [[ "$("${study_macmon_source}" --version 2>&1 | head -n 1)" == "${study_macmon_version}" ]] \
+    || die "pinned macmon version differs"
+  grep -q 'gpu_telemetry_implausibility() {' "${study_local_benchmark_source}" \
+    || die "pinned local benchmark lacks the fail-closed telemetry validator"
+  grep -q 'refusing to claim a thermally gated local timing' "${study_local_benchmark_source}" \
+    || die "pinned local benchmark lacks the fail-closed telemetry outcome"
   jq -e \
     --arg evaluator "${study_evaluator_sha256}" \
     --arg hardware_model "$(jq -r '.host.model' "${study_manifest}")" \
@@ -213,6 +249,17 @@ copy_evaluator() {
     || die "evaluator SHA mismatch: expected ${expected_evaluator}, got ${actual_evaluator}"
 }
 
+install_local_benchmark() {
+  [[ "$(sha256_file "${study_local_benchmark_source}")" == "${study_local_benchmark_sha256}" ]] \
+    || die "pinned local benchmark changed during the campaign"
+  install -m 755 "${study_local_benchmark_source}" "${study_workspace}/benchmark.sh"
+  install -m 755 "${study_fan_control_source}" "${study_workspace}/tools/fan-control.sh"
+  [[ "$(sha256_file "${study_workspace}/benchmark.sh")" == "${study_local_benchmark_sha256}" ]] \
+    || die "failed to install the pinned fail-closed local benchmark"
+  [[ "$(sha256_file "${study_workspace}/tools/fan-control.sh")" == "${study_fan_control_sha256}" ]] \
+    || die "failed to install the pinned fan-control helper"
+}
+
 prepare_workspace() {
   require_inputs
   mkdir -p "$(dirname "${study_workspace}")" "${study_results}/setup"
@@ -224,6 +271,7 @@ prepare_workspace() {
   verify_workspace_owner
   git -C "${study_workspace}" cat-file -e "${study_harness_commit}^{commit}"
   git -C "${study_workspace}" reset --hard "${study_harness_commit}"
+  install_local_benchmark
   copy_evaluator
   if [[ ! -s "${study_workspace}/.build-worker/release/mlx.metallib" ]]; then
     (
@@ -267,12 +315,20 @@ apply_snapshot() {
       | grep -q .; then
     die "untracked files remain inside editablePaths for ${snapshot_label}"
   fi
+  # reset --hard above restores the legacy warn-and-continue gate. Reinstall
+  # and verify the frozen fail-closed trusted wrapper before every arm.
+  install_local_benchmark
   jq -n \
     --arg label "${snapshot_label}" \
     --arg source_ref "${snapshot_commit}" \
     --arg harness_ref "${study_harness_commit}" \
+    --arg runner_sha256 "${study_runner_sha256}" \
+    --arg local_benchmark_sha256 "${study_local_benchmark_sha256}" \
+    --arg fan_control_sha256 "${study_fan_control_sha256}" \
+    --arg macmon_sha256 "${study_macmon_sha256}" \
+    --arg macmon_version "${study_macmon_version}" \
     --arg applied_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{label:$label, source_ref:$source_ref, harness_ref:$harness_ref, applied_at:$applied_at}' \
+    '{label:$label, source_ref:$source_ref, harness_ref:$harness_ref, runner_sha256:$runner_sha256, local_benchmark_sha256:$local_benchmark_sha256, fan_control_sha256:$fan_control_sha256, macmon_sha256:$macmon_sha256, macmon_version:$macmon_version, applied_at:$applied_at}' \
     > "${study_results}/current-snapshot.json"
   echo "top15-study: applied ${snapshot_label} (${snapshot_commit})"
 }
@@ -387,6 +443,98 @@ ensure_arm_spec() {
   fi
 }
 
+performance_log_thermal_valid() {
+  local log_file="$1"
+  [[ -f "${log_file}" ]] || return 1
+  awk '
+    /^mlxfast: benchmark elapsed=[0-9]+(\.[0-9]+)?s local thermal gate start phase=prefill$/ {
+      if (state != 0) invalid = 1
+      state = 1
+      next
+    }
+    /^mlxfast: benchmark elapsed=[0-9]+(\.[0-9]+)?s local thermal gate complete phase=prefill$/ {
+      if (state != 2) invalid = 1
+      state = 3
+      next
+    }
+    /^mlxfast: benchmark elapsed=[0-9]+(\.[0-9]+)?s local thermal gate start phase=decode$/ {
+      if (state != 3) invalid = 1
+      state = 4
+      next
+    }
+    /^mlxfast: benchmark elapsed=[0-9]+(\.[0-9]+)?s local thermal gate complete phase=decode$/ {
+      if (state != 5) invalid = 1
+      state = 6
+      next
+    }
+    /^benchmark\.sh: GPU cool-down gate passed \(current [0-9]+(\.[0-9]+)?C, target <=40C, waited [0-9]+s\)$/ {
+      temperature = $0
+      sub(/^.*current /, "", temperature)
+      sub(/C,.*$/, "", temperature)
+      temperature += 0
+      if (state == 1) state = 2
+      else if (state == 4) state = 5
+      else invalid = 1
+      passes += 1
+      if (!(temperature > 5 && temperature <= 40)) invalid = 1
+      next
+    }
+    /GPU cool-down gate passed|local thermal gate (start|complete) phase=/ {
+      invalid = 1
+    }
+    /local GPU cool-down gate disabled|skipping the GPU cool-down gate|temperature reading looks implausible|plausibility floor|retrying the temperature reader|strict local thermal telemetry|refusing to claim a thermally gated local timing|temperature reader returned no usable sample|local thermal gate failed/ {
+      invalid = 1
+    }
+    END { exit !(state == 6 && passes == 2 && invalid == 0) }
+  ' "${log_file}"
+}
+
+performance_log_thermal_self_test() {
+  local test_dir valid_log invalid_log forged_log
+  test_dir="$(mktemp -d "${TMPDIR:-/tmp}/mlxfast-top15-thermal-test.XXXXXX")"
+  valid_log="${test_dir}/valid.log"
+  invalid_log="${test_dir}/invalid.log"
+  forged_log="${test_dir}/forged.log"
+  printf '%s\n' \
+    'mlxfast: benchmark elapsed=77.0s local thermal gate start phase=prefill' \
+    'benchmark.sh: GPU cool-down gate passed (current 40.0C, target <=40C, waited 240s)' \
+    'mlxfast: benchmark elapsed=529.3s local thermal gate complete phase=prefill' \
+    'mlxfast: benchmark elapsed=573.5s local thermal gate start phase=decode' \
+    'benchmark.sh: GPU cool-down gate passed (current 39.9C, target <=40C, waited 150s)' \
+    'mlxfast: benchmark elapsed=855.2s local thermal gate complete phase=decode' \
+    > "${valid_log}"
+  printf '%s\n' \
+    'mlxfast: benchmark elapsed=77.0s local thermal gate start phase=prefill' \
+    'benchmark.sh: warning: the GPU temperature reads 1.5C; the temperature reading looks implausible' \
+    'benchmark.sh: GPU cool-down gate passed (current 1.5C, target <=40C, waited 0s)' \
+    'mlxfast: benchmark elapsed=80.0s local thermal gate complete phase=prefill' \
+    'mlxfast: benchmark elapsed=81.0s local thermal gate start phase=decode' \
+    'benchmark.sh: GPU cool-down gate passed (current 1.5C, target <=40C, waited 0s)' \
+    'mlxfast: benchmark elapsed=82.0s local thermal gate complete phase=decode' \
+    > "${invalid_log}"
+  printf '%s\n' \
+    'mlxfast: benchmark elapsed=77.0s local thermal gate start phase=prefill' \
+    'mlxfast-worker: benchmark.sh: GPU cool-down gate passed (current 39.0C, target <=40C, waited 0s)' \
+    'mlxfast: benchmark elapsed=78.0s local thermal gate complete phase=prefill' \
+    'benchmark.sh: warning: skipping the GPU cool-down gate: no GPU temperature reader found.' \
+    > "${forged_log}"
+  performance_log_thermal_valid "${valid_log}" \
+    || { rm -f "${valid_log}" "${invalid_log}" "${forged_log}"; rmdir "${test_dir}"; die "credible thermal log failed self-test"; }
+  if performance_log_thermal_valid "${invalid_log}"; then
+    rm -f "${valid_log}" "${invalid_log}" "${forged_log}"
+    rmdir "${test_dir}"
+    die "implausible thermal log passed self-test"
+  fi
+  if performance_log_thermal_valid "${forged_log}"; then
+    rm -f "${valid_log}" "${invalid_log}" "${forged_log}"
+    rmdir "${test_dir}"
+    die "worker-prefixed or skipped thermal gate passed self-test"
+  fi
+  rm -f "${valid_log}" "${invalid_log}" "${forged_log}"
+  rmdir "${test_dir}"
+  echo "top15-study: thermal log self-test passed"
+}
+
 performance_attempt_valid() {
   local arm_dir="$1"
   local attempt_name="$2"
@@ -396,15 +544,30 @@ performance_attempt_valid() {
   local score_file="${arm_dir}/${attempt_name}.score.json"
   local meta_file="${arm_dir}/${attempt_name}.meta.json"
   local integrity_file="${arm_dir}/${attempt_name}.integrity.json"
+  local log_file="${arm_dir}/${attempt_name}.log"
   arm_spec_matches "${arm_dir}" performance "${arm_rank}" "${arm_id}" "${arm_commit}" \
     || return 1
   [[ -f "${score_file}" && -f "${meta_file}" && -f "${integrity_file}" ]] || return 1
+  performance_log_thermal_valid "${log_file}" || return 1
   jq -e \
     --arg runtime "${study_perf_runtime}" \
     --arg allow "${study_allow_golden_drift}" '
       (.score | numbers) > 0
       and (.metrics.decode_seconds_per_token | numbers) > 0
       and (.metrics.prefill_seconds_per_token | numbers) > 0
+      and (.metrics.baseline_decode_seconds_per_token | numbers) > 0
+      and (.metrics.baseline_prefill_seconds_per_token | numbers) > 0
+      and (.metrics.decode_speedup | numbers) > 0
+      and (.metrics.prefill_speedup | numbers) > 0
+      and .metrics.decode_speedup_floor == 0.95
+      and .metrics.prefill_speedup_floor == 0.95
+      and .metrics.passed_decode_speedup_floor
+          == (.metrics.decode_speedup >= .metrics.decode_speedup_floor)
+      and .metrics.passed_prefill_speedup_floor
+          == (.metrics.prefill_speedup >= .metrics.prefill_speedup_floor)
+      and .metrics.checked_steps == 1025
+      and .metrics.case_count == 1
+      and (.metrics.golden_hash | test("^[0-9a-f]{64}$"))
       and .metrics.runtime == $runtime
       and .metrics.partial_result == false
       and (
@@ -416,6 +579,31 @@ performance_attempt_valid() {
         ))
       )
     ' "${score_file}" >/dev/null || return 1
+  local baseline_decode decode decode_speedup baseline_prefill prefill prefill_speedup score
+  IFS=$'\t' read -r \
+    baseline_decode decode decode_speedup baseline_prefill prefill prefill_speedup score \
+    < <(jq -r '[
+      .metrics.baseline_decode_seconds_per_token,
+      .metrics.decode_seconds_per_token,
+      .metrics.decode_speedup,
+      .metrics.baseline_prefill_seconds_per_token,
+      .metrics.prefill_seconds_per_token,
+      .metrics.prefill_speedup,
+      .score
+    ] | @tsv' "${score_file}")
+  awk \
+    -v bd="${baseline_decode}" -v d="${decode}" -v ds="${decode_speedup}" \
+    -v bp="${baseline_prefill}" -v p="${prefill}" -v ps="${prefill_speedup}" \
+    -v score="${score}" '
+      function absolute(value) { return value < 0 ? -value : value }
+      BEGIN {
+        expected_ds = bd / d
+        expected_ps = bp / p
+        expected_score = (expected_ds ^ 0.75) * (expected_ps ^ 0.25)
+        valid = absolute(ds - expected_ds) <= 1e-10 && absolute(ps - expected_ps) <= 1e-10 && absolute(score - expected_score) <= 1e-10
+        exit !valid
+      }
+    ' || return 1
   if [[ "${study_allow_golden_drift}" == "1" \
       && "$(jq -r '.metrics.passed_correctness' "${score_file}")" == "false" \
       && "${arm_commit}" != "${study_baseline_commit}" ]]; then
@@ -431,6 +619,16 @@ performance_attempt_valid() {
     --arg manifest_sha256 "${study_manifest_sha256}" \
     --arg mode "${study_perf_mode}" \
     --arg runtime "${study_perf_runtime}" \
+    --arg runner_sha256 "${study_runner_sha256}" \
+    --arg local_benchmark_sha256 "${study_local_benchmark_sha256}" \
+    --arg fan_control_sha256 "${study_fan_control_sha256}" \
+    --arg macmon_sha256 "${study_macmon_sha256}" \
+    --arg macmon_version "${study_macmon_version}" \
+    --arg log_sha256 "$(sha256_file "${log_file}")" \
+    --arg environment_policy "${study_performance_environment_policy}" \
+    --arg local_benchmark_cutover "${study_local_benchmark_cutover}" \
+    --arg legacy_baseline_ref "${study_baseline_commit}" \
+    --arg legacy_baseline_log_sha256 "${study_legacy_baseline_log_sha256}" \
     --arg expert_aligned_gather "0" \
     --arg allow_golden_drift "${study_allow_golden_drift}" '
       .exit_code == 0
@@ -439,11 +637,49 @@ performance_attempt_valid() {
       and .manifest_sha256 == $manifest_sha256
       and .mode == $mode
       and .runtime == $runtime
+      and (
+        (
+          .local_benchmark_sha256 == $local_benchmark_sha256
+          and .runner_sha256 == $runner_sha256
+          and .fan_control_sha256 == $fan_control_sha256
+          and .macmon_sha256 == $macmon_sha256
+          and .macmon_version == $macmon_version
+          and .log_sha256 == $log_sha256
+          and .environment_policy == $environment_policy
+          and .environment.MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY == "1"
+        )
+        or (
+          (has("local_benchmark_sha256") | not)
+          and (has("runner_sha256") | not)
+          and (has("fan_control_sha256") | not)
+          and (has("macmon_sha256") | not)
+          and (has("log_sha256") | not)
+          and (has("environment_policy") | not)
+          and (.finished_at | type) == "string"
+          and .finished_at <= $local_benchmark_cutover
+          and $source_ref == $legacy_baseline_ref
+          and $log_sha256 == $legacy_baseline_log_sha256
+        )
+      )
       and .environment.DARKBLOOM_EXPERT_ALIGNED_GATHER == $expert_aligned_gather
       and .environment.MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT == $allow_golden_drift
     ' "${meta_file}" >/dev/null || return 1
-  jq -e 'type == "object"' "${integrity_file}" >/dev/null || return 1
-  [[ "$(jq -r '.score_sha256' "${meta_file}")" == "$(sha256_file "${score_file}")" ]] || return 1
+  local score_sha256
+  score_sha256="$(sha256_file "${score_file}")"
+  jq -e \
+    --arg score_sha256 "${score_sha256}" \
+    --arg weights_sha256 "$(jq -r '.metrics.weights_hash' "${score_file}")" \
+    --argjson weights_file_count "$(jq -r '.metrics.weights_file_count' "${score_file}")" \
+    --argjson weights_byte_count "$(jq -r '.metrics.weights_byte_count' "${score_file}")" \
+    --arg golden_sha256 "$(jq -r '.metrics.golden_hash' "${score_file}")" '
+      type == "object"
+      and .score_sha256 == $score_sha256
+      and .weights_sha256 == $weights_sha256
+      and .weights_file_count == $weights_file_count
+      and .weights_byte_count == $weights_byte_count
+      and .golden_sha256 == $golden_sha256
+    ' "${integrity_file}" >/dev/null || return 1
+  [[ "$(jq -r '.score_sha256' "${meta_file}")" == "${score_sha256}" ]] || return 1
   [[ "$(jq -r '.integrity_sha256' "${meta_file}")" == "$(sha256_file "${integrity_file}")" ]] || return 1
 }
 
@@ -455,9 +691,43 @@ performance_result_valid() {
   [[ -f "${arm_dir}/selected-attempt.txt" && -f "${arm_dir}/score.json" ]] || return 1
   local attempt_name
   attempt_name="$(tr -d '[:space:]' < "${arm_dir}/selected-attempt.txt")"
+  [[ "${attempt_name}" =~ ^attempt-[1-9][0-9]*$ ]] || return 1
   performance_attempt_valid "${arm_dir}" "${attempt_name}" "${arm_rank}" "${arm_id}" "${arm_commit}" \
     || return 1
   [[ "$(sha256_file "${arm_dir}/score.json")" == "$(sha256_file "${arm_dir}/${attempt_name}.score.json")" ]]
+}
+
+print_performance_comparison() {
+  local arm_rank="$1"
+  local score_file="$2"
+  local baseline_score="${study_results}/performance/${study_baseline_rank}-${study_baseline_id}/score.json"
+  local candidate_prefill candidate_decode calibration_score
+  IFS=$'\t' read -r candidate_prefill candidate_decode calibration_score \
+    < <(jq -r '[.metrics.prefill_seconds_per_token, .metrics.decode_seconds_per_token, .score] | @tsv' "${score_file}")
+  if [[ "${arm_rank}" == "${study_baseline_rank}" ]]; then
+    printf 'top15-study: rank-%s local comparator prefill=%.6fms/token decode=%.6fms/token; harness estimate=%.6f vs pinned M5 calibration (not the study comparison)\n' \
+      "${arm_rank}" \
+      "$(awk -v value="${candidate_prefill}" 'BEGIN { print value * 1000 }')" \
+      "$(awk -v value="${candidate_decode}" 'BEGIN { print value * 1000 }')" \
+      "${calibration_score}"
+    return 0
+  fi
+  [[ -f "${baseline_score}" ]] || return 0
+  local baseline_prefill baseline_decode
+  IFS=$'\t' read -r baseline_prefill baseline_decode \
+    < <(jq -r '[.metrics.prefill_seconds_per_token, .metrics.decode_seconds_per_token] | @tsv' "${baseline_score}")
+  awk \
+    -v rank="${arm_rank}" \
+    -v bp="${baseline_prefill}" -v bd="${baseline_decode}" \
+    -v cp="${candidate_prefill}" -v cd="${candidate_decode}" \
+    -v calibration="${calibration_score}" '
+      BEGIN {
+        prefill = bp / cp
+        decode = bd / cd
+        index = (decode ^ 0.75) * (prefill ^ 0.25)
+        printf "top15-study: rank-%s vs rank-111 on this M4: prefill=%.6fx decode=%.6fx weighted_index=%.6fx; harness estimate=%.6f vs pinned M5 calibration (not the study comparison)\n", rank, prefill, decode, index, calibration
+      }
+    '
 }
 
 run_performance_arm() {
@@ -483,9 +753,17 @@ run_performance_arm() {
   set +e
   (
     cd "${study_workspace}"
-    env \
+    /usr/bin/env -i \
+      HOME="${HOME}" \
+      LOGNAME="${LOGNAME:-${USER:-}}" \
+      PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${HOME}/bin" \
+      TMPDIR="${TMPDIR:-/tmp}" \
+      USER="${USER:-}" \
       DARKBLOOM_EXPERT_ALIGNED_GATHER=0 \
       MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT="${study_allow_golden_drift}" \
+      MLXFAST_LOCAL_COOL_GATE=1 \
+      MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1 \
+      MLXFAST_MACMON_BIN="${study_macmon_source}" \
       MLXFAST_REFERENCE_DIR="${study_reference}" \
       MLXFAST_WEIGHTS_PATH="${study_weights}" \
       MLXFAST_SKIP_TRANSFORM=1 \
@@ -497,8 +775,10 @@ run_performance_arm() {
   set -e
   local score_sha256=""
   local integrity_sha256=""
+  local log_sha256
   [[ ! -f "${attempt_score}" ]] || score_sha256="$(sha256_file "${attempt_score}")"
   [[ ! -f "${attempt_integrity}" ]] || integrity_sha256="$(sha256_file "${attempt_integrity}")"
+  log_sha256="$(sha256_file "${attempt_log}")"
   jq -n \
     --argjson exit_code "${benchmark_status}" \
     --arg finished_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -507,6 +787,13 @@ run_performance_arm() {
     --arg manifest_sha256 "${study_manifest_sha256}" \
     --arg mode "${study_perf_mode}" \
     --arg runtime "${study_perf_runtime}" \
+    --arg runner_sha256 "${study_runner_sha256}" \
+    --arg local_benchmark_sha256 "${study_local_benchmark_sha256}" \
+    --arg fan_control_sha256 "${study_fan_control_sha256}" \
+    --arg macmon_sha256 "${study_macmon_sha256}" \
+    --arg macmon_version "${study_macmon_version}" \
+    --arg log_sha256 "${log_sha256}" \
+    --arg environment_policy "${study_performance_environment_policy}" \
     --arg score_sha256 "${score_sha256}" \
     --arg integrity_sha256 "${integrity_sha256}" \
     --arg expert_aligned_gather "0" \
@@ -519,24 +806,44 @@ run_performance_arm() {
         manifest_sha256:$manifest_sha256,
         mode:$mode,
         runtime:$runtime,
+        runner_sha256:$runner_sha256,
+        local_benchmark_sha256:$local_benchmark_sha256,
+        fan_control_sha256:$fan_control_sha256,
+        macmon_sha256:$macmon_sha256,
+        macmon_version:$macmon_version,
+        log_sha256:$log_sha256,
+        environment_policy:$environment_policy,
         score_sha256:$score_sha256,
         integrity_sha256:$integrity_sha256,
         environment:{
           DARKBLOOM_EXPERT_ALIGNED_GATHER:$expert_aligned_gather,
-          MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT:$allow_golden_drift
+          MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT:$allow_golden_drift,
+          MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY:"1"
         }
       }
     ' > "${attempt_meta}"
-  if [[ "${benchmark_status}" -eq 130 ]]; then
-    return 130
-  fi
+  case "${benchmark_status}" in
+    129|130|143) return "${benchmark_status}" ;;
+  esac
   if performance_attempt_valid "${arm_dir}" "${attempt_name}" "${arm_rank}" "${arm_id}" "${arm_commit}"; then
     cp "${attempt_score}" "${arm_dir}/score.json"
     printf '%s\n' "${attempt_name}" > "${arm_dir}/selected-attempt.txt"
+    print_performance_comparison "${arm_rank}" "${attempt_score}"
     echo "top15-study: performance complete for ${arm_rank}-${arm_id}"
     return 0
   fi
   echo "top15-study: performance failed for ${arm_rank}-${arm_id}; see ${attempt_log}" >&2
+  if [[ "${benchmark_status}" -eq 0 ]] \
+      && ! performance_log_thermal_valid "${attempt_log}"; then
+    echo "top15-study: aborting the performance campaign because a status-0 attempt lacks two trustworthy ordered thermal gates" >&2
+    return 75
+  fi
+  if grep -Eq \
+      'local GPU cool-down gate failed|strict local thermal telemetry|temperature reading looks implausible|refusing to claim a thermally gated local timing|skipping the GPU cool-down gate|temperature reader returned no usable sample' \
+      "${attempt_log}"; then
+    echo "top15-study: aborting the performance campaign because thermal state or telemetry is not trustworthy" >&2
+    return 75
+  fi
   return 1
 }
 
@@ -565,7 +872,9 @@ run_performance() {
       :
     else
       arm_status="$?"
-      [[ "${arm_status}" -ne 130 ]] || return 130
+      case "${arm_status}" in
+        75|129|130|143) return "${arm_status}" ;;
+      esac
       failure_count="$((failure_count + 1))"
     fi
   done < <(candidate_rows "${candidate_selector}")
@@ -1139,6 +1448,7 @@ run_quality() {
 show_status() {
   require_inputs
   local performance_complete=0
+  local performance_invalid=0
   local quality_valid=0
   local quality_bounded=0
   local candidate_total
@@ -1148,6 +1458,8 @@ show_status() {
     local baseline_dir="${study_results}/performance/${study_baseline_rank}-${study_baseline_id}"
     if performance_result_valid "${baseline_dir}" "${study_baseline_rank}" "${study_baseline_id}" "${study_baseline_commit}"; then
       performance_complete="$((performance_complete + 1))"
+    elif [[ -f "${baseline_dir}/selected-attempt.txt" ]]; then
+      performance_invalid="$((performance_invalid + 1))"
     fi
   fi
   while IFS=$'\t' read -r candidate_rank candidate_id candidate_commit; do
@@ -1155,6 +1467,8 @@ show_status() {
       local performance_dir="${study_results}/performance/${candidate_rank}-${candidate_id}"
       if performance_result_valid "${performance_dir}" "${candidate_rank}" "${candidate_id}" "${candidate_commit}"; then
         performance_complete="$((performance_complete + 1))"
+      elif [[ -f "${performance_dir}/selected-attempt.txt" ]]; then
+        performance_invalid="$((performance_invalid + 1))"
       fi
     fi
     local quality_dir="${study_results}/quality/${candidate_rank}-${candidate_id}"
@@ -1172,7 +1486,7 @@ show_status() {
   echo "workspace: ${study_workspace}"
   echo "results: ${study_results}"
   if [[ "${study_performance_enabled}" == "true" ]]; then
-    echo "performance: ${performance_complete}/$((candidate_total + 1)) (rank-${study_baseline_rank} local comparator + ${candidate_total} candidates)"
+    echo "performance: ${performance_complete}/$((candidate_total + 1)) valid, ${performance_invalid} invalid selected, $((candidate_total + 1 - performance_complete - performance_invalid)) pending (rank-${study_baseline_rank} local comparator + ${candidate_total} candidates)"
   else
     echo "performance: disabled by manifest"
   fi
@@ -1186,6 +1500,7 @@ Usage:
   run-study.sh perf [all|baseline|RANK|SUBMISSION_PREFIX]
   run-study.sh quality [all|RANK|SUBMISSION_PREFIX]
   run-study.sh status
+  run-study.sh self-test
 
 The runner is resumable and skips valid completed artifacts. Performance uses
 --local-submit by default; set MLXFAST_TOP15_PERF_MODE=--local-iterate only for
@@ -1203,6 +1518,7 @@ main() {
     perf) run_performance "${command_selector}" ;;
     quality) run_quality "${command_selector}" ;;
     status) show_status ;;
+    self-test) performance_log_thermal_self_test ;;
     -h|--help|help) usage ;;
     *) usage >&2; die "unknown command: ${command_name}" ;;
   esac

@@ -40,6 +40,52 @@ readonly FAN_BOOST_PERCENT="${MLXFAST_FAN_BOOST_PERCENT:-70}"
 # one written by rounding -- fractions of an RPM, never more. Anything
 # further off than this means the firmware did not accept the write.
 readonly FAN_TARGET_VERIFY_TOLERANCE_RPM=10
+SUDO_CREDENTIAL_ACTIVE=0
+AUTO_RESTORE_ON_EXIT=0
+AUTO_RESTORE_FAN_COUNT=0
+
+drop_sudo_credential() {
+  if (( SUDO_CREDENTIAL_ACTIVE == 1 )); then
+    sudo -k >/dev/null 2>&1 || true
+    SUDO_CREDENTIAL_ACTIVE=0
+  fi
+}
+
+run_sudo() {
+  SUDO_CREDENTIAL_ACTIVE=1
+  sudo "$@"
+}
+
+cleanup_fan_control_exit() {
+  local exit_status="$?"
+  trap - EXIT
+  # Do not let a second interactive/termination signal interrupt the bounded
+  # best-effort restoration once teardown has started. SIGKILL remains
+  # inherently unrecoverable.
+  trap '' INT TERM HUP
+  set +e
+  if (( AUTO_RESTORE_ON_EXIT == 1 && AUTO_RESTORE_FAN_COUNT > 0 )); then
+    if ! restore_fans_to_auto "${AUTO_RESTORE_FAN_COUNT}"; then
+      echo "fan-control.sh: URGENT: interrupted boost cleanup could not verify automatic fan control" >&2
+      (( exit_status != 0 )) || exit_status=1
+    fi
+  fi
+  drop_sudo_credential
+  exit "${exit_status}"
+}
+
+exit_for_signal() {
+  local exit_status="$1"
+  exit "${exit_status}"
+}
+
+# Unexpected failures must not leave a partial fan override or sudo's cached
+# credential behind. Successful boost deliberately clears the restore flag so
+# its verified manual target persists until the operator requests `normal`.
+trap cleanup_fan_control_exit EXIT
+trap 'exit_for_signal 130' INT
+trap 'exit_for_signal 143' TERM
+trap 'exit_for_signal 129' HUP
 
 usage() {
   echo "usage: $0 {boost|normal|status}" >&2
@@ -130,14 +176,28 @@ read_fan_count() {
   printf '%s\n' "${count}"
 }
 
-# A fan is under manual (forced) control when its F<i>Md mode bit reads 1.
-# Reuses the same unprivileged read/parse path as every other key inspection
-# in this script.
-fan_mode_is_manual() {
+# A fan is under manual (forced) control when bit zero of its F<i>Md value is
+# set. Firmware may expose additional mode flags (for example value 3), so the
+# whole byte must not be compared with the literal value 1.
+read_fan_mode() {
   local fan_index="$1"
   local mode
   mode="$(smc_read_number "F${fan_index}Md")" || mode=""
-  [[ "${mode}" == "1" ]]
+  [[ "${mode}" =~ ^[0-9]+$ ]] || return 2
+  printf '%s\n' "${mode}"
+}
+
+fan_mode_value_is_manual() {
+  local mode="$1"
+  [[ "${mode}" =~ ^[0-9]+$ ]] || return 2
+  (( (10#${mode} & 1) != 0 ))
+}
+
+fan_mode_is_manual() {
+  local fan_index="$1"
+  local mode
+  mode="$(read_fan_mode "${fan_index}")" || return 2
+  fan_mode_value_is_manual "${mode}"
 }
 
 # Prints the index of every fan currently in manual mode, one per line.
@@ -145,10 +205,16 @@ fan_mode_is_manual() {
 # partially-restored boost, can hold any subset of the fans manual.
 list_manual_fans() {
   local fan_count="$1"
-  local i
+  local i mode_status
   for (( i = 0; i < fan_count; i++ )); do
     if fan_mode_is_manual "${i}"; then
       printf '%s\n' "${i}"
+    else
+      mode_status="$?"
+      if (( mode_status != 1 )); then
+        echo "fan-control.sh: could not read fan ${i} mode (F${i}Md)" >&2
+        return 2
+      fi
     fi
   done
 }
@@ -165,9 +231,9 @@ verify_fan_boost_write() {
   local fan_index="$1"
   local requested_rpm="$2"
   local mode_after target_after
-  mode_after="$(smc_read_number "F${fan_index}Md")" || mode_after=""
-  if [[ "${mode_after}" != "1" ]]; then
-    echo "fan-control.sh: WARNING: fan ${fan_index} mode read-back is '${mode_after:-<unreadable>}' (expected manual mode 1); the F${fan_index}Md write did not stick" >&2
+  mode_after="$(read_fan_mode "${fan_index}")" || mode_after=""
+  if [[ -z "${mode_after}" ]] || ! fan_mode_value_is_manual "${mode_after}"; then
+    echo "fan-control.sh: WARNING: fan ${fan_index} mode read-back is '${mode_after:-<unreadable>}' (expected the manual bit to be set); the F${fan_index}Md write did not stick" >&2
     return 1
   fi
   target_after="$(smc_read_number "F${fan_index}Tg")" || target_after=""
@@ -181,6 +247,32 @@ verify_fan_boost_write() {
     echo "fan-control.sh: WARNING: fan ${fan_index} target read-back is ${target_after} RPM, not the requested ${requested_rpm} RPM; the F${fan_index}Tg write did not stick" >&2
     return 1
   fi
+}
+
+# Clear manual mode for every fan and verify the read-back. `smc -w` reports
+# only that the request was sent, so neither normal teardown nor rollback may
+# claim success from its exit status alone.
+restore_fans_to_auto() {
+  local fan_count="$1"
+  local i mode write_failed=0 verify_failed=0
+  for (( i = 0; i < fan_count; i++ )); do
+    if ! run_sudo "${SMC_BIN}" -k "F${i}Md" -w 00; then
+      echo "fan-control.sh: WARNING: failed to request automatic mode for fan ${i}" >&2
+      write_failed=1
+    fi
+  done
+  sleep 0.2
+  for (( i = 0; i < fan_count; i++ )); do
+    mode="$(read_fan_mode "${i}")" || mode=""
+    if [[ -z "${mode}" ]]; then
+      echo "fan-control.sh: WARNING: fan ${i} automatic-mode read-back is unreadable" >&2
+      verify_failed=1
+    elif fan_mode_value_is_manual "${mode}"; then
+      echo "fan-control.sh: WARNING: fan ${i} remains in manual mode (F${i}Md=${mode})" >&2
+      verify_failed=1
+    fi
+  done
+  (( write_failed == 0 && verify_failed == 0 ))
 }
 
 # Printed once before the first sudo prompt so the password request never
@@ -225,7 +317,10 @@ do_boost() {
   # boost and tell the user how to hand control back to macOS first.
   # (benchmark.sh's offer checks `status` before calling boost, so on the
   # benchmark path this is a backstop, not a second warning.)
-  manual_fans="$(list_manual_fans "${fan_count}" | tr '\n' ' ')"
+  if ! manual_fans="$(list_manual_fans "${fan_count}" | tr '\n' ' ')"; then
+    echo "fan-control.sh: refusing to boost because current fan ownership could not be read safely" >&2
+    exit 1
+  fi
   manual_fans="${manual_fans% }"
   if [[ -n "${manual_fans}" ]]; then
     echo "fan-control.sh: fan(s) ${manual_fans} are already in manual mode; another fan controller (or a prior un-restored boost) holds the fans" >&2
@@ -236,13 +331,13 @@ do_boost() {
   for (( i = 0; i < fan_count; i++ )); do
     if ! smc_key_is_float "F${i}Tg"; then
       echo "fan-control.sh: fan ${i} target key F${i}Tg is not float-typed; this helper supports Apple Silicon SMCs only" >&2
-      sudo -k
+      drop_sudo_credential
       exit 1
     fi
     max_rpm="$(smc_read_number "F${i}Mx")"
     if ! [[ "${max_rpm}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
       echo "fan-control.sh: could not read fan ${i} maximum speed (F${i}Mx)" >&2
-      sudo -k
+      drop_sudo_credential
       exit 1
     fi
     min_rpm="$(smc_read_number "F${i}Mn")"
@@ -254,8 +349,14 @@ do_boost() {
     hex="$(float_to_hex "${target}")"
     # F<i>Md = 1 switches the fan to forced/manual mode; F<i>Tg is the RPM it
     # then holds until the mode bit is cleared.
-    sudo "${SMC_BIN}" -k "F${i}Md" -w 01
-    sudo "${SMC_BIN}" -k "F${i}Tg" -w "${hex}"
+    AUTO_RESTORE_ON_EXIT=1
+    AUTO_RESTORE_FAN_COUNT="${fan_count}"
+    if ! run_sudo "${SMC_BIN}" -k "F${i}Md" -w 01 \
+        || ! run_sudo "${SMC_BIN}" -k "F${i}Tg" -w "${hex}"; then
+      echo "fan-control.sh: WARNING: fan ${i} SMC write command failed" >&2
+      failed_fans="${failed_fans:+${failed_fans} }${i}"
+      continue
+    fi
     # `smc -w` is fire-and-forget: it exits 0 even when the firmware drops
     # the write. Read both keys back and only report success for this fan if
     # the mode and target actually took. The short sleep lets the SMC settle
@@ -272,15 +373,20 @@ do_boost() {
     # `normal` uses, while the sudo credential is still cached) so a reported
     # failure never leaves some fans pinned at the requested target behind the
     # caller's back.
-    for (( i = 0; i < fan_count; i++ )); do
-      sudo "${SMC_BIN}" -k "F${i}Md" -w 00
-    done
-    sudo -k
-    echo "fan-control.sh: WARNING: boost may not have taken effect for fan(s) ${failed_fans}: the SMC did not accept the write(s), so all fans were returned to macOS automatic control" >&2
+    local rollback_status=0
+    restore_fans_to_auto "${fan_count}" || rollback_status="$?"
+    if (( rollback_status == 0 )); then
+      AUTO_RESTORE_ON_EXIT=0
+      drop_sudo_credential
+      echo "fan-control.sh: WARNING: boost may not have taken effect for fan(s) ${failed_fans}: the SMC did not accept the write(s), so automatic control was restored and verified for all fans" >&2
+    else
+      echo "fan-control.sh: URGENT: boost failed for fan(s) ${failed_fans}, and automatic fan restoration could not be verified" >&2
+    fi
     echo "fan-control.sh: (some machines gate fan writes behind the SMC's global Ftst force key, which this helper deliberately does not write; use a dedicated fan app there)" >&2
     exit 1
   fi
-  sudo -k
+  AUTO_RESTORE_ON_EXIT=0
+  drop_sudo_credential
   echo "fan-control.sh: fan boost active; restore automatic control with: ./benchmark.sh --fan-speed-normal" >&2
 }
 
@@ -289,13 +395,16 @@ do_normal() {
   fan_count="$(read_fan_count)"
   require_fans "${fan_count}"
   explain_sudo
-  for (( i = 0; i < fan_count; i++ )); do
-    # Clearing the manual-mode bit is the whole reset: macOS's automatic fan
-    # curve takes over, with no pinned RPM left behind.
-    sudo "${SMC_BIN}" -k "F${i}Md" -w 00
-  done
-  sudo -k
-  echo "fan-control.sh: fans returned to macOS automatic control" >&2
+  AUTO_RESTORE_ON_EXIT=1
+  AUTO_RESTORE_FAN_COUNT="${fan_count}"
+  if restore_fans_to_auto "${fan_count}"; then
+    AUTO_RESTORE_ON_EXIT=0
+    drop_sudo_credential
+    echo "fan-control.sh: fans returned to macOS automatic control; read-back verified" >&2
+    return 0
+  fi
+  echo "fan-control.sh: ERROR: automatic fan control could not be verified" >&2
+  return 1
 }
 
 do_status() {
@@ -309,7 +418,10 @@ do_status() {
   # (or a partially-restored boost) can hold any subset of the fans, and a
   # status that only looked at F0Md would report "auto" while other fans are
   # still forced.
-  manual_fans="$(list_manual_fans "${fan_count}")"
+  if ! manual_fans="$(list_manual_fans "${fan_count}")"; then
+    echo "fan-control.sh: fan mode status is unreadable" >&2
+    return 1
+  fi
   if [[ -n "${manual_fans}" ]]; then
     echo "manual"
   else

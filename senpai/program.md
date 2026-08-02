@@ -196,6 +196,9 @@ plausible and responsive, no other model workload is resident, and
 `none`). Quarantine or reschedule a host whose telemetry is frozen or
 implausible, or whose quiescent GPU repeatedly cannot reach the 40C gate.
 Never bypass the gate to manufacture a timing result.
+The local gate retries two transient unusable or at/below-5C samples, then
+fails closed; a campaign controller must stop the cohort on that failure so a
+broken host sensor cannot contaminate later arms.
 
 Manual fan control is optional and capability-verified, not an EC2 Mac
 assumption. AWS documents bare-metal Mac hosts and administrator access, but
