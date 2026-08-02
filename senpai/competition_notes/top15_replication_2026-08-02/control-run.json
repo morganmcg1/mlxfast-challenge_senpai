@@ -1,0 +1,58 @@
+{
+  "manifest_schema": "mlxfast-quality-control-run-v1",
+  "study": "leaderboard-top15-20260802-negative-controls",
+  "cohort": "negative-controls",
+  "frozen_at_utc": "2026-08-02T14:39:26Z",
+  "performance": {
+    "enabled": false,
+    "reason": "These controls calibrate the local quality-retention surrogate against completed official behavior failures; they require no local performance comparator."
+  },
+  "change_label_prefix": "negative-control",
+  "control_definition": {
+    "path": "negative-controls.json",
+    "sha256": "b7a498ae1c8bb74c0287159e817e7dfa5f2a5c41aa29020c100be18b3089869f"
+  },
+  "harness_commit": "7702fab8a41fe2f4ff2ae281beeb1548b31e3406",
+  "evaluator_commit": "dbb0a1d13223adf15b092dd88ed92ef6abdd4b8f",
+  "evaluator_sha256": "647af7530d7c9bf88801fd92146439fdba5f75407bbee6a363b1a3ede1c90150",
+  "quality_baseline": "quality-results/baseline-quick-weave-v3-m4-20260730",
+  "host": {
+    "model": "Mac16,6",
+    "chip": "Apple M4 Max",
+    "memory_gb": 128,
+    "metal_architecture": "applegpu_g16s",
+    "official_runner_chip": "Apple M5 Max"
+  },
+  "required_environment": {
+    "DARKBLOOM_EXPERT_ALIGNED_GATHER": "0"
+  },
+  "candidates": [
+    {
+      "rank": 201,
+      "control_order": 1,
+      "submission_id": "e40e4013-5757-4be4-89ab-e46bd2e03bad",
+      "source_ref": "ddbac7dae50a6318fe350791fe825c594d8425c2",
+      "source_ref_kind": "submissionCommitSha",
+      "official_failure_category": "public_gate_token_mismatch",
+      "mechanism": "Move the native affine NVFP4 attention-tail boundary from layer 24 to layer 16."
+    },
+    {
+      "rank": 202,
+      "control_order": 2,
+      "submission_id": "7c9eac6d-37b4-46ef-aaaa-35c9a999b582",
+      "source_ref": "6e991d4b70e0ad631eaefd9b583cddd9442920fd",
+      "source_ref_kind": "submissionCommitSha",
+      "official_failure_category": "correctness_failed",
+      "mechanism": "Bound the NVFP4 quantized-matmul split-K arm to small-M prefill shapes."
+    },
+    {
+      "rank": 203,
+      "control_order": 3,
+      "submission_id": "81f43490-f699-4d45-b2c1-18c9b3fbaf85",
+      "source_ref": "df76fdf99b192f3043639cba82f9c86438c8f792",
+      "source_ref_kind": "submissionCommitSha",
+      "official_failure_category": "correctness_failed",
+      "mechanism": "Compose all-reference-NVFP4 attention, corrected router-key production, and shared-expert prefill gate/up fusion."
+    }
+  ]
+}

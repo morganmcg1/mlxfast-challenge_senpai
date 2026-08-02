@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "study": "leaderboard-top15-20260802-negative-controls",
+  "purpose": "Post-study negative controls for testing whether the local 3% quality-retention gate detects known official behavior failures near leaderboard ranks 112-126.",
+  "selection": {
+    "policy": "Use completed official token/correctness failures with recorded candidate commits; prefer distinct mechanisms and exclude performance-only rejection, static-review failure, worker-crash, and no-score outcomes.",
+    "control_count": 3,
+    "relationship_to_primary_study": "Separate diagnostic set. These controls must not be added to candidates.json or counted among the 15 required promoted submissions."
+  },
+  "provenance": {
+    "recorded_at_utc": "2026-08-02T12:59:35Z",
+    "leaderboard_snapshot_utc": "2026-08-02T09:07:21Z",
+    "benchmark_id": "1854efdf-feba-4773-bae9-b80520881a74",
+    "benchmark_ref": "eigenlabs/mlxfast-challenge",
+    "public_submission_index": "https://api.mlx.fast/api/benchmarks/1854efdf-feba-4773-bae9-b80520881a74/submissions",
+    "source_repository": "https://github.com/Layr-Labs/mlxfast-challenge",
+    "common_harness_ref": "7702fab8a41fe2f4ff2ae281beeb1548b31e3406",
+    "evaluator_commit": "dbb0a1d13223adf15b092dd88ed92ef6abdd4b8f",
+    "evaluator_sha256": "647af7530d7c9bf88801fd92146439fdba5f75407bbee6a363b1a3ede1c90150",
+    "quality_baseline": "quality-results/baseline-quick-weave-v3-m4-20260730",
+    "host": {
+      "model": "Mac16,6",
+      "chip": "Apple M4 Max",
+      "memory_gb": 128,
+      "metal_architecture": "applegpu_g16s",
+      "official_runner_chip": "Apple M5 Max"
+    },
+    "required_environment": {
+      "DARKBLOOM_EXPERT_ALIGNED_GATHER": "0"
+    },
+    "local_source_object_check": {
+      "checked_at_utc": "2026-08-02T14:37:28Z",
+      "repository": "/Users/mmcguire/ML/mlxfast-challenge_senpai",
+      "result": "all_present_verified",
+      "verification": "Each source_ref resolves exactly to a local Git commit object; commit, tree, parent, and validation-subject identities were read from the object database.",
+      "workspace_availability": "The control workspace is a shared clone of this repository and can resolve these verified objects without changing the primary study workspace.",
+      "verified_commits": [
+        {
+          "submission_id": "e40e4013-5757-4be4-89ab-e46bd2e03bad",
+          "source_ref": "ddbac7dae50a6318fe350791fe825c594d8425c2",
+          "object_type": "commit",
+          "resolved_commit": "ddbac7dae50a6318fe350791fe825c594d8425c2",
+          "tree": "162ed7ac01b8c324be88c1c8383491b4596ed7e4",
+          "parent": "c5206993d510ca0c50861b1f5d3d26030d76a22b",
+          "subject": "Validate submission e40e4013-5757-4be4-89ab-e46bd2e03bad"
+        },
+        {
+          "submission_id": "7c9eac6d-37b4-46ef-aaaa-35c9a999b582",
+          "source_ref": "6e991d4b70e0ad631eaefd9b583cddd9442920fd",
+          "object_type": "commit",
+          "resolved_commit": "6e991d4b70e0ad631eaefd9b583cddd9442920fd",
+          "tree": "7d0df4c6517d921bb0aa7f4f3999fbffefefe8f8",
+          "parent": "7b2c9407032e41408fbfaba94625d9c53b1934ca",
+          "subject": "Validate submission 7c9eac6d-37b4-46ef-aaaa-35c9a999b582"
+        },
+        {
+          "submission_id": "81f43490-f699-4d45-b2c1-18c9b3fbaf85",
+          "source_ref": "df76fdf99b192f3043639cba82f9c86438c8f792",
+          "object_type": "commit",
+          "resolved_commit": "df76fdf99b192f3043639cba82f9c86438c8f792",
+          "tree": "8e43fe112c0169a15361ad1608afdcf4792e43ef",
+          "parent": "7b2c9407032e41408fbfaba94625d9c53b1934ca",
+          "subject": "Validate submission 81f43490-f699-4d45-b2c1-18c9b3fbaf85"
+        }
+      ]
+    }
+  },
+  "local_evaluation_contract": {
+    "profile": "quick",
+    "downstream_attempts": 53,
+    "minimum_downstream_correct": 26,
+    "perplexity_target_tokens": 256,
+    "maximum_perplexity": 14.386452,
+    "ranked_gpqa_cases": 9,
+    "minimum_ranked_gpqa_prefix_matches": 7,
+    "public_probe": "Exact first token after the 512-token public prompt.",
+    "valid_pass_exit_code": 0,
+    "valid_regression_exit_code": 3,
+    "invalid_exit_codes": [
+      1,
+      2,
+      130
+    ]
+  },
+  "interpretation": {
+    "local_pass": "Discordant false pass relative to the official exact-behavior label. This is evidence that the local gate is incomplete or hardware/path-misaligned as a submission-safety surrogate; it is not by itself proof that the numeric 3% semantic-quality threshold is too loose.",
+    "local_regression": "Concordant true negative relative to the official outcome. Attribute the detection to the specific failing local component rather than treating exit 3 alone as a mechanism diagnosis.",
+    "invalid_or_noncomplete": "No quality-gate inference. Preserve the attempt as infrastructure or runtime evidence and do not count it as a detected regression.",
+    "global_caveat": "The local suite runs on M4 and checks downstream quality plus only the public prompt's first token. The official M5 contract checks a 64-step public trajectory and private exact-token, free-run, GPQA, and semantic behavior."
+  },
+  "controls": [
+    {
+      "order": 1,
+      "label": "public-token-mismatch-native-affine-tail",
+      "submission_id": "e40e4013-5757-4be4-89ab-e46bd2e03bad",
+      "source_ref": "ddbac7dae50a6318fe350791fe825c594d8425c2",
+      "source_ref_kind": "submissionCommitSha",
+      "solver": "GumbiiDigital",
+      "created_at_utc": "2026-08-01T19:12:37.122Z",
+      "local_object_database_status": "present_verified",
+      "official": {
+        "status": "failed",
+        "failure_step": "Public behavior gate",
+        "failure_category": "public_gate_token_mismatch",
+        "submission_url": "https://api.mlx.fast/api/submissions/e40e4013-5757-4be4-89ab-e46bd2e03bad",
+        "workflow_run_id": "30714272116",
+        "workflow_url": "https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/30714272116",
+        "redacted_artifact_id": "8823113513",
+        "redacted_artifact_url": "https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/30714272116/artifacts/8823113513",
+        "redacted_evidence": {
+          "mode": "single-machine",
+          "public_gate_passed": false,
+          "passed_correctness": null,
+          "partial_result": null
+        }
+      },
+      "mechanism": "Changed the default native affine NVFP4 attention-tail boundary from layer 24 to layer 16, moving layers 16-23 from the affine INT8 side representation back to shipped group-16 NVFP4.",
+      "control_role": "Highest-priority public-behavior negative. It directly tests whether the local first-token probe or downstream/PPL checks detect a submission that diverged on the official public trajectory.",
+      "expected_interpretation": {
+        "local_pass": "Coverage or transfer false pass: the official public mismatch was missed locally.",
+        "local_regression": "Desired detection of a known public-behavior failure. Record whether the exact probe, downstream score, PPL, or ranked GPQA caused the failure."
+      },
+      "independence_caveat": "Mechanistically distinct from the split-K and router/shared-prefill controls. The official mismatch may occur after the first generated token or only under M5 numerical behavior, so a local pass cannot isolate threshold looseness from probe-depth or hardware mismatch."
+    },
+    {
+      "order": 2,
+      "label": "hidden-correctness-small-m-split-k",
+      "submission_id": "7c9eac6d-37b4-46ef-aaaa-35c9a999b582",
+      "source_ref": "6e991d4b70e0ad631eaefd9b583cddd9442920fd",
+      "source_ref_kind": "submissionCommitSha",
+      "solver": "polymorf",
+      "created_at_utc": "2026-08-01T19:45:59.927Z",
+      "local_object_database_status": "present_verified",
+      "official": {
+        "status": "failed",
+        "failure_step": "Correctness and gates (full base case + hidden gates, no timing)",
+        "failure_category": "correctness_failed",
+        "submission_url": "https://api.mlx.fast/api/submissions/7c9eac6d-37b4-46ef-aaaa-35c9a999b582",
+        "workflow_run_id": "30715493171",
+        "workflow_url": "https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/30715493171",
+        "redacted_artifact_id": "8823397793",
+        "redacted_artifact_url": "https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/30715493171/artifacts/8823397793",
+        "redacted_evidence": {
+          "mode": "single-machine",
+          "public_gate_passed": true,
+          "passed": false,
+          "passed_correctness": false,
+          "passed_decode_speedup_floor": true,
+          "passed_prefill_speedup_floor": true,
+          "partial_result": false,
+          "benchmark_wall_seconds": 26,
+          "timed_benchmark_seconds": 0
+        }
+      },
+      "mechanism": "Bound the NVFP4 quantized-matmul split-K arm to small-M shapes, changing split-K dispatch selection in the prefill kernel path.",
+      "control_role": "Independent private-correctness negative with a completed official result and a passing public gate. It tests whether the semantic/PPL proxy notices a kernel-level exactness failure not exposed by the public prompt.",
+      "expected_interpretation": {
+        "local_pass": "The proxy preserved measured local quality despite a private exact-correctness failure; classify as official/local contract discordance, not automatically as semantic-quality loss.",
+        "local_regression": "Desired discrimination against a completed hidden-correctness failure from a distinct kernel mechanism."
+      },
+      "independence_caveat": "Independent in mechanism from the native-affine boundary and multi-mechanism router/shared-prefill control. Dispatch eligibility is shape- and GPU-dependent, so confirm the local quality workload actually reaches the changed split-K arm before drawing a threshold conclusion."
+    },
+    {
+      "order": 3,
+      "label": "hidden-correctness-native-attention-router-shared-prefill",
+      "submission_id": "81f43490-f699-4d45-b2c1-18c9b3fbaf85",
+      "source_ref": "df76fdf99b192f3043639cba82f9c86438c8f792",
+      "source_ref_kind": "submissionCommitSha",
+      "solver": "zuiris",
+      "created_at_utc": "2026-08-01T19:58:01.075Z",
+      "local_object_database_status": "present_verified",
+      "official": {
+        "status": "failed",
+        "failure_step": "Correctness and gates (full base case + hidden gates, no timing)",
+        "failure_category": "correctness_failed",
+        "submission_url": "https://api.mlx.fast/api/submissions/81f43490-f699-4d45-b2c1-18c9b3fbaf85",
+        "workflow_run_id": "30715935397",
+        "workflow_url": "https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/30715935397",
+        "redacted_artifact_id": "8823955712",
+        "redacted_artifact_url": "https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/30715935397/artifacts/8823955712",
+        "redacted_evidence": {
+          "mode": "single-machine",
+          "public_gate_passed": true,
+          "passed": false,
+          "passed_correctness": false,
+          "passed_decode_speedup_floor": true,
+          "passed_prefill_speedup_floor": true,
+          "partial_result": false,
+          "benchmark_wall_seconds": 26,
+          "timed_benchmark_seconds": 0
+        }
+      },
+      "mechanism": "Composed all-reference-NVFP4 attention, corrected router-key production, and shared-expert prefill gate/up fusion.",
+      "control_role": "Broader private-correctness negative that stresses composition risk across attention, routing, and shared-expert prefill rather than one isolated dispatch predicate.",
+      "expected_interpretation": {
+        "local_pass": "The local proxy did not detect a completed private-correctness failure in a multi-mechanism composition; report as surrogate incompleteness or architecture/path mismatch.",
+        "local_regression": "Desired detection, but the aggregate control cannot identify which composed mechanism caused either the official or local failure."
+      },
+      "independence_caveat": "Conceptually near-duplicates submission d8cd3e24-b97f2635, so treat the pair as one failure family rather than independent evidence. This control is independent from the split-K mechanism but overlaps the native-attention representation family of e40e4013 and may exercise different paths on M4 versus M5."
+    }
+  ]
+}

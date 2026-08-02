@@ -82,8 +82,10 @@ Benchmarking this target requires macOS on Apple Silicon.
   another workload keeps the GPU hot, free the host and retry.
 - Do not disable the thermal gate for performance evidence. Hot-start timings
   are debugging data only.
-- Do not use an automated sudo prompt or change fan controls as part of an
-  experiment. Host operators own fan policy.
+- Students must not change fan controls or automate privilege escalation. Fan
+  policy is an operator-owned host-lifecycle setting established before work
+  is assigned and held constant across each unchanged-baseline/candidate
+  comparison.
 
 ### Pre-NAX MoE output-layout compatibility
 
@@ -174,6 +176,51 @@ most one active student to each physical Mac. Set the student command timeout
 high enough to cover a possible 900-second thermal cool-down plus incremental
 build, model load, correctness, and timing; a controller timeout that kills a
 normal cool-down produces no research evidence.
+
+### AWS EC2 Mac thermal provisioning
+
+For AWS autoresearch, prefer [`mac-m4max.metal`](https://aws.amazon.com/about-aws/whats-new/2026/01/amazon-ec2-m4-max-mac-instances-ga/)
+with 128 GB of unified memory. Do not assign real-model experiments to
+`mac-m4.metal`: its 24 GiB is below this repository's roughly 36 GiB practical
+minimum. `mac-m4pro.metal` has 48 GiB and therefore uses the below-64-GiB
+low-memory profile; record that profile and do not compare its absolute timing
+with another host or profile. See the current
+[EC2 Mac instance specifications](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-mac-instances.html).
+All M4 measurements remain directional because the official authority is M5
+Max.
+
+During host provisioning, run `./setup.sh` so the pinned `macmon` reader is
+present. Before assigning work, verify that GPU temperature telemetry is
+plausible and responsive, no other model workload is resident, and
+`tools/fan-control.sh status` is understood (`auto`, `manual`, or unsupported
+`none`). Quarantine or reschedule a host whose telemetry is frozen or
+implausible, or whose quiescent GPU repeatedly cannot reach the 40C gate.
+Never bypass the gate to manufacture a timing result.
+
+Manual fan control is optional and capability-verified, not an EC2 Mac
+assumption. AWS documents bare-metal Mac hosts and administrator access, but
+does not document SMC fan writes as a supported guest interface. Installing a
+fan utility is therefore insufficient: an operator must verify that
+`tools/fan-control.sh boost` raises observed fan RPM, its SMC read-back passes,
+and `tools/fan-control.sh normal` restores automatic control on that exact
+instance family and macOS build. If any check fails, leave fan control alone
+and cool by idling or rescheduling the host.
+
+A verified boost is an explicit operator action, never an experiment arm. The
+repository helper hard-caps every fan at 70%, refuses to overwrite another
+manual controller, and verifies each write. Apply one recorded policy to the
+whole baseline/candidate campaign. Never pipe or store a sudo password, grant
+students broad SMC-write privileges, raise the cap, write undocumented SMC
+keys, or ignore failed read-back.
+
+Unattended jobs have no interactive terminal and cannot accept
+`benchmark.sh`'s optional fan prompt. A boost applied before a run is external
+state, so the benchmark will not restore it. The operator/controller must have
+an out-of-band cleanup path that runs `./benchmark.sh --fan-speed-normal` on
+campaign success, failure, signal, and host teardown, then verifies
+`tools/fan-control.sh status` returns `auto`. Record the host identifier, chip,
+memory, macOS build, initial temperature, fan capability/action, cool-down
+duration, and accepted telemetry with every timed result.
 
 ## Sources Of Truth
 

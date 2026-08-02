@@ -80,9 +80,30 @@ find_smc() {
 # becomes "5920.0". Reads are unprivileged; only writes need root.
 smc_read_number() {
   local key="$1"
-  "${SMC_BIN}" -k "${key}" -r 2>/dev/null \
-    | sed -E 's/.*\]//; s/\(bytes.*//' \
-    | awk '{print $1; exit}'
+  local output value bytes
+  output="$("${SMC_BIN}" -k "${key}" -r 2>/dev/null)" || output=""
+  value="$(
+    printf '%s\n' "${output}" \
+      | sed -E 's/.*\]//; s/\(bytes.*//' \
+      | awk '{print $1; exit}'
+  )"
+  if [[ -n "${value}" ]]; then
+    printf '%s\n' "${value}"
+    return 0
+  fi
+
+  # The classic smcFanControl CLI can read Apple-Silicon float keys but may
+  # print only their four raw bytes. Decode that native-endian float using the
+  # inverse of float_to_hex below; other key types keep the normal text path.
+  if [[ "${output}" == *"[flt "* ]]; then
+    bytes="$(
+      printf '%s\n' "${output}" \
+        | sed -nE 's/.*\(bytes ([0-9A-Fa-f]{2}) ([0-9A-Fa-f]{2}) ([0-9A-Fa-f]{2}) ([0-9A-Fa-f]{2})\).*/\1\2\3\4/p'
+    )"
+    if [[ "${bytes}" =~ ^[0-9A-Fa-f]{8}$ ]]; then
+      perl -e 'printf "%.6f\n", unpack("f", pack("H*", $ARGV[0]))' -- "${bytes}"
+    fi
+  fi
 }
 
 smc_key_is_float() {
