@@ -3,6 +3,8 @@
 #
 # Usage:
 #   tools/fan-control.sh boost    # force every fan to 70% of its maximum speed
+#   MLXFAST_FAN_BOOST_PERCENT=80 tools/fan-control.sh boost
+#                                 # operator-only fallback after 70% is insufficient
 #   tools/fan-control.sh normal   # hand fan control back to macOS (automatic)
 #   tools/fan-control.sh status   # print one of: manual | auto | none
 #                                 # (manual = at least one fan's mode bit set)
@@ -24,14 +26,15 @@
 # credential right after the writes with `sudo -k`, so no elevated session
 # lingers.
 #
-# The boost target is HARD-CODED at 70% of each fan's maximum RPM. Do not
-# raise it: 70% already moves most of the air the fan can move, and the last
-# 30% mostly adds noise and wear. `normal` pins nothing -- it clears the
-# manual-mode bit so macOS's automatic fan curve takes over again, exactly as
-# if this script had never run.
+# The boost target defaults to 70% of each fan's maximum RPM. An operator may
+# explicitly request 80% after a verified 70% trial cannot satisfy the thermal
+# gate; every other value is refused. 80% adds noise and wear, so use it only
+# for a bounded campaign and restore automatic control afterward. `normal`
+# pins nothing -- it clears the manual-mode bit so macOS's automatic fan curve
+# takes over again, exactly as if this script had never run.
 set -euo pipefail
 
-readonly FAN_BOOST_PERCENT=70  # hard cap by design; see the header comment
+readonly FAN_BOOST_PERCENT="${MLXFAST_FAN_BOOST_PERCENT:-70}"
 # Read-back tolerance when verifying a written fan target. The SMC stores
 # the target as a 4-byte float, so the value read back can differ from the
 # one written by rounding -- fractions of an RPM, never more. Anything
@@ -206,6 +209,13 @@ require_fans() {
 
 do_boost() {
   local fan_count i max_rpm min_rpm target hex manual_fans failed_fans=""
+  case "${FAN_BOOST_PERCENT}" in
+    70|80) ;;
+    *)
+      echo "fan-control.sh: MLXFAST_FAN_BOOST_PERCENT must be 70 or 80 (got '${FAN_BOOST_PERCENT}')" >&2
+      exit 64
+      ;;
+  esac
   fan_count="$(read_fan_count)"
   require_fans "${fan_count}"
   # Refuse to boost over another controller. A set manual-mode bit on ANY fan
@@ -260,7 +270,8 @@ do_boost() {
   if [[ -n "${failed_fans}" ]]; then
     # Fail atomically: hand every fan back to macOS (the same F<i>Md=00 write
     # `normal` uses, while the sudo credential is still cached) so a reported
-    # failure never leaves some fans pinned at 70% behind the caller's back.
+    # failure never leaves some fans pinned at the requested target behind the
+    # caller's back.
     for (( i = 0; i < fan_count; i++ )); do
       sudo "${SMC_BIN}" -k "F${i}Md" -w 00
     done

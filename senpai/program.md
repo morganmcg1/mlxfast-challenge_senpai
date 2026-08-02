@@ -207,11 +207,14 @@ instance family and macOS build. If any check fails, leave fan control alone
 and cool by idling or rescheduling the host.
 
 A verified boost is an explicit operator action, never an experiment arm. The
-repository helper hard-caps every fan at 70%, refuses to overwrite another
-manual controller, and verifies each write. Apply one recorded policy to the
-whole baseline/candidate campaign. Never pipe or store a sudo password, grant
-students broad SMC-write privileges, raise the cap, write undocumented SMC
-keys, or ignore failed read-back.
+repository helper defaults every fan to 70%, refuses to overwrite another
+manual controller, and verifies each write. After a verified 70% trial cannot
+meet the gate, an operator may explicitly set `MLXFAST_FAN_BOOST_PERCENT=80`
+for a bounded campaign; all other values are refused. Apply one recorded
+policy to the whole baseline/candidate campaign. Never pipe or store a sudo
+password, grant students broad SMC-write privileges, exceed 80%, write
+undocumented SMC keys, or ignore failed read-back. Restore automatic control
+immediately after an 80% campaign because it adds noise and fan wear.
 
 Unattended jobs have no interactive terminal and cannot accept
 `benchmark.sh`'s optional fan prompt. A boost applied before a run is external

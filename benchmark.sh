@@ -708,10 +708,10 @@ terminate_benchmark_child_tree() {
 # user must approve on the terminal because the SMC fan write needs sudo (see
 # tools/fan-control.sh for the full sudo/password-handling contract: sudo's
 # own secure prompt, never read/stored/logged here, credential dropped with
-# `sudo -k` right after the write). The boost target is hard-capped at 70% of
-# each fan's maximum speed inside the helper. Returns 0 only when the fans
-# are (already or newly) boosted, so the caller can grant the cool-down a
-# fresh stall window.
+# `sudo -k` right after the write). This built-in path leaves the helper's
+# operator override unset, so it always requests the default 70% target.
+# Returns 0 only when the fans are (already or newly) boosted, so the caller
+# can grant the cool-down a fresh stall window.
 offer_fan_boost() {
   local current_temp="$1"
   local helper fan_status reply=""
