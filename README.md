@@ -33,10 +33,19 @@ The optional evaluator panel runs PPL, MMLU-Pro, GPQA-Diamond, AIME, and
 GSM8K against the candidate linked from this checkout:
 
 ```bash
+# First complete the repository Quickstart above.
+./setup.sh
+
+# Once per machine, if uv is not already installed.
+brew install uv
+
 ./senpai/quality-eval run . --profile quick
 ```
 
-It prints results and saves metrics, logs, and raw responses under
+The wrapper creates its locked Python environment automatically. Evaluation
+data is fetched from the public Hugging Face/Inspect sources when the suites
+run; no manual dataset path or token is required, but outbound internet access
+is. It prints results and saves metrics, logs, and raw responses under
 `quality-results/`. See [Laguna quality evaluation](senpai/quality-evaluation.md)
 for the deterministic prompt contract, aggregate 97% retention gate, matched
 baseline comparisons, Weave logging, suite selection, and prepared-artifact
@@ -455,3 +464,5 @@ linked Swift packages, and the Apache-2.0 text — is in
   Line Tools may need full Xcode installed, opened once, and licensed with
   `sudo xcodebuild -license accept`
 - CMake, installed by `./setup.sh` via Homebrew when missing and used by `tools/build-mlx-metallib.sh` to build `mlx.metallib`
+- `uv` for the optional quality regression panel (`brew install uv`);
+  `senpai/quality-eval` then installs the pinned Python environment itself
