@@ -38,9 +38,11 @@ leaderboard](https://mlx.fast/) can move after this report's frozen snapshot.
 
 The report is therefore complete as an official-history, frozen local-quality,
 control, and extended-diagnostic synthesis, but **not** as a local performance
-replication. Local-gate validation remains inconclusive because the only formal
-negative control received the same reject decision as every formally
-comparable official success.
+replication. The calibration has a two-part conclusion: the current composite
+M4 gate is decisively unsuitable as a veto on this cohort because it rejects
+every formally comparable official success; the choice of a replacement rule
+and any inference about the private M5 gate remain inconclusive because only
+one selected official failure produced a formal local comparison.
 
 ## Executive findings
 
@@ -115,20 +117,21 @@ points, and reduction order, then test each candidate boundary independently.
 All 15 candidate snapshots passed the official M5 gates. Locally:
 
 - all 15 matched the checked public first token (`5991`);
-- all 11 formally comparable quick-profile runs **failed** the local 3%
-  retention gate;
-- each of those 11 missed all three discriminating components: downstream
-  correct count, PPL, and ranked-GPQA prefix retention;
+- all 11 formally comparable quick-profile runs **failed** the composite local
+  gate: the 3% downstream/PPL terms, the separate 7/9 ranked-prefix rule, and
+  the exact public first-token rule;
+- each of those 11 missed all three nontrivial predeclared decision components:
+  downstream correct count, PPL, and ranked-GPQA prefix retention;
 - all 11 had `0/9` exact ranked-GPQA prefix matches while preserving identical
   row sets; and
 - ranks 116–119 hit the frozen 2,048-token AIME ceiling, so their raw vectors
   are diagnostics and have **no formal local gate decision**.
 
-For the formally comparable official-success cohort, the local gate's observed
-positive-label sensitivity is `0/11`. This configuration is not a defensible
-submission veto for M5. The completed control cohort adds coverage evidence,
-but does not reveal a separator between accepted and rejected official
-snapshots.
+Conditional on producing a formal comparison, observed acceptance of an
+official success is `0/11`; four other successes are censored by the frozen
+AIME ceiling. This configuration is not a defensible submission veto for M5.
+The completed control cohort adds coverage evidence, but is insufficient to
+calibrate a replacement threshold or infer unpublished private-gate policy.
 
 ### 7. Completed controls expose probe gaps, not useful discrimination
 
@@ -150,16 +153,23 @@ selective evidence:
   120–122, and both the control and those successes have `0/9` ranked-prefix
   matches plus the exact public first token. The threshold rejects both
   classes; it does not identify the known failure.
+- On all four predeclared gate components, rank 202 is at least as strong as
+  successful ranks 120–126: it has more downstream answers correct, equal or
+  lower PPL, the same `0/9` ranked-prefix result, and the same exact public
+  token. Any componentwise-monotone threshold rule that admits ranks 120–126
+  must also admit this known failure. Tightening or loosening the percentages
+  alone cannot repair the surrogate.
 - Rank 203 also failed hidden official correctness, but terminated at the AIME
   ceiling. Its raw `24/53` and PPL `14.841542008507624` overlap or outperform
   the local official-success cohort, while its first public token is exact.
   With no formal prefix comparison or gate decision, it provides no observed
   discriminator.
 
-The useful result is therefore negative: the local suite characterizes drift
-and catches some regressions, but this cohort supplies no feature or decision
-that separates successful from failed M5 submissions. It remains a debugging
-instrument, not a submission-safety oracle.
+The useful result is therefore bounded but actionable: none of the predeclared
+components or validated decision rules separates the formally comparable
+labels, so the current composite remains a debugging instrument rather than a
+submission-safety oracle. Post-hoc combinations on this small selected cohort
+would be overfit, not evidence of a calibrated replacement.
 
 ### 8. Tripling the AIME ceiling did not turn truncation into completion
 
@@ -173,10 +183,14 @@ successfully as diagnostics, and all four model responses still ended with
 - none matched the gold answer `236`.
 
 This rules out the narrow hypothesis that these responses were merely a few
-tokens short of a natural stop at the primary ceiling. It points instead to a
-persistent long-form/repetitive generation behavior on this M4 path. It does
-**not** retroactively convert any primary terminal arm into a formal comparison,
-and it is not evidence that the officially accepted M5 snapshots are invalid.
+tokens short of a natural stop at the primary ceiling. It establishes
+persistent length-bounded generation for these four snapshots on this M4 path;
+the report does not quantify repetition. At the primary 2,048-token ceiling,
+known-failing control 203 also stopped on `2024-2024-II-2`, so that event is not
+specific to the accepted class. The 6,144-token rerun contains accepted
+snapshots only and therefore cannot test class separation. It does **not**
+retroactively convert any primary terminal arm into a formal comparison, and it
+is not evidence that the officially accepted M5 snapshots are invalid.
 
 ### 9. Apple GPU geometry does not transfer reliably
 
@@ -303,8 +317,16 @@ That observation does not reveal unpublished judge policy.
 
 ### Frozen local gate
 
-The local baseline is
-`quality-results/baseline-quick-weave-v3-m4-20260730`:
+The numeric quality reference is the July 30 untouched M4 baseline at
+`quality-results/baseline-quick-weave-v3-m4-20260730`. Its clean checkout is
+commit `eec3f82c9adebc99e3ed15c74138e1ab8032d9cd`, with editable-source SHA-256
+`a6b9b9f177b8f36c664fdf3df06341c3780a96c6a7309247cd92809bee1c21e9`,
+transform-source SHA-256
+`5929dfd16cedf35645e5a2bab62baa06ae4908382eae16917f1594bafb3715ec`,
+and change label `untouched-baseline-weave-v3`. It ran on the recorded
+`Mac16,6` M4 Max under the pinned evaluator. This quality reference is neither
+leaderboard rank 111 nor rank 126; candidate arms use the common rank-126
+harness with each promoted editable overlay restored.
 
 | Component | Baseline | Required candidate result |
 |---|---:|---:|
@@ -314,8 +336,17 @@ The local baseline is
 | Public first-token probe | token 5991 after 512-token prompt | exact token 5991 |
 | Response row sets | 62 comparable non-PPL rows | exact row-set match |
 
-The 3% retention multiplier does not lower the discrete correct-count floor:
-`ceil(26 × 0.97) = 26`.
+The formal decision is a **composite**, not a single 3% threshold. After exact
+row-set agreement establishes comparability, a local retain requires all of:
+
+1. the 3% numeric terms—downstream correct count at least `26/53` and PPL at
+   most `14.386451960621613`;
+2. at least `7/9` exact ranked-GPQA prefix matches; and
+3. the exact public first token `5991`.
+
+The 3% multiplier does not lower the discrete correct-count floor:
+`ceil(26 × 0.97) = 26`. Because there is no rank-111 quality arm, this study
+cannot localize how much observed M4 drift predates rank 112.
 
 ### Per-rank local result matrix
 
@@ -360,24 +391,64 @@ Within-cluster identity is evidence that several structural optimizations
 preserve the observed M4 behavior of their conceptual branch. It is not proof
 of equivalence to the M5 path or private oracle.
 
+### Calibration by official label
+
+The local outcome table is a two-class by three-decision calibration, not a
+population confusion matrix:
+
+| Frozen official label | Local regression | Local retain | No formal decision |
+|---|---:|---:|---:|
+| Success, ranks 112–126 | 11 | 0 | 4 |
+| Failure, controls 201–203 | 1 | 0 | 2 |
+
+Formal-decision coverage is `11/15` (73.3%) for successes, `1/3` (33.3%) for
+selected failures, and `12/18` (66.7%) overall. All 12 formally evaluable arms
+receive the same local-regression decision. Thus `0/11` is the conditional
+observed acceptance of official successes, not an estimate of population
+sensitivity.
+
+Control 202 also rules out threshold-only repair over the predeclared
+components. It records `24/53`, PPL `14.903492398049115`, `0/9` ranked-prefix
+matches, and the exact public token. Ranks 120–122 record `22/53`, the same PPL,
+`0/9`, and the exact token; ranks 123–126 record `22/53`, worse PPL
+`14.970700228511769`, `0/9`, and the exact token. Control 202 therefore
+componentwise dominates ranks 120–126. Any monotone threshold rule over these
+four components that accepts those official successes must accept the known
+failure too.
+
+These counts have important dependence and missingness limits. The 11 formal
+positive rows are a connected promotion lineage, not independent trials; they
+collapse to three metric signatures and two formal response-identity
+signatures. The controls were deliberately selected for available official
+failure evidence, not sampled from all failures, and only one of three is
+formally comparable. Six of 18 arms abstain because of AIME length, so the
+missingness may be informative. One pass per arm provides no run-to-run
+variance estimate. Do not infer population sensitivity, specificity, or
+false-pass rates from this table.
+
 ### Local-versus-official gate matrix
+
+The 3% number applies only to the local downstream/PPL terms. The composite
+also contains a separate `7/9` exact-response identity rule and an exact
+one-token public probe. None reproduces the private M5 contract.
 
 | Contract surface | Official M5 contract/result | Local M4 proxy/result | Transfer conclusion |
 |---|---|---|---|
-| Public behavior | 64-step checked trajectory; all 15 promoted | First token only; all 15 matched token 5991 | All observed successes matched locally, but the probe is materially shallower and is not established as necessary or sufficient for M5 acceptance |
-| Hidden exact tokens | 512-token teacher-forced base plus anchor, free-run, and timed oracle; all promoted | No private artifact available | No local equivalence claim possible |
-| GPQA behavior | TTFT and semantic judge passed for all 15 | Exact ranked-prefix retention: 0/9 in all 11 formal rows | Exact M4 prefix retention is not aligned with accepted M5 behavior |
-| Downstream quality | Private semantic behavior participates in official gate | 11/11 formal rows below 26/53 | Local aggregate rejects every observable official success |
-| PPL | Not the official ranking gate | 11/11 formal rows above 14.386451961 | Useful drift diagnostic, not an M5 validity oracle |
-| AIME completion | Official submissions completed their gates | Four primary successes hit both the 2,048- and 6,144-token local ceilings; two controls hit 2,048 | The extended result diagnoses persistent bounded generation on M4; terminal arms still have no frozen-gate decision |
+| Public behavior | 64-step checked trajectory; all 15 promoted | First token only; all 15 successes and all 3 controls matched token 5991 | A shallow subset, not an established surrogate for the official trajectory; it misses control 201's known public failure |
+| Hidden exact tokens | 512-token teacher-forced base plus anchor, free-run, and timed oracle; all promoted | No local analogue; private artifacts unavailable | No equivalence or threshold inference is possible |
+| GPQA behavior | TTFT plus semantic judging passed for all 15 | Exact string/prefix identity against an M4 baseline: 0/9 in all 12 formal arms | These are different predicates; 0/9 exact identity does not imply semantic failure |
+| Downstream quality | No direct official aggregate or threshold analogue | 11/11 formal successes and the formal failure below the local 26/53 floor | Advisory semantic drift only; not an M5 validity oracle |
+| PPL | No official PPL correctness gate | 11/11 formal successes and the formal failure above 14.386451961 | Advisory distributional drift only; not an M5 validity oracle |
+| AIME completion | No official AIME gate in the published correctness stack | Four primary successes hit both the 2,048- and 6,144-token local ceilings; two controls hit 2,048 | Persistent local bounded generation, not evidence about an official AIME predicate; terminal arms have no frozen-gate decision |
 | Negative-control calibration | One public-trajectory failure and two hidden-correctness failures | All three first tokens exact; rank 202 formally regressed; ranks 201 and 203 terminal | First-token coverage misses a known public failure; the sole formal reject is not selective because all formal successes also reject |
-| Local class separation | 15 official successes versus 3 official failures | 11 formal successes and rank 202 all reject; other 6 arms are terminal | No observed local decision separates the official labels |
+| Local class separation | 15 official successes versus 3 selected official failures | 11 formal successes and rank 202 all reject; other 6 arms are terminal | No predeclared component or validated local rule separates the formally comparable labels |
 | Performance correctness | Official paired timing accepts only exact oracle tokens | **PENDING: 0/16 valid local performance arms** | No local performance/correctness comparison yet |
 
 The observed discordance can arise from M4-versus-M5 numerical behavior,
 different kernel dispatch, the required gather override, and differences
 between exact-prefix and semantic judgments. It must not be simplified to
-"the official winners lost quality."
+"the official winners lost quality," nor can the two contracts be ordered on a
+single stricter-versus-looser axis.
 
 ## M4 versus M5 transfer limits
 
@@ -400,11 +471,32 @@ between exact-prefix and semantic judgments. It must not be simplified to
 7. **The completed controls do not repair that calibration.** Rank 202 is a
    formal true negative, but it is locally stronger than accepted neighbors on
    downstream count and identical to ranks 120–122 on PPL. Ranks 201 and 203
-   are terminal. No observed local feature separates the official labels.
+   are terminal. No predeclared component or validated decision rule separates
+   the formally comparable official labels.
 8. **The completed extended diagnostic does not repair it either.** All four
    primary terminal ranks remain length-bounded after tripling the ceiling.
    That narrows the local failure mode, but the isolated reruns deliberately
    produce no formal gate decision and no private-M5 equivalence claim.
+
+## Campaign correctness policy pending M5 calibration
+
+The completed study supports a hard-versus-advisory policy, not a retuned
+percentage:
+
+| Treatment | Evidence | Campaign action |
+|---|---|---|
+| Hard validity stop | Source, editable-overlay, artifact, protocol, or exact row-set mismatch; incomplete/terminal run | Repair or rerun; never convert an invalid or censored result into a pass or regression |
+| Hard correctness evidence | Exact public trajectory, upstream-equivalence check, or correctness trace against a matched reference and path | Block promotion until explained; on non-M5 hardware, first reproduce the same divergence on the unchanged frontier to distinguish hardware drift |
+| Advisory quality evidence | Downstream correct count, PPL, ranked-prefix identity, response-text clusters, one-token public probe, and extended AIME diagnostics on M4 | Record and investigate drift, but do not veto an otherwise exact candidate from these signals alone |
+| Final authority | Official M5 public, hidden-token, GPQA, timed-oracle, and thermal gates | Decide rankability and promotion |
+
+Do not loosen or tighten the 3% terms from this cohort: control 202 proves that
+monotone threshold adjustment cannot separate it from ranks 120–126. Add a
+rank-111 quality arm to locate inherited drift, establish rank 126 as the
+same-host incremental quality baseline for autoresearch, and retain the July 30
+untouched baseline as the cumulative reference. Whether those additions yield
+a predictive local surrogate remains an experiment, not a conclusion of this
+report.
 
 ## Clearly pending local performance study — 16 arms
 
@@ -412,6 +504,13 @@ between exact-prefix and semantic judgments. It must not be simplified to
 auditor finds `0/16` valid selected attempts and `16/16` pending. Empty metric
 cells are intentional. Do not substitute failed/interrupted attempt values or
 short local-iterate numbers.
+
+The executable local comparator is rank 111, submission
+`0682cc25-40a1-4f0e-bb96-c3b0f768b53c` at source
+`af085760e96a5d719a2ba9c5817454158d9edb86`. It is distinct from both the July
+30 quality baseline above and the organizer's pinned calibration source. Local
+`--local-submit` is a directional transfer measurement with a longer decode
+window; it is not a direct reproduction of the private official run.
 
 | Rank | Submission / source | Required role | Audited status | Local decode | Local prefill | Index vs rank 111 |
 |---:|---|---|---|---:|---:|---:|
@@ -481,6 +580,10 @@ failed comparisons:
 | 201 | `2025-I-01` | `length` | 81 | 4,064 | No prefix comparison and no local retention decision |
 | 203 | `2024-2024-II-2` | `length` | 4 | 5,033 | No prefix comparison and no local retention decision |
 
+Control 203 stops on the same `2024-2024-II-2` item as successful ranks
+116–119 at the primary ceiling. The shared event across official labels makes
+the 2,048-token length stop non-discriminative on this observed cohort.
+
 ### What the controls prove—and what they do not
 
 - They prove that the complete local quick-profile path can process these exact
@@ -497,8 +600,8 @@ failed comparisons:
   them, and its PPL exactly matches successful ranks 120–122.
 - Rank 203 cannot be counted as a detected regression or a pass. Its stronger
   raw aggregate than the successful local cohort and exact first token further
-  show that these coarse measures do not isolate the private correctness
-  failure.
+  show that these predeclared coarse measures do not isolate the private
+  correctness failure in this comparison.
 
 Accordingly, the control cohort supplies coverage and non-selectivity evidence,
 not a calibrated safety classifier. Hardware, dispatch reachability, public
@@ -542,6 +645,14 @@ texts (SHA-256 `695e0b6b7c68b33c51a944581b7217c9556a0ac20652042516bfd901b58d2fae
 while rank 116 followed a different but still unbounded trajectory. The narrow
 diagnostic question now has a clear answer: tripling the ceiling did **not**
 convert any of the four responses to `finish_reason = stop`.
+
+The extracted answers also move with the censoring boundary: rank 116 changes
+from `9` to `1`, and ranks 117–119 change from `3` to `7`. That instability is
+another reason not to score length-bounded extractions. Known-failing control
+203 stopped on the same item at 2,048 tokens, but no rejected control was run
+under the isolated 6,144-token contract. The extended cohort is therefore
+one-class-only: it establishes persistence for these four accepted snapshots,
+not a difference between accepted and rejected submissions.
 
 This is useful failure-mode evidence, not a new quality gate. The primary
 quick-profile terminal markers remain unchanged; there is still no formal
@@ -803,12 +914,16 @@ blindly replayed on top of it.
 
 1. Start from rank 126 commit `7702fab8a41fe2f4ff2ae281beeb1548b31e3406`.
 2. Record a fresh same-machine baseline after syncing to current main.
-3. Maintain an active-path manifest: default selectors, qualifying shapes,
+3. Add a rank-111 quality arm to locate inherited M4 drift, then preserve a
+   same-host rank-126 quality baseline for incremental autoresearch; keep the
+   July 30 untouched quality baseline as the cumulative reference.
+4. Maintain an active-path manifest: default selectors, qualifying shapes,
    weight formats, kernel names, and source/JIT twin reachability.
-4. Keep rank-125/rank-126 geometry as a same-binary M5 control where possible.
-5. Do not use the current M4 quality gate as an automatic veto; retain its
+5. Keep rank-125/rank-126 geometry as a same-binary M5 control where possible.
+6. Do not use the current M4 quality gate as an automatic veto; retain its
    component diagnostics and rely on official M5 correctness for ranking. The
-   completed controls do not establish a class-separating local signal.
+   completed controls do not establish a replacement rule; do not retune the
+   3% terms from this cohort.
 
 ### Priority 1 — high-value unexplored decode work
 
@@ -931,7 +1046,7 @@ paired baseline, and prefer independent official receipts.
 |---|---|
 | [candidates.json](candidates.json) | `785763d0a35cfbcb8b7643816990f60df98a80ff7976c5c1545ab7136f43285e` |
 | [official-findings.md](official-findings.md) | `d8d21e346d044a1862a8f9b76ec1cbc24fba817870a05d9a7aa912f891ec442c` |
-| [README.md](README.md) | `517673461542af467fcb65319e88c2208a59391b824323f8b84d8d3831ddf2a9` |
+| [README.md](README.md) | `61fa9af50f12185481e83b8b38a22e2d1f3805d648d3383cf0f405a66ecb1518` |
 | [negative-controls.json](negative-controls.json) | `b7a498ae1c8bb74c0287159e817e7dfa5f2a5c41aa29020c100be18b3089869f` |
 | [control-run.json](control-run.json) | `3586c24e184c8b7f9f3dd25403654a2b2bc568b6046e7932f1f9b50b68ec0c14` |
 | [build-report-data.py](build-report-data.py) | `1ef17456c7c63f0996e39d5e1ec62191c3ba3098f63b25532685991f3edce255` |
@@ -982,11 +1097,15 @@ records the full audited input set on `--write`.
   next audit rather than impossible by construction.
 - Local quality is M4 transfer evidence under one compatibility override, not
   a reproduction of the private M5 contract.
-- All primary candidates are official successes. The control cohort is now
-  processed, but only rank 202 has a formal comparison; ranks 201 and 203 are
-  bounded diagnostics. Because the formal control receives the same reject
-  decision as all 11 formal successes, the study still has no observed
-  class-separating local decision rule.
+- The quality reference is the July 30 clean checkout at
+  `eec3f82c9adebc99e3ed15c74138e1ab8032d9cd`, not rank 111 or rank 126. There
+  is no rank-111 quality arm, so pre-rank-112 drift is not localized.
+- All primary candidates are connected official-success snapshots, not
+  independent trials. The controls were deliberately selected, and only rank
+  202 has a formal comparison; ranks 201 and 203 are bounded diagnostics. All
+  12 formal arms reject, six arms abstain, and one pass per arm provides no
+  variance estimate. The study establishes that the current veto is unusable
+  on this cohort, but not a replacement rule or a population error rate.
 
 ### Report validation at the evidence cut
 
