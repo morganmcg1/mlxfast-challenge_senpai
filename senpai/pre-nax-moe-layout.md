@@ -16,16 +16,17 @@ invariant.
 ## Selection boundary
 
 `lagunaExpertAlignedGatherEnabled` covers the dynamic conditions relevant to
-the Laguna call: the feature flag, NAX hardware/OS support, and the shipped
-stage-4 tiling. The call site supplies the remaining assumptions: sorted
-prefill with at least 64 indices, NVFP4, transpose, group size 16, 4-bit
-weights, no bias, and Laguna gate/up shapes.
+the Laguna call: the feature flag, NAX hardware/OS support, and the supported
+stage-4 or stage-5 tiling. Stage 5 is the shipped default. The call site
+supplies the remaining assumptions: sorted prefill with at least 64 indices,
+NVFP4, transpose, group size 16, 4-bit weights, no bias, and Laguna gate/up
+shapes.
 
 The backend first requires `metal::is_nax_available()`. Within its NAX gather
 path, `expert_aligned` also checks the feature flag, mode, transpose, group and
 bit sizes, Laguna shape, minimum row count, alignment, and `bm=64`, `wm=4`,
-`wn=2`. Do not describe the Swift predicate as a complete copy of the backend
-predicate outside these call-site assumptions.
+and `wn=1` or `wn=2`. Do not describe the Swift predicate as a complete copy
+of the backend predicate outside these call-site assumptions.
 
 Relevant sources:
 
@@ -48,8 +49,8 @@ Relevant sources:
    packed-layout decision under the call-site assumptions above.
 3. Set `DARKBLOOM_EXPERT_ALIGNED_GATHER=0` only as an ablation. Recovery points
    to this boundary; the override is not the fix.
-4. Verify that `DARKBLOOM_STAGE_BM128` is unset, empty, or `4` before using the
-   packed interpretation.
+4. Verify that `DARKBLOOM_STAGE_BM128` is unset, empty, `4`, or `5` before
+   using the packed interpretation.
 5. Rerun public correctness and the risk-based checks in
    `quality-evaluation.md` after any dispatch or layout change.
 

@@ -21,8 +21,8 @@ func lagunaExpertAlignedGatherRequiresPackedStageVariant() {
     #expect(lagunaExpertAlignedStageEnabled(nil))
     #expect(lagunaExpertAlignedStageEnabled(""))
     #expect(lagunaExpertAlignedStageEnabled("4"))
+    #expect(lagunaExpertAlignedStageEnabled("5"))
     #expect(!lagunaExpertAlignedStageEnabled("0"))
-    #expect(!lagunaExpertAlignedStageEnabled("5"))
     #expect(!lagunaExpertAlignedStageEnabled("invalid"))
 }
 
