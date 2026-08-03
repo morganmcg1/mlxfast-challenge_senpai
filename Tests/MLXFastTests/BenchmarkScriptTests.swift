@@ -1806,6 +1806,11 @@ func submissionStaticReviewPromptCoversMeasurementStructureExploitation() throws
     #expect(staticReview.contains("harness_protocol"))
     #expect(staticReview.contains("decision_test"))
     #expect(staticReview.contains("input-independent caching"))
+    #expect(staticReview.contains("Controlling quantization rule"))
+    #expect(staticReview.contains("attention query, key, value, output, and per-head gate (g_proj)"))
+    #expect(staticReview.contains("whereas the MoE router gate is not"))
+    #expect(staticReview.contains("quantization changes beyond the accepted envelope"))
+    #expect(staticReview.contains("group-32 affine INT8"))
     let speculativeCategories = [
         "prompt-lookup decoding",
         "n-gram, suffix, or token-history drafting",
@@ -2043,6 +2048,8 @@ func submissionStaticReviewDiffModeFailsClosedAndSendsOnlyChangedFiles() throws 
     let policy = try #require(userPolicy["policy"] as? [String: Any])
     let failOn = try #require(policy["fail_on"] as? [String])
     let allowed = try #require(policy["allow"] as? [String])
+    #expect(failOn.contains { $0.contains("quantization changes beyond the accepted envelope") })
+    #expect(allowed.contains { $0.contains("within the accepted quantization envelope") })
     for category in [
         "prompt-lookup decoding",
         "same-target lookahead",
@@ -5246,7 +5253,7 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     #expect(runner.contains("perf-batch requires one to three candidate ranks or submission prefixes"))
     #expect(runner.contains("run-study.sh perf-batch CANDIDATE [CANDIDATE ...]"))
     #expect(runner.contains("bounded performance batch complete"))
-    #expect(runner.contains("wait_for_performance_batch_cool() {"))
+    #expect(runner.contains("wait_for_performance_launch_cool() {"))
     #expect(runner.contains("detached cool wait rejected unhealthy, frozen, or stale telemetry"))
     #expect(runner.contains("detached cool wait timed out after 900s"))
     #expect(runner.contains("/usr/bin/caffeinate -is -w \"$$\""))

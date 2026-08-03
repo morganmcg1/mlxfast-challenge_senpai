@@ -45,8 +45,8 @@ another Apple Silicon generation.
 
 ## What You May Optimize
 
-`editablePaths` in `benchmark.json` is the exact submission surface. Its four
-groups are:
+`editablePaths` in `benchmark.json` is the exact submission surface (currently 97 entries).
+Its four groups are:
 
 - `Sources/MLXFastModel/`: scored Laguna runtime, kernels, and decode path.
 - `Sources/MLXFastTransform/`: offline weight transformation and metadata.
@@ -82,6 +82,9 @@ and generated-weight files, plus unlisted vendor code and package manifests.
 Do not hardcode prompts, tokens, or answers; read hidden artifacts; bypass the
 protocol; specialize for fixtures; or rely on network or filesystem access.
 Python is not part of the challenge runtime.
+
+Do not add caches or memos keyed on input tokens whose only
+possible hit is the benchmark harness repeating an identical computation.
 
 ## Correctness Gates
 
@@ -139,6 +142,12 @@ Always pass `--force-resolved-versions` to direct `swift build` and `swift
 test` commands. The dependency graph is frozen; an unflagged command can
 rewrite `Package.resolved`.
 
+```bash
+swift test --force-resolved-versions
+swift build -c release --force-resolved-versions
+git checkout -- Package.resolved
+```
+
 ## Notes For Autonomous Agents
 
 - A wait at "waiting for GPU to cool down" is expected. Do not kill it or
@@ -159,6 +168,10 @@ rewrite `Package.resolved`.
   copies of the model and exhaust unified memory.
 
 ## Submission Workflow
+
+```bash
+export PATH="${HOME}/.local/bin:${PATH}"
+```
 
 Run `./benchmark.sh --local-submit`, then inspect the candidate against
 `benchmark.json`'s `editablePaths`. The Yukon CLI command `mlxfast submit`
@@ -199,12 +212,13 @@ docs may aid research but the submitted candidate must work without them.
 
 Each invocation may compute logits and KV rows only for tokens supplied in
 that invocation. It must advance logical and physical KV position by exactly
-the supplied input length. A one-token decode request advances one position
-and leaves no future logits, tokens, or KV state for another request.
+the supplied input length. A one-token decode request advances one position and leaves no pending future token,
+logits, or KV state for another request.
 
-Prompt lookup, token-history drafting, lookahead, multi-row target evaluation
-of an unsupplied future token, deferred cache rows, and cross-request
-commit/rollback state are excluded even when generic or bit-exact.
+Prompt-lookup decoding, token-history drafting, same-target lookahead,
+multi-row target evaluation of an unsupplied future token, deferred cache rows,
+and cross-request commit/rollback state are excluded even when generic or
+bit-exact.
 
 Ordinary within-request KV reuse and input-independent weight, kernel, mask,
 dequantization, or RoPE caches are allowed. Multi-row kernels are allowed only

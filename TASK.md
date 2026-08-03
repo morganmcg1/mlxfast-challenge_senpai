@@ -215,3 +215,16 @@ Organizer-provided MTP or other speculative decoding would require a
 separately declared trusted block protocol, correctness contract, and score;
 no such track currently exists, so these
 restrictions apply to every ranked submission.
+
+## Local Workflow
+
+```bash
+export PATH="${HOME}/.local/bin:${PATH}"
+swift test --force-resolved-versions
+swift build -c release --force-resolved-versions
+git checkout -- Package.resolved
+```
+
+Use `./setup.sh` after toolchain, checkpoint, harness, or AOT-kernel changes.
+Use `./benchmark.sh --local-iterate` for matched experiments and
+`./benchmark.sh --local-submit` before submission.
