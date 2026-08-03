@@ -42,9 +42,10 @@ Before assigning experiments:
 
 Pre-provision the checkpoint, toolchain, and build cache before assigning a
 student. Route at most one active student to each physical Mac. A controller
-timeout must cover the possible 900-second cool-down plus incremental build,
-model load, correctness, and timing; killing a normal cool-down yields no
-research evidence.
+timeout must cover multiple independently bounded thermal stages plus
+incremental build, model load, correctness, and timing; do not size it around a
+single 900-second allowance. Killing a normal cool-down yields no research
+evidence.
 
 ## Thermal and fan policy
 
@@ -139,7 +140,7 @@ low-memory startup profile) only as a separate fallback cohort. Do not use
 `mac-m4.metal`: 24 GiB is below the model's practical minimum. AWS currently
 offers no EC2 M5 Mac type.
 
-The 2026-08-03 top-15 campaign uses five `mac-m4pro.metal` hosts. Treat every
+The 2026-08-03 top-15 campaign used five `mac-m4pro.metal` hosts. Treat every
 result as part of that 48-GiB low-memory M4 Pro cohort; never compare its
 absolute times with M4 Max.
 
@@ -193,6 +194,7 @@ key, then rely on source freshness checks to rebuild affected products. Use a
 private bucket through an instance role, preferably over a VPC endpoint; never
 use public-read objects or embedded credentials, and SHA-256 verify every
 bootstrap object.
+
 Prefer a private image or encrypted EBS snapshot for the 21.6 GB checkpoint and
 transformed weights; live peer-to-peer checkpoint relay was slower than moving
 the shard to an already prepared host.
