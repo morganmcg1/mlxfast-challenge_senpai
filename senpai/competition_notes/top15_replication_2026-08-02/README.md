@@ -87,6 +87,7 @@ senpai/competition_notes/top15_replication_2026-08-02/run-study.sh prepare
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh thermal-preflight # optional readiness diagnostic
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh perf baseline
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh perf 112
+senpai/competition_notes/top15_replication_2026-08-02/run-study.sh perf-batch 112 120 # bounded detached sample
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh perf all
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh quality all
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh status
@@ -109,7 +110,12 @@ rank-specific candidate, or normalize a candidate. `perf all` refreshes rank
 Performance commands run in an isolated process group; HUP, INT, QUIT, and TERM
 are forwarded to the whole tree with bounded TERM-to-KILL escalation. A normal
 command exit that leaves descendants is also rejected, so stopping the runner
-stops the benchmark and model worker.
+stops the benchmark and model worker. `perf-batch` accepts one to three unique,
+explicit candidates, refreshes rank 111 first, preserves the healthy-hot
+handoff between arms, and stops on the first invalid arm; use it instead of
+unbounded `perf all` for a detached sample. It holds an idle/system-sleep
+assertion with `caffeinate` for the life of the runner while still allowing the
+display to sleep.
 Quality attempts retain the full evaluator output, comparison, real
 bridge, source fingerprint, launcher identity, and selected attempt. Invalid
 network/infrastructure attempts are preserved and retried in a fresh directory;

@@ -5242,6 +5242,12 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     #expect(runner.contains(".attempt.source_ref == $expected_source_ref"))
     #expect(runner.contains("attempt_started_at=\"$(utc_now)\""))
     #expect(runner.contains("run_supervised_logged_command() {"))
+    #expect(runner.contains("run_performance_batch() {"))
+    #expect(runner.contains("perf-batch requires one to three candidate ranks or submission prefixes"))
+    #expect(runner.contains("run-study.sh perf-batch CANDIDATE [CANDIDATE ...]"))
+    #expect(runner.contains("bounded performance batch complete"))
+    #expect(runner.contains("/usr/bin/caffeinate -is -w \"$$\""))
+    #expect(runner.contains("display sleep remains allowed"))
     #expect(runner.contains("kill -TERM -- \"-${study_supervised_command_pgid}\""))
     #expect(runner.contains("kill -KILL -- \"-${pgid}\""))
     #expect(!runner.contains("mkfifo"))
@@ -5265,6 +5271,7 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     #expect(selfTestOutput.contains("persistent thermal sample self-test passed"))
     #expect(selfTestOutput.contains("bounded capture self-test passed"))
     #expect(selfTestOutput.contains("supervised process-tree self-test passed"))
+    #expect(selfTestOutput.contains("bounded performance batch self-test passed"))
 }
 
 @Test

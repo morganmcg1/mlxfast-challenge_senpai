@@ -1620,6 +1620,7 @@ run_self_tests() {
   bounded_capture_self_test
   late_signal_self_test
   supervised_pipeline_self_test
+  performance_batch_self_test
 }
 
 performance_attempt_valid() {
@@ -2142,6 +2143,108 @@ run_performance() {
     || die "no candidate matched ${candidate_selector}"
   [[ "${failure_count}" -eq 0 ]] \
     || die "${failure_count} performance arm(s) failed; valid arms were retained"
+}
+
+# Run one freshly normalized, explicitly bounded local sample. This is the
+# detached-campaign entrypoint: refresh rank 111 first, then execute one to
+# three uniquely resolved candidates in the requested order. Any arm error
+# exits immediately, so launchd never advances past a failed correctness,
+# telemetry, thermal, or process-supervision boundary.
+run_performance_batch() {
+  [[ "$#" -ge 1 && "$#" -le 3 ]] \
+    || die "perf-batch requires one to three candidate ranks or submission prefixes"
+  local selectors=("$@")
+  local resolved_ranks=()
+  local resolved_ids=()
+  local resolved_refs=()
+  local resolved_count=0
+  local selector rows row_count rank submission_id source_ref existing
+  for selector in "${selectors[@]}"; do
+    [[ "${selector}" != "all" && "${selector}" != "baseline" ]] \
+      || die "perf-batch candidates must be explicit ranks or submission prefixes"
+    rows="$(candidate_rows "${selector}")"
+    row_count="$(printf '%s\n' "${rows}" | awk 'NF { count += 1 } END { print count + 0 }')"
+    [[ "${row_count}" == "1" ]] \
+      || die "perf-batch selector '${selector}' resolved to ${row_count} candidates; use an exact rank or longer submission prefix"
+    IFS=$'\t' read -r rank submission_id source_ref <<< "${rows}"
+    if [[ "${resolved_count}" -gt 0 ]]; then
+      for existing in "${resolved_ranks[@]}"; do
+        [[ "${existing}" != "${rank}" ]] \
+          || die "perf-batch resolves candidate rank ${rank} more than once"
+      done
+    fi
+    resolved_ranks+=("${rank}")
+    resolved_ids+=("${submission_id}")
+    resolved_refs+=("${source_ref}")
+    resolved_count=$((resolved_count + 1))
+  done
+
+  echo "top15-study: bounded performance batch: baseline rank-${study_baseline_rank}, then candidates ${resolved_ranks[*]}"
+  start_performance_batch_caffeinate
+  [[ "${study_performance_enabled}" == "true" ]] \
+    || die "performance is disabled by manifest: ${study_manifest}"
+  require_inputs
+  # A single process owns the whole thermal handoff. Only the first new arm
+  # must already be <=40C at preflight; later preflights may be healthy-hot and
+  # the benchmark's phase-boundary gate performs the actual cool-down.
+  study_next_preflight_requires_cool=1
+  prepare_workspace
+  run_performance_arm \
+    "${study_baseline_rank}" "${study_baseline_id}" "${study_baseline_commit}"
+  local index
+  for index in "${!resolved_ranks[@]}"; do
+    run_performance_arm \
+      "${resolved_ranks[${index}]}" \
+      "${resolved_ids[${index}]}" \
+      "${resolved_refs[${index}]}"
+  done
+  echo "top15-study: bounded performance batch complete"
+}
+
+start_performance_batch_caffeinate() {
+  [[ -x /usr/bin/caffeinate ]] \
+    || die "perf-batch requires /usr/bin/caffeinate so idle sleep cannot suspend a detached timing campaign"
+  /usr/bin/caffeinate -is -w "$$" >/dev/null 2>&1 &
+  local caffeinate_pid="$!"
+  /bin/sleep 0.1
+  if ! kill -0 "${caffeinate_pid}" 2>/dev/null; then
+    wait "${caffeinate_pid}" 2>/dev/null || true
+    die "perf-batch could not establish its idle/system-sleep assertion"
+  fi
+  echo "top15-study: sleep prevention active via caffeinate pid ${caffeinate_pid} (display sleep remains allowed)"
+}
+
+performance_batch_self_test() {
+  local test_dir sequence_file actual expected
+  test_dir="$(mktemp -d "${TMPDIR:-/tmp}/mlxfast-top15-batch-test.XXXXXX")"
+  sequence_file="${test_dir}/sequence"
+  (
+    require_inputs() { :; }
+    prepare_workspace() { :; }
+    start_performance_batch_caffeinate() { :; }
+    run_performance_arm() {
+      printf '%s:%s\n' "$1" "${study_next_preflight_requires_cool}" >> "${sequence_file}"
+      study_next_preflight_requires_cool=0
+    }
+    run_performance_batch 112 120 >/dev/null
+  ) || { rm -f "${sequence_file}"; rmdir "${test_dir}"; die "bounded performance batch failed its model-free sequence"; }
+  actual="$(cat "${sequence_file}")"
+  expected=$'111:1\n112:0\n120:0'
+  [[ "${actual}" == "${expected}" ]] \
+    || { rm -f "${sequence_file}"; rmdir "${test_dir}"; die "bounded performance batch lost its baseline/order/hot-handoff contract"; }
+  if (run_performance_batch 112 aa6660cb >/dev/null 2>&1); then
+    rm -f "${sequence_file}"
+    rmdir "${test_dir}"
+    die "bounded performance batch accepted one candidate twice"
+  fi
+  if (run_performance_batch 112 120 125 126 >/dev/null 2>&1); then
+    rm -f "${sequence_file}"
+    rmdir "${test_dir}"
+    die "bounded performance batch accepted more than three candidates"
+  fi
+  rm -f "${sequence_file}"
+  rmdir "${test_dir}"
+  echo "top15-study: bounded performance batch self-test passed"
 }
 
 quality_bridge_binary() {
@@ -2767,6 +2870,7 @@ Usage:
   run-study.sh prepare
   run-study.sh thermal-preflight
   run-study.sh perf [all|baseline|RANK|SUBMISSION_PREFIX]
+  run-study.sh perf-batch CANDIDATE [CANDIDATE ...]  # one to three
   run-study.sh quality [all|RANK|SUBMISSION_PREFIX]
   run-study.sh status
   run-study.sh self-test
@@ -2777,7 +2881,8 @@ a deliberately weaker screen. The performance baseline is promoted rank 111,
 the exact parent of rank 112. A fresh rank-111 auto-fan/current-contract receipt
 is mandatory before any candidate. `thermal-preflight` loads no model; it
 requires five responsive macmon samples, a <=40C final sample, and automatic
-fan control. Do not set MLXFAST_TOP15_ALLOW_GOLDEN_DRIFT=1
+fan control. `perf-batch` owns one bounded baseline/candidate sequence and
+stops on the first failed arm. Do not set MLXFAST_TOP15_ALLOW_GOLDEN_DRIFT=1
 until that unchanged comparator demonstrates a reproducible M4-only drift.
 EOF
 }
@@ -2789,6 +2894,10 @@ main() {
     prepare) prepare_workspace ;;
     thermal-preflight) run_thermal_preflight 1 ;;
     perf) run_performance "${command_selector}" ;;
+    perf-batch)
+      shift
+      run_performance_batch "$@"
+      ;;
     quality) run_quality "${command_selector}" ;;
     status) show_status ;;
     self-test) run_self_tests ;;
