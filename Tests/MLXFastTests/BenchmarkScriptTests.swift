@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 @testable import MLXFastCore
 @testable import MLXFastHarness
@@ -4402,6 +4403,371 @@ func coolGateRejectsImplausibleGpuTelemetry() throws {
     #expect(plausible.status == 0)
     #expect(!plausible.stderr.contains("looks implausible"))
     #expect(plausible.stderr.contains("GPU cool-down gate passed"))
+
+    // The scalar command is an explicit testing/portability seam. Strict mode
+    // keeps that contract instead of trying to invoke it as a macmon stream.
+    let strictPlausible = try runCoolGateOnly(gpuTempCommand: "printf 39", strict: true)
+    #expect(strictPlausible.status == 0)
+    #expect(strictPlausible.stderr.contains("GPU cool-down gate passed"))
+    #expect(!strictPlausible.stderr.contains("strict persistent macmon confirmed"))
+}
+
+// Audited strict mode confirms a would-be passing real-macmon reading with a
+// fresh, persistent five-sample stream at the phase boundary. This catches a
+// plausibly frozen sensor without changing the scalar testing seam above.
+@Test
+func strictCoolGateRequiresResponsivePersistentMacmonAtPhaseBoundary() throws {
+    let script = try String(contentsOfFile: "benchmark.sh", encoding: .utf8)
+    #expect(script.contains("strict_persistent_macmon_confirmation() {"))
+    #expect(script.contains("--samples \"${COOL_GATE_STRICT_SAMPLE_COUNT}\""))
+    #expect(script.contains("--interval \"${COOL_GATE_STRICT_INTERVAL_MS}\""))
+    #expect(script.contains("and ([.[].temp.gpu_temp_avg] | unique | length) >= 2"))
+    #expect(script.contains("phase=${phase}"))
+    #expect(script.contains("&& -z \"${MLXFAST_GPU_TEMP_CMD:-}\""))
+    #expect(script.contains("COOL_GATE_READER_TIMEOUT_SECONDS=\"${MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS:-15}\""))
+    #expect(script.contains("kill -TERM -- \"-${pgid}\""))
+    #expect(script.contains("kill -KILL -- \"-${pgid}\""))
+    #expect(script.contains("cleanup_cool_gate_reader"))
+    #expect(script.contains("trap 'exit 143' TERM"))
+
+    func sample(_ sequence: Int, cpu: String = "38.0", gpu: String) -> String {
+        """
+        {"timestamp":"2026-08-03T00:00:00.00000\(sequence)+00:00","temp":{"cpu_temp_avg":\(cpu),"gpu_temp_avg":\(gpu)}}
+        """
+    }
+
+    func runStrictMacmon(
+        _ samples: [String],
+        phase: String = "prefill",
+        hangPersistent: Bool = false,
+        orphanPersistent: Bool = false,
+        terminateExternally: Bool = false
+    ) throws -> (
+        status: Int32,
+        stderr: String,
+        calls: String,
+        leaderPID: String,
+        childPID: String,
+        readerPGID: String,
+        readerReady: Bool,
+        hitTestDeadline: Bool,
+        leaderWasAlive: Bool,
+        childWasAlive: Bool,
+        groupWasAlive: Bool,
+        readerTempCount: Int
+    ) {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stream = root.appendingPathComponent("stream.jsonl")
+        try (samples.joined(separator: "\n") + "\n").write(
+            to: stream,
+            atomically: true,
+            encoding: .utf8
+        )
+        let calls = root.appendingPathComponent("calls.log")
+        let singleSeen = root.appendingPathComponent("single-seen")
+        let leaderPID = root.appendingPathComponent("reader-leader.pid")
+        let childPID = root.appendingPathComponent("reader-child.pid")
+        let readerPGID = root.appendingPathComponent("reader.pgid")
+        let readerReady = root.appendingPathComponent("reader-ready")
+        let inheritedState = root.appendingPathComponent("inherited-fan-state")
+        let fakeMacmon = root.appendingPathComponent("macmon")
+        try """
+        #!/bin/sh
+        printf '%s\n' "$*" >> "\(calls.path)"
+        if [ "$1" = pipe ] && [ "$2" = -s1 ]; then
+          if [ -f "\(singleSeen.path)" ]; then
+            gpu=1.5
+          else
+            : > "\(singleSeen.path)"
+            gpu=39.0
+          fi
+          printf '%s%s%s\n' '{"timestamp":"2026-08-03T00:00:00.000000+00:00","temp":{"cpu_temp_avg":38.0,"gpu_temp_avg":' "$gpu" '}}'
+          exit 0
+        fi
+        if [ "$1" = pipe ] && [ "$2" = --samples ] && [ "$3" = 5 ] && [ "$4" = --interval ] && [ "$5" = 1000 ]; then
+          if [ "${MLXFAST_TEST_HANG_PERSISTENT:-0}" = 1 ] || [ "${MLXFAST_TEST_ORPHAN_PERSISTENT:-0}" = 1 ]; then
+            trap '' TERM
+            printf '%s\n' "$$" > "\(leaderPID.path)"
+            /bin/bash -c 'trap "" TERM; printf "%s\n" "$$" > "$1"; while :; do /bin/sleep 1; done' fixture "\(childPID.path)" &
+            /bin/ps -o pgid= -p "$$" | /usr/bin/tr -d '[:space:]' > "\(readerPGID.path)"
+            ready_attempt=0
+            while [ ! -s "\(childPID.path)" ] || [ ! -s "\(readerPGID.path)" ]; do
+              ready_attempt=$((ready_attempt + 1))
+              [ "$ready_attempt" -lt 200 ] || exit 65
+              /bin/sleep 0.01
+            done
+            : > "\(readerReady.path)"
+            if [ "${MLXFAST_TEST_ORPHAN_PERSISTENT:-0}" = 1 ]; then
+              now="$(date -u +%Y-%m-%dT%H:%M:%S)"
+              /usr/bin/sed "s/2026-08-03T00:00:00/$now/" "\(stream.path)"
+              exit 0
+            fi
+            printf '%s\n' '{"timestamp":"2026-08-03T00:00:00.000000+00:00","temp":{"cpu_temp_avg":38.0,"gpu_temp_avg":39.0}}'
+            while :; do /bin/sleep 1; done
+          fi
+          now="$(date -u +%Y-%m-%dT%H:%M:%S)"
+          /usr/bin/sed "s/2026-08-03T00:00:00/$now/" "\(stream.path)"
+          exit 0
+        fi
+        exit 64
+        """.write(to: fakeMacmon, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeMacmon.path
+        )
+
+        // Avoid a real ten-second delay in the healthy-hot continuation case.
+        let fakeSleep = root.appendingPathComponent("sleep")
+        try "#!/bin/sh\nexit 0\n".write(
+            to: fakeSleep,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeSleep.path
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["benchmark.sh", "--local-cool-gate-only"]
+        process.currentDirectoryURL = URL(
+            fileURLWithPath: FileManager.default.currentDirectoryPath
+        )
+        var environment = benchmarkTestEnvironment([
+            "MLXFAST_MACMON_BIN": fakeMacmon.path,
+            "MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY": "1",
+            "MLXFAST_LOCAL_COOL_GATE_PHASE": phase,
+            "MLXFAST_LOCAL_FAN_PROMPT": "0",
+            "TMPDIR": root.path,
+            "PATH": root.path + ":" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin"),
+        ])
+        if hangPersistent {
+            environment["MLXFAST_TEST_HANG_PERSISTENT"] = "1"
+            environment["MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS"] =
+                terminateExternally ? "15" : "1"
+        }
+        if orphanPersistent {
+            environment["MLXFAST_TEST_ORPHAN_PERSISTENT"] = "1"
+        }
+        if terminateExternally {
+            try Data().write(to: inheritedState)
+            environment["MLXFAST_FAN_BOOST_STATE_FILE"] = inheritedState.path
+        }
+        environment.removeValue(forKey: "MLXFAST_GPU_TEMP_CMD")
+        process.environment = environment
+        let stderrURL = root.appendingPathComponent("benchmark.stderr")
+        #expect(FileManager.default.createFile(atPath: stderrURL.path, contents: nil))
+        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+        process.standardError = stderrHandle
+        try process.run()
+        var readerBecameReady = false
+        if terminateExternally {
+            for _ in 0..<100 {
+                if FileManager.default.fileExists(atPath: readerReady.path) {
+                    readerBecameReady = true
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            // The reader has its own process group, so this specifically proves
+            // the inherited cool-gate shell's signal -> EXIT-cleanup bridge
+            // reaps it, rather than exercising the top-level owner's handler.
+            process.terminate()
+        }
+
+        let testDeadline = Date().addingTimeInterval(20)
+        while process.isRunning && Date() < testDeadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        let hitTestDeadline = process.isRunning
+        if process.isRunning {
+            process.terminate()
+            let terminationDeadline = Date().addingTimeInterval(2)
+            while process.isRunning && Date() < terminationDeadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+            }
+        }
+        process.waitUntilExit()
+        stderrHandle.closeFile()
+        readerBecameReady = readerBecameReady
+            || FileManager.default.fileExists(atPath: readerReady.path)
+        let stderrData = try Data(contentsOf: stderrURL)
+        let callLog = (try? String(contentsOf: calls, encoding: .utf8)) ?? ""
+        let leader = (try? String(contentsOf: leaderPID, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let child = (try? String(contentsOf: childPID, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let pgid = (try? String(contentsOf: readerPGID, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        func isAlive(_ rawPID: String, asGroup: Bool = false) -> Bool {
+            guard let pid = Int32(rawPID), pid > 1 else { return false }
+            let target = asGroup ? -pid : pid
+            if Darwin.kill(target, 0) == 0 { return true }
+            return Darwin.errno != ESRCH
+        }
+        let leaderWasAlive = isAlive(leader)
+        let childWasAlive = isAlive(child)
+        let groupWasAlive = isAlive(pgid, asGroup: true)
+
+        // Preserve failure evidence in the returned booleans, but never let a
+        // broken cleanup assertion leave fixture processes behind for later
+        // tests (or for a developer's shell after the suite exits).
+        if leaderWasAlive, let pid = Int32(leader) { Darwin.kill(pid, SIGKILL) }
+        if childWasAlive, let pid = Int32(child) { Darwin.kill(pid, SIGKILL) }
+        if groupWasAlive, let group = Int32(pgid), group != Darwin.getpgrp() {
+            Darwin.kill(-group, SIGKILL)
+        }
+        let readerTempCount = ((try? FileManager.default.contentsOfDirectory(
+            atPath: root.path
+        )) ?? []).filter { $0.hasPrefix("mlxfast-cool-gate-reader.") }.count
+        return (
+            process.terminationStatus,
+            String(data: stderrData, encoding: .utf8) ?? "",
+            callLog,
+            leader,
+            child,
+            pgid,
+            readerBecameReady,
+            hitTestDeadline,
+            leaderWasAlive,
+            childWasAlive,
+            groupWasAlive,
+            readerTempCount
+        )
+    }
+
+    let ready = try runStrictMacmon([
+        sample(0, gpu: "39.2"),
+        sample(1, gpu: "39.1"),
+        sample(2, gpu: "39.0"),
+        sample(3, gpu: "38.9"),
+        sample(4, gpu: "38.8"),
+    ])
+    #expect(ready.status == 0, Comment(rawValue: ready.stderr))
+    #expect(ready.calls == "pipe -s1\npipe --samples 5 --interval 1000\n")
+    #expect(ready.stderr.contains(
+        "strict persistent macmon confirmed phase=prefill samples=5 interval=1000ms final=38.8C"
+    ))
+    #expect(ready.stderr.contains("GPU cool-down gate passed (current 38.8C"))
+
+    let frozen = try runStrictMacmon([
+        sample(0, gpu: "39.0"),
+        sample(1, gpu: "39.0"),
+        sample(2, gpu: "39.0"),
+        sample(3, gpu: "39.0"),
+        sample(4, gpu: "39.0"),
+    ])
+    #expect(frozen.status != 0)
+    #expect(frozen.stderr.contains("persistent macmon stream is unhealthy or unresponsive"))
+    #expect(!frozen.stderr.contains("GPU cool-down gate passed"))
+
+    let outOfOrder = try runStrictMacmon([
+        sample(0, gpu: "39.2"),
+        sample(2, gpu: "39.1"),
+        sample(1, gpu: "39.0"),
+        sample(3, gpu: "38.9"),
+        sample(4, gpu: "38.8"),
+    ])
+    #expect(outOfOrder.status != 0)
+    #expect(outOfOrder.stderr.contains("persistent macmon stream is unhealthy or unresponsive"))
+
+    let stale = try runStrictMacmon([
+        "{\"timestamp\":\"2020-01-01T00:00:00.000000+00:00\",\"temp\":{\"cpu_temp_avg\":38.0,\"gpu_temp_avg\":39.2}}",
+        "{\"timestamp\":\"2020-01-01T00:00:01.000000+00:00\",\"temp\":{\"cpu_temp_avg\":38.0,\"gpu_temp_avg\":39.1}}",
+        "{\"timestamp\":\"2020-01-01T00:00:02.000000+00:00\",\"temp\":{\"cpu_temp_avg\":38.0,\"gpu_temp_avg\":39.0}}",
+        "{\"timestamp\":\"2020-01-01T00:00:03.000000+00:00\",\"temp\":{\"cpu_temp_avg\":38.0,\"gpu_temp_avg\":38.9}}",
+        "{\"timestamp\":\"2020-01-01T00:00:04.000000+00:00\",\"temp\":{\"cpu_temp_avg\":38.0,\"gpu_temp_avg\":38.8}}",
+    ])
+    #expect(stale.status != 0)
+    #expect(stale.stderr.contains("persistent macmon stream is unhealthy or unresponsive"))
+
+    let implausibleCPU = try runStrictMacmon([
+        sample(0, cpu: "1.0", gpu: "39.2"),
+        sample(1, gpu: "39.1"),
+        sample(2, gpu: "39.0"),
+        sample(3, gpu: "38.9"),
+        sample(4, gpu: "38.8"),
+    ])
+    #expect(implausibleCPU.status != 0)
+    #expect(implausibleCPU.stderr.contains("persistent macmon stream is unhealthy or unresponsive"))
+
+    let healthyHot = try runStrictMacmon([
+        sample(0, gpu: "41.0"),
+        sample(1, gpu: "41.1"),
+        sample(2, gpu: "41.2"),
+        sample(3, gpu: "41.3"),
+        sample(4, gpu: "41.4"),
+    ], phase: "decode")
+    #expect(healthyHot.status != 0)
+    #expect(healthyHot.stderr.contains(
+        "strict persistent macmon stream phase=decode is healthy but still hot"
+    ))
+    #expect(healthyHot.stderr.contains("strict local thermal telemetry rejected"))
+    #expect(!healthyHot.stderr.contains("GPU cool-down gate passed"))
+
+    let timedOut = try runStrictMacmon([
+        sample(0, gpu: "39.2"),
+        sample(1, gpu: "39.1"),
+        sample(2, gpu: "39.0"),
+        sample(3, gpu: "38.9"),
+        sample(4, gpu: "38.8"),
+    ], hangPersistent: true)
+    #expect(timedOut.status != 0)
+    #expect(timedOut.stderr.contains("persistent macmon reader timed out after 1s"))
+    #expect(!timedOut.stderr.contains("strict persistent macmon confirmed"))
+    #expect(!timedOut.stderr.contains("GPU cool-down gate passed"))
+    let timeoutDiagnostic = Comment(rawValue: timedOut.stderr + "\n" + timedOut.calls)
+    #expect(!timedOut.leaderPID.isEmpty, timeoutDiagnostic)
+    #expect(!timedOut.childPID.isEmpty, timeoutDiagnostic)
+    #expect(!timedOut.readerPGID.isEmpty, timeoutDiagnostic)
+    #expect(timedOut.readerReady, timeoutDiagnostic)
+    #expect(!timedOut.hitTestDeadline, timeoutDiagnostic)
+    #expect(!timedOut.leaderWasAlive, timeoutDiagnostic)
+    #expect(!timedOut.childWasAlive, timeoutDiagnostic)
+    #expect(!timedOut.groupWasAlive, timeoutDiagnostic)
+    #expect(timedOut.readerTempCount == 0)
+
+    // A successful reader wrapper that leaves a descendant is a supervision
+    // failure, even if the stream itself contains five healthy samples.
+    let orphaned = try runStrictMacmon([
+        sample(0, gpu: "39.2"),
+        sample(1, gpu: "39.1"),
+        sample(2, gpu: "39.0"),
+        sample(3, gpu: "38.9"),
+        sample(4, gpu: "38.8"),
+    ], orphanPersistent: true)
+    let orphanDiagnostic = Comment(rawValue: orphaned.stderr + "\n" + orphaned.calls)
+    #expect(orphaned.status != 0, orphanDiagnostic)
+    #expect(!orphaned.stderr.contains("strict persistent macmon confirmed"), orphanDiagnostic)
+    #expect(orphaned.readerReady, orphanDiagnostic)
+    #expect(!orphaned.hitTestDeadline, orphanDiagnostic)
+    #expect(!orphaned.leaderWasAlive, orphanDiagnostic)
+    #expect(!orphaned.childWasAlive, orphanDiagnostic)
+    #expect(!orphaned.groupWasAlive, orphanDiagnostic)
+    #expect(orphaned.readerTempCount == 0)
+
+    let interrupted = try runStrictMacmon([
+        sample(0, gpu: "39.2"),
+        sample(1, gpu: "39.1"),
+        sample(2, gpu: "39.0"),
+        sample(3, gpu: "38.9"),
+        sample(4, gpu: "38.8"),
+    ], hangPersistent: true, terminateExternally: true)
+    #expect(interrupted.status == 143, Comment(rawValue: interrupted.stderr))
+    #expect(!interrupted.leaderPID.isEmpty)
+    #expect(!interrupted.childPID.isEmpty)
+    #expect(!interrupted.readerPGID.isEmpty)
+    #expect(interrupted.readerReady)
+    #expect(!interrupted.hitTestDeadline, Comment(rawValue: interrupted.stderr))
+    #expect(!interrupted.leaderWasAlive)
+    #expect(!interrupted.childWasAlive)
+    #expect(!interrupted.groupWasAlive)
+    #expect(interrupted.readerTempCount == 0)
 }
 
 // The local cool gate can offer a ONE-TIME fan boost when the GPU sits hot
@@ -4822,7 +5188,7 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     #expect(runner.contains("install_local_benchmark() {"))
     #expect(runner.contains("install_local_benchmark\n  jq -n"))
     #expect(runner.contains(
-        "study_local_benchmark_sha256=\"22ab13dacee12b874a601bcd4d8f557309019b352cdc13a1d3c72a34c2d2e92c\""
+        "study_local_benchmark_sha256=\"05d60dd7b8dec7490f32802f201496407fd4687c55f0bf3c28a2bc55fc1c3877\""
     ))
     #expect(runner.contains("study_fan_control_sha256="))
     #expect(runner.contains("study_macmon_sha256="))
@@ -4833,9 +5199,21 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     #expect(runner.contains("study_performance_environment_policy=\"env-i-v2\""))
     #expect(runner.contains("environment_policy:$environment_policy"))
     #expect(runner.contains("MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1"))
+    #expect(runner.contains("MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS=\"${study_thermal_reader_timeout_seconds}\""))
     #expect(runner.contains("MLXFAST_LOCAL_FAN_PROMPT=0"))
     #expect(runner.contains(".environment.MLXFAST_LOCAL_FAN_PROMPT == \"0\""))
     #expect(runner.contains("MLXFAST_MACMON_BIN=\"${study_macmon_source}\""))
+
+    // A historical receipt remains auditable but cannot unlock or normalize a
+    // new candidate. The refreshed comparator and every candidate bind the
+    // same automatic-fan policy and check it before and after the arm.
+    #expect(runner.contains("performance_result_current_contract() {"))
+    #expect(runner.contains("if performance_result_current_contract \"${arm_dir}\""))
+    #expect(runner.contains("must be refreshed under the current auto-fan/env-i/telemetry contract"))
+    #expect(runner.contains("fan_status_before:$fan_status_before"))
+    #expect(runner.contains("fan_status_after:$fan_status_after"))
+    #expect(runner.contains(".fan_status_before == $fan_policy"))
+    #expect(runner.contains(".fan_status_after == $fan_policy"))
 
     // The receipt is exact, phase ordered, hash-bound for new attempts, and a
     // status-0 process cannot make the cohort continue without it.
@@ -4844,7 +5222,49 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     #expect(runner.contains("state == 6 && passes == 2 && invalid == 0"))
     #expect(runner.contains("log_sha256:$log_sha256"))
     #expect(runner.contains("a status-0 attempt lacks two trustworthy ordered thermal gates"))
-    #expect(runner.contains("75|129|130|143) return \"${arm_status}\""))
+    #expect(runner.contains("125|129|130|131|143) return \"${benchmark_status}\""))
+    #expect(runner.contains("75|125|129|130|131|143) return \"${arm_status}\""))
+    #expect(runner.contains("strict persistent macmon confirmed phase=(prefill|decode)"))
+    #expect(runner.contains("performance_log_thermal_valid \"${log_file}\" \"${require_strict_confirmation}\""))
+
+    // One persistent reader process produces a hash-bound five-sample receipt
+    // before model load. Frozen-but-plausible temperatures and stale ordering
+    // are rejected by the model-free self-test.
+    #expect(runner.contains("study_thermal_preflight_samples=5"))
+    #expect(runner.contains("study_thermal_reader_timeout_seconds=15"))
+    #expect(runner.contains("run_bounded_capture() {"))
+    #expect(runner.contains("\"${study_macmon_source}\" pipe"))
+    #expect(runner.contains("--samples \"${study_thermal_preflight_samples}\""))
+    #expect(runner.contains("([.[].temp.gpu_temp_avg] | unique | length) >= 2"))
+    #expect(runner.contains("thermal_preflight_sha256:$thermal_preflight_sha256"))
+    #expect(runner.contains("frozen plausible samples passed self-test"))
+    #expect(runner.contains("study_thermal_preflight_handoff_seconds=30"))
+    #expect(runner.contains(".attempt.source_ref == $expected_source_ref"))
+    #expect(runner.contains("attempt_started_at=\"$(utc_now)\""))
+    #expect(runner.contains("run_supervised_logged_command() {"))
+    #expect(runner.contains("kill -TERM -- \"-${study_supervised_command_pgid}\""))
+    #expect(runner.contains("kill -KILL -- \"-${pgid}\""))
+    #expect(!runner.contains("mkfifo"))
+    #expect(runner.contains("command exited while descendants remained"))
+    #expect(runner.contains("bounded capture self-test passed"))
+    #expect(runner.contains("supervised process-tree self-test passed"))
+
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.arguments = [runnerPath, "self-test"]
+    process.standardOutput = output
+    process.standardError = output
+    try process.run()
+    process.waitUntilExit()
+    let selfTestOutput = String(
+        data: output.fileHandleForReading.readDataToEndOfFile(),
+        encoding: .utf8
+    ) ?? ""
+    #expect(process.terminationStatus == 0, Comment(rawValue: selfTestOutput))
+    #expect(selfTestOutput.contains("persistent thermal sample self-test passed"))
+    #expect(selfTestOutput.contains("bounded capture self-test passed"))
+    #expect(selfTestOutput.contains("supervised process-tree self-test passed"))
 }
 
 @Test
@@ -4875,6 +5295,18 @@ func top15DerivedQualityBaselineAndRank111AnchorStayIsolated() throws {
         JSONSerialization.jsonObject(with: primaryManifestData) as? [String: Any]
     )
     let candidates = try #require(anchorManifest["candidates"] as? [[String: Any]])
+
+    // Final publication must use a refreshed, same-policy comparator and
+    // independently revalidate each attempt's raw telemetry receipt.
+    #expect(builder.contains("def validate_thermal_preflight("))
+    #expect(builder.contains("thermal preflight GPU temperature is frozen"))
+    #expect(builder.contains("thermal preflight attempt binding differs"))
+    #expect(builder.contains("thermal preflight is not within the attempt handoff window"))
+    #expect(builder.contains("current performance attempts reuse a thermal preflight receipt"))
+    #expect(builder.contains("require_strict_confirmation=True"))
+    #expect(builder.contains("fan_status_before") && builder.contains("fan_status_after"))
+    #expect(builder.contains("and current_contract_performance == 16"))
+    #expect(builder.contains("current_contract_selected_attempts"))
 
     // Derived comparisons are file-only, offline, provenance-checked, and
     // forbidden from writing into the frozen primary result tree.

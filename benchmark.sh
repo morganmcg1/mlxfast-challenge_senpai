@@ -18,6 +18,9 @@ set -euo pipefail
 #   MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1
 #                               fail on the first bad sample and when macmon is
 #                               unavailable (for audited automation)
+#   MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS=...
+#                               bounded real-macmon read deadline (1-60 seconds;
+#                               testing/audited-automation seam, default 15)
 #   MLXFAST_FAN_CONTROL_HELPER=...  override tools/fan-control.sh, used by the
 #                               stalled-cool-down fan-boost offer and by
 #                               ./benchmark.sh --fan-speed-normal
@@ -38,6 +41,24 @@ readonly COOL_GATE_STALL_SECONDS=90      # abort once no new minimum temp has be
 readonly COOL_GATE_MAX_WAIT_SECONDS=900  # hard wait ceiling even while temp is still (slowly) falling; matches the ranked COOL_TIMEOUT
 readonly COOL_GATE_PROGRESS_EPSILON_C=0.25  # a new minimum must drop at least this much to count as progress (sensor jitter is not progress)
 readonly COOL_GATE_FAN_OFFER_STALL_SECONDS=60  # offer the one-time fan boost after this long without cooling progress (before the stall abort can fire)
+readonly COOL_GATE_STRICT_SAMPLE_COUNT=5    # one persistent macmon process must produce this many responsive samples before a strict phase may start
+readonly COOL_GATE_STRICT_INTERVAL_MS=1000  # persistent strict-telemetry sampling interval
+COOL_GATE_READER_TIMEOUT_SECONDS="${MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS:-15}"
+if [[ ! "${COOL_GATE_READER_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] \
+    || [[ "${COOL_GATE_READER_TIMEOUT_SECONDS}" -gt 60 ]]; then
+  echo "benchmark.sh: MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS must be an integer from 1 through 60" >&2
+  exit 1
+fi
+readonly COOL_GATE_READER_TIMEOUT_SECONDS
+readonly COOL_GATE_READER_TERM_GRACE_TICKS=20
+
+COOL_GATE_READER_PID=""
+COOL_GATE_READER_PGID=""
+COOL_GATE_READER_TMPDIR=""
+COOL_GATE_READER_STDOUT_FILE=""
+COOL_GATE_READER_STDERR_FILE=""
+COOL_GATE_READER_STATUS_FILE=""
+COOL_GATE_READER_STATUS_TMP_FILE=""
 
 LOCAL_ITERATE=0
 LOCAL_SUBMIT=0
@@ -380,6 +401,130 @@ find_macmon() {
   return 1
 }
 
+cool_gate_reader_group_alive() {
+  local pgid="$1"
+  [[ "${pgid}" =~ ^[1-9][0-9]*$ ]] || return 1
+  local process_rows
+  if process_rows="$(ps -axo pgid=,stat= 2>/dev/null)"; then
+    printf '%s\n' "${process_rows}" \
+      | awk -v wanted="${pgid}" '$1 == wanted && $2 !~ /^Z/ { found = 1 } END { exit !found }'
+    return "$?"
+  fi
+  kill -0 -- "-${pgid}" 2>/dev/null
+}
+
+stop_active_cool_gate_reader() {
+  local pgid="${COOL_GATE_READER_PGID}"
+  local pid="${COOL_GATE_READER_PID}"
+  [[ "${pgid}" =~ ^[1-9][0-9]*$ ]] || return 0
+  if cool_gate_reader_group_alive "${pgid}"; then
+    kill -TERM -- "-${pgid}" 2>/dev/null || true
+    local waited_ticks=0
+    while cool_gate_reader_group_alive "${pgid}" \
+        && [[ "${waited_ticks}" -lt "${COOL_GATE_READER_TERM_GRACE_TICKS}" ]]; do
+      /bin/sleep 0.1
+      waited_ticks=$((waited_ticks + 1))
+    done
+    if cool_gate_reader_group_alive "${pgid}"; then
+      kill -KILL -- "-${pgid}" 2>/dev/null || true
+    fi
+  fi
+  local settle_ticks=0
+  while cool_gate_reader_group_alive "${pgid}" && [[ "${settle_ticks}" -lt 20 ]]; do
+    /bin/sleep 0.1
+    settle_ticks=$((settle_ticks + 1))
+  done
+  if cool_gate_reader_group_alive "${pgid}"; then
+    echo "benchmark.sh: ERROR: GPU telemetry reader process group ${pgid} survived bounded TERM/KILL teardown" >&2
+    return 1
+  fi
+  if [[ "${pid}" =~ ^[1-9][0-9]*$ ]]; then
+    wait "${pid}" 2>/dev/null || true
+  fi
+  COOL_GATE_READER_PID=""
+  COOL_GATE_READER_PGID=""
+}
+
+cleanup_cool_gate_reader() {
+  stop_active_cool_gate_reader || true
+  [[ -z "${COOL_GATE_READER_STDOUT_FILE}" ]] || rm -f "${COOL_GATE_READER_STDOUT_FILE}" || true
+  [[ -z "${COOL_GATE_READER_STDERR_FILE}" ]] || rm -f "${COOL_GATE_READER_STDERR_FILE}" || true
+  [[ -z "${COOL_GATE_READER_STATUS_FILE}" ]] || rm -f "${COOL_GATE_READER_STATUS_FILE}" || true
+  [[ -z "${COOL_GATE_READER_STATUS_TMP_FILE}" ]] || rm -f "${COOL_GATE_READER_STATUS_TMP_FILE}" || true
+  [[ -z "${COOL_GATE_READER_TMPDIR}" ]] || rmdir "${COOL_GATE_READER_TMPDIR}" 2>/dev/null || true
+  COOL_GATE_READER_TMPDIR=""
+  COOL_GATE_READER_STDOUT_FILE=""
+  COOL_GATE_READER_STDERR_FILE=""
+  COOL_GATE_READER_STATUS_FILE=""
+  COOL_GATE_READER_STATUS_TMP_FILE=""
+}
+
+# Capture one real-macmon invocation behind a wall-clock deadline. The reader
+# and any descendants live in a private process group, so timeout/abort cleanup
+# can escalate TERM -> KILL without touching the benchmark shell itself. The
+# status file is atomically published only after stdout/stderr are complete.
+# Returns the reader status, 124 on timeout, or 125 on supervision failure.
+run_bounded_cool_gate_reader() {
+  cleanup_cool_gate_reader
+  if ! COOL_GATE_READER_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/mlxfast-cool-gate-reader.XXXXXX")"; then
+    echo "benchmark.sh: ERROR: could not create private storage for the GPU telemetry reader" >&2
+    return 125
+  fi
+  COOL_GATE_READER_STDOUT_FILE="${COOL_GATE_READER_TMPDIR}/stdout"
+  COOL_GATE_READER_STDERR_FILE="${COOL_GATE_READER_TMPDIR}/stderr"
+  COOL_GATE_READER_STATUS_FILE="${COOL_GATE_READER_TMPDIR}/status"
+  COOL_GATE_READER_STATUS_TMP_FILE="${COOL_GATE_READER_TMPDIR}/status.tmp"
+
+  local monitor_was_on=0
+  case "$-" in *m*) monitor_was_on=1 ;; esac
+  set -m
+  (
+    set +m
+    set +e
+    "$@" > "${COOL_GATE_READER_STDOUT_FILE}" 2> "${COOL_GATE_READER_STDERR_FILE}"
+    reader_status="$?"
+    if printf '%s\n' "${reader_status}" > "${COOL_GATE_READER_STATUS_TMP_FILE}"; then
+      mv "${COOL_GATE_READER_STATUS_TMP_FILE}" "${COOL_GATE_READER_STATUS_FILE}"
+    fi
+    exit "${reader_status}"
+  ) &
+  COOL_GATE_READER_PID="$!"
+  COOL_GATE_READER_PGID="${COOL_GATE_READER_PID}"
+  if [[ "${monitor_was_on}" == "0" ]]; then set +m; fi
+
+  local waited_ticks=0
+  local timeout_ticks=$((COOL_GATE_READER_TIMEOUT_SECONDS * 10))
+  while [[ ! -f "${COOL_GATE_READER_STATUS_FILE}" \
+      && "${waited_ticks}" -lt "${timeout_ticks}" ]]; do
+    /bin/sleep 0.1
+    waited_ticks=$((waited_ticks + 1))
+  done
+  if [[ ! -f "${COOL_GATE_READER_STATUS_FILE}" ]]; then
+    printf 'GPU telemetry reader exceeded %ss wall-clock deadline\n' \
+      "${COOL_GATE_READER_TIMEOUT_SECONDS}" >> "${COOL_GATE_READER_STDERR_FILE}"
+    stop_active_cool_gate_reader || return 125
+    return 124
+  fi
+
+  local reader_status
+  reader_status="$(tr -d '[:space:]' < "${COOL_GATE_READER_STATUS_FILE}")"
+  if [[ "${COOL_GATE_READER_PID}" =~ ^[1-9][0-9]*$ ]]; then
+    wait "${COOL_GATE_READER_PID}" 2>/dev/null || true
+  fi
+  local completed_pgid="${COOL_GATE_READER_PGID}"
+  COOL_GATE_READER_PID=""
+  COOL_GATE_READER_PGID=""
+  if cool_gate_reader_group_alive "${completed_pgid}"; then
+    COOL_GATE_READER_PGID="${completed_pgid}"
+    stop_active_cool_gate_reader || return 125
+    return 125
+  fi
+  [[ "${reader_status}" =~ ^[0-9]+$ ]] \
+    && [[ "${reader_status}" -le 255 ]] \
+    || return 125
+  return "${reader_status}"
+}
+
 # Prints the current GPU temperature in C (one line), or nothing on failure.
 # MLXFAST_GPU_TEMP_CMD is a documented testing/portability seam: any shell
 # command whose stdout is a plain Celsius number can stand in for macmon.
@@ -389,7 +534,102 @@ local_gpu_temp() {
     bash -c "${MLXFAST_GPU_TEMP_CMD}" 2>/dev/null | head -n 1 | tr -d '[:space:]'
     return 0
   fi
-  "${COOL_GATE_MACMON_BIN}" pipe -s1 2>/dev/null | jq -r '.temp.gpu_temp_avg // empty' 2>/dev/null
+  local reader_status temp
+  if run_bounded_cool_gate_reader "${COOL_GATE_MACMON_BIN}" pipe -s1; then
+    reader_status=0
+  else
+    reader_status="$?"
+  fi
+  if [[ "${reader_status}" != "0" ]]; then
+    if [[ "${reader_status}" == "124" ]]; then
+      echo "benchmark.sh: GPU temperature reader timed out after ${COOL_GATE_READER_TIMEOUT_SECONDS}s" >&2
+    fi
+    cleanup_cool_gate_reader
+    return 1
+  fi
+  temp="$(jq -r '.temp.gpu_temp_avg // empty' "${COOL_GATE_READER_STDOUT_FILE}" 2>/dev/null | head -n 1 | tr -d '[:space:]')"
+  cleanup_cool_gate_reader
+  printf '%s\n' "${temp}"
+}
+
+# A single plausible temperature is not enough for audited local timings: a
+# macmon sensor can freeze at a plausible value just as readily as at the
+# observed near-zero values. Immediately before a strict real-macmon gate
+# would pass, collect one fresh stream from ONE macmon process and validate
+# the whole stream. The MLXFAST_GPU_TEMP_CMD testing/portability seam never
+# enters this path; its historical one-value contract remains unchanged.
+#
+# Returns:
+#   0  healthy and the final sample is at/below the gate
+#   1  reader/schema/plausibility/order/responsiveness failure
+#   2  healthy, but the final sample is hotter than the gate
+# STRICT_COOL_GATE_FINAL_TEMP carries the validated final sample to the caller.
+STRICT_COOL_GATE_FINAL_TEMP=""
+strict_persistent_macmon_confirmation() {
+  local phase started_at finished_at reader_status samples_file
+  phase="${MLXFAST_LOCAL_COOL_GATE_PHASE:-unspecified}"
+  STRICT_COOL_GATE_FINAL_TEMP=""
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  if run_bounded_cool_gate_reader \
+      "${COOL_GATE_MACMON_BIN}" pipe \
+      --samples "${COOL_GATE_STRICT_SAMPLE_COUNT}" \
+      --interval "${COOL_GATE_STRICT_INTERVAL_MS}"; then
+    reader_status=0
+  else
+    reader_status="$?"
+  fi
+  finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [[ "${reader_status}" != "0" ]]; then
+    if [[ "${reader_status}" == "124" ]]; then
+      echo "benchmark.sh: ERROR: strict local thermal telemetry persistent macmon reader timed out after ${COOL_GATE_READER_TIMEOUT_SECONDS}s for phase=${phase}; refusing to start the timed phase" >&2
+    else
+      echo "benchmark.sh: ERROR: strict local thermal telemetry persistent macmon reader failed for phase=${phase}; refusing to start the timed phase" >&2
+    fi
+    cleanup_cool_gate_reader
+    return 1
+  fi
+  samples_file="${COOL_GATE_READER_STDOUT_FILE}"
+
+  if ! jq -s -e \
+      --argjson expected "${COOL_GATE_STRICT_SAMPLE_COUNT}" \
+      --arg started_at "${started_at}" \
+      --arg finished_at "${finished_at}" '
+        length == $expected
+        and all(.[];
+          type == "object"
+          and ((.timestamp | type) == "string")
+          and (.timestamp | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+]00:00)$"))
+          and ((.temp | type) == "object")
+          and ((.temp.cpu_temp_avg | type) == "number")
+          and ((.temp.gpu_temp_avg | type) == "number")
+          and .temp.cpu_temp_avg > 5
+          and .temp.cpu_temp_avg <= 120
+          and .temp.gpu_temp_avg > 5
+          and .temp.gpu_temp_avg <= 120
+        )
+        and ([.[].timestamp] as $timestamps
+          | ($timestamps | unique | length) == $expected
+          and $timestamps == ($timestamps | sort))
+        and ((.[0].timestamp[0:19] + "Z") >= $started_at)
+        and ((.[-1].timestamp[0:19] + "Z") <= $finished_at)
+        and ([.[].temp.gpu_temp_avg] | unique | length) >= 2
+      ' "${samples_file}" >/dev/null; then
+    cleanup_cool_gate_reader
+    echo "benchmark.sh: ERROR: strict local thermal telemetry persistent macmon stream is unhealthy or unresponsive for phase=${phase}; refusing to start the timed phase" >&2
+    return 1
+  fi
+
+  STRICT_COOL_GATE_FINAL_TEMP="$(jq -sr '.[-1].temp.gpu_temp_avg' "${samples_file}")"
+  cleanup_cool_gate_reader
+  if awk -v t="${STRICT_COOL_GATE_FINAL_TEMP}" -v gate="${COOL_GATE_TEMP_C}" \
+      'BEGIN { exit !(t <= gate) }'; then
+    echo "benchmark.sh: strict persistent macmon confirmed phase=${phase} samples=${COOL_GATE_STRICT_SAMPLE_COUNT} interval=${COOL_GATE_STRICT_INTERVAL_MS}ms final=$(format_temp_c "${STRICT_COOL_GATE_FINAL_TEMP}")C" >&2
+    return 0
+  fi
+
+  echo "benchmark.sh: strict persistent macmon stream phase=${phase} is healthy but still hot (final $(format_temp_c "${STRICT_COOL_GATE_FINAL_TEMP}")C, target <=${COOL_GATE_TEMP_C}C); continuing the cool-down gate" >&2
+  return 2
 }
 
 format_temp_c() {
@@ -432,20 +672,30 @@ record_fan_boost_applied() {
   fi
 }
 
-# Creates the run-scoped boost state file and installs the INT/TERM abort
+# Creates the run-scoped boost state file and installs terminating-signal abort
 # handler. Only the top-level local run creates (owns) the file: cool-gate
 # children the harness spawns inherit MLXFAST_FAN_BOOST_STATE_FILE from the
-# environment, skip creation here, and leave signal handling to the owner so
-# a group-wide Ctrl-C triggers exactly one restore.
+# environment, skip creation here, and install cleanup-only handlers so a
+# group-wide signal triggers exactly one fan restore while every child reaps
+# its own isolated telemetry reader.
 setup_fan_boost_run_tracking() {
   if [[ -n "${MLXFAST_FAN_BOOST_STATE_FILE:-}" ]]; then
+    # Harness-spawned cool-gate children do not own fan restoration, but they
+    # do own any isolated telemetry-reader process group. Convert terminating
+    # signals into ordinary exits so the EXIT cleanup can reap that reader.
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 131' QUIT
+    trap 'exit 143' TERM
     return 0
   fi
   # Install the abort handler before the state-file mktemp: the handler also
   # reaps the in-flight benchmark child tree (see
   # terminate_benchmark_child_tree), which must work even when fan-boost
   # tracking could not be set up.
+  trap 'handle_benchmark_abort_signal HUP' HUP
   trap 'handle_benchmark_abort_signal INT' INT
+  trap 'handle_benchmark_abort_signal QUIT' QUIT
   trap 'handle_benchmark_abort_signal TERM' TERM
   if ! FAN_BOOST_STATE_FILE_OWNED="$(mktemp "${TMPDIR:-/tmp}/mlxfast-fan-boost-state.XXXXXX")"; then
     FAN_BOOST_STATE_FILE_OWNED=""
@@ -474,7 +724,7 @@ benchmark.sh: restore macOS automatic fan control with: ./benchmark.sh --fan-spe
 EOF
 }
 
-# INT/TERM handler for the run that owns the abort traps. Two duties:
+# HUP/INT/QUIT/TERM handler for the run that owns the abort traps. Two duties:
 # 1) Reap the in-flight benchmark process tree. Local modes run the Swift
 #    benchmark as a monitored background child (see the invocation site), and
 #    that child's runtime worker holds the ~21.6 GB model. An aborted run that
@@ -489,9 +739,11 @@ EOF
 handle_benchmark_abort_signal() {
   local signal_name="$1"
   local exit_status=130
-  if [[ "${signal_name}" == "TERM" ]]; then
-    exit_status=143
-  fi
+  case "${signal_name}" in
+    HUP) exit_status=129 ;;
+    QUIT) exit_status=131 ;;
+    TERM) exit_status=143 ;;
+  esac
   FAN_BOOST_ABORT_HANDLED=1
   terminate_benchmark_child_tree
   if [[ -n "${FAN_BOOST_STATE_FILE_OWNED}" ]] && fan_boost_recorded; then
@@ -887,7 +1139,7 @@ EOF
   fi
 
   local temp waited=0 min_temp="" last_progress_waited=0 bad_samples=0 fan_boost_offered=0
-  local first_temp="" temp_varied=0 sample_count=0 telemetry_reason=""
+  local first_temp="" temp_varied=0 sample_count=0 telemetry_reason="" strict_confirmation_status=0
   while :; do
     temp="$(local_gpu_temp || true)"
     if [[ ! "${temp}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
@@ -928,8 +1180,26 @@ EOF
     bad_samples=0
 
     if awk -v t="${temp}" -v gate="${COOL_GATE_TEMP_C}" 'BEGIN { exit !(t <= gate) }'; then
-      echo "benchmark.sh: GPU cool-down gate passed (current $(format_temp_c "${temp}")C, target <=${COOL_GATE_TEMP_C}C, waited ${waited}s)" >&2
-      return 0
+      if [[ "${MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY:-0}" == "1" \
+          && -z "${MLXFAST_GPU_TEMP_CMD:-}" ]]; then
+        if strict_persistent_macmon_confirmation; then
+          temp="${STRICT_COOL_GATE_FINAL_TEMP}"
+        else
+          strict_confirmation_status="$?"
+          if [[ "${strict_confirmation_status}" == "2" ]]; then
+            # The fresh stream is healthy, but its final sample is hot. Use
+            # that final value for progress/stall accounting and keep waiting.
+            temp="${STRICT_COOL_GATE_FINAL_TEMP}"
+          else
+            return 1
+          fi
+        fi
+      fi
+      if [[ "${strict_confirmation_status}" != "2" ]]; then
+        echo "benchmark.sh: GPU cool-down gate passed (current $(format_temp_c "${temp}")C, target <=${COOL_GATE_TEMP_C}C, waited ${waited}s)" >&2
+        return 0
+      fi
+      strict_confirmation_status=0
     fi
 
     # Progress heuristic: track the minimum temperature seen; only a new
@@ -1202,6 +1472,10 @@ VERIFY_TRANSFORM_TMP_PARENT_OWNED=""
 score_stdout=""
 cleanup_benchmark_temporaries() {
   local status="$?"
+  # The thermal reader is deliberately isolated from the benchmark process
+  # group; always reap it first so an interrupted cool-gate child cannot leave
+  # macmon (or one of its descendants) running after this shell exits.
+  cleanup_cool_gate_reader
   # Last-resort reap of the monitored benchmark child tree (normally already
   # empty: the invocation site clears it after wait, and the INT/TERM abort
   # handler reaps it first on aborts). Runs before anything else so a
@@ -1607,11 +1881,11 @@ install_transformed_weights() {
 if [[ "${LOCAL_COOL_GATE_ONLY}" == "1" ]]; then
   LOCAL_ITERATE=1
   # Harness-spawned gate children inherit MLXFAST_FAN_BOOST_STATE_FILE from
-  # the top-level run and skip both steps inside; a standalone
+  # the top-level run and install only their reader-cleanup signal traps; a standalone
   # --local-cool-gate-only invocation owns its boost here, so aborting it
   # restores the fans and completing it prints the restore reminder.
-  setup_fan_boost_run_tracking
   trap cleanup_benchmark_temporaries EXIT
+  setup_fan_boost_run_tracking
   run_local_cool_gate
   exit 0
 fi

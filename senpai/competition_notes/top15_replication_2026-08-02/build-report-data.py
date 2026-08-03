@@ -23,6 +23,7 @@ import sys
 import tarfile
 import tempfile
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,11 @@ LOCAL_GATE_PHASE_RE = re.compile(
     r"^mlxfast: benchmark elapsed=[0-9]+(?:\.[0-9]+)?s local thermal gate "
     r"(?P<event>start|complete) phase=(?P<phase>prefill|decode)$"
 )
+LOCAL_STRICT_CONFIRM_RE = re.compile(
+    r"^benchmark\.sh: strict persistent macmon confirmed "
+    r"phase=(?P<phase>prefill|decode) samples=5 interval=1000ms "
+    r"final=(?P<temperature>[0-9]+(?:\.[0-9]+)?)C$"
+)
 LOCAL_THERMAL_REJECTION_MARKERS = (
     "local GPU cool-down gate disabled",
     "skipping the GPU cool-down gate",
@@ -88,7 +94,7 @@ LOCAL_THERMAL_REJECTION_MARKERS = (
     "local thermal gate failed",
 )
 PINNED_LOCAL_BENCHMARK_SHA256 = (
-    "22ab13dacee12b874a601bcd4d8f557309019b352cdc13a1d3c72a34c2d2e92c"
+    "05d60dd7b8dec7490f32802f201496407fd4687c55f0bf3c28a2bc55fc1c3877"
 )
 PINNED_FAN_CONTROL_SHA256 = (
     "d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a"
@@ -99,6 +105,16 @@ PINNED_MACMON_SHA256 = (
 PINNED_MACMON_VERSION = "macmon 0.7.2"
 LOCAL_BENCHMARK_CUTOVER = "2026-08-02T22:27:54Z"
 PERFORMANCE_ENVIRONMENT_POLICY = "env-i-v2"
+PERFORMANCE_FAN_POLICY = "auto"
+THERMAL_PREFLIGHT_SCHEMA = "mlxfast-top15-thermal-preflight-v1"
+THERMAL_PREFLIGHT_SAMPLES = 5
+THERMAL_PREFLIGHT_INTERVAL_MS = 1000
+THERMAL_READER_TIMEOUT_SECONDS = 15
+THERMAL_PREFLIGHT_HANDOFF_SECONDS = 30
+THERMAL_TIMESTAMP_RE = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:[.][0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+)
 LEGACY_RANK111_LOG_SHA256 = (
     "f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130"
 )
@@ -185,42 +201,71 @@ def close(left: Any, right: Any, tolerance: float = 1e-12) -> bool:
     )
 
 
-def validated_local_gate_temperatures(log_text: str, label: str) -> list[float]:
+def validated_local_gate_temperatures(
+    log_text: str,
+    label: str,
+    require_strict_confirmation: bool = False,
+) -> list[float]:
     """Return the two credible prefill/decode gate temperatures in a local run."""
 
     require(
         not any(marker in log_text for marker in LOCAL_THERMAL_REJECTION_MARKERS),
         f"{label} used implausible GPU telemetry",
     )
-    events: list[tuple[str, str | float]] = []
+    events: list[tuple[str, str | float, float | None]] = []
     temperatures: list[float] = []
+    confirmation_temperatures: list[float] = []
     for line in log_text.splitlines():
         phase_match = LOCAL_GATE_PHASE_RE.fullmatch(line)
         if phase_match:
-            events.append((phase_match.group("event"), phase_match.group("phase")))
+            events.append(
+                (phase_match.group("event"), phase_match.group("phase"), None)
+            )
+            continue
+        confirmation_match = LOCAL_STRICT_CONFIRM_RE.fullmatch(line)
+        if confirmation_match:
+            temperature = float(confirmation_match.group("temperature"))
+            confirmation_temperatures.append(temperature)
+            events.append(
+                ("confirm", confirmation_match.group("phase"), temperature)
+            )
             continue
         pass_match = LOCAL_GATE_PASS_RE.fullmatch(line)
         if pass_match:
             temperature = float(pass_match.group("temperature"))
             temperatures.append(temperature)
-            events.append(("pass", temperature))
+            events.append(("pass", "", temperature))
             continue
         require(
             "GPU cool-down gate passed" not in line
+            and "strict persistent macmon confirmed" not in line
             and "local thermal gate start phase=" not in line
             and "local thermal gate complete phase=" not in line,
             f"{label} contains an untrusted or malformed thermal event",
         )
+    legacy_sequence = [
+        ("start", "prefill"),
+        ("pass", ""),
+        ("complete", "prefill"),
+        ("start", "decode"),
+        ("pass", ""),
+        ("complete", "decode"),
+    ]
+    strict_sequence = [
+        ("start", "prefill"),
+        ("confirm", "prefill"),
+        ("pass", ""),
+        ("complete", "prefill"),
+        ("start", "decode"),
+        ("confirm", "decode"),
+        ("pass", ""),
+        ("complete", "decode"),
+    ]
+    observed_sequence = [(event, phase) for event, phase, _ in events]
     require(
-        [event[0:2] if event[0] != "pass" else ("pass", None) for event in events]
-        == [
-            ("start", "prefill"),
-            ("pass", None),
-            ("complete", "prefill"),
-            ("start", "decode"),
-            ("pass", None),
-            ("complete", "decode"),
-        ],
+        observed_sequence == strict_sequence
+        if require_strict_confirmation
+        else observed_sequence in (legacy_sequence, strict_sequence),
         f"{label} does not contain ordered prefill/decode thermal gates",
     )
     require(
@@ -231,6 +276,11 @@ def validated_local_gate_temperatures(log_text: str, label: str) -> list[float]:
         all(5 < temperature <= 40 for temperature in temperatures),
         f"{label} thermal-gate temperature is outside the credible (5, 40]C range",
     )
+    if observed_sequence == strict_sequence:
+        require(
+            confirmation_temperatures == temperatures,
+            f"{label} strict confirmation and gate temperatures differ",
+        )
     return temperatures
 
 
@@ -384,6 +434,23 @@ def relative(path: Path) -> str:
         return resolved.relative_to(REPO).as_posix()
     except ValueError:
         return str(resolved)
+
+
+def require_markdown_hash_row(
+    markdown: str,
+    label: str,
+    expected_sha256: str,
+) -> None:
+    pattern = re.compile(
+        rf"^\| {re.escape(label)} \| `(?P<sha256>[0-9a-f]{{64}})` \|$",
+        re.MULTILINE,
+    )
+    matches = list(pattern.finditer(markdown))
+    require(len(matches) == 1, f"REPORT.md hash row is missing or duplicated: {label}")
+    require(
+        matches[0].group("sha256") == expected_sha256,
+        f"REPORT.md hash row is stale: {label}",
+    )
 
 
 def has_unresolved_marker(text: str, marker: str) -> bool:
@@ -1644,6 +1711,146 @@ def has_in_progress_attempt(attempts: list[dict[str, Any]]) -> bool:
     )
 
 
+def parse_thermal_timestamp(value: Any) -> float:
+    require(
+        isinstance(value, str) and THERMAL_TIMESTAMP_RE.fullmatch(value) is not None,
+        "thermal timestamp does not match the required RFC 3339 grammar",
+    )
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise AuditFailure(f"thermal sample timestamp is invalid: {value!r}") from error
+    require(parsed.tzinfo is not None, "thermal sample timestamp lacks a timezone")
+    return parsed.timestamp()
+
+
+def validate_thermal_preflight(
+    files: Files,
+    results: Path,
+    attempt_meta: dict[str, Any],
+    identity: dict[str, Any],
+    attempt_name: str,
+) -> dict[str, Any]:
+    receipt_name = attempt_meta.get("thermal_preflight_receipt")
+    require(
+        isinstance(receipt_name, str)
+        and re.fullmatch(r"thermal-[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]+", receipt_name),
+        "performance thermal preflight receipt name is invalid",
+    )
+    preflight_root = results / "preflight"
+    require(
+        preflight_root.is_dir() and not preflight_root.is_symlink(),
+        "thermal preflight root is missing or unsafe",
+    )
+    receipt_dir = preflight_root / receipt_name
+    require(
+        receipt_dir.is_dir()
+        and not receipt_dir.is_symlink()
+        and receipt_dir.resolve().parent == preflight_root.resolve(),
+        "thermal preflight directory is missing or unsafe",
+    )
+    files.observe_directory(receipt_dir)
+    meta_path = receipt_dir / "meta.json"
+    samples_path = receipt_dir / "samples.jsonl"
+    stderr_path = receipt_dir / "macmon.stderr"
+    for path in (meta_path, samples_path, stderr_path):
+        require(path.is_file() and not path.is_symlink(), f"thermal preflight artifact is missing or unsafe: {relative(path)}")
+    require(
+        attempt_meta.get("thermal_preflight_sha256") == files.digest(meta_path),
+        "performance thermal preflight receipt hash differs",
+    )
+    receipt = files.json(meta_path)
+    require(receipt.get("schema") == THERMAL_PREFLIGHT_SCHEMA, "thermal preflight schema differs")
+    require(
+        is_number(receipt.get("reader_exit_code"))
+        and receipt["reader_exit_code"] == 0,
+        "thermal preflight reader failed",
+    )
+    require(receipt.get("macmon_sha256") == PINNED_MACMON_SHA256, "thermal preflight macmon hash differs")
+    require(receipt.get("macmon_version") == PINNED_MACMON_VERSION, "thermal preflight macmon version differs")
+    require(receipt.get("fan_policy") == PERFORMANCE_FAN_POLICY, "thermal preflight fan policy differs")
+    require(receipt.get("fan_status") == PERFORMANCE_FAN_POLICY, "thermal preflight fan status differs")
+    require(receipt.get("expected_samples") == THERMAL_PREFLIGHT_SAMPLES, "thermal preflight sample contract differs")
+    require(receipt.get("sample_count") == THERMAL_PREFLIGHT_SAMPLES, "thermal preflight sample count differs")
+    require(receipt.get("interval_ms") == THERMAL_PREFLIGHT_INTERVAL_MS, "thermal preflight interval differs")
+    require(
+        receipt.get("reader_timeout_seconds") == THERMAL_READER_TIMEOUT_SECONDS,
+        "thermal preflight reader timeout differs",
+    )
+    require(receipt.get("samples_sha256") == files.digest(samples_path), "thermal preflight samples hash differs")
+    require(receipt.get("stderr_sha256") == files.digest(stderr_path), "thermal preflight stderr hash differs")
+
+    raw_lines = [line for line in files.text(samples_path).splitlines() if line.strip()]
+    require(len(raw_lines) == THERMAL_PREFLIGHT_SAMPLES, "thermal preflight must contain exactly five JSON samples")
+    samples: list[dict[str, Any]] = []
+    for line in raw_lines:
+        try:
+            sample = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise AuditFailure("thermal preflight contains malformed JSON") from error
+        require(isinstance(sample, dict), "thermal preflight sample is not an object")
+        samples.append(sample)
+    timestamps = [parse_thermal_timestamp(sample.get("timestamp")) for sample in samples]
+    require(
+        all(left < right for left, right in zip(timestamps, timestamps[1:])),
+        "thermal preflight timestamps are not strictly increasing",
+    )
+    started_at = parse_thermal_timestamp(receipt.get("started_at"))
+    finished_at = parse_thermal_timestamp(receipt.get("finished_at"))
+    require(
+        started_at <= timestamps[0] <= timestamps[-1] <= finished_at,
+        "thermal preflight samples are stale or outside collection bounds",
+    )
+    attempt_started_at = parse_thermal_timestamp(attempt_meta.get("started_at"))
+    attempt_finished_at = parse_thermal_timestamp(attempt_meta.get("finished_at"))
+    require(
+        attempt_started_at <= attempt_finished_at,
+        "performance attempt timestamps are reversed",
+    )
+    handoff_seconds = attempt_started_at - finished_at
+    require(
+        0 <= handoff_seconds <= THERMAL_PREFLIGHT_HANDOFF_SECONDS,
+        "thermal preflight is not within the attempt handoff window",
+    )
+    require(
+        receipt.get("attempt")
+        == {
+            "rank": identity["rank"],
+            "submission_id": identity["submission_id"],
+            "source_ref": identity["source_ref"],
+            "name": attempt_name,
+        },
+        "thermal preflight attempt binding differs",
+    )
+    gpu_temperatures: list[float] = []
+    for sample in samples:
+        temperatures = sample.get("temp")
+        require(isinstance(temperatures, dict), "thermal preflight temp payload is not an object")
+        cpu = temperatures.get("cpu_temp_avg")
+        gpu = temperatures.get("gpu_temp_avg")
+        require(is_number(cpu) and 5 < cpu <= 120, "thermal preflight CPU temperature is implausible")
+        require(is_number(gpu) and 5 < gpu <= 120, "thermal preflight GPU temperature is implausible")
+        gpu_temperatures.append(float(gpu))
+    require(len(set(gpu_temperatures)) >= 2, "thermal preflight GPU temperature is frozen")
+    ready = gpu_temperatures[-1] <= 40
+    require(close(receipt.get("final_gpu_temp_c"), gpu_temperatures[-1]), "thermal preflight final temperature differs")
+    require(
+        receipt.get("status") == ("healthy_ready" if ready else "healthy_hot"),
+        "thermal preflight health status differs",
+    )
+    require(isinstance(receipt.get("required_cool"), bool), "thermal preflight readiness policy is invalid")
+    if receipt["required_cool"]:
+        require(ready, "required-cool thermal preflight was hot")
+    return {
+        "receipt": files.ref(meta_path),
+        "samples": files.ref(samples_path),
+        "stderr": files.ref(stderr_path),
+        "required_cool": receipt["required_cool"],
+        "final_gpu_temp_c": gpu_temperatures[-1],
+        "handoff_seconds": handoff_seconds,
+    }
+
+
 def validate_performance_selected(
     files: Files,
     arm_dir: Path,
@@ -1780,6 +1987,11 @@ def validate_performance_selected(
                 "macmon_version",
                 "log_sha256",
                 "environment_policy",
+                "fan_policy",
+                "fan_status_before",
+                "fan_status_after",
+                "thermal_preflight_receipt",
+                "thermal_preflight_sha256",
             )
         )
         and isinstance(finished_at, str)
@@ -1795,9 +2007,28 @@ def validate_performance_selected(
         and meta.get("macmon_version") == PINNED_MACMON_VERSION
         and meta.get("log_sha256") == files.digest(log_path)
         and meta.get("environment_policy") == PERFORMANCE_ENVIRONMENT_POLICY
+        and meta.get("fan_policy") == PERFORMANCE_FAN_POLICY
+        and meta.get("fan_status_before") == PERFORMANCE_FAN_POLICY
+        and meta.get("fan_status_after") == PERFORMANCE_FAN_POLICY
         and environment.get("MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY") == "1"
+        and environment.get("MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS")
+        == str(THERMAL_READER_TIMEOUT_SECONDS)
         and environment.get("MLXFAST_LOCAL_FAN_PROMPT") == "0"
     )
+    preflight_artifacts = None
+    if current_thermal_provenance:
+        gate_temperatures = validated_local_gate_temperatures(
+            files.text(log_path),
+            "selected current-contract performance",
+            require_strict_confirmation=True,
+        )
+        preflight_artifacts = validate_thermal_preflight(
+            files,
+            arm_dir.parent.parent,
+            meta,
+            identity,
+            selected,
+        )
     require(
         legacy_thermal_provenance or current_thermal_provenance,
         "performance thermal-tool or log provenance differs",
@@ -1839,12 +2070,15 @@ def validate_performance_selected(
         "integrity": files.ref(integrity_path),
         "log": files.ref(log_path),
     }
+    if preflight_artifacts is not None:
+        artifacts["thermal_preflight"] = preflight_artifacts
     sidecar = Path(f"{score_path}.sha256")
     if sidecar.is_file():
         artifacts["score_sidecar"] = files.ref(sidecar)
         require(score_sha in files.text(sidecar).split(), "score sidecar hash differs")
     return {
         "status": "valid_selected_attempt",
+        "current_performance_contract": current_thermal_provenance,
         "selected_attempt": selected,
         "metrics": {
             "native_local_score": float(score["score"]),
@@ -1869,6 +2103,11 @@ def validate_performance_selected(
                 "macmon_version": meta.get("macmon_version"),
                 "log_sha256": meta.get("log_sha256"),
                 "environment_policy": meta.get("environment_policy"),
+                "fan_policy": meta.get("fan_policy"),
+                "fan_status_before": meta.get("fan_status_before"),
+                "fan_status_after": meta.get("fan_status_after"),
+                "thermal_preflight_receipt": meta.get("thermal_preflight_receipt"),
+                "thermal_preflight_sha256": meta.get("thermal_preflight_sha256"),
             },
             "official_calibration_floor_receipt": {
                 "decode_floor": float(decode_floor),
@@ -3560,7 +3799,12 @@ def official_row(identity: dict[str, Any], predecessor: dict[str, Any] | None) -
 
 def add_local_comparisons(rows: list[dict[str, Any]], comparator: dict[str, Any]) -> None:
     comparator_result = comparator["performance"]
-    comparator_metrics = comparator_result.get("metrics") if comparator_result.get("status") == "valid_selected_attempt" else None
+    comparator_metrics = (
+        comparator_result.get("metrics")
+        if comparator_result.get("status") == "valid_selected_attempt"
+        and comparator_result.get("current_performance_contract") is True
+        else None
+    )
     previous_metrics = comparator_metrics
     for row in rows:
         performance = row["performance"]
@@ -3663,9 +3907,18 @@ def build_payload(
         "primary, control, and extended-AIME result roots must be distinct",
     )
     files = Files(REPO)
+    preflight_root = results / "preflight"
+    if preflight_root.exists() or preflight_root.is_symlink():
+        require(
+            preflight_root.is_dir()
+            and not preflight_root.is_symlink()
+            and preflight_root.resolve().parent == results,
+            "primary thermal preflight root is unsafe",
+        )
     files.observe_directory(results)
     files.observe_directory(results / "performance")
     files.observe_directory(results / "quality")
+    files.observe_directory(preflight_root)
     files.observe_directory(control_results)
     files.observe_directory(control_results / "quality")
     files.observe_directory(extended_aime_results)
@@ -3686,8 +3939,17 @@ def build_payload(
         fan_control_ref["sha256"] == PINNED_FAN_CONTROL_SHA256,
         "local fan-control SHA differs",
     )
+    final_report_text = files.text(FINAL_REPORT_PATH)
+    for label, path in (
+        ("[README.md](README.md)", README_PATH),
+        ("[build-report-data.py](build-report-data.py)", BUILDER_PATH),
+        ("[run-study.sh](run-study.sh)", RUNNER_PATH),
+        ("[Fail-closed `benchmark.sh`](../../../benchmark.sh)", LOCAL_BENCHMARK_PATH),
+        ("[`tools/fan-control.sh`](../../../tools/fan-control.sh)", FAN_CONTROL_PATH),
+    ):
+        require_markdown_hash_row(final_report_text, label, files.digest(path))
     final_report_markers = performance_completion_markers(
-        files.text(FINAL_REPORT_PATH)
+        final_report_text
     )
     final_markdown_complete = not final_report_markers
     control_definition, control_run, controls = load_control_manifests(files, manifest)
@@ -3795,6 +4057,16 @@ def build_payload(
         )
         predecessor = candidate
     enforce_controlled_golden_drift(comparator, rows)
+    current_preflight_receipts = [
+        result["metrics"]["thermal_provenance"]["thermal_preflight_receipt"]
+        for result in [comparator_performance, *(row["performance"] for row in rows)]
+        if result.get("status") == "valid_selected_attempt"
+        and result.get("current_performance_contract") is True
+    ]
+    require(
+        len(current_preflight_receipts) == len(set(current_preflight_receipts)),
+        "current performance attempts reuse a thermal preflight receipt",
+    )
     add_local_comparisons(rows, comparator)
 
     control_rows: list[dict[str, Any]] = []
@@ -3862,6 +4134,7 @@ def build_payload(
         control_snapshot = {"payload": snapshot, "artifact": files.ref(snapshot_path)}
     control_setup = retained_tree(files, control_results / "setup")
     primary_setup = retained_tree(files, results / "setup")
+    primary_preflight_artifacts = retained_tree(files, results / "preflight")
     retained_official_baseline_attempt = retained_tree(
         files, results / "performance" / "000-official-pinned-baseline"
     )
@@ -3902,9 +4175,14 @@ def build_payload(
     performance_statuses = Counter(
         [comparator_performance["status"], *(row["performance"]["status"] for row in rows)]
     )
+    current_contract_performance = sum(
+        result.get("status") == "valid_selected_attempt"
+        and result.get("current_performance_contract") is True
+        for result in [comparator_performance, *(row["performance"] for row in rows)]
+    )
     quality_statuses = Counter(row["quality"]["status"] for row in rows)
     expected_dirs = {
-        "root": {"performance", "quality"},
+        "root": {"performance", "quality", "preflight"},
         "performance": {
             f"{comparator_identity['rank']}-{comparator_identity['submission_id']}",
             *(f"{candidate['rank']}-{candidate['submission_id']}" for candidate in candidates),
@@ -3961,6 +4239,7 @@ def build_payload(
     )
     artifact_data_complete = (
         performance_statuses["valid_selected_attempt"] == 16
+        and current_contract_performance == 16
         and processed_quality == 15
         and processed_controls == 3
         and extended_statuses["valid_completed_diagnostic"] == 4
@@ -3980,6 +4259,7 @@ def build_payload(
         "control_current_snapshot": control_snapshot,
         "control_setup_artifacts": control_setup,
         "primary_setup_artifacts": primary_setup,
+        "primary_thermal_preflight_artifacts": primary_preflight_artifacts,
         "retained_official_baseline_attempt": {
             "selected": False,
             "reason": "auxiliary_failed_attempt_outside_frozen_16-arm cohort",
@@ -4081,6 +4361,7 @@ def build_payload(
             "performance": {
                 "expected": 16,
                 "valid_selected_attempts": performance_statuses["valid_selected_attempt"],
+                "current_contract_selected_attempts": current_contract_performance,
                 "pending": performance_statuses["pending"],
                 "invalid": performance_statuses["invalid"],
             },
@@ -4242,6 +4523,7 @@ def print_summary(payload: dict[str, Any], wrote: bool) -> None:
     print(
         "report-data audit: performance "
         f"{performance['valid_selected_attempts']}/{performance['expected']} valid, "
+        f"{performance['current_contract_selected_attempts']} current-contract, "
         f"{performance['pending']} pending, {performance['invalid']} invalid"
     )
     print(
@@ -4326,8 +4608,165 @@ def print_completion_blockers(payload: dict[str, Any]) -> None:
         )
 
 
+def thermal_preflight_validator_self_test() -> None:
+    identity = {
+        "rank": 111,
+        "submission_id": "0682cc25-40a1-4f0e-bb96-c3b0f768b53c",
+        "source_ref": "a" * 40,
+    }
+    temperatures = [39.4, 39.3, 39.2, 39.1, 39.0]
+
+    with tempfile.TemporaryDirectory(prefix="mlxfast-report-preflight-") as temporary:
+        root = Path(temporary)
+
+        def build_case(
+            label: str,
+            *,
+            sample_mutator: Any = None,
+            receipt_mutator: Any = None,
+            attempt_started_at: str = "2026-08-03T00:00:04.200000Z",
+            symlink_receipt: bool = False,
+        ) -> tuple[Files, Path, dict[str, Any]]:
+            results = root / label
+            receipt_name = f"thermal-20260803T000000Z-{label}"
+            receipt_dir = results / "preflight" / receipt_name
+            receipt_dir.mkdir(parents=True)
+            samples = [
+                {
+                    "timestamp": f"2026-08-03T00:00:0{index}.000000+00:00",
+                    "temp": {
+                        "cpu_temp_avg": 38.0 + index / 10,
+                        "gpu_temp_avg": temperature,
+                    },
+                }
+                for index, temperature in enumerate(temperatures)
+            ]
+            if sample_mutator is not None:
+                sample_mutator(samples)
+            samples_path = receipt_dir / "samples.jsonl"
+            samples_path.write_text(
+                "".join(json.dumps(sample, separators=(",", ":")) + "\n" for sample in samples),
+                encoding="utf-8",
+            )
+            stderr_path = receipt_dir / "macmon.stderr"
+            stderr_path.write_text("", encoding="utf-8")
+            receipt = {
+                "schema": THERMAL_PREFLIGHT_SCHEMA,
+                "started_at": "2026-08-02T23:59:59.900000Z",
+                "finished_at": "2026-08-03T00:00:04.100000Z",
+                "reader_exit_code": 0,
+                "macmon_sha256": PINNED_MACMON_SHA256,
+                "macmon_version": PINNED_MACMON_VERSION,
+                "fan_policy": PERFORMANCE_FAN_POLICY,
+                "fan_status": PERFORMANCE_FAN_POLICY,
+                "required_cool": True,
+                "expected_samples": THERMAL_PREFLIGHT_SAMPLES,
+                "interval_ms": THERMAL_PREFLIGHT_INTERVAL_MS,
+                "reader_timeout_seconds": THERMAL_READER_TIMEOUT_SECONDS,
+                "status": "healthy_ready",
+                "sample_count": THERMAL_PREFLIGHT_SAMPLES,
+                "final_gpu_temp_c": samples[-1].get("temp", {}).get("gpu_temp_avg")
+                if isinstance(samples[-1].get("temp"), dict)
+                else None,
+                "samples_sha256": hashlib.sha256(samples_path.read_bytes()).hexdigest(),
+                "stderr_sha256": hashlib.sha256(stderr_path.read_bytes()).hexdigest(),
+                "attempt": {
+                    "rank": identity["rank"],
+                    "submission_id": identity["submission_id"],
+                    "source_ref": identity["source_ref"],
+                    "name": "attempt-1",
+                },
+            }
+            if receipt_mutator is not None:
+                receipt_mutator(receipt)
+            meta_path = receipt_dir / "meta.json"
+            meta_path.write_bytes(canonical_json(receipt))
+            attempt_meta = {
+                "started_at": attempt_started_at,
+                "finished_at": "2026-08-03T00:01:00.000000Z",
+                "thermal_preflight_receipt": receipt_name,
+                "thermal_preflight_sha256": hashlib.sha256(meta_path.read_bytes()).hexdigest(),
+            }
+            if symlink_receipt:
+                real_receipt = results / "real-receipt"
+                receipt_dir.rename(real_receipt)
+                receipt_dir.symlink_to(real_receipt, target_is_directory=True)
+            return Files(root), results, attempt_meta
+
+        files, results, attempt_meta = build_case("Good")
+        validated = validate_thermal_preflight(
+            files, results, attempt_meta, identity, "attempt-1"
+        )
+        require(
+            close(validated["handoff_seconds"], 0.1, 1e-6),
+            "valid synthetic preflight handoff differs",
+        )
+
+        invalid_cases = [
+            (
+                "Frozen",
+                {"sample_mutator": lambda samples: [sample["temp"].update(gpu_temp_avg=39.0) for sample in samples]},
+                "frozen",
+            ),
+            (
+                "Badtime",
+                {"sample_mutator": lambda samples: samples[0].update(timestamp="2026-08-03 00:00:00Z")},
+                "RFC 3339 grammar",
+            ),
+            (
+                "Badtemp",
+                {"sample_mutator": lambda samples: samples[2].update(temp=[])},
+                "temp payload is not an object",
+            ),
+            (
+                "Boolexit",
+                {"receipt_mutator": lambda receipt: receipt.update(reader_exit_code=False)},
+                "reader failed",
+            ),
+            (
+                "Future",
+                {"attempt_started_at": "2026-08-03T00:00:03.900000Z"},
+                "handoff window",
+            ),
+            (
+                "Expired",
+                {"attempt_started_at": "2026-08-03T00:00:34.200001Z"},
+                "handoff window",
+            ),
+            (
+                "Timeout",
+                {"receipt_mutator": lambda receipt: receipt.update(reader_timeout_seconds=60)},
+                "reader timeout differs",
+            ),
+            (
+                "Binding",
+                {"receipt_mutator": lambda receipt: receipt["attempt"].update(rank=112)},
+                "attempt binding differs",
+            ),
+            (
+                "Symlink",
+                {"symlink_receipt": True},
+                "directory is missing or unsafe",
+            ),
+        ]
+        for label, options, expected_error in invalid_cases:
+            files, results, attempt_meta = build_case(label, **options)
+            try:
+                validate_thermal_preflight(
+                    files, results, attempt_meta, identity, "attempt-1"
+                )
+            except AuditFailure as error:
+                require(
+                    expected_error in str(error),
+                    f"{label} synthetic preflight failed for the wrong reason: {error}",
+                )
+            else:
+                raise AuditFailure(f"{label} synthetic preflight was accepted")
+
+
 def run_self_test() -> int:
     try:
+        thermal_preflight_validator_self_test()
         complete = """# Final report
 
 Local performance is complete: 16/16 valid selected attempts and 0 pending arms.
@@ -4414,6 +4853,37 @@ mlxfast: benchmark elapsed=855.2s local thermal gate complete phase=decode
             == [40.0, 39.9],
             "valid synthetic thermal gates were not parsed",
         )
+        strict_gate_log = valid_gate_log.replace(
+            "benchmark.sh: GPU cool-down gate passed (current 40.0C",
+            "benchmark.sh: strict persistent macmon confirmed phase=prefill samples=5 interval=1000ms final=40.0C\n"
+            "benchmark.sh: GPU cool-down gate passed (current 40.0C",
+        ).replace(
+            "benchmark.sh: GPU cool-down gate passed (current 39.9C",
+            "benchmark.sh: strict persistent macmon confirmed phase=decode samples=5 interval=1000ms final=39.9C\n"
+            "benchmark.sh: GPU cool-down gate passed (current 39.9C",
+        )
+        require(
+            validated_local_gate_temperatures(
+                strict_gate_log,
+                "synthetic strict",
+                require_strict_confirmation=True,
+            )
+            == [40.0, 39.9],
+            "valid strict synthetic thermal gates were not parsed",
+        )
+        try:
+            validated_local_gate_temperatures(
+                valid_gate_log,
+                "synthetic legacy",
+                require_strict_confirmation=True,
+            )
+        except AuditFailure as error:
+            require(
+                "ordered prefill/decode" in str(error),
+                "legacy gate failed strict validation for the wrong reason",
+            )
+        else:
+            raise AuditFailure("legacy gate passed strict current-contract validation")
         try:
             validated_local_gate_temperatures(
                 "mlxfast: benchmark elapsed=1.0s local thermal gate start "
@@ -4462,7 +4932,7 @@ mlxfast: benchmark elapsed=855.2s local thermal gate complete phase=decode
     except AuditFailure as error:
         print(f"report-data self-test failed: {error}", file=sys.stderr)
         return 1
-    print("report-data self-test: 11 deterministic checks passed")
+    print("report-data self-test: thermal receipts and deterministic publication checks passed")
     return 0
 
 
@@ -4480,7 +4950,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--require-complete",
         action="store_true",
         help=(
-            "fail unless performance is 16/16 valid, primary quality is 15/15 "
+            "fail unless performance is 16/16 valid under the current attempt-bound contract, primary quality is 15/15 "
             "processed, controls are 3/3 processed, extended AIME is 4/4 valid, "
             "and REPORT.md has no performance completion markers"
         ),

@@ -1,7 +1,7 @@
 # MLX Fast leaderboard wins and campaign bootstrap report
 
 Snapshot: **2026-08-02T09:07:21Z**<br>
-Report evidence cut: **2026-08-03T00:10:26Z**<br>
+Report evidence cut: **2026-08-03T06:44:30Z**<br>
 Track: `laguna-xs-2.1-serial-v2`<br>
 Official runner: **Apple M5 Max**<br>
 Local transfer host: **Apple M4 Max, 128 GB, Mac16,6**<br>
@@ -36,13 +36,16 @@ leaderboard](https://mlx.fast/) can move after this report's frozen snapshot.
 | Official promoted snapshots | 15 | 15/15 accepted on M5 | Complete; authoritative ranking evidence |
 | Local M4 quality comparisons | 15 | 11 formal comparisons; 4 bounded AIME non-completions; 0 invalid | Complete for the frozen quick-profile contract |
 | Rank-126-relative quality diagnostic | 15 | **10 retrospective: 6 retain / 4 regress; 1 rank-126 self-control; 4 bounded no-decisions** | Complete, offline, and useful for future incremental drift only |
-| Local M4 performance arms | 16 including rank 111 comparator | **1 valid comparator; 5 invalid selected candidate results; 10 pending** | Partial and stopped; no valid candidate speed comparison |
+| Local M4 performance arms | 16 including rank 111 comparator | **1 historically valid receipt, 0 current-contract receipts; 5 invalid selected candidate results; 10 pending** | Partial and stopped; rank 111 must be refreshed before any candidate comparison |
 | Negative controls | 3 | **3/3 processed: 1 formal regression; 2 bounded AIME non-completions; 0 invalid** | Complete for the frozen quick-profile control contract; no class-separating signal established |
 | Extended AIME diagnostics | 4 terminal ranks | **4/4 valid isolated diagnostics; all still length-bounded at 6,144 tokens** | Complete for the frozen diagnostic-only contract; primary quick-profile decisions remain unchanged |
 
 The report is therefore complete as an official-history, frozen local-quality,
 control, and extended-diagnostic synthesis, but **not** as a local performance
-replication. Only rank 111 has a credible local timing receipt; the attempted
+replication. Only rank 111 has a credible historical timing receipt. An
+external ephemeral launcher/watchdog transcript indicates a manual 80% fan
+hold and inherited environment, but that transcript is not bound into the
+retained attempt; it is not a same-policy comparator for the repaired auto-fan campaign. The attempted
 candidate timings are retained as rejected diagnostics after an implausible
 `1.5C` telemetry value was allowed through the original gate. The calibration
 has a two-part conclusion: the current composite
@@ -554,6 +557,12 @@ single stricter-versus-looser axis.
    transient bad samples and fails on the third; the audited study runner is
    stricter—it rejects the first missing or implausible sample and stops the
    whole campaign on a thermal or telemetry failure.
+   Similar erroneous M4 temperatures have been reported upstream in
+   [`macmon` issue #12](https://github.com/vladkens/macmon/issues/12), which
+   supports a reader/IOReport failure rather than benchmark arithmetic, though
+   the exact `1.5C` mechanism is not recoverable because the old run retained
+   no raw reader JSON. The repaired runner now adds a persistent five-sample
+   responsiveness check before model load and retains that raw receipt.
 
 ## Campaign correctness policy pending M5 calibration
 
@@ -577,8 +586,17 @@ remains an experiment, not a conclusion of this report.
 
 ## Stopped partial local performance study — 16 arms
 
-The audited state is **1/16 valid, 5/16 invalid, and 10/16 pending**. Rank 111
-is the sole valid local timing. Ranks 113–117 are retained, hash-bound
+**Conclusion boundary:** this study does not show that M5 speedups failed to
+transfer to M4. It contains zero valid candidate-versus-rank-111 performance
+comparisons. A refreshed same-M4 baseline can still make this host a useful
+directional filter, especially for architecture-neutral work; M5-specific
+occupancy, SIMD ownership, `_nax`, and small kernel-geometry effects still need
+official M5 evidence.
+
+The audited historical state is **1/16 valid, 5/16 invalid, and 10/16 pending**,
+but the restart contract is **0/16 current-contract**. Rank 111 is the sole
+credible historical local timing; it must be rerun before it can normalize new
+candidates. Ranks 113–117 are retained, hash-bound
 correctness-passing attempts, but they are invalid for performance because
 both timed phases accepted implausible `1.5C` telemetry. Rank 112 failed its
 original decode cool-down; its repaired attempt 2 then cooled plausibly from
@@ -586,13 +604,18 @@ original decode cool-down; its repaired attempt 2 then cooled plausibly from
 prefill gate before any timing. Rank 118 was interrupted during the prefill
 gate when the original campaign was stopped; ranks 119–126 did not start.
 
-The executable local comparator is rank 111, submission
+The intended executable local comparator is rank 111, submission
 `0682cc25-40a1-4f0e-bb96-c3b0f768b53c` at source
 `af085760e96a5d719a2ba9c5817454158d9edb86`. It is distinct from both the July
 30 quality baseline above and the organizer's pinned calibration source. Local
 `--local-submit` is a directional transfer measurement with a 1,023-step
 decode path and one repeat, while the official frozen timing window uses 128
 decode steps. It is not a direct reproduction of the private official run.
+External ephemeral launcher/watchdog evidence indicates that the selected
+rank-111 attempt used a manual 80% fan policy, whereas repaired attempts
+declare macOS automatic fan control. The old attempt itself does not bind that
+controller transcript. In either case, the policy provenance differs and the
+attempt cannot be mixed with auto-fan candidates in an A/B comparison.
 
 The `0.305–0.426` scores printed by the harness are comparisons between this
 M4 and the organizer's pinned **M5** calibration constants. Rank 111 itself
@@ -601,16 +624,18 @@ same-M4 comparison and do not mean the snapshots achieved only 30–40% of rank
 111. The runner now labels that number as a pinned-M5 calibration estimate and
 prints the separate rank-111-normalized index.
 
-Rank 111 is a grandfathered pre-cutover receipt. Its original metadata did not
+Rank 111 is a grandfathered pre-cutover historical receipt. Its original metadata did not
 bind the runner, thermal helper, reader, or log hashes; the repaired validators
 therefore admit that one legacy comparator only by source identity, finish-time
 cutover, exact ordered gate transcript, and frozen log SHA-256
 `f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130`.
-No candidate result receives that exception.
+No candidate result receives that exception, and the exception no longer lets
+the runner skip `perf baseline`, unlock a rank-specific candidate, or compute a
+new rank-111-normalized index.
 
 | Rank | Submission / source | Required role | Audited status | Local decode | Local prefill | Index vs rank 111 |
 |---:|---|---|---|---:|---:|---:|
-| 111 | [0682cc25](https://mlx.fast/api/submissions/0682cc25-40a1-4f0e-bb96-c3b0f768b53c) · [`af085760`](https://github.com/Layr-Labs/mlxfast-challenge/commit/af085760e96a5d719a2ba9c5817454158d9edb86) | Same-contract comparator | **VALID** — gates `40.0C` / `39.9C`; correctness passed | 20.5638 ms/token | 3.4124 ms/token | 1.0000× |
+| 111 | [0682cc25](https://mlx.fast/api/submissions/0682cc25-40a1-4f0e-bb96-c3b0f768b53c) · [`af085760`](https://github.com/Layr-Labs/mlxfast-challenge/commit/af085760e96a5d719a2ba9c5817454158d9edb86) | Intended comparator | **HISTORICAL VALID / REFRESH REQUIRED** — credible gates and correctness, but legacy env + external, non-receipt-bound manual-80 indication | 20.5638 ms/token | 3.4124 ms/token | historical 1.0000× |
 | 112 | [aa6660cb](https://mlx.fast/api/submissions/aa6660cb-a3e4-410a-a365-bb117e3e98f1) · [`df0af746`](https://github.com/Layr-Labs/mlxfast-challenge/commit/df0af746de208e267ae16e7dc62f901aa5cff77a) | Candidate | **PENDING / NO RESULT** — attempt 1 decode cool-down failed; repaired attempt 2 stopped at hot prefill gate before timing | — | — | — |
 | 113 | [96bfd3b7](https://mlx.fast/api/submissions/96bfd3b7-49c2-4f0b-b0bd-288173ac284b) · [`274a909a`](https://github.com/Layr-Labs/mlxfast-challenge/commit/274a909ae2f8b65414ec7b1bbb5981c5cf091cde) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 20.8950 ms/token† | 4.0655 ms/token† | 0.9458×† |
 | 114 | [3223e19d](https://mlx.fast/api/submissions/3223e19d-8e7a-4001-a2c8-0176900a7005) · [`149892c3`](https://github.com/Layr-Labs/mlxfast-challenge/commit/149892c38865cdb78af6c1b1158fecc853446ed4) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 21.3053 ms/token† | 3.8188 ms/token† | 0.9468×† |
@@ -636,19 +661,37 @@ memory shift all indicate that the candidate code did run. The plausible
 explanations are invalid thermal conditions, M4-specific transfer, and
 long-window/lazy-kernel effects—not a failure to apply the snapshots.
 
-Any resumed campaign must create new attempts behind two credible gates. One
+Any resumed campaign may first use the standalone model-free
+`thermal-preflight` as a readiness diagnostic, then must create
+a fresh auto-fan/current-contract rank-111 attempt, then run rank 112 as a
+canary before the remaining cohort. One
 full `--local-submit` observation per arm will still be directional, not a
 variance estimate. The repaired runner reinstalls a content-pinned, local-only
 trusted `benchmark.sh` and fan helper after every reset to the rank-126 model
 harness, pins `macmon 0.7.2`, starts the benchmark under a clean `env -i`
 allowlist, rejects the first bad telemetry sample, aborts the cohort on a bad
-receipt, and binds the runner/tool/log hashes into new attempt metadata. No
+receipt, samples one persistent five-record reader stream after installing each
+arm's snapshot and before model load, requires changing plausible GPU
+temperatures with ordered timestamps, binds the receipt to the exact
+rank/submission/commit/attempt with a 30-second handoff ceiling, verifies
+automatic fan mode before and after every arm, and binds the preflight plus
+runner/tool/log hashes into new attempt metadata. The two in-benchmark phase
+gates independently require fresh responsive streams as timing begins. Every
+real telemetry reader has a 15-second wall-clock deadline and an isolated
+TERM-to-KILL cleanup path. The benchmark itself is likewise supervised as one
+isolated process group; HUP/INT/QUIT/TERM and normal exits with surviving
+descendants cannot return while a model-holding worker remains. No
 candidate timing has passed the post-cutover integration yet. Rank-112 attempt
-2 verified the repaired provenance, clean environment, plausible telemetry,
-and fail-closed blocking behavior, then exited `130` with no score or integrity
-receipt while still above 40C. The runner now also disables interactive fan
-prompts explicitly, and the helper requires foreground terminal ownership, so
-an audited subprocess cannot be suspended indefinitely by `SIGTTIN`.
+2 exercised an earlier intermediate clean-environment, plausible-telemetry,
+fail-closed gate, then exited `130` with no score or integrity receipt while
+still above 40C. It predates and therefore does not validate the final
+attempt-bound preflight, responsive phase-gate, or process-group contract. The
+runner now also disables interactive fan prompts explicitly, and the helper
+requires foreground terminal ownership, so an audited subprocess cannot be
+suspended indefinitely by `SIGTTIN`.
+The separate rank-111 quality anchor must be sequenced outside this performance
+campaign because its evaluator lock is distinct and both paths can hold the
+full model.
 
 ## Completed negative-control cohort — 3 arms
 
@@ -1214,7 +1257,7 @@ paired baseline, and prefer independent official receipts.
 |---|---|
 | [candidates.json](candidates.json) | `785763d0a35cfbcb8b7643816990f60df98a80ff7976c5c1545ab7136f43285e` |
 | [official-findings.md](official-findings.md) | `d8d21e346d044a1862a8f9b76ec1cbc24fba817870a05d9a7aa912f891ec442c` |
-| [README.md](README.md) | `bd67bad4ed52720c8fc9f89dde5357029ddba8fe03365591f06971c93e1fa9aa` |
+| [README.md](README.md) | `b94e4980648f70d28fcfc17f2ffd8cbea58970dae5e573949355277af0f22d8f` |
 | [negative-controls.json](negative-controls.json) | `b7a498ae1c8bb74c0287159e817e7dfa5f2a5c41aa29020c100be18b3089869f` |
 | [control-run.json](control-run.json) | `3586c24e184c8b7f9f3dd25403654a2b2bc568b6046e7932f1f9b50b68ec0c14` |
 | [run-quality-controls.sh](run-quality-controls.sh) | `c026afb9b2efb54569d4ad2822e40b8d2cde9945e7c5b833ab3f26b844d94ec0` |
@@ -1241,9 +1284,9 @@ each study arm's `reset --hard 7702fab8…` replaced it before execution.
 
 | Input | SHA-256 |
 |---|---|
-| [build-report-data.py](build-report-data.py) | `f1d2b3b387bf6dc30889c905fbc6a3b3a55b7803237ee48f26fa23d531d5558d` |
-| [run-study.sh](run-study.sh) | `5207e379971a17af1004f0af7a5de7708ab6692d50f5d878458778257e534d0e` |
-| [Fail-closed `benchmark.sh`](../../../benchmark.sh) | `22ab13dacee12b874a601bcd4d8f557309019b352cdc13a1d3c72a34c2d2e92c` |
+| [build-report-data.py](build-report-data.py) | `db88f9500547fc71bc3f0266d64df9cbdfbfb6eb0fe0ad5d1eca543321d14b8a` |
+| [run-study.sh](run-study.sh) | `5f43a68940889d2c7f566189c48e867bd1455f919fa89949d738f56c478fbfac` |
+| [Fail-closed `benchmark.sh`](../../../benchmark.sh) | `05d60dd7b8dec7490f32802f201496407fd4687c55f0bf3c28a2bc55fc1c3877` |
 | [`tools/fan-control.sh`](../../../tools/fan-control.sh) | `d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a` |
 | Pinned local `macmon 0.7.2` | `495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19` |
 
@@ -1285,9 +1328,9 @@ receipts are frozen here:
 | Rank-126 `run.json` | `49fd632c6162eb69d64dcea6a2221f9a9cd02138ee788b98fbcc218187a13d80` |
 | Rank-126 `summary.json` | `9289828718a598d382b7a15b7d06b4a7ec95604c6f44ce3c5a27b21ba862c492` |
 | Rank-126 `responses.jsonl` | `63cdc5f58ddfdc6dbd18048fe6f4f1e6247203073f04b93955e5bb737c4fade0` |
-| Derived `primary-status.txt` | `a3c59e47e2925fecd4f977d68f8d1bff0425b52ea0db91e1774ec8b3a445c639` |
-| Derived `summary.json` | `5043e0b60605c0a3b8cfdd342199980d179a8ccda8fdc3874e1e589cc49db534` |
-| Derived `checksums.sha256` | `05441916cbb25c3a6b5ab06ea2788b5c564df226d13918101de92895f6c57f24` |
+| Derived `primary-status.txt` | `f9d1691172bf7fc3e814ef33019e498c604bae8af737ff6e749623b062c8cc7e` |
+| Derived `summary.json` | `99a6eba0ad4116441af1e67f2a027d06eac05cfd26e4977b890b0566c5de302e` |
+| Derived `checksums.sha256` | `17de13803e63be979211432cc9cfc522bb8475ab862fe67562217f1424e7fb8b` |
 
 The derivation ran with `UV_OFFLINE=1`, matched evaluator bundle SHA-256
 `647af7530d7c9bf88801fd92146439fdba5f75407bbee6a363b1a3ede1c90150`,
@@ -1309,12 +1352,16 @@ hashes are frozen above.
 
 ### Known provenance limits
 
-- Performance is partial: rank 111 is valid, five selected candidate attempts
+- Performance is partial: rank 111 is historically valid, five selected candidate attempts
   are rejected for implausible telemetry, and ten arms remain pending. The
   legacy rank-111 metadata does not bind its runner/tool/log hashes; its exact
-  log hash is frozen above and it is the only pre-cutover exception. New
-  attempts bind the runner, local benchmark, fan helper, macmon, clean-env
-  policy, and log, but still do not emit an applied editable-tree digest;
+  log hash is frozen above and it is the only pre-cutover historical exception.
+  External ephemeral controller evidence indicates manual-80 fans, but that
+  evidence is outside the retained attempt checksum set; the policy mismatch
+  still makes the receipt unsuitable as a resumed comparator. New
+  attempts bind the runner, local benchmark, fan helper, macmon, clean-env and
+  automatic-fan policies, pre/post fan status, persistent telemetry receipt,
+  and log, but still do not emit an applied editable-tree digest;
   snapshot attribution relies on the checksummed runner's checkout contract.
 - The builder snapshots and rechecks inputs before publication, but the runner
   does not share its writer lock. A final-syscall race is detectable on the
@@ -1335,8 +1382,9 @@ hashes are frozen above.
 
 ### Report validation at the evidence cut
 
-- `build-report-data.py --check` reported performance `1/16` valid, 5 invalid,
-  and 10 pending; every invalid arm names implausible GPU telemetry. It also
+- `build-report-data.py --check` reported performance `1/16` historically
+  valid, `0/16` current-contract, 5 invalid, and 10 pending; every invalid arm
+  names implausible GPU telemetry. It also
   reported 11 formal quality comparisons and four bounded non-completions with
   no pending or invalid primary-quality arms.
 - `run-quality-controls.sh status` reported `3/3` processed—one formal
@@ -1358,9 +1406,10 @@ hashes are frozen above.
   intended, because performance is incomplete and contains rejected attempts;
   the primary-quality, control, and extended-diagnostic requirements are
   satisfied.
-- `swift test --force-resolved-versions` passed all 453 tests on a clean full
-  rerun. A first parallel pass hit one timing-sensitive fake-worker hello
-  timeout; that test passed immediately in isolation before the clean rerun.
+- `swift test --force-resolved-versions` passed all 454 tests in six suites on
+  a clean full rerun. The two focused repaired-runner tests also passed. An
+  earlier highly parallel pass recorded transient issues that did not
+  reproduce on the subsequent complete run.
 - An independent manifest-to-report check found all 16 official table rows,
   all 16 performance rows, all 15 dossiers, all three control
   identities and outcome rows, and all four extended-AIME rows. Every frozen
@@ -1385,7 +1434,7 @@ hashes are frozen above.
 | Local quality positives | Complete | 11 formal + 4 valid terminal = 15 processed |
 | Rank-126 incremental baseline | Complete | 10 provenance-checked retrospective comparisons + 1 self-control + 4 bounded no-decisions; checksum manifest valid |
 | Rank-111 quality anchor | **PENDING: 0/1** | Run isolated quality-only arm after model compute is explicitly resumed |
-| Local performance | **PARTIAL: 1 valid / 5 invalid / 10 pending** | 16 valid selected full `--local-submit` attempts behind two credible thermal gates |
+| Local performance | **PARTIAL: 1 historical valid / 0 current-contract / 5 invalid / 10 pending** | 16 current-contract selected full `--local-submit` attempts behind responsive preflights and two credible thermal gates |
 | Negative controls | Complete for quick profile | 3/3 processed: 1 formal regression + 2 hash-bound bounded non-completions |
 | Extended AIME | Complete for diagnostic contract | 4/4 valid; all four still length-bounded at 6,144 tokens; primary decisions unchanged |
 | Final report-data/checksum publication | **PENDING** | Run builder `--write --require-complete` only after all 16 performance arms are valid |

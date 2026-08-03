@@ -199,6 +199,26 @@ Never bypass the gate to manufacture a timing result.
 The local gate retries two transient unusable or at/below-5C samples, then
 fails closed; a campaign controller must stop the cohort on that failure so a
 broken host sensor cannot contaminate later arms.
+After installing each exact experiment snapshot and before loading the model,
+audited automation should collect a new persistent five-sample `macmon pipe`
+stream (not five fresh one-shot processes), retain the raw JSON, and require
+strictly increasing timestamps, plausible CPU/GPU values, and at least two
+distinct GPU temperatures. This catches a frozen-but-plausible reading that a
+threshold-only gate cannot identify. Bind the receipt to the exact
+rank/submission/commit/attempt, cap the handoff to attempt-process launch, reject receipt
+reuse, and bind the declared fan policy plus fan status before and after the arm
+to the result. The pre-model receipt does not replace the gates immediately
+before prefill and decode: strict phase gates should each confirm a fresh
+responsive persistent stream before accepting `<=40C`. Bound every real
+telemetry-reader invocation with a wall-clock deadline and reap its process
+group on timeout or interruption; a dead sensor command must fail the arm, not
+hang the campaign.
+
+Long-running campaign wrappers must give the benchmark an isolated process
+group and forward HUP, INT, QUIT, and TERM to that whole group, with bounded
+TERM-to-KILL escalation. Test cancellation and normal-exit orphan paths with
+model-free child-process fixtures. A stopped terminal or agent must not leave
+a model-holding worker orphaned in the background.
 
 Manual fan control is optional and capability-verified, not an EC2 Mac
 assumption. AWS documents bare-metal Mac hosts and administrator access, but
@@ -218,6 +238,9 @@ policy to the whole baseline/candidate campaign. Never pipe or store a sudo
 password, grant students broad SMC-write privileges, exceed 80%, write
 undocumented SMC keys, or ignore failed read-back. Restore automatic control
 immediately after an 80% campaign because it adds noise and fan wear.
+Changing from manual 70/80% to automatic control (or the reverse) invalidates
+the prior timing comparator: rerun the unchanged baseline under the new policy
+before timing any candidate.
 
 Unattended jobs have no interactive terminal and cannot accept
 `benchmark.sh`'s optional fan prompt. Set `MLXFAST_LOCAL_FAN_PROMPT=0`

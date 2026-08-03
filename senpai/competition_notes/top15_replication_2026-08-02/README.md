@@ -15,8 +15,13 @@ are frozen in `candidates.json`.
 - Local performance comparator: rank 111, submission
   `0682cc25-40a1-4f0e-bb96-c3b0f768b53c` at source
   `af085760e96a5d719a2ba9c5817454158d9edb86`, the exact promoted parent of
-  rank 112. Local phase speedups are computed from this same-contract, same-Mac
-  comparator's absolute seconds/token.
+  rank 112. An external, ephemeral launcher/watchdog transcript indicates that
+  the retained historical rank-111 timing ran under a manual-80% fan campaign
+  and inherited environment; that transcript is not bound into the attempt's
+  retained checksum set. The timing is evidence but is **not** the comparator
+  for resumed auto-fan candidates. Rank 111 must first
+  receive a fresh current-contract attempt; only then are local phase speedups
+  computed from its same-policy, same-Mac absolute seconds/token.
 - Official score context: the organizer's pinned calibration source and M5
   constants remain in `official_pinned_baseline`. That July source cannot be
   restored wholesale over the August harness because later unrelated Gemma/MTP
@@ -24,7 +29,13 @@ are frozen in `candidates.json`.
   comparator.
 - Performance mode: full local `--local-submit` (1,025 checked tokens, 1,023
   decode steps), correctness-strict by default, one model process at a time,
-  behind the repository's 40 °C GPU gate. This is a directional M4 transfer
+  behind the repository's 40 °C GPU gate. The frozen campaign policy is macOS
+  automatic fan control. Before model load, one persistent five-sample
+  `macmon` stream must have strictly increasing timestamps, plausible CPU/GPU
+  temperatures, and a changing GPU value; its raw JSON and stderr are retained
+  and hash-bound to the attempt. Immediately before both prefill and decode,
+  strict mode independently confirms another fresh responsive five-sample
+  stream before accepting `<=40C`. This is a directional M4 transfer
   measurement, not a direct reproduction of the private official run.
 - Quality mode: the complete one-pass `quick` profile: 53 downstream attempts,
   nine ranked-GPQA behavior prefixes, 256 PPL target tokens, and the 512-token
@@ -60,11 +71,22 @@ These measurements are M4 transfer results, not literal reproductions of M5
 kernel scheduling. Architecture-sensitive rank inversions are evidence, not
 necessarily replication failures.
 
+The stopped performance data does **not** establish that the official M5
+speedups fail to transfer to M4: there are zero valid candidate-versus-rank-111
+comparisons. The low score printed inside each old log normalized M4 absolute
+time against pinned M5 calibration constants, and five candidate timings were
+separately invalidated by impossible telemetry. After refreshing rank 111, use
+same-M4 relative speedup as a directional filter—strongest for architecture-
+neutral work—and reserve occupancy, SIMD ownership, `_nax`, and sub-1% kernel
+geometry decisions for M5 evidence.
+
 ## Runner and evidence
 
 ```bash
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh prepare
+senpai/competition_notes/top15_replication_2026-08-02/run-study.sh thermal-preflight # optional readiness diagnostic
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh perf baseline
+senpai/competition_notes/top15_replication_2026-08-02/run-study.sh perf 112
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh perf all
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh quality all
 senpai/competition_notes/top15_replication_2026-08-02/run-study.sh status
@@ -72,11 +94,30 @@ senpai/competition_notes/top15_replication_2026-08-02/run-study.sh status
 
 The runner uses one owned, ignored rolling workspace and shared transformed
 weights. Every arm has a frozen `run-spec.json`. Performance attempts retain
-their log, score, benchmark-integrity record, exit status, hashes, and selected
-attempt. Quality attempts retain the full evaluator output, comparison, real
+their log, score, benchmark-integrity record, exit status, hashes, selected
+attempt, pre/post fan mode, and the persistent telemetry-preflight receipt.
+The standalone `thermal-preflight` command is only a model-free readiness
+probe. Every `perf` arm collects a new stream after installing its snapshot,
+binds it to that exact rank/submission/commit/attempt, and starts the attempt
+within 30 seconds of the receipt finishing. Both that reader and each
+phase-boundary reader have a 15-second wall-clock deadline; timeout or
+interruption tears down the isolated reader group and fails closed.
+The legacy rank-111 receipt remains historically valid but is never considered
+current-contract and therefore cannot be skipped by `perf baseline`, unlock a
+rank-specific candidate, or normalize a candidate. `perf all` refreshes rank
+111 first; a rank-specific command refuses to run until that refresh exists.
+Performance commands run in an isolated process group; HUP, INT, QUIT, and TERM
+are forwarded to the whole tree with bounded TERM-to-KILL escalation. A normal
+command exit that leaves descendants is also rejected, so stopping the runner
+stops the benchmark and model worker.
+Quality attempts retain the full evaluator output, comparison, real
 bridge, source fingerprint, launcher identity, and selected attempt. Invalid
 network/infrastructure attempts are preserved and retried in a fresh directory;
 a valid exit 3 is retained as quality-regression data.
+
+Do not run the isolated rank-111 quality anchor concurrently with performance.
+The two paths use different locks but can each load the 21.6 GB model; sequence
+them and verify that no model-holding process remains between campaigns.
 
 ### Negative-control quality cohort
 

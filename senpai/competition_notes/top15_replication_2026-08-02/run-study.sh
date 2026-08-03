@@ -35,13 +35,46 @@ study_macmon_source="${HOME}/bin/macmon"
 # Deliberately frozen for this cohort. The rank-126 harness copy warned on
 # impossible telemetry but still timed; this content-identical replacement
 # changes only local cooling behavior and makes that gate fail closed.
-study_local_benchmark_sha256="22ab13dacee12b874a601bcd4d8f557309019b352cdc13a1d3c72a34c2d2e92c"
+study_local_benchmark_sha256="05d60dd7b8dec7490f32802f201496407fd4687c55f0bf3c28a2bc55fc1c3877"
 study_fan_control_sha256="d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a"
 study_macmon_sha256="495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19"
 study_macmon_version="macmon 0.7.2"
 study_local_benchmark_cutover="2026-08-02T22:27:54Z"
 study_performance_environment_policy="env-i-v2"
+study_performance_fan_policy="auto"
+study_thermal_preflight_schema="mlxfast-top15-thermal-preflight-v1"
+study_thermal_preflight_samples=5
+study_thermal_preflight_interval_ms=1000
+study_thermal_reader_timeout_seconds=15
+study_thermal_preflight_handoff_seconds=30
 study_legacy_baseline_log_sha256="f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130"
+study_next_preflight_requires_cool=1
+study_current_performance_preflight=""
+study_current_performance_preflight_sha256=""
+study_supervised_command_pid=""
+study_supervised_command_pgid=""
+study_supervised_signal_status=0
+study_supervised_signal_count=0
+study_supervised_term_sent=0
+study_supervised_saved_hup_trap=""
+study_supervised_saved_int_trap=""
+study_supervised_saved_quit_trap=""
+study_supervised_saved_term_trap=""
+study_supervised_saved_exit_trap=""
+study_supervised_monitor_was_on=0
+study_capture_pid=""
+study_capture_pgid=""
+study_capture_signal_status=0
+study_capture_term_sent=0
+study_capture_saved_hup_trap=""
+study_capture_saved_int_trap=""
+study_capture_saved_quit_trap=""
+study_capture_saved_term_trap=""
+study_capture_saved_exit_trap=""
+study_capture_monitor_was_on=0
+study_capture_state_dir=""
+study_capture_status_file=""
+study_capture_status_tmp_file=""
 
 die() {
   echo "top15-study: $*" >&2
@@ -50,6 +83,439 @@ die() {
 
 sha256_file() {
   shasum -a 256 "$1" | awk '{print $1}'
+}
+
+utc_now() {
+  python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"))'
+}
+
+signal_process_tree() {
+  local parent_pid="$1"
+  local signal="$2"
+  local child_pid
+  for child_pid in $(pgrep -P "${parent_pid}" 2>/dev/null || true); do
+    signal_process_tree "${child_pid}" "${signal}"
+  done
+  kill -s "${signal}" "${parent_pid}" 2>/dev/null || true
+}
+
+process_group_has_live_members() {
+  local pgid="$1"
+  local process_rows
+  if process_rows="$(ps -axo pgid=,stat= 2>/dev/null)"; then
+    printf '%s\n' "${process_rows}" \
+      | awk -v wanted="${pgid}" '$1 == wanted && $2 !~ /^Z/ { found = 1 } END { exit !found }'
+    return "$?"
+  fi
+  kill -0 -- "-${pgid}" 2>/dev/null
+}
+
+terminate_supervised_group() {
+  local pgid="${study_supervised_command_pgid}"
+  local leader="${study_supervised_command_pid}"
+  [[ "${pgid}" =~ ^[1-9][0-9]*$ ]] || return 0
+  process_group_has_live_members "${pgid}" || return 0
+
+  if [[ "${study_supervised_term_sent}" == "0" ]]; then
+    kill -TERM -- "-${pgid}" 2>/dev/null || true
+    study_supervised_term_sent=1
+  fi
+  local waited_ticks=0
+  while process_group_has_live_members "${pgid}" \
+      && [[ "${waited_ticks}" -lt 50 ]] \
+      && [[ "${study_supervised_signal_count}" -lt 2 ]]; do
+    /bin/sleep 0.1
+    waited_ticks=$((waited_ticks + 1))
+  done
+  if process_group_has_live_members "${pgid}"; then
+    if [[ "${leader}" =~ ^[1-9][0-9]*$ ]]; then
+      signal_process_tree "${leader}" KILL
+    fi
+    kill -KILL -- "-${pgid}" 2>/dev/null || true
+  fi
+
+  waited_ticks=0
+  while process_group_has_live_members "${pgid}" && [[ "${waited_ticks}" -lt 20 ]]; do
+    /bin/sleep 0.1
+    waited_ticks=$((waited_ticks + 1))
+  done
+  ! process_group_has_live_members "${pgid}"
+}
+
+forward_supervised_signal() {
+  local status="$1"
+  study_supervised_signal_count=$((study_supervised_signal_count + 1))
+  if [[ "${study_supervised_signal_status}" == "0" ]]; then
+    study_supervised_signal_status="${status}"
+  fi
+  if [[ "${study_supervised_command_pgid}" =~ ^[1-9][0-9]*$ ]]; then
+    if [[ "${study_supervised_term_sent}" == "0" ]]; then
+      kill -TERM -- "-${study_supervised_command_pgid}" 2>/dev/null || true
+      study_supervised_term_sent=1
+    fi
+  fi
+}
+
+restore_trap() {
+  local saved="$1"
+  local signal="$2"
+  if [[ -n "${saved}" ]]; then
+    eval "${saved}"
+  else
+    trap - "${signal}"
+  fi
+}
+
+restore_supervised_shell_state() {
+  trap - HUP INT QUIT TERM EXIT
+  restore_trap "${study_supervised_saved_hup_trap}" HUP
+  restore_trap "${study_supervised_saved_int_trap}" INT
+  restore_trap "${study_supervised_saved_quit_trap}" QUIT
+  restore_trap "${study_supervised_saved_term_trap}" TERM
+  restore_trap "${study_supervised_saved_exit_trap}" EXIT
+  if [[ "${study_supervised_monitor_was_on}" == "1" ]]; then
+    set -m
+  else
+    set +m
+  fi
+}
+
+clear_supervised_state() {
+  study_supervised_command_pid=""
+  study_supervised_command_pgid=""
+  study_supervised_signal_status=0
+  study_supervised_signal_count=0
+  study_supervised_term_sent=0
+  study_supervised_saved_hup_trap=""
+  study_supervised_saved_int_trap=""
+  study_supervised_saved_quit_trap=""
+  study_supervised_saved_term_trap=""
+  study_supervised_saved_exit_trap=""
+  study_supervised_monitor_was_on=0
+}
+
+supervised_exit_cleanup() {
+  local exit_status="$?"
+  trap - HUP INT QUIT TERM EXIT
+  if terminate_supervised_group; then
+    if [[ "${study_supervised_command_pid}" =~ ^[1-9][0-9]*$ ]]; then
+      wait "${study_supervised_command_pid}" 2>/dev/null || true
+    fi
+  else
+    echo "top15-study: ERROR: supervised process group ${study_supervised_command_pgid} survived EXIT teardown" >&2
+  fi
+  if [[ -n "${study_supervised_saved_exit_trap}" ]]; then
+    (
+      trap - EXIT
+      eval "${study_supervised_saved_exit_trap}"
+      exit "${exit_status}"
+    ) || true
+  fi
+  return "${exit_status}"
+}
+
+run_supervised_logged_command() {
+  local log_file="$1"
+  shift
+  local command_status=0
+  local leaked_group=0
+  study_supervised_command_pid=""
+  study_supervised_command_pgid=""
+  study_supervised_signal_status=0
+  study_supervised_signal_count=0
+  study_supervised_term_sent=0
+  study_supervised_saved_hup_trap="$(trap -p HUP)"
+  study_supervised_saved_int_trap="$(trap -p INT)"
+  study_supervised_saved_quit_trap="$(trap -p QUIT)"
+  study_supervised_saved_term_trap="$(trap -p TERM)"
+  study_supervised_saved_exit_trap="$(trap -p EXIT)"
+  case "$-" in
+    *m*) study_supervised_monitor_was_on=1 ;;
+    *) study_supervised_monitor_was_on=0 ;;
+  esac
+  trap 'forward_supervised_signal 129' HUP
+  trap 'forward_supervised_signal 130' INT
+  trap 'forward_supervised_signal 131' QUIT
+  trap 'forward_supervised_signal 143' TERM
+  trap supervised_exit_cleanup EXIT
+
+  if [[ "${study_supervised_signal_status}" != "0" ]]; then
+    command_status="${study_supervised_signal_status}"
+    restore_supervised_shell_state
+    clear_supervised_state
+    return "${command_status}"
+  fi
+
+  set -m
+  (
+    set +m
+    set +e
+    "$@" 2>&1 | tee "${log_file}"
+    pipeline_status=("${PIPESTATUS[@]}")
+    local_command_status="${pipeline_status[0]}"
+    local_tee_status="${pipeline_status[1]}"
+    if [[ "${local_tee_status}" != "0" ]]; then
+      exit "${local_tee_status}"
+    fi
+    exit "${local_command_status}"
+  ) &
+  study_supervised_command_pid="$!"
+  study_supervised_command_pgid="${study_supervised_command_pid}"
+  if [[ "${study_supervised_monitor_was_on}" == "0" ]]; then
+    set +m
+  fi
+  if [[ "${study_supervised_signal_status}" != "0" ]]; then
+    if [[ "${study_supervised_term_sent}" == "0" ]]; then
+      kill -TERM -- "-${study_supervised_command_pgid}" 2>/dev/null || true
+      study_supervised_term_sent=1
+    fi
+  fi
+
+  if wait "${study_supervised_command_pid}"; then
+    command_status=0
+  else
+    command_status="$?"
+  fi
+
+  if [[ "${study_supervised_signal_status}" != "0" ]]; then
+    if terminate_supervised_group; then
+      wait "${study_supervised_command_pid}" 2>/dev/null || true
+      command_status="${study_supervised_signal_status}"
+    else
+      leaked_group=1
+    fi
+  elif process_group_has_live_members "${study_supervised_command_pgid}"; then
+    echo "top15-study: ERROR: supervised command exited while descendants remained; terminating process group ${study_supervised_command_pgid}" >&2
+    terminate_supervised_group || leaked_group=1
+    command_status=125
+  fi
+
+  # Signal status has final precedence. A trap can interrupt the first wait or
+  # arrive during the post-wait descendant check; never erase that late signal
+  # while clearing supervisor state. A process group that survives KILL is the
+  # stronger invariant failure and still returns 125.
+  if [[ "${study_supervised_signal_status}" != "0" ]]; then
+    if terminate_supervised_group; then
+      wait "${study_supervised_command_pid}" 2>/dev/null || true
+      if [[ "${leaked_group}" == "0" ]]; then
+        command_status="${study_supervised_signal_status}"
+      fi
+    else
+      leaked_group=1
+    fi
+  fi
+  if [[ "${leaked_group}" == "1" ]]; then
+    echo "top15-study: ERROR: supervised process group ${study_supervised_command_pgid} survived bounded TERM/KILL teardown" >&2
+    command_status=125
+  fi
+  restore_supervised_shell_state
+  clear_supervised_state
+  return "${command_status}"
+}
+
+terminate_capture_group() {
+  local pgid="${study_capture_pgid}"
+  local leader="${study_capture_pid}"
+  [[ "${pgid}" =~ ^[1-9][0-9]*$ ]] || return 0
+  if process_group_has_live_members "${pgid}"; then
+    if [[ "${study_capture_term_sent}" == "0" ]]; then
+      kill -TERM -- "-${pgid}" 2>/dev/null || true
+      study_capture_term_sent=1
+    fi
+    local waited_ticks=0
+    while process_group_has_live_members "${pgid}" && [[ "${waited_ticks}" -lt 20 ]]; do
+      /bin/sleep 0.1
+      waited_ticks=$((waited_ticks + 1))
+    done
+    if process_group_has_live_members "${pgid}"; then
+      if [[ "${leader}" =~ ^[1-9][0-9]*$ ]]; then
+        signal_process_tree "${leader}" KILL
+      fi
+      kill -KILL -- "-${pgid}" 2>/dev/null || true
+    fi
+  fi
+  local settle_ticks=0
+  while process_group_has_live_members "${pgid}" && [[ "${settle_ticks}" -lt 20 ]]; do
+    /bin/sleep 0.1
+    settle_ticks=$((settle_ticks + 1))
+  done
+  if process_group_has_live_members "${pgid}"; then
+    echo "top15-study: ERROR: bounded capture process group ${pgid} survived TERM/KILL teardown" >&2
+    return 1
+  fi
+  if [[ "${leader}" =~ ^[1-9][0-9]*$ ]]; then
+    wait "${leader}" 2>/dev/null || true
+  fi
+  study_capture_pid=""
+  study_capture_pgid=""
+}
+
+forward_capture_signal() {
+  local status="$1"
+  if [[ "${study_capture_signal_status}" == "0" ]]; then
+    study_capture_signal_status="${status}"
+  fi
+  if [[ "${study_capture_pgid}" =~ ^[1-9][0-9]*$ ]]; then
+    if [[ "${study_capture_term_sent}" == "0" ]]; then
+      kill -TERM -- "-${study_capture_pgid}" 2>/dev/null || true
+      study_capture_term_sent=1
+    fi
+  fi
+}
+
+restore_capture_shell_state() {
+  trap - HUP INT QUIT TERM EXIT
+  restore_trap "${study_capture_saved_hup_trap}" HUP
+  restore_trap "${study_capture_saved_int_trap}" INT
+  restore_trap "${study_capture_saved_quit_trap}" QUIT
+  restore_trap "${study_capture_saved_term_trap}" TERM
+  restore_trap "${study_capture_saved_exit_trap}" EXIT
+  if [[ "${study_capture_monitor_was_on}" == "1" ]]; then set -m; else set +m; fi
+}
+
+clear_capture_state() {
+  study_capture_pid=""
+  study_capture_pgid=""
+  study_capture_signal_status=0
+  study_capture_term_sent=0
+  study_capture_saved_hup_trap=""
+  study_capture_saved_int_trap=""
+  study_capture_saved_quit_trap=""
+  study_capture_saved_term_trap=""
+  study_capture_saved_exit_trap=""
+  study_capture_monitor_was_on=0
+  study_capture_state_dir=""
+  study_capture_status_file=""
+  study_capture_status_tmp_file=""
+}
+
+capture_exit_cleanup() {
+  local exit_status="$?"
+  trap - HUP INT QUIT TERM EXIT
+  terminate_capture_group || true
+  [[ -z "${study_capture_status_file}" ]] || rm -f "${study_capture_status_file}" || true
+  [[ -z "${study_capture_status_tmp_file}" ]] || rm -f "${study_capture_status_tmp_file}" || true
+  [[ -z "${study_capture_state_dir}" ]] || rmdir "${study_capture_state_dir}" 2>/dev/null || true
+  if [[ -n "${study_capture_saved_exit_trap}" ]]; then
+    (
+      trap - EXIT
+      eval "${study_capture_saved_exit_trap}"
+      exit "${exit_status}"
+    ) || true
+  fi
+  return "${exit_status}"
+}
+
+# Capture stdout/stderr from one finite command behind a wall-clock deadline.
+# Bash 3.2 has no `wait -n` or portable `timeout`, so an isolated wrapper
+# publishes its status atomically and the parent polls that marker. Signals and
+# deadline expiry tear down the entire reader group with bounded TERM -> KILL.
+run_bounded_capture() {
+  local stdout_file="$1"
+  local stderr_file="$2"
+  local timeout_seconds="$3"
+  shift 3
+  local state_dir status_file status_tmp_file
+  state_dir="$(mktemp -d "${TMPDIR:-/tmp}/mlxfast-top15-capture.XXXXXX")" || return 125
+  status_file="${state_dir}/status"
+  status_tmp_file="${state_dir}/status.tmp"
+  study_capture_state_dir="${state_dir}"
+  study_capture_status_file="${status_file}"
+  study_capture_status_tmp_file="${status_tmp_file}"
+
+  study_capture_pid=""
+  study_capture_pgid=""
+  study_capture_signal_status=0
+  study_capture_term_sent=0
+  study_capture_saved_hup_trap="$(trap -p HUP)"
+  study_capture_saved_int_trap="$(trap -p INT)"
+  study_capture_saved_quit_trap="$(trap -p QUIT)"
+  study_capture_saved_term_trap="$(trap -p TERM)"
+  study_capture_saved_exit_trap="$(trap -p EXIT)"
+  case "$-" in *m*) study_capture_monitor_was_on=1 ;; *) study_capture_monitor_was_on=0 ;; esac
+  trap 'forward_capture_signal 129' HUP
+  trap 'forward_capture_signal 130' INT
+  trap 'forward_capture_signal 131' QUIT
+  trap 'forward_capture_signal 143' TERM
+  trap capture_exit_cleanup EXIT
+
+  set -m
+  (
+    set +m
+    set +e
+    "$@" > "${stdout_file}" 2> "${stderr_file}"
+    capture_status="$?"
+    if printf '%s\n' "${capture_status}" > "${status_tmp_file}"; then
+      mv "${status_tmp_file}" "${status_file}"
+    fi
+    exit "${capture_status}"
+  ) &
+  study_capture_pid="$!"
+  study_capture_pgid="${study_capture_pid}"
+  if [[ "${study_capture_monitor_was_on}" == "0" ]]; then set +m; fi
+
+  local waited_ticks=0
+  local timeout_ticks=$((timeout_seconds * 10))
+  while [[ ! -f "${status_file}" \
+      && "${study_capture_signal_status}" == "0" \
+      && "${waited_ticks}" -lt "${timeout_ticks}" ]]; do
+    /bin/sleep 0.1
+    waited_ticks=$((waited_ticks + 1))
+  done
+
+  local capture_status=0
+  local teardown_failed=0
+  if [[ "${study_capture_signal_status}" != "0" ]]; then
+    capture_status="${study_capture_signal_status}"
+    terminate_capture_group || teardown_failed=1
+  elif [[ ! -f "${status_file}" ]]; then
+    printf 'telemetry reader exceeded %ss wall-clock deadline\n' \
+      "${timeout_seconds}" >> "${stderr_file}"
+    capture_status=124
+    terminate_capture_group || teardown_failed=1
+  else
+    capture_status="$(tr -d '[:space:]' < "${status_file}")"
+    if [[ "${study_capture_pid}" =~ ^[1-9][0-9]*$ ]]; then
+      wait "${study_capture_pid}" 2>/dev/null || true
+    fi
+    local completed_pgid="${study_capture_pgid}"
+    if [[ "${study_capture_signal_status}" != "0" ]]; then
+      terminate_capture_group || teardown_failed=1
+      capture_status="${study_capture_signal_status}"
+    elif process_group_has_live_members "${completed_pgid}"; then
+      terminate_capture_group || teardown_failed=1
+      capture_status=125
+    elif [[ ! "${capture_status}" =~ ^[0-9]+$ ]] \
+        || [[ "${capture_status}" -gt 255 ]]; then
+      capture_status=125
+      study_capture_pid=""
+      study_capture_pgid=""
+    else
+      study_capture_pid=""
+      study_capture_pgid=""
+    fi
+  fi
+
+  rm -f "${status_file}" "${status_tmp_file}" || true
+  rmdir "${state_dir}" 2>/dev/null || true
+  # As above, preserve a signal delivered after the status marker, during
+  # residual-group validation, or while the private status files are removed.
+  # Keep this as the final operation before restoring the caller's traps.
+  if [[ "${study_capture_signal_status}" != "0" ]]; then
+    if terminate_capture_group; then
+      if [[ "${teardown_failed}" == "0" ]]; then
+        capture_status="${study_capture_signal_status}"
+      fi
+    else
+      teardown_failed=1
+    fi
+  fi
+  if [[ "${teardown_failed}" == "1" ]]; then
+    capture_status=125
+  fi
+  restore_capture_shell_state
+  clear_capture_state
+  return "${capture_status}"
 }
 
 real_path() {
@@ -445,8 +911,11 @@ ensure_arm_spec() {
 
 performance_log_thermal_valid() {
   local log_file="$1"
+  local require_strict_confirmation="${2:-0}"
   [[ -f "${log_file}" ]] || return 1
-  awk '
+  [[ "${require_strict_confirmation}" == "0" || "${require_strict_confirmation}" == "1" ]] \
+    || return 1
+  awk -v require_strict_confirmation="${require_strict_confirmation}" '
     /^mlxfast: benchmark elapsed=[0-9]+(\.[0-9]+)?s local thermal gate start phase=prefill$/ {
       if (state != 0) invalid = 1
       state = 1
@@ -472,21 +941,365 @@ performance_log_thermal_valid() {
       sub(/^.*current /, "", temperature)
       sub(/C,.*$/, "", temperature)
       temperature += 0
-      if (state == 1) state = 2
-      else if (state == 4) state = 5
+      if (state == 1) {
+        if (require_strict_confirmation && (prefill_confirmations != 1 || prefill_confirmed_temp != temperature)) invalid = 1
+        state = 2
+      }
+      else if (state == 4) {
+        if (require_strict_confirmation && (decode_confirmations != 1 || decode_confirmed_temp != temperature)) invalid = 1
+        state = 5
+      }
       else invalid = 1
       passes += 1
       if (!(temperature > 5 && temperature <= 40)) invalid = 1
       next
     }
-    /GPU cool-down gate passed|local thermal gate (start|complete) phase=/ {
+    /^benchmark\.sh: strict persistent macmon confirmed phase=(prefill|decode) samples=5 interval=1000ms final=[0-9]+(\.[0-9]+)?C$/ {
+      phase = $0
+      sub(/^.*phase=/, "", phase)
+      sub(/ samples=.*$/, "", phase)
+      temperature = $0
+      sub(/^.* final=/, "", temperature)
+      sub(/C$/, "", temperature)
+      temperature += 0
+      if (phase == "prefill" && state == 1) {
+        prefill_confirmations += 1
+        prefill_confirmed_temp = temperature
+      } else if (phase == "decode" && state == 4) {
+        decode_confirmations += 1
+        decode_confirmed_temp = temperature
+      } else invalid = 1
+      next
+    }
+    /GPU cool-down gate passed|strict persistent macmon confirmed|local thermal gate (start|complete) phase=/ {
       invalid = 1
     }
     /local GPU cool-down gate disabled|skipping the GPU cool-down gate|temperature reading looks implausible|plausibility floor|retrying the temperature reader|strict local thermal telemetry|refusing to claim a thermally gated local timing|temperature reader returned no usable sample|local thermal gate failed/ {
       invalid = 1
     }
-    END { exit !(state == 6 && passes == 2 && invalid == 0) }
+    END {
+      exit !(state == 6 && passes == 2 && invalid == 0 && (!require_strict_confirmation || (prefill_confirmations == 1 && decode_confirmations == 1)))
+    }
   ' "${log_file}"
+}
+
+thermal_samples_healthy() {
+  local samples_file="$1"
+  [[ -f "${samples_file}" ]] || return 1
+  jq -s -e --argjson expected "${study_thermal_preflight_samples}" '
+    length == $expected
+    and all(.[];
+      (.timestamp | type) == "string"
+      and (.timestamp | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"))
+      and (.temp.cpu_temp_avg | type) == "number"
+      and (.temp.gpu_temp_avg | type) == "number"
+      and .temp.cpu_temp_avg > 5
+      and .temp.cpu_temp_avg <= 120
+      and .temp.gpu_temp_avg > 5
+      and .temp.gpu_temp_avg <= 120
+    )
+    and ([.[].timestamp] as $timestamps
+      | ($timestamps | unique | length) == $expected
+      and $timestamps == ($timestamps | sort))
+    and ([.[].temp.gpu_temp_avg] | unique | length) >= 2
+  ' "${samples_file}" >/dev/null
+}
+
+thermal_samples_ready() {
+  local samples_file="$1"
+  thermal_samples_healthy "${samples_file}" \
+    && jq -s -e '.[-1].temp.gpu_temp_avg <= 40' "${samples_file}" >/dev/null
+}
+
+thermal_samples_fresh() {
+  local samples_file="$1"
+  local started_at="$2"
+  local finished_at="$3"
+  python3 -c '
+import json
+import sys
+from datetime import datetime
+
+def stamp(value):
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+try:
+    samples = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+    observed = [stamp(sample["timestamp"]) for sample in samples]
+    started = stamp(sys.argv[2])
+    finished = stamp(sys.argv[3])
+except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1)
+raise SystemExit(0 if observed and started <= observed[0] <= observed[-1] < finished + 1.0 else 1)
+' "${samples_file}" "${started_at}" "${finished_at}"
+}
+
+read_performance_fan_status() {
+  /usr/bin/env -i \
+    HOME="${HOME}" \
+    LOGNAME="${LOGNAME:-${USER:-}}" \
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${HOME}/bin" \
+    TMPDIR="${TMPDIR:-/tmp}" \
+    USER="${USER:-}" \
+    "${study_fan_control_source}" status 2>/dev/null
+}
+
+performance_fan_status() {
+  local fan_status
+  fan_status="$(read_performance_fan_status)" || return 1
+  [[ "${fan_status}" == "${study_performance_fan_policy}" ]] || return 1
+  printf '%s\n' "${fan_status}"
+}
+
+performance_preflight_receipt_valid() {
+  local receipt_name="$1"
+  local receipt_sha256="$2"
+  local expected_rank="${3:-}"
+  local expected_id="${4:-}"
+  local expected_source_ref="${5:-}"
+  local expected_attempt="${6:-}"
+  local attempt_started_at="${7:-}"
+  local expected_require_cool="${8:-1}"
+  [[ "${receipt_name}" =~ ^thermal-[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]+$ ]] || return 1
+  [[ "${receipt_sha256}" =~ ^[0-9a-f]{64}$ ]] || return 1
+  [[ "${expected_require_cool}" == "0" || "${expected_require_cool}" == "1" ]] || return 1
+  if [[ -n "${expected_rank}" ]]; then
+    [[ "${expected_rank}" =~ ^[0-9]+$ \
+        && "${expected_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ \
+        && "${expected_source_ref}" =~ ^[0-9a-f]{40}$ \
+        && "${expected_attempt}" =~ ^attempt-[1-9][0-9]*$ ]] || return 1
+  else
+    [[ -z "${expected_id}${expected_source_ref}${expected_attempt}${attempt_started_at}" ]] || return 1
+  fi
+  local receipt_dir="${study_results}/preflight/${receipt_name}"
+  local meta_file="${receipt_dir}/meta.json"
+  local samples_file="${receipt_dir}/samples.jsonl"
+  local stderr_file="${receipt_dir}/macmon.stderr"
+  [[ -d "${receipt_dir}" && ! -L "${receipt_dir}" ]] || return 1
+  [[ -f "${meta_file}" && ! -L "${meta_file}" \
+      && -f "${samples_file}" && ! -L "${samples_file}" \
+      && -f "${stderr_file}" && ! -L "${stderr_file}" ]] || return 1
+  [[ "$(sha256_file "${meta_file}")" == "${receipt_sha256}" ]] || return 1
+  jq -e \
+    --arg schema "${study_thermal_preflight_schema}" \
+    --arg macmon_sha256 "${study_macmon_sha256}" \
+    --arg macmon_version "${study_macmon_version}" \
+    --arg fan_policy "${study_performance_fan_policy}" \
+    --arg samples_sha256 "$(sha256_file "${samples_file}")" \
+    --arg stderr_sha256 "$(sha256_file "${stderr_file}")" \
+    --arg expected_rank "${expected_rank}" \
+    --arg expected_id "${expected_id}" \
+    --arg expected_source_ref "${expected_source_ref}" \
+    --arg expected_attempt "${expected_attempt}" \
+    --argjson expected_samples "${study_thermal_preflight_samples}" \
+    --argjson expected_interval "${study_thermal_preflight_interval_ms}" \
+    --argjson expected_reader_timeout "${study_thermal_reader_timeout_seconds}" \
+    --argjson expected_require_cool "$([[ "${expected_require_cool}" == "1" ]] && echo true || echo false)" '
+      .schema == $schema
+      and .reader_exit_code == 0
+      and .macmon_sha256 == $macmon_sha256
+      and .macmon_version == $macmon_version
+      and .fan_policy == $fan_policy
+      and .fan_status == $fan_policy
+      and .expected_samples == $expected_samples
+      and .sample_count == $expected_samples
+      and .interval_ms == $expected_interval
+      and .reader_timeout_seconds == $expected_reader_timeout
+      and .samples_sha256 == $samples_sha256
+      and .stderr_sha256 == $stderr_sha256
+      and .required_cool == $expected_require_cool
+      and (
+        if $expected_rank == "" then
+          .attempt == null
+        else
+          .attempt.rank == ($expected_rank | tonumber)
+          and .attempt.submission_id == $expected_id
+          and .attempt.source_ref == $expected_source_ref
+          and .attempt.name == $expected_attempt
+        end
+      )
+      and (
+        (.required_cool == true and .status == "healthy_ready")
+        or (.required_cool == false and (.status == "healthy_ready" or .status == "healthy_hot"))
+      )
+    ' "${meta_file}" >/dev/null || return 1
+  thermal_samples_healthy "${samples_file}" || return 1
+  thermal_samples_fresh \
+    "${samples_file}" \
+    "$(jq -r '.started_at' "${meta_file}")" \
+    "$(jq -r '.finished_at' "${meta_file}")" \
+    || return 1
+  if [[ "$(jq -r '.required_cool' "${meta_file}")" == "true" ]]; then
+    thermal_samples_ready "${samples_file}" || return 1
+  fi
+  if [[ -n "${attempt_started_at}" ]]; then
+    python3 -c '
+import json
+import sys
+from datetime import datetime
+
+def stamp(value):
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+try:
+    receipt = json.load(open(sys.argv[1], encoding="utf-8"))
+    handoff = stamp(sys.argv[2]) - stamp(receipt["finished_at"])
+    maximum = float(sys.argv[3])
+except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1)
+raise SystemExit(0 if 0 <= handoff <= maximum else 1)
+' "${meta_file}" "${attempt_started_at}" "${study_thermal_preflight_handoff_seconds}" || return 1
+  fi
+}
+
+run_thermal_preflight() {
+  local require_cool="${1:-1}"
+  local attempt_rank="${2:-}"
+  local attempt_id="${3:-}"
+  local attempt_source_ref="${4:-}"
+  local attempt_name="${5:-}"
+  [[ "${require_cool}" == "0" || "${require_cool}" == "1" ]] \
+    || die "thermal preflight require_cool must be 0 or 1"
+  if [[ -n "${attempt_rank}" ]]; then
+    [[ "${attempt_rank}" =~ ^[0-9]+$ \
+        && "${attempt_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ \
+        && "${attempt_source_ref}" =~ ^[0-9a-f]{40}$ \
+        && "${attempt_name}" =~ ^attempt-[1-9][0-9]*$ ]] \
+      || die "thermal preflight attempt binding is incomplete or invalid"
+  else
+    [[ -z "${attempt_id}${attempt_source_ref}${attempt_name}" ]] \
+      || die "thermal preflight attempt binding is incomplete or invalid"
+  fi
+  require_inputs
+  local fan_status
+  if ! fan_status="$(performance_fan_status)"; then
+    local observed_fan_status
+    observed_fan_status="$(read_performance_fan_status || true)"
+    echo "top15-study: thermal preflight requires '${study_performance_fan_policy}' fan control; observed '${observed_fan_status:-unreadable}'" >&2
+    echo "top15-study: restore automatic control before measuring; never mix the legacy manual-80 comparator with auto-fan candidates" >&2
+    return 75
+  fi
+
+  local preflight_root="${study_results}/preflight"
+  [[ ! -L "${preflight_root}" ]] || die "thermal preflight root may not be a symlink: ${preflight_root}"
+  mkdir -p "${preflight_root}"
+  local receipt_dir
+  receipt_dir="$(mktemp -d "${preflight_root}/thermal-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")"
+  local samples_file="${receipt_dir}/samples.jsonl"
+  local stderr_file="${receipt_dir}/macmon.stderr"
+  local meta_file="${receipt_dir}/meta.json"
+  local started_at finished_at reader_status
+  started_at="$(utc_now)"
+  if run_bounded_capture \
+      "${samples_file}" "${stderr_file}" "${study_thermal_reader_timeout_seconds}" \
+      /usr/bin/env -i \
+        HOME="${HOME}" \
+        LOGNAME="${LOGNAME:-${USER:-}}" \
+        PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${HOME}/bin" \
+        TMPDIR="${TMPDIR:-/tmp}" \
+        USER="${USER:-}" \
+        "${study_macmon_source}" pipe \
+          --samples "${study_thermal_preflight_samples}" \
+          --interval "${study_thermal_preflight_interval_ms}"; then
+    reader_status=0
+  else
+    reader_status="$?"
+  fi
+  finished_at="$(utc_now)"
+
+  local health_status="invalid"
+  local sample_count="0"
+  local final_gpu_temp=""
+  if [[ "${reader_status}" -eq 0 ]] && thermal_samples_healthy "${samples_file}"; then
+    sample_count="$(jq -s 'length' "${samples_file}")"
+    final_gpu_temp="$(jq -sr '.[-1].temp.gpu_temp_avg' "${samples_file}")"
+    if thermal_samples_ready "${samples_file}"; then
+      health_status="healthy_ready"
+    else
+      health_status="healthy_hot"
+    fi
+  fi
+
+  jq -n \
+    --arg schema "${study_thermal_preflight_schema}" \
+    --arg started_at "${started_at}" \
+    --arg finished_at "${finished_at}" \
+    --argjson reader_exit_code "${reader_status}" \
+    --arg macmon_sha256 "${study_macmon_sha256}" \
+    --arg macmon_version "${study_macmon_version}" \
+    --arg fan_policy "${study_performance_fan_policy}" \
+    --arg fan_status "${fan_status}" \
+    --arg status "${health_status}" \
+    --arg sample_count "${sample_count}" \
+    --arg final_gpu_temp_c "${final_gpu_temp}" \
+    --arg samples_sha256 "$(sha256_file "${samples_file}")" \
+    --arg stderr_sha256 "$(sha256_file "${stderr_file}")" \
+    --arg attempt_rank "${attempt_rank}" \
+    --arg attempt_id "${attempt_id}" \
+    --arg attempt_source_ref "${attempt_source_ref}" \
+    --arg attempt_name "${attempt_name}" \
+    --argjson required_cool "$([[ "${require_cool}" == "1" ]] && echo true || echo false)" \
+    --argjson expected_samples "${study_thermal_preflight_samples}" \
+    --argjson interval_ms "${study_thermal_preflight_interval_ms}" \
+    --argjson reader_timeout_seconds "${study_thermal_reader_timeout_seconds}" '
+      {
+        schema:$schema,
+        started_at:$started_at,
+        finished_at:$finished_at,
+        reader_exit_code:$reader_exit_code,
+        macmon_sha256:$macmon_sha256,
+        macmon_version:$macmon_version,
+        fan_policy:$fan_policy,
+        fan_status:$fan_status,
+        required_cool:$required_cool,
+        expected_samples:$expected_samples,
+        interval_ms:$interval_ms,
+        reader_timeout_seconds:$reader_timeout_seconds,
+        status:$status,
+        sample_count:($sample_count | tonumber? // 0),
+        final_gpu_temp_c:($final_gpu_temp_c | tonumber? // null),
+        samples_sha256:$samples_sha256,
+        stderr_sha256:$stderr_sha256,
+        attempt:(
+          if $attempt_rank == "" then null
+          else {
+            rank:($attempt_rank | tonumber),
+            submission_id:$attempt_id,
+            source_ref:$attempt_source_ref,
+            name:$attempt_name
+          }
+          end
+        )
+      }
+    ' > "${meta_file}"
+
+  local receipt_name
+  receipt_name="$(basename "${receipt_dir}")"
+  case "${reader_status}" in
+    125|129|130|131|143)
+      echo "top15-study: thermal preflight reader supervision/termination failed with status ${reader_status}; receipt: ${meta_file}" >&2
+      return "${reader_status}"
+      ;;
+  esac
+  if [[ "${reader_status}" -ne 0 || "${health_status}" == "invalid" ]]; then
+    echo "top15-study: thermal preflight rejected unhealthy or frozen telemetry; receipt: ${meta_file}" >&2
+    return 75
+  fi
+  if [[ "${require_cool}" == "1" && "${health_status}" != "healthy_ready" ]]; then
+    echo "top15-study: thermal preflight is healthy but GPU is ${final_gpu_temp}C (target <=40C); no model was loaded" >&2
+    echo "top15-study: receipt: ${meta_file}" >&2
+    return 75
+  fi
+  if ! performance_preflight_receipt_valid \
+      "${receipt_name}" "$(sha256_file "${meta_file}")" \
+      "${attempt_rank}" "${attempt_id}" "${attempt_source_ref}" "${attempt_name}" "" "${require_cool}"; then
+    echo "top15-study: thermal preflight receipt failed its integrity check: ${meta_file}" >&2
+    return 75
+  fi
+  study_current_performance_preflight="${receipt_name}"
+  study_current_performance_preflight_sha256="$(sha256_file "${meta_file}")"
+  echo "top15-study: thermal preflight ${health_status} at ${final_gpu_temp}C (${study_thermal_preflight_samples} responsive samples; fans ${fan_status})"
+  echo "top15-study: thermal preflight receipt: ${meta_file}"
 }
 
 performance_log_thermal_self_test() {
@@ -497,9 +1310,11 @@ performance_log_thermal_self_test() {
   forged_log="${test_dir}/forged.log"
   printf '%s\n' \
     'mlxfast: benchmark elapsed=77.0s local thermal gate start phase=prefill' \
+    'benchmark.sh: strict persistent macmon confirmed phase=prefill samples=5 interval=1000ms final=40.0C' \
     'benchmark.sh: GPU cool-down gate passed (current 40.0C, target <=40C, waited 240s)' \
     'mlxfast: benchmark elapsed=529.3s local thermal gate complete phase=prefill' \
     'mlxfast: benchmark elapsed=573.5s local thermal gate start phase=decode' \
+    'benchmark.sh: strict persistent macmon confirmed phase=decode samples=5 interval=1000ms final=39.9C' \
     'benchmark.sh: GPU cool-down gate passed (current 39.9C, target <=40C, waited 150s)' \
     'mlxfast: benchmark elapsed=855.2s local thermal gate complete phase=decode' \
     > "${valid_log}"
@@ -520,6 +1335,8 @@ performance_log_thermal_self_test() {
     > "${forged_log}"
   performance_log_thermal_valid "${valid_log}" \
     || { rm -f "${valid_log}" "${invalid_log}" "${forged_log}"; rmdir "${test_dir}"; die "credible thermal log failed self-test"; }
+  performance_log_thermal_valid "${valid_log}" 1 \
+    || { rm -f "${valid_log}" "${invalid_log}" "${forged_log}"; rmdir "${test_dir}"; die "strict responsive thermal log failed self-test"; }
   if performance_log_thermal_valid "${invalid_log}"; then
     rm -f "${valid_log}" "${invalid_log}" "${forged_log}"
     rmdir "${test_dir}"
@@ -535,6 +1352,276 @@ performance_log_thermal_self_test() {
   echo "top15-study: thermal log self-test passed"
 }
 
+thermal_samples_self_test() {
+  local test_dir good frozen implausible hot out_of_order
+  test_dir="$(mktemp -d "${TMPDIR:-/tmp}/mlxfast-top15-samples-test.XXXXXX")"
+  good="${test_dir}/good.jsonl"
+  frozen="${test_dir}/frozen.jsonl"
+  implausible="${test_dir}/implausible.jsonl"
+  hot="${test_dir}/hot.jsonl"
+  out_of_order="${test_dir}/out-of-order.jsonl"
+  printf '%s\n' \
+    '{"timestamp":"2026-08-03T00:00:00.000000+00:00","temp":{"cpu_temp_avg":38.0,"gpu_temp_avg":39.2}}' \
+    '{"timestamp":"2026-08-03T00:00:01.000000+00:00","temp":{"cpu_temp_avg":38.1,"gpu_temp_avg":39.1}}' \
+    '{"timestamp":"2026-08-03T00:00:02.000000+00:00","temp":{"cpu_temp_avg":38.0,"gpu_temp_avg":39.0}}' \
+    '{"timestamp":"2026-08-03T00:00:03.000000+00:00","temp":{"cpu_temp_avg":37.9,"gpu_temp_avg":38.9}}' \
+    '{"timestamp":"2026-08-03T00:00:04.000000+00:00","temp":{"cpu_temp_avg":37.8,"gpu_temp_avg":38.8}}' \
+    > "${good}"
+  sed -E 's/"gpu_temp_avg":[0-9]+\.[0-9]+/"gpu_temp_avg":39.0/' "${good}" > "${frozen}"
+  sed 's/"gpu_temp_avg":39.0/"gpu_temp_avg":1.5/' "${frozen}" > "${implausible}"
+  sed -E 's/"gpu_temp_avg":[0-9]+\.[0-9]+/"gpu_temp_avg":52.0/' "${good}" \
+    | sed '5s/52.0/51.9/' > "${hot}"
+  { sed -n '1p' "${good}"; sed -n '3p' "${good}"; sed -n '2p' "${good}"; sed -n '4,5p' "${good}"; } \
+    > "${out_of_order}"
+  thermal_samples_healthy "${good}" && thermal_samples_ready "${good}" \
+    || die "responsive cool samples failed self-test"
+  thermal_samples_fresh \
+    "${good}" "2026-08-03T00:00:00Z" "2026-08-03T00:00:05Z" \
+    || die "fresh samples failed self-test"
+  ! thermal_samples_fresh \
+    "${good}" "2026-08-03T01:00:00Z" "2026-08-03T01:00:05Z" \
+    || die "stale samples passed self-test"
+  ! thermal_samples_healthy "${frozen}" \
+    || die "frozen plausible samples passed self-test"
+  ! thermal_samples_healthy "${implausible}" \
+    || die "implausible samples passed self-test"
+  thermal_samples_healthy "${hot}" && ! thermal_samples_ready "${hot}" \
+    || die "healthy hot samples failed self-test"
+  ! thermal_samples_healthy "${out_of_order}" \
+    || die "out-of-order sample timestamps passed self-test"
+  rm -f "${good}" "${frozen}" "${implausible}" "${hot}" "${out_of_order}"
+  rmdir "${test_dir}"
+  echo "top15-study: persistent thermal sample self-test passed"
+}
+
+bounded_capture_self_test() {
+  local test_dir fixture stdout_file stderr_file leader_file child_file
+  local leader_pid child_pid status poll
+  test_dir="$(mktemp -d "${TMPDIR:-/tmp}/mlxfast-top15-capture-test.XXXXXX")"
+  fixture="${test_dir}/stubborn.sh"
+  stdout_file="${test_dir}/stdout"
+  stderr_file="${test_dir}/stderr"
+  leader_file="${test_dir}/leader.pid"
+  child_file="${test_dir}/child.pid"
+  printf '%s\n' \
+    '#!/bin/bash' \
+    'trap "" TERM' \
+    'printf "%s\n" "$$" > "$1"' \
+    '/bin/bash -c '\''trap "" TERM; printf "%s\n" "$$" > "$1"; while :; do /bin/sleep 1; done'\'' child "$2" &' \
+    'while :; do /bin/sleep 1; done' \
+    > "${fixture}"
+  chmod 700 "${fixture}"
+  if run_bounded_capture \
+      "${stdout_file}" "${stderr_file}" 1 \
+      "${fixture}" "${leader_file}" "${child_file}"; then
+    status=0
+  else
+    status="$?"
+  fi
+  [[ "${status}" == "124" ]] \
+    || die "bounded capture fixture returned ${status}, expected 124"
+  grep -F 'exceeded 1s wall-clock deadline' "${stderr_file}" >/dev/null \
+    || die "bounded capture timeout diagnostic is missing"
+  [[ -s "${leader_file}" && -s "${child_file}" ]] \
+    || die "bounded capture fixture did not record its process tree"
+  leader_pid="$(tr -d '[:space:]' < "${leader_file}")"
+  child_pid="$(tr -d '[:space:]' < "${child_file}")"
+  for pid in "${leader_pid}" "${child_pid}"; do
+    for poll in $(seq 1 20); do
+      kill -0 "${pid}" 2>/dev/null || break
+      /bin/sleep 0.1
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -KILL "${pid}" 2>/dev/null || true
+      die "bounded capture fixture orphaned live pid ${pid}"
+    fi
+  done
+  rm -f "${test_dir}"/*
+  rmdir "${test_dir}"
+  echo "top15-study: bounded capture self-test passed"
+}
+
+late_signal_self_test() {
+  local test_dir
+  test_dir="$(mktemp -d "${TMPDIR:-/tmp}/mlxfast-top15-late-signal-test.XXXXXX")"
+  (
+    injected=0
+    process_group_has_live_members() {
+      if [[ "${injected}" == "0" ]]; then
+        injected=1
+        /bin/sh -c 'kill -TERM "$PPID"'
+      fi
+      return 1
+    }
+    if run_supervised_logged_command \
+        "${test_dir}/supervised.log" /bin/bash -c 'exit 0'; then
+      status=0
+    else
+      status="$?"
+    fi
+    [[ "${status}" == "143" ]]
+  ) || die "supervised command erased a signal delivered during final group validation"
+  (
+    injected=0
+    process_group_has_live_members() {
+      if [[ "${injected}" == "0" ]]; then
+        injected=1
+        /bin/sh -c 'kill -TERM "$PPID"'
+      fi
+      return 1
+    }
+    if run_bounded_capture \
+        "${test_dir}/capture.stdout" "${test_dir}/capture.stderr" 1 \
+        /bin/bash -c 'exit 0'; then
+      status=0
+    else
+      status="$?"
+    fi
+    [[ "${status}" == "143" ]]
+  ) || die "bounded capture erased a signal delivered after its status marker"
+  (
+    injected=0
+    rm() {
+      if [[ "${injected}" == "0" ]]; then
+        injected=1
+        /bin/sh -c 'kill -TERM "$PPID"'
+      fi
+      command rm "$@"
+    }
+    if run_bounded_capture \
+        "${test_dir}/cleanup.stdout" "${test_dir}/cleanup.stderr" 1 \
+        /bin/bash -c 'exit 0'; then
+      status=0
+    else
+      status="$?"
+    fi
+    [[ "${status}" == "143" ]]
+  ) || die "bounded capture erased a signal delivered during private-file cleanup"
+  rm -f "${test_dir}"/*
+  rmdir "${test_dir}"
+  echo "top15-study: late-signal precedence self-test passed"
+}
+
+supervised_pipeline_self_test() {
+  local test_dir log_file fixture leader_pid_file child_pid_file
+  local supervisor_pid leader_pid child_pid orphan_pid status=""
+  test_dir="$(mktemp -d "${TMPDIR:-/tmp}/mlxfast-top15-supervision-test.XXXXXX")"
+  log_file="${test_dir}/command.log"
+  fixture="${test_dir}/stubborn.sh"
+  leader_pid_file="${test_dir}/leader.pid"
+  child_pid_file="${test_dir}/child.pid"
+
+  if run_supervised_logged_command \
+      "${log_file}" /bin/bash -c 'printf "stdout-marker\n"; printf "stderr-marker\n" >&2; exit 37'; then
+    status=0
+  else
+    status="$?"
+  fi
+  [[ "${status}" == "37" ]] \
+    || die "supervised command status self-test returned ${status}, expected 37"
+  grep -Fx 'stdout-marker' "${log_file}" >/dev/null \
+    || die "supervised command stdout was not logged"
+  grep -Fx 'stderr-marker' "${log_file}" >/dev/null \
+    || die "supervised command stderr was not logged"
+
+  for expected_monitor in off on; do
+    (
+      if [[ "${expected_monitor}" == "on" ]]; then set -m; else set +m; fi
+      trap ':' HUP
+      trap ':' INT
+      trap ':' QUIT
+      trap ':' TERM
+      trap ':' EXIT
+      before_hup="$(trap -p HUP)"
+      before_int="$(trap -p INT)"
+      before_quit="$(trap -p QUIT)"
+      before_term="$(trap -p TERM)"
+      before_exit="$(trap -p EXIT)"
+      before_monitor="$-"
+      run_supervised_logged_command "${test_dir}/state-${expected_monitor}.log" /bin/bash -c 'exit 0'
+      [[ "$(trap -p HUP)" == "${before_hup}" \
+          && "$(trap -p INT)" == "${before_int}" \
+          && "$(trap -p QUIT)" == "${before_quit}" \
+          && "$(trap -p TERM)" == "${before_term}" \
+          && "$(trap -p EXIT)" == "${before_exit}" \
+          && "$-" == "${before_monitor}" ]]
+    ) || die "supervised command did not restore traps/monitor mode (${expected_monitor})"
+  done
+
+  printf '%s\n' \
+    '#!/bin/bash' \
+    'trap "" TERM' \
+    'printf "%s\n" "$$" > "$1"' \
+    '/bin/bash -c '\''trap "" TERM; printf "%s\n" "$$" > "$1"; while :; do /bin/sleep 1; done'\'' child "$2" &' \
+    'while :; do /bin/sleep 1; done' \
+    > "${fixture}"
+  chmod 700 "${fixture}"
+  (
+    run_supervised_logged_command \
+      "${log_file}" "${fixture}" "${leader_pid_file}" "${child_pid_file}"
+  ) &
+  supervisor_pid="$!"
+  local poll
+  for poll in $(seq 1 100); do
+    [[ ! -s "${leader_pid_file}" || ! -s "${child_pid_file}" ]] || break
+    sleep 0.05
+  done
+  [[ -s "${leader_pid_file}" && -s "${child_pid_file}" ]] \
+    || { kill -TERM "${supervisor_pid}" 2>/dev/null || true; wait "${supervisor_pid}" 2>/dev/null || true; die "supervised process-tree fixture did not start"; }
+  leader_pid="$(tr -d '[:space:]' < "${leader_pid_file}")"
+  child_pid="$(tr -d '[:space:]' < "${child_pid_file}")"
+  kill -TERM "${supervisor_pid}"
+  if wait "${supervisor_pid}"; then
+    status=0
+  else
+    status="$?"
+  fi
+  [[ "${status}" == "143" ]] \
+    || die "supervised process-tree fixture returned ${status}, expected 143"
+  for pid in "${leader_pid}" "${child_pid}"; do
+    for poll in $(seq 1 20); do
+      kill -0 "${pid}" 2>/dev/null || break
+      /bin/sleep 0.1
+    done
+    if kill -0 "${pid}" 2>/dev/null; then
+      kill -KILL "${pid}" 2>/dev/null || true
+      die "supervised process-tree fixture orphaned live pid ${pid}"
+    fi
+  done
+
+  if run_supervised_logged_command \
+      "${test_dir}/orphan.log" /bin/bash -c \
+      '/bin/sleep 30 </dev/null >/dev/null 2>&1 & printf "%s\n" "$!" > "$1"' \
+      fixture "${test_dir}/orphan.pid"; then
+    status=0
+  else
+    status="$?"
+  fi
+  [[ "${status}" == "125" ]] \
+    || die "normal-exit orphan fixture returned ${status}, expected 125"
+  orphan_pid="$(tr -d '[:space:]' < "${test_dir}/orphan.pid")"
+  for poll in $(seq 1 20); do
+    kill -0 "${orphan_pid}" 2>/dev/null || break
+    /bin/sleep 0.1
+  done
+  if kill -0 "${orphan_pid}" 2>/dev/null; then
+    kill -KILL "${orphan_pid}" 2>/dev/null || true
+    die "normal-exit orphan fixture left live child ${orphan_pid}"
+  fi
+
+  rm -f "${test_dir}"/*
+  rmdir "${test_dir}"
+  echo "top15-study: supervised process-tree self-test passed"
+}
+
+run_self_tests() {
+  performance_log_thermal_self_test
+  thermal_samples_self_test
+  bounded_capture_self_test
+  late_signal_self_test
+  supervised_pipeline_self_test
+}
+
 performance_attempt_valid() {
   local arm_dir="$1"
   local attempt_name="$2"
@@ -548,7 +1635,11 @@ performance_attempt_valid() {
   arm_spec_matches "${arm_dir}" performance "${arm_rank}" "${arm_id}" "${arm_commit}" \
     || return 1
   [[ -f "${score_file}" && -f "${meta_file}" && -f "${integrity_file}" ]] || return 1
-  performance_log_thermal_valid "${log_file}" || return 1
+  local require_strict_confirmation=0
+  if [[ "$(jq -r '.runner_sha256 // empty' "${meta_file}")" == "${study_runner_sha256}" ]]; then
+    require_strict_confirmation=1
+  fi
+  performance_log_thermal_valid "${log_file}" "${require_strict_confirmation}" || return 1
   jq -e \
     --arg runtime "${study_perf_runtime}" \
     --arg allow "${study_allow_golden_drift}" '
@@ -624,12 +1715,14 @@ performance_attempt_valid() {
     --arg fan_control_sha256 "${study_fan_control_sha256}" \
     --arg macmon_sha256 "${study_macmon_sha256}" \
     --arg macmon_version "${study_macmon_version}" \
+    --arg fan_policy "${study_performance_fan_policy}" \
     --arg log_sha256 "$(sha256_file "${log_file}")" \
     --arg environment_policy "${study_performance_environment_policy}" \
     --arg local_benchmark_cutover "${study_local_benchmark_cutover}" \
     --arg legacy_baseline_ref "${study_baseline_commit}" \
     --arg legacy_baseline_log_sha256 "${study_legacy_baseline_log_sha256}" \
     --arg expert_aligned_gather "0" \
+    --arg reader_timeout_seconds "${study_thermal_reader_timeout_seconds}" \
     --arg allow_golden_drift "${study_allow_golden_drift}" '
       .exit_code == 0
       and .source_ref == $source_ref
@@ -644,9 +1737,16 @@ performance_attempt_valid() {
           and .fan_control_sha256 == $fan_control_sha256
           and .macmon_sha256 == $macmon_sha256
           and .macmon_version == $macmon_version
+          and .fan_policy == $fan_policy
+          and .fan_status_before == $fan_policy
+          and .fan_status_after == $fan_policy
+          and (.started_at | type) == "string"
+          and (.thermal_preflight_receipt | type) == "string"
+          and (.thermal_preflight_sha256 | test("^[0-9a-f]{64}$"))
           and .log_sha256 == $log_sha256
           and .environment_policy == $environment_policy
           and .environment.MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY == "1"
+          and .environment.MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS == $reader_timeout_seconds
           and .environment.MLXFAST_LOCAL_FAN_PROMPT == "0"
         )
         or (
@@ -665,6 +1765,23 @@ performance_attempt_valid() {
       and .environment.DARKBLOOM_EXPERT_ALIGNED_GATHER == $expert_aligned_gather
       and .environment.MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT == $allow_golden_drift
     ' "${meta_file}" >/dev/null || return 1
+  if [[ "$(jq -r '.runner_sha256 // empty' "${meta_file}")" == "${study_runner_sha256}" ]]; then
+    local preflight_receipt preflight_sha256 attempt_started_at preflight_required_cool
+    IFS=$'\t' read -r preflight_receipt preflight_sha256 attempt_started_at \
+      < <(jq -r '[.thermal_preflight_receipt, .thermal_preflight_sha256, .started_at] | @tsv' "${meta_file}")
+    [[ "${preflight_receipt}" =~ ^thermal-[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]+$ ]] \
+      || return 1
+    case "$(jq -r '.required_cool' "${study_results}/preflight/${preflight_receipt}/meta.json" 2>/dev/null)" in
+      true) preflight_required_cool=1 ;;
+      false) preflight_required_cool=0 ;;
+      *) return 1 ;;
+    esac
+    performance_preflight_receipt_valid \
+      "${preflight_receipt}" "${preflight_sha256}" \
+      "${arm_rank}" "${arm_id}" "${arm_commit}" "${attempt_name}" \
+      "${attempt_started_at}" "${preflight_required_cool}" \
+      || return 1
+  fi
   local score_sha256
   score_sha256="$(sha256_file "${score_file}")"
   jq -e \
@@ -698,6 +1815,73 @@ performance_result_valid() {
   [[ "$(sha256_file "${arm_dir}/score.json")" == "$(sha256_file "${arm_dir}/${attempt_name}.score.json")" ]]
 }
 
+performance_attempt_current_contract() {
+  local arm_dir="$1"
+  local attempt_name="$2"
+  local arm_rank="$3"
+  local arm_id="$4"
+  local arm_commit="$5"
+  performance_attempt_valid "${arm_dir}" "${attempt_name}" "${arm_rank}" "${arm_id}" "${arm_commit}" \
+    || return 1
+  jq -e \
+    --arg runner_sha256 "${study_runner_sha256}" \
+    --arg local_benchmark_sha256 "${study_local_benchmark_sha256}" \
+    --arg fan_control_sha256 "${study_fan_control_sha256}" \
+    --arg macmon_sha256 "${study_macmon_sha256}" \
+    --arg macmon_version "${study_macmon_version}" \
+    --arg environment_policy "${study_performance_environment_policy}" \
+    --arg reader_timeout_seconds "${study_thermal_reader_timeout_seconds}" \
+    --arg fan_policy "${study_performance_fan_policy}" '
+      .runner_sha256 == $runner_sha256
+      and .local_benchmark_sha256 == $local_benchmark_sha256
+      and .fan_control_sha256 == $fan_control_sha256
+      and .macmon_sha256 == $macmon_sha256
+      and .macmon_version == $macmon_version
+      and .environment_policy == $environment_policy
+      and .fan_policy == $fan_policy
+      and .fan_status_before == $fan_policy
+      and .fan_status_after == $fan_policy
+      and .environment.MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY == "1"
+      and .environment.MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS == $reader_timeout_seconds
+      and .environment.MLXFAST_LOCAL_FAN_PROMPT == "0"
+    ' "${arm_dir}/${attempt_name}.meta.json" >/dev/null
+}
+
+performance_result_current_contract() {
+  local arm_dir="$1"
+  local arm_rank="$2"
+  local arm_id="$3"
+  local arm_commit="$4"
+  [[ -f "${arm_dir}/selected-attempt.txt" && -f "${arm_dir}/score.json" ]] || return 1
+  local attempt_name
+  attempt_name="$(tr -d '[:space:]' < "${arm_dir}/selected-attempt.txt")"
+  [[ "${attempt_name}" =~ ^attempt-[1-9][0-9]*$ ]] || return 1
+  performance_attempt_current_contract \
+    "${arm_dir}" "${attempt_name}" "${arm_rank}" "${arm_id}" "${arm_commit}" \
+    || return 1
+  [[ "$(sha256_file "${arm_dir}/score.json")" == "$(sha256_file "${arm_dir}/${attempt_name}.score.json")" ]]
+}
+
+performance_selection_current_complete() {
+  local candidate_selector="$1"
+  local baseline_dir="${study_results}/performance/${study_baseline_rank}-${study_baseline_id}"
+  performance_result_current_contract \
+    "${baseline_dir}" "${study_baseline_rank}" "${study_baseline_id}" "${study_baseline_commit}" \
+    || return 1
+  [[ "${candidate_selector}" == "baseline" ]] && return 0
+  local selected_count=0
+  local candidate_rank candidate_id candidate_commit performance_dir
+  while IFS=$'\t' read -r candidate_rank candidate_id candidate_commit; do
+    [[ -n "${candidate_rank}" ]] || continue
+    selected_count="$((selected_count + 1))"
+    performance_dir="${study_results}/performance/${candidate_rank}-${candidate_id}"
+    performance_result_current_contract \
+      "${performance_dir}" "${candidate_rank}" "${candidate_id}" "${candidate_commit}" \
+      || return 1
+  done < <(candidate_rows "${candidate_selector}")
+  [[ "${selected_count}" -gt 0 ]]
+}
+
 print_performance_comparison() {
   local arm_rank="$1"
   local score_file="$2"
@@ -713,7 +1897,12 @@ print_performance_comparison() {
       "${calibration_score}"
     return 0
   fi
-  [[ -f "${baseline_score}" ]] || return 0
+  local baseline_dir="${study_results}/performance/${study_baseline_rank}-${study_baseline_id}"
+  if ! performance_result_current_contract \
+      "${baseline_dir}" "${study_baseline_rank}" "${study_baseline_id}" "${study_baseline_commit}"; then
+    echo "top15-study: rank-${arm_rank} completed, but no current-contract rank-${study_baseline_rank} comparison is available" >&2
+    return 0
+  fi
   local baseline_prefill baseline_decode
   IFS=$'\t' read -r baseline_prefill baseline_decode \
     < <(jq -r '[.metrics.prefill_seconds_per_token, .metrics.decode_seconds_per_token] | @tsv' "${baseline_score}")
@@ -731,27 +1920,9 @@ print_performance_comparison() {
     '
 }
 
-run_performance_arm() {
-  local arm_rank="$1"
-  local arm_id="$2"
-  local arm_commit="$3"
-  local arm_dir="${study_results}/performance/${arm_rank}-${arm_id}"
-  mkdir -p "${arm_dir}"
-  ensure_arm_spec "${arm_dir}" performance "${arm_rank}" "${arm_id}" "${arm_commit}"
-  if performance_result_valid "${arm_dir}" "${arm_rank}" "${arm_id}" "${arm_commit}"; then
-    echo "top15-study: performance already complete for ${arm_rank}-${arm_id}"
-    return 0
-  fi
-  apply_snapshot "${arm_commit}" "${arm_rank}-${arm_id}"
-  local attempt_number
-  attempt_number="$(next_attempt_number "${arm_dir}" log)"
-  local attempt_name="attempt-${attempt_number}"
-  local attempt_log="${arm_dir}/${attempt_name}.log"
-  local attempt_score="${arm_dir}/${attempt_name}.score.json"
-  local attempt_integrity="${arm_dir}/${attempt_name}.integrity.json"
-  local attempt_meta="${arm_dir}/${attempt_name}.meta.json"
-  local benchmark_status
-  set +e
+execute_performance_benchmark() {
+  local attempt_score="$1"
+  local attempt_integrity="$2"
   (
     cd "${study_workspace}"
     /usr/bin/env -i \
@@ -764,6 +1935,7 @@ run_performance_arm() {
       MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT="${study_allow_golden_drift}" \
       MLXFAST_LOCAL_COOL_GATE=1 \
       MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1 \
+      MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS="${study_thermal_reader_timeout_seconds}" \
       MLXFAST_LOCAL_FAN_PROMPT=0 \
       MLXFAST_MACMON_BIN="${study_macmon_source}" \
       MLXFAST_REFERENCE_DIR="${study_reference}" \
@@ -772,9 +1944,64 @@ run_performance_arm() {
       MLXFAST_SCORE_PATH="${attempt_score}" \
       MLXFAST_INTEGRITY_PATH="${attempt_integrity}" \
       ./benchmark.sh "${study_perf_mode}"
-  ) 2>&1 | tee "${attempt_log}"
-  benchmark_status="${PIPESTATUS[0]}"
-  set -e
+  )
+}
+
+run_performance_arm() {
+  local arm_rank="$1"
+  local arm_id="$2"
+  local arm_commit="$3"
+  local arm_dir="${study_results}/performance/${arm_rank}-${arm_id}"
+  mkdir -p "${arm_dir}"
+  ensure_arm_spec "${arm_dir}" performance "${arm_rank}" "${arm_id}" "${arm_commit}"
+  if performance_result_current_contract "${arm_dir}" "${arm_rank}" "${arm_id}" "${arm_commit}"; then
+    echo "top15-study: performance already complete for ${arm_rank}-${arm_id}"
+    return 0
+  fi
+  apply_snapshot "${arm_commit}" "${arm_rank}-${arm_id}"
+  local attempt_number
+  attempt_number="$(next_attempt_number "${arm_dir}" log)"
+  local attempt_name="attempt-${attempt_number}"
+  local attempt_log="${arm_dir}/${attempt_name}.log"
+  local attempt_score="${arm_dir}/${attempt_name}.score.json"
+  local attempt_integrity="${arm_dir}/${attempt_name}.integrity.json"
+  local attempt_meta="${arm_dir}/${attempt_name}.meta.json"
+  local fan_status_before
+  if ! fan_status_before="$(performance_fan_status)"; then
+    echo "top15-study: refusing performance arm ${arm_rank}: fan policy is not verified '${study_performance_fan_policy}'" >&2
+    return 75
+  fi
+  local require_cool="${study_next_preflight_requires_cool}"
+  local preflight_status
+  if run_thermal_preflight \
+      "${require_cool}" "${arm_rank}" "${arm_id}" "${arm_commit}" "${attempt_name}"; then
+    :
+  else
+    preflight_status="$?"
+    return "${preflight_status}"
+  fi
+  local attempt_preflight="${study_current_performance_preflight}"
+  local attempt_preflight_sha256="${study_current_performance_preflight_sha256}"
+  study_current_performance_preflight=""
+  study_current_performance_preflight_sha256=""
+  local attempt_started_at
+  attempt_started_at="$(utc_now)"
+  performance_preflight_receipt_valid \
+    "${attempt_preflight}" "${attempt_preflight_sha256}" \
+    "${arm_rank}" "${arm_id}" "${arm_commit}" "${attempt_name}" \
+    "${attempt_started_at}" "${require_cool}" \
+    || die "attempt-bound thermal preflight failed its handoff check"
+  study_next_preflight_requires_cool=0
+
+  local benchmark_status
+  if run_supervised_logged_command \
+      "${attempt_log}" execute_performance_benchmark "${attempt_score}" "${attempt_integrity}"; then
+    benchmark_status=0
+  else
+    benchmark_status="$?"
+  fi
+  local fan_status_after
+  fan_status_after="$(read_performance_fan_status || true)"
   local score_sha256=""
   local integrity_sha256=""
   local log_sha256
@@ -783,7 +2010,8 @@ run_performance_arm() {
   log_sha256="$(sha256_file "${attempt_log}")"
   jq -n \
     --argjson exit_code "${benchmark_status}" \
-    --arg finished_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg started_at "${attempt_started_at}" \
+    --arg finished_at "$(utc_now)" \
     --arg source_ref "${arm_commit}" \
     --arg harness_ref "${study_harness_commit}" \
     --arg manifest_sha256 "${study_manifest_sha256}" \
@@ -794,14 +2022,21 @@ run_performance_arm() {
     --arg fan_control_sha256 "${study_fan_control_sha256}" \
     --arg macmon_sha256 "${study_macmon_sha256}" \
     --arg macmon_version "${study_macmon_version}" \
+    --arg fan_policy "${study_performance_fan_policy}" \
+    --arg fan_status_before "${fan_status_before}" \
+    --arg fan_status_after "${fan_status_after}" \
+    --arg thermal_preflight_receipt "${attempt_preflight}" \
+    --arg thermal_preflight_sha256 "${attempt_preflight_sha256}" \
     --arg log_sha256 "${log_sha256}" \
     --arg environment_policy "${study_performance_environment_policy}" \
     --arg score_sha256 "${score_sha256}" \
     --arg integrity_sha256 "${integrity_sha256}" \
     --arg expert_aligned_gather "0" \
+    --arg reader_timeout_seconds "${study_thermal_reader_timeout_seconds}" \
     --arg allow_golden_drift "${study_allow_golden_drift}" '
       {
         exit_code:$exit_code,
+        started_at:$started_at,
         finished_at:$finished_at,
         source_ref:$source_ref,
         harness_ref:$harness_ref,
@@ -813,6 +2048,11 @@ run_performance_arm() {
         fan_control_sha256:$fan_control_sha256,
         macmon_sha256:$macmon_sha256,
         macmon_version:$macmon_version,
+        fan_policy:$fan_policy,
+        fan_status_before:$fan_status_before,
+        fan_status_after:$fan_status_after,
+        thermal_preflight_receipt:$thermal_preflight_receipt,
+        thermal_preflight_sha256:$thermal_preflight_sha256,
         log_sha256:$log_sha256,
         environment_policy:$environment_policy,
         score_sha256:$score_sha256,
@@ -821,12 +2061,17 @@ run_performance_arm() {
           DARKBLOOM_EXPERT_ALIGNED_GATHER:$expert_aligned_gather,
           MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT:$allow_golden_drift,
           MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY:"1",
+          MLXFAST_LOCAL_COOL_GATE_READER_TIMEOUT_SECONDS:$reader_timeout_seconds,
           MLXFAST_LOCAL_FAN_PROMPT:"0"
         }
       }
     ' > "${attempt_meta}"
+  if [[ "${fan_status_after}" != "${study_performance_fan_policy}" ]]; then
+    echo "top15-study: aborting the performance campaign because post-arm fan policy is '${fan_status_after:-unreadable}', expected '${study_performance_fan_policy}'" >&2
+    return 75
+  fi
   case "${benchmark_status}" in
-    129|130|143) return "${benchmark_status}" ;;
+    125|129|130|131|143) return "${benchmark_status}" ;;
   esac
   if performance_attempt_valid "${arm_dir}" "${attempt_name}" "${arm_rank}" "${arm_id}" "${arm_commit}"; then
     cp "${attempt_score}" "${arm_dir}/score.json"
@@ -854,6 +2099,18 @@ run_performance() {
   local candidate_selector="${1:-all}"
   [[ "${study_performance_enabled}" == "true" ]] \
     || die "performance is disabled by manifest: ${study_manifest}"
+  require_inputs
+  if performance_selection_current_complete "${candidate_selector}"; then
+    echo "top15-study: selected performance work is already complete under the current contract"
+    return 0
+  fi
+  local baseline_dir="${study_results}/performance/${study_baseline_rank}-${study_baseline_id}"
+  if [[ "${candidate_selector}" != "all" && "${candidate_selector}" != "baseline" ]]; then
+    performance_result_current_contract \
+      "${baseline_dir}" "${study_baseline_rank}" "${study_baseline_id}" "${study_baseline_commit}" \
+      || die "rank-${study_baseline_rank} must be refreshed under the current auto-fan/env-i/telemetry contract before any candidate; run: $0 perf baseline"
+  fi
+  study_next_preflight_requires_cool=1
   prepare_workspace
   if [[ "${candidate_selector}" == "all" || "${candidate_selector}" == "baseline" ]]; then
     local baseline_status
@@ -876,7 +2133,7 @@ run_performance() {
     else
       arm_status="$?"
       case "${arm_status}" in
-        75|129|130|143) return "${arm_status}" ;;
+        75|125|129|130|131|143) return "${arm_status}" ;;
       esac
       failure_count="$((failure_count + 1))"
     fi
@@ -1451,6 +2708,7 @@ run_quality() {
 show_status() {
   require_inputs
   local performance_complete=0
+  local performance_current_contract=0
   local performance_invalid=0
   local quality_valid=0
   local quality_bounded=0
@@ -1461,6 +2719,9 @@ show_status() {
     local baseline_dir="${study_results}/performance/${study_baseline_rank}-${study_baseline_id}"
     if performance_result_valid "${baseline_dir}" "${study_baseline_rank}" "${study_baseline_id}" "${study_baseline_commit}"; then
       performance_complete="$((performance_complete + 1))"
+      if performance_result_current_contract "${baseline_dir}" "${study_baseline_rank}" "${study_baseline_id}" "${study_baseline_commit}"; then
+        performance_current_contract="$((performance_current_contract + 1))"
+      fi
     elif [[ -f "${baseline_dir}/selected-attempt.txt" ]]; then
       performance_invalid="$((performance_invalid + 1))"
     fi
@@ -1470,6 +2731,9 @@ show_status() {
       local performance_dir="${study_results}/performance/${candidate_rank}-${candidate_id}"
       if performance_result_valid "${performance_dir}" "${candidate_rank}" "${candidate_id}" "${candidate_commit}"; then
         performance_complete="$((performance_complete + 1))"
+        if performance_result_current_contract "${performance_dir}" "${candidate_rank}" "${candidate_id}" "${candidate_commit}"; then
+          performance_current_contract="$((performance_current_contract + 1))"
+        fi
       elif [[ -f "${performance_dir}/selected-attempt.txt" ]]; then
         performance_invalid="$((performance_invalid + 1))"
       fi
@@ -1490,6 +2754,7 @@ show_status() {
   echo "results: ${study_results}"
   if [[ "${study_performance_enabled}" == "true" ]]; then
     echo "performance: ${performance_complete}/$((candidate_total + 1)) valid, ${performance_invalid} invalid selected, $((candidate_total + 1 - performance_complete - performance_invalid)) pending (rank-${study_baseline_rank} local comparator + ${candidate_total} candidates)"
+    echo "performance current contract: ${performance_current_contract}/$((candidate_total + 1)) auto-fan/env-i/strict-telemetry receipts (fresh rank-${study_baseline_rank} required before candidates)"
   else
     echo "performance: disabled by manifest"
   fi
@@ -1500,6 +2765,7 @@ usage() {
   cat <<'EOF'
 Usage:
   run-study.sh prepare
+  run-study.sh thermal-preflight
   run-study.sh perf [all|baseline|RANK|SUBMISSION_PREFIX]
   run-study.sh quality [all|RANK|SUBMISSION_PREFIX]
   run-study.sh status
@@ -1508,7 +2774,10 @@ Usage:
 The runner is resumable and skips valid completed artifacts. Performance uses
 --local-submit by default; set MLXFAST_TOP15_PERF_MODE=--local-iterate only for
 a deliberately weaker screen. The performance baseline is promoted rank 111,
-the exact parent of rank 112. Do not set MLXFAST_TOP15_ALLOW_GOLDEN_DRIFT=1
+the exact parent of rank 112. A fresh rank-111 auto-fan/current-contract receipt
+is mandatory before any candidate. `thermal-preflight` loads no model; it
+requires five responsive macmon samples, a <=40C final sample, and automatic
+fan control. Do not set MLXFAST_TOP15_ALLOW_GOLDEN_DRIFT=1
 until that unchanged comparator demonstrates a reproducible M4-only drift.
 EOF
 }
@@ -1518,10 +2787,11 @@ main() {
   local command_selector="${2:-all}"
   case "${command_name}" in
     prepare) prepare_workspace ;;
+    thermal-preflight) run_thermal_preflight 1 ;;
     perf) run_performance "${command_selector}" ;;
     quality) run_quality "${command_selector}" ;;
     status) show_status ;;
-    self-test) performance_log_thermal_self_test ;;
+    self-test) run_self_tests ;;
     -h|--help|help) usage ;;
     *) usage >&2; die "unknown command: ${command_name}" ;;
   esac
