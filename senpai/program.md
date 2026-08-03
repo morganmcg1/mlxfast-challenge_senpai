@@ -1,12 +1,11 @@
 # Poolside Laguna XS 2.1 MLX Inference Autoresearch
 
-This document defines how advisor and student agents conduct research in this
-repository. It is a strategy and decision policy, not a copy of the benchmark
-contract or an infrastructure runbook.
+This document defines how advisor and student agents run competition research in this repository.
+The goal is to reduce inference latency on the Poolside Laguna XS 2.1 NVFP4 model on a M5 Mac 
+and WIN the https://mlx.fast competition. The research team of agents here are fully expected to be able to deliver a winning speedup solution for this competition.
 
 The target is Poolside Laguna XS 2.1 NVFP4 text inference on the serial
-`laguna-xs-2.1-serial-v2` track. Find prompt-independent, production-valid
-latency improvements while preserving the track's observable behavior.
+`laguna-xs-2.1-serial-v2` track. 
 
 ## Mission
 
@@ -19,11 +18,6 @@ score = decode_speedup^0.75 * prefill_speedup^0.25
 Higher is better. `decode_speedup` and `prefill_speedup` compare the candidate
 with the pinned baseline measured in the same official session on the same M5
 Max. Both component speedups must be at least `0.95`.
-
-Correctness is a hard gate, not a tradeoff. Every checked greedy token must
-match the golden behavior. A fast candidate that changes a token, violates the
-serial protocol, fails a hidden behavior gate, or only improves an unscored
-path is a failed experiment.
 
 The official timed window and score weights make decode the primary
 optimization target:
@@ -47,6 +41,20 @@ correct improvements; never add an intentional regression, throttle, or
 benchmark-dependent switch to fit the band. Local modes warn about the fast
 edge but do not enforce the band.
 
+## Correctness
+
+### M4 vs M5
+
+You will only have Mac M4 machines to run your experiments on so you will need to be creative and efficient in your research. There might be some mismatch 
+between the speedups seen on Mac M4 and M5 machines but we have done the analysis 
+and feel confident that the M4 is still a valid proxy for the M5 for the vast majority of speedup experiments we're going to run.
+
+### Correctness gate
+Correctness is a hard gate, not a tradeoff. Every checked greedy token must
+match the golden behavior. A fast candidate that changes a token, violates the
+serial protocol, fails a hidden behavior gate, or only improves an unscored
+path is a failed experiment.
+
 Validation numbers are steering evidence. Only the official paired M5 result
 is a ranking claim.
 
@@ -64,7 +72,7 @@ frontier before promotion.
 
 ## Contract Map
 
-Use the narrowest source that owns the question:
+Useful files depending on what you're working on are:
 
 | Topic | Authoritative detail |
 | --- | --- |
@@ -90,17 +98,14 @@ Frontier selection and harness refresh have different meanings; follow the
 [frontier workflow](experiment-runbook.md#start-from-the-promoted-frontier)
 rather than inferring the current frontier from a remote branch name.
 
-## Execution Boundary
-
-Measured experiments require a qualifying Apple-Silicon Mac. The official M5
-Max remains authoritative; results from other Apple generations are
-directional. An agent without a qualifying host may perform static analysis or
-prepare a focused patch, but must report it as unmeasured.
+## Infrastructure
 
 All setup mechanics and host gotchas—including memory profiles, the one-model-
 process rule, thermal waits, telemetry, fan ownership, orchestration timeouts,
 and AWS lifecycle—live in [`infra.md`](infra.md). Students must not improvise
 around those controls.
+
+You will mostly be running your experiments on AWS Mac M4 Pro machines.
 
 ## Scored Path And Experiment Scope
 
@@ -177,7 +182,7 @@ The runbook owns the exact
 ignored-artifact rules, and pre-promotion sequence so those commands cannot
 drift in multiple documents.
 
-## Experiment Ladder
+## Student Agent - Experiment Ladder
 
 The ladder is selective, not cumulative. Start low and climb only when the
 next step can change the decision.
@@ -239,8 +244,7 @@ only if promotion changes that frontier. Queue and host mechanics belong in
 Exact-token correctness and the serial protocol are non-negotiable. The full
 public/hidden gate stack, non-M5 fixture-drift procedure, and local override
 rules live in [`AGENTS.md`](../AGENTS.md#correctness-gates) and
-[`AGENTS.md`](../AGENTS.md#notes-for-autonomous-agents). Do not reproduce or
-infer private prompts, accepted sequences, or judge behavior.
+[`AGENTS.md`](../AGENTS.md#notes-for-autonomous-agents). 
 
 The serial boundary has a simple research interpretation: a one-token request
 advances one position and cannot create future logits or KV state. Read the
@@ -262,7 +266,7 @@ baseline values, and exit semantics are in
 [`quality-evaluation.md`](quality-evaluation.md). These local checks never
 relax the official exact-token or hidden M5 gates.
 
-The quality panel is expensive and slows experiment throughput. Run it only
+Our local quality panel is expensive and slows experiment throughput. Run it only
 for a named risk or unresolved question that cheaper exact checks cannot answer.
 
 Treat new exact matched-reference or upstream-equivalence divergence as a hard
@@ -273,21 +277,9 @@ that percentage tuning cannot make this proxy reproduce official acceptance.
 If a fallback restores correctness but consumes the measured gain, the
 candidate is not a winner.
 
-## Research Autonomy
-
-The advisor assigns a bounded question or cost center plus the inherited
-validity contract; it should not prescribe an implementation. Within that
-scope, the student owns source inspection, profiling, hypothesis refinement,
-implementation shape, and the cheapest decisive validation.
-
-A student may narrow an arm, stop when evidence falsifies it, or return an
-analysis-only or measurement-only result. It does not owe the program a patch.
-Record higher-leverage adjacent ideas as follow-ups rather than silently
-broadening scope; a different causal mechanism is a new arm.
-
 ## Research Method
 
-Use this loop:
+A research loop for inspiration, feel free to deviate if you can move faster and more creatively in the research space:
 
 1. State the causal question and inherited validity boundary.
 2. Locate and, when useful, measure the target cost.
@@ -332,7 +324,7 @@ and prior results—not from a fixed checklist. Plausible cost centers include
 NVFP4 matmul and MoE dispatch, attention and RoPE, KV-cache movement, MLX graph
 and launch scheduling, weight/transform layout, and the output head. The
 organizer's [practical optimization ideas](../AGENTS.md#practical-optimization-ideas)
-provide orientation, not quotas.
+provide insptiration, not direction - feel free to deviate from these if you can move faster and more creatively in the research space.
 
 Reject directions that touch only unscored work, have a maximum plausible gain
 below timing noise, or compose several unmeasured ideas. Contract-specific
@@ -358,33 +350,8 @@ promotable candidate. The physical comparison and paired local estimate live
 in [`experiment-runbook.md`](experiment-runbook.md#extract-the-comparison),
 not in calibration-based local score fields.
 
-## Results And Advisor Guidance
-
-Canonical evidence is the ignored score JSON, command output, exact commits,
-and the PR result comment. This repository does not use W&B for benchmark
-metrics. At terminal reporting time, follow
-[`result-template.md`](result-template.md); do not carry its whole checklist
-through the active experiment loop.
-
-The advisor should:
-
-- keep one causal question per PR;
-- allocate work by plausible impact, confidence, uncertainty reduction, and
-  experiment cost;
-- search prior PRs before repeating an idea;
-- close dead arms when their stop rule is met;
-- merge only measured winners on the current frontier;
-- avoid bundling individually unmeasured optimizations;
-- reserve full local and official promotion work for candidates that survive
-  the fast screen; and
-- treat official M5 feedback as new evidence for the next round.
-
-The student owns the investigation and concise evidence. The advisor owns
-shared-frontier and official-queue decisions. Role prompts may add tactics but
-must point back here and may not weaken the repository contract.
-
 ## Final Principle
 
-Speedup is both the target and the operating principle. Explore boldly, test
+Speedup is both the target and the operating principle of this competition. Explore boldly, test
 decisively, and spend verification time only where it changes a research or
-promotion decision.
+promotion decision. It is of the utmost importance that we secure our posisiton at the top of the competition leaderboard - the consequences will be dire for us if we don't, I'm serious.
