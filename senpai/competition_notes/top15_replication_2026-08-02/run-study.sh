@@ -2184,6 +2184,7 @@ run_performance_batch() {
   [[ "${study_performance_enabled}" == "true" ]] \
     || die "performance is disabled by manifest: ${study_manifest}"
   require_inputs
+  wait_for_performance_batch_cool
   # A single process owns the whole thermal handoff. Only the first new arm
   # must already be <=40C at preflight; later preflights may be healthy-hot and
   # the benchmark's phase-boundary gate performs the actual cool-down.
@@ -2199,6 +2200,64 @@ run_performance_batch() {
       "${resolved_refs[${index}]}"
   done
   echo "top15-study: bounded performance batch complete"
+}
+
+# A detached batch may be launched while the host is still cooling from setup
+# or tests. Wait here, before applying a snapshot or loading the model, using
+# the same responsive persistent reader contract as the attempt receipt. A bad
+# reader fails immediately; only healthy-hot telemetry is allowed to wait.
+wait_for_performance_batch_cool() {
+  local wait_root started_at finished_at samples_file stderr_file reader_status
+  local final_gpu_temp now deadline iteration=0 fan_status
+  wait_root="$(mktemp -d "${study_results}/preflight-wait-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")" \
+    || die "could not create detached batch cool-wait evidence directory"
+  now="$(date +%s)"
+  deadline=$((now + 900))
+  while :; do
+    iteration=$((iteration + 1))
+    samples_file="${wait_root}/samples-${iteration}.jsonl"
+    stderr_file="${wait_root}/macmon-${iteration}.stderr"
+    fan_status="$(performance_fan_status)" \
+      || { echo "top15-study: detached cool wait lost automatic fan policy; evidence: ${wait_root}" >&2; return 75; }
+    started_at="$(utc_now)"
+    if run_bounded_capture \
+        "${samples_file}" "${stderr_file}" "${study_thermal_reader_timeout_seconds}" \
+        /usr/bin/env -i \
+          HOME="${HOME}" \
+          LOGNAME="${LOGNAME:-${USER:-}}" \
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:${HOME}/bin" \
+          TMPDIR="${TMPDIR:-/tmp}" \
+          USER="${USER:-}" \
+          "${study_macmon_source}" pipe \
+            --samples "${study_thermal_preflight_samples}" \
+            --interval "${study_thermal_preflight_interval_ms}"; then
+      reader_status=0
+    else
+      reader_status="$?"
+    fi
+    finished_at="$(utc_now)"
+    case "${reader_status}" in
+      125|129|130|131|143) return "${reader_status}" ;;
+    esac
+    if [[ "${reader_status}" -ne 0 ]] \
+        || ! thermal_samples_healthy "${samples_file}" \
+        || ! thermal_samples_fresh "${samples_file}" "${started_at}" "${finished_at}"; then
+      echo "top15-study: detached cool wait rejected unhealthy, frozen, or stale telemetry; evidence: ${wait_root}" >&2
+      return 75
+    fi
+    final_gpu_temp="$(jq -sr '.[-1].temp.gpu_temp_avg' "${samples_file}")"
+    if thermal_samples_ready "${samples_file}"; then
+      echo "top15-study: detached cool wait complete at ${final_gpu_temp}C after ${iteration} responsive stream(s); evidence: ${wait_root}"
+      return 0
+    fi
+    now="$(date +%s)"
+    if [[ "${now}" -ge "${deadline}" ]]; then
+      echo "top15-study: detached cool wait timed out after 900s at ${final_gpu_temp}C; no model was loaded; evidence: ${wait_root}" >&2
+      return 75
+    fi
+    echo "top15-study: waiting to launch model; healthy GPU telemetry is ${final_gpu_temp}C (target <=40C, fans ${fan_status})"
+    /bin/sleep 10
+  done
 }
 
 start_performance_batch_caffeinate() {
@@ -2222,6 +2281,7 @@ performance_batch_self_test() {
     require_inputs() { :; }
     prepare_workspace() { :; }
     start_performance_batch_caffeinate() { :; }
+    wait_for_performance_batch_cool() { :; }
     run_performance_arm() {
       printf '%s:%s\n' "$1" "${study_next_preflight_requires_cool}" >> "${sequence_file}"
       study_next_preflight_requires_cool=0

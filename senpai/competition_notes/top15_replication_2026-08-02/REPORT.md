@@ -1257,7 +1257,7 @@ paired baseline, and prefer independent official receipts.
 |---|---|
 | [candidates.json](candidates.json) | `785763d0a35cfbcb8b7643816990f60df98a80ff7976c5c1545ab7136f43285e` |
 | [official-findings.md](official-findings.md) | `d8d21e346d044a1862a8f9b76ec1cbc24fba817870a05d9a7aa912f891ec442c` |
-| [README.md](README.md) | `b440597c8f95fbbfee543a000310687fda1eb965d0f300394cbdfd455edc3066` |
+| [README.md](README.md) | `f11f947fa024221884b206a18c1d19e6917b2dcd6f219adcef5a126b80fa262c` |
 | [negative-controls.json](negative-controls.json) | `b7a498ae1c8bb74c0287159e817e7dfa5f2a5c41aa29020c100be18b3089869f` |
 | [control-run.json](control-run.json) | `3586c24e184c8b7f9f3dd25403654a2b2bc568b6046e7932f1f9b50b68ec0c14` |
 | [run-quality-controls.sh](run-quality-controls.sh) | `c026afb9b2efb54569d4ad2822e40b8d2cde9945e7c5b833ab3f26b844d94ec0` |
@@ -1285,7 +1285,7 @@ each study arm's `reset --hard 7702fab8…` replaced it before execution.
 | Input | SHA-256 |
 |---|---|
 | [build-report-data.py](build-report-data.py) | `db88f9500547fc71bc3f0266d64df9cbdfbfb6eb0fe0ad5d1eca543321d14b8a` |
-| [run-study.sh](run-study.sh) | `c2172f28767dc356098db60b222b800665c81337066a367482e6773eca7411b9` |
+| [run-study.sh](run-study.sh) | `8367a070759cc56883d99ca0e094cb70ed7cc1ec45b8fecee08dc12cb22561c1` |
 | [Fail-closed `benchmark.sh`](../../../benchmark.sh) | `05d60dd7b8dec7490f32802f201496407fd4687c55f0bf3c28a2bc55fc1c3877` |
 | [`tools/fan-control.sh`](../../../tools/fan-control.sh) | `d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a` |
 | Pinned local `macmon 0.7.2` | `495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19` |
