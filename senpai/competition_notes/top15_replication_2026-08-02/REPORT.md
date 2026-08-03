@@ -1285,7 +1285,7 @@ each study arm's `reset --hard 7702fab8…` replaced it before execution.
 | Input | SHA-256 |
 |---|---|
 | [build-report-data.py](build-report-data.py) | `db88f9500547fc71bc3f0266d64df9cbdfbfb6eb0fe0ad5d1eca543321d14b8a` |
-| [run-study.sh](run-study.sh) | `8367a070759cc56883d99ca0e094cb70ed7cc1ec45b8fecee08dc12cb22561c1` |
+| [run-study.sh](run-study.sh) | `6f38585f324c8588d9eaa6eefabe0b36e5b498f0dc80e120f3492385ac2fbd84` |
 | [Fail-closed `benchmark.sh`](../../../benchmark.sh) | `05d60dd7b8dec7490f32802f201496407fd4687c55f0bf3c28a2bc55fc1c3877` |
 | [`tools/fan-control.sh`](../../../tools/fan-control.sh) | `d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a` |
 | Pinned local `macmon 0.7.2` | `495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19` |

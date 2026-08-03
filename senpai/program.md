@@ -179,6 +179,10 @@ normal cool-down produces no research evidence.
 
 ### AWS EC2 Mac thermal provisioning
 
+Concrete capacity discovery, provisioning, sharding, artifact retrieval, and
+teardown are in [`infra.md`](infra.md); this section remains the experimental-
+validity and thermal contract.
+
 For AWS autoresearch, prefer [`mac-m4max.metal`](https://aws.amazon.com/about-aws/whats-new/2026/01/amazon-ec2-m4-max-mac-instances-ga/)
 with 128 GB of unified memory. Do not assign real-model experiments to
 `mac-m4.metal`: its 24 GiB is below this repository's roughly 36 GiB practical

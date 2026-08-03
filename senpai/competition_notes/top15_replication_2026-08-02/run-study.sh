@@ -41,7 +41,7 @@ study_macmon_sha256="495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e20798
 study_macmon_version="macmon 0.7.2"
 study_local_benchmark_cutover="2026-08-02T22:27:54Z"
 study_performance_environment_policy="env-i-v2"
-study_performance_fan_policy="auto"
+study_performance_fan_policy="${MLXFAST_TOP15_FAN_POLICY:-auto}"
 study_thermal_preflight_schema="mlxfast-top15-thermal-preflight-v1"
 study_thermal_preflight_samples=5
 study_thermal_preflight_interval_ms=1000
@@ -682,6 +682,8 @@ require_inputs() {
     || die "MLXFAST_TOP15_PERF_MODE must be --local-submit or --local-iterate"
   [[ "${study_allow_golden_drift}" == "0" || "${study_allow_golden_drift}" == "1" ]] \
     || die "MLXFAST_TOP15_ALLOW_GOLDEN_DRIFT must be 0 or 1"
+  [[ "${study_performance_fan_policy}" == "auto" || "${study_performance_fan_policy}" == "none" ]] \
+    || die "MLXFAST_TOP15_FAN_POLICY must be auto or none"
   [[ "${study_quality_retries}" =~ ^[1-9][0-9]*$ ]] \
     || die "MLXFAST_TOP15_QUALITY_RETRIES must be a positive integer"
   local wrapper_environment
@@ -2218,7 +2220,7 @@ wait_for_performance_batch_cool() {
     samples_file="${wait_root}/samples-${iteration}.jsonl"
     stderr_file="${wait_root}/macmon-${iteration}.stderr"
     fan_status="$(performance_fan_status)" \
-      || { echo "top15-study: detached cool wait lost automatic fan policy; evidence: ${wait_root}" >&2; return 75; }
+      || { echo "top15-study: detached cool wait lost fan policy '${study_performance_fan_policy}'; evidence: ${wait_root}" >&2; return 75; }
     started_at="$(utc_now)"
     if run_bounded_capture \
         "${samples_file}" "${stderr_file}" "${study_thermal_reader_timeout_seconds}" \
@@ -2917,7 +2919,7 @@ show_status() {
   echo "results: ${study_results}"
   if [[ "${study_performance_enabled}" == "true" ]]; then
     echo "performance: ${performance_complete}/$((candidate_total + 1)) valid, ${performance_invalid} invalid selected, $((candidate_total + 1 - performance_complete - performance_invalid)) pending (rank-${study_baseline_rank} local comparator + ${candidate_total} candidates)"
-    echo "performance current contract: ${performance_current_contract}/$((candidate_total + 1)) auto-fan/env-i/strict-telemetry receipts (fresh rank-${study_baseline_rank} required before candidates)"
+    echo "performance current contract: ${performance_current_contract}/$((candidate_total + 1)) ${study_performance_fan_policy}-fan/env-i/strict-telemetry receipts (fresh rank-${study_baseline_rank} required before candidates)"
   else
     echo "performance: disabled by manifest"
   fi
@@ -2938,12 +2940,14 @@ Usage:
 The runner is resumable and skips valid completed artifacts. Performance uses
 --local-submit by default; set MLXFAST_TOP15_PERF_MODE=--local-iterate only for
 a deliberately weaker screen. The performance baseline is promoted rank 111,
-the exact parent of rank 112. A fresh rank-111 auto-fan/current-contract receipt
-is mandatory before any candidate. `thermal-preflight` loads no model; it
-requires five responsive macmon samples, a <=40C final sample, and automatic
-fan control. `perf-batch` owns one bounded baseline/candidate sequence and
-stops on the first failed arm. Do not set MLXFAST_TOP15_ALLOW_GOLDEN_DRIFT=1
-until that unchanged comparator demonstrates a reproducible M4-only drift.
+the exact parent of rank 112. A fresh rank-111 current-contract receipt is
+mandatory before any candidate. `thermal-preflight` loads no model; it
+requires five responsive macmon samples, a <=40C final sample, and the declared
+fan policy. The default is `auto`; set MLXFAST_TOP15_FAN_POLICY=none only when
+the host truthfully reports unsupported fan control. `perf-batch` owns one
+bounded baseline/candidate sequence and stops on the first failed arm. Do not
+set MLXFAST_TOP15_ALLOW_GOLDEN_DRIFT=1 until that unchanged comparator
+demonstrates a reproducible M4-only drift.
 EOF
 }
 
