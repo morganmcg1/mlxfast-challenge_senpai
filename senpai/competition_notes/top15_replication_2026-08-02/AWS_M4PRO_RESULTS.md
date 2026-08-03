@@ -312,9 +312,10 @@ EC2 Mac Dedicated Hosts carry a 24-hour minimum. At the observed
 IPv4, tax, and egress. The campaign estimate including five provisioned root
 volumes and public IPv4 is approximately **$247.19**. Dedicated Hosts may be
 released no earlier than 2026-08-04 14:39:11 UTC; instance termination alone
-does not stop host billing. All five instances were terminated after artifact
-validation on 2026-08-03; the empty Dedicated Hosts remain until that release
-time.
+does not stop host billing. Termination was requested for all five instances
+after artifact validation on 2026-08-03; four were still completing AWS's Mac
+shutdown/scrub transition at handoff. The Dedicated Hosts remain until that
+release time.
 
 Raw artifacts live only under the ignored local tree
 `quality-results/aws-top15-20260803/collected/`, with the exact 15-row validator
