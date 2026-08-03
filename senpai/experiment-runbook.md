@@ -16,11 +16,16 @@ The advisor, acting as fork maintainer, updates fork `main` before a research
 round:
 
 1. Fetch `origin/main` and `upstream/main`.
-2. In a disposable worktree based on `upstream/main`, run `mlxfast sync`
-   without `--force` and commit the resulting promoted editable-path snapshot.
-3. In an integration branch based on `origin/main`, merge `upstream/main`.
-4. Restore only `benchmark.json`'s `editablePaths` from the promoted snapshot.
-5. Review and test the combined tree, then merge it into fork `main`.
+2. Use `mlxfast submissions --all` to identify and record the current promoted
+   organizer commit as `ORGANIZER_FRONTIER_SHA`.
+3. In an integration branch based on `origin/main`, cherry-pick only reviewed
+   organizer rule or contract commits. Skip bot validation commits and merge
+   wrappers.
+4. Restore all `benchmark.json` `editablePaths` from
+   `ORGANIZER_FRONTIER_SHA` as one snapshot. Submission commits are deltas
+   between unrelated solver trees; do not replay them individually.
+5. Reapply required fork compatibility fixes, review and test the combined
+   tree, then merge it into fork `main`.
 
 Do not run either `mlxfast sync` mode on fork `main` or a research branch.
 Normal sync hard-resets to the organizer tip; harness-only sync replaces tracked
@@ -37,9 +42,10 @@ RESEARCH_BRANCH="codex/short-topic"
 git switch -c "$RESEARCH_BRANCH" "$BASE_SHA"
 ```
 
-Record `BASE_SHA` in the result and keep it fixed for the experiment. If
-`origin/main` advances, finish the current measurement against its recorded
-base. Reapply and remeasure a promising candidate before promotion.
+Record `ORGANIZER_FRONTIER_SHA` and `BASE_SHA` in the result. Keep `BASE_SHA`
+fixed for the experiment. If `origin/main` advances, finish the current
+measurement against its recorded base. Reapply and remeasure a promising
+candidate before promotion.
 
 Run `./setup.sh` when the host, toolchain, checkpoint, or maintained base
 changes.
