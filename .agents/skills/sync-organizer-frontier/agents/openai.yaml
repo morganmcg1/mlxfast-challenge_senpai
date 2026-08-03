@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync Organizer Frontier"
+  short_description: "Safely import organizer rules and frontier code"
+  default_prompt: "Use $sync-organizer-frontier to update this fork from the latest promoted organizer frontier while preserving Senpai research files."
