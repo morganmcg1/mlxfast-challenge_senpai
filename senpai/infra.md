@@ -124,6 +124,14 @@ its old timing as promotion evidence.
 The remaining sections cover capacity, provisioning, sharding, artifact
 retrieval, and teardown for private AWS campaigns.
 
+This is the target design for future campaigns. The 2026-08-03 wrapper
+predates it: guards reused Xcode, the checkpoint, and unchanged transformed
+weights, but retries reran Brew/setup checks, used new workspace IDs that lost
+the `.build-worker` cache, wrote result tarballs only on the instances, and
+relied on controller SSH/SCP for retrieval. It did not create a preparation
+receipt, use a thin cohort-only launcher, upload result archives to S3, or trap
+early bootstrap exits.
+
 ## Capacity
 
 Prefer `mac-m4max.metal` (128 GiB). Use `mac-m4pro.metal` (48 GiB and the
@@ -158,39 +166,64 @@ See AWS's [EC2 Mac guide](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec
 [instance specifications](https://aws.amazon.com/ec2/instance-types/mac/), and
 [Dedicated Host quotas](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html).
 
-## Prepare each host once
+## Prepare immutable host state once
 
-Use a current ARM macOS AMI and an encrypted 150--200 GiB gp3 root volume.
-The stock macOS 26.5.2 ARM AMI is insufficient by itself: install the
-hash-pinned full Xcode 26.6 archive, select it with `xcode-select`, accept its
-license, run first-launch setup, and require `xcrun --find metal` before
-`./setup.sh`. Also install Homebrew `cmake`, `jq`, and `uv`, plus the pinned
-`~/bin/macmon`.
+Separate fleet preparation from cohort execution. A cohort launcher must never
+install or update Homebrew, extract Xcode, download the checkpoint, run a full
+`./setup.sh`, or transform unchanged weights. Those operations cost minutes,
+and heat the host before timing. In the 2026-08-03 campaign, guards avoided
+repeated Xcode extraction and unchanged-weight transform, but retries still
+reran package/setup checks and their new workspace IDs discarded the reusable
+`.build-worker` cache.
 
-A normal clone is insufficient: fetch every commit named by the top-15
-manifest, or transfer a full Git bundle. The current private-S3 bootstrap
-stages the hash-pinned full repository bundle, quality-baseline tarball,
-`macmon`, and Xcode archive; `./setup.sh` then downloads and verifies the pinned
-checkpoint and transforms weights independently on each host. Use a private
-bucket through a VPC endpoint or instance role, never public-read objects or
-embedded AWS credentials, and SHA-256 verify every bootstrap object.
+Prefer a versioned ARM macOS image with the selected/licensed Xcode and required
+Homebrew packages already installed. Otherwise run one idempotent preparation
+wrapper per physical host: install the hash-pinned Xcode archive, require
+`xcrun --find metal`, install `cmake`, `jq`, `uv`, and pinned `macmon`, transfer
+the full Git bundle, run `./setup.sh`, verify/transform the checkpoint, prepare
+the rolling workspace, and only then write a hash-bound preparation receipt.
+Set `HOMEBREW_NO_AUTO_UPDATE=1` during preparation and never invoke Brew from a
+timing cohort.
 
-Run `run-study.sh prepare` once, then confirm the chip/memory, Metal
-architecture, responsive five-sample `macmon pipe`, free disk, and absence of
-another model worker. Do not repeat this readiness pass for every shard.
-`tools/fan-control.sh status` may be `none` on EC2 because AWS does not promise
-guest SMC control; record that honestly and set `MLXFAST_TOP15_FAN_POLICY=none`.
-The current M4 Pro hosts report `none`. This override relaxes only the fan-status
-equality check: `macmon` and the temperature gate remain mandatory. Never
-falsify `auto` or disable cooling telemetry.
+Key the receipt by instance family, macOS build, Xcode/Swift version, harness
+commit, reference-manifest hash, transform-source hash, and runner contract.
+The receipt covers immutable toolchain and model inputs. The rolling workspace
+and build caches are intentionally mutable: verify their owner and preparation
+key, then rely on source freshness checks to rebuild affected products. Use a
+private bucket through an instance role, preferably over a VPC endpoint; never
+use public-read objects or embedded credentials, and SHA-256 verify every
+bootstrap object.
+Prefer a private image or encrypted EBS snapshot for the 21.6 GB checkpoint and
+transformed weights; live peer-to-peer checkpoint relay was slower than moving
+the shard to an already prepared host.
+
+Each physical Mac keeps one fixed, preparation-keyed rolling workspace with
+its `.build`, `.build-worker`, `.build-quality`, package, and Metal caches.
+Reference and transformed weights are shared, content-addressed host artifacts,
+not copied into each cohort workspace. Never reuse build products across a
+different preparation key. A candidate that changes transform sources gets a
+separately keyed weights tree and may not overwrite the shared cohort weights.
+
+Before putting a host in the ready queue, confirm chip/memory, Metal
+architecture, free disk, responsive five-sample `macmon pipe`, absence of a
+model worker, and fan capability. `tools/fan-control.sh status` may honestly be
+`none` on EC2; the M4 Pro hosts did not expose guest SMC control. That relaxes
+only fan-status equality: responsive telemetry and every 40C gate remain
+mandatory. A cohort verifies the receipt and these readiness facts; it does
+not repair or update the host.
 
 ## Shard and retain results
 
-Every physical host must measure its own fresh rank-111 comparator. Keep a
-unique workspace and results root per host; never normalize a candidate with a
-baseline from another host. Five hosts can cover the cohort as
-`112 113 114`, `115 116 117`, `118 119 120`, `121 122 123`, and
-`124 125 126`.
+The schedulable unit is a bounded cohort: one fresh same-host rank-111
+comparator followed by one to three candidates. Use a controller-side queue,
+not a permanent host-to-shard assignment. A prepared host that finishes early
+may take another unclaimed cohort, and a failed or thermally stalled host's
+work may move immediately to another prepared host. Every cohort and retry gets
+a unique results ID and its own rank-111 measurement, but reuses the physical
+host's rolling workspace and verified shared artifacts. Never normalize a
+candidate against another host or another retry cohort. The initial five-way
+split `112 113 114`, `115 116 117`, `118 119 120`, `121 122 123`, and
+`124 125 126` is an example, not a required mapping.
 
 Do not rely on `/usr/bin/nohup` on a headless EC2 Mac; it can refuse to detach
 from the SSH console. Run a wrapper through a one-shot system LaunchDaemon with
@@ -199,16 +232,35 @@ from the SSH console. Run a wrapper through a one-shot system LaunchDaemon with
 `ProcessType=Interactive`, `AbandonProcessGroup=false`, a bounded 60-second
 `ExitTimeOut`, and a unique label. Register it with
 `sudo launchctl bootstrap system <plist>`; do not use the restart-prone
-`launchctl submit` path. The LaunchDaemon runs the complete hash-verifying
-bootstrap wrapper, which exports unique results/workspace paths and the
-observed fan policy before calling `run-study.sh perf-batch ...`. It survives
-SSH closure without restarting a failed experiment.
+`launchctl submit` path. The LaunchDaemon runs only a thin cohort wrapper: it
+verifies the preparation receipt, exports the fixed reference/weights and
+rolling workspace, creates a unique results root, records the fan policy, and
+calls `run-study.sh perf-batch ...`. It survives SSH closure and
+`KeepAlive=false` prevents failed cohorts from restarting.
 
-Capture instance ID, host ID, AMI, chip, memory profile, Metal architecture,
-repo SHA, runner/manifest hashes, and the entire per-host result tree. On a
-retry use a new workspace/results ID so rank 111 is measured again. Retrieve
-artifacts before terminating the instance. Termination does not release the
-billed Dedicated Host: issue `release-hosts` at the recorded
-`host_release_not_before` UTC time once scrubbing permits it. Set root EBS
-`DeleteOnTermination=true`, and remove any retained volumes, snapshots,
-endpoints, public addresses, and campaign network resources.
+Install the exact snapshot before launch cooling. If the coarse stream reaches
+40C but the immediately following fresh five-sample receipt rebounds above it,
+retry only that fresh, plausible healthy-hot outcome without loading the model,
+for at most 900 seconds. Invalid, stale, frozen, unreadable, or
+supervision-failed telemetry stops the cohort. This handoff retry does not
+replace or relax the strict prefill and decode gates.
+
+Required next-campaign behavior—not implemented by the 2026-08-03 wrapper—is
+to package the host record, cohort spec, exit code, launch logs, status,
+score/integrity files, hashes, and raw thermal receipts from an EXIT trap,
+including nonzero and early-bootstrap exits. Upload the small archive plus
+SHA-256 sidecar to a unique private-S3 key through the instance role; never
+include weights, checkpoints, credentials, or build caches. The controller
+marks a cohort complete only after downloading, hashing, extracting, and
+validating it. Result delivery must not depend on SSH: a stale single-IP
+allowlist temporarily cut controller access during the 2026-08-03 campaign
+while launchd jobs kept running.
+
+Write a cleanup manifest as resources are allocated: hosts, instances,
+volumes, addresses, endpoint, bucket, IAM attachments, key pair, network, and
+each `host_release_not_before`. Verify cleanup credentials or delegate teardown
+to a persistent least-privilege role before starting; an expiring SSO session
+must not own delayed host release. After artifacts validate, terminate
+instances. At the recorded time release Dedicated Hosts, then remove all
+remaining campaign resources. Instance termination alone does not stop
+Dedicated Host billing.

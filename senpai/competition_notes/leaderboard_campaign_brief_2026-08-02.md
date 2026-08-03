@@ -21,6 +21,8 @@ and the corresponding promoted source snapshots in Git.
 Companion material:
 
 - [Exhaustive 126-submission promotion ledger](leaderboard_promotions_2026-08-02.md)
+- [AWS M4 Pro transfer measurements](top15_replication_2026-08-02/AWS_M4PRO_RESULTS.md)
+- [Local quality-proxy calibration](top15_replication_2026-08-02/QUALITY_CALIBRATION.md)
 - [Live leaderboard](https://mlx.fast/)
 - [Public submission feed](https://mlx.fast/api/benchmarks/1854efdf-feba-4773-bae9-b80520881a74/submissions)
 

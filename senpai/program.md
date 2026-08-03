@@ -262,6 +262,11 @@ baseline values, and exit semantics are in
 [`quality-evaluation.md`](quality-evaluation.md). These local checks never
 relax the official exact-token or hidden M5 gates.
 
+Treat new exact matched-reference or upstream-equivalence divergence as a hard
+stop. Treat the panel's retention, PPL, and response-prefix verdict as an amber
+drift alarm, not an automatic submission veto: accepted-rank calibration shows
+that percentage tuning cannot make this proxy reproduce official acceptance.
+
 If a fallback restores correctness but consumes the measured gain, the
 candidate is not a winner.
 

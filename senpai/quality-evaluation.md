@@ -1,6 +1,6 @@
 # Laguna quality evaluation
 
-`senpai/quality-eval` is a risk-based local regression gate for a modified
+`senpai/quality-eval` is a risk-based local regression panel for a modified
 Laguna checkout or prepared artifact. Use it when a candidate changes numerical
 behavior or representation—such as quantization, pruning, reduction order,
 activation math, dispatch/layout contracts, or output-head behavior—or when an
@@ -12,7 +12,8 @@ saves prompts, responses, logs, provenance, and summaries under the selected
 output directory.
 
 This panel supplements the challenge's exact-token and hidden behavioral
-gates; it does not replace them.
+gates; it does not replace them. Its threshold verdict is an amber drift alarm,
+not an automatic M5 submission veto; see [Accepted-rank calibration](#accepted-rank-calibration).
 
 ## First-time setup
 
@@ -58,8 +59,8 @@ Run the same panel after the change, then compare:
   --output quality-results/candidate-quick
 ```
 
-`run --baseline` and, by default, `compare` exit `0` on quality PASS and `3`
-on a completed quality FAIL (`compare --report-only` suppresses exit `3`). A
+`run --baseline` and, by default, `compare` exit `0` on threshold PASS and `3`
+on a completed threshold FAIL (`compare --report-only` suppresses exit `3`). A
 bare `run` only reports `EVALUATION RUN: PASS`, meaning the evaluator completed
 and produced valid outputs; it does not apply the retention gate. Other
 nonzero exits mean the evaluation was invalid, incomplete, or interrupted.
@@ -106,7 +107,7 @@ Always compare runs made with the same:
 
 Create a fresh baseline after any of those inputs changes.
 
-## Local gates
+## Local comparison thresholds
 
 Let:
 
@@ -120,7 +121,7 @@ overall_score = (
 ) / 53
 ```
 
-The downstream gate retains at least 97% of the baseline aggregate:
+The downstream threshold retains at least 97% of the baseline aggregate:
 
 ```text
 candidate_overall_score >= 0.97 * baseline_overall_score
@@ -129,7 +130,7 @@ candidate_correct >= ceil(0.97 * baseline_correct)
 
 For example, a baseline score of `10.0` requires `9.7` or higher; `9.6`
 fails. Correct answers may move between datasets because only the summed
-53-question result gates.
+53-question result is compared.
 
 PPL is checked separately:
 
@@ -137,21 +138,48 @@ PPL is checked separately:
 candidate_ppl <= baseline_ppl / 0.97
 ```
 
-The remaining hard local checks are:
+The remaining comparison checks are:
 
 - ranked GPQA behavior: at least 7 of 9 decoded prefixes exactly match the
   matched baseline;
 - public first-token probe: exact match;
 - both runs: complete, valid, and contract-compatible.
 
+These thresholds detect local drift; a FAIL is not proof of official failure.
 The official challenge correctness and behavioral gates remain authoritative.
 
-## Baseline gate values
+## Accepted-rank calibration
 
-Recorded untouched Laguna reference on Mac16,6 M4 Max for the frozen
-20/9/9/9/6 panel:
+The frozen ranks 112–126 study evaluated all 15 officially accepted snapshots
+against the July-30 M4 baseline. Eleven produced formal comparisons and all 11
+failed this composite; four length-bounded AIME runs abstained. The only
+formally comparable selected official-failure control scored at least as well
+as accepted ranks 120–126 on every declared component. Therefore no monotone
+adjustment of `97%`, the PPL allowance, or prefix count can make this feature
+set reproduce official acceptance.
 
-| Check | Recorded reference | Reference-derived gate |
+Operationally:
+
+- keep the existing thresholds as conservative amber alarms;
+- use a fresh matched same-host current-frontier baseline for new work (rank
+  126 until superseded), not the old cumulative July-30 baseline;
+- treat invalid, incompatible, or length-bounded runs as abstentions;
+- hard-stop only new exact matched-reference, integrity, protocol,
+  upstream-equivalence, or teacher-forced correctness failures; and
+- send investigated amber candidates to M5 validation, whose hidden gates are
+  authoritative.
+
+The evidence, accepted/control measurements, and next calibration work are in
+[`competition_notes/top15_replication_2026-08-02/QUALITY_CALIBRATION.md`](competition_notes/top15_replication_2026-08-02/QUALITY_CALIBRATION.md).
+
+## Historical July-30 reference values
+
+The table below records the untouched Laguna baseline for the frozen
+20/9/9/9/6 panel. These absolute values are historical evidence, not thresholds
+for new candidates; derive new thresholds from the fresh matched
+current-frontier baseline.
+
+| Check | July-30 baseline | Historical threshold |
 | --- | ---: | ---: |
 | MMLU-Pro greedy | 9/20 | monitor only |
 | GPQA-Diamond greedy | 6/9 | monitor only |
@@ -174,12 +202,12 @@ Do not compare against a different host, prompt manifest, or evaluator SHA.
 
 For a roughly 13-minute edit-loop check on this Mac, use PPL plus MMLU-Pro,
 AIME, and GSM8K. It scores 35 attempts and omits the GPQA behavior check.
-The full-panel components imply an expected untouched aggregate of `16/35`,
-so the integer 97% gate is expected to require `16/35`. This value is derived
-from the recorded full panel (`9 + 4 + 3`), not from a separately preserved
-core-subset run. Verify it by creating the required matched subset baseline.
-PPL is expected to remain at most `14.386452`. Pass that subset baseline with
-`--baseline`; the full baseline is contract-incompatible with this subset:
+Create a separate matched subset baseline, then derive
+`ceil(0.97 * baseline_correct)` and `baseline_ppl / 0.97` from that artifact.
+The old July-30 full-panel components happened to imply `16/35` and PPL
+`<=14.386452`; those are examples, not reusable current-frontier limits. Pass
+the matched subset artifact with `--baseline` (the full baseline is contract-
+incompatible with this subset):
 
 ```bash
 # Once, before modifying the model:
@@ -196,8 +224,8 @@ PPL is expected to remain at most `14.386452`. Pass that subset baseline with
   --output quality-results/candidate-quick-core
 ```
 
-Use the full 53-attempt panel before promoting a candidate for which this
-quality gate is required.
+Use the full 53-attempt panel before M5 validation of a candidate for which
+this risk-based panel is required.
 
 ## Upstream-equivalence diagnostic
 
