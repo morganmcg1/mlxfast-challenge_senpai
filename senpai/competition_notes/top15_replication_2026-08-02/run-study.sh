@@ -35,12 +35,12 @@ study_macmon_source="${HOME}/bin/macmon"
 # Deliberately frozen for this cohort. The rank-126 harness copy warned on
 # impossible telemetry but still timed; this content-identical replacement
 # changes only local cooling behavior and makes that gate fail closed.
-study_local_benchmark_sha256="8827d1829db796836a87473dd730ff2c80a381df00626aabb526b8f20b3a8f57"
+study_local_benchmark_sha256="22ab13dacee12b874a601bcd4d8f557309019b352cdc13a1d3c72a34c2d2e92c"
 study_fan_control_sha256="d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a"
 study_macmon_sha256="495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19"
 study_macmon_version="macmon 0.7.2"
 study_local_benchmark_cutover="2026-08-02T22:27:54Z"
-study_performance_environment_policy="env-i-v1"
+study_performance_environment_policy="env-i-v2"
 study_legacy_baseline_log_sha256="f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130"
 
 die() {
@@ -647,6 +647,7 @@ performance_attempt_valid() {
           and .log_sha256 == $log_sha256
           and .environment_policy == $environment_policy
           and .environment.MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY == "1"
+          and .environment.MLXFAST_LOCAL_FAN_PROMPT == "0"
         )
         or (
           (has("local_benchmark_sha256") | not)
@@ -763,6 +764,7 @@ run_performance_arm() {
       MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT="${study_allow_golden_drift}" \
       MLXFAST_LOCAL_COOL_GATE=1 \
       MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1 \
+      MLXFAST_LOCAL_FAN_PROMPT=0 \
       MLXFAST_MACMON_BIN="${study_macmon_source}" \
       MLXFAST_REFERENCE_DIR="${study_reference}" \
       MLXFAST_WEIGHTS_PATH="${study_weights}" \
@@ -818,7 +820,8 @@ run_performance_arm() {
         environment:{
           DARKBLOOM_EXPERT_ALIGNED_GATHER:$expert_aligned_gather,
           MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT:$allow_golden_drift,
-          MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY:"1"
+          MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY:"1",
+          MLXFAST_LOCAL_FAN_PROMPT:"0"
         }
       }
     ' > "${attempt_meta}"

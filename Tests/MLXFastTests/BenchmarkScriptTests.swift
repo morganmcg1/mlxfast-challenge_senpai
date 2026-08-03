@@ -4428,9 +4428,24 @@ func coolGateFanBoostIsOptInSudoSafeAndBoundedToSeventyOrEightyPercent() throws 
     // A boost that engages resets the stall clock so the fans get a fresh
     // window before the abort.
     #expect(script.contains("last_progress_waited=\"${waited}\""))
-    // Interactive-only: without a tty there is no sudo prompt, just a hint.
+    // Interactive-only: automation can disable the prompt explicitly, and a
+    // tty is usable only when stderr is a terminal and this process group owns
+    // the foreground. Stdin is deliberately not required because the
+    // monitored model process is backgrounded and the prompt reads /dev/tty
+    // directly. Merely opening /dev/tty can leave a background child stopped
+    // on SIGTTIN forever.
+    #expect(script.contains("MLXFAST_LOCAL_FAN_PROMPT:-1"))
+    #expect(script.contains("[[ -t 2 ]]"))
+    #expect(!script.contains("[[ -t 0 && -t 2 ]]"))
     #expect(script.contains(": < /dev/tty"))
+    #expect(script.contains("/bin/ps -o pgid="))
+    #expect(script.contains("/bin/ps -o tpgid="))
+    #expect(script.contains("/usr/bin/tr -d '[:space:]'"))
+    #expect(script.contains("\"${process_group}\" == \"${terminal_group}\""))
     #expect(script.contains("read -r -t 30 -p"))
+    #expect(script.contains("trap '' TTIN"))
+    #expect(script.contains("trap - TTIN"))
+    #expect(script.contains("if ! read_fan_boost_reply; then"))
     // The sudo reasoning is printed before any password prompt can appear.
     #expect(script.contains("the password is never read, stored,"))
     // Never wire a password into sudo from the shell.
@@ -4452,6 +4467,90 @@ func coolGateFanBoostIsOptInSudoSafeAndBoundedToSeventyOrEightyPercent() throws 
     #expect(fan.contains("-k \"F${i}Md\" -w 00"))
     #expect(fan.contains("-k \"F${i}Md\" -w 01"))
     #expect(fan.contains("-k \"F${i}Tg\" -w \"${hex}\""))
+}
+
+@Test
+func fanPromptTTYGuardExecutesSafelyAcrossForegroundAndBackgroundJobs() throws {
+    let script = try String(contentsOfFile: "benchmark.sh", encoding: .utf8)
+    let start = try #require(script.range(of: "fan_prompt_has_foreground_tty() {"))
+    let end = try #require(
+        script.range(of: "\n\noffer_fan_boost() {", range: start.lowerBound..<script.endIndex)
+    )
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = root.appendingPathComponent("fan-prompt-tty-fixture.sh")
+    try """
+    #!/bin/bash
+    set -u
+    \(script[start.lowerBound..<end.lowerBound])
+    case "${1:-}" in
+      eligibility)
+        if fan_prompt_has_foreground_tty; then echo eligible; else echo suppressed; fi
+        ;;
+      read)
+        reply=""
+        if read_fan_boost_reply; then echo read-ok; else echo read-failed; fi
+        ;;
+      *) exit 64 ;;
+    esac
+    """.write(to: fixture, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: fixture.path
+    )
+
+    func runPTY(
+        arguments: [String],
+        overrides: [String: String] = [:]
+    ) throws -> (status: Int32, output: String, timedOut: Bool) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "/dev/null", "/bin/bash"] + arguments
+        process.environment = benchmarkTestEnvironment(overrides)
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        let timedOut = process.isRunning
+        if timedOut {
+            _ = kill(process.processIdentifier, SIGKILL)
+        }
+        process.waitUntilExit()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return (
+            process.terminationStatus,
+            String(data: data, encoding: .utf8) ?? "",
+            timedOut
+        )
+    }
+
+    let foreground = try runPTY(arguments: [fixture.path, "eligibility"])
+    #expect(!foreground.timedOut)
+    #expect(foreground.status == 0)
+    #expect(foreground.output.contains("eligible"))
+
+    let disabled = try runPTY(
+        arguments: [fixture.path, "eligibility"],
+        overrides: ["MLXFAST_LOCAL_FAN_PROMPT": "0"]
+    )
+    #expect(!disabled.timedOut)
+    #expect(disabled.status == 0)
+    #expect(disabled.output.contains("suppressed"))
+
+    // A separate background process group owns the same controlling tty but
+    // not its foreground slot. Calling the actual guarded read directly also
+    // exercises the check-to-read race defense: ignored TTIN must turn the
+    // read into an immediate failure instead of stopping past the timeout.
+    let backgroundCommand =
+        "set -m; /bin/bash '\(fixture.path)' read & wait"
+    let background = try runPTY(arguments: ["-c", backgroundCommand])
+    #expect(!background.timedOut)
+    #expect(background.status == 0)
+    #expect(background.output.contains("read-failed"))
 }
 
 @Test
@@ -4723,7 +4822,7 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     #expect(runner.contains("install_local_benchmark() {"))
     #expect(runner.contains("install_local_benchmark\n  jq -n"))
     #expect(runner.contains(
-        "study_local_benchmark_sha256=\"8827d1829db796836a87473dd730ff2c80a381df00626aabb526b8f20b3a8f57\""
+        "study_local_benchmark_sha256=\"22ab13dacee12b874a601bcd4d8f557309019b352cdc13a1d3c72a34c2d2e92c\""
     ))
     #expect(runner.contains("study_fan_control_sha256="))
     #expect(runner.contains("study_macmon_sha256="))
@@ -4731,9 +4830,11 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     // Caller-provided model, workload, sandbox, and thermal variables cannot
     // leak into the frozen campaign subprocess.
     #expect(runner.contains("/usr/bin/env -i"))
-    #expect(runner.contains("study_performance_environment_policy=\"env-i-v1\""))
+    #expect(runner.contains("study_performance_environment_policy=\"env-i-v2\""))
     #expect(runner.contains("environment_policy:$environment_policy"))
     #expect(runner.contains("MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY=1"))
+    #expect(runner.contains("MLXFAST_LOCAL_FAN_PROMPT=0"))
+    #expect(runner.contains(".environment.MLXFAST_LOCAL_FAN_PROMPT == \"0\""))
     #expect(runner.contains("MLXFAST_MACMON_BIN=\"${study_macmon_source}\""))
 
     // The receipt is exact, phase ordered, hash-bound for new attempts, and a
@@ -4744,6 +4845,167 @@ func top15RunnerPinsStrictThermalToolsAndRejectsUnboundGateLogs() throws {
     #expect(runner.contains("log_sha256:$log_sha256"))
     #expect(runner.contains("a status-0 attempt lacks two trustworthy ordered thermal gates"))
     #expect(runner.contains("75|129|130|143) return \"${arm_status}\""))
+}
+
+@Test
+func top15DerivedQualityBaselineAndRank111AnchorStayIsolated() throws {
+    let root = "senpai/competition_notes/top15_replication_2026-08-02"
+    let derive = try String(
+        contentsOfFile: "\(root)/derive-rank126-quality.sh",
+        encoding: .utf8
+    )
+    let anchor = try String(
+        contentsOfFile: "\(root)/run-quality-anchor.sh",
+        encoding: .utf8
+    )
+    let builder = try String(
+        contentsOfFile: "\(root)/build-report-data.py",
+        encoding: .utf8
+    )
+    let anchorManifestData = try Data(
+        contentsOf: URL(fileURLWithPath: "\(root)/quality-anchor-run.json")
+    )
+    let anchorManifest = try #require(
+        JSONSerialization.jsonObject(with: anchorManifestData) as? [String: Any]
+    )
+    let primaryManifestData = try Data(
+        contentsOf: URL(fileURLWithPath: "\(root)/candidates.json")
+    )
+    let primaryManifest = try #require(
+        JSONSerialization.jsonObject(with: primaryManifestData) as? [String: Any]
+    )
+    let candidates = try #require(anchorManifest["candidates"] as? [[String: Any]])
+
+    // Derived comparisons are file-only, offline, provenance-checked, and
+    // forbidden from writing into the frozen primary result tree.
+    #expect(derive.contains("UV_OFFLINE=1"))
+    #expect(derive.contains("--report-only"))
+    #expect(derive.contains(".evaluator_provenance.sha256 == $evaluator_sha256"))
+    #expect(derive.contains("derived output must not overlap the frozen primary results"))
+    #expect(derive.contains("leaderboard-top15-rank126-relative-[0-9]{8}"))
+    #expect(derive.contains(".mlxfast-rank126-relative-owner.json"))
+    #expect(derive.contains("_evaluation_provenance"))
+    #expect(derive.contains("git -C \"${derived_repo}\" archive"))
+    #expect(derive.contains("primary-status.txt"))
+    #expect(derive.contains("primary artifact validation changed while deriving comparisons"))
+    #expect(derive.contains("source_run_spec_sha256"))
+    #expect(derive.contains("source_original_comparison_sha256"))
+    #expect(derive.contains("derived output file set differs from the audited receipt contract"))
+    #expect(derive.contains("primary runner did not validate all 15 quality artifacts"))
+    #expect(derive.contains("from laguna_quality.cli import main"))
+    #expect(derive.contains(".metrics.overall_score.baseline_correct"))
+    #expect(derive.contains("retrospective_comparisons:$retrospective_count"))
+    #expect(derive.contains(
+        "[[ \"${derived_formal_count}\" == \"11\" && \"${derived_bounded_count}\" == \"4\" ]]"
+    ))
+    #expect(derive.contains("[116,117,118,119]"))
+
+    // The real derivation entry point rejects the frozen primary tree before
+    // it checks for a local evaluator install or writes an ownership marker.
+    let overlap = Process()
+    overlap.executableURL = URL(fileURLWithPath: "/bin/bash")
+    overlap.arguments = [URL(fileURLWithPath: root)
+        .appendingPathComponent("derive-rank126-quality.sh").path]
+    var overlapEnvironment = ProcessInfo.processInfo.environment
+    overlapEnvironment["MLXFAST_TOP15_RANK126_RESULTS"] = URL(
+        fileURLWithPath: FileManager.default.currentDirectoryPath
+    ).appendingPathComponent("quality-results/leaderboard-top15-20260802").path
+    overlap.environment = overlapEnvironment
+    let overlapStderr = Pipe()
+    overlap.standardError = overlapStderr
+    try overlap.run()
+    overlap.waitUntilExit()
+    let overlapError = String(
+        data: overlapStderr.fileHandleForReading.readDataToEndOfFile(),
+        encoding: .utf8
+    ) ?? ""
+    #expect(overlap.terminationStatus != 0)
+    #expect(overlapError.contains("derived output must not overlap the frozen primary results"))
+
+    // Rank 111 is a separate quality-only cohort. It cannot mutate the
+    // 15-candidate manifest or accidentally dispatch performance.
+    #expect(anchorManifest["study"] as? String == "leaderboard-top15-20260802-rank111-quality-anchor")
+    #expect((anchorManifest["performance"] as? [String: Any])?["enabled"] as? Bool == false)
+    #expect(candidates.count == 1)
+    #expect(candidates[0]["rank"] as? Int == 111)
+    #expect((anchorManifest["primary_manifest"] as? [String: Any])?["sha256"] as? String
+        == "785763d0a35cfbcb8b7643816990f60df98a80ff7976c5c1545ab7136f43285e")
+    #expect(anchor.contains("workspace must remain separate from the primary study"))
+    #expect(anchor.contains("results must remain separate from the primary study"))
+    #expect(anchor.contains("primary manifest binding is stale"))
+    #expect(anchor.contains("rank-111 identity differs from the primary baseline"))
+    #expect(anchor.contains("shared quality contract differs from the primary manifest"))
+    #expect(anchor.contains("performance is intentionally disabled for this cohort"))
+    for key in [
+        "harness_commit",
+        "evaluator_commit",
+        "evaluator_sha256",
+        "quality_baseline",
+        "host",
+        "required_environment",
+    ] {
+        let anchorValue = try #require(anchorManifest[key])
+        let primaryValue = try #require(primaryManifest[key])
+        let anchorValueData = try JSONSerialization.data(
+            withJSONObject: ["value": anchorValue],
+            options: [.sortedKeys]
+        )
+        let primaryValueData = try JSONSerialization.data(
+            withJSONObject: ["value": primaryValue],
+            options: [.sortedKeys]
+        )
+        #expect(anchorValueData == primaryValueData,
+                "quality anchor must inherit \(key) from candidates.json")
+    }
+
+    // A copied manifest set with a valid primary checksum but altered anchor
+    // provenance must fail before run-study.sh can dispatch any work.
+    let mismatchRoot = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: mismatchRoot) }
+    for name in ["run-quality-anchor.sh", "quality-anchor-run.json", "candidates.json"] {
+        try FileManager.default.copyItem(
+            atPath: "\(root)/\(name)",
+            toPath: mismatchRoot.appendingPathComponent(name).path
+        )
+    }
+    let copiedAnchorURL = mismatchRoot.appendingPathComponent("quality-anchor-run.json")
+    let copiedAnchor = try String(contentsOf: copiedAnchorURL, encoding: .utf8)
+        .replacingOccurrences(
+            of: "7702fab8a41fe2f4ff2ae281beeb1548b31e3406",
+            with: "0000000000000000000000000000000000000000"
+        )
+    try copiedAnchor.write(to: copiedAnchorURL, atomically: true, encoding: .utf8)
+
+    let gitInit = Process()
+    gitInit.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    gitInit.arguments = ["-C", mismatchRoot.path, "init", "-q"]
+    try gitInit.run()
+    gitInit.waitUntilExit()
+    #expect(gitInit.terminationStatus == 0)
+
+    let mismatch = Process()
+    mismatch.executableURL = URL(fileURLWithPath: "/bin/bash")
+    mismatch.arguments = [
+        mismatchRoot.appendingPathComponent("run-quality-anchor.sh").path,
+        "status",
+    ]
+    let mismatchStderr = Pipe()
+    mismatch.standardError = mismatchStderr
+    try mismatch.run()
+    mismatch.waitUntilExit()
+    let mismatchError = String(
+        data: mismatchStderr.fileHandleForReading.readDataToEndOfFile(),
+        encoding: .utf8
+    ) ?? ""
+    #expect(mismatch.terminationStatus != 0)
+    #expect(mismatchError.contains("shared quality contract differs from the primary manifest"))
+
+    // A future full report-data publication includes the new tracked
+    // derivation and anchor definitions in its checksum input set.
+    #expect(builder.contains("RANK126_DERIVATION_PATH"))
+    #expect(builder.contains("QUALITY_ANCHOR_MANIFEST_PATH"))
+    #expect(builder.contains("QUALITY_ANCHOR_RUNNER_PATH"))
+    #expect(builder.contains("\"rank126_quality_derivation\": files.ref(RANK126_DERIVATION_PATH)"))
 }
 
 // End-to-end over the real script: a local run that recorded a fan boost

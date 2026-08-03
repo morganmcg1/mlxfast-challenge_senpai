@@ -1,0 +1,39 @@
+{
+  "manifest_schema": "mlxfast-quality-anchor-run-v1",
+  "study": "leaderboard-top15-20260802-rank111-quality-anchor",
+  "cohort": "rank111-quality-anchor",
+  "created_at_utc": "2026-08-02T23:41:02Z",
+  "primary_manifest": {
+    "path": "candidates.json",
+    "sha256": "785763d0a35cfbcb8b7643816990f60df98a80ff7976c5c1545ab7136f43285e"
+  },
+  "performance": {
+    "enabled": false,
+    "reason": "Rank 111 is already the local performance comparator. This isolated arm locates quality drift inherited before the fastest-15 lineage without changing the frozen primary manifest."
+  },
+  "change_label_prefix": "quality-anchor",
+  "harness_commit": "7702fab8a41fe2f4ff2ae281beeb1548b31e3406",
+  "evaluator_commit": "dbb0a1d13223adf15b092dd88ed92ef6abdd4b8f",
+  "evaluator_sha256": "647af7530d7c9bf88801fd92146439fdba5f75407bbee6a363b1a3ede1c90150",
+  "quality_baseline": "quality-results/baseline-quick-weave-v3-m4-20260730",
+  "host": {
+    "model": "Mac16,6",
+    "chip": "Apple M4 Max",
+    "memory_gb": 128,
+    "metal_architecture": "applegpu_g16s",
+    "official_runner_chip": "Apple M5 Max"
+  },
+  "required_environment": {
+    "DARKBLOOM_EXPERT_ALIGNED_GATHER": "0"
+  },
+  "candidates": [
+    {
+      "rank": 111,
+      "submission_id": "0682cc25-40a1-4f0e-bb96-c3b0f768b53c",
+      "source_ref": "af085760e96a5d719a2ba9c5817454158d9edb86",
+      "source_ref_kind": "submissionCommitSha",
+      "role": "Immediate promoted parent of rank 112 and local performance comparator.",
+      "mechanism": "Pre-fastest-15 promoted frontier used to distinguish inherited quality drift from changes introduced by ranks 112-126."
+    }
+  ]
+}

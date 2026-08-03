@@ -1,7 +1,7 @@
 # MLX Fast leaderboard wins and campaign bootstrap report
 
 Snapshot: **2026-08-02T09:07:21Z**<br>
-Report evidence cut: **2026-08-02T22:57:02Z**<br>
+Report evidence cut: **2026-08-03T00:10:26Z**<br>
 Track: `laguna-xs-2.1-serial-v2`<br>
 Official runner: **Apple M5 Max**<br>
 Local transfer host: **Apple M4 Max, 128 GB, Mac16,6**<br>
@@ -17,8 +17,10 @@ purpose is deliberately balanced:
 - state exactly where M4 transfer results disagree with official M5 outcomes;
 - preserve the completed negative-control calibration without overstating what
   one formal comparison and two bounded diagnostics can prove;
+- establish rank 126 as a same-host incremental quality baseline without
+  rewriting any frozen primary comparison;
 - preserve the stopped partial performance campaign without converting five
-  thermally invalid attempts into speed claims, while retaining all four
+  invalid selected candidate results into speed claims, while retaining all four
   completed extended-AIME diagnostics; and
 - retain search breadth beyond the mechanisms already explored by the leaders.
 
@@ -33,7 +35,8 @@ leaderboard](https://mlx.fast/) can move after this report's frozen snapshot.
 |---|---:|---|---|
 | Official promoted snapshots | 15 | 15/15 accepted on M5 | Complete; authoritative ranking evidence |
 | Local M4 quality comparisons | 15 | 11 formal comparisons; 4 bounded AIME non-completions; 0 invalid | Complete for the frozen quick-profile contract |
-| Local M4 performance arms | 16 including rank 111 comparator | **1 valid comparator; 5 thermally invalid candidate attempts; 10 pending** | Partial and stopped; no valid candidate speed comparison |
+| Rank-126-relative quality diagnostic | 15 | **10 retrospective: 6 retain / 4 regress; 1 rank-126 self-control; 4 bounded no-decisions** | Complete, offline, and useful for future incremental drift only |
+| Local M4 performance arms | 16 including rank 111 comparator | **1 valid comparator; 5 invalid selected candidate results; 10 pending** | Partial and stopped; no valid candidate speed comparison |
 | Negative controls | 3 | **3/3 processed: 1 formal regression; 2 bounded AIME non-completions; 0 invalid** | Complete for the frozen quick-profile control contract; no class-separating signal established |
 | Extended AIME diagnostics | 4 terminal ranks | **4/4 valid isolated diagnostics; all still length-bounded at 6,144 tokens** | Complete for the frozen diagnostic-only contract; primary quick-profile decisions remain unchanged |
 
@@ -46,7 +49,10 @@ has a two-part conclusion: the current composite
 M4 gate is decisively unsuitable as a veto on this cohort because it rejects
 every formally comparable official success; the choice of a replacement rule
 and any inference about the private M5 gate remain inconclusive because only
-one selected official failure produced a formal local comparison.
+one selected official failure produced a formal local comparison. The
+rank-126-relative diagnostic nevertheless gives our own campaign a practical
+same-host baseline and shows that response identity—not the 3% numeric
+terms—separates the early and late formal lineage clusters.
 
 ## Executive findings
 
@@ -196,7 +202,26 @@ snapshots only and therefore cannot test class separation. It does **not**
 retroactively convert any primary terminal arm into a formal comparison, and it
 is not evidence that the officially accepted M5 snapshots are invalid.
 
-### 9. Apple GPU geometry does not transfer reliably
+### 9. Rank 126 is a useful incremental baseline, but response identity is the separator
+
+An offline, provenance-checked recomparison uses the completed rank-126 M4
+artifact as a forward-looking baseline for our own autoresearch. Its 3%
+numeric bounds are `22/53` downstream and PPL no worse than
+`15.43371157578533`, with the unchanged `7/9` ranked-GPQA and exact public-token
+requirements.
+
+Ranks 120–122 retain at exactly `7/9`, while ranks 123–125 retain at `9/9` and
+are response-identical; rank 126 is the tautological `9/9` self-control. Ranks
+112–115 have **better** downstream count and PPL than rank 126 but regress
+because they match `0/9` ranked-GPQA responses. Thus loosening or tightening
+the 3% numeric terms would miss the observed lineage boundary; behavior
+identity carries the signal. Ranks 116–119 remain censored.
+
+This establishes a practical same-host baseline for future candidates, not an
+official/private-gate surrogate. Applying a future rank-126 reference backward
+to earlier promotions is diagnostic only.
+
+### 10. Apple GPU geometry does not transfer reliably
 
 Rank 126's one-row-per-SIMD down retile was roughly 12% slower on another Apple
 GPU but about 0.4% faster in isolated official M5 candidate time. The local
@@ -395,6 +420,41 @@ Within-cluster identity is evidence that several structural optimizations
 preserve the observed M4 behavior of their conceptual branch. It is not proof
 of equivalence to the M5 path or private oracle.
 
+### Rank-126-relative incremental diagnostic
+
+The completed rank-126 artifact is now frozen as the same-host quality baseline
+for future autoresearch candidates. It records `22/53`, PPL
+`14.970700228511769`, the exact public token, and nine ranked-GPQA responses.
+Under the same composite contract, a future retain requires at least `22/53`,
+PPL at most `15.43371157578533`, at least `7/9` ranked-GPQA matches, and the
+exact public token.
+
+[`derive-rank126-quality.sh`](derive-rank126-quality.sh) recomputes ten
+retrospective comparisons plus the rank-126 self-control offline under the
+frozen evaluator and records the four bounded arms without inventing
+comparisons. It writes a separate ignored result tree and never replaces the
+primary `comparison.json` files.
+
+| Ranks | Evidence | Rank-126-relative outcome | Numeric terms | Ranked GPQA | Full response identity |
+|---|---|---|---|---:|---:|
+| 112–115 | Formal | **REGRESSION** | Pass: 23/53; PPL 14.613698880 | 0/9 | 11/62 (17.7%) |
+| 116–119 | Bounded | **NO FORMAL DECISION** | Not comparable | — | — |
+| 120–122 | Formal | **RETAIN** | Pass: 22/53; PPL 14.903492398 | 7/9 | 60/62 (96.8%) |
+| 123–125 | Formal retrospective | **RETAIN** | Pass: 22/53; PPL 14.970700229 | 9/9 | 62/62 (100%) |
+| 126 | Self-control | **RETAIN** | Pass: 22/53; PPL 14.970700229 | 9/9 | 62/62 (100%) |
+
+The numeric terms pass for every formal row. The decision boundary is entirely
+behavioral: ranks 112–115 differ from the late lineage, ranks 120–122 sit at the
+declared prefix floor, ranks 123–125 are identical under this profile, and rank
+126 verifies the self-comparison path. This does not calibrate the private M5
+judge, but it gives our campaign a much more relevant incremental drift alarm
+than comparing every future experiment only to the older July 30 checkout.
+
+The rank-111 quality anchor remains pending. It is isolated in
+[`quality-anchor-run.json`](quality-anchor-run.json) and
+[`run-quality-anchor.sh`](run-quality-anchor.sh), so running it later will not
+change the frozen 15-arm manifest or its artifacts.
+
 ### Calibration by official label
 
 The local outcome table is a two-class by three-decision calibration, not a
@@ -482,7 +542,11 @@ single stricter-versus-looser axis.
    primary terminal ranks remain length-bounded after tripling the ceiling.
    That narrows the local failure mode, but the isolated reruns deliberately
    produce no formal gate decision and no private-M5 equivalence claim.
-9. **The stopped performance run exposed a fail-open local telemetry path.**
+9. **Rank 126 is useful for incremental drift, not private-gate inference.**
+   All ten retrospective rows pass its numeric bounds, while response
+   identity splits ranks 112–115 from ranks 120–126. Use that contract for
+   future same-host comparisons and keep its meaning local.
+10. **The stopped performance run exposed a fail-open local telemetry path.**
    Rank 111 genuinely gated at `40.0C` and `39.9C`. Starting with rank 112,
    `macmon` intermittently returned an impossible `1.5C`; the old helper
    warned and then accepted it because `1.5 <= 40`. Candidate timings produced
@@ -505,11 +569,11 @@ percentage:
 
 Do not loosen or tighten the 3% terms from this cohort: control 202 proves that
 monotone threshold adjustment cannot separate it from ranks 120–126. Add a
-rank-111 quality arm to locate inherited drift, establish rank 126 as the
-same-host incremental quality baseline for autoresearch, and retain the July 30
-untouched baseline as the cumulative reference. Whether those additions yield
-a predictive local surrogate remains an experiment, not a conclusion of this
-report.
+rank-111 quality arm to locate inherited drift. Rank 126 is now established as
+the same-host incremental quality baseline for autoresearch, while the July 30
+untouched baseline remains the cumulative reference. Whether the pending
+anchor and future same-host comparisons yield a predictive local surrogate
+remains an experiment, not a conclusion of this report.
 
 ## Stopped partial local performance study — 16 arms
 
@@ -517,8 +581,10 @@ The audited state is **1/16 valid, 5/16 invalid, and 10/16 pending**. Rank 111
 is the sole valid local timing. Ranks 113–117 are retained, hash-bound
 correctness-passing attempts, but they are invalid for performance because
 both timed phases accepted implausible `1.5C` telemetry. Rank 112 failed its
-decode cool-down; rank 118 was interrupted during the prefill gate when this
-campaign was stopped; ranks 119–126 did not start.
+original decode cool-down; its repaired attempt 2 then cooled plausibly from
+`50.1C` to `45.4C`, reheated to `48.0C`, and was stopped at the still-blocked
+prefill gate before any timing. Rank 118 was interrupted during the prefill
+gate when the original campaign was stopped; ranks 119–126 did not start.
 
 The executable local comparator is rank 111, submission
 `0682cc25-40a1-4f0e-bb96-c3b0f768b53c` at source
@@ -545,7 +611,7 @@ No candidate result receives that exception.
 | Rank | Submission / source | Required role | Audited status | Local decode | Local prefill | Index vs rank 111 |
 |---:|---|---|---|---:|---:|---:|
 | 111 | [0682cc25](https://mlx.fast/api/submissions/0682cc25-40a1-4f0e-bb96-c3b0f768b53c) · [`af085760`](https://github.com/Layr-Labs/mlxfast-challenge/commit/af085760e96a5d719a2ba9c5817454158d9edb86) | Same-contract comparator | **VALID** — gates `40.0C` / `39.9C`; correctness passed | 20.5638 ms/token | 3.4124 ms/token | 1.0000× |
-| 112 | [aa6660cb](https://mlx.fast/api/submissions/aa6660cb-a3e4-410a-a365-bb117e3e98f1) · [`df0af746`](https://github.com/Layr-Labs/mlxfast-challenge/commit/df0af746de208e267ae16e7dc62f901aa5cff77a) | Candidate | **PENDING / NO RESULT** — decode cool-down failed | — | — | — |
+| 112 | [aa6660cb](https://mlx.fast/api/submissions/aa6660cb-a3e4-410a-a365-bb117e3e98f1) · [`df0af746`](https://github.com/Layr-Labs/mlxfast-challenge/commit/df0af746de208e267ae16e7dc62f901aa5cff77a) | Candidate | **PENDING / NO RESULT** — attempt 1 decode cool-down failed; repaired attempt 2 stopped at hot prefill gate before timing | — | — | — |
 | 113 | [96bfd3b7](https://mlx.fast/api/submissions/96bfd3b7-49c2-4f0b-b0bd-288173ac284b) · [`274a909a`](https://github.com/Layr-Labs/mlxfast-challenge/commit/274a909ae2f8b65414ec7b1bbb5981c5cf091cde) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 20.8950 ms/token† | 4.0655 ms/token† | 0.9458×† |
 | 114 | [3223e19d](https://mlx.fast/api/submissions/3223e19d-8e7a-4001-a2c8-0176900a7005) · [`149892c3`](https://github.com/Layr-Labs/mlxfast-challenge/commit/149892c38865cdb78af6c1b1158fecc853446ed4) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 21.3053 ms/token† | 3.8188 ms/token† | 0.9468×† |
 | 115 | [dd341a52](https://mlx.fast/api/submissions/dd341a52-a695-4d0d-8bdf-75ef44a9c74a) · [`d4cb1ae8`](https://github.com/Layr-Labs/mlxfast-challenge/commit/d4cb1ae8d63cd3e59169bc7685d85ca7970241e6) | Candidate | **INVALID TIMING** — `1.5C` accepted; correctness passed | 21.1201 ms/token† | 3.8492 ms/token† | 0.9511×† |
@@ -577,8 +643,12 @@ trusted `benchmark.sh` and fan helper after every reset to the rank-126 model
 harness, pins `macmon 0.7.2`, starts the benchmark under a clean `env -i`
 allowlist, rejects the first bad telemetry sample, aborts the cohort on a bad
 receipt, and binds the runner/tool/log hashes into new attempt metadata. No
-post-cutover model attempt has exercised that integration yet; only its script,
-state-machine, and repository regression tests have run.
+candidate timing has passed the post-cutover integration yet. Rank-112 attempt
+2 verified the repaired provenance, clean environment, plausible telemetry,
+and fail-closed blocking behavior, then exited `130` with no score or integrity
+receipt while still above 40C. The runner now also disables interactive fan
+prompts explicitly, and the helper requires foreground terminal ownership, so
+an audited subprocess cannot be suspended indefinitely by `SIGTTIN`.
 
 ## Completed negative-control cohort — 3 arms
 
@@ -1144,7 +1214,7 @@ paired baseline, and prefer independent official receipts.
 |---|---|
 | [candidates.json](candidates.json) | `785763d0a35cfbcb8b7643816990f60df98a80ff7976c5c1545ab7136f43285e` |
 | [official-findings.md](official-findings.md) | `d8d21e346d044a1862a8f9b76ec1cbc24fba817870a05d9a7aa912f891ec442c` |
-| [README.md](README.md) | `61fa9af50f12185481e83b8b38a22e2d1f3805d648d3383cf0f405a66ecb1518` |
+| [README.md](README.md) | `bd67bad4ed52720c8fc9f89dde5357029ddba8fe03365591f06971c93e1fa9aa` |
 | [negative-controls.json](negative-controls.json) | `b7a498ae1c8bb74c0287159e817e7dfa5f2a5c41aa29020c100be18b3089869f` |
 | [control-run.json](control-run.json) | `3586c24e184c8b7f9f3dd25403654a2b2bc568b6046e7932f1f9b50b68ec0c14` |
 | [run-quality-controls.sh](run-quality-controls.sh) | `c026afb9b2efb54569d4ad2822e40b8d2cde9945e7c5b833ab3f26b844d94ec0` |
@@ -1152,6 +1222,9 @@ paired baseline, and prefer independent official receipts.
 | [run-extended-aime.py](run-extended-aime.py) | `338042981140aa08a6bcd1c8dcc527e924fc9988998099eb2649dea2646c180e` |
 | [extended-aime-ids.json](extended-aime-ids.json) | `fcb81147afd2be45b3aaf809cab88517b1bc8ce9e01c77889e7f70529fee9a59` |
 | [EXTENDED_AIME_DIAGNOSTICS.md](EXTENDED_AIME_DIAGNOSTICS.md) | `673288724fc75bafe1c15c69ec6af7fa92a4cd715379dbd5bc4fb3ae852bebd6` |
+| [derive-rank126-quality.sh](derive-rank126-quality.sh) | `0a55adefd8a071c8fef40d13dc469ca75d7cc86af925796dd4aee97cee1031c9` |
+| [quality-anchor-run.json](quality-anchor-run.json) | `6307b05475e4b27d578ede5197d241070867ad18eb49993b90decf54508339e3` |
+| [run-quality-anchor.sh](run-quality-anchor.sh) | `c2bcb99ea78454594abc42533e80be02f5ca9c72b4fd75239bd1b39aaed0a755` |
 
 ### Campaign-executed performance tooling
 
@@ -1168,9 +1241,9 @@ each study arm's `reset --hard 7702fab8…` replaced it before execution.
 
 | Input | SHA-256 |
 |---|---|
-| [build-report-data.py](build-report-data.py) | `728df9ec1bedf5ade2c3a7c0297a3a94c0682e367a4843ebb8ed6a50f1e012a1` |
-| [run-study.sh](run-study.sh) | `62ea33d51584c834a22444f28bf35f35e52c395d6eb81fa38891ad8ad16be84d` |
-| [Fail-closed `benchmark.sh`](../../../benchmark.sh) | `8827d1829db796836a87473dd730ff2c80a381df00626aabb526b8f20b3a8f57` |
+| [build-report-data.py](build-report-data.py) | `f1d2b3b387bf6dc30889c905fbc6a3b3a55b7803237ee48f26fa23d531d5558d` |
+| [run-study.sh](run-study.sh) | `5207e379971a17af1004f0af7a5de7708ab6692d50f5d878458778257e534d0e` |
+| [Fail-closed `benchmark.sh`](../../../benchmark.sh) | `22ab13dacee12b874a601bcd4d8f557309019b352cdc13a1d3c72a34c2d2e92c` |
 | [`tools/fan-control.sh`](../../../tools/fan-control.sh) | `d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a` |
 | Pinned local `macmon 0.7.2` | `495da8787023c9ebcd62d19e348cd6f1dec5dba3ef2d4f1ff55d9e2079860e19` |
 
@@ -1180,8 +1253,9 @@ each study arm's `reset --hard 7702fab8…` replaced it before execution.
   `7702fab8a41fe2f4ff2ae281beeb1548b31e3406`. Pre-cutover arms also executed
   that commit's legacy trusted `benchmark.sh`; post-cutover attempts retain
   its model/editable surface but receive the local-only fail-closed trusted
-  wrapper listed above after every reset. No post-cutover model attempt exists
-  yet.
+  wrapper listed above after every reset. No post-cutover candidate timing
+  receipt has completed; repaired rank-112 attempt 2 loaded the model but never
+  crossed the prefill thermal gate.
 - Evaluator commit: `dbb0a1d13223adf15b092dd88ed92ef6abdd4b8f`.
 - Evaluator SHA-256:
   `647af7530d7c9bf88801fd92146439fdba5f75407bbee6a363b1a3ede1c90150`.
@@ -1201,12 +1275,37 @@ each study arm's `reset --hard 7702fab8…` replaced it before execution.
 - Baseline summary SHA-256:
   `ddfc03f285f15479bb4323f13284687e72961eb6d312d1e422b9d09a64a4316a`.
 
+### Rank-126-relative quality anchors
+
+The derived tree is local and ignored, but its source artifact and aggregate
+receipts are frozen here:
+
+| Evidence | SHA-256 |
+|---|---|
+| Rank-126 `run.json` | `49fd632c6162eb69d64dcea6a2221f9a9cd02138ee788b98fbcc218187a13d80` |
+| Rank-126 `summary.json` | `9289828718a598d382b7a15b7d06b4a7ec95604c6f44ce3c5a27b21ba862c492` |
+| Rank-126 `responses.jsonl` | `63cdc5f58ddfdc6dbd18048fe6f4f1e6247203073f04b93955e5bb737c4fade0` |
+| Derived `primary-status.txt` | `a3c59e47e2925fecd4f977d68f8d1bff0425b52ea0db91e1774ec8b3a445c639` |
+| Derived `summary.json` | `5043e0b60605c0a3b8cfdd342199980d179a8ccda8fdc3874e1e589cc49db534` |
+| Derived `checksums.sha256` | `05441916cbb25c3a6b5ab06ea2788b5c564df226d13918101de92895f6c57f24` |
+
+The derivation ran with `UV_OFFLINE=1`, matched evaluator bundle SHA-256
+`647af7530d7c9bf88801fd92146439fdba5f75407bbee6a363b1a3ede1c90150`,
+validated compatibility for all ten retrospective comparisons and the rank-126
+self-control, ran from a fresh snapshot of the pinned evaluator commit, retained
+the primary status audit plus each formal arm's source-binding hashes, and
+checksummed the exact expected receipt file set. It loaded no model and made no
+network request.
+
 The report-data builder independently derives performance math, raw quality
 counts, PPL/NLL, public-probe truth, ranked-prefix identity, source tree hashes,
 terminal contracts, control outcomes, extended-diagnostic outcomes, and the
 direct-parent commit chain. Failed, interrupted, and infrastructure attempts
-are recursively checksummed but remain explicitly unselected. The builder
-records the full audited input set on `--write`.
+are recursively checksummed but remain explicitly unselected. On `--write`,
+the builder records the full primary/control/extended input set plus the
+tracked rank-126 derivation and rank-111 anchor definitions. The ignored
+rank-126-relative output tree remains a separate execution receipt whose
+hashes are frozen above.
 
 ### Known provenance limits
 
@@ -1224,7 +1323,9 @@ records the full audited input set on `--write`.
   a reproduction of the private M5 contract.
 - The quality reference is the July 30 clean checkout at
   `eec3f82c9adebc99e3ed15c74138e1ab8032d9cd`, not rank 111 or rank 126. There
-  is no rank-111 quality arm, so pre-rank-112 drift is not localized.
+  is no completed rank-111 quality arm, so pre-rank-112 drift is not localized.
+  Rank 126 is a separate incremental baseline for future candidates, not a
+  replacement cumulative reference.
 - All primary candidates are connected official-success snapshots, not
   independent trials. The controls were deliberately selected, and only rank
   202 has a formal comparison; ranks 201 and 203 are bounded diagnostics. All
@@ -1245,10 +1346,21 @@ records the full audited input set on `--write`.
   pending, and zero invalid. All four selected responses remained
   length-bounded at 6,144 tokens. Four retained infrastructure failures are
   recursively checksummed and unselected.
+- `derive-rank126-quality.sh` validated ten retrospective comparisons, one
+  rank-126 self-control, and four bounded no-decisions: ranks 120–125 retain,
+  ranks 112–115 regress on response identity, rank 126 retains against itself,
+  and ranks 116–119 remain censored. Its checksum manifest passed in full and
+  the evaluator ran offline without model compute.
+- `run-quality-anchor.sh status` reported performance disabled and `0/1`
+  quality arms processed. The isolated rank-111 anchor remains pending explicit
+  authorization to resume model compute.
 - `build-report-data.py --check --require-complete` remains non-zero, as
   intended, because performance is incomplete and contains rejected attempts;
   the primary-quality, control, and extended-diagnostic requirements are
   satisfied.
+- `swift test --force-resolved-versions` passed all 453 tests on a clean full
+  rerun. A first parallel pass hit one timing-sensitive fake-worker hello
+  timeout; that test passed immediately in isolation before the clean rerun.
 - An independent manifest-to-report check found all 16 official table rows,
   all 16 performance rows, all 15 dossiers, all three control
   identities and outcome rows, and all four extended-AIME rows. Every frozen
@@ -1258,11 +1370,12 @@ records the full audited input set on `--write`.
   named files; campaign-executed hashes were reproduced from the stated Git
   objects. All local Markdown targets resolve, all tables have consistent
   column counts, and the report passes Git's whitespace check.
-- The report-writing and builder-audit work invoked no build, benchmark,
-  quality-evaluation workload, or model process. It read the completed control
-  and extended-diagnostic artifacts produced by their separate runners.
-  Earlier scaffold validation included read-only provenance/status checks and
-  the pinned evaluator's GPU-free `aime_eval.py --self-test`.
+- The rank-126 derivation invoked only the evaluator's file comparison path; it
+  loaded no model. A separate repaired rank-112 canary did load the model but
+  never entered a timed phase: the plausible prefill gate remained above 40C,
+  and the attempt exited `130` with no score or integrity receipt. Its log and
+  metadata hashes are `8b74e9035c49107db7992ecb0046ee12831e9e1828b0678f45cbf1543da7b23e`
+  and `36add9e227cad06e6316a783c664b9caf2fb956ce2e95786df2e8194facffa5e`.
 
 ## Appendix B — report completion checklist
 
@@ -1270,6 +1383,8 @@ records the full audited input set on `--write`.
 |---|---|---|
 | Official 15-snapshot history | Complete | Frozen manifest and findings cross-check |
 | Local quality positives | Complete | 11 formal + 4 valid terminal = 15 processed |
+| Rank-126 incremental baseline | Complete | 10 provenance-checked retrospective comparisons + 1 self-control + 4 bounded no-decisions; checksum manifest valid |
+| Rank-111 quality anchor | **PENDING: 0/1** | Run isolated quality-only arm after model compute is explicitly resumed |
 | Local performance | **PARTIAL: 1 valid / 5 invalid / 10 pending** | 16 valid selected full `--local-submit` attempts behind two credible thermal gates |
 | Negative controls | Complete for quick profile | 3/3 processed: 1 formal regression + 2 hash-bound bounded non-completions |
 | Extended AIME | Complete for diagnostic contract | 4/4 valid; all four still length-bounded at 6,144 tokens; primary decisions unchanged |

@@ -34,6 +34,9 @@ CONTROL_DEFINITION_PATH = SCRIPT_DIR / "negative-controls.json"
 CONTROL_RUN_PATH = SCRIPT_DIR / "control-run.json"
 EXTENDED_AIME_RUNNER_PATH = SCRIPT_DIR / "run-extended-aime.py"
 EXTENDED_AIME_IDS_PATH = SCRIPT_DIR / "extended-aime-ids.json"
+RANK126_DERIVATION_PATH = SCRIPT_DIR / "derive-rank126-quality.sh"
+QUALITY_ANCHOR_MANIFEST_PATH = SCRIPT_DIR / "quality-anchor-run.json"
+QUALITY_ANCHOR_RUNNER_PATH = SCRIPT_DIR / "run-quality-anchor.sh"
 RUNNER_PATH = SCRIPT_DIR / "run-study.sh"
 WRAPPER_PATH = SCRIPT_DIR / "quality-bridge-wrapper.sh"
 README_PATH = SCRIPT_DIR / "README.md"
@@ -85,7 +88,7 @@ LOCAL_THERMAL_REJECTION_MARKERS = (
     "local thermal gate failed",
 )
 PINNED_LOCAL_BENCHMARK_SHA256 = (
-    "8827d1829db796836a87473dd730ff2c80a381df00626aabb526b8f20b3a8f57"
+    "22ab13dacee12b874a601bcd4d8f557309019b352cdc13a1d3c72a34c2d2e92c"
 )
 PINNED_FAN_CONTROL_SHA256 = (
     "d0281dd62612d5c3371904e317045ed9ae2e7d14021aee65e5b889ee1e46f84a"
@@ -95,7 +98,7 @@ PINNED_MACMON_SHA256 = (
 )
 PINNED_MACMON_VERSION = "macmon 0.7.2"
 LOCAL_BENCHMARK_CUTOVER = "2026-08-02T22:27:54Z"
-PERFORMANCE_ENVIRONMENT_POLICY = "env-i-v1"
+PERFORMANCE_ENVIRONMENT_POLICY = "env-i-v2"
 LEGACY_RANK111_LOG_SHA256 = (
     "f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130"
 )
@@ -1793,6 +1796,7 @@ def validate_performance_selected(
         and meta.get("log_sha256") == files.digest(log_path)
         and meta.get("environment_policy") == PERFORMANCE_ENVIRONMENT_POLICY
         and environment.get("MLXFAST_LOCAL_COOL_GATE_STRICT_TELEMETRY") == "1"
+        and environment.get("MLXFAST_LOCAL_FAN_PROMPT") == "0"
     )
     require(
         legacy_thermal_provenance or current_thermal_provenance,
@@ -3984,6 +3988,9 @@ def build_payload(
         "extended_aime_runner": extended_runner_ref,
         "extended_aime_ids": extended_ids_ref,
         "extended_aime_evaluator": extended_evaluator,
+        "rank126_quality_derivation": files.ref(RANK126_DERIVATION_PATH),
+        "quality_anchor_manifest": files.ref(QUALITY_ANCHOR_MANIFEST_PATH),
+        "quality_anchor_runner": files.ref(QUALITY_ANCHOR_RUNNER_PATH),
         "quality_bridge_wrapper": files.ref(WRAPPER_PATH),
         "public_correctness_fixture": files.ref(PUBLIC_FIXTURE_PATH),
         "readme": files.ref(README_PATH),

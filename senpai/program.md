@@ -220,13 +220,20 @@ undocumented SMC keys, or ignore failed read-back. Restore automatic control
 immediately after an 80% campaign because it adds noise and fan wear.
 
 Unattended jobs have no interactive terminal and cannot accept
-`benchmark.sh`'s optional fan prompt. A boost applied before a run is external
-state, so the benchmark will not restore it. The operator/controller must have
-an out-of-band cleanup path that runs `./benchmark.sh --fan-speed-normal` on
-campaign success, failure, signal, and host teardown, then verifies
-`tools/fan-control.sh status` returns `auto`. Record the host identifier, chip,
-memory, macOS build, initial temperature, fan capability/action, cool-down
-duration, and accepted telemetry with every timed result.
+`benchmark.sh`'s optional fan prompt. Set `MLXFAST_LOCAL_FAN_PROMPT=0`
+explicitly in audited automation; the gate still waits and fails closed. The
+benchmark's optional offer also requires a terminal stderr and its process
+group to own the foreground tty before prompting, because merely opening
+`/dev/tty` in a background job can suspend it on `SIGTTIN`. Direct
+`tools/fan-control.sh` calls still require an attended operator; the helper can
+invoke `sudo` and has no unattended authorization path. A boost applied before
+a run is external state, so the benchmark will not restore it. The
+operator/controller must have an out-of-band cleanup path that runs
+`./benchmark.sh --fan-speed-normal` on campaign success, failure, signal, and
+host teardown, then verifies `tools/fan-control.sh status` returns `auto`.
+Record the host identifier, chip, memory, macOS build, initial temperature,
+fan capability/action, cool-down duration, and accepted telemetry with every
+timed result.
 
 ## Sources Of Truth
 

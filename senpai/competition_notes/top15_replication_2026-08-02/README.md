@@ -122,6 +122,49 @@ tokens, but no rejected control was included in the extended cohort. These
 one-class-only diagnostics do not retroactively turn the frozen quick-profile
 result into a valid comparison or establish class separation.
 
+### Rank-126 incremental quality baseline
+
+The completed rank-126 artifact is also the same-host baseline for future
+autoresearch candidates: `22/53`, PPL `14.970700228511769`, exact public first
+token, and its nine ranked-GPQA responses. Under the existing 3% composite, a
+future candidate must retain at least `22/53`, PPL no worse than
+`15.43371157578533`, at least `7/9` ranked-GPQA response matches, and the public
+probe token.
+
+The derived comparison is offline and does not load the model. It validates the
+frozen evaluator provenance, writes only to a separate ignored result tree, and
+never replaces a primary `comparison.json`:
+
+```bash
+senpai/competition_notes/top15_replication_2026-08-02/derive-rank126-quality.sh
+```
+
+Against rank 126, ranks 120–122 retain at exactly `7/9` ranked-GPQA matches,
+ranks 123–125 retain at `9/9`, and rank 126 is the expected `9/9` self-control;
+ranks 112–115 have equal-or-better numeric quality but regress at `0/9`. Ranks
+116–119 remain bounded non-completions. This locates a behavioral lineage
+boundary that the 3% score/PPL terms alone cannot see. Comparisons from rank
+126 back to earlier ranks are reverse-chronological diagnostics, not claims
+that those earlier promotions should have used a future snapshot as their
+gate.
+
+### Rank-111 quality anchor
+
+`quality-anchor-run.json` and `run-quality-anchor.sh` define a separate
+quality-only rank-111 cohort. They intentionally leave `candidates.json` and
+all primary artifacts untouched:
+
+```bash
+senpai/competition_notes/top15_replication_2026-08-02/run-quality-anchor.sh prepare
+senpai/competition_notes/top15_replication_2026-08-02/run-quality-anchor.sh quality 111
+senpai/competition_notes/top15_replication_2026-08-02/run-quality-anchor.sh status
+```
+
+The arm remains pending until model compute is explicitly resumed. If it
+completes formally, one run can locate which observed July-30-to-rank-112
+quality signatures were already present at rank 111; it cannot estimate drift
+magnitude or variance.
+
 ## Inference limit
 
 The observed calibration is:
@@ -144,6 +187,8 @@ were deliberately selected, six of 18 total arms are censored by AIME length,
 and one pass per arm provides no variance estimate. Treat the local 3%
 semantic/PPL suite as advisory. Use matched-reference exact public trajectory,
 upstream-equivalence, and correctness traces as hard local evidence, with the
-official M5 hidden gates as final authority. A rank-111 quality arm is still
-needed to locate inherited drift, and rank 126 should become the same-host
-incremental quality baseline for autoresearch.
+official M5 hidden gates as final authority. A formally completed rank-111
+quality arm is still needed to locate inherited drift. Rank 126 is now the
+frozen same-host incremental quality baseline for autoresearch; its
+retrospective comparisons do not make the composite an official/private-gate
+surrogate.

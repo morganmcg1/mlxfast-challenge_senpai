@@ -21,6 +21,9 @@ set -euo pipefail
 #   MLXFAST_FAN_CONTROL_HELPER=...  override tools/fan-control.sh, used by the
 #                               stalled-cool-down fan-boost offer and by
 #                               ./benchmark.sh --fan-speed-normal
+#   MLXFAST_LOCAL_FAN_PROMPT=0  disable the interactive fan offer. Audited or
+#                               unattended automation sets this explicitly;
+#                               the thermal gate still waits and fails closed.
 #   MLXFAST_FAN_BOOST_STATE_FILE  internal parent->child contract (not a
 #                               knob): the top-level local run exports a
 #                               state file; the cool-gate child processes the
@@ -715,6 +718,46 @@ terminate_benchmark_child_tree() {
 # operator override unset, so it always requests the default 70% target.
 # Returns 0 only when the fans are (already or newly) boosted, so the caller
 # can grant the cool-down a fresh stall window.
+fan_prompt_has_foreground_tty() {
+  [[ "${MLXFAST_LOCAL_FAN_PROMPT:-1}" != "0" ]] || return 1
+  # The monitored Swift benchmark intentionally runs as a background child,
+  # so its stdin (and the gate helper's inherited stdin) may be /dev/null even
+  # during a foreground interactive run. The prompt reads /dev/tty directly;
+  # require the user-visible stderr plus foreground ownership of that tty.
+  [[ -t 2 ]] || return 1
+  { : < /dev/tty; } 2>/dev/null || return 1
+
+  # Merely opening /dev/tty is insufficient: a background process can open
+  # its controlling terminal, then be stopped by SIGTTIN when it reads. A
+  # stopped Bash never advances `read -t`, which wedges the parent waiting on
+  # the cool-gate helper. Prompt only when this process group owns the tty.
+  local process_group terminal_group
+  process_group="$(/bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')"
+  terminal_group="$(/bin/ps -o tpgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')"
+  [[ "${process_group}" =~ ^[0-9]+$ \
+      && "${process_group}" == "${terminal_group}" ]]
+}
+
+# Read the fan answer without ever letting a late job-control transition stop
+# this process indefinitely. If the operator backgrounds the benchmark after
+# the foreground check above, an ignored TTIN makes the /dev/tty read fail
+# immediately (EIO) instead of suspending Bash; the caller treats that exactly
+# like a timeout/decline. `reply` is caller-local and Bash functions are
+# dynamically scoped, so the successful answer is written into offer_fan_boost.
+read_fan_boost_reply() {
+  local prior_ttin_trap read_status=0
+  prior_ttin_trap="$(trap -p TTIN || true)"
+  trap '' TTIN
+  read -r -t 30 -p "benchmark.sh: boost fans to 70% of max now? [y/N] (auto-continues in 30s) " reply < /dev/tty \
+    || read_status="$?"
+  if [[ -n "${prior_ttin_trap}" ]]; then
+    eval "${prior_ttin_trap}"
+  else
+    trap - TTIN
+  fi
+  return "${read_status}"
+}
+
 offer_fan_boost() {
   local current_temp="$1"
   local helper fan_status reply=""
@@ -744,8 +787,8 @@ offer_fan_boost() {
   if [[ "${fan_status}" != "auto" ]]; then
     return 1
   fi
-  if ! { : < /dev/tty; } 2>/dev/null; then
-    echo "benchmark.sh: GPU cool-down is stalled and no interactive terminal is attached;" >&2
+  if ! fan_prompt_has_foreground_tty; then
+    echo "benchmark.sh: GPU cool-down is stalled and no interactive foreground terminal is available;" >&2
     echo "benchmark.sh: to force the fans to 70% manually, run: ${helper} boost" >&2
     return 1
   fi
@@ -760,7 +803,7 @@ benchmark.sh: sudo credential is dropped (sudo -k) right after the one-time writ
 benchmark.sh: restore macOS automatic fan control later with:
 benchmark.sh:   ./benchmark.sh --fan-speed-normal
 EOF
-  if ! read -r -t 30 -p "benchmark.sh: boost fans to 70% of max now? [y/N] (auto-continues in 30s) " reply < /dev/tty; then
+  if ! read_fan_boost_reply; then
     reply=""
     echo >&2
   fi
