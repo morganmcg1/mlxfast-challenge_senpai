@@ -148,9 +148,10 @@ The official challenge correctness and behavioral gates remain authoritative.
 
 ## Baseline gate values
 
-Untouched Laguna baseline for the frozen 20/9/9/9/6 panel:
+Recorded untouched Laguna reference on Mac16,6 M4 Max for the frozen
+20/9/9/9/6 panel:
 
-| Check | Untouched baseline | Candidate gate |
+| Check | Recorded reference | Reference-derived gate |
 | --- | ---: | ---: |
 | MMLU-Pro greedy | 9/20 | monitor only |
 | GPQA-Diamond greedy | 6/9 | monitor only |
@@ -165,17 +166,20 @@ Untouched Laguna baseline for the frozen 20/9/9/9/6 panel:
 The one-trial Mac16,6 M4 Max run took 24:59 and is saved at
 `quality-results/baseline-quick-weave-v3-m4-20260730`. Evaluator SHA:
 `647af7530d7c9bf88801fd92146439fdba5f75407bbee6a363b1a3ede1c90150`.
-Do not compare against a different prompt manifest or evaluator SHA.
+These are reference values, not universal cross-host constants: the operative
+gate comes from the contract-compatible baseline supplied to the comparison.
+Do not compare against a different host, prompt manifest, or evaluator SHA.
 
 ## Faster iteration subset
 
 For a roughly 13-minute edit-loop check on this Mac, use PPL plus MMLU-Pro,
 AIME, and GSM8K. It scores 35 attempts and omits the GPQA behavior check.
 The full-panel components imply an expected untouched aggregate of `16/35`,
-so the integer 97% gate still requires `16/35`; verify this when creating the
-subset baseline. PPL remains at most `14.386452`. Create a separate matched
-subset baseline, then pass it with `--baseline` (the full baseline is contract-
-incompatible with this subset):
+so the integer 97% gate is expected to require `16/35`. This value is derived
+from the recorded full panel (`9 + 4 + 3`), not from a separately preserved
+core-subset run. Verify it by creating the required matched subset baseline.
+PPL is expected to remain at most `14.386452`. Pass that subset baseline with
+`--baseline`; the full baseline is contract-incompatible with this subset:
 
 ```bash
 # Once, before modifying the model:

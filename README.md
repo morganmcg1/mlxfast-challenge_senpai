@@ -283,7 +283,7 @@ Use these modes for local development:
 
 | Command | Purpose | What it checks | Output |
 |---|---|---|---|
-| `./benchmark.sh --local-iterate` | Fast directional edit loop. | Public-fixture correctness (64 teacher-forced steps) plus a short local timing pass. | `score.json` with a local estimated score. |
+| `./benchmark.sh --local-iterate` | Fast directional edit loop. | Public-fixture correctness (64 teacher-forced steps) plus a short local timing pass. | `score.local-iterate.json` with a local estimated score. |
 | `./benchmark.sh --local-submit` | Longer pre-submit signal. | Same correctness over a longer 1023-step decode timing pass. | `score.json` with a local estimated score. |
 
 Both modes transform the reference checkpoint if needed, run the checked-in

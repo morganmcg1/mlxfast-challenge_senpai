@@ -55,12 +55,17 @@ cp score.local-iterate.json score.local-iterate.baseline.json
 After implementing one causal experiment:
 
 ```bash
-swift test --force-resolved-versions
 ./benchmark.sh --local-iterate
 cp score.local-iterate.json score.local-iterate.candidate.json
 ```
 
-If the change touches live MLX runtime behavior and the host supports it, add:
+`--local-iterate` rebuilds stale binaries and runs the public correctness and
+timing screen. During exploration, add only the targeted compile or test that
+the changed boundary warrants. Iterate on the same causal mechanism until it
+wins or its stop rule is met.
+
+If a focused check of live MLX runtime behavior is useful and the host supports
+it, run:
 
 ```bash
 MLXFAST_RUN_MLX_RUNTIME_TESTS=1 \
@@ -73,26 +78,44 @@ a cool-down wait is part of valid measurement.
 ## Extract the comparison
 
 ```bash
-jq '{
-  score,
-  passed,
-  runtime: .metrics.runtime,
-  passed_correctness: .metrics.passed_correctness,
-  decode_seconds_per_token: .metrics.decode_seconds_per_token,
-  prefill_seconds_per_token: .metrics.prefill_seconds_per_token,
-  decode_speedup: .metrics.decode_speedup,
-  prefill_speedup: .metrics.prefill_speedup,
-  peak_ram_gb: .metrics.peak_ram_gb,
-  error: .metrics.error
-}' \
-  score.local-iterate.baseline.json \
-  score.local-iterate.candidate.json
+jq -s '
+  def snapshot: {
+    score,
+    passed,
+    runtime: .metrics.runtime,
+    passed_correctness: .metrics.passed_correctness,
+    decode_seconds_per_token: .metrics.decode_seconds_per_token,
+    prefill_seconds_per_token: .metrics.prefill_seconds_per_token,
+    calibration_decode_speedup: .metrics.decode_speedup,
+    calibration_prefill_speedup: .metrics.prefill_speedup,
+    peak_ram_gb: .metrics.peak_ram_gb,
+    error: .metrics.error
+  };
+  .[0] as $b | .[1] as $c |
+  ($b.metrics.decode_seconds_per_token /
+    $c.metrics.decode_seconds_per_token) as $decode_gain |
+  ($b.metrics.prefill_seconds_per_token /
+    $c.metrics.prefill_seconds_per_token) as $prefill_gain |
+  {
+    baseline: ($b | snapshot),
+    candidate: ($c | snapshot),
+    same_host: {
+      decode_gain: $decode_gain,
+      prefill_gain: $prefill_gain,
+      paired_estimate: (
+        pow($decode_gain; 0.75) * pow($prefill_gain; 0.25)
+      )
+    }
+  }
+' score.local-iterate.baseline.json score.local-iterate.candidate.json
 ```
 
 Local `score` and speedups use cached M5 calibration constants. For research,
 compare candidate seconds/token with the freshly measured unchanged baseline on
-the same host. Repeat the pair when the apparent gain is near the host's noise
-floor.
+the same host; the `same_host` object above calculates that comparison. The
+candidate run also prints the baseline deltas automatically when the companion
+baseline file exists. Repeat the pair only when the apparent gain is near the
+host's noise floor or an inconsistent result could change the decision.
 
 These score files are ignored evidence and must never be committed:
 

@@ -288,7 +288,7 @@ git switch main
 git pull --ff-only
 ./setup.sh
 ./benchmark.sh --local-iterate
-cp score.json score.baseline.json
+cp score.local-iterate.json score.local-iterate.baseline.json
 ```
 
 Create your working branch from that synced commit, or rebase/merge your
