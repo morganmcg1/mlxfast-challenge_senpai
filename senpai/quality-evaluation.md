@@ -1,9 +1,15 @@
 # Laguna quality evaluation
 
-`senpai/quality-eval` is the local regression gate for a modified Laguna
-checkout or prepared artifact. It runs one deterministic evaluation trial,
-prints metrics and PASS/FAIL, and saves prompts, responses, logs, provenance,
-and summaries under the selected output directory.
+`senpai/quality-eval` is a risk-based local regression gate for a modified
+Laguna checkout or prepared artifact. Use it when a candidate changes numerical
+behavior or representation—such as quantization, pruning, reduction order,
+activation math, dispatch/layout contracts, or output-head behavior—or when an
+observed mismatch needs diagnosis. It is not a routine requirement for a
+scheduling or tiling change whose outputs are already shown equivalent.
+
+It runs one deterministic evaluation trial, prints metrics and PASS/FAIL, and
+saves prompts, responses, logs, provenance, and summaries under the selected
+output directory.
 
 This panel supplements the challenge's exact-token and hidden behavioral
 gates; it does not replace them.
@@ -27,11 +33,11 @@ Face token is required. Outbound internet access is required: MMLU-Pro and
 GPQA use their normal caches, while AIME and GSM8K read the Hugging Face
 datasets server on each run.
 
-## Routine workflow
+## Matched workflow
 
-Create and retain a matched baseline on untouched `main` before changing model
-or kernel code. `quality-results/` is gitignored, so a fresh checkout does not
-contain this baseline:
+When the risk-based trigger applies, create and retain a matched baseline before
+changing model or kernel code. `quality-results/` is gitignored, so a fresh
+checkout does not contain this baseline:
 
 ```bash
 ./setup.sh
@@ -63,7 +69,7 @@ model-holding command at a time; Laguna keeps about 21.6 GB resident.
 
 ## Quick panel
 
-The `quick` profile is the routine bounded screen:
+The `quick` profile is the bounded regression panel:
 
 | Component | Questions | Included in overall score |
 | --- | ---: | :---: |
@@ -178,7 +184,7 @@ incompatible with this subset):
   --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
   --output quality-results/baseline-quick-core
 
-# After each candidate change:
+# After each selected risk-bearing candidate:
 ./senpai/quality-eval run . \
   --profile quick \
   --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
@@ -186,7 +192,23 @@ incompatible with this subset):
   --output quality-results/candidate-quick-core
 ```
 
-Use the full 53-attempt panel before submission.
+Use the full 53-attempt panel before promoting a candidate for which this
+quality gate is required.
+
+## Upstream-equivalence diagnostic
+
+For risky math or dispatch changes on M5, the opt-in upstream-equivalence test
+compares the scored runtime with the vendored `MLXLLM.LagunaModel` for one
+512-token prefill and eight serial teacher-forced decode steps:
+
+```bash
+MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE=1 \
+MLXFAST_LAGUNA_EQUIVALENCE_WEIGHTS_PATH=weights \
+swift test --force-resolved-versions \
+  --filter lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled
+```
+
+Use it as a diagnostic, not as a replacement for the local or official gates.
 
 ## Weave logging
 

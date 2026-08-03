@@ -49,17 +49,25 @@ prefill_speedup: [0.952, 1.053]
 
 This caps a single ranked submission's apparent gain at about 5%. If a local
 candidate is more than about 5% faster, split it into independently measurable
-submissions and validate each step. Local modes warn about the fast edge but do
-not enforce the band.
+submissions and validate each step. Split only along natural, independently
+correct improvements; never add an intentional regression, throttle, or
+benchmark-dependent switch to fit the band. Local modes warn about the fast
+edge but do not enforce the band.
 
 Validation numbers are steering evidence. Only the official paired M5 result
 is a ranking claim.
 
-The official benchmark compares a candidate with the challenge baseline
-currently pinned on the M5 runner. When a validated submission beats the
-leaderboard record, its commit is accepted as the new baseline that subsequent
-work must beat. Always sync the latest `main`, rerun a same-host local baseline,
-and treat results from an older frontier as historical evidence only.
+Keep two concepts separate:
+
+- The **official timing baseline** is the operator-pinned tree measured beside
+  every candidate on the M5. Changing it is a benchmark-contract decision.
+- The **promoted code frontier** is the best accepted submission and the code
+  starting point that subsequent research must beat.
+
+Start each clean research round from the promoted frontier, record its exact
+commit as `BASE_SHA`, and rerun a same-host local baseline. Results from an
+older frontier remain useful evidence, but require remeasurement on the current
+frontier before promotion.
 
 ## Non-Negotiable Execution Environment
 
@@ -87,83 +95,21 @@ Benchmarking this target requires macOS on Apple Silicon.
   is assigned and held constant across each unchanged-baseline/candidate
   comparison.
 
-### Pre-NAX MoE output-layout compatibility
+### Warning: NAX dispatch and output layout must agree
 
-Commit `2225854` fixed a host-dependent correctness bug in the fused sorted
-prefill MoE gate/up path. The operation has two physical output contracts:
+A prior host-dependent corruption bug occurred when Swift interpreted the
+generic pre-NAX MoE gate/up output as the packed NAX layout. The fix in commit
+`2225854` made Swift's layout decision mirror the backend's complete capability
+and tiling predicate.
 
-- The NAX expert-aligned kernel applies rounded-BF16 SwiGLU and packs the
-  512-wide activation into the first half of a nominal 1024-wide allocation.
-- The generic pre-NAX kernel returns the full 1024-wide, 32-row
-  gate/up-interleaved projection. It must be deinterleaved and evaluated as
-  `SiLU(gate) * up` by `lagunaInterleavedSwiGLU`.
+Treat dispatch and layout interpretation as one invariant. If sparse-MoE
+prefill quality collapses on a non-M5 host, after an OS change, or under a Metal
+architecture or tiling override, stop and verify that predicate before tuning
+anything else. Changes to NAX availability, packing, strides, or tiling must
+update both sides and add or adjust supporting correctness tests.
 
-Before the fix, Swift selected the packed 512-wide interpretation from the
-default-on `DARKBLOOM_EXPERT_ALIGNED_GATHER` flag alone. MLX independently
-refused the NAX kernel on unsupported hardware or OS versions. On a pre-NAX
-GPU, Swift therefore sliced the first half of a generic 1024-wide result as if
-it were already activated, corrupting sparse-MoE prefill outputs and logits.
-The same mismatch was possible when `DARKBLOOM_STAGE_BM128` selected a tiling
-other than packed-compatible variant `4`.
-
-The fixed Swift predicate mirrors backend dispatch. The packed interpretation
-is enabled only when all of these are true:
-
-- `DARKBLOOM_EXPERT_ALIGNED_GATHER` is not `0`;
-- macOS is 26.2 or newer;
-- the Metal architecture is generation 17 or newer for an `s` suffix, or
-  generation 18 or newer for a `p` suffix; and
-- `DARKBLOOM_STAGE_BM128` is unset, empty, or `4`.
-
-Otherwise the runtime uses the generic 1024-wide reconstruction path.
-`DARKBLOOM_EXPERT_ALIGNED_GATHER=0` is also a useful diagnostic ablation, but
-the fixed runtime does not require it on pre-NAX hosts.
-
-The Swift predicate and view selection are in
-`Sources/MLXFastModel/LagunaRuntimeModel.swift`; the backend capability and
-kernel selection are in the vendored MLX `device.cpp`, `quantized.cpp`, and
-`fp_quantized_nax.h` files.
-
-The development machine that exposed the bug has these identifying specs:
-
-| Field | Value | Relevance |
-| --- | --- | --- |
-| Mac | MacBook Pro `Mac16,6` | Reproduction host |
-| SoC / GPU | Apple M4 Max, 40 GPU cores | Hardware family |
-| Metal architecture | `applegpu_g16s` | Causal: generation 16 is pre-NAX |
-| Unified memory | 128 GB | Reproduction context, not the predicate |
-| OS | macOS 26.5.2 (`25F84`), Darwin 25.5.0 | OS passes the 26.2 requirement |
-| Toolchain | Xcode 26.6 (`17F113`), Swift 6.3.3, arm64 | Reproduction context |
-| Relevant overrides | all three variables above unset | Exercised default dispatch |
-
-Do not classify every M4 or M5 by marketing name alone. Inspect the Metal
-architecture and relevant overrides:
-
-```bash
-system_profiler SPHardwareDataType SPSoftwareDataType \
-  -detailLevel mini |
-  rg 'Model Name|Model Identifier|Chip:|Total Number of Cores|Memory:|System Version|Kernel Version'
-
-swift -module-cache-path /tmp/mlxfast-swift-module-cache -e \
-  'import Metal; if let d = MTLCreateSystemDefaultDevice() { print(d.name); if #available(macOS 14.0, *) { print(d.architecture.name) } }'
-
-env | rg \
-  '^(MLX_METAL_GPU_ARCH|DARKBLOOM_EXPERT_ALIGNED_GATHER|DARKBLOOM_STAGE_BM128)='
-```
-
-In this vendored MLX build, `applegpu_g16s` is pre-NAX; an `s` architecture
-needs generation 17 or later, while a `p` architecture needs generation 18 or
-later, and both still require macOS 26.2 or later. A forced
-`MLX_METAL_GPU_ARCH` can change the reported dispatch decision and must not
-misrepresent the host.
-
-This is an optimization invariant: kernel dispatch and the Swift-side
-shape/layout interpretation must share the same complete predicate. Any change
-to NAX availability, MoE tiling, packing, or output strides must update both
-sides and extend
-`Tests/MLXFastTests/LagunaCorrectnessTests.swift`. Rebaseline quality after
-changing GPU generation, macOS, these environment variables, or the dispatch
-contract.
+See [`pre-nax-moe-layout.md`](pre-nax-moe-layout.md) for the output contracts,
+dispatch predicate, symptoms, host inspection, and troubleshooting procedure.
 
 If a student cannot access a qualifying Mac, it may do static analysis or
 prepare a tightly scoped implementation, but it must report the experiment as
@@ -255,9 +201,10 @@ group to own the foreground tty before prompting, because merely opening
 `tools/fan-control.sh` calls still require an attended operator; the helper can
 invoke `sudo` and has no unattended authorization path. A boost applied before
 a run is external state, so the benchmark will not restore it. The
-operator/controller must have an out-of-band cleanup path that runs
-`./benchmark.sh --fan-speed-normal` on campaign success, failure, signal, and
-host teardown, then verifies `tools/fan-control.sh status` returns `auto`.
+operator/controller needs the out-of-band `./benchmark.sh --fan-speed-normal`
+cleanup and `auto` verification only on a host where it applied a manual
+boost. A host reporting unsupported `none` has no override to restore;
+`macmon` and the `<=40C` gate remain mandatory.
 Record the host identifier, chip, memory, macOS build, initial temperature,
 fan capability/action, cool-down duration, and accepted telemetry with every
 timed result.
@@ -291,44 +238,19 @@ Laguna XS 2.1 is a fine-grained mixture-of-experts transformer:
 - Layer 0 uses a dense MLP; later layers use sparse MoE blocks.
 - Routed and shared expert projections use group-16 NVFP4.
 - The source checkpoint stores attention projections, embeddings, routers, the
-  layer-0 dense MLP, and the untied output head in BF16. The accepted
-  submission envelope permits the five attention projections listed below to
-  be re-quantized to group-32 affine INT8.
+  layer-0 dense MLP, and the untied output head in BF16. `TASK.md` defines the
+  narrow attention-quantization envelope allowed for submissions.
 - All layers use GQA with 8 KV heads and head dimension 128.
 - Three 512-token sliding-window layers alternate with one full-attention layer.
 - Full-attention layers use YaRN partial-rotary RoPE; sliding layers use plain
   RoPE.
 
-### Accepted attention quantization envelope
+### Attention quantization contract
 
-The live challenge contract permits submissions to re-quantize these attention
-projections to **group-32 affine INT8**:
-
-- query projection (`q_proj`),
-- key projection (`k_proj`),
-- value projection (`v_proj`),
-- output projection (`o_proj`),
-- per-head gate projection (`g_proj`).
-
-`g_proj` is the newest addition to the established Q/K/V/O envelope and applies
-to all new submissions. This is a narrowly scoped representation allowance,
-not permission to change the model's overall precision or behavior. The source
-checkpoint remains authoritative, exact-token and hidden behavior gates still
-apply, and no other BF16 tensor is admitted by this announcement. In
-particular, do not infer permission to re-quantize embeddings, Q/K norms,
-routers, the layer-0 dense MLP, the untied output head, or other unlisted
-projections.
-
-The local trusted harness must understand the expanded envelope. Before
-benchmarking or submitting against this rule, refresh it with:
-
-```bash
-mlxfast sync --harness-only
-```
-
-Do not hand-edit trusted harness validation to admit the new layout. If local
-docs or validation still require BF16 `g_proj`, the checkout is stale; sync the
-harness and latest `main` before interpreting a failure.
+The live precision allowance is defined only in `TASK.md`. Read that section
+before changing any BF16 attention projection; do not infer permission for an
+unlisted tensor or weaken trusted validation. The exact frontier and harness
+refresh workflow is in [`experiment-runbook.md`](experiment-runbook.md).
 
 The scored forward pass is implemented by
 `Sources/MLXFastModel/LagunaRuntimeModel.swift` and its runtime helpers.
@@ -343,7 +265,7 @@ and layout—not storage bandwidth or a nonexistent streaming path.
 
 ## Editable Surface
 
-Experiment PRs may modify only paths listed under `editablePaths` in
+The submitted candidate may modify only paths listed under `editablePaths` in
 `benchmark.json`. The current surface has four groups:
 
 - `Sources/MLXFastModel/` — primary scored runtime, weight loading, attention,
@@ -354,10 +276,16 @@ Experiment PRs may modify only paths listed under `editablePaths` in
 - The individually listed MLX Metal dispatch and kernel files under
   `Vendor/mlx-swift/`.
 
-Do not modify the trusted harness, CLI, workflows, benchmark definition, tests,
-docs, dependency graph, fixtures, goldens, reference checkpoint, generated
-weights, or score files to make an experiment pass. In particular, normal
-experiment PRs must not modify:
+Supporting tests and documentation may accompany a research PR when they make
+the experiment easier to validate or understand. They are not packaged by
+`mlxfast submit`, cannot weaken or replace trusted gates, and cannot be
+necessary for the candidate to work. The performance and correctness claim
+must stand on the submitted `editablePaths` diff alone.
+
+Do not modify the trusted harness, CLI, workflows, benchmark definition,
+dependency graph, fixtures, goldens, reference checkpoint, generated weights,
+or score files to make an experiment pass. In particular, the submitted
+candidate must not depend on changes to:
 
 - `Sources/MLXFastCore/`
 - `Sources/MLXFastCLI/`
@@ -365,7 +293,7 @@ experiment PRs must not modify:
 - `Sources/MLXFastHarness/`
 - `Sources/MLXFastRuntimeWorkerCLI/`
 - `Package.swift` or `Package.resolved`
-- `.github/`, `benchmark.json`, `benchmark.sh`, `setup.sh`, tests, or docs
+- `.github/`, `benchmark.json`, `benchmark.sh`, or `setup.sh`
 - `weights/`, `reference_weights/`, `correctness_prompts/`, or any
   `score*.json`
 
@@ -373,16 +301,11 @@ experiment PRs must not modify:
 code. Update them only in an explicit research-infrastructure task, never as
 part of a performance experiment.
 
-Before reporting a result, inspect the diff:
-
-```bash
-git status --short
-git diff --name-only "$BASE_SHA"
-```
-
-Here `BASE_SHA` is the assigned experiment's recorded baseline commit.
-Any source change outside `benchmark.json`'s `editablePaths` invalidates a
-normal experiment result. Never restore or overwrite unrelated user changes.
+Before reporting, separate submitted candidate changes from supporting
+research-only changes and inspect both against the recorded `BASE_SHA`. Any
+runtime or model source outside `editablePaths` invalidates the candidate.
+Never restore or overwrite unrelated user changes. Exact inspection commands
+are in [`experiment-runbook.md`](experiment-runbook.md).
 
 ## Kernel Build Contract
 
@@ -409,69 +332,26 @@ even when a microbenchmark looks numerically close.
 
 ## Setup And Baseline
 
-Setup is once per host or whenever the toolchain/checkpoint state changes:
+A clean research round starts with normal `mlxfast sync`, which selects the
+best promoted submission. `mlxfast sync --harness-only` is not a frontier sync:
+it preserves editable paths and is reserved for refreshing trusted base and
+harness files around work already in progress. Never infer the frontier from a
+remote name alone.
 
-```bash
-mlxfast sync --harness-only
-./setup.sh
-```
+Record the selected frontier commit as an immutable `BASE_SHA`. Finish and
+report the arm against that SHA even if the frontier moves while it runs; then
+sync, reapply, and remeasure a promising candidate before promotion. Do not
+compare results across a changed base commit, model cache, toolchain, host
+profile, or thermal policy.
 
-The first command refreshes the trusted harness and does not authorize manual
-harness changes. Setup then builds the Swift tools and Metal library and
-downloads or verifies the pinned checkpoint. The host needs at least 40 GiB of
-free disk for the default setup. Use a pre-provisioned exact checkpoint or
-documented cache path when appropriate; never substitute a different model
-revision.
+Setup is once per host or whenever the toolchain/checkpoint state changes. Use
+the exact checkpoint and a documented cache path; never substitute another
+model revision. Run one causal experiment at a time, with whatever coupled
+editable-path changes are necessary to test it, and compare unchanged baseline
+and candidate on the same host under the same thermal gate.
 
-Every research round must begin from the latest advisor frontier, itself based
-on current `origin/main`. Do not compare with a score from an older commit,
-branch, model cache, toolchain, or thermal state.
-
-For each assigned PR:
-
-1. Record the baseline commit before editing.
-2. On the same host, run the unchanged branch through local iterate.
-3. Save the ignored baseline score artifact.
-4. Implement exactly one hypothesis.
-5. Run the candidate on the same host under the same automatic thermal gate.
-
-Example:
-
-```bash
-BASE_SHA="$(git rev-parse HEAD)"
-./benchmark.sh --local-iterate
-cp score.local-iterate.json score.local-iterate.baseline.json
-
-# Implement the assigned hypothesis, then:
-swift test --force-resolved-versions
-./benchmark.sh --local-iterate
-cp score.local-iterate.json score.local-iterate.candidate.json
-```
-
-`score.local-*.json`, `score*.baseline.json`, and `score.json` are ignored
-artifacts. Never commit them.
-
-Extract the comparison with:
-
-```bash
-jq '{
-  score,
-  passed,
-  runtime: .metrics.runtime,
-  passed_correctness: .metrics.passed_correctness,
-  decode_seconds_per_token: .metrics.decode_seconds_per_token,
-  prefill_seconds_per_token: .metrics.prefill_seconds_per_token,
-  decode_speedup: .metrics.decode_speedup,
-  prefill_speedup: .metrics.prefill_speedup,
-  peak_ram_gb: .metrics.peak_ram_gb,
-  error: .metrics.error
-}' score.local-iterate.baseline.json score.local-iterate.candidate.json
-```
-
-Local `score` and speedups are estimates against cached M5 calibration
-constants, not a same-session official pair. The most useful local comparison
-is the candidate's seconds/token against the freshly measured baseline's
-seconds/token on the same Mac.
+See [`experiment-runbook.md`](experiment-runbook.md) for the frontier, setup,
+baseline/candidate, metric extraction, and pre-promotion commands.
 
 ## Experiment Ladder
 
@@ -480,7 +360,8 @@ Use the cheapest reliable gate that can answer the current question.
 ### 1. Static and build checks
 
 - Confirm the hypothesis attacks the scored runtime.
-- Confirm every proposed file is in `editablePaths`.
+- Confirm every submitted candidate file is in `editablePaths`; identify any
+  supporting tests or docs separately.
 - For a kernel edit, confirm the runtime-effective JIT/AOT source and `_nax`
   variant are covered.
 - Review the diff for prompt-, token-, fixture-, or benchmark-specific logic.
@@ -495,20 +376,10 @@ end-to-end win.
 
 ### 3. Fast local screen
 
-```bash
-swift test --force-resolved-versions
-./benchmark.sh --local-iterate
-```
-
-This runs the public 64-step correctness tripwire plus a short local timing
-pass. It is the normal screening loop.
-
-If the change touches live MLX runtime behavior and the host supports it, also
-run:
-
-```bash
-MLXFAST_RUN_MLX_RUNTIME_TESTS=1 swift test --force-resolved-versions
-```
+Run the standard tests and local-iterate path from the runbook. This is the
+normal screen: the public 64-step correctness tripwire plus a short local timing
+pass. When live MLX runtime behavior changes and the host supports it, include
+the opt-in MLX runtime tests.
 
 ### 4. Confirmation
 
@@ -518,13 +389,7 @@ For a promising candidate:
   host's noise floor.
 - Confirm both prefill and decode; never report the aggregate alone.
 - Confirm memory remains viable under the applicable startup profile.
-- Run the longer pre-submit path:
-
-```bash
-./benchmark.sh --local-submit
-```
-
-This writes `score.json` and exercises a longer local decode window.
+- Run the longer local-submit path from the runbook.
 
 ### 5. Official promotion
 
@@ -537,17 +402,9 @@ queued candidate is accepted, rebase or restart subsequent work on the new
 frontier and rebaseline before trusting its timings. Do not dispatch duplicate
 ranked submissions in an attempt to get parallel capacity.
 
-Before promotion, require:
-
-```bash
-mlxfast sync --harness-only
-./setup.sh
-swift test --force-resolved-versions
-./benchmark.sh --local-submit
-```
-
-Then confirm a clean, editable-surface-only diff and summarize why the local
-evidence is likely to transfer to M5.
+Before promotion, follow the runbook's harness refresh and pre-submit sequence,
+confirm a clean candidate diff limited to `editablePaths`, and summarize why
+the local evidence is likely to transfer to M5.
 
 ## Correctness And Validity
 
@@ -566,18 +423,6 @@ the repository. Do not claim local coverage of them or try to reconstruct them.
 The checked-in public fixture is a drift tripwire, not a complete proxy for the
 hidden distribution.
 
-Do not confuse ordinary cross-generation near-tie drift with gross inference
-corruption. The pre-NAX layout mismatch above produced PPL `262.0863`,
-repetitive or unfinished generations, and zero correct answers across the
-small downstream panel. The original quick evaluator also capped every
-full-head answer at 256 tokens, which could stop a reasoning trace before its
-extractable final answer. That compounded the symptom but could not repair the
-logits. After the dispatch/layout fix, the same host reached PPL `13.9549` and
-nonzero downstream accuracy. The current quality runner gives normal full-head
-questions 1,024 tokens and AIME 2,048 tokens, and invalidates a full-head run
-if an answer reaches its cap; its separate ranked-behavior arm intentionally
-retains the challenge's 128-token prefix contract.
-
 Checked-in fixtures were generated on M5. A correct baseline can encounter a
 near-tie argmax divergence on a different Apple generation. When that happens:
 
@@ -595,106 +440,23 @@ Correctness recovery has a cost. If a safety path, fallback, or deterministic
 reduction restores token identity but removes the speedup, the optimization
 failed on end-to-end economics.
 
-### Existing local quality evidence
+### Risk-based local quality evidence
 
-Use the repository's existing evidence ladder before proposing new evaluation
-infrastructure:
+Use local-iterate as the normal screen and local-submit for promotion
+candidates. Add the opt-in upstream-equivalence test or the advisory quality
+panel when a candidate changes numerical behavior or representation—for
+example quantization, pruning, reduction order, activation math,
+dispatch/layout contracts, or output-head behavior—or whenever an observed
+mismatch needs diagnosis. They are not routine requirements for a scheduling
+or tiling change whose outputs are already shown equivalent.
 
-- `./benchmark.sh --local-iterate` checks the public 64-step teacher-forced
-  tripwire and produces a short directional timing estimate.
-- `./benchmark.sh --local-submit` uses the longer checked-in public fixture and
-  is the stronger participant-facing local check.
-- `correctness-trace` can diagnose a known mismatch without weakening the gate.
-- The opt-in M5 upstream-equivalence test compares the scored runtime with the
-  vendored `MLXLLM.LagunaModel` for one 512-token prefill and eight serial
-  teacher-forced decode steps. It is an expensive diagnostic for risky math or
-  dispatch changes, not a replacement for the official gate:
-
-```bash
-MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE=1 \
-MLXFAST_LAGUNA_EQUIVALENCE_WEIGHTS_PATH=weights \
-swift test --force-resolved-versions \
-  --filter lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled
-```
-
-### Autoresearch quality checkpoint
-
-One-time setup from the repository root:
-
-```bash
-./setup.sh
-brew install uv  # skip when uv --version already succeeds
-```
-
-`setup.sh` downloads the pinned 21.6 GB checkpoint. `senpai/quality-eval`
-creates its locked Python environment and fetches the public benchmark data
-automatically; no dataset path or Hugging Face token is needed. Internet access
-is required, including live Hugging Face access for AIME and GSM8K.
-
-Before modifying untouched `main`, create and preserve separate matched
-baselines for the periodic 13-minute core panel and the full quick pre-submit
-panel:
-
-```bash
-./senpai/quality-eval run . \
-  --profile quick \
-  --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
-  --change-label untouched-baseline-core \
-  --output quality-results/baseline-quick-core
-
-./senpai/quality-eval run . \
-  --profile quick \
-  --change-label untouched-baseline-full \
-  --output quality-results/baseline-quick
-```
-
-Run the core gate periodically for promising changes; replace `my-change-001`
-with a unique experiment ID because output directories are immutable:
-
-```bash
-QUALITY_RUN_ID=my-change-001
-./senpai/quality-eval run . \
-  --profile quick \
-  --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
-  --change-label "${QUALITY_RUN_ID}" \
-  --baseline quality-results/baseline-quick-core \
-  --output "quality-results/candidate-quick-core-${QUALITY_RUN_ID}"
-```
-
-Run the full quick panel before submission:
-
-```bash
-QUALITY_RUN_ID=my-change-001
-./senpai/quality-eval run . \
-  --profile quick \
-  --change-label "${QUALITY_RUN_ID}" \
-  --baseline quality-results/baseline-quick \
-  --output "quality-results/candidate-quick-${QUALITY_RUN_ID}"
-```
-
-Only exit `0` with terminal `QUALITY GATE: PASS` permits promotion. Exit `3`
-means a completed quality regression; exits `1`, `2`, and `130` mean the run
-failed, was invalid, or was interrupted. Any nonzero exit rejects or blocks
-promotion. A bare `EVALUATION RUN: PASS` only means the run completed—it is not
-a quality decision.
-
-The frozen untouched reference and acceptable thresholds on this Mac are:
-
-| Gate | Baseline | Accept candidate |
-| --- | ---: | ---: |
-| Periodic core downstream | 16/35 | at least 16/35 |
-| Full quick downstream | 26/53 (49.06%) | at least 26/53 |
-| Token-weighted PPL | 13.954858 | at most 14.386452 |
-| Ranked GPQA response identity (full quick only) | 9 saved prefixes | at least 7/9 exact |
-| Public first-token probe | token 5991 | exact match |
-
-Full-panel diagnostics are MMLU-Pro `9/20`, GPQA greedy `6/9`, GPQA sampled
-`4/9`, AIME `4/9`, and GSM8K `3/6`; only their summed correct count gates.
-PPL and ranked GPQA are separate. Always use a same-host, contract-compatible
-baseline: `quality-results/` is gitignored and not shipped in a fresh clone.
-See `senpai/quality-evaluation.md` for the frozen prompts and output contract.
-This advisory panel cannot relax exact-token correctness or replace the hidden
-M5 quality and behavioral gates. Run only one model-holding process at a time.
+When one of these stronger checks is required, only its documented passing
+verdict permits promotion. Use a matched, same-host baseline and never run it
+beside another model-holding process. See
+[`quality-evaluation.md`](quality-evaluation.md) for triggers, commands,
+thresholds, exit semantics, and the upstream-equivalence diagnostic. These
+checks are advisory and cannot relax exact-token correctness or replace the
+hidden M5 gates.
 
 ## Serial Non-Speculative Integrity Boundary
 
@@ -751,6 +513,18 @@ Never:
 
 Optimizations must be prompt-independent and model-general for Laguna.
 
+## Research Autonomy
+
+The advisor assigns a bounded research question or cost center plus the hard
+validity and measurement contract; it does not prescribe the implementation.
+Within that scope, the student owns source inspection, profiling, hypothesis
+refinement, implementation shape, and the cheapest sufficient validation.
+
+A student may narrow an arm, stop when evidence falsifies it, or return an
+analysis-only or measurement-only result. It does not owe the program a patch.
+Record higher-leverage adjacent ideas as follow-ups instead of silently
+broadening scope; a materially different causal mechanism becomes a new arm.
+
 ## Research Method
 
 The transferable lesson from the Senpai inference guide is a disciplined loop:
@@ -758,8 +532,9 @@ The transferable lesson from the Senpai inference guide is a disciplined loop:
 1. Define the exact validity contract.
 2. Reproduce the current frontier on the measured path.
 3. Decompose latency into named costs.
-4. Price the maximum and break-even gain before implementation.
-5. Test one hypothesis at a time.
+4. Estimate the plausible gain and noise threshold when evidence permits;
+   otherwise make bounding the target cost the first result.
+5. Test one causal question at a time.
 6. Reject quickly on correctness, protocol, feasibility, or end-to-end speed.
 7. Compose only individually measured winners.
 8. Preserve negative results so later agents do not repeat them.
@@ -767,109 +542,43 @@ The transferable lesson from the Senpai inference guide is a disciplined loop:
 Every experiment PR should state:
 
 ```text
-Hypothesis:
-  What exact mechanism should make inference faster?
+Question or hypothesis:
+  What causal mechanism or uncertainty does this arm test?
 
-Target cost:
-  Which measured prefill/decode budget line does it reduce?
+Target cost and evidence:
+  Which measured budget line matters, and what currently supports that belief?
 
-Expected gain:
-  What is the break-even gain, optimistic gain, and likely noise level?
+Expected signal:
+  Give a grounded numerical range when possible. Otherwise state what first
+  measurement will bound the effect.
 
 Validity gate:
   Which exact-token, serial-protocol, build, and memory checks must pass?
 
-Implementation scope:
-  Which editable files and runtime-effective kernel forms will change?
-
 Measurement plan:
-  What baseline, tests, local mode, repetitions, and promotion gate will run?
+  What is the cheapest reliable sequence of checks?
 
 Stop rule:
-  What result makes the idea green, ambiguous, or dead?
+  What evidence will promote, narrow, revise, or end the arm?
 ```
 
-Do not assign vague experiments such as "optimize attention." Assign a priced,
-falsifiable change such as "avoid materializing this mask on one-token
-sliding-window decode; expect X microseconds from the profile; reject if any
-token differs or decode improves by less than the measured noise floor."
+Broad directions are acceptable for discovery, but must become falsifiable
+before implementation. Prefer an evidence-backed question such as whether a
+specific materialization exists on one-token decode; do not invent a numerical
+gain before measuring the cost.
 
-Use `python3 senpai/exa_search.py "query"` for general web search; add
-`--category publication` for research literature. It reads `EXA_API_KEY` from
-the environment or `senpai/.env` and prints the Exa response as JSON.
+Research commands, including literature search, are in
+[`experiment-runbook.md`](experiment-runbook.md).
 
-## High-Value Research Areas
+## Non-Prescriptive Research Map
 
-Start from profiles and source inspection, not this list alone.
-
-### NVFP4 matmul and MoE
-
-- Quantized matmul dispatch and the M5 `_nax` variants.
-- MoE expert gather-GEMM batching and indexing.
-- Routed/shared expert projection scheduling.
-- Fused or cheaper dequantization that preserves the required result.
-- Reuse of input-independent derived weight views.
-- Avoiding redundant copies, materializations, and synchronization.
-
-Decode is likely sensitive to weight traffic, but the model is already NVFP4
-where the checkpoint permits it. Prove that a proposed representation or kernel
-actually reduces the scored path rather than adding conversion overhead.
-
-### Attention and RoPE
-
-- Group-32 affine INT8 re-quantization of Q/K/V/O and the newly admitted
-  per-head `g_proj`, including layout, preparation, and decode dispatch.
-- Correct dispatch between sliding-window and full attention.
-- GQA broadcasting for 8 KV heads at head dimension 128.
-- Steel attention behavior at the scored 512-token prefill length.
-- Sliding-window masks and cache indices.
-- YaRN partial-rotary work on full-attention layers.
-- Kernel selection crossovers at the exact scored shapes.
-
-An attention optimization that helps only a tiny context or a different head
-shape is not evidence.
-
-### KV cache
-
-- A tighter 512-position ring for sliding-window layers.
-- Avoiding copies or unnecessary physical cache movement.
-- Cache layout and update scheduling for one-token decode.
-- Compilable cache variants and compiled decode interactions.
-
-Logical and physical positions must still advance by exactly the supplied
-length.
-
-### Runtime scheduling
-
-- MLX graph construction and compilation reuse.
-- Kernel-launch and command-buffer overhead.
-- Safe fusion of operations already required by the current request.
-- Removal of host synchronization and avoidable materialization.
-- Weight preparation during unscored initialization only when it is
-  input-independent and does not subsidize charged per-request work
-  illegitimately.
-
-### Weight loading and offline transform
-
-- Fewer Data-to-Metal copies.
-- Deterministic preparation or transform metadata for the permitted group-32
-  affine INT8 Q/K/V/O/`g_proj` layouts.
-- Runtime metadata that removes repeated shape/layout work.
-- Deterministic transformed layouts that improve scored access.
-- Compact artifacts within the default 25 GiB generated-weights cap.
-
-The offline transform is unscored, but its output must be deterministic,
-complete, portable to the official runner, and behavior-preserving.
-
-### Output head
-
-- Faster BF16 output projection.
-- Better dispatch or layout for the untied 100352-token vocabulary head.
-- Fusion only when it computes the full contractually required result.
-
-Vocabulary pruning and candidate-limited output are high-risk because hidden
-prompts differ and exact greedy tokens are required. Reject prompt-specific
-keep sets and fallbacks whose cost erases the win.
+Choose work from fresh profiles, current promoted diffs, prior results, and
+source inspection—not from a fixed backlog. Plausible cost centers include
+NVFP4 matmul and MoE dispatch, attention and RoPE, KV-cache movement, MLX graph
+and launch scheduling, weight/transform layout, and the output head. These are
+orientation points, not quotas or an ordering. `TASK.md` remains authoritative
+for precision allowances, and every idea must prove that it affects the exact
+scored shapes and path.
 
 ## Low-Value Or Invalid Directions
 
@@ -909,83 +618,50 @@ official score.
 
 Decision guidance:
 
-- **Green:** correctness/protocol pass, a repeatable same-host end-to-end gain,
-  no component floor risk, and a clean editable-surface-only implementation.
+- **Invalid candidate:** correctness, protocol, memory, build, or submitted-
+  surface failure. Never promote it, but do not call the underlying hypothesis
+  dead while a plausible compliant implementation remains.
+- **Dead hypothesis:** profiling disproves the target cost, its plausible
+  end-to-end gain is below noise or implementation cost, or a valid
+  implementation produces no repeatable gain.
 - **Ambiguous:** gain near noise, machine-generation-specific correctness
-  uncertainty, unstable prefill/decode tradeoff, or incomplete M5 transfer
-  evidence. Repeat or narrow the experiment.
-- **Red:** any new token mismatch, prohibited computation, invalid surface
-  change, OOM, component below `0.95`, or no repeatable end-to-end gain.
+  uncertainty, unstable prefill/decode tradeoff, or incomplete transfer
+  evidence. Run only the smallest additional test capable of changing the
+  decision; otherwise close with the uncertainty recorded.
+- **Green:** correctness and protocol pass, a repeatable same-host end-to-end
+  gain, no component-floor risk, and a clean candidate limited to
+  `editablePaths`.
 
-A microbenchmark win without an end-to-end win is a negative result. An
-aggregate gain that materially regresses one axis or threatens the acceptance
-band is not a clean winner.
+A microbenchmark win without an end-to-end win is evidence, not a promotable
+candidate. An aggregate gain that materially regresses one axis or threatens
+the acceptance band is not a clean winner.
 
 ## Results Contract
 
 This repository does not use W&B for benchmark metrics. Do not add W&B logging
-to the submitted runtime or trusted harness. The canonical experiment artifacts
-are the ignored score JSON files, exact command output, Git commit, and the PR
-result comment. Use an empty `wandb_run_ids` list unless orchestration separately
-records a real external run.
+to the submitted runtime or trusted harness. Canonical evidence is the ignored
+score JSON, exact command output, commits, and the PR result comment.
 
-Every terminal student result must begin with a single-line marker:
-
-```text
-SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"local_paired_score_estimate","value":1.0123},"test_metric":{"name":"passed_correctness","value":1}}
-```
-
-Use `passed_correctness` value `1` for a passing local gate and `0` otherwise.
-If no valid timing exists, use a truthful sentinel such as `0` for the primary
-metric and explain the failure immediately below; never invent a score.
-
-The result comment must also include:
-
-- student name and PR number,
-- hypothesis and target cost,
-- baseline commit and candidate commit,
-- Mac model, chip generation, unified memory, macOS/Xcode/Swift versions, and
-  startup memory profile,
-- exact baseline and candidate commands,
-- baseline and candidate `score`,
-- baseline and candidate decode/prefill seconds per token,
-- same-host decode gain, prefill gain, and weighted paired estimate,
-- `passed`, `passed_correctness`, checked steps, and any divergent tokens,
-- peak RAM and generated weights byte count,
-- number of measurements and whether the thermal gate passed normally,
-- tests run,
-- exact files changed and confirmation that they are in `editablePaths`,
-- what happened and the most likely mechanism,
-- caveats, especially non-M5 transfer risk,
-- suggested follow-ups,
-- a clear recommendation: merge, repeat, revise, or close.
-
-Example table:
-
-| Metric | Baseline | Candidate | Ratio / delta |
-| --- | ---: | ---: | ---: |
-| decode seconds/token | ... | ... | ...x |
-| prefill seconds/token | ... | ... | ...x |
-| local estimated score | ... | ... | ... |
-| passed correctness | ... | ... | — |
-| peak RAM GB | ... | ... | ... |
-
-Negative results are first-class research assets. State whether failure came
-from correctness, serial-track validity, build feasibility, memory, M5 transfer
-risk, measurement noise, or lack of end-to-end speed.
+At terminal reporting time, load and follow
+[`result-template.md`](result-template.md). It owns the machine-readable
+`SENPAI-RESULT` marker, required reproducibility fields, comparison table, and
+negative-result taxonomy. Do not carry that reporting checklist through the
+active research loop, and never invent a score when no valid timing exists.
 
 ## Advisor Guidance
 
-Maintain a balanced portfolio across MoE/quantized matmul, attention, KV cache,
-runtime scheduling, output head, and transform/layout work. Allocate experiments
-according to measured budget, not idea novelty.
+Allocate arms according to measured bottlenecks, plausible impact, confidence,
+uncertainty reduction, and experiment cost. Diversify when evidence is weak or
+parallel capacity makes independent information gathering useful; category
+balance is not itself a goal.
 
-- Keep one hypothesis per PR.
-- Put the baseline commit, baseline metrics, expected gain, files, validation
+- Keep one causal question per PR.
+- Put the baseline commit, baseline metrics, expected signal, files, validation
   ladder, and stop rule in the PR body.
 - Prefer prompt-invariant, by-construction-safe changes.
-- Price risky kernel work before assigning a large implementation.
-- Close dead ends once evidence clears the stop rule.
+- Bound risky kernel work before assigning a large implementation.
+- Close dead hypotheses once evidence clears the stop rule; distinguish them
+  from repairable invalid candidates.
 - Search merged/closed PRs before repeating an idea.
 - Merge only measured winners based on the current advisor frontier.
 - Rebaseline after every merged winner before assigning comparisons against the
@@ -995,7 +671,8 @@ according to measured budget, not idea novelty.
 - Reserve `--local-submit` and official queue time for candidates that survive
   the fast screen.
 - Treat official M5 feedback as new evidence. Record it before the next round.
-- Chunk candidates that appear to exceed the single-submission acceptance band.
+- Chunk candidates that appear to exceed the single-submission acceptance band
+  only along natural, independently valid improvements.
 
 The strongest baseline is already highly tuned. Favor precise, mechanism-backed
 experiments over broad refactors. Simpler code is preferred when performance
@@ -1004,9 +681,11 @@ and correctness are equal.
 ## Roles
 
 Research is coordinated through Senpai's GitHub advisor/student PR workflow.
-The advisor proposes and routes hypotheses; students implement only assigned
-work, run the benchmark ladder, and report structured results. Human issues may
-override or stop work.
+The advisor routes bounded questions or cost centers and owns shared-frontier
+and official-queue decisions. Students own the investigation within that scope,
+including profiling, narrowing, implementation, cheapest sufficient
+validation, early termination, and evidence-backed negative results. Human
+issues may override or stop work.
 
 Any `instructions/prompt-advisor.md` and `instructions/prompt-student.md` role
 overlays must point back to this program and must not weaken the repository
