@@ -120,6 +120,30 @@ overlay by changing both `Sources/MLXFastTransform/` and
 `Sources/MLXFastModel/`; correctness and benchmark results are the authority,
 not byte equality with the baseline layout.
 
+### Accepted attention quantization envelope
+
+The live challenge contract permits submissions to re-quantize only these
+attention projections to **group-32 affine INT8**:
+
+- query projection (`q_proj`),
+- key projection (`k_proj`),
+- value projection (`v_proj`),
+- output projection (`o_proj`),
+- per-head gate projection (`g_proj`).
+
+This is a narrow representation allowance, not permission to change the
+model's overall precision or behavior. The source checkpoint remains
+authoritative, exact-token and hidden behavior gates still apply, and no other
+BF16 tensor is admitted. In particular, do not infer permission to re-quantize
+embeddings, Q/K norms, routers, the layer-0 dense MLP, the untied output head,
+or any other unlisted projection.
+
+The trusted harness must understand this envelope. Do not hand-edit trusted
+validation to admit a new layout. On a clean research round, normal
+`mlxfast sync` selects the promoted frontier; around work already in progress,
+`mlxfast sync --harness-only` refreshes trusted base and harness files while
+preserving editable paths.
+
 The public correctness-only prompt and Laguna-tokenized golden are committed
 under `correctness_prompts/` so participants can run a local correctness smoke
 test. The official correctness golden

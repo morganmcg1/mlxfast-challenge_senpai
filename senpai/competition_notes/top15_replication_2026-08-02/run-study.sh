@@ -47,6 +47,8 @@ study_thermal_preflight_samples=5
 study_thermal_preflight_interval_ms=1000
 study_thermal_reader_timeout_seconds=15
 study_thermal_preflight_handoff_seconds=30
+study_thermal_preflight_wait_seconds=900
+study_thermal_preflight_retry_delay_seconds=10
 study_legacy_baseline_log_sha256="f324d48d983efb427326c13caf0bc3dd0cc5b5e71a786f4f06c4c492270c4130"
 study_next_preflight_requires_cool=1
 study_current_performance_preflight=""
@@ -1212,7 +1214,9 @@ run_thermal_preflight() {
   local health_status="invalid"
   local sample_count="0"
   local final_gpu_temp=""
-  if [[ "${reader_status}" -eq 0 ]] && thermal_samples_healthy "${samples_file}"; then
+  if [[ "${reader_status}" -eq 0 ]] \
+      && thermal_samples_healthy "${samples_file}" \
+      && thermal_samples_fresh "${samples_file}" "${started_at}" "${finished_at}"; then
     sample_count="$(jq -s 'length' "${samples_file}")"
     final_gpu_temp="$(jq -sr '.[-1].temp.gpu_temp_avg' "${samples_file}")"
     if thermal_samples_ready "${samples_file}"; then
@@ -1290,7 +1294,7 @@ run_thermal_preflight() {
   if [[ "${require_cool}" == "1" && "${health_status}" != "healthy_ready" ]]; then
     echo "top15-study: thermal preflight is healthy but GPU is ${final_gpu_temp}C (target <=40C); no model was loaded" >&2
     echo "top15-study: receipt: ${meta_file}" >&2
-    return 75
+    return 76
   fi
   if ! performance_preflight_receipt_valid \
       "${receipt_name}" "$(sha256_file "${meta_file}")" \
@@ -1302,6 +1306,33 @@ run_thermal_preflight() {
   study_current_performance_preflight_sha256="$(sha256_file "${meta_file}")"
   echo "top15-study: thermal preflight ${health_status} at ${final_gpu_temp}C (${study_thermal_preflight_samples} responsive samples; fans ${fan_status})"
   echo "top15-study: thermal preflight receipt: ${meta_file}"
+}
+
+# A detached host can cross 40C between the coarse cool-wait sample and the
+# attempt-bound five-sample receipt. Healthy-hot telemetry is the only
+# retryable outcome; invalid telemetry and supervision failures still abort.
+run_thermal_preflight_with_cool_wait() {
+  local require_cool="$1"
+  shift
+  local deadline now preflight_status
+  now="$(date +%s)"
+  deadline=$((now + study_thermal_preflight_wait_seconds))
+  while :; do
+    if run_thermal_preflight "${require_cool}" "$@"; then
+      return 0
+    else
+      preflight_status="$?"
+    fi
+    [[ "${require_cool}" == "1" && "${preflight_status}" == "76" ]] \
+      || return "${preflight_status}"
+    now="$(date +%s)"
+    if [[ "${now}" -ge "${deadline}" ]]; then
+      echo "top15-study: attempt-bound thermal preflight timed out after ${study_thermal_preflight_wait_seconds}s; no model was loaded" >&2
+      return 75
+    fi
+    echo "top15-study: retrying healthy-hot attempt-bound preflight in ${study_thermal_preflight_retry_delay_seconds}s"
+    /bin/sleep "${study_thermal_preflight_retry_delay_seconds}"
+  done
 }
 
 performance_log_thermal_self_test() {
@@ -1962,6 +1993,12 @@ run_performance_arm() {
     return 0
   fi
   apply_snapshot "${arm_commit}" "${arm_rank}-${arm_id}"
+  local require_cool="${study_next_preflight_requires_cool}"
+  if [[ "${require_cool}" == "1" ]]; then
+    # Snapshot installation can briefly warm the SoC. Cool after all setup so
+    # the attempt-bound receipt is the only remaining handoff before loading.
+    wait_for_performance_launch_cool || return "$?"
+  fi
   local attempt_number
   attempt_number="$(next_attempt_number "${arm_dir}" log)"
   local attempt_name="attempt-${attempt_number}"
@@ -1974,9 +2011,8 @@ run_performance_arm() {
     echo "top15-study: refusing performance arm ${arm_rank}: fan policy is not verified '${study_performance_fan_policy}'" >&2
     return 75
   fi
-  local require_cool="${study_next_preflight_requires_cool}"
   local preflight_status
-  if run_thermal_preflight \
+  if run_thermal_preflight_with_cool_wait \
       "${require_cool}" "${arm_rank}" "${arm_id}" "${arm_commit}" "${attempt_name}"; then
     :
   else
@@ -2186,12 +2222,11 @@ run_performance_batch() {
   [[ "${study_performance_enabled}" == "true" ]] \
     || die "performance is disabled by manifest: ${study_manifest}"
   require_inputs
-  wait_for_performance_batch_cool
+  prepare_workspace
   # A single process owns the whole thermal handoff. Only the first new arm
   # must already be <=40C at preflight; later preflights may be healthy-hot and
   # the benchmark's phase-boundary gate performs the actual cool-down.
   study_next_preflight_requires_cool=1
-  prepare_workspace
   run_performance_arm \
     "${study_baseline_rank}" "${study_baseline_id}" "${study_baseline_commit}"
   local index
@@ -2205,10 +2240,10 @@ run_performance_batch() {
 }
 
 # A detached batch may be launched while the host is still cooling from setup
-# or tests. Wait here, before applying a snapshot or loading the model, using
-# the same responsive persistent reader contract as the attempt receipt. A bad
-# reader fails immediately; only healthy-hot telemetry is allowed to wait.
-wait_for_performance_batch_cool() {
+# or tests. Wait here after applying the snapshot but before loading the model,
+# using the same responsive persistent reader contract as the attempt receipt.
+# A bad reader fails immediately; only healthy-hot telemetry is allowed to wait.
+wait_for_performance_launch_cool() {
   local wait_root started_at finished_at samples_file stderr_file reader_status
   local final_gpu_temp now deadline iteration=0 fan_status
   wait_root="$(mktemp -d "${study_results}/preflight-wait-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")" \
@@ -2283,7 +2318,6 @@ performance_batch_self_test() {
     require_inputs() { :; }
     prepare_workspace() { :; }
     start_performance_batch_caffeinate() { :; }
-    wait_for_performance_batch_cool() { :; }
     run_performance_arm() {
       printf '%s:%s\n' "$1" "${study_next_preflight_requires_cool}" >> "${sequence_file}"
       study_next_preflight_requires_cool=0
@@ -2294,6 +2328,26 @@ performance_batch_self_test() {
   expected=$'111:1\n112:0\n120:0'
   [[ "${actual}" == "${expected}" ]] \
     || { rm -f "${sequence_file}"; rmdir "${test_dir}"; die "bounded performance batch lost its baseline/order/hot-handoff contract"; }
+  (
+    local preflight_calls=0
+    study_thermal_preflight_retry_delay_seconds=0
+    run_thermal_preflight() {
+      preflight_calls=$((preflight_calls + 1))
+      [[ "${preflight_calls}" -gt 1 ]] || return 76
+    }
+    run_thermal_preflight_with_cool_wait 1 >/dev/null
+    [[ "${preflight_calls}" == "2" ]]
+  ) || { rm -f "${sequence_file}"; rmdir "${test_dir}"; die "healthy-hot preflight was not retried exactly once"; }
+  (
+    local preflight_status
+    run_thermal_preflight() { return 75; }
+    if run_thermal_preflight_with_cool_wait 1 >/dev/null 2>&1; then
+      preflight_status=0
+    else
+      preflight_status="$?"
+    fi
+    [[ "${preflight_status}" == "75" ]]
+  ) || { rm -f "${sequence_file}"; rmdir "${test_dir}"; die "invalid preflight did not fail closed"; }
   if (run_performance_batch 112 aa6660cb >/dev/null 2>&1); then
     rm -f "${sequence_file}"
     rmdir "${test_dir}"
