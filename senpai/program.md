@@ -262,6 +262,9 @@ baseline values, and exit semantics are in
 [`quality-evaluation.md`](quality-evaluation.md). These local checks never
 relax the official exact-token or hidden M5 gates.
 
+The quality panel is expensive and slows experiment throughput. Run it only
+for a named risk or unresolved question that cheaper exact checks cannot answer.
+
 Treat new exact matched-reference or upstream-equivalence divergence as a hard
 stop. Treat the panel's retention, PPL, and response-prefix verdict as an amber
 drift alarm, not an automatic submission veto: accepted-rank calibration shows
