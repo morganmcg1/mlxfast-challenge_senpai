@@ -255,9 +255,10 @@ group to own the foreground tty before prompting, because merely opening
 `tools/fan-control.sh` calls still require an attended operator; the helper can
 invoke `sudo` and has no unattended authorization path. A boost applied before
 a run is external state, so the benchmark will not restore it. The
-operator/controller must have an out-of-band cleanup path that runs
-`./benchmark.sh --fan-speed-normal` on campaign success, failure, signal, and
-host teardown, then verifies `tools/fan-control.sh status` returns `auto`.
+operator/controller needs the out-of-band `./benchmark.sh --fan-speed-normal`
+cleanup and `auto` verification only on a host where it applied a manual
+boost. A host reporting unsupported `none` has no override to restore;
+`macmon` and the `<=40C` gate remain mandatory.
 Record the host identifier, chip, memory, macOS build, initial temperature,
 fan capability/action, cool-down duration, and accepted telemetry with every
 timed result.

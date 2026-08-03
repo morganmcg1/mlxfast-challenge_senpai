@@ -1917,8 +1917,8 @@ print_performance_comparison() {
       BEGIN {
         prefill = bp / cp
         decode = bd / cd
-        index = (decode ^ 0.75) * (prefill ^ 0.25)
-        printf "top15-study: rank-%s vs rank-111 on this M4: prefill=%.6fx decode=%.6fx weighted_index=%.6fx; harness estimate=%.6f vs pinned M5 calibration (not the study comparison)\n", rank, prefill, decode, index, calibration
+        weighted_index = (decode ^ 0.75) * (prefill ^ 0.25)
+        printf "top15-study: rank-%s vs rank-111 on this M4: prefill=%.6fx decode=%.6fx weighted_index=%.6fx; harness estimate=%.6f vs pinned M5 calibration (not the study comparison)\n", rank, prefill, decode, weighted_index, calibration
       }
     '
 }
