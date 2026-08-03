@@ -1,129 +1,110 @@
 # Autoresearch Experiment Runbook
 
-Load this file when starting, measuring, or promoting an experiment. The active
-research policy remains in `program.md`; benchmark and submission contracts
-remain in `AGENTS.md`, `TASK.md`, and `benchmark.json`.
+Use this file to start, measure, and promote an experiment. `program.md` owns
+research policy; `benchmark.json` owns the submitted surface.
 
 ## Start from the promoted frontier
 
-Begin with a clean worktree. Normal sync selects the best promoted submission:
+This repository is a fork:
+
+- `origin` is the research fork.
+- `upstream` is the organizer repository.
+- fork `main` is the maintained research frontier: organizer updates plus the
+  best promoted editable-path state.
+
+The advisor, acting as fork maintainer, updates fork `main` before a research
+round:
+
+1. Fetch `origin/main` and `upstream/main`.
+2. In a disposable worktree based on `upstream/main`, run `mlxfast sync`
+   without `--force` and commit the resulting promoted editable-path snapshot.
+3. In an integration branch based on `origin/main`, merge `upstream/main`.
+4. Restore only `benchmark.json`'s `editablePaths` from the promoted snapshot.
+5. Review and test the combined tree, then merge it into fork `main`.
+
+Do not run either `mlxfast sync` mode on fork `main` or a research branch.
+Normal sync hard-resets to the organizer tip; harness-only sync replaces tracked
+non-editable files and can overwrite fork-owned research files.
+
+Advisors and students branch from the same clean fork-main commit:
 
 ```bash
-git status --short
-mlxfast submissions --all
-mlxfast sync
+git fetch origin main
+git switch main
+git pull --ff-only origin main
 BASE_SHA="$(git rev-parse HEAD)"
+RESEARCH_BRANCH="codex/short-topic"
+git switch -c "$RESEARCH_BRANCH" "$BASE_SHA"
 ```
 
-Do not substitute `git pull origin main` for frontier selection. A remote branch
-may contain orchestration work or lag the best promoted submission.
+Record `BASE_SHA` in the result and keep it fixed for the experiment. If
+`origin/main` advances, finish the current measurement against its recorded
+base. Reapply and remeasure a promising candidate before promotion.
 
-Do not use `--force`; normal `mlxfast sync` intentionally refuses a dirty
-worktree. Preserve wanted work first. `mlxfast sync --harness-only` has a
-different purpose: it refreshes tracked non-editable base and harness files
-while preserving editable paths, so it does not select the promoted frontier.
-
-Keep `BASE_SHA` immutable for the arm. If the frontier advances while work is
-running, finish and report against the recorded SHA. Before promotion, preserve
-the candidate, sync to the new frontier, reapply it, record the new SHA, and
-remeasure.
-
-## Prepare the host
-
-Run setup once per host and whenever the toolchain, checkpoint, or harness
-state changes:
-
-```bash
-./setup.sh
-```
-
-Setup builds the Swift tools and Metal library and downloads or verifies the
-pinned checkpoint. The default setup needs at least 40 GiB of free disk. Use a
-pre-provisioned exact checkpoint or documented cache path when appropriate;
-never substitute another model revision.
+Run `./setup.sh` when the host, toolchain, checkpoint, or maintained base
+changes.
 
 ## Record a matched baseline and candidate
 
-On the unchanged frontier:
+Measure the unchanged `BASE_SHA` on the assigned host:
 
 ```bash
-BASE_SHA="$(git rev-parse HEAD)"
 ./benchmark.sh --local-iterate
 cp score.local-iterate.json score.local-iterate.baseline.json
 ```
 
-After implementing one causal experiment:
+Implement one causal experiment, then measure it under the same host and
+thermal policy:
 
 ```bash
 ./benchmark.sh --local-iterate
 cp score.local-iterate.json score.local-iterate.candidate.json
 ```
 
-`--local-iterate` rebuilds stale binaries and runs the public correctness and
-timing screen. During exploration, add only the targeted compile or test that
-the changed boundary warrants. Iterate on the same causal mechanism until it
-wins or its stop rule is met.
-
-If a focused check of live MLX runtime behavior is useful and the host supports
-it, run:
-
-```bash
-MLXFAST_RUN_MLX_RUNTIME_TESTS=1 \
-swift test --force-resolved-versions
-```
-
-Never overlap model-holding commands. Let the automatic thermal gate complete;
-a cool-down wait is part of valid measurement.
+Do not overlap model-holding commands. Let the thermal gate finish. Add only a
+targeted compile, test, or diagnostic that can resolve a named risk. Repeat the
+pair only when noise or inconsistency could change the decision.
 
 ## Extract the comparison
 
 ```bash
 jq -s '
-  def snapshot: {
-    score,
-    passed,
-    runtime: .metrics.runtime,
-    passed_correctness: .metrics.passed_correctness,
-    decode_seconds_per_token: .metrics.decode_seconds_per_token,
-    prefill_seconds_per_token: .metrics.prefill_seconds_per_token,
-    calibration_decode_speedup: .metrics.decode_speedup,
-    calibration_prefill_speedup: .metrics.prefill_speedup,
-    peak_ram_gb: .metrics.peak_ram_gb,
-    error: .metrics.error
-  };
   .[0] as $b | .[1] as $c |
   ($b.metrics.decode_seconds_per_token /
-    $c.metrics.decode_seconds_per_token) as $decode_gain |
+    $c.metrics.decode_seconds_per_token) as $d |
   ($b.metrics.prefill_seconds_per_token /
-    $c.metrics.prefill_seconds_per_token) as $prefill_gain |
+    $c.metrics.prefill_seconds_per_token) as $p |
   {
-    baseline: ($b | snapshot),
-    candidate: ($c | snapshot),
+    baseline: {
+      decode: $b.metrics.decode_seconds_per_token,
+      prefill: $b.metrics.prefill_seconds_per_token
+    },
+    candidate: {
+      decode: $c.metrics.decode_seconds_per_token,
+      prefill: $c.metrics.prefill_seconds_per_token,
+      passed_correctness: $c.metrics.passed_correctness,
+      error: $c.metrics.error
+    },
     same_host: {
-      decode_gain: $decode_gain,
-      prefill_gain: $prefill_gain,
-      paired_estimate: (
-        pow($decode_gain; 0.75) * pow($prefill_gain; 0.25)
-      )
+      decode_gain: $d,
+      prefill_gain: $p,
+      paired_estimate: (pow($d; 0.75) * pow($p; 0.25))
     }
   }
 ' score.local-iterate.baseline.json score.local-iterate.candidate.json
 ```
 
-Local `score` and speedups use cached M5 calibration constants. For research,
-compare candidate seconds/token with the freshly measured unchanged baseline on
-the same host; the `same_host` object above calculates that comparison. The
-candidate run also prints the baseline deltas automatically when the companion
-baseline file exists. Repeat the pair only when the apparent gain is near the
-host's noise floor or an inconsistent result could change the decision.
+Use the fresh same-host seconds/token comparison for research decisions. Local
+`score` and `*_speedup` fields use cached M5 calibration and are secondary.
+The paired estimate is not an official score.
 
-These score files are ignored evidence and must never be committed:
+Score files are ignored evidence and must not be committed:
 
 - `score.local-*.json`
 - `score*.baseline.json`
 - `score.json`
 
-## Inspect submitted and supporting changes
+## Inspect the candidate
 
 ```bash
 git status --short
@@ -131,63 +112,29 @@ git diff --name-only "$BASE_SHA"
 git diff --stat "$BASE_SHA"
 ```
 
-Separate the candidate's model/runtime diff from supporting tests and docs.
-Every submitted candidate file must appear in `benchmark.json`'s
-`editablePaths`. Supporting tests and docs are research-only and cannot be
-required for the candidate to work or pass trusted validation.
+Separate submitted model/runtime changes from research-only tests and docs.
+Every submitted file must be in `benchmark.json`'s `editablePaths`. For kernel
+changes, cover the runtime-effective JIT or AOT source and relevant `_nax`
+variant as described in `AGENTS.md`.
 
-For kernel changes, confirm that the runtime-effective JIT/AOT source and the
-relevant `_nax` variant are covered. Rebuild AOT Metal sources through the
-repository setup or metallib script as required by `AGENTS.md`.
+## Confirm and promote
 
-## Stronger checks for promising or risky candidates
-
-Run the longer local path for a promising candidate:
+For a stable winner:
 
 ```bash
-./benchmark.sh --local-submit
-```
-
-Use `senpai/quality-evaluation.md` when the risk-based trigger in `program.md`
-applies. Its commands, thresholds, and exit semantics are authoritative; do not
-copy them into an experiment prompt.
-
-## Pre-promotion sequence
-
-First check whether the promoted frontier moved:
-
-```bash
-mlxfast submissions --all
-```
-
-If it moved, preserve and reapply the candidate on a clean normal
-`mlxfast sync`, then repeat the matched measurements. Once the candidate is on
-the current frontier, refresh the trusted harness without replacing editable
-paths and run the full local preflight:
-
-```bash
-mlxfast sync --harness-only
-./setup.sh
 swift test --force-resolved-versions
 ./benchmark.sh --local-submit
 ```
 
-Inspect the final diff again. Only the advisor or human operator may dispatch
-an official submission.
+Apply `quality-evaluation.md` only when its risk trigger is present. Before
+promotion, commit the candidate, update from `origin/main`, reapply that exact
+commit if the base moved, rerun the matched comparison, and inspect the final
+diff. Only the advisor or human operator dispatches an official submission.
 
 ## Research search
 
-For general web search:
-
 ```bash
-python3 senpai/exa_search.py "query"
+python3 senpai/exa_search.py "query" [--category publication]
 ```
 
-For research literature:
-
-```bash
-python3 senpai/exa_search.py "query" --category publication
-```
-
-The script reads `EXA_API_KEY` from the environment or `senpai/.env` and prints
-the Exa response as JSON.
+The script reads `EXA_API_KEY` from the environment or `senpai/.env`.

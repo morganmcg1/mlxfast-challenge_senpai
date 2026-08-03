@@ -149,8 +149,8 @@ exceeds `R * (1 + upTolerance)` (a real slowdown / regression) or drops below
 `R * (1 - downTolerance)` (an improvement too large to trust in one
 submission, or a suspiciously lucky-fast reading).
 
-- **Prefill: +/-5% symmetric.** Prefill is not a real optimization axis here, so
-  it is a health gate -- both a regression and a lucky-fast reading past 5% fail.
+- **Prefill: +/-5% symmetric.** Prefill is the lower-weighted optimization axis
+  and a health gate, so both a regression and a lucky-fast reading past 5% fail.
 - **Decode: +2% regression / -5% gain.** Decode is the axis the score rewards, so
   the up (regression) side is tight at +2%; the down (gain) side caps a *single
   submission's* decode improvement at 5%. Larger wins are still welcome -- they

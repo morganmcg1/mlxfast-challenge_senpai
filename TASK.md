@@ -61,41 +61,15 @@ decode floor. Local modes never fail on the band: `--local-iterate` /
 publish the estimate; see `docs/benchmark-window-freeze.md`. A ranked run
 that trips the band fails with failure category `acceptance_band_failed`.
 
-Run `./setup.sh`, then `./benchmark.sh --local-iterate`
-or `--local-submit` locally; local modes write an estimated local
-`score.json` only — the official paired score comes exclusively from the
-ranked M5 run.
+Run `./setup.sh`, then `./benchmark.sh --local-iterate` or `--local-submit`.
+Local modes write estimated score artifacts only; the official paired score
+comes exclusively from the ranked M5 run.
 
 ## Model Artifacts
 
-By default, `setup.sh` stores the frozen reference checkpoint in a shared
-Hugging Face-style cache under your home directory (so parallel clones reuse
-one checkpoint):
-
-```text
-~/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25/
-```
-
-It also creates this compatibility symlink unless the path already exists:
-
-```text
-reference_weights/laguna-xs-2.1-nvfp4-mlx/
-```
-
-By default `setup.sh` downloads
-`poolside/Laguna-XS-2.1-NVFP4-mlx@841778bda563a36104dd521e37d99218e46f4f25`
-from the public organizer R2 mirror, with the exact Hugging Face revision as
-fallback. It checks cached files
-against the pinned SHA256 manifest and redownloads only missing, truncated, or
-hash-mismatched files. The complete manifest covers 13 files totaling
-21,568,905,520 bytes, including 5 safetensors shards; `setup.sh` requires
-40 GiB free by default before starting. After a
-full verification, setup writes `.mlxfast-reference-cache.lock`; later setup
-runs use cheap size/mtime checks from that lock and skip the full checkpoint
-hash pass when the cache is unchanged. Set
-`MLXFAST_REFERENCE_CACHE_DIR` or `MLXFAST_REFERENCE_DIR` to a different local or
-mounted volume when needed, or set
-`MLXFAST_SKIP_WEIGHTS_DOWNLOAD=1` when the checkpoint is provisioned externally.
+The frozen source checkpoint is
+`poolside/Laguna-XS-2.1-NVFP4-mlx@841778bda563a36104dd521e37d99218e46f4f25`.
+The benchmark verifies it against the pinned manifest before use.
 
 The Swift transform writes benchmark-ready weights here:
 
@@ -108,17 +82,11 @@ weights/
   tokenizer_config.json
 ```
 
-The generated `weights/` tree is a runtime artifact set, not a second physical
-copy on APFS: the source is already text-only (`model.*` / `lm_head.*`), so
-the transform may clone complete shards copy-on-write and writes a runtime-authored
-`config.json` (the Laguna geometry fields the runtime needs,
-plus the checkpoint's quantization metadata). There is no expert
-streaming manifest -- the whole model, including every routed expert, is
-loaded fully into RAM at
-init; there is no weight streaming of any kind. Submissions may adjust this
-overlay by changing both `Sources/MLXFastTransform/` and
-`Sources/MLXFastModel/`; correctness and benchmark results are the authority,
-not byte equality with the baseline layout.
+The generated tree is a runtime artifact, not a required byte-for-byte copy of
+the baseline layout. The transform may change the representation through the
+editable transform and runtime together, subject to the rules below,
+correctness, and the transformed-output size cap. Every expert remains loaded
+in RAM; there is no expert-streaming manifest or scored weight streaming.
 
 ### Accepted attention quantization envelope
 
@@ -139,85 +107,28 @@ embeddings, Q/K norms, routers, the layer-0 dense MLP, the untied output head,
 or any other unlisted projection.
 
 The trusted harness must understand this envelope. Do not hand-edit trusted
-validation to admit a new layout. On a clean research round, normal
-`mlxfast sync` selects the promoted frontier; around work already in progress,
-`mlxfast sync --harness-only` refreshes trusted base and harness files while
-preserving editable paths.
-
-The public correctness-only prompt and Laguna-tokenized golden are committed
-under `correctness_prompts/` so participants can run a local correctness smoke
-test. The official correctness golden
-is supplied by the benchmark operator and is intentionally not committed to
-the public repo:
-
-```text
-correctness_golden.json
-```
-
-Use `MLXFAST_CORRECTNESS_GOLDEN_PATH=/path/to/correctness_golden.json` when the
-file is provisioned outside the repository root.
-Benchmark CI consumes the checked-in public golden for correctness-only runs and
-downloads the private precomputed correctness golden from protected storage for
-full benchmark runs. The timed phase separately downloads a pinned private
-evaluation prompt after the correctness scrub. The trusted box-side measurement
-wrapper generates and caches a benchmark token oracle for that prompt per binary
-and validates all charged outputs against it. Private prompt manifests, the
-timed prompt, and hidden correctness goldens are not committed to the public
-repository. Organizers regenerate correctness fixtures and rotate the timed
-target through the controlled operator process.
+validation to admit a new layout.
 
 ## Editable Surface
 
-The active editable surface is Swift-only and is defined by `benchmark.json`:
+`editablePaths` in `benchmark.json` is the exact submission surface. Its
+current entries fall into four groups:
 
 | Path | Scope |
 |---|---|
-| `Sources/MLXFastModel/` | Laguna XS 2.1 NVFP4 model implementation: attention (sliding-window + full, GQA, YaRN partial-rotary RoPE on full-attention layers), MoE MLP (256 routed experts + shared expert, per-head gating), RMSNorm, KV caches, weight loading, and prefill/decode execution. |
-| `Sources/MLXFastTransform/` | Offline safetensors transform (text-tensor selection, config/tokenizer emission). |
+| `Sources/MLXFastModel/` | Scored Laguna runtime, custom kernels, cache handling, and prefill/decode execution. |
+| `Sources/MLXFastTransform/` | Offline weight transform and runtime metadata. |
+| Listed `Vendor/mlx-swift-lm/` files | Laguna model oracle and the `MLXLMCommon` attention, MoE, RoPE, KV-cache, and compiled-decode plumbing used by the runtime. |
+| Listed `Vendor/mlx-swift/` files | MLX Metal dispatch plus the AOT and JIT kernel sources reached by Laguna. |
 
 `Sources/MLXFastCore/`, `Sources/MLXFastHarness/`,
-`Sources/MLXFastCLI/`, scripts, tests, `benchmark.json`, generated
-`weights/`, reference checkpoints, golden fixtures, and local scores are
-harness/operator files, not submission surface. Correctness, scoring, timing,
-golden generation, benchmark-oracle validation, and provenance checks live in
-that trusted harness layer.
+`Sources/MLXFastCLI/`, scripts, tests, `benchmark.json`, package manifests,
+generated `weights/`, reference checkpoints, golden fixtures, local scores,
+and every unlisted vendor file are outside that surface. Trusted correctness,
+timing, scoring, and provenance checks are not participant-editable.
 
-Account and submission management — login, clone, submit, and listing
-submissions — are handled by the **Yukon CLI (`mlxfast`)**, not by
-`mlxfast-swift`. The Swift binary now runs the benchmark domain only (transform,
-correctness, benchmark, preflight, verify-transform); it no longer logs in or
-uploads. The CLI installer defaults to `~/.local/bin`, so expose that directory
-in the current shell before using it. Submit with:
-
-```bash
-export PATH="${HOME}/.local/bin:${PATH}"
-mlxfast login <api-key> --api <url>
-mlxfast clone <benchmark-id-or-name>     # fresh checkout; an existing repo auto-links by its git remote
-mlxfast submit --model "<model name>" --note "..."
-mlxfast submissions
-```
-
-`mlxfast submit` reads `benchmark.json` and uploads only `editablePaths` as a
-gzip tar archive with bearer-token auth; the backend applies it to the frozen
-benchmark checkout and re-enforces the editable surface server-side before
-running hidden validation. `--model` is required and is recorded for the
-leaderboard; pass `--note-file PATH` or `--claimed-score N` as needed.
-The benchmark contract also declares a local `preSubmitCommand`:
-`./benchmark.sh --local-submit`. `mlxfast submit` does not run it — the upload
-goes directly to official validation, and no local run blocks it. Running that
-command yourself before submitting is the recommended local correctness and
-timing check, without running the official hidden golden.
-
-`mlxfast-swift verify-transform` is an organizer/debug check for deterministic
-transform output. It re-runs the submitted transform and compares the generated
-`weights/` tree against that fresh run. It is not a baseline-layout requirement.
-The normal preflight/benchmark path also rejects generated `weights/` above the
-default 25 GiB transformed-output cap before correctness or timing runs (the
-text tower is about 21.6 GB, under that cap).
-Override it with `MLXFAST_MAX_WEIGHTS_BYTES`; `verify-transform` additionally
-accepts `--max-bytes`.
-
-There is no Python harness path.
+The benchmark rejects transformed `weights/` above the default 25 GiB cap.
+There is no Python challenge-runtime path.
 
 ## Correctness Gates
 
@@ -304,51 +215,3 @@ Organizer-provided MTP or other speculative decoding would require a
 separately declared trusted block protocol, correctness contract, and score;
 no such track currently exists, so these
 restrictions apply to every ranked submission.
-
-## Score
-
-```text
-score = decode_speedup^0.75 * prefill_speedup^0.25
-```
-
-Higher is better. Each speedup is the pinned baseline's seconds/token divided
-by the candidate's, with both sides measured on the same M5 in the same
-session behind the same fixed thermal/telemetry acceptance (the paired
-baseline cancels host drift). The hard component floors are:
-
-```text
-decode_speedup >= 0.95
-prefill_speedup >= 0.95
-```
-
-A run below either floor or with any token mismatch is ineligible. The score
-is null when any gate fails. The two-sided acceptance band described above
-(speedup vs the pinned calibration reference in `[0.980, 1.053]` for
-decode, `[0.952, 1.053]` for prefill) applies on top of the floors and is
-evaluated against that pinned reference, not the paired session baseline;
-local modes warn when their estimate exceeds it but never fail on it.
-`score.json` also carries prefill and decode
-seconds/token, speedups, floor verdicts, gate results, and
-transformed-weight identity.
-
-## Useful Commands
-
-```bash
-swift test --force-resolved-versions
-MLXFAST_RUN_MLX_RUNTIME_TESTS=1 swift test --force-resolved-versions
-swift build -c release --force-resolved-versions
-./setup.sh
-./benchmark.sh --local-iterate
-./benchmark.sh --local-submit
-
-# Submitting is done with the Yukon CLI (mlxfast), not mlxfast-swift:
-mlxfast clone <benchmark-id-or-name>
-mlxfast submit --model "<model name>" --note "..."
-mlxfast submissions
-```
-
-Always pass `--force-resolved-versions` to direct `swift build` / `swift
-test` runs: the dependency graph is frozen, and a bare invocation can
-silently rewrite `Package.resolved`, after which `./setup.sh` and
-`./benchmark.sh` refuse to run until you restore it with
-`git checkout -- Package.resolved`.

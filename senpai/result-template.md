@@ -1,96 +1,50 @@
 # Autoresearch Result Template
 
-Load this file only when an experiment reaches a terminal result. Report
-measured facts and uncertainty; never infer an unmeasured score.
+Use this only for a terminal result. Never infer an unmeasured score.
 
 ## Machine-readable marker
 
-The result must begin with exactly one single-line marker:
+Begin with exactly one single-line marker:
 
 ```text
-SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"local_paired_score_estimate","value":1.0123},"test_metric":{"name":"passed_correctness","value":1}}
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"same_host_paired_estimate","available":true,"value":1.0123},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 ```
 
-Use `passed_correctness: 1` for a passing local gate and `0` otherwise. If no
-valid timing exists, use a truthful sentinel such as `0` for the primary metric
-and explain the no-result immediately below. Keep `wandb_run_ids` empty unless
-orchestration separately recorded a real external run.
+`terminal` means this arm will not resume. `status` means the report is
+complete, not that the candidate won. Set `pending_arms` only when assigned
+arms remain. Use only real run IDs. For either metric, use
+`"available":false,"value":null` when no valid measurement exists; never use
+numeric zero as a missing-value sentinel. A measured correctness failure is
+available with value `0`.
 
-## Result
-
-### Identity
-
-- Student:
-- PR:
-- Question or hypothesis:
-- Target cost and prior evidence:
+- Student / PR:
+- Hypothesis and target cost:
 - Decision: green, ambiguous, invalid candidate, or dead hypothesis
-
-### Reproducibility
-
-- `BASE_SHA`:
-- Candidate commit:
+- `BASE_SHA` / candidate commit:
 - Submitted candidate files:
-- Supporting test/documentation files:
-- Mac model and chip generation:
-- Unified memory and startup memory profile:
-- macOS, Xcode, and Swift versions:
+- Supporting test or documentation files:
+
+### Evidence
+
+- Host, memory profile, toolchain, and thermal policy:
 - Exact baseline and candidate commands:
-- Measurements completed:
-- Thermal gate and fan policy:
-
-### Validation
-
-- Tests run:
-- `passed`:
-- `passed_correctness`:
-- Checked steps and divergent tokens, if any:
-- Serial-protocol verdict:
-- Stronger risk-based quality checks, if required:
-- Peak RAM:
-- Generated weights byte count, if relevant:
-
-### Performance
+- Tests and risk-based checks run:
+- Correctness and serial-protocol verdict:
+- Divergent tokens or failure category, if any:
+- Peak RAM or generated-weight size, if relevant:
 
 | Metric | Baseline | Candidate | Ratio / delta |
 | --- | ---: | ---: | ---: |
 | decode seconds/token | ... | ... | ...x |
 | prefill seconds/token | ... | ... | ...x |
-| local estimated score | ... | ... | ... |
-| passed correctness | ... | ... | — |
-| peak RAM GB | ... | ... | ... |
+| same-host paired estimate | — | ... | — |
 
-Report both component metrics. Compute the same-host research estimate as:
+The paired estimate is a same-host research metric, not an official M5 score.
 
-```text
-decode_gain = baseline.decode_seconds_per_token / candidate.decode_seconds_per_token
-prefill_gain = baseline.prefill_seconds_per_token / candidate.prefill_seconds_per_token
-paired_estimate = decode_gain^0.75 * prefill_gain^0.25
-```
+### Conclusion
 
-This is not the official M5 score.
-
-### Interpretation
-
-- What happened:
-- Most likely mechanism:
-- Evidence that supports or contradicts the hypothesis:
-- Caveats, including M5 transfer risk:
-- Suggested follow-ups:
+- What happened and why:
+- Evidence for or against the mechanism:
+- Uncertainty or M5 transfer risk:
+- Smallest useful next action:
 - Recommendation: merge, repeat, revise, or close
-
-## Decision meanings
-
-- **Green:** valid and repeatably faster end to end, with acceptable component
-  and transfer risk.
-- **Ambiguous:** the smallest useful follow-up could still change the decision.
-- **Invalid candidate:** this implementation cannot be promoted because of a
-  correctness, protocol, memory, build, or submitted-surface failure; state
-  whether a compliant implementation remains plausible.
-- **Dead hypothesis:** its measured or bounded economics no longer justify more
-  work, or a valid implementation has no repeatable gain.
-
-Negative and no-result reports are first-class research assets. Name the
-failure category—correctness, serial validity, build feasibility, memory,
-hardware transfer, infrastructure, measurement noise, or lack of end-to-end
-speed—and preserve the evidence needed to avoid repeating it.
