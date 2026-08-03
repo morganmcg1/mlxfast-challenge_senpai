@@ -79,6 +79,30 @@ ensure_batch_contiguous(const array& x, metal::Device& d, const Stream& s) {
   return std::make_tuple(false, x_copy.strides()[x_copy.ndim() - 2], x_copy);
 }
 
+// Prefill split-K threadgroup regrouping. This preserves BK=512, the
+// 4096-element partition size, the partition count, and SM=SN=32 while
+// changing 128x128/WM4xWN4 threadgroups to 64x64/WM2xWN2. Each output keeps
+// the same k-ascending in-register MMA chain; only threadgroup ownership
+// changes. Set DARKBLOOM_STEEL_PREFILL_TILE=0 for the accepted geometry.
+static bool darkbloom_steel_prefill_tile() {
+  static bool enabled = []() {
+    const char* value = getenv("DARKBLOOM_STEEL_PREFILL_TILE");
+    return value == nullptr || atoi(value) != 0;
+  }();
+  return enabled;
+}
+
+
+// Ground-truth dispatch trace (DARKBLOOM_STEEL_TRACE=1): prints the actual
+// steel kernel base name + geometry at every nax GEMM dispatch. Never set
+// inside timed windows (stderr I/O).
+static bool darkbloom_steel_trace() {
+  static bool v = []() {
+    const char* e = getenv("DARKBLOOM_STEEL_TRACE");
+    return e && atoi(e) != 0;
+  }();
+  return v;
+}
 } // namespace
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -331,6 +355,13 @@ void steel_matmul_regular_axpby_nax(
     compute_encoder.set_bytes(params, 5);
   }
 
+  if (darkbloom_steel_trace()) {
+    fprintf(
+        stderr,
+        "[darkbloom][steel] %s M=%d N=%d K=%d grid=(%lu,%lu,%lu)\n",
+        base_name.c_str(), M, N, K, grid_dims.width, grid_dims.height,
+        grid_dims.depth);
+  }
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
 
   // Record copies
@@ -684,6 +715,10 @@ void steel_gemm_splitk_axpby_nax(
     bk = 256;
     wm = wn = 2;
   }
+  if (darkbloom_steel_prefill_tile() && (M + N) / 2 >= 512 && K > 4096) {
+    bm = bn = 64;
+    wm = wn = 2;
+  }
   if (K <= 1024) {
     split_k_partition_size = K / 2;
   } else if (K <= 2048) {
@@ -786,6 +821,13 @@ void steel_gemm_splitk_axpby_nax(
   compute_encoder.set_output_array(C_split, 2);
 
   compute_encoder.set_bytes(params, 3);
+  if (darkbloom_steel_trace()) {
+    fprintf(
+        stderr,
+        "[darkbloom][steel] %s M=%d N=%d K=%d parts=%d psize=%d grid.x=%lu\n",
+        base_name.c_str(), M, N, K, split_k_partitions,
+        split_k_partition_size, grid_dims.width);
+  }
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
 
   // Do accum kernel

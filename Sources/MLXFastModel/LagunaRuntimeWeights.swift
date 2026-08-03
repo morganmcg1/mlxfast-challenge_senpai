@@ -347,9 +347,9 @@ public final class LagunaRuntimeWeightCache {
         self.loader = loader
         self.config = config
         // Select the startup memory profile BEFORE the model load. Laguna
-        // retains no alternate weight layouts. The full profile only installs
-        // the post-wire command-buffer budget below; the documented
-        // low-memory profile for <64 GiB machines caps the MLX allocator
+        // retains no alternate weight layouts. The full profile installs the
+        // qualified BFS scheduler and post-wire command-buffer defaults below;
+        // the documented low-memory profile for <64 GiB machines caps the MLX allocator
         // cache at 6 GiB, shortens command buffers, and clears free
         // warmup buffers before the worker protocol hello -- pure memory
         // management: compiled decode and every other ranked code path stay
@@ -379,6 +379,9 @@ public final class LagunaRuntimeWeightCache {
                 // re-test winner (6 Latin pairs: decode 5/6, prefill 4/6). Explicit
                 // MLX_ values win; DARKBLOOM kill switch supports same-binary A/B.
                 let env = ProcessInfo.processInfo.environment
+                // P4: full-profile BFS width default from 776a79e1 / dda29d26.
+                // setenv overwrite=0 keeps any explicit MLX_BFS_MAX_WIDTH.
+                setenv("MLX_BFS_MAX_WIDTH", "50", 0)
                 if env["DARKBLOOM_POST_WIRE_COMMAND_BUFFER"] != "0" {
                     setenv("MLX_MAX_MB_PER_BUFFER", "200", 0)
                     setenv("MLX_MAX_OPS_PER_BUFFER", "200", 0)
@@ -473,7 +476,44 @@ public final class LagunaRuntimeWeightCache {
         )
         eval(model(prefillTokens, cache: warmupCache))
         let decodeToken = MLXArray([bosToken], [1, 1])
-        eval(model(decodeToken, cache: warmupCache))
+        var warmDecodeLogits = model(decodeToken, cache: warmupCache)
+        eval(warmDecodeLogits)
+        // The historical full-attention bundle coupled this second whole-model
+        // decode to the fusion selector and regressed ranked prefill 11.3%.
+        // Reproducing that retired rewarm now requires its own explicit
+        // diagnostic selector; the default-on fused kernel must not silently
+        // execute all 40 layers again. The first decode still preserves the
+        // promoted constructor-warmup contract, and the kernel-only call below
+        // creates the full-attention PSO without model/cache state.
+        if lagunaFusedFullAttentionEnabled,
+            lagunaFusedFullAttentionWholeModelWarmupEnabled
+        {
+            warmDecodeLogits = model(decodeToken, cache: warmupCache)
+            eval(warmDecodeLogits)
+        }
+        if lagunaFusedFullAttentionEnabled,
+            lagunaFusedFullAttentionKernelWarmupEnabled
+        {
+            lagunaWarmFullFusedAttentionKernel()
+        }
+        // Warm the greedy-token pipeline too. Every scored worker request ends
+        // in `LagunaCorrectness.greedyToken` (reshape -> last row -> argMax),
+        // and the forwards above never run an argmax, so its first use
+        // otherwise creates the `argmax_bfloat16` compute pipeline state
+        // INSIDE the measured window: a timestamped PSO-miss log showed the
+        // compile firing ~0.23 s into the scored prefill request and again in
+        // the decode seed, matching a recurring ~17 ms MTLCompilerService
+        // interval inside both timed phases in Metal System Trace. Replicating
+        // the same ops here moves that one-time compile to untimed init.
+        // Input-independent kernel-cache warmup only (TASK.md explicitly
+        // allows caches for kernels); constant BOS input, output discarded.
+        // `DARKBLOOM_WARM_GREEDY_ARGMAX=0` restores the stock warmup.
+        if ProcessInfo.processInfo.environment["DARKBLOOM_WARM_GREEDY_ARGMAX"] != "0",
+            let vocabSize = warmDecodeLogits.shape.last, vocabSize > 0
+        {
+            let rows = warmDecodeLogits.reshaped([-1, vocabSize])
+            eval(rows[-1].argMax())
+        }
     }
     /// See the construction-time comment: one `set_wired_limit` call sized
     /// to the live footprint, applied through the public async ticket path
