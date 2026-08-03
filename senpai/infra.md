@@ -36,12 +36,13 @@ See AWS's [EC2 Mac guide](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec
 
 ## Prepare each host once
 
-Use a current ARM macOS AMI, encrypted 150--200 GiB gp3 root volume, full
-Xcode plus its Metal toolchain, Homebrew `jq` and `uv`, and the pinned
-`~/bin/macmon`. A normal clone is insufficient: fetch every commit named by
-the top-15 manifest, or transfer a full Git bundle. Stage the verified
-transformed `weights/`, a reference directory containing `config.json`, and
-`quality-results/baseline-quick-weave-v3-m4-20260730/`.
+Use a current ARM macOS AMI and an encrypted 150--200 GiB gp3 root volume.
+AWS's stock AMI has Command Line Tools but not full Xcode or the Metal compiler;
+install a compatible full Xcode plus its Metal toolchain. Also install Homebrew
+`jq` and `uv`, and the pinned `~/bin/macmon`. A normal clone is insufficient:
+fetch every commit named by the top-15 manifest, or transfer a full Git bundle.
+Stage the verified transformed `weights/`, a reference directory containing
+`config.json`, and `quality-results/baseline-quick-weave-v3-m4-20260730/`.
 
 Run `run-study.sh prepare` once, then confirm the chip/memory, Metal
 architecture, responsive five-sample `macmon pipe`, free disk, and absence of
@@ -56,15 +57,16 @@ Every physical host must measure its own fresh rank-111 comparator. Keep a
 unique workspace and results root per host; never normalize a candidate with a
 baseline from another host. Five hosts can cover the cohort as
 `112 113 114`, `115 116 117`, `118 119 120`, `121 122 123`, and
-`124 125 126`:
+`124 125 126`.
 
-```bash
-MLXFAST_TOP15_RESULTS="$RESULTS" \
-MLXFAST_TOP15_WORKSPACE="$WORKSPACE" \
-MLXFAST_TOP15_FAN_POLICY=none \
-nohup /bin/bash senpai/competition_notes/top15_replication_2026-08-02/run-study.sh \
-  perf-batch 112 113 114 >"$RESULTS/campaign.log" 2>&1 </dev/null &
-```
+Do not rely on `/usr/bin/nohup` on a headless EC2 Mac; it can refuse to detach
+from the SSH console. Run a wrapper through a one-shot system LaunchDaemon with
+`RunAtLoad=true`, `KeepAlive=false`, `UserName=ec2-user`, explicit
+`ProgramArguments`, `WorkingDirectory`, `PATH`, and standard-output/error
+paths. Register it with `sudo launchctl bootstrap system <plist>`. The wrapper
+exports the unique results/workspace paths and observed fan policy, then calls
+`run-study.sh perf-batch ...`. Launchd preserves the process after SSH closes
+without restarting a failed experiment.
 
 Capture instance ID, host ID, AMI, chip, memory profile, Metal architecture,
 repo SHA, runner/manifest hashes, and the entire per-host result tree. On a
