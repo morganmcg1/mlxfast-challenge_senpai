@@ -1,7 +1,7 @@
 # Poolside Laguna XS 2.1 MLX Inference Autoresearch
 
 This repository is the research target for optimizing the text tower of
-Poolside Laguna XS 2.1 NVFP4 on Apple Silicon. The ranked track is
+Poolside Laguna XS 2.1 NVFP4 on Apple Silicon. The ranked competition track is
 `laguna-xs-2.1-serial-v2`: one 512-token prefill followed by serial,
 one-token-at-a-time decode. Improve real inference latency while preserving the
 benchmark's exact observable behavior.
@@ -16,7 +16,7 @@ single Apple GPU and explicitly forbids speculative decoding.
 
 ## Mission
 
-Maximize the official paired score:
+Maximize the official paired inference speedup score:
 
 ```text
 score = decode_speedup^0.75 * prefill_speedup^0.25
@@ -37,7 +37,6 @@ optimization target:
 - Prefill: one cold, validated 512-token forward.
 - Decode: a charged 512-token seed forward followed by 128 validated
   teacher-forced one-token steps.
-- Score weights: 75% decode and 25% prefill.
 
 The official M5 run also enforces a two-sided acceptance band against the
 pinned calibration reference:
@@ -59,7 +58,269 @@ The official benchmark compares a candidate with the challenge baseline
 currently pinned on the M5 runner. When a validated submission beats the
 leaderboard record, its commit is accepted as the new baseline that subsequent
 work must beat. Always sync the latest `main`, rerun a same-host local baseline,
-and treat results from an older frontier as historical evidence only.
+and treat results from an older frontier as historical evidence only. 
+
+### SENPAI Autoresearch quality checkpoint
+
+The official private competition evaluation includes a hidden quality check. 
+We don't know the composition of these tasks so we have created our own quality
+eval and set thresholds of what is the maximum acceptable quality degradation we can tolerate
+in exchange for a speedup in inference.
+
+Currently our thresholds are:
+
+| Gate | Baseline | Accept candidate |
+| --- | ---: | ---: |
+| Periodic core downstream | 16/35 | at least 16/35 |
+| Full quick downstream | 26/53 (49.06%) | at least 26/53 |
+| Token-weighted PPL | 13.954858 | at most 14.386452 |
+| Ranked GPQA response identity (full quick only) | 9 saved prefixes | at least 7/9 exact |
+| Public first-token probe | token 5991 | exact match |
+
+Full-panel diagnostics are MMLU-Pro `9/20`, GPQA greedy `6/9`, GPQA sampled
+`4/9`, AIME `4/9`, and GSM8K `3/6`; only their summed correct count gates.
+PPL and ranked GPQA are separate. Always use a same-host, contract-compatible
+baseline: `quality-results/` is gitignored and not shipped in a fresh clone.
+See `senpai/quality-evaluation.md` for the frozen prompts and output contract.
+This advisory panel cannot relax exact-token correctness or replace the hidden
+M5 quality and behavioral gates. Run only one model-holding process at a time.
+
+
+#### Running the quality evaluation
+
+One-time setup from the repository root:
+
+```bash
+./setup.sh
+brew install uv  # skip when uv --version already succeeds
+```
+
+`setup.sh` downloads the pinned 21.6 GB checkpoint. `senpai/quality-eval`
+creates its locked Python environment and fetches the public benchmark data
+automatically; no dataset path or Hugging Face token is needed. Internet access
+is required, including live Hugging Face access for AIME and GSM8K.
+
+Before modifying untouched `main`, create and preserve separate matched
+baselines for the periodic 13-minute core panel and the full quick pre-submit
+panel:
+
+```bash
+./senpai/quality-eval run . \
+  --profile quick \
+  --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
+  --change-label untouched-baseline-core \
+  --output quality-results/baseline-quick-core
+
+./senpai/quality-eval run . \
+  --profile quick \
+  --change-label untouched-baseline-full \
+  --output quality-results/baseline-quick
+```
+
+Run the core gate periodically for promising changes; replace `my-change-001`
+with a unique experiment ID because output directories are immutable:
+
+```bash
+QUALITY_RUN_ID=my-change-001
+./senpai/quality-eval run . \
+  --profile quick \
+  --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
+  --change-label "${QUALITY_RUN_ID}" \
+  --baseline quality-results/baseline-quick-core \
+  --output "quality-results/candidate-quick-core-${QUALITY_RUN_ID}"
+```
+
+Run the full quick panel before submission:
+
+```bash
+QUALITY_RUN_ID=my-change-001
+./senpai/quality-eval run . \
+  --profile quick \
+  --change-label "${QUALITY_RUN_ID}" \
+  --baseline quality-results/baseline-quick \
+  --output "quality-results/candidate-quick-${QUALITY_RUN_ID}"
+```
+
+Only exit `0` with terminal `QUALITY GATE: PASS` permits promotion. Exit `3`
+means a completed quality regression; exits `1`, `2`, and `130` mean the run
+failed, was invalid, or was interrupted. Any nonzero exit rejects or blocks
+promotion. A bare `EVALUATION RUN: PASS` only means the run completed—it is not
+a quality decision.
+
+
+### Your fork
+Note: you are working out of a fork here (https://github.com/morganmcg1/mlxfast-challenge_senpai), 
+https://github.com/Layr-Labs/mlxfast-challenge is the official repository where 
+the official baseline is pinned - so remember to sync our fork with the official repository before submitting your results.
+
+
+
+## Research Method
+
+The transferable lesson from the Senpai inference guide is a disciplined loop:
+
+1. Define the exact validity contract.
+2. Decompose latency into named costs.
+3. Price the maximum and break-even gain before implementation.
+4. Test one hypothesis at a time.
+5. Reject quickly on correctness, protocol, feasibility, or end-to-end speed.
+6. Compose only individually measured winners.
+7. Preserve negative results so later agents do not repeat them.
+
+Every experiment PR should state:
+
+```text
+Hypothesis:
+  What exact mechanism should make inference faster?
+
+Target cost:
+  Which measured prefill/decode budget line does it reduce?
+
+Expected gain:
+  What is the break-even gain, optimistic gain, and likely noise level?
+
+Implementation scope:
+  Which editable files and runtime-effective kernel forms will change?
+
+Measurement plan:
+  What baseline, tests, local mode, repetitions, and promotion gate will run?
+
+Stop rule:
+  What result is considered successful enough to stop the experiment?
+```
+
+### Advisor agent note:
+
+Do not assign vague experiments such as "optimize attention." Assign a priced,
+falsifiable change such as "avoid materializing this mask on one-token
+sliding-window decode; expect X microseconds from the profile; reject if any
+token differs or decode improves by less than the measured noise floor."
+
+### Seearching for inspiration
+
+Use `python3 senpai/exa_search.py "query"` for general web search; add
+`--category publication` for a deeper, more powerful search of research literature. It reads `EXA_API_KEY` from
+the environment or `senpai/.env`.
+
+
+## High-Value Research Areas
+
+Start from profiles and source inspection, not this list alone. Do not over-index on the
+suggestions below, take these simply as a starting point on a long, winding, exciting journey of discovery.
+
+### NVFP4 matmul and MoE
+
+- Quantized matmul dispatch and the M5 `_nax` variants.
+- MoE expert gather-GEMM batching and indexing.
+- Routed/shared expert projection scheduling.
+- Fused or cheaper dequantization that preserves the required result.
+- Reuse of input-independent derived weight views.
+- Avoiding redundant copies, materializations, and synchronization.
+
+Decode is likely sensitive to weight traffic, but the model is already NVFP4
+where the checkpoint permits it. Prove that a proposed representation or kernel
+actually reduces the scored path rather than adding conversion overhead.
+
+### Attention and RoPE
+
+- Group-32 affine INT8 re-quantization of Q/K/V/O and the newly admitted
+  per-head `g_proj`, including layout, preparation, and decode dispatch.
+- Correct dispatch between sliding-window and full attention.
+- GQA broadcasting for 8 KV heads at head dimension 128.
+- Steel attention behavior at the scored 512-token prefill length.
+- Sliding-window masks and cache indices.
+- YaRN partial-rotary work on full-attention layers.
+- Kernel selection crossovers at the exact scored shapes.
+
+An attention optimization that helps only a tiny context or a different head
+shape is probably not enough evidence on its own.
+
+### KV cache
+
+- A tighter 512-position ring for sliding-window layers.
+- Avoiding copies or unnecessary physical cache movement.
+- Cache layout and update scheduling for one-token decode.
+- Compilable cache variants and compiled decode interactions.
+
+Logical and physical positions must still advance by exactly the supplied
+length.
+
+### Runtime scheduling
+
+- MLX graph construction and compilation reuse.
+- Kernel-launch and command-buffer overhead.
+- Safe fusion of operations already required by the current request.
+- Removal of host synchronization and avoidable materialization.
+- Weight preparation during unscored initialization only when it is
+  input-independent and does not subsidize charged per-request work
+  illegitimately.
+
+### Weight loading and offline transform
+
+- Fewer Data-to-Metal copies.
+- Deterministic preparation or transform metadata for the permitted group-32
+  affine INT8 Q/K/V/O/`g_proj` layouts.
+- Runtime metadata that removes repeated shape/layout work.
+- Deterministic transformed layouts that improve scored access.
+- Compact artifacts within the default 25 GiB generated-weights cap.
+
+The offline transform is unscored, but its output must be deterministic,
+complete, portable to the official runner, and behavior-preserving.
+
+### Output head
+
+- Faster output projection.
+- Better dispatch or layout for the untied 100352-token vocabulary head.
+- Fusion only when it computes the full contractually required result.
+
+Vocabulary pruning and candidate-limited output are high-risk because hidden
+prompts differ and exact greedy tokens are required. Reject prompt-specific
+keep sets and fallbacks whose cost erases the win.
+
+## Low-Value Or Invalid Directions
+
+Do not spend experiments on:
+
+- disk I/O, expert streaming, or expert-cache hit rates; the model is
+  RAM-resident and the bandwidth diagnostic is always zero,
+- speculative decoding or any future-token method; this track forbids it,
+- CUDA, vLLM, Python-runtime, multi-GPU, or distributed-serving changes,
+- changing only the upstream `Laguna.swift` oracle when the scored runtime does
+  not call the changed code,
+- kernel families or model paths Laguna never dispatches,
+- warmup tricks, score-path detection, or benchmark-only caching,
+- projected composition of several unmeasured changes,
+- broad numerical reassociation without exact-token evidence,
+- tiny components whose maximum possible end-to-end gain is below timing noise.
+
+## Measurement And Decision Rules
+
+Use seconds per token as the physical metric, for a same-host baseline `B` and candidate `C`, report:
+
+```text
+decode_gain  = B.decode_seconds_per_token / C.decode_seconds_per_token
+prefill_gain = B.prefill_seconds_per_token / C.prefill_seconds_per_token
+paired_estimate = decode_gain^0.75 * prefill_gain^0.25
+```
+
+This local paired estimate is for research comparison only; it is not the
+official score.
+
+Decision guidance:
+
+- **Green:** correctness/protocol pass, a repeatable same-host end-to-end gain,
+  no component floor risk, and a clean editable-surface-only implementation.
+- **Ambiguous:** gain near noise, machine-generation-specific correctness
+  uncertainty, unstable prefill/decode tradeoff, or incomplete M5 transfer
+  evidence. Repeat or narrow the experiment.
+- **Red:** any new token mismatch, prohibited computation, invalid surface
+  change, OOM, component below `0.95`, or no repeatable end-to-end gain.
+
+A microbenchmark win without an end-to-end win is a negative result. An
+aggregate gain that materially regresses one axis or threatens the acceptance
+band is not a clean winner.
+
+
 
 ## Non-Negotiable Execution Environment
 
@@ -180,10 +441,10 @@ normal cool-down produces no research evidence.
 ### AWS EC2 Mac thermal provisioning
 
 Concrete capacity discovery, provisioning, sharding, artifact retrieval, and
-teardown are in [`infra.md`](infra.md); this section remains the experimental-
+teardown for AWS EC2 Mac's are in [`infra.md`](infra.md); this section remains the experimental-
 validity and thermal contract.
 
-For AWS autoresearch, prefer [`mac-m4max.metal`](https://aws.amazon.com/about-aws/whats-new/2026/01/amazon-ec2-m4-max-mac-instances-ga/)
+When using AWS Mac's for this competition, prefer the [`mac-m4max.metal`](https://aws.amazon.com/about-aws/whats-new/2026/01/amazon-ec2-m4-max-mac-instances-ga/)
 with 128 GB of unified memory. Do not assign real-model experiments to
 `mac-m4.metal`: its 24 GiB is below this repository's roughly 36 GiB practical
 minimum. `mac-m4pro.metal` has 48 GiB and therefore uses the below-64-GiB
@@ -255,10 +516,9 @@ group to own the foreground tty before prompting, because merely opening
 `tools/fan-control.sh` calls still require an attended operator; the helper can
 invoke `sudo` and has no unattended authorization path. A boost applied before
 a run is external state, so the benchmark will not restore it. The
-operator/controller needs the out-of-band `./benchmark.sh --fan-speed-normal`
-cleanup and `auto` verification only on a host where it applied a manual
-boost. A host reporting unsupported `none` has no override to restore;
-`macmon` and the `<=40C` gate remain mandatory.
+operator/controller must have an out-of-band cleanup path that runs
+`./benchmark.sh --fan-speed-normal` on campaign success, failure, signal, and
+host teardown, then verifies `tools/fan-control.sh status` returns `auto`.
 Record the host identifier, chip, memory, macOS build, initial temperature,
 fan capability/action, cool-down duration, and accepted telemetry with every
 timed result.
@@ -267,16 +527,15 @@ timed result.
 
 Read these before proposing or implementing an experiment:
 
-1. `AGENTS.md` — complete working contract and agent-specific operational
-   guidance.
-2. `TASK.md` — model, scoring, correctness, and serial-track rules.
-3. `README.md` — setup, architecture, local workflow, and kernel build forms.
-4. `benchmark.json` — authoritative `editablePaths`, commands, and score
+1. `~/AGENTS.md` — from the competition organisers - from the competition organiserscomplete working contract and agent-specific operational
+   guidance from the competition organisers. Note this is operational and 
+   not our main competition strategy document.
+2. `~/TASK.md` — from the competition organisers - model, scoring, correctness, and serial-track rules.
+3. `~/README.md` — from the competition organisers — setup, architecture, local workflow, and kernel build forms.
+4. `~/benchmark.json` — authoritative `editablePaths`, commands, and score
    contract.
-5. `docs/benchmark-window-freeze.md` — exact charged work and serial decode
+5. `~/docs/benchmark-window-freeze.md` — exact charged work and serial decode
    integrity boundary.
-6. Recent Git history, merged experiment PRs, and their result comments —
-   current frontier and known dead ends.
 
 When prose and executable configuration disagree, stop and resolve the
 conflict. `benchmark.json` is authoritative for the submission surface, and
@@ -320,6 +579,7 @@ particular, do not infer permission to re-quantize embeddings, Q/K norms,
 routers, the layer-0 dense MLP, the untied output head, or other unlisted
 projections.
 
+### Running the local harness
 The local trusted harness must understand the expanded envelope. Before
 benchmarking or submitting against this rule, refresh it with:
 
@@ -371,8 +631,7 @@ experiment PRs must not modify:
   `score*.json`
 
 `program.md` and role instructions are coordination files, not submission
-code. Update them only in an explicit research-infrastructure task, never as
-part of a performance experiment.
+code, do not update them as part of your experiments unless explicitly instructed to do so by a human researcher.
 
 Before reporting a result, inspect the diff:
 
@@ -382,7 +641,7 @@ git diff --name-only "$BASE_SHA"
 ```
 
 Here `BASE_SHA` is the assigned experiment's recorded baseline commit.
-Any source change outside `benchmark.json`'s `editablePaths` invalidates a
+Any source change outside `benchmark.json`'s `editablePaths` needs to be considered if it invalidates a
 normal experiment result. Never restore or overwrite unrelated user changes.
 
 ## Kernel Build Contract
@@ -424,17 +683,21 @@ free disk for the default setup. Use a pre-provisioned exact checkpoint or
 documented cache path when appropriate; never substitute a different model
 revision.
 
-Every research round must begin from the latest advisor frontier, itself based
-on current `origin/main`. Do not compare with a score from an older commit,
+### Every research round must begin from the latest advisor frontier
+Every research round must begin from the latest advisor frontier - if your are the Advisor agent, ensure your
+branch is itself up to date with the latest, baseline-relevant changes in `origin/main` in https://github.com/Layr-Labs/mlxfast-challenge
+
+If you are the Student, just trust that the advisor will set up your own branch correctly. Do not compare with a score from an older commit,
 branch, model cache, toolchain, or thermal state.
 
-For each assigned PR:
+For each assigned PR, as the Student agent:
 
 1. Record the baseline commit before editing.
 2. On the same host, run the unchanged branch through local iterate.
 3. Save the ignored baseline score artifact.
-4. Implement exactly one hypothesis.
-5. Run the candidate on the same host under the same automatic thermal gate.
+4. Implement exactly one hypothesis as defined in the PR description by the Advisor agent.
+5. Iterate on the hypothesis until there is a successful speedup or the idea is exhausted.
+6. Run the candidate on the same host under the same automatic thermal gate, and report the results to the Advisor agent via the PR comments.
 
 Example:
 
@@ -530,9 +793,13 @@ This writes `score.json` and exercises a longer local decode window.
 ### 5. Official promotion
 
 Only the advisor or human operator may decide to submit a merged candidate with
-the Yukon `mlxfast` CLI. Students must not dispatch official submissions.
+the Yukon `mlxfast` CLI. Students can dispatch official submissions, but they must ask the Advisor agent to do so first.
+The Student should ensure all changes for the submission have been committed.
+The advisor will comment in the PR with a confirmation that the submission is ready to be dispatched for official evaluation.
+
 Official capacity is one serial M5 queue, and the hidden run is expensive.
-While an official result is queued, students may continue independent local
+Queue times have been known to be in the range of 6-12 hours so it is important 
+that this does not slow down our research process - while waiting for the official result, students may continue independent local
 experiments, but they must record which baseline commit each result used. If the
 queued candidate is accepted, rebase or restart subsequent work on the new
 frontier and rebaseline before trusting its timings. Do not dispatch duplicate
@@ -618,84 +885,6 @@ swift test --force-resolved-versions \
   --filter lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled
 ```
 
-### Autoresearch quality checkpoint
-
-One-time setup from the repository root:
-
-```bash
-./setup.sh
-brew install uv  # skip when uv --version already succeeds
-```
-
-`setup.sh` downloads the pinned 21.6 GB checkpoint. `senpai/quality-eval`
-creates its locked Python environment and fetches the public benchmark data
-automatically; no dataset path or Hugging Face token is needed. Internet access
-is required, including live Hugging Face access for AIME and GSM8K.
-
-Before modifying untouched `main`, create and preserve separate matched
-baselines for the periodic 13-minute core panel and the full quick pre-submit
-panel:
-
-```bash
-./senpai/quality-eval run . \
-  --profile quick \
-  --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
-  --change-label untouched-baseline-core \
-  --output quality-results/baseline-quick-core
-
-./senpai/quality-eval run . \
-  --profile quick \
-  --change-label untouched-baseline-full \
-  --output quality-results/baseline-quick
-```
-
-Run the core gate periodically for promising changes; replace `my-change-001`
-with a unique experiment ID because output directories are immutable:
-
-```bash
-QUALITY_RUN_ID=my-change-001
-./senpai/quality-eval run . \
-  --profile quick \
-  --suite ppl --suite mmlu_pro --suite aime --suite gsm8k \
-  --change-label "${QUALITY_RUN_ID}" \
-  --baseline quality-results/baseline-quick-core \
-  --output "quality-results/candidate-quick-core-${QUALITY_RUN_ID}"
-```
-
-Run the full quick panel before submission:
-
-```bash
-QUALITY_RUN_ID=my-change-001
-./senpai/quality-eval run . \
-  --profile quick \
-  --change-label "${QUALITY_RUN_ID}" \
-  --baseline quality-results/baseline-quick \
-  --output "quality-results/candidate-quick-${QUALITY_RUN_ID}"
-```
-
-Only exit `0` with terminal `QUALITY GATE: PASS` permits promotion. Exit `3`
-means a completed quality regression; exits `1`, `2`, and `130` mean the run
-failed, was invalid, or was interrupted. Any nonzero exit rejects or blocks
-promotion. A bare `EVALUATION RUN: PASS` only means the run completed—it is not
-a quality decision.
-
-The frozen untouched reference and acceptable thresholds on this Mac are:
-
-| Gate | Baseline | Accept candidate |
-| --- | ---: | ---: |
-| Periodic core downstream | 16/35 | at least 16/35 |
-| Full quick downstream | 26/53 (49.06%) | at least 26/53 |
-| Token-weighted PPL | 13.954858 | at most 14.386452 |
-| Ranked GPQA response identity (full quick only) | 9 saved prefixes | at least 7/9 exact |
-| Public first-token probe | token 5991 | exact match |
-
-Full-panel diagnostics are MMLU-Pro `9/20`, GPQA greedy `6/9`, GPQA sampled
-`4/9`, AIME `4/9`, and GSM8K `3/6`; only their summed correct count gates.
-PPL and ranked GPQA are separate. Always use a same-host, contract-compatible
-baseline: `quality-results/` is gitignored and not shipped in a fresh clone.
-See `senpai/quality-evaluation.md` for the frozen prompts and output contract.
-This advisory panel cannot relax exact-token correctness or replace the hidden
-M5 quality and behavioral gates. Run only one model-holding process at a time.
 
 ## Serial Non-Speculative Integrity Boundary
 
@@ -731,196 +920,8 @@ state are the correct reuse boundary.
 
 ## Benchmark Integrity
 
-Never:
+Abdie by the spirit of the competition rules - no egregious cheating or rule-breaking.
 
-- hardcode public or hidden prompts, token IDs, expected continuations, or GPQA
-  answers,
-- specialize behavior for fixture hashes, request lengths, timing mode,
-  correctness mode, or process role,
-- change or bypass the trusted timing/correctness harness,
-- inspect, exfiltrate, regenerate, or infer hidden benchmark artifacts,
-- use network access or filesystem side channels from submitted runtime code,
-- skip required computation, move charged work outside the timer, or report
-  worker-provided timing as the trusted score,
-- change the frozen model checkpoint, tokenizer, data, score formula, or
-  request protocol,
-- exploit repeated whole-prompt work, because no such repetition is part of
-  the production contract,
-- optimize only the public prompt or only the local machine,
-- disable the sandbox, thermal gate, transform verification, or memory guard
-  and present the result as rankable evidence.
-
-Optimizations must be prompt-independent and model-general for Laguna.
-
-## Research Method
-
-The transferable lesson from the Senpai inference guide is a disciplined loop:
-
-1. Define the exact validity contract.
-2. Reproduce the current frontier on the measured path.
-3. Decompose latency into named costs.
-4. Price the maximum and break-even gain before implementation.
-5. Test one hypothesis at a time.
-6. Reject quickly on correctness, protocol, feasibility, or end-to-end speed.
-7. Compose only individually measured winners.
-8. Preserve negative results so later agents do not repeat them.
-
-Every experiment PR should state:
-
-```text
-Hypothesis:
-  What exact mechanism should make inference faster?
-
-Target cost:
-  Which measured prefill/decode budget line does it reduce?
-
-Expected gain:
-  What is the break-even gain, optimistic gain, and likely noise level?
-
-Validity gate:
-  Which exact-token, serial-protocol, build, and memory checks must pass?
-
-Implementation scope:
-  Which editable files and runtime-effective kernel forms will change?
-
-Measurement plan:
-  What baseline, tests, local mode, repetitions, and promotion gate will run?
-
-Stop rule:
-  What result makes the idea green, ambiguous, or dead?
-```
-
-Do not assign vague experiments such as "optimize attention." Assign a priced,
-falsifiable change such as "avoid materializing this mask on one-token
-sliding-window decode; expect X microseconds from the profile; reject if any
-token differs or decode improves by less than the measured noise floor."
-
-Use `python3 senpai/exa_search.py "query"` for general web search; add
-`--category publication` for research literature. It reads `EXA_API_KEY` from
-the environment or `senpai/.env` and prints the Exa response as JSON.
-
-## High-Value Research Areas
-
-Start from profiles and source inspection, not this list alone.
-
-### NVFP4 matmul and MoE
-
-- Quantized matmul dispatch and the M5 `_nax` variants.
-- MoE expert gather-GEMM batching and indexing.
-- Routed/shared expert projection scheduling.
-- Fused or cheaper dequantization that preserves the required result.
-- Reuse of input-independent derived weight views.
-- Avoiding redundant copies, materializations, and synchronization.
-
-Decode is likely sensitive to weight traffic, but the model is already NVFP4
-where the checkpoint permits it. Prove that a proposed representation or kernel
-actually reduces the scored path rather than adding conversion overhead.
-
-### Attention and RoPE
-
-- Group-32 affine INT8 re-quantization of Q/K/V/O and the newly admitted
-  per-head `g_proj`, including layout, preparation, and decode dispatch.
-- Correct dispatch between sliding-window and full attention.
-- GQA broadcasting for 8 KV heads at head dimension 128.
-- Steel attention behavior at the scored 512-token prefill length.
-- Sliding-window masks and cache indices.
-- YaRN partial-rotary work on full-attention layers.
-- Kernel selection crossovers at the exact scored shapes.
-
-An attention optimization that helps only a tiny context or a different head
-shape is not evidence.
-
-### KV cache
-
-- A tighter 512-position ring for sliding-window layers.
-- Avoiding copies or unnecessary physical cache movement.
-- Cache layout and update scheduling for one-token decode.
-- Compilable cache variants and compiled decode interactions.
-
-Logical and physical positions must still advance by exactly the supplied
-length.
-
-### Runtime scheduling
-
-- MLX graph construction and compilation reuse.
-- Kernel-launch and command-buffer overhead.
-- Safe fusion of operations already required by the current request.
-- Removal of host synchronization and avoidable materialization.
-- Weight preparation during unscored initialization only when it is
-  input-independent and does not subsidize charged per-request work
-  illegitimately.
-
-### Weight loading and offline transform
-
-- Fewer Data-to-Metal copies.
-- Deterministic preparation or transform metadata for the permitted group-32
-  affine INT8 Q/K/V/O/`g_proj` layouts.
-- Runtime metadata that removes repeated shape/layout work.
-- Deterministic transformed layouts that improve scored access.
-- Compact artifacts within the default 25 GiB generated-weights cap.
-
-The offline transform is unscored, but its output must be deterministic,
-complete, portable to the official runner, and behavior-preserving.
-
-### Output head
-
-- Faster BF16 output projection.
-- Better dispatch or layout for the untied 100352-token vocabulary head.
-- Fusion only when it computes the full contractually required result.
-
-Vocabulary pruning and candidate-limited output are high-risk because hidden
-prompts differ and exact greedy tokens are required. Reject prompt-specific
-keep sets and fallbacks whose cost erases the win.
-
-## Low-Value Or Invalid Directions
-
-Do not spend experiments on:
-
-- disk I/O, expert streaming, or expert-cache hit rates; the model is
-  RAM-resident and the bandwidth diagnostic is always zero,
-- speculative decoding or any future-token method; this track forbids it,
-- CUDA, vLLM, Python-runtime, multi-GPU, or distributed-serving changes,
-- changing only the upstream `Laguna.swift` oracle when the scored runtime does
-  not call the changed code,
-- kernel families or model paths Laguna never dispatches,
-- warmup tricks, score-path detection, or benchmark-only caching,
-- projected composition of several unmeasured changes,
-- broad numerical reassociation without exact-token evidence,
-- tiny components whose maximum possible end-to-end gain is below timing noise.
-
-## Measurement And Decision Rules
-
-Use seconds per token as the physical metric:
-
-- Lower `decode_seconds_per_token` is better.
-- Lower `prefill_seconds_per_token` is better.
-- Higher aggregate `score` is better only when both component floors and
-  correctness pass.
-
-For a same-host baseline `B` and candidate `C`, report:
-
-```text
-decode_gain  = B.decode_seconds_per_token / C.decode_seconds_per_token
-prefill_gain = B.prefill_seconds_per_token / C.prefill_seconds_per_token
-paired_estimate = decode_gain^0.75 * prefill_gain^0.25
-```
-
-This local paired estimate is for research comparison only; it is not the
-official score.
-
-Decision guidance:
-
-- **Green:** correctness/protocol pass, a repeatable same-host end-to-end gain,
-  no component floor risk, and a clean editable-surface-only implementation.
-- **Ambiguous:** gain near noise, machine-generation-specific correctness
-  uncertainty, unstable prefill/decode tradeoff, or incomplete M5 transfer
-  evidence. Repeat or narrow the experiment.
-- **Red:** any new token mismatch, prohibited computation, invalid surface
-  change, OOM, component below `0.95`, or no repeatable end-to-end gain.
-
-A microbenchmark win without an end-to-end win is a negative result. An
-aggregate gain that materially regresses one axis or threatens the acceptance
-band is not a clean winner.
 
 ## Results Contract
 
@@ -954,7 +955,6 @@ The result comment must also include:
 - `passed`, `passed_correctness`, checked steps, and any divergent tokens,
 - peak RAM and generated weights byte count,
 - number of measurements and whether the thermal gate passed normally,
-- tests run,
 - exact files changed and confirmation that they are in `editablePaths`,
 - what happened and the most likely mechanism,
 - caveats, especially non-M5 transfer risk,
@@ -1002,13 +1002,11 @@ The strongest baseline is already highly tuned. Favor precise, mechanism-backed
 experiments over broad refactors. Simpler code is preferred when performance
 and correctness are equal.
 
-## Roles
+## Final note
 
-Research is coordinated through Senpai's GitHub advisor/student PR workflow.
-The advisor proposes and routes hypotheses; students implement only assigned
-work, run the benchmark ladder, and report structured results. Human issues may
-override or stop work.
-
-Any `instructions/prompt-advisor.md` and `instructions/prompt-student.md` role
-overlays must point back to this program and must not weaken the repository
-contract.
+The goal of this compeition is inference speedup and "speedup" should also be the 
+mantra when running experiments and making research decisions. We must move
+quickly, efficiently and effectively through our research program, ensuring the
+appropriate balance between speed and quality. It is too easy to hide behind a wall of
+verification and testing in a program like this so ensure that scientific discovery and testing of inspired 
+inights is the main driver of our research program.
