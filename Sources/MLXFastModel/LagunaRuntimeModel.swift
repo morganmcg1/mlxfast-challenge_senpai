@@ -10790,15 +10790,6 @@ final class LagunaRuntimeModelInner: Module {
     }
 }
 
-/// Scored Laguna runtime model: last-token vocabulary head over the
-/// reimplemented Laguna text tower.
-///
-/// `callAsFunction(_:cache:)` serves both prompt prefill
-/// (`[1, L]`) and single-token decode steps (`[1, 1]`) and returns
-/// `[1, 1, vocab]` last-token logits; `newCache(parameters:)` creates the
-/// per-layer cache stack (unbounded `StandardKVCache` for full-attention
-/// layers, `RotatingKVCache(512)` for sliding layers). Laguna applies NO
-/// final logit softcap and NO embedding scaling.
 public final class LagunaRuntimeModel: Module, LanguageModel {
     @ModuleInfo(key: "model") var model: LagunaRuntimeModelInner
     @ModuleInfo(key: "lm_head") var lmHead: Linear?

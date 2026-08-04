@@ -4,34 +4,6 @@ import Foundation
 import MLX
 import MLXNN
 
-/// Implementation of KV cache functionality for MLX Swift
-///
-///
-/// ## Quantized Cache Usage
-///
-/// **Standard caches:**
-/// ```swift
-/// let cache = KVCacheSimple()
-/// let (keys, values) = cache.update(keys: keys, values: values)
-/// let output = MLXFast.scaledDotProductAttention(queries: q, keys: keys, values: values, ...)
-/// ```
-///
-/// **Quantized cache:**
-/// ```swift
-/// let quantizedCache = QuantizedKVCache(groupSize: 64, bits: 4)
-/// let (qKeys, qValues) = quantizedCache.updateQuantized(keys: keys, values: values)
-///
-/// let output = quantizedScaledDotProductAttention(
-///     queries: queries,
-///     quantizedKeys: qKeys,
-///     quantizedValues: qValues,
-///     scale: scale,
-///     mask: mask,
-///     groupSize: quantizedCache.groupSize,
-///     bits: quantizedCache.bits
-/// )
-/// ```
-///
 /// Interface for Key/Value cache for LLMs.
 ///
 /// See ``LanguageModel/newCache(parameters:)``
