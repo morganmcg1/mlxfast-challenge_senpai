@@ -106,15 +106,20 @@ can be audited without rerunning anything.
 
 ## Configuration of this specific receipt
 
-Receipt **R3 of 4**. Both R2 knobs stay at their R2 values and two more come on
-at the same layer counts, so the injected layer sets and therefore the per-layer
-submission bookkeeping are identical between R2 and R3:
+Receipt **R3 of 4**. The two R2 knobs are back to zero and the other two come on,
+again each sized to exactly one extra full copy of its block's real per-pass
+work, and again on two different axes:
 
-* 30 extra decode-step copies of the routed-expert top-8 gate/up QMV plus its
-  down-reduce. Added weight traffic: 424.67 MB per decode step.
-* 24 extra prefill copies of the attention q/k/v/o dense BF16 GEMM at 512 rows.
-  Added weight traffic: 1,711.28 MB; added arithmetic: 876.17 GFLOP.
+* one extra decode-step copy of the routed-expert top-8 gate/up NVFP4 QMV plus
+  its down-reduce in every one of the 39 routed layers. Added weight traffic:
+  **552.08 MB per decode step**, precisely what the scored routed QMV block
+  itself reads -- about 31% of the step's total weight traffic.
+* one extra 512-row copy of the attention q/k/v/o dense BF16 projections in every
+  one of the 40 layers. Added weight traffic: **2,852.13 MB**; added arithmetic:
+  **1,460.29 GFLOP**, which is about 52% of the whole prefill forward's
+  arithmetic.
 
-Differencing R3 against R2 yields the decode-axis achieved rate of the routed QMV
-block and the prefill-axis achieved rate of the dense attention GEMM, with every
-fixed cost and both R2 injections held constant.
+R3 is differenced against the same anchor as R2 rather than against R2 itself, so
+each of the four rates is measured against the unperturbed tree. That keeps every
+rate independent of the others and avoids reading a second rate out of an already
+perturbed machine state.
