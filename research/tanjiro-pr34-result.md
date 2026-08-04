@@ -532,15 +532,26 @@ one extra full copy of that block, and the uncertainty is the quadrature sum of 
 two receipts' axis noise (`0.234%` of `S`, `0.662%` of `T`, re-derived above from
 this account's own 12 clean same-day receipts) propagated through the difference.
 
-| # | block | pairing | added work | Δ (raw) | rate (raw) | Δ (session-normalised) | rate (normalised) |
-| --- | --- | --- | --- | ---: | ---: | ---: | ---: |
-| 1 | routed-expert gather-GEMM, prefill | R2−R1 | 17,666.41 MB / 1005.02 GFLOP | TBD | TBD | TBD | TBD |
-| 2 | attention q/k/v/o QMV, decode | R2−R1 | 802.16 MB | TBD | TBD | TBD | TBD |
-| 3 | attention q/k/v/o dense GEMM, prefill | R3−R1 | 2852.13 MB / 1460.29 GFLOP | TBD | TBD | TBD | TBD |
-| 4 | routed-expert QMV, decode | R3−R2 | 552.08 MB | TBD | TBD | TBD | TBD |
+The four authorised receipts yield **seven** readings, because each decode block is
+read both in an unperturbed and in an already loaded step, and rate 1 is read both
+as a single level and as a two-level slope. The **bold** row is the one to quote for
+each rate; the other is the honest companion that bounds it.
+
+| # | block | reading | pairing | added work | Δ (raw) | rate (raw) | Δ (normalised) | rate (normalised) |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | routed-expert gather-GEMM, prefill | single level, 39 copies | R2−R1 | 17,666.41 MB / 1005.02 GFLOP | TBD | TBD | TBD | TBD |
+| 1 | " | **slope, 20→39 copies** | R2−R4 | 8606.71 MB / 489.62 GFLOP | TBD | TBD | TBD | TBD |
+| 2 | attention q/k/v/o QMV, decode | unloaded step | R2−R1 | 802.16 MB | TBD | TBD | TBD | TBD |
+| 2 | " | **loaded step** | R3−R4 | 802.16 MB | TBD | TBD | TBD | TBD |
+| 3 | attention q/k/v/o dense GEMM, prefill | **single level, 40 copies** | R3−R1 | 2852.13 MB / 1460.29 GFLOP | TBD | TBD | TBD | TBD |
+| 4 | routed-expert QMV, decode | **loaded step** | R3−R2 | 552.08 MB | TBD | TBD | TBD | TBD |
+| 4 | " | unloaded step | R4−R1 | 552.08 MB | TBD | TBD | TBD | TBD |
 
 Session normalisation multiplies each receipt's axis by the ratio of its own pinned
-baseline to the series' mean pinned baseline before differencing.
+baseline to the series' mean pinned baseline before differencing. It is reported
+because the assignment asks for it, not because it is the better estimator: on this
+harness it inflates prefill uncertainty 9x and leaves decode unchanged, for the
+reasons derived above.
 
 ## Evidence
 
@@ -551,7 +562,7 @@ baseline to the series' mean pinned baseline before differencing.
 - Exact commands:
   ```bash
   env DARKBLOOM_INJECT_<KNOB>=<n> DARKBLOOM_INJECT_VERBOSE=1 \
-      ./benchmark.sh --local-iterate        # L0..L6, knobs DECODE_ATTN,
+      ./benchmark.sh --local-iterate        # L0..L9, knobs DECODE_ATTN,
                                             # DECODE_ROUTED, PREFILL_ROUTED,
                                             # PREFILL_ATTN, ARCH_PROBE
   ./benchmark.sh --local-submit             # preflight at the heaviest config
