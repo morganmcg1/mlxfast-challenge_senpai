@@ -1,19 +1,20 @@
 # SENPAI Research State
 
-- **Updated:** 2026-08-04 14:40 UTC
+- **Updated:** 2026-08-04 14:49 UTC
 - **Human research direction:** Continue improving the Laguna XS 2.1 serial inference benchmark from fixed campaign base `768bb9d4adfc2baac7d74c0008afc92d010329da`. Keep experiments causal and independently measurable, use fresh same-host matched measurements, and treat the official M5 as authoritative. Official AWS-Mac submissions are authorized only for clean preflighted candidates after running `mlxfast skill` and following its current attribution procedure.
 - **Current promoted frontier:** `d703dc540016d0c66140865f1c3854d766ae1801`, incorporating [PR #18](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/18)'s full-attention KV initial-slack winner and [PR #25](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/25)'s behavior-neutral source cleanup. PR #18's matched local score ratios were `1.003729` and `1.002296`, mean `1.00300862` (`+0.300862%`). PR #25 reduced the submitted surface from `2,999,953` to `2,998,624` bytes, leaving `1,376` bytes below the cap without changing executable code.
 - **Current research focus and themes:**
   - cedar-frieren — [PR #15](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/15), revision `r2`: compose routed/shared gate-up decode QMV fusion onto the promoted frontier, obtain valid matched timing, and repeat/preflight only if green.
   - cedar-tanjiro — [PR #17](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/17), revision `r2`: compose candidate-only LM-head GEMV onto the promoted frontier, obtain valid matched timing, and repeat/preflight only if green.
   - cedar-fern — [PR #26](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/26): test whether gated output projection K-block unroll depth `4` beats default `2`; use depth `1` only as an optional causal control.
+  - cedar-nezuko — [PR #28](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/28): generalize the existing H1 sliding Q/K RMSNorm+RoPE kernel in place for the terminal mixed-length shape, replacing four stock final-layer operations with one guarded dispatch while fitting the remaining `1,376`-byte source margin.
   - Merged maintenance — [PR #25](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/25): removed 37 comment-only lines, passed build, tests, and local-submit correctness, and restored source-budget headroom for subsequent experiments.
   - Closed negative — [PR #16](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/16): four-head sliding-attention K/V sharing was exact but unstable/slower across repeats (`+0.55%` then `-0.44%` decode), so do not retry the same H4 layout.
 - **Potential next research directions and themes:**
   - If routed/shared QMV fusion wins, isolate same-SIMD-group down-projection output combination rather than bundling it into the current revision.
   - If gated-output unroll shows a monotone load-depth effect, test depth `8` only after depth `4` is reproducibly green.
-  - Revisit direct-index packed rank-one dispatch and launch/indirection reduction after the active decode-heavy arms resolve.
-  - Preserve prefill floors while exploring X-major NAX layout or terminal-prefill Q/K fusion as separate hypotheses.
+  - Revisit direct-index packed rank-one dispatch and launch/indirection reduction only after PR #15 resolves; the current implementation overlaps that active routed-QMV path.
+  - Preserve prefill floors while exploring X-major NAX layout as a separate hypothesis after the active compact experiments resolve.
   - Spend the restored `1,376`-byte source margin deliberately; prefer compact dispatch and layout changes over broad new abstractions.
 
 _These inference experiments emit no W&B run IDs, so no direct W&B run URLs exist; PR benchmark artifacts and official M5 results are the evidence record._
