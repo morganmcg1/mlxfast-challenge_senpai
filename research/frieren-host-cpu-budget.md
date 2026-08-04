@@ -245,16 +245,37 @@ across a 21 MB to 252 MB KV footprint, so no cache-residency effect is
 distorting the fit. Least squares gives **270.3 ns per position for 10 layers =
 27.03 ns per position per layer.**
 
-**Sweep B, below 512** (seeds 100/200/300/400, 20 warmup + 80 measured), where
-the window never fills and all 40 layers scale:
+**Sweep B, below 512**, where the window never fills and all 40 layers scale. The
+whole measured window must stay under 512, which caps the lever arm, so this
+sweep was run twice. First pass, seeds 100/200/300/400 with 20 warmup + 80
+measured:
 
 | seed | 100 | 200 | 300 | 400 |
 | --- | ---: | ---: | ---: | ---: |
 | wall ms/step | 8.6728 | 8.7784 | 8.8278 | 8.9306 |
 
-Least squares gives **822.8 ns per position for 40 layers**, so the sliding
-family costs `(822.8 - 270.3) / 30 =` **18.42 ns per position per layer** - 68%
-of a full-attention layer, despite carrying more query heads.
+Least squares gives 822.8 ns per position for 40 layers, but with only four
+single-sample points the standard error is about 134 ns/pos. The replicate
+therefore ran seeds 40/156/272/388 with 20 warmup + 96 measured, four samples
+each, ordered as two palindromes (40, 156, 272, 388, 388, 272, 156, 40, twice) so
+that monotone thermal drift cancels within each seed:
+
+| seed | 40 | 156 | 272 | 388 |
+| --- | ---: | ---: | ---: | ---: |
+| mean wall ms/step | 8.6209 | 8.7195 | 8.7856 | 8.9192 |
+| samples | 8.6358 8.6200 8.6095 8.6183 | 8.7208 8.7171 8.7237 8.7163 | 8.7105 8.8136 8.8128 8.8054 | 8.9129 8.9124 8.9425 8.9092 |
+
+Least squares over all 16 runs gives **828.6 +- 56.2 ns per position for 40
+layers**, agreeing with the first pass to well inside its error bar, and a
+residual sigma of **29.2 us per point** - which independently confirms the ~30 us
+per-point noise that the pairwise scatter of both sweeps implied. One sample,
+`i3_s272 = 8.7105`, is a clear outlier: it was the third run of the session and
+the other three samples at that seed sit at 8.805-8.814. Excluding it gives a
+much tighter **851.6 +- 19.8 ns/pos with a 10.2 us residual sigma**. The looser
+all-runs fit is used below; the tighter fit only strengthens every conclusion.
+
+So the sliding family costs `(828.6 - 270.3) / 30 =` **18.61 ns per position per
+layer** - 69% of a full-attention layer, despite carrying more query heads.
 
 Converting nanoseconds to bytes needs a bandwidth yardstick. Two are used: the
 step-average achieved 204.6 GB/s (the 1.794 GB/token roofline divided by the
@@ -267,7 +288,7 @@ strict upper bound.
 | family | ns/pos/layer | effective B at 204.6 GB/s | x logical | effective B at 260.2 GB/s | x logical |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | full attention | 27.03 | 5531 | 1.35x | 7034 | 1.72x |
-| sliding window | 18.42 | 3768 | 0.92x | 4792 | 1.17x |
+| sliding window | 18.61 | 3808 | 0.93x | 4843 | 1.18x |
 
 At the benchmark's average decode context of 576 the logical KV read is
 `10 * 576 * 4096 = 23.59 MB` for full attention plus `30 * 512 * 4096 =
@@ -277,23 +298,28 @@ measured slopes against that:
 
 | yardstick | effective KV MB/step | waste vs logical | share of the 1794 MB step | share of score |
 | --- | ---: | ---: | ---: | ---: |
-| step-average 204.6 GB/s | 89.73 | +3.22 MB | +0.18% | +0.115% |
-| peak 260.2 GB/s (upper bound) | 114.12 | <= +27.61 MB | <= 1.54% | <= 0.98% |
+| step-average 204.6 GB/s | 90.34 | +3.83 MB | +0.21% | +0.136% |
+| peak 260.2 GB/s (upper bound) | 114.89 | <= +28.38 MB | <= 1.58% | <= 1.01% |
 
 **This does not support the open suspect.** A KV re-request from 3-4
 threadgroups multiplies KV bytes and is therefore exactly the kind of traffic a
 context slope measures. The ~190 MB per step it predicts needs +103.5 MB over
 logical, 5.77% of the step budget and 3.68% of score; the strict upper bound
-measured here is +27.61 MB, **3.7x smaller than the claimed excess**, and the
-like-for-like estimate is +3.22 MB.
+measured here is +28.38 MB, **3.6x smaller than the claimed excess**, and the
+like-for-like estimate is +3.83 MB. (The outlier-excluded fit gives a slightly
+higher bound, +31.45 MB or <= 1.12% of score, still 3.3x below the claim.)
 
-Statistically, the pairwise scatter in both sweeps is consistent with a
-per-point sigma of about 30 us of wall per step, dominated by process-level
-offset rather than by within-run averaging (it explains both the +-250 ns/pos
-scatter over sweep B's 100-position gaps and the +-25 ns/pos scatter over sweep
-A's 1024-position gaps). That puts sweep B's slope at 822.8 +- 134 ns/pos, so a
-3x sliding-layer amplification (which would require 1686 ns/pos) is 6.4 sigma
-away, 2x (1215 ns/pos) is 2.9 sigma away, and 1x (742 ns/pos) is 0.6 sigma away.
+Statistically, the replicate's residual sigma of 29.2 us per point puts sweep B's
+slope at 828.6 +- 56.2 ns/pos. Against that, a sliding-layer amplification of 2x
+(which would require 1215 ns/pos) is **6.9 sigma** away, 3x (1687 ns/pos) is
+**15.3 sigma**, and 4x (2159 ns/pos) is **23.7 sigma**; 1x (743 ns/pos) is 1.5
+sigma below the measurement, i.e. the data prefer a mild 1.1-1.2x over exactly
+1.0x but exclude everything at or above 2x outright. Excluding the single outlier
+moves 2x to 18.4 sigma and 3x to 42.3 sigma. Note also that the per-point noise
+is dominated by process-level offset rather than by within-run averaging, which
+is why it is insensitive to the measured-step count (it explains both the
++-250 ns/pos scatter over sweep B's 100-position gaps and the +-25 ns/pos scatter
+over sweep A's 1024-position gaps).
 
 Sweep B also refutes a second, more benign hypothesis: if the sliding kernel
 read its entire 512-slot ring regardless of how many slots were valid, sweep B's
@@ -302,8 +328,8 @@ only valid positions.
 
 Two honest limits. First, a slope prices only traffic proportional to context; a
 fixed per-step over-read would be invisible to it. Second, sweep B's total KV
-footprint is 16-66 MB, low enough that system-level cache may absorb part of a
-re-read and understate the sliding-family slope, so the 1.17x sliding bound is
+footprint is 7-66 MB, low enough that system-level cache may absorb part of a
+re-read and understate the sliding-family slope, so the 1.18x sliding bound is
 weaker than the 1.72x full-attention bound, which was measured out to 252 MB
 with no curvature. The full-attention path is the less bandwidth-efficient of
 the two (58.2% of peak, against 78.6% for the step as a whole) and is where any
