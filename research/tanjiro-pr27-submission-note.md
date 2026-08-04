@@ -88,11 +88,36 @@ All of this lives in one delimited, deletable block at the end of
    which would read as infinite bandwidth. The injected arrays are forced with
    `asyncEval`, which is also what keeps them ordered ahead of the real work in
    the same stream.
-3. **Defeat the cache.** The DRAM sweep reads a dedicated 256 MiB pool
-   (2^24 × `uint4`), far above any Apple silicon L2, with a grid-stride pattern
-   (thread `t` reads element `t`, `t+T`, `t+2T`, …) so every line is touched
-   exactly once per sweep and the access pattern is a plain coalesced
-   sequential read directly comparable to a standalone STREAM-style control.
+3. **Defeat the cache — and note that pool size alone does not do it.** The
+   DRAM sweep reads a dedicated 256 MiB pool (2^24 × `uint4`), far above any
+   Apple silicon L2, with a grid-stride pattern (thread `t` reads element `t`,
+   `t+T`, `t+2T`, …) so every line is touched exactly once per pass and the
+   access pattern is a plain coalesced sequential read directly comparable to a
+   standalone STREAM-style control.
+
+   That is necessary but **not sufficient**, and this cost me a design
+   iteration worth writing down. When the injection magnitude is varied by
+   *repeating passes* over the pool, the quantity that has to exceed cache is
+   not the pool but the **per-threadgroup per-pass working set**. A threadgroup
+   of 256 threads reads 4 KiB per grid-stride iteration, so its per-pass
+   footprint is `uint4_per_thread × 4 KiB`. Measuring the identical kernel in
+   isolation on the development host:
+
+   | threads | uint4/thread | per-TG per-pass window | GB/s |
+   | ---: | ---: | ---: | ---: |
+   | 65,536 | 256 | 1 MiB | 241.7 |
+   | 131,072 | 128 | 512 KiB | 247.3 |
+   | **262,144** | **64** | **256 KiB** | **262.1** |
+   | 524,288 | 32 | 128 KiB | 370.9 |
+   | 1,048,576 | 16 | 64 KiB | 553.4 |
+
+   The last two rows are **above the host's 273 GB/s hardware peak** — the
+   second pass is served from cache and the accounted bytes never reach DRAM.
+   It is not lossless compression: scrambling the pool with a hash instead of a
+   uniform fill changes nothing. The chosen configuration, 2^18 threads (1024
+   threadgroups × 256) at 64 `uint4` each, is the deepest grid whose per-pass
+   window still misses cache, and it reproduces an independently measured
+   262.5 GB/s sequential control on that host **to 0.15%**.
 4. **Never express the injection magnitude through a Metal function constant.**
    In this repo there is a recorded precedent where a mid-process function
    constant flip forced a second pipeline compile *inside* timed prefill for a
