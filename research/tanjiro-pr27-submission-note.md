@@ -214,17 +214,17 @@ traffic.
 | run | sweep passes / step | bytes / decode step | GEMMs / forward | FLOP / forward | empty dispatches (decode / forward) |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | A (done) | 1 | 268.44 MB | 20 | 343.60 GFLOP | 0 / 0 |
-| **B (this run)** | **7** | **1878.05 MB** | **120** | **2061.58 GFLOP** | 0 / 0 |
-| C | 1 | 268.44 MB | 20 | 343.60 GFLOP | 600 / 0 |
-| D | 1 | 268.44 MB | 20 | 343.60 GFLOP | 1800 / 0 |
+| B (done) | 7 | 1878.05 MB | 120 | 2061.58 GFLOP | 0 / 0 |
+| **C (this run)** | 1 | 268.44 MB | 20 | 343.60 GFLOP | **2400 / 0** |
+| D | 1 | 268.44 MB | 20 | 343.60 GFLOP | 1400 / 0 |
 
 Fits:
 
 ```
 DRAM GB/s     = 1610.612736 MB  / (T_B - T_A)      <- 6 extra passes
 matrix FLOP/s = 1717.986918 GFLOP/ (S_B - S_A)     <- 100 extra GEMMs
-c_decode      = (T_D - T_C) / 1200                 <- in-situ, the number that matters
-slack_decode  = 1800 * c_decode - (T_D - T_A)
+c_decode      = (T_C - T_D) / 1000                 <- in-situ, the number that matters
+slack_decode  = 2400 * c_decode - (T_C - T_A)
 ```
 
 `A` appears in both rate differences, so a disagreement between them is a
@@ -260,23 +260,39 @@ dT(n) = max(0, n * c - slack)
 ```
 
 with an absorption region `slack` inside which added independent dispatches are
-free. On the development host `slack = 4.17-4.78 ms` per decode step (two
-independent two-parameter fits at threadgroup widths 20x apart), i.e. a knee at
-**~1600 dispatches**, so a 600-dispatch configuration measures a per-dispatch
-cost of zero no matter how long you run it.
+free, so a 600-dispatch configuration measures a per-dispatch cost of zero no
+matter how long you run it.
 
-The second redesign came from `A`'s receipt. The ranked host decodes in
-4.83 ms/step against this host's 9.01 ms, and the hard decode floor allows only
-`13.02 - T_A = 8.19 ms` of injected slowdown, i.e. **at most ~2300 extra
-dispatches**. The M4 knee alone is 1600. So `c_decode` on the ranked host cannot
-be bracketed by two saturated points inside the floor; `C`/`D` are instead placed
-at 600 and 1800 to answer the question that actually decides programme
-priorities: **is the ranked decode path above or below its dispatch-absorption
-knee?** A null result at 1800 is not a wasted receipt — it proves the ranked host
-absorbs ≥1800 dispatches' worth of launch overhead for free, which prices every
-"issue fewer MLX ops" arm at zero. A positive result gives `c` and `slack`
-directly. Both configurations keep `S` at `A`'s value, so the prefill axis is
-untouched and the `S/128` term in `T` cancels exactly.
+The third redesign came from an out-of-sample test of that law, and it is the
+reason `C` and `D` are placed where they are. Fitted across *mixed* injection
+families the law put the development-host knee at ~1600 dispatches and predicted
+`dT(1800) = +0.26 ms`; the measurement is **+1.54 ms, reproduced to 0.23% on an
+immediate repeat** (11.667 and 11.640 ms). Rebuilt inside a single family — every
+point sharing `A`'s sweep and GEMM settings, so the family's own `n = 0` run is
+the only reference — the knee moves to **~1200-1300 dispatches** and the
+per-dispatch cost stays at 2.6-2.8 us. The law survives; the earlier `slack` was
+inflated by a cross-family sweep term.
+
+`A`'s receipt then sizes the lever. The ranked host decodes in 4.83 ms/step
+against this host's 10.11 ms in the same configuration, and the hard decode
+floor allows `13.80 - T_A = 8.97 ms` of injected slowdown. Two saturated points
+therefore *do* fit inside the floor if they are placed carefully, so `C` and `D`
+bracket the knee from above at **2400 and 1400** dispatches:
+
+- if both sit above the ranked knee, `(T_C - T_D) / 1000` gives `c_decode` to
+  ~2% and `slack` follows from `A`;
+- if `D` is absorbed and `C` is not, the pair still bounds `slack` between
+  `1400 * c` and `2400 * c`;
+- if both are absorbed, the ranked host absorbs 2400 dispatches of launch
+  overhead per decode step for free, which prices every "issue fewer MLX ops"
+  arm at zero without any fit at all.
+
+Worst-case sizing for `C` uses a pessimistic `c = 3.5 us` with zero slack:
+`T_C <= 13.23 ms`, inside the 13.80 ms floor limit. That margin matters, because
+a floor breach — unlike a calibration-band rejection — publishes **no** metrics:
+across 1409 public submissions, 937 publish `officialMetrics` and not one
+publishes a speedup below 0.95. Both configurations keep `S` at `A`'s value, so
+the prefill axis is untouched and the `S/128` term in `T` cancels exactly.
 
 The prefill dispatch axis is deliberately *not* spent on a receipt: on the
 development host it is well-behaved only below ~20000 dispatches (where it
