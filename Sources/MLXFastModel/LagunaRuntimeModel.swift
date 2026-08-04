@@ -11038,7 +11038,14 @@ private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_EMPTY_TG", 160)
 
 private let lagunaInjectPoolUInt4 = 1 << 24  // 16,777,216 x 16 B = 256 MiB
-private let lagunaInjectSweepThreads = 1 << 17  // 512 threadgroups x 256
+/// 1024 threadgroups x 256 threads, 64 uint4 per thread. Chosen by measuring
+/// the identical kernel in isolation (`research/host_device_arch.swift`): this
+/// depth reads 262.1 GB/s on M4 Pro against the 262.5 GB/s sequential control
+/// from #21, while shallower per-thread depths fall 6% short and deeper grids
+/// (>= 2^19 threads, <= 32 uint4 per thread) report *above* the 273 GB/s
+/// hardware peak because each threadgroup's pass working set shrinks to 128 KiB
+/// and the second pass is cache-served.
+private let lagunaInjectSweepThreads = 1 << 18
 private let lagunaInjectSweepPerThread = lagunaInjectPoolUInt4 / lagunaInjectSweepThreads
 private let lagunaInjectMatmulM = 512
 private let lagunaInjectMatmulK = 8192

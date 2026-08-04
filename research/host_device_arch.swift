@@ -42,7 +42,7 @@ func sweepKernel(_ name: String, threads: Int) -> String {
     """
 }
 
-let sweepThreadCounts = [1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19]
+let sweepThreadCounts = [1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19, 1 << 20]
 
 let src = """
 #include <metal_stdlib>
@@ -51,6 +51,32 @@ kernel void empty_dispatch(device uint *sink [[buffer(0)]],
                            constant uint &control [[buffer(1)]],
                            uint gid [[thread_position_in_grid]]) {
     if (control == 0xFFFFFFFFu) { sink[gid & 255u] = gid; }
+}
+// A uniformly filled buffer is losslessly compressible, so reads of it can be
+// served from fewer physical bytes than requested and report above the hardware
+// peak. Scramble every word so the content is incompressible.
+kernel void scramble(device uint *pool [[buffer(0)]],
+                     uint gid [[thread_position_in_grid]]) {
+    uint x = gid * 2654435761u + 0x9E3779B9u;
+    x ^= x >> 15; x *= 2246822519u; x ^= x >> 13; x *= 3266489917u; x ^= x >> 16;
+    pool[gid] = x;
+}
+// Working-set-limited strided read: `cfg.x` masks every address into a window
+// small enough to stay resident in cache, so the achieved rate is the
+// cache-resident aggregate ceiling rather than the DRAM ceiling.
+kernel void windowed_sweep(const device uint *pool [[buffer(0)]],
+                           device uint *sink [[buffer(1)]],
+                           constant uint4 &cfg [[buffer(2)]],
+                           uint gid [[thread_position_in_grid]]) {
+    const device uint4* quads = (const device uint4*)pool;
+    uint idx = gid & cfg.x;
+    uint4 acc = uint4(0u);
+    for (uint i = 0; i < cfg.y; ++i) {
+        acc ^= quads[idx];
+        idx = (idx + cfg.z) & cfg.x;
+    }
+    uint folded = acc.x ^ acc.y ^ acc.z ^ acc.w;
+    if (folded == 0xFFFFFFFFu) { sink[gid & 255u] = folded; }
 }
 \(sweepThreadCounts.map { sweepKernel("sweep_\($0)", threads: $0) }.joined(separator: "\n"))
 """
@@ -117,6 +143,23 @@ for tg in [1, 8, 40, 160, 512] {
 
 let poolBytes = (1 << 24) * 16
 let pool = device.makeBuffer(length: poolBytes, options: .storageModePrivate)!
+// A private buffer that was never written can be served without real DRAM
+// traffic and then reads above the hardware peak, so fill it first.
+do {
+    let pipe = try! device.makeComputePipelineState(
+        function: lib.makeFunction(name: "scramble")!)
+    let cb = queue.makeCommandBuffer()!
+    let enc = cb.makeComputeCommandEncoder()!
+    enc.setComputePipelineState(pipe)
+    enc.setBuffer(pool, offset: 0, index: 0)
+    enc.dispatchThreads(
+        MTLSize(width: poolBytes / 4, height: 1, depth: 1),
+        threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+    enc.endEncoding()
+    cb.commit()
+    cb.waitUntilCompleted()
+}
+
 print("\nisolated DRAM sweep replica, \(poolBytes / (1 << 20)) MiB pool, uint4 grid-stride")
 for threads in sweepThreadCounts {
     let pipe = try! device.makeComputePipelineState(
@@ -141,4 +184,42 @@ for threads in sweepThreadCounts {
     }
     print(String(format: "  threads=%7d perThread=%5d  %.1f GB/s", threads,
                  (1 << 24) / threads, best))
+}
+
+// Cache-resident aggregate ceiling at the decode fused-attention shape:
+// `threadGroup: 1024`, one threadgroup sweeping its kv_head's whole ring.
+// Window sizes bracket the 2.097 MB unique / 8.389 MB issued per step of
+// `sliding_fused_attn_ring_v1`, whose 375 GB/s on issued bytes is above the
+// DRAM ceiling and therefore L2-served.
+let windowPipe = try! device.makeComputePipelineState(
+    function: lib.makeFunction(name: "windowed_sweep")!)
+print("\ncache-resident windowed read, threadGroup=1024, uint4 per lane")
+print("  window     TGs  threads   GB/s")
+for windowKiB in [64, 256, 1024, 2048, 8192, 32768] {
+    for tgs in [8, 32, 128] {
+        let threads = tgs * 1024
+        let quads = (windowKiB * 1024) / 16
+        guard quads >= threads else { continue }
+        let iters = max(64, (1 << 26) / threads)
+        var cfg = SIMD4<UInt32>(
+            UInt32(quads - 1), UInt32(iters), UInt32(threads), 0)
+        var best = 0.0
+        for _ in 0..<5 {
+            let cb = queue.makeCommandBuffer()!
+            let enc = cb.makeComputeCommandEncoder()!
+            enc.setComputePipelineState(windowPipe)
+            enc.setBuffer(pool, offset: 0, index: 0)
+            enc.setBuffer(sink, offset: 0, index: 1)
+            enc.setBytes(&cfg, length: 16, index: 2)
+            enc.dispatchThreadgroups(
+                MTLSize(width: tgs, height: 1, depth: 1),
+                threadsPerThreadgroup: MTLSize(width: 1024, height: 1, depth: 1))
+            enc.endEncoding()
+            cb.commit()
+            cb.waitUntilCompleted()
+            let bytes = Double(threads) * Double(iters) * 16.0
+            best = max(best, bytes / (cb.gpuEndTime - cb.gpuStartTime) / 1e9)
+        }
+        print(String(format: "  %6d KiB %4d %8d  %6.1f", windowKiB, tgs, threads, best))
+    }
 }
