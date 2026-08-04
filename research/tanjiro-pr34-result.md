@@ -219,6 +219,26 @@ different resources: the dense attention GEMM is compute-bound and already at
 the machine's GEMM rate at any copy count, while the routed gather-GEMM pays a
 per-invocation setup that only amortises with depth.
 
+**Cross-block additivity on the prefill axis (L8).** Every rate above is a
+*single*-block difference, which leaves one question the residual attribution
+depends on: when two different real kernels are added to the same forward pass,
+do their costs add, or does the axis absorb one inside the other? L8 runs
+`0,0,39,40` — both prefill blocks at full depth, both decode knobs off.
+Pre-registered predictions, written before it returned:
+
+| model | predicted `S` | meaning if observed |
+| --- | ---: | --- |
+| strict additivity | `577.201 + 158.683 + 188.702 = 924.59 ms` | prefill axis has no cross-kernel slack; residual is real serial work |
+| perfect absorption | `577.201 + max(158.683, 188.702) = 765.90 ms` | one block hides entirely inside the other |
+
+Both blocks are compute-bound on M4, so additivity is the physically expected
+outcome and any large shortfall would mean the instrument's copies overlap each
+other rather than the model. L8's decode axis is also the largest amortisation
+test in the series: it carries ~925 ms of `S`, so `S/128 ≈ 7.2 ms` must be
+subtracted from a raw decode reading of ~16 ms to recover `T₀ ≈ 8.82 ms`.
+
+**Observed: TBD** (L8 in flight at the time of writing).
+
 **Is the marginal rate systematically below hers? No — it is systematically
 above whenever the host step has slack (+8.0%, +8.4%, +10.1%, +11.8%, +21.1%,
 +25.6%) and converges onto her figure from above once the step is loaded (+3.1%,
