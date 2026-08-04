@@ -10794,7 +10794,8 @@ final class LagunaRuntimeModelInner: Module {
                     asyncEval(h)
                 }
             }
-            lagunaInjectLayerWork(layer: i, isSingleTokenDecode: isSingleTokenDecode)
+            lagunaInjectLayerWork(
+                layer: i, isSingleTokenDecode: isSingleTokenDecode, layers: layers)
         }
 
         return h
@@ -11172,23 +11173,297 @@ private func lagunaInjectShare(_ total: Int, layer: Int) -> Int {
     return (layer + 1) * total / layers - layer * total / layers
 }
 
+// ---------------------------------------------------------------------------
+// REAL-KERNEL MARGINAL-RATE INJECTIONS (PR #34)
+//
+// #27's two injections were synthetic — a favourable strided read and a
+// favourable dense BF16 GEMM — so they measured what the part can do, not what
+// the scored kernels do. The four injections below dispatch the *scored*
+// kernels themselves, at their scored shapes, over weights the current step
+// has not read yet:
+//
+//   decode  attn  : lagunaDecodeNVFP4QKVR1 + lagunaGatedAffineOProjNVFP4
+//   decode  routed: lagunaRoutedSwiGLUQMVPacked + lagunaRoutedDownReduce
+//   prefill routed: lagunaFusedSortedRoutedGateUp (sort, gather-GEMM, down)
+//   prefill attn  : wq/wk/wv/wo BF16 Linear at the 512-row prefill shape
+//
+// Cold-data property: the copy issued at layer `i` binds the bank of layer
+// `i + 20`, the farthest layer in either direction, so ~20 layers of unrelated
+// traffic (~0.9 GB per decode step, ~8 GB per prefill) separate the injected
+// read from that bank's own read. A second dispatch on the same bank would
+// measure a cache-warm rate and report it as DRAM. Each knob also clamps at
+// one copy per layer, so no bank is bound twice in one pass.
+//
+// Every injected array is discarded: nothing in the model reads it, and it is
+// forced with the same per-layer `asyncEval` as the #27 injections, which keeps
+// the command-buffer count independent of the injected magnitudes.
+// ---------------------------------------------------------------------------
+
+/// Copies of one layer's decode Q/K/V + O NVFP4 QMV pair, injected per decode
+/// step and spread over the layer boundaries (max one per layer).
+private let lagunaInjectDecodeAttn = min(
+    lagunaInjectEnvInt("DARKBLOOM_INJECT_DECODE_ATTN", 0), LagunaConstants.numHiddenLayers)
+/// Copies of one layer's routed top-8 gate/up QMV + down-reduce, per decode step.
+private let lagunaInjectDecodeRouted = min(
+    lagunaInjectEnvInt("DARKBLOOM_INJECT_DECODE_ROUTED", 0), LagunaConstants.numHiddenLayers - 1)
+/// Copies of one layer's sorted routed gather-GEMM block, per multi-token forward.
+private let lagunaInjectPrefillRouted = min(
+    lagunaInjectEnvInt("DARKBLOOM_INJECT_PREFILL_ROUTED", 0), LagunaConstants.numHiddenLayers - 1)
+/// Copies of one layer's BF16 Q/K/V/O projections, per multi-token forward.
+private let lagunaInjectPrefillAttn = min(
+    lagunaInjectEnvInt("DARKBLOOM_INJECT_PREFILL_ATTN", 0), LagunaConstants.numHiddenLayers)
+/// One-shot stderr report of the injected dispatch inventory (local only).
+private let lagunaInjectVerbose = lagunaInjectEnvInt("DARKBLOOM_INJECT_VERBOSE", 0) != 0
+
+/// Rows per injected multi-token copy. The frozen window's prefill axis and
+/// the decode axis's charged seed forward are both 512 tokens.
+private let lagunaInjectPrefillRows = 512
+/// Bank rotation for injected copies. 20 is the farthest layer in either
+/// direction and preserves the attention head count (period 4 divides 20).
+private let lagunaInjectBankRotation = 20
+
+/// Sweep dispatches injected per decode step to read the ranked host's Metal
+/// architecture string out of `T`: 1 for a `*s` architecture, 2 for `*g`,
+/// 4 otherwise. MLX's `needs_commit()` item threshold is keyed on that same
+/// last character (`device.cpp:484-487`), and nobody has seen the string.
+private let lagunaInjectArchProbeSweeps: Int = {
+    guard lagunaInjectEnvInt("DARKBLOOM_INJECT_ARCH_PROBE", 0) != 0 else { return 0 }
+    switch GPU.deviceInfo().architecture.last {
+    case "s": return 1
+    case "g": return 2
+    default: return 4
+    }
+}()
+
+/// Fixed inputs and routing patterns for the injected real-kernel copies.
+/// Allocated on first use, which is `warmLibraryModel`'s untimed warm forward.
+private enum LagunaInjectBlockStore {
+    struct Scratch {
+        let decodeRow: MLXArray
+        let prefillRows: MLXArray
+        let attnOut: [Int: MLXArray]
+        let prefillAttnOut: [Int: MLXArray]
+        let gateLogits: [Int: MLXArray]
+        let decodeIndices: [MLXArray]
+        let prefillIndices: [MLXArray]
+        let routerWeights: MLXArray
+    }
+
+    nonisolated(unsafe) static let scratch: Scratch = {
+        let hidden = LagunaConstants.hiddenSize
+        let topK = LagunaConstants.numExpertsPerTok
+        let rows = lagunaInjectPrefillRows
+        let heads = [LagunaConstants.fullAttentionHeads, LagunaConstants.slidingAttentionHeads]
+        let decodeRow = MLXArray.zeros([1, 1, hidden], dtype: .bfloat16)
+        let prefillRows = MLXArray.zeros([1, rows, hidden], dtype: .bfloat16)
+        var attnOut: [Int: MLXArray] = [:]
+        var prefillAttnOut: [Int: MLXArray] = [:]
+        var gateLogits: [Int: MLXArray] = [:]
+        for h in heads {
+            attnOut[h] = MLXArray.zeros([1, 1, h * LagunaConstants.headDim], dtype: .bfloat16)
+            prefillAttnOut[h] = MLXArray.zeros(
+                [1, rows, h * LagunaConstants.headDim], dtype: .bfloat16)
+            gateLogits[h] = MLXArray.zeros([1, 1, h], dtype: .bfloat16)
+        }
+        // Slot `s` selects experts {32k + s}, so the 32 slots are disjoint
+        // top-8 sets and two injected copies never share an expert.
+        let slots = LagunaConstants.numExperts / topK
+        let decodeIndices = (0..<slots).map { slot in
+            MLXArray((0..<topK).map { UInt32($0 * slots + slot) }).reshaped([1, 1, topK])
+        }
+        // Injected prefill routing: every token draws 8 distinct experts and
+        // every expert receives exactly `rows * 8 / 256` rows — the mean of the
+        // scored router's own load. Per-expert row counts are uniform where the
+        // real router's are skewed, so an injected copy is a best case for the
+        // sorted gather-GEMM, never a worst case.
+        let prefillIndices = (0..<4).map { variant in
+            var flat: [UInt32] = []
+            flat.reserveCapacity(rows * topK)
+            for t in 0..<rows {
+                let base = UInt32((t * 7 + variant * 3) % slots)
+                for k in 0..<topK { flat.append(UInt32(k * slots) + base) }
+            }
+            return MLXArray(flat).reshaped([1, rows, topK])
+        }
+        let routerWeights = MLXArray.zeros([1, 1, topK], dtype: .float32)
+        eval(
+            [decodeRow, prefillRows, routerWeights] + decodeIndices + prefillIndices
+                + Array(attnOut.values) + Array(prefillAttnOut.values)
+                + Array(gateLogits.values))
+        return Scratch(
+            decodeRow: decodeRow, prefillRows: prefillRows, attnOut: attnOut,
+            prefillAttnOut: prefillAttnOut, gateLogits: gateLogits,
+            decodeIndices: decodeIndices, prefillIndices: prefillIndices,
+            routerWeights: routerWeights)
+    }()
+}
+
+/// Attention bank rotated 20 layers ahead. The rotation preserves the layer's
+/// attention family, so the injected copy has the scored head count.
+private func lagunaInjectAttnBankLayer(_ layer: Int, of count: Int) -> Int {
+    (layer + lagunaInjectBankRotation) % count
+}
+
+/// Routed-expert bank rotated ~20 layers ahead, restricted to the sparse
+/// layers (layer 0 is the dense MLP).
+private func lagunaInjectRoutedBankLayer(_ layer: Int, of count: Int) -> Int {
+    1 + ((layer + lagunaInjectBankRotation - 1) % (count - 1))
+}
+
+private func lagunaInjectDecodeAttnWork(
+    _ layers: [LagunaRuntimeDecoderLayer], layer: Int
+) -> [MLXArray] {
+    let attention = layers[lagunaInjectAttnBankLayer(layer, of: layers.count)].selfAttn
+    let heads = attention.nHeads
+    let scratch = LagunaInjectBlockStore.scratch
+    var produced: [MLXArray] = []
+    if let bank = attention._nativeAffineQKV,
+        let qkv = lagunaDecodeNVFP4QKVR1(
+            normalized: scratch.decodeRow, bank: bank, heads: heads)
+    {
+        produced.append(qkv)
+    }
+    if let bank = attention._nativeAffineOProj, let output = scratch.attnOut[heads],
+        let gate = scratch.gateLogits[heads]
+    {
+        let projected =
+            lagunaGatedAffineOProjNVFP4(
+                attentionOutput: output, gateLogits: gate, codes: bank.packedCodes,
+                scales: bank.scales, heads: heads, gateIsActivated: true)
+            ?? lagunaGatedAffineOProjNVFP4(
+                attentionOutput: output, gateLogits: gate, codes: bank.packedCodes,
+                scales: bank.scales, heads: heads)
+        if let projected { produced.append(projected) }
+    }
+    return produced
+}
+
+private func lagunaInjectDecodeRoutedWork(
+    _ layers: [LagunaRuntimeDecoderLayer], layer: Int
+) -> [MLXArray] {
+    let bankLayer = lagunaInjectRoutedBankLayer(layer, of: layers.count)
+    guard let moe = layers[bankLayer].mlp as? LagunaRuntimeSparseMoEBlock,
+        let fusedWeight = moe._fusedRoutedGateUpWeight,
+        let packedScales = moe._packedRoutedGateUpBank,
+        let downWeight = moe._routedDownWeight,
+        let downScales = moe._routedDownScales
+    else { return [] }
+    let scratch = LagunaInjectBlockStore.scratch
+    let indices = scratch.decodeIndices[bankLayer % scratch.decodeIndices.count]
+    let activated = lagunaRoutedSwiGLUQMVPacked(
+        scratch.decodeRow, fusedWeight: fusedWeight, packedScales: packedScales,
+        indices: indices)
+    return [
+        lagunaRoutedDownReduce(
+            activated, downWeight: downWeight, downScales: downScales, indices: indices,
+            routerWeights: scratch.routerWeights)
+    ]
+}
+
+private func lagunaInjectPrefillRoutedWork(
+    _ layers: [LagunaRuntimeDecoderLayer], layer: Int
+) -> [MLXArray] {
+    let bankLayer = lagunaInjectRoutedBankLayer(layer, of: layers.count)
+    guard let moe = layers[bankLayer].mlp as? LagunaRuntimeSparseMoEBlock,
+        let fusedWeight = moe._fusedRoutedGateUpWeight,
+        let fusedScales = moe._fusedRoutedGateUpScales,
+        let downProj = moe._routedDownProj,
+        moe._fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize
+    else { return [] }
+    let scratch = LagunaInjectBlockStore.scratch
+    let (output, _) = lagunaFusedSortedRoutedGateUp(
+        scratch.prefillRows,
+        indices: scratch.prefillIndices[bankLayer % scratch.prefillIndices.count],
+        fusedWeight: fusedWeight, fusedScales: fusedScales,
+        split: moe._fusedRoutedGateUpSplit, downProj: downProj, deferUnsort: false)
+    return [output]
+}
+
+private func lagunaInjectPrefillAttnWork(
+    _ layers: [LagunaRuntimeDecoderLayer], layer: Int
+) -> [MLXArray] {
+    let attention = layers[lagunaInjectAttnBankLayer(layer, of: layers.count)].selfAttn
+    let scratch = LagunaInjectBlockStore.scratch
+    guard let projectedIn = scratch.prefillAttnOut[attention.nHeads] else { return [] }
+    return [
+        attention.wq(scratch.prefillRows), attention.wk(scratch.prefillRows),
+        attention.wv(scratch.prefillRows), attention.wo(projectedIn),
+    ]
+}
+
+/// Per-pass tally of injected copies, reported once per mode under
+/// `DARKBLOOM_INJECT_VERBOSE` so a local run can confirm that every intended
+/// dispatch really fired (a shape guard returning nil is otherwise silent).
+private enum LagunaInjectTally {
+    nonisolated(unsafe) static var counts: [String: Int] = [:]
+    nonisolated(unsafe) static var reported: Set<Bool> = []
+
+    static func add(_ key: String, _ value: Int) {
+        guard lagunaInjectVerbose, value > 0 else { return }
+        counts[key, default: 0] += value
+    }
+
+    static func flush(isSingleTokenDecode: Bool) {
+        guard lagunaInjectVerbose, !reported.contains(isSingleTokenDecode) else { return }
+        reported.insert(isSingleTokenDecode)
+        let pass = isSingleTokenDecode ? "decode" : "prefill"
+        FileHandle.standardError.write(
+            Data("[inject] \(pass) dispatch inventory: \(counts.sorted { $0.key < $1.key })\n"
+                .utf8))
+        counts = [:]
+    }
+}
+
 private let lagunaInjectActive =
     lagunaInjectDecodeSweeps + lagunaInjectPrefillMatmuls + lagunaInjectDecodeEmpty
-    + lagunaInjectPrefillEmpty > 0
+    + lagunaInjectPrefillEmpty + lagunaInjectDecodeAttn + lagunaInjectDecodeRouted
+    + lagunaInjectPrefillRouted + lagunaInjectPrefillAttn + lagunaInjectArchProbeSweeps > 0
 
-func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
+func lagunaInjectLayerWork(
+    layer: Int, isSingleTokenDecode: Bool, layers: [LagunaRuntimeDecoderLayer]
+) {
     guard lagunaInjectActive else { return }
     let sweeps = lagunaInjectShare(
-        isSingleTokenDecode ? lagunaInjectDecodeSweeps : 0, layer: layer)
+        isSingleTokenDecode ? lagunaInjectDecodeSweeps + lagunaInjectArchProbeSweeps : 0,
+        layer: layer)
     let matmuls = lagunaInjectShare(
         isSingleTokenDecode ? 0 : lagunaInjectPrefillMatmuls, layer: layer)
     let emptyTotal = isSingleTokenDecode ? lagunaInjectDecodeEmpty : lagunaInjectPrefillEmpty
     let empties =
         lagunaInjectEmptySpread
         ? lagunaInjectShare(emptyTotal, layer: layer) : (layer == 0 ? emptyTotal : 0)
-    let scratch = LagunaInjectStore.scratch
     var pending: [MLXArray] = []
-    pending.reserveCapacity(sweeps + matmuls + empties)
+    if isSingleTokenDecode {
+        if lagunaInjectShare(lagunaInjectDecodeAttn, layer: layer) > 0 {
+            let work = lagunaInjectDecodeAttnWork(layers, layer: layer)
+            LagunaInjectTally.add("decode_attn_qmv", work.count)
+            pending += work
+        }
+        if lagunaInjectShare(lagunaInjectDecodeRouted, layer: layer) > 0 {
+            let work = lagunaInjectDecodeRoutedWork(layers, layer: layer)
+            LagunaInjectTally.add("decode_routed_qmv", work.count)
+            pending += work
+        }
+    } else {
+        if lagunaInjectShare(lagunaInjectPrefillRouted, layer: layer) > 0 {
+            let work = lagunaInjectPrefillRoutedWork(layers, layer: layer)
+            LagunaInjectTally.add("prefill_routed_block", work.count)
+            pending += work
+        }
+        if lagunaInjectShare(lagunaInjectPrefillAttn, layer: layer) > 0 {
+            let work = lagunaInjectPrefillAttnWork(layers, layer: layer)
+            LagunaInjectTally.add("prefill_attn_proj", work.count)
+            pending += work
+        }
+    }
+    if layer == layers.count - 1 { LagunaInjectTally.flush(isSingleTokenDecode: isSingleTokenDecode) }
+    guard sweeps + matmuls + empties > 0 || !pending.isEmpty else { return }
+    guard sweeps + matmuls + empties > 0 else {
+        asyncEval(pending)
+        return
+    }
+    let scratch = LagunaInjectStore.scratch
+    pending.reserveCapacity(pending.count + sweeps + matmuls + empties)
     for k in 0..<sweeps {
         pending.append(
             lagunaInjectSweepKernel(
