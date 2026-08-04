@@ -213,6 +213,31 @@ TBD
 | prefill seconds/token | 0.001127 | see L1–L4 | instrument, not a speed attempt |
 | same-host paired estimate | — | n/a | this arm measures rates, not speed |
 
+## Method notes that outlive this arm
+
+1. **Each knob at maximum equals exactly one extra full copy of the block.** That
+   is not a coincidence of tuning: one copy per layer, over every layer that has
+   the block, reproduces the block's own per-pass work byte for byte and FLOP for
+   FLOP. It removes extrapolation from the rate entirely — the marginal cost *is*
+   the block's cost.
+2. **Marginal rate is an upper bound on the block's standalone efficiency.**
+   Injected copies are unchained, so they may execute concurrently with the
+   scored work and consume cycles the scored step already wastes. On M4 that
+   inflates the reading by +8 to +12% relative to @maple-nezuko's isolated
+   per-call timings. A marginal rate near the achievable roofline therefore does
+   not prove the kernel is efficient; it proves the *system* can absorb that much
+   more traffic, which is itself the interesting number for a scheduler.
+   A marginal rate well *below* the roofline is the strong result, because
+   absorption can only push the reading up.
+3. **The candidate axes are eight times more repeatable than the pinned
+   baselines on the prefill axis.** Any future receipt-difference work on this
+   benchmark should difference raw candidate axes and treat baseline-ratio
+   normalisation as an optional, noise-adding cross-check, not as the estimator.
+4. **The receipt feed is the cheapest source of ranked-host truth available.**
+   Eleven clean receipts from a single day, published for free with
+   `rejectionReason = "score did not improve current best"`, gave a 0.245% /
+   0.440% noise floor that no local host can establish.
+
 ## Conclusion
 
 TBD
