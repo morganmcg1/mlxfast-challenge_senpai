@@ -210,16 +210,41 @@ axis on which M4 Pro and M5 Max differ:
 - Decode grids are sized by output rows, not by machine width, so an M5 Max
   with roughly twice the cores runs the same fixed decode work at roughly half
   the per-core occupancy.
-- The field's own M5 baseline (5125.5 us/token over ~1794 MB) implies about
-  350 GB/s achieved, which is 57-64% of any plausible M5 Max ceiling - a
-  *lower* saturation fraction than this host's 78.6% aggregate.
+- The field's own M5 baseline implies a *lower* saturation fraction than this
+  host achieves, so intra-kernel latency hiding has room there that it does
+  not have here.
 
-So the M5 is plausibly in the low-co-residency regime where the decay curve
-above still shows a gain, while this host is in the high-co-residency regime
-where it is zero. That is a falsifiable prediction, not a rescue: the decay
-curve predicts a *partial* return, on the order of the field's `-0.24%` K1
-rung, not the full `-0.689%` ladder whose largest rung was their unsaturated
-shared-only K3.
+The aggregate arithmetic, summed over all 40 layers from the same per-kernel
+byte derivation:
+
+| term | bytes/step |
+| --- | ---: |
+| QKV (11.80 MB x 30 + 9.44 MB x 10) | 448.4 MB |
+| o_proj (9.44 x 30 + 7.08 x 10) | 354.0 MB |
+| routed MoE gate/up (9.44 x 39) | 368.2 MB |
+| K3 routed+shared down (5.31 x 39) | 207.1 MB |
+| K1 shared gate/up (1.18 x 39) | 46.0 MB |
+| router (1.05 x 39) | 41.0 MB |
+| dense layer 0 (67.1 + 33.6) | 100.7 MB |
+| g_proj + attention KV (unique) | 92.1 MB |
+| **total** | **~1657 MB/step** |
+
+Independent cross-check: the field's officially measured M5 baseline reports
+**~1794 MB/token**, about 8% above this derivation - consistent given the
+`N=576` assumption for the growing full-attention cache. The table is
+therefore corroborated by an official number, not just self-consistent.
+
+- **this host**: 1657 MB / 8.379 ms = **198 GB/s** -> **76%** of its 260.2 GB/s
+  ceiling (82% if the 1794 MB figure is used).
+- **field's M5**: 1794 MB / 5125.5 us = **350 GB/s** -> **58-64%** of a
+  plausible M5 Max ceiling (M4 Max is already 546 GB/s).
+
+So the M5 is quantitatively *less* saturated than this host, which puts it in
+the low-co-residency regime where the decay curve above still shows a gain,
+while this host is in the high-co-residency regime where it is zero. That is a
+falsifiable prediction, not a rescue: the decay curve predicts a *partial*
+return, on the order of the field's `-0.24%` K1 rung, not the full `-0.689%`
+ladder whose largest rung was their unsaturated shared-only K3.
 
 **This cannot be settled on M4.** The M4 host can only show that the
 mechanism exists in the kernel body and that this tree's schedule hides it.
