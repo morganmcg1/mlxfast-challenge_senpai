@@ -988,6 +988,16 @@ METAL_FUNC void tile_matmad_nax(
   constexpr short TK = transpose_b ? BTile::kTileCols : BTile::kTileRows;
   static_assert(TKa == TK, "MXU tile matmul: K dimensions do not match");
 
+  // The mma() overloads below pair fragments either along M (TN == 1) or
+  // along N, so an unpaired shape matches NEITHER branch and, with no else,
+  // would emit no MMA at all and silently return C unchanged. Fail at compile
+  // time instead. TM/TN are also required positive: a zero band (e.g. an SM
+  // below kFragRows) is the same silent no-op.
+  static_assert(
+      TM > 0 && TN > 0 && ((TN == 1 && TM % 2 == 0) || (TN % 2 == 0)),
+      "MXU tile matmul: no MMA form exists for this (TM, TN); need "
+      "TN == 1 with even TM, or even TN");
+
   constexpr auto ta = metal::bool_constant<transpose_a>{};
   constexpr auto tb = metal::bool_constant<transpose_b>{};
 

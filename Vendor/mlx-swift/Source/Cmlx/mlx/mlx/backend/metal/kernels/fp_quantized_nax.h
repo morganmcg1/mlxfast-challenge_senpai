@@ -368,6 +368,27 @@ struct QuantizedBlockLoader {
     uint8_t b[kSrcBytes];
   };
 
+  // Scale bytes this thread actually touches: the chunk loop below indexes
+  // scales[k0 / n_reads_per_scale] for k0 = c * kSrcBytesPerChunk, so the
+  // largest index is fixed by the instantiation. Deriving it this way (rather
+  // than from n_steps_per_read) guarantees the register copy reads exactly the
+  // set of scale bytes the fused path reads -- never one more.
+  MLX_MTL_CONST short kScaleRegs = (kWideChunks >= 1)
+      ? (((kWideChunks - 1) * kSrcBytesPerChunk) / n_reads_per_scale + 1)
+      : 1;
+
+  // DARKBLOOM_STAGE2_GATHER. One tile's device reads held in registers so the
+  // read for tile k+1 can be issued before the MMA of tile k, instead of
+  // sitting between the two staging barriers where nothing covers its latency.
+  // Carrying the bytes changes only *when* the load issues -- the same bytes
+  // from the same addresses reach the same sb[]/sc[] slots and are decoded by
+  // the same store_chunks() below, so the staged tile is bit-identical.
+  struct StageRegs {
+    uint8_t sb[kSrcBytes];
+    uint8_t sc[kScaleRegs];
+    bool staged;
+  };
+
   // Byte offset of this thread's threadgroup destination, relative to the Ws
   // base -- the same expression the constructor used for `dst`. Ws itself is
   // 16B aligned by construction (see the NAXWsChunk16 backing store), so this
@@ -388,45 +409,44 @@ struct QuantizedBlockLoader {
     out[1] = scale * Dequantize<4, T>{}(w >> 4);
   }
 
-  template <bool wide_store, bool wide_load>
-  void load_unsafe_wide() const {
-    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
-      return;
-    }
+  bool wide_store_ok(bool wide_store) const {
+    return wide_store && kWidenShapeOk && ((dst_byte_off() & 15) == 0);
+  }
 
-    const bool store_ok =
-        wide_store && kWidenShapeOk && ((dst_byte_off() & 15) == 0);
-    const bool load_ok = wide_load &&
+  bool wide_load_ok(bool wide_load) const {
+    return wide_load &&
         ((kWideLoadShapeOk && ((src_byte_off() & 15) == 0)) ||
          (kWideLoad8ShapeOk && ((src_byte_off() & 7) == 0)));
+  }
 
-    // Nothing widened for this thread: run the untouched scalar path.
-    if (!store_ok && !load_ok) {
-      load_unsafe();
-      return;
-    }
+  // Every device read this thread makes for one tile: the packed source run
+  // and the scale bytes governing it. `tiles_ahead` applies exactly the stride
+  // next() would, so reading a future tile needs no second loader.
+  void read_src(thread StageRegs& r, bool load_ok, int tiles_ahead) const {
+    const device uint8_t* sp = src + tiles_ahead * tile_stride;
+    const device uint8_t* scp = scales +
+        tiles_ahead * (reduction_dim == 1 ? n_groups : n_groups * group_stride);
 
-    uint8_t sb[kSrcBytes];
     // if constexpr: on instantiations where a single 16B load cannot cover
     // this thread's source run the wide-load branch is not just unreachable,
     // it is not emitted at all.
     bool took_wide_load = false;
     if constexpr (kWideLoadShapeOk) {
       if (load_ok) {
-        WideSrc packed = *((const device WideSrc*)src);
+        WideSrc packed = *((const device WideSrc*)sp);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytes; b++) {
-          sb[b] = packed.b[b];
+          r.sb[b] = packed.b[b];
         }
         took_wide_load = true;
       }
     }
     if constexpr (kWideLoad8ShapeOk) {
       if (load_ok) {
-        WideSrc8 packed = *((const device WideSrc8*)src);
+        WideSrc8 packed = *((const device WideSrc8*)sp);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytes; b++) {
-          sb[b] = packed.b[b];
+          r.sb[b] = packed.b[b];
         }
         took_wide_load = true;
       }
@@ -434,10 +454,19 @@ struct QuantizedBlockLoader {
     if (!took_wide_load) {
       STEEL_PRAGMA_UNROLL
       for (short b = 0; b < kSrcBytes; b++) {
-        sb[b] = src[b * bytes_per_pack];
+        r.sb[b] = sp[b * bytes_per_pack];
       }
     }
+    STEEL_PRAGMA_UNROLL
+    for (short s = 0; s < kScaleRegs; s++) {
+      r.sc[s] = scp[s];
+    }
+  }
 
+  // Decode this thread's staged bytes into `dst`. Touches no device memory, so
+  // the fused and split staging paths reach it with identical register state
+  // and therefore write identical values to identical addresses.
+  void store_chunks(const thread StageRegs& r, bool store_ok) const {
     STEEL_PRAGMA_UNROLL
     for (short c = 0; c < kWideChunks; c++) {
       const short e0 = c * kWideElems;
@@ -450,18 +479,18 @@ struct QuantizedBlockLoader {
       // when a 16B chunk covers a whole multiple of them (kSrcBytesPerChunk
       // is 4 for bfloat/half staging, 2 for float). Same values either way.
       if constexpr (fp4nv_fast && (kSrcBytesPerChunk % 4) == 0) {
-        const float scale =
-            fp4nv_scale_x16384(scales[k0 / n_reads_per_scale]);
+        const float scale = fp4nv_scale_x16384(r.sc[k0 / n_reads_per_scale]);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk / 4; b++) {
-          fp4nv_decode8<T>(fp4nv_pack4(sb + k0 + b * 4), scale, &out.v[b * 8]);
+          fp4nv_decode8<T>(
+              fp4nv_pack4(r.sb + k0 + b * 4), scale, &out.v[b * 8]);
         }
       } else {
         T scale =
-            dequantize_scale<T, group_size>(scales[k0 / n_reads_per_scale]);
+            dequantize_scale<T, group_size>(r.sc[k0 / n_reads_per_scale]);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk; b++) {
-          dequantize_pair(sb[k0 + b], scale, &out.v[b * pack_factor]);
+          dequantize_pair(r.sb[k0 + b], scale, &out.v[b * pack_factor]);
         }
       }
 
@@ -474,6 +503,57 @@ struct QuantizedBlockLoader {
         }
       }
     }
+  }
+
+  template <bool wide_store, bool wide_load>
+  void load_unsafe_wide() const {
+    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
+      return;
+    }
+
+    const bool store_ok = wide_store_ok(wide_store);
+    const bool load_ok = wide_load_ok(wide_load);
+
+    // Nothing widened for this thread: run the untouched scalar path.
+    if (!store_ok && !load_ok) {
+      load_unsafe();
+      return;
+    }
+
+    StageRegs r;
+    read_src(r, load_ok, 0);
+    store_chunks(r, store_ok);
+  }
+
+  // DARKBLOOM_STAGE2_GATHER, read half. Issues the device reads for the tile
+  // `tiles_ahead` of the loader's current position and nothing else: no
+  // threadgroup traffic, so it is legal anywhere in the k-loop, in particular
+  // between the RAW barrier and the MMA that hides its latency.
+  template <bool wide_store, bool wide_load>
+  void prefetch(thread StageRegs& r, int tiles_ahead) const {
+    r.staged = false;
+    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
+      return;
+    }
+    const bool load_ok = wide_load_ok(wide_load);
+    if (!wide_store_ok(wide_store) && !load_ok) {
+      // Scalar fallback thread: leave the whole tile to commit(), which runs
+      // the untouched fused path for it at the loader's own position.
+      return;
+    }
+    read_src(r, load_ok, tiles_ahead);
+    r.staged = true;
+  }
+
+  // DARKBLOOM_STAGE2_GATHER, store half. Must be called between the WAR and
+  // RAW barriers, exactly where load_unsafe_wide() was.
+  template <bool wide_store, bool wide_load>
+  void commit(const thread StageRegs& r) const {
+    if (!r.staged) {
+      load_unsafe_wide<wide_store, wide_load>();
+      return;
+    }
+    store_chunks(r, wide_store_ok(wide_store));
   }
 
 
@@ -1718,6 +1798,28 @@ template <
           simd_group_id,
           simd_lane_id);
 
+#ifdef DARKBLOOM_STAGE2_GATHER
+      // DARKBLOOM_STAGE2_GATHER. The shipped stage is fused load->decode->store
+      // sitting between the WAR and RAW barriers, so its device-read latency
+      // has nothing to hide behind: every thread waits on its own 16B weight
+      // read while the simdgroups are idle at a barrier. Split the stage and
+      // issue tile k+1's read AFTER the RAW barrier and BEFORE tile k's MMA,
+      // so a full MMA region plus a barrier covers it. Costs kSrcBytes +
+      // kScaleRegs registers per thread and zero extra threadgroup memory.
+      //
+      // BIT-EXACTNESS. The reads move; nothing else does. The same source
+      // bytes and scale bytes, from the same addresses, reach the same
+      // store_chunks() decode, which writes the same values to the same Ws
+      // addresses. Both barriers stay, so Ws holds exactly tile k when the MMA
+      // reads it, and the MMA chain (k ascending, kk1 ascending, one Dtile) is
+      // untouched. See QuantizedBlockLoader::prefetch/commit.
+      constexpr bool kStage2 = wide_store || wide_load;
+      typename loader_w_t::StageRegs stage_regs;
+      if constexpr (kStage2) {
+        loader_w.template prefetch<wide_store, wide_load>(stage_regs, 0);
+      }
+#endif // DARKBLOOM_STAGE2_GATHER
+
       for (int k = 0; k < K_it; ++k) {
         // Bit-exact A-operand hoist (the XMAJOR arm's shipped pattern at
         // one-eighth its register cost): this iteration's x fragments load
@@ -1755,12 +1857,31 @@ template <
         // certification (Ws is 16B aligned by construction); the load side
         // is host-certified via darkbloom_stage_wide_load_ok and per-thread
         // self-guarded, falling back to the scalar path on any misalignment.
+#ifdef DARKBLOOM_STAGE2_GATHER
+        if constexpr (kStage2) {
+          loader_w.template commit<wide_store, wide_load>(stage_regs);
+        } else {
+          loader_w.load_unsafe();
+        }
+#else
         if constexpr (wide_store || wide_load) {
           loader_w.template load_unsafe_wide<wide_store, wide_load>();
         } else {
           loader_w.load_unsafe();
         }
+#endif // DARKBLOOM_STAGE2_GATHER
         threadgroup_barrier(mem_flags::mem_threadgroup);
+#ifdef DARKBLOOM_STAGE2_GATHER
+        // Issue tile k+1's weight read here: past the RAW barrier that
+        // published tile k, so it cannot race the stage, and ahead of the MMA
+        // region that hides it. Guarded because k == K_it - 1 would read one
+        // tile past this expert's weight rows.
+        if constexpr (kStage2) {
+          if (k + 1 < K_it) {
+            loader_w.template prefetch<wide_store, wide_load>(stage_regs, 1);
+          }
+        }
+#endif // DARKBLOOM_STAGE2_GATHER
 
         if (sg_active) {
           // PRAGMA-VARIANT 01: SK-step staging+MMA loop, 2 iterations

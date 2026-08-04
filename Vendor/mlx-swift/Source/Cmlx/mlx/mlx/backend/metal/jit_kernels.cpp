@@ -1127,8 +1127,11 @@ bool darkbloom_bsearch_hoist();
 
 namespace {
 
-// DARKBLOOM_STAGE2_GATHER: double-buffered (stage-2) weight staging in the
-// expert-aligned prefill gather-QMM (fp_gather_qmm_rhs_expert_nax). Injected
+// DARKBLOOM_STAGE2_GATHER: two-stage (prefetch/commit) weight staging in the
+// expert-aligned prefill gather-QMM (fp_gather_qmm_rhs_expert_nax). The tile's
+// device read is issued one k-iteration early, into registers, so the MMA
+// covers its latency; the threadgroup store stays between the same two
+// barriers. No extra threadgroup memory, so no occupancy trade. Injected
 // as a source-level #define at JIT assembly time, exactly like the
 // DARKBLOOM_ATTN_* levers below: resolved once per process, never part of a
 // pipeline specialization key, so exactly one variant is ever compiled per
