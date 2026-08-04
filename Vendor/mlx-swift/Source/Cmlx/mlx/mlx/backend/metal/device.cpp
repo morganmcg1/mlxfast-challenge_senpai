@@ -917,6 +917,17 @@ MTL::ComputePipelineState* Device::get_kernel_(
   // Add kernel to cache
   kernel_map_.insert({hash_name, kernel});
   GpuDispatchProfiler::instance().register_pso(kernel.get(), hash_name);
+  if (GpuDispatchProfiler::instance().enabled()) {
+    // Occupancy proxy: maxTotalThreadsPerThreadgroup falls when a kernel's
+    // register footprint grows, so a staging change that spills is visible.
+    fprintf(
+        stderr,
+        "GPUPSO %s maxThreads=%zu execWidth=%zu tgMem=%zu\n",
+        hash_name.c_str(),
+        kernel->maxTotalThreadsPerThreadgroup(),
+        kernel->threadExecutionWidth(),
+        kernel->staticThreadgroupMemoryLength());
+  }
 
   return kernel.get();
 }
