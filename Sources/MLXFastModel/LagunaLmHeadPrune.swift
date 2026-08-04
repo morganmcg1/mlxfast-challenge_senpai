@@ -1942,11 +1942,19 @@ final class LagunaLmHeadPruner {
                 outputDTypes: [.float32]
             )[0]
             if lagunaLmHeadV5StatsEnabled {
-                // Debug-only: forces a per-step GPU sync; never on timing runs.
-                let count = (coarse5 + delta5.asType(.float32) .>= thr5)
-                    .asType(.int32).sum().item(Int32.self)
-                FileHandle.standardError.write(
-                    Data("lmhead-v5 candidates: \(count)\n".utf8))
+                // Debug-only: forces per-step GPU syncs; never on timing runs.
+                let candidates = (coarse5 + delta5.asType(.float32) .>= thr5)
+                    .asType(.int32)
+                let candidateCount = candidates.sum().item(Int32.self)
+                let occupiedBlocks = candidates
+                    .reshaped([vocab / 4, 4])
+                    .max(axis: 1)
+                    .sum().item(Int32.self)
+                let message =
+                    "lmhead-v5 candidates: \(candidateCount), "
+                    + "occupied blocks: \(occupiedBlocks), "
+                    + "exact rows: \(occupiedBlocks * 4)\n"
+                FileHandle.standardError.write(Data(message.utf8))
             }
             let assembled5 = lagunaLmHeadInlineExactDeltaBF16Kernel(
                 [coarse5, delta5, thr5, lmHeadWeight, x],
