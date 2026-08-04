@@ -249,6 +249,22 @@ ladder whose largest rung was their unsaturated shared-only K3.
 **This cannot be settled on M4.** The M4 host can only show that the
 mechanism exists in the kernel body and that this tree's schedule hides it.
 
+## Receipt accounting
+
+**Zero receipts spent.** The `0c21dc18` / `2dce5912` n=2 control is untouched
+and still available. There are therefore no `officialMetrics` and no
+per-receipt `ns` / `S` / `T`: the Part 1 gate never opened, and the rule is
+that receipts follow the gate. The queue slot was never taken, so tanjiro's
+`553ef9f0` was never contended.
+
+Calibration note on the assignment's Part 1 reference figures: it quoted
+shipped costs of 6.24 us/call (K1) and 21.63 us/call (K3); this note measures
+7.54 and 22.93 under `SPLIT=1`, which commits one command buffer per dispatch
+and so adds per-command-buffer GPU overhead to every call. The ~1.2 us offset
+is that overhead, not a discrepancy. `SPLIT=1` is valid for **attribution**
+only, which is why every conclusion here rests on a *difference* between arms
+measured at the same split and never on an absolute.
+
 ## Disposition
 
 The advisor gate - at least one kernel measurably down **and**
