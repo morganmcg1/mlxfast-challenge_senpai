@@ -1,19 +1,19 @@
 # SENPAI Research State
 
-- **Updated:** 2026-08-04 14:49 UTC
+- **Updated:** 2026-08-04 15:07 UTC
 - **Human research direction:** Continue improving the Laguna XS 2.1 serial inference benchmark from fixed campaign base `768bb9d4adfc2baac7d74c0008afc92d010329da`. Keep experiments causal and independently measurable, use fresh same-host matched measurements, and treat the official M5 as authoritative. Official AWS-Mac submissions are authorized only for clean preflighted candidates after running `mlxfast skill` and following its current attribution procedure.
 - **Current promoted frontier:** `d703dc540016d0c66140865f1c3854d766ae1801`, incorporating [PR #18](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/18)'s full-attention KV initial-slack winner and [PR #25](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/25)'s behavior-neutral source cleanup. PR #18's matched local score ratios were `1.003729` and `1.002296`, mean `1.00300862` (`+0.300862%`). PR #25 reduced the submitted surface from `2,999,953` to `2,998,624` bytes, leaving `1,376` bytes below the cap without changing executable code.
 - **Current research focus and themes:**
   - cedar-frieren — [PR #15](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/15), revision `r2`: compose routed/shared gate-up decode QMV fusion onto the promoted frontier, obtain valid matched timing, and repeat/preflight only if green.
   - cedar-tanjiro — [PR #17](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/17), revision `r2`: compose candidate-only LM-head GEMV onto the promoted frontier, obtain valid matched timing, and repeat/preflight only if green.
-  - cedar-fern — [PR #26](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/26): test whether gated output projection K-block unroll depth `4` beats default `2`; use depth `1` only as an optional causal control.
   - cedar-nezuko — [PR #28](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/28): generalize the existing H1 sliding Q/K RMSNorm+RoPE kernel in place for the terminal mixed-length shape, replacing four stock final-layer operations with one guarded dispatch while fitting the remaining `1,376`-byte source margin.
   - Merged maintenance — [PR #25](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/25): removed 37 comment-only lines, passed build, tests, and local-submit correctness, and restored source-budget headroom for subsequent experiments.
+  - Closed dead hypothesis — [PR #26](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/26): `DARKBLOOM_L5_UNROLL` controls only a BF16 fallback, not the ranked all-layer native-affine `o_proj` path, so default/depth-4/default executed identical ranked work. Runs `9d79927c-4ff6-4ca8-bf34-77e19b7dd6ed`, `0372d2c1-37e7-442e-a45a-0eeea8bdabe9`, and `2239b9b8-d2fe-4dad-83bf-15556a6e3f37` used `./benchmark.sh --local-iterate`, `DARKBLOOM_L5_UNROLL=4 ./benchmark.sh --local-iterate`, then `./benchmark.sh --local-iterate`; the apparent first-pair `+0.687861%` was non-causal noise and the default/default aggregate ratio was `0.999876064`. All runs passed 130 checked steps with `max_abs_diff 0` and 21 GB peak RAM; no candidate was retained.
   - Closed negative — [PR #16](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/16): four-head sliding-attention K/V sharing was exact but unstable/slower across repeats (`+0.55%` then `-0.44%` decode), so do not retry the same H4 layout.
 - **Potential next research directions and themes:**
   - If routed/shared QMV fusion wins, isolate same-SIMD-group down-projection output combination rather than bundling it into the current revision.
-  - If gated-output unroll shows a monotone load-depth effect, test depth `8` only after depth `4` is reproducibly green.
   - Revisit direct-index packed rank-one dispatch and launch/indirection reduction only after PR #15 resolves; the current implementation overlaps that active routed-QMV path.
+  - Consider output-projection tuning only on the production native-affine path; do not spend more runs on BF16 fallback unroll knobs.
   - Preserve prefill floors while exploring X-major NAX layout as a separate hypothesis after the active compact experiments resolve.
   - Spend the restored `1,376`-byte source margin deliberately; prefer compact dispatch and layout changes over broad new abstractions.
 
