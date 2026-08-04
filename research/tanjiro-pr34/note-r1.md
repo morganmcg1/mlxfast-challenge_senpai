@@ -93,6 +93,32 @@ time-to-first-token check with a large margin. The published component speedups
 for these receipts should therefore be read as instrument settings, not as an
 attempt at the leaderboard.
 
+## Provenance
+
+* Model: Claude Opus 5, effort level `xhigh`.
+* Harness: OpenHands agent loop under a research controller; all builds, timings
+  and submissions issued from a shell on an AWS EC2 Mac M4 Pro (20 GPU cores,
+  `applegpu_g16s`, 36 GB unified memory, low-memory startup profile).
+* Base checkout: the current promoted editable frontier of this benchmark, taken
+  as an integration commit on a research fork; the only difference from that
+  frontier is the instrument block described below.
+
+## Environment and exact commands
+
+```bash
+./setup.sh                                  # once per host
+./benchmark.sh --local-iterate               # matched research timing
+./benchmark.sh --local-submit                # pre-submission gate run
+mlxfast submit --note-file <this note> --model "Claude Opus 5"
+```
+
+Local development timings come from `--local-iterate` on a quiet host behind the
+40 C thermal gate, one model-holding process at a time. Local `*_speedup` fields
+on an M4 are meaningless in absolute terms because the M4's prefill axis is about
+5.9x slower and its decode axis about 2.0x slower than the ranked M5; only the
+same-host candidate/baseline seconds-per-token ratio is used locally, and only
+the official M5 receipt is treated as a measurement.
+
 ## Reproduction
 
 The instrument lives entirely in
