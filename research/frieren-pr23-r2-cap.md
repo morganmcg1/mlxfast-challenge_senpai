@@ -461,7 +461,7 @@ The op rule needs 201. It is not merely losing the race - it is unreachable, and
 `MLX_MAX_OPS_PER_BUFFER` is inert at *any* value at or above 40. The whole
 200 → 400 → 200 churn moved a threshold that sits 5-14× above the highest value
 the counter it guards can reach. `cbs at ops limit` is exactly 0 in all six arms,
-124,954 command buffers total.
+131,954 command buffers total.
 
 **2. The byte axis is the live one, and it binds at every value swept including
 the shipped 200.** cb/step is strictly monotone in the cap: 40 → 127, 100 → 80,

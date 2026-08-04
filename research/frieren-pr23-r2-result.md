@@ -25,8 +25,11 @@ byte limit trips first."*
 | reconcile the 40 MB figure from source | the conclusion is right; **40 MB is an arch default in `device.cpp`, not the effective threshold**, which is 200 |
 
 And one consequence the brief did not anticipate: because the ops axis provably
-changes nothing, nezuko's M5 receipt `1feeabc8` is an **A/A on that axis**, so its
-`ns +0.179% ± 0.172%` is a measurement of receipt noise, not of the cap.
+changes nothing, **every M5 receipt that differs only in that knob is an A/A**.
+Five such trees are already paid for - the frontier control, the three public
+160/240/400 sweep receipts, and tree X `1feeabc8` - so the programme has a
+free ranked-host noise measurement it did not know it had, and the `S +0.130%`
+that was the only mechanism story for PR #12's `S` regression cannot be one (§5).
 
 ## 2. The instrument: count ops per committed buffer, do not time anything
 
@@ -47,7 +50,7 @@ Counting the ops in every committed buffer says which rule fired, with no timing
 and no noise. `research/frieren_cb_binding_sweep.sh` +
 `research/frieren_cb_binding.py`: 6 arms, one process each, 60 warm-up + 300
 measured steps at `DARKBLOOM_STARTUP_MEMORY_PROFILE=full`, 350 steady traced
-steps per arm, 124,954 command buffers total.
+steps per arm, 131,954 command buffers total.
 
 ## 3. The binding table
 
