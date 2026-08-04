@@ -38,8 +38,34 @@ integers, never Metal function constants. Every injected result is discarded.
 | --- | --- | --- | --- | ---: | ---: |
 | R1 | 0,0,0,0 | anchor | `b6032aeb` | **97.8643** | **4.27468** |
 | R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | `ca416f01` | **141.1262** | **5.50538** |
-| R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | TBD | TBD | TBD |
-| R4 | 0,39,20,0 | second level of rate 1 (slope, not point) + **loaded** rate 2 (R3−R4) + unloaded rate 4 (R4−R1) | TBD | TBD | TBD |
+| R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | `6757de65` | TBD | TBD |
+| R4 | 0,39,20,0 | second level of rate 1 (slope, not point) + **loaded** rate 2 (R3−R4) + unloaded rate 4 (R4−R1) | `afec358a` | TBD | TBD |
+
+### A queue finding: the channel is not serialised, and heavy injections cost validation time
+
+I ran R1 and R2 strictly one at a time on the assumption in the brief ("one in
+flight, ~35 minutes a round trip, ~1.7 receipts/hour for the whole team"). The feed
+falsifies the serialisation part of that model. At 22:08 the public feed held **five
+simultaneous `validating` submissions** from five different accounts, and
+`metaspartan`'s 21:30:50 submission had already reached a terminal state while my
+own 21:20:30 receipt was still validating. Round-trip latency is therefore not a
+shared-channel queue wait, and receipts from different accounts do not block each
+other.
+
+Same-account concurrency is also accepted: R4 was submitted at 22:11 with R3 still
+validating and was queued normally. `mlxfast submit` packages the editable surface
+from the working tree *at submit time*, so R3's artifact was already uploaded and
+frozen and staging R4's configuration afterwards could not disturb it.
+
+The latency that *is* real is self-inflicted. R2 took 34.5 min; R3, which carries the
+heaviest decode injection of the series (+2.2 ms on a 4.27 ms step, a 52% slower
+decode), took over 50. The hidden correctness suites — 512-token teacher-forced
+cases, anchors, free runs, GPQA — all execute at the injected cost, and they dominate
+the wall clock far more than the timed window does. **An injection receipt's
+turnaround scales with its injection size**, so a probe arm should size injections for
+the smallest delta that clears the noise floor, not the largest the floors permit.
+Practical consequence for the team: the channel supports more receipts per hour than
+the brief assumes, and the way to go faster is smaller injections, not a tighter queue.
 
 R1 in full: `passed_correctness = true`, `max_abs_diff = 0`, both floors passed,
 `gpqa_ttft = 0.41 s` of a 2.3 s budget, `semantic_gpqa_passed = true`,
