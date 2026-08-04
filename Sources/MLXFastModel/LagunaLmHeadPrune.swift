@@ -130,7 +130,7 @@ private let lagunaLmHeadPruneHeader = """
 /// exact; sd*q multiplies a power of two by a <=4-bit-magnitude integer
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
-private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
+private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = lagunaMetalKernel(
     name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5",
     inputNames: ["x", "codes_lo", "codes_hi", "scales"],
     outputNames: ["coarse", "delta"],
@@ -225,7 +225,7 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
 /// (-inf, 0xFFFFFFFF) and lose to any read element -- even an all-(-inf)
 /// partition resolves to a real index via the tie-break, so a valid row
 /// index always survives; the threshold kernel additionally clamps.
-private let lagunaLmHeadCoarseArgmaxStage1Kernel = MLXFast.metalKernel(
+private let lagunaLmHeadCoarseArgmaxStage1Kernel = lagunaMetalKernel(
     name: "laguna_lmhead_coarse_argmax_stage1_v5",
     inputNames: ["coarse"],
     outputNames: ["partial_max", "partial_idx"],
@@ -311,7 +311,7 @@ private let lagunaLmHeadCoarseArgmaxStage1Kernel = MLXFast.metalKernel(
 /// `b`, which is the highest value the same proof supports: candidacy is `>=`,
 /// so a skipped coarse value is strictly below the tie boundary and rounds to
 /// `p` or lower, while the winner's own bound is at least `e_r > midpoint`.
-private let lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel = MLXFast.metalKernel(
+private let lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel = lagunaMetalKernel(
     name: "laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1",
     inputNames: ["partial_max", "partial_idx", "lm_head", "x"],
     outputNames: ["threshold"],
@@ -415,7 +415,7 @@ private let lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel = MLXFast.meta
 /// their certified-below `bfloat(coarse[r])`, which cannot move the argmax.
 /// `coarse` is untouched FP32, so skipped slots keep the exact bits an FP32
 /// delta arm would store.
-private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
+private let lagunaLmHeadInlineExactDeltaBF16Kernel = lagunaMetalKernel(
     name: "laguna_lmhead_exact_inline_mask_block_delta_bf16_lane0_mask_v1",
     inputNames: ["coarse", "delta", "thr", "lm_head", "x"],
     outputNames: ["assembled"],

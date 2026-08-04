@@ -231,6 +231,157 @@ private final class LagunaDecodeHostCPULog: @unchecked Sendable {
 
 private let lagunaDecodeHostCPULog = LagunaDecodeHostCPULog()
 
+// MARK: - Kernel source minification
+
+/// MLX charges every custom-kernel apply for the FULL generated source, twice:
+/// `write_signature` reserves `header + source + 16 KiB` and copies both
+/// (`backend/common/metal_kernel.cpp:63`), then `CustomKernel::eval_gpu`
+/// compares the whole string against its library-cache entry
+/// (`backend/metal/custom_kernel.cpp:60`). Neither is editable and neither
+/// caches on the source, so per-step host CPU is linear in source bytes across
+/// the ~350 applies a decode step issues.
+///
+/// Comments and indentation carry no Metal semantics, so strip them once at
+/// construction and keep the documented form in this file.
+let lagunaKernelSourceMinifyEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_KERNEL_SOURCE_MINIFY"] != "0"
+
+/// Removes `//` and `/* */` comments, leading indentation, and blank lines.
+///
+/// The token stream is preserved exactly: lines are never joined, string and
+/// character literals are never rewritten, and a comment removed from the
+/// middle of a line leaves a separating space so adjacent tokens cannot merge.
+/// The preprocessor therefore sees the same directives and `\` continuations.
+func lagunaMinifiedKernelSource(_ source: String) -> String {
+    guard lagunaKernelSourceMinifyEnabled, !source.isEmpty else { return source }
+    let input = Array(source.utf8)
+    var output = [UInt8]()
+    output.reserveCapacity(input.count)
+    var lineStart = 0
+    var inBlockComment = false
+    var quote: UInt8 = 0
+    var index = 0
+
+    func endLine() {
+        while output.count > lineStart, output[output.count - 1] == 0x20 {
+            output.removeLast()
+        }
+        guard output.count > lineStart else { return }
+        output.append(0x0A)
+        lineStart = output.count
+    }
+
+    while index < input.count {
+        let byte = input[index]
+        if inBlockComment {
+            if byte == 0x0A {
+                endLine()
+            } else if byte == 0x2A, index + 1 < input.count, input[index + 1] == 0x2F {
+                inBlockComment = false
+                if output.count > lineStart { output.append(0x20) }
+                index += 2
+                continue
+            }
+            index += 1
+            continue
+        }
+        if byte == 0x0A {
+            quote = 0
+            endLine()
+            index += 1
+            continue
+        }
+        if quote != 0 {
+            output.append(byte)
+            if byte == 0x5C, index + 1 < input.count {
+                output.append(input[index + 1])
+                index += 2
+                continue
+            }
+            if byte == quote { quote = 0 }
+            index += 1
+            continue
+        }
+        if byte == 0x22 || byte == 0x27 {
+            quote = byte
+            output.append(byte)
+            index += 1
+            continue
+        }
+        if byte == 0x2F, index + 1 < input.count {
+            if input[index + 1] == 0x2F {
+                while index < input.count, input[index] != 0x0A { index += 1 }
+                continue
+            }
+            if input[index + 1] == 0x2A {
+                inBlockComment = true
+                index += 2
+                continue
+            }
+        }
+        if output.count == lineStart, byte == 0x20 || byte == 0x09 {
+            index += 1
+            continue
+        }
+        output.append(byte)
+        index += 1
+    }
+    endLine()
+    lagunaKernelSourceBytes.record(input.count, output.count)
+    return String(decoding: output, as: UTF8.self)
+}
+
+/// Startup-only accounting so the arm can never measure its own control: with
+/// `DARKBLOOM_DECODE_HOST_CPU=1` the minifier reports the bytes it actually
+/// removed from the sources the runtime went on to compile.
+final class LagunaKernelSourceBytes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var before = 0
+    private var after = 0
+    private var kernels = 0
+
+    func record(_ inputBytes: Int, _ outputBytes: Int) {
+        lock.lock()
+        before += inputBytes
+        after += outputBytes
+        kernels += 1
+        let snapshot = (kernels, before, after)
+        lock.unlock()
+        guard lagunaDecodeHostCPUEnabled else { return }
+        FileHandle.standardError.write(
+            Data(
+                """
+                mlxfast: kernel source minified: sources=\(snapshot.0) \
+                bytes=\(snapshot.1)->\(snapshot.2)
+                """.appending("\n").utf8))
+    }
+}
+
+let lagunaKernelSourceBytes = LagunaKernelSourceBytes()
+
+/// `MLXFast.metalKernel` with the source and header minified. Every runtime
+/// kernel is built through this so no construction site can silently keep the
+/// unstripped form.
+func lagunaMetalKernel(
+    name: String,
+    inputNames: some Sequence<String>,
+    outputNames: some Sequence<String>,
+    source: String,
+    header: String = "",
+    ensureRowContiguous: Bool = true,
+    atomicOutputs: Bool = false
+) -> MLXFast.MLXFastKernel {
+    MLXFast.metalKernel(
+        name: name,
+        inputNames: inputNames,
+        outputNames: outputNames,
+        source: lagunaMinifiedKernelSource(source),
+        header: lagunaMinifiedKernelSource(header),
+        ensureRowContiguous: ensureRowContiguous,
+        atomicOutputs: atomicOutputs
+    )
+}
+
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -1129,7 +1280,7 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
         uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
             (
                 rowsPerGroup,
-                MLXFast.metalKernel(
+                lagunaMetalKernel(
                     name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_"
                         + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2"),
                     inputNames: lagunaRouterPrecomputedKeysEnabled
@@ -1148,7 +1299,7 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
 
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
 /// (layer 0) and for any shape the router fusion above declines.
-private let lagunaResidualRMSNormKernel = MLXFast.metalKernel(
+private let lagunaResidualRMSNormKernel = lagunaMetalKernel(
     name: "laguna_residual_rms_bf16_2048_v1",
     inputNames: ["residual", "branch", "weight"],
     outputNames: ["summed", "normalized"],
@@ -1254,7 +1405,7 @@ func lagunaResidualRMSNorm(
 
 // MARK: - Attention
 
-private let lagunaFullQKNormYaRNKernel = MLXFast.metalKernel(
+private let lagunaFullQKNormYaRNKernel = lagunaMetalKernel(
     name: "laguna_full_qk_norm_yarn_bf16_128_v4",
     inputNames: ["raw_queries", "raw_keys", "query_weight", "key_weight", "angles"],
     outputNames: ["queries", "keys"],
@@ -1384,7 +1535,7 @@ func lagunaFullQKNormYaRN(
 ///    pair `p` couples elements `p` and `p + 64`, and `cos`/`sin` come from a
 ///    table produced by that very kernel (see `_slidingRoPEAngleSeed`), so
 ///    they are the same floats, not a re-derivation.
-private let lagunaSlidingQKNormRoPEKernel = MLXFast.metalKernel(
+private let lagunaSlidingQKNormRoPEKernel = lagunaMetalKernel(
     name: "laguna_sliding_qk_norm_rope_bf16_128_v1",
     inputNames: ["raw_queries", "raw_keys", "query_weight", "key_weight", "angles"],
     outputNames: ["queries", "keys"],
@@ -1513,7 +1664,7 @@ func lagunaSlidingQKNormRoPE(
 let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
-private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
+private let lagunaSlidingFusedAttentionKernel = lagunaMetalKernel(
     name: "laguna_sliding_fused_attn_ring_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
@@ -1983,7 +2134,7 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
-private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
+private let lagunaFullFusedAttentionKernel = lagunaMetalKernel(
     name: "laguna_full_fused_attn_grow_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
@@ -2507,7 +2658,7 @@ func lagunaWarmFullFusedAttentionKernel() {
 ///    absolute position — values the stock RoPE kernel computed, not a
 ///    re-derivation. The decode twin (`laguna_sliding_qk_norm_rope_bf16_128_v1`)
 ///    consumes the same table with the same expression.
-private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
+private let lagunaPrefillSlidingQKNormRoPEKernel = lagunaMetalKernel(
     name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2602,7 +2753,7 @@ private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
 /// many heads share a threadgroup. This matches the proven DECODE shape
 /// (`lagunaSlidingQKNormRoPEKernel`, one SIMD/head, the project's largest
 /// single win); the prefill `*4` was an unaudited divergence from it.
-private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
+private let lagunaPrefillSlidingQKNormRoPEH1Kernel = lagunaMetalKernel(
     name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2694,7 +2845,7 @@ private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
 /// `fl(fl(1/mscale) * mscale) == 1.0f`, so the atlas carries pure cos/sin);
 /// and the tail elements 64…127 written verbatim, matching the values the
 /// stock pre-RoPE copy leaves behind.
-private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
+private let lagunaPrefillFullQKNormYaRNKernel = lagunaMetalKernel(
     name: "laguna_prefill_full_qk_norm_yarn_bf16_128_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2788,7 +2939,7 @@ private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
 /// partner shuffle, the mscale round-trip) is SIMD-local, so grouping one head
 /// per threadgroup instead of four changes only launch count/occupancy, not any
 /// head's output value. Matches the proven decode shape.
-private let lagunaPrefillFullQKNormYaRNH1Kernel = MLXFast.metalKernel(
+private let lagunaPrefillFullQKNormYaRNH1Kernel = lagunaMetalKernel(
     name: "laguna_prefill_full_qk_norm_yarn_bf16_128_h1_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -3549,7 +3700,7 @@ private func lagunaFusedQKVProjectionSource(
 private let lagunaFusedQKVProjectionKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
+        kernels[heads] = lagunaMetalKernel(
             name: "laguna_fused_norm_qkv_projection_bf16_h\(heads)_v3",
             inputNames: [
                 "residual", "norm_weight", "query_weight", "key_weight",
@@ -3858,7 +4009,7 @@ private let lagunaGatedOutputProjectionKernels:
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         var byDepth: [Int: MLXFast.MLXFastKernel] = [:]
         for depth in [1, 2, 4, 8] {
-            byDepth[depth] = MLXFast.metalKernel(
+            byDepth[depth] = lagunaMetalKernel(
                 name: "laguna_gated_output_projection_bf16_h\(heads)_u\(depth)_v3",
                 inputNames: ["attention_output", "gate_values", "weight"],
                 outputNames: ["projected"],
@@ -3938,7 +4089,7 @@ private func lagunaGateProductSoftplusSource(heads: Int) -> String {
 private let lagunaGateProductSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
+        kernels[heads] = lagunaMetalKernel(
             name: "laguna_gate_product_softplus_bf16_h\(heads)_v1",
             inputNames: ["attention_output", "gate_logits"],
             outputNames: ["gated"],
@@ -4100,7 +4251,7 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
 private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
+        kernels[heads] = lagunaMetalKernel(
             name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_v1",
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
@@ -4117,7 +4268,7 @@ private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
 private let lagunaGatedAffineOProjIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
+        kernels[heads] = lagunaMetalKernel(
             name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_idx_v1",
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
@@ -4410,7 +4561,7 @@ func lagunaGatedAffineOProjNVFP4Source(
 private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
+        kernels[heads] = lagunaMetalKernel(
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
@@ -4477,7 +4628,7 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
 private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = MLXFast.metalKernel(
+        result[heads] = lagunaMetalKernel(
             name: "laguna_gate_sp_h\(heads)_v1",
             inputNames: ["input", "packed_codes", "scales", "biases"],
             outputNames: ["gate_values"],
@@ -4512,7 +4663,7 @@ private func lagunaGateSoftplus(
 private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = MLXFast.metalKernel(
+        result[heads] = lagunaMetalKernel(
             name: "laguna_oproj_act_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
@@ -4768,7 +4919,7 @@ private let lagunaDecodeNVFP4QKVR1Source = """
 private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
+        kernels[heads] = lagunaMetalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
@@ -5181,7 +5332,7 @@ private let lagunaNormAffineQKVKernels: [Int: MLXFast.MLXFastKernel] = {
             if kernels[rows] != nil { continue }
             let staged = lagunaNormAffineQKVStaged
             let pf = staged ? 0 : lagunaNormAffineQKVPrefetchDepth
-            kernels[rows] = MLXFast.metalKernel(
+            kernels[rows] = lagunaMetalKernel(
                 name: pf > 0
                     ? "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_pf\(pf)_v1"
                     : "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
@@ -5211,7 +5362,7 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
         for gateRows in [0, heads] {
             let rows = heads * LagunaConstants.headDim + kvRows + gateRows
             if kernels[rows] != nil { continue }
-            kernels[rows] = MLXFast.metalKernel(
+            kernels[rows] = lagunaMetalKernel(
                 name: "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
                     + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_v1",
                 inputNames: [
@@ -6637,7 +6788,7 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     """
 }()
 
-private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
+private let lagunaSharedSwiGLUQMVKernel = lagunaMetalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
@@ -6719,7 +6870,7 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
 
 /// One-output-row scheduling twin of `lagunaSharedSwiGLUQMVKernel`.
 /// Arithmetic is textually identical per row; only row ownership changes.
-private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
+private let lagunaSharedSwiGLUQMVRows1Kernel = lagunaMetalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
@@ -6820,7 +6971,7 @@ func lagunaSharedSwiGLUQMV(
     )[0]
 }
 
-private let lagunaSharedDownResidualKernel = MLXFast.metalKernel(
+private let lagunaSharedDownResidualKernel = lagunaMetalKernel(
     name: "laguna_shared_nvfp4_down_residual_bf16_v1",
     inputNames: [
         "activated", "down_weight", "down_scales", "routed", "residual",
@@ -6916,7 +7067,7 @@ func lagunaSharedDownResidual(
     )[0]
 }
 
-private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
+private let lagunaRoutedSwiGLUQMVKernel = lagunaMetalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_bf16_v2",
     inputNames: ["input", "fused_weight", "fused_scales", "indices"],
     outputNames: ["activated"],
@@ -7021,7 +7172,7 @@ private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
 /// R1 scheduling twin of `lagunaRoutedSwiGLUQMVKernel`: each simdgroup owns
 /// one output row rather than two. Two simdgroups per 64-thread group and 256
 /// tiles cover all 512 expert rows exactly once.
-private let lagunaRoutedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
+private let lagunaRoutedSwiGLUQMVRows1Kernel = lagunaMetalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_rows1_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales", "indices"],
     outputNames: ["activated"],
@@ -7163,7 +7314,7 @@ func lagunaRoutedSwiGLUQMV(
 /// the identical one-byte scale and uint2 code loads and runs the textually
 /// identical dequant/accumulate/SwiGLU chain — only scale address computation
 /// differs.
-private let lagunaRoutedSwiGLUQMVPackedKernel = MLXFast.metalKernel(
+private let lagunaRoutedSwiGLUQMVPackedKernel = lagunaMetalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_bf16_v1",
     inputNames: ["input", "fused_weight", "packed_scales", "indices"],
     outputNames: ["activated"],
@@ -7434,7 +7585,7 @@ private let lagunaRouterTop8PrecomputedPrelude = """
         }
     """
 
-private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
+private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = lagunaMetalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v1",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
@@ -7457,7 +7608,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = lagunaMetalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v1",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
@@ -7585,7 +7736,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     )[0]
 }
 
-private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
+private let lagunaRoutedDownReduceKernel = lagunaMetalKernel(
     name: "laguna_routed_nvfp4_down_reduce_bf16_v1",
     inputNames: [
         "activated", "down_weight", "down_scales", "indices", "router_weights",
@@ -7730,7 +7881,7 @@ func lagunaRoutedDownReduce(
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
-private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
+private let lagunaRoutedSharedDownResidualKernel = lagunaMetalKernel(
     name: lagunaSharedFirstDownOrderEnabled
         ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
         : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5",
@@ -7915,7 +8066,7 @@ func lagunaRoutedSharedDownResidual(
 // 8192) minus its gate multiply, with `lagunaSharedDownResidualKernel`'s
 // round-then-add-then-round epilogue reproducing stock `h + r2`
 // bit-for-bit.
-private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
+private let lagunaDenseGateUpSwiGLUKernel = lagunaMetalKernel(
     name: "laguna_dense_gate_up_swiglu_bf16_v1",
     inputNames: ["input", "fused_weight"],
     outputNames: ["activated"],
@@ -8012,7 +8163,7 @@ func lagunaDenseGateUpSwiGLU(
     )[0]
 }
 
-private let lagunaDenseDownResidualKernel = MLXFast.metalKernel(
+private let lagunaDenseDownResidualKernel = lagunaMetalKernel(
     name: "laguna_dense_down_residual_bf16_v1",
     inputNames: ["activated", "down_weight", "residual"],
     outputNames: ["output"],
@@ -8529,7 +8680,7 @@ private let lagunaDecodeRouterTop8Header = """
     }
     """
 
-private let lagunaDecodeRouterTop8Kernel = MLXFast.metalKernel(
+private let lagunaDecodeRouterTop8Kernel = lagunaMetalKernel(
     name: "laguna_decode_router_top8_v3",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8538,7 +8689,7 @@ private let lagunaDecodeRouterTop8Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
+private let lagunaDecodeRouterTop8NormalizingKernel = lagunaMetalKernel(
     name: "laguna_decode_router_top8_norm_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8685,7 +8836,7 @@ private let lagunaDecodeRouterOrdinalHeader = """
     }
     """
 
-private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
+private let lagunaDecodeRouterOrdinalKernel = lagunaMetalKernel(
     name: "laguna_decode_router_top8_ordinal_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8694,7 +8845,7 @@ private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
+private let lagunaDecodeRouterOrdinalNormalizingKernel = lagunaMetalKernel(
     name: "laguna_decode_router_top8_ordinal_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8703,7 +8854,7 @@ private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
+private let lagunaDecodeRouterOrdinalScoreTableKernel = lagunaMetalKernel(
     name: "laguna_decode_router_top8_ordinal_table_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8712,7 +8863,7 @@ private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metalKernel(
+private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = lagunaMetalKernel(
     name: "laguna_decode_router_top8_ordinal_table_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8936,7 +9087,7 @@ private func lagunaPrefillRouterTop8KernelSource(normalizing: Bool) -> String {
         """
 }
 
-private let lagunaPrefillRouterTop8Kernel = MLXFast.metalKernel(
+private let lagunaPrefillRouterTop8Kernel = lagunaMetalKernel(
     name: "laguna_prefill_router_top8_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8945,7 +9096,7 @@ private let lagunaPrefillRouterTop8Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaPrefillRouterTop8NormalizingKernel = MLXFast.metalKernel(
+private let lagunaPrefillRouterTop8NormalizingKernel = lagunaMetalKernel(
     name: "laguna_prefill_router_top8_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9303,7 +9454,7 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
         """
 }
 
-private let lagunaPrefillRouterTournamentKernel = MLXFast.metalKernel(
+private let lagunaPrefillRouterTournamentKernel = lagunaMetalKernel(
     name: "laguna_prefill_router_tournament_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9312,7 +9463,7 @@ private let lagunaPrefillRouterTournamentKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaPrefillRouterTournamentNormalizingKernel = MLXFast.metalKernel(
+private let lagunaPrefillRouterTournamentNormalizingKernel = lagunaMetalKernel(
     name: "laguna_prefill_router_tournament_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9321,7 +9472,7 @@ private let lagunaPrefillRouterTournamentNormalizingKernel = MLXFast.metalKernel
     ensureRowContiguous: true
 )
 
-private let lagunaPrefillRouterTournamentOrdinalKernel = MLXFast.metalKernel(
+private let lagunaPrefillRouterTournamentOrdinalKernel = lagunaMetalKernel(
     name: "laguna_prefill_router_tournament_ordinal_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9330,7 +9481,7 @@ private let lagunaPrefillRouterTournamentOrdinalKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = MLXFast.metalKernel(
+private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = lagunaMetalKernel(
     name: "laguna_prefill_router_tournament_ordinal_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9542,7 +9693,7 @@ final class LagunaRuntimeMoEGate: Module {
 ///    result dtype (2.5 is exactly representable), one rounding.
 ///  * `r2 = scaled + shared` and `residual + r2` keep the stock operand
 ///    order and one BF16 rounding each.
-private let lagunaPrefillMoETailKernel = MLXFast.metalKernel(
+private let lagunaPrefillMoETailKernel = lagunaMetalKernel(
     name: "laguna_prefill_moe_tail_bf16_v1",
     inputNames: ["expert_outputs", "router_weights", "shared_output", "residual"],
     outputNames: ["output"],
@@ -9585,7 +9736,7 @@ private let lagunaPrefillMoETailKernel = MLXFast.metalKernel(
 /// Reading that row directly preserves the stock slot-0-through-slot-7 BF16
 /// multiply/add sequence while deleting the intervening 16 MiB copy at the
 /// ranked 512-token window.
-private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
+private let lagunaPrefillSortedMoETailKernel = lagunaMetalKernel(
     name: "laguna_prefill_sorted_moe_tail_bf16_v1",
     inputNames: [
         "sorted_expert_outputs", "inverse_order", "router_weights",
@@ -10503,7 +10654,7 @@ final class LagunaRuntimeDecoderLayer: Module {
 /// embedding row is copied as BF16 bits; the angle rows are copied as FP32
 /// bits. The stock embedding and the two stock probe RoPE calls produce the
 /// same three output buffers separately.
-private let lagunaDecodeEmbeddingRoPEAtlasKernel = MLXFast.metalKernel(
+private let lagunaDecodeEmbeddingRoPEAtlasKernel = lagunaMetalKernel(
     name: "laguna_decode_embedding_rope_atlas_bf16_2048_v2",
     inputNames: [
         "tokens", "embedding_weight", "full_atlas", "sliding_atlas",
