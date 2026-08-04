@@ -37,7 +37,7 @@ integers, never Metal function constants. Every injected result is discarded.
 | receipt | config `da,dr,pr,pa` | purpose | id | S (ms) | T (ms) |
 | --- | --- | --- | --- | ---: | ---: |
 | R1 | 0,0,0,0 | anchor | `b6032aeb` | **97.8643** | **4.27468** |
-| R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | `ca416f01` | TBD | TBD |
+| R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | `ca416f01` | **141.1262** | **5.50538** |
 | R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | TBD | TBD | TBD |
 | R4 | 0,39,20,0 | second level of rate 1 (slope, not point) + **loaded** rate 2 (R3−R4) + unloaded rate 4 (R4−R1) | TBD | TBD | TBD |
 
@@ -562,9 +562,9 @@ each rate; the other is the honest companion that bounds it.
 
 | # | block | reading | pairing | added work | Δ (raw) | rate (raw) | Δ (normalised) | rate (normalised) |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
-| 1 | routed-expert gather-GEMM, prefill | single level, 39 copies | R2−R1 | 17,666.41 MB / 1005.02 GFLOP | TBD | TBD | TBD | TBD |
+| 1 | routed-expert gather-GEMM, prefill | single level, 39 copies | R2−R1 | 17,666.41 MB / 1005.02 GFLOP | 43.2619 ± 0.402 ms | **408.4 GB/s / 23.23 TFLOP/s** | 43.558 ms | 405.6 GB/s / 23.07 TFLOP/s |
 | 1 | " | **slope, 20→39 copies** | R2−R4 | 8606.71 MB / 489.62 GFLOP | TBD | TBD | TBD | TBD |
-| 2 | attention q/k/v/o QMV, decode | unloaded step | R2−R1 | 802.16 MB | TBD | TBD | TBD | TBD |
+| 2 | attention q/k/v/o QMV, decode | unloaded step | R2−R1 | 802.16 MB | 1.23070 ± 0.046 ms | **651.8 GB/s** | 1.2634 ms | 634.9 GB/s |
 | 2 | " | **loaded step** | R3−R4 | 802.16 MB | TBD | TBD | TBD | TBD |
 | 3 | attention q/k/v/o dense GEMM, prefill | **single level, 40 copies** | R3−R1 | 2852.13 MB / 1460.29 GFLOP | TBD | TBD | TBD | TBD |
 | 4 | routed-expert QMV, decode | **loaded step** | R3−R2 | 552.08 MB | TBD | TBD | TBD | TBD |
@@ -574,7 +574,50 @@ Session normalisation multiplies each receipt's axis by the ratio of its own pin
 baseline to the series' mean pinned baseline before differencing. It is reported
 because the assignment asks for it, not because it is the better estimator: on this
 harness it inflates prefill uncertainty 9x and leaves decode unchanged, for the
-reasons derived above.
+reasons derived above. Every normalised reading in the table above agrees with its
+raw twin to within 2.6%, so no conclusion in this report depends on the choice.
+
+### Rate 1 — the routed gather-GEMM misses its own byte ceiling by a third
+
+23.23 TFLOP/s (408.4 GB/s) is **67% of the 34.7 TFLOP/s byte ceiling** that 610 GB/s
+and this kernel's 56.9 FLOP/B imply. In the timed window the 39 injected copies cost
+**43.26 ms** where their DRAM roofline is **28.96 ms**, so the block leaves
+**14.30 ms** of prefill on the table — **42.1%** of the honest ~34 ms residual and
+**30.2%** of the brief's 47.4 ms figure. This is the single largest attributable
+piece of the prefill gap found anywhere in this programme so far.
+
+I pre-registered **29–33 TFLOP/s** from M4's 92%-of-ceiling efficiency. That
+prediction **failed**, and failed in the informative direction: the efficiency did
+not transfer across generations, which is exactly the M4→M5 non-transfer the target
+contract warns about. Under the advisor's arm mapping (≈25–30 ⇒ kernel arm, ≈50 ⇒
+scheduling arm) 23.2 lands **below the bottom of the kernel window**, so the routed
+gather-GEMM goes to @maple-fern emphatically rather than marginally.
+
+The M4 copy sweep (L0/L10/L1/L3, four levels) fits a straight line through the
+origin — slope 4.1378 ms/copy, intercept 576.09 ms against a measured 576.571 ms
+anchor — so a single-level reading is a rate and not a rate plus a fixed cost. The
+R2−R4 slope row below is the M5 confirmation of that; until it lands, carry ±10% on
+this number from the M4 segment scatter, which still keeps it under 26 TFLOP/s.
+
+### Rate 2 — the decode residual is not in the attention QMV
+
+651.8 GB/s is **107% of the 610 GB/s in-situ constant**: the 40 injected q/k/v/o
+copies cost **1.231 ms** where their roofline is **1.315 ms**, i.e. **−0.084 ms**, so
+attention's quantized matvec accounts for **≈0%** (nominally −6.3%) **of the 1.3337 ms
+decode residual**. Reading above the constant is not a violation — it means these
+particular reads exploit slack in an unperturbed step better than the whole-step
+average does.
+
+That slack is the caveat, and it is why this reading has a companion. On M4 the same
+block reads 282.4 GB/s unloaded but **253.2 GB/s loaded**, a 12% deflation. Applying
+that factor gives 582 GB/s = 95% of roofline ≈ 4% of the residual — still small. The
+R3−R4 loaded row settles which figure to quote; either way the conclusion holds that
+**the decode residual is somewhere other than attention's weight matvec**.
+
+Note that this verdict depends on the seed-prefill amortisation correction. Without
+`T = 1000·decode_spt − S/128`, R2's 111 ms prefill excess bleeds into the decode axis
+and rate 2 reads **511.3 GB/s** — 16% off roofline, apparently **21% of the decode
+residual**. The correction is not cosmetic: it flips this rate's verdict.
 
 ## Evidence
 
