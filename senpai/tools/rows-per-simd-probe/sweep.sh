@@ -14,7 +14,7 @@ fi
 
 for arm in "${ARMS[@]}"; do
   echo "===== ARM ${arm} ====="
-  env_args=()
+  env_args=("STEPS=${STEPS}")
   if [ "${arm}" != "base" ]; then
     IFS=',' read -r -a pairs <<<"${arm}"
     for p in "${pairs[@]}"; do env_args+=("${p}"); done
