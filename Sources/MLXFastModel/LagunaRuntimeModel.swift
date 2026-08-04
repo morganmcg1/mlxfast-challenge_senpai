@@ -10881,7 +10881,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     public func newCache(parameters _: GenerateParameters?) -> [KVCache] {
         (0..<configuration.numHiddenLayers).map { layerIndex in
             if configuration.layerTypes[layerIndex] == .full {
-                KVCacheSimple(reserveInitialAllocationStep: true)
+                KVCacheSimple(initialSlack: true)
             } else {
                 RotatingKVCache(maxSize: configuration.slidingWindow, keep: 0)
             }

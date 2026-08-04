@@ -328,10 +328,10 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     internal var keys: MLXArray?
     internal var values: MLXArray?
     public var step = 256
-    public let reserveInitialAllocationStep: Bool
+    public let initialSlack: Bool
 
-    public init(reserveInitialAllocationStep: Bool = false) {
-        self.reserveInitialAllocationStep = reserveInitialAllocationStep
+    public init(initialSlack: Bool = false) {
+        self.initialSlack = initialSlack
         super.init()
     }
 
@@ -346,7 +346,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         if self.keys == nil, previous == 0, tokenCount > 0,
             tokenCount.isMultiple(of: step)
         {
-            if reserveInitialAllocationStep {
+            if initialSlack {
                 self.keys = concatenated([
                     keys,
                     MLXArray.zeros(
@@ -523,7 +523,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
 
     public override func copy() -> any KVCache {
         let new = KVCacheSimple(
-            reserveInitialAllocationStep: reserveInitialAllocationStep
+            initialSlack: initialSlack
         )
         new.step = self.step
         let s = self.state
