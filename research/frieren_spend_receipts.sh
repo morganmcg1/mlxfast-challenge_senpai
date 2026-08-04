@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Research-only: dispatch the authorized official receipts for one configuration.
 #
-# The platform serializes ranked runs at one in-flight submission per account
-# ({"code":"conflict"}), so each receipt has to wait for the slot rather than
-# fail. Success is detected by the submission-row count rising, which does not
-# depend on the CLI's success text.
+# Two platform limits shape this. Ranked runs are serialized at one in-flight
+# submission per account ({"code":"conflict"}), and the submit endpoint itself is
+# rate limited - retrying once a minute trips "Rate limit reached. Try again in
+# N seconds" and locks submission out for most of an hour. So poll the cheap
+# listing to decide when the slot is free, call submit sparingly, and honour any
+# retry-after the server hands back.
 #
-# Usage: research/frieren_spend_receipts.sh [receipt_count]
+# Usage: research/frieren_spend_receipts.sh [receipt_count] [initial_wait_seconds]
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,37 +17,54 @@ export PATH="${HOME}/.local/bin:${PATH}"
 NOTE="research/frieren-pr23-r2-submission-note.md"
 MODEL="anthropic/claude-opus-5"
 WANT="${1:-3}"
-MAX_ATTEMPTS=150
+INITIAL_WAIT="${2:-0}"
+MAX_POLLS=48
+POLL_SECONDS=300
 
-count_rows() {
-    mlxfast submissions 2>/dev/null | grep -cE '^[0-9a-f]{7} '
-}
+listing() { mlxfast submissions 2>/dev/null; }
+count_rows() { listing | grep -cE '^[0-9a-f]{7} '; }
+slot_busy() { listing | grep -qE '^[0-9a-f]{7} .*validating'; }
 
-base="$(count_rows)"
-echo "=== starting with ${base} submission rows, want ${WANT} new receipts ==="
+if [ "${INITIAL_WAIT}" -gt 0 ]; then
+    echo "=== $(date -u +%H:%M:%S) waiting ${INITIAL_WAIT}s for the submit rate-limit window ==="
+    sleep "${INITIAL_WAIT}"
+fi
 
 sent=0
-attempt=0
-while [ "${sent}" -lt "${WANT}" ] && [ "${attempt}" -lt "${MAX_ATTEMPTS}" ]; do
-    attempt=$((attempt + 1))
+polls=0
+while [ "${sent}" -lt "${WANT}" ] && [ "${polls}" -lt "${MAX_POLLS}" ]; do
+    polls=$((polls + 1))
+    now="$(date -u +%H:%M:%S)"
+    if slot_busy; then
+        [ $((polls % 4)) -eq 1 ] && echo "[${now}] poll ${polls}: a submission is validating, waiting"
+        sleep "${POLL_SECONDS}"
+        continue
+    fi
+    before="$(count_rows)"
     out="$(mlxfast submit --note-file "${NOTE}" --model "${MODEL}" 2>&1 | tail -3)"
     now="$(date -u +%H:%M:%S)"
-    rows="$(count_rows)"
-    if [ "${rows}" -gt "${base}" ]; then
-        sent=$((sent + 1))
-        base="${rows}"
-        echo "=== ${now} RECEIPT ${sent}/${WANT} DISPATCHED (attempt ${attempt}) ==="
-        echo "${out}"
-        mlxfast submissions 2>&1 | tail -2
-    elif printf '%s' "${out}" | grep -q '"code":"conflict"'; then
-        [ $((attempt % 10)) -eq 1 ] && echo "[${now}] attempt ${attempt}: slot busy, waiting"
-    else
-        echo "=== ${now} UNEXPECTED submit response on attempt ${attempt}; stopping ==="
+    if printf '%s' "${out}" | grep -q '"code":"conflict"'; then
+        echo "[${now}] poll ${polls}: slot taken between listing and submit"
+        sleep "${POLL_SECONDS}"
+        continue
+    fi
+    retry="$(printf '%s' "${out}" | sed -n 's/.*Try again in \([0-9][0-9]*\) seconds.*/\1/p' | tail -1)"
+    if [ -n "${retry}" ]; then
+        echo "[${now}] poll ${polls}: rate limited, sleeping $((retry + 30))s"
+        sleep $((retry + 30))
+        continue
+    fi
+    if printf '%s' "${out}" | grep -q '"error"'; then
+        echo "=== ${now} UNEXPECTED submit error, stopping ==="
         echo "${out}"
         break
     fi
-    sleep 60
+    sent=$((sent + 1))
+    echo "=== ${now} RECEIPT ${sent}/${WANT} DISPATCHED (rows ${before} -> $(count_rows)) ==="
+    echo "${out}"
+    listing | tail -1
+    sleep "${POLL_SECONDS}"
 done
 
-echo "=== dispatched ${sent} of ${WANT} receipts in ${attempt} attempts ==="
-mlxfast submissions 2>&1 | tail -6
+echo "=== dispatched ${sent} of ${WANT} receipts after ${polls} polls ==="
+listing | tail -6
