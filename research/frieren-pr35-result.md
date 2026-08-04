@@ -207,6 +207,13 @@ would buy back more than this whole rung spends.
 | `peak_ram_gb` | 20.7190 (OFF) -> 20.7213 (ON); MLX active 33.38 -> 33.44 GB |
 | 32-step probe after the byte-budget shrink (`419f3b6`) | 0 divergences; `narrow-scales built: qkv` and `: oproj` at init; median 8.472 ms/step |
 | `swift test --force-resolved-versions` | 454/454 in 6 suites (the budget test fails without `419f3b6`) |
+| `./benchmark.sh --local-submit` on the shipped tree (`3cc08ce`, 22:12:41Z) | `passed: true`, `passed_correctness: true`, `max_abs_diff: 0`, `checked_steps: 1025`, `golden_hash f49e4c2c...`, `peak_ram_gb 21`; the only warnings are the known spurious acceptance-band notices that local modes raise because they use the pinned baseline constants instead of the M5 paired baseline |
+
+Local-submit speed numbers are directional only and are **not** evidence about
+the ranked ratios: this host's decode 0.009225 s/token against the pinned
+baseline constant reads 1.502x and its prefill 0.001142 s/token reads 0.322x,
+which is the usual M4-vs-pinned-M5 mismatch, not a real prefill regression. The
+paired within-host screens above are the measurement.
 
 ## Suggested follow-ups (not implemented)
 
