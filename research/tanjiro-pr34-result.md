@@ -39,7 +39,7 @@ integers, never Metal function constants. Every injected result is discarded.
 | R1 | 0,0,0,0 | anchor | `b6032aeb` | **97.8643** | **4.27468** |
 | R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | `ca416f01` | TBD | TBD |
 | R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | TBD | TBD | TBD |
-| R4 | 0,0,20,0 + arch probe | second level of rate 1 (slope, not point) + Metal architecture character | TBD | TBD | TBD |
+| R4 | 0,39,20,0 | second level of rate 1 (slope, not point) + **loaded** rate 2 (R3−R4) + unloaded rate 4 (R4−R1) | TBD | TBD | TBD |
 
 R1 in full: `passed_correctness = true`, `max_abs_diff = 0`, both floors passed,
 `gpqa_ttft = 0.41 s` of a 2.3 s budget, `semantic_gpqa_passed = true`,
@@ -83,6 +83,7 @@ gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 | L3 | 40,0,39,0 | **source defaults, no env** | 735.884 | 11.6572 |
 | L4 | 0,39,0,40 | env | 775.658 | 10.6264 |
 | L5 | 40,39,0,40 | env (**exact R3 configuration**) | 765.903 | 13.8610 |
+| L6 | 0,0,20,0 + arch probe | env | 661.777 | 9.9125 |
 
 L3 is the receipt-R2 configuration run with **no environment variables set for any
 injection knob**, which is how the official runner invokes the binary. Its stderr
@@ -98,8 +99,10 @@ Marginal rates:
 | decode routed QMV (39 copies, loaded with 39 attn copies) | L2−L1 | 552.08 MB | 2.097 ms | **263.3 GB/s** | 242.9 GB/s | **+8.4%** |
 | decode routed QMV (39 copies, loaded with 40 attn copies — **exact R3−R2 pairing**) | L5−L3 | 552.08 MB | 2.204 ms | **250.5 GB/s** | 242.9 GB/s | **+3.1%** |
 | decode routed QMV (39 copies, unloaded step) | L4−L0 | 552.08 MB | 1.810 ms | 305.0 GB/s | 242.9 GB/s | +25.6% |
+| decode attention QMV (40 copies, loaded with 39 routed copies) | L5−L4 | 802.16 MB | 3.235 ms | **248.0 GB/s** | 252.5 GB/s | **−1.8%** |
 | both decode blocks at once (40 attn + 39 routed) | L5−L0 | 1354.24 MB | 5.045 ms | 268.4 GB/s | 248.6 GB/s (bank-weighted) | +8.0% |
 | prefill routed gather-GEMM (20 copies) | L1−L0 | 9059.70 MB / 515.40 GFLOP | 88.090 ms | 102.8 GB/s / **5.85 TFLOP/s** | — | 79% of M4 dense GEMM |
+| prefill routed gather-GEMM (20 copies, replicate) | L6−L0 | 9059.70 MB / 515.40 GFLOP | 84.576 ms | 107.1 GB/s / **6.09 TFLOP/s** | — | 82% of M4 dense GEMM |
 | prefill routed gather-GEMM (39 copies) | L3−L0 | 17,666.41 MB / 1005.02 GFLOP | 158.683 ms | 111.3 GB/s / **6.33 TFLOP/s** | — | 86% of M4 dense GEMM |
 | prefill routed gather-GEMM (20→39 incremental) | L3−L1 | 8606.71 MB / 489.62 GFLOP | 70.593 ms | 121.9 GB/s / **6.94 TFLOP/s** | — | **94% of M4 dense GEMM** |
 | prefill attention dense GEMM (20 copies) | L2−L1 | 1509.95 MB / 773.09 GFLOP | 102.663 ms | 14.7 GB/s / **7.53 TFLOP/s** | 7.40–7.46 TFLOP/s (#27 dense probe) | **+1.4%** |
@@ -137,12 +140,44 @@ present, and 2.204 ms with 802 MB present. Extrapolating the marginal cost to th
 point where the step is saturated is exactly what the loaded pairing approximates,
 and it converges on the isolated per-call figure from above.
 
-**Reproducibility of each axis on M4.** L4 and L5 have identical prefill
-configurations and differ only in a decode knob: their S differ by 9.755 ms, i.e.
-**1.26%**, which is this host's prefill replicate spread (the ranked M5 candidate
-axis is 5x tighter at 0.245%). On the decode axis L2 and L5 differ by one attention
-copy (predicted +0.06 ms) and their T differ by +0.124 ms, and L1/L3 differ by one
-copy and +0.017 ms — so **the decode axis is reproducible to ±0.06 ms (0.6%)**.
+The attention block tells the same story from the other side. L5−L4 injects the 40
+attention copies into a step that already carries the 39 routed copies, and it lands
+at **248.0 GB/s, −1.8%** against @maple-nezuko's isolated figure, versus +11.8%
+unloaded. So both blocks, measured in a loaded step, agree with her isolated
+dispatch table to within 3%, and both are inflated by 12–26% when measured in an
+unperturbed one. That is the cleanest statement this arm can make about its own
+instrument: **the method is accurate to ~3% when the host step is loaded, and
+optimistic by 12–26% when it is not.**
+
+**Reproducibility of each axis on M4.** Three pairs of runs share a prefill
+configuration and differ only in decode knobs: L4/L5 differ by 1.26% in S, L1/L6 by
+0.53%. Propagated onto an 85 ms injected difference that is ±4 to ±10%, which is
+why the M4 prefill readings are quoted as ranges and why the ranked M5 axis
+(0.245% on the candidate pass) is worth four receipts. On the decode axis L2 and L5
+differ by one attention copy (predicted +0.06 ms) and their T differ by +0.124 ms,
+and L1/L3 differ by one copy and +0.017 ms — so **the decode axis is reproducible to
+±0.06 ms (0.6%)**.
+
+**The architecture probe works, and it is being handed back rather than spent.**
+L6 enables it with every block knob off on the decode axis, and `T` rises by
+**+1.0964 ms** over the anchor. One sweep dispatch reads 268.435456 MB, which at
+this host's ~256 GB/s streaming rate costs 1.0486 ms, so the observed rise is
+**1.046 sweeps — exactly the one sweep the `s` branch selects**, and this host
+advertises `applegpu_g16s`. The probe therefore reads the correct branch on a host
+whose architecture string is independently known.
+
+It is nevertheless *not* on any ranked receipt, and that is a deliberate reversal of
+the assignment's "free piggyback" framing. The sweeps are only issued on
+single-token decode steps, so they consume a whole receipt's decode axis: any
+receipt carrying them cannot also carry a decode block measurement, because the
+sweep count is the unknown being solved for. Given the choice between the
+architecture character and a *loaded* reading of rate 2 — the number that decides
+whether decode has headroom, and which the M4 series shows is inflated 12% when read
+from an unloaded step — the loaded rate-2 reading is worth more. R4 therefore carries
+`decode_routed 39` (giving loaded rate 2 as R3−R4 and unloaded rate 4 as R4−R1) and
+`prefill_routed 20` (giving rate 1 as a slope). The probe is validated and inert in
+the tree; any future receipt whose decode axis is otherwise idle can collect the
+architecture character for one environment variable.
 
 **Linearity.** The prefill routed block has three points (0, 20, 39 copies) and is
 mildly *sub*-linear: 4.405 ms per copy at 20, 4.069 ms per copy at 39, and
