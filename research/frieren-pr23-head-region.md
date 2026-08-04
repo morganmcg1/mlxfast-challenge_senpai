@@ -363,6 +363,45 @@ token, logits, deferred cache row, or cross-request state. No prompt-lookup,
 drafting, lookahead, or multi-row target evaluation is involved anywhere in
 this work.
 
+## What I recommend next
+
+Ordered by expected value per unit of risk.
+
+1. **Sub-layer decode-only eval boundaries.** If the running screen shows
+   `mb=50` still beating `mb=200` under `ladder1`, the remaining win is
+   sub-layer and no layer-granularity schedule can reach it. The change is then
+   an extra `asyncEval` at one or two intra-layer points under the existing
+   `isSingleTokenDecode` guard — decode-only, so `S` is untouched by
+   construction, unlike the cap. Bit-exact by construction (`asyncEval` forces
+   evaluation of already-defined nodes, changing scheduling only). Local
+   evidence for the size of the prize is the 0.85–1.45 % `mb` gap; ranked
+   evidence for the sign is the cap-160 receipt's `T −0.838 %`. If the
+   decode-only form captures `T −0.8 %` with `S` flat, that is
+   `1.00718^0.75 = +0.54 %` of score — just under the 0.61 % bar on its own, so
+   it needs either a slightly larger effect or pairing with another accepted
+   change.
+2. **Resolve the `mb=200` bimodality** before anyone treats the cap as tuned.
+   Two clusters 1.2 % apart at an unchanged configuration is a bigger effect
+   than most accepted submissions, and if it also occurs on the ranked box it
+   contaminates every paired measurement taken at cap 200.
+3. **Re-test the PR #9 dispatch-fusion patches on the ranked M5.** The
+   bandwidth-wall calibration above says the M4 Pro cannot show a
+   launch-overhead win at all. A zero here is not a zero there. This costs one
+   official submission and would retire or revive a whole family of local
+   negatives.
+4. **Not recommended:** anything aimed at the 26 µs editable head region, the
+   59 µs driver launch latency, or the 67.8 µs trusted harness segment. The
+   first is too small, the other two are not on the submission surface.
+
+A fifth idea surfaced in review and I did **not** pursue it because it needs an
+organizer/advisor ruling first: the 30.1 µs `kernelEnd → GPUStart` component
+looks like GPU idle-exit, paid once per step because the GPU power-gates during
+the 153 µs front gap. A trivial input-independent 1-op command buffer committed
+during that gap would pay the ramp earlier. It computes nothing, produces no
+token, logits, or KV state, and is input-independent, so I read it as compliant
+with the serial non-speculative rule — but it is added work in the timed window
+and I would want that confirmed before spending a submission on it.
+
 ## Reproduction
 
 ```bash
