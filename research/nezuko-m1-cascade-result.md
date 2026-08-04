@@ -72,16 +72,17 @@ Consequently the cascade's ceiling prices cleanly: it removes 25.69 MB from a
   runbook warns about. That stale artifact was moved aside and every number
   below comes from arms measured back-to-back in one session.
 
-### Local A/B — 7 of 8 arms (final `ctrl` arm in a thermal-gate wait)
+### Local A/B — all 8 arms, ABBA-blocked in one session
 
-Drift-corrected regression `metric = a + b·t + c·arm`, which is the right model
-here because the ABBA block is not yet complete:
+Arm and elapsed time came out very nearly orthogonal (mean elapsed 8.40 min for
+`ctrl`, 8.45 min for `cand`), so the block did its job and the drift-corrected
+regression `metric = a + b·t + c·arm` is well conditioned:
 
 | Metric | Control | Cascade | Arm effect (drift-corrected) | Host drift |
 | --- | ---: | ---: | ---: | ---: |
-| `T` (pure decode step, ms) | 9.0946 | 8.9688 | **−1.349% ± 0.440%** (3.1σ) | −0.0011 ms/min |
-| `S` (512-token prefill, ms) | 592.89 | 583.67 | −1.257% ± 0.806% (1.6σ) | −0.635 ms/min |
-| `decode_seconds_per_token` (ms) | 13.7265 | 13.5287 | **−1.318% ± 0.332%** (4.0σ) | −0.0060 ms/min |
+| `T` (pure decode step, ms) | 9.1185 | 8.9688 | **−1.643% ± 0.430%** (3.8σ) | +0.0027 ms/min |
+| `S` (512-token prefill, ms) | 591.23 | 583.67 | −1.273% ± 0.639% (2.0σ) | −0.622 ms/min |
+| `decode_seconds_per_token` (ms) | 13.7375 | 13.5287 | **−1.519% ± 0.314%** (4.8σ) | −0.0022 ms/min |
 
 Host drift on `T` is negligible, so the `T` effect is not a drift artifact.
 
@@ -99,21 +100,36 @@ the 0.44% uncertainty on `T`. Two estimators therefore bracket the answer:
 
 | Estimator | `ΔT` | as % of `T` | ns (×0.638) |
 | --- | ---: | ---: | ---: |
-| Per-run `T` (unconstrained) | −0.1227 ms | **−1.35% ± 0.44%** | +0.86% |
-| Constrained `ΔS ≡ 0`, so `ΔT = Δdec` | −0.1808 ms | **−1.99% ± 0.50%** | +1.27% |
+| Per-run `T` (unconstrained) | −0.1498 ms | **−1.64% ± 0.43%** | +1.05% |
+| Constrained `ΔS ≡ 0`, so `ΔT = Δdec` | −0.2087 ms | **−2.29% ± 0.34%** | +1.46% |
 
 The constrained estimator is the statistically better one given that `ΔS = 0`
 is known a priori, but it is also the more flattering one, so both are
-reported. Either way the effect is significant and comfortably inside the
-≤5% single-submission acceptance cap.
+reported.
 
-**Against the two predictions:** the kernel-rate prediction was −1.11% of `T`
-and the step-average prediction −1.43%. The measurement lands at or above the
-step-average figure. A gain exceeding the pure byte-removal estimate is
-physically plausible — level one now reads one contiguous 1024 B run per row
-instead of two disjoint streams (1024 B + 256 B), which reduces prefetch and
-TLB pressure on top of the byte saving — but that is a hypothesis, not a
-measured decomposition, and the official M5 family is what settles the number.
+**Both exceed the byte-removal prediction (−1.11% kernel-rate, −1.43%
+step-average), and that deserves scepticism rather than celebration.** Three
+candidate explanations, and what each would imply:
+
+1. **Contiguity.** Level one now reads one contiguous 1024 B run per row
+   instead of two disjoint streams (1024 B + 256 B), so it should also win on
+   prefetch and TLB pressure, not only on bytes. This would make the excess
+   real and would transfer to M5.
+2. **The control is not the pre-M1 baseline.** The `=0` arm still carries the
+   *new* plane packing and the renamed `_v6` single-pass kernel — it is
+   "refinement off", not "pre-M1". If `_v6` were more expensive than the
+   original `_v5`, the local delta would be inflated. Against this: both
+   kernels read the same 1344 B/row and differ only by a couple of ALU ops in
+   a memory-bound kernel, so they should be cost-equivalent. This is a
+   *caveat on the local number*, not on the mechanism.
+3. **Fewer survivors reaching the exact GEMV.** Bounded: the exact pass is
+   only 76.6 µs total, so even eliminating it entirely buys 0.85% of `T`.
+
+Explanation 2 is the one the local A/B cannot rule out on its own, and it is
+precisely what the official **tree Y vs banked control C0** comparison
+settles, because that pair *is* measured against the true unmodified base.
+I am therefore treating the local result as "the mechanism works and is worth
+official receipts", not as the final magnitude.
 
 ### Correctness
 
