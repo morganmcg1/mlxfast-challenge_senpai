@@ -354,7 +354,9 @@ baseline to the series' mean pinned baseline before differencing.
 - Exact commands:
   ```bash
   env DARKBLOOM_INJECT_<KNOB>=<n> DARKBLOOM_INJECT_VERBOSE=1 \
-      ./benchmark.sh --local-iterate        # L0..L4
+      ./benchmark.sh --local-iterate        # L0..L6, knobs DECODE_ATTN,
+                                            # DECODE_ROUTED, PREFILL_ROUTED,
+                                            # PREFILL_ATTN, ARCH_PROBE
   ./benchmark.sh --local-submit             # preflight at the heaviest config
   mlxfast submit --note-file research/tanjiro-pr34/note-r<N>.md \
       --model "Claude Opus 5"               # R1..R4
@@ -375,11 +377,16 @@ baseline to the series' mean pinned baseline before differencing.
   the scratch pool is a few MB of zero-filled inputs and index pools allocated
   during the untimed warm forward.
 
-| Metric | Baseline (L0) | Candidate | Ratio / delta |
+| Metric | Baseline | Candidate | Ratio / delta |
 | --- | ---: | ---: | ---: |
-| decode seconds/token | 0.013325 | see L1–L4 | instrument, not a speed attempt |
-| prefill seconds/token | 0.001127 | see L1–L4 | instrument, not a speed attempt |
+| decode seconds/token (official R1 anchor) | 0.01388424 | 0.00503923 | 2.755x |
+| prefill seconds/token (official R1 anchor) | 0.00036558 | 0.00019114 | 1.913x |
 | same-host paired estimate | — | n/a | this arm measures rates, not speed |
+
+The candidate tree in every receipt of this series is *slower* than the unmodified
+base by construction — each receipt deliberately adds a full extra copy of one or
+two real blocks — so the speedups above are the base's, not an improvement of mine.
+No receipt in this arm is a ranking attempt, and none should be read as one.
 
 ## Method notes that outlive this arm
 
@@ -388,15 +395,21 @@ baseline to the series' mean pinned baseline before differencing.
    the block, reproduces the block's own per-pass work byte for byte and FLOP for
    FLOP. It removes extrapolation from the rate entirely — the marginal cost *is*
    the block's cost.
-2. **Marginal rate is an upper bound on the block's standalone efficiency.**
-   Injected copies are unchained, so they may execute concurrently with the
-   scored work and consume cycles the scored step already wastes. On M4 that
-   inflates the reading by +8 to +12% relative to @maple-nezuko's isolated
-   per-call timings. A marginal rate near the achievable roofline therefore does
-   not prove the kernel is efficient; it proves the *system* can absorb that much
-   more traffic, which is itself the interesting number for a scheduler.
-   A marginal rate well *below* the roofline is the strong result, because
-   absorption can only push the reading up.
+2. **A marginal rate is not a two-sided bound; it is `W/(t_solo − σ + π)`.**
+   Absorption of idle resource `σ` pushes it above the standalone rate and new
+   contention `π` pushes it below, so in general it bounds nothing. This series
+   pins the sign empirically: every reading on M4 sits *above* @maple-nezuko's
+   isolated per-call figure (+3.1% to +25.6%) and the excess shrinks monotonically
+   as the step is loaded, so here `σ > 0`, `π ≈ 0`, and the reading behaves as an
+   upper bound. Consequences: a marginal rate near the achievable roofline does
+   not prove the kernel is efficient — it proves the *system* can absorb that much
+   more traffic, which is itself the number a scheduler arm needs. A marginal rate
+   well *below* the roofline is the strong result. And when a marginal rate exceeds
+   the host's own achievable rate it is not a kernel rate at all; it is a
+   measurement of `σ`.
+   Corollary for design: take the reading from the *loaded* configuration, and
+   take two injection levels so a fixed per-pass cost cannot be divided into the
+   rate.
 3. **The candidate axes are eight times more repeatable than the pinned
    baselines on the prefill axis.** Any future receipt-difference work on this
    benchmark should difference raw candidate axes and treat baseline-ratio
