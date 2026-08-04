@@ -87,6 +87,7 @@ gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 | L7 | 0,39,20,0 | env (**exact R4 configuration**) | 664.651 | 10.6925 |
 | L8 | 0,0,39,40 | env (**cross-block additivity**) | 929.338 | 8.6675 |
 | L9 | 0,0,0,0 | env (**anchor replicate**) | 575.940 | 8.7983 |
+| L10 | 0,0,10,0 | env (**third rate-1 level**) | 613.515 | 8.8151 |
 
 L3 is the receipt-R2 configuration run with **no environment variables set for any
 injection knob**, which is how the official runner invokes the binary. Its stderr
@@ -204,21 +205,36 @@ from an unloaded step — the loaded rate-2 reading is worth more. R4 therefore 
 the tree; any future receipt whose decode axis is otherwise idle can collect the
 architecture character for one environment variable.
 
-**Linearity.** The prefill routed block now has three copy levels with the 20-copy
-level averaged over three replicates, and it is mildly *sub*-linear: **4.335 ms per
-copy** for 0→20, **4.069 ms per copy** for 0→39, and **3.788 ms per copy** for the
-20→39 increment. Equivalently the achieved rate *rises* with injected work —
-5.94, 6.33, 6.80 TFLOP/s — so a fixed cost of roughly `86.706 − 20×3.788 = 11 ms`
-appears as soon as any copy is injected and is then amortised. Sub-linear is the
-absorption signature rather than the thrashing signature — more injected work keeps
-finding idle cycles instead of colliding for a scarce resource — but either way the
-consequence for the official measurement is the same and important: **a
-single-level receipt folds that fixed cost into the marginal rate and therefore
-*understates* it**, by **6.9% at 39 copies and 12.6% at 20 copies** on M4. That is
-why R4 spends its prefill axis on a second level of the same block (20 copies)
-instead of a third block: it turns rate 1 from a point estimate into a slope, and
-the correction it applies is large enough to move rate 1 across the advisor's
-decision boundary. The prefill attention block
+**Linearity — and a claim of mine that a fourth level destroyed.** From three
+levels (0, 20, 39 copies) the prefill routed block looked cleanly sub-linear, and I
+wrote that a ~11 ms fixed cost makes a single-level receipt understate the marginal
+rate by 6.9% at 39 copies. **L10 adds a 10-copy level and that claim does not
+survive it.** With the anchor averaged over L0/L9 (576.571 ms) the four points are:
+
+| copies | S (ms) | segment | ms per copy | TFLOP/s |
+| ---: | ---: | --- | ---: | ---: |
+| 0 | 576.571 | — | — | — |
+| 10 | 613.515 | 0→10 | 3.6945 | 6.975 |
+| 20 | 663.906 | 10→20 | 5.0391 | 5.114 |
+| 39 | 735.884 | 20→39 | 3.7883 | 6.802 |
+
+The segment slopes are not monotone — 3.69, 5.04, 3.79 — so there is no concave
+saturation curve, just scatter. A four-point least-squares fit gives
+**`Δ = 4.1378 ms/copy` with an intercept of 576.09 ms, which is the anchor itself
+(576.571) to within 0.5 ms.** So the block is **linear in copies through the
+origin with no measurable fixed cost**, and the single-level 39-copy reading
+(4.085 ms/copy) is within **1.3%** of the four-point slope. My earlier
+"understates by 6.9%" was an artefact of fitting a line to two segments.
+
+The honest residual uncertainty is instead the segment-to-segment scatter, ±10%,
+which is larger than the ±1.87 ms replicate noise explains and which I cannot
+attribute to a mechanism from these runs. **Consequences: (a) the official
+single-level rate 1 needs no upward correction, which makes the kernel-arm verdict
+below stronger rather than weaker, since there is no 7% of forgiveness to apply;
+(b) rate 1 should carry ±10% from linearity, not the ±0.9% that axis noise alone
+implies; (c) R4's prefill axis is now worth less than planned, but it still buys an
+independent M5 linearity check, and its decode axis — the loaded rate 2 — was
+always the more valuable half.** The prefill attention block
 has three readings spanning a 2x range of injected work — 7.53 TFLOP/s at 20
 copies, 7.36 and 7.74 TFLOP/s at 40 — whose ±2.5% spread is what this host's
 0.282% absolute-axis noise implies for differences of this size, so it is
