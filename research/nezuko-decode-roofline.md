@@ -527,3 +527,55 @@ backend uses `N_R0_Q4_0 = 4` rows per simdgroup. Four was not an arbitrary
 sweep winner; it is the shape both mature Metal quantized-matvec
 implementations converged on.
 
+
+## Interim 12 — the upstream-equivalence oracle: decode is exact, prefill is not
+
+Two tooling bugs had to be fixed before this test could run at all. Both are
+worth recording because every arm that touches numerics will hit them.
+
+1. **The filter matched nothing and still exited 0.** The oracle
+   (`Tests/MLXFastTests/LagunaCorrectnessTests.swift:217`) is a *free*
+   swift-testing `@Test` function with no enclosing suite, so
+   `--filter LagunaCorrectnessTests.lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`
+   selected zero tests, printed `Executed 0 tests`, and returned success. A
+   green exit code from this test means nothing unless the log shows the test
+   actually started. Use the bare function name.
+2. **`swift test` cannot reach the GPU out of the box.** The debug test bundle
+   has no colocated `mlx.metallib`, and MLX's lookup
+   (`Vendor/mlx-swift/.../backend/metal/device.cpp:164-215`) tries the
+   colocated path, a SwiftPM bundle, a framework, and finally the compile-time
+   `METAL_PATH` before throwing `Failed to load the default metallib`. There is
+   no environment override — `get_metallib_path()`
+   (`backend/metal/metal.cpp:55-61`) is only settable in-process. The fix is to
+   copy `.build-worker/arm64-apple-macosx/release/mlx.metallib` next to the
+   xctest binary. `research/run_upstream_equivalence.sh` now does this
+   automatically on first failure.
+
+### Result
+
+| step | max abs logit err | mean abs logit err | runtime token | upstream token |
+|---|---|---|---|---|
+| prefill | **0.125** | 0.011933609 | 5991 | 5991 |
+| decode-0 .. decode-7 | **0** | **0** | match | match |
+
+**All eight decode steps are bit-exact against the vendored upstream model**,
+and that is precisely the path this change touches: the sole call site
+(`LagunaRuntimeModel.swift:9998`) is behind a decode-only shape guard, so
+prefill never enters the modified kernel.
+
+The prefill row carries a 0.125 maximum absolute logit error with an identical
+argmax token. It is **pre-existing frontier behaviour, not a regression from
+this change** — re-running the same oracle with
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` reverted to `BASE_SHA` and
+everything else held fixed reproduces the same prefill error and the same zero
+decode errors (byte-identical report: prefill 0.125 / mean 0.011933609, decode-0..7 all zero).
+
+The test nevertheless reports failure because
+`MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR` defaults to the string `"0"`
+(`LagunaCorrectnessTests.swift:236-238`) and
+`report.passes(maximumAbsoluteLogitError:)` applies that single tolerance to
+every step including prefill. Zero tolerance is the right bar for the decode
+steps but is not achievable for the batched NVFP4 prefill path against a bf16
+upstream reference. **The oracle as configured cannot pass on the current
+frontier**, so it is usable as a per-step differential check but not as a
+pass/fail gate; read the per-step table, not the exit code.
