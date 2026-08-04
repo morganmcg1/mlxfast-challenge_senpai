@@ -1,12 +1,7 @@
 // Copyright © 2023-2024 Apple Inc.
 
-#include <cstdio>
 #include <cstdlib>
-#include <mutex>
 #include <sstream>
-#include <vector>
-
-#include <mach/mach_time.h>
 
 #include <fmt/format.h>
 
@@ -34,79 +29,6 @@ struct hash<NS::SharedPtr<T>> {
 } // namespace std
 
 namespace mlx::core::metal {
-
-namespace frieren_cbprof {
-
-struct Rec {
-  double commit_s;
-  double kstart_s;
-  double kend_s;
-  double gpu_start_s;
-  double gpu_end_s;
-  double done_s;
-  int ops;
-};
-
-inline double now_s() {
-  static const double scale = [] {
-    mach_timebase_info_data_t tb;
-    mach_timebase_info(&tb);
-    return double(tb.numer) / double(tb.denom) * 1e-9;
-  }();
-  return double(mach_absolute_time()) * scale;
-}
-
-inline std::mutex& mtx() {
-  // Intentionally leaked: the atexit dump below must outlive static
-  // destruction of this translation unit.
-  static std::mutex* m = new std::mutex();
-  return *m;
-}
-
-inline std::vector<Rec>& recs() {
-  static std::vector<Rec>* v = [] {
-    auto* p = new std::vector<Rec>();
-    p->reserve(1 << 20);
-    return p;
-  }();
-  return *v;
-}
-
-inline void dump() {
-  std::lock_guard<std::mutex> lk(mtx());
-  for (const auto& r : recs()) {
-    fprintf(
-        stderr,
-        "FRCB %.9f %.9f %.9f %.9f %.9f %.9f %d\n",
-        r.commit_s,
-        r.kstart_s,
-        r.kend_s,
-        r.gpu_start_s,
-        r.gpu_end_s,
-        r.done_s,
-        r.ops);
-  }
-  fflush(stderr);
-}
-
-inline bool enabled() {
-  static const bool e = [] {
-    const char* v = std::getenv("FRIEREN_CBPROF");
-    bool on = v != nullptr && v[0] == '1';
-    if (on) {
-      std::atexit(dump);
-    }
-    return on;
-  }();
-  return e;
-}
-
-inline void record(const Rec& r) {
-  std::lock_guard<std::mutex> lk(mtx());
-  recs().push_back(r);
-}
-
-} // namespace frieren_cbprof
 
 namespace {
 
@@ -565,21 +487,6 @@ bool CommandEncoder::needs_commit() const {
 }
 
 void CommandEncoder::commit(std::function<void()> completion) {
-  if (frieren_cbprof::enabled()) {
-    const double commit_s = frieren_cbprof::now_s();
-    const int ops = buffer_ops_;
-    buffer_->addCompletedHandler(
-        [commit_s, ops](MTL::CommandBuffer* cbuf) {
-          frieren_cbprof::record(
-              {commit_s,
-               cbuf->kernelStartTime(),
-               cbuf->kernelEndTime(),
-               cbuf->GPUStartTime(),
-               cbuf->GPUEndTime(),
-               frieren_cbprof::now_s(),
-               ops});
-        });
-  }
   buffer_->addCompletedHandler(
       [&error_ = error_,
        wait_events = std::move(wait_events_),
