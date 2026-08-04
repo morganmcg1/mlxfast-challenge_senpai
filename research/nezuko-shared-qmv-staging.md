@@ -280,3 +280,38 @@ Sub-mechanism verdicts:
 3. The co-residency decay curve is a **reusable instrument**. Any future
    latency-hiding proposal on this tree can be priced in ~5 minutes by checking
    whether its SPLIT=1 win survives to SPLIT=0, before a receipt is spent.
+4. `--local-iterate` reports `prefill_speedup 0.327x` on this 48 GiB M4 Pro
+   even for a build byte-identical to `BASE_SHA`, so the local `est score` is
+   not a usable prefill signal on a sub-64 GiB host. Worth documenting for
+   whoever else runs the local loop.
+
+## Appendix - per-kernel decode byte table
+
+Derived from the dispatch shapes in `LagunaRuntimeModel.swift`. Config: `H=2048`,
+`head_dim=128`, `kv_heads=8`, `q_heads=64` on 30 sliding layers / 48 on 10 full
+layers, `window=512`, 256 experts, top-k 8, `moe_inter=512`, `shared_inter=512`,
+`dense_inter=8192` (layer 0). NVFP4 = 0.5 B/code + 1 B E4M3 scale per 16
+= 0.5625 B/elem; INT8-affine-g32 = 1.125 B/elem; bf16 = 2 B.
+
+| kernel | weight bytes/call | per step | TGs x threads | cross-lane reduction in row loop |
+| --- | ---: | ---: | --- | --- |
+| `decode_nvfp4_qkv_h64_r1_v1` | 11.80 MB | x30 | 5120 x 64 | yes, `simd_sum` per row |
+| `decode_nvfp4_qkv_h48_r1_v1` | 9.44 MB | x10 | 4096 x 64 | yes |
+| `oproj_act_h64_v1` | 9.44 MB | x30 | 256 x 64 | yes |
+| `oproj_act_h48_v1` | 7.08 MB | x10 | 256 x 64 | yes |
+| `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | 9.44 MB | x39 | 2048 x 64 | yes |
+| **K3** `routed_shared_nvfp4_down_residual_bf16_r1_v5` | **5.31 MB** | x39 | 512 x 288 | yes, packed `vec<float,4>` + 1 epilogue barrier |
+| **K1** `shared_nvfp4_swiglu_qmv_rows1_bf16_v1` | **1.18 MB** | x39 | 256 x 64 | yes, `simd_sum` on gate and up |
+| `residual_rms_router_bf16_2048_rpg8_keys_v1` | 1.05 MB | x39 | 32 x 512 | yes, `simd_sum` + shuffle tree |
+| `dense_gate_up_swiglu_bf16_v1` (layer 0) | 67.1 MB | x1 | 128 x 512 | yes, shuffle tree |
+| `dense_down_residual_bf16_v1` (layer 0) | 33.6 MB | x1 | 128 x 128 | yes, shuffle tree |
+| `gate_sp_h64_v1` / `h48` (INT8 g32) | 147.5 / 110.6 KB | x30 / x10 | 8 or 6 x 64 | yes |
+| `sliding_fused_attn_ring_v1` | 2.10 MB KV unique | x30 | 32 x 1024 | yes, online softmax + barriers |
+| `full_fused_attn_grow_v1` | ~2.36 MB KV unique at N=576 | x10 | 24 x 1024 | yes |
+| `decode_router_top8_ordinal_table_norm_v1` | 1.5 KB act only | x39 | 1 x 256 | yes, bitonic shuffle (selection) |
+| `decode_embedding_rope_atlas_bf16_2048_v2` | ~4.9 KB act only | x1 | 1 x 512 | no |
+
+The two kernels this assignment targeted are the **smallest weight-byte
+consumers on the MoE path** (1.18 and 5.31 MB/call against 9.44 MB/call for the
+routed gate/up and 11.80 MB/call for QKV). That is worth remembering when
+choosing the next target.
