@@ -61,8 +61,49 @@ def vec2(text):
     return out
 
 
-def vec4(text):
-    """Hoist the second half's madds and reduce all four scores at once."""
+VEC4_REDUCE = """            {
+                const vec<U, 4> vs_ = simd_sum(vec<U, 4>(
+                    pair_score0, pair_score1,
+                    pipeb_score0, pipeb_score1));
+                pair_score0 = vs_.x;
+                pair_score1 = vs_.y;
+                pipeb_score0 = vs_.z;
+                pipeb_score1 = vs_.w;
+            }
+"""
+
+# Four 32-lane sums cost 4 x 5 = 20 shuffles as four independent butterflies.
+# Butterfly levels 1 and 2 leave every lane of a 4-lane group holding the same
+# partial, so each lane can pick the one value it is responsible for and finish
+# alone: 4x2 + 3 + 4 broadcasts = 15. The xor sequence 1,2,4,8,16 and therefore
+# the addition tree of every value is exactly the one `simd_sum` walks.
+TREE4_REDUCE = """            {
+                U t0_ = pair_score0;
+                U t1_ = pair_score1;
+                U t2_ = pipeb_score0;
+                U t3_ = pipeb_score1;
+                for (ushort d_ = 1; d_ <= 2; d_ <<= 1) {
+                    t0_ += simd_shuffle_xor(t0_, d_);
+                    t1_ += simd_shuffle_xor(t1_, d_);
+                    t2_ += simd_shuffle_xor(t2_, d_);
+                    t3_ += simd_shuffle_xor(t3_, d_);
+                }
+                const ushort slot_ = ushort(lane & 3);
+                U s_ = slot_ == 0 ? t0_
+                    : slot_ == 1 ? t1_ : slot_ == 2 ? t2_ : t3_;
+                for (ushort d_ = 4; d_ <= 16; d_ <<= 1) {
+                    s_ += simd_shuffle_xor(s_, d_);
+                }
+                pair_score0 = simd_shuffle(s_, 0);
+                pair_score1 = simd_shuffle(s_, 1);
+                pipeb_score0 = simd_shuffle(s_, 2);
+                pipeb_score1 = simd_shuffle(s_, 3);
+            }
+"""
+
+
+def fuse_qk(text, reduce_block):
+    """Hoist the second half's madds so all four scores reduce together."""
     madds_b = block(
         text, "            U pipeb_score0 = 0;",
         "            pipeb_score1 += pair_q1[3] * pipe_kb[3];\n")
@@ -74,19 +115,16 @@ def vec4(text):
     assert text.count(reduce_b) == 1
     assert text.count(reduce_a) == 1
 
-    fused = madds_b + (
-        "            {\n"
-        "                const vec<U, 4> vs_ = simd_sum(vec<U, 4>(\n"
-        "                    pair_score0, pair_score1,\n"
-        "                    pipeb_score0, pipeb_score1));\n"
-        "                pair_score0 = vs_.x;\n"
-        "                pair_score1 = vs_.y;\n"
-        "                pipeb_score0 = vs_.z;\n"
-        "                pipeb_score1 = vs_.w;\n"
-        "            }\n")
     out = text.replace(madds_b, "").replace(reduce_b, "")
-    out = out.replace(reduce_a, fused)
-    return out
+    return out.replace(reduce_a, madds_b + reduce_block)
+
+
+def vec4(text):
+    return fuse_qk(text, VEC4_REDUCE)
+
+
+def tree4(text):
+    return fuse_qk(text, TREE4_REDUCE)
 
 
 COMBINE_HEAD = """        for (int p = 0; p < pair_planes; ++p) {
@@ -163,3 +201,4 @@ write("probe_d.metal", vec2(padded))
 write("probe_e.metal", vec4(plain))
 write("probe_f.metal", vec4(padded))
 write("probe_g.metal", epilogue_vec(vec4(padded)))
+write("probe_h.metal", tree4(padded))
