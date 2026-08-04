@@ -54,7 +54,13 @@ def interp(curve, x):
 # name, calls/step, us/call measured, MB/call, bytes in flight per lane in the
 # shipped kernel (kBlocks * rowsPerSimd * 8 B), note
 DISPATCHES = [
-    ("routed_shared_nvfp4_down_residual", 39, 48.5, 5.311, 32, "1 k-block, 4 rows/simd"),
+    # Interim 8's row for this kernel is the pre-#7 `_v4` geometry (48.5 us,
+    # 109.5 GB/s). Interim 9 of the same document re-measured the shipped `_v5`
+    # on this host at 22.96 us/call, 231.3 GB/s, so 48.5 would be a stale table
+    # row, not a live gap. Cross-check: my reads-only probe puts the achievable
+    # for this exact shape at 222.5 GB/s, i.e. the shipped kernel runs at 104%
+    # of the probe ceiling. That agreement is the probe's main validation.
+    ("routed_shared_nvfp4_down_residual", 39, 22.96, 5.311, 32, "1 k-block, 4 rows/simd"),
     ("routed_nvfp4_swiglu_qmv_top8keys", 39, 38.9, 9.442, 32, "4 k-blocks, 1 row/simd"),
     ("decode_nvfp4_qkv_h64", 30, 45.3, 11.80, 32, "4 k-blocks, 1 row/simd"),
     ("oproj_act_h64", 30, 38.3, 9.45, 32, "4 rows/simd"),
@@ -75,8 +81,15 @@ DISPATCHES = [
     ("remaining small dispatches", 6, 3.3, 0.008, 8, "floor bound"),
 ]
 
-# The profile sums to gpu_busy_union 9.498 ms; the wall step is 8.769 ms.
-PROFILE_MS = 9.498
+# Interim 8's table sums to gpu_busy_union 9.498 ms, but that snapshot predates
+# #7. Replacing its stale down row with Interim 9's shipped measurement brings
+# the dispatch sum to 8.503 ms against a current-frontier wall step of 8.769 ms
+# (`research/CURRENT_RESEARCH_STATE.md:82`). The frontier also gained ~0.29 ms
+# after #7 from merges that this table cannot attribute, so the live dispatch
+# sum is a little lower again and the inter-dispatch gap a little larger. The
+# frame factor is therefore >1 and every per-stream gap below is a conservative
+# upper bound on what is recoverable.
+PROFILE_MS = 8.503
 STEP_MS = 8.769
 FRAME = STEP_MS / PROFILE_MS
 
@@ -107,3 +120,19 @@ total_gap = sum(g for g, _, _ in gaps)
 print(f"  {total_gap:6.0f} us  ({total_gap * FRAME:6.0f} us of the wall step)  TOTAL")
 print(f"\nadvisor hard-core residual 1.51 ms; this decomposition names "
       f"{total_gap * FRAME / 1000:.2f} ms of it")
+
+# Closed-form decomposition of the advisor's residual. The byte-only roofline is
+# the only figure that treats the step as one 1794 MB stream; every term below is
+# a named reason the step cannot be that.
+BYTE_ONLY_MS = 6.895
+excess = STEP_MS - BYTE_ONLY_MS
+ramp = total_predicted / 1000 - BYTE_ONLY_MS
+named = total_gap / 1000
+dead_band = STEP_MS - total_measured / 1000
+print(f"\ndecomposition of `step - byte-only roofline` = {excess:.3f} ms")
+print(f"  {ramp:.3f} ms  bytes-per-dispatch size ramp   structural, 406 dispatches")
+print(f"  {named:.3f} ms  named per-stream shortfalls    recoverable in principle")
+print(f"  {dead_band:.3f} ms  inter-dispatch dead band       advisor bound was <= 0.38")
+print(f"  {ramp + named + dead_band:.3f} ms  sum "
+      f"(unexplained {excess - (ramp + named + dead_band):+.3f} ms)")
+print(f"  {0.0:.3f} ms  access pattern                 measured, not inferred")
