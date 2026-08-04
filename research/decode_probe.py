@@ -23,6 +23,12 @@ GOLDEN = os.path.join(
 )
 
 
+def rss_gb(pid: int) -> float:
+    out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)],
+                         capture_output=True, text=True).stdout.strip()
+    return int(out) * 1024 / 2**30 if out else float("nan")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--steps", type=int, default=200)
@@ -66,13 +72,17 @@ def main() -> int:
     load_seconds = time.perf_counter() - t_launch
     print(f"worker up in {load_seconds:.1f}s ok={hello.get('ok')}", flush=True)
 
-    diag0 = send({"id": 900, "kind": "phase_diagnostics"})
-    print("diagnostics after load: "
-          f"peak_ram_gb={diag0.get('peak_ram_gb')} "
-          f"mlx_active_gb={(diag0.get('mlx_active_memory_bytes') or 0)/2**30:.2f} "
-          f"mlx_cache_gb={(diag0.get('mlx_cache_memory_bytes') or 0)/2**30:.2f} "
-          f"mlx_peak_gb={(diag0.get('mlx_peak_memory_bytes') or 0)/2**30:.2f}",
-          flush=True)
+    def report_diagnostics(label: str, req_id: int) -> None:
+        diag = send({"id": req_id, "kind": "phase_diagnostics"})
+        print(f"diagnostics {label}: "
+              f"worker_rss_gb={rss_gb(proc.pid):.2f} "
+              f"peak_ram_gb={diag.get('peak_ram_gb')} "
+              f"mlx_active_gb={(diag.get('mlx_active_memory_bytes') or 0)/2**30:.2f} "
+              f"mlx_cache_gb={(diag.get('mlx_cache_memory_bytes') or 0)/2**30:.2f} "
+              f"mlx_peak_gb={(diag.get('mlx_peak_memory_bytes') or 0)/2**30:.2f}",
+              flush=True)
+
+    report_diagnostics("after load", 900)
 
     if args.prefill:
         t0 = time.perf_counter()
@@ -96,6 +106,8 @@ def main() -> int:
         token = expected[i + 1] if i + 1 < len(expected) else resp["token"]
     print("DECODE_PHASE_END", flush=True)
 
+    print("first 8 steps (ms): "
+          + " ".join(f"{t*1e3:.3f}" for t in step_times[:8]), flush=True)
     ordered = sorted(step_times)
     print(f"decode steps={len(step_times)} "
           f"mean={statistics.mean(step_times)*1e3:.3f} ms "
@@ -105,13 +117,7 @@ def main() -> int:
           f"min={ordered[0]*1e3:.3f} ms max={ordered[-1]*1e3:.3f} ms "
           f"total={sum(step_times):.3f} s", flush=True)
 
-    diag1 = send({"id": 901, "kind": "phase_diagnostics"})
-    print("diagnostics after decode: "
-          f"peak_ram_gb={diag1.get('peak_ram_gb')} "
-          f"mlx_active_gb={(diag1.get('mlx_active_memory_bytes') or 0)/2**30:.2f} "
-          f"mlx_cache_gb={(diag1.get('mlx_cache_memory_bytes') or 0)/2**30:.2f} "
-          f"mlx_peak_gb={(diag1.get('mlx_peak_memory_bytes') or 0)/2**30:.2f}",
-          flush=True)
+    report_diagnostics("after decode", 901)
 
     proc.stdin.close()
     proc.wait(timeout=120)
