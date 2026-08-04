@@ -298,3 +298,42 @@ Two host caveats that any replication must respect:
   encodes: same kernels, same order, same inputs. Bit-identity is expected, and
   is checked rather than assumed.
 
+
+## 9. Verification record
+
+All four checks ran on commit `a3578f9`/`c4a90f2` (the scored surface is
+identical across those; only research prose moved).
+
+| check | command | result |
+| --- | --- | --- |
+| matched `--local-iterate` pair | `research/frieren_verify_cap50.sh`, training `ad802ec3` | candidate and control both `max_abs_diff = 0`, `passed_correctness = true`, 130 checked steps, golden hash `b9509697...a58d7a63` |
+| unit and harness tests | `swift test --force-resolved-versions` | 454 tests in 6 suites passed, exit 0, `Package.resolved` restored |
+| upstream-equivalence oracle | `research/frieren_verify_cap50_oracle.sh`, training `a43401c4` | identical at both startup profiles: prefill `0.125` / `0.011933609` token `5991 == 5991`, decode-0..7 exactly `0`, `EQUIVALENCE_EXACT_STEPS=8` |
+| submission preflight | `--local-submit` at full profile, training `04101528` | `passed = true`, `max_abs_diff = 0`, decode `0.009426` s/token, prefill `0.001206` s/token, peak RAM 21 GB |
+
+The pair's own timings are `n = 1` per arm and unbalanced by position (candidate
+ran first), so they are not the effect estimate; they are a correctness gate.
+For the record they run in the same direction as the screens: decode
+`0.0137469` vs `0.0138107` s/token (−0.46 %), prefill `0.0012186` vs
+`0.0011898` (+2.4 %, one draw from the bistable prefill distribution of §6).
+
+The control arm is worth a note of its own: it is the *same binary and the same
+commit* as the candidate, with 200 MiB restored through the environment. That is
+only possible because the in-tree call is `setenv(..., overwrite: 0)`. Keeping
+that seam means every future value of this knob can be A/B'd without a rebuild.
+
+### One platform constraint that bounds receipt spending
+
+`mlxfast submit` enforces **one in-flight ranked submission per account**:
+
+```json
+{"error":{"code":"conflict","message":"account already has 1 submission(s) in flight for this benchmark (limit 1)"}}
+```
+
+With observed validation turnaround of roughly 25 minutes per receipt, an
+account can spend about two receipts an hour *in total, across every role*. A
+three-receipt family therefore occupies the shared queue for over an hour, and
+two roles submitting concurrently will interleave. `research/frieren_spend_receipts.sh`
+waits for the slot instead of failing, and detects success from the
+submission-row count rather than the CLI's success text.
+
