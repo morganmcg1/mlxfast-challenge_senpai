@@ -5617,6 +5617,7 @@ final class LagunaRuntimeAttention: Module {
                 {
                     lagunaTrace("attention projection async rung layer 0")
                     asyncEval(qkv, gateLogits)
+                    if FrierenStepProf.enabled { FrierenStepProf.markFirstAsync() }
                 }
                 // When the fused gate-product kernel will consume the gate at
                 // the output projection, hand it the RAW BF16 logits and skip
@@ -10748,6 +10749,7 @@ final class LagunaRuntimeModelInner: Module {
         // seed row, so the angles are the exact floats that layer's kernel
         // would have computed rather than a re-derivation.
 
+        if FrierenStepProf.enabled, isSingleTokenDecode { FrierenStepProf.mark(1) }
         for (i, layer) in layers.enumerated() {
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
@@ -10838,7 +10840,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        if FrierenStepProf.enabled, inputs.dims(1, 1) { FrierenStepProf.begin() }
         let fullHidden = model(inputs, cache: cache)
+        if FrierenStepProf.enabled, inputs.dims(1, 1) { FrierenStepProf.mark(3) }
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
         // vocabulary head so prefill neither normalizes nor projects the
@@ -10867,6 +10871,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
+        if FrierenStepProf.enabled, inputs.dims(1, 1) { FrierenStepProf.end() }
         return result
     }
 
@@ -10954,3 +10959,59 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         return weights.filter { !$0.key.contains("rotary_emb.inv_freq") }
     }
 }
+
+// MARK: - RESEARCH-ONLY step-phase profiler (FRIEREN_CBPROF=1). Revert before scored runs.
+
+enum FrierenStepProf {
+    static let enabled = ProcessInfo.processInfo.environment["FRIEREN_CBPROF"] == "1"
+    static let capacity = 20000
+    nonisolated(unsafe) static var marks = [Double](repeating: 0, count: 5 * capacity)
+    nonisolated(unsafe) static var step = 0
+    nonisolated(unsafe) static var armed = false
+    nonisolated(unsafe) static var installed = false
+    nonisolated(unsafe) static let scale: Double = {
+        var tb = mach_timebase_info_data_t()
+        mach_timebase_info(&tb)
+        return Double(tb.numer) / Double(tb.denom) * 1e-9
+    }()
+
+    @inline(__always) static func now() -> Double { Double(mach_absolute_time()) * scale }
+
+    @inline(__always) static func mark(_ slot: Int) {
+        if step < capacity { marks[5 * step + slot] = now() }
+    }
+
+    static func begin() {
+        if !installed {
+            installed = true
+            atexit(frierenStepProfDump)
+        }
+        mark(0)
+        armed = true
+    }
+
+    @inline(__always) static func markFirstAsync() {
+        if armed {
+            armed = false
+            mark(2)
+        }
+    }
+
+    static func end() {
+        mark(4)
+        step += 1
+    }
+}
+
+func frierenStepProfDump() {
+    var out = ""
+    for s in 0..<min(FrierenStepProf.step, FrierenStepProf.capacity) {
+        let b = 5 * s
+        let m = FrierenStepProf.marks
+        out += String(
+            format: "FRSTEP %.9f %.9f %.9f %.9f %.9f\n",
+            m[b], m[b + 1], m[b + 2], m[b + 3], m[b + 4])
+    }
+    FileHandle.standardError.write(Data(out.utf8))
+}
+
