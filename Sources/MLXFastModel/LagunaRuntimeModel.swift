@@ -729,17 +729,25 @@ private let lagunaAttentionProjectionAsyncEnabled =
 /// density from the submission surface, and only for single-token decode, so
 /// the prefill schedule is untouched.
 ///
+/// Measured dose-response on M4 Pro at the shipped cap, from traced arms:
+/// 48 command buffers/step and 8839.8 µs GPU-busy with no rungs, 90 and
+/// 8782.1 with `ab`, 140 and 8716.3 when the cap itself is dropped to 50.
+/// Both points give **−1.35 µs of GPU-busy per added command buffer**, so the
+/// effect is linear in boundary count and reaching the cap-50 density is worth
+/// about −124 µs/step.
+///
 /// `a` fires after the attention output projection, `b` after the fused
-/// residual+RMSNorm+router. Both force arrays the next dispatch consumes
-/// anyway, so no work is added and no value changes.
-private let lagunaDecodeSublayerAsyncRungs: (a: Bool, b: Bool) = {
-    switch ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_SUBLAYER_ASYNC"]?
-        .lowercased()
-    {
-    case "a": return (true, false)
-    case "b": return (false, true)
-    case "ab", "1", "on": return (true, true)
-    default: return (false, false)
+/// residual+RMSNorm+router, `c` after router top-k selection. Each forces
+/// arrays the next dispatch consumes anyway, so no work is added and no value
+/// changes.
+private let lagunaDecodeSublayerAsyncRungs: (a: Bool, b: Bool, c: Bool) = {
+    let raw = ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_SUBLAYER_ASYNC"]?
+        .lowercased() ?? "off"
+    switch raw {
+    case "off", "0", "": return (false, false, false)
+    case "1", "on": return (true, true, true)
+    default:
+        return (raw.contains("a"), raw.contains("b"), raw.contains("c"))
     }
 }()
 
@@ -9920,6 +9928,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
+        if lagunaDecodeSublayerAsyncRungs.c, x.dims(1, 1, LagunaConstants.hiddenSize) {
+            asyncEval(inds, weights)
+        }
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
