@@ -144,6 +144,25 @@ cannot move a boundary; at 50 MiB the threshold sits inside the distribution.
 forwards per process and look at the distribution, not a single warm median. A
 single-forward measurement of a tight cap can land in either mode.
 
+### Is an intermediate cap better? No - three levels, both axes per process
+
+A third screen answers the obvious question with a different instrument: three
+levels (200 / 100 / 50 MiB, ops fixed at 400), position sequence
+`A B C C A B B C A` so each level's positions sum to 15, and each arm measuring
+prefill *and* decode inside one process.
+
+| cap | n | prefill `S` ms | dS % | decode `T` ms | dT % | predicted score % |
+| --- | --: | --: | --: | --: | --: | --: |
+| 200 MiB | 3 | 545.45 | - | 9.0317 | - | - |
+| 100 MiB | 3 | 547.15 | +0.313 | 8.9813 | -0.557 | +0.24 |
+| 50 MiB | 3 | 547.12 | +0.306 | 8.8730 | **-1.757** | **+1.01** |
+
+Two conclusions. The decode contrast **replicates** on an independent
+instrument (-1.757 % here vs -1.696 % above). And 100 MiB is **dominated**: it
+pays the whole prefill cost and returns under a third of the decode gain, so
+there is no smooth cap to tune - the useful boundary density only appears at or
+below MLX's own stock threshold.
+
 ## Why this is expected to be net positive
 
 Using the campaign's ranked score elasticities (`T` 0.638, `S` 0.362, where
