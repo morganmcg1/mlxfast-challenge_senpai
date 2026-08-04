@@ -202,7 +202,9 @@ let lagunaScaleCensusEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_CENSUS"] == "1"
 
 final class LagunaScaleCensus {
-    private var families: [String: [Int]] = [:]
+    private var codeHist: [String: [Int]] = [:]
+    private var blockSpanHist: [String: [Int]] = [:]
+    private var rowSpanHist: [String: [Int]] = [:]
     private var order: [String] = []
 
     func record(_ family: String, _ plane: String, _ scales: MLXArray?) {
@@ -212,28 +214,74 @@ final class LagunaScaleCensus {
             return
         }
         let bytes = contiguous(scales).asArray(UInt8.self)
-        var hist = [Int](repeating: 0, count: 256)
-        for b in bytes { hist[Int(b)] += 1 }
-        write("plane \(plane) shape=\(scales.shape) " + summary(hist))
-        if families[family] == nil {
-            families[family] = [Int](repeating: 0, count: 256)
+        var codes = [Int](repeating: 0, count: 256)
+        for b in bytes { codes[Int(b)] += 1 }
+        let blocks = spanHist(bytes, stride: 32)
+        let rows = spanHist(bytes, stride: scales.dim(-1))
+        write(
+            "plane \(plane) shape=\(scales.shape) " + codeSummary(codes)
+                + " " + spanSummary(blocks, label: "blk32")
+                + " " + spanSummary(rows, label: "row"))
+        if codeHist[family] == nil {
+            codeHist[family] = [Int](repeating: 0, count: 256)
+            blockSpanHist[family] = [Int](repeating: 0, count: 256)
+            rowSpanHist[family] = [Int](repeating: 0, count: 256)
             order.append(family)
         }
-        for value in 0..<256 where hist[value] > 0 { families[family]![value] += hist[value] }
+        for value in 0..<256 {
+            codeHist[family]![value] += codes[value]
+            blockSpanHist[family]![value] += blocks[value]
+            rowSpanHist[family]![value] += rows[value]
+        }
     }
 
     func report() {
         guard lagunaScaleCensusEnabled else { return }
-        var global = [Int](repeating: 0, count: 256)
+        var globalCodes = [Int](repeating: 0, count: 256)
+        var globalBlocks = [Int](repeating: 0, count: 256)
+        var globalRows = [Int](repeating: 0, count: 256)
         for family in order {
-            let hist = families[family]!
-            for value in 0..<256 { global[value] += hist[value] }
-            write("family \(family) " + summary(hist) + " " + counts(hist))
+            for value in 0..<256 {
+                globalCodes[value] += codeHist[family]![value]
+                globalBlocks[value] += blockSpanHist[family]![value]
+                globalRows[value] += rowSpanHist[family]![value]
+            }
+            write(
+                "family \(family) " + codeSummary(codeHist[family]!)
+                    + " " + spanSummary(blockSpanHist[family]!, label: "blk32")
+                    + " " + spanSummary(rowSpanHist[family]!, label: "row")
+                    + " " + counts(codeHist[family]!)
+                    + " " + counts(blockSpanHist[family]!, name: "blkspan"))
         }
-        write("global " + summary(global) + " " + counts(global))
+        write(
+            "global " + codeSummary(globalCodes)
+                + " " + spanSummary(globalBlocks, label: "blk32")
+                + " " + spanSummary(globalRows, label: "row")
+                + " " + counts(globalCodes))
     }
 
-    private func summary(_ hist: [Int]) -> String {
+    /// Histogram of `max - min` over each consecutive `stride`-element chunk,
+    /// the quantum a 32-lane simdgroup reads in one iteration (`stride = 32`)
+    /// and one output row (`stride = groups per row`).
+    private func spanHist(_ bytes: [UInt8], stride: Int) -> [Int] {
+        var hist = [Int](repeating: 0, count: 256)
+        guard stride > 0, bytes.count % stride == 0 else { return hist }
+        var base = 0
+        while base < bytes.count {
+            var lo = UInt8.max
+            var hi = UInt8.min
+            for index in base..<(base + stride) {
+                let value = bytes[index]
+                if value < lo { lo = value }
+                if value > hi { hi = value }
+            }
+            hist[Int(hi - lo)] += 1
+            base += stride
+        }
+        return hist
+    }
+
+    private func codeSummary(_ hist: [Int]) -> String {
         let present = (0..<256).filter { hist[$0] > 0 }
         let total = hist.reduce(0, +)
         return "n=\(total) min=\(present.first ?? -1) max=\(present.last ?? -1)"
@@ -241,9 +289,22 @@ final class LagunaScaleCensus {
             + " codes=[\(present.map(String.init).joined(separator: ","))]"
     }
 
-    private func counts(_ hist: [Int]) -> String {
+    private func spanSummary(_ hist: [Int], label: String) -> String {
+        let total = hist.reduce(0, +)
+        guard total > 0 else { return "\(label)=none" }
+        func share(_ limit: Int) -> String {
+            let covered = hist[0...limit].reduce(0, +)
+            return String(format: "%.4f", Double(covered) / Double(total))
+        }
+        let maxSpan = (0..<256).last { hist[$0] > 0 } ?? 0
+        return "\(label)_n=\(total) \(label)_le3=\(share(3)) \(label)_le7=\(share(7))"
+            + " \(label)_le15=\(share(15)) \(label)_le31=\(share(31))"
+            + " \(label)_max=\(maxSpan)"
+    }
+
+    private func counts(_ hist: [Int], name: String = "hist") -> String {
         let pairs = (0..<256).filter { hist[$0] > 0 }.map { "\($0):\(hist[$0])" }
-        return "hist=[\(pairs.joined(separator: ","))]"
+        return "\(name)=[\(pairs.joined(separator: ","))]"
     }
 
     private func write(_ line: String) {
