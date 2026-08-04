@@ -993,26 +993,41 @@ Alongside it, `transforms.cpp:25` sets `MAX_ACTIVE_TASKS = 10` and
 outstanding. Pure runahead is therefore capped at about
 `10 * 51 = 510` dispatches, which is the right order of magnitude but **2.4x
 below the measured 1209-dispatch knee**, so a hard count quota is not the whole
-story either. I am deliberately not claiming a mechanism I have not isolated.
-The cheap discriminating test is available and needs no code change:
-`max_ops_per_buffer` is read through
-`env::max_ops_per_buffer` (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/utils.h:178`),
-so re-running the `n = 2400` point with `MLX_MAX_OPS_PER_BUFFER` raised 10x
-separates per-command-buffer commit cost from per-dispatch encode cost: if `c`
-falls, the 2.6 us is mostly commit amortisation; if it does not move, it is a
-genuine per-dispatch cost.
+story either.
 
-The lever, flagged and **not** implemented here because it is outside this
-assignment: `device.cpp` and `transforms.cpp` are **not** in
-`benchmark.json`'s `editablePaths` (97 entries; the only vendored MLX headers
-listed near this code are `kernels/reduce_utils.h` and
-`kernels/quantized_utils.h`), so the commit policy cannot be edited directly.
-But `env::max_ops_per_buffer` caches into a **function-local static**
-initialised on first call, which happens when the MLX `Device` is first
-constructed — and `Sources/MLXFastModel/` *is* editable and runs before that.
-A single `setenv` from runtime startup code would therefore re-tune the
-command-buffer batching policy for the scored path without touching any
-unlisted file. Whether that is worth anything depends entirely on which side of
-the knee the ranked decode path sits on, which is what official runs `C` and `D`
-are for: below the knee it is worth exactly zero.
+### The discriminating test, run: it is not command-buffer commit cost
+
+`max_ops_per_buffer` is read through `env::max_ops_per_buffer`
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/utils.h:178`), so the mechanism can be
+tested from the outside with no code change at all. Raising it 10x cuts the
+number of command-buffer commits per decode step by 10x. If the 2.607 us is
+mostly commit amortisation, `c` should collapse; if it is a genuine per-dispatch
+encode or launch cost, nothing should move.
+
+| `MLX_MAX_OPS_PER_BUFFER` | n | S (ms) | T (ms) |
+| --- | ---: | ---: | ---: |
+| default (50) | 2400 | 614.226 | 13.21733 |
+| 500 | 2400 | 621.813 | 13.39666 |
+
+`T` does not fall. It rises 1.4%. **The per-dispatch cost is not
+per-command-buffer commit cost**, and the ~1200-dispatch absorption capacity is
+not MLX's op-per-buffer limit. Two facts that were already in the data agree:
+the capacity does not move when the bound-buffer set stays fixed and the
+threadgroup count changes 20x, and `50 * 10 = 500` commits' worth of policy
+change is 10x the lever that would be needed if commits cost anything material
+here.
+
+### The lever this exposes, and its price
+
+`device.cpp` and `transforms.cpp` are **not** in `benchmark.json`'s
+`editablePaths` (97 entries; the only vendored MLX headers listed near this code
+are `kernels/reduce_utils.h` and `kernels/quantized_utils.h`), so the commit
+policy cannot be edited directly. But `env::max_ops_per_buffer` caches into a
+**function-local static** initialised on first call, which happens when the MLX
+`Device` is first constructed — and `Sources/MLXFastModel/` *is* editable and
+runs before that, so a single `setenv` at runtime startup would re-tune the
+batching policy for the scored path without touching an unlisted file.
+
+Measured, that lever is worth **nothing**, and I am reporting it so nobody
+spends an assignment on it.
 
