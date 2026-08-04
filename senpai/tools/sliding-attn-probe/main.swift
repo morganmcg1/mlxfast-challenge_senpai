@@ -90,22 +90,55 @@ let paramsBuffer = device.makeBuffer(
 
 let attended = device.makeBuffer(
     length: heads * headDim * 2, options: .storageModeShared)!
+// Pass-1 partial plane for two-pass variants: 64 heads x 32 partials x
+// (128 dims + max + sum) floats is 1.065 MB. Unused by single-pass variants.
+let partials = device.makeBuffer(
+    length: 4 << 20, options: .storageModeShared)!
+
+struct Stage {
+    let threads: Int
+    let groups: Int
+    let pipeline: MTLComputePipelineState
+}
 
 struct Variant {
     let label: String
     let groupHeads: Int
-    let pipeline: MTLComputePipelineState
+    let stages: [Stage]
+    var threads: Int { stages[0].threads }
+    var groups: Int { stages[0].groups }
 }
 
-func loadVariant(label: String, path: String, groupHeads: Int) -> Variant {
+func makePipeline(_ path: String) -> MTLComputePipelineState {
     let source = try! String(contentsOfFile: path, encoding: .utf8)
     let options = MTLCompileOptions()
     // Match mlx's JIT: Device::build_library_ sets fast math off.
     options.fastMathEnabled = false
     let library = try! device.makeLibrary(source: source, options: options)
     let function = library.makeFunction(name: "probe")!
-    let pipeline = try! device.makeComputePipelineState(function: function)
-    return Variant(label: label, groupHeads: groupHeads, pipeline: pipeline)
+    return try! device.makeComputePipelineState(function: function)
+}
+
+// A variant is one or more dispatch stages run in order per layer, so a
+// two-pass design pays its real second-dispatch cost here.
+func loadVariant(
+    label: String, paths: String, groupHeads: Int,
+    threads: Int = 1024, groups: Int? = nil
+) -> Variant {
+    let stages = paths.split(separator: ",").enumerated().map {
+        index, spec -> Stage in
+        let parts = spec.split(separator: "@").map(String.init)
+        let pipeline = makePipeline(parts[0])
+        precondition(
+            index == 0 || parts.count == 3,
+            "extra stages need file@threads@groups")
+        return Stage(
+            threads: parts.count > 1 ? Int(parts[1])! : threads,
+            groups: parts.count > 2
+                ? Int(parts[2])! : (groups ?? (heads / groupHeads)),
+            pipeline: pipeline)
+    }
+    return Variant(label: label, groupHeads: groupHeads, stages: stages)
 }
 
 // Variants come from the command line as `label:path:headsPerThreadgroup`
@@ -120,20 +153,36 @@ if occupancyMode { args.removeFirst() }
 let specs = args
 guard !specs.isEmpty else {
     FileHandle.standardError.write(Data(
-        "usage: probe [--occupancy] label:file.metal:headsPerThreadgroup ...\n".utf8))
+        "usage: probe [--occupancy] label:file.metal:heads[:threads[:groups]] ...\n".utf8))
     exit(2)
 }
 let variants = specs.map { spec -> Variant in
     let f = spec.split(separator: ":").map(String.init)
-    precondition(f.count == 3, "bad variant spec \(spec)")
-    return loadVariant(label: f[0], path: f[1], groupHeads: Int(f[2])!)
+    precondition(f.count >= 3 && f.count <= 5, "bad variant spec \(spec)")
+    return loadVariant(
+        label: f[0], paths: f[1], groupHeads: Int(f[2])!,
+        threads: f.count > 3 ? Int(f[3])! : 1024,
+        groups: f.count > 4 ? Int(f[4])! : nil)
 }
 
 func encode(
     _ variant: Variant, layer: Int, groups groupOverride: Int? = nil,
     into encoder: MTLComputeCommandEncoder
 ) {
-    encoder.setComputePipelineState(variant.pipeline)
+    for (index, stage) in variant.stages.enumerated() {
+        encoder.setComputePipelineState(stage.pipeline)
+        bind(layer: layer, into: encoder)
+        encoder.dispatchThreadgroups(
+            MTLSize(
+                width: index == 0 ? (groupOverride ?? stage.groups)
+                    : stage.groups,
+                height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(
+                width: stage.threads, height: 1, depth: 1))
+    }
+}
+
+func bind(layer: Int, into encoder: MTLComputeCommandEncoder) {
     encoder.setBuffer(rawQueries, offset: 0, index: 0)
     encoder.setBuffer(rawKeys, offset: 0, index: 1)
     encoder.setBuffer(rawValues, offset: 0, index: 2)
@@ -145,10 +194,7 @@ func encode(
     encoder.setBuffer(paramsBuffer, offset: 0, index: 8)
     encoder.setBuffer(scaleArr, offset: 0, index: 9)
     encoder.setBuffer(attended, offset: 0, index: 10)
-    let groups = groupOverride ?? (heads / variant.groupHeads)
-    encoder.dispatchThreadgroups(
-        MTLSize(width: groups, height: 1, depth: 1),
-        threadsPerThreadgroup: MTLSize(width: 1024, height: 1, depth: 1))
+    encoder.setBuffer(partials, offset: 0, index: 11)
 }
 
 func runOnce(_ variant: Variant) -> [UInt16] {
@@ -169,13 +215,14 @@ print(
     "threadgroup memory limit \(device.maxThreadgroupMemoryLength) B, "
         + "max threads/tg \(device.maxThreadsPerThreadgroup.width)")
 for variant in variants {
-    print(
-        "\(variant.label): threadExecutionWidth "
-            + "\(variant.pipeline.threadExecutionWidth), "
-            + "maxTotalThreadsPerThreadgroup "
-            + "\(variant.pipeline.maxTotalThreadsPerThreadgroup), "
-            + "staticThreadgroupMemoryLength "
-            + "\(variant.pipeline.staticThreadgroupMemoryLength)")
+    for (index, stage) in variant.stages.enumerated() {
+        print(
+            "\(variant.label)[\(index)]: \(stage.groups) tg x "
+                + "\(stage.threads) thr, maxTotalThreadsPerThreadgroup "
+                + "\(stage.pipeline.maxTotalThreadsPerThreadgroup), "
+                + "staticThreadgroupMemoryLength "
+                + "\(stage.pipeline.staticThreadgroupMemoryLength)")
+    }
 }
 
 if !occupancyMode {
@@ -264,13 +311,12 @@ for variant in variants {
     var samples = median[variant.label]!
     samples.sort()
     let mid = samples[samples.count / 2]
-    let requested = residentBytes * Double(8 / variant.groupHeads)
     let line = String(
         format:
-            "%@ min %7.1f us/step  median %7.1f  %6.2f us/layer  tg %d  requested %6.1f MB  %5.0f GB/s",
+            "%@ min %7.1f us/step  median %7.1f  %6.2f us/layer  tg %3d x %4d thr",
         variant.label.padding(toLength: 14, withPad: " ", startingAt: 0),
         seconds * 1e6, mid * 1e6, seconds * 1e6 / Double(layers),
-        heads / variant.groupHeads, requested / 1e6, requested / seconds / 1e9)
+        variant.groups, variant.threads)
     print(line)
 }
 print(String(format: "resident KV per step: %.1f MB", residentBytes / 1e6))
