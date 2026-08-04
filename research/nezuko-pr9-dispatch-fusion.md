@@ -9,15 +9,24 @@ model-holding process at a time.
 ## Verdict
 
 **Reject the whole fusion family.** M2 (fold `gate_sp_h64/h48` into the fused
-decode QKV dispatch) was implemented bit-exactly and is a reproducible
-**+2.7% decode-step regression** in the shipped command-buffer batching, even
-though the per-dispatch profile predicted a 3-5% win. M1 inherits the same
-shape and a prior recorded negative. M3 is structurally blocked. The submitted
-surface on this branch is byte-identical to `BASE_SHA`.
+decode QKV dispatch) was implemented bit-exactly. It removes **40 of the 406
+dispatches per step (10%)** and returns **nothing**: the full benchmark moves
+0.0% (inside a measured 0.58% noise floor) and the low-noise probe says the
+steady step gets **1.7-2.7% slower**. The two measurements disagree on the
+magnitude of the loss; neither supports a gain, and the assignment predicted
++2.7% from this mechanism alone. M1 inherits the same shape and a prior
+recorded negative. M3 is structurally blocked. The submitted surface on this
+branch is byte-identical to `BASE_SHA`.
+
+This directly falsifies the arm's premise. If the 118 near-zero-bandwidth
+dispatches carried ~0.47 ms/step of recoverable launch and barrier latency,
+deleting 40 of them had to return at least the ~0.21 ms/step attributed to
+`gate_sp`. It returned zero.
 
 The reusable result is the *reason*: **the per-dispatch `us/call` numbers this
 campaign has been ranking work by are measured with one dispatch per command
-buffer, and that configuration inverts the sign of a fusion.**
+buffer, and that configuration systematically overstates the cost of a cheap
+dispatch and mispredicts the sign of a fusion.**
 
 ## The change that was measured
 
@@ -48,14 +57,33 @@ shipped batching.
 | FUSE=1 SPLIT=0 | 45 | 366 | 8.773 ms | 8.487 ms | 0.286 ms |
 | FUSE=0 SPLIT=0 | 45 | 406 | **8.545 ms** | 8.345 ms | 0.200 ms |
 
-- Shipped batching: fusion is **+228 us/step (+2.7%)**. The two step
-  distributions barely touch (FUSE=1 p10 8.608 > FUSE=0 median 8.538), so this
-  is not run noise inside the arm.
+- Shipped batching: fusion is **+228 us/step (+2.7%)** on the median,
+  **+144 us (+1.7%)** on the per-arm minimum (the estimator least contaminated
+  by scheduler noise). The two step distributions barely touch (FUSE=1 p10
+  8.608 > FUSE=0 median 8.538), so this is not run noise inside the arm, and
+  the arm order favoured FUSE=1 (it ran first, on the cooler host).
 - One dispatch per command buffer: fusion is **-506 us/step**. Opposite sign.
-- Full `--local-iterate`: baseline **13.569 ms/token**, fused candidate
-  **13.604 ms/token** (+0.3%). Same sign as the batched probe; that harness's
-  run-to-run spread (~+/-1%) cannot resolve 228 us on its own, which is exactly
-  why the probe was needed.
+- Full `--local-iterate`, three passes: `BASE_SHA` **13.569** and **13.647
+  ms/token** (two runs of identical code, a **0.58% noise floor**), fused
+  candidate **13.604 ms/token** — exactly between the two baselines, i.e. no
+  measurable change.
+
+**The two instruments disagree on magnitude and I am not going to paper over
+it.** A +228 us/step regression is ~1.7% of the reported decode metric after
+seed dilution (~232 us), which is 3x the harness noise floor and should have
+been visible; it was not. The probe was taken with the local-only GPU profiler
+compiled in, so an interaction between the extra output array of the two-output
+fused kernel and that instrumentation cannot be excluded. What both instruments
+agree on, and what decides the arm:
+
+1. Removing 40 of 406 dispatches produced **no gain** in either instrument.
+2. The QKV body itself is **+0.95 us/call slower** when fused (h64: 47.71 vs
+   46.76; h48: 38.69 vs 37.89), measured consistently, which is +38 us/step of
+   new cost against a dispatch whose true cost is only 213 us/step.
+
+That is the advisor's stated kill condition for this arm verbatim: "the
+absorbing kernel slowing by more than the removed dispatch saved ... it would
+close the whole fusion family."
 
 ## Why the split profile is wrong, quantitatively
 
@@ -124,11 +152,19 @@ on the submitted surface.
 QMV's true cost is 6.24 us/call = 243 us/step, of which only **65 us/step** is
 above the bandwidth floor (the assignment's 0.24 ms figure is the whole
 dispatch, including bytes that any merged kernel must still read). It is the
-same two-body-kernel shape that just lost 2.7%, and the campaign already has a
+same two-body-kernel shape that just failed, and the campaign already has a
 recorded negative for merging routed with shared gate/up ("independent kernels
 overlap better, +0.010 to un-merge"), corroborated by the
 `DARKBLOOM_SHARED_FIRST_DOWN` +0.10 ms/step note in the current tree. Best
 case 0.5% of the step, with a measured mechanism arguing for a loss.
+
+**Residual uncertainty, stated plainly:** M1 was not run, so the family kill
+rests on M2's direct measurement plus M1's prior recorded negative and its much
+smaller re-scoped prize. If the advisor wants direct evidence for M1
+specifically, the `mergedSharedActivated` wiring is a contained change and the
+sweep script generalises to it in a few lines — but on the arithmetic above it
+is competing for 65 us/step, which is 0.5% of the decode metric before
+de-rating, so it is not where the next student-week belongs.
 
 **M3 — structurally blocked.**
 `residual_rms_router_bf16_2048_rpg8_keys_v1` runs 32 threadgroups x 512 threads
@@ -196,4 +232,16 @@ branch is byte-identical to `BASE_SHA`. Restore them with
 to rerun the sweep.
 
 Peak memory: worker RSS 20.71 GB, `peak_ram_gb` 21 under `--local-iterate`.
-Sweep wall time 170 s for all four arms; one `--local-iterate` pass ~115 s.
+Sweep wall time 170 s for all four arms; one `--local-iterate` pass 115-138 s.
+
+## Branch tip verification
+
+`--local-iterate` on the reverted tip (submitted surface identical to
+`BASE_SHA`): `passed=true`, `passed_correctness=true`, `checked_steps=130`,
+`max_abs_diff=0`, `decode_seconds_per_token=0.0136469`,
+`prefill_seconds_per_token=0.00115837`, `peak_ram_gb=21`. Worker rebuilds clean
+from the reverted tree in 59 s. Editable surface 2,999,655 bytes across 142
+files, i.e. 345 bytes free — exactly `BASE_SHA`. `gpqa_ttft_passed=false` and
+`semantic_gpqa_passed=false` are the pre-existing local-mode states that also
+occur on the unchanged base and are not part of `--local-iterate`'s verdict
+(`passed=true`).
