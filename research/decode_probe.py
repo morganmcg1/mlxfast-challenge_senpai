@@ -101,14 +101,20 @@ def main() -> int:
     print(f"decode_begin seed forward: {seed_dt*1e3:.2f} ms", flush=True)
 
     step_spans = []
+    mismatches = []
     token = expected[0]
     print("DECODE_PHASE_START", flush=True)
     for i in range(args.steps):
         t0 = time.perf_counter()
         resp = send({"id": 100 + i, "kind": "decode_step", "token": token})
         step_spans.append((t0, time.perf_counter()))
+        if i + 1 < len(expected) and resp["token"] != expected[i + 1]:
+            mismatches.append((i, expected[i + 1], resp["token"]))
         token = expected[i + 1] if i + 1 < len(expected) else resp["token"]
     print("DECODE_PHASE_END", flush=True)
+    print(f"teacher-forced greedy tokens: {len(mismatches)} divergences"
+          + (f" first={mismatches[0]}" if mismatches else " (all match)"),
+          flush=True)
     step_times = [b - a for a, b in step_spans]
 
     print("first 8 steps (ms): "
