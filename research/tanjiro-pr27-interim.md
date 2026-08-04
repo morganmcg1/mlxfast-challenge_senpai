@@ -794,6 +794,25 @@ dispatch-absorption knee?** Both outcomes are publishable:
 Both keep `S` at `A`'s value, so the prefill axis is untouched and the `S/128`
 term in `T` cancels exactly against `A` rather than approximately.
 
+### The scaled-up lever re-gated on M4 before B's receipt lands
+
+The shipped B defaults were run once on this host, so the 6x larger levers are
+gated the same way the small ones were. `S = 853.829 ms`, `T = 16.89766 ms`,
+`passed_correctness = true`, `max_abs_diff = 0`, `peak_ram_gb = 21`:
+
+| constant | small lever (section 6) | large lever (config B) | agreement |
+| --- | ---: | ---: | ---: |
+| DRAM GB/s | 256.20 | **237.4** | -7.3% |
+| bf16 GEMM TFLOP/s at `512x8192x2048` | 7.40-7.46 | **7.188** | -3.2% |
+
+A 6x change in the injected magnitude moves the extracted rates by 3% and 7%.
+That is the linearity check the instrument needs, and it is also the second
+correctness pass at the shipped magnitudes: 120 GEMMs and 7 sweep passes per step
+change no token. The bandwidth drop is in the expected direction — 7 passes is
+1.88 GB of sustained streaming in a single dispatch rather than 268 MB, so it
+holds the memory system at full load long enough to lose a little clock — and
+both numbers remain ~90% of #21's 262.5 GB/s sequential control.
+
 ### The cross-session trap, and why every fit is a difference
 
 One more reason not to read absolute numbers across receipts: this host's `S`
