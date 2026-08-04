@@ -1,131 +1,92 @@
 #!/usr/bin/env python3
-"""Fit hardware constants from work-injection receipts (PR #27).
+"""PR #27 hardware-constant fit.
 
-Every run reports two observables. With the injected work known exactly, two
-runs give one rate per axis:
+Turns receipt observables into the four constants using exactly the algebra the
+assignment fixes:
 
-    S = 512000 * prefill_seconds_per_token          (ms, 512-token forward)
-    T = 1000 * decode_seconds_per_token - S/128     (ms, steady 1-token step)
+    S = 512000 * prefill_seconds_per_token            (ms, one 512-token forward)
+    T = 1000 * decode_seconds_per_token - S/128       (ms, one steady 1-token step)
 
-    DRAM GB/s     = d(bytes per decode step) / d(T)
-    matrix FLOP/s = d(FLOP per forward)     / d(S)
-    per-dispatch  = d(T or S) / d(dispatch count)
+    DRAM GB/s     = d(bytes per step)    / d(T)
+    matrix FLOP/s = d(FLOP per forward)  / d(S)
+    c_dispatch    = d(T or S)            / d(dispatch count)
 
-Usage: python3 research/tanjiro-pr27-fit.py
-Edit RUNS below; each entry is one receipt.
+Injection magnitudes (LagunaRuntimeModel.swift, instrument block):
+    sweep pass  = 2**24 uint4 = 268_435_456 B read per pass per dispatch
+    matmul      = 2*512*2048*8192 = 17_179_869_184 FLOP per dispatch
 """
 
-SWEEP_BYTES = (1 << 24) * 16  # 268,435,456 B per injected DRAM sweep
-MATMUL_FLOPS = 2 * 512 * 2048 * 8192  # 17,179,869,184 FLOP per injected matmul
+SWEEP_PASS_BYTES = (1 << 24) * 16
+MATMUL_FLOPS = 2 * 512 * 2048 * 8192
 
-# Identical-code noise floors from the 3-receipt control family (PR #13).
-FLOOR_T = 0.00475
-FLOOR_S = 0.00497
-
-
-class Run:
-    def __init__(self, label, host, prefill_s_per_tok, decode_s_per_tok,
-                 sweeps, matmuls, decode_empty, prefill_empty):
-        self.label = label
-        self.host = host
-        self.P = prefill_s_per_tok
-        self.D = decode_s_per_tok
-        self.S = 512000.0 * self.P
-        self.T = 1000.0 * self.D - self.S / 128.0
-        self.sweeps = sweeps
-        self.matmuls = matmuls
-        # Injected dispatches per single-token decode step and per forward.
-        self.decode_dispatches = sweeps + decode_empty
-        self.prefill_dispatches = matmuls + prefill_empty
-        self.decode_bytes = sweeps * SWEEP_BYTES
-        self.prefill_flops = matmuls * MATMUL_FLOPS
+# name -> (prefill_seconds_per_token, decode_seconds_per_token,
+#          sweep_passes, matmuls, decode_empties, prefill_empties)
+RUNS = {
+    # ---- M4 Pro (Mac16,11, applegpu_g16s, 20 cores, 48 GB) local-iterate ----
+    "m4-zero": (0.00113928271484375, 0.013563942703125, 0, 0, 0, 0),
+    "m4-L1": (0.001578521484375, 0.01646667578125, 1, 100, 40, 40),
+    # ---- M5 Max official receipts ----
+}
 
 
-# ---------------------------------------------------------------------------
-# Receipts. Local M4 --local-iterate first, then official M5 submissions.
-# ---------------------------------------------------------------------------
-RUNS = [
-    # Run("m4-0", "M4", 0.0, 0.0, 0, 0, 0, 0),
-    # Run("m4-A", "M4", 0.0, 0.0, 1, 40, 40, 40),
-    # Run("m4-B", "M4", 0.0, 0.0, 3, 100, 40, 40),
-    # Run("m4-C", "M4", 0.0, 0.0, 1, 40, 1000, 4000),
-]
+def obs(run):
+    p, d = run[0], run[1]
+    s = 512_000.0 * p
+    t = 1000.0 * d - s / 128.0
+    return s, t
 
 
-def rel(a, b):
-    return (b - a) / a * 100.0
+def show(name):
+    s, t = obs(RUNS[name])
+    r = RUNS[name]
+    print(
+        f"{name:10s} S={s:9.3f} ms  T={t:8.4f} ms   "
+        f"passes={r[2]} mm={r[3]} empty={r[4]}/{r[5]}"
+    )
 
 
-def bandwidth(r0, r1):
-    """GB/s from the decode-byte difference."""
-    dbytes = r1.decode_bytes - r0.decode_bytes
-    dt_ms = r1.T - r0.T
-    if dbytes == 0 or dt_ms == 0:
-        return None
-    return (dbytes / 1e9) / (dt_ms / 1e3)
+def bandwidth(a, b, c_dispatch_us=None):
+    """GB/s from two runs that differ only in sweep passes."""
+    ra, rb = RUNS[a], RUNS[b]
+    _, ta = obs(ra)
+    _, tb = obs(rb)
+    dbytes = (rb[2] - ra[2]) * SWEEP_PASS_BYTES
+    dt = tb - ta
+    if c_dispatch_us is not None:
+        dt -= (rb[4] - ra[4]) * c_dispatch_us / 1000.0
+    return dbytes / (dt * 1e-3) / 1e9, dt
 
 
-def flop_rate(r0, r1):
-    """TFLOP/s from the prefill-FLOP difference."""
-    dflop = r1.prefill_flops - r0.prefill_flops
-    ds_ms = r1.S - r0.S
-    if dflop == 0 or ds_ms == 0:
-        return None
-    return (dflop / 1e12) / (ds_ms / 1e3)
+def flop_rate(a, b, c_dispatch_us=None):
+    """TFLOP/s from two runs that differ only in matmul count."""
+    ra, rb = RUNS[a], RUNS[b]
+    sa, _ = obs(ra)
+    sb, _ = obs(rb)
+    dflop = (rb[3] - ra[3]) * MATMUL_FLOPS
+    ds = sb - sa
+    if c_dispatch_us is not None:
+        ds -= (rb[3] - ra[3] + rb[5] - ra[5]) * c_dispatch_us / 1000.0
+    return dflop / (ds * 1e-3) / 1e12, ds
 
 
-def dispatch_us(r0, r1, axis):
-    if axis == "decode":
-        dn = r1.decode_dispatches - r0.decode_dispatches
-        dv_ms = r1.T - r0.T
-    else:
-        dn = r1.prefill_dispatches - r0.prefill_dispatches
-        dv_ms = r1.S - r0.S
-    if dn == 0:
-        return None
-    return dv_ms * 1000.0 / dn
-
-
-def err_pct(v0, v1, floor):
-    """Relative 1-sigma error on a difference of two noisy observables."""
-    sigma = ((v0 * floor) ** 2 + (v1 * floor) ** 2) ** 0.5
-    return abs(sigma / (v1 - v0)) * 100.0 if v1 != v0 else float("nan")
-
-
-def report(runs):
-    print(f"{'run':>8} {'host':>4} {'S ms':>10} {'T ms':>9} "
-          f"{'MB/step':>9} {'GFLOP/fwd':>10} {'disp d/p':>10}")
-    for r in runs:
-        print(f"{r.label:>8} {r.host:>4} {r.S:10.3f} {r.T:9.4f} "
-              f"{r.decode_bytes/1e6:9.1f} {r.prefill_flops/1e9:10.1f} "
-              f"{r.decode_dispatches:5d}/{r.prefill_dispatches:<5d}")
-    print()
-    for i in range(len(runs)):
-        for j in range(i + 1, len(runs)):
-            a, b = runs[i], runs[j]
-            if a.host != b.host:
-                continue
-            print(f"--- {a.label} -> {b.label} "
-                  f"(dS {b.S - a.S:+.3f} ms, dT {b.T - a.T:+.4f} ms)")
-            bw = bandwidth(a, b)
-            if bw:
-                print(f"    DRAM            {bw:8.1f} GB/s "
-                      f"+/- {err_pct(a.T, b.T, FLOOR_T):.1f}%")
-            fr = flop_rate(a, b)
-            if fr:
-                print(f"    matrix          {fr:8.2f} TFLOP/s "
-                      f"+/- {err_pct(a.S, b.S, FLOOR_S):.1f}%")
-            cd = dispatch_us(a, b, "decode")
-            if cd is not None and b.decode_dispatches != a.decode_dispatches:
-                print(f"    c_decode        {cd:8.3f} us/dispatch")
-            cp = dispatch_us(a, b, "prefill")
-            if cp is not None and b.prefill_dispatches != a.prefill_dispatches:
-                print(f"    c_prefill       {cp:8.3f} us/dispatch")
-            print()
+def dispatch_cost(a, c):
+    """us per injected empty dispatch, on each axis independently."""
+    ra, rc = RUNS[a], RUNS[c]
+    sa, ta = obs(ra)
+    sc, tc = obs(rc)
+    out = {}
+    if rc[4] != ra[4]:
+        out["decode"] = (tc - ta) * 1000.0 / (rc[4] - ra[4])
+    if rc[5] != ra[5]:
+        out["prefill"] = (sc - sa) * 1000.0 / (rc[5] - ra[5])
+    return out
 
 
 if __name__ == "__main__":
-    if not RUNS:
-        print("no receipts recorded yet")
-    else:
-        report(RUNS)
+    for name in RUNS:
+        show(name)
+    print()
+    print(
+        f"sweep pass = {SWEEP_PASS_BYTES/1e6:.3f} MB   "
+        f"matmul = {MATMUL_FLOPS/1e9:.3f} GFLOP"
+    )
