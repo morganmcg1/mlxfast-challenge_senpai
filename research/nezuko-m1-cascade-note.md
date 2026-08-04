@@ -1,5 +1,13 @@
 # LM-head three-level decode screen (M1 cascade) — submission note
 
+**Model actually run:** Claude Opus 5, high reasoning effort.
+**Coding agent / harness:** OpenHands, driven by the Senpai autoresearch
+advisor/student controller.
+**Local host:** Mac16,11 (M4 Pro), 48 GiB unified memory, 20-core GPU,
+low-memory startup profile. The ranked host is an M5 Max / 128 GB, so every
+local number below is directional evidence and the official paired M5 run is
+the authority.
+
 Student `maple-nezuko`, campaign `mlxfast-maple-20260804`, PR #20,
 assignment `maple-2026-08-04d-lmhead-cascade`.
 
@@ -161,7 +169,69 @@ both far inside the noise floor of a three-receipt family, so reverting them
 costs nothing measurable and removes two mechanisms that would otherwise have
 to be carried and re-justified forever.
 
-## 7. Scope
+## 7. Exact commands, measured results, and course corrections
+
+Setup and measurement, all on the local M4 Pro:
+
+```bash
+./setup.sh                                   # once per host
+research/run_local_benchmark.sh --local-iterate
+research/run_local_benchmark.sh --local-submit
+research/run_upstream_equivalence.sh
+swift test --force-resolved-versions && git checkout -- Package.resolved
+```
+
+`research/run_local_benchmark.sh` is a thin wrapper required on this host: it
+points `MLXFAST_GPU_TEMP_CMD` at `.temp.cpu_temp_avg` because `macmon` reports
+a frozen 2.37 °C GPU temperature here, which would otherwise defeat the 40 °C
+thermal gate.
+
+The arm was measured as an **ABBA-blocked, same-binary A/B**, 4 runs per arm
+in one session, switching only `DARKBLOOM_LMHEAD_FUSED_REFINEMENT` (`0` selects
+the single-pass control, unset selects the cascade). Drift-corrected regression
+`metric = a + b·t + c·arm`:
+
+| Metric | Control | Cascade | Arm effect | Host drift |
+| --- | ---: | ---: | ---: | ---: |
+| `T` (pure decode step, ms) | 9.1185 | 8.9688 | **−1.64% ± 0.43%** (3.8σ) | +0.003 ms/min |
+| `S` (512-token prefill, ms) | 591.23 | 583.67 | −1.27% ± 0.64% (2.0σ) | −0.62 ms/min |
+| `decode_seconds_per_token` (ms) | 13.7375 | 13.5287 | **−1.52% ± 0.31%** (4.8σ) | −0.002 ms/min |
+
+`max_abs_diff = 0`, `passed_correctness = true`, `checked_steps = 130`, and
+identical `golden_hash`/`weights_hash` in **all eight** runs.
+
+**Two course corrections worth recording, because both are easy traps:**
+
+1. *The harness printed a speedup against a stale baseline.* A
+   `score.local-iterate.baseline.json` left on the host was three hours old and
+   from a **different commit**, and `--local-iterate` happily printed a delta
+   against it. Every number above comes from arms measured back-to-back in one
+   session instead. Check the `commit` and `timestamp` fields inside that
+   artifact before believing the printed delta.
+2. *A truncated log nearly produced a false correctness claim.* The first
+   upstream-equivalence run was piped through `tail -120`, which discarded the
+   `mlxfast: lm_head prune active` startup marker, leaving no evidence that the
+   oracle had actually exercised the pruned path. The oracle reports a
+   full-vector `maximumAbsoluteLogitError` of exactly 0 for every decode step —
+   which is *suspicious* for this design, since non-candidate slots are
+   documented to retain coarse BF16 values. Anyone relying on that oracle for a
+   pruning change should confirm the marker is present before treating the zero
+   as certification.
+
+**Caveat on the local magnitude.** The `=0` control still carries the new plane
+packing and the renamed `_v6` kernel, so it is "refinement off", not "pre-M1".
+The measured −1.64%/−2.29% therefore exceeds the −1.11% (kernel-rate) and
+−1.43% (step-average) byte-removal predictions, and part of that excess may be
+contiguity (one 1024 B run per row instead of two disjoint streams) rather than
+pure byte removal. The official paired family against the unmodified base is
+what settles the magnitude.
+
+**Next step.** If this promotes, the same re-split can be pushed one level
+further: a 2-bit level-one plane would read 576 B/row, removing another
+~51 MB/step, at the cost of a wider interval and more survivors. That tradeoff
+is worth measuring, not assuming.
+
+## 8. Scope
 
 No harness, scoring, workflow, test, or fixture file is modified. No prompt,
 token, or answer is hardcoded; nothing is keyed on input tokens. The change is
