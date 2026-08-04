@@ -525,6 +525,54 @@ submissions. The 0.95 floors are measured against the *pinned baseline* and we
 sit at ~2.7x decode / ~1.98x prefill, so a deliberate 15–30% slowdown still
 publishes complete metrics. This is tanjiro's round-6 arm.
 
+### 9. Flag-position audit: 65 flags, and exactly ONE is off on evidence that does not transfer (new, 2026-08-04)
+
+I audited every `DARKBLOOM_*` flag in `Sources/MLXFastModel/` by **the provenance
+of the evidence that set its default**, after the compiled-decode finding showed
+that reading the comments pays. Vocabulary matters: *"Ablation on the paired local
+benchmark"* means the predecessor's own host; *"Ranked measurement"* and
+*"MEASURED (2026-08-01, M5 Max 128 GB, driver rig, 150-step cool-floor ABBA)"*
+mean the real thing.
+
+**58 flags ship ON. 7 are opt-in.** Of the 7:
+
+| flag | why it is off | verdict |
+| --- | --- | --- |
+| `DARKBLOOM_TRACE_FUSION` | diagnostic | correctly off |
+| `DARKBLOOM_PREFILL_ROUTER_TOP8` | **ranked -0.68%** on submission `fe01af9` (1.11254 vs 1.12019). Per-lane predecessor-count selection is ~10x the ALU of the batched merge sort; at 512 rows the stock `argPartition` amortises to a few us/layer (`:8748-8755`) | correctly off |
+| `DARKBLOOM_SHARED_FIRST_DOWN` | **real M5 Max driver rig, 2026-08-01**: regresses ~+0.10 ms/step (`:7620-7635`) | correctly off |
+| `DARKBLOOM_ROPE_ATLAS_VIEWS` | **real M5 Max driver rig ABBA, 2026-08-01**: +0.01..+0.07 ms/step (`:571-578`) | correctly off |
+| `DARKBLOOM_NATIVE_AFFINE_SUFFIX` | a depth-selection probe knob, not a lever (`:309-319`) | correctly off |
+| `DARKBLOOM_FUSED_QKV` | *"Ablation on the **paired local benchmark** showed a mild prefill cost with no decode gain"* (`:108-114`) | **THE ONLY ONE OFF ON NON-TRANSFERRING EVIDENCE** |
+
+**Conclusion: the frontier's flag positions are almost all justified, and there is
+exactly one free-flip candidate in the whole tree.** That candidate is `FUSED_QKV`
+= direction C3, and its case is now stronger than bytes: `k` and `v` are `N=1024`
+and each dispatch only 64 threadgroups, so on 40 M5 cores this is an **occupancy**
+argument, and the local ablation that disabled it ran on 20 cores. Stop treating
+the ~90-flag surface as unexplored territory; it is not.
+
+**Three reusable facts extracted, one of which kills one of my own directions.**
+
+1. **Metal memory barriers are encoder-wide, not per-resource** (`:7620-7635`). In
+   the shipped routed-first order the shared-expert QMV is encoded *after* the
+   routed QMV with no intervening barrier, so **it already overlaps on the GPU**;
+   moving it earlier makes the top-8 barrier wait on it too and *lengthens* the
+   critical path. **This substantially downgrades direction 5b** (overlap the
+   compute-bound `shared_expert` inside `routed_experts`' DRAM stall, which I
+   priced at 0.77% of score): the decode analogue was tried on a real M5 and
+   regressed. Any dispatch-reordering arm now has to argue against an
+   encoder-wide barrier, not a per-resource one.
+2. **A predecessor had an M5 Max 128 GB driver rig** and ran 150-step cool-floor
+   ABBA windows. Several in-tree comments therefore carry **better evidence than
+   anything this campaign can currently produce.** Standing rule: read the comment
+   at the site before assigning an arm there.
+3. **The two RoPE probe dispatches at the head of every decode step are off the
+   critical path** - they overlap the embedding gather and the layer-0 front, so
+   removing them buys nothing. And aliasing ~3 MB atlas buffers as per-step kernel
+   inputs "appears to add slight **resource-tracking cost**" - a named, M5-measured
+   *host-side* per-step term, which is exactly frieren's #23 quantity.
+
 ### Round 4 outcome
 
 | PR | student | verdict |
