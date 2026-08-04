@@ -129,6 +129,85 @@ M4 remains valuable and mandatory for correctness, bit-exactness, surface
 budget, host-CPU accounting, and catching catastrophic regressions. It is its
 use as a *ranking* device for geometry that is retired.
 
+#### SUPERSEDED 2026-08-04: student hosts run different prefill kernels than the M5
+
+The rule above is now known to be the *weaker* of two transfer failures. PR #11
+found the stronger one.
+
+`mlx::core::metal::is_nax_available()`
+(`Vendor/mlx-swift/.../backend/metal/device.cpp:913-931`) requires macOS >= 26.2
+**and GPU architecture generation >= 17**. Student hosts are M4 Pro and report
+`arch=applegpu_g16s gen=16`. The OS gate passes; the GPU generation gate fails.
+
+Measured consequence: **94.2% of prefill GPU time on a student host runs Metal
+functions the official M5 never executes.** These are not the same kernels at a
+different occupancy, they are different kernels: `nvfp4_gather_qmm_rhs_nt`
+48.5%, `steel_gemm_fused_nt_bm64_bn64_bk16` 33.4%, split-K 6.0%,
+`steel_attention_bfloat16_bq32_bk16` 5.1%, `nvfp4_qmm_t` 1.2%. Only 5.8% of
+prefill GPU time is host-independent.
+
+The **steady one-token decode step is 100% host-independent**: every dispatch is
+a hand-written `laguna_*` kernel (or `rms`/`gather_front`), none behind a NAX or
+`#available` gate. The only capability gate in all of `Sources/` is
+`lagunaExpertAlignedGatherEnabled` (`LagunaRuntimeModel.swift:235-249`), used at
+exactly one prefill site (`:9631`).
+
+**Working rules that follow:**
+
+1. Never run a prefill *kernel* experiment on a student host. A local timing pair
+   there is not weak evidence about the M5; it is evidence about different code.
+2. Justify prefill mechanisms from **host-independent** facts — routing
+   statistics, analytic byte and FLOP budgets, rooflines — and then measure them
+   officially.
+3. The `_nax` editable surface is what the M5 selects and is therefore reachable
+   only through official submissions. `fp_gather_qmm_rhs_expert_nax` is
+   additionally **JIT-only**: it is never instantiated in the AOT metallib and is
+   built at runtime from the string in `mlx-generated/fp_quantized_nax.cpp`.
+   Editing the header alone changes nothing at runtime, and the header must stay
+   identical to the generated copy because the AOT metallib compiles it for other
+   kernels.
+4. That kernel family has three silent-failure modes: `tile_matmad_nax` compiles
+   to an empty function for any geometry with odd `TN > 1`; `SM < 16` yields
+   `TM = 0` and no MMA at all; and falling off the `bm == 64 && wm == 4` accept
+   gate (`quantized.cpp:1668-1671`) silently dispatches the non-expert kernel.
+   Any change there needs an explicit positive check that MMA actually ran.
+
+#### ADDED 2026-08-04: the exact score decomposition, and the correct elasticities
+
+The reported decode metric charges the 512-token seed forward into itself, and
+the same forward is the entire prefill metric. Writing `S` for the seed forward
+and `T` for the steady one-token step:
+
+```text
+D = decode_seconds_per_token  = S/128 + T
+P = prefill_seconds_per_token = S/512
+S = 512 * P            T = D - S/128            sigma = (S/128) / D
+d ln score / d ln S = -(0.25 + 0.75 * sigma)
+d ln score / d ln T = -0.75 * (1 - sigma)          # the two sum to -1
+```
+
+Validated against the first official receipt: `S_base/S = 1.9718` against
+published `prefill_speedup 1.971861`, and `D_base/D = 2.7018` against
+`decode_speedup 2.701815`.
+
+At the current M5 operating point `sigma = 14.98%`, so the **seed forward has
+score elasticity 0.362 and the steady decode step 0.638**. The steady step is
+worth 1.76x more per percent. Neither 0.25 nor 0.52 is correct.
+
+Working rules:
+
+1. Report `S` and `T`, for both candidate and paired baseline, for every official
+   run. `decode_speedup` alone is uninterpretable because it blends a 2.83x step
+   with a 1.97x forward.
+2. A student host under `--local-iterate` has `sigma = 33.6%`. It therefore
+   **under-reports a pure steady-step win by 1.28x** and **over-reports a pure
+   seed-forward win by 1.385x**. Apply the correction before predicting M5.
+3. `--local-submit` runs 1023 decode steps, driving `sigma` to about 5.9%. It
+   nearly hides seed-forward wins. Size forward changes with `--local-iterate`
+   and use `--local-submit` only as a packaging check.
+4. `sigma` rises as the steady step improves (10.9% at baseline, 15.0% now), so
+   seed-forward work becomes progressively more valuable, not less.
+
 ### Correctness gate
 Correctness is a hard gate, not a tradeoff. Every checked greedy token must
 match the golden behavior. A fast candidate that changes a token, violates the
