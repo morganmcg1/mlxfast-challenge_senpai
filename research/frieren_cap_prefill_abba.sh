@@ -30,18 +30,18 @@ run_arm() {
   echo "=== ${name} arm=${arm} t=$(date -u +%H:%M:%S) thermal=$(thermal)"
   if [ "${arm}" = "A" ]; then
     out=$(env DARKBLOOM_STARTUP_MEMORY_PROFILE=full \
-      python3 research/prefill_probe.py --reps 12 \
+      python3 research/prefill_probe.py --reps 16 \
         --stderr "/tmp/frcap-prefill-${name}.err" 2>&1)
   else
     out=$(env DARKBLOOM_STARTUP_MEMORY_PROFILE=full \
         MLX_MAX_MB_PER_BUFFER=50 MLX_MAX_OPS_PER_BUFFER=400 \
-      python3 research/prefill_probe.py --reps 12 \
+      python3 research/prefill_probe.py --reps 16 \
         --stderr "/tmp/frcap-prefill-${name}.err" 2>&1)
   fi
-  echo "${out}" | grep -E "^prefill (warm median|[0-9]+:)" | tail -13
+  echo "${out}" | grep -E "^prefill (warm median|[0-9]+:)" | tail -17
   local med
   med=$(echo "${out}" | sed -n 's/^prefill warm median: \([0-9.]*\) ms.*/\1/p')
-  echo "[${name}-${arm}] steps=12 wall_ms_per_step=${med}"
+  echo "[${name}-${arm}] steps=16 wall_ms_per_step=${med}"
 }
 
 run_arm p00-discard A
