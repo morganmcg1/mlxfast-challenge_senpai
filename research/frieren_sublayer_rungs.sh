@@ -25,7 +25,7 @@ run_arm() {
       DARKBLOOM_DECODE_SUBLAYER_ASYNC="${rungs}" \
       FRIEREN_CBPROF="${trace}" \
     python3 research/frieren_host_cpu_probe.py \
-      --warmup-steps 60 --measure-steps 2000 --tag "${name}" 2>"${traceout}"
+      --warmup-steps 60 --measure-steps 2000 --label "${name}" 2>"${traceout}"
   if [ "${trace}" = "1" ]; then
     echo "--- trace analysis ${name} ---"
     python3 research/frieren_head_region.py "${traceout}" 2>&1 | \
