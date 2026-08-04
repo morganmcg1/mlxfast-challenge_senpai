@@ -6,12 +6,14 @@
 # worker process. The seed forward is invocation 1, so decode step index 0, 2,
 # 4 ... are the narrow arm.
 #
-# Arms (q/k/v only unless stated); the two research arms are deliberately not
-# numerically correct and only separate scale bytes from scale load count:
+# Arms (q/k/v only unless stated):
 #   narrow  21 B/32 groups, 3 scale loads per group      (the mechanism)
-#   nibble  16 B/32 groups, 1 scale load per group       (bytes only)
-#   dummy   32 B/32 groups, 3 scale loads per group      (loads only)
 #   oproj   the mechanism on o_proj instead of q/k/v
+#
+# Two further arms measured at commit ad00688 separated scale bytes from scale
+# load count with deliberately wrong magnitudes: `nibble` (16 B, 1 load) and
+# `dummy` (stock 32 B, 3 loads, DARKBLOOM_SCALE_MICRO_ARM). Their kernels are
+# removed again; `research/frieren-pr35-result.md` records the numbers.
 # Research-only; not part of the submission surface.
 set -u
 cd "$(dirname "$0")/.."
@@ -31,7 +33,5 @@ run() {
 }
 
 run narrow DARKBLOOM_ATTN_SCALE_NARROW_OPROJ=0
-run nibble DARKBLOOM_ATTN_SCALE_NARROW_OPROJ=0 DARKBLOOM_SCALE_MICRO_ARM=nibble
-run dummy DARKBLOOM_ATTN_SCALE_NARROW_OPROJ=0 DARKBLOOM_SCALE_MICRO_ARM=dummy
 run oproj DARKBLOOM_ATTN_SCALE_NARROW_QKV=0
 run narrow2 DARKBLOOM_ATTN_SCALE_NARROW_OPROJ=0

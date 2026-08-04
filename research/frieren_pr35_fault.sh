@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # PR35: prove the init-time reconstruction certificate is a live safety net.
 #
-# Run against a worker built with the temporary DARKBLOOM_SCALE_FAULT hook that
-# flips one bit of every nibble plane before the certificate runs. Expected:
-# every site logs `declined (reconstruction mismatch)`, every dispatch logs
-# `inactive` (stock plane), and the greedy tokens still match.
-# Research-only; the fault hook is removed again after this run.
+# Ran against a worker built with a temporary DARKBLOOM_SCALE_FAULT hook (commit
+# 48d28a2, removed again in the next commit) that flipped one bit of every
+# nibble plane before the certificate. Observed: all 80 banks logged
+# `declined (reconstruction mismatch)`, all four dispatch shapes logged
+# `inactive`, and the greedy tokens still matched -- the certificate is a live
+# safety net and the wide fallback is exact. Re-adding the hook is the only way
+# to run this again. Research-only; not part of the submission surface.
 set -u
 cd "$(dirname "$0")/.."
 

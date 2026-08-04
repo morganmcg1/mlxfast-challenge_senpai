@@ -3130,7 +3130,9 @@ struct LagunaNarrowScaleBank {
 /// when any 32-group block spans more than 31 codes or the packing does not
 /// reproduce the plane byte for byte. Both checks run here, at init, on the
 /// real bank: the returned bank is only ever a lossless re-encoding.
-func lagunaNarrowNVFP4ScaleBank(_ scales: MLXArray, site: String) -> LagunaNarrowScaleBank? {
+func lagunaNarrowNVFP4ScaleBank(
+    _ scales: MLXArray, site: String, layer: Int
+) -> LagunaNarrowScaleBank? {
     guard lagunaAttnScaleNarrowEnabled,
         scales.dtype == .uint8, scales.ndim == 2,
         scales.dim(1).isMultiple(of: 32)
@@ -3145,7 +3147,7 @@ func lagunaNarrowNVFP4ScaleBank(_ scales: MLXArray, site: String) -> LagunaNarro
     let index = contiguous(wide - blockBase)
     let span = index.max().asType(.int32).item(Int32.self)
     guard span <= 31 else {
-        lagunaNarrowScaleLog.note("declined (block span \(span) > 31)", site)
+        lagunaNarrowScaleLog.note("declined L\(layer) (block span \(span) > 31)", site)
         return nil
     }
 
@@ -3172,13 +3174,11 @@ func lagunaNarrowNVFP4ScaleBank(_ scales: MLXArray, site: String) -> LagunaNarro
             | ((bitNibble16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8))
     let bases = contiguous(blockBase.reshaped([rows, blocks]))
 
-    let injected = ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_FAULT"] == "1"
     let bank = LagunaNarrowScaleBank(
-        nibbles: injected ? contiguous(nibbles ^ MLXArray(UInt8(1))) : nibbles,
-        highBits: highBits, bases: bases,
+        nibbles: nibbles, highBits: highBits, bases: bases,
         rows: rows, groups: groups)
     guard lagunaNarrowScaleBankReproducesScales(bank, scales) else {
-        lagunaNarrowScaleLog.note("declined (reconstruction mismatch)", site)
+        lagunaNarrowScaleLog.note("declined L\(layer) (reconstruction mismatch)", site)
         return nil
     }
     lagunaNarrowScaleLog.note("built", site)
@@ -5803,7 +5803,7 @@ final class LagunaRuntimeAttention: Module {
             preparedWO.bits == 4, preparedWO.groupSize == 16
         {
             preparedWO.narrowScales = lagunaNarrowNVFP4ScaleBank(
-                preparedWO.scales, site: "oproj L\(layerIdx)")
+                preparedWO.scales, site: "oproj", layer: layerIdx)
         }
         _nativeAffineOProj = preparedWO
         return preparedWO.arrays
@@ -5879,7 +5879,7 @@ final class LagunaRuntimeAttention: Module {
             fused.bits == 4, fused.groupSize == 16
         {
             fused.narrowScales = lagunaNarrowNVFP4ScaleBank(
-                fused.scales, site: "qkv L\(layerIdx)")
+                fused.scales, site: "qkv", layer: layerIdx)
         }
         _nativeAffineQKV = fused
         return fused.arrays + (_nativeAffineGProj?.arrays ?? [])
