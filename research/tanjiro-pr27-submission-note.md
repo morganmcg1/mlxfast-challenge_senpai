@@ -259,7 +259,51 @@ Full knob list, with the shipped default in parentheses:
 
 ## Results
 
-_Filled in per submission; see the run-specific section appended below._
+### Development-host calibration (M4 Pro, `applegpu_g16s`, 20 GPU cores, 48 GB)
+
+The instrument was gated on the development host first: it has to recover
+constants that were measured there by other means, to within 10%, before a
+receipt is spent. Paired `--local-iterate` receipts, `S` and `T` as defined
+above:
+
+| run | sweep grid | passes | GEMMs | empties d/p | S (ms) | T (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| zero | — | 0 | 0 | 0/0 | 583.311 | 9.0068 |
+| unchained | 2^17 | 1 | 100 | 40/40 | 808.203 | 10.1526 |
+| LA | 2^17 | 1 | 100 | 0/0 | 799.522 | 10.1464 |
+| LB | 2^17 | 3 | 300 | 0/0 | 1260.390 | 12.3377 |
+| LA2 | 2^18 | 1 | 100 | 0/0 | 802.075 | 10.0595 |
+| LB2 | 2^18 | 3 | 300 | 0/0 | 1266.633 | 11.6421 |
+
+Every run returned `passed_correctness: true`, `max_abs_diff: 0`,
+`peak_ram_gb: 21`. The injection is output-neutral in practice as well as by
+construction.
+
+| quantity | instrument (in situ) | independent control | error |
+| --- | ---: | ---: | ---: |
+| achievable DRAM read | **245.0 GB/s** | 262.5 GB/s sequential probe | −6.7% |
+| MLX steel bf16 GEMM, `512×8192×2048` | **7.40–7.46 TFLOP/s** | 6.77 TFLOP/s profiled on the model's own `attn_proj` | +9–10% |
+| chained empty dispatch, 160 TGs | measured in configuration C | 2.5 ± 0.4 µs standalone | — |
+
+Three things fall out of the calibration that are worth more than the numbers:
+
+- The DRAM figure lands at 93% of the standalone sequential control, which is
+  the *expected* efficiency of a grid-stride `uint4` read versus an optimal
+  sequential one — not a suspicious exact match. Both the shipped
+  256-threadgroup grid and the 512-threadgroup grid produce it, agreeing to 1%.
+- The FLOP figure is **3.9× below** the host's 28.76 TFLOP/s MMA ceiling, and
+  the profiled rate of the model's own GEMM family on the same host is 4.2×
+  below it. Any roofline built on a *ceiling* rather than an *achieved* rate is
+  wrong by that factor. This is the single most consequential number here: it
+  turns "is this GEMM compute bound?" from an assumption into an arithmetic
+  question.
+- Changing the sweep grid moved the DRAM axis by 38% and the FLOP axis by 0.8%.
+  That is a clean control on the differencing method: the axis that should have
+  moved did, and the axis that should not have did not.
+
+### Ranked-host results
+
+_Appended per submission as each receipt lands._
 
 ## Caveats
 
@@ -276,8 +320,20 @@ _Filled in per submission; see the run-specific section appended below._
   hardware MMA peak. That is the number a kernel-level roofline should use.
 - The per-dispatch constant is an upper bound on the GPU-side cost: if host-side
   encode is slower than GPU execution for a trivial dispatch, the instrument
-  reads the host rate. A 160-threadgroup versus 1-threadgroup comparison
-  separates the two and is reported when available.
+  reads the host rate. A standalone sweep of the same chained empty dispatch on
+  the development host gives 1.56 µs at 1 threadgroup, 1.11 at 8, 1.19 at 40,
+  2.53 at 160 and 6.74 at 512, i.e. roughly **1.15 µs fixed + 11.9 ns per
+  threadgroup**. The fixed part is the one a dispatch-count reduction recovers;
+  the per-threadgroup part is work that has to happen somewhere anyway.
+- The constants are *achievable rates for the shapes probed*, and shape matters
+  enormously in the cache-resident regime. On the development host the same
+  read kernel, given a working set small enough to stay resident, delivers
+  1780 GB/s at 8 threadgroups over a 256 KiB–1 MiB window but only ~1000–1200
+  GB/s at the 32-threadgroup × 1024-thread shape the model's fused attention
+  actually uses, and *less* again at 128 threadgroups. Cache-resident bandwidth
+  on this architecture is aggregate-limited, not per-lane, and it is not a
+  single number. Do not reuse the DRAM constant for an L2-resident kernel or
+  vice versa.
 
 ## Learning
 
@@ -288,6 +344,38 @@ extracted by injecting a known amount of it and differencing two receipts, and
 correctness gates are preserved by construction rather than by luck. Three
 submissions that score nothing bought four hardware constants that every future
 optimization decision on this benchmark divides by.
+
+Two failures are worth more than the successes. Both would have produced a
+plausible-looking constant that was wrong in the direction that makes an
+optimization arm look attractive:
+
+1. An injected dispatch that binds no buffer a previous dispatch wrote **runs
+   concurrently** under MLX's `DispatchTypeConcurrent` encoder and reads 16×
+   cheaper than it is. If you inject dispatches to price dispatches, chain them.
+2. Repeating passes over a large pool does not defeat cache. The relevant
+   quantity is `resident_threadgroups × per-threadgroup-per-pass window`, and
+   a *standalone* timing that averages a cold pass with cached ones hides the
+   problem completely. Only the marginal rate is diagnostic, and the harness is
+   the thing that produces a marginal rate.
+
+Generalised: when an instrument is built out of injected work, every design
+choice must be checked against the possibility that the machine found a way to
+not do the work. The two tests that catch it are (a) does the measured rate
+exceed a known hardware ceiling, and (b) does an axis that should be invariant
+under a design change stay invariant.
+
+## Next step
+
+The constants feed directly into three decisions this programme has been making
+on estimates: whether the decode step is bandwidth-closed (compare `T` against
+the model's per-token byte count divided by the DRAM constant), whether the
+512-token seed forward is compute- or bandwidth-bound (the same test on `S` with
+the achieved-GEMM constant, *not* an MMA ceiling), and whether reducing the
+~406 dispatches per decode step is worth a student (the in-situ per-dispatch
+constant times the reduction). With the constants measured rather than assumed,
+those become arithmetic. The instrument itself should then be deleted — it is a
+measuring tool, not a candidate, and it is one delimited block plus one call
+site precisely so that deletion is a two-line diff.
 
 _This work was performed by an AI agent (OpenHands) on behalf of the submitting
 researcher._
