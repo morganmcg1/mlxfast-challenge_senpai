@@ -11050,14 +11050,20 @@ private let lagunaInjectSweepKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+/// `prev` is bound only to chain the dispatches. MLX inserts a memory barrier
+/// when a dispatch binds a buffer a previous dispatch wrote
+/// (`device.cpp:325`, `:339`), and its encoder is otherwise
+/// `DispatchTypeConcurrent` (`device.cpp:548`), so without the chain these
+/// dispatches would run concurrently and measure nothing. Chained, they
+/// serialize exactly like the model's dependent dispatch stream.
 private let lagunaInjectEmptyKernel = MLXFast.metalKernel(
     name: "laguna_inject_empty_dispatch_v1",
-    inputNames: ["control"],
+    inputNames: ["control", "prev"],
     outputNames: ["sink"],
     source: """
             uint gid = thread_position_in_grid.x;
             if (control[0] == 0xFFFFFFFFu) {
-                sink[gid & 255u] = gid;
+                sink[gid & 255u] = gid + prev[0];
             }
         """,
     ensureRowContiguous: true
@@ -11122,15 +11128,18 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
     for _ in 0..<matmuls {
         pending.append(matmul(scratch.matA, scratch.matB))
     }
-    for k in 0..<empties {
-        pending.append(
-            lagunaInjectEmptyKernel(
-                [scratch.control[(layer + k) & 7]],
+    if empties > 0 {
+        var chainTail = scratch.control[0]
+        for k in 0..<empties {
+            chainTail = lagunaInjectEmptyKernel(
+                [scratch.control[(layer + k) & 7], chainTail],
                 grid: (lagunaInjectEmptyThreadgroups * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[256]],
                 outputDTypes: [.uint32]
-            )[0])
+            )[0]
+        }
+        pending.append(chainTail)
     }
     guard !pending.isEmpty else { return }
     asyncEval(pending)
