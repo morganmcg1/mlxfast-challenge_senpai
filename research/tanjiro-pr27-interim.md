@@ -518,6 +518,7 @@ and `max_abs_diff: 0`.
 | LC3* | 160 | 600 | 619.864 | 10.13248 | 0.0188 | 0.031 |
 | LE | 160 | 2000 | 575.182 | 10.93761 | 1.9308 | 0.965 |
 | LD | 160 | 4000 | 588.450 | 16.54604 | 7.5392 | 1.885 |
+| LH | 8 | 2000 | 562.166 | 11.22364 | 2.2168 | 1.108 |
 | LF | 8 | 8000 | 576.764 | 27.05580 | 18.0490 | 2.256 |
 | LG | 512 | 4000 | 573.317 | 31.99681 | 22.9900 | 5.748 |
 
@@ -547,15 +548,25 @@ points, two parameters, one prediction confirmed.
 
 ### The cost is width-independent below ~160 threadgroups
 
-Applying the same `slack = 3.678 ms` to the two other widths:
+The tg=8 width has two counts of its own (LH, LF), so `c` and `slack` can be
+fitted there **independently**, importing nothing from the tg=160 pair:
+
+| tg | fitted from | **`c` (us)** | **`slack` (ms)** |
+| ---: | --- | ---: | ---: |
+| 8 | LH (2000), LF (8000) | **2.639** | **3.061** |
+| 160 | LE (2000), LD (4000) | **2.804** | **3.678** |
+
+Two independent two-parameter fits at widths 20x apart agree to **6% on `c`**
+and 20% on `slack`. That is the strongest evidence that the law is real and not
+an artifact of one configuration. Taking `slack ~ 3.7 ms` for the third width:
 
 | tg | isolated, no barrier | **in-situ `c`** | in-situ / isolated |
 | ---: | ---: | ---: | ---: |
-| 8 | 0.730 us | **2.716 us** | 3.72x |
+| 8 | 0.730 us | **2.639 us** | 3.62x |
 | 160 | 2.788 us | **2.804 us** | 1.01x |
 | 512 | 7.223 us | **6.667 us** | 0.92x |
 
-The in-situ cost is **flat at 2.72-2.80 us from tg=8 to tg=160**, then picks up
+The in-situ cost is **flat at 2.64-2.80 us from tg=8 to tg=160**, then picks up
 `(6.667 - 2.804) / 352 = 11.0 ns` per extra threadgroup — which is the same
 slope the isolated probe shows (13.0 ns/TG). So the in-situ cost decomposes as
 
@@ -572,10 +583,11 @@ barrier bookkeeping, and its every-50-ops command-buffer commit.
 
 ### What the two numbers actually mean for the programme
 
-**Answer to your question.** In-situ `c_decode` is **2.75 +/- 0.05 us** for any
-dispatch up to ~160 threadgroups. Against your 2.18 us target that is +26%, and
-against your 1.9-2.4 us confirmation band it is 15% above the top. Against the
-same-day isolated measurement at the same width (2.788 us) it agrees to 0.6%.
+**Answer to your question.** In-situ `c_decode` is **2.72 +/- 0.09 us** for any
+dispatch up to ~160 threadgroups, from two independent two-parameter fits at
+widths 20x apart. Against your 2.18 us target that is +25%, and against your
+1.9-2.4 us confirmation band it is 13% above the top. Against the same-day
+isolated measurement at the same width (2.788 us) it agrees to 0.6%.
 I think the honest reading is that your 2.18 us was low because it was derived
 from a 160-threadgroup isolated figure while implicitly being used as a
 per-op constant, and those happen to coincide only at tg=160.

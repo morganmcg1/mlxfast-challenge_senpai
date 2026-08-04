@@ -208,29 +208,49 @@ traffic.
 | --- | ---: | ---: | ---: | ---: | ---: |
 | A | 1 | 268.44 MB | 20 | 343.60 GFLOP | 0 / 0 |
 | B | 3 | 805.31 MB | 40 | 687.19 GFLOP | 0 / 0 |
-| C | 1 | 268.44 MB | 20 | 343.60 GFLOP | 600 / 1000 |
+| C | 1 | 268.44 MB | 20 | 343.60 GFLOP | 2000 / 10000 |
+| D | 1 | 268.44 MB | 20 | 343.60 GFLOP | 3000 / 17500 |
 
 Fits:
 
 ```
 DRAM GB/s     = 536.87 MB   / (T_B - T_A)
-matrix FLOP/s = 343.60 GFLOP/ (S_B - S_A - 20 * c_prefill)
-c_decode      = (T_C - T_A) / 600      <- in-situ, the number that matters
-c_prefill     = (S_C - S_A) / 1000
+matrix FLOP/s = 343.60 GFLOP/ (S_B - S_A)
+c_decode      = (T_D - T_C) / 1000     <- in-situ, the number that matters
+c_prefill     = (S_D - S_C) / 7500
+slack_decode  = 2000 * c_decode - (T_C - T_A)
 ```
 
-`A` appears in both differences, so a disagreement between the two fits is a
+`A` appears in the two rate differences, so a disagreement between them is a
 built-in anomaly detector. `A` and `B` issue the **identical number of
 dispatches and bind the identical buffer set** — only host-side loop counts
 differ — so every per-dispatch and per-command-buffer term cancels exactly in
-`B - A` and the two rate fits need no dispatch-cost correction beyond the 20
-extra GEMM dispatches.
+`B - A` and the two rate fits need no dispatch-cost correction.
 
-The empty-dispatch counts in `C` are 15 per layer on the decode path and 25 per
-layer on the prefill path. That is deliberately below the point where the
-injected operations could push a command buffer past MLX's per-buffer operation
-threshold and add a commit, which would contaminate the constant it is trying
-to measure (see design note 5).
+The dispatch-cost pair `C`/`D` was redesigned after the development-host
+calibration below, and the change is the single most important thing this
+submission learned before spending a receipt on it. The original plan used one
+configuration with 600 injected decode dispatches and read `c_decode` as
+`(T_C - T_A) / 600`. On the development host that estimator returns
+**0.031 us**, ~90x below the isolated cost of the same kernel at the same
+threadgroup width. The reason is that the marginal cost of an added dispatch is
+**not a constant** — it obeys a saturation law,
+
+```
+dT(n) = max(0, n * c - slack)
+```
+
+with an absorption region `slack` inside which added independent dispatches are
+free. On the development host `slack = 3.678 ms` per decode step, so a
+600-dispatch configuration measures a per-dispatch cost of zero no matter how
+long you run it. `C` and `D` are therefore **both** placed above the knee, and
+`c_decode` is read from their difference, where `slack` cancels identically.
+`slack` itself then falls out of `C - A` as a bonus constant.
+
+The counts are additionally chosen so that every configuration stays clear of
+the hard 0.95 speedup floors on the ranked host: the worst case is `D`, at a
+predicted `T ~ 11.3 ms` against the `12.366 / 0.95 = 13.02 ms` limit and a
+predicted `S ~ 167 ms` against the `190.6 / 0.95 = 200.6 ms` limit.
 
 ## Reproduction
 
@@ -274,6 +294,13 @@ above:
 | LB | 2^17 | 3 | 300 | 0/0 | 1260.390 | 12.3377 |
 | LA2 | 2^18 | 1 | 100 | 0/0 | 802.075 | 10.0595 |
 | LB2 | 2^18 | 3 | 300 | 0/0 | 1266.633 | 11.6421 |
+| LA3 | 2^16 | 1 | 20 | 0/0 | 614.827 | 10.1137 |
+| LB3 | 2^16 | 3 | 20 | 0/0 | 621.122 | 12.2091 |
+| LC3 | 2^16 | 1 | 20 | 600/1000 | 619.864 | 10.1325 |
+| LE | — | 0 | 0 | 2000/0 | 575.182 | 10.9376 |
+| LD | — | 0 | 0 | 4000/20000 | 588.450 | 16.5460 |
+| LF | — | 0 | 0 | 8000/0 (tg 8) | 576.764 | 27.0558 |
+| LG | — | 0 | 0 | 4000/0 (tg 512) | 573.317 | 31.9968 |
 
 Every run returned `passed_correctness: true`, `max_abs_diff: 0`,
 `peak_ram_gb: 21`. The injection is output-neutral in practice as well as by
@@ -281,13 +308,29 @@ construction.
 
 | quantity | instrument (in situ) | independent control | error |
 | --- | ---: | ---: | ---: |
-| achievable DRAM read | **245.0 GB/s** | 262.5 GB/s sequential probe | −6.7% |
+| achievable DRAM read | **256.2 GB/s** (`LB3 - LA3`, shipped grid) | 262.5 GB/s sequential probe | −2.4% |
 | MLX steel bf16 GEMM, `512×8192×2048` | **7.40–7.46 TFLOP/s** | 6.77 TFLOP/s profiled on the model's own `attn_proj` | +9–10% |
-| chained empty dispatch, 160 TGs | measured in configuration C | 2.5 ± 0.4 µs standalone | — |
+| per-dispatch cost, 160 TGs | **2.804 µs** (`LD - LE`) | 2.788 µs standalone, unbarriered, same width | +0.6% |
+| decode dispatch absorption slack | **3.678 ms / step** | none — new quantity | — |
+
+The dispatch-cost row is the one that changed the design. Its three
+same-width points are `600 -> +0.0188 ms`, `2000 -> +1.9308 ms`,
+`4000 -> +7.5392 ms` against the zero control, which is 60x non-linear in the
+apparent per-dispatch cost and cannot come from a constant. Fitting
+`max(0, n * c - slack)` on the two saturated points gives `c = 2.804 µs` and
+`slack = 3.678 ms`, and then the 600-dispatch point is an out-of-sample
+prediction of exactly zero, confirmed at `+0.0188 ms` against a 0.03 ms noise
+floor. Sweeping the threadgroup width at fixed saturation shows the in-situ cost
+is **flat at 2.72–2.80 µs from 8 to 160 threadgroups** and only then picks up
+11 ns per extra threadgroup, whereas the standalone probe reads 0.62 µs at
+1 threadgroup rising at 13 ns/TG throughout. The 2.1 µs the standalone probe
+cannot see is MLX per-op framework cost, and it is invisible to any measurement
+taken outside the real runtime — which is the entire justification for
+instrumenting the scored path rather than writing another microbenchmark.
 
 Three things fall out of the calibration that are worth more than the numbers:
 
-- The DRAM figure lands at 93% of the standalone sequential control, which is
+- The DRAM figure lands at 98% of the standalone sequential control, which is
   the *expected* efficiency of a grid-stride `uint4` read versus an optimal
   sequential one — not a suspicious exact match. Both the shipped
   256-threadgroup grid and the 512-threadgroup grid produce it, agreeing to 1%.
@@ -300,6 +343,13 @@ Three things fall out of the calibration that are worth more than the numbers:
 - Changing the sweep grid moved the DRAM axis by 38% and the FLOP axis by 0.8%.
   That is a clean control on the differencing method: the axis that should have
   moved did, and the axis that should not have did not.
+- The dispatch axis has an **absorption region**: the decode step swallows
+  3.678 ms of added independent dispatch cost — about 1300 dispatches, against
+  the roughly 400 the scored path issues — before any of it appears in `T`. On
+  the prefill side the same injection shows that at least 42 ms per 512-token
+  forward is absorbed. This is a property of the workload, not of the probe, and
+  it says an optimization that only reduces MLX operation count on either path
+  should be priced at zero until the count is high enough to saturate.
 
 ### Ranked-host results
 
