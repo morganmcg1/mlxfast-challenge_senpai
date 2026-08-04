@@ -412,3 +412,138 @@ explicit environment value cannot beat. So a research host has *three* possible
 byte thresholds - 50 (arch), 128 (low-memory policy), 200 (ranked branch) - and
 which one is live depends on the startup profile, not on MLX.
 
+
+### 10.3 Which limit actually binds: the ops rule is unreachable, not merely second
+
+The commit rule is one line
+(`device.cpp:484-487`), evaluated once per array eval in
+`eval.cpp:59`:
+
+```cpp
+bool CommandEncoder::needs_commit() const {
+  auto [max_ops, max_mb] = device_.get_max_ops_mb_per_buffer();
+  return (buffer_ops_ > max_ops) || ((buffer_sizes_ >> 20) > max_mb);
+}
+```
+
+`buffer_ops_` counts `dispatch_threadgroups` / `dispatch_threads` calls
+(`device.cpp:381,389`); `buffer_sizes_` accumulates `a.data_size()` only for
+buffers not already in `all_inputs_` (`device.cpp:319-321`), so it is a
+**unique-referenced-byte** counter, not an issued-byte counter, and blit-only
+work contributes zero ops. Both counters reset at commit (`device.cpp:528-529`).
+
+That gives a decisive free test. A command buffer cut by the op rule must carry
+at least `max_ops + 1` ops, so *counting the ops in every committed buffer says
+which rule fired* without timing anything. `research/frieren_cb_binding_sweep.sh`
+and `research/frieren_cb_binding.py` do exactly that: 6 arms, one process each,
+60 warm-up + 300 measured steps at `DARKBLOOM_STARTUP_MEMORY_PROFILE=full`,
+350 steady steps of traced command buffers per arm.
+
+| arm | `MLX_MAX_MB` | `MLX_MAX_OPS` | cb/step (median) | ops/cb median | ops/cb **max** | cbs at op limit | wall ms/step |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| shipped (no env) | 200 | 200 | **50.0** | 10 | **28** | 0 / 17494 | 8.7305 |
+| ops200 | 200 | 200 | **50.0** | 10 | **28** | 0 / 17495 | 8.6902 |
+| ops400 | 200 | 400 | **50.0** | 10 | **28** | 0 / 17483 | 8.7245 |
+| mb40 | 40 | 200 | 127.0 | 1 | 18 | 0 / 44882 | 8.5847 |
+| mb100 | 100 | 200 | 80.0 | 5 | 19 | 0 / 27950 | 8.6547 |
+| mb400 | 400 | 200 | 19.0 | 29 | 39 | 0 / 6650 | 8.7735 |
+
+Four things fall out, and the first two are the deliverables.
+
+**1. The ops axis is dead, and by a wider margin than "the byte limit trips
+first".** `ops200` and `ops400` are identical in every partition statistic:
+median 50.0, mean 49.99 vs 49.95, min 49 / max 51 in both, and ops-per-cb
+histograms that agree bucket-for-bucket to within ±12 counts out of 17.5k
+(`19:4543  11:3150  1:1750  4:700  10:350  2:350  5:349` in both). The stronger
+statement is in the `ops/cb max` column: **the largest command buffer this model
+ever produces holds 28 ops at the shipped byte cap and 39 ops at a 400 MiB cap.**
+The op rule needs 201. It is not merely losing the race - it is unreachable, and
+`MLX_MAX_OPS_PER_BUFFER` is inert at *any* value at or above 40. The whole
+200 → 400 → 200 churn moved a threshold that sits 5-14× above the highest value
+the counter it guards can reach. `cbs at ops limit` is exactly 0 in all six arms,
+124,954 command buffers total.
+
+**2. The byte axis is the live one, and it binds at every value swept including
+the shipped 200.** cb/step is strictly monotone in the cap: 40 → 127, 100 → 80,
+200 → 50, 400 → 19. The `mb400` arm is the one that settles whether 200 binds:
+if 200 MiB were already above the largest layer's unique byte footprint, raising
+it to 400 would change nothing, and instead cb/step falls by another 2.6×. So
+the shipped 200 MiB *is* cutting command buffers mid-step, and the byte rule is
+the only rule doing any cutting on this model.
+
+**3. The no-env arm proves the in-tree `setenv` takes effect.** `shipped` matches
+`ops200` on every statistic and matches no other arm. If the `setenv` at
+`LagunaRuntimeWeights.swift:386` were landing after MLX memoised its static, the
+shipped arm would read this host's arch default of 50 MB, which by interpolation
+between the 40 and 100 arms is ≈115 cb/step - not 50. The ordering objection in
+§10.2 is closed empirically.
+
+**4. Timing, directional only.** These are single unbalanced arms, so they carry
+the position drift documented in §3, but they are internally calibrated: the
+`ops200` / `ops400` pair is an A/A in partition terms, and it reads +0.39% apart.
+That is this design's noise floor. Against it, `mb40` is −1.21% below `ops200` and
+`mb400` is +0.96% above - both larger than the floor, both in the direction the
+balanced screen of §4 found (−1.696% ± 0.175% for 50 vs 200 MiB), and now with a
+fourth rung showing the cost continues in the *other* direction too. More, smaller
+command buffers are faster on this host across the whole 40-400 MiB range. Note
+also the host CPU column of the raw log: the encoding thread costs 3.13 ms/step at
+40 MiB, 2.50 at 200 and **4.83 at 400**, so the 19-cb configuration is the only
+one where host cost rises sharply - consistent with per-commit work being cheap
+and per-buffer residency bookkeeping being not.
+
+Raw traces: `/tmp/frieren_cbbind_{shipped,ops200,ops400,mb40,mb100,mb400}.txt`,
+summary log `/tmp/cbbind_sweep.log`.
+
+### 10.4 Verdict on the 40 MB claim, and what it does and does not change
+
+The claim under test was *"the knob is inert on this model, because MLX's
+40 MB-per-buffer byte limit trips first"*.
+
+**The conclusion is right and I confirm it independently and more strongly. The
+number 40 is wrong for our configuration, and of the three candidate
+explanations the answer is the second one: 40 MB is an architecture default read
+from `device.cpp`, not the effective threshold.** Specifically:
+
+- *"the 200 is not taking effect"* - **refuted**, by §10.3 finding 3. The no-env
+  arm reproduces the explicit-200 arm exactly and nothing else.
+- *"40 is an arch default being read somewhere else"* - **this is it.** 40 MB is
+  `device.cpp:577,581,593`, the `'p'` / `'g'` / fallback branches. It is what MLX
+  would use with no override. It is also not this host's default: `applegpu_g16s`
+  takes the `'s'` branch at 50 MB (§10.1). Under our runtime no host uses 40,
+  because the full profile sets 200 and the low-memory profile forces 128.
+- *"her instrumentation was measuring a different limit"* - not needed as an
+  explanation, and I would not assert it. A dispatch-level probe that observed
+  cuts every ~10 ops would correctly conclude the op rule never fires; naming the
+  byte threshold 40 rather than 200 is a source-attribution slip that does not
+  touch the inference.
+
+**What it changes: nothing about her revert, and one thing about the M5 reading.**
+The revert of `MLX_MAX_OPS_PER_BUFFER` 400 → 200 is a no-op on the partition, so
+it cannot have cost anything, and restoring the value the in-tree comment
+describes is the right housekeeping. But receipt `1feeabc8`'s `ns +0.179% ±
+0.172%` was read as *"more likely the cap than the barriers"*. It can be neither.
+The ops half of tree X is provably partition-identical, so on that axis the
+contrast is an **A/A**, and the barrier half has its own public receipt at `ns
+−0.070% ± 0.210%`. A contrast between two configurations that differ in no
+executed work is a direct measurement of M5 receipt noise, and +0.179% ± 0.172%
+at n=1 vs n=3 is a useful corroboration of the 0.243% 2σ floor rather than
+evidence about a mechanism.
+
+**What survives of §4-§7.** Those screens compared `MLX_MAX_MB_PER_BUFFER` 50 (and
+100) against the shipped 200 with `MLX_MAX_OPS_PER_BUFFER` at 400 on both sides.
+Since the ops value provably changes no partition statistic and no dispatch, the
+old control arm and the new 200/200 control arm are the same executed program:
+the shipped and ops200 arms above differ by 0.39%, inside this design's noise. So
+the −1.696% ± 0.175% decode contrast and the bistable +0.504% ± 0.324% prefill
+cost stand as measured against the current base, with no rerun needed. §10.5
+confirms that in the timing currency with a balanced A/A rather than by argument.
+
+**What none of it changes: the recommendation.** The live axis is a *partition*
+knob. It changes where command buffers are cut, not what arithmetic runs or what
+bytes are read, and the programme rule that came out of this PR - change bytes or
+arithmetic, not partition - now has a fourth data point in its favour: the local
+optimum on this host is at a *smaller* cap than shipped, in a regime (no wiring,
+48 GiB) that the ranked host does not occupy, with a prefill cost that is
+bistable rather than merely small. It is the wrong thing to spend a shared
+receipt slot on.
+
