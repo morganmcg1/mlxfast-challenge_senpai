@@ -206,6 +206,152 @@ Direct measurement of this at ranked parity is in progress (see below): the
 run on a 48 GiB host**, so the ranked command-buffer settings can be traced
 locally rather than inferred.
 
+## Second finding: the command-buffer volume threshold, and why it cannot simply be lowered
+
+
+The same instrument showed 114 µs/step of GPU idle at command-buffer
+boundaries, which made the threshold worth screening. Because the low-memory
+profile force-sets the two env vars, this had to be screened under
+`DARKBLOOM_STARTUP_MEMORY_PROFILE=full` — and the canary showed the ranked
+profile **does** run on a 48 GiB host (a useful capability for the campaign:
+ranked-parity command-buffer and BFS settings are locally reachable, at a
+~3.4 % absolute step-time penalty from the profile's memory settings, so only
+within-profile comparisons are valid).
+
+`MLX_MAX_MB_PER_BUFFER` sweep, `MLX_MAX_OPS_PER_BUFFER=400`, full profile,
+2000 steps/arm, parent-side wall ms/step:
+
+| max_mb | ms/step (mean ± se) | n | vs ranked 200 |
+| ---: | ---: | ---: | ---: |
+| 8 | 9.0297 | 2 | −0.66 % |
+| 16 | 9.0402 | 2 | −0.54 % |
+| 25 | 9.0196 | 2 | −0.77 % |
+| **50** | **8.9579 ± 0.0028** | 5 | **−1.45 %** |
+| 100 | 9.0457 | 1 | −0.48 % |
+| 200 (ranked default) | 9.0893 ± 0.0318 | 4 | — |
+| 4096 | 9.4137 ± 0.0041 | 3 | +3.57 % |
+
+A/A floor for this probe: 6 identical-config repeats spread 8.7460–8.7928
+ms/step, sd 0.0176 ms = **0.20 %** of the mean, se 0.082 %. The `mb=50` arm
+reproduced to within 16 µs across five separate model loads
+(8.9627 / 8.9623 / 8.9472 / 8.9594 / 8.9580; sd 0.070 % of mean), so
+`50` vs `200` is `t ≈ 4.1`.
+
+One honesty note on the control: the four `mb=200` arms are **bimodal** —
+9.0341, 9.0344 in one cluster and 9.1423, 9.1465 in the other, with nothing in
+between. Every other configuration measured is unimodal to within 0.1 %.
+Against the *faster* 200 cluster the `mb=50` advantage is 0.85 %; against the
+mean it is 1.45 %. I do not know what selects the cluster (it survives a fresh
+model load either way), and I would not promote a cap change without
+understanding it.
+
+The curve is **non-monotone with a minimum at 50**, not a monotone "smaller is
+better". 50 is also MLX's own stock M5 Max default, which the repo raised to
+200. `50` is the value at which each large routed expert bank (charged at 64
+Mi-elements by the accounting below) lands in a command buffer of its own.
+
+### What the threshold actually counts
+
+`needs_commit()` compares `buffer_sizes_ >> 20` against `max_mb`, and
+`buffer_sizes_ += a.data_size()` charges **elements**, once per *distinct input
+buffer* per command buffer (`device.cpp:562`, `:393-401`). Three consequences,
+all of which matter when reading the sweep:
+
+1. The unit is Mi-**elements**, not MB. A uint32-packed NVFP4 bank is
+   undercharged 4× relative to its bytes; a bf16 array 2×. The knob compares
+   incommensurable quantities across dtypes.
+2. A gather charges the **whole bank**. `gather_qmv`/`gather_qmm` register the
+   full `w` and `scales` arrays (`quantized.cpp:700-707`), so each MoE layer
+   charges ~144 Mi-elements (gate_up 64 + its scales 32 + down 32 + scales 16)
+   while physically reading ~14 MB for its 8 routed experts — roughly a 10×
+   overcharge relative to real traffic.
+3. The bf16 embedding table is `100352 × 2048 = 205 520 896` elements, i.e.
+   **196** after `>> 20`. So the very first `set_input_array` of a decode step
+   trips the cut iff `max_mb ≤ 195`. That is why the first command buffer on
+   this low-memory host (cap 128) contains exactly one op and commits at 26 µs,
+   and it means **my measured front-idle structure does not transfer 1:1 to the
+   ranked box**, where cap 200 lets the first command buffer keep growing past
+   the embedding. Credit for spotting this goes to a delegated review of my
+   trace.
+
+So command-buffer placement is driven by a bookkeeping number that is neither
+bytes nor real traffic. The practical implication is that this cap must be
+tuned empirically per architecture and cannot be reasoned about as "MB".
+
+### Calibration caveat that applies to the whole campaign
+
+Bytes physically read per decode step, from the model geometry
+(`LagunaConfig.swift:14-33`: hidden 2048, 8 KV heads, 39 MoE layers × top-8 of
+256, dense layer 0, vocab 100 352) come to **≈2.2–2.9 GB/step**. At the M4 Pro's
+273 GB/s nominal that is a 7.9–10.6 ms bandwidth floor, against a measured
+GPU-busy region of 8.51 ms.
+
+**This host's decode step is running at roughly 90–100 % of its
+memory-bandwidth wall.** That is the structural reason a scheduling or
+launch-overhead change tends to measure zero here — including PR #9's dispatch
+fusion — and it is *not* evidence the same change is worthless on the ranked M5
+Max, which has ~2× the achievable bandwidth for the same byte volume and
+therefore exposes serialization that this bus hides. It also means the two
+currencies on this host are bytes removed from the busy region and microseconds
+removed from the 270 µs of idle; nothing else can move the local number.
+
+That the `mb` sweep moves the local number by 1.45 % at all is therefore
+informative: the effect has to live in the idle term, not the busy term. The
+`FRIEREN_CBPROF` traces in the running screen test exactly that.
+
+### Why this must not be shipped as a cap change
+
+The ranked corpus already answers the blunt-knob question. From
+`research/nezuko-normalised-leaderboard.md` §5.2, three official receipts change
+only this cap against a common cap-200 frontier control (`8415f63c`,
+S 97.820, T 4.3587 ms):
+
+| cap | `T` vs frontier | `S` vs frontier |
+| ---: | ---: | ---: |
+| 400 | +0.056 % | +0.130 % |
+| 240 | −0.069 % | +2.783 % |
+| 160 | **−0.838 %** | **+1.464 %** |
+
+So on the ranked M5 the decode step really does get faster as the cap falls —
+the same sign as my M4 sweep — but prefill gets worse in both directions from
+200. Scoring the 160 receipt end to end:
+
+```
+measured decode s/tok = T + S/128
+frontier:  4.3587 + 97.820/128  = 5.1229 ms
+cap 160:   4.3222 + 99.252/128  = 5.0976 ms
+decode_speedup  = 5.1229 / 5.0976 = 1.00496
+prefill_speedup = 97.820 / 99.252 = 0.98557
+score ratio = 1.00496^0.75 * 0.98557^0.25 = 1.0001
+```
+
+Essentially zero. The cap is a **single knob that trades decode against
+prefill**, and at the current operating point the trade is score-neutral. The
+env value is read once into a `Device` member at first device construction
+(`utils.h:178-188`, `device.h:235-236`), and `device.h`/`device.cpp` are outside
+`editablePaths`, so it cannot be made phase-dependent from the submission
+surface.
+
+### The reachable version of the same win
+
+Boundaries can be added to **decode only** from editable Swift, and the
+machinery already exists: `decodeFireMask` /
+`DARKBLOOM_DECODE_ASYNC_STAGE` fires `asyncEval(h)` after selected layers under
+an `isSingleTokenDecode` guard (`LagunaRuntimeModel.swift:10517`, `:10768`,
+`:10780`). Prefill has its own separate ladder, so a decode-only schedule
+change leaves `S` untouched by construction — which is exactly what the cap
+change cannot do.
+
+That axis is already tuned at **layer** granularity (default
+`at:0,1,7,15,23,31,39`; notes/52, two Latin squares, 66 runs: ladder8 1.0000,
+ladder6 1.0064, ladder2 1.0169, ladder1 1.0178, `at:1,7,15,23,31,39` 1.0170).
+The open question this arm raises is whether the remaining M4 win at `mb=50` is
+**sub-layer** — cap 50 puts roughly one large expert bank per command buffer,
+about 4× the boundary density of cap 200, which no layer-granularity schedule
+can reproduce. The screen that separates the two is running (`mb ∈ {50, 200}` ×
+`{default schedule, ladder1}`, plus the 195/196 crossing that isolates the
+first-commit offset), and its result is the single most useful next decision.
+
 ## Serial non-speculative rule
 
 Nothing in this arm changes what is computed. Both probes are read-only

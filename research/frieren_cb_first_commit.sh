@@ -42,14 +42,14 @@ echo "##### part 1: threshold crossing and schedule interaction #####"
 # LagunaRuntimeModel.swift:10768), so it is the finest boundary schedule
 # reachable at LAYER granularity. If mb=50 still beats mb=200 under ladder1, the
 # remaining win is SUB-layer and no layer schedule can reach it.
-for round in 1 2; do
-    arm "T${round}-mb200-default" 200 "${DEFAULT_STAGE}"
-    arm "T${round}-mb196-default" 196 "${DEFAULT_STAGE}"
-    arm "T${round}-mb195-default" 195 "${DEFAULT_STAGE}"
-    arm "T${round}-mb50-default" 50 "${DEFAULT_STAGE}"
-    arm "T${round}-mb200-ladder1" 200 "ladder1"
-    arm "T${round}-mb50-ladder1" 50 "ladder1"
-done
+# The full profile wires the whole 21.6 GB model into the residency set at load,
+# so each arm costs ~65 s rather than ~20 s. One round plus a repeated control.
+arm "T1-mb200-default" 200 "${DEFAULT_STAGE}"
+arm "T1-mb195-default" 195 "${DEFAULT_STAGE}"
+arm "T1-mb50-default" 50 "${DEFAULT_STAGE}"
+arm "T1-mb200-ladder1" 200 "ladder1"
+arm "T1-mb50-ladder1" 50 "ladder1"
+arm "T2-mb200-default" 200 "${DEFAULT_STAGE}"
 
 echo "##### part 2: command-buffer structure traces #####"
 for mb in 50 200; do
