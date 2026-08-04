@@ -646,3 +646,163 @@ public final class LagunaRuntimeWeightCache {
         return libraryModel
     }
 }
+
+// ---------------------------------------------------------------------
+// Narrow NVFP4 attention scale planes (DARKBLOOM_ATTN_SCALE_NARROW).
+// Init-time packing and its byte-exact reconstruction certificate live
+// here with the other weight preparation; the QMV kernels that read the
+// planes stay in LagunaRuntimeModel.swift.
+// ---------------------------------------------------------------------
+
+/// `DARKBLOOM_ATTN_SCALE_NARROW` (default ON; set "0" to read the stock uint8
+/// scale plane): 21-byte-per-32-group storage for the decode-only attention
+/// NVFP4 scale planes. A measured census (`research/frieren-pr35-scale-census.md`)
+/// found `max - min <= 31` for 100.00% of the 2.78M attention 32-group blocks a
+/// decode simdgroup covers, so a 5-bit index plus a per-block uint8 base
+/// RECONSTRUCTS the original byte rather than re-deriving it:
+/// `code = base + nibble + (bit << 4)` feeds the unchanged
+/// `laguna_tail_nvfp4_scale`. 21 B vs 32 B is -34.4% of the attention scale
+/// traffic with no escape path and no data-dependent branch. Routed/shared
+/// planes reach span 39 and are out of this envelope.
+let lagunaAttnScaleNarrowEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW"] != "0"
+
+/// Per-site kill switches so the q/k/v and o_proj rungs are separable.
+let lagunaAttnScaleNarrowQKVEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW_QKV"] != "0"
+
+let lagunaAttnScaleNarrowOProjEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW_OPROJ"] != "0"
+
+/// `DARKBLOOM_ATTN_SCALE_NARROW_LOG=1` reports which scale plane each attention
+/// QMV dispatch reads. Off by default so the scored dispatch pays no lock and
+/// no string interpolation, exactly as `lagunaTrace` is gated.
+let lagunaNarrowScaleDispatchLog =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW_LOG"] == "1"
+
+final class LagunaNarrowScaleLog: @unchecked Sendable {
+    private var seen: Set<String> = []
+    private let lock = NSLock()
+
+    /// Init-time notes (bank built or declined); always reported once.
+    func note(_ state: String, _ site: String) {
+        lock.lock()
+        let isNew = seen.insert("\(state)|\(site)").inserted
+        lock.unlock()
+        if isNew {
+            FileHandle.standardError.write(
+                Data("mlxfast: narrow-scales \(state): \(site)\n".utf8))
+        }
+    }
+
+    @inline(__always) func noteDispatch(
+        _ state: @autoclosure () -> String, _ site: @autoclosure () -> String
+    ) {
+        guard lagunaNarrowScaleDispatchLog else { return }
+        note(state(), site())
+    }
+}
+
+let lagunaNarrowScaleLog = LagunaNarrowScaleLog()
+
+/// Three row-contiguous planes holding the same uint8 E4M3 scale codes as a
+/// stock NVFP4 scale plane: a 4-bit index nibble per group, its 5th bit, and
+/// one uint8 base per 32-group block. Sizes per 32 groups are 16 + 4 + 1 = 21
+/// bytes against the 32 the stock plane spends.
+struct LagunaNarrowScaleBank {
+    let nibbles: MLXArray
+    let highBits: MLXArray
+    let bases: MLXArray
+    let rows: Int
+    let groups: Int
+
+    var arrays: [MLXArray] { [nibbles, highBits, bases] }
+}
+
+/// Packs a uint8 NVFP4 scale plane into `LagunaNarrowScaleBank`, or declines
+/// when any 32-group block spans more than 31 codes or the packing does not
+/// reproduce the plane byte for byte. Both checks run here, at init, on the
+/// real bank: the returned bank is only ever a lossless re-encoding.
+func lagunaNarrowNVFP4ScaleBank(
+    _ scales: MLXArray, site: String, layer: Int
+) -> LagunaNarrowScaleBank? {
+    guard lagunaAttnScaleNarrowEnabled,
+        scales.dtype == .uint8, scales.ndim == 2,
+        scales.dim(1).isMultiple(of: 32)
+    else {
+        return nil
+    }
+    let rows = scales.dim(0)
+    let groups = scales.dim(1)
+    let blocks = groups / 32
+    let wide = contiguous(scales).reshaped([rows, blocks, 32])
+    let blockBase = wide.min(axis: 2, keepDims: true)
+    let index = contiguous(wide - blockBase)
+    let span = index.max().asType(.int32).item(Int32.self)
+    guard span <= 31 else {
+        lagunaNarrowScaleLog.note("declined L\(layer) (block span \(span) > 31)", site)
+        return nil
+    }
+
+    // Nibble plane: byte b holds group 2b in bits 0-3 and group 2b+1 in bits
+    // 4-7, read through the uint16 view exactly as `buildInt5Planes` packs the
+    // pruned lm_head nibble plane.
+    let u = index.reshaped([rows, groups])
+    let u16 = u.view(dtype: .uint16)
+    let nibbles = contiguous(
+        ((u16 & MLXArray(UInt16(0x000F)))
+            | ((u16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8))
+    // Bit plane: bit j of byte s holds bit 4 of group 8s+j. Step one gathers
+    // the four bit-4s of each little-endian uint32 word (word bits 4, 12, 20,
+    // 28) into one nibble; step two merges nibble pairs into bytes.
+    let u32 = u.view(dtype: .uint32)
+    let bitNibble =
+        (((u32 >> 4) & MLXArray(UInt32(0x01)))
+        | ((u32 >> 11) & MLXArray(UInt32(0x02)))
+        | ((u32 >> 18) & MLXArray(UInt32(0x04)))
+        | ((u32 >> 25) & MLXArray(UInt32(0x08)))).asType(.uint8)
+    let bitNibble16 = contiguous(bitNibble).view(dtype: .uint16)
+    let highBits = contiguous(
+        ((bitNibble16 & MLXArray(UInt16(0x000F)))
+            | ((bitNibble16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8))
+    let bases = contiguous(blockBase.reshaped([rows, blocks]))
+
+    let bank = LagunaNarrowScaleBank(
+        nibbles: nibbles, highBits: highBits, bases: bases,
+        rows: rows, groups: groups)
+    guard lagunaNarrowScaleBankReproducesScales(bank, scales) else {
+        lagunaNarrowScaleLog.note("declined L\(layer) (reconstruction mismatch)", site)
+        return nil
+    }
+    lagunaNarrowScaleLog.note("built", site)
+    return bank
+}
+
+/// Init-time certificate: decode the three planes with MLX and require every
+/// byte to equal the plane the kernels read today. A bank that fails this is
+/// discarded, so no dispatch can ever consume an approximate scale.
+func lagunaNarrowScaleBankReproducesScales(
+    _ bank: LagunaNarrowScaleBank, _ scales: MLXArray
+) -> Bool {
+    let rows = bank.rows
+    let groups = bank.groups
+    guard bank.nibbles.dtype == .uint8, bank.nibbles.dims(rows, groups / 2),
+        bank.highBits.dtype == .uint8, bank.highBits.dims(rows, groups / 8),
+        bank.bases.dtype == .uint8, bank.bases.dims(rows, groups / 32)
+    else {
+        return false
+    }
+    let nib = bank.nibbles.asType(.int32).reshaped([rows, groups / 2, 1])
+    let nibValues = concatenated([nib & 0x0F, (nib >> 4) & 0x0F], axis: 2)
+        .reshaped([rows, groups])
+    let hb = bank.highBits.asType(.int32).reshaped([rows, groups / 8, 1])
+    let bitValues = concatenated((0..<8).map { (hb >> $0) & 0x01 }, axis: 2)
+        .reshaped([rows, groups])
+    let baseValues = broadcast(
+        bank.bases.asType(.int32).reshaped([rows, groups / 32, 1]),
+        to: [rows, groups / 32, 32]
+    ).reshaped([rows, groups])
+    let decoded = (baseValues + nibValues + (bitValues << 4)).asType(.uint8)
+    let mismatches = (decoded .!= scales).asType(.int32).sum().item(Int32.self)
+    return mismatches == 0
+}

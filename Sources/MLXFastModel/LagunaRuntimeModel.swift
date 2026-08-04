@@ -192,135 +192,6 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
 
 let lagunaPackedScalesLog = LagunaPackedScalesLog()
 
-/// `DARKBLOOM_SCALE_CENSUS=1` (research-only, default OFF): one-shot init-time
-/// census of every uint8 E4M3 scale plane a decode dispatch can read. Reports
-/// element count, min, max, distinct-code count, and the occupied code set per
-/// plane and per plane family so a narrower scale representation is designed
-/// from measured code occupancy rather than assumption. Runs after the fused
-/// banks are evaluated, outside every timed phase.
-let lagunaScaleCensusEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_CENSUS"] == "1"
-
-final class LagunaScaleCensus {
-    private var codeHist: [String: [Int]] = [:]
-    private var blockSpanHist: [String: [Int]] = [:]
-    private var halfSpanHist: [String: [Int]] = [:]
-    private var rowSpanHist: [String: [Int]] = [:]
-    private var order: [String] = []
-
-    func record(_ family: String, _ plane: String, _ scales: MLXArray?) {
-        guard lagunaScaleCensusEnabled, let scales else { return }
-        guard scales.dtype == .uint8 else {
-            write("plane \(plane) skipped dtype=\(scales.dtype) shape=\(scales.shape)")
-            return
-        }
-        let bytes = contiguous(scales).asArray(UInt8.self)
-        var codes = [Int](repeating: 0, count: 256)
-        for b in bytes { codes[Int(b)] += 1 }
-        let blocks = spanHist(bytes, stride: 32)
-        let half = spanHist(bytes, stride: 16)
-        let quarter = spanHist(bytes, stride: 8)
-        let rows = spanHist(bytes, stride: scales.dim(-1))
-        write(
-            "plane \(plane) shape=\(scales.shape) " + codeSummary(codes)
-                + " " + spanSummary(blocks, label: "blk32")
-                + " " + spanSummary(half, label: "blk16")
-                + " " + spanSummary(quarter, label: "blk8")
-                + " " + spanSummary(rows, label: "row"))
-        if codeHist[family] == nil {
-            codeHist[family] = [Int](repeating: 0, count: 256)
-            blockSpanHist[family] = [Int](repeating: 0, count: 256)
-            halfSpanHist[family] = [Int](repeating: 0, count: 256)
-            rowSpanHist[family] = [Int](repeating: 0, count: 256)
-            order.append(family)
-        }
-        for value in 0..<256 {
-            codeHist[family]![value] += codes[value]
-            blockSpanHist[family]![value] += blocks[value]
-            halfSpanHist[family]![value] += half[value]
-            rowSpanHist[family]![value] += rows[value]
-        }
-    }
-
-    func report() {
-        guard lagunaScaleCensusEnabled else { return }
-        var globalCodes = [Int](repeating: 0, count: 256)
-        var globalBlocks = [Int](repeating: 0, count: 256)
-        var globalRows = [Int](repeating: 0, count: 256)
-        for family in order {
-            for value in 0..<256 {
-                globalCodes[value] += codeHist[family]![value]
-                globalBlocks[value] += blockSpanHist[family]![value]
-                globalRows[value] += rowSpanHist[family]![value]
-            }
-            write(
-                "family \(family) " + codeSummary(codeHist[family]!)
-                    + " " + spanSummary(blockSpanHist[family]!, label: "blk32")
-                    + " " + spanSummary(halfSpanHist[family]!, label: "blk16")
-                    + " " + spanSummary(rowSpanHist[family]!, label: "row")
-                    + " " + counts(codeHist[family]!)
-                    + " " + counts(blockSpanHist[family]!, name: "blkspan")
-                    + " " + counts(halfSpanHist[family]!, name: "halfspan"))
-        }
-        write(
-            "global " + codeSummary(globalCodes)
-                + " " + spanSummary(globalBlocks, label: "blk32")
-                + " " + spanSummary(globalRows, label: "row")
-                + " " + counts(globalCodes))
-    }
-
-    /// Histogram of `max - min` over each consecutive `stride`-element chunk,
-    /// the quantum a 32-lane simdgroup reads in one iteration (`stride = 32`)
-    /// and one output row (`stride = groups per row`).
-    private func spanHist(_ bytes: [UInt8], stride: Int) -> [Int] {
-        var hist = [Int](repeating: 0, count: 256)
-        guard stride > 0, bytes.count % stride == 0 else { return hist }
-        var base = 0
-        while base < bytes.count {
-            var lo = UInt8.max
-            var hi = UInt8.min
-            for index in base..<(base + stride) {
-                let value = bytes[index]
-                if value < lo { lo = value }
-                if value > hi { hi = value }
-            }
-            hist[Int(hi - lo)] += 1
-            base += stride
-        }
-        return hist
-    }
-
-    private func codeSummary(_ hist: [Int]) -> String {
-        let present = (0..<256).filter { hist[$0] > 0 }
-        let total = hist.reduce(0, +)
-        return "n=\(total) min=\(present.first ?? -1) max=\(present.last ?? -1)"
-            + " distinct=\(present.count)"
-            + " codes=[\(present.map(String.init).joined(separator: ","))]"
-    }
-
-    private func spanSummary(_ hist: [Int], label: String) -> String {
-        let total = hist.reduce(0, +)
-        guard total > 0 else { return "\(label)=none" }
-        func share(_ limit: Int) -> String {
-            let covered = hist[0...limit].reduce(0, +)
-            return String(format: "%.4f", Double(covered) / Double(total))
-        }
-        let maxSpan = (0..<256).last { hist[$0] > 0 } ?? 0
-        return "\(label)_n=\(total) \(label)_le3=\(share(3)) \(label)_le7=\(share(7))"
-            + " \(label)_le15=\(share(15)) \(label)_le31=\(share(31))"
-            + " \(label)_max=\(maxSpan)"
-    }
-
-    private func counts(_ hist: [Int], name: String = "hist") -> String {
-        let pairs = (0..<256).filter { hist[$0] > 0 }.map { "\($0):\(hist[$0])" }
-        return "\(name)=[\(pairs.joined(separator: ","))]"
-    }
-
-    private func write(_ line: String) {
-        FileHandle.standardError.write(Data("mlxfast: scale-census \(line)\n".utf8))
-    }
-}
-
 /// Decode-only routed NVFP4 down-QMV plus BF16 router weighting, fixed-order
 /// expert reduction, and the Laguna 2.5 routed scale. The custom kernel emits
 /// one 2048-wide branch instead of materializing eight expert rows.
@@ -3019,201 +2890,6 @@ private func lagunaIndexedAffineMetadata(
     )
 }
 
-/// `DARKBLOOM_ATTN_SCALE_NARROW` (default ON; set "0" to read the stock uint8
-/// scale plane): 21-byte-per-32-group storage for the decode-only attention
-/// NVFP4 scale planes. The E4M3 scale byte is exactly 1/9 of every NVFP4
-/// stream, and the init-time census (`DARKBLOOM_SCALE_CENSUS`, see
-/// `research/frieren-pr35-scale-census.md`) measures `max - min <= 31` for
-/// 100.00% of the 2.78M attention 32-group blocks a decode simdgroup covers,
-/// so a 5-bit index plus a per-block uint8 base RECONSTRUCTS the original byte
-/// rather than re-deriving it: `code = base + nibble + (bit << 4)` feeds the
-/// unchanged `laguna_tail_nvfp4_scale`. 21 B vs 32 B is -34.4% of the
-/// attention scale traffic with no escape path and no data-dependent branch.
-/// Routed/shared planes reach span 39 and are out of this envelope.
-let lagunaAttnScaleNarrowEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW"] != "0"
-
-/// Per-site kill switches so the q/k/v and o_proj rungs are separable.
-let lagunaAttnScaleNarrowQKVEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW_QKV"] != "0"
-
-let lagunaAttnScaleNarrowOProjEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW_OPROJ"] != "0"
-
-/// Research-only in-process A/B instrument (`DARKBLOOM_SCALE_ALTERNATE=1`,
-/// never on by default): alternate the narrow q/k/v dispatch by invocation
-/// parity so both scale-read arms are timed inside one worker. A 40 us/step
-/// effect is smaller than the between-process median offset of this host, so
-/// two processes cannot resolve it; alternating steps share one process's
-/// clocks, allocation layout and thermal state. Even invocation count reads
-/// narrow, odd reads the stock plane.
-let lagunaScaleAlternateEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_ALTERNATE"] == "1"
-
-final class LagunaScaleAlternateCounter: @unchecked Sendable {
-    private var count = 0
-    private let lock = NSLock()
-
-    func advance() {
-        lock.lock()
-        count += 1
-        let current = count
-        lock.unlock()
-        if current <= 4 {
-            FileHandle.standardError.write(
-                Data(
-                    "mlxfast: scale-alternate invocation \(current) narrow=\(current % 2 == 0)\n"
-                        .utf8))
-        }
-    }
-
-    var isNarrowPhase: Bool {
-        lock.lock()
-        let current = count
-        lock.unlock()
-        return current % 2 == 0
-    }
-}
-
-let lagunaScaleAlternateCounter = LagunaScaleAlternateCounter()
-
-@inline(__always) func lagunaNarrowScaleDispatchAllowed() -> Bool {
-    !lagunaScaleAlternateEnabled || lagunaScaleAlternateCounter.isNarrowPhase
-}
-
-/// `DARKBLOOM_ATTN_SCALE_NARROW_LOG=1` reports which scale plane each attention
-/// QMV dispatch reads. Off by default so the scored dispatch pays no lock and
-/// no string interpolation, exactly as `lagunaTrace` is gated.
-let lagunaNarrowScaleDispatchLog =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW_LOG"] == "1"
-
-final class LagunaNarrowScaleLog: @unchecked Sendable {
-    private var seen: Set<String> = []
-    private let lock = NSLock()
-
-    /// Init-time notes (bank built or declined); always reported once.
-    func note(_ state: String, _ site: String) {
-        lock.lock()
-        let isNew = seen.insert("\(state)|\(site)").inserted
-        lock.unlock()
-        if isNew {
-            FileHandle.standardError.write(
-                Data("mlxfast: narrow-scales \(state): \(site)\n".utf8))
-        }
-    }
-
-    @inline(__always) func noteDispatch(
-        _ state: @autoclosure () -> String, _ site: @autoclosure () -> String
-    ) {
-        guard lagunaNarrowScaleDispatchLog else { return }
-        note(state(), site())
-    }
-}
-
-let lagunaNarrowScaleLog = LagunaNarrowScaleLog()
-
-/// Three row-contiguous planes holding the same uint8 E4M3 scale codes as a
-/// stock NVFP4 scale plane: a 4-bit index nibble per group, its 5th bit, and
-/// one uint8 base per 32-group block. Sizes per 32 groups are 16 + 4 + 1 = 21
-/// bytes against the 32 the stock plane spends.
-struct LagunaNarrowScaleBank {
-    let nibbles: MLXArray
-    let highBits: MLXArray
-    let bases: MLXArray
-    let rows: Int
-    let groups: Int
-
-    var arrays: [MLXArray] { [nibbles, highBits, bases] }
-}
-
-/// Packs a uint8 NVFP4 scale plane into `LagunaNarrowScaleBank`, or declines
-/// when any 32-group block spans more than 31 codes or the packing does not
-/// reproduce the plane byte for byte. Both checks run here, at init, on the
-/// real bank: the returned bank is only ever a lossless re-encoding.
-func lagunaNarrowNVFP4ScaleBank(
-    _ scales: MLXArray, site: String, layer: Int
-) -> LagunaNarrowScaleBank? {
-    guard lagunaAttnScaleNarrowEnabled,
-        scales.dtype == .uint8, scales.ndim == 2,
-        scales.dim(1).isMultiple(of: 32)
-    else {
-        return nil
-    }
-    let rows = scales.dim(0)
-    let groups = scales.dim(1)
-    let blocks = groups / 32
-    let wide = contiguous(scales).reshaped([rows, blocks, 32])
-    let blockBase = wide.min(axis: 2, keepDims: true)
-    let index = contiguous(wide - blockBase)
-    let span = index.max().asType(.int32).item(Int32.self)
-    guard span <= 31 else {
-        lagunaNarrowScaleLog.note("declined L\(layer) (block span \(span) > 31)", site)
-        return nil
-    }
-
-    // Nibble plane: byte b holds group 2b in bits 0-3 and group 2b+1 in bits
-    // 4-7, read through the uint16 view exactly as `buildInt5Planes` packs the
-    // pruned lm_head nibble plane.
-    let u = index.reshaped([rows, groups])
-    let u16 = u.view(dtype: .uint16)
-    let nibbles = contiguous(
-        ((u16 & MLXArray(UInt16(0x000F)))
-            | ((u16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8))
-    // Bit plane: bit j of byte s holds bit 4 of group 8s+j. Step one gathers
-    // the four bit-4s of each little-endian uint32 word (word bits 4, 12, 20,
-    // 28) into one nibble; step two merges nibble pairs into bytes.
-    let u32 = u.view(dtype: .uint32)
-    let bitNibble =
-        (((u32 >> 4) & MLXArray(UInt32(0x01)))
-        | ((u32 >> 11) & MLXArray(UInt32(0x02)))
-        | ((u32 >> 18) & MLXArray(UInt32(0x04)))
-        | ((u32 >> 25) & MLXArray(UInt32(0x08)))).asType(.uint8)
-    let bitNibble16 = contiguous(bitNibble).view(dtype: .uint16)
-    let highBits = contiguous(
-        ((bitNibble16 & MLXArray(UInt16(0x000F)))
-            | ((bitNibble16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8))
-    let bases = contiguous(blockBase.reshaped([rows, blocks]))
-
-    let bank = LagunaNarrowScaleBank(
-        nibbles: nibbles, highBits: highBits, bases: bases,
-        rows: rows, groups: groups)
-    guard lagunaNarrowScaleBankReproducesScales(bank, scales) else {
-        lagunaNarrowScaleLog.note("declined L\(layer) (reconstruction mismatch)", site)
-        return nil
-    }
-    lagunaNarrowScaleLog.note("built", site)
-    return bank
-}
-
-/// Init-time certificate: decode the three planes with MLX and require every
-/// byte to equal the plane the kernels read today. A bank that fails this is
-/// discarded, so no dispatch can ever consume an approximate scale.
-func lagunaNarrowScaleBankReproducesScales(
-    _ bank: LagunaNarrowScaleBank, _ scales: MLXArray
-) -> Bool {
-    let rows = bank.rows
-    let groups = bank.groups
-    guard bank.nibbles.dtype == .uint8, bank.nibbles.dims(rows, groups / 2),
-        bank.highBits.dtype == .uint8, bank.highBits.dims(rows, groups / 8),
-        bank.bases.dtype == .uint8, bank.bases.dims(rows, groups / 32)
-    else {
-        return false
-    }
-    let nib = bank.nibbles.asType(.int32).reshaped([rows, groups / 2, 1])
-    let nibValues = concatenated([nib & 0x0F, (nib >> 4) & 0x0F], axis: 2)
-        .reshaped([rows, groups])
-    let hb = bank.highBits.asType(.int32).reshaped([rows, groups / 8, 1])
-    let bitValues = concatenated((0..<8).map { (hb >> $0) & 0x01 }, axis: 2)
-        .reshaped([rows, groups])
-    let baseValues = broadcast(
-        bank.bases.asType(.int32).reshaped([rows, groups / 32, 1]),
-        to: [rows, groups / 32, 32]
-    ).reshaped([rows, groups])
-    let decoded = (baseValues + nibValues + (bitValues << 4)).asType(.uint8)
-    let mismatches = (decoded .!= scales).asType(.int32).sum().item(Int32.self)
-    return mismatches == 0
-}
-
 struct LagunaNativeAffineWeight {
     let packedCodes: MLXArray
     let scales: MLXArray
@@ -4828,7 +4504,6 @@ func lagunaGatedAffineOProjNVFP4(
     }
 
     if let narrow = narrowScales,
-        lagunaNarrowScaleDispatchAllowed(),
         narrow.nibbles.dtype == .uint8, narrow.nibbles.dims(outVec, inVec / 32),
         narrow.highBits.dtype == .uint8, narrow.highBits.dims(outVec, inVec / 128),
         narrow.bases.dtype == .uint8, narrow.bases.dims(outVec, inVec / 512),
@@ -5153,7 +4828,6 @@ private func lagunaDecodeNVFP4QKVR1(
         rows % 2 == 0
     else { return nil }
     if let narrow = bank.narrowScales,
-        lagunaNarrowScaleDispatchAllowed(),
         narrow.nibbles.dtype == .uint8, narrow.nibbles.dims(rows, hidden / 32),
         narrow.highBits.dtype == .uint8, narrow.highBits.dims(rows, hidden / 128),
         narrow.bases.dtype == .uint8, narrow.bases.dims(rows, hidden / 512),
@@ -11358,9 +11032,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        if lagunaScaleAlternateEnabled {
-            lagunaScaleAlternateCounter.advance()
-        }
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
@@ -11457,38 +11128,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
-        }
-        if lagunaScaleCensusEnabled {
-            let census = LagunaScaleCensus()
-            for layer in model.layers {
-                let attn = layer.selfAttn
-                let idx = attn.layerIdx
-                if let bank = attn._nativeAffineQKV, bank.scales.dtype == .uint8 {
-                    let qRows = attn.nHeads * attn.headDim
-                    let kvRows = LagunaConstants.numKeyValueHeads * attn.headDim
-                    census.record("attn.q", "L\(idx).q", bank.scales[0 ..< qRows])
-                    census.record(
-                        "attn.k", "L\(idx).k", bank.scales[qRows ..< (qRows + kvRows)])
-                    census.record(
-                        "attn.v", "L\(idx).v",
-                        bank.scales[(qRows + kvRows) ..< (qRows + 2 * kvRows)])
-                } else {
-                    census.record("attn.qkv", "L\(idx).qkv", attn._nativeAffineQKV?.scales)
-                }
-                census.record("attn.o", "L\(idx).o", attn._nativeAffineOProj?.scales)
-                census.record("attn.g", "L\(idx).g", attn._nativeAffineGProj?.scales)
-                if let sparse = layer.mlp as? LagunaRuntimeSparseMoEBlock {
-                    census.record(
-                        "routed.gate_up", "L\(idx).routed.gate_up",
-                        sparse._fusedRoutedGateUpScales)
-                    census.record(
-                        "routed.down", "L\(idx).routed.down", sparse._routedDownScales)
-                    census.record(
-                        "shared.gate_up", "L\(idx).shared.gate_up",
-                        sparse.sharedExpert._fusedGateUpScales)
-                }
-            }
-            census.report()
         }
         // Certified two-pass lm_head coarse copy (notes/68), gated by
         // `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON;
