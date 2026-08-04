@@ -331,15 +331,17 @@ receipt.
 | `c210d200` | C0 | 11:38 | 2.51474335355716 | — | — | — | — |
 | `0c21dc18` | Y | 14:16 | 2.49232051064996 | 0.0050840029296875 | 0.000191463623046875 | 0.0138298844453125 | 0.000366997884765625 |
 | `2dce5912` | Y | 14:48 | 2.49270808422625 | — | — | — | — |
-| `X1` | X | not run | — | — | — | — | — |
+| `1feeabc8` | X | 15:34 | 2.50037778074127 | — | — | — | — |
 | `X2` | X | not run | — | — | — | — | — |
 
-`X1`/`X2` were prepared and repeatedly attempted but never accepted: the
+`1feeabc8` (commit `3478ba9`) is the decomposition control: tree X, committed
+at `6d14ed9`, the promoted frontier with the two Part 1a commits reverted and
+nothing added. It landed and **it changes the headline** — see the next
+section. A second X receipt was prepared and attempted but not accepted: the
 endpoint enforces `account already has 1 submission(s) in flight for this
 benchmark (limit 1)` **per account**, not per student, and the slot was held
-continuously by sibling students' runs. Tree X is committed at `6d14ed9` and
-verified byte-identical to it on the editable surface; see *Unresolved: the
-Part 1a / M1 decomposition* below.
+by a sibling student's run. So X is n=1, and every statement below carries
+that.
 
 Gate detail for `0c21dc18` (representative; `2dce5912` matches):
 
@@ -390,13 +392,66 @@ Three things to read off this table:
    is the sharpest single demonstration of the 3.3× instrument advantage I
    measured in #12, and it is on a real effect rather than on identical code.
 
+### `X − C0` and `Y − X`: the decomposition, and why it matters
+
+`Y − C0` is the arm as briefed, but the brief bundled two things: the LM-head
+cascade (M1) and two Part 1a reverts. `1feeabc8` separates them.
+
+| contrast | what it isolates | `ns` | `T` | `S` |
+| --- | --- | --- | --- | --- |
+| `X − C0` | the two Part 1a reverts alone | +0.179% ± 0.172% (1.0σ) | −0.274% ± 0.256% (1.1σ) | −0.010% ± 0.201% (0.0σ) |
+| `Y − X` | the LM-head cascade alone | +0.276% ± 0.182% (1.5σ) | −0.391% ± 0.272% (1.4σ) | −0.071% ± 0.213% (0.3σ) |
+| `Y − C0` | both together (as briefed) | **+0.455% ± 0.136% (3.3σ)** | **−0.664% ± 0.203% (3.3σ)** | −0.080% ± 0.159% (0.5σ) |
+
+The two rows compose exactly into the third — that is an identity of ratios of
+the same three family means, not an independent check. The *content* is the
+split, and it is uncomfortable:
+
+**By point estimate, 39% of the effect I reported as "the byte mechanism" is
+the two reverts, not the cascade.** On `T` the share is 41%.
+
+I want to be precise about how much this is established, because the honest
+answer is "not much, and that is itself the finding":
+
+- The combined `Y − C0` = +0.455% ± 0.136% is solid at 3.3σ. Nothing here
+  touches it.
+- Neither half is significant on its own. `X − C0` is 1.0σ and `Y − X` is
+  1.5σ, against a 2σ resolution floor of 0.344% for these family sizes. With
+  X at n=1 I cannot reject "the reverts did nothing" *or* "the reverts did 39%
+  of it".
+- The errors on the two halves are anti-correlated by construction, so this is
+  one measurement with a poorly-located split point, not two measurements.
+
+What follows regardless of where the split point sits:
+
+**The 0.50× conversion factor is an upper bound on the cascade's own
+conversion factor, not an estimate of it.** The cascade alone converts at
+`0.276/0.914 = 0.302×` centrally, with a 1σ range of roughly 0.10× to 0.50×.
+Any byte-removal experiment priced off this arm should use ≤0.50×, and should
+plan against ~0.30×.
+
+This also makes the unexplained residual *worse*, not better. After the
+measured 0.775 dispatch-denominator correction the cascade-alone prediction is
+−1.102% of `T` and the cascade delivered −0.391%, a factor of 0.355 rather
+than the 0.602 I computed from the combined arm. Whatever is missing, there is
+more of it than I said.
+
+One pre-registered prediction failed. I predicted that if the conversion
+factor were a property of M1 alone, `X − C0` would show `ns ≈ 0` and
+`S ≈ −0.24%` — the latter because the advisor's hypothesis was that one of the
+reverted commits caused the harvest's `S +0.236%` prefill regression. Measured
+`S` is −0.010% ± 0.201%: no recovery. That is 1.14σ from the prediction, so it
+is not rejected, but the prime suspect is not currently supported either.
+
 ## Conclusion
 
 ### The headline answer
 
 **No. Removing 25.5 MB/token from the LM-head read stream does not buy the
-+0.914% of score the DRAM-saturation model predicts. It buys 0.455%, which is
-0.50× the prediction.**
++0.914% of score the DRAM-saturation model predicts. The briefed arm buys
+0.455%, which is 0.50× the prediction — and once the decomposition control is
+subtracted, the byte mechanism's own share is centrally 0.302×, with 0.50× as
+its upper bound.**
 
 The model is not wrong in sign or in kind. The effect is real (3.3σ), it lands
 on the predicted axis (`T`, decode) and not on the control axis (`S`,
@@ -432,17 +487,20 @@ it. I would defend "rejected at ≥3σ" and not more.
 neither of which I want a reader to miss:
 
 1. **The measured arm is M1 *plus* the two Part 1a reverts**, which the brief
-   told me to land together. The decomposition receipts did not get a
-   submission slot. Attributing the whole +0.455% to the byte mechanism is the
-   most likely reading — `S` moved by only −0.080% where the advisor's own
-   hypothesis predicted Part 1a would move it by +0.236% — but it is 1σ
-   evidence and it is not established.
+   told me to land together, and the decomposition control says that bundling
+   matters. `1feeabc8` puts **39% of the +0.455% on the reverts** by point
+   estimate. At n=1 for X neither half clears 2σ, so the split is not
+   established in either direction — but "attribute it all to the byte
+   mechanism" is no longer the default reading, and I have changed the
+   headline accordingly. The table above is the briefed arm; the byte
+   mechanism alone is +0.276% ± 0.182%.
 2. **The conversion factor is what this arm measures well. The *explanation*
-   for it is incomplete.** The 0.50× is a 3.3σ measurement and I stand behind
-   it. Of the miss, a measured dispatch-denominator correction accounts for
-   45%; **the remaining 0.438% ± 0.203% of `T` I cannot currently explain.**
-   I had an explanation, it was wrong, and I withdraw it below rather than
-   ship it.
+   for it is incomplete.** The 0.50× combined figure is a 3.3σ measurement and
+   I stand behind it. Of the miss, a measured dispatch-denominator correction
+   accounts for 45%; **the remaining 0.438% ± 0.203% of `T` I cannot currently
+   explain**, and on the cascade-alone contrast the unexplained part is larger
+   still. I had an explanation, it was wrong, and I withdraw it below rather
+   than ship it.
 
 ### The two-stage conversion failed in exactly one of its two stages
 
@@ -756,33 +814,41 @@ sentence as the MB figure.** All figures in this report are `unique`.
   statistic reads +0.455% ± 0.136%. Ranking on `officialScore` would have
   filed this arm as a mild regression.
 
-### Unresolved: the Part 1a / M1 decomposition
+### Partly resolved: the Part 1a / M1 decomposition
 
-`Y − C0` is the arm exactly as briefed, and it is what every number above is
-computed from. It is **not** M1 alone: it is M1 *plus* the two Part 1a
-reverts, which the brief also told me to land in the same arm.
+`Y − C0` is the arm exactly as briefed. It is **not** M1 alone: it is M1
+*plus* the two Part 1a reverts, which the brief also told me to land in the
+same arm. One decomposition receipt landed (`1feeabc8`, tree X = `BASE_SHA` −
+`9c1ad1c` − `6ca0c71`), which is enough to change the reading and not enough
+to settle it. The full contrast table is in
+*`X − C0` and `Y − X`: the decomposition* above; the summary is:
 
-The decomposition needs two receipts on tree X (`BASE_SHA` − `9c1ad1c` −
-`6ca0c71`, i.e. the reverts without M1), which would give `X − C0` = Part 1a
-alone and `Y − X` = M1 alone. **Those two receipts did not land.** The
-submission endpoint enforces a 1-in-flight limit *per account*, not per
-student, and the slot was continuously occupied by sibling students' runs.
-Tree X is prepared, verified byte-identical to `6d14ed9` on the editable
-surface, and the driver is committed as `research/sweep_x_vs_y.sh`; this is a
-scheduling failure, not a technical one.
+- Point estimate: **39% of the briefed arm's +0.455% is the two reverts.**
+- Neither half clears 2σ at n=1 for X, so the split location is unresolved.
+- The safe consequence: **0.50× is an upper bound on the byte mechanism's own
+  conversion factor; plan against the 0.302× central estimate.**
 
-What the existing data already says about the confound: the advisor
-hypothesised that `9c1ad1c` carries an `S +0.236%` regression, so reverting it
-should show up as `S` improving by that amount. Observed `S` on `Y − C0` is
-**−0.080% ± 0.159%** — right sign, one third the magnitude, not significant.
-That is weak evidence *against* Part 1a carrying a large share of the effect,
-and it is consistent with the `+0.455%` being predominantly M1. But it is
-1σ evidence and I am not willing to call the decomposition from it.
+A second X receipt was prepared and attempted but not accepted — the endpoint
+enforces a 1-in-flight limit *per account*, not per student, and the slot was
+held by a sibling student's run. Tree X is committed at `6d14ed9`, verified
+byte-identical on the editable surface, and the driver is
+`research/sweep_x_vs_y.sh`. Taking X to n=2 moves the 2σ resolution floor from
+0.344% to about 0.30%, which would still not separate a 0.179% effect; **X
+needs n≈4 to call this**, and that is the honest cost of the answer.
 
-Pre-registering the prediction so the follow-up is a clean test: if the
-half-size conversion factor is a property of the *byte mechanism* (M1) rather
-than of Part 1a, then `X − C0` should read `ns` ≈ 0 and `S` ≈ −0.24%, and
-`Y − X` should reproduce the full `ns +0.455%` on `T` with `S` flat.
+My pre-registered prediction was that if the half-size conversion factor were
+a property of M1 rather than Part 1a, `X − C0` would read `ns` ≈ 0 and
+`S` ≈ −0.24%. Measured: `ns` +0.179% ± 0.172%, `S` −0.010% ± 0.201%. The `ns`
+leg went the wrong way for that hypothesis and the `S` leg showed no recovery
+at all. Neither is significant, so the prediction is not rejected — but it is
+not supported, and I am recording it as failed-as-stated rather than quietly
+dropping it.
+
+One further consequence for the advisor's own model: the hypothesis that
+`9c1ad1c` carries the harvest's `S +0.236%` prefill regression now has a
+direct test rather than an inference, and that test came back flat
+(−0.010% ± 0.201%). If that regression is real it is more likely in one of the
+five *unreverted* harvest commits.
 
 ### What I did not do, and why
 
@@ -817,19 +883,38 @@ independent gain.
    leave, versus the 204.6 GB/s step average? An arm removing bytes from an
    average dispatch keeps `MB/1794` intact. Do **not** apply my `0.602` — it
    is an unexplained residual specific to this arm, not a correction.
-5. **Do not assign the slot-4 fix as currently priced.** Re-derive it first.
+5. **Price byte arms at ≤0.50×, and plan against ~0.30×.** The decomposition
+   receipt moved the byte mechanism's own central conversion factor from
+   0.50× to 0.302×. 0.50× is now an upper bound. Any arm on the board whose
+   go/no-go rests on `MB/1794 × 0.638` at face value is over-priced by 2–3×,
+   which is enough to move several of them below the 0.61% bar.
+6. **Do not assign the slot-4 fix as currently priced.** Re-derive it first.
    The 0.48%-of-score estimate rests on a 16.9×-too-small byte count and on a
    `simd_broadcast` diagnosis that governs only 7% of the dispatch's traffic.
    If something is assigned there, the defensible target is the *row-granular
    gather*: 458 live blocks read 16 KB each for ~1.2 wanted rows out of 4, so
    the 7.5 MB GEMV term could plausibly fall ~3×. Write it against the post-M1
-   kernel.
-6. **Run the per-dispatch probe of the after-build.** One M4 build, one run,
+   kernel. And whatever it is priced at, apply recommendation 5 to that price.
+7. **Run the per-dispatch probe of the after-build.** One M4 build, one run,
    no receipts. It settles the MLP retraction, measures slot 4 directly, and
-   is the only cheap route to the unexplained 0.438%.
-7. **Reclaim the decomposition** with two X receipts when the account
-   submission slot is free. It is two runs and the tree is ready.
-8. **Adopt the `unique`/`issued` declaration rule** for byte-arm briefs.
+   is the only cheap route to the unexplained residual — which the
+   decomposition made *larger*, not smaller.
+8. **Finish the decomposition only if the answer is worth ~3 more receipts.**
+   X is at n=1. n=2 still cannot separate a 0.179% effect; n≈4 can. The
+   cheaper alternative is to accept the ≤0.50× upper bound from
+   recommendation 5 and spend those receipts on a new mechanism instead. My
+   recommendation is the latter — the bound is already actionable, and the
+   exact split point changes no decision I can identify.
+
+   This is a campaign-allocation recommendation, not an argument against the
+   X2 receipt I still have queued. X2 does not make the split significant; it
+   halves the sampling error on X's *own* mean, which currently rests on a
+   single draw. I have no competing use for that slot — no new mechanism is
+   built, and recommendation 6 says the obvious next one should be re-priced
+   before it is written — so the choice is X2 or nothing, and X2 is strictly
+   better than nothing. If it lands, the `X − C0` and `Y − X` rows above
+   should be recomputed before anyone quotes the 39% figure.
+9. **Adopt the `unique`/`issued` declaration rule** for byte-arm briefs.
 
 ## Appendix — the survivor-census patch
 

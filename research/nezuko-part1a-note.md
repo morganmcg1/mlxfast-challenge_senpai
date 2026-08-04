@@ -75,18 +75,26 @@ When I planned this design I treated `X` as insurance. The first two `Y`
 receipts changed that.
 
 Against the three-receipt control, `Y` moved the renormalised statistic by
-**+0.456%** and the pure decode step `T` by **−0.763%**, against a byte-model
-prediction of **+0.914%** and **−1.432%**. The effect is real, on the right
-axis, and the prefill term `S` — which nothing in this family should touch —
-moved `+0.090% ± 0.201%`, so the built-in negative control is clean. But the
-realised magnitude is **0.53×** the prediction on both axes simultaneously.
+**+0.455% ± 0.136%** and the pure decode step `T` by **−0.664% ± 0.203%**,
+against a byte-model prediction of **+0.914%** and **−1.422%**. The effect is
+real, on the right axis, and the prefill term `S` — which nothing in this
+family should touch — moved `−0.080% ± 0.159%`, so the built-in negative
+control is clean. But the realised magnitude is **0.50×** the prediction on
+both axes simultaneously.
 
 That factor is the whole result of the arm, and it is only attributable to the
 cascade if the two deletions in this archive contributed nothing to it. Hence
-this receipt. A `0.53×` conversion factor re-prices every remaining
-byte-removal experiment on this board by a factor of two; a `0.53×` factor
-that is really a `0.6×` cascade effect partly cancelled by a deletion
+this receipt. A `0.50×` conversion factor re-prices every remaining
+byte-removal experiment on this board by a factor of two; a `0.50×` factor
+that is really a larger cascade effect partly cancelled by a deletion
 regression prices them differently again. The difference is worth a receipt.
+
+I can already attribute part of that factor without this receipt, and part of
+it I cannot. Re-pricing the prediction at the *coarse dispatch* bandwidth the
+removed bytes actually move at (264.0 GB/s measured, against the 204.6 GB/s
+step average the prediction assumed) accounts for a factor of **0.775**. The
+remaining **0.602** is an unexplained residual, and I am deliberately not
+propagating it as a rule. Only the 0.775 is transferable.
 
 ## The byte numerator is confirmed to 99.3%, so this is not a bookkeeping error
 
@@ -115,9 +123,25 @@ the predicted effect, it is not un-removed bytes.
 
 The census also corrects the inherited comment by two orders of magnitude:
 survivors are hundreds, not single digits. That does not matter for the byte
-count, but it does matter for anyone sizing the sparse-refine dispatch, which
-is separately known to run at 6.5 GB/s and is the worst-efficiency dispatch in
-the decode step.
+count, but it does matter for how the sparse-refine dispatch is sized — and
+following it through overturns a figure this campaign has been quoting.
+
+That dispatch is on record as running at **6.5 GB/s**, the worst efficiency in
+the decode step. Reading the kernel, that numerator counts only the 6 B/row
+lane-0 screen (0.602 MB). It misses the fall-through: every block whose
+`candidate_mask` is non-zero runs a `gemv_al` replica that reads all four rows
+of `lm_head` unconditionally, 16 KB per live block. At the measured 458 live
+blocks that is **7.504 MB**, so the dispatch actually moves **8.110 MB unique
+/ 9.982 MB issued — 109.6 GB/s, or 42% of this host's ceiling**. The published
+numerator is wrong by **16.9×**.
+
+Two consequences. The `simd_broadcast` diagnosis behind the proposed fix
+governs 0.602 MB of 8.11 MB, so the "~65–69 µs recovered" sizing needs
+re-deriving before anyone builds it. And the same correction kills my *own*
+first explanation of the missing half — I had attributed the residual to
+survivor re-read, but at 109.6 GB/s the 171 KB costs 1.56 µs, which is 0.018%
+of `T`, not the 0.438% I needed. I am withdrawing that explanation rather than
+substituting a second guess.
 
 ## Correctness
 
@@ -139,9 +163,11 @@ figure is the known bf16-vs-NVFP4 batched-path gap, not a regression.
 
 ## Honest limitations
 
-- One receipt. `X` is n=1 against an n=3 control, so `X - C0` carries a larger
-  standard error than the other contrasts in this family and should be read as
-  a decomposition aid, not as a standalone claim about the two deletions.
+- Two receipts. This is the second `X` archive; the first is submission
+  `1feeabc`, published `2.500378`. `X` is therefore n=2 against an n=3
+  control, which is the planned split, but `X - C0` still carries a larger
+  standard error than `Y - C0` and should be read as a decomposition aid, not
+  as a standalone claim about the two deletions.
 - Local M4 timing does not transfer for these two mechanisms the way byte
   removal does. One of them is a dispatch-batching policy and the other is a
   Metal barrier elision inside an `is_nax_available()` path; both are
