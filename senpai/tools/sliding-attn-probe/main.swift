@@ -111,10 +111,16 @@ func loadVariant(label: String, path: String, groupHeads: Int) -> Variant {
 // Variants come from the command line as `label:path:headsPerThreadgroup`
 // triples. The first is the reference every other variant is diffed against,
 // so pass the unmodified kernel first.
-let specs = CommandLine.arguments.dropFirst()
+var args = Array(CommandLine.arguments.dropFirst())
+// `--occupancy` times variants[0] at 1..heads dispatched threadgroups instead
+// of comparing variants, so the concurrent-threadgroup count of the host can be
+// read off the riser positions.
+let occupancyMode = args.first == "--occupancy"
+if occupancyMode { args.removeFirst() }
+let specs = args
 guard !specs.isEmpty else {
     FileHandle.standardError.write(Data(
-        "usage: probe label:file.metal:headsPerThreadgroup ...\n".utf8))
+        "usage: probe [--occupancy] label:file.metal:headsPerThreadgroup ...\n".utf8))
     exit(2)
 }
 let variants = specs.map { spec -> Variant in
@@ -123,7 +129,10 @@ let variants = specs.map { spec -> Variant in
     return loadVariant(label: f[0], path: f[1], groupHeads: Int(f[2])!)
 }
 
-func encode(_ variant: Variant, layer: Int, into encoder: MTLComputeCommandEncoder) {
+func encode(
+    _ variant: Variant, layer: Int, groups groupOverride: Int? = nil,
+    into encoder: MTLComputeCommandEncoder
+) {
     encoder.setComputePipelineState(variant.pipeline)
     encoder.setBuffer(rawQueries, offset: 0, index: 0)
     encoder.setBuffer(rawKeys, offset: 0, index: 1)
@@ -136,7 +145,7 @@ func encode(_ variant: Variant, layer: Int, into encoder: MTLComputeCommandEncod
     encoder.setBuffer(paramsBuffer, offset: 0, index: 8)
     encoder.setBuffer(scaleArr, offset: 0, index: 9)
     encoder.setBuffer(attended, offset: 0, index: 10)
-    let groups = heads / variant.groupHeads
+    let groups = groupOverride ?? (heads / variant.groupHeads)
     encoder.dispatchThreadgroups(
         MTLSize(width: groups, height: 1, depth: 1),
         threadsPerThreadgroup: MTLSize(width: 1024, height: 1, depth: 1))
@@ -169,24 +178,28 @@ for variant in variants {
             + "\(variant.pipeline.staticThreadgroupMemoryLength)")
 }
 
-let reference = runOnce(variants[0])
-print("")
-for variant in variants {
-    let candidate = runOnce(variant)
-    let mismatches = zip(reference, candidate).filter { $0 != $1 }.count
-    print("\(variant.label): bitwise mismatches vs \(variants[0].label) = \(mismatches)")
+if !occupancyMode {
+    let reference = runOnce(variants[0])
+    print("")
+    for variant in variants {
+        let candidate = runOnce(variant)
+        let mismatches = zip(reference, candidate).filter { $0 != $1 }.count
+        print("\(variant.label): bitwise mismatches vs \(variants[0].label) = \(mismatches)")
+    }
 }
 
 // Isolated timing: one command buffer per "decode step" of 30 sliding layers,
 // matching the real dispatch pattern. Variants are measured round-robin so a
 // drifting host load cannot be mistaken for a shape effect, and each variant
 // keeps its minimum block.
-func timeBlock(_ variant: Variant, steps: Int) -> Double {
+func timeBlock(_ variant: Variant, groups: Int? = nil, steps: Int) -> Double {
     let start = DispatchTime.now().uptimeNanoseconds
     for _ in 0..<steps {
         let buffer = queue.makeCommandBuffer()!
         let encoder = buffer.makeComputeCommandEncoder()!
-        for layer in 0..<layers { encode(variant, layer: layer, into: encoder) }
+        for layer in 0..<layers {
+            encode(variant, layer: layer, groups: groups, into: encoder)
+        }
         encoder.endEncoding()
         buffer.commit()
         buffer.waitUntilCompleted()
@@ -197,6 +210,38 @@ func timeBlock(_ variant: Variant, steps: Int) -> Double {
 
 let steps = 20
 let rounds = 9
+
+if occupancyMode {
+    // Time variants[0] at g = 1..heads dispatched threadgroups. Risers at
+    // g = cores + 1, 2*cores + 1, ... pin the concurrent-threadgroup count, and
+    // the plateau value is the single-wave (per-threadgroup) latency a host with
+    // at least g cores would pay.
+    let variant = variants[0]
+    print("")
+    print(
+        "occupancy scan: \(variant.label), \(layers) dispatches per step, "
+            + "min of \(rounds) blocks of \(steps) steps")
+    var results = [Int: Double]()
+    for _ in 0..<3 { _ = timeBlock(variant, groups: heads, steps: 2) }
+    for round in 0..<rounds {
+        // Alternate scan direction so monotone host drift cannot fake a step.
+        let order = round % 2 == 0
+            ? Array(1...heads) : Array((1...heads).reversed())
+        for g in order {
+            let seconds = timeBlock(variant, groups: g, steps: steps)
+            results[g] = min(results[g] ?? .greatestFiniteMagnitude, seconds)
+        }
+    }
+    let unit = results[1]!
+    for g in 1...heads {
+        let seconds = results[g]!
+        print(String(
+            format: "groups %2d  %8.2f us/step  %7.2f us/dispatch  x%5.2f vs 1 TG",
+            g, seconds * 1e6, seconds * 1e6 / Double(layers), seconds / unit))
+    }
+    exit(0)
+}
+
 for variant in variants { _ = timeBlock(variant, steps: 3) }
 var best = [String: Double]()
 var median = [String: [Double]]()

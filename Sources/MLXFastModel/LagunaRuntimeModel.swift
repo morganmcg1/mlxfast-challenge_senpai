@@ -96,223 +96,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
-// MARK: - Kernel source minification
-
-/// MLX charges every custom-kernel apply for the FULL generated source, twice:
-/// `write_signature` reserves `header + source + 16 KiB` and copies both
-/// (`backend/common/metal_kernel.cpp:63`), then `CustomKernel::eval_gpu`
-/// compares the whole string against its library-cache entry
-/// (`backend/metal/custom_kernel.cpp:60`). Neither is editable and neither
-/// caches on the source, so per-step host CPU is linear in source bytes across
-/// the ~350 applies a decode step issues.
-///
-/// Comments and indentation carry no Metal semantics, so strip them once at
-/// construction and keep the documented form in this file.
-let lagunaKernelSourceMinifyEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_KERNEL_SOURCE_MINIFY"] != "0"
-
-/// Removes `//` and `/* */` comments, blank lines, indentation, redundant
-/// intra-line spacing, and the newlines Metal does not need.
-///
-/// The token stream is preserved exactly:
-/// - string and character literals are never rewritten;
-/// - a comment removed from mid-line leaves a separating space;
-/// - a space run, or a joined line boundary, keeps one space whenever the two
-///   neighbours could otherwise form a new token (two identifier characters, or
-///   two characters that can start a multi-character operator);
-/// - `#` directive lines keep their internal spacing, because `#define F (x)`
-///   and `#define F(x)` are different declarations, and keep a newline on both
-///   sides so joining can never absorb a directive into an expression; and
-/// - a `\` continuation keeps its newline, and the spliced line then starts with
-///   a space, so the splice cannot merge two tokens.
-///
-/// Comments are removed before any line is joined, so a joined line can never
-/// comment out the code that followed it.
-func lagunaMinifiedKernelSource(_ source: String) -> String {
-    guard lagunaKernelSourceMinifyEnabled, !source.isEmpty else { return source }
-    let input = Array(source.utf8)
-    var output = [UInt8]()
-    output.reserveCapacity(input.count)
-    var inBlockComment = false
-    var quote: UInt8 = 0
-    var directive = false
-    var spliced = false
-    var atLineStart = true
-    var index = 0
-
-    func isIdentifier(_ byte: UInt8) -> Bool {
-        (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A)
-            || (byte >= 0x61 && byte <= 0x7A) || byte == 0x5F || byte == 0x24
-    }
-    // Characters that can begin a multi-character operator, plus `\`, whose
-    // line splice would otherwise glue two tokens together.
-    func isOperator(_ byte: UInt8) -> Bool {
-        switch byte {
-        case 0x2B, 0x2D, 0x3C, 0x3E, 0x3D, 0x26, 0x7C, 0x5E, 0x2A, 0x2F, 0x25,
-            0x3A, 0x2E, 0x21, 0x23, 0x7E, 0x3F, 0x5C:
-            return true
-        default:
-            return false
-        }
-    }
-    func emit(_ byte: UInt8) {
-        if atLineStart {
-            atLineStart = false
-            directive = byte == 0x23
-            if let previous = output.last {
-                if previous == 0x0A {
-                    if spliced { output.append(0x20) }
-                } else if directive {
-                    output.append(0x0A)
-                } else if (isIdentifier(previous) && isIdentifier(byte))
-                    || (isOperator(previous) && isOperator(byte))
-                {
-                    output.append(0x20)
-                }
-            }
-            spliced = false
-        }
-        output.append(byte)
-    }
-    func endLine() {
-        if atLineStart {
-            // A blank line only matters when the previous line spliced onto it,
-            // in which case the preprocessor must still consume it.
-            if spliced {
-                output.append(0x0A)
-                spliced = false
-            }
-            return
-        }
-        while output.last == 0x20 { output.removeLast() }
-        atLineStart = true
-        spliced = output.last == 0x5C
-        if spliced || directive { output.append(0x0A) }
-        directive = false
-    }
-
-    while index < input.count {
-        let byte = input[index]
-        if inBlockComment {
-            if byte == 0x0A {
-                endLine()
-            } else if byte == 0x2A, index + 1 < input.count, input[index + 1] == 0x2F {
-                inBlockComment = false
-                if !atLineStart { output.append(0x20) }
-                index += 2
-                continue
-            }
-            index += 1
-            continue
-        }
-        if byte == 0x0A {
-            quote = 0
-            endLine()
-            index += 1
-            continue
-        }
-        if quote != 0 {
-            output.append(byte)
-            if byte == 0x5C, index + 1 < input.count {
-                output.append(input[index + 1])
-                index += 2
-                continue
-            }
-            if byte == quote { quote = 0 }
-            index += 1
-            continue
-        }
-        if byte == 0x22 || byte == 0x27 {
-            quote = byte
-            emit(byte)
-            index += 1
-            continue
-        }
-        if byte == 0x2F, index + 1 < input.count {
-            if input[index + 1] == 0x2F {
-                while index < input.count, input[index] != 0x0A { index += 1 }
-                continue
-            }
-            if input[index + 1] == 0x2A {
-                inBlockComment = true
-                index += 2
-                continue
-            }
-        }
-        if byte == 0x20 || byte == 0x09 {
-            var next = index
-            while next < input.count, input[next] == 0x20 || input[next] == 0x09 {
-                next += 1
-            }
-            let follower = next < input.count ? input[next] : 0x0A
-            if !atLineStart, follower != 0x0A, let previous = output.last {
-                let mustSeparate =
-                    directive
-                    || (isIdentifier(previous) && isIdentifier(follower))
-                    || (isOperator(previous) && isOperator(follower))
-                if mustSeparate { output.append(0x20) }
-            }
-            index = next
-            continue
-        }
-        emit(byte)
-        index += 1
-    }
-    endLine()
-    if output.last != 0x0A { output.append(0x0A) }
-    return String(decoding: output, as: UTF8.self)
-}
-
-/// Shared `outputShapes`/`outputDTypes` arguments.
-///
-/// A literal array argument is heap-allocated on every call, and a decode step
-/// issues roughly 370 custom-kernel applies, so the shape-and-dtype literals
-/// alone cost about a thousand allocation/release pairs per step. The shapes
-/// here are the ones fixed by `LagunaConstants`; call sites whose shape depends
-/// on a runtime width keep their literal.
-enum LagunaKernelOutput {
-    static let bf16: [DType] = [.bfloat16]
-    static let bf16x2: [DType] = [.bfloat16, .bfloat16]
-    static let bf16x3: [DType] = [.bfloat16, .bfloat16, .bfloat16]
-    static let bf16x4: [DType] = [.bfloat16, .bfloat16, .bfloat16, .bfloat16]
-    static let bf16f32x2: [DType] = [.bfloat16, .float32, .float32]
-    static let u32f32: [DType] = [.uint32, .float32]
-
-    static let hidden: [[Int]] = [[1, 1, LagunaConstants.hiddenSize]]
-    static let sharedExpertIntermediate: [[Int]] = [
-        [1, 1, LagunaConstants.sharedExpertIntermediateSize]
-    ]
-    static let denseIntermediate: [[Int]] = [[1, 1, LagunaConstants.denseIntermediateSize]]
-    static let topGroupPair: [[Int]] = [[1, 1, 8], [1, 1, 8]]
-}
-
-/// `MLXFast.metalKernel` with the source and header minified. Every runtime
-/// kernel is built through this so no construction site can silently keep the
-/// unstripped form.
-///
-/// Minification rewrites the source of every kernel, and the JIT library and
-/// pipeline caches key on the kernel NAME, so a minified kernel must not reuse
-/// the unminified name.
-func lagunaMetalKernel(
-    name: String,
-    inputNames: some Sequence<String>,
-    outputNames: some Sequence<String>,
-    source: String,
-    header: String = "",
-    ensureRowContiguous: Bool = true,
-    atomicOutputs: Bool = false
-) -> MLXFast.MLXFastKernel {
-    MLXFast.metalKernel(
-        name: lagunaKernelSourceMinifyEnabled ? name + "_min" : name,
-        inputNames: inputNames,
-        outputNames: outputNames,
-        source: lagunaMinifiedKernelSource(source),
-        header: lagunaMinifiedKernelSource(header),
-        ensureRowContiguous: ensureRowContiguous,
-        atomicOutputs: atomicOutputs
-    )
-}
-
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -392,13 +175,9 @@ private let lagunaRouterPrecomputedKeysEnabled =
 /// the arm MUST announce either "active" (bank built / packed dispatch taken)
 /// or "inactive" (a guard declined and the stock kernel ran instead), so a
 /// silently-declining guard can never measure its own control.
-/// Two sites sit in the per-layer decode path, so the repeat case must not hash
-/// a string or take a lock: `announced` only ever gains bits, and a racing
-/// reader that misses one can at worst print the line twice.
 final class LagunaPackedScalesLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private let lock = NSLock()
-    private var announced: UInt32 = 0
 
     func note(_ state: String, _ site: String) {
         lock.lock()
@@ -408,14 +187,6 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
             FileHandle.standardError.write(
                 Data("mlxfast: packed-scales \(state): \(site)\n".utf8))
         }
-    }
-
-    /// `slot` must be a distinct compile-time constant per call site.
-    func noteOnce(slot: UInt32, _ state: String, _ site: @autoclosure () -> String) {
-        let bit = UInt32(1) << slot
-        guard announced & bit == 0 else { return }
-        announced |= bit
-        note(state, site())
     }
 }
 
@@ -1223,7 +994,7 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
         uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
             (
                 rowsPerGroup,
-                lagunaMetalKernel(
+                MLXFast.metalKernel(
                     name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_"
                         + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2"),
                     inputNames: lagunaRouterPrecomputedKeysEnabled
@@ -1242,7 +1013,7 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
 
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
 /// (layer 0) and for any shape the router fusion above declines.
-private let lagunaResidualRMSNormKernel = lagunaMetalKernel(
+private let lagunaResidualRMSNormKernel = MLXFast.metalKernel(
     name: "laguna_residual_rms_bf16_2048_v1",
     inputNames: ["residual", "branch", "weight"],
     outputNames: ["summed", "normalized"],
@@ -1319,7 +1090,7 @@ func lagunaResidualRMSNormRouter(
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, hidden], [1, 1, hidden], [1, 1, experts]]
             + (lagunaRouterPrecomputedKeysEnabled ? [[1, 1, experts]] : []),
-        outputDTypes: LagunaKernelOutput.bf16x3
+        outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
             + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : [])
     )
     return (outputs[0], outputs[1], outputs[2], outputs.count > 3 ? outputs[3] : nil)
@@ -1341,14 +1112,14 @@ func lagunaResidualRMSNorm(
         grid: (rows * 512, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [residual.shape, residual.shape],
-        outputDTypes: LagunaKernelOutput.bf16x2
+        outputDTypes: [.bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1])
 }
 
 // MARK: - Attention
 
-private let lagunaFullQKNormYaRNKernel = lagunaMetalKernel(
+private let lagunaFullQKNormYaRNKernel = MLXFast.metalKernel(
     name: "laguna_full_qk_norm_yarn_bf16_128_v4",
     inputNames: ["raw_queries", "raw_keys", "query_weight", "key_weight", "angles"],
     outputNames: ["queries", "keys"],
@@ -1452,7 +1223,7 @@ func lagunaFullQKNormYaRN(
             [1, 48, 1, LagunaConstants.headDim],
             [1, 8, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: LagunaKernelOutput.bf16x2
+        outputDTypes: [.bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1])
 }
@@ -1478,7 +1249,7 @@ func lagunaFullQKNormYaRN(
 ///    pair `p` couples elements `p` and `p + 64`, and `cos`/`sin` come from a
 ///    table produced by that very kernel (see `_slidingRoPEAngleSeed`), so
 ///    they are the same floats, not a re-derivation.
-private let lagunaSlidingQKNormRoPEKernel = lagunaMetalKernel(
+private let lagunaSlidingQKNormRoPEKernel = MLXFast.metalKernel(
     name: "laguna_sliding_qk_norm_rope_bf16_128_v1",
     inputNames: ["raw_queries", "raw_keys", "query_weight", "key_weight", "angles"],
     outputNames: ["queries", "keys"],
@@ -1578,7 +1349,7 @@ func lagunaSlidingQKNormRoPE(
             [1, heads, 1, LagunaConstants.headDim],
             [1, kvHeads, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: LagunaKernelOutput.bf16x2
+        outputDTypes: [.bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1])
 }
@@ -1607,7 +1378,7 @@ func lagunaSlidingQKNormRoPE(
 let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
-private let lagunaSlidingFusedAttentionKernel = lagunaMetalKernel(
+private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     name: "laguna_sliding_fused_attn_ring_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
@@ -2023,7 +1794,7 @@ func lagunaSlidingFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -2077,7 +1848,7 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
-private let lagunaFullFusedAttentionKernel = lagunaMetalKernel(
+private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
     name: "laguna_full_fused_attn_grow_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
@@ -2535,7 +2306,7 @@ func lagunaFullFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -2601,7 +2372,7 @@ func lagunaWarmFullFusedAttentionKernel() {
 ///    absolute position — values the stock RoPE kernel computed, not a
 ///    re-derivation. The decode twin (`laguna_sliding_qk_norm_rope_bf16_128_v1`)
 ///    consumes the same table with the same expression.
-private let lagunaPrefillSlidingQKNormRoPEKernel = lagunaMetalKernel(
+private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
     name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2696,7 +2467,7 @@ private let lagunaPrefillSlidingQKNormRoPEKernel = lagunaMetalKernel(
 /// many heads share a threadgroup. This matches the proven DECODE shape
 /// (`lagunaSlidingQKNormRoPEKernel`, one SIMD/head, the project's largest
 /// single win); the prefill `*4` was an unaudited divergence from it.
-private let lagunaPrefillSlidingQKNormRoPEH1Kernel = lagunaMetalKernel(
+private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
     name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2788,7 +2559,7 @@ private let lagunaPrefillSlidingQKNormRoPEH1Kernel = lagunaMetalKernel(
 /// `fl(fl(1/mscale) * mscale) == 1.0f`, so the atlas carries pure cos/sin);
 /// and the tail elements 64…127 written verbatim, matching the values the
 /// stock pre-RoPE copy leaves behind.
-private let lagunaPrefillFullQKNormYaRNKernel = lagunaMetalKernel(
+private let lagunaPrefillFullQKNormYaRNKernel = MLXFast.metalKernel(
     name: "laguna_prefill_full_qk_norm_yarn_bf16_128_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -2882,7 +2653,7 @@ private let lagunaPrefillFullQKNormYaRNKernel = lagunaMetalKernel(
 /// partner shuffle, the mscale round-trip) is SIMD-local, so grouping one head
 /// per threadgroup instead of four changes only launch count/occupancy, not any
 /// head's output value. Matches the proven decode shape.
-private let lagunaPrefillFullQKNormYaRNH1Kernel = lagunaMetalKernel(
+private let lagunaPrefillFullQKNormYaRNH1Kernel = MLXFast.metalKernel(
     name: "laguna_prefill_full_qk_norm_yarn_bf16_128_h1_v2",
     inputNames: [
         "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
@@ -3008,7 +2779,7 @@ private func lagunaPrefillSlidingQKNormRoPE(
             [1, heads, length, LagunaConstants.headDim],
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
-        outputDTypes: LagunaKernelOutput.bf16x2
+        outputDTypes: [.bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1])
 }
@@ -3053,7 +2824,7 @@ private func lagunaPrefillFullQKNormYaRN(
             [1, heads, length, LagunaConstants.headDim],
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
-        outputDTypes: LagunaKernelOutput.bf16x2
+        outputDTypes: [.bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1])
 }
@@ -3643,7 +3414,7 @@ private func lagunaFusedQKVProjectionSource(
 private let lagunaFusedQKVProjectionKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = lagunaMetalKernel(
+        kernels[heads] = MLXFast.metalKernel(
             name: "laguna_fused_norm_qkv_projection_bf16_h\(heads)_v3",
             inputNames: [
                 "residual", "norm_weight", "query_weight", "key_weight",
@@ -3695,7 +3466,7 @@ func lagunaFusedNormQKVProjection(
         outputShapes: [
             [1, 1, queryRows], [1, 1, kvRows], [1, 1, kvRows], [1, 1, heads],
         ],
-        outputDTypes: LagunaKernelOutput.bf16x4
+        outputDTypes: [.bfloat16, .bfloat16, .bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1], outputs[2], outputs[3], true)
 }
@@ -3952,7 +3723,7 @@ private let lagunaGatedOutputProjectionKernels:
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         var byDepth: [Int: MLXFast.MLXFastKernel] = [:]
         for depth in [1, 2, 4, 8] {
-            byDepth[depth] = lagunaMetalKernel(
+            byDepth[depth] = MLXFast.metalKernel(
                 name: "laguna_gated_output_projection_bf16_h\(heads)_u\(depth)_v3",
                 inputNames: ["attention_output", "gate_values", "weight"],
                 outputNames: ["projected"],
@@ -3984,8 +3755,8 @@ func lagunaGatedOutputProjection(
         [attentionOutput, gateValues, weight],
         grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
         threadGroup: (128, 1, 1),
-        outputShapes: LagunaKernelOutput.hidden,
-        outputDTypes: LagunaKernelOutput.bf16
+        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -4032,7 +3803,7 @@ private func lagunaGateProductSoftplusSource(heads: Int) -> String {
 private let lagunaGateProductSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = lagunaMetalKernel(
+        kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gate_product_softplus_bf16_h\(heads)_v1",
             inputNames: ["attention_output", "gate_logits"],
             outputNames: ["gated"],
@@ -4070,7 +3841,7 @@ func lagunaGateProductSoftplus(
         grid: (inVec, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, inVec]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -4194,7 +3965,7 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
 private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = lagunaMetalKernel(
+        kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_v1",
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
@@ -4211,7 +3982,7 @@ private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
 private let lagunaGatedAffineOProjIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = lagunaMetalKernel(
+        kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_idx_v1",
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
@@ -4325,7 +4096,7 @@ func lagunaGatedAffineOProj(
             [attentionOutput, gateLogits, codes, metadata.indices, metadata.lut],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
-            outputShapes: [[1, 1, outVec]], outputDTypes: LagunaKernelOutput.bf16
+            outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16]
         )[0]
     }
     guard let kernel = lagunaGatedAffineOProjKernels[heads] else { return nil }
@@ -4335,7 +4106,7 @@ func lagunaGatedAffineOProj(
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -4504,7 +4275,7 @@ func lagunaGatedAffineOProjNVFP4Source(
 private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = lagunaMetalKernel(
+        kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
@@ -4571,7 +4342,7 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
 private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = lagunaMetalKernel(
+        result[heads] = MLXFast.metalKernel(
             name: "laguna_gate_sp_h\(heads)_v1",
             inputNames: ["input", "packed_codes", "scales", "biases"],
             outputNames: ["gate_values"],
@@ -4600,13 +4371,13 @@ private func lagunaGateSoftplus(
         grid: ((heads / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, heads]],
-        outputDTypes: LagunaKernelOutput.bf16)[0]
+        outputDTypes: [.bfloat16])[0]
 }
 
 private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = lagunaMetalKernel(
+        result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
@@ -4653,7 +4424,7 @@ func lagunaGatedAffineOProjNVFP4(
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -4862,7 +4633,7 @@ private let lagunaDecodeNVFP4QKVR1Source = """
 private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = lagunaMetalKernel(
+        kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
@@ -4901,7 +4672,7 @@ private func lagunaDecodeNVFP4QKVR1(
         grid: ((rows / 2) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -5275,7 +5046,7 @@ private let lagunaNormAffineQKVKernels: [Int: MLXFast.MLXFastKernel] = {
             if kernels[rows] != nil { continue }
             let staged = lagunaNormAffineQKVStaged
             let pf = staged ? 0 : lagunaNormAffineQKVPrefetchDepth
-            kernels[rows] = lagunaMetalKernel(
+            kernels[rows] = MLXFast.metalKernel(
                 name: pf > 0
                     ? "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_pf\(pf)_v1"
                     : "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
@@ -5305,7 +5076,7 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
         for gateRows in [0, heads] {
             let rows = heads * LagunaConstants.headDim + kvRows + gateRows
             if kernels[rows] != nil { continue }
-            kernels[rows] = lagunaMetalKernel(
+            kernels[rows] = MLXFast.metalKernel(
                 name: "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
                     + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_v1",
                 inputNames: [
@@ -5377,7 +5148,7 @@ func lagunaNormAffineQKV(
             grid: ((rows / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
-            outputDTypes: LagunaKernelOutput.bf16
+            outputDTypes: [.bfloat16]
         )[0]
     }
 
@@ -5390,7 +5161,7 @@ func lagunaNormAffineQKV(
         grid: ((rows / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -6731,7 +6502,7 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     """
 }()
 
-private let lagunaSharedSwiGLUQMVKernel = lagunaMetalKernel(
+private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
@@ -6813,7 +6584,7 @@ private let lagunaSharedSwiGLUQMVKernel = lagunaMetalKernel(
 
 /// One-output-row scheduling twin of `lagunaSharedSwiGLUQMVKernel`.
 /// Arithmetic is textually identical per row; only row ownership changes.
-private let lagunaSharedSwiGLUQMVRows1Kernel = lagunaMetalKernel(
+private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
@@ -6909,12 +6680,12 @@ func lagunaSharedSwiGLUQMV(
         [input, fusedWeight, fusedScales],
         grid: (tiles * 64, 1, 1),
         threadGroup: (64, 1, 1),
-        outputShapes: LagunaKernelOutput.sharedExpertIntermediate,
-        outputDTypes: LagunaKernelOutput.bf16
+        outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
-private let lagunaSharedDownResidualKernel = lagunaMetalKernel(
+private let lagunaSharedDownResidualKernel = MLXFast.metalKernel(
     name: "laguna_shared_nvfp4_down_residual_bf16_v1",
     inputNames: [
         "activated", "down_weight", "down_scales", "routed", "residual",
@@ -7005,12 +6776,12 @@ func lagunaSharedDownResidual(
         [activated, downWeight, downScales, routed, residual],
         grid: ((LagunaConstants.hiddenSize / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
-        outputShapes: LagunaKernelOutput.hidden,
-        outputDTypes: LagunaKernelOutput.bf16
+        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
-private let lagunaRoutedSwiGLUQMVKernel = lagunaMetalKernel(
+private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_bf16_v2",
     inputNames: ["input", "fused_weight", "fused_scales", "indices"],
     outputNames: ["activated"],
@@ -7115,7 +6886,7 @@ private let lagunaRoutedSwiGLUQMVKernel = lagunaMetalKernel(
 /// R1 scheduling twin of `lagunaRoutedSwiGLUQMVKernel`: each simdgroup owns
 /// one output row rather than two. Two simdgroups per 64-thread group and 256
 /// tiles cover all 512 expert rows exactly once.
-private let lagunaRoutedSwiGLUQMVRows1Kernel = lagunaMetalKernel(
+private let lagunaRoutedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_rows1_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales", "indices"],
     outputNames: ["activated"],
@@ -7243,7 +7014,7 @@ func lagunaRoutedSwiGLUQMV(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -7257,7 +7028,7 @@ func lagunaRoutedSwiGLUQMV(
 /// the identical one-byte scale and uint2 code loads and runs the textually
 /// identical dequant/accumulate/SwiGLU chain — only scale address computation
 /// differs.
-private let lagunaRoutedSwiGLUQMVPackedKernel = lagunaMetalKernel(
+private let lagunaRoutedSwiGLUQMVPackedKernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_bf16_v1",
     inputNames: ["input", "fused_weight", "packed_scales", "indices"],
     outputNames: ["activated"],
@@ -7383,7 +7154,7 @@ func lagunaRoutedSwiGLUQMVPacked(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -7528,7 +7299,7 @@ private let lagunaRouterTop8PrecomputedPrelude = """
         }
     """
 
-private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = lagunaMetalKernel(
+private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v1",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
@@ -7551,8 +7322,8 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = lagunaMetalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = lagunaMetalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v1",
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: """
@@ -7591,6 +7362,27 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = lagunaMetalKernel(
         thread float up_result = 0.0f;
         thread float input_values[values_per_lane];
 
+        // Depth-1 weight staging: block b+1's gate/up code words (the same
+        // uint2 laguna_nvfp4_qdot_16 loads internally) and scale bytes are
+        // issued before block b's qdots consume b's registers, so the
+        // expert-dependent weight stream rides under the current block's
+        // compute. Same bytes, same addresses, same nibble decode via
+        // laguna_nvfp4_qdot_codes_16, identical accumulation order.
+        uint2 gate_codes;
+        uint2 up_codes;
+        uint8_t gate_sb;
+        uint8_t up_sb;
+        {
+            const device uint8_t* first_scales =
+                row_scales + sub * 2 * scale_row_bytes + lane;
+            gate_sb = first_scales[0];
+            up_sb = first_scales[scale_row_bytes];
+            gate_codes = *(const device uint2*)(
+                expert_weight + gate_row * fused_row_bytes + lane * 8);
+            up_codes = *(const device uint2*)(
+                expert_weight + up_row * fused_row_bytes + lane * 8);
+        }
+
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
@@ -7603,24 +7395,31 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = lagunaMetalKernel(
                 input_values[4 * i + 3] = values[3];
             }
 
-            const device uint8_t* block_scales =
-                row_scales + (block / block_width) * scale_kblock_bytes;
-            const device uint8_t* gate_scale =
-                block_scales + sub * 2 * scale_row_bytes + lane;
-            const device uint8_t* up_scale = gate_scale + scale_row_bytes;
-            const device uint8_t* gate_weight =
-                expert_weight + gate_row * fused_row_bytes
-                + block / 2 + lane * 8;
-            const device uint8_t* up_weight =
-                expert_weight + up_row * fused_row_bytes
-                + block / 2 + lane * 8;
+            const uint2 cur_gate_codes = gate_codes;
+            const uint2 cur_up_codes = up_codes;
+            const uint8_t cur_gate_sb = gate_sb;
+            const uint8_t cur_up_sb = up_sb;
+            const uint next_block = block + block_width;
+            if (next_block < input_width) {
+                const device uint8_t* next_scales =
+                    row_scales + (next_block / block_width) * scale_kblock_bytes
+                    + sub * 2 * scale_row_bytes + lane;
+                gate_sb = next_scales[0];
+                up_sb = next_scales[scale_row_bytes];
+                gate_codes = *(const device uint2*)(
+                    expert_weight + gate_row * fused_row_bytes
+                    + next_block / 2 + lane * 8);
+                up_codes = *(const device uint2*)(
+                    expert_weight + up_row * fused_row_bytes
+                    + next_block / 2 + lane * 8);
+            }
 
-            gate_result += laguna_nvfp4_qdot_16(
-                gate_weight, input_values,
-                laguna_nvfp4_scale(gate_scale[0]));
-            up_result += laguna_nvfp4_qdot_16(
-                up_weight, input_values,
-                laguna_nvfp4_scale(up_scale[0]));
+            gate_result += laguna_nvfp4_qdot_codes_16(
+                cur_gate_codes, input_values,
+                laguna_nvfp4_scale(cur_gate_sb));
+            up_result += laguna_nvfp4_qdot_codes_16(
+                cur_up_codes, input_values,
+                laguna_nvfp4_scale(cur_up_sb));
         }
 
         gate_result = simd_sum(gate_result);
@@ -7664,7 +7463,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
                 1, 1, LagunaConstants.numExpertsPerTok, 1,
                 LagunaConstants.moeIntermediateSize,
             ]],
-            outputDTypes: LagunaKernelOutput.bf16
+            outputDTypes: [.bfloat16]
         )[0]
     }
     return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
@@ -7675,12 +7474,12 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
-private let lagunaRoutedDownReduceKernel = lagunaMetalKernel(
-    name: "laguna_routed_nvfp4_down_reduce_bf16_v1",
+private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_down_reduce_bf16_v2",
     inputNames: [
         "activated", "down_weight", "down_scales", "indices", "router_weights",
     ],
@@ -7727,17 +7526,30 @@ private let lagunaRoutedDownReduceKernel = lagunaMetalKernel(
         thread float result[outputs_per_simd] = {
             0.0f, 0.0f, 0.0f, 0.0f
         };
+        // Rows' code words/scales stage first; one packed simd_sum, same
+        // bytes/decode/order per component as stock.
+        uint2 row_codes[outputs_per_simd];
+        uint8_t row_sb[outputs_per_simd];
         for (uint row = 0; row < outputs_per_simd; ++row) {
             uint output_row = first_row + row;
-            const device uint8_t* weight =
-                expert_weight + output_row * packed_row_bytes + lane * 8;
-            const device uint8_t* scale =
-                expert_scales + output_row * scale_row_bytes + lane;
-            result[row] = laguna_nvfp4_qdot_16(
-                weight,
+            row_codes[row] = *(const device uint2*)(
+                expert_weight + output_row * packed_row_bytes + lane * 8);
+            row_sb[row] =
+                expert_scales[output_row * scale_row_bytes + lane];
+        }
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            result[row] = laguna_nvfp4_qdot_codes_16(
+                row_codes[row],
                 input_values,
-                laguna_nvfp4_scale(scale[0]));
-            result[row] = simd_sum(result[row]);
+                laguna_nvfp4_scale(row_sb[row]));
+        }
+        {
+            const vec<float, 4> packed_rows = simd_sum(
+                vec<float, 4>(result[0], result[1], result[2], result[3]));
+            result[0] = packed_rows.x;
+            result[1] = packed_rows.y;
+            result[2] = packed_rows.z;
+            result[3] = packed_rows.w;
         }
 
         threadgroup bfloat expert_outputs[
@@ -7800,8 +7612,8 @@ func lagunaRoutedDownReduce(
         [activated, downWeight, downScales, indices, routerWeights],
         grid: ((LagunaConstants.hiddenSize / 4) * 256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: LagunaKernelOutput.hidden,
-        outputDTypes: LagunaKernelOutput.bf16
+        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -7824,7 +7636,7 @@ func lagunaRoutedDownReduce(
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
-private let lagunaRoutedSharedDownResidualKernel = lagunaMetalKernel(
+private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
         ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
         : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5",
@@ -7990,8 +7802,8 @@ func lagunaRoutedSharedDownResidual(
             ],
         grid: (LagunaConstants.hiddenSize / 4 * 288, 1, 1),
         threadGroup: (288, 1, 1),
-        outputShapes: LagunaKernelOutput.hidden,
-        outputDTypes: LagunaKernelOutput.bf16
+        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -8009,7 +7821,7 @@ func lagunaRoutedSharedDownResidual(
 // 8192) minus its gate multiply, with `lagunaSharedDownResidualKernel`'s
 // round-then-add-then-round epilogue reproducing stock `h + r2`
 // bit-for-bit.
-private let lagunaDenseGateUpSwiGLUKernel = lagunaMetalKernel(
+private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
     name: "laguna_dense_gate_up_swiglu_bf16_v1",
     inputNames: ["input", "fused_weight"],
     outputNames: ["activated"],
@@ -8101,12 +7913,12 @@ func lagunaDenseGateUpSwiGLU(
         [input, fusedWeight],
         grid: ((LagunaConstants.denseIntermediateSize / 64) * 512, 1, 1),
         threadGroup: (512, 1, 1),
-        outputShapes: LagunaKernelOutput.denseIntermediate,
-        outputDTypes: LagunaKernelOutput.bf16
+        outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
-private let lagunaDenseDownResidualKernel = lagunaMetalKernel(
+private let lagunaDenseDownResidualKernel = MLXFast.metalKernel(
     name: "laguna_dense_down_residual_bf16_v1",
     inputNames: ["activated", "down_weight", "residual"],
     outputNames: ["output"],
@@ -8180,8 +7992,8 @@ func lagunaDenseDownResidual(
         [activated, downWeight, residual],
         grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
         threadGroup: (128, 1, 1),
-        outputShapes: LagunaKernelOutput.hidden,
-        outputDTypes: LagunaKernelOutput.bf16
+        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -8623,7 +8435,7 @@ private let lagunaDecodeRouterTop8Header = """
     }
     """
 
-private let lagunaDecodeRouterTop8Kernel = lagunaMetalKernel(
+private let lagunaDecodeRouterTop8Kernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_v3",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8632,7 +8444,7 @@ private let lagunaDecodeRouterTop8Kernel = lagunaMetalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterTop8NormalizingKernel = lagunaMetalKernel(
+private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_norm_v2",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8779,7 +8591,7 @@ private let lagunaDecodeRouterOrdinalHeader = """
     }
     """
 
-private let lagunaDecodeRouterOrdinalKernel = lagunaMetalKernel(
+private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_ordinal_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8788,7 +8600,7 @@ private let lagunaDecodeRouterOrdinalKernel = lagunaMetalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterOrdinalNormalizingKernel = lagunaMetalKernel(
+private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_ordinal_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8797,7 +8609,7 @@ private let lagunaDecodeRouterOrdinalNormalizingKernel = lagunaMetalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterOrdinalScoreTableKernel = lagunaMetalKernel(
+private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_ordinal_table_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8806,7 +8618,7 @@ private let lagunaDecodeRouterOrdinalScoreTableKernel = lagunaMetalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = lagunaMetalKernel(
+private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_ordinal_table_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -8838,8 +8650,8 @@ func lagunaDecodeRouterTop8AcceptedForTesting(
         [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: LagunaKernelOutput.topGroupPair,
-        outputDTypes: LagunaKernelOutput.u32f32
+        outputShapes: [[1, 1, 8], [1, 1, 8]],
+        outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -8859,8 +8671,8 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
         [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: LagunaKernelOutput.topGroupPair,
-        outputDTypes: LagunaKernelOutput.u32f32
+        outputShapes: [[1, 1, 8], [1, 1, 8]],
+        outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -8881,8 +8693,8 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
         [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: LagunaKernelOutput.topGroupPair,
-        outputDTypes: LagunaKernelOutput.u32f32
+        outputShapes: [[1, 1, 8], [1, 1, 8]],
+        outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -9030,7 +8842,7 @@ private func lagunaPrefillRouterTop8KernelSource(normalizing: Bool) -> String {
         """
 }
 
-private let lagunaPrefillRouterTop8Kernel = lagunaMetalKernel(
+private let lagunaPrefillRouterTop8Kernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_top8_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9039,7 +8851,7 @@ private let lagunaPrefillRouterTop8Kernel = lagunaMetalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaPrefillRouterTop8NormalizingKernel = lagunaMetalKernel(
+private let lagunaPrefillRouterTop8NormalizingKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_top8_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9064,7 +8876,7 @@ private func lagunaPrefillRouterTop8(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: LagunaKernelOutput.u32f32
+        outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -9397,7 +9209,7 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
         """
 }
 
-private let lagunaPrefillRouterTournamentKernel = lagunaMetalKernel(
+private let lagunaPrefillRouterTournamentKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_tournament_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9406,7 +9218,7 @@ private let lagunaPrefillRouterTournamentKernel = lagunaMetalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaPrefillRouterTournamentNormalizingKernel = lagunaMetalKernel(
+private let lagunaPrefillRouterTournamentNormalizingKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_tournament_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9415,7 +9227,7 @@ private let lagunaPrefillRouterTournamentNormalizingKernel = lagunaMetalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaPrefillRouterTournamentOrdinalKernel = lagunaMetalKernel(
+private let lagunaPrefillRouterTournamentOrdinalKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_tournament_ordinal_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9424,7 +9236,7 @@ private let lagunaPrefillRouterTournamentOrdinalKernel = lagunaMetalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = lagunaMetalKernel(
+private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_tournament_ordinal_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
@@ -9449,7 +9261,7 @@ func lagunaPrefillRouterTournamentAcceptedForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: LagunaKernelOutput.u32f32
+        outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -9471,7 +9283,7 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: LagunaKernelOutput.u32f32
+        outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
 }
@@ -9636,7 +9448,7 @@ final class LagunaRuntimeMoEGate: Module {
 ///    result dtype (2.5 is exactly representable), one rounding.
 ///  * `r2 = scaled + shared` and `residual + r2` keep the stock operand
 ///    order and one BF16 rounding each.
-private let lagunaPrefillMoETailKernel = lagunaMetalKernel(
+private let lagunaPrefillMoETailKernel = MLXFast.metalKernel(
     name: "laguna_prefill_moe_tail_bf16_v1",
     inputNames: ["expert_outputs", "router_weights", "shared_output", "residual"],
     outputNames: ["output"],
@@ -9679,7 +9491,7 @@ private let lagunaPrefillMoETailKernel = lagunaMetalKernel(
 /// Reading that row directly preserves the stock slot-0-through-slot-7 BF16
 /// multiply/add sequence while deleting the intervening 16 MiB copy at the
 /// ranked 512-token window.
-private let lagunaPrefillSortedMoETailKernel = lagunaMetalKernel(
+private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
     name: "laguna_prefill_sorted_moe_tail_bf16_v1",
     inputNames: [
         "sorted_expert_outputs", "inverse_order", "router_weights",
@@ -9741,7 +9553,7 @@ private func lagunaPrefillMoETail(
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -9774,7 +9586,7 @@ private func lagunaPrefillSortedMoETail(
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
-        outputDTypes: LagunaKernelOutput.bf16
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
@@ -10119,8 +9931,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 if lagunaPackedScalesEnabled,
                     let packedBank = _packedRoutedGateUpBank
                 {
-                    lagunaPackedScalesLog.noteOnce(
-                        slot: 0, "active", "routed swiglu qmv packed dispatch")
+                    lagunaPackedScalesLog.note(
+                        "active", "routed swiglu qmv packed dispatch")
                     if lagunaRouterPrecomputedKeysEnabled,
                         let routerKeys,
                         routerKeys.dtype == .uint32,
@@ -10147,8 +9959,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     }
                 } else {
                     if lagunaPackedScalesEnabled {
-                        lagunaPackedScalesLog.noteOnce(
-                            slot: 1, "inactive",
+                        lagunaPackedScalesLog.note(
+                            "inactive",
                             "routed swiglu qmv packed (bank missing; stock kernel dispatched)")
                     }
                     lagunaTrace("routed gate/up QMV + SwiGLU")
@@ -10597,7 +10409,7 @@ final class LagunaRuntimeDecoderLayer: Module {
 /// embedding row is copied as BF16 bits; the angle rows are copied as FP32
 /// bits. The stock embedding and the two stock probe RoPE calls produce the
 /// same three output buffers separately.
-private let lagunaDecodeEmbeddingRoPEAtlasKernel = lagunaMetalKernel(
+private let lagunaDecodeEmbeddingRoPEAtlasKernel = MLXFast.metalKernel(
     name: "laguna_decode_embedding_rope_atlas_bf16_2048_v2",
     inputNames: [
         "tokens", "embedding_weight", "full_atlas", "sliding_atlas",
@@ -10677,7 +10489,7 @@ private func lagunaDecodeEmbeddingRoPEAtlas(
             [1, 1, 1, LagunaConstants.headDim / 2],
             [1, 1, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: LagunaKernelOutput.bf16f32x2
+        outputDTypes: [.bfloat16, .float32, .float32]
     )
     lagunaTrace("decode embedding+rope atlas")
     return (outputs[0], outputs[1], outputs[2])
@@ -10963,10 +10775,8 @@ final class LagunaRuntimeModelInner: Module {
                     qkRoPEAngles: qkRoPEAngles,
                     qkRoPEOffsets: qkRoPEOffsets
                 )
-                if isSingleTokenDecode {
-                    if (decodeFireMask >> UInt64(i)) & 1 == 1 {
-                        asyncEval(h)
-                    }
+                if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
+                    asyncEval(h)
                 }
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
