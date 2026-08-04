@@ -35,11 +35,43 @@ INT8):
 | KV cache (85 MiB resident, up to 315 MiB requested) | 89-330 MB |
 | **Total** | **~1.65-1.9 GB** |
 
-At 5.249 ms/token that is only **~305-362 GB/s achieved** against an
-M4-Max-class 546 GB/s peak and an M5 Max peak at least that high. So roughly
-**35-45% of frontier decode wall time is not DRAM traffic**, and with ~324
-kernel dispatches per decode step that is ~5-6 us per dispatch of non-bandwidth
-time.
+Verified host peaks (Apple product/support specs, 3 Mar 2026): the ranked host
+is an M5 Max with 128 GB, which is the full-die part at **614.4 GB/s** (the
+binned 32-core-GPU M5 Max is 460.8 GB/s but ships with 36 GB, so the 128 GB
+ranked host must be the full die). Student hosts are M4 Pro / 48 GB at
+**273 GB/s**.
+
+| | value |
+| --- | ---: |
+| Decode byte budget | 1.65-1.9 GB/token |
+| Official M5 Max achieved at frontier | 314-362 GB/s |
+| Official M5 Max peak | 614.4 GB/s |
+| **Fraction of peak** | **51-59%** |
+| M5 Max DRAM floor at 1.65 GB/token | 2.69 ms/token |
+| M5 Max actual at frontier | 5.249 ms/token |
+
+So **41-49% of frontier decode wall time is not DRAM traffic**, and with ~324
+kernel dispatches per decode step that is ~6-8 us per dispatch of non-bandwidth
+time. A perfectly bandwidth-bound decode on the official host would be nearly
+**2x** faster than the current frontier — a far larger remaining ceiling than
+126 landed promotions would suggest.
+
+The M4 Pro DRAM floor is 1.65 GB / 273 GB/s = 6.04 ms/token. If student
+baselines land near 9.5-11 ms/token they are at ~55-65% of peak, i.e. **the
+same fraction of peak as the M5 despite a 2.25x difference in peak**. Two hosts
+at the same fraction of very different peaks is strong evidence the shared
+limiter is machine-independent overhead — dispatch count, launch latency,
+dependency serialization, host graph construction — rather than DRAM. This is
+the falsifiable prediction PR #7 must check first; if a student baseline lands
+materially outside that band, the byte budget is wrong and three arms need
+re-scoping.
+
+Consequence for the byte-cut arms (#5, #6): because neither host is
+bandwidth-saturated, a byte reduction converts to wall-clock time
+**sub-proportionally**. The byte fraction is an upper bound on an upper bound,
+not an expected gain. Conversely, removing serial *dispatches* — especially in
+the lm_head epilogue, which has nothing left to overlap against — is close to
+fully realised.
 
 The 126 published promotions were overwhelmingly *byte* reductions
 (representation, certified pruning, residency wiring). The non-bandwidth
@@ -75,9 +107,10 @@ Q/K/V/O and per-head `g_proj` only) is fully spent.
   the M5 runs.
 - M4 is a decent proxy for representation, byte, and dependency-graph changes;
   unreliable for occupancy, kernel geometry, SIMD ownership, and anything under
-  ~1%. Student hosts are M4 Pro / 48 GB, ~273 GB/s — *more* bandwidth-bound
-  than the M5, so byte wins transfer conservatively and overhead wins can be
-  understated.
+  ~1%. Student hosts are M4 Pro / 48 GB at 273 GB/s. Both M4 Pro and the M5 Max
+  appear to sit at ~55-60% of their respective peaks, so neither is
+  bandwidth-saturated and the M4 Pro is a better proxy for overhead work than I
+  first assumed.
 - Correctness boundaries are discrete and nonmonotonic; `max_abs_diff=0` in a
   layer trace can still flip a final argmax.
 - Changed JIT kernels need fresh pipeline names (MLX's cache is name-keyed).
