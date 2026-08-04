@@ -1,7 +1,11 @@
 # SENPAI Research State
 
-- **2026-08-04 (round 5 landed in part; round 6 opening)** — advisor `meridian`,
-  campaign `mlxfast-maple-20260804`
+- **2026-08-04 15:10 UTC (round 5 landed in part; round 6 opening)** — advisor
+  `meridian`, campaign `mlxfast-maple-20260804`
+- **Newest and most load-bearing section is §10**: both decode budgets now close
+  with zero residual, three candidates I briefed are dead, and fern's double
+  buffering has to be done at `BN=32`. Read it before §4b, which it supersedes
+  in part.
 - Most recent human research direction: operator authorised the advisor and all
   four students to dispatch official `mlxfast submit` runs from the AWS Macs.
 - Base branch: `codex/mlxfast-maple-20260804-advisor`. Round-5 assignments
@@ -249,6 +253,14 @@ was not looking for it.** tanjiro's #27 run C measures the in-situ coefficient
 directly on both hosts, which settles it.
 
 ### 4b. frieren's exposed head latency is now the largest remaining decode item
+
+> **PARTLY SUPERSEDED BY §10a (2026-08-04).** The reconciliation arithmetic below
+> (in-situ `c_decode` 1.72 µs, host term 0.300 ms) was algebra against the wrong
+> wall figure. nezuko #9's direct timestamp decomposition gives **2.18 µs and
+> 0.200 ms**, and both budgets then close with zero residual. The re-pricing
+> table in this section is superseded too: the ceiling is **2.9% of score**, not
+> 4.4%. The *conclusion* — that this is the largest remaining decode item and
+> that the term is host time which does not halve across generations — stands.
 
 I briefed #23 at "<=2.9% of score" by dividing his M4 absolute by the M5 step.
 That was wrong: the head term is **host** time and does not halve across
@@ -572,6 +584,172 @@ the ~90-flag surface as unexplored territory; it is not.
    removing them buys nothing. And aliasing ~3 MB atlas buffers as per-step kernel
    inputs "appears to add slight **resource-tracking cost**" - a named, M5-measured
    *host-side* per-step term, which is exactly frieren's #23 quantity.
+
+### 10. BOTH decode budgets now close EXACTLY, and three of my briefed candidates are dead (new, 2026-08-04)
+
+A source audit of MLX's command-buffer machinery plus a re-read of nezuko #9's
+sweep table settled the §4b reconciliation with measurements instead of algebra,
+and killed three candidates I had briefed. **§4b's 1.72 µs / 0.300 ms pair is
+superseded by 2.18 µs / 0.200 ms.**
+
+#### 10a. The single decomposition that closes both budgets
+
+nezuko #9's shipped-configuration row (`FUSE=0 SPLIT=0`, 120 steps, GPU
+timestamps windowed to the steady decode span) is the campaign's best decode
+instrument and I had under-used it:
+
+```
+45 command buffers   406 dispatches
+  wall             8.545 ms
+  gpu_busy_union   8.345 ms      (== gpu_busy_sum to 6 ns)
+  host gap         0.200 ms
+```
+
+`gpu_busy_union` is pure GPU occupancy, so `wall − gpu_busy_union = 0.200 ms`
+**is** the exposed host term, measured directly rather than inferred from spin
+injection. Fitting tanjiro #21's mechanisms against *her* wall, with the ramp
+coefficient as the only free parameter:
+
+```
+byte roofline                          6.895 ms   measured (#21 probe)
+cache-served GQA KV re-read            0.375 ms   measured (#21)
+named per-stream shortfalls            0.191 ms   measured (#21)
+launch ramp  406 × 2.18 µs             0.884 ms   FITTED
+                                      --------
+                        gpu_busy_union  8.345 ms   nezuko, exactly
+exposed host term                       0.200 ms   nezuko, exactly
+                                      --------
+                                  wall  8.545 ms   nezuko, exactly
+```
+
+- **In-situ per-dispatch cost = 2.18 µs** against tanjiro's 2.46 µs isolated: an
+  11% overlap credit, not the 30% I predicted in §4b. tanjiro's isolated
+  measurement was nearly right and his closure survives with a smaller
+  correction than §4b claimed.
+- **The exposed host term is 0.200 ms**, not frieren's spin-derived 0.29–0.32 ms.
+  Treat 0.200 as the point estimate and 0.32 as the upper bound.
+- The 0.224 ms between nezuko's 8.545 ms wall and the 8.769 ms quoted elsewhere
+  is **cross-session wall variance, not a physical term.** Stop budgeting it.
+
+Consequence: frieren's #23 ceiling drops from 4.4% to **2.9% of score**, with a
+realistic partial win of 1.0–1.5%. Still the largest single decode item.
+
+#### 10b. `gpu_busy_sum == gpu_busy_union` to 6 ns — ZERO decode concurrency
+
+In all four of nezuko's arms. 406 dispatches strictly serialised, nothing
+overlapping anything. This is why tanjiro's additive ramp model closes at all,
+and it means the 0.884 ms ramp has nothing to hide behind: **any reduction in
+dispatch count or threadgroup count pays at full rate.** (Do not reopen the
+concurrent-encoder route; #9 closed it.)
+
+#### 10c. The 45 command buffers per step are forced by MLX, and 45 IS the ranked count
+
+This **refutes frieren's standing #14 caveat** that the low-memory profile caps
+command buffers so ~45/step is not the ranked figure. `needs_commit()`
+(`device.cpp:484-487`) is:
+
+```cpp
+return (buffer_ops_ > max_ops) || ((buffer_sizes_ >> 20) > max_mb);
+```
+
+- `buffer_sizes_ += a.data_size()` (`:319-321`) charges the **entire distinct MTL
+  buffer in item units**, not the slice actually read; deduplicated by buffer
+  pointer; dedup set cleared at `end_encoding()` (`:465`); counters zeroed at
+  `commit()` (`:528-529`).
+- **Thresholds are chosen by the last character of the GPU architecture name**
+  (`:574-595`): `'p'` phone 20/40, `'g'` base/pro **40/40**, `'s'` max **50/50**,
+  `'d'` ultra 50/50. A newly identified M4→M5 divergence — student hosts are
+  `'g'`, the ranked M5 Max is `'s'`.
+- It does not bind differently here: one layer's routed-expert bank is ~805M
+  params ≈ **100 Mi uint32 words + 50 Mi scale bytes**, past *both* 40 and 50 on
+  first touch. So the count is ~one commit per layer on both generations:
+  ~40 byte-triggered + frieren's 7 `asyncEval` rungs = 47 vs her measured 45.
+
+**Therefore nezuko's 45-buffer decomposition is a valid ranked-host prediction,
+and 10a transfers to the M5 as structure.** Cost of a command buffer, from her
+SPLIT=1 vs SPLIT=0 contrast: **~1.90 µs of `gpu_busy` and ~2.94 µs of host gap.**
+Not reducible from the editable surface — `device.cpp`, `eval.cpp`, `utils.h` and
+`device.h` are all blocked, and the commit count is pinned by the bank sizes.
+
+Open cheap confirmation: print `MTL::Device::architecture()->name()` on a student
+host (expect suffix `g`, generation 16) to make the 40-vs-50 reading measured.
+
+#### 10d. THREE briefed candidates are dead — enqueue-earlier is already harvested
+
+`LagunaRuntimeModel.swift:638-715` carries `DARKBLOOM_DECODE_ASYNC_STAGE`
+(default **`at:0,1,7,15,23,31,39`**, seven `asyncEval` fires per step, gated on
+input shape exactly `[1,1]`; fire sites `:10767`, `:10779`, `:10784`) and
+`DARKBLOOM_ATTN_PROJECTION_ASYNC` (default **on**: "enqueue layer 0's
+already-constructed QKV and gate projections before the rest of that layer's
+graph is built"). Recorded evidence at `:655-674` — the strongest measurement
+block in the tree:
+
+```
+MEASURED, notes/52 (two Latin squares, 66 runs, 66/66 passed_correctness,
+steady step 8..128, all contrasts 6/6 paired)
+  off       (0 fires)  10.3735 ms
+  ladder8   (5 fires)   9.4533 ms = 1.0000  previous promoted default
+  ladder6   (6 fires)             1.0064
+  ladder2  (20 fires)             1.0169
+  ladder1  (40 fires)             1.0178
+  at:1,7,15,23,31,39              1.0170   <- six fires, ties forty
+```
+
+Enqueue-earlier was already worth **+9.7%** (`off`→`ladder8`); the author records
+the residual on this axis as **0.15 ms** and this default as taking essentially
+all of it. A lone fire at layer 1 measures **0.9476 — the worst schedule tested.**
+
+- **DEAD: "commit the embedding gather first".** Shipped and swept.
+- **DEAD: the 200 kB logits readback.** `Evaluate.swift:701-717` — `step()`
+  returns `convertToToken(logits:)`, so the D2H is a **4-byte scalar**, and
+  `.item()` blocks on token N−1 which was enqueued a full step earlier. A
+  correctly pipelined one-token-lag tail with no stall to remove.
+- **DEAD: command-buffer/encoder creation.** 10c: not on the surface.
+- **SURVIVES: graph construction.** `MLXHardwareInfo.swift:33-38` defaults
+  `isCompiledDecodeSupported` true (official runner sets no env vars ⇒ ON when
+  ranked) but wraps only three tiny call sites (`:5175`, `:5197`, `:6058`, called
+  from `:6019`, `:6066`, `:6153`). **The other ~400 ops rebuild their graph in
+  Swift on all 128 decode steps**: `406 × ~0.7 µs = 0.28 ms`, the same order as
+  the whole exposed term. `CompiledDecode.swift`, `CompilableKVCache.swift`,
+  `CompilableRotatingKVCache.swift`, `DynamicSlice.swift` are editable;
+  `MLXHardwareInfo.swift` is not. Scope to decode only — `:5167-5170` records a
+  ranked regression of the *prefill* schedule from a larger gate/product graph.
+
+#### 10e. fern's double buffering must be done at BN=32, not BN=64
+
+Audited the expert kernel's threadgroup footprint. `BK_padded = BK + 16/sizeof(Wtype)
+= 72` (`:551`); `kWsElems = BN × BK_padded = 4608`; `Ws_storage` = 576 × 16 B =
+**9,216 B**, plus `bounds[2]` = 8 B. Two corrections to my earlier framing:
+`gate_up_stage` is **aliased onto `Ws_storage`** (`:1620-1621`), and `Atile`
+(`:1735`) is **register-private, not threadgroup**. So `Ws` is the *entire*
+threadgroup footprint.
+
+tanjiro #13 measured 80 TGs co-resident at 17,920 B on 20 cores = 4/core, so the
+per-core budget is ≥ 71,680 B:
+
+| Ws footprint | TGs/core | vs shipped |
+| --- | ---: | ---: |
+| 9,224 B shipped, single-buffered | 7 | 1.00× |
+| **18,440 B naive double buffer** | **3** | **0.43×** |
+
+18,440 B is essentially tanjiro's measured 17,920 B point, where he fitted
+`f(m) ≈ 1 + 0.365(m−1)`; 7→3 co-resident TGs costs `f(7)/f(3) = 1.70×` of
+latency-hiding. **Naive C1 buys intra-threadgroup overlap by destroying
+inter-threadgroup overlap** — the classic way double buffering fails.
+
+**C2 (`BN 64→32`) makes `kWsElems = 32 × 72 = 2304` = 4,608 B, so
+double-buffered = 9,216 B = EXACTLY the shipped footprint.** Same co-residency,
+same total staged bytes (each TG stages half the N-rows, `grid.x` doubles), and
+2× the threadgroups suits 40 cores better than 20. **My "never bundle C1 and C2"
+instruction is withdrawn**: C2 is not a second mechanism, it is the enabling
+condition that makes C1 testable at constant occupancy. Order: C2 alone → C1+C2
+(the arm) → C1 alone (occupancy control).
+
+Two landmines at `BN=32`: `tile_matmad_nax` (`steel/gemm/nax.h:993-1031`) has
+exactly two branches and no `else`, so a `TN` landing on 1 with `TM=1` silently
+does no MMA; and `gate_up_stage`'s alias onto `Ws_storage` needs an explicit
+lifetime-disjointness argument once there are two buffers.
+
 
 ### Round 4 outcome
 
@@ -906,9 +1084,16 @@ field's frozen axis.
    260.2 GB/s can move at most ~20 MB — irreconcilable with a 134.9 MB plane read.
    Folded into nezuko's #20 as a required explanation.
 10. **~83 single-threadgroup dispatches per decode step** (tanjiro, unassigned);
-   fusing RMSNorm into QKV removes 40. Low expected value now that decode is
-   known DRAM-bound — hold unless #21 revives it. Note that frieren's low-memory
-   host caps command buffers, so his ~45/step is **not** the ranked count.
+   fusing RMSNorm into QKV removes 40. Re-priced UP by §10b: decode has **zero
+   dispatch concurrency**, so the 2.18 µs in-situ cost is fully exposed and
+   removing 40 dispatches is worth ~87 µs = 1.0% of step = 0.65% of score. Still
+   caveated by #9's direct measurement that its one attempted fusion returned
+   nothing — the confounder there was the two-body kernel slowing by +0.95 µs/call,
+   not the dispatch saving being absent. **frieren's "low-memory host caps command
+   buffers so ~45/step is not the ranked count" caveat is REFUTED by §10c**: the
+   count is set by `needs_commit()`'s byte threshold against per-layer expert
+   banks that exceed both the 40 (`'g'`) and 50 (`'s'`) limits, so ~45 is the
+   ranked count and her instrumented decomposition transfers.
 11. **Minify the remaining 71 Metal literals in `LagunaRuntimeModel.swift`**
    (−54,251 B of surface). Worth 0.0% of score; only relevant if we ever run out
    of the ~87 KB of surface headroom.
