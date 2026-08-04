@@ -1,4 +1,4 @@
-# PR #27 interim — M4 instrument gate, two instrument bugs, and the cache-resident ceiling
+# PR #27 interim — M4 instrument gate, the saturation law, and the first ranked receipt
 
 Pushed before any official submission. Everything here is measured on this host
 (M4 Pro, `Mac16,11`, 20 GPU cores, 48 GB, `applegpu_g16s`) with
@@ -33,6 +33,21 @@ Pushed before any official submission. Everything here is measured on this host
    baseline measurements — so the real M5 session noise is **1.93% on prefill**
    and **0.34% on decode**, not the 0.497% the brief assumed — and the exact
    `S`/`T` of the current ranked frontier without spending a receipt.
+7. **The in-situ dispatch cost obeys a saturation law and the decode path is
+   below its knee** (section 8). `dT(n) = max(0, n*c - slack)` with
+   `c = 2.64-2.80 us` and `slack = 4.2-4.8 ms`, fitted twice at threadgroup widths
+   20x apart, with one confirmed out-of-sample null. The scored decode path issues
+   ~406 ops into an absorption region that holds ~1600, so **an arm that only
+   reduces MLX op count on the decode path is worth zero**, and your 0.884 ms
+   launch-ramp term is not a recoverable line. What is absorbed is **host** time,
+   not GPU time: one injected dispatch carrying 1.048 ms of real DRAM traffic
+   showed up at 106%, while 600 carrying 1.68 ms of pure launch overhead showed up
+   at 1%.
+8. **The instrument survives the ranked host** (section 9). Config A's receipt is
+   published with `passed_correctness = true`, `max_abs_diff = 0`, both floors
+   passed, and `S_A = 103.5678 ms`, `T_A = 4.83241 ms` against a same-session
+   `189.0284 / 12.40369 ms` pinned baseline. A deliberately slowed, output-neutral
+   candidate is a legal, repeatable probe of the ranked machine.
 
 ## 1. `MTL::Device::architecture()->name()` — measured, and it is not `*g`
 
@@ -658,23 +673,40 @@ is ~1700 ops' worth of free *host-side op construction*. Concretely:
   the GPU stops blocking it. There is 4.5 ms of head-room for the former and, by
   the same measurement, nothing to win from the latter today.
 
-### Prefill absorbs vastly more
+### Prefill absorbs more, and then the instrument stops behaving
 
-Prefill is one forward pass over 512 tokens, so the same 20000-dispatch
-injection is 20000 dispatches in a single pass:
+Prefill is one forward pass over 512 tokens, so the injection lands as n
+dispatches inside a single pass. Three counts, against the 571.857 ms mean of the
+four zero-prefill-injection runs in this section (spread 1.16%):
 
-| run | prefill empties | S (ms) | dS vs control (ms) | implied us/dispatch |
-| --- | ---: | ---: | ---: | ---: |
-| LD | 20000 | 588.450 | +5.14 (vs zero) / +13.3 (vs LE) | 0.26 - 0.66 |
+| run | prefill empties | S (ms) | dS (ms) | serialised at 2.804 us | marginal us/dispatch |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| LD | 20000 | 588.450 | +16.59 | 56.1 | **0.83** |
+| LJ | 50000 | 873.950 | +302.09 | 140.2 | **6.04** |
+| LI | 100000 | 922.739 | +350.88 | 280.4 | **3.51** |
 
-If these dispatches were serialised at 2.788 us they would add **55.8 ms**. The
-observed effect is 5-13 ms, and the run-to-run spread of `S` across the four
-zero-prefill-injection runs in this section is itself 575.2-588.5 ms, i.e.
-13.3 ms. So the honest statement is a bound: **prefill absorbs at least 76% of
-55.8 ms, i.e. its slack is at least 42 ms per 512-token forward**, and
-`c_prefill` is not measurable on this host at this lever arm. 42 ms is 7% of the
-583 ms forward. A prefill-side arm that only removes dispatches is worth
-nothing.
+The 20000-dispatch point behaves like the decode axis: 70% of the serialised cost
+is absorbed, so **prefill slack is at least 39.5 ms per 512-token forward**, about
+7% of the 583 ms pass, and a prefill arm that only removes dispatches is worth
+nothing there either.
+
+Above that the instrument contradicts itself. 50000 dispatches cost **2.2x more
+than serialised**, and 100000 cost less per dispatch than 50000 — non-monotonic in
+the marginal rate, 7x apart across the three counts. Two dispatches out of every
+hundred-thousand are not becoming more expensive than a real kernel launch;
+something else is entering, most plausibly encoder/command-buffer pressure or
+clock throttling once a single pass carries 1250-2500 dispatches per layer. Two
+consequences:
+
+- The honest prefill result is the 20000-dispatch bound, not a `c_prefill` value.
+  The 3.9-4.2 us two-point fits I computed from the (20000, 100000) and
+  (20000, 50000) pairs are **not** hardware constants and should not be quoted.
+- The prefill dispatch axis must not be spent on an official receipt. An
+  instrument that disagrees with itself by 7x on the development host cannot be
+  read on a machine where I get one point per receipt.
+
+This is the second design error the M4 gate has caught before it cost a receipt,
+after the 600-dispatch absorption trap.
 
 ### Consequences for the official configuration plan
 
@@ -686,34 +718,90 @@ absorption region and would have measured nothing** — it would have burned an
 official receipt to reproduce the 0.031 us artifact on a second machine. This
 is exactly the failure the M4 gate exists to catch, and it caught it.
 
-Revised plan: two saturated points instead of one, so `c` comes from their
-difference and needs no assumption about the M5 slack.
+The first revision was therefore two saturated points instead of one, so that `c`
+comes from their difference and needs no assumption about the M5 slack. Config
+A's receipt then showed even that does not fit under the floor; section 9 has the
+final plan.
 
-| config | sweep passes | matmuls | decode empties | prefill empties |
-| --- | ---: | ---: | ---: | ---: |
-| A (submitted) | 1 | 20 | 0 | 0 |
-| B | 3 | 40 | 0 | 0 |
-| C | 1 | 20 | 2000 | 10000 |
-| D | 1 | 20 | 3000 | 17500 |
+## 9. Config A's receipt, and what it forced
+
+Submission `ff29f5c2-fdc2-4035-af6b-17e8a69c2d87`, created 16:06:06Z, resolved
+16:42:52Z (37 min), status `rejected` — **with the full metric block published,
+exactly as section 7 predicted from the 789 other rejected runs.**
+
+| field | value |
+| --- | ---: |
+| **`S_A`** | **103.5678 ms** |
+| **`T_A`** | **4.83241 ms** |
+| baseline `S` | 189.0284 ms |
+| baseline `T` | 12.40369 ms |
+| `prefill_speedup` / `decode_speedup` | 1.82517 / 2.46041 |
+| both speedup floors | passed |
+| `passed_correctness` / `max_abs_diff` | true / 0 |
+| `gpqa_ttft_seconds` | 0.42 (gate 2.5) |
+| `semantic_gpqa_passed` | true |
+| `benchmark_wall_seconds` | 47 |
+| `peak_ram_gb` | 21 |
+
+The protocol works: **a deliberately slowed, output-neutral candidate passes every
+correctness gate on the ranked host and returns a complete receipt.** The
+instrument is validated end to end.
+
+It also says both levers were sized an order of magnitude too small:
+
+- the 5 best published receipts put the frontier decode step at 4.340 +- 0.012 ms,
+  so `A`'s single 268.44 MB sweep cost only ~0.49 ms of the 4.832 ms step, i.e. an
+  apparent 550 GB/s — at M5 Max's nominal peak, and resting on an assumed base;
+- `A`'s 20 GEMMs cost `103.57 - (96.8 +- 5) = 7 +- 5 ms` for 343.6 GFLOP, i.e.
+  **26-69 TFLOP/s** — a 2.6x-wide bracket, useless as a denominator.
+
+`T_A` also re-prices the whole dispatch question. The hard decode floor allows
+`12.40369 / 0.95 - 4.83241 = 8.22 ms` of injected slowdown, i.e. **at most ~2300
+extra dispatches** at this host's 2.8 us. The M4 knee alone is ~1600. So two
+saturated decode points cannot both fit under the floor, and `c_decode` on M5 is
+not bracketable the way it was on M4.
+
+Final official plan, with the prefill dispatch axis dropped entirely:
+
+| config | sweep passes | matmuls | decode empties | prefill empties | status |
+| --- | ---: | ---: | ---: | ---: | --- |
+| A | 1 | 20 | 0 | 0 | receipt above |
+| B | 7 | 120 | 0 | 0 | `553ef9f0-df2b-4c7f-9308-ef8acd24a816`, validating |
+| C | 1 | 20 | 600 | 0 | queued |
+| D | 1 | 20 | 1800 | 0 | queued |
 
 ```
-BW_M5        = 536.870912 MB / (T_B - T_A)
-FLOP/s_M5    = 343.597 GFLOP / (S_B - S_A)
-c_decode_M5  = (T_D - T_C) / 1000
-c_prefill_M5 = (S_D - S_C) / 7500
-slack_M5     = 2000 * c_decode_M5 - (T_C - T_A)
+BW_M5       = 1610.612736 MB   / (T_B - T_A)      6 extra sweep passes
+FLOP/s_M5   = 1717.986918 GFLOP/ (S_B - S_A)      100 extra GEMMs
+c_decode_M5 = (T_D - T_C) / 1200                  if both are above the knee
+slack_M5    = 1800 * c_decode_M5 - (T_D - T_A)
 ```
 
-Both `c` estimators are differences of two saturated configurations, so the
-slack cancels. Predicted signal-to-noise on M5, using this host's constants
-scaled to the 4.35 ms step and section 7's measured M5 noise: `T_D - T_C` is
-~2.7 ms against a ~0.03 ms decode noise floor, and `S_D - S_C` is ~20 ms against
-a ~1.9 ms prefill noise floor. Both are comfortable.
+`B`'s magnitudes are the largest that clear both floors across the entire
+plausible hardware range: `T_B` is 11.3 ms at a pessimistic 150 GB/s against the
+13.02 ms limit, and `S_B` is 169.6 ms at a pessimistic 26 TFLOP/s against the
+200.60 ms limit. That turns a 15-30% measurement into 5-12%.
 
-The counts are also chosen to keep every configuration clear of the hard 0.95
-speedup floors on M5. Worst case is D: predicted `T ~ 11.3 ms` against the
-`12.366 / 0.95 = 13.02 ms` limit, and predicted `S ~ 167 ms` against the
-`190.6 / 0.95 = 200.6 ms` limit. Section 7 also shows all 789 `rejected` runs
-still publish full metrics, so a band rejection is not a lost receipt; only a
-workflow-step failure is.
+`C`/`D` no longer try to bracket `c`. They ask the question that actually decides
+programme priorities: **is the ranked decode path above or below its
+dispatch-absorption knee?** Both outcomes are publishable:
+
+- both null: M5 absorbs >= 1800 dispatches of launch overhead for free, which
+  prices every "issue fewer MLX ops" decode arm at zero on the ranked host as
+  well as here;
+- either positive: `c_decode` and `slack` fall out directly.
+
+Both keep `S` at `A`'s value, so the prefill axis is untouched and the `S/128`
+term in `T` cancels exactly against `A` rather than approximately.
+
+### The cross-session trap, and why every fit is a difference
+
+One more reason not to read absolute numbers across receipts: this host's `S`
+drifted **7% between run batches** (615-621 ms in one batch, 562-588 ms in the
+next, same code) while `T` held to 0.19%. On the ranked host the published
+baseline absorbs that, because it is measured in the same session as the
+candidate: section 7's 929 pinned baselines have `sd(S) = 1.93%` and
+`sd(T) = 0.34%`. So a candidate-only `S` comparison across two submissions
+carries the full 1.93% session term (~2 ms), which is why `B`'s prefill lever was
+sized to 25-66 ms rather than the 6.8 ms `A` used.
 
