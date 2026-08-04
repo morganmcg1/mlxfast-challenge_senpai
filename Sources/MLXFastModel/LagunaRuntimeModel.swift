@@ -2428,15 +2428,6 @@ private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-/// One-head-per-threadgroup twin of the prefill sliding QK-norm+RoPE kernel
-/// (H1). BIT-EXACT repartition in the EG256 class: the `*4` original packs
-/// four heads (four SIMDs) per threadgroup; this twin packs one (one SIMD).
-/// Each head's work is fully SIMD-local -- RMSNorm `simd_sum`, the within-SIMD
-/// `lane ^ 16` rotary-partner shuffle, and every BF16 rounding boundary never
-/// cross heads -- so the value each head writes is identical regardless of how
-/// many heads share a threadgroup. This matches the proven DECODE shape
-/// (`lagunaSlidingQKNormRoPEKernel`, one SIMD/head, the project's largest
-/// single win); the prefill `*4` was an unaudited divergence from it.
 private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
     name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2",
     inputNames: [
@@ -2450,18 +2441,27 @@ private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
         constexpr uint query_heads = 64;
         constexpr uint kv_heads = 8;
 
-        uint t = threadgroup_position_in_grid.y;
-        uint length = threadgroups_per_grid.y;
-        uint head = threadgroup_position_in_grid.x;
+        uint group = threadgroup_position_in_grid.x;
+        bool terminal = threadgroups_per_grid.y == 1 &&
+            threadgroups_per_grid.x > query_heads + kv_heads;
+        uint length = terminal
+            ? (threadgroups_per_grid.x - query_heads) / kv_heads
+            : threadgroups_per_grid.y;
+        uint t = terminal
+            ? (group < query_heads ? length - 1 : (group - query_heads) / kv_heads)
+            : threadgroup_position_in_grid.y;
+        uint head = terminal && group >= query_heads
+            ? query_heads + (group - query_heads) % kv_heads : group;
         uint lane = thread_index_in_simdgroup;
 
         const device bfloat* input;
         const device bfloat* weight;
         device bfloat* output;
         if (head < query_heads) {
-            input = raw_queries + (t * query_heads + head) * head_dim;
+            uint qt = terminal ? 0 : t;
+            input = raw_queries + (qt * query_heads + head) * head_dim;
             weight = query_weight;
-            output = queries + (head * length + t) * head_dim;
+            output = queries + (head * (terminal ? 1 : length) + qt) * head_dim;
         } else {
             uint khead = head - query_heads;
             input = raw_keys + (t * kv_heads + khead) * head_dim;
@@ -2487,9 +2487,6 @@ private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
                 bfloat(float(input[base + i]) * inverse_rms);
         }
 
-        // Every fixed-four loop in this prefill-only kernel is explicitly
-        // scalarized. This removes loop-control ALU while preserving the
-        // exact source order of the dependent RMS sum and rotary arithmetic.
         thread float paired[4];
         #pragma clang loop unroll(full)
         for (uint i = 0; i < 4; ++i) {
@@ -2720,11 +2717,12 @@ private func lagunaPrefillSlidingQKNormRoPE(
 ) -> (MLXArray, MLXArray) {
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
-    precondition(rawQueries.dtype == .bfloat16)
-    precondition(rawKeys.dtype == .bfloat16)
-    precondition(queryWeight.dtype == .bfloat16)
-    precondition(keyWeight.dtype == .bfloat16)
-    precondition(rawQueries.shape == [1, length, heads * LagunaConstants.headDim])
+    let queryLength = rawQueries.dim(1)
+    let terminal = queryLength == 1 && length > 1
+    precondition(rawQueries.dtype == .bfloat16 && rawKeys.dtype == .bfloat16)
+    precondition(queryWeight.dtype == .bfloat16 && keyWeight.dtype == .bfloat16)
+    precondition(queryLength == length || terminal)
+    precondition(rawQueries.shape == [1, queryLength, heads * LagunaConstants.headDim])
     precondition(rawKeys.shape == [1, length, kvHeads * LagunaConstants.headDim])
     precondition(queryWeight.shape == [LagunaConstants.headDim])
     precondition(keyWeight.shape == [LagunaConstants.headDim])
@@ -2732,21 +2730,23 @@ private func lagunaPrefillSlidingQKNormRoPE(
     precondition(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
-    precondition((heads + kvHeads) % 4 == 0)
 
     lagunaTrace("prefill sliding qk norm+rope")
     let useH1 = lagunaPrefillQKHeadsPerGroup == 1
+    precondition(useH1 || (heads + kvHeads) % 4 == 0)
+    precondition(!terminal || useH1)
     let headsPerGroup = useH1 ? 1 : 4
     let threadGroupSize = headsPerGroup * 32
     let kernel = useH1
         ? lagunaPrefillSlidingQKNormRoPEH1Kernel
         : lagunaPrefillSlidingQKNormRoPEKernel
+    let groups = terminal ? heads + kvHeads * length : (heads + kvHeads) / headsPerGroup
     let outputs = kernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
-        grid: ((heads + kvHeads) / headsPerGroup * threadGroupSize, length, 1),
+        grid: (groups * threadGroupSize, terminal ? 1 : length, 1),
         threadGroup: (threadGroupSize, 1, 1),
         outputShapes: [
-            [1, heads, length, LagunaConstants.headDim],
+            [1, heads, queryLength, LagunaConstants.headDim],
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
         outputDTypes: [.bfloat16, .bfloat16]
@@ -6041,13 +6041,9 @@ final class LagunaRuntimeAttention: Module {
         return wo(output)
     }
 
-    /// Prefill-only final-layer attention when the caller consumes just the
-    /// last hidden row. K/V and the cache update still cover every supplied
-    /// token. Q projection, Q normalization, Q RoPE, SDPA, and the output
-    /// gate/projection run only for the last query; its RoPE offset is advanced
-    /// by the discarded query-row count so it remains at the supplied
-    /// sequence's final absolute position.
-    func callLastPrefillRow(_ x: MLXArray, cache: KVCache?) -> MLXArray {
+    func callLastPrefillRow(
+        _ x: MLXArray, cache: KVCache?, angles: MLXArray?, offsets: MLXArray?
+    ) -> MLXArray {
         let (B, L) = (x.dim(0), x.dim(1))
         precondition(L > 1)
 
@@ -6087,16 +6083,41 @@ final class LagunaRuntimeAttention: Module {
             bankedGate = nil
         }
 
-        queries = qNorm(queries.reshaped(B, 1, nHeads, headDim)).transposed(0, 2, 1, 3)
-        keys = kNorm(keys.reshaped(B, L, nKVHeads, headDim)).transposed(0, 2, 1, 3)
+        let useFusedQK =
+            lagunaPrefillQKNormRoPEEnabled && lagunaPrefillQKHeadsPerGroup == 1 &&
+            B == 1 && isSliding &&
+            nHeads == LagunaConstants.slidingAttentionHeads &&
+            nKVHeads == LagunaConstants.numKeyValueHeads &&
+            headDim == LagunaConstants.headDim &&
+            queries.dtype == .bfloat16 && keys.dtype == .bfloat16 &&
+            qNorm.weight.dtype == .bfloat16 && kNorm.weight.dtype == .bfloat16 &&
+            queries.shape == [1, 1, nHeads * headDim] &&
+            keys.shape == [1, L, nKVHeads * headDim] &&
+            qNorm.weight.shape == [headDim] && kNorm.weight.shape == [headDim] &&
+            angles?.dtype == .float32 &&
+            angles?.shape == [1, 1, lagunaRoPEAngleAtlasLength, headDim] &&
+            offsets?.dtype == .int32 && offsets?.size == 1
+        var qkFused = false
+        if useFusedQK, let angles, let offsets {
+            (queries, keys) = lagunaPrefillSlidingQKNormRoPE(
+                rawQueries: queries, rawKeys: keys,
+                queryWeight: qNorm.weight, keyWeight: kNorm.weight,
+                angles: angles, offsets: offsets, length: L)
+            qkFused = true
+        } else {
+            queries = qNorm(queries.reshaped(B, 1, nHeads, headDim)).transposed(0, 2, 1, 3)
+            keys = kNorm(keys.reshaped(B, L, nKVHeads, headDim)).transposed(0, 2, 1, 3)
+        }
         values = values.reshaped(B, L, nKVHeads, headDim).transposed(0, 2, 1, 3)
 
-        if let offsetArray = graphOffsetArray(for: cache) {
-            queries = rope(queries, offset: offsetArray + Int32(L - 1))
-        } else {
-            queries = rope(queries, offset: (cache?.offset ?? 0) + L - 1)
+        if !qkFused {
+            if let offsetArray = graphOffsetArray(for: cache) {
+                queries = rope(queries, offset: offsetArray + Int32(L - 1))
+            } else {
+                queries = rope(queries, offset: (cache?.offset ?? 0) + L - 1)
+            }
+            keys = applyRotaryPosition(rope, to: keys, cache: cache)
         }
-        keys = applyRotaryPosition(rope, to: keys, cache: cache)
 
         let attended = attentionWithCacheUpdate(
             queries: queries,
@@ -10317,14 +10338,13 @@ final class LagunaRuntimeDecoderLayer: Module {
         return h + r2
     }
 
-    /// Final-layer prefill specialization: every row commits K/V, but only the
-    /// last query/output row runs attention output projection + the terminal MLP.
-    func callLastPrefillRow(_ x: MLXArray, cache: KVCache?) -> MLXArray {
+    func callLastPrefillRow(
+        _ x: MLXArray, cache: KVCache?, angles: MLXArray?, offsets: MLXArray?
+    ) -> MLXArray {
         if lagunaTerminalPrefillFusionEnabled {
-            // Fused terminal row (see flag doc). Reuses the ordinary path's
-            // accepted row-local fusion; `else` is the exact stock fallback.
             let normalized = inputLayerNorm(x)
-            let r = selfAttn.callLastPrefillRow(normalized, cache: cache)
+            let r = selfAttn.callLastPrefillRow(
+                normalized, cache: cache, angles: angles, offsets: offsets)
             let lastResidual = lagunaLastTokenHidden(x)
             let h: MLXArray
             let normalizedAfterAttention: MLXArray
@@ -10392,7 +10412,8 @@ final class LagunaRuntimeDecoderLayer: Module {
             return h + r2
         } else {
             let normalized = inputLayerNorm(x)
-            let r = selfAttn.callLastPrefillRow(normalized, cache: cache)
+            let r = selfAttn.callLastPrefillRow(
+                normalized, cache: cache, angles: angles, offsets: offsets)
             let h = lagunaLastTokenHidden(x) + r
             let r2 = mlp(postAttentionLayerNorm(h))
             return h + r2
@@ -10754,7 +10775,8 @@ final class LagunaRuntimeModelInner: Module {
             let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
             if i == layers.count - 1, h.dim(1) > 1 {
                 if case .causal = mask {
-                    h = layer.callLastPrefillRow(h, cache: cache?[i])
+                    h = layer.callLastPrefillRow(
+                        h, cache: cache?[i], angles: qkRoPEAngles, offsets: qkRoPEOffsets)
                 } else {
                     h = layer(
                         h,
