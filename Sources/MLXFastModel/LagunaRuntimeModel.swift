@@ -204,6 +204,7 @@ let lagunaScaleCensusEnabled =
 final class LagunaScaleCensus {
     private var codeHist: [String: [Int]] = [:]
     private var blockSpanHist: [String: [Int]] = [:]
+    private var halfSpanHist: [String: [Int]] = [:]
     private var rowSpanHist: [String: [Int]] = [:]
     private var order: [String] = []
 
@@ -217,20 +218,26 @@ final class LagunaScaleCensus {
         var codes = [Int](repeating: 0, count: 256)
         for b in bytes { codes[Int(b)] += 1 }
         let blocks = spanHist(bytes, stride: 32)
+        let half = spanHist(bytes, stride: 16)
+        let quarter = spanHist(bytes, stride: 8)
         let rows = spanHist(bytes, stride: scales.dim(-1))
         write(
             "plane \(plane) shape=\(scales.shape) " + codeSummary(codes)
                 + " " + spanSummary(blocks, label: "blk32")
+                + " " + spanSummary(half, label: "blk16")
+                + " " + spanSummary(quarter, label: "blk8")
                 + " " + spanSummary(rows, label: "row"))
         if codeHist[family] == nil {
             codeHist[family] = [Int](repeating: 0, count: 256)
             blockSpanHist[family] = [Int](repeating: 0, count: 256)
+            halfSpanHist[family] = [Int](repeating: 0, count: 256)
             rowSpanHist[family] = [Int](repeating: 0, count: 256)
             order.append(family)
         }
         for value in 0..<256 {
             codeHist[family]![value] += codes[value]
             blockSpanHist[family]![value] += blocks[value]
+            halfSpanHist[family]![value] += half[value]
             rowSpanHist[family]![value] += rows[value]
         }
     }
@@ -249,9 +256,11 @@ final class LagunaScaleCensus {
             write(
                 "family \(family) " + codeSummary(codeHist[family]!)
                     + " " + spanSummary(blockSpanHist[family]!, label: "blk32")
+                    + " " + spanSummary(halfSpanHist[family]!, label: "blk16")
                     + " " + spanSummary(rowSpanHist[family]!, label: "row")
                     + " " + counts(codeHist[family]!)
-                    + " " + counts(blockSpanHist[family]!, name: "blkspan"))
+                    + " " + counts(blockSpanHist[family]!, name: "blkspan")
+                    + " " + counts(halfSpanHist[family]!, name: "halfspan"))
         }
         write(
             "global " + codeSummary(globalCodes)
