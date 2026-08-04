@@ -3,14 +3,19 @@
 
 Companion to research/decode_probe.py, which only ever profiles steady decode
 steps (it drops the seed forward and step 0 from its window). This script
-profiles the scored `prefill` request instead: one cold-cache 512-token forward
-per request, which is exactly the shape of the scored prefill axis and of the
+profiles the scored `prefill` request instead: one 512-token forward per request
+against a fresh cache, which is the shape of the scored prefill axis and of the
 seed forward charged into the decode figure.
 
 Requires the LOCAL-ONLY GPUPROF hooks in the vendored MLX
 backend/metal/device.cpp|.h (env DARKBLOOM_GPU_PROFILE=1, optionally
 DARKBLOOM_GPU_PROFILE_SPLIT=1 for one command buffer per primitive). Those hooks
 are reverted before any timing run.
+
+Attribution is by request, not by timestamp: each worker request is synchronous,
+so the profiler lines flushed to the worker's stderr between sending a request
+and reading its response belong to that request. Per-request dispatch counts are
+printed so an attribution or buffering error is visible rather than silent.
 
 Usage:
   DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1 \
@@ -19,11 +24,9 @@ Usage:
 
 import argparse
 import json
-import os
 import pathlib
 import re
 import subprocess
-import sys
 import time
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -36,37 +39,88 @@ def load_prompt():
     return case["prompt_tokens"]
 
 
-def send(proc, obj):
-    proc.stdin.write(json.dumps(obj) + "\n")
-    proc.stdin.flush()
-    line = proc.stdout.readline()
-    if not line:
-        raise SystemExit("worker closed stdout")
-    resp = json.loads(line)
-    if not resp.get("ok"):
-        raise SystemExit(f"worker error: {resp}")
-    return resp
+def parse_gpuprof(text):
+    """Return list of (gpu_start, gpu_end, nops, bytes, [names])."""
+    records = []
+    for line in text.splitlines():
+        if not line.startswith("GPUPROF "):
+            continue
+        parts = line.split(" ", 5)
+        if len(parts) < 6:
+            continue
+        try:
+            start, end = float(parts[1]), float(parts[2])
+            nops, nbytes = int(parts[3]), int(parts[4])
+        except ValueError:
+            continue
+        names = parts[5].strip().split("|") if parts[5].strip() else []
+        records.append((start, end, nops, nbytes, names))
+    return records
+
+
+class Worker:
+    def __init__(self, weights, err_path):
+        self.err_write = open(err_path, "w")
+        self.proc = subprocess.Popen(
+            [str(WORKER), "runtime-worker", "--weights", weights],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=self.err_write, text=True)
+        self.err_read = open(err_path, "r", errors="replace")
+
+    def drain(self):
+        return self.err_read.read()
+
+    def request(self, obj):
+        """Send one request; return (response, elapsed, its GPUPROF records)."""
+        self.drain()
+        start = time.perf_counter()
+        self.proc.stdin.write(json.dumps(obj) + "\n")
+        self.proc.stdin.flush()
+        line = self.proc.stdout.readline()
+        elapsed = time.perf_counter() - start
+        if not line:
+            raise SystemExit("worker closed stdout")
+        resp = json.loads(line)
+        if not resp.get("ok"):
+            raise SystemExit(f"worker error: {resp}")
+        return resp, elapsed, parse_gpuprof(self.drain())
+
+    def hello(self):
+        resp = json.loads(self.proc.stdout.readline())
+        if not resp.get("ok"):
+            raise SystemExit(f"worker hello failed: {resp}")
+        return resp
+
+    def close(self):
+        self.proc.stdin.close()
+        self.proc.wait(timeout=120)
+        self.err_write.flush()
+        self.drain()
+        self.err_write.close()
+        self.err_read.close()
 
 
 def shorten(name):
     name = re.sub(r"^custom_kernel_laguna_", "laguna_", name)
     name = re.sub(r"_(float16|bfloat16|float32)_t?(_.*)?$", "", name)
-    return name[:78]
+    return name[:76]
 
 
 FAMILIES = (
     ("routed_gather_gemm", r"gather_qmm|gather_mm"),
-    ("dense_qmm_nvfp4", r"^nvfp4_qmm|qmm_splitk|^nvfp4_qvm|quantized_matmul"),
-    ("steel_gemm_bf16", r"steel_gemm|^gemm_"),
+    ("nvfp4_dense_qmm", r"nvfp4_qmm|qmm_splitk|nvfp4_qvm|quantized_matmul|qmv"),
+    ("steel_gemm_bf16", r"steel_gemm|^gemm_|steel_matmul"),
     ("attention_core", r"attention|sdpa|steel_attn"),
     ("qk_norm_rope", r"qk_norm|rope|yarn"),
     ("router", r"router|topk|top8|tournament"),
     ("moe_tail", r"moe_tail"),
-    ("sort_scatter", r"sort|scatter|gather_axis|arange|partition"),
+    ("sort_scatter", r"sort|scatter|gather_front|gather_axis|arange|partition|"
+                     r"cumsum|take|index"),
     ("rms_norm", r"rms"),
-    ("lm_head", r"lmhead|lm_head"),
+    ("lm_head", r"lmhead|lm_head|argmax|argreduce|arg_reduce"),
     ("elementwise", r"binary|unary|copy|reduce|softmax|concat|slice|pad|fill|"
-                    r"broadcast|astype|mul|add|silu|softplus"),
+                    r"broadcast|astype|multiply|add|subtract|divide|silu|"
+                    r"softplus|power|maximum|minimum|^v_|^vs_|^sv_|^vv_"),
 )
 
 
@@ -78,89 +132,69 @@ def family(short):
     return "other"
 
 
-def parse_gpuprof(path):
-    """Return list of (gpu_start, gpu_end, nops, bytes, [names])."""
-    records = []
-    with open(path, "r", errors="replace") as handle:
-        for line in handle:
-            if not line.startswith("GPUPROF "):
-                continue
-            parts = line.split(" ", 5)
-            if len(parts) < 6:
-                continue
-            try:
-                start = float(parts[1])
-                end = float(parts[2])
-                nops = int(parts[3])
-                nbytes = int(parts[4])
-            except ValueError:
-                continue
-            names = parts[5].strip().split("|") if parts[5].strip() else []
-            records.append((start, end, nops, nbytes, names))
-    return records
-
-
-def analyze(records, spans, ceiling_gbs, top_n, label):
+def analyze(label, batches, ceiling_gbs, top_n):
+    """batches: list of (elapsed_seconds, records) for identical requests."""
+    if not batches:
+        return
+    n = len(batches)
+    wall = sum(b[0] for b in batches)
+    records = [r for _, recs in batches for r in recs]
     if not records:
-        print("profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)")
-        return
-    lo, hi = spans[0][0], spans[-1][1]
-    window = [r for r in records if r[0] >= lo and r[1] <= hi]
-    n_fwd = len(spans)
-    wall = sum(b - a for a, b in spans)
-    print(f"\nprofile [{label}]: {len(records)} command buffers total, "
-          f"{len(window)} inside {n_fwd} forward(s)")
-    if not window:
-        print("profile: no records inside the measured windows -- timebase "
-              "mismatch between MTLCommandBuffer GPU times and perf_counter")
+        print(f"\nprofile [{label}]: no GPUPROF records "
+              f"(was DARKBLOOM_GPU_PROFILE=1 set?)")
         return
 
-    busy_sum = sum(e - s for s, e, _, _, _ in window)
+    busy_sum = sum(e - s for s, e, _, _, _ in records)
     merged = []
-    for s, e, _, _, _ in sorted(window):
+    for s, e, _, _, _ in sorted(records):
         if merged and s <= merged[-1][1]:
             merged[-1][1] = max(merged[-1][1], e)
         else:
             merged.append([s, e])
     busy_union = sum(e - s for s, e in merged)
-    dispatches = sum(r[2] for r in window)
-    total_bytes = sum(r[3] for r in window)
+    dispatches = sum(r[2] for r in records)
+    total_bytes = sum(r[3] for r in records)
 
-    print(f"  wall            {wall / n_fwd * 1e3:9.3f} ms/forward")
-    print(f"  gpu busy (sum)  {busy_sum / n_fwd * 1e3:9.3f} ms/forward "
-          f"({busy_sum / wall * 100:.1f}% of wall)")
-    print(f"  gpu busy (union){busy_union / n_fwd * 1e3:9.3f} ms/forward "
-          f"({busy_union / wall * 100:.1f}% of wall)")
-    print(f"  command buffers {len(window) / n_fwd:9.1f} /forward")
-    print(f"  dispatches      {dispatches / n_fwd:9.1f} /forward")
-    print(f"  bound bytes     {total_bytes / n_fwd / 2**30:9.3f} GiB/forward "
-          f"(unique buffers per command buffer)")
+    print(f"\nprofile [{label}] over {n} request(s)")
+    print(f"  per-request dispatches "
+          f"{[sum(r[2] for r in recs) for _, recs in batches]}")
+    print(f"  wall             {wall / n * 1e3:9.3f} ms/request")
+    print(f"  gpu busy (sum)   {busy_sum / n * 1e3:9.3f} ms "
+          f"({busy_sum / wall * 100:5.1f}% of wall)")
+    print(f"  gpu busy (union) {busy_union / n * 1e3:9.3f} ms "
+          f"({busy_union / wall * 100:5.1f}% of wall)")
+    print(f"  command buffers  {len(records) / n:9.1f} /request")
+    print(f"  dispatches       {dispatches / n:9.1f} /request")
+    print(f"  bound bytes      {total_bytes / n / 2**30:9.3f} GiB/request")
 
     agg = {}
-    for s, e, nops, nbytes, names in window:
-        key = shorten(names[0]) if len(names) == 1 else (
-            "+".join(sorted({shorten(n) for n in names}))[:78] or "empty")
+    for s, e, nops, nbytes, names in records:
+        if not names:
+            key = "empty_commit"
+        elif len(names) == 1:
+            key = shorten(names[0])
+        else:
+            key = "MIXED:" + "+".join(sorted({shorten(x) for x in names}))[:68]
         slot = agg.setdefault(key, [0, 0.0, 0])
         slot[0] += max(1, len(names))
         slot[1] += e - s
         slot[2] += nbytes
 
     rows = sorted(agg.items(), key=lambda kv: -kv[1][1])
-    print(f"\n  {'dispatch':<62} {'n/fwd':>6} {'us/call':>8} {'ms/fwd':>8} "
-          f"{'%fwd':>6} {'MB/call':>8} {'GB/s':>7} {'%bw':>5} {'family':>18}")
+    print(f"\n  {'dispatch':<58} {'n/req':>6} {'us/call':>8} {'ms/req':>8} "
+          f"{'%wall':>6} {'MB/call':>8} {'GB/s':>7} {'%bw':>5} {'family':>18}")
     for name, (count, seconds, nbytes) in rows[:top_n]:
-        per_fwd = seconds / n_fwd
-        calls = count / n_fwd
-        us_call = seconds / count * 1e6
-        mb_call = nbytes / count / 2**20
+        per = seconds / n
         gbs = (nbytes / seconds) / 1e9 if seconds > 0 else 0.0
-        print(f"  {name:<62} {calls:6.1f} {us_call:8.1f} {per_fwd * 1e3:8.3f} "
-              f"{per_fwd / (wall / n_fwd) * 100:6.1f} {mb_call:8.3f} "
-              f"{gbs:7.1f} {gbs / ceiling_gbs * 100:5.0f} {family(name):>18}")
+        print(f"  {name:<58} {count / n:6.1f} {seconds / count * 1e6:8.1f} "
+              f"{per * 1e3:8.3f} {per / (wall / n) * 100:6.1f} "
+              f"{nbytes / count / 2**20:8.3f} {gbs:7.1f} "
+              f"{gbs / ceiling_gbs * 100:5.0f} {family(name):>18}")
     if len(rows) > top_n:
-        tail = sum(v[1] for _, v in rows[top_n:]) / n_fwd
-        print(f"  {'... ' + str(len(rows) - top_n) + ' more':<62} "
-              f"{'':>6} {'':>8} {tail * 1e3:8.3f}")
+        tail = sum(v[1] for _, v in rows[top_n:]) / n
+        print(f"  {f'... {len(rows) - top_n} more dispatch kinds':<58} "
+              f"{'':>6} {'':>8} {tail * 1e3:8.3f} "
+              f"{tail / (wall / n) * 100:6.1f}")
 
     fam = {}
     for name, (count, seconds, nbytes) in rows:
@@ -168,94 +202,78 @@ def analyze(records, spans, ceiling_gbs, top_n, label):
         slot[0] += count
         slot[1] += seconds
         slot[2] += nbytes
-    print(f"\n  {'family':<20} {'n/fwd':>7} {'ms/fwd':>8} {'%fwd':>6} "
-          f"{'GB/s':>7}")
+    print(f"\n  {'family':<20} {'n/req':>7} {'ms/req':>8} {'%wall':>6} "
+          f"{'GB/s':>7} {'%bw':>5}")
     for label_, (count, seconds, nbytes) in sorted(
             fam.items(), key=lambda kv: -kv[1][1]):
-        per_fwd = seconds / n_fwd
+        per = seconds / n
         gbs = (nbytes / seconds) / 1e9 if seconds > 0 else 0.0
-        print(f"  {label_:<20} {count / n_fwd:7.1f} {per_fwd * 1e3:8.3f} "
-              f"{per_fwd / (wall / n_fwd) * 100:6.1f} {gbs:7.1f}")
+        print(f"  {label_:<20} {count / n:7.1f} {per * 1e3:8.3f} "
+              f"{per / (wall / n) * 100:6.1f} {gbs:7.1f} "
+              f"{gbs / ceiling_gbs * 100:5.0f}")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reps", type=int, default=6,
                     help="prefill requests to issue (first is discarded)")
-    ap.add_argument("--decode-steps", type=int, default=0,
-                    help="also run decode_begin + N steps after the prefills")
+    ap.add_argument("--decode-steps", type=int, default=0)
     ap.add_argument("--weights", default=str(REPO / "weights"))
     ap.add_argument("--stderr", default="/tmp/prefill_probe.worker.err")
     ap.add_argument("--profile", action="store_true")
     ap.add_argument("--profile-top", type=int, default=40)
-    ap.add_argument("--ceiling-gbs", type=float, default=260.2,
-                    help="measured host read-bandwidth ceiling, GB/s")
+    ap.add_argument("--ceiling-gbs", type=float, default=260.2)
     args = ap.parse_args()
 
     prompt = load_prompt()
     print(f"prompt tokens: {len(prompt)}")
-    err = open(args.stderr, "w")
-    proc = subprocess.Popen(
-        [str(WORKER), "runtime-worker", "--weights", args.weights],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True)
-
+    worker = Worker(args.weights, args.stderr)
     t0 = time.perf_counter()
-    hello = json.loads(proc.stdout.readline())
-    if not hello.get("ok"):
-        raise SystemExit(f"worker hello failed: {hello}")
+    worker.hello()
     print(f"load: {time.perf_counter() - t0:.1f} s")
+    worker.request({"id": 900, "kind": "phase_diagnostics"})
 
-    send(proc, {"id": 900, "kind": "phase_diagnostics"})
-
-    spans = []
+    prefills = []
     tokens = []
     for i in range(args.reps):
-        a = time.perf_counter()
-        resp = send(proc, {"id": 1 + i, "kind": "prefill",
-                           "prompt_tokens": prompt})
-        b = time.perf_counter()
-        spans.append((a, b))
+        resp, elapsed, records = worker.request(
+            {"id": 1 + i, "kind": "prefill", "prompt_tokens": prompt})
+        prefills.append((elapsed, records))
         tokens.append(resp.get("token"))
-        print(f"prefill {i}: {(b - a) * 1e3:8.2f} ms  "
-              f"({(b - a) / len(prompt) * 1e6:6.2f} us/token)  "
-              f"token={resp.get('token')}")
+        print(f"prefill {i}: {elapsed * 1e3:8.2f} ms  "
+              f"({elapsed / len(prompt) * 1e6:7.2f} us/token)  "
+              f"cbs={len(records):5d} dispatches="
+              f"{sum(r[2] for r in records):5d}  token={resp.get('token')}")
     if len(set(tokens)) != 1:
         print(f"WARNING: prefill greedy tokens differ across reps: {tokens}")
 
-    decode_spans = []
+    decodes = []
     if args.decode_steps:
-        send(proc, {"id": 500, "kind": "decode_begin", "seed_tokens": prompt})
-        tok = tokens[-1]
+        resp, _, _ = worker.request(
+            {"id": 500, "kind": "decode_begin", "seed_tokens": prompt})
+        tok = resp.get("token", resp.get("seed_token"))
         for i in range(args.decode_steps):
-            a = time.perf_counter()
-            resp = send(proc, {"id": 600 + i, "kind": "decode_step",
-                               "token": tok})
-            b = time.perf_counter()
-            decode_spans.append((a, b))
+            resp, elapsed, records = worker.request(
+                {"id": 600 + i, "kind": "decode_step", "token": tok})
+            decodes.append((elapsed, records))
             tok = resp["token"]
-        med = sorted(b - a for a, b in decode_spans)[len(decode_spans) // 2]
-        print(f"decode: {med * 1e3:.3f} ms/step median over "
-              f"{len(decode_spans)} steps")
+        med = sorted(e for e, _ in decodes)[len(decodes) // 2]
+        print(f"decode: {med * 1e3:.3f} ms/step median over {len(decodes)}")
 
-    diag = send(proc, {"id": 901, "kind": "phase_diagnostics"})
+    diag, _, _ = worker.request({"id": 901, "kind": "phase_diagnostics"})
     print("peak_ram_gb:", diag.get("peak_ram_gb"))
-    proc.stdin.close()
-    proc.wait(timeout=60)
-    err.flush()
-    err.close()
+    worker.close()
 
-    warm = spans[1:] if len(spans) > 1 else spans
-    med = sorted(b - a for a, b in warm)[len(warm) // 2]
+    warm = prefills[1:] if len(prefills) > 1 else prefills
+    med = sorted(e for e, _ in warm)[len(warm) // 2]
     print(f"\nprefill warm median: {med * 1e3:.3f} ms/forward "
           f"({med / len(prompt) * 1e6:.2f} us/token) over {len(warm)} reps")
 
     if args.profile:
-        records = parse_gpuprof(args.stderr)
-        analyze(records, warm, args.ceiling_gbs, args.profile_top,
-                "prefill warm")
-        if decode_spans:
-            analyze(records, decode_spans[1:], args.ceiling_gbs,
-                    args.profile_top, "decode steady")
+        analyze("prefill warm", warm, args.ceiling_gbs, args.profile_top)
+        if len(decodes) > 1:
+            analyze("decode steady", decodes[1:], args.ceiling_gbs,
+                    args.profile_top)
 
 
 if __name__ == "__main__":
