@@ -11120,6 +11120,21 @@ private enum LagunaInjectStore {
     }()
 }
 
+/// Tail of the injected-dispatch dependency chain, carried across layer
+/// boundaries. MLX's compute encoder is `DispatchTypeConcurrent`
+/// (`device.cpp:548`) and only inserts a barrier when a dispatch binds a buffer
+/// a previous dispatch wrote (`device.cpp:325`, `:339`). An injected dispatch
+/// that binds nothing the GPU has written therefore runs *concurrently* with
+/// real work and costs almost nothing — measured directly here: 40 unchained
+/// empty dispatches per decode step moved `T` by 0.006 ms, 16x less than one
+/// isolated dispatch cost each. Chaining every injected dispatch to the
+/// previous one reproduces the strictly serialised stream nezuko measured for
+/// the real model (`gpu_busy_sum == gpu_busy_union` to 6 ns), which is the
+/// regime whose marginal cost this instrument is meant to read.
+private enum LagunaInjectChain {
+    nonisolated(unsafe) static var tail: MLXArray?
+}
+
 /// Layer `layer`'s share of `total` units, spread evenly over the 40 layers.
 private func lagunaInjectShare(_ total: Int, layer: Int) -> Int {
     guard total > 0 else { return 0 }
@@ -11158,7 +11173,7 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
         pending.append(matmul(scratch.matA, scratch.matB))
     }
     if empties > 0 {
-        var chainTail = scratch.control[0]
+        var chainTail = LagunaInjectChain.tail ?? scratch.control[0]
         for k in 0..<empties {
             chainTail = lagunaInjectEmptyKernel(
                 [scratch.control[(layer + k) & 7], chainTail],
@@ -11168,6 +11183,7 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
                 outputDTypes: [.uint32]
             )[0]
         }
+        LagunaInjectChain.tail = chainTail
         pending.append(chainTail)
     }
     guard !pending.isEmpty else { return }

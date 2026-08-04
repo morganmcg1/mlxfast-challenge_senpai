@@ -13,6 +13,37 @@
 import Foundation
 import Metal
 
+// `sweep_N` is a byte-for-byte replica of the DRAM sweep the scored-path
+// instrument injects (`LagunaRuntimeModel.swift`, `laguna_inject_dram_sweep_u4`),
+// so the rate the instrument reads out of receipt deltas can be compared with
+// the same kernel's isolated rate on the same host.
+func sweepKernel(_ name: String, threads: Int) -> String {
+    let perThread = (1 << 24) / threads
+    return """
+    kernel void \(name)(const device uint *pool [[buffer(0)]],
+                        device uint *sink [[buffer(1)]],
+                        constant uint2 &control [[buffer(2)]],
+                        uint gid [[thread_position_in_grid]]) {
+        constexpr uint kThreads = \(threads);
+        constexpr uint kPerThread = \(perThread);
+        constexpr uint kMask = \((1 << 24) - 1);
+        const device uint4* quads = (const device uint4*)pool;
+        uint idx = (gid + control.x) & kMask;
+        uint4 acc = uint4(0u);
+        for (uint p = 0; p < control.y; ++p) {
+            for (uint i = 0; i < kPerThread; ++i) {
+                acc ^= quads[idx];
+                idx = (idx + kThreads) & kMask;
+            }
+        }
+        uint folded = acc.x ^ acc.y ^ acc.z ^ acc.w;
+        if (folded == 0xFFFFFFFFu) { sink[gid & 255u] = folded; }
+    }
+    """
+}
+
+let sweepThreadCounts = [1 << 15, 1 << 16, 1 << 17, 1 << 18, 1 << 19]
+
 let src = """
 #include <metal_stdlib>
 using namespace metal;
@@ -21,6 +52,7 @@ kernel void empty_dispatch(device uint *sink [[buffer(0)]],
                            uint gid [[thread_position_in_grid]]) {
     if (control == 0xFFFFFFFFu) { sink[gid & 255u] = gid; }
 }
+\(sweepThreadCounts.map { sweepKernel("sweep_\($0)", threads: $0) }.joined(separator: "\n"))
 """
 
 let device = MTLCreateSystemDefaultDevice()!
@@ -81,4 +113,32 @@ for tg in [1, 8, 40, 160, 512] {
         best = min(best, us)
     }
     print(String(format: "  tg=%4d  %.3f us/dispatch", tg, best))
+}
+
+let poolBytes = (1 << 24) * 16
+let pool = device.makeBuffer(length: poolBytes, options: .storageModePrivate)!
+print("\nisolated DRAM sweep replica, \(poolBytes / (1 << 20)) MiB pool, uint4 grid-stride")
+for threads in sweepThreadCounts {
+    let pipe = try! device.makeComputePipelineState(
+        function: lib.makeFunction(name: "sweep_\(threads)")!)
+    var cfg = SIMD2<UInt32>(1, 4)  // control.x offset, control.y passes
+    var best = 0.0
+    for _ in 0..<5 {
+        let cb = queue.makeCommandBuffer()!
+        let enc = cb.makeComputeCommandEncoder()!
+        enc.setComputePipelineState(pipe)
+        enc.setBuffer(pool, offset: 0, index: 0)
+        enc.setBuffer(sink, offset: 0, index: 1)
+        enc.setBytes(&cfg, length: 8, index: 2)
+        enc.dispatchThreads(
+            MTLSize(width: threads, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+        let gbps = Double(poolBytes) * Double(cfg.y) / (cb.gpuEndTime - cb.gpuStartTime) / 1e9
+        best = max(best, gbps)
+    }
+    print(String(format: "  threads=%7d perThread=%5d  %.1f GB/s", threads,
+                 (1 << 24) / threads, best))
 }
