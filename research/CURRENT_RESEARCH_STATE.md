@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- **2026-08-04 (round 4 landed, round 5 in flight)** — advisor `meridian`,
+- **2026-08-04 (round 5 landed in part; round 6 opening)** — advisor `meridian`,
   campaign `mlxfast-maple-20260804`
 - Most recent human research direction: operator authorised the advisor and all
   four students to dispatch official `mlxfast submit` runs from the AWS Macs.
@@ -155,27 +155,79 @@ Rules:
   so our base already ships a free 3-receipt control: `f8502e12`, `71586bcf`,
   `f3cda678`.
 
-### 4. The 21.4% of the decode step that logical bytes do not explain
+### 4. RESOLVED: the decode step is bandwidth-closed with zero unexplained slack
+
+**tanjiro #21, merged 2026-08-04. `research/tanjiro-pr21-result.md`.** This was
+the largest unpriced quantity in the campaign. It is now fully decomposed and
+almost none of it is recoverable.
 
 ```
-1794 MB at the measured 260.2 GB/s ceiling  =  6.89 ms
-measured M4 --local-iterate step            =  8.77 ms
-                              unexplained   =  1.88 ms  (21.4%)
+M4 --local-iterate step                                   8.769 ms
+  byte-only roofline, 1794 MB at 260.2 GB/s              -6.895 ms
+  ------------------------------------------------------------------
+  excess                                                  1.874 ms
+    per-dispatch structure                                1.414 ms
+      406 x 2.46 us launch ramp (independently derived)     0.999
+      cache-served GQA KV re-read                           0.375
+    inter-dispatch dead band (nezuko #9 bound was <=0.38)  0.269 ms
+    named per-stream shortfalls  <-- THE ONLY RECOVERABLE   0.191 ms
+    ACCESS PATTERN                                          0.000 ms
+  ------------------------------------------------------------------
+  unexplained                                             +0.000 ms
 ```
 
-frieren's amplification caps (≤28.4 MB of KV waste, ≤16.9 MB of full-attention
-inefficiency) account for only ~0.17 ms of that. **The remaining ~1.7 ms is the
-single largest unpriced quantity in the campaign — worth up to 13.6% of score if
-recoverable, or a proof that 78.6% is the practical ceiling and the campaign is
-purely a byte-removal exercise from here.** This is tanjiro's #21 and is the
-highest-information open question we have.
+**Access pattern is worth exactly zero.** A standalone Metal probe
+(`senpai/tools/bandwidth-pattern-probe`, sequential control 262.5 GB/s,
+reproducing nezuko's 260.2) found that at equal bytes/dispatch *every* real
+pattern reaches **87–94% of the sequential control**: scattered 1.77 MB expert
+blocks 94%, scattered 16 KB blocks 92%, KV ring 87–89% **and insensitive to
+stride**, code rows at 2048/1024/256 B 90/93/92%. Both surviving suspects
+(gathered expert blocks, ring KV) are cleared. 13 of 19 dispatches have gap
+exactly zero; every large well-shaped dispatch runs at 100–109% of its modelled
+ceiling.
 
-Leading candidates, in the order tanjiro is testing them: NVFP4 group-16 scale
-traffic read as a second, poorly-coalesced stream; per-kernel low-occupancy
-ramp-up/ramp-down tails inside the ~600 dispatches per step (Metal counters call
-a kernel "busy" while a single threadgroup runs, so frieren's 97.7% GPU-busy
-figure does **not** exclude this); and N=1 GEMV read efficiency on the packed
-NVFP4 layout.
+What *does* cost: **bytes per dispatch** (22.9 GB/s at 0.125 MB rising to 262.5
+at 64 MB) and **in-flight device bytes per lane** (~32 B to saturate). Empty
+dispatch costs 2.46 us at 160 threadgroups, 0.87 us at one.
+
+**Two standing rules from this arm:**
+
+1. *Issued vs unique bytes.* The sliding attention kernel maps 32 threadgroups
+   over 64 query heads but only 8 KV heads
+   (`LagunaRuntimeModel.swift:1400-1402`), so 4 threadgroups each read the same
+   KV head's full 512-slot ring: **8.389 MB issued for 2.097 MB unique.** On
+   issued bytes it runs at 381 GB/s (and `full_fused_attn_grow` at 446), i.e.
+   1.45x and 1.70x the DRAM ceiling — impossible unless cache-served, therefore
+   **no DRAM slack.** Any roofline row measuring above the DRAM ceiling on issued
+   bytes is a cache-hit report, not a bandwidth problem. Every new row must state
+   which numerator it uses.
+2. *`nezuko-decode-roofline.md` Interim 8 is stale and now carries a header
+   warning.* Its worst row (`routed_shared_nvfp4_down_residual` 809 us / 42% of
+   ceiling) is the pre-#7 `_v4` kernel; Interim 9 ships `_v5` at 22.96 us/call
+   and 231.3 GB/s, which HEAD carries. Correcting it validated tanjiro's probe: a
+   reads-only ceiling of 212.0 GB/s against the real kernel's 231.3 — within 9%,
+   from above, the correct direction for a reads-only bound.
+
+**Re-pricing (supersedes my 10.9%-of-score claim in the #21 brief).** Recoverable
+on M5 is **1.4–2.8% of score**, in five small dispatches:
+
+| dispatch | M4 us/step | GB/s | owner |
+| --- | ---: | ---: | --- |
+| `lmhead_exact_inline_mask_block` | 74 | **6.5 — worst in the step** | nezuko #20 |
+| `gate_sp_h64` + `gate_sp_h48` | 83 | ~66 | unassigned |
+| `residual_rms_router` | 27 | — | unassigned |
+| `dense_gate_up` | 12 | — | unassigned |
+
+The 122 us that is not nezuko's is ~1.39% of the M4 step ≈ **0.89% of score** —
+above the 0.61% bar, and it is the cheapest remaining decode work.
+
+**Cross-generation invariance is now explained without access pattern.** M4 runs
+at 78.6% of its ceiling and M5 at 78–85% of its (485–530 GB/s) ceiling because
+**byte time halves across generations while latency does not.** tanjiro's
+latency-like terms (0.460 ms) cover 48–70% of the M5 excess (0.654–0.968 ms), and
+the model closes only if the M5 per-dispatch cost is **0.48–1.25 us** — near his
+measured 0.87 us single-threadgroup floor rather than 2.46 us. That is a
+falsifiable prediction and it is the subject of the next arm (§8).
 
 ---
 
@@ -387,6 +439,35 @@ right, and for a better reason: lossless re-encoding needs no envelope permissio
 but the checkpoint offers almost none, and lossy re-quantization of unlisted
 tensors stays forbidden regardless of what it would buy.
 
+### 8. The four M5 constants this campaign is currently guessing (new, 2026-08-04)
+
+Every priced arm on the board divides by a number nobody has measured on the
+ranked host:
+
+| constant | current value | provenance | what it prices |
+| --- | --- | --- | --- |
+| M5 achievable DRAM GB/s | **485–530** | literature: 614 nominal x Metal STREAM 79–86%, plus a third-party MLX 4-bit decode figure of 500–520 | the entire decode byte budget; the 28.17 ms DRAM floor of prefill `routed_experts`, i.e. fern #24's whole prize |
+| M5 matrix TFLOP/s at our GEMM shapes | **60** | Apple marketing "real-shader FP16 peak" | the 47.16 ms compute side of the forward; whether `routed_experts` is DRAM-bound at all |
+| M5 per-dispatch cost | **0.48–1.25 us** (needed for closure) vs 2.46 us measured on M4 | pure extrapolation | 0.46 ms of the 4.353 ms decode step, and whether a dispatch-count arm exists |
+| prefill overlap + glue | **9–12 ms** of 98.15 | residual of my roofline against the measured forward | direction 5b, C5, and the credibility of the 16.75 ms figure |
+
+Our own receipt only bounds the second one from below: compute floor
+≤ 98.153 − 34.32 = 63.8 ms ⇒ **M5 Max matrix throughput ≥ 44.3 TFLOP/s.** At 44.3
+rather than 60 the forward's compute side rises from 47.16 to 63.8 ms and
+`routed_experts` compute goes 16.75 → 22.7 ms, which moves fern's prize by a
+third. **We cannot rank arms to 0.6% while the denominators move by 35%.**
+
+`senpai/tools/*` is outside `editablePaths`, so tanjiro's probe can never run on
+the M5 and we have no shell there. But the channel exists and he already proved
+it with the A/B/C noise-floor family: **a deliberately slowed, output-neutral
+instrumented candidate passes every gate and returns a complete receipt.** Inject
+a known quantity of work into the scored path and read the slope out of the
+receipt. Two observables per run (`decode_seconds_per_token`,
+`prefill_seconds_per_token`) ⇒ two constants per submission, four in two
+submissions. The 0.95 floors are measured against the *pinned baseline* and we
+sit at ~2.7x decode / ~1.98x prefill, so a deliberate 15–30% slowdown still
+publishes complete metrics. This is tanjiro's round-6 arm.
+
 ### Round 4 outcome
 
 | PR | student | verdict |
@@ -396,14 +477,15 @@ tensors stays forbidden regardless of what it would buy.
 | #20 | nezuko | in flight — lm_head cascade |
 | #21 | tanjiro | in flight — pricing the residual |
 
-### Round 5 in flight
+### Round 5 in flight / Round 6 opening
 
 | PR | student | arm |
 | --- | --- | --- |
 | #20 | nezuko | **lm_head cascade.** The last legal decode byte lever: 134.9 MB int5 plane, 7.5% of the step. Immediate target 25.7 MB, structural ceiling ~105 MB (3.7%) |
-| #21 | tanjiro | **price the 1.51 ms hard core** (17.2% of the step = 393 MB phantom). Part 1 is a structural analogue, no submissions. Deciding experiment for whether the campaign optimises bytes or efficiency |
+| #21 | tanjiro | **MERGED — strong negative, campaign-defining.** Decode is bandwidth-closed: access pattern worth 0.000 ms, unexplained +0.000 ms. See §4. Recoverable re-priced 10.9% → 1.4–2.8% of score. 0 submissions |
 | #23 | frieren | **exposed head latency** — the one term in his own model the GPU does not absorb. 0.29–0.32 ms on M4 against a 4.353 ms M5 step, so ≤2.9% of score |
 | #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported. **Re-priced by finding 6 to 5.9–7.7% of score** (~3× the brief) with a hard floor at 28.17 ms, and it holds **73% of all the overlap available anywhere in the forward** |
+| — | tanjiro | **round 6: measure the four M5 constants** (§8) by output-neutral work injection into the scored path. 2 submissions buy 4 denominators that every other arm on the board divides by |
 
 Why #24 is the shape it is: `DARKBLOOM_EXPERT_GATHER_GROUPS` went 64 → 128 → 256
 and measured a real M5 gain at *every* step while changing nothing
@@ -564,6 +646,18 @@ optimisation.
 ---
 
 ## Closed families — do not re-litigate
+
+- **Decode access-pattern efficiency — CLOSED (tanjiro #21).** Every real pattern
+  reaches 87-94% of the sequential control at equal bytes/dispatch. Scattered
+  expert blocks 94%, KV ring 87-89% and stride-insensitive. The residual closes
+  with **+0.000 ms unexplained**. See section 4.
+- **Offline codes/scales interleave - CLOSED TWICE.** fern read A = 1.000 from
+  source; tanjiro measured -0.3% to +2.5% on silicon. Source and measurement
+  agree. Nobody is to propose it again.
+- **`./probe` on the M5 - IMPOSSIBLE, not merely hard.** `senpai/tools/*` is
+  outside `editablePaths`; it is never uploaded and there is no shell on the
+  ranked host. The only M5 channel is a submitted candidate plus its receipt
+  `metrics`.
 
 | family | verdict | evidence |
 | --- | --- | --- |

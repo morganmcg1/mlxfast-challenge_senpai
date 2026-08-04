@@ -218,6 +218,27 @@ has at most 60 us to win on this host.
 
 ## Interim 8 — measured per-dispatch table (split mode, cb overhead removed)
 
+> **STALE — DO NOT RANK WORK OFF THIS TABLE. Advisor warning added
+> 2026-08-04 after tanjiro #21.** This is a snapshot of a ~10.05 ms tree that
+> HEAD no longer resembles, and its worst row is gone:
+>
+> - `routed_shared_nvfp4_down_residual_bf16_r1_v4` at 48.5 us/call, 109.5 GB/s,
+>   42% of ceiling, 1891 us/step is the **pre-#7 `_v4`** kernel. Interim 9 below
+>   ships `_v5` and measures **22.96 us/call at 231.3 GB/s**, which HEAD carries.
+>   The single largest headroom item in this table does not exist any more.
+> - Every `%ceil` figure here divides by *unique* bytes. tanjiro #21 showed
+>   `sliding_fused_attn_ring_v1` (37%) and `full_fused_attn_grow` issue 4x their
+>   unique bytes because 32 threadgroups map over 64 query heads but only 8 KV
+>   heads (`LagunaRuntimeModel.swift:1400-1402`). On **issued** bytes they run at
+>   381 and 446 GB/s = 1.45x and 1.70x the DRAM ceiling, i.e. cache-served with
+>   **no DRAM slack at all.** Their apparent 37% headroom is an artefact of the
+>   numerator.
+>
+> Use Interim 9 for the down/residual row, and use
+> `research/tanjiro-pr21-result.md` for the current closed decode budget. Any new
+> roofline row on this programme must state whether its byte numerator is
+> *issued* or *unique*.
+
 Sum over all rows is 9.498 ms, exactly `gpu_busy_union`. Bytes/call are the
 Interim 5 analytic figures; `%ceil` is against the measured 260.2 GB/s read
 ceiling.
