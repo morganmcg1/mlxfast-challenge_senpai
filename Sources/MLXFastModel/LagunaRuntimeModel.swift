@@ -74,21 +74,6 @@ func lagunaRopeScalingConfig(_ spec: LagunaRopeSpec) -> [String: StringOrNumber]
 /// nothing. This makes "did it actually run" observable without a debugger.
 private let lagunaTraceFusion =
     ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_FUSION"] == "1"
-
-/// `DARKBLOOM_TRACE_ALLOC=1` prints the MLX allocator state at every forward
-/// entry. Research instrumentation for sizing the transient footprint the
-/// trusted per-phase `Memory.clearCache()` forces the first charged forward to
-/// re-allocate.
-private let lagunaTraceAllocState =
-    ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_ALLOC"] == "1"
-
-/// `DARKBLOOM_PROBE_CACHE_LIMIT=<bytes>` overrides the MLX allocator cache
-/// limit at forward entry, after the trusted per-phase reset has pinned it to
-/// 6 GiB. Research instrumentation: the slowdown at limit 0 (every free
-/// releases its `MTLBuffer` instead of recycling it) measures the marginal cost
-/// of fresh buffer creation plus first-touch paging inside the timed window.
-private let lagunaProbeCacheLimit =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PROBE_CACHE_LIMIT"].flatMap(Int.init)
 private let lagunaTracedFusions = LagunaFusionTraceLog()
 
 final class LagunaFusionTraceLog: @unchecked Sendable {
@@ -10812,18 +10797,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        if let probeLimit = lagunaProbeCacheLimit {
-            Memory.cacheLimit = probeLimit
-        }
-        if lagunaTraceAllocState {
-            FileHandle.standardError.write(
-                Data(
-                    ("mlxfast: alloc-entry L=\(inputs.dim(1)) "
-                        + "active=\(Memory.activeMemory) cache=\(Memory.cacheMemory) "
-                        + "peak=\(Memory.peakMemory) resources=\(Memory.numResources)\n").utf8
-                )
-            )
-        }
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
