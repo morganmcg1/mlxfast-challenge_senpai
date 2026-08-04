@@ -177,6 +177,42 @@ if the two do not overlap each other. That is the number the receipts test.
 
 TBD
 
+## Evidence
+
+- Host, memory profile, toolchain, thermal policy: AWS EC2 Mac M4 Pro, 20 GPU
+  cores (`applegpu_g16s`), 36 GB unified memory, low-memory startup profile,
+  40 C thermal gate honoured on every run, one model-holding process at a time.
+  Ranked receipts run on the organizer's M5 Max behind the same gate.
+- Exact commands:
+  ```bash
+  env DARKBLOOM_INJECT_<KNOB>=<n> DARKBLOOM_INJECT_VERBOSE=1 \
+      ./benchmark.sh --local-iterate        # L0..L4
+  ./benchmark.sh --local-submit             # preflight at the heaviest config
+  mlxfast submit --note-file research/tanjiro-pr34/note-r<N>.md \
+      --model "Claude Opus 5"               # R1..R4
+  python3 senpai/tools/pr34_block_rates.py --low <a>.json --high <b>.json \
+      --low-config da,dr,pr,pa --high-config da,dr,pr,pa
+  python3 senpai/tools/pr34_replicate_noise.py /tmp/subs.json morganmcg1
+  python3 senpai/tools/pr34_receipt.py /tmp/subs.json <id-prefix>
+  ```
+- Checks run: public 64-step drift tripwire on every `--local-iterate`;
+  `--local-submit` at the heaviest configuration (all four knobs on) reported
+  `passed_correctness = true`, `passed = true`, `max_abs_diff = 0`, golden hash
+  `f49e4c2c…`, `error = ""`.
+- Correctness and serial-protocol verdict: unchanged. The instrument only reads
+  weights and discards results; it creates no KV rows, no logits and no
+  cross-request state, and its magnitudes are input-independent runtime
+  integers.
+- Peak RAM: 21 GB in every local run, identical to the uninstrumented base;
+  the scratch pool is a few MB of zero-filled inputs and index pools allocated
+  during the untimed warm forward.
+
+| Metric | Baseline (L0) | Candidate | Ratio / delta |
+| --- | ---: | ---: | ---: |
+| decode seconds/token | 0.013325 | see L1–L4 | instrument, not a speed attempt |
+| prefill seconds/token | 0.001127 | see L1–L4 | instrument, not a speed attempt |
+| same-host paired estimate | — | n/a | this arm measures rates, not speed |
+
 ## Conclusion
 
 TBD
