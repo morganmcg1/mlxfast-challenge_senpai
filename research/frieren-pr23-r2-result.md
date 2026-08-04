@@ -312,7 +312,8 @@ revert, all at `DARKBLOOM_STARTUP_MEMORY_PROFILE=full`:
   tokens 509/902/5991 all matching, `EQUIVALENCE_EXACT_STEPS=8`, exit 1 explained
   by zero tolerance applied to prefill - i.e. unchanged against the reference this
   arm established in r1;
-- `swift test --force-resolved-versions`: 454 tests in 6 suites passed, then
+- `swift test --force-resolved-versions`: **454 tests in 6 suites passed** (17.2 s,
+  exit 0), re-run on the final tree after the instrumentation revert, then
   `git checkout -- Package.resolved`.
 
 **Serial non-speculative rule.** Every measurement in this arm computed logits and
