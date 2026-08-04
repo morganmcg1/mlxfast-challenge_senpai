@@ -1,9 +1,12 @@
 # PR #34 — What rate do the four largest real kernels actually reach on the ranked M5?
 
-DRAFT — official receipts in flight. Numbers marked `TBD` land when the receipt
-feed publishes them.
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"same_host_paired_estimate","available":false,"value":null},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
 - Student / PR: maple-tanjiro / #34 (`maple-tanjiro/m5-block-rates`)
+- Decision: **green** — four rates measured on the ranked host; the arm's question
+  is answered and the verdict is a kernel arm confined to the quantized routed path.
+  No receipt in this series is a ranking attempt, so `primary_metric` is
+  deliberately unavailable rather than reported as 1.0.
 - Hypothesis and target cost: the 1.38 ms decode and 47 ms prefill residuals are
   unexplained because nobody has measured the achieved rate of the four blocks
   that dominate them. Measure each block's rate in the real timed window by
@@ -862,4 +865,84 @@ given against both so the advisor can use either.
 
 ## Conclusion
 
-TBD
+**The 47 ms prefill residual has one identifiable owner and the 1.38 ms decode
+residual has none.**
+
+The routed-expert quantized gather-GEMM reaches **23.2 TFLOP/s (408 GB/s)**, only
+**67% of its own 34.7 TFLOP/s byte ceiling**, and leaves **14.30 ms** on the prefill
+axis — **42% of the honest ~34 ms residual**. The other three blocks are clean: the
+prefill dense attention GEMM runs at **65.7 TFLOP/s**, *above* this host's measured
+56 TFLOP/s dense peak; the decode attention QMV runs at **652 GB/s**, at or above the
+610 GB/s streaming constant; the decode routed QMV runs at **546 GB/s** and owns a
+real but small **7.9%** of the decode residual.
+
+**Arm recommendation: kernel arm, and only for the quantized routed path.** Rate 1 at
+23.2 TFLOP/s lands *below* the bottom of the advisor's 25–30 kernel-arm window, so this
+is not a marginal call. Three things sharpen the handoff to @maple-fern:
+
+1. **The ~50 TFLOP/s scheduling arm was never reachable.** At 56.9 FLOP/byte and
+   610 GB/s the byte ceiling for this kernel is 34.7 TFLOP/s. The decision rule in the
+   brief had an unreachable branch, so the crossover it describes could only ever
+   resolve one way.
+2. **The target is `fp_gather_qmm_rhs_nax`, and it cannot be screened locally.**
+   `quantized.cpp:1956` routes to the NAX kernel only when `is_nax_available()`, which
+   `device.cpp:913` gates on `arch_gen >= 17`; this M4 Pro is `applegpu_g16s` = gen 16,
+   so M4 runs a different steel `bm16/bn32/bk32` kernel entirely. The prefill dense
+   GEMM is nax-gated too. Any arm targeting either one needs ranked receipts, not local
+   iteration — the "locally screenable" assumption in the queue plan does not hold for
+   them. Both decode QMV blocks *are* the project's own kernels with no NAX branch and
+   remain locally screenable.
+3. **It is not a dequantization-throughput problem in the obvious sense.** The block is
+   byte-bound with a 12 ms margin to its compute ceiling, and the dense path on the same
+   machine is at peak, so the deficit is in how the quantized gather-GEMM moves and
+   stages weights, not in raw arithmetic.
+
+**Decode is closed to per-kernel attack.** The two blocks that carry **76%** of a decode
+step's weight bytes together account for at most ~8% of its residual, and injected cold
+reads of 1.35 GB run at **99.0% of the 610 GB/s constant**. Decode's 1.38 ms is
+therefore in the small kernels and the dispatch stream, exactly where @maple-frieren's
+and @maple-nezuko's results say it is hardest to collect. The one encouraging number is
+that the unperturbed decode step runs at 75% of peak bandwidth and rises to 83% when
+loaded, so roughly **8% of decode is idle-cycle slack** that better overlap could in
+principle recover — a scheduling target, not a kernel one.
+
+### What I got wrong, on the record
+
+- **My pre-registered 29–33 TFLOP/s prediction for rate 1 failed** (measured 23.2). The
+  cause is worse than a bad guess: I transferred an efficiency measured on M4's steel
+  kernel onto M5's NAX kernel, which is a *different kernel*. Rate 3 shows the same trap
+  in the other direction. Any M4→M5 efficiency transfer on a nax-gated path is invalid,
+  and I should have checked the dispatch predicate before pre-registering.
+- **I claimed the rate-1 copy sweep was concave** from two levels and inferred an ~11 ms
+  fixed cost that would have inflated the true rate. A third level (L10) showed the
+  segment slopes are non-monotone; a four-level fit is linear through the origin
+  (4.138 ms/copy, intercept 576.09 vs a measured 576.571 anchor). **Two points cannot
+  establish curvature** and I published the claim before I had three.
+- **The brief's queue model is wrong and I followed it for two receipts.** The channel is
+  not serialised — five accounts validated simultaneously, and same-account concurrency
+  is accepted. What actually costs turnaround is injection size, because the hidden
+  correctness suites run at the injected cost.
+
+### Follow-ups I did not implement
+
+1. **Separate the two readings of rate 3.** One receipt injecting the dense attention
+   GEMM into a *decode* step, where there is no DRAM-bound routed GEMM to hide behind,
+   would say whether 65.7 TFLOP/s is the machine's real dense peak or absorbed slack. If
+   it is the real peak, every compute roofline in this programme is ~17% too pessimistic.
+2. **Measure the per-dispatch constant on M5.** Explicitly out of scope here, and now the
+   single most valuable unmeasured quantity: with both decode QMV blocks cleared, the
+   dispatch stream is the prime suspect for decode's 1.38 ms.
+3. **Rate 1 at prefill-realistic occupancy.** With 512 tokens over 256 experts at top-8,
+   each expert sees ~16 rows, so the gather-GEMM's tiles are almost all weight-load with
+   little reuse. Whether the 67% is a tiling/staging artefact of that shape or a fixed
+   property of the kernel is answerable by injecting at a different token count.
+4. **Do not spend a receipt on `arch.back()`.** I built the probe and validated it on M4
+   (`ΔT = +1.0964 ms`, `applegpu_g16s`), then found the answer is available *statically*
+   from `device.cpp:913-931` plus the observation that M5 takes NAX branches at all. It
+   would have been a wasted receipt.
+
+### Queue
+
+**Slot taken 20:11 UTC, released 22:1x UTC** after the fourth authorised receipt
+(`afec358a`) was submitted. Four receipts spent, four numbers landed. The channel is
+free for @maple-fern, and per the finding above it was never exclusive to begin with.
