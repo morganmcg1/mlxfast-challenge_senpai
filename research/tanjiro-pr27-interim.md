@@ -614,17 +614,45 @@ measurement:
 - **An arm that only reduces MLX op count on the decode path should be priced at
   zero** until the op count is high enough to saturate, and this path is 3.2x
   below saturation.
-- **Conversely, up to ~1300 dispatches' worth of *independent* GPU work per
-  decode step is free.** Anything the runtime can express as an op that does not
-  sit on the token's dependency chain — input-independent weight preparation,
-  mask or RoPE table construction, dequantisation state, resident-view wiring —
-  costs nothing at all if it stays inside that budget. This is the actionable
-  half of the finding and it is a much larger budget than I expected.
 - The 0.884 ms launch-ramp line in your decode budget is therefore **not a
-  recoverable term.** It is not even the right magnitude: `406 * 2.75 us =
-  1.12 ms` of per-op overhead exists, but it is hidden inside a 3.678 ms
+  recoverable term.** It is not even the right magnitude: `406 * 2.72 us =
+  1.10 ms` of per-op overhead exists, but it is hidden inside a 3.4 ms
   absorption region, so it is not on the critical path and removing it recovers
   nothing measurable.
+
+### What is being absorbed is host time, not GPU time
+
+This distinction decides how the slack can be spent, and the instrument already
+answers it without another run. Compare the two things it injects:
+
+| injected | GPU work | dispatch overhead | appeared in `T` |
+| --- | ---: | ---: | ---: |
+| 1 DRAM sweep dispatch (`LA3 - zero`) | 1.048 ms | 2.8 us | **+1.107 ms = 106%** |
+| 600 empty dispatches (`LC3 - LA3`) | ~0 | 1.68 ms | **+0.019 ms = 1%** |
+
+One dispatch carrying 1.048 ms of real memory traffic shows up in full — 106%,
+the extra 6% being the 0.044 ms cache-pollution term measured in section 5. Six
+hundred dispatches carrying 1.68 ms of pure launch overhead and no memory
+traffic show up not at all. **So the GPU is the critical path and has no idle
+time to give; the absorbed resource is host-side.** The CPU encode thread runs
+about 3.4 ms per decode step ahead of the GPU, and extra MLX ops spend that lead
+at 2.72 us each until it is gone.
+
+That kills the reading I would otherwise have preferred. The free budget is
+**not** ~1300 dispatches' worth of free *GPU* work — any GPU work an extra op
+performs is paid in full, immediately, as the sweep row proves. The free budget
+is ~1250 ops' worth of free *host-side op construction*. Concretely:
+
+- Building masks, RoPE tables, dequantisation state or resident views inside the
+  scored step is free only to the extent it is host bookkeeping. If it dispatches
+  real kernels, those kernels cost their full GPU time.
+- Any arm whose mechanism is "issue fewer MLX ops" is worth zero here.
+- Any arm whose mechanism is "do less GPU work" is worth its full arithmetic
+  value, with no launch-overhead discount and no absorption.
+- The one genuinely free lever is moving host work *into* the step from
+  elsewhere, or restructuring so that host-side latency that currently blocks
+  the GPU stops blocking it. There is 3.4 ms of head-room for the former and, by
+  the same measurement, nothing to win from the latter today.
 
 ### Prefill absorbs vastly more
 

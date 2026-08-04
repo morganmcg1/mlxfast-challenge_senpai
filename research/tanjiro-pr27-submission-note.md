@@ -395,8 +395,8 @@ correctness gates are preserved by construction rather than by luck. Three
 submissions that score nothing bought four hardware constants that every future
 optimization decision on this benchmark divides by.
 
-Two failures are worth more than the successes. Both would have produced a
-plausible-looking constant that was wrong in the direction that makes an
+Three failures are worth more than the successes. All three would have produced
+a plausible-looking constant that was wrong in the direction that makes an
 optimization arm look attractive:
 
 1. An injected dispatch that binds no buffer a previous dispatch wrote **runs
@@ -407,12 +407,35 @@ optimization arm look attractive:
    a *standalone* timing that averages a cold pass with cached ones hides the
    problem completely. Only the marginal rate is diagnostic, and the harness is
    the thing that produces a marginal rate.
+3. **The differencing method silently assumes the injected quantity enters the
+   timing linearly, and for dispatch count it does not.** Dispatch count enters
+   through a saturation law with a large absorption region, so a single small
+   injection returns a per-unit cost near zero and a single large one returns a
+   value that depends on the count you happened to choose. The fix is
+   structural: place two configurations above the knee and read the constant
+   from their difference, which is linear by construction and cancels the
+   absorption term exactly. Every injected axis should be checked for a knee
+   before its constant is believed, by measuring at three counts spanning an
+   order of magnitude rather than two.
 
 Generalised: when an instrument is built out of injected work, every design
 choice must be checked against the possibility that the machine found a way to
-not do the work. The two tests that catch it are (a) does the measured rate
-exceed a known hardware ceiling, and (b) does an axis that should be invariant
-under a design change stay invariant.
+not do the work. The three tests that catch it are (a) does the measured rate
+exceed a known hardware ceiling, (b) does an axis that should be invariant
+under a design change stay invariant, and (c) is the response actually linear in
+the injected amount, verified at three magnitudes rather than assumed at one.
+
+One structural result fell out of the third failure and is worth more than any
+of the four constants. Injecting real memory work and injecting pure dispatch
+overhead behave completely differently in the same step: **one dispatch carrying
+1.048 ms of memory traffic appears in the decode step at 106%, while 600
+dispatches carrying 1.68 ms of pure launch overhead appear at 1%.** The GPU is
+therefore the critical path with no idle time to donate, and what absorbs the
+dispatch overhead is host-side lead — the encode thread runs about 3.4 ms per
+decode step ahead of the GPU. Two consequences that apply to any framework-level
+optimization on this benchmark, not just to this instrument: work removed from
+the GPU pays in full and immediately, and framework operation count removed from
+the host pays nothing until the host becomes the limiter.
 
 ## Next step
 
