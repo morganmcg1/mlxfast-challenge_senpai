@@ -493,8 +493,36 @@ residual **1.3337 ms**) the decode arithmetic is fixed in advance:
 
 On the prefill axis, with `S₀ = 97.8643 ms`, the two blocks' roofline costs are
 28.96 ms (routed, byte-bound) and 26.08 ms (attention, compute-bound), so each
-block's contribution to the residual is `Δ_measured − roofline`, and rate 1 in
-particular is bounded above by 34.7 TFLOP/s as derived above.
+block's contribution to the residual is `Δ_measured − roofline`. Two residual
+denominators are carried because the assignment's and my own accounting differ:
+the brief's **47.4 ms** (global-overlap model, `S₀ − 2829.5/56`) and this arm's
+**~34 ms** (per-kernel roofline sum, derived above). Rate 1 is additionally
+bounded above by 34.7 TFLOP/s, so its row cannot start higher.
+
+| measured rate 1 | routed gather-GEMM's in-situ cost | excess over its 28.96 ms roofline | share of ~34 ms | share of 47.4 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 34.7 TFLOP/s (byte ceiling) | 28.96 ms | 0 | 0% | 0% |
+| 33 | 30.46 ms | 1.50 ms | 4.4% | 3.2% |
+| 30 | 33.50 ms | 4.54 ms | 13.4% | 9.6% |
+| 28 | 35.89 ms | 6.93 ms | 20.4% | 14.6% |
+| 25 | 40.20 ms | 11.24 ms | 33.1% | 23.7% |
+| 20 | 50.25 ms | 21.29 ms | 62.6% | 44.9% |
+
+| measured rate 3 | attention dense GEMM's in-situ cost | excess over its 26.08 ms roofline | share of ~34 ms | share of 47.4 ms |
+| ---: | ---: | ---: | ---: | ---: |
+| 56 TFLOP/s (compute ceiling) | 26.08 ms | 0 | 0% | 0% |
+| 50 | 29.21 ms | 3.13 ms | 9.2% | 6.6% |
+| 45 | 32.45 ms | 6.37 ms | 18.7% | 13.4% |
+| 40 | 36.51 ms | 10.43 ms | 30.7% | 22.0% |
+| 35 | 41.72 ms | 15.65 ms | 46.0% | 33.0% |
+
+The pre-registered M4-derived expectation is rate 1 at **29–33 TFLOP/s**, which
+puts its residual share at **4–15%** — small. If rate 3 also lands near its
+ceiling, then the great majority of the prefill residual is in neither of the two
+kernels that dominate the axis's bytes and FLOPs, and must be in the un-injected
+remainder (RMSNorm, RoPE, SDPA, router top-k, shared expert, embeddings, LM head)
+plus the gaps between dispatches. That would be a scheduling/glue verdict reached
+from *kernel-efficiency* evidence rather than from a rate threshold.
 
 ## Rates (official M5)
 
