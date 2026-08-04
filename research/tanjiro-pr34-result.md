@@ -307,13 +307,25 @@ touched and the whole thing must stream from DRAM once. At 610 GB/s that is
 prefill residual is *not* hiding in this kernel's arithmetic.
 
 The M4 cross-check already supports the DRAM-exposure reading rather than an
-arithmetic-inefficiency reading. On M4 the same block measured 5.85 TFLOP/s,
-which is 79% of the host's 7.40 TFLOP/s dense GEMM rate, while its DRAM time
-(9059.70 MB / 256 GB/s = 35.4 ms) and compute time (515.40 / 7.4 = 69.6 ms) sum
-to 105.0 ms against a measured 88.09 ms. So on M4 the block runs at essentially
-the dense arithmetic rate with about half of its DRAM traffic left exposed rather
-than overlapped. M5 has a 7.8x faster GEMM but only a 2.4x faster memory system,
-so on M5 the same block should be firmly DRAM-bound.
+arithmetic-inefficiency reading, and after L7 it is quantitative. On M4 the block's
+amortised marginal rate is **6.80 TFLOP/s = 92% of the host's 7.40 TFLOP/s dense
+GEMM rate**, while its byte-side ceiling there is `56.9 FLOP/B × 256 GB/s =
+14.6 TFLOP/s` — more than twice the compute ceiling. **M4 is compute-bound on this
+kernel and reaches 92% of the machine's dense arithmetic rate.** So the gather,
+the sort, the scatter and the per-expert segmentation together cost only 8% over
+a dense GEMM of the same FLOP count. That is an efficient kernel, not a
+`25–30 TFLOP/s`-on-M5 inefficient one.
+
+M5 inverts the binding side: it has a 7.8x faster GEMM but only a 2.4x faster
+memory system, so the same 56.9 FLOP/B intensity puts the byte ceiling at
+`56.9 × 610 = 34.7 TFLOP/s` *below* the 56 TFLOP/s compute ceiling. **Pre-registered
+prediction: if the kernel is as good on M5 as it demonstrably is on M4, rate 1
+lands at 90 ± 6% of 34.7, i.e. `29–33 TFLOP/s`, equivalently a `30.5–34.7 ms`
+difference for the 39-copy block.** Note where that falls: it straddles the top of the
+advisor's `25–30 ⇒ kernel arm` window while being, physically, the *opposite*
+diagnosis. The mapping from a rate to an arm has to go through the roofline, not
+through the raw number — which is the single most useful thing this arm can hand
+back.
 
 A first-principles floor for the whole prefill forward from these two blocks
 alone is `28.96 + 26.08 = 55.0 ms` of the measured `S₀ = 97.86 ms`, i.e. **56%**,
@@ -432,8 +444,8 @@ particular is bounded above by 34.7 TFLOP/s as derived above.
 Each rate is `added_work / (X_high − X_low)` where `X` is `S` or `T` from the two
 receipts named in the pairing column, `added_work` is the exact byte/FLOP count of
 one extra full copy of that block, and the uncertainty is the quadrature sum of the
-two receipts' axis noise (`0.245%` of `S`, `0.440%` of `T`, re-derived above from
-this account's own 11 clean same-day receipts) propagated through the difference.
+two receipts' axis noise (`0.234%` of `S`, `0.662%` of `T`, re-derived above from
+this account's own 12 clean same-day receipts) propagated through the difference.
 
 | # | block | pairing | added work | Δ (raw) | rate (raw) | Δ (session-normalised) | rate (normalised) |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
@@ -515,9 +527,9 @@ No receipt in this arm is a ranking attempt, and none should be read as one.
    benchmark should difference raw candidate axes and treat baseline-ratio
    normalisation as an optional, noise-adding cross-check, not as the estimator.
 4. **The receipt feed is the cheapest source of ranked-host truth available.**
-   Eleven clean receipts from a single day, published for free with
-   `rejectionReason = "score did not improve current best"`, gave a 0.245% /
-   0.440% noise floor that no local host can establish.
+   Twelve clean receipts from a single day, published for free with
+   `rejectionReason = "score did not improve current best"`, gave a 0.234% /
+   0.662% noise floor that no local host can establish.
 
 ## Conclusion
 
