@@ -852,9 +852,26 @@ slots of its `kv_head` exactly once**, 16 slots per simdgroup, 2 in flight.
 Therefore:
 
 ```
-sliding: 64 query heads / 2 = 32 TGs over 8 kv heads = 4 TGs per kv head = 4x
-full:    48 query heads / 2 = 24 TGs over 8 kv heads = 3 TGs per kv head = 3x
+sliding: gqa = 8 (:1392)  64 query heads / 2 = 32 TGs, 4 TGs per kv head = 4x
+full:    gqa = 6 (:1861)  48 query heads / 2 = 24 TGs, 3 TGs per kv head = 3x
 ```
+
+Two consequences of `gqa = 6` on the full-attention path, both of which I had
+wrong on the first pass:
+
+- Issued traffic there is `3 × 2.621 = 7.86 MB`, i.e. 334 GB/s and **1.28×** the
+  DRAM ceiling, not the 1.70× / 446 GB/s in tanjiro's #21 retraction. His
+  sliding figure is confirmed exactly; the full figure looks like it inherited a
+  4× numerator by analogy. Worth a line in his next report, and it makes the
+  full-attention half of this arm about 25% smaller than I first priced it.
+- **`h` must divide the GQA ratio, and the two kernels have different ratios.**
+  Legal `h` is `{1, 2, 4, 8}` for sliding and `{1, 2, 3, 6}` for full. A student
+  who templates one kernel and picks `h = 4` everywhere will have full-attention
+  threadgroups straddle two `kv_head`s — heads 4,5 belong to kv 0 while 6,7
+  belong to kv 1 — and `kv_head = head0 / gqa` will silently address the wrong
+  ring for half the heads. This is a wrong-answer landmine of exactly the
+  `tile_matmad_nax` no-`else` variety. The matched pair is **sliding `h=4` with
+  full `h=3`**, or **sliding `h=8` with full `h=6`** for the 1× configuration.
 
 The `2` is not tuned. The kernel comment says it is a "textual replica of the
 `sdpa_vector` pair path" — MLX picked 2 generically for GQA pair sharing. **On
@@ -896,11 +913,25 @@ epilogue (`:1634-1655`).
 | `h=8, s=32` | 8 | 1× | 2.097 | ~8.7 kB | 1 | yes, but ~320 B/thread of registers risks spilling |
 | `h=8, s=8` | 32 | 1× | 2.097 | ~8.7 kB | 2 | yes, needs a deferred epilogue |
 
-Start at **`h=4, s=32`**: one dispatch, no epilogue restructuring, no extra
-threadgroup memory of consequence (the exchange goes from 2-plane to 1-plane
-rounds, 4 rounds instead of 2), and it halves issued KV traffic. If the kernel
-is L2-bandwidth-bound it should approach ~11 µs from 22.34 µs, worth ~340 µs/step
-= 4.0% of step = **~2.5% of score**. `h=8` doubles that again if registers hold.
+Start at **sliding `h=4` / full `h=3`**: one dispatch, no epilogue restructuring,
+no extra threadgroup memory of consequence (the exchange goes from 2-plane to
+1-plane rounds, 4 rounds instead of 2), and it halves issued KV traffic on the
+sliding path and cuts it by a third on the full path.
+
+Priced at the **fully-L2-bandwidth-bound ceiling**, which is the optimistic end:
+
+```
+sliding  8.389 -> 4.19 MB   22.34 -> 11.2 us   x30  saves 335 us
+full     7.86  -> 5.24 MB   23.5  -> 15.7 us   x10  saves  78 us
+                                                    ---------------
+                                            413 us = 4.8% of step = 3.1% of score
+```
+
+The realistic figure is lower: the kernel will turn latency-bound somewhere
+below 375 GB/s, so treat **1.5–2.0% of score** as the expected capture and 3.1%
+as the ceiling. `h=8` / `h=6` roughly doubles the ceiling again if registers
+hold. Either number clears the 0.61% bar and the lower one alone would not
+promote, so this is a component of a promotion, not a promotion on its own.
 
 **Two hard constraints from our own results.**
 - Any variant needing a second dispatch per attention layer adds 40 dispatches
@@ -1202,8 +1233,9 @@ field's frozen axis.
    roofline, running at 1.45× the DRAM ceiling on issued bytes because L2
    absorbs the duplication. The `2` is an untuned MLX `sdpa_vector` inheritance,
    and on the ranked 40-core M5 the grids are only 32 and 24 threadgroups. First
-   step is the bit-exact "quad path" (`h=4, s=32`): one dispatch, half the
-   issued traffic, ~2.5% of score, with `h=8` worth double again. Blocked on one
+   step is bit-exact and one dispatch: sliding `h=4` with full `h=3` (`h` must
+   divide the GQA ratio, which differs between the two kernels — 8 and 6). 3.1%
+   of score at the bandwidth-bound ceiling, 1.5–2.0% expected. Blocked on one
    cheap local number — the M4's L2-resident read ceiling — requested from
    tanjiro on #27.
 
