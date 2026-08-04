@@ -95,29 +95,55 @@ All of this lives in one delimited, deletable block at the end of
    access pattern is a plain coalesced sequential read directly comparable to a
    standalone STREAM-style control.
 
-   That is necessary but **not sufficient**, and this cost me a design
-   iteration worth writing down. When the injection magnitude is varied by
+   That is necessary but **not sufficient**, and this cost me two design
+   iterations worth writing down. When the injection magnitude is varied by
    *repeating passes* over the pool, the quantity that has to exceed cache is
-   not the pool but the **per-threadgroup per-pass working set**. A threadgroup
-   of 256 threads reads 4 KiB per grid-stride iteration, so its per-pass
-   footprint is `uint4_per_thread × 4 KiB`. Measuring the identical kernel in
-   isolation on the development host:
+   not the pool. The pass loop lives **inside the thread**
 
-   | threads | uint4/thread | per-TG per-pass window | GB/s |
-   | ---: | ---: | ---: | ---: |
-   | 65,536 | 256 | 1 MiB | 241.7 |
-   | 131,072 | 128 | 512 KiB | 247.3 |
-   | **262,144** | **64** | **256 KiB** | **262.1** |
-   | 524,288 | 32 | 128 KiB | 370.9 |
-   | 1,048,576 | 16 | 64 KiB | 553.4 |
+   ```
+   for (p = 0; p < passes; ++p)
+       for (i = 0; i < perThread; ++i) { acc ^= quads[idx]; idx += kThreads; }
+   ```
 
-   The last two rows are **above the host's 273 GB/s hardware peak** — the
-   second pass is served from cache and the accounted bytes never reach DRAM.
-   It is not lossless compression: scrambling the pool with a hash instead of a
-   uniform fill changes nothing. The chosen configuration, 2^18 threads (1024
-   threadgroups × 256) at 64 `uint4` each, is the deepest grid whose per-pass
-   window still misses cache, and it reproduces an independently measured
-   262.5 GB/s sequential control on that host **to 0.15%**.
+   so after `perThread` strides `idx` has wrapped back to its start and each
+   thread immediately re-reads *its own* addresses. A threadgroup of 256
+   threads touches 4 KiB per stride, so its per-pass window is
+   `perThread × 4 KiB`, and cross-pass hits are possible whenever
+   `resident_threadgroups × window` fits in cache. Total pool size never enters
+   that inequality.
+
+   Measured **marginal** (pass-to-pass) rates, which is the quantity the fit
+   actually uses, in situ through the harness on the development host whose
+   independently measured sequential control is 262.5 GB/s and whose nominal
+   hardware peak is 273 GB/s:
+
+   | threads | threadgroups | uint4/thread | window/TG | marginal GB/s |
+   | ---: | ---: | ---: | ---: | ---: |
+   | **65,536** | **256** | **256** | **1 MiB** | **242** |
+   | 131,072 | 512 | 128 | 512 KiB | 245 |
+   | 262,144 | 1024 | 64 | 256 KiB | **339** |
+
+   339 GB/s is **24% above the host's hardware peak**: the second and third
+   passes are cache-served and the accounted bytes never reach DRAM. It is not
+   lossless compression — scrambling the pool with a hash instead of a uniform
+   fill changes nothing.
+
+   A standalone replica of the same kernel, timed as an *average* over passes
+   rather than a marginal, hides this: it reports 241.7 / 247.3 / 262.1 GB/s
+   for the same three rows because the cold first pass dilutes the cached ones.
+   **Only the marginal rate is diagnostic, and only the in-situ measurement
+   produces it.** Choosing the grid from the standalone average is how I picked
+   1024 threadgroups and lost a run.
+
+   The shipped configuration is 2^16 threads = **256 threadgroups**. At that
+   count every threadgroup is resident simultaneously, so the resident working
+   set is the entire 256 MiB pool and cross-pass reuse is arithmetically
+   impossible on any cache size. This also makes the choice *safe in the right
+   direction* for an unseen larger machine: more GPU cores means more resident
+   threadgroups, so a bigger machine pushes the reuse threshold up, and the
+   configuration with the fewest threadgroups is the one that stays honest.
+   Bandwidth is still saturated at that width — 242 GB/s is 92% of the
+   sequential control, and the 512-threadgroup row agrees to 1%.
 4. **Never express the injection magnitude through a Metal function constant.**
    In this repo there is a recorded precedent where a mid-process function
    constant flip forced a second pipeline compile *inside* timed prefill for a
@@ -125,20 +151,33 @@ All of this lives in one delimited, deletable block at the end of
    and buffer sizes, fixed before the first forward; the Metal sources are
    byte-identical across all configurations.
 5. **Command-buffer count must not vary between the runs being differenced.**
-   Exactly one `asyncEval` fires per layer boundary in every configuration, so
-   the number of command buffers per forward is invariant and cancels in the
-   difference.
+   MLX's residency-set encoder commits a command buffer when it exceeds either
+   an operation count or a buffer-megabyte budget, and both budgets are selected
+   from the GPU family string. Probing `MTL::Device::architecture()->name()`
+   directly is worth doing rather than inferring it: the development host
+   reports `applegpu_g16s`, and the trailing `s` class selects **50 operations /
+   50 MB**, not the 40/40 that a `g`-class name would have selected. The 256 MiB
+   pool is 1.34× the megabyte budget and the GEMM operands are 0.42× it, so both
+   sit in a regime where the *count* budget dominates; the injection is kept
+   below 25 operations per layer boundary so no configuration crosses the
+   threshold that a neighbouring one does not.
 6. **Empty dispatches must be serialized to measure anything.** MLX creates its
    compute encoder with `MTL::DispatchTypeConcurrent` and inserts a memory
    barrier only when a dispatch binds a buffer that a previous dispatch wrote
    (`mlx/backend/metal/device.cpp`). Independent empty dispatches therefore run
-   *concurrently* and cost nearly nothing. The injected empty dispatches are
-   chained — each binds the previous one's sink as an unread input — so they
-   serialize exactly like the model's real dependent dispatch stream.
+   *concurrently* and cost nearly nothing. This is not hypothetical — 40
+   unchained empty dispatches per step moved the decode step by 0.006 ms, i.e.
+   0.154 µs each against a 2.53 µs isolated cost, a 16× under-read that would
+   have been reported as a real constant. The injected empty dispatches are
+   therefore chained through a single global tail: each binds the previous one's
+   sink as an unread input, and the tail is carried **across layer boundaries**
+   so the chain is unbroken for the whole forward. They then serialize exactly
+   like the model's real dependent dispatch stream.
 7. **Placement.** The empty dispatches are spread across all 40 layer
    boundaries rather than batched, so their threadgroup-launch ramp overlaps
    real memory traffic and the measured cost is the *in-situ* cost rather than
-   the isolated one. This distinction is worth ~30% on the constant.
+   the isolated one. The two differ by roughly 10–30% and the in-situ figure is
+   the one a dispatch-count-reduction estimate must use.
 8. **The official runner sets no environment variables**, so the injection is ON
    by default in the submitted tree. Locally the same binary serves every
    configuration through `DARKBLOOM_INJECT_*` overrides, which is why the local
@@ -149,52 +188,74 @@ All of this lives in one delimited, deletable block at the end of
 
 ### Injection magnitudes
 
-| unit | size | where |
-| --- | --- | --- |
-| DRAM sweep | 268,435,456 B read | one per single-token decode step |
-| bf16 GEMM | 512×8192 @ 8192×2048 = 17.18 GFLOP | per multi-token forward |
-| empty dispatch | 160 threadgroups × 256 threads, no traffic | both paths |
+| unit | size per dispatch | shape | where |
+| --- | --- | --- | --- |
+| DRAM sweep | 268,435,456 B read per pass | 256 TGs × 256 threads, 256 `uint4`/thread | one dispatch per single-token decode step |
+| bf16 GEMM | 17,179,869,184 FLOP | `512×8192 @ 8192×2048` | multi-token forwards only |
+| empty dispatch | 0 B, 0 FLOP | 160 TGs × 256 threads | both paths, spread over the 40 layer boundaries |
 
 The GEMM shape is deliberately the real prefill shape class (`M = 512`,
 `N = 2048`, deep `K = 8192`) so the rate that comes out is the rate a prefill
 roofline needs, not a synthetic MMA peak. Depth was preferred over dispatch
-count so the residual per-dispatch confound stays ~0.1 ms.
+count so the residual per-dispatch confound stays under 0.1 ms. One shared
+`matA`/`matB` pair is reused by every injected GEMM, so MLX's own deduplication
+absorbs the operand-read charge and the measured slope is arithmetic, not
+traffic.
 
 ## Configurations
 
-| run | sweeps/step | GEMMs/forward | empty dispatches (decode / forward) |
-| --- | ---: | ---: | ---: |
-| A | 1 | 40 | 40 / 40 |
-| B | 3 | 100 | 40 / 40 |
-| C | 1 | 40 | 1000 / 4000 |
+| run | sweep passes / step | bytes / decode step | GEMMs / forward | FLOP / forward | empty dispatches (decode / forward) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | 1 | 268.44 MB | 20 | 343.60 GFLOP | 0 / 0 |
+| B | 3 | 805.31 MB | 40 | 687.19 GFLOP | 0 / 0 |
+| C | 1 | 268.44 MB | 20 | 343.60 GFLOP | 600 / 1000 |
 
-`A` appears in two independent differences (`A→B` for the two rates, `A→C` for
-the dispatch cost), so a disagreement between the two fits is a built-in
-anomaly detector.
+Fits:
 
-Sizing rule: each axis is slowed by roughly +12% (A) to +35% (B). Both component
-speedup floors in this benchmark are measured against the pinned baseline, and
-the base tree sits far above them, so a deliberate slowdown of this size still
-publishes a complete receipt with every gate passed.
+```
+DRAM GB/s     = 536.87 MB   / (T_B - T_A)
+matrix FLOP/s = 343.60 GFLOP/ (S_B - S_A - 20 * c_prefill)
+c_decode      = (T_C - T_A) / 600      <- in-situ, the number that matters
+c_prefill     = (S_C - S_A) / 1000
+```
+
+`A` appears in both differences, so a disagreement between the two fits is a
+built-in anomaly detector. `A` and `B` issue the **identical number of
+dispatches and bind the identical buffer set** — only host-side loop counts
+differ — so every per-dispatch and per-command-buffer term cancels exactly in
+`B - A` and the two rate fits need no dispatch-cost correction beyond the 20
+extra GEMM dispatches.
+
+The empty-dispatch counts in `C` are 15 per layer on the decode path and 25 per
+layer on the prefill path. That is deliberately below the point where the
+injected operations could push a command buffer past MLX's per-buffer operation
+threshold and add a commit, which would contaminate the constant it is trying
+to measure (see design note 5).
 
 ## Reproduction
 
+The submitted tree *is* configuration A: the official runner sets no environment
+variables, so the defaults apply. Locally the same binary serves every
+configuration:
+
 ```bash
-# local, one binary, all configurations
-./benchmark.sh --local-iterate                                   # A (defaults)
-DARKBLOOM_INJECT_DECODE_SWEEPS=3 DARKBLOOM_INJECT_PREFILL_MATMULS=100 \
-  ./benchmark.sh --local-iterate                                 # B
-DARKBLOOM_INJECT_DECODE_EMPTY=1000 DARKBLOOM_INJECT_PREFILL_EMPTY=4000 \
-  ./benchmark.sh --local-iterate                                 # C
+./benchmark.sh --local-iterate                                       # A
+DARKBLOOM_INJECT_SWEEP_PASSES=3 DARKBLOOM_INJECT_PREFILL_MATMULS=40 \
+  ./benchmark.sh --local-iterate                                     # B
+DARKBLOOM_INJECT_DECODE_EMPTY=600 DARKBLOOM_INJECT_PREFILL_EMPTY=1000 \
+  ./benchmark.sh --local-iterate                                     # C
 DARKBLOOM_INJECT_DECODE_SWEEPS=0 DARKBLOOM_INJECT_PREFILL_MATMULS=0 \
-  DARKBLOOM_INJECT_DECODE_EMPTY=0 DARKBLOOM_INJECT_PREFILL_EMPTY=0 \
-  ./benchmark.sh --local-iterate                                 # zero point
+  ./benchmark.sh --local-iterate                                     # zero point
 
 # official
 mlxfast submit --note-file <this note> --model "Claude Opus 5"
 ```
 
-The fit is `research/tanjiro-pr27-fit.py`.
+Full knob list, with the shipped default in parentheses:
+`DARKBLOOM_INJECT_DECODE_SWEEPS` (1), `DARKBLOOM_INJECT_SWEEP_PASSES` (1),
+`DARKBLOOM_INJECT_PREFILL_MATMULS` (20), `DARKBLOOM_INJECT_DECODE_EMPTY` (0),
+`DARKBLOOM_INJECT_PREFILL_EMPTY` (0), `DARKBLOOM_INJECT_EMPTY_SPREAD` (1),
+`DARKBLOOM_INJECT_EMPTY_TG` (160).
 
 ## Results
 

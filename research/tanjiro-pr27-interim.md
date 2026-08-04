@@ -17,9 +17,11 @@ Pushed before any official submission. Everything here is measured on this host
 3. **Your section-3 prediction about the commit thresholds is wrong in its
    premise but right in its conclusion** (section 1). This host is
    `applegpu_g16s`, not `*g`, so MLX picks **50/50**, not 40/40.
-4. The M4 fit itself: **DRAM 244.97 GB/s in situ** against a **262.1 GB/s**
-   isolated measurement of the identical kernel, and **7.455 TFLOP/s** achieved
-   MLX steel bf16 GEMM at `512x8192x2048`.
+4. The M4 fit itself: **DRAM 245.0 GB/s in situ marginal**, i.e. 93% of #21's
+   262.5 GB/s sequential control, and **7.40–7.46 TFLOP/s** achieved MLX steel
+   bf16 GEMM at `512x8192x2048`. Both inside the ±10% gate you set. The FLOP
+   figure is independently corroborated by fern's GPUPROF `attn_proj` steel bf16
+   at 6.77 TFLOP/s.
 
 ## 1. `MTL::Device::architecture()->name()` — measured, and it is not `*g`
 
@@ -118,20 +120,45 @@ sweep in isolation, 256 MiB pool, 4 passes, uint4 grid-stride:
 The last two rows are **above M4 Pro's 273 GB/s hardware peak**, so they are not
 DRAM. It is not lossless compression — scrambling the pool with a hash instead
 of a uniform fill changes nothing (both columns above are the scrambled run).
-It is pass-to-pass reuse: a threadgroup of 256 threads reads 4 KiB per
-iteration, so its whole per-pass working set is `uint4_per_thread x 4 KiB`, which
-falls to 128 KiB at 32 and 64 KiB at 16. At that size the second pass is served
-from cache and the accounted bytes never reach DRAM.
+It is pass-to-pass reuse. The pass loop lives *inside the thread*, and after
+`perThread` grid strides the index wraps back to where it started, so each
+thread immediately re-reads its own addresses. A threadgroup of 256 threads
+touches 4 KiB per stride, so its per-pass window is `perThread x 4 KiB`, and
+cross-pass hits appear as soon as `resident_threadgroups x window` fits in
+cache. Pool size never enters that inequality, which is why "use a 256 MiB pool"
+was not sufficient.
 
-**Any injected-bandwidth design that varies passes over a pool must keep the
-per-threadgroup per-pass working set well above cache.** At 64 uint4 per thread
-it is 256 KiB per threadgroup and ~50 MB resident, and the rate lands at
-262.1 GB/s — reproducing #21's 262.5 GB/s sequential control **to 0.15%** with a
-completely different kernel and harness. That is the strongest cross-validation
-of the 262.5 number we have, and it is now two independent measurements.
+**And then the isolated replica misled me a second time.** The table above is an
+*average* over 4 passes, so a cold first pass dilutes the cached ones. The fit
+uses the **marginal** rate, and the harness measures it directly. Running the
+A/B difference in situ at two grids:
 
-I moved the injected sweep to that configuration: `2^18` threads, 1024
-threadgroups of 256, 64 uint4 each.
+| threads | TGs | uint4/thread | window/TG | isolated 4-pass average | **in-situ marginal** |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 131,072 | 512 | 128 | 512 KiB | 247.3 | **245.0** |
+| 262,144 | 1024 | 64 | 256 KiB | 262.1 | **339.2** |
+
+339 GB/s is 24% above the hardware peak. The isolated average hid it completely
+and I picked 1024 threadgroups off that average, which cost a run. **Only the
+marginal rate is diagnostic.** Retract the "262.1 reproduces 262.5 to 0.15%"
+claim from my earlier note: it was an average over a partly-cached sweep and the
+agreement was a coincidence of dilution.
+
+The shipped configuration is now `2^16` threads = **256 threadgroups** of 256,
+256 uint4 each. The reason to prefer it over 512 threadgroups is not the M4
+number — the two agree to 1% — it is that at 256 total threadgroups *every*
+threadgroup is resident, so the resident working set is the whole 256 MiB pool
+and cross-pass reuse is arithmetically impossible at any cache size. That also
+makes the error safe in the right direction for M5 Max: more GPU cores means
+more resident threadgroups, so a larger machine raises the reuse threshold, and
+the configuration with the fewest threadgroups is the one that cannot be fooled
+by a cache we have never measured.
+
+Correct reading of #21's control: the honest in-situ marginal is **245 GB/s,
+93% of the 262.5 GB/s sequential control**, i.e. this kernel shape gives up 7%
+against the best sequential pattern. That is a normal kernel-efficiency figure
+and it is what the gate should be judged against, not a suspiciously exact
+match.
 
 ## 4. The cache-resident ceiling you asked for — and it kills the head-packing arm
 
@@ -190,24 +217,32 @@ with a different owner.
 Paired local receipts, differencing exactly as the brief specifies
 (`S = 512000 * prefill_s_per_token`, `T = 1000 * decode_s_per_token - S/128`):
 
-| run | passes | matmuls | empties d/p | S (ms) | T (ms) |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| zero | 0 | 0 | 0/0 | 583.311 | 9.00680 |
-| LA | 1 | 100 | 0/0 | 799.522 | 10.14644 |
-| LB | 3 | 300 | 0/0 | 1260.390 | 12.33765 |
+| run | grid | passes | matmuls | empties d/p | S (ms) | T (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| zero | — | 0 | 0 | 0/0 | 583.311 | 9.00680 |
+| LA | 2^17 | 1 | 100 | 0/0 | 799.522 | 10.14644 |
+| LB | 2^17 | 3 | 300 | 0/0 | 1260.390 | 12.33765 |
+| LA2 | 2^18 | 1 | 100 | 0/0 | 802.075 | 10.05949 |
+| LB2 | 2^18 | 3 | 300 | 0/0 | 1266.633 | 11.64213 |
 
-All three returned `passed_correctness: true`, `max_abs_diff: 0`,
-`peak_ram_gb: 21`. The injection is output-neutral as designed.
+All returned `passed_correctness: true`, `max_abs_diff: 0`, `peak_ram_gb: 21`.
+The injection is output-neutral as designed.
 
 ```
-DRAM      (T_LB - T_LA) = 2.191209 ms for 2 x 268.435456 MB  ->  244.97 GB/s
-matrix    (S_LB - S_LA) = 460.869  ms for 200 x 17.1799 GFLOP ->   7.455 TFLOP/s
+2^17 grid
+  DRAM    (T_LB  - T_LA ) = 2.191209 ms for 2 x 268.435456 MB   ->  244.97 GB/s
+  matrix  (S_LB  - S_LA ) = 460.869  ms for 200 x 17.1799 GFLOP ->    7.455 TFLOP/s
+2^18 grid
+  DRAM    (T_LB2 - T_LA2) = 1.582642 ms for 2 x 268.435456 MB   ->  339.22 GB/s  <- cache-served
+  matrix  (S_LB2 - S_LA2) = 464.558  ms for 200 x 17.1799 GFLOP ->    7.396 TFLOP/s
 ```
 
-- **244.97 GB/s vs 262.1 GB/s** isolated for the same kernel at the shallower
-  grid it then used, and vs the 262.5 GB/s control: **-6.7%**, inside the 10%
-  gate. The residual is the kernel's own grid depth, now fixed; the two numbers
-  agree to **0.9%** once compared at the same configuration.
+- **244.97 GB/s at 2^17 is the honest figure: 93.3% of the 262.5 GB/s control,
+  -6.7%, inside the 10% gate.** The 2^18 pair is the retraction in section 3:
+  339 GB/s is 24% above hardware peak. The FLOP axis is unaffected by the grid
+  change and reproduces to **0.8%** across the two independent pairs, which is a
+  useful control on the whole differencing method — one axis moved by exactly
+  the amount the design change should move it and the other did not move at all.
 - The first pass costs more than the marginal passes — 1.1396 ms versus
   1.0956 ms — a **0.044 ms** cache-pollution term from evicting the model's own
   L2-resident KV re-reads. This is why the A/B difference and not the

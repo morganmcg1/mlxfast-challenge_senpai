@@ -23,8 +23,16 @@ MATMUL_FLOPS = 2 * 512 * 2048 * 8192
 #          sweep_passes, matmuls, decode_empties, prefill_empties)
 RUNS = {
     # ---- M4 Pro (Mac16,11, applegpu_g16s, 20 cores, 48 GB) local-iterate ----
+    # 2**17-thread sweep grid (512 threadgroups, 128 uint4/thread)
     "m4-zero": (0.00113928271484375, 0.013563942703125, 0, 0, 0, 0),
-    "m4-L1": (0.001578521484375, 0.01646667578125, 1, 100, 40, 40),
+    "m4-L1": (0.001578521484375, 0.01646667578125, 1, 100, 40, 40),  # unchained
+    "m4-LA": (0.0015615654296875, 0.016392701828125, 1, 100, 0, 0),
+    "m4-LB": (0.002461699869140625, 0.022184447921875, 3, 300, 0, 0),
+    # 2**18-thread sweep grid (1024 threadgroups, 64 uint4/thread) -- retracted,
+    # the marginal pass is cache-served and reads 339 GB/s, above hardware peak.
+    "m4-LA2": (0.001566552734375, 0.016325699546875, 1, 100, 0, 0),
+    "m4-LB2": (0.002473891845703125, 0.02153769759375, 3, 300, 0, 0),
+    # 2**16-thread sweep grid (256 threadgroups, 256 uint4/thread) -- shipped
     # ---- M5 Max official receipts ----
 }
 
