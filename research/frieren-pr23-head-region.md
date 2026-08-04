@@ -278,15 +278,57 @@ control spread (9.1506 / 9.0721). And `ladder1` at cap 50 does not add to cap 50
 either. The ladder axis is saturated; density is the live variable, and reaching
 3.5 boundaries per layer requires rungs *inside* the layer.
 
-That is the change under test in this arm's second half:
-`DARKBLOOM_DECODE_SUBLAYER_ASYNC`, two decode-only rungs added inside
-`LagunaRuntimeDecoderLayer.callAsFunction` — after the attention output
-projection (forcing `r`) and after the fused residual+RMSNorm+router (forcing
-`h`, `normalized`, `routerLogits`, `routerKeys`). Both force arrays the very next
-dispatch consumes anyway, so no work is added and no value can change; and both
-are guarded on `x.dims(1, 1, hiddenSize)`, so prefill keeps its own schedule —
-which matters, because the cap knob cannot be made phase-dependent and its
-ranked receipts show it paying for decode with prefill.
+### The reachable version works, and the effect is linear in boundary count
+
+`DARKBLOOM_DECODE_SUBLAYER_ASYNC` adds decode-only rungs *inside* the layer:
+`a` after the attention output projection (forcing `r`), `b` after the fused
+residual+RMSNorm+router (forcing `h`, `normalized`, `routerLogits`,
+`routerKeys`), `c` after router top-k (forcing `inds`, `weights`). Each forces
+arrays the very next dispatch consumes anyway, so no work is added and no value
+can change, and each is guarded on `x.dims(1, 1, hiddenSize)` so prefill keeps
+its own schedule.
+
+Traced at ranked parity, `ab` lands exactly on the cap sweep's line:
+
+| arm | cbs/step | GPU-busy µs | GPU idle µs | step µs |
+| --- | ---: | ---: | ---: | ---: |
+| control | 48 | 8839.8 | 288.1 | 9126.2 |
+| rungs `ab` | 90 | 8782.1 | 288.9 | 9070.5 |
+| cap 50 (not shippable) | 140 | 8716.3 | 269.0 | 8678.6 |
+
+```
+rungs ab:  -57.7 us GPU-busy / +42 boundaries = -1.37 us per boundary
+cap 50:   -123.5 us GPU-busy / +92 boundaries = -1.35 us per boundary
+```
+
+Two independent interventions, on different mechanisms (an explicit Swift eval
+rung versus MLX's internal volume cut), give the same coefficient to within
+1.5 %. GPU **idle** is flat across the rung contrast (288.1 → 288.9), so the win
+is not launch overhead, dead band, or host exposure — the GPU executes less.
+That is what makes it a real finding rather than a scheduling artifact, and it is
+why the term is invisible to a *unique*-byte roofline: it is re-read traffic that
+a shorter-lived working set avoids.
+
+Note that only ~half the fires create a boundary (80 fires → +42 command
+buffers), because the rest land where a volume cut already happens.
+
+### Sizing, and why the drift correction matters
+
+Wall-time arms in an unbalanced screen could not see this. Controls at positions
+1/5/7 of one round measured 9.0356 / 9.1076 / 9.1136 — **~0.8 % of monotone
+position drift**, larger than the effect. (This also retires my earlier
+"cap-200 bimodality": it was arm order, not two modes.) The traced pair above
+sits at adjacent positions, where drift is ~0.07 %, and reads −0.61 % of step.
+
+| variant | cbs/step | predicted Δ step | score at `S` flat |
+| --- | ---: | ---: | ---: |
+| `ab` (measured) | 90 | −0.61 % | +0.39 % |
+| `abc` (extrapolated) | ~115 | −1.02 % | **+0.65 %** |
+| cap-50 density (ceiling) | 140 | −1.40 % | **+0.90 %** |
+
+So `ab` alone is under the 0.61 % bar and `abc` is the first variant in this arm
+that can clear it. A position-balanced dose screen (`off`/`ab`/`abc`, each at
+positions summing to 15, plus a traced `abc` arm) is what decides it.
 
 ## The ratio argument the advisor asked for, made explicit and checked
 
