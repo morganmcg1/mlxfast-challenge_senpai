@@ -38,21 +38,22 @@ def proc_cpu_ns(pid):
 
 
 def thread_cpu_ms(pid):
-    """Per-thread cumulative CPU from `ps -M`, in milliseconds."""
+    """Per-thread cumulative CPU (system + user) from `ps -M`, milliseconds."""
     out = subprocess.run(
         ["ps", "-M", "-p", str(pid)], capture_output=True, text=True, check=True
     ).stdout.splitlines()
     times = []
     for line in out[1:]:
-        fields = line.split()
-        for field in fields:
+        stamps = []
+        for field in line.split():
             if ":" in field and "." in field:
                 mm, rest = field.split(":", 1)
                 try:
-                    times.append(int(mm) * 60_000 + int(round(float(rest) * 1000)))
+                    stamps.append(int(mm) * 60_000 + int(round(float(rest) * 1000)))
                 except ValueError:
                     pass
-                break
+        if stamps:
+            times.append(sum(stamps[:2]))
     return times
 
 
