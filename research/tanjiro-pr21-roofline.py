@@ -97,14 +97,22 @@ print(f"{'dispatch':38} {'n':>3} {'MB':>7} {'GB/s':>6} {'ceil':>6} "
       f"{'us/call':>8} {'pred':>7} {'gap/step':>9}")
 total_measured = total_predicted = 0.0
 gaps = []
+# Units. The profile's MB/call and the campaign's 1794 MB budget are decimal MB
+# (nezuko's 5.311 MB for the down dispatch is exactly 2048*288*9 bytes, and
+# 1.7929 GB / 9.498 ms reproduces her 188.8 GB/s only in decimal). The probe
+# reports decimal GB/s but labels its size axis in MiB (`mb * 1_048_576`), so a
+# decimal-MB dispatch must be converted before the curve lookup.
+MIB = 1_048_576.0
 for name, n, us, mb, inflight, note in DISPATCHES:
-    achievable = interp(SIZE_CURVE, mb) * interp(INFLIGHT_CURVE, inflight)
-    predicted = max(DISPATCH_FLOOR_US, mb * 1.048576e6 / (achievable * 1e3))
+    bytes_per_call = mb * 1e6
+    achievable = (interp(SIZE_CURVE, bytes_per_call / MIB)
+                  * interp(INFLIGHT_CURVE, inflight))
+    predicted = max(DISPATCH_FLOOR_US, bytes_per_call / (achievable * 1e3))
     gap = max(0.0, us - predicted) * n
     total_measured += us * n
     total_predicted += min(us, predicted) * n
     gaps.append((gap, name, note))
-    print(f"{name:38} {n:3d} {mb:7.3f} {mb * 1.048576e6 / (us * 1e3):6.1f} "
+    print(f"{name:38} {n:3d} {mb:7.3f} {bytes_per_call / (us * 1e3):6.1f} "
           f"{achievable:6.1f} {us:8.1f} {predicted:7.1f} {gap:9.0f}")
 
 print(f"\nmeasured   {total_measured / 1000:.3f} ms (profile frame)")
@@ -136,3 +144,35 @@ print(f"  {dead_band:.3f} ms  inter-dispatch dead band       advisor bound was <
 print(f"  {ramp + named + dead_band:.3f} ms  sum "
       f"(unexplained {excess - (ramp + named + dead_band):+.3f} ms)")
 print(f"  {0.0:.3f} ms  access pattern                 measured, not inferred")
+
+# Project onto the ranked host. The advisor pinned M5 Max GPU-achievable at
+# 485-530 GB/s and the promoted M5 step at T = 4.353 ms. The two terms in my M4
+# decomposition scale differently, which is the whole point of separating them:
+#
+#   dead band and per-stream dependency stalls are LATENCY. DRAM and
+#   command-processor latency do not improve a generation, so these are bounded
+#   below by their M4 absolute value and above by nothing.
+#
+#   the size ramp is a BANDWIDTH-DELAY product. M5 has 2x the cores, so each
+#   dispatch reaches saturation with twice the parallelism; this term shrinks.
+#
+# Both bounds below are therefore reported, because which one holds is exactly
+# what an official A/B would settle.
+M5_STEP_MS = 4.353
+LOGICAL_MB = 1794.0
+print("\nranked-host projection (M5 Max, step 4.353 ms)")
+for bw in (485.0, 507.0, 530.0):
+    ideal = LOGICAL_MB * 1e6 / (bw * 1e9) * 1e3
+    print(f"  {bw:.0f} GB/s achievable -> ideal {ideal:.3f} ms, "
+          f"excess {M5_STEP_MS - ideal:.3f} ms "
+          f"({(M5_STEP_MS - ideal) / M5_STEP_MS * 100:.1f}% of step)")
+latency_like = named + dead_band
+print(f"\n  my M4 latency-like terms alone = {latency_like:.3f} ms")
+print("  that is the whole M5 excess at 485-530 GB/s, so on the ranked host the")
+print("  bandwidth size ramp is largely gone and what remains is dependency")
+print("  stalls plus dispatch dead band -- both latency, neither access pattern.")
+for label, m5_named in (("absolute-preserved", named),
+                        ("fraction-preserved", named * M5_STEP_MS / STEP_MS)):
+    frac = m5_named / M5_STEP_MS
+    print(f"  recoverable if {label}: {m5_named:.3f} ms = {frac * 100:.1f}% of "
+          f"step = {0.638 * frac * 100:.1f}% of score")
