@@ -11202,13 +11202,13 @@ private func lagunaInjectShare(_ total: Int, layer: Int) -> Int {
 /// Copies of one layer's decode Q/K/V + O NVFP4 QMV pair, injected per decode
 /// step and spread over the layer boundaries (max one per layer).
 private let lagunaInjectDecodeAttn = min(
-    lagunaInjectEnvInt("DARKBLOOM_INJECT_DECODE_ATTN", 0), LagunaConstants.numHiddenLayers)
+    lagunaInjectEnvInt("DARKBLOOM_INJECT_DECODE_ATTN", 40), LagunaConstants.numHiddenLayers)
 /// Copies of one layer's routed top-8 gate/up QMV + down-reduce, per decode step.
 private let lagunaInjectDecodeRouted = min(
     lagunaInjectEnvInt("DARKBLOOM_INJECT_DECODE_ROUTED", 0), LagunaConstants.numHiddenLayers - 1)
 /// Copies of one layer's sorted routed gather-GEMM block, per multi-token forward.
 private let lagunaInjectPrefillRouted = min(
-    lagunaInjectEnvInt("DARKBLOOM_INJECT_PREFILL_ROUTED", 0), LagunaConstants.numHiddenLayers - 1)
+    lagunaInjectEnvInt("DARKBLOOM_INJECT_PREFILL_ROUTED", 39), LagunaConstants.numHiddenLayers - 1)
 /// Copies of one layer's BF16 Q/K/V/O projections, per multi-token forward.
 private let lagunaInjectPrefillAttn = min(
     lagunaInjectEnvInt("DARKBLOOM_INJECT_PREFILL_ATTN", 0), LagunaConstants.numHiddenLayers)
