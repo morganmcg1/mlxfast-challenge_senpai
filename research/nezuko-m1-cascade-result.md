@@ -426,18 +426,37 @@ score gain = 0.638 × (MB removed) / 1794
 ```
 
 Reporting a single lumped "0.50× realised" hides the actual finding, because
-the two legs behaved completely differently.
+only one of the two legs is an empirical claim at all.
 
-- **`T → score` = 0.638 is CONFIRMED, and if anything conservative.**
-  Realised = 0.455 / 0.664 = **0.685**, i.e. 1.07× the assumed value, well
-  inside the joint error. The score model that converts a decode-time
-  improvement into leaderboard score is sound and needs no revision. Every
-  arm on the board can keep using it.
+- **`T → score` = 0.638 cannot fail. It is an algebraic identity, not a
+  measured constant** — and I do not think this was noticed when the model was
+  written. With `S` unchanged,
 
-- **`MB → T` = 1/1794 is WRONG by 2.14×.**
-  Assumed 0.05574 %`T` per MB; realised **0.02602 %`T` per MB**. This is the
-  single number that needs to be re-derived, and it is the number the brief
-  said would "re-price every other byte arm on the board".
+  ```
+  d(ln ns) = 0.75 · d(ln decode_speedup) = −0.75 · dT / (T + S/128)
+           = −[0.75 · T/(T + S/128)] · (dT/T)
+
+  0.75 × 4.3513 / (4.3513 + 97.942/128) = 0.75 × 0.85045 = 0.63784
+  ```
+
+  The brief's 0.638 *is* `0.75 · T/(T + S/128)` evaluated at the pinned
+  baseline, to three decimal places. So this leg was never at risk and there
+  is nothing to validate. I originally wrote that my realised 0.455/0.664 =
+  0.685 "confirms" it; that was wrong twice over. It cannot confirm a
+  definition, and propagating the errors gives **0.685 ± 0.293**, which fails
+  to distinguish 0.638 (0.16σ) from 0.4 (0.97σ) or 1.0 (1.07σ). The ratio is
+  a consistency check on my own arithmetic and nothing more.
+
+  The one condition the identity needs is `S` unchanged, which I verified
+  independently from the code (see the negative-control note above) and
+  measured at −0.080% ± 0.159%.
+
+- **Therefore 100% of the miss is in `MB → T`, and this is established by
+  algebra rather than by splitting the blame empirically.**
+  Assumed 0.05574 %`T` per MB; realised **0.02602 %`T` per MB** — **wrong by
+  2.14×**. This is the single number that needs to be re-derived, and it is
+  the number the brief said would "re-price every other byte arm on the
+  board".
 
 So the correction to apply to sibling byte arms is **not** a blanket 0.50× on
 the score estimate. It is a 0.47× on the *byte-to-time* leg only — and that
@@ -696,7 +715,11 @@ independent gain.
 
 ### Recommendation
 
-1. **Keep `T → score` = 0.638.** It is confirmed at 1.07× and needs no change.
+1. **Stop treating `T → score` = 0.638 as a measured constant.** It is
+   `0.75 · T/(T + S/128)` at the pinned baseline. Recompute it whenever `T`
+   or `S` moves rather than carrying 0.638 forward — and note that any arm
+   which *does* move `S` invalidates it and needs the full two-term form.
+   No arm should ever spend a receipt "validating" it.
 2. **Retire `MB / 1794` as a universal byte-to-time rule.** Replace it with
    per-dispatch pricing: measure the achieved bandwidth of the dispatch the
    bytes actually live in, and price bytes *added* at their own dispatch's
