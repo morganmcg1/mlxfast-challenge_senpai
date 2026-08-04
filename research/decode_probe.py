@@ -183,18 +183,32 @@ def analyze_profile(err_path: str, step_spans, top: int) -> None:
 
     agg = {}
     for s, e, nops, names in window:
-        key = names if nops == 1 else f"[{nops} ops] {names}"
+        key = "|".join(shorten(p) for p in names.split("|"))
+        if nops > 1:
+            key = f"[{nops}] {key}"
         c, t = agg.get(key, (0, 0.0))
         agg[key] = (c + 1, t + (e - s))
     rows = sorted(agg.items(), key=lambda kv: -kv[1][1])
     print(f"\n{'us/step':>9} {'share':>7} {'n/step':>7} {'us/call':>8}  kernel")
     for key, (count, total) in rows[:top]:
         print(f"{total/n*1e6:9.1f} {total/busy*100:6.2f}% "
-              f"{count/n:7.2f} {total/count*1e6:8.2f}  {key[:150]}")
+              f"{count/n:7.2f} {total/count*1e6:8.2f}  {key}")
     tail = sum(t for _, (_, t) in rows[top:])
     if tail:
         print(f"{tail/n*1e6:9.1f} {tail/busy*100:6.2f}% "
               f"{'':>7} {'':>8}  ... {len(rows)-top} more")
+
+
+MANGLE_MARKERS = ("_bfloat16_t", "_uint32_t", "_uint8_t", "_uint16_t",
+                  "_int32_t", "_int64_t", "_float", "_bool")
+
+
+def shorten(name: str) -> str:
+    """Drop MLX's trailing template type mangling and the common prefix."""
+    name = name.removeprefix("custom_kernel_laguna_")
+    cut = min((i for i in (name.find(m) for m in MANGLE_MARKERS) if i > 0),
+              default=-1)
+    return name[:cut] if cut > 0 else name
 
 
 if __name__ == "__main__":
