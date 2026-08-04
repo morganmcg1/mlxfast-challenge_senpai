@@ -30,20 +30,32 @@
    `rejected` on ranking exactly as designed. **We now have a general-purpose
    hardware probe for the ranked machine that costs one receipt per data point.**
 2. **The in-situ per-dispatch cost is not a constant.** It obeys a saturation law
-   `dT(n) = max(0, n*c - slack)`, fitted independently at two threadgroup widths
-   20x apart, with one confirmed out-of-sample null prediction. On the development
-   host `c = 2.64-2.80 us` and `slack = 4.17-4.78 ms` per decode step, i.e. a knee
-   at **~1600 extra dispatches**. The scored decode path issues ~406 ops, so it is
-   4x below saturation.
-3. **What the slack absorbs is host time, not GPU time.** One injected dispatch
-   carrying 1.048 ms of real DRAM traffic appeared at **106%** of its cost; 600
-   dispatches carrying 1.68 ms of pure launch overhead appeared at **1%**. The
-   alternative explanation — spare GPU cores swallowing the empties, since MLX's
-   encoder is `DispatchTypeConcurrent` — is ruled out because **the knee sits at
-   the same dispatch count (1579 vs 1706) across a 20x change in threadgroups per
-   dispatch**, so the absorbed resource is per-dispatch and width-independent. So:
+   `dT(n) = max(0, n*c - slack)`. Fitted inside a single injection family on the
+   development host, `c = 2.607 us` and `slack = 3.152 ms` per decode step, i.e. a
+   knee at **1209 extra dispatches**; the scored decode path issues ~406 ops, so
+   it is 3x below saturation. Those two numbers, held fixed with no refitting,
+   then predict **nine** measurements spanning `n = 600-8000`, two threadgroup
+   widths 20x apart and two injection families, with residuals <= 0.35 ms (<= 7%);
+   the sharpest is `n = 1400`, just above the knee, predicted at `+0.497 ms` and
+   measured at `+0.527 ms`.
+   Getting there required retracting an earlier fit that mixed families: it
+   predicted `dT(1800) = +0.26 ms` against a measured **+1.54 ms, reproduced to
+   0.23%**.
+3. **What the slack absorbs is neither GPU time nor host time hiding under it.**
+   One injected dispatch carrying 1.048 ms of real DRAM traffic appeared at
+   **106%** of its cost; 600 dispatches carrying 1.56 ms of pure launch overhead
+   appeared at **1%**. And `slack` is the *same* 3.15 ms whether or not that
+   1.05 ms of GPU traffic is present, so adding GPU work buys no extra free
+   dispatches — which rules out both a GPU-occupancy explanation and a
+   "host time hides under GPU time" explanation. The knee also sits at the same
+   dispatch *count* across a 20x change in threadgroups per dispatch. What is
+   left is a capacity fixed in dispatch count, the signature of CPU-side
+   per-command-buffer amortisation; MLX's own policy
+   (`needs_commit()`, `max_ops_per_buffer_ = 50` for `*s` architectures,
+   `MAX_ACTIVE_TASKS = 10`) is the right shape but caps runahead at ~510, 2.4x
+   below the measured knee, so I am not claiming the mechanism is isolated. So:
    *GPU-work reduction pays in full with no launch discount; MLX-op-count
-   reduction on the decode path is worth zero until the count roughly quadruples.*
+   reduction on the decode path is worth zero until the count roughly triples.*
    The 0.884 ms launch-ramp line in the decode budget is not a recoverable term.
 4. **The cache-resident question kills the head-packing arm** (advisor comment
    `#issuecomment-5181161230`). The fused-attention kernel at 375 GB/s on issued
@@ -72,8 +84,8 @@
 | --- | ---: | --- |
 | achievable DRAM read GB/s, in situ marginal | **256.2** (small lever), **237.4** (6x lever) | 97.6% / 90.4% of #21's 262.5 GB/s sequential control |
 | bf16 GEMM TFLOP/s at `512x8192x2048` | **7.40-7.46** (small), **7.188** (6x) | fern's GPUPROF `attn_proj` steel bf16 6.77 TFLOP/s |
-| in-situ `c` per extra dispatch | **2.64-2.80 us**, flat from tg=8 to tg=160, +11 ns/TG above | isolated same-day probe at tg=160: 2.788 us |
-| decode `slack` per step | **4.17-4.78 ms** (knee ~1600 dispatches) | out-of-sample null at 600 dispatches: +0.019 ms |
+| in-situ `c` per extra dispatch | **2.607 us**, flat from tg=8 to tg=160, +11 ns/TG above | isolated same-day probe at tg=160: 2.788 us |
+| decode `slack` per step | **3.152 ms** (knee 1209 dispatches) | eight points, `n = 600-8000`, residuals <= 7% |
 | prefill absorption per 512-token forward | **>= 39.5 ms** | 20000-dispatch injection, 70% absorbed |
 | cache-resident aggregate ceiling | **1000-1200 GB/s** at 1-2 MiB working sets | 12-point window x threadgroup sweep |
 

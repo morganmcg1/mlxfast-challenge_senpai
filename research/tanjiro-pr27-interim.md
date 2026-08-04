@@ -879,13 +879,14 @@ the control, not `LA3`, and section 8's `slack` was inflated by exactly the
 
 ### The re-fit, entirely inside `A`'s family
 
-Four points, one family, one reference — the family's own `n = 0` run. Every run
+Five points, one family, one reference — the family's own `n = 0` run. Every run
 returned `passed_correctness: true` and `max_abs_diff: 0`.
 
 | run | n | S (ms) | T (ms) | dT (ms) | dT/n (us) |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `LA3` | 0 | 614.827 | 10.11366 | — | — |
 | `LC3` | 600 | 619.864 | 10.13248 | 0.0188 | 0.031 |
+| `4ec944c9` | 1400 | 628.034 | 10.64058 | 0.5269 | 0.376 |
 | `d0bb3ac7`+`a9a07357` | 1800 | 620-628 | 11.65334 | 1.5397 | 0.855 |
 | `b590719a` | 2400 | 614.226 | 13.21733 | 3.1037 | 1.293 |
 
@@ -895,10 +896,19 @@ slack_decode     = 2400 * 2.607 us - 3.1037 ms     = 3.152 ms / decode step
 knee             = 3.152 ms / 2.607 us             = 1209 dispatches
 ```
 
-`LC3` is the out-of-sample point and the law predicts `dT = 0` there
-(`600 * 2.607 us = 1.564 ms`, below the 3.152 ms slack) against a measured
-`+0.019 ms`. `S` is flat across the series to 1% with `n` varying 4000x, which is
-the control it should be: the empties are injected on single-token steps only.
+Two of the five points are out-of-sample and the fit is never shown them:
+
+| n | predicted dT | observed dT | residual |
+| ---: | ---: | ---: | ---: |
+| 600 | 0.000 | 0.019 | +0.019 ms |
+| 1400 | 0.497 | 0.527 | +0.030 ms |
+
+The `n = 1400` point matters most: it sits just above the fitted knee, where the
+law's prediction is a small non-zero number that a wrong `slack` would miss
+badly, and it lands **0.03 ms away** — 6% of its own `dT` and 0.3% of `T`. The
+same point measured against section 8's parameters would have been predicted at
+`dT = 0`. `S` is also flat across the series to 1% with `n` varying 4000x, the
+control it should be: the empties are injected on single-token steps only.
 
 ### The re-fit then predicts the other family and the other width, unchanged
 
@@ -914,7 +924,7 @@ family's `n = 0`:
 | `LF` | 8 | control 9.00680 | 8000 | 17.704 | 18.049 | +0.345 |
 | `LG` | 512 | control 9.00680 | 4000 | 7.275 | 22.990 | **+15.715** |
 
-Eight measurements, two parameters, `n` spanning 600 to 8000, two threadgroup
+Nine measurements, two parameters, `n` spanning 600 to 8000, two threadgroup
 widths 20x apart, two injection families: residuals ≤ 0.35 ms, i.e. ≤ 7%. The
 one blow-up is `tg = 512` (131072 threads per dispatch on 20 cores), where the
 dispatch is no longer empty from the GPU's point of view and its real work
