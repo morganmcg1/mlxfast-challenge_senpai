@@ -367,24 +367,22 @@ public final class LagunaRuntimeWeightCache {
                 policy.apply()
                 startupMemoryPolicy = policy
             } else {
-                // The full 128 GiB ranked profile wires the complete live
-                // model into Metal's residency set after load. Once those
-                // allocations are permanently resident, MLX's stock 50 MiB
-                // referenced-byte commit threshold splits every sparse layer
-                // across several command buffers even though the layer's
-                // weights no longer create residency pressure. A 512 MiB
-                // budget fits one complete decode layer (attention plus the
-                // routed/shared gate-up and down banks are ~507 MiB for the
-                // 200 MB / 200-op command buffers: the post-anupsv-loader regime
-                // re-test winner (6 Latin pairs: decode 5/6, prefill 4/6). Explicit
-                // MLX_ values win; DARKBLOOM kill switch supports same-binary A/B.
+                // Command-buffer commit policy for the full ranked profile.
+                // MLX commits when either the referenced-byte budget or the
+                // op count is exceeded, so these two knobs pick the decode
+                // batching point. A 50 MiB byte budget with a 400-op ceiling
+                // wins on a position-balanced three-level screen (200 / 100 /
+                // 50 MiB, ops fixed): decode -1.76% against 200 MiB while the
+                // 512-token prefill pays +0.31%. The byte axis, not the op
+                // axis, carries the effect; 100 MiB recovers only a third of
+                // it at the same prefill cost. Explicit MLX_ values still win;
+                // the DARKBLOOM kill switch supports same-binary A/B.
                 let env = ProcessInfo.processInfo.environment
                 // P4: full-profile BFS width default from 776a79e1 / dda29d26.
                 // setenv overwrite=0 keeps any explicit MLX_BFS_MAX_WIDTH.
                 setenv("MLX_BFS_MAX_WIDTH", "50", 0)
                 if env["DARKBLOOM_POST_WIRE_COMMAND_BUFFER"] != "0" {
-                    setenv("MLX_MAX_MB_PER_BUFFER", "200", 0)
-                    // 200 -> 400 ops: halve CB boundaries; see note.
+                    setenv("MLX_MAX_MB_PER_BUFFER", "50", 0)
                     setenv("MLX_MAX_OPS_PER_BUFFER", "400", 0)
                 }
                 startupMemoryPolicy = nil

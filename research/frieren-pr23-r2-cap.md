@@ -238,3 +238,63 @@ settled here.
 
 Prefill floor risk is not in play: the worst mode is `+1.28 %`, far from the
 `0.95` hard floor.
+
+## 7. Three levels, one process per arm: 50 MiB beats 100 MiB outright
+
+The two screens above measure the two axes in separate processes, so they cannot
+say whether one intermediate level buys the decode gain without the prefill
+cost. `research/frieren_cap3_abba.sh` closes that: three levels
+(`A` = shipped 200, `C` = 100, `B` = 50 MiB, `MLX_MAX_OPS_PER_BUFFER=400`
+throughout), position sequence `A B C C A B B C A` so every level's positions
+sum to 15, and each arm measures **both** axes in one process (16 prefill
+forwards, warm median of 15, then 2000 decode steps). Analysis:
+`research/frieren_cap3_stats.py`, training `02819840`, log `/tmp/cap3.log`.
+
+| arm | n | `S` ms | se | dS % | `T` ms | se | dT % | `ns` % |
+| --- | --: | --: | --: | --: | --: | --: | --: | --: |
+| A 200 MiB | 3 | 545.445 | 0.037 | — | 9.0317 | 0.0223 | — | — |
+| C 100 MiB | 3 | 547.151 | 0.112 | +0.313 | 8.9813 | 0.0069 | −0.557 | +0.242 |
+| B 50 MiB | 3 | 547.116 | 2.890 | +0.306 | 8.8730 | 0.0042 | **−1.757** | **+1.010** |
+
+Two things settle the choice:
+
+1. **The decode contrast replicates on a second instrument.** −1.757 % here
+   against −1.696 % in §4, from a different script, a different arm layout, and
+   arms that also ran a prefill workload first. The effect is real and its size
+   is stable.
+2. **100 MiB is dominated.** It pays essentially the entire prefill cost
+   (+0.313 % vs +0.306 %) and returns under a third of the decode gain. There is
+   no monotone-in-cap tradeoff to tune: the useful boundary density only appears
+   once the cap is at or below MLX's own stock threshold. The large `se` on
+   `S` for arm B is the §6 bistability (one of its three arms, position 7, sat in
+   the slow prefill mode at 552.9 ms).
+
+So the single global value to ship is **50 MiB**, not an intermediate.
+
+## 8. What is shipped, and how it is verified
+
+One line changes on the submission surface,
+`Sources/MLXFastModel/LagunaRuntimeWeights.swift`, inside the existing
+non-low-memory block:
+
+```diff
+-                    setenv("MLX_MAX_MB_PER_BUFFER", "200", 0)
++                    setenv("MLX_MAX_MB_PER_BUFFER", "50", 0)
+```
+
+`MLX_MAX_OPS_PER_BUFFER` stays at 400 and the
+`DARKBLOOM_POST_WIRE_COMMAND_BUFFER` kill switch is preserved, so the same
+binary can still be A/B'd. `overwrite=0` means an explicit environment value
+still wins, which is what made every screen above possible. This is an in-tree
+default, not an environment-dependent switch: a ranked run sets nothing.
+
+Two host caveats that any replication must respect:
+
+- This 48 GiB M4 Pro resolves the **low-memory** startup profile, which skips
+  the edited block entirely and force-sets 128/64 with `overwrite=1`. Every
+  measurement and every verification here therefore exports
+  `DARKBLOOM_STARTUP_MEMORY_PROFILE=full`. Without it the change is invisible.
+- The change alters only *when* MLX commits a command buffer, not what it
+  encodes: same kernels, same order, same inputs. Bit-identity is expected, and
+  is checked rather than assumed.
+
