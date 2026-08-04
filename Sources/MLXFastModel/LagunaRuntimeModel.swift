@@ -192,6 +192,65 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
 
 let lagunaPackedScalesLog = LagunaPackedScalesLog()
 
+/// `DARKBLOOM_SCALE_CENSUS=1` (research-only, default OFF): one-shot init-time
+/// census of every uint8 E4M3 scale plane a decode dispatch can read. Reports
+/// element count, min, max, distinct-code count, and the occupied code set per
+/// plane and per plane family so a narrower scale representation is designed
+/// from measured code occupancy rather than assumption. Runs after the fused
+/// banks are evaluated, outside every timed phase.
+let lagunaScaleCensusEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_CENSUS"] == "1"
+
+final class LagunaScaleCensus {
+    private var families: [String: [Int]] = [:]
+    private var order: [String] = []
+
+    func record(_ family: String, _ plane: String, _ scales: MLXArray?) {
+        guard lagunaScaleCensusEnabled, let scales else { return }
+        guard scales.dtype == .uint8 else {
+            write("plane \(plane) skipped dtype=\(scales.dtype) shape=\(scales.shape)")
+            return
+        }
+        let bytes = contiguous(scales).asArray(UInt8.self)
+        var hist = [Int](repeating: 0, count: 256)
+        for b in bytes { hist[Int(b)] += 1 }
+        write("plane \(plane) shape=\(scales.shape) " + summary(hist))
+        if families[family] == nil {
+            families[family] = [Int](repeating: 0, count: 256)
+            order.append(family)
+        }
+        for value in 0..<256 where hist[value] > 0 { families[family]![value] += hist[value] }
+    }
+
+    func report() {
+        guard lagunaScaleCensusEnabled else { return }
+        var global = [Int](repeating: 0, count: 256)
+        for family in order {
+            let hist = families[family]!
+            for value in 0..<256 { global[value] += hist[value] }
+            write("family \(family) " + summary(hist) + " " + counts(hist))
+        }
+        write("global " + summary(global) + " " + counts(global))
+    }
+
+    private func summary(_ hist: [Int]) -> String {
+        let present = (0..<256).filter { hist[$0] > 0 }
+        let total = hist.reduce(0, +)
+        return "n=\(total) min=\(present.first ?? -1) max=\(present.last ?? -1)"
+            + " distinct=\(present.count)"
+            + " codes=[\(present.map(String.init).joined(separator: ","))]"
+    }
+
+    private func counts(_ hist: [Int]) -> String {
+        let pairs = (0..<256).filter { hist[$0] > 0 }.map { "\($0):\(hist[$0])" }
+        return "hist=[\(pairs.joined(separator: ","))]"
+    }
+
+    private func write(_ line: String) {
+        FileHandle.standardError.write(Data("mlxfast: scale-census \(line)\n".utf8))
+    }
+}
+
 /// Decode-only routed NVFP4 down-QMV plus BF16 router weighting, fixed-order
 /// expert reduction, and the Laguna 2.5 routed scale. The custom kernel emits
 /// one 2048-wide branch instead of materializing eight expert rows.
@@ -10945,6 +11004,38 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
+        }
+        if lagunaScaleCensusEnabled {
+            let census = LagunaScaleCensus()
+            for layer in model.layers {
+                let attn = layer.selfAttn
+                let idx = attn.layerIdx
+                if let bank = attn._nativeAffineQKV, bank.scales.dtype == .uint8 {
+                    let qRows = attn.nHeads * attn.headDim
+                    let kvRows = LagunaConstants.numKeyValueHeads * attn.headDim
+                    census.record("attn.q", "L\(idx).q", bank.scales[0 ..< qRows])
+                    census.record(
+                        "attn.k", "L\(idx).k", bank.scales[qRows ..< (qRows + kvRows)])
+                    census.record(
+                        "attn.v", "L\(idx).v",
+                        bank.scales[(qRows + kvRows) ..< (qRows + 2 * kvRows)])
+                } else {
+                    census.record("attn.qkv", "L\(idx).qkv", attn._nativeAffineQKV?.scales)
+                }
+                census.record("attn.o", "L\(idx).o", attn._nativeAffineOProj?.scales)
+                census.record("attn.g", "L\(idx).g", attn._nativeAffineGProj?.scales)
+                if let sparse = layer.mlp as? LagunaRuntimeSparseMoEBlock {
+                    census.record(
+                        "routed.gate_up", "L\(idx).routed.gate_up",
+                        sparse._fusedRoutedGateUpScales)
+                    census.record(
+                        "routed.down", "L\(idx).routed.down", sparse._routedDownScales)
+                    census.record(
+                        "shared.gate_up", "L\(idx).shared.gate_up",
+                        sparse.sharedExpert._fusedGateUpScales)
+                }
+            }
+            census.report()
         }
         // Certified two-pass lm_head coarse copy (notes/68), gated by
         // `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON;
