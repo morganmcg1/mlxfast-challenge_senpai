@@ -288,22 +288,70 @@ Three consequences, each of which re-ranks something:
    throughput ≥ 44.3 TFLOP/s**. First hardware bound this campaign has derived
    from its own data rather than a vendor claim; corroborates ~60 TFLOPS.
 
-### 7. RISK: 28.5% of score rests on one unverified exactness claim
+**Where the overlap actually is.** The 22.90 ms between the serial sum and the
+overlap ceiling is not spread across the forward — it is almost entirely one
+block:
+
+```
+block              serial   overlap   available    share
+routed_experts      44.92     28.17      16.75 ms   73.1%   <- fern #24
+attn_proj_qkvo      30.04     24.34       5.70 ms   24.9%
+shared_expert        2.23      2.09       0.14 ms    0.6%
+dense_mlp_layer0     1.06      0.86       0.20 ms    0.9%
+router + g_proj      0.53      0.43       0.10 ms    0.4%
+```
+
+And the 5.70 ms in `attn_proj_qkvo` may already be captured: `gemm_nax.h:52-119`
+streams fragments straight from device memory with **no threadgroup staging and
+`mem_none` barriers**, i.e. nothing to serialise. If so the accounting closes
+completely — `[attn_proj 24.34 already overlapped] + [experts 44.92 serial] +
+[attn_core 2.68] + [shared 2.23] + [dense 1.06] + [router+g 0.53] + [glue 9–12] +
+[~5.9 GB activation traffic ≈ 11.8]` = 97–101 ms against a measured 98.15.
+**That is the first fully closed prefill budget the campaign has had**, and it says
+**fern's #24 is not one prefill arm among several — it is essentially the whole
+prefill opportunity.** Do not open a second prefill overlap arm in parallel with
+it; C2 (BN 64→32) is his fallback route to the *same* 16.75 ms, not an independent
+bet.
+
+### 7. DISCLOSED INHERITED RISK: the frontier's attention quantization exceeds the written envelope
 
 `lagunaNativeAffineNVFP4From` defaults to **0** (`LagunaRuntimeModel.swift:2907`),
-so **all 40 layers run Q/K/V/O at NVFP4 g16** — not the group-32 affine INT8 that
-TASK.md's accepted envelope permits. `lagunaNativeAffineProbeRoundTrip` (`:2936`)
-is a no-op unless `DARKBLOOM_NATIVE_AFFINE_PROBE_FORMAT` is set, so nothing else
-perturbs the weight. The in-tree defence is a comment at `:2903-2906`:
+so **all 40 layers run Q/K/V/O at NVFP4 g16** (0.5625 B/param) — not the group-32
+affine INT8 (1.125) that TASK.md's accepted envelope permits, and coarser than it.
+`lagunaNativeAffineProbeRoundTrip` (`:2936`) is a no-op unless
+`DARKBLOOM_NATIVE_AFFINE_PROBE_FORMAT` is set, so nothing else perturbs the weight.
 
-> Numerically this is the shipped representation the goldens came from — envelope
-> option (1), which never requires the INT8 re-quant.
+**Independently confirmed by measurement, not just by reading code.** If attention
+were read at the envelope's INT8 g32 the decode step would move
+`1794 + 802 = 2596 MB`, and `2596 MB / 8.769 ms = 296 GB/s`, above the measured
+260.2 GB/s M4 ceiling — physically impossible. The step time proves the stream is
+NVFP4 g16.
 
-i.e. NVFP4 g16 round-trips the checkpoint's BF16 attention tensors *exactly*, so
-it is a lossless re-encoding rather than a re-quantization and falls outside what
-the envelope governs. Coherent, and 100+ official receipts are consistent with
-it — but **no test in the tree asserts it** (`grep -riE 'lossless|roundTrip|
-isExact'` finds nothing relevant), and TASK.md contains no "option (1)".
+The in-tree defence is a comment at `:2903-2906`: "Numerically this is the shipped
+representation the goldens came from — envelope option (1), which never requires
+the INT8 re-quant", i.e. the claim that NVFP4 g16 *round-trips the checkpoint
+exactly* and is therefore a lossless re-encoding rather than a re-quantization.
+
+**That claim is false, and the organizer's own code says so.**
+`LagunaConfig.swift:39-41`:
+
+> The Poolside checkpoint keeps embeddings, attention, the dense layer, routers,
+> and lm_head in BF16. **Only routed/shared expert projections are NVFP4-packed**,
+> with one E4M3 scale per group of 16 values.
+
+`git blame` puts that in `6d679f4` by `anupsv` ("Migrate Laguna serial track to
+Poolside NVFP4 v2 (#755)") — organizer-authored. The tensor census in the same
+enum confirms it arithmetically: `packedUInt32TensorCount = 234` and
+`e4m3ScaleUInt8TensorCount = 234` = exactly **39 layers × 6 expert projections**;
+attention is among the 405 BF16 tensors; `405+234+234+39 = 912` ✓. TASK.md also
+contains no "option (1)". So the attention weights are genuine trained BF16 and
+NVFP4 g16 on them is **lossy**.
+
+**It is inherited, not ours.** `git blame` puts the whole
+`lagunaNativeAffineNVFP4From` block in `99b974c1`, "Sync promoted frontier
+afcb832". The organizer's own promoted frontier ships it, and it passes every
+official gate including the hidden teacher-forced cases, GPQA and the semantic
+judge. Exposure if the written envelope were ever enforced:
 
 ```
 decode attention stream, shipped (NVFP4 g16)  =  807.7 MB/token
@@ -312,34 +360,32 @@ decode attention stream, envelope (INT8 g32)  = 1609.9 MB/token
                                             -> 0.638 × 44.7% = 28.5% of score
 ```
 
-Assigned to fern as a 30-minute test on #24: report `max |W − dequant(quant_nvfp4(W))|`
-for q/k/v/o, a router, and layer-0's dense MLP.
+**Advisor ruling.** Disclose, do not unilaterally remove, do not extend.
+Removing it would forfeit 28.5% of score on my reading of prose, against a tree
+the organizer promoted; hiding it would be worse. Inheriting the practice is one
+thing — applying reduced precision to *new* tensors would be our own act, so the
+routers, the layer-0 dense MLP, `lm_head`, embeddings and the KV cache stay
+exactly as they are. Flagged to the operator for a ruling.
 
-**The same test gates the best unassigned arm.** If the attention tensors
-round-trip exactly it is because Laguna XS 2.1 was NVFP4-native and the
-safetensors store dequantized values — in which case the routers and the layer-0
-dense MLP are also dequantized-from-NVFP4, and re-encoding them is lossless by
-the identical argument:
-
-```
-layer-0 dense MLP  100.7 MB -> 28.3 MB   (-72.4)
-routers (39 layers) 40.9 MB -> 11.5 MB   (-29.4)
-                            total -101.8 MB = 3.62% of score  (promotes alone)
-```
-
-The envelope explicitly names routers and the layer-0 dense MLP as *not* admitted
-for re-quantization, which is exactly why an exact result is decisive rather than
-suggestive. **Necessary but not sufficient:** identical operand values do not
-guarantee identical outputs, because a quantized matmul may accumulate in a
-different order than the BF16 GEMM it replaces. Exactness licenses the
-representation; token-identity still needs the usual gates.
+**Two dead arms, killed before assignment.** I had scoped a "lossless
+re-encoding" arm worth 3.62% of score (routers 40.9 → 11.5 MB, layer-0 dense MLP
+100.7 → 28.3 MB). It required the checkpoint to be NVFP4-native; it is not, so
+re-encoding those tensors would be lossy *and* explicitly forbidden. Dead. What
+survives is only **genuinely lossless BF16 compression** (fixed-length
+exponent-codebook over 256-element blocks, ~22% → ~31 MB → ~1.1% of score):
+legal, small, and technically hard — variable-length entropy coding is unusable
+on GPU because it serialises per symbol. Low priority. Open questions if anyone
+revives it: the true distinct-exponent count per block (at 32–40 the index grows
+to 5–6 bits and the margin dies), and whether the LSU rather than the ALU is the
+real constraint. Exclude the KV cache — activations, wider exponent range,
+rewritten every step.
 
 **Doctrine correction.** I previously wrote that decode byte removal has exactly
-one legal lever because "BF16 ⇒ untouchable". That was wrong reasoning: the
-frontier already synthesises non-BF16 banks for attention at load. But the
-correct conclusion is narrower than "so we may quantize anything" — it is that
-*lossless re-encoding* needs no envelope permission and *lossy* re-quantization of
-the routers or dense MLP remains forbidden regardless of what it would buy.
+one legal lever because "BF16 ⇒ untouchable". The reasoning was wrong (the
+frontier does synthesise non-BF16 attention banks at load) but the conclusion was
+right, and for a better reason: lossless re-encoding needs no envelope permission
+but the checkpoint offers almost none, and lossy re-quantization of unlisted
+tensors stays forbidden regardless of what it would buy.
 
 ### Round 4 outcome
 
@@ -357,7 +403,7 @@ the routers or dense MLP remains forbidden regardless of what it would buy.
 | #20 | nezuko | **lm_head cascade.** The last legal decode byte lever: 134.9 MB int5 plane, 7.5% of the step. Immediate target 25.7 MB, structural ceiling ~105 MB (3.7%) |
 | #21 | tanjiro | **price the 1.51 ms hard core** (17.2% of the step = 393 MB phantom). Part 1 is a structural analogue, no submissions. Deciding experiment for whether the campaign optimises bytes or efficiency |
 | #23 | frieren | **exposed head latency** — the one term in his own model the GPU does not absorb. 0.29–0.32 ms on M4 against a 4.353 ms M5 step, so ≤2.9% of score |
-| #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported. **Re-priced by finding 6 to 5.9–7.7% of score** (~3× the brief) with a hard floor at 28.17 ms. Also carries the NVFP4 round-trip exactness test from finding 7 |
+| #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported. **Re-priced by finding 6 to 5.9–7.7% of score** (~3× the brief) with a hard floor at 28.17 ms, and it holds **73% of all the overlap available anywhere in the forward** |
 
 Why #24 is the shape it is: `DARKBLOOM_EXPERT_GATHER_GROUPS` went 64 → 128 → 256
 and measured a real M5 gain at *every* step while changing nothing
