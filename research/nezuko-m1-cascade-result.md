@@ -468,19 +468,50 @@ patch in the appendix) over all 128 timed decode steps:
 25.69 MB — **99.3%**. On a pure byte count the comment's error is harmless:
 171 KB against 25.69 MB is a rounding error, and the byte numerator survives.
 
-It is *not* harmless on a time count, and this is the finding:
+It is *not* harmless on a time count, and the reason is a structural fact
+about *where* those 171 KB land. M1 does not add a dispatch. It has exactly
+four dispatches before and after, and it **swaps slot 4 in place**:
 
-```
-residual shortfall  = 1.102% − 0.664% = 0.438% of T = 19.1 µs on M5
-implied rate        = 171 KB / 19.1 µs = 8.9 GB/s
-measured rate of    = 6.5 GB/s   (laguna_lmhead_exact_inline_mask_block)
-the refine dispatch
-```
+| slot | before (`6d14ed9`) | after (HEAD) |
+| ---: | --- | --- |
+| 1 | `..._int5_inline_coarse_ratio_bound_delta_bf16_v5`, 1344 B/row | `..._int5_base_coarse_delta_bf16_v1`, **1088 B/row** |
+| 2 | `..._coarse_argmax_stage1_v5` | unchanged |
+| 3 | `..._exact_winner_bf16_midpoint_threshold_v1` | unchanged |
+| 4 | `..._exact_inline_mask_block_delta_bf16_lane0_mask_v1` | `..._exact_fused_int5_sparse_refine_v1`, **+320 B/survivor** |
 
-Within noise, **the entire residual shortfall is the survivor re-read passing
-through a 6.5 GB/s dispatch.** 171 KB is 0.67% of the bytes removed but costs
-40% of the time saved, because a byte moved at 6.5 GB/s costs ~40× more than a
-byte moved at 264 GB/s.
+(`LagunaLmHeadPrune.swift:939-954` and `:971-986`; grid and threadgroup are
+byte-identical in all four slots, only the buffer set changes. The 320 B is
+`codes_bit` 256 B + `scales` 64 B, `:694-695` — exactly the census
+denominator.)
+
+Slot 4 is the dispatch tanjiro measured at **74 µs/step, 0.481 MB, 6.5 GB/s —
+the worst-efficiency dispatch in the entire decode step, 2.5% of ceiling.**
+The 171 KB of re-read does not go into the 264 GB/s stream where the 25.69 MB
+came out. It goes into the 6.5 GB/s one.
+
+That converts the residual shortfall from an unexplained gap into a bracketed
+prediction. The shortfall is `1.102% − 0.664% = 0.438%` of `T` =
+**19.1 µs on M5**. The two natural ways to transfer a 6.5 GB/s M4 dispatch to
+M5 bracket it:
+
+| transfer assumption | rate on M5 | cost of 171 KB |
+| --- | ---: | ---: |
+| slot 4 is purely bandwidth-bound, scales with the 2.01× step ratio | 13.1 GB/s | **13.1 µs** |
+| slot 4 is purely latency-bound, does not scale at all | 6.5 GB/s | **26.3 µs** |
+| *observed shortfall* | *8.9 GB/s* | ***19.1 µs*** |
+
+The observed value sits between the two bounds, which is where a partially
+latency-bound dispatch should sit. **The residual shortfall is quantitatively
+accounted for by the survivor re-read landing in slot 4.** 171 KB is 0.67% of
+the bytes removed but costs 40% of the time saved, because a byte moved at
+6.5 GB/s costs ~40× more than a byte moved at 264 GB/s.
+
+This is a bracket, not a fit: nothing in it was tuned to the observed number,
+and the observed number could have fallen outside the bracket. It also has
+slack in the conservative direction — M1's second screen is strictly tighter
+than the one it replaces (half-cell `d = D/2`), so it can only *reduce* the
+number of live blocks reaching the 16 KB/block BF16 GEMV. The true net cost of
+slot 4's change is therefore at most the 171 KB priced here.
 
 The unit "bytes removed" is therefore the wrong unit for pricing an
 optimisation. The right unit is **bytes ÷ the bandwidth of the dispatch those
@@ -495,16 +526,38 @@ binding resource**. Here the binding resource happens to be bandwidth on both
 sides, so bandwidth is the right denominator on both sides — but that is a
 property of these two dispatches, not a law.
 
-### This makes the advisor's "second lever" non-orthogonal to this arm
+### Correction: the advisor's "second lever" is the *same dispatch* this arm rewrites
 
-The 14:38 note framed the 6.5 GB/s dispatch as a separate, additive
-opportunity. The arithmetic above says it is not separate: it is *the same
-0.438%*. Fixing the refine dispatch would recover most of what this arm left
-on the table, and the two gains must not be added together in any plan. The
-diagnosis is in the body — lane 0 alone loads 28 B, `simd_broadcast`es it, and
-every other lane returns immediately, so 0.875 B/lane is in flight against
-~32 B needed (2.7% utilisation). I deliberately did not implement it; see
-below.
+The 14:38 note says of the 6.5 GB/s dispatch: *"it is on your surface, needs
+no new mechanism, and removes no bytes — so it is orthogonal to your main arm
+and cannot confound it."*
+
+**It is not orthogonal. It is slot 4, and this arm replaces slot 4.** The
+kernel the note prices at "~65–69 µs recovered" is
+`..._exact_inline_mask_block_delta_bf16_lane0_mask_v1`, which **does not exist
+in my tree** — M1 swapped it for `..._exact_fused_int5_sparse_refine_v1` in
+the same slot with the same geometry. Three consequences for planning, and I
+think all three are decision-relevant:
+
+1. **The two gains must not be summed.** The 0.438% this arm lost and the
+   0.48%-of-score the note attributes to fixing slot 4 are overlapping claims
+   on the same dispatch, not additive ones.
+2. **My arm made slot 4 worse, not better.** It adds 171 KB/step of survivor
+   re-read to the single least efficient dispatch in decode while leaving its
+   defect untouched. That is the whole shortfall.
+3. **But the fix is worth *more* than the note prices, not less** — and this
+   is the actionable part. The defect is structural and it is *inherited*:
+   both the before and after kernels have the identical lane-0 pattern. Lane 0
+   alone loads 28 B, `simd_broadcast`s it (`:675`), and every other lane
+   returns immediately, so 0.875 B/lane is in flight against the ~32 B needed
+   to saturate (2.7% utilisation). Fixing that pattern in the after-tree
+   kernel recovers the pre-existing inefficiency **and** the 171 KB re-read
+   this arm added, because both are throttled by the same broadcast.
+
+So the correct scoping of that follow-up is: *fix slot 4 in the post-M1 tree*,
+where it is worth its own recovery plus this arm's 0.438% — not *fix slot 4 in
+the base tree*, which is code that a merged M1 would delete. I deliberately
+did not implement it here; see below.
 
 ### Resolution of the 76.6 µs / 134.9 MB contradiction
 
@@ -529,9 +582,12 @@ requiring anything implausible. I am retracting the MLP-loss explanation
 rather than leaving it in the record as a live hypothesis.
 
 The cheapest discriminator, if anyone wants to close it properly: run a
-per-dispatch probe of the *after* build on the same M4 host. A coarse dispatch
-at ≈414 µs kills the MLP story; ≈453 µs would support it. One build, one run,
-no receipts.
+per-dispatch probe of the *after* build on the same M4 host. Slot 1 goes from
+1344 to 1088 B/row, so at unchanged bandwidth it should read
+`510.9 × 1088/1344 = 413.5 µs`. **≈414 µs kills the MLP story; ≈453 µs would
+support it.** One build, one run, no receipts. The same probe reads out slot
+4's new cost directly, which would replace the bracket above with a
+measurement.
 
 ### Issued vs unique bytes — proposing a standing rule
 
@@ -615,8 +671,11 @@ independent gain.
 3. **Re-audit sibling byte arms** for the same two errors — average-rate
    denominators, and unpriced bytes added back. Any arm whose predicted gain
    was computed as `MB/1794` is likely over-predicted by ~2×.
-4. **Assign the refine-dispatch fix**, scoped as recovering the 0.438%
-   identified here, not as an additive win.
+4. **Assign the slot-4 fix against the post-M1 tree, not the base tree.** It
+   is the same dispatch this arm rewrites, so it is not an additive win and
+   the base-tree kernel it was priced against would be deleted by merging M1.
+   Scoped correctly it recovers slot 4's own inefficiency *plus* this arm's
+   0.438%, because one `simd_broadcast` throttles both.
 5. **Reclaim the decomposition** with two X receipts when the account
    submission slot is free. It is two runs and the tree is ready.
 6. **Adopt the `unique`/`issued` declaration rule** for byte-arm briefs.
