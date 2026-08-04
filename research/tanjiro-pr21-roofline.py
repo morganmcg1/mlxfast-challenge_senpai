@@ -102,9 +102,20 @@ gaps = []
 # 1.7929 GB / 9.498 ms reproduces her 188.8 GB/s only in decimal). The probe
 # reports decimal GB/s but labels its size axis in MiB (`mb * 1_048_576`), so a
 # decimal-MB dispatch must be converted before the curve lookup.
+#
+# GQA re-read. The profile's MB/call is UNIQUE tensor bytes, which is the wrong
+# numerator for the two fused attention kernels. `laguna_sliding_fused_attn_ring_v1`
+# launches 32 threadgroups over 64 query heads (2 heads each) but only 8 KV
+# heads, and each threadgroup reads its KV head's whole 512-slot ring
+# (LagunaRuntimeModel.swift:1400-1402 `kv_head = pair_tg / 4`, loads :1532-1538).
+# So 4 threadgroups issue the same 256 KB: 8.389 MB issued for 2.097 MB unique.
+# Charging the DRAM roofline on issued bytes is the honest test, and it shows the
+# re-read is cache-served rather than slack -- see the report below.
+REREAD = {"sliding_fused_attn_ring": 4.0, "full_fused_attn_grow": 4.0}
+
 MIB = 1_048_576.0
 for name, n, us, mb, inflight, note in DISPATCHES:
-    bytes_per_call = mb * 1e6
+    bytes_per_call = mb * 1e6 * REREAD.get(name, 1.0)
     achievable = (interp(SIZE_CURVE, bytes_per_call / MIB)
                   * interp(INFLIGHT_CURVE, inflight))
     predicted = max(DISPATCH_FLOOR_US, bytes_per_call / (achievable * 1e3))
@@ -138,12 +149,33 @@ ramp = total_predicted / 1000 - BYTE_ONLY_MS
 named = total_gap / 1000
 dead_band = STEP_MS - total_measured / 1000
 print(f"\ndecomposition of `step - byte-only roofline` = {excess:.3f} ms")
-print(f"  {ramp:.3f} ms  bytes-per-dispatch size ramp   structural, 406 dispatches")
+print(f"  {ramp:.3f} ms  per-dispatch structure         structural, see split below")
 print(f"  {named:.3f} ms  named per-stream shortfalls    recoverable in principle")
 print(f"  {dead_band:.3f} ms  inter-dispatch dead band       advisor bound was <= 0.38")
 print(f"  {ramp + named + dead_band:.3f} ms  sum "
       f"(unexplained {excess - (ramp + named + dead_band):+.3f} ms)")
 print(f"  {0.0:.3f} ms  access pattern                 measured, not inferred")
+
+# Sub-attribution of the structural term. These two overlap slightly inside the
+# attention dispatches, so they sum a few percent over `ramp`; the three-term
+# closure above is the authoritative one.
+# 2.46 us is the measured serialized empty-dispatch cost at a realistic 160x256
+# grid (`--mode empty`); DISPATCH_FLOOR_US above is the 1-threadgroup floor and
+# is only used to stop tiny dispatches being charged below any achievable time.
+EMPTY_DISPATCH_US = 2.46
+DISPATCHES_PER_STEP = 406
+launch_ramp = DISPATCHES_PER_STEP * EMPTY_DISPATCH_US / 1000
+reread = 0.0
+for name, n, us, mb, inflight, note in DISPATCHES:
+    if name not in REREAD:
+        continue
+    unique_us = mb * 1e6 / (interp(SIZE_CURVE, mb * 1e6 / MIB)
+                            * interp(INFLIGHT_CURVE, inflight) * 1e3)
+    reread += max(0.0, us - unique_us) * n
+print(f"\n  of which  {launch_ramp:.3f} ms  {DISPATCHES_PER_STEP} dispatches x "
+      f"{EMPTY_DISPATCH_US} us empty-dispatch cost")
+print(f"            {reread / 1000:.3f} ms  GQA KV re-read in the two fused attention kernels,")
+print(f"                         4x issued bytes for 1x unique, served from cache")
 
 # Project onto the ranked host. The advisor pinned M5 Max GPU-achievable at
 # 485-530 GB/s and the promoted M5 step at T = 4.353 ms. The two terms in my M4
@@ -167,10 +199,18 @@ for bw in (485.0, 507.0, 530.0):
           f"excess {M5_STEP_MS - ideal:.3f} ms "
           f"({(M5_STEP_MS - ideal) / M5_STEP_MS * 100:.1f}% of step)")
 latency_like = named + dead_band
-print(f"\n  my M4 latency-like terms alone = {latency_like:.3f} ms")
-print("  that is the whole M5 excess at 485-530 GB/s, so on the ranked host the")
-print("  bandwidth size ramp is largely gone and what remains is dependency")
-print("  stalls plus dispatch dead band -- both latency, neither access pattern.")
+print(f"\n  M4 latency-like terms (named shortfalls + dead band) = {latency_like:.3f} ms")
+print("  Carried over at their M4 absolute value they cover 48-70% of the M5")
+print("  excess. The remainder has to be M5's own per-dispatch cost, which gives")
+print("  a falsifiable prediction rather than an assumption:")
+for bw in (485.0, 507.0, 530.0):
+    ideal = LOGICAL_MB * 1e6 / (bw * 1e9) * 1e3
+    per_dispatch_us = (M5_STEP_MS - ideal - latency_like) / DISPATCHES_PER_STEP * 1e3
+    print(f"    at {bw:.0f} GB/s, M5's per-dispatch cost must be "
+          f"{per_dispatch_us:.2f} us (M4 measures 0.87-2.46)")
+print("  So the model closes on M5 only if its empty-dispatch cost is near my")
+print("  1-threadgroup floor rather than my 160-threadgroup one -- which is what")
+print("  2x the cores should do, and what an M5 `--mode empty` run would settle.")
 for label, m5_named in (("absolute-preserved", named),
                         ("fraction-preserved", named * M5_STEP_MS / STEP_MS)):
     frac = m5_named / M5_STEP_MS
