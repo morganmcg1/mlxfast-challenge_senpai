@@ -36,10 +36,24 @@ integers, never Metal function constants. Every injected result is discarded.
 
 | receipt | config `da,dr,pr,pa` | purpose | id | S (ms) | T (ms) |
 | --- | --- | --- | --- | ---: | ---: |
-| R1 | 0,0,0,0 | anchor | `b6032aeb` | TBD | TBD |
-| R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | TBD | TBD | TBD |
+| R1 | 0,0,0,0 | anchor | `b6032aeb` | **97.8643** | **4.27468** |
+| R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | `ca416f01` | TBD | TBD |
 | R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | TBD | TBD | TBD |
 | R4 | arch probe only | Metal architecture character + prefill replicate | TBD | TBD | TBD |
+
+R1 in full: `passed_correctness = true`, `max_abs_diff = 0`, both floors passed,
+`gpqa_ttft = 0.41 s` of a 2.3 s budget, `semantic_gpqa_passed = true`,
+`peak_ram = 21 GB`, `error = ""`, pinned baseline `S = 187.1734 ms`,
+`T = 13.88424 ms`. The published `officialScore` was 2.5149 and the submission was
+rejected as "score did not improve current best" — which is the expected and
+harmless outcome for a measurement receipt: the metrics are published in full
+regardless, and this arm never ranks on `officialScore`.
+
+The anchor decode step is **T₀ = 4.27468 ms**, 1.1% faster than the 4.3224 ms the
+assignment quotes from my #27 receipts, because `BASE_SHA` now contains
+@maple-fern's #30 attention epilogue stride padding. All residual arithmetic below
+uses the measured T₀ of this series, not the quoted one. `S₀ = 97.8643 ms` matches
+the quoted 97.9 ms to 0.04%.
 
 `S = 512000 × prefill_seconds_per_token`, `T = 1000 × decode_seconds_per_token − S/128`.
 The `S/128` term is required: the harness's `decode_seconds_per_token` amortises
