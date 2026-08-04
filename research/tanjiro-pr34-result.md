@@ -72,7 +72,7 @@ this assignment's mandatory 15% agreement gate.
 
 ## Local gate (mandatory, M4 Pro)
 
-Eight matched `--local-iterate` receipts on the same quiet host behind the 40 C
+Nine matched `--local-iterate` receipts on the same quiet host behind the 40 C
 gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 
 | run | config `da,dr,pr,pa` | how set | S (ms) | T (ms) |
@@ -85,6 +85,7 @@ gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 | L5 | 40,39,0,40 | env (**exact R3 configuration**) | 765.903 | 13.8612 |
 | L6 | 0,0,20,0 + arch probe | env | 661.777 | 9.9125 |
 | L7 | 0,39,20,0 | env (**exact R4 configuration**) | 664.651 | 10.6925 |
+| L8 | 0,0,39,40 | env (**cross-block additivity**) | 929.338 | 8.6675 |
 
 L3 is the receipt-R2 configuration run with **no environment variables set for any
 injection knob**, which is how the official runner invokes the binary. Its stderr
@@ -237,7 +238,27 @@ other rather than the model. L8's decode axis is also the largest amortisation
 test in the series: it carries ~925 ms of `S`, so `S/128 ≈ 7.2 ms` must be
 subtracted from a raw decode reading of ~16 ms to recover `T₀ ≈ 8.82 ms`.
 
-**Observed: TBD** (L8 in flight at the time of writing).
+**Observed: `S = 929.338 ms`, `T = 8.6675 ms`, `passed_correctness = true`,
+`max_abs_diff = 0`.** That is **100.51% of the strict-additivity prediction** —
+super-additive by 4.75 ms, which is 1.5σ on a prediction assembled from three
+measured axes (`sd = 1.87 × sqrt(3) = 3.24 ms`) — and **21.3% above** the
+absorption prediction. So two different real kernels injected into the same
+prefill forward pay their full separate costs, with no measurable overlap in
+either direction: **the prefill axis has no cross-kernel slack on M4.** For the
+residual attribution this settles which of the three roofline models applies —
+the per-kernel sum, not global overlap. It also means the prefill axis behaves
+*differently from the decode axis*, where injected work demonstrably absorbs 12–26%
+of its cost into idle memory cycles. Prefill is saturated; decode is not.
+
+L8's decode axis is the fourth and largest amortisation validation. It carries
+352 ms more prefill than the anchor, which inflates the raw
+`decode_seconds_per_token` by **+2.6025 ms**; after subtracting `S/128 = 7.260 ms`
+the corrected `T` differs from the anchor by only **−0.1486 ms**, i.e. the
+correction removes **94%** of the contamination. The residue is 1.7% of `T`,
+somewhat above the 0.6% axis noise and slightly *over*-corrected, so the
+amortisation model is very good but not exact at 10x the normal prefill load —
+worth remembering only because no official receipt in this series carries more
+than ~35 ms of injected prefill, where the residue scales to under 0.02 ms.
 
 **Is the marginal rate systematically below hers? No — it is systematically
 above whenever the host step has slack (+8.0%, +8.4%, +10.1%, +11.8%, +21.1%,
