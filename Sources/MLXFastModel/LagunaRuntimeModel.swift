@@ -7323,7 +7323,7 @@ let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v1",
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: """
@@ -7362,6 +7362,27 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
         thread float up_result = 0.0f;
         thread float input_values[values_per_lane];
 
+        // Depth-1 weight staging: block b+1's gate/up code words (the same
+        // uint2 laguna_nvfp4_qdot_16 loads internally) and scale bytes are
+        // issued before block b's qdots consume b's registers, so the
+        // expert-dependent weight stream rides under the current block's
+        // compute. Same bytes, same addresses, same nibble decode via
+        // laguna_nvfp4_qdot_codes_16, identical accumulation order.
+        uint2 gate_codes;
+        uint2 up_codes;
+        uint8_t gate_sb;
+        uint8_t up_sb;
+        {
+            const device uint8_t* first_scales =
+                row_scales + sub * 2 * scale_row_bytes + lane;
+            gate_sb = first_scales[0];
+            up_sb = first_scales[scale_row_bytes];
+            gate_codes = *(const device uint2*)(
+                expert_weight + gate_row * fused_row_bytes + lane * 8);
+            up_codes = *(const device uint2*)(
+                expert_weight + up_row * fused_row_bytes + lane * 8);
+        }
+
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
@@ -7374,24 +7395,31 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
                 input_values[4 * i + 3] = values[3];
             }
 
-            const device uint8_t* block_scales =
-                row_scales + (block / block_width) * scale_kblock_bytes;
-            const device uint8_t* gate_scale =
-                block_scales + sub * 2 * scale_row_bytes + lane;
-            const device uint8_t* up_scale = gate_scale + scale_row_bytes;
-            const device uint8_t* gate_weight =
-                expert_weight + gate_row * fused_row_bytes
-                + block / 2 + lane * 8;
-            const device uint8_t* up_weight =
-                expert_weight + up_row * fused_row_bytes
-                + block / 2 + lane * 8;
+            const uint2 cur_gate_codes = gate_codes;
+            const uint2 cur_up_codes = up_codes;
+            const uint8_t cur_gate_sb = gate_sb;
+            const uint8_t cur_up_sb = up_sb;
+            const uint next_block = block + block_width;
+            if (next_block < input_width) {
+                const device uint8_t* next_scales =
+                    row_scales + (next_block / block_width) * scale_kblock_bytes
+                    + sub * 2 * scale_row_bytes + lane;
+                gate_sb = next_scales[0];
+                up_sb = next_scales[scale_row_bytes];
+                gate_codes = *(const device uint2*)(
+                    expert_weight + gate_row * fused_row_bytes
+                    + next_block / 2 + lane * 8);
+                up_codes = *(const device uint2*)(
+                    expert_weight + up_row * fused_row_bytes
+                    + next_block / 2 + lane * 8);
+            }
 
-            gate_result += laguna_nvfp4_qdot_16(
-                gate_weight, input_values,
-                laguna_nvfp4_scale(gate_scale[0]));
-            up_result += laguna_nvfp4_qdot_16(
-                up_weight, input_values,
-                laguna_nvfp4_scale(up_scale[0]));
+            gate_result += laguna_nvfp4_qdot_codes_16(
+                cur_gate_codes, input_values,
+                laguna_nvfp4_scale(cur_gate_sb));
+            up_result += laguna_nvfp4_qdot_codes_16(
+                cur_up_codes, input_values,
+                laguna_nvfp4_scale(cur_up_sb));
         }
 
         gate_result = simd_sum(gate_result);
@@ -7451,7 +7479,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
 }
 
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_down_reduce_bf16_v1",
+    name: "laguna_routed_nvfp4_down_reduce_bf16_v2",
     inputNames: [
         "activated", "down_weight", "down_scales", "indices", "router_weights",
     ],
@@ -7498,17 +7526,30 @@ private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
         thread float result[outputs_per_simd] = {
             0.0f, 0.0f, 0.0f, 0.0f
         };
+        // Rows' code words/scales stage first; one packed simd_sum, same
+        // bytes/decode/order per component as stock.
+        uint2 row_codes[outputs_per_simd];
+        uint8_t row_sb[outputs_per_simd];
         for (uint row = 0; row < outputs_per_simd; ++row) {
             uint output_row = first_row + row;
-            const device uint8_t* weight =
-                expert_weight + output_row * packed_row_bytes + lane * 8;
-            const device uint8_t* scale =
-                expert_scales + output_row * scale_row_bytes + lane;
-            result[row] = laguna_nvfp4_qdot_16(
-                weight,
+            row_codes[row] = *(const device uint2*)(
+                expert_weight + output_row * packed_row_bytes + lane * 8);
+            row_sb[row] =
+                expert_scales[output_row * scale_row_bytes + lane];
+        }
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            result[row] = laguna_nvfp4_qdot_codes_16(
+                row_codes[row],
                 input_values,
-                laguna_nvfp4_scale(scale[0]));
-            result[row] = simd_sum(result[row]);
+                laguna_nvfp4_scale(row_sb[row]));
+        }
+        {
+            const vec<float, 4> packed_rows = simd_sum(
+                vec<float, 4>(result[0], result[1], result[2], result[3]));
+            result[0] = packed_rows.x;
+            result[1] = packed_rows.y;
+            result[2] = packed_rows.z;
+            result[3] = packed_rows.w;
         }
 
         threadgroup bfloat expert_outputs[
