@@ -1,6 +1,7 @@
-Receipt **R3 of 4**. The two R2 knobs are back to zero and the other two come on,
-again each sized to exactly one extra full copy of its block's real per-pass
-work, and again on two different axes:
+Receipt **R3 of 4**. The prefill routed knob is back to zero, the decode
+attention knob stays exactly where R2 had it, and the two remaining knobs come
+on, each again sized to exactly one extra full copy of its block's real per-pass
+work:
 
 * one extra decode-step copy of the routed-expert top-8 gate/up NVFP4 QMV plus
   its down-reduce in every one of the 39 routed layers. Added weight traffic:
@@ -11,7 +12,17 @@ work, and again on two different axes:
   **1,460.29 GFLOP**, which is about 52% of the whole prefill forward's
   arithmetic.
 
-R3 is differenced against the same anchor as R2 rather than against R2 itself, so
-each of the four rates is measured against the unperturbed tree. That keeps every
-rate independent of the others and avoids reading a second rate out of an already
-perturbed machine state.
+The prefill axis is differenced against the anchor, which has both prefill knobs
+off, so the attention GEMM rate is measured against the unperturbed tree.
+
+The decode axis is differenced against R2 rather than against the anchor, and
+that is deliberate. Both receipts carry the same 40 injected attention copies, so
+their difference is purely the routed QMV block. Matched M4 receipts show why it
+matters: injected into an otherwise unperturbed decode step the routed block
+appears to run at 305 GB/s, above the host's own achievable streaming rate,
+because the scored step leaves memory cycles idle and the unchained injected
+copies absorb them. Measured in the already loaded step the same block reports
+263 GB/s, within 8.4% of @maple-nezuko's isolated per-call figure. The loaded
+pairing is the honest estimate of the kernel's own rate; the unloaded one is
+reported too, as an upper bound and as a measure of the idle memory slack a
+scheduler could exploit.
