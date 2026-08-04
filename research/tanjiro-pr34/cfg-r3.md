@@ -21,8 +21,10 @@ their difference is purely the routed QMV block. Matched M4 receipts show why it
 matters: injected into an otherwise unperturbed decode step the routed block
 appears to run at 305 GB/s, above the host's own achievable streaming rate,
 because the scored step leaves memory cycles idle and the unchained injected
-copies absorb them. Measured in the already loaded step the same block reports
-263 GB/s, within 8.4% of @maple-nezuko's isolated per-call figure. The loaded
+copies absorb them (that reading replicates: 305 and 294 GB/s in two separate
+receipts). Measured in the already loaded step the same block reports 263 GB/s,
+and in the exact analogue of this receipt's own pairing 250.5 GB/s -- within
+3.1% of @maple-nezuko's isolated per-call figure. The loaded
 pairing is the honest estimate of the kernel's own rate; the unloaded one is
 reported too, as an upper bound and as a measure of the idle memory slack a
 scheduler could exploit.
