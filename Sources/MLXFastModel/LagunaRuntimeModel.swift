@@ -10784,6 +10784,7 @@ final class LagunaRuntimeModelInner: Module {
                     asyncEval(h)
                 }
             }
+            lagunaInjectLayerWork(layer: i, isSingleTokenDecode: isSingleTokenDecode)
         }
 
         return h
@@ -10954,3 +10955,187 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         return weights.filter { !$0.key.contains("rotary_emb.inv_freq") }
     }
 }
+
+// ============================================================================
+// BEGIN M5 HARDWARE-CONSTANT INSTRUMENT — research measurement, NOT a ranking
+// attempt (PR #27). This block deliberately SLOWS the tree.
+//
+// It injects a known, output-neutral quantity of GPU work into the scored
+// forward so that two receipt observables (`prefill_seconds_per_token`,
+// `decode_seconds_per_token`) can be differenced across submissions into
+// hardware constants of the ranked M5 Max:
+//
+//   S = 512000 * prefill_seconds_per_token            (ms, 512-token forward)
+//   T = 1000 * decode_seconds_per_token - S/128       (ms, steady 1-tok step)
+//
+//   DRAM GB/s     = (bytes_B - bytes_A) / (T_B - T_A)
+//   matrix FLOP/s = (flop_B  - flop_A)  / (S_B - S_A)
+//   per-dispatch  = (T_C - T_A) / (dispatch_C - dispatch_A)
+//
+// Output neutrality: every injected kernel writes only into a dedicated sink
+// tensor that no model tensor ever reads, and the sink write is sentinel-gated
+// so it never actually fires. The injected arrays are forced with `asyncEval`,
+// which is what makes them execute (a dangling MLX output would be pruned) and
+// keeps them ahead of the real work in the same stream.
+//
+// Structure invariants that make the differences clean:
+//   * exactly one `asyncEval` per layer boundary in every configuration, so
+//     command-buffer count never varies between runs;
+//   * empty dispatches are spread across all 40 layer boundaries so their
+//     launch ramp overlaps real memory traffic (in-situ, not isolated, cost);
+//   * injection magnitudes are host-side counts and buffer sizes only — never
+//     a Metal function constant, so no pipeline is recompiled mid-process.
+//
+// Delete this block and the single `lagunaInjectLayerWork` call in
+// `LagunaRuntimeModelInner.callAsFunction` to remove the instrument entirely.
+// ============================================================================
+
+private func lagunaInjectEnvInt(_ key: String, _ fallback: Int) -> Int {
+    guard let raw = ProcessInfo.processInfo.environment[key], let value = Int(raw),
+        value >= 0
+    else { return fallback }
+    return value
+}
+
+/// Full 256 MiB DRAM sweeps injected per single-token decode step.
+private let lagunaInjectDecodeSweeps = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_DECODE_SWEEPS", 1)
+/// 512x8192 @ 8192x2048 bf16 matmuls injected per multi-token forward.
+private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_PREFILL_MATMULS", 40)
+/// Empty dispatches injected per single-token decode step.
+private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 40)
+/// Empty dispatches injected per multi-token forward.
+private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_PREFILL_EMPTY", 40)
+/// Threadgroups per empty dispatch (256 threads each); 160 matches the
+/// isolated M4 empty-dispatch datum of 2.46 us.
+private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_EMPTY_TG", 160)
+
+private let lagunaInjectPoolUInt4 = 1 << 24  // 16,777,216 x 16 B = 256 MiB
+private let lagunaInjectSweepThreads = 1 << 17  // 512 threadgroups x 256
+private let lagunaInjectSweepPerThread = lagunaInjectPoolUInt4 / lagunaInjectSweepThreads
+private let lagunaInjectMatmulM = 512
+private let lagunaInjectMatmulK = 8192
+private let lagunaInjectMatmulN = 2048
+
+/// Bytes read from DRAM per injected sweep dispatch.
+let lagunaInjectSweepBytes = lagunaInjectPoolUInt4 * 16
+/// FLOPs issued per injected matmul dispatch (2 * M * N * K).
+let lagunaInjectMatmulFlops = 2 * lagunaInjectMatmulM * lagunaInjectMatmulN * lagunaInjectMatmulK
+
+private let lagunaInjectSweepKernel = MLXFast.metalKernel(
+    name: "laguna_inject_dram_sweep_u4_v1",
+    inputNames: ["pool", "control"],
+    outputNames: ["sink"],
+    source: """
+            constexpr uint kThreads = \(lagunaInjectSweepThreads);
+            constexpr uint kPerThread = \(lagunaInjectSweepPerThread);
+            constexpr uint kMask = \(lagunaInjectPoolUInt4 - 1);
+            const device uint4* quads = (const device uint4*)pool;
+            uint gid = thread_position_in_grid.x;
+            uint idx = (gid + control[0]) & kMask;
+            uint4 acc = uint4(0u);
+            for (uint i = 0; i < kPerThread; ++i) {
+                acc ^= quads[idx];
+                idx = (idx + kThreads) & kMask;
+            }
+            uint folded = acc.x ^ acc.y ^ acc.z ^ acc.w;
+            if (folded == 0xFFFFFFFFu) {
+                sink[gid & 255u] = folded;
+            }
+        """,
+    ensureRowContiguous: true
+)
+
+private let lagunaInjectEmptyKernel = MLXFast.metalKernel(
+    name: "laguna_inject_empty_dispatch_v1",
+    inputNames: ["control"],
+    outputNames: ["sink"],
+    source: """
+            uint gid = thread_position_in_grid.x;
+            if (control[0] == 0xFFFFFFFFu) {
+                sink[gid & 255u] = gid;
+            }
+        """,
+    ensureRowContiguous: true
+)
+
+/// Process-lifetime scratch. First touched from `warmLibraryModel`'s untimed
+/// warm prefill/decode, so the 296 MB allocation and the JIT compiles happen
+/// before any timed window and before the resident-weight wiring walk.
+private enum LagunaInjectStore {
+    struct Scratch {
+        let pool: MLXArray
+        let control: [MLXArray]
+        let matA: MLXArray
+        let matB: MLXArray
+    }
+
+    nonisolated(unsafe) static let scratch: Scratch = {
+        let pool = MLXArray.zeros([lagunaInjectPoolUInt4 * 4], dtype: .uint32)
+        let control = (0..<8).map { MLXArray([UInt32($0 + 1)]) }
+        let matA = MLXArray.zeros(
+            [lagunaInjectMatmulM, lagunaInjectMatmulK], dtype: .bfloat16)
+        let matB = MLXArray.zeros(
+            [lagunaInjectMatmulK, lagunaInjectMatmulN], dtype: .bfloat16)
+        eval([pool, matA, matB] + control)
+        return Scratch(pool: pool, control: control, matA: matA, matB: matB)
+    }()
+}
+
+/// Layer `layer`'s share of `total` units, spread evenly over the 40 layers.
+private func lagunaInjectShare(_ total: Int, layer: Int) -> Int {
+    guard total > 0 else { return 0 }
+    let layers = LagunaConstants.numHiddenLayers
+    return (layer + 1) * total / layers - layer * total / layers
+}
+
+private let lagunaInjectActive =
+    lagunaInjectDecodeSweeps + lagunaInjectPrefillMatmuls + lagunaInjectDecodeEmpty
+    + lagunaInjectPrefillEmpty > 0
+
+func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
+    guard lagunaInjectActive else { return }
+    let sweeps = lagunaInjectShare(
+        isSingleTokenDecode ? lagunaInjectDecodeSweeps : 0, layer: layer)
+    let matmuls = lagunaInjectShare(
+        isSingleTokenDecode ? 0 : lagunaInjectPrefillMatmuls, layer: layer)
+    let empties = lagunaInjectShare(
+        isSingleTokenDecode ? lagunaInjectDecodeEmpty : lagunaInjectPrefillEmpty,
+        layer: layer)
+    let scratch = LagunaInjectStore.scratch
+    var pending: [MLXArray] = []
+    pending.reserveCapacity(sweeps + matmuls + empties)
+    for k in 0..<sweeps {
+        pending.append(
+            lagunaInjectSweepKernel(
+                [scratch.pool, scratch.control[(layer + k) & 7]],
+                grid: (lagunaInjectSweepThreads, 1, 1),
+                threadGroup: (256, 1, 1),
+                outputShapes: [[256]],
+                outputDTypes: [.uint32]
+            )[0])
+    }
+    for _ in 0..<matmuls {
+        pending.append(matmul(scratch.matA, scratch.matB))
+    }
+    for k in 0..<empties {
+        pending.append(
+            lagunaInjectEmptyKernel(
+                [scratch.control[(layer + k) & 7]],
+                grid: (lagunaInjectEmptyThreadgroups * 256, 1, 1),
+                threadGroup: (256, 1, 1),
+                outputShapes: [[256]],
+                outputDTypes: [.uint32]
+            )[0])
+    }
+    guard !pending.isEmpty else { return }
+    asyncEval(pending)
+}
+
+// END M5 HARDWARE-CONSTANT INSTRUMENT
+// ============================================================================
+
