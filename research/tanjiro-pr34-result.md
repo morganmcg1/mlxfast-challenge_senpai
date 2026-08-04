@@ -250,6 +250,22 @@ the per-kernel sum, not global overlap. It also means the prefill axis behaves
 *differently from the decode axis*, where injected work demonstrably absorbs 12–26%
 of its cost into idle memory cycles. Prefill is saturated; decode is not.
 
+**The decode axis does the opposite, and the same receipts already measure it.**
+Injected alone into an unperturbed step the two decode blocks cost 2.841 ms
+(attention, L3−L0) and 1.810 ms (routed, L4−L0), summing to **4.651 ms**.
+Injected together they cost **5.045 ms** (L5−L0) — **super-additive by +8.5%**,
+the exact mirror of prefill's +0.5%. That is the saturation signature arriving:
+the first block spends the step's idle memory cycles, so the second finds fewer
+and charges more. Whole-step bandwidth makes it concrete: the unperturbed M4 step
+moves 1794 MB in 8.816 ms = **203.5 GB/s, 75% of the host's 273 GB/s peak**; with
+both blocks injected it moves 3148 MB in 13.861 ms = **227.1 GB/s, 83%**. Adding
+real kernel work made the memory system *more* efficient overall, which is only
+possible if the scored step leaves gaps. **On M4 the decode step is demonstrably
+not bandwidth-saturated, and roughly 8% of peak is recoverable by better
+overlap alone.** Whether M5's step has the same slack is precisely what the
+official rate-2 and rate-4 readings decide, and it is the reason both a loaded
+and an unloaded reading of each block was worth a receipt.
+
 L8's decode axis is the fourth and largest amortisation validation. It carries
 352 ms more prefill than the anchor, which inflates the raw
 `decode_seconds_per_token` by **+2.6025 ms**; after subtracting `S/128 = 7.260 ms`
