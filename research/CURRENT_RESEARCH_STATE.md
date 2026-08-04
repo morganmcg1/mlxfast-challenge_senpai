@@ -93,18 +93,34 @@ because the local ranking is uninformative for that class.
 Receipt throughput is **~1.7/hour for the whole team** (the submission limit is
 1 in flight *per account*, not per student). The queue is a managed resource.
 
-### 3. There are three bound classes, not two
+### 3. There are three bound classes, and the third one is dependency depth
 
 fern's #30 h-sweep: issued K/V bytes spanned **8×** while kernel time moved
 **<8% and non-monotonically** (h1 29.45, h2 27.67, h4 27.13, h8 28.54 µs/layer),
-all bit-exact. Deleting the loop arithmetic while keeping the loads cut only 23%.
-Loads made L1-hot: no change. 32×8 B vs 16×16 B loads: identical.
+all bit-exact. Loads made L1-hot: no change. 32×8 B vs 16×16 B loads: identical.
+So the fused attention phase-3 loop is neither DRAM- nor arithmetic-bound. Two of
+my own roofline prizes died on that finding. **Standing rule: an issued-byte count
+is not a price for any kernel until something establishes that the kernel is
+byte-bound.** Cite a measured per-call GB/s against a stated ceiling, or do not
+quote a byte saving.
 
-The fused attention phase-3 loop is **simd-instruction-issue bound** — neither
-DRAM nor arithmetic. Two of my own roofline prizes died on this. **New rule: an
-issued-byte count is not a price for any kernel until something establishes that
-the kernel is byte-bound.** Cite a measured per-call GB/s against a stated
-ceiling, or do not quote a byte saving.
+**#36 then refined what the third class actually is.** "Instruction issue" is too
+coarse — the loop does not price instruction *count*. fern hand-wrote a genuinely
+cheaper reduction (xor levels 1,2 leave every lane of a 4-lane group holding the
+identical partial, so each lane selects `slot = lane&3`, finishes alone with xor
+4,8,16, then 4 broadcasts: **15 shuffles against `simd_sum`'s 20**, same xor order
+so the same addition tree, bit-exact by construction). Result: **1.79% SLOWER.**
+
+Count depth, not instructions. `simd_sum(float4)` is 5 butterfly levels over 4
+*independent* chains — critical path 5, ILP 4. The 15-shuffle version is three
+sequential phases with the tail running one chain — critical path ~15, ILP
+collapsing to 1. A 25% instruction cut roughly tripled the dependency depth.
+
+**The lever this implies:** the reduction's cost cannot be removed by shortening
+it, only by overlapping it with independent work (software-pipelining the next
+iteration's K loads across it). Vector and shuffle-count reduction in the fused
+attention core is **closed at the mechanism level**, not merely in its packing
+form — do not reopen it with a different vector width.
 
 ### 4. Rank by renormalised `ns`. Never by `officialScore`.
 
@@ -300,21 +316,57 @@ on 20 cores / **1 on 40 cores**. M4 pays the conflict twice per layer, M5 once �
 the M5 absolute saving is **half**: ~40–45 µs of 4322 µs = ~1.0% of T ⇒
 **~0.6% of score** (range 0.5–1.2%), not his 0.9–1.2%.
 
-**The live arm.** His own data contains a second win the same size, filed as a
-non-win because he could not then argue bit-exactness: `float2 simd_sum` 29.98
-µs/layer vs control 32.03 = **−6.4%**, versus the shipped padding's −6.3%.
-nezuko's #32 removed the blocker — `simd_sum(float4)` and 2× `simd_sum(float2)`
-against 4× scalar gave **0/131,072 mismatches** with a power control
-(reversed-mask butterfly) flagging **35.5%**. Vector `simd_sum` is *packing*, not
-re-association: the identical butterfly runs per component. #36 Part 0 is a
-four-arm 30-minute test of whether padding and vector reduction **stack**
-(predicted 28.1 µs if multiplicative ⇒ ~+1.2% of score combined). The QK
-`simd_sum` alone is **20% of the loop** (3.58 µs/layer at h=2).
+**★ Re-priced with n=4 (from #36).** Three more within-process estimates of the
+padding (−7.8 / −6.8 / −6.8%) put the mean at **−6.9%** of the sliding layer =
+2.2 µs/layer × 30 = 65 µs/step on M4. fern's own wave arithmetic then reproduces
+my halving: 65/2 = 32.5 µs per wave, M5 waves = 1, 32.5/4318.1 = **0.753% of T**.
+Applying the correct elasticity (he used 0.75; it is `0.75 × (1 − sigma)` = 0.637)
+gives **0.48% of score**. My ~0.6% correction is confirmed and his 0.9–1.2% is
+retired.
 
-**Refuted and closed by #30:** the whole `h × s = 64` KV de-amplification family.
-The assigned config h=8,s=8 two-pass deferred epilogue was **+5.7% SLOWER** with
-bit-exactness proven. Loop attribution at h=2: QK `simd_sum` 3.58, QK madds 1.16,
-rescale 0.40, softmax 0.31 µs/layer.
+**★ THE OPEN QUESTION ABOUT THIS MERGED WIN.** fern's probe reads ~30 µs/call for
+`sliding_fused_attn_ring_v1` (898/30) where nezuko's #9 SPLIT harness reads 22.34
+µs true — a persistent **~34% gap between two of our instruments on the same
+kernel**. #30's absolute price was derived from fern's probe, so if the probe
+inflates per-call time the padding win may be nearer **0.36%** than 0.48%.
+Reconciling the two harnesses is assigned as a by-product of #37 and is the only
+unresolved question we have about a merged result.
+
+**CLOSED by #36: vector and shuffle-count reduction (the whole family).** Details
+in §3. Two premises I gave fern were both wrong, and he found both:
+
+1. **The `float2 −6.4%` row never existed as a separate arm.** It was
+   `probe_padvec`, generated as `vector_reduce(pad(src))` — it already *contained*
+   the padding. A padding-free vector arm was never measured, so −6.4% and −6.3%
+   were **one mechanism under two labels**. My error was worse than misreading a
+   label: I wrote "those are the same size" into the brief and treated
+   near-equality as evidence the second arm was real. **Standing prior: when two
+   arms agree to better than the noise floor, suspect they are the same arm
+   before suspecting additivity.**
+2. **The "QK `simd_sum` = 3.58 µs = 20% of the loop" figure is probably inflated**
+   by dead-code elimination — with the reduction's result unused, nothing keeps
+   its producer madds alive. See rule 12. Every number in #30's loop-attribution
+   table (QK `simd_sum` 3.58, madds 1.16, rescale 0.40, softmax 0.31) and its d2
+   arm ("loop arithmetic deleted, loads kept: 28.9") now carries that caveat.
+
+Measured nulls from #36, all against the shipped padded arm: `float2` alone
+−0.27% (one noise floor); pad+`float2` −0.85%/+0.23% (does not stack); `float4`
+with madds hoisted −0.47%/+0.12%; `float4` + packed epilogue −0.46%/−0.19%.
+Geometry identical in every arm, so this is an instruction-mix experiment at fixed
+geometry and the M4 null is evidence about M5; bounded M5 residual 0.013% of score.
+
+**Two reusable assets from #36.** (a) The **duplicate-arm noise floor** — same
+`.metal`, two labels — reading 0.02–0.28%, which is what makes the null decisive;
+now the standard for this probe, alongside `senpai/tools/sliding-attn-probe/diag_stack.py`,
+which generates every arm from one rendered kernel text. (b) **Metal's `simd_sum`
+is the ascending xor butterfly**, established via the hand-written tree arm — any
+future arm can now reason about association order in these kernels from source.
+Bit-exactness confirmed locally at 0/8192 in the real 1024-thread kernel, which
+promotes nezuko's #32 packing proof from borrowed to local.
+
+**Also refuted and closed by #30:** the whole `h × s = 64` KV de-amplification
+family. The assigned config h=8,s=8 two-pass deferred epilogue was **+5.7%
+SLOWER** with bit-exactness proven.
 
 ### D. The K1/K3 field-gap decomposition is closed (nezuko #32 r1; r2 in flight)
 
@@ -448,15 +500,27 @@ hypothesis and delivered a different result — the M5 constants instead of a
 head-packing win, and the bank-conflict padding instead of KV de-amplification.
 #23's scored diff was empty (docs-only) and it still corrected a merged result.
 
-Advisor branch lineage this round: `9a407ed6` → `a3c096ee` (#27) → `6f1289a9`
-(#30) → **`eaedee84`** (#23), which is the base for all Round 6 assignments.
+Advisor branch lineage: `9a407ed6` → `a3c096ee` (#27) → `6f1289a9` (#30) →
+`eaedee84` (#23) → `ec3298a1` (this document's rewrite) → **`cb3d2f68`** (#36),
+which is the base for #37. #32, #34 and #35 were assigned from `eaedee84`; the
+three intervening commits are documentation-only, so their `baseline_advanced`
+events were accepted without a rerun.
+
+**Round 6 opened with a fourth refutation, and it was mine.** #36 closed the
+vector-reduction family in 16 minutes by showing that both numbers in the brief I
+wrote were wrong (§C). That makes three rounds running in which the assigned
+hypothesis died and the student returned something more valuable than the arm.
+The pattern is worth naming: **our productive output this week has been
+instruments and refutations, not candidates.** Two of the four live arms (#35,
+#37) are the first large *positive* candidates since #20.
 
 | PR | student | assignment | rev | state |
 | --- | --- | --- | --- | --- |
 | **#32** | nezuko | `maple-2026-08-04h-shared-qmv-staging` | **r2** | K1-only + decode-family co-residency census |
 | **#34** | tanjiro | `maple-2026-08-04i-m5-block-rates` | r1 | M5 per-kernel rate measurement, 4 receipts authorised |
 | **#35** | frieren | `maple-2026-08-04j-scale-code-width` | r1 | scale-plane census, then narrow the biggest plane |
-| **#36** | fern | `maple-2026-08-04k-attn-reduction-packing` | r1 | does vector `simd_sum` stack with the merged padding? |
+| ~~#36~~ | fern | `maple-2026-08-04k-attn-reduction-packing` | r1 | **MERGED as documentation** — dead family, empty scored diff. See §3 and §C |
+| **#37** | fern | `maple-2026-08-04l-lmhead-level0` | r1 | level-0 screen below the int4 lm_head plane |
 
 **#34 is the round's instrument.** It scales a *real* kernel's own work over
 *cold* data (rotating the weight-bank index by 20 layers, writing to scratch;
@@ -699,6 +763,43 @@ gate `:1668-1671`; `grid.x` `:1922`. `tile_matmad_nax`
   strides and `ensureRowContiguous` would then re-copy the bank on **every
   dispatch**.
 
+### The certified lm_head cascade (`Sources/MLXFastModel/LagunaLmHeadPrune.swift`)
+
+Read `:1-72`; it is the best-documented module in the tree. Stock lm_head reads
+the full BF16 [100352, 2048] weight (411 MB) for one row. Behind
+`DARKBLOOM_LM_HEAD_PRUNE` (default ON) that becomes four dispatches:
+
+```
+1 COARSE     GEMV over the planar int5 copy; decode with FUSED_REFINEMENT reads
+             only the 4-bit nibble plane at 1088 B/row -> 109.2 MB/step.
+             Emits coarse logit c_i and certified bound delta_i     (:156)
+2 ARGMAX-1   stock two-pass (value,index) reduction over `coarse` alone
+3 THRESHOLD  finishes argmax, stock single-row GEMV on the coarse winner r,
+             thresholds just below bfloat(e_r) -- sound for ANY r since e_r <= e_winner
+4 EXACT      each simdgroup owns a FIXED 4-row block, full BF16 GEMV on that block
+             iff coarse[r] + delta[r] >= threshold for any of its rows; re-reads the
+             dropped 256 B/row residual bit plane for survivors only     (:650)
+```
+
+The certificate: `d_i = Σ_j |x_j| · (sd_g/2)` (flat half-cell), emitted as
+`delta_i = d_i · (1 + 61·gamma)` with `gamma = 2^-15`, legal because the int5
+codes satisfy `|q| ≤ 15` (verified on the real tensor at init, with a fallback to
+the stock head on overflow at `:888`). **`delta` is BF16 rounded toward +infinity,
+and candidacy is MONOTONE in it, so widening the bound only grows the candidate
+set** — the property any new screening level must reuse. `coarse` stays FP32
+because it would have to round down for the threshold path and up for the
+candidate test.
+
+Decode's three-level split: `nibble = floor(q/2) + 8`, `bit plane = q − 2·floor(q/2)`,
+which is what took step 1 from 1344 to 1088 B/row (−25.7 MB/step, nezuko #20,
++0.410% at 3.2σ). The exact pass's per-row arithmetic is a **textual replica** of
+the stock `gemv_al_bfloat16` so candidate logits are bit-identical, and every
+vocabulary slot is written by exactly one lane on exactly one path. Prefill's
+already-sliced final row uses the one-pass form
+(`DARKBLOOM_LM_HEAD_PRUNE_PREFILL`, default ON). Roughly **458 of 25,088 four-row
+blocks survive** to step 4 (~1.8%), reading 16 KB per live block for ~1.2 wanted
+rows.
+
 ### Measured hardware ceilings
 
 - **M4 Pro:** scalar FMA f32 7.07 / f16 7.59 TFLOP/s; simdgroup MMA bf16 28.76,
@@ -787,6 +888,18 @@ optimisation.
     by summing two rungs, one of which it had already isolated as a regression.
 11. A bit-exactness corpus needs a **power control** that fails. A test that
     cannot fail is not evidence.
+12. **A delete-and-measure attribution is invalid unless you demonstrate the
+    deleted code's producers survived.** Deleting a reduction whose result is
+    unused lets the compiler eliminate everything feeding it, so you measure the
+    reduction *plus its producers*. Keep the value live through a sink the kernel
+    actually writes, and diff the instruction count or disassembly — not only the
+    time. (fern #36, self-reported against his own #30 table.)
+13. **When two arms agree to better than the noise floor, suspect they are the
+    same arm before suspecting additivity.** Two independent mechanisms landing
+    within 0.1% of each other is a coincidence; one mechanism measured twice under
+    two labels explains it exactly. (Advisor error, #36.)
+14. **Count dependency depth and ILP, not instruction count**, on any kernel not
+    shown to be byte- or arithmetic-bound. See §3.
 
 ---
 
@@ -806,6 +919,7 @@ optimisation.
 
 | family | verdict | evidence |
 | --- | --- | --- |
+| **Vector / shuffle-count reduction in the fused attention core** | **CLOSED at the mechanism level (fern #36)** | 15 shuffles against `simd_sum`'s 20, same addition tree, **1.79% slower**. `float2` alone −0.27% = one noise floor; pad+`float2` does not stack; `float4` with madds hoisted and `float4` + packed epilogue both null. Geometry identical in every arm, so the M4 null is evidence about M5 (bounded residual 0.013% of score). Both premises in the brief were wrong — see §C. Do not reopen with a different vector width |
 | **Attention byte de-amplification / head packing** | **CLOSED, two independent kills** | fern #30: the `h × s = 64` family. h-sweep spans 8× in issued bytes for <8% non-monotone time; the assigned h=8,s=8 two-pass config was **+5.7% slower** with bit-exactness proven. `kv_head=0` (8× fewer unique bytes) gave 30.5 vs 31.4 — unique bytes are not the bound. Independently killed by tanjiro #27's cache-resident probe (kernel at 34% of the cache-resident ceiling at its own working set) |
 | **`MLX_MAX_OPS_PER_BUFFER`** | **INERT at any value ≥ 40** | frieren #23: `needs_commit()` cuts at `ops > max_ops`; the largest command buffer holds 28 ops as shipped and 39 at 400 MiB, while the op rule needs 201. Balanced A/A +0.144% ± 0.125%. See §E |
 | **The 0.884 ms decode launch-ramp as a recoverable term** | **STRUCK** | tanjiro #27's saturation law: `dT(n) = max(0, n*c − slack)`, knee at 1209 extra dispatches, scored path at ~406. 600 dispatches of pure launch overhead appeared at **1%** of cost. My 2.18 µs in-situ reconciliation is retracted |
@@ -865,14 +979,40 @@ all four students are occupied.
    would move us from a ~1-in-468 promotion shot to roughly a coin-flip. Must be
    split into independently correct, independently measurable increments — one
    plane per submission — per the calibration band and rule 10.
-4. **Deepen the lm_head cascade beyond nezuko's first 25.7 MB.** The int5 plane is
-   134.9 MB = 7.5% of the step. A hierarchical screen (very coarse bound over all
-   100,352 rows → int5 on ~10³ survivors → exact rescore) could take the plane to
-   ~30 MB ⇒ ~105 MB removed ⇒ ~3.7% of score. **The old pricing must be
-   re-derived**: the corrected figures are 8.110 MB unique / 9.982 MB issued /
-   109.6 GB/s (an earlier 6.5 GB/s figure was wrong by 16.9× on bytes). The
-   defensible target is the row-granular gather — 458 live 4-row blocks read 16 KB
-   for ~1.2 wanted rows, so the 7.5 MB `gemv_al` term could fall ~3×.
+4. **Deepen the lm_head cascade — ASSIGNED, fern #37.** Step 1 of the certified
+   cascade (`Sources/MLXFastModel/LagunaLmHeadPrune.swift:1-72`) reads the 4-bit
+   nibble plane at 1088 B/row for **all** 100,352 rows = **109.2 MB/step = 6.1% of
+   the budget**, at 515 µs/step and **101% of the M4 DRAM ceiling** — the largest
+   single dispatch in the step. The screen is already tight (~458 live 4-row
+   blocks of 25,088 survive, ~1.8%), so the cost is the *exhaustive* level-1 read,
+   not the refinement.
+
+   The brief rejects "go coarser in bits" (4→2 bits multiplies the step by 4 so
+   `delta` grows 4× while the plane only halves) in favour of **dimension
+   selection with a bounded tail**: read int4 for the top-K *groups* of 128 dims
+   ranked by `sum_{j∈g} |x_j|`, and bound the remainder with per-row per-group
+   maxima `M_ig` stored once at init (16 B/row = 1.6 MB total):
+   `|tail| ≤ Σ_{g∉S} M_ig · Σ_{j∈g} |x_j|`. At K=2 that is 144 B/row = 14.4 MB, a
+   **7.6× cut** on the exhaustive pass; expected total ~40 MB against today's
+   116.7 ⇒ **+2.7% of score** (+3.2% without block amplification).
+
+   **The correctness story is already written**: the module's header states that
+   `delta` is only ever compared and candidacy is **monotone** in it, so widening
+   the bound only grows the candidate set and the emitted token is still the stock
+   token. This instantiates the existing certificate with a wider bound rather
+   than inventing a new argument.
+
+   Part 0 is the data question: how concentrated is `Σ_j |x_j|` across channels at
+   group-of-128 granularity, on the *worst* of the 128 timed steps? The published
+   outlier-feature and massive-activation results make heavy concentration likely
+   in an RMSNorm'd hidden state, but it must be measured. Kill threshold: expected
+   bytes must fall below ~60 MB/step.
+
+   Separately still open and **not** in #37's scope: the refine dispatch's
+   row-granular gather (458 live 4-row blocks read 16 KB for ~1.2 wanted rows, so
+   the 7.5 MB `gemv_al` term could fall ~3×). Its pricing must use the corrected
+   8.110 MB unique / 9.982 MB issued / 109.6 GB/s figures — an earlier 6.5 GB/s
+   figure was wrong by 16.9× on bytes.
 5. **`gate_sp_h64 + gate_sp_h48`: 213 µs/step = 2.43% of T = ~1.55% of score at
    face value.** The cheapest large item on the board by measured time, and at
    **2% of the DRAM ceiling** it is pure latency — which means §2 says our hosts
