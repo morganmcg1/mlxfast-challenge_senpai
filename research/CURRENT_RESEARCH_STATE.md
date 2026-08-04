@@ -590,9 +590,17 @@ the ~90-flag surface as unexplored territory; it is not.
 A source audit of MLX's command-buffer machinery plus a re-read of nezuko #9's
 sweep table settled the §4b reconciliation with measurements instead of algebra,
 and killed three candidates I had briefed. **§4b's 1.72 µs / 0.300 ms pair is
-superseded by 2.18 µs / 0.200 ms.**
+superseded by 2.18 µs / 0.200 ms** — but see §10i, which partly reinstates the
+1.72 µs half: the ramp coefficient is only pinned to the range 1.52–2.18 µs, and
+the self-consistent endpoint is 1.52 µs. The 0.200 ms host term is unaffected
+and stands.
 
-#### 10a. The single decomposition that closes both budgets
+#### 10a. The single decomposition that closes both budgets — **amended by §10i, read that first**
+
+> **§10i amendment.** The split between the cache-served re-read term and the
+> launch-ramp term below is **not determined** by this closure — only their sum,
+> `1.259 ms`, is. Do not quote 0.375 ms or 0.884 ms as standalone numbers.
+
 
 nezuko #9's shipped-configuration row (`FUSE=0 SPLIT=0`, 120 steps, GPU
 timestamps windowed to the steady decode span) is the campaign's best decode
@@ -958,6 +966,46 @@ stage) and this arm are the prefill and decode instances of one hypothesis: the
 tree's latency-hiding was chosen for a 260 GB/s, 20-core machine and is ranked on
 a ~500 GB/s, 40-core one. If both land, that hypothesis, not any single kernel,
 is the campaign's result.
+
+#### 10i. §10a does not close "exactly". It is one equation with two unknowns, and the degeneracy matters
+
+I presented the §10a decode budget as closing to the nanosecond with the ramp
+coefficient as the only free parameter. That was wrong in a way worth naming: the
+**amplification term is also free**, because I priced 241.2 MB/step of excess
+issued bytes without deriving the rate they move at. Fixing it at 0.375 ms
+silently assumed **643 GB/s**. The kernel's own measured issued rate is
+**375 GB/s**.
+
+```
+excess issued bytes = (8.389-2.097)*30 + (7.86-2.621)*10 = 241.2 MB/step
+
+amp rate     amp term    residual ramp    per dispatch
+643 GB/s     0.375 ms      0.884 ms         2.18 us     <- what I published
+500 GB/s     0.500 ms      0.759 ms         1.87 us
+375 GB/s     0.643 ms      0.616 ms         1.52 us     <- self-consistent endpoint
+```
+
+Every row closes to nezuko's 8.345 ms. The budget constrains only the **sum** of
+the two terms, so "it closes exactly" was never evidence for either value.
+
+The bottom row is the more defensible one, because it prices the excess bytes at
+the rate the kernel that issues them is measured to achieve, rather than at a
+rate assumed to make a different term come out round. And it is independently
+attractive on two counts:
+
+- **1.52 µs per dispatch is close to my original 1.72 µs prediction**, and a
+  smaller ramp is exactly what #9's failed fusion implies. The 2.18 µs figure
+  and the −0.228 ms fusion result were always in tension; this resolves it.
+- It moves 0.268 ms from a term nothing can cash in to a term with an identified
+  mechanism, taking §10h's full-removal ceiling from 0.375 to **0.643 ms = 7.5%
+  of step = 4.8% of score**.
+
+**One measurement breaks the degeneracy and it is the one already requested.**
+tanjiro's L2-resident read ceiling at the attention kernel's shape pins the
+amplification rate directly, and the ramp then follows by subtraction. Until it
+lands, quote §10a as `amp + ramp = 1.259 ms` and do not quote either half as a
+standalone number — including in student briefs, where I have already quoted
+0.884 ms twice.
 
 
 ### Round 4 outcome
