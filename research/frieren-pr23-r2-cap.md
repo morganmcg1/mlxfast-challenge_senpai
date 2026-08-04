@@ -547,3 +547,41 @@ optimum on this host is at a *smaller* cap than shipped, in a regime (no wiring,
 bistable rather than merely small. It is the wrong thing to spend a shared
 receipt slot on.
 
+### 10.5 The ops axis closed in the metric currency: a balanced A/A
+
+`research/frieren_ops_aa.sh`, same design as §4 (2000 steps/arm, positions
+`A B B A | B A A B | A B B A` plus a discarded warm-up), both arms at
+`MLX_MAX_MB_PER_BUFFER=200` with only `MLX_MAX_OPS_PER_BUFFER` differing
+(A = 200, B = 400). By §10.3 this is an A/A by construction.
+
+```
+ pos arm   ms/step        pos arm   ms/step
+   1   A    8.9535          7   A    8.9496
+   2   B    8.9326          8   B    8.9461
+   3   B    8.9492          9   A    8.9432
+   4   A    8.9149         10   B    8.9565
+   5   B    8.9217         11   B    8.9524
+   6   A    8.9294         12   A    8.8908
+```
+
+| estimator | delta | uncertainty | t |
+| --- | ---: | ---: | ---: |
+| pooled (A n=6 8.9302 se 0.0098, B n=6 8.9431 se 0.0054) | +0.144 % | ± 0.125 % | +1.15 |
+| within-block paired | +0.144 % | ± 0.143 % | +1.00, 2 df |
+| OLS with linear position | +0.144 % | ± 0.130 % | +1.10 |
+
+Drift `−0.0008 ms/position (se 0.0017)`. Null on all three estimators, as
+predicted. Two uses:
+
+1. The ops axis is closed in `T`, not merely in cb/step, so the §4-§7 control arm
+   at ops 400 and the current base's control at ops 200 are interchangeable and
+   those screens need no rerun.
+2. **A/A noise floor for this design: ±0.13 % at 1σ, ≈±0.29 % at 2σ.** The §4
+   decode contrast is 11.8× the A/A point estimate at `t = −9.71` against
+   `t = +1.15`, so it is not an artefact of the balancing design. The loosest
+   block (`B−A = +0.0375`) is driven by `p12-A = 8.8908`, whose
+   `cpu_user_ms_per_step` rose to 0.1206 from a 0.062 baseline - host activity,
+   not the arm.
+
+Raw log `/tmp/ops_aa.log`.
+

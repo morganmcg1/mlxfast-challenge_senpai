@@ -244,7 +244,35 @@ rerun. I confirmed that in the metric currency rather than by argument, with a
 balanced A/A on the ops axis alone (`research/frieren_ops_aa.sh`, same design,
 2000 steps/arm, 12 positions):
 
-AA_RESULTS_PLACEHOLDER
+```
+ pos arm   ms/step        pos arm   ms/step
+   1   A    8.9535          7   A    8.9496
+   2   B    8.9326          8   B    8.9461
+   3   B    8.9492          9   A    8.9432
+   4   A    8.9149         10   B    8.9565
+   5   B    8.9217         11   B    8.9524
+   6   A    8.9294         12   A    8.8908
+```
+
+| estimator | delta | uncertainty | t |
+| --- | ---: | ---: | ---: |
+| pooled means (A n=6 8.9302 se 0.0098, B n=6 8.9431 se 0.0054) | +0.144% | ± 0.125% | +1.15 |
+| within-block paired (3 blocks) | +0.144% | ± 0.143% | +1.00, 2 df |
+| OLS with linear position term | +0.144% | ± 0.130% | +1.10 |
+
+Fitted drift −0.0008 ms/position (se 0.0017) - none. All three estimators agree at
+`+0.144%` with `t ≈ 1`, i.e. **null**, as the partition data predicts. So the ops
+axis is closed in the metric currency too, not only in cb/step.
+
+This is also the calibration I wanted. **This harness's A/A noise floor at 2000
+steps/arm over 12 balanced positions is ±0.13% (1σ), ≈±0.29% at 2σ.** The decode
+cap contrast of −1.696% is 11.8× the A/A point estimate and `t = −9.71` against
+`t = +1.15`, so §6's decode effect is not an artefact of the design. One honest
+detail: the third block is the loose one (`B−A = +0.0375` against +0.0067 and
+−0.0056), driven by `p12-A = 8.8908`, the lowest reading in the screen, whose
+`cpu_user_ms_per_step` jumped to 0.1206 from the 0.062 baseline - i.e. host
+activity, not the arm. Even taking the loosest block at face value the contrast is
+null.
 
 ## 7. Head-region numbers, restated (r1 doctrine, unchanged)
 
