@@ -1004,12 +1004,20 @@ number of command-buffer commits per decode step by 10x. If the 2.607 us is
 mostly commit amortisation, `c` should collapse; if it is a genuine per-dispatch
 encode or launch cost, nothing should move.
 
-| `MLX_MAX_OPS_PER_BUFFER` | n | S (ms) | T (ms) |
-| --- | ---: | ---: | ---: |
-| default (50) | 2400 | 614.226 | 13.21733 |
-| 500 | 2400 | 621.813 | 13.39666 |
+| `MLX_MAX_OPS_PER_BUFFER` | n | S (ms) | T (ms) | ΔT vs same-n default |
+| --- | ---: | ---: | ---: | ---: |
+| default (50) | 2400 | 614.226 | 13.21733 | — |
+| 500 | 2400 | 621.813 | 13.39666 | +0.179 (+1.36%) |
+| default (50) | 0 | 614.827 | 10.11366 | — |
+| 500 | 0 | 619.833 | 10.16652 | +0.053 (+0.52%) |
 
-`T` does not fall. It rises 1.4%. **The per-dispatch cost is not
+`T` does not fall. It rises 1.4%. The `n = 0` control (`656f58d2`) rules out the
+one confound that could have hidden a real effect — that the lever helps the
+*unmodified* path and the injected dispatches merely swamped it. It does not: on
+the unmodified path the same lever also costs a little, +0.053 ms. The sign is
+the same at both ends and the magnitude scales with dispatch count, which is
+what a slightly *worse* encode/execute overlap looks like when command buffers
+get 10x longer. **The per-dispatch cost is not
 per-command-buffer commit cost**, and the ~1200-dispatch absorption capacity is
 not MLX's op-per-buffer limit. Two facts that were already in the data agree:
 the capacity does not move when the bound-buffer set stays fixed and the

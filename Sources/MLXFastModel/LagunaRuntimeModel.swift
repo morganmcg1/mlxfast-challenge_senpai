@@ -11012,18 +11012,23 @@ private func lagunaInjectEnvInt(_ key: String, _ fallback: Int) -> Int {
 /// through `lagunaInjectSweepPasses` (bytes *per* dispatch) so that dispatch
 /// count and the bound-buffer set are identical in every run and the
 /// command-buffer term cancels in `T_B - T_A`.
+///
+/// Every knob below defaults to 0 so that `lagunaInjectActive` is false and the
+/// instrument is fully inert in the committed tree. A configuration is selected
+/// by environment variable for local differencing, or by an explicit source
+/// edit for an authorised official receipt.
 private let lagunaInjectDecodeSweeps = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_SWEEPS", 1)
+    "DARKBLOOM_INJECT_DECODE_SWEEPS", 0)
 /// Passes over the 256 MiB pool per sweep dispatch. Buffer-passed uniform,
 /// never a Metal function constant.
 private let lagunaInjectSweepPasses = max(
     1, lagunaInjectEnvInt("DARKBLOOM_INJECT_SWEEP_PASSES", 1))
 /// 512x8192 @ 8192x2048 bf16 matmuls injected per multi-token forward.
 private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_PREFILL_MATMULS", 20)
+    "DARKBLOOM_INJECT_PREFILL_MATMULS", 0)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 2400)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
