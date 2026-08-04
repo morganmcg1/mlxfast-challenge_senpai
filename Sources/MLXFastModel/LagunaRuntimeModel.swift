@@ -221,6 +221,33 @@ let lagunaFusedRoutedGateUpEnabled =
 let lagunaPrefillFusedRoutedGateUpEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_GATE_UP"] != "0"
 
+let lagunaRouteHistogramEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTE_HISTOGRAM"] == "1"
+
+func lagunaEmitRouteHistogram(_ indices: MLXArray, rows: Int) {
+    let n = LagunaConstants.numExperts
+    var counts = [Int](repeating: 0, count: n)
+    let flat: [UInt32] = indices.flattened().asArray(UInt32.self)
+    for e in flat {
+        counts[Int(e)] += 1
+    }
+    let sorted = counts.sorted()
+    var zero = 0
+    for c in counts where c == 0 {
+        zero += 1
+    }
+    func pct(_ p: Int) -> Int {
+        let idx = (p * n) / 100
+        return sorted[min(n - 1, max(0, idx))]
+    }
+    var line = "mlxfast: routehist rows=\(rows) experts=\(n) assign=\(flat.count)"
+    line += " zero=\(zero) min=\(sorted[0])"
+    line += " p10=\(pct(10)) p25=\(pct(25)) p50=\(pct(50))"
+    line += " p75=\(pct(75)) p90=\(pct(90)) p99=\(pct(99))"
+    line += " max=\(sorted[n - 1]) counts=\(counts)\n"
+    FileHandle.standardError.write(Data(line.utf8))
+}
+
 func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
     guard osSupportsNAX,
         let generation = Int(architecture.suffix(3).prefix(2))
@@ -9851,6 +9878,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
+        if lagunaRouteHistogramEnabled, x.dim(1) > 1 {
+            lagunaEmitRouteHistogram(inds, rows: x.dim(1))
+        }
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
