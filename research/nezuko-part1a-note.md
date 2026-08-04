@@ -14,7 +14,7 @@ assignment `maple-2026-08-04d-lmhead-cascade`.
 ## What this archive is
 
 This archive is **deliberately not a candidate**. It is one arm of a
-four-receipt factorial design, and its only job is to let the other three
+four-receipt factorial design, and its only job is to let the other
 receipts be read correctly.
 
 It contains the promoted frontier with exactly **two commits reverted and
@@ -41,13 +41,18 @@ point that separates them:
 
 ```
 C0  = promoted base                                  (3 banked receipts)
-X   = C0 - 9c1ad1c - 6ca0c71                         (this archive)
-Y   = X + LM-head cascade                            (3 receipts)
+X   = C0 - 9c1ad1c - 6ca0c71                         (this archive, 2 receipts)
+Y   = X + LM-head cascade                            (2 receipts, both landed)
 
 X - C0  = the two deletions alone
 Y - X   = the LM-head cascade alone   <- the number that prices the arm
 Y - C0  = the two combined, i.e. what a naive family comparison reports
 ```
+
+The last two receipts go 2/2 rather than 3/1 because that split dominates on
+both decomposition contrasts — `Y - X` costs 1.000σ instead of 1.155σ, and
+`X - C0` costs 0.913σ instead of 1.155σ — while giving up only 0.10σ on the
+combined contrast, which is the one the other two already answer.
 
 The cascade is the mechanism a DRAM-saturation model of the decode step
 predicts should be worth `+0.91%` of score. That prediction is about the
@@ -63,6 +68,56 @@ because the pinned baseline's prefill term is bimodal with a ~3.6% mode gap.
 Pooled over 27 degrees of freedom the published score carries cv 0.489% while
 the renormalised statistic carries 0.149%. A single receipt of anything, this
 one included, is not evidence; a family is.
+
+## Why the decomposition turned out to matter more than I expected
+
+When I planned this design I treated `X` as insurance. The first two `Y`
+receipts changed that.
+
+Against the three-receipt control, `Y` moved the renormalised statistic by
+**+0.456%** and the pure decode step `T` by **−0.763%**, against a byte-model
+prediction of **+0.914%** and **−1.432%**. The effect is real, on the right
+axis, and the prefill term `S` — which nothing in this family should touch —
+moved `+0.090% ± 0.201%`, so the built-in negative control is clean. But the
+realised magnitude is **0.53×** the prediction on both axes simultaneously.
+
+That factor is the whole result of the arm, and it is only attributable to the
+cascade if the two deletions in this archive contributed nothing to it. Hence
+this receipt. A `0.53×` conversion factor re-prices every remaining
+byte-removal experiment on this board by a factor of two; a `0.53×` factor
+that is really a `0.6×` cascade effect partly cancelled by a deletion
+regression prices them differently again. The difference is worth a receipt.
+
+## The byte numerator is confirmed to 99.3%, so this is not a bookkeeping error
+
+The obvious mundane explanation for a half-size effect is that the advertised
+25.69 MB is not actually removed. The cascade's second stage re-reads the
+1-bit residual plane for every four-row block that survives its screen, so if
+survivors were common the saving would be much smaller than advertised. The
+inherited code asserted in a comment that survivors are "single digits per
+step". That assertion had never been instrumented.
+
+I instrumented it: an env-gated census (`DARKBLOOM_LMHEAD_PRUNE_STATS=1`,
+research-only, not in this archive) that evaluates the screen
+`coarse + delta >= thr` on the host and counts surviving rows and live
+four-row blocks. Over the 128 timed decode steps of a local `--local-iterate`
+run:
+
+| quantity | mean | median | min | max |
+| --- | ---: | ---: | ---: | ---: |
+| surviving rows | 534 | 288 | 55 | 9193 |
+| live 4-row blocks | 458 | 269 | 55 | 7261 |
+
+458 live blocks is **1.83%** of the 25088 blocks, and the re-read costs
+`534 × 320 B = 171 KB/step`. Net removal is therefore **25.519 MB of a nominal
+25.69 MB — 99.3%**. The numerator is right. Whatever costs the other half of
+the predicted effect, it is not un-removed bytes.
+
+The census also corrects the inherited comment by two orders of magnitude:
+survivors are hundreds, not single digits. That does not matter for the byte
+count, but it does matter for anyone sizing the sparse-refine dispatch, which
+is separately known to run at 6.5 GB/s and is the worst-efficiency dispatch in
+the decode step.
 
 ## Correctness
 
