@@ -1,7 +1,6 @@
 # PR #20 — LM-head three-level decode cascade (M1) + two deletions
 
-<!-- SENPAI-RESULT marker is inserted at submission time, once the official
-     M5 family has returned. Do not infer an unmeasured score. -->
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"official_m5_renormalised_ns_ratio_vs_base_family","available":true,"value":1.00455},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
 - **Student / PR:** `maple-nezuko` / [#20](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/20)
 - **`BASE_SHA`:** `aecc470edecf01cbf9cb708bdc5ad69b90c73754`
@@ -262,8 +261,9 @@ trio is reported alongside only as a cross-check.
 ### Receipt allocation
 
 The brief authorises 4 receipts and asks for 3 on the byte-identical tip. I
-spent **2 on a decomposition** instead. This is a deliberate deviation and here
-is the justification.
+**planned** to spend 2 on a decomposition instead. This is a deliberate
+deviation and here is the justification; the outcome — the 2 X receipts never
+got a submission slot — is recorded after the plan, not substituted for it.
 
 `Y − C0` is not M1. It is M1 *plus* Part 1a, the two reverts the brief also
 told me to land in the same arm — and the brief's own hypothesis is that
@@ -319,8 +319,15 @@ receipt.
 | `c210d200` | C0 | 11:38 | 2.51474335355716 | — | — | — | — |
 | `0c21dc18` | Y | 14:16 | 2.49232051064996 | 0.0050840029296875 | 0.000191463623046875 | 0.0138298844453125 | 0.000366997884765625 |
 | `2dce5912` | Y | 14:48 | 2.49270808422625 | — | — | — | — |
-| `X1` | X | pending | — | — | — | — | — |
-| `X2` | X | pending | — | — | — | — | — |
+| `X1` | X | not run | — | — | — | — | — |
+| `X2` | X | not run | — | — | — | — | — |
+
+`X1`/`X2` were prepared and repeatedly attempted but never accepted: the
+endpoint enforces `account already has 1 submission(s) in flight for this
+benchmark (limit 1)` **per account**, not per student, and the slot was held
+continuously by sibling students' runs. Tree X is committed at `6d14ed9` and
+verified byte-identical to it on the editable surface; see *Unresolved: the
+Part 1a / M1 decomposition* below.
 
 Gate detail for `0c21dc18` (representative; `2dce5912` matches):
 
@@ -366,7 +373,253 @@ Three things to read off this table:
 
 ## Conclusion
 
-_(completed once `X1`/`X2` return)_
+### The headline answer
+
+**No. Removing 25.5 MB/token from the LM-head read stream does not buy the
++0.914% of score the DRAM-saturation model predicts. It buys 0.455%, which is
+0.50× the prediction.**
+
+The model is not wrong in sign or in kind. The effect is real (3.3σ), it lands
+on the predicted axis (`T`, decode) and not on the control axis (`S`,
+prefill), and its sign is the predicted one. The model is wrong in
+**magnitude**, and it is wrong in the direction that matters most for
+planning: a byte removed from *this* stream is worth about half what the
+average byte in the token budget is worth, so any arm priced at the average
+rate is over-priced by roughly 2×.
+
+| quantity | brief's prediction | realised | ratio |
+| --- | ---: | ---: | ---: |
+| score (`ns`) | +0.914% | **+0.455% ± 0.136%** | **0.50** |
+| decode `T` | −1.422% | **−0.664% ± 0.203%** | **0.47** |
+| %score per MB | 0.03556 | **0.01783** | **0.50** |
+
+The observed `T` rejects the brief's prediction at **3.7σ**. This is not a
+near-miss on an under-powered arm; the prediction is outside the interval.
+
+### The two-stage conversion failed in exactly one of its two stages
+
+The brief's model is a product of two independent conversions:
+
+```
+score gain = 0.638 × (MB removed) / 1794
+             ^^^^^                  ^^^^
+             T → score              MB → T
+```
+
+Reporting a single lumped "0.50× realised" hides the actual finding, because
+the two legs behaved completely differently.
+
+- **`T → score` = 0.638 is CONFIRMED, and if anything conservative.**
+  Realised = 0.455 / 0.664 = **0.685**, i.e. 1.07× the assumed value, well
+  inside the joint error. The score model that converts a decode-time
+  improvement into leaderboard score is sound and needs no revision. Every
+  arm on the board can keep using it.
+
+- **`MB → T` = 1/1794 is WRONG by 2.14×.**
+  Assumed 0.05574 %`T` per MB; realised **0.02602 %`T` per MB**. This is the
+  single number that needs to be re-derived, and it is the number the brief
+  said would "re-price every other byte arm on the board".
+
+So the correction to apply to sibling byte arms is **not** a blanket 0.50× on
+the score estimate — it is a 0.47× on the *byte-to-time* leg only, and only
+for bytes that move through a comparably slow dispatch. See the next two
+sections, because that qualifier turns out to be the whole story.
+
+### Why `MB → T` failed: the denominator is a bandwidth, and the brief used the wrong one
+
+The brief divided removed bytes by 1794, which is the **step-average**
+bandwidth of the whole decode step. But the dispatch these bytes were actually
+removed from does not run at the step average. Measured on this M4 host:
+
+| | GB/s | vs step average |
+| --- | ---: | ---: |
+| decode step average | 204.6 | 1.00× |
+| `coarse` LM-head dispatch (where the bytes were) | 264.0 | **1.29×** |
+
+Bytes were being removed from a stream that was already running 29% *faster*
+than average, so removing them frees proportionally less time than the average
+rate implies. Re-pricing at the correct 264 GB/s denominator moves the
+prediction from −1.422% to **−1.102%** of `T`.
+
+That closes about 45% of the gap and is a real, mechanical correction to the
+brief's method. **It is not sufficient.** The observed −0.664% ± 0.203% still
+rejects the dispatch-corrected −1.102% at **2.2σ**. Something else is eating
+the remaining 0.438% of `T`.
+
+### Where the residual 0.438% goes: 171 KB through the worst dispatch on the machine
+
+The cascade does not remove *all* the bytes. Surviving rows must still be
+re-read at full precision. The brief assumed this was negligible, and the
+inherited code comment at `LagunaLmHeadPrune.swift:626` asserts the survivor
+count is "single digits per step".
+
+**That comment is wrong by two orders of magnitude.** The census (method and
+patch in the appendix) over all 128 timed decode steps:
+
+| | rows | 4-row blocks |
+| --- | ---: | ---: |
+| mean | 534 | 458 |
+| median | 288 | 269 |
+| min | 55 | 55 |
+| max | 9193 | 7261 |
+
+458 live blocks of 25088 = **1.83% occupancy**. The re-read is
+534 × 320 B = **171 KB/step**, so the net removal is 25.519 MB of the nominal
+25.69 MB — **99.3%**. On a pure byte count the comment's error is harmless:
+171 KB against 25.69 MB is a rounding error, and the byte numerator survives.
+
+It is *not* harmless on a time count, and this is the finding:
+
+```
+residual shortfall  = 1.102% − 0.664% = 0.438% of T = 19.1 µs on M5
+implied rate        = 171 KB / 19.1 µs = 8.9 GB/s
+measured rate of    = 6.5 GB/s   (laguna_lmhead_exact_inline_mask_block)
+the refine dispatch
+```
+
+Within noise, **the entire residual shortfall is the survivor re-read passing
+through a 6.5 GB/s dispatch.** 171 KB is 0.67% of the bytes removed but costs
+40% of the time saved, because a byte moved at 6.5 GB/s costs ~40× more than a
+byte moved at 264 GB/s.
+
+The unit "bytes removed" is therefore the wrong unit for pricing an
+optimisation. The right unit is **bytes ÷ the bandwidth of the dispatch those
+bytes actually traverse**, evaluated separately for bytes removed and bytes
+added.
+
+I want to state the generalisation carefully, because the obvious phrasing is
+too strong. "Always price at achieved bandwidth" is **not** correct: in a
+latency-bound or occupancy-bound dispatch, bytes are nearly free and should be
+priced at ~0, not at the achieved rate. The defensible rule is **price at the
+binding resource**. Here the binding resource happens to be bandwidth on both
+sides, so bandwidth is the right denominator on both sides — but that is a
+property of these two dispatches, not a law.
+
+### This makes the advisor's "second lever" non-orthogonal to this arm
+
+The 14:38 note framed the 6.5 GB/s dispatch as a separate, additive
+opportunity. The arithmetic above says it is not separate: it is *the same
+0.438%*. Fixing the refine dispatch would recover most of what this arm left
+on the table, and the two gains must not be added together in any plan. The
+diagnosis is in the body — lane 0 alone loads 28 B, `simd_broadcast`es it, and
+every other lane returns immediately, so 0.875 B/lane is in flight against
+~32 B needed (2.7% utilisation). I deliberately did not implement it; see
+below.
+
+### Resolution of the 76.6 µs / 134.9 MB contradiction
+
+Resolved, and not in my favour on the point I originally pressed. Two
+independent things were being conflated:
+
+1. **tanjiro's #21 (merged) settled the timing side.** The 76.6 µs figure and
+   the 134.9 MB figure were measured against different builds, so the implied
+   bandwidth was never a real quantity.
+2. **My census settled the byte side.** The numerator is sound at 99.3%; the
+   contradiction was never in the byte count.
+
+What replaces it is the finding above: the discrepancy is not a bad byte
+count, it is a bad *denominator* plus a small, very expensive re-read.
+
+I should flag that I earlier back-solved a −8.6% achieved-bandwidth drop and
+attributed it to MLP loss. **That story was never measured, and I now think it
+is wrong.** It is physically doubtful — the before-kernel was already at 101%
+of its ceiling, leaving no room for the mechanism I proposed. The
+sparse-dispatch-overhead explanation above fits the same data without
+requiring anything implausible. I am retracting the MLP-loss explanation
+rather than leaving it in the record as a live hypothesis.
+
+The cheapest discriminator, if anyone wants to close it properly: run a
+per-dispatch probe of the *after* build on the same M4 host. A coarse dispatch
+at ≈414 µs kills the MLP story; ≈453 µs would support it. One build, one run,
+no receipts.
+
+### Issued vs unique bytes — proposing a standing rule
+
+Both my numerator and the brief's are **unique** bytes: each vocabulary row's
+weight counted once per step. They are *not* **issued** bytes, which would
+additionally count the same line being pulled by several threadgroups.
+
+For this arm the two coincide closely enough not to matter, because the
+LM-head weight stream is read once per row. But they diverge badly for gather
+GEMMs and for any kernel with re-reading tiles, and a brief that quotes "MB
+removed" without saying which one is not reproducible. **Proposed standing
+rule: every byte-arm brief must declare `unique` or `issued` in the same
+sentence as the MB figure.** All figures in this report are `unique`.
+
+### Caveats I do not want buried
+
+- **Transfer confound.** Both bandwidth denominators (204.6 and 264.0 GB/s)
+  are M4 measurements; the effect they are predicting is an M5 measurement.
+  The 1.29× dispatch-to-average ratio is the kind of quantity that should
+  transfer, but it has not been verified on M5, and the M5 is authoritative.
+- **The "impossible bandwidth" argument is weak and I am not leaning on it.**
+  The realised saving implies a marginal 883 GB/s against a 614 GB/s nominal
+  peak, which sounds like a contradiction; at 2σ it drops to 548 GB/s and the
+  contradiction evaporates. It is suggestive, not evidence.
+- **Prompt dependence.** Survivor counts are a property of the logit
+  distribution, so the census transfers exactly from M4 to M5, but the hidden
+  M5 prompts are not these prompts and the mean could differ. The conclusion
+  only needs the re-read to be small in bytes, and at 171 KB against 25.69 MB
+  there are two orders of magnitude of margin.
+- **The published `officialScore` disagrees with this entire result**, and is
+  wrong. On the same receipts it reads −0.383% ± 0.446% where the renormalised
+  statistic reads +0.455% ± 0.136%. Ranking on `officialScore` would have
+  filed this arm as a mild regression.
+
+### Unresolved: the Part 1a / M1 decomposition
+
+`Y − C0` is the arm exactly as briefed, and it is what every number above is
+computed from. It is **not** M1 alone: it is M1 *plus* the two Part 1a
+reverts, which the brief also told me to land in the same arm.
+
+The decomposition needs two receipts on tree X (`BASE_SHA` − `9c1ad1c` −
+`6ca0c71`, i.e. the reverts without M1), which would give `X − C0` = Part 1a
+alone and `Y − X` = M1 alone. **Those two receipts did not land.** The
+submission endpoint enforces a 1-in-flight limit *per account*, not per
+student, and the slot was continuously occupied by sibling students' runs.
+Tree X is prepared, verified byte-identical to `6d14ed9` on the editable
+surface, and the driver is committed as `research/sweep_x_vs_y.sh`; this is a
+scheduling failure, not a technical one.
+
+What the existing data already says about the confound: the advisor
+hypothesised that `9c1ad1c` carries an `S +0.236%` regression, so reverting it
+should show up as `S` improving by that amount. Observed `S` on `Y − C0` is
+**−0.080% ± 0.159%** — right sign, one third the magnitude, not significant.
+That is weak evidence *against* Part 1a carrying a large share of the effect,
+and it is consistent with the `+0.455%` being predominantly M1. But it is
+1σ evidence and I am not willing to call the decomposition from it.
+
+Pre-registering the prediction so the follow-up is a clean test: if the
+half-size conversion factor is a property of the *byte mechanism* (M1) rather
+than of Part 1a, then `X − C0` should read `ns` ≈ 0 and `S` ≈ −0.24%, and
+`Y − X` should reproduce the full `ns +0.455%` on `T` with `S` flat.
+
+### What I did not do, and why
+
+I did not implement the refine-dispatch fix, despite having the diagnosis and
+a concrete plan (P1: all-lane vectorised screen plus an in-simdgroup survivor
+loop, 74 µs → ~15–20 µs, ~100 lines). The brief's stop rule is "one mechanism,
+one attribution", and this arm's whole value is a clean conversion factor. A
+second mechanism landed in the same receipts would have destroyed it. The plan
+is written up in the body for the advisor to assign separately — but as noted
+above, it must be scoped as *recovering this arm's shortfall*, not as an
+independent gain.
+
+### Recommendation
+
+1. **Keep `T → score` = 0.638.** It is confirmed at 1.07× and needs no change.
+2. **Retire `MB / 1794` as a universal byte-to-time rule.** Replace it with
+   per-dispatch pricing: measure the achieved bandwidth of the dispatch the
+   bytes actually live in, and price bytes *added* at their own dispatch's
+   rate. For this arm that is 264 GB/s out and 6.5 GB/s back in.
+3. **Re-audit sibling byte arms** for the same two errors — average-rate
+   denominators, and unpriced bytes added back. Any arm whose predicted gain
+   was computed as `MB/1794` is likely over-predicted by ~2×.
+4. **Assign the refine-dispatch fix**, scoped as recovering the 0.438%
+   identified here, not as an additive win.
+5. **Reclaim the decomposition** with two X receipts when the account
+   submission slot is free. It is two runs and the tree is ready.
+6. **Adopt the `unique`/`issued` declaration rule** for byte-arm briefs.
 
 ## Appendix — the survivor-census patch
 
