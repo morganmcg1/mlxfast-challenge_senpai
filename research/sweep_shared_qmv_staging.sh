@@ -18,25 +18,31 @@ if [ ${#ARMS[@]} -eq 0 ]; then
 fi
 
 for arm in "${ARMS[@]}"; do
+    # `deep` stages every K block of the shared gate/up QMV instead of one
+    # block ahead; the down projection keeps the depth-1 form it accepts.
     case "$arm" in
-        base) stage=0; pack=0 ;;
-        st)   stage=1; pack=0 ;;
-        pk)   stage=0; pack=1 ;;
-        both) stage=1; pack=1 ;;
+        base) stage=0; pack=0; down_stage=0 ;;
+        st)   stage=1; pack=0; down_stage=1 ;;
+        pk)   stage=0; pack=1; down_stage=0 ;;
+        both) stage=1; pack=1; down_stage=1 ;;
+        k1)   stage=1; pack=1; down_stage=0 ;;
+        deep) stage=2; pack=1; down_stage=0 ;;
         *) echo "unknown arm ${arm}"; exit 1 ;;
     esac
-    echo "================ arm=${arm} STAGE=${stage} PACK=${pack} SPLIT=${SPLIT} ================"
+    echo "================ arm=${arm} STAGE=${stage} PACK=${pack} DOWN_STAGE=${down_stage} SPLIT=${SPLIT} ================"
+    err="/tmp/qmvstage.${arm}.split${SPLIT}.err"
     DARKBLOOM_SHARED_QMV_STAGE="${stage}" \
-    DARKBLOOM_DOWN_ROW_STAGE="${stage}" \
+    DARKBLOOM_DOWN_ROW_STAGE="${down_stage}" \
     DARKBLOOM_SHARED_QMV_PACK2="${pack}" \
     DARKBLOOM_DOWN_PACK4="${pack}" \
     DARKBLOOM_GPU_PROFILE=1 \
     DARKBLOOM_GPU_PROFILE_SPLIT="${SPLIT}" \
         python3 research/decode_probe.py --steps "${STEPS}" --profile \
-            --profile-top 60 \
-            --stderr "/tmp/qmvstage.${arm}.split${SPLIT}.err" 2>&1 \
+            --profile-top 60 --stderr "${err}" 2>&1 \
         | grep -Ev "^ *$" \
         | grep -E 'worker up|divergences|decode steps=|per steady step|profile:|swiglu_qmv_rows1|down_residual|first 8 steps'
+    grep -E '^GPUPSO .*(swiglu_qmv_rows1|down_residual)' "${err}" \
+        | sed 's/^/    /'
     echo
 done
 echo SWEEP_DONE
