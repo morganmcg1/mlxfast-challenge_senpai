@@ -10856,8 +10856,13 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 // Certified two-pass final-row head (notes/68): full BF16
                 // logits, bit-identical to stock in every argmax-reachable
                 // slot. When enabled, prefill has already sliced to the last
-                // hidden row; decode always retains this pruner.
-                result = pruner.logits(hidden: hidden, lmHeadWeight: lmHead.weight)
+                // hidden row; decode always retains this pruner. Only
+                // single-token decode takes the three-level screen, whose
+                // level-one pass reads 25.7 MB/step less of the int5 planes.
+                result = pruner.logits(
+                    hidden: hidden,
+                    lmHeadWeight: lmHead.weight,
+                    useFusedRefinement: inputs.dims(1, 1))
             } else {
                 result = lmHead(hidden)
             }
