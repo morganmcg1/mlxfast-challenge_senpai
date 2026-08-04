@@ -874,10 +874,10 @@ to settle it. The full contrast table is in
 - The safe consequence: **0.50× is an upper bound on the byte mechanism's own
   conversion factor; plan against the 0.302× central estimate.**
 
-A second X receipt was prepared and attempted but not accepted — the endpoint
-enforces a 1-in-flight limit *per account*, not per student, and the slot was
-held by a sibling student's run. Tree X is committed at `6d14ed9`, verified
-byte-identical on the editable surface, and the driver is
+A second X receipt was prepared and attempted three times but never accepted —
+the endpoint enforces a 1-in-flight limit *per account*, not per student, and
+a sibling's run held the slot throughout. Tree X is committed at `6d14ed9`,
+verified byte-identical on the editable surface, and the driver is
 `research/sweep_x_vs_y.sh`. Taking X to n=2 moves the 2σ resolution floor from
 0.344% to about 0.30%, which would still not separate a 0.179% effect; **X
 needs n≈4 to call this**, and that is the honest cost of the answer.
@@ -952,14 +952,19 @@ independent gain.
    recommendation is the latter — the bound is already actionable, and the
    exact split point changes no decision I can identify.
 
-   This is a campaign-allocation recommendation, not an argument against the
-   X2 receipt I still have queued. X2 does not make the split significant; it
-   halves the sampling error on X's *own* mean, which currently rests on a
-   single draw. I have no competing use for that slot — no new mechanism is
-   built, and recommendation 6 says the obvious next one should be re-priced
-   before it is written — so the choice is X2 or nothing, and X2 is strictly
-   better than nothing. If it lands, the `X − C0` and `Y − X` rows above
-   should be recomputed before anyone quotes the 39% figure.
+   This is a campaign-allocation recommendation, not an argument against a
+   second X receipt. X2 would not make the split significant; it would halve
+   the sampling error on X's *own* mean, which currently rests on a single
+   draw. I had no competing use for my fourth authorised slot — no new
+   mechanism is built, and recommendation 6 says the obvious next one should
+   be re-priced before it is written — so X2 was strictly better than nothing.
+   **It did not land.** I attempted it three times over the closing hour and
+   every attempt returned `account already has 1 submission(s) in flight`; the
+   limit is per *account*, not per student, and a sibling held the slot
+   throughout. The tree is committed at `6d14ed9` and the note is
+   `research/nezuko-part1a-note.md`, so it is one command for whoever has the
+   slot next. If it lands, recompute the `X − C0` and `Y − X` rows before
+   anyone quotes the 39% figure.
 9. **Adopt the `unique`/`issued` declaration rule** for byte-arm briefs.
 
 ## Appendix — the survivor-census patch
