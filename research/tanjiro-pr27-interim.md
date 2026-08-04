@@ -370,6 +370,15 @@ Three things follow, and they change what a dispatch-count arm is worth.
    dominates. So "MLX inserted a barrier here" is worth ~0.8 us at decode
    widths and nothing at prefill widths.
 
+### RESOLVED in section 8: the in-situ cost obeys a saturation law
+
+Everything from here to the end of section 6 was written before the four
+large-lever-arm runs in section 8, which resolve it. The `0.031 us` below is
+real but it is *not* the per-dispatch cost — it is the per-dispatch cost seen
+from inside an absorption region. Read section 8 for the answer; this
+subsection is kept because it records the two hypotheses the follow-up was
+designed to separate.
+
 ### The in-situ figure is 90x lower and I do not yet trust either number
 
 `LC3 - LA3` puts 600 chained injected dispatches per decode step at
@@ -494,4 +503,173 @@ a 4.35 ms step before it can be used to rank arms, and a term that was 10% of
 8.545 ms is 20% of 4.35 ms. The five frontier trees agree on `T` to 0.7% and on
 `S` to 0.5%, which is tighter than the baseline-slot noise above and confirms
 the candidate slot is the quiet one.
+
+
+## 8. RESOLVED: in-situ dispatch cost is a saturation law, not a constant
+
+The 600-dispatch result in section 6 was measured from inside an absorption
+region. Raising the lever arm four ways settles it. All runs have
+`sweeps = 0, matmuls = 0`, so the reference is the zero-injection control
+(`S = 583.311 ms`, `T = 9.00680 ms`); all returned `passed_correctness: true`
+and `max_abs_diff: 0`.
+
+| run | tg | n (decode) | S (ms) | T (ms) | dT vs zero (ms) | dT/n (us) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| LC3* | 160 | 600 | 619.864 | 10.13248 | 0.0188 | 0.031 |
+| LE | 160 | 2000 | 575.182 | 10.93761 | 1.9308 | 0.965 |
+| LD | 160 | 4000 | 588.450 | 16.54604 | 7.5392 | 1.885 |
+| LF | 8 | 8000 | 576.764 | 27.05580 | 18.0490 | 2.256 |
+| LG | 512 | 4000 | 573.317 | 31.99681 | 22.9900 | 5.748 |
+
+`*` LC3 also carried `sweeps = 1, matmuls = 20`; its `dT` is differenced against
+LA3, which carried the same, so it is still a clean 600-dispatch delta.
+
+The apparent per-dispatch cost rises 60x across the first three rows at fixed
+width. A constant-cost model cannot produce that. A **saturation law** fits all
+of it:
+
+```
+dT(n) = max(0, n * c  -  slack)
+```
+
+Fitting `c` and `slack` from the two saturated tg=160 points (LE, LD), with no
+assumption imported from the isolated probe:
+
+```
+c_decode(tg=160) = (7.5392 - 1.9308) ms / (4000 - 2000) = 2.804 us
+slack            = 2000 * 2.804 us - 1.9308 ms          = 3.678 ms
+```
+
+and then LC3 is a genuine out-of-sample prediction: `600 * 2.804 us = 1.682 ms`
+is below the 3.678 ms slack, so the law predicts `dT = 0` and the measurement is
+`+0.0188 ms`, i.e. **zero to within the 0.03 ms decode noise floor.** Three
+points, two parameters, one prediction confirmed.
+
+### The cost is width-independent below ~160 threadgroups
+
+Applying the same `slack = 3.678 ms` to the two other widths:
+
+| tg | isolated, no barrier | **in-situ `c`** | in-situ / isolated |
+| ---: | ---: | ---: | ---: |
+| 8 | 0.730 us | **2.716 us** | 3.72x |
+| 160 | 2.788 us | **2.804 us** | 1.01x |
+| 512 | 7.223 us | **6.667 us** | 0.92x |
+
+The in-situ cost is **flat at 2.72-2.80 us from tg=8 to tg=160**, then picks up
+`(6.667 - 2.804) / 352 = 11.0 ns` per extra threadgroup — which is the same
+slope the isolated probe shows (13.0 ns/TG). So the in-situ cost decomposes as
+
+```
+c(tg) ~= 2.75 us  +  11 ns * max(0, tg - 160)
+```
+
+against the isolated probe's `0.62 us + 13 ns * tg`. **The isolated probe misses
+a 2.1 us width-independent term that only exists inside the real runtime.**
+That term cannot be GPU threadgroup scheduling, because it does not scale with
+threadgroup count. It is MLX per-op framework cost: graph-node construction, the
+Swift/C++ boundary, a fresh output allocation per op, the encoder's
+barrier bookkeeping, and its every-50-ops command-buffer commit.
+
+### What the two numbers actually mean for the programme
+
+**Answer to your question.** In-situ `c_decode` is **2.75 +/- 0.05 us** for any
+dispatch up to ~160 threadgroups. Against your 2.18 us target that is +26%, and
+against your 1.9-2.4 us confirmation band it is 15% above the top. Against the
+same-day isolated measurement at the same width (2.788 us) it agrees to 0.6%.
+I think the honest reading is that your 2.18 us was low because it was derived
+from a 160-threadgroup isolated figure while implicitly being used as a
+per-op constant, and those happen to coincide only at tg=160.
+
+**This makes op-count reduction more valuable than section 6 concluded, not
+less.** Section 6 argued from the isolated probe that merging two narrow
+dispatches recovers only the 0.62 us fixed part. That was wrong: in situ the
+fixed part is 2.75 us and it is fully width-independent, so merging two
+tg=8 dispatches into one recovers the whole 2.75 us, and merging two tg=160
+dispatches into one tg=320 dispatch recovers 2.75 us minus the 11 ns/TG the
+merged dispatch now pays above 160, i.e. about 0.99 us. Narrow decode-shaped
+dispatches are where fusion pays, and it pays 4x more than the isolated probe
+suggests.
+
+**But it only pays above the saturation knee, and today we are below it.** The
+3.678 ms slack is the load-bearing number here. On this host a decode step is
+9.007 ms and absorbs 3.678 ms / 2.804 us = **1312 additional dispatches at zero
+cost**. The scored path issues roughly 406. So the decode stream is running at
+about a quarter of its dispatch-absorption capacity, and *removing* a dispatch
+from it converts 2.75 us of overhead into 2.75 us of extra slack, not into 2.75
+us of saved wall time. That is the single most important consequence of this
+measurement:
+
+- **An arm that only reduces MLX op count on the decode path should be priced at
+  zero** until the op count is high enough to saturate, and this path is 3.2x
+  below saturation.
+- **Conversely, up to ~1300 dispatches' worth of *independent* GPU work per
+  decode step is free.** Anything the runtime can express as an op that does not
+  sit on the token's dependency chain — input-independent weight preparation,
+  mask or RoPE table construction, dequantisation state, resident-view wiring —
+  costs nothing at all if it stays inside that budget. This is the actionable
+  half of the finding and it is a much larger budget than I expected.
+- The 0.884 ms launch-ramp line in your decode budget is therefore **not a
+  recoverable term.** It is not even the right magnitude: `406 * 2.75 us =
+  1.12 ms` of per-op overhead exists, but it is hidden inside a 3.678 ms
+  absorption region, so it is not on the critical path and removing it recovers
+  nothing measurable.
+
+### Prefill absorbs vastly more
+
+Prefill is one forward pass over 512 tokens, so the same 20000-dispatch
+injection is 20000 dispatches in a single pass:
+
+| run | prefill empties | S (ms) | dS vs control (ms) | implied us/dispatch |
+| --- | ---: | ---: | ---: | ---: |
+| LD | 20000 | 588.450 | +5.14 (vs zero) / +13.3 (vs LE) | 0.26 - 0.66 |
+
+If these dispatches were serialised at 2.788 us they would add **55.8 ms**. The
+observed effect is 5-13 ms, and the run-to-run spread of `S` across the four
+zero-prefill-injection runs in this section is itself 575.2-588.5 ms, i.e.
+13.3 ms. So the honest statement is a bound: **prefill absorbs at least 76% of
+55.8 ms, i.e. its slack is at least 42 ms per 512-token forward**, and
+`c_prefill` is not measurable on this host at this lever arm. 42 ms is 7% of the
+583 ms forward. A prefill-side arm that only removes dispatches is worth
+nothing.
+
+### Consequences for the official configuration plan
+
+The M5 decode step is ~4.35 ms (section 7), roughly half this host's 9.007 ms.
+If the slack scales with the step, M5 absorbs about
+`3.678 * 4.35 / 9.007 = 1.78 ms`, i.e. ~650 dispatches. **My planned config C
+(600 decode empties, 1000 prefill empties) therefore sits inside the M5
+absorption region and would have measured nothing** — it would have burned an
+official receipt to reproduce the 0.031 us artifact on a second machine. This
+is exactly the failure the M4 gate exists to catch, and it caught it.
+
+Revised plan: two saturated points instead of one, so `c` comes from their
+difference and needs no assumption about the M5 slack.
+
+| config | sweep passes | matmuls | decode empties | prefill empties |
+| --- | ---: | ---: | ---: | ---: |
+| A (submitted) | 1 | 20 | 0 | 0 |
+| B | 3 | 40 | 0 | 0 |
+| C | 1 | 20 | 2000 | 10000 |
+| D | 1 | 20 | 3000 | 17500 |
+
+```
+BW_M5        = 536.870912 MB / (T_B - T_A)
+FLOP/s_M5    = 343.597 GFLOP / (S_B - S_A)
+c_decode_M5  = (T_D - T_C) / 1000
+c_prefill_M5 = (S_D - S_C) / 7500
+slack_M5     = 2000 * c_decode_M5 - (T_C - T_A)
+```
+
+Both `c` estimators are differences of two saturated configurations, so the
+slack cancels. Predicted signal-to-noise on M5, using this host's constants
+scaled to the 4.35 ms step and section 7's measured M5 noise: `T_D - T_C` is
+~2.7 ms against a ~0.03 ms decode noise floor, and `S_D - S_C` is ~20 ms against
+a ~1.9 ms prefill noise floor. Both are comfortable.
+
+The counts are also chosen to keep every configuration clear of the hard 0.95
+speedup floors on M5. Worst case is D: predicted `T ~ 11.3 ms` against the
+`12.366 / 0.95 = 13.02 ms` limit, and predicted `S ~ 167 ms` against the
+`190.6 / 0.95 = 200.6 ms` limit. Section 7 also shows all 789 `rejected` runs
+still publish full metrics, so a band rejection is not a lost receipt; only a
+workflow-step failure is.
 
