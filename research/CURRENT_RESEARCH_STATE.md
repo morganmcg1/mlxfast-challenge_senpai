@@ -917,29 +917,66 @@ epilogue (`:1634-1655`).
 | config | TGs (sliding) | amp | issued MB | TG mem | dispatches | bit-exact |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | `h=2, s=32` shipped | 32 | 4× | 8.389 | 17,920 B | 1 | — |
-| **`h=4, s=32` "quad path"** | **16** | **2×** | **4.19** | **18,944 B** | **1** | **yes, trivially** |
+| `h=4, s=32` "quad path" | 16 | 2× | 4.19 | 18,944 B | 1 | yes, trivially — **but see the trap below** |
 | `h=8, s=32` | 8 | 1× | 2.097 | ~8.7 kB | 1 | yes, but ~320 B/thread of registers risks spilling |
-| `h=8, s=8` | 32 | 1× | 2.097 | ~8.7 kB | 2 | yes, needs a deferred epilogue |
+| **`h=8, s=8`** | **32** | **1×** | **2.097** | **~8.7 kB** | **2** | **yes, needs a deferred epilogue** |
 
-Start at **sliding `h=4` / full `h=3`**: one dispatch, no epilogue restructuring,
-no extra threadgroup memory of consequence (the exchange goes from 2-plane to
-1-plane rounds, 4 rounds instead of 2), and it halves issued KV traffic on the
-sliding path and cuts it by a third on the full path.
-
-Priced at the **fully-L2-bandwidth-bound ceiling**, which is the optimistic end:
+**DO NOT start at `h=4, s=32`, even though it is by far the easiest to build.**
+Reducing `h` at fixed `s = 32` cuts the threadgroup count in exact proportion to
+the bytes, and threadgroup count is what determines how many GPU cores are
+active. If the 375 GB/s is a rate *proportional to active cores* rather than a
+shared-fabric ceiling, the two effects cancel — and they cancel differently on
+the two machines, because 32 threadgroups saturate our 20 cores but leave 8 of
+the ranked host's 40 idle:
 
 ```
-sliding  8.389 -> 4.19 MB   22.34 -> 11.2 us   x30  saves 335 us
-full     7.86  -> 5.24 MB   23.5  -> 15.7 us   x10  saves  78 us
+                                    speedup under the core-proportional model
+config        TGs  thr/TG  amp   M4 cores  M4      M5 cores  M5
+h=2,s=32       32    1024   4x        20   1.00x        32   1.00x   <- shipped
+h=4,s=32       16    1024   2x        16   1.60x        16   1.00x   <- TRAP
+h=8,s=32        8    1024   1x         8   1.60x         8   1.00x   <- TRAP
+h=8,s=8        32     256   1x        20   4.00x        32   4.00x   <- target
+h=8,s=4        64     128   1x        20   4.00x        40   5.00x
+```
+
+`h=4, s=32` reads as a clean **1.6× local win and returns nothing on the ranked
+host.** It is the exact failure mode this campaign keeps paying for — an M4
+measurement that does not transfer — and it is the variant a student would
+naturally build first because it needs no epilogue work.
+
+**The configuration that transfers keeps the threadgroup count and shrinks the
+threadgroups**: `h=8, s=8`, i.e. 32 threadgroups of 256 threads, each owning all
+8 query heads of one `kv_head` and 8 of the 32 simdgroup slot-bands. 1×
+amplification on both machines, and `h=8, s=4` adds the 8 idle M5 cores on top.
+Full-attention counterpart is `h=6` with `s ∈ {8,4}`.
+
+That means **the deferred epilogue is mandatory, not an escalation.** Pass 1
+emits the 32 per-simdgroup `(max, sum, o[128])` partials, bit-identical to
+today's because each simdgroup keeps its slot set and order; pass 2 runs the
+unchanged 32-lane `simd_max` / `simd_sum` butterfly and is therefore bit-exact
+by construction. Pass 2 must be **folded into `oproj_act_h64/h48`** — a separate
+kernel adds 40 dispatches/step, which #9 priced at **+0.228 ms**.
+
+Priced at the fully-bandwidth-bound ceiling for the `h=8` family:
+
+```
+sliding  8.389 -> 2.097 MB   22.34 -> 5.6 us   x30  saves 502 us
+full     7.86  -> 2.621 MB   23.5  -> 7.8 us   x10  saves 157 us
                                                     ---------------
-                                            413 us = 4.8% of step = 3.1% of score
+                                            659 us = 7.7% of step = 4.9% of score
 ```
 
-The realistic figure is lower: the kernel will turn latency-bound somewhere
-below 375 GB/s, so treat **1.5–2.0% of score** as the expected capture and 3.1%
-as the ceiling. `h=8` / `h=6` roughly doubles the ceiling again if registers
-hold. Either number clears the 0.61% bar and the lower one alone would not
-promote, so this is a component of a promotion, not a promotion on its own.
+which is independently consistent with §10i's 0.643 ms self-consistent
+amplification term. The kernel will turn latency-bound before that, so treat
+**2.0–3.0% of score as the expected capture and 4.9% as the ceiling.** Even the
+low end clears the 0.61% bar; the high end promotes on its own.
+
+**The discriminating measurement is already requested.** The second point I
+asked tanjiro for on #27 — the same read at 8 threadgroups instead of 32 — is
+exactly the test of whether the rate is per-core or shared-fabric. If it is
+shared-fabric, `h=4, s=32` becomes legitimate and the arm gets much cheaper. **Do
+not assign this arm until that point is in.** I would otherwise be handing a
+student the trap.
 
 **Two hard constraints from our own results.**
 - Any variant needing a second dispatch per attention layer adds 40 dispatches
