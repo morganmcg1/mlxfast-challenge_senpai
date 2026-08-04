@@ -246,29 +246,33 @@ private let lagunaDecodeHostCPULog = LagunaDecodeHostCPULog()
 let lagunaKernelSourceMinifyEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_KERNEL_SOURCE_MINIFY"] != "0"
 
-/// Removes `//` and `/* */` comments, blank lines, indentation, and redundant
-/// intra-line spacing.
+/// Removes `//` and `/* */` comments, blank lines, indentation, redundant
+/// intra-line spacing, and the newlines Metal does not need.
 ///
 /// The token stream is preserved exactly:
-/// - lines are never joined and string/character literals are never rewritten;
+/// - string and character literals are never rewritten;
 /// - a comment removed from mid-line leaves a separating space;
-/// - a space run is dropped only when neither neighbour pair could form a new
-///   token (two identifier characters, or two characters that can start a
-///   multi-character operator, always keep one space);
+/// - a space run, or a joined line boundary, keeps one space whenever the two
+///   neighbours could otherwise form a new token (two identifier characters, or
+///   two characters that can start a multi-character operator);
 /// - `#` directive lines keep their internal spacing, because `#define F (x)`
-///   and `#define F(x)` are different declarations; and
-/// - a line spliced onto a `\` continuation starts with a space, so stripping
-///   its indentation cannot merge it with the previous line's last token.
+///   and `#define F(x)` are different declarations, and keep a newline on both
+///   sides so joining can never absorb a directive into an expression; and
+/// - a `\` continuation keeps its newline, and the spliced line then starts with
+///   a space, so the splice cannot merge two tokens.
+///
+/// Comments are removed before any line is joined, so a joined line can never
+/// comment out the code that followed it.
 func lagunaMinifiedKernelSource(_ source: String) -> String {
     guard lagunaKernelSourceMinifyEnabled, !source.isEmpty else { return source }
     let input = Array(source.utf8)
     var output = [UInt8]()
     output.reserveCapacity(input.count)
-    var lineStart = 0
     var inBlockComment = false
     var quote: UInt8 = 0
     var directive = false
     var spliced = false
+    var atLineStart = true
     var index = 0
 
     func isIdentifier(_ byte: UInt8) -> Bool {
@@ -287,26 +291,38 @@ func lagunaMinifiedKernelSource(_ source: String) -> String {
         }
     }
     func emit(_ byte: UInt8) {
-        if output.count == lineStart {
-            if spliced { output.append(0x20) }
+        if atLineStart {
+            atLineStart = false
             directive = byte == 0x23
+            if let previous = output.last {
+                if previous == 0x0A {
+                    if spliced { output.append(0x20) }
+                } else if directive {
+                    output.append(0x0A)
+                } else if (isIdentifier(previous) && isIdentifier(byte))
+                    || (isOperator(previous) && isOperator(byte))
+                {
+                    output.append(0x20)
+                }
+            }
+            spliced = false
         }
         output.append(byte)
     }
     func endLine() {
-        while output.count > lineStart, output[output.count - 1] == 0x20 {
-            output.removeLast()
+        if atLineStart {
+            // A blank line only matters when the previous line spliced onto it,
+            // in which case the preprocessor must still consume it.
+            if spliced {
+                output.append(0x0A)
+                spliced = false
+            }
+            return
         }
-        if output.count == lineStart {
-            // Blank lines are dropped, unless the previous line spliced onto
-            // this one, in which case the preprocessor must still consume it.
-            guard spliced else { return }
-            spliced = false
-        } else {
-            spliced = output[output.count - 1] == 0x5C
-        }
-        output.append(0x0A)
-        lineStart = output.count
+        while output.last == 0x20 { output.removeLast() }
+        atLineStart = true
+        spliced = output.last == 0x5C
+        if spliced || directive { output.append(0x0A) }
         directive = false
     }
 
@@ -317,7 +333,7 @@ func lagunaMinifiedKernelSource(_ source: String) -> String {
                 endLine()
             } else if byte == 0x2A, index + 1 < input.count, input[index + 1] == 0x2F {
                 inBlockComment = false
-                if output.count > lineStart { output.append(0x20) }
+                if !atLineStart { output.append(0x20) }
                 index += 2
                 continue
             }
@@ -363,10 +379,8 @@ func lagunaMinifiedKernelSource(_ source: String) -> String {
             while next < input.count, input[next] == 0x20 || input[next] == 0x09 {
                 next += 1
             }
-            let atLineStart = output.count == lineStart
             let follower = next < input.count ? input[next] : 0x0A
-            if !atLineStart, follower != 0x0A {
-                let previous = output[output.count - 1]
+            if !atLineStart, follower != 0x0A, let previous = output.last {
                 let mustSeparate =
                     directive
                     || (isIdentifier(previous) && isIdentifier(follower))
@@ -380,6 +394,7 @@ func lagunaMinifiedKernelSource(_ source: String) -> String {
         index += 1
     }
     endLine()
+    if output.last != 0x0A { output.append(0x0A) }
     lagunaKernelSourceBytes.record(input.count, output.count)
     return String(decoding: output, as: UTF8.self)
 }
@@ -411,6 +426,29 @@ final class LagunaKernelSourceBytes: @unchecked Sendable {
 }
 
 let lagunaKernelSourceBytes = LagunaKernelSourceBytes()
+
+/// Shared `outputShapes`/`outputDTypes` arguments.
+///
+/// A literal array argument is heap-allocated on every call, and a decode step
+/// issues roughly 370 custom-kernel applies, so the shape-and-dtype literals
+/// alone cost about a thousand allocation/release pairs per step. The shapes
+/// here are the ones fixed by `LagunaConstants`; call sites whose shape depends
+/// on a runtime width keep their literal.
+enum LagunaKernelOutput {
+    static let bf16: [DType] = [.bfloat16]
+    static let bf16x2: [DType] = [.bfloat16, .bfloat16]
+    static let bf16x3: [DType] = [.bfloat16, .bfloat16, .bfloat16]
+    static let bf16x4: [DType] = [.bfloat16, .bfloat16, .bfloat16, .bfloat16]
+    static let bf16f32x2: [DType] = [.bfloat16, .float32, .float32]
+    static let u32f32: [DType] = [.uint32, .float32]
+
+    static let hidden: [[Int]] = [[1, 1, LagunaConstants.hiddenSize]]
+    static let sharedExpertIntermediate: [[Int]] = [
+        [1, 1, LagunaConstants.sharedExpertIntermediateSize]
+    ]
+    static let denseIntermediate: [[Int]] = [[1, 1, LagunaConstants.denseIntermediateSize]]
+    static let topGroupPair: [[Int]] = [[1, 1, 8], [1, 1, 8]]
+}
 
 /// `MLXFast.metalKernel` with the source and header minified. Every runtime
 /// kernel is built through this so no construction site can silently keep the
@@ -1441,7 +1479,7 @@ func lagunaResidualRMSNormRouter(
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, hidden], [1, 1, hidden], [1, 1, experts]]
             + (lagunaRouterPrecomputedKeysEnabled ? [[1, 1, experts]] : []),
-        outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16x3
             + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : [])
     )
     return (outputs[0], outputs[1], outputs[2], outputs.count > 3 ? outputs[3] : nil)
@@ -1463,7 +1501,7 @@ func lagunaResidualRMSNorm(
         grid: (rows * 512, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [residual.shape, residual.shape],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16x2
     )
     return (outputs[0], outputs[1])
 }
@@ -1574,7 +1612,7 @@ func lagunaFullQKNormYaRN(
             [1, 48, 1, LagunaConstants.headDim],
             [1, 8, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16x2
     )
     return (outputs[0], outputs[1])
 }
@@ -1700,7 +1738,7 @@ func lagunaSlidingQKNormRoPE(
             [1, heads, 1, LagunaConstants.headDim],
             [1, kvHeads, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16x2
     )
     return (outputs[0], outputs[1])
 }
@@ -2145,7 +2183,7 @@ func lagunaSlidingFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -2657,7 +2695,7 @@ func lagunaFullFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -3130,7 +3168,7 @@ private func lagunaPrefillSlidingQKNormRoPE(
             [1, heads, length, LagunaConstants.headDim],
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16x2
     )
     return (outputs[0], outputs[1])
 }
@@ -3175,7 +3213,7 @@ private func lagunaPrefillFullQKNormYaRN(
             [1, heads, length, LagunaConstants.headDim],
             [1, kvHeads, length, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16x2
     )
     return (outputs[0], outputs[1])
 }
@@ -3817,7 +3855,7 @@ func lagunaFusedNormQKVProjection(
         outputShapes: [
             [1, 1, queryRows], [1, 1, kvRows], [1, 1, kvRows], [1, 1, heads],
         ],
-        outputDTypes: [.bfloat16, .bfloat16, .bfloat16, .bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16x4
     )
     return (outputs[0], outputs[1], outputs[2], outputs[3], true)
 }
@@ -4106,8 +4144,8 @@ func lagunaGatedOutputProjection(
         [attentionOutput, gateValues, weight],
         grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
         threadGroup: (128, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputShapes: LagunaKernelOutput.hidden,
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -4192,7 +4230,7 @@ func lagunaGateProductSoftplus(
         grid: (inVec, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, inVec]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -4447,7 +4485,7 @@ func lagunaGatedAffineOProj(
             [attentionOutput, gateLogits, codes, metadata.indices, metadata.lut],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
-            outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16]
+            outputShapes: [[1, 1, outVec]], outputDTypes: LagunaKernelOutput.bf16
         )[0]
     }
     guard let kernel = lagunaGatedAffineOProjKernels[heads] else { return nil }
@@ -4457,7 +4495,7 @@ func lagunaGatedAffineOProj(
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -4722,7 +4760,7 @@ private func lagunaGateSoftplus(
         grid: ((heads / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, heads]],
-        outputDTypes: [.bfloat16])[0]
+        outputDTypes: LagunaKernelOutput.bf16)[0]
 }
 
 private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
@@ -4775,7 +4813,7 @@ func lagunaGatedAffineOProjNVFP4(
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -5023,7 +5061,7 @@ private func lagunaDecodeNVFP4QKVR1(
         grid: ((rows / 2) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -5499,7 +5537,7 @@ func lagunaNormAffineQKV(
             grid: ((rows / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
-            outputDTypes: [.bfloat16]
+            outputDTypes: LagunaKernelOutput.bf16
         )[0]
     }
 
@@ -5512,7 +5550,7 @@ func lagunaNormAffineQKV(
         grid: ((rows / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -7031,8 +7069,8 @@ func lagunaSharedSwiGLUQMV(
         [input, fusedWeight, fusedScales],
         grid: (tiles * 64, 1, 1),
         threadGroup: (64, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
-        outputDTypes: [.bfloat16]
+        outputShapes: LagunaKernelOutput.sharedExpertIntermediate,
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -7127,8 +7165,8 @@ func lagunaSharedDownResidual(
         [activated, downWeight, downScales, routed, residual],
         grid: ((LagunaConstants.hiddenSize / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputShapes: LagunaKernelOutput.hidden,
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -7365,7 +7403,7 @@ func lagunaRoutedSwiGLUQMV(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -7505,7 +7543,7 @@ func lagunaRoutedSwiGLUQMVPacked(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -7786,7 +7824,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
                 1, 1, LagunaConstants.numExpertsPerTok, 1,
                 LagunaConstants.moeIntermediateSize,
             ]],
-            outputDTypes: [.bfloat16]
+            outputDTypes: LagunaKernelOutput.bf16
         )[0]
     }
     return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
@@ -7797,7 +7835,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -7922,8 +7960,8 @@ func lagunaRoutedDownReduce(
         [activated, downWeight, downScales, indices, routerWeights],
         grid: ((LagunaConstants.hiddenSize / 4) * 256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputShapes: LagunaKernelOutput.hidden,
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -8112,8 +8150,8 @@ func lagunaRoutedSharedDownResidual(
             ],
         grid: (LagunaConstants.hiddenSize / 4 * 288, 1, 1),
         threadGroup: (288, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputShapes: LagunaKernelOutput.hidden,
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -8223,8 +8261,8 @@ func lagunaDenseGateUpSwiGLU(
         [input, fusedWeight],
         grid: ((LagunaConstants.denseIntermediateSize / 64) * 512, 1, 1),
         threadGroup: (512, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
-        outputDTypes: [.bfloat16]
+        outputShapes: LagunaKernelOutput.denseIntermediate,
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -8302,8 +8340,8 @@ func lagunaDenseDownResidual(
         [activated, downWeight, residual],
         grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
         threadGroup: (128, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputShapes: LagunaKernelOutput.hidden,
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -8960,8 +8998,8 @@ func lagunaDecodeRouterTop8AcceptedForTesting(
         [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputShapes: LagunaKernelOutput.topGroupPair,
+        outputDTypes: LagunaKernelOutput.u32f32
     )
     return (outputs[0], outputs[1])
 }
@@ -8981,8 +9019,8 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
         [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputShapes: LagunaKernelOutput.topGroupPair,
+        outputDTypes: LagunaKernelOutput.u32f32
     )
     return (outputs[0], outputs[1])
 }
@@ -9003,8 +9041,8 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
         [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputShapes: LagunaKernelOutput.topGroupPair,
+        outputDTypes: LagunaKernelOutput.u32f32
     )
     return (outputs[0], outputs[1])
 }
@@ -9186,7 +9224,7 @@ private func lagunaPrefillRouterTop8(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: LagunaKernelOutput.u32f32
     )
     return (outputs[0], outputs[1])
 }
@@ -9571,7 +9609,7 @@ func lagunaPrefillRouterTournamentAcceptedForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: LagunaKernelOutput.u32f32
     )
     return (outputs[0], outputs[1])
 }
@@ -9593,7 +9631,7 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
-        outputDTypes: [.uint32, .float32]
+        outputDTypes: LagunaKernelOutput.u32f32
     )
     return (outputs[0], outputs[1])
 }
@@ -9863,7 +9901,7 @@ private func lagunaPrefillMoETail(
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -9896,7 +9934,7 @@ private func lagunaPrefillSortedMoETail(
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: LagunaKernelOutput.bf16
     )[0]
 }
 
@@ -10799,7 +10837,7 @@ private func lagunaDecodeEmbeddingRoPEAtlas(
             [1, 1, 1, LagunaConstants.headDim / 2],
             [1, 1, 1, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .float32, .float32]
+        outputDTypes: LagunaKernelOutput.bf16f32x2
     )
     lagunaTrace("decode embedding+rope atlas")
     return (outputs[0], outputs[1], outputs[2])
