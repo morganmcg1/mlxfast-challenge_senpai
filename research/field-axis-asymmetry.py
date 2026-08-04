@@ -19,6 +19,7 @@ Reads MLXFAST_API_TOKEN from the environment; never prints it.
 
     python3 research/field-axis-asymmetry.py
 """
+import collections
 import json
 import os
 import statistics as st
@@ -62,16 +63,26 @@ def axes(m):
 
 def main():
     rows, ctl = [], {}
+    partition = collections.Counter()
     for r in fetch():
         m = r.get("officialMetrics") or {}
-        if not m.get("decode_seconds_per_token") or \
-           not m.get("prefill_seconds_per_token"):
+        have = bool(m.get("decode_seconds_per_token")) and \
+            bool(m.get("prefill_seconds_per_token"))
+        partition[(r.get("status"), have)] += 1
+        if not have:
             continue
         sid = str(r["id"])[:8]
         s, t, ns = axes(m)
         rows.append((sid, s, t, ns))
         if sid in CONTROL:
             ctl[sid] = (s, t)
+
+    print("status partition (metrics present?):")
+    for (status, have), c in sorted(partition.items(), key=lambda x: str(x[0])):
+        print("  %-12s %5d  %s" % (status, c, "yes" if have else "no"))
+    print("  -> 'rejected' is the ranking band, not correctness: those runs")
+    print("     cleared every gate and were timed. 'failed' carries no metrics.")
+    print()
 
     missing = [c for c in CONTROL if c not in ctl]
     if missing:

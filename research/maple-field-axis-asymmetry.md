@@ -18,6 +18,32 @@ S 97.711 +- 0.254 ms (0.260%)      T 4.3718 +- 0.0104 ms (0.238%)
 Then ask, of all 926 public receipts carrying metrics: how many beat that
 unchanged tree on each axis, in units of that sigma?
 
+### What the 926 actually are
+
+Status partitions the field exactly, and it is worth knowing which population
+this is measured over:
+
+```
+status      count   carries officialMetrics
+accepted      140   yes
+rejected      786   yes
+failed        467   no
+validating      3   no        (in flight at fetch time)
+```
+
+`140 + 786 = 926`, with no exceptions in either direction. So `rejected` means
+**rejected on the ranking/calibration band, not on correctness** — those runs
+cleared every hidden gate and were fully measured. `failed` is the correctness
+bucket and carries no metrics at all.
+
+The 926 is therefore precisely "every submission that passed all gates and got
+timed on the ranked host". That is the right denominator for this question: it
+excludes broken trees without excluding unlucky ones, and it means a null on
+prefill is a null over every *correct* attempt the field has made.
+
+Our own three control receipts are 3 of the 926 (0.3%). They cannot beat
+themselves by 2 sigma, so they do not affect any count below.
+
 ## Result
 
 ```
