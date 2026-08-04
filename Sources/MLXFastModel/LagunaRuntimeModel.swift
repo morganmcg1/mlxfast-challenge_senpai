@@ -93,12 +93,30 @@ private let lagunaDecodeHostSpinNanoseconds: UInt64 = {
     return UInt64(value) * 1000
 }()
 
-@inline(__always)
+/// The spin loop accumulates here so the optimizer cannot delete a
+/// side-effect-free wait (an earlier empty-bodied version was removed outright
+/// and measured its own control).
+nonisolated(unsafe) var lagunaDecodeHostSpinSink: UInt64 = 0
+
+@inline(never)
 func lagunaDecodeHostSpin() {
     guard lagunaDecodeHostSpinNanoseconds > 0 else { return }
-    let deadline = DispatchTime.now().uptimeNanoseconds + lagunaDecodeHostSpinNanoseconds
-    while DispatchTime.now().uptimeNanoseconds < deadline {}
+    if !lagunaDecodeHostSpinAnnounced {
+        lagunaDecodeHostSpinAnnounced = true
+        FileHandle.standardError.write(
+            Data(
+                "mlxfast: decode host spin active: \(lagunaDecodeHostSpinNanoseconds / 1000) us/layer\n"
+                    .utf8))
+    }
+    var now = DispatchTime.now().uptimeNanoseconds
+    let deadline = now + lagunaDecodeHostSpinNanoseconds
+    while now < deadline {
+        now = DispatchTime.now().uptimeNanoseconds
+        lagunaDecodeHostSpinSink = lagunaDecodeHostSpinSink &+ now
+    }
 }
+
+nonisolated(unsafe) private var lagunaDecodeHostSpinAnnounced = false
 
 /// Worker decode is single-threaded, so these counters need no synchronization.
 private final class LagunaDecodeHostTimingLog: @unchecked Sendable {
