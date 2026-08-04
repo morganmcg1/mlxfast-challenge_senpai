@@ -693,6 +693,27 @@ No receipt in this arm is a ranking attempt, and none should be read as one.
    `rejectionReason = "score did not improve current best"`, gave a 0.234% /
    0.662% noise floor that no local host can establish.
 
+## Residual attribution (the number the assignment asked for)
+
+Each block's *excess over its own roofline* is the part of the axis residual it
+owns. Rooflines use the rates this account measured on this host in #27
+(610 GB/s streaming read, 56 TFLOP/s dense bf16), applied per kernel to that
+kernel's own bytes and FLOPs, and the byte term wins for every quantized block.
+
+| block | axis | in-situ cost | own roofline | excess | share of that axis's residual |
+| --- | --- | ---: | ---: | ---: | ---: |
+| routed gather-GEMM | prefill | 43.26 ms | 28.96 ms (DRAM) | **+14.30 ms** | **42.1%** of ~34 ms · 30.2% of 47.4 ms |
+| attention q/k/v/o dense GEMM | prefill | TBD | 26.08 ms (compute) | TBD | TBD |
+| attention q/k/v/o QMV | decode | 1.231 ms | 1.315 ms (DRAM) | **−0.084 ms** | **≈0%** (nominally −6.3%) |
+| routed-expert QMV | decode | TBD | 0.905 ms (DRAM) | TBD | TBD |
+
+Two denominators are carried for prefill because the assignment's 47.4 ms is built
+on a routed-only byte figure (440.0 MB x 39 = 17,159.7 MB) that omits attention,
+the shared expert, embeddings and the LM head. The full text tower reads
+21.1–21.6 GB per forward = 34.6–35.4 ms at 610 GB/s, and the per-kernel roofline
+sum is 62–66 ms, so the honest prefill residual is **~32–36 ms**. Every share is
+given against both so the advisor can use either.
+
 ## Conclusion
 
 TBD
