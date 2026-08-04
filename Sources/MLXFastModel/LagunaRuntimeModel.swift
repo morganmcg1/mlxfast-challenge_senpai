@@ -10981,10 +10981,20 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
 // Structure invariants that make the differences clean:
 //   * exactly one `asyncEval` per layer boundary in every configuration, so
 //     command-buffer count never varies between runs;
-//   * empty dispatches are spread across all 40 layer boundaries so their
-//     launch ramp overlaps real memory traffic (in-situ, not isolated, cost);
-//   * injection magnitudes are host-side counts and buffer sizes only — never
-//     a Metal function constant, so no pipeline is recompiled mid-process.
+//   * the bandwidth magnitude is varied per *dispatch* (`SWEEP_PASSES`), never
+//     by dispatch count, and every matmul reuses one `matA`/`matB` pair.
+//     `CommandEncoder::set_input_array` charges `data_size()` of each distinct
+//     buffer once per command buffer (`device.cpp:316-321`) and
+//     `needs_commit()` trips at 40 Mi items on `*g` / 50 Mi on `*s`
+//     (`device.cpp:484-487`, `:574-595`), so holding the bound-buffer set and
+//     the dispatch count fixed holds the injected commit count fixed and it
+//     cancels in `T_B - T_A`;
+//   * empty dispatches bind only 1- and 256-item arrays, so they add no byte
+//     charge at all, and are spread across all 40 layer boundaries so their
+//     launch ramp sits between real dispatches rather than at the step head;
+//   * injection magnitudes are host-side counts and buffer-passed uniforms
+//     only — never a Metal function constant, so no pipeline is recompiled
+//     mid-process (`quantized.cpp:1214-1220` precedent).
 //
 // Delete this block and the single `lagunaInjectLayerWork` call in
 // `LagunaRuntimeModelInner.callAsFunction` to remove the instrument entirely.
@@ -10997,18 +11007,31 @@ private func lagunaInjectEnvInt(_ key: String, _ fallback: Int) -> Int {
     return value
 }
 
-/// Full 256 MiB DRAM sweeps injected per single-token decode step.
+/// DRAM sweep dispatches injected per single-token decode step. Held constant
+/// across every submitted configuration: the bandwidth magnitude is varied
+/// through `lagunaInjectSweepPasses` (bytes *per* dispatch) so that dispatch
+/// count and the bound-buffer set are identical in every run and the
+/// command-buffer term cancels in `T_B - T_A`.
 private let lagunaInjectDecodeSweeps = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_DECODE_SWEEPS", 1)
+/// Passes over the 256 MiB pool per sweep dispatch. Buffer-passed uniform,
+/// never a Metal function constant.
+private let lagunaInjectSweepPasses = max(
+    1, lagunaInjectEnvInt("DARKBLOOM_INJECT_SWEEP_PASSES", 1))
 /// 512x8192 @ 8192x2048 bf16 matmuls injected per multi-token forward.
 private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_PREFILL_MATMULS", 40)
+    "DARKBLOOM_INJECT_PREFILL_MATMULS", 20)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 40)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_PREFILL_EMPTY", 40)
+    "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
+/// 1 spreads the empty dispatches over all 40 layer boundaries; 0 batches them
+/// all at one boundary. Local-only control used to test whether the measured
+/// per-dispatch cost depends on placement.
+private let lagunaInjectEmptySpread = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_EMPTY_SPREAD", 1) != 0
 /// Threadgroups per empty dispatch (256 threads each); 160 matches the
 /// isolated M4 empty-dispatch datum of 2.46 us.
 private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
@@ -11022,12 +11045,12 @@ private let lagunaInjectMatmulK = 8192
 private let lagunaInjectMatmulN = 2048
 
 /// Bytes read from DRAM per injected sweep dispatch.
-let lagunaInjectSweepBytes = lagunaInjectPoolUInt4 * 16
+let lagunaInjectSweepBytes = lagunaInjectPoolUInt4 * 16 * lagunaInjectSweepPasses
 /// FLOPs issued per injected matmul dispatch (2 * M * N * K).
 let lagunaInjectMatmulFlops = 2 * lagunaInjectMatmulM * lagunaInjectMatmulN * lagunaInjectMatmulK
 
 private let lagunaInjectSweepKernel = MLXFast.metalKernel(
-    name: "laguna_inject_dram_sweep_u4_v1",
+    name: "laguna_inject_dram_sweep_u4_v2",
     inputNames: ["pool", "control"],
     outputNames: ["sink"],
     source: """
@@ -11037,10 +11060,13 @@ private let lagunaInjectSweepKernel = MLXFast.metalKernel(
             const device uint4* quads = (const device uint4*)pool;
             uint gid = thread_position_in_grid.x;
             uint idx = (gid + control[0]) & kMask;
+            uint passes = control[1];
             uint4 acc = uint4(0u);
-            for (uint i = 0; i < kPerThread; ++i) {
-                acc ^= quads[idx];
-                idx = (idx + kThreads) & kMask;
+            for (uint p = 0; p < passes; ++p) {
+                for (uint i = 0; i < kPerThread; ++i) {
+                    acc ^= quads[idx];
+                    idx = (idx + kThreads) & kMask;
+                }
             }
             uint folded = acc.x ^ acc.y ^ acc.z ^ acc.w;
             if (folded == 0xFFFFFFFFu) {
@@ -11082,7 +11108,9 @@ private enum LagunaInjectStore {
 
     nonisolated(unsafe) static let scratch: Scratch = {
         let pool = MLXArray.zeros([lagunaInjectPoolUInt4 * 4], dtype: .uint32)
-        let control = (0..<8).map { MLXArray([UInt32($0 + 1)]) }
+        let control = (0..<8).map {
+            MLXArray([UInt32($0 + 1), UInt32(lagunaInjectSweepPasses)])
+        }
         let matA = MLXArray.zeros(
             [lagunaInjectMatmulM, lagunaInjectMatmulK], dtype: .bfloat16)
         let matB = MLXArray.zeros(
@@ -11109,9 +11137,10 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
         isSingleTokenDecode ? lagunaInjectDecodeSweeps : 0, layer: layer)
     let matmuls = lagunaInjectShare(
         isSingleTokenDecode ? 0 : lagunaInjectPrefillMatmuls, layer: layer)
-    let empties = lagunaInjectShare(
-        isSingleTokenDecode ? lagunaInjectDecodeEmpty : lagunaInjectPrefillEmpty,
-        layer: layer)
+    let emptyTotal = isSingleTokenDecode ? lagunaInjectDecodeEmpty : lagunaInjectPrefillEmpty
+    let empties =
+        lagunaInjectEmptySpread
+        ? lagunaInjectShare(emptyTotal, layer: layer) : (layer == 0 ? emptyTotal : 0)
     let scratch = LagunaInjectStore.scratch
     var pending: [MLXArray] = []
     pending.reserveCapacity(sweeps + matmuls + empties)
