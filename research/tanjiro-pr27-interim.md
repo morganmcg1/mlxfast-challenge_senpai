@@ -953,3 +953,56 @@ of GPU occupancy.
   safe count is 2563, which is why the official pair is placed at **2400 and
   1400** rather than wider.
 
+## 11. Where the ~1200 comes from in MLX, and a lever it exposes
+
+The vendored MLX backend has exactly the kind of bounded batching the law's
+count-shaped capacity points at, and reading it also turns up a configuration
+lever that is inside the submission surface. All line numbers are this
+checkout's.
+
+`CommandEncoder::needs_commit()`
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:484-487`)
+commits the current command buffer once `buffer_ops_ > max_ops` or the bound
+bytes exceed `max_mb`, and `max_ops` is chosen per GPU **from the last character
+of the architecture name** (`device.cpp:574-596`):
+
+| arch suffix | class | `max_ops_per_buffer_` | `max_mb_per_buffer_` |
+| --- | --- | ---: | ---: |
+| `p` | phone | 20 | 40 |
+| `g` | base, pro | 40 | 40 |
+| `s` | max | **50** | **50** |
+| `d` | ultra | 50 | 50 |
+
+Section 1 measured this host's architecture name and it ends in `s`, so this
+development host already runs the *same* `max_ops = 50` policy an M5 **Max**
+will select. The command-buffer batching constant therefore transfers between
+the two hosts — one of the few things in this work that does.
+
+Alongside it, `transforms.cpp:25` sets `MAX_ACTIVE_TASKS = 10` and
+`transforms.cpp:270` blocks the encode thread once that many command buffers are
+outstanding. Pure runahead is therefore capped at about
+`10 * 51 = 510` dispatches, which is the right order of magnitude but **2.4x
+below the measured 1209-dispatch knee**, so a hard count quota is not the whole
+story either. I am deliberately not claiming a mechanism I have not isolated.
+The cheap discriminating test is available and needs no code change:
+`max_ops_per_buffer` is read through
+`env::max_ops_per_buffer` (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/utils.h:178`),
+so re-running the `n = 2400` point with `MLX_MAX_OPS_PER_BUFFER` raised 10x
+separates per-command-buffer commit cost from per-dispatch encode cost: if `c`
+falls, the 2.6 us is mostly commit amortisation; if it does not move, it is a
+genuine per-dispatch cost.
+
+The lever, flagged and **not** implemented here because it is outside this
+assignment: `device.cpp` and `transforms.cpp` are **not** in
+`benchmark.json`'s `editablePaths` (97 entries; the only vendored MLX headers
+listed near this code are `kernels/reduce_utils.h` and
+`kernels/quantized_utils.h`), so the commit policy cannot be edited directly.
+But `env::max_ops_per_buffer` caches into a **function-local static**
+initialised on first call, which happens when the MLX `Device` is first
+constructed — and `Sources/MLXFastModel/` *is* editable and runs before that.
+A single `setenv` from runtime startup code would therefore re-tune the
+command-buffer batching policy for the scored path without touching any
+unlisted file. Whether that is worth anything depends entirely on which side of
+the knee the ranked decode path sits on, which is what official runs `C` and `D`
+are for: below the knee it is worth exactly zero.
+
