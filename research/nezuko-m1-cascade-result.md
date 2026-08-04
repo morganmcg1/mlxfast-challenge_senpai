@@ -412,8 +412,35 @@ rate is over-priced by roughly 2×.
 | decode `T` | −1.422% | **−0.664% ± 0.203%** | **0.47** |
 | %score per MB | 0.03556 | **0.01783** | **0.50** |
 
-The observed `T` rejects the brief's prediction at **3.7σ**. This is not a
-near-miss on an under-powered arm; the prediction is outside the interval.
+The observed `T` rejects the brief's prediction at **3.7σ** — but only if the
+prediction is treated as an exact point value, which is generous to me. Both
+`1794` and `25.7` are derived quantities. Giving the prediction its own
+uncertainty:
+
+| prediction uncertainty | rejection |
+| --- | ---: |
+| ±0% (as quoted) | 3.73σ |
+| ±5% | 3.52σ |
+| ±10% | 3.06σ |
+| ±15% | 2.57σ |
+
+The rejection survives any plausible uncertainty on the byte budget, but
+"3.7σ" is an upper bound on the confidence rather than a neutral statement of
+it. I would defend "rejected at ≥3σ" and not more.
+
+**Two caveats attach to the headline itself**, both stated at length below and
+neither of which I want a reader to miss:
+
+1. **The measured arm is M1 *plus* the two Part 1a reverts**, which the brief
+   told me to land together. The decomposition receipts did not get a
+   submission slot. Attributing the whole +0.455% to the byte mechanism is the
+   most likely reading — `S` moved by only −0.080% where the advisor's own
+   hypothesis predicted Part 1a would move it by +0.236% — but it is 1σ
+   evidence and it is not established.
+2. **The conversion factor is what this arm measures well; the *explanation*
+   for it is corroborated rather than proven.** The 0.50× is a 3.3σ
+   measurement. The account of *why* rests on a bracket whose width exceeds
+   the measurement's own error bar.
 
 ### The two-stage conversion failed in exactly one of its two stages
 
@@ -471,6 +498,18 @@ which is the form other arms should actually reuse:
           than-average         dispatch
           dispatch
 ```
+
+The two factors do not have the same epistemic status and I do not want them
+read as if they do:
+
+- **0.775 is measured.** It is the ratio of two independently measured
+  bandwidths, 204.6 and 264.0 GB/s, neither of which came from this arm's
+  receipts. It would have been the same number had the arm never run.
+- **0.602 is the residual.** It is `observed / dispatch-corrected prediction`
+  by construction, so it is definitionally "everything I did not predict".
+  Naming it the re-read factor is an *interpretation*, and it is only as good
+  as the argument in the next section but one. If that argument is wrong,
+  0.602 does not disappear — it just stops having a name.
 
 Neither factor is a property of "byte arms" in general. The first applies to
 any arm removing bytes from an above-average dispatch; the second applies to
@@ -553,17 +592,37 @@ M5 bracket it:
 | *observed shortfall* | *8.9 GB/s* | ***19.1 µs*** |
 
 The observed value sits between the two bounds, which is where a partially
-latency-bound dispatch should sit. **The residual shortfall is quantitatively
-accounted for by the survivor re-read landing in slot 4.** 171 KB is 0.67% of
-the bytes removed but costs 40% of the time saved, because a byte moved at
+latency-bound dispatch should sit. **The survivor re-read landing in slot 4 is
+the right order of magnitude to explain the residual shortfall, and no
+additional large unexplained term is required.** 171 KB is 0.67% of the bytes
+removed but plausibly costs ~40% of the time saved, because a byte moved at
 6.5 GB/s costs ~40× more than a byte moved at 264 GB/s.
 
-This is a bracket, not a fit: nothing in it was tuned to the observed number,
-and the observed number could have fallen outside the bracket. It also has
-slack in the conservative direction — M1's second screen is strictly tighter
-than the one it replaces (half-cell `d = D/2`), so it can only *reduce* the
-number of live blocks reaching the 16 KB/block BF16 GEMV. The true net cost of
-slot 4's change is therefore at most the 171 KB priced here.
+**I want to be explicit about how weak this test is**, because the paragraph
+above is the kind that gets quoted without its error bar:
+
+- The shortfall inherits the full uncertainty of the measurement it is derived
+  from: **19.1 ± 8.8 µs** (`0.438% ± 0.203%` of `T`, 2.2σ from zero).
+- Its 68% interval, **[10.2, 27.9] µs**, is *wider than the bracket itself*.
+  The data therefore cannot distinguish "the re-read explains all of the
+  shortfall" from "the re-read explains half of it".
+- Over the a priori plausible range — 0 µs (model perfect once the dispatch
+  correction is applied) to 48 µs (the arm buys nothing at all) — the bracket
+  occupies **28%**. Landing inside it is worth roughly a factor of 3.5 in
+  likelihood: real, but corroboration rather than confirmation.
+
+Two things still make it more than coincidence. Nothing in the bracket was
+tuned to the observed number and the observation could have fallen outside it.
+And the bracket is conservative: M1's second screen is strictly tighter than
+the one it replaces (half-cell `d = D/2`), so it can only *reduce* the number
+of live blocks reaching the 16 KB/block BF16 GEMV, making the true net cost of
+slot 4's change at most the 171 KB priced here.
+
+**The decisive test is not statistical and costs no receipts.** A per-dispatch
+probe of the after-build reads slot 4's cost directly (see the discriminator
+below). Anyone who wants this claim established rather than corroborated
+should run that rather than buy more receipts — this is a case where one M4
+build beats three M5 measurements.
 
 The unit "bytes removed" is therefore the wrong unit for pricing an
 optimisation. The right unit is **bytes ÷ the bandwidth of the dispatch those
