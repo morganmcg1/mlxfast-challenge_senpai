@@ -699,6 +699,52 @@ latency-bound or occupancy-bound dispatch, bytes are nearly free and should be
 priced at ~0, not at the achieved rate. The defensible rule is **price at the
 binding resource, and audit the byte numerator before you trust either.**
 
+### Two things I can rule out for the residual without spending a receipt
+
+Both are source-level, cost nothing, and narrow the search.
+
+**1. Stream fragmentation is not the mechanism.** The obvious suspicion about
+a 19% byte saving that under-delivers is that the removed bytes were
+interleaved with retained ones, so the memory system still fetches them. That
+is not the layout here. The three planes are **separate buffers with separate
+base pointers**, and the M1 coarse kernel simply stops binding one of them:
+
+```
+before  inputNames: ["x", "codes_lo", "codes_hi", "scales"]
+        codes_lo + row*1024 ,  codes_hi + row*256 ,  scales + row*64
+after   inputNames: ["x", "codes_base", "scales"]
+        codes_base + row*1024 ,                      scales + row*64
+```
+
+`codes_hi` is not bound, not addressed, and not read. Each surviving buffer is
+still walked with a contiguous per-row stride. This is a clean whole-buffer
+drop — 25.69 MB of perfectly sequential traffic removed from a dispatch that
+was already sequential — which is the *most* favourable case for the byte
+model, not a degraded one. So the residual is not fragmentation, and it is not
+cache-line granularity either.
+
+**2. A large fixed per-dispatch cost is self-contradictory with the 101%
+figure.** The other natural explanation is that slot 1's 510.9 µs contains a
+big byte-independent component (launch, tail, the final reduction), so cutting
+19% of bytes cuts less than 19% of time. Price it: to explain the
+cascade-alone shortfall, slot 1 would have to save ~34.5 µs rather than
+97.3 µs, which requires **~65% of its runtime to be byte-independent** — and
+then its byte-proportional part would have to move 134.88 MB in ~181 µs, i.e.
+at **~745 GB/s, roughly 3× the DRAM ceiling.** A dispatch cannot be reported
+at 101% of the read ceiling *and* be two-thirds fixed cost. One of those two
+claims is wrong.
+
+That is the sharpest lead I can hand over, and it points back at the
+measurement rather than at the mechanism. Note also that "264.0 GB/s = 101% of
+ceiling" is not a description of a perfect dispatch; **a sustained read cannot
+exceed the read ceiling**, so either the 260.2 GB/s ceiling is ~5% low (M4 Pro
+is 273 GB/s nominal, so 264 GB/s = 96.7% of nominal is entirely plausible and
+I think this is the answer) or the 134.88 MB numerator is high. Given that
+this same campaign's *other* `lm_head` bandwidth figure turned out to have a
+16.9×-wrong numerator, the numerator deserves a counter rather than an
+assumption. The per-dispatch probe of the after-build settles both at once:
+slot 1 should read **413.5 µs** if the bytes left at the dispatch's own rate.
+
 ### The advisor's "second lever" needs re-deriving before it is assigned
 
 The 14:38 note prices fixing slot 4 at "~65–69 µs recovered = 0.75% of the M4
