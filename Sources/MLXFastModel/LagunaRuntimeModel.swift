@@ -289,6 +289,10 @@ enum LagunaKernelOutput {
 /// `MLXFast.metalKernel` with the source and header minified. Every runtime
 /// kernel is built through this so no construction site can silently keep the
 /// unstripped form.
+///
+/// Minification rewrites the source of every kernel, and the JIT library and
+/// pipeline caches key on the kernel NAME, so a minified kernel must not reuse
+/// the unminified name.
 func lagunaMetalKernel(
     name: String,
     inputNames: some Sequence<String>,
@@ -299,7 +303,7 @@ func lagunaMetalKernel(
     atomicOutputs: Bool = false
 ) -> MLXFast.MLXFastKernel {
     MLXFast.metalKernel(
-        name: name,
+        name: lagunaKernelSourceMinifyEnabled ? name + "_min" : name,
         inputNames: inputNames,
         outputNames: outputNames,
         source: lagunaMinifiedKernelSource(source),
