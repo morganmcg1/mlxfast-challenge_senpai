@@ -79,6 +79,27 @@ EXPECT_FAIL = [
      "2048, 1024, bfloat, 256, true, true"),
 ]
 
+# kSwigluRegLocal (fp_quantized_nax.h:1741) carries a hard `BN == 64` term, so
+# any change to BN silently switches the shipped register-local swiglu epilogue
+# off and reactivates the gate_up_stage threadgroup round-trip -- which also
+# un-aliases gate_up_stage onto Ws_storage, the one buffer a double-buffering
+# arm would be rotating. It compiles cleanly either way, so nothing warns you.
+# These two cases pin the constant: injecting static_assert(kSwigluRegLocal)
+# must compile at the shipped BN=64 and must FAIL at BN=32.
+REGLOCAL_ASSERT = ('\n  static_assert(kSwigluRegLocal, '
+                   '"kSwigluRegLocal is DISABLED at this geometry");')
+REGLOCAL_ANCHOR = re.compile(r"(constexpr bool kSwigluRegLocal\s*=\s*[^;]*;)",
+                             re.DOTALL)
+REGLOCAL_CASES = [
+    # (tag, targs, want_ok)
+    ("reglocal_bn64_shipped",
+     "bfloat16_t, 16, 4, 64, 64, 64, 4, 1, true, "
+     "2048, 1024, bfloat, 256, true, true", True),
+    ("reglocal_bn32_disabled",
+     "bfloat16_t, 16, 4, 64, 32, 64, 4, 1, true, "
+     "2048, 1024, bfloat, 256, true, true", False),
+]
+
 RAW = re.compile(r'R"preamble\((.*)\)preamble"', re.DOTALL)
 
 
@@ -117,33 +138,41 @@ def main():
               "\n#define DARKBLOOM_BSEARCH_HOIST 1\n"]
         expert_defines["stage2" if stage2 else "stock"] = d
 
-    # (tag, pieces, define_pos, defines, func, targs, want_ok)
+    # (tag, pieces, define_pos, defines, func, targs, want_ok, inject)
     jobs = []
     for tag, d in expert_defines.items():
         for name, targs in CASES:
             jobs.append((f"{tag}_{name}", PIECES, 1, d,
-                         "fp_gather_qmm_rhs_expert_nax", targs, True))
+                         "fp_gather_qmm_rhs_expert_nax", targs, True, False))
     name, func, targs = NONEXPERT
-    jobs.append((name, PIECES, 1, [], func, targs, True))
+    jobs.append((name, PIECES, 1, [], func, targs, True, False))
     for tag in ("stock", "stage2"):
         d = [] if tag == "stock" else ["\n#define DARKBLOOM_STAGE2_GATHER 1\n"]
         for name, func, targs in NONNAX_CASES:
             jobs.append((f"{tag}_{name}", NONNAX_PIECES, 3, d,
-                         func, targs, True))
+                         func, targs, True, False))
     for name, func, targs in EXPECT_FAIL:
         jobs.append((name, PIECES, 1, expert_defines["stage2"], func, targs,
-                     False))
+                     False, False))
+    for name, targs, want_ok in REGLOCAL_CASES:
+        jobs.append((name, PIECES, 1, expert_defines["stage2"],
+                     "fp_gather_qmm_rhs_expert_nax", targs, want_ok, True))
     if args.only:
         jobs = [j for j in jobs if args.only in j[0]]
 
     outdir = (os.path.dirname(os.path.abspath(__file__)) if args.keep
               else tempfile.mkdtemp(prefix="naxgate-"))
     failures = []
-    for tag, pieces, define_pos, defines, func, targs, want_ok in jobs:
+    for tag, pieces, define_pos, defines, func, targs, want_ok, inject in jobs:
         src = os.path.join(outdir, f"naxgate_{tag}.metal")
+        text = assemble(pieces, define_pos, defines, func, targs,
+                        f"gate_{tag}")
+        if inject:
+            text, n = REGLOCAL_ANCHOR.subn(r"\1" + REGLOCAL_ASSERT, text)
+            if n != 1:
+                sys.exit(f"{tag}: kSwigluRegLocal anchor matched {n} times")
         with open(src, "w") as f:
-            f.write(assemble(pieces, define_pos, defines, func, targs,
-                             f"gate_{tag}"))
+            f.write(text)
         r = subprocess.run(
             ["xcrun", "metal", "-std=metal4.0", "-Wno-unused-function",
              "-c", src, "-o", os.path.join(outdir, f"naxgate_{tag}.air")],
