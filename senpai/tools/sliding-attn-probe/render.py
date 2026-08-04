@@ -29,6 +29,7 @@ SIGNATURE = """[[kernel]] void probe(
     const device uint* params [[buffer(8)]],
     const device float* scale_arr [[buffer(9)]],
     device bfloat* attended [[buffer(10)]],
+    device float* partials [[buffer(11)]],
     uint3 threadgroup_position_in_grid [[threadgroup_position_in_grid]],
     uint3 thread_position_in_grid [[thread_position_in_grid]],
     uint simdgroup_index_in_threadgroup [[simdgroup_index_in_threadgroup]],
@@ -36,9 +37,12 @@ SIGNATURE = """[[kernel]] void probe(
 
 ref, identifier, out = sys.argv[1], sys.argv[2], sys.argv[3]
 
-text = subprocess.run(
-    ["git", "-C", REPO, "show", "%s:%s" % (ref, RUNTIME)],
-    capture_output=True, text=True, check=True).stdout
+if ref == "WORKTREE":
+    text = open("%s/%s" % (REPO, RUNTIME)).read()
+else:
+    text = subprocess.run(
+        ["git", "-C", REPO, "show", "%s:%s" % (ref, RUNTIME)],
+        capture_output=True, text=True, check=True).stdout
 
 literal = text.split(
     "let %s = MLXFast.metalKernel(" % identifier, 1)[1]
