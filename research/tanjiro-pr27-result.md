@@ -10,7 +10,7 @@
   per-dispatch constant is fully resolved on the development host and reduced to
   a bound on the ranked host, for a reason that is itself the most actionable
   result here.
-- **`BASE_SHA`:** `768bb9d4adfc2baac7d74c0008afc92d010329da`
+- **`BASE_SHA`:** `048d8c39a42b692f3c72cc306fd29aab9e054ae4` (the assignment marker's `base_sha`; the operator's `768bb9d4` is its ancestor)
 - **Submitted candidate files:** `Sources/MLXFastModel/LagunaRuntimeModel.swift`
   — one delimited instrument block at the end of the file plus a single call site
   inside the 40-layer loop. Nothing else on the scored path is touched.
