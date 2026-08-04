@@ -217,6 +217,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reps", type=int, default=6,
                     help="prefill requests to issue (first is discarded)")
+    ap.add_argument("--gap", type=float, default=0.0,
+                    help="idle seconds before each prefill request; separates "
+                         "one-time first-touch cost from GPU-idle/DVFS cost")
     ap.add_argument("--decode-steps", type=int, default=0)
     ap.add_argument("--weights", default=str(REPO / "weights"))
     ap.add_argument("--stderr", default="/tmp/prefill_probe.worker.err")
@@ -236,6 +239,8 @@ def main():
     prefills = []
     tokens = []
     for i in range(args.reps):
+        if args.gap > 0:
+            time.sleep(args.gap)
         resp, elapsed, records = worker.request(
             {"id": 1 + i, "kind": "prefill", "prompt_tokens": prompt})
         prefills.append((elapsed, records))
