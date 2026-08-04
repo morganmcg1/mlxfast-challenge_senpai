@@ -1,16 +1,26 @@
 # SENPAI Research State
 
-- **2026-08-04 15:10 UTC (round 5 landed in part; round 6 opening)** — advisor
-  `meridian`, campaign `mlxfast-maple-20260804`
-- **Newest and most load-bearing section is §10**: both decode budgets now close
-  with zero residual, three candidates I briefed are dead, and fern's double
-  buffering has to be done at `BN=32`. Read it before §4b, which it supersedes
-  in part.
+- **2026-08-04 (round 5 terminal; round 6 in flight)** — advisor `meridian`,
+  campaign `mlxfast-maple-20260804`
+- **★ READ §11 FIRST. It reverses this campaign's axis emphasis.** The public
+  field has **zero** receipts beating our prefill time at 2σ and **63** beating
+  our decode time at 2σ. Prefill is at the field frontier; decode is where
+  demonstrated headroom exists. Every "prefill is the open frontier" and "decode
+  is finished" statement earlier in this document, in fern's #24 brief and in
+  frieren's #23 stop rule is retracted. §12 then retires the prefill-overlap
+  *mechanism* as well, and §12d establishes that our M4 hosts cannot screen the
+  prefill axis at all.
+- **Then read §12 and §13**, the two round-5 negatives: prefill overlap is dead
+  (barriers were never `mem_device`) and decode host-side work is dead (the
+  encoding thread already runs 3.5× ahead of a 96.6%-busy GPU). §10 remains
+  load-bearing for the decode budget, but note the **§10c correction**: the
+  command-buffer caps ARE on the editable surface, which I had wrongly denied,
+  and §9's flag audit never covered flag *magnitudes*.
 - Most recent human research direction: operator authorised the advisor and all
   four students to dispatch official `mlxfast submit` runs from the AWS Macs.
-- Base branch: `codex/mlxfast-maple-20260804-advisor`. Round-5 assignments
-  branch from `011b64838878962e870a247be5b9adfac3736915`; advisor HEAD has since
-  advanced with `research/`-only commits, so there is nothing to rebase.
+- Base branch: `codex/mlxfast-maple-20260804-advisor`. Round-6 assignments
+  branch from `f4e333851db5e5f3bc94e568a7cb8df0f52726c5`; advisor HEAD advances
+  only with `research/`-only commits, so there is nothing to rebase.
 - Students: `maple-frieren`, `maple-fern`, `maple-tanjiro`, `maple-nezuko`
   (M4 Pro / 48 GB / 20-core GPU). Official host: M5 Max / 128 GB / ~40 cores.
 - Goal: maximise `score = decode_speedup^0.75 * prefill_speedup^0.25`.
@@ -254,13 +264,21 @@ directly on both hosts, which settles it.
 
 ### 4b. frieren's exposed head latency is now the largest remaining decode item
 
+> **★ CLOSED AND REFUTED BY §13 (frieren #23, 2026-08-04). Do not act on this
+> section.** Direct instrumentation puts the *exposed* head region at **35.7 µs**,
+> not 0.200–0.300 ms: the encoding thread runs 3.5× ahead of a 96.6%-busy GPU, so
+> almost all of the 2.51 ms/step of graph construction is hidden. 88% of the
+> remaining GPU idle is off the submission surface (trusted harness 122.1 µs,
+> driver/firmware 67.1 µs, cb boundaries 75.9 µs, editable 35.7 µs, drain 0.0 µs).
+> The ceiling is **0.52% of score** and a measured realistic proxy returned 0.15%.
+> "Largest remaining decode item" was wrong, and "do less host work in decode" is
+> now closed as a whole class.
+>
 > **PARTLY SUPERSEDED BY §10a (2026-08-04).** The reconciliation arithmetic below
 > (in-situ `c_decode` 1.72 µs, host term 0.300 ms) was algebra against the wrong
 > wall figure. nezuko #9's direct timestamp decomposition gives **2.18 µs and
-> 0.200 ms**, and both budgets then close with zero residual. The re-pricing
-> table in this section is superseded too: the ceiling is **2.9% of score**, not
-> 4.4%. The *conclusion* — that this is the largest remaining decode item and
-> that the term is host time which does not halve across generations — stands.
+> 0.200 ms** — and §10i then shows even that decomposition is degenerate, so
+> quote `amp + ramp = 1.259 ms` as one number.
 
 I briefed #23 at "<=2.9% of score" by dividing his M4 absolute by the M5 step.
 That was wrong: the head term is **host** time and does not halve across
@@ -303,6 +321,16 @@ state, and advances exactly one position per one-token request.
 ## Current research focus
 
 ### 5. Prefill is the only unsaturated axis left (new, 2026-08-04)
+
+> **★ THE TITLE OF THIS SECTION IS RETRACTED (2026-08-04, see §11).** Prefill is
+> unsaturated *against its own rooflines* — that part still holds. But "the only
+> axis left" was a claim about where headroom is *reachable*, and the field says
+> the opposite: we sit at the **96.3rd percentile on prefill with zero receipts
+> beating us at 2σ**, and at the **81.5th percentile on decode with 63 receipts
+> beating us at 2σ**. Read §11 before acting on anything below. The specific
+> sentences I must own: "decode is finished as an efficiency target" (fern #24
+> brief) and "prefill is the open frontier now" (frieren #23 stop rule) are both
+> withdrawn. §12 additionally retires the *mechanism* this section proposed.
 
 Decode is at the *same* fraction of achievable DRAM bandwidth on both
 generations, which is the strongest possible evidence that its efficiency is an
@@ -676,11 +704,78 @@ return (buffer_ops_ > max_ops) || ((buffer_sizes_ >> 20) > max_mb);
 **Therefore nezuko's 45-buffer decomposition is a valid ranked-host prediction,
 and 10a transfers to the M5 as structure.** Cost of a command buffer, from her
 SPLIT=1 vs SPLIT=0 contrast: **~1.90 µs of `gpu_busy` and ~2.94 µs of host gap.**
-Not reducible from the editable surface — `device.cpp`, `eval.cpp`, `utils.h` and
-`device.h` are all blocked, and the commit count is pinned by the bank sizes.
 
 Open cheap confirmation: print `MTL::Device::architecture()->name()` on a student
 host (expect suffix `g`, generation 16) to make the 40-vs-50 reading measured.
+Note the unresolved conflict: fern's #11 recorded the string as `applegpu_g16s`,
+whose last character is `s` (⇒ 50/50), while the inference above reads the family
+letter `g` (⇒ 40/40). The 30-second read settles it; it is re-requested in #23 r2.
+
+##### ★ CORRECTION (2026-08-04, advisor error): the caps ARE on the editable surface
+
+I wrote above that this is "not reducible from the editable surface". **That is
+false, and the closed-family entry derived from it is withdrawn.**
+`Sources/MLXFastModel/LagunaRuntimeWeights.swift:381-389`, inside the **`else`
+branch of `policy.isLowMemory`** — i.e. the full-memory profile the 128 GB ranked
+host takes — does this:
+
+```swift
+let env = ProcessInfo.processInfo.environment
+setenv("MLX_BFS_MAX_WIDTH", "50", 0)                    // MLX default is 20
+if env["DARKBLOOM_POST_WIRE_COMMAND_BUFFER"] != "0" {
+    setenv("MLX_MAX_MB_PER_BUFFER", "200", 0)
+    setenv("MLX_MAX_OPS_PER_BUFFER", "400", 0)
+}
+```
+
+`device.cpp:596-597` applies `env::max_ops_per_buffer(default)` /
+`env::max_mb_per_buffer(default)` **over** the architecture default
+unconditionally. So the ranked host does not run 50/50 or 40/40 at all — it runs
+**200 MiB / 400 ops**, set by us from an editable file. `device.cpp` being blocked
+is irrelevant; the knob is an environment variable we own.
+
+Consequences:
+
+- frieren's #23 claim that "the cap's win (8.9579 ms at cap 50, n=5) is
+  unreachable from the submission surface" is also false, and #23 r2 re-opens it.
+- **The direction is not established for the ranked host.** The 200 MiB choice is
+  justified in the surrounding comment (`:370-380`) by *wiring*, and
+  `wireResidentWeightsIfEnabled()` guards on `physicalMemory >= (96 << 30)`
+  (`:551`). A 48 GB student host therefore **never wires**, even at a forced full
+  profile, so frieren's cap-50 win was measured in the one regime the override was
+  not designed for. Pre-registered expectation: **null to slightly worse on M5.**
+- Provenance on the shipped side is weak too. The in-tree note calls 200/400 "the
+  post-anupsv-loader regime re-test winner (6 Latin pairs: decode 5/6, prefill
+  4/6)" — no §9 "Ranked measurement" or "M5 Max driver rig" language, and 5/6
+  one-sided is p = 0.109.
+
+##### ★ NEW DOCTRINE GAP: §9 audited flag *position*, never flag *magnitude*
+
+§9 audited whether each flag ships on or off and whose host justified it. It never
+asked the same question of a flag's **numeric value**. There are at least three
+unvalidated magnitudes on the ranked path, all set from
+`Sources/MLXFastModel/`:
+
+| variable | shipped | MLX default | provenance |
+|---|---|---|---|
+| `MLX_MAX_MB_PER_BUFFER` | 200 | arch (40–50) | "paired local benchmark", 5/6 |
+| `MLX_MAX_OPS_PER_BUFFER` | 400 | arch (40–50) | same note |
+| `MLX_BFS_MAX_WIDTH` | 50 | **20** (`transforms.cpp:181`) | commit refs `776a79e1` / `dda29d26` only |
+
+`MLX_BFS_MAX_WIDTH=50` is a separate, untested hypothesis; hold it for a later
+student. §9's conclusion that "exactly one free-flip candidate exists" is
+therefore **wrong** — it was a statement about positions only.
+
+Complete inventory of MLX environment knobs, for the record: `MLX_BFS_MAX_WIDTH`,
+`MLX_MAX_OPS_PER_BUFFER`, `MLX_MAX_MB_PER_BUFFER`, `MLX_METAL_FAST_SYNCH`,
+`MLX_ENABLE_TF32`, `MLX_NCCL_TIMEOUT`, `MLX_METAL_GPU_ARCH`. We set only the
+first three. `RuntimeStartupMemoryPolicy.swift:174-188` sets caps on the
+low-memory branch only.
+
+**`MLX_METAL_FAST_SYNCH` is inert — do not spend a student on it.** It is read
+only by `FenceImpl` (`fence.cpp:15`), and nothing in `Sources/` or the listed
+`MLXLMCommon` files ever constructs an `mlx::core::Fence`. The `MTLFence` used at
+`device.cpp:429-549` is a different object and does not consult that variable.
 
 #### 10d. THREE briefed candidates are dead — enqueue-earlier is already harvested
 
@@ -1045,6 +1140,215 @@ standalone number — including in student briefs, where I have already quoted
 0.884 ms twice.
 
 
+### 11. ★ THE FIELD IS PER-AXIS ASYMMETRIC, AND IT REVERSES OUR EMPHASIS (new, 2026-08-04)
+
+Found by fern in #24 over 926 receipts; I reproduced it independently over the
+908 scored receipts in `/tmp/rows.json`. Derive `S` and `T` from each receipt's
+renormalised axes and z-score them against fern's banked byte-identical control
+(`S = 97.711 ± 0.254 ms`, `T = 4.3718 ± 0.0104 ms`):
+
+| axis | receipts beating us at all | beating us at ≥2σ | best z | our percentile |
+|---|---:|---:|---:|---:|
+| prefill `S` | 34 / 908 | **0** | 1.39 | **96.3%** |
+| decode `T` | 168 / 908 | **63** | 5.20 | **81.5%** |
+
+- Best `S` in the field is `e2822dc1` at 97.359 ms (−0.360%), z = 1.39 — **inside
+  noise**. Nobody has a demonstrable prefill advantage over us.
+- Best `T` is `4bf4f794` at 4.3177 ms (−1.238%), z = 5.20. It also beats us on
+  `S`, so it is *not* an axis trade. Matching it alone is worth **0.79% of score**.
+- fern's independent pass agrees: 0 beating prefill at 2σ (best 1.38σ), 74
+  beating decode at 2σ (best 6.15σ).
+
+**Conclusion: prefill is at the field frontier; decode is where demonstrated
+headroom exists.** Every prefill statement in §5 and §6 that implied otherwise is
+retracted. Decode is the priority axis for new assignments.
+
+#### 11a. The methodological error, which is more valuable than the finding
+
+I had already looked at this and got it wrong. I compared **point estimates** per
+axis — we are at 99.24% of the `nd` record and 99.19% of the `npf` record — saw a
+beautiful symmetry, and concluded there was nothing to choose between the axes.
+That comparison is worthless: **the same relative gap is not the same evidence on
+two axes with different noise.** `S` has a 0.260% control σ and a 0.556% top-100
+spread; `T` has 0.238% and 0.769%. A −0.36% prefill gap is 1.4σ; a −1.24% decode
+gap is 5.2σ.
+
+**Standing rule 6: never compare axes by point-estimate gap. z-score each axis
+against a banked byte-identical control.** This joins the five existing rules
+(issued-vs-unique numerators; no `./probe` on M5; declare your ceiling; quote
+`amp + ramp` as one number; the `mem_device` barrier screen).
+
+Corollary already in force: leaderboard order at the top of this field is
+**noise-dominated**. Top-100 spread is 0.556% on `S` and 0.769% on `T` against
+control σ of 0.260% and 0.238%.
+
+#### 11b. Harvesting is still not the cheap path
+
+- The observed Pareto frontier in `(nd, npf)` has only **6 points**, and the
+  top-`ns` receipt `4bf4f794` is *also* the best-`nd` receipt ⇒ **no favourable
+  axis trade exists in the observed field.**
+- Field `log(nd)` vs `log(npf)` is Pearson **r = +0.9359** (OLS slope +0.6157).
+  That is candidate-session common mode, not a physical tradeoff — receipts that
+  drew a fast session look good on both axes.
+- Union bound: best-`nd` + best-`npf` gives `ns = 2.535256` (+0.778% over ours),
+  which still needs a draw ≥ 1.00154 (~p99).
+- **Our own +1.16% target remains far cheaper than harvesting.** The #12 closure
+  stands; only its per-axis coverage tables were retracted.
+
+### 12. ★ THE PREFILL-OVERLAP THESIS IS RETIRED (fern #24, 2026-08-04)
+
+fern's receipt `7a5a1e08` came back **+0.651% slower on `S`** (2.50σ vs the banked
+control, ~p99 against the field's top-100 `S` distribution) with `T` null. The
+mechanism was refuted at the source level, and the refutation generalises.
+
+**All 21 barriers in the routed-expert k-loop are
+`threadgroup_barrier(mem_flags::mem_threadgroup)`. None is `mem_device`.** That
+flag fences threadgroup memory only, so the device read inside the weight stage
+was **already free** to be hoisted above the WAR barrier into the previous
+iteration's MMA — one iteration earlier than any hand-rolled version can reach.
+Manual staging therefore *constrains* the scheduler: it adds a `StageRegs` live
+range across the RAW barrier plus a per-iteration guard branch.
+
+**Standing rule 5 (adopted verbatim from fern): manual device-read pipelining
+across a `mem_threadgroup`-only barrier is a no-op at best.** One-second screen
+before writing any pipelining arm: `grep -n 'mem_flags::mem_device' <kernel>`.
+
+What this retires:
+
+- **C1, C2, C1+C2, and prefetch depth** from `research/PREFILL_NAX_ANALYSIS.md`.
+- **The framing that prefill's gap to its ~28.17 ms routed-expert DRAM floor is
+  overlap-recoverable.** The floor stands; the remaining gap needs **work
+  removal**, not scheduling.
+
+#### 12a. A SECOND budget degeneracy, of exactly the §10i kind
+
+My prefill roofline (`research/prefill_ridge.py`, 60 TFLOP/s and 500 GB/s assumed)
+was consistent with **either** (a) 60 TFLOP/s plus 16.67 ms of glue, **or** (b)
+44.3 TFLOP/s and zero glue. Worse, the 44.3 "lower bound" was itself derived from
+`98.153 − 34.32` — so that agreement was a **tautology, not corroboration.** I
+published it as though two independent methods had converged.
+
+fern's result picks the branch. If the compiler already overlaps, the honest
+reading is `2829.5 GFLOP / 98.153 ms`:
+
+> **Prefill is compute-bound end to end at 28.83 TFLOP/s. DRAM is already
+> hidden.**
+
+FLOP shares of the 2829.5 GFLOP: `attn_proj_qkvo` **51.6%**, `routed_experts`
+35.5%, `attn_core` 5.7%, `shared_expert` 4.4%, `dense_mlp` (layer 0) 1.8%,
+`router` 0.7%. Note this makes **C5 (glue-pass reduction) worth ~0**, since the
+branch that survives has zero glue by construction.
+
+#### 12b. Two of my own prefill candidates died on inspection, in minutes
+
+- **"The dense attention GEMM misses NAX" — FALSE.** `matmul.cpp:957` gates
+  `use_nax = is_nax_available() && !complex && (tf32 || dtype != f32)`, true for
+  BF16. `q_proj` (M512, K2048, N8192) and `k/v_proj` (N1024) take the regular NAX
+  kernel (`:1025`); `o_proj` (K8192, N2048) satisfies `K >= 3*max(M,N)` and takes
+  **NAX split-K** (`:988-991`). Hairline: `k/v_proj` miss split-K by exactly one
+  (`K > 2*max(M,N)` ⇒ `2048 > 2048` is false). `matmul.cpp` is editable, but
+  split-K changes accumulation order, so that is not a bit-exact change.
+- **"Prefill should use the quantized attention representation" — ALREADY
+  SHIPPED, and it is decode-only by design.** The native-affine QKV path is gated
+  `B == 1 && L == 1` (`LagunaRuntimeModel.swift:5497-5498`). Both
+  representations are already resident (~22.4 GB, matching fern's measured
+  21.57 GiB peak), so prefill deliberately uses the stock BF16 `Linear` weights.
+
+#### 12c. The three Part 0 strengthenings, and a pattern worth a rule
+
+fern confirmed the `STAGE_BM128` closure and improved it three ways:
+
+1. Row padding is an **identity in `SM` alone whenever `BM % SM == 0`** — cleaner
+   than the per-config table it replaces.
+2. `SM = 16` attains the hardware floor (`kFragRows = 16`), so the tiling family
+   is closed **at the floor**, not merely unpromising.
+3. **`STAGE_BM128` cases 1/2/3 were dead all along**, because `expert_aligned`
+   requires `bm == 64`.
+
+That is the **third** flag in this codebase found to be silently measuring its own
+control, after `STAGE_WIDEST` and `WIDELD`. Three is a pattern:
+
+> **Any new geometry or tiling flag needs a positive proof that its branch
+> executes — a trace, a `static_assert`, or a deliberate crash — before any timing
+> is quoted from it.**
+
+Related: my C1+C2 revision would have been **actively harmful**, and fern proved
+it by compilation. `BN=32` flips `kSwigluRegLocal` false
+(`fp_quantized_nax.h:1741`), reactivating the staged epilogue — which is the
+**sole** source of the `gate_up_stage` aliasing hazard I had warned about. At
+shipped geometry (BN=64, WN=1, BM/WM=16) that block is compile-time discarded and
+`gate_up_stage` is dead code, so the hazard never existed; I invented it by
+proposing the only configuration that creates it.
+`static_assert(kSwigluRegLocal)` compiles at BN=64 and fails at BN=32.
+
+#### 12d. The M4 cannot screen the prefill axis
+
+fern measured his host's floor with a **compile-identical control**: **≥1.1% on
+`S`, ≥1.5% on `T`** — 5× and 2.4× the effect he was hunting. This is now a
+programme constraint: **any future prefill arm must either predict >1.1% on `S`
+locally, or spend a receipt.** It is also the single strongest argument for
+preferring decode arms, which are screenable (§10h predicts 5.4% on the M4 step).
+
+### 13. frieren #23 closed the decode host-side axis, in both directions
+
+Ranked-parity instrumentation (`STARTUP_MEMORY_PROFILE=full`, shipped 200 Mi/400
+caps), medians over 278 steady steps and 16,595 traced command buffers:
+
+| region | median | note |
+|---|---:|---|
+| (1) entry → first cb commit | **35.7 µs** (se 0.8) | the only editable host work |
+| (2) first commit → first GPU start | 67.1 µs (se 0.5, p10 61.9 / p90 83.4) | driver + firmware |
+| (3) tail idle after call return | **0.0 µs at median *and* p90** | no drain |
+
+Frame: step 8834.4 µs, GPU busy 8533.1 µs, total GPU idle 300.8 µs (busy
+**96.59%**), 48 cb/step, encoding thread **2.51 ms CPU/step**, in-loop GPU idle
+0.0 µs.
+
+**Ownership of the 300.8 µs idle: 122.1 µs trusted harness (IPC plus a blocking
+`argMax().item()` at `LagunaRuntimeBenchmark.swift:891`), 67.1 µs driver/firmware,
+75.9 µs GPU-side across 47 cb boundaries, 35.7 µs editable, 0.0 µs drain.
+⇒ 88% of the idle is off the submission surface.**
+
+- **The graph-construction candidate died by missing in BOTH directions.**
+  Construction costs 2.51 ms/step — **9× my 0.28 ms estimate** (~6.2 µs/op, not
+  0.7) — but only 35.7 µs of it is *exposed*, **13× smaller** than I predicted,
+  because the encoding thread runs **3.5× ahead** of a 96.6%-busy GPU. My
+  `406 × 0.7 µs` was numerology. **Compiling the decode graph predicts ~0.**
+- Ceiling on the whole region: 35.7 µs = 0.82% of the 4.353 ms ranked step =
+  **0.52% of score**, below the 0.61% advisor bar. A measured realistic proxy
+  (cut after fused embedding+RoPE, `max_mb=195`) moved 35.7 → 25.6 µs, step
+  −0.30%, **0.15% of score**.
+- **Therefore "do less host work in decode" is closed as a class**, not just as
+  one arm.
+
+Part 2 (sub-layer `asyncEval`) was also negative, and cleanly: position-balanced
+dose screen, 2000 steps/arm, 9 positions. `off` 9.0677 (se .0361); `ab` 9.0531 =
+−0.161% ± 0.427%, t = −0.38 (null); `abc` 9.2423 = **+1.925% ± 0.402%, t = +4.79
+(worse)**. cb/step 48 → 90 → 129 gives GPU busy 8839.8 → 8782.1 → 8923.4, i.e.
+**non-monotone**; he retracted his own −1.35 µs/boundary law.
+
+**Corrected mechanism, worth keeping:** `max_mb` changes only *where* a command
+buffer is submitted (same graph, same fusion, same donation), whereas `asyncEval`
+changes the **graph partition**, forcing materialisation that blocks fusion and
+donation and adds real bytes. These are not two doses of one knob.
+
+Two self-corrections from frieren that improve our measurement practice:
+
+1. His "cap-200 bimodality" was **arm-position warm-up drift**. Identical controls
+   at positions 1/5/7 read **9.0356 / 9.1076 / 9.1136** — a 0.86% range, larger
+   than the effect under test. And the drift is **saturating, not linear**, so
+   linear position-balancing is biased; balance by position *set*, not by index.
+2. He withdrew his doubt about #21's 30% ramp-overlap credit.
+
+Follow-ups he left: `ab` rungs preserved at `9a00e8f` / `e722f65` / `a309168`; and
+his conclusion **"this host is at ~90–100% of its bandwidth wall so it cannot
+measure launch-overhead wins"** ⇒ nezuko's #9 dispatch-fusion result may deserve
+one M5 re-test. His closing advice, which selected fern's next arm: **"future arms
+should change bytes or arithmetic, not partition."**
+
+Scored surface byte-identical to base; 0 submissions spent.
+
+
 ### Round 4 outcome
 
 | PR | student | verdict |
@@ -1060,9 +1364,10 @@ standalone number — including in student briefs, where I have already quoted
 | --- | --- | --- |
 | #20 | nezuko | **lm_head cascade.** The last legal decode byte lever: 134.9 MB int5 plane, 7.5% of the step. Immediate target 25.7 MB (0.91% of score, transfers 1:1), structural ceiling ~105 MB (3.7%). **Plus a second lever handed over from #21:** `lmhead_exact_inline_mask_block` runs at **6.5 GB/s**, 6x below tanjiro's own bytes-per-dispatch curve at 0.481 MB, worth ~0.48% — a real defect, not a small-dispatch artefact |
 | #21 | tanjiro | **MERGED — strong negative, campaign-defining.** Decode is bandwidth-closed: access pattern worth 0.000 ms, unexplained +0.000 ms. See §4. Recoverable re-priced 10.9% → 1.4–2.8% of score. 0 submissions |
-| #23 | frieren | **exposed head latency** — the one term in his own model the GPU does not absorb. **Re-priced to 2.2–4.4% of score** (§4b): the term is host time and does not halve across generations. Mechanism now verified from source — compiled decode is ON but wraps only 3 micro-fusion sites, so ~400 dispatches rebuild their graph every step. **Largest remaining decode arm.** |
-| #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported. **Re-priced by finding 6 to 5.9–7.7% of score** (~3× the brief; and 6.2–8.4% once the assumed 60 TFLOP/s is allowed to range down to the receipt-bounded 44.3, which moves the prize 16.75 → 22.69 ms) with a hard floor at 28.17 ms, and it holds **73% of all the overlap available anywhere in the forward** |
-| #27 | tanjiro | **round 6: measure the four M5 constants** (§8) by output-neutral work injection into the scored path, differenced across receipts so no control run is needed. 4 submissions authorised; must report `BW` and `TFLOP/s` mid-arm because fern is blocked on them |
+| #23 | frieren | **NEGATIVE, arm closed; r2 requested on a different hypothesis.** Head latency is 35.7 µs = 0.52% of score, below the bar, and "less host work in decode" is closed as a class — see §13. r2 re-opens the **command-buffer cap magnitude** (200 MiB / 400 ops), which I had wrongly declared off-surface; see the §10c correction. 0 submissions |
+| #24 | fern | **CLOSED — negative, and a good one.** Receipt `7a5a1e08` is +0.651% *slower* on `S` (2.50σ). Mechanism refuted: every barrier in the k-loop is `mem_threadgroup`-only, so the device read was already hoistable. Retires C1/C2/C1+C2/prefetch **and the whole prefill-overlap thesis** (§12). Delivered the `mem_device` screen rule, the M4-cannot-screen-prefill floors, three `STAGE_BM128` strengthenings, and the field per-axis asymmetry (§11). 1 submission |
+| #27 | tanjiro | **round 6: measure the four M5 constants** (§8) by output-neutral work injection into the scored path, differenced across receipts so no control run is needed. 4 submissions authorised; must report `BW` and `TFLOP/s` mid-arm — now needed to settle the §12a prefill compute-rate degeneracy (28.83 vs 44.3 vs 60 TFLOP/s), not just to price fern |
+| #30 | fern | **round 6: de-amplify the decode attention core** (§10h). `h*s = 64` rebalance from the shipped `h=2, s=32` to `h=8, s=8`, plus a bit-exact deferred epilogue. Cuts issued KV bytes 4× (sliding) and 3× (full) at constant registers, constant epilogue buffer and constant arithmetic. Ceiling ~3.5% of score, expected 1.5–3.0%. Gated behind three free wrong-result diagnostics that separate load-bound from arithmetic-bound; a null there **closes a 10.6% block for free** |
 
 Why #24 is the shape it is: `DARKBLOOM_EXPERT_GATHER_GROUPS` went 64 → 128 → 256
 and measured a real M5 gain at *every* step while changing nothing
@@ -1261,6 +1566,14 @@ optimisation.
 | `arangeuint32` caching | closed | the 76 dispatches were a command-buffer overlap artifact, ~0 ms real |
 | Prefill host CPU / command buffers | closed | prefill GPU-busy union is 99.4% of wall |
 | `DARKBLOOM_ATTN_QHOIST`, `GEMM_TPARAM_MACRO` | closed | no effect |
+| **Prefill overlap: C1, C2, C1+C2, prefetch depth** | **CLOSED (fern #24)** | Receipt `7a5a1e08` +0.651% slower on `S`. Every barrier in the routed-expert k-loop is `mem_flags::mem_threadgroup` only, so the device read was already hoistable one iteration further than any hand-rolled stage. **Also retires the framing that prefill's gap to its 28.17 ms routed-expert DRAM floor is overlap-recoverable** — the floor stands, the gap needs work removal. See §12 |
+| **Decode head latency** | **CLOSED (frieren #23)** | 35.7 µs exposed = 0.82% of the ranked step = **0.52% of score**, below the 0.61% bar. Measured realistic proxy delivered 0.15%. See §13 |
+| **"Do less host work in decode" as a class** | **CLOSED (frieren #23)** | Graph construction costs 2.51 ms/step but the encoding thread runs **3.5× ahead** of a 96.6%-busy GPU, so only 35.7 µs is exposed. Compiling the decode graph predicts ~0 |
+| **Decode graph repartitioning** | **NEGATIVE IN BOTH DIRECTIONS** | −40 dispatches = +0.228 ms (nezuko #9); +81 command buffers via sub-layer `asyncEval` = +1.93% (frieren #23), and cb/step 48→90→129 is non-monotone in GPU busy |
+| **`MLX_METAL_FAST_SYNCH`** | **INERT — do not assign it** | read only by `FenceImpl` (`fence.cpp:15`); nothing in `Sources/` or the listed `MLXLMCommon` files constructs an `mlx::core::Fence`. The `MTLFence` at `device.cpp:429-549` is a different object |
+| **"The dense attention GEMM misses NAX"** | **FALSE** | `matmul.cpp:957` `use_nax` is true for BF16; q/k/v take the regular NAX kernel (`:1025`) and `o_proj` takes NAX split-K (`:988-991`) |
+| **Prefill dual-representation attention** | **ALREADY SHIPPED, decode-only by design** | the native-affine QKV path is gated `B == 1 && L == 1` (`LagunaRuntimeModel.swift:5497-5498`); both representations are already resident |
+| ~~**Command-buffer cap magnitude**~~ | **UN-CLOSED — my error** | I recorded this as off-surface. It is set from `LagunaRuntimeWeights.swift:381-389` on the **full-memory** branch the ranked host takes: 200 MiB / 400 ops, overriding the arch default. See the §10c correction; now #23 r2 |
 
 ---
 
@@ -1273,6 +1586,7 @@ optimisation.
 | `5d522d6a` | nezuko harvest tip | 2.491470 / 2.520600 | rejected |
 | `5e0e9cd1` | same tip | 2.500092 / 2.513024 | rejected |
 | `c210d200` | same tip | 2.514743 / 2.521103 | rejected |
+| `7a5a1e08` | fern #24 stage-dbuf | — / **2.51083** | rejected. `S` 98.347 (+0.651%, 2.50σ **worse**), `T` 4.3612 (−0.242%, null). All hidden gates green: max_abs_diff 0, checked_steps 1344, GPQA 9/9, peak_ram 21 GB. Ranks 128th of 908 on `S` ⇒ ~p99. See §12 |
 
 nezuko's harvest tip vs the control family: `ns` **+0.214% ± 0.122%**,
 `T` **−0.468% ± 0.181% (2.6σ)**, `S` +0.236% ± 0.142%, `officialScore`
@@ -1295,51 +1609,75 @@ prefill regression.
 
 ## Potential next research directions
 
-Ordered by expected value, given that decode is a byte budget and prefill is the
-field's frozen axis.
+Ordered by expected value. **Reordered 2026-08-04:** §11 shows the field has no
+demonstrable prefill advantage over us (0 receipts at 2σ) and 63 receipts with a
+real decode advantage, and §12d shows our hosts cannot screen the prefill axis at
+all. **Decode arms outrank prefill arms now, on both headroom and instrument
+quality.**
 
-1. **M5 prefill is the field's blind spot and it sits at ~50% of both rooflines.**
-   S = 98.153 ms → 28.8 TFLOP/s and 271.8 GB/s on a host whose MMA peak is
-   ≥57 TFLOP/s (plus NAX) and whose DRAM peak is ≥500 GB/s. Elasticity on S is
-   0.362, so a 10% S win is 3.6% of score — larger than any decode arm we have.
-   The field's prefill record has stood for 102 submissions **not because prefill
-   is physically hard but because nobody can execute a `_nax` kernel on non-gen-17
-   hardware**: the only prefill instrument in existence is a 35-minute official
-   submission returning one scalar. That is a measurement wall, not a physics
-   wall, and it is the largest asymmetry available to us. Requires
-   host-independent reasoning (routing statistics, static kernel analysis, byte
-   arithmetic) validated by 3-receipt official families. Analysis in progress:
-   `research/PREFILL_NAX_ANALYSIS.md`.
-2. **De-amplify the decode attention core's KV read (§10h, unassigned, top
-   decode arm).** Both fused attention kernels put 2 query heads in a
-   threadgroup and have each threadgroup's 32 simdgroups sweep its `kv_head`'s
-   whole ring, so 4 threadgroups (sliding) and 3 (full) read the same KV bytes.
-   905 µs/step, 10.6% of the step, 37× off compute roofline and 50× off DRAM
-   roofline, running at 1.45× the DRAM ceiling on issued bytes because L2
-   absorbs the duplication. The `2` is an untuned MLX `sdpa_vector` inheritance,
-   and on the ranked 40-core M5 the grids are only 32 and 24 threadgroups. First
-   step is bit-exact and one dispatch: sliding `h=4` with full `h=3` (`h` must
-   divide the GQA ratio, which differs between the two kernels — 8 and 6). 3.1%
-   of score at the bandwidth-bound ceiling, 1.5–2.0% expected. Blocked on one
-   cheap local number — the M4's L2-resident read ceiling — requested from
-   tanjiro on #27.
+1. **De-amplify the decode attention core's KV read (§10h — ASSIGNED, fern #30).**
+   Both fused attention kernels put 2 query heads in a threadgroup and have each
+   threadgroup's 32 simdgroups sweep its `kv_head`'s whole ring, so 4
+   threadgroups (sliding) and 3 (full) read the same KV bytes. 905 µs/step,
+   10.6% of the step, 37× off the compute roofline and 50× off the DRAM roofline,
+   running at 1.44× the DRAM ceiling on **issued** bytes because L2 absorbs the
+   duplication. The `2` is an untuned MLX `sdpa_vector` inheritance, and on the
+   ranked 40-core M5 the grids are only 32 and 24 threadgroups.
+
+   The design key is the invariant **`h × s = 64`**, which holds the register
+   footprint (81,920 B/TG) *and* the epilogue transpose buffer (16,384 B)
+   constant simultaneously — so `h=8, s=8` is a like-for-like swap on both
+   occupancy budgets while cutting issued loads 4× and conserving total
+   arithmetic and total `simd_sum` count exactly. `h` must divide the GQA ratio,
+   which **differs between the two kernels** (8 sliding, 6 full), so the matched
+   pairs are sliding 4 + full 3, or sliding 8 + full 6.
+
+   Two things I got wrong and have now fixed in the brief: (a) the cheap
+   `h=4, s=32` config is an **M4 trap** — it cuts threadgroups 32→16 while the
+   M4 has 20 cores, so it reads as a 1.6× win locally and returns nothing on a
+   40-core host; (b) pass 2 must **not** be folded into `oproj_act_h64/h48`,
+   because that kernel dispatches 256 threadgroups each reading the *whole*
+   attended vector, so handing it 4 partial planes turns 4 MB of issued reads
+   into 33.5 MB. Use a small dedicated pass-2 kernel and pay ~60 µs/step for it.
+
+   Honest caveat carried into the brief: the kernel is **not DRAM-bound** (375
+   GB/s issued vs a 260.2 GB/s ceiling), so the 465 µs price is a
+   proportional-scaling estimate on issued bytes with no mechanism guarantee,
+   and the DRAM floor for the unique 2.097 MB caps recovery at 14.28 µs/call.
+   That is why #30 is gated behind three free wrong-result diagnostics that
+   separate load-bound from arithmetic-bound. **Ceiling 3.5% of score, expected
+   1.5–3.0%, and a null closes a 10.6% block for free.** This is the only large
+   arm in the programme that our hosts can screen (5.4% predicted on the M4 step
+   against fern's ≥1.5% `T` floor).
+2. **M5 prefill sits at ~50% of both rooflines but the field says nobody can
+   reach it — DOWNGRADED from #1.** S = 98.153 ms → 28.8 TFLOP/s and 271.8 GB/s
+   on a host whose MMA peak is ≥57 TFLOP/s (plus NAX) and whose DRAM peak is
+   ≥500 GB/s, and elasticity on S is 0.362 so a 10% S win is 3.6% of score. The
+   record has stood for 102 submissions, and I read that as a *measurement* wall
+   we could exploit. §11 says otherwise: **34 of 908 receipts beat our `S` at
+   all and 0 beat it at 2σ.** A field-wide frozen axis with no outliers is
+   evidence of a physics wall, not a blind spot. Combined with §12a (prefill is
+   compute-bound end to end at 28.83 TFLOP/s, DRAM already hidden) and §12d (our
+   hosts cannot screen it), prefill work now needs a *specific work-removal*
+   mechanism before it earns a student. Analysis:
+   `research/PREFILL_NAX_ANALYSIS.md` — but C1/C2/C1+C2/prefetch and C5 are all
+   retired from it; only C3 and C4 survive.
 
 3. **Deepen the lm_head cascade beyond nezuko's first 25.7 MB.** The int5 plane is
    134.9 MB = 7.5% of the step. A hierarchical screen (very coarse bound over all
    100352 rows → int5 on ~10³ survivors → exact rescore) could take the plane to
    ~30 MB, i.e. ~105 MB removed = 3.7% of score, which promotes on its own. Must
    be split into independently correct ≤5% increments per the calibration band.
-4. **Overlap staging with MMA inside the expert gather-GEMM** (assigned, fern
-   #24). Staging is 39.5% of prefill and `Ws` is single-buffered, so the WAR
-   barrier serialises every MMA phase against the next stage — which is exactly
-   the signature of a kernel at half of both rooflines. The corroboration is that
-   `DARKBLOOM_EXPERT_GATHER_GROUPS` bought real M5 gains at 64 → 128 → 256 purely
-   by letting *other* threadgroups cover the stall, and is now pinned at its
-   maximum. Risk: doubling `Ws` 9.2 → 18.4 KB may halve resident threadgroups per
-   core and reverse the sign — which is why §10e establishes that **BN 64→32 is
-   the enabling condition, not a fallback**: at `BN=32` a double-buffered `Ws`
-   is 9,216 B, exactly the shipped single-buffered footprint, so co-residency is
-   preserved. My original "never bundle" instruction was withdrawn on #24.
+4. ~~**Overlap staging with MMA inside the expert gather-GEMM**~~ — **RETIRED
+   (fern #24, §12).** The premise was that the single-buffered `Ws` plus the WAR
+   barrier serialises every MMA phase against the next stage. It does not: every
+   barrier in the k-loop is `mem_flags::mem_threadgroup` only, so the device read
+   was already free to hoist a full iteration earlier than any hand-rolled stage.
+   Receipt `7a5a1e08` came back +0.651% *slower* on `S`. §10e's "BN 64→32 is the
+   enabling condition" was also wrong and dangerous: `BN=32` flips
+   `kSwigluRegLocal` false and reactivates the staged epilogue. The
+   `DARKBLOOM_EXPERT_GATHER_GROUPS` 64→128→256 corroboration is still real but
+   evidently describes a different stall than the one I attributed it to.
 5. **Bit-exact fused split-K for the NAX steel path** (`o_proj`, `g_proj`,
    router). Removes ~0.72 GB of fp32 round-trip traffic and ~80–120 dispatches by
    porting the `qmm_t_splitk_fused` recipe (`quantized.cpp:849-893`) to
@@ -1348,22 +1686,18 @@ field's frozen axis.
    because it is **locally falsifiable on the non-NAX twin**. Note `q_proj` still
    runs the tiles labelled "Temp routing for larger devices" at
    `matmul.cpp:228-238`.
-6. **Prefill glue-pass reduction.** ~18 ms of M4 host-independent glue ≈ 9–12% of
-   M5 S. **Corrected pricing:** that 9–12% is the *term size*, not the win — the
-   recoverable part is ~30% of it, i.e. **1–2% of S = 0.36–0.72% of score**, which
-   straddles my 0.61% acceptance bar. I had previously recorded the term size as
-   the win and mis-ranked this as the largest receipt-free prefill item; it is
-   not. Its real virtue is that it is the *only* prefill family with full local
-   falsifiability, so it costs no receipts to screen. Good filler work, not a
-   headline arm.
-5b. **Overlap the shared expert with the routed experts.** They consume the same
-   post-attention hidden state and their outputs are summed, so they are
-   independent sub-graphs. `shared_expert` is compute-bound (2.09 ms) and
-   `routed_experts` is DRAM-bound (28.17 ms stall to hide in), so the shared
-   expert can in principle run entirely inside the routed stall: **2.1% of S =
-   0.77% of score**, bit-exact if the summation order is preserved. Small, clean,
-   and it is the only *cross-block* overlap the dependency graph permits — every
-   other pair in the forward is strictly sequential.
+6. ~~**Prefill glue-pass reduction**~~ — **RETIRED (§12a).** The whole term was
+   an artefact of the degenerate prefill budget. It only exists in the branch
+   where prefill runs at 60 TFLOP/s with 16.67 ms of glue; fern's result selects
+   the other branch, in which prefill is compute-bound end to end at 28.83
+   TFLOP/s and **there is no glue term to recover.** I had already re-priced this
+   downward once (term size ≠ win); the honest number is now ~0.
+5b. ~~**Overlap the shared expert with the routed experts**~~ — **RETIRED.**
+   Downgraded first by §9's finding that `DARKBLOOM_SHARED_FIRST_DOWN` cost
+   +0.10 ms/step on the real M5 rig for the stated reason *"Metal memory barriers
+   are encoder-wide, not per-resource"*, and now retired outright by §12a: there
+   is no 28.17 ms DRAM stall to hide the shared expert inside, because DRAM is
+   already hidden.
 7. **Routing-aware two-regime expert dispatch.** The shipped tile is tuned for
    uniform routing that does not occur (CV 1.80, 20.3% empty, busiest 32 experts
    = 54.7%). Row-tile widening, sub-16 SM, and now the whole `STAGE_BM128` tiling
@@ -1385,10 +1719,16 @@ field's frozen axis.
    hidden while adding dequantization to the binding term. The tree's "Prefill
    stays on the original BF16 projections" is correct design, not an oversight —
    the same weights want opposite representations in the two phases.
-9. **If tanjiro's #21 finds the 21.4% residual is recoverable**, that becomes the
-   top priority immediately: up to 13.6% of score, the largest single number in
-   the campaign. If he finds it is not, close decode-efficiency permanently and
-   put all four students on byte removal and prefill.
+9. **RESOLVED (tanjiro #21): the 21.4% decode residual is NOT recoverable.**
+   Access pattern is worth 0.000 ms and the residual closes with +0.000 ms
+   unexplained. What costs is *bytes per dispatch* (22.9 GB/s at 0.125 MB rising
+   to 262.5 at 64 MB) and *in-flight bytes per lane* (~32 B to saturate).
+   Recoverable re-priced 10.9% → **1.4–2.8% of score**, itemised as
+   `lmhead_exact_inline_mask_block` 74 µs, `gate_sp_h64` 61 µs,
+   `residual_rms_router_bf16` 27 µs, `gate_sp_h48` 22 µs,
+   `dense_gate_up_swiglu_bf16` 12 µs. **`gate_sp_h64 + gate_sp_h48` = 83 µs =
+   0.97% of the step = 0.62% of score is still unassigned** and is the cheapest
+   item left on the board — hand it to the next idle student.
 10. **Unassigned decode item with an unresolved contradiction:**
    `lmhead_exact_inline_mask_block_v1` costs 76.6 µs/step on M4, but 76.6 µs at
    260.2 GB/s can move at most ~20 MB — irreconcilable with a 134.9 MB plane read.
@@ -1407,3 +1747,27 @@ field's frozen axis.
 12. **Minify the remaining 71 Metal literals in `LagunaRuntimeModel.swift`**
    (−54,251 B of surface). Worth 0.0% of score; only relevant if we ever run out
    of the ~87 KB of surface headroom.
+13. **The unvalidated-magnitude class (new, §10c).** §9 audited whether each flag
+   ships on or off; it never audited the *numeric values* we set. Three live
+   candidates, all from `Sources/MLXFastModel/`: `MLX_MAX_MB_PER_BUFFER = 200`
+   and `MLX_MAX_OPS_PER_BUFFER = 400` (arch default 40–50; now #23 r2), and
+   **`MLX_BFS_MAX_WIDTH = 50` against an MLX default of 20** (`transforms.cpp:181`),
+   which is unassigned and has no provenance beyond two commit refs. Each is a
+   one-line, zero-risk change with a real chance of being a free win or a free
+   loss, and none has ever been measured on the ranked host. Cheap; assign
+   opportunistically. Note `MLX_METAL_FAST_SYNCH` is **inert** — do not include it.
+14. **Re-test nezuko's #9 dispatch-fusion result on the M5, once.** frieren's #23
+   conclusion is that our hosts sit at ~90–100% of their bandwidth wall and
+   therefore **cannot measure launch-overhead wins at all**. #9's negative
+   (−40 dispatches = +0.228 ms) was measured entirely under that constraint, and
+   the ranked host has 2× the bandwidth and 2× the cores. One receipt would
+   settle whether the whole dispatch-count family is genuinely closed or merely
+   unmeasurable locally. Low expected value, but it un-blocks two closed families
+   at once if it flips.
+15. **Match `4bf4f794`'s decode time (§11).** The field's best `T` is 4.3177 ms,
+   z = 5.20 against our banked control, worth **0.79% of score** — and it beats
+   us on prefill too, so there is nothing to trade away. We do not know its
+   mechanism. A targeted read of that submission's public note and diff against
+   our tree is a few hours of work with a concrete, already-verified prize
+   attached, and it is the only place in the field where a *demonstrable*
+   advantage over us exists on either axis.
