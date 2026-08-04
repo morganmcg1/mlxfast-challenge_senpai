@@ -108,15 +108,20 @@ func lagunaDecodeHostSpin() {
                 "mlxfast: decode host spin active: \(lagunaDecodeHostSpinNanoseconds / 1000) us/layer\n"
                     .utf8))
     }
-    var now = DispatchTime.now().uptimeNanoseconds
-    let deadline = now + lagunaDecodeHostSpinNanoseconds
+    let start = DispatchTime.now().uptimeNanoseconds
+    var now = start
+    let deadline = start + lagunaDecodeHostSpinNanoseconds
     while now < deadline {
         now = DispatchTime.now().uptimeNanoseconds
         lagunaDecodeHostSpinSink = lagunaDecodeHostSpinSink &+ now
     }
+    lagunaDecodeHostSpinCalls += 1
+    lagunaDecodeHostSpinNanosecondsSpent += now - start
 }
 
 nonisolated(unsafe) private var lagunaDecodeHostSpinAnnounced = false
+nonisolated(unsafe) var lagunaDecodeHostSpinCalls: UInt64 = 0
+nonisolated(unsafe) var lagunaDecodeHostSpinNanosecondsSpent: UInt64 = 0
 
 /// Worker decode is single-threaded, so these counters need no synchronization.
 private final class LagunaDecodeHostTimingLog: @unchecked Sendable {
@@ -148,7 +153,9 @@ private final class LagunaDecodeHostTimingLog: @unchecked Sendable {
                 mlxfast: decode host timing steps=\(steps) \
                 mean_period_ms=\(String(format: "%.4f", meanPeriodMS)) \
                 mean_host_build_ms=\(String(format: "%.4f", meanBuildMS)) \
-                build_share=\(String(format: "%.3f", meanBuildMS / meanPeriodMS))
+                build_share=\(String(format: "%.3f", meanBuildMS / meanPeriodMS)) \
+                spin_calls_per_step=\(String(format: "%.2f", Double(lagunaDecodeHostSpinCalls) / Double(steps))) \
+                spin_ms_per_step=\(String(format: "%.4f", Double(lagunaDecodeHostSpinNanosecondsSpent) / Double(steps) / 1e6))
                 """.appending("\n").utf8))
     }
 }
