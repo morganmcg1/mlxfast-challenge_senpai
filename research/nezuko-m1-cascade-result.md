@@ -72,15 +72,48 @@ Consequently the cascade's ceiling prices cleanly: it removes 25.69 MB from a
   runbook warns about. That stale artifact was moved aside and every number
   below comes from arms measured back-to-back in one session.
 
-### Local A/B — pending final arms
+### Local A/B — 7 of 8 arms (final `ctrl` arm in a thermal-gate wait)
 
-_(table filled from `/tmp/ab-m1/score.*.json`)_
+Drift-corrected regression `metric = a + b·t + c·arm`, which is the right model
+here because the ABBA block is not yet complete:
 
-| Metric | Control (single-pass) | Cascade (M1) | Delta |
+| Metric | Control | Cascade | Arm effect (drift-corrected) | Host drift |
+| --- | ---: | ---: | ---: | ---: |
+| `T` (pure decode step, ms) | 9.0946 | 8.9688 | **−1.349% ± 0.440%** (3.1σ) | −0.0011 ms/min |
+| `S` (512-token prefill, ms) | 592.89 | 583.67 | −1.257% ± 0.806% (1.6σ) | −0.635 ms/min |
+| `decode_seconds_per_token` (ms) | 13.7265 | 13.5287 | **−1.318% ± 0.332%** (4.0σ) | −0.0060 ms/min |
+
+Host drift on `T` is negligible, so the `T` effect is not a drift artifact.
+
+**`S` is a negative control and it is the dominant source of uncertainty.**
+Refinement is applied only when the input is a single decode token, and the
+`DARKBLOOM_LMHEAD_FUSED_REFINEMENT` switch does not alter the plane packing, so
+both arms run a byte-identical prefill. The true `ΔS` is therefore **zero by
+construction**, and the observed −1.257% (1.6σ) is prefill measurement noise —
+prefill is a *single* 512-token forward, so it is far noisier per run than the
+128-step decode average.
+
+That matters because `T = dec − S/128` subtracts that noisy term. Propagating
+it, σ(S)/128 ≈ 0.037 ms on a 9.0 ms `T` ≈ 0.41% — which is essentially all of
+the 0.44% uncertainty on `T`. Two estimators therefore bracket the answer:
+
+| Estimator | `ΔT` | as % of `T` | ns (×0.638) |
 | --- | ---: | ---: | ---: |
-| `T` (pure decode step, ms) | | | |
-| `S` (512-token prefill, ms) | | | |
-| `decode_seconds_per_token` (ms) | | | |
+| Per-run `T` (unconstrained) | −0.1227 ms | **−1.35% ± 0.44%** | +0.86% |
+| Constrained `ΔS ≡ 0`, so `ΔT = Δdec` | −0.1808 ms | **−1.99% ± 0.50%** | +1.27% |
+
+The constrained estimator is the statistically better one given that `ΔS = 0`
+is known a priori, but it is also the more flattering one, so both are
+reported. Either way the effect is significant and comfortably inside the
+≤5% single-submission acceptance cap.
+
+**Against the two predictions:** the kernel-rate prediction was −1.11% of `T`
+and the step-average prediction −1.43%. The measurement lands at or above the
+step-average figure. A gain exceeding the pure byte-removal estimate is
+physically plausible — level one now reads one contiguous 1024 B run per row
+instead of two disjoint streams (1024 B + 256 B), which reduces prefetch and
+TLB pressure on top of the byte saving — but that is a hypothesis, not a
+measured decomposition, and the official M5 family is what settles the number.
 
 ### Correctness
 
