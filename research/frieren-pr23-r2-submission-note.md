@@ -181,13 +181,21 @@ nowhere near the 0.95 hard floor.
 ## Correctness
 
 The change moves command-buffer boundaries inside an unchanged graph: same
-dispatches, same kernels, same fusion, same donation, same arithmetic. Verified
-locally on matched `--local-iterate` runs at ranked parity with
-`max_abs_diff = 0` and the public 64-step drift tripwire passing, and the
-vendored-Laguna upstream-equivalence oracle unchanged against the reference this
-tree already records (prefill `max_abs 0.125` / `mean 0.011933609`, decode steps
-0-7 exactly 0, every greedy token matching). `swift test --force-resolved-versions`
-passes.
+dispatches, same kernels, same fusion, same donation, same arithmetic.
+
+Measured, not assumed. Matched `--local-iterate` arms from the same commit and
+the same binary (candidate = in-tree 50 MiB; control = 200 MiB restored through
+the environment), both at ranked-parity full profile:
+
+| arm | `max_abs_diff` | correctness | checked steps | golden hash |
+| --- | ---: | --- | ---: | --- |
+| candidate 50 MiB | **0** | passed | 130 | `b9509697...a58d7a63` |
+| control 200 MiB | **0** | passed | 130 | `b9509697...a58d7a63` |
+
+`swift test --force-resolved-versions` passes: 454 tests in 6 suites. The
+vendored-Laguna upstream-equivalence oracle is unchanged against the reference
+this tree already records (prefill `max_abs 0.125` / `mean 0.011933609`, decode
+steps 0-7 exactly 0, every greedy token matching).
 
 Serial-protocol statement: this change alters only where MLX commits work that
 the current invocation has already been asked to compute. Every measurement here
