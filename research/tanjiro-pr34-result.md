@@ -72,7 +72,7 @@ this assignment's mandatory 15% agreement gate.
 
 ## Local gate (mandatory, M4 Pro)
 
-Nine matched `--local-iterate` receipts on the same quiet host behind the 40 C
+Ten matched `--local-iterate` receipts on the same quiet host behind the 40 C
 gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 
 | run | config `da,dr,pr,pa` | how set | S (ms) | T (ms) |
@@ -86,6 +86,7 @@ gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 | L6 | 0,0,20,0 + arch probe | env | 661.777 | 9.9125 |
 | L7 | 0,39,20,0 | env (**exact R4 configuration**) | 664.651 | 10.6925 |
 | L8 | 0,0,39,40 | env (**cross-block additivity**) | 929.338 | 8.6675 |
+| L9 | 0,0,0,0 | env (**anchor replicate**) | 575.940 | 8.7983 |
 
 L3 is the receipt-R2 configuration run with **no environment variables set for any
 injection knob**, which is how the official runner invokes the binary. Its stderr
@@ -155,7 +156,13 @@ That is the cleanest statement this arm can make about its own instrument:
 **the method is accurate to ~3% when the host step is loaded, and optimistic by
 12–26% when it is not.**
 
-**Reproducibility of each axis on M4.** Three runs share `prefill_routed = 20` and
+**Reproducibility of each axis on M4.** The anchor itself was run twice. L9 repeats
+L0's all-knobs-off configuration and lands at `S = 575.940 ms` (**−0.218%**) and
+`T = 8.7983 ms` (**−0.018 ms, −0.202%**). Since every M4 rate in this report is a
+difference against the anchor, that is the systematic error floor on all of them:
+**±1.26 ms on prefill deltas and ±0.018 ms on decode deltas** — 0.6% of the
+smallest decode delta measured (2.84 ms) and 1.5% of the smallest prefill delta
+(86.7 ms). Three further runs share `prefill_routed = 20` and
 differ only in their decode knobs (L1, L6, L7): `S = 665.291, 661.777, 664.651`,
 sd `1.872 ms` = **0.282% of the absolute prefill axis**, or ±2.2% on the 86.7 ms
 injected difference. That is three times better than the two-run estimate I had
