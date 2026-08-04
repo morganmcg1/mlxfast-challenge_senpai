@@ -162,6 +162,23 @@ private let lagunaLmHeadCoarseV5Enabled =
 private let lagunaLmHeadV5StatsEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_V5_STATS"] == "1"
 
+/// RESEARCH-ONLY instrumentation for the hierarchical-screen study (PR #6).
+/// Forces several per-step GPU syncs and extra dispatches; NEVER on a timing
+/// run. Writes one JSON line per scored forward to
+/// DARKBLOOM_LMHEAD_HIER_STATS_PATH.
+private let lagunaLmHeadHierStatsEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_HIER_STATS"] == "1"
+
+private let lagunaLmHeadHierStatsPath =
+    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_HIER_STATS_PATH"]
+    ?? "/tmp/lmhead-hier-stats.jsonl"
+
+/// Hierarchical certified coarse screen: a 320 B/row level-0 bound gates the
+/// 1344 B/row planar pass. Same emitted token by construction. Default OFF
+/// while the density study is in flight.
+private let lagunaLmHeadHierV6Enabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_HIER_V6"] == "1"
+
 /// Tight v5 assembly threshold: use the BF16 predecessor of the exact coarse-
 /// argmax row instead of the retained `e_r - |e_r|/64` two-ulp band. This is
 /// the highest representable threshold that still forces every skipped
@@ -1899,6 +1916,41 @@ final class LagunaLmHeadPruner {
         return (lo, hi, sdByte.asType(.uint8))
     }
 
+    /// Hierarchical certified coarse screen. A 320 B/row level-0 bound read
+    /// from the 1-bit plane and group scales alone certifies a lower bound on
+    /// the achieved maximum; the planar 1344 B/row pass then reads only the
+    /// rows whose level-0 upper bound reaches it. Returns the same
+    /// `[coarse, delta]` contract as the ungated coarse kernel; the surviving
+    /// rows run a textually identical accumulator, and every skipped row still
+    /// carries a certified `[coarse - delta, coarse + delta]` bracket, so the
+    /// downstream threshold test stays sound either way.
+    static func hierarchicalCoarse(
+        x: MLXArray, lo: MLXArray, hi: MLXArray, scales: MLXArray
+    ) -> [MLXArray] {
+        let vocab = lagunaLmHeadPruneVocab
+        let level0 = lagunaLmHeadHiLevel0BoundKernel(
+            [x, hi, scales],
+            grid: (vocab / 16 * 512, 1, 1),
+            threadGroup: (512, 1, 1),
+            outputShapes: [[vocab], [vocab], [vocab / 16]],
+            outputDTypes: [.float32, .bfloat16, .float32]
+        )
+        let lower = lagunaLmHeadLevel0LowerBoundReduceKernel(
+            [level0[2]],
+            grid: (256, 1, 1),
+            threadGroup: (256, 1, 1),
+            outputShapes: [[1]],
+            outputDTypes: [.float32]
+        )[0]
+        return lagunaLmHeadInt5CoarseGatedKernel(
+            [x, lo, hi, scales, level0[0], level0[1], lower],
+            grid: (vocab / 16 * 512, 1, 1),
+            threadGroup: (512, 1, 1),
+            outputShapes: [[vocab], [vocab]],
+            outputDTypes: [.float32, .bfloat16]
+        )
+    }
+
     /// Pruned final-row lm_head: full [vocab] BF16 logits row, bit-identical to
     /// the stock pass in every candidate slot and certified-below elsewhere,
     /// so the downstream argmax emits the stock token.
@@ -1914,13 +1966,17 @@ final class LagunaLmHeadPruner {
         if let lo5 = int5CodesLo, let hi5 = int5CodesHi, let s5 = int5Scales {
             // (The default-OFF preabs twin was deleted for byte budget: it
             // measured +40 us/step on this arm; notes/exp-v5preabs.md.)
-            let coarseOut5 = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
-                [x, lo5, hi5, s5],
-                grid: (vocab / 16 * 512, 1, 1),
-                threadGroup: (512, 1, 1),
-                outputShapes: [[vocab], [vocab]],
-                outputDTypes: [.float32, .bfloat16]
-            )
+            let coarseOut5 =
+                lagunaLmHeadHierV6Enabled
+                ? LagunaLmHeadPruner.hierarchicalCoarse(
+                    x: x, lo: lo5, hi: hi5, scales: s5)
+                : lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
+                    [x, lo5, hi5, s5],
+                    grid: (vocab / 16 * 512, 1, 1),
+                    threadGroup: (512, 1, 1),
+                    outputShapes: [[vocab], [vocab]],
+                    outputDTypes: [.float32, .bfloat16]
+                )
             let coarse5 = coarseOut5[0]
             let delta5 = coarseOut5[1]
             let argmaxPartials = lagunaLmHeadCoarseArgmaxStage1Kernel(
@@ -1947,6 +2003,11 @@ final class LagunaLmHeadPruner {
                     .asType(.int32).sum().item(Int32.self)
                 FileHandle.standardError.write(
                     Data("lmhead-v5 candidates: \(count)\n".utf8))
+            }
+            if lagunaLmHeadHierStatsEnabled {
+                lagunaLmHeadRunHierStats(
+                    x: x, lo: lo5, hi: hi5, scales: s5,
+                    lmHeadWeight: lmHeadWeight)
             }
             let assembled5 = lagunaLmHeadInlineExactDeltaBF16Kernel(
                 [coarse5, delta5, thr5, lmHeadWeight, x],
@@ -2085,3 +2146,415 @@ final class LagunaLmHeadPruner {
         return assembled.reshaped([1, 1, vocab])
     }
 }
+
+// MARK: - RESEARCH-ONLY hierarchical-screen study (PR #6; delete before submit)
+
+/// Level-0 certified bound read from the int5 1-bit plane and group scales
+/// alone: 256 + 64 = 320 B/row versus the 1344 B/row planar coarse pass.
+///
+/// Bound argument. `buildInt5Planes` guarantees `u = q + 16 in [1, 31]` and
+/// `|w - sd*q| <= sd/2` exactly. Reading only bit 4 of `u` leaves
+/// `u in [1,15]` (bit=0) or `u in [16,31]` (bit=1). With
+/// `vhat = 15.5*bit - 8.0` (exact in fp32) the reconstruction error is
+/// `|q - vhat| <= 7.0` (bit=0, midpoint of [-15,-1] is -8) or `<= 7.5`
+/// (bit=1, midpoint of [0,15] is 7.5), so
+/// `|w - sd*vhat| <= sd*7.5 + sd/2 = 8*sd` elementwise. Therefore
+/// `est - err <= w.x <= est + err` for every row and every x, with
+/// `err = sum_g 8*sd_g*sum_{j in g}|x_j|`. `8*sd` is a power of two so every
+/// product is exact; accumulation depth matches the planar coarse kernel, so
+/// its certified `(1 + 61*GAMMA)` factor and BF16 round-up apply verbatim.
+private let lagunaLmHeadHiLevel0BoundKernel = MLXFast.metalKernel(
+    name: "laguna_lmhead_hi_level0_bound_v6",
+    inputNames: ["x", "codes_hi", "scales"],
+    outputNames: ["est", "err", "lbpart"],
+    source: """
+        constexpr float GAMMA = 0x1p-15f;
+
+        uint row = threadgroup_position_in_grid.x * 16 +
+            simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+        threadgroup float shared_lb[16];
+
+        const device uint8_t* hirow = codes_hi + size_t(row) * 256;
+        const device uint8_t* srow = scales + size_t(row) * 64;
+
+        float c_acc = 0.0f;
+        float d_acc = 0.0f;
+        for (uint gg = 0; gg < 2; ++gg) {
+            uint g = 2 * lane + gg;
+            float sd = laguna_e8m0_decode(srow[g]);
+            uint hb = ((const device uint*)(hirow + g * 4))[0];
+            const device ushort4* xrow = (const device ushort4*)(x + g * 32);
+            float cg = 0.0f;
+            float ag = 0.0f;
+            #pragma clang loop unroll(full)
+            for (uint w = 0; w < 4; ++w) {
+                uint hw = hb >> (8u * w);
+                uint4 he = (uint4(hw) >> uint4(0u, 2u, 4u, 6u)) & 1u;
+                uint4 ho = (uint4(hw) >> uint4(1u, 3u, 5u, 7u)) & 1u;
+                float4 ve = float4(he) * 15.5f - 8.0f;
+                float4 vo = float4(ho) * 15.5f - 8.0f;
+                float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
+                float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
+                float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
+                float4 xo = float4(xa.y, xa.w, xb.y, xb.w);
+                float4 axe = metal::abs(xe);
+                float4 axo = metal::abs(xo);
+                #pragma clang loop unroll(full)
+                for (uint k = 0; k < 4; ++k) {
+                    cg += xe[k] * ve[k];
+                    cg += xo[k] * vo[k];
+                    ag += axe[k];
+                    ag += axo[k];
+                }
+            }
+            c_acc += sd * cg;
+            d_acc += (8.0f * sd) * ag;
+        }
+        c_acc = simd_sum(c_acc);
+        d_acc = simd_sum(d_acc);
+        if (lane == 0) {
+            est[row] = c_acc;
+            float d_up = d_acc * (1.0f + 61.0f * GAMMA);
+            uint dbits = as_type<uint>(d_up);
+            uint dtrunc = dbits & 0xFFFF0000u;
+            if (dtrunc != dbits) {
+                dtrunc += 0x00010000u;
+            }
+            bfloat e_up = as_type<bfloat>(ushort(dtrunc >> 16));
+            err[row] = e_up;
+            // Certified lower bound for this row, using the STORED (rounded
+            // up) err so the bound stays valid.
+            shared_lb[simdgroup_index_in_threadgroup] = c_acc - float(e_up);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (simdgroup_index_in_threadgroup == 0) {
+            float m = lane < 16
+                ? shared_lb[lane]
+                : -metal::numeric_limits<float>::infinity();
+            #pragma clang loop unroll(full)
+            for (ushort sn = 8; sn >= 1; sn >>= 1) {
+                m = metal::max(m, simd_shuffle_down(m, sn));
+            }
+            if (lane == 0) {
+                lbpart[threadgroup_position_in_grid.x] = m;
+            }
+        }
+        """,
+    header: lagunaLmHeadPruneHeader,
+    ensureRowContiguous: true
+)
+
+/// Reduces the level-0 per-threadgroup lower bounds to one certified scalar
+/// `L = max_row (est_row - err_row) <= max_row (w_row . x)`. Any row whose
+/// level-0 UPPER bound is below `L` cannot be the argmax, so the gated planar
+/// pass may skip its 1344 B without reading them.
+private let lagunaLmHeadLevel0LowerBoundReduceKernel = MLXFast.metalKernel(
+    name: "laguna_lmhead_level0_lower_bound_reduce_v6",
+    inputNames: ["lbpart"],
+    outputNames: ["lower"],
+    source: """
+        constexpr uint PARTS = 6272;
+        uint lid = thread_position_in_threadgroup.x;
+        uint lane = thread_index_in_simdgroup;
+        uint sg = simdgroup_index_in_threadgroup;
+        threadgroup float shared_max[8];
+
+        float m = -metal::numeric_limits<float>::infinity();
+        for (uint i = lid; i < PARTS; i += 256u) {
+            m = metal::max(m, lbpart[i]);
+        }
+        #pragma clang loop unroll(full)
+        for (ushort sn = 16; sn >= 1; sn >>= 1) {
+            m = metal::max(m, simd_shuffle_down(m, sn));
+        }
+        if (lane == 0) {
+            shared_max[sg] = m;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (lid == 0) {
+            float t = shared_max[0];
+            #pragma clang loop unroll(full)
+            for (uint i = 1; i < 8; ++i) {
+                t = metal::max(t, shared_max[i]);
+            }
+            lower[0] = t;
+        }
+        """,
+    ensureRowContiguous: true
+)
+
+/// Gated planar int5 coarse pass. Verbatim copy of the shipped v5 coarse
+/// kernel with one prologue added: a row whose certified level-0 upper bound
+/// `est + err` is below the certified level-0 lower bound `lower[0]` on the
+/// achieved maximum cannot be the argmax, so its 1344 B are never requested
+/// and its level-0 pair is forwarded unchanged. Every surviving row -- always
+/// including the true argmax, whose upper bound is at least the true maximum
+/// which is at least `lower[0]` -- produces the same `coarse`/`delta` bits as
+/// the ungated kernel, so the downstream argmax, exact-winner threshold, and
+/// exact pass are unchanged and the exact tail cannot grow beyond the skipped
+/// rows admitted between `thr` and `lower[0]`.
+private let lagunaLmHeadInt5CoarseGatedKernel = MLXFast.metalKernel(
+    name: "laguna_lmhead_int5_coarse_gated_hier_v6",
+    inputNames: ["x", "codes_lo", "codes_hi", "scales", "est", "err", "lower"],
+    outputNames: ["coarse", "delta"],
+    source: """
+        constexpr float GAMMA = 0x1p-15f;
+
+        uint row = threadgroup_position_in_grid.x * 16 +
+            simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+
+        float e0 = est[row];
+        bfloat r0 = err[row];
+        if (e0 + float(r0) < lower[0]) {
+            if (lane == 0) {
+                coarse[row] = e0;
+                delta[row] = r0;
+            }
+            return;
+        }
+
+        const device uint8_t* lorow = codes_lo + size_t(row) * 1024;
+        const device uint8_t* hirow = codes_hi + size_t(row) * 256;
+        const device uint8_t* srow = scales + size_t(row) * 64;
+
+        float c_acc = 0.0f;
+        float d_acc = 0.0f;
+        for (uint gg = 0; gg < 2; ++gg) {
+            uint g = 2 * lane + gg;
+            float sd = laguna_e8m0_decode(srow[g]);
+            uint4 lo4 = ((const device uint4*)(lorow + g * 16))[0];
+            uint hb = ((const device uint*)(hirow + g * 4))[0];
+            const device ushort4* xrow = (const device ushort4*)(x + g * 32);
+            float cg = 0.0f;
+            float ag = 0.0f;
+            #pragma clang loop unroll(full)
+            for (uint w = 0; w < 4; ++w) {
+                uint lw = lo4[w];
+                uint hw = hb >> (8u * w);
+                uint4 ne = (uint4(lw) >> uint4(0u, 8u, 16u, 24u)) & 15u;
+                uint4 no = (uint4(lw) >> uint4(4u, 12u, 20u, 28u)) & 15u;
+                uint4 he = (uint4(hw) >> uint4(0u, 2u, 4u, 6u)) & 1u;
+                uint4 ho = (uint4(hw) >> uint4(1u, 3u, 5u, 7u)) & 1u;
+                float4 ve = float4(ne | (he << 4u)) - 16.0f;
+                float4 vo = float4(no | (ho << 4u)) - 16.0f;
+                float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
+                float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
+                float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
+                float4 xo = float4(xa.y, xa.w, xb.y, xb.w);
+                float4 axe = metal::abs(xe);
+                float4 axo = metal::abs(xo);
+                #pragma clang loop unroll(full)
+                for (uint k = 0; k < 4; ++k) {
+                    cg += xe[k] * ve[k];
+                    cg += xo[k] * vo[k];
+                    ag += axe[k];
+                    ag += axo[k];
+                }
+            }
+            c_acc += sd * cg;
+            d_acc += (0.5f * sd) * ag;
+        }
+        c_acc = simd_sum(c_acc);
+        d_acc = simd_sum(d_acc);
+        if (lane == 0) {
+            coarse[row] = c_acc;
+            float d_up = d_acc * (1.0f + 61.0f * GAMMA);
+            uint dbits = as_type<uint>(d_up);
+            uint dtrunc = dbits & 0xFFFF0000u;
+            if (dtrunc != dbits) {
+                dtrunc += 0x00010000u;
+            }
+            delta[row] = as_type<bfloat>(ushort(dtrunc >> 16));
+        }
+        """,
+    header: lagunaLmHeadPruneHeader,
+    ensureRowContiguous: true
+)
+
+private final class LagunaLmHeadHierStats {
+    nonisolated(unsafe) static let shared = LagunaLmHeadHierStats()
+    var step = 0
+    var handle: FileHandle?
+
+    func line(_ text: String) {
+        if handle == nil {
+            FileManager.default.createFile(
+                atPath: lagunaLmHeadHierStatsPath, contents: nil)
+            handle = FileHandle(forWritingAtPath: lagunaLmHeadHierStatsPath)
+            handle?.seekToEndOfFile()
+        }
+        handle?.write(Data((text + "\n").utf8))
+    }
+}
+
+/// One-shot magnitude-bound family closure: the tightest per-row members of
+/// the Cauchy-Schwarz / Holder family. Any per-block bound over B rows is
+/// pointwise at least the per-row bound of every row in the block, so if the
+/// per-row member already retains most rows the whole block family is dead.
+private func lagunaLmHeadMagnitudeBoundDensity(
+    x: MLXArray, lmHeadWeight: MLXArray, trueMax: Float
+) -> (holder: Int, cs: Int) {
+    let vocab = lagunaLmHeadPruneVocab
+    let chunk = 6272
+    let xf = x.asType(.float32)
+    let absx = MLX.abs(xf)
+    let xnorm = MLX.sqrt(MLX.sum(xf * xf)).item(Float.self)
+    var holder = 0
+    var cs = 0
+    for base in stride(from: 0, to: vocab, by: chunk) {
+        let w = lmHeadWeight[base ..< (base + chunk)].asType(.float32)
+        let h = MLX.abs(w).matmul(absx)
+        let n = MLX.sqrt(MLX.sum(w * w, axis: 1)) * xnorm
+        holder += Int(
+            (h .>= MLXArray(trueMax)).asType(.int32).sum().item(Int32.self))
+        cs += Int(
+            (n .>= MLXArray(trueMax)).asType(.int32).sum().item(Int32.self))
+    }
+    return (holder, cs)
+}
+
+/// Measures (a) per-dispatch epilogue time and (b) certified survivor density
+/// for a level-0 screen, for the PR #6 hierarchical-screen decision.
+private func lagunaLmHeadRunHierStats(
+    x: MLXArray, lo: MLXArray, hi: MLXArray, scales: MLXArray,
+    lmHeadWeight: MLXArray
+) {
+    let vocab = lagunaLmHeadPruneVocab
+    let stats = LagunaLmHeadHierStats.shared
+    let step = stats.step
+    stats.step += 1
+
+    func timed(_ body: () -> [MLXArray]) -> (Double, [MLXArray]) {
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        let out = body()
+        MLX.eval(out)
+        let t1 = DispatchTime.now().uptimeNanoseconds
+        return (Double(t1 - t0) / 1000.0, out)
+    }
+    MLX.eval(x)
+
+    let (tCoarse, coarseOut) = timed {
+        lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
+            [x, lo, hi, scales],
+            grid: (vocab / 16 * 512, 1, 1), threadGroup: (512, 1, 1),
+            outputShapes: [[vocab], [vocab]],
+            outputDTypes: [.float32, .bfloat16])
+    }
+    let (tLevel0, level0Out) = timed {
+        lagunaLmHeadHiLevel0BoundKernel(
+            [x, hi, scales],
+            grid: (vocab / 16 * 512, 1, 1), threadGroup: (512, 1, 1),
+            outputShapes: [[vocab], [vocab], [vocab / 16]],
+            outputDTypes: [.float32, .bfloat16, .float32])
+    }
+    let (tReduce, reduceOut) = timed {
+        lagunaLmHeadLevel0LowerBoundReduceKernel(
+            [level0Out[2]],
+            grid: (256, 1, 1), threadGroup: (256, 1, 1),
+            outputShapes: [[1]], outputDTypes: [.float32])
+    }
+    let (tGated, _) = timed {
+        lagunaLmHeadInt5CoarseGatedKernel(
+            [x, lo, hi, scales, level0Out[0], level0Out[1], reduceOut[0]],
+            grid: (vocab / 16 * 512, 1, 1), threadGroup: (512, 1, 1),
+            outputShapes: [[vocab], [vocab]],
+            outputDTypes: [.float32, .bfloat16])
+    }
+    let (tArgmax, argmaxOut) = timed {
+        lagunaLmHeadCoarseArgmaxStage1Kernel(
+            [coarseOut[0]],
+            grid: (224, 128, 1), threadGroup: (224, 1, 1),
+            outputShapes: [[128], [128]],
+            outputDTypes: [.float32, .uint32])
+    }
+    let thresholdKernel =
+        lagunaLmHeadBF16PredecessorThresholdEnabled
+        ? lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
+        : lagunaLmHeadExactWinnerThresholdKernel
+    let (tThr, thrOut) = timed {
+        thresholdKernel(
+            [argmaxOut[0], argmaxOut[1], lmHeadWeight, x],
+            grid: (32, 1, 1), threadGroup: (32, 1, 1),
+            outputShapes: [[1]], outputDTypes: [.float32])
+    }
+    let (tExact, _) = timed {
+        lagunaLmHeadInlineExactDeltaBF16Kernel(
+            [coarseOut[0], coarseOut[1], thrOut[0], lmHeadWeight, x],
+            grid: (vocab / 32 * 256, 1, 1), threadGroup: (256, 1, 1),
+            outputShapes: [[vocab]], outputDTypes: [.bfloat16])
+    }
+
+    let c = coarseOut[0]
+    let d = coarseOut[1].asType(.float32)
+    let thr = thrOut[0]
+    let est0 = level0Out[0]
+    let err0 = level0Out[1].asType(.float32)
+
+    func count(_ mask: MLXArray) -> Int {
+        Int(mask.asType(.int32).sum().item(Int32.self))
+    }
+    // Live exact-tail size today: rows, and the 4-row blocks the exact kernel
+    // actually pays for.
+    let candMask = (c + d) .>= thr
+    let candRows = count(candMask)
+    let candBlocks = count(
+        candMask.asType(.int32).reshaped([vocab / 4, 4]).max(axis: 1) .> 0)
+
+    // Real level-0 (int5 hi-plane, 320 B/row) certified survivor set, gated on
+    // the reduce kernel's own scalar (also cross-checks the reduction).
+    let l0 = reduceOut[0]
+    let survMask = (est0 + err0) .>= l0
+    let surv0 = count(survMask)
+    let reduceMatches =
+        (l0 .== (est0 - err0).max()).item(Bool.self) ? 1 : 0
+    // The coarse-argmax row must always survive level 0.
+    let winner = Int(MLX.argMax(c).item(UInt32.self))
+    let winnerSurvives = count(survMask[winner ..< (winner + 1)])
+    // Extra exact-pass candidates the hierarchy admits versus today: rows the
+    // gate skipped whose LOOSE level-0 upper bound still reaches thr.
+    let leakRows = count(((est0 + err0) .>= thr) .&& (survMask .== false))
+
+    // Tighter gate variant: use the exact logit of the level-0 argmax row as
+    // the lower bound instead of max(est0 - err0). `c[r0]` is that logit to
+    // within the certified planar delta.
+    let l0Winner = Int(MLX.argMax(est0).item(UInt32.self))
+    let l0WinnerLogit = c[l0Winner ..< (l0Winner + 1)]
+    let surv0Z = count((est0 + err0) .>= l0WinnerLogit)
+    let l0PicksTrueWinner = l0Winner == winner ? 1 : 0
+
+    // Design curve: survivors when the level-0 error is m x the certified
+    // planar delta. m = 16 is the hi-plane level-0 above; m = 2 is the
+    // recorded int4 coarse attempt; other m values price a repacked
+    // MSB-first split. `curve` uses the weak max(est - err) lower bound;
+    // `curveZ` uses the exact-winner lower bound.
+    var curve: [String] = []
+    var curveZ: [String] = []
+    let cMax = c.max()
+    for m in [1, 2, 4, 8, 16, 32, 64, 128, 256] {
+        let e = d * Float(m)
+        curve.append("\"m\(m)\":\(count((c + e) .>= (c - e).max()))")
+        curveZ.append("\"m\(m)\":\(count((c + e) .>= cMax))")
+    }
+
+    var extra = ""
+    if step == 0 {
+        let trueMax = (c - d).max().item(Float.self)
+        let mag = lagunaLmHeadMagnitudeBoundDensity(
+            x: x, lmHeadWeight: lmHeadWeight, trueMax: trueMax)
+        extra = ",\"holder_rows\":\(mag.holder),\"cs_rows\":\(mag.cs)"
+    }
+    stats.line(
+        "{\"step\":\(step),\"us\":{\"coarse\":\(tCoarse),\"level0\":\(tLevel0),"
+            + "\"reduce\":\(tReduce),\"gated\":\(tGated),"
+            + "\"argmax\":\(tArgmax),\"thr\":\(tThr),\"exact\":\(tExact)},"
+            + "\"cand_rows\":\(candRows),\"cand_blocks\":\(candBlocks),"
+            + "\"surv0_rows\":\(surv0),\"winner_survives\":\(winnerSurvives),"
+            + "\"reduce_matches\":\(reduceMatches),"
+            + "\"leak_rows\":\(leakRows),\"surv0_z_rows\":\(surv0Z),"
+            + "\"l0_picks_true_winner\":\(l0PicksTrueWinner),"
+            + "\"curve\":{\(curve.joined(separator: ","))},"
+            + "\"curve_z\":{\(curveZ.joined(separator: ","))}" + extra + "}")
+}
+
