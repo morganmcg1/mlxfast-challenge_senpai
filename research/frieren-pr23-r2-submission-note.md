@@ -192,10 +192,16 @@ the environment), both at ranked-parity full profile:
 | candidate 50 MiB | **0** | passed | 130 | `b9509697...a58d7a63` |
 | control 200 MiB | **0** | passed | 130 | `b9509697...a58d7a63` |
 
-`swift test --force-resolved-versions` passes: 454 tests in 6 suites. The
-vendored-Laguna upstream-equivalence oracle is unchanged against the reference
-this tree already records (prefill `max_abs 0.125` / `mean 0.011933609`, decode
-steps 0-7 exactly 0, every greedy token matching).
+`swift test --force-resolved-versions` passes: 454 tests in 6 suites.
+
+The vendored-Laguna upstream-equivalence oracle was run under **both** startup
+profiles and is bit-identical to the reference this tree already records:
+prefill `maximumAbsoluteLogitError 0.125` / `mean 0.011933609` with runtime and
+upstream greedy tokens both `5991`, decode steps 0-7 all exactly `0` / `0` with
+every token matching, `EQUIVALENCE_EXACT_STEPS=8` in both runs. (The oracle's
+own exit status is 1 in either case because the zero tolerance it defaults to is
+applied to prefill as well, which the batched NVFP4 path cannot meet against a
+bf16 reference; the per-step table is the signal.)
 
 Serial-protocol statement: this change alters only where MLX commits work that
 the current invocation has already been asked to compute. Every measurement here
