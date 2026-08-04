@@ -21,20 +21,21 @@ for arm in "${ARMS[@]}"; do
     # `deep` stages every K block of the shared gate/up QMV instead of one
     # block ahead; the down projection keeps the depth-1 form it accepts.
     case "$arm" in
-        base) stage=0; pack=0; down_stage=0 ;;
-        st)   stage=1; pack=0; down_stage=1 ;;
-        pk)   stage=0; pack=1; down_stage=0 ;;
-        both) stage=1; pack=1; down_stage=1 ;;
-        k1)   stage=1; pack=1; down_stage=0 ;;
-        deep) stage=2; pack=1; down_stage=0 ;;
+        base) stage=0; pack=0; down_stage=0; down_pack=0 ;;
+        st)   stage=1; pack=0; down_stage=1; down_pack=0 ;;
+        pk)   stage=0; pack=1; down_stage=0; down_pack=1 ;;
+        both) stage=1; pack=1; down_stage=1; down_pack=1 ;;
+        k1)   stage=1; pack=1; down_stage=0; down_pack=1 ;;
+        k1o)  stage=1; pack=1; down_stage=0; down_pack=0 ;;
+        deep) stage=2; pack=1; down_stage=0; down_pack=0 ;;
         *) echo "unknown arm ${arm}"; exit 1 ;;
     esac
-    echo "================ arm=${arm} STAGE=${stage} PACK=${pack} DOWN_STAGE=${down_stage} SPLIT=${SPLIT} ================"
+    echo "================ arm=${arm} STAGE=${stage} PACK=${pack} DOWN_STAGE=${down_stage} DOWN_PACK=${down_pack} SPLIT=${SPLIT} ================"
     err="/tmp/qmvstage.${arm}.split${SPLIT}.err"
     DARKBLOOM_SHARED_QMV_STAGE="${stage}" \
     DARKBLOOM_DOWN_ROW_STAGE="${down_stage}" \
     DARKBLOOM_SHARED_QMV_PACK2="${pack}" \
-    DARKBLOOM_DOWN_PACK4="${pack}" \
+    DARKBLOOM_DOWN_PACK4="${down_pack}" \
     DARKBLOOM_GPU_PROFILE=1 \
     DARKBLOOM_GPU_PROFILE_SPLIT="${SPLIT}" \
         python3 research/decode_probe.py --steps "${STEPS}" --profile \
