@@ -32,6 +32,73 @@ namespace mlx::core::metal {
 
 namespace {
 
+// LOCAL-ONLY GPU dispatch profiler (revert before any timing run).
+// Emits one line per command buffer on stderr:
+//   GPUPROF <gpu_start_s> <gpu_end_s> <nops> <name>|<name>|...
+// gpu_start/gpu_end share the mach-absolute epoch with CACurrentMediaTime and
+// with Python's time.perf_counter on macOS, so a driver can window the records
+// to a single phase.
+class GpuDispatchProfiler {
+ public:
+  static GpuDispatchProfiler& instance() {
+    static GpuDispatchProfiler p;
+    return p;
+  }
+
+  bool enabled() const {
+    return enabled_;
+  }
+
+  // Commit one command buffer per primitive so each GPUPROF record times a
+  // single dispatch. Inflates absolute time by the per-command-buffer GPU
+  // overhead, so use it for attribution only.
+  bool split() const {
+    return split_;
+  }
+
+  void register_pso(const void* pso, const std::string& name) {
+    if (!enabled_) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(mtx_);
+    pso_names_.emplace(pso, name);
+  }
+
+  void record(
+      const std::vector<const void*>& psos,
+      double gpu_start,
+      double gpu_end) {
+    if (!enabled_ || psos.empty()) {
+      return;
+    }
+    std::lock_guard<std::mutex> lock(mtx_);
+    std::string line = fmt::format(
+        "GPUPROF {:.9f} {:.9f} {} ", gpu_start, gpu_end, psos.size());
+    for (size_t i = 0; i < psos.size(); ++i) {
+      if (i) {
+        line += "|";
+      }
+      auto it = pso_names_.find(psos[i]);
+      line += (it == pso_names_.end()) ? "<unnamed>" : it->second;
+    }
+    line += "\n";
+    fputs(line.c_str(), stderr);
+  }
+
+ private:
+  GpuDispatchProfiler() {
+    const char* e = std::getenv("DARKBLOOM_GPU_PROFILE");
+    enabled_ = e != nullptr && std::string(e) != "0";
+    const char* s = std::getenv("DARKBLOOM_GPU_PROFILE_SPLIT");
+    split_ = enabled_ && s != nullptr && std::string(s) != "0";
+  }
+
+  bool enabled_{false};
+  bool split_{false};
+  std::mutex mtx_;
+  std::unordered_map<const void*, std::string> pso_names_;
+};
+
 constexpr const char* default_mtllib_path = METAL_PATH;
 
 auto get_metal_version() {
@@ -379,6 +446,9 @@ void CommandEncoder::dispatch_threadgroups(
     MTL::Size group_dims) {
   maybeInsertBarrier();
   buffer_ops_++;
+  if (GpuDispatchProfiler::instance().enabled()) {
+    profile_psos_.push_back(current_pso_);
+  }
   get_command_encoder()->dispatchThreadgroups(grid_dims, group_dims);
 }
 
@@ -387,6 +457,9 @@ void CommandEncoder::dispatch_threads(
     MTL::Size group_dims) {
   maybeInsertBarrier();
   buffer_ops_++;
+  if (GpuDispatchProfiler::instance().enabled()) {
+    profile_psos_.push_back(current_pso_);
+  }
   get_command_encoder()->dispatchThreads(grid_dims, group_dims);
 }
 
@@ -482,6 +555,9 @@ void CommandEncoder::wait_event(
 }
 
 bool CommandEncoder::needs_commit() const {
+  if (GpuDispatchProfiler::instance().split()) {
+    return buffer_ops_ > 0;
+  }
   auto [max_ops, max_mb] = device_.get_max_ops_mb_per_buffer();
   return (buffer_ops_ > max_ops) || ((buffer_sizes_ >> 20) > max_mb);
 }
@@ -491,10 +567,13 @@ void CommandEncoder::commit(std::function<void()> completion) {
       [&error_ = error_,
        wait_events = std::move(wait_events_),
        signal_events = std::move(signal_events_),
+       profile_psos = std::move(profile_psos_),
        completion = std::move(completion)](MTL::CommandBuffer* cbuf) {
         if (completion) {
           completion();
         }
+        GpuDispatchProfiler::instance().record(
+            profile_psos, cbuf->GPUStartTime(), cbuf->GPUEndTime());
         // If any of the waited event has error in it, poison the encoder.
         for (auto& event : wait_events) {
           if (event->error()) {
@@ -527,6 +606,7 @@ void CommandEncoder::commit(std::function<void()> completion) {
   buffer_ = NS::RetainPtr(queue_->commandBufferWithUnretainedReferences());
   buffer_ops_ = 0;
   buffer_sizes_ = 0;
+  profile_psos_.clear();
 }
 
 void CommandEncoder::synchronize() {
@@ -836,6 +916,7 @@ MTL::ComputePipelineState* Device::get_kernel_(
 
   // Add kernel to cache
   kernel_map_.insert({hash_name, kernel});
+  GpuDispatchProfiler::instance().register_pso(kernel.get(), hash_name);
 
   return kernel.get();
 }
