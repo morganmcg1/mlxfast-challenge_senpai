@@ -165,6 +165,28 @@ because the same forward is charged into the 0.75-weighted decode metric. The
 re-weighting *direction* is still right — the steady step is 1.76x more valuable
 per percent, not 3x.
 
+### Reconciling the two numbers the assignment has used
+
+The assignment has quoted two different weights for the forward, and they bracket
+the truth:
+
+- The PR body says *"Measured elasticity on M5 is 0.64 steady-step / 0.36
+  prefill-class"* and then computes `0.75*0.36 + 0.25*1.00 = 0.52`. That formula is
+  the right shape — it is exactly `0.25 + 0.75*sigma` — but it is fed `sigma = 0.36`.
+  **0.36 is the M4 value** (I measure 33.57% here), not the M5 one. Substituting the
+  actual M5 `sigma = 14.98%` gives 0.362, not 0.52.
+- The later comment says *"A 1% prefill win is worth 0.25% of score"*, which drops
+  the seed charge entirely and so undercounts.
+
+So the forward is worth **0.362**: more than the 0.25 in the comment, but well under
+the 0.52 the assignment was premised on. The consequence matters for planning: the
+PR body's headline claim that *"a 1% improvement to the 512-token forward is worth
+slightly more score than a 1% improvement to the steady decode step"* is **false on
+M5**. The steady step is worth **1.76x** more per percent (0.638 vs 0.362). It is
+true on M4 (0.502 vs 0.498, a near tie), which is presumably where 0.36/0.52 came
+from. This is the same M4-vs-M5 trap as the kernel divergence in section 0, just in
+the scoring arithmetic rather than in the dispatch table.
+
 Two further decompositions that fall out of this and were not previously visible:
 
 - **Our tree has sped the steady step up far more than the forward.**
