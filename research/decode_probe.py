@@ -35,6 +35,10 @@ def main() -> int:
     ap.add_argument("--prefill", action="store_true", help="also time one 512-token prefill")
     ap.add_argument("--stderr", default="/tmp/decode_probe.worker.err")
     ap.add_argument("--weights", default="weights")
+    ap.add_argument("--profile", action="store_true",
+                    help="parse GPUPROF records from the worker stderr and "
+                         "attribute GPU time to the steady decode window")
+    ap.add_argument("--profile-top", type=int, default=40)
     args = ap.parse_args()
 
     with open(GOLDEN) as fh:
@@ -96,15 +100,16 @@ def main() -> int:
     seed_dt = time.perf_counter() - t0
     print(f"decode_begin seed forward: {seed_dt*1e3:.2f} ms", flush=True)
 
-    step_times = []
+    step_spans = []
     token = expected[0]
     print("DECODE_PHASE_START", flush=True)
     for i in range(args.steps):
         t0 = time.perf_counter()
         resp = send({"id": 100 + i, "kind": "decode_step", "token": token})
-        step_times.append(time.perf_counter() - t0)
+        step_spans.append((t0, time.perf_counter()))
         token = expected[i + 1] if i + 1 < len(expected) else resp["token"]
     print("DECODE_PHASE_END", flush=True)
+    step_times = [b - a for a, b in step_spans]
 
     print("first 8 steps (ms): "
           + " ".join(f"{t*1e3:.3f}" for t in step_times[:8]), flush=True)
@@ -123,7 +128,73 @@ def main() -> int:
     proc.wait(timeout=120)
     errfh.close()
     print(f"worker stderr -> {args.stderr}", flush=True)
+
+    if args.profile:
+        analyze_profile(args.stderr, step_spans, args.profile_top)
     return 0
+
+
+def analyze_profile(err_path: str, step_spans, top: int) -> None:
+    """Attribute GPUPROF command-buffer records to the steady decode window.
+
+    MTLCommandBuffer.GPUStartTime and time.perf_counter share the mach
+    absolute-time epoch on macOS, so the driver's per-step wall spans window
+    the GPU records directly.
+    """
+    records = []
+    with open(err_path, errors="replace") as fh:
+        for line in fh:
+            if not line.startswith("GPUPROF "):
+                continue
+            _, start, end, nops, names = line.rstrip("\n").split(" ", 4)
+            records.append((float(start), float(end), int(nops), names))
+    if not records:
+        print("profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)")
+        return
+
+    # Skip step 0: it pays the one-time KV growth concat on full-attention layers.
+    steady = step_spans[1:]
+    lo, hi = steady[0][0], steady[-1][1]
+    wall = sum(b - a for a, b in steady)
+    window = [r for r in records if r[0] >= lo and r[1] <= hi]
+    print(f"\nprofile: {len(records)} command buffers total, "
+          f"{len(window)} inside {len(steady)} steady steps")
+    if not window:
+        return
+
+    busy = sum(e - s for s, e, _, _ in window)
+    merged = 0.0
+    cur_s, cur_e = window[0][0], window[0][1]
+    for s, e, _, _ in sorted(window)[1:]:
+        if s > cur_e:
+            merged += cur_e - cur_s
+            cur_s, cur_e = s, e
+        else:
+            cur_e = max(cur_e, e)
+    merged += cur_e - cur_s
+    dispatches = sum(r[2] for r in window)
+    n = len(steady)
+    print(f"per steady step: wall={wall/n*1e3:.3f} ms "
+          f"gpu_busy_sum={busy/n*1e3:.3f} ms "
+          f"gpu_busy_union={merged/n*1e3:.3f} ms "
+          f"gap={(wall-merged)/n*1e3:.3f} ms "
+          f"({(wall-merged)/wall*100:.1f}% of wall) "
+          f"cbs={len(window)/n:.1f} dispatches={dispatches/n:.1f}")
+
+    agg = {}
+    for s, e, nops, names in window:
+        key = names if nops == 1 else f"[{nops} ops] {names}"
+        c, t = agg.get(key, (0, 0.0))
+        agg[key] = (c + 1, t + (e - s))
+    rows = sorted(agg.items(), key=lambda kv: -kv[1][1])
+    print(f"\n{'us/step':>9} {'share':>7} {'n/step':>7} {'us/call':>8}  kernel")
+    for key, (count, total) in rows[:top]:
+        print(f"{total/n*1e6:9.1f} {total/busy*100:6.2f}% "
+              f"{count/n:7.2f} {total/count*1e6:8.2f}  {key[:150]}")
+    tail = sum(t for _, (_, t) in rows[top:])
+    if tail:
+        print(f"{tail/n*1e6:9.1f} {tail/busy*100:6.2f}% "
+              f"{'':>7} {'':>8}  ... {len(rows)-top} more")
 
 
 if __name__ == "__main__":
