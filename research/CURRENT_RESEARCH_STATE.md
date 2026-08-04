@@ -4,8 +4,9 @@
   campaign `mlxfast-maple-20260804`
 - Most recent human research direction: operator authorised the advisor and all
   four students to dispatch official `mlxfast submit` runs from the AWS Macs.
-- Base branch: `codex/mlxfast-maple-20260804-advisor` @
-  `011b64838878962e870a247be5b9adfac3736915`
+- Base branch: `codex/mlxfast-maple-20260804-advisor`. Round-5 assignments
+  branch from `011b64838878962e870a247be5b9adfac3736915`; advisor HEAD has since
+  advanced with `research/`-only commits, so there is nothing to rebase.
 - Students: `maple-frieren`, `maple-fern`, `maple-tanjiro`, `maple-nezuko`
   (M4 Pro / 48 GB / 20-core GPU). Official host: M5 Max / 128 GB / ~40 cores.
 - Goal: maximise `score = decode_speedup^0.75 * prefill_speedup^0.25`.
@@ -228,6 +229,118 @@ The cost of that asymmetry is that NAX arms are **structurally blind on M4**.
 Budget receipts accordingly: `S` has a 0.497% 1σ floor, so screen a NAX change
 with 1 receipt and only confirm with 2 more if it moves ≥1.5%.
 
+### 6. The seed forward sits ON the roofline ridge, and overlap is the only lever
+
+Section 5 said prefill is "at half of both ceilings". `research/prefill_ridge.py`
+makes that rigorous per block and it changes the ranking of every prefill idea.
+
+```
+block                 GFLOP        MB   FLOP/B  cmp ms  dram ms  binds  ovl ms
+attn_proj_qkvo       1460.3    2852.1    512.0   24.34     5.70    cmp   24.34
+routed_experts       1005.0   14087.2     71.3   16.75    28.17   dram   28.17
+attn_core             161.1       0.0      inf    2.68     0.00    cmp    2.68
+shared_expert         125.6      69.0   1820.4    2.09     0.14    cmp    2.09
+dense_mlp_layer0       51.5     100.7    512.0    0.86     0.20    cmp    0.86
+router                 20.9      40.9    512.0    0.35     0.08    cmp    0.35
+--------------------------------------------------------------------------
+TOTAL                2829.5   17159.7    164.9   47.16    34.32
+```
+
+(60 TFLOP/s, 500 GB/s; expert bytes net of the 20.26% zero-row pairs. The 17.16
+GB is weights only; the ~5.9 GB that reconciles it with the 23.1 GB real figure
+is activation, KV-write, and fp32 split-K round-trip traffic.)
+
+```
+machine balance point   = 120.0 FLOP/byte   (60 TFLOP/s / 500 GB/s)
+forward, weights only   = 164.9 FLOP/byte
+forward, all traffic    = ~122.5 FLOP/byte  <- essentially exactly the ridge
+
+serial sum of per-block floors    81.48 ms
+per-kernel overlap ceiling        58.58 ms
+measured S                        98.15 ms
+```
+
+**A workload at the ridge is simultaneously compute- and bandwidth-limited and
+cannot be improved by relieving either resource alone.** That is why every
+byte-removal instinct imported from decode misfires on prefill, and why overlap
+is not one candidate among several but *the* structural lever. Per-kernel overlap
+plus 9–12 ms of glue lands S at 67.6–70.6 ms = **28–31% of S = 10.2–11.3% of
+score** — the largest recoverable item in the campaign, ahead of the decode
+residual.
+
+Three consequences, each of which re-ranks something:
+
+1. **`routed_experts` is the only DRAM-bound block.** Staging *is* its DRAM read
+   and is irreducible; double buffering converts `serial(cmp+dram) = 44.92 ms`
+   into `max(cmp,dram) = 28.17 ms`, so the prize is **the 16.75 ms of MMA it
+   hides**, not staging cost removed. The measured 45–50% of S (44.2–49.1 ms)
+   brackets the 44.92 ms serial prediction closely, which is independent evidence
+   the block really does run the two phases end to end. Fern's #24 is therefore
+   worth **5.9–7.7% of score**, roughly 3× what its brief said, and the floor is
+   hard at 28.17 ms (26.6 at 530 GB/s, 29.0 at 485).
+2. **`attn_proj_qkvo` is compute-bound at 512 FLOP/byte** (24.34 ms compute vs
+   5.70 ms DRAM), so the lever there is FLOPs or MMA utilisation, never bytes.
+   Because measured S is only +20% over the serial-floors sum, each kernel is
+   already near peak *for its own binding resource* — there is little to win by
+   making the MMA faster.
+3. **Our own receipt bounds the hardware.** Measured S ≥ the serial sum requires
+   a compute floor ≤ `98.153 − 34.32 = 63.8 ms`, i.e. **M5 Max achievable matrix
+   throughput ≥ 44.3 TFLOP/s**. First hardware bound this campaign has derived
+   from its own data rather than a vendor claim; corroborates ~60 TFLOPS.
+
+### 7. RISK: 28.5% of score rests on one unverified exactness claim
+
+`lagunaNativeAffineNVFP4From` defaults to **0** (`LagunaRuntimeModel.swift:2907`),
+so **all 40 layers run Q/K/V/O at NVFP4 g16** — not the group-32 affine INT8 that
+TASK.md's accepted envelope permits. `lagunaNativeAffineProbeRoundTrip` (`:2936`)
+is a no-op unless `DARKBLOOM_NATIVE_AFFINE_PROBE_FORMAT` is set, so nothing else
+perturbs the weight. The in-tree defence is a comment at `:2903-2906`:
+
+> Numerically this is the shipped representation the goldens came from — envelope
+> option (1), which never requires the INT8 re-quant.
+
+i.e. NVFP4 g16 round-trips the checkpoint's BF16 attention tensors *exactly*, so
+it is a lossless re-encoding rather than a re-quantization and falls outside what
+the envelope governs. Coherent, and 100+ official receipts are consistent with
+it — but **no test in the tree asserts it** (`grep -riE 'lossless|roundTrip|
+isExact'` finds nothing relevant), and TASK.md contains no "option (1)".
+
+```
+decode attention stream, shipped (NVFP4 g16)  =  807.7 MB/token
+decode attention stream, envelope (INT8 g32)  = 1609.9 MB/token
+                                       delta  =  802.2 MB = 44.7% of 1794 MB
+                                            -> 0.638 × 44.7% = 28.5% of score
+```
+
+Assigned to fern as a 30-minute test on #24: report `max |W − dequant(quant_nvfp4(W))|`
+for q/k/v/o, a router, and layer-0's dense MLP.
+
+**The same test gates the best unassigned arm.** If the attention tensors
+round-trip exactly it is because Laguna XS 2.1 was NVFP4-native and the
+safetensors store dequantized values — in which case the routers and the layer-0
+dense MLP are also dequantized-from-NVFP4, and re-encoding them is lossless by
+the identical argument:
+
+```
+layer-0 dense MLP  100.7 MB -> 28.3 MB   (-72.4)
+routers (39 layers) 40.9 MB -> 11.5 MB   (-29.4)
+                            total -101.8 MB = 3.62% of score  (promotes alone)
+```
+
+The envelope explicitly names routers and the layer-0 dense MLP as *not* admitted
+for re-quantization, which is exactly why an exact result is decisive rather than
+suggestive. **Necessary but not sufficient:** identical operand values do not
+guarantee identical outputs, because a quantized matmul may accumulate in a
+different order than the BF16 GEMM it replaces. Exactness licenses the
+representation; token-identity still needs the usual gates.
+
+**Doctrine correction.** I previously wrote that decode byte removal has exactly
+one legal lever because "BF16 ⇒ untouchable". That was wrong reasoning: the
+frontier already synthesises non-BF16 banks for attention at load. But the
+correct conclusion is narrower than "so we may quantize anything" — it is that
+*lossless re-encoding* needs no envelope permission and *lossy* re-quantization of
+the routers or dense MLP remains forbidden regardless of what it would buy.
+
 ### Round 4 outcome
 
 | PR | student | verdict |
@@ -244,7 +357,7 @@ with 1 receipt and only confirm with 2 more if it moves ≥1.5%.
 | #20 | nezuko | **lm_head cascade.** The last legal decode byte lever: 134.9 MB int5 plane, 7.5% of the step. Immediate target 25.7 MB, structural ceiling ~105 MB (3.7%) |
 | #21 | tanjiro | **price the 1.51 ms hard core** (17.2% of the step = 393 MB phantom). Part 1 is a structural analogue, no submissions. Deciding experiment for whether the campaign optimises bytes or efficiency |
 | #23 | frieren | **exposed head latency** — the one term in his own model the GPU does not absorb. 0.29–0.32 ms on M4 against a 4.353 ms M5 step, so ≤2.9% of score |
-| #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** Staging is on record at 39.5% of prefill and `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported |
+| #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported. **Re-priced by finding 6 to 5.9–7.7% of score** (~3× the brief) with a hard floor at 28.17 ms. Also carries the NVFP4 round-trip exactness test from finding 7 |
 
 Why #24 is the shape it is: `DARKBLOOM_EXPERT_GATHER_GROUPS` went 64 → 128 → 256
 and measured a real M5 gain at *every* step while changing nothing
@@ -412,6 +525,8 @@ optimisation.
 | **KV re-request amplification** | **REFUTED** | frieren #14 slope method. Sweep A (seeds 512..6144, only the 10 full-attention layers grow): 27.03 ns/pos/layer, no curvature over 21–252 MB. Sweep B (below 512, all 40 layers, 16 palindromic runs): 828.6 ± 56.2 ns/pos → sliding 18.61 ns/pos/layer. Amplification ≤1.72× full, ≤1.18× sliding; waste ≤ +28.4 MB (≤1.01% of score). The 190 MB claim is ≥6.9σ out. **Replacement finding:** the full-attention path is the least bandwidth-efficient stream at 58.2% of peak vs the 78.6% step average, capped at 16.9 MB/step ≈ 0.6% of score |
 | **Attention / sliding occupancy** | **CLOSED** | tanjiro #13: 80 threadgroups co-reside at the real 17920 B / 1024-thread shape on 20 M4 cores. The g=21/41 risers are **work imbalance**, `f(m) ≈ 1 + 0.365(m-1)`, not occupancy. `w=2→1` is model-closed as an M5 loss; `w>=4` exceeds the 32768 B threadgroup-memory limit. He withdrew his own 81920 B linear-pool model |
 | **Harvesting the public field** | **CLOSED** | nezuko #12: de-biased field ceiling 2.5281–2.5318, below a 1-in-12 shot |
+| **Quantized attention weights in prefill** | **CLOSED by arithmetic** | advisor, `research/prefill_ridge.py`. Reusing the existing decode NVFP4 g16 banks in prefill removes 2054.3 MB of weight reads and is worth ~nothing: `attn_proj_qkvo` is **compute**-bound at 512 FLOP/byte (24.34 ms MMA vs 5.70 ms DRAM), so it shaves DRAM that is already hidden while adding dequantization to the binding term. The tree's "Prefill stays on the original BF16 projections" (`LagunaRuntimeModel.swift:293-298`) is correct design. **General rule: the same weights want opposite representations in the two phases** — decode's attention stream is bandwidth-bound, prefill's is compute-bound, because 512 tokens amortise the weight read 512× |
+| **Prefill byte removal as a general strategy** | **CLOSED** | advisor, finding 6. The 512-token forward sits *on* the roofline ridge (~122.5 FLOP/byte against a 120 FLOP/byte machine balance point), so relieving either resource alone cannot help. Only `routed_experts` (71.3 FLOP/byte) is DRAM-bound; every other block is compute-bound. Byte-counting intuitions imported from decode do not transfer to prefill — **overlap** is the lever |
 | **Advisor axis-coverage tables** | **RETRACTED** | nezuko #12: note-length artifacts. Median \|axis-mean nd − overall\| = 0.220%, inside noise. The last survivor, `Sources/MLXFastTransform/` (0 of 147 swept diffs), is now also closed — see below |
 | **`Sources/MLXFastTransform/`** | **CLOSED by dominance** | fern #22: `prepareFusedRuntimeWeights` is **eager** and resident before the first forward (`LagunaRuntimeModel.swift:10893-10898`), so load-time repack is unscored and *strictly more capable* than offline layout — it can also repack the BF16 attention weights, which offline cannot, since Q/K/V/O and `g_proj` ship BF16 on disk (`LagunaCheckpointValidation.swift:355-360`) and the NVFP4/INT8 banks are synthesised at load (`:5301-5305`). RAM is not binding (21.57 of 25 GiB). The axis is untouched in 147 public diffs because it is **dominated, not overlooked**. Also: `DARKBLOOM_PACKED_SCALES` already ships ON, packing routed gate/up scales in the kernel's exact walk order (`:152-167`, `:9824-9856`) |
 | **NVFP4 scale-plane amplification** | **CLOSED, A = 1.000** | fern #22: the v5 down/residual kernel (`LagunaRuntimeModel.swift:7658-7705`) reads `expert_scales + output_row*32 + lane` over 4 rows × 32 lanes = exactly one aligned 128 B cache line, fully consumed, alongside 1024 contiguous code bytes fully consumed. Independent bound from that kernel's measured 231 GB/s: `231*(1024+128A)/1152 ≤ 260.2` ⇒ `A ≤ 2.14`. The advisor's 8× premise (and its restated 3.6× form) were arithmetically impossible from data already in the repo |
@@ -501,8 +616,21 @@ field's frozen axis.
    runs the tiles labelled "Temp routing for larger devices" at
    `matmul.cpp:228-238`.
 5. **Prefill glue-pass reduction.** ~18 ms of M4 host-independent glue ≈ 9–12% of
-   M5 S, and fully locally falsifiable. Highest predicted magnitude of any
-   prefill item that can be screened without spending a receipt.
+   M5 S. **Corrected pricing:** that 9–12% is the *term size*, not the win — the
+   recoverable part is ~30% of it, i.e. **1–2% of S = 0.36–0.72% of score**, which
+   straddles my 0.61% acceptance bar. I had previously recorded the term size as
+   the win and mis-ranked this as the largest receipt-free prefill item; it is
+   not. Its real virtue is that it is the *only* prefill family with full local
+   falsifiability, so it costs no receipts to screen. Good filler work, not a
+   headline arm.
+5b. **Overlap the shared expert with the routed experts.** They consume the same
+   post-attention hidden state and their outputs are summed, so they are
+   independent sub-graphs. `shared_expert` is compute-bound (2.09 ms) and
+   `routed_experts` is DRAM-bound (28.17 ms stall to hide in), so the shared
+   expert can in principle run entirely inside the routed stall: **2.1% of S =
+   0.77% of score**, bit-exact if the summation order is preserved. Small, clean,
+   and it is the only *cross-block* overlap the dependency graph permits — every
+   other pair in the forward is strictly sequential.
 6. **Routing-aware two-regime expert dispatch.** The shipped tile is tuned for
    uniform routing that does not occur (CV 1.80, 20.3% empty, busiest 32 experts
    = 54.7%). Row-tile widening, sub-16 SM, and now the whole `STAGE_BM128` tiling
@@ -511,9 +639,19 @@ field's frozen axis.
    only remaining way to get below 1.456× MMA rows, and it would have to break
    per-expert weight exclusivity to do it. Needs a mechanism proposal, not a knob.
 7. **`attn_proj_qkvo` is 51.8% of forward FLOP** and the largest single block in
-   the seed forward — larger than routed experts — running at 23.5% of the M4 MMA
-   ceiling. On M5 it is the `steel_gemm_fused_nax` (bm128/bn128/bk512) family.
-   Nobody in the campaign has looked at it.
+   the seed forward — larger than routed experts. On M5 it is the
+   `steel_gemm_fused_nax` (bm128/bn128/bk512) family. **Now priced (finding 6):**
+   it is *compute*-bound at 512 FLOP/byte — 24.34 ms of MMA against 5.70 ms of
+   DRAM — so bytes are the wrong lever and it is already near peak for its binding
+   resource. Two live sub-ideas remain: (a) `k_proj`/`v_proj` at N=1024 dispatch
+   only 64 threadgroups each on a 40-core GPU, twice per layer, so the C3
+   row-concat QKV idea is about *occupancy*, not bytes; (b) `q_proj` still runs
+   tiles labelled "Temp routing for larger devices" (`matmul.cpp:228-238`).
+   **Explicitly closed:** using the existing decode NVFP4 attention banks in
+   prefill. It looks like −2054 MB of weight reads but shaves DRAM that is already
+   hidden while adding dequantization to the binding term. The tree's "Prefill
+   stays on the original BF16 projections" is correct design, not an oversight —
+   the same weights want opposite representations in the two phases.
 8. **If tanjiro's #21 finds the 21.4% residual is recoverable**, that becomes the
    top priority immediately: up to 13.6% of score, the largest single number in
    the campaign. If he finds it is not, close decode-efficiency permanently and
