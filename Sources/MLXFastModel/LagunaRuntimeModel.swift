@@ -7589,24 +7589,6 @@ func lagunaRoutedDownReduce(
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
-/// Output rows each simdgroup of the fused down+residual dispatch owns.
-///
-/// A routed/shared down row is only `input_width = 512` NVFP4 values, so with
-/// one row per simdgroup each simdgroup issues a 256 B code burst plus a 32 B
-/// scale burst and then waits on the threadgroup barrier. Measured on M4 Pro
-/// (260 GB/s streaming read ceiling) that left the dispatch at 107 GB/s while
-/// its 2048-wide siblings reached 243-260 GB/s. Four consecutive rows per
-/// simdgroup make one 1024 B contiguous code stream with four independent
-/// loads in flight, coalesce the four 32 B scale reads into one cache line,
-/// and quarter the threadgroup count, barriers and single-lane epilogues:
-/// 49.8 -> 23.0 us/call, 231 GB/s. Two rows reach 200 GB/s and eight regress
-/// to 220 GB/s.
-///
-/// Bit-exact: the per-row lane split, the `simd_sum` reduction tree, the BF16
-/// rounding points and the in-order 8-expert accumulation are unchanged; only
-/// the row-to-threadgroup mapping moves.
-let lagunaRoutedSharedDownRowsPerSimd = 4
-
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
         ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
@@ -7628,7 +7610,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         constexpr uint output_width = 2048;
         constexpr uint routed_experts = 8;
         constexpr uint shared_slot = 8;
-        constexpr uint outputs_per_simd = \(lagunaRoutedSharedDownRowsPerSimd);
+        constexpr uint outputs_per_simd = 4;
         constexpr uint values_per_lane = 16;
         constexpr uint packed_row_bytes = 256;
         constexpr uint scale_row_bytes = 32;
@@ -7678,8 +7660,6 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 weight,
                 input_values,
                 laguna_nvfp4_scale(scale[0]));
-        }
-        for (uint row = 0; row < outputs_per_simd; ++row) {
             result[row] = simd_sum(result[row]);
         }
 
@@ -7787,10 +7767,7 @@ func lagunaRoutedSharedDownResidual(
                 indices, routerWeights, sharedActivated,
                 sharedDownWeight, sharedDownScales, residual,
             ],
-        grid: (
-            (LagunaConstants.hiddenSize / lagunaRoutedSharedDownRowsPerSimd) * 288,
-            1, 1
-        ),
+        grid: (LagunaConstants.hiddenSize / 4 * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
