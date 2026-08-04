@@ -750,6 +750,57 @@ exactly two branches and no `else`, so a `TN` landing on 1 with `TM=1` silently
 does no MMA; and `gate_up_stage`'s alias onto `Ws_storage` needs an explicit
 lifetime-disjointness argument once there are two buffers.
 
+#### 10f. The two decode tables use DIFFERENT ceilings. Do not cross-read them.
+
+I nearly issued a wrong correction over an apparent 4× conflict. There is none,
+and the distinction matters for every future roofline row:
+
+- **nezuko #9's re-scoped table** (`research/nezuko-pr9-dispatch-fusion.md:126-144`)
+  has columns `n | true µs | µs/step | MB | GB/s | %ceil | recoverable µs/step`,
+  where `recoverable = µs/step − bytes/step / 260.2`. Its ceiling is the **flat
+  DRAM ceiling**. For a dispatch moving 33 kB/step this is meaningless — you can
+  never run 33 kB at 260 GB/s.
+- **tanjiro #21's table** (`research/tanjiro-pr21-result.md:148-152`) has columns
+  `n | achieved GB/s | modelled ceiling GB/s | µs`, where the ceiling is
+  **pattern- and size-corrected** by his measured bytes-per-dispatch curve, and
+  the last column is the shortfall against *that*.
+
+So `gate_sp_h64+h48` is "211 µs recoverable" by her column and **83 µs** by his;
+`residual_rms_router` is "106 µs" by hers and **27 µs** by his. **tanjiro's is
+correct in both cases.** This is precisely why his #21 collapsed the recoverable
+total from ~1.2 ms to 0.191 ms. Standing rule, alongside issued-vs-unique bytes:
+**every roofline row must declare which ceiling it divides by.**
+
+#### 10g. NEW UNASSIGNED ARM: the launch-ramp term is concentrated, not spread
+
+The 0.884 ms ramp is not evenly distributed over 406 dispatches. Three families
+that move essentially no bytes carry a disproportionate share (nezuko's
+`µs/step` column, which is a direct measurement and not ceiling-relative):
+
+| family | calls/step | µs/step | MB/step | note |
+| --- | ---: | ---: | ---: | --- |
+| `gate_sp_h64` + `gate_sp_h48` | 40 | 213 | 0.033 | #9 tried fusing into QKV, got nothing |
+| `decode_router_top8_ordinal_table_norm_v1` | 39 | 96 | 0.004 | **never attacked** |
+| `rmsbfloat16` | 41 | 36 | 0.008 | **never attacked**; 0.87 µs/call = tanjiro's single-threadgroup empty-dispatch floor exactly |
+| **total** | **120** | **345** | **0.045** | 30% of dispatches, 39% of the ramp budget |
+
+345 µs is **4.0% of the 8.545 ms step = 2.6% of score**. This is not a bandwidth
+shortfall and does not appear in tanjiro's 0.191 ms recoverable figure — it is
+already inside his ramp term, which is exactly why removing dispatches pays at
+full rate under §10b.
+
+**The unattacked half is 132 µs = 1.5% of step = 0.99% of score**, above the
+0.61% bar. `rmsbfloat16` at 0.87 µs/call is pure launch overhead with no
+measurable work, and the tree already proves the fix pattern works: a shared
+512-thread RMSNorm prologue is *already* fused into three decode kernels
+(`LagunaRuntimeModel.swift:~741`), so 41 generic calls remain that need not.
+
+Caveat that shapes the brief: #9's single fusion attempt failed **because the
+absorbing kernel slowed by +0.95 µs/call and broke additivity by +8.23 µs/layer**,
+not because the dispatch saving was absent. Any arm here must measure the
+absorbing kernel's own per-call cost before and after, and reject on that
+number rather than on the dispatch count.
+
 
 ### Round 4 outcome
 
