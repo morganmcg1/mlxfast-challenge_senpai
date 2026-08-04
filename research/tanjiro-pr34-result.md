@@ -362,6 +362,32 @@ to the block. The cross-check is `Σ_b W_b/m_b + fixed ≈ axis total`; on M4 th
 decode blocks measure `2.841 + 2.204 = 5.045 ms` of an 8.816 ms step, i.e. 57% of
 the time for 75% of the bytes.
 
+### Pre-registered conversion, written before R2 returned
+
+With the anchor measured (`T₀ = 4.27468 ms`, 1794 MB, byte roofline 2.9410 ms,
+residual **1.3337 ms**) the decode arithmetic is fixed in advance:
+
+| measured rate 2 | attention block's in-situ cost | share of the 1.3337 ms residual it explains |
+| ---: | ---: | ---: |
+| 610 GB/s (roofline) | 1.315 ms | 0% — decode's residual is elsewhere |
+| 550 GB/s | 1.458 ms | 11% |
+| 500 GB/s | 1.604 ms | 22% |
+| 450 GB/s | 1.783 ms | 35% |
+| 415 GB/s (step average) | 1.933 ms | **46%** |
+| 400 GB/s | 2.005 ms | 52% |
+
+| measured rate 4 | routed QMV's in-situ cost | share of the 1.3337 ms residual |
+| ---: | ---: | ---: |
+| 610 GB/s (roofline) | 0.905 ms | 0% |
+| 500 GB/s | 1.104 ms | 15% |
+| 450 GB/s | 1.227 ms | 24% |
+| 415 GB/s | 1.330 ms | 32% |
+
+On the prefill axis, with `S₀ = 97.8643 ms`, the two blocks' roofline costs are
+28.96 ms (routed, byte-bound) and 26.08 ms (attention, compute-bound), so each
+block's contribution to the residual is `Δ_measured − roofline`, and rate 1 in
+particular is bounded above by 34.7 TFLOP/s as derived above.
+
 ## Rates (official M5)
 
 Each rate is `added_work / (X_high − X_low)` where `X` is `S` or `T` from the two
