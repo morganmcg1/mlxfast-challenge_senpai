@@ -110,15 +110,26 @@ private let lagunaDecodeHostCPUEnabled =
 /// CPU per decoder layer on single-token steps. Sweeping N locates the knee
 /// where injected host work stops fitting in the pipeline's slack, which is
 /// the only local measurement of how much host time sits on the critical path.
-private let lagunaDecodeHostSpinNanoseconds: UInt64 = {
+private func lagunaDecodeHostSpinBudget(_ name: String) -> UInt64 {
     guard
-        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_HOST_SPIN_US"],
+        let raw = ProcessInfo.processInfo.environment[name],
         let value = Int(raw), value > 0
     else {
         return 0
     }
     return UInt64(value) * 1000
-}()
+}
+
+private let lagunaDecodeHostSpinNanoseconds =
+    lagunaDecodeHostSpinBudget("DARKBLOOM_DECODE_HOST_SPIN_US")
+
+/// `DARKBLOOM_DECODE_HOST_SPIN_HEAD_US=N` burns N microseconds once per
+/// single-token step before the first dispatch is built. Per-layer spin can
+/// hide inside queued GPU work, so the head site measures the separate cost of
+/// host time that sits between the previous step's readback and the first
+/// dispatch of this step.
+private let lagunaDecodeHostSpinHeadNanoseconds =
+    lagunaDecodeHostSpinBudget("DARKBLOOM_DECODE_HOST_SPIN_HEAD_US")
 
 /// The spin loop accumulates here so the optimizer cannot delete a
 /// side-effect-free wait (an earlier empty-bodied version was removed outright
@@ -130,17 +141,30 @@ nonisolated(unsafe) var lagunaDecodeHostSpinNanosecondsSpent: UInt64 = 0
 
 @inline(never)
 func lagunaDecodeHostSpin() {
-    guard lagunaDecodeHostSpinNanoseconds > 0 else { return }
+    lagunaDecodeHostSpin(lagunaDecodeHostSpinNanoseconds)
+}
+
+@inline(never)
+func lagunaDecodeHostSpinHead() {
+    lagunaDecodeHostSpin(lagunaDecodeHostSpinHeadNanoseconds)
+}
+
+@inline(never)
+private func lagunaDecodeHostSpin(_ budget: UInt64) {
+    guard budget > 0 else { return }
     if !lagunaDecodeHostSpinAnnounced {
         lagunaDecodeHostSpinAnnounced = true
         FileHandle.standardError.write(
             Data(
-                "mlxfast: decode host spin active: \(lagunaDecodeHostSpinNanoseconds / 1000) us/layer\n"
-                    .utf8))
+                """
+                mlxfast: decode host spin active: \
+                \(lagunaDecodeHostSpinNanoseconds / 1000) us/layer, \
+                \(lagunaDecodeHostSpinHeadNanoseconds / 1000) us/step head
+                """.appending("\n").utf8))
     }
     let start = DispatchTime.now().uptimeNanoseconds
     var now = start
-    let deadline = start + lagunaDecodeHostSpinNanoseconds
+    let deadline = start + budget
     while now < deadline {
         now = DispatchTime.now().uptimeNanoseconds
         lagunaDecodeHostSpinSink = lagunaDecodeHostSpinSink &+ now
@@ -10914,6 +10938,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         let hostCPUStart: (UInt64, UInt64)?
         if lagunaDecodeHostCPUEnabled, inputs.size == 1 {
             hostCPUStart = lagunaDecodeHostCPULog.begin()
+            lagunaDecodeHostSpinHead()
         } else {
             hostCPUStart = nil
         }
