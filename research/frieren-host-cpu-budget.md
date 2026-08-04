@@ -212,3 +212,101 @@ known Metal-JIT zero-results bug that needs an untimed self-check fallback - and
 it should be assigned as such rather than bolted onto this arm. Note also that
 because in-loop host CPU is provably absorbed on this host, its value would come
 from the dispatch and graph-node reduction, not from the host-CPU saving.
+
+## 7. Pricing KV DRAM traffic without a per-dispatch counter
+
+The advisor asked, if per-dispatch DRAM traffic could be priced, to pivot to it
+and report. Apple Silicon exposes no per-dispatch byte counter that can be
+attributed to an individual MLX custom kernel, so this section prices traffic
+*indirectly*, by the slope of steady-step wall time against context length.
+
+The measurement exists because the two attention families scale differently.
+`Sources/MLXFastModel/LagunaConfig.swift:14-45` gives 40 layers, of which 10
+(indices 0, 4, 8, ... 36) are full attention with 48 query heads and 30 are
+sliding-window with 64 query heads and window 512. All layers share
+`numKeyValueHeads = 8` and `headDim = 128`, and the cache is BF16, so one
+position of one layer is `8 * 128 * 2 (K and V) * 2 bytes = 4096 B` of logical
+KV. **Past a 512-token context only the 10 full-attention layers grow; the 30
+sliding layers are pinned.** Two sweeps therefore separate the two families.
+
+Each point is one `research/frieren_host_cpu_probe.py` invocation, which drives
+the worker directly over its JSON protocol. The mean measured context is
+`seed + warmup + measure/2`, a constant offset that cancels in a slope.
+
+**Sweep A, at and above 512** (seeds 512/1536/2560/4096/6144, 100 warmup + 400
+measured), isolating the full-attention family:
+
+| seed | 512 | 1536 | 2560 | 4096 | 6144 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| wall ms/step | 8.8480 | 9.1171 | 9.4359 | 9.8576 | 10.3569 |
+
+Pairwise slopes 262.8 / 311.3 / 274.5 / 243.8 ns per position show no curvature
+across a 21 MB to 252 MB KV footprint, so no cache-residency effect is
+distorting the fit. Least squares gives **270.3 ns per position for 10 layers =
+27.03 ns per position per layer.**
+
+**Sweep B, below 512** (seeds 100/200/300/400, 20 warmup + 80 measured), where
+the window never fills and all 40 layers scale:
+
+| seed | 100 | 200 | 300 | 400 |
+| --- | ---: | ---: | ---: | ---: |
+| wall ms/step | 8.6728 | 8.7784 | 8.8278 | 8.9306 |
+
+Least squares gives **822.8 ns per position for 40 layers**, so the sliding
+family costs `(822.8 - 270.3) / 30 =` **18.42 ns per position per layer** - 68%
+of a full-attention layer, despite carrying more query heads.
+
+Converting nanoseconds to bytes needs a bandwidth yardstick. Two are used: the
+step-average achieved 204.6 GB/s (the 1.794 GB/token roofline divided by the
+8.769 ms step, i.e. the same basis as the budget the waste is charged against),
+and this host's measured peak 260.2 GB/s
+(`research/host_bandwidth_ceiling.swift`), which attributes *every* inefficiency
+- latency, occupancy, partial cache lines - to extra bytes and so yields a
+strict upper bound.
+
+| family | ns/pos/layer | effective B at 204.6 GB/s | x logical | effective B at 260.2 GB/s | x logical |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| full attention | 27.03 | 5531 | 1.35x | 7034 | 1.72x |
+| sliding window | 18.42 | 3768 | 0.92x | 4792 | 1.17x |
+
+At the benchmark's average decode context of 576 the logical KV read is
+`10 * 576 * 4096 = 23.59 MB` for full attention plus `30 * 512 * 4096 =
+62.91 MB` for sliding, **86.51 MB total**, which reproduces the 84-89 MB
+independently derived in `research/nezuko-decode-roofline.md`. Charging the
+measured slopes against that:
+
+| yardstick | effective KV MB/step | waste vs logical | share of the 1794 MB step | share of score |
+| --- | ---: | ---: | ---: | ---: |
+| step-average 204.6 GB/s | 89.73 | +3.22 MB | +0.18% | +0.115% |
+| peak 260.2 GB/s (upper bound) | 114.12 | <= +27.61 MB | <= 1.54% | <= 0.98% |
+
+**This does not support the open suspect.** A KV re-request from 3-4
+threadgroups multiplies KV bytes and is therefore exactly the kind of traffic a
+context slope measures. The ~190 MB per step it predicts needs +103.5 MB over
+logical, 5.77% of the step budget and 3.68% of score; the strict upper bound
+measured here is +27.61 MB, **3.7x smaller than the claimed excess**, and the
+like-for-like estimate is +3.22 MB.
+
+Statistically, the pairwise scatter in both sweeps is consistent with a
+per-point sigma of about 30 us of wall per step, dominated by process-level
+offset rather than by within-run averaging (it explains both the +-250 ns/pos
+scatter over sweep B's 100-position gaps and the +-25 ns/pos scatter over sweep
+A's 1024-position gaps). That puts sweep B's slope at 822.8 +- 134 ns/pos, so a
+3x sliding-layer amplification (which would require 1686 ns/pos) is 6.4 sigma
+away, 2x (1215 ns/pos) is 2.9 sigma away, and 1x (742 ns/pos) is 0.6 sigma away.
+
+Sweep B also refutes a second, more benign hypothesis: if the sliding kernel
+read its entire 512-slot ring regardless of how many slots were valid, sweep B's
+slope would equal sweep A's 270 ns/pos. It is 3.0x larger, i.e. the kernel reads
+only valid positions.
+
+Two honest limits. First, a slope prices only traffic proportional to context; a
+fixed per-step over-read would be invisible to it. Second, sweep B's total KV
+footprint is 16-66 MB, low enough that system-level cache may absorb part of a
+re-read and understate the sliding-family slope, so the 1.17x sliding bound is
+weaker than the 1.72x full-attention bound, which was measured out to 252 MB
+with no curvature. The full-attention path is the less bandwidth-efficient of
+the two (58.2% of peak, against 78.6% for the step as a whole) and is where any
+remaining amplification would live, but even attributing all of its shortfall to
+wasted bytes caps it at 16.9 MB per step, about 0.6% of score.
+
