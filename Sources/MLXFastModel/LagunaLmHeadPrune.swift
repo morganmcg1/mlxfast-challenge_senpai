@@ -164,14 +164,9 @@ private let lagunaLmHeadV5StatsEnabled =
 
 /// RESEARCH-ONLY instrumentation for the hierarchical-screen study (PR #6).
 /// Forces several per-step GPU syncs and extra dispatches; NEVER on a timing
-/// run. Writes one JSON line per scored forward to
-/// DARKBLOOM_LMHEAD_HIER_STATS_PATH.
+/// run. Writes one `hierstats` JSON line per scored forward to stderr.
 private let lagunaLmHeadHierStatsEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_HIER_STATS"] == "1"
-
-private let lagunaLmHeadHierStatsPath =
-    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_HIER_STATS_PATH"]
-    ?? "/tmp/lmhead-hier-stats.jsonl"
 
 /// Hierarchical certified coarse screen: a 320 B/row level-0 bound gates the
 /// 1344 B/row planar pass. Same emitted token by construction. Default OFF
@@ -2376,16 +2371,11 @@ private let lagunaLmHeadInt5CoarseGatedKernel = MLXFast.metalKernel(
 private final class LagunaLmHeadHierStats {
     nonisolated(unsafe) static let shared = LagunaLmHeadHierStats()
     var step = 0
-    var handle: FileHandle?
 
+    // The benchmark worker sandbox denies every file write, so the study
+    // reports on stderr, which the benchmark subcommand forwards.
     func line(_ text: String) {
-        if handle == nil {
-            FileManager.default.createFile(
-                atPath: lagunaLmHeadHierStatsPath, contents: nil)
-            handle = FileHandle(forWritingAtPath: lagunaLmHeadHierStatsPath)
-            handle?.seekToEndOfFile()
-        }
-        handle?.write(Data((text + "\n").utf8))
+        FileHandle.standardError.write(Data("hierstats \(text)\n".utf8))
     }
 }
 
