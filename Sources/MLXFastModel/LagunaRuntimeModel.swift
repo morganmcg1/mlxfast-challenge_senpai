@@ -96,141 +96,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
-// MARK: - Decode step host-CPU budget (diagnostic, reverted before timing)
-
-/// `DARKBLOOM_DECODE_HOST_CPU=1` reports, every 32 single-token decode steps,
-/// the per-step wall period, the host graph-construction span, whole-process
-/// CPU (all threads, `getrusage`) and calling-thread CPU
-/// (`CLOCK_THREAD_CPUTIME_ID`). Process CPU per step is measured entry to
-/// entry, so it also charges the harness argmax readback and protocol work.
-private let lagunaDecodeHostCPUEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_HOST_CPU"] == "1"
-
-/// `DARKBLOOM_DECODE_HOST_SPIN_US=N` (default 0) burns N microseconds of host
-/// CPU per decoder layer on single-token steps. Sweeping N locates the knee
-/// where injected host work stops fitting in the pipeline's slack, which is
-/// the only local measurement of how much host time sits on the critical path.
-private func lagunaDecodeHostSpinBudget(_ name: String) -> UInt64 {
-    guard
-        let raw = ProcessInfo.processInfo.environment[name],
-        let value = Int(raw), value > 0
-    else {
-        return 0
-    }
-    return UInt64(value) * 1000
-}
-
-private let lagunaDecodeHostSpinNanoseconds =
-    lagunaDecodeHostSpinBudget("DARKBLOOM_DECODE_HOST_SPIN_US")
-
-/// `DARKBLOOM_DECODE_HOST_SPIN_HEAD_US=N` burns N microseconds once per
-/// single-token step before the first dispatch is built. Per-layer spin can
-/// hide inside queued GPU work, so the head site measures the separate cost of
-/// host time that sits between the previous step's readback and the first
-/// dispatch of this step.
-private let lagunaDecodeHostSpinHeadNanoseconds =
-    lagunaDecodeHostSpinBudget("DARKBLOOM_DECODE_HOST_SPIN_HEAD_US")
-
-/// The spin loop accumulates here so the optimizer cannot delete a
-/// side-effect-free wait (an earlier empty-bodied version was removed outright
-/// and measured its own control).
-nonisolated(unsafe) var lagunaDecodeHostSpinSink: UInt64 = 0
-nonisolated(unsafe) private var lagunaDecodeHostSpinAnnounced = false
-nonisolated(unsafe) var lagunaDecodeHostSpinCalls: UInt64 = 0
-nonisolated(unsafe) var lagunaDecodeHostSpinNanosecondsSpent: UInt64 = 0
-
-@inline(never)
-func lagunaDecodeHostSpin() {
-    lagunaDecodeHostSpin(lagunaDecodeHostSpinNanoseconds)
-}
-
-@inline(never)
-func lagunaDecodeHostSpinHead() {
-    lagunaDecodeHostSpin(lagunaDecodeHostSpinHeadNanoseconds)
-}
-
-@inline(never)
-private func lagunaDecodeHostSpin(_ budget: UInt64) {
-    guard budget > 0 else { return }
-    if !lagunaDecodeHostSpinAnnounced {
-        lagunaDecodeHostSpinAnnounced = true
-        FileHandle.standardError.write(
-            Data(
-                """
-                mlxfast: decode host spin active: \
-                \(lagunaDecodeHostSpinNanoseconds / 1000) us/layer, \
-                \(lagunaDecodeHostSpinHeadNanoseconds / 1000) us/step head
-                """.appending("\n").utf8))
-    }
-    let start = DispatchTime.now().uptimeNanoseconds
-    var now = start
-    let deadline = start + budget
-    while now < deadline {
-        now = DispatchTime.now().uptimeNanoseconds
-        lagunaDecodeHostSpinSink = lagunaDecodeHostSpinSink &+ now
-    }
-    lagunaDecodeHostSpinCalls += 1
-    lagunaDecodeHostSpinNanosecondsSpent += now - start
-}
-
-private func lagunaProcessCPUNanoseconds() -> UInt64 {
-    var usage = rusage()
-    guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
-    let user = UInt64(usage.ru_utime.tv_sec) * 1_000_000_000
-        + UInt64(usage.ru_utime.tv_usec) * 1000
-    let system = UInt64(usage.ru_stime.tv_sec) * 1_000_000_000
-        + UInt64(usage.ru_stime.tv_usec) * 1000
-    return user + system
-}
-
-/// Worker decode is single-threaded, so these counters need no synchronization.
-private final class LagunaDecodeHostCPULog: @unchecked Sendable {
-    private var previousEntry: UInt64 = 0
-    private var previousProcessCPU: UInt64 = 0
-    private var periodNanoseconds: UInt64 = 0
-    private var buildNanoseconds: UInt64 = 0
-    private var processCPUNanoseconds: UInt64 = 0
-    private var threadCPUNanoseconds: UInt64 = 0
-    private var periods = 0
-    private var steps = 0
-
-    func begin() -> (UInt64, UInt64) {
-        let now = DispatchTime.now().uptimeNanoseconds
-        let processCPU = lagunaProcessCPUNanoseconds()
-        if previousEntry != 0 {
-            periodNanoseconds += now - previousEntry
-            processCPUNanoseconds += processCPU - previousProcessCPU
-            periods += 1
-        }
-        previousEntry = now
-        previousProcessCPU = processCPU
-        return (now, clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID))
-    }
-
-    func end(_ start: (UInt64, UInt64)) {
-        buildNanoseconds += DispatchTime.now().uptimeNanoseconds - start.0
-        threadCPUNanoseconds += clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - start.1
-        steps += 1
-        guard steps % 32 == 0, periods > 0 else { return }
-        func ms(_ total: UInt64, _ count: Int) -> String {
-            String(format: "%.4f", Double(total) / Double(count) / 1e6)
-        }
-        FileHandle.standardError.write(
-            Data(
-                """
-                mlxfast: decode host cpu steps=\(steps) \
-                period_ms=\(ms(periodNanoseconds, periods)) \
-                build_ms=\(ms(buildNanoseconds, steps)) \
-                proc_cpu_ms=\(ms(processCPUNanoseconds, periods)) \
-                main_cpu_ms=\(ms(threadCPUNanoseconds, steps)) \
-                spin_calls_per_step=\(String(format: "%.2f", Double(lagunaDecodeHostSpinCalls) / Double(steps))) \
-                spin_ms_per_step=\(ms(lagunaDecodeHostSpinNanosecondsSpent, steps))
-                """.appending("\n").utf8))
-    }
-}
-
-private let lagunaDecodeHostCPULog = LagunaDecodeHostCPULog()
-
 // MARK: - Kernel source minification
 
 /// MLX charges every custom-kernel apply for the FULL generated source, twice:
@@ -395,37 +260,8 @@ func lagunaMinifiedKernelSource(_ source: String) -> String {
     }
     endLine()
     if output.last != 0x0A { output.append(0x0A) }
-    lagunaKernelSourceBytes.record(input.count, output.count)
     return String(decoding: output, as: UTF8.self)
 }
-
-/// Startup-only accounting so the arm can never measure its own control: with
-/// `DARKBLOOM_DECODE_HOST_CPU=1` the minifier reports the bytes it actually
-/// removed from the sources the runtime went on to compile.
-final class LagunaKernelSourceBytes: @unchecked Sendable {
-    private let lock = NSLock()
-    private var before = 0
-    private var after = 0
-    private var kernels = 0
-
-    func record(_ inputBytes: Int, _ outputBytes: Int) {
-        lock.lock()
-        before += inputBytes
-        after += outputBytes
-        kernels += 1
-        let snapshot = (kernels, before, after)
-        lock.unlock()
-        guard lagunaDecodeHostCPUEnabled else { return }
-        FileHandle.standardError.write(
-            Data(
-                """
-                mlxfast: kernel source minified: sources=\(snapshot.0) \
-                bytes=\(snapshot.1)->\(snapshot.2)
-                """.appending("\n").utf8))
-    }
-}
-
-let lagunaKernelSourceBytes = LagunaKernelSourceBytes()
 
 /// Shared `outputShapes`/`outputDTypes` arguments.
 ///
@@ -11127,7 +10963,6 @@ final class LagunaRuntimeModelInner: Module {
                     if (decodeFireMask >> UInt64(i)) & 1 == 1 {
                         asyncEval(h)
                     }
-                    lagunaDecodeHostSpin()
                 }
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
@@ -11189,16 +11024,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        let hostCPUStart: (UInt64, UInt64)?
-        if lagunaDecodeHostCPUEnabled, inputs.size == 1 {
-            hostCPUStart = lagunaDecodeHostCPULog.begin()
-            lagunaDecodeHostSpinHead()
-        } else {
-            hostCPUStart = nil
-        }
-        defer {
-            if let hostCPUStart { lagunaDecodeHostCPULog.end(hostCPUStart) }
-        }
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
