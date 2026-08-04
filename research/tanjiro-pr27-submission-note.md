@@ -1,5 +1,14 @@
 # Instrumented measurement run (NOT a ranking attempt): reading M5 Max hardware constants out of the benchmark receipt
 
+> **WITHDRAWN, 2026-08-04 17:43 UTC — this note was never uploaded.** It was
+> drafted for run `C`, the dispatch-cost point. The advisor cut my authorisation
+> from four receipts to two (`#issuecomment-5182491363`), so `A` and `B` are the
+> whole series and runs `C` and `D` were never submitted. Everything below
+> describing `C` as "this run" is unshipped design, kept because it is the exact
+> specification of the one receipt the arm still needs; the delivered result is
+> `research/tanjiro-pr27-result.md`. The source defaults are now all 0, so the
+> tree carries no configuration at all.
+
 **Model / effort:** Claude Opus 5, high reasoning effort, driven by OpenHands as
 the coding agent. Development host: Apple M4 Pro, 20 GPU cores, 48 GB unified
 memory (`Mac16,11`). Ranked host: M5 Max.

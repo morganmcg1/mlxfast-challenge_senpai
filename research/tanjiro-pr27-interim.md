@@ -1039,3 +1039,99 @@ batching policy for the scored path without touching an unlisted file.
 Measured, that lever is worth **nothing**, and I am reporting it so nobody
 spends an assignment on it.
 
+
+## 12. Run B's receipt, and the four constants
+
+`553ef9f0` returned at 17:43 UTC, 49 minutes after submission, `rejected` on
+ranking with every gate green: `passed_correctness = true`, `max_abs_diff = 0`,
+both floors passed, TTFT 0.44 s, semantic GPQA passed, `peak_ram_gb = 21`,
+commit `738889f8`.
+
+| receipt | config | S (ms) | T (ms) | own baseline S / T |
+| --- | --- | ---: | ---: | ---: |
+| `ff29f5c2` (A) | 1 pass, 20 GEMMs | 103.5678 | 4.83241 | 189.0284 / 12.40369 |
+| `553ef9f0` (B) | 7 passes, 120 GEMMs | 136.2994 | 7.42876 | 196.0119 / 12.29705 |
+
+`B` is a 43% slower decode step and a 32% slower prefill than `A`, and it still
+passed every hidden behaviour gate. That is a stronger output-neutrality claim
+than `A` alone could make.
+
+### The differencing
+
+Decode: both configurations issue exactly one sweep dispatch per step, so the
+dispatch count, the bound-buffer set and the command-buffer structure are
+identical and cancel. The only difference is 6 extra passes over the 256 MiB
+pool per step:
+
+```
+dT = 7.42876 - 4.83241 = 2.59635 ms   for 6 * 268.435456 MB = 1610.61 MB
+   -> 620.3 GB/s
+```
+
+Prefill: 100 extra `512x8192 @ 8192x2048` bf16 GEMMs per multi-token forward:
+
+```
+dS = 136.2994 - 103.5678 = 32.7316 ms  for 100 * 17.179869184 = 1717.99 GFLOP
+   -> 52.49 TFLOP/s
+```
+
+### The session-drift correction, and why I report both
+
+The two receipts' *own pinned baselines* are byte-identical code, and they
+disagree: `S` by +3.69% and `T` by -0.86% between sessions. That is the trap
+section 9 flagged. Rescaling `A` onto `B`'s clock by those ratios gives
+610.6 GB/s and 59.43 TFLOP/s. I report the pair as a band rather than picking,
+because the scale-factor model is an assumption, not a measurement:
+
+| | raw | normalised | propagated sd | band |
+| --- | ---: | ---: | ---: | ---: |
+| DRAM GB/s | 620.3 | 610.6 | +-7 | **603-628** |
+| bf16 TFLOP/s | 52.49 | 59.43 | +-5.3 | **47.2-64.7** |
+
+`sd` here is the feed's own pinned-baseline `sd` from section 7, propagated
+through the difference. The `T` axis is tight at 1.16% because `sd(T)` is 0.34%
+and the injected signal is 54% of `T_A`; the `S` axis is loose at 10.1% because
+`sd(S)` is 1.93%. Scaling the GEMM lever further would tighten it, but the floor
+analysis in the same section caps how far.
+
+### Cross-host sanity, which is what makes me believe 610 GB/s
+
+The identical instrument on the M4 Pro dev host reads 237.4 GB/s at the same 6x
+lever. That is 87% of the part's 273 GB/s spec and 90% of the independent
+sequential control from #21. So at a 256 MiB working set this access pattern is
+DRAM-bound on M4 and not partly cache-served, and the M5/M4 ratio is **2.57x**.
+The residual risk is one-directional and I cannot close it from the ranked host:
+if M5's system-level cache is large enough to serve part of a 256 MiB stream,
+610 GB/s overstates DRAM and the decode gap below shrinks.
+
+### What the numbers do to the two live programme readings
+
+Decode moves ~1794 MB/token at a frontier `T` of 4.3224 ms = **415 GB/s**, which
+is **66-69%** of the measured ceiling. Both of the advisor's branches
+(420-440 "bandwidth-closed", 500-530 "scheduling arms live") sit below the
+measurement. **1.38 ms of the 4.32 ms step is not byte-movement time.**
+
+Prefill's `2829.5 GFLOP / 96.8 ms` = 29.23 TFLOP/s is **45-62%** of the measured
+GEMM rate, so it is not a hardware ceiling and the "prefill is compute-closed"
+reading is dead. But my injection is *dense bf16 at a favourable shape*, so the
+measured rate is an upper bound on what the real NVFP4 and MoE gather kernels
+achieve, and the 2x shortfall splits between glue and quantized-kernel
+efficiency in an unknown ratio. `S_0 - max(compute, dram)` is 42.9 ms raw and
+49.2 ms normalised — 44-51% of `S_0` against the 9-12 ms the brief expected —
+and it is a residual, not a mechanism.
+
+### The one I did not get, and the reason to care
+
+`A` and `B` hold the decode dispatch count fixed by design, so they say nothing
+about `c_M5`. Indirectly: if the shipped step still issues ~406 dispatches, the
+1.38 ms excess is 3.40 us each, or 2.91 us after nezuko's 0.200 ms host term,
+against my 2.607 us measured in situ on M4.
+
+The reason this matters more than a missing decimal place: section 10's law says
+the first ~1209 extra dispatches per step are free on M4, which prices every
+"issue fewer MLX ops" arm at zero. That slack is host capacity that fits inside
+the step, and the M5 step is 2.4x shorter for the same host work. Scaling the
+absorbed count by the same factor lands near ~500 — the same order as the ~406
+the path actually issues. **If the M5 knee has fallen below 406, dispatch-count
+reduction pays at full rate on the only host that scores while measuring exactly
+zero on every host we own.** That is the receipt I would spend next.
