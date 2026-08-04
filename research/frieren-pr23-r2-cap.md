@@ -167,6 +167,74 @@ Nothing above touches the reason to doubt M5 transfer:
 Section 6 therefore measures the prefill axis under the identical design before
 any submission is spent.
 
-## 6. Prefill result
+## 6. Prefill result: a smaller cap costs prefill, but the cost is *bistable*
 
-_(filled in when the prefill screen completes)_
+`research/frieren_cap_prefill_abba.sh`, same design, 16 identical 512-token
+prefill forwards per arm, warm median over the last 15.
+
+```
+ pos arm   ms/forward        pos arm   ms/forward
+   1   A     545.975           7   A     545.406
+   2   B     552.741           8   B     551.425
+   3   B     552.666           9   A     545.632
+   4   A     545.427          10   B     544.329
+   5   B     544.531          11   B     544.439
+   6   A     545.411          12   A     545.785
+```
+
+| estimator | delta | uncertainty | t |
+| --- | ---: | ---: | ---: |
+| pooled (A n=6 545.606 se 0.096, B n=6 548.355 se 1.765) | **+0.504 %** | ± 0.324 % | +1.56 |
+| within-block paired | +0.504 % | ± 0.441 % | +1.14 (2 df) |
+| OLS with linear position | +0.504 % | ± 0.298 % | +1.69 |
+
+The point estimate is a regression, as the ranked history predicted, but **the
+mean hides the actual structure**: arm A is one tight mode (545.4–546.0,
+se 0.096 ms) while arm B is two modes, `≈552.6` (+1.28 %) and `≈544.3`
+(−0.22 %), and the per-rep traces show which:
+
+```
+p02 B: 551.6 550.8 554.1 552.3 552.9 551.7 552.2 552.3 552.3 552.6 553.2 553.6 553.5 552.9 552.7 553.3
+p05 B: 548.8 547.8 547.6 544.9 544.3 544.5 544.6 544.2 544.9 544.4 544.3 544.8 544.3 543.7 546.0 544.5
+p08 B: 548.8 552.8 552.5 548.3 554.5 552.6 551.4 552.1 553.1 552.5 544.9 544.2 544.0 544.2 544.3 544.3
+p04 A: 545.9 545.4 545.0 545.7 545.3 546.0 544.7 545.3 545.4 545.5 545.8 545.4 545.9 545.0 545.3 545.5
+```
+
+`p08` **flips mode at rep 11 inside one process**, `p05` and `p11` settle into
+the fast mode after 3 reps, and `p02`/`p03` never leave the slow mode within 16
+forwards. So this is not run-to-run noise and not thermal: it is a
+warm-up/steady-state bifurcation that only exists at the tight cap.
+
+The likely mechanism is in the commit rule itself. `needs_commit()` compares
+`buffer_sizes_ >> 20` against the cap, and `buffer_sizes_` charges each
+**distinct MTLBuffer** referenced since the last commit, deduplicated by
+pointer. Which arrays land in the same MTLBuffer is decided by MLX's allocator
+reuse, which depends on process allocation history. At a 200 MiB cap the
+threshold is far from the per-op referenced-byte total, so allocator layout
+cannot move a boundary; at 50 MiB the threshold sits inside the distribution, so
+a different reuse pattern moves commits and shifts prefill by ~1.5 %. That also
+explains the decode observation in §4 that arm A is the *noisier* arm on decode
+while arm B is the tighter one: on the decode graph the tight cap commits so
+often that placement is nearly deterministic, whereas on the much larger prefill
+graph the tight cap is the one that becomes layout-sensitive.
+
+### Net local score arithmetic, in all three prefill modes
+
+Ranked elasticities (advisor): `T` 0.638, `S` 0.362,
+`ns% ≈ −(0.638·ΔT% + 0.362·ΔS%)`.
+
+| prefill mode used for `S` | ΔS % | ΔT % | predicted `ns` % |
+| --- | ---: | ---: | ---: |
+| slow mode only (worst case) | +1.28 | −1.696 | **+0.62** |
+| pooled mixture (measured mean) | +0.50 | −1.696 | **+0.90** |
+| fast mode only (best case) | −0.22 | −1.696 | **+1.16** |
+
+The decode term (`0.638 × 1.696 = 1.082 %`) is larger than the worst-case
+prefill term (`0.362 × 1.28 = 0.463 %`), so on this host the change is net
+positive **in every prefill mode**, and the advisor's 0.61 % bar is cleared even
+by the pessimistic row. That is the honest local case for spending receipts;
+it is not a claim about the wired ranked host, which §5 explains cannot be
+settled here.
+
+Prefill floor risk is not in play: the worst mode is `+1.28 %`, far from the
+`0.95` hard floor.
