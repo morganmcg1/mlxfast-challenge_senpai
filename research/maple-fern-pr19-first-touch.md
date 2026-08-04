@@ -33,6 +33,17 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
 | Untimed window (M5 only) | `LagunaRuntimeWeights.swift:546-580` | `wireResidentWeightsIfEnabled`: `Memory.clearCache()` then wire **1.0 × live bytes + 64 MiB ≈ 31.4 GiB**, gated on `physicalMemory >= 96 GiB`. |
 | TTFT budget | trusted stack | There is **no maximum-seconds TTFT threshold constant** anywhere in the trusted stack — only `passed` / `> 0` checks. TTFT is measured in the correctness worker and excludes load and warm. The hello timeout is 15 min. |
 
+**Correction to the assignment brief's Part 0 question 3.** The brief states TTFT
+"is separately gated with a 2.5 s max". It is not. `gpqa_ttft_max_seconds` is
+`seconds.max() ?? 0` over the observed per-case TTFT samples
+(`Sources/MLXFastTrustedHarness/LagunaRuntimeCorrectness.swift:230-232`), i.e. a
+**reported observation**, not a threshold. `.github/scripts/validate-benchmark-artifacts.sh:157-158`
+only asserts it is a number and `>= p50`. The 2.5 s in the brief was that run's
+own observed maximum. So the "does the prewarm fit in the TTFT budget?" question
+— which the brief called the single most important number in Part 0 — has the
+answer *there is no such budget to exceed*. That removes the constraint but,
+as it turns out, not the problem.
+
 So the untimed budget for prewarming is effectively unbounded, and the
 hypothesis was not blocked by headroom. It was blocked by there being nothing
 left to prewarm:
@@ -101,6 +112,26 @@ metric is a same-session paired ratio, so a systematic per-run environment cost
 appears in both arms and cancels. Its only consequence is that absolute
 in-process probe milliseconds must never be compared against harness
 milliseconds.
+
+**The brief's four decomposition candidates, discharged.**
+
+- *GPU page faults / page-table population.* Not present: forward 1 is the
+  fastest of six, and forcing all-fresh buffers is free (Part 2). On the
+  official host the constructor additionally wires the whole live set.
+- *Cache-cold (L2/SLC).* Cannot be the 30.5 ms either — it would still make
+  forward 1 the slowest, and it does not.
+- *MLX lazy evaluation deferring weight materialisation.* Already closed by the
+  shipped constructor: `warmLibraryModel` runs a real 512-token prefill and a
+  real decode step under `eval(...)`, so every weight view, dequantisation
+  scale, and layout transform the scored forward needs is materialised before
+  the hello.
+- *First-JIT / PSO compilation inside the window.* Also already closed, and the
+  code says so: `LagunaRuntimeWeights.swift:499-510` documents a
+  `argmax_bfloat16` pipeline compile that used to fire ~0.23 s **inside** the
+  scored prefill, was found in Metal System Trace, and was moved to untimed
+  init. The fused-attention PSO is warmed at `:494-498`. This is the one
+  sub-hypothesis of the arm that was real — and a previous round already
+  harvested it.
 
 ## Part 2 — Pricing the allocator, so the null result is not just an absence
 
