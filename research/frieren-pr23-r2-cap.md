@@ -154,7 +154,7 @@ balancing design is now resolved in the direction of the effect being real
 Nothing above touches the reason to doubt M5 transfer:
 
 - This 48 GiB host never wires (`physicalMemory ≥ 96 GiB` gate at
-  `LagunaRuntimeWeights.swift:551`), so the local win is measured in exactly the
+  `LagunaRuntimeWeights.swift:549`), so the local win is measured in exactly the
   regime the shipped 200 MiB override was *not* written for.
 - The cap is a single process-wide integer, read once through a function-local
   static (`mlx/utils.h:178-187`) inside the device constructor, so it cannot be
@@ -407,7 +407,7 @@ collapse onto this host's arch default of 50.
 A third value is worth naming because it is easy to mistake for either of the
 other two: on a host under 64 GiB **at default settings** the low-memory profile
 takes over and force-sets `MLX_MAX_MB_PER_BUFFER=128` / `MLX_MAX_OPS_PER_BUFFER=64`
-with `overwrite=1` (`RuntimeStartupMemoryPolicy.swift:80-81,170-183`), which an
+with `overwrite=1` (`RuntimeStartupMemoryPolicy.swift:80-81,174-183`), which an
 explicit environment value cannot beat. So a research host has *three* possible
 byte thresholds - 50 (arch), 128 (low-memory policy), 200 (ranked branch) - and
 which one is live depends on the startup profile, not on MLX.
