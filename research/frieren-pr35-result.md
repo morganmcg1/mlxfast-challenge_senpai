@@ -1,0 +1,120 @@
+# PR35 -- narrow the NVFP4 attention scale codes (result)
+
+Assignment `maple-2026-08-04j-scale-code-width`, revision `r1`, branch
+`maple-frieren/scale-code-width`, base `codex/mlxfast-maple-20260804-advisor`
+(`eaedee8430f1e2779b235a7fbc296ee20ef3e44b`). Host: AWS-hosted M4 Pro
+(`Mac16,11`), 48 GiB, `DARKBLOOM_STARTUP_MEMORY_PROFILE=full`.
+
+## Mechanism
+
+The uint8 E4M3 scale plane is exactly 1/9 of every NVFP4 stream. For the four
+decode-only attention QMV families the init-time census
+(`research/frieren-pr35-scale-census.md`) measures `max - min <= 31` for
+**100.00%** of the 32-group blocks one simdgroup iteration reads, so each block
+is re-encoded as
+
+```text
+16 B nibbles (4-bit index per group) + 4 B high bits + 1 B block base = 21 B
+```
+
+against the 32 B the stock plane spends, and the kernel RECONSTRUCTS the
+original byte
+
+```text
+code = base + nibble + (high_bit << 4)
+```
+
+before the unchanged `laguna_tail_nvfp4_scale`. Nothing downstream sees a new
+value: this is a lossless re-encoding of the same 8-bit codes, checked at init
+by an MLX round trip that discards any bank that does not reproduce its plane
+byte for byte. The stock plane stays resident (prefill and the fallback read
+it); the three narrow planes add 60 MB of MLX active memory.
+
+## Byte accounting (40 layers: 30 sliding h64, 10 full h48)
+
+| site | stock scale B/step | narrow B/step | saved |
+| --- | --- | --- | --- |
+| q/k/v QMV | 49.81 MB | 32.69 MB | 17.11 MB |
+| o_proj QMV | 39.32 MB | 25.81 MB | 13.50 MB |
+| total | 89.13 MB | 58.50 MB | **30.61 MB** |
+
+30.61 MB is 1.71% of the ~1.79 GB/token decode stream. This host achieves
+1.79 GB / 8.55 ms = 209 GB/s in decode against a 273 GB/s peak, so the
+byte-roofline prediction for the pair is **-112 us/step (peak) to -146 us/step
+(achieved rate)**.
+
+## Part 3 screen
+
+### Between-process arms are too coarse (run `f56514dc`)
+
+Six interleaved 256-step probe arms (off/qkv/on, both orders) gave medians
+OFF 8.550 / 8.618 ms, QKV 8.552 / 8.537 ms, ON 8.536 / 8.536 ms: an ABBA
+reading of -48 us/step against a 68 us between-replicate offset. That
+instrument cannot resolve this effect, and the process screen alone would have
+wrongly rejected the mechanism.
+
+### In-process parity A/B is decisive (run `5cdaebba`)
+
+`DARKBLOOM_SCALE_ALTERNATE=1` flips the narrow dispatch by model-invocation
+parity, so both arms run in one worker and neighbouring decode steps pair off.
+512 steps => 248 pairs; `paired` is stock minus candidate (positive = candidate
+faster) and `paired_rev` re-pairs each candidate step against the *previous*
+stock step, so a monotone drift would break the sign symmetry.
+
+| arm | scale bytes / 32 groups | scale loads / group | paired | paired_rev | stdev |
+| --- | --- | --- | --- | --- | --- |
+| q/k/v narrow | 21 B | 3 | **+50.1 us** | -49.7 us | 66.5 us |
+| q/k/v narrow (replicate) | 21 B | 3 | **+44.5 us** | -46.7 us | 61.7 us |
+| o_proj narrow | 21 B | 3 | **+48.0 us** | -50.3 us | 56.4 us |
+| q/k/v `dummy` control | 32 B | 3 | -24.1 us | +25.3 us | 77.7 us |
+| q/k/v `nibble` control | 16 B | 1 | discarded | discarded | 373.5 us |
+
+Standard error per arm is stdev/sqrt(248) = 3.6-4.9 us, so every entry above is
+a 10-sigma effect with the sign symmetry intact.
+
+**Mechanism total: -95.3 us/step = -1.11%** of the 8.55 ms OFF step
+(q/k/v -47.3 us as the mean of two replicates, o_proj -48.0 us),
+1.19 us per attention QMV dispatch over the 80 dispatches a step issues.
+
+The `dummy` control keeps the stock 32 B plane but reads three bytes per group
+in the narrow arm's access pattern, so it prices the reconstruction's extra
+loads alone: **+24.1 us/step** on q/k/v, or ~+43 us/step scaled to both sites
+by their group counts. Adding that back, the byte-only win is 71.4 us for
+17.11 MB (240 GB/s) on q/k/v and ~67 us for 13.50 MB (202 GB/s) on o_proj:
+between this host's achieved decode rate and its peak, i.e. the byte component
+lands **at the byte roofline**, and the shipped net is 65-85% of it because the
+three-load reconstruction gives ~43 us back.
+
+The `nibble` control (4-bit plane only, deliberately wrong scale magnitudes) is
+discarded: its garbage logits changed the lm_head pruner's data-dependent
+screen and slowed *both* parities by ~1.2 ms/step, which swamps the byte
+signal. The load/byte decomposition above therefore rests on `dummy` alone.
+
+## Correctness
+
+| gate | result |
+| --- | --- |
+| 32-step teacher-forced probe, narrow ON | 0 divergences; all four sites logged `active`; no bank declined |
+| 6 x 256-step probe arms (off/qkv/on) | 0 divergences each |
+| 5 x 512-step parity runs | 0 divergences (narrow, o_proj, dummy arms) |
+| OFF-arm generated kernel text | byte-identical to the frontier q/k/v and o_proj text for every head count and gate variant |
+| init-time reconstruction check | MLX round trip requires `(decoded != scales).sum() == 0` per bank; a failing bank is discarded and the site falls back to the stock plane |
+| `peak_ram_gb` | 20.7190 (OFF) -> 20.7213 (ON); MLX active 33.38 -> 33.44 GB |
+
+## Suggested follow-ups (not implemented)
+
+1. **Lane-major scale layout.** In the q/k/v QMV lane `l` reads groups
+   `l, l+32, l+64, l+96`: four separate byte loads per row. Storing the plane
+   lane-major turns them into one aligned `uchar4` load with identical bytes
+   and no span requirement -- a pure permutation. o_proj reads 12-16 groups per
+   lane, so it collapses 12-16 loads into 3-4. This is the direct antidote to
+   the +43 us the current three-plane reconstruction pays.
+2. **4-bit lane-major with a per-row base.** The census row spans give
+   `row_le15` = 0.9944 / 0.9864 / 0.9958 / 0.9814 for q/k/v/o, so ~98-99.6% of
+   rows fit a 4-bit index plus one uint8 row base; the rest escape to the
+   already-resident stock plane on a simdgroup-uniform branch. 65 B vs 128 B
+   per row is -49% of attention scale traffic (-43.7 MB/step) at *two* loads
+   per row instead of four: roughly twice this rung's win.
+3. **Routed/shared planes.** MoE scales are 66 MB/step. Their blk32 spans reach
+   39, so they need the escape path from (2) rather than this rung's
+   escape-free envelope.
