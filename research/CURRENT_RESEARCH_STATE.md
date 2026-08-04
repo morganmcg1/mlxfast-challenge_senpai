@@ -229,6 +229,63 @@ the model closes only if the M5 per-dispatch cost is **0.48–1.25 us** — near
 measured 0.87 us single-threadgroup floor rather than 2.46 us. That is a
 falsifiable prediction and it is the subject of the next arm (§8).
 
+**Budget reconciliation: tanjiro's launch ramp is 0.699 ms, not 0.999 ms.** His
+four terms sum to 1.874 ms, the *whole* wall excess, and all four are GPU-side —
+so there is no room in his budget for frieren's 0.29–0.32 ms exposed **host**
+head term, which #14 established two independent ways. The soft term is the
+launch ramp, because its 2.46 us coefficient comes from an *empty* dispatch,
+which has no memory traffic to overlap the threadgroup ramp against. In situ the
+coefficient must be lower:
+
+```
+GPU-side terms must total  1.874 - 0.300 = 1.574 ms
+launch ramp                0.999 - 0.300 = 0.699 ms
+in-situ per-dispatch cost  0.699 / 406   = 1.72 us   (vs 2.46 us isolated)
+```
+
+A ~30% overlap credit is exactly what physics predicts, both budgets then close
+simultaneously, and **frieren's head term is now corroborated by a budget that
+was not looking for it.** tanjiro's #27 run C measures the in-situ coefficient
+directly on both hosts, which settles it.
+
+### 4b. frieren's exposed head latency is now the largest remaining decode item
+
+I briefed #23 at "<=2.9% of score" by dividing his M4 absolute by the M5 step.
+That was wrong: the head term is **host** time and does not halve across
+generations the way byte time does. That asymmetry is the same one that explains
+the 78.6% / 78–85% efficiency invariance.
+
+| M5 head term | share of the 4.353 ms step | share of score at elasticity 0.638 |
+| ---: | ---: | ---: |
+| 0.30 ms (unchanged) | 6.9% | **4.4%** |
+| 0.25 ms (CPU ~1.2x) | 5.7% | **3.7%** |
+| 0.15 ms (halved) | 3.4% | **2.2%** |
+
+**Worth 2.2–4.4% of score**, against 1.4–2.8% for everything else in decode
+combined. With access-pattern efficiency closed, this is the decode arm.
+
+**Mechanism, verified from source this session.** The MLX compiled-decode
+machinery is present, `MLXHardwareInfo.swift:33-38` defaults
+`isCompiledDecodeSupported` to **true** (the official runner sets no env vars, so
+it is on when ranked) — but it wraps only three call sites, all tiny:
+`lagunaCompiledSoftplusGate` (`LagunaRuntimeModel.swift:5175`, a shapeless unary
+softplus), `makeLagunaAttentionGateProjection` (`:5197`, softplus + multiply +
+reshape + matmul), and the `L == 1` selector at `:6058`; called from `:6019`,
+`:6066`, `:6153`. **The other ~400 dispatches of the step are outside any
+compiled region and their graph is rebuilt in Swift on all 128 decode steps.**
+`406 ops x ~0.7 us = 0.28 ms` matches the measured 0.29–0.32 ms.
+
+Two cautions, both from a source comment left by a predecessor at `:5167-5170`:
+*"Ranked measurement showed the larger gate/product graph regressing the complete
+prefill schedule even though its isolated steady-state subpath was slightly
+faster."* So (a) scope any enlargement to **decode only**, and (b) judge on the
+whole matched pair, never an isolated subpath. Legality is clear: a compiled graph
+is input-independent structure, carries no logits/KV/deferred rows/cross-request
+state, and advances exactly one position per one-token request.
+
+`MLXHardwareInfo.swift` is **not** in `editablePaths`; the four
+`Compilable*`/`CompiledDecode`/`DynamicSlice` files in `mlx-swift-lm` **are**.
+
 ---
 
 ## Current research focus
@@ -481,11 +538,11 @@ publishes complete metrics. This is tanjiro's round-6 arm.
 
 | PR | student | arm |
 | --- | --- | --- |
-| #20 | nezuko | **lm_head cascade.** The last legal decode byte lever: 134.9 MB int5 plane, 7.5% of the step. Immediate target 25.7 MB, structural ceiling ~105 MB (3.7%) |
+| #20 | nezuko | **lm_head cascade.** The last legal decode byte lever: 134.9 MB int5 plane, 7.5% of the step. Immediate target 25.7 MB (0.91% of score, transfers 1:1), structural ceiling ~105 MB (3.7%). **Plus a second lever handed over from #21:** `lmhead_exact_inline_mask_block` runs at **6.5 GB/s**, 6x below tanjiro's own bytes-per-dispatch curve at 0.481 MB, worth ~0.48% — a real defect, not a small-dispatch artefact |
 | #21 | tanjiro | **MERGED — strong negative, campaign-defining.** Decode is bandwidth-closed: access pattern worth 0.000 ms, unexplained +0.000 ms. See §4. Recoverable re-priced 10.9% → 1.4–2.8% of score. 0 submissions |
-| #23 | frieren | **exposed head latency** — the one term in his own model the GPU does not absorb. 0.29–0.32 ms on M4 against a 4.353 ms M5 step, so ≤2.9% of score |
-| #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported. **Re-priced by finding 6 to 5.9–7.7% of score** (~3× the brief) with a hard floor at 28.17 ms, and it holds **73% of all the overlap available anywhere in the forward** |
-| — | tanjiro | **round 6: measure the four M5 constants** (§8) by output-neutral work injection into the scored path. 2 submissions buy 4 denominators that every other arm on the board divides by |
+| #23 | frieren | **exposed head latency** — the one term in his own model the GPU does not absorb. **Re-priced to 2.2–4.4% of score** (§4b): the term is host time and does not halve across generations. Mechanism now verified from source — compiled decode is ON but wraps only 3 micro-fusion sites, so ~400 dispatches rebuild their graph every step. **Largest remaining decode arm.** |
+| #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported. **Re-priced by finding 6 to 5.9–7.7% of score** (~3× the brief; and 6.2–8.4% once the assumed 60 TFLOP/s is allowed to range down to the receipt-bounded 44.3, which moves the prize 16.75 → 22.69 ms) with a hard floor at 28.17 ms, and it holds **73% of all the overlap available anywhere in the forward** |
+| #27 | tanjiro | **round 6: measure the four M5 constants** (§8) by output-neutral work injection into the scored path, differenced across receipts so no control run is needed. 4 submissions authorised; must report `BW` and `TFLOP/s` mid-arm because fern is blocked on them |
 
 Why #24 is the shape it is: `DARKBLOOM_EXPERT_GATHER_GROUPS` went 64 → 128 → 256
 and measured a real M5 gain at *every* step while changing nothing
