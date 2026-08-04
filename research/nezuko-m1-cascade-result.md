@@ -52,6 +52,51 @@ which was confirmed by source inspection as well as by the counter.
 Consequently the cascade's ceiling prices cleanly: it removes 25.69 MB from a
 510.9 µs / 264.0 GB/s stream.
 
+**And that last clause turns out to be the whole story of this arm.** 264.0
+GB/s is **1.290×** the 204.6 GB/s step average. The brief prices removed bytes
+at `MB / 1794`, i.e. at the step average. Removing bytes from an
+above-average-efficiency dispatch buys proportionally *less* time. See the
+conclusion.
+
+## The survivor census: the byte numerator is confirmed to 99.3%
+
+Before trusting a 25.69 MB numerator I instrumented the screen, because the
+cascade's second stage re-reads the 1-bit residual plane for every surviving
+four-row block. If survivors were common, most of the "removed" bytes would
+come straight back. The inherited code asserted in a comment
+(`LagunaLmHeadPrune.swift:626`) that survivors are "single digits per step".
+**That assertion had never been instrumented, and it is wrong by two orders of
+magnitude.**
+
+The census is an env-gated diagnostic (`DARKBLOOM_LMHEAD_PRUNE_STATS=1`) that
+evaluates the kernel's own screen `coarse + delta >= thr` on the host and
+counts surviving rows and live four-row blocks. It forces a host sync per call
+so it is never on a timed path, and it is **not** part of any submitted
+archive — it was built and run on a scratch branch. The patch is reproduced at
+the end of this document.
+
+Over the 128 timed decode steps of one `--local-iterate` run:
+
+| quantity | mean | median | min | max |
+| --- | ---: | ---: | ---: | ---: |
+| surviving rows (of 100352) | 534 | 288 | 55 | 9193 |
+| live 4-row blocks (of 25088) | 458 | 269 | 55 | 7261 |
+
+458 live blocks is **1.83%** of blocks. The re-read costs
+`534 × (256 + 64) B = 171 KB/step`, so the **net removal is 25.519 MB of a
+nominal 25.69 MB — 99.3%.** The numerator is right to within 0.7%, and the
+half-size realised effect below is therefore *not* a byte-accounting error.
+
+Two consequences beyond this arm:
+
+- Anyone sizing the sparse-refine dispatch (the 6.5 GB/s, 74 µs/step dispatch
+  the advisor flagged as the worst-efficiency op in decode) should use 458
+  live simdgroups, not "single digits". 98.2% of simdgroups exit empty, not
+  99.996%.
+- The distribution is extremely skewed (median 288, max 9193). The max is a
+  step where the model is genuinely uncertain between many tokens. A future
+  fix to that dispatch must be sized on the mean, not the median.
+
 ## Evidence
 
 - **Host:** Mac16,11 (M4 Pro), 48 GiB unified memory, low-memory startup
@@ -216,24 +261,109 @@ trio is reported alongside only as a cross-check.
 
 ### Receipt allocation
 
-The brief authorises 4 receipts and asks for 3 on the byte-identical tip. I am
-spending the 4th on a **decomposition** rather than a 4th replicate, because
-with C0 already at n=3 and the pooled 27-dof floors (`ns` 0.149%, `T` 0.222%)
-a 3-receipt Y resolves the predicted +0.91% at ~7.5σ, so a 4th Y buys almost
-nothing, whereas without X the arm cannot separate Part 1a from M1 at all:
+The brief authorises 4 receipts and asks for 3 on the byte-identical tip. I
+spent **2 on a decomposition** instead. This is a deliberate deviation and here
+is the justification.
+
+`Y − C0` is not M1. It is M1 *plus* Part 1a, the two reverts the brief also
+told me to land in the same arm — and the brief's own hypothesis is that
+`9c1ad1c` carries our `S +0.236%` regression, i.e. that Part 1a moves the score
+on its own. The one number the brief asks for, "the realised MB-to-score
+conversion factor … that single number re-prices every other byte arm on the
+board", is therefore only computable from `Y − X`.
 
 | tree | surface | receipts |
 | --- | --- | ---: |
-| C0 | `BASE_SHA` | 3 (banked) |
-| X | `BASE_SHA` − `9c1ad1c` − `6ca0c71` | 1 |
-| Y | X + M1 cascade | 3 |
+| C0 | `BASE_SHA` (`aecc470`) | 3 (banked; see the stale-control correction above) |
+| X | `BASE_SHA` − `9c1ad1c` − `6ca0c71` | 2 |
+| Y | X + M1 cascade | 2 |
 
-`Y − C0` = the arm as briefed, `X − C0` = Part 1a alone, `Y − X` = **M1
-alone**, which is the quantity the DRAM-saturation model actually predicts and
-the only one that prices the remaining byte arms. Submission order
-`Y, Y, X, Y` puts X mid-span so linear session drift cancels, and keeps the
-briefed 3-receipt Y family intact if the last receipt is lost.
+Splitting 2/2 rather than 3/1 dominates on both decomposition contrasts and
+costs almost nothing on the briefed one:
+
+| contrast | Y=3, X=1 | Y=2, X=2 |
+| --- | ---: | ---: |
+| `Y − X` (M1 alone) | 1.155σ | **1.000σ** |
+| `X − C0` (Part 1a alone) | 1.155σ | **0.913σ** |
+| `Y − C0` (as briefed) | **0.816σ** | 0.913σ |
+
+At the pooled 27-dof floor σ(`ns`) = 0.149% that is 0.149% on M1 and 0.136% on
+Part 1a, against 0.172% for both under the 3/1 split.
+
+The second driver is Y1 itself. It returned `ns +0.456%`, less than half the
+predicted +0.914%. Once an effect is known to be present but half-size, a third
+replicate only narrows Y's own mean from 0.105% to 0.086% — while the entire
+*interpretation* of that half-size number turns on whether Part 1a is adding to
+it or cancelling part of it. Precision on the confound is worth more than
+precision on the total.
+
+**Order is forced to `Y, Y, X, X`** because Y2 was already in flight when Y1
+returned. That makes `Y − X` co-linear with session time, which I do not like.
+The mitigation is that the σ quoted above is the pooled 27-dof floor estimated
+across receipts spanning 07:53–15:00 on this same board, so it already contains
+whatever between-session drift the service has; it is not a within-session
+repeatability figure. `S` — which nothing in this family should move — is the
+built-in drift control on every contrast, and it has stayed inside 0.5σ.
+
+## Official M5 receipts
+
+All receipts are `mlxfast` submissions on this account, measured against the
+pinned baseline in their own session. `rejected` here means "did not clear the
+leaderboard ranking bar", **not** a gate failure — every gate passed on every
+receipt.
+
+| id | tree | submitted | `officialScore` | `decode_s/tok` | `prefill_s/tok` | `baseline_decode` | `baseline_prefill` |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `5d522d6a` | C0 | 10:49 | 2.49146984957439 | — | — | — | — |
+| `5e0e9cd1` | C0 | 11:15 | 2.50009215851464 | — | — | — | — |
+| `c210d200` | C0 | 11:38 | 2.51474335355716 | — | — | — | — |
+| `0c21dc18` | Y | 14:16 | 2.49232051064996 | 0.0050840029296875 | 0.000191463623046875 | 0.0138298844453125 | 0.000366997884765625 |
+| `2dce5912` | Y | 14:48 | 2.49270808422625 | — | — | — | — |
+| `X1` | X | pending | — | — | — | — | — |
+| `X2` | X | pending | — | — | — | — | — |
+
+Gate detail for `0c21dc18` (representative; `2dce5912` matches):
+
+```
+max_abs_diff            0
+passed_correctness      true
+checked_steps           1344
+gpqa_ttft_passed        true   (9/9)
+semantic_gpqa_passed    true   (9/9)
+decode_speedup_floor    true
+prefill_speedup_floor   true
+peak_ram_gb             21
+bandwidth_gb_per_token  0      (model is RAM-resident, as documented)
+```
+
+### `Y − C0`: the arm exactly as briefed
+
+Renormalised per `research/nezuko-renormalise.py`, with
+`S = 512000 × prefill_s_per_tok` ms and `T = 1000 × decode_s_per_tok − S/128`
+ms:
+
+| statistic | C0 (n=3) | Y (n=2) | effect |
+| --- | ---: | ---: | --- |
+| `ns` | 2.518242 | 2.529702 | **+0.455% ± 0.136%  (3.3σ)** |
+| `T` (ms) | 4.3513 | 4.3224 | **−0.664% ± 0.203%  (3.3σ)** |
+| `S` (ms) | 97.942 | 97.863 | −0.080% ± 0.159%  (0.5σ) |
+| published `officialScore` | 2.502102 | 2.492514 | −0.383% ± 0.446%  (0.9σ) |
+
+Within-family cv: C0 `ns` 0.180%, `T` 0.253%, `S` 0.091%, published 0.470%;
+Y `ns` 0.002%, `T` 0.140%, `S` 0.241%, published 0.011%.
+
+Three things to read off this table:
+
+1. **The effect is real and on the predicted axis.** 3.3σ on both `ns` and `T`,
+   same sign, consistent magnitude.
+2. **The negative control is clean.** `S` did not move. Nothing in this arm
+   touches prefill, and nothing in prefill moved.
+3. **The published score says nothing.** −0.383% ± 0.446% on the same data
+   where the renormalised statistic reads +0.455% ± 0.136%. Had I ranked on
+   `officialScore` I would have reported this arm as a mild *regression*. This
+   is the sharpest single demonstration of the 3.3× instrument advantage I
+   measured in #12, and it is on a real effect rather than on identical code.
 
 ## Conclusion
 
-_(completed once the official M5 family returns)_
+_(completed once `X1`/`X2` return)_
