@@ -437,10 +437,12 @@ neither of which I want a reader to miss:
    most likely reading — `S` moved by only −0.080% where the advisor's own
    hypothesis predicted Part 1a would move it by +0.236% — but it is 1σ
    evidence and it is not established.
-2. **The conversion factor is what this arm measures well; the *explanation*
-   for it is corroborated rather than proven.** The 0.50× is a 3.3σ
-   measurement. The account of *why* rests on a bracket whose width exceeds
-   the measurement's own error bar.
+2. **The conversion factor is what this arm measures well. The *explanation*
+   for it is incomplete.** The 0.50× is a 3.3σ measurement and I stand behind
+   it. Of the miss, a measured dispatch-denominator correction accounts for
+   45%; **the remaining 0.438% ± 0.203% of `T` I cannot currently explain.**
+   I had an explanation, it was wrong, and I withdraw it below rather than
+   ship it.
 
 ### The two-stage conversion failed in exactly one of its two stages
 
@@ -493,28 +495,28 @@ which is the form other arms should actually reuse:
 ```
 0.467  =  0.775            ×  0.602
           ^^^^^               ^^^^^
-          bytes left a         0.67% of them came back
-          1.29x-faster-        through a 40x-slower
-          than-average         dispatch
+          bytes left a         unexplained
+          1.29x-faster-        residual
+          than-average
           dispatch
 ```
 
 The two factors do not have the same epistemic status and I do not want them
 read as if they do:
 
-- **0.775 is measured.** It is the ratio of two independently measured
-  bandwidths, 204.6 and 264.0 GB/s, neither of which came from this arm's
-  receipts. It would have been the same number had the arm never run.
-- **0.602 is the residual.** It is `observed / dispatch-corrected prediction`
-  by construction, so it is definitionally "everything I did not predict".
-  Naming it the re-read factor is an *interpretation*, and it is only as good
-  as the argument in the next section but one. If that argument is wrong,
-  0.602 does not disappear — it just stops having a name.
-
-Neither factor is a property of "byte arms" in general. The first applies to
-any arm removing bytes from an above-average dispatch; the second applies to
-any arm that adds bytes back anywhere. An arm with neither property should
-still use `MB / 1794` unchanged. The next two sections derive each factor.
+- **0.775 is measured, and it is the part other arms can reuse.** It is the
+  ratio of two independently measured bandwidths, 204.6 and 264.0 GB/s,
+  neither of which came from this arm's receipts. It would have been the same
+  number had the arm never run. It applies to any arm removing bytes from an
+  above-average dispatch; an arm removing bytes from an *average* dispatch
+  should keep `MB / 1794` unchanged.
+- **0.602 is the residual, and it has no mechanism attached to it.** It is
+  `observed / dispatch-corrected prediction` by construction, i.e.
+  definitionally "everything I did not predict". I initially named it a
+  survivor-re-read effect; that attribution was wrong by two orders of
+  magnitude and is withdrawn two sections below. **Do not propagate 0.602 to
+  other arms** — it is this arm's unexplained remainder, not a transferable
+  correction.
 
 ### Why `MB → T` failed: the denominator is a bandwidth, and the brief used the wrong one
 
@@ -575,122 +577,143 @@ byte-identical in all four slots, only the buffer set changes. The 320 B is
 `codes_bit` 256 B + `scales` 64 B, `:694-695` — exactly the census
 denominator.)
 
-Slot 4 is the dispatch tanjiro measured at **74 µs/step, 0.481 MB, 6.5 GB/s —
-the worst-efficiency dispatch in the entire decode step, 2.5% of ceiling.**
-The 171 KB of re-read does not go into the 264 GB/s stream where the 25.69 MB
-came out. It goes into the 6.5 GB/s one.
+Slot 4 is the dispatch the campaign knows as **"74 µs/step, 0.481 MB,
+6.5 GB/s — the worst-efficiency dispatch in the entire decode step, 2.5% of
+ceiling"**. My first draft of this section used that figure to explain the
+whole residual shortfall: 171 KB entering a 6.5 GB/s dispatch would cost
+13–26 µs on M5, bracketing the observed 19.1 µs neatly.
 
-That converts the residual shortfall from an unexplained gap into a bracketed
-prediction. The shortfall is `1.102% − 0.664% = 0.438%` of `T` =
-**19.1 µs on M5**. The two natural ways to transfer a 6.5 GB/s M4 dispatch to
-M5 bracket it:
+**That argument is wrong, and so is the 6.5 GB/s figure it rests on. Both fail
+for the same reason my census exists.** This is the most consequential thing
+in this report and it goes against my own arm, so I am showing the working.
 
-| transfer assumption | rate on M5 | cost of 171 KB |
-| --- | ---: | ---: |
-| slot 4 is purely bandwidth-bound, scales with the 2.01× step ratio | 13.1 GB/s | **13.1 µs** |
-| slot 4 is purely latency-bound, does not scale at all | 6.5 GB/s | **26.3 µs** |
-| *observed shortfall* | *8.9 GB/s* | ***19.1 µs*** |
+The 0.481 MB byte count for slot 4 counts only the all-rows screen — lane 0
+reading `coarse[r]` (4 B) + `delta[r]` (2 B) for its four rows, i.e. 6 B/row
+over 100352 rows = 0.602 MB. It omits the dominant term. When
+`candidate_mask != 0` the kernel falls through to a stock `gemv_al` replica
+that reads **all four rows of `lm_head` unconditionally** — `mrow = lm_head +
+(base + tm) * K` for `tm` in 0..3, 16 iterations of 4 BF16 per lane
+(`6d14ed9:455-482`) — which is 4 × 2048 × 2 B = **16 KB per live block**.
 
-The observed value sits between the two bounds, which is where a partially
-latency-bound dispatch should sit. **The survivor re-read landing in slot 4 is
-the right order of magnitude to explain the residual shortfall, and no
-additional large unexplained term is required.** 171 KB is 0.67% of the bytes
-removed but plausibly costs ~40% of the time saved, because a byte moved at
-6.5 GB/s costs ~40× more than a byte moved at 264 GB/s.
+That term was assumed negligible because the code comment said live blocks are
+"single digits per step". **My census measured 458.** So:
 
-**I want to be explicit about how weak this test is**, because the paragraph
-above is the kind that gets quoted without its error bar:
+| term | bytes/step |
+| --- | ---: |
+| all-rows screen (6 B × 100352) | 0.602 MB |
+| BF16 GEMV (458 live blocks × 16 KB) | **7.504 MB** |
+| `x` (2048 BF16, cache-resident) | 0.004 MB |
+| **total, unique** | **8.110 MB** |
 
-- The shortfall inherits the full uncertainty of the measurement it is derived
-  from: **19.1 ± 8.8 µs** (`0.438% ± 0.203%` of `T`, 2.2σ from zero).
-- Its 68% interval, **[10.2, 27.9] µs**, is *wider than the bracket itself*.
-  The data therefore cannot distinguish "the re-read explains all of the
-  shortfall" from "the re-read explains half of it".
-- Over the a priori plausible range — 0 µs (model perfect once the dispatch
-  correction is applied) to 48 µs (the arm buys nothing at all) — the bracket
-  occupies **28%**. Landing inside it is worth roughly a factor of 3.5 in
-  likelihood: real, but corroboration rather than confirmation.
+**8.110 MB in 74 µs is 109.6 GB/s = 42% of the 260.2 GB/s ceiling.** On issued
+bytes (`x` is re-read by each of the 458 active simdgroups) it is 9.98 MB and
+135 GB/s. Either way it is an ordinary rate for a scattered 16 KB-granular
+gather — **not a defect, and not 2.5% of ceiling.** The true byte count is
+**16.9× the assumed one**, and the "worst dispatch in decode" is an artefact
+of the same refuted comment my census was written to test.
 
-Two things still make it more than coincidence. Nothing in the bracket was
-tuned to the observed number and the observation could have fallen outside it.
-And the bracket is conservative: M1's second screen is strictly tighter than
-the one it replaces (half-cell `d = D/2`), so it can only *reduce* the number
-of live blocks reaching the 16 KB/block BF16 GEMV, making the true net cost of
-slot 4's change at most the 171 KB priced here.
+Three things follow, and the first one costs me my own explanation:
 
-**The decisive test is not statistical and costs no receipts.** A per-dispatch
-probe of the after-build reads slot 4's cost directly (see the discriminator
-below). Anyone who wants this claim established rather than corroborated
-should run that rather than buy more receipts — this is a case where one M4
-build beats three M5 measurements.
+1. **My re-read hypothesis fails by two orders of magnitude.** Priced at the
+   corrected 109.6 GB/s, the 171 KB costs **1.56 µs on M4 = 0.018% of `T`**,
+   not 0.438%. It cannot explain the shortfall. I am withdrawing the bracket
+   argument rather than keeping it because it was pleasing.
+2. **The residual 0.438% ± 0.203% of `T` is therefore unexplained.** I have a
+   measured conversion factor and a measured dispatch-denominator correction
+   that closes 45% of the gap; I do not have an account of the rest. Saying so
+   is more useful than a mechanism that dissolves on inspection.
+3. **The campaign's second-largest identified decode opportunity is much
+   smaller than believed.** Pricing slot 4 from 0.481 MB gave "~65–69 µs
+   recoverable = 0.48% of score". At 8.11 MB and 42% of ceiling the arithmetic
+   is completely different, and a scattered gather will not reach ceiling
+   anyway. This should be re-derived before anyone is assigned to it.
 
-The unit "bytes removed" is therefore the wrong unit for pricing an
-optimisation. The right unit is **bytes ÷ the bandwidth of the dispatch those
-bytes actually traverse**, evaluated separately for bytes removed and bytes
-added.
+The unit "bytes removed" is still the wrong unit for pricing an optimisation —
+but the lesson from this section is narrower and sharper than the one I first
+drew. It is not "price at achieved bandwidth". It is: **an achieved-bandwidth
+figure is only as good as its byte numerator, and a numerator resting on an
+uninstrumented code comment is not evidence.** The 6.5 GB/s number was wrong
+not because bandwidth is the wrong lens but because 0.481 MB was wrong.
 
 I want to state the generalisation carefully, because the obvious phrasing is
 too strong. "Always price at achieved bandwidth" is **not** correct: in a
 latency-bound or occupancy-bound dispatch, bytes are nearly free and should be
 priced at ~0, not at the achieved rate. The defensible rule is **price at the
-binding resource**. Here the binding resource happens to be bandwidth on both
-sides, so bandwidth is the right denominator on both sides — but that is a
-property of these two dispatches, not a law.
+binding resource, and audit the byte numerator before you trust either.**
 
-### Correction: the advisor's "second lever" is the *same dispatch* this arm rewrites
+### The advisor's "second lever" needs re-deriving before it is assigned
 
-The 14:38 note says of the 6.5 GB/s dispatch: *"it is on your surface, needs
-no new mechanism, and removes no bytes — so it is orthogonal to your main arm
-and cannot confound it."*
+The 14:38 note prices fixing slot 4 at "~65–69 µs recovered = 0.75% of the M4
+step ≈ 0.48% of score", and calls it *"on your surface, needs no new
+mechanism, and removes no bytes — so it is orthogonal to your main arm and
+cannot confound it."* Two corrections, in increasing order of importance.
 
-**It is not orthogonal. It is slot 4, and this arm replaces slot 4.** The
-kernel the note prices at "~65–69 µs recovered" is
-`..._exact_inline_mask_block_delta_bf16_lane0_mask_v1`, which **does not exist
-in my tree** — M1 swapped it for `..._exact_fused_int5_sparse_refine_v1` in
-the same slot with the same geometry. Three consequences for planning, and I
-think all three are decision-relevant:
+**First, it is not orthogonal: it is slot 4, and this arm replaces slot 4.**
+The kernel the note prices,
+`..._exact_inline_mask_block_delta_bf16_lane0_mask_v1`, **does not exist in my
+tree** — M1 swapped it for `..._exact_fused_int5_sparse_refine_v1` in the same
+slot with identical geometry. Any fix must be written against the post-M1
+kernel, or it is patching code that merging M1 deletes.
 
-1. **The two gains must not be summed.** The 0.438% this arm lost and the
-   0.48%-of-score the note attributes to fixing slot 4 are overlapping claims
-   on the same dispatch, not additive ones.
-2. **My arm made slot 4 worse, not better.** It adds 171 KB/step of survivor
-   re-read to the single least efficient dispatch in decode while leaving its
-   defect untouched. That is the whole shortfall.
-3. **But the fix is worth *more* than the note prices, not less** — and this
-   is the actionable part. The defect is structural and it is *inherited*:
-   both the before and after kernels have the identical lane-0 pattern. Lane 0
-   alone loads 28 B, `simd_broadcast`s it (`:675`), and every other lane
-   returns immediately, so 0.875 B/lane is in flight against the ~32 B needed
-   to saturate (2.7% utilisation). Fixing that pattern in the after-tree
-   kernel recovers the pre-existing inefficiency **and** the 171 KB re-read
-   this arm added, because both are throttled by the same broadcast.
+**Second, and this is the one that changes the decision: the 0.48% is built on
+the 0.481 MB byte count, and that number is 16.9× too small.** The
+diagnosis it supports — "too few bytes in flight per lane" — reads the lane-0
+`simd_broadcast` as the binding constraint. It is not. The broadcast governs
+the *screen*, which is 0.602 MB of the dispatch's 8.11 MB; the other 7.5 MB is
+a fully-parallel 32-lane BF16 GEMV over 458 live blocks that no broadcast
+throttles. At 42% of ceiling on a scattered 16 KB-granular gather, slot 4 is
+close to what that access shape can deliver.
 
-So the correct scoping of that follow-up is: *fix slot 4 in the post-M1 tree*,
-where it is worth its own recovery plus this arm's 0.438% — not *fix slot 4 in
-the base tree*, which is code that a merged M1 would delete. I deliberately
-did not implement it here; see below.
+I have not re-derived the true headroom, and I do not want to guess at it in
+place of the wrong number: the honest statement is that **the recoverable time
+in slot 4 is unknown and materially smaller than 65–69 µs.** The cheap way to
+settle it is the per-dispatch probe below, which measures slot 4 directly
+instead of inferring it.
+
+What *is* still true and still worth assigning is narrower: 458 live blocks
+read 16 KB each to use at most 4 rows' worth of it, and the block-granular
+`for tm in 0..3` loop reads all four rows even when one survived. With 534
+survivors in 458 blocks, roughly **1.2 rows per live block are wanted out of
+4** — so a row-granular gather could plausibly cut the GEMV term by ~3×
+(7.5 MB → ~2.2 MB). That is a real, sized opportunity resting on measured
+survivor counts rather than on a code comment, and it is a *different* fix
+from the one the note describes.
 
 ### Resolution of the 76.6 µs / 134.9 MB contradiction
 
-Resolved, and not in my favour on the point I originally pressed. Two
-independent things were being conflated:
+**Resolved: the two figures belong to two different dispatches, and the
+premise of the contradiction was a byte-count error.**
 
-1. **tanjiro's #21 (merged) settled the timing side.** The 76.6 µs figure and
-   the 134.9 MB figure were measured against different builds, so the implied
-   bandwidth was never a real quantity.
-2. **My census settled the byte side.** The numerator is sound at 99.3%; the
-   contradiction was never in the byte count.
+The brief's framing was: 76.6 µs at the 260.2 GB/s ceiling moves at most
+~20 MB, which is irreconcilable with a 134.9 MB plane read. The resolution has
+two parts:
 
-What replaces it is the finding above: the discrepancy is not a bad byte
-count, it is a bad *denominator* plus a small, very expensive re-read.
+1. **The 134.9 MB belongs to slot 1, not slot 4.** Slot 1
+   (`lmhead_int5_inline_coarse_v5`) reads 1344 B/row × 100352 = 134.88 MB in
+   510.9 µs at 264.0 GB/s. Slot 4 is a separate 74–76.6 µs dispatch. There was
+   never a single kernel doing both.
+2. **Slot 4's own byte count was wrong by 16.9×**, and my census is what
+   showed it. At 0.481 MB it looked like a 6.5 GB/s pathology; at the measured
+   458 live blocks it is 8.11 MB at 109.6 GB/s and needs no special
+   explanation.
 
-I should flag that I earlier back-solved a −8.6% achieved-bandwidth drop and
-attributed it to MLP loss. **That story was never measured, and I now think it
-is wrong.** It is physically doubtful — the before-kernel was already at 101%
-of its ceiling, leaving no room for the mechanism I proposed. The
-sparse-dispatch-overhead explanation above fits the same data without
-requiring anything implausible. I am retracting the MLP-loss explanation
-rather than leaving it in the record as a live hypothesis.
+So the brief's instinct was right — a 76.6 µs figure could not be
+reconciled — but the irreconcilable quantity was slot 4's *bytes*, not slot
+1's. This was the "highest-value thirty minutes in the arm" and it paid, just
+not in the direction anyone expected.
+
+I should also flag two of my own retractions in this area:
+
+- I earlier back-solved a −8.6% achieved-bandwidth drop and attributed it to
+  MLP loss. **Never measured, and physically doubtful** — the before-kernel
+  was already at 101% of its ceiling, leaving no room for the mechanism I
+  proposed. Retracted.
+- I then replaced it with the survivor-re-read explanation for the residual
+  shortfall. **Also wrong**, by two orders of magnitude, once slot 4 is priced
+  with the correct numerator. Retracted above.
+
+The residual 0.438% ± 0.203% of `T` currently has *no* mechanism attached to
+it, and I would rather leave that gap open than fill it a third time.
 
 The cheapest discriminator, if anyone wants to close it properly: run a
 per-dispatch probe of the *after* build on the same M4 host. Slot 1 goes from
@@ -780,23 +803,33 @@ independent gain.
    which *does* move `S` invalidates it and needs the full two-term form.
    No arm should ever spend a receipt "validating" it.
 2. **Retire `MB / 1794` as a universal byte-to-time rule.** Replace it with
-   per-dispatch pricing: measure the achieved bandwidth of the dispatch the
-   bytes actually live in, and price bytes *added* at their own dispatch's
-   rate. For this arm that is 264 GB/s out and 6.5 GB/s back in.
-3. **Re-audit sibling byte arms for the two factors separately, not for a
-   blanket 2×.** Ask of each arm: (a) what is the achieved bandwidth of the
-   dispatch the bytes leave, versus the 204.6 GB/s step average? (b) does the
-   arm add *any* bytes back, and into which dispatch? An arm scoring
-   "average" and "none" keeps `MB/1794` intact. My 0.47× is
-   `0.775 × 0.602`, and both factors are arm-specific.
-4. **Assign the slot-4 fix against the post-M1 tree, not the base tree.** It
-   is the same dispatch this arm rewrites, so it is not an additive win and
-   the base-tree kernel it was priced against would be deleted by merging M1.
-   Scoped correctly it recovers slot 4's own inefficiency *plus* this arm's
-   0.438%, because one `simd_broadcast` throttles both.
-5. **Reclaim the decomposition** with two X receipts when the account
+   per-dispatch pricing: use the achieved bandwidth of the dispatch the bytes
+   actually live in. For this arm the removed bytes left a 264 GB/s dispatch,
+   not the 204.6 GB/s step average, and that alone is a 0.775× correction.
+3. **Audit every achieved-bandwidth figure's numerator before acting on it.**
+   The 6.5 GB/s "worst dispatch in decode" was wrong because its byte count
+   omitted a 7.5 MB term, on the authority of an uninstrumented code comment.
+   A GB/s figure is a ratio, and this campaign has been treating the numerator
+   as free. Any dispatch whose byte count came from reasoning about code rather
+   than from a counter should be re-checked.
+4. **Re-audit sibling byte arms for the dispatch-denominator factor only.**
+   Ask of each arm: what is the achieved bandwidth of the dispatch the bytes
+   leave, versus the 204.6 GB/s step average? An arm removing bytes from an
+   average dispatch keeps `MB/1794` intact. Do **not** apply my `0.602` — it
+   is an unexplained residual specific to this arm, not a correction.
+5. **Do not assign the slot-4 fix as currently priced.** Re-derive it first.
+   The 0.48%-of-score estimate rests on a 16.9×-too-small byte count and on a
+   `simd_broadcast` diagnosis that governs only 7% of the dispatch's traffic.
+   If something is assigned there, the defensible target is the *row-granular
+   gather*: 458 live blocks read 16 KB each for ~1.2 wanted rows out of 4, so
+   the 7.5 MB GEMV term could plausibly fall ~3×. Write it against the post-M1
+   kernel.
+6. **Run the per-dispatch probe of the after-build.** One M4 build, one run,
+   no receipts. It settles the MLP retraction, measures slot 4 directly, and
+   is the only cheap route to the unexplained 0.438%.
+7. **Reclaim the decomposition** with two X receipts when the account
    submission slot is free. It is two runs and the tree is ready.
-6. **Adopt the `unique`/`issued` declaration rule** for byte-arm briefs.
+8. **Adopt the `unique`/`issued` declaration rule** for byte-arm briefs.
 
 ## Appendix — the survivor-census patch
 
