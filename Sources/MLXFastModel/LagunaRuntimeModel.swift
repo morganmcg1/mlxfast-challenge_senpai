@@ -6600,8 +6600,14 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
 /// (`lagunaRoutedSwiGLUQMVPackedTop8R1Kernel`) already ships; it was never
 /// applied to the shared path. Same bytes, same addresses, same nibble decode
 /// via `laguna_nvfp4_qdot_codes_16`, identical accumulation order.
-let lagunaSharedQMVStageEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_STAGE"] == "1"
+/// `=2` stages every K block's code words and scale bytes up front instead of
+/// one block ahead. The shared gate/up QMV runs at 60% of this host's measured
+/// read ceiling, so unlike the saturated down projection it has latency left to
+/// hide; `=2` tests whether depth 1 is already the peak.
+let lagunaSharedQMVStageDepth =
+    Int(ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_STAGE"] ?? "0") ?? 0
+
+let lagunaSharedQMVStageEnabled = lagunaSharedQMVStageDepth >= 1
 
 /// `DARKBLOOM_SHARED_QMV_PACK2` (default OFF): one `simd_sum(vec<float,2>)`
 /// for the gate/up accumulators instead of two scalar reductions.
@@ -6656,6 +6662,35 @@ private let lagunaSharedQMVShippedBody = """
         laguna_nvfp4_scale(up_row_scale[block / 16]));
 """
 
+private let lagunaSharedQMVFullStagePrologue = """
+
+constexpr uint k_blocks = input_width / block_width;
+uint2 gate_codes[k_blocks];
+uint2 up_codes[k_blocks];
+uint8_t gate_sb[k_blocks];
+uint8_t up_sb[k_blocks];
+for (uint b = 0; b < k_blocks; ++b) {
+    gate_codes[b] = *(const device uint2*)(
+        gate_row_weight + b * block_width / 2);
+    up_codes[b] = *(const device uint2*)(
+        up_row_weight + b * block_width / 2);
+    gate_sb[b] = gate_row_scale[b * block_width / 16];
+    up_sb[b] = up_row_scale[b * block_width / 16];
+}
+"""
+
+private let lagunaSharedQMVFullStagedBody = """
+    const uint b = block / block_width;
+    gate_result += laguna_nvfp4_qdot_codes_16(
+        gate_codes[b],
+        input_values,
+        laguna_nvfp4_scale(gate_sb[b]));
+    up_result += laguna_nvfp4_qdot_codes_16(
+        up_codes[b],
+        input_values,
+        laguna_nvfp4_scale(up_sb[b]));
+"""
+
 private let lagunaSharedQMVPackedReduction = """
 vec<float, 2> gate_up_result = simd_sum(vec<float, 2>(gate_result, up_result));
 gate_result = gate_up_result[0];
@@ -6667,12 +6702,21 @@ gate_result = simd_sum(gate_result);
 up_result = simd_sum(up_result);
 """
 
-private let lagunaSharedSwiGLUQMVRows1Prologue =
-    lagunaSharedQMVStageEnabled ? lagunaSharedQMVStagePrologue : ""
+private let lagunaSharedSwiGLUQMVRows1Prologue: String = {
+    switch lagunaSharedQMVStageDepth {
+    case 1: return lagunaSharedQMVStagePrologue
+    case 2: return lagunaSharedQMVFullStagePrologue
+    default: return ""
+    }
+}()
 
-private let lagunaSharedSwiGLUQMVRows1Body =
-    lagunaSharedQMVStageEnabled
-    ? lagunaSharedQMVStagedBody : lagunaSharedQMVShippedBody
+private let lagunaSharedSwiGLUQMVRows1Body: String = {
+    switch lagunaSharedQMVStageDepth {
+    case 1: return lagunaSharedQMVStagedBody
+    case 2: return lagunaSharedQMVFullStagedBody
+    default: return lagunaSharedQMVShippedBody
+    }
+}()
 
 private let lagunaSharedSwiGLUQMVRows1Reduction =
     lagunaSharedQMVPack2Enabled
@@ -6682,7 +6726,8 @@ private let lagunaSharedSwiGLUQMVRows1Reduction =
 /// Arithmetic is textually identical per row; only row ownership changes.
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1"
-        + (lagunaSharedQMVStageEnabled ? "_st1" : "")
+        + (lagunaSharedQMVStageEnabled
+            ? "_st\(lagunaSharedQMVStageDepth)" : "")
         + (lagunaSharedQMVPack2Enabled ? "_pk2" : ""),
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
