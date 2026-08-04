@@ -81,6 +81,14 @@ private let lagunaTraceFusion =
 /// re-allocate.
 private let lagunaTraceAllocState =
     ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_ALLOC"] == "1"
+
+/// `DARKBLOOM_PROBE_CACHE_LIMIT=<bytes>` overrides the MLX allocator cache
+/// limit at forward entry, after the trusted per-phase reset has pinned it to
+/// 6 GiB. Research instrumentation: the slowdown at limit 0 (every free
+/// releases its `MTLBuffer` instead of recycling it) measures the marginal cost
+/// of fresh buffer creation plus first-touch paging inside the timed window.
+private let lagunaProbeCacheLimit =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PROBE_CACHE_LIMIT"].flatMap(Int.init)
 private let lagunaTracedFusions = LagunaFusionTraceLog()
 
 final class LagunaFusionTraceLog: @unchecked Sendable {
@@ -10804,6 +10812,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        if let probeLimit = lagunaProbeCacheLimit {
+            Memory.cacheLimit = probeLimit
+        }
         if lagunaTraceAllocState {
             FileHandle.standardError.write(
                 Data(
