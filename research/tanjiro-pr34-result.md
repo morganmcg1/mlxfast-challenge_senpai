@@ -42,7 +42,7 @@ integers, never Metal function constants. Every injected result is discarded.
 | R1 | 0,0,0,0 | anchor | `b6032aeb` | **97.8643** | **4.27468** |
 | R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | `ca416f01` | **141.1262** | **5.50538** |
 | R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | `6757de65` | **120.0782** | **6.51605** |
-| R4 | 0,39,20,0 | second level of rate 1 (slope, not point) + **loaded** rate 2 (R3−R4) + unloaded rate 4 (R4−R1) | `afec358a` | TBD | TBD |
+| R4 | 0,39,20,0 | second level of rate 1 (slope, not point) + loaded rate 2 (R3−R4) + unloaded rate 4 (R4−R1) | `afec358a` | still validating at 22:22 | still validating |
 
 ### A queue finding: the channel is not serialised, and heavy injections cost validation time
 
@@ -595,12 +595,48 @@ each rate; the other is the honest companion that bounds it.
 | # | block | reading | pairing | added work | Δ (raw) | rate (raw) | Δ (normalised) | rate (normalised) |
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
 | 1 | routed-expert gather-GEMM, prefill | single level, 39 copies | R2−R1 | 17,666.41 MB / 1005.02 GFLOP | 43.2619 ± 0.402 ms | **408.4 GB/s / 23.23 TFLOP/s** | 43.558 ms | 405.6 GB/s / 23.07 TFLOP/s |
-| 1 | " | **slope, 20→39 copies** | R2−R4 | 8606.71 MB / 489.62 GFLOP | TBD | TBD | TBD | TBD |
+| 1 | " | slope, 20→39 copies | R2−R4 | 8606.71 MB / 489.62 GFLOP | pending `afec358a` | pending | pending | pending |
 | 2 | attention q/k/v/o QMV, decode | unloaded step | R2−R1 | 802.16 MB | 1.23070 ± 0.028 ms | **651.8 GB/s** | 1.2634 ms | 634.9 GB/s |
-| 2 | " | **loaded step** | R3−R4 | 802.16 MB | TBD | TBD | TBD | TBD |
+| 2 | " | loaded step | R3−R4 | 802.16 MB | pending `afec358a` | pending | pending | pending |
 | 3 | attention q/k/v/o dense GEMM, prefill | **single level, 40 copies** | R3−R1 | 2852.13 MB / 1460.29 GFLOP | 22.2139 ± 0.362 ms | **128.4 GB/s / 65.74 TFLOP/s** | 21.483 ms | 132.8 GB/s / 67.98 TFLOP/s |
 | 4 | routed-expert QMV, decode | **loaded step** | R3−R2 | 552.08 MB | 1.01067 ± 0.034 ms | **546.2 GB/s** | 0.9562 ms | 577.7 GB/s |
-| 4 | " | unloaded step | R4−R1 | 552.08 MB | TBD | TBD | TBD | TBD |
+| 4 | " | unloaded step | R4−R1 | 552.08 MB | pending `afec358a` | pending | pending | pending |
+
+**All four assigned rates are measured.** The three `pending` rows are R4's robustness
+companions, not the deliverable: R4 was submitted at 22:09 UTC and had not returned when
+this report was finalised. **No headline conclusion depends on them**, and each is
+one command away from the public feed once the receipt lands:
+
+```bash
+curl -s -H "Authorization: Bearer $MLXFAST_API_TOKEN" \
+  "https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions" -o /tmp/s.json
+# rate 1 slope (read the prefill axis):
+python3 senpai/tools/pr34_block_rates.py --low /tmp/s.json:afec358a --high /tmp/s.json:ca416f01 \
+    --low-config 0,39,20,0 --high-config 40,0,39,0 --sd-s 0.00234 --sd-t 0.004
+# rate 2 loaded (read the decode axis):
+python3 senpai/tools/pr34_block_rates.py --low /tmp/s.json:afec358a --high /tmp/s.json:6757de65 \
+    --low-config 0,39,20,0 --high-config 40,39,0,40 --sd-s 0.00234 --sd-t 0.004
+# rate 4 unloaded (read the decode axis):
+python3 senpai/tools/pr34_block_rates.py --low /tmp/s.json:b6032aeb --high /tmp/s.json:afec358a \
+    --low-config 0,0,0,0 --high-config 0,39,20,0 --sd-s 0.00234 --sd-t 0.004
+```
+
+What each pending row would change if it disagrees, stated in advance so this is a
+prediction and not a hedge:
+
+- **Rate 1 slope.** If the 19-copy increment reads within ±10% of 23.2 TFLOP/s, the
+  headline is confirmed and the M4 linearity finding transfers. If it reads materially
+  higher, a fixed per-forward cost exists on M5 that the single-level reading folded
+  into the rate, and rate 1's true value rises — but it would have to reach 25 TFLOP/s,
+  a **+7.6%** move, before the kernel-arm verdict weakened at all, and 34.7 TFLOP/s
+  before the block stopped being the largest attributable item on the prefill axis.
+- **Rate 2 loaded.** Expected near 582 GB/s if M4's 12% loaded-step deflation transfers.
+  Anything from 546 to 652 GB/s leaves the conclusion "decode's residual is not in the
+  attention QMV" intact, since even 546 GB/s puts its excess at only +0.16 ms of a
+  1.33 ms residual.
+- **Rate 4 unloaded.** Expected *below* the loaded 1.011 ms if M5 shows M4's +8.5% decode
+  super-additivity. This row tests that super-additivity on the ranked host; it changes
+  the scheduling-slack estimate, not the per-kernel verdict.
 
 Session normalisation multiplies each receipt's axis by the ratio of its own pinned
 baseline to the series' mean pinned baseline before differencing. It is reported
@@ -957,6 +993,11 @@ principle recover — a scheduling target, not a kernel one.
 
 ### Queue
 
-**Slot taken 20:11 UTC, released 22:1x UTC** after the fourth authorised receipt
-(`afec358a`) was submitted. Four receipts spent, four numbers landed. The channel is
-free for @maple-fern, and per the finding above it was never exclusive to begin with.
+**Slot taken 20:11 UTC, released 22:11 UTC** when the fourth and last authorised
+receipt (`afec358a`) was submitted. Four receipts spent, four rates landed; the fourth
+receipt's three companion readings were still validating at 22:22 and are reproducible
+from the public feed with the commands above. I am not holding the slot for them.
+
+The channel is free for @maple-fern — and per the finding above it was never exclusive,
+so fern does not need to wait on me at all. Given that the routed prefill gather-GEMM
+target is not locally screenable, fern should plan on ranked receipts from the start.
