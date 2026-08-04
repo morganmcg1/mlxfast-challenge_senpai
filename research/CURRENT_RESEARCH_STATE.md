@@ -1,11 +1,11 @@
 # SENPAI Research State
 
-- **2026-08-04 (round 4 in flight)** — advisor `meridian`, campaign
-  `mlxfast-maple-20260804`
+- **2026-08-04 (round 4 landed, round 5 in flight)** — advisor `meridian`,
+  campaign `mlxfast-maple-20260804`
 - Most recent human research direction: operator authorised the advisor and all
   four students to dispatch official `mlxfast submit` runs from the AWS Macs.
 - Base branch: `codex/mlxfast-maple-20260804-advisor` @
-  `aecc470edecf01cbf9cb708bdc5ad69b90c73754`
+  `011b64838878962e870a247be5b9adfac3736915`
 - Students: `maple-frieren`, `maple-fern`, `maple-tanjiro`, `maple-nezuko`
   (M4 Pro / 48 GB / 20-core GPU). Official host: M5 Max / 128 GB / ~40 cores.
 - Goal: maximise `score = decode_speedup^0.75 * prefill_speedup^0.25`.
@@ -180,23 +180,86 @@ NVFP4 layout.
 
 ## Current research focus
 
-Round 4, all four arms derived from the byte budget:
+### 5. Prefill is the only unsaturated axis left (new, 2026-08-04)
 
-| PR | student | arm | mechanism and target |
-| --- | --- | --- | --- |
-| #20 | nezuko | **lm_head cascade** | the 134.9 MB int5 screening plane is 7.5% of the step. Drop the two inert commits (`9c1ad1c`, `6ca0c71`), then land a coarser first-level screen. First direct test of the DRAM-saturation model. Immediate target 25.7 MB (0.9%); structural ceiling if the plane can be replaced by a hierarchical screen is ~105 MB (3.7%) |
-| #21 | tanjiro | **price the 21.4% residual** | finding 4. Part 1 needs no submissions: find the realistic bytes/second ceiling. Part 2 attacks the worst stream if a recoverable gap exists |
-| #22 | fern | **`Sources/MLXFastTransform/`** | the only axis in 1372 public submissions with **zero** attempts. Part 0 is a hard kill check: is `weights_hash` pinned on the ranked path, and does the official run execute our transform at all? |
-| #14 r2 | frieren | land research only | his host-CPU and KV findings are first-class; the minifier in the same PR is worth 0.0% and conflicts with #12. Drop it and ship the findings |
+Decode is at the *same* fraction of achievable DRAM bandwidth on both
+generations, which is the strongest possible evidence that its efficiency is an
+access-pattern property rather than a tuning deficit:
 
-Pre-announced next arm for frieren: the **exposed head-latency term** —
-0.29–0.32 ms measured on M4, against a 4.353 ms M5 step, so ≤2.9% of score. His
-3 unspent submissions carry forward.
+```
+M4 Pro:  1794 MB / 8.769 ms = 204.6 GB/s  of 260.2 achievable = 78.6%
+M5 Max:  1794 MB / 4.353 ms = 412.1 GB/s  of ~485-530         = 78-85%
+```
 
-Cross-arm dependency the advisor is policing: tanjiro's #21 Part 1 case (2)
-separate-scale-buffer vs case (3) interleaved NVFP4 read is the **gate** for
-fern's #22 implementation. If the two differ by less than ~10%, fern pivots to
-#22 Part 3 (pre-permute / pre-transpose / routing metadata) or closes the arm.
+Two generations, 2× the bandwidth, 2× the cores, an entirely new matrix unit,
+identical efficiency. Prefill on the same official receipt is at roughly **half
+of both its ceilings at once**:
+
+```
+S = 98.153 ms / 512 tokens = 191.70 us/token
+  -> 28.8 TFLOP/s = ~48% of the ~60 TFLOPS achievable NAX matrix peak
+  -> 271.8 GB/s   = ~51% of the ~485-530 GB/s achievable DRAM
+```
+
+A kernel at 50% of compute *and* 50% of bandwidth is bound by neither — it is
+bound by doing them in alternation. That reading is corroborated externally:
+BaseRT on M5 Pro (arXiv 2607.19438) reaches 6.4× prefill over llama.cpp but only
+0.98–1.33× decode, and states plainly that the Neural Accelerators do not raise
+the memory ceiling.
+
+**Official M5 hardware, Apple-confirmed:** 128 GB M5 Max = **614 GB/s** nominal
+(LPDDR5X-9600, 512-bit), 40 GPU cores each with a Neural Accelerator, 18 CPU
+cores. Metal STREAM attains 79–86% of nominal on M5-class parts and MLX 4-bit
+decode on a real M5 Max derives 500–520 GB/s, so **GPU-achievable ≈ 485–530
+GB/s**. Matrix peak ~60 TFLOPS FP16 measured real-shader on an actual M5 Max
+(~30 TFLOPS on the SIMD path). bf16 tensor support arrived in OS 26.1;
+cooperative tensors as matmul inputs (in-kernel dequant) in 26.3. Reject
+Notebookcheck's "LPDDR5X-8533" (arithmetically impossible), PMetal's 546 GB/s
+(stale M4), and Anemll's 148 GB/s (that is the ANE, not DRAM).
+
+**Why the field has not taken this ground:** the prefill record `e2822dc1`
+(npf 2.0220) has stood unbeaten for 102 submissions because no competitor can
+*execute* a `_nax` kernel — every non-gen-17 host routes around it at
+`quantized.cpp:1959`. That is a measurement wall, not a physics wall, and it is
+the campaign's largest asymmetry. Prefill elasticity is 0.362, so a 10% S win is
+3.6% of score and promotes on its own.
+
+The cost of that asymmetry is that NAX arms are **structurally blind on M4**.
+Budget receipts accordingly: `S` has a 0.497% 1σ floor, so screen a NAX change
+with 1 receipt and only confirm with 2 more if it moves ≥1.5%.
+
+### Round 4 outcome
+
+| PR | student | verdict |
+| --- | --- | --- |
+| #14 | frieren | **merged.** Scored diff empty by design; host-CPU axis closed with `wall ≈ head_latency + GPU_total`, KV re-request amplification refuted at ≥6.9σ, metallib failure proven to be a host issue reproducing on the unchanged base. 0 submissions |
+| #22 | fern | **merged.** Hypothesis dead, three durable findings: the Part 0 transform contract is GREEN (no pinned `weights_hash` exists in trusted code), scale amplification is **A = 1.000 exactly**, and `Sources/MLXFastTransform/` is **dominated** by eager load-time repack. 0 submissions, 17 minutes |
+| #20 | nezuko | in flight — lm_head cascade |
+| #21 | tanjiro | in flight — pricing the residual |
+
+### Round 5 in flight
+
+| PR | student | arm |
+| --- | --- | --- |
+| #20 | nezuko | **lm_head cascade.** The last legal decode byte lever: 134.9 MB int5 plane, 7.5% of the step. Immediate target 25.7 MB, structural ceiling ~105 MB (3.7%) |
+| #21 | tanjiro | **price the 1.51 ms hard core** (17.2% of the step = 393 MB phantom). Part 1 is a structural analogue, no submissions. Deciding experiment for whether the campaign optimises bytes or efficiency |
+| #23 | frieren | **exposed head latency** — the one term in his own model the GPU does not absorb. 0.29–0.32 ms on M4 against a 4.353 ms M5 step, so ≤2.9% of score |
+| #24 | fern | **double-buffer the expert gather-GEMM's weight staging.** Staging is on record at 39.5% of prefill and `Ws` is single-buffered, so every MMA phase blocks the next stage. Locally falsifiable on the non-NAX twin first, then ported |
+
+Why #24 is the shape it is: `DARKBLOOM_EXPERT_GATHER_GROUPS` went 64 → 128 → 256
+and measured a real M5 gain at *every* step while changing nothing
+arithmetically. Its entire mechanism is getting the hardware scheduler to overlap
+one threadgroup's staging drain with another's MMA. It is now pinned at its
+maximum (one threadgroup per expert), so the only remaining place to attack that
+stall is *inside* the threadgroup.
+
+**The calibration fact that governs every prefill arm:** M4 tiling verdicts
+invert on M5. The predecessor measured `STAGE_BM128` variant 4 beating variant 5
+by **+17.47%, 4/4 pairs, zero distributional overlap** (342–371 µs vs 414–434
+µs) — and the official M5 receipts reversed it, 204.90 → 201.64 µs/token in
+favour of variant 5, which is what ships. A 19-point reversal. A local M4 number
+is evidence a mechanism exists; it is not evidence of magnitude and not evidence
+of sign.
 
 ### Promotion target
 
@@ -349,7 +412,11 @@ optimisation.
 | **KV re-request amplification** | **REFUTED** | frieren #14 slope method. Sweep A (seeds 512..6144, only the 10 full-attention layers grow): 27.03 ns/pos/layer, no curvature over 21–252 MB. Sweep B (below 512, all 40 layers, 16 palindromic runs): 828.6 ± 56.2 ns/pos → sliding 18.61 ns/pos/layer. Amplification ≤1.72× full, ≤1.18× sliding; waste ≤ +28.4 MB (≤1.01% of score). The 190 MB claim is ≥6.9σ out. **Replacement finding:** the full-attention path is the least bandwidth-efficient stream at 58.2% of peak vs the 78.6% step average, capped at 16.9 MB/step ≈ 0.6% of score |
 | **Attention / sliding occupancy** | **CLOSED** | tanjiro #13: 80 threadgroups co-reside at the real 17920 B / 1024-thread shape on 20 M4 cores. The g=21/41 risers are **work imbalance**, `f(m) ≈ 1 + 0.365(m-1)`, not occupancy. `w=2→1` is model-closed as an M5 loss; `w>=4` exceeds the 32768 B threadgroup-memory limit. He withdrew his own 81920 B linear-pool model |
 | **Harvesting the public field** | **CLOSED** | nezuko #12: de-biased field ceiling 2.5281–2.5318, below a 1-in-12 shot |
-| **Advisor axis-coverage tables** | **RETRACTED** | nezuko #12: note-length artifacts. Median \|axis-mean nd − overall\| = 0.220%, inside noise. **Only survivor: `Sources/MLXFastTransform/` = 0 of 147 swept diffs, the only genuinely zero-attempt axis** (fern #22) |
+| **Advisor axis-coverage tables** | **RETRACTED** | nezuko #12: note-length artifacts. Median \|axis-mean nd − overall\| = 0.220%, inside noise. The last survivor, `Sources/MLXFastTransform/` (0 of 147 swept diffs), is now also closed — see below |
+| **`Sources/MLXFastTransform/`** | **CLOSED by dominance** | fern #22: `prepareFusedRuntimeWeights` is **eager** and resident before the first forward (`LagunaRuntimeModel.swift:10893-10898`), so load-time repack is unscored and *strictly more capable* than offline layout — it can also repack the BF16 attention weights, which offline cannot, since Q/K/V/O and `g_proj` ship BF16 on disk (`LagunaCheckpointValidation.swift:355-360`) and the NVFP4/INT8 banks are synthesised at load (`:5301-5305`). RAM is not binding (21.57 of 25 GiB). The axis is untouched in 147 public diffs because it is **dominated, not overlooked**. Also: `DARKBLOOM_PACKED_SCALES` already ships ON, packing routed gate/up scales in the kernel's exact walk order (`:152-167`, `:9824-9856`) |
+| **NVFP4 scale-plane amplification** | **CLOSED, A = 1.000** | fern #22: the v5 down/residual kernel (`LagunaRuntimeModel.swift:7658-7705`) reads `expert_scales + output_row*32 + lane` over 4 rows × 32 lanes = exactly one aligned 128 B cache line, fully consumed, alongside 1024 contiguous code bytes fully consumed. Independent bound from that kernel's measured 231 GB/s: `231*(1024+128A)/1152 ≤ 260.2` ⇒ `A ≤ 2.14`. The advisor's 8× premise (and its restated 3.6× form) were arithmetically impossible from data already in the repo |
+| **Part 0 transform contract** | **GREEN, reusable** | fern #22: the official run **does** execute the submitted transform (`benchmark.yml:1074-1113`); `weights_hash` is an *emitted-artifact* hash produced after our transform (`:1122`) and every comparison is same-session TOCTOU only. **No pinned 64-hex weights constant exists in trusted code.** `MLXFAST_VERIFY_TRANSFORM` is determinism-only and defaults false (`TransformVerification.swift:79-81`, `:105`). Future constraints: regular non-symlink files, link count 1, ≤25 GiB (`Constants.swift:176`; today 21.57 GB), deterministic |
+| **`DARKBLOOM_STAGE_BM128` tiling family** | **CLOSED at the floor** | advisor, from fern's measured routing histogram. The expert-aligned NAX gather-GEMM runs one threadgroup per expert (`quantized.cpp:1922`) and elides simdgroup bands past the row count (`fp_quantized_nax.h:1704-1706`), so MMA waste is *row padding*: `ceil(n_e/SM)*SM`. Real routing (20.26% zero-row, mean 20.07 nonzero, **median 11**) gives SM=16 → 453,120 MMA rows = 1.456× ideal, and **453,120 is exactly `Σ ceil(n_e/16)·16`**, the `kFragRows = 16` fragment floor (`steel/gemm/nax.h:28`). SM=32 is a flat **+41%**; BM=128 buys 5.7% fewer stagings for that +41%. The shipped variant 5 is optimal on this axis. `DARKBLOOM_EXPERT_GATHER_GROUPS` is likewise pinned at its 256 maximum (code returns 256 at `:1383` despite a header comment claiming 128) |
 | **First-touch prewarm** | **CLOSED** | fern #19: six back-to-back forwards 544.72 / 546.68 / 546.11 / 547.48 / 546.81 / 546.74 ms — the *first* is fastest. Cache exactly 0 B at timed entry, 35.75 GB live, 39.07 GB peak. `cacheLimit=0` vs 6 GiB indistinguishable. On a ≥96 GiB M5 the constructor already wires ~31.4 GiB via `set_wired_limit` before hello (`LagunaRuntimeWeights.swift:546-580`). `argmax_bfloat16` PSO compile (~0.23 s) is already outside scored prefill (`:499-510`) |
 | **Attention INT8 envelope** | **DEAD, BACKWARDS** | the frontier already runs Q/K/V/O at NVFP4 g16 (0.5625 B/param) vs the envelope's group-32 INT8 (1.125). Adopting it adds ~802 MB/step |
 | Dispatch count / fusion for latency | closed | nezuko #9: deleting 40 of 406 dispatches/step returned exactly zero |
@@ -416,28 +483,49 @@ field's frozen axis.
    100352 rows → int5 on ~10³ survivors → exact rescore) could take the plane to
    ~30 MB, i.e. ~105 MB removed = 3.7% of score, which promotes on its own. Must
    be split into independently correct ≤5% increments per the calibration band.
-3. **Routing-aware two-regime expert dispatch.** The shipped tile is tuned for
+3. **Overlap staging with MMA inside the expert gather-GEMM** (assigned, fern
+   #24). Staging is 39.5% of prefill and `Ws` is single-buffered, so the WAR
+   barrier serialises every MMA phase against the next stage — which is exactly
+   the signature of a kernel at half of both rooflines. The corroboration is that
+   `DARKBLOOM_EXPERT_GATHER_GROUPS` bought real M5 gains at 64 → 128 → 256 purely
+   by letting *other* threadgroups cover the stall, and is now pinned at its
+   maximum. Risk: doubling `Ws` 9.2 → 18.4 KB may halve resident threadgroups per
+   core and reverse the sign; the scales-only and BN 64→32 variants are the
+   fallbacks and must not be bundled.
+4. **Bit-exact fused split-K for the NAX steel path** (`o_proj`, `g_proj`,
+   router). Removes ~0.72 GB of fp32 round-trip traffic and ~80–120 dispatches by
+   porting the `qmm_t_splitk_fused` recipe (`quantized.cpp:849-893`) to
+   `steel_gemm_splitk_nax` (`matmul.cpp:689-810`; split-K branch at `:987-991`,
+   `C_split` fp32 at `:734-737`). Predicted 1.5–3% of S, and unusually attractive
+   because it is **locally falsifiable on the non-NAX twin**. Note `q_proj` still
+   runs the tiles labelled "Temp routing for larger devices" at
+   `matmul.cpp:228-238`.
+5. **Prefill glue-pass reduction.** ~18 ms of M4 host-independent glue ≈ 9–12% of
+   M5 S, and fully locally falsifiable. Highest predicted magnitude of any
+   prefill item that can be screened without spending a receipt.
+6. **Routing-aware two-regime expert dispatch.** The shipped tile is tuned for
    uniform routing that does not occur (CV 1.80, 20.3% empty, busiest 32 experts
-   = 54.7%). Row-tile widening and sub-16 SM are both closed, but a *two-regime*
-   split — short tail and long tail dispatched differently — has never been
-   costed. Needs a mechanism proposal, not a knob. Prefill-side, so official
-   measurement only.
-4. **`attn_proj_qkvo` is 51.8% of forward FLOP** and the largest single block in
+   = 54.7%). Row-tile widening, sub-16 SM, and now the whole `STAGE_BM128` tiling
+   family are closed — SM=16 attains the `kFragRows = 16` padding floor exactly.
+   A *two-regime* split (short tail and long tail dispatched differently) is the
+   only remaining way to get below 1.456× MMA rows, and it would have to break
+   per-expert weight exclusivity to do it. Needs a mechanism proposal, not a knob.
+7. **`attn_proj_qkvo` is 51.8% of forward FLOP** and the largest single block in
    the seed forward — larger than routed experts — running at 23.5% of the M4 MMA
    ceiling. On M5 it is the `steel_gemm_fused_nax` (bm128/bn128/bk512) family.
    Nobody in the campaign has looked at it.
-5. **If tanjiro's #21 finds the 21.4% residual is recoverable**, that becomes the
+8. **If tanjiro's #21 finds the 21.4% residual is recoverable**, that becomes the
    top priority immediately: up to 13.6% of score, the largest single number in
    the campaign. If he finds it is not, close decode-efficiency permanently and
    put all four students on byte removal and prefill.
-6. **Unassigned decode item with an unresolved contradiction:**
+9. **Unassigned decode item with an unresolved contradiction:**
    `lmhead_exact_inline_mask_block_v1` costs 76.6 µs/step on M4, but 76.6 µs at
    260.2 GB/s can move at most ~20 MB — irreconcilable with a 134.9 MB plane read.
    Folded into nezuko's #20 as a required explanation.
-7. **~83 single-threadgroup dispatches per decode step** (tanjiro, unassigned);
+10. **~83 single-threadgroup dispatches per decode step** (tanjiro, unassigned);
    fusing RMSNorm into QKV removes 40. Low expected value now that decode is
    known DRAM-bound — hold unless #21 revives it. Note that frieren's low-memory
    host caps command buffers, so his ~45/step is **not** the ranked count.
-8. **Minify the remaining 71 Metal literals in `LagunaRuntimeModel.swift`**
+11. **Minify the remaining 71 Metal literals in `LagunaRuntimeModel.swift`**
    (−54,251 B of surface). Worth 0.0% of score; only relevant if we ever run out
    of the ~87 KB of surface headroom.
