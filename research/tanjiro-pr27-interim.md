@@ -657,6 +657,24 @@ time to give; the absorbed resource is host-side.** The CPU encode thread runs
 about 4.5 ms per decode step ahead of the GPU, and extra MLX ops spend that lead
 at 2.72 us each until it is gone.
 
+There is a competing explanation I have to rule out, because MLX's compute
+encoder is `DispatchTypeConcurrent` and my injected chain is chained only to
+itself, so the GPU is free to interleave it with the model's chain. If the
+absorption were GPU-side concurrency — spare cores swallowing the empty
+dispatches — then **the knee would move with threadgroup width**, because a
+tg=160 dispatch occupies 20x the cores of a tg=8 one. It does not:
+
+| tg | knee (dispatches) | knee (ms) |
+| ---: | ---: | ---: |
+| 8 | 1579 | 4.167 |
+| 160 | 1706 | 4.784 |
+
+A 20x change in occupancy per dispatch moves the knee by 8% in *count*. The
+absorbed resource is therefore **per-dispatch and width-independent**, which is
+what a host encode path or a command-queue slot looks like and is not what spare
+execution units look like. The marginal cost above the knee is width-independent
+in the same way (2.639 vs 2.804 us), so the same resource sets both.
+
 That kills the reading I would otherwise have preferred. The free budget is
 **not** ~1300 dispatches' worth of free *GPU* work — any GPU work an extra op
 performs is paid in full, immediately, as the sweep row proves. The free budget

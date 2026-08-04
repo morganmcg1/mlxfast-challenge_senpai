@@ -37,7 +37,11 @@
    4x below saturation.
 3. **What the slack absorbs is host time, not GPU time.** One injected dispatch
    carrying 1.048 ms of real DRAM traffic appeared at **106%** of its cost; 600
-   dispatches carrying 1.68 ms of pure launch overhead appeared at **1%**. So:
+   dispatches carrying 1.68 ms of pure launch overhead appeared at **1%**. The
+   alternative explanation — spare GPU cores swallowing the empties, since MLX's
+   encoder is `DispatchTypeConcurrent` — is ruled out because **the knee sits at
+   the same dispatch count (1579 vs 1706) across a 20x change in threadgroups per
+   dispatch**, so the absorbed resource is per-dispatch and width-independent. So:
    *GPU-work reduction pays in full with no launch discount; MLX-op-count
    reduction on the decode path is worth zero until the count roughly quadruples.*
    The 0.884 ms launch-ramp line in the decode budget is not a recoverable term.
