@@ -57,8 +57,10 @@ inline double now_s() {
 }
 
 inline std::mutex& mtx() {
-  static std::mutex m;
-  return m;
+  // Intentionally leaked: the atexit dump below must outlive static
+  // destruction of this translation unit.
+  static std::mutex* m = new std::mutex();
+  return *m;
 }
 
 inline std::vector<Rec>& recs() {
