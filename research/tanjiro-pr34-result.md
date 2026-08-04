@@ -51,29 +51,47 @@ other, so all four rates are measured against the unperturbed tree.
 Three matched `--local-iterate` receipts on the same quiet host behind the 40 C
 gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 
-| run | config `da,dr,pr,pa` | S (ms) | T (ms) |
-| --- | --- | ---: | ---: |
-| L0 | 0,0,0,0 | 577.201 | 8.8161 |
-| L1 | 39,0,20,0 | 665.291 | 11.6401 |
-| L2 | 39,39,20,20 | 767.954 | 13.7371 |
+| run | config `da,dr,pr,pa` | how set | S (ms) | T (ms) |
+| --- | --- | --- | ---: | ---: |
+| L0 | 0,0,0,0 | env | 577.201 | 8.8161 |
+| L1 | 39,0,20,0 | env | 665.291 | 11.6401 |
+| L2 | 39,39,20,20 | env | 767.954 | 13.7371 |
+| L3 | 40,0,39,0 | **source defaults, no env** | 735.884 | 11.6572 |
+
+L3 is the receipt-R2 configuration run with **no environment variables set for any
+injection knob**, which is how the official runner invokes the binary. Its stderr
+inventory reports `prefill_routed_block: 39` and `decode_attn_qmv: 80` (40 copies
+x 2 dispatches), so the source defaults do reach the scored path.
 
 Marginal rates:
 
-| block | added work | Δ | marginal rate | @maple-nezuko #9 isolated | ratio |
-| --- | --- | ---: | ---: | ---: | ---: |
-| decode attention QMV | 785.65 MB | 2.824 ms | **278.2 GB/s** | 252.6 GB/s | **+10.1%** |
-| decode routed QMV | 552.08 MB | 2.097 ms | **263.3 GB/s** | 242.9 GB/s | **+8.4%** |
-| prefill routed gather-GEMM | 9059.70 MB / 515.40 GFLOP | 88.090 ms | 102.8 GB/s / **5.85 TFLOP/s** | — | 79% of M4 dense GEMM |
-| prefill attention dense GEMM | 1509.95 MB / 773.09 GFLOP | 102.663 ms | 14.7 GB/s / **7.53 TFLOP/s** | 7.40–7.46 TFLOP/s (#27 dense probe) | **+1.4%** |
+| block | pair | added work | Δ | marginal rate | @maple-nezuko #9 isolated | ratio |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| decode attention QMV (39 copies) | L1−L0 | 785.65 MB | 2.824 ms | **278.2 GB/s** | 252.6 GB/s | **+10.1%** |
+| decode attention QMV (40 copies) | L3−L0 | 802.16 MB | 2.841 ms | **282.4 GB/s** | 252.5 GB/s | **+11.8%** |
+| decode routed QMV (39 copies) | L2−L1 | 552.08 MB | 2.097 ms | **263.3 GB/s** | 242.9 GB/s | **+8.4%** |
+| prefill routed gather-GEMM (20 copies) | L1−L0 | 9059.70 MB / 515.40 GFLOP | 88.090 ms | 102.8 GB/s / **5.85 TFLOP/s** | — | 79% of M4 dense GEMM |
+| prefill routed gather-GEMM (39 copies) | L3−L0 | 17,666.41 MB / 1005.02 GFLOP | 158.683 ms | 111.3 GB/s / **6.33 TFLOP/s** | — | 86% of M4 dense GEMM |
+| prefill routed gather-GEMM (20→39 incremental) | L3−L1 | 8606.71 MB / 489.62 GFLOP | 70.593 ms | 121.9 GB/s / **6.94 TFLOP/s** | — | **94% of M4 dense GEMM** |
+| prefill attention dense GEMM | L2−L1 | 1509.95 MB / 773.09 GFLOP | 102.663 ms | 14.7 GB/s / **7.53 TFLOP/s** | 7.40–7.46 TFLOP/s (#27 dense probe) | **+1.4%** |
 
-**Gate verdict: PASS.** Both decode blocks land inside the mandated 15% band of
-@maple-nezuko's isolated per-call rates. The nezuko reference is her per-call
-composite reweighted to the exact bank mix each knob touches: 9 full-attention
-(48-head) banks and 30 sliding (64-head) banks for `DECODE_ATTN=39`, and her
-routed gate/up + routed-share-of-down figures for `DECODE_ROUTED=39`.
+**Gate verdict: PASS.** All three decode readings land inside the mandated 15%
+band of @maple-nezuko's isolated per-call rates. The nezuko reference is her
+per-call composite reweighted to the exact bank mix each knob touches: 9
+full-attention (48-head) banks and 30 sliding (64-head) banks for
+`DECODE_ATTN=39`, 10 and 30 for `DECODE_ATTN=40`, and her routed gate/up plus
+routed-share-of-down figures for `DECODE_ROUTED=39`.
+
+**Linearity.** The prefill routed block has three points (0, 20, 39 copies) and is
+mildly *sub*-linear: 4.405 ms per copy at 20, 4.069 ms per copy at 39, and
+3.715 ms per copy for the 20→39 increment. Sub-linear is the absorption
+signature, not the thrashing signature — more injected work keeps finding idle
+cycles rather than colliding for a scarce resource. The decode axis is
+reproducible to 0.15%: L1 and L3 differ by only one attention copy (16.5 MB,
+predicted +0.06 ms) and their T differ by +0.017 ms.
 
 **Is the marginal rate systematically below hers? No — it is systematically
-above, by +8.4% and +10.1%.** Two independent blocks agreeing in sign and
+above, by +8.4%, +10.1% and +11.8%.** Two independent blocks agreeing in sign and
 magnitude points at one mechanism: the injected copies are not chained to the
 model's dataflow, so they are free to fill memory cycles the scored step already
 leaves idle. M4's scored decode step moves 1794 MB in 8.816 ms = 203.5 GB/s
