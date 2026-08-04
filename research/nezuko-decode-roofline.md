@@ -429,3 +429,101 @@ I would treat "reclaim editable-surface bytes" as a real, assignable arm, and
 I would add the surface total to whatever dashboard the advisor uses to accept
 a candidate.
 
+
+## Interim 11 — final numbers, and the band reference is documented two ways
+
+### Final measured result (byte-neutral 4-line diff)
+
+Matched `--local-iterate`, same host, same saved baseline, both PASSED 130
+checked tokens with `max_abs_diff = 0`:
+
+| metric | baseline | candidate | delta |
+|---|---:|---:|---:|
+| decode s/token | 0.014628 | **0.013630** | **-6.8%** |
+| prefill s/token | 0.001126 | 0.001123 | -0.2% |
+| est score | 0.7258 | **0.7660** | **+5.5%** |
+| peak_ram_gb | 21 | 21 | 0 |
+
+An intermediate variant that also split the row-load loop from the
+`simd_sum` loop measured 0.013647 s/token — no better than the single loop,
+so the compiler already hoists the four independent load chains ahead of the
+reductions (trip count is a compile-time 4, so the loop is fully unrolled).
+The single loop was kept because it costs 70 fewer surface bytes.
+
+### The band reference: TASK.md and Constants.swift disagree
+
+`TASK.md:44-52`:
+
+> The banded quantity is each timed run's measured seconds/token relative to
+> the pinned calibration reference (the `officialBaseline*` constants in
+> `Sources/MLXFastCore/Constants.swift`), not the same-session paired baseline
+> that produces the published `decode_speedup`/`prefill_speedup`
+
+`Sources/MLXFastCore/Constants.swift:154-167`:
+
+> These constants are NOT the ranked scoring denominator. ... These constants
+> keep two roles: local-mode score estimates (`--local-iterate` /
+> `--local-submit`) and the gates-only pass's placeholder timing fields, which
+> the paired-timing overlay replaces.
+
+Under the TASK.md reading, the band denominator is 0.01385621 s/token, so the
+**currently promoted frontier itself** (published M5 decode 5.249 ms/token,
+2.6466x) would score 2.6466 and fail `[0.980, 1.053]`. Since that frontier is
+published, the operative ranked denominator cannot be the raw constant. Either
+the organizer refreshes the reference per promotion, or the band is applied to
+the baseline leg of the paired session as a session-validity check.
+
+This matters because it decides whether a -6.8% candidate is submittable as
+one change:
+
+- **If the band denominator tracks the promoted frontier**, my candidate is
+  ~1.068-1.073 on M5 and trips `acceptance_band_failed`. Staging is required.
+- **If the band is a session-validity check on the baseline leg**, the
+  candidate is fine and the 0.95 floors are the only constraint.
+
+Whoever has a ranked-run artifact from a previous accepted submission can
+settle this by reading its `baseline_decode_seconds_per_token` and
+`decode_speedup` fields. I could not settle it from this checkout.
+
+If staging is needed, the measured staging step is `outputs_per_simd = 2`:
+0.895 ms/step versus 4-rows' 1.015 ms/step, i.e. 88% of the win, projecting to
+about -6.0% here and -5.7% on M5. That is still above the cap, so a single
+mechanism this large may simply not be splittable — which is itself worth
+telling the organizers.
+
+### Hand-off: the attention kernels are latency/occupancy, not bandwidth
+
+I asked a frontier reviewer to read the two fused attention kernels against my
+measurements. Its diagnosis, which I did not implement and did not verify:
+
+`laguna_sliding_fused_attn_ring_v1` uses `outputs[4*BN*BD]` = 16 KB plus ~1.5
+KB of `tg_q`/`tg_k`/`tg_v` and score arrays, so **~17.5 KB of threadgroup
+memory per threadgroup**. Against the 32 KB allocatable budget that allows
+only **one resident threadgroup per core**. The grid is `(heads/2) * 1024`, so
+32 threadgroups (sliding) and 24 (full) spread over 16-20 cores — roughly two
+waves with a large idle tail. The DRAM-time floor for 2.097 MB is 8.1 us
+against 22.0 us measured, and the per-threadgroup critical path is a serial
+online-softmax chain with only a 2-deep load pipeline. So the 95-112 GB/s
+figure is **not** a bandwidth defect.
+
+Its cheapest suggested fix: halve the `outputs` threadgroup buffer to 8 KB by
+doing the plane combine in two barrier-separated passes over one `BN*BD`
+buffer (the epilogue already runs two passes), which should put two
+threadgroups per core and remove the wave tail — estimated ~0.25 ms/step, a
+small diff, and no change to arithmetic order. A follow-up would map four
+query heads per threadgroup, cutting the 4x/3x logical KV re-read to 2x, but
+that drops to 16/12 threadgroups which underutilizes this host and depends on
+M5 core count.
+
+It also confirmed independently that **8 B/lane is forced** here: 512 values /
+32 lanes = 16 NVFP4 values = exactly 8 B, and any wider per-lane load requires
+halving the lanes per row, which changes the `simd_sum` association and is
+therefore not bit-exact.
+
+Upstream precedent for the fix I landed: MLX's own `qmv_fast`
+(`Vendor/mlx-swift/.../backend/metal/kernels/quantized.h`) uses
+`results_per_simdgroup = 4` for exactly this shape, and llama.cpp's Metal
+backend uses `N_R0_Q4_0 = 4` rows per simdgroup. Four was not an arbitrary
+sweep winner; it is the shape both mature Metal quantized-matvec
+implementations converged on.
+
