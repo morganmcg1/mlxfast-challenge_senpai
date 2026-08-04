@@ -193,17 +193,48 @@ balanced positions (`A B B A | B A A B | A B B A`) plus a discarded warm-up arm.
 | --- | --- | ---: | ---: |
 | decode, 3 ABBA blocks | 50 MiB vs shipped 200 | **−1.696% ± 0.175%** | −9.71 |
 | same, within-block paired | | −1.696% ± 0.139% | −12.20 |
-| same, OLS with linear position term | | −1.70% ± 0.178% | - |
+| same, OLS with linear position term | | −1.696% ± 0.178% | −9.52 |
 | prefill, 3 ABBA blocks | 50 MiB vs shipped 200 | **+0.504% ± 0.324%** | +1.56 |
 | three-level dose, ops fixed | 100 MiB vs 200 | decode −0.557%, prefill +0.313% | - |
 | three-level dose, ops fixed | 50 MiB vs 200 | decode −1.757%, prefill +0.306% | - |
 
-The decode contrast has complete separation (max B arm 8.9269 < min A arm 9.0024)
-and a drift term of −0.0018 ms/position (se 0.0023), i.e. no drift left to
-explain it. **Prefill at 50 MiB is bistable**, not merely slower: arm modes cluster
-near 552.6 and 544.3 ms and arm p08 flipped between them at repetition 11. That
-alone would disqualify the setting - a bimodal prefill against a hard 0.95 floor
-is not a thing to ship on one host's evidence.
+The decode contrast has complete separation (max B arm 8.9269 < min A arm 9.0024),
+per-block differences of −0.1638 / −0.1690 / −0.1288 ms, and a fitted drift of
+−0.0018 ms/position (se 0.0023) - so there is no drift left to explain it, and it
+survived exactly the design the r2 brief asked for.
+
+**Prefill at 50 MiB is bistable**, which is a different and worse problem than
+being slower. Arm A is one tight mode (545.4-546.0, se 0.096 ms); arm B is two,
+≈552.6 (+1.28%) and ≈544.3 (−0.22%), and arm p08 **flips between them at
+repetition 11 inside a single process**. The floor is not the issue - +1.28% is a
+prefill speedup of 0.987, far from 0.95 - the issue is that a receipt would sample
+a mode rather than measure a value. The likely cause is in the commit rule itself:
+`buffer_sizes_` charges each *distinct* MTLBuffer since the last commit, so which
+arrays share a buffer depends on allocator reuse and therefore on process
+allocation history. At 200 MiB the threshold sits far from the per-op referenced
+total and layout cannot move a boundary; at 50 MiB it sits inside the
+distribution. The same explanation covers why arm A is the *noisier* arm on decode
+while arm B is tighter: on the small decode graph the tight cap commits so often
+that placement is nearly deterministic.
+
+**The uncomfortable part, stated plainly, because it argues against my own
+recommendation.** Put through the ranked elasticities (`T` 0.638, `S` 0.362), the
+local numbers clear the 0.61% bar in *every* prefill mode:
+
+| prefill mode used for `S` | ΔS % | ΔT % | predicted `ns` % |
+| --- | ---: | ---: | ---: |
+| slow mode only (worst case) | +1.28 | −1.696 | **+0.62** |
+| pooled mixture (measured mean) | +0.50 | −1.696 | **+0.90** |
+| fast mode only (best case) | −0.22 | −1.696 | **+1.16** |
+
+So the honest position is not "the local evidence is weak". It is: *the local
+evidence is strong and I still do not think it should be bought*, for four
+independent reasons - the mechanism most likely responsible (less driver residency
+work per commit) disappears once the live set is wired, and this 48 GiB host never
+wires; prefill is bistable at the tight cap, so a receipt samples a mode; the axis
+is a partition knob, which the programme now prices negative in both directions;
+and the receipt queue is one shared slot at ~1.7 receipts/hour for four students.
+Any one of those would be a reason to wait. Together they are a reason to close.
 
 Those screens used `MLX_MAX_OPS_PER_BUFFER=400` on both sides, because that was
 the shipped value at the time. §3(a) proves the ops value changes no partition
