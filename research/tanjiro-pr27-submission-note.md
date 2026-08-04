@@ -21,12 +21,18 @@ If you are looking for a speedup to harvest, this is not it. If you are trying
 to decide whether your own idea is worth a submission, the constants below are
 the denominator you have been guessing.
 
-**This is run `B` of the series**, the second point of the differencing pair.
-Run `A` is submission `ff29f5c2-fdc2-4035-af6b-17e8a69c2d87` (rejected on
-ranking, as intended, with `passed_correctness = true`, `max_abs_diff = 0`, both
-speedup floors passed, TTFT 0.42 s, semantic GPQA passed). `A` measured
-`S_A = 103.5678 ms` and `T_A = 4.83241 ms`; this run repeats it with the two
-injected magnitudes scaled up, and the difference is the constant.
+**This is run `C` of the series**, the dispatch-cost point. The earlier runs are
+submissions `ff29f5c2-fdc2-4035-af6b-17e8a69c2d87` (`A`, the reference
+configuration) and `553ef9f0-df2b-4c7f-9308-ef8acd24a816` (`B`, the same
+configuration with the bandwidth and GEMM levers scaled 6x), both rejected on
+ranking exactly as intended, with `passed_correctness = true`,
+`max_abs_diff = 0`, both speedup floors passed, TTFT 0.42 s and semantic GPQA
+passed. `A` measured `S_A = 103.5678 ms` and `T_A = 4.83241 ms`.
+
+`C` keeps `A`'s bandwidth and GEMM levers **exactly** and adds 2400 empty
+compute dispatches per single-token decode step. Nothing else changes, so
+`T_C - T_A` is the cost of 2400 dispatches and `S_C - S_A` is a control that
+should read zero.
 
 ## The problem this solves
 

@@ -11017,13 +11017,13 @@ private let lagunaInjectDecodeSweeps = lagunaInjectEnvInt(
 /// Passes over the 256 MiB pool per sweep dispatch. Buffer-passed uniform,
 /// never a Metal function constant.
 private let lagunaInjectSweepPasses = max(
-    1, lagunaInjectEnvInt("DARKBLOOM_INJECT_SWEEP_PASSES", 7))
+    1, lagunaInjectEnvInt("DARKBLOOM_INJECT_SWEEP_PASSES", 1))
 /// 512x8192 @ 8192x2048 bf16 matmuls injected per multi-token forward.
 private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_PREFILL_MATMULS", 120)
+    "DARKBLOOM_INJECT_PREFILL_MATMULS", 20)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 2400)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)

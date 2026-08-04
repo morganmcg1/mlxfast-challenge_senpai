@@ -131,14 +131,29 @@ mlxfast submit --note-file research/tanjiro-pr27-submission-note.md \
 | LA3 (= A) | 1 | 20 | 0 | 0 | — | 614.827 | 10.11366 |
 | LB3 | 3 | 20 | 0 | 0 | — | 621.122 | 12.20914 |
 | LC3 | 1 | 20 | 600 | 1000 | 160 | 619.864 | 10.13248 |
-| LE | 1 | 20 | 2000 | 0 | 160 | 575.182 | 10.93761 |
-| LD | 1 | 20 | 4000 | 20000 | 160 | 588.450 | 16.54604 |
-| LH | 1 | 20 | 2000 | 0 | 8 | 562.166 | 11.22364 |
-| LF | 1 | 20 | 8000 | 0 | 8 | 576.764 | 27.05580 |
-| LG | 1 | 20 | 4000 | 0 | 512 | 573.317 | 31.99681 |
-| LJ | 1 | 20 | 0 | 50000 | 160 | 873.950 | — |
-| LI | 1 | 20 | 0 | 100000 | 160 | 922.739 | — |
+| `4ec944c9` (= D) | 1 | 20 | 1400 | 0 | 160 | 628.034 | 10.64058 |
+| `d0bb3ac7` | 1 | 20 | 1800 | 0 | 160 | 627.889 | 11.66678 |
+| `a9a07357` | 1 | 20 | 1800 | 0 | 160 | 620.260 | 11.63989 |
+| `b590719a` (= C) | 1 | 20 | 2400 | 0 | 160 | 614.226 | 13.21733 |
+| LE | 0 | 0 | 2000 | 0 | 160 | 575.182 | 10.93761 |
+| LD | 0 | 0 | 4000 | 20000 | 160 | 588.450 | 16.54604 |
+| LH | 0 | 0 | 2000 | 0 | 8 | 562.166 | 11.22364 |
+| LF | 0 | 0 | 8000 | 0 | 8 | 576.764 | 27.05580 |
+| LG | 0 | 0 | 4000 | 0 | 512 | 573.317 | 31.99681 |
+| LJ | 0 | 0 | 0 | 50000 | 160 | 873.950 | — |
+| LI | 0 | 0 | 0 | 100000 | 160 | 922.739 | — |
 | MB (= B) | 7 | 120 | 0 | 0 | — | 853.829 | 16.89766 |
+
+The sweep/GEMM columns of `LE`, `LD`, `LH`, `LF`, `LG`, `LJ` and `LI` are
+recovered from the measurements rather than from the launch record, and this is
+the correction that fixed the saturation fit. `S` separates the two families
+cleanly — 562-588 ms for runs carrying no injected GEMMs against the 583.311 ms
+zero-injection control, versus 614-628 ms for every run carrying 20 — and `T`
+separates them again, because the sweep costs +1.107 ms on a decode step
+(9.00680 without, 10.11366 with). Assigning those seven runs to the no-sweep
+family makes the fitted law's residuals -0.13 to +0.35 ms; assigning them to the
+sweep family makes the same residuals -0.76 to -1.24 ms with a systematic sign.
+The data pick the family.
 
 ### Official receipts
 
