@@ -800,6 +800,17 @@ base by construction — each receipt deliberately adds a full extra copy of one
 two real blocks — so the speedups above are the base's, not an improvement of mine.
 No receipt in this arm is a ranking attempt, and none should be read as one.
 
+### The merged state of this PR is provably inert
+
+All four injection knobs, the arch probe and the #27 sweep knobs are `0` by default in
+the final commit, so the instrument compiles in but dispatches nothing. That claim does
+not rest on inspection: the scored surface (`Sources/` and `Vendor/`) of the final
+commit is **byte-identical** to commit `6288233`, which is the exact tree submitted as
+**R1** — and R1 returned `passed_correctness = true`, `max_abs_diff = 0`, both floors
+passed, and `officialScore = 2.5149`, i.e. the unmodified base's score, from the ranked
+M5 itself. Merging this PR therefore cannot move the frontier in either direction, and
+that is established by an official receipt rather than by a local build.
+
 ## Method notes that outlive this arm
 
 1. **Each knob at maximum equals exactly one extra full copy of the block.** That
