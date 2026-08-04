@@ -599,6 +599,49 @@ anchor — so a single-level reading is a rate and not a rate plus a fixed cost.
 R2−R4 slope row below is the M5 confirmation of that; until it lands, carry ±10% on
 this number from the M4 segment scatter, which still keeps it under 26 TFLOP/s.
 
+#### Why the prediction failed, mechanically: M4 and M5 do not run the same kernel
+
+This is not a thermal or scale effect. It is a different kernel, and the vendored
+source says so:
+
+```
+quantized.cpp:1956-1958  gather_qmm_rhs(...) {
+                           if (metal::is_nax_available() && transpose && ...)
+                             return gather_qmm_rhs_nax(...);
+                         ... // otherwise: int bm = 16, bn = 32, bk = 32;  (:2005)
+device.cpp:913-931       is_nax_available():
+                           gen >= (arch.back() == 'p' ? 18 : 17)
+device.cpp:564-572       arch_gen_ parsed from the two digits before the last char
+```
+
+My own arch probe measured this host's architecture string as **`applegpu_g16s`**
+(#34 L6, `ΔT = +1.0964 ms = 1.046` sweeps). That parses to `arch_gen_ = 16` with
+`arch.back() = 's'`, which needs `gen >= 17`, so **NAX is unavailable on this M4 Pro
+host**. The routed prefill gather-GEMM therefore runs as the steel
+`bm=16, bn=32, bk=32` kernel on M4 and as `fp_gather_qmm_rhs_nax` /
+`fp_gather_qmm_rhs_expert_nax` on the ranked M5 (`quantized.cpp:1593, 1748-1751`).
+
+So my pre-registered 29–33 TFLOP/s did not merely fail to transfer across
+generations — it transferred an efficiency measured on **one kernel** onto a
+**different kernel**. That is a methodological error on my part, and it is worth
+more than the failed prediction, because it generalises:
+
+| block | M4 kernel | M5 kernel | locally screenable? |
+| --- | --- | --- | --- |
+| routed gather-GEMM, prefill | steel `bm16/bn32/bk32` | `fp_gather_qmm_rhs_nax` | **no** |
+| attention dense GEMM, prefill | steel | nax (`matmul.cpp:957`) | **no** |
+| attention q/k/v/o QMV, decode | project kernel, no nax gate | same | yes |
+| routed-expert QMV, decode | project kernel, no nax gate | same | yes |
+
+Consequence for the programme: **the kernel arm that rate 1 opens cannot be screened
+on M4 at all.** @maple-fern's target is `fp_gather_qmm_rhs_nax`, a kernel that never
+executes on any host in this fleet except the ranked M5, so that arm needs receipts,
+not local iteration — and the local-screening assumption in the queue plan does not
+hold for it. Conversely, this is exactly why my mandatory M4 gate for rates 2 and 4
+*is* valid: those two are the project's own NVFP4 kernels with no NAX branch, so M4
+and M5 run identical code and @maple-nezuko's M4 per-call table is the right
+reference for them.
+
 ### Rate 2 — the decode residual is not in the attention QMV
 
 651.8 GB/s is **107% of the 610 GB/s in-situ constant**: the 40 injected q/k/v/o
