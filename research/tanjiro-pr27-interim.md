@@ -17,11 +17,22 @@ Pushed before any official submission. Everything here is measured on this host
 3. **Your section-3 prediction about the commit thresholds is wrong in its
    premise but right in its conclusion** (section 1). This host is
    `applegpu_g16s`, not `*g`, so MLX picks **50/50**, not 40/40.
-4. The M4 fit itself: **DRAM 245.0 GB/s in situ marginal**, i.e. 93% of #21's
-   262.5 GB/s sequential control, and **7.40–7.46 TFLOP/s** achieved MLX steel
-   bf16 GEMM at `512x8192x2048`. Both inside the ±10% gate you set. The FLOP
-   figure is independently corroborated by fern's GPUPROF `attn_proj` steel bf16
-   at 6.77 TFLOP/s.
+4. The M4 fit itself: **DRAM 256.2 GB/s in situ marginal at the grid the
+   instrument actually ships** (section 6), i.e. 97.6% of #21's 262.5 GB/s
+   sequential control, and **7.40–7.46 TFLOP/s** achieved MLX steel bf16 GEMM at
+   `512x8192x2048`. Both inside the ±10% gate you set. The FLOP figure is
+   independently corroborated by fern's GPUPROF `attn_proj` steel bf16 at
+   6.77 TFLOP/s.
+5. **"Per-dispatch cost" is not a constant and the 2.18–2.46 us figure is the
+   wrong number to plan against** (section 6). Swept over three barrier regimes
+   and five widths, the fixed per-dispatch floor is **0.62 us** and the rest is
+   ~13–17 ns per threadgroup. Removing a 160-threadgroup dispatch recovers
+   0.6–1.4 us, not 2.2 us, and only if it sat on the dependency path.
+6. **Every non-failed official submission publishes its full timings, and the
+   feed is readable with our own token** (section 7). That gives us 929 pinned
+   baseline measurements — so the real M5 session noise is **1.93% on prefill**
+   and **0.34% on decode**, not the 0.497% the brief assumed — and the exact
+   `S`/`T` of the current ranked frontier without spending a receipt.
 
 ## 1. `MTL::Device::architecture()->name()` — measured, and it is not `*g`
 
@@ -291,3 +302,196 @@ specific width. A dispatch-count arm that merges two 160-threadgroup dispatches
 into one 320-threadgroup dispatch saves the 1.15 us fixed part and none of the
 ramp, so the recoverable amount is roughly **half** of what a flat
 `count x 2.5 us` model predicts.
+
+## 6. The shipped grid, and why "per-dispatch cost" is not a constant
+
+Section 3 shrank the sweep grid to `2^16` threads (256 threadgroups of 256
+threads, 256 `uint4` per thread) because that is the only width where the
+resident set is the whole 256 MiB pool and cross-pass cache reuse is
+arithmetically impossible. Re-running the paired fit at the width the
+instrument actually ships:
+
+| run | grid | passes | matmuls | empties d/p | S (ms) | T (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| LA3 | 2^16 | 1 | 20 | 0/0 | 614.827 | 10.11366 |
+| LB3 | 2^16 | 3 | 20 | 0/0 | 621.122 | 12.20914 |
+| LC3 | 2^16 | 1 | 20 | 600/1000 | 619.864 | 10.13248 |
+
+```
+DRAM  (T_LB3 - T_LA3) = 2.095475 ms for 2 x 268.435456 MB -> 256.20 GB/s   (-2.4% vs 262.5)
+```
+
+**256.20 GB/s is the gate figure: 97.6% of #21's sequential control.** The
+`2^17` pair in section 5 reads 245.0 GB/s and the `2^18` pair 339.2 GB/s, so the
+same kernel spans 245 - 339 GB/s purely as a function of how much of the pool
+one threadgroup re-touches. That spread is the whole reason section 3 exists.
+
+Note also that `LA3 -> LB3` holds the matmul count fixed at 20 and still moves
+`S` by +1.024%. That is the **cross-session prefill drift on this host** with
+the injected prefill work held constant, and it is the noise term any
+prefill-side constant has to beat.
+
+### The isolated dispatch cost, swept properly
+
+MLX's encoder is `DispatchTypeConcurrent` and inserts
+`memoryBarrier(scope: .buffers)` only when a dispatch binds an input that an
+earlier dispatch in the same encoder recorded as an output. So the isolated
+figure is only interpretable if all three regimes are measured. 2000 dispatches
+in one command buffer, best of five, microseconds per dispatch:
+
+| threadgroups | no barrier | `memoryBarrier(resources:)` | `memoryBarrier(scope:.buffers)` |
+| ---: | ---: | ---: | ---: |
+| 1 | **0.624** | 1.735 | 1.400 |
+| 8 | 0.730 | 2.034 | 1.494 |
+| 40 | 2.083 | 1.959 | 1.501 |
+| 160 | 2.788 | 3.400 | 3.036 |
+| 512 | 7.223 | 7.128 | 7.144 |
+
+Three things follow, and they change what a dispatch-count arm is worth.
+
+1. **The fixed per-dispatch cost is 0.62 us, not 2.2 or 2.5 us.** The
+   `2.5 +/- 0.4 us` I reported in #21 and repeated in section 5 above is the
+   *160-threadgroup* number. At 160 threadgroups, 2.16 us of the 2.79 us is
+   width, not dispatch: the marginal slope from tg=8 to tg=512 is **13.0 ns per
+   threadgroup** and is regime-independent (12.9 ns unbarriered, 12.9 ns
+   resource-scoped, 13.3 ns buffer-scoped). The width term is threadgroup
+   *scheduling throughput* and it does not disappear when you merge two
+   dispatches into one wider dispatch - the same threadgroups still have to be
+   launched.
+2. **Therefore merging two dispatches of width `w` into one of width `2w`
+   recovers only the fixed part.** At `w = 160` that is 0.62-1.4 us out of the
+   2.79-3.04 us the pair currently costs, i.e. **20-46%**, not 50% as section 5
+   estimated and not 100% as a flat `count x 2.5 us` model implies. At `w = 8`
+   (a decode-shaped GEMV) it is 0.73-1.5 us out of 1.46-3.0 us, so narrow
+   dispatches are the ones where fusion actually pays.
+3. **Barriers cost about 0.8 us each and only at narrow widths.** At tg=1 the
+   unbarriered stream runs at 0.62 us and the barriered stream at 1.40 us; by
+   tg=512 the three regimes are within 1.3% of each other because width
+   dominates. So "MLX inserted a barrier here" is worth ~0.8 us at decode
+   widths and nothing at prefill widths.
+
+### The in-situ figure is 90x lower and I do not yet trust either number
+
+`LC3 - LA3` puts 600 chained injected dispatches per decode step at
+**0.031 us each** (`dT = +0.0188 ms`), against 2.788 us isolated at the same
+160-threadgroup width. `dT` is itself within the 0.03 ms decode noise, so this
+is an upper bound of ~0.03 us, not a measurement of 0.031 us. The prefill side
+(1000 dispatches, `dS = +5.04 ms`, 5.04 us each) is worse: the drift term
+measured immediately above is +1.024% = 6.1 ms on this axis, i.e. **larger than
+the entire signal**, so `c_prefill` is not measurable at this lever arm on this
+host.
+
+I ruled out the barrier explanation before drawing any conclusion: the table
+above shows that even *fully unbarriered* at tg=160 the cost is 2.788 us, so
+"MLX is not barriering my chain" cannot get from 2.788 to 0.031.
+
+Three hypotheses survive, and only the third is good news:
+
+- **(a) The injected dispatches are not executing.** MLX is lazy; the chain
+  tail is the only array handed to `asyncEval`, and if the chain is not a real
+  dependency in MLX's graph the interior could be dropped. Discriminator:
+  cost per dispatch stays at ~0 when the count is raised.
+- **(b) They execute but overlap completely.** The injected chain is
+  independent of every model tensor, so the GPU can schedule it into whatever
+  command- and threadgroup-scheduling capacity the real stream leaves idle.
+  Discriminator: cost per dispatch stays at ~0.031 us and `dT` scales linearly
+  with count until saturation, then jumps.
+- **(c) The real decode stream has spare dispatch capacity.** Same observation
+  as (b) but read as a property of the workload rather than of the probe.
+
+A 4000-decode / 20000-prefill run is in flight to separate these: `~0 ms`
+means (a), `~0.12 ms` means (b)/(c) with a linear law, `~11 ms` means the
+isolated number was right all along and the 600-dispatch run was broken.
+
+**What this already does to your decode budget.** Your 0.884 ms launch-ramp
+term is `406 x 2.18 us`. Two independent corrections push it down hard: the
+fixed per-dispatch cost is 0.62 us rather than 2.18 us (which alone takes the
+term to 0.25 ms), and the width-dependent remainder is not recoverable by
+fusion. Unless the real dispatches are much wider than 160 threadgroups - which
+for decode GEMVs they are not - **the recoverable launch-ramp budget is a few
+hundred microseconds, not 0.884 ms.** Even in the most favourable reading, an
+arm that removes `n` decode dispatches should be priced at `n x 0.6 us`, and
+only for dispatches that sit on the dependency path.
+
+### Caveat I want on the record
+
+Both the isolated probe and the injected kernel store nothing - the single
+store sits inside `if (control[0] == 0xFFFFFFFFu)`, which is never true. A
+threadgroup that early-exits without touching memory may retire faster than a
+real one, which would make both numbers *lower* bounds on a real dispatch's
+fixed cost. The relative decomposition (fixed vs per-threadgroup vs barrier) is
+unaffected because all three regimes and all five widths use the same body.
+
+## 7. The official receipt feed is public, and it re-prices the noise floor
+
+`GET https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions`
+with our own bearer token returns **all 1399 submissions to date with complete
+`officialMetrics`** - every field the ranked receipt carries, including
+`prefill_seconds_per_token`, `decode_seconds_per_token`, the paired
+`baseline_*`, `passed_correctness`, `max_abs_diff`, `gpqa_ttft_seconds`,
+`benchmark_wall_seconds`, `peak_ram_gb`, the semantic-GPQA fields and the
+`expert_*` diagnostics. Analysis script: `research/tanjiro-receipt-mine.py`.
+
+Status split: 467 `failed`, 789 `rejected`, 140 `accepted`, 3 `validating`.
+**`rejected` runs publish full metrics; only `failed` runs (a CI workflow step
+that errored before the timed phase) publish none.** So a receipt is lost only
+by failing a workflow step, not by scoring badly.
+
+Four things this gives us for free.
+
+**1. The M5 session noise floor, from 929 measurements of the same pinned
+baseline.**
+
+| axis | mean | sd | sd/mean | range |
+| --- | ---: | ---: | ---: | --- |
+| baseline `S` (prefill, ms) | 190.6091 | 3.6757 | **1.928%** | 185.817 - 203.080 |
+| baseline `T` (decode step, ms) | 12.3655 | 0.0425 | **0.344%** | 12.2375 - 12.5452 |
+
+The brief assumed 0.497% on both axes. Prefill is **4x noisier than that**, and
+it enters `prefill_speedup` through the baseline slot, where we have no control
+over it. Decode is 1.4x *better* than assumed. Two consequences: (i) a
+prefill-only arm worth less than about 2% is not distinguishable in a single
+official receipt no matter how clean the candidate is, and (ii) the 0.952 lower
+edge of the `prefill_speedup` calibration band is roughly 2.5 baseline sigmas
+from 1.0, which is why prefill regressions show up as band violations more
+often than decode ones.
+
+**2. The instrument's premise is verified against real data, not argued.** The
+worst published receipt in the whole feed, `6447b89c`, scored 1.0004 - **39.2%
+of the current best (2.552308)** - and still published complete metrics.
+Observed ranges: `decode_speedup` 1.0097 / 2.0201 / 2.7421 (min/median/max),
+`prefill_speedup` 0.9524 / 1.7982 / 2.0634, against a 0.95 hard floor. My
+config-A injection lands at roughly `decode_speedup 2.40` and
+`prefill_speedup 1.73`, i.e. about 2.5x clear of both floors. There are **zero
+correctness failures and zero floor failures in 1399 submissions**, so the
+floors are not where receipts die.
+
+**3. Where receipts actually die**, by failing workflow step: 208 "Timed paired
+benchmark (measure-job)", **73 "Review submitted code for benchmark bypasses"**,
+49 workflow timeout, 47 correctness/hidden gates, 28 public behaviour gate, 17
+overlay paired timing, 15 semantic GPQA, 13 modifiable surface. The bypass
+review is the live risk for a deliberately-slowed instrument candidate, which
+is exactly why the submission note documents the injection in full.
+`benchmark_wall_seconds` is 33 / 45 / 50 (min/median/max) so the timeout is not
+a risk, and `gpqa_ttft_seconds` is 0.26 / 0.32 / 0.60 against a 2.5 s gate, so
+there is at least 4x headroom even on the slowed tree.
+
+**4. The ranked frontier's actual `S` and `T`, which nobody had.** Top five by
+score, converted with the brief's own formulas:
+
+| submission | score | S (ms) | T (ms) |
+| --- | ---: | ---: | ---: |
+| `46eeccf0` | 2.552308 | 97.560 | 4.3449 |
+| `8415f63c` | - | 97.820 | 4.3587 |
+| `2df3a1d6` | - | 98.026 | 4.3271 |
+| `0929b324` | - | 97.649 | 4.3331 |
+| `21f1d1a3` | - | 97.810 | 4.3337 |
+
+**The decode-step budget on M5 is ~4.35 ms, not the 8.545 ms in the brief** -
+that figure is an M4 measurement. Every per-step term in the roofline
+(34.32 ms DRAM, 0.884 ms launch ramp, the per-family shares) needs rescaling to
+a 4.35 ms step before it can be used to rank arms, and a term that was 10% of
+8.545 ms is 20% of 4.35 ms. The five frontier trees agree on `T` to 0.7% and on
+`S` to 0.5%, which is tighter than the baseline-slot noise above and confirms
+the candidate slot is the quiet one.
+
