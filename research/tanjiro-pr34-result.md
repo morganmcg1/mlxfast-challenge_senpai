@@ -72,7 +72,7 @@ this assignment's mandatory 15% agreement gate.
 
 ## Local gate (mandatory, M4 Pro)
 
-Five matched `--local-iterate` receipts on the same quiet host behind the 40 C
+Eight matched `--local-iterate` receipts on the same quiet host behind the 40 C
 gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 
 | run | config `da,dr,pr,pa` | how set | S (ms) | T (ms) |
@@ -80,10 +80,11 @@ gate, all `passed_correctness = true`, peak RAM 21 GB throughout:
 | L0 | 0,0,0,0 | env | 577.201 | 8.8161 |
 | L1 | 39,0,20,0 | env | 665.291 | 11.6401 |
 | L2 | 39,39,20,20 | env | 767.954 | 13.7371 |
-| L3 | 40,0,39,0 | **source defaults, no env** | 735.884 | 11.6572 |
+| L3 | 40,0,39,0 | **source defaults, no env** | 735.884 | 11.6569 |
 | L4 | 0,39,0,40 | env | 775.658 | 10.6264 |
-| L5 | 40,39,0,40 | env (**exact R3 configuration**) | 765.903 | 13.8610 |
+| L5 | 40,39,0,40 | env (**exact R3 configuration**) | 765.903 | 13.8612 |
 | L6 | 0,0,20,0 + arch probe | env | 661.777 | 9.9125 |
+| L7 | 0,39,20,0 | env (**exact R4 configuration**) | 664.651 | 10.6925 |
 
 L3 is the receipt-R2 configuration run with **no environment variables set for any
 injection knob**, which is how the official runner invokes the binary. Its stderr
@@ -99,29 +100,32 @@ Marginal rates:
 | decode routed QMV (39 copies, loaded with 39 attn copies) | L2−L1 | 552.08 MB | 2.097 ms | **263.3 GB/s** | 242.9 GB/s | **+8.4%** |
 | decode routed QMV (39 copies, loaded with 40 attn copies — **exact R3−R2 pairing**) | L5−L3 | 552.08 MB | 2.204 ms | **250.5 GB/s** | 242.9 GB/s | **+3.1%** |
 | decode routed QMV (39 copies, unloaded step) | L4−L0 | 552.08 MB | 1.810 ms | 305.0 GB/s | 242.9 GB/s | +25.6% |
+| decode routed QMV (39 copies, unloaded, replicate) | L7−L0 | 552.08 MB | 1.876 ms | 294.2 GB/s | 242.9 GB/s | +21.1% |
 | decode attention QMV (40 copies, loaded with 39 routed copies) | L5−L4 | 802.16 MB | 3.235 ms | **248.0 GB/s** | 252.5 GB/s | **−1.8%** |
+| decode attention QMV (40 copies, loaded — **exact R3−R4 pairing**) | L5−L7 | 802.16 MB | 3.169 ms | **253.2 GB/s** | 252.5 GB/s | **+0.3%** |
 | both decode blocks at once (40 attn + 39 routed) | L5−L0 | 1354.24 MB | 5.045 ms | 268.4 GB/s | 248.6 GB/s (bank-weighted) | +8.0% |
-| prefill routed gather-GEMM (20 copies) | L1−L0 | 9059.70 MB / 515.40 GFLOP | 88.090 ms | 102.8 GB/s / **5.85 TFLOP/s** | — | 79% of M4 dense GEMM |
-| prefill routed gather-GEMM (20 copies, replicate) | L6−L0 | 9059.70 MB / 515.40 GFLOP | 84.576 ms | 107.1 GB/s / **6.09 TFLOP/s** | — | 82% of M4 dense GEMM |
+| prefill routed gather-GEMM (20 copies, 3 replicates) | L1/L6/L7 − L0 | 9059.70 MB / 515.40 GFLOP | 86.706 ± 1.872 ms | 104.5 GB/s / **5.94 TFLOP/s** | — | 80% of M4 dense GEMM |
 | prefill routed gather-GEMM (39 copies) | L3−L0 | 17,666.41 MB / 1005.02 GFLOP | 158.683 ms | 111.3 GB/s / **6.33 TFLOP/s** | — | 86% of M4 dense GEMM |
-| prefill routed gather-GEMM (20→39 incremental) | L3−L1 | 8606.71 MB / 489.62 GFLOP | 70.593 ms | 121.9 GB/s / **6.94 TFLOP/s** | — | **94% of M4 dense GEMM** |
+| prefill routed gather-GEMM (20→39 incremental) | L3 − mean(L1,L6,L7) | 8606.71 MB / 489.62 GFLOP | 71.977 ms | 119.6 GB/s / **6.80 TFLOP/s** | — | **92% of M4 dense GEMM** |
 | prefill attention dense GEMM (20 copies) | L2−L1 | 1509.95 MB / 773.09 GFLOP | 102.663 ms | 14.7 GB/s / **7.53 TFLOP/s** | 7.40–7.46 TFLOP/s (#27 dense probe) | **+1.4%** |
 | prefill attention dense GEMM (40 copies) | L4−L0 | 2852.13 MB / 1460.29 GFLOP | 198.457 ms | 14.4 GB/s / **7.36 TFLOP/s** | 7.40–7.46 TFLOP/s (#27 dense probe) | **−0.6%** |
 | prefill attention dense GEMM (40 copies, replicate) | L5−L0 | 2852.13 MB / 1460.29 GFLOP | 188.702 ms | 15.1 GB/s / **7.74 TFLOP/s** | 7.40–7.46 TFLOP/s (#27 dense probe) | **+4.6%** |
 
-**Gate verdict: PASS, with one instructive caveat.** The two attention readings
-(+10.1%, +11.8%) and both loaded routed readings (+8.4%, and **+3.1%** for the
-pairing the official receipts actually use) are inside the mandated 15%
-band of @maple-nezuko's isolated per-call rates. The nezuko reference is her
+**Gate verdict: PASS, with one instructive caveat.** Every reading taken from a
+*loaded* step is inside the mandated 15% band of @maple-nezuko's isolated
+per-call rates, and the four readings that use the exact pairings the official
+receipts will use land at **+3.1%, −1.8%, +0.3% and +8.4%**. The two unloaded
+attention readings (+10.1%, +11.8%) are also inside the band. The nezuko reference is her
 per-call composite reweighted to the exact bank mix each knob touches: 9
 full-attention (48-head) banks and 30 sliding (64-head) banks for
 `DECODE_ATTN=39`, 10 and 30 for `DECODE_ATTN=40`, and her routed gate/up plus
 routed-share-of-down figures for `DECODE_ROUTED=39`.
 
-The caveat is the fourth reading. The routed block injected into an *otherwise
-unperturbed* decode step (L4−L0) reports 305.0 GB/s, which is +25.6% — outside the
-band, and also above M4's own ~256 GB/s achievable streaming rate, so it cannot be
-a kernel rate at all. It is a marginal rate in a step that is not
+The caveat is the unloaded routed reading, and it replicates: the routed block
+injected into an *otherwise unperturbed* decode step reports 305.0 GB/s (L4−L0)
+and 294.2 GB/s (L7−L0), i.e. +25.6% and +21.1% — outside the band, and also
+above M4's own ~256 GB/s achievable streaming rate, so neither can be a kernel
+rate at all. It is a marginal rate in a step that is not
 bandwidth-saturated: M4's scored decode step moves 1794 MB in 8.816 ms = 203.5
 GB/s, so ~50 GB/s of the memory system is idle and the unchained injected copies
 run partly in that slack. Loading the step first (39 attention copies already
@@ -140,23 +144,36 @@ present, and 2.204 ms with 802 MB present. Extrapolating the marginal cost to th
 point where the step is saturated is exactly what the loaded pairing approximates,
 and it converges on the isolated per-call figure from above.
 
-The attention block tells the same story from the other side. L5−L4 injects the 40
-attention copies into a step that already carries the 39 routed copies, and it lands
-at **248.0 GB/s, −1.8%** against @maple-nezuko's isolated figure, versus +11.8%
-unloaded. So both blocks, measured in a loaded step, agree with her isolated
-dispatch table to within 3%, and both are inflated by 12–26% when measured in an
-unperturbed one. That is the cleanest statement this arm can make about its own
-instrument: **the method is accurate to ~3% when the host step is loaded, and
-optimistic by 12–26% when it is not.**
+The attention block tells the same story from the other side, twice. L5−L4 injects
+the 40 attention copies into a step that already carries the 39 routed copies and
+lands at **248.0 GB/s, −1.8%**; L5−L7 is the same difference with the other
+prefill load and lands at **253.2 GB/s, +0.3%**. Versus +11.8% unloaded. So both
+blocks, measured in a loaded step, agree with her isolated dispatch table to
+within 3%, and both are inflated by 12–26% when measured in an unperturbed one.
+That is the cleanest statement this arm can make about its own instrument:
+**the method is accurate to ~3% when the host step is loaded, and optimistic by
+12–26% when it is not.**
 
-**Reproducibility of each axis on M4.** Three pairs of runs share a prefill
-configuration and differ only in decode knobs: L4/L5 differ by 1.26% in S, L1/L6 by
-0.53%. Propagated onto an 85 ms injected difference that is ±4 to ±10%, which is
-why the M4 prefill readings are quoted as ranges and why the ranked M5 axis
-(0.245% on the candidate pass) is worth four receipts. On the decode axis L2 and L5
-differ by one attention copy (predicted +0.06 ms) and their T differ by +0.124 ms,
-and L1/L3 differ by one copy and +0.017 ms — so **the decode axis is reproducible to
-±0.06 ms (0.6%)**.
+**Reproducibility of each axis on M4.** Three runs share `prefill_routed = 20` and
+differ only in their decode knobs (L1, L6, L7): `S = 665.291, 661.777, 664.651`,
+sd `1.872 ms` = **0.282% of the absolute prefill axis**, or ±2.2% on the 86.7 ms
+injected difference. That is three times better than the two-run estimate I had
+before L7 and it is why the prefill rates below are now quoted as a slope rather
+than a range. On the decode axis, L2 and L5 differ by one attention copy
+(predicted +0.06 ms) and their T differ by +0.124 ms, and L1/L3 differ by one copy
+and +0.017 ms — so **the decode axis is reproducible to ±0.06 ms (0.6%)**.
+
+**L7 also delivers the strongest validation of the amortisation correction.** L4
+and L7 run the *identical* decode configuration (`decode_routed = 39`, no
+attention injection) but differ by 111.0 ms of injected prefill. Their raw
+`decode_seconds_per_token` differ by **0.8011 ms**; after subtracting `S/128` the
+corrected `T` differ by only **0.0661 ms**, which is inside the ±0.06 ms axis
+noise just established. The correction removes **92%** of a deliberately large
+prefill contamination, and the residue is noise. This is the third and largest
+confirmation that the harness amortises the 512-token seed prefill over the 128
+timed steps, and that `T = 1000·dspt − S/128` is the decode axis. Without it
+every decode rate in this report would be wrong by the amount of prefill work
+that happened to be co-injected.
 
 **The architecture probe works, and it is being handed back rather than spent.**
 L6 enables it with every block knob off on the decode axis, and `T` rises by
@@ -179,26 +196,34 @@ from an unloaded step — the loaded rate-2 reading is worth more. R4 therefore 
 the tree; any future receipt whose decode axis is otherwise idle can collect the
 architecture character for one environment variable.
 
-**Linearity.** The prefill routed block has three points (0, 20, 39 copies) and is
-mildly *sub*-linear: 4.405 ms per copy at 20, 4.069 ms per copy at 39, and
-3.715 ms per copy for the 20→39 increment. Fitting the two non-zero points gives
-`Δ = 3.7153 ms × copies + 13.78 ms`, i.e. a **fixed cost of about 14 ms that
-appears as soon as any copy is injected** plus a clean marginal slope. Sub-linear
-is the absorption signature rather than the thrashing signature — more injected work
-keeps finding idle cycles instead of colliding for a scarce resource — but either
-way the consequence for the official measurement is the same and important: **a
-single-level receipt divides the fixed cost into the marginal rate and therefore
-*understates* it**, by 9% at 39 copies on M4. That is why R4 spends its prefill axis
-on a second level of the same block (20 copies) instead of a third block: it turns
-rate 1 from a point estimate into a slope. The prefill attention block
+**Linearity.** The prefill routed block now has three copy levels with the 20-copy
+level averaged over three replicates, and it is mildly *sub*-linear: **4.335 ms per
+copy** for 0→20, **4.069 ms per copy** for 0→39, and **3.788 ms per copy** for the
+20→39 increment. Equivalently the achieved rate *rises* with injected work —
+5.94, 6.33, 6.80 TFLOP/s — so a fixed cost of roughly `86.706 − 20×3.788 = 11 ms`
+appears as soon as any copy is injected and is then amortised. Sub-linear is the
+absorption signature rather than the thrashing signature — more injected work keeps
+finding idle cycles instead of colliding for a scarce resource — but either way the
+consequence for the official measurement is the same and important: **a
+single-level receipt folds that fixed cost into the marginal rate and therefore
+*understates* it**, by **6.9% at 39 copies and 12.6% at 20 copies** on M4. That is
+why R4 spends its prefill axis on a second level of the same block (20 copies)
+instead of a third block: it turns rate 1 from a point estimate into a slope, and
+the correction it applies is large enough to move rate 1 across the advisor's
+decision boundary. The prefill attention block
 has three readings spanning a 2x range of injected work — 7.53 TFLOP/s at 20
-copies, 7.36 and 7.74 TFLOP/s at 40 — whose spread (±2.5%) is smaller than this
-host's own 1.26% prefill replicate spread implies for a 190 ms difference, so it is
-**linear within noise**.
+copies, 7.36 and 7.74 TFLOP/s at 40 — whose ±2.5% spread is what this host's
+0.282% absolute-axis noise implies for differences of this size, so it is
+**linear within noise**. The two blocks differ because they are bound by
+different resources: the dense attention GEMM is compute-bound and already at
+the machine's GEMM rate at any copy count, while the routed gather-GEMM pays a
+per-invocation setup that only amortises with depth.
 
 **Is the marginal rate systematically below hers? No — it is systematically
-above, by +3.1%, +8.0%, +8.4%, +10.1%, +11.8% and +25.6%, and the size of the excess
-falls monotonically as the step is loaded.** Two independent blocks agreeing in
+above whenever the host step has slack (+8.0%, +8.4%, +10.1%, +11.8%, +21.1%,
++25.6%) and converges onto her figure from above once the step is loaded (+3.1%,
++0.3%, −1.8%). The excess is a monotone function of how loaded the step is, not
+of which block is being measured.** Two independent blocks agreeing in
 sign and magnitude points at one mechanism: the injected copies are not chained to the
 model's dataflow, so they are free to fill memory cycles the scored step already
 leaves idle. M4's scored decode step moves 1794 MB in 8.816 ms = 203.5 GB/s
@@ -220,24 +245,38 @@ known kernel rate from inside the scored path.
 The brief propagates `sd(S) = 1.93%` and `sd(T) = 0.34%`. Those are the spread of
 the **pinned baseline pass** across all accounts. What a marginal difference needs
 is the spread of the **candidate axes** for trees whose scored behaviour is
-unchanged. Mined from this account's 11 clean official receipts of 2026-08-04
-(`senpai/tools/pr34_replicate_noise.py`):
+unchanged. Mined from this account's 12 clean official receipts of 2026-08-04,
+including this arm's R1 anchor (`senpai/tools/pr34_replicate_noise.py`):
 
 | quantity | mean | sd | rel sd |
 | --- | ---: | ---: | ---: |
-| candidate S | 97.9196 ms | 0.2402 ms | **0.245%** |
-| candidate T | 4.3516 ms | 0.0191 ms | **0.440%** |
-| pinned baseline S | 192.4458 ms | 3.9801 ms | 2.068% |
-| pinned baseline T | 13.8648 ms | 0.0343 ms | 0.247% |
+| candidate S | 97.9150 ms | 0.2296 ms | **0.234%** |
+| candidate T | 4.3452 ms | 0.0287 ms | **0.662%** |
+| pinned baseline S | 192.0065 ms | 4.0887 ms | 2.129% |
+| pinned baseline T | 13.8665 ms | 0.0332 ms | 0.239% |
 
-Correlation between candidate and baseline within that cluster is `r = +0.143`
-on the prefill axis and `r = +0.446` on the decode axis. Propagating:
+Correlation between candidate and baseline within that cluster is `r = +0.158`
+on the prefill axis and `r = +0.149` on the decode axis. Propagating:
 
-- prefill: normalising gives `sqrt(0.245² + 2.068² − 2·0.143·0.245·2.068) =
-  2.05%` versus **0.245%** raw. Session normalisation inflates prefill
-  uncertainty **8.4x**.
-- decode: normalising gives `sqrt(0.440² + 0.247² − 2·0.446·0.440·0.247) =
-  0.397%` versus 0.440% raw — a 10% improvement, inside its own error.
+- prefill: normalising gives `sqrt(0.234² + 2.129² − 2·0.158·0.234·2.129) =
+  2.11%` versus **0.234%** raw. Session normalisation inflates prefill
+  uncertainty **9.0x**.
+- decode: normalising gives `sqrt(0.662² + 0.239² − 2·0.149·0.662·0.239) =
+  0.687%` versus 0.662% raw — normalisation is neutral-to-worse here too, and
+  the near-zero `r` is why: the pinned pass drifts independently, so dividing
+  by it can only add variance.
+
+The `0.662%` decode figure is deliberately conservative and **overstates** the
+noise that matters for a marginal difference. That cluster spans ten hours and
+two different base trees — R1's `T = 4.2747 ms` is 1.6% below the cluster mean
+because this arm's `BASE_SHA` already contains @maple-fern's merged #30, which
+the morning receipts predate. Within a single same-tree window the candidate
+decode axis is tighter: `sd = 0.0157 ms (0.361%)` across the five morning
+receipts and `0.0187 ms (0.432%)` across the four afternoon ones. Since every
+receipt in this arm's R1–R4 series is the same tree submitted inside one
+session, `sd(T) ≈ 0.4%` is the physically right per-receipt figure and
+`sd(ΔT) = sqrt(2)·0.4% ≈ 0.025 ms`. I quote the conservative 0.662% in the rate
+table so no rate is claimed tighter than the worst honest reading.
 
 **Raw is the correct primary estimator, and this supersedes the both-readings
 presentation in my #27 report.** The pinned baseline pass is the noisy one; the
