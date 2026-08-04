@@ -534,15 +534,18 @@ dT(n) = max(0, n * c  -  slack)
 ```
 
 Fitting `c` and `slack` from the two saturated tg=160 points (LE, LD), with no
-assumption imported from the isolated probe:
+assumption imported from the isolated probe. The `n = 0` reference has to be LA3
+(`T = 10.11366`, sweeps 1 / matmuls 20), not the zero-injection control, because
+LE and LD both carry the sweep's +1.107 ms too; using the control instead
+double-counts the sweep inside `slack` and under-reports it by exactly 1.107 ms:
 
 ```
-c_decode(tg=160) = (7.5392 - 1.9308) ms / (4000 - 2000) = 2.804 us
-slack            = 2000 * 2.804 us - 1.9308 ms          = 3.678 ms
+c_decode(tg=160) = (16.54604 - 10.93761) ms / (4000 - 2000) = 2.804 us
+slack            = 4000 * 2.804 us - (16.54604 - 10.11366)  = 4.784 ms
 ```
 
 and then LC3 is a genuine out-of-sample prediction: `600 * 2.804 us = 1.682 ms`
-is below the 3.678 ms slack, so the law predicts `dT = 0` and the measurement is
+is below the 4.784 ms slack, so the law predicts `dT = 0` and the measurement is
 `+0.0188 ms`, i.e. **zero to within the 0.03 ms decode noise floor.** Three
 points, two parameters, one prediction confirmed.
 
@@ -551,14 +554,15 @@ points, two parameters, one prediction confirmed.
 The tg=8 width has two counts of its own (LH, LF), so `c` and `slack` can be
 fitted there **independently**, importing nothing from the tg=160 pair:
 
-| tg | fitted from | **`c` (us)** | **`slack` (ms)** |
-| ---: | --- | ---: | ---: |
-| 8 | LH (2000), LF (8000) | **2.639** | **3.061** |
-| 160 | LE (2000), LD (4000) | **2.804** | **3.678** |
+| tg | fitted from | **`c` (us)** | **`slack` (ms)** | knee (dispatches) |
+| ---: | --- | ---: | ---: | ---: |
+| 8 | LH (2000), LF (8000) | **2.639** | **4.167** | 1579 |
+| 160 | LE (2000), LD (4000) | **2.804** | **4.784** | 1706 |
 
-Two independent two-parameter fits at widths 20x apart agree to **6% on `c`**
-and 20% on `slack`. That is the strongest evidence that the law is real and not
-an artifact of one configuration. Taking `slack ~ 3.7 ms` for the third width:
+Two independent two-parameter fits at widths 20x apart agree to **6% on `c`**,
+13% on `slack` and 8% on the knee. That is the strongest evidence that the law is
+real and not an artifact of one configuration. Taking `slack ~ 4.5 ms` for the
+third width:
 
 | tg | isolated, no barrier | **in-situ `c`** | in-situ / isolated |
 | ---: | ---: | ---: | ---: |
@@ -603,20 +607,20 @@ dispatches are where fusion pays, and it pays 4x more than the isolated probe
 suggests.
 
 **But it only pays above the saturation knee, and today we are below it.** The
-3.678 ms slack is the load-bearing number here. On this host a decode step is
-9.007 ms and absorbs 3.678 ms / 2.804 us = **1312 additional dispatches at zero
-cost**. The scored path issues roughly 406. So the decode stream is running at
-about a quarter of its dispatch-absorption capacity, and *removing* a dispatch
-from it converts 2.75 us of overhead into 2.75 us of extra slack, not into 2.75
-us of saved wall time. That is the single most important consequence of this
-measurement:
+4.2-4.8 ms slack is the load-bearing number here. On this host a decode step is
+9.007 ms and absorbs 4.784 ms / 2.804 us = **1706 additional dispatches at zero
+cost** (1579 at tg=8, an 8% spread). The scored path issues roughly 406. So the
+decode stream is running at about a quarter of its dispatch-absorption capacity,
+and *removing* a dispatch from it converts 2.75 us of overhead into 2.75 us of
+extra slack, not into 2.75 us of saved wall time. That is the single most
+important consequence of this measurement:
 
 - **An arm that only reduces MLX op count on the decode path should be priced at
-  zero** until the op count is high enough to saturate, and this path is 3.2x
+  zero** until the op count is high enough to saturate, and this path is 4.2x
   below saturation.
 - The 0.884 ms launch-ramp line in your decode budget is therefore **not a
   recoverable term.** It is not even the right magnitude: `406 * 2.72 us =
-  1.10 ms` of per-op overhead exists, but it is hidden inside a 3.4 ms
+  1.10 ms` of per-op overhead exists, but it is hidden inside a 4.5 ms
   absorption region, so it is not on the critical path and removing it recovers
   nothing measurable.
 
@@ -635,13 +639,13 @@ the extra 6% being the 0.044 ms cache-pollution term measured in section 5. Six
 hundred dispatches carrying 1.68 ms of pure launch overhead and no memory
 traffic show up not at all. **So the GPU is the critical path and has no idle
 time to give; the absorbed resource is host-side.** The CPU encode thread runs
-about 3.4 ms per decode step ahead of the GPU, and extra MLX ops spend that lead
+about 4.5 ms per decode step ahead of the GPU, and extra MLX ops spend that lead
 at 2.72 us each until it is gone.
 
 That kills the reading I would otherwise have preferred. The free budget is
 **not** ~1300 dispatches' worth of free *GPU* work — any GPU work an extra op
 performs is paid in full, immediately, as the sweep row proves. The free budget
-is ~1250 ops' worth of free *host-side op construction*. Concretely:
+is ~1700 ops' worth of free *host-side op construction*. Concretely:
 
 - Building masks, RoPE tables, dequantisation state or resident views inside the
   scored step is free only to the extent it is host bookkeeping. If it dispatches
@@ -651,7 +655,7 @@ is ~1250 ops' worth of free *host-side op construction*. Concretely:
   value, with no launch-overhead discount and no absorption.
 - The one genuinely free lever is moving host work *into* the step from
   elsewhere, or restructuring so that host-side latency that currently blocks
-  the GPU stops blocking it. There is 3.4 ms of head-room for the former and, by
+  the GPU stops blocking it. There is 4.5 ms of head-room for the former and, by
   the same measurement, nothing to win from the latter today.
 
 ### Prefill absorbs vastly more

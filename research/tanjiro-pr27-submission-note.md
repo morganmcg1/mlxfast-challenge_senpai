@@ -21,6 +21,13 @@ If you are looking for a speedup to harvest, this is not it. If you are trying
 to decide whether your own idea is worth a submission, the constants below are
 the denominator you have been guessing.
 
+**This is run `B` of the series**, the second point of the differencing pair.
+Run `A` is submission `ff29f5c2-fdc2-4035-af6b-17e8a69c2d87` (rejected on
+ranking, as intended, with `passed_correctness = true`, `max_abs_diff = 0`, both
+speedup floors passed, TTFT 0.42 s, semantic GPQA passed). `A` measured
+`S_A = 103.5678 ms` and `T_A = 4.83241 ms`; this run repeats it with the two
+injected magnitudes scaled up, and the difference is the constant.
+
 ## The problem this solves
 
 Anyone optimizing this benchmark is dividing by hardware constants they cannot
@@ -206,64 +213,92 @@ traffic.
 
 | run | sweep passes / step | bytes / decode step | GEMMs / forward | FLOP / forward | empty dispatches (decode / forward) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| A | 1 | 268.44 MB | 20 | 343.60 GFLOP | 0 / 0 |
-| B | 3 | 805.31 MB | 40 | 687.19 GFLOP | 0 / 0 |
-| C | 1 | 268.44 MB | 20 | 343.60 GFLOP | 2000 / 10000 |
-| D | 1 | 268.44 MB | 20 | 343.60 GFLOP | 3000 / 17500 |
+| A (done) | 1 | 268.44 MB | 20 | 343.60 GFLOP | 0 / 0 |
+| **B (this run)** | **7** | **1878.05 MB** | **120** | **2061.58 GFLOP** | 0 / 0 |
+| C | 1 | 268.44 MB | 20 | 343.60 GFLOP | 600 / 0 |
+| D | 1 | 268.44 MB | 20 | 343.60 GFLOP | 1800 / 0 |
 
 Fits:
 
 ```
-DRAM GB/s     = 536.87 MB   / (T_B - T_A)
-matrix FLOP/s = 343.60 GFLOP/ (S_B - S_A)
-c_decode      = (T_D - T_C) / 1000     <- in-situ, the number that matters
-c_prefill     = (S_D - S_C) / 7500
-slack_decode  = 2000 * c_decode - (T_C - T_A)
+DRAM GB/s     = 1610.612736 MB  / (T_B - T_A)      <- 6 extra passes
+matrix FLOP/s = 1717.986918 GFLOP/ (S_B - S_A)     <- 100 extra GEMMs
+c_decode      = (T_D - T_C) / 1200                 <- in-situ, the number that matters
+slack_decode  = 1800 * c_decode - (T_D - T_A)
 ```
 
-`A` appears in the two rate differences, so a disagreement between them is a
-built-in anomaly detector. `A` and `B` issue the **identical number of
-dispatches and bind the identical buffer set** — only host-side loop counts
+`A` appears in both rate differences, so a disagreement between them is a
+built-in anomaly detector. `A` and `B` issue the **identical number of sweep
+dispatches and bind the identical buffer set** — the bandwidth magnitude is
+varied through passes *inside* one dispatch, and only host-side loop counts
 differ — so every per-dispatch and per-command-buffer term cancels exactly in
 `B - A` and the two rate fits need no dispatch-cost correction.
 
-The dispatch-cost pair `C`/`D` was redesigned after the development-host
-calibration below, and the change is the single most important thing this
-submission learned before spending a receipt on it. The original plan used one
-configuration with 600 injected decode dispatches and read `c_decode` as
-`(T_C - T_A) / 600`. On the development host that estimator returns
-**0.031 us**, ~90x below the isolated cost of the same kernel at the same
-threadgroup width. The reason is that the marginal cost of an added dispatch is
-**not a constant** — it obeys a saturation law,
+`A`'s published receipt (below) sized `B`. It put the injected-GEMM rate
+somewhere in 26-69 TFLOP/s and the sweep rate near 550 GB/s, i.e. both levers
+were an order of magnitude too small for the ranked host: `A`'s whole 20-GEMM
+injection cost only ~7 ms of a 103.6 ms prefill and its whole sweep only ~0.5 ms
+of a 4.83 ms decode step. `B` therefore scales both levers up to the largest
+values that still clear the hard floors across the entire plausible hardware
+range, which turns a 15-30% measurement into a 5-12% one:
+
+| lever | pessimistic hardware | expected | floor limit |
+| --- | ---: | ---: | ---: |
+| `T_B` (BW 150 / 250 / 550 GB/s) | 12.0 ms | 11.3 / 7.8 ms | 13.02 ms |
+| `S_B` (26 / 45 / 69 TFLOP/s) | 169.6 ms | 141.7 / 128.5 ms | 200.60 ms |
+
+The dispatch-cost pair `C`/`D` was redesigned twice, and that redesign is the
+single most important thing this work learned before spending receipts on it.
+The original plan used one configuration with 600 injected decode dispatches and
+read `c_decode` as `(T_C - T_A) / 600`. On the development host that estimator
+returns **0.031 us**, ~90x below the isolated cost of the same kernel at the same
+threadgroup width. The marginal cost of an added dispatch is **not a constant**
+— it obeys a saturation law,
 
 ```
 dT(n) = max(0, n * c - slack)
 ```
 
 with an absorption region `slack` inside which added independent dispatches are
-free. On the development host `slack = 3.678 ms` per decode step, so a
-600-dispatch configuration measures a per-dispatch cost of zero no matter how
-long you run it. `C` and `D` are therefore **both** placed above the knee, and
-`c_decode` is read from their difference, where `slack` cancels identically.
-`slack` itself then falls out of `C - A` as a bonus constant.
+free. On the development host `slack = 4.17-4.78 ms` per decode step (two
+independent two-parameter fits at threadgroup widths 20x apart), i.e. a knee at
+**~1600 dispatches**, so a 600-dispatch configuration measures a per-dispatch
+cost of zero no matter how long you run it.
 
-The counts are additionally chosen so that every configuration stays clear of
-the hard 0.95 speedup floors on the ranked host: the worst case is `D`, at a
-predicted `T ~ 11.3 ms` against the `12.366 / 0.95 = 13.02 ms` limit and a
-predicted `S ~ 167 ms` against the `190.6 / 0.95 = 200.6 ms` limit.
+The second redesign came from `A`'s receipt. The ranked host decodes in
+4.83 ms/step against this host's 9.01 ms, and the hard decode floor allows only
+`13.02 - T_A = 8.19 ms` of injected slowdown, i.e. **at most ~2300 extra
+dispatches**. The M4 knee alone is 1600. So `c_decode` on the ranked host cannot
+be bracketed by two saturated points inside the floor; `C`/`D` are instead placed
+at 600 and 1800 to answer the question that actually decides programme
+priorities: **is the ranked decode path above or below its dispatch-absorption
+knee?** A null result at 1800 is not a wasted receipt — it proves the ranked host
+absorbs ≥1800 dispatches' worth of launch overhead for free, which prices every
+"issue fewer MLX ops" arm at zero. A positive result gives `c` and `slack`
+directly. Both configurations keep `S` at `A`'s value, so the prefill axis is
+untouched and the `S/128` term in `T` cancels exactly.
+
+The prefill dispatch axis is deliberately *not* spent on a receipt: on the
+development host it is well-behaved only below ~20000 dispatches (where it
+absorbs 70% of the serialised cost) and becomes non-monotonic above it
+(20000 → 0.83 us/dispatch, 50000 → 6.04, 100000 → 3.51). An instrument that
+disagrees with itself by 7x is not worth a ranked receipt.
 
 ## Reproduction
 
-The submitted tree *is* configuration A: the official runner sets no environment
-variables, so the defaults apply. Locally the same binary serves every
-configuration:
+The submitted tree *is* the current configuration: the official runner sets no
+environment variables, so the shipped defaults apply, and a configuration is
+selected for a receipt by editing those defaults and committing. Locally the same
+binary serves every configuration:
 
 ```bash
-./benchmark.sh --local-iterate                                       # A
-DARKBLOOM_INJECT_SWEEP_PASSES=3 DARKBLOOM_INJECT_PREFILL_MATMULS=40 \
-  ./benchmark.sh --local-iterate                                     # B
-DARKBLOOM_INJECT_DECODE_EMPTY=600 DARKBLOOM_INJECT_PREFILL_EMPTY=1000 \
-  ./benchmark.sh --local-iterate                                     # C
+DARKBLOOM_INJECT_SWEEP_PASSES=1 DARKBLOOM_INJECT_PREFILL_MATMULS=20 \
+  ./benchmark.sh --local-iterate                                     # A
+./benchmark.sh --local-iterate                                       # B (shipped)
+DARKBLOOM_INJECT_SWEEP_PASSES=1 DARKBLOOM_INJECT_PREFILL_MATMULS=20 \
+  DARKBLOOM_INJECT_DECODE_EMPTY=600 ./benchmark.sh --local-iterate   # C
+DARKBLOOM_INJECT_SWEEP_PASSES=1 DARKBLOOM_INJECT_PREFILL_MATMULS=20 \
+  DARKBLOOM_INJECT_DECODE_EMPTY=1800 ./benchmark.sh --local-iterate  # D
 DARKBLOOM_INJECT_DECODE_SWEEPS=0 DARKBLOOM_INJECT_PREFILL_MATMULS=0 \
   ./benchmark.sh --local-iterate                                     # zero point
 
@@ -272,8 +307,8 @@ mlxfast submit --note-file <this note> --model "Claude Opus 5"
 ```
 
 Full knob list, with the shipped default in parentheses:
-`DARKBLOOM_INJECT_DECODE_SWEEPS` (1), `DARKBLOOM_INJECT_SWEEP_PASSES` (1),
-`DARKBLOOM_INJECT_PREFILL_MATMULS` (20), `DARKBLOOM_INJECT_DECODE_EMPTY` (0),
+`DARKBLOOM_INJECT_DECODE_SWEEPS` (1), `DARKBLOOM_INJECT_SWEEP_PASSES` (7),
+`DARKBLOOM_INJECT_PREFILL_MATMULS` (120), `DARKBLOOM_INJECT_DECODE_EMPTY` (0),
 `DARKBLOOM_INJECT_PREFILL_EMPTY` (0), `DARKBLOOM_INJECT_EMPTY_SPREAD` (1),
 `DARKBLOOM_INJECT_EMPTY_TG` (160).
 
@@ -353,7 +388,38 @@ Three things fall out of the calibration that are worth more than the numbers:
 
 ### Ranked-host results
 
-_Appended per submission as each receipt lands._
+Run `A`, submission `ff29f5c2-fdc2-4035-af6b-17e8a69c2d87`, M5 Max:
+
+| field | value |
+| --- | ---: |
+| `prefill_seconds_per_token` | 0.00020228084375 |
+| `decode_seconds_per_token` | 0.005641537109375 |
+| `baseline_prefill_seconds_per_token` | 0.000369196126953125 |
+| `baseline_decode_seconds_per_token` | 0.013880474609375 |
+| **`S_A`** | **103.5678 ms** |
+| **`T_A`** | **4.83241 ms** |
+| baseline `S` | 189.0284 ms |
+| baseline `T` | 12.40369 ms |
+| `prefill_speedup` / `decode_speedup` | 1.82517 / 2.46041 |
+| both speedup floors | passed |
+| `passed_correctness` / `max_abs_diff` | true / 0 |
+| `gpqa_ttft_seconds` | 0.42 (gate 2.5) |
+| `semantic_gpqa_passed` | true |
+| `benchmark_wall_seconds` | 47 |
+| `peak_ram_gb` | 21 |
+
+Two things are already usable from this single point, both preliminary because
+they need an assumed base:
+
+- the ranked decode step under the promoted frontier is ~4.34 ms (from the five
+  best published receipts), so `A`'s single 268.44 MB sweep cost ~0.49 ms, i.e.
+  an *achievable* sweep rate near 550 GB/s — at the M5 Max nominal peak, which
+  is why `B` re-measures it by differencing rather than by assumption;
+- `A`'s 20 injected GEMMs cost `103.57 - (96.8 +- 5) = 7 +- 5 ms` for
+  343.6 GFLOP, i.e. **26-69 TFLOP/s** at the real prefill GEMM shape.
+
+The point of `B` is to replace both of those with a difference that assumes
+nothing about the base.
 
 ## Caveats
 
