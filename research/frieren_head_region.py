@@ -158,6 +158,44 @@ def main():
         idle_head.append(ih)
         idle_after_return.append(ia)
 
+    # Per-command-buffer transition structure: how much GPU idle sits at each
+    # command-buffer boundary, and where the first few buffers land.
+    trans_gap = []
+    early_gap = {k: [] for k in range(1, 8)}
+    for i in sel:
+        m0 = steps[i][0]
+        n0 = steps[i + 1][0]
+        win = sorted([c for c in cbs if m0 <= c[0] < n0], key=lambda c: c[3])
+        for k in range(1, len(win)):
+            g = win[k][3] - win[k - 1][4]
+            trans_gap.append(g)
+            if k in early_gap:
+                early_gap[k].append(g)
+    stats("cb->cb GPU gap (all boundaries)", trans_gap, digits=2)
+    print(f"    boundaries per step: {len(trans_gap) / len(sel):.1f}   "
+          f"sum of positive gaps per step: "
+          f"{sum(g for g in trans_gap if g > 0) / len(sel) * 1e6:.1f} us   "
+          f"sum of all gaps per step: {sum(trans_gap) / len(sel) * 1e6:.1f} us")
+    for k in sorted(early_gap):
+        stats(f"    gap before cb #{k + 1}", early_gap[k], digits=2)
+
+    print("\nsample step timelines (us relative to step entry):")
+    for i in sel[:3]:
+        m0, m1, m2, m3, m4 = steps[i]
+        n0 = steps[i + 1][0]
+        win = sorted([c for c in cbs if m0 <= c[0] < n0], key=lambda c: c[3])
+        u = lambda t: (t - m0) * 1e6
+        print(f"  step {i}: marks entry=0.0 preloop={u(m1):.1f} "
+              f"firstasync={u(m2):.1f} modelret={u(m3):.1f} "
+              f"callret={u(m4):.1f} nextentry={u(n0):.1f}")
+        for k, c in enumerate(win[:6]):
+            print(f"    cb{k}: commit={u(c[0]):8.1f} ksched=[{u(c[1]):8.1f},"
+                  f"{u(c[2]):8.1f}] gpu=[{u(c[3]):8.1f},{u(c[4]):8.1f}] "
+                  f"len={(c[4] - c[3]) * 1e6:7.1f} ops={c[6]}")
+        last = win[-1]
+        print(f"    cb{len(win) - 1} (last): commit={u(last[0]):8.1f} "
+              f"gpu=[{u(last[3]):8.1f},{u(last[4]):8.1f}] ops={last[6]}")
+
     print(f"\nsteady steps analysed: {len(period)}   (microseconds unless noted)")
     stats("step period (entry->entry)", period, digits=1)
     stats("forward wall (entry->call return)", fwd_wall)
