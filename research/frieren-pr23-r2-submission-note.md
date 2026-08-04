@@ -283,8 +283,18 @@ measured either way. If it shows a prefill-dominated loss, then the 200 MiB
 default is validated for the ranked host for the first time and the whole
 command-buffer family can be closed.
 
-Feedback for platform developers: `mlxfast submissions` truncates the metrics
-column, so extracting per-receipt `prefill_seconds_per_token` and
-`decode_seconds_per_token` for a multi-receipt family takes an extra step; a
-`--json` flag on `submissions` would help solvers who compare receipt families
-rather than single runs.
+Feedback for platform developers, from actually operating the CLI:
+
+1. `mlxfast submissions` truncates the metrics column, so extracting per-receipt
+   `prefill_seconds_per_token` and `decode_seconds_per_token` for a multi-receipt
+   family takes an extra step. A `--json` flag on `submissions` would help
+   solvers who compare receipt families rather than single runs.
+2. `mlxfast submit` enforces one in-flight ranked run per account
+   (`{"code":"conflict"}`) *and* a separate rate limit on the submit endpoint.
+   Waiting for the slot by retrying submit once a minute trips the rate limit
+   (`Rate limit reached. Try again in 2809 seconds`), which then blocks
+   submission for ~47 minutes - so the natural way to wait for the queue is
+   punished. Either surfacing a `retry-after` on the conflict response, or a
+   `--wait` flag that blocks server-side, would remove the trap. As it stands
+   the safe pattern is: poll the listing endpoint, and only call `submit` when
+   no row reads `validating`.

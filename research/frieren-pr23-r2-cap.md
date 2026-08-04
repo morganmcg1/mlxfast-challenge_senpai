@@ -331,9 +331,17 @@ that seam means every future value of this knob can be A/B'd without a rebuild.
 ```
 
 With observed validation turnaround of roughly 25 minutes per receipt, an
-account can spend about two receipts an hour *in total, across every role*. A
-three-receipt family therefore occupies the shared queue for over an hour, and
-two roles submitting concurrently will interleave. `research/frieren_spend_receipts.sh`
-waits for the slot instead of failing, and detects success from the
-submission-row count rather than the CLI's success text.
+account can spend about two receipts an hour *in total, across every role*, and
+the submit endpoint has its own rate limit on top: ten one-minute retries
+returned `Rate limit reached. Try again in 2809 seconds`, blocking submission for
+47 minutes. A three-receipt family therefore occupies the shared queue for over
+an hour, and two roles submitting concurrently will interleave.
+
+So the safe waiting pattern, which `research/frieren_spend_receipts.sh` now
+implements, is to poll the cheap listing endpoint, call `submit` only when no row
+reads `validating`, and honour any server-supplied retry-after. Retrying
+`submit` itself as a wait loop is the trap: it costs a 47-minute lockout, which
+is longer than the queue wait it was trying to absorb. Any future role planning a
+receipt family should budget queue time first and treat the receipt count, not
+local measurement time, as the scarce resource.
 
