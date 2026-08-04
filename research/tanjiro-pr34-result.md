@@ -39,7 +39,7 @@ integers, never Metal function constants. Every injected result is discarded.
 | R1 | 0,0,0,0 | anchor | `b6032aeb` | **97.8643** | **4.27468** |
 | R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | `ca416f01` | TBD | TBD |
 | R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | TBD | TBD | TBD |
-| R4 | arch probe only | Metal architecture character + prefill replicate | TBD | TBD | TBD |
+| R4 | 0,0,20,0 + arch probe | second level of rate 1 (slope, not point) + Metal architecture character | TBD | TBD | TBD |
 
 R1 in full: `passed_correctness = true`, `max_abs_diff = 0`, both floors passed,
 `gpqa_ttft = 0.41 s` of a 2.3 s budget, `semantic_gpqa_passed = true`,
@@ -146,9 +146,16 @@ copy and +0.017 ms — so **the decode axis is reproducible to ±0.06 ms (0.6%)*
 
 **Linearity.** The prefill routed block has three points (0, 20, 39 copies) and is
 mildly *sub*-linear: 4.405 ms per copy at 20, 4.069 ms per copy at 39, and
-3.715 ms per copy for the 20→39 increment. Sub-linear is the absorption
-signature, not the thrashing signature — more injected work keeps finding idle
-cycles rather than colliding for a scarce resource. The prefill attention block
+3.715 ms per copy for the 20→39 increment. Fitting the two non-zero points gives
+`Δ = 3.7153 ms × copies + 13.78 ms`, i.e. a **fixed cost of about 14 ms that
+appears as soon as any copy is injected** plus a clean marginal slope. Sub-linear
+is the absorption signature rather than the thrashing signature — more injected work
+keeps finding idle cycles instead of colliding for a scarce resource — but either
+way the consequence for the official measurement is the same and important: **a
+single-level receipt divides the fixed cost into the marginal rate and therefore
+*understates* it**, by 9% at 39 copies on M4. That is why R4 spends its prefill axis
+on a second level of the same block (20 copies) instead of a third block: it turns
+rate 1 from a point estimate into a slope. The prefill attention block
 has three readings spanning a 2x range of injected work — 7.53 TFLOP/s at 20
 copies, 7.36 and 7.74 TFLOP/s at 40 — whose spread (±2.5%) is smaller than this
 host's own 1.26% prefill replicate spread implies for a 190 ms difference, so it is
@@ -235,8 +242,90 @@ than overlapped. M5 has a 7.8x faster GEMM but only a 2.4x faster memory system,
 so on M5 the same block should be firmly DRAM-bound.
 
 A first-principles floor for the whole prefill forward from these two blocks
-alone is `28.96 + 26.08 = 55.0 ms` of the measured `S₀ = 97.92 ms`, i.e. **56%**,
+alone is `28.96 + 26.08 = 55.0 ms` of the measured `S₀ = 97.86 ms`, i.e. **56%**,
 if the two do not overlap each other. That is the number the receipts test.
+
+### The assignment's prefill byte figure is too small, and it matters
+
+`17,159.7 MB` is **`440.0 MB × 39`**: the routed banks only, at 440.0 MB per layer
+against the 452.98 MB the shapes actually give (a 2.9% per-layer undercount), and
+with the attention projections (2852.13 MB), the shared expert, the embeddings and
+the LM head left out entirely. There is no reading of the prefill pass that makes
+17.16 GB right:
+
+- *Only selected expert rows stream.* With 512 tokens × top-8 = 4096 assignments
+  over 256 experts, the probability that any given expert receives no row is
+  `(255/256)^4096 ≈ 1.1e-7`. Every expert bank in every layer is touched, so the
+  whole bank streams.
+- *Weight reuse across the 512 rows.* Already counted — each bank is charged once
+  per layer, not once per token.
+- *Cache residency.* A 452.98 MB bank read once through cannot be served from any
+  level of Apple's cache hierarchy.
+
+So the correct prefill DRAM figure is essentially the whole resident tower,
+**21.1–21.6 GB = 34.6–35.4 ms at 610 GB/s**, not 28.1 ms.
+
+### The right roofline model is per-kernel, not per-axis
+
+Three candidate models for `S₀`:
+
+| model | prefill prediction | vs measured 97.86 ms |
+| --- | ---: | --- |
+| perfect global overlap: `max(compute, DRAM)` | 50.5 ms | 48% unexplained |
+| strict additivity: `compute + DRAM` | 85.9 ms | 12% unexplained |
+| **per-kernel roofline sum `Σ max(bytes/610, flops/56)`** | **62–66 ms** | **32–36 ms unexplained** |
+
+The per-kernel sum is the physically right one, and this arm's own M4 data already
+proves the two halves of it. Within a kernel, byte movement *is* overlapped with
+arithmetic: the injected attention GEMM carries 2852.13 MB of cold weights and
+still lands at 7.36–7.74 TFLOP/s against an independently probed 7.40–7.46 TFLOP/s
+dense peak, so its weight streaming is entirely hidden behind its MACs. Across
+kernels there is no such overlap to be had, because MLX serialises dependent
+dispatches in one command stream. **So the honest unexplained prefill gap is about
+32–36 ms of 97.86 ms, not 47.4 ms** — and reporting it as 47.4 ms double-charges
+the part of the DRAM traffic that is already hidden inside the GEMMs.
+
+### The crossover that rate 1 actually decides
+
+The routed gather-GEMM's arithmetic intensity is
+`1005.02 GFLOP / 17.666 GB = 56.9 FLOP/byte`. On the ranked M5 that puts the
+byte-bound ceiling at `56.9 × 610 GB/s = 34.7 TFLOP/s`; reaching the 56 TFLOP/s
+compute ceiling would require `56 / 56.9 = 984 GB/s`, which the host does not have.
+**The advisor's ~50 TFLOP/s arm is therefore physically unreachable for this block,
+and the choice the receipt makes is not "inefficient kernel vs glue" but "byte-bound
+at ~34.7 (kernel healthy, prefill's prize is elsewhere) vs well under it (kernel
+arm is real)".**
+
+M4 cannot answer this question at all, which is worth saying plainly: for the block
+to be byte-bound on M4 it would have to reach `56.9 × 256 GB/s = 14.6 TFLOP/s`
+against a 7.4 TFLOP/s peak. On M4 the block is unavoidably compute-bound, which is
+exactly why it measures 79–94% of the host's dense rate there. Only the ranked M5,
+with its 7.6x compute-to-bandwidth ratio, is on the other side of the crossover.
+
+### How a marginal rate converts into an attribution
+
+An injected copy's cost is `Δ = t_solo − σ + π`, where `σ` is the idle resource the
+copy absorbs and `π` is any new contention it creates. So `m = W/Δ`:
+
+- is **not** an upper bound on the kernel's standalone rate, and **not** a lower
+  bound either;
+- when `m` exceeds the host's own achievable rate (M4: 305 > 256 GB/s), it
+  *certifies* `σ > 0` and measures it: the block's 2.16 ms of solo byte time was
+  delivered in 1.81 ms, so 0.35 ms was hidden in the scored step's idle cycles;
+- loading the step drives `σ → 0` and `m` down towards the standalone rate from
+  above, which is exactly the convergence the L4 → L2 → L5 sequence shows
+  (305.0 → 263.3 → 250.5 GB/s against an isolated 242.9).
+
+The attribution then reads: **block `b` accounts for
+`W_b/m_b − W_b/r_roofline(b)` of its axis's residual**, where `W_b/m_b` is its
+measured in-situ cost and `W_b/r_roofline(b)` is what the axis budget already
+charges it. Two failure modes to keep in view: `W_b/m_b` understates the block's
+true wall-clock share whenever `σ > 0`, and a duplicated kernel does not reproduce
+the *gaps around* the kernel — router latency, sort/scatter setup, command-buffer
+boundaries — so bubbles adjacent to the block are attributed to the residual, not
+to the block. The cross-check is `Σ_b W_b/m_b + fixed ≈ axis total`; on M4 the two
+decode blocks measure `2.841 + 2.204 = 5.045 ms` of an 8.816 ms step, i.e. 57% of
+the time for 75% of the bytes.
 
 ## Rates (official M5)
 
