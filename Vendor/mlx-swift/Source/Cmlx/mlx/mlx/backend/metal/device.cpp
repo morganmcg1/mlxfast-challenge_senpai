@@ -49,10 +49,11 @@ class GpuDispatchProfiler {
     return enabled_;
   }
 
-  // Commit one command buffer per primitive so each GPUPROF record times a
-  // single dispatch. Inflates absolute time by the per-command-buffer GPU
-  // overhead, so use it for attribution only.
-  bool split() const {
+  // Cap dispatches per command buffer so each GPUPROF record times a small,
+  // known group. 1 gives single-dispatch attribution; larger values sweep
+  // co-residency. Inflates absolute time by per-command-buffer GPU overhead,
+  // so use it for attribution only. 0 keeps the shipped batching policy.
+  int split() const {
     return split_;
   }
 
@@ -90,11 +91,11 @@ class GpuDispatchProfiler {
     const char* e = std::getenv("DARKBLOOM_GPU_PROFILE");
     enabled_ = e != nullptr && std::string(e) != "0";
     const char* s = std::getenv("DARKBLOOM_GPU_PROFILE_SPLIT");
-    split_ = enabled_ && s != nullptr && std::string(s) != "0";
+    split_ = (enabled_ && s != nullptr) ? std::atoi(s) : 0;
   }
 
   bool enabled_{false};
-  bool split_{false};
+  int split_{0};
   std::mutex mtx_;
   std::unordered_map<const void*, std::string> pso_names_;
 };
@@ -555,8 +556,8 @@ void CommandEncoder::wait_event(
 }
 
 bool CommandEncoder::needs_commit() const {
-  if (GpuDispatchProfiler::instance().split()) {
-    return buffer_ops_ > 0;
+  if (int n = GpuDispatchProfiler::instance().split(); n > 0) {
+    return buffer_ops_ >= n;
   }
   auto [max_ops, max_mb] = device_.get_max_ops_mb_per_buffer();
   return (buffer_ops_ > max_ops) || ((buffer_sizes_ >> 20) > max_mb);
