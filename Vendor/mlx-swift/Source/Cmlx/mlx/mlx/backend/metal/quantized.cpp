@@ -1689,10 +1689,10 @@ void gather_qmm_rhs_nax(
   // BOTH the flag and the expert path; a declining guard prints "inactive".
   {
     static const bool stage2_flag =
-        env::get_var("DARKBLOOM_STAGE2_GATHER", "") == "1";
+        env::get_var("DARKBLOOM_STAGE2_GATHER", "") != "0";
     static const bool trace_fusion =
         env::get_var("DARKBLOOM_TRACE_FUSION", "") == "1";
-    if (stage2_flag || trace_fusion) {
+    if (!stage2_flag || trace_fusion) {
       static std::once_flag stage2_once;
       std::call_once(stage2_once, [&]() {
         fprintf(
@@ -2008,6 +2008,38 @@ void gather_qmm_rhs(
   const bool align_M = (M % bm) == 0;
   const bool align_N = (N % bn) == 0;
   const bool align_K = (K % bk) == 0;
+
+  // DARKBLOOM_STAGE2_GATHER ground truth for the NON-NAX twin. On a NAX
+  // machine this function returns above and the line never prints, so its
+  // presence in a log is itself the proof that the measurement came from the
+  // non-NAX kernel rather than the ranked one. The stage-2 loop is only
+  // reachable when all three alignment guards hold (the unaligned tail uses
+  // gemm_loop_unaligned, which is untouched).
+  {
+    static const bool stage2_flag =
+        env::get_var("DARKBLOOM_STAGE2_GATHER", "") != "0";
+    static const bool trace_fusion =
+        env::get_var("DARKBLOOM_TRACE_FUSION", "") == "1";
+    if (!stage2_flag || trace_fusion) {
+      static std::once_flag stage2_nonnax_once;
+      std::call_once(stage2_nonnax_once, [&]() {
+        fprintf(
+            stderr,
+            "mlxfast: fusion %s: stage2_gather "
+            "(dispatch non-nax mode=%s align_MNK=%d%d%d N=%d K=%d M=%d)\n",
+            (stage2_flag && mode != "affine" && align_M && align_N && align_K)
+                ? "active"
+                : "inactive",
+            mode.c_str(),
+            int(align_M),
+            int(align_N),
+            int(align_K),
+            N,
+            K,
+            M);
+      });
+    }
+  }
 
   // Make the kernel name
   std::string kname;
