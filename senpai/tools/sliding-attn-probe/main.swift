@@ -239,20 +239,45 @@ if !occupancyMode {
 // matching the real dispatch pattern. Variants are measured round-robin so a
 // drifting host load cannot be mistaken for a shape effect, and each variant
 // keeps its minimum block.
-func timeBlock(_ variant: Variant, groups: Int? = nil, steps: Int) -> Double {
+/// Host wall-clock seconds per step, and the GPU-device busy time the same
+/// step's command buffers report. `split` puts one dispatch in its own command
+/// buffer, matching the SPLIT=1 layout of the in-situ dispatch profiler, so the
+/// two instruments can be compared on identical work.
+struct Timing {
+    var host: Double
+    var gpu: Double
+}
+
+func timeBlock(
+    _ variant: Variant, groups: Int? = nil, steps: Int, split: Bool = false
+) -> Timing {
+    var gpu = 0.0
     let start = DispatchTime.now().uptimeNanoseconds
     for _ in 0..<steps {
-        let buffer = queue.makeCommandBuffer()!
-        let encoder = buffer.makeComputeCommandEncoder()!
-        for layer in 0..<layers {
-            encode(variant, layer: layer, groups: groups, into: encoder)
+        if split {
+            for layer in 0..<layers {
+                let buffer = queue.makeCommandBuffer()!
+                let encoder = buffer.makeComputeCommandEncoder()!
+                encode(variant, layer: layer, groups: groups, into: encoder)
+                encoder.endEncoding()
+                buffer.commit()
+                buffer.waitUntilCompleted()
+                gpu += buffer.gpuEndTime - buffer.gpuStartTime
+            }
+        } else {
+            let buffer = queue.makeCommandBuffer()!
+            let encoder = buffer.makeComputeCommandEncoder()!
+            for layer in 0..<layers {
+                encode(variant, layer: layer, groups: groups, into: encoder)
+            }
+            encoder.endEncoding()
+            buffer.commit()
+            buffer.waitUntilCompleted()
+            gpu += buffer.gpuEndTime - buffer.gpuStartTime
         }
-        encoder.endEncoding()
-        buffer.commit()
-        buffer.waitUntilCompleted()
     }
     let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
-    return elapsed / Double(steps)
+    return Timing(host: elapsed / Double(steps), gpu: gpu / Double(steps))
 }
 
 let steps = 20
@@ -275,7 +300,7 @@ if occupancyMode {
         let order = round % 2 == 0
             ? Array(1...heads) : Array((1...heads).reversed())
         for g in order {
-            let seconds = timeBlock(variant, groups: g, steps: steps)
+            let seconds = timeBlock(variant, groups: g, steps: steps).host
             results[g] = min(results[g] ?? .greatestFiniteMagnitude, seconds)
         }
     }
@@ -289,15 +314,33 @@ if occupancyMode {
     exit(0)
 }
 
-for variant in variants { _ = timeBlock(variant, steps: 3) }
-var best = [String: Double]()
-var median = [String: [Double]]()
+// Every variant is measured under both command-buffer layouts and both clocks.
+// Batched host time is what earlier standalone probes reported; split GPU time
+// is the instrument the in-situ dispatch profiler uses, so the four cells make
+// the two published per-layer numbers directly comparable.
+struct Key: Hashable {
+    var label: String
+    var split: Bool
+}
+
+for variant in variants {
+    _ = timeBlock(variant, steps: 3)
+    _ = timeBlock(variant, steps: 3, split: true)
+}
+var best = [Key: Timing]()
+var samples = [Key: [Timing]]()
 for round in 0..<rounds {
     for offset in 0..<variants.count {
         let variant = variants[(round + offset) % variants.count]
-        let seconds = timeBlock(variant, steps: steps)
-        best[variant.label] = min(best[variant.label] ?? .greatestFiniteMagnitude, seconds)
-        median[variant.label, default: []].append(seconds)
+        for split in [false, true] {
+            let key = Key(label: variant.label, split: split)
+            let timing = timeBlock(variant, steps: steps, split: split)
+            let prior = best[key]
+            best[key] = Timing(
+                host: min(prior?.host ?? .greatestFiniteMagnitude, timing.host),
+                gpu: min(prior?.gpu ?? .greatestFiniteMagnitude, timing.gpu))
+            samples[key, default: []].append(timing)
+        }
     }
 }
 
@@ -305,18 +348,32 @@ print("")
 print(
     "isolated timing: \(layers) sliding-layer dispatches per step, "
         + "\(rounds) round-robin blocks of \(steps) steps")
+print(
+    "columns are per-layer minima; batched = one command buffer per step, "
+        + "split = one per dispatch")
 let residentBytes = Double(layers * 2 * ringElements * 2)
 for variant in variants {
-    let seconds = best[variant.label]!
-    var samples = median[variant.label]!
-    samples.sort()
-    let mid = samples[samples.count / 2]
-    let line = String(
+    let batched = best[Key(label: variant.label, split: false)]!
+    let split = best[Key(label: variant.label, split: true)]!
+    let perLayer = { (seconds: Double) in seconds * 1e6 / Double(layers) }
+    var splitHostSamples = samples[Key(label: variant.label, split: true)]!
+        .map(\.host)
+    splitHostSamples.sort()
+    print(String(
         format:
-            "%@ min %7.1f us/step  median %7.1f  %6.2f us/layer  tg %3d x %4d thr",
+            "%@ batched %6.2f host %6.2f gpu | split %6.2f host %6.2f gpu "
+            + "(median %6.2f) us/layer  tg %3d x %4d thr",
         variant.label.padding(toLength: 14, withPad: " ", startingAt: 0),
-        seconds * 1e6, mid * 1e6, seconds * 1e6 / Double(layers),
-        variant.groups, variant.threads)
-    print(line)
+        perLayer(batched.host), perLayer(batched.gpu),
+        perLayer(split.host), perLayer(split.gpu),
+        perLayer(splitHostSamples[splitHostSamples.count / 2]),
+        variant.groups, variant.threads))
+    print(String(
+        format:
+            "%@ per-step: batched %7.1f us host, split %7.1f us host; "
+            + "split host-minus-gpu %5.2f us/dispatch",
+        String(repeating: " ", count: 14),
+        batched.host * 1e6, split.host * 1e6,
+        perLayer(split.host - split.gpu)))
 }
 print(String(format: "resident KV per step: %.1f MB", residentBytes / 1e6))

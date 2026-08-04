@@ -39,9 +39,10 @@ def main() -> int:
                     help="parse GPUPROF records from the worker stderr and "
                          "attribute GPU time to the steady decode window")
     ap.add_argument("--profile-top", type=int, default=40)
+    ap.add_argument("--golden", default=GOLDEN)
     args = ap.parse_args()
 
-    with open(GOLDEN) as fh:
+    with open(args.golden) as fh:
         case = json.load(fh)["cases"][0]
     prompt = case["prompt_tokens"]
     expected = case["expected_tokens"]
