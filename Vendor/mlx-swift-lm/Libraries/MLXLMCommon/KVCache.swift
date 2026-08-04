@@ -328,8 +328,15 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     internal var keys: MLXArray?
     internal var values: MLXArray?
     public var step = 256
+    public let reserveInitialAllocationStep: Bool
 
     public override init() {
+        self.reserveInitialAllocationStep = false
+        super.init()
+    }
+
+    public init(reserveInitialAllocationStep: Bool) {
+        self.reserveInitialAllocationStep = reserveInitialAllocationStep
         super.init()
     }
 
@@ -341,18 +348,31 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         let previous = self.offset
         let tokenCount = keys.dim(2)
 
-        // When the first update already lands exactly on an allocation-step
-        // boundary, the stock zero allocation has no spare capacity: it
-        // creates arrays with the same sequence length as `keys`/`values`,
-        // then copies the entire inputs into them. Retain the incoming arrays
-        // directly in this no-slack case. Shapes, offsets, returned values,
-        // and the next growth boundary are identical; only the redundant
-        // zero-fill and full-prompt slice updates disappear.
+        // Retain exact-boundary initial inputs directly unless the caller
+        // explicitly requests one physical allocation step of decode slack.
+        // The returned arrays and logical state remain prompt-length.
         if self.keys == nil, previous == 0, tokenCount > 0,
             tokenCount.isMultiple(of: step)
         {
-            self.keys = keys
-            self.values = values
+            if reserveInitialAllocationStep {
+                let B = keys.dim(0)
+                let kvHeads = keys.dim(1)
+                let kHeadDim = keys.dim(3)
+                let vHeadDim = values.dim(3)
+                let kSlack = MLXArray.zeros(
+                    [B, kvHeads, step, kHeadDim],
+                    dtype: keys.dtype
+                )
+                let vSlack = MLXArray.zeros(
+                    [B, kvHeads, step, vHeadDim],
+                    dtype: values.dtype
+                )
+                self.keys = concatenated([keys, kSlack], axis: 2)
+                self.values = concatenated([values, vSlack], axis: 2)
+            } else {
+                self.keys = keys
+                self.values = values
+            }
             self.offset = tokenCount
             return (keys, values)
         }
@@ -405,15 +425,13 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     // attention kernel, which performs the slot write itself and attends
     // over the first `offset + 1` rows with the new row substituted from
     // registers. Engages only when the backing already has spare capacity
-    // for one more row (i.e. after the first decode step's stock growth
-    // concat), so the growth/reset branches above are provably not taken.
+    // for one more row, so the growth/reset branches above are not taken.
 
     /// Tracks the one-time contiguization of the backing arrays; in-place
     /// kernel writes require row-contiguous backings (a non-contiguous
     /// backing would be copied per step by `ensureRowContiguous` and the
-    /// slot writes lost). After the first decode step's growth concat the
-    /// backings are concat outputs and already contiguous; `contiguous()`
-    /// is then an identity-value op.
+    /// slot writes lost). Concat-produced backings are already contiguous;
+    /// `contiguous()` is then an identity-value op.
     private var fusedAppendContiguized = false
 
     /// Append state for the fused decode attention kernel, or nil when the
@@ -514,7 +532,9 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     }
 
     public override func copy() -> any KVCache {
-        let new = KVCacheSimple()
+        let new = KVCacheSimple(
+            reserveInitialAllocationStep: reserveInitialAllocationStep
+        )
         new.step = self.step
         let s = self.state
         if !s.isEmpty {

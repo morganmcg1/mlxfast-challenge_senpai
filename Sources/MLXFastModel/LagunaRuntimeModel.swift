@@ -5754,10 +5754,8 @@ final class LagunaRuntimeAttention: Module {
             let simple = cache as? KVCacheSimple,
             let append = simple.fusedAppendPrepare()
         {
-            // Full-attention twin of the fused branch above; engages from
-            // the second decode step (the first step's growth concat stays
-            // stock). The clock advance mirrors the stock single-token
-            // update.
+            // Full-attention twin of the fused branch above. The clock advance
+            // mirrors the stock single-token update.
             fusedAttended = lagunaFullFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
@@ -10883,7 +10881,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     public func newCache(parameters _: GenerateParameters?) -> [KVCache] {
         (0..<configuration.numHiddenLayers).map { layerIndex in
             if configuration.layerTypes[layerIndex] == .full {
-                StandardKVCache()
+                KVCacheSimple(reserveInitialAllocationStep: true)
             } else {
                 RotatingKVCache(maxSize: configuration.slidingWindow, keep: 0)
             }
