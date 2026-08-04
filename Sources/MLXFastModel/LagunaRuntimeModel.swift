@@ -246,12 +246,19 @@ private let lagunaDecodeHostCPULog = LagunaDecodeHostCPULog()
 let lagunaKernelSourceMinifyEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_KERNEL_SOURCE_MINIFY"] != "0"
 
-/// Removes `//` and `/* */` comments, leading indentation, and blank lines.
+/// Removes `//` and `/* */` comments, blank lines, indentation, and redundant
+/// intra-line spacing.
 ///
-/// The token stream is preserved exactly: lines are never joined, string and
-/// character literals are never rewritten, and a comment removed from the
-/// middle of a line leaves a separating space so adjacent tokens cannot merge.
-/// The preprocessor therefore sees the same directives and `\` continuations.
+/// The token stream is preserved exactly:
+/// - lines are never joined and string/character literals are never rewritten;
+/// - a comment removed from mid-line leaves a separating space;
+/// - a space run is dropped only when neither neighbour pair could form a new
+///   token (two identifier characters, or two characters that can start a
+///   multi-character operator, always keep one space);
+/// - `#` directive lines keep their internal spacing, because `#define F (x)`
+///   and `#define F(x)` are different declarations; and
+/// - a line spliced onto a `\` continuation starts with a space, so stripping
+///   its indentation cannot merge it with the previous line's last token.
 func lagunaMinifiedKernelSource(_ source: String) -> String {
     guard lagunaKernelSourceMinifyEnabled, !source.isEmpty else { return source }
     let input = Array(source.utf8)
@@ -260,15 +267,47 @@ func lagunaMinifiedKernelSource(_ source: String) -> String {
     var lineStart = 0
     var inBlockComment = false
     var quote: UInt8 = 0
+    var directive = false
+    var spliced = false
     var index = 0
 
+    func isIdentifier(_ byte: UInt8) -> Bool {
+        (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A)
+            || (byte >= 0x61 && byte <= 0x7A) || byte == 0x5F || byte == 0x24
+    }
+    // Characters that can begin a multi-character operator, plus `\`, whose
+    // line splice would otherwise glue two tokens together.
+    func isOperator(_ byte: UInt8) -> Bool {
+        switch byte {
+        case 0x2B, 0x2D, 0x3C, 0x3E, 0x3D, 0x26, 0x7C, 0x5E, 0x2A, 0x2F, 0x25,
+            0x3A, 0x2E, 0x21, 0x23, 0x7E, 0x3F, 0x5C:
+            return true
+        default:
+            return false
+        }
+    }
+    func emit(_ byte: UInt8) {
+        if output.count == lineStart {
+            if spliced { output.append(0x20) }
+            directive = byte == 0x23
+        }
+        output.append(byte)
+    }
     func endLine() {
         while output.count > lineStart, output[output.count - 1] == 0x20 {
             output.removeLast()
         }
-        guard output.count > lineStart else { return }
+        if output.count == lineStart {
+            // Blank lines are dropped, unless the previous line spliced onto
+            // this one, in which case the preprocessor must still consume it.
+            guard spliced else { return }
+            spliced = false
+        } else {
+            spliced = output[output.count - 1] == 0x5C
+        }
         output.append(0x0A)
         lineStart = output.count
+        directive = false
     }
 
     while index < input.count {
@@ -304,7 +343,7 @@ func lagunaMinifiedKernelSource(_ source: String) -> String {
         }
         if byte == 0x22 || byte == 0x27 {
             quote = byte
-            output.append(byte)
+            emit(byte)
             index += 1
             continue
         }
@@ -319,11 +358,25 @@ func lagunaMinifiedKernelSource(_ source: String) -> String {
                 continue
             }
         }
-        if output.count == lineStart, byte == 0x20 || byte == 0x09 {
-            index += 1
+        if byte == 0x20 || byte == 0x09 {
+            var next = index
+            while next < input.count, input[next] == 0x20 || input[next] == 0x09 {
+                next += 1
+            }
+            let atLineStart = output.count == lineStart
+            let follower = next < input.count ? input[next] : 0x0A
+            if !atLineStart, follower != 0x0A {
+                let previous = output[output.count - 1]
+                let mustSeparate =
+                    directive
+                    || (isIdentifier(previous) && isIdentifier(follower))
+                    || (isOperator(previous) && isOperator(follower))
+                if mustSeparate { output.append(0x20) }
+            }
+            index = next
             continue
         }
-        output.append(byte)
+        emit(byte)
         index += 1
     }
     endLine()
@@ -461,9 +514,13 @@ private let lagunaRouterPrecomputedKeysEnabled =
 /// the arm MUST announce either "active" (bank built / packed dispatch taken)
 /// or "inactive" (a guard declined and the stock kernel ran instead), so a
 /// silently-declining guard can never measure its own control.
+/// Two sites sit in the per-layer decode path, so the repeat case must not hash
+/// a string or take a lock: `announced` only ever gains bits, and a racing
+/// reader that misses one can at worst print the line twice.
 final class LagunaPackedScalesLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private let lock = NSLock()
+    private var announced: UInt32 = 0
 
     func note(_ state: String, _ site: String) {
         lock.lock()
@@ -473,6 +530,14 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
             FileHandle.standardError.write(
                 Data("mlxfast: packed-scales \(state): \(site)\n".utf8))
         }
+    }
+
+    /// `slot` must be a distinct compile-time constant per call site.
+    func noteOnce(slot: UInt32, _ state: String, _ site: @autoclosure () -> String) {
+        let bit = UInt32(1) << slot
+        guard announced & bit == 0 else { return }
+        announced |= bit
+        note(state, site())
     }
 }
 
@@ -10176,8 +10241,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 if lagunaPackedScalesEnabled,
                     let packedBank = _packedRoutedGateUpBank
                 {
-                    lagunaPackedScalesLog.note(
-                        "active", "routed swiglu qmv packed dispatch")
+                    lagunaPackedScalesLog.noteOnce(
+                        slot: 0, "active", "routed swiglu qmv packed dispatch")
                     if lagunaRouterPrecomputedKeysEnabled,
                         let routerKeys,
                         routerKeys.dtype == .uint32,
@@ -10204,8 +10269,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     }
                 } else {
                     if lagunaPackedScalesEnabled {
-                        lagunaPackedScalesLog.note(
-                            "inactive",
+                        lagunaPackedScalesLog.noteOnce(
+                            slot: 1, "inactive",
                             "routed swiglu qmv packed (bank missing; stock kernel dispatched)")
                     }
                     lagunaTrace("routed gate/up QMV + SwiGLU")
