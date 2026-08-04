@@ -987,3 +987,7 @@ final class LagunaLmHeadPruner {
         return assembled.reshaped([1, 1, vocab])
     }
 }
+
+// Official measurement receipt 2 of 3 for the M1 cascade family. The archive
+// service de-duplicates byte-identical trees, so each receipt in a family
+// carries one distinct comment. No code differs between the three.
