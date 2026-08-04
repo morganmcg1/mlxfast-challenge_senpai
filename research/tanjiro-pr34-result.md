@@ -226,7 +226,21 @@ if the two do not overlap each other. That is the number the receipts test.
 
 ## Rates (official M5)
 
-TBD
+Each rate is `added_work / (X_high − X_low)` where `X` is `S` or `T` from the two
+receipts named in the pairing column, `added_work` is the exact byte/FLOP count of
+one extra full copy of that block, and the uncertainty is the quadrature sum of the
+two receipts' axis noise (`0.245%` of `S`, `0.440%` of `T`, re-derived above from
+this account's own 11 clean same-day receipts) propagated through the difference.
+
+| # | block | pairing | added work | Δ (raw) | rate (raw) | Δ (session-normalised) | rate (normalised) |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | routed-expert gather-GEMM, prefill | R2−R1 | 17,666.41 MB / 1005.02 GFLOP | TBD | TBD | TBD | TBD |
+| 2 | attention q/k/v/o QMV, decode | R2−R1 | 802.16 MB | TBD | TBD | TBD | TBD |
+| 3 | attention q/k/v/o dense GEMM, prefill | R3−R1 | 2852.13 MB / 1460.29 GFLOP | TBD | TBD | TBD | TBD |
+| 4 | routed-expert QMV, decode | R3−R2 | 552.08 MB | TBD | TBD | TBD | TBD |
+
+Session normalisation multiplies each receipt's axis by the ratio of its own pinned
+baseline to the series' mean pinned baseline before differencing.
 
 ## Evidence
 
