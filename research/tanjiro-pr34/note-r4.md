@@ -138,12 +138,15 @@ On the **prefill axis**, the sorted routed-expert gather-GEMM block is injected 
 a *second, lower* level: 20 extra copies instead of the 39 an earlier receipt in
 this series used. Nothing else on that axis changes. Two levels of the same block
 separate the block's marginal cost from any fixed cost that appears as soon as the
-first copy is injected. Matched local receipts on a previous-generation host, with
-the 20-copy level averaged over three replicates, give 4.335 ms per copy for
-0->20, 4.069 for 0->39 and 3.788 for the 20->39 increment -- a fixed term of about
-11 ms that a single-level reading folds into the rate, understating it by 6.9% at
-39 copies and 12.6% at 20. This receipt converts that rate from a point estimate
-into a slope.
+first copy is injected. Four matched local levels on a previous-generation host --
+0 (two replicates), 10, 20 (three replicates) and 39 copies -- give segment slopes
+of 3.694, 5.039 and 3.788 ms per copy: non-monotone, so the apparent curvature two
+levels suggested is scatter rather than a fixed term. A least-squares fit over all
+four levels gives 4.138 ms per copy with an intercept of 576.09 ms against a
+measured 0-copy anchor of 576.571 ms, i.e. linear through the origin with no fixed
+per-forward cost, and the single-level 39-copy reading agrees with the slope to
+within 1.3%. This receipt tests that conclusion on the ranked host, where the
+single-level rate is already in hand and a disagreeing slope would retract it.
 
 On the **decode axis**, the routed-expert top-8 gate/up QMV plus down-reduce is
 injected in every one of the 39 routed layers: **552.08 MB per decode step**, one
