@@ -7591,38 +7591,26 @@ let lagunaSharedFirstDownOrderEnabled =
 
 /// Output rows each simdgroup of the fused down+residual dispatch owns.
 ///
-/// The routed/shared down rows are only `input_width = 512` NVFP4 values wide,
-/// so one row is a 256 B code burst plus a 32 B scale burst. With one row per
-/// simdgroup the dispatch reaches 109 GB/s of this host's measured 260 GB/s
-/// read ceiling while its 2048-wide siblings (routed gate/up QMV, o_proj)
-/// reach 243-260 GB/s: every simdgroup issues 288 B and then waits on the
-/// threadgroup barrier. Giving a simdgroup `N` consecutive rows turns that
-/// into one `N * 256` B contiguous stream with `N` independent loads in
-/// flight, and divides the threadgroup count (and therefore the barriers and
-/// single-lane epilogues) by `N`. Bit-exact: the per-row lane split, the
-/// `simd_sum` reduction tree, the BF16 rounding points and the in-order
-/// 8-expert accumulation are unchanged; only the row-to-threadgroup mapping
-/// moves.
-let lagunaRoutedSharedDownRowsPerSimd: Int = {
-    guard let raw = ProcessInfo.processInfo.environment["DARKBLOOM_DOWN_ROWS_PER_SIMD"],
-        let value = Int(raw),
-        [1, 2, 4, 8, 16].contains(value),
-        LagunaConstants.hiddenSize % value == 0
-    else {
-        return 4
-    }
-    return value
-}()
+/// A routed/shared down row is only `input_width = 512` NVFP4 values, so with
+/// one row per simdgroup each simdgroup issues a 256 B code burst plus a 32 B
+/// scale burst and then waits on the threadgroup barrier. Measured on M4 Pro
+/// (260 GB/s streaming read ceiling) that left the dispatch at 107 GB/s while
+/// its 2048-wide siblings reached 243-260 GB/s. Four consecutive rows per
+/// simdgroup make one 1024 B contiguous code stream with four independent
+/// loads in flight, coalesce the four 32 B scale reads into one cache line,
+/// and quarter the threadgroup count, barriers and single-lane epilogues:
+/// 49.8 -> 23.0 us/call, 231 GB/s. Two rows reach 200 GB/s and eight regress
+/// to 220 GB/s.
+///
+/// Bit-exact: the per-row lane split, the `simd_sum` reduction tree, the BF16
+/// rounding points and the in-order 8-expert accumulation are unchanged; only
+/// the row-to-threadgroup mapping moves.
+let lagunaRoutedSharedDownRowsPerSimd = 4
 
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
-    name: {
-        let base = lagunaSharedFirstDownOrderEnabled
-            ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v4sf"
-            : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v4"
-        return lagunaRoutedSharedDownRowsPerSimd == 1
-            ? base
-            : "\(base)_rps\(lagunaRoutedSharedDownRowsPerSimd)"
-    }(),
+    name: lagunaSharedFirstDownOrderEnabled
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
