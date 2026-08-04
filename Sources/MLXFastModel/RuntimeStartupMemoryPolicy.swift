@@ -168,18 +168,20 @@ public struct RuntimeStartupMemoryPolicy: Equatable, Sendable {
     }
 
     func apply() {
-        // Command-buffer budgets are per-profile absolutes (the pre-policy
-        // code force-set them identically); only the opt-in feature flags
-        // below use no-overwrite semantics.
+        // Command-buffer budgets are per-profile defaults, installed with the
+        // same no-overwrite semantics the full profile's post-wire block uses:
+        // an explicit `MLX_MAX_*_PER_BUFFER` wins so a single binary can A/B
+        // command-buffer length on a <64 GiB research host. The ranked box
+        // never reaches this profile and sets no environment variables.
         setenv(
             "MLX_MAX_MB_PER_BUFFER",
             String(maxMegabytesPerCommandBuffer),
-            1
+            0
         )
         setenv(
             "MLX_MAX_OPS_PER_BUFFER",
             String(maxOperationsPerCommandBuffer),
-            1
+            0
         )
         let plan = environmentPlan { name in
             getenv(name).map { String(cString: $0) }

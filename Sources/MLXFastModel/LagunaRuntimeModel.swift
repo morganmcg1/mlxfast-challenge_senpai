@@ -66,6 +66,77 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
+// MARK: - Decode step host/wall decomposition (diagnostic)
+
+/// `DARKBLOOM_DECODE_HOST_TIMING=1` (default off) reports, every 32
+/// single-token decode steps, the mean step period (entry to entry, which
+/// includes the harness's blocking argmax readback) and the mean host graph
+/// construction span (entry to return). The difference is the part of a step
+/// the host spends waiting for the GPU, so `build_share` bounds how much a
+/// host-side hygiene change could ever be worth on this machine. Two clock
+/// reads per step when enabled and a single Bool test when not.
+private let lagunaDecodeHostTimingEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_HOST_TIMING"] == "1"
+
+/// `DARKBLOOM_DECODE_HOST_SPIN_US=N` (default 0) burns N microseconds of host
+/// CPU per decoder layer on single-token decode steps. Sweeping N measures how
+/// much host work the GPU pipeline currently hides: wall time stays flat while
+/// injected time fits in the pipeline's slack and rises once it does not. Pure
+/// diagnostic; it adds no operation, cache row, or token.
+private let lagunaDecodeHostSpinNanoseconds: UInt64 = {
+    guard
+        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_HOST_SPIN_US"],
+        let value = Int(raw), value > 0
+    else {
+        return 0
+    }
+    return UInt64(value) * 1000
+}()
+
+@inline(__always)
+func lagunaDecodeHostSpin() {
+    guard lagunaDecodeHostSpinNanoseconds > 0 else { return }
+    let deadline = DispatchTime.now().uptimeNanoseconds + lagunaDecodeHostSpinNanoseconds
+    while DispatchTime.now().uptimeNanoseconds < deadline {}
+}
+
+/// Worker decode is single-threaded, so these counters need no synchronization.
+private final class LagunaDecodeHostTimingLog: @unchecked Sendable {
+    private var previousEntry: UInt64 = 0
+    private var periodNanoseconds: UInt64 = 0
+    private var buildNanoseconds: UInt64 = 0
+    private var periods = 0
+    private var steps = 0
+
+    func begin() -> UInt64 {
+        let now = DispatchTime.now().uptimeNanoseconds
+        if previousEntry != 0 {
+            periodNanoseconds += now - previousEntry
+            periods += 1
+        }
+        previousEntry = now
+        return now
+    }
+
+    func end(_ start: UInt64) {
+        buildNanoseconds += DispatchTime.now().uptimeNanoseconds - start
+        steps += 1
+        guard steps % 32 == 0, periods > 0 else { return }
+        let meanBuildMS = Double(buildNanoseconds) / Double(steps) / 1e6
+        let meanPeriodMS = Double(periodNanoseconds) / Double(periods) / 1e6
+        FileHandle.standardError.write(
+            Data(
+                """
+                mlxfast: decode host timing steps=\(steps) \
+                mean_period_ms=\(String(format: "%.4f", meanPeriodMS)) \
+                mean_host_build_ms=\(String(format: "%.4f", meanBuildMS)) \
+                build_share=\(String(format: "%.3f", meanBuildMS / meanPeriodMS))
+                """.appending("\n").utf8))
+    }
+}
+
+private let lagunaDecodeHostTimingLog = LagunaDecodeHostTimingLog()
+
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -10777,10 +10848,12 @@ final class LagunaRuntimeModelInner: Module {
                     qkRoPEAngles: qkRoPEAngles,
                     qkRoPEOffsets: qkRoPEOffsets
                 )
-                if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
-                    asyncEval(h)
-                }
-                if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
+                if isSingleTokenDecode {
+                    if (decodeFireMask >> UInt64(i)) & 1 == 1 {
+                        asyncEval(h)
+                    }
+                    lagunaDecodeHostSpin()
+                } else if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
                 {
                     asyncEval(h)
@@ -10840,6 +10913,15 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        let hostTimingStart: UInt64
+        if lagunaDecodeHostTimingEnabled, inputs.size == 1 {
+            hostTimingStart = lagunaDecodeHostTimingLog.begin()
+        } else {
+            hostTimingStart = 0
+        }
+        defer {
+            if hostTimingStart != 0 { lagunaDecodeHostTimingLog.end(hostTimingStart) }
+        }
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
