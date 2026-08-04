@@ -115,30 +115,46 @@ let queue = device.makeCommandQueue()!
 let sink = device.makeBuffer(length: 1024, options: .storageModeShared)!
 var control: UInt32 = 7
 
-print("\nisolated empty dispatch (one command buffer, N serialised dispatches)")
-for tg in [1, 8, 40, 160, 512] {
-    var best = Double.infinity
-    for _ in 0..<5 {
-        let n = 2000
-        let cb = queue.makeCommandBuffer()!
-        let enc = cb.makeComputeCommandEncoder()!
-        enc.setComputePipelineState(pipe)
-        enc.setBuffer(sink, offset: 0, index: 0)
-        enc.setBytes(&control, length: 4, index: 1)
-        for _ in 0..<n {
-            enc.dispatchThreadgroups(
-                MTLSize(width: tg, height: 1, depth: 1),
-                threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
-            enc.memoryBarrier(scope: .buffers)
+// Three barrier regimes. MLX's encoder is `DispatchTypeConcurrent` and inserts a
+// barrier only when a dispatch binds a buffer a previous dispatch wrote, so the
+// in-situ per-dispatch cost can only be interpreted against all three.
+enum BarrierMode: String, CaseIterable {
+    case none = "no barrier (fully concurrent)"
+    case resources = "memoryBarrier(resources:) - one buffer"
+    case buffers = "memoryBarrier(scope: .buffers) - all buffers"
+}
+
+print("\nisolated empty dispatch (one command buffer, N dispatches)")
+for mode in BarrierMode.allCases {
+    print("  \(mode.rawValue)")
+    for tg in [1, 8, 40, 160, 512] {
+        var best = Double.infinity
+        for _ in 0..<5 {
+            let n = 2000
+            let cb = queue.makeCommandBuffer()!
+            let enc = cb.makeComputeCommandEncoder(dispatchType: .concurrent)!
+            enc.setComputePipelineState(pipe)
+            enc.setBuffer(sink, offset: 0, index: 0)
+            enc.setBytes(&control, length: 4, index: 1)
+            for _ in 0..<n {
+                enc.dispatchThreadgroups(
+                    MTLSize(width: tg, height: 1, depth: 1),
+                    threadsPerThreadgroup: MTLSize(width: 256, height: 1, depth: 1))
+                switch mode {
+                case .none: break
+                case .resources: enc.memoryBarrier(resources: [sink])
+                case .buffers: enc.memoryBarrier(scope: .buffers)
+                }
+            }
+            enc.endEncoding()
+            let t0 = Date()
+            cb.commit()
+            cb.waitUntilCompleted()
+            let us = Date().timeIntervalSince(t0) * 1e6 / Double(n)
+            best = min(best, us)
         }
-        enc.endEncoding()
-        let t0 = Date()
-        cb.commit()
-        cb.waitUntilCompleted()
-        let us = Date().timeIntervalSince(t0) * 1e6 / Double(n)
-        best = min(best, us)
+        print(String(format: "    tg=%4d  %.4f us/dispatch", tg, best))
     }
-    print(String(format: "  tg=%4d  %.3f us/dispatch", tg, best))
 }
 
 let poolBytes = (1 << 24) * 16
