@@ -154,6 +154,19 @@ def axes(metrics: dict) -> tuple[float, float]:
 
 
 def load(path: str) -> dict:
+    """Local `score.*.json` (key `metrics`) or one official feed receipt.
+
+    An official receipt is addressed as `<subs.json>:<id-prefix>` and read from
+    `officialMetrics`, which carries the same field names.
+    """
+    if ":" in path:
+        path, prefix = path.rsplit(":", 1)
+        with open(path) as fh:
+            subs = json.load(fh)["submissions"]
+        hits = [s for s in subs if (s.get("id") or "").startswith(prefix)]
+        if len(hits) != 1:
+            raise SystemExit(f"{prefix}: matched {len(hits)} receipts")
+        return hits[0]["officialMetrics"]
     with open(path) as fh:
         return json.load(fh)["metrics"]
 
@@ -180,6 +193,10 @@ def main() -> None:
     ap.add_argument("--high-config", default="0,0,0,0", help="da,dr,pr,pa")
     ap.add_argument("--normalize", action="store_true",
                     help="scale the high receipt by the ratio of pinned baselines")
+    ap.add_argument("--sd-s", type=float, default=SD_S,
+                    help="relative sd of the prefill axis (default: pinned-baseline sd)")
+    ap.add_argument("--sd-t", type=float, default=SD_T,
+                    help="relative sd of the decode axis")
     args = ap.parse_args()
 
     lo_cfg = [int(x) for x in args.low_config.split(",")]
@@ -211,8 +228,10 @@ def main() -> None:
         scale = b_lo / b_hi
         print(f"\nsession normalisation (prefill pinned baseline ratio): {scale:.4f}")
         s_hi *= scale
-        d_lo = 1000.0 * lo["baseline_decode_seconds_per_token"]
-        d_hi = 1000.0 * hi["baseline_decode_seconds_per_token"]
+        # Baseline decode axis carries the same amortised seed prefill as the
+        # candidate axis, so correct it before taking the ratio.
+        d_lo = 1000.0 * lo["baseline_decode_seconds_per_token"] - b_lo / 128.0
+        d_hi = 1000.0 * hi["baseline_decode_seconds_per_token"] - b_hi / 128.0
         t_scale = d_lo / d_hi
         print(f"session normalisation (decode pinned baseline ratio): {t_scale:.4f}")
         t_hi *= t_scale
@@ -220,8 +239,8 @@ def main() -> None:
     print(f"\nS low {s_lo:8.3f} ms   S high {s_hi:8.3f} ms")
     print(f"T low {t_lo:8.3f} ms   T high {t_hi:8.3f} ms")
 
-    sd_s = math.hypot(SD_S * s_lo, SD_S * s_hi)
-    sd_t = math.hypot(SD_T * t_lo, SD_T * t_hi)
+    sd_s = math.hypot(args.sd_s * s_lo, args.sd_s * s_hi)
+    sd_t = math.hypot(args.sd_t * t_lo, args.sd_t * t_hi)
 
     for name, keys, delta, sd in (
         ("prefill", ("prefill_routed", "prefill_attn"), s_hi - s_lo, sd_s),
