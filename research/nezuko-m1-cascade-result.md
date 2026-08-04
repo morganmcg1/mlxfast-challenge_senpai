@@ -162,12 +162,24 @@ candidate explanations, and what each would imply:
 2. **The control is not the pre-M1 baseline.** The `=0` arm still carries the
    *new* plane packing and the renamed `_v6` single-pass kernel — it is
    "refinement off", not "pre-M1". If `_v6` were more expensive than the
-   original `_v5`, the local delta would be inflated. Against this: both
-   kernels read the same 1344 B/row and differ only by a couple of ALU ops in
-   a memory-bound kernel, so they should be cost-equivalent. This is a
-   *caveat on the local number*, not on the mechanism.
-3. **Fewer survivors reaching the exact GEMV.** Bounded: the exact pass is
-   only 76.6 µs total, so even eliminating it entirely buys 0.85% of `T`.
+   original `_v5`, the local delta would be inflated. Source audit bounds
+   this: `_v5` and `_v6` read the identical 1344 B/row (1024 codes + 256
+   residual + 64 scales) and differ only in decode algebra, because the
+   `v5→v6` bump is a *re-encoding* rather than a rename — `_v5` puts the low
+   4 bits in the nibble and bit 4 in the residual plane
+   (`float4(ne | (he << 4u)) - 16.0f`), `_v6` puts `H = floor(q/2)+8` in the
+   nibble and the residual low bit in the plane
+   (`float4((ne << 1u) | he) - 16.0f`, `:194-195`). That inversion is exactly
+   what makes the 1024 B nibble plane a self-contained 2×-coarse code
+   (`float4(ne << 1u) - 15.5f`, `:281-282`). Same bytes, a couple of ALU ops
+   apart, in a memory-bound kernel. This is a *caveat on the local number*,
+   not on the mechanism.
+3. **Fewer survivors reaching the exact GEMV.** Real but bounded, and now
+   known to be in the *helpful* direction: M1's second screen is strictly
+   tighter (half-cell `d = D/2`) than the one it replaces, so it can only
+   reduce the number of live blocks reaching the 16 KB/block BF16 GEMV. The
+   whole slot-4 pass is only 74–76.6 µs, so even eliminating it entirely buys
+   0.85% of `T`.
 
 Explanation 2 is the one the local A/B cannot rule out on its own, and it is
 precisely what the official **tree Y vs banked control C0** comparison
