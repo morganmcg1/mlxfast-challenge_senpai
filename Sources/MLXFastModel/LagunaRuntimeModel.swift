@@ -716,6 +716,33 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
 private let lagunaAttentionProjectionAsyncEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] != "0"
 
+/// `DARKBLOOM_DECODE_SUBLAYER_ASYNC` (`off` default, `a`, `b`, or `ab`):
+/// extra decode-only `asyncEval` rungs *inside* each decoder layer.
+///
+/// MLX cuts a command buffer when the arrays referenced by the pending graph
+/// exceed `MLX_MAX_MB_PER_BUFFER` Mi-elements, so at the runtime's cap of 200
+/// the decode step lands ~1.2 boundaries per layer and the existing
+/// layer-boundary ladder cannot add any: its rungs fire where a volume cut
+/// already happens. Lowering the cap to 50 raises the density to ~3.5 per layer
+/// and *reduces GPU-busy time*, because a shorter-lived set of temporaries per
+/// command buffer keeps the working set resident. These rungs reach the same
+/// density from the submission surface, and only for single-token decode, so
+/// the prefill schedule is untouched.
+///
+/// `a` fires after the attention output projection, `b` after the fused
+/// residual+RMSNorm+router. Both force arrays the next dispatch consumes
+/// anyway, so no work is added and no value changes.
+private let lagunaDecodeSublayerAsyncRungs: (a: Bool, b: Bool) = {
+    switch ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_SUBLAYER_ASYNC"]?
+        .lowercased()
+    {
+    case "a": return (true, false)
+    case "b": return (false, true)
+    case "ab", "1", "on": return (true, true)
+    default: return (false, false)
+    }
+}()
+
 /// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `1`; `0`/`off` disables;
 /// `8` restores the prior default): a ranked measurement on the
 /// 1.87782 base scored stride 1 at 1.88526 (+0.40% vs that base, rejected
@@ -10238,6 +10265,10 @@ final class LagunaRuntimeDecoderLayer: Module {
             qkRoPEAngles: qkRoPEAngles,
             qkRoPEOffsets: qkRoPEOffsets
         )
+        let isSingleTokenDecode = x.dims(1, 1, LagunaConstants.hiddenSize)
+        if lagunaDecodeSublayerAsyncRungs.a, isSingleTokenDecode {
+            asyncEval(r)
+        }
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
@@ -10286,6 +10317,13 @@ final class LagunaRuntimeDecoderLayer: Module {
         } else {
             h = x + r
             normalized = postAttentionLayerNorm(h)
+        }
+        if lagunaDecodeSublayerAsyncRungs.b, isSingleTokenDecode {
+            if let routerLogits, let routerKeys {
+                asyncEval(h, normalized, routerLogits, routerKeys)
+            } else {
+                asyncEval(h, normalized)
+            }
         }
         if (
             lagunaFusedSharedDownResidualEnabled ||
