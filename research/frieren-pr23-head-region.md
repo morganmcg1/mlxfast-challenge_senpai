@@ -21,10 +21,70 @@ Analyser: `research/frieren_head_region.py`.
 Trace used for Part 1: 28 454 command buffers and 361 steps; 278 steady steps
 after dropping warmup; clock sanity 0/28 454 ordering violations.
 
-## Part 1 — the three requested numbers
+## Part 1 — the three requested numbers, at ranked parity
 
-Medians over 278 steady steps, microseconds. `se` is the standard error of the
-median (bootstrap-free, from the interquartile spread).
+**Read this table, not the low-memory one below it.** The first pass ran under
+this host's default low-memory startup profile, which force-sets a 128
+Mi-element command-buffer cap. `DARKBLOOM_STARTUP_MEMORY_PROFILE=full` turns out
+to run on a 48 GiB host, so the whole decomposition was re-taken at the shipped
+ranked settings (200 Mi-elements / 400 ops). Medians over 278 steady steps,
+microseconds, 16 595 command buffers, 0 clock-ordering violations.
+
+| # | Region | µs | se | notes |
+| --- | --- | ---: | ---: | --- |
+| 1 | step entry → first command-buffer commit | **35.7** | 0.8 | host-side, fully exposed, **editable** |
+| 2 | first commit → first GPU kernel start | **67.1** | 0.5 | driver + firmware launch latency, p10 61.9 / p90 83.4 |
+| 3 | tail GPU idle after model call returns | **0.0** | 0.0 | median *and* p90; the GPU is still 3.8 ms from done when the call returns |
+
+And the two terms the same trace exposes that are not "head" at all:
+
+| Region | µs | se | notes |
+| --- | ---: | ---: | --- |
+| previous step's last GPU end → this step's entry | **122.1** | — | trusted harness: worker JSON IPC + the blocking `argMax().item()` readback. **Not on the submission surface.** |
+| interior GPU idle at command-buffer boundaries | **75.9** | — | 47 boundaries/step, ~1.6 µs each |
+| idle inside the layer loop | **0.0** | 0.0 | median and p90; #14's absorption result holds exactly |
+| idle in the head/norm/logits tail region | **0.0** | 0.0 | median and p90 |
+
+Frame at ranked parity:
+
+| Quantity | Value |
+| --- | ---: |
+| step period | 8834.4 µs |
+| GPU busy | 8533.1 µs |
+| **total GPU idle** | **300.8 µs** |
+| GPU busy fraction | 96.59 % |
+| front idle (prev GPU end → first GPU start) | 224.9 µs |
+| **command buffers per step** | **48** (mean 44.3) |
+| dispatches in first command buffer | 4 |
+| forward wall (entry → call return) | 5031.3 µs |
+| tail wall (call return → next entry) | 3802.3 µs |
+| worker encoding-thread CPU per step | 2.51 ms |
+
+Two things to notice.
+
+**Your 0.29–0.32 ms residual is confirmed to the microsecond, at ranked
+settings: total GPU idle is 300.8 µs.** That is a genuinely satisfying
+independent landing, because your figure came from a `wall ≈ head + GPU_total`
+regression and mine comes from Metal's own per-command-buffer counters.
+
+**But only 35.7 µs of it — 11.9 % — is on the submission surface.** The
+composition is:
+
+```
+300.8 us total GPU idle per ranked-parity decode step
+  122.1  trusted harness (IPC + argmax readback)      not editable
+   67.1  driver + firmware launch latency             not editable
+   75.9  interior command-buffer boundary gaps        editable only via cb structure
+   35.7  step entry -> first commit                   editable host work
+    0.0  in-loop / tail / post-return idle            nothing there
+```
+
+So the arm's 2.2–4.4 %-of-score prize is 88 % locked behind the trusted harness
+and the Metal driver. The head-latency hypothesis as briefed is dead, and I say
+so under the stop rule below — but the same trace found the live term, and it is
+not a latency term at all. See "The mechanism is not launch latency" below.
+
+### The earlier low-memory-profile reading, for the record
 
 | # | Region | µs | se | notes |
 | --- | --- | ---: | ---: | --- |
@@ -85,14 +145,148 @@ non-editable segment — parent↔worker JSON IPC over pipes, the blocking
 The stop rule was: *if the head region is dominated by commit-to-kernel-start
 driver latency and the host portion is under ~0.1 ms, report that and stop.*
 
-Both conditions hold. Driver latency (59.1 µs) is 2.3× the host portion
-(26.0 µs), and the host portion is 26 µs — a quarter of the 0.1 ms threshold.
-Even a perfect, physically impossible elimination of every editable host
-microsecond in the head region is worth 26 µs, i.e. 0.30 % of this host's step
-and **0.60 % of the 4.353 ms ranked M5 step**, which converts to roughly
-0.3–0.45 % of score — below the 0.61 % acceptance bar before any measurement
-noise. So Part 2 (moving the first commit earlier) cannot clear the bar on its
-own and I did not spend a submission on it.
+Both conditions hold at ranked parity. Driver latency (67.1 µs) is 1.9× the host
+portion (35.7 µs), and the host portion is 35.7 µs — a third of the 0.1 ms
+threshold. Even a perfect, physically impossible elimination of every editable
+host microsecond in the head region is worth 35.7 µs, i.e. 0.40 % of this host's
+step and **0.82 % of the 4.353 ms ranked M5 step**, which at your 0.638
+elasticity is **0.52 % of score** — below the 0.61 % bar, and that is the
+*ceiling*, requiring the first command buffer to commit at t = 0.
+
+Part 2 candidate 1 ("commit the embedding gather first") is measurable and
+measured: at a 195 Mi-element cap the bf16 embedding table's 196 charge forces a
+cut immediately after the fused embedding+RoPE dispatch, which is exactly what
+that candidate would implement in Swift. It moves the first commit from 35.7 µs
+to 25.6 µs and the whole step by **−0.30 %** (9.1229 vs 9.1506 ms in the same
+round), inside the run-to-run spread. So the candidate works mechanically and is
+worth ~10 µs, i.e. **0.15 % of score**. I did not spend a submission on it.
+
+What the stop rule does *not* cover, and what the rest of this memo is about,
+is that the same instrument found a **123.5 µs GPU-busy** term next door, which
+is 4× the entire editable head region and is not a latency term at all.
+
+## Candidate (a) — per-step Swift graph rebuild — is real and is not the term
+
+You were right about the structure and I can confirm it independently: the
+scored decode step rebuilds the whole Swift-side MLX graph every token. I
+searched every public symbol declared in `CompiledDecode.swift`,
+`CompilableKVCache.swift`, `CompilableRotatingKVCache.swift` and
+`DynamicSlice.swift` and there are **zero references from anywhere in
+`Sources/`**. Their real consumers are `MLXLMCommon/GenerationBatch.swift`,
+`MLXLLM/Models/Gemma4Text.swift` and the CBv2 tree, and `GenerationBatch` /
+`TokenIterator` are never referenced from `Sources/` at all — the scored driver
+calls the model directly (`LagunaRuntimeWorker.swift:208`,
+`LagunaRuntimeBenchmark.swift:867,890`), so `setupCompiledDecodeIfEligible` is
+unreachable. `RoPEApplication.graphOffsetArray` casts to the compilable cache
+subclasses at `RoPEApplication.swift:31,34`, but the runtime constructs
+`KVCacheSimple` and `RotatingKVCache(maxSize: 512, keep: 0)`
+(`LagunaRuntimeModel.swift:10888-10893`), so those casts always return nil, and
+`decodeRoPEAtlasPosition` deliberately excludes the compilable subclasses by
+exact `type(of:)` equality (`:10627-10629`). The per-step guard cascades at
+`:5498-5515` and `:10241-10251` are re-executed for all 40 layers on every
+token. So: rebuilt, every step, confirmed twice.
+
+**And it costs nothing measurable, because it is hidden.** Three independent
+readings:
+
+| Reading | Value | Implication |
+| --- | ---: | --- |
+| worker encoding-thread CPU per step (`ps -M`) | **2.51 ms** | true host graph+encode cost is ~6.2 µs/op over 406 ops, ~9× your 0.7 µs estimate |
+| exposed portion of it (entry → first commit) | **35.7 µs** | 1.4 % of the encode cost is on the critical path |
+| GPU idle inside the layer loop, median *and* p90 | **0.0 µs** | after the first commit the encoder never starves the GPU again |
+
+The `406 × 0.7 µs = 0.28 ms ≈ 0.30 ms` arithmetic is numerology: the per-op cost
+is ~6.2 µs, not 0.7 µs, so the true total is 2.51 ms, and the reason it does not
+appear in the step is that the encoding thread runs ~3.4× ahead of a
+DRAM-bound GPU. **Predicted gain from compiling the whole decode region: ~0.**
+It would remove ~2.5 ms of host work that is already free, and leave the 35.7 µs
+that is not, because even a fully compiled graph must still be walked and
+submitted before the first kernel can start.
+
+I would not build the compiled region. The evidence that would change my mind is
+a trace showing in-loop GPU idle above ~20 µs/step; I measure 0.0 at both the
+median and p90 at ranked parity.
+
+Two smaller items from your follow-ups, closed for the same reason:
+
+* **The inert-extra-bindings scaling test.** Its answer is already bounded by
+  #14 plus this trace: 2.0 ms/step of injected in-loop host spin was fully
+  absorbed *and reduced* wall time, and in-loop GPU idle is 0.0 µs. There is no
+  in-loop exposure for extra bindings to grow. The one place bindings could
+  matter is the 4-dispatch first command buffer, which is 35.7 µs total.
+* **The `DARKBLOOM_ROPE_ATLAS_VIEWS` note that "the two probes overlap the
+  embedding gather and the layer-0 front".** On the current base there are no
+  two probes to overlap: `lagunaDecodeEmbeddingRoPEAtlas` fuses the embedding
+  gather and both RoPE angle rows into **one** dispatch
+  (`LagunaRuntimeModel.swift:10665-10674`, kernel `:10440-10494`), and my trace
+  confirms the first command buffer holds 4 dispatches and runs 44.5 µs. So that
+  note's caveat no longer applies, which is why region 1 is a clean host-only
+  measurement.
+
+## The mechanism is not launch latency — it is live temporaries per command buffer
+
+This is the part I did not expect and it changes what the arm is worth.
+
+Lowering MLX's command-buffer volume cap from the shipped 200 Mi-elements to 50
+makes this host's decode step **1.56 % faster** (8.9582 ± 0.0023 ms, n = 6,
+against 9.1003 ± 0.0198 ms, n = 7, at the shipped cap; t ≈ 7.1 against a 0.20 %
+A/A floor). Tracing both arms shows where the time goes, and it is not where a
+latency story predicts:
+
+| | cap 50 | cap 200 (shipped) | Δ |
+| --- | ---: | ---: | ---: |
+| step period | 8678.6 | 8834.4 | **−155.8** |
+| **GPU busy** | **8409.6** | **8533.1** | **−123.5** |
+| total GPU idle | 269.0 | 300.8 | −31.8 |
+| command buffers/step | 140 | 48 | +92 |
+| boundaries/layer | 3.5 | 1.2 | — |
+| entry → first commit | 25.6 | 35.7 | −10.1 |
+| first commit → first GPU start | 45.5 | 67.1 | −21.6 |
+| dispatches in first cb | 1 | 4 | — |
+
+**79 % of the win is reduced GPU-busy time.** More command buffers means *more*
+boundaries and *more* per-buffer driver latency, and it is still faster. So the
+mechanism cannot be launch overhead, dead band, or host exposure. What a lower
+cap actually does is bound how much array memory a single command buffer keeps
+alive: MLX charges `buffer_sizes_ += a.data_size()` per distinct input buffer and
+cuts at `(buffer_sizes_ >> 20) > max_mb` (`device.cpp:393-401`, `:562`), and a
+buffer's temporaries cannot be recycled until it completes. Cap 200 holds ~4×
+the live footprint of cap 50. On a step that is already at ~79 % of achievable
+bandwidth, a smaller live working set is straightforwardly less DRAM traffic.
+
+This also explains why it is invisible to a byte roofline built from *unique*
+bytes: the extra traffic is re-reads of data that a smaller footprint would have
+kept resident. Per the new team rule — my numerator here is **neither**: I am
+reading GPU-busy time from Metal counters, not bytes.
+
+### Why the existing layer-boundary ladder cannot reach it
+
+At cap 200 the step already lands 48 boundaries over 40 layers = 1.2 per layer,
+so a rung fired *at a layer boundary* lands essentially on top of a volume cut
+and adds nothing. Measured, in the same round as the numbers above:
+
+| arm | ms/step |
+| --- | ---: |
+| cap 200, default ladder `at:0,1,7,15,23,31,39` | 9.1506 |
+| cap 200, `ladder1` (a rung after **every** layer) | 9.1396 |
+| cap 200, default ladder, control repeat | 9.0721 |
+| cap 50, default ladder | 8.9594 |
+| cap 50, `ladder1` | 8.9697 |
+
+`ladder1` at cap 200 captures **none** of the 1.56 %: 9.1396 sits inside the
+control spread (9.1506 / 9.0721). And `ladder1` at cap 50 does not add to cap 50
+either. The ladder axis is saturated; density is the live variable, and reaching
+3.5 boundaries per layer requires rungs *inside* the layer.
+
+That is the change under test in this arm's second half:
+`DARKBLOOM_DECODE_SUBLAYER_ASYNC`, two decode-only rungs added inside
+`LagunaRuntimeDecoderLayer.callAsFunction` — after the attention output
+projection (forcing `r`) and after the fused residual+RMSNorm+router (forcing
+`h`, `normalized`, `routerLogits`, `routerKeys`). Both force arrays the very next
+dispatch consumes anyway, so no work is added and no value can change; and both
+are guarded on `x.dims(1, 1, hiddenSize)`, so prefill keeps its own schedule —
+which matters, because the cap knob cannot be made phase-dependent and its
+ranked receipts show it paying for decode with prefill.
 
 ## The ratio argument the advisor asked for, made explicit and checked
 
@@ -177,9 +371,12 @@ is already hidden behind a bandwidth-bound GPU.
 ## Command buffers per ranked M5 decode step
 
 Belief: **~50 per step, with a plausible range of 40–60.**
+**Now measured at ranked parity: median 48, mean 44.3** — the prediction below
+was made before the trace and is confirmed. The op cap never binds.
 
-How inferred (and note this supersedes the "~45/step" figure I quoted earlier,
-which was a low-memory-profile artifact I had not yet traced to its cause):
+How it was inferred *before* the measurement (and note this supersedes the
+"~45/step" figure I quoted earlier, which was a low-memory-profile artifact I had
+not yet traced to its cause):
 
 * `Sources/MLXFastModel/RuntimeStartupMemoryPolicy.swift` `apply()` force-sets
   `MLX_MAX_MB_PER_BUFFER=128`, `MLX_MAX_OPS_PER_BUFFER=64` with
