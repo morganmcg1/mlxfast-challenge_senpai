@@ -345,3 +345,70 @@ is longer than the queue wait it was trying to absorb. Any future role planning 
 receipt family should budget queue time first and treat the receipt count, not
 local measurement time, as the scarce resource.
 
+
+## 10. Where the "40 MB" comes from, from source
+
+*(Added after the r2 scope change: the shipped pair moved to 200 MiB / 200 ops
+on base `9a407ed6`, Part 2 was cancelled, and Part 1 became a falsification test
+of the claim that MLX's 40 MB byte limit trips first. Sections 1-9 above were
+written against the 200/400 tree and their control arms are labelled
+accordingly. Nothing in §4-§7 depended on the ops value except through the
+control arm's label, which §10.4 addresses.)*
+
+### 10.1 The number is an architecture default, and 40 is not this host's
+
+`Device::Device()` picks both caps from the **last character of the GPU
+architecture string**, then lets the environment override them
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:574-597`):
+
+| `arch_.back()` | MLX's comment | `max_ops_per_buffer_` | `max_mb_per_buffer_` |
+| --- | --- | ---: | ---: |
+| `p` | phone | 20 | **40** |
+| `g` | base, pro | 40 | **40** |
+| `s` | max | 50 | **50** |
+| `d` | ultra | 50 | 50 |
+| default | medium | 40 | **40** |
+
+So `40` is the byte default for `p`, `g`, and the fallback. It is a *default*,
+not a limit MLX enforces on top of anything.
+
+And it is not this host's default. The owed `MTLDevice.architecture.name` read
+(§1, `research/host_arch_name.swift`) returns **`applegpu_g16s`** on this M4
+Pro: the string ends in `s`, so MLX takes its `'s' // max` branch and this
+host's stock pair is **50 ops / 50 MB**. MLX's own comment (`'g' // base, pro`)
+invites exactly the wrong inference from the marketing tier - an "M4 **Pro**"
+does not take the `g` branch. Any claim of the form "MLX's default here is
+40 MB" has to be backed by the architecture string, not the part name.
+
+### 10.2 In the ranked configuration the default is overridden, unconditionally
+
+The last two lines of the constructor are
+
+```cpp
+max_ops_per_buffer_ = env::max_ops_per_buffer(max_ops_per_buffer_);
+max_mb_per_buffer_  = env::max_mb_per_buffer(max_mb_per_buffer_);
+```
+
+and `env::max_mb_per_buffer` is `get_var("MLX_MAX_MB_PER_BUFFER", default_value)`
+memoised in a function-local `static`
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/utils.h:184-188`). Our own editable code
+sets that variable in the full-profile branch
+(`Sources/MLXFastModel/LagunaRuntimeWeights.swift:384-387`), so on the ranked
+path the live byte threshold is **200 MiB, not 40 MB** - five times higher.
+
+The one way that could fail is ordering: the `static` freezes on first call, so
+a `setenv` after the Metal device already exists would be ignored. It is not
+ignored here, and the counting sweep proves it rather than arguing it (§10.3):
+with no `MLX_MAX_*` in the environment the shipped default produces the same
+cb/step as an explicit `MLX_MAX_MB_PER_BUFFER=200`, and a different value
+produces a different cb/step. If the `setenv` were too late, every arm would
+collapse onto this host's arch default of 50.
+
+A third value is worth naming because it is easy to mistake for either of the
+other two: on a host under 64 GiB **at default settings** the low-memory profile
+takes over and force-sets `MLX_MAX_MB_PER_BUFFER=128` / `MLX_MAX_OPS_PER_BUFFER=64`
+with `overwrite=1` (`RuntimeStartupMemoryPolicy.swift:80-81,170-183`), which an
+explicit environment value cannot beat. So a research host has *three* possible
+byte thresholds - 50 (arch), 128 (low-memory policy), 200 (ranked branch) - and
+which one is live depends on the startup profile, not on MLX.
+
