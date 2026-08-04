@@ -5,6 +5,17 @@ Assignment `maple-2026-08-04j-scale-code-width`, revision `r1`, branch
 (`eaedee8430f1e2779b235a7fbc296ee20ef3e44b`). Host: AWS-hosted M4 Pro
 (`Mac16,11`), 48 GiB, `DARKBLOOM_STARTUP_MEMORY_PROFILE=full`.
 
+**Bottom line.** The attention scale planes shrink from 32 B to 21 B per
+32-group block with the original uint8 codes reconstructed exactly. That is
+-30.61 MB/step of the ~1.79 GB decode stream (-1.71%), and it measures
+**-67.6 us/step +- 7.9 us (-0.78%)** for the shipped configuration against its
+kill switch (12 x 512 steps, ON/OFF/OFF/ON) and **-95.3 us/step** for the
+mechanism isolated inside one process (parity A/B, 10 sigma). Both readings are
+consistent with the -112/-146 us byte roofline once the +43 us three-load
+reconstruction penalty is accounted for. No receipt was spent (the submission
+slot was held); the mechanism is ready for a ranked pair whenever the advisor
+schedules one.
+
 ## Mechanism
 
 The uint8 E4M3 scale plane is exactly 1/9 of every NVFP4 stream. For the four
@@ -90,6 +101,56 @@ discarded: its garbage logits changed the lm_head pruner's data-dependent
 screen and slowed *both* parities by ~1.2 ms/step, which swamps the byte
 signal. The load/byte decomposition above therefore rests on `dummy` alone.
 
+Both research kernels are removed again at `c810175`; the parity alternator and
+the census stay because they are the two instruments that can re-measure this.
+
+### Pure-configuration replicate screen (run `1a623fb2`)
+
+The parity instrument only ever runs alternating arms, so the shipped
+configuration -- every step narrow, no alternator -- is screened separately:
+six 512-step passes per arm, ordered ON/OFF/OFF/ON so a monotone host drift
+cancels within each round (`research/frieren_pr35_pure.sh`, aggregated by
+`research/frieren_pr35_pure_stats.py`).
+
+| pass | ON median | OFF median |
+| --- | --- | --- |
+| round 1 | 8.5859 / 8.5778 ms | 8.6669 / 8.6150 ms |
+| round 2 | 8.5802 / 8.5571 ms | 8.6414 / 8.6489 ms |
+| round 3 | 8.5783 / 8.5741 ms | 8.6440 / 8.6428 ms |
+| mean | **8.5756 ms** (stdev 9.8 us) | **8.6432 ms** (stdev 16.7 us) |
+
+**OFF - ON = +67.6 us/step +- 7.9 us (-0.78% of the step)**; the
+drift-cancelling round contrast agrees exactly (+67.6 us, se 5.0 us, rounds
++59.1 / +76.5 / +67.1 us). Every ON pass logged `narrow-scales built` for both
+sites and every OFF pass logged nothing, so the kill switch really was flipped.
+Every pass reported 0 token divergences.
+
+Two instruments, two numbers: **-67.6 us for the shipped configuration between
+processes** and -95.3 us for the mechanism isolated inside one process. The
+between-process arm also pays the candidate's init and its 60 MB of extra
+resident planes, and the alternating run touches both planes every two steps
+(73.8 MB/step of scale traffic against 58.50 narrow-only), so a slightly larger
+in-process reading is expected. The conservative shipped figure is -67.6 us,
+i.e. 46-60% of the -112/-146 us byte roofline, and about -110 us once the +43 us
+reconstruction penalty measured above is added back.
+
+### Shipped-path hygiene
+
+A read-only review of the mechanism found that the diagnostic
+`LagunaNarrowScaleLog.note` ran an `NSLock`, two string interpolations and a
+`Set` insert on **every** attention QMV dispatch, i.e. up to 80 times per decode
+step, which the frontier never paid. Dispatch notes now follow the file's
+`lagunaTrace` convention: `@autoclosure` arguments behind
+`DARKBLOOM_ATTN_SCALE_NARROW_LOG=1`, off by default (`48d28a2`). Bank
+construction logs once per site at init instead, so a built or declined bank is
+still reported without any env var.
+
+The parity numbers above are unaffected: under the alternator both parities
+took one `note` call per dispatch, so the overhead cancelled in the pair
+difference. It did bias the *between-process* screens against the candidate,
+because the kill-switch arm skipped the call entirely. The pure screen above
+was run after the fix, on the shipped code.
+
 ## Correctness
 
 | gate | result |
@@ -97,8 +158,9 @@ signal. The load/byte decomposition above therefore rests on `dummy` alone.
 | 32-step teacher-forced probe, narrow ON | 0 divergences; all four sites logged `active`; no bank declined |
 | 6 x 256-step probe arms (off/qkv/on) | 0 divergences each |
 | 5 x 512-step parity runs | 0 divergences (narrow, o_proj, dummy arms) |
-| OFF-arm generated kernel text | byte-identical to the frontier q/k/v and o_proj text for every head count and gate variant |
+| OFF-arm generated kernel text | byte-identical to the frontier q/k/v and o_proj text for every head count and gate variant; re-checked byte-identical (stock *and* narrow) across the research-arm removal at `c810175` |
 | init-time reconstruction check | MLX round trip requires `(decoded != scales).sum() == 0` per bank; a failing bank is discarded and the site falls back to the stock plane |
+| certificate fault injection (`research/frieren_pr35_fault.sh`) | with one nibble-plane bit flipped before the check, all 80 banks logged `declined (reconstruction mismatch)`, all four dispatch shapes logged `inactive`, and the 32-step probe still had 0 divergences; the control arm on the same worker built all 80 banks and logged `active` |
 | `peak_ram_gb` | 20.7190 (OFF) -> 20.7213 (ON); MLX active 33.38 -> 33.44 GB |
 
 ## Suggested follow-ups (not implemented)
