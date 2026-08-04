@@ -440,9 +440,23 @@ the two legs behaved completely differently.
   said would "re-price every other byte arm on the board".
 
 So the correction to apply to sibling byte arms is **not** a blanket 0.50× on
-the score estimate — it is a 0.47× on the *byte-to-time* leg only, and only
-for bytes that move through a comparably slow dispatch. See the next two
-sections, because that qualifier turns out to be the whole story.
+the score estimate. It is a 0.47× on the *byte-to-time* leg only — and that
+0.47× is itself a product of two independent, separately transferable errors,
+which is the form other arms should actually reuse:
+
+```
+0.467  =  0.775            ×  0.602
+          ^^^^^               ^^^^^
+          bytes left a         0.67% of them came back
+          1.29x-faster-        through a 40x-slower
+          than-average         dispatch
+          dispatch
+```
+
+Neither factor is a property of "byte arms" in general. The first applies to
+any arm removing bytes from an above-average dispatch; the second applies to
+any arm that adds bytes back anywhere. An arm with neither property should
+still use `MB / 1794` unchanged. The next two sections derive each factor.
 
 ### Why `MB → T` failed: the denominator is a bandwidth, and the brief used the wrong one
 
@@ -687,9 +701,12 @@ independent gain.
    per-dispatch pricing: measure the achieved bandwidth of the dispatch the
    bytes actually live in, and price bytes *added* at their own dispatch's
    rate. For this arm that is 264 GB/s out and 6.5 GB/s back in.
-3. **Re-audit sibling byte arms** for the same two errors — average-rate
-   denominators, and unpriced bytes added back. Any arm whose predicted gain
-   was computed as `MB/1794` is likely over-predicted by ~2×.
+3. **Re-audit sibling byte arms for the two factors separately, not for a
+   blanket 2×.** Ask of each arm: (a) what is the achieved bandwidth of the
+   dispatch the bytes leave, versus the 204.6 GB/s step average? (b) does the
+   arm add *any* bytes back, and into which dispatch? An arm scoring
+   "average" and "none" keeps `MB/1794` intact. My 0.47× is
+   `0.775 × 0.602`, and both factors are arm-specific.
 4. **Assign the slot-4 fix against the post-M1 tree, not the base tree.** It
    is the same dispatch this arm rewrites, so it is not an additive win and
    the base-tree kernel it was priced against would be deleted by merging M1.
