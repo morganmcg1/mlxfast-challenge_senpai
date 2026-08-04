@@ -38,7 +38,7 @@ integers, never Metal function constants. Every injected result is discarded.
 | --- | --- | --- | --- | ---: | ---: |
 | R1 | 0,0,0,0 | anchor | `b6032aeb` | **97.8643** | **4.27468** |
 | R2 | 40,0,39,0 | rate 2 (decode attn QMV), rate 1 (prefill routed gather-GEMM) | `ca416f01` | **141.1262** | **5.50538** |
-| R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | `6757de65` | TBD | TBD |
+| R3 | 40,39,0,40 | rate 4 (decode routed QMV), rate 3 (prefill attn dense GEMM) | `6757de65` | **120.0782** | **6.51605** |
 | R4 | 0,39,20,0 | second level of rate 1 (slope, not point) + **loaded** rate 2 (R3−R4) + unloaded rate 4 (R4−R1) | `afec358a` | TBD | TBD |
 
 ### A queue finding: the channel is not serialised, and heavy injections cost validation time
@@ -592,8 +592,8 @@ each rate; the other is the honest companion that bounds it.
 | 1 | " | **slope, 20→39 copies** | R2−R4 | 8606.71 MB / 489.62 GFLOP | TBD | TBD | TBD | TBD |
 | 2 | attention q/k/v/o QMV, decode | unloaded step | R2−R1 | 802.16 MB | 1.23070 ± 0.046 ms | **651.8 GB/s** | 1.2634 ms | 634.9 GB/s |
 | 2 | " | **loaded step** | R3−R4 | 802.16 MB | TBD | TBD | TBD | TBD |
-| 3 | attention q/k/v/o dense GEMM, prefill | **single level, 40 copies** | R3−R1 | 2852.13 MB / 1460.29 GFLOP | TBD | TBD | TBD | TBD |
-| 4 | routed-expert QMV, decode | **loaded step** | R3−R2 | 552.08 MB | TBD | TBD | TBD | TBD |
+| 3 | attention q/k/v/o dense GEMM, prefill | **single level, 40 copies** | R3−R1 | 2852.13 MB / 1460.29 GFLOP | 22.2139 ± 0.362 ms | **128.4 GB/s / 65.74 TFLOP/s** | 21.483 ms | 132.8 GB/s / 67.98 TFLOP/s |
+| 4 | routed-expert QMV, decode | **loaded step** | R3−R2 | 552.08 MB | 1.01067 ± 0.034 ms | **546.2 GB/s** | 0.9562 ms | 577.7 GB/s |
 | 4 | " | unloaded step | R4−R1 | 552.08 MB | TBD | TBD | TBD | TBD |
 
 Session normalisation multiplies each receipt's axis by the ratio of its own pinned
@@ -688,6 +688,72 @@ Note that this verdict depends on the seed-prefill amortisation correction. With
 and rate 2 reads **511.3 GB/s** — 16% off roofline, apparently **21% of the decode
 residual**. The correction is not cosmetic: it flips this rate's verdict.
 
+### Rate 3 — the prefill dense GEMM is at or above the machine's measured peak
+
+This is the biggest surprise in the series and it points the opposite way to rate 1.
+
+The 40 injected q/k/v/o projection GEMMs do 1460.29 GFLOP and cost **22.214 ± 0.362 ms**
+in the timed window. That is **65.74 TFLOP/s** — **117% of the 56 TFLOP/s** dense bf16
+figure this account measured on this host in #27, and *below* the 26.08 ms compute
+roofline that 56 TFLOP/s implies. The excess over its own roofline is **−3.87 ms**, so
+the block accounts for **nothing** of the prefill residual; on the brief's arithmetic
+its share is **−8.2%**, on the honest ~34 ms denominator **−11.4%**.
+
+A rate above the host's own measured peak is not a paradox, it is the `σ > 0` case my
+method note predicts, and there are exactly two readings:
+
+1. **#27's 56 TFLOP/s underestimates the machine's dense bf16 peak.** My #27 probe was
+   a synthetic dense GEMM at one shape; the real attention projections are large,
+   well-aligned, NAX-eligible GEMMs and may simply be better shaped for the hardware.
+2. **The injected compute-bound GEMMs absorb ALU capacity that is idle anyway.** The
+   unperturbed prefill pass spends ~29 ms DRAM-bound inside the routed gather-GEMM,
+   where the matrix units have nothing to do. Compute-dense work injected alongside it
+   is close to free.
+
+I cannot separate these with the receipts I have, and I am not going to pretend to.
+But **both readings remove this block from the suspect list**, and the second is itself
+a substantive result: it says prefill has *idle compute to absorb*, which is only
+possible if the axis is limited by memory and latency rather than by arithmetic. That
+is precisely the opposite of the brief's framing, which prices the whole prefill axis
+against a 50.5 ms compute roofline and treats the leftover as unexplained.
+
+Taken with rate 1 this is the sharpest result of the arm. The two blocks that between
+them own **87%** of prefill FLOP behave completely differently:
+
+| block | share of prefill FLOP | achieved | vs its own ceiling |
+| --- | ---: | ---: | --- |
+| attention q/k/v/o dense GEMM | 51.6% | 65.74 TFLOP/s | **at or above peak** |
+| routed-expert gather-GEMM (quantized) | 35.5% | 23.23 TFLOP/s | **67% of byte ceiling** |
+
+The dense path is fine. **The prefill deficit is specifically in the quantized routed
+path**, not in prefill GEMM efficiency generally, and not in the dense kernels.
+
+### Rate 4 — the routed decode QMV owns a small but real slice
+
+The 39 injected routed gate/up QMV + down-reduce copies move 552.08 MB and cost
+**1.011 ± 0.034 ms** measured in an already loaded step, i.e. **546.2 GB/s** = 90% of
+the 610 GB/s constant. Against its 0.905 ms roofline the excess is **+0.106 ms**, which
+is **7.9% of the 1.3337 ms decode residual** — real, the largest per-kernel decode
+share this arm found, and still small.
+
+#### A free internal validation, and it is the strongest one in the arm
+
+R3−R1 moves *both* decode blocks at once: 802.16 + 552.08 = **1354.24 MB** for
+**2.241 ± 0.031 ms** = **604.2 GB/s**, which is **99.0%** of the independently measured
+610 GB/s streaming constant. I did not design this check and it costs nothing, but it
+simultaneously confirms three things the whole arm rests on:
+
+- the **610 GB/s constant** from #27 is right, reproduced from a completely different
+  injection on a different day;
+- the **`S/128` decode correction** works, because R3 and R1 differ by 22 ms of prefill
+  and the corrected decode difference still lands on the physical constant;
+- the **injections really are cold**, because 1.35 GB of injected reads cannot run at
+  99% of the streaming DRAM rate out of cache — a cache hit would have shown a rate
+  far *above* 610, and a non-cold-but-contended read would have shown one far below.
+
+That last point is the property the mandatory gate was designed to test, and this is an
+independent confirmation of it on the ranked host itself rather than on M4.
+
 ## Evidence
 
 - Host, memory profile, toolchain, thermal policy: AWS EC2 Mac M4 Pro, 20 GPU
@@ -772,9 +838,20 @@ kernel's own bytes and FLOPs, and the byte term wins for every quantized block.
 | block | axis | in-situ cost | own roofline | excess | share of that axis's residual |
 | --- | --- | ---: | ---: | ---: | ---: |
 | routed gather-GEMM | prefill | 43.26 ms | 28.96 ms (DRAM) | **+14.30 ms** | **42.1%** of ~34 ms · 30.2% of 47.4 ms |
-| attention q/k/v/o dense GEMM | prefill | TBD | 26.08 ms (compute) | TBD | TBD |
+| attention q/k/v/o dense GEMM | prefill | 22.21 ms | 26.08 ms (compute) | **−3.87 ms** | **−11.4%** of ~34 ms · −8.2% of 47.4 ms |
 | attention q/k/v/o QMV | decode | 1.231 ms | 1.315 ms (DRAM) | **−0.084 ms** | **≈0%** (nominally −6.3%) |
-| routed-expert QMV | decode | TBD | 0.905 ms (DRAM) | TBD | TBD |
+| routed-expert QMV | decode | 1.011 ms | 0.905 ms (DRAM) | **+0.106 ms** | **+7.9%** of 1.3337 ms |
+
+Read the negative entries as "this block is not where the residual is", not as a
+credit against the positive ones — a marginal rate that beats its roofline is
+measuring absorbed slack, which does not subtract from another kernel's deficit.
+
+**The single-sentence version: of the two axes, prefill has one clearly guilty block
+and decode has none.** The routed gather-GEMM alone explains 42% of the prefill
+residual; the other three blocks together explain essentially none of either axis.
+That leaves ~58% of prefill and ~92% of decode in the un-injected remainder — RMSNorm,
+RoPE, SDPA, router top-k, the shared expert, embeddings, the LM head — and in the gaps
+between dispatches.
 
 Two denominators are carried for prefill because the assignment's 47.4 ms is built
 on a routed-only byte figure (440.0 MB x 39 = 17,159.7 MB) that omits attention,
