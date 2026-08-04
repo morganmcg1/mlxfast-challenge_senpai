@@ -16,6 +16,14 @@ reconstruction penalty is accounted for. No receipt was spent (the submission
 slot was held); the mechanism is ready for a ranked pair whenever the advisor
 schedules one.
 
+**Read this too.** The rung ran into the trusted per-file editable-surface byte
+cap: the frontier `LagunaRuntimeModel.swift` was 15,759 bytes below a hard
+524,288 limit, and this work needed 24,104. It now fits with 7,722 bytes spare
+(`swift test` 454/454), but only because both research instruments were deleted
+from the surface and the packing code moved into `LagunaRuntimeWeights.swift`.
+See "Editable-surface byte budget" below -- the next student to touch that file
+needs a plan for it.
+
 ## Mechanism
 
 The uint8 E4M3 scale plane is exactly 1/9 of every NVFP4 stream. For the four
@@ -151,6 +159,41 @@ difference. It did bias the *between-process* screens against the candidate,
 because the kill-switch arm skipped the call entirely. The pure screen above
 was run after the fix, on the shipped code.
 
+### Editable-surface byte budget (hard gate, hit by this rung)
+
+`swift test` catches this before the official run does:
+`staticReviewKernelPolicyAndLaunchBudgetCoverEnlargedSurface`
+(`Tests/MLXFastTests/BenchmarkScriptTests.swift`) pins
+`EditableSurfaceByteBudget.defaultMaxFileBytes == 524_288` **per editable
+file**, and `Sources/MLXFastCLI/main.swift` enforces the same budget
+fail-closed for official runs. The promoted frontier already spends 508,529 of
+those bytes on `Sources/MLXFastModel/LagunaRuntimeModel.swift`, so the whole
+programme has **15,759 bytes of headroom in that one file**. This rung's
+mechanism plus its two research instruments was 24,104 bytes: 8,345 over the
+cap, i.e. unrankable until shrunk. The same test also pins
+`fileCount == 142`, so moving code into a *new* editable file breaks a trusted
+expectation and is not an option.
+
+Remediation (`419f3b6`), none of which touches a kernel or a dispatch guard:
+
+| action | bytes |
+| --- | --- |
+| removed the init-time scale census (recoverable from `2c1d72d`; numbers in `research/frieren-pr35-scale-census.md`) | -6,987 |
+| removed the in-process parity alternator (recoverable from `ad00688`; its A/B is reported above) | -1,353 |
+| moved packing + reconstruction certificate + log into the existing `LagunaRuntimeWeights.swift` | -6,757 |
+| final `LagunaRuntimeModel.swift` | 516,566 (7,722 under the cap) |
+
+The generated Metal source and every guard are unchanged by that commit, so the
+-67.6 us/step measured at `7428d6c` describes the submitted tree; the 32-step
+probe was re-run after the move (0 divergences, both sites `built`, median
+8.472 ms/step), and `swift test --force-resolved-versions` is back to 454/454.
+
+Programme note: the cheapest way to restore headroom on this file is to retire
+research code that is no longer measuring anything. The PR #27
+`M5 HARDWARE-CONSTANT INSTRUMENT` block is 12,134 bytes of deliberately
+tree-slowing measurement code still sitting in the scored file; deleting it
+would buy back more than this whole rung spends.
+
 ## Correctness
 
 | gate | result |
@@ -162,21 +205,50 @@ was run after the fix, on the shipped code.
 | init-time reconstruction check | MLX round trip requires `(decoded != scales).sum() == 0` per bank; a failing bank is discarded and the site falls back to the stock plane |
 | certificate fault injection (`research/frieren_pr35_fault.sh`) | with one nibble-plane bit flipped before the check, all 80 banks logged `declined (reconstruction mismatch)`, all four dispatch shapes logged `inactive`, and the 32-step probe still had 0 divergences; the control arm on the same worker built all 80 banks and logged `active` |
 | `peak_ram_gb` | 20.7190 (OFF) -> 20.7213 (ON); MLX active 33.38 -> 33.44 GB |
+| 32-step probe after the byte-budget shrink (`419f3b6`) | 0 divergences; `narrow-scales built: qkv` and `: oproj` at init; median 8.472 ms/step |
+| `swift test --force-resolved-versions` | 454/454 in 6 suites (the budget test fails without `419f3b6`) |
 
 ## Suggested follow-ups (not implemented)
 
-1. **Lane-major scale layout.** In the q/k/v QMV lane `l` reads groups
-   `l, l+32, l+64, l+96`: four separate byte loads per row. Storing the plane
-   lane-major turns them into one aligned `uchar4` load with identical bytes
-   and no span requirement -- a pure permutation. o_proj reads 12-16 groups per
-   lane, so it collapses 12-16 loads into 3-4. This is the direct antidote to
-   the +43 us the current three-plane reconstruction pays.
-2. **4-bit lane-major with a per-row base.** The census row spans give
-   `row_le15` = 0.9944 / 0.9864 / 0.9958 / 0.9814 for q/k/v/o, so ~98-99.6% of
-   rows fit a 4-bit index plus one uint8 row base; the rest escape to the
-   already-resident stock plane on a simdgroup-uniform branch. 65 B vs 128 B
-   per row is -49% of attention scale traffic (-43.7 MB/step) at *two* loads
-   per row instead of four: roughly twice this rung's win.
+Ranked with a read-only design review of the two kernels. The important
+correction to my earlier ranking: the stock scale plane is **already** streamed
+once per step in fully-consumed 128 B lines (the q/k/v scale row is exactly
+128 B at stride 128, so lane `l`'s four byte loads all hit one line), so a
+lane-major layout saves *loads and pointer arithmetic*, not DRAM bytes.
+
+1. **4-bit lane-major index with a per-row base and a sentinel escape**
+   (best next rung, ~ -70..-90 us/step). The census row spans give `row_le15`
+   = 0.9944 / 0.9864 / 0.9958 / 0.9814 for q/k/v/o, so 98.1-99.6% of rows fit a
+   4-bit index plus one uint8 row base: 65 B vs 128 B per row, -12.4 MB/step
+   net of escapees (-43.7 MB gross, ~+1 MB for the escaping rows, which re-read
+   their stock row). Encode the escape as a **sentinel base byte** (`0xFF`;
+   real bases are row minima of codes <= 41) rather than a flag plane, so no
+   extra load or address stream appears. The escape predicate is
+   simdgroup-uniform in both kernels -- the q/k/v row is a function of
+   `simd_gid`, and all 32 o_proj lanes share `row` in each inner iteration --
+   so it hoists out of the q/k/v k-loop entirely and never diverges. Packed
+   lane-major it also *reduces* work versus the shipped narrow arm: one
+   `ushort` (four nibbles) plus the base byte loaded once before the q/k/v
+   loop, then `sbits = base + (rec & 0xF); rec >>= 4;` -- two loads per row
+   against this rung's twelve and stock's four, and ~2 ALU/group against ~6.
+   That is the direct antidote to the +43 us reconstruction penalty measured
+   here, on top of a larger byte win. Watch o_proj register pressure (4 row
+   records + 4 bases hoisted); reloading the L1-hot record per iteration is a
+   fallback that keeps every byte saving.
+2. **Lane-major permutation of the three planes shipped here** (-15..-30 us,
+   low risk, useful only if (1) is deferred): 3 hoisted loads per row instead
+   of 12, same 84 B/row, certificate identical modulo a permuted index. All
+   strides (64/16/4 B) stay 4-byte aligned.
 3. **Routed/shared planes.** MoE scales are 66 MB/step. Their blk32 spans reach
-   39, so they need the escape path from (2) rather than this rung's
-   escape-free envelope.
+   39, so they need the escape path from (1) rather than this rung's
+   escape-free envelope; re-census the fused per-layer routed banks first,
+   because the 0.4-1.9% attention escape rate is not evidence about them.
+4. **Rejected by the same review, recorded so nobody re-tries them.**
+   Replacing the narrow bank with a lane-major *stock* plane is a
+   +60..+100 us regression (it forfeits the byte win to recover at most the
+   +43 us overhead). Interleaving scales next to codes saves zero bytes (the
+   lines are already fully consumed), breaks the 8 B alignment of the `uint2`
+   code loads, and would have to duplicate the ~713 MB code plane because
+   prefill and the MLX fallback need the standard layout. A single interleaved
+   lane-major 5-bit stream inflates to >= 96 B/row because the 5th bits and
+   bases are shared across lanes -- more bytes in a byte-bound kernel.
