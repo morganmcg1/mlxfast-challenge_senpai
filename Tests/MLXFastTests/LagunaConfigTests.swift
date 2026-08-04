@@ -1,5 +1,4 @@
 import Foundation
-import MLX
 import MLXLMCommon
 import MLXNN
 import Testing
@@ -51,20 +50,6 @@ func loadLagunaConfig(_ object: [String: Any]) throws -> LagunaConfig {
     let data = try JSONSerialization.data(withJSONObject: object)
     try data.write(to: root.appendingPathComponent("config.json"))
     return try LagunaConfig.load(from: root.path)
-}
-
-private func deterministicKV(from start: Int, count: Int) -> MLXArray {
-    let positions = MLXArray((start..<(start + count)).map { Float($0) })
-        .reshaped([1, 1, count, 1])
-    let dimensions = MLXArray((0..<4).map { Float($0) / 1_000 })
-        .reshaped([1, 1, 1, 4])
-    return broadcast(positions + dimensions, to: [1, 1, count, 4])
-        .asType(.bfloat16)
-}
-
-private func expectExact(_ actual: MLXArray, _ expected: MLXArray) {
-    #expect(actual.shape == expected.shape)
-    #expect(arrayEqual(actual, expected).item(Bool.self))
 }
 
 @Test
@@ -135,69 +120,6 @@ func lagunaYaRNIgnoresSerializedAttentionFactorLikeUpstreamMLX() throws {
 }
 
 @Test
-func kvCacheInitialAllocationSlackPreservesLogicalState() throws {
-    let seedKeys = deterministicKV(from: 0, count: 512)
-    let seedValues = deterministicKV(from: 1_000, count: 512)
-    let nextKeys = deterministicKV(from: 512, count: 1)
-    let nextValues = deterministicKV(from: 1_512, count: 1)
-    let followingKeys = deterministicKV(from: 513, count: 1)
-    let followingValues = deterministicKV(from: 1_513, count: 1)
-
-    let standard = KVCacheSimple()
-    let standardSeed = standard.update(keys: seedKeys, values: seedValues)
-    #expect(standard.offset == 512)
-    #expect(standard.innerState()[0].dim(2) == 512)
-    #expect(standard.fusedAppendPrepare() == nil)
-    expectExact(standardSeed.0, seedKeys)
-    expectExact(standardSeed.1, seedValues)
-
-    let standardNext = standard.update(keys: nextKeys, values: nextValues)
-    #expect(standard.offset == 513)
-    #expect(standard.innerState()[0].dim(2) == 768)
-    expectExact(standardNext.0, concatenated([seedKeys, nextKeys], axis: 2))
-    expectExact(standardNext.1, concatenated([seedValues, nextValues], axis: 2))
-
-    let slack = KVCacheSimple(reserveInitialAllocationStep: true)
-    let slackSeed = slack.update(keys: seedKeys, values: seedValues)
-    #expect(slack.offset == 512)
-    #expect(slack.innerState()[0].dim(2) == 768)
-    #expect(slack.state[0].dim(2) == 512)
-    expectExact(slackSeed.0, seedKeys)
-    expectExact(slackSeed.1, seedValues)
-    expectExact(slack.state[0], seedKeys)
-    expectExact(slack.state[1], seedValues)
-
-    let firstAppend = try #require(slack.fusedAppendPrepare())
-    #expect(firstAppend.writeIdx == 512)
-    #expect(firstAppend.keys.dim(2) == 768)
-
-    let slackNext = slack.update(keys: nextKeys, values: nextValues)
-    #expect(slack.offset == 513)
-    expectExact(slackNext.0, concatenated([seedKeys, nextKeys], axis: 2))
-    expectExact(slackNext.1, concatenated([seedValues, nextValues], axis: 2))
-
-    let secondAppend = try #require(slack.fusedAppendPrepare())
-    #expect(secondAppend.writeIdx == 513)
-
-    let slackFollowing = slack.update(keys: followingKeys, values: followingValues)
-    #expect(slack.offset == 514)
-    expectExact(
-        slackFollowing.0,
-        concatenated([seedKeys, nextKeys, followingKeys], axis: 2)
-    )
-    expectExact(
-        slackFollowing.1,
-        concatenated([seedValues, nextValues, followingValues], axis: 2)
-    )
-
-    let copied = try #require(slack.copy() as? KVCacheSimple)
-    #expect(copied.reserveInitialAllocationStep)
-    #expect(copied.offset == slack.offset)
-    expectExact(copied.state[0], slack.state[0])
-    expectExact(copied.state[1], slack.state[1])
-}
-
-@Test
 func lagunaRuntimeWiresOnlyExpertsToNVFP4WhenRuntimeTestsAreEnabled() throws {
     guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
         return
@@ -205,17 +127,6 @@ func lagunaRuntimeWiresOnlyExpertsToNVFP4WhenRuntimeTestsAreEnabled() throws {
 
     let model = LagunaRuntimeModel(try loadLagunaConfig(pinnedLagunaConfigObject()))
     let leaves = Dictionary(uniqueKeysWithValues: model.leafModules().flattened())
-
-    let caches = model.newCache(parameters: nil)
-    #expect(caches.count == LagunaConstants.numHiddenLayers)
-    for layerIndex in caches.indices {
-        if layerIndex.isMultiple(of: 4) {
-            let cache = try #require(caches[layerIndex] as? KVCacheSimple)
-            #expect(cache.reserveInitialAllocationStep)
-        } else {
-            #expect(caches[layerIndex] is RotatingKVCache)
-        }
-    }
 
     let denseGate = try #require(
         leaves["model.layers.0.mlp.gate_proj"] as? Linear

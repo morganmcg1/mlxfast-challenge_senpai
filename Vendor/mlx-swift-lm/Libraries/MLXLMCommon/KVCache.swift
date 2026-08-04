@@ -330,12 +330,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     public var step = 256
     public let reserveInitialAllocationStep: Bool
 
-    public override init() {
-        self.reserveInitialAllocationStep = false
-        super.init()
-    }
-
-    public init(reserveInitialAllocationStep: Bool) {
+    public init(reserveInitialAllocationStep: Bool = false) {
         self.reserveInitialAllocationStep = reserveInitialAllocationStep
         super.init()
     }
@@ -348,27 +343,22 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
         let previous = self.offset
         let tokenCount = keys.dim(2)
 
-        // Retain exact-boundary initial inputs directly unless the caller
-        // explicitly requests one physical allocation step of decode slack.
-        // The returned arrays and logical state remain prompt-length.
         if self.keys == nil, previous == 0, tokenCount > 0,
             tokenCount.isMultiple(of: step)
         {
             if reserveInitialAllocationStep {
-                let B = keys.dim(0)
-                let kvHeads = keys.dim(1)
-                let kHeadDim = keys.dim(3)
-                let vHeadDim = values.dim(3)
-                let kSlack = MLXArray.zeros(
-                    [B, kvHeads, step, kHeadDim],
-                    dtype: keys.dtype
-                )
-                let vSlack = MLXArray.zeros(
-                    [B, kvHeads, step, vHeadDim],
-                    dtype: values.dtype
-                )
-                self.keys = concatenated([keys, kSlack], axis: 2)
-                self.values = concatenated([values, vSlack], axis: 2)
+                self.keys = concatenated([
+                    keys,
+                    MLXArray.zeros(
+                        [keys.dim(0), keys.dim(1), step, keys.dim(3)], dtype: keys.dtype
+                    ),
+                ], axis: 2)
+                self.values = concatenated([
+                    values,
+                    MLXArray.zeros(
+                        [values.dim(0), values.dim(1), step, values.dim(3)], dtype: values.dtype
+                    ),
+                ], axis: 2)
             } else {
                 self.keys = keys
                 self.values = values
