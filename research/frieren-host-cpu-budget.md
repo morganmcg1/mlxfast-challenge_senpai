@@ -1,7 +1,27 @@
 # Per-step host-CPU budget for the steady one-token decode step
 
 Arm `maple-2026-08-04c-host-cpu-reduction`, PR #14, branch
-`maple-frieren/host-cpu-reduction`, `BASE_SHA=51d6a1bd`.
+`maple-frieren/host-cpu-reduction`. Measured at `BASE_SHA=51d6a1bd`; rebased at
+r2 onto `aecc470e` (nezuko's #12), where the diff over `editablePaths` is
+**empty**.
+
+**This arm ships no scored change.** Four things it produced are the
+deliverable, in descending order of usefulness to a future student:
+
+1. **The host-CPU axis is closed, with a mechanism.** In-loop host CPU is
+   provably absorbed; only the step-head serial region is exposed. Section 2.
+2. **The ~190 MB KV re-request suspect is refuted** by a context-slope method
+   that needs no per-dispatch byte counter. Section 7.
+3. **The full-attention path is the least bandwidth-efficient stream in the
+   step** — 58.2% of peak against a 78.6% step average, capped at 16.9 MB/step.
+   Section 8.
+4. Caveats: the command-buffer count here is not the ranked count (section 5),
+   and the upstream-equivalence oracle's metallib failure is a host issue that
+   reproduces on the unchanged base (section 9).
+
+The two mechanisms that were implemented and measured — a kernel-source
+minifier and an output-descriptor literal hoist — were **dropped at r2** and are
+kept here only as a measured negative result (section 3, section 4).
 
 Host: Mac16,11 M4 Pro, 48 GiB, low-memory startup profile. **Not** the ranked
 M5 Max. Absolute timings do not transfer; the ratios and the overlap structure
@@ -47,12 +67,26 @@ running samples:
 | `MLXFastKernel` apply glue | 3.2% |
 | slicing | 1.5% |
 
-## 2. Overlapped versus critical path
+## 2. Overlapped versus critical path — the spin-injection experiment
 
 This is the decisive part of the budget, and it inverts the premise of the arm.
 
-An `@inline(never)` spin loop with a global sink and self-validating counters was
-injected at two sites and swept:
+**Headline, stated once so nobody has to re-derive it: injecting 2.0 ms per step
+of extra host CPU inside the decoder-layer loop *reduced* wall time from
+8.903 ms to 8.669 ms per step — it was fully absorbed. The identical spin
+injected at the step head, before the first dispatch, passed through at 1:1
+(0.90-0.96 of the injected time appeared in wall). Therefore
+`wall ~= head_host_latency + GPU_total`, and in-loop host CPU is free.**
+
+The consequence for future arms: do not spend an arm shaving host work that
+happens between the first and last dispatch of a step. It cannot pay. The only
+host time that can pay is the serial region at the step head, measured at
+0.29-0.32 ms here.
+
+Method. An `@inline(never)` spin loop with a global sink and self-validating
+counters was injected at two sites and swept. The counters confirm the spin
+actually executed and was not optimised away; the sink prevents dead-code
+elimination. Both sites were reverted before any timing run that feeds a score.
 
 **Per decoder layer, inside the layer loop (40 calls per step):**
 
@@ -116,13 +150,23 @@ neither is `backend/metal/device.cpp`, `Source/MLX/MLXFastKernel.swift`, or
 That leaves exactly two levers on this path from inside the editable surface:
 source **bytes** and apply **count**.
 
-### Source bytes: measured elasticity
+### Source bytes: measured elasticity (implemented, measured, then DROPPED)
 
-A minifier now strips comments, blank lines, indentation, redundant intra-line
-spacing and unnecessary newlines from every kernel source and header once at
-construction (`Sources/MLXFastModel/LagunaRuntimeModel.swift`,
+A minifier was written that strips comments, blank lines, indentation, redundant
+intra-line spacing and unnecessary newlines from every kernel source and header
+once at construction (`Sources/MLXFastModel/LagunaRuntimeModel.swift`,
 `lagunaMinifiedKernelSource`). Every runtime kernel is built through
-`lagunaMetalKernel`, so no construction site can keep the unstripped form.
+`lagunaMetalKernel`, so no construction site could keep the unstripped form.
+Because MLX's JIT library and pipeline caches key on the kernel **name** and not
+on the source, every minified kernel also had to take a `_min` name suffix or a
+stale full-source entry would alias it.
+
+**It is not in the tree.** It was reverted at r2 on the advisor's instruction:
+`T` moved 0.0% +- 0.2%, its priced value is <= 0.108% of score against a 0.303%
+measurement floor, its only real benefit was +9,192 B of surface headroom out of
+~67,056 B nobody is near exhausting, and it would have taxed every future kernel
+edit by any student with a minifier round-trip and a `_min` suffix. The numbers
+below are why the mechanism class is capped, and are the durable part.
 
 | version | static kernel bytes | reduction |
 | --- | ---: | ---: |
@@ -156,13 +200,14 @@ the editable surface reduces the fixed per-apply cost, so the remaining host-CPU
 levers are all "issue fewer applies", which is dispatch fusion, not host-side
 bookkeeping.
 
-## 4. Small allocation items
+## 4. Small allocation items (also DROPPED at r2)
 
 `outputShapes` and `outputDTypes` literals are heap-allocated per apply. The 37
 dtype literals and the 10 shape literals whose widths are fixed by
-`LagunaConstants` are now hoisted into `LagunaKernelOutput`, removing roughly a
-thousand allocation/release pairs per step. This is inside the noise of the
-counters above and is included in the v3 measurement.
+`LagunaConstants` were hoisted into `LagunaKernelOutput`, removing roughly a
+thousand allocation/release pairs per step. The effect is inside the noise of the
+counters above and is included in the v3 measurement, so it cannot be separated
+from the minifier; it was reverted with it.
 
 Items checked and **dropped** as already free:
 
@@ -331,8 +376,139 @@ fixed per-step over-read would be invisible to it. Second, sweep B's total KV
 footprint is 7-66 MB, low enough that system-level cache may absorb part of a
 re-read and understate the sliding-family slope, so the 1.18x sliding bound is
 weaker than the 1.72x full-attention bound, which was measured out to 252 MB
-with no curvature. The full-attention path is the less bandwidth-efficient of
-the two (58.2% of peak, against 78.6% for the step as a whole) and is where any
-remaining amplification would live, but even attributing all of its shortfall to
-wasted bytes caps it at 16.9 MB per step, about 0.6% of score.
+with no curvature.
+
+### Reusing this method
+
+There is no per-dispatch DRAM byte counter on Apple Silicon that can be
+attributed to one MLX custom kernel, so this slope method is the substitute.
+The recipe, in case another arm needs it:
+
+1. Find two configurations of the same step where the byte stream you care about
+   scales with a knob you control, and everything else does not. Here the knob is
+   context length, and the 512-token sliding window is what makes the two
+   attention families separable.
+2. Sweep the knob over a lever arm large enough that the slope beats the
+   per-process offset noise, which here is ~30 us per point and is dominated by
+   between-process variation rather than by within-run averaging. Sweep A got
+   +-25 ns/pos from 1024-position gaps; sweep B got only +-250 ns/pos from
+   100-position gaps and needed 16 runs to reach +-56 ns/pos.
+3. Order replicates palindromically (a, b, c, d, d, c, b, a) so monotone thermal
+   drift cancels within each knob value.
+4. Check the pairwise slopes for curvature before fitting. Curvature means a
+   cache-residency effect is contaminating the fit.
+5. Convert ns to bytes with two yardsticks: the achieved step-average bandwidth
+   for a like-for-like number, and the measured peak for a strict upper bound
+   (peak bills latency and occupancy loss as bytes, so it can only overstate
+   waste).
+
+## 8. Replacement finding: full attention is the least efficient byte stream
+
+The same two slopes that refute the KV suspect also say where the residual
+inefficiency actually is. One position of one layer is 4096 B of logical KV
+(8 KV heads * 128 headDim * 2 for K and V * 2 bytes BF16). At this host's
+measured peak of 260.2 GB/s that is `4096 / 260.2e9 =` **15.74 ns**. Against the
+measured slopes:
+
+| stream | measured ns/pos/layer | ideal at peak | efficiency |
+| --- | ---: | ---: | ---: |
+| full attention (10 layers) | 27.03 | 15.74 | **58.2%** |
+| sliding window (30 layers) | 18.61 | 15.74 | 84.6% |
+| whole step, for reference | 1.794 GB / 8.769 ms = 204.6 GB/s | 260.2 GB/s | 78.6% |
+
+So the full-attention layers run at 58.2% of peak while the step as a whole runs
+at 78.6%, and the sliding layers — which carry *more* query heads, 64 against
+48 — run at 84.6%. Whatever is left to win in the KV stream is in the
+full-attention path, not the sliding path.
+
+The cap on it, stated so nobody oversells it. At the benchmark's average decode
+context of 576, full-attention logical KV is `10 * 576 * 4096 = 23.59 MB`. Its
+strict upper-bound amplification is `7034 / 4096 = 1.717x`, so the most that can
+be wasted is `23.59 * 0.717 =` **16.9 MB per step** = 0.94% of the 1794 MB step
+budget = **~0.60% of score** at the steady-step elasticity of 0.638. That is
+above the 0.303% score floor and so is measurable, but it is a bounded target,
+and the bound assumes every non-ideality in that stream is a wasted byte rather
+than latency or occupancy loss — the real prize is smaller.
+
+## 9. The upstream-equivalence oracle and the metallib failure — answered
+
+The r1 report said the oracle "could not run here (MLX metallib load failure)".
+The advisor asked whether that failure also occurs on the unchanged base. It
+does, and the oracle does run once the documented workaround is applied.
+
+Evidence, taken at r2 on this branch tip, whose diff over `editablePaths` against
+base `aecc470e` is **empty** — so this *is* the unchanged base:
+
+- `research/run_upstream_equivalence.sh` first invokes the bare
+  `swift test --filter lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`, and
+  copies `mlx.metallib` into the debug test bundle **only** inside its
+  `grep -q "Failed to load the default metallib"` branch. After the r2 run both
+  `.build/arm64-apple-macosx/debug/mlx.metallib` and the copy inside
+  `mlxfast-challenge-devPackageTests.xctest/Contents/MacOS/` carry that run's
+  timestamp, which proves the fallback fired, i.e. **the load failure occurred on
+  a tree with no scored change at all**.
+- Cause, already documented by nezuko
+  (`research/nezuko-decode-roofline.md`, interim 12): the debug test bundle has
+  no colocated `mlx.metallib`; MLX's lookup
+  (`Vendor/mlx-swift/.../backend/metal/device.cpp:164-215`) tries the colocated
+  path, a SwiftPM bundle, a framework and the compile-time `METAL_PATH`, then
+  throws; and `get_metallib_path()` (`backend/metal/metal.cpp:55-61`) is only
+  settable in-process, so there is no environment override. It is a property of
+  `swift test`, not of any source edit.
+- The minifier therefore never broke the AOT metallib build, and could not have:
+  it rewrote only JIT kernel source *strings* held in Swift
+  (`LagunaRuntimeModel.swift`, `LagunaLmHeadPrune.swift`) and touched no
+  `Vendor/` Metal source, so the AOT metallib inputs were byte-identical. The r1
+  wording was wrong on the facts available and should not have been reported as a
+  can't-run.
+
+Oracle result on the r2 tip, after the metallib is seeded (worker and metallib
+rebuilt in the same session against the merged `Vendor/` tree, so the AOT library
+is coherent with #12):
+
+| step | max abs logit err | mean abs logit err | runtime token | upstream token |
+| --- | ---: | ---: | --- | --- |
+| prefill | **0.125** | 0.011933609 | 5991 | 5991 |
+| decode-0 .. decode-7 | **0** | **0** | 509/902/5991 cycling | identical |
+
+`EQUIVALENCE_EXACT_STEPS=8`, `EQUIVALENCE_EXIT=1`. The non-zero exit is the
+oracle's zero tolerance being applied to prefill as well as decode; the batched
+NVFP4 prefill path cannot meet it against the BF16 upstream reference. This is
+the same pre-existing 0.125 nezuko recorded on an earlier base. **Every decode
+step is bit-exact and every token matches.**
+
+Recorded as a known local limitation: on an M4 Pro host, the oracle requires
+seeding `mlx.metallib` into the debug test bundle from
+`.build-worker/arm64-apple-macosx/release/`, and it exits 1 on prefill tolerance
+regardless of the candidate. Read the per-step table, not the exit code.
+
+## 10. r2 gates, and how to re-run the probes
+
+Gates on the r2 tip, whose `editablePaths` diff against `aecc470e` is empty:
+
+| gate | result |
+| --- | --- |
+| `git diff aecc470e -- Sources Vendor` | empty |
+| `swift test --force-resolved-versions` | **454/454 passed**, exit 0; `Package.resolved` restored |
+| `./benchmark.sh --local-iterate` | `passed: true`, `max_abs_diff: 0`, `peak_ram_gb: 21`, decode floor true; decode -0.0% and prefill +0.1% against the recorded baseline artifact, i.e. a no-op as expected |
+| `research/run_upstream_equivalence.sh` | 8/8 decode steps exact, prefill 0.125 pre-existing (section 9) |
+
+The `--local-iterate` prefill floor fails here on this tree *and* on the
+unchanged base: the pinned baseline artifact carries M5-class prefill seconds,
+which an M4 Pro cannot match. It is a host artifact, not a candidate signal.
+
+The two probe scripts are kept as the record of the method, not as runnable
+tools on a clean tree:
+
+- `research/frieren_host_cpu_probe.py` drives
+  `.build-worker/release/mlxfast-runtime-worker runtime-worker` over its JSON
+  protocol with an explicit seed length and warmup/measure split. This part
+  works against an unmodified tree and is what produced both context sweeps.
+- `research/frieren_host_cpu_arms.sh` additionally sets
+  `DARKBLOOM_DECODE_HOST_CPU`, `DARKBLOOM_DECODE_HOST_SPIN_US` and
+  `DARKBLOOM_DECODE_HOST_SPIN_HEAD_US`. **Those variables no longer exist**: the
+  CPU-clock instrumentation and the spin injection were reverted before every
+  timing run (commit `57cba8d` on the r1 history), as the assignment required.
+  Re-running section 2 means re-adding the instrumentation first; the script
+  documents the arm structure and the sweep values, not a live entry point.
 
