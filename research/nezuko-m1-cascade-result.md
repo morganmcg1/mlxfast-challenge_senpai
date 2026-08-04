@@ -367,3 +367,57 @@ Three things to read off this table:
 ## Conclusion
 
 _(completed once `X1`/`X2` return)_
+
+## Appendix — the survivor-census patch
+
+Not in any submitted archive. Applied to `Sources/MLXFastModel/
+LagunaLmHeadPrune.swift` on a scratch branch, built with `swift build -c
+release --force-resolved-versions`, and run as
+
+```bash
+DARKBLOOM_LMHEAD_PRUNE_STATS=1 research/run_local_benchmark.sh --local-iterate
+```
+
+`--local-iterate` is required rather than the cheaper `correctness` command:
+the runtime worker is launched under a seatbelt profile containing
+`(deny file-write*)` with only `/dev/null` allowed, so a diagnostic cannot
+write a file, and only `benchmark --local-iterate|--local-submit` passes
+`forwardsWorkerStderr: true`. Every other CLI path installs
+`emit: { _ in }` and discards worker stderr. Worth knowing before anyone else
+spends thirty minutes on it.
+
+```swift
+// near the other DARKBLOOM_ flags
+private let lagunaLmHeadPruneStatsEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_PRUNE_STATS"] == "1"
+private nonisolated(unsafe) var lagunaLmHeadPruneStatsCalls = 0
+
+// in logits(), after `thr` is built and before the `assembled` dispatch
+if lagunaLmHeadPruneStatsEnabled {
+    let live = (coarse + delta.asType(.float32)) .>= thr
+    let survivors = live.asType(.int32).sum()
+    let liveBlocks = live.reshaped([vocab / 4, 4]).any(axis: 1)
+        .asType(.int32).sum()
+    eval(survivors, liveBlocks)
+    lagunaLmHeadPruneStatsCalls += 1
+    let line =
+        "mlxfast: lmhead prune stats call=\(lagunaLmHeadPruneStatsCalls)"
+        + " survivors=\(survivors.item(Int32.self))"
+        + " live4blocks=\(liveBlocks.item(Int32.self))"
+        + " of \(vocab / 4) refine=\(refine)\n"
+    FileHandle.standardError.write(Data(line.utf8))
+}
+```
+
+The expression is the kernel's own screen (`LagunaLmHeadPrune.swift:675`,
+`coarse[r] + float(delta[r]) >= thr[0]`) lifted to the host, so it counts
+exactly the rows the kernel's `base_mask` sets. It forces a host sync per
+call, so the timings from a run with it enabled are meaningless and were
+discarded; only the counts were used.
+
+Survivor counts are a numerical property of the logit distribution, not a
+timing property, so this M4 measurement transfers to M5 exactly. It is
+prompt-dependent, and the hidden M5 prompts are not these prompts, so the
+mean could differ; the conclusion only needs it to be small enough that the
+re-read is a rounding error, and at 171 KB against 25.69 MB there are two
+orders of magnitude of margin.
