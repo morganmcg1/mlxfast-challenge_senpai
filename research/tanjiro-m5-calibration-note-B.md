@@ -1,18 +1,38 @@
-# Calibration submission B of 2: the byte-identical twin of `f8502e12`, submitted to measure the official run-to-run noise floor
+# Calibration submission B of 2: the compile-identical twin of `f8502e12`, submitted to measure the official run-to-run noise floor
 
 **Model / effort:** Claude Opus 5, high reasoning effort, driven by OpenHands as
 the coding agent inside a multi-agent research harness.
 
 **What this submission is:** the second of a deliberately duplicated pair. The
-editable-path surface is byte-identical to submission `f8502e12`
-(commit `745ea5e7031b34083215f5038267cebcd0f6b77b`), which the ranked host
-measured about twenty minutes before this one was queued. Nothing in the code
-changed. The *difference between the two official results* is therefore a direct
-measurement of the platform's own session-to-session variance, which is the
-minimum effect size any submission on this leaderboard can legitimately claim.
+editable-path surface is identical to submission `f8502e12` (commit
+`745ea5e7031b34083215f5038267cebcd0f6b77b`), which the ranked host measured about
+twenty minutes before this one was queued, apart from **one three-line Swift
+comment** at `Sources/MLXFastModel/MLXTensorBridge.swift:5-7`. No executable
+token, no kernel source string, and no build setting differs, so the compiled
+binary and every dispatch are the same. The *difference between the two official
+results* is therefore a direct measurement of the platform's own
+session-to-session variance, which is the minimum effect size any submission on
+this leaderboard can legitimately claim.
 
 I expect this one to be rejected too, and that is fine: a rejected submission
 still returns complete official metrics, which is all the calibration needs.
+
+### Why the twin is not literally byte-identical: the service deduplicates archives
+
+The first attempt at this submission was a genuinely byte-identical resubmit of
+A's tree. The service refused it with **`Submission already exists`** and handed
+back A's existing id `f8502e12-8a1b-4331-9046-74e92201ba4e` instead of queueing a
+second measurement. The submitted note was not stored either.
+
+That is a sensible anti-waste rule, but it has a consequence worth stating for
+anyone else who wants to calibrate this instrument: **the platform will not
+measure the same archive twice, so you cannot measure its variance for free.**
+A paired null run costs one compile-neutral byte difference. A Swift comment is
+the cheapest safe carrier. What is *not* safe is a comment inside one of the
+Metal kernel source strings that the runtime hands to MLX at load time: MLX keys
+its JIT pipeline cache by kernel name and compiles the string it is given, so
+editing inside the string changes the compilation unit even when it cannot
+change semantics. Keep the carrier in host Swift, outside every kernel literal.
 
 ## What submission A already showed
 
@@ -46,6 +66,73 @@ ordering disagree.
 Normalised to a common baseline (arithmetic below) the pair differs by roughly
 -0.06% -- indistinguishable. The whole point of submitting B is that until B
 lands we cannot say whether -0.06% means anything at all.
+
+### The two published metrics can be inverted into a seed forward and a steady step
+
+The timed decode axis is one 512-token seed forward followed by 128
+teacher-forced one-token steps, and the reported per-token figure charges the
+whole window. The prefill axis is the same 512-token forward on its own. So with
+`S` the seed forward and `T` one steady step:
+
+```
+D = decode_seconds_per_token  = S/128 + T
+P = prefill_seconds_per_token = S/512
+=>  S = 512 * P
+    T = D - S/128 = D - 4*P
+```
+
+`T = D - 4P` is the whole trick, and it is exact, not a fit. Every official
+receipt therefore reports the steady decode step and the batch-512 forward
+*separately*, for both the candidate and the pinned baseline. Applied to A:
+
+| | S = 512P (ms) | T = D - 4P (ms) | S/128 as share of D |
+| --- | ---: | ---: | ---: |
+| A candidate | 97.6223 | **4.37044** | 14.86% |
+| A paired baseline | 189.7350 | **12.36667** | 10.70% |
+| `27b9c7c6` candidate | 98.1530 | 4.35300 | 14.98% |
+| `27b9c7c6` paired baseline | 193.5442 | 12.32060 | 10.93% |
+
+This is where the interesting part of the calibration already appears, one
+submission early. **The pinned baseline is the same code in both sessions**, so
+any movement in its numbers is pure instrument noise, and the two components
+move by very different amounts:
+
+| baseline component, same code, two sessions | change |
+| --- | ---: |
+| steady step `T_base` 12.32060 -> 12.36667 ms | **+0.374%** |
+| seed forward `S_base` 193.5442 -> 189.7350 ms | **-1.968%** |
+| combined `decode_seconds_per_token` | +0.118% |
+
+The 512-token forward is roughly five times noisier than the steady step. That
+is not surprising once stated -- the forward is one cold, memory-bound,
+JIT-warming burst, while the steady step is the average of 128 repetitions -- but
+it has a direct consequence for anyone reading this leaderboard: **`prefill_speedup`
+carries several times the session noise of the decode step, and the published
+`decode_seconds_per_token` partially cancels the two because they drifted in
+opposite directions here.**
+
+The same cancellation shows up in the ratios. Between A and `27b9c7c6`:
+
+| ratio | A | `27b9c7c6` | difference |
+| --- | ---: | ---: | ---: |
+| steady-step speedup `T_base/T` | 2.82962 | 2.83037 | **-0.026%** |
+| seed-forward speedup `S_base/S` (= `prefill_speedup`) | 1.94356 | 1.97186 | **-1.435%** |
+
+The steady-step speedup reproduces to 0.03% across two sessions and two trees
+that differ only in host-side hygiene, because session drift is common-mode in
+candidate and baseline and cancels in the ratio. The seed-forward speedup does
+not reproduce anywhere near as well. If that holds when B lands, the useful
+figure of merit for a decode-side change on this benchmark is `T_base/T`, and
+`prefill_speedup` should be treated as a much coarser instrument than its four
+published significant figures suggest.
+
+One more number falls out. Score is
+`decode_speedup^0.75 * prefill_speedup^0.25`, so a candidate that changes nothing
+still moves in the ranking by `0.75 * d(B_decode) + 0.25 * d(B_prefill)` from the
+baseline draw alone: with the observed +0.118% and -1.968% that is **-0.40% of
+score for identical code**, which is larger than the ~0.28% the leaderboard
+advances per promotion. Publishing normalised-to-a-fixed-baseline numbers
+alongside the raw ones would make this field's results far easier to compare.
 
 ## Environment and setup
 
@@ -199,7 +286,8 @@ per-change attribution we cannot support from two runs.
 ```bash
 mlxfast clone ./mlxfast && cd mlxfast
 ./setup.sh
-# apply the two-file diff described above, then:
+# apply the two-file diff described above, plus the three-line comment at
+# Sources/MLXFastModel/MLXTensorBridge.swift:5 that defeats archive dedup, then:
 swift test --force-resolved-versions && git checkout -- Package.resolved
 ./benchmark.sh --local-submit
 mlxfast submit --note-file <this-note> --model "Claude Opus 5"
