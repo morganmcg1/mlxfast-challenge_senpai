@@ -102,6 +102,71 @@ block of four is internally balanced. Analysis
 paired contrast, and an OLS contrast with an explicit linear position term, plus
 the fitted drift.
 
-## 4. Results
+## 4. Decode result: the contrast survives balancing, and it is larger than r1's
 
-_(filled in below as arms complete)_
+`research/frieren_cap_abba.sh`, one session 15:53–16:12 UTC, 12 measured arms
+(plus the discard), 2000 steady decode steps each, fresh process per arm.
+
+```
+ pos arm   ms/step        pos arm   ms/step
+   1   A    9.0631          7   A    9.0631
+   2   B    8.9165          8   B    8.9102
+   3   B    8.9144          9   A    9.1042
+   4   A    9.0954         10   B    8.9221
+   5   B    8.9148         11   B    8.9269
+   6   A    9.0998         12   A    9.0024
+```
+
+| estimator | delta | uncertainty | t |
+| --- | ---: | ---: | ---: |
+| pooled means (A n=6 9.0713, B n=6 8.9175) | **−1.696 %** | ± 0.175 % | −9.71 |
+| within-block paired (3 ABBA blocks) | **−1.696 %** | ± 0.139 % | −12.20, 2 df |
+| OLS with linear position term | **−1.696 %** | ± 0.178 % | −9.52 |
+
+All three agree to three decimals, and the fitted drift is
+`−0.0018 ms/position (se 0.0023)`, i.e. **not detectable in this session** —
+unlike the r1 session, whose identical controls spanned 0.86 %. Per-block
+differences are −0.1638 / −0.1690 / −0.1288 ms, so the effect is present in every
+block. Separation is complete: `max(B) = 8.9269 < min(A) = 9.0024`.
+
+Thermals were flat throughout (CPU 42.53–42.89 °C, GPU 50.85–52.17 °C), and the
+GPU-power samples between arms confirm the host was idle at each arm boundary.
+
+Two secondary observations, both consistent with the mechanism being *where*
+commits land rather than *what* is computed:
+
+- Host CPU per step rises with the extra commits: `cpu_total_ms_per_step`
+  0.0929 (A) → 0.1249 (B) on the parent-side accounting, and the worker's
+  encoding thread 2.48–2.50 (A) → 2.99–3.02 ms (B). Both remain far below the
+  8.9 ms step, so per r1's finding this added host work is absorbed.
+- Arm A is markedly noisier than arm B (A spans 9.0024–9.1042, B spans
+  8.9102–8.9269). A 200 MiB threshold lands commits at data-dependent points in
+  a graph whose referenced-byte total varies with routing; a 50 MiB threshold
+  commits so often that the placement is nearly deterministic.
+
+So r1's `−1.45 %` was, if anything, an *under*-statement of the local effect,
+and the advisor's concern that the r1 contrast had not survived its own
+balancing design is now resolved in the direction of the effect being real
+**on this host**.
+
+## 5. The transfer question is now the whole question
+
+Nothing above touches the reason to doubt M5 transfer:
+
+- This 48 GiB host never wires (`physicalMemory ≥ 96 GiB` gate at
+  `LagunaRuntimeWeights.swift:551`), so the local win is measured in exactly the
+  regime the shipped 200 MiB override was *not* written for.
+- The cap is a single process-wide integer, read once through a function-local
+  static (`mlx/utils.h:178-187`) inside the device constructor, so it cannot be
+  phase-specific. Any decode gain is paid for out of prefill if prefill
+  regresses, and prefill carries the hard 0.95 floor and elasticity 0.362.
+- The known ranked-host data point on this parameter cuts the other way on
+  prefill: submission `0c83fa3e` (cap 200 → 160) holds the 3rd-lowest `T` of 919
+  submissions while carrying a **+1.464 % prefill regression**.
+
+Section 6 therefore measures the prefill axis under the identical design before
+any submission is spent.
+
+## 6. Prefill result
+
+_(filled in when the prefill screen completes)_
