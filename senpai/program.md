@@ -291,6 +291,18 @@ affine INT8. Read the full
 [accepted attention quantization envelope](../TASK.md#accepted-attention-quantization-envelope)
 before changing representation or trusted-harness assumptions.
 
+**The envelope is a dead lever here, and it points the wrong way.** The tree we
+inherited already runs Q/K/V/O at **NVFP4 group-16** — 0.5625 B/param — where the
+envelope permits group-32 affine INT8 at 1.125 B/param. Q/K/V/O plus `g_proj` is
+807.7 MB of the ~1794 MB read per decode step, so "adopting the envelope" would
+*add* roughly 802 MB/token and cost ~28% of the decode axis. The re-quantization
+site is `Sources/MLXFastModel/LagunaRuntimeModel.swift:2960-2974` and `:5302-5305`
+(disk is BF16, per `LagunaCheckpointValidation.swift:355-358`); `g_proj` is the
+one class actually at group-32 INT8 (`:431-448`). This came in with organizer
+frontier commit `99b974c`, not from us, and has passed official gates repeatedly.
+Do not treat attention precision as headroom in either direction, and do not
+propose taking any other class below its current representation.
+
 Before a kernel experiment, identify the runtime-effective JIT or AOT source
 and relevant `_nax` form from the organizer docs. Numerical evidence is
 required when an experiment changes math, reduction order, precision, packing,
@@ -389,6 +401,35 @@ final candidate-surface inspection from the runbook. Confirm both prefill and
 decode, not only the aggregate. Apply stronger numerical or quality checks
 only when their documented risk trigger is present.
 
+### ADDED 2026-08-04: how to read an official M5 receipt
+
+Every official submission must be reported renormalised, decomposed, and in a
+family of at least three. Measured on 7 byte-identical families (27 dof),
+`officialScore` is **3.3× noisier than renormalised `ns`** — pooled cv 0.489% vs
+0.149% — because it carries the session baseline draw. Resolving a 0.25% effect at
+2σ takes **3 receipts on `ns` and 31 on `officialScore`**.
+
+```
+norm_decode_su  = 0.013890  / decode_seconds_per_token
+norm_prefill_su = 0.0003845 / prefill_seconds_per_token
+ns              = norm_decode_su**0.75 * norm_prefill_su**0.25
+S = 512000 * prefill_seconds_per_token          # ms, the seed 512-token forward
+T = 1000 * decode_seconds_per_token - S / 128   # ms, the marginal steady step
+```
+
+- **Never rank by `officialScore`, and never quote a `*_speedup` field as
+  evidence.** `baseline_prefill` is bimodal with a 3.61% gap between modes, which
+  is why `prefill_speedup` has a 4.9% noise floor. Never treat a *ratio's*
+  apparent stability as a noise floor either — one A/B pair gave
+  `decode_speedup` 0.010% purely by numerator/denominator cancellation, a 60×
+  underestimate.
+- The 2σ floor for comparing two n=3 families is **0.243% on `ns`**; the advisor's
+  acceptance bar is 2× that, **0.61%**.
+- Per-receipt report: submission id, `officialScore`, `ns`, `S`, `T`.
+- The service dedupes byte-identical archives, so the base tree already has a
+  free 3-receipt control (`f8502e12`, `71586bcf`, `f3cda678`). Reuse it rather
+  than spending submissions on a fresh control.
+
 ### 5. Official promotion
 
 The advisor or human operator owns the promoted frontier and official queue.
@@ -477,6 +518,45 @@ Research and literature-search commands are in
 [`experiment-runbook.md`](experiment-runbook.md#research-search).
 
 ## Research Map
+
+### UPDATED 2026-08-04: decode is DRAM-saturated, so the decode axis is a byte budget
+
+Two independent derivations agree that one steady decode step reads **~1794 MB**:
+attention q/k/v/o + `g_proj` 807.7 (45.0%), routed top-8-of-256 experts 552.1
+(30.8%), lm_head int5 screening plane 134.9 (7.5%), layer-0 dense MLP 100.7
+(5.6%), KV cache 84–89 (4.7%), routers 40.9 (2.3%), everything else ~3.6.
+
+```
+1794 MB / 8.769 ms (M4 --local-iterate step)   = 204.6 GB/s
+measured M4 Pro DRAM ceiling                   = 260.2 GB/s   ->  78.6%
+
+score gain  =  0.638 * (MB removed per token) / 1794
+              33 MB -> 1.17% (a ~1-in-12 promotion shot)
+              59 MB -> 2.10% (a coin flip)
+```
+
+Nothing else in this problem is anywhere near its hardware ceiling. The practical
+consequences, which should shape any decode proposal before it is written:
+
+- **A decode change that neither removes bytes nor improves bytes/second is worth
+  approximately nothing.** Dispatch count, kernel fusion, in-loop host CPU,
+  threadgroup occupancy, and instruction mix have each been individually
+  falsified on this tree with numbers. The roofline explains why: none of them
+  was ever the binding constraint. Do not reopen them without new evidence about
+  bandwidth.
+- The two live decode levers are **remove logical bytes** and **close the 21.4%
+  gap** between 1794 MB at 260.2 GB/s (6.89 ms) and the measured 8.77 ms step.
+- Precision is not a lever in either direction; see the envelope note above.
+- **Prefill is a different regime.** On the official M5 the 512-token forward runs
+  at ~28.8 TFLOP/s and ~272 GB/s, roughly half of each M5 roofline, so prefill is
+  neither compute- nor bandwidth-saturated. It is also the axis the public field
+  has been stuck on for 102 consecutive submissions — because 94.2% of prefill GPU
+  time on any non-gen-17 host runs kernels the M5 never executes, so nobody can
+  measure it locally. Treat prefill claims as requiring host-independent
+  reasoning plus official 3-receipt confirmation.
+
+`research/CURRENT_RESEARCH_STATE.md` carries the current numbers, the closed-family
+list, and the measurement floors. Read it before proposing a decode mechanism.
 
 Choose work from fresh profiles, source inspection, current promoted diffs,
 and prior results—not from a fixed checklist. Plausible cost centers include

@@ -46,6 +46,13 @@ sigma = (S/128) / decode_seconds_per_token
 Ranking by `ns` irrespective of status. Rejection here means "did not beat the
 promoted best", not a correctness failure.
 
+> **Correction (nezuko #12).** The per-axis records below were read off this
+> `ns`-sorted table and were wrong. The true field records are
+> **nd 2.739127 (`ae9ac90b`)** and **npf 2.0220 (`e2822dc1`)**, neither of which
+> is the `ns` leader. Their naive union is `ns = 2.5390`; de-biased for the
+> winner's curse the true field ceiling is **2.5281–2.5318**. See
+> "The field cannot promote us" below.
+
 | id | user | status | created | ns | norm decode | norm prefill | S (ms) | T (ms) |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | `4bf4f794` | a-github-name | rejected | 08-04 06:39 | **2.5331** | 2.7338 | 2.0153 | | |
@@ -165,31 +172,64 @@ rather than by the mechanism, so treat only `hits` and `best_ns` as signal.
 | **sliding window** | **18** | 12 | 2.5234 | 1.6555 |
 | **wave quantization** | **1** | 0 | — | — |
 
-### Reading the map
+### Reading the map — RETRACTED as an assignment signal (nezuko #12)
 
-Saturated: anything above ~500 hits. Assume every simple knob has been swept by
-someone on real M5 hardware. Our advantage there can only come from a *model*
-that predicts the optimum, not from sweeping.
+**The interpretation that used to sit here was wrong and is withdrawn.** It read
+per-mechanism `best_ns` / `med_ns` off a keyword index over submission *notes*
+and treated low-hit / high-best cells as headroom. nezuko showed the cells are
+dominated by **note-length artifacts**: long notes mention many keywords, so hit
+counts measure prose, not work. Splitting the corpus by axis and comparing
+against the overall distribution gives a median
+`|axis-mean nd − overall mean nd|` of **0.220%**, which is inside the measurement
+noise. There is no per-axis signal in this table.
 
-**Under-worked with near-frontier results** — few attempts, and the best among
-those attempts is within ~0.3% of the all-time field best. This is the signature
-of real headroom:
+Two things survive:
 
-- `latency vs bandwidth bound` — 137 hits, best 2.5264
-- `host-side / CPU overhead` — 106 hits, best 2.5264 (frieren, #14)
-- `offline weight transform` — 58 hits, best 2.5261
-- `sliding window` — **18 hits**, best 2.5234 (largest single decode pool)
+1. **`Sources/MLXFastTransform/` has 0 attempts in 147 swept diffs.** This is a
+   direct count over actual code diffs, not a keyword hit, so it is real. It is
+   the only genuinely zero-attempt axis in the public record, and it is fern's
+   #22. (The `offline weight transform` row's 58 keyword hits are notes that
+   *discuss* transformation while changing runtime code.)
+2. Keyword counts remain a fine way to answer "has anyone written about X",
+   which is useful for avoiding a re-derivation. They are not a way to answer
+   "is X under-explored".
 
-**Under-worked and unsuccessful** — few attempts, and none of them got close.
-Either genuinely dead, or attacked with the wrong framing:
+Assignment selection now comes from the **decode byte budget and the M5
+roofline** (`research/CURRENT_RESEARCH_STATE.md`), not from this table.
 
-- `residency / wired memory` — 53 hits, best 2.4944. Probably framed as a
-  *bandwidth* play, which is hopeless because `bandwidth_gb_per_token` is
-  always 0 (model is RAM-resident). Reframed as a **first-touch / page-table**
-  play it is untested. This is fern's #19.
-- `core count / GPU cores` — 35 hits, best 2.4611
-- `wave quantization` — **1 hit, unscored.** tanjiro's occupancy-quantisation
-  model is an idea the public record does not contain. Our clearest edge.
+Saturation is still worth noting: anything above ~500 hits has certainly been
+swept by someone on real M5 hardware, so our advantage there can only come from a
+*model* that predicts the optimum rather than from sweeping.
+
+Mechanisms in this table that the campaign has since closed on its own evidence,
+so that nobody reopens them from a low hit count: `host-side / CPU overhead`
+(frieren #14 — in-loop host CPU is fully absorbed by the GPU), `occupancy` and
+`wave quantization` (tanjiro #13 — the risers are work imbalance, not occupancy),
+`residency / wired memory` (fern #19 — the first forward is the *fastest*, and the
+M5 constructor already wires ~31.4 GiB before hello), and `KV cache`
+(frieren #14 — re-request amplification refuted at ≥6.9σ).
+
+## The field cannot promote us
+
+Normalising all 909 scored records: ours is nd 2.7130 (91st pct), npf 2.0057
+(88th pct), ns 2.5157. Field records are nd **2.739127** (`ae9ac90b`) and npf
+**2.0220** (`e2822dc1`).
+
+```
+naive union of both maxima:  ns = 2.739127^0.75 * 2.0220^0.25 = 2.5390
+promotion needs                   officialScore > 2.53921 = ns * draw
+```
+
+The naive union lands one part in ten thousand short of promotion at a
+draw of exactly 1.000. De-biasing both maxima for the winner's curse — measured
+directly on family A (n = 18 byte-identical runs): nd +0.494%, ns +0.413% — gives
+a **true field ceiling of 2.5281–2.5318**, which is 0.5–0.7% short of even the
+1-in-12 shot at ns 2.545.
+
+**The union of everything the entire public field has ever achieved cannot
+promote us.** Every arm must therefore target a mechanism the field does not
+have. `npf 2.0220` in particular has stood unbeaten for 102 subsequent
+submissions; prefill, not decode, is the harder public wall.
 
 ## API access
 
