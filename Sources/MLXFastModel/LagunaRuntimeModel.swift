@@ -3081,28 +3081,17 @@ let lagunaScaleAlternateCounter = LagunaScaleAlternateCounter()
     !lagunaScaleAlternateEnabled || lagunaScaleAlternateCounter.isNarrowPhase
 }
 
-/// Research-only scale-read arms (`DARKBLOOM_SCALE_MICRO_ARM=nibble|dummy`),
-/// deliberately not numerically correct, that separate the two effects the
-/// narrow arm mixes: `nibble` reads only the 4-bit plane (half the stock scale
-/// bytes at the stock load count) and `dummy` reads three bytes of the stock
-/// plane in the narrow arm's access pattern (stock bytes at the narrow load
-/// count). They replace the narrow dispatch only when the env var is set.
-enum LagunaScaleReadArm: String {
-    case nibble
-    case dummy
-}
-
-let lagunaScaleResearchArm: LagunaScaleReadArm? = {
-    guard let raw = ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_MICRO_ARM"] else {
-        return nil
-    }
-    return LagunaScaleReadArm(rawValue: raw)
-}()
+/// `DARKBLOOM_ATTN_SCALE_NARROW_LOG=1` reports which scale plane each attention
+/// QMV dispatch reads. Off by default so the scored dispatch pays no lock and
+/// no string interpolation, exactly as `lagunaTrace` is gated.
+let lagunaNarrowScaleDispatchLog =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW_LOG"] == "1"
 
 final class LagunaNarrowScaleLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private let lock = NSLock()
 
+    /// Init-time notes (bank built or declined); always reported once.
     func note(_ state: String, _ site: String) {
         lock.lock()
         let isNew = seen.insert("\(state)|\(site)").inserted
@@ -3111,6 +3100,13 @@ final class LagunaNarrowScaleLog: @unchecked Sendable {
             FileHandle.standardError.write(
                 Data("mlxfast: narrow-scales \(state): \(site)\n".utf8))
         }
+    }
+
+    @inline(__always) func noteDispatch(
+        _ state: @autoclosure () -> String, _ site: @autoclosure () -> String
+    ) {
+        guard lagunaNarrowScaleDispatchLog else { return }
+        note(state(), site())
     }
 }
 
@@ -3176,13 +3172,16 @@ func lagunaNarrowNVFP4ScaleBank(_ scales: MLXArray, site: String) -> LagunaNarro
             | ((bitNibble16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8))
     let bases = contiguous(blockBase.reshaped([rows, blocks]))
 
+    let injected = ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_FAULT"] == "1"
     let bank = LagunaNarrowScaleBank(
-        nibbles: nibbles, highBits: highBits, bases: bases,
+        nibbles: injected ? contiguous(nibbles ^ MLXArray(UInt8(1))) : nibbles,
+        highBits: highBits, bases: bases,
         rows: rows, groups: groups)
     guard lagunaNarrowScaleBankReproducesScales(bank, scales) else {
         lagunaNarrowScaleLog.note("declined (reconstruction mismatch)", site)
         return nil
     }
+    lagunaNarrowScaleLog.note("built", site)
     return bank
 }
 
@@ -4838,7 +4837,7 @@ func lagunaGatedAffineOProjNVFP4(
             : lagunaGatedAffineOProjNVFP4NarrowKernels[heads]
     {
         lagunaTrace("gated affine oproj nvfp4 qmv h\(heads) narrow")
-        lagunaNarrowScaleLog.note("active", "oproj h\(heads)")
+        lagunaNarrowScaleLog.noteDispatch("active", "oproj h\(heads)")
         return kernel(
             [
                 attentionOutput, gateLogits, codes, narrow.nibbles,
@@ -4856,9 +4855,7 @@ func lagunaGatedAffineOProjNVFP4(
         : lagunaGatedAffineOProjNVFP4Kernels[heads]
     guard let kernel = selected else { return nil }
     lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
-    if lagunaAttnScaleNarrowEnabled, lagunaAttnScaleNarrowOProjEnabled {
-        lagunaNarrowScaleLog.note("inactive", "oproj h\(heads)")
-    }
+    lagunaNarrowScaleLog.noteDispatch("inactive", "oproj h\(heads)")
     return kernel(
         [attentionOutput, gateLogits, codes, scales],
         grid: ((outVec / 8) * 64, 1, 1),
@@ -5031,61 +5028,37 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
-private func lagunaDecodeNVFP4QKVR1Source(
-    narrow: Bool = false,
-    researchArm: LagunaScaleReadArm? = nil
-) -> String {
+private func lagunaDecodeNVFP4QKVR1Source(narrow: Bool = false) -> String {
     // Narrow arm: three planes replace the 32-byte uint8 group. Lane `simd_lid`
     // owns group `simd_lid` of the block, so its nibble is byte `simd_lid >> 1`
     // and its 5th bit is bit `simd_lid & 7` of byte `simd_lid >> 3`. The
     // reconstructed byte then feeds the unchanged scale decode.
-    let scaleSetup: String
-    let scaleCode: String
-    let scaleAdvance: String
-    switch researchArm {
-    case .nibble:
-        scaleSetup = """
-            const device uint8_t* nb = scale_nibbles +
-                out_row * (in_vec_size_g / 2) + (simd_lid >> 1);
-            """
-        scaleCode = "uint8_t(64u + ((nb[0] >> ((simd_lid & 1) << 2)) & 0x0Fu))"
-        scaleAdvance = "nb += block_size / 32;"
-    case .dummy:
-        scaleSetup = """
-            const device uint8_t* sc = weight_scales +
-                out_row * in_vec_size_g + simd_lid;
-            const device uint8_t* row = weight_scales + out_row * in_vec_size_g;
-            """
-        scaleCode = "uint8_t(max(sc[0], max(row[simd_lid >> 3], row[0])))"
-        scaleAdvance = "sc += block_size / 16;"
-    case nil:
-        scaleSetup =
-            narrow
-            ? """
-            const device uint8_t* nb = scale_nibbles +
-                out_row * (in_vec_size_g / 2) + (simd_lid >> 1);
-            const device uint8_t* hb = scale_high_bits +
-                out_row * (in_vec_size_g / 8) + (simd_lid >> 3);
-            const device uint8_t* bs = scale_bases + out_row * (in_vec_size_g / 32);
-            """
-            : """
-            const device uint8_t* sc = weight_scales +
-                out_row * in_vec_size_g + simd_lid;
-            """
-        scaleCode =
-            narrow
-            ? "uint8_t(bs[0] + ((nb[0] >> ((simd_lid & 1) << 2)) & 0x0Fu) + "
-                + "(((hb[0] >> (simd_lid & 7)) & 0x01u) << 4))"
-            : "sc[0]"
-        scaleAdvance =
-            narrow
-            ? """
-            nb += block_size / 32;
-                hb += block_size / 128;
-                bs += block_size / 512;
-            """
-            : "sc += block_size / 16;"
-    }
+    let scaleSetup =
+        narrow
+        ? """
+        const device uint8_t* nb = scale_nibbles +
+            out_row * (in_vec_size_g / 2) + (simd_lid >> 1);
+        const device uint8_t* hb = scale_high_bits +
+            out_row * (in_vec_size_g / 8) + (simd_lid >> 3);
+        const device uint8_t* bs = scale_bases + out_row * (in_vec_size_g / 32);
+        """
+        : """
+        const device uint8_t* sc = weight_scales +
+            out_row * in_vec_size_g + simd_lid;
+        """
+    let scaleCode =
+        narrow
+        ? "uint8_t(bs[0] + ((nb[0] >> ((simd_lid & 1) << 2)) & 0x0Fu) + "
+            + "(((hb[0] >> (simd_lid & 7)) & 0x01u) << 4))"
+        : "sc[0]"
+    let scaleAdvance =
+        narrow
+        ? """
+        nb += block_size / 32;
+            hb += block_size / 128;
+            bs += block_size / 512;
+        """
+        : "sc += block_size / 16;"
     return """
     constexpr uint axis_size = 2048;
     constexpr uint num_simdgroups = 2;
@@ -5160,26 +5133,6 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
     return kernels
 }()
 
-/// Research arms only (`DARKBLOOM_SCALE_MICRO_ARM`); never built otherwise
-/// because the dictionary is only touched behind that env var.
-private let lagunaDecodeNVFP4QKVR1ResearchKernels: [Int: MLXFast.MLXFastKernel] = {
-    guard let arm = lagunaScaleResearchArm else { return [:] }
-    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
-    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_ra_\(arm.rawValue)",
-            inputNames: [
-                "normalized", "weight_codes",
-                arm == .nibble ? "scale_nibbles" : "weight_scales",
-            ],
-            outputNames: ["projected"],
-            source: lagunaDecodeNVFP4QKVR1Source(researchArm: arm),
-            header: lagunaTailNVFP4QMVHeader,
-            ensureRowContiguous: true)
-    }
-    return kernels
-}()
-
 private func lagunaDecodeNVFP4QKVR1(
     normalized: MLXArray,
     bank: LagunaNativeAffineWeight,
@@ -5206,23 +5159,8 @@ private func lagunaDecodeNVFP4QKVR1(
         narrow.bases.dtype == .uint8, narrow.bases.dims(rows, hidden / 512),
         let kernel = lagunaDecodeNVFP4QKVR1NarrowKernels[heads]
     {
-        if let arm = lagunaScaleResearchArm,
-            let research = lagunaDecodeNVFP4QKVR1ResearchKernels[heads]
-        {
-            lagunaNarrowScaleLog.note("research \(arm.rawValue)", "qkv h\(heads)")
-            return research(
-                [
-                    normalized, bank.packedCodes,
-                    arm == .nibble ? narrow.nibbles : bank.scales,
-                ],
-                grid: ((rows / 2) * 64, 1, 1),
-                threadGroup: (64, 1, 1),
-                outputShapes: [[1, 1, rows]],
-                outputDTypes: [.bfloat16]
-            )[0]
-        }
         lagunaTrace("decode nvfp4 qkv r1 h\(heads) narrow")
-        lagunaNarrowScaleLog.note("active", "qkv h\(heads)")
+        lagunaNarrowScaleLog.noteDispatch("active", "qkv h\(heads)")
         return kernel(
             [normalized, bank.packedCodes, narrow.nibbles, narrow.highBits, narrow.bases],
             grid: ((rows / 2) * 64, 1, 1),
@@ -5233,9 +5171,7 @@ private func lagunaDecodeNVFP4QKVR1(
     }
     guard let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads] else { return nil }
     lagunaTrace("decode nvfp4 qkv r1 h\(heads)")
-    if lagunaAttnScaleNarrowEnabled, lagunaAttnScaleNarrowQKVEnabled {
-        lagunaNarrowScaleLog.note("inactive", "qkv h\(heads)")
-    }
+    lagunaNarrowScaleLog.noteDispatch("inactive", "qkv h\(heads)")
     return kernel(
         [normalized, bank.packedCodes, bank.scales],
         grid: ((rows / 2) * 64, 1, 1),
