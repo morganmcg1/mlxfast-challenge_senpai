@@ -363,8 +363,15 @@ Three things to read off this table:
 
 1. **The effect is real and on the predicted axis.** 3.3σ on both `ns` and `T`,
    same sign, consistent magnitude.
-2. **The negative control is clean.** `S` did not move. Nothing in this arm
-   touches prefill, and nothing in prefill moved.
+2. **The negative control is clean, and it is a real prediction rather than a
+   hope.** `refine` is `useFusedRefinement && lagunaLmHeadFusedRefinementEnabled`
+   (`LagunaLmHeadPrune.swift:932`), and `useFusedRefinement` is
+   `inputs.dims(1, 1)` (`LagunaRuntimeModel.swift:10862-10865`) — true *only*
+   for a single-token step. On the 512-token prefill the cascade is off and
+   slot 1 falls back to a 1344 B/row kernel, byte-identical to the base. So M1
+   is structurally incapable of moving `S`, and `S` moved by
+   −0.080% ± 0.159%. A significant `S` shift would have been evidence that
+   something other than the intended mechanism was in the receipts.
 3. **The published score says nothing.** −0.383% ± 0.446% on the same data
    where the renormalised statistic reads +0.455% ± 0.136%. Had I ranked on
    `officialScore` I would have reported this arm as a mild *regression*. This
