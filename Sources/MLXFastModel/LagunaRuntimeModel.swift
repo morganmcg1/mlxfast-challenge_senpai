@@ -716,41 +716,6 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
 private let lagunaAttentionProjectionAsyncEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] != "0"
 
-/// `DARKBLOOM_DECODE_SUBLAYER_ASYNC` (`off` default, `a`, `b`, or `ab`):
-/// extra decode-only `asyncEval` rungs *inside* each decoder layer.
-///
-/// MLX cuts a command buffer when the arrays referenced by the pending graph
-/// exceed `MLX_MAX_MB_PER_BUFFER` Mi-elements, so at the runtime's cap of 200
-/// the decode step lands ~1.2 boundaries per layer and the existing
-/// layer-boundary ladder cannot add any: its rungs fire where a volume cut
-/// already happens. Lowering the cap to 50 raises the density to ~3.5 per layer
-/// and *reduces GPU-busy time*, because a shorter-lived set of temporaries per
-/// command buffer keeps the working set resident. These rungs reach the same
-/// density from the submission surface, and only for single-token decode, so
-/// the prefill schedule is untouched.
-///
-/// Measured dose-response on M4 Pro at the shipped cap, from traced arms:
-/// 48 command buffers/step and 8839.8 µs GPU-busy with no rungs, 90 and
-/// 8782.1 with `ab`, 140 and 8716.3 when the cap itself is dropped to 50.
-/// Both points give **−1.35 µs of GPU-busy per added command buffer**, so the
-/// effect is linear in boundary count and reaching the cap-50 density is worth
-/// about −124 µs/step.
-///
-/// `a` fires after the attention output projection, `b` after the fused
-/// residual+RMSNorm+router, `c` after router top-k selection. Each forces
-/// arrays the next dispatch consumes anyway, so no work is added and no value
-/// changes.
-private let lagunaDecodeSublayerAsyncRungs: (a: Bool, b: Bool, c: Bool) = {
-    let raw = ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_SUBLAYER_ASYNC"]?
-        .lowercased() ?? "off"
-    switch raw {
-    case "off", "0", "": return (false, false, false)
-    case "1", "on": return (true, true, true)
-    default:
-        return (raw.contains("a"), raw.contains("b"), raw.contains("c"))
-    }
-}()
-
 /// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `1`; `0`/`off` disables;
 /// `8` restores the prior default): a ranked measurement on the
 /// 1.87782 base scored stride 1 at 1.88526 (+0.40% vs that base, rejected
@@ -5652,7 +5617,6 @@ final class LagunaRuntimeAttention: Module {
                 {
                     lagunaTrace("attention projection async rung layer 0")
                     asyncEval(qkv, gateLogits)
-                    if FrierenStepProf.enabled { FrierenStepProf.markFirstAsync() }
                 }
                 // When the fused gate-product kernel will consume the gate at
                 // the output projection, hand it the RAW BF16 logits and skip
@@ -9928,9 +9892,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
-        if lagunaDecodeSublayerAsyncRungs.c, x.dims(1, 1, LagunaConstants.hiddenSize) {
-            asyncEval(inds, weights)
-        }
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -10276,10 +10237,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             qkRoPEAngles: qkRoPEAngles,
             qkRoPEOffsets: qkRoPEOffsets
         )
-        let isSingleTokenDecode = x.dims(1, 1, LagunaConstants.hiddenSize)
-        if lagunaDecodeSublayerAsyncRungs.a, isSingleTokenDecode {
-            asyncEval(r)
-        }
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
@@ -10328,13 +10285,6 @@ final class LagunaRuntimeDecoderLayer: Module {
         } else {
             h = x + r
             normalized = postAttentionLayerNorm(h)
-        }
-        if lagunaDecodeSublayerAsyncRungs.b, isSingleTokenDecode {
-            if let routerLogits, let routerKeys {
-                asyncEval(h, normalized, routerLogits, routerKeys)
-            } else {
-                asyncEval(h, normalized)
-            }
         }
         if (
             lagunaFusedSharedDownResidualEnabled ||
@@ -10798,7 +10748,6 @@ final class LagunaRuntimeModelInner: Module {
         // seed row, so the angles are the exact floats that layer's kernel
         // would have computed rather than a re-derivation.
 
-        if FrierenStepProf.enabled, isSingleTokenDecode { FrierenStepProf.mark(1) }
         for (i, layer) in layers.enumerated() {
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
@@ -10889,9 +10838,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        if FrierenStepProf.enabled, inputs.dims(1, 1) { FrierenStepProf.begin() }
         let fullHidden = model(inputs, cache: cache)
-        if FrierenStepProf.enabled, inputs.dims(1, 1) { FrierenStepProf.mark(3) }
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
         // vocabulary head so prefill neither normalizes nor projects the
@@ -10920,7 +10867,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
-        if FrierenStepProf.enabled, inputs.dims(1, 1) { FrierenStepProf.end() }
         return result
     }
 
@@ -11008,59 +10954,3 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         return weights.filter { !$0.key.contains("rotary_emb.inv_freq") }
     }
 }
-
-// MARK: - RESEARCH-ONLY step-phase profiler (FRIEREN_CBPROF=1). Revert before scored runs.
-
-enum FrierenStepProf {
-    static let enabled = ProcessInfo.processInfo.environment["FRIEREN_CBPROF"] == "1"
-    static let capacity = 20000
-    nonisolated(unsafe) static var marks = [Double](repeating: 0, count: 5 * capacity)
-    nonisolated(unsafe) static var step = 0
-    nonisolated(unsafe) static var armed = false
-    nonisolated(unsafe) static var installed = false
-    nonisolated(unsafe) static let scale: Double = {
-        var tb = mach_timebase_info_data_t()
-        mach_timebase_info(&tb)
-        return Double(tb.numer) / Double(tb.denom) * 1e-9
-    }()
-
-    @inline(__always) static func now() -> Double { Double(mach_absolute_time()) * scale }
-
-    @inline(__always) static func mark(_ slot: Int) {
-        if step < capacity { marks[5 * step + slot] = now() }
-    }
-
-    static func begin() {
-        if !installed {
-            installed = true
-            atexit(frierenStepProfDump)
-        }
-        mark(0)
-        armed = true
-    }
-
-    @inline(__always) static func markFirstAsync() {
-        if armed {
-            armed = false
-            mark(2)
-        }
-    }
-
-    static func end() {
-        mark(4)
-        step += 1
-    }
-}
-
-func frierenStepProfDump() {
-    var out = ""
-    for s in 0..<min(FrierenStepProf.step, FrierenStepProf.capacity) {
-        let b = 5 * s
-        let m = FrierenStepProf.marks
-        out += String(
-            format: "FRSTEP %.9f %.9f %.9f %.9f %.9f\n",
-            m[b], m[b + 1], m[b + 2], m[b + 3], m[b + 4])
-    }
-    FileHandle.standardError.write(Data(out.utf8))
-}
-

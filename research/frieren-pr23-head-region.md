@@ -657,4 +657,61 @@ python3 research/frieren_head_region.py /tmp/frcb.txt
 # A/A floor and command-buffer threshold screens
 research/frieren_cb_count_arms.sh
 research/frieren_cbprof_ranked.sh
+
+# Part 2 dose screen (10 arms, ~12 min) and its drift-cancelled contrasts
+research/frieren_rung_dose.sh
+python3 research/frieren_dose_stats.py
 ```
+
+## Part 2 final: sub-layer boundaries are null-to-negative, and my per-boundary law is retracted
+
+Position-balanced dose screen (`research/frieren_rung_dose.sh`), ranked parity,
+2000 steps/arm, positions 1–9 = `off, ab, abc, abc, off, ab, ab, abc, off` so each
+level's positions sum to 15 and a linear drift term cancels:
+
+| arm | ms/step (n=3) | se | vs `off` | t |
+| --- | ---: | ---: | ---: | ---: |
+| `off` | 9.0677 | 0.0361 | — | — |
+| `ab` (90 cb/step) | 9.0531 | 0.0140 | −0.161 % ± 0.427 % | −0.38 |
+| `abc` (129 cb/step) | 9.2423 | 0.0047 | **+1.925 % ± 0.402 %** | **+4.79** |
+
+Raw arms in script order: 8.9961 / 9.0729 / 9.2404 / 9.2511 / 9.1119 / 9.0260 /
+9.0605 / 9.2353 / 9.0951, plus traced `abc` 9.2188.
+
+Traced `abc`: 129 cb/step, GPU idle 265.3 µs, busy fraction 97.10 %, step 9189.9
+µs, so GPU busy 8923.4 µs. Against traced control (48 cb, busy 8839.8) and traced
+`ab` (90 cb, busy 8782.1), GPU busy across 48 → 90 → 129 boundaries goes
+8839.8 → 8782.1 → 8923.4 µs. **Non-monotone**, so the −1.35 µs/boundary slope I
+fitted from two points is refuted. Retracted.
+
+Mechanism, corrected: the `max_mb` cap changes only *where a command buffer is
+submitted* — same graph, same ops, same fusion, same buffer donation. `asyncEval`
+changes the *graph partition*, forcing materialisation that blocks fusion and
+buffer donation across the fire point, which adds real byte traffic. That is why
+GPU busy rises with rung count. Sub-layer `asyncEval` is therefore not a proxy for
+the cap, and since `device.h`/`device.cpp` are outside `editablePaths` the cap's
+win is unreachable from the submission surface.
+
+Rung `c` (forcing router top-k `inds`/`weights` before the expert gather) is worst:
+it breaks the top-k → gather fusion and cuts a boundary on nearly every layer
+(120 fires → 129 cb, i.e. ~39 boundaries from `c` alone against 42 from `ab`'s 80
+fires).
+
+Drift caveat: the three `off` arms are not exchangeable — position 1 read 8.9961
+against 9.1119 / 9.0951 at positions 5 / 9 — so warm-up drift is *saturating*, not
+linear, and linear position balancing does not fully remove it. Excluding position
+1 post hoc gives `ab` −0.553 % ± 0.18 % and `abc` +1.524 %. Even the favourable
+reading of `ab` is 0.553 % × 1.28 = 0.708 % of M5 step ⇒ `1.00713^0.75` =
+**+0.53 % of score**, under the 0.61 % bar. The decision is unchanged either way,
+so no further compute was spent sharpening it.
+
+This independently reproduces the advisor's `FUSE=1` correction (comment
+5181156130) from the opposite direction: removing 40 dispatches cost +0.228 ms;
+adding 81 command buffers cost +1.93 %. **Decode-step graph repartitioning is
+priced negative in both directions on this path.**
+
+The sub-layer rung implementation (`DARKBLOOM_DECODE_SUBLAYER_ASYNC`) and the
+`FRIEREN_CBPROF` / `FrierenStepProf` instrumentation are preserved in this
+branch's history (`0816a72`, `9529e3a`, `9a00e8f`, `e722f65`, `a309168`) but are
+reverted out of the branch head, so `Sources/` and `Vendor/` are byte-identical to
+the assignment base `7017ba2`.

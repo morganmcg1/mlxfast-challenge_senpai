@@ -4,19 +4,27 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
 - Hypothesis and target cost: the ~0.29–0.32 ms exposed decode-step head region
   splits into host work, driver launch latency, and tail idle; if the host part
   is large it is attackable by committing the first command buffer earlier.
-- Decision: **dead hypothesis for the head region** (the assignment's stop rule
-  fires on measurement), plus one **ambiguous** adjacent finding that is worth a
-  follow-up arm.
+- Decision: **dead hypothesis, on measurement, for both parts.** Part 1 — the
+  head region is confirmed at 0.301 ms but only 35.7 µs of it is editable, which
+  fires the assignment's stop rule and the advisor's explicit gate. Part 2 — the
+  sub-layer boundary family is null (`ab`) to strongly negative (`abc`, +1.93 %),
+  and it refuted my own interim mechanism claim.
 - `BASE_SHA` / candidate commit: `969fea003eb6964f702c1f7c3e0234d022406a9f` /
-  no candidate — nothing was changed on the submitted surface, and **no official
-  submission was spent** (3 still unspent).
+  no candidate — `Sources/` and `Vendor/` are byte-identical to the assignment
+  base `7017ba2`, and **no official submission was spent** (3 still unspent).
 - Submitted candidate files: none.
-- Supporting test or documentation files: `research/frieren-pr23-head-region.md`
-  (full memo), `research/frieren_head_region.py` (trace analyser),
-  `research/frieren_cb_count_arms.sh`, `research/frieren_cb_mb_sweep.sh`,
-  `research/frieren_cb_first_commit.sh`, `research/frieren_cbprof_ranked.sh`.
-  Research-only instrumentation commits (`0816a72`, `9529e3a`) are on the branch
-  and are **not** part of any scored measurement.
+- Supporting test or documentation files (all under `research/`, outside
+  `editablePaths`): `frieren-pr23-head-region.md` (full memo),
+  `frieren_head_region.py` (trace analyser), `frieren_dose_stats.py`
+  (drift-cancelled contrasts), and the screen drivers
+  `frieren_cb_count_arms.sh`, `frieren_cb_mb_sweep.sh`,
+  `frieren_cb_first_commit.sh`, `frieren_cbprof_ranked.sh`,
+  `frieren_sublayer_rungs.sh`, `frieren_rung_dose.sh`.
+  Research-only instrumentation (`FRIEREN_CBPROF` in `device.cpp`,
+  `FrierenStepProf` in `LagunaRuntimeModel.swift`; commits `0816a72`, `9529e3a`)
+  and the sub-layer rung implementation (`9a00e8f`, `e722f65`, `a309168`) exist in
+  this branch's history for reuse but have been **reverted out of the branch head**,
+  so nothing instrumented or experimental is on the submitted surface.
 
 ### Evidence
 
@@ -266,7 +274,7 @@ cap 50 default 8.9594, cap 50 `ladder1` 8.9697. Adding whole-layer fires on top 
 a volume cut does nothing because the volume cut already lands ~1.2 boundaries per
 layer. The remaining headroom is strictly *inside* the layer.
 
-### The mechanism, identified and quantified
+### Part 2 — the sub-layer boundary test, and my own refuted mechanism
 
 MLX's cap has exactly one consumer: `max_mb_per_buffer_` is read only at
 `device.cpp:564` inside `needs_commit()` —
@@ -274,60 +282,192 @@ MLX's cap has exactly one consumer: `max_mb_per_buffer_` is read only at
 `buffer_sizes_ += a.data_size()` at `:398` charging elements per *distinct input
 buffer*. So the only thing the cap does is decide where command buffers end.
 
-Two independent ways of adding boundaries, both traced at ranked parity with
-position-adjacent controls:
+I therefore implemented three sub-layer `asyncEval` fire points behind
+`DARKBLOOM_DECODE_SUBLAYER_ASYNC` (default off, guarded by the existing
+`isSingleTokenDecode` shape check, so prefill and `S` are untouched by
+construction): **a** after the attention output, **b** after the h/normalized
+residual chain, **c** after the MoE router top-k. They raise command buffers per
+step from 48 to 90 (`ab`) and 129 (`abc`).
+
+**Interim claim I made and am now retracting.** From two traced position-adjacent
+arms I fitted a per-boundary law:
 
 | arm | cbs/step | GPU busy µs | GPU idle µs | step µs |
 | --- | ---: | ---: | ---: | ---: |
 | control | 48 | 8839.8 | 288.1 | 9126.2 |
-| sub-layer rungs `ab` | 90 | 8782.1 | 288.9 | 9070.5 |
+| `ab` | 90 | 8782.1 | 288.9 | 9070.5 |
 | `max_mb=50` (not shippable) | 140 | 8716.3 | 269.0 | 8678.6 |
 
-- `ab`: −57.7 µs of GPU busy over +42 boundaries = **−1.37 µs per boundary**.
-- cap 50: −123.5 µs over +92 boundaries = **−1.35 µs per boundary**.
+`ab` gave −57.7 µs of GPU busy over +42 boundaries = −1.37 µs/boundary; cap 50
+gave −123.5 µs over +92 = −1.35 µs/boundary. Two interventions sharing nothing
+but boundary placement, agreeing to 1.5 %, with GPU *idle* flat across the rung
+contrast — which read as the GPU genuinely executing less work. I predicted `abc`
+at ~115 cbs would give −1.02 % of step, i.e. +0.65 % of score, just over the bar.
 
-Two mechanisms that share nothing but their effect on boundary placement agree to
-1.5 %. That is the strongest single piece of evidence in this arm.
+**The dose-response test refuted it.** Position-balanced design, 2000 steps/arm,
+ranked parity, positions 1–9 = `off, ab, abc, abc, off, ab, ab, abc, off` so each
+level's positions sum to 15 and a linear drift term cancels exactly:
 
-**And the win is in GPU-busy time, not idle.** Across the rung contrast GPU idle
-is flat (288.1 → 288.9 µs) while GPU busy drops. So this is *not* launch overhead,
-not a dead band, and not host exposure — the GPU literally executes less work.
-The natural reading is avoided re-read traffic from a shorter-lived working set:
-ending a command buffer sooner keeps the live set small enough that residencies
-and cache lines survive, so bytes that a *unique*-byte roofline counts once, but
-which the hardware currently issues twice, are issued once.
+| arm | ms/step (n=3) | se | vs `off` | t |
+| --- | ---: | ---: | ---: | ---: |
+| `off` | 9.0677 | 0.0361 | — | — |
+| `ab` | 9.0531 | 0.0140 | **−0.161 %** ± 0.427 % | −0.38 |
+| `abc` | 9.2423 | 0.0047 | **+1.925 %** ± 0.402 % | **+4.79** |
 
-Per the new team rule: **the byte numerators in the paragraph above are *issued*
-bytes, not unique bytes.** This distinction is the whole point — a unique-byte
-roofline is blind to this term by construction, and #21's roofline is a
-unique-byte one. It may therefore be that #21's launch-ramp term does **not** need
-the 30 % overlap credit the advisor proposed to make room for my 0.30 ms, because
-a GPU-busy re-read term is already sitting inside that roofline's residual. I flag
-this as a reconciliation the advisor should arbitrate; I have not measured #21.
+And the traced `abc` arm kills the per-boundary law outright: **129 cbs/step,
+GPU busy 8923.4 µs** (from busy fraction 97.10 % of a 9189.9 µs step), GPU idle
+265.3 µs. Across 48 → 90 → 129 boundaries, GPU busy goes 8839.8 → 8782.1 →
+8923.4 µs. **Non-monotone.** A two-point linear fit with no position-matched
+error bars on the busy term was not evidence, and I should not have presented it
+as "the strongest single piece of evidence in this arm".
 
-Note also that only about half of the sub-layer fires actually create a boundary
-(80 fires → +42 command buffers), because `asyncEval` only cuts when the
-accumulated volume warrants it.
+**Why the cap and `asyncEval` are not the same intervention** — the thing I got
+wrong. The cap changes *only* the submission boundary: identical graph, identical
+ops, identical kernel fusion, identical buffer donation. `asyncEval` changes the
+**graph partition**: the forced arrays must be materialised, which blocks fusion
+and buffer donation across the fire point and adds real byte traffic. That is why
+GPU busy *rises* with rung count. Sub-layer `asyncEval` can therefore never be a
+clean proxy for the cap, and since `device.h`/`device.cpp` are outside
+`editablePaths`, **the cap's win is unreachable from the submission surface**. I
+consider that the durable finding of Part 2.
+
+Rung `c` is the worst precisely because of this: forcing the router's `inds` and
+`weights` immediately before the expert gather breaks the top-k → gather fusion
+and materialises the routing tensors, and it cuts a boundary on nearly every
+layer (120 fires → 129 cbs, so `c` alone adds ~39 boundaries against `ab`'s 42
+from 80 fires). It also matches the advisor's `DARKBLOOM_SHARED_FIRST_DOWN`
+observation that Metal memory barriers are encoder-wide, so an extra encoder
+boundary mid-MoE is expensive.
+
+**Honest note on the residual.** The three `off` arms are not exchangeable: the
+position-1 arm read 8.9961 against 9.1119 and 9.0951 at positions 5 and 9, so the
+drift is a *saturating* warm-up rather than the linear trend my balancing assumed.
+Excluding position 1 post hoc gives `ab` −0.553 % ± 0.18 % (t = −3.1) and `abc`
++1.524 %. So `ab` may be a genuine small win. Even taken at face value it does
+not clear the bar: −0.553 % local pure-step × the campaign's 1.28 elasticity =
+−0.708 % on M5 ⇒ decode speedup 1.00713 ⇒ `1.00713^0.75` = **+0.53 % of score**,
+under the 0.61 % acceptance bar, and the balanced-as-designed reading is +0.15 %.
+Since the decision is the same either way, I did not spend more compute
+sharpening it.
+
+**Consequence for the `issued` vs `unique` byte rule.** I no longer claim a
+GPU-busy re-read term that a unique-byte roofline would miss, so I withdraw my
+suggestion that #21's launch-ramp term might not need its 30 % overlap credit —
+that suggestion rested on the refuted slope. Stating it explicitly per the new
+team rule: **I have no byte-numerator claim of either kind surviving from this
+arm.** The one thing I can still say is that the cap sweep's win is real
+(8.9579 ± 0.0028 at cap 50, n=5) and is *not* explained by boundary count, since
+matching the boundary count with `asyncEval` reproduces none of it.
+
+### Answer to your explicit stop gate (comment 5181156130)
+
+> Measure the per-step graph-construction cost on your host first, as briefed —
+> if it is not ~0.28 ms, say so and we stop.
+
+**It is not ~0.28 ms, and it misses in both directions at once. We stop.**
+
+- Host graph construction + encoding **costs 2.51 ms per step** — 9× your 0.28 ms
+  estimate, not 1×. The estimate `406 × 0.7 µs` under-priced the true per-op cost
+  by that factor (measured ~6.2 µs/op).
+- The part of it that is **exposed is 35.7 µs** — 13× *smaller* than 0.28 ms.
+  In-loop GPU idle is 0.0 µs at the median *and* at p90, because the encoding
+  thread runs 3.5× ahead of a 96.6 %-busy GPU. Everything after the first commit
+  is hidden.
+
+So the coincidence between `406 × 0.7 µs ≈ 0.28 ms` and the measured ~0.30 ms of
+exposed time was numerology: the two numbers are unrelated, and the true values of
+the two quantities are 2.51 ms and 0.0357 ms. Compiling or otherwise eliminating
+host graph construction predicts **≈0** on the scored path.
+
+Your re-pricing of the 0.200 ms as "the most trustworthy line in the budget" is
+right about *trustworthiness* — it is a difference of two measured quantities, and
+my trace reproduces it (I measure 0.301 ms of total GPU idle at ranked parity,
+inside your 0.29–0.32 ms). Where I have to disagree is **ownership**. Your model
+was `wall ≈ head_latency + GPU_total`, i.e. treat the whole gap as head latency.
+Resolving the gap in time shows it is not one term:
+
+| component of the 301 µs | µs | owner |
+| --- | ---: | --- |
+| prev GPU end → next step entry | 122.1 | **trusted harness** (IPC + blocking `argMax().item()`, `LagunaRuntimeBenchmark.swift:891`) |
+| step entry → first cb commit | 35.7 | **editable host work** |
+| first commit → first GPU start | 67.1 | driver + firmware |
+| interior gaps at cb boundaries | 75.9 | GPU-side, 47 boundaries |
+| tail drain after call returns | 0.0 | — |
+
+88 % of the trustworthy 0.30 ms is off the submission surface. The editable head
+is 35.7 µs, whose complete elimination is 0.82 % of the ranked step and **0.52 %
+of score** — under the 0.61 % bar before any implementation loss. Measured
+proxy for the realistic version (force the cut after the fused embedding+RoPE
+dispatch): first commit 35.7 → 25.6 µs, step −0.30 %, ≈**0.15 % of score**.
+
+### Where your correction and my Part 2 agree
+
+Your correction says: drop any sub-arm whose mechanism is "fewer dispatches or
+fewer threadgroups", priced at **−0.228 ms per 40 dispatches removed** by nezuko's
+`FUSE=1` arm, because the absorbing kernel slowed by +0.95 µs/call and broke
+additivity by +8.23 µs/layer.
+
+My Part 2 is the *same phenomenon with the sign flipped on the intervention*, and
+it independently reproduces your conclusion. I went the other way — I *added*
+graph partition points instead of removing them — and got the same kind of
+penalty: `abc` adds 81 command buffers and costs **+1.93 %** of step, with GPU
+busy rising 8839.8 → 8923.4 µs. Both results say the same thing: **on this decode
+path, changing the graph partition costs real GPU work that dominates any
+launch-accounting term, in whichever direction you move it.** Repartitioning is
+priced negative both ways.
+
+That also gives the clean reason why the `max_mb` cap sweep is not reachable: the
+cap changes only *where a command buffer is submitted* (same graph, same fusion,
+same buffer donation), whereas every lever on the submission surface —
+`asyncEval`, fusion, dispatch merging — changes the *partition*. The cap's
+8.9579 ms at 50 is real and none of it is recoverable through partition changes.
+
+Two smaller consequences:
+
+- I withdraw my own speculation (previous comment) that #21's launch-ramp term
+  might not need its 30 % overlap credit. That rested on a per-boundary GPU-busy
+  slope I have now refuted. Your `gpu_busy_sum == gpu_busy_union` to 6 ns settles
+  it better than I could: there is no concurrency, so there is no overlap credit
+  to argue about. The live question was never overlap, it was recoverability, and
+  the answer is that it is not recoverable.
+- Per the new issued-vs-unique rule: **no byte-numerator claim of either kind
+  survives from this arm.** I had one and it is retracted.
 
 ### Conclusion
 
-- What happened and why: the head region is real but almost entirely not mine.
-  26 µs of 270 µs of serial time is editable; 59 µs is driver/firmware launch
-  latency and 68 µs is trusted harness. The stop rule fires. The same instrument
-  found a larger, differently-shaped term (114 µs at command-buffer boundaries)
-  whose blunt knob is score-neutral on the ranked box and whose reachable form
-  is a decode-only boundary schedule.
-- Evidence for/against the mechanism: for — the bandwidth-scaling identity
-  reproduces the ranked step time from the local split with one parameter, and
-  the M4 `mb` sweep has the same sign as the ranked cap-160 receipt. Against —
-  26 µs is simply too small, and the local host is at its bandwidth wall so it
-  cannot measure launch-overhead wins at all.
-- Uncertainty / M5 transfer risk: the first-commit structure differs between
-  cap 128 (local) and cap 200 (ranked) because of the 196-element embedding
-  charge; the cap-200 bimodality is unexplained; and the local bus saturation
-  means local nulls on scheduling changes carry little information about M5.
-- Smallest useful next action: one arm testing sub-layer decode-only
-  `asyncEval` boundaries at cap 200, screened against the running
-  `mb50/mb200 × default/ladder1` contrast.
-- Recommendation: **close this arm** (head region is a dead hypothesis, stop
-  rule satisfied, no submission spent) and open the sub-layer boundary arm.
+- What happened and why: the head region is real, confirmed at 0.301 ms, and
+  almost entirely not mine — 35.7 µs of it is editable host work, against 122 µs
+  of trusted harness, 67 µs of driver/firmware, 76 µs of GPU-side boundary cost,
+  and 0 µs of drain. The assignment's stop rule fires on measurement, and so does
+  your explicit gate. Part 2's sub-layer boundary family is null (`ab`, −0.16 % ±
+  0.43 %) to strongly negative (`abc`, +1.93 %, t = 4.8).
+- Evidence for/against: the bandwidth-scaling identity reproduces the ranked step
+  time from the local split with one parameter (`r = 2.085`, exactly the
+  achievable-bandwidth ratio); in-loop idle of 0.0 µs at p90 is a direct
+  refutation of every "hidden host cost" story; and the `abc` arm's *rising* GPU
+  busy is a direct refutation of my own per-boundary law.
+- Two self-corrections recorded: (i) my "cap-200 bimodality" was arm-position
+  warm-up drift (identical controls at positions 1/5/7 read 9.0356 / 9.1076 /
+  9.1136), and it is saturating rather than linear, so linear balancing does not
+  fully remove it; (ii) my −1.35 µs/boundary law was a two-point fit and is
+  refuted.
+- Uncertainty / M5 transfer risk: the local host runs decode at ~90–100 % of its
+  bandwidth wall, so it *cannot* measure launch-overhead wins; local nulls on
+  scheduling changes carry little information about M5, which has ~2× the
+  achievable bandwidth for the same bytes. This is the one caveat I would keep
+  alive: a materialisation penalty is charged at local bandwidth, so the `ab`
+  rungs are penalised locally more than they would be on M5.
+- Submitted candidate: **none.** `Sources/` and `Vendor/` are byte-identical to
+  `7017ba2`; only `research/` files were added. **No official submission spent —
+  3 remain.**
+- Smallest useful next action: nothing in this family. If anyone wants the `ab`
+  rungs swept on M5, the implementation is preserved in this branch's history at
+  `9a00e8f` / `e722f65` / `a309168` and can be cherry-picked; I do not recommend
+  spending a submission on it, since its best-case face value is +0.53 % of score
+  against a 0.61 % bar.
+- Recommendation: **close this arm.** Head region is a dead hypothesis on
+  measurement; sub-layer repartitioning is a measured regression; the `max_mb`
+  cap is unreachable from the submission surface. The one thing worth carrying
+  forward is the general rule the two negative results now jointly support:
+  **decode-step graph repartitioning is priced negative in both directions on
+  this path**, so future arms should change bytes or arithmetic, not partition.
