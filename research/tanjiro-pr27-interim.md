@@ -842,3 +842,114 @@ candidate: section 7's 929 pinned baselines have `sd(S) = 1.93%` and
 carries the full 1.93% session term (~2 ms), which is why `B`'s prefill lever was
 sized to 25-66 ms rather than the 6.8 ms `A` used.
 
+## 10. The saturation law, re-fitted inside one family: it now predicts eight points
+
+Section 8's fit failed its own out-of-sample test, and chasing that failure
+produced a much better law. This section supersedes section 8's parameters. The
+law's *form* survives unchanged; only `slack` moves, and the reason it moved is
+worth more than the number.
+
+### The failure
+
+Section 8 predicted `dT(1800) = +0.26 ms` at `tg = 160`. Measured, in the family
+that carries `A`'s settings (`sweeps = 1, passes = 1, matmuls = 20, tg = 160,
+spread = 1`):
+
+| run | n | S (ms) | T (ms) | dT vs family n=0 |
+| --- | ---: | ---: | ---: | ---: |
+| `d0bb3ac7` | 1800 | 627.889 | 11.66678 | +1.5531 |
+| `a9a07357` | 1800 | 620.260 | 11.63989 | +1.5262 |
+
+**+1.54 ms, i.e. 5.9x the prediction, and the immediate repeat reproduces it to
+0.23%.** Decode `T` on this host is reproducible to ~0.03 ms at these
+magnitudes, so this is a model error and not noise. It also kills the first
+explanation I reached for — that the region near the knee is bimodal and
+therefore noisy. It is not noisy at all.
+
+### The diagnosis: section 8 mixed two injection families
+
+Section 8 fitted `c` and `slack` from `LE` (n=2000) and `LD` (n=4000) but took
+its `n = 0` reference from `LA3`, on the stated ground that `LE` and `LD` "carry
+the sweep's +1.107 ms too". They do not. Their own `S` says so: `LE` and `LD`
+report `S = 575.182` and `588.450 ms`, sitting on the zero-injection control's
+583.311 ms, while every run that really carries the 20 injected GEMMs reports
+`S = 614-628 ms`. `LE` and `LD` were `matmuls = 0` runs, so their reference is
+the control, not `LA3`, and section 8's `slack` was inflated by exactly the
+1.107 ms sweep term it thought it was cancelling.
+
+### The re-fit, entirely inside `A`'s family
+
+Four points, one family, one reference — the family's own `n = 0` run. Every run
+returned `passed_correctness: true` and `max_abs_diff: 0`.
+
+| run | n | S (ms) | T (ms) | dT (ms) | dT/n (us) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `LA3` | 0 | 614.827 | 10.11366 | — | — |
+| `LC3` | 600 | 619.864 | 10.13248 | 0.0188 | 0.031 |
+| `d0bb3ac7`+`a9a07357` | 1800 | 620-628 | 11.65334 | 1.5397 | 0.855 |
+| `b590719a` | 2400 | 614.226 | 13.21733 | 3.1037 | 1.293 |
+
+```
+c_decode(M4 Pro) = (13.21733 - 11.65334) ms / 600  = 2.607 us / dispatch
+slack_decode     = 2400 * 2.607 us - 3.1037 ms     = 3.152 ms / decode step
+knee             = 3.152 ms / 2.607 us             = 1209 dispatches
+```
+
+`LC3` is the out-of-sample point and the law predicts `dT = 0` there
+(`600 * 2.607 us = 1.564 ms`, below the 3.152 ms slack) against a measured
+`+0.019 ms`. `S` is flat across the series to 1% with `n` varying 4000x, which is
+the control it should be: the empties are injected on single-token steps only.
+
+### The re-fit then predicts the other family and the other width, unchanged
+
+This is the part that makes the law worth quoting. Holding `c = 2.607 us` and
+`slack = 3.152 ms` fixed — no refitting — and referencing each run to its **own**
+family's `n = 0`:
+
+| run | tg | family ref | n | predicted dT | observed dT | residual |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| `LE` | 160 | control 9.00680 | 2000 | 2.061 | 1.931 | -0.130 |
+| `LD` | 160 | control 9.00680 | 4000 | 7.275 | 7.539 | +0.264 |
+| `LH` | 8 | control 9.00680 | 2000 | 2.061 | 2.217 | +0.156 |
+| `LF` | 8 | control 9.00680 | 8000 | 17.704 | 18.049 | +0.345 |
+| `LG` | 512 | control 9.00680 | 4000 | 7.275 | 22.990 | **+15.715** |
+
+Eight measurements, two parameters, `n` spanning 600 to 8000, two threadgroup
+widths 20x apart, two injection families: residuals ≤ 0.35 ms, i.e. ≤ 7%. The
+one blow-up is `tg = 512` (131072 threads per dispatch on 20 cores), where the
+dispatch is no longer empty from the GPU's point of view and its real work
+dominates. **The law is valid for `tg <= 160`.**
+
+### What that buys, physically
+
+`slack` is the same 3.15 ms in the `sweeps = 1` family as in the `sweeps = 0`
+family. Adding 268 MB of streaming DRAM reads — 1.05 ms of real GPU time in the
+same decode step — does **not** buy a single extra free dispatch. Combined with
+section 8's finding that the same sweep's own cost appears in `T` at 106%, the
+absorbed resource is therefore not "host time hiding under GPU time": if it
+were, the sweep would have widened the hiding window by 1.05 ms and it did not.
+
+What survives is an absorption capacity that is fixed in **dispatch count**
+(~1200), independent of per-dispatch GPU work (2.6-2.8 us at `tg = 8` and
+`tg = 160` alike) and independent of concurrent GPU work. That is the signature
+of a per-command-buffer or per-encoder amortisation limit on the CPU side, not
+of GPU occupancy.
+
+### Consequences, restated
+
+- The actionable conclusion from section 8 is **unchanged and now better
+  supported**: on this host a decode step has ~1200 dispatches of free
+  launch-overhead budget, so removing 10-50 MLX ops from the decode path buys
+  **zero**, while removing GPU work pays in full.
+- The number to carry to the ranked host is `c = 2.607 us` and
+  `slack = 3.152 ms`, superseding section 8's `2.72 +/- 0.09 us` and
+  `4.17-4.78 ms`.
+- Sizing the official pair: `A`'s receipt fixes the hard decode limit at
+  `T <= 13.80 ms`, so the injected budget is 8.97 ms. A floor breach is not a
+  cheap experiment — of 1409 public submissions, 937 publish `officialMetrics`
+  and **not one publishes a speedup below 0.95** (slowest published:
+  `decode_speedup` 1.0097, `prefill_speedup` 0.9524), so a breach costs the
+  receipt outright. At a pessimistic `c = 3.5 us` with zero slack the largest
+  safe count is 2563, which is why the official pair is placed at **2400 and
+  1400** rather than wider.
+
