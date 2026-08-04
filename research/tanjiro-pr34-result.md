@@ -581,8 +581,11 @@ from *kernel-efficiency* evidence rather than from a rate threshold.
 Each rate is `added_work / (X_high − X_low)` where `X` is `S` or `T` from the two
 receipts named in the pairing column, `added_work` is the exact byte/FLOP count of
 one extra full copy of that block, and the uncertainty is the quadrature sum of the
-two receipts' axis noise (`0.234%` of `S`, `0.662%` of `T`, re-derived above from
-this account's own 12 clean same-day receipts) propagated through the difference.
+two receipts' axis noise propagated through the difference. Prefill bars use
+`sd(S) = 0.234%`; decode bars use `sd(T) = 0.4%`, the within-window figure justified
+above, **not** the 0.662% cross-window figure, which is inflated by spanning two base
+trees. Using 0.662% instead would widen every decode bar by ~65% (rate 2 to ±0.046 ms,
+rate 4 to ±0.056 ms) and changes no conclusion in this report.
 
 The four authorised receipts yield **seven** readings, because each decode block is
 read both in an unperturbed and in an already loaded step, and rate 1 is read both
@@ -593,7 +596,7 @@ each rate; the other is the honest companion that bounds it.
 | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
 | 1 | routed-expert gather-GEMM, prefill | single level, 39 copies | R2−R1 | 17,666.41 MB / 1005.02 GFLOP | 43.2619 ± 0.402 ms | **408.4 GB/s / 23.23 TFLOP/s** | 43.558 ms | 405.6 GB/s / 23.07 TFLOP/s |
 | 1 | " | **slope, 20→39 copies** | R2−R4 | 8606.71 MB / 489.62 GFLOP | TBD | TBD | TBD | TBD |
-| 2 | attention q/k/v/o QMV, decode | unloaded step | R2−R1 | 802.16 MB | 1.23070 ± 0.046 ms | **651.8 GB/s** | 1.2634 ms | 634.9 GB/s |
+| 2 | attention q/k/v/o QMV, decode | unloaded step | R2−R1 | 802.16 MB | 1.23070 ± 0.028 ms | **651.8 GB/s** | 1.2634 ms | 634.9 GB/s |
 | 2 | " | **loaded step** | R3−R4 | 802.16 MB | TBD | TBD | TBD | TBD |
 | 3 | attention q/k/v/o dense GEMM, prefill | **single level, 40 copies** | R3−R1 | 2852.13 MB / 1460.29 GFLOP | 22.2139 ± 0.362 ms | **128.4 GB/s / 65.74 TFLOP/s** | 21.483 ms | 132.8 GB/s / 67.98 TFLOP/s |
 | 4 | routed-expert QMV, decode | **loaded step** | R3−R2 | 552.08 MB | 1.01067 ± 0.034 ms | **546.2 GB/s** | 0.9562 ms | 577.7 GB/s |
