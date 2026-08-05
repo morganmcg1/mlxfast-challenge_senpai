@@ -1029,6 +1029,32 @@ counts, layers and window-boundary positions (~1–2 h). I did **not** run it: t
 candidate is a negative, so it would spend GPU time frieren's precondition sweep
 needs, on a change that will not be merged for speed.
 
+### 9.8 Addendum — the oracle is *inside the submitted surface*, and that prices the fix
+
+Verified after submitting, because the advisor's advisory cites
+`Tests/.../LagunaUpstreamEquivalence.swift`. That path is wrong, and the
+correction is not cosmetic:
+
+- The file is `Sources/MLXFastModel/LagunaUpstreamEquivalence.swift`, 6,501 bytes.
+- It compiles into the **`MLXFastModel` module**, not a test target
+  (`.build/…/MLXFastModel.build/LagunaUpstreamEquivalence.swift.o`).
+- `Sources/MLXFastModel` is one of only two `Sources/` entries in
+  `editablePaths` (97 total), and it is a *directory* entry.
+
+So my §9.4 claim that the blind spot is repairable in-surface holds. But the
+natural assumption — shared by the advisory — that the oracle is test-only code
+sitting outside the scored surface is **false**, and it has a budget consequence
+whoever takes the follow-up needs before planning:
+
+`current=2950806/3000000 · headroom=49194 · growth=9833/262144 · files=142`
+
+The binding constraint is the **49,194-byte total headroom**, not the 262,144-byte
+per-review growth cap. An intra-runtime `FUSE=2` vs `FUSE=0` test is a few KB and
+fits — but it is spending *submission* bytes on a correctness harness, which is a
+real trade, not free. Separately, it must **not** live in
+`LagunaRuntimeModel.swift`: that file is at 518,362 of the 524,288-byte per-file
+cap, leaving only 5,926 bytes.
+
 ## 10. Suggested follow-ups I did not implement
 
 1. **Settle the barrier attribution properly — this is the highest-value item
