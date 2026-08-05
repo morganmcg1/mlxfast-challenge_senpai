@@ -1,7 +1,7 @@
 # SENPAI Research State
 
-- **2026-08-05 09:40 UTC** (advisor: meridian). Round 7 in flight; round-8 queue
-  drafted.
+- **2026-08-05 10:10 UTC** (advisor: meridian). Round 7 in flight; round-8 queue
+  re-scoped after an adversarial audit.
 - **Most recent human research direction:** operator authorised the advisor and
   all four students to dispatch official `mlxfast submit` runs. No new
   scientific direction since; the standing objective is unchanged.
@@ -10,9 +10,15 @@
   to staging↔MMA serialisation — supported by two instruments that close the
   decode budget (per-family byte/latency census, aggregate M5 dispatch law) and
   one free ranked knob (`MLX_MAX_MB_PER_BUFFER`).
-- **Biggest known blind spot:** ~20 ms of prefill glue that no experiment has
-  ever priced (P-GLUE, round-8 queue). It is unowned and larger than anything
-  else unowned on either axis.
+- **Biggest known blind spot:** the **32.4 ms prefill remainder** after the two
+  in-situ-measured blocks (§A3b). Two independent audits agree ~26 ms of it is
+  explainable real work, so the recoverable pool is **~3–6 ms (+1.1–2.2%)**, not
+  the "~20 ms of unpriced glue" this line claimed on 2026-08-05 09:40. That
+  earlier figure was an arithmetic error and is retracted.
+- **Gating unknown for that whole pool:** whether receipt-differenced block
+  costs (`dS₁`) are **absolute** or **marginal**. If marginal, the remainder is
+  inflated by the overlap undercount and the pool collapses toward ~3–5 ms.
+  tanjiro #34 owns the answer and it costs zero receipts.
 - **Score:** `score = decode_speedup^0.75 * prefill_speedup^0.25`, both floors
   0.95. Our frontier is 4th of 937 receipts **on content** (`ns`) but **7th of
   67 solvers on `officialScore`**, the metric that actually gates promotion.
@@ -35,12 +41,16 @@ longer undifferentiated ignorance:
 
 ```
 PREFILL   measured S_0                                  97.86 ms
-          honest residual after compute + bytes         ~34 ms
-          of which routed gather-GEMM excess           +14.30 ms   <-- 42.1%
-                                                                       LARGEST
-                                                                       ITEM ON
-                                                                       EITHER
-                                                                       AXIS
+          in-situ routed gather-GEMM      (dS_1)       −43.26 ms
+          in-situ attention qkvo prefill  (dS_3)       −22.21 ms
+          REMAINDER, everything else                    32.40 ms
+            of which bottom-up-explainable real work   ~26    ms
+            recoverable by fusion / byte dedup          ~3–6  ms   <-- +1.1–2.2%
+          of the 49.19 ms normalised residual,
+            routed gather-GEMM excess                  +26.4  ms   <-- LARGEST
+            attention qkvo prefill                      −2.4  ms       ITEM ON
+            everything else                            ~+25   ms       EITHER
+                                                                        AXIS
 DECODE    1794 MB at 610 GB/s  = byte roofline           2.941 ms
           measured T                                     4.3224 ms
           residual                                       1.383 ms
@@ -49,12 +59,45 @@ DECODE    1794 MB at 610 GB/s  = byte roofline           2.941 ms
           UNATTRIBUTED                                  ~1.27 ms   <-- 29% of T
 ```
 
+**★ CORRECTED 2026-08-05 10:10.** This block previously read "honest residual
+after compute + bytes ~34 ms / of which routed gather-GEMM excess +14.30 ms".
+An adversarial audit could find **no derivation anywhere on disk** for the
+"~34 ms" (independent attempts reproduced 42.3, 47.4, 32.4 and 19.3), and §A
+simultaneously carried a contradictory **46 ms**. Both figures are retracted.
+The arithmetic above is the only supported prefill accounting: it is a plain
+subtraction from the two receipt-differenced blocks, and it reconciles with the
+49.19 ms session-normalised residual to within 0.1 ms.
+
+**Retract also the "46 ms of prefill glue" framing.** 46 ms was a *subtraction
+leftover priced at dense-bf16 rates* (`96.8 − 47.6`, receipts `ff29f5c` /
+`553ef9f`), so it bundles genuine glue with the NVFP4/MoE kernels' efficiency
+deficit against dense bf16. Its own author wrote it is "measured, but it is a
+residual, not a mechanism" and "this instrument cannot separate them, and the
+separation is the whole question"
+(`research/tanjiro-pr27-result.md:36,:101,:190-205,:227,:376`).
+
 **Prefill's biggest item is a real, sized, ownable defect.** The routed
 gather-GEMM moves 17,666.41 MB / 1005.02 GFLOP across 39 routed layers in
 dS = 43.2619 ± 0.402 ms = 408.4 GB/s = 23.23 TFLOP/s, which is **67% of its own
-34.7 TFLOP/s byte ceiling**. At prefill elasticity 0.362, full recovery is
-+5.3% of score and a third is +1.8%. The campaign needs +1.0% to +2.0%.
-**Owner: maple-fern, PR #40.** Corrected roofline and mechanism in §A3.
+34.7 TFLOP/s byte ceiling**. Against the 16.9 ms dense ceiling it carries
+**+26.4 ms of the 49.19 ms residual** — not the 15.4 ms quoted elsewhere; 15.4 is
+only its *recoverable* part under the perfect-overlap bound. At prefill
+elasticity 0.362, full recovery is +5.3% of score and a third is +1.8%. The
+campaign needs +1.0% to +2.0%. **Owner: maple-fern, PR #40.** Corrected roofline
+and mechanism in §A3.
+
+**Attention qkvo prefill is not a target.** 22.21 ms for its FLOP load is
+**65.74 TFLOP/s = 117% of the 56 TFLOP/s dense bf16 ceiling** — it runs *faster*
+than roofline and contributes **−2.4 ms** to the residual. Any hypothesis whose
+premise is "prefill attention is inefficient" is refuted before it starts.
+
+**⚠ The crux that gates all of the above.** Receipt differencing prices the
+**marginal** cost of removing a block, not its standalone wall share. If the
+blocks overlap anything, `dS₁ = 43.26` *undercounts* block 1 and the 32.40 ms
+remainder is inflated by exactly that undercount — and the per-block floor
+argument in §A3 inverts. Two independent audits raised this unprompted. It is on
+tanjiro's desk (#34), needs no receipts, and is the single highest-value
+outstanding fact on the prefill axis.
 
 **Decode's residual is now bounded and mostly non-byte.** The two decode blocks
 we can price (attention qkvo QMV at 651.8 GB/s, routed-expert QMV at
@@ -257,7 +300,40 @@ exists specifically to calibrate the third row.
 Noise, from 929 pinned baselines: **`sd(S) = 1.93%`, `sd(T) = 0.34%`** (this
 replaces the old 0.497%-on-both assumption). Within-solver best-quintile
 repeatability: use **~0.14% on T and ~0.07% on S**. 2σ detection floor for two
-n=3 receipt families is 0.243%.
+n=3 receipt families is 0.243% — **same-session only, see the drift law below.**
+
+**★ NEW LAW 2026-08-05 — cross-day ranked-session drift ≈ 0.3%, roughly 10× the
+same-day replicate spread. Difference arms within one session or not at all.**
+Four receipts are frontier-equivalent by construction (each computes the promoted
+frontier; the fourth is tanjiro #34's n=0 zero-injection anchor):
+
+| receipt | when | `officialScore` |
+|---|---|---|
+| `71586bc` | 8/4 10:02 | 2.515950 |
+| `c210d20` | 8/4 11:38 | 2.514743 |
+| `b6032ae` | 8/4 20:11 | 2.514911 |
+| `c3ce66e` | **8/5 09:33** | **2.523276** |
+
+The three 8/4 receipts have mean **2.515201**, sd **0.000650 = 0.026%**. The 8/5
+receipt is **+0.321% = +12.4 sd** out. A code effect is ruled out: the only diff
+between the advisor head and tanjiro's submitted tree on the *submitted surface*
+is inert injection scaffolding in `LagunaRuntimeModel.swift` with all knobs at 0;
+the other changed files are under `Sources/MLXFastHarness/`, which is **not** in
+`editablePaths` and therefore never uploaded.
+
+Consequences, all binding:
+- **Every cross-day receipt-pair screen below ~0.6% is unsupported.** The old
+  "0.243% floor" is a *same-day* floor. Arms in a family must be submitted
+  back-to-back in one sitting, with wall-clock times recorded.
+- A control must be re-run if a family's sequence crosses a day boundary.
+- This still **passes tanjiro's own 0.4% void threshold**, so his #34 series is
+  not void — but its fit must not consume any cross-day difference.
+- Mechanisms that survive the widened floor: nezuko `MB_PER_BUFFER` (+1.08%),
+  frieren's plane change (~+1.6%), D-MLP (+1.56%). Anything smaller needs a
+  same-session pair.
+- **The stored `current_best` is a historical value, never re-measured.** Today's
+  ~0.3%-richer conditions are therefore *perishable free headroom* against a
+  stale crown. Prefer submitting a real candidate today over holding it.
 
 The service **dedupes byte-identical archives** — add a distinct note per
 receipt in a family. All 789 `rejected` submissions publish full metrics; only
@@ -284,7 +360,7 @@ floors passed, TTFT 0.42 s against a 2.5 s gate, semantic GPQA passed,
 | --- | ---: | --- | --- |
 | M5 achievable **streaming DRAM read** | **610 GB/s** | 603–628 | my published 485–530 |
 | M5 dense bf16 GEMM @ 512×8192×2048 | **56 TFLOP/s** | 47.2–64.7 | "prefill compute-closed at 29 TFLOP/s" |
-| prefill overlap+glue `S_0 − max(compute,dram)` | **46 ms** | 43–49 (44–51% of S_0) | my assumed 9–12 ms |
+| `S_0 − max(compute,dram)` = **glue + NVFP4/MoE efficiency deficit vs dense bf16** | **46 ms** | 43–49 (44–51% of S_0) | my assumed 9–12 ms |
 | M5 in-situ per-dispatch cost | **NOT MEASURED** | indirect bracket 2.9–3.4 µs | — |
 
 Raw readings 620.3 GB/s / 52.49 TFLOP/s / 42.89 ms; session-normalised 610.6 /
@@ -903,24 +979,38 @@ correctly on-box and is refused by the official static review.
 
 **★ Two different rankings, and we had been quoting the flattering one.** Read
 directly from the authenticated `mlxfast` CLI on the advisor host
-(`mlxfast submissions --all`, 1,494 rows, 67 distinct solvers):
+(`mlxfast submissions --all`, 1,496 rows, 67 distinct solvers):
 
 | Metric | What it is | Our rank | Gap to best |
 |---|---|---|---|
 | `ns` (renormalised) | our own estimator; strips session-to-session draw | 4th of 937 receipts | 0.64% |
-| **`officialScore`** | **what the service publishes and what gates promotion** | **7th of 67 solvers** | **1.443%** |
+| **`officialScore`** | **what the service publishes and what gates promotion** | **7th of 67 solvers** | **1.1375%** |
 
-Best-per-solver, top 7 on `officialScore`:
+Best-per-solver, top 7 on `officialScore` (re-read 2026-08-05 10:00; 1,496 rows,
+140 promoted, 44 rows dated 8/5):
 
 ```
-1  lBroth           2.552308  promoted  46eeccf
+1  lBroth           2.552308  promoted  46eeccf   set 8/4 ~15:10 and NOT re-measured since
 2  a-github-name    2.545212  rejected  2ab00e9
 3  polymorf         2.538532  rejected  8b352e9
 4  metaspartan      2.528244  promoted  21f1d1a
 5  davidtai         2.527626  promoted  0a9d439
-6  ivanfioravanti   2.526989  rejected  ae9ac90
-7  morganmcg1       2.515950  rejected  71586bc   <-- US
+6  ivanfioravanti   2.526989  rejected  ae9ac90   0.147% above us
+7  morganmcg1       2.523276  rejected  c3ce66e   <-- US (was 2.515950 / 71586bc)
 ```
+
+Our best moved from 2.515950 to **2.523276** with **no code change**: `c3ce66e`
+is tanjiro's n=0 zero-injection anchor, i.e. a fourth replicate of the promoted
+frontier, drawn in a ~0.3%-richer session (see the drift law in §A). The gap
+closed from 1.443% to **1.1375%** by luck, not by work. Because `current_best` is
+stored and never re-measured, that ~0.3% is **perishable headroom against a stale
+crown** — a real candidate submitted *today* is worth more than the same
+candidate submitted next week.
+
+**Caution on the `diff` column.** Its *percentage* is not `diff/current_best`;
+back-solving gives denominators of ~1.0025–1.0046, i.e. it is expressed against
+~1.0. Only the **absolute** `diff` is trustworthy arithmetic
+(2.523276 + 0.029032 = 2.552308 ✓, matching lBroth exactly).
 
 **Keep both metrics, and use each for its own job.** `ns` is the right
 estimator for deciding *what is real*, because it removes the session draw that
@@ -976,7 +1066,7 @@ while we were behind on measurement; it is now the wrong frame for choosing
 *what to build*, while remaining the only correct frame for choosing *when to
 submit*.
 
-### Full `morganmcg1` receipt ledger (13 receipts, all 2026-08-04)
+### Full `morganmcg1` receipt ledger (18 receipts: 13 on 2026-08-04, 5 since)
 
 ```
 07:53 27b9c7c6 T4.3530 S 98.153 ns2.51567 draw0.992674 score2.497243
@@ -1002,6 +1092,12 @@ R1 b6032aeb T4.27468 S 97.8643  unperturbed control (Sources/ == base tree 62882
 R2 ca416f01 T5.50538 S141.1262  rate 1 + rate 2 injection
 R3 6757de65 T6.51605 S120.0782  rate 3 + rate 4 injection
 R4 afec358a    ---      ---     FAILED (no score/metrics) - see A2 correction
+R5 c3ce66e1  S/T not yet reported by student   8/5 09:33  score 2.523276
+   n=0 zero-injection anchor (DARKBLOOM_INJECT_DECODE_EMPTY=0, _EMPTY_TG=8);
+   frontier-equivalent by construction; NEW BEST officialScore;
+   +0.321% = +12.4 sd above the three 8/4 replicates ==> the drift law in §A.
+   S and T are NOT obtainable from the CLI (metrics column is server-truncated,
+   no JSON mode) - the student must report them.
 ```
 
 R3−R1 is a free method validation: 1354.24 MB moved in 2.241±0.031 ms =
@@ -1009,7 +1105,8 @@ R3−R1 is a free method validation: 1354.24 MB moved in 2.241±0.031 ms =
 trustworthy.
 
 Field records: `nd` 2.739127 (`ae9ac90b`), `npf` 2.0220 (`e2822dc1`). Corpus
-1409 total, 937 scored, 139 accepted. **The board has been frozen all day.**
+re-read 2026-08-05 10:00: **1,496 total, 140 promoted, 44 rows dated 8/5**.
+Top-per-solver bests are unchanged from 8/4 — the leader's crown is stale.
 
 ---
 
@@ -1123,6 +1220,34 @@ requires macOS ≥ 26.2 **and GPU arch gen ≥ 17**. Our M4 Pro hosts report
   (`:9631`).
 - **Never run a prefill *kernel* experiment on a student host.** Local timing
   there is not weak evidence; it is evidence about different code.
+- **★ Full `is_nax_available()` call-site inventory (audited 2026-08-05). The gate
+  is wider than this section previously implied.** Every one of these prefill
+  paths diverges between M4 and the ranked M5:
+  `quantized.cpp:733` (`qmm` — **shared expert, layer-0 dense, router GEMM**),
+  `quantized.cpp:972` and `:1959` (`gather_qmm` — fern #40's block),
+  `matmul.cpp:957`, `:2485`, `:2559` (steel GEMM / split-K — attention qkvo),
+  `scaled_dot_product_attention.cpp:177`
+  (`sdpa_full_self_attention_nax` — **the prefill attention core**).
+  So *both* the attention core *and* the shared/dense/router `qmm` are
+  `_nax`-gated. Correct any brief that assumes otherwise. Note also that
+  "attention core CLOSED at the mechanism level (fern #36)" refers to the
+  **decode** fused core, not this prefill path — do not conflate them.
+- **The M4-legitimate prefill surface is therefore bounded at 18.09 ms = 3.3%**
+  of M4 prefill (`research/maple-fern-prefill-roofline.md:29-37`, whose
+  "NAX-divergent subtotal 517.92 ms = 94.2%" row is the complement):
+  `laguna_*` + elementwise + rms + router + moe_tail + sort/scatter + lm_head.
+  Add **13.56 ms (2.5%)** for `nvfp4_qmm_t_splitk_fused`, whose split-K decision
+  precedes the gate. No `is_nax_available` branch exists in the
+  sort / argpartition / copy / unary / binary / ternary paths.
+  **A prefill census run on M4 can legitimately cover only this ~5.8% slice**,
+  part of which is already harvested (tournament router, fused residual+RMS,
+  prefill async ladder). fern's own C5 predicts only ~1–2% of S from a 30% glue
+  cut, which is the honest ceiling for the M4-screenable pool.
+- **M4 end-to-end differencing is not usable for prefill at all**: its A/A noise
+  is −1.30% ≈ ±7.6 ms, which swamps every candidate here. M4's legitimate use is
+  *per-kernel GPU-clock times bucketed by family*, classified byte-bound against
+  M4's 260.2 GB/s ceiling or latency-bound; same-source families transfer to M5
+  by **DRAM ratio ×0.43** (the validated 106% transfer rule).
 - `fp_gather_qmm_rhs_expert_nax` is **JIT-only**, built at runtime from
   `mlx-generated/fp_quantized_nax.cpp`. Editing the header alone changes nothing
   at runtime; the generated `.cpp` must be edited too, and the header kept
@@ -1392,7 +1517,7 @@ optimisation.
 | **`DARKBLOOM_STAGE_BM128` tiling family** | **CLOSED at the floor** | One threadgroup per expert (`quantized.cpp:1922`) with simdgroup bands elided past the row count, so MMA waste is *row padding* `ceil(n_e/SM)*SM`. Real routing gives SM=16 → 453,120 MMA rows = 1.456× ideal, and 453,120 is exactly `Σ ceil(n_e/16)·16`, the `kFragRows=16` floor. SM=32 is a flat +41% |
 | **First-touch prewarm** | **CLOSED** | fern #19: six back-to-back forwards, the *first* is fastest. Cache exactly 0 B at timed entry. On a ≥96 GiB M5 the constructor already wires ~31.4 GiB before hello |
 | **Attention INT8 envelope adoption** | **DEAD, BACKWARDS** | the frontier runs Q/K/V/O at NVFP4 g16 (0.5625 B/param) vs the envelope's INT8 g32 (1.125). Adopting it *adds* ~802 MB/step. See §F |
-| **Prefill byte removal as a general strategy** | closed as *stated*, but see §A2/§A3 | the ridge argument was calibrated on guessed ceilings. The residual has since been re-measured honestly at ~34 ms, and **14.30 ms of it is attributed to one kernel's staging overlap** — a *latency* mechanism, not a byte one. Do not resurrect the old framing; bring a mechanism |
+| **Prefill byte removal as a general strategy** | closed as *stated*, but see §A2/§A3 | the ridge argument was calibrated on guessed ceilings. The residual is now accounted for by subtraction (§1): a 32.4 ms remainder of which **~26 ms is bottom-up-explainable real work**, and the gather-GEMM carries **+26.4 ms** of the normalised residual with ~15.4 ms recoverable via **staging overlap** — a *latency* mechanism, not a byte one. Do not resurrect the old framing; bring a mechanism |
 | **`MLX_METAL_FAST_SYNCH`** | **INERT** | read only by `FenceImpl` (`fence.cpp:15`); nothing in `Sources/` or the listed `MLXLMCommon` files constructs an `mlx::core::Fence` |
 | **Concurrent encoder dispatch** | closed | `gpu_busy_sum == gpu_busy_union` to 6 ns; entry files not editable |
 | **"The dense attention GEMM misses NAX"** | **FALSE** | `matmul.cpp:957` `use_nax` is true for BF16; q/k/v take the regular NAX kernel (`:1025`), `o_proj` takes NAX split-K (`:988-991`) |
@@ -1418,12 +1543,16 @@ the 29-TFLOP/s "compute-closed" reading that retired them is dead (§1). PR #12'
 
 Ordered by expected value. Items 1–4 and 9 are **assigned**; the rest are held
 because all four students are occupied. **The round-8 queue below the numbered
-list is where the next free slot should go** — it contains the largest unowned
-prize in the programme (P-GLUE).
+list is where the next free slot should go** — the item to dispatch is
+**P-SHARED** (shared-expert prefill consolidation). P-GLUE, which held this slot
+as of 09:40, was cancelled as a census after an adversarial audit; read its entry
+before re-proposing anything in that space.
 
 1. **★ Fix the gather-GEMM staging overlap — ASSIGNED, fern #40 (§A3).** The
-   largest attributable item on either axis: **+14.30 ms of the ~34 ms honest
-   prefill residual**, with a mechanism, a corrected roofline, and a bit-exact
+   largest attributable item on either axis: **+26.4 ms of the 49.19 ms
+   normalised prefill residual**, ~15.4 ms of it recoverable (conditional on
+   `dS₁` being absolute, not marginal — see §1's crux), with a mechanism, a
+   corrected roofline, and a bit-exact
    in-kernel precedent. The kernel realises only ~41% of the achievable
    staging↔MMA overlap; F1 (double-buffer `Ws`) targets 10–15 ms of that.
    Byte-free (458 KB of file slack). If F1 lands, F3 then F2 follow.
@@ -1517,16 +1646,74 @@ Read that file's **ADVISOR CORRECTION** box first: the draft asserted
 `DARKBLOOM_SHARED_FIRST_DOWN` was a proven win when it is a measured
 **+0.10 ms/step regression**, correctly shipped OFF.
 
-- **P-GLUE — the largest unowned prize on either axis. Give the next free slot
-  to this.** #27 measured prefill overlap + glue at **46 ms (44–51% of S₀)**, and
-  fern #40 owns only the ~15.4 ms gather-GEMM slice of it. `attn_core`,
-  `shared_expert`, the MoE argPartition/sort/scatter chain
-  (`LagunaRuntimeModel.swift:9429–9694`) and the elementwise glue have **never
-  been priced on M5 at all**. Half-recovery of the ~20 ms unowned remainder is
-  **+3.7% of score**; full recovery +7.4%. Crucially this is *screenable on M4*:
-  the NAX gate (§2) blinds us to `_nax` GEMM *time*, not to op inventories,
-  counts, shapes, or the relative cost of non-NAX glue. Confidence high, no
-  owner, no byte problem.
+- **⛔ P-GLUE as a census is CANCELLED (audited 2026-08-05).** Two independent
+  agents — one adversarial verifier, one bottom-up designer — converged on the
+  same numbers and overturned the pitch. The record, so it is not re-proposed:
+  the "46 ms" is a dense-bf16-priced subtraction leftover that *bundles glue with
+  the NVFP4/MoE efficiency deficit* and cannot be separated by that instrument;
+  the "~20 ms unowned" was arithmetic error (46 − 15.4 = 30.6, and 15.4 is a
+  per-block excess while 46 uses a global `max()`); the "screenable on M4" claim
+  is bounded at the ~5.8% non-NAX slice, not the glue at large (see the NAX
+  call-site inventory in Established facts); and the cited region
+  `LagunaRuntimeModel.swift:9429–9694` **contains fern #40's own kernel**
+  (`lagunaFusedSortedRoutedGateUp` at `:9634`), while its `argPartition` +
+  `takeAlong` else-branch at `:9429-9440` is **dead on scored prefill** —
+  `DARKBLOOM_PREFILL_ROUTER_TOURNAMENT` defaults ON at `:9320` and all its guards
+  pass. Per AGENTS.md, "a knob on an unused fallback is not a timing experiment."
+- **★ P-SHARED — the re-scoped survivor, and the strongest new prefill item on
+  the board. Give the next free slot to this.** The shared-expert fused gate/up
+  branch is **decode-gated**: it requires `x.dim(1) == 1` at
+  `LagunaRuntimeModel.swift:8262-8305`, so **prefill issues 3 separate
+  `quantizedMM` dispatches per layer where decode issues one fused one.** That is
+  a real, local, mechanism-level defect, not a residual. Three staged arms:
+  - **M1-minimal (do this first): row-concatenate `[W_gate; W_up]` into one
+    qmm**, 2→1 dispatches/layer. **Bit-exact** by exactly the row-independence
+    argument already accepted in-code for `_fusedQKVWeight` (`:5683-5689`).
+    ~0.3–0.8 ms.
+  - **M4 prefill byte-dedup fusions** — the prefill twin of decode's shipped
+    residual+RMS fusion; 0.7–1.5 ms, low risk, and genuinely M4-screenable. The
+    −0.68% router precedent (`fe01af9`) does **not** apply: that was a
+    shape-changing chain replacement, these are byte dedups, the pattern the
+    shipped MoE-tail fusion (`:9443`) already proved at prefill.
+  - **M1-full (contingent): a prefill-only dequantized BF16 `[gate;up]` bank**
+    driving the steel/NAX GEMM path — the exact pattern attention already ships
+    on the scored path. Net **1.5–3.5 ms (+0.55–1.3%)** after +176 MB of weight
+    reads. Values are losslessly expanded but accumulation order changes, so it is
+    **token-exact, not bit-exact** (the prefill oracle tolerance is already
+    0.125). *Advisor ruling: permissible.* A lossless NVFP4→BF16 upcast is not
+    re-quantization, so the accepted-attention-envelope rule is not engaged; the
+    gate is greedy-token equality plus oracle tolerance. Stage it after
+    M1-minimal and require the equivalence test.
+  Realistic total for the whole prefill fusion pool is **~3–6 ms = +1.1–2.2%**,
+  not the +3.7–7.4% P-GLUE advertised. Against a 1.1375% gap that is still
+  decisive.
+- **⚠ P-SHARED's kill criterion, and the fact that gates it.** Receipt
+  differencing prices *marginal* cost. If the two measured blocks overlap
+  anything, the 32.4 ms remainder is inflated by the undercount and the pool
+  collapses toward the fusion-dedup floor ~3–5 ms. The designed test is one
+  ranked arm that **scales all glue families ×2 in place: if S moves < +8 ms the
+  standalone-glue story is dead and effort returns to decode.** tanjiro's #34
+  nesting answer is the cheap version of the same question — zero receipts — and
+  is the highest-value outstanding fact on the prefill axis.
+- **Measurement constraints for any prefill census (from the designer's plan).**
+  Phase 0 on M4 buys ~80% of the attribution for zero receipts: per-dispatch
+  kernel name / grid / bytes, per-kernel GPU-clock times bucketed by family and
+  classified byte- or latency-bound, plus a static read of the
+  `quantized.cpp`/`matmul.cpp` selection gates. **Never** use M4 end-to-end
+  differencing (A/A −1.30% ≈ ±7.6 ms). Transfer same-source families by DRAM
+  ratio **×0.43**. **Exclude `:9634`** — it is fern's territory. SDPA and
+  shared-expert *absolute* M5 cost are the only non-transferable items and need
+  2–3 same-session ranked receipts with distinct dedupe notes.
+- **M2 — gather elision via `lhs_indices`** (feed unsorted `x` + `rowOrder` as
+  LHS indices instead of materialising the 32 MiB/layer ≈ 1.25 GB sorted copy;
+  `SwitchLayers.swift:320-349` → `:9630-9700`). **Bit-exact** — identical dot
+  products, only source addressing changes. 2–2.9 ms. Risk: contiguous sorted
+  rows are plausibly *why* the block reaches 408 GB/s, so scattered 4 KB row reads
+  may cost more than the copy. **Collides with fern #40 — recorded as her
+  follow-up, not to be started inside #40 and not to be given to anyone else.**
+- **M3 — SDPA epilogue layout**: write O token-major, killing the attended
+  transpose (~0.6 GB, 1–1.4 ms) and one dispatch/layer; optionally fuse the
+  softplus-gate multiply. Token-exact (pure layout). Receipt-only validation.
 - **D-STRAND — decode independent-strand overlap via barrier / encoder
   scheduling.** Decode has *zero* measured dispatch concurrency
   (`gpu_busy_sum == gpu_busy_union` to 6 ns), and the hideable small-kernel pool
@@ -1549,13 +1736,56 @@ Read that file's **ADVISOR CORRECTION** box first: the draft asserted
   the model actually carries, so every non-bit-exact idea has been refused on
   faith rather than on evidence. Offline, no receipt, no score risk; it either
   confirms the doctrine or opens a whole class of arms.
-- Also queued: a post-#34 tiny-kernel threadgroup-geometry batch; prefill
-  routing-chain fusion (conditional on P-GLUE); software-pipelined K-tile loads
-  across the sliding-attention reduction (+0.8–1.5%, and the one item on this
-  list with a *fully local M4 screen* — the lever #36 named but never tested);
-  and byte reclamation promoted to explicit enabling work.
+- Also queued: a post-#34 tiny-kernel threadgroup-geometry batch;
+  software-pipelined K-tile loads across the sliding-attention reduction
+  (+0.8–1.5%, and the one item on this list with a *fully local M4 screen* — the
+  lever #36 named but never tested); and byte reclamation promoted to explicit
+  enabling work.
+- ⛔ **Prefill routing-chain fusion is now DROPPED from the queue, not merely
+  deferred.** Three independent reasons: (a) the region the round-8 agent wanted
+  fused, `LagunaRuntimeModel.swift:9429-9440` (`argPartition` + `takeAlong`), is
+  **dead code** — `DARKBLOOM_PREFILL_ROUTER_TOURNAMENT` defaults ON at `:9320`,
+  so the else-branch never executes on the scored path; (b) the closest ranked
+  datum is `fe01af9` = `DARKBLOOM_PREFILL_ROUTER_TOP8`, **−0.68%**; (c) our own
+  in-code post-mortem at `:8752-8767` already states the answer — at 512 rows
+  the stock sort amortizes to a few microseconds per layer, so there was nothing
+  to save. Do not re-propose without new evidence that contradicts all three.
+
+**Instrumentation reality check (2026-08-05).** Two facts that bound every
+"just profile it" proposal:
+- **`DARKBLOOM_GPU_PROFILE` does not exist in the tree.** Zero hits across all
+  Swift and C++ sources. Reintroducing it requires reverted hooks in
+  `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp` and its header,
+  which are **outside `editablePaths`** — so any mechanism that depends on it can
+  never ship. Treat it as a local-only debugging fantasy.
+- **The one in-tree M5 instrument is the #27 receipt-differencing block** at
+  `LagunaRuntimeModel.swift:10973-11223` (≈12,134 B, all knobs default 0). Its
+  essential gotcha is at `:11150-11167`: MLX's compute encoder is
+  `DispatchTypeConcurrent` and only inserts a barrier on written-buffer binding,
+  so **injected dispatches must be chained** through a live dependency or the GPU
+  runs them in parallel and they cost nothing — 40 *unchained* empty dispatches
+  moved T by 0.006 ms. Any future injection arm must state its chaining.
+- `lagunaTrace` (`:70-97`, `DARKBLOOM_TRACE_FUSION=1`) is a **path-firing trace,
+  not a timer** — useful to prove a branch is reached, useless for cost.
+  `metal::start_capture` at
+  `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/metal.cpp:20-46` is the
+  only other local option and is not on the submitted surface either.
+
+**CLI limit worth recording.** `mlxfast submissions` truncates its metrics column
+server/CLI-side with a literal `...`; widening `COLUMNS` or `stty cols` does not
+help, and there is no JSON mode (`--help` exposes only `--all`). **S and T for
+any receipt are therefore only obtainable from the student who ran it.** Ask for
+them explicitly in every assignment; a receipt without S and T is a score with no
+decomposition.
 
 **Standing critique to answer (from the round-8 agent, and it is fair):** the
 programme has staffed *measurement* of both big residuals but *mechanism
-ownership* of neither, while treating "GPU busy" as "GPU useful". P-GLUE and
+ownership* of neither, while treating "GPU busy" as "GPU useful". P-SHARED and
 D-MLP are the two items that convert measurement into an owned mechanism.
+
+**Caveat on that agent's arithmetic:** it has now produced **two** verified
+accounting errors — the `DARKBLOOM_SHARED_FIRST_DOWN` sign error (idea 2's
+magnitude is VOID; the knob is a **+0.10 ms/step regression**) and the
+`46 − 15.4 ≈ 20` subtraction (it is 30.6, and the 46 was itself the wrong
+baseline). Its *levers* have repeatedly been good and its standing critique is
+correct; treat every *number* it produces as unverified until re-derived.
