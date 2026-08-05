@@ -134,3 +134,36 @@ boundary **timing** does not, not even in sign.
 Exactly **one** ranked receipt, at 512. No re-measurement, no second arm. If
 the verdict is NULL or REFUTE the token goes back to `200` and the axis closes
 with the upward half measured rather than assumed.
+
+## Gate A2 outcome: numerical-inertness control (resolved before submitting)
+
+`research/run_upstream_equivalence.sh` returns rc=1 on this M4 Pro host at
+**every** cap, including the unmodified base value. Prefill reports
+`maximumAbsoluteLogitError 0.125` (mean `0.011933609`); all 8 decode steps are
+exactly 0; every argmax token matches (5991/509/902 x 3).
+`EQUIVALENCE_EXACT_STEPS=8` of 9.
+
+`research/nezuko_equiv_control.sh` replays the *same built binary* at three
+caps via the environment override (env wins over the in-code `setenv(...,0)`,
+so no rebuild and no confound). Log: `research/nezuko_equiv_control.log`.
+
+| `MLX_MAX_MB_PER_BUFFER` | role | prefill max abs err | prefill mean abs err | decode steps exact | argmax match |
+|---|---|---|---|---|---|
+| 200 | base / revert target | 0.125 | 0.011933609 | 8 / 8 | yes |
+| 50 | r1 arm | 0.125 | 0.011933609 | 8 / 8 | yes |
+| 512 | **r2 arm** | 0.125 | 0.011933609 | 8 / 8 | yes |
+
+The three per-cap step blocks are **byte-identical** (md5
+`9e46ee364ceaf57dbbab59b28dca78b3` for all three). The divergence is invariant
+to the submitted token, so it is a property of host + base, not of this change.
+That is the AGENTS.md-documented M4 Pro case: this host reports Apple GPU
+generation 16 and does not select the `_nax` prefill kernels the ranked M5
+uses, and the divergence is prefill-only -- exactly the axis whose kernel
+family differs. Decode, which carries 75% of the score weight, is bit-exact at
+all three caps.
+
+Per the pre-committed rule this is the "all three caps show it" branch:
+**proceed to the single ranked receipt at 512**, and report this control table
+rather than claiming a clean equivalence pass. `./benchmark.sh --local-iterate`
+independently reports `passed_correctness true` with `max_abs_diff 0` and the
+golden hash matched, so no locally comparable gate is failing.
