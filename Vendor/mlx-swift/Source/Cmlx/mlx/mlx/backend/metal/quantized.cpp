@@ -2002,7 +2002,7 @@ void gather_qmm_rhs(
   array scales = ensure_row_contiguous(scales_, d, s);
 
   // TODO: Tune the block sizes
-  int bm = 16, bn = 32, bk = 32;
+  int bm = 32, bn = 32, bk = 32;
   int wm = 1, wn = 2;
 
   const bool align_M = (M % bm) == 0;
