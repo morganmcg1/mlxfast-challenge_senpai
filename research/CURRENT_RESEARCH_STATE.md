@@ -119,11 +119,13 @@ dispatch change was M4-testable and showed no improvement (-0.1% prefill).
 ## Competitor Analysis (2026-08-05T19:49Z)
 
 ### Leaderboard State
-- **lBroth** at 2.5523 (~4% above our 2.455). Uses context-copy drafting +
-  MTPLX turbo kernels (speculative approach — may be on a different track or
-  using serial-compatible variants).
-- 122 promoted submissions from 30 solvers reached 2.39x by Aug 2. The ~5%
-  acceptance band means compounding wins of ~5% each.
+- **lBroth** at 2.5523 is the current promoted best (commit bca94c5, Aug 4).
+  **This IS our ORGANIZER_FRONTIER_SHA** — our base already includes lBroth's
+  winning code. We're optimizing ON TOP of the frontier, not chasing it.
+  The local M4 ~2.455 measurement differs from the official M5 2.5523 due to
+  architecture differences (M4 GPU gen 16, no _nax kernels).
+- Recent promoted: metaspartan 2.528, a-github-name 2.539, lBroth 2.552
+- Many rejected submissions in 2.48-2.52 range on Aug 4-5 — not beating 2.5523
 
 ### Key Finding: omlx issue #2238
 - Profiles the EXACT Laguna architecture (256 experts, top-8, NVFP4, M=1 decode)
@@ -151,17 +153,40 @@ dispatch change was M4-testable and showed no improvement (-0.1% prefill).
   biggest available decode win per competitor analysis. Code has `mergedSharedActivated`
   at line 10248 designed for this but never implemented.
 
-## Current Student Status (2026-08-05T19:57Z)
+## Deep Source Analysis Findings (2026-08-05T20:10Z)
 
-| Student | PR | Hypothesis | Status |
-|---------|-----|-----------|--------|
-| birch-edward | #49 | Compiled decode segments (graph-visible KV) | Startup guidance sent |
-| birch-thorfinn | #50 | **PIVOTED**: Merge shared+routed gate/up QMV | Pivot feedback sent |
-| birch-alphonse | #51 | LM-head coarse pass byte reduction | Startup guidance sent |
-| birch-askeladd | #52 | Prefill MoE tile geometry (revision) | Revision reminder sent |
+### Attention Decode Path
+- Per attention layer (40 total): **4 dispatches** — RMSNorm, fused QKV+gate INT8 GEMV, fused SDPA+cache-write, fused gated O-proj
+- RoPE and QK-norm fused INTO the attention kernel (not separate dispatches)
+- Layer-type rule: `layerIndex % 4 == 0` → full attention (10 layers), else sliding (30 layers)
+- SWA uses `RotatingKVCache(maxSize:512, keep:0)` ring buffer; full uses `KVCacheSimple` (growing)
+- **Quick win**: Dead mask construction at L11086-11089 (built every step but fused kernels don't use masks)
+- **Future opportunity**: Norm+QKV fusion for INT8 path (save 40 dispatches) — NVFP4 tail has `lagunaNormAffineQKV` but INT8 path doesn't
+- **Future opportunity**: Deferred-gate softplus for INT8 O-proj (save 40 dispatches) — only fires for NVFP4 OProj
 
-All four students idle at ~6h since assignment. No visible code on PRs #49-51.
-PR #52 has 4 commits but revision requested (3 bundled changes).
+### MoE Down Kernel (`lagunaRoutedSharedDownResidual`, L7851)
+- All 8 routed + shared expert in **ONE dispatch** (288 threads = 9 simdgroups × 32 lanes)
+- `outputs_per_simd = 1` (lowered from 4 in frontier commit 99b974c1) — key tuning knob
+- Serial 8-way reduction on single lane post-barrier (287 threads idle)
+- **Opportunity 1**: Raise `outputs_per_simd` 1→2 (amortize barrier+reduce across 2 rows)
+- **Opportunity 2**: Parallelize 8-way reduction across lanes 0-7 (O(1) vs O(8))
+- Caveat: `DARKBLOOM_SHARED_FIRST_DOWN` reorder regressed +0.10ms/step (barriers are encoder-wide)
+
+### LM-Head Prune Path (`LagunaLmHeadPrune.swift`)
+- **CORRECTION**: int6 1600 B/row arm does NOT exist as a kernel — it's comment-only
+- Actual shipped default: **v5 int5 planar** (1344 B/row, ~131 MB) with MXFP8/e4m3 fallback
+- 4 dispatches: coarse → argmax stage 1 → exact-winner threshold → exact assembly
+- Block-level early-exit already implemented (non-candidate blocks skip GEMV)
+- **Opportunity**: Merge argmax+threshold dispatches (save 1 dispatch/step, zero certificate risk)
+- **Risk**: int4 coarse (1088 B/row, 19% bandwidth saving) would double quantization error, likely inflating candidate tail
+
+### Student Progress Summary
+| Student | PR | Branch | Head SHA | Status |
+|---------|-----|--------|----------|--------|
+| birch-askeladd | #52 | prefill-moe-retile | 711ec75 | **Submitted (inconclusive)** — revision requested: narrow to variant 5→4 only |
+| birch-edward | #49 | compiled-decode-segments | eacc663 | No code yet — sent attention analysis + quick-win guidance |
+| birch-thorfinn | #50 | full-attn-decode-opt | fd1bf10 | No code yet — sent MoE down findings as bonus |
+| birch-alphonse | #51 | lmhead-coarse-opt | 61b1b2d | No code yet — sent LM-head format correction + dispatch consolidation idea |
 
 ## Potential Next Research Directions
 
@@ -175,8 +200,18 @@ PR #52 has 4 commits but revision requested (3 bundled changes).
   tensors + inline dequant may improve prefill MoE throughput on M5.
 - **Morton-order traversal in `_nax` gather GEMM**: Better cache locality for
   the short expert runs in prefill MoE.
-- **MoE down kernel outputs_per_simd 1→2**: small ~1-2% gain, low risk.
-  Potential bonus for a student working on MoE path.
+- **MoE down kernel outputs_per_simd 1→2**: amortize barrier+reduce across 2 rows,
+  halves threadgroups from 2048→1024. Low risk, stacks with reduction parallelization.
+- **MoE down 8-way reduction parallelization**: spread 8 routed slots across lanes
+  0-7, O(1) vs O(8) serial reduction. Independent of and stacks with outputs_per_simd.
+- **Dead mask construction elimination**: remove wasted fullMask/slidingMask building
+  at L11086-11089 (fused kernels don't use masks). Very low risk, quick win.
+- **Norm+QKV fusion for INT8 path**: NVFP4 tail has `lagunaNormAffineQKV` (L5722) but
+  INT8 group-32 path has no norm-fused kernel. Save 40 dispatches/step. Kernel dev.
+- **Deferred-gate softplus for INT8 O-proj**: deferred-gate fusion only fires for NVFP4
+  OProj (L3902). INT8 path runs separate softplus dispatch. Save 40 dispatches/step.
+- **LM-head dispatch consolidation**: merge argmax+threshold dispatches (#2+#3) into one.
+  Save 1 dispatch/step, zero certificate risk.
 - **Interleave FP8 scales with FP4 codes**: transform+kernel change, medium
   risk, targets the bandwidth bottleneck directly.
 - **Graph-visible cache + compiled segments expansion**: If Edward's P0
