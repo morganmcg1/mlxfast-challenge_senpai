@@ -3796,7 +3796,9 @@ func lagunaGateProductSoftplus(
 // MARK: - Gated native-affine INT8 output projection (one dispatch)
 
 /// Exact per-head softplus gate plus group-32 affine INT8 output GEMV.
-private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> String {
+private func lagunaGatedAffineOProjSource(
+    heads: Int, indexed: Bool = false, preActivatedGate: Bool = false
+) -> String {
     let metadataPointers = indexed
         ? """
         const device ushort* mi = metadata_indices + out_row * in_vec_size_g +
@@ -3824,6 +3826,29 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
         sc += block_size / group_size;
         bs += block_size / group_size;
         """
+    let gateSetup = preActivatedGate
+        ? ""
+        : """
+        threadgroup float gate_table[gate_heads];
+        if (lid < gate_heads) {
+            float logit = float(gate_logits[lid]);
+            float gate;
+            if (metal::isnan(logit)) {
+                gate = NAN;
+            } else {
+                float maxval = metal::max(logit, 0.0f);
+                float minval = metal::min(logit, 0.0f);
+                gate = (metal::isinf(minval) || metal::isinf(maxval))
+                    ? maxval
+                    : maxval + log1p(metal::exp(minval - maxval));
+            }
+            gate_table[lid] = float(bfloat(gate));
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        """
+    let gateLoad = preActivatedGate
+        ? "float gate = float(gate_logits[column >> head_shift]);"
+        : "float gate = gate_table[column >> head_shift];"
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -3842,24 +3867,7 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
     uint simd_gid = simdgroup_index_in_threadgroup;
     uint simd_lid = thread_index_in_simdgroup;
 
-    // One softplus per head, in the FP32 form and at the BF16 rounding point
-    // `lagunaGateProductSoftplusSource` uses.
-    threadgroup float gate_table[gate_heads];
-    if (lid < gate_heads) {
-        float logit = float(gate_logits[lid]);
-        float gate;
-        if (metal::isnan(logit)) {
-            gate = NAN;
-        } else {
-            float maxval = metal::max(logit, 0.0f);
-            float minval = metal::min(logit, 0.0f);
-            gate = (metal::isinf(minval) || metal::isinf(maxval))
-                ? maxval
-                : maxval + log1p(metal::exp(minval - maxval));
-        }
-        gate_table[lid] = float(bfloat(gate));
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
+    \(gateSetup)
 
     uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
         simd_gid * results_per_simdgroup;
@@ -3874,7 +3882,7 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
 
     uint column = simd_lid * values_per_thread;
     for (uint k = 0; k < in_vec_size; k += block_size) {
-        float gate = gate_table[column >> head_shift];
+        \(gateLoad)
         float sum = 0.0f;
         for (uint i = 0; i < values_per_thread; ++i) {
             float value = float(bfloat(float(xp[i]) * gate));
@@ -3927,22 +3935,31 @@ private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     return kernels
 }()
 
-private let lagunaGatedAffineOProjIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
+private func makeLagunaGatedAffineOProjIndexedKernels(
+    preActivatedGate: Bool
+) -> [Int: MLXFast.MLXFastKernel] {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_idx_v1",
+            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_idx"
+                + (preActivatedGate ? "_active" : "") + "_v1",
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "metadata_indices", "metadata_lut",
             ],
             outputNames: ["projected"],
-            source: lagunaGatedAffineOProjSource(heads: heads, indexed: true),
+            source: lagunaGatedAffineOProjSource(
+                heads: heads, indexed: true, preActivatedGate: preActivatedGate),
             ensureRowContiguous: true
         )
     }
     return kernels
-}()
+}
+
+private let lagunaGatedAffineOProjIndexedKernels =
+    makeLagunaGatedAffineOProjIndexedKernels(preActivatedGate: false)
+private let lagunaGatedAffineOProjActivatedIndexedKernels =
+    makeLagunaGatedAffineOProjIndexedKernels(preActivatedGate: true)
 
 /// `DARKBLOOM_FUSED_GATED_AFFINE_OPROJ` (default ON; set "0" to disable).
 /// Fuses the per-head softplus gate product into the native group-32 affine
@@ -4013,7 +4030,8 @@ func lagunaGatedAffineOProj(
     scales: MLXArray,
     biases: MLXArray,
     indexedMetadata: LagunaIndexedAffineMetadata? = nil,
-    heads: Int
+    heads: Int,
+    gateIsActivated: Bool = false
 ) -> MLXArray? {
     let inVec = heads * LagunaConstants.headDim
     let outVec = LagunaConstants.hiddenSize
@@ -4031,8 +4049,11 @@ func lagunaGatedAffineOProj(
         return nil
     }
 
+    let indexedKernels = gateIsActivated
+        ? lagunaGatedAffineOProjActivatedIndexedKernels
+        : lagunaGatedAffineOProjIndexedKernels
     if let metadata = indexedMetadata,
-        let kernel = lagunaGatedAffineOProjIndexedKernels[heads],
+        let kernel = indexedKernels[heads],
         metadata.indices.dtype == .uint16,
         metadata.indices.shape == [outVec, inVec / 32],
         metadata.lut.dtype == .uint32,
@@ -4047,7 +4068,9 @@ func lagunaGatedAffineOProj(
             outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16]
         )[0]
     }
-    guard let kernel = lagunaGatedAffineOProjKernels[heads] else { return nil }
+    guard !gateIsActivated,
+        let kernel = lagunaGatedAffineOProjKernels[heads]
+    else { return nil }
     lagunaTrace("gated affine oproj qmv h\(heads)")
     return kernel(
         [attentionOutput, gateLogits, codes, scales, biases],
@@ -4799,7 +4822,7 @@ let lagunaNormAffineQKVPrefetchDepth: Int = {
 /// consuming the registers with the identical per-i accumulation order.
 /// Same values, same operation order per output row -> bit-exact.
 private func lagunaNormAffineQKVPrefetchSource(
-    rows: Int, depth: Int, indexed: Bool = false
+    rows: Int, depth: Int, indexed: Bool = false, gateRows: Int = 0
 ) -> String {
     let metadataPointers = indexed
         ? """
@@ -4841,6 +4864,26 @@ private func lagunaNormAffineQKVPrefetchSource(
         sc += block_size / group_size;
         bs += block_size / group_size;
         """
+    let resultStore = gateRows > 0
+        ? """
+        if (out_row + row >= \(rows - gateRows)) {
+            float logit = float(bfloat(result[row]));
+            float gate;
+            if (metal::isnan(logit)) {
+                gate = NAN;
+            } else {
+                float maxval = metal::max(logit, 0.0f);
+                float minval = metal::min(logit, 0.0f);
+                gate = (metal::isinf(minval) || metal::isinf(maxval))
+                    ? maxval
+                    : maxval + log1p(metal::exp(minval - maxval));
+            }
+            projected[out_row + row] = bfloat(gate);
+        } else {
+            projected[out_row + row] = bfloat(result[row]);
+        }
+        """
+        : "projected[out_row + row] = bfloat(result[row]);"
     return """
     constexpr uint axis_size = \(LagunaConstants.hiddenSize);
     constexpr uint out_vec_size = \(rows);
@@ -4976,7 +5019,7 @@ private func lagunaNormAffineQKVPrefetchSource(
     for (uint row = 0; row < results_per_simdgroup; ++row) {
         result[row] = simd_sum(result[row]);
         if (simd_lid == 0) {
-            projected[out_row + row] = bfloat(result[row]);
+            \(resultStore)
         }
     }
     """
@@ -5026,7 +5069,8 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
             if kernels[rows] != nil { continue }
             kernels[rows] = MLXFast.metalKernel(
                 name: "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
-                    + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_v1",
+                    + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx"
+                    + (gateRows > 0 ? "_active" : "") + "_v1",
                 inputNames: [
                     "residual", "norm_weight", "weight_codes",
                     "metadata_indices", "metadata_lut",
@@ -5034,7 +5078,7 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
                 outputNames: ["projected"],
                 source: lagunaNormAffineQKVPrefetchSource(
                     rows: rows, depth: lagunaNormAffineQKVPrefetchDepth,
-                    indexed: true),
+                    indexed: true, gateRows: gateRows),
                 ensureRowContiguous: true
             )
         }
@@ -5062,8 +5106,9 @@ func lagunaNormAffineQKV(
     scales: MLXArray,
     biases: MLXArray,
     indexedMetadata: LagunaIndexedAffineMetadata? = nil,
-    rows: Int
-) -> MLXArray? {
+    rows: Int,
+    gateRows: Int = 0
+) -> (values: MLXArray, gateActivated: Bool)? {
     guard let kernel = lagunaNormAffineQKVKernels[rows] else { return nil }
     let hidden = LagunaConstants.hiddenSize
     guard residual.dtype == .bfloat16,
@@ -5091,26 +5136,28 @@ func lagunaNormAffineQKV(
         lagunaTrace(
             "norm+affine qkv qmv r\(rows) "
                 + "pf\(lagunaNormAffineQKVPrefetchDepth) indexed")
-        return indexedKernel(
+        let values = indexedKernel(
             [residual, normWeight, codes, metadata.indices, metadata.lut],
             grid: ((rows / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16]
         )[0]
+        return (values, gateRows > 0)
     }
 
     lagunaTrace(
         lagunaNormAffineQKVPrefetchDepth > 0 && !lagunaNormAffineQKVStaged
             ? "norm+affine qkv qmv r\(rows) pf\(lagunaNormAffineQKVPrefetchDepth)"
             : "norm+affine qkv qmv r\(rows)")
-    return kernel(
+    let values = kernel(
         [residual, normWeight, codes, scales, biases],
         grid: ((rows / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16]
     )[0]
+    return (values, false)
 }
 
 /// Keep the stock shapeless unary gate for prefill. Ranked measurement showed
@@ -5471,7 +5518,7 @@ final class LagunaRuntimeAttention: Module {
                 // bank, so no consumer downstream of here needs a
                 // device-visible normalized row; the NVFP4 tail layers and
                 // any guard decline keep the separate norm.
-                var fusedQKV: MLXArray?
+                var fusedQKV: (values: MLXArray, gateActivated: Bool)?
                 if lagunaFusedNormAffineQKVEnabled,
                     fusedAffine.mode == .affine, fusedAffine.bits == 8,
                     fusedAffine.groupSize == 32,
@@ -5486,7 +5533,8 @@ final class LagunaRuntimeAttention: Module {
                         scales: fusedAffine.scales,
                         biases: affineBiases,
                         indexedMetadata: fusedAffine.indexedMetadata,
-                        rows: fusedAffine.originalShape[0])
+                        rows: fusedAffine.originalShape[0],
+                        gateRows: nHeads)
                 }
 
                 // The fused tail norm+QKV+gate kernel was removed after the
@@ -5496,14 +5544,14 @@ final class LagunaRuntimeAttention: Module {
                 let fusedTailGateLogits: MLXArray? = nil
                 // Only materialized when the fused kernel declined; the gate
                 // branches below that read it are unreachable when it fired.
-                let normalized = fusedQKV ?? inputNorm(input)
+                let normalized = fusedQKV?.values ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
                         normalized: normalized, bank: fusedAffine, heads: nHeads)
                     : nil
                 let qkv =
-                    fusedQKV
+                    fusedQKV?.values
                     ?? decodeNVFP4QKVR1
                     ?? quantizedMM(
                         normalized,
@@ -5519,7 +5567,7 @@ final class LagunaRuntimeAttention: Module {
                 let kvDim = nKVHeads * headDim
                 let gateStart = queryDim + 2 * kvDim
                 let gateLogits: MLXArray
-                var gateProjectionActivated = false
+                var gateProjectionActivated = fusedQKV?.gateActivated ?? false
                 if let fusedTailGateLogits {
                     // Removed tail-fusion placeholder: always nil since the
                     // r=1-regime re-sweep; kept so the defer/eager plumbing
@@ -5883,7 +5931,7 @@ final class LagunaRuntimeAttention: Module {
                 // `lagunaGatedAffineOProjSource`). Only the group-32 affine
                 // INT8 wire format is served; the NVFP4 tail layers and any
                 // guard decline fall through to the two-dispatch chain below.
-                if lagunaFusedGatedAffineOProjEnabled, !gateIsActivated,
+                if lagunaFusedGatedAffineOProjEnabled,
                     affineWO.mode == .affine, affineWO.bits == 8,
                     affineWO.groupSize == 32,
                     affineWO.indexedMetadata != nil,
@@ -5895,7 +5943,8 @@ final class LagunaRuntimeAttention: Module {
                         scales: affineWO.scales,
                         biases: affineBiases,
                         indexedMetadata: affineWO.indexedMetadata,
-                        heads: nHeads)
+                        heads: nHeads,
+                        gateIsActivated: gateIsActivated)
                 {
                     return fusedProjection
                 }
