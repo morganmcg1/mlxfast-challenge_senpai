@@ -656,6 +656,10 @@ struct QuantizedBlockLoader {
       scales += n_groups * group_stride;
     }
   }
+
+  void set_dst(threadgroup T* base) {
+    dst = base + bi * dst_ld + bj * pack_factor;
+  }
 };
 
 using namespace mlx::steel;
@@ -1757,11 +1761,15 @@ template <
 
   constexpr int kWsElems = BN * BK_padded;
   constexpr int kWsPerChunk = 16 / sizeof(Wtype);
-  threadgroup NAXWsChunk16<Wtype>
-      Ws_storage[(kWsElems + kWsPerChunk - 1) / kWsPerChunk];
-  threadgroup Wtype* Ws = (threadgroup Wtype*)Ws_storage;
-  threadgroup bfloat* gate_up_stage =
-      (threadgroup bfloat*)Ws_storage;
+  constexpr int kWsChunks = (kWsElems + kWsPerChunk - 1) / kWsPerChunk;
+  // Double-buffer: two weight staging areas. Staging of k-tile k+1 into
+  // Ws[(k+1)&1] overlaps (no WAR conflict) with MMA reading Ws[k&1], so
+  // one barrier per iteration replaces the original two (WAR + RAW).
+  threadgroup NAXWsChunk16<Wtype> Ws_storage[2 * kWsChunks];
+  threadgroup Wtype* Ws[2] = {
+      (threadgroup Wtype*)Ws_storage,
+      (threadgroup Wtype*)(Ws_storage + kWsChunks)};
+  threadgroup bfloat* gate_up_stage = (threadgroup bfloat*)Ws_storage;
 #ifdef DARKBLOOM_BSEARCH_HOIST
   threadgroup int bounds[experts / expert_groups + 1];
 #else
@@ -1857,63 +1865,63 @@ template <
           wl + size_t(expert) * stride_w,
           scale_base + size_t(expert) * stride_s,
           kernel_K,
-          Ws,
+          Ws[0],
           simd_group_id,
           simd_lane_id);
 
+      // Double-buffered staging: stage tile 0 into Ws[0] before the loop,
+      // then each iteration stages tile k+1 into Ws[(k+1)&1] while MMA
+      // reads tile k from Ws[k&1]. Eliminates the WAR barrier (staging
+      // writes to a different buffer than MMA reads) while preserving the
+      // RAW barrier (ensure staging visible before next MMA). Same values,
+      // same k-ascending accumulation order, same Dtile — only the barrier
+      // count and buffer alternation change.
+      if constexpr (wide_store || wide_load) {
+        loader_w.template load_unsafe_wide<wide_store, wide_load>();
+      } else {
+        loader_w.load_unsafe();
+      }
+      loader_w.next();
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+
       for (int k = 0; k < K_it; ++k) {
-        // Bit-exact A-operand hoist (the XMAJOR arm's shipped pattern at
-        // one-eighth its register cost): this iteration's x fragments load
-        // into registers BEFORE the two staging barriers, overlapping the
-        // sorted-x device reads with the weight staging they previously
-        // serialized behind. x is read-only, the A registers carry no
-        // dependence on Ws, both barriers remain, and the MMA chain
-        // (k ascending, kk1 ascending, same Dtile) is untouched, so every
-        // accumulation happens in the identical order on identical values.
-        // The partial-row arm uses load_rows: at this instantiation
-        // load_safe's column predicate is a tautology (widest touched
-        // column is 31 < SK), so bytes, addresses, and zero-fills are
-        // identical while the row predicate hoists out of the contiguous
-        // four-element runs and the Int<1> contiguous branch is restored.
+        // Bit-exact A-operand hoist: this iteration's x fragments load
+        // into registers BEFORE staging, overlapping the sorted-x device
+        // reads with the weight staging. x is read-only, the A registers
+        // carry no dependence on Ws, the MMA chain (k ascending, kk1
+        // ascending, same Dtile) is untouched, so every accumulation
+        // happens in the identical order on identical values.
         NAXTile<T, TM, TK> Atile[BK / SK];
         if (sg_active) {
           STEEL_PRAGMA_UNROLL
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
             if (sgp_sm == SM) {
-              // 8B alignment certified: fn multiples of 4 elems, off_y in
-              // {0,16}, kk1 in {0,32}, str_x = 2048. Same bytes, same slots.
               Atile[kk1 / SK].load_contig(xn + kk1, kernel_K);
             } else {
-              // Same 8B-aligned runs as the full-row arm.
               Atile[kk1 / SK].load_rows_contig(xn + kk1, kernel_K, sgp_sm);
             }
           }
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        // DARKBLOOM_EXPERT_STAGE_WIDEST / DARKBLOOM_EXPERT_STAGE_WIDELD:
-        // same bytes, same addresses, same nibble decode, same scale mapping
-        // -- only the access widths change (16 scalar 2B threadgroup stores
-        // -> 2 16B stores per thread; 8 scalar 1B device loads -> 1 8B load
-        // per thread). See load_unsafe_wide. The store side needs no host
-        // certification (Ws is 16B aligned by construction); the load side
-        // is host-certified via darkbloom_stage_wide_load_ok and per-thread
-        // self-guarded, falling back to the scalar path on any misalignment.
-        if constexpr (wide_store || wide_load) {
-          loader_w.template load_unsafe_wide<wide_store, wide_load>();
-        } else {
-          loader_w.load_unsafe();
+
+        // Stage next k-tile into the alternate buffer (no WAR conflict:
+        // MMA below reads Ws[k & 1], staging writes Ws[(k+1) & 1]).
+        if (k + 1 < K_it) {
+          loader_w.set_dst(Ws[(k + 1) & 1]);
+          if constexpr (wide_store || wide_load) {
+            loader_w.template load_unsafe_wide<wide_store, wide_load>();
+          } else {
+            loader_w.load_unsafe();
+          }
+          loader_w.next();
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
 
         if (sg_active) {
           STEEL_PRAGMA_UNROLL
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
             NAXTile<Wtype, TN, TK> Btile;
 
-            // Ws is 16B-aligned (NAXWsChunk16), BK_padded*2B = 144B row
-            // stride, runs at multiples of 8B: same bytes, same slots.
             Btile.template load_contig_tg<Wtype, BK_padded>(
-                Ws + tn * BK_padded + kk1);
+                Ws[k & 1] + tn * BK_padded + kk1);
 
             tile_matmad_nax(
                 Dtile,
@@ -1925,8 +1933,13 @@ template <
           }
         }
 
+        // Single barrier: ensures (1) staging writes to Ws[(k+1)&1] are
+        // visible before next iteration's MMA reads them, and (2) MMA reads
+        // from Ws[k&1] complete before next iteration's staging overwrites
+        // that buffer (Ws[(k+2)&1] == Ws[k&1]).
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
         xn += BK;
-        loader_w.next();
       }
 
       const bool fuse_swiglu =
