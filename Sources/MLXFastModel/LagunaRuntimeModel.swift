@@ -4119,8 +4119,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     """
     let gateSetup = preActivatedGate ? "" : """
     threadgroup float gt[gate_heads];
-    if(lid<gate_heads){
-        float l=float(gate_logits[lid]);
+    for(uint head=lid;head<gate_heads;head+=32){
+        float l=float(gate_logits[head]);
         float g;
         if(metal::isnan(l)) g=NAN;
         else {
@@ -4128,7 +4128,7 @@ func lagunaGatedAffineOProjNVFP4Source(
             float lo=metal::min(l,0.0f);
             g=(metal::isinf(lo)||metal::isinf(hi))?hi:hi+log1p(metal::exp(lo-hi));
         }
-        gt[lid]=float(bfloat(g));
+        gt[head]=float(bfloat(g));
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     """
@@ -4152,8 +4152,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     constexpr uint values_per_thread = 16;
     constexpr uint codes_per_thread = values_per_thread / 8;
     constexpr uint block_size = values_per_thread * 32;
-    constexpr uint results_per_simdgroup = 4;
-    constexpr uint num_simdgroups = 2;
+    constexpr uint results_per_simdgroup = 8;
+    constexpr uint num_simdgroups = 1;
     constexpr uint in_vec_size_g = in_vec_size / group_size;
 
     uint tile = threadgroup_position_in_grid.x;
@@ -4173,7 +4173,9 @@ func lagunaGatedAffineOProjNVFP4Source(
     const device bfloat* xp = attention_output + simd_lid * values_per_thread;
 
     thread float x_thread[values_per_thread];
-    thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
+    thread float result[results_per_simdgroup] = {
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f
+    };
 
     uint column = simd_lid * values_per_thread;
     for (uint k = 0; k < in_vec_size; k += block_size) {
@@ -4224,7 +4226,7 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
+            name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v2"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
@@ -4326,7 +4328,7 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1"
+            name: "laguna_oproj_act_h\(heads)_v2"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
@@ -4369,8 +4371,8 @@ func lagunaGatedAffineOProjNVFP4(
     lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
     return kernel(
         [attentionOutput, gateLogits, codes, scales],
-        grid: ((outVec / 8) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: ((outVec / 8) * 32, 1, 1),
+        threadGroup: (32, 1, 1),
         outputShapes: [[1, 1, outVec]],
         outputDTypes: [.bfloat16]
     )[0]
