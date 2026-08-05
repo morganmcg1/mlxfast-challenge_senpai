@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Turn DARKBLOOM_SCALE_CENSUS stderr into the PR #35 r3 census tables.
 
-  python3 research/frieren_pr35_census_parse.py /tmp/frieren_c_census.err
+  python3 research/frieren_pr35_census_parse.py /tmp/frieren_c_census.err [out.csv]
 """
+import csv
 import re
 import sys
 
@@ -60,8 +61,26 @@ def table(rows, title):
             r.get("blk_le", {}).get("le31", float("nan"))))
 
 
+def write_csv(planes, path):
+    cols = ["name", "n", "min", "max", "distinct", "rows", "row_span_max",
+            "blocks", "blk_span_max", "row_le15", "row_le31", "blk_le15", "blk_le31"]
+    with open(path, "w", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(cols)
+        for r in planes:
+            writer.writerow([
+                r.get("name", ""), r.get("n", ""), r.get("min", ""), r.get("max", ""),
+                r.get("distinct", ""), r.get("rows", ""), r.get("row_span_max", ""),
+                r.get("blocks", ""), r.get("blk_span_max", ""),
+                r.get("row_le", {}).get("le15", ""), r.get("row_le", {}).get("le31", ""),
+                r.get("blk_le", {}).get("le15", ""), r.get("blk_le", {}).get("le31", ""),
+            ])
+
+
 def main():
     planes, families, glob = parse(sys.argv[1])
+    if len(sys.argv) > 2:
+        write_csv(planes + families + ([glob] if glob else []), sys.argv[2])
     print("planes=%d families=%d" % (len(planes), len(families)))
     table(families + ([glob] if glob else []), "Family and global aggregates")
     for fam in sorted({p["name"].split(".", 1)[1] for p in planes if "." in p["name"]}):
