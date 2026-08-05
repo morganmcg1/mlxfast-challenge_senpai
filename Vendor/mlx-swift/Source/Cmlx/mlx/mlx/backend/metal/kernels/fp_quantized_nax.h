@@ -1798,6 +1798,14 @@ template <
       // Staged-epilogue arm only: reg-local epilogues read no threadgroup
       // memory and the next chunk's k-loop opens with its own WAR barrier.
       threadgroup_barrier(mem_flags::mem_threadgroup);
+#else
+      // When REGLOCAL is compiled in but the geometry guard (kSwigluRegLocal)
+      // is false (e.g. WN==2), the staged epilogue writes Dtile to
+      // gate_up_stage (== Ws). The last k-iteration's Btile reads from Ws
+      // across simdgroups need this barrier to complete before that store.
+      if constexpr (!kSwigluRegLocal) {
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+      }
 #endif // DARKBLOOM_SWIGLU_REGLOCAL
       const bool fuse_swiglu =
           kernel_N == 1024 && kernel_K == 2048;

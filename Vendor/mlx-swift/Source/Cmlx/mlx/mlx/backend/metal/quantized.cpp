@@ -1469,13 +1469,14 @@ int darkbloom_stage_bm128_variant() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_STAGE_BM128", "");
     if (s.empty()) {
-      // Default 5 (2026-08-01, final): API absolutes across our four scored
-      // sessions prove the mechanism — candidate prefill 204.90 (base) →
-      // 201.64 (wn1) → 201.42 (steel) → 198.00 µs (both; fastest on record).
-      // Earlier rejections were session-baseline draw fog (bpre 364-371 vs
-      // the 375-386 every recent promotion drew), not mechanism failures.
-      // DARKBLOOM_STAGE_BM128=4 restores the WN2 tiling.
-      return 5;
+      // Default 4 (2026-08-05): variant 4 (WN=2, 256 thr/TG) was +17.47% vs
+      // variant 5 at kernel level (ABBA, 4/4 pairs, zero overlap) and +15.40%
+      // vs upstream. The variant 5 API win was attributed to session-baseline
+      // draw fog. Variant 4 halves Dtile registers and doubles staging
+      // parallelism. The post-MMA barrier fix in fp_quantized_nax.h makes the
+      // staged swiglu epilogue (used when WN=2) safe.
+      // DARKBLOOM_STAGE_BM128=5 restores the WN1 tiling.
+      return 4;
     }
     if (s == "1") {
       return 1;
@@ -2002,7 +2003,7 @@ void gather_qmm_rhs(
   array scales = ensure_row_contiguous(scales_, d, s);
 
   // TODO: Tune the block sizes
-  int bm = 32, bn = 32, bk = 32;
+  int bm = 16, bn = 32, bk = 32;
   int wm = 1, wn = 2;
 
   const bool align_M = (M % bm) == 0;
