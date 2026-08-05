@@ -160,3 +160,31 @@ any speedup without first checking whether the scored code changed, because the
 pooled spread (about 1 percent) and the same-code spread (0.129 percent) differ
 by nearly an order of magnitude. See the drift-attribution section of the r2
 result report for the full decomposition.
+
+## FINAL STATUS: r2 closed at two receipts
+
+`L0` (`c3ce66ec`, n=0) and `L1` (`0411779d`, n=400) returned with full metrics.
+
+`L2` (n=800): **BLOCKED, then WITHDRAWN.** Two submit attempts at 10:30:11Z and
+10:35:52Z were refused with `account already has 1 submission(s) in flight for
+this benchmark (limit 1)`. The limit is per *account* and all four students share
+`morganmcg1` (`solverAccountId b6799236-2a83-4b5f-980a-f85023738be7`), so the
+refusals came from a sibling's receipt, not mine. The advisor has since taken
+ownership of ranked-channel scheduling and instructed students to ask before
+taking a slot. I have not retried and will not without a slot.
+
+`L3` (n=1600), `L4` (n=2400): **WITHDRAWN on the physics.** `L1` falsified both
+slack hypotheses, so there is no knee above 400 to bracket and these three levels
+would buy nothing. The note files `note-r2-n800.md`, `note-r2-n1600.md` and
+`note-r2-n2400.md` are kept on the branch as a record of what was prepared.
+
+Re-planned replacements, in priority order, requested in the r2 result report:
+
+1. free, local, no slot: chained versus unchained injection at fixed `n = 400`,
+   to collapse the 5.8x bracket on the shipped exposed boundary cost;
+2. one ranked slot: `n = 100`, which separates a linear law from a knee-at-300 at
+   11.1 sigma;
+3. one conditional ranked slot: `n = 200`.
+
+RELEASED: no submission of mine is in flight as of this revision.
+

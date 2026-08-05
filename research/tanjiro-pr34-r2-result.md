@@ -1,31 +1,40 @@
-SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":true,"wandb_run_ids":[],"primary_metric":{"name":"m5_marginal_dispatch_cost_us","available":true,"value":2.088},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"m5_marginal_dispatch_cost_us","available":true,"value":1.980},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
 # PR #34 revision r2: is the marginal cost of a Metal dispatch on M5 worth removing?
 
-## Headline: yes. `c_M5 = 2.088 us/dispatch` with no detectable slack, and my own pre-registered hypothesis is the one that died.
+## Headline: yes. `c_M5 = 1.980 us/dispatch` with no detectable slack, and my own pre-registered hypothesis is the one that died.
 
 Two receipts, same session, paired baselines, `S` held as an internal control:
 
-| n | receipt | S (ms) | T (ms) | baseline S | baseline T | `T - bT` | `dT` |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 0 | `c3ce66ec` | **97.9496** | **4.28121** | 190.0278 | 12.41494 | -8.13373 | 0.00000 |
-| 400 | `0411779d` | **97.6165** | **5.07320** | 198.0817 | 12.37185 | -7.29864 | **+0.83509** |
+| n | receipt | S (ms) | T (ms) | baseline S | baseline T | `T - bT` | `dT` paired | `dT` cand-only |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | `c3ce66ec` | **97.9496** | **4.28121** | 190.0278 | 12.41494 | -8.13373 | 0.00000 | 0.00000 |
+| 400 | `0411779d` | **97.6165** | **5.07320** | 198.0817 | 12.37185 | -7.29864 | **+0.83509** | **+0.79199** |
 
-`dT(400) = 0.835 ms` against pre-registered predictions of 0.82 (`H_sat`),
-0.00 (`H_gpu`) and 0.00 (`H_cpu`). At `sigma = 0.024 ms`: `H_sat` confirmed
-(chi2 = 0.4), `H_gpu` and `H_cpu` falsified at **34.8 sigma**. `H_cpu` was my
-own prediction. **M5 has essentially no free-dispatch slack, and the M4 knee at
-1209 does not transfer.**
+`dT(400) = 0.835 ms` paired, **`0.792 ms` on candidate decode time alone**,
+against pre-registered predictions of 0.82 (`H_sat`), 0.00 (`H_gpu`) and 0.00
+(`H_cpu`). At `sigma = 0.024 ms`: `H_sat` confirmed (chi2 = 0.4 paired, 1.4
+candidate-only), `H_gpu` and `H_cpu` falsified at **34.8 sigma** paired and
+**44.5 sigma** on the sharper candidate-only bar. `H_cpu` was my own prediction.
+**M5 has essentially no free-dispatch slack, and the M4 knee at 1209 does not
+transfer.**
+
+Under the advisor's new metric rule the candidate-only reading is primary,
+because it never touches a pinned baseline: `c_M5 = 1.980 us` with a replicate
+bar of `+/- 0.044 us`. The paired estimator agrees at `2.088 +/- 0.165 us`, and I
+quote it throughout as the conservative alternative. Every conclusion below holds
+on both.
 
 Four things follow, in descending order of consequence:
 
-1. **The dispatch-count family is live on M5.** At `c = 2.088 us` and
+1. **The dispatch-count family is live on M5.** At `c = 1.980 us` and
    `slack ~ 0`, removing 200 of the ~406 shipped decode dispatches is worth
-   **+6.2% of score**. That is 25x our 0.2517% gap to the crown.
+   **+5.9% of score** (+6.2% on the paired estimate). That is 23x our 0.2517%
+   gap to the crown.
 2. **My score conversion in earlier drafts was wrong by 10x** and I am
    correcting it here in public, because the advisor's queue decisions depend
    on it. See the arithmetic below.
-3. **`c = 2.088 us` is an UPPER bound**, and I can name the mechanism: the
+3. **`c` is an UPPER bound on both estimators**, and I can name the mechanism: the
    injected dispatches are barrier-serialised by construction. Section
    "What 2.088 us is and is not" gives the 5.8x gap against the shipped
    exposed-boundary cost, and why I still think the family is worth a round.
@@ -248,10 +257,121 @@ What is *not* identified, and I want this stated plainly rather than buried:
 equally well. Every number below assumes `knee = 0`, which makes `c` and all
 derived savings **upper bounds** on the removal-side saving and simultaneously a
 *lower* bound on the true marginal `c` above a knee. Distinguishing the two is
-precisely the add-versus-remove asymmetry the advisor named as the crux, and it
-needs the missing `n = 800` point. The blind spot I pre-registered — no level in
-`n` in `(0, 400)` — became more binding than expected once the knee turned out
-to lie inside `[0, 400)`.
+precisely the add-versus-remove asymmetry the advisor named as the crux. It needs
+one level inside `(0, 400)`, not the `n = 800` the pre-registered ladder queued:
+`n = 800` discriminates hypotheses whose knees are already dead. The blind spot I
+pre-registered — no level in `n` in `(0, 400)` — became the binding one the
+moment the knee turned out to lie inside `[0, 400)`. That is what re-plans
+deliverable A below.
+
+## The new metric rule, applied: the whole curve re-derived on candidate decode ms
+
+The advisor's comment of 12:07:57Z bans conclusions drawn from an `officialScore`
+delta, because `fern`'s PR #40 shows the paired baseline arm is pinned code whose
+entire spread is noise: prefill relative sd 1.932 percent, decode 0.248 percent,
+injecting about 0.52 percent into every published score. He asked me to
+"re-derive every point on your curve from `ns`, or better, straight from
+candidate decode ms."
+
+**It already is, and always was.** `c_M5` is a difference of two candidate `T`
+values normalised by the pre-registered estimator; no `officialScore` and no
+speedup ratio enters it. `pr34_receipt.py --dt` prints both forms side by side
+and the `dT_candonly` column is the raw candidate difference. What the new noise
+decomposition *does* change is which of my two estimators should be primary, and
+it changes it in my favour.
+
+| estimator | `dT(400)` ms | `c_M5` | one-sigma bar |
+| --- | --- | --- | --- |
+| paired, `T - bT` (pre-registered) | 0.83509 | 2.088 us | +/- 0.165 us |
+| **candidate-only, `T` alone (now primary)** | **0.79199** | **1.980 us** | **+/- 0.044 us** |
+
+The arithmetic, using `fern`'s per-receipt relative sds:
+
+- Candidate-only. `sd(T) = 0.248% x 5.046 = 0.0126 ms`; the candidate `S/128`
+  term adds `0.218% x 97.95/128 = 0.0017 ms`, negligible. Two independent
+  receipts differenced: `sd(dT) = sqrt(2) x 0.0127 = 0.0178 ms`. Over 400
+  dispatches that is **+/- 0.044 us** on `c`.
+- Paired. Each receipt now also carries its baseline arm's noise:
+  `sqrt((0.248% x 13.9)^2 + (1.932% x 190/128)^2) = sqrt(0.0345^2 + 0.0287^2) =
+  0.0449 ms`. Two receipts give 0.0635 ms, plus the candidate legs 0.0178 ms, for
+  0.0659 ms — **+/- 0.165 us** on `c`.
+
+The candidate-only bar is **3.7 times tighter**, which is exactly the sharpening
+the new rule predicts. Two consequences I want on the record:
+
+1. **My pre-registered `sigma = 0.024 ms` is validated, and was conservative by
+   1.36x** for the candidate-only estimator, against `fern`'s completely
+   independent 0.248 percent decode sd. The 34.8-sigma falsification in the
+   previous section used the conservative value; on the sharper one it is
+   44.5 sigma. The verdict is not sensitive to which is used.
+2. Subtracting `bT` was *protective* under the old model of the noise and is
+   *harmful* under the measured one. The pre-registered estimator is therefore
+   the one I keep for the pre-registered chi2 test, and the candidate-only
+   estimator is the one I quote for the slope. Both are reported; neither is
+   selected after seeing the answer.
+
+On `ns`, the pinned-reference score, the two receipts are:
+
+| receipt | n | `D_cand` ms | prefill s/token | `ns` | `officialScore` |
+| --- | --- | --- | --- | --- | --- |
+| `c3ce66ec` | 0 | 5.04644 | 1.913117e-4 | **2.544360** | 2.523276 |
+| `0411779d` | 400 | 5.83583 | 1.906572e-4 | **2.283549** | 2.290697 |
+
+`ns(c3ce66ec) = 2.544360` reproduces the advisor's control figure to six decimal
+places from my own raw fields, which cross-validates my reader against his. The
+injected 400 dispatches cost **-10.25 percent of `ns`**, of which the prefill leg
+contributes +0.09 percent (`S` fell 0.34 percent, the internal control) and the
+decode leg -10.32 percent. The `officialScore` delta was -9.22 percent. Those two
+differ by 1.03 points of percentage, which is about two of the 0.52 percent
+score-noise units the advisor quotes, so the discrepancy is exactly the size his
+model predicts. The sign and the magnitude of the finding do not depend on which
+metric is used, and I would not have detected the difference from a 1-percent
+effect at all.
+
+One accuracy note on the linear conversion used later in this report. `d ln ns =
+-0.75 x dT / D_cand = -0.148620 per ms` is a first-order expansion about
+`D_cand = 5.046441 ms`. At the L1 point (`dT = 0.789 ms`) it predicts -11.07
+percent against an exact -10.25, so it overstates by about 8 percent *relative*
+at that dose. Every figure in the verdict table is at `dT <= 0.4 ms`, where the
+overstatement is under 4 percent relative. I have not corrected for it, and flag
+it as a known small upward bias rather than hiding it.
+
+## Every receipt I have taken, on candidate axes
+
+Asked three times; here is all of it, from `senpai/tools/pr34_ns_table.py`
+against the raw submissions listing. `n` is the injected dispatch count per
+decode step for the r2 ladder; the r1 arms injected *real* kernels rather than
+empty dispatches, so their `n` column names the arm instead.
+
+| revision | arm / `n` | receipt | status | `S` ms | `T` ms | base `S` | base `T` | `D_cand` ms | `ns` | `officialScore` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| r1 | R1 anchor (0/0/0/0) | `b6032aeb` | rejected | 97.8643 | 4.27468 | 187.1734 | 12.42195 | 5.03924 | 2.547641 | 2.514911 |
+| r1 | R2 (40/0/39/0) | `ca416f01` | rejected | 141.1262 | 5.50538 | 186.7814 | 12.34864 | 6.60792 | 1.897219 | 1.864136 |
+| r1 | R3 (40/39/0/40) | `6757de65` | rejected | 120.0782 | 6.51605 | 188.3202 | 12.45377 | 7.45416 | 1.804692 | 1.788158 |
+| r1 | R4 (0/39/20/0) | `afec358a` | **failed** | — | — | — | — | — | — | n/a |
+| — | frontier replicate | `71586bcf` | rejected | 97.5129 | 4.38283 | 198.8970 | 12.32760 | 5.14465 | 2.510650 | 2.515950 |
+| — | frontier replicate | `c210d200` | rejected | 97.9730 | 4.34279 | 196.0282 | 12.33148 | 5.10820 | 2.521103 | 2.514743 |
+| **r2** | **L0, n = 0** | `c3ce66ec` | rejected | **97.9496** | **4.28121** | 190.0278 | 12.41494 | 5.04644 | **2.544360** | 2.523276 |
+| **r2** | **L1, n = 400** | `0411779d` | rejected | **97.6165** | **5.07320** | 198.0817 | 12.37185 | 5.83583 | **2.283549** | 2.290697 |
+
+Every row with metrics reports `passed_correctness = True`, `max_abs_diff = 0`,
+both speedup floors `True`, `gpqa_ttft = 0.41 s` against a 2.3 s limit,
+`semantic_gpqa_passed = True`, `error = ""`, and `peak_ram_gb = 21`. `afec358a`
+returned no timed metrics at all; see its own section below.
+
+Two things are visible in this table that are not visible in any single receipt:
+
+- The **base `S` column ranges 186.78 to 198.90**, a spread of 6.49 percent,
+  across seven runs of *pinned* baseline code. The candidate `S` column across
+  the four frontier-equivalent trees ranges 0.47 percent. That roughly 14x
+  asymmetry is `fern`'s finding, arrived at independently from my seven timed
+  receipts before I read her 1029.
+- `ns` and `officialScore` **disagree on the ranking of `71586bcf` versus
+  `c210d200` versus `b6032aeb`**: `officialScore` orders them 2.515950 >
+  2.514911 > 2.514743, and `ns` orders them 2.547641 > 2.521103 > 2.510650. Three
+  runs of numerically equivalent code, and the two metrics do not even agree on
+  which is best. This is the same failure mode as `fern`'s three-receipt
+  inversion, in a family I collected for an unrelated purpose.
 
 ## What `2.088 us` is, and what it is not
 
@@ -515,6 +635,19 @@ of a strictly nested pair, and the advisor's `2.24137 - 1.23070` reduces to the
 same quantity. On the prefill axis R2 and R3 are instead disjoint single-knob
 arms against the shared zero anchor, which is also valid.
 
+**One correction to the premise of the question, asked in his 12:07:57Z comment
+as "the `dT_4 = 1.01067` you took from `afec358a`".** `dT_4` did not come from
+`afec358a`. It is `T(6757de65) - T(ca416f01) = 6.51605 - 5.50538 = 1.01067 ms`,
+both of which returned complete metrics and both of which passed every gate.
+**`afec358a` contributed nothing to rate 4, or to any other published rate.** It
+returned `status=failed` with no timed metrics at all, so there is nothing in it
+to contribute. This matters because the natural next question — "does rate 4 need
+a re-run now that one of its arms failed review?" — has the answer **no**: rate 4
+rests entirely on two successful receipts. `research/tanjiro-pr34/rate4-provenance.md`
+documents the derivation line by line, including the contamination check that
+`isSingleTokenDecode` gates the injection to decode only
+(`LagunaRuntimeModel.swift:10753`, hook at 10797, injection at 11185).
+
 ### The promoted question: is `dS_1` marginal or absolute, and is there a 32.4 ms pool?
 
 The advisor asked for this "before anything else", because two independent
@@ -741,6 +874,52 @@ survives the recomputation.
    20:44 and 21:20, and `dS_1` and `dS_2` both used R1 at 8/4 20:11. There is no
    cross-day difference anywhere in either the r1 rates or the r2 ladder.
 
+### The advisor has since retracted the 12.4 sigma. We converged from opposite ends.
+
+The section above was written before his 12:07:57Z retraction, and I am leaving
+it as written rather than quietly rewriting it, because the two analyses are
+independent and agree.
+
+He retracted it on the **numerator's denominator**: recomputing the replicate sd
+from the three `officialScore` values 2.507043, 2.500378 and 2.514911 gives 0.29
+percent, not 0.026 percent, so +0.321 percent is about +1.1 sigma and there is no
+drift to model. I refuted it on the **decomposition**: the 0.026 percent figure is
+an accidental cancellation inside a geometric mean, where a +2.112 percent decode
+component and a -6.232 percent prefill component nearly annihilate, while the
+component sds are 1.082 and 3.283 percent. Same conclusion, different route, and
+the routes are complementary: his shows the sigma was mis-estimated, mine shows
+*why* an `officialScore` sigma estimated that way is not a usable denominator in
+the first place.
+
+His direct question was: "if you built any correction term or any arm-scheduling
+decision on it, delete that term and tell me what it changes."
+
+**I built neither, so nothing changes.** Specifically:
+
+- There is no drift correction term anywhere in `pr34_receipt.py`,
+  `pr34_fit_ladder.py` or `pr34_ns_table.py`. Grep for one; the estimator is
+  `T(n) - bT(n)` minus the same at `n = 0`, with no additive or multiplicative
+  session term.
+- No arm was scheduled or descheduled because of it. The entire r2 ladder is
+  same-day 8/5, every level paired with its own baseline arm, which was the
+  pre-registered design from `c45d93b` and predates his comment.
+- The one place a cross-session allowance *does* appear is the widened rate-4
+  error bar (+/- 0.029 -> +/- 0.043 ms), which I added because he asked for a
+  conservative bar. That allowance made a bar *wider*, i.e. a claim weaker, so
+  retracting the drift does not invalidate any conclusion; it would only let me
+  narrow the bar back to +/- 0.029 ms and strengthen the rate-4 excess from
+  2.5 sigma to 3.6 sigma. I am **leaving the conservative bar in place** and
+  noting that the drift retraction is one of two independent reasons it could be
+  narrowed. That is the honest direction to err in.
+
+One thing I would like credited to the record, because it was written before his
+new rule and says the same thing: conclusion 4 of the section above already
+states "screen on candidate axes (`S`, `T`) or `ns`, never `officialScore` or the
+raw speedups", with the measured cross-day candidate-axis reproducibility of
+0.087 percent on `S` and 0.153 percent on `T`. That is the programme-wide rule he
+issued at 12:07:57Z, derived from eight receipts instead of 1029, and it is now
+independently confirmed twice.
+
 ## The R4 failure: `afec358a`
 
 `afec358a` returned `status=failed` with `officialScore=None` and no timed
@@ -759,19 +938,106 @@ advance, in `queue-r2.md`, that a `failed`-with-no-metrics receipt is a *retry*
 and not a data point: resubmit the identical tree and record both attempts, so
 that five authorised receipts means five readings rather than five slots.
 
+## Re-planned deliverable A: two slots, not five, and neither of them is 800
+
+He asked directly: "which two or three of your five points buy the most slope
+information, given that you already hold `0411779`?" Here is the answer, and it
+is not a subset of the original ladder.
+
+**Why "bracket the predicted knee" is now the wrong instinct.** That instinct was
+right when the candidate knees were 461 (`H_gpu`) and 1200 (`H_cpu`). L1 killed
+both at 34.8 sigma, and with them every knee above 400. Bracketing a dead knee
+buys nothing. The live question changed shape: it is now **"is the curve linear
+through the origin, or is there a knee somewhere inside `(0, 400)` with a steeper
+slope above it?"** — which is precisely the add-versus-remove asymmetry, and the
+only remaining threat to the pricing in this report.
+
+**Slot 1: `n = 100`.** Highest information per slot by a wide margin.
+
+| model | prediction for `dT(100)` |
+| --- | --- |
+| linear through the origin, `c = 1.980 us` | **0.198 ms** |
+| knee at 300, `c = 8.35 us` above it | **0.000 ms** |
+
+The gap is 0.198 ms against `sd(dT) = 0.0178 ms`: **11.1 sigma in a single
+receipt.** No other level in `[0, 2400]` discriminates the two surviving models
+at all, because they agree everywhere above 300 by construction. `n = 100` also
+sits in the 40-to-200 range where a real fusion actually operates, so the reading
+prices the thing we would build rather than an extrapolation towards it.
+
+**Slot 2, only if a second is granted: `n = 200`.** With `{0, 100, 200, 400}` the
+fit has four points and two degrees of freedom, and curvature is resolved by
+interpolation inside the region of interest rather than by extrapolation from its
+edge. If slot 1 lands on the linear prediction, slot 2 is close to optional; if
+slot 1 lands near zero, slot 2 becomes the most valuable receipt in the campaign,
+because it locates the knee.
+
+**Why `n = 800`, `1600` and `2400` are dropped outright,** and I would not run
+them even with free slots:
+
+1. They were designed to separate knees at 461 and 1200. Both are dead.
+2. A frontier review of the instrument flags contamination above roughly
+   `n = 1300` from MLX's `max_ops_per_buffer` splitting
+   (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:576-593`) and
+   a host-encode crossover near the same count. `n = 1600` and `n = 2400` would
+   measure a **different mechanism** and I would not be able to tell which.
+3. They cost the most channel time. Turnaround scales with injected cost: L1 at
+   `n = 400` took 22.4 minutes; `n = 2400` injects roughly 6.3 ms per step.
+
+**Priority order across all remaining work, including the unranked parts:**
+
+1. **`n = 100`, ranked slot.** 11.1 sigma on the only open question. Ask.
+2. **Chained versus unchained at fixed `n = 400`, local M4, costs no slot.** This
+   collapses the `[0.36, 2.09] us` bracket documented above, which is currently
+   the largest uncertainty in the pricing — a 5.8x range. It needs a new knob
+   because the injected chain is hardcoded, and a knob is not a fusion, so it
+   stays inside the "sweep only" constraint. It is blocked only on the M4 host,
+   not on the channel.
+3. **`n = 200`, ranked slot.** Useful, not decisive on its own.
+
+Five authorised slots reduce to **two requested**, and one of the two is
+conditional. I am not spending a slot on an `n = 0` control: `ns(c3ce66ec) =
+2.544360` is held permanently and, per his instruction, no receipt of mine will
+carry a control arm again — one receipt is best-known tree plus at most one new
+mechanism.
+
+## What I am asking for
+
+1. **One ranked slot for `n = 100`**, whenever the scheduler has one. This is the
+   only request that needs the channel. It is a single receipt, roughly 22
+   minutes of turnaround, and it either confirms the pricing in this report or
+   invalidates it.
+2. **A second ranked slot for `n = 200`**, conditional on the first, and lower
+   priority than anything a sibling has queued.
+3. **Nothing else.** L2, L3 and L4 as originally specified are withdrawn, not
+   deferred.
+
+I am **not** retrying the two L2 submissions that were refused at 10:30:11Z and
+10:35:52Z. Both refusals were the shared-account in-flight limit colliding with a
+sibling's receipts, and he has since stated that he is the scheduler and that
+`nezuko` holds the channel on PR #44. L2 through L4 are blocked on an
+advisor-owned scheduling resource, which is a specific recorded reason to defer
+rather than a failure to complete.
+
 ## Process disclosures
 
-These are not incidental; two of them changed how this revision had to be run.
+These are not incidental; three of them changed how this revision had to be run.
 
-**The official channel is serialised at one submission in flight.** The r1 notes
-and the r2 assignment both said the receipts could be submitted concurrently.
-They cannot. Submitting L1 about 20 seconds after L0 returned produced
-`{"error":{"code":"conflict","message":"account already has 1 submission(s) in
-flight for this benchmark (limit 1)"}}`. At 21 to 48 minutes per receipt this
-turns a five-point ladder into a 2.5 to 3 hour serial campaign, and it is the
-single most important scheduling fact for anyone planning a multi-receipt sweep.
-I kept the full five-level ladder rather than truncating it, with one declared
-exception: stopping early if a reading falsified the law itself.
+**The official channel is serialised at one submission in flight, and the account
+is shared.** The r1 notes and the r2 assignment both said the receipts could be
+submitted concurrently. They cannot. Submitting L1 about 20 seconds after L0
+returned produced `{"error":{"code":"conflict","message":"account already has 1
+submission(s) in flight for this benchmark (limit 1)"}}`. At 21 to 48 minutes per
+receipt that alone turns a five-point ladder into a 2.5 to 3 hour serial
+campaign. Worse, the limit is per *account* and all four students share
+`morganmcg1` (`solverAccountId b6799236-2a83-4b5f-980a-f85023738be7`), so the two
+L2 attempts at 10:30:11Z and 10:35:52Z were refused by a sibling's in-flight
+receipt rather than by my own. There is no queue and no fairness rule in the API.
+The advisor has since taken ownership of scheduling. **This is the single most
+important planning fact for any multi-receipt sweep in this programme, and it is
+not documented in the assignment.** It is why this revision is terminal at two
+receipts instead of five, and why deliverable A is re-planned above around two
+slots.
 
 **There is no live channel from a student to the advisor.** `push_branch` is
 advisor-owned, so a student can only push through `submit_result`, which means
@@ -816,4 +1082,79 @@ cross-referenced rather than duplicated here.
 
 ## Conclusion
 
-PENDING
+Two ranked receipts were enough to settle the question the assignment actually
+asked, and they settled it against me.
+
+**What is now measured.** A Metal dispatch on the ranked M5, added at the layer
+boundaries of the decode step, costs `1.980 +/- 0.044 us` on candidate decode
+time alone and `2.088 +/- 0.165 us` on the paired estimator. There is no
+detectable free-dispatch slack: `slack < 0.2 ms`, knee below 80 dispatches, and
+the two hypotheses that predicted a large idle reservoir are dead at 44.5 sigma
+and 34.8 sigma respectively. One of those two was my own pre-registered
+prediction, `H_cpu`, built on the M4 knee at 1209. **The M4 law does not
+transfer.** I now believe the M4 and M5 probes measured different mechanisms:
+M4's knee sits within a dispatch of the `max_ops_per_buffer` host-encode
+crossover near 1300, and its implied 5.29 us/dispatch is the host-encode price,
+not a GPU boundary price.
+
+**What that is worth.** The correct conversion is `14.862% of score per ms of
+decode saving`, and my earlier drafts had it wrong by a factor of ten. At the
+measured `c` and no slack, a 25% cut in the ~406 shipped decode dispatches is
+worth **+3.0% of score** and a 50% cut **+6.0%**. Our gap to the crown is
+0.2517%. So the family clears the bar by more than an order of magnitude even
+after the caveat below, and it clears it with room for the fusion itself to be
+imperfect.
+
+**The caveat I will not bury.** `c` is an upper bound, and I can name the
+mechanism rather than hand-wave it. `LagunaInjectChain.tail` chains every
+injected empty to the previous one, so the probe serialises what the shipped
+stream runs under `MTL::DispatchTypeConcurrent`. Three independent brackets on
+the *shipped* exposed boundary cost now disagree by 5.8x: 0.36 us from my
+96.6%-busy timeline, 1.42 us from nezuko's M4 SPLIT=1, and this 1.98 us upper
+bound. A fusion that removes 200 dispatches is therefore worth somewhere between
++1.1% and +5.9% of score. **Every one of those three numbers is above the
+0.61% bar**, which is why I still recommend the family - but nobody should plan
+a fusion on the assumption that 5.9% is what will land. The single cheapest way
+to collapse that 5.8x bracket is a local chained-versus-unchained comparison at
+fixed `n = 400`, which needs no ranked slot at all, and it is the first thing I
+want to run.
+
+**What I got wrong, and where it was caught.** Three errors are corrected in
+public here: the 10x score conversion; the attribution of rate 4 to the failed
+receipt `afec358a` when it in fact rests on `6757de65` minus `ca416f01`, both
+successful, so rate 4 needs no re-run; and the pre-registered ladder design
+itself, which spent its levels at 800/1600/2400 bracketing a knee that does not
+exist while leaving the entire interval `(0, 400)` blind. The last of those is
+the most instructive: `H_sat` was distinguishable from its rivals with a single
+point at `n = 100`, and I would have learned strictly more from four cheap
+levels below 400 than from four expensive ones above it. That is the lesson I
+would carry into the next pre-registration - **put the levels where the
+hypotheses disagree, not where the effect is largest.**
+
+**On the 12.4 sigma.** The advisor and I converged on the same retraction from
+opposite directions, his through the correct pinned-baseline standard deviation
+and mine through the geometric-mean cancellation between the decode and prefill
+legs. It matters that no correction term was ever built and no arm was scheduled
+or descheduled on the strength of it. The only cross-session allowance in this
+report is the widened rate-4 bar, which I am deliberately leaving conservative:
+narrowing it would strengthen my own claimed excess from 2.5 to 3.6 sigma, and I
+would rather under-claim it.
+
+**What is blocked, and by whom.** L2, L3 and L4 are withdrawn, not deferred.
+They are obsolete on the physics - there is no knee up there to bracket - and
+they were also unrunnable: the ranked channel accepts one submission in flight
+per *account*, all four students share `morganmcg1`, there is no queue, and the
+advisor now owns scheduling. My two L2 attempts were refused by a sibling's
+receipts, and I have not retried them and will not without being given a slot.
+What I am asking for is one ranked slot for `n = 100` and a conditional second
+for `n = 200`, in that order, behind the free local run. Nothing else.
+
+**Standing verdict for the programme.** Dispatch-count reduction on M5 has real,
+measurable, positive value, bracketed between roughly 0.36 us and 1.98 us of
+score-bearing time per removed decode dispatch, with no idle reservoir to
+absorb the first few hundred removals. The highest-value concrete target remains
+`gate_sp`, whose 40 dispatches per step my law prices at 83.5 us (+1.24% score)
+from the dispatch-count component alone, leaving the remaining ~66 us of the
+advisor's 150 us target to come from the byte and first-touch side. That is a
+fusion assignment, and per the r2 acceptance criteria I have deliberately not
+built it.
