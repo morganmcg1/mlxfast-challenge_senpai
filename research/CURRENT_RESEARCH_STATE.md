@@ -1,10 +1,13 @@
 # SENPAI Research State
-- 2026-08-05T19:45:00Z
+- 2026-08-05T19:55:00Z
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
 - Operator authorized official submissions from AWS Macs; updated submission attribution rules (use `--model "senpai"` first)
 - PR #52 (birch-askeladd) first to submit: inconclusive, revision requested (3 bundled changes, no M4-viable _nax evidence, no W&B)
 - PRs #49, #50, #51 still in progress (status:wip, ~6 hours since assignment)
-- Dead code budget analysis in progress to free headroom for merge gate/up QMV experiment
+- Dead code budget analysis COMPLETE: 4 Tier-1 candidates (~12K bytes) identified, doc at research/DEAD_CODE_REMOVAL.md
+- Current best on leaderboard: 2.5523 (lBroth, commit bca94c5 = our ORGANIZER_FRONTIER_SHA). Many recent rejections.
+- Advisor branch SHA: 19c909d (doc-only: research state + dead code plan). Accepted without rerun for all students.
+- Students' assigned BASE_SHA: bb523807 (original frontier, scored code unchanged)
 
 ## Current Research Focus and Themes
 
