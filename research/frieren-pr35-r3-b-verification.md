@@ -658,3 +658,131 @@ The right next byte-shipping step is unchanged and is now quantified: extend the
 same bank to `attn.o` (§5.1), which forecasts −22.7 µs on top of B's −28.4 µs
 and takes the stack to 3.6σ — the first configuration in this family that a
 ranked receipt can actually resolve.
+
+**§9.4 below overturns that last paragraph.** I am leaving it in place because
+the reasoning was correct given only screen 1, and because the correction is the
+most important result in this revision.
+
+### 9.4 V7 — full-stack screen (branch default vs all-stock), and the reversal
+
+Script `research/frieren_pr35_lm_stack.sh`, training id
+`1039e819-2b74-46f0-a2ba-9ff89e5c35d7`, exit 0, 569 s, same ABBA×3 / `STEPS=512`
+design. `STACK` = the branch's **default** configuration, no overrides
+(lane-major QKV **+ r1 narrow `o_proj`**); `STOCK` = `NARROW=0 LANEMAJOR=0`.
+This is the contrast a ranked receipt would actually measure.
+
+| round | on_r | off_r | off_s | on_s |
+| --- | --- | --- | --- | --- |
+| 1 | 8.5763 | 8.6356 | 8.6549 | 8.5560 |
+| 2 | 8.5246 | 8.6564 | 8.6643 | 8.5327 |
+| 3 | 8.5810 | 8.6547 | 8.6668 | 8.5747 |
+
+| statistic | value |
+| --- | --- |
+| STACK mean of 6 | 8.5576 ms (stdev 24.1 µs) |
+| STOCK mean of 6 | 8.6555 ms (stdev 11.0 µs) |
+| **STOCK − STACK** | **+97.9 µs/step** |
+| round-paired estimates | +79.1, +131.7, +82.9 µs |
+| round-paired SE (n=3) | 16.9 µs |
+| unpaired pooled SE | 10.8 µs |
+| relative | **+1.131 %** of the STOCK step |
+
+All 12 passes: 0 divergences on 512 teacher-forced greedy steps.
+
+| arm | `mlx_peak_gb` | passes |
+| --- | --- | --- |
+| STACK | **36.43** exactly | 6/6 |
+| STOCK | **36.39** exactly | 6/6 |
+
+#### The stack is receipt-resolvable, and B alone was the wrong thing to price
+
+| arm | Δ µs/step | ranked σ (14.2 µs) | Δ score |
+| --- | --- | --- | --- |
+| B alone (screen 1) | −28.4 | 2.0σ | +0.42 % |
+| **branch default stack (screen 2)** | **−97.9** | **6.9σ** | **+1.46 %** |
+
+`STOCK − STACK` is 97.9 µs — **2.3× the ~43 µs receipt-resolvability floor and
+6.9σ against the ranked rig.** I withdraw §9.3's recommendation to defer the
+ranked slot. See Ask 5.
+
+#### Decomposition: the r1 narrow `o_proj` bank is the larger half
+
+Two independent estimates of the r1 narrow `o_proj` contribution:
+
+| method | value |
+| --- | --- |
+| within-design subtraction, `(STOCK−STACK) − (OFF−ON)` = 97.9 − 28.4 | **+69.5 µs** |
+| direct cross-screen ON difference, 8.6191 − 8.5576 | **+61.5 µs** |
+
+The two screens' STOCK/OFF arms are the *same configuration* (`NARROW=0
+LANEMAJOR=0`) and landed 8.0 µs apart (8.6475 vs 8.6555), so **8 µs is a measured
+bound on cross-screen session drift** — which is why the two decomposition
+routes differ by 8 µs and why I quote the within-design number.
+
+So the r1 narrow `o_proj` bank is worth **~70 µs/step on its own**, 2.4× B.
+
+#### This is 4.8× its byte roofline, and I cannot yet explain it
+
+`attn.o` scale traffic is 81,920 rows/step at 384 B (h48) or 512 B (h64) =
+39.3 MB/step stock. The r1 narrow form is 241 B and 321 B respectively — a
+uniform 0.627 ratio — so it removes **−14.6 MB/step**. At screen 1's calibrated
+863 GB/s that forecasts **−16.9 µs**. Measured **−69.5 µs**.
+
+| plane | Δ MB/step | Δ µs/step | implied effective rate |
+| --- | --- | --- | --- |
+| QKV, lane-major (B) | −24.5 | −28.4 | 863 GB/s |
+| `attn.o`, r1 narrow | −14.6 | −69.5 | **210 GB/s** |
+
+A 4.1× discrepancy in the *favourable* direction. **The `o_proj` win is
+therefore not primarily a bandwidth effect**, and I want to flag that rather than
+launder it into the roofline model.
+
+What I ruled out: I first suspected a dispatch confound — that `NARROW=0` might
+disable the fused `o_proj` kernel entirely and fall back to generic MLX ops. It
+does not. `lagunaGatedAffineOProjNVFP4` (`LagunaRuntimeModel.swift:4488`) falls
+through at `:4533-4545` to `lagunaGatedAffineOProjNVFP4Kernels[heads]`, a custom
+fused kernel of the *same family* reading the stock `scales` plane, with
+identical grid `((outVec/8)*64,1,1)`, threadgroup `(64,1,1)`, output shape and
+dtype. It logs `inactive: oproj h…`, which is what both arms of screen 1 showed.
+The only difference between the arms is the scale representation. So the effect
+is real and the contrast is clean; the *mechanism* is what is open.
+
+My leading hypothesis is **load-instruction count rather than bytes**: the stock
+`o_proj` row loop advances `sc += block_size/group_size` (32) and issues 12 (h48)
+or 16 (h64) separate single-byte scale loads per lane per row, whereas the narrow
+form packs two groups per byte and amortises the high-bit and base reads, cutting
+the number of load instructions roughly in half on a kernel whose inner loop is
+already short. That is an issue-rate story, not a DRAM story, and it would
+explain why the effect exceeds the byte model. I have not tested it. See Ask 6.
+
+#### Quantitative proof of the replacement property the advisor asked for
+
+The peaks decompose exactly, which settles the "did lane-major *replace* the r1
+QKV bank or duplicate it?" question numerically rather than by inspection:
+
+| bank | predicted footprint |
+| --- | --- |
+| lane-major QKV: `bases[389120]` + `nibbles[389120,64]` | 25.3 MB |
+| r1 narrow `o_proj`: 81,920 rows × ~250 B | 20.5 MB |
+| r1 narrow QKV (would-be duplicate): 389,120 × 81 B | 31.5 MB |
+
+| configuration | predicted peak | measured |
+| --- | --- | --- |
+| STOCK | 36.390 | **36.39** |
+| screen 1 ON = +lane-major QKV | 36.415 | **36.41** |
+| STACK = +lane-major QKV +r1 `o_proj` | 36.436 | **36.43** |
+| STACK *if* the r1 QKV bank were also retained | 36.467 | — |
+
+All three measured peaks match the replacement model to the logged precision,
+and the duplicate scenario (36.467 → would log 36.47) is **excluded**. The
+lane-major bank replaces the r1 QKV bank as designed.
+
+#### The r1 strip is a large regression — Ask 4 is now emphatic
+
+§8 argued from bytes that stripping the r1 narrow banks would be a regression
+rather than housekeeping. It is now measured: the strip would surrender
+**~70 µs/step ≈ 4.9σ ≈ −1.03 % of score**, more than B contributes. The strip
+must not land until a lane-major `attn.o` bank demonstrably matches or beats the
+r1 narrow `o_proj` bank on this host — and on the evidence above that is a real
+question, because r1 narrow `o_proj` is outperforming its byte model by 4.8× and
+lane-major's incremental byte saving over it is only ~4 MB/step.
