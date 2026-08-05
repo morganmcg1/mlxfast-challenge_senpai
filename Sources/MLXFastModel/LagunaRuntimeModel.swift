@@ -2904,12 +2904,17 @@ struct LagunaNativeAffineWeight {
     /// NVFP4 attention QMVs. `scales` stays authoritative for every other
     /// reader and for the MLX fallback.
     var narrowScales: LagunaNarrowScaleBank? = nil
+    /// Lane-major re-encoding of `scales`, built instead of `narrowScales` when
+    /// it is available. Same reader, same authority: `scales` is still the
+    /// plane every other consumer and the escape path read.
+    var laneMajorScales: LagunaLaneMajorScaleBank? = nil
 
     var arrays: [MLXArray] {
         [packedCodes, scales]
             + (biases.map { [$0] } ?? [])
             + (indexedMetadata?.arrays ?? [])
             + (narrowScales?.arrays ?? [])
+            + (laneMajorScales?.arrays ?? [])
     }
 }
 
@@ -4808,6 +4813,93 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
     return kernels
 }()
 
+/// Lane-major twin of `lagunaDecodeNVFP4QKVR1Source`: every scale code this
+/// lane needs for the whole row arrives in one 2-byte load -- 64 contiguous
+/// bytes per simdgroup -- and is decoded into registers before the K loop, so
+/// the four 32-group blocks cost one request instead of twelve strided byte
+/// requests. An escaped row (`base == 0xFF`) takes the simdgroup-uniform else
+/// arm and reads the stock plane. Both arms fill the same `sb` registers, so
+/// the K loop below is the R1 loop with its scale argument already resident.
+private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
+    """
+    constexpr uint axis_size = 2048;
+    constexpr uint num_simdgroups = 2;
+    constexpr uint values_per_thread = 16;
+    constexpr uint block_size = 512;
+    constexpr uint in_vec_size_w = axis_size / 2;
+    constexpr uint in_vec_size_g = axis_size / 16;
+    constexpr uint blocks_per_row = in_vec_size_g / 32;
+
+    uint tile = threadgroup_position_in_grid.x;
+    uint simd_gid = simdgroup_index_in_threadgroup;
+    uint simd_lid = thread_index_in_simdgroup;
+    uint out_row = tile * num_simdgroups + simd_gid;
+
+    const device uint8_t* ws = (const device uint8_t*)weight_codes +
+        out_row * in_vec_size_w + simd_lid * 8;
+
+    thread uint8_t sb[blocks_per_row];
+    const uint8_t row_base = scale_bases[out_row];
+    if (row_base != 0xFFu) {
+        // `out_row * in_vec_size_g / 2` is a multiple of blocks_per_row / 2, so
+        // the lane's run is ushort-aligned; a wider cast would not be.
+        const device ushort* nb = (const device ushort*)(
+            scale_nibbles + out_row * (in_vec_size_g / 2)) + simd_lid;
+        const ushort packed = nb[0];
+    #pragma unroll
+        for (uint b = 0; b < blocks_per_row; ++b) {
+            sb[b] = uint8_t(row_base + ((packed >> (b << 2)) & 0x0Fu));
+        }
+    } else {
+        const device uint8_t* sc = weight_scales +
+            out_row * in_vec_size_g + simd_lid;
+    #pragma unroll
+        for (uint b = 0; b < blocks_per_row; ++b) {
+            sb[b] = sc[b * (block_size / 16)];
+        }
+    }
+
+    thread float x_thread[values_per_thread];
+    thread float result = 0.0f;
+
+    uint column = simd_lid * values_per_thread;
+    #pragma unroll
+    for (uint k = 0; k < axis_size; k += block_size) {
+        for (uint i = 0; i < values_per_thread; ++i) {
+            x_thread[i] = float(normalized[column + i]);
+        }
+        result += laguna_tail_nvfp4_qdot(
+            ws, x_thread, laguna_tail_nvfp4_scale(sb[k / block_size]));
+        ws += block_size / 2;
+        column += block_size;
+    }
+
+    result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
+    if (simd_lid == 0) {
+        projected[out_row] = bfloat(result);
+    }
+    """
+}
+
+private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
+                + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+            inputNames: [
+                "normalized", "weight_codes", "scale_nibbles", "scale_bases",
+                "weight_scales",
+            ],
+            outputNames: ["projected"],
+            source: lagunaDecodeNVFP4QKVLaneMajorSource(),
+            header: lagunaTailNVFP4QMVHeader,
+            ensureRowContiguous: true)
+    }
+    return kernels
+}()
+
 private func lagunaDecodeNVFP4QKVR1(
     normalized: MLXArray,
     bank: LagunaNativeAffineWeight,
@@ -4827,6 +4919,21 @@ private func lagunaDecodeNVFP4QKVR1(
         bank.scales.dims(rows, hidden / 16),
         rows % 2 == 0
     else { return nil }
+    if let lane = bank.laneMajorScales,
+        lane.nibbles.dtype == .uint8, lane.nibbles.dims(rows, hidden / 32),
+        lane.bases.dtype == .uint8, lane.bases.dims(rows),
+        let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
+    {
+        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
+        lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
+        return kernel(
+            [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
+            grid: ((rows / 2) * 64, 1, 1),
+            threadGroup: (64, 1, 1),
+            outputShapes: [[1, 1, rows]],
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
     if let narrow = bank.narrowScales,
         narrow.nibbles.dtype == .uint8, narrow.nibbles.dims(rows, hidden / 32),
         narrow.highBits.dtype == .uint8, narrow.highBits.dims(rows, hidden / 128),
@@ -5552,8 +5659,15 @@ final class LagunaRuntimeAttention: Module {
         if lagunaAttnScaleNarrowQKVEnabled, fused.mode == .nvfp4,
             fused.bits == 4, fused.groupSize == 16
         {
-            fused.narrowScales = lagunaNarrowNVFP4ScaleBank(
+            // Lane-major first: the two banks are alternatives, so building
+            // only the one that will dispatch keeps a single side plane
+            // resident instead of both.
+            fused.laneMajorScales = lagunaLaneMajorNVFP4ScaleBank(
                 fused.scales, site: "qkv", layer: layerIdx)
+            if fused.laneMajorScales == nil {
+                fused.narrowScales = lagunaNarrowNVFP4ScaleBank(
+                    fused.scales, site: "qkv", layer: layerIdx)
+            }
         }
         _nativeAffineQKV = fused
         return fused.arrays + (_nativeAffineGProj?.arrays ?? [])

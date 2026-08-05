@@ -819,3 +819,102 @@ func lagunaNarrowScaleBankReproducesScales(
     let mismatches = (decoded .!= scales).asType(.int32).sum().item(Int32.self)
     return mismatches == 0
 }
+
+/// Two row-contiguous planes holding the same uint8 E4M3 scale codes as a stock
+/// NVFP4 scale plane: one uint8 base per ROW, and a 4-bit index per group
+/// permuted to lane-major order, so the `groups / 32` nibbles decode lane `l`
+/// consumes occupy bytes `l * groups / 64 ..< (l + 1) * groups / 64`. That is
+/// `groups / 2 + 1` bytes per row against the block planes'
+/// `21 * groups / 32`, and -- the point -- one load per lane per row instead of
+/// three per 32-group block. Rows spanning more than 15 codes carry base
+/// `0xFF` and are read from the stock plane, which every other reader keeps
+/// resident, so an escape costs traffic but no memory.
+struct LagunaLaneMajorScaleBank {
+    let nibbles: MLXArray
+    let bases: MLXArray
+    let rows: Int
+    let groups: Int
+    let escapedRows: Int
+
+    var arrays: [MLXArray] { [nibbles, bases] }
+}
+
+/// Packs a uint8 NVFP4 scale plane into `LagunaLaneMajorScaleBank`. `groups`
+/// must be a multiple of 64 so a row's per-lane nibble run is a whole number of
+/// bytes and no byte straddles two lanes. Out-of-span rows are escaped rather
+/// than declining the whole plane; the certificate then requires every
+/// non-escaped row to reproduce the plane byte for byte.
+func lagunaLaneMajorNVFP4ScaleBank(
+    _ scales: MLXArray, site: String, layer: Int
+) -> LagunaLaneMajorScaleBank? {
+    guard lagunaAttnScaleLaneMajorEnabled,
+        scales.dtype == .uint8, scales.ndim == 2,
+        scales.dim(1).isMultiple(of: 64)
+    else {
+        return nil
+    }
+    let rows = scales.dim(0)
+    let groups = scales.dim(1)
+    let blocks = groups / 32
+    let plane = contiguous(scales)
+    let rowMin = plane.min(axis: 1, keepDims: true)
+    let span =
+        plane.max(axis: 1, keepDims: true).asType(.int32) - rowMin.asType(.int32)
+    // A measured attention base never reaches 0xFF (codes top out at 41), and a
+    // row whose minimum somehow did would simply read the stock plane, so the
+    // sentinel cannot silently lose a byte either way.
+    let fits = span .<= 15
+    let bases = contiguous(which(fits, rowMin, MLXArray(UInt8(0xFF))).reshaped([rows]))
+    let fitting = Int(fits.asType(.int32).sum().item(Int32.self))
+    // [rows, block, group-in-block] -> [rows, lane, block]: lane `l` owns group
+    // `l` of every block, so the codes it reads become adjacent.
+    let lanes = contiguous(plane.reshaped([rows, blocks, 32]).transposed(0, 2, 1))
+    let index = which(
+        fits.reshaped([rows, 1, 1]),
+        lanes.asType(.int32) - rowMin.asType(.int32).reshaped([rows, 1, 1]),
+        MLXArray(Int32(0))
+    ).asType(.uint8).reshaped([rows, groups])
+    let u16 = contiguous(index).view(dtype: .uint16)
+    let nibbles = contiguous(
+        ((u16 & MLXArray(UInt16(0x000F)))
+            | ((u16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8))
+
+    let bank = LagunaLaneMajorScaleBank(
+        nibbles: nibbles, bases: bases, rows: rows, groups: groups,
+        escapedRows: rows - fitting)
+    guard lagunaLaneMajorScaleBankReproducesScales(bank, scales) else {
+        lagunaNarrowScaleLog.note("declined L\(layer) (lane-major mismatch)", site)
+        return nil
+    }
+    lagunaNarrowScaleLog.noteDispatch(
+        "lane-major L\(layer) escaped \(bank.escapedRows)/\(rows)", site)
+    lagunaNarrowScaleLog.note("built lane-major", site)
+    return bank
+}
+
+/// Init-time certificate: undo the lane-major permutation with MLX and require
+/// every non-escaped row to equal the plane the kernels read today. A bank that
+/// fails is discarded, so no dispatch can consume an approximate scale.
+func lagunaLaneMajorScaleBankReproducesScales(
+    _ bank: LagunaLaneMajorScaleBank, _ scales: MLXArray
+) -> Bool {
+    let rows = bank.rows
+    let groups = bank.groups
+    guard bank.nibbles.dtype == .uint8, bank.nibbles.dims(rows, groups / 2),
+        bank.bases.dtype == .uint8, bank.bases.dims(rows),
+        scales.dims(rows, groups)
+    else {
+        return false
+    }
+    let nib = bank.nibbles.asType(.int32).reshaped([rows, groups / 2, 1])
+    let nibValues = concatenated([nib & 0x0F, (nib >> 4) & 0x0F], axis: 2)
+        .reshaped([rows, 32, groups / 32])
+    let decoded = contiguous(
+        (bank.bases.asType(.int32).reshaped([rows, 1, 1]) + nibValues)
+            .transposed(0, 2, 1)
+    ).reshaped([rows, groups]).asType(.uint8)
+    let escaped = (bank.bases .== MLXArray(UInt8(0xFF))).reshaped([rows, 1])
+    let mismatches = (which(escaped, scales, decoded) .!= scales)
+        .asType(.int32).sum().item(Int32.self)
+    return mismatches == 0
+}
