@@ -1,19 +1,22 @@
 # SENPAI Research State
-- 2026-08-05T21:47:00Z
-- PR #49 (birch-edward): REVIEW-READY WINNER — MoE down outputs_per_simd 1→2.
-  6.5% decode improvement, 1.0% prefill improvement, 130/130 tokens match.
-  Attempting merge (blocked by GitHub mergeability computation). Score est: 2.455→~2.60.
+- 2026-08-05T21:53:00Z
+- **PR #49 MERGED** ✅ — MoE down outputs_per_simd 1→2 (commit da9ee49 on advisor branch).
+  6.5% decode improvement, 1.0% prefill, 130/130 tokens match. Squash-merged.
+  New frontier BASE_SHA: da9ee49f76b91f65819f5f18beec5072c18aa1d5
+  Preparing official M5 submission.
 - PR #52 (birch-askeladd): inconclusive → revision requested (narrow to variant 5→4 only)
+  Must re-baseline against da9ee49 (new frontier) if revising.
 - PRs #50, #51: students working on redirected experiments (in progress)
-- All 4 student PRs received base-acceptance feedback (advisor branch at 67ea914).
-  Students' BASE_SHA bb523807 remains valid (no scored code change on advisor branch).
+  Must re-baseline against da9ee49 (new frontier) since Edward's change touches decode path.
+- All 4 student PRs received baseline_advanced event (advisor branch advanced to da9ee49).
+  The scored code change is Edward's MoE down kernel — affects decode path only.
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
 - Operator authorized official submissions from AWS Macs; use `--model "senpai"` first
 - Sub-agent research complete: eval-count-audit, competitor-analysis, metal-moe-optimization,
   merge-gateup-analysis, lm-head-analysis all returned. Two frontier agents failed (timeout).
 - Current best on leaderboard: 2.5523 (lBroth, commit bca94c5 = our ORGANIZER_FRONTIER_SHA)
-- Students' assigned BASE_SHA: bb523807 (original frontier, scored code unchanged)
-- Current advisor branch HEAD: 67ea914 (research notes only)
+- Previous frontier BASE_SHA: bb523807 (original frontier)
+- Current advisor branch HEAD: da9ee49 (Edward's MoE down win merged)
 
 ## Current Research Focus and Themes
 
@@ -189,10 +192,10 @@ dispatch change was M4-testable and showed no improvement (-0.1% prefill).
 ### Student Progress Summary
 | Student | PR | Branch | Head SHA | Status |
 |---------|-----|--------|----------|--------|
-| birch-edward | #49 | compiled-decode-segments | d53f538 | **REVIEW-READY WINNER** — outputs_per_simd 1→2, 6.5% decode, 130/130 tokens. ATTEMPTING MERGE. |
-| birch-askeladd | #52 | prefill-moe-retile | 711ec75 | **Submitted (inconclusive)** — revision requested: narrow to variant 5→4 only |
-| birch-thorfinn | #50 | full-attn-decode-opt | fd1bf10 | Working — redirected to merge shared + routed gate/up QMV (eliminate 39 dispatches) |
-| birch-alphonse | #51 | lmhead-coarse-opt | 61b1b2d | Working — redirected to norm+QKV fusion coverage extension |
+| birch-edward | #49 | compiled-decode-segments | d53f538 | **MERGED ✅** — outputs_per_simd 1→2, 6.5% decode, 130/130 tokens. New frontier. |
+| birch-askeladd | #52 | prefill-moe-retile | 711ec75 | **Revision requested** — narrow to variant 5→4 only. Re-baseline against da9ee49. |
+| birch-thorfinn | #50 | full-attn-decode-opt | fd1bf10 | Working — merge shared + routed gate/up QMV (eliminate 39 dispatches). Re-baseline against da9ee49. |
+| birch-alphonse | #51 | lmhead-coarse-opt | 61b1b2d | Working — norm+QKV fusion coverage extension. Re-baseline against da9ee49. |
 
 ## Frontier Agent Findings (2026-08-05T20:15Z)
 
@@ -359,15 +362,17 @@ AsType audit is a **non-issue** for our codebase. Downgraded from high priority.
 ## Potential Next Research Directions
 
 ### Currently Assigned (In-Flight)
-- **MoE down kernel outputs_per_simd 1→2** (ASSIGNED to Edward, PR #49): ✅ WINNER —
-  6.5% decode improvement, 1.0% prefill, 130/130 tokens. REVIEW-READY, ATTEMPTING MERGE.
-  Next: assign Edward a follow-up (reduction parallelization or FMA dequant).
+- **MoE down kernel outputs_per_simd 1→2** (Edward, PR #49): ✅ MERGED.
+  New frontier BASE_SHA: da9ee49. Preparing official M5 submission.
 - **Merge shared + routed gate/up QMV** (ASSIGNED to Thorfinn, PR #50): fill the
   `mergedSharedActivated` gap at L10248. Eliminates 39 dispatches/step. +6.6-7.6% decode.
+  Re-baseline against da9ee49.
 - **Norm+QKV fusion coverage extension** (ASSIGNED to Alphonse, PR #51): extend
   `lagunaNormAffineQKV` to cover INT8 layers. Save 40 dispatches/step.
+  Re-baseline against da9ee49.
 - **Prefill MoE _nax variant 5→4 switch** (ASSIGNED to Askeladd, PR #52 revision):
   WN=2, 256 thr/TG. Needs M5 validation. +17.47% kernel-level.
+  Re-baseline against da9ee49.
 
 ### High-Priority Next Experiments
 - **FMA-optimized dequant inner loop**: Rearrange NVFP4 dequant to use FMA.
