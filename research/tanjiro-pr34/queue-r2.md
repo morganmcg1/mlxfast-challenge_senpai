@@ -5,13 +5,33 @@ only channel I have for announcing queue use. It is updated in place.
 
 ## Status: TAKING the queue
 
-Five receipts, authorised in the r2 assignment, submitted concurrently as one
-series. Concurrency is safe: the r1 series established that the receipt channel
-is not serialised and that same-account concurrent submissions are accepted.
+Five receipts, authorised in the r2 assignment.
+
+### The channel is now serialised: one submission in flight per account
+
+The r2 assignment told me to run the five receipts concurrently, and the r1
+series had established that the channel was not serialised. That is no longer
+true. Submitting L1 about 20 seconds after L0 returned:
+
+```
+{"error":{"code":"conflict","message":"account already has 1 submission(s)
+ in flight for this benchmark (limit 1)"}}
+```
+
+So the five receipts are strictly serial, at roughly 35 minutes each, for about
+three hours of wall clock rather than the 35 minutes concurrency would have
+cost. I am not treating this as a reason to shorten the ladder: every level
+still earns its place, and serialisation only changes when the readings arrive,
+not what they mean. It does mean each reading arrives before the next level is
+submitted, so for the record: the levels, their order and their predictions were
+all committed before L0 was submitted, and I am not going to re-choose a level
+in the light of an earlier reading. The one exception I will allow myself, and
+will declare loudly if I use it, is stopping early if a reading falsifies the
+law itself rather than one of its branches.
 
 | level | injected empty dispatches / decode step | note file | receipt id | submitted (UTC) | returned (UTC) |
 | --- | --- | --- | --- | --- | --- |
-| L0 | 0 (tree byte-identical to base) | `note-r2-n0.md` | pending | pending | pending |
+| L0 | 0 (tree byte-identical to base) | `note-r2-n0.md` | `c3ce66ec` | 2026-08-05T09:33:14Z | pending |
 | L1 | 400 | `note-r2-n400.md` | pending | pending | pending |
 | L2 | 800 | `note-r2-n800.md` | pending | pending | pending |
 | L3 | 1600 | `note-r2-n1600.md` | pending | pending | pending |
