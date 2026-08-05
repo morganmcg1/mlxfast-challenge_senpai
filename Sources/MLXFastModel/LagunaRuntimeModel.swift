@@ -5800,24 +5800,26 @@ final class LagunaRuntimeAttention: Module {
                 kNorm(keys.reshaped(B, L, nKVHeads, headDim))
                 .transposed(0, 2, 1, 3)
         }
+        // With a singleton sequence axis, `[B, 1, H, D]` and
+        // `[B, H, 1, D]` have the same contiguous byte order. Reshape
+        // directly so decode does not carry a no-op transpose view through
+        // the lazy graph. Multi-token calls still require the real axis swap.
+        values =
+            L == 1
+            ? values.reshaped(B, nKVHeads, L, headDim)
+            : values.reshaped(B, L, nKVHeads, headDim).transposed(0, 2, 1, 3)
+
         if !qkNormRoPEFused {
             queries = applyRotaryPosition(rope, to: queries, cache: cache)
             keys = applyRotaryPosition(rope, to: keys, cache: cache)
         }
 
-        // With a singleton sequence axis, `[B, 1, H, D]` and
-        // `[B, H, 1, D]` have the same contiguous byte order. Reshape
-        // directly so decode does not carry a no-op transpose view through
-        // the lazy graph. Multi-token calls still require the real axis swap.
         let attended =
             fusedAttended
             ?? attentionWithCacheUpdate(
                 queries: queries,
                 keys: keys,
-                values:
-                    L == 1
-                    ? values.reshaped(B, nKVHeads, L, headDim)
-                    : values.reshaped(B, L, nKVHeads, headDim).transposed(0, 2, 1, 3),
+                values: values,
                 cache: cache,
                 scale: scale,
                 mask: mask
