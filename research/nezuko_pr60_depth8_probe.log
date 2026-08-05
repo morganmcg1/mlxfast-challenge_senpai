@@ -1,0 +1,80 @@
+=== device ===
+name                    Apple M4 Pro
+architecture            applegpu_g16s
+gpu cores               20
+
+=== arms ===
+A base  /tmp/base_LagunaRuntimeModel.swift
+  body lines                     304
+  assembled MSL bytes            15120
+  staticThreadgroupMemoryLength  18432 B
+  maxTotalThreadsPerThreadgroup  1024
+  threadExecutionWidth           32
+B cand  /tmp/cand8.swift
+  body lines                     346
+  assembled MSL bytes            19334
+  staticThreadgroupMemoryLength  18432 B
+  maxTotalThreadsPerThreadgroup  1024
+  threadExecutionWidth           32
+
+=== bitwise output comparison (pseudorandom bfloat16 inputs) ===
+Every checked lane must match bit-for-bit: the rewrite claims the same
+slot order and the same statement order, not a tolerance.
+   widx      K   lanes   bitwise-equal   maxUlpDiff   maxAbsDiff
+      0      1     256   yes            0    0.000e+00
+      0     32    8192   yes            0    0.000e+00
+      1      1     256   yes            0    0.000e+00
+      1     32    8192   yes            0    0.000e+00
+     15      1     256   yes            0    0.000e+00
+     15     32    8192   yes            0    0.000e+00
+     31      1     256   yes            0    0.000e+00
+     31     32    8192   yes            0    0.000e+00
+     32      1     256   yes            0    0.000e+00
+     32     32    8192   yes            0    0.000e+00
+     33      1     256   yes            0    0.000e+00
+     33     32    8192   yes            0    0.000e+00
+    255      1     256   yes            0    0.000e+00
+    255     32    8192   yes            0    0.000e+00
+    288      1     256   yes            0    0.000e+00
+    288     32    8192   yes            0    0.000e+00
+    480      1     256   yes            0    0.000e+00
+    480     32    8192   yes            0    0.000e+00
+    511      1     256   yes            0    0.000e+00
+    511     32    8192   yes            0    0.000e+00
+verdict: every checked lane is bit-identical across the two arms
+
+=== ABBA matched latency (us/call, best-of-3 command buffers) ===
+Each pair runs A,B,B,A; the arm value is the mean of its two slots, so a
+monotone drift over the pair cancels to first order.
+  K=1
+     pair    A base    B cand    B/A
+        1    13.513     9.344   0.6915
+        2     9.020     9.257   1.0263
+        3     9.240     9.123   0.9874
+        4     9.104     9.279   1.0192
+        5     9.038     8.998   0.9956
+        6     9.010     9.252   1.0268
+        7     9.269     9.146   0.9867
+        8     9.028     9.289   1.0289
+        9     9.272     9.139   0.9856
+       10     9.043     9.268   1.0250
+       11     9.229     9.156   0.9921
+       12     9.104     9.048   0.9939
+   median     9.104     9.204   0.9947   (candidate -0.53%)
+     mean     9.489     9.192   0.9799   +- 0.0267 sem  -> -2.01% +- 2.67%
+  K=32
+     pair    A base    B cand    B/A
+        1    18.963    18.593   0.9805
+        2    18.972    18.945   0.9986
+        3    18.812    19.028   1.0115
+        4    18.818    19.066   1.0132
+        5    18.403    19.213   1.0440
+        6    18.763    19.056   1.0156
+        7    17.514    19.176   1.0949
+        8    17.521    19.309   1.1020
+        9    19.080    19.366   1.0150
+       10    19.093    18.676   0.9782
+       11    19.154    19.431   1.0144
+       12    18.695    18.620   0.9960
+   median    18.815    19.061   1.0138   (candidate +1.38%)
+     mean    18.649    19.040   1.0220   +- 0.0115 sem  -> +2.20% +- 1.15%
