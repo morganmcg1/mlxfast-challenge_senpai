@@ -11043,7 +11043,7 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_MATMULS", 0)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 100)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
@@ -11052,10 +11052,10 @@ private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
 /// per-dispatch cost depends on placement.
 private let lagunaInjectEmptySpread = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_EMPTY_SPREAD", 1) != 0
-/// Threadgroups per empty dispatch (256 threads each); 8 is `0411779d`'s
-/// geometry, so n=0/100/400 lie on one M5 curve.
+/// Threadgroups per empty dispatch (256 threads each). Set 8 to reproduce
+/// `0411779d`'s geometry, on which n=0/100/400 lie on one M5 curve.
 private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_EMPTY_TG", 8)
+    "DARKBLOOM_INJECT_EMPTY_TG", 160)
 /// 0 unchains the empties: each binds a never-written control array, so no
 /// `memoryBarrier` is emitted (`device.cpp:325`). Unchained outputs all stay in
 /// `pending` so a recycled buffer cannot re-trip it as a WAW (`:331`).
