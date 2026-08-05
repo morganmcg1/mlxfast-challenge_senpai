@@ -519,9 +519,11 @@ against `90bbc33d` and paste the numbers.
 | V3 | `./benchmark.sh --local-submit` | `max_abs_diff 0`, `checked_steps 1025`, flat `peak_ram_gb` | ✅ **PASS** — `passed true`, `max_abs_diff 0`, `checked_steps 1025`, `peak_ram_gb 21` (§9.5) |
 | V4a | greedy-probe fault injection | fault > 0, control 0 | ⚠️ catastrophic-only; retracted as an addressing certificate (§3) |
 | V4b | oracle fault injection | permutation fault < 8 | ❌ **instrument invalid** — modes 3/4/5/6/1 all 8/8 (§1.2) |
-| V4c | shipping-gate fault injection | fault arm fails | ⬜ scripted, not run (§4.2) |
+| V4c mode 5 | shipping-gate permutation fault | fault arm classifies `fail` | ⚠️ **SILENT** — `pass`, 1025 steps, `max_abs_diff 0`; uninterpretable without the mode-3 control (§9.6) |
+| V4c mode 3 | shipping-gate wiring control | **must** classify `fail` | _pending_ (§9.6) |
 | V5 | off-path identity `LANEMAJOR=0` | r1 text/banks byte-identical | ⚠️ retracted (oracle-based); the screen's OFF arm re-derives it from the worker instead |
-| V6 | 12×512 pure-configuration timing screen | ≥30 % of byte roofline | see §9 |
+| V6 | 12×512 pure-configuration timing screen (B vs stock) | ≥30 % of byte roofline | ✅ **+28.4 µs/step = 75.5 % of roofline**, 0 divergences in 6×512 ON steps (§9.1) |
+| V7 | 12×512 stack-vs-stock timing screen | prices the r1 strip | ✅ **+97.9 µs/step**, of which r1 narrow `o_proj` is +69.5 µs (§9.4) |
 
 ---
 
@@ -866,3 +868,145 @@ Two side observations worth recording:
   RAM cost at < 0.5 GB rather than resolving it. The resolving measurement is
   the V7 screen's `mlx_peak_gb` (36.43 vs 36.39), which is what proves the
   replacement property numerically (§9.4).
+
+### 9.6 V4c — the same golden gate, fault-injected (sensitivity table)
+
+V3 proves the shipping code is bit-exact. It does **not** prove that the gate
+*could* have caught a lane-major addressing error, and after §1 and §2 I will
+not present a silent instrument as evidence again. V4c re-runs the identical
+1025-step gate with a temporary fault hook compiled into the lane-major kernel,
+so the gate's *power* is measured rather than assumed.
+
+Instrument `research/frieren_pr35_lm_gate_pair.sh`, hook
+`research/frieren-pr35-lanemajor-fault.patch` (modes 0–6), applied for the arm
+and reverted by an `EXIT` trap. The hook prints **no** log line when active,
+which is exactly why a wiring control is mandatory.
+
+Two arms matter:
+
+* **mode 5 — the discriminating permutation.** Reverse the four K-block codes
+  inside a lane's packed `ushort`. This is the fault class B's layout could
+  plausibly get wrong, and it moves a code across columns 512 apart, where
+  neighbouring-group correlation cannot mask the swap.
+* **mode 3 — the wiring control.** Force every fitting-row code to zero.
+  Already measured catastrophic on the greedy probe: 32 divergences in 32 steps,
+  first at `(case 0, layer 509, step 83)` (§3). A gate that is genuinely wired to
+  the dispatched lane-major kernel **must** fail this.
+
+#### The patched file really was compiled
+
+`harnessHash()` (`Sources/MLXFastHarness/LagunaRuntimePreflight.swift:44`, twin
+at `Sources/MLXFastTrustedHarness/LagunaRuntimePreflight.swift:44`) digests the
+roots `Package.swift, Sources, Tests, benchmark.json, benchmark.sh, setup.sh,
+tools, README.md, TASK.md`. **`research/` is not covered.** The clean V3 arm and
+the mode-5 arm differ in no other tracked root, so the change
+`047449cb…` → `c6c505f6…` was caused *solely* by the patched
+`Sources/MLXFastModel/LagunaRuntimeModel.swift`, and the faulted arm ran ~37 s
+longer, consistent with a real recompile of that file.
+
+That is a proof the patched source was on disk and hashed. It is **not** a proof
+that the faulted branch executed inside the dispatched kernel. Only mode 3
+can establish that, which is the whole reason it is in the table.
+
+#### Results
+
+| arm | fault | classify | `checked_steps` | `max_abs_diff` | `harness_hash` | commit | elapsed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `v3_gated` | none | **pass** | 1025 | 0 | `047449cb…` | `62a939f` | 296.3 s |
+| `v4c_mode5` | lane word reversed | **pass** (SILENT) | 1025 | 0 | `c6c505f6…` | `14611a3` | 333.0 s |
+| `v4c_mode3` | all fitting codes → 0 | _pending_ | — | — | — | — | — |
+
+The two arms that produced verdicts, `v3_gated` and `v4c_mode5`, both opened the
+40 °C cool gate on their first *gated* attempt (39.69 °C and 39.80 °C), so
+**neither used the `MLXFAST_LOCAL_COOL_GATE=0` fallback** and neither
+correctness verdict carries a thermal caveat. Mode 3 was not so lucky, and the
+next two subsections are the honest record of why.
+
+#### Mode 3 attempt history (three attempts)
+
+1. **Attempt 1 — thermal abort.** Artefacts preserved as
+   `/tmp/pr35_gate_v4c_mode3_attempt1.txt` and `…_attempt1_score.json`
+   (mtime 17:09:35). Score payload: `passed false`, `score null`,
+   `checked_steps 0`, `case_count 0`, `passed_correctness false`,
+   `max_abs_diff 0` (vacuous), `benchmark_wall_seconds 320`, commit `858d259`,
+   `error "local GPU cool-down gate failed for prefill with status 1"`. The
+   gate transcript starts at **42.4 °C**, decays monotonically to a
+   **40.1–40.2 °C floor** with `min seen 40.3C`, and aborts at
+   `ABORT_SECONDS=180`. `classify()` therefore returns `thermal`, and the guard
+   that refuses `passed:false` as fault detection unless `checked_steps > 0`
+   did exactly its job: **this is an inconclusive arm, not a detection.**
+2. **Attempt 2 — lost to a worktree race.** Training
+   `343f05ed-a877-410e-8c5f-08213ce0e263` exited 3 after 199.8 s because
+   `git apply` failed mid-run: the worktree was mutated by an unrelated
+   agent-boundary git operation during `cool_wait`, after the 180 s cool budget
+   had already been spent. The patch applies cleanly at HEAD. The instrument
+   now tolerates an already-applied patch and asserts the hook is textually
+   present in the file it is about to compile (`f8170ce`), so no arm can
+   silently run against unhooked sources.
+3. **Attempt 3** — training `eef1beb2-3fe0-4c1d-9d9d-6641cde46307`, recorded in
+   the table above.
+
+Attempt 1 also carries two pieces of positive evidence that survive its
+inconclusive verdict:
+
+* Its `harness_hash` is **`c6c505f6…`**, byte-identical to the mode-5 arm's and
+  different from the clean `047449cb…`. Since `harnessHash()` does not digest
+  `research/`, the hook really was in `Sources/` and really was compiled.
+* Its log records full bank reachability — `narrow-scales lane-major L0 escaped
+  26/8192: qkv`, `narrow-scales built lane-major: qkv`, `narrow-scales built:
+  oproj`, and per-layer escape counts through L7 — so the lane-major bank was
+  built in the faulted binary.
+
+#### The cool gate on this host is a host-floor artefact, not contamination
+
+This host **idles at 39.9–40.4 °C against a 40 °C threshold**. Attempt 3's
+transcript is the cleanest demonstration: 42.7 °C at gate entry, then a
+monotone decay to 40.3 °C, where it flattens and runs out the 180 s abort
+budget. Nothing is hot; the machine simply floors 0.3–0.4 °C above the
+organizer's target. Two prior aborts are on record (`e31dbe7`'s V3 stalled at a
+40.7 °C floor, mode-3 attempt 1 at a 40.3 °C floor).
+
+That matters for how the fallback may honestly be used. `benchmark.sh` places
+the thermal gate at *timing* start, after weights validation and before the
+first checked step, which is why every aborted arm reports `checked_steps 0`:
+**the correctness verdict is unobtainable while the gate blocks.** And a fault
+arm's timings are meaningless *by construction* — the fault deliberately
+corrupts the numerics being timed. So on a fault arm,
+`MLXFAST_LOCAL_COOL_GATE=0` voids only a number this note never reads, while
+being the only way to obtain the verdict it does read. That is the narrow
+condition under which I use it, and I use it nowhere else: V3, V6 and V7 — the
+arms whose timings are actually quoted — ran fully gated.
+
+#### What each outcome licenses
+
+* **mode 3 fails (expected).** The gate is wired to the lane-major kernel and
+  has real power, so mode 5's silence becomes a genuine *measurement of
+  permutation-blindness* rather than a dead hook. It would then agree with the
+  independent ±1-code sensitivity analysis: row spans are ≤15 codes and the top
+  seven global codes carry ≈97.9 % of all mass (§11 census), so a lane
+  permutation overwhelmingly exchanges codes that are equal or ±1 apart, and
+  `raw = ushort(bits) << 7` makes ±1 worth only ≈8.3 % of a scale. Modes 5/6/1
+  at 0 divergences in 128 greedy steps already bound per-step divergence below
+  ≈2.3 % (95 %). B's addressing would then rest on the analytic derivation
+  (§6), the reconstruction certificate, and the frontier-reviewed one-hot
+  128-probe sweep (§4.1.1) as the only route to a true certificate — **not** on
+  any fault instrument.
+* **mode 3 passes.** The `--local-submit` fault plumbing is dead and the whole
+  V4c instrument is invalid on this path, exactly as V4b was. I would report
+  that as a second failed instrument and claim **no** addressing certificate
+  from it.
+* **mode 3 aborts thermally again.** The instrument is never validated, mode 5's
+  silence stays uninterpretable, and I claim **no** addressing certificate from
+  V4c. This is the weakest outcome but it is not a blocker: B's correctness
+  evidence is V3's independent 1025-step PASS at `max_abs_diff 0`, and B's
+  addressing rests on the analytic derivation (§6) plus the proposed one-hot
+  128-probe sweep (§4.1.1). I cap this at one ungated retry rather than spend
+  the ranked-slot window on an epistemic control.
+
+Mode 2 (uniform +1 on every fitting code, ≈+8.3 % scale error, 100 % row
+coverage, 1 divergence in 32 greedy steps) would bracket the gate's sensitivity
+floor between "invisible permutation" and "catastrophic zeroing". It was
+deliberately **not** run: it is a cheap follow-up, and holding the ranked-slot
+request past its usable window costs the programme more than the bracket is
+worth.
+

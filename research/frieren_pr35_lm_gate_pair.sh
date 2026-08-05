@@ -50,6 +50,16 @@ MODES="${MODES:-5}"
 # so it does not have to be re-established in every session. Set SKIP_V3=1 only
 # when a passing V3 has already been recorded for byte-identical Sources/.
 SKIP_V3="${SKIP_V3:-0}"
+# benchmark.sh puts the thermal gate at TIMING start, before the first checked
+# step, so a gated abort yields checked_steps=0 and therefore no verdict at all
+# -- the correctness answer is unobtainable while the gate blocks. A fault arm's
+# timings are meanwhile meaningless by construction, since the fault corrupts
+# the very numerics being timed. So on a fault arm MLXFAST_LOCAL_COOL_GATE=0
+# voids only a number nothing reads. Set FAULT_UNGATED=1 to skip straight to it
+# when a gated attempt is already on record, and FAULT_COOL_BUDGET=0 to drop the
+# pre-arm cool_wait that a disabled gate makes pointless.
+FAULT_UNGATED="${FAULT_UNGATED:-0}"
+FAULT_COOL_BUDGET="${FAULT_COOL_BUDGET:-180}"
 start=$(date +%s)
 macmon="${HOME}/bin/macmon"
 
@@ -186,7 +196,7 @@ fi
 
 # ---------------------------------------------------------------- V4c, faults
 for mode in ${MODES}; do
-    cool_wait 180
+    [[ "${FAULT_COOL_BUDGET}" == "0" ]] || cool_wait "${FAULT_COOL_BUDGET}"
     echo "=== applying fault patch (mode ${mode}) ==="
     # A previous session lost a whole arm here: `git apply` failed because the
     # worktree was mutated by an unrelated agent-boundary git operation during
@@ -201,7 +211,32 @@ for mode in ${MODES}; do
         exit 3
     fi
     echo "=== hook verified present in Sources/ ==="
-    run_arm "v4c_mode${mode}" "DARKBLOOM_LM_FAULT=${mode}" ${COOL_ENV}
+    # Scalars, not arrays: bash 3.2 aborts on an empty array under `set -u`.
+    ARM_TAG="v4c_mode${mode}"
+    ARM_COOL_ENV="${COOL_ENV}"
+    if [[ "${FAULT_UNGATED}" == "1" ]]; then
+        echo "=== mode ${mode}: a gated attempt is already on record; going ungated ==="
+        ARM_TAG="v4c_mode${mode}_ungated"
+        ARM_COOL_ENV="MLXFAST_LOCAL_COOL_GATE=0"
+    fi
+    run_arm "${ARM_TAG}" "DARKBLOOM_LM_FAULT=${mode}" ${ARM_COOL_ENV}
+    case "${ARM_CLASS}" in
+      thermal*)
+        if [[ "${ARM_COOL_ENV}" == *"MLXFAST_LOCAL_COOL_GATE=0"* ]]; then
+            echo "=== mode ${mode} aborted thermally with the gate already disabled ==="
+        else
+            echo "=== mode ${mode} gated attempt aborted thermally; retrying ungated ==="
+            cool_wait 60
+            # Never retry against sources the trap or a race may have reverted.
+            if grep -q 'DARKBLOOM_LM_FAULT' Sources/MLXFastModel/LagunaRuntimeModel.swift; then
+                run_arm "v4c_mode${mode}_ungated" "DARKBLOOM_LM_FAULT=${mode}" \
+                    "MLXFAST_LOCAL_COOL_GATE=0"
+            else
+                echo "PATCH LOST before the ungated retry - mode ${mode} not rerun"
+            fi
+        fi
+        ;;
+    esac
     F_CLASS="${ARM_CLASS}"
     restore_sources
     case "${F_CLASS}" in

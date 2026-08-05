@@ -296,6 +296,18 @@ both rather than editing them away:
    `research/frieren-pr35-r3-b-verification.md` §8. Do not read the table above
    as current status.
 
+4. **B now has real correctness evidence, and it is not the oracle.** The
+   shipping golden gate (`./benchmark.sh --local-submit`, public long-copy
+   512→1024 case) passes on the shipping head with `passed true`,
+   `max_abs_diff 0`, `checked_steps 1025`, `first_failing_case null`,
+   `peak_ram_gb 21`, and it demonstrably *does* build and dispatch the
+   lane-major bank. That is 8× the greedy probe's step count on the exact code
+   that would ship, and it replaces the retracted V2. It opened the 40 °C cool
+   gate at 39.69 °C on its first gated attempt, so it used **no**
+   `MLXFAST_LOCAL_COOL_GATE=0` fallback and carries no thermal caveat. Details in
+   `research/frieren-pr35-r3-b-verification.md` §9.5, gate-power measurement in
+   §9.6.
+
 The Ask 2 reasoning in this note still stands on its own terms — `attn.o` is
 still the strongest next extension — but it is no longer a *precondition* for the
 receipt.
