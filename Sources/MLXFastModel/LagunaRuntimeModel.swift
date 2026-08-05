@@ -10243,7 +10243,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             qkRoPEAngles: qkRoPEAngles,
             qkRoPEOffsets: qkRoPEOffsets
         )
-        let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
@@ -10252,7 +10251,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
             x.shape == [1, 1, LagunaConstants.hiddenSize], x.shape == r.shape,
-            let sparse,
+            let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
             sparse.gate.weight.dtype == .bfloat16,
             sparse.gate.weight.shape == [
                 LagunaConstants.numExperts, LagunaConstants.hiddenSize,
@@ -10303,7 +10302,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             normalized.shape == [1, 1, LagunaConstants.hiddenSize],
             h.dtype == .bfloat16,
             h.shape == normalized.shape,
-            let sparse
+            let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
             return sparse(
                 normalized, residual: h, routerLogits: routerLogits,
@@ -10316,7 +10315,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         // issue.
         if lagunaPrefillMoETailEnabled,
             x.dim(1) > 1,
-            let sparse
+            let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
             return sparse(
                 normalized, residual: h, routerLogits: routerLogits,
