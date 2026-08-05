@@ -8,7 +8,7 @@
 # the result to the offline Metal compiler, which is the only local way to catch
 # a syntax or semantic error before an official M5 submission.
 #
-# Usage: research/nax_msl_compile_check.sh [DEFINE_NAME...]
+# Usage: research/nax_msl_compile_check.sh [NAME|NAME=VALUE ...]
 #   GEN_DIR=<dir>  override the mlx-generated directory (for stock comparison)
 #   OUT_DIR=<dir>  override the scratch output directory
 set -uo pipefail
@@ -31,7 +31,12 @@ SRC="${OUT}/unit.metal"
 : > "${SRC}"
 {
   echo "// ---- injected defines ----"
-  for d in "$@"; do echo "#define ${d} 1"; done
+  for d in "$@"; do
+    case "${d}" in
+      *=*) echo "#define ${d%%=*} ${d#*=}" ;;
+      *) echo "#define ${d} 1" ;;
+    esac
+  done
   echo "// ---- metal::utils() ----"
   extract "${GEN}/utils.cpp"
   echo "// ---- metal::gemm_nax() ----"
@@ -40,14 +45,19 @@ SRC="${OUT}/unit.metal"
   extract "${GEN}/quantized_utils.cpp"
   echo "// ---- metal::fp_quantized_nax() ----"
   extract "${GEN}/fp_quantized_nax.cpp"
+  # Both static Laguna MoE shapes (laguna_moe_shape in quantized.cpp), with the
+  # shipped variant-5 tiling (bm/bn/bk 64, wm 4, wn 1), egroups 256 and both
+  # wide-staging certifications on, exactly as get_template_definition emits.
   echo "// ---- template_def (get_template_definition) ----"
-  cat <<'EOF'
-template [[host_name("fp_gather_qmm_rhs_expert_nax_check")]] [[kernel]] decltype(
-    fp_gather_qmm_rhs_expert_nax<
-        bfloat16_t, 16, 4, 64, 64, 64, 4, 1, true, 2048, 1408, bfloat, 256, true, true>)
-    fp_gather_qmm_rhs_expert_nax<
-        bfloat16_t, 16, 4, 64, 64, 64, 4, 1, true, 2048, 1408, bfloat, 256, true, true>;
+  for shape in "2048, 1024" "512, 2048"; do
+    targs="bfloat16_t, 16, 4, 64, 64, 64, 4, 1, true, ${shape}, bfloat, 256, true, true"
+    name="fp_gather_qmm_rhs_expert_nax_check_${shape//, /x}"
+    cat <<EOF
+template [[host_name("${name}")]] [[kernel]] decltype(
+    fp_gather_qmm_rhs_expert_nax<${targs}>)
+    fp_gather_qmm_rhs_expert_nax<${targs}>;
 EOF
+  done
 } >> "${SRC}"
 
 echo "generated $(wc -l < "${SRC}") lines -> ${SRC}"

@@ -1870,13 +1870,15 @@ template <
 
   constexpr int kWsElems = BN * BK_padded;
   constexpr int kWsPerChunk = 16 / sizeof(Wtype);
-#ifdef DARKBLOOM_STAGE2_GATHER
-  // Two Ws buffers so tile k+1 can be staged while tile k is still being
-  // consumed. kWsElems * sizeof(Wtype) is a multiple of 16 (BN and BK_padded
-  // are both multiples of 8 at every instantiation that reaches here), so the
-  // second buffer keeps the 16B alignment the wide staging stores require.
-  // gate_up_stage still aliases buffer 0: it holds BM * BN bfloats, which fits
-  // inside one Ws buffer, and it is only touched after the k loop has drained.
+#if defined(DARKBLOOM_STAGE2_GATHER) && DARKBLOOM_STAGE2_GATHER == 1
+  // Variant 1 only: two Ws buffers so tile k+1 can be staged while tile k is
+  // still being consumed. kWsElems * sizeof(Wtype) is a multiple of 16 (BN and
+  // BK_padded are both multiples of 8 at every instantiation that reaches
+  // here), so the second buffer keeps the 16B alignment the wide staging
+  // stores require. gate_up_stage still aliases buffer 0: it holds BM * BN
+  // bfloats, which fits inside one Ws buffer, and it is only touched after the
+  // k loop has drained. Doubling the allocation costs co-residency, which is
+  // why variant 2 is the default.
   threadgroup NAXWsChunk16<Wtype>
       Ws_storage[(2 * kWsElems + kWsPerChunk - 1) / kWsPerChunk];
 #else
@@ -1985,8 +1987,8 @@ template <
           simd_group_id,
           simd_lane_id);
 
-#ifdef DARKBLOOM_STAGE2_GATHER
-      // Double-buffered weight staging.
+#if defined(DARKBLOOM_STAGE2_GATHER) && DARKBLOOM_STAGE2_GATHER == 1
+      // Variant 1: double-buffered weight staging.
       //
       // Stock runs two threadgroup barriers per k iteration around a single Ws
       // buffer: one WAR barrier before staging tile k (the previous tile's MMA
@@ -2063,6 +2065,79 @@ template <
           loader_w.dst = w_dst0 + (((k + 1) & 1) ? kWsElems : 0);
           loader_w.template commit<wide_store>(pf);
           loader_w.next();
+        }
+
+        xn += BK;
+      }
+#elif defined(DARKBLOOM_STAGE2_GATHER)
+      // Variant 2: register-prefetched weight staging, single Ws buffer.
+      //
+      // Same overlap goal as variant 1 without doubling threadgroup memory.
+      // Stock's staging step is fused: the device 4-bit loads, the nibble
+      // decode, and the threadgroup stores all sit between the WAR and RAW
+      // barriers, so the device read latency is exposed with no arithmetic in
+      // flight, K_it times. Splitting the step lets tile k+1's device reads be
+      // issued one iteration early, right after tile k is published, so they
+      // are in flight across the RAW barrier and the whole MMA chain and only
+      // the threadgroup stores remain between the barriers.
+      //
+      // Both barriers stay: with one buffer, commit(k) still overwrites the
+      // tile MMA(k-1) read (WAR, first barrier) and MMA(k) still reads what
+      // commit(k) wrote (RAW, second barrier). The win is latency hiding, not
+      // barrier count, and threadgroup occupancy is byte-for-byte unchanged.
+      //
+      // pf is loop-carried across the back-edge, which is what keeps the
+      // device loads from sinking back down to their use inside commit(). The
+      // (k + 1) < K_it guard is required: an unguarded prefetch on the last
+      // iteration would read weight rows past the end of this expert's block.
+      // No barrier sits inside that guard, so control flow stays uniform.
+      //
+      // BIT-EXACTNESS. prefetch()/commit() together perform exactly the byte
+      // gather, scale reads, decode, and stores that the fused staging step
+      // performs, in the same per-thread slots; next() is still called K_it
+      // times and the MMA chain (k ascending, kk1 ascending, one Dtile) is
+      // untouched.
+      typename loader_w_t::StageRegs pf =
+          loader_w.template prefetch<wide_load>();
+
+      for (int k = 0; k < K_it; ++k) {
+        NAXTile<T, TM, TK> Atile[BK / SK];
+        if (sg_active) {
+          STEEL_PRAGMA_UNROLL
+          for (int kk1 = 0; kk1 < BK; kk1 += SK) {
+            if (sgp_sm == SM) {
+              Atile[kk1 / SK].load_contig(xn + kk1, kernel_K);
+            } else {
+              Atile[kk1 / SK].load_rows_contig(xn + kk1, kernel_K, sgp_sm);
+            }
+          }
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        loader_w.template commit<wide_store>(pf);
+        loader_w.next();
+        if ((k + 1) < K_it) {
+          pf = loader_w.template prefetch<wide_load>();
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        if (sg_active) {
+          STEEL_PRAGMA_UNROLL
+          for (int kk1 = 0; kk1 < BK; kk1 += SK) {
+            NAXTile<Wtype, TN, TK> Btile;
+
+            Btile.template load_contig_tg<Wtype, BK_padded>(
+                Ws + tn * BK_padded + kk1);
+
+            tile_matmad_nax(
+                Dtile,
+                Atile[kk1 / SK],
+                metal::bool_constant<false>{},
+                Btile,
+                metal::bool_constant<true>{});
+          }
         }
 
         xn += BK;
