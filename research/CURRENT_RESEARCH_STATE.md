@@ -1,5 +1,7 @@
 # SENPAI Research State
-- 2026-08-05T19:57:00Z
+- 2026-08-05T20:20:00Z
+- Frontier deep-code-analysis agent completed (1 of 2); grid over-dispatch finding
+  CORRECTED as false; packed scales for down projection is a new medium-potential idea
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
 - Operator authorized official submissions from AWS Macs; updated submission attribution rules (use `--model "senpai"` first)
 - PR #52 (birch-askeladd) first to submit: inconclusive, revision requested (3 bundled changes, no M4-viable _nax evidence, no W&B)
@@ -188,6 +190,26 @@ dispatch change was M4-testable and showed no improvement (-0.1% prefill).
 | birch-thorfinn | #50 | full-attn-decode-opt | fd1bf10 | No code yet — sent MoE down findings as bonus |
 | birch-alphonse | #51 | lmhead-coarse-opt | 61b1b2d | No code yet — sent LM-head format correction + dispatch consolidation idea |
 
+## Frontier Agent Findings (2026-08-05T20:15Z)
+
+### Deep Code Analysis V2 (frontier agent)
+- **CORRECTION — "Grid Over-Dispatch" finding is FALSE**: The agent reported
+  attention kernels use `grid: ((heads/2) * 1024, 1, 1)` as 1024x over-dispatch.
+  Verified: `threadGroup: (1024, 1, 1)` means #threadgroups = grid/threadGroup =
+  heads/2. The `* 1024` is the threadGroup size multiplied into the grid — standard
+  MLX `metalKernel` convention where `grid` = total threads, NOT threadgroups.
+  Same correction for dense MLP (`* 512` with `threadGroup: (512, 1, 1)` = 128 TGs).
+  No redundancy exists. Do NOT pursue this.
+- **Packed scales for down projection** (new finding, medium potential): The
+  `DARKBLOOM_PACKED_SCALES` side-copy pattern (L10151) already proves scale
+  interleaving works for routed gate/up. Extending to down projection (~504 MB/step
+  traffic) is mechanical but adds ~624 MB resident memory.
+- P2 (merge shared gate/up) confirmed — already assigned to Thorfinn.
+- P5 (incremental sliding attention) — not worth pursuing (correct).
+
+### Decode Dispatch Inventory (frontier agent — STILL RUNNING)
+- Pending: comprehensive per-layer dispatch inventory for the full decode path.
+
 ## Potential Next Research Directions
 
 - **Merge shared + routed gate/up QMV** (ASSIGNED to Thorfinn): fill the
@@ -200,21 +222,25 @@ dispatch change was M4-testable and showed no improvement (-0.1% prefill).
   tensors + inline dequant may improve prefill MoE throughput on M5.
 - **Morton-order traversal in `_nax` gather GEMM**: Better cache locality for
   the short expert runs in prefill MoE.
-- **MoE down kernel outputs_per_simd 1→2**: amortize barrier+reduce across 2 rows,
-  halves threadgroups from 2048→1024. Low risk, stacks with reduction parallelization.
+- **MoE down kernel outputs_per_simd 1→2** (ASSIGNED to Edward): amortize barrier+reduce
+  across 2 rows, halves threadgroups from 2048→1024. Low risk, stacks with reduction
+  parallelization.
 - **MoE down 8-way reduction parallelization**: spread 8 routed slots across lanes
   0-7, O(1) vs O(8) serial reduction. Independent of and stacks with outputs_per_simd.
-- **Dead mask construction elimination**: remove wasted fullMask/slidingMask building
-  at L11086-11089 (fused kernels don't use masks). Very low risk, quick win.
 - **Norm+QKV fusion for INT8 path**: NVFP4 tail has `lagunaNormAffineQKV` (L5722) but
   INT8 group-32 path has no norm-fused kernel. Save 40 dispatches/step. Kernel dev.
 - **Deferred-gate softplus for INT8 O-proj**: deferred-gate fusion only fires for NVFP4
   OProj (L3902). INT8 path runs separate softplus dispatch. Save 40 dispatches/step.
-- **LM-head dispatch consolidation**: merge argmax+threshold dispatches (#2+#3) into one.
-  Save 1 dispatch/step, zero certificate risk.
+- **LM-head dispatch consolidation** (ASSIGNED to Alphonse): merge argmax+threshold
+  dispatches (#2+#3) into one. Save 1 dispatch/step, zero certificate risk.
+- **Packed scales for down projection**: Extend `DARKBLOOM_PACKED_SCALES` to down
+  projection (~504 MB/step traffic). Medium risk, ~624 MB added resident memory.
 - **Interleave FP8 scales with FP4 codes**: transform+kernel change, medium
   risk, targets the bandwidth bottleneck directly.
 - **Graph-visible cache + compiled segments expansion**: If Edward's P0
   prototype succeeds, extend to full-model compiled decode.
 - **Source budget reclamation**: Remove dormant negative arms to free byte
   budget for new kernel families.
+- **NOTE**: The "dead mask construction" idea was investigated and found to be
+  a non-issue — `createAttentionMask` returns a lightweight Swift enum (`.none`
+  during decode), not an MLXArray allocation. No wasted work to eliminate.
