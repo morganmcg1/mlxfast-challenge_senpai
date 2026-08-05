@@ -4820,8 +4820,18 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 /// requests. An escaped row (`base == 0xFF`) takes the simdgroup-uniform else
 /// arm and reads the stock plane. Both arms fill the same `sb` registers, so
 /// the K loop below is the R1 loop with its scale argument already resident.
+/// TEMPORARY power control (research only, removed in the next commit):
+/// `DARKBLOOM_LM_FAULT=1` makes every lane read its neighbour's packed word, so
+/// the bank is still correct and the certificate still passes but the kernel
+/// misaddresses it. Alignment and the escape arm are untouched, and the fault
+/// fires on 98.1-99.6% of rows, so a harness that cannot see this cannot see a
+/// real lane-permutation bug either.
+private let lagunaLaneMajorFaultEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_LM_FAULT"] == "1"
+
 private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
-    """
+    let laneIndex = lagunaLaneMajorFaultEnabled ? "(simd_lid ^ 1u)" : "simd_lid"
+    return """
     constexpr uint axis_size = 2048;
     constexpr uint num_simdgroups = 2;
     constexpr uint values_per_thread = 16;
@@ -4844,7 +4854,7 @@ private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
         // `out_row * in_vec_size_g / 2` is a multiple of blocks_per_row / 2, so
         // the lane's run is ushort-aligned; a wider cast would not be.
         const device ushort* nb = (const device ushort*)(
-            scale_nibbles + out_row * (in_vec_size_g / 2)) + simd_lid;
+            scale_nibbles + out_row * (in_vec_size_g / 2)) + \(laneIndex);
         const ushort packed = nb[0];
     #pragma unroll
         for (uint b = 0; b < blocks_per_row; ++b) {
@@ -4886,7 +4896,8 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                + (lagunaLaneMajorFaultEnabled ? "_fault" : ""),
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
