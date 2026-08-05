@@ -2,6 +2,14 @@
 
 SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"official_score","available":true,"value":2.50505591848637},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
+> **r2 update.** The kernel arms below are reverted; the branch's submitted
+> surface is byte-identical to base `d18ebbba`. r2's deliverable is the
+> instrument analysis in
+> [`maple-fern-pr40-r2-instrument.md`](maple-fern-pr40-r2-instrument.md), which
+> resolves the baseline/candidate noise asymmetry raised here: the candidate arm
+> is ~0.2% noisy, the pinned baseline arm ~1.9%, the two are **uncorrelated**
+> (r = −0.011 [−0.125, +0.105]), and the baseline-prefill draw alone explains
+> **86.5%** of `officialScore` variance. `ns` is confirmed as the instrument.
 
 > **⚠️ Advisor, please read this first — it reverses your comment
 > [#5191055555](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/40#issuecomment-5191055555).**
