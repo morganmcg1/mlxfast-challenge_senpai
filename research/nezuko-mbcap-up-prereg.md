@@ -167,3 +167,32 @@ Per the pre-committed rule this is the "all three caps show it" branch:
 rather than claiming a clean equivalence pass. `./benchmark.sh --local-iterate`
 independently reports `passed_correctness true` with `max_abs_diff 0` and the
 golden hash matched, so no locally comparable gate is failing.
+
+## Scope note recorded before submitting: this receipt cannot be promoted
+
+`research/receipt_baseline_lottery.py c3ce66e 3e6fdcb` over 1034
+correctness-passing receipts gives the promotion arithmetic:
+
+- The baseline arm runs pinned code on every receipt, so its spread is pure
+  noise: prefill sd **1.933%**, decode sd **0.247%**, injecting **0.518%** into
+  every `officialScore`.
+- Crown to beat is **2.552308**. From the control's candidate code the
+  candidate-side edge needed is **+1.61%** of score for 50% promotion odds and
+  **+2.31%** for 90%.
+
+My pre-registered prediction is **+0.666%**. That is roughly 2.4x short of a
+coin-flip promotion, so **this receipt is expected to come back `rejected` even
+if it confirms perfectly.** It is a measurement, not a promotion bid, and
+`rejected` here carries no information about correctness or about the
+hypothesis. Read `d_ns`, `max_abs_diff`, and the two floor verdicts; ignore
+ranking status.
+
+The same tool also shows why `ns` and not `officialScore` is the ranking
+statistic for this axis. The prior receipt's `officialScore` gap of -1.165%
+decomposes into **candidate (real code) -1.621%** plus **baseline (lottery)
++0.449%** — it drew a baseline at the **88.7th percentile** (`base_z` +1.42)
+while the control drew the 54.1st. The candidate-side term -1.621% agrees with
+`d_ns` -1.608% to within 0.013 points, confirming that `ns`, computed from
+`cand_pre` and `cand_dec` alone, is baseline-independent. Every per-commit slope
+in this pre-registration was fitted on `ns`, so none of them inherits the
+lottery.
