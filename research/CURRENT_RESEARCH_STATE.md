@@ -1,11 +1,18 @@
 # SENPAI Research State
 
-- **2026-08-05 14:05 UTC** (advisor: meridian). Round 8 closed (three merges),
+- **2026-08-05 14:25 UTC** (advisor: meridian). Round 8 closed (three merges),
   round 9 in flight (#44 r2, #35 r3, #47, #48). The measurement instrument was
   re-characterised over rounds 7–8 and it is now **fully characterised** (§0).
   That work invalidated a batch of prior conclusions, four of them mine. Read §0
-  first, and §0.9 for the three new laws — the **M4 TRANSFER LAW** in §0.9.2 now
-  gates which evidence any brief is allowed to price.
+  first, and §0.9 for the six new laws — the **M4 TRANSFER LAW** in §0.9.2 now
+  gates which evidence any brief is allowed to price, §0.9.8 explains why the
+  gather-GEMM staging arms had to come out null, and §0.9.9 is a mandatory
+  pre-flight check for any `_nax` kernel edit.
+- **★ Retraction this round:** the "+1.9 to +2.6% unowned" gather-GEMM SM=16
+  banding item is **withdrawn and struck from the queue** — it was an
+  arithmetic identity misread as headroom. The 15.4 ms excess is still real and
+  still unowned, but it has **no surviving mechanism**; see
+  `research/GATHER_GEMM_REGIME_DESIGN.md`.
 - **Most recent human research direction:** operator authorised the advisor and
   all four students to dispatch official `mlxfast submit` runs, and directs the
   campaign to continue with all four students on distinct high-value
@@ -471,6 +478,82 @@ band ratios for every ranked arm.**
   The undocumented "~34 ms honest residual" carried elsewhere in this document
   is superseded by **31.28 ms**.
 
+#### 0.9.8 ★★ The occupancy-currency law (gather-GEMM, from #40's double null)
+
+The `_nax` gather-GEMM k-loop
+(`Vendor/mlx-swift/.../kernels/fp_quantized_nax.h:1725-1765`) is
+`Atile device loads → barrier → loader_w.load_unsafe[_wide]() → barrier →
+if (sg_active) MMA`. **Two unconditional barriers per iteration means device
+loads and MMA cannot overlap at all inside one threadgroup.** Every bit of the
+observed overlap — efficiency `(54.0−43.26)/(54.0−27.9) = 41%` — comes from
+*other co-resident threadgroups* sitting at different loop phases.
+
+Occupancy is also doing a second job. On the **median** chunk
+(`chunk_rows ≈ 16`) only **1 of 4 simdgroups** is `sg_active`, because
+`sgp_sm = min(SM, max(0, chunk_rows - tm))` (`:1699-1701`) with `SM = 16`. A
+core therefore needs ~4 co-resident threadgroups just to keep its simdgroup
+slots busy.
+
+**Law: on this kernel, any arm that spends per-threadgroup resource to buy
+overlap is self-cancelling, because the resource it spends is the same
+occupancy that produced the overlap.** This retro-explains fern's #40 double
+null exactly:
+
+| arm | resource spent | occupancy | outcome |
+|---|---|---|---|
+| v1 double-buffered `Ws` | threadgroup memory | ↓ | +0.1150 ms (null) |
+| v2 register prefetch | registers | ↓ | +0.4626 ms (null) |
+
+Both landed inside σ_dS = 0.2536 ms. **Corollary: only arms that REDUCE
+per-threadgroup resource use can move this kernel.** Do not reopen with a
+deeper prefetch, a wider `Ws`, or a different barrier placement — fern's PR
+says so and the mechanism now says why. Footprint audit: `kWsElems =
+BN*BK_padded`, `Ws_storage` ~8.4 kB at BN=64 with `gate_up_stage` already
+aliased onto it (that economy is taken); `threadgroup int bounds[...]` under
+`DARKBLOOM_BSEARCH_HOIST` is the **only unaudited allocation** (~1.0 kB at
+`expert_groups=1`).
+
+#### 0.9.9 ★★ The `_nax` twin-file consistency rule (verify before every kernel edit)
+
+The runtime compiles an **embedded C-string copy** of the kernel header, not
+the header itself:
+
+- `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h`
+  — 1886 lines / 65,515 B — **editable**, the human-readable source.
+- `Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp`
+  — 2027 lines / 68,466 B — **editable, and this is what actually runs.** It
+  embeds the header verbatim (`:148` provenance comment, `:151` `#line 1`), so
+  the **line offset is exactly +141**.
+- `Vendor/mlx-swift/Source/Cmlx/mlx-generated/metal/fp_quantized_nax.h`
+  — 27,907 B, **zero `DARKBLOOM_` markers, NOT editable** — a stale upstream
+  copy. Do not touch it and do not be misled by it.
+
+The two editable files are **currently in exact sync**. Any edit to one without
+the other means the ranked M5 measures the OLD kernel while every local static
+check passes — a silent null. Run this before and after every kernel edit:
+
+```bash
+G=Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp
+K=Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h
+for s in load_unsafe_wide sgp_sm SWIGLU_REGLOCAL BSEARCH_HOIST; do
+  printf "%-20s gen=%s ker=%s\n" "$s" "$(grep -c "$s" $G)" "$(grep -c "$s" $K)"
+done
+```
+
+Any `gen != ker` row is a defect. Baseline at `07d214d8`: `load_unsafe_wide`
+7/7, `sgp_sm` 20/20, `SWIGLU_REGLOCAL` 9/9, `BSEARCH_HOIST` 3/3.
+
+#### 0.9.10 M4 TRANSFER LAW — the static-property corollary
+
+§0.9.2 forbids transferring M4 *timing* for overhead-, boundary-, and
+concurrency-class changes, and `_nax` kernels cannot even execute on M4
+(`device.cpp:913-931` needs Apple GPU gen ≥ 17; M4 Pro probes 16). But
+**static compiler properties are not timing and are not gated by execution**:
+threadgroup bytes, `maxTotalThreadsPerThreadgroup`, register pressure, and MSL
+compilability are all readable on M4 for a kernel that will never run there.
+fern's merged `research/nax_msl_compile_check.sh` is the existing precedent.
+This is what makes the gather-GEMM D2 occupancy audit a free, local arm.
+
 ---
 
 ## THE FIVE THINGS TO READ FIRST
@@ -528,12 +611,21 @@ only its *recoverable* part under the perfect-overlap bound. At prefill
 elasticity 0.362, full recovery is +5.3% of score and a third is +1.8%. The
 campaign needs +1.0% to +2.0%. Corrected roofline and mechanism in §A3.
 
-**★ But it is now an OWNERLESS defect.** Mechanism #1 (single-buffered `Ws`
-staging↔MMA serialisation) was fern's PR #40 and it **measured null** (§0.2), so
-the largest sized item on either axis has no live owner. Mechanism **#2**
-(SM=16 banding, ~5–7 ms ⇒ **+1.9 to +2.6% of score**) and mechanism **#3** (x
-re-read, ~1–3 ms) are both **UNSTAFFED**. This is the single largest staffing
-gap in the programme and it should be filled the moment a student frees up.
+**★ It is an OWNERLESS defect with NO SURVIVING MECHANISM (revised
+2026-08-05 14:20).** Mechanism #1 (single-buffered `Ws` staging↔MMA
+serialisation) was fern's PR #40 and it **measured null** on both arms (§0.2).
+Mechanism **#2** (SM=16 banding) is **CLOSED at the floor** — `SM = BM/WM` is
+pinned to 16 by the host guard and the kernel's own `kSwigluRegLocal`
+assertion, `TM = SM/16` is integer division so `SM<16` issues no MMA at all,
+and `453,120 = Σ ceil(n_e/16)·16` is identically the `kFragRows` floor, not a
+tunable. **The previously banked "+1.9 to +2.6%" for it is withdrawn.**
+Mechanism **#3** (x re-read, ~1–3 ms) is now **contingent**: it prices against
+the same 27.9 ms floor that mechanism #2's closure calls into question, so it
+must not be assigned before the régime diagnostic. See
+`research/GATHER_GEMM_REGIME_DESIGN.md` for the source-verified closure, the
+occupancy-currency mechanism behind #40's double null, and the two diagnostics
+(D2 occupancy audit, free and M4-legal; D1 pure-D arm, needs M5) that replace
+mechanism proposals as the next step.
 
 **Attention qkvo prefill is not a target.** 22.21 ms for its FLOP load is
 **65.74 TFLOP/s = 117% of the 56 TFLOP/s dense bf16 ceiling** — it runs *faster*
@@ -1482,10 +1574,14 @@ owns the aggregate M5 dispatch law and the two systematics on it; **nezuko** own
 command-buffer geometry and the **boundary-value model**, with
 **D-FUSE-GATESP/OPROJ** promised next.
 
-**★ The largest staffing gap is not on this table.** Gather-GEMM mechanisms **#2**
-(SM=16 banding, +1.9–2.6% of score) and **#3** (x re-read, ~1–3 ms) are the
-biggest sized items in the programme and **nobody owns them**. Fill this the
-moment a student frees up.
+**★ The largest staffing gap is not on this table, and it is now a
+*diagnostic* gap, not a mechanism gap.** Gather-GEMM mechanism **#2** (SM=16
+banding) is **closed at the floor** and its "+1.9–2.6%" is withdrawn;
+mechanism **#3** (x re-read) is contingent on the régime answer. The 15.4 ms
+excess is still real and still the largest unexplained residual in the
+programme (+5.7% of score), but it has no surviving mechanism. The next free
+student gets the **D2 occupancy audit** — free, local, M4-legal, no ranked
+receipt — from `research/GATHER_GEMM_REGIME_DESIGN.md` §3.
 
 ### Receipt queue — corrected twice, now believed
 
@@ -2314,20 +2410,26 @@ tanjiro's **#47**; the attention scale planes are frieren's **#35 r3**.
 
 | # | item | est. score | class | M4-screenable? |
 |---|---|---:|---|---|
-| 1 | **gather-GEMM mechanism #2 — SM=16 banding** (~5–7 ms of dS) | **+1.9 to +2.6%** | in-kernel efficiency | ✗ `_nax`-gated |
-| 2 | **gather-GEMM mechanism #3 — x re-read** (~1–3 ms) | +0.4 to +1.1% | byte stream | ✗ `_nax`-gated |
-| 3 | **M2 — gather elision via `lhs_indices`** (2–2.9 ms) | +0.4 to +0.5% | byte stream | ✓ (byte-stream class) |
-| 4 | D-MLP prefill fusion pool | +1.56% claimed, unaudited | byte dedup | ✓ |
-| 5 | sliding-attention kernel rewrite (428 µs at 36% of ceiling) | ~+0.6% | in-kernel occupancy | ✓ |
-| 6 | `residual_rms_router` rpg8→rpg4/2 (~106 µs/step) | ~+0.3% | in-kernel | ✓ |
-| 7 | **P-SHARED** — rider only, see below | +0.18 to +0.33% | byte dedup | ✓ |
+| 1 | **gather-GEMM D2 — occupancy audit** (unblocks the 15.4 ms / +5.7%) | diagnostic, free | static compiler property | ✓ **M4-legal** (compiles, never runs) |
+| 2 | **M2 — gather elision via `lhs_indices`** (2–2.9 ms) | +0.4 to +0.5% | byte stream | ✓ (byte-stream class) |
+| 3 | D-MLP prefill fusion pool | +1.56% claimed, unaudited | byte dedup | ✓ |
+| 4 | sliding-attention kernel rewrite (428 µs at 36% of ceiling) | ~+0.6% | in-kernel occupancy | ✓ |
+| 5 | `residual_rms_router` rpg8→rpg4/2 (~106 µs/step) | ~+0.3% | in-kernel | ✓ |
+| 6 | **P-SHARED** — rider only, see below | +0.18 to +0.33% | byte dedup | ✓ |
+| — | ~~gather-GEMM mechanism #2 — SM=16 banding~~ | ~~+1.9 to +2.6%~~ | **STRUCK: closed at the `kFragRows` floor** | — |
+| — | gather-GEMM mechanism #3 — x re-read (~1–3 ms) | +0.4 to +1.1% *if the floor holds* | **HELD: contingent on D1** | ✗ `_nax`-gated |
 
-Items 1 and 2 are the largest sized defects anywhere in the programme and they
-have been unowned since #40's null. Under the M4 TRANSFER LAW (§0.9.2) neither is
-M4-screenable, so both require the ranked channel — which is precisely why they
-keep losing slot auctions to cheaper arms, and precisely why that is a mistake:
-they are worth 4–6× what the cheap arms are worth. **Next free student gets
-item 1.**
+The two items that used to head this table are gone. Mechanism #2 was never a
+knob — `SM = BM/WM` is pinned to 16 by the host guard at `quantized.cpp:1662`
+and re-asserted by `kSwigluRegLocal`, and `TM = SM/16` integer-divides to 0 for
+any smaller `SM`, so the "banding win" was an arithmetic identity misread as
+headroom. Mechanism #3 prices against the same 27.9 ms floor and is held until
+D1 says whether that floor is real. **The 15.4 ms is still the largest
+unexplained residual in the programme (+5.7% of score at 0.371 %/ms) and it now
+needs a diagnostic, not another mechanism.** Item 1 (D2) is the cheapest
+possible next step: it costs no ranked receipt, runs on M4 because occupancy is
+a static compiler property, and either names the binding occupancy term or
+proves the kernel is not occupancy-limited. **Next free student gets item 1.**
 
 - **⛔ P-GLUE as a census is CANCELLED (audited 2026-08-05).** Two independent
   agents — one adversarial verifier, one bottom-up designer — converged on the
