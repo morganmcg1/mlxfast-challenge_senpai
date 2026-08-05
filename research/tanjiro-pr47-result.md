@@ -30,11 +30,14 @@ before any of this branch touches `main`.
 
 ---
 
-## 1. D2 — the n=100 knee probe (IN FLIGHT)
+## 1. D2 — the n=100 knee probe (COMPLETE, R1 HIT)
 
 **Submission `57306132-803c-43ec-9532-7f8463b34823`**, dispatched
-2026-08-05 from commit `5a72af3` (editable surface frozen at submit time),
-note 10.5 KiB, status at dispatch `validating`. Metrics land in §1.8.
+2026-08-05 15:26:45Z from commit `5a72af3` (editable surface frozen at submit
+time), note 10,728 B, server-side commit `fd9cd3583f45e9683a76dda46d06b6a09ae0292d`,
+receipt `timestamp 2026-08-05T15:37:02Z`. Status `rejected`, which on this
+account means only "did not beat the current best" — every correctness and floor
+gate passed. Full metrics and the preregistered decision in §1.8.
 
 ### 1.1 What it measures
 
@@ -193,33 +196,178 @@ plus `+3 B` for rewriting the `EMPTY_TG` doc comment, which previously justified
 `160` using the stale M4 `2.46 µs` datum and now reads "8 is `0411779d`'s
 geometry, so n=0/100/400 lie on one M5 curve."
 
-### 1.8 Receipt
+### 1.8 Receipt — LANDED, and it hit R1
 
-Submission `57306132-803c-43ec-9532-7f8463b34823`. **Pending at the time of
-writing.** When it lands, the fields to record are `officialScore`, both
-`officialMetrics.{prefill,decode}_seconds_per_token`, `error`,
-`passed_correctness`, the hidden-gate fields, and **both** floor verdicts —
-each inspected separately from ranking status, because a `rejected` receipt on
-this account can mean only "did not beat the current best", which for a
-deliberate slowdown is the expected and harmless outcome.
+Submission `57306132-803c-43ec-9532-7f8463b34823`, dispatched 15:26:45Z,
+measured `timestamp 2026-08-05T15:37:02Z`, resolved between 15:47Z and 15:52Z.
+Server-side commit `fd9cd3583f45e9683a76dda46d06b6a09ae0292d`.
+Reproduce with `python3 /tmp/d2_report.py` against the REST submissions feed —
+the CLI truncates `details`, so the numbers below come from
+`GET /api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions`.
 
-Derived quantities to publish, in this order:
+**Status `rejected`, and that is the expected and harmless outcome.** This tree
+is a deliberate ~2.6% slowdown; `rejected` on this account means only "did not
+beat the current best". Every gate that matters passed. Inspected separately:
+
+| gate | value | verdict |
+| --- | --- | --- |
+| `passed_correctness` | `True` | pass |
+| `max_abs_diff` | `0` | pass |
+| `error` | `''` | pass |
+| `partial_result` | `False` | pass |
+| `checked_steps` / `case_count` | 1344 / 11 | pass |
+| `passed_decode_speedup_floor` | `True` (2.645194 ≥ 0.95) | pass |
+| `passed_prefill_speedup_floor` | `True` (1.944376 ≥ 0.95) | pass |
+| `gpqa_ttft_passed` | `True`, 9/9, p50 0.076 s, 0.41 s vs 2.3 s cap | pass |
+| `semantic_gpqa_passed` | `True`, 9/9, judge `claude-opus-4-8` | pass |
+| `golden_hash` | `be7738fccd6a…` | **identical** to `c3ce66ec` and `0411779d` |
+
+Raw timings:
 
 ```
-S  = 512000 * prefill_seconds_per_token          # ms, prefill seed
-T  = 1000 * decode_seconds_per_token - S/128     # ms, decode-only
-nd = 0.013890  / decode_seconds_per_token
-npf= 0.0003845 / prefill_seconds_per_token
-ns = nd**0.75 * npf**0.25
-dT = 1000 * 0.00504644 * ((2.544360/ns)**(4/3) - 1)   # exact decode-only inverse
+decode_seconds_per_token           = 0.005232248046875
+prefill_seconds_per_token          = 0.000190698486328125
+baseline_decode_seconds_per_token  = 0.0138403111953125
+baseline_prefill_seconds_per_token = 0.00037078955078125
+officialScore                      = 2.44927871433893
 ```
 
-`dT` must be quoted from the **exact** inverse map, not the linear 14.862 %/ms
-approximation, which under-reads by 2.0% at n=100 and 7.0% at n=400. The
-14.862 rate stays legitimate for the `pool%` conversion.
+Reduction and renormalisation:
 
-Then apply §1.2's regions. If `ns` lands in R3 the §1.4 amendment binds: report
-the soft-knee family as leading and quote **no** single resolved knee.
+```
+S  = 97.637625 ms        T  = 4.469454 ms
+nd = 2.654691            npf = 2.016272
+ns = 2.478265
+dT(100) = 0.180244 ms  = 1.8024 us/dispatch      (exact inverse map)
+```
+
+The linear 14.862 %/ms approximation would have given 0.174789 ms, under-reading
+by **3.03%**. Quoting the exact inverse was worth doing.
+
+**`ns` versus `officialScore`, as policy requires.** `ns` says −2.598%,
+`officialScore` says −2.933%; `officialScore` over-reads the slowdown by
+**0.335 pp**. This session's paired baseline was mildly *fast* on both axes —
+prefill 370.789551 µs, z = −0.220, ~53.7th percentile of 1037 draws
+(mean 372.369770, sd 7.196172); decode 13.840311 ms, z = −0.426 (mean 13.854902,
+sd 0.034213). So there was no baseline pathology here, unlike nezuko's
+`c747336`; the 0.335 pp is just the ordinary donation from a slightly quick
+baseline. Reported number is `ns`.
+
+#### The preregistered decision
+
+| region | window on `ns` | verdict |
+| --- | --- | --- |
+| **R1 — accept `H_knee0`** | `[2.452073, 2.484242]` | **HIT** |
+| R2 — accept `H_knee300` | `[2.528276, 2.560444]` | — |
+| R3 — soft-knee gap | `(2.484242, 2.528276)` | — |
+| R4 — below | `< 2.452073` | — |
+| R5 — pre-declared fault | `> 2.560444` | — |
+
+`ns = 2.478265` is **+1.89σ** from `H_knee0`'s point prediction 2.468158 and
+**−12.33σ** from `H_knee300`'s 2.544360 (σ(ns) = 0.005361). The decision is
+clean, it is inside the window I wrote down before the number existed, R5 did not
+fire, and the §1.4 soft-knee amendment does not bind because R3 was not entered.
+
+**`H_knee300` is dead at 12.33σ. `H_knee0` is accepted.** The M5 absorbs
+essentially nothing: the injected dispatches are charged from the very first one.
+
+#### What the receipt did to the brackets
+
+This is the part that matters. Two banked points on one curve — `c3ce66ec` at
+n=0 and `0411779d` at n=400 — plus this one at n=100 now determine Reading A's
+two free parameters instead of leaving them a family.
+
+```
+r = dT(100)/dT(400) = 0.180244/0.835080 = 0.21584
+k = (100 - 400r)/(1 - r) = 17.425 dispatches
+c = 835.09/(400 - k)     = 2.1828 us/dispatch
+pool = 406 x c           = 0.8862 ms = 13.17 % of score
+```
+
+±1σ envelope on `dT(100)`:
+
+| | `dT(100)` ms | knee `k` | `c` µs/disp | pool % |
+| --- | --- | --- | --- | --- |
+| −1σ | 0.165559 | 25.816 | 2.2317 | 13.47 |
+| **fit** | **0.180244** | **17.425** | **2.1828** | **13.17** |
+| +1σ | 0.194929 | 8.649 | 2.1338 | 12.88 |
+
+Against the pre-receipt state of knowledge:
+
+| quantity | before D2 | after D2 |
+| --- | --- | --- |
+| knee | anywhere in `[-200, 100]` | **17.4, bracket `[8.6, 25.8]`** |
+| `c` | `[0.36, 2.09]` µs/disp — a factor of **5.8** | **`[2.13, 2.23]` µs/disp — ±2.3%** |
+| pool | `[2.2%, 12.6%]` | **`[12.9%, 13.5%]`** |
+
+The `c` bracket collapsed from a factor of 5.8 to ±2.3%, and it landed **above**
+the old high anchor (2.0877). The knee is not zero but it is close enough to zero
+that no dispatch is meaningfully free. Cross-check: 406 × 2.1828 µs = 0.886 ms is
+**66.1%** of the 1.340 ms non-bandwidth residual in `T(0)` — the independent
+attribution in §"Key numbers" put the dispatch share at 63.3% using c = 2.088.
+Two different routes to two-thirds.
+
+Also worth recording for whoever compares receipts next: **`harness_hash`
+differs across all three curve points** (`26581d97…`, `25c994f9…`,
+`70f7dfc6…`) while `golden_hash` is identical. So `harness_hash` is not a
+session-comparability signal on this feed; `golden_hash` is, and it matches.
+
+#### What the receipt did *not* do
+
+**D2 does not discriminate Reading A from Reading B, and was never designed
+to** (§1.5 said so in advance). Both readings now share the same `c = 2.183
+µs/dispatch`; they disagree only about what *removing* a real dispatch is worth:
+
+- **Reading A** (piecewise host cost): removal pays `c` each. Pool **13.17%**.
+- **Reading B** (saturation slack, `T = max(T_gpu, T_host(406+n))`): removal pays
+  **exactly zero**, and the observed knee is the crossover, i.e. the model sits
+  only `17.4 × 2.183 = 38.0 µs` (bracket 18.4–57.6 µs) below the host-bound
+  envelope. Pool **0%**.
+
+Both are arithmetically self-consistent with everything on the books. Under B,
+`T_host(423.4) = T_gpu = 4.28121 ms` implies a fixed host term of 3.357 ms plus
+0.924 ms of per-dispatch host cost, which is consistent. And the two direct
+dispatch-removal tests on record both returned ≤ 0 (PR9 M2 fusion +228 µs/step;
+PR32 r1 +8.3 ± 7.6 µs against −81 µs predicted) — which is what **B** predicts.
+
+My earlier anti-B argument was that B required `c_host = 8.35 µs/dispatch` on M5,
+which is not physical next to M4's 2.607–2.813 with a ~2.25× faster fabric. That
+argument **is now void**: D2 replaced 8.35 with 2.183, which is entirely
+physical. **Reading B got stronger, not weaker.** I would rather say that
+plainly than let the 13.17% headline stand unqualified.
+
+#### The one-receipt experiment that settles it
+
+There is now a sharp, cheap discriminator, and the instrument already has the
+knob. `DARKBLOOM_INJECT_SWEEP_PASSES` varies injected GPU work **per dispatch,
+never by dispatch count** — that invariant is stated in the instrument's own
+header at `LagunaRuntimeModel.swift:10999-11001` and is what the whole block was
+built around.
+
+Under **B**, at n = 400 the run is host-bound with 0.835 ms of headroom, so
+adding ΔG ≤ 0.835 ms of GPU work at **fixed dispatch count** costs exactly
+**zero**. Under **A** there is no envelope and the same ΔG is **fully
+additive**. Pick ΔG ≈ 0.4 ms:
+
+| | predicted `dT` vs banked `0411779d` |
+| --- | --- |
+| Reading A | +0.4 ms ≈ 5.9% of score |
+| Reading B | 0.000 ms |
+
+σ(dT) ≈ 16.5 µs at that magnitude, so the separation is **~24σ**. And it is
+robust to transfer error: ΔG only has to land somewhere inside `(0, 0.835)` ms on
+M5, so calibrating it to 0.4 ms locally on M4 tolerates a 2× miss in either
+direction.
+
+Cost: **one** receipt kills B (any `dT > 0` while host-bound is fatal to it,
+because B requires exactly zero). A second receipt at `(n=0, ΔG)` is needed only
+if the first returns ≈ 0, to prove ΔG was genuinely nonzero on M5 rather than
+mis-calibrated to nothing. `c3ce66ec` is already banked as that arm's n=0
+control, so nothing else needs re-measuring.
+
+I have not run this and am not requesting it here. I am flagging that it decides
+whether the 13.17% pool — and with it Ranks 2, 3 and 6 of the D4 inventory — is
+real or is worth nothing at all.
 
 ---
 
@@ -432,11 +580,81 @@ No W&B runs: this track's evidence is ranked receipt IDs and `research/*.md`.
 
 - **Do not merge this branch.** §0.
 - **frieren's deletion authority** on the ~12,134 B PR #27 instrument block:
-  D5 is the last arm that needs it. See §7 for the current state.
+  **D5 is the last arm that needs it.** If you decline D5 (and the two bullets
+  below argue you should at least reconsider its value), the block is free
+  *now* — nothing else in this PR reads it, and every number already banked
+  survives its deletion because the receipts are on the server, not in the tree.
+
+### 6.1 Answer to your §0.9.14 question: which dispatch pool I would delete first
+
+You asked for the second-best pool given fern has the norm pool (80 of 406,
+19.7%), and whether it is a fusion, a geometry change, or a kernel rewrite.
+
+**My first pick is not a dispatch pool at all, and that is the point.** I would
+spend the next slot on **attention occupancy/geometry** (D4 Rank 1: 0 dispatches
+removed, ~250–330 µs/step ≈ **4.31%** of score, never attempted on this
+programme). It is a **geometry change** — threadgroup shape and per-head work
+assignment in the SDPA/attention path — not a fusion and not a full kernel
+rewrite. The reason it is my first pick is exactly the thing D2 just sharpened:
+D2 pinned `c = 2.183 µs/dispatch` and the pool at **13.17%**, but it pinned that
+number under *both* Reading A and Reading B, and the two readings disagree about
+what **deleting** a dispatch is worth — A says 13.17%, B says **exactly zero**
+(§1.5, §1.8). Every dispatch-count play, including fern's norm pool, is
+therefore a bet on A. Attention geometry pays under A *and* under B, because it
+reduces GPU work rather than boundary count. Placing an unhedged bet on A right
+now would also be placing it against the only two direct removal tests on
+record, both of which returned ≤ 0 (PR9's M2 fusion, +228 µs/step; PR32 r1,
++8.3 ± 7.6 µs against −81 µs predicted).
+
+**If you want the dispatch-count answer anyway** — i.e. if A is confirmed first,
+by the discriminator in the next bullet or otherwise — then the second-best pool
+after norm is `gate_sp`, **40 dispatches, 213 µs/step ≈ 3.165%**, and the
+deletion is a **fusion into its producer**: `gate_sp` is computed from the
+router-path residual, so it folds into `residual_rms_router`
+(`LagunaRuntimeModel.swift:5561` region) as an extra output of that kernel
+rather than a separate launch. In source that looks like widening the existing
+`residual_rms_router` kernel's output tuple and its threadgroup's per-row work,
+then deleting the `gate_sp` dispatch site and repointing its consumer — not a
+new kernel file. Worth stating clearly: PR9's recorded "not recoverable by
+fusion" verdict is about the **consumer** direction (fusing `gate_sp` forward
+into what reads it); the **producer** direction is untried. Third would be
+`router_top8` into the same producer (39 dispatches, 96 µs/step ≈ 1.43%), same
+shape of edit. Both are fusions. Neither is worth anything under Reading B.
+
+### 6.2 The one receipt that would settle A vs B, and price every pool at once
+
+I did not run this and am not asking for it here — flagging it because it is the
+cheapest thing on my list per bit returned, and because it prices fern's norm
+pool and D4 Ranks 2/3/6 simultaneously.
+
+`DARKBLOOM_INJECT_SWEEP_PASSES` varies injected GPU work **per dispatch and
+never by dispatch count** — that invariant is stated in the instrument's own
+header at `Sources/MLXFastModel/LagunaRuntimeModel.swift:10999-11001`, and the
+knobs are present and defaulted off (`:11036` `DECODE_SWEEPS` = 0, `:11040`
+`SWEEP_PASSES` = 1). At `n = 400` there is **0.835 ms of host-bound headroom**
+by construction. Add ΔG ≈ 0.4 ms of GPU work at **fixed dispatch count**:
+
+| reading | prediction for `dT` |
+|---|---|
+| A (`dT = c·max(0, n−k)`, GPU-serial) | **+0.4 ms** ≈ 5.9% of score |
+| B (`T = max(T_gpu, T_host)`, host-bound) | **exactly 0** |
+
+With σ(dT) ≈ 16.5 µs at that operating point that is a **~24σ separation on one
+receipt**, and it is robust to calibration error: ΔG only has to land anywhere
+inside `(0, 0.835)` ms on M5, so even a 2× miss from M4 calibration still
+resolves it. A single receipt kills B outright — any `dT > 0` while host-bound is
+fatal to B. Only if it returns ≈ 0 is a second receipt needed, at `(n = 0, ΔG)`,
+to prove ΔG ≠ 0 on M5; `c3ce66ec` is already banked as that control's paired
+anchor. **This is the experiment I would run before anyone spends a slot
+deleting dispatches.**
+
+### 6.3 Grants, arms, and evidence
+
 - **D5 needs a separate grant.** Prereg is written
   (`research/tanjiro-pr47-prereg-n400-unchained.md`) including the §4.1 aliasing
   enumeration. I have not submitted it and will not without a grant. **But read
-  the next two bullets before you spend a slot on it — I think its expected
+  the "bad news for D5" and "concrete fix" bullets below before you spend a slot
+  on it — I think its expected
   information yield just dropped, and I would rather tell you that than quietly
   cash the grant.**
 - **D3 (n=200)** stays conditional. I have not pre-spent it.
