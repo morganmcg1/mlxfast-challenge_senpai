@@ -6,6 +6,41 @@ Student: maple-nezuko.
 
 ---
 
+## Machine-readable marker
+
+```text
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"sliding_attn_lone_tg_us","available":true,"value":9.112},"test_metric":{"name":"passed_correctness","available":false,"value":null}}
+```
+
+`test_metric` is deliberately `available:false`. The candidate is **bitwise
+identical** to base across 20 kernel configurations (§7.2), but the full
+correctness suite and `run_upstream_equivalence.sh` were **not** run — the Step 2
+hard stop fired first — so no valid `passed_correctness` measurement exists.
+Reporting `1` here would overstate the evidence, and `0` would be a false
+failure.
+
+- Student / PR: maple-nezuko / #60
+- Hypothesis and target cost: deepening the sliding fused-attention K/V load
+  pipeline from 2-deep to 4-deep cuts lone-threadgroup latency by ≥5% at K = 1,
+  bit-identically. Cost: ~1 host-day of standalone Metal probes; no ranked receipt.
+- **Decision: dead hypothesis** (mechanism works, magnitude is ~3.6× short, and
+  the depth-8 arm proves an interior optimum at or below depth 4)
+- `BASE_SHA` / candidate commit: `5178d452c513c61e619f4dd788185c797e065529` /
+  `db89bb6e2dc0c208efd6c0b2d428a3888dfc05d0`
+- Submitted candidate files: `Sources/MLXFastModel/LagunaRuntimeModel.swift` (net +1,198 B)
+- Supporting test or documentation files: `research/nezuko-pr60-prereg.md`,
+  `research/nezuko_occupancy_probe.swift`, `research/nezuko_pipeline_latency.swift`,
+  `research/nezuko_depth8_variant.py`, this report, and 6 `research/*.log` files
+- Official submission `--model` value (planned or used; default `senpai`):
+  **`senpai`** — planned only; **no submission was made in this assignment**
+  (frieren holds the ranked channel)
+- Explicit API model-value rejection, if fallback attribution was required: **none**
+- Assignment-scope preflight: passed; one submitted path, inside `editablePaths`
+- Editable bytes / headroom / growth: `2942353/3000000` / `57647` / `1198/262144`
+- Scored-path reachability evidence: §3 (full 8-link chain at base SHA)
+
+---
+
 ## 0. Verdict
 
 **The Step 2 hard stop fired. R2 retires as a measured negative.**
@@ -489,3 +524,25 @@ holds the ranked channel for this window.
    is generic over two kernel source files and produced a 0.13% match to the
    official baseline. It is a cheap pre-screen for any future kernel-text change,
    and would have retired R2 in one afternoon without touching the benchmark.
+
+---
+
+## 14. Conclusion (template fields)
+
+- **What happened and why:** the 4-deep pipeline works exactly as designed and is
+  bitwise safe, but it only attacks the staircase intercept `b` (≈1.8 µs, 19.8% of
+  t(1)), and it recovered ≈0.35 µs of that — −1.37% against a −5% gate.
+- **Evidence for or against the mechanism:** *for* the mechanism (`b` fell,
+  marginal `a` unmoved, occupancy unchanged, 20/23 pairs favour the candidate);
+  *against* the hypothesis (magnitude ≈3.6× short, and depth 8 is worse than
+  depth 4 on both axes).
+- **Uncertainty or M5 transfer risk:** all data are M4 Pro (20 cores, gen 16).
+  The M5 statement in §7.4 rests on an occupancy-fraction analogy, not an M5
+  measurement. Nothing here is evidence about `_nax` kernels.
+- **Smallest useful next action:** none in this kernel via pipelining. If anyone
+  revisits sliding attention, target the marginal per-wave cost `a` (≈87% of
+  t(1)), not fill latency.
+- **Recommendation: close.** Merge as a documented negative. See §10 for the
+  offer to revert the four code hunks so the merge is documentation-only; the
+  code must not be promoted as a numerical change without a rebase onto
+  `f722c2d7` plus Steps 3 and 4.
