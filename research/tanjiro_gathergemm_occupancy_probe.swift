@@ -365,33 +365,53 @@ PROBE_KERNEL(probe_sgbar, 1u)
 // The threadgroup arrays must be fed from device memory and drained back to
 // device memory, otherwise the compiler removes them and the pipeline reports a
 // 0 B static footprint - which would measure residency at the wrong footprint.
-kernel void rendezvous(
-    device atomic_uint* ctr    [[buffer(0)]],
-    device atomic_uint* fails  [[buffer(1)]],
-    constant uint& target      [[buffer(2)]],
-    constant uint& spinLimit   [[buffer(3)]],
-    device const float4* src   [[buffer(4)]],
-    device float* out          [[buffer(5)]],
-    uint tid [[thread_position_in_threadgroup]],
-    uint ntg [[threads_per_threadgroup]],
-    uint gid [[threadgroup_position_in_grid]])
-{
-    threadgroup Chunk16 ws[kWsChunks];
-    threadgroup int bounds[2];
-    for (uint i = tid; i < kWsChunks; i += ntg) { ws[i].v = src[i]; }
-    if (tid == 0) { bounds[0] = 0; bounds[1] = int(ntg); }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (tid != 0) { return; }
-    atomic_fetch_add_explicit(ctr, 1u, memory_order_relaxed);
-    bool ok = false;
-    for (uint s = 0; s < spinLimit; ++s) {
-        if (atomic_load_explicit(ctr, memory_order_relaxed) >= target) { ok = true; break; }
-    }
-    if (!ok) { atomic_fetch_add_explicit(fails, 1u, memory_order_relaxed); }
-    float t = float(bounds[1]);
-    for (uint i = 0; i < kWsChunks; i += 37u) { t += ws[i].v.x; }
-    out[gid] = t;
+// Two variants differ only in what the non-spinning simdgroups do:
+//   RETIRE=1  they `return`, so 3 of the 4 simdgroups give up their slots and
+//             the reading is bounded by threadgroup slots plus threadgroup
+//             memory alone.
+//   RETIRE=0  they park at a barrier, so all 4 simdgroups stay live for the
+//             whole spin. This is the model that matches the shipped kernel,
+//             where every simdgroup works throughout, and it matches the
+//             instrument in research/nezuko_occupancy_probe.swift:418-434.
+#define RENDEZVOUS_KERNEL(NAME, RETIRE)                                        \
+kernel void NAME(                                                              \
+    device atomic_uint* ctr    [[buffer(0)]],                                  \
+    device atomic_uint* fails  [[buffer(1)]],                                  \
+    constant uint& target      [[buffer(2)]],                                  \
+    constant uint& spinLimit   [[buffer(3)]],                                  \
+    device const float4* src   [[buffer(4)]],                                  \
+    device float* out          [[buffer(5)]],                                  \
+    uint tid [[thread_position_in_threadgroup]],                               \
+    uint ntg [[threads_per_threadgroup]],                                      \
+    uint gid [[threadgroup_position_in_grid]])                                 \
+{                                                                              \
+    threadgroup Chunk16 ws[kWsChunks];                                         \
+    threadgroup int bounds[2];                                                 \
+    for (uint i = tid; i < kWsChunks; i += ntg) { ws[i].v = src[i]; }           \
+    if (tid == 0) { bounds[0] = 0; bounds[1] = int(ntg); }                      \
+    threadgroup_barrier(mem_flags::mem_threadgroup);                           \
+    if (RETIRE && tid != 0) { return; }                                        \
+    if (tid == 0) {                                                            \
+        atomic_fetch_add_explicit(ctr, 1u, memory_order_relaxed);               \
+        bool ok = false;                                                       \
+        for (uint s = 0; s < spinLimit; ++s) {                                 \
+            if (atomic_load_explicit(ctr, memory_order_relaxed) >= target) {    \
+                ok = true; break;                                              \
+            }                                                                  \
+        }                                                                      \
+        if (!ok) { atomic_fetch_add_explicit(fails, 1u, memory_order_relaxed); }\
+        bounds[0] = ok ? 1 : 0;                                                \
+    }                                                                          \
+    threadgroup_barrier(mem_flags::mem_threadgroup);                           \
+    if (tid == 0) {                                                            \
+        float t = float(bounds[1] + bounds[0]);                                \
+        for (uint i = 0; i < kWsChunks; i += 37u) { t += ws[i].v.x; }           \
+        out[gid] = t;                                                          \
+    }                                                                          \
 }
+
+RENDEZVOUS_KERNEL(rendezvous, 1)
+RENDEZVOUS_KERNEL(rendezvous_live, 0)
 """
 
 let opts = MTLCompileOptions()
@@ -412,17 +432,20 @@ func pso(_ name: String) -> MTLComputePipelineState {
 let psoTG = pso("probe_tgbar")
 let psoSG = pso("probe_sgbar")
 let psoRV = pso("rendezvous")
+let psoRVLive = pso("rendezvous_live")
 
 log("""
 
 --- synthetic footprint-matched kernel ---
-probe_tgbar  staticThreadgroupMemoryLength=\(psoTG.staticThreadgroupMemoryLength) B \
+probe_tgbar      staticThreadgroupMemoryLength=\(psoTG.staticThreadgroupMemoryLength) B \
 maxTotalThreadsPerThreadgroup=\(psoTG.maxTotalThreadsPerThreadgroup) \
 threadExecutionWidth=\(psoTG.threadExecutionWidth)
-probe_sgbar  staticThreadgroupMemoryLength=\(psoSG.staticThreadgroupMemoryLength) B \
+probe_sgbar      staticThreadgroupMemoryLength=\(psoSG.staticThreadgroupMemoryLength) B \
 maxTotalThreadsPerThreadgroup=\(psoSG.maxTotalThreadsPerThreadgroup)
-rendezvous   staticThreadgroupMemoryLength=\(psoRV.staticThreadgroupMemoryLength) B \
+rendezvous       staticThreadgroupMemoryLength=\(psoRV.staticThreadgroupMemoryLength) B \
 maxTotalThreadsPerThreadgroup=\(psoRV.maxTotalThreadsPerThreadgroup)
+rendezvous_live  staticThreadgroupMemoryLength=\(psoRVLive.staticThreadgroupMemoryLength) B \
+maxTotalThreadsPerThreadgroup=\(psoRVLive.maxTotalThreadsPerThreadgroup)
 census prediction (research/tanjiro-gathergemm-d2-census.md): 9224 B, padded 9232 B
 """)
 
@@ -430,7 +453,8 @@ census prediction (research/tanjiro-gathergemm-d2-census.md): 9224 B, padded 923
 // Phase A is skipped so the check still has a reference.
 let realTGMem = phaseA.tgMem ?? 9232
 
-for (name, p) in [("probe_tgbar", psoTG), ("probe_sgbar", psoSG), ("rendezvous", psoRV)] {
+for (name, p) in [("probe_tgbar", psoTG), ("probe_sgbar", psoSG), ("rendezvous", psoRV),
+                  ("rendezvous_live", psoRVLive)] {
     let got = p.staticThreadgroupMemoryLength
     if got != realTGMem {
         log("  FOOTPRINT MISMATCH: \(name)=\(got) B vs real shipped pipeline \(realTGMem) B"
@@ -765,7 +789,8 @@ if env("TJ_SKIP_PHASE_D") == nil {
           let failBuf = device.makeBuffer(length: 4, options: .storageModeShared) else {
         die("rendezvous buffer alloc failed")
     }
-    func rendezvous(_ k: Int, threadsPerTG: Int, targetOverride: Int? = nil,
+    func rendezvous(_ k: Int, threadsPerTG: Int, pso: MTLComputePipelineState,
+                    targetOverride: Int? = nil,
                     spinLimit: UInt32 = 2_000_000) -> (fails: UInt32, ms: Double) {
         ctrBuf.contents().bindMemory(to: UInt32.self, capacity: 1)[0] = 0
         failBuf.contents().bindMemory(to: UInt32.self, capacity: 1)[0] = 0
@@ -774,7 +799,7 @@ if env("TJ_SKIP_PHASE_D") == nil {
         guard let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else {
             die("rendezvous encoder failed")
         }
-        enc.setComputePipelineState(psoRV)
+        enc.setComputePipelineState(pso)
         enc.setBuffer(ctrBuf, offset: 0, index: 0)
         enc.setBuffer(failBuf, offset: 0, index: 1)
         enc.setBytes(&target, length: 4, index: 2)
@@ -796,23 +821,40 @@ if env("TJ_SKIP_PHASE_D") == nil {
   Control P2 dispatches far more threadgroups than any plausible residency limit,
   so a wave-structured launch must strand at least one early wave: fails>0.
 """)
-    log("    control   thr/TG      K   target   fails   wall ms   expected        verdict")
-    for (tag, g, k, tgt, want) in [("P1", 128, cores * 2, cores * 2 + 1, "fails==\(cores * 2)"),
-                                   ("P1", 1024, cores * 2, cores * 2 + 1, "fails==\(cores * 2)"),
-                                   ("P2", 1024, maxTGs, maxTGs, "fails>0"),
-                                   ("P2", 128, maxTGs, maxTGs, "fails>0")] {
-        let r = rendezvous(k, threadsPerTG: g, targetOverride: tgt)
-        let ok = tag == "P1" ? (Int(r.fails) == k) : (r.fails > 0)
-        log("    \(pad(tag, 7)) \(String(format: "%8d", g)) \(String(format: "%6d", k)) "
-            + "\(String(format: "%8d", tgt)) \(String(format: "%7d", r.fails)) "
-            + "\(String(format: "%9.2f", r.ms))   \(pad(want, 13)) \(ok ? "PASS" : "FAIL")")
+    let variants: [(String, MTLComputePipelineState)] =
+        [("retire", psoRV), ("live", psoRVLive)]
+
+    log("    variant   control   thr/TG      K   target   fails   wall ms   expected        verdict")
+    for (vname, vpso) in variants {
+        for (tag, g, k, tgt, want) in [("P1", 128, cores * 2, cores * 2 + 1, "fails==\(cores * 2)"),
+                                       ("P1", 1024, cores * 2, cores * 2 + 1, "fails==\(cores * 2)"),
+                                       ("P2", 1024, maxTGs, maxTGs, "fails>0"),
+                                       ("P2", 128, maxTGs, maxTGs, "fails>0")] {
+            let r = rendezvous(k, threadsPerTG: g, pso: vpso, targetOverride: tgt)
+            let ok = tag == "P1" ? (Int(r.fails) == k) : (r.fails > 0)
+            log("    \(pad(vname, 7)) \(pad(tag, 9)) \(String(format: "%8d", g)) "
+                + "\(String(format: "%6d", k)) \(String(format: "%8d", tgt)) "
+                + "\(String(format: "%7d", r.fails)) \(String(format: "%9.2f", r.ms))   "
+                + "\(pad(want, 13)) \(ok ? "PASS" : "FAIL")")
+        }
     }
-    log("\n    thr/TG      K   fails   wall ms   co-resident?")
-    for (g, ks) in [(128, [cores * 12, cores * 24, cores * 24 + 1, cores * 26, cores * 32]),
-                    (1024, [cores * 2, cores * 3, cores * 3 + 1, cores * 4])] {
-        for k in ks where k <= maxTGs {
-            let r = rendezvous(k, threadsPerTG: g)
-            log("    \(String(format: "%6d", g)) \(String(format: "%6d", k)) \(String(format: "%7d", r.fails)) \(String(format: "%9.2f", r.ms))   \(r.fails == 0 ? "YES" : "no")")
+    log("""
+
+  Residency sweep. `retire` frees 3 of 4 simdgroup slots and so measures the
+  threadgroup-slot plus threadgroup-memory limit alone; `live` keeps all
+  simdgroups parked at a barrier and so measures the limit the shipped kernel
+  actually faces. A gap between the two columns is a simdgroup-slot constraint.
+""")
+    log("    variant   thr/TG      K   fails   wall ms   co-resident?")
+    for (vname, vpso) in variants {
+        for (g, ks) in [(128, [cores * 12, cores * 24, cores * 24 + 1, cores * 26, cores * 32]),
+                        (1024, [cores * 2, cores * 3, cores * 3 + 1, cores * 4])] {
+            for k in ks where k <= maxTGs {
+                let r = rendezvous(k, threadsPerTG: g, pso: vpso)
+                log("    \(pad(vname, 7)) \(String(format: "%6d", g)) \(String(format: "%6d", k)) "
+                    + "\(String(format: "%7d", r.fails)) \(String(format: "%9.2f", r.ms))   "
+                    + "\(r.fails == 0 ? "YES" : "no")")
+            }
         }
     }
 } else {
