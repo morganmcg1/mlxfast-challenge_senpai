@@ -150,6 +150,27 @@ func senpaiOperationalGuidanceMatchesTheDeployedRankedPath() throws {
     let assignment = try String(contentsOfFile: "senpai/assignment-template.md", encoding: .utf8)
     #expect(assignment.contains("validate-assignment-scope.sh"))
     #expect(assignment.contains("check-editable-budget.sh"))
-    #expect(assignment.contains("Only the advisor or human operator"))
-    #expect(assignment.contains("Never run `mlxfast submit` from a private AWS host"))
+    #expect(assignment.contains("advisor, student, or human operator"))
+
+    let submissionGuides = [
+        ("AGENTS.md", agentGuide),
+        ("README.md", readme),
+        (
+            "senpai/program.md",
+            try String(contentsOfFile: "senpai/program.md", encoding: .utf8)
+        ),
+        (
+            "senpai/experiment-runbook.md",
+            try String(contentsOfFile: "senpai/experiment-runbook.md", encoding: .utf8)
+        ),
+        ("senpai/assignment-template.md", assignment),
+    ]
+    for (path, guidance) in submissionGuides {
+        #expect(
+            guidance.contains("--model \"senpai\""),
+            Comment(rawValue: path)
+        )
+        #expect(guidance.contains("explicit"), Comment(rawValue: path))
+        #expect(guidance.contains("timeout"), Comment(rawValue: path))
+    }
 }
