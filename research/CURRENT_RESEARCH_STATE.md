@@ -801,6 +801,137 @@ whole command-buffer-knob family is dead. This also retires round-8 idea 3
    the same direction by different amounts. Every price in this document that
    uses them is on firmer ground than it was.
 
+#### 0.9.13 ★★ The banked-price audit is complete: 5 of 8 checked prices were materially wrong
+
+§0.9.11 opened as a hygiene rule after three of the first five re-derived queue
+prices turned out wrong. The audit is now finished — the last three unaudited
+items (M2, D-MLP, P-SHARED) were re-derived from source and from the in-situ
+rate table on 2026-08-05. **Two of the three were wrong, in opposite
+directions**, taking the running tally to **5 of 8**. The rule is no longer a
+precaution; it is the single highest-yield piece of advisor work in the
+programme, and it stays in force permanently.
+
+**Tally.** Wrong: the sliding-attention reprice (was `~+0.6%`, is **+5.2%
+central** — 8.7× low, §0.9.11a/b), my own retracted `+8.5%`/573 µs over-count of
+that same item, the M4 recoverable-column scaling error (wall-clock ratio 0.501
+misapplied where the residual-class ratio 0.812 belongs, §0.9.11b), **M2** (2×
+low), and **P-SHARED** (~2.5× high). Correct: `residual_rms_router` rpg8→rpg4/2
+(+1.28%), shared-expert K1 (+0.78%), and **D-MLP**'s central arithmetic — though
+D-MLP carried two other defects, see below.
+
+##### M2 — gather elision via `lhs_indices`: banked +0.4–0.5%, actual **+0.80% to +1.19%, central +0.95%** (2× LOW)
+
+The banked figure had the *bytes* right and the *score conversion* wrong.
+Re-derived from source. `lagunaFusedSortedRoutedGateUp`
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:9634-9705`) calls
+`gatherSort` at `:9655`, which is
+`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:338-343`:
+`x.flattened(start: 0, end: -3)[fused.rowOrder]`. The fused counting sort writes
+`row_order[off] = idx / M` with `M = topK = 8` (`:311`), so `rowOrder` indexes
+**tokens** and the take materialises `[T·topK, 1, D]`.
+
+At prefill `T = 512`, `D = 2048`, `topK = 8`, bfloat16:
+
+- source `x` = 512 · 2048 · 2 = **2.00 MiB/layer**
+- materialised sorted copy = 4096 · 2048 · 2 = **16.00 MiB/layer**
+
+The elision removes the copy's **write** (16 MiB) *and* the GEMM's **read** of
+that copy (16 MiB), replacing the latter with a scattered read of the 2 MiB
+source — which is compulsory traffic the current path already pays, and which
+fits comfortably in SLC. Net elided DRAM = **32 MiB/layer × 39 = 1.309 GB**.
+So the banked "32 MiB/layer ≈ 1.25 GB" was *numerically right but mislabelled*:
+it is the write-plus-read round trip, not "the sorted copy".
+
+Independent cross-check that this traffic is real and already inside the
+measured block: weights 15,220 MB + x traffic 34 MiB/layer · 39 = 1,391 MB
+gives 16,611 MB against the measured 17,666 MB for the gather-GEMM prefill
+block, leaving ~1,055 MB for scales and output writes. Consistent.
+
+Time and score:
+
+| rate | ms of dS | % of S₀ (97.86) | score |
+|---|---:|---:|---:|
+| 610 GB/s (M5 streaming read) | 2.145 | 2.19% | **+0.796%** |
+| 408.4 GB/s (in-situ block rate) | 3.204 | 3.27% | **+1.189%** |
+
+**The banked error was the conversion step**: the ledger claimed "2–2.9 ms of dS
+≈ +1.0–1.4% on S", but 2 ms is 2.04% of S₀, not 1.0%. Applying the correct
+0.371 %/ms exchange rate (now externally validated to ±0.03%, §0.9.12) gives
+**+0.80% to +1.19%, central +0.95%** — roughly double the banked +0.4–0.5%.
+
+⚠ **M2 and gather-GEMM mechanism #3 are the SAME BYTES. Their prices must never
+be summed.** Mechanism #3 (`x` re-read, +0.4–1.1%, HELD contingent on D1) is a
+proposal to recover re-reads of the sorted copy; M2 deletes the sorted copy
+outright. Whichever lands first consumes most of the other's headroom. If M2 is
+assigned, mechanism #3 must be repriced down, not carried alongside it.
+
+The stated risk stands and is the reason this is rank 4 and not rank 2:
+contiguous sorted rows are plausibly *why* the block reaches 408 GB/s at all,
+so scattered 4 KB row reads may cost more than the copy they replace. That is a
+genuine sign risk, not a magnitude risk — exactly the situation where a cheap
+local screen must precede a ranked receipt.
+
+##### D-MLP — arithmetic correct, but mislabelled and an upper bound
+
+Recomputed from rate 4. Routed-expert QMV decode moves **552.08 MB** at
+**546.2 ± 23.3 GB/s**; the reference is the **610 GB/s M5 streaming read**, not
+651.8 GB/s. Excess = 552.08/546.2 − 552.08/610 = 1.01077 − 0.90505 =
+**0.10572 ms**, and 0.10572 × 14.862 %/ms = **+1.571%**. The banked +1.56% is
+right. Three caveats that the banked entry hid:
+
+1. **It is a *decode* item, not prefill.** The queue table row read "D-MLP
+   prefill fusion pool". The derivation is `LagunaRuntimeModel.swift:7325`'s
+   depth-1 staging precedent in the routed **decode** QMV. Row corrected.
+2. **Propagating rate 4's own ±23.3 GB/s gives a price bracket of +0.96% to
+   +2.24%** — a ±0.64 pp band on a ±0.03 pp exchange rate, because rate 4 rests
+   *entirely* on the single R3−R2 receipt difference (`6757de6` − `ca416f0`).
+   The **pessimistic end does not clear the +1.461% P=50% promotion bar.**
+3. **"Full closure" is an upper bound with no realization estimate.** Reaching
+   610 GB/s on a top-8 *gathered* QMV is not obviously attainable; the depth-1
+   precedent presumably already banked part of it. Any brief must state a
+   realization assumption explicitly rather than importing the 50% haircut that
+   line 603 flags as undocumented.
+
+##### P-SHARED — banked +0.18–0.33%, actual **+0.08% to +0.10%** (~2.5× HIGH)
+
+The mechanism is a ~5-line gate relaxation at `:8262-8265` reusing the bank
+built by `prepareFusedSharedGateUp` (`:8048-8076`); bit-exact per
+`:8283-8288`; 39 layers. Its two claimed savings price out as:
+
+- **39 redundant 2.00 MiB `x` reads** = 78.0 MiB = 81.8 MB ⇒ 0.134 ms at
+  610 GB/s / 0.200 ms at 408.4 GB/s ⇒ **+0.050% to +0.074%**
+- **39 dispatches** at `c_M5` = 1.980–2.088 µs ⇒ 0.077–0.081 ms ⇒
+  **+0.029% to +0.030%**
+
+Total **+0.079% to +0.104%**. Even allowing an unmeasured intermediate
+round-trip saving it does not reach +0.15%.
+
+**Consequence: P-SHARED is now below the single-receipt resolution floor.** One
+receipt against the fixed control resolves 0.278% of true `ns` content at 95%;
+P-SHARED is ~3× under that. It can never be validated on its own, in any
+number of receipts we can afford, and it is 15–18× under the P=50% promotion
+bar. It survives *only* as a rider under policy 0.5.7 stacking, and even then it
+contributes less than the rounding on its stack-mates. **Do not spend a student
+slot on it. Do not cite it as part of a stack's expected value without saying it
+is unverifiable.**
+
+##### Standing consequences
+
+- **Every remaining banked price in this document is now audited.** New prices
+  must be derived in the brief's own text, with the byte or time model shown,
+  before an assignment quotes them.
+- **Two failure modes recur and are now named.** (i) *Conversion-step error*:
+  bytes or milliseconds computed correctly, then converted to score with a wrong
+  denominator or a wrong elasticity — M2 and the M4 recoverable column both died
+  here. Always convert through the validated 0.371 %/ms and 14.862 %/ms rates
+  and show the arithmetic. (ii) *Dispatch-count romance*: pricing a saving as
+  `n × c` without checking that `n × c` is large enough to be measured —
+  P-SHARED's entire remaining value is 39 dispatches worth 0.03% of score.
+- **An audit that lowers a price is as valuable as one that raises it.** M2
+  gained a student slot; P-SHARED lost one it should never have had. Both
+  outcomes came from the same twenty minutes of arithmetic and neither needed a
+  receipt, a GPU, or a student.
+
 ---
 
 ## THE FIVE THINGS TO READ FIRST
@@ -2676,10 +2807,10 @@ tanjiro's **#47**; the attention scale planes are frieren's **#35 r3**.
 | 1 | **★ sliding-attention kernel rewrite** (+ `full_fused_attn_grow_v1`) — 428 + 130 µs/step at 36% / 43% of ceiling | **+3.2% to +6.4%, central +5.2%**; +6.7% with the companion (§0.9.11a) | in-kernel occupancy | ✓ **yes** — custom Laguna kernel, not `_nax` |
 | 2 | **gather-GEMM D2 — occupancy audit** (unblocks the 15.4 ms / +5.7%) | diagnostic, free | static compiler property | ✓ **M4-legal** (compiles, never runs) |
 | 3 | **`residual_rms_router` rpg8→rpg4/2** (106 µs/step M4) | **+1.28% central** (§0.9.11b) | in-kernel occupancy | ✓ |
-| 4 | D-MLP prefill fusion pool | +1.56% **UNAUDITED** | byte dedup | ✓ |
-| 5 | **M2 — gather elision via `lhs_indices`** (2–2.9 ms) | +0.4 to +0.5% banked; **suspect ~2× low**, audit first | byte stream | ✓ (byte-stream class) |
+| 4 | **M2 — gather elision via `lhs_indices`** (2.15–3.20 ms of dS) | **+0.80% to +1.19%, central +0.95%** — AUDITED §0.9.13, was +0.4–0.5% (**2× low**) | byte stream | ✓ (byte-stream class) |
+| 5 | D-MLP — depth-2 staging, routed **decode** QMV (*not* prefill) | +1.57% central but **bracket +0.96% to +2.24%** and an **upper bound** — AUDITED §0.9.13 | byte dedup | ✓ |
 | 6 | shared-expert K1 (65 µs/step M4) | +0.78% central (§0.9.11b) | in-kernel occupancy | ✓ |
-| 7 | **P-SHARED** — rider only, see below | +0.18 to +0.33% **UNAUDITED** | byte dedup | ✓ |
+| 7 | ~~**P-SHARED**~~ | **+0.08% to +0.10%** — AUDITED §0.9.13, was +0.18–0.33% (**~2.5× high**); now **below the single-receipt resolution floor**, rider-only and unverifiable | byte dedup | ✓ |
 | — | ~~gather-GEMM mechanism #2 — SM=16 banding~~ | ~~+1.9 to +2.6%~~ | **STRUCK: closed at the `kFragRows` floor** | — |
 | — | gather-GEMM mechanism #3 — x re-read (~1–3 ms) | +0.4 to +1.1% *if the floor holds* | **HELD: contingent on D1** | ✗ `_nax`-gated |
 
