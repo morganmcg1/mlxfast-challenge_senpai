@@ -1,0 +1,68 @@
+[38/39] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (46.97s)
+=== cap=200 mode=decode t=13:41:15 thermal={"cpu_temp":40.542720794677734,"gpu_pw":0.0070509035140275955}
+cap=200 decode diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.713455200195312 mlx_active_gb=33.29 mlx_cache_gb=2.11 mlx_peak_gb=36.39
+cap=200 decode teacher-forced greedy tokens: 0 divergences (all match)
+cap=200 decode diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.715713500976562 mlx_active_gb=33.38 mlx_cache_gb=1.09 mlx_peak_gb=36.39
+cap=200 decode profile: 3665 command buffers total, 3366 inside 99 steady steps
+cap=200 decode per steady step: wall=8.599 ms gpu_busy_sum=8.335 ms gpu_busy_union=8.335 ms gap=0.265 ms (3.1% of wall) cbs=34.0 dispatches=406.0
+=== cap=200 mode=prefill t=13:42:04 thermal={"cpu_temp":40.437782287597656,"gpu_pw":0.007080170325934887}
+cap=200 prefill diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.713226318359375 mlx_active_gb=33.29 mlx_cache_gb=2.11 mlx_peak_gb=36.39
+cap=200 prefill prefill 512 tokens: 545.90 ms (1066.2 us/token)
+cap=200 prefill teacher-forced greedy tokens: 0 divergences (all match)
+cap=200 prefill diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.715484619140625 mlx_active_gb=33.38 mlx_cache_gb=1.09 mlx_peak_gb=36.39
+cap=200 prefill profile: 3746 command buffers total, 3366 inside 99 steady steps
+cap=200 prefill per steady step: wall=8.602 ms gpu_busy_sum=8.339 ms gpu_busy_union=8.339 ms gap=0.263 ms (3.1% of wall) cbs=34.0 dispatches=406.0
+=== cap=400 mode=decode t=13:42:51 thermal={"cpu_temp":40.59586715698242,"gpu_pw":0.007241830229759216}
+cap=400 decode diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718826293945312 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.88
+cap=400 decode teacher-forced greedy tokens: 0 divergences (all match)
+cap=400 decode diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721466064453125 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=400 decode profile: 2039 command buffers total, 1881 inside 99 steady steps
+cap=400 decode per steady step: wall=8.854 ms gpu_busy_sum=8.181 ms gpu_busy_union=8.181 ms gap=0.673 ms (7.6% of wall) cbs=19.0 dispatches=406.0
+=== cap=400 mode=prefill t=13:43:37 thermal={"cpu_temp":37.38661575317383,"gpu_pw":0.006616583094000816}
+cap=400 prefill diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.720046997070312 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.89
+cap=400 prefill prefill 512 tokens: 542.36 ms (1059.3 us/token)
+cap=400 prefill teacher-forced greedy tokens: 0 divergences (all match)
+cap=400 prefill diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.722244262695312 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=400 prefill profile: 2081 command buffers total, 1881 inside 99 steady steps
+cap=400 prefill per steady step: wall=8.850 ms gpu_busy_sum=8.195 ms gpu_busy_union=8.195 ms gap=0.655 ms (7.4% of wall) cbs=19.0 dispatches=406.0
+=== cap=512 mode=decode t=13:44:25 thermal={"cpu_temp":40.55361557006836,"gpu_pw":0.00676338467746973}
+cap=512 decode diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718780517578125 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.90
+cap=512 decode teacher-forced greedy tokens: 0 divergences (all match)
+cap=512 decode diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.720977783203125 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=512 decode profile: 1929 command buffers total, 1782 inside 99 steady steps
+cap=512 decode per steady step: wall=8.734 ms gpu_busy_sum=8.233 ms gpu_busy_union=8.233 ms gap=0.501 ms (5.7% of wall) cbs=18.0 dispatches=406.0
+=== cap=512 mode=prefill t=13:45:12 thermal={"cpu_temp":40.39797592163086,"gpu_pw":0.0077164797112345695}
+cap=512 prefill diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.719284057617188 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.88
+cap=512 prefill prefill 512 tokens: 542.62 ms (1059.8 us/token)
+cap=512 prefill teacher-forced greedy tokens: 0 divergences (all match)
+cap=512 prefill diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.72161865234375 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=512 prefill profile: 1970 command buffers total, 1782 inside 99 steady steps
+cap=512 prefill per steady step: wall=8.824 ms gpu_busy_sum=8.215 ms gpu_busy_union=8.215 ms gap=0.610 ms (6.9% of wall) cbs=18.0 dispatches=406.0
+=== cap=1024 mode=decode t=13:45:59 thermal={"cpu_temp":35.56871032714844,"gpu_pw":0.03125631809234619}
+cap=1024 decode diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.7197265625 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.88
+cap=1024 decode teacher-forced greedy tokens: 0 divergences (all match)
+cap=1024 decode diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721954345703125 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=1024 decode profile: 1411 command buffers total, 1287 inside 99 steady steps
+cap=1024 decode per steady step: wall=8.874 ms gpu_busy_sum=8.248 ms gpu_busy_union=8.248 ms gap=0.626 ms (7.1% of wall) cbs=13.0 dispatches=406.0
+=== cap=1024 mode=prefill t=13:46:46 thermal={"cpu_temp":40.415748596191406,"gpu_pw":0.00783056952059269}
+cap=1024 prefill diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.7186279296875 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.88
+cap=1024 prefill prefill 512 tokens: 542.71 ms (1060.0 us/token)
+cap=1024 prefill teacher-forced greedy tokens: 0 divergences (all match)
+cap=1024 prefill diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.720977783203125 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=1024 prefill profile: 1452 command buffers total, 1287 inside 99 steady steps
+cap=1024 prefill per steady step: wall=8.867 ms gpu_busy_sum=8.265 ms gpu_busy_union=8.265 ms gap=0.602 ms (6.8% of wall) cbs=13.0 dispatches=406.0
+=== cap=2048 mode=decode t=13:47:33 thermal={"cpu_temp":40.61578369140625,"gpu_pw":0.006630739197134972}
+cap=2048 decode diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.719589233398438 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.88
+cap=2048 decode teacher-forced greedy tokens: 0 divergences (all match)
+cap=2048 decode diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721847534179688 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=2048 decode profile: 1000 command buffers total, 891 inside 99 steady steps
+cap=2048 decode per steady step: wall=8.915 ms gpu_busy_sum=8.271 ms gpu_busy_union=8.271 ms gap=0.644 ms (7.2% of wall) cbs=9.0 dispatches=406.0
+=== cap=2048 mode=prefill t=13:48:20 thermal={"cpu_temp":40.441158294677734,"gpu_pw":0.006989946588873863}
+cap=2048 prefill diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.719970703125 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.88
+cap=2048 prefill prefill 512 tokens: 542.91 ms (1060.4 us/token)
+cap=2048 prefill teacher-forced greedy tokens: 0 divergences (all match)
+cap=2048 prefill diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.722213745117188 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=2048 prefill profile: 1041 command buffers total, 891 inside 99 steady steps
+cap=2048 prefill per steady step: wall=8.874 ms gpu_busy_sum=8.270 ms gpu_busy_union=8.270 ms gap=0.604 ms (6.8% of wall) cbs=9.0 dispatches=406.0
+=== done t=13:49:07 thermal={"cpu_temp":40.664276123046875,"gpu_pw":0.0077727185562253}

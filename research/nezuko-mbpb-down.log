@@ -1,0 +1,227 @@
+[40/41] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (53.57s)
+======== r3 down sweep start 2026-08-05T15:06:04Z STEPS=120
+=== cap=200 mode=decode tag=warmup-discard steps=120 t=15:06:04 thermal={"cpu_temp":42.86726760864258,"gpu_pw":0.008150293491780758}
+cap=200 decode warmup-discard diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.714584350585938 mlx_active_gb=33.29 mlx_cache_gb=2.11 mlx_peak_gb=36.39
+cap=200 decode warmup-discard teacher-forced greedy tokens: 0 divergences (all match)
+cap=200 decode warmup-discard decode steps=120 mean=8.612 ms median=8.593 ms p10=8.551 ms p90=8.627 ms min=8.499 ms max=11.079 ms total=1.033 s
+cap=200 decode warmup-discard diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.716796875 mlx_active_gb=33.38 mlx_cache_gb=1.09 mlx_peak_gb=36.39
+cap=200 decode warmup-discard profile: 4345 command buffers total, 4046 inside 119 steady steps
+cap=200 decode warmup-discard per steady step: wall=8.591 ms gpu_busy_sum=8.336 ms gpu_busy_union=8.336 ms gap=0.255 ms (3.0% of wall) cbs=34.0 dispatches=406.0
+=== cap=12 mode=decode tag=p1 steps=120 t=15:06:51 thermal={"cpu_temp":40.45241165161133,"gpu_pw":0.0074979327619075775}
+cap=12 decode p1 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.71246337890625 mlx_active_gb=33.29 mlx_cache_gb=1.90 mlx_peak_gb=36.39
+cap=12 decode p1 teacher-forced greedy tokens: 0 divergences (all match)
+cap=12 decode p1 decode steps=120 mean=8.754 ms median=8.450 ms p10=8.420 ms p90=8.530 ms min=8.389 ms max=36.751 ms total=1.050 s
+cap=12 decode p1 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.714462280273438 mlx_active_gb=33.38 mlx_cache_gb=0.31 mlx_peak_gb=36.39
+cap=12 decode p1 profile: 11150 command buffers total, 10234 inside 119 steady steps
+cap=12 decode p1 per steady step: wall=8.518 ms gpu_busy_sum=8.215 ms gpu_busy_union=8.215 ms gap=0.303 ms (3.6% of wall) cbs=86.0 dispatches=406.0
+=== cap=25 mode=decode tag=p1 steps=120 t=15:07:39 thermal={"cpu_temp":40.45935821533203,"gpu_pw":0.007686934433877468}
+cap=25 decode p1 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.712844848632812 mlx_active_gb=33.29 mlx_cache_gb=2.12 mlx_peak_gb=36.39
+cap=25 decode p1 teacher-forced greedy tokens: 0 divergences (all match)
+cap=25 decode p1 decode steps=120 mean=8.479 ms median=8.457 ms p10=8.435 ms p90=8.540 ms min=8.411 ms max=9.672 ms total=1.017 s
+cap=25 decode p1 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.714859008789062 mlx_active_gb=33.38 mlx_cache_gb=0.33 mlx_peak_gb=36.39
+cap=25 decode p1 profile: 11029 command buffers total, 10234 inside 119 steady steps
+cap=25 decode p1 per steady step: wall=8.469 ms gpu_busy_sum=8.237 ms gpu_busy_union=8.237 ms gap=0.232 ms (2.7% of wall) cbs=86.0 dispatches=406.0
+=== cap=50 mode=decode tag=p1 steps=120 t=15:08:27 thermal={"cpu_temp":40.5636100769043,"gpu_pw":0.007329089567065239}
+cap=50 decode p1 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.713211059570312 mlx_active_gb=33.29 mlx_cache_gb=2.22 mlx_peak_gb=36.39
+cap=50 decode p1 teacher-forced greedy tokens: 0 divergences (all match)
+cap=50 decode p1 decode steps=120 mean=8.484 ms median=8.400 ms p10=8.373 ms p90=8.441 ms min=8.344 ms max=17.909 ms total=1.018 s
+cap=50 decode p1 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.71533203125 mlx_active_gb=33.38 mlx_cache_gb=0.43 mlx_peak_gb=36.39
+cap=50 decode p1 profile: 10771 command buffers total, 10115 inside 119 steady steps
+cap=50 decode p1 per steady step: wall=8.405 ms gpu_busy_sum=8.152 ms gpu_busy_union=8.152 ms gap=0.252 ms (3.0% of wall) cbs=85.0 dispatches=406.0
+=== cap=100 mode=decode tag=p1 steps=120 t=15:09:16 thermal={"cpu_temp":40.3880500793457,"gpu_pw":0.008023526519536972}
+cap=100 decode p1 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.714553833007812 mlx_active_gb=33.29 mlx_cache_gb=2.09 mlx_peak_gb=36.39
+cap=100 decode p1 teacher-forced greedy tokens: 0 divergences (all match)
+cap=100 decode p1 decode steps=120 mean=8.469 ms median=8.487 ms p10=8.326 ms p90=8.535 ms min=8.287 ms max=9.659 ms total=1.016 s
+cap=100 decode p1 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.716705322265625 mlx_active_gb=33.38 mlx_cache_gb=1.07 mlx_peak_gb=36.39
+cap=100 decode p1 profile: 6579 command buffers total, 6188 inside 119 steady steps
+cap=100 decode p1 per steady step: wall=8.459 ms gpu_busy_sum=8.220 ms gpu_busy_union=8.220 ms gap=0.238 ms (2.8% of wall) cbs=52.0 dispatches=406.0
+=== cap=200 mode=decode tag=p1 steps=120 t=15:10:04 thermal={"cpu_temp":40.537132263183594,"gpu_pw":0.0076509397476911545}
+cap=200 decode p1 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.71466064453125 mlx_active_gb=33.29 mlx_cache_gb=2.11 mlx_peak_gb=36.39
+cap=200 decode p1 teacher-forced greedy tokens: 0 divergences (all match)
+cap=200 decode p1 decode steps=120 mean=8.602 ms median=8.590 ms p10=8.554 ms p90=8.632 ms min=8.484 ms max=9.749 ms total=1.032 s
+cap=200 decode p1 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.717010498046875 mlx_active_gb=33.38 mlx_cache_gb=1.09 mlx_peak_gb=36.39
+cap=200 decode p1 profile: 4345 command buffers total, 4046 inside 119 steady steps
+cap=200 decode p1 per steady step: wall=8.593 ms gpu_busy_sum=8.336 ms gpu_busy_union=8.336 ms gap=0.257 ms (3.0% of wall) cbs=34.0 dispatches=406.0
+=== cap=400 mode=decode tag=p1 steps=120 t=15:10:53 thermal={"cpu_temp":40.508644104003906,"gpu_pw":0.00814361684024334}
+cap=400 decode p1 diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.72015380859375 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.93
+cap=400 decode p1 teacher-forced greedy tokens: 0 divergences (all match)
+cap=400 decode p1 decode steps=120 mean=8.808 ms median=8.783 ms p10=8.632 ms p90=8.882 ms min=8.552 ms max=12.759 ms total=1.057 s
+cap=400 decode p1 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.722671508789062 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=400 decode p1 profile: 2419 command buffers total, 2261 inside 119 steady steps
+cap=400 decode p1 per steady step: wall=8.774 ms gpu_busy_sum=8.196 ms gpu_busy_union=8.196 ms gap=0.578 ms (6.6% of wall) cbs=19.0 dispatches=406.0
+=== cap=400 mode=decode tag=p2 steps=120 t=15:11:42 thermal={"cpu_temp":40.4061279296875,"gpu_pw":0.007270336616784334}
+cap=400 decode p2 diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.719879150390625 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.88
+cap=400 decode p2 teacher-forced greedy tokens: 0 divergences (all match)
+cap=400 decode p2 decode steps=120 mean=8.903 ms median=8.706 ms p10=8.572 ms p90=8.891 ms min=8.517 ms max=17.541 ms total=1.068 s
+cap=400 decode p2 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.722518920898438 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=400 decode p2 profile: 2419 command buffers total, 2261 inside 119 steady steps
+cap=400 decode p2 per steady step: wall=8.831 ms gpu_busy_sum=8.233 ms gpu_busy_union=8.233 ms gap=0.597 ms (6.8% of wall) cbs=19.0 dispatches=406.0
+=== cap=200 mode=decode tag=p2 steps=120 t=15:12:31 thermal={"cpu_temp":40.43644332885742,"gpu_pw":0.006761763710528612}
+cap=200 decode p2 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.71441650390625 mlx_active_gb=33.29 mlx_cache_gb=2.11 mlx_peak_gb=36.39
+cap=200 decode p2 teacher-forced greedy tokens: 0 divergences (all match)
+cap=200 decode p2 decode steps=120 mean=8.602 ms median=8.593 ms p10=8.549 ms p90=8.631 ms min=8.477 ms max=9.852 ms total=1.032 s
+cap=200 decode p2 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.716781616210938 mlx_active_gb=33.38 mlx_cache_gb=1.09 mlx_peak_gb=36.39
+cap=200 decode p2 profile: 4345 command buffers total, 4046 inside 119 steady steps
+cap=200 decode p2 per steady step: wall=8.592 ms gpu_busy_sum=8.333 ms gpu_busy_union=8.333 ms gap=0.259 ms (3.0% of wall) cbs=34.0 dispatches=406.0
+=== cap=100 mode=decode tag=p2 steps=120 t=15:13:20 thermal={"cpu_temp":40.540435791015625,"gpu_pw":0.0065959133207798}
+cap=100 decode p2 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.714462280273438 mlx_active_gb=33.29 mlx_cache_gb=2.09 mlx_peak_gb=36.39
+cap=100 decode p2 teacher-forced greedy tokens: 0 divergences (all match)
+cap=100 decode p2 decode steps=120 mean=8.509 ms median=8.495 ms p10=8.472 ms p90=8.536 ms min=8.434 ms max=9.709 ms total=1.021 s
+cap=100 decode p2 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.716690063476562 mlx_active_gb=33.38 mlx_cache_gb=1.07 mlx_peak_gb=36.39
+cap=100 decode p2 profile: 6579 command buffers total, 6188 inside 119 steady steps
+cap=100 decode p2 per steady step: wall=8.498 ms gpu_busy_sum=8.227 ms gpu_busy_union=8.227 ms gap=0.272 ms (3.2% of wall) cbs=52.0 dispatches=406.0
+=== cap=50 mode=decode tag=p2 steps=120 t=15:14:09 thermal={"cpu_temp":40.417808532714844,"gpu_pw":0.008225442841649055}
+cap=50 decode p2 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.7130126953125 mlx_active_gb=33.29 mlx_cache_gb=2.22 mlx_peak_gb=36.39
+cap=50 decode p2 teacher-forced greedy tokens: 0 divergences (all match)
+cap=50 decode p2 decode steps=120 mean=8.412 ms median=8.391 ms p10=8.343 ms p90=8.493 ms min=8.307 ms max=9.653 ms total=1.009 s
+cap=50 decode p2 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.715179443359375 mlx_active_gb=33.38 mlx_cache_gb=0.43 mlx_peak_gb=36.39
+cap=50 decode p2 profile: 10771 command buffers total, 10115 inside 119 steady steps
+cap=50 decode p2 per steady step: wall=8.402 ms gpu_busy_sum=8.163 ms gpu_busy_union=8.163 ms gap=0.239 ms (2.8% of wall) cbs=85.0 dispatches=406.0
+=== cap=25 mode=decode tag=p2 steps=120 t=15:14:58 thermal={"cpu_temp":40.44875717163086,"gpu_pw":0.03049512580037117}
+cap=25 decode p2 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.712478637695312 mlx_active_gb=33.29 mlx_cache_gb=2.12 mlx_peak_gb=36.39
+cap=25 decode p2 teacher-forced greedy tokens: 0 divergences (all match)
+cap=25 decode p2 decode steps=120 mean=8.491 ms median=8.468 ms p10=8.441 ms p90=8.559 ms min=8.408 ms max=9.637 ms total=1.019 s
+cap=25 decode p2 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.7144775390625 mlx_active_gb=33.38 mlx_cache_gb=0.33 mlx_peak_gb=36.39
+cap=25 decode p2 profile: 11029 command buffers total, 10234 inside 119 steady steps
+cap=25 decode p2 per steady step: wall=8.481 ms gpu_busy_sum=8.241 ms gpu_busy_union=8.241 ms gap=0.240 ms (2.8% of wall) cbs=86.0 dispatches=406.0
+=== cap=12 mode=decode tag=p2 steps=120 t=15:15:46 thermal={"cpu_temp":40.515602111816406,"gpu_pw":0.008482248522341251}
+cap=12 decode p2 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.712539672851562 mlx_active_gb=33.29 mlx_cache_gb=1.90 mlx_peak_gb=36.39
+cap=12 decode p2 teacher-forced greedy tokens: 0 divergences (all match)
+cap=12 decode p2 decode steps=120 mean=8.586 ms median=8.449 ms p10=8.418 ms p90=8.485 ms min=8.395 ms max=19.800 ms total=1.030 s
+cap=12 decode p2 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.714614868164062 mlx_active_gb=33.38 mlx_cache_gb=0.31 mlx_peak_gb=36.39
+cap=12 decode p2 profile: 11150 command buffers total, 10234 inside 119 steady steps
+cap=12 decode p2 per steady step: wall=8.492 ms gpu_busy_sum=8.157 ms gpu_busy_union=8.157 ms gap=0.335 ms (3.9% of wall) cbs=86.0 dispatches=406.0
+=== cap=400 mode=decode tag=p3 steps=120 t=15:16:35 thermal={"cpu_temp":40.420249938964844,"gpu_pw":0.00810070801526308}
+cap=400 decode p3 diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.720550537109375 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.93
+cap=400 decode p3 teacher-forced greedy tokens: 0 divergences (all match)
+cap=400 decode p3 decode steps=120 mean=8.817 ms median=8.704 ms p10=8.566 ms p90=8.859 ms min=8.489 ms max=13.401 ms total=1.058 s
+cap=400 decode p3 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.723129272460938 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=400 decode p3 profile: 2419 command buffers total, 2261 inside 119 steady steps
+cap=400 decode p3 per steady step: wall=8.779 ms gpu_busy_sum=8.212 ms gpu_busy_union=8.212 ms gap=0.566 ms (6.5% of wall) cbs=19.0 dispatches=406.0
+=== cap=200 mode=decode tag=p3 steps=120 t=15:17:23 thermal={"cpu_temp":40.55405807495117,"gpu_pw":0.008035498671233654}
+cap=200 decode p3 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.713592529296875 mlx_active_gb=33.29 mlx_cache_gb=2.11 mlx_peak_gb=36.39
+cap=200 decode p3 teacher-forced greedy tokens: 0 divergences (all match)
+cap=200 decode p3 decode steps=120 mean=8.607 ms median=8.596 ms p10=8.563 ms p90=8.628 ms min=8.523 ms max=9.783 ms total=1.033 s
+cap=200 decode p3 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.716140747070312 mlx_active_gb=33.38 mlx_cache_gb=1.09 mlx_peak_gb=36.39
+cap=200 decode p3 profile: 4345 command buffers total, 4046 inside 119 steady steps
+cap=200 decode p3 per steady step: wall=8.597 ms gpu_busy_sum=8.329 ms gpu_busy_union=8.329 ms gap=0.269 ms (3.1% of wall) cbs=34.0 dispatches=406.0
+=== cap=100 mode=decode tag=p3 steps=120 t=15:18:13 thermal={"cpu_temp":35.31454849243164,"gpu_pw":0.007424850016832352}
+cap=100 decode p3 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.713134765625 mlx_active_gb=33.29 mlx_cache_gb=2.09 mlx_peak_gb=36.39
+cap=100 decode p3 teacher-forced greedy tokens: 0 divergences (all match)
+cap=100 decode p3 decode steps=120 mean=8.589 ms median=8.534 ms p10=8.485 ms p90=8.635 ms min=8.399 ms max=10.538 ms total=1.031 s
+cap=100 decode p3 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.715530395507812 mlx_active_gb=33.38 mlx_cache_gb=1.07 mlx_peak_gb=36.39
+cap=100 decode p3 profile: 6579 command buffers total, 6188 inside 119 steady steps
+cap=100 decode p3 per steady step: wall=8.573 ms gpu_busy_sum=8.316 ms gpu_busy_union=8.316 ms gap=0.257 ms (3.0% of wall) cbs=52.0 dispatches=406.0
+=== cap=50 mode=decode tag=p3 steps=120 t=15:19:01 thermal={"cpu_temp":40.51260757446289,"gpu_pw":0.0073380060493946075}
+cap=50 decode p3 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.7120361328125 mlx_active_gb=33.29 mlx_cache_gb=2.22 mlx_peak_gb=36.39
+cap=50 decode p3 teacher-forced greedy tokens: 0 divergences (all match)
+cap=50 decode p3 decode steps=120 mean=8.426 ms median=8.408 ms p10=8.387 ms p90=8.449 ms min=8.367 ms max=9.670 ms total=1.011 s
+cap=50 decode p3 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.714462280273438 mlx_active_gb=33.38 mlx_cache_gb=0.43 mlx_peak_gb=36.39
+cap=50 decode p3 profile: 10771 command buffers total, 10115 inside 119 steady steps
+cap=50 decode p3 per steady step: wall=8.416 ms gpu_busy_sum=8.162 ms gpu_busy_union=8.162 ms gap=0.254 ms (3.0% of wall) cbs=85.0 dispatches=406.0
+=== cap=25 mode=decode tag=p3 steps=120 t=15:19:50 thermal={"cpu_temp":40.469688415527344,"gpu_pw":0.008110099472105503}
+cap=25 decode p3 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.711502075195312 mlx_active_gb=33.29 mlx_cache_gb=2.12 mlx_peak_gb=36.39
+cap=25 decode p3 teacher-forced greedy tokens: 0 divergences (all match)
+cap=25 decode p3 decode steps=120 mean=8.466 ms median=8.451 ms p10=8.427 ms p90=8.507 ms min=8.396 ms max=9.593 ms total=1.016 s
+cap=25 decode p3 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.713836669921875 mlx_active_gb=33.38 mlx_cache_gb=0.33 mlx_peak_gb=36.39
+cap=25 decode p3 profile: 11029 command buffers total, 10234 inside 119 steady steps
+cap=25 decode p3 per steady step: wall=8.457 ms gpu_busy_sum=8.176 ms gpu_busy_union=8.176 ms gap=0.280 ms (3.3% of wall) cbs=86.0 dispatches=406.0
+=== cap=12 mode=decode tag=p3 steps=120 t=15:20:39 thermal={"cpu_temp":40.422855377197266,"gpu_pw":0.006308413110673428}
+cap=12 decode p3 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.711166381835938 mlx_active_gb=33.29 mlx_cache_gb=1.90 mlx_peak_gb=36.39
+cap=12 decode p3 teacher-forced greedy tokens: 0 divergences (all match)
+cap=12 decode p3 decode steps=120 mean=8.592 ms median=8.451 ms p10=8.418 ms p90=8.503 ms min=8.373 ms max=20.171 ms total=1.031 s
+cap=12 decode p3 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.71343994140625 mlx_active_gb=33.38 mlx_cache_gb=0.31 mlx_peak_gb=36.39
+cap=12 decode p3 profile: 11150 command buffers total, 10234 inside 119 steady steps
+cap=12 decode p3 per steady step: wall=8.495 ms gpu_busy_sum=8.155 ms gpu_busy_union=8.155 ms gap=0.340 ms (4.0% of wall) cbs=86.0 dispatches=406.0
+=== cap=12 mode=decode tag=p4 steps=120 t=15:21:27 thermal={"cpu_temp":40.53102111816406,"gpu_pw":0.008255070075392723}
+cap=12 decode p4 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.711013793945312 mlx_active_gb=33.29 mlx_cache_gb=1.90 mlx_peak_gb=36.39
+cap=12 decode p4 teacher-forced greedy tokens: 0 divergences (all match)
+cap=12 decode p4 decode steps=120 mean=8.488 ms median=8.459 ms p10=8.435 ms p90=8.557 ms min=8.404 ms max=9.634 ms total=1.019 s
+cap=12 decode p4 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.7135009765625 mlx_active_gb=33.38 mlx_cache_gb=0.31 mlx_peak_gb=36.39
+cap=12 decode p4 profile: 11150 command buffers total, 10234 inside 119 steady steps
+cap=12 decode p4 per steady step: wall=8.478 ms gpu_busy_sum=8.232 ms gpu_busy_union=8.232 ms gap=0.246 ms (2.9% of wall) cbs=86.0 dispatches=406.0
+=== cap=25 mode=decode tag=p4 steps=120 t=15:22:16 thermal={"cpu_temp":40.596126556396484,"gpu_pw":0.007630945648998022}
+cap=25 decode p4 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.711288452148438 mlx_active_gb=33.29 mlx_cache_gb=2.12 mlx_peak_gb=36.39
+cap=25 decode p4 teacher-forced greedy tokens: 0 divergences (all match)
+cap=25 decode p4 decode steps=120 mean=8.524 ms median=8.458 ms p10=8.432 ms p90=8.497 ms min=8.383 ms max=14.608 ms total=1.023 s
+cap=25 decode p4 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.713577270507812 mlx_active_gb=33.38 mlx_cache_gb=0.33 mlx_peak_gb=36.39
+cap=25 decode p4 profile: 11029 command buffers total, 10234 inside 119 steady steps
+cap=25 decode p4 per steady step: wall=8.473 ms gpu_busy_sum=8.168 ms gpu_busy_union=8.168 ms gap=0.305 ms (3.6% of wall) cbs=86.0 dispatches=406.0
+=== cap=50 mode=decode tag=p4 steps=120 t=15:23:04 thermal={"cpu_temp":40.56486511230469,"gpu_pw":0.006452331319451332}
+cap=50 decode p4 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.711898803710938 mlx_active_gb=33.29 mlx_cache_gb=2.19 mlx_peak_gb=36.39
+cap=50 decode p4 teacher-forced greedy tokens: 0 divergences (all match)
+cap=50 decode p4 decode steps=120 mean=8.410 ms median=8.401 ms p10=8.360 ms p90=8.433 ms min=8.284 ms max=9.604 ms total=1.009 s
+cap=50 decode p4 diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.714019775390625 mlx_active_gb=33.38 mlx_cache_gb=0.43 mlx_peak_gb=36.39
+cap=50 decode p4 profile: 10771 command buffers total, 10115 inside 119 steady steps
+cap=50 decode p4 per steady step: wall=8.400 ms gpu_busy_sum=8.152 ms gpu_busy_union=8.152 ms gap=0.248 ms (3.0% of wall) cbs=85.0 dispatches=406.0
+=== cap=100 mode=decode tag=p4 steps=120 t=15:23:54 thermal={"cpu_temp":43.85524368286133,"gpu_pw":0.005366099067032337}
+cap=100 decode p4 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.714630126953125 mlx_active_gb=33.29 mlx_cache_gb=2.09 mlx_peak_gb=36.39
+cap=100 decode p4 teacher-forced greedy tokens: 0 divergences (all match)
+cap=100 decode p4 decode steps=120 mean=8.504 ms median=8.490 ms p10=8.456 ms p90=8.534 ms min=8.409 ms max=9.643 ms total=1.020 s
+cap=100 decode p4 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.716766357421875 mlx_active_gb=33.38 mlx_cache_gb=1.07 mlx_peak_gb=36.39
+cap=100 decode p4 profile: 6579 command buffers total, 6188 inside 119 steady steps
+cap=100 decode p4 per steady step: wall=8.494 ms gpu_busy_sum=8.242 ms gpu_busy_union=8.242 ms gap=0.253 ms (3.0% of wall) cbs=52.0 dispatches=406.0
+=== cap=200 mode=decode tag=p4 steps=120 t=15:24:42 thermal={"cpu_temp":40.55933380126953,"gpu_pw":0.007819627411663532}
+cap=200 decode p4 diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.714859008789062 mlx_active_gb=33.29 mlx_cache_gb=2.11 mlx_peak_gb=36.39
+cap=200 decode p4 teacher-forced greedy tokens: 0 divergences (all match)
+cap=200 decode p4 decode steps=120 mean=8.623 ms median=8.600 ms p10=8.560 ms p90=8.710 ms min=8.492 ms max=9.842 ms total=1.035 s
+cap=200 decode p4 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.71710205078125 mlx_active_gb=33.38 mlx_cache_gb=1.09 mlx_peak_gb=36.39
+cap=200 decode p4 profile: 4345 command buffers total, 4046 inside 119 steady steps
+cap=200 decode p4 per steady step: wall=8.613 ms gpu_busy_sum=8.351 ms gpu_busy_union=8.351 ms gap=0.262 ms (3.0% of wall) cbs=34.0 dispatches=406.0
+=== cap=400 mode=decode tag=p4 steps=120 t=15:25:31 thermal={"cpu_temp":40.51872634887695,"gpu_pw":0.0057698325254023075}
+cap=400 decode p4 diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.7203369140625 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.93
+cap=400 decode p4 teacher-forced greedy tokens: 0 divergences (all match)
+cap=400 decode p4 decode steps=120 mean=8.784 ms median=8.699 ms p10=8.583 ms p90=8.863 ms min=8.506 ms max=12.823 ms total=1.054 s
+cap=400 decode p4 diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.722869873046875 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=400 decode p4 profile: 2419 command buffers total, 2261 inside 119 steady steps
+cap=400 decode p4 per steady step: wall=8.751 ms gpu_busy_sum=8.222 ms gpu_busy_union=8.222 ms gap=0.528 ms (6.0% of wall) cbs=19.0 dispatches=406.0
+=== cap=12 mode=prefill tag=counts steps=120 t=15:26:20 thermal={"cpu_temp":40.49277114868164,"gpu_pw":0.005606801249086857}
+cap=12 prefill counts diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.711517333984375 mlx_active_gb=33.29 mlx_cache_gb=1.90 mlx_peak_gb=36.39
+cap=12 prefill counts prefill 512 tokens: 547.56 ms (1069.5 us/token)
+cap=12 prefill counts teacher-forced greedy tokens: 0 divergences (all match)
+cap=12 prefill counts decode steps=120 mean=8.484 ms median=8.466 ms p10=8.437 ms p90=8.550 ms min=8.407 ms max=9.594 ms total=1.018 s
+cap=12 prefill counts diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.7138671875 mlx_active_gb=33.38 mlx_cache_gb=0.31 mlx_peak_gb=36.39
+cap=12 prefill counts profile: 11384 command buffers total, 10234 inside 119 steady steps
+cap=12 prefill counts per steady step: wall=8.475 ms gpu_busy_sum=8.240 ms gpu_busy_union=8.240 ms gap=0.235 ms (2.8% of wall) cbs=86.0 dispatches=406.0
+=== cap=25 mode=prefill tag=counts steps=120 t=15:27:10 thermal={"cpu_temp":40.75648498535156,"gpu_pw":0.007351811043918133}
+cap=25 prefill counts diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.711196899414062 mlx_active_gb=33.29 mlx_cache_gb=2.12 mlx_peak_gb=36.39
+cap=25 prefill counts prefill 512 tokens: 553.47 ms (1081.0 us/token)
+cap=25 prefill counts teacher-forced greedy tokens: 0 divergences (all match)
+cap=25 prefill counts decode steps=120 mean=8.628 ms median=8.457 ms p10=8.430 ms p90=8.507 ms min=8.393 ms max=27.909 ms total=1.035 s
+cap=25 prefill counts diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.713424682617188 mlx_active_gb=33.38 mlx_cache_gb=0.33 mlx_peak_gb=36.39
+cap=25 prefill counts profile: 11231 command buffers total, 10234 inside 119 steady steps
+cap=25 prefill counts per steady step: wall=8.466 ms gpu_busy_sum=8.173 ms gpu_busy_union=8.173 ms gap=0.293 ms (3.5% of wall) cbs=86.0 dispatches=406.0
+=== cap=50 mode=prefill tag=counts steps=120 t=15:27:59 thermal={"cpu_temp":40.72755432128906,"gpu_pw":0.022924691438674927}
+cap=50 prefill counts diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.71160888671875 mlx_active_gb=33.29 mlx_cache_gb=2.22 mlx_peak_gb=36.39
+cap=50 prefill counts prefill 512 tokens: 549.00 ms (1072.3 us/token)
+cap=50 prefill counts teacher-forced greedy tokens: 0 divergences (all match)
+cap=50 prefill counts decode steps=120 mean=8.553 ms median=8.410 ms p10=8.384 ms p90=8.464 ms min=8.367 ms max=20.346 ms total=1.026 s
+cap=50 prefill counts diagnostics after decode: worker_rss_gb=20.71 peak_ram_gb=20.714019775390625 mlx_active_gb=33.38 mlx_cache_gb=0.43 mlx_peak_gb=36.39
+cap=50 prefill counts profile: 10931 command buffers total, 10115 inside 119 steady steps
+cap=50 prefill counts per steady step: wall=8.453 ms gpu_busy_sum=8.154 ms gpu_busy_union=8.154 ms gap=0.300 ms (3.5% of wall) cbs=85.0 dispatches=406.0
+=== cap=100 mode=prefill tag=counts steps=120 t=15:28:48 thermal={"cpu_temp":40.768131256103516,"gpu_pw":0.006568475626409054}
+cap=100 prefill counts diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.713470458984375 mlx_active_gb=33.29 mlx_cache_gb=2.09 mlx_peak_gb=36.39
+cap=100 prefill counts prefill 512 tokens: 547.32 ms (1069.0 us/token)
+cap=100 prefill counts teacher-forced greedy tokens: 0 divergences (all match)
+cap=100 prefill counts decode steps=120 mean=8.516 ms median=8.504 ms p10=8.477 ms p90=8.545 ms min=8.444 ms max=9.614 ms total=1.022 s
+cap=100 prefill counts diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.715896606445312 mlx_active_gb=33.38 mlx_cache_gb=1.07 mlx_peak_gb=36.39
+cap=100 prefill counts profile: 6663 command buffers total, 6188 inside 119 steady steps
+cap=100 prefill counts per steady step: wall=8.507 ms gpu_busy_sum=8.228 ms gpu_busy_union=8.228 ms gap=0.279 ms (3.3% of wall) cbs=52.0 dispatches=406.0
+=== cap=200 mode=prefill tag=counts steps=120 t=15:29:38 thermal={"cpu_temp":40.642417907714844,"gpu_pw":0.005479519721120596}
+cap=200 prefill counts diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.713394165039062 mlx_active_gb=33.29 mlx_cache_gb=2.11 mlx_peak_gb=36.39
+cap=200 prefill counts prefill 512 tokens: 546.56 ms (1067.5 us/token)
+cap=200 prefill counts teacher-forced greedy tokens: 0 divergences (all match)
+cap=200 prefill counts decode steps=120 mean=8.618 ms median=8.612 ms p10=8.569 ms p90=8.646 ms min=8.515 ms max=9.652 ms total=1.034 s
+cap=200 prefill counts diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.71588134765625 mlx_active_gb=33.38 mlx_cache_gb=1.09 mlx_peak_gb=36.39
+cap=200 prefill counts profile: 4426 command buffers total, 4046 inside 119 steady steps
+cap=200 prefill counts per steady step: wall=8.609 ms gpu_busy_sum=8.358 ms gpu_busy_union=8.358 ms gap=0.252 ms (2.9% of wall) cbs=34.0 dispatches=406.0
+=== cap=400 mode=prefill tag=counts steps=120 t=15:30:27 thermal={"cpu_temp":40.72677993774414,"gpu_pw":0.00692994287237525}
+cap=400 prefill counts diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718780517578125 mlx_active_gb=33.29 mlx_cache_gb=2.27 mlx_peak_gb=36.93
+cap=400 prefill counts prefill 512 tokens: 542.10 ms (1058.8 us/token)
+cap=400 prefill counts teacher-forced greedy tokens: 0 divergences (all match)
+cap=400 prefill counts decode steps=120 mean=8.818 ms median=8.726 ms p10=8.618 ms p90=8.855 ms min=8.518 ms max=13.284 ms total=1.058 s
+cap=400 prefill counts diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721405029296875 mlx_active_gb=33.38 mlx_cache_gb=2.18 mlx_peak_gb=36.94
+cap=400 prefill counts profile: 2461 command buffers total, 2261 inside 119 steady steps
+cap=400 prefill counts per steady step: wall=8.781 ms gpu_busy_sum=8.214 ms gpu_busy_union=8.214 ms gap=0.567 ms (6.5% of wall) cbs=19.0 dispatches=406.0
+======== r3 down sweep done 2026-08-05T15:31:17Z thermal={"cpu_temp":40.60814666748047,"gpu_pw":0.005514300428330898}

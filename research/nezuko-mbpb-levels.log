@@ -1,0 +1,104 @@
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-runtime-worker' complete! (10.54s)
+=== p00-discard mb=200 t=12:25:52 thermal={"cpu_temp":39.74797821044922,"gpu_pw":0.006828173995018005,"ram_pw":0.0492815263569355}
+[p00-discard-mb200] load+seed 0.5s seed_token=159
+[p00-discard-mb200] steps=2000 wall_ms_per_step=8.9154 cpu_user_ms_per_step=0.0647 cpu_sys_ms_per_step=0.0312 cpu_total_ms_per_step=0.0959 cpu_over_wall=0.011
+[p00-discard-mb200] per_thread_cpu_ms_per_step=[2.57, 0.0, 0.585, 0.67, 0.17, 0.0, 0.0, 0.0]
+=== p01 mb=200 t=12:26:20 thermal={"cpu_temp":42.68693542480469,"gpu_pw":0.009895006194710732,"ram_pw":0.06002465635538101}
+[p01-mb200] load+seed 0.5s seed_token=159
+[p01-mb200] steps=2000 wall_ms_per_step=8.8758 cpu_user_ms_per_step=0.0661 cpu_sys_ms_per_step=0.0313 cpu_total_ms_per_step=0.0974 cpu_over_wall=0.011
+[p01-mb200] per_thread_cpu_ms_per_step=[2.62, 0.0, 0.36, 0.465, 0.155, 0.0, 0.0, 0.0]
+=== p02 mb=12 t=12:27:21 thermal={"cpu_temp":43.194068908691406,"gpu_pw":0.007761003915220499,"ram_pw":0.17133496701717377}
+[p02-mb12] load+seed 0.5s seed_token=159
+[p02-mb12] steps=2000 wall_ms_per_step=8.7442 cpu_user_ms_per_step=0.0813 cpu_sys_ms_per_step=0.0478 cpu_total_ms_per_step=0.1291 cpu_over_wall=0.015
+[p02-mb12] per_thread_cpu_ms_per_step=[3.14, 0.0, 0.47, 1.06, 0.715, 0.0]
+=== p03 mb=25 t=12:28:22 thermal={"cpu_temp":43.49930191040039,"gpu_pw":0.01065014023333788,"ram_pw":0.06276644021272659}
+[p03-mb25] load+seed 0.5s seed_token=159
+[p03-mb25] steps=2000 wall_ms_per_step=8.7599 cpu_user_ms_per_step=0.0795 cpu_sys_ms_per_step=0.0469 cpu_total_ms_per_step=0.1263 cpu_over_wall=0.014
+[p03-mb25] per_thread_cpu_ms_per_step=[3.075, 0.0, 0.92, 0.74, -0.26, 0.36, 0.0]
+=== p04 mb=50 t=12:29:23 thermal={"cpu_temp":43.51483154296875,"gpu_pw":0.01109655387699604,"ram_pw":0.06284431368112564}
+[p04-mb50] load+seed 0.5s seed_token=159
+[p04-mb50] steps=2000 wall_ms_per_step=8.6993 cpu_user_ms_per_step=0.0775 cpu_sys_ms_per_step=0.0463 cpu_total_ms_per_step=0.1238 cpu_over_wall=0.014
+[p04-mb50] per_thread_cpu_ms_per_step=[2.98, 0.0, 0.715, 0.045, 0.0]
+=== p05 mb=100 t=12:30:25 thermal={"cpu_temp":43.406707763671875,"gpu_pw":0.010319096967577934,"ram_pw":0.06806029379367828}
+[p05-mb100] load+seed 0.5s seed_token=159
+[p05-mb100] steps=2000 wall_ms_per_step=8.8075 cpu_user_ms_per_step=0.0683 cpu_sys_ms_per_step=0.0436 cpu_total_ms_per_step=0.1120 cpu_over_wall=0.013
+[p05-mb100] per_thread_cpu_ms_per_step=[2.73, 0.0, 0.46, 0.87, -0.08]
+=== p06 mb=100 t=12:31:26 thermal={"cpu_temp":43.45344161987305,"gpu_pw":0.011327873915433884,"ram_pw":0.06605643033981323}
+[p06-mb100] load+seed 0.5s seed_token=159
+[p06-mb100] steps=2000 wall_ms_per_step=8.7981 cpu_user_ms_per_step=0.0691 cpu_sys_ms_per_step=0.0431 cpu_total_ms_per_step=0.1122 cpu_over_wall=0.013
+[p06-mb100] per_thread_cpu_ms_per_step=[2.755, 0.0, 0.58, 1.235, -0.275]
+=== p07 mb=50 t=12:32:28 thermal={"cpu_temp":41.84708786010742,"gpu_pw":0.01141620147973299,"ram_pw":0.13468565046787262}
+[p07-mb50] load+seed 0.5s seed_token=159
+[p07-mb50] steps=2000 wall_ms_per_step=8.6981 cpu_user_ms_per_step=0.0782 cpu_sys_ms_per_step=0.0465 cpu_total_ms_per_step=0.1248 cpu_over_wall=0.014
+[p07-mb50] per_thread_cpu_ms_per_step=[3.01, 0.0, 0.645, 0.765, 0.77, 0.0]
+=== p08 mb=25 t=12:33:29 thermal={"cpu_temp":43.45623779296875,"gpu_pw":0.010070476680994034,"ram_pw":0.06176215782761574}
+[p08-mb25] load+seed 0.5s seed_token=159
+[p08-mb25] steps=2000 wall_ms_per_step=8.7820 cpu_user_ms_per_step=0.0776 cpu_sys_ms_per_step=0.0489 cpu_total_ms_per_step=0.1266 cpu_over_wall=0.014
+[p08-mb25] per_thread_cpu_ms_per_step=[3.02, 0.0, 0.71, 0.745, 0.8, 0.0, 0.0, 0.0]
+=== p09 mb=12 t=12:34:31 thermal={"cpu_temp":39.03990173339844,"gpu_pw":0.010492085479199886,"ram_pw":0.21911238133907318}
+[p09-mb12] load+seed 0.5s seed_token=159
+[p09-mb12] steps=2000 wall_ms_per_step=8.7705 cpu_user_ms_per_step=0.0784 cpu_sys_ms_per_step=0.0481 cpu_total_ms_per_step=0.1265 cpu_over_wall=0.014
+[p09-mb12] per_thread_cpu_ms_per_step=[3.05, 0.0, 0.985, 0.755, -0.055]
+=== p10 mb=200 t=12:35:32 thermal={"cpu_temp":43.50852966308594,"gpu_pw":0.010133965872228146,"ram_pw":0.19225096702575684}
+[p10-mb200] load+seed 0.5s seed_token=159
+[p10-mb200] steps=2000 wall_ms_per_step=8.8811 cpu_user_ms_per_step=0.0644 cpu_sys_ms_per_step=0.0312 cpu_total_ms_per_step=0.0956 cpu_over_wall=0.011
+[p10-mb200] per_thread_cpu_ms_per_step=[2.56, 0.0, 0.65, 0.385, 0.04]
+=== p11 mb=200 t=12:36:33 thermal={"cpu_temp":43.49757385253906,"gpu_pw":0.011620093137025833,"ram_pw":0.062474340200424194}
+[p11-mb200] load+seed 0.5s seed_token=159
+[p11-mb200] steps=2000 wall_ms_per_step=8.8698 cpu_user_ms_per_step=0.0627 cpu_sys_ms_per_step=0.0305 cpu_total_ms_per_step=0.0932 cpu_over_wall=0.011
+[p11-mb200] per_thread_cpu_ms_per_step=[2.49, 0.0, 0.21, 0.7, 0.48]
+=== p12 mb=12 t=12:37:35 thermal={"cpu_temp":43.31421661376953,"gpu_pw":0.010675531812012196,"ram_pw":0.06432045996189117}
+[p12-mb12] load+seed 0.5s seed_token=159
+[p12-mb12] steps=2000 wall_ms_per_step=8.7673 cpu_user_ms_per_step=0.0783 cpu_sys_ms_per_step=0.0489 cpu_total_ms_per_step=0.1271 cpu_over_wall=0.015
+[p12-mb12] per_thread_cpu_ms_per_step=[3.05, 0.0, 0.505, 0.8, 0.945]
+=== p13 mb=25 t=12:38:36 thermal={"cpu_temp":43.48445510864258,"gpu_pw":0.007457192987203598,"ram_pw":0.06107059121131897}
+[p13-mb25] load+seed 0.5s seed_token=159
+[p13-mb25] steps=2000 wall_ms_per_step=8.7599 cpu_user_ms_per_step=0.0792 cpu_sys_ms_per_step=0.0471 cpu_total_ms_per_step=0.1263 cpu_over_wall=0.014
+[p13-mb25] per_thread_cpu_ms_per_step=[3.065, 0.0, 0.76, 0.485, -0.165, 0.0]
+=== p14 mb=50 t=12:39:38 thermal={"cpu_temp":43.33983612060547,"gpu_pw":0.010615862905979156,"ram_pw":0.07090762257575989}
+[p14-mb50] load+seed 0.5s seed_token=159
+[p14-mb50] steps=2000 wall_ms_per_step=8.7048 cpu_user_ms_per_step=0.0771 cpu_sys_ms_per_step=0.0464 cpu_total_ms_per_step=0.1235 cpu_over_wall=0.014
+[p14-mb50] per_thread_cpu_ms_per_step=[2.96, 0.0, 0.775, 0.755, 0.655]
+=== p15 mb=100 t=12:40:39 thermal={"cpu_temp":43.443565368652344,"gpu_pw":0.009508592076599598,"ram_pw":0.07185292989015579}
+[p15-mb100] load+seed 0.5s seed_token=159
+[p15-mb100] steps=2000 wall_ms_per_step=8.8043 cpu_user_ms_per_step=0.0681 cpu_sys_ms_per_step=0.0429 cpu_total_ms_per_step=0.1109 cpu_over_wall=0.013
+[p15-mb100] per_thread_cpu_ms_per_step=[2.71, 0.0, 0.505, 0.67, 0.73]
+=== p16 mb=100 t=12:41:40 thermal={"cpu_temp":43.466373443603516,"gpu_pw":0.007736072409898043,"ram_pw":0.061843302100896835}
+[p16-mb100] load+seed 0.5s seed_token=159
+[p16-mb100] steps=2000 wall_ms_per_step=8.8070 cpu_user_ms_per_step=0.0694 cpu_sys_ms_per_step=0.0436 cpu_total_ms_per_step=0.1130 cpu_over_wall=0.013
+[p16-mb100] per_thread_cpu_ms_per_step=[2.77, 0.0, 0.77, 1.145]
+=== p17 mb=50 t=12:42:41 thermal={"cpu_temp":43.698116302490234,"gpu_pw":0.010335909202694893,"ram_pw":0.07431213557720184}
+[p17-mb50] load+seed 0.5s seed_token=159
+[p17-mb50] steps=2000 wall_ms_per_step=8.7079 cpu_user_ms_per_step=0.0790 cpu_sys_ms_per_step=0.0469 cpu_total_ms_per_step=0.1258 cpu_over_wall=0.014
+[p17-mb50] per_thread_cpu_ms_per_step=[3.035, 0.0, 0.18, 0.975, 0.67, 0.0]
+=== p18 mb=25 t=12:43:43 thermal={"cpu_temp":43.460411071777344,"gpu_pw":0.008681129664182663,"ram_pw":0.1473499983549118}
+[p18-mb25] load+seed 0.5s seed_token=159
+[p18-mb25] steps=2000 wall_ms_per_step=8.7638 cpu_user_ms_per_step=0.0797 cpu_sys_ms_per_step=0.0474 cpu_total_ms_per_step=0.1271 cpu_over_wall=0.015
+[p18-mb25] per_thread_cpu_ms_per_step=[3.095, 0.0, 0.42, 1.1, 0.685]
+=== p19 mb=12 t=12:44:43 thermal={"cpu_temp":43.61443328857422,"gpu_pw":0.008346520364284515,"ram_pw":0.06854791939258575}
+[p19-mb12] load+seed 0.5s seed_token=159
+[p19-mb12] steps=2000 wall_ms_per_step=8.7650 cpu_user_ms_per_step=0.0786 cpu_sys_ms_per_step=0.0472 cpu_total_ms_per_step=0.1258 cpu_over_wall=0.014
+[p19-mb12] per_thread_cpu_ms_per_step=[3.045, 0.0, 0.73, 0.575, 0.89]
+=== p20 mb=200 t=12:45:44 thermal={"cpu_temp":43.406898498535156,"gpu_pw":0.008867677301168442,"ram_pw":0.06768983602523804}
+[p20-mb200] load+seed 0.5s seed_token=159
+[p20-mb200] steps=2000 wall_ms_per_step=8.8822 cpu_user_ms_per_step=0.0627 cpu_sys_ms_per_step=0.0307 cpu_total_ms_per_step=0.0934 cpu_over_wall=0.011
+[p20-mb200] per_thread_cpu_ms_per_step=[2.495, 0.0, 0.315, 0.775, -0.075]
+=== phase1 done t=12:46:44 thermal={"cpu_temp":43.566017150878906,"gpu_pw":0.008594206534326077,"ram_pw":0.06038929522037506}
+=== profile mb=200 t=12:46:47 thermal={"cpu_temp":42.98918533325195,"gpu_pw":0.006535762455314398,"ram_pw":0.05785029008984566}
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)
+=== profile mb=12 t=12:47:31 thermal={"cpu_temp":41.49704360961914,"gpu_pw":0.008200433105230331,"ram_pw":0.055715110152959824}
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)
+=== profile mb=25 t=12:48:15 thermal={"cpu_temp":40.7307243347168,"gpu_pw":0.008541472256183624,"ram_pw":0.08653755486011505}
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)
+=== profile mb=50 t=12:49:00 thermal={"cpu_temp":40.91117477416992,"gpu_pw":0.012935996055603027,"ram_pw":0.06999340653419495}
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)
+=== profile mb=100 t=12:49:44 thermal={"cpu_temp":40.83341979980469,"gpu_pw":0.007989250123500824,"ram_pw":0.05478188022971153}
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)
+=== done t=12:50:28 thermal={"cpu_temp":40.779178619384766,"gpu_pw":0.006993861868977547,"ram_pw":0.09669835865497589}
