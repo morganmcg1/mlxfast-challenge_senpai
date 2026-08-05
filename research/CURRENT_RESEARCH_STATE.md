@@ -4,11 +4,12 @@
   round 9 in flight (#44 r2, #35 r3, #47, #48). The measurement instrument was
   re-characterised over rounds 7–8 and it is now **fully characterised** (§0).
   That work invalidated a batch of prior conclusions, four of them mine. Read §0
-  first, and §0.9 for the seven new laws — the **M4 TRANSFER LAW** in §0.9.2 now
+  first, and §0.9 for the eight new laws — the **M4 TRANSFER LAW** in §0.9.2 now
   gates which evidence any brief is allowed to price, §0.9.8 explains why the
   gather-GEMM staging arms had to come out null, §0.9.9 is a mandatory
-  pre-flight check for any `_nax` kernel edit, and **§0.9.11 is the
-  LEDGER-HYGIENE LAW: a banked queue price is not evidence.**
+  pre-flight check for any `_nax` kernel edit, **§0.9.11 is the
+  LEDGER-HYGIENE LAW: a banked queue price is not evidence**, and §0.9.12
+  closes the command-buffer byte-cap axis for good.
 - **★ Retraction this round:** the "+1.9 to +2.6% unowned" gather-GEMM SM=16
   banding item is **withdrawn and struck from the queue** — it was an
   arithmetic identity misread as headroom. The 15.4 ms excess is still real and
@@ -16,11 +17,28 @@
   `research/GATHER_GEMM_REGIME_DESIGN.md`.
 - **★ Correction this round, the same failure in the other direction:** the
   sliding-attention kernel rewrite was banked at `~+0.6%` and sat at queue rank
-  4. Re-derived from its source table it is worth **+3.1% to +8.5%** — the
-  **largest single decode-side item in the programme** — and it is
-  M4-screenable. It is now queue rank 1. §0.9.11a carries the full derivation.
-  Two of the first four banked prices audited this way were wrong, which is why
-  §0.9.11 now exists.
+  4. Re-derived from its source table it is worth **+3.2% to +6.4%, central
+  +5.2%** — the **largest single decode-side item in the programme** — and it
+  is M4-screenable. It is now queue rank 1. §0.9.11a carries the full
+  derivation, including my retraction of my own first attempt at the upper
+  bound. A third bad price fell out of the same audit:
+  `residual_rms_router` rpg8→rpg4/2 was banked at `~+0.3%` and is worth
+  **+1.28%** central. **Three of the first five banked prices audited this way
+  were wrong**, which is why §0.9.11 now exists.
+- **★★ The decode residual is no longer mysterious, and it is the largest pool
+  in the programme.** Scaling nezuko's M4 recoverable column by the correct
+  residual-class factor (×0.812, §5) prices it at **+10.3% to +20.5% of score,
+  central +16.7%**, and the column accounts for **83.6% of the M5 decode
+  residual on both machines**. It is four named kernels, all four unowned:
+  `sliding_fused_attn_ring_v1`, `full_fused_attn_grow_v1`,
+  `residual_rms_router`, shared-expert K1. Zeroing the whole 1.340 ms residual
+  is worth `(4.281/2.941)^0.75 − 1 = +32.7%`.
+- **★ Axis closed this round:** the MLX command-buffer **byte cap** is settled.
+  200 MB (shipped) is a genuine interior optimum on M5: 50 MB is −1.608% `ns`
+  and 512 MB is −1.164%. A log-quadratic fit through the three points peaks at
+  ~176 MB and offers **+0.018%**, which is 16× below the single-receipt
+  resolution floor. See §0.9.12. Together with frieren's structural closure of
+  the ops axis, the entire command-buffer-knob family is dead.
 - **Most recent human research direction:** operator authorised the advisor and
   all four students to dispatch official `mlxfast submit` runs, and directs the
   campaign to continue with all four students on distinct high-value
@@ -417,8 +435,10 @@ The MB cap arrived in imported competitor commit **`814652a0`** (2026-07-29
 comment "the post-anupsv-loader regime re-test winner (6 Latin pairs: decode 5/6,
 prefill 4/6)" therefore documents the *competitor's confounded two-knob test*,
 and one of those knobs is now known structurally inert (§0.9.4). **The cap has
-never been tested upward in this tree.** #44 r2 tests exactly that, priced at
-**~+0.65% (400 MB) to ~+0.83% (512 MB)** from her own rates and counts.
+never been tested upward in this tree.** #44 r2 tested exactly that, priced at
+**~+0.65% (400 MB) to ~+0.83% (512 MB)** from her own rates and counts —
+**and the 512 MB receipt came back at −1.164%, the opposite sign. See §0.9.12:
+the axis is closed and the shipped `200` is a genuine interior optimum.**
 
 #### 0.9.4 The ops axis is CLOSED (frieren, #35)
 
@@ -564,19 +584,27 @@ This is what makes the gather-GEMM D2 occupancy audit a free, local arm.
 
 #### 0.9.11 ★★ LEDGER-HYGIENE LAW — a banked queue price is not evidence
 
-**Re-derive every price from its source table before you assign it. Two of the
-first four prices audited this way were wrong, and both errors had been sitting
+**Re-derive every price from its source table before you assign it. Three of the
+first five prices audited this way were wrong, and the errors had been sitting
 in the queue for days steering student time.**
 
 | audited item | banked price | truth | error |
 |---|---:|---|---|
 | gather-GEMM #2, `SM=16` banding | +1.9 to +2.6% | **0** — `SM = BM/WM` is pinned to 16, `TM = SM/16` integer-divides to 0 below it, and `453,120 = Σ ceil(n_e/16)·16` is identically the floor | fictitious |
-| sliding-attention kernel rewrite | ~+0.6% | **+3.1% to +8.5%** (§0.9.11a below) | low by 5–14× |
+| sliding-attention kernel rewrite | ~+0.6% | **+3.2% to +6.4%, central +5.2%** (§0.9.11a below) | low by 5–10× |
+| `residual_rms_router` rpg8→rpg4/2 | ~+0.3% | **+1.28% central** (106 µs M4 × 0.812 × 14.862 %/ms) | low by ~4× |
 | gather-GEMM #1, `Ws` staging | "the mechanism" | measured **null**, twice | refuted by measurement |
 | M5 dispatch constant `c` | 4.1 µs/dispatch | bracket **[0.36, 2.09] µs** | void |
 
-The failure mode is not statistical. Both bad prices were *derived* numbers
-banked in a summary table, and in both cases **the prose in the same file
+Two prices survived audit and two more are still outstanding. Still
+**`UNAUDITED`**, and not to be quoted in a brief until they are: M2
+`lhs_indices` gather elision (banked +0.4–0.5%; if its "2–2.9 ms" is M5 prefill
+ms then at 0.371 %/ms it is +0.74% to +1.08%, i.e. ~2× low, unless the banked
+figure is an undocumented 50% realization haircut), D-MLP prefill fusion
+(+1.56%), and P-SHARED (+0.18–0.33%).
+
+The failure mode is not statistical. Every bad price was a *derived* number
+banked in a summary table, and in each case **the prose in the same file
 already contradicted the table**:
 
 - The `SM=16` row sat two screens away from the geometry comment at
@@ -615,22 +643,56 @@ bytes/step/ceiling`). Row: `sliding_fused_attn_ring_v1`, n = 30 calls/step,
 22.34 µs true/call, **670 µs/step**, 2.097 MB/call ⇒ **62.91 MB/step**,
 94 GB/s = **36% of ceiling**, **428 µs/step recoverable on M4**.
 
-M5 conversion, both ends:
+**First, the M4→M5 scaling factor — derive it, do not pick it.** A "recoverable
+µs" is a *non-byte* quantity (issue, occupancy, latency), so it must not be
+scaled by the wall-clock ratio, which is dominated by M5's 2.5× bandwidth. Get
+the right factor from the two decode budgets:
+
+```
+              bytes/step   ceiling      byte time   measured wall   residual
+M4              1794 MB   260.2 GB/s     6.895 ms       8.545 ms     1.650 ms
+M5 (official)   1794 MB   610   GB/s     2.941 ms       4.281 ms     1.340 ms
+
+RESIDUAL-CLASS ratio  = 1.340 / 1.650 = 0.812     <-- use this
+wall-clock ratio      = 4.281 / 8.545 = 0.501     <-- wrong for this class
+```
+
+The 0.812 is the empirical statement that **M5 recovers almost none of the
+non-byte time** — exactly what an occupancy deficit on twice the cores
+predicts. Cross-check: nezuko's M4 recoverable column sums to ~1.380 ms =
+**83.6% of the M4 residual**, and scaled by 0.812 it is 1.121 ms = **83.6% of
+the M5 residual**. The column is a near-complete accounting of the decode
+residual on both machines.
+
+Now the three-point conversion for this kernel:
 
 - **Byte floor.** The same 62.91 MB/step at the measured M5 QMV rate
   651.8 GB/s costs **96.5 µs** (vs 241.8 µs on M4). That is the floor for this
   stream on the official box.
-- **Lower bound — the kernel scales with the machine.** Scale the M4
-  recoverable by the decode wall ratio `T_M5/T_M4 = 4.281/8.769 = 0.4882`:
-  428 × 0.4882 = **209 µs/step ⇒ +3.11% of score** at 14.862 %/ms.
-- **Upper bound — the kernel does not scale.** nezuko's own diagnosis is
-  *"This is an occupancy problem, not a dispatch-count problem"*
-  (`nezuko-pr9-dispatch-fusion.md:180-193`): the kernel launches roughly 8
-  threadgroups, which already fails to fill M4's 20 cores and fails *worse* on
-  M5's ~40. If it therefore still costs ~670 µs/step on M5, recoverable is
-  670 − 96.5 = **573 µs/step ⇒ +8.5% of score**.
-- **Fit check.** The whole M5 decode residual is 1.340 ms, so 209 µs is 15.6%
-  of it and 573 µs is 42.8%. Both fit. Neither is contradictory.
+- **Conservative — the kernel improves as much as the whole machine
+  (×0.501).** 428 × 0.501 = 214 µs/step ⇒ **+3.19% of score** at 14.862 %/ms.
+  This is a *lower* bound and almost certainly too pessimistic, because it
+  credits this kernel with M5's bandwidth gain that it demonstrably is not
+  using (it runs at 36% of ceiling).
+- **Central — residual-class scaling (×0.812).** 428 × 0.812 = **347 µs/step
+  ⇒ +5.16% of score.** Use this number in briefs.
+- **Optimistic — recoverable-invariant (×1.0).** 428 µs/step ⇒ **+6.36%**.
+  Justified by nezuko's diagnosis, *"This is an occupancy problem, not a
+  dispatch-count problem"* (`nezuko-pr9-dispatch-fusion.md:180-193`): the
+  kernel launches roughly 8 threadgroups, which already fails to fill M4's 20
+  cores and fails *worse* on M5's ~40.
+- **Fit check.** The M5 decode residual is 1.340 ms, so 347 µs is 25.9% of it
+  and 428 µs is 31.9%. Both fit comfortably.
+
+**⚠ Self-correction, 2026-08-05 15:00.** The first version of this section
+quoted an upper bound of **+8.5%**, from assuming the kernel would still cost
+the full 670 µs/step on M5 (⇒ 670 − 96.5 = 573 µs). That is stronger than
+recoverable-invariance: it credits M5 with zero improvement in *both* bytes and
+occupancy, and it is inconsistent with the machine-level fact that decode wall
+falls from 8.545 to 4.281 ms. Retracted. **The bracket is +3.2% to +6.4%,
+central +5.2%.** The conclusion is unchanged — still 5–10× the banked price,
+still queue rank 1 — but the law in §0.9.11 applies to the advisor's numbers
+too, and this is what applying it looks like.
 
 None of the obvious reconstructions of the banked "~+0.6%" work:
 0.428 ms × 14.862 = 6.36%; 428/8545 = 5.0%; (428/13344)×0.75 = 2.4%;
@@ -656,7 +718,88 @@ in-kernel efficiency is exactly the class the M4 TRANSFER LAW (§0.9.2) admits
 M4 wall-clock for. Companion row for the same rewrite:
 `full_fused_attn_grow_v1`, n = 10, ~23.5 µs, 235 µs/step, 2.621 MB/call,
 112 GB/s, 43% of ceiling, **~130 µs recoverable** — same kernel family, same
-constraint, worth folding into the same arm.
+constraint, worth folding into the same arm. At the central factor it is worth
+**+1.57%**, so the combined attention-epilogue pool is 347 + 106 = 453 µs/step
+= **+6.7% of score**. That is the single largest priced item in the programme.
+
+##### 0.9.11b The whole M4 recoverable column, repriced
+
+The audit above was worth doing twice, because the same ×0.812 factor reprices
+every row of nezuko's column at once. All four rows are **unowned**.
+
+| kernel | M4 recoverable | lo (×0.501) | **central (×0.812)** | hi (×1.0) |
+|---|---:|---|---|---|
+| `sliding_fused_attn_ring_v1` | 428 µs | 214 µs / +3.19% | **347 µs / +5.16%** | 428 µs / +6.36% |
+| `full_fused_attn_grow_v1` | 130 µs | 65 µs / +0.97% | **106 µs / +1.57%** | 130 µs / +1.93% |
+| `residual_rms_router` rpg8→rpg4/2 | 106 µs | 53 µs / +0.79% | **86 µs / +1.28%** | 106 µs / +1.58% |
+| shared expert K1 | 65 µs | 33 µs / +0.48% | **53 µs / +0.78%** | 65 µs / +0.97% |
+| **column total** | **1380 µs** | 691 µs / **+10.28%** | **1121 µs / +16.65%** | 1380 µs / **+20.51%** |
+
+The cross-check that makes this trustworthy: the column sums to 1.380 ms =
+**83.6% of the M4 decode residual (1.650 ms)**, and scaled by 0.812 it is
+1.121 ms = **83.6% of the M5 decode residual (1.340 ms)**. The same fraction on
+both machines is what you expect if the column is a near-complete accounting of
+non-byte decode time, and it is strong evidence that the residual-class factor
+is the right one. **The decode residual is not mysterious. It is these four
+kernels.**
+
+Two caveats to carry into any brief drawn on this table. The 14.862 %/ms linear
+rate understates large moves — eliminating the whole 1.340 ms residual is
+actually worth `(4.281/2.941)^0.75 − 1 = +32.7%`, not +19.9% — so the linear
+rate is the conservative choice and should be used for single-kernel arms. And
+"recoverable" is the gap to the *byte* ceiling, which assumes an arm can reach
+100% of ceiling; nothing in the programme has ever done that, so treat the
+central column as an upper-middle estimate of a realistic arm's ceiling, not as
+a forecast.
+
+#### 0.9.12 ★ The command-buffer byte cap is a closed axis (nezuko #44, three M5 receipts)
+
+Shipped `MLX_MAX_MB_PER_BUFFER=200` is a **genuine interior optimum on M5**.
+Three ranked receipts against the fixed control `c3ce66ec` (`ns` 2.544360,
+S 97.9496 ms, T 4.28121 ms):
+
+| cap | receipt | `ns` | Δ `ns` | cand_pre | Δ (σ) | cand_dec | Δ (σ) |
+|---|---|---:|---:|---:|---|---:|---|
+| 50 MB | `3e6fdcb` | 2.503448 | **−1.608%** | 195.503 µs | +2.193% (9.0σ) | 5.11955 ms | +1.449% (9.6σ) |
+| **200 MB** | `c3ce66e` | **2.544360** | **0** | 191.308 µs | — | 5.04644 ms | — |
+| 512 MB | `c747336` | 2.514737 | **−1.164%** | 197.093 µs | +3.024% (12.3σ) | 5.07521 ms | +0.570% (3.8σ) |
+
+σ from fern's #40 instrument (cand_pre 0.245%, cand_dec 0.151%). Every entry is
+far outside noise; these are real regressions, not draws.
+
+**The cap-up prediction was falsified with the opposite sign.** The brief
+predicted 200→512 MB ≈ **+0.83%** by extrapolating the measured boundary cost
+(+27.2 µs per added prefill command buffer) upward — fewer buffers, less
+boundary cost. Measured: **−1.164%**, and the loss is almost entirely prefill.
+
+**Where the axis is closed.** Fit a quadratic in `log2(cap)` through the three
+points: it peaks at **~176 MB** with an expected gain over 200 MB of
+**+0.018%** — 16× below the 0.278% single-receipt `ns` resolution floor (§0.6)
+and 83× below the P=50% promotion bar. There is nothing left on this axis at
+any cap value. Combined with frieren's structural closure of the *ops* axis
+(max 28 ops/cb at the shipped byte cap vs the 201 the rule would need), the
+whole command-buffer-knob family is dead. This also retires round-8 idea 3
+(R-MBBUF).
+
+**Two things this bought us that are worth more than the arm.**
+
+1. **The linear boundary model is only valid downward.** `+27.2 µs` per added
+   prefill cb held going 200→50 (that arm's prefill loss, −0.797% of score, is
+   the right order) but inverts going 200→512. So there is an opposing term,
+   worth ~5.4 ms of prefill, that switches on with larger buffers. The leading
+   candidate is **pipeline-fill latency**: the GPU idles while the host encodes
+   a bigger first command buffer. That predicts exactly the observed asymmetry
+   — prefill is a *single* pass and pays the one-off cost in full (−1.099%),
+   decode is 128 steps and amortizes it to nothing (−0.084%, 3.8σ but only
+   0.0056 ms). No arm follows from it, because both phases still want 200, but
+   **do not quote the +27.2 µs/cb rate above the shipped cap again.**
+2. **External validation of the §A exchange rates.** Converting each arm's
+   measured `ΔS`/`ΔT` at 0.371 %/ms and 14.862 %/ms reproduces its measured
+   `ns` delta to **0.026%** (50 MB: −1.634% predicted vs −1.608% measured) and
+   **0.019%** (512 MB: −1.183% vs −1.164%). The rates are now confirmed against
+   ranked M5 receipts at the ±0.03% level, on two arms that move both axes in
+   the same direction by different amounts. Every price in this document that
+   uses them is on firmer ground than it was.
 
 ---
 
@@ -828,15 +971,17 @@ cores, so ~8 threadgroups leaves *more* of the machine idle there. That
 prediction is falsifiable in one census arm (#32 deliverable B, re-aimed
 2026-08-05).
 
-**★ That pricing has now been done — see §0.9.11a. The answer is +3.1% to
-+8.5%, not the `~+0.6%` the round-9 queue had banked for it, and it is now
-queue rank 1.** The two ends of the bracket are the two answers to the very
-question this paragraph poses: if the kernel scales with M5's extra cores the
-recoverable time falls to 209 µs/step (+3.11%); if it does not scale — which is
-what ~8 threadgroups on ~40 cores predicts — it stays near 573 µs/step
-(+8.5%). Either way the item is worth 5–14× its banked price, and because
-`sliding_fused_attn_ring_v1` is a custom Laguna kernel rather than an
-`_nax` one, a student can screen the rewrite on M4 for free.
+**★ That pricing has now been done — see §0.9.11a. The answer is +3.2% to
++6.4%, central +5.2%, not the `~+0.6%` the round-9 queue had banked for it, and
+it is now queue rank 1.** The bracket's two ends are the two answers to the very
+question this paragraph poses: if the kernel's non-byte time shrinks in
+proportion to M5's whole decode wall the recoverable time falls to 214 µs/step
+(+3.19%); if it does not shrink at all — which is what ~8 threadgroups on ~40
+cores predicts — it stays at 428 µs/step (+6.36%). The central value uses the
+**residual-class** factor ×0.812, which is the right one for non-byte time and
+is cross-validated in §0.9.11b. Either way the item is worth 5–10× its banked
+price, and because `sliding_fused_attn_ring_v1` is a custom Laguna kernel rather
+than an `_nax` one, a student can screen the rewrite on M4 for free.
 
 Standing caution kept from the old text: every "hidden host cost" datum except
 the M5 RoPE-probe null is M4-based, and M4 is known-blind to exactly this
@@ -1675,9 +1820,9 @@ which arm unblocks the most stacking.
 | ~~#36~~ | fern | `maple-2026-08-04k-attn-reduction-packing` | r1 | **MERGED as documentation** — dead family, empty scored diff. See §C |
 | ~~#40~~ | fern | `maple-2026-08-05a-nax-stage2-double-buffer` | r2 | **MERGED** as `904173a0` — mechanism #1 null + the whole of §0 |
 | ~~#34~~ | tanjiro | `maple-2026-08-04i-m5-block-rates` | r2 | **MERGED** as `1849b376` — M5 dispatch law, block rates, instrument strip |
-| **#44** | nezuko | `maple-2026-08-05b-mb-per-buffer-50` | **r2** | ★ **holds the ranked channel**. MB50 **refuted on M5** (−1.608% ns). r2 = cb-count curve on M4 {200,400,512,1024,2048} → cap-**up** knee arm (predicted +0.65% at 400 MB, +0.83% at 512 MB), or a clean revert to `200` |
+| **#44** | nezuko | `maple-2026-08-05b-mb-per-buffer-50` | **r3 requested** | ★ **channel HANDED BACK**. Three-point M5 curve complete: 50 MB −1.608%, 200 MB (shipped) 0, 512 MB −1.164%. **Axis CLOSED (§0.9.12)**; r3 = revert the knob to `200` (empty editable diff) + write up the curve and the pipeline-fill explanation, then merge as documentation |
 | **#35** | frieren | `maple-2026-08-04j-scale-code-width` | **r3** | C census → B (M4-only screen) → one **stacked-plane** ranked receipt, repriced **+1.71–1.83%**. Deliverable A refused (0.28σ); D (instrument deletion) deferred until tanjiro is done with the #27 block |
-| **#47** | tanjiro | `maple-2026-08-05c-dispatch-law-close` | r1 | **reordered by amendment**: D2 ranked chained n=100 (knee, ~14.7σ) → D1 → D4 inventory → **D5 ranked n=400 unchained** (closes the 5.8× bracket at ~49σ) → D3. Second in the channel queue |
+| **#47** | tanjiro | `maple-2026-08-05c-dispatch-law-close` | r1 | **reordered by amendment**: D2 ranked chained n=100 (knee, ~14.7σ) → D1 → D4 inventory → **D5 ranked n=400 unchained** (closes the 5.8× bracket at ~49σ) → D3. ★ **now holds the ranked channel** |
 | **#48** | fern | `maple-2026-08-05d-fused-norm-qkv-gate` | r1 | amortize the norm producer once: fold the 40 input RMSNorms **and** the 40 per-head gate dispatches into the R1 QKV kernel, **geometry first**. Value bracket **+0.43% to +2.48%**, width set by #47 D5 |
 
 Scope boundaries: **fern** owns the ranked-instrument statistics (the `_nax`
@@ -1685,8 +1830,9 @@ gather family is closed) and now the **decode norm/gate fusion pool** (80
 dispatches, 19.7% of the step); **frieren** owns the attention scale-plane width
 plus M4→M5 transfer calibration and the byte budget he is spending; **tanjiro**
 owns the aggregate M5 dispatch law and the two systematics on it; **nezuko** owns
-command-buffer geometry and the **boundary-value model**, with
-**D-FUSE-GATESP/OPROJ** promised next.
+the decode roofline and the **boundary-value model** — command-buffer geometry is
+now a closed axis (§0.9.12), and her next assignment is the **queue rank 1
+sliding-attention kernel rewrite** she priced herself.
 
 **★ The largest staffing gap is not on this table, and it is now a
 *diagnostic* gap, not a mechanism gap.** Gather-GEMM mechanism **#2** (SM=16
@@ -2527,20 +2673,23 @@ tanjiro's **#47**; the attention scale planes are frieren's **#35 r3**.
 
 | # | item | est. score | class | M4-screenable? |
 |---|---|---:|---|---|
-| 1 | **★ sliding-attention kernel rewrite** (+ `full_fused_attn_grow_v1`) — 428 + 130 µs/step at 36% / 43% of ceiling | **+3.1% to +8.5%** (§0.9.11a) | in-kernel occupancy | ✓ **yes** — custom Laguna kernel, not `_nax` |
+| 1 | **★ sliding-attention kernel rewrite** (+ `full_fused_attn_grow_v1`) — 428 + 130 µs/step at 36% / 43% of ceiling | **+3.2% to +6.4%, central +5.2%**; +6.7% with the companion (§0.9.11a) | in-kernel occupancy | ✓ **yes** — custom Laguna kernel, not `_nax` |
 | 2 | **gather-GEMM D2 — occupancy audit** (unblocks the 15.4 ms / +5.7%) | diagnostic, free | static compiler property | ✓ **M4-legal** (compiles, never runs) |
-| 3 | D-MLP prefill fusion pool | +1.56% **UNAUDITED** | byte dedup | ✓ |
-| 4 | **M2 — gather elision via `lhs_indices`** (2–2.9 ms) | +0.4 to +0.5% **UNAUDITED** | byte stream | ✓ (byte-stream class) |
-| 5 | `residual_rms_router` rpg8→rpg4/2 (~106 µs/step M4) | ~+0.3% **UNAUDITED** | in-kernel | ✓ |
-| 6 | **P-SHARED** — rider only, see below | +0.18 to +0.33% **UNAUDITED** | byte dedup | ✓ |
+| 3 | **`residual_rms_router` rpg8→rpg4/2** (106 µs/step M4) | **+1.28% central** (§0.9.11b) | in-kernel occupancy | ✓ |
+| 4 | D-MLP prefill fusion pool | +1.56% **UNAUDITED** | byte dedup | ✓ |
+| 5 | **M2 — gather elision via `lhs_indices`** (2–2.9 ms) | +0.4 to +0.5% banked; **suspect ~2× low**, audit first | byte stream | ✓ (byte-stream class) |
+| 6 | shared-expert K1 (65 µs/step M4) | +0.78% central (§0.9.11b) | in-kernel occupancy | ✓ |
+| 7 | **P-SHARED** — rider only, see below | +0.18 to +0.33% **UNAUDITED** | byte dedup | ✓ |
 | — | ~~gather-GEMM mechanism #2 — SM=16 banding~~ | ~~+1.9 to +2.6%~~ | **STRUCK: closed at the `kFragRows` floor** | — |
 | — | gather-GEMM mechanism #3 — x re-read (~1–3 ms) | +0.4 to +1.1% *if the floor holds* | **HELD: contingent on D1** | ✗ `_nax`-gated |
 
 **Item 1 is new to the top of this table and it did not get there by a new
 measurement.** It was sitting at rank 4 priced `~+0.6%`; re-deriving it under
-§0.9.11 put it at **+3.1% to +8.5%**, which makes it the largest single
-decode-side item in the programme — larger than fern's #48 (+0.43 to +2.48%),
-frieren's #35 r3 (+1.71 to +1.83%), and nezuko's cap-up arm (+0.65 to +0.83%).
+§0.9.11 put it at **+3.2% to +6.4%, central +5.2%**, which makes it the largest
+single decode-side item in the programme — larger than fern's #48 (+0.43 to
++2.48%) and frieren's #35 r3 (+1.71 to +1.83%). Its companion
+`full_fused_attn_grow_v1` adds +1.57% central at the same call site, so the
+attention-epilogue pool is +6.7% of score in total.
 It is also the rare attention item that is genuinely M4-screenable, so a student
 can iterate on it locally for free and only spend a ranked receipt on a
 mechanism that already won on M4. Two hard constraints travel with it: the
