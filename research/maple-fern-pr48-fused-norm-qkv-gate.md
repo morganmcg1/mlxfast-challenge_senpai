@@ -672,6 +672,83 @@ the channel back, do not retry.
 
 ---
 
+### 9.2 Pre-submission validation and the fired ticket
+
+Candidate commit **`fa8618e`** — `b5082b74` plus the one-character default flip
+`lagunaDecodeNVFP4NormQKVFuseMode` `0 → 2` at `:4728`, exactly as pre-registered
+in §9.1, **not** rebased onto `7e39f4ee`. `senpai/check-editable-budget.sh`
+against the assignment base: `current=2950806/3000000 headroom=49194
+growth=9833/262144 files=142`. `LagunaRuntimeModel.swift` 518,362 B against the
+524,288 B per-file cap.
+
+`DARKBLOOM_TRACE_FUSION=1 research/run_local_benchmark.sh --local-submit`, run
+with **no** `DARKBLOOM_DECODE_NVFP4_NORM_QKV_FUSE` in the environment so it
+exercises the new default rather than an override:
+
+| field | value |
+|---|---|
+| `max_abs_diff` | **0** |
+| `passed_correctness` | **true** |
+| `passed` | **true** |
+| `error` | `""` |
+| `checked_steps` | 1025 |
+| `case_count` | 1 |
+| `num_layers` | 40 |
+| `peak_ram_gb` | 21 (20.726) |
+| `commit` | `fa8618e` |
+| `golden_hash` | `f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2` |
+| `harness_hash` | `de12ebfa7e1189e7b2894c6e5b91f27bec7bb40d3a70218c2b003c81aadfe162` |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` |
+
+Trace confirms mode 2 is live: `decode nvfp4 norm+qkv+gate h48` and `h64` both
+fire, and neither the mode-1 site (`decode nvfp4 norm+qkv`) nor the mode-0 site
+(`decode nvfp4 qkv r1`) appears. That is the check that matters, because every
+guard in this file declines *silently*.
+
+**Two `false` flags that are not failures.** `gpqa_ttft_passed` and
+`semantic_gpqa_passed` are both `false` with `gpqa_ttft_case_count = 0` and
+`semantic_gpqa_case_count = 0` — not evaluated locally, and the harness reports
+`passed = true` with an empty `error`. Those are hidden gates that run only
+officially.
+
+**`passed_prefill_speedup_floor = false` is the host, not the candidate.** The
+`--local-submit` prefill ratio is against the *pinned* M5 constant
+`0.00036752 s/tok`, not a paired same-session baseline. Derived from §7's
+recorded S values, prefill s/tok on this box is 0.0011432 for **mode 0, the
+unfused control** and 0.0011562 for mode 2 — a 1.1 % arm difference that sits
+inside the mode-0 rep spread (577.35–592.96 ms), and both are ≈3.1× the pinned
+constant. The unfused control fails this floor identically. This is the M4 Pro /
+Apple GPU gen 16 non-`_nax` prefill gap and it is why §9.1's floor abort
+condition is written against the *ranked paired* floors.
+
+**Ticket fired**, one only, per §9.1's attribution rule:
+
+```
+mlxfast submit --model "senpai" \
+  --note-file research/maple-fern-pr48-submission-note.md
+→ submission 285f79fa-089f-4184-b1ec-0647cb51e61b   status validating
+```
+
+`--model "senpai"` was **accepted**; no model-value rejection occurred, so no
+attribution fallback was used or needed.
+
+One course correction worth recording. The first invocation was refused by
+client-side argument validation — `submission note must be at least 5 KiB (3877
+bytes provided)` — with the CLI asking for a full reproducible reasoning
+narrative. Per the operator rule I treated a validation failure as *not* a
+licence to retry blindly, and first confirmed via `mlxfast submissions` that no
+ticket had been created (newest entry was 8/5 3:26 PM, predating the attempt).
+Only then did I expand the note to 11,817 B and submit once. The `senpai` model
+value was never in question at any point.
+
+Incidental from that listing, useful to the programme: the feed's `score` column
+is `officialScore`, and the current best is ≈**2.55231** (`c3ce66e` 2.523276 at
+−2.89 %, `4058d0b` 2.545892 at −0.64 % — both back-solve to the same best).
+This is the promotion bar, and it is a different quantity from the `ns` I rank
+on; §9.1's verdict table stays on `ns`.
+
+---
+
 ## 10. Suggested follow-ups I did not implement
 
 1. **Settle the barrier attribution properly — this is the highest-value item
