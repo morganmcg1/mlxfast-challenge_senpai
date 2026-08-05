@@ -4820,17 +4820,30 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 /// requests. An escaped row (`base == 0xFF`) takes the simdgroup-uniform else
 /// arm and reads the stock plane. Both arms fill the same `sb` registers, so
 /// the K loop below is the R1 loop with its scale argument already resident.
-/// TEMPORARY power control (research only, removed in the next commit):
-/// `DARKBLOOM_LM_FAULT=1` makes every lane read its neighbour's packed word, so
-/// the bank is still correct and the certificate still passes but the kernel
-/// misaddresses it. Alignment and the escape arm are untouched, and the fault
-/// fires on 98.1-99.6% of rows, so a harness that cannot see this cannot see a
-/// real lane-permutation bug either.
-private let lagunaLaneMajorFaultEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_LM_FAULT"] == "1"
+/// TEMPORARY power-control ladder (research only, removed in the next commit).
+/// `DARKBLOOM_LM_FAULT` corrupts what the kernel reads while leaving the bank
+/// and its reconstruction certificate correct, which is exactly the
+/// kernel-addressing class the certificate is structurally blind to:
+///   1 - every lane reads its neighbour's packed word (`simd_lid ^ 1`)
+///   2 - every reconstructed code is biased by +1 (fires on every fitting row)
+///   3 - every fitting-row code is forced to 0
+///   4 - every escaped-row code is forced to 0
+/// 3 and 4 are the localisers: whichever one changes the output tells us which
+/// arm the dispatch actually takes.
+private let lagunaLaneMajorFaultMode =
+    Int(ProcessInfo.processInfo.environment["DARKBLOOM_LM_FAULT"] ?? "0") ?? 0
 
 private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
-    let laneIndex = lagunaLaneMajorFaultEnabled ? "(simd_lid ^ 1u)" : "simd_lid"
+    let laneIndex = lagunaLaneMajorFaultMode == 1 ? "(simd_lid ^ 1u)" : "simd_lid"
+    let nibble = "((packed >> (b << 2)) & 0x0Fu)"
+    let fittingCode: String
+    switch lagunaLaneMajorFaultMode {
+    case 2: fittingCode = "uint8_t(row_base + \(nibble) + 1u)"
+    case 3: fittingCode = "uint8_t(0)"
+    default: fittingCode = "uint8_t(row_base + \(nibble))"
+    }
+    let escapedCode = lagunaLaneMajorFaultMode == 4
+        ? "uint8_t(0)" : "sc[b * (block_size / 16)]"
     return """
     constexpr uint axis_size = 2048;
     constexpr uint num_simdgroups = 2;
@@ -4858,14 +4871,14 @@ private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
         const ushort packed = nb[0];
     #pragma unroll
         for (uint b = 0; b < blocks_per_row; ++b) {
-            sb[b] = uint8_t(row_base + ((packed >> (b << 2)) & 0x0Fu));
+            sb[b] = \(fittingCode);
         }
     } else {
         const device uint8_t* sc = weight_scales +
             out_row * in_vec_size_g + simd_lid;
     #pragma unroll
         for (uint b = 0; b < blocks_per_row; ++b) {
-            sb[b] = sc[b * (block_size / 16)];
+            sb[b] = \(escapedCode);
         }
     }
 
@@ -4897,7 +4910,8 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
-                + (lagunaLaneMajorFaultEnabled ? "_fault" : ""),
+                + (lagunaLaneMajorFaultMode != 0
+                    ? "_fault\(lagunaLaneMajorFaultMode)" : ""),
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
