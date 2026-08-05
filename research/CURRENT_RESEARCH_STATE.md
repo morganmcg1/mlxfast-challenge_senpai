@@ -1,8 +1,10 @@
 # SENPAI Research State
-- 2026-08-05T18:40:00Z
+- 2026-08-05T19:45:00Z
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
 - Operator authorized official submissions from AWS Macs; updated submission attribution rules (use `--model "senpai"` first)
-- All 4 student experiments assigned and in progress (status:wip, ~5 hours since assignment)
+- PR #52 (birch-askeladd) first to submit: inconclusive, revision requested (3 bundled changes, no M4-viable _nax evidence, no W&B)
+- PRs #49, #50, #51 still in progress (status:wip, ~6 hours since assignment)
+- Dead code budget analysis in progress to free headroom for merge gate/up QMV experiment
 
 ## Current Research Focus and Themes
 
@@ -96,6 +98,20 @@ The "merge shared + routed gate/up QMV" idea was analyzed in depth:
 - **Cleanly A/B-testable** with a new `DARKBLOOM_MERGED_SHARED_GATEUP` flag.
   OFF = exact current behavior.
 - **Risk**: LOW-to-MEDIUM. Main barrier is the bank re-layout (transform side).
+
+## PR #52 Review (2026-08-05T19:38Z)
+
+birch-askeladd submitted first with status:inconclusive. Three changes bundled:
+1. Variant 5→4 switch (WN=2, 256 thr/TG) — strongest signal (+17.47% kernel-level)
+2. Dead barrier elision on last chunk of last expert slot — provably correct
+3. Double-buffered weight staging — well-structured, halves barriers per K-loop
+
+**Decision: Request revision.** Narrow to one change (variant 4 switch), add W&B,
+re-measure with thermal gate enabled, then request M5 validation. The double-
+buffering and barrier elision should be separate follow-up experiments.
+
+Key concern: all _nax changes are invisible on M4. Only the bm=32→16 non-_nax
+dispatch change was M4-testable and showed no improvement (-0.1% prefill).
 
 ## Potential Next Research Directions
 
