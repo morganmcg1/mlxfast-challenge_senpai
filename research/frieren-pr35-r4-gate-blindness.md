@@ -3,6 +3,23 @@
 Student `maple-frieren`, assignment `maple-2026-08-04j-scale-code-width`,
 branch `maple-frieren/scale-code-width`.
 
+> **Erratum (r5).** Five `LagunaRuntimeModel.swift` line citations in this
+> document were wrong and are corrected in place: the `lagunaDecodeNVFP4QKVR1`
+> call site `:5907`→**`:5858`**, `prepareFusedRuntimeWeights()`
+> `:11302`→**`:11211`**, `prepareNativeAffineQKVWeight()` `:5683`→**`:5592`**,
+> the `fused.laneMajorScales` assignment `:5755`→**`:5664`**, and the
+> lane-major guard `:5003`→**`:4921`**. These were **not** commit drift: checked
+> against this document's own commit `5baec67f`, `:5683` was already
+> `guard _fusedQKVWeight == nil,`, `:5003` was `constexpr uint real_threads = 64;`
+> and `:5907` was `affineGate.packedCodes,`. They were mis-transcribed when
+> written. `LagunaRuntimeWeights.swift:637` was correct.
+>
+> Every **conclusion** below was re-verified symbolically at r5 and stands. But
+> the defect is worth naming: unreliable citation is the same carelessness that
+> produced the vacuous r4 gate this document reports on. The r5-A certificate
+> ([`frieren-pr35-r5a-certificate.md`](frieren-pr35-r5a-certificate.md)) replaces
+> that gate with a measured one.
+
 The submission surface (`Sources/` + `Vendor/`) is
 `b3319dfb5c13d7c3c669424139d50acaac044f70` and is untouched by this document:
 `git diff --stat b3319dfb5c13d7c3c669424139d50acaac044f70 HEAD -- Sources/
@@ -81,7 +98,7 @@ checked decode steps. Established, in order:
 
 | Evidence | Result |
 | --- | --- |
-| Call-site census | `lagunaDecodeNVFP4QKVR1` has exactly one caller, `Sources/MLXFastModel/LagunaRuntimeModel.swift:5907`, inside the `lagunaFusedQKVProjectionEnabled && B == 1 && L == 1` decode block. `fusedQKV` is `nil` for the NVFP4 group-16 bank (it only fires for `.affine` 8/32), so `decodeNVFP4QKVR1` *is* the `qkv` path. |
+| Call-site census | `lagunaDecodeNVFP4QKVR1` has exactly one caller, `Sources/MLXFastModel/LagunaRuntimeModel.swift:5858`, inside the `lagunaFusedQKVProjectionEnabled && B == 1 && L == 1` decode block. `fusedQKV` is `nil` for the NVFP4 group-16 bank (it only fires for `.affine` 8/32), so `decodeNVFP4QKVR1` *is* the `qkv` path. |
 | Probe 129 (`fatalError` on first lane-major dispatch) | Aborted: `LM_PROBE_REACH: lane-major decode QKV dispatched h48`. Branch reached. |
 | Probe 130 (`fatalError` at dispatch #2000) | Aborted: `... dispatch #2000 h64`. At least 2000 lane-major dispatches occur inside the gated region; warmup alone does not plausibly reach that count. |
 
@@ -434,14 +451,14 @@ with `update` + `eval` (`:76-89`), and calls the model. It never goes through
 
 Every fused / native-affine decode layout — including this arm's lane-major
 scale bank — is built in `LagunaRuntimeModel.prepareFusedRuntimeWeights()`
-(`LagunaRuntimeModel.swift:11302`), which reaches
-`prepareNativeAffineQKVWeight()` (`:5683`) and assigns `fused.laneMajorScales`
-at `:5755`. The **sole** caller of `prepareFusedRuntimeWeights()` in the whole
+(`LagunaRuntimeModel.swift:11211`), which reaches
+`prepareNativeAffineQKVWeight()` (`:5592`) and assigns `fused.laneMajorScales`
+at `:5664`. The **sole** caller of `prepareFusedRuntimeWeights()` in the whole
 tree is `LagunaRuntimeWeightCache.loadLibraryModel`
 (`LagunaRuntimeWeights.swift:637`).
 
 Therefore, inside the oracle `bank.laneMajorScales` is `nil`, the guard at
-`LagunaRuntimeModel.swift:5003` fails, and the lane-major kernel is never
+`LagunaRuntimeModel.swift:4921` fails, and the lane-major kernel is never
 dispatched. **The oracle exercises the fallback path, not deliverable B.** A
 green oracle report is not evidence about this arm.
 
