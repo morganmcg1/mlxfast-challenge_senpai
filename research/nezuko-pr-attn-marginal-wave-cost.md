@@ -43,6 +43,15 @@ This retires the batched-reduction family and, more usefully, retires the
 whole *chain-shortening* class of ideas on the two 1024-thread fused attention
 kernels.
 
+**§11 goes one step further.** After the stop I swept the rest of both kernels
+statically for anything worth ≥ 5%, and found nothing: occupancy is
+arithmetically frozen (§11.3), the epilogue is at its own issue floor (§11.4),
+and every neighbouring mechanism is closed by a bit-exactness constraint, a
+threadgroup-memory constraint, or by §4.3 itself (§11.5). That section is
+analysis rather than measurement and is flagged as such, but it means my
+recommendation is not "try the next attention idea" — it is **redirect the
+`a`-side search out of attention.**
+
 ---
 
 ## §1 Pre-registration
@@ -608,7 +617,8 @@ read, and neither was modified. No barrier site outside them was touched.
 | `research/nezuko_simdsum_check.swift` | `293763a` | Step 1 bitwise census harness, 5 kernels + 2 power controls |
 | `research/nezuko_simdsum_step1.log` | `293763a` | Step 1 results, 1,048,576 reductions × 8 corpora |
 | `research/nezuko_phase_decompose.swift` | `4624f2d` | Step 0 phase-decomposition instrument, 7 occupancy-matched variants |
-| `research/nezuko_step0_phase_decompose.log` | `4624f2d` | Step 0 results + mechanism headroom probe |
+| `research/nezuko_step0_phase_decompose.log` | `4624f2d` | Step 0 results + mechanism headroom probe, reps = 3 |
+| `research/nezuko_step0_phase_decompose_reps7.log` | `6888b3f` | independent replication at reps = 7 (§4.4) |
 | `research/nezuko-pr-attn-marginal-wave-cost.md` | this file | the report |
 
 Reproduce:
@@ -616,6 +626,7 @@ Reproduce:
 ```bash
 swiftc -O research/nezuko_phase_decompose.swift -o /tmp/nezdec
 /tmp/nezdec Sources/MLXFastModel/LagunaRuntimeModel.swift 3
+/tmp/nezdec Sources/MLXFastModel/LagunaRuntimeModel.swift 7
 
 swiftc -O research/nezuko_simdsum_check.swift -o /tmp/simdsum_check
 /tmp/simdsum_check
@@ -634,20 +645,180 @@ Offered as suggestions, not implemented, per the boundary on scope.
    moved per lane**. Chain-shortening is dead here and §4.3 is the evidence.
    Every future attention brief should be checked against this before it is
    written.
-2. **The epilogue is the unexamined 15.9%.** Phase 4 owns 15.9% of the wave slope
-   and 12.6% of wall time at K=16, and unlike the k-loop it has *never* been
-   probed. It is a smaller target but it may hold proportionally more slack. It
-   needs its own numerics argument (forbidden item 9) and therefore its own arm.
-3. **Occupancy is the untested structural variable.** Everything here is at 1024
-   threads / 1 TG per core / ~8× ALU oversubscription. Whether that oversubscription
-   is optimal was never measured. A smaller threadgroup with more TGs per core is
-   a different point on the throughput curve — but note it likely collides with
-   forbidden item 2, so it needs the advisor to rule on scope before anyone spends
-   time on it.
+2. **The epilogue is the 15.9% I would *not* spend an arm on.** Phase 4 owns 15.9%
+   of the wave slope and 12.6% of wall at K=16, and unlike the k-loop it had never
+   been probed when I wrote this list. §11.4 probes it on paper and finds it also
+   at its structural floor. I am leaving the suggestion here with its verdict
+   attached rather than deleting it, because "we looked and it was closed" is the
+   more useful record.
+3. **Occupancy is not a free variable — it is arithmetically frozen.** I originally
+   listed this as the untested structural knob. §11.3 closes it: the kernel's own
+   threadgroup-memory footprint makes 2 TG/core impossible, and every way of
+   shrinking that footprint breaks bit-exactness. Nobody should spend an arm here.
 4. **Phase 1 is an intercept target, not a slope target.** If anyone ever wants
    Phase 1, they should be attacking `t(1)`-style fill cost, and they should know
    in advance that the ceiling is 47% of an intercept that is itself ~19% of
    lone-TG latency.
+
+---
+
+## §11 Appendix — sweeping the rest of the kernel after the stop
+
+Once §4.3 killed the assigned mechanism I did not want to hand back only a
+negative. Before writing §10 I commissioned an independent static review of both
+fused attention kernels, with no access to this session's history, asking one
+question: *given a throughput-bound k-loop, is there anything else in these two
+kernels worth ≥ 5%?*
+
+Its answer was no. That is worth recording, because a bare "the assigned
+mechanism failed" invites the next arm to try the neighbouring mechanism, and
+the neighbouring mechanisms are also closed. **Everything in this section is
+static analysis, not measurement.** I verified every citation below against the
+tree at `fae11f91` before including it; I did not re-measure any of it, and it
+should be read at the confidence level of a well-sourced argument rather than of
+§3 and §4.
+
+### 11.1 A correction to my own framing: production dispatches K=32, not K=16
+
+I sized everything at K = 16 threadgroups because the brief specified it and
+because W = 20 on this host makes K = 16 a single wave. That is the right choice,
+but for a reason narrower than I had assumed, and I had the production number
+wrong in my head.
+
+The sliding kernel is dispatched at
+
+```
+grid: ((heads / 2) * 1024, 1, 1)      Sources/MLXFastModel/LagunaRuntimeModel.swift:1799
+threadGroup: (1024, 1, 1)
+```
+
+with
+
+```
+public static let slidingAttentionHeads = 64    Sources/MLXFastModel/LagunaConfig.swift:26
+```
+
+so production is `(64/2) = 32` threadgroups of 1024 threads. On this **M4 Pro at
+W = 20 that is two waves**, and production wall is `intercept + 2·b ≈ 1.879 +
+2×8.312 ≈ 18.5 µs`, in which the k-loop's share rises to roughly 72%. On the
+**ranked M5 Max, W ≥ 32, so K = 32 is one wave** — which is exactly the regime
+K = 16 emulates here.
+
+So the conclusion is unchanged and the brief's choice was correct, but the
+*justification* is: K = 16 is a one-wave proxy for ranked hardware, not a proxy
+for this host's production behaviour. Anyone reusing these percentages on an M4
+should use the two-wave weights, not the K = 16 column. This is a real hazard —
+the two columns disagree by ~10 points on the k-loop share — and it is the second
+cross-machine sign/weight trap this arm has hit (§3.4's is the first).
+
+### 11.2 The op census, and how much of it is bit-exactness-pinned
+
+Per k-loop iteration, per lane: 4 device loads of `vec<bfloat,4>` (32 B), ~16
+bf16→f32 converts, 16 FMA dot terms, 20 adds paired with 20 shuffles, 4 max, 8
+subs, 4 `fast::exp`, 4 FMA sum updates, 16 fmul and 16 FMA output updates. Call
+it ~104 FP-pipe slot-equivalents.
+
+**About 84 of those ~104 are pinned by the bit-exactness contract** — they are
+the dot products, the online-softmax update, and the output accumulate, all of
+which the forbidden list freezes in both order and spelling. The reduction
+network I was sent to attack is most of the remaining ~20. That ratio is the
+quantitative version of §4.3's result: even a *perfect* reduction rewrite is
+playing for under a fifth of the loop, and §4.3 showed it does not even get that.
+
+This also sharpens §3.6's cycle model. That section estimated ~1054 cycles/iter
+against a ~880-cycle throughput floor. Working from the op census the floor is
+nearer ~960, which puts the loop at **~90% of its issue-rate floor** rather than
+~84%. Either way the headroom is single-digit percent of a single phase.
+
+The loop has **zero threadgroup-memory operations and zero barriers** in its
+common path. There is no synchronization to remove.
+
+### 11.3 Occupancy is arithmetically frozen (closes §10 item 3)
+
+My instrument logged the kernel's threadgroup-memory footprint directly:
+
+```
+L4     18432         1      1024   15793   whole body incl. epilogue combine
+       ^tgmem B   ^TG/core
+```
+
+Two threadgroups per core would need `2 × 18432 = 36864 B`, against this
+family's **32768 B limit**. It does not fit, and not marginally — it overshoots
+by 12.5%. 1 TG/core is not a tuning choice that nobody tested; it is the only
+legal point.
+
+The escape would be to shrink the footprint, and every route is closed by
+numerics rather than by budget. The 16 KB of it is the combine plane, sized to
+hold all 512 ring positions' partial results. A smaller threadgroup holding
+fewer positions changes both the online-softmax accumulation order and the width
+of the combine tree, so it is **not bit-exact** — forbidden items 2 and 9, and
+independently a correctness failure.
+
+Head-regrouping was also examined and loses in both directions: un-pairing the
+GQA pairs costs ~+14%, and quad-packing measures ~+8% *on an M4* but is projected
+~−45% on a 40-core M5, since fewer, fatter threadgroups underfill a wider machine.
+That is the same cross-core sign flip `agents.md` warns about, and it means the
+current pairing is not merely acceptable but is the right choice *for the ranked
+machine specifically*.
+
+### 11.4 The epilogue is also at its floor (closes §10 item 2)
+
+Phase 4's ~211 slot-equivalents per lane are consistent with its measured 1.23 µs,
+so there is no hidden stall there to recover — it is issue-bound like the k-loop.
+Its content is 8 threadgroup stores, 8 threadgroup loads, 3 barriers, 2
+`simd_max`, 2 exp, 10 `simd_sum`, and a set of IEEE divides at
+`LagunaRuntimeModel.swift:1657-1658` and `:1679-1681`.
+
+The divides are the tempting target — reciprocal-multiply is much cheaper — and
+they are unavailable. MLX compiles its JIT kernels with fast math **off**:
+
+```
+options->setFastMathEnabled(false);
+  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:631
+```
+
+so `acc * (1/sum)` is a different value from `acc / sum` and would move tokens.
+
+The three-barrier two-pass structure is likewise forced, not incidental: a
+single-pass combine needs 8 simultaneous planes, `= 33792 B > 32768 B`. It does
+not fit either.
+
+I found nothing in Phase 4 worth ≥ 1%. Given it is 15.9% of the slope, a 1%
+improvement to it is 0.16% of the wave — well under the noise floor this
+instrument can resolve.
+
+### 11.5 The alternative mechanisms, and where each dies
+
+| mechanism | ceiling | why it is closed |
+|---|---|---|
+| Reduction restructuring (this arm) | ~0% | **Measured.** §4.3: wrong sign, 11–12/12 consistent |
+| f32 KV ring widening | 6–8% | Doubles KV bytes/row 256→512 B, risks becoming L2-bound, large contract blast radius. EV ≈ 0–3% with a fat downside tail |
+| Alpha-skip extension | — | **Already proven impossible in-tree.** `Vendor/mlx-swift/.../sdpa_vector.h:145-158` records `fma(e,v,o)` differing from stock on 372,418 / 4,194,304 `factor == 1` quadruples. A prior arm closed this; it should not be reopened |
+| `widx` peeling | <1% | Forbidden item 4, *and* under 1% anyway |
+| Deeper unroll / prefetch | <1% | Forbidden item 8, and collides with the race-freedom invariant documented at `LagunaRuntimeModel.swift:1362-1377` |
+| Occupancy / threadgroup resize | — | §11.3, arithmetically impossible |
+| Epilogue rework | <1% | §11.4 |
+
+Only the KV-widening row is a live option, and I would not open it: a 6–8%
+ceiling on one phase, bought with a doubling of KV traffic on a kernel we have
+just established is throughput-bound, is a bad trade to make on a hypothesis.
+
+### 11.6 What this leaves
+
+The one target in the K = 16 wall that is *not* argued to be at a floor is the
+**dispatch and encoder floor — 15.4% of wall, 5.5% of slope** (§3.4). It is the
+one line in the decomposition that is not kernel body, and therefore the one
+thing this whole section does not close. It is also not attackable from inside
+these two kernels, so it is not mine.
+
+**Net: I believe the two fused attention kernel bodies are done.** Not "no easy
+wins left" — done, in the sense that every remaining mechanism I can identify is
+blocked by an arithmetic constraint, a bit-exactness constraint, or a measurement
+in §4.3. I would redirect the `a`-side search out of attention entirely.
+
+I hold this at lower confidence than §3 and §4, because it is analysis and those
+are measurements. But it is sourced, and the burden should now be on a proposed
+attention arm to say which row of §11.5 it thinks is wrong.
 
 ---
 
