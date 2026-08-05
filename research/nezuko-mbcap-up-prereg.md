@@ -196,3 +196,40 @@ while the control drew the 54.1st. The candidate-side term -1.621% agrees with
 `cand_pre` and `cand_dec` alone, is baseline-independent. Every per-commit slope
 in this pre-registration was fitted on `ns`, so none of them inherits the
 lottery.
+
+## Realised outcome (written after the ranked receipt released)
+
+Receipt `c747336c-2f0b-4870-8481-faccaeafe99f`, runner commit
+`cc4b1dc77d59c4a55cffdabab0fee68e2071e22f`, submitted 2026-08-05T14:12:43Z,
+released 2026-08-05T14:34:20Z.
+
+| quantity | pre-registered | observed | miss |
+| --- | --- | --- | --- |
+| `cand_pre` (us) | 189.1848 | 197.093424 | +4.18% |
+| `cand_dec` (ms) | 5.020275 | 5.0752060 | +1.09% |
+| `ns` | 2.561436 | 2.514736 | -1.82% |
+| `d_ns` vs control 2.544360 | +0.666% | **-1.1643%** | -1.83 pp = **7.9 sigma** |
+
+Decision rule as written: `d_ns < -0.15%` is REFUTE. Observed -1.1643% is far
+past that line, so the rule fires unambiguously.
+
+Action taken, exactly as pre-committed: the arm is reverted to
+`MLX_MAX_MB_PER_BUFFER = "200"`, leaving the submitted surface byte-identical to
+`BASE_SHA`, and the transfer law is amended in
+`research/nezuko-mbcap-up-receipt.md`.
+
+Everything else on the receipt was green: `max_abs_diff 0`,
+`passed_correctness true`, `error ""`, both speedup floors passed (decode
+2.7380, prefill 1.9543), semantic GPQA 9/9, TTFT 9/9. The `rejected` status is
+ranking-only and was pre-registered as the expected outcome; the paired baseline
+drew the 96.8th percentile (`base_z` +1.777), which is why the `officialScore`
+gap (-0.262%) is smaller than the real candidate regression (-1.171%).
+
+What the miss teaches: the pre-registration's error was not in `ns` arithmetic
+(the candidate-side lottery decomposition reproduces `d_ns` to 0.007 pp) but in
+assuming per-command-buffer cost is a cap-independent constant. It was fitted on
+the 200-to-50 direction, which *adds* buffers, and then extrapolated to a
+direction that *removes* them. Prefill `S` was predicted to fall 1.087 ms and
+instead rose 2.9621 ms -- 2.7x the magnitude with the sign inverted. See the
+amended law in the receipt note.
+
