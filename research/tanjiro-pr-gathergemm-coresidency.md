@@ -13,10 +13,12 @@ Primary metric: `coresidency_throughput_gain_128t_1_to_24x`, direction
 ## 0. Status of this document
 
 **Section 1 (pre-registration) was committed before any 128-thread timing was
-observed** (commit `8e5c5b0`). That commit is the audit trail: the ruling in §7
-does disagree with what §1.6 says the ruling must be, and §7.2 says so in the
-open rather than moving a threshold. Sections 2 onward were written after the
-probe ran.
+observed** (commit `caaae05`; it was `8e5c5b0` before the §8.1 rebase, and the two
+carry a byte-identical patch — `git diff <sha>^ <sha>` hashes to
+`f894cfaa0b36785026f21d4df95d70026a26f794` for both). That commit is the audit
+trail: the ruling in §7 does disagree with what §1.6 says the ruling must be, and
+§7.2 says so in the open rather than moving a threshold. Sections 2 onward were
+written after the probe ran.
 
 Result in one line: the pre-registered metric fires the "hypothesis survives"
 row, and the controls in the same run falsify the hypothesis. §7.2 explains why
@@ -701,3 +703,84 @@ argument about mostly-empty threadgroups.
   `research/GATHER_GEMM_REGIME_DESIGN.md:239-241` misread `tg_expert_groups` as
   an expert-partition count when it is grid.y = 256; the corrections are itemised
   at the end of the T2 census. I did not edit those files.
+
+## 8. Base advance, the injection hazard, and the standing pre-measurement check
+
+Added after the advisor notice
+[`5196932438`](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/57#issuecomment-5196932438)
+(`feedback_id base-advance-clearance-f722c2d7-and-inject-hazard-2026-08-05T2030Z`).
+Still revision `r1`; the brief is unchanged and T4 remains defunded.
+
+### 8.1 Base accepted and rebased
+
+The assignment marker recorded base `5178d452`. The advisor branch has since
+moved to `720c13ff` (#48 merge) and then to `f722c2d7` (revert the
+dispatch-injection defaults). The advisor cleared `f722c2d7` explicitly, so I
+rebased onto it rather than only recording an accepted advance. The rebase was
+clean, all nine commits replayed including the empty assignment marker commit,
+and the worktree is clean.
+
+I recomputed the submitted-surface intersection by code rather than by recall,
+per the advisor's own new rule. Parsing the 97 `editablePaths` entries out of
+`benchmark.json` and matching each changed file (directory entries by prefix,
+file entries by exact match):
+
+```
+editablePaths entries: 97
+changed files: 4
+  research/tanjiro-band-ratio-reconciliation.md       -> not submitted
+  research/tanjiro-gathergemm-d2-census.md            -> not submitted
+  research/tanjiro-pr-gathergemm-coresidency.md       -> not submitted
+  research/tanjiro_gathergemm_occupancy_probe.swift   -> not submitted
+INTERSECTION: NONE
+```
+
+Rebasing also made the T3 §6 citations resolve in my own tree: fern's receipt
+file `research/maple-fern-pr48-fused-norm-qkv-gate.md` arrived with the #48
+merge, and `:951-953` and `:981-983` contain exactly the `officialScore` and
+session-baseline lines that section quotes. Before the rebase those line
+references pointed at a file this branch did not contain.
+
+### 8.2 Standing pre-measurement check, run on my own head
+
+```
+$ grep -n -A1 'DARKBLOOM_INJECT_DECODE_EMPTY"\|DARKBLOOM_INJECT_EMPTY_TG"' \
+    Sources/MLXFastModel/LagunaRuntimeModel.swift
+11046:    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
+11058:    "DARKBLOOM_INJECT_EMPTY_TG", 160)
+```
+
+`0` and `160` — the check passes at my head. For the record it did *not* pass
+before the rebase: at `afd8902` the same grep returned `100` and `8`, i.e. my
+branch was carrying the on-by-default instrument.
+
+### 8.3 Why no number in this report is affected
+
+The hazard is a runtime instrument inside the Laguna forward pass. Every number
+in this report comes from a standalone Swift binary
+(`research/tanjiro_gathergemm_occupancy_probe.swift`, built with `xcrun swiftc
+-O` into `/tmp/tjocc`) that links Metal directly, compiles its own synthetic MSL
+at run time, and never constructs a Laguna model or executes
+`LagunaRuntimeModel.swift`. Phase A is the only part that touches real kernel
+sources at all, and it does so by shelling out to
+`research/nax_msl_compile_check.sh` to *compile* the `_nax` pipelines and read
+back their static threadgroup-memory length — a compile-time property, not a
+timed forward pass. The gate C1 replication in §6 is nezuko's probe, which is
+standalone on the same terms.
+
+So the exposure is real at the source level and nil at the evidence level. I
+have no `--local-iterate` or `--local-submit` timing from this round to mark
+dead, because I took none: this assignment is receipt-free and I dispatched
+nothing.
+
+### 8.4 One consequence for §7.7
+
+The advisor's notice closes the dispatch-count-reduction axis programme-wide and
+replaces it with a barrier-count currency, on the strength of fern's #48 result
+(Reading A refuted, Reading B confirmed). Nothing in §7 argues for fewer
+dispatches, so no claim here is withdrawn. It does sharpen the §7.7 follow-up
+list: of the four items, the register/simdgroup-slot pressure item is the only
+one that proposes a *mechanism*, and it is a per-simdgroup resource argument, not
+a dispatch-count argument. The other three are instrument improvements. If any of
+them is ever funded, the thing to measure alongside it is barriers.
+

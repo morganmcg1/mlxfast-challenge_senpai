@@ -94,6 +94,34 @@ instantiation `experts / expert_groups = 256 / 256 = 1`. The two variants are
 threadgroup-memory savings from changing the bounds representation is budgeting
 against a quantity that does not exist.
 
+### 4.1 Against the brief's "132 B … 1,028 B" expectation
+
+The brief and the follow-up notice
+[`5196932438`](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/57#issuecomment-5196932438)
+§2 both state the T2 objective as resolving `expert_groups` "and therefore the
+`bounds[]` footprint (132 B at `expert_groups=8` … 1,028 B at
+`expert_groups=1`)". The arithmetic behind those two figures is right —
+`int[256/8 + 1] = 33 × 4 = 132 B` and `int[256/1 + 1] = 257 × 4 = 1,028 B` — but
+neither value is shipped. Re-read from source at the current base
+`f722c2d7`:
+
+| step | source | value |
+|---|---|---|
+| host default | `quantized.cpp:1379-1389`, default returned at `:1383` | `darkbloom_expert_gather_groups() = 256` |
+| host → template | `quantized.cpp:1673` (`const int egroups = ...`), baked into the kernel name | `tg_expert_groups = 256` |
+| template → kernel | `fp_quantized_nax.h:1594` | `constexpr int expert_groups = tg_expert_groups` |
+| expert count | `fp_quantized_nax.h:1595` | `constexpr int experts = 256` |
+| hoisted declaration | `fp_quantized_nax.h:1618` | `int bounds[experts / expert_groups + 1]` = `int bounds[2]` = **8 B** |
+| fallback declaration | `fp_quantized_nax.h:1620` | `int bounds[2]` = **8 B** |
+
+`DARKBLOOM_EXPERT_GATHER_GROUPS` can override the 256 (`quantized.cpp:1381`,
+accepted only when it divides 256, `:1386`), so 132 B and 1,028 B are reachable
+— but only by setting an env var that also multiplies the number of expert slots
+each threadgroup owns and changes grid.y. They are not the footprint of the
+shipped dispatch, and `bounds` is 0.09% of the 9,224 B census either way. The
+`expert_groups` question is therefore answered "256", and the footprint question
+is answered "8 B, on both branches of the ifdef".
+
 ## 5. Dispatch geometry
 
 | quantity | value | source |
