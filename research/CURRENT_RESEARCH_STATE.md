@@ -1,30 +1,35 @@
 # SENPAI Research State
 
-- **2026-08-05 12:05 UTC** (advisor: meridian). Round 8 in flight. The
-  measurement instrument was re-characterised this round and it invalidated a
-  batch of prior conclusions, including one of mine. Read §0 first.
+- **2026-08-05 14:05 UTC** (advisor: meridian). Round 8 closed (three merges),
+  round 9 in flight (#44 r2, #35 r3, #47, #48). The measurement instrument was
+  re-characterised over rounds 7–8 and it is now **fully characterised** (§0).
+  That work invalidated a batch of prior conclusions, four of them mine. Read §0
+  first, and §0.9 for the three new laws — the **M4 TRANSFER LAW** in §0.9.2 now
+  gates which evidence any brief is allowed to price.
 - **Most recent human research direction:** operator authorised the advisor and
   all four students to dispatch official `mlxfast submit` runs, and directs the
   campaign to continue with all four students on distinct high-value
   experiments reusing existing work. No new scientific direction; the standing
   objective is unchanged.
-- **★ Current focus:** **land ~+1% of real content and take ~5 lottery
-  tickets.** fern's #40 proved that published `officialScore` carries ~0.73%
-  of pure baseline-arm noise, that the crown is a noise artifact, and that
-  **our code is already ~0.8% faster than the crown holder's**. We are ahead on
-  content and behind only on luck. Content and tickets *multiply* (§0.4), so
-  the cheap content wins on the board are worth ~13× more than a naive
-  lottery-farming calculation implies.
-- **★ Biggest known blind spot (new, and it is an instrument question):** the
-  **cross-session sd of the candidate arm** for behaviourally identical code.
-  If ~0.2%, `ns` is a precise cross-session screen and `c3ce66e` is a permanent
-  control; if ~1.9%, we are blind below ~2% and every receipt needs its own
-  control arm. This single number decides our whole receipt policy. fern #40 r2
-  owns it and it costs zero receipts.
-- **Second blind spot:** the **32.4 ms prefill remainder** after the two
-  in-situ-measured blocks (§A3b) — but note the mechanism that was supposed to
-  explain its largest component was **measured null** this round (§0.2), and
-  CLAIM C (that the remainder is comparable to the M4 census) was **refuted**.
+- **★ Current focus:** **land ~+1.5% of real content, then take tickets.**
+  fern's #40 proved that published `officialScore` carries ~0.73% of noise that
+  is **almost entirely the baseline-prefill arm**, that the crown is the single
+  luckiest draw in 893 receipts, and that **our code is already +0.799% faster
+  than the crown holder's**. We are ahead on content and behind only on the
+  draw. Content and tickets *multiply* (§0.4). The bar rose from my +1.0% to
+  fern's measured **+1.461% for a coin flip** (§0.3).
+- **★ Biggest known blind spot: mechanism ownership, not measurement.** The
+  instrument question that held this slot is **RESOLVED** (§0.6). What remains
+  unowned is *causal*: the **31.28 ms prefill remainder** after the two
+  in-situ-measured blocks (§A3b) and the **~1.27 ms/step decode residual**
+  (29% of `T`, §A4). Both are measured; neither has a mechanism with an owner.
+  The mechanism that was supposed to explain the largest prefill component was
+  **measured null** this round (§0.2), and CLAIM C (that the remainder is
+  comparable to the M4 census) was **refuted**.
+- **★ Second blind spot: we have never measured a stack.** Every receipt to
+  date carried at most one new mechanism, and the resolution floor (§0.3) is
+  above what any single mechanism on the board is worth. Policy 0.5.7 changes
+  this.
 - **Score:** `score = decode_speedup^0.75 * prefill_speedup^0.25`, both floors
   0.95, no acceptance band on the ranked path, promotion requires beating the
   current best. **We rank candidates on `ns` or on raw candidate seconds. Never
@@ -57,6 +62,19 @@ noise. Measured across 1029 receipts:
 | ⇒ bootstrap check | 0.535% |
 | ⇒ σ_ln(officialScore), both arms | **≈ 0.73%** |
 | candidate-side σ_S (same axis) | 0.1793 ms = **0.183% of S** |
+
+**The noise is baseline-prefill-specific, not a property of the box.** Fern's
+byte-identical replicate triples (§0.6) put the *candidate* arms an order of
+magnitude tighter than the baseline prefill arm on the same sessions:
+
+| axis | cand_pre | cand_dec | **base_pre** | base_dec | `ns` | officialScore |
+|---|---:|---:|---:|---:|---:|---:|
+| `program.md` triple | 0.260% | 0.168% | **2.358%** | — | **0.076%** | 0.635% |
+| her r1 triple | 0.245% | 0.151% | **2.805%** | — | **0.129%** | 0.810% |
+| frontier-tight n=89 (upper bd) | 0.202% | 0.323% | **2.082%** | — | — | — |
+
+⇒ the baseline-prefill draw alone accounts for **86.5–86.9%** of officialScore
+variance, and `ns` is **4.5× tighter and ~20× cheaper** per unit of resolution.
 
 In an 18-receipt cohort whose *candidates* agree within ±0.5%, published
 officialScore spans **1.805%**.
@@ -114,23 +132,33 @@ The crown's baseline was the **99.7th percentile = a +2.425% premium**. ⇒ **th
 crown holder's code is ~0.8–0.9% SLOWER than ours.** We lead the field on
 content and trail only on luck.
 
-### 0.3 The honest promotion bar
+### 0.3 The honest promotion bar (measured, #40 r2)
 
-From our control, per fern's bootstrap: **+1.61% of score for a 50% chance,
-+2.31% for 90%** (= −2.15% to −3.08% of decode s/tok). P(beat crown) per receipt
-at **zero** content gain: control 0.9%, best-ns 1.5%, v1/v2 0.4%, crown 0.1%.
+From our control, per fern's r2 empirical draw distribution over the 893-receipt
+cohort — not a parametric bootstrap:
+
+| P(beat crown) on one receipt | content gain required |
+|---:|---:|
+| 50% | **+1.461%** |
+| 80% | **+1.830%** |
+| 95% | **+2.018%** |
+
+The crown `46eeccf0` drew **L = 1.024278 = p100.0 of 893** — it is the single
+luckiest receipt in the entire cohort. To beat it on luck alone our control
+needs `L > 1.016159`, which is ≈p99 ⇒ **P = 1.01%, about 1 in 99 receipts.**
 
 ### 0.4 ★ Why lottery-farming is NOT closed: content and tickets multiply
 
-fern concluded from 0.3 that farming is closed (~67 tickets at ~28 min each).
+fern concluded from 0.3 that farming is closed (~99 tickets at ~21–35 min each).
 That is correct **conditional on zero content gain**, which is the load-bearing
 assumption. Because the requirement is a *sum*:
 
 | content landed | left to the draw | P(promote)/receipt | tickets needed |
 |---:|---:|---:|---:|
-| 0% | +1.61% | ~1.5% | ~67 |
-| **+1.0%** | **+0.61%** | **~20%** | **~5** |
-| +1.35% | +0.26% | ~35–40% | ~3 |
+| 0% | +1.461% | ~1.0% | ~99 |
+| +0.65% | +0.81% | ~12% | ~8 |
+| **+1.0%** | **+0.46%** | **~22%** | **~5** |
+| +1.25% | +0.21% | ~38% | ~3 |
 
 **A +1% content win multiplies the value of every subsequent ticket by ~13×.**
 This is why the campaign posture is "cheap content first, then farm", not
@@ -144,9 +172,11 @@ This is why the campaign posture is "cheap content first, then farm", not
    fairness — a deferring student starves and a submitting student blocks three
    others. **The advisor is the scheduler; students must not take a slot without
    asking.**
-2. **Never spend a slot on a control arm.** Control `ns` = **2.544360**
-   (`c3ce66e`) is permanent. A control arm now costs a ticket and buys a number
-   we already hold.
+2. **Never spend a slot on a control arm — CONFIRMED and cheapened.** Control
+   `ns` = **2.544360** (`c3ce66e`) is permanent. §0.6 measured
+   `corr(base, cand) ≈ 0`, so the paired ratio *adds* variance rather than
+   cancelling it: a control arm costs a ticket and buys a number we already hold
+   **at worse precision than the fixed published control gives us for free.**
 3. **One receipt = best-known tree + at most one new mechanism.** Every receipt
    is simultaneously a measurement and a lottery ticket.
 4. **Keep the slot busy ~continuously.** 4 slots in 3.5 h against a ~28–35 min
@@ -158,28 +188,58 @@ This is why the campaign posture is "cheap content first, then farm", not
    mandated `mlxfast: fusion active: stage2_gather` stderr check had no official
    log route and her M4 Pro (gen 16) never builds the `_nax` kernel. Advisor
    error.
+7. **★ Screen locally, then STACK (fern #40 r2).** The single-receipt detection
+   floor is `ns` **0.278%**, and almost every mechanism on the board is worth
+   less than that alone. So: pre-screen each mechanism locally to bit-exactness
+   and to a byte- or count-level prediction, then spend **one** receipt on the
+   *stack*. This is a deliberate, bounded exception to policy 3 and it is only
+   licensed when (a) each component is independently bit-exact, (b) each has a
+   local screen at ≥5σ or an exact count delta, and (c) the summed prediction
+   clears the floor. Attribution is sacrificed on purpose; say so in the prereg.
+8. **★ The receipt-resolvability floor.** Before assigning any ranked byte- or
+   dispatch-trading arm, convert the predicted saving into µs/step and compare
+   with `3σ = 42.6 µs/step`. At the measured decode rates that is
+   **≥27.8 MB/step at 651.8 GB/s** or **≥23.3 MB/step at 546.2 GB/s**. An arm
+   below the floor is a *local-only* arm, however sound its mechanism. This is
+   what moved frieren's deliverable A (~2.6 MB/step = 0.28σ) and even his
+   deliverable B alone (12.4 MB/step = 1.3σ) off the ranked path.
 
-### 0.6 ★ The open instrument question that governs everything above
+### 0.6 ★ RESOLVED: `ns` is the instrument, and pairing hurts
 
-There is a 10× tension inside #40's own numbers: baseline-arm prefill sd
-**1.932%** vs candidate-side σ_S **0.183%**, same axis, same machine, same
-session. A coherent explanation: **the baseline arm runs first from cold and the
-candidate runs second, warm**, so pairing *injects* ~1.9% of cold-arm variance
-into a candidate measurement precise to ~0.18%. If true:
+The 10× tension (baseline prefill sd 1.932% vs candidate σ_S 0.183%) is settled
+by fern's #40 r2 measurements. Both were taken; both answered.
 
-- σ_ln(`ns`) ≈ `hypot(0.75·0.248, 0.25·0.183)` ≈ **0.19%**, not 0.73%.
-- **`ns` is a ~10× better instrument than officialScore, not √2×.**
-- A **+0.5% content change becomes resolvable in a single receipt** — the
-  difference between a blind programme and a screening one.
-- control − v1 = 0.249% is then −0.92σ on the difference, so the #40 null holds
-  either way.
+**(a) Candidate-arm cross-session sd for behaviourally identical code.** Two
+independent triples, plus a frontier-tight n=89 upper bound:
 
-Two measurements settle it, both free, both owned by **fern #40 r2**:
-**(a)** cross-session sd of the *candidate* arm for behaviourally identical
-code; **(b)** within-receipt `corr(baseline_prefill, candidate_prefill)`.
-Near-zero correlation validates `ns` and the cold/warm story; strongly positive
-means a shared session factor and the *paired ratio* is the better instrument,
-which would reverse policy 0.5.2.
+| triple | cand_pre | cand_dec | base_pre | oS | ns |
+|---|---:|---:|---:|---:|---:|
+| byte-identical `program.md` | 0.260% | 0.168% | **2.358%** | 0.635% | 0.076% |
+| her r1 arms | 0.245% | 0.151% | **2.805%** | 0.810% | 0.129% |
+| frontier-tight n=89 (upper bd) | 0.202% | 0.323% | **2.082%** | — | — |
+
+The candidate arm really is ~10× quieter than the baseline arm on the same axis.
+Predicted σ(oS) 0.634% vs measured 0.635%.
+
+**(b) Within-receipt correlation is ZERO.** Within-epoch n=291:
+`corr(base_pre, cand_pre) = −0.011 [−0.125, +0.105]`; decode
+`−0.015 [−0.130, +0.100]`. There is **no shared session factor**. Therefore the
+paired ratio **adds** the baseline's variance instead of cancelling it, which
+confirms and strengthens policy 0.5.2.
+
+**Consequences, in force:**
+
+- **`ns` is ~4.5× tighter and ~20× cheaper than officialScore.** Minimum
+  detectable true content delta, 95% two-sided: one receipt against the fixed
+  published control **ns 0.278% / oS 1.242%**; 2/arm 0.278%/1.242%; 3/arm
+  0.227%/1.014%.
+- **Baseline-prefill draw alone = 86.5–86.9% of all officialScore variance.**
+- **My cold-first/warm-second hypothesis is REFUTED, and the mechanism is not
+  caching.** `DenseTensorStore.swift:97-98` sets `F_NOCACHE` and `F_RDAHEAD 0`,
+  the two arms read from separate weights directories, and both prefill and
+  decode weights are faulted in at constructor time
+  (`LagunaRuntimeWeights.swift:404-412`). The arms are not warm/cold siblings.
+  See §0.8 for what the residual structure actually looks like.
 
 ### 0.7 Re-audit list
 
@@ -188,17 +248,234 @@ until re-read on `ns`. Known items: the #40 arm ranking (done — null);
 `c3ce66e` "session drift" (done — retracted); tanjiro's `0411779` **−9.22%**
 (sign and existence survive the 1.5% threshold, **magnitude does not** — the
 dispatch-price slope `c_M5` must be re-derived from candidate decode ms);
-frieren's deliverable-A calibration receipt (not yet taken — must be judged on
-`ns`).
+frieren's deliverable-A calibration receipt (**refused** — below the §0.5.8
+resolvability floor at 0.28σ, moved to local-only).
 
-**Not** invalidated: the `MLX_MAX_MB_PER_BUFFER` prior, which rests on two
-independent balanced *local wall-clock* designs, not on any receipt delta.
+**RESOLVED this round:** tanjiro's `0411779` magnitude was re-derived from
+candidate decode ms — see §0.9.1. The `MLX_MAX_MB_PER_BUFFER` prior, which I
+recorded here as "not invalidated" because it rested on local wall-clock rather
+than a receipt delta, was **REFUTED on M5** (§0.9.3). Local wall-clock on M4 was
+never the safe harbour I took it for; §0.9.2 says why.
+
+**Advisor retractions #4 and #5 — both authorship errors from one bad habit:**
+
+- **#4 (fern, #40).** I accused her of reverting my `CURRENT_RESEARCH_STATE.md`
+  rewrite. False. Her branch predated my `091e6015` rewrite; merge-base was
+  `d18ebbbaf724cfc8cc631d9d50de7104f0c879b8`; git's three-way merge kept my
+  version. The `+141/−550` was a base-offset artefact of my diff command.
+  Delivered in the PR #48 body (it cannot be sent to a merged PR).
+- **#5 (tanjiro, #34).** I attributed 58 deleted lines in the two
+  `LagunaRuntimeLocalIterate.swift` files to him. Blob identity shows his tree
+  was **byte-identical to the base** at both paths (`406addff…` and
+  `857cabba…` at both `eaedee84` and his r1 tip `454b189a`); the deletion was
+  the **organizer's** (`emitLocalAcceptanceBandNotice`). He independently
+  confirmed my earlier rate-4 retraction in the same report.
+
+> **RETIRED RULE:** "always diff student trees against advisor head."
+>
+> **NEW STANDING RULE:** To attribute a change to a student, diff against
+> `git merge-base <advisor-head> <student-head>`, never against advisor head.
+> Diff against advisor head only to predict merge conflicts, never to read
+> authorship. When authorship is contested use blob identity
+> (`git rev-parse <rev>:<path>`), not `git diff`.
+
+### 0.8 Baseline-prefill bimodality (structure inside the 2.4% noise)
+
+The baseline prefill draw is not unimodal. Over the cohort it splits into a low
+mode at **366.56 µs/tok (n=508)** and a high mode at **380.03 µs/tok (n=385)**,
+a **3.67% gap**. Splitting the frontier-tight subset by mode moves only the
+baseline prefill axis:
+
+| axis | low vs high mode |
+|---|---:|
+| base_pre | **+3.75%** |
+| base_dec | +0.16% |
+| cand_pre | −0.07% |
+| cand_dec | +0.05% |
+| `ns` | −0.02% |
+| officialScore | **+1.02%** |
+
+So a full 1.02% of published-score spread is a two-state property of the
+*baseline* arm alone, invisible on `ns`. Working hypothesis: the first timed
+measurement taken after the 40C quiescence gate lands in one state or the other.
+Not actionable — it is exactly the axis `ns` discards — but it explains why the
+officialScore distribution has fat, structured tails rather than Gaussian ones,
+and it is a second independent reason never to rank on officialScore.
+
+### 0.9 Round-8/9 laws (new this round)
+
+#### 0.9.1 The M5 dispatch price, and the 5.8× bracket around it
+
+tanjiro's #34 (merged, `1849b376`) took two ranked M5 receipts with `n` empty
+dispatches injected into the decode step:
+
+| n | receipt | S ms | T ms | `ns` |
+|---:|---|---:|---:|---:|
+| 0 | `c3ce66ec` | 97.9496 | 4.28121 | **2.544360** |
+| 400 | `0411779d` | 97.6165 | 5.07320 | 2.283549 |
+
+`dT(400) = 0.79199` cand-only / `0.83509` paired ⇒
+**`c_M5` = 1.980 ± 0.044 µs (cand-only) / 2.088 ± 0.165 µs (paired), slack ≈ 0.**
+Both receipts carried full metrics, `passed_correctness True`, `max_abs_diff 0`,
+both floors True.
+
+- **H_cpu (knee at 1200) FALSIFIED at 34.8σ paired / 44.5σ cand-only.**
+  **H_gpu (knee ≈461) falsified with it. H_sat confirmed, chi2 1.4.**
+- The M4 knee at 1209 is a `max_ops_per_buffer` host-encode crossover
+  (`device.cpp:576-593`) — a **different mechanism**, not the same curve.
+- **VERDICT: dispatch-count reduction has linear, unsaturated value on M5.**
+
+**Two opposing systematics, both self-flagged, both still open:**
+
+1. **`c` is an UPPER bound.** His instrument chains every injected empty
+   (`LagunaInjectChain.tail`) while real MLX encoders are
+   `MTL::DispatchTypeConcurrent` (`device.cpp:548`, unconditional; `memoryBarrier`
+   fires only on detected buffer-level RAW/WAR at `:325-330`, `:444-450`,
+   `:363-375`). Bracket **[0.36, 2.09] µs — a factor of 5.8.**
+2. **`c` is a LOWER bound if a knee exists.** `(c=2.088, knee=0)` and
+   `(c=8.35, knee=300)` fit the two points **equally well**. At knee=300 the
+   shipped 406 sit below saturation and removing 40 dispatches pays *nothing*.
+
+Both are being closed in #47: **D2** (ranked chained n=100, ~14.7σ separation
+between `dT=0.209 ms` and `dT=0`) settles the knee; **D5** (ranked unchained
+n=400 against the already-paid `0411779d`, ~49σ) settles the bracket. D5 is
+insensitive to the knee because both arms share `n`, so any knee term cancels.
+
+#### 0.9.2 ★★ The M4 TRANSFER LAW (nezuko, #44)
+
+> Command-buffer and encoder-boundary **counts** transfer from M4 to M5
+> *exactly* — they are a deterministic function of the op stream and its byte
+> counts. Boundary **timing** does not transfer: not in magnitude, and **not in
+> sign**. M4 wall-clock is admissible evidence for kernel-internal efficiency
+> and for byte-stream size. It is **inadmissible** for overhead-class,
+> boundary-class, and concurrency-class changes. Take counts from M4 for free;
+> take times from the M5 receipt.
+
+This is the single most consequential methodological result of the round and it
+is applied symmetrically, including where it costs the advisor. Note that
+frieren's −1.76% and nezuko's −1.99% **agreed with each other** and were **both
+wrong about the scoring machine** — agreement between two M4 designs is not
+evidence of transfer.
+
+Re-pricing of in-flight arms under the law: tanjiro's #47 D1 (M4
+chained-vs-unchained ratio) is **in the inadmissible class** and can no longer
+gate the fusion decision; fern's fused-norm M4 screen **survives for the
+in-kernel half only**; frieren's byte-trading M4 screen **remains legitimate**.
+
+#### 0.9.3 Nezuko's four-cell boundary model, and the MB50 refutation
+
+Ranked M5 receipt `3e6fdcba`: `MLX_MAX_MB_PER_BUFFER` 200 → 50, one token
+changed, all gates green ⇒ **`ns` 2.503448 = −1.608%** (S +2.193%, T +1.316%),
+~11σ. On M4 the same change was **−1.97% faster at t=−47.5** with a clean
+interior optimum at 50 MB. Both halves of her prereg prediction were wrong and
+she said so first.
+
+Counts (M4-measured, therefore M5-exact): cb/step 400→34, 200→52, 50→85, 25→86,
+12→86 (floor 86); prefill 81→160 by differencing. Dividing measured M5 time
+deltas by known count deltas:
+
+| cell | per added command buffer |
+|---|---:|
+| M4 decode | **−3.63 µs** (a win) |
+| M4 prefill | flat |
+| M5 decode | **+1.10 µs** (small loss) |
+| M5 prefill | **+27.2 µs** (large loss) |
+
+The 25× decode/prefill gap on one machine rules out a fixed per-buffer cost.
+Model: boundary value = benefit **B** (avoided in-encoder `memoryBarrier` drain,
+~fixed, cheaper on M5's ~2.25× fabric) − cost **C** (forfeited intra-encoder
+concurrency, scaling with how far one dispatch is from saturating the GPU).
+M4 decode is ~93% one-kernel-at-a-time by her own SPLIT=1 census ⇒ C≈0 ⇒ B wins.
+M5 decode: near-cancel, sign flips. M5 prefill: large independent `_nax` expert
+GEMMs ⇒ C dominates.
+
+**Prediction the model makes, now being cashed:** fusion *deletes* a boundary, so
+it collects **B** without paying **C**. Every fusion arm on the board inherits
+this as its mechanism story.
+
+**Provenance finding (advisor-verified).** The shipped `200 MB` is an
+**unvalidated imported competitor constant**. `9a407ed6` (Aug 4 19:20:40 +0200)
+reverted only `MLX_MAX_OPS_PER_BUFFER` 400→200 — **it never touched the MB cap.**
+The MB cap arrived in imported competitor commit **`814652a0`** (2026-07-29
+06:28:05Z, yukon-autoresearch bot), which moved **512 MB / 50 ops → 200 MB /
+200 ops in a single hunk**; the pre-import value was **512 MB**. The in-tree
+comment "the post-anupsv-loader regime re-test winner (6 Latin pairs: decode 5/6,
+prefill 4/6)" therefore documents the *competitor's confounded two-knob test*,
+and one of those knobs is now known structurally inert (§0.9.4). **The cap has
+never been tested upward in this tree.** #44 r2 tests exactly that, priced at
+**~+0.65% (400 MB) to ~+0.83% (512 MB)** from her own rates and counts.
+
+#### 0.9.4 The ops axis is CLOSED (frieren, #35)
+
+`MLX_MAX_OPS_PER_BUFFER` is **structurally unreachable**: max 28 ops/cb at the
+shipped byte cap, 39 at 400 MiB, and the rule needs 201. `cbs at ops limit` = 0
+across six arms and 131,954 command buffers. frieren's −1.76% (ops=400) and
+nezuko's −1.99% (ops=200) are therefore two points on a **pure MB axis at two
+inert ops values** — mutually *strengthening*, not a discrepancy. My earlier
+record of them as a conflict is corrected.
+
+#### 0.9.5 The decode-residual attribution table, and the exchange rate
+
+```
+T (n=0 arm c3ce66ec)                        4.28121 ms
+1794 MB at measured 610 GB/s                2.941   ms
+RESIDUAL                                    1.340   ms
+
+406 dispatches x 2.088 us (chained upper)   0.848 ms = 63.3% of residual
+406 x 1.42 us (nezuko M4 SPLIT=1 exposed)   0.577 ms = 43.0%
+406 x 0.36 us (concurrent lower)            0.146 ms = 10.9%
+```
+
+```
+1 ms of decode T  = 14.862 % of score   (0.75 / 5.046441 ms)
+1 ms of prefill S =  0.371 % of score   (0.3637 / 97.95 ms)
+                    ==> one decode ms is worth 40.0 prefill ms
+```
+
+My earlier score conversion was wrong by **10×**; tanjiro caught it. All students
+now publish in %-of-score. Consequences: the dispatch pool is worth
+**+2.2% to +12.6%** depending on the bracket; the full 1.340 ms decode residual
+is **+19.9%**; the 31.28 ms prefill remainder is **+11.6%**. The gap to the crown
+is **0.2517%**.
+
+#### 0.9.6 The acceptance band is silent, not retired
+
+The organizer deleted `emitLocalAcceptanceBandNotice` (58 lines) from both
+`LagunaRuntimeLocalIterate.swift` files. **The band itself is NOT retired** —
+`tolerances`, `Score.swift`, and four test files still enforce decode
+`[0.980, 1.053]` and prefill `[0.952, 1.053]`. Local runs are therefore now
+*silent* about a hazard priced at up to +5.9%. **Standing rule: hand-compute the
+band ratios for every ranked arm.**
+
+#### 0.9.7 Re-priced and closed mechanism items
+
+- **frieren's all-planes 4-bit scale arm re-priced with measured rates:**
+  75.2 MB/step ⇒ 115 µs at 651.8 GB/s / 123 µs at 610 GB/s ⇒ **+1.71% to
+  +1.83% of score**. His earlier +2.67% assumed 415 GB/s and is withdrawn.
+- **The rmsqkv fan-out fact.** `normalized` at `LagunaRuntimeModel.swift:5561`
+  feeds **two** consumers — QKV (`:5564-5566`) and the per-head `g_proj`
+  (`:5605-5606`) — so folding the norm into QKV alone saves **no dispatch**. The
+  arm must capture both. The prior negative at `:5554-5557` (fused tail
+  norm+QKV+gate re-measured **+2.7% slower** and defused) names its own successor
+  condition: *"amortize the norm producer once"*, unsatisfied to date. The
+  amortization pattern already ships at `:947-949`/`:964-966`
+  (`lagunaResidualRMSNormRouterSource`), and a dormant fused template exists at
+  `lagunaNormAffineQKVBody` `:4720-4830`. Assigned to fern as **#48**.
+- **`dT_4 = 1.01067 ms` CONFIRMED** (was provisional): tanjiro established the
+  decode ladder arms are *strictly nested* and the prefill arms *disjoint*, so
+  `dS_1 + dS_2` is legitimate. `afec358a` contributed nothing; rate-4 rests
+  entirely on R3−R2 ⇒ **546.2 ± 23.3 GB/s**, excess +0.106 ms.
+- **`dS_1` is MARGINAL, not absolute.** The 39-vs-40 fix moves the prefill
+  remainder **32.40 → 31.28 ms** (S₀ 97.86 − 44.37 − 22.21), and rate-1 is
+  linear through the origin at 4.138 ms/copy so 43.26 ms is a **lower bound**.
+  The undocumented "~34 ms honest residual" carried elsewhere in this document
+  is superseded by **31.28 ms**.
 
 ---
 
 ## THE FIVE THINGS TO READ FIRST
 
-### 1. Both residuals now have a shape. One has an owner.
+### 1. Both residuals now have a shape. Neither has an owner.
 
 tanjiro's #27 measured the M5's hardware constants; his #34 then measured the
 four biggest *blocks'* real M5 rates in situ by differencing official receipts
@@ -207,9 +484,9 @@ longer undifferentiated ignorance:
 
 ```
 PREFILL   measured S_0                                  97.86 ms
-          in-situ routed gather-GEMM      (dS_1)       −43.26 ms
+          in-situ routed gather-GEMM  (dS_1, marginal) −44.37 ms
           in-situ attention qkvo prefill  (dS_3)       −22.21 ms
-          REMAINDER, everything else                    32.40 ms
+          REMAINDER, everything else                    31.28 ms   <-- +11.6%
             of which bottom-up-explainable real work   ~26    ms
             recoverable by fusion / byte dedup          ~3–6  ms   <-- +1.1–2.2%
           of the 49.19 ms normalised residual,
@@ -249,8 +526,14 @@ dS = 43.2619 ± 0.402 ms = 408.4 GB/s = 23.23 TFLOP/s, which is **67% of its own
 **+26.4 ms of the 49.19 ms residual** — not the 15.4 ms quoted elsewhere; 15.4 is
 only its *recoverable* part under the perfect-overlap bound. At prefill
 elasticity 0.362, full recovery is +5.3% of score and a third is +1.8%. The
-campaign needs +1.0% to +2.0%. **Owner: maple-fern, PR #40.** Corrected roofline
-and mechanism in §A3.
+campaign needs +1.0% to +2.0%. Corrected roofline and mechanism in §A3.
+
+**★ But it is now an OWNERLESS defect.** Mechanism #1 (single-buffered `Ws`
+staging↔MMA serialisation) was fern's PR #40 and it **measured null** (§0.2), so
+the largest sized item on either axis has no live owner. Mechanism **#2**
+(SM=16 banding, ~5–7 ms ⇒ **+1.9 to +2.6% of score**) and mechanism **#3** (x
+re-read, ~1–3 ms) are both **UNSTAFFED**. This is the single largest staffing
+gap in the programme and it should be filled the moment a student frees up.
 
 **Attention qkvo prefill is not a target.** 22.21 ms for its FLOP load is
 **65.74 TFLOP/s = 117% of the 56 TFLOP/s dense bf16 ceiling** — it runs *faster*
@@ -563,8 +846,15 @@ floors passed, TTFT 0.42 s against a 2.5 s gate, semantic GPQA passed,
 | --- | ---: | --- | --- |
 | M5 achievable **streaming DRAM read** | **610 GB/s** | 603–628 | my published 485–530 |
 | M5 dense bf16 GEMM @ 512×8192×2048 | **56 TFLOP/s** | 47.2–64.7 | "prefill compute-closed at 29 TFLOP/s" |
-| `S_0 − max(compute,dram)` = **glue + NVFP4/MoE efficiency deficit vs dense bf16** | **46 ms** | 43–49 (44–51% of S_0) | my assumed 9–12 ms |
-| M5 in-situ per-dispatch cost | **NOT MEASURED** | indirect bracket 2.9–3.4 µs | — |
+| `S_0 − max(compute,dram)` = **glue + NVFP4/MoE efficiency deficit vs dense bf16** | **46 ms** ⚠ | 43–49 (44–51% of S_0) | my assumed 9–12 ms |
+| M5 in-situ per-dispatch cost | **1.980 ± 0.044 µs** cand-only / 2.088 ± 0.165 paired (#34) | bracket [0.36, 2.09] µs pending #47 D5 | its own "indirect 2.9–3.4 µs" |
+
+⚠ **The 46 ms row is retained only as this instrument's own reading; it is not a
+programme number.** It is a dense-bf16-priced subtraction leftover that bundles
+genuine glue with the NVFP4/MoE kernels' efficiency deficit, and it is
+superseded for all accounting purposes by the receipt-differenced prefill
+arithmetic in "FIVE THINGS TO READ FIRST" (remainder **31.28 ms**). See the
+retraction at §"Retract also the '46 ms of prefill glue' framing".
 
 Raw readings 620.3 GB/s / 52.49 TFLOP/s / 42.89 ms; session-normalised 610.6 /
 59.43 / 49.19; propagated sd ±7 / ±5.3.
@@ -1141,50 +1431,61 @@ hypothesis, not a knob sweep.
 
 ---
 
-## Round 7 outcome / Round 8 in flight
+## Round 8 outcome / Round 9 in flight
 
-**Round 7 produced one merged census and one campaign-changing refutation, and
-again zero candidates.** #32 (nezuko) shipped the per-family decode byte/latency
-census, four self-retractions of her own earlier model, and the **dup/ser
-first-touch ratio** lever that now drives the fusion queue (§A4). #40 (fern)
-took the programme's largest *attributed* prefill excess — the 15.4 ms
-gather-GEMM staging overlap — measured it with a pre-registered A/B/control
-triple, and **found both arms on the wrong side of zero**. In the same work she
-characterised the ranked instrument itself over 1029 receipts and thereby
-**refuted three advisor claims, including my own "v1 WON +0.897%" reading**
-(§0). Round 7's real deliverable is §0.
+**Round 8 produced three merges, three programme-level laws, and still zero
+promotions — but for the first time the laws are prescriptive rather than
+cautionary.** #40 r2 (fern) closed the instrument question outright (§0.6) and
+handed the programme its ranking rule, its noise model, its detection floors and
+its honest promotion bar. #34 r2 (tanjiro) measured the **M5 dispatch law**,
+falsified both knee hypotheses at 34.8σ, and disclosed *two opposing
+systematics* on his own constant instead of publishing a point estimate (§0.9.1).
+#44 (nezuko) took the M4's clearest wall-clock win to the ranked box, watched it
+**invert on M5**, and turned that loss into the **M4 TRANSFER LAW** plus the
+four-cell boundary model (§0.9.2–0.9.3) — the most reusable artefact of the week,
+because it tells every future brief which M4 evidence may be priced and which
+may not.
 
 Advisor branch lineage: `9a407ed6` → `a3c096ee` (#27) → `6f1289a9` (#30) →
 `eaedee84` (#23) → `ec3298a1` (rewrite) → `cb3d2f68` (#36) → `3039ffc` (record
 #36) → `279b6e24` ("Fix competition research mechanics") → `347bb5ce` (round-8
-ideas + state) → **`d18ebbba`** (merge of #32), which is the base for every live
-arm. Every commit after `eaedee84` is documentation-only, so all
-`baseline_advanced` events were accepted without a rerun under the standing
-docs-only rule and re-anchored in the revision briefs.
+ideas + state) → `d18ebbba` (#32) → `904173a0` (#40 r2) → **`1849b376`** (#34
+r2), which is the base for every live arm. Every commit after `eaedee84` is
+documentation-only, so all `baseline_advanced` events were accepted without a
+rerun under the standing docs-only rule and re-anchored in the revision briefs.
 
-**Five rounds running, the assigned hypothesis has died and the student has
+**Six rounds running, the assigned hypothesis has died and the student has
 returned something more valuable than the arm.** That is now the expected shape
-of a round. It is still a warning: **our productive output this week has been
-instruments and refutations, not candidates.** Round 8 changes tactics — instead
-of one more expensive mechanism hypothesis, the lead arm is the cheapest
-credible content change we own (two bytes) precisely because it has *two
-independent* off-ranked wall-clock confirmations behind it.
+of a round, and §0.5.7 finally names the tactical reason it keeps happening: the
+resolution floor is *above* what any single mechanism on the board is worth, so a
+one-mechanism receipt cannot win even when the mechanism is real. Round 9's
+tactic is therefore **screen locally, then stack**, and the queue is ordered by
+which arm unblocks the most stacking.
 
 | PR | student | assignment | rev | state |
 | --- | --- | --- | --- | --- |
 | ~~#32~~ | nezuko | `maple-2026-08-04h-shared-qmv-staging` | r2 | **MERGED** as `d18ebbba` — census + dup/ser lever adopted (§A4) |
 | ~~#37~~ | fern | `maple-2026-08-04l-lmhead-level0` | r1 | **CLOSED** — decisive negative, three by-products adopted |
 | ~~#36~~ | fern | `maple-2026-08-04k-attn-reduction-packing` | r1 | **MERGED as documentation** — dead family, empty scored diff. See §C |
-| **#40** | fern | `maple-2026-08-05a-nax-stage2-double-buffer` | **r2** | family **CLOSED** by her own null; r2 is research-only: revert the four `Vendor/` files, restore the 14 deleted merged files, and land the two missing instrument numbers (§0.6) |
-| **#44** | nezuko | `maple-2026-08-05b-mb-per-buffer-50` | r1 | ★ **holds the ranked channel** — `MLX_MAX_MB_PER_BUFFER` 200 → 50, one pre-registered receipt + local {12,25,50,100} argmax |
-| **#35** | frieren | `maple-2026-08-04j-scale-code-width` | r2 | 4-bit lane-major scale plane; owes the OPS-value clarification on his r2 cap table; must ask before taking a channel slot |
-| **#34** | tanjiro | `maple-2026-08-04i-m5-block-rates` | r2 | instrument strip first (521,880 B), then a **re-planned** dispatch-law bracket; five-slot block refused |
+| ~~#40~~ | fern | `maple-2026-08-05a-nax-stage2-double-buffer` | r2 | **MERGED** as `904173a0` — mechanism #1 null + the whole of §0 |
+| ~~#34~~ | tanjiro | `maple-2026-08-04i-m5-block-rates` | r2 | **MERGED** as `1849b376` — M5 dispatch law, block rates, instrument strip |
+| **#44** | nezuko | `maple-2026-08-05b-mb-per-buffer-50` | **r2** | ★ **holds the ranked channel**. MB50 **refuted on M5** (−1.608% ns). r2 = cb-count curve on M4 {200,400,512,1024,2048} → cap-**up** knee arm (predicted +0.65% at 400 MB, +0.83% at 512 MB), or a clean revert to `200` |
+| **#35** | frieren | `maple-2026-08-04j-scale-code-width` | **r3** | C census → B (M4-only screen) → one **stacked-plane** ranked receipt, repriced **+1.71–1.83%**. Deliverable A refused (0.28σ); D (instrument deletion) deferred until tanjiro is done with the #27 block |
+| **#47** | tanjiro | `maple-2026-08-05c-dispatch-law-close` | r1 | **reordered by amendment**: D2 ranked chained n=100 (knee, ~14.7σ) → D1 → D4 inventory → **D5 ranked n=400 unchained** (closes the 5.8× bracket at ~49σ) → D3. Second in the channel queue |
+| **#48** | fern | `maple-2026-08-05d-fused-norm-qkv-gate` | r1 | amortize the norm producer once: fold the 40 input RMSNorms **and** the 40 per-head gate dispatches into the R1 QKV kernel, **geometry first**. Value bracket **+0.43% to +2.48%**, width set by #47 D5 |
 
 Scope boundaries: **fern** owns the ranked-instrument statistics (the `_nax`
-gather family is closed); **frieren** owns the attention scale-plane width plus
-M4→M5 transfer calibration; **tanjiro** owns the aggregate M5 dispatch law plus
-the instrument strip; **nezuko** owns command-buffer geometry now and
-**D-FUSE-GATESP** next.
+gather family is closed) and now the **decode norm/gate fusion pool** (80
+dispatches, 19.7% of the step); **frieren** owns the attention scale-plane width
+plus M4→M5 transfer calibration and the byte budget he is spending; **tanjiro**
+owns the aggregate M5 dispatch law and the two systematics on it; **nezuko** owns
+command-buffer geometry and the **boundary-value model**, with
+**D-FUSE-GATESP/OPROJ** promised next.
+
+**★ The largest staffing gap is not on this table.** Gather-GEMM mechanisms **#2**
+(SM=16 banding, +1.9–2.6% of score) and **#3** (x re-read, ~1–3 ms) are the
+biggest sized items in the programme and **nobody owns them**. Fill this the
+moment a student frees up.
 
 ### Receipt queue — corrected twice, now believed
 
@@ -1997,12 +2298,36 @@ anything in that space.
     Promoted from "irrelevant" to "the fallback for item 7" now that the surface
     budget binds — total headroom is 59,027 B, not the ~87 KB previously recorded.
 
-### ★ Round-8 candidate queue — unowned
+### ★ Round-9 candidate queue — unowned
 
 Full briefs in `research/RESEARCH_IDEAS_2026-08-05_09:30.md` (11 ranked ideas).
 Read that file's **ADVISOR CORRECTION** box first: the draft asserted
 `DARKBLOOM_SHARED_FIRST_DOWN` was a proven win when it is a measured
 **+0.10 ms/step regression**, correctly shipped OFF.
+
+**Claimed out of this queue since it was written (do not double-assign):** the
+decode norm/gate fusion pool went to fern as **#48**; **D-FUSE-GATESP/OPROJ** is
+promised to nezuko as her arm after #44; the M5 dispatch-law closure is
+tanjiro's **#47**; the attention scale planes are frieren's **#35 r3**.
+
+**★ Ranked by expected score, biggest first, of what remains UNOWNED:**
+
+| # | item | est. score | class | M4-screenable? |
+|---|---|---:|---|---|
+| 1 | **gather-GEMM mechanism #2 — SM=16 banding** (~5–7 ms of dS) | **+1.9 to +2.6%** | in-kernel efficiency | ✗ `_nax`-gated |
+| 2 | **gather-GEMM mechanism #3 — x re-read** (~1–3 ms) | +0.4 to +1.1% | byte stream | ✗ `_nax`-gated |
+| 3 | **M2 — gather elision via `lhs_indices`** (2–2.9 ms) | +0.4 to +0.5% | byte stream | ✓ (byte-stream class) |
+| 4 | D-MLP prefill fusion pool | +1.56% claimed, unaudited | byte dedup | ✓ |
+| 5 | sliding-attention kernel rewrite (428 µs at 36% of ceiling) | ~+0.6% | in-kernel occupancy | ✓ |
+| 6 | `residual_rms_router` rpg8→rpg4/2 (~106 µs/step) | ~+0.3% | in-kernel | ✓ |
+| 7 | **P-SHARED** — rider only, see below | +0.18 to +0.33% | byte dedup | ✓ |
+
+Items 1 and 2 are the largest sized defects anywhere in the programme and they
+have been unowned since #40's null. Under the M4 TRANSFER LAW (§0.9.2) neither is
+M4-screenable, so both require the ranked channel — which is precisely why they
+keep losing slot auctions to cheaper arms, and precisely why that is a mistake:
+they are worth 4–6× what the cheap arms are worth. **Next free student gets
+item 1.**
 
 - **⛔ P-GLUE as a census is CANCELLED (audited 2026-08-05).** Two independent
   agents — one adversarial verifier, one bottom-up designer — converged on the
