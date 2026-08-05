@@ -249,4 +249,53 @@ rather than assuming the slot.
 
 ## Round 2 power control — result
 
-Appended after the run completes.
+Round 2 ran modes 5 (reverse a lane's four K-block codes), 6 (read the lane word
+16 lanes away) and 1 (`simd_lid ^ 1`) at 128 greedy steps, plus an unfaulted
+control. **All four arms reported 0 divergences.** Every arm logged both the
+bank build and the dispatch, so every fault was reachable — the instrument had
+reach but no power at these fault modes.
+
+The reason is a sensitivity floor, not a bug. `laguna_tail_nvfp4_scale` reads a
+code as the top 9 bits of a half, row spans are ≤15, and the top-7 codes carry
+≈97.9% of the mass, so an addressing permutation overwhelmingly swaps codes that
+are equal or differ by one. Modes 5/6/1 at 0/128 therefore bound per-step
+divergence below ≈2.3% (95%) rather than certifying the addressing.
+
+Round 1's catastrophic modes did fire (mode 3 → 32/32, mode 4 → 2/128, mode 2 →
+1/128), which is what makes this a *catastrophic-only* instrument. It is retained
+as a reachability and gross-error check and **retracted as an addressing
+certificate**. Full accounting, including the frontier-reviewed one-hot
+128-probe design that would close the gap, is in
+`research/frieren-pr35-r3-b-verification.md` §3 and §4.1.1.
+
+## Corrections to this note
+
+Two statements above were true when written and are now superseded. Recording
+both rather than editing them away:
+
+1. **`accepted_base_sha`.** The note names
+   `d267ebda88c50a6e1b539d9265050dbaae00c268`. Two further `baseline_advanced`
+   events have landed since. The base carried on the current `submit_result` is
+   `90bbc33d25dabbb08dc41bad0b96d74a8e57a3eb`, cleared the same way under the
+   standing rule: `git diff --name-only eaedee84 90bbc33d` touches 95 files with
+   an **editable intersection of 0**, so nothing was rebased and nothing was
+   re-run.
+2. **"I am not ready to ask for the ranked slot yet."** Withdrawn. The V7
+   full-stack screen measured the branch default stack at **−97.9 µs/step
+   (+1.131% of step, 6.9σ against the ±14.2 µs ranked σ, ≈+1.46% of score)**,
+   which is 2.3× the ≈43 µs receipt-resolvability floor. The stack is
+   receipt-resolvable **without** the `attn.o` extension, so the ranked slot is
+   now requested on this evidence. See
+   `research/frieren-pr35-r3-b-verification.md` §9.4.
+
+3. **The V1–V6 ledger at the top of this note is stale and partly wrong.** V2
+   and V5 are marked as B's evidence there; both are now **retracted** because
+   the upstream-equivalence oracle never builds a fused decode bank, so neither
+   arm of either check ever executed the lane-major path. The authoritative
+   ledger, including V7 and the retraction reasons, is
+   `research/frieren-pr35-r3-b-verification.md` §8. Do not read the table above
+   as current status.
+
+The Ask 2 reasoning in this note still stands on its own terms — `attn.o` is
+still the strongest next extension — but it is no longer a *precondition* for the
+receipt.
