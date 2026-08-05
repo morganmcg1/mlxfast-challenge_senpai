@@ -188,7 +188,19 @@ fi
 for mode in ${MODES}; do
     cool_wait 180
     echo "=== applying fault patch (mode ${mode}) ==="
-    git apply "${patch}" || { echo "PATCH FAILED - mode ${mode} not run"; exit 3; }
+    # A previous session lost a whole arm here: `git apply` failed because the
+    # worktree was mutated by an unrelated agent-boundary git operation during
+    # cool_wait. Tolerate an already-applied patch, and never run an arm whose
+    # hook is not verifiably in the file we are about to compile.
+    if ! git apply "${patch}" 2>&1; then
+        echo "=== git apply failed; checking whether the hook is already present ==="
+        git status --short
+    fi
+    if ! grep -q 'DARKBLOOM_LM_FAULT' Sources/MLXFastModel/LagunaRuntimeModel.swift; then
+        echo "PATCH FAILED - mode ${mode} not run (hook absent from Sources/)"
+        exit 3
+    fi
+    echo "=== hook verified present in Sources/ ==="
     run_arm "v4c_mode${mode}" "DARKBLOOM_LM_FAULT=${mode}" ${COOL_ENV}
     F_CLASS="${ARM_CLASS}"
     restore_sources
