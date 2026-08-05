@@ -309,30 +309,13 @@ decode_speedup >= 0.95
 prefill_speedup >= 0.95
 ```
 
-A two-sided acceptance band applies on top of the floors, and is tighter
-than them in both directions:
-
-```text
-decode_speedup  vs the pinned calibration reference: [0.980, 1.053]
-prefill_speedup vs the pinned calibration reference: [0.952, 1.053]
-```
-
-The band gates each timed run's measured seconds/token against the pinned
-calibration reference (the `officialBaseline*` constants in
-`Sources/MLXFastCore/Constants.swift` — the same reference local estimates
-use), not against the same-session paired baseline that produces the
-published `decode_speedup`/`prefill_speedup`. Only the 0.95 floors apply to
-the published paired ratio, so a published speedup slightly outside the
-band window is expected when the box's session baseline drifts from the
-pinned reference — it is not a band violation.
-
-The upper bound caps a single submission's gain at about 5% — a larger
-measured win is either a lucky reading or too big to trust in one shot, so
-chunk it across submissions (the cap is per submission, not cumulative).
-Local modes never fail on the band: `--local-iterate` and `--local-submit`
-print a warning when their estimate exceeds it but still publish the
-estimate. A ranked run that trips it fails with failure category
-`acceptance_band_failed`; see `docs/benchmark-window-freeze.md`.
+The deployed ranked wrapper does not cap a candidate at `1.053`. Although the
+inner benchmark binary still contains a legacy two-sided `AcceptanceBand`, the
+on-box measurement wrapper treats each binary invocation as a timing probe,
+checks baseline calibration separately, and owns the final paired verdict.
+`overlay-paired-timing.sh` applies only the two `0.95` component floors to the
+candidate ratio; promotion then requires beating the current best. Do not
+throttle or split a genuine win to fit the legacy band.
 
 Correctness is a hard gate: the full 64-step teacher-forced base case, the
 hidden anchor/free-run/behavior/GPQA gates, GPQA TTFT, the semantic GPQA

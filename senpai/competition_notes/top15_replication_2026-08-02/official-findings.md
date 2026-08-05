@@ -1,5 +1,10 @@
 # Official findings for leaderboard ranks 112–126
 
+> **Contract correction (2026-08-05).** The interpretation below that a large
+> jump does not disprove a candidate acceptance cap is superseded by deployed
+> wrapper evidence. The final paired verdict applies the two `0.95` floors and
+> accepts candidate gains above `1.053`; the historical receipts remain valid.
+
 Snapshot: **2026-08-02T09:07:21Z**<br>
 Track: `laguna-xs-2.1-serial-v2`<br>
 Official runner: Apple M5 Max<br>

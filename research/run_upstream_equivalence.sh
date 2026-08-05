@@ -6,6 +6,7 @@ export MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE=1
 export MLXFAST_LAGUNA_EQUIVALENCE_WEIGHTS_PATH="${PWD}/weights"
 
 log="$(mktemp -t mlxfast-equivalence)"
+trap 'rm -f "${log}"' EXIT
 
 run_oracle() {
     # The oracle is a free swift-testing @Test function with no enclosing
@@ -22,7 +23,7 @@ status=$?
 
 # The debug test bundle has no colocated mlx.metallib and MLX offers no
 # environment override, so it aborts at first GPU use. Seed the metallib from
-# the worker build (Vendor/ is unchanged, so the AOT library is identical).
+# the scored worker build and retry once.
 if grep -q "Failed to load the default metallib" "${log}"; then
     src=".build-worker/arm64-apple-macosx/release/mlx.metallib"
     bundle=".build/arm64-apple-macosx/debug/mlxfast-challenge-devPackageTests.xctest/Contents/MacOS"
@@ -31,14 +32,21 @@ if grep -q "Failed to load the default metallib" "${log}"; then
         [ -d "${bundle}" ] && cp "${src}" "${bundle}/mlx.metallib"
         run_oracle
         status=$?
+    else
+        echo "equivalence: missing ${src}; run ./benchmark.sh --local-iterate first" >&2
     fi
 fi
 
-# The default tolerance of 0 is applied to every step including prefill, which
-# the batched NVFP4 path cannot meet against the bf16 upstream reference. Read
-# the per-step table above rather than this exit code.
+# A mismatched Swift Testing filter exits zero after selecting no tests. The
+# report marker proves that this specific gated test reached its comparison.
+if ! grep -q '"promptTokenCount"' "${log}"; then
+    echo "equivalence: oracle report missing; zero selected tests is not a pass" >&2
+    status=3
+fi
+
+# Zero tolerance covers prefill as well as decode. Read the per-step report;
+# on a non-M5 host, compare the unchanged BASE_SHA before attributing drift.
 grep -c '"maximumAbsoluteLogitError" : 0,' "${log}" \
     | sed 's/^/EQUIVALENCE_EXACT_STEPS=/'
-git checkout -- Package.resolved 2>/dev/null
 echo "EQUIVALENCE_EXIT=${status}"
 exit "${status}"

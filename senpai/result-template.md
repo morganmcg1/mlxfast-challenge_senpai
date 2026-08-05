@@ -23,15 +23,19 @@ available with value `0`.
 - `BASE_SHA` / candidate commit:
 - Submitted candidate files:
 - Supporting test or documentation files:
+- Assignment-scope preflight:
+- Editable bytes / headroom / growth:
+- Scored-path reachability evidence:
 
 ### Evidence
 
 - Host, memory profile, toolchain, and thermal policy:
 - Exact baseline and candidate commands:
-- Tests and risk-based checks run:
+- Tests and risk-based checks run, including selected-test count:
 - Correctness and serial-protocol verdict:
 - Divergent tokens or failure category, if any:
 - Peak RAM or generated-weight size, if relevant:
+- Official ranking status versus correctness/floor status, if submitted:
 
 | Metric | Baseline | Candidate | Ratio / delta |
 | --- | ---: | ---: | ---: |
