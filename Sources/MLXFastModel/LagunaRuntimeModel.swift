@@ -11243,6 +11243,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
         }
+        lagunaRunScaleCensus()
         // Certified two-pass lm_head coarse copy (notes/68), gated by
         // `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON;
         // set "0" to disable). Built after the fused layouts so it reads
