@@ -34,7 +34,7 @@ for arm in "${ARMS[@]}"; do
         python3 research/decode_probe.py --steps "${STEPS}" --profile \
             --profile-top 60 --stderr "${err}" 2>&1 \
         | grep -Ev "^ *$" \
-        | grep -E 'worker up|divergences|decode steps=|per steady step|profile:|swiglu_qmv_rows1|down_residual|first 8 steps'
+        | grep -E 'worker up|divergences|decode steps=|per steady step|profile:|swiglu_qmv_rows1|down_residual|first 8 steps|^ +[0-9]+\.[0-9]'
     grep -E '^GPUPSO .*(swiglu_qmv_rows1|down_residual)' "${err}" \
         | sed 's/^/    /'
     echo
