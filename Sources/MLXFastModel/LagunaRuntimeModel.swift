@@ -10659,8 +10659,9 @@ final class LagunaRuntimeModelInner: Module {
         var fullRoPEAngles: MLXArray?
         var slidingRoPEAngles: MLXArray?
         var qkRoPEOffsets: MLXArray?
+        let decodePosition = decodeRoPEAtlasPosition(inputs: inputs, cache: cache)
         if lagunaRoPEAngleAtlasEnabled,
-            let position = decodeRoPEAtlasPosition(inputs: inputs, cache: cache),
+            let position = decodePosition,
             let fullAtlas = _fullRoPEAngleAtlas,
             let slidingAtlas = _slidingRoPEAngleAtlas,
             let atlasOutputs = lagunaDecodeEmbeddingRoPEAtlas(
@@ -10674,7 +10675,7 @@ final class LagunaRuntimeModelInner: Module {
             fullRoPEAngles = atlasOutputs.fullAngles
             slidingRoPEAngles = atlasOutputs.slidingAngles
         } else if lagunaRoPEAtlasViewsEnabled,
-            let position = decodeRoPEAtlasPosition(inputs: inputs, cache: cache),
+            let position = decodePosition,
             let fullAtlas = _fullRoPEAngleAtlas,
             let slidingAtlas = _slidingRoPEAngleAtlas
         {
@@ -10738,9 +10739,12 @@ final class LagunaRuntimeModelInner: Module {
         // layer's cache offset: all full-attention caches advance in
         // lockstep, as do all sliding caches (vendored `LagunaModelInner`
         // convention).
-        let fullMask = createAttentionMask(h: h, cache: cache?[fullAttentionIdx])
-        let slidingMask = createAttentionMask(
-            h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
+        let fullMask = decodePosition == nil
+            ? createAttentionMask(h: h, cache: cache?[fullAttentionIdx]) : .none
+        let slidingMask = decodePosition == nil
+            ? createAttentionMask(
+                h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
+            : .none
 
         let isSingleTokenDecode = inputs.shape == [1, 1]
         let decodeFireMask: UInt64 =
