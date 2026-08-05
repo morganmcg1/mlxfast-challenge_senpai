@@ -160,3 +160,145 @@ Pre-measurement inject check (0.5) must show defaults `0` and `160` before any
 timing run, pasted into the result. Byte budget cap for this assignment is
 <= +8,000 B net; the probe is `research/`-only and therefore outside the
 submitted surface.
+
+---
+
+## §6 Addendum (Step 1b) — pre-registered BEFORE the in-situ run
+
+Committed separately and before any Step 1b timing. §1–§5 above are **not**
+retro-edited; commit `8ab8327` preserves them verbatim.
+
+### 6.1 What Step 1 (standalone probe) actually returned
+
+`/tmp/m2probe` built from `research/maple_fern_m2_gather_probe.swift`, device
+`Apple M4 Pro`, run under `run_training` id
+`a907fe51-ea46-4405-a855-9e2976ba476d` (exit 0, 0.544 s).
+
+Regime A (`layers=1`, 18.0 MiB working set), reps=7, first 2 discarded:
+
+| arm | median us | min | max | spread | GB/s |
+|---|---|---|---|---|---|
+| `t_gather` | 188.17 | 187.00 | 189.38 | 1.013 | 100.3 (18.0 MiB) |
+| `t_seq`    | 163.75 | 159.50 | 164.75 | 1.033 | 102.5 (16.0 MiB) |
+| `t_perm`   | 168.00 | 167.12 | 168.87 | 1.010 |  99.9 (16.0 MiB) |
+
+`half_a = 188.17 us/layer`, `half_b = t_seq - t_perm = -4.25 us/layer`,
+combined M4 `7.173 ms`, converted M5 `2.862 ms`, score delta `+1.062 %`.
+D1 clear, D2 clear, D3 clear, D4 yes.
+
+Regime B (`layers=8`, 144.0 MiB working set):
+
+| arm | median us/layer | min | max | spread | GB/s |
+|---|---|---|---|---|---|
+| `t_gather` | 168.03 | 157.08 | 188.13 | 1.198 | 112.3 |
+| `t_seq`    | 122.23 | 115.74 | 152.11 | **1.314** | 137.3 |
+| `t_perm`   | 151.23 | 147.75 | 162.45 | 1.100 | 110.9 |
+
+`half_a = 168.03 us/layer`, `half_b = -29.00 us/layer`, combined M4 `5.422 ms`,
+converted M5 `2.163 ms`, score delta `+0.803 %`. **D1 FIRES** (`t_seq` spread
+1.314 > 1.20). D2 clear, D3 clear, D4 yes.
+
+### 6.2 Three problems with taking that at face value
+
+1. **`half_b` is negative in both regimes.** The permuted 2 MiB read costs more
+   than the sequential 16 MiB read despite touching 8x fewer unique bytes. This
+   is exactly the sign risk flagged in advance at
+   `research/CURRENT_RESEARCH_STATE.md:1114-1118`. Half (b) of M2 **costs**.
+2. **My own D1 gate fired on regime B.** §3 binds me: D1 is evaluated on every
+   regime, and any arm too noisy kills the measurement. Regime B was designed to
+   be the *more* favourable regime (larger working set, less cache help) and
+   instead came back *less* favourable (2.163 < 2.862 ms), so §3's
+   "decision uses the larger converted_M5_ms" points at regime A while §3's D1
+   clause points at STOP. That is a genuine defect in my own pre-registration
+   and I am recording it rather than picking the convenient branch.
+3. **The probe is not bandwidth-resolving.** All three arms land at 100-137 GB/s
+   against a measured M4 DRAM ceiling of 260.2 GB/s
+   (`CURRENT_RESEARCH_STATE.md:3086`). 16 MiB at 260 GB/s is ~64 us, not 163 us.
+   The probe kernels move one `uint4` per thread across 4096 threadgroups per
+   layer, so they are load-issue / launch bound, not byte bound. Consequences:
+   (a) `t_seq` and `t_perm` are forced within 2.6% of each other in regime A by
+   construction, so the probe cannot resolve `half_b` at all; and (b) my §1
+   claim that `t_gather` is a **lower bound** on the real MLX gather is **wrong
+   in sign** — the emulation carries fixed per-thread overhead the real kernel
+   does not, so 188 us/layer is more likely an over-estimate.
+
+Independent analytic cross-check: PR #11's roofline
+(`research/maple-fern-prefill-roofline.md:35`) puts the entire
+`laguna_*` + elementwise + rms + router + moe_tail + sort/scatter + lm_head
+bucket at **18.09 ms of 549.55 ms** serial-equivalent M4 busy. A 7.33 ms
+half_a would be 40.5% of that whole bucket for the row gather alone, which is
+not credible. A DRAM-bound estimate is 39 x ~69 us = 2.69 ms M4 -> x0.399 =
+**1.07 ms M5 -> +0.40%**, i.e. straddling the D3 bar from below.
+
+### 6.3 New instrument: in-situ additive duplication of the real gather
+
+The standalone probe emulated the gather. The decisive quantity is the **real**
+kernel's marginal in-situ cost. Instrument, modelled on the repo's existing
+`DARKBLOOM_PREFILL_GATHER_RUNSKIP` duplication prior art
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp:~1283`):
+
+Throwaway, env-gated, correctness-neutral edit to the fused branch of
+`gatherSort` (`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift`):
+read `DARKBLOOM_M2_GATHER_DUP` once into a file-level `let`; when `> 0`, build
+that many *discarded* copies of `flat[fused.rowOrder]`, `MLX.eval` them, then
+return the real triple unchanged. Because every duplicate result is thrown
+away, the returned values and the argmax token must be **bit-identical** at
+every `N`; a token change is a built-in falsification of the instrument.
+
+Measure `research/prefill_probe.py` at `N=1` and `N=9`. Both settings execute
+exactly one `eval` barrier per `gatherSort` call, so barrier and host overhead
+cancel in the difference and
+
+```
+g_M4 = ( median_prefill_ms(N=9) - median_prefill_ms(N=1) ) / 8
+```
+
+is the serial-equivalent M4 cost of one full forward-pass worth of 39 real row
+gathers.
+
+**Declared bias, stated before the run:** the `eval` barriers serialize the
+duplicated gathers, so `g_M4` is a **serial-equivalent** figure and therefore an
+**upper bound** on what deleting the gather can save. This is the same
+sum-vs-union property that made `arangeuint32` appear to cost 134.03 ms in the
+PR #11 profile while contributing ~0 ms to the union
+(`research/maple-fern-prefill-roofline.md:296`). An upper bound is the right
+shape of error here: it can only produce a false GO, never a false STOP, and
+Step 2 would then have to earn the number again on the harness.
+
+**Checked assumption:** MLX eager mode does not common-subexpression-eliminate
+the repeated `flat[fused.rowOrder]`. If `N=9` and `N=1` come back within noise
+I will treat CSE, not "the gather is free", as the leading explanation and say
+so rather than reporting a fake zero.
+
+### 6.4 Binding decision rule for Step 1b
+
+Evaluated in order; the first gate that fires decides.
+
+- **D1' (noise).** Each `prefill_probe.py` invocation must show warm-rep spread
+  (`max/min` over kept reps) <= 1.05, and `median(N=9) - median(N=1)` must be at
+  least 10x the absolute warm spread in ms of the `N=1` run. Otherwise the
+  measurement is void -> **STOP**.
+- **D5 (realism).** `g_M4` must be <= 18.09 ms, the whole PR #11 "everything
+  else" bucket. Above that the probe is measuring allocator or scheduler
+  pressure rather than the gather -> measurement void -> **STOP**.
+- **D3' (size).** Best-case combined M5 saving is
+  `g_M4 * 0.399 + half_b_M5`, and I take `half_b_M5 = 0` as the **optimistic**
+  value: the two measured `half_b` values are negative and the probe that
+  produced them is not bandwidth-resolving, so I neither trust the magnitude of
+  the loss nor am entitled to assume a gain. **GO requires
+  `g_M4 * 0.399 >= 1.0 ms`, i.e. `g_M4 >= 2.506 ms`.** Below that -> **STOP**
+  and Step 2 is not attempted.
+- **D6 (honesty flag, not a gate).** If D3' passes only under
+  `half_b_M5 = 0` and would fail using the regime-A measured
+  `half_b = -4.25 us/layer` (`-0.166 ms/forward M4` -> `-0.066 ms M5`), the
+  result is reported as a **marginal GO with a known negative second arm**, and
+  Step 2's design must not depend on half (b) paying.
+
+`0.399` is the mandated byte-arm M4->M5 factor (260.2 / 651.8). Prefill
+exchange rate `1 ms = 0.371 %` score.
+
+A STOP here is a **completed negative result and a merge**, not a failure: it
+retires queued item #1 / rank 4 of
+`research/CURRENT_RESEARCH_STATE.md:1068-1118,3450` with a measured in-situ
+price instead of the wrong +0.4-0.5% it was banked at.
+
