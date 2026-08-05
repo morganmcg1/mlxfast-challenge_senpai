@@ -7848,10 +7848,18 @@ func lagunaRoutedDownReduce(
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
+/// Each threadgroup computes `outputs_per_simd` output rows, amortizing the
+/// threadgroup barrier and serial reduction across multiple rows. Default ON;
+/// set `DARKBLOOM_MOE_DOWN_OPS2=0` to ablate back to 1.
+let lagunaMoeDownOps2Enabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_MOE_DOWN_OPS2"] != "0"
+let lagunaMoeDownOutputsPerSimd = lagunaMoeDownOps2Enabled ? 2 : 1
+
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
-    name: lagunaSharedFirstDownOrderEnabled
+    name: (lagunaSharedFirstDownOrderEnabled
         ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v4sf"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v4",
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v4")
+        + (lagunaMoeDownOps2Enabled ? "_ops2" : ""),
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7869,7 +7877,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         constexpr uint output_width = 2048;
         constexpr uint routed_experts = 8;
         constexpr uint shared_slot = 8;
-        constexpr uint outputs_per_simd = 1;
+        constexpr uint outputs_per_simd = \(lagunaMoeDownOutputsPerSimd);
         constexpr uint values_per_lane = 16;
         constexpr uint packed_row_bytes = 256;
         constexpr uint scale_row_bytes = 32;
@@ -8026,7 +8034,7 @@ func lagunaRoutedSharedDownResidual(
                 indices, routerWeights, sharedActivated,
                 sharedDownWeight, sharedDownScales, residual,
             ],
-        grid: (LagunaConstants.hiddenSize * 288, 1, 1),
+        grid: (LagunaConstants.hiddenSize / lagunaMoeDownOutputsPerSimd * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
