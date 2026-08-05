@@ -14,9 +14,20 @@
 #
 # Three rounds of ON/OFF/OFF/ON so a monotone host drift cancels within each
 # round. Per-pass median spread on this host is ~70 us, so six replicates give
-# ~29 us on each arm mean; the advisor's receipt-resolvability floor is ~43
-# us/step and the byte roofline for this arm predicts about -19 us/step, so this
-# screen is expected to be directional only.
+# ~29 us on each arm mean.
+#
+# Byte roofline for THIS contrast (B vs stock, measured row counts: 389,120 QKV
+# rows/step over 40 layers, 128 groups/row):
+#   stock 128 B/row = 49.8 MB/step;  lane-major 65 B/row = 25.3 MB/step
+#   => -24.5 MB/step, and at the measured 651.8 GB/s attention rate that is
+#      about -37.6 us/step, i.e. ~2.6 sigma against sigma(dT) = +-14.2 us.
+# Advisor stop rule: below 30% of that prediction (-11.3 us/step) stop and
+# diagnose rather than iterate.
+#
+# NARROW_LOG=1 in BOTH arms (symmetric, init-time only) so the .err files carry
+# the reachability proof: OFF must show "inactive: qkv" and ON must show
+# "built lane-major: qkv". A screen whose ON arm did not build the bank measures
+# nothing.
 # Research-only; not part of the submission surface.
 set -u
 cd "$(dirname "$0")/.."
@@ -26,7 +37,8 @@ run() {
     local name="$1"
     shift
     echo "=== LM PURE ${name} t=$(date -u +%H:%M:%S) ==="
-    env DARKBLOOM_STARTUP_MEMORY_PROFILE=full DARKBLOOM_ATTN_SCALE_NARROW=0 "$@" \
+    env DARKBLOOM_STARTUP_MEMORY_PROFILE=full DARKBLOOM_ATTN_SCALE_NARROW=0 \
+        DARKBLOOM_ATTN_SCALE_NARROW_LOG=1 "$@" \
         python3 research/decode_probe.py --steps "${steps}" \
         --dump-steps "/tmp/pr35_lm_pure_${name}.txt" \
         --stderr "/tmp/pr35_lm_pure_${name}.err" 2>&1 |
