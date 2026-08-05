@@ -36,22 +36,54 @@ distinct code path:
    tile geometry (BK/BM/BN) to match Laguna's short expert runs (avg 16 tokens
    per expert per layer in prefill). Prefill is 25% score weight (P2).
 
+## Deep Research Findings (2026-08-05T14:00Z)
+
+### M5 Bandwidth Profile
+- M5 Max: 614 GB/s peak, 128 GB unified, 40-core GPU. Decode is deeply
+  bandwidth-bound (~2 FLOP/byte for NVFP4 vs ~27 FLOP/byte ridge point).
+- **M5 ops-per-buffer sweep is FLAT** — bottleneck is genuine bandwidth, not
+  dispatch-gap idle. Primary levers: byte reduction and dispatch count reduction.
+- Register file: 208 KiB/threadgroup, up to 128 GPRs/thread. No `lop3` on Metal.
+
+### Top Fresh Ideas (from literature + code analysis, NOT yet assigned)
+1. **Merge shared + routed gate/up QMV into one dispatch** — eliminates 39
+   dispatches/step (14% of ~280 total). Code has `mergedSharedActivated` at
+   line 10248 designed for this but never implemented. LOW risk. STRONGEST
+   candidate for follow-up experiment.
+2. **Interleave FP8 scales with FP4 codes** (ARCQuant-style) — co-located
+   layout reduces device memory transactions in bandwidth-bound MoE QMV.
+   Transform + kernel change. MEDIUM risk.
+3. **KV cache NHD layout for sliding layers** — token-major layout could
+   improve coalescing for 30 sliding layers' attention reads. MEDIUM risk.
+4. **MoE down kernel: outputs_per_simd 1→2** — halves barrier count, doubles
+   input reuse. ~1-2% gain. LOW risk. Small but viable.
+
+### MoE Down Kernel Status
+- 2048 threadgroups (1 per output row), 288 threads = 9 SIMDs × 32 lanes.
+- At theoretical-minimum weight bandwidth — fully coalesced, no redundant reads.
+- Barrier + single-thread combine epilogue are structurally forced (cross-expert
+  weighted sum, BF16 accumulation order). Not removable.
+- Only viable lever: outputs_per_simd 1→2 (~1-2% gain, bounded by barrier overhead).
+
+### Async Scheduling Status
+- 7 fire points (layers 0,1,7,15,23,31,39). Stride MEASURED (66 runs).
+- 6-fire ties 40-fire (headroom ~0.08%). Already near-optimal.
+- Layer-0 main-mask rung unmeasured but likely marginal.
+- Not worth a dedicated experiment.
+
 ## Potential Next Research Directions
 
-- **MoE down-projection kernel optimization**: The routed+shared down NVFP4
-  GEMV is the largest per-step weight read (~362 MB/step across 39 layers).
-  Already fused with R1 one-row-per-SIMD retile, but inner-loop dequant or
-  threadgroup geometry may have headroom.
-- **asyncEval ladder tuning**: Currently 7 rungs (layers 1,7,15,23,31,39).
-  More frequent rungs may better overlap CPU encoding with GPU execution on
-  M5. Low-risk A/B.
-- **NVFP4 dequant inner loop**: The custom `laguna_nvfp4_qdot_codes_16`
-  unpacks 16 NVFP4 nibbles in ~19 ops. Alternative dequant strategies (LUT,
-  bit-interleaving) may reduce instruction count in the QMV inner loop.
-- **Dense layer 0 MLP**: Only BF16 MLP weight (~100 MB). Already fused
-  (gate/up SwiGLU + down residual), but representation change would require
-  contract envelope check (attention-only envelope doesn't cover MLP).
+- **Merge shared + routed gate/up QMV** (strongest follow-up): fill the
+  `mergedSharedActivated` gap at LagunaRuntimeModel.swift:10248. Eliminates
+  39 dispatches/step. Could be a bonus direction for any student whose
+  primary arm fails quickly.
+- **MoE down kernel outputs_per_simd 1→2**: small ~1-2% gain, low risk.
+  Potential bonus for a student working on MoE path.
+- **Interleave FP8 scales with FP4 codes**: transform+kernel change, medium
+  risk, targets the bandwidth bottleneck directly.
+- **KV cache NHD layout for sliding layers**: may overlap with Thorfinn's
+  full-attention experiment if he finds layout issues.
 - **Graph-visible cache + compiled segments expansion**: If Edward's P0
   prototype succeeds, extend to full-model compiled decode.
 - **Source budget reclamation**: Remove dormant negative arms to free byte
-  budget for new kernel families (P4).
+  budget for new kernel families.
