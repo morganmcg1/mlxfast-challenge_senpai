@@ -244,12 +244,61 @@ amortised over 128 steps, the benchmark's per-token decode cost decomposes as
 which agrees with the 8.6 ms/step the standalone decode probe reports on this
 host.
 
-Upstream-equivalence oracle, run with `MLX_MAX_MB_PER_BUFFER=50
-MLX_MAX_OPS_PER_BUFFER=200` in the environment so the debug test process
-actually runs under the candidate cap (the oracle constructs the runtime
-through `LagunaWeightLoader` and never reaches the startup-memory policy that
-installs the in-tree default): see the "equivalence" line reported alongside
-this note. Zero tolerance, `MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR=0`.
+### Upstream-equivalence oracle: paired against the base cap
+
+The oracle constructs the runtime through `LagunaWeightLoader` and never
+reaches the startup-memory policy that installs the in-tree default, so the
+in-tree token is invisible to it. To make the gate say anything about this
+change I ran it twice with the cap forced from the environment, candidate and
+base value, zero tolerance
+(`MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR=0`):
+
+| run | `MLX_MAX_MB_PER_BUFFER` | prefill `maxAbsErr` | prefill `meanAbsErr` | decode steps 0-7 | tokens |
+| --- | --- | --- | --- | --- | --- |
+| candidate | 50 | 0.125 | 0.011933609 | all exactly `0` | all match |
+| base | 200 | 0.125 | 0.011933609 | all exactly `0` | all match |
+
+The two reports are **identical to every printed digit**, so the cap does not
+move a single logit; `EQUIVALENCE_EXACT_STEPS=8` in both. What the oracle is
+flagging is a pre-existing prefill difference between the runtime and the
+vendored oracle **on this M4 Pro host**, present at the base cap and therefore
+not attributable to this change — which is the base comparison AGENTS.md asks
+for before attributing drift on a non-M5 host. It is also consistent with the
+host's kernel reachability: this box reports Apple GPU generation 16 and does
+not select the `_nax` prefill kernels the ranked M5 uses, and the divergence is
+confined to the prefill step while all eight decode steps are bit-exact. The
+argmax agrees at every step, and the ranked path's own gate on this commit
+reported `max_abs_diff: 0` against the public golden hash.
+
+I did not use `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT`; the scored gate passed
+unrelaxed.
+
+### The candidate value is MLX's own default for this chip class
+
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:574-596` picks
+the command-buffer thresholds from the Apple GPU architecture suffix before the
+`MLX_MAX_*` environment overrides are applied:
+
+| suffix | class | stock ops cap | stock byte cap |
+| --- | --- | --- | --- |
+| `p` | phone | 20 | 40 |
+| `g` | base, pro | 40 | 40 |
+| `s` | **max** | 50 | **50** |
+| `d` | ultra | 50 | 50 |
+
+The ranked box is an M5 **Max**, so MLX's own byte cap for it is 50 MB. The
+in-tree `200` was the deviation from upstream, not the default, and this
+one-token change restores the upstream value while leaving the deliberately
+raised `MLX_MAX_OPS_PER_BUFFER=200` in place. That reframes the prior: the
+question is not "is 50 a safe number" but "was the 4x deviation from MLX's
+tuned default ever paid for on the ops-pinned baseline". It also explains why
+the effect could be real rather than noise — MLX's maintainers chose 50 for
+this exact chip class.
+
+One consequence worth stating plainly: the research host is an M4 **Pro**
+(`g`), whose stock caps are 40/40, so the local A/B is not measuring the same
+starting point as the ranked box. That is one more reason the local numbers
+below are directional only and the ranked receipt is the verdict.
 
 ## Caveats and what I would not conclude from this
 
