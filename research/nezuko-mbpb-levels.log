@@ -1,0 +1,12 @@
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-runtime-worker' complete! (10.54s)
+=== p00-discard mb=200 t=12:25:52 thermal={"cpu_temp":39.74797821044922,"gpu_pw":0.006828173995018005,"ram_pw":0.0492815263569355}
+[p00-discard-mb200] load+seed 0.5s seed_token=159
+[p00-discard-mb200] steps=2000 wall_ms_per_step=8.9154 cpu_user_ms_per_step=0.0647 cpu_sys_ms_per_step=0.0312 cpu_total_ms_per_step=0.0959 cpu_over_wall=0.011
+[p00-discard-mb200] per_thread_cpu_ms_per_step=[2.57, 0.0, 0.585, 0.67, 0.17, 0.0, 0.0, 0.0]
+=== p01 mb=200 t=12:26:20 thermal={"cpu_temp":42.68693542480469,"gpu_pw":0.009895006194710732,"ram_pw":0.06002465635538101}
+[p01-mb200] load+seed 0.5s seed_token=159
+[p01-mb200] steps=2000 wall_ms_per_step=8.8758 cpu_user_ms_per_step=0.0661 cpu_sys_ms_per_step=0.0313 cpu_total_ms_per_step=0.0974 cpu_over_wall=0.011
+[p01-mb200] per_thread_cpu_ms_per_step=[2.62, 0.0, 0.36, 0.465, 0.155, 0.0, 0.0, 0.0]
+=== p02 mb=12 t=12:27:21 thermal={"cpu_temp":43.194068908691406,"gpu_pw":0.007761003915220499,"ram_pw":0.17133496701717377}
