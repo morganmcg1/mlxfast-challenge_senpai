@@ -4,7 +4,7 @@
 //
 // Build and run:
 //   xcrun swiftc -O research/tanjiro-pr47-dispatch-concurrency.swift -o /tmp/dispconc
-//   /tmp/dispconc [reps] [opsPerCB] [tg]
+//   /tmp/dispconc [rounds] [opsPerCB] [tg] [fitFrom]
 //
 // It replicates MLX's encoder semantics exactly, from
 // Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:
@@ -27,6 +27,29 @@
 //   serialenc  - DispatchTypeSerial encoder, no barriers, distinct sinks. A
 //                second serialisation mechanism, to separate the cost of the
 //                barrier instruction from the cost of serialisation itself.
+//   barrieronly- concurrent encoder, distinct sinks and no real data
+//                dependency, but the same memoryBarrier before each dispatch.
+//                Prices the barrier instruction alone.
+//   fenceonly  - concurrent encoder, distinct sinks, no barrier, but the same
+//                per-command-buffer fence update/wait. Prices the cross
+//                command-buffer fence alone.
+//   bindchurn  - the chained arm's bindings, so dispatch i still reads the
+//                buffer dispatch i-1 wrote, but with no barrier and no fence,
+//                so the hazard is never resolved. Together with barrieronly
+//                this separates "a barrier instruction", "a rebound input
+//                buffer per dispatch" and "a barrier that has a real
+//                read-after-write hazard to drain".
+//
+// Measurement design. Both slope and offset are fitted independently per arm,
+// as PR47 D1 requires, and:
+//   * GPU clocks are pinned high by a sustained ALU burn before every round.
+//     Without it the sub-millisecond points sit in a low DVFS state and total
+//     time can *fall* as n rises, which corrupts any slope.
+//   * every (arm, n) cell is sampled once per round in a freshly shuffled
+//     order, so clock and thermal drift is orthogonal to both arm and n.
+//   * one OLS fit per (arm, round) over n >= fitFrom yields independent slope
+//     and intercept replicates; the ratio is formed within a round so
+//     round-level drift cancels, and its spread over rounds is the CI.
 
 import Foundation
 import Metal
@@ -47,39 +70,81 @@ kernel void empty_dispatch(device const uint *control [[buffer(0)]],
         sink[gid & 255u] = gid + prev[0];
     }
 }
+
+// Sustained ALU load, used only to pin the GPU DVFS state before timing.
+kernel void burn(device const uint *control [[buffer(0)]],
+                 device float *out [[buffer(1)]],
+                 uint gid [[thread_position_in_grid]]) {
+    float acc = float(gid) * 1e-6f;
+    uint iters = control[1];
+    for (uint i = 0; i < iters; ++i) {
+        acc = fma(acc, 1.0000001f, 1e-7f);
+    }
+    out[gid] = acc;
+}
 """
 
 enum Arm: String, CaseIterable {
     case chained
     case unchained
     case serialenc
+    case barrieronly
+    case fenceonly
+    case bindchurn
+
+    /// dispatch i reads the sink dispatch i-1 wrote, so the edge is a real RAW.
+    var dataDependent: Bool { self == .chained || self == .bindchurn }
+    var usesBarrier: Bool { self == .chained || self == .barrieronly }
+    var usesFence: Bool { self == .chained || self == .fenceonly }
 }
 
-let reps = CommandLine.arguments.count > 1 ? Int(CommandLine.arguments[1])! : 15
+let rounds = CommandLine.arguments.count > 1 ? Int(CommandLine.arguments[1])! : 24
 let opsPerCB = CommandLine.arguments.count > 2 ? Int(CommandLine.arguments[2])! : 50
 let threadgroups = CommandLine.arguments.count > 3 ? Int(CommandLine.arguments[3])! : 8
-let counts = [50, 100, 200, 400, 800, 1600, 3200]
-let warmups = 3
+let fitFrom = CommandLine.arguments.count > 4 ? Int(CommandLine.arguments[4])! : 800
+let counts = [50, 100, 200, 400, 800, 1600, 3200, 6400]
 
 guard let device = MTLCreateSystemDefaultDevice(),
     let queue = device.makeCommandQueue()
 else { fatalError("no Metal device") }
 
 let library = try! device.makeLibrary(source: shaderSource, options: nil)
-let pso = try! device.makeComputePipelineState(function: library.makeFunction(name: "empty_dispatch")!)
+let pso = try! device.makeComputePipelineState(
+    function: library.makeFunction(name: "empty_dispatch")!)
+let burnPSO = try! device.makeComputePipelineState(function: library.makeFunction(name: "burn")!)
 
 let maxN = counts.max()!
 let control = device.makeBuffer(length: 1024, options: .storageModeShared)!
-control.contents().bindMemory(to: UInt32.self, capacity: 256).pointee = 1
+let controlWords = control.contents().bindMemory(to: UInt32.self, capacity: 256)
+controlWords[0] = 1  // never the 0xFFFFFFFF sentinel, so the sink write is dead
+controlWords[1] = 2048  // burn iterations
 let sinks = (0...maxN).map { _ in device.makeBuffer(length: 1024, options: .storageModeShared)! }
+let burnOut = device.makeBuffer(length: 1 << 20, options: .storageModePrivate)!
 let tgSize = MTLSize(width: 256, height: 1, depth: 1)
 let gridSize = MTLSize(width: threadgroups, height: 1, depth: 1)
+let burnGrid = MTLSize(width: 512, height: 1, depth: 1)
 
 struct Sample {
     let wall: Double
     let gpuBusy: Double
     let gpuUnion: Double
     let commandBuffers: Int
+}
+
+/// Sustained ALU load, to hold the GPU at a high clock state while timing.
+func rampGPU(seconds: Double) {
+    let t0 = Date()
+    while Date().timeIntervalSince(t0) < seconds {
+        let cb = queue.makeCommandBuffer()!
+        let enc = cb.makeComputeCommandEncoder()!
+        enc.setComputePipelineState(burnPSO)
+        enc.setBuffer(control, offset: 0, index: 0)
+        enc.setBuffer(burnOut, offset: 0, index: 1)
+        for _ in 0..<32 { enc.dispatchThreadgroups(burnGrid, threadsPerThreadgroup: tgSize) }
+        enc.endEncoding()
+        cb.commit()
+        cb.waitUntilCompleted()
+    }
 }
 
 /// One full submission of `n` empty dispatches in `arm`'s regime.
@@ -96,16 +161,16 @@ func runOnce(arm: Arm, n: Int) -> Sample {
         let enc = cb.makeComputeCommandEncoder(
             dispatchType: arm == .serialenc ? .serial : .concurrent)!
         enc.setComputePipelineState(pso)
-        if arm == .chained, let f = fence { enc.waitForFence(f) }
+        if arm.usesFence, let f = fence { enc.waitForFence(f) }
         for k in 0..<chunk {
             let idx = i + k
             enc.setBuffer(control, offset: 0, index: 0)
-            enc.setBuffer(arm == .chained ? sinks[idx] : control, offset: 0, index: 1)
+            enc.setBuffer(arm.dataDependent ? sinks[idx] : control, offset: 0, index: 1)
             enc.setBuffer(sinks[idx + 1], offset: 0, index: 2)
-            if arm == .chained, idx > i { enc.memoryBarrier(scope: .buffers) }
+            if arm.usesBarrier, idx > i { enc.memoryBarrier(scope: .buffers) }
             enc.dispatchThreadgroups(gridSize, threadsPerThreadgroup: tgSize)
         }
-        if arm == .chained {
+        if arm.usesFence {
             let f = device.makeFence()!
             enc.updateFence(f)
             fence = f
@@ -122,84 +187,119 @@ func runOnce(arm: Arm, n: Int) -> Sample {
     return Sample(wall: wall, gpuBusy: busy, gpuUnion: union, commandBuffers: buffers.count)
 }
 
+func mean(_ xs: [Double]) -> Double { xs.reduce(0, +) / Double(xs.count) }
+
 func median(_ xs: [Double]) -> Double {
     let s = xs.sorted()
     return s.count % 2 == 1 ? s[s.count / 2] : 0.5 * (s[s.count / 2 - 1] + s[s.count / 2])
 }
 
-/// Ordinary least squares of y on x, returning (slope, intercept, r2).
-func ols(_ x: [Double], _ y: [Double]) -> (Double, Double, Double) {
-    let n = Double(x.count)
-    let mx = x.reduce(0, +) / n
-    let my = y.reduce(0, +) / n
+func percentile(_ xs: [Double], _ p: Double) -> Double {
+    let s = xs.sorted()
+    let r = p * Double(s.count - 1)
+    let lo = Int(r.rounded(.down))
+    let hi = min(lo + 1, s.count - 1)
+    return s[lo] + (r - Double(lo)) * (s[hi] - s[lo])
+}
+
+func sd(_ xs: [Double]) -> Double {
+    guard xs.count > 1 else { return .nan }
+    let m = mean(xs)
+    return (xs.reduce(0.0) { $0 + ($1 - m) * ($1 - m) } / Double(xs.count - 1)).squareRoot()
+}
+
+/// Ordinary least squares of y on x, returning (slope, intercept).
+func ols(_ x: [Double], _ y: [Double]) -> (Double, Double) {
+    let mx = mean(x)
+    let my = mean(y)
     var sxy = 0.0
     var sxx = 0.0
-    var syy = 0.0
     for i in 0..<x.count {
         sxy += (x[i] - mx) * (y[i] - my)
         sxx += (x[i] - mx) * (x[i] - mx)
-        syy += (y[i] - my) * (y[i] - my)
     }
     let slope = sxy / sxx
-    return (slope, my - slope * mx, (sxy * sxy) / (sxx * syy))
+    return (slope, my - slope * mx)
 }
 
-print("device=\(device.name) arch_note=see host_device_arch.swift")
-print("reps=\(reps) opsPerCB=\(opsPerCB) threadgroups=\(threadgroups) threads=\(threadgroups * 256)")
-print("")
-print("arm        n     cb  wall_us/disp  union_us/disp  busy_us/disp   wall_ms  union_ms")
+print("device=\(device.name)")
+print(
+    "rounds=\(rounds) opsPerCB=\(opsPerCB) threadgroups=\(threadgroups) "
+        + "threads=\(threadgroups * 256) fitFrom=\(fitFrom)")
 
-var wallByArm: [Arm: [Double]] = [:]
-var unionByArm: [Arm: [Double]] = [:]
-var busyByArm: [Arm: [Double]] = [:]
+var wallCell: [Arm: [Int: [Double]]] = [:]
+var unionCell: [Arm: [Int: [Double]]] = [:]
+var cbCount: [Int: Int] = [:]
 
-// Interleave arms inside each n so any thermal or clock drift is shared.
-for n in counts {
-    for arm in Arm.allCases {
-        for _ in 0..<warmups { _ = runOnce(arm: arm, n: n) }
-        var walls: [Double] = []
-        var unions: [Double] = []
-        var busies: [Double] = []
-        var cbs = 0
-        for _ in 0..<reps {
-            let s = runOnce(arm: arm, n: n)
-            walls.append(s.wall)
-            unions.append(s.gpuUnion)
-            busies.append(s.gpuBusy)
-            cbs = s.commandBuffers
-        }
-        let w = median(walls)
-        let u = median(unions)
-        let b = median(busies)
-        wallByArm[arm, default: []].append(w)
-        unionByArm[arm, default: []].append(u)
-        busyByArm[arm, default: []].append(b)
-        print(
-            String(
-                format: "%-9s %5d %6d %13.4f %14.4f %13.4f %9.3f %9.3f",
-                (arm.rawValue as NSString).utf8String!, n, cbs,
-                w * 1e6 / Double(n), u * 1e6 / Double(n), b * 1e6 / Double(n),
-                w * 1e3, u * 1e3))
+rampGPU(seconds: 2.0)
+for arm in Arm.allCases { for n in counts { _ = runOnce(arm: arm, n: n) } }
+
+var rng = SystemRandomNumberGenerator()
+for _ in 0..<rounds {
+    rampGPU(seconds: 0.35)
+    var cells: [(Arm, Int)] = []
+    for arm in Arm.allCases { for n in counts { cells.append((arm, n)) } }
+    cells.shuffle(using: &rng)
+    for (arm, n) in cells {
+        let s = runOnce(arm: arm, n: n)
+        wallCell[arm, default: [:]][n, default: []].append(s.wall * 1e6)
+        unionCell[arm, default: [:]][n, default: []].append(s.gpuUnion * 1e6)
+        cbCount[n] = s.commandBuffers
     }
 }
 
 print("")
-print("OLS over n = \(counts)  (slope = marginal us per dispatch, intercept = us fixed)")
-print("arm        wall_slope_us  wall_icpt_us   wall_r2  union_slope_us  union_icpt_us  union_r2")
-let xs = counts.map(Double.init)
+print("per-cell medians (us per dispatch), n_rounds=\(rounds)")
+print("arm        n      cb  wall_us/disp  union_us/disp   wall_ms  wall_cv%")
 for arm in Arm.allCases {
-    let (ws, wi, wr) = ols(xs, wallByArm[arm]!.map { $0 * 1e6 })
-    let (us, ui, ur) = ols(xs, unionByArm[arm]!.map { $0 * 1e6 })
-    print(
-        String(
-            format: "%-9s %14.4f %13.2f %9.5f %15.4f %14.2f %9.5f",
-            (arm.rawValue as NSString).utf8String!, ws, wi, wr, us, ui, ur))
+    for n in counts {
+        let w = wallCell[arm]![n]!
+        let u = unionCell[arm]![n]!
+        print(
+            String(
+                format: "%-9s %5d %6d %13.4f %14.4f %9.3f %9.2f",
+                (arm.rawValue as NSString).utf8String!, n, cbCount[n]!,
+                median(w) / Double(n), median(u) / Double(n), median(w) / 1e3,
+                100.0 * sd(w) / mean(w)))
+    }
 }
 
-let (wc, _, _) = ols(xs, wallByArm[.chained]!.map { $0 * 1e6 })
-let (wu, _, _) = ols(xs, wallByArm[.unchained]!.map { $0 * 1e6 })
-let (uc, _, _) = ols(xs, unionByArm[.chained]!.map { $0 * 1e6 })
-let (uu, _, _) = ols(xs, unionByArm[.unchained]!.map { $0 * 1e6 })
+let fitCounts = counts.filter { $0 >= fitFrom }
+let xs = fitCounts.map(Double.init)
+var slopes: [Arm: [Double]] = [:]
+var icpts: [Arm: [Double]] = [:]
+for arm in Arm.allCases {
+    for r in 0..<rounds {
+        let (s, b) = ols(xs, fitCounts.map { wallCell[arm]![$0]![r] })
+        slopes[arm, default: []].append(s)
+        icpts[arm, default: []].append(b)
+    }
+}
+
 print("")
-print(String(format: "wall  chained/unchained slope ratio = %.4f", wc / wu))
-print(String(format: "union chained/unchained slope ratio = %.4f", uc / uu))
+print("per-round independent OLS on wall time over n = \(fitCounts)")
+print("arm        slope_us/disp   slope_sd      slope_95CI       icpt_us         icpt_95CI")
+for arm in Arm.allCases {
+    let s = slopes[arm]!
+    let b = icpts[arm]!
+    print(
+        String(
+            format: "%-9s %13.4f %10.4f [%6.4f, %6.4f] %11.1f [%8.1f, %8.1f]",
+            (arm.rawValue as NSString).utf8String!, median(s), sd(s),
+            percentile(s, 0.025), percentile(s, 0.975), median(b),
+            percentile(b, 0.025), percentile(b, 0.975)))
+}
+
+// The ratio is formed inside a round, so any round-level clock or thermal
+// drift divides out before the distribution is taken.
+print("")
+print("slope ratio vs the unchained arm, paired within each round")
+print("arm            ratio_median   ratio_mean   ratio_sd        ratio_95CI")
+for arm in Arm.allCases where arm != .unchained {
+    let rs = (0..<rounds).map { slopes[arm]![$0] / slopes[.unchained]![$0] }
+    print(
+        String(
+            format: "%-13s %12.4f %12.4f %10.4f [%6.4f, %6.4f]",
+            (arm.rawValue as NSString).utf8String!, median(rs), mean(rs), sd(rs),
+            percentile(rs, 0.025), percentile(rs, 0.975)))
+}
