@@ -207,14 +207,30 @@ let lagunaFusedRoutedGateUpEnabled =
 let lagunaPrefillFusedRoutedGateUpEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_GATE_UP"] != "0"
 
-/// The expert-aligned gather-QMM consumes a 32-row gate/up-interleaved bank
-/// and writes the packed 512-wide SwiGLU result into the first half of its
-/// oversized MLX output allocation. The same environment switch controls the
-/// backend dispatch and this view interpretation, keeping its ablation path
-/// coherent.
-let lagunaExpertAlignedGatherEnabled =
-    ProcessInfo.processInfo.environment[
-        "DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
+func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
+    guard osSupportsNAX,
+        let generation = Int(architecture.suffix(3).prefix(2))
+    else { return false }
+    return generation >= (architecture.hasSuffix("p") ? 18 : 17)
+}
+
+func lagunaExpertAlignedStageEnabled(_ value: String?) -> Bool {
+    ["", "4", "5"].contains(value ?? "")
+}
+
+let lagunaExpertAlignedGatherEnabled = {
+    let environment = ProcessInfo.processInfo.environment
+    guard environment["DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0",
+        lagunaExpertAlignedStageEnabled(environment["DARKBLOOM_STAGE_BM128"]),
+        #available(macOS 26.2, *)
+    else { return false }
+    let configured = environment["MLX_METAL_GPU_ARCH"]
+    return lagunaNAXAvailable(
+        architecture: configured.flatMap { $0.isEmpty ? nil : $0 }
+            ?? GPU.deviceInfo().architecture,
+        osSupportsNAX: true
+    )
+}()
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
