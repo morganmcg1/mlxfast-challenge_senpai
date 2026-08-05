@@ -361,6 +361,88 @@ the unchained arm — far beyond the 0.1–0.3 ms point scatter, so one rep deci
 it. tg=8 is also exactly the geometry of the paid chained receipt `0411779d`, so
 the addendum doubles as an M4 dry run of the D5 configuration.
 
+## tg=8 addendum — the discriminator fired, and it fired model-free
+
+Points banked so far (`research/tanjiro-pr47/d1-tg8-*.json`, all
+`passed_correctness: true`, `max_abs_diff: 0`, empty `error`). Readout:
+`python3 research/tanjiro-pr47-d1-tg8.py`; the matched-`n` cross-`tg` comparison
+below is reproduced by the same `S`/`T` reduction applied to the tg=160 ladder
+points already banked in the same directory.
+
+**Control first: the two ladders share a baseline.** The `n = 0` anchor should
+not depend on `EMPTY_TG` at all, because no empty dispatch is injected.
+
+| anchor | T (ms) |
+| --- | --- |
+| tg=160, mean of 2 reps | 8.82617 (spread 0.0097) |
+| tg=8, 1 rep | 8.83084 |
+
+Difference **+0.00467 ms**, inside the rep spread. The tg=8 arm is measuring the
+same machine in the same state, so cross-`tg` differences at matched `n` are
+attributable to `tg`.
+
+**The test.** Host-side command encoding costs the same per dispatch regardless
+of how many threads the dispatch launches; GPU-side barrier and serialization
+cost does not. The standalone probe measures the GPU-side scaling directly:
+chained cost 1.2624 µs/dispatch at tg=8 versus 2.8134 at tg=160, i.e. tg=8
+should be **0.449×** as expensive per dispatch if the exposed in-model cost is
+GPU-side. If the exposed cost is host encode, the ratio is **1.00**.
+
+| chained, n = 3200 | dT vs the matching n=0 anchor | µs/dispatch |
+| --- | --- | --- |
+| tg=160, rep 1 | 5.57983 ms | 1.7437 |
+| tg=160, rep 2 | 5.38763 ms | 1.6836 |
+| tg=160, mean | **5.48373 ms** | 1.7137 |
+| tg=8, rep 1 | **5.51885 ms** | 1.7246 |
+
+**Ratio tg=8 / tg=160 = 1.0064.** The tg=160 rep spread is 0.192 ms, so 1σ on
+that mean is ≈0.096 ms ≈ 1.8% of `dT`; the ratio is 1.006 ± 0.018 and excludes
+0.449 by roughly **30σ**. A 20× change in occupancy (2048 → 40960 threads per
+dispatch) moves the exposed marginal cost by less than 1%.
+
+This is a *model-free* comparison — same `n`, same arm, same session, same
+reduction, only `EMPTY_TG` differs. It does not lean on the fitted slope, the
+fitted offset, or on the knee being hard rather than soft.
+
+### What that settles, and what it does not
+
+**Settled: the exposed in-model marginal cost on M4 is host-encode-class.** It
+is threadgroup-count-independent. That is the signature of CPU command encoding,
+not of a GPU barrier or of GPU serialization. It also independently reproduces
+the `max_ops_per_buffer` host-encode crossover story behind the published M4
+knee of 1209.
+
+**Settled: `H_host` explains the ratio ≈ 1.0 with no aliasing whatsoever.** The
+chained/unchained ratio of 1.0237 measured at tg=160 needs no leaked barriers to
+explain it. My preregistered reading ("ratio ≈ 1.0 ⇒ instrument broken") is
+formally wrong and stays recorded as a prereg failure.
+
+**Not settled, and I have to say so plainly: this makes M4 *blind* to the
+barrier question rather than answering it.** If host encode dominates the
+exposed cost, then M4's in-model ladder cannot see whether `CHAIN=0` really
+removes the barriers, because it cannot see barrier cost at all in either arm.
+The strong form of `H_alias` — "the unchained arm's cost *is* barrier cost,
+leaked through allocator recycling" — is dead, since that cost would have to
+scale with `tg` and does not. But the weak form — "barriers are present in the
+unchained arm and are simply invisible" — is untouched by this measurement, and
+on M4 it is unfalsifiable.
+
+So instrument soundness rests on the other two legs, not on this one:
+
+1. the **code audit** (§ "The aliasing hazard the amendment asked me to check"),
+   which discharges RAW and WAR structurally and leaves only allocator output
+   recycling as a residual; and
+2. the **standalone probe**, which uses the same three-argument binding pattern
+   and there resolves chained 1.2624 versus unchained 0.4020 µs/dispatch at
+   tg=8, ratio 3.130 — direct evidence that this binding pattern does control
+   whether a barrier is emitted, on a workload where the barrier is not hidden
+   behind host encode.
+
+Together those two say the knob works; the tg=8 addendum says M4's in-model
+ladder is the wrong instrument to confirm it with. The declared residual and the
+pre-commitment in the D5 prereg (`§4.1`: I will not report an S0 outcome as a
+physical conclusion) both stand unchanged.
+
 ### What D1 does *not* do
 
 **D1 does not resolve the [0.36, 2.09] µs/dispatch M5 bracket, and no reading of
