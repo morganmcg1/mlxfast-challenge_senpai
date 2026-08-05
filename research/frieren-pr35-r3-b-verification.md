@@ -248,6 +248,50 @@ non-speculative rules and costs nothing on the scored path.
 I would rather hand over an honestly-labelled analytic certificate plus a
 written design than an unvalidated new decline path on the scored path.
 
+#### 4.1.1 Independent frontier review of this design — it can be made *complete*
+
+I put the design above to an independent frontier reviewer with no access to my
+reasoning (task `92b762bc-cf57-550c-a41b-15f1e121bfa1`, read-only, no code
+changes). Its verdict on the plan and three upgrades, which I accept:
+
+1. **The bit-exact dual-run requirement is sound**, because fast-math is disabled
+   in the vendored MLX build. Bit-exactness is therefore a legitimate gate rather
+   than a flaky one — this was the assumption my design rested on and it is now
+   independently checked rather than assumed.
+2. **Replace the single fixed input with a 128-probe one-hot group sweep through
+   the production dispatch path.** For probe `g`, drive a synthetic bf16 input
+   that is non-zero only in the 16 columns belonging to group `g`. Then the output
+   of every row depends on **exactly one** scale code — group `g`'s — so a
+   misrouted read is exposed directly rather than hidden inside a sum of 128
+   contributions.
+3. Additionally: fault-ladder the **decline** path (prove a corrupted bank is
+   actually rejected, not just that a good bank is accepted), and prove the
+   permutation algebra offline on a **synthetic two-modulus plane** where every
+   `(row, group)` code is distinct by construction.
+4. A provably-complete single-input sensitivity certificate on the *real* plane
+   is impossible — but **the residual blind spot is provably harmless**, which is
+   the point I had missed.
+
+Item 4 is the one that changes the argument, so let me state it properly. The
+one-hot sweep cannot distinguish a swap of two groups whose codes happen to be
+*equal*. But if the two codes are equal, reading the wrong one yields the
+**identical** value, hence the identical output bits, on every input. So the
+sweep's blind spot is exactly the set of defects that cannot change any output.
+
+That upgrades the goal from the unachievable "prove the permutation is the
+intended one" to the achievable and actually-sufficient **"prove no reachable
+output can differ from the stock arm"**. A 128-probe one-hot sweep with bit-exact
+equality against the stock kernel, plus the existing data certificate, is a
+*complete* correctness certificate in that sense. That is a materially stronger
+claim than anything in §4 and it is cheap: 128 tiny matvec dispatches, once, at
+init, on a token-independent input.
+
+**This is now my recommended Step-3 companion work**, and it removes my second
+objection above (spurious decline) because a bit-exact sweep that fails is
+telling the truth: the arms really do disagree. My first objection — bytes into
+an over-reservation file — stands and is why it is gated behind the r1 strip and
+Ask 3 rather than shipped in r3.
+
 ### 4.2 The one instrument that both reaches the bank and has power
 
 The golden correctness gate (`LagunaRuntimeCorrectness.swift:41-100`) runs
