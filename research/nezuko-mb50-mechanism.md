@@ -320,8 +320,56 @@ becomes the only splitter: `needs_commit` is also MLX's only mid-evaluation
 CPU→GPU kick, and ~3 buffers per step would risk exposing host encode time as
 GPU idle. Keep 10 or more buffers per step; 400–512 MB stays interior.
 
+That composite estimate survives the corrected score conversion. Using
+`d ln score = −0.148620` per ms of `T` and `−0.0037134` per ms of `S` (derived in
+`research/nezuko-mb50-receipt.md`), −0.4% of `T` is `−0.0171` ms = **+0.254%**
+and −0.7% of `S` is `−0.686` ms = **+0.255%**, for a composite of about +0.51% —
+inside the quoted +0.4–0.8% band. The corrected conversion does change the
+attribution though: it underweights nothing on decode but roughly *doubles* the
+score value of a prefill millisecond relative to a naive 0.25/0.75 split of
+percent changes, because `S` also enters decode through the `S/128` seed term.
+
 **Its policy recommendation, which I endorse.** Treat this host as directionally
 unreliable for *overhead-class* changes — boundaries, barriers, synchronization,
 submission — and gate any sub-2% overhead-class candidate on a ranked receipt.
 It remains usable for bandwidth-class mechanisms, which scaled cleanly here
 (2.07× measured against a 2.25× bandwidth ratio).
+
+## Which mechanism this arm claims: encode overhead, not dispatch count
+
+These are now known to be separable, so the paragraph has to name one.
+
+**This arm claims submission/encode overhead — the *type* of boundary between
+adjacent dispatches — and explicitly not dispatch count.** The dispatch count
+was held fixed by construction: `DARKBLOOM_GPU_PROFILE` reports
+`dispatches = 406.0` and `0 divergences` at 200, 100, 50, 25 and 12 MB. Exactly
+the same 406 kernels run per step in every arm, in the same order, on the same
+inputs. What the byte cap moves is where those 406 dispatches are cut into
+command buffers: 34 buffers per step at 200 MB, 85 at 50 MB. A boundary that was
+an in-encoder `memoryBarrier` becomes a buffer seam, and nothing else changes.
+
+The other mechanism — the marginal cost of *adding* a chained dispatch — is
+tanjiro's, and his `n = 0` / `n = 400` injection pair measures it directly at
+`c_M5 = 1.980 ± 0.044 µs` per chained dispatch, linear with zero slack and no
+sign of saturation on the ranked M5. That result is orthogonal to this one:
+
+- his treatment changes 406 → 806 dispatches at a fixed boundary policy;
+- mine changes 34 → 85 boundaries at a fixed 406 dispatches.
+
+Neither explains the other, and neither can be used as evidence for the other.
+In particular, `c_M5 = 1.980 µs` per dispatch is not the per-buffer figure: the
+per-buffer figures implied by this receipt are `+1.10 µs` (decode) and
+`+27.2 µs` (prefill), and the 25× spread between them is itself the argument
+that a boundary is not a fixed-cost object.
+
+The earlier M4 knee at 1,209 dispatches was a `max_ops_per_buffer` host-encode
+crossover (`device.cpp:576-593`) — a third, distinct mechanism, and one this arm
+never touches because the ops cap stayed at 200 in every arm. tanjiro's
+injection pair falsified the `H_cpu` knee-at-1200 reading at 34.8 σ, and the
+`H_gpu` knee-at-461 variant died with it.
+
+Practical consequence for the fusion family: D-FUSE-GATESP reduces dispatch
+count, so it collects against tanjiro's linear, unsaturated `c_M5`, and it
+deletes a boundary rather than converting one, so it also avoids the cost C term
+identified above. Those are two independent reasons to expect it to win, and
+they should be attributed separately when it is measured.

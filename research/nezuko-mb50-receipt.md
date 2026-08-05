@@ -24,6 +24,10 @@ before the submission was dispatched.
 | UTC slot released to advisor | 2026-08-05T12:46:04Z (receipt terminal; confirmed free by `mlxfast submissions` at 12:53:57Z) |
 | wall time submit -> terminal | 20 min 48 s |
 
+The shared `morganmcg1` ranked channel is **released**. One submission was
+dispatched for this assignment and nothing was chained behind it; the next slot
+is committed to tanjiro.
+
 ## Receipt fields
 
 From `mlxfast submissions` / `officialMetrics`, fetched 2026-08-05T12:54:11Z
@@ -82,9 +86,52 @@ Both halves are wrong, and `S` is the larger miss:
 | `T` (decode-only ms/step) | down ~1.8% | **+1.316%** | sign inverted |
 | `S` (512-token prefill ms) | flat | **+2.193%** | not flat, and the larger regression |
 
-Since prefill carries 25% of the score weight, `S` contributes
-`0.25 × 2.193% ≈ 0.55%` and `T` contributes `0.75 × 1.316% ≈ 0.99%` of the
-1.608% loss, so decode is still the majority of the damage.
+**Corrected score decomposition.** An earlier version of this file weighted the
+*percent* changes of `S` and `T` by 0.25/0.75, which is wrong: `S` and `T` have
+very different absolute scales, so the split has to be done in milliseconds
+using the frontier sensitivities. With `D = 5.046441` ms/token and
+`S = 97.9497` ms at the control point,
+
+```text
+d ln ns / dT = -0.75 / D                    = -0.75 / 5.046441        = -0.148620 per ms
+d ln ns / dS = -0.25 / S - 0.75 / (128 * D) = -0.0025523 - 0.0011611  = -0.0037134 per ms
+```
+
+so one millisecond of decode `T` is worth 14.862% of score, one millisecond of
+prefill `S` is worth 0.371%, and one decode millisecond equals 40.0 prefill
+milliseconds. Applying these to the measured shifts:
+
+| axis | Δ (ms) | sensitivity (per ms) | score cost |
+| --- | --- | --- | --- |
+| `T` | +0.056335 | −0.148620 | **−0.837%** |
+| `S` | +2.1476 | −0.0037134 | **−0.797%** |
+| sum | | | **−1.634%** |
+
+The exact log delta is `ln(2.503448 / 2.544360) = −1.621%`, so the linearisation
+is accurate to 0.013 points. Decode and prefill each cost about 0.8 points: the
+regression is **not** decode-dominated, which is the opposite of what the
+weight-only split implied.
+
+### Acceptance-band check (hand-computed)
+
+`emitLocalAcceptanceBandNotice` is gone, but `tolerances`, `Score.swift` and four
+test files still enforce decode `[0.980, 1.053]` and prefill `[0.952, 1.053]`, so
+the team rule is that any arm whose predicted decode or prefill speedup exceeds
+1.04 must carry this arithmetic. Doing it for this arm:
+
+| quantity | value | band | inside? |
+| --- | --- | --- | --- |
+| predicted decode speedup | `1 / (1 − 0.0197) = 1.0201` | `[0.980, 1.053]` | yes |
+| predicted prefill speedup | `≈ 1.000` (M4 prefill wall flat, 0.6% range, n=1) | `[0.952, 1.053]` | yes |
+| measured decode ratio | `5.046441 / 5.1195537 = 0.9857` | `[0.980, 1.053]` | yes |
+| measured prefill ratio | `191.308 / 195.5025 = 0.9785` | `[0.952, 1.053]` | yes |
+
+The predicted decode speedup of 1.0201 is well under the 1.04 trigger, so no
+band risk existed before submission, and the measured ratios also sit inside
+both bands. No legacy band verdict could have masked or distorted this result.
+The published paired `decode_speedup = 2.7038` and `prefill_speedup = 1.9570`
+are candidate-versus-baseline figures, a different quantity from these
+band ratios; they matter only for the two `0.95` floors, which both pass.
 
 ### Is the regression a slow-session artefact?
 
