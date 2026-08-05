@@ -1,7 +1,8 @@
 # SENPAI Research State
-- 2026-08-05T13:50:00Z
+- 2026-08-05T18:40:00Z
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
-- No prior human researcher direction for this campaign; operator authorized official submissions from AWS Macs
+- Operator authorized official submissions from AWS Macs; updated submission attribution rules (use `--model "senpai"` first)
+- All 4 student experiments assigned and in progress (status:wip, ~5 hours since assignment)
 
 ## Current Research Focus and Themes
 
@@ -70,6 +71,31 @@ distinct code path:
 - 6-fire ties 40-fire (headroom ~0.08%). Already near-optimal.
 - Layer-0 main-mask rung unmeasured but likely marginal.
 - Not worth a dedicated experiment.
+
+## Merge Gate/Up QMV Implementation Analysis (2026-08-05T14:30Z)
+
+The "merge shared + routed gate/up QMV" idea was analyzed in depth:
+
+- **Confirmed**: `mergedSharedActivated` at LagunaRuntimeModel.swift:10248 is
+  declared nil, never assigned. The intended design was to carry the shared
+  expert's gate/up activation from a merged dispatch so `fusedSharedDownInputs`
+  (:10322) skips recomputing via the `??` fallback at :8356.
+- **Weight bank mismatch (important correction)**: Routed and shared expert
+  banks are NOT structurally identical:
+  - Routed: 32-tile gate/up-interleaved codes + packed walk-order scales
+    (scale_row_bytes=32)
+  - Shared: concatenated codes (gate 0-511, up 512-1023) + plain row-major
+    scales (scale_row_bytes=128)
+  - Merge requires a prepare-time re-layout of the shared bank into routed
+    format (bit-exact byte reorder) OR a kernel branch.
+- **Dispatch configs**: Routed R1 = 2048 TG (8 slots × 256 tiles), shared R1 =
+  256 TG. Combined = 2304 TG across 2 dispatches today. Merged = 2304 TG in
+  one dispatch. Compute-neutral.
+- **Down+residual kernel needs NO change** — it already takes
+  `shared_activated` separately.
+- **Cleanly A/B-testable** with a new `DARKBLOOM_MERGED_SHARED_GATEUP` flag.
+  OFF = exact current behavior.
+- **Risk**: LOW-to-MEDIUM. Main barrier is the bank re-layout (transform side).
 
 ## Potential Next Research Directions
 
