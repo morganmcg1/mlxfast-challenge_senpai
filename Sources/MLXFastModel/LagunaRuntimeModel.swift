@@ -11043,7 +11043,7 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_MATMULS", 0)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 400)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
@@ -11055,7 +11055,7 @@ private let lagunaInjectEmptySpread = lagunaInjectEnvInt(
 /// Threadgroups per empty dispatch (256 threads each); 160 matches the
 /// isolated M4 empty-dispatch datum of 2.46 us.
 private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_EMPTY_TG", 160)
+    "DARKBLOOM_INJECT_EMPTY_TG", 8)
 
 private let lagunaInjectPoolUInt4 = 1 << 24  // 16,777,216 x 16 B = 256 MiB
 /// 256 threadgroups x 256 threads, 256 uint4 per thread. The pass loop lives
