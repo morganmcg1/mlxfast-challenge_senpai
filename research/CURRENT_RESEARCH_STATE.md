@@ -1,9 +1,10 @@
 # SENPAI Research State
 
-- **2026-08-05 20:35 UTC** (advisor: meridian). Round 9 in flight: #44, #47, #56
-  and **#48** merged; **#35 (frieren) now holds the ranked channel**; #57
-  (tanjiro) and #60 (nezuko) are receipt-free; **fern is idle and owed an
-  assignment**. The measurement instrument is **fully characterised** (§0). Read
+- **2026-08-05 21:00 UTC** (advisor: meridian). Round 9 closed, round 10 opening:
+  #44, #47, #56 and **#48** merged; **#35 (frieren) holds the ranked channel**;
+  #57 (tanjiro) and #60 (nezuko) are **receipt-free and in review**; **#63
+  (fern) is dispatched** on the routed-prefill byte axis.
+  The measurement instrument is **fully characterised** (§0). Read
   §Ø (the round-9 corrections ledger) first, then §0, then §0.9 for the
   **eighteen** laws. The four that gate every brief written today: the **M4
   TRANSFER LAW** (§0.9.2) decides which evidence may be priced at all;
@@ -292,6 +293,64 @@ grep -n -A1 'DARKBLOOM_INJECT_DECODE_EMPTY"\|DARKBLOOM_INJECT_EMPTY_TG"' \
 
 It must show `0` and `160`. Paste both lines into the submission note or the
 measurement report.
+
+### §Ø.6 M2 (routed-prefill gather elision) is NOT a one-line change — it is a correctness landmine
+
+Queue rank 1 was banked as "pass `rowOrder` as `lhsIndices`, delete the take."
+Re-derived from source at `929b5c43` this session. **The anatomy holds; the plan
+does not.**
+
+Confirmed, all read not recalled (line numbers had shifted — `gatherSort` moved
+from `:338-343` to `:340-355`):
+
+| fact | location |
+|---|---|
+| scored caller `lagunaFusedSortedRoutedGateUp` | `LagunaRuntimeModel.swift:9634-9705` |
+| `gatherSort` call | `:9656` |
+| the take `x.flattened(start:0,end:-3)[fused.rowOrder]` | `SwitchLayers.swift:345` |
+| `row_order[off] = idx / M` | `SwitchLayers.swift:309` |
+| `doSort = indices.size >= 64` ⇒ **prefill-only** | `SwitchLayers.swift:485`, caller `:490` |
+| `downProj` consumes GEMM-sorted activations ⇒ no second input gather | `:9697` |
+| `SwitchLayers.swift` is editable, 25,688 B | `benchmark.json` |
+
+Byte arithmetic (T=512, topK=8, `hiddenSize = 2_048` at `LagunaConfig.swift:17`,
+routed experts on **39** of 40 layers): 4,096 sorted rows × 4 kB ⇒ source 2 MiB,
+sorted copy 16 MiB, gather traffic 18 MiB, GEMM x-read 16 MiB ⇒ **≈32 MiB/layer
+× 39 = 1.309 GB**. At 651.8 GB/s ⇒ 2.008 ms ⇒ **+0.745%**; at the in-situ
+408.4 GB/s ⇒ 3.205 ms ⇒ **+1.19%**; central **+0.95%**. **Upper bound only** —
+§0.9.18 applies directly, since a 16 MiB buffer written and immediately re-read
+by the next kernel may be largely SLC-resident on a Max part.
+
+**Why the one-line version is fatal.** `MLX.gatherQuantizedMM` already exposes
+`lhsIndices` (`Vendor/mlx-swift/Source/MLX/Ops.swift:1468-1489`, forwarded to
+`mlx_gather_qmm`; not editable but needs no edit). But
+`GatherQMM::eval_gpu` (`quantized.cpp:2190-2285`) dispatches
+`gather_qmm_rhs` whenever `M == 1 && B >= 16 && right_sorted_ && B/E >= 4` —
+and our prefill shape satisfies **every** clause (M=1, B=4096, E=256, B/E=16).
+`gather_qmm_rhs` takes only the rhs `indices_`; it never receives
+`lhs_indices`. Its `broadcast_with_indices` lambda (`:1616-1625`, comment
+`:1612-1615`: *"lhs_indices were not provided so the lhs_indices are implied to
+be the shape of x broadcasted"*) reads `x` **sequentially**, and for our shape
+it is a pure no-op pass-through. **Passing `lhsIndices` non-nil would still
+select `gather_qmm_rhs`, which would silently ignore it and read 4,096 rows out
+of a 512-row array.** OOB garbage — and per §Ø.2 the gate might not flag it.
+
+The `lhs_indices`-aware NAX kernels are the **vector** ones only
+(`fp_quantized_nax.h:833-834`, index reads at `:853`/`:858`, wrappers
+`:1076-1077` and `:1141-1142`). The sorted-rhs kernel is separate and has no
+such parameter. ⇒ **the 16 MiB materialisation is structurally required by
+today's fast path.** Real M2 needs host `quantized.cpp` (81,331 B) +
+`fp_quantized_nax.h` (65,515 B) + the `.cpp` twin that actually runs
+(`mlx-generated/fp_quantized_nax.cpp`, 68,466 B, §0.9.9, +141 line offset).
+`senpai/validate-assignment-scope.sh` over those 7 paths: **scope OK**.
+
+Dispatched as **#63**, staged behind a branch-census hard stop and an M4-legal
+probe hard stop, ≤ +8,000 B, zero receipts.
+
+**New corollary to §0.9.10:** the `take`/gather is *not* a `_nax` kernel, so
+unlike the sorted gather-GEMM it is genuinely executable and measurable on an
+M4 host. Not every kernel in a `_nax`-gated chain is M4-blind; check the kernel,
+not the chain.
 
 ---
 
@@ -2503,10 +2562,11 @@ which arm unblocks the most stacking.
 | ~~#48~~ | fern | `maple-2026-08-05d-fused-norm-qkv-gate` | r2 | **MERGED** as `720c13ff`; review `5196813905`. Ranked receipt `285f79fa` (19:12:03Z) delivered **406 → 326 dispatches, correctness green, `ns` −0.1488%** ⇒ **Reading B, and the whole dispatch-count axis CLOSED (§Ø.1)**. Also produced §0.9.16 (barriers, not dispatches), §Ø.2 (`max_abs_diff 0` is not a bound), §Ø.3 (her own five "oracle passes" retracted), and three corrections to me (§Ø.4). Mode 2 stays default-0; scored diff reverted to `508,711 B` |
 | **#57** | tanjiro | `maple-2026-08-05f-gathergemm-coresidency` | r1 | Receipt-free. T1 the 128t-vs-1024t simdgroup-symmetry discriminator that decides whether §0.9.8's occupancy-currency claim and its **15.4 ms** survive; T2 the gather-GEMM threadgroup-footprint census; T3 the owed band-ratio reconciliation (now with two worked cases). **T4 DEFUNDED.** Cleared to `f722c2d7` (`5196932438`) |
 | **#60** | nezuko | `maple-2026-08-05g-sliding-attn-load-pipeline` | r1 | **NEW, receipt-free.** R2 = deepen the hand-written 2-deep sliding-attention load pipeline to 4 slots at byte-identical FP order. Primary metric `sliding_attn_lone_tg_us` at K=1, minimize, baseline **9.23 µs**; four hard stops; ≤ +2,000 B. Cleared to `f722c2d7` (`5196871082`) |
+| **#63** | fern | `maple-2026-08-05h-lhs-indices-gather-elision` | r1 | **NEW, receipt-free.** M2 = elide the 16 MiB/layer sorted-row materialisation in the routed prefill gate/up GEMM by teaching the sorted path a row permutation. Upper-bound price **+0.95%** (1.309 GB, §0.9.18-capped). Staged behind two hard stops: Step 0 a `quantized.cpp:2190-2285` branch census that must confirm `gather_qmm_rhs`, Step 1 an M4-legal standalone gather/permuted-read probe that must convert to ≥ 1.0 ms of M5 prefill at the byte factor 0.399. **Carries an explicit correctness landmine warning**: `gatherQuantizedMM` already exposes `lhsIndices`, but `gather_qmm_rhs` silently ignores it ⇒ the one-line version is OOB corruption, not a win. ≤ +8,000 B |
 
 Scope boundaries: **fern** owns the ranked-instrument statistics; the `_nax`
 gather family is closed and the **decode fusion pool is now closed too**
-(§Ø.1) — **she is idle and owed a fresh assignment on a different axis**;
+(§Ø.1), so she has moved to the **routed-prefill byte axis** as #63;
 **frieren** owns the attention scale-plane width plus M4→M5 transfer
 calibration, the byte budget he is spending, and the **o_proj
 instruction-issue question** (the zero-byte 256-entry-LUT discriminator);
