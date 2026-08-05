@@ -24,6 +24,12 @@ M4 measurements can choose what to investigate, but cannot predict an M5 gain.
 Kernel selection, occupancy, memory pressure, and the low-memory profile can
 change the result. The official M5 Max run decides promotion.
 
+Record the Metal architecture and whether the effective kernel is NAX before
+interpreting prefill. M4 Pro hosts report `applegpu_g16s` / generation 16 and
+do not select the `_nax` prefill kernels used by the ranked M5. A matched M4
+prefill result for a fallback kernel is not evidence about its M5 `_nax` twin.
+Threadgroup geometry also depends on core-count wave boundaries.
+
 Compare a candidate only with the current promoted frontier measured in the
 same cohort, on the same host and startup profile, with the same toolchain, fan
 policy, and thermal gates. Never use another host or an older cohort as the
@@ -62,8 +68,12 @@ Record host and software profiles, thermal state, repo SHA, exit status, and res
 
 ## Official ranked queue
 
-The official M5 runner is one serial queue. Do not send duplicates to create
-capacity. If the frontier advances, reapply and rebaseline later candidates.
+Each official job is measured serially on its M5 host, but the service can
+validate multiple submissions concurrently and should not be modeled as one
+global queue or one permitted in-flight submission. Do not send duplicate
+archives to manufacture capacity. Poll status with `mlxfast submissions`, not
+by calling `mlxfast submit` again, and honor server retry guidance. If the
+frontier advances, reapply and rebaseline later candidates.
 
 ## AWS Mac campaigns
 

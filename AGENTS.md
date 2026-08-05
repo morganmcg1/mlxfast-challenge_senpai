@@ -16,16 +16,13 @@ score = decode_speedup^0.75 * prefill_speedup^0.25
 Each speedup compares the candidate with the pinned baseline measured in the
 same official session. Both component speedups must be at least `0.95`.
 
-The ranked path also checks each run against a pinned calibration reference:
-
-```text
-decode_speedup:  [0.980, 1.053]
-prefill_speedup: [0.952, 1.053]
-```
-
-This caps a single accepted gain at about 5%. Split a larger improvement into
-independently correct, measurable changes. Do not add a regression or
-benchmark-dependent switch to fit the band.
+The deployed ranked wrapper does **not** cap candidate gains at `1.053`.
+`AcceptanceBand` remains in the inner benchmark binary, but the on-box
+measurement wrapper treats those invocations as timing probes, checks the
+baseline's health separately, and publishes the paired candidate verdict with
+only the two `0.95` floors. A submission must then beat the current best to be
+promoted. Never throttle or split a genuine win to fit the legacy band; split
+only when doing so improves causal attribution.
 
 ## Official Hardware
 
@@ -38,10 +35,13 @@ expert, stays resident in RAM. There is no expert cache, weight streaming, or
 scored disk I/O.
 
 M4 measurements are useful directional evidence when baseline and candidate
-run on the same quiet host under the same thermal policy. Do not compare
-absolute M4 and M5 timings or assume an M4 kernel ranking transfers to M5.
-Public fixtures were generated on M5, so a near-tie argmax may also differ on
-another Apple Silicon generation.
+run on the same quiet host under the same thermal policy and execute the same
+kernel family. M4 Pro hosts report Apple GPU generation 16 and do not select
+the `_nax` prefill kernels used by the ranked M5, so an M4 prefill result is not
+evidence for an `_nax` change. Threadgroup geometry can also change sign across
+core counts. Record kernel reachability and architecture before interpreting a
+result. Public fixtures were generated on M5, so a near-tie argmax may also
+differ on another Apple Silicon generation.
 
 ## What You May Optimize
 
@@ -53,6 +53,13 @@ Its four groups are:
 - Listed `Vendor/mlx-swift-lm/` Laguna and `MLXLMCommon` files used by the
   runtime.
 - Listed `Vendor/mlx-swift/` MLX Metal dispatch and kernel sources.
+
+The submitted surface is capped at 3,000,000 bytes total, 524,288 bytes per
+file, and 262,144 bytes of growth per submission review. Validate proposed
+paths against the experiment base's committed contract and check byte headroom
+before build or timing work; local timing can succeed for a candidate the
+official static review will refuse. The current editable-file count is a test
+fixture, not an official competition rule.
 
 The scored forward pass is
 `Sources/MLXFastModel/LagunaRuntimeModel.swift`. Vendored `Laguna.swift` is the
@@ -98,6 +105,9 @@ phase. A mismatch or failed gate publishes no score.
 `LagunaUpstreamEquivalence.swift` checks the runtime against the vendored model
 oracle. Use it when a change affects numerical behavior, representation,
 dispatch, or layout. The M5 remains authoritative for near-tie differences.
+Run it through `research/run_upstream_equivalence.sh`; the wrapper uses the
+exact bare test filter, repairs the debug metallib placement, and refuses to
+call a zero-test invocation a pass.
 
 The serial non-speculative rule at the end of this file is part of
 correctness, not an optional optimization constraint.
@@ -108,10 +118,11 @@ The frozen window has two axes: one 512-token prefill, and a teacher-forced
 decode pass with a 512-token seed and 128 one-token steps. Decode has 75% of the
 score weight; prefill remains scored and has its own hard floor.
 
-Published speedups use the same-session paired baseline. The two-sided bands
-use the pinned calibration reference, so the published ratios can fall
-slightly outside those band values. Local modes warn about the fast edge but
-do not enforce the band.
+Published speedups use the same-session paired baseline. The deployed wrapper
+uses pinned calibration to check baseline health, not to cap candidate gains.
+The final candidate merge in `overlay-paired-timing.sh` enforces correctness
+and the paired `0.95` floors. Legacy per-binary band failures are not the final
+ranked verdict.
 
 Memory and read timings are diagnostics. `bandwidth_gb_per_token` is always
 zero because the full model is RAM-resident.
@@ -127,6 +138,13 @@ The maintained fork `main` is the integration base. Before advisor or student
 branches start, it must contain the relevant organizer updates and the current
 promoted editable frontier. The advisor owns that integration and records its
 exact commit as `BASE_SHA`; students branch from that recorded base.
+
+Before assigning an experiment, list its submitted paths separately from
+research-only support files and run
+`senpai/validate-assignment-scope.sh "$BASE_SHA" PATH...` followed by
+`senpai/check-editable-budget.sh "$BASE_SHA"`. The assignment must also show
+that the proposed control reaches the scored runtime path; a knob on an unused
+fallback is not a timing experiment.
 
 Do not select the frontier by pulling a remote branch or inferring it from a
 branch name. Organizer synchronization, frontier promotion, and harness-only
@@ -180,6 +198,9 @@ uploads only that surface and does not run local preflight for you.
 Only the advisor or human operator dispatches an official submission. The
 official M5 run supplies the hidden gates and ranked score. Supporting tests or
 docs may aid research but the submitted candidate must work without them.
+Never run `mlxfast submit` from a private AWS research host. A `rejected`
+receipt can mean only that the score did not beat the current best, so inspect
+correctness, error, and both floor verdicts separately from ranking status.
 
 ## Practical Optimization Ideas
 

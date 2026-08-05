@@ -1,5 +1,10 @@
 # Laguna XS 2.1 optimization campaign brief
 
+> **Contract correction (2026-08-05).** Any recommendation below to chunk a
+> gain to fit a `1.053` acceptance band is superseded. The deployed ranked
+> wrapper applies the two `0.95` paired floors and does not cap candidate
+> gains; split work only for causal attribution.
+
 This is a decision document for starting optimization work from the public
 frontier without becoming trapped by it. It synthesizes the live MLX Fast
 leaderboard, the complete public notes attached to every promoted submission,

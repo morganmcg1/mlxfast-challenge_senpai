@@ -1,5 +1,10 @@
 # MLX Fast leaderboard wins and campaign bootstrap report
 
+> **Contract correction (2026-08-05).** The report's recommendation to stage
+> gains under a `1.053` acceptance band is superseded. The deployed ranked
+> wrapper applies the two `0.95` paired floors and does not cap candidate
+> gains; the frozen measurements below remain unchanged.
+
 Snapshot: **2026-08-02T09:07:21Z**<br>
 Report evidence cut: **2026-08-03T06:44:30Z**<br>
 Track: `laguna-xs-2.1-serial-v2`<br>
