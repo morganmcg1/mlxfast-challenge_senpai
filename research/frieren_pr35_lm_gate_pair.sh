@@ -17,6 +17,16 @@
 # discriminating fault: it moves a code across columns 512 apart, where
 # neighbouring-group correlation cannot mask the swap.
 #
+# WHICH ARMS TO RUN. `MODES` selects the fault ladder and `SKIP_V3=1` reuses an
+# already-recorded clean arm. A silent discriminating mode is only interpretable
+# next to a FLAGGED wiring control in the same table, so run mode 3 (every
+# fitting-row code forced to zero) whenever a permutation mode comes back
+# silent: 3 failing proves the hook reaches the dispatched kernel, and mode 2
+# (+1 on every fitting code, 100% row coverage) then brackets how large a scale
+# perturbation the 1025-step gate actually needs before it fires.
+#   MODES=5 bash research/frieren_pr35_lm_gate_pair.sh          # V3 + mode 5
+#   SKIP_V3=1 MODES="3 2" bash research/frieren_pr35_lm_gate_pair.sh
+#
 # THERMAL HONESTY. This host idles at ~39.9C GPU against a 40C gate threshold,
 # and a previous V3 aborted on COOL_GATE_STALL_SECONDS at a 40.7C floor with no
 # competing GPU load. A thermal abort ALSO writes passed:false, so the verdict
@@ -31,6 +41,15 @@ set -u
 cd "$(dirname "$0")/.."
 
 patch="research/frieren-pr35-lanemajor-fault.patch"
+# Fault modes to run, in order. Mode 3 (every fitting-row code forced to 0) is
+# the WIRING CONTROL: if the gate does not fail under 3, the instrument is not
+# connected to the kernel and a silent mode 5 means nothing. Mode 2 (+1 on
+# every fitting code) calibrates the gate's sensitivity floor at 1025 steps.
+MODES="${MODES:-5}"
+# The clean arm is a deterministic correctness check, not a timing measurement,
+# so it does not have to be re-established in every session. Set SKIP_V3=1 only
+# when a passing V3 has already been recorded for byte-identical Sources/.
+SKIP_V3="${SKIP_V3:-0}"
 start=$(date +%s)
 macmon="${HOME}/bin/macmon"
 
@@ -144,48 +163,50 @@ echo "=== start gpu=$(gpu_temp)C ==="
 # Scalar, not an array: this host runs bash 3.2, where expanding an empty array
 # under `set -u` aborts the script.
 COOL_ENV=""
-run_arm v3_gated
-case "${ARM_CLASS}" in
-  thermal*)
-    echo "=== V3 gated attempt aborted thermally; retrying ungated (correctness only) ==="
-    cool_wait 120
-    COOL_ENV="MLXFAST_LOCAL_COOL_GATE=0"
-    run_arm v3_ungated ${COOL_ENV}
-    ;;
-esac
-V3_CLASS="${ARM_CLASS}"
-echo "### V3 VERDICT: ${V3_CLASS}"
+if [[ "${SKIP_V3}" == "1" ]]; then
+    echo "### V3 SKIPPED by request (already recorded for byte-identical Sources/)"
+else
+    run_arm v3_gated
+    case "${ARM_CLASS}" in
+      thermal*)
+        echo "=== V3 gated attempt aborted thermally; retrying ungated (correctness only) ==="
+        cool_wait 120
+        COOL_ENV="MLXFAST_LOCAL_COOL_GATE=0"
+        run_arm v3_ungated ${COOL_ENV}
+        ;;
+    esac
+    V3_CLASS="${ARM_CLASS}"
+    echo "### V3 VERDICT: ${V3_CLASS}"
+    case "${V3_CLASS}" in
+      pass*) : ;;
+      *) echo "### V3 did not pass. A fault arm would be uninterpretable. Stopping."
+         exit 1 ;;
+    esac
+fi
 
-case "${V3_CLASS}" in
-  pass*) : ;;
-  *) echo "### V3 did not pass. A fault arm would be uninterpretable. Stopping."
-     exit 1 ;;
-esac
-
-# ---------------------------------------------------------------- V4c, fault
-cool_wait 180
-echo "=== applying fault patch (mode 5) ==="
-git apply "${patch}" || { echo "PATCH FAILED - V4c not run"; exit 3; }
-run_arm v4c_mode5 DARKBLOOM_LM_FAULT=5 ${COOL_ENV}
-F_CLASS="${ARM_CLASS}"
-restore_sources
-
-case "${F_CLASS}" in
-  fail*)
-    echo "### V4c VERDICT: FLAGGED. The 1025-step golden gate detects a"
-    echo "### lane-major addressing permutation. B has a real external"
-    echo "### addressing certificate, not only the analytic argument."
-    ;;
-  pass*)
-    echo "### V4c VERDICT: SILENT. The golden gate ran 1025 checked steps and"
-    echo "### still matched under mode 5. No available external instrument can"
-    echo "### see a lane-major addressing permutation; B's addressing rests on"
-    echo "### the analytic derivation plus the reconstruction certificate, and"
-    echo "### the one-hot 128-probe design in the b-verification note is the"
-    echo "### only route to a real certificate. This negative is the result."
-    ;;
-  *)
-    echo "### V4c VERDICT: INCONCLUSIVE (${F_CLASS}). Not evidence either way."
-    ;;
-esac
+# ---------------------------------------------------------------- V4c, faults
+for mode in ${MODES}; do
+    cool_wait 180
+    echo "=== applying fault patch (mode ${mode}) ==="
+    git apply "${patch}" || { echo "PATCH FAILED - mode ${mode} not run"; exit 3; }
+    run_arm "v4c_mode${mode}" "DARKBLOOM_LM_FAULT=${mode}" ${COOL_ENV}
+    F_CLASS="${ARM_CLASS}"
+    restore_sources
+    case "${F_CLASS}" in
+      fail*)
+        echo "### V4c mode ${mode} VERDICT: FLAGGED (${F_CLASS})."
+        echo "### The 1025-step golden gate detects this fault, so the gate is"
+        echo "### wired to the lane-major kernel and its silence on another mode"
+        echo "### is a real measurement of blindness rather than a dead hook."
+        ;;
+      pass*)
+        echo "### V4c mode ${mode} VERDICT: SILENT (${F_CLASS})."
+        echo "### 1025 checked steps still matched. Interpretable only against a"
+        echo "### FLAGGED wiring control in the same table."
+        ;;
+      *)
+        echo "### V4c mode ${mode} VERDICT: INCONCLUSIVE (${F_CLASS})."
+        ;;
+    esac
+done
 echo "=== done t=$(elapsed)s gpu=$(gpu_temp)C ==="

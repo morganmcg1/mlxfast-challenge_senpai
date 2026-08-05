@@ -516,7 +516,7 @@ against `90bbc33d` and paste the numbers.
 | --- | --- | --- | --- |
 | V1 | `swift test --force-resolved-versions` | all pass | ✅ 456/456, exit 0 (training `d0c059fa-d163-4f6a-b976-76672a8170e4`) |
 | V2 | upstream-equivalence oracle | 8 exact decode steps | ⚠️ 8/8 but **retracted for B** — bank absent (§1). Valid only as a shared-path no-regression guard. |
-| V3 | `./benchmark.sh --local-submit` | `max_abs_diff 0`, `checked_steps 1025`, flat `peak_ram_gb` | see §9 |
+| V3 | `./benchmark.sh --local-submit` | `max_abs_diff 0`, `checked_steps 1025`, flat `peak_ram_gb` | ✅ **PASS** — `passed true`, `max_abs_diff 0`, `checked_steps 1025`, `peak_ram_gb 21` (§9.5) |
 | V4a | greedy-probe fault injection | fault > 0, control 0 | ⚠️ catastrophic-only; retracted as an addressing certificate (§3) |
 | V4b | oracle fault injection | permutation fault < 8 | ❌ **instrument invalid** — modes 3/4/5/6/1 all 8/8 (§1.2) |
 | V4c | shipping-gate fault injection | fault arm fails | ⬜ scripted, not run (§4.2) |
@@ -815,3 +815,54 @@ base, reading the stock scale plane: **`STOCK` ≡ base behaviour**, and
 not a partial contrast against an already-improved base. V6's +28.4 µs is the
 lane-major sub-component measured in isolation with r1 held off in both arms.
 
+
+### 9.5 V3 — the shipping golden gate, clean arm (PASS)
+
+`env DARKBLOOM_ATTN_SCALE_NARROW_LOG=1 ./benchmark.sh --local-submit` at the
+shipping head `62a939f`, no research hook compiled in, full public long-copy
+gate `correctness_prompts/public_longcopy_gate_english_512_1024.json`.
+Raw readout `/tmp/pr35_gate_v3_gated.txt`, score copy
+`/tmp/pr35_gate_v3_gated_score.json`.
+
+| field | value | criterion | verdict |
+| --- | --- | --- | --- |
+| `passed` | `true` | true | ✅ |
+| `passed_correctness` | `true` | true | ✅ |
+| `max_abs_diff` | `0` | exactly 0 | ✅ |
+| `checked_steps` | `1025` | 1025 (8× the greedy probe) | ✅ |
+| `case_count` | `1` | ≥1 | ✅ |
+| `first_failing_case` / `_layer` / `_step` | `null` / `null` / `null` | null | ✅ |
+| `golden_hash` | `f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2` | matches the public golden | ✅ |
+| `harness_hash` | `047449cbdb985609e54da6c883c3d584595d718147dc0b1253eab26669cbbd41` | unmodified harness | ✅ |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` | 9 files, 21,568,891,382 B | ✅ |
+| `peak_ram_gb` | `21` | flat vs the pinned r1-ON baseline (`21`) | ✅ |
+| `error` | `""` | empty | ✅ |
+| `partial_result` | `false` | false | ✅ |
+| `commit` | `62a939f` | the shipping head | ✅ |
+
+**This is deliverable B's real correctness evidence and it replaces the
+retracted V2.** Unlike the upstream-equivalence oracle (§1) this path runs
+through `LagunaRuntimeWeightCache`, so `prepareFusedRuntimeWeights()` *is*
+called: the arm logs `narrow-scales built lane-major: qkv` for all 40 layers
+and `narrow-scales lane-major: qkv h48` / `h64` at dispatch. Every one of 1025
+greedy steps matches the golden with `max_abs_diff 0`.
+
+Timings from this arm are **not** instruments and are recorded only for the
+record: decode `0.009201801645161291` s/token (`decode_speedup` 1.5058),
+prefill `0.0011384951171875` s/token (`prefill_speedup` 0.3228,
+`passed_prefill_speedup_floor false`), est. score 1.0246. `--local-submit`
+amortises one prefill over 1023 decode steps and this is a 48 GiB non-`_nax`
+host, so neither number transfers; see the programme's standing rule to ignore
+local prefill entirely.
+
+Two side observations worth recording:
+
+* `decode_speedup 1.5058` is 28× outside the pinned acceptance band ceiling of
+  1.053 and the run still reports `passed true`. That is a third independent
+  confirmation of §10 of the status note: the band is evaluated against the
+  *pinned reference* on paths where the harness has already substituted
+  baseline-equal timings, so it is not a live constraint on the local gate.
+* `peak_ram_gb` is quantised to whole GB on this path, so it bounds the bank's
+  RAM cost at < 0.5 GB rather than resolving it. The resolving measurement is
+  the V7 screen's `mlx_peak_gb` (36.43 vs 36.39), which is what proves the
+  replacement property numerically (§9.4).
