@@ -1,5 +1,10 @@
 # MLX Fast leaderboard promotion ledger and campaign bootstrap
 
+> **Contract correction (2026-08-05).** References to “band-sized” historical
+> rollouts describe how those submissions were staged, not a current
+> requirement. The deployed ranked wrapper does not cap candidate gains at
+> `1.053`; its final paired verdict applies the two `0.95` floors.
+
 Snapshot: **2026-08-02T09:07:21Z**
 
 Leaderboard: [mlx.fast](https://mlx.fast/)

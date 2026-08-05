@@ -83,10 +83,12 @@ For risky math or dispatch changes on M5, compare the scored runtime with the
 vendored Laguna model:
 
 ```bash
-MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE=1 \
-MLXFAST_LAGUNA_EQUIVALENCE_WEIGHTS_PATH=weights \
-swift test --force-resolved-versions \
-  --filter lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled
+research/run_upstream_equivalence.sh
 ```
 
-This diagnostic supplements, but never replaces, local and official gates.
+The wrapper uses the exact bare Swift Testing filter, repairs the debug
+`mlx.metallib` placement from the scored worker build when needed, and fails
+if the oracle report is absent. A zero-test invocation is not a pass. On a
+non-M5 host, run the unchanged `BASE_SHA` too before attributing a prefill
+divergence. This diagnostic supplements, but never replaces, local and
+official gates.

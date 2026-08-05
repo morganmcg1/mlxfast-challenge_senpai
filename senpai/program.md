@@ -26,28 +26,28 @@ optimization target:
 - Decode: a charged 512-token seed forward followed by 128 validated
   teacher-forced one-token steps.
 
-The official M5 run also enforces a two-sided acceptance band against the
-pinned calibration reference:
+The deployed ranked wrapper does not enforce the legacy `1.053` candidate-gain
+cap described by `AcceptanceBand`. The inner benchmark binary can report a
+band failure, but the on-box measurement wrapper owns the timed verdict: it
+checks baseline health, then publishes the paired candidate result through
+`overlay-paired-timing.sh`, which applies the two `0.95` floors. Accepted
+receipts with gains well beyond 5% confirm this behavior. Promotion then
+requires beating the current best.
 
-```text
-decode_speedup:  [0.980, 1.053]
-prefill_speedup: [0.952, 1.053]
-```
-
-This caps a single ranked submission's apparent gain at about 5%. If a local
-candidate is more than about 5% faster, split it into independently measurable
-submissions and validate each step. Split only along natural, independently
-correct improvements; never add an intentional regression, throttle, or
-benchmark-dependent switch to fit the band. Local modes warn about the fast
-edge but do not enforce the band.
+Never throttle, stage, or split a genuine win to fit the legacy band. Split a
+mechanism only when the smaller steps are independently correct and improve
+causal attribution.
 
 ## Correctness
 
 ### M4 vs M5
 
-You will only have Mac M4 machines to run your experiments on so you will need to be creative and efficient in your research. There might be some mismatch 
-between the speedups seen on Mac M4 and M5 machines but we have done the analysis 
-and feel confident that the M4 is still a valid proxy for the M5 for the vast majority of speedup experiments we're going to run.
+Most student experiments run on M4 Macs. Treat those measurements as
+directional only after proving that the M4 and ranked M5 execute the same code
+family. M4 Pro hosts expose Apple GPU generation 16 and do not select the
+`_nax` prefill kernels used by the M5; threadgroup geometry can also change
+sign with core count. M4 remains valuable for correctness, call-path checks,
+host-cost measurements, and matched timing of host-independent decode work.
 
 ### Correctness gate
 Correctness is a hard gate, not a tradeoff. Every checked greedy token must
@@ -82,6 +82,7 @@ Useful files depending on what you're working on are:
 | Kernel source forms and build behavior | [`AGENTS.md`](../AGENTS.md#what-you-may-optimize) and [`README.md`](../README.md) |
 | Correctness, integrity, and serial non-speculation | [`AGENTS.md`](../AGENTS.md#correctness-gates) and [`TASK.md`](../TASK.md#correctness-gates) |
 | Local baseline, candidate, and promotion commands | [`experiment-runbook.md`](experiment-runbook.md) |
+| Assignment scope and authority | [`assignment-template.md`](assignment-template.md) |
 | Macs, memory, thermals, telemetry, fan policy, AWS, and process lifecycle | [`infra.md`](infra.md) |
 | Risk-based local quality evaluation | [`quality-evaluation.md`](quality-evaluation.md) |
 | NAX/pre-NAX MoE layout troubleshooting | [`pre-nax-moe-layout.md`](pre-nax-moe-layout.md) |
@@ -125,6 +126,13 @@ choosing research:
   tests and docs may improve research clarity, but the submitted candidate
   must work from `editablePaths` alone.
 
+Every assignment must list submitted paths separately and validate them
+against the committed `benchmark.json` at its full `BASE_SHA` with
+`validate-assignment-scope.sh`. It must also run the cheap editable-surface
+budget preflight: 3,000,000 bytes total, 524,288 bytes per file, and 262,144
+bytes of growth. The current editable-file count is a repository test fixture,
+not an official rule.
+
 ### Accepted attention quantization envelope
 
 Only Q/K/V/O and per-head `g_proj` may be re-quantized, and only to group-32
@@ -137,6 +145,10 @@ and relevant `_nax` form from the organizer docs. Numerical evidence is
 required when an experiment changes math, reduction order, precision, packing,
 or layout; do not automatically impose the full numerical-quality stack on an
 operation-preserving scheduling or tiling change.
+
+Before timing any selector or environment knob, show the call path from that
+control to the scored shape. A control that reaches only a dormant fallback is
+not an experiment arm.
 
 ## Research Pace
 
@@ -164,14 +176,16 @@ For each assigned PR, the student should:
 
 1. Record `BASE_SHA` and measure the unchanged frontier once on the assigned
    host.
-2. Save the ignored baseline score artifact.
-3. Implement one causal hypothesis, refining that mechanism until it wins or
+2. Complete the scope, budget, reachability, and authority checks in
+   [`assignment-template.md`](assignment-template.md).
+3. Save the ignored baseline score artifact.
+4. Implement one causal hypothesis, refining that mechanism until it wins or
    is exhausted.
-4. Run the candidate under the same host profile and thermal policy.
-5. Compare the candidate's seconds/token directly with the fresh local
+5. Run the candidate under the same host profile and thermal policy.
+6. Compare the candidate's seconds/token directly with the fresh local
    baseline; calibration-based local `score` and `*_speedup` fields are
    secondary diagnostics.
-6. Report the result to the advisor in the PR using
+7. Report the result to the advisor in the PR using
    [`result-template.md`](result-template.md).
 
 ### Running the local harness
@@ -205,6 +219,10 @@ Run `--local-iterate` for the candidate. It rebuilds stale binaries, runs the
 public correctness tripwire, and produces the short timing signal. Add a
 targeted test only when the changed boundary needs one.
 
+`--local-submit` uses a much longer decode window and is a packaging and final
+correctness gate. It can dilute seed-forward improvements, so do not use it as
+the primary causal timing screen.
+
 Do not put a full `swift test`, repeated smoke test, upstream-equivalence run,
 quality panel, and `--local-submit` in every edit loop. That spends research
 time proving the same fact several times.
@@ -234,7 +252,8 @@ only when their documented risk trigger is present.
 
 The advisor or human operator owns the promoted frontier and official queue.
 The student must commit the submission changes and ask the advisor before
-dispatch. While an official job is queued, continue independent research
+dispatch, and must never run `mlxfast submit` from a private AWS host. While an
+official job is queued, continue independent research
 against its recorded frontier instead of waiting idle; rebase and rebaseline
 only if promotion changes that frontier. Queue and host mechanics belong in
 [`infra.md`](infra.md).
@@ -265,6 +284,10 @@ or to diagnose an observed mismatch. The complete triggers, tasks, recorded
 baseline values, and exit semantics are in
 [`quality-evaluation.md`](quality-evaluation.md). These local checks never
 relax the official exact-token or hidden M5 gates.
+
+Run upstream equivalence through `research/run_upstream_equivalence.sh`. A
+filtered Swift command that selects zero tests is a failed validation even if
+it exits zero; the wrapper requires the oracle report marker.
 
 Our local quality panel is expensive and slows experiment throughput. Run it only
 for a named risk or unresolved question that cheaper exact checks cannot answer.
