@@ -608,6 +608,70 @@ mechanism.
 
 ---
 
+### 9.1 ★ Pre-registered decision rule — binding, committed before the receipt
+
+Channel granted by advisor `meridian` in `pr48-r1-review-channel-grant-mode2`
+(2026-08-05T18:47:50Z). This subsection is committed **before** `mlxfast submit`
+runs so the verdict cannot be chosen after seeing the number.
+
+**Candidate.** Tree `b5082b74` plus one character: the
+`lagunaDecodeNVFP4NormQKVFuseMode` default at `:4727` flipped `0 → 2`. No
+rebase onto `7e39f4ee` before the receipt — the +182 B of off-by-default `#47`
+instrument cannot affect timing and a pre-receipt rebase only adds a way for the
+submitted candidate to differ from the tree I proved bit-exact.
+
+**Attribution.** `mlxfast submit --model "senpai"`, verbatim and lowercase, per
+the operator amendment of 2026-08-05T18:39Z (`7e39f4ee`). Fallback to the
+underlying provider/model is permitted **only** on an explicit API rejection of
+`senpai` as an invalid or unsupported model value, once, same candidate — never
+on a timeout, network error, validation failure, or any unrelated error, because
+the first request may already have created a submission.
+
+**The question this receipt settles.** Both readings share tanjiro's measured
+M5 `c = 2.1828 µs/dispatch`; they disagree only on whether a *removed* dispatch
+returns it.
+
+| reading | claim | dT | `ns` | Δ`ns` (exact) | Δscore (14.862 %/ms) |
+|---|---|---:|---:|---:|---:|
+| **A** | `c` is per-dispatch overhead and is returned | 0.17462 ms | 2.612465 | **+2.676 %** | +2.595 % |
+| **B** | `c` is a correlated marginal (encode/ramp/queue depth); only the GPU work returns | 0.030 ms | 2.555755 | **+0.448 %** | +0.446 % |
+
+Separation 0.1446 ms against cand_dec cross-session sd 0.151–0.168 % (≈14.2 µs)
+is **~10.2 σ**. My own §4.3 mechanism inference — CPU-side encode plus
+launch/ramp rather than GPU synchronisation — *is* Reading B's mechanism, so my
+prior is on B. I am pre-registering that prior explicitly: **I expect the low
+band, and I will not reinterpret a low result as a partial A.**
+
+**Verdict table.** Ranked on `ns = nd^0.75 · npf^0.25`, `nd = 0.013890 /
+decode_s_per_tok`, `npf = 0.0003845 / prefill_s_per_tok`, against the fixed
+control `c3ce66ec` `ns = 2.544360`. Never on `officialScore`.
+
+| observed Δ`ns` | absolute `ns` | verdict |
+|---|---:|---|
+| ≥ +2.02 % | ≥ 2.595756 | Reading **A**; clears the P=95 % bar; merge; open the dispatch-count axis programme-wide |
+| +1.50 … +2.02 % | 2.582525 … 2.595756 | A-leaning; merge; axis stays open |
+| +0.90 … +1.50 % | 2.567259 … 2.582525 | **ambiguous**; claim no mechanism; hands off to tanjiro's §6.2 `DARKBLOOM_INJECT_SWEEP_PASSES` discriminator |
+| ≤ +0.90 % | ≤ 2.567259 | Reading **B**; dispatch-count axis closes; merge only if it beats control; no mechanism claim |
+| < 0 % | < 2.544360 | report immediately; do not resubmit without the advisor |
+
+Carried caveat, pre-registered: Reading A assumes a real dispatch's launch cost
+equals an empty probe dispatch's. If the truth is intermediate the result lands
+in the ambiguous band, which is a legitimate pre-registered outcome and not a
+failed experiment.
+
+**Band.** Not shaped for, not split, not throttled. §9's 1.04929-vs-1.053 worry
+is void on the advisor's evidence that the deployed wrapper publishes green with
+full metrics while the legacy band fails identically for the *unchanged*
+control. Only low-side band failures have been exercised, so a high-side band
+rejection would be new information and gets reported immediately.
+
+**Abort conditions.** Any of `passed_correctness false`, `max_abs_diff ≠ 0`, a
+failed hidden gate, or either component floor below 0.95 stops the arm and is
+reported before anything else. Any non-model-value submission error: stop, hand
+the channel back, do not retry.
+
+---
+
 ## 10. Suggested follow-ups I did not implement
 
 1. **Settle the barrier attribution properly — this is the highest-value item
