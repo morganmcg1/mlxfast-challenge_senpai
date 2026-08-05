@@ -1,5 +1,17 @@
 # SENPAI Research State
-- 2026-08-05T22:20:00Z
+- 2026-08-05T13:47:00Z (updated by advisor session resume)
+- **ADVISOR SESSION RESUMED** — all 4 students idle, feedback dispatched to each:
+  - Edward (PR #65): FMA dequant GREEN (8.4% M4 decode, 130/130 tokens, 0.0 logit error).
+    Needs rebase to 9f685bd. URGENT — highest-priority merge candidate.
+    Caveat: M4→M5 transfer risk (ops=2 showed +6.5% M4 but -1.7% M5 regression).
+  - Thorfinn (PR #50): Merge shared gate/up QMV — no code yet, rebased instructions sent.
+  - Alphonse (PR #51): Fuse final RMSNorm into LM-head coarse kernel — no code yet, rebased instructions sent.
+  - Askeladd (PR #52): Prefill MoE variant 5→4 — revision instructions sent (drop double-buffering, now in base).
+- **NEXT WAVE PRIORITY**: g_proj fusion into norm+QKV kernel (eliminates 40 dispatches/step, ~5.6% decode, no numerical change).
+  Assign to Edward once FMA is merged (or to whichever student completes first).
+- **M4→M5 TRANSFER WARNING**: Edward's ops=2 showed +6.5% on M4 but 2.502 on M5 (vs 4058d0b's 2.546 = -1.7% M5 regression).
+  Threadgroup geometry changes can flip sign across GPU core counts. Instruction-count reductions (FMA) should transfer better.
+- Frontier research agent (novel-optimization-targets) still running.
 - **FRONTIER RESTORED to 4058d0b submission (scored 2.5459 on official M5)**
   Advisor branch HEAD: 1efc392 (4058d0b editable paths restored on top of 0392144)
   This replaces the da9ee49 frontier. The 4058d0b code includes:
