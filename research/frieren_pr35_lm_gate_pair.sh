@@ -2,9 +2,11 @@
 # PR35 r3: V3 (shipping golden gate, clean) and V4c (the same gate, fault
 # injected) in one session.
 #
-# V3 is the bit-exactness proof the brief requires: passed:true, max_abs_diff 0,
+# V3 is the bit-exactness proof the brief requires: passed:true,
 # checked_steps 1025, on the exact shipping code with no research hook compiled
-# in.
+# in. CORRECTION (r4): "max_abs_diff 0" was also cited here as part of that
+# proof. It is not evidence of anything -- the field is a hardcoded literal 0 and
+# is computed nowhere. See research/frieren-pr35-r4-gate-blindness.md section 3.3.
 #
 # V4c is the tier-3 power control. Two instruments are already shown blind to a
 # lane-major scale ADDRESSING fault (greedy probe: modes 5/6/1 gave 0

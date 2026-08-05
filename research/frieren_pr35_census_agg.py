@@ -34,3 +34,72 @@ pl = [int(r[7]) / int(r[6]) for r in quad]
 print("const_quad per-layer first8: " + " ".join("%.4f" % v for v in pl[:8]))
 print("const_quad per-layer min=%.4f max=%.4f" % (min(pl), max(pl)))
 print("row-shape histogram: %s" % dict(collections.Counter(int(r[3]) for r in quad)))
+
+# `dhist` records the signed code delta s[(g+1)&127] - s[g], clamped to +-16,
+# split by the parity of g. Scale codes are uint8 E4M3, so one code step is a
+# mantissa step: eight byte patterns per octave, i.e. a magnitude ratio of
+# 2**(delta/8) to within the 1.0667..1.125 per-step spread. That converts the
+# addressing displacement of probe 128 into a relative weight error.
+dh = [r for r in rows if r[0] == 'dhist']
+if dh:
+    even = collections.Counter()
+    odd = collections.Counter()
+    for r in dh:
+        even[int(r[5])] += int(r[6])
+        odd[int(r[5])] += int(r[7])
+
+    def summarize(name, h):
+        n = sum(h.values())
+        if n == 0:
+            return
+        zero = h[0] / n
+        sat = (h[-16] + h[16]) / n
+        mad = sum(abs(d) * c for d, c in h.items()) / n
+        rms = (sum(d * d * c for d, c in h.items()) / n) ** 0.5
+        err = {d: 2.0 ** (d / 8.0) - 1.0 for d in h}
+        mae = sum(abs(err[d]) * c for d, c in h.items()) / n
+        rmse = (sum(err[d] * err[d] * c for d, c in h.items()) / n) ** 0.5
+        print("%s n=%d zero=%.6f sat16=%.6f mean|d|=%.4f rms_d=%.4f "
+              "mean|rel|=%.4f rms_rel=%.4f" % (name, n, zero, sat, mad, rms, mae, rmse))
+
+    summarize("dhist even_g", even)
+    summarize("dhist  odd_g", odd)
+    both = collections.Counter(even)
+    both.update(odd)
+    summarize("dhist  all_g", both)
+    top = sorted(odd.items(), key=lambda kv: -kv[1])[:9]
+    print("odd_g top deltas: " + " ".join("%+d:%.4f" % (d, c / sum(odd.values()))
+                                          for d, c in top))
+
+# `derr` carries the exact per-entry relative error |s[(g+1)&127]/s[g] - 1|
+# accumulated in the runtime with a bias-7 E4M3 decode, so it needs no
+# approximation: fields are parity, n, sum|rel|, sum rel^2, max|rel|, zero-denom.
+de = [r for r in rows if r[0] == 'derr']
+if de:
+    for p, name in ((0, "even_g"), (1, " odd_g")):
+        sel = [r for r in de if int(r[5]) == p]
+        n = sum(int(r[6]) for r in sel)
+        sa = sum(float(r[7]) for r in sel)
+        sq = sum(float(r[8]) for r in sel)
+        mx = max(float(r[9]) for r in sel)
+        z = sum(int(r[10]) for r in sel)
+        print("derr %s n=%d zero_denom=%d mean|rel|=%.6f rms_rel=%.6f max|rel|=%.4f"
+              % (name, n, z, sa / n, (sq / n) ** 0.5, mx))
+    n = sum(int(r[6]) for r in de)
+    sa = sum(float(r[7]) for r in de)
+    sq = sum(float(r[8]) for r in de)
+    print("derr  all_g n=%d mean|rel|=%.6f rms_rel=%.6f" % (n, sa / n, (sq / n) ** 0.5))
+
+ch = [r for r in rows if r[0] == 'chist']
+if ch:
+    codes = collections.Counter()
+    for r in ch:
+        codes[int(r[5])] += int(r[6]) + int(r[7])
+    n = sum(codes.values())
+    sub = sum(c for k, c in codes.items() if 1 <= k <= 7)
+    print("chist n=%d distinct=%d min=%d max=%d zero=%.6f subnormal(1..7)=%.6f "
+          "signbit=%.6f" % (n, len(codes), min(codes), max(codes),
+                            codes[0] / n, sub / n,
+                            sum(c for k, c in codes.items() if k >= 128) / n))
+    print("chist top codes: " + " ".join("%d:%.4f" % (k, c / n) for k, c in
+                                        sorted(codes.items(), key=lambda kv: -kv[1])[:10]))

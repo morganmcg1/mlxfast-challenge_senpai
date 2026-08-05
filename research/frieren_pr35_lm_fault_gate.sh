@@ -25,11 +25,16 @@
 # (public_longcopy_gate_english_512_1024.json) for checked_steps 1025, which is
 # 8x the greedy probe's 128 steps.
 #
-# READOUT: passed / max_abs_diff / checked_steps.
-# PASS = the fault arm reports passed:false or max_abs_diff != 0.
+# READOUT: passed / checked_steps.
+# PASS = the fault arm reports passed:false.
 # FAIL = the fault arm still passes, in which case NO available instrument can
 #        see a lane-major addressing error and B needs a kernel-level
 #        self-certificate instead of an external probe.
+#
+# CORRECTION (r4): this readout originally also accepted "max_abs_diff != 0",
+# which is dead logic. That field is a hardcoded literal 0 at every construction
+# site and is computed nowhere, so it can never fire. See
+# research/frieren-pr35-r4-gate-blindness.md section 3.3.
 set -u
 cd "$(dirname "$0")/.."
 
