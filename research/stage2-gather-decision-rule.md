@@ -30,3 +30,23 @@ confound to flag, not a result to claim.
 ## Reporting
 Rank by `ns`, never `officialScore` (0.569% vs 0.825% rel sd, n = 302).
 A bit-exact within-noise null is a first-class result. Do not hunt a rescue.
+
+## CORRECTION (appended after the receipts landed, before submission)
+The bands above are left exactly as pre-registered. They used the WRONG sigma.
+
+`dS = S_cand - S_ctl` is a difference of two INDEPENDENT draws, each with
+single-draw sd 0.1793 ms, so the sd of the difference is
+
+    sigma_dS = 0.1793 * sqrt(2) = 0.2536 ms   (3 sigma = 0.761 ms, not 0.54 ms)
+
+An independent frontier review caught this; my scratch tool
+`/tmp/report_receipt.py` divided by the single-draw sd, inflating every printed
+sigma by sqrt(2). Corrected significances:
+
+    v2 register prefetch  dS = +0.4626 ms  ->  +1.83 sd  (reported as +2.6 sd)
+    v1 double buffer      dS = +0.1150 ms  ->  +0.45 sd  (reported as +0.6 sd)
+
+Both remain inside the NULL band under either sigma, so the verdict is unchanged:
+the middle row fired, v1 was escalated as the pre-declared canary, and both arms
+are within-noise losses => close the family. Use
+`research/receipt_baseline_lottery.py` for paired quantities in future work.
