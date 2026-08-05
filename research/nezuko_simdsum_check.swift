@@ -84,9 +84,91 @@ kernel void scalar4_reversed(
         out[tg] = as_type<uint4>(v);
     }
 }
+
+// PR #68 Step 1: the ascending hand-rolled butterfly. This is the exact
+// replacement a batched cross-lane reduction would have to use, so its
+// bitwise agreement with simd_sum(float) is the gate on the whole
+// batched-reduction family.
+kernel void scalar4_forward(
+    device const float4* input [[buffer(0)]],
+    device uint4* out [[buffer(1)]],
+    uint tg [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    float4 v = input[tg * 32 + lane];
+    for (uint mask = 1; mask <= 16; mask <<= 1) {
+        v += simd_shuffle_xor(v, mask);
+    }
+    if (lane == 0) {
+        out[tg] = as_type<uint4>(v);
+    }
+}
+
+// The same ascending butterfly written as four scalar chains rather than a
+// float4, in case the vector form is contracted differently.
+kernel void scalar4_forward_scalar(
+    device const float4* input [[buffer(0)]],
+    device uint4* out [[buffer(1)]],
+    uint tg [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    float4 v = input[tg * 32 + lane];
+    float a = v.x, b = v.y, c = v.z, d = v.w;
+    for (uint mask = 1; mask <= 16; mask <<= 1) {
+        a += simd_shuffle_xor(a, mask);
+        b += simd_shuffle_xor(b, mask);
+        c += simd_shuffle_xor(c, mask);
+        d += simd_shuffle_xor(d, mask);
+    }
+    if (lane == 0) {
+        out[tg] = uint4(as_type<uint>(a), as_type<uint>(b),
+                        as_type<uint>(c), as_type<uint>(d));
+    }
+}
+
+// simd_shuffle_down tree: the other common lowering, 16,8,4,2,1.
+kernel void scalar4_down(
+    device const float4* input [[buffer(0)]],
+    device uint4* out [[buffer(1)]],
+    uint tg [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    float4 v = input[tg * 32 + lane];
+    for (uint d = 16; d >= 1; d >>= 1) {
+        v += simd_shuffle_down(v, d);
+    }
+    if (lane == 0) {
+        out[tg] = as_type<uint4>(v);
+    }
+}
+
+// The actual batched mechanism under evaluation: R=4 independent per-lane
+// values reduced through one rotation ladder, so all four results land in
+// 5 shuffle rounds of a float4 instead of 4 x 5 scalar rounds.
+kernel void batched4_rot(
+    device const float4* input [[buffer(0)]],
+    device uint4* out [[buffer(1)]],
+    uint tg [[threadgroup_position_in_grid]],
+    uint lane [[thread_index_in_simdgroup]])
+{
+    float4 v = input[tg * 32 + lane];
+    for (uint mask = 1; mask <= 16; mask <<= 1) {
+        float4 o;
+        o.x = simd_shuffle_xor(v.x, mask);
+        o.y = simd_shuffle_xor(v.y, mask);
+        o.z = simd_shuffle_xor(v.z, mask);
+        o.w = simd_shuffle_xor(v.w, mask);
+        v += o;
+    }
+    if (lane == 0) {
+        out[tg] = as_type<uint4>(v);
+    }
+}
 """
 
-let cases = 32768
+// 262144 cases x 4 components = 1,048,576 independent 32-lane reductions,
+// which is the >= 1e6 corpus PR #68 Step 1 asks for.
+let cases = 262_144
 let lanesPerCase = 32
 
 func makeInputs() -> ([Float], [String]) {
@@ -210,7 +292,15 @@ func compare(_ label: String, _ candidate: [UInt32]) {
 }
 
 let reversedBits = run("scalar4_reversed")
+let forwardBits = run("scalar4_forward")
+let forwardScalarBits = run("scalar4_forward_scalar")
+let downBits = run("scalar4_down")
+let batchedBits = run("batched4_rot")
 
 compare("simd_sum(float4) vs 4x simd_sum(float)", vector4Bits)
 compare("2x simd_sum(float2) vs 4x simd_sum(float)", vector2Bits)
 compare("POWER CONTROL: reversed butterfly vs 4x simd_sum(float)", reversedBits)
+compare("STEP 1: ascending xor butterfly (float4) vs 4x simd_sum(float)", forwardBits)
+compare("STEP 1: ascending xor butterfly (scalar) vs 4x simd_sum(float)", forwardScalarBits)
+compare("STEP 1: shuffle_down tree vs 4x simd_sum(float)", downBits)
+compare("STEP 1: batched R=4 rotation ladder vs 4x simd_sum(float)", batchedBits)

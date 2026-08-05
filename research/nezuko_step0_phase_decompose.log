@@ -1,0 +1,87 @@
+=== cut points (0-based index into the extracted kernel body) ===
+   body lines                 304
+   Phase 1 start    31   brace depth 0
+   L1 end    83   brace depth 0
+   L2 end   101   brace depth 0
+   L3 end   232   brace depth 0
+   L4 end   304   brace depth 0
+
+=== device ===
+   name           Apple M4 Pro
+   architecture   applegpu_g16s
+   gpu cores      20
+
+=== variants ===
+   maxThreadgroupMemoryLength 32768 B
+   tag   tgmem B   TG/core   maxTPTG   msl B   description
+   E      17408         1      1024    5301   prologue only (dispatch + tail floor)
+   L1     18432         1      1024    7257   through the Phase 1 barrier
+   L2     18432         1      1024    7965   through the Phase 2 ring write
+   L3     18432         1      1024   13201   through the end of the k-loop
+   L4     18432         1      1024   15793   whole body incl. epilogue combine
+   3b     18432         1      1024   13357   L3 with the batched xor ladder
+   4b     18432         1      1024   15949   L4 with the batched xor ladder
+   occupancy matched: every variant is limited to 1 threadgroup(s) per core
+
+=== staircase sweep (us/call, median of 3 interleaved passes) ===
+        KE L1L2L3L43b4b
+        1    1.287    2.200    2.394    8.338    9.538    8.414    9.593
+        2    1.371    2.180    2.450    8.389    9.551    8.476    9.604
+        4    1.351    2.206    2.487    8.434    9.642    8.473    9.702
+        8    1.477    2.222    2.453    8.487    9.667    8.579    9.755
+       16    1.505    2.303    2.550    8.542    9.776    8.669    9.811
+       20    1.569    2.316    2.587    8.570    9.795    8.669    9.853
+       24    1.679    2.599    2.724   16.642   19.242   16.627   19.183
+       32    1.734    2.360    2.823   16.547   19.440   16.622   19.452
+       40    1.821    2.752    3.001   17.236   19.406   17.701   20.042
+       48    1.966    3.187    3.584   23.037   26.675   23.021   27.207
+       56    2.167    3.311    3.576   23.457   27.148   23.603   27.388
+       60    2.262    3.301    3.626   23.492   27.519   23.814   27.629
+       64    2.353    3.525    3.557   29.376   34.670   29.716   35.227
+       72    2.537    3.745    4.030   30.223   35.580   30.175   35.734
+       96    3.100    4.161    4.490   36.844   43.918   37.045   43.774
+      120    3.649    4.800    5.152   43.166   51.788   43.403   51.814
+      128    3.837    4.792    5.260   49.426   59.543   49.752   59.351
+      240    6.679    7.676    7.995   86.334  101.309   86.687  102.466
+
+=== staircase refit  t(K) = a + b*ceil(K/W)  (b is the marginal wave cost) ===
+   free-W fit selects W=20 on the full kernel; all rows refit at that W
+    tag   freeW    a_int    b_wav      rms
+     E        8    0.843    0.461   0.1693
+     L1      11    1.715    0.488   0.1402
+     L2      11    1.962    0.499   0.1505
+     L3      20    1.905    6.987   0.6612
+     L4      20    1.879    8.312   0.5588
+     3b      20    1.983    7.013   0.6854
+     4b      20    1.878    8.369   0.6194
+
+=== per-phase share of the marginal wave cost ===
+   monotone  b(E) < b(L1) <= b(L2) < b(L3) <= b(L4)   yes
+   full-kernel marginal wave cost b(L4)    8.312 us/wave
+   dispatch+tail floor          b(E)       0.461 us/wave (  5.5% of b(L4))
+
+   phase                         delta_b   %of b(L4)   %of attributable
+   1  QK norm + RoPE + V copy    0.027        0.3%              0.3%
+   2  ring row persist    0.011        0.1%              0.1%
+   3  k-loop online softmax    6.488       78.1%             82.6%
+   4  epilogue combine    1.324       15.9%             16.9%
+
+   largest phase: 3  k-loop online softmax at 78.1% of b(L4)
+   GATE (>=25%% of b(L4)): PASS
+
+=== share of total wall time at the primary operating point K=16 ===
+   full kernel t(L4)    9.776 us
+   component                       delta_us   %of t(L4)
+   0  dispatch + tail floor     1.505       15.4%
+   1  QK norm + RoPE + V copy     0.798        8.2%
+   2  ring row persist     0.247        2.5%
+   3  k-loop online softmax     5.992       61.3%
+   4  epilogue combine     1.234       12.6%
+
+=== mechanism headroom probe: batched xor ladder in the k-loop ===
+   Isolated on the truncated variants, so this sets the pre-registered
+   prediction; the full-kernel two-arm ABBA is the separate Step 4 test.
+        pair            plain   batched      ratio
+   L3  k-loop only     8.542     8.669     1.0148  (+1.48%)
+   L4  full body       9.776     9.811     1.0035  (+0.35%)
+   wave slope b        8.312     8.369     1.0069  (+0.69%)

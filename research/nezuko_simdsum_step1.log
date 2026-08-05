@@ -1,0 +1,34 @@
+scalar4: maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+vector4: maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+vector2: maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+scalar4_reversed: maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+scalar4_forward: maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+scalar4_forward_scalar: maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+scalar4_down: maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+batched4_rot: maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+
+simd_sum(float4) vs 4x simd_sum(float): 0 bit-pattern mismatches out of 1048576 reductions
+
+2x simd_sum(float2) vs 4x simd_sum(float): 0 bit-pattern mismatches out of 1048576 reductions
+
+POWER CONTROL: reversed butterfly vs 4x simd_sum(float): 373214 bit-pattern mismatches out of 1048576 reductions
+  first: case 0 family=uniform comp=2 scalar=6.6808405 (0x40d5c972) packed=6.6808414 (0x40d5c974)
+  cancellation: 131072
+  magnitude-ladder: 85508
+  uniform: 68046
+  denormal-mix: 53420
+  random-bits: 35168
+
+STEP 1: ascending xor butterfly (float4) vs 4x simd_sum(float): 0 bit-pattern mismatches out of 1048576 reductions
+
+STEP 1: ascending xor butterfly (scalar) vs 4x simd_sum(float): 0 bit-pattern mismatches out of 1048576 reductions
+
+STEP 1: shuffle_down tree vs 4x simd_sum(float): 373214 bit-pattern mismatches out of 1048576 reductions
+  first: case 0 family=uniform comp=2 scalar=6.6808405 (0x40d5c972) packed=6.6808414 (0x40d5c974)
+  cancellation: 131072
+  magnitude-ladder: 85508
+  uniform: 68046
+  denormal-mix: 53420
+  random-bits: 35168
+
+STEP 1: batched R=4 rotation ladder vs 4x simd_sum(float): 0 bit-pattern mismatches out of 1048576 reductions
