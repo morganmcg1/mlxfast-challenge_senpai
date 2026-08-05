@@ -34,13 +34,24 @@ Two injections, both keyed on a substring of the Metal pipeline name:
 - `skip` drops the matching `dispatch_threadgroups`/`dispatch_threads` call: a
   synthetic speedup of -1x that family's GPU time.
 
-The critical property: `buffer_ops_` is incremented **before** either injection
-and is not incremented by the duplicate. Since `needs_commit()` reads
-`buffer_ops_`, all three arms encode the **same number of command buffers with
-the same boundaries**; only GPU execution changes. `skip` also leaves the host
-encode work (argument binding, pipeline state, barrier insertion) in place --
-it removes GPU time and nothing else. That is exactly the separation the two
-hypotheses need.
+The critical property: `maybeInsertBarrier()` and `buffer_ops_++` run **before**
+either injection, and the duplicate does not increment `buffer_ops_`. Since
+`needs_commit()` reads `buffer_ops_`, all three arms encode the **same number of
+command buffers with the same boundaries**. Confirmed empirically: every arm in
+this census reports `cbs=45.0`.
+
+What `skip` removes is therefore exactly two things:
+
+1. the **GPU execution** of that kernel, and
+2. the host cost of `get_command_encoder()` + `dispatchThreadgroups()` -- the
+   encode call itself.
+
+All **argument binding** (`setBuffer`/`setBytes`) happens in the caller before
+`dispatch_threadgroups` and is untouched, as is barrier insertion and command
+buffer commit. So `d(gap)/d(dispatch count)` from a `skip` arm is a **lower
+bound** on the exposed per-dispatch host cost, not the whole of it. That lower
+bound is still a direct measurement of the quantity H-dispatch is about, which
+no byte model can produce.
 
 Both injected arms change decoded tokens by construction, so the probe's
 divergence count is expected to be nonzero for them; they are throwaway
