@@ -1,15 +1,16 @@
 # SENPAI Research State
-- 2026-08-05T21:00:00Z
-- All 4 student PRs received baseline_advanced: advisor branch moved bb523807→d017e1d
-  (advisor-only research notes commit, NO scored code change). Accepted without rerun.
+- 2026-08-05T21:28:00Z
+- All 4 student PRs received base-acceptance feedback (advisor branch at 6a0cfa4).
+  Students' BASE_SHA bb523807 remains valid (no scored code change on advisor branch).
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
 - Operator authorized official submissions from AWS Macs; use `--model "senpai"` first
 - PR #52 (birch-askeladd): inconclusive → revision requested (narrow to variant 5→4 only)
-- PRs #49, #50, #51: WIP, ~7 hours since assignment, no student code commits yet
-- Competitor analysis agent completed: comprehensive omlx/SGLang/Modular findings
+- PRs #49, #50, #51: ~8 hours since assignment, no student code commits yet
+- Metal MoE optimization literature search complete (search agent returned)
+- Decode dispatch analysis agent still running
 - Current best on leaderboard: 2.5523 (lBroth, commit bca94c5 = our ORGANIZER_FRONTIER_SHA)
 - Students' assigned BASE_SHA: bb523807 (original frontier, scored code unchanged)
-- Current base for new measurements: d017e1d (advisor research notes only)
+- Current advisor branch HEAD: 6a0cfa4 (research notes only)
 
 ## Current Research Focus and Themes
 
@@ -249,6 +250,77 @@ cast dispatch. This is potentially 10-20% decode improvement with ZERO numerical
 Must audit the codebase for: scalar dtype inference, sigmoid cast removal, universal
 bfloat16 conversion, identity-weight dtype, MoE gate zero-out dtype.
 
+## Metal MoE Optimization Literature Search (2026-08-05T21:28Z)
+
+A comprehensive search agent (model=smart, agent=search, research-publications
+mode) returned state-of-the-art MoE optimization findings for Apple Silicon
+Metal GPU. Key results:
+
+### Search Agent's Top Recommendations (ranked by impact × applicability)
+1. **Single command buffer per decode forward** — literature's #1 finding.
+   fak issue #1382: ~336 separate command buffers/token, each ~360µs launch/sync;
+   batching into one buffer hit 59% device BW vs 11% individually = 5.2× faster.
+   BaseRT paper (arXiv:2607.00501): native Metal runtime, up to 1.56× decode vs
+   llama.cpp. **M5 note**: ops-per-buffer sweep is FLAT on M5 Max — bottleneck is
+   genuine bandwidth, not dispatch-gap idle. MLX already lazy-evaluates into one
+   command buffer at asyncEval boundaries. The remaining gain is kernel
+   *encoding* overhead reduction, not command buffer submission.
+2. **Free bit-exact gate+up concatenation** (omlx #2238, SGLang #26188) — concat
+   gate/up experts into single gather_qmm, bit-identical, +6.6-7.6%. **Already
+   partially implemented** in our codebase (DARKBLOOM_FUSED_ROUTED_GATE_UP). The
+   remaining gap is merging the SHARED expert dispatch — assigned to Thorfinn.
+3. **Fuse SwiGLU into gate gather_qmv epilogue** (SGLang #26188, ZMLX) — fold
+   `silu(gate)*up` into gate matmul write, ~96 fewer dispatches/token at bs=1.
+   Our routed gate/up kernel ALREADY does this (`lagunaRoutedSwiGLUQMV`). The
+   shared expert kernel also does this (`lagunaSharedSwiGLUQMV`). Already done.
+4. **Fuse down projection + score-weighted sum + shared-expert add** (omlx #2238,
+   mlx-kquant) — one kernel per layer instead of 3-4. **Already done** in our
+   codebase (`lagunaRoutedSharedDownResidual` fuses all 8 routed + shared down +
+   residual into ONE dispatch).
+5. **Verify M=1 NVFP4 uses dedicated GEMV (not MMA)** (Modular fp4_gemv) — if
+   decode routes through MMA, switching to register-resident GEMV is ~1.53×.
+   Our decode uses custom GEMV kernels (lagunaRoutedSwiGLUQMV etc.), not MMA.
+   Already on the correct path.
+6. **FMA-optimized dequant inner loop** (flash-moe) — `fma(nibble, scale*x,
+   bias*x)` instead of `(nibble*scale+bias)*x`, +12%. Applies to NVFP4 dequant
+   inner loop in our custom kernels. **Not yet tested.** Medium priority.
+7. **Per-assignment GEMV with high block parallelism** (vLLM #41379) —
+   thousands of small blocks for T≤8 decode, 28% TPOT. May apply to our down
+   kernel threadgroup geometry.
+8. **Reduce KV-cache movement** — sliding-window layers need only latest 512
+   positions. **Already implemented** (RotatingKVCache(512)).
+
+### Search Agent Findings Already Implemented
+- Gate+up concatenation (partially) ✓
+- SwiGLU fusion into QMV ✓
+- Down+weighted-sum+shared+residual fusion ✓
+- KV-cache pre-allocation and ring buffer ✓
+- AOT metallib ✓
+- SIMD matrix multiply in steel_attention ✓
+
+### AsType Audit — CORRECTION (2026-08-05T21:28Z)
+The search agent flagged 1100+ AsType ops from a DIFFERENT Swift port (vmlx-
+swift-lm), not our codebase. Our codebase has only **28 total AsType calls**
+(17 in LagunaRuntimeModel.swift, 11 in LagunaLmHeadPrune.swift), all
+intentional numerical operations:
+- `softplus(gate.asType(.float32)).asType(.bfloat16)` — necessary for float32 precision
+- `correctionBias.asType(.float32)` — router bias needs float32
+- `weights.asType(y.dtype)` — necessary dtype conversion for weighted sum
+- LM-head pruner AsTypes — bit manipulation (int32/uint32/float32 view casts)
+
+The "implicit float32 promotion from scalar literals" pattern is NOT present in
+our codebase. Scalar literals in Metal kernels use explicit `float` types. The
+AsType audit is a **non-issue** for our codebase. Downgraded from high priority.
+
+### M5 NVFP4 Correctness Notes (from Modular docs)
+- M5 flushes f32/bf16 denormals to zero but **preserves f16 subnormals** — decode
+  must stay in f16 domain to decode ±0.5 exactly; exponent-injection trick is
+  WRONG on M5. Our kernels use BF16 accumulation — verify this is safe.
+- 16-lane SIMD width hard limit — Metal crashes on ≥24-lane 16-bit SIMD arithmetic.
+  All accumulation must be fp32 (any width safe). Our kernels use fp32 accumulate.
+- NVFP4 tensor-scale (global_scale) is broken on Metal (MLX #3550). Our code uses
+  per-group NVFP4 (no global_scale) — unaffected.
+
 ## Potential Next Research Directions
 
 ### Currently Assigned (In-Flight)
@@ -262,17 +334,18 @@ bfloat16 conversion, identity-weight dtype, MoE gate zero-out dtype.
   WN=2, 256 thr/TG. Needs M5 validation. +17.47% kernel-level.
 
 ### High-Priority Next Experiments
-- **AsType/dtype-mismatch audit** (NEW, HIGHEST PRIORITY): Audit all scalar literals and
-  intermediate computations for implicit float32 promotion. Potential 10-20% decode gain
-  with zero numerical risk. This is the single largest untested hypothesis.
 - **FMA-optimized dequant inner loop**: Rearrange NVFP4 dequant to use FMA.
   `fma(nibble, scale*x, bias*x)` instead of `(nibble*scale+bias)*x`. +12% on dequant.
+  Applies to our custom MoE QMV kernels. Must verify bit-exactness on M5.
 - **Cooperative SMEM scale loading**: Threadgroup-cooperative load of NVFP4 scales into
   shared memory. +7-12%. Must NOT be per-thread register caching (that regresses 20-30%).
-- **Audit eval() call count per decode step**: If >1 eval()/step, reducing to 1 could
-  save ~0.3ms/step. High-leverage if applicable.
 - **MoE down 8-way reduction parallelization**: spread 8 routed slots across lanes
   0-7, O(1) vs O(8). Independent of and stacks with outputs_per_simd.
+- **Per-assignment GEMV block parallelism** (vLLM #41379): thousands of small blocks
+  for T≤8 decode, 28% TPOT improvement. May apply to our down kernel geometry.
+- ~~AsType/dtype-mismatch audit~~ — **DOWNGRADED TO NON-ISSUE**: Our codebase has only
+  28 total AsType calls, all intentional numerical operations. The 1100+ AsType ops
+  finding was from a different Swift port, not our codebase.
 
 ### Medium-Priority Directions
 - **Metal indirect command buffers (ICBs)**: Pre-encode dispatch sequences, reducing
@@ -291,3 +364,5 @@ bfloat16 conversion, identity-weight dtype, MoE gate zero-out dtype.
 - Async scheduling sweep: 66 runs confirm 6-fire ties 40-fire. Already near-optimal.
 - LM-head int4: would double quant error, inflate candidate tail. Not worth pursuing.
 - LM-head dispatch consolidation: 4-dispatch sequence is already maximally fused.
+- AsType audit: only 28 calls in our codebase, all intentional. Not the same as the
+  vmlx-swift-lm 1100+ ops finding. Not applicable.
