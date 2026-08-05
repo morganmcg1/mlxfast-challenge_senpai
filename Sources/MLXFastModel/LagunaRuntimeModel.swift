@@ -6454,9 +6454,9 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     func packedWordBody(_ word: Int) -> String {
         let codeWord = word == 0 ? "codes.x" : "codes.y"
         let base = 8 * word
-        let seedOperator =
+        let seedStart =
             (word == 0 && lagunaNvfp4QdotSeedElisionEnabled)
-            ? "accum =" : "accum +="
+            ? "0.0f" : "accum"
         return """
                 {
                     const uint c = \(codeWord);
@@ -6465,16 +6465,16 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                     const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
                     const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
                     const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
-                    \(seedOperator)
-                        (input[\(base)] * v04.x +
-                         input[\(base + 1)] * v15.x +
-                         input[\(base + 2)] * v26.x +
-                         input[\(base + 3)] * v37.x);
-                    accum +=
-                        (input[\(base + 4)] * v04.y +
-                         input[\(base + 5)] * v15.y +
-                         input[\(base + 6)] * v26.y +
-                         input[\(base + 7)] * v37.y);
+                    accum =
+                        fma(input[\(base)], v04.x,
+                        fma(input[\(base + 1)], v15.x,
+                        fma(input[\(base + 2)], v26.x,
+                        fma(input[\(base + 3)], v37.x, \(seedStart)))));
+                    accum =
+                        fma(input[\(base + 4)], v04.y,
+                        fma(input[\(base + 5)], v15.y,
+                        fma(input[\(base + 6)], v26.y,
+                        fma(input[\(base + 7)], v37.y, accum))));
                 }
             """
     }
