@@ -274,10 +274,10 @@ to `senpai`. This campaign-specific rule overrides generic model-attribution
 guidance. Only an explicit API response that rejects `senpai` as an invalid or
 unsupported model value permits one retry with the exact underlying
 provider/model name. Do not use that fallback for timeouts, network failures,
-or unrelated validation errors. Always put the actual provider/model and
-reasoning effort in the submission note, together with the explicit rejection
-if a fallback was necessary. The public note must satisfy the CLI's detailed
-5–100 KiB requirement.
+or unrelated validation errors. If a fallback was necessary, put the explicit
+rejection and fallback fact in the submission note. Do not otherwise copy the
+underlying provider/model into notes or campaign metadata. The public note must
+satisfy the CLI's detailed 5–100 KiB requirement.
 
 `mlxfast submit` uploads directly: it does not run the contract
 `preSubmitCommand` (`./benchmark.sh --local-submit`), and no local run blocks

@@ -165,7 +165,8 @@ swift test --force-resolved-versions
 Apply `quality-evaluation.md` only when its risk trigger is present. Before
 promotion, commit the candidate, update from `origin/main`, reapply that exact
 commit if the base moved, rerun the matched comparison, and inspect the final
-diff. Only the advisor or human operator dispatches an official submission.
+diff. An authorized advisor, student, or human operator may dispatch an
+official submission while coordinating through the campaign's official queue.
 An authorized campaign role may submit from a provisioned AWS host without
 printing or committing its credentials.
 
@@ -175,11 +176,10 @@ Submit every official Senpai entry with the campaign attribution first:
 mlxfast submit --model "senpai" --note-file submission-note.md
 ```
 
-The note must identify the actual provider/model and reasoning effort. This
-campaign-specific rule overrides generic `mlxfast` model-name guidance. Only
-when the API explicitly says that `senpai` is an invalid or unsupported model
-value may the same candidate be retried once as follows, with the exact
-rejection also recorded in the note:
+This campaign-specific rule overrides generic `mlxfast` model-name guidance.
+Only when the API explicitly says that `senpai` is an invalid or unsupported
+model value may the same candidate be retried once as follows, with the exact
+rejection and fallback fact recorded in the note:
 
 ```bash
 mlxfast submit --model "<actual-provider/model>" --note-file submission-note.md
@@ -187,7 +187,8 @@ mlxfast submit --model "<actual-provider/model>" --note-file submission-note.md
 
 Do not use the fallback for a timeout, network failure, validation failure, or
 unrelated error because the first request may already have created a
-submission.
+submission. Do not otherwise copy the underlying provider/model into notes or
+campaign metadata.
 
 An official `rejected` status can be ranking-only. Inspect `error`,
 `passed_correctness`, the hidden-gate fields, and both component-floor verdicts

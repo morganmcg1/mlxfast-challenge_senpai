@@ -250,10 +250,11 @@ only when their documented risk trigger is present.
 
 ### 5. Official promotion
 
-The advisor or human operator owns the promoted frontier and official queue.
-The student must commit the submission changes and ask the advisor before
-dispatch. An authorized campaign role may submit from a provisioned AWS host,
-but must never print or commit its credentials.
+The advisor owns the promoted frontier and coordinates the official queue. An
+authorized advisor, student, or human operator may dispatch an official
+submission; a student must first commit the candidate and coordinate its queue
+entry with the advisor. An authorized campaign role may submit from a
+provisioned AWS host, but must never print or commit its credentials.
 
 Every official submission from this Senpai campaign must first use
 `mlxfast submit --model "senpai"`. This campaign-specific attribution rule
@@ -262,8 +263,9 @@ explicitly rejects `senpai` as an invalid or unsupported model value may the
 same candidate be retried once using the exact underlying provider/model name.
 Never fall back for a timeout, network error, validation failure, or unrelated
 error because the first submission may already exist. The public note must
-identify the actual provider/model and reasoning effort, and must include the
-explicit rejection when a fallback was necessary.
+include the explicit rejection and fallback fact when a fallback was necessary.
+Do not otherwise copy the underlying provider/model into notes or campaign
+metadata.
 
 While an official job is queued, continue independent research
 against its recorded frontier instead of waiting idle; rebase and rebaseline

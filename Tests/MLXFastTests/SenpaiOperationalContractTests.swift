@@ -150,7 +150,7 @@ func senpaiOperationalGuidanceMatchesTheDeployedRankedPath() throws {
     let assignment = try String(contentsOfFile: "senpai/assignment-template.md", encoding: .utf8)
     #expect(assignment.contains("validate-assignment-scope.sh"))
     #expect(assignment.contains("check-editable-budget.sh"))
-    #expect(assignment.contains("Only the advisor or human operator"))
+    #expect(assignment.contains("advisor, student, or human operator"))
 
     let submissionGuides = [
         ("AGENTS.md", agentGuide),

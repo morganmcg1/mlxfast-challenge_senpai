@@ -44,7 +44,8 @@ zero tests is not a pass.
 ## Authority boundary
 
 - The student may edit, test, commit, push, and report the assigned branch.
-- Only the advisor or human operator may dispatch an official submission.
+- An authorized advisor, student, or human operator may dispatch an official
+  submission while coordinating through the campaign's official queue.
 - An authorized campaign role may dispatch from a provisioned AWS host, but
   must never print or commit its submission credentials.
 - Every official Senpai submission must first use
@@ -52,9 +53,9 @@ zero tests is not a pass.
   `senpai` as an invalid or unsupported model value may the same candidate be
   retried once with the exact underlying provider/model name. Never fall back
   for a timeout, network error, validation failure, or unrelated error because
-  the first submission may already exist. Record the actual provider/model and
-  reasoning effort in the public note, plus the explicit rejection if a
-  fallback was required.
+  the first submission may already exist. If a fallback was required, record
+  the explicit rejection and fallback fact in the public note. Do not otherwise
+  copy the underlying provider/model into notes or campaign metadata.
 - Documentation-only work does not change the submitted archive or require a
   new baseline. Keep the recorded base fixed until a promoted editable-path
   change actually advances the frontier.

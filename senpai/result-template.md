@@ -23,7 +23,6 @@ available with value `0`.
 - `BASE_SHA` / candidate commit:
 - Submitted candidate files:
 - Supporting test or documentation files:
-- Underlying agent provider/model and reasoning effort:
 - Official submission `--model` value (planned or used; default `senpai`):
 - Explicit API model-value rejection, if fallback attribution was required:
 - Assignment-scope preflight:

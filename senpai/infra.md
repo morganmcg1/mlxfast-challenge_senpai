@@ -79,8 +79,9 @@ frontier advances, reapply and rebaseline later candidates.
 Use `--model "senpai"` for every official Senpai submission. Retry once with
 the exact underlying provider/model only after an explicit API rejection of
 `senpai` as the model value; never infer rejection from a timeout or generic
-failure. Keep the actual provider/model and reasoning effort in the public
-submission note.
+failure. Record the explicit rejection and fallback fact in the public note,
+but do not otherwise copy the underlying provider/model into notes or campaign
+metadata.
 
 ## AWS Mac campaigns
 
