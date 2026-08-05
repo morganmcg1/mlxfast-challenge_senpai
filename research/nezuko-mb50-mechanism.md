@@ -232,3 +232,96 @@ The cheapest decisive follow-up remains a same-session paired probe of one
 alternative cap on the ranked machine rather than any further M4 sweeping; M4
 has now told us everything it can, which is the buffer counts and nothing about
 their price.
+
+## External review of the inversion (frontier, `2e3268ac`)
+
+An independent review with web/publication access was asked to rank causes for
+the sign inversion. It was briefed with the earlier coarse counts (+92 decode,
++320 prefill buffers), so its per-buffer numbers read 0.6 µs and 6.7 µs where
+the corrected counts give **+1.10 µs** and **+27.2 µs**. The correction makes
+the discrepancy 25× rather than 11×, so its central conclusion — a constant
+per-buffer cost is decisively rejected and the dominant seam cost must scale
+with the work in flight at the boundary — survives a fortiori. What it added,
+and what it got wrong against the corrected data:
+
+**Confirmed hardware context.** 128 GB is only sold with the 40-core M5 Max, so
+the ranked host is 40 cores at 614 GB/s against this box's 16–20 cores at
+273 GB/s. M5 is `MTLGPUFamily.apple10` (`applegpu_g17s`); M4 is Apple9 —
+consistent with this host reporting Apple GPU generation 16 and never selecting
+`_nax`. Apple's M5 tech talks confirm larger GPU caches, second-generation
+Dynamic Caching, and a **redesigned occupancy management unit** that throttles
+occupancy on live-register residency and queue depth. No public numbers exist
+for M5 barrier cost, command-buffer commit cost, SLC size, or GPU DVFS. The
+bandwidth ratio 614/273 = 2.25× brackets the measured decode-step ratio
+8.88/4.28 = 2.07×, i.e. decode is mostly bandwidth-bound on both hosts with a
+somewhat larger non-bandwidth residue on M5.
+
+**Sharpened split of the two terms.** Solving `net = C − B` per boundary on both
+hosts puts M4 at B ≈ 1.9–2 µs with C ≈ 0.2–0.3 µs, and M5 at B ≈ 0.3–0.8 µs
+with C ≈ 0.9–1.4 µs on decode. Two independently plausible gen-17 changes each
+suffice on their own: 2.25× bandwidth drains an in-flight barrier
+proportionally sooner (1.7 µs → ~0.75 µs if the stall scales with bandwidth),
+and a 40-core wait-for-idle plus per-command firmware bookkeeping costs more
+than a 16–20-core one. Asahi's AGX reverse-engineering describes each
+firmware-level command as a Start / write-timestamp / **wait-for-idle** /
+write-timestamp / Finish microsequence in a single serialized compute firmware
+queue, which is the concrete shape of the seam's fixed component and grows with
+core count.
+
+**A cache-flush story is downgraded, not adopted.** Asahi reports the AGX fabric
+is coherent with no cache-management instructions required, so "seams flush L2/
+SLC" is not the mechanism; M5's larger caches would amplify it if it were real.
+
+**Traffic-equivalence sanity check, recomputed.** 27.2 µs × 614 GB/s ≈ 16.7 MB
+of traffic-equivalent per prefill seam, against ~4.2 MB for one 512-token bf16
+activation set at hidden 4096 — so a few activation tensors' worth, or ~4.3% of
+the 0.63 ms average prefill buffer at 50 MB. That is the right order for a
+drain-and-re-ramp serialization of a 40-core machine on a large kernel, but it
+is a weaker coincidence than the review's 4.1 MB figure suggested, and it should
+not be quoted as a tight identification.
+
+**One of its mechanisms is refuted by the corrected counts.** The review
+attributed the M4 U-shape below 50 MB partly to submission-rate saturation, on
+the premise that 12 MB approaches ~1 dispatch per buffer, i.e. ~400 buffers per
+step. Measurement says decode buffers **saturate at 86** at both 25 MB and
+12 MB — the byte cap simply stops binding, so there is no submission-rate
+regime and no additional conversions to exhaust. The M4 reversal has to be
+explained by the widened host gap (0.253 → 0.29 ms) or allocator behaviour, not
+by buffer count.
+
+**Its estimate for the fusion family.** With M5's exposed per-boundary stall at
+~0.3–0.8 µs rather than M4's ~2 µs, removing a dispatch (barrier + launch +
+ramp) should be worth ~0.5–1.5 µs on M5 decode; fusing ~100 of the 406
+dispatches per step would be ~50–150 µs, i.e. **1.2–3.5% of `T`**. It also
+bounds the available pool: active weights per decode step are ~1.5–2 GB, so the
+bandwidth floor is 2.4–3.3 ms against `T` = 4.28 ms, leaving **~25–45% of
+decode as non-bandwidth time**. Fusion deletes a boundary rather than
+converting one, so it carries no sign-inversion risk analogous to the byte cap,
+and the +27.2 µs/seam prefill sensitivity is direct evidence that M5 prefill
+pays for exactly this class of cost. Caveat: gate/up fusion removes a launch, a
+barrier and an intermediate but no weight traffic, so in decode it is an
+overhead win only, and fused kernels raise register pressure into a gen-17
+occupancy manager that now throttles on it.
+
+**Follow-ups it recommends, in its order.** (a) free and local: an M4 prefill
+A/B at 200 versus 50 MB with per-buffer union, to test the work-scaled seam
+term independently of the decode sign flip — note the flat M4 prefill wall
+already measured here is that test at n=1, and it came out null, which is itself
+evidence that the M4 Pro has no concurrency to lose in prefill; (b) free: mine
+the ranked corpus for receipts that predate the 200 MB pin and therefore ran
+MLX's stock 50/50, for a free M5 dose-response point — heavily confounded with
+whatever else those candidates changed, so at best suggestive; (c) one ranked
+receipt: **raise the byte cap to 400–512 MB with the ops cap unchanged**,
+predicted at roughly −0.4% `T` and −0.4 to −1% `S`, composite ≈ +0.4–0.8%, and
+decision-relevant either way; (d) an ops-cap probe (e.g. ops = 5 at 200 MB)
+places seams at byte-*light* boundaries and separates a placement-sensitive cost
+from a fixed one. It warns against pushing the byte cap so high that the ops cap
+becomes the only splitter: `needs_commit` is also MLX's only mid-evaluation
+CPU→GPU kick, and ~3 buffers per step would risk exposing host encode time as
+GPU idle. Keep 10 or more buffers per step; 400–512 MB stays interior.
+
+**Its policy recommendation, which I endorse.** Treat this host as directionally
+unreliable for *overhead-class* changes — boundaries, barriers, synchronization,
+submission — and gate any sub-2% overhead-class candidate on a ranked receipt.
+It remains usable for bandwidth-class mechanisms, which scaled cleanly here
+(2.07× measured against a 2.25× bandwidth ratio).
