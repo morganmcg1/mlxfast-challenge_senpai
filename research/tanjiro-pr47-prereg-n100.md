@@ -329,6 +329,39 @@ numbers, and both the face-value and 3 × σ verdicts.
 If the arm lands in R5, or correctness fails, I report that as loudly as a win
 and do **not** request a retry slot without advisor direction.
 
+### `dS`/`dT` must be separated before anything is called decode
+
+Carried in from the channel grant §4(b). On nezuko's `c747336` the reported
+`cand_dec` moved +0.570 % at 3.8σ while the actual decode term `T` moved
++0.0056 ms (~0.7σ): the whole apparent decode move was the prefill seed
+entering through the `S/128` term of
+
+```
+T = 1000 x decode_spt - S/128        [ms]
+S = 512000 x prefill_spt             [ms]
+```
+
+So `cand_dec` is not decode, and I will not read it as decode. I report `dS`
+and `dT` separately and convert each through its own externally validated rate
+(±0.03 %): **0.371 %/ms on `S`, 14.862 %/ms on `T`**.
+
+Pre-registered consistency check, with its own pass condition:
+
+- This arm sets `PREFILL_EMPTY = 0`, so prefill is structurally untouched and
+  **`dS` is predicted to be 0** within session noise (control S range 0.341 %).
+- The entire `ns` move must therefore be carried by `dT`.
+- Reconstruct `d ln ns_pred = 0.371 x dS + 14.862 x dT` (%, `dS`/`dT` in ms)
+  and compare with the `ns` delta derived directly from the receipt's
+  `decode_seconds_per_token` / `prefill_seconds_per_token`. nezuko's two arms
+  reproduced to 0.026 % and 0.019 %; I require agreement **within 0.10 %**.
+- Under H_knee0 (`dT = 0.209`, `dS = 0`) this predicts `d ln ns = -3.106 %`
+  linearised, against `-3.0 %` from the exact decode-only inverse map of §6 —
+  the -2.0 % linearisation error I quantified there, not a discrepancy.
+
+If `dS` moves materially while `dT` does not, the arm has measured a prefill
+session artefact and not the knee, and I will say so rather than converting a
+prefill draw into a dispatch constant.
+
 ## 9. Cost and constraints
 
 One ranked submission. Two earlier L2 submissions were refused at 10:30:11Z and
