@@ -1,9 +1,10 @@
 # PR #57 T1 — gather-GEMM threadgroup co-residency: is co-residency a currency?
 
 Assignment `maple-2026-08-05f-gathergemm-coresidency`, revision `r1`, student
-`maple-tanjiro`. Base `codex/mlxfast-maple-20260804-advisor` @
-`5178d452c513c61e619f4dd788185c797e065529`. Zero submitted bytes: nothing in
-this PR touches `benchmark.json`'s 97 `editablePaths`.
+`maple-tanjiro`. Base `codex/mlxfast-maple-20260804-advisor`: the assignment
+marker recorded `5178d452c513c61e619f4dd788185c797e065529`; the accepted base is
+now `f722c2d72b4b5ad0525f3b4af3bf4faaeb06610c` (§8.1). Zero submitted bytes:
+nothing in this PR touches `benchmark.json`'s 97 `editablePaths`.
 
 Primary metric: `coresidency_throughput_gain_128t_1_to_24x`, direction
 `maximize`, assignment baseline `1.13`.
@@ -13,9 +14,10 @@ Primary metric: `coresidency_throughput_gain_128t_1_to_24x`, direction
 ## 0. Status of this document
 
 **Section 1 (pre-registration) was committed before any 128-thread timing was
-observed** (commit `caaae05`; it was `8e5c5b0` before the §8.1 rebase, and the two
-carry a byte-identical patch — `git diff <sha>^ <sha>` hashes to
-`f894cfaa0b36785026f21d4df95d70026a26f794` for both). That commit is the audit
+observed** (commit `d7c2d2a`; §8.1 replayed that commit twice while moving the
+branch onto the accepted base, and every replay carries a byte-identical patch —
+`git diff <sha>^ <sha>` hashes to `99e4dc10b1cab1a1b5422732acd8a677dad0ff44`
+under each of the shas this commit has held). That commit is the audit
 trail: the ruling in §7 does disagree with what §1.6 says the ruling must be, and
 §7.2 says so in the open rather than moving a threshold. Sections 2 onward were
 written after the probe ran.
@@ -711,14 +713,31 @@ Added after the advisor notice
 (`feedback_id base-advance-clearance-f722c2d7-and-inject-hazard-2026-08-05T2030Z`).
 Still revision `r1`; the brief is unchanged and T4 remains defunded.
 
-### 8.1 Base accepted and rebased
+### 8.1 Base accepted and taken into the branch
 
 The assignment marker recorded base `5178d452`. The advisor branch has since
 moved to `720c13ff` (#48 merge) and then to `f722c2d7` (revert the
 dispatch-injection defaults). The advisor cleared `f722c2d7` explicitly, so I
-rebased onto it rather than only recording an accepted advance. The rebase was
-clean, all nine commits replayed including the empty assignment marker commit,
-and the worktree is clean.
+took it into the branch rather than only recording an accepted advance.
+
+I first rebased `--onto f722c2d7`, which was clean. That rewrote the assignment
+marker commit, so the branch no longer fast-forwarded from the published head
+`afd8902` and the submission transition refused the push. I rebuilt the history
+the other way round instead, which keeps the published marker commit byte-for-
+byte and still puts `f722c2d7` in the ancestry:
+
+```
+afd8902  senpai assignment marker (published head, untouched)
+09dac71  Merge advisor base f722c2d7 into the assignment branch
+d7c2d2a  … nine work commits, replayed in order
+```
+
+`git merge-base --is-ancestor afd8902 HEAD` and
+`git merge-base --is-ancestor f722c2d7 HEAD` both succeed, and the resulting
+tree is identical to the rebased tree — `git diff` between the two heads is
+empty. The worktree is clean. The only cost is that each work commit now has a
+third sha; §0 records the prereg patch hash, which is unchanged across all of
+them.
 
 I recomputed the submitted-surface intersection by code rather than by recall,
 per the advisor's own new rule. Parsing the 97 `editablePaths` entries out of
@@ -735,10 +754,10 @@ changed files: 4
 INTERSECTION: NONE
 ```
 
-Rebasing also made the T3 §6 citations resolve in my own tree: fern's receipt
+Taking the base in also made the T3 §6 citations resolve in my own tree: fern's receipt
 file `research/maple-fern-pr48-fused-norm-qkv-gate.md` arrived with the #48
 merge, and `:951-953` and `:981-983` contain exactly the `officialScore` and
-session-baseline lines that section quotes. Before the rebase those line
+session-baseline lines that section quotes. Before the base advance those line
 references pointed at a file this branch did not contain.
 
 ### 8.2 Standing pre-measurement check, run on my own head
@@ -751,7 +770,7 @@ $ grep -n -A1 'DARKBLOOM_INJECT_DECODE_EMPTY"\|DARKBLOOM_INJECT_EMPTY_TG"' \
 ```
 
 `0` and `160` — the check passes at my head. For the record it did *not* pass
-before the rebase: at `afd8902` the same grep returned `100` and `8`, i.e. my
+before the base advance: at `afd8902` the same grep returned `100` and `8`, i.e. my
 branch was carrying the on-by-default instrument.
 
 ### 8.3 Why no number in this report is affected
