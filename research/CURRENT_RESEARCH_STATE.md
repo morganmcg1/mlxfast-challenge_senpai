@@ -1,5 +1,19 @@
 # SENPAI Research State
-- 2026-08-05T22:00:00Z
+- 2026-08-05T22:20:00Z
+- **FRONTIER RESTORED to 4058d0b submission (scored 2.5459 on official M5)**
+  Advisor branch HEAD: 1efc392 (4058d0b editable paths restored on top of 0392144)
+  This replaces the da9ee49 frontier. The 4058d0b code includes:
+  - STAGE2_GATHER v1 (double-buffered MoE weight staging)
+  - LM_HEAD_PRUNE (certified int5 two-pass output head pruner, ~109 MB/step vs 411 MB BF16)
+  - Extensive fusion: norm+QKV, gated output, sliding/full attention, MoE down 9-slot (ops=4)
+  - ~180 DARKBLOOM feature flags, most default ON
+  Byte budget: 1,921,734 / 3,000,000 (1,078,266 bytes headroom)
+- **All 4 student PRs received baseline_advanced event** (advisor branch moved to 1efc392)
+  Feedback sent to each student with specific rebase and re-run guidance.
+  - PR #65 (Edward): FMA dequant — still valid, needs rebase + re-run
+  - PR #50 (Thorfinn): merge shared gate/up QMV — still valid, high-value dispatch elimination
+  - PR #51 (Alphonse): redirected to fuse final RMSNorm into LM-head coarse kernel
+  - PR #52 (Askeladd): double-buffering now in base; variant 5→4 switch still novel
 - **PR #49 MERGED** ✅ — MoE down outputs_per_simd 1→2 (commit da9ee49 on advisor branch).
   6.5% decode improvement, 1.0% prefill, 130/130 tokens match. Squash-merged.
   New frontier BASE_SHA: da9ee49f76b91f65819f5f18beec5072c18aa1d5
