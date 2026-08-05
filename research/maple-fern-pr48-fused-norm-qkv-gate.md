@@ -826,6 +826,116 @@ asked for hand-computed band arithmetic, not because either cell is a hazard.
 
 ---
 
+### 9.4 ★ The equivalence oracle never executed this kernel — and never passed
+
+The advisor asked (§5a) whether `LagunaUpstreamEquivalence` actually reaches the
+mode-2 fused kernel. The answer is **no, by construction**, and separately the
+oracle has **never passed on this host at any commit**. Both corrections are
+mine to own: five earlier runs of mine were reported as supporting evidence and
+neither claim survives inspection.
+
+**No code change was needed to answer this.** The probe already exists at the
+Swift dispatch site: `lagunaTrace("decode nvfp4 norm+qkv+gate h\(heads)")`,
+`LagunaRuntimeModel.swift:4880`, one of 43 trace sites gated on
+`DARKBLOOM_TRACE_FUSION=1` (`:75`, `:94`). Nothing was added and nothing needed
+reverting.
+
+**Static chain (each link is a single call site):**
+
+1. `LagunaUpstreamEquivalence.compare` (`LagunaUpstreamEquivalence.swift:66-91`)
+   builds the runtime as `LagunaWeightLoader` → `loadRuntimeWeightArrays(denseStore:)`
+   → `LagunaRuntimeModel(runtimeConfig)` → `update(…sanitize…)` → `eval(runtime)`
+   → `newCache(…)`. It **never constructs `LagunaRuntimeWeightCache`**. The whole
+   165-line file has zero matches for WeightCache / quantiz / nvfp4 / prepare.
+2. `prepareFusedRuntimeWeights()` (`LagunaRuntimeModel.swift:11141`) has exactly
+   **one** live caller — `LagunaRuntimeWeights.swift:637`, inside
+   `LagunaRuntimeWeightCache`. Its own doc comment says "Called by the weight
+   cache after `update` + `eval`".
+3. It is the only caller of `prepareNativeAffineQKVWeight()` (`:11146`), which is
+   the only writer of `_nativeAffineQKV` (`:5578`).
+4. The mode-2 kernel is reached at `:5772` with `bank: fusedAffine`, where
+   `fusedAffine = _nativeAffineQKV` (`:5729`), inside a branch that requires it
+   non-nil.
+
+So in the oracle `_nativeAffineQKV == nil` on all 40 layers and the fused path is
+structurally unreachable. Four-way empirical confirmation:
+
+| Control | Run | Result |
+|---|---|---|
+| Negative — oracle, `FUSE=2` forced | `31e95766` | 14 unique fusion sites fire; `decode nvfp4 norm+qkv+gate h48/h64` **absent**. The BF16 twins fire instead (`norm+qkv+gate projection h48/h64`, `gated output projection h48/h64`). |
+| Positive, probe liveness | same run | those 14 sites did fire ⇒ the trace machinery works. |
+| Positive, kernel reachability | `72b38142` (§5b, scored path) | 48 trace lines / 24 unique **including `decode nvfp4 norm+qkv+gate h48` and `h64`**; mode-0/1 sites absent ⇒ mode 2 fully replaced them. |
+| Invariance | `23409ebe`, `FUSE=0` forced | **byte-identical** fusion-site list and per-step errors to `FUSE=2` ⇒ the oracle cannot distinguish mode 0 from mode 2 at all. |
+
+**Correction I owe the advisor.** I previously reported those five equivalence
+runs as *passes*. They were not. Aggregating the event log: **82 ×
+`EQUIVALENCE_EXIT=1`, zero passes**, `84 × EQUIVALENCE_EXACT_STEPS=8`, and all 8
+recorded prefill steps sitting at `maximumAbsoluteLogitError: 0.125` (mean
+1.19e-2; argmax token identical, 5991 == 5991). Every decode step has always been
+exactly 0.0 — no nonzero decode error has ever been recorded. 0.125 is ≈ 1 bf16
+ULP at logit magnitude ~32, `FUSE=0` reproduces it identically, so it is a
+pre-existing, change-independent prefill near-tie — the documented non-M5 case
+behind `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT`. It is not caused by this change, but
+it does mean the oracle was never a live gate here.
+
+The oracle is therefore **doubly uninformative** for this change: structurally
+blind to the kernel, and independently red on an unrelated prefill path. The
+correctness case rests entirely on §9.5 — which is the advisor's "silent" branch.
+
+**Repairable in-surface (follow-up, not implemented).** `Sources/MLXFastModel` is
+a *directory* entry in `editablePaths`, so `LagunaUpstreamEquivalence.swift` is
+editable. `prepareFusedRuntimeWeights()` is internal and the oracle is in the
+same module, so one line — `runtime.prepareFusedRuntimeWeights()` after
+`eval(runtime)` — plausibly de-blinds it. I earlier wrote that this blind spot
+was unfixable; **I retract that**. I have not implemented it: it changes what a
+shared correctness tool measures and that is an advisor call.
+
+### 9.5 What the scored harness does and does not catch
+
+**(b) Clean run, real coverage.** Training `72b38142`, argv
+`["env","DARKBLOOM_TRACE_FUSION=1","research/run_local_benchmark.sh","--local-submit"]`,
+commit `fa8618e`:
+
+`checked_steps 1025` · `max_abs_diff 0` · `passed_correctness true` · `passed true`
+· `case_count 1` · `num_layers 40` · `peak_ram_gb 20.726` ·
+`golden_hash f49e4c2c…03b03d2` · `harness_hash de12ebfa…dfe162` ·
+`weights_hash aff99430…6b294b3d`. Opening temperature 39.6 °C (≤40 °C gate, 0 s
+wait); decode gate 39.4 °C. The trace confirms the fused kernel ran on this path.
+
+**(c) Fault injection — the harness flags it, fast.** Temporary commit `a138763`
+(now hard-reset away; HEAD is `e43f357`, tree clean, zero `_v1fault` matches)
+added a coherent `+1.0f` to every gate value the mode-2 kernel writes, inside
+`gateBlock`, which is emitted only when `foldGate == true` — so the fault is
+mode-2-only. The kernel is JIT (`MLXFast.metalKernel`), so no metallib rebuild.
+
+Result, training `dda67d6b`:
+
+- `correctness FAIL first token mismatch at checked_step=3` (1-indexed) ⇒
+  `first_failing_step: 2` (0-indexed), `checked_steps: 3` at abort.
+- `expected_token 509`, `actual_token 10354`, `first_failing_case "local-submit"`.
+- Trace confirms `decode nvfp4 norm+qkv+gate h48` / `h64` were live in that run,
+  so the flagged kernel is the faulted one.
+- Frieren's calibration was step 3 / `checked_steps 4` for a coherent +1; this
+  flagged one step earlier.
+
+**★ The caveat that matters more than the pass.** In the faulted run
+`max_abs_diff` stayed **0** while `passed_correctness` went false. `max_abs_diff`
+is not an independent residual signal on this path — the teacher-forced check is
+argmax/token-level (`first_failing_layer: null`). So the `max_abs_diff 0` in
+§9.5(b) carries far less weight than I implied earlier; the load-bearing evidence
+is `checked_steps 1025` with `passed_correctness true`. I had been quoting
+`max_abs_diff 0` as if it were a numerical bound. It is not.
+
+**Honest scope of the (c) control.** A coherent whole-tensor offset is the
+*easiest* class of fault to catch. It says the harness is wired to this kernel
+and that a gross error propagates to tokens within ~3 steps. It does **not**
+exercise the failure modes this kernel is actually most exposed to — threadgroup
+races, missing barriers, simdgroup divergence, uninitialised threadgroup memory,
+or per-head-count out-of-bounds row indexing — several of which are
+zero-mean, input-dependent, or occupancy-dependent and can survive 1025 argmax
+comparisons. Frieren's zero-mean lane shuffle surviving all 1025 steps is the
+direct demonstration. That gap is the honest residual risk on this candidate.
+
 ## 10. Suggested follow-ups I did not implement
 
 1. **Settle the barrier attribution properly — this is the highest-value item
