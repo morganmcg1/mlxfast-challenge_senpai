@@ -32,18 +32,33 @@
 # PASS = every permutation fault arm reports EQUIVALENCE_EXACT_STEPS < 8 AND
 # the control arm reports 8 on the same tree. That is the statement "the oracle
 # would have caught a lane-major addressing error", which is what B needs.
+# ROUND 1 RESULT (modes 5, 6, 1, 0): all four arms reported
+# EQUIVALENCE_EXACT_STEPS=8 with byte-identical reports, including the same
+# prefill mean 0.011933609. That is ambiguous between two very different
+# worlds:
+#
+#   (a) the oracle reaches lane-major but is insensitive to permutations, or
+#   (b) the lane-major kernel never dispatches inside the oracle at all,
+#       in which case V2's 8/8 is a tautology and B has NO addressing evidence.
+#
+# ROUND 2 separates them with a CATASTROPHIC fault. Mode 3 zeroes every fitting
+# code, which forces scale -> 0 and produced 32/32 greedy divergences in the
+# worker. If mode 3 still reports 8 exact steps here, the kernel is unreachable
+# in the oracle (world b). The dispatch log is also enabled so reachability is
+# witnessed directly rather than inferred.
 set -u
 cd "$(dirname "$0")/.."
 
 run_arm() {
     local label="$1" mode="$2"
     echo "=== ${label} (DARKBLOOM_LM_FAULT=${mode}) ==="
-    env DARKBLOOM_LM_FAULT="${mode}" bash research/run_upstream_equivalence.sh 2>&1 \
-        | grep -E "EQUIVALENCE_EXACT_STEPS|EQUIVALENCE_EXIT|maximumAbsoluteLogitError|oracle report missing"
+    env DARKBLOOM_LM_FAULT="${mode}" DARKBLOOM_ATTN_SCALE_NARROW_LOG=1 \
+        bash research/run_upstream_equivalence.sh 2>&1 \
+        | grep -E "EQUIVALENCE_EXACT_STEPS|EQUIVALENCE_EXIT|maximumAbsoluteLogitError|oracle report missing|lane-major|narrow-scales|declined|inactive" \
+        | sort | uniq -c | sed 's/^/  /'
     echo
 }
 
-run_arm "MODE 5 reverse the four K-block codes in each lane word" 5
-run_arm "MODE 6 read the lane word 16 lanes away" 6
-run_arm "MODE 1 read the neighbour lane word (xor 1)" 1
+run_arm "MODE 3 zero every fitting-arm code (catastrophic; MUST break)" 3
+run_arm "MODE 4 zero every escape-arm code (catastrophic; MUST break)" 4
 run_arm "CONTROL same tree, no fault (must be 8 exact steps)" 0
