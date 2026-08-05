@@ -19,6 +19,16 @@ moot for ranking: the deployed ranked path applies **no** band at all, only the
 two `0.95` floors. Nezuko's two quoted band *literals* are correct; only the
 statistic they were applied to is wrong.
 
+Section 6 works the second denominator dispute the advisor asked for — fern's
+receipt `285f79fa` on #48. Her renormalisation reproduces exactly, but the
+advisor's diagnosis of the residual gap does not: inverting the receipt's own
+`*_speedup` fields recovers a paired prefill baseline that drifted only
+**-0.0228%** from pinned, so session variance cannot explain a 4.6% gap. The gap
+is **99.5% the choice of normaliser** — `research/nezuko-normalised-leaderboard.md`
+uses the programme constants at `senpai/program.md:130-131`, not the pinned
+`Constants.swift:167-172` pair, while labelling them "pinned". The T4 defunding
+arithmetic is unaffected because a fixed normaliser cancels in an `ns` ratio.
+
 ## 1. What the band actually is, from source
 
 ### 1.1 The check
@@ -240,7 +250,84 @@ invocations as timing probes and checks baseline health separately. A large
 speedup will always trip the low side of the legacy band; that is a property of
 the band, not a defect in the candidate.
 
-## 6. Recommended correction to the receipt (no edit made)
+## 6. The second denominator dispute: fern's #48 renormalisation
+
+The advisor's #57 comment §3 added fern's receipt `285f79fa-089f-4184-b1ec-0647cb51e61b`
+as a worked case and flagged that her `npf = 2.013145` and the receipt's reported
+`prefill_speedup = 1.9238` differ by −4.4%, attributing the gap to same-session
+paired-baseline variance ("the receipt's own `*_speedup` fields use the
+same-session paired baseline, whose prefill draw is the single largest variance
+source we have measured"). **That attribution is wrong, and the arithmetic says
+so cleanly.**
+
+The receipt payload is not in my tree (#48 is unmerged at my base), so the four
+inputs below are the ones quoted in that comment. All derived figures are mine.
+
+First, her renormalisation reproduces exactly:
+
+| quantity | formula | computed | advisor quoted |
+|---|---|---|---|
+| `nd` | `0.013890 / 0.00505923275` | 2.745476 | 2.745476 |
+| `npf` | `0.0003845 / 0.000190994708984375` | 2.013145 | 2.013145 |
+| `ns` | `nd^0.75 · npf^0.25` | 2.540575 | 2.540575 |
+
+**The key step is inverting the reported `*_speedup` fields to recover her actual
+paired baseline.** `Score.swift:15` defines speedup as `baseline / candidate`, so
+`base = reported_speedup × cand`:
+
+| axis | implied paired baseline | pinned constant | drift |
+|---|---|---|---|
+| decode | 13.83548 ms | 13.85621 ms (`Constants.swift:167-172`) | **−0.1496%** |
+| prefill | 367.43562 µs | 367.51939 µs (`Constants.swift:167-172`) | **−0.0228%** |
+
+Fern's paired prefill draw was within **0.023%** of the pinned constant. It was
+one of the quietest prefill draws in the programme, not a large variance
+excursion. So the −4.4% gap cannot be paired-baseline variance.
+
+**Where the gap actually comes from.** `0.013890` and `0.0003845` are *not* the
+pinned constants. They are programme normalisers defined at
+`senpai/program.md:130-131` (and restated identically at `:438-439`), and they
+sit above the pinned pair:
+
+| axis | gap `n/reported` | attributable to normaliser choice | residual paired drift |
+|---|---|---|---|
+| decode | +0.3940% | **+0.2438%** | +0.1498% |
+| prefill | +4.6442% | **+4.6203%** | +0.0228% |
+
+`0.0003845 / 0.00036751938916015625 = 1.046203`. The prefill gap is **99.5%
+explained by the choice of normaliser** and 0.5% by baseline drift. Renormalising
+the same receipt against the pinned constants gives `npf_pinned = 1.924239`,
+which agrees with the reported `prefill_speedup = 1.9238` to +0.023% — i.e. to
+the paired drift and nothing else.
+
+**Why this does not invalidate any `ns` comparison.** A fixed normaliser cancels
+exactly in a ratio of two `ns` values, which is the only way `ns` is ever used.
+Checking against the number that defunded my own T4:
+
+```text
+ns_cand / ns_ctl = 2.540575 / 2.544360 = 0.998512  =>  -0.1488%
+```
+
+That reproduces the advisor's −0.1488% to four decimals. The T4 defunding stands
+on arithmetic that is unaffected by the normaliser choice.
+
+**What it does invalidate is putting `ns` on the `officialScore` scale.**
+Renormalising fern's receipt with the pinned pair gives `ns_pinned = 2.507464`
+against her `ns = 2.540575`, a **−1.30%** level shift. So an `ns` value is a
+comparison coordinate, not a score estimate, and quoting one next to a receipt's
+`decode_speedup` or `officialScore` invites exactly the −4.4% confusion above.
+
+**The labelling defect that caused this.**
+`research/nezuko-normalised-leaderboard.md:108-109` calls `0.013890` / `0.0003845`
+the "**pinned** reference decode/prefill seconds/token". That word collides with
+the genuinely pinned `Constants.swift:167-172` pair, which are different numbers
+with a documented four-run provenance at `Constants.swift:149-156` and an
+explicit in-source disclaimer at `:158-166` that they are "NOT the ranked scoring
+denominator". `research/maple-fern-pr40-result.md:537-538` gets the label right:
+"fixed normalisers, **not** the session baseline". I recommend the leaderboard
+wording be brought into line with fern's. I did not edit either file.
+
+## 7. Recommended correction to the receipt (no edit made)
 
 `research/nezuko-mbcap-up-receipt.md:139-152` should relabel its table
 "arm-to-arm drift check (control arm time / candidate arm time)" and drop the
@@ -249,7 +336,7 @@ sentence claiming the legacy acceptance band would have passed. The ratio is a
 supposedly-equivalent arms is exactly what one wants to see reported — it is
 simply not the band. I did not edit that file; it is another student's receipt.
 
-## 7. Honest caveats
+## 8. Honest caveats
 
 - Only **low-side** band failures were exercised here. I did not construct a
   candidate that trips the high side, so the `hi` comparison at
@@ -262,3 +349,11 @@ simply not the band. I did not edit that file; it is another student's receipt.
   derivation from the four tolerance literals. No source file stores them, so
   any future change to `Constants.swift:145-148` silently invalidates every
   prose copy of those numbers, including this note.
+- Section 6's four inputs (`cand_pre`, `cand_dec`, `decode_speedup`,
+  `prefill_speedup` for receipt `285f79fa`) were taken from the advisor's #57
+  comment because #48 is unmerged at my base, so the receipt payload is not in
+  my tree. Every derived figure is mine, but if any of those four quoted inputs
+  is itself mistranscribed, the decomposition inherits the error. The one
+  internal consistency check available — that inverting the two `*_speedup`
+  fields lands within 0.15% of the independently-pinned `Constants.swift`
+  baselines on both axes — passes, which makes a transcription error unlikely.
