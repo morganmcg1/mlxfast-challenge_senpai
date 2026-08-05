@@ -546,3 +546,150 @@ holds the ranked channel for this window.
   offer to revert the four code hunks so the merge is documentation-only; the
   code must not be promoted as a numerical change without a rebase onto
   `f722c2d7` plus Steps 3 and 4.
+
+---
+
+## 15. Revision r2 — code reverted, kernel texts preserved as patches
+
+Advisor review of r1 (comment `5197418765`) accepted this arm as a clean measured
+negative and asked for one mechanical change: revert the code, keep the science.
+That matches my own §10 recommendation. Nothing in §§1–14 changes; no
+re-measurement was run and none is implied by r2.
+
+**The rationale changed between the review and this revision, and the second one
+is the operative one.** Comment `5197470106` withdraws the byte-crunch
+justification (`+0.037% of score for 1,198 B` against a supposed 1,322 B of
+per-file headroom) as wrong arithmetic, and rests the revert instead on the new
+**§0.9.22 unfalsifiable-rider rule**: a bit-identical mechanism must not become
+permanent scored-path code when its best-case effect is below the 0.278%
+single-receipt resolvability floor *and* its family has a proven analytic ceiling
+holding it there. My arm satisfies both clauses — +0.037% at the occupancy-matched
+K=16 basis, and the §0.9.20 refit caps the whole load-pipeline-depth family at
+19.8% of `t(1)`, so even a full −5% gate pass would have reached only +0.216%,
+still under the floor. I agree with the replacement reasoning, and I prefer it:
+it does not depend on a budget number that can move, and it is the same argument
+my own §9 made for why this arm can never be resolved by the ranked instrument.
+
+I verified the withdrawal independently rather than accepting it, because it
+changes a constraint I had been designing against:
+
+```text
+benchmark.json editablePaths: 97 entries = 93 files + 4 directories
+  Sources/MLXFastModel                 9 files
+  Sources/MLXFastTransform             5 files
+  Vendor/.../kernels/steel/attn       10 files
+  Vendor/.../kernels/steel/gemm       25 files
+93 + 9 + 5 + 10 + 25 = 142            == check-editable-budget.sh files=142
+```
+
+The arithmetic closes, so the correction is right: because four entries are
+directories, a new file created inside one of them joins the submitted surface,
+and the 524,288 B per-file cap can always be relieved by splitting. The binding
+constraints are the **total surface** (58,825 B free) and the **per-review growth
+cap** (262,144 B). One caveat I would attach before anyone plans a split: a split
+is not free, since each new file re-pays licence header, imports, and
+declaration boilerplate against that same total.
+
+### 15.1 What r2 did
+
+1. **Reverted the four code hunks** (85 insertions / 72 deletions, all inside
+   `lagunaSlidingFusedAttentionKernel`) in
+   `Sources/MLXFastModel/LagunaRuntimeModel.swift`. The submitted surface now
+   carries zero bytes attributable to this experiment.
+2. **Preserved both kernel texts** as `research/`-only patch artefacts, which
+   cost zero submitted bytes because `research/` is outside `editablePaths`:
+   - `research/nezuko-pr60-depth4.patch` (199 lines) — the depth-4 pipeline, the
+     arm actually measured in §7.
+   - `research/nezuko-pr60-depth8.patch` (265 lines) — the research-only depth-8
+     variant from §8/§11, regenerated with `research/nezuko_depth8_variant.py`.
+3. **Verified both patches apply cleanly.** Each was applied with `git apply -p1`
+   in a scratch directory against the current-base copy of
+   `LagunaRuntimeModel.swift`, producing **509,929 B** (depth-4) and
+   **513,659 B** (depth-8). Both are exactly +20 B over the corresponding r1
+   file sizes; the +20 B is the advisor's own inject-defaults revert that the
+   advanced base carries and r1 did not.
+4. **Left the write-up intact.** §§1–14 are unchanged, as instructed.
+
+### 15.2 Revert target — one deliberate deviation, stated
+
+The r2 task text asks for the file to be "byte-identical to its state at
+`5178d452`", while §2 of the same review requires the standing grep on my final
+commit to show `DARKBLOOM_INJECT_DECODE_EMPTY = 0` and
+`DARKBLOOM_INJECT_EMPTY_TG = 160`. Those two instructions are incompatible:
+`5178d452` predates the advisor's inject-defaults revert and carries `100` / `8`.
+
+I resolved in favour of the **current base**. The file was restored from
+`ca7c9194`, so:
+
+```text
+git diff ca7c9194 -- Sources/MLXFastModel/LagunaRuntimeModel.swift   ->   empty
+git diff 5178d452 -- Sources/MLXFastModel/LagunaRuntimeModel.swift   ->   only the
+                                                advisor's 4-line inject revert
+```
+
+This satisfies both requirements at once — zero submitted bytes attributable to
+this experiment, and `0` / `160` on the final commit — and it is not a rebase:
+no commit was replayed, one file was restored from the accepted base. The
+resulting file size is **508,731 B**, exactly the post-merge figure the review
+predicted.
+
+The choice of base is immaterial to the file content, which I checked rather
+than assumed — the blob is identical across both candidate bases and my
+worktree:
+
+```text
+git rev-parse c087ee87:Sources/MLXFastModel/LagunaRuntimeModel.swift
+git rev-parse ca7c9194:Sources/MLXFastModel/LagunaRuntimeModel.swift
+git hash-object Sources/MLXFastModel/LagunaRuntimeModel.swift
+  -> 569a8e9550320411bc9fa41428d6094bc8ed2aff  (all three)
+```
+
+### 15.3 Checks pasted
+
+Standing inject-defaults grep on the final commit:
+
+```text
+11046:    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
+11058:    "DARKBLOOM_INJECT_EMPTY_TG", 160)
+```
+
+Editable budget against the advanced base:
+
+```text
+$ senpai/check-editable-budget.sh ca7c9194ddd165586577b54aadf5e0833ab69b33
+editable budget OK: current=2941175/3000000 bytes headroom=58825 growth=0/262144 files=142 (file count is diagnostic only; base=142)
+```
+
+`growth=0/262144` is the value the review asked for.
+
+### 15.4 Base advance
+
+`current_base_sha = ca7c9194ddd165586577b54aadf5e0833ab69b33`, accepted exactly
+as instructed by comment `5197470106` after #57 merged. The chain of advances,
+with the editable intersection at each hop:
+
+| advance | intersection with `editablePaths` | disposition |
+|---|---|---|
+| `5178d452 → 720c13ff` | 0 | accept |
+| `720c13ff → f722c2d7` | 1 (`LagunaRuntimeModel.swift`, +20 B inject revert) | explicitly cleared |
+| `f722c2d7 → c087ee87` | 0 | accept |
+| `c087ee87 → ca7c9194` | 0 | accept |
+
+I confirmed the last hop myself rather than taking it on report:
+`git diff --name-only c087ee87 ca7c9194` returns four `research/` files
+(`tanjiro-band-ratio-reconciliation.md`, `tanjiro-gathergemm-d2-census.md`,
+`tanjiro-pr-gathergemm-coresidency.md`, `tanjiro_gathergemm_occupancy_probe.swift`)
+and nothing else. No rerun and no re-measurement follow from the base advance.
+
+The inject-defaults hazard was in any case already moot for this PR. Every
+harness in §§5–7 is a standalone host Metal program that compiles kernel text
+through `makeLibrary` and never instantiates the Swift runtime, so
+`lagunaInjectLayerWork` is never reached and the `DARKBLOOM_INJECT_*` defaults
+cannot influence any number reported here.
+
+### 15.5 Not done, deliberately
+
+Per the r2 scope, none of the following were performed: Step 3, Step 4, a
+rebase, a new ranked receipt, the full-kernel (`:1857`) port, or any
+re-measurement. No `mlxfast submit` was called from this PR — frieren holds the
+single ranked channel.

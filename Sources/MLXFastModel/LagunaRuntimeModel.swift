@@ -1490,9 +1490,8 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
 
         // Phase 3: GQA-pair attention over the ring in slot order, textual
         // replica of the sdpa_vector pair path at fixed kL = 512 (steady
-        // ring: the 4-trip four-deep pipeline covers all 16 slots per
-        // simdgroup with no tail; the two-deep loop below it is the
-        // fall-through for any kL a four-deep trip cannot fill).
+        // ring: the 8-trip two-deep pipeline covers all 16 slots per
+        // simdgroup with no tail).
         threadgroup U outputs[4 * BN * BDP];
         threadgroup U max_scores[2 * BN];
         threadgroup U sum_exp_scores[2 * BN];
@@ -1528,48 +1527,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         U pair_sum1 = 0;
 
         int i = sg;
-        for (; i + 3 * BN < N; i += 4 * BN) {
-            const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
-            const device bfloat* pipe_keys_c = pair_keys + 2 * inner_k_stride;
-            const device bfloat* pipe_keys_d = pair_keys + 3 * inner_k_stride;
-            const device bfloat* pipe_values_b = pair_values + inner_v_stride;
-            const device bfloat* pipe_values_c =
-                pair_values + 2 * inner_v_stride;
-            const device bfloat* pipe_values_d =
-                pair_values + 3 * inner_v_stride;
-            const bool sub_a = uint(i) == widx;
-            const bool sub_b = uint(i + BN) == widx;
-            const bool sub_c = uint(i + 2 * BN) == widx;
-            const bool sub_d = uint(i + 3 * BN) == widx;
-            U pipe_ka[4];
-            U pipe_kb[4];
-            U pipe_kc[4];
-            U pipe_kd[4];
-            T_LOAD_K(pipe_ka, sub_a, pair_keys);
-            T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
-            T_LOAD_K(pipe_kc, sub_c, pipe_keys_c);
-            T_LOAD_K(pipe_kd, sub_d, pipe_keys_d);
-            bfloat pipe_va0, pipe_va1, pipe_va2, pipe_va3;
-            bfloat pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3;
-            bfloat pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3;
-            bfloat pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3;
-            T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
-                pair_values);
-            T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
-                pipe_values_b);
-            T_LOAD_V(pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3, sub_c,
-                pipe_values_c);
-            T_LOAD_V(pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3, sub_d,
-                pipe_values_d);
-
-            T_SLOT(pipe_ka, pipe_va0, pipe_va1, pipe_va2, pipe_va3);
-            T_SLOT(pipe_kb, pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3);
-            T_SLOT(pipe_kc, pipe_vc0, pipe_vc1, pipe_vc2, pipe_vc3);
-            T_SLOT(pipe_kd, pipe_vd0, pipe_vd1, pipe_vd2, pipe_vd3);
-
-            pair_keys += 4 * inner_k_stride;
-            pair_values += 4 * inner_v_stride;
-        }
         for (; i + BN < N; i += 2 * BN) {
             const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
             const device bfloat* pipe_values_b = pair_values + inner_v_stride;
@@ -1586,8 +1543,77 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
                 pipe_values_b);
 
-            T_SLOT(pipe_ka, pipe_va0, pipe_va1, pipe_va2, pipe_va3);
-            T_SLOT(pipe_kb, pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3);
+            U pair_score0 = 0;
+            U pair_score1 = 0;
+            pair_score0 += pair_q0[0] * pipe_ka[0];
+            pair_score1 += pair_q1[0] * pipe_ka[0];
+            pair_score0 += pair_q0[1] * pipe_ka[1];
+            pair_score1 += pair_q1[1] * pipe_ka[1];
+            pair_score0 += pair_q0[2] * pipe_ka[2];
+            pair_score1 += pair_q1[2] * pipe_ka[2];
+            pair_score0 += pair_q0[3] * pipe_ka[3];
+            pair_score1 += pair_q1[3] * pipe_ka[3];
+            pair_score0 = simd_sum(pair_score0);
+            pair_score1 = simd_sum(pair_score1);
+
+            U pair_new_max0 = metal::max(pair_max0, pair_score0);
+            U pair_new_max1 = metal::max(pair_max1, pair_score1);
+            U pair_factor0;
+            U pair_factor1;
+            LAGUNA_RESCALE(pair_factor0, pair_max0 - pair_new_max0);
+            LAGUNA_RESCALE(pair_factor1, pair_max1 - pair_new_max1);
+            U pair_exp0 = metal::fast::exp(pair_score0 - pair_new_max0);
+            U pair_exp1 = metal::fast::exp(pair_score1 - pair_new_max1);
+
+            pair_max0 = pair_new_max0;
+            pair_max1 = pair_new_max1;
+            pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
+            pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
+
+            pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
+            pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
+            pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
+            pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
+            pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
+            pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
+            pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
+            pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
+
+            U pipeb_score0 = 0;
+            U pipeb_score1 = 0;
+            pipeb_score0 += pair_q0[0] * pipe_kb[0];
+            pipeb_score1 += pair_q1[0] * pipe_kb[0];
+            pipeb_score0 += pair_q0[1] * pipe_kb[1];
+            pipeb_score1 += pair_q1[1] * pipe_kb[1];
+            pipeb_score0 += pair_q0[2] * pipe_kb[2];
+            pipeb_score1 += pair_q1[2] * pipe_kb[2];
+            pipeb_score0 += pair_q0[3] * pipe_kb[3];
+            pipeb_score1 += pair_q1[3] * pipe_kb[3];
+            pipeb_score0 = simd_sum(pipeb_score0);
+            pipeb_score1 = simd_sum(pipeb_score1);
+
+            U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
+            U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
+            U pipeb_factor0;
+            U pipeb_factor1;
+            LAGUNA_RESCALE(pipeb_factor0, pair_max0 - pipeb_new_max0);
+            LAGUNA_RESCALE(pipeb_factor1, pair_max1 - pipeb_new_max1);
+            U pipeb_exp0 = metal::fast::exp(pipeb_score0 - pipeb_new_max0);
+            U pipeb_exp1 = metal::fast::exp(pipeb_score1 - pipeb_new_max1);
+
+            pair_max0 = pipeb_new_max0;
+            pair_max1 = pipeb_new_max1;
+            pair_sum0 = pair_sum0 * pipeb_factor0 + pipeb_exp0;
+            pair_sum1 = pair_sum1 * pipeb_factor1 + pipeb_exp1;
+
+            pair_o0[0] = pair_o0[0] * pipeb_factor0 + pipeb_exp0 * pipe_vb0;
+            pair_o1[0] = pair_o1[0] * pipeb_factor1 + pipeb_exp1 * pipe_vb0;
+            pair_o0[1] = pair_o0[1] * pipeb_factor0 + pipeb_exp0 * pipe_vb1;
+            pair_o1[1] = pair_o1[1] * pipeb_factor1 + pipeb_exp1 * pipe_vb1;
+            pair_o0[2] = pair_o0[2] * pipeb_factor0 + pipeb_exp0 * pipe_vb2;
+            pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * pipe_vb2;
+            pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
+            pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
@@ -1716,45 +1742,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
               d2 = v_.z;                                           \\
               d3 = v_.w;                                           \\
             }                                                      \\
-          } while (false)
-
-        // One ring slot's online-softmax update. Statement-for-statement
-        // replica of the shipped two-deep body, so every loop depth folds
-        // slots in the same order with the same intermediate rounding.
-        #define T_SLOT(kk, w0, w1, w2, w3)                         \\
-          do {                                                     \\
-            U s0_ = 0;                                             \\
-            U s1_ = 0;                                             \\
-            s0_ += pair_q0[0] * kk[0];                             \\
-            s1_ += pair_q1[0] * kk[0];                             \\
-            s0_ += pair_q0[1] * kk[1];                             \\
-            s1_ += pair_q1[1] * kk[1];                             \\
-            s0_ += pair_q0[2] * kk[2];                             \\
-            s1_ += pair_q1[2] * kk[2];                             \\
-            s0_ += pair_q0[3] * kk[3];                             \\
-            s1_ += pair_q1[3] * kk[3];                             \\
-            s0_ = simd_sum(s0_);                                   \\
-            s1_ = simd_sum(s1_);                                   \\
-            U m0_ = metal::max(pair_max0, s0_);                    \\
-            U m1_ = metal::max(pair_max1, s1_);                    \\
-            U f0_;                                                 \\
-            U f1_;                                                 \\
-            LAGUNA_RESCALE(f0_, pair_max0 - m0_);                  \\
-            LAGUNA_RESCALE(f1_, pair_max1 - m1_);                  \\
-            U e0_ = metal::fast::exp(s0_ - m0_);                   \\
-            U e1_ = metal::fast::exp(s1_ - m1_);                   \\
-            pair_max0 = m0_;                                       \\
-            pair_max1 = m1_;                                       \\
-            pair_sum0 = pair_sum0 * f0_ + e0_;                     \\
-            pair_sum1 = pair_sum1 * f1_ + e1_;                     \\
-            pair_o0[0] = pair_o0[0] * f0_ + e0_ * w0;              \\
-            pair_o1[0] = pair_o1[0] * f1_ + e1_ * w0;              \\
-            pair_o0[1] = pair_o0[1] * f0_ + e0_ * w1;              \\
-            pair_o1[1] = pair_o1[1] * f1_ + e1_ * w1;              \\
-            pair_o0[2] = pair_o0[2] * f0_ + e0_ * w2;              \\
-            pair_o1[2] = pair_o1[2] * f1_ + e1_ * w2;              \\
-            pair_o0[3] = pair_o0[3] * f0_ + e0_ * w3;              \\
-            pair_o1[3] = pair_o1[3] * f1_ + e1_ * w3;              \\
           } while (false)
 
         // (trailing newline required: the JIT concatenates the generated
@@ -11056,7 +11043,7 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_MATMULS", 0)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 100)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
@@ -11065,10 +11052,10 @@ private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
 /// per-dispatch cost depends on placement.
 private let lagunaInjectEmptySpread = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_EMPTY_SPREAD", 1) != 0
-/// Threadgroups per empty dispatch (256 threads each); 8 is `0411779d`'s
-/// geometry, so n=0/100/400 lie on one M5 curve.
+/// Threadgroups per empty dispatch (256 threads each). Set 8 to reproduce
+/// `0411779d`'s geometry, on which n=0/100/400 lie on one M5 curve.
 private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_EMPTY_TG", 8)
+    "DARKBLOOM_INJECT_EMPTY_TG", 160)
 /// 0 unchains the empties: each binds a never-written control array, so no
 /// `memoryBarrier` is emitted (`device.cpp:325`). Unchained outputs all stay in
 /// `pending` so a recycled buffer cannot re-trip it as a WAW (`:331`).
