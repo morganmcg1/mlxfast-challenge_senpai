@@ -765,10 +765,11 @@ if env("TJ_SKIP_PHASE_D") == nil {
           let failBuf = device.makeBuffer(length: 4, options: .storageModeShared) else {
         die("rendezvous buffer alloc failed")
     }
-    func rendezvous(_ k: Int, threadsPerTG: Int, spinLimit: UInt32 = 2_000_000) -> (fails: UInt32, ms: Double) {
+    func rendezvous(_ k: Int, threadsPerTG: Int, targetOverride: Int? = nil,
+                    spinLimit: UInt32 = 2_000_000) -> (fails: UInt32, ms: Double) {
         ctrBuf.contents().bindMemory(to: UInt32.self, capacity: 1)[0] = 0
         failBuf.contents().bindMemory(to: UInt32.self, capacity: 1)[0] = 0
-        var target = UInt32(k)
+        var target = UInt32(targetOverride ?? k)
         var spin = spinLimit
         guard let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else {
             die("rendezvous encoder failed")
@@ -788,7 +789,25 @@ if env("TJ_SKIP_PHASE_D") == nil {
         let f = failBuf.contents().bindMemory(to: UInt32.self, capacity: 1)[0]
         return (f, (cb.gpuEndTime - cb.gpuStartTime) * 1e3)
     }
-    log("    thr/TG      K   fails   wall ms   co-resident?")
+    log("""
+  POSITIVE CONTROLS FIRST. A fails==0 reading is only evidence of co-residency if
+  the instrument can report a failure at all. Control P1 asks for one more arrival
+  than exists (target=K+1), so every threadgroup must time out: fails==K.
+  Control P2 dispatches far more threadgroups than any plausible residency limit,
+  so a wave-structured launch must strand at least one early wave: fails>0.
+""")
+    log("    control   thr/TG      K   target   fails   wall ms   expected        verdict")
+    for (tag, g, k, tgt, want) in [("P1", 128, cores * 2, cores * 2 + 1, "fails==\(cores * 2)"),
+                                   ("P1", 1024, cores * 2, cores * 2 + 1, "fails==\(cores * 2)"),
+                                   ("P2", 1024, maxTGs, maxTGs, "fails>0"),
+                                   ("P2", 128, maxTGs, maxTGs, "fails>0")] {
+        let r = rendezvous(k, threadsPerTG: g, targetOverride: tgt)
+        let ok = tag == "P1" ? (Int(r.fails) == k) : (r.fails > 0)
+        log("    \(pad(tag, 7)) \(String(format: "%8d", g)) \(String(format: "%6d", k)) "
+            + "\(String(format: "%8d", tgt)) \(String(format: "%7d", r.fails)) "
+            + "\(String(format: "%9.2f", r.ms))   \(pad(want, 13)) \(ok ? "PASS" : "FAIL")")
+    }
+    log("\n    thr/TG      K   fails   wall ms   co-resident?")
     for (g, ks) in [(128, [cores * 12, cores * 24, cores * 24 + 1, cores * 26, cores * 32]),
                     (1024, [cores * 2, cores * 3, cores * 3 + 1, cores * 4])] {
         for k in ks where k <= maxTGs {
