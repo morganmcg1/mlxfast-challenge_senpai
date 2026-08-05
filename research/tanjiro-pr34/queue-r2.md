@@ -40,6 +40,12 @@ law itself rather than one of its branches.
 All five carry threadgroups = 8 and zero prefill injection, so the prefill
 figure `S` is a flat internal control across the whole series.
 
+A receipt that returns `status=failed` with no timed metrics is a retry rather
+than a reading, and I resubmit the identical tree. `rate4-provenance.md` records
+why: r1's `afec358a` failed the bypass code-review step on a tree that differed
+from an already-passed tree by four integer literals, so a slot can be consumed
+without producing metrics. Five authorised receipts means five readings.
+
 ## Deliberate slowdown, declared in advance
 
 L1 through L4 are expected to be slower than the promoted frontier by a

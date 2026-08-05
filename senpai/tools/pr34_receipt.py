@@ -2,6 +2,14 @@
 """Print one official receipt's axes and gate verdicts by id prefix.
 
 Usage: pr34_receipt.py <subs.json> <id-prefix> [...]
+
+Fetch subs.json first. The listing is leaderboard-wide and about 17 MB, so
+write it to a file rather than piping it into a shell:
+
+    curl -sS -o /tmp/subs.json -H "Authorization: Bearer ${MLXFAST_API_TOKEN}" \
+      "https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions"
+
+Other routes on the same host: /api/submissions/{id} and /api/me.
 """
 
 from __future__ import annotations
