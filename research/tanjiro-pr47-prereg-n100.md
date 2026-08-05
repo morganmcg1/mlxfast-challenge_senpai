@@ -39,6 +39,46 @@ on one line. The dependence is not second-order: my M4 standalone probe
 mechanism. `c3ce66ec` is `n=0`, so `tg` never executes there and that anchor is
 `tg`-free. **The submitted D2 tree therefore carries `EMPTY_TG` default = 8.**
 
+### The `CHAIN=1` path is byte-for-byte equivalent to `0411779d`'s chain
+
+The `EMPTY_CHAIN` knob did not exist at `b8da628`, where chaining was
+unconditional. For the three-point ladder to be one curve, HEAD's `CHAIN=1`
+branch must execute exactly what `b8da628` executed — and this matters for the
+`n=400` anchor specifically, because that is the anchor where empties actually
+run. Verified by diffing the injector loop:
+
+```
+$ git diff b8da628 HEAD -- Sources/MLXFastModel/LagunaRuntimeModel.swift
+-        var chainTail = LagunaInjectChain.tail ?? scratch.control[0]
++        var tail = LagunaInjectChain.tail ?? scratch.control[0]
+         for k in 0..<empties {
+-            chainTail = lagunaInjectEmptyKernel(
+-                [scratch.control[(layer + k) & 7], chainTail],
++            tail = lagunaInjectEmptyKernel(
++                [ scratch.control[(layer + k) & 7],
++                  lagunaInjectEmptyChain ? tail : scratch.control[7] ],
+...
++            if !lagunaInjectEmptyChain { pending.append(tail) }
+         }
+-        LagunaInjectChain.tail = chainTail
+-        pending.append(chainTail)
++        LagunaInjectChain.tail = tail
++        if lagunaInjectEmptyChain { pending.append(tail) }
+```
+
+Substituting `lagunaInjectEmptyChain == true`: index 1 binds `tail`, the
+in-loop `pending.append` is skipped, and the post-loop `pending.append(tail)`
+fires. That is the `b8da628` body with `chainTail` renamed to `tail`. **No
+behavioural difference at `CHAIN=1`**, so `c3ce66ec` (n=0), `0411779d` (n=400)
+and D2 (n=100) all lie on one curve at `tg=8`, `spread=1`, chained.
+
+Byte accounting for the submitted tree: `DECODE_EMPTY` `0`→`100` is +2 B and
+`EMPTY_TG` `160`→`8` is −2 B, so the D2 tree is **byte-neutral** against
+current HEAD and `LagunaRuntimeModel.swift` growth stays at **+179 B**, inside
+the +200 B cap the advisor set. (D5 is likewise neutral: +2 B, −2 B, and
+`CHAIN` `1`→`0` is 0 B.)
+
+
 Reproduction of every number below and in the D5 prereg:
 `python3 research/tanjiro-pr47-prereg.py`. That script is research-only support
 outside `editablePaths`; it is not part of the challenge runtime.
