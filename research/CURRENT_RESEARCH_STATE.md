@@ -1,21 +1,25 @@
 # SENPAI Research State
-- 2026-08-05T13:46:52Z (updated by advisor session — campaign coordination)
+- 2026-08-05T13:46:52Z (updated by advisor session — baseline_advanced handling + research synthesis)
 - **SCORE GAP**: Current 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
-- **FRONTIER**: 8130379 (includes 4058d0b submission that scored 2.5459 on M5)
-- **ALL 4 STUDENTS ASSIGNED** — no code pushed yet on current arms. All need rebase to 8130379:
+- **FRONTIER**: a92d2289 (last scored change: 2268af4 FMA dequant; a92d228 and 72c450a are doc-only)
+- **ALL 4 STUDENTS ASSIGNED** — baseline_advanced feedback sent to PRs #50, #51, #52:
   - Edward (PR #70): Eliminate redundant top-8 extraction in R1 gate/up kernel.
     EST 2-4% decode, LOW risk. The single largest unexploited inefficiency.
-    Replaces bitonic prelude (~200 ALU ops/tg) with direct index read.
+    Base 8130379, no rebase needed (doc-only advance). Ready to start.
   - Thorfinn (PR #50): Merge shared + routed gate/up QMV dispatch.
     EST 1-2% decode, eliminates 39 dispatches/step. `mergedSharedActivated` at L10248.
-  - Alphonse (PR #51): Fuse final RMSNorm into LM-head coarse kernel.
-    EST 0.36% decode, eliminates 1 dispatch/step. Zero numerical risk.
+    Base advanced bb523807→a92d2289 (scored code changed). Re-baseline required.
+  - Alphonse (PR #51): Fuse RMSNorm + NVFP4 QKV into one dispatch (redirected from LM-head).
+    EST 5.3% decode, eliminates 40 RMSNorm dispatches/step. STRONGEST available win.
+    Base advanced bb523807→a92d2289 (scored code changed). Re-baseline required.
   - Askeladd (PR #52): Prefill MoE retile variant 5→4 switch (revision).
     Prefill (25% weight). +17.47% kernel-level on _nax path. M5-only validation needed.
+    Double-buffering now in base (STAGE2_GATHER v1). Base advanced. Re-baseline required.
 - **Edward's FMA dequant MERGED** ✅ (commit 2268af4 on advisor branch).
-  Now part of base 8130379. No longer a separate experiment.
-- **NEXT WAVE PRIORITY**: g_proj fusion into norm+QKV kernel (eliminates 40 dispatches/step,
-  ~5.6% decode, no numerical change). Assign to whichever student completes first.
+  Now part of base. No longer a separate experiment.
+- **NEXT WAVE PRIORITY**: g_proj fusion into norm+NVFP4 QKV kernel (eliminates 40 more
+  dispatches/step on top of Alphonse's norm+QKV fusion, ~5.6% additional decode).
+  Assign to whichever student completes first.
 - **SECOND WAVE**: Depth-2/4 register prefetch on gate/up R1 kernel (1-3% decode, LOW risk,
   proven mechanism from norm+QKV depth-4 prefetch).
 - **M4→M5 TRANSFER WARNING**: Edward's ops=2 showed +6.5% on M4 but 2.502 on M5 (vs 4058d0b's 2.546 = -1.7% M5 regression).
@@ -450,17 +454,40 @@ Gate behind `DARKBLOOM_FUSED_NORM_NVFP4_QKV` env var (default ON, A/B testable).
 - Sliding layers (30): QKV rows = (64 + 2×8) × 128 = 10240, Gate rows = 64
 - Full-attention layers (10): QKV rows = (48 + 2×8) × 128 = 8192, Gate rows = 48
 
+## Decode Dispatch Anatomy (403 dispatches/step, from explore agent)
+
+A single-token decode step dispatches **403 Metal kernels** across 40 layers + final norm + LM-head:
+- Attention block (40 layers × 5): RMSNorm, QKV NVFP4 GEMV, Gate softplus, Fused attention, O-proj gated NVFP4 = 200
+- Sparse MoE (39 layers × 5): Residual+RMSNorm+router, Top-8 selection, Routed gate/up GEMV+SwiGLU, Shared gate/up QMV, Fused down+residual = 195
+- Dense MLP (layer 0 × 3): Residual+RMSNorm, Dense gate/up+SiLU, Dense down+residual = 3
+- Final RMSNorm + LM-head pruner (5): Final RMSNorm, LM coarse, Argmax stage1, Exact-winner threshold, Exact/assembled = 5
+
+### Top 5 Fusion Opportunities (by dispatch savings)
+| Rank | Fusion | Saves | Difficulty | Status |
+|------|--------|-------|-----------|--------|
+| 1 | RMSNorm + QKV NVFP4 GEMV | 40/step | Medium | **ASSIGNED to Alphonse** |
+| 2 | Gate softplus into QKV dispatch | 40/step | Med-Hard | NEXT WAVE (after Alphonse) |
+| 3 | Router top-8 into residual+RMSNorm+router | 39/step | Hard | Unassigned |
+| 4 | Shared gate/up into routed gate/up | 39/step | Medium | **ASSIGNED to Thorfinn** |
+| 5 | O-proj into fused attention | 40/step | High | Unassigned (architecturally hardest) |
+
+### Key Note on Gate Softplus Fusion
+A prior "fused tail norm+QKV+gate" kernel was removed after a re-sweep measured +2.7% (defusion note, line 5554-5557). The gate fusion must re-win the timing against the current base which has FMA dequant. The defusion was before the FMA optimization, so the calculus may have changed.
+
 ## Potential Next Research Directions
 
 ### Currently Assigned (In-Flight)
 - **Top-8 elimination in R1 gate/up kernel** (Edward, PR #70): Replaces bitonic
-  prelude with direct index read. EST 2-4% decode, LOW risk. Needs branch push.
+  prelude with direct index read. EST 2-4% decode, LOW risk. Base 8130379, ready.
 - **Merge shared + routed gate/up QMV** (Thorfinn, PR #50): Fill the
   `mergedSharedActivated` gap at L10248. Eliminates 39 dispatches/step. +6.6-7.6% decode.
-- **Fuse final RMSNorm into LM-head coarse** (Alphonse, PR #51): EST 0.36% decode,
-  1 dispatch/step. Zero numerical risk.
+  Re-baselining against a92d2289.
+- **Fuse RMSNorm + NVFP4 QKV into one dispatch** (Alphonse, PR #51, redirected):
+  EST 5.3% decode, eliminates 40 RMSNorm dispatches/step. STRONGEST available win.
+  Re-baselining against a92d2289.
 - **Prefill MoE _nax variant 5→4 switch** (Askeladd, PR #52 revision):
   WN=2, 256 thr/TG. Needs M5 validation. +17.47% kernel-level.
+  Double-buffering now in base. Re-baselining against a92d2289.
 
 ### High-Priority Next Experiments
 - **Fuse RMSNorm + NVFP4 QKV into one dispatch** (STRONGEST): Create
