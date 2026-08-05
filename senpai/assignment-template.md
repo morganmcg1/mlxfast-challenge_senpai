@@ -45,7 +45,16 @@ zero tests is not a pass.
 
 - The student may edit, test, commit, push, and report the assigned branch.
 - Only the advisor or human operator may dispatch an official submission.
-- Never run `mlxfast submit` from a private AWS host.
+- An authorized campaign role may dispatch from a provisioned AWS host, but
+  must never print or commit its submission credentials.
+- Every official Senpai submission must first use
+  `mlxfast submit --model "senpai"`. Only if the API explicitly rejects
+  `senpai` as an invalid or unsupported model value may the same candidate be
+  retried once with the exact underlying provider/model name. Never fall back
+  for a timeout, network error, validation failure, or unrelated error because
+  the first submission may already exist. Record the actual provider/model and
+  reasoning effort in the public note, plus the explicit rejection if a
+  fallback was required.
 - Documentation-only work does not change the submitted archive or require a
   new baseline. Keep the recorded base fixed until a promoted editable-path
   change actually advances the frontier.

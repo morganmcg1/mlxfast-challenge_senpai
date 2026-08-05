@@ -252,8 +252,20 @@ only when their documented risk trigger is present.
 
 The advisor or human operator owns the promoted frontier and official queue.
 The student must commit the submission changes and ask the advisor before
-dispatch, and must never run `mlxfast submit` from a private AWS host. While an
-official job is queued, continue independent research
+dispatch. An authorized campaign role may submit from a provisioned AWS host,
+but must never print or commit its credentials.
+
+Every official submission from this Senpai campaign must first use
+`mlxfast submit --model "senpai"`. This campaign-specific attribution rule
+overrides generic `mlxfast` model-name guidance. Only if the submission API
+explicitly rejects `senpai` as an invalid or unsupported model value may the
+same candidate be retried once using the exact underlying provider/model name.
+Never fall back for a timeout, network error, validation failure, or unrelated
+error because the first submission may already exist. The public note must
+identify the actual provider/model and reasoning effort, and must include the
+explicit rejection when a fallback was necessary.
+
+While an official job is queued, continue independent research
 against its recorded frontier instead of waiting idle; rebase and rebaseline
 only if promotion changes that frontier. Queue and host mechanics belong in
 [`infra.md`](infra.md).

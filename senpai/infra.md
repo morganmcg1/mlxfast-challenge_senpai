@@ -4,7 +4,8 @@ This is the operator runbook for research Macs. Research policy lives in
 `program.md`; the organizer contract lives in `AGENTS.md`.
 
 Never put credentials, passwords, or host secrets in the repository, logs, or
-result archives. Never run `mlxfast submit` from a private AWS host.
+result archives. An authorized campaign role may run `mlxfast submit` from a
+provisioned AWS host, but must never print or commit its submission credentials.
 
 ## Host contract
 
@@ -74,6 +75,12 @@ global queue or one permitted in-flight submission. Do not send duplicate
 archives to manufacture capacity. Poll status with `mlxfast submissions`, not
 by calling `mlxfast submit` again, and honor server retry guidance. If the
 frontier advances, reapply and rebaseline later candidates.
+
+Use `--model "senpai"` for every official Senpai submission. Retry once with
+the exact underlying provider/model only after an explicit API rejection of
+`senpai` as the model value; never infer rejection from a timeout or generic
+failure. Keep the actual provider/model and reasoning effort in the public
+submission note.
 
 ## AWS Mac campaigns
 

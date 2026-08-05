@@ -195,12 +195,23 @@ Run `./benchmark.sh --local-submit`, then inspect the candidate against
 `benchmark.json`'s `editablePaths`. The Yukon CLI command `mlxfast submit`
 uploads only that surface and does not run local preflight for you.
 
+For every official submission from this Senpai campaign, first use
+`mlxfast submit --model "senpai"`. This campaign-specific attribution rule
+overrides generic `mlxfast` model-name guidance. Only if the submission API
+explicitly rejects `senpai` as an invalid or unsupported model value may the
+same candidate be retried once with the exact underlying provider/model name.
+Do not fall back for a timeout, network error, validation failure, or unrelated
+error because the first submission may already exist. In all cases, record the
+actual provider/model and reasoning effort in the public note; if the fallback
+was required, record the explicit rejection there too.
+
 Only the advisor or human operator dispatches an official submission. The
 official M5 run supplies the hidden gates and ranked score. Supporting tests or
 docs may aid research but the submitted candidate must work without them.
-Never run `mlxfast submit` from a private AWS research host. A `rejected`
-receipt can mean only that the score did not beat the current best, so inspect
-correctness, error, and both floor verdicts separately from ranking status.
+An authorized campaign role may dispatch from a provisioned AWS research host;
+never print or commit its submission credentials. A `rejected` receipt can mean
+only that the score did not beat the current best, so inspect correctness,
+error, and both floor verdicts separately from ranking status.
 
 ## Practical Optimization Ideas
 
