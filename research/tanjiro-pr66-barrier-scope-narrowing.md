@@ -1,5 +1,188 @@
 # §0.9.23 — the barrier-width law: audit result
 
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"eligible_barrier_removal_share_of_score_pct","available":true,"value":0.089},"test_metric":{"name":"passed_correctness","available":false,"value":null}}
+
+- **Student / PR:** `maple-tanjiro` / [#66](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/66), revision `r1`, assignment `maple-2026-08-05i-barrier-scope-narrowing`
+- **Hypothesis and target cost:** §0.9.23 — barrier rendezvous cost is a
+  meaningful fraction of kernel time *only in narrow kernels*, so
+  `threadgroup_barrier` → `simdgroup_barrier` scope-narrowing is dead in wide
+  kernels and alive in narrow ones. Target: find ≥3 provably within-simdgroup
+  barrier sites in ≤128-thread kernels worth ≥0.15% of score in aggregate.
+  Cost spent: 0 official receipts, 0 paired benchmark runs, ~2 h of census +
+  one standalone Metal microbenchmark (114 s GPU).
+- **Decision: dead hypothesis.** Both pre-registered hard stops fire
+  independently, and the mechanism is inverted rather than merely too small.
+- **`BASE_SHA` / candidate commit:** `fae11f91e5c5247fbb2c70113302aebbf1c571cb`
+  / see submission commit on `maple-tanjiro/barrier-scope-narrowing`.
+- **Submitted candidate files: none.** `git diff --stat fae11f91 -- Sources
+  Vendor` is empty; the scored surface is byte-identical to base.
+- **Supporting test or documentation files:**
+  `research/tanjiro_barrier_cost_probe.swift` (standalone Metal microbenchmark,
+  not on `editablePaths`), `research/tanjiro-pr66-barrier-scope-narrowing.md`
+  (this file).
+- **Official submission `--model` value (planned or used; default `senpai`):**
+  `senpai` — planned only. **No official submission was dispatched by this
+  arm**; the assignment reserved the ranked channel for frieren and set this
+  arm's receipt budget to zero.
+- **Explicit API model-value rejection, if fallback attribution was required:**
+  none — no submission API call was made, so no rejection and no fallback.
+- **Assignment-scope preflight:**
+  `senpai/validate-assignment-scope.sh fae11f91… research/tanjiro-pr66-barrier-scope-narrowing.md research/tanjiro_barrier_cost_probe.swift`
+  reports both as *outside* `benchmark.json` `editablePaths` — the intended
+  result, confirming the two touched files are research-only and unsubmitted.
+  The submitted-path list is empty, so there is nothing for the scope check to
+  admit.
+- **Editable bytes / headroom / growth:**
+  `senpai/check-editable-budget.sh fae11f91e5c5247fbb2c70113302aebbf1c571cb` →
+  `editable budget OK: current=2941175/3000000 bytes headroom=58825 growth=0/262144 files=142 (file count is diagnostic only; base=142)`.
+  Growth is exactly 0 B, headroom unchanged.
+- **Scored-path reachability evidence:** the census classifies every one of the
+  39 in-kernel barrier sites as live-decode, live-prefill, or off-path, each
+  with the runtime flag and line number that decides it (§ *Live vs off-path*
+  below). 19 of 39 sites (49%) are unreachable under default flags. The three
+  removable sites (`RM:8554`, `LHP:459`, `RM:9202`) are each pinned to a
+  dispatch on the scored path with a per-step execution count; the eligible
+  total is priced from those counts, not from static site counts.
+
+### Evidence
+
+- **Host, memory profile, toolchain, and thermal policy:** Apple M4 Pro, 20 GPU
+  cores, `Mac16,11` / macOS `26.5.2`, 48 GiB (`hw.memsize = 51539607552`, so
+  below the 64 GiB threshold — this host would use the low-memory startup
+  profile, though no model was loaded by this arm). The
+  probe is a standalone Metal binary with its own thermal discipline: an 800 ms
+  heater kernel before the first timed rep and 12 ms before each subsequent
+  rep, 2 warmups, all 18 pipelines precompiled before timing. **This host is
+  not the ranked M5** (40 GPU cores); see M5 transfer risk below.
+- **Exact baseline and candidate commands:** no baseline/candidate benchmark
+  pair was run — there is no candidate. The only measurement command is
+  ```sh
+  xcrun swiftc -O research/tanjiro_barrier_cost_probe.swift -o /tmp/tjbar \
+    -framework Metal -framework Foundation
+  TJ_REPS=25 TJ_WAVES=1 /tmp/tjbar   # and TJ_WAVES=2, TJ_WAVES=4
+  ```
+  executed under `run_training` id `9eed58fc-4678-4068-899d-e30b2d323809`
+  (exit 0, 113.8 s).
+- **Tests and risk-based checks run, including selected-test count:** no Swift
+  test target was selected (0 tests) and no correctness suite was run, because
+  the submitted surface is empty — `git diff --stat fae11f91 -- Sources Vendor`
+  produces no output, so no scored code path can have changed. The checks that
+  *were* run are the injection tripwire
+  (`grep -n -A1 'DARKBLOOM_INJECT_DECODE_EMPTY"\|DARKBLOOM_INJECT_EMPTY_TG"'`
+  → `11046: "DARKBLOOM_INJECT_DECODE_EMPTY", 0)` and
+  `11058: "DARKBLOOM_INJECT_EMPTY_TG", 160)`, both at their required defaults,
+  run once before measurement and once before submission), the base-advance
+  check (`origin/codex/mlxfast-maple-20260804-advisor` still at `fae11f91…`, no
+  rebase needed), the scope check, and the byte-budget check above.
+- **Correctness and serial-protocol verdict:** vacuously unchanged. Zero bytes
+  of `Sources/` or `Vendor/` differ from base, so greedy tokens, the 64-step
+  drift tripwire, and the serial non-speculative rules are bit-identical to the
+  base commit by construction. No correctness measurement is claimed
+  (`test_metric.available = false`); this is *not* a passing correctness run.
+- **Divergent tokens or failure category, if any:** none possible — see above.
+- **Peak RAM or generated-weight size, if relevant:** not relevant. The probe
+  allocates three 4 MiB buffers and holds no model; no weights were generated.
+- **Official ranking status versus correctness/floor status, if submitted:**
+  not submitted. Zero official receipts consumed, as the assignment required.
+
+| Metric | Baseline | Candidate | Ratio / delta |
+| --- | ---: | ---: | ---: |
+| decode seconds/token | not run | no candidate | — |
+| prefill seconds/token | not run | no candidate | — |
+| same-host paired estimate | — | not run | — |
+
+The paired estimate is a same-host research metric, not an official M5 score.
+No row is populated because this arm terminated at a pre-registered hard stop
+*before* implementation, which is the outcome the gate was written to produce.
+The measured quantities this arm does report are barrier latencies and the
+derived eligible-saving share, tabulated below.
+
+| Probe metric (M4 Pro, 20 cores, `TJ_REPS=25`, `TJ_WAVES=1`) | Value |
+| --- | ---: |
+| `threadgroup_barrier`, 32 threads (1 simdgroup) | 0.32 ns |
+| `threadgroup_barrier`, 64 threads (2 simdgroups) | 21.56 ns |
+| `threadgroup_barrier`, 256 threads (8 simdgroups) | 24.80 ns |
+| `threadgroup_barrier`, 1024 threads (32 simdgroups) | 51.45 ns |
+| `simdgroup_barrier`, every width 32…1024 | ≈0.00 ns |
+| ceiling if *every* live decode barrier were free | 47.5 µs/step = 0.71% of score |
+| **eligible (provably removable) subset** | **5.8 µs/step = 0.089% of score** |
+| Step 1 hard-stop threshold | 0.15% of score |
+
+### Conclusion
+
+- **What happened and why:** the Step 0 census found exactly **1** of 39
+  in-kernel barrier sites provably within-simdgroup in a ≤128-thread kernel
+  (gate required ≥3), so the first hard stop fired on census alone. Rather
+  than stop there, the arm spent one 114 s microbenchmark to price the
+  population, and the Step 1 gate then fired independently: the complete
+  eligible set is worth **0.089%** of score against a 0.15% floor. The
+  microbenchmark also inverted the premise. `threadgroup_barrier` costs
+  0.32 ns at one simdgroup and 51.45 ns at 32 — cost *grows* monotonically
+  with width (roughly logarithmic in simdgroup count: +21.2 ns going 1→2,
+  +0.6 for 2→4, +2.7 for 4→8, +9.1 for 8→16, +17.5 for 16→32). Narrow kernels
+  are the **cheapest** place a barrier can sit. §0.9.23 predicted the opposite.
+- **Evidence for or against the mechanism:** three independent strands agree.
+  (1) The width law is measured on a slope-over-trip-count design that cancels
+  launch overhead and body cost, reproduced in two orders (ascending and
+  descending width) that agree to <1%. (2) `simdgroup_barrier` is free at
+  *every* width (≈0.00 ns), which collapses two of §0.9.23's three levers into
+  one: narrowing a barrier's scope saves exactly what deleting it saves, so
+  "scope narrowing" was never a distinct mechanism. (3) The claimed positive
+  precedent `9e06de6` (+1.73%, rank 15) is a **misattribution**: it is a
+  32-thread sliding QK-norm+RoPE *fusion* (dispatch `RM:1347`,
+  `threadGroup:(32,1,1)`); the barrier it removed was 32-wide, worth 0.32 ns ×
+  30 dispatches = 9.6 ns/step = 0.00013% of score — five orders of magnitude
+  short of the observed win, which came from the removed dispatch. Meanwhile
+  the negative precedent `58864bf4` is *retro-explained* by the same law: it
+  removed a 512-wide barrier, which really is expensive, and failed on ~10×
+  local-measurement inflation (−0.70% local → −0.07% ranked), not on barrier
+  physics. The width law is the only hypothesis consistent with both ranked
+  precedents.
+- **Uncertainty or M5 transfer risk:** the absolute latencies are M4 Pro
+  (20 cores) numbers and the ranked M5 has 40; the *shape* of the law (free
+  simdgroup barrier, monotone growth in simdgroup count) is an architectural
+  property of the barrier primitive and should carry, but the constants may
+  not. That risk is one-sided in a convenient direction: the eligible subset
+  fails its gate by a factor of 1.7 **using an upper bound**, since every
+  entry assumes the barrier's full latency is on the critical path and none of
+  it overlaps. The arm also inherits round-9's lesson that an *added*-work
+  slope is an upper bound on removal saving and never a price: fern's
+  `c = 2.1828 µs/dispatch` predicted +2.568% and the ranked receipt
+  (`285f79fa-089f-4184-b1ec-0647cb51e61b`, `officialScore 2.50450520378964`,
+  `ns 2.540575`) measured **−0.1488%** against control `c3ce66ec`
+  (`ns 2.544360`). Applying that same discipline here, the pre-registered
+  prediction for the full eligible patch is a point estimate of **+0.086%**
+  (`ns ≈ 2.5465`) with a 90% interval of **[−0.15%, +0.10%]**
+  (`ns ∈ [2.5406, 2.5469]`) that straddles zero — i.e. **not resolvable by one
+  receipt**, which is why no patch is offered even though the three removable
+  sites are real and verified. `RM:8554` additionally costs +2 KB of
+  threadgroup memory, which can reduce occupancy and flip the sign.
+  Occupancy scaling was measured: barrier latency overlaps freely between
+  concurrent threadgroups while the GPU is unsaturated (`TJ_WAVES=1` ≈
+  `TJ_WAVES=2` at every width) and only adds at `TJ_WAVES=4` for widths ≥256,
+  so the correct model is `ceil(TGs / TGs_resident) × latency(width)` — a
+  40-core M5 is *less* saturated than this host at the same grid, which
+  shrinks the eligible saving further rather than growing it.
+- **Smallest useful next action:** successor item 4 in the sketch below —
+  relabel two elements per lane in the prefill router tournament
+  (`e0 = lane & 31`, `e1 = e0 + 32`) so the stride-32 exchange becomes a
+  register swap. That is the only member of the eligible set with a plausible
+  path above the resolvability floor, because it removes **two** barriers
+  (`RM:9198` and `RM:9202`) *and* frees 2 KB of threadgroup memory, inverting
+  the occupancy risk instead of taking it on. It should be scoped only if a
+  future arm has spare receipt budget and pairs it with a §0.9.21 standalone
+  bitwise oracle using an **incoherence** fault-power control (fern's #48
+  showed `max_abs_diff 0` survives an *additive* fault, so additive controls do
+  not prove an exchange oracle has power).
+- **Recommendation: close.** §0.9.23 is falsified as stated and should not be
+  re-scoped; the barrier-width law replaces it. The by-products — the 39-site
+  census with live/off-path classification, the finding that 49% of barrier
+  sites are unreachable under default flags, the `9e06de6` debunk, and the
+  retro-explanation of `58864bf4` — are the durable output and are recorded
+  below.
+
+---
+
 **Assignment** `maple-2026-08-05i-barrier-scope-narrowing` (PR #66, revision `r1`)
 **Base** `fae11f91e5c5247fbb2c70113302aebbf1c571cb` on `codex/mlxfast-maple-20260804-advisor`
 **Host** Apple M4 Pro, 20 GPU cores (`Mac16,11 / 26.5.2`) — *not* the ranked M5
