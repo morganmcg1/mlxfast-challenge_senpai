@@ -54,7 +54,7 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
         lock.lock()
         let isNew = seen.insert(site).inserted
         lock.unlock()
-        if isNew {
+        if isNew || site.hasPrefix("shared-swiglu-r1-dispatch") {
             FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
         }
     }
@@ -6595,25 +6595,22 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
-        thread float input_values[values_per_lane];
+        thread vec<bfloat, 4> input_values[values_per_lane / 4];
 
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
                     input + block + lane * values_per_lane);
-            for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
-            }
+            input_values[0] = input_vectors[0];
+            input_values[1] = input_vectors[1];
+            input_values[2] = input_vectors[2];
+            input_values[3] = input_vectors[3];
 
-            gate_result += laguna_nvfp4_qdot_16(
+            gate_result += laguna_nvfp4_qdot_bf16_16(
                 gate_row_weight + block / 2,
                 input_values,
                 laguna_nvfp4_scale(gate_row_scale[block / 16]));
-            up_result += laguna_nvfp4_qdot_16(
+            up_result += laguna_nvfp4_qdot_bf16_16(
                 up_row_weight + block / 2,
                 input_values,
                 laguna_nvfp4_scale(up_row_scale[block / 16]));
@@ -6656,6 +6653,9 @@ func lagunaSharedSwiGLUQMV(
             LagunaConstants.hiddenSize / 16,
         ])
 
+    if lagunaSharedSwiGLUQMVRows1Enabled {
+        lagunaTrace("shared-swiglu-r1-dispatch tiles=256 grid=16384 threadgroup=64")
+    }
     let kernel =
         lagunaSharedSwiGLUQMVRows1Enabled
         ? lagunaSharedSwiGLUQMVRows1Kernel
