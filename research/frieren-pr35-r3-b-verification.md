@@ -537,6 +537,7 @@ against `90bbc33d` and paste the numbers.
 | V4b | oracle fault injection | permutation fault < 8 | ❌ **instrument invalid** — modes 3/4/5/6/1 all 8/8 (§1.2) |
 | V4c mode 5 | shipping-gate permutation fault | fault arm classifies `fail` | ⚠️ **SILENT** — `pass`, 1025 steps, `max_abs_diff 0`; now interpretable as measured blindness, given mode 3 (§9.6) |
 | V4c mode 3 | shipping-gate wiring control | **must** classify `fail` | ✅ **FLAGGED** — `fail` at `checked_steps 3`, `first_failing_step 2`, token mismatch; ungated after 3 thermal aborts (§9.6) |
+| V4c mode 2 | shipping-gate sensitivity floor | brackets 3 against 5 | ✅ **FLAGGED** — a *coherent* +1 on every fitting code (≈+8.3 % scale) fails at `first_failing_step 3` (§9.6) |
 | V5 | off-path identity `LANEMAJOR=0` | r1 text/banks byte-identical | ⚠️ retracted (oracle-based); the screen's OFF arm re-derives it from the worker instead |
 | V6 | 12×512 pure-configuration timing screen (B vs stock) | ≥30 % of byte roofline | ✅ **+28.4 µs/step = 75.5 % of roofline**, 0 divergences in 6×512 ON steps (§9.1) |
 | V7 | 12×512 stack-vs-stock timing screen | prices the r1 strip | ✅ **+97.9 µs/step**, of which r1 narrow `o_proj` is +69.5 µs (§9.4) |
@@ -898,7 +899,7 @@ Instrument `research/frieren_pr35_lm_gate_pair.sh`, hook
 and reverted by an `EXIT` trap. The hook prints **no** log line when active,
 which is exactly why a wiring control is mandatory.
 
-Two arms matter:
+Three arms matter:
 
 * **mode 5 — the discriminating permutation.** Reverse the four K-block codes
   inside a lane's packed `ushort`. This is the fault class B's layout could
@@ -908,6 +909,11 @@ Two arms matter:
   Already measured catastrophic on the greedy probe: 32 divergences in 32 steps,
   first at `(case 0, layer 509, step 83)` (§3). A gate that is genuinely wired to
   the dispatched lane-major kernel **must** fail this.
+* **mode 2 — the sensitivity floor.** Add 1 to every fitting code, i.e. a
+  *coherent* ≈+8.3 % multiplicative error on ~100 % of the plane's scales, with
+  no addressing change at all. Mode 3 alone cannot distinguish "the gate only
+  catches catastrophes" from "the gate is sharp and mode 5 is numerically
+  inert"; mode 2 is the rung that separates them.
 
 #### The patched file really was compiled
 
@@ -931,6 +937,7 @@ can establish that, which is the whole reason it is in the table.
 | `v3_gated` | none | **pass** | 1025 | 0 | `047449cb…` | `62a939f` | 296.3 s |
 | `v4c_mode5` | lane word reversed | **pass** (SILENT) | 1025 | 0 | `c6c505f6…` | `14611a3` | 333.0 s |
 | `v4c_mode3_ungated` | all fitting codes → 0 | **fail** (FLAGGED) | 3 | 0 | `c6c505f6…` | `3958acd` | 171 s |
+| `v4c_mode2_ungated` | +1 on every fitting code | **fail** (FLAGGED) | 4 | 0 | `c6c505f6…` | `7a6425a` | 172 s |
 
 Mode 3's full payload (training `dbd067b3-d95f-486d-8d61-f2f2731b5ac9`, exit 0,
 174 s, artefacts `/tmp/pr35_gate_v4c_mode3_ungated{,_score.json}`):
@@ -943,6 +950,21 @@ Mode 3's full payload (training `dbd067b3-d95f-486d-8d61-f2f2731b5ac9`, exit 0,
 `harness_hash c6c505f645156f14035afdd6508ec474f3596de7929a943307ff4f4681632f98`.
 `max_abs_diff` stays 0 because the gate aborts on the first *token* mismatch
 before it accumulates a logit delta; `first_failing_step 2` is the real signal.
+
+Mode 2's full payload (training `985b47f2-b02b-4236-a448-6e8e572361ea`, exit 0,
+175.4 s, artefacts `/tmp/pr35_gate_v4c_mode2_ungated{,_score.json}`):
+`passed false`, `score 1.0299082317252333`, `passed_correctness false`,
+`checked_steps 4`, `first_failing_step 3`, `first_failing_case "local-submit"`,
+`first_failing_layer null`, `case_count 1`, `max_abs_diff 0`,
+`error "local-submit teacher-forced token mismatch"`,
+`golden_hash f49e4c2c…` (identical to V3's and mode 3's), `peak_ram_gb 21`,
+`correctness_seconds 10`, `commit 7a6425a`, `harness_hash c6c505f6…`. The log
+records the lane-major bank being built for all 40 layers with per-layer escape
+counts (`L39 escaped 187/10240: qkv`), so the faulted binary really did take
+the lane-major path. This arm was run ungated from the start
+(`FAULT_UNGATED=1 FAULT_COOL_BUDGET=0`) because the host floor was already
+diagnosed by mode 3's three aborts; its timings are void and unread, exactly as
+for mode 3.
 
 `v3_gated` (39.69 °C) and `v4c_mode5` (39.80 °C) both opened the 40 °C cool gate
 on their first *gated* attempt, so **neither used the
@@ -1048,14 +1070,34 @@ only three.
    it passes.
 
 The wiring result also tells us the blindness is a **power** limit, not a
-plumbing one, and the census explains the power gap quantitatively. Mode 3 slams
-every fitting code to 0 (a whole-scale-magnitude error); mode 5 permutes codes
-within a lane, and row spans are ≤15 codes with the top seven global codes
-carrying ≈97.9 % of all mass (§11), so a lane permutation overwhelmingly
-exchanges codes that are equal or ±1 apart, and `raw = ushort(bits) << 7` makes
-±1 worth only ≈8.3 % of one scale. Modes 5/6/1 at 0 divergences in 128 greedy
-steps already bounded per-step divergence below ≈2.3 % (95 %); the 1025-step
-gate now extends that bound to the shipping case without closing it.
+plumbing one — and mode 2 pins down *which* power limit, which is the one thing
+mode 3 alone could not do.
+
+Mode 3 slams every fitting code to 0, a whole-scale-magnitude error, and fails
+at step 2. Mode 2 leaves addressing untouched and applies a *coherent* +1 to
+every fitting code; `raw = ushort(bits) << 7` makes that ≈+8.3 % on essentially
+every scale in the plane, and the gate fails at step 3. So the gate is **not**
+a catastrophe detector: a uniform 8 % scale error on this plane costs it three
+teacher-forced tokens. Mode 5 nevertheless survives **1025** steps at
+`max_abs_diff 0`.
+
+That ordering rules out the simple magnitude explanation I first reached for.
+±1 code is not too small for this gate to see — mode 2 proves ±1 is *plenty*.
+What mode 5 lacks is **coherence**. Mode 2 pushes every group's scale the same
+way, so the whole projection is multiplied by ≈1.083 and the logit ordering
+moves. Mode 5 rearranges four codes *inside one lane's word*: wherever those
+four codes are equal (common, since row spans are ≤15 and the top seven global
+codes carry ≈97.9 % of all mass, §11) it is an exact no-op, and where they
+differ it is a zero-mean shuffle — some groups scale up, others down, and the
+errors partially cancel inside the same dot-product accumulation. A coherent
+8 % bias and a zero-mean 8 % shuffle are simply not the same perturbation.
+
+I have *not* measured the fraction of intra-lane quadruples that are constant;
+the census records per-row statistics, not per-quadruple ones. That measurement
+is a cheap census extension and it would turn the paragraph above from a
+well-supported mechanism into a quantitative one. Modes 5/6/1 at 0 divergences
+in 128 greedy steps already bounded per-step divergence below ≈2.3 % (95 %);
+the 1025-step gate extends that bound to the shipping case without closing it.
 
 **What B's addressing rests on, after V4c:** the analytic derivation of the
 layout (§6, re-derived and confirmed twice), the
@@ -1067,9 +1109,19 @@ I do quote for correctness is alive, plus a measurement of precisely which defec
 class it cannot see. That measurement is the argument for §4.1.1 being necessary
 rather than belt-and-braces, and it is gated behind Ask 3 (bytes).
 
-Mode 2 (uniform +1 on every fitting code, ≈+8.3 % scale error, 100 % row
-coverage, 1 divergence in 32 greedy steps) would bracket the gate's sensitivity
-floor between "invisible permutation" and "catastrophic zeroing". It was
-deliberately **not** run: it is a cheap follow-up, and holding the ranked-slot
-request past its usable window costs the programme more than the bracket is
-worth.
+#### The completed bracket, and what it buys
+
+| rung | perturbation | coherent? | addressing? | verdict |
+| --- | --- | --- | --- | --- |
+| mode 3 | every fitting code → 0 | yes | no | **fail at step 2** |
+| mode 2 | every fitting code +1 (≈+8.3 %) | yes | no | **fail at step 3** |
+| mode 5 | four codes reversed in a lane's word | no (zero-mean) | **yes** | **pass at 1025** |
+
+Read down that table: the golden gate's sensitivity floor for this plane sits
+**below a coherent 8 % scale error**, so V3's 1025-step PASS is a much stronger
+statement than "no catastrophe happened". And read across it: the only rung the
+gate misses is the only rung that is an *addressing* fault, and it misses it
+because the error is zero-mean rather than because it is small. That is a clean,
+falsifiable statement of the instrument's limit, and it is exactly why §4.1.1's
+one-hot probe — which makes the addressing error coherent by construction —
+is the right certificate rather than a belt-and-braces extra.
