@@ -1,15 +1,21 @@
 # SENPAI Research State
 
-- **2026-08-05 15:00 UTC** (advisor: meridian). Round 8 closed (three merges),
-  round 9 in flight (#44 r2, #35 r3, #47, #48). The measurement instrument was
+- **2026-08-05 15:40 UTC** (advisor: meridian). Round 8 closed (three merges),
+  round 9 in flight (#44 r3, #35 r3, #47, #48). The measurement instrument was
   re-characterised over rounds 7–8 and it is now **fully characterised** (§0).
   That work invalidated a batch of prior conclusions, four of them mine. Read §0
-  first, and §0.9 for the eight new laws — the **M4 TRANSFER LAW** in §0.9.2 now
+  first, and §0.9 for the nine new laws — the **M4 TRANSFER LAW** in §0.9.2 now
   gates which evidence any brief is allowed to price, §0.9.8 explains why the
   gather-GEMM staging arms had to come out null, §0.9.9 is a mandatory
   pre-flight check for any `_nax` kernel edit, **§0.9.11 is the
-  LEDGER-HYGIENE LAW: a banked queue price is not evidence**, and §0.9.12
-  closes the command-buffer byte-cap axis for good.
+  LEDGER-HYGIENE LAW: a banked queue price is not evidence**, §0.9.12
+  closes the command-buffer byte-cap axis for good, and **§0.9.14 is the one to
+  read if you only read one: the shipped editable tree has been byte-frozen for
+  18 hours and every ranked arm since is `ns`-inferior to doing nothing.**
+- **★ Round-9 directive (§0.9.14):** *stop buying measurement with ranked
+  receipts; start shipping mechanism.* Every assignment must either change bytes
+  on the scored path or be a free/local/M4-legal audit that decides a mechanism
+  arm without consuming a receipt.
 - **★ Retraction this round:** the "+1.9 to +2.6% unowned" gather-GEMM SM=16
   banding item is **withdrawn and struck from the queue** — it was an
   arithmetic identity misread as headroom. The 15.4 ms excess is still real and
@@ -931,6 +937,128 @@ is unverifiable.**
   gained a student slot; P-SHARED lost one it should never have had. Both
   outcomes came from the same twenty minutes of arithmetic and neither needed a
   receipt, a GPU, or a student.
+
+
+#### 0.9.14 The programme has shipped zero bytes for 18 hours, and every arm since is `ns`-inferior to doing nothing
+
+Three findings from 2026-08-05 15:00-15:40Z. Read them together: each one is a
+different projection of the same failure, and the third is the way out.
+
+**(a) The shipped editable tree is byte-frozen.** Fingerprint = sha1 over the
+ordered list of `git rev-parse <rev>:<path>` blob hashes for all 97
+`benchmark.json` `editablePaths`:
+
+| rev | when | editable-tree fingerprint |
+|---|---|---|
+| `768bb9d4` | experiment base | `ed340e9939ab` |
+| `9a407ed6` | 08-04 19:20 | `36039062e545` |
+| `a3c096ee` | 08-04 21:02 | `5fe63db21fa1` |
+| `6f1289a9` | 08-04 21:03 | **`97c022d6bf31`** |
+| `d18ebbba` | #32 merged | `97c022d6bf31` |
+| `904173a0` | #40 merged | `97c022d6bf31` |
+| `1849b376` | #34 merged | `97c022d6bf31` |
+| `d267ebda` | advisor head | `97c022d6bf31` |
+
+Since `6f1289a9` at 08-04 21:03Z — about 18.2 hours — **three merged PRs have
+changed exactly zero scored bytes.** #32, #40 and #34 were all research-only
+merges: instruments, censuses, calibration, and closure documents. They were
+correctly merged (each retired a hypothesis or built an instrument the
+programme now depends on) but not one of them can move a score.
+
+**(b) Every ranked arm since that same commit is `ns`-inferior to the frozen
+frontier.** Renormalised score over all 23 `morganmcg1` receipts, best `ns`
+first:
+
+| feed sha | arm | `officialScore` | **`ns`** | draw |
+|---|---|---|---|---|
+| `e82d6cf` | control: frozen frontier, cap 200 | 2.523276 | **2.544360** | 0.991714 |
+| `d4235c9` | board-leading arm | **2.545892** | 2.538013 | 1.003104 |
+| `cdf71fa`* | — | — | 2.539719 | 0.986352 |
+| `cc4b1dc` | — | 2.516657 | 2.514737 | 1.000764 |
+| `021fa4a` | 50 MB cap | 2.493877 | 2.503448 | 0.996177 |
+| `2808e93` | — | 2.290697 | 2.283549 | 1.003130 |
+| `1c4fb41` | — | 1.788158 | 1.804692 | 0.990838 |
+
+(*`cdf71fa`/`504104e` — ledger and feed shas differ; map by timestamp.)
+
+The board-leading receipt `d4235c9` has an `officialScore` 0.10% above the
+control but an `ns` **0.25% below** it, on a draw of 1.003104. Our best public
+number is a baseline-lottery artefact. **The true content frontier is still the
+frozen tree.** This is exactly what (a) predicts: if nothing changed the scored
+bytes, nothing could have changed the content score, so all ranked movement
+since 21:03Z is measurement noise plus draw luck.
+
+**(c) The way out is priced, and it is a kernel rewrite, not another
+measurement.** The round-9 directive is therefore: *stop buying measurement
+with ranked receipts; start shipping mechanism.* Every round-9 assignment must
+either change bytes on the scored path, or be a free/local/M4-legal audit that
+decides a mechanism arm without consuming a receipt.
+
+The frontier item is `sliding_fused_attn_ring_v1` — 36% of the M4 bandwidth
+ceiling, 428 µs/step recoverable, **+5.16% of score central**, and
+**M4-screenable** because it is not `_nax`-gated. A frontier design review
+(2026-08-05 15:20Z) read the kernel and produced a diagnosis and a bit-exact
+ladder; the full brief is `research/BRIEF_QUEUED_SLIDING_ATTN_REWRITE.md`.
+Its load-bearing conclusions:
+
+- Launch geometry is `grid = ((heads/2)*1024, 1, 1)`, `threadGroup = (1024,1,1)`
+  (`Sources/MLXFastModel/LagunaRuntimeModel.swift:1799-1800`; full kernel
+  `:2316`). 64 query heads paired two-to-a-threadgroup ⇒ **32 threadgroups**
+  for the sliding kernel, 24 for the full kernel.
+- Threadgroup memory is ≈18.4 kB/TG, dominated by
+  `outputs[4*BN*BDP]` = 4×32×33 floats = 16.9 kB (`:1495`). Against 32 kB/core
+  that permits **one 1024-thread threadgroup resident per core**.
+- 32 threadgroups therefore cannot fill a ~40-core M5 even once. **The
+  diagnosis is wave quantisation and occupancy, not dispatch count and not DRAM
+  bandwidth.** The 2.097 MB/call the counters report is exactly one unique copy
+  of the 8-head × 512 × 128 × bf16 × {K,V} window, so *requested* traffic is
+  already 4× the reported figure and "use wider loads" is not the fix — the
+  K/V loads are already 8-byte `vec<bfloat,4>` (`:1719-1739`).
+- Secondary: the compiler cannot hoist next-trip K/V loads because `k_cache`
+  and `v_cache` are also *written* in phase 2 (`:1486-1487`), so provable
+  non-aliasing fails.
+- Bit-exact ladder: **R1** one query head per threadgroup (`head0 = pair_tg*2`
+  → `head = tg`, halve `outputs` 4→2 planes ⇒ ≈9.9 kB, 2 TGs/core, 32→64 TGs);
+  bit-exact because head0 and head1 never interact numerically. **R2** deepen
+  the hand-written 2-deep pipeline (`:1529-1530`) to 4 slots at identical FP
+  order. **R3** pre-barrier prefetch, selecting not branching on `widx`.
+- **Advisor-added Step 0, and the reason the brief is not yet assigned:** a
+  1024-thread threadgroup is **32 simdgroups**, while the programme's working
+  figure for simdgroup slots per core is **24** (§0.9.8). If 24 is right, a
+  32-simdgroup threadgroup cannot be resident at all and the occupancy story is
+  a different one. Step 0 must resolve the binding term from the device and the
+  compiled `MTLComputePipelineState` (`staticThreadgroupMemoryLength`,
+  `maxTotalThreadsPerThreadgroup`) for both kernels. **Step 0 is a complete
+  deliverable on its own and a refutation will be merged.**
+
+**Two more prices moved, both by arithmetic alone, and two round-9 candidate
+ideas died on arrival.** These are the §0.9.11/§0.9.13 ledger-hygiene law
+working as designed:
+
+- fern's #48 (fused norm + QKV + gate) **repriced upward**: the gate
+  `gate_sp_h64/h48` is **85.9% of the prize**, not the norm. Central value
+  **+2.988%**, and the pure dispatch-overhead floor **+0.473%** already clears
+  the 0.278% resolution floor, so the arm cannot fail to be measurable.
+- **N1 ("statically specialise the sliding kernel on the 512 window") RETIRED
+  on arrival:** it already is. `N=512` and `BN=32` are compile-time, giving 16
+  slots per simdgroup in 8 trips (`:1529-1530`). The only residual value is
+  deeper pipelining, which is R2.
+- **N2 ("the h48 path pads to 64 heads") RETIRED on arrival by division:**
+  `oproj_h48 / oproj_act_h64` = 7.09/9.45 = **0.750 = 48/64 exactly**, and
+  `qkv_h48 / qkv_h64` = 9.44/11.80 = **0.800**, which is also exactly right
+  because the QKV output width is `heads·128 + 2·kv_heads·128` and `gqa=6`
+  gives 8 KV heads for 48 query heads, the same 8 as for 64, so
+  8192/10240 = 0.800. There is no padding to remove.
+
+**Standing consequence.** The long-running critique — *the programme has staffed
+measurement of both big residuals but mechanism ownership of neither, while
+treating "GPU busy" as "GPU useful"* — is now quantitatively confirmed by (a)
+and (b) jointly. The corrective is structural, not exhortative: round-9 keeps
+at most one ranked-receipt arm in flight and fills the remaining student slots
+with byte-changing mechanism work and with free structural audits (the
+wave-quantisation census, the non-aliasing audit, the lane-utilisation census,
+and gather-GEMM D2) that decide mechanism arms without consuming a receipt.
+Full ranked list: `research/RESEARCH_IDEAS_2026-08-05_15:35.md`.
 
 ---
 
