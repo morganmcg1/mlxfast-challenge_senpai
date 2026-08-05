@@ -81,11 +81,30 @@
 **Risk:** MEDIUM — requires transform change + kernel change. Must preserve exact values.
 **Files:** `Sources/MLXFastModel/LagunaRuntimeModel.swift`, `Sources/MLXFastTransform/`
 
+## Updated Analysis (2026-08-05T22:37Z)
+
+### Batch K+V Projection — DEAD
+K, V (and Q) are **already batched** into one fused dispatch via `lagunaNormAffineQKV` (line 5544) / `lagunaDecodeNVFP4QKVR1` (line 5564). Weights are row-concatenated at transform time. No optimization available here.
+
+### Down-Reduction Parallelization — LOW PRIORITY
+The 8-iteration reduction loop (lines 7736-7746) uses only 4 of 288 threads but is parallel over 4 output rows (outputs_per_simd=4). The reduction is trivial compute (8 BF16 MACs) vs bandwidth-bound weight loading. Parallelizing via simd_sum would save negligible time.
+
+### g_proj Dispatch Elimination — HIGH PRIORITY (NEW TOP IDEA)
+**Causal question:** Can the separate g_proj quantizedMM dispatch be fused into the norm+QKV kernel, eliminating 40 kernel launches/step?
+**Target evidence:** g_proj is INT8 on all 40 layers but uses a SEPARATE dispatch because QKV is NVFP4 (format mismatch prevents bank folding). `foldGateIntoBank` (line 5338) is FALSE on all layers. 40 separate quantizedMM dispatches/step.
+**Expected signal:** 40 × ~7µs launch overhead = ~280µs saved. If step ≈ 5ms, that's ~5.6% decode improvement.
+**Implementation:** Extend the fused norm+QKV kernel to also read the INT8 g_proj weight bank and compute the gate projection as a second output. Input is already loaded and normalized in the kernel. Only needs additional weight bank access + output buffer.
+**Risk:** MEDIUM — kernel must handle two weight formats (NVFP4 QKV + INT8 gate), but no numerical change (same computation, fused dispatch).
+**Files:** `Sources/MLXFastModel/LagunaRuntimeModel.swift`
+
+### Note on QKV INT8 Conversion
+Switching QKV from NVFP4 to INT8 would allow gate folding but DOUBLES QKV bandwidth (4-bit → 8-bit). This is a bandwidth regression on a bandwidth-bound path. NOT viable.
+
 ## Priority for Next Wave
 When current students complete their rebased experiments, assign in this order:
-1. **Batch K+V projection** — lowest effort, pure dispatch win, low risk
-2. **Threadgroup input sharing** — medium effort, bandwidth win, testable on M4
-3. **Wider GQA grouping** — highest impact but highest risk, needs careful kernel work
+1. **Fuse g_proj into norm+QKV kernel** — eliminates 40 dispatches/step, ~5.6% decode, no numerical change
+2. **Threadgroup input sharing in gate/up QMV** — eliminates 2× redundant input reads, medium effort
+3. **Wider GQA grouping (pair=4)** — highest impact but highest risk, needs careful kernel work
 
 ## Key Insight from Submission History
 Edward's MoE down ops=2 change showed +6.5% on M4 but scored 2.502 on M5 (vs 4058d0b's 2.546). This is a **-1.7% M5 regression** — M4→M5 timing diverged significantly. The 4058d0b code with ops=4 is better on M5. **M4 measurements are directional only; never trust them for promotion decisions.**
