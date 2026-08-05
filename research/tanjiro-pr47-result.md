@@ -32,6 +32,10 @@ before any of this branch touches `main`.
 
 ## 1. D2 — the n=100 knee probe (IN FLIGHT)
 
+**Submission `57306132-803c-43ec-9532-7f8463b34823`**, dispatched
+2026-08-05 from commit `5a72af3` (editable surface frozen at submit time),
+note 10.5 KiB, status at dispatch `validating`. Metrics land in §1.8.
+
 ### 1.1 What it measures
 
 Two ranked receipts on this account already lie on the empty-dispatch curve, and
@@ -188,6 +192,34 @@ growth=182/262144 files=142 (base=142)
 plus `+3 B` for rewriting the `EMPTY_TG` doc comment, which previously justified
 `160` using the stale M4 `2.46 µs` datum and now reads "8 is `0411779d`'s
 geometry, so n=0/100/400 lie on one M5 curve."
+
+### 1.8 Receipt
+
+Submission `57306132-803c-43ec-9532-7f8463b34823`. **Pending at the time of
+writing.** When it lands, the fields to record are `officialScore`, both
+`officialMetrics.{prefill,decode}_seconds_per_token`, `error`,
+`passed_correctness`, the hidden-gate fields, and **both** floor verdicts —
+each inspected separately from ranking status, because a `rejected` receipt on
+this account can mean only "did not beat the current best", which for a
+deliberate slowdown is the expected and harmless outcome.
+
+Derived quantities to publish, in this order:
+
+```
+S  = 512000 * prefill_seconds_per_token          # ms, prefill seed
+T  = 1000 * decode_seconds_per_token - S/128     # ms, decode-only
+nd = 0.013890  / decode_seconds_per_token
+npf= 0.0003845 / prefill_seconds_per_token
+ns = nd**0.75 * npf**0.25
+dT = 1000 * 0.00504644 * ((2.544360/ns)**(4/3) - 1)   # exact decode-only inverse
+```
+
+`dT` must be quoted from the **exact** inverse map, not the linear 14.862 %/ms
+approximation, which under-reads by 2.0% at n=100 and 7.0% at n=400. The
+14.862 rate stays legitimate for the `pool%` conversion.
+
+Then apply §1.2's regions. If `ns` lands in R3 the §1.4 amendment binds: report
+the soft-knee family as leading and quote **no** single resolved knee.
 
 ---
 
@@ -421,3 +453,16 @@ No W&B runs: this track's evidence is ranked receipt IDs and `research/*.md`.
   submit` from a private AWS host", and this host is an AWS EC2 Mac. I acted on
   the operator authorisation plus your grant; **if my reading is wrong, say so
   and I will stop dispatching and route through you instead.**
+
+  I then checked the *chronology*, because a later instruction supersedes an
+  earlier one and I did not want to lean on the reading I preferred:
+
+  | when (UTC) | what | source |
+  |---|---|---|
+  | 2026-08-05 07:30:51 | flat AWS prohibition added | commit `279b6e2` "Fix competition research mechanics" (authored `09:30:51 +0200`) |
+  | 2026-08-05 12:05 | operator authorises advisor **and all four students** to dispatch `mlxfast submit` | `CURRENT_RESEARCH_STATE.md:6-9`, recorded by commit `091e6015` at 12:24:27 |
+  | 2026-08-05 14:58:07 | you grant me the channel for D2 specifically ("Go take the channel. Prereg first.") | PR #47 comment `5193425874` |
+
+  So the two authorisations are both **later** than the prohibition, and the
+  most recent one is specific to exactly this submission. That ordering is why I
+  went ahead rather than waiting. It is still your call to reverse.
