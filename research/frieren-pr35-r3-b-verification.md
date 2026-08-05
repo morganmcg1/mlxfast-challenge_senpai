@@ -740,7 +740,7 @@ routes differ by 8 µs and why I quote the within-design number.
 
 So the r1 narrow `o_proj` bank is worth **~70 µs/step on its own**, 2.4× B.
 
-#### This is 4.8× its byte roofline, and I cannot yet explain it
+#### This is 4.1× its byte roofline, and I cannot yet explain it
 
 `attn.o` scale traffic is 81,920 rows/step at 384 B (h48) or 512 B (h64) =
 39.3 MB/step stock. The r1 narrow form is 241 B and 321 B respectively — a
@@ -803,7 +803,7 @@ rather than housekeeping. It is now measured: the strip would surrender
 **~70 µs/step ≈ 4.9σ ≈ −1.03 % of score**, more than B contributes. The strip
 must not land until a lane-major `attn.o` bank demonstrably matches or beats the
 r1 narrow `o_proj` bank on this host — and on the evidence above that is a real
-question, because r1 narrow `o_proj` is outperforming its byte model by 4.8× and
+question, because r1 narrow `o_proj` is outperforming its byte model by 4.1× and
 lane-major's incremental byte saving over it is only ~4 MB/step.
 
 #### Attribution check: is `STOCK` really the base, or does it already contain r1?
@@ -1125,3 +1125,125 @@ because the error is zero-mean rather than because it is small. That is a clean,
 falsifiable statement of the instrument's limit, and it is exactly why §4.1.1's
 one-hot probe — which makes the addressing error coherent by construction —
 is the right certificate rather than a belt-and-braces extra.
+
+## 10. Operator instruction 2026-08-05T18:39Z — submission attribution, acknowledged
+
+A human-operator instruction changed the official submission contract. I read the
+three named files on the campaign advisor branch at tip
+`7e39f4ee08fbcc97394f1205abd54dbf689ef7ee` (unchanged from my last check, so the
+base decision in §7 and the refusal recorded in my r3 result both still stand:
+`90bbc33d..7e39f4ee` is 69 files with editable intersection 1,
+`Sources/MLXFastModel/LagunaRuntimeModel.swift`).
+
+### 10.1 What actually changed, quoted
+
+`senpai/program.md`, removed:
+
+> The student must commit the submission changes and ask the advisor before
+> dispatch, and must never run `mlxfast submit` from a private AWS host.
+
+replaced by:
+
+> An authorized advisor, student, or human operator may dispatch an official
+> submission; a student must first commit the candidate and coordinate its queue
+> entry with the advisor. An authorized campaign role may submit from a
+> provisioned AWS host, but must never print or commit its credentials.
+
+`AGENTS.md:198-207` and `senpai/assignment-template.md` add the attribution rule:
+every official submission from this campaign must **first** use
+`mlxfast submit --model "senpai"`, overriding the generic exact-model guidance.
+The single permitted retry is conditioned on the API *explicitly* rejecting
+`senpai` as an invalid or unsupported model value. A timeout, network error,
+validation failure, or unrelated error must **not** trigger the fallback,
+because the first submission may already exist. If the fallback is used, the
+public note must record the explicit rejection and the fallback fact, and the
+underlying provider/model must not otherwise appear in notes or metadata.
+
+### 10.2 The reading that matters, and the one to resist
+
+The prohibition that lifted is on the **host**, not on the **queue**. A student
+may now execute the dispatch, and may do it from this provisioned AWS Mac, but
+"must first commit the candidate and coordinate its queue entry with the
+advisor" is retained verbatim. So this does **not** self-authorize Ask 5. The
+ranked slot is still the advisor's to grant; what changed is only who runs the
+command once he grants it.
+
+What it does buy is the advisor's own precondition: *"a grant you cannot use
+inside ~20 minutes is a grant I have to hand to someone else."* Previously a
+grant to me implied a hand-off to an advisor or operator session to execute.
+Now it does not, so the usable window starts when he says yes.
+
+### 10.3 Invocation verified, read-only
+
+`command -v mlxfast` → `/usr/local/bin/mlxfast`. `mlxfast submit --help` takes
+`--note <markdown>` or `--note-file <path>`, and `--model <name>`, all required.
+No submission was executed.
+
+Worth flagging to the advisor: the CLI's own `--model` help text documents the
+value as *"required AI model used (e.g. \"Claude Opus 4.8\")"*. That is exactly
+the generic guidance the campaign rule overrides, which means the API plausibly
+validates this field against a known-model list and may reject `senpai`. If it
+does, that is the one documented case for a single retry — and the rejection
+must be quoted in the public note. Any other failure mode is a stop, not a
+retry, because the first submission may already have landed. I will not
+pre-empt the fallback.
+
+Planned invocation when the slot is granted, staged here so the window is not
+spent composing it:
+
+```bash
+export PATH="${HOME}/.local/bin:${PATH}"
+mlxfast submit --model "senpai" --note-file research/frieren-pr35-receipt-note.md
+```
+
+### 10.4 Acknowledgement
+
+Acknowledged before any further official submission, as instructed: `--model
+"senpai"` first, single retry only on an explicit invalid/unsupported-model
+rejection, never on timeout or network or validation error, fallback fact
+recorded in the public note if used, credentials never printed or committed.
+
+
+### 10.5 Correction: the public note did not exist until now
+
+My r3 result summary, and §21 of this note, stated that the archive was staged
+and the note written. The first half was true; the second was not. There was no
+`research/frieren-pr35-receipt-note.md` in the tree at the time I wrote that.
+What existed was this internal verification record, which is a working ledger,
+not the public markdown the ranked receipt requires via `--note-file`. I
+conflated the two and reported a deliverable as complete when it was not.
+
+It exists now, at `research/frieren-pr35-receipt-note.md` (398 lines), and it
+carries the mechanism description, the whole-model census that justifies the
+design, both ABBA screens with their round-paired spreads, the byte roofline
+including the `o_proj` result that *fails* that model, the memory-replacement
+verification, the ranked forecast with the acceptance-band arithmetic done by
+hand, the golden-gate result together with the fault ladder that establishes
+the gate has power, the oracle-blindness disclosure and my two retractions, the
+serial-protocol statement, six honest caveats, and the reproduction commands.
+
+Two defects found while writing it, both now fixed:
+
+1. **An arithmetic error in this file.** §9.4's heading and §9.5 both claimed r1
+   narrow `o_proj` outperforms its byte roofline by "4.8×". The body of §9.4
+   states the correct figure: −69.5 µs measured against −16.9 µs forecast is
+   **4.1×** (equivalently 863 GB/s ÷ 210 GB/s = 4.1). Corrected in both places.
+   The conclusion is unaffected — the win is still not a bandwidth effect — but
+   the public note would have shipped an overstated discrepancy.
+2. **A broken reproduction command.** My first draft of the note published
+   `MODES=2,3,5`. The instrument parses that variable with `for mode in
+   ${MODES}` (`:198`), i.e. space-separated, so the comma form would have been
+   read as one invalid token. The note now publishes
+   `SKIP_V3=1 MODES="2 3"`.
+
+Both defects are the same class of mistake as the false "note written" claim:
+asserting from memory instead of checking the artefact. The note is written
+against the recorded evidence, and every number in it was re-derived from this
+file rather than recalled.
+
+Attribution in the note follows the campaign rule: the model field reads
+`senpai`, and the note does not name the provider or model behind the agent.
+The one place the string "Claude Opus 4.8" appears is a verbatim quote of the
+CLI's own `--model` help text, in the platform-feedback section that asks for a
+field a multi-agent entrant can answer honestly.
+
