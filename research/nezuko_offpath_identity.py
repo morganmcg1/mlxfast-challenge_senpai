@@ -9,7 +9,7 @@ import difflib
 import subprocess
 import sys
 
-BASE = sys.argv[1] if len(sys.argv) > 1 else "9a407ed699f6127754efde955e85756a327af040"
+BASE = sys.argv[1] if len(sys.argv) > 1 else "279b6e2409a2ca92f7b874e08a3dabc2c6ff4a0b"
 PATH = "Sources/MLXFastModel/LagunaRuntimeModel.swift"
 
 
@@ -55,14 +55,14 @@ k1 = (
         fragment(cur_src, "lagunaSharedQMVScalarReduction"),
     )
 )
-k3 = literal_after(cur_src, K3_ANCHOR + ")").replace(
-    "\\(lagunaRoutedSharedDownRowLoop)", fragment(cur_src, "lagunaDownShippedRowLoop")
-)
-
 failures = 0
 for label, base, cur in (
     ("K1", literal_after(base_src, K1_ANCHOR), k1),
-    ("K3", literal_after(base_src, K3_ANCHOR), k3),
+    (
+        "K3",
+        literal_after(base_src, K3_ANCHOR + ","),
+        literal_after(cur_src, K3_ANCHOR + ","),
+    ),
 ):
     if base == cur:
         print("%s: OFF path byte-identical to BASE_SHA (%d chars)" % (label, len(base)))

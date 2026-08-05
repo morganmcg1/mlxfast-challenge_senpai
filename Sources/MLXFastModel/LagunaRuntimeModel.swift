@@ -6600,14 +6600,10 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
 /// (`lagunaRoutedSwiGLUQMVPackedTop8R1Kernel`) already ships; it was never
 /// applied to the shared path. Same bytes, same addresses, same nibble decode
 /// via `laguna_nvfp4_qdot_codes_16`, identical accumulation order.
-/// `=2` stages every K block's code words and scale bytes up front instead of
-/// one block ahead. The shared gate/up QMV runs at 60% of this host's measured
-/// read ceiling, so unlike the saturated down projection it has latency left to
-/// hide; `=2` tests whether depth 1 is already the peak.
-let lagunaSharedQMVStageDepth =
-    Int(ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_STAGE"] ?? "0") ?? 0
-
-let lagunaSharedQMVStageEnabled = lagunaSharedQMVStageDepth >= 1
+/// A depth-2 variant that stages every K block up front was measured at +11.7%
+/// per call (register pressure) and is not kept.
+let lagunaSharedQMVStageEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_STAGE"] == "1"
 
 /// `DARKBLOOM_SHARED_QMV_PACK2` (default OFF): one `simd_sum(vec<float,2>)`
 /// for the gate/up accumulators instead of two scalar reductions.
@@ -6662,35 +6658,6 @@ private let lagunaSharedQMVShippedBody = """
         laguna_nvfp4_scale(up_row_scale[block / 16]));
 """
 
-private let lagunaSharedQMVFullStagePrologue = """
-
-constexpr uint k_blocks = input_width / block_width;
-uint2 gate_codes[k_blocks];
-uint2 up_codes[k_blocks];
-uint8_t gate_sb[k_blocks];
-uint8_t up_sb[k_blocks];
-for (uint b = 0; b < k_blocks; ++b) {
-    gate_codes[b] = *(const device uint2*)(
-        gate_row_weight + b * block_width / 2);
-    up_codes[b] = *(const device uint2*)(
-        up_row_weight + b * block_width / 2);
-    gate_sb[b] = gate_row_scale[b * block_width / 16];
-    up_sb[b] = up_row_scale[b * block_width / 16];
-}
-"""
-
-private let lagunaSharedQMVFullStagedBody = """
-    const uint b = block / block_width;
-    gate_result += laguna_nvfp4_qdot_codes_16(
-        gate_codes[b],
-        input_values,
-        laguna_nvfp4_scale(gate_sb[b]));
-    up_result += laguna_nvfp4_qdot_codes_16(
-        up_codes[b],
-        input_values,
-        laguna_nvfp4_scale(up_sb[b]));
-"""
-
 private let lagunaSharedQMVPackedReduction = """
 vec<float, 2> gate_up_result = simd_sum(vec<float, 2>(gate_result, up_result));
 gate_result = gate_up_result[0];
@@ -6702,21 +6669,12 @@ gate_result = simd_sum(gate_result);
 up_result = simd_sum(up_result);
 """
 
-private let lagunaSharedSwiGLUQMVRows1Prologue: String = {
-    switch lagunaSharedQMVStageDepth {
-    case 1: return lagunaSharedQMVStagePrologue
-    case 2: return lagunaSharedQMVFullStagePrologue
-    default: return ""
-    }
-}()
+private let lagunaSharedSwiGLUQMVRows1Prologue =
+    lagunaSharedQMVStageEnabled ? lagunaSharedQMVStagePrologue : ""
 
-private let lagunaSharedSwiGLUQMVRows1Body: String = {
-    switch lagunaSharedQMVStageDepth {
-    case 1: return lagunaSharedQMVStagedBody
-    case 2: return lagunaSharedQMVFullStagedBody
-    default: return lagunaSharedQMVShippedBody
-    }
-}()
+private let lagunaSharedSwiGLUQMVRows1Body =
+    lagunaSharedQMVStageEnabled
+    ? lagunaSharedQMVStagedBody : lagunaSharedQMVShippedBody
 
 private let lagunaSharedSwiGLUQMVRows1Reduction =
     lagunaSharedQMVPack2Enabled
@@ -6726,8 +6684,7 @@ private let lagunaSharedSwiGLUQMVRows1Reduction =
 /// Arithmetic is textually identical per row; only row ownership changes.
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1"
-        + (lagunaSharedQMVStageEnabled
-            ? "_st\(lagunaSharedQMVStageDepth)" : "")
+        + (lagunaSharedQMVStageEnabled ? "_st1" : "")
         + (lagunaSharedQMVPack2Enabled ? "_pk2" : ""),
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
@@ -7771,106 +7728,10 @@ func lagunaRoutedDownReduce(
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
-/// `DARKBLOOM_DOWN_ROW_STAGE` (default OFF): stage all four output rows' code
-/// words and scale bytes into registers before any qdot runs, and move the
-/// four cross-lane reductions below every qdot. Shipped, the row loop issues
-/// one row's device loads, one qdot, then one `simd_sum` before row `r+1`'s
-/// loads are reached, so four loads and four reductions are fully serialised.
-/// Per row the same bytes are read from the same addresses and accumulated in
-/// the same order; `laguna_nvfp4_qdot_16` is literally
-/// `laguna_nvfp4_qdot_codes_16(*(const device uint2*)weight, ...)`.
-let lagunaDownRowStageEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_DOWN_ROW_STAGE"] == "1"
-
-/// `DARKBLOOM_DOWN_PACK4` (default OFF): one `simd_sum(vec<float,4>)` for the
-/// four row accumulators instead of four scalar reductions. Bit-identity to
-/// the scalar form is verified by `research/nezuko_simdsum_check.swift`.
-let lagunaDownPack4Enabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_DOWN_PACK4"] == "1"
-
-// As in the shared gate/up twin, these fragments are written at the kernel
-// literal's post-strip indentation so the both-off form is byte-identical to
-// the accepted kernel text.
-private let lagunaDownShippedRowLoop = """
-for (uint row = 0; row < outputs_per_simd; ++row) {
-    uint output_row = first_row + row;
-    const device uint8_t* weight =
-        expert_weight + output_row * packed_row_bytes + lane * 8;
-    const device uint8_t* scale =
-        expert_scales + output_row * scale_row_bytes + lane;
-    result[row] = laguna_nvfp4_qdot_16(
-        weight,
-        input_values,
-        laguna_nvfp4_scale(scale[0]));
-    result[row] = simd_sum(result[row]);
-}
-"""
-
-private let lagunaDownRowLoopNoReduction = """
-for (uint row = 0; row < outputs_per_simd; ++row) {
-    uint output_row = first_row + row;
-    const device uint8_t* weight =
-        expert_weight + output_row * packed_row_bytes + lane * 8;
-    const device uint8_t* scale =
-        expert_scales + output_row * scale_row_bytes + lane;
-    result[row] = laguna_nvfp4_qdot_16(
-        weight,
-        input_values,
-        laguna_nvfp4_scale(scale[0]));
-}
-"""
-
-private let lagunaDownStagedRowLoop = """
-thread uint2 row_codes[outputs_per_simd];
-thread uint8_t row_scale_bytes[outputs_per_simd];
-for (uint row = 0; row < outputs_per_simd; ++row) {
-    uint output_row = first_row + row;
-    row_codes[row] = *(const device uint2*)(
-        expert_weight + output_row * packed_row_bytes + lane * 8);
-    row_scale_bytes[row] =
-        (expert_scales + output_row * scale_row_bytes + lane)[0];
-}
-for (uint row = 0; row < outputs_per_simd; ++row) {
-    result[row] = laguna_nvfp4_qdot_codes_16(
-        row_codes[row],
-        input_values,
-        laguna_nvfp4_scale(row_scale_bytes[row]));
-}
-"""
-
-private let lagunaDownScalarReduction = """
-for (uint row = 0; row < outputs_per_simd; ++row) {
-    result[row] = simd_sum(result[row]);
-}
-"""
-
-private let lagunaDownPackedReduction = """
-vec<float, 4> row_results =
-    simd_sum(vec<float, 4>(result[0], result[1], result[2], result[3]));
-result[0] = row_results[0];
-result[1] = row_results[1];
-result[2] = row_results[2];
-result[3] = row_results[3];
-"""
-
-private let lagunaRoutedSharedDownRowLoop: String = {
-    if lagunaDownRowStageEnabled {
-        return lagunaDownStagedRowLoop + "\n"
-            + (lagunaDownPack4Enabled
-                ? lagunaDownPackedReduction : lagunaDownScalarReduction)
-    }
-    if lagunaDownPack4Enabled {
-        return lagunaDownRowLoopNoReduction + "\n" + lagunaDownPackedReduction
-    }
-    return lagunaDownShippedRowLoop
-}()
-
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
-    name: (lagunaSharedFirstDownOrderEnabled
+    name: lagunaSharedFirstDownOrderEnabled
         ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5")
-        + (lagunaDownRowStageEnabled ? "_st1" : "")
-        + (lagunaDownPack4Enabled ? "_pk4" : ""),
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7928,7 +7789,18 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         }
 
         thread float result[outputs_per_simd] = {0.0f};
-        \(lagunaRoutedSharedDownRowLoop)
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            uint output_row = first_row + row;
+            const device uint8_t* weight =
+                expert_weight + output_row * packed_row_bytes + lane * 8;
+            const device uint8_t* scale =
+                expert_scales + output_row * scale_row_bytes + lane;
+            result[row] = laguna_nvfp4_qdot_16(
+                weight,
+                input_values,
+                laguna_nvfp4_scale(scale[0]));
+            result[row] = simd_sum(result[row]);
+        }
 
         threadgroup bfloat down_outputs[
             (routed_experts + 1) * outputs_per_simd
