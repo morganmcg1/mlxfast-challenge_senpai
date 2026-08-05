@@ -1794,9 +1794,12 @@ template <
         loader_w.next();
       }
 
+      const bool fuse_swiglu =
+          kernel_N == 1024 && kernel_K == 2048;
+      const bool last_chunk_of_last_slot =
+          (chunk_start + BM >= run_end) &&
+          (expert_slot == experts / expert_groups - 1);
 #ifndef DARKBLOOM_SWIGLU_REGLOCAL
-      // Staged-epilogue arm only: reg-local epilogues read no threadgroup
-      // memory and the next chunk's k-loop opens with its own WAR barrier.
       threadgroup_barrier(mem_flags::mem_threadgroup);
 #else
       // When REGLOCAL is compiled in but the geometry guard (kSwigluRegLocal)
@@ -1807,8 +1810,6 @@ template <
         threadgroup_barrier(mem_flags::mem_threadgroup);
       }
 #endif // DARKBLOOM_SWIGLU_REGLOCAL
-      const bool fuse_swiglu =
-          kernel_N == 1024 && kernel_K == 2048;
       if (fuse_swiglu) {
 #ifdef DARKBLOOM_SWIGLU_REGLOCAL
         // Register-local swiglu, non-folded arm: identical mechanism and
@@ -1877,7 +1878,12 @@ template <
                 bfloat(silu * up);
           }
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
+        // Dead barrier elision: when this is the last chunk of the last
+        // expert slot, no subsequent loader_w will overwrite Ws, so the
+        // barrier protecting Ws reads → next write is provably dead.
+        if (!last_chunk_of_last_slot) {
+          threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
 #ifdef DARKBLOOM_SWIGLU_REGLOCAL
         }
 #endif // DARKBLOOM_SWIGLU_REGLOCAL
