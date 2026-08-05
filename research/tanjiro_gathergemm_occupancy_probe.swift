@@ -77,6 +77,10 @@ func fmt(_ v: Double, _ digits: Int = 3) -> String {
     String(format: "%.\(digits)f", v)
 }
 
+func pad(_ s: String, _ width: Int) -> String {
+    s.count >= width ? s : String(repeating: " ", count: width - s.count) + s
+}
+
 // MARK: - host facts
 
 func detectCores() -> (Int, String) {
@@ -150,6 +154,7 @@ struct PhaseAResult {
     var libraryLoaded = false
     var rows: [(String, String)] = []
     var notes: [String] = []
+    var tgMem: Int? = nil
 }
 
 var phaseA = PhaseAResult()
@@ -208,6 +213,7 @@ func phaseARun() -> PhaseAResult {
         }
         do {
             let pso = try device.makeComputePipelineState(function: fn)
+            r.tgMem = pso.staticThreadgroupMemoryLength
             r.rows.append((name,
                            "staticThreadgroupMemoryLength=\(pso.staticThreadgroupMemoryLength) B"
                            + "  maxTotalThreadsPerThreadgroup=\(pso.maxTotalThreadsPerThreadgroup)"
@@ -237,7 +243,10 @@ if env("TJ_SKIP_PHASE_A") == nil {
 //   ws[576] of 16 B  = 9,216 B   (mirrors NAXWsChunk16<bfloat> Ws_storage[576])
 //   bounds[2] of 4 B =     8 B   (mirrors the hoisted bsearch bounds pair)
 //   ------------------------------
-//   total            = 9,224 B
+//   total            = 9,224 B, which the driver pads to 9,232 B — exactly what
+//   Phase A reads off the real shipped pipeline. The cross-simdgroup reduction
+//   epilogue reuses ws rather than allocating its own staging array, so the
+//   footprint stays matched.
 //
 // Per-iteration structure mirrors the shipped k-loop dependency chain:
 //   device float4 load (every DEV_EVERY-th iteration)
@@ -279,8 +288,7 @@ inline void probe_body(
     uint lane,
     uint sgid,
     threadgroup Chunk16* ws,
-    threadgroup int* bounds,
-    threadgroup float* stage)
+    threadgroup int* bounds)
 {
     // Prologue: zero the staging array so every later read is well defined
     // even in the SCOPE==1 variant, where cross-simdgroup ordering is relaxed.
@@ -314,15 +322,17 @@ inline void probe_body(
     }
 
     // Reduce to one float per threadgroup: keeps the loop alive for the
-    // optimiser without adding a per-thread device write stream.
+    // optimiser without adding a per-thread device write stream. The staging
+    // slots are carved out of ws so the static footprint stays at 9,224 B.
     float s = acc.x + acc.y + acc.z + acc.w + float(bounds[1]);
     s = simd_sum(s);
-    if (lane == 0) { stage[sgid] = s; }
+    threadgroup_barrier(mem_flags::mem_threadgroup);   // ws reuse hazard
+    if (lane == 0) { ws[sgid].v.x = s; }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid == 0) {
         float t = 0.0f;
         uint nsg = (ntg + 31u) / 32u;
-        for (uint i = 0; i < nsg; ++i) { t += stage[i]; }
+        for (uint i = 0; i < nsg; ++i) { t += ws[i].v.x; }
         out[gid] = t;
     }
 }
@@ -341,9 +351,8 @@ kernel void NAME(                                                            \\
 {                                                                            \\
     threadgroup Chunk16 ws[kWsChunks];                                       \\
     threadgroup int bounds[2];                                               \\
-    threadgroup float stage[32];                                             \\
     probe_body<SCOPE>(src, out, reps, srcMask, tid, ntg, gid, lane, sgid,    \\
-                      ws, bounds, stage);                                    \\
+                      ws, bounds);                                          \\
 }
 
 PROBE_KERNEL(probe_tgbar, 0u)
@@ -353,17 +362,24 @@ PROBE_KERNEL(probe_sgbar, 1u)
 // threadgroup-memory footprint are simultaneously resident. Same static
 // threadgroup allocation as the probe kernels so the residency limit under
 // test is the one that matters.
+// The threadgroup arrays must be fed from device memory and drained back to
+// device memory, otherwise the compiler removes them and the pipeline reports a
+// 0 B static footprint - which would measure residency at the wrong footprint.
 kernel void rendezvous(
     device atomic_uint* ctr    [[buffer(0)]],
     device atomic_uint* fails  [[buffer(1)]],
     constant uint& target      [[buffer(2)]],
     constant uint& spinLimit   [[buffer(3)]],
-    uint tid [[thread_position_in_threadgroup]])
+    device const float4* src   [[buffer(4)]],
+    device float* out          [[buffer(5)]],
+    uint tid [[thread_position_in_threadgroup]],
+    uint ntg [[threads_per_threadgroup]],
+    uint gid [[threadgroup_position_in_grid]])
 {
     threadgroup Chunk16 ws[kWsChunks];
     threadgroup int bounds[2];
-    threadgroup float stage[32];
-    if (tid == 0) { bounds[0] = 0; bounds[1] = 1; stage[0] = 0.0f; ws[0].v = float4(0.0f); }
+    for (uint i = tid; i < kWsChunks; i += ntg) { ws[i].v = src[i]; }
+    if (tid == 0) { bounds[0] = 0; bounds[1] = int(ntg); }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid != 0) { return; }
     atomic_fetch_add_explicit(ctr, 1u, memory_order_relaxed);
@@ -372,6 +388,9 @@ kernel void rendezvous(
         if (atomic_load_explicit(ctr, memory_order_relaxed) >= target) { ok = true; break; }
     }
     if (!ok) { atomic_fetch_add_explicit(fails, 1u, memory_order_relaxed); }
+    float t = float(bounds[1]);
+    for (uint i = 0; i < kWsChunks; i += 37u) { t += ws[i].v.x; }
+    out[gid] = t;
 }
 """
 
@@ -404,8 +423,20 @@ probe_sgbar  staticThreadgroupMemoryLength=\(psoSG.staticThreadgroupMemoryLength
 maxTotalThreadsPerThreadgroup=\(psoSG.maxTotalThreadsPerThreadgroup)
 rendezvous   staticThreadgroupMemoryLength=\(psoRV.staticThreadgroupMemoryLength) B \
 maxTotalThreadsPerThreadgroup=\(psoRV.maxTotalThreadsPerThreadgroup)
-census prediction (research/tanjiro-gathergemm-d2-census.md): 9224 B
+census prediction (research/tanjiro-gathergemm-d2-census.md): 9224 B, padded 9232 B
 """)
+
+// 9232 = 9224 census total padded to the driver's 16 B granularity; used when
+// Phase A is skipped so the check still has a reference.
+let realTGMem = phaseA.tgMem ?? 9232
+
+for (name, p) in [("probe_tgbar", psoTG), ("probe_sgbar", psoSG), ("rendezvous", psoRV)] {
+    let got = p.staticThreadgroupMemoryLength
+    if got != realTGMem {
+        log("  FOOTPRINT MISMATCH: \(name)=\(got) B vs real shipped pipeline \(realTGMem) B"
+            + " - geometry sweeps are NOT footprint-matched")
+    }
+}
 
 // MARK: - buffers
 
@@ -510,7 +541,7 @@ func sweep(_ pipeline: MTLComputePipelineState,
     for k in ks {
         if k > maxTGs { continue }
         let us = timeDispatch(pipeline, threadgroups: k, threadsPerTG: threadsPerTG, reps: reps) * 1e6
-        let r = Row(k: k, us: us, )
+        let r = Row(k: k, us: us)
         rows.append(r)
         let tgPerCore = Double(k) / Double(cores)
         let warpsPerCore = tgPerCore * Double(threadsPerTG) / 32.0
@@ -581,73 +612,145 @@ if let t1 = rows128.first(where: { $0.k == 1 })?.us {
 """)
 }
 
-// MARK: - Phase C: geometry sweep at constant per-thread work
+// MARK: - Phase C: geometry sweep at matched warps-in-flight per core
+//
+// Every geometry is sampled at the SAME warps-in-flight-per-core levels, so a
+// row-by-row comparison is apples to apples. K = w * 32 * cores / g, chosen so
+// K is always a multiple of `cores` (no ragged partial wave). Both barrier
+// scopes are swept: threadgroup_barrier cost grows with simdgroups per
+// threadgroup, which on its own can make the threadgroup look like the
+// scheduling unit.
 
-log("""
+let geometries = [128, 256, 512, 1024]
+let warpLevels = [32, 64, 96, 192, 384]
 
---- Phase C: constant per-thread work, threads/TG in {128,256,512,1024} ---
-  Predicted residency (nezuko 3072 threads/core): 24 / 12 / 6 / 3 TGs per core.
-  If the SIMD group is the scheduling unit, normalised throughput collapses onto
-  one function of warps-in-flight per core. If the THREADGROUP is the unit, the
-  curves separate.
-""")
-
-var geomRows: [Int: [Row]] = [:]
-for g in [128, 256, 512, 1024] {
-    guard psoTG.maxTotalThreadsPerThreadgroup >= g else {
-        log("  threads/TG=\(g) exceeds pipeline maxTotalThreadsPerThreadgroup=\(psoTG.maxTotalThreadsPerThreadgroup); skipped")
-        continue
+func ksFor(_ g: Int) -> [Int] {
+    var out: [Int] = [1, cores]
+    for w in warpLevels {
+        let k = w * 32 * cores / g
+        if k >= 1 { out.append(k) }
     }
-    let resident = 3072 / g
-    let ks = [1, cores, 2 * cores, resident * cores / 2, resident * cores,
-              resident * cores * 2, resident * cores * 4]
-        .filter { $0 >= 1 }
     var uniq: [Int] = []
-    for k in ks.sorted() where !uniq.contains(k) { uniq.append(k) }
-    geomRows[g] = sweep(psoTG, threadsPerTG: g, ks: uniq, label: "Phase C / \(g)t")
+    for k in out.sorted() where !uniq.contains(k) { uniq.append(k) }
+    return uniq
 }
+
+/// Thread-iterations per microsecond: the only work unit comparable across
+/// geometries, since per-thread work is held constant at `reps`.
+func rate(_ r: Row, _ g: Int) -> Double { Double(r.k) * Double(g) * Double(reps) / r.us }
+
+/// Marginal cost of one more threadgroup over the top two sampled K values.
+/// Converted to thread-iterations/us it is the saturated throughput.
+func asymptote(_ rows: [Row], _ g: Int) -> (usPerTG: Double, rate: Double)? {
+    let s = rows.sorted { $0.k < $1.k }
+    guard s.count >= 2 else { return nil }
+    let a = s[s.count - 2], b = s[s.count - 1]
+    guard b.k > a.k else { return nil }
+    let slope = (b.us - a.us) / Double(b.k - a.k)
+    guard slope > 0 else { return nil }
+    return (slope, Double(g) * Double(reps) / slope)
+}
+
+struct GeomSweep {
+    let scope: String
+    let g: Int
+    let rows: [Row]
+}
+var sweeps: [GeomSweep] = []
+
+for (scope, pso) in [("threadgroup_barrier", psoTG), ("simdgroup_barrier", psoSG)] {
+    log("""
+
+--- Phase C (\(scope)): matched warps/core across threads/TG ---
+  warps/core levels: \(warpLevels.map(String.init).joined(separator: ", "))
+""")
+    for g in geometries {
+        guard pso.maxTotalThreadsPerThreadgroup >= g else {
+            log("  threads/TG=\(g) exceeds maxTotalThreadsPerThreadgroup=\(pso.maxTotalThreadsPerThreadgroup); skipped")
+            continue
+        }
+        let rows = sweep(pso, threadsPerTG: g, ks: ksFor(g), label: "\(scope) / \(g)t")
+        sweeps.append(GeomSweep(scope: scope, g: g, rows: rows))
+    }
+}
+
+// MARK: - collapse test
+//
+// Ruling input for prereg Table B. At each matched warps/core level, compare
+// thread-iteration rate across geometries. Spread near 0 => warps in flight per
+// core is the whole story (SIMD group is the scheduling unit). Large spread
+// with small threadgroups faster => threadgroup count matters independently.
+
+func collapseReport(_ scope: String) -> Double {
+    let mine = sweeps.filter { $0.scope == scope }
+    guard let ref = mine.first(where: { $0.g == geometries[0] }) else { return .nan }
+    log("""
+
+  collapse table (\(scope)): thread-iterations/us at matched warps/core,
+  normalised to the \(geometries[0])t row of the same level.
+    warps/core \(geometries.map { pad("\($0)t", 12) }.joined())   spread
+""")
+    var worst = 0.0
+    for w in warpLevels {
+        var cells: [Double] = []
+        var line = String(format: "    %10d", w)
+        for g in geometries {
+            guard let s = mine.first(where: { $0.g == g }),
+                  let row = s.rows.first(where: { $0.k == w * 32 * cores / g }),
+                  let refRow = ref.rows.first(where: { $0.k == w * 32 * cores / ref.g }) else {
+                line += pad("-", 12)
+                continue
+            }
+            let n = rate(row, g) / rate(refRow, ref.g)
+            cells.append(n)
+            line += String(format: "%12.3f", n)
+        }
+        if let lo = cells.min(), let hi = cells.max() {
+            line += String(format: "%9.3f", hi - lo)
+            worst = max(worst, hi - lo)
+        }
+        log(line)
+    }
+
+    log("""
+
+  saturated throughput (\(scope)): marginal us per extra threadgroup at the top
+  of each sweep, converted to thread-iterations/us.
+    thr/TG   us/TG (marginal)   Gthread-iter/s   rel. to \(geometries[0])t
+""")
+    let refAsym = mine.first(where: { $0.g == geometries[0] }).flatMap { asymptote($0.rows, $0.g) }
+    for g in geometries {
+        guard let s = mine.first(where: { $0.g == g }), let a = asymptote(s.rows, g) else { continue }
+        let rel = refAsym.map { a.rate / $0.rate } ?? Double.nan
+        log("    \(String(format: "%6d", g)) \(String(format: "%18.4f", a.usPerTG)) \(String(format: "%16.3f", a.rate / 1e3)) \(String(format: "%17.3f", rel))")
+    }
+
+    log("""
+
+  per-geometry staircase fit t(K) ~ a*ceil(K/W) + b   (\(scope))
+    thr/TG    W (TGs)   W/core     a us      b us    rms resid   a/t(1)
+""")
+    for g in geometries {
+        guard let s = mine.first(where: { $0.g == g }), s.rows.count >= 3 else { continue }
+        let f = fitStaircase(s.rows, candidates: Array(1...64).map { $0 * cores } + [cores * 96, cores * 128])
+        let t1 = s.rows.first(where: { $0.k == 1 })?.us ?? Double.nan
+        log("    \(String(format: "%6d", g)) \(String(format: "%10d", f.w)) \(String(format: "%8.2f", Double(f.w) / Double(cores))) \(String(format: "%9.4f", f.a)) \(String(format: "%9.4f", f.b)) \(String(format: "%11.2f", f.rmsRel * 100))% \(String(format: "%8.4f", f.a / t1))")
+    }
+    return worst
+}
+
+let spreadTG = collapseReport("threadgroup_barrier")
+let spreadSG = collapseReport("simdgroup_barrier")
 
 log("""
 
-  collapse table: work rate per core, normalised to the same units across
-  geometries.  work-rate = (K * threads/TG * reps) / t   [thread-iterations/us]
-    thr/TG     K   warps/core   t us      thread-iters/us   rel. to 4 warps/core
+  PREREG TABLE B INPUT
+    max spread, threadgroup_barrier = \(fmt(spreadTG, 3))
+    max spread, simdgroup_barrier   = \(fmt(spreadSG, 3))
+    Table B thresholds: <=0.15 no independent effect; 0.15-0.40 partial;
+    >=0.40 with small TGs faster => threadgroup is an independent unit.
+    The simdgroup_barrier column is the confound-free reading.
 """)
-var collapse: [(g: Int, warps: Double, rate: Double)] = []
-for g in [128, 256, 512, 1024] {
-    guard let rows = geomRows[g] else { continue }
-    for r in rows {
-        let warps = Double(r.k) * Double(g) / 32.0 / Double(cores)
-        let rate = Double(r.k) * Double(g) * Double(reps) / r.us
-        collapse.append((g, warps, rate))
-        log("    \(String(format: "%6d", g)) \(String(format: "%5d", r.k)) \(String(format: "%12.2f", warps)) \(String(format: "%9.3f", r.us)) \(String(format: "%17.1f", rate)) ")
-    }
-}
-// Reference point: the 128t/K=cores/4-warps-per-core rate.
-if let ref = collapse.first(where: { $0.g == 128 && abs($0.warps - 4.0) < 0.01 })?.rate {
-    log("\n    normalised (rate / rate@128t,4 warps/core):")
-    log("    thr/TG   warps/core    normalised")
-    for c in collapse {
-        log("    \(String(format: "%6d", c.g)) \(String(format: "%12.2f", c.warps)) \(String(format: "%13.3f", c.rate / ref))")
-    }
-}
-
-// MARK: - barrier-cost control
-
-log("""
-
---- Phase C control: simdgroup_barrier variant ---
-  threadgroup_barrier cost grows with simdgroups per threadgroup, which is one
-  mechanism by which the threadgroup could look like the scheduling unit.
-  Re-running with simdgroup_barrier removes that term.
-""")
-for g in [128, 1024] where psoSG.maxTotalThreadsPerThreadgroup >= g {
-    let resident = 3072 / g
-    let ks = [1, cores, resident * cores, resident * cores * 2].sorted()
-    var uniq: [Int] = []
-    for k in ks where !uniq.contains(k) { uniq.append(k) }
-    _ = sweep(psoSG, threadsPerTG: g, ks: uniq, label: "control / \(g)t / simdgroup_barrier")
-}
 
 // MARK: - Phase D: residency rendezvous
 
@@ -675,6 +778,8 @@ if env("TJ_SKIP_PHASE_D") == nil {
         enc.setBuffer(failBuf, offset: 0, index: 1)
         enc.setBytes(&target, length: 4, index: 2)
         enc.setBytes(&spin, length: 4, index: 3)
+        enc.setBuffer(srcBuf, offset: 0, index: 4)
+        enc.setBuffer(outBuf, offset: 0, index: 5)
         enc.dispatchThreadgroups(MTLSize(width: k, height: 1, depth: 1),
                                  threadsPerThreadgroup: MTLSize(width: threadsPerTG, height: 1, depth: 1))
         enc.endEncoding()
