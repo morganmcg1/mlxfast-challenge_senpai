@@ -7589,8 +7589,8 @@ let lagunaSharedFirstDownOrderEnabled =
 
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4",
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v5sf"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v5",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7658,6 +7658,8 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 weight,
                 input_values,
                 laguna_nvfp4_scale(scale[0]));
+        }
+        for (uint row = 0; row < outputs_per_simd; ++row) {
             result[row] = simd_sum(result[row]);
         }
 
