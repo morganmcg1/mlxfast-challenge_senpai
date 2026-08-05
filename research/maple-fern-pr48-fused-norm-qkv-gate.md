@@ -1088,3 +1088,127 @@ cap, leaving only 5,926 bytes.
    pair of receipts is what actually resolves the ladder.
 6. **Reconcile the ×0.812 residual-class factor** against M5 receipts, per §5's
    closing question. If it turns out to be M4-fitted, several banked prices move.
+
+---
+
+## §10. r2 — strip the refuted kernel from the submitted surface
+
+Terminal review of r1 accepted the science and refuted the mechanism (ranked M5
+receipt `285f79fa-089f-4184-b1ec-0647cb51e61b`, `ns = 2.540575` against control
+`c3ce66ec` `ns = 2.544360`, **-0.1488 %**). r2 removes the code the evidence was
+about and keeps every word of the evidence.
+
+### §10.1 What was removed
+
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` restored to the advisor base
+blob. The fused norm+QKV+gate MSL body, the mode-2 dispatch branch, the
+`_nativeAffineQKV` plumbing added by this arm, and the `DARKBLOOM_DECODE_FUSE`
+selector are gone from the submitted surface. Nothing in `research/` changed.
+
+The kernel is **not lost**: it is preserved on `maple-fern/fused-norm-qkv-gate`
+at `9c73e16f` and in this PR's diff. Retrieval cost for a future arm is one
+`git checkout 9c73e16f -- Sources/MLXFastModel/LagunaRuntimeModel.swift`, and it
+would start from the correctness certificate in §9.
+
+### §10.2 The strip target was 508,711, not 508,529 — and why
+
+The review asked for `git checkout 1849b376 -- <file>` with a target of
+**508,529 B**. That is the size of the file at the **merge-base**, not at the
+**current advisor base**. Measured:
+
+```
+1849b376  (merge-base)        508529
+5178d452  (advisor base)      508711      +182
+9c73e16f  (r1 head)           518362      +9833 vs merge-base
+```
+
+Restoring the merge-base blob would have left the branch carrying a **-182 B
+diff against the advisor base** — a silent revert of tanjiro's `5a72af3` — and
+`check-editable-budget.sh 5178d452` would have printed `growth=-182`, not the
+requested `growth=0`. The script computes `growth = working_total - base_total`
+unclamped (`senpai/check-editable-budget.sh:135`).
+
+The review's own §8 predicted the post-strip total as `current=2941155`. That
+number is reachable only from 508,711; from 508,529 it would be 2,940,973. So
+the §8 prediction and the `growth=0` expectation both select the advisor-base
+blob, and the 508,529 figure is the single stale value. Restored to
+`5178d452`'s blob accordingly:
+
+```
+editable budget OK: current=2941155/3000000 bytes headroom=58845
+                    growth=0/262144 files=142 (base=142)
+git diff 5178d452 -- Sources Vendor benchmark.json   ->  empty
+```
+
+Both of the review's substantive targets — empty editable diff against the
+advisor base, and `growth=0` — are met exactly.
+
+### §10.3 §7's "research/-only base advance" is wrong: the intersection is NOT empty
+
+The review stated that `1849b376 -> 5178d452` is "`research/`-only, so there is
+no editable intersection and no conflict". It is not. Two commits on the advisor
+branch touch the submitted surface:
+
+```
+5c2f924  research: PR47 D1 dispatch-concurrency probe, unchained-empties knob, ladder driver
+5a72af3  D2: bake ranked n=100 chained arm defaults (DECODE_EMPTY 100, EMPTY_TG 8)
+```
+
+Under the standing base-advance rule this is a **non-empty intersection => stop
+and report**, which is what §10.4 does. It did not affect this arm's evidence
+(the r1 receipt was submitted from `b5082b74`, cut before the advance), and it
+does not block the strip, whose whole purpose is to make the branch identical to
+the base on that surface.
+
+### §10.4 HAZARD: the advisor base injects 100 empty dispatches per decode step by default
+
+`5a72af3` bakes tanjiro's ranked n=100 arm into the **defaults**:
+
+```swift
+// Sources/MLXFastModel/LagunaRuntimeModel.swift @ 5178d452
+private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 100)     // was 0
+private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_EMPTY_TG", 8)           // was 160
+```
+
+This is **not** dormant. `lagunaInjectLayerWork` is called unconditionally from
+the scored per-layer loop at `:10797`, and for `isSingleTokenDecode` the total is
+`lagunaInjectDecodeEmpty` spread across the 40 layers. So every single-token
+decode step on the advisor integration branch issues **100 extra chained empty
+dispatches**, by default, with no environment variable set.
+
+Priced with the programme's own M5 dispatch constant `c = 2.1828 us` and the
+decode exchange rate `14.862 %/ms`:
+
+```
+100 x 2.1828 us = 0.2183 ms of decode T  ->  -3.24 % of score
+```
+
+That is ~13x the size of the effect this PR was built to measure and ~5x the gap
+to the published crown. It is correct and deliberate **as tanjiro's ranked arm**,
+but it is a landmine on a shared integration branch: any candidate cut from
+advisor head, and any local baseline measured there, silently carries it. Two
+consequences for the advisor, neither of which is mine to fix:
+
+1. Revert the two defaults to `0` / `160` on the advisor branch once tanjiro's
+   n=100 receipt has landed.
+2. Any same-host local baseline taken on `5178d452` **after** `5a72af3` is not
+   comparable to one taken before it. Re-baseline before pricing anything.
+
+The block is deliberately left untouched, per the review's instruction not to
+modify the #27 instrument.
+
+### §10.5 r2 gates
+
+| Gate | Result |
+|---|---|
+| `swift build -c release --force-resolved-versions` | **Build complete (115.59 s)**, exit 0, warnings pre-existing |
+| `Package.resolved` | restored, worktree clean |
+| `check-editable-budget.sh 5178d452...` | `growth=0`, `current=2941155`, `headroom=58845` |
+| editable diff vs advisor base | empty |
+| `research/` files | unchanged except this appended §10 |
+
+No receipt, no `mlxfast submit`, and no `--local-iterate` timing was run for r2,
+per the review. The channel stayed free throughout.
+

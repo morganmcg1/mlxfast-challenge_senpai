@@ -4304,13 +4304,14 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
 
-/// Row-local half of the gate qmv, shared verbatim by the standalone kernel and
-/// the fused norm+QKV+gate kernel so the two cannot drift apart.
-private func lagunaGateSoftplusBody(orow: String, input: String) -> String {
+private func lagunaGateSoftplusSource(heads: Int) -> String {
     """
     constexpr uint K=\(LagunaConstants.hiddenSize),GS=32,V=8;
     constexpr uint BK=V*32,R=4,NS=2,KG=K/GS,SS=GS/V;
-    uint orow=\(orow);
+    uint tile=threadgroup_position_in_grid.x;
+    uint sg=simdgroup_index_in_threadgroup;
+    uint lane=thread_index_in_simdgroup;
+    uint orow=tile*(NS*R)+sg*R;
     const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
     const device bfloat* sc=scales+orow*KG+lane/SS;
     const device bfloat* bs=biases+orow*KG+lane/SS;
@@ -4320,7 +4321,7 @@ private func lagunaGateSoftplusBody(orow: String, input: String) -> String {
     for(uint k=0;k<K;k+=BK){
         float sum=0.0f;
         for(uint i=0;i<V;++i){
-            x[i]=float(\(input)[col+i]);
+            x[i]=float(input[col+i]);
             sum+=x[i];
         }
         for(uint row=0;row<R;++row){
@@ -4348,13 +4349,6 @@ private func lagunaGateSoftplusBody(orow: String, input: String) -> String {
     """
 }
 
-private let lagunaGateSoftplusSource = """
-    uint tile=threadgroup_position_in_grid.x;
-    uint sg=simdgroup_index_in_threadgroup;
-    uint lane=thread_index_in_simdgroup;
-    \(lagunaGateSoftplusBody(orow: "tile*(NS*R)+sg*R", input: "input"))
-    """
-
 private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
@@ -4362,7 +4356,7 @@ private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
             name: "laguna_gate_sp_h\(heads)_v1",
             inputNames: ["input", "packed_codes", "scales", "biases"],
             outputNames: ["gate_values"],
-            source: lagunaGateSoftplusSource,
+            source: lagunaGateSoftplusSource(heads: heads),
             ensureRowContiguous: true)
     }
     return result
@@ -4607,27 +4601,18 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
-/// SIMD groups per R1 threadgroup. Each SIMD still owns exactly one output row
-/// with the same K order, so widening this only regroups rows into fewer, wider
-/// threadgroups; it is the amortization surface a folded norm producer needs.
-/// The default emits the historical kernel name so MLX's name-keyed JIT library
-/// cache is not invalidated.
-private let lagunaDecodeNVFP4QKVR1SIMDGroups: Int = {
-    guard
-        let raw = ProcessInfo.processInfo.environment[
-            "DARKBLOOM_DECODE_NVFP4_QKV_R1_SIMDGROUPS"],
-        let n = Int(raw), [1, 2, 4, 8, 16].contains(n)
-    else { return 2 }
-    return n
-}()
+private let lagunaDecodeNVFP4QKVR1Source = """
+    constexpr uint axis_size = 2048;
+    constexpr uint num_simdgroups = 2;
+    constexpr uint values_per_thread = 16;
+    constexpr uint block_size = 512;
+    constexpr uint in_vec_size_w = axis_size / 2;
+    constexpr uint in_vec_size_g = axis_size / 16;
 
-private let lagunaDecodeNVFP4QKVR1Threads = 32 * lagunaDecodeNVFP4QKVR1SIMDGroups
-
-/// Row-local half of the R1 qmv, shared verbatim by the standalone kernel and
-/// the fused norm+QKV(+gate) kernel so the two cannot drift apart.
-private func lagunaDecodeNVFP4QKVR1Body(orow: String, input: String) -> String {
-    """
-    uint out_row = \(orow);
+    uint tile = threadgroup_position_in_grid.x;
+    uint simd_gid = simdgroup_index_in_threadgroup;
+    uint simd_lid = thread_index_in_simdgroup;
+    uint out_row = tile * num_simdgroups + simd_gid;
 
     const device uint8_t* ws = (const device uint8_t*)weight_codes +
         out_row * in_vec_size_w + simd_lid * 8;
@@ -4640,7 +4625,7 @@ private func lagunaDecodeNVFP4QKVR1Body(orow: String, input: String) -> String {
     uint column = simd_lid * values_per_thread;
     for (uint k = 0; k < axis_size; k += block_size) {
         for (uint i = 0; i < values_per_thread; ++i) {
-            x_thread[i] = float(\(input)[column + i]);
+            x_thread[i] = float(normalized[column + i]);
         }
         result += laguna_tail_nvfp4_qdot(
             ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
@@ -4654,22 +4639,6 @@ private func lagunaDecodeNVFP4QKVR1Body(orow: String, input: String) -> String {
         projected[out_row] = bfloat(result);
     }
     """
-}
-
-private let lagunaDecodeNVFP4QKVR1Source = """
-    constexpr uint axis_size = 2048;
-    constexpr uint num_simdgroups = \(lagunaDecodeNVFP4QKVR1SIMDGroups);
-    constexpr uint values_per_thread = 16;
-    constexpr uint block_size = 512;
-    constexpr uint in_vec_size_w = axis_size / 2;
-    constexpr uint in_vec_size_g = axis_size / 16;
-
-    uint tile = threadgroup_position_in_grid.x;
-    uint simd_gid = simdgroup_index_in_threadgroup;
-    uint simd_lid = thread_index_in_simdgroup;
-    \(lagunaDecodeNVFP4QKVR1Body(
-        orow: "tile * num_simdgroups + simd_gid", input: "normalized"))
-    """
 
 private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
@@ -4677,9 +4646,7 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
-                + (lagunaDecodeNVFP4QKVR1SIMDGroups == 2
-                    ? "" : "_g\(lagunaDecodeNVFP4QKVR1SIMDGroups)"),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVR1Source,
@@ -4706,187 +4673,19 @@ private func lagunaDecodeNVFP4QKVR1(
         bank.packedCodes.dims(rows, hidden / 8),
         bank.scales.dtype == .uint8,
         bank.scales.dims(rows, hidden / 16),
-        rows % lagunaDecodeNVFP4QKVR1SIMDGroups == 0,
+        rows % 2 == 0,
         let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads]
     else { return nil }
     lagunaTrace("decode nvfp4 qkv r1 h\(heads)")
     return kernel(
         [normalized, bank.packedCodes, bank.scales],
-        grid: ((rows / lagunaDecodeNVFP4QKVR1SIMDGroups)
-            * lagunaDecodeNVFP4QKVR1Threads, 1, 1),
-        threadGroup: (lagunaDecodeNVFP4QKVR1Threads, 1, 1),
+        grid: ((rows / 2) * 64, 1, 1),
+        threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16]
     )[0]
 }
 
-/// Folds the attention input RMSNorm, and optionally the per-head gate qmv,
-/// into the R1 QKV kernel. `1` deletes the 40 `rmsbfloat16` dispatches, `2`
-/// additionally deletes the 40 `gate_sp` dispatches; `0` restores the stock
-/// three-dispatch path. Both folds are bit-exact, so the default selects the
-/// fewest dispatches.
-private let lagunaDecodeNVFP4NormQKVFuseMode: Int = {
-    guard
-        let raw = ProcessInfo.processInfo.environment[
-            "DARKBLOOM_DECODE_NVFP4_NORM_QKV_FUSE"],
-        let n = Int(raw), (0...2).contains(n)
-    else { return 2 }
-    return n
-}()
-
-/// Fixed at 512 threads / 16 simdgroups: MLX's `rmsbfloat16` for a 2048 axis
-/// uses exactly that geometry with `n_reads = 4`, so any other thread count
-/// would reorder the sum of squares and lose bit-exactness.
-private func lagunaDecodeNVFP4NormQKVSource(
-    heads: Int, foldGate: Bool
-) -> String {
-    // The gate rows ride along inside the first `gate_tiles` QKV threadgroups
-    // rather than in threadgroups of their own: they need no extra norm and,
-    // with two active simdgroups owning eight rows each, they keep exactly the
-    // standalone kernel's row map and its spread across cores. Concentrating
-    // all `heads` rows in one threadgroup instead measured +1.6% locally,
-    // because that one threadgroup then streams the whole INT8 gate bank on a
-    // single core while the other 640 retire.
-    let gateBlock = """
-        if (tile < gate_tiles && simd_group < 2) {
-            uint sg = simd_group;
-            uint lane = simd_lane;
-        \(lagunaGateSoftplusBody(orow: "tile*(2*R) + sg*R", input: "norm_row"))
-        }
-        """
-    let projection = """
-        uint simd_lid = simd_lane;
-        \(lagunaDecodeNVFP4QKVR1Body(
-            orow: "tile * num_simdgroups + simd_group", input: "norm_row"))
-        \(foldGate ? gateBlock : "")
-        """
-    let normalizedStore = foldGate
-        ? "" : "\n            if (tile == 0) { normalized[base + i] = value; }"
-    return """
-        constexpr uint axis_size = 2048;
-        constexpr uint n_reads = 4;
-        constexpr uint simd_size = 32;
-        constexpr uint num_simdgroups = 16;
-        constexpr uint values_per_thread = 16;
-        constexpr uint block_size = 512;
-        constexpr uint in_vec_size_w = axis_size / 2;
-        constexpr uint in_vec_size_g = axis_size / 16;
-        constexpr uint gate_tiles = \(heads / 8);
-
-        uint tile = threadgroup_position_in_grid.x;
-        uint lid = thread_position_in_threadgroup.x;
-        uint simd_lane = thread_index_in_simdgroup;
-        uint simd_group = simdgroup_index_in_threadgroup;
-        uint base = lid * n_reads;
-
-        \(lagunaNormInvMeanScratch)
-        threadgroup float local_sums[simd_size];
-        threadgroup bfloat norm_row[axis_size];
-
-        thread bfloat values[n_reads];
-        float acc = 0.0f;
-        for (uint i = 0; i < n_reads; ++i) {
-            bfloat value = residual[base + i];
-            values[i] = value;
-            float fv = float(value);
-            acc += fv * fv;
-        }
-
-        acc = simd_sum(acc);
-        \(lagunaNormReductionTail2048)
-
-        for (uint i = 0; i < n_reads; ++i) {
-            bfloat value =
-                weight[base + i] *
-                bfloat(float(values[i]) * laguna_inv_mean);
-            norm_row[base + i] = value;\(normalizedStore)
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        \(projection)
-        """
-}
-
-private let lagunaDecodeNVFP4NormQKVKernels: [Int: MLXFast.MLXFastKernel] = {
-    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
-    guard lagunaDecodeNVFP4NormQKVFuseMode > 0 else { return kernels }
-    let foldGate = lagunaDecodeNVFP4NormQKVFuseMode == 2
-    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_decode_nvfp4_norm_qkv_h\(heads)_r1f"
-                + (foldGate ? "g" : "") + "_v1"
-                + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
-            inputNames: foldGate
-                ? ["residual", "weight", "weight_codes", "weight_scales",
-                   "packed_codes", "scales", "biases"]
-                : ["residual", "weight", "weight_codes", "weight_scales"],
-            outputNames: foldGate
-                ? ["projected", "gate_values"] : ["projected", "normalized"],
-            source: lagunaDecodeNVFP4NormQKVSource(
-                heads: heads, foldGate: foldGate),
-            header: lagunaTailNVFP4QMVHeader,
-            ensureRowContiguous: true)
-    }
-    return kernels
-}()
-
-private func lagunaDecodeNVFP4NormQKV(
-    residual: MLXArray,
-    normWeight: MLXArray,
-    eps: Float,
-    bank: LagunaNativeAffineWeight,
-    gate: LagunaNativeAffineWeight?,
-    heads: Int
-) -> (projected: MLXArray, normalized: MLXArray?, gateValues: MLXArray?)? {
-    guard lagunaDecodeNVFP4NormQKVFuseMode > 0 else { return nil }
-    let rows = (heads + 2 * LagunaConstants.numKeyValueHeads)
-        * LagunaConstants.headDim
-    let hidden = LagunaConstants.hiddenSize
-    guard residual.dtype == .bfloat16,
-        residual.dims(1, 1, hidden),
-        normWeight.dtype == .bfloat16,
-        normWeight.dims(hidden),
-        eps == Float(LagunaConstants.rmsNormEpsilon),
-        bank.mode == .nvfp4, bank.bits == 4, bank.groupSize == 16,
-        bank.biases == nil,
-        bank.originalShape == [rows, hidden],
-        bank.packedCodes.dtype == .uint32,
-        bank.packedCodes.dims(rows, hidden / 8),
-        bank.scales.dtype == .uint8,
-        bank.scales.dims(rows, hidden / 16),
-        rows % 16 == 0,
-        let kernel = lagunaDecodeNVFP4NormQKVKernels[heads]
-    else { return nil }
-    let grid = ((rows / 16) * 512, 1, 1)
-    guard lagunaDecodeNVFP4NormQKVFuseMode == 2 else {
-        lagunaTrace("decode nvfp4 norm+qkv h\(heads)")
-        let outputs = kernel(
-            [residual, normWeight, bank.packedCodes, bank.scales],
-            grid: grid,
-            threadGroup: (512, 1, 1),
-            outputShapes: [[1, 1, rows], [1, 1, hidden]],
-            outputDTypes: [.bfloat16, .bfloat16])
-        return (outputs[0], outputs[1], nil)
-    }
-    guard let gate,
-        gate.mode == .affine, gate.bits == 8, gate.groupSize == 32,
-        let gateBiases = gate.biases,
-        gate.packedCodes.dims(heads, hidden / 4),
-        gate.scales.dims(heads, hidden / 32),
-        gateBiases.dims(heads, hidden / 32),
-        heads % 8 == 0, heads / 8 <= rows / 16
-    else { return nil }
-    lagunaTrace("decode nvfp4 norm+qkv+gate h\(heads)")
-    let outputs = kernel(
-        [residual, normWeight, bank.packedCodes, bank.scales,
-         gate.packedCodes, gate.scales, gateBiases],
-        grid: grid,
-        threadGroup: (512, 1, 1),
-        outputShapes: [[1, 1, rows], [1, 1, heads]],
-        outputDTypes: [.bfloat16, .bfloat16])
-    return (outputs[0], nil, outputs[1])
-}
 
 private func lagunaNormAffineQKVSource(rows: Int, staged: Bool) -> String {
     let stagedNormalize = """
@@ -5757,38 +5556,16 @@ final class LagunaRuntimeAttention: Module {
                 // the promoted state); the placeholder keeps the downstream
                 // defer/eager gate-activation plumbing unchanged.
                 let fusedTailGateLogits: MLXArray? = nil
-                let gateFoldable =
-                    lagunaDecodeNVFP4NormQKVFuseMode == 2
-                    && _nativeAffineQKVGateRows != nHeads
-                    && lagunaFusedGatedAffineOProjEnabled
-                    && lagunaGatedAffineOProjNVFP4Enabled
-                    && lagunaGateSoftplusEnabled
-                    && lagunaUseNativeAffineOProj(layer: layerIdx)
-                    && (_nativeAffineOProj.map {
-                        $0.mode == .nvfp4 && $0.bits == 4 && $0.groupSize == 16
-                    } ?? false)
-                let fusedNormR1F =
-                    fusedQKV == nil
-                    ? lagunaDecodeNVFP4NormQKV(
-                        residual: input,
-                        normWeight: inputNorm.weight,
-                        eps: inputNorm.eps,
-                        bank: fusedAffine,
-                        gate: gateFoldable ? _nativeAffineGProj : nil,
-                        heads: nHeads)
-                    : nil
                 // Only materialized when the fused kernel declined; the gate
                 // branches below that read it are unreachable when it fired.
-                let normalized =
-                    fusedQKV ?? fusedNormR1F?.normalized ?? inputNorm(input)
+                let normalized = fusedQKV ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
-                    fusedQKV == nil && fusedNormR1F == nil
+                    fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
                         normalized: normalized, bank: fusedAffine, heads: nHeads)
                     : nil
                 let qkv =
                     fusedQKV
-                    ?? fusedNormR1F?.projected
                     ?? decodeNVFP4QKVR1
                     ?? quantizedMM(
                         normalized,
@@ -5805,10 +5582,7 @@ final class LagunaRuntimeAttention: Module {
                 let gateStart = queryDim + 2 * kvDim
                 let gateLogits: MLXArray
                 var gateProjectionActivated = false
-                if let activated = fusedNormR1F?.gateValues {
-                    gateLogits = activated
-                    gateProjectionActivated = true
-                } else if let fusedTailGateLogits {
+                if let fusedTailGateLogits {
                     // Removed tail-fusion placeholder: always nil since the
                     // r=1-regime re-sweep; kept so the defer/eager plumbing
                     // below stays structurally unchanged.
@@ -11269,7 +11043,7 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_MATMULS", 0)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 100)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
@@ -11278,10 +11052,15 @@ private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
 /// per-dispatch cost depends on placement.
 private let lagunaInjectEmptySpread = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_EMPTY_SPREAD", 1) != 0
-/// Threadgroups per empty dispatch (256 threads each); 160 matches the
-/// isolated M4 empty-dispatch datum of 2.46 us.
+/// Threadgroups per empty dispatch (256 threads each); 8 is `0411779d`'s
+/// geometry, so n=0/100/400 lie on one M5 curve.
 private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_EMPTY_TG", 160)
+    "DARKBLOOM_INJECT_EMPTY_TG", 8)
+/// 0 unchains the empties: each binds a never-written control array, so no
+/// `memoryBarrier` is emitted (`device.cpp:325`). Unchained outputs all stay in
+/// `pending` so a recycled buffer cannot re-trip it as a WAW (`:331`).
+private let lagunaInjectEmptyChain = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_EMPTY_CHAIN", 1) != 0
 
 private let lagunaInjectPoolUInt4 = 1 << 24  // 16,777,216 x 16 B = 256 MiB
 /// 256 threadgroups x 256 threads, 256 uint4 per thread. The pass loop lives
@@ -11378,15 +11157,11 @@ private enum LagunaInjectStore {
 
 /// Tail of the injected-dispatch dependency chain, carried across layer
 /// boundaries. MLX's compute encoder is `DispatchTypeConcurrent`
-/// (`device.cpp:548`) and only inserts a barrier when a dispatch binds a buffer
-/// a previous dispatch wrote (`device.cpp:325`, `:339`). An injected dispatch
-/// that binds nothing the GPU has written therefore runs *concurrently* with
-/// real work and costs almost nothing — measured directly here: 40 unchained
-/// empty dispatches per decode step moved `T` by 0.006 ms, 16x less than one
-/// isolated dispatch cost each. Chaining every injected dispatch to the
-/// previous one reproduces the strictly serialised stream nezuko measured for
-/// the real model (`gpu_busy_sum == gpu_busy_union` to 6 ns), which is the
-/// regime whose marginal cost this instrument is meant to read.
+/// (`device.cpp:548`) and only inserts a barrier on a real hazard
+/// (`device.cpp:325`, `:339`), so an unchained injected dispatch runs
+/// concurrently with real work and costs almost nothing. Chaining reproduces
+/// the strictly serialised stream the real model runs in, which is the regime
+/// whose marginal cost it reads. See `research/tanjiro-pr47-d1.md`.
 private enum LagunaInjectChain {
     nonisolated(unsafe) static var tail: MLXArray?
 }
@@ -11429,18 +11204,22 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
         pending.append(matmul(scratch.matA, scratch.matB))
     }
     if empties > 0 {
-        var chainTail = LagunaInjectChain.tail ?? scratch.control[0]
+        var tail = LagunaInjectChain.tail ?? scratch.control[0]
         for k in 0..<empties {
-            chainTail = lagunaInjectEmptyKernel(
-                [scratch.control[(layer + k) & 7], chainTail],
+            tail = lagunaInjectEmptyKernel(
+                [
+                    scratch.control[(layer + k) & 7],
+                    lagunaInjectEmptyChain ? tail : scratch.control[7],
+                ],
                 grid: (lagunaInjectEmptyThreadgroups * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[256]],
                 outputDTypes: [.uint32]
             )[0]
+            if !lagunaInjectEmptyChain { pending.append(tail) }
         }
-        LagunaInjectChain.tail = chainTail
-        pending.append(chainTail)
+        LagunaInjectChain.tail = tail
+        if lagunaInjectEmptyChain { pending.append(tail) }
     }
     guard !pending.isEmpty else { return }
     asyncEval(pending)
