@@ -109,3 +109,126 @@ multiplicative shrink, frequency rises).
   boundary costs that are free in decode could bite in that denser stream, and
   prefill carries its own 0.95 floor. The ranked receipt measures both axes, so
   this is checked rather than assumed.
+
+## Post-receipt revision (M5 refuted the paragraph above)
+
+The ranked M5 Max receipt came back **REFUTE**: renormalised `ns` 2.503448
+versus control 2.544360, **−1.608%**, with prefill `S` **+2.193%** and decode
+`T` **+1.316%**. Both halves of the M4 prediction are wrong — decode got slower
+rather than faster, and prefill moved rather than staying flat. The paragraph
+above is therefore an accurate account of an **M4 Pro** effect and an incorrect
+account of the ranked machine. This section replaces its cross-generation
+reasoning; the phase-2 diagnostics below also correct the command-buffer counts
+that the earlier text quoted from a coarser instrumented run.
+
+### Measured command-buffer accounting (`DARKBLOOM_GPU_PROFILE_SPLIT=0`)
+
+Decode, 199-step probe, per steady step; every arm reported `dispatches=406.0`
+and `0 divergences`, so the kernel set and order are identical at all caps:
+
+| MB | cbs/step | wall ms | busy_sum | union | gap ms | gap% |
+|---|---|---|---|---|---|---|
+| 200 | 34.0 | 8.614 | 8.359 | 8.359 | 0.255 | 3.0 |
+| 100 | 52.0 | 8.501 | 8.248 | 8.248 | 0.253 | 3.0 |
+| 50 | 85.0 | 8.427 | 8.174 | 8.174 | 0.253 | 3.0 |
+| 25 | 86.0 | 8.598 | 8.305 | 8.305 | 0.292 | 3.4 |
+| 12 | 86.0 | 8.468 | 8.184 | 8.184 | 0.284 | 3.4 |
+
+Prefill, by differencing total buffers with and against a 512-token prefill
+(decode counts reproduced exactly across the two runs, which validates the
+subtraction):
+
+| MB | C_prefill | local prefill wall ms |
+|---|---|---|
+| 200 | 81 | 544.93 |
+| 100 | 84 | 546.38 |
+| 50 | 160 | 545.73 |
+| 25 | 202 | 548.37 |
+| 12 | 234 | 547.33 |
+
+Three facts matter. First, `gpu_busy_sum == gpu_busy_union` at every cap, and
+the host gap is flat at 0.253–0.255 ms across 34 → 85 buffers per step, so a
+seam costs under ~0.04 µs of *host* time and the entire M4 effect sits inside
+the GPU-busy union. Second, cbs/step **saturates at 86** for both 25 MB and
+12 MB: below roughly 50 MB the byte cap stops binding on decode, so the
+phase-1 reversal at 25/12 MB is not a buffer-count effect at all (the residual
+candidates are the widened gap and allocator churn). Third, buffer boundaries
+are a deterministic function of the op stream and its input/output byte counts,
+neither of which depends on the host, so **these counts are also the M5
+counts** — the only thing that changes across generations is what a boundary
+costs.
+
+### The decode/prefill inconsistency, and what resolves it
+
+Applying the M5 deltas to the host-independent counts:
+
+| axis | Δcbs (200 → 50) | M5 Δtime | per added cb |
+|---|---|---|---|
+| decode (`T`) | +51 | +56.3 µs | **+1.10 µs** |
+| prefill (`S`) | +79 | +2147 µs | **+27.2 µs** |
+
+These differ by ~25×, so **no fixed per-command-buffer cost can explain both**.
+A uniform +27 µs seam would have added +1.4 ms to a 4.3 ms decode step, i.e. a
++32% decode regression; the measured decode regression is +1.3%. The
+per-boundary cost is therefore not a constant — it scales with the amount of
+work in the dispatches whose overlap the boundary destroys.
+
+That single amendment makes every observation consistent. Treat a boundary as
+two opposing terms: a **benefit** *B*, the in-encoder `memoryBarrier` drain that
+is avoided and instead hidden behind the next kick's preparation; and a **cost**
+*C*, the intra-encoder concurrency window that is lost because dispatches
+separated by a commit can no longer run together. *B* is roughly fixed per
+boundary and shrinks on a faster fabric (less to flush, quicker drain). *C* is
+proportional to the size of the independent dispatches that were overlapping,
+and it only exists when the GPU is wide enough that one dispatch does not
+already saturate it.
+
+- **M4 Pro decode**: −3.63 µs per added buffer (−185 µs for +51). Narrow GPU,
+  batch-1 kernels are tiny, so *C* ≈ 0 and *B* dominates. This is the effect
+  the original paragraph described, and it is real.
+- **M4 Pro prefill**: flat, 0.6% spread with no trend. A 512-token GEMM already
+  saturates a 14-core-class part, so there is no concurrency to lose (*C* ≈ 0)
+  and, with large kernels, little relative barrier drain to win (*B* small
+  relative to the work) — the two cancel.
+- **M5 Max decode**: +1.10 µs per added buffer. Roughly twice the bandwidth
+  makes *B* cheaper, and a wider machine leans harder on concurrent
+  same-encoder groups even at batch 1, so *C* rises. The two nearly cancel and
+  the residual **flips sign**. A near-tie flipping across generations is exactly
+  the regime the guide warns about, and it is why an M4 decode win is not
+  evidence for M5.
+- **M5 Max prefill**: +27.2 µs per added buffer. Here *C* is at its maximum —
+  512-token expert GEMMs are large, several are genuinely independent, and the
+  M5 selects the `_nax` kernel family that an M4 Pro (Apple GPU generation 16)
+  never reaches. Prefill has 2.4× the buffer growth of decode *and* the most
+  expensive boundaries, which is why the prefill half of the score degrades
+  twice as fast in percentage terms (+2.19% versus +1.32%).
+
+### Consequences
+
+1. **The 200 MB override in the base is not a deviation to be corrected.** The
+   original argument that 50 MB is "what a Max-class box would pick anyway" is
+   true about MLX's stock table and irrelevant to this score: the stock table
+   is not tuned for a serial batch-1 decode plus a single 512-token prefill on
+   a 21.6 GB resident MoE.
+2. **The sign of the per-boundary residual is the thing to test, on the ranked
+   machine, before spending a slot on anything that changes buffer counts.**
+   M4 command-buffer *counts* transfer exactly; M4 command-buffer *timing* does
+   not transfer even in sign.
+3. **This is a positive signal for the dispatch-reduction family.** Fusion
+   removes a dispatch *and* its in-encoder barrier without adding a seam, so it
+   collects *B* while leaving *C* untouched — the opposite trade to the byte
+   cap. The +27.2 µs/cb prefill sensitivity says the prefill dispatch stream on
+   M5 is where ordering overhead is actually concentrated, which is where a
+   gate/up fusion would land.
+4. **Raising the cap above 200 MB is now a live one-token candidate, with a
+   caveat.** If prefill really pays +27 µs per boundary on M5, removing
+   boundaries should pay back symmetrically; 81 prefill buffers is already few
+   enough that the headroom is limited (order 20–40 buffers), and the M4 sweep
+   found 400 MB *worse* for decode by ~2.5%. The M4 decode result carries no
+   weight after this receipt, but the prefill upside is small enough that it
+   should be judged against cheaper candidates rather than assumed.
+
+The cheapest decisive follow-up remains a same-session paired probe of one
+alternative cap on the ranked machine rather than any further M4 sweeping; M4
+has now told us everything it can, which is the buffer counts and nothing about
+their price.

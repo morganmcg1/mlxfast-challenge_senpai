@@ -1,0 +1,26 @@
+=== prefill-count mb=200 t=13:05:28 thermal={"cpu_temp":39.585914611816406,"gpu_pw":0.006487161852419376}
+prefill 512 tokens: 544.93 ms (1064.3 us/token)
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: 7146 command buffers total, 6766 inside 199 steady steps
+per steady step: wall=8.569 ms gpu_busy_sum=8.321 ms gpu_busy_union=8.321 ms gap=0.248 ms (2.9% of wall) cbs=34.0 dispatches=406.0
+=== prefill-count mb=100 t=13:06:16 thermal={"cpu_temp":40.573848724365234,"gpu_pw":0.005678920075297356}
+prefill 512 tokens: 546.38 ms (1067.1 us/token)
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: 10823 command buffers total, 10348 inside 199 steady steps
+per steady step: wall=8.496 ms gpu_busy_sum=8.228 ms gpu_busy_union=8.228 ms gap=0.268 ms (3.2% of wall) cbs=52.0 dispatches=406.0
+=== prefill-count mb=50 t=13:07:05 thermal={"cpu_temp":44.575408935546875,"gpu_pw":0.007341931574046612}
+prefill 512 tokens: 545.73 ms (1065.9 us/token)
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: 17731 command buffers total, 16915 inside 199 steady steps
+per steady step: wall=8.471 ms gpu_busy_sum=8.195 ms gpu_busy_union=8.195 ms gap=0.276 ms (3.3% of wall) cbs=85.0 dispatches=406.0
+=== prefill-count mb=25 t=13:07:56 thermal={"cpu_temp":40.77458190917969,"gpu_pw":0.006882451940327883}
+prefill 512 tokens: 548.37 ms (1071.0 us/token)
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: 18111 command buffers total, 17114 inside 199 steady steps
+per steady step: wall=8.477 ms gpu_busy_sum=8.192 ms gpu_busy_union=8.192 ms gap=0.285 ms (3.4% of wall) cbs=86.0 dispatches=406.0
+=== prefill-count mb=12 t=13:08:46 thermal={"cpu_temp":40.77995681762695,"gpu_pw":0.006590887904167175}
+prefill 512 tokens: 547.33 ms (1069.0 us/token)
+teacher-forced greedy tokens: 0 divergences (all match)
+profile: 18264 command buffers total, 17114 inside 199 steady steps
+per steady step: wall=8.510 ms gpu_busy_sum=8.216 ms gpu_busy_union=8.216 ms gap=0.294 ms (3.5% of wall) cbs=86.0 dispatches=406.0
+=== done t=13:09:36 thermal={"cpu_temp":40.93204879760742,"gpu_pw":0.00546735804527998}
