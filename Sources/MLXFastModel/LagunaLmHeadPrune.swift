@@ -162,6 +162,14 @@ private let lagunaLmHeadCoarseV5Enabled =
 private let lagunaLmHeadV5StatsEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_V5_STATS"] == "1"
 
+private let lagunaLmHeadCandidateRowsOnlyEnabled =
+    ProcessInfo.processInfo.environment[
+        "DARKBLOOM_LMHEAD_CANDIDATE_ROWS_ONLY"] != "0"
+private let lagunaLmHeadCandidateRowsOnlyGuard =
+    lagunaLmHeadCandidateRowsOnlyEnabled
+    ? "if ((candidate_mask & (1u << tm)) == 0) { continue; }"
+    : ""
+
 /// Tight v5 assembly threshold: use the BF16 predecessor of the exact coarse-
 /// argmax row instead of the retained `e_r - |e_r|/64` two-ulp band. This is
 /// the highest representable threshold that still forces every skipped
@@ -1673,7 +1681,9 @@ private let lagunaLmHeadInlineExactKernel = MLXFast.metalKernel(
 /// `coarse` is untouched FP32, so skipped slots keep the exact bits the FP32
 /// arm would store.
 private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_exact_inline_mask_block_delta_bf16_lane0_mask_v1",
+    name: lagunaLmHeadCandidateRowsOnlyEnabled
+        ? "laguna_lmhead_exact_inline_mask_block_delta_bf16_candidate_rows_v1"
+        : "laguna_lmhead_exact_inline_mask_block_delta_bf16_lane0_mask_v1",
     inputNames: ["coarse", "delta", "thr", "lm_head", "x"],
     outputNames: ["assembled"],
     source: """
@@ -1724,6 +1734,7 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
             v_coeff[3] = float(xv.w);
             #pragma unroll
             for (uint tm = 0; tm < 4; ++tm) {
+                \(lagunaLmHeadCandidateRowsOnlyGuard)
                 const device bfloat* mrow = lm_head + size_t(base + tm) * K;
                 vec<bfloat, 4> mv =
                     *((const device vec<bfloat, 4>*)(mrow + bn));
@@ -1740,6 +1751,7 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
         }
         #pragma unroll
         for (uint tm = 0; tm < 4; ++tm) {
+            \(lagunaLmHeadCandidateRowsOnlyGuard)
             #pragma unroll
             for (ushort sn = 16; sn >= 1; sn >>= 1) {
                 result[tm] += simd_shuffle_down(result[tm], sn);
