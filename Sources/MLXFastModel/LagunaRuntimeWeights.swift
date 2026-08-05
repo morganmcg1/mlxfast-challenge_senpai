@@ -674,6 +674,19 @@ let lagunaAttnScaleNarrowQKVEnabled =
 let lagunaAttnScaleNarrowOProjEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_NARROW_OPROJ"] != "0"
 
+/// `DARKBLOOM_ATTN_SCALE_LANEMAJOR` (default ON; set "0" to fall back to the
+/// 32-group-block planes above): one uint8 base per ROW plus a 4-bit index per
+/// group, permuted so that the `blocks = groups / 32` nibbles a decode lane
+/// consumes are adjacent. Lane `simd_lid` then reads all of them in a single
+/// `blocks / 2`-byte load and the 32 lanes of a simdgroup cover one contiguous
+/// `groups / 2`-byte run, against three strided byte loads per 32-group block.
+/// Storage is `groups / 2 + 1` bytes per row (65 vs 84 vs 128 for fused QKV).
+/// The census measured full-row spans <= 15 for 98.1-99.6% of attention rows;
+/// the rest carry base `0xFF` (real bases are <= 41) and read the stock plane,
+/// which stays resident for prefill, so an escape costs traffic but no memory.
+let lagunaAttnScaleLaneMajorEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_LANEMAJOR"] != "0"
+
 /// `DARKBLOOM_ATTN_SCALE_NARROW_LOG=1` reports which scale plane each attention
 /// QMV dispatch reads. Off by default so the scored dispatch pays no lock and
 /// no string interpolation, exactly as `lagunaTrace` is gated.
