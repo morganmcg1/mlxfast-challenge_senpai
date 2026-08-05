@@ -197,15 +197,23 @@ was over-applied. Amended:
    | prefill S (512 tokens) | -1.087 ms (-40 cb x 27.177 us) | **+2.9621 ms** |
    | decode T (marginal step) | -0.0177 ms (-16 cb x 1.1045 us) | **+0.0056 ms** (flat) |
 
-   Prefill moved 2.7x the predicted magnitude in the opposite direction; decode
-   did not move at all despite losing 16 of 34 buffers per step. The submit
-   overhead a buffer costs is therefore not the dominant term once buffers are
-   large.
-3. **The transferable timing proxy is the M4 `wall - gpu_busy` gap, not M4 wall
-   time and not the count.** That gap is non-overlapped CPU encode/submit time,
-   a CPU-side property, so it survives the Apple GPU generation change that
-   `_nax` kernel selection does not. It was already in the B1 table and it
-   already ranked 200 first:
+   Prefill moved 2.7x the predicted magnitude in the opposite direction; the
+   *marginal* decode step did not move at all despite losing 16 of 34 buffers
+   per step (see section 9, critique 4, for why the reported `cand_dec` still
+   moved +0.570%). The submit overhead a buffer costs is therefore not the
+   dominant term once buffers are large.
+
+   **Corollary, added in r3:** the fitted rates +1.1045 us/cb decode and
+   +27.177 us/cb prefill are valid **only downward from the shipped cap**, the
+   direction in which they were measured. They must never be quoted above it.
+   The one time I extrapolated the prefill rate upward it was wrong in sign and
+   2.7x in magnitude, which is the whole content of this clause.
+3. **HYPOTHESIS (on trial in r3, not yet a law): the transferable timing proxy
+   is the M4 `wall - gpu_busy_union` gap, not M4 wall time and not the count.**
+   That gap is non-overlapped CPU encode/submit time, a CPU-side property, so
+   it *should* survive the Apple GPU generation change that `_nax` kernel
+   selection does not. It was already in the B1 table and it already ranked 200
+   first:
 
    | cap MB | gap | M4 wall decode |
    | --- | --- | --- |
@@ -216,19 +224,54 @@ was over-applied. Amended:
    | 2048 | 7.2% | 8.915 ms |
 
    I discarded this at selection time as untrustworthy boundary timing, on the
-   strength of clause 2. That was the error. Raising the cap raises the gap,
-   which is the mechanism: bigger command buffers mean the GPU cannot start
-   until more encoding is done, so overlap is lost faster than submit overhead
-   is saved.
+   strength of clause 2. That was the error: whatever else is true, the gap
+   would have told me not to submit 512.
+
+   The **proposed mechanism** is that bigger command buffers mean the GPU cannot
+   start until more encoding is done, so overlap is lost faster than submit
+   overhead is saved. In r2 I stated that as fact. It is a hypothesis, and
+   section 10 shows it already fails its own quantitative test on the data I
+   had. Section 10 also names the measurement that would settle it and reports
+   the 400 MB arm as an open anomaly.
+
+   **Why this cannot be promoted on the r2 evidence.** The gap was only ever
+   compared with M4 wall *upward* from 200, where the two agree, so agreement
+   there carries no information about the branch where M4 wall is known to be
+   wrong. r3 therefore extends the profiled sweep downward under a rule
+   committed in advance (`research/nezuko-mbcap-down-prereg.md`, commit
+   `b16dea5`); the verdict is in section 11.
 4. **200 is a genuine two-sided local optimum on the ranked M5.** Moving down
    costs -1.608% (`3e6fdcb`, cap 50); moving up costs -1.164% (`c747336`,
    cap 512). Two ranked receipts bracket it. **This knob is closed** - no further
    receipts should be spent on `MLX_MAX_MB_PER_BUFFER`.
 
-Corollary for future work: a candidate that reduces command-buffer count is only
-promising if it *also* keeps the encode/submit work overlapped. Fusion that
-shortens the encode stream qualifies; merely enlarging the buffer that holds the
-same encode stream does not.
+5. **The `ns` exchange rates are closed-form identities, not fits.** Adopted as
+   programme law: rank on `ns`, never on `officialScore`. The two conversion
+   slopes are exact consequences of the score definition at this operating
+   point, which is why the advisor's independent check reproduced them to
+   +-0.03%:
+
+   ```
+   cand_dec = (S + 128 T) / 128            cand_pre = S / 512
+
+   d_ns/dT = 0.75 / cand_dec
+           = 0.75 / 5.04644 ms                              = 14.862 %/ms
+   d_ns/dS = 0.25 / S            +  0.75 / (128 x cand_dec)
+           = 0.25 / 97.950 ms    +  0.75 / (128 x 5.04644 ms) = 0.371 %/ms
+   ```
+
+   T is the marginal per-step decode time and S is the 512-token prefill seed.
+   S carries **two** terms because it is billed twice: once on the prefill axis
+   (weight 0.25, over S = 97.950 ms) and again inside `cand_dec`, which is
+   `(S + 128 T) / 128`, on the decode axis (weight 0.75). The decode term is
+   0.0011611 %/ms and the prefill term is 0.0025523 %/ms, so **31.3% of any
+   prefill regression is charged to the decode axis**. That single fact is what
+   critique 4 in section 9 is about.
+
+Corollary for future work, adopted verbatim by the advisor: a candidate that
+reduces command-buffer count is only promising if it *also* keeps the
+encode/submit work overlapped. Fusion that shortens the encode stream qualifies;
+merely enlarging the buffer that holds the same encode stream does not.
 
 ## 7. Final state of the branch
 
@@ -251,8 +294,170 @@ surface diff against base `1849b376` is **empty**. Everything retained is under
    attention epilogue (`LagunaRuntimeModel.swift:5893-5905`, `:5989-5995`),
    14.30% of the decode step, ratio 0.601. It shortens the encode stream rather
    than enlarging the buffer, so it is on the right side of the corollary above.
-2. Adopt the M4 `wall - gpu_busy` gap as a standing free pre-screen for any
-   dispatch-shape candidate. It cost nothing here and it had the right answer.
+2. ~~Adopt the M4 `wall - gpu_busy` gap as a standing free pre-screen for any
+   dispatch-shape candidate.~~ **Withdrawn in r3 pending section 11.** "It had
+   the right answer" was only ever checked where it could not be wrong.
 3. The +0.518% baseline lottery on every `officialScore` is larger than most
    single-mechanism effects. Consider making `ns` the campaign's reported
    ranking statistic and `officialScore` a secondary field.
+
+---
+
+# PR #44 r3 — accepted critiques and the falsification test
+
+r3 takes **no ranked receipt**; the single shared channel belongs to tanjiro's
+PR #47. Everything below is free M4 work or arithmetic on receipts already
+taken. Base accepted for r3 is advisor `1732770`; the `editablePaths`
+intersection with this branch is empty (only `research/CURRENT_RESEARCH_STATE.md`
+and `research/GATHER_GEMM_REGIME_DESIGN.md` moved), so no rebase and no
+re-measurement were required.
+
+## 9. Advisor critiques accepted (deliverable B)
+
+### Critique 4 — "decode is flat" was true of the mechanism and misleading as a report
+
+My r2 clause 2 table says the marginal decode step moved **+0.0056 ms (flat)**.
+That number is correct. The problem is that the receipt's own `cand_dec` moved
+**+0.570%**, and a reader comparing the two would reasonably conclude either
+that the table is wrong or that decode absorbed real damage from the cap change.
+Neither is true. The +0.570% is almost entirely the prefill seed leaking into
+the decode axis through the `S/128` term of `cand_dec = (S + 128 T) / 128`:
+
+| term | control `c3ce66e` | candidate `c747336` | delta |
+| --- | --- | --- | --- |
+| `cand_dec` | 5.04644 ms | 5.07521 ms | **+0.02877 ms** (+0.570%) |
+| seed share `S/128` | 0.76523 ms | 0.78837 ms | **+0.02314 ms** (80.4% of it) |
+| marginal step `T` | 4.28121 ms | 4.28684 ms | **+0.00563 ms** (19.6%) |
+
+`S` is recovered independently from the other axis, `cand_pre x 512`: 191.308 us
+x 512 = 97.950 ms and 197.093 us x 512 = 100.912 ms, so `dS = +2.9621 ms`, which
+is exactly the prefill regression in clause 2 and exactly `128 x 0.02314 ms`. The
+decomposition is therefore not fitted; it closes on the two reported fields.
+
+Correct attribution of the whole -1.1643% using the section-6 clause-5
+identities:
+
+| source | delta | rate | contribution to `ns` |
+| --- | --- | --- | --- |
+| prefill seed `S` | +2.9621 ms | 0.371 %/ms | **-1.099%** |
+| marginal decode `T` | +0.00563 ms | 14.862 %/ms | **-0.084%** |
+| predicted total | | | **-1.183%** |
+| measured `d_ns` | | | **-1.164%** |
+
+Residual 0.019 pp: the two mechanisms account for 98.4% of the loss.
+
+**What I got wrong, stated plainly.** I wrote "decode did not move at all" in a
+section whose purpose was to explain a decode-weighted regression. The mechanism
+of this arm is a **prefill-only** regression; 31.3% of it is billed to the decode
+axis by the score definition, and that transfer, not any decode-path change, is
+what turned a +3.02% prefill regression into a -1.16% score regression. The r2
+wording invited exactly the wrong causal reading.
+
+**Standing rule adopted from this.** Never report a `cand_dec` delta as a decode
+result. Always split it into `S/128` and marginal `T` first, using
+`cand_pre x 512` for `S`. A prefill-mechanism arm will otherwise present as a
+decode-mechanism arm, and the 0.75 weight will make it look like a much bigger
+one.
+
+### Critique 2 — profiled and unprofiled numbers are not comparable, and I pooled them
+
+Three M4 measurements of the *same* cap-200 code exist:
+
+| source | binary | steady steps | wall/step |
+| --- | --- | --- | --- |
+| r1 unprofiled ABBA (`research/nezuko-mbpb-levels.log`) | shipped | 199 | **8.876 ms** |
+| r1 profiled (`research/nezuko-mbpb-profile.log`) | GPUPROF | 199 | **8.614 ms** |
+| r2 profiled (`research/nezuko_mbpb_up_sweep.log`) | GPUPROF | 99 | **8.599 ms** |
+
+The two profiled sessions agree to **0.17%**. The profiled/unprofiled pair
+differs by **3.2%** — larger than every arm effect in this entire experiment,
+and, counter-intuitively, with the *profiled* binary faster. I do not have an
+established cause. The GPUPROF path adds a completion handler and a locked
+`fmt::format` per command buffer, which plausibly perturbs submit scheduling;
+the two numbers also come from different sessions and thermal states. Those two
+candidate causes are not separated by any data I have, and I am not going to
+guess between them.
+
+The consequence is what matters and it is not in doubt:
+
+1. A profiled arm may only ever be compared with another profiled arm from the
+   **same session and same binary**. r3's sweep is therefore one build, one
+   process recipe, one session, warm-up arm discarded.
+2. No profiled absolute time may be quoted as an M4 wall time or fed into an
+   `ns` prediction. The +1.1045 us/cb and +27.177 us/cb rates in clause 2 came
+   from the *unprofiled* r1 ABBA and stay attached to it.
+3. Counts (`cbs`, `dispatches`) are the only quantities shown to be stable
+   across the profiled/unprofiled boundary, and clause 1 rests on counts alone.
+   That is why clause 1 survived and clause 3 is on trial.
+
+Where r2 placed profiled and unprofiled numbers in adjacent tables without
+flagging it, that was an error of presentation that could have become an error
+of inference. The r3 sweep design makes it structurally impossible.
+
+## 10. Clause 3's mechanism already fails its own test (deliverable C)
+
+Clause 3's proposed mechanism — the GPU cannot start a command buffer until more
+of it is encoded — makes a sharp quantitative prediction. If the non-overlapped
+time per step is one buffer's worth of encode latency, and the total encode work
+per step `E` is set by the graph rather than by the cap, then
+
+```
+gap ~ E / n_cb        =>        gap x n_cb ~ E = constant across caps
+```
+
+On the r2 profiled upward session it is not remotely constant:
+
+| cap MB | gap ms | cb/step | `gap x n_cb` ms | `gpu_busy_union` ms | wall ms |
+| --- | --- | --- | --- | --- | --- |
+| **200** | 0.265 | 34 | **9.01** | 8.335 | **8.599** |
+| 400 | 0.673 | 19 | **12.79** | **8.181** | **8.854** |
+| 512 | 0.501 | 18 | **9.02** | 8.233 | 8.734 |
+| 1024 | 0.626 | 13 | **8.19** | 8.248 | 8.874 |
+| 2048 | 0.644 | 9 | **5.77** | 8.271 | 8.915 |
+
+The product spans 5.77 to 12.79 ms, a factor of **2.2**, and it is
+**non-monotone**: it rises from 200 to 400, then falls through 2048. A constant-`E`
+law is rejected by its own data. So even in the region where the gap ranks the
+caps correctly, the reason I gave for *why* it does is wrong. The direction of
+the gap and the mechanism I attached to it are separate claims, and r2 shipped
+them as one.
+
+### The 400 MB anomaly, unexplained
+
+400 MB is the worst arm by wall time (8.854 ms) while simultaneously holding the
+**lowest `gpu_busy_union` of any cap measured** (8.181 ms, below the 8.335 ms of
+the winning 200). It also has the largest gap (0.673 ms) and the largest
+`gap x n_cb` (12.79 ms), and it is not on a monotone path to either neighbour:
+512 has *fewer* buffers (18 vs 19) and a *smaller* gap (0.501 vs 0.673).
+
+I cannot account for this. Options I can neither confirm nor exclude from the
+data I have: a single-replicate outlier (n = 1 per level in that session); an
+allocator or residency effect at the 400 MB block size specifically, which would
+be consistent with `mlx_peak_gb` stepping from 36.39 at 200 to 36.88-36.94 at
+every cap above it; or a scheduling interaction that shortens total GPU work
+while lengthening its critical path. Recording it as open is the honest position,
+and it is a second, independent reason not to promote clause 3 on r2's evidence:
+the arm that most strongly drives "the gap ranks caps correctly" is also the arm
+I understand least.
+
+### The named discriminator
+
+The measurement that separates the two live explanations is the
+**per-command-buffer GPU idle-interval distribution** — the set
+`{start[i+1] - end[i]}` over consecutive command buffers inside the steady decode
+window, not merely its sum, which is all `gap` reports.
+
+| explanation | prediction on the distribution |
+| --- | --- |
+| `H_encode` (clause 3): every boundary waits on encode | extra idle is **spread**: mean idle per boundary rises with cap, top-decile share of total idle stays roughly flat |
+| `H_stall`: a few long stalls not tied to boundaries | mean idle per boundary may even **fall**, while top-decile and top-percentile shares of total idle rise sharply and `max` idle grows super-linearly |
+
+`H_encode` additionally requires `gap x n_cb` to be flat, which the table above
+rejects, so the prior favours `H_stall` or a mixture. This is free to run:
+`DARKBLOOM_GPU_PROFILE=1` already emits one GPUPROF record per command buffer
+with GPU start and end on the mach absolute epoch, and the r2 upward session's
+worker stderr files are still on disk. `research/nezuko_cb_idle.py` computes it;
+results are in section 11. Only *inter*-buffer idle is observable at `SPLIT=0`;
+intra-buffer idle would need `SPLIT=1`, which inflates absolute time and is
+attribution-only.
+
