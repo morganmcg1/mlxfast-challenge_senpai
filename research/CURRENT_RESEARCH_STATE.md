@@ -1,14 +1,17 @@
 # SENPAI Research State
-- 2026-08-05T23:25:00Z (updated by advisor session — fresh campaign coordination)
-- **ALL 4 STUDENTS REBASED TO 8130379** — fresh assignments dispatched:
-  - Edward (PR #70, NEW): Eliminate redundant top-8 extraction in R1 gate/up kernel.
+- 2026-08-05T13:46:52Z (updated by advisor session — campaign coordination)
+- **SCORE GAP**: Current 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
+- **FRONTIER**: 8130379 (includes 4058d0b submission that scored 2.5459 on M5)
+- **ALL 4 STUDENTS ASSIGNED** — no code pushed yet on current arms. All need rebase to 8130379:
+  - Edward (PR #70): Eliminate redundant top-8 extraction in R1 gate/up kernel.
     EST 2-4% decode, LOW risk. The single largest unexploited inefficiency.
+    Replaces bitonic prelude (~200 ALU ops/tg) with direct index read.
   - Thorfinn (PR #50): Merge shared + routed gate/up QMV dispatch.
     EST 1-2% decode, eliminates 39 dispatches/step. `mergedSharedActivated` at L10248.
   - Alphonse (PR #51): Fuse final RMSNorm into LM-head coarse kernel.
     EST 0.36% decode, eliminates 1 dispatch/step. Zero numerical risk.
   - Askeladd (PR #52): Prefill MoE retile variant 5→4 switch (revision).
-    Prefill (25% weight). +17.47% kernel-level on _nax path.
+    Prefill (25% weight). +17.47% kernel-level on _nax path. M5-only validation needed.
 - **Edward's FMA dequant MERGED** ✅ (commit 2268af4 on advisor branch).
   Now part of base 8130379. No longer a separate experiment.
 - **NEXT WAVE PRIORITY**: g_proj fusion into norm+QKV kernel (eliminates 40 dispatches/step,
@@ -394,22 +397,77 @@ AsType audit is a **non-issue** for our codebase. Downgraded from high priority.
 - Coarse + stage1 cannot merge because coarse outputs must materialize for the exact pass.
 - **Verdict**: LM-head dispatch consolidation is a dead end. Alphonse was correctly redirected to norm+QKV fusion.
 
+## Norm+NVFP4 QKV Fusion Analysis (2026-08-05T13:47Z)
+
+### Key Finding: NVFP4 QKV Path Has NO RMSNorm Fusion
+
+The existing `lagunaNormAffineQKV` kernel fuses RMSNorm + INT8 GEMV into one dispatch,
+but it ONLY fires when `fusedAffine.mode == .affine && fusedAffine.bits == 8 && 
+fusedAffine.groupSize == 32`. The current frontier uses NVFP4 for QKV on ALL 40 layers
+(`DARKBLOOM_NATIVE_AFFINE_NVFP4_FROM` defaults to 0 → all NVFP4), so `foldGateIntoBank = FALSE`
+and the fused norm+QKV kernel NEVER fires.
+
+**Current decode path per attention layer (40 layers, all NVFP4 QKV):**
+1. **RMSNorm dispatch** → `inputNorm(input)` → normalized [1,1,2048] BF16 (separate dispatch)
+2. **NVFP4 QKV GEMV** → `lagunaDecodeNVFP4QKVR1(normalized, fusedAffine, heads)` (separate dispatch)
+3. **INT8 Gate GEMV + softplus** → `lagunaGateSoftplus(normalized, affineGate, heads)` (separate dispatch)
+4. Fused SDPA + KV cache write
+5. Fused gated O-proj
+
+Dispatches 1+2+3 are THREE separate dispatches that all consume the SAME `normalized` vector.
+Only 1 (RMSNorm) is needed — the other two read the normalized vector from DRAM.
+
+### Proposed Fusion: RMSNorm + NVFP4 QKV (+ optional Gate)
+
+**Step 1 — Fuse RMSNorm + NVFP4 QKV (save 40 dispatches/step, ~5.3% decode)**
+Create `lagunaNormNVFP4QKV` kernel that:
+- Computes RMSNorm inline from residual + norm_weight (from `lagunaNormAffineQKVBody` prologue)
+- Does NVFP4 QKV GEMV using `laguna_tail_nvfp4_qdot` (from `lagunaDecodeNVFP4QKVR1Source` body)
+- Connected via inline normalization (same pattern as existing INT8 inline variant)
+- Grid: (rows/2 × 64, 1, 1), ThreadGroup: (64, 1, 1) — matches existing NVFP4 kernel
+- Bit-identical: norm produces same BF16 intermediate, NVFP4 dequant functions are shared
+
+**Step 2 — Also fuse INT8 Gate + softplus (save another 40 dispatches/step, ~5.3% decode)**
+Extend kernel to include gate rows:
+- Grid: ((rows/2 + heads/2) × 64, 1, 1)
+- Gate threadgroups use INT8 dequant + softplus (from `lagunaGateSoftplusSource`)
+- More complex: mixed dequant formats in one kernel
+
+**Combined: Steps 1+2 eliminate 80 dispatches/step ≈ 10.7% decode improvement**
+Score impact: (1.107)^0.75 = 1.079 → ~7.9% score improvement
+Projected: 2.5459 × 1.079 = 2.748 — FAR above 2.5523 target
+
+**Byte budget**: LagunaRuntimeModel.swift is 508,548/524,288 bytes (15,740 bytes headroom).
+New kernel source ~1.5-2KB — should fit within per-file cap.
+Total editable surface: 2,965,156/3,000,000 (34,844 bytes headroom).
+
+**Risk**: MEDIUM. Requires new Metal kernel with NVFP4 dequant + inline RMSNorm.
+Correctness verified by: norm+QKV INT8 kernel already proves inline RMSNorm is bit-identical;
+NVFP4 dequant functions are shared from `lagunaTailNVFP4QMVHeader`. M4-testable (decode path).
+Gate behind `DARKBLOOM_FUSED_NORM_NVFP4_QKV` env var (default ON, A/B testable).
+
+**Model geometry for kernel sizing:**
+- Sliding layers (30): QKV rows = (64 + 2×8) × 128 = 10240, Gate rows = 64
+- Full-attention layers (10): QKV rows = (48 + 2×8) × 128 = 8192, Gate rows = 48
+
 ## Potential Next Research Directions
 
 ### Currently Assigned (In-Flight)
-- **MoE down kernel outputs_per_simd 1→2** (Edward, PR #49): ✅ MERGED.
-  New frontier BASE_SHA: da9ee49. Preparing official M5 submission.
-- **Merge shared + routed gate/up QMV** (ASSIGNED to Thorfinn, PR #50): fill the
+- **Top-8 elimination in R1 gate/up kernel** (Edward, PR #70): Replaces bitonic
+  prelude with direct index read. EST 2-4% decode, LOW risk. Needs branch push.
+- **Merge shared + routed gate/up QMV** (Thorfinn, PR #50): Fill the
   `mergedSharedActivated` gap at L10248. Eliminates 39 dispatches/step. +6.6-7.6% decode.
-  Re-baseline against da9ee49.
-- **Norm+QKV fusion coverage extension** (ASSIGNED to Alphonse, PR #51): extend
-  `lagunaNormAffineQKV` to cover INT8 layers. Save 40 dispatches/step.
-  Re-baseline against da9ee49.
-- **Prefill MoE _nax variant 5→4 switch** (ASSIGNED to Askeladd, PR #52 revision):
+- **Fuse final RMSNorm into LM-head coarse** (Alphonse, PR #51): EST 0.36% decode,
+  1 dispatch/step. Zero numerical risk.
+- **Prefill MoE _nax variant 5→4 switch** (Askeladd, PR #52 revision):
   WN=2, 256 thr/TG. Needs M5 validation. +17.47% kernel-level.
-  Re-baseline against da9ee49.
 
 ### High-Priority Next Experiments
+- **Fuse RMSNorm + NVFP4 QKV into one dispatch** (STRONGEST): Create
+  `lagunaNormNVFP4QKV` kernel combining RMSNorm prologue from `lagunaNormAffineQKVBody`
+  with NVFP4 GEMV body from `lagunaDecodeNVFP4QKVR1Source`. Eliminates 40 RMSNorm
+  dispatches/step (~5.3% decode). Optionally also fuse INT8 gate+softplus for another
+  40 dispatches (~10.7% decode total). See detailed analysis above. MEDIUM risk, M4-testable.
 - **FMA-optimized dequant inner loop**: Rearrange NVFP4 dequant to use FMA.
   `fma(nibble, scale*x, bias*x)` instead of `(nibble*scale+bias)*x`. +12% on dequant.
   Applies to our custom MoE QMV kernels. Must verify bit-exactness on M5.
