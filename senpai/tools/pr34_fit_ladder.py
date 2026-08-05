@@ -25,8 +25,35 @@ PRED = {  # pre-registered point predictions, ms
     "H_cpu": {0: 0.0, 400: 0.0, 800: 0.0, 1600: 0.91, 2400: 2.73},
 }
 STEP_MS = 5.087  # promoted M5 frontier decode step
+# Measured full ms/token of the n=0 anchor c3ce66ec: T + S/128.
+# score = decode_su**0.75 * prefill_su**0.25 and decode_su = bD / D_CAND_MS,
+# so a saving of dT ms on a decode-only change is
+#   d ln score = 0.75 * dT / D_CAND_MS.
+# Reporting dT as a fraction of the step alone understates score by 1/0.75
+# and invites confusing the two, so print both.
+D_CAND_MS = 4.28121 + 97.9496 / 128.0
+SCORE_PCT_PER_MS = 0.75 / D_CAND_MS * 100.0
 SHIPPED = 406  # dispatches per shipped decode step
 ACTION_MS = 0.1  # pre-registered fusion action threshold
+
+
+def verdicts(c_us, slack_ms):
+    print(f"\nscore conversion: 1 ms of decode saving = "
+          f"{SCORE_PCT_PER_MS:.4f}% of score "
+          f"(0.75 / {D_CAND_MS:.6f} ms full decode ms/token)")
+    print(f"the pre-registered {ACTION_MS} ms threshold is therefore "
+          f"{ACTION_MS * SCORE_PCT_PER_MS:.2f}% of score")
+    print(f"\nfusion verdicts at c = {c_us:.3f} us, slack = {slack_ms:.3f} ms:")
+    print(f"{'removed':>10}{'dT ms':>10}{'% of step':>11}{'% of score':>12}"
+          f"{'verdict':>12}")
+    ks = [(k, str(k)) for k in (40, 100, 200, 400)]
+    ks += [(round(SHIPPED * f), f"{int(f * 100)}% ({round(SHIPPED * f)})")
+           for f in (0.10, 0.25, 0.50)]
+    for k, label in ks:
+        gain = max(0.0, k * c_us / 1000.0 - max(0.0, slack_ms))
+        print(f"{label:>10}{gain:>10.4f}{gain / STEP_MS * 100.0:>11.2f}"
+              f"{gain * SCORE_PCT_PER_MS:>12.2f}"
+              f"{'PURSUE' if gain > ACTION_MS else 'below thr':>12}")
 
 
 def axes(metrics: dict, prefix: str = "") -> tuple[float, float]:
@@ -129,6 +156,14 @@ def main() -> int:
     if not f:
         print("\nno monotone segmented fit with two points above a knee: "
               "report the raw points per the pre-registered fallback")
+        above = [(n, d) for n, d in points if n > 0 and d > 0]
+        if len(above) == 1:
+            n, d = above[0]
+            print(f"\nsingle non-zero point: c and the knee are not separately\n"
+                  f"identified. Pricing below assumes knee = 0, which makes c\n"
+                  f"an UPPER bound on the slope and the saving an upper bound\n"
+                  f"too: any knee > 0 raises c but removes value below it.")
+            verdicts(d / n * 1000.0, 0.0)
         return 0
     print(f"\nfit: c = {f['c_us']:.3f} us/dispatch, knee = {f['knee']:.0f} "
           f"dispatches [{f['knee_lo']:.0f}, {f['knee_hi']:.0f}], "
@@ -140,17 +175,7 @@ def main() -> int:
     print(f"shipped {SHIPPED} dispatches sit {margin:+.0f} dispatches from the "
           f"knee ({SHIPPED / (SHIPPED + max(0.0, margin)) * 100:.1f}% of the way)")
 
-    print(f"\nfusion verdicts at the pre-registered {ACTION_MS} ms threshold:")
-    for k in (40, 100, 200, 400):
-        gain = k * f["c_us"] / 1000.0 - max(0.0, f["slack_ms"])
-        pct = max(0.0, gain) / STEP_MS * 100.0
-        print(f"  remove {k:>4} dispatches: {max(0.0, gain):.3f} ms "
-              f"({pct:.2f}% of the {STEP_MS} ms step) -> "
-              f"{'PURSUE' if gain > ACTION_MS else 'not worth it'}")
-    for frac, label in ((0.10, "10%"), (0.25, "25%"), (0.50, "50%")):
-        k = round(SHIPPED * frac)
-        gain = k * f["c_us"] / 1000.0 - max(0.0, f["slack_ms"])
-        print(f"  {label} of the shipped count ({k}): {max(0.0, gain):.3f} ms")
+    verdicts(f["c_us"], f["slack_ms"])
     return 0
 
 

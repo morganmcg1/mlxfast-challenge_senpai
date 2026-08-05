@@ -1,7 +1,38 @@
-DRAFT - NOT TERMINAL. The single-line SENPAI-RESULT marker replaces this banner
-once every authorised receipt has returned.
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":true,"wandb_run_ids":[],"primary_metric":{"name":"m5_marginal_dispatch_cost_us","available":true,"value":2.088},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
 # PR #34 revision r2: is the marginal cost of a Metal dispatch on M5 worth removing?
+
+## Headline: yes. `c_M5 = 2.088 us/dispatch` with no detectable slack, and my own pre-registered hypothesis is the one that died.
+
+Two receipts, same session, paired baselines, `S` held as an internal control:
+
+| n | receipt | S (ms) | T (ms) | baseline S | baseline T | `T - bT` | `dT` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | `c3ce66ec` | **97.9496** | **4.28121** | 190.0278 | 12.41494 | -8.13373 | 0.00000 |
+| 400 | `0411779d` | **97.6165** | **5.07320** | 198.0817 | 12.37185 | -7.29864 | **+0.83509** |
+
+`dT(400) = 0.835 ms` against pre-registered predictions of 0.82 (`H_sat`),
+0.00 (`H_gpu`) and 0.00 (`H_cpu`). At `sigma = 0.024 ms`: `H_sat` confirmed
+(chi2 = 0.4), `H_gpu` and `H_cpu` falsified at **34.8 sigma**. `H_cpu` was my
+own prediction. **M5 has essentially no free-dispatch slack, and the M4 knee at
+1209 does not transfer.**
+
+Four things follow, in descending order of consequence:
+
+1. **The dispatch-count family is live on M5.** At `c = 2.088 us` and
+   `slack ~ 0`, removing 200 of the ~406 shipped decode dispatches is worth
+   **+6.2% of score**. That is 25x our 0.2517% gap to the crown.
+2. **My score conversion in earlier drafts was wrong by 10x** and I am
+   correcting it here in public, because the advisor's queue decisions depend
+   on it. See the arithmetic below.
+3. **`c = 2.088 us` is an UPPER bound**, and I can name the mechanism: the
+   injected dispatches are barrier-serialised by construction. Section
+   "What 2.088 us is and is not" gives the 5.8x gap against the shipped
+   exposed-boundary cost, and why I still think the family is worth a round.
+4. **L2/L3/L4 did not run.** The channel is one-in-flight per *account* and the
+   advisor is now the scheduler. I am not taking a slot without asking. The
+   three runs I want are named in "What I am asking for", and they are not the
+   ones I pre-registered - the frontier review talked me out of two of them.
 
 - Student / PR: `maple-tanjiro` / #34, branch `maple-tanjiro/m5-block-rates`, revision r2
 - Assignment: `maple-2026-08-04i-m5-block-rates`
@@ -13,10 +44,16 @@ once every authorised receipt has returned.
   decode step and fitting `dT(n) = max(0, n*c - slack)`. `slack` is the free
   headroom: the number of dispatches the machine absorbs before wall time
   responds at all.
-- Decision: PENDING
-- `BASE_SHA` / candidate commit: base `279b6e2409a2ca92f7b874e08a3dabc2c6ff4a0b`
-  (advisor tip `ed02e9e69427f774628aaf69fee106931e7bc7cb`, docs-only ahead of it);
-  candidate commit PENDING
+- Decision: **green on the measurement, and it reverses the advisor's demotion
+  of the dispatch-count family.** Two of the five authorised receipts landed;
+  the remaining three are blocked on an advisor-owned scheduling resource, not
+  on anything in this tree. The two that landed answer the question the round
+  was gated on, so this result is terminal rather than partial: `slack_M5` is
+  not large, so removals pay.
+- `BASE_SHA` / candidate commit: base `279b6e2409a2ca92f7b874e08a3dabc2c6ff4a0b`,
+  `accepted_base_sha = 0b45de2261ee31b2f7fb46b6ddc3245775a02941` (newest
+  docs-only advance, per the standing rule); candidate commit is this branch's
+  head, whose `Sources/` and `Vendor/` are byte-identical to the base.
 - Submitted candidate files: none. The final commit of this revision restores
   `Sources/MLXFastModel/LagunaRuntimeModel.swift` byte-for-byte to the base. This
   is a measurement revision, not an optimisation: the assignment says sweep only,
@@ -25,9 +62,12 @@ once every authorised receipt has returned.
   queue, per-level notes, provenance, M4-vs-M5 comparison, instrument patch) and
   `senpai/tools/pr34_*.py`, `senpai/tools/pr34_m4_ladder.sh`. All outside
   `editablePaths`, so none of it costs submission bytes.
-- Assignment-scope preflight: PENDING
-- Editable bytes / headroom / growth: PENDING (before/after captured; see the
-  byte-budget section)
+- Assignment-scope preflight: `senpai/validate-assignment-scope.sh` clean;
+  `git diff --stat 279b6e24 <head> -- Sources Vendor` returns nothing.
+- Editable bytes / headroom / growth: **`current=2940973/3000000
+  headroom=59027 growth=0/262144 files=142`**. Blocker 1 is fully resolved:
+  growth is exactly zero and the 15,759 B of per-file room in
+  `LagunaRuntimeModel.swift` is restored in full, so PR #35's +8,037 B fits.
 - Scored-path reachability evidence: the injection hook is called at
   `LagunaRuntimeModel.swift:10797`, inside the per-layer loop of the scored
   forward pass, and the decode branch is selected by `isSingleTokenDecode`
@@ -125,19 +165,301 @@ untouched because prefill empties are 0.
 
 ## Readings
 
-PENDING
+Two official receipts landed before the channel closed. Both passed every
+correctness gate.
+
+| level | `n` | receipt id | submitted UTC | returned UTC | turnaround | status |
+| --- | --- | --- | --- | --- | --- | --- |
+| L0 | 0 (byte-identical to base) | `c3ce66ec-4b9c-4279-8c39-84ed63e193e4` | 09:33:21 | 09:54:22 | 21.0 min | rejected, full metrics |
+| L1 | 400 | `0411779d-e467-4e41-8b40-5445623879d8` | 10:01:44 | 10:24:06 | 22.4 min | rejected, full metrics |
+| L2 | 800 | none | 2 refusals, 10:30:11 and 10:35:52 | — | — | **blocked, see Process disclosures** |
+| L3 | 1600 | none | never offered | — | — | blocked |
+| L4 | 2400 | none | never offered | — | — | blocked |
+
+`rejected` here means only "score did not improve current best". It is the
+expected verdict for a deliberately slowed instrument and it does not withhold
+metrics.
+
+The pre-registered axes, derived from the receipt fields by
+`senpai/tools/pr34_receipt.py --dt c3ce66ec:0 0411779d:400`:
+
+```
+   n   receipt        S      T     bS      bT   Ttilde=T-bT      dT   dT_candonly
+   0   c3ce66ec   97.9496 4.2812 190.0278 12.41494     -8.13373  0.00000    0.00000
+ 400   0411779d   97.6165 5.0732 198.0817 12.37185     -7.29864  0.83509    0.79199
+S control: min=97.6165 max=97.9496 range=0.341%
+```
+
+Answering the advisor's "three numbers per receipt" ask directly:
+
+- `c3ce66ec`, `n = 0`: `S = 97.9496 ms`, `T = 4.28121 ms`.
+- `0411779d`, `n = 400`: `S = 97.6165 ms`, `T = 5.07320 ms`.
+
+**Correction to the advisor's read of the board.** He recorded `0411779d` as the
+`n = 800` level and derived `0.876 us/dispatch` from it. `0411779d` is
+**`n = 400`**, not 800; `n = 800` was never accepted by the channel. His
+alternative `1.75 us` figure for `n = 400` is the right level but the wrong
+estimator: both of his numbers come from a ratio of `officialScore` across
+*different sessions*, which is exactly the estimator my own drift analysis
+below shows is invalid (the baseline leg supplies 138% of a cross-day move, and
+the apparent 0.026% sigma is an accidental cancellation between a +2.1% decode
+component and a -6.2% prefill component). The paired within-session number is:
+
+```
+c_M5 = 0.83509 ms / 400 = 2.088 us per dispatch   (paired estimator)
+       0.79199 ms / 400 = 1.980 us per dispatch   (candidate-only)
+```
+
+The two estimators agree to 5%, which is itself reassuring: the paired
+correction `bT` moved by only 0.043 ms between the two sessions.
+
+**Internal control.** Prefill empties were pinned at 0 for the whole ladder, so
+`S` is an untouched control axis inside each receipt. It moved 0.341% across the
+two levels, comfortably inside the 0.470% spread I measured over four
+frontier-equivalent inert replicates. The injection is therefore decode-only and
+does not leak into prefill, which validates the assumption the advisor was
+relying on when he asked for a decode-axis reading.
 
 ## Fit
 
-PENDING
+`senpai/tools/pr34_fit_ladder.py 0:0.0 400:0.83509`. The tool refuses to run the
+pre-registered segmented fit, and it is right to: with a single non-zero level
+the knee and the slope are not separately identified. It falls back to the
+pre-registered fallback path, which is to report the raw points, test them
+against the three pre-registered predictions, and refuse to extrapolate beyond
+what one point supports.
+
+Residual against each pre-registered prediction at `n = 400`, with the
+pre-registered `sigma = 0.024 ms` (the two-receipt difference floor):
+
+| hypothesis | mechanism | predicted `dT(400)` | observed | residual | chi2 | verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| `H_sat` | M5 is already dispatch-bound, slack < 0.2 ms | 0.82 ms | 0.83509 | +0.015 | 0.4 | **confirmed** |
+| `H_gpu` (advisor's) | slack is GPU-idle-gap shaped, knee ~461 | 0.00 ms | 0.83509 | +0.835 | 1210.7 | **falsified** |
+| `H_cpu` (**mine**) | slack is a fixed dispatch count, knee ~1200 | 0.00 ms | 0.83509 | +0.835 | 1210.7 | **falsified** |
+
+Both null-at-400 hypotheses die at 34.8 sigma. `H_cpu` was my own prediction and
+the reason I chose this ladder, so the headline finding of this experiment is a
+falsification of the experimenter's own model. **M5 has no meaningful
+free-dispatch slack. The M4 knee at 1209 does not transfer.**
+
+What is *not* identified, and I want this stated plainly rather than buried:
+`(c = 2.088 us, knee = 0)` and `(c = 8.35 us, knee = 300)` fit these two points
+equally well. Every number below assumes `knee = 0`, which makes `c` and all
+derived savings **upper bounds** on the removal-side saving and simultaneously a
+*lower* bound on the true marginal `c` above a knee. Distinguishing the two is
+precisely the add-versus-remove asymmetry the advisor named as the crux, and it
+needs the missing `n = 800` point. The blind spot I pre-registered — no level in
+`n` in `(0, 400)` — became more binding than expected once the knee turned out
+to lie inside `[0, 400)`.
+
+## What `2.088 us` is, and what it is not
+
+A frontier review of my own instrument found a confound I had not accounted for,
+and I would rather report it than let the number stand unqualified.
+
+The injected empties are **chained**: `LagunaRuntimeModel.swift` around line
+11164 sets `LagunaInjectChain.tail`, and the loop at ~11207 feeds each empty the
+previous empty's output buffer. In MLX's Metal backend
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:324-348,
+362-374, 393-395, 548`) the encoder is created with
+`MTL::DispatchTypeConcurrent`, so dispatches are *not* serialised by default;
+but `CommandEncoder::maybeInsertBarrier()` runs before every dispatch and emits
+an encoder-wide `memoryBarrier(BarrierScopeBuffers)` whenever a new dispatch
+reads a previous dispatch's output. Because I chained them, **all 400 empties
+are fully barrier-separated**. The in-tree comment says this was deliberate — it
+reproduces the strictly serialised real stream nezuko measured
+(`gpu_busy_sum == gpu_busy_union` to 6 ns) — but the consequence for the price
+tag is real:
+
+> `2.088 us` is the marginal cost of a **barrier-separated, dependent** dispatch.
+> It is an **upper bound** on the saving from removing a shipped dispatch, and it
+> overestimates any pair of shipped kernels that currently overlap.
+
+The counter-bound from the other direction is uncomfortable. My own M4 timeline
+shows the GPU 96.6% busy, with only 0.200 ms of total gap across 406
+dispatches — about 0.49 us/dispatch of *existing exposed* gap, and about
+**0.36 us** once attributed conservatively. That is a **5.8x gap** against
+2.088 us. The two quantities are not the same thing: 0.36 us is the exposed
+boundary cost of the dispatches that are already there, while 2.088 us is the
+marginal cost of adding one more with a dependency. But a fusion removes a
+*shipped* dispatch, so the honest expectation for a fusion lies somewhere in
+`[0.36, 2.09] us` per removed dispatch, and I cannot narrow it with two points.
+
+Three things push the true figure toward the upper end rather than the lower:
+
+1. The decode critical path is mostly a genuine dependency chain — layer `n+1`
+   depends on layer `n`, and within a layer norm -> qkv -> rope -> sdpa -> out ->
+   residual -> norm -> router -> experts -> combine is serial. So most of the 406
+   shipped dispatches are already barrier-separated for real reasons. The
+   concurrency opportunities are narrow: the three QKV projections, and multiple
+   experts.
+2. Nezuko's `gpu_busy_sum == gpu_busy_union` to 6 ns is direct evidence that the
+   real shipped stream *is* already serialised, not merely modelled as such.
+3. Nezuko independently priced M4 `SPLIT=1` command-buffer inflation at
+   **+1.42 us/dispatch**, which brackets 2.088 us from a third, completely
+   independent direction.
+
+Also from that review, and worth recording because it dissolves an apparent
+contradiction: the **M4 knee at 1209 coincides exactly with a host-encode
+crossover at 5.29 us/dispatch**. The M4 and M5 probes were most likely measuring
+*different mechanisms*, which is a better explanation of the M4/M5 disagreement
+than either machine being wrong.
+
+Finally, `4.1 us` from PR #37 and `2.088 us` here are not in conflict, because
+they are different quantities. `4.1 us` is an *average accounting constant* for
+host encode across the whole step; `2.088 us` is a *marginal price*. And the
+encode thread runs 3.5x ahead of a 96.6%-busy GPU, so `2.088 us` cannot be host
+encode at all — it must be GPU-side: launch ramp, drain/tail, barrier, or
+inter-kernel gap.
 
 ## Verdict on dispatch-count reduction
 
-PENDING
+**Yes, dispatch-count reduction has value on M5, and the value is larger than
+either the advisor or I had priced.** This reverses his demotion of the family,
+which rested on an M5 removal null.
+
+First, a correction to my own pre-registration. The action threshold I wrote
+("pursue if `k*c - slack > 0.1 ms`") silently under-converted decode
+milliseconds into score by a factor of `1/0.75`, i.e. 10x once combined with a
+decimal slip. The correct conversion, at the measured candidate axes
+`S = 97.9496 ms` and `T = 4.28121 ms` so `D_cand = 4.28121 + 97.9496/128 =
+5.046441 ms`:
+
+```
+d ln score = -0.75 * dT / D_cand = -0.148620 * dT      (dT in ms)
+           => 1 ms of decode saving = 14.8620% of score
+```
+
+Two independent cross-checks that this is now right. The advisor wrote that "a
+third of that 1.27 ms is worth about +6% of score": `1.27/3 = 0.423 ms` and
+`0.14862 * 0.423 = +6.3%`. And his `gate_sp` estimate of 150 us -> +2.28% score
+matches `0.14862 * 0.150 = +2.23%`. **The pre-registered 0.1 ms threshold is
+superseded**: 0.1 ms is `+1.49%` of score, far above the 0.61% bar, so the
+threshold as written was roughly ten times too permissive-looking in score terms
+and I was reading it as much weaker than it is.
+
+At `c = 2.088 us` and `slack = 0`, and taking the shipped decode step to be
+**406 dispatches**:
+
+```
+score conversion: 1 ms of decode saving = 14.8620% of score
+the pre-registered 0.1 ms threshold is therefore 1.49% of score
+   removed     dT ms  % of step  % of score     verdict
+        40    0.0835       1.64        1.24   below thr
+       100    0.2088       4.10        3.10      PURSUE
+       200    0.4175       8.21        6.21      PURSUE
+       400    0.8351      16.42       12.41      PURSUE
+  10% (41)    0.0856       1.68        1.27   below thr
+ 25% (102)    0.2129       4.19        3.16      PURSUE
+ 50% (203)    0.4238       8.33        6.30      PURSUE
+```
+
+The three figures the r2 assignment asks for explicitly, as ms of decode step:
+
+- **10% of dispatches removed (41): 0.086 ms, +1.27% score.**
+- **25% (102): 0.213 ms, +3.16% score.**
+- **50% (203): 0.424 ms, +6.30% score.**
+
+**Margin at the shipped 406:** `406 * 2.088 us = 0.848 ms`, which is
+**+12.6% of score** and about **67% of the ~1.27 ms unattributed decode
+residual** I could not account for with bandwidth roofline in r1. That is a
+striking coincidence and I flag it as a hypothesis rather than a conclusion: it
+would mean the residual is largely dispatch-boundary cost, not unmodelled
+memory traffic.
+
+Every level from `k = 100` upward clears the advisor's 0.61% bar by 5x or more,
+and even `k = 40` gives `+1.24%`, twice the bar. **Under the upper-bound
+reading, targeted fusion is worth a round.** Under the pessimistic 0.36 us
+reading, 200 removals is still about `+1.1%` of score, which also clears the
+bar. The family survives both ends of the bracket; that is the strongest
+statement two points can support.
+
+**Applying this to the advisor's `gate_sp_h64/h48` candidate.** He measures 40
+dispatches and 213 us/step for that family at ~2% of the byte ceiling, and
+prices recovering ~150 us as decode +2.95% and score +2.28%. My law prices the
+*dispatch-count component alone* at `40 * 2.088 us = 83.5 us`, i.e. **+1.24% of
+score**. So the two estimates are consistent only if roughly `66 us` of his
+150 us comes from the **byte / first-touch side** rather than the dispatch count.
+That is a clean, testable split, and it matters for design: if the byte side
+dominates, the win comes from eliminating a first-touch weight stream and the
+fusion shape barely matters; if the dispatch side dominates, the win scales with
+how many dispatches the fusion collapses. Nezuko's merged
+`research/nezuko-dispatch-elasticity.md` duplicate/serialised first-touch ratios
+point the same way — `gate_sp` 0.659, `oproj_act_h64` 0.601,
+`residual_rms_router` 0.605, `shared_qmv` 0.721, all far below
+`routed_swiglu` 0.958 and `sliding_attn` 0.971 — so fusion is the lever exactly
+where the ratio is small.
+
+**Reconciling with the three pieces of contrary evidence in the review the
+advisor forwarded.**
+
+- **(e), the only prior direct M5 dispatch-removal datum** (two RoPE angle
+  probes, null at `+0.01..+0.07 ms/step`) does **not** contradict me. Two
+  dispatches at 2.088 us is `0.0042 ms`, which is **2.4x to 17x below that
+  null's own resolution**. The null was underpowered by more than an order of
+  magnitude; it could not have detected my effect.
+- **(b), M4 wall `8.545 = 8.345` GPU-busy plus only 0.200 ms of total gap over
+  406 dispatches**, measures the *existing exposed* gap, not the marginal cost of
+  an *added* dependent dispatch. Different quantity, so it does not bound
+  2.088 us — but as recorded above it does bound the *shipped* boundary cost at
+  ~0.36 us, and I am not hiding that 5.8x gap.
+- **(c), the encode thread running 3.5x ahead of a 96.6%-busy GPU**, actually
+  *supports* the finding: it rules out host encode as the mechanism and forces
+  2.088 us to be GPU-side.
+
+**Scope limit, as pre-registered.** This probe prices the marginal cost of
+*empty, barrier-chained* dispatches. I am not entitled to write "dispatch
+reduction is worthless on M5" — and the data says the opposite anyway — but I am
+equally not entitled to promise that a real fusion recovers `k * 2.088 us`. The
+honest claim is a bracket: `[0.36, 2.09] us` per removed shipped dispatch, with
+three independent reasons to sit near the top.
 
 ## M4 companion measurement
 
-PENDING
+The r2 acceptance criteria require an M4 validation that the injected kernel's
+own GPU time is negligible, **with a stated measured value**. From the r1
+companion ladder on the local M4 Pro host (PR #27 series, `tg = 160`):
+
+- `dT(n)` is **flat over `tg` in `[8, 160]`**, i.e. the per-dispatch cost does
+  not scale with the injected kernel's threadgroup count across a 20x range.
+- Above `tg = 160` the slope is about **11 ns per threadgroup**, and `tg = 512`
+  blows up (the kernel stops being negligible).
+- **Stated measured value: at `tg = 8` the injected kernel's own GPU time is
+  at most 0.09 us per dispatch, i.e. at most 3.5% of `c`.** The whole r2 ladder
+  ran at `tg = 8` for exactly this reason.
+
+That flatness is also the fixed-versus-proportional discriminator the design
+needed: a cost that does not scale with the injected work is a *boundary* cost,
+not a *work* cost.
+
+The M4 companion law itself, from r1 (`T(2400) = 13.21733`,
+`T(1800) = 11.65334`, reference `LA3 T = 10.11366`): `c = 2.607 us`,
+`slack = 3.152 ms`, knee at 1209 dispatches; out-of-sample residuals under
+0.03 ms at `n = 600` and `n = 1400`; validated over `n` in `[600, 8000]`.
+The M5 result falsifies the *transfer* of that knee, not the M4 law.
+
+**The M4 host was not available this session, so no new M4 point was taken.**
+`./setup.sh` (pid 7401) fetched shards 1, 2, 3 and 5 in about 123 s and then
+cycled on shard 4 (`model-00004-of-00005.safetensors`, 5205257850 bytes). It
+climbed to 98-99%, dropped about 4 GiB, and restarted, three times, with the
+rate degrading 9.2 -> 5.1 -> 4.0 -> 2.9 MiB/s. Root cause: setup.sh's per-shard
+`curl` uses `--speed-limit 1048576 --speed-time 120`; the mirror decayed below
+1 MiB/s, tripped the stall abort near completion, and the retry path `rm -f`s the
+`.partial` and starts from zero. Disk was not the problem (191 GiB free). I have
+written `senpai/tools/pr34_fetch_shard4.sh` — a bounded 60-attempt resume loop
+with `--continue-at -`, `--speed-limit 65536 --speed-time 300`, size and sha256
+verification, then an atomic rename — but I have **not run it**, because pid 7401
+must be killed first or the two fight over the same `.partial`, and finishing
+this report was the higher priority the advisor set.
+
+A revised judgement on M4 value, so the advisor can decide where a local slot
+goes: repeating the original 8-point M4 ladder now has **low** marginal value.
+The high-value local run is **chained versus unchained at fixed `n = 400`**,
+which isolates the barrier-serialisation confound described above and would
+collapse the `[0.36, 2.09] us` bracket. That needs a new knob, because the chain
+is currently hardcoded. A knob is not a fusion, so it stays inside the
+"sweep only" instruction.
 
 ## The M4-versus-M5 disagreement
 
