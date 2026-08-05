@@ -54,7 +54,7 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
         lock.lock()
         let isNew = seen.insert(site).inserted
         lock.unlock()
-        if isNew || site.hasPrefix("shared-swiglu-r1-dispatch") {
+        if isNew {
             FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
         }
     }
@@ -6653,9 +6653,6 @@ func lagunaSharedSwiGLUQMV(
             LagunaConstants.hiddenSize / 16,
         ])
 
-    if lagunaSharedSwiGLUQMVRows1Enabled {
-        lagunaTrace("shared-swiglu-r1-dispatch tiles=256 grid=16384 threadgroup=64")
-    }
     let kernel =
         lagunaSharedSwiGLUQMVRows1Enabled
         ? lagunaSharedSwiGLUQMVRows1Kernel
