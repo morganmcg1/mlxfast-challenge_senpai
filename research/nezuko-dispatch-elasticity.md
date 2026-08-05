@@ -114,8 +114,95 @@ This census perturbs by 200-1500 us against the same noise floor and settles it.
 
 ## Arm list (as run)
 
-Filled in with results below.
+Round 1 (`3fb91a20-3111-4185-8964-5271b16108a1`, 20 arms x 150 steps, SPLIT=0,
+901 s, exit 0): 7 interleaved `base:` arms plus 9 `skip:` arms
+(`routed_nvfp4_swiglu_qmv`, `oproj_act_h64`, `down_residual`,
+`sliding_fused_attn`, `shared_nvfp4_swiglu_qmv`, `gate_sp`, `qkv_h48`,
+`full_fused_attn`, `lmhead_int5`, `qkv_h64`) and 3 `dup:` arms
+(`residual_rms_router`, `qkv_h64`, `shared_nvfp4_swiglu_qmv`).
+
+Round 2 (`c9893c28-fe05-457b-a56b-56c84c51f8e1`, 14 arms x 150 steps, SPLIT=0):
+5 interleaved `base:` arms plus 7 `dup:` arms (`oproj_act_h64`,
+`routed_nvfp4_swiglu_qmv`, `down_residual`, `sliding_fused_attn`,
+`full_fused_attn`, `gate_sp`, `lmhead_int5`), i.e. the same families as round 1
+measured with the clean instrument only.
 
 ## Results
 
-Pending.
+### Round 1: base reference
+
+Seven interleaved base arms: wall **8548.7 +/- 34.9** us/step, GPU-busy union
+**8283.7 +/- 23.3** us, gap **264.9 +/- 16.5** us, 45.0 commits/step, 406.0
+dispatches/step. At SPLIT=0 `gpu_busy_sum == gpu_busy_union`, so no
+command-buffer overlap is being double counted. The base-to-base spread means a
+difference between two single arms carries about +/- 66 us at 2 sigma.
+
+### Round 1: drift-corrected deltas
+
+| arm | d(dispatch) | d(union) us | d(wall) us | d(gap) us | dup/skip fidelity | d(gap)/d(n) |
+|---|---:|---:|---:|---:|---:|---:|
+| `skip:routed_nvfp4_swiglu_qmv` | -39 | -1459.5 | -1505.5 | -46.0 | 1.03 | 1.18 |
+| `skip:oproj_act_h64` | -30 | -292.0 | -312.7 | -20.7 | 1.07 | 0.69 |
+| `skip:down_residual` | -40 | -394.0 | -445.3 | -51.3 | 1.13 | 1.28 |
+| `skip:sliding_fused_attn` | -30 | -480.0 | -532.5 | -52.5 | 1.11 | 1.75 |
+| `skip:shared_nvfp4_swiglu_qmv` | -39 | **+251.3** | +233.7 | -18.7 | 0.93 | 0.48 |
+| `skip:gate_sp` | -40 | -10.3 | +14.3 | +24.7 | -1.39 | -0.62 |
+| `skip:qkv_h48` | -10 | -390.3 | -390.3 | +0.0 | 1.00 | -0.00 |
+| `skip:qkv_h64` | -30 | -541.0 | -538.0 | +4.0 | 0.99 | -0.13 |
+| `skip:full_fused_attn` | -10 | **+62.3** | +60.3 | -2.0 | 0.97 | 0.20 |
+| `skip:lmhead_int5` | -1 | -293.2 | -270.8 | +22.6 | 0.92 | -22.60 |
+| `dup:residual_rms_router` | +39 | +161.6 | +184.4 | +23.2 | 1.14 | 0.59 |
+| `dup:qkv_h64` | +30 | **+1048.4** | +1086.6 | +38.8 | 1.04 | 1.29 |
+| `dup:shared_nvfp4_swiglu_qmv` | +39 | +175.2 | +202.8 | +29.4 | 1.16 | 0.75 |
+
+### Round 1: headline fits
+
+```
+d(wall) = 1.0364 * d(union) + 2.10 us    R^2 = 0.9985   rms = 22.5 us   n = 13
+d(gap)  = 0.7462 * d(n)     + 5.51 us    R^2 = 0.5083   rms = 21.4 us   n = 13
+```
+
+**Wall-clock decode time is an almost perfectly linear function of GPU-busy time
+with unit slope and a near-zero intercept, and there is no usable
+dispatch-count term.** Arms that moved the dispatch count by -40 to +39 moved
+the non-GPU-busy gap by at most ~52 us out of a 265 us base gap, while moving
+GPU-busy time by up to 1.5 ms. This is the quantitative statement that the
+recoverable decode time lives *inside* GPU-busy, not around it, and it demotes
+the host-dispatch hypothesis for this class of machine.
+
+### Round 1: instrument validity, and why `skip` is not usable
+
+Every `skip` arm produced 147-150 token divergences out of 150 steps: removing a
+kernel removes its output, so downstream kernels consume stale or garbage
+buffers and their *data-dependent* cost changes. Dispatch counts stayed exactly
+at base+d(n) in every arm, so the confound is within-kernel work only, never
+dispatch structure. Every `dup` arm produced **0 divergences**, because
+re-dispatching an idempotent kernel behind a barrier recomputes the same result.
+
+**Conclusion: `dup` is the clean instrument and `skip` deltas must be read as
+upper bounds contaminated by data-dependent downstream cost.** Round 2 therefore
+re-measures every family with `dup` only. Two `skip` arms are visibly broken by
+this confound: `skip:shared_nvfp4_swiglu_qmv` and `skip:full_fused_attn` both
+came out *positive*, i.e. removing 39 and 10 dispatches respectively made decode
+slower.
+
+### Round 1: marginal versus isolated cost
+
+The pair of arms on `qkv_h64` is the most informative single result:
+
+| instrument | d(union) us | per call us | reading |
+|---|---:|---:|---|
+| `dup:qkv_h64` (+30) | +1048.4 | 34.9 | cost when serialised behind a barrier |
+| `skip:qkv_h64` (-30) | -541.0 | 18.0 | cost recovered by deleting it |
+
+The isolated cost is about twice the marginal cost, so **roughly half of this
+family's GPU time is already overlapped with neighbouring work**. Any accounting
+that ranks optimisation targets by isolated per-call time will overstate the
+prize by up to 2x. `skip:gate_sp` is the extreme case: removing 40 dispatches
+changed union by -10 +/- 66 us, i.e. `gate_sp` is entirely latency-absorbed and
+worth nothing to optimise, despite being 40 dispatches per step.
+
+That asymmetry is the organising result of this census: families divide into
+*byte-carrying* work whose time is genuinely on the critical path, and
+*latency-absorbed* work that is already hidden. Only the first group is
+recoverable.
