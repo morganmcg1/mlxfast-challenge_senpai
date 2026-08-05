@@ -11043,7 +11043,7 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_MATMULS", 0)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 400)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 800)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
