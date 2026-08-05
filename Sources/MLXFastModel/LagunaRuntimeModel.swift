@@ -4828,14 +4828,24 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 ///   2 - every reconstructed code is biased by +1 (fires on every fitting row)
 ///   3 - every fitting-row code is forced to 0
 ///   4 - every escaped-row code is forced to 0
+///   5 - the four K-block codes in a lane's word are reversed
+///   6 - every lane reads the word 16 lanes away (`(simd_lid + 16) & 31`)
 /// 3 and 4 are the localisers: whichever one changes the output tells us which
-/// arm the dispatch actually takes.
+/// arm the dispatch actually takes. 1, 5 and 6 are the representative
+/// addressing permutations; 5 and 6 move a code across columns that are 512
+/// apart, where neighbouring-group correlation cannot mask the swap.
 private let lagunaLaneMajorFaultMode =
     Int(ProcessInfo.processInfo.environment["DARKBLOOM_LM_FAULT"] ?? "0") ?? 0
 
 private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
-    let laneIndex = lagunaLaneMajorFaultMode == 1 ? "(simd_lid ^ 1u)" : "simd_lid"
-    let nibble = "((packed >> (b << 2)) & 0x0Fu)"
+    let laneIndex: String
+    switch lagunaLaneMajorFaultMode {
+    case 1: laneIndex = "(simd_lid ^ 1u)"
+    case 6: laneIndex = "((simd_lid + 16u) & 31u)"
+    default: laneIndex = "simd_lid"
+    }
+    let shift = lagunaLaneMajorFaultMode == 5 ? "((3u - b) << 2)" : "(b << 2)"
+    let nibble = "((packed >> \(shift)) & 0x0Fu)"
     let fittingCode: String
     switch lagunaLaneMajorFaultMode {
     case 2: fittingCode = "uint8_t(row_base + \(nibble) + 1u)"
