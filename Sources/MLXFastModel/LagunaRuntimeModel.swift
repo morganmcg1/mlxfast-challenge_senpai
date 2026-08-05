@@ -6404,7 +6404,12 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     // Word `w` owns `input[8w .. 8w+7]`, exactly the indices the `8 * j` form
     // produced, so the multiply/add expressions and their association are
     // untouched.
-    func packedWordBody(_ word: Int) -> String {
+    func inputValue(_ index: Int, bf16: Bool) -> String {
+        bf16
+            ? "float(input[\(index / 4)][\(index % 4)])"
+            : "input[\(index)]"
+    }
+    func packedWordBody(_ word: Int, bf16: Bool = false) -> String {
         let codeWord = word == 0 ? "codes.x" : "codes.y"
         let base = 8 * word
         let seedOperator =
@@ -6419,15 +6424,15 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                     const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
                     const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
                     \(seedOperator)
-                        (input[\(base)] * v04.x +
-                         input[\(base + 1)] * v15.x +
-                         input[\(base + 2)] * v26.x +
-                         input[\(base + 3)] * v37.x);
+                        (\(inputValue(base, bf16: bf16)) * v04.x +
+                         \(inputValue(base + 1, bf16: bf16)) * v15.x +
+                         \(inputValue(base + 2, bf16: bf16)) * v26.x +
+                         \(inputValue(base + 3, bf16: bf16)) * v37.x);
                     accum +=
-                        (input[\(base + 4)] * v04.y +
-                         input[\(base + 5)] * v15.y +
-                         input[\(base + 6)] * v26.y +
-                         input[\(base + 7)] * v37.y);
+                        (\(inputValue(base + 4, bf16: bf16)) * v04.y +
+                         \(inputValue(base + 5, bf16: bf16)) * v15.y +
+                         \(inputValue(base + 6, bf16: bf16)) * v26.y +
+                         \(inputValue(base + 7, bf16: bf16)) * v37.y);
                 }
             """
     }
@@ -6461,6 +6466,19 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     ) {
         const device uint2* packed = (const device uint2*)weight;
         return laguna_nvfp4_qdot_codes_16(packed[0], input, scale);
+    }
+
+    static inline float laguna_nvfp4_qdot_bf16_16(
+        const device uint8_t* weight,
+        const thread vec<bfloat, 4>* input,
+        float scale
+    ) {
+        const device uint2* packed = (const device uint2*)weight;
+        const uint2 codes = packed[0];
+        \(accumDeclaration)
+    \(packedWordBody(0, bf16: true))
+    \(packedWordBody(1, bf16: true))
+        return scale * accum;
     }
     """
 }()
@@ -7589,8 +7607,8 @@ let lagunaSharedFirstDownOrderEnabled =
 
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4",
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf_bf4"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4_bf4",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7635,16 +7653,12 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             ? shared_down_scales
             : routed_down_scales + expert * scale_expert_bytes;
 
-        thread float input_values[values_per_lane];
+        thread vec<bfloat, 4> input_values[values_per_lane / 4];
         const device vec<bfloat, 4>* input_vectors =
             (const device vec<bfloat, 4>*)(
                 expert_input + lane * values_per_lane);
         for (uint i = 0; i < values_per_lane / 4; ++i) {
-            const vec<bfloat, 4> values = input_vectors[i];
-            input_values[4 * i] = values[0];
-            input_values[4 * i + 1] = values[1];
-            input_values[4 * i + 2] = values[2];
-            input_values[4 * i + 3] = values[3];
+            input_values[i] = input_vectors[i];
         }
 
         thread float result[outputs_per_simd] = {0.0f};
@@ -7654,7 +7668,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 expert_weight + output_row * packed_row_bytes + lane * 8;
             const device uint8_t* scale =
                 expert_scales + output_row * scale_row_bytes + lane;
-            result[row] = laguna_nvfp4_qdot_16(
+            result[row] = laguna_nvfp4_qdot_bf16_16(
                 weight,
                 input_values,
                 laguna_nvfp4_scale(scale[0]));
