@@ -4863,7 +4863,6 @@ private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
     thread float result = 0.0f;
 
     uint column = simd_lid * values_per_thread;
-    #pragma unroll
     for (uint k = 0; k < axis_size; k += block_size) {
         for (uint i = 0; i < values_per_thread; ++i) {
             x_thread[i] = float(normalized[column + i]);
