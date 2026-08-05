@@ -7849,10 +7849,11 @@ let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
 /// Each threadgroup computes `outputs_per_simd` output rows, amortizing the
-/// threadgroup barrier and serial reduction across multiple rows. Default ON;
-/// set `DARKBLOOM_MOE_DOWN_OPS2=0` to ablate back to 1.
+/// threadgroup barrier and serial reduction across multiple rows. Default OFF;
+/// M5 submission scored 2.502 vs 2.5167 without ops2 — threadgroup geometry
+/// sign-change across core counts. Set `DARKBLOOM_MOE_DOWN_OPS2=1` to enable.
 let lagunaMoeDownOps2Enabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_MOE_DOWN_OPS2"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_MOE_DOWN_OPS2"] == "1"
 let lagunaMoeDownOutputsPerSimd = lagunaMoeDownOps2Enabled ? 2 : 1
 
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
