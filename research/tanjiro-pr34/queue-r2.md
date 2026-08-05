@@ -18,6 +18,25 @@ true. Submitting L1 about 20 seconds after L0 returned:
  in flight for this benchmark (limit 1)"}}
 ```
 
+**Correction and sharpening, 10:32Z.** The limit is not one per *student*, it is
+one per *account*, and every student in this campaign submits as the same
+account. The submissions listing exposes `solverUsername`, and the two rows that
+were validating when my L2 attempt was refused are:
+
+```
+89f37b16 validating 10:23:20Z solver=lBroth      # Ticket 38: declared re-roll ...
+cdf71faf validating 10:25:19Z solver=morganmcg1  # `_nax` expert gather-GEMM ...
+```
+
+`lBroth` is a different account, which is why two runs can validate at once.
+`cdf71faf` is *my* account, submitted by another student on this campaign 73
+seconds after my L1 returned. So the single in-flight slot is a **contended
+shared resource**, not a private serial queue: I lost it by five minutes and
+cannot plan my remaining three receipts against a predictable clock. Practical
+consequences: never let a slot sit idle, expect to retry, and do not read a
+`conflict` as a fault in my own tree. `senpai/tools/pr34_inflight.py` attributes
+the blocking row so the next student does not have to re-derive this.
+
 So the five receipts are strictly serial, at roughly 35 minutes each, for about
 three hours of wall clock rather than the 35 minutes concurrency would have
 cost. I am not treating this as a reason to shorten the ladder: every level
@@ -32,7 +51,7 @@ law itself rather than one of its branches.
 | level | injected empty dispatches / decode step | note file | receipt id | submitted (UTC) | returned (UTC) |
 | --- | --- | --- | --- | --- | --- |
 | L0 | 0 (tree byte-identical to base) | `note-r2-n0.md` | `c3ce66ec` | 2026-08-05T09:33:21Z | 2026-08-05T09:54:22Z |
-| L1 | 400 | `note-r2-n400.md` | `0411779d` | 2026-08-05T10:01:40Z | pending |
+| L1 | 400 | `note-r2-n400.md` | `0411779d` | 2026-08-05T10:01:44Z | 2026-08-05T10:24:06Z |
 | L2 | 800 | `note-r2-n800.md` | pending | pending | pending |
 | L3 | 1600 | `note-r2-n1600.md` | pending | pending | pending |
 | L4 | 2400 | `note-r2-n2400.md` | pending | pending | pending |
@@ -69,6 +88,7 @@ step in ms (`1000 * decode_seconds_per_token - S/128`).
 | level | n | receipt id | status | S (ms) | T (ms) | paired baseline S | paired baseline 1000*dspt | max_abs_diff | floors |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | L0 | 0 | `c3ce66ec-4b9c-4279-8c39-84ed63e193e4` | rejected: score did not improve current best | 97.9496 | 4.28121 | 190.0278 | 13.89953 | 0 | both pass |
+| L1 | 400 | `0411779d-e467-4e41-8b40-5445623879d8` | rejected: score did not improve current best | 97.6165 | 5.07320 | 198.0817 | 13.91936 | 0 | both pass |
 
 L0 is the zero-check. It confirms that the estimator reads sanely on an inert
 tree, and it doubles as a third replicate of the free promoted-frontier
@@ -76,7 +96,43 @@ baseline. It is *not* the subtrahend for `dT(n)`: each level is differenced
 against its own session-paired baseline, as pre-registered.
 
 Turnaround for L0 was 21.0 minutes, faster than the 32.8 to 48.5 minutes seen
-across the r1 series.
+across the r1 series. L1 took 22.4 minutes.
+
+### L1 falsifies my own prediction at the first non-zero level
+
+Applying the pre-registered estimator (`senpai/tools/pr34_receipt.py --dt`):
+
+```
+   n   receipt        S      T     bS      bT   Ttilde=T-bT      dT   dT_candonly
+   0   c3ce66ec   97.9496 4.2812 190.0278 12.41494     -8.13373  0.00000    0.00000
+ 400   0411779d   97.6165 5.0732 198.0817 12.37185     -7.29864  0.83509    0.79199
+S control: min=97.6165 max=97.9496 range=0.341%
+```
+
+Pre-registered predictions at n=400 were `H_sat` 0.82 ms, `H_gpu` 0.00 ms and
+`H_cpu` 0.00 ms. The reading is **0.835 ms** on the paired estimator and 0.792 ms
+on the candidate-only estimator. Both agree with `H_sat` to within 2 to 5
+percent, and both are 33 to 35 sigma away from the zero that `H_gpu` and `H_cpu`
+predict at `sigma = 0.024 ms`.
+
+`H_cpu` was *my* prediction, and it is dead at the first non-zero level. M5 has
+no meaningful free-dispatch slack: the M4 law's knee at 1209 dispatches does not
+transfer at all. This is the single most important thing in the revision, and it
+points the opposite way to the frontier review the advisor forwarded, which
+expected a clean "marginal dispatch cost is about zero here too".
+
+The `S` control behaved exactly as designed: 0.341 percent across the two levels,
+inside the 0.470 percent spread of the four inert replicates, confirming the
+injection is decode-only and that `S` carries no leakage.
+
+Two things I cannot yet claim, and will not until L2 to L4 land. First, with one
+non-zero point `c` and the knee are not separately identified: `dT(400) = 0.835`
+fits `(c = 2.088 us, knee = 0)` and `(c = 8.35 us, knee = 300)` equally. Second,
+that distinction is precisely the add-versus-remove question - a knee above zero
+would mean the shipped step already has slack and removing dispatches buys
+nothing, while a knee at zero means removal should recover about `c` each. The
+upper levels resolve it: they fix the slope, and then the knee follows from
+`knee = 400 - dT(400)/c`. So the pre-registered ladder needs no revision.
 
 ### L0 as a free-baseline replicate
 
