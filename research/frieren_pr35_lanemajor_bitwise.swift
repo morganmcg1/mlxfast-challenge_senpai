@@ -353,6 +353,7 @@ var failures: [String] = []
 var missingFlags: [String] = []
 var globalMaxUlp: Int32 = 0
 var totalPairs = 0
+var totalUncovered = 0
 
 func buf(_ length: Int) -> MTLBuffer {
     guard let b = device.makeBuffer(length: max(length, 4), options: .storageModeShared) else {
@@ -399,16 +400,17 @@ for geom in geoms {
     }
     let outWide = (0..<passCount).map { _ in buf(rows * 2) }
     let outLm = (0..<passCount).map { _ in buf(rows * 2) }
-    let outWide2 = buf(rows * 2)
+    let outWideB = (0..<passCount).map { _ in buf(rows * 2) }
+    let outLmB = (0..<passCount).map { _ in buf(rows * 2) }
 
     let scalesBuf = buf(rows * 128)
     let nibBuf = buf(rows * 64)
     let baseBuf = buf(rows)
 
-    func encodeAll(_ pipe: Pipe, _ bindings: [MTLBuffer], _ outs: [MTLBuffer]) {
+    func encodeAll(_ pipe: Pipe, _ bindings: [MTLBuffer], _ outs: [MTLBuffer], fill: Int32) {
         guard let cb = queue.makeCommandBuffer() else { die("no command buffer") }
         for p in 0..<outs.count {
-            memset(outs[p].contents(), 0xCD, rows * 2)
+            memset(outs[p].contents(), fill, rows * 2)
             guard let enc = cb.makeComputeCommandEncoder() else { die("no encoder") }
             enc.setComputePipelineState(pipe.state)
             enc.setBuffer(actBufs[p], offset: 0, index: 0)
@@ -440,7 +442,6 @@ for geom in geoms {
         planeJobs.append((spec.name, spec.make(rows), spec.perturb, spec.mustFlag, -1))
     }
 
-    var firstPlane = true
     for (planeName, plane, perturb, mustFlag, layer) in planeJobs {
         var bank = buildBank(plane: plane, rows: rows, groups: 128)
 
@@ -459,46 +460,32 @@ for geom in geoms {
         upload(nibBuf, bank.nibbles)
         upload(baseBuf, bank.bases)
 
-        encodeAll(wide, [codesBuf, scalesBuf], outWide)
-        encodeAll(lm, [codesBuf, nibBuf, baseBuf, scalesBuf], outLm)
-
-        if firstPlane {
-            firstPlane = false
-            guard let cb = queue.makeCommandBuffer(), let enc = cb.makeComputeCommandEncoder() else {
-                die("no encoder")
-            }
-            memset(outWide2.contents(), 0xCD, rows * 2)
-            enc.setComputePipelineState(wide.state)
-            enc.setBuffer(actBufs[0], offset: 0, index: 0)
-            enc.setBuffer(codesBuf, offset: 0, index: 1)
-            enc.setBuffer(scalesBuf, offset: 0, index: 2)
-            enc.setBuffer(outWide2, offset: 0, index: 3)
-            enc.dispatchThreads(MTLSize(width: (rows / 2) * 64, height: 1, depth: 1),
-                                threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
-            enc.endEncoding()
-            cb.commit()
-            cb.waitUntilCompleted()
-            if words(outWide2) != words(outWide[0]) {
-                failures.append("h\(geom.heads): wide kernel is not run-to-run deterministic")
-            } else {
-                say("determinism   : wide kernel repeat is bit-identical")
-            }
-        }
+        // Each kernel runs twice over two *different* pre-fills. A row left
+        // unwritten keeps its fill byte and therefore cannot agree across the
+        // pair, so agreement proves full row coverage; it is also a per-pass
+        // run-to-run determinism check. A fill-pattern collision with a
+        // legitimate output value cannot mask this because the fills differ.
+        encodeAll(wide, [codesBuf, scalesBuf], outWide, fill: 0xCD)
+        encodeAll(wide, [codesBuf, scalesBuf], outWideB, fill: 0x37)
+        encodeAll(lm, [codesBuf, nibBuf, baseBuf, scalesBuf], outLm, fill: 0xCD)
+        encodeAll(lm, [codesBuf, nibBuf, baseBuf, scalesBuf], outLmB, fill: 0x37)
 
         var mismatchPasses = 0
         var mismatchRows = 0
         var maxUlp: Int32 = 0
-        var sentinel = 0
+        var uncovered = 0
         var vacuous = 0
         for p in 0..<passCount {
             let a = words(outWide[p])
             let b = words(outLm[p])
+            let a2 = words(outWideB[p])
+            let b2 = words(outLmB[p])
             totalPairs += 1
             var nonzero = 0
             var rowDiff = 0
             for r in 0..<rows {
                 if a[r] != 0 { nonzero += 1 }
-                if a[r] == 0xCDCD || b[r] == 0xCDCD { sentinel += 1 }
+                if a[r] != a2[r] || b[r] != b2[r] { uncovered += 1 }
                 if a[r] != b[r] {
                     rowDiff += 1
                     let d = abs(bf16Ord(a[r]) - bf16Ord(b[r]))
@@ -525,7 +512,10 @@ for geom in geoms {
             failures.append("h\(geom.heads) \(planeName): \(mismatchPasses)/\(passCount) passes,"
                 + " \(mismatchRows) rows, maxUlp=\(maxUlp)")
         }
-        if sentinel != 0 { failures.append("h\(geom.heads) \(planeName): \(sentinel) unwritten rows") }
+        totalUncovered += uncovered
+        if uncovered != 0 {
+            failures.append("h\(geom.heads) \(planeName): \(uncovered) unwritten/nondeterministic rows")
+        }
         if vacuous != 0 { failures.append("h\(geom.heads) \(planeName): \(vacuous) all-zero passes") }
 
         func pad(_ s: String, _ n: Int) -> String {
@@ -545,6 +535,7 @@ for geom in geoms {
 say("")
 say("pairs compared        : \(totalPairs)")
 say("max ULP diff (P0-P3)  : \(globalMaxUlp)")
+say("uncovered rows        : \(totalUncovered)  (two-fill coverage + determinism check)")
 say("mismatch failures     : \(failures.count)")
 for f in failures { say("   FAIL \(f)") }
 say("silent power controls : \(missingFlags.count)")
