@@ -1001,6 +1001,25 @@ conditional. I am not spending a slot on an `n = 0` control: `ns(c3ce66ec) =
 carry a control arm again — one receipt is best-known tree plus at most one new
 mechanism.
 
+## The three asks listed as still blocking are already answered here
+
+The 12:30:32Z comment names three items as still blocking r2. All three were
+already written before that comment existed — it was authored against the pushed
+r1 tip `454b189a`, which does not contain this report. Nothing new is needed
+from me on any of them; the pointers are below so they can be checked directly
+rather than taken on my word.
+
+| ask, as worded in the comment | where it is answered | one-line status |
+| --- | --- | --- |
+| `n`, `S` and `T` for every receipt cited | `## Every receipt I have taken, on candidate axes` (line 339) and the ladder table under `## Readings` | Done for all 8 receipts, not just the 2 new ones. Each row carries the receipt id, `n`, `S`, `T`, the paired `bS`/`bT`, `D_cand`, `ns`, and `officialScore`. The `S` control range across the r2 ladder is 0.341%. |
+| the arm-nesting answer for `dT_4` | `## Answers to the two questions in the r2 assignment` (line 618) | Done. Prefill axis is **disjoint** across R1/R2/R3/R4, decode axis is **strictly nested**, so `dS_1 + dS_2` is legitimate and `dT_4 = T(6757de65) - T(ca416f01) = 1.01067 ms` is valid. The 39-vs-40 correction moves the unattributed decode remainder from 32.39 ms to **31.28 ms**. |
+| the instrument-strip commit before any further timing | `## Byte budget` (line 1213) plus the verification block in `## Process disclosures` (line 1041) | Done, and it landed before the base advance. `git diff` against base `091e6015` over `Sources` and `Vendor` is **0 lines**; `LagunaRuntimeModel.swift` is 508,529 B, the base default. The instrument survives as `research/tanjiro-pr34/instrument.patch`, which `git apply --check` accepts against this tree. No timing receipt was taken after the strip. |
+
+One correction rides along with that third row: the comment's per-file figure of
+"521,880 B, 2,408 B headroom" is a pre-strip reading. The post-strip file is
+508,529 B, so per-file headroom is **15,759 B**, and `check-editable-budget.sh`
+reports `growth=0`. Detail is in `## Process disclosures`.
+
 ## What I am asking for
 
 1. **One ranked slot for `n = 100`**, whenever the scheduler has one. This is the
@@ -1049,15 +1068,147 @@ to fold every disclosure into this report. A useful consequence: reordering the
 ladder to give the advisor an early read has exactly zero value, so the
 pre-registered order was kept.
 
-**Branch divergence, disclosed rather than resolved by force.** The remote
-assignment head `454b189a07a2cb0c51b91188d834e9b1c5035603` is the stale
-pre-rebase r1 tip. My local history was rebased onto `279b6e24`, so the SHAs
-differ one-for-one by commit message (`454b189` is `c92eab6`, `5b39ec5` is
-`8d5131f`, `ee324e1` is `644c226`). R4's submitted commit `af3ab58` is a
+**Branch divergence, resolved without a force-push and without discarding
+anything.** The remote assignment head
+`454b189a07a2cb0c51b91188d834e9b1c5035603` is the stale pre-rebase r1 tip. My
+local history was rebased onto `279b6e24` and later merged `d18ebbba`, so the
+r1 SHAs differ one-for-one by commit message (`454b189` is `c92eab6`, `5b39ec5`
+is `8d5131f`, `ee324e1` is `644c226`). R4's submitted commit `af3ab58` is a
 pre-rebase SHA and is not a valid object locally; its content equals local
-`13d424f`. Comparing file lists, no file exists on the remote but not locally:
-local is a strict content superset. The submission therefore uses
-`expected_remote_sha = 454b189a...`, and nothing was reset or discarded.
+`13d424f`. The consequence was mechanical: `454b189a` was *not* an ancestor of
+my HEAD (`git merge-base HEAD 454b189a` returned `eaedee84`, the very root of
+the chain), so the first `submit_result` was refused outright with `local head
+6cab2113 does not fast-forward remote head 454b189a`.
+
+I resolved it with a merge, not a force-push, after proving the merge could not
+lose anything:
+
+```
+git diff --diff-filter=D --name-only 454b189a HEAD   ->  (empty)
+git diff --numstat 454b189a HEAD -- research         ->  only CURRENT_RESEARCH_STATE.md
+                                                         and run_upstream_equivalence.sh,
+                                                         both held locally at the newest
+                                                         base blob (diff vs d18ebbba empty)
+git log eaedee84..454b189a -- (those two files)      ->  (empty; remote copies are just
+                                                         the OLD base copies)
+git diff --stat 454b189a HEAD -- Sources Vendor      ->  -397 lines: the r1 instrument
+                                                         block plus both harness edits
+```
+
+So local is a strict content superset of the remote tip: it carries the newer
+promoted base and it strips the r1 instrument that the remote tip still had
+live. I then ran `git merge -s ours --no-ff 454b189a`, which records the remote
+tip as a second parent while keeping my tree exactly as it was —
+`git diff 6cab2113 HEAD` is empty, so **not one byte of content changed** — and
+`git merge-base --is-ancestor 454b189a HEAD` now succeeds. Nothing was reset,
+rewritten, or discarded, and no lease override was needed. The submission uses
+`expected_remote_sha = 454b189a...` with the merge commit as the new head.
+
+**Base advance to `091e6015`, cleared by the intersection test rather than by a
+directory-name guess.** A `baseline_advanced` event moved the assignment base to
+`091e60155ecdd8f559c05051079dc24fe5ef86f4`. The advisor's standing docs-only
+rule ("every changed path under `research/`") does *not* literally hold over
+`eaedee84..091e6015`, which touches `AGENTS.md`, `TASK.md`, `Tests/`, `docs/`,
+`senpai/` and both `LagunaRuntimeLocalIterate.swift` harness files. I ran the
+generalised test he specified — intersect the changed set with `benchmark.json`'s
+`editablePaths` — and reproduce his result independently:
+
+| span | files changed | editable intersection |
+| --- | --- | --- |
+| `eaedee84..091e6015` | 40 | **NONE** |
+| `d18ebbba..091e6015` (my actual increment) | 1 | **NONE** |
+
+My merge-base was already `d18ebbba`, so the only content new to me is
+`research/CURRENT_RESEARCH_STATE.md` (+550/−141). The scored surface is
+untouched, the compiled worker is byte-identical, and both ranked receipts stay
+valid: no rebase, no re-baseline, no re-measurement. I merged `091e6015`
+forward and submit with `accepted_base_sha=091e6015...`. I have adopted the
+intersection test as my standing rule in place of the directory-name heuristic.
+
+**Correction: I never edited the two harness files. The attribution in the
+advisor note is inverted.** He wrote that
+`Sources/MLXFastHarness/LagunaRuntimeLocalIterate.swift` and
+`Sources/MLXFastTrustedHarness/LagunaRuntimeLocalIterate.swift` "each **lost 58
+lines** in this span", that these are "the two files I flagged in your r2 note
+as trusted harness you had edited (**+58 in your tree**)", and instructed me to
+preserve my version in `instrument.patch` and take the organizer's version
+verbatim. I went to carry that out and could not, because there is no edit of
+mine to preserve. Blob identity settles it:
+
+| file | `eaedee84` (orig. base) | `454b189a` (my r1 tip) | `091e6015` (new base) |
+| --- | --- | --- | --- |
+| `MLXFastHarness/…LocalIterate.swift` | `406addff` | **`406addff`** | `215443ce` |
+| `MLXFastTrustedHarness/…LocalIterate.swift` | `857cabba` | **`857cabba`** | `145e0fa2` |
+
+My r1 tip is **blob-identical to the original base** in both files, and
+`git log eaedee84..454b189a -- <both files>` is empty: no commit of mine ever
+touched them. The 58 lines were present in `eaedee84`, and the **organizer**
+deleted them in this span. What looked like "my +58" is the sign of
+`git diff 454b189a HEAD` — my head moved onto a base where the organizer had
+already removed them, so the diff reads `-58`. There was no conflict, no
+conflict site, and nothing to salvage. `instrument.patch` touches exactly one
+file, `Sources/MLXFastModel/LagunaRuntimeModel.swift`, and still applies clean
+(`git apply --check` exit 0).
+
+This matters beyond bookkeeping, because his stated reason for the instruction
+was that "a local-only harness edit silently invalidates any timing that depends
+on it". That hazard is real, and it is worth keeping the rule — but it never
+applied to me. **No M4 or M5 measurement in this report was taken against a
+modified harness.** I had begun writing the opposite into this section on his
+authority before checking, which is precisely the error the rule exists to
+prevent, so I am recording the correction rather than quietly deleting it.
+
+**What the organizer actually removed is a safety warning, and its loss is an
+operational hazard worth flagging.** The deleted 58 lines are
+`emitLocalAcceptanceBandNotice` plus its call site: the local-mode warning that
+fires when a candidate is more than 5% faster than the pinned baseline on either
+axis, telling you the run is outside the ranked two-sided acceptance band
+(`decode_speedup ∈ [0.980, 1.053]`, `prefill_speedup ∈ [0.952, 1.053]`) and that
+a larger win must be chunked across submissions. The removal is defensible on
+its own terms — the deleted comment admits the check "can fire spuriously" on any
+host slower than the ranked box and would "train participants to ignore it",
+which on this M4 is exactly what would happen.
+
+But I checked whether the band itself was retired, and it was **not**:
+
+```
+Sources/MLXFastCore/Constants.swift:146  prefillBandDownTolerance = 0.05
+Sources/MLXFastCore/Constants.swift:148  decodeBandDownTolerance  = 0.05
+Sources/MLXFastCore/Score.swift:105,112  both still passed to the band check
+Tests/MLXFastTests/AcceptanceBandTests.swift        still asserts both == 0.05
+Tests/MLXFastTests/BenchmarkSafetyTests.swift:795   still expects
+                                          failure_category=acceptance_band_failed
+```
+
+So ranked enforcement is untouched and only the local advisory is gone. **Net
+effect: the local iterate/submit loop is now silent about the fast edge.** A
+candidate that overshoots will pass every local check and then fail the ranked
+run with `acceptance_band_failed`, consuming one of the shared account's
+serialised slots to learn it. That interacts directly with this report's own
+verdict: the dispatch-reduction headroom I price at up to +5.9% of score sits
+right at the chunking threshold, so the D-FUSE work must carry a hand-computed
+band check before it takes a slot. I am not proposing a harness edit to restore
+the notice — it is not submittable surface. The check belongs in a `research/`
+tool, and I have not built one.
+
+**The per-file cap figure in the advisor's note is pre-strip and no longer
+binding.** He wrote that `LagunaRuntimeModel.swift` stood at 521,880 B against
+the 524,288 B cap, leaving 2,408 B, and concluded the re-planned bracket could
+not land on top of the instrument block. That was true of the r1 tree. After the
+strip the file is back to the base 508,529 B, so the real headroom is
+**15,759 B**, and the whole-surface budget reports `growth=0/262144` with
+`headroom=59027` of 3,000,000 B. The bracket fits. The instrument block is
+recoverable from `instrument.patch`, which still applies clean.
+
+**`swift test` was not run this revision, and I did not touch `Tests/`.** The
+advisor flagged that `Tests/MLXFastTests/SenpaiOperationalContractTests.swift`
+gained 155 lines in the span and that a new assertion failure would come from
+there. I cannot report a verdict either way: this host never finished
+provisioning the checkpoint (shard 4 of 5 is still cycling, see above), so the
+test binary has no weights to load. `git diff --stat 091e6015 HEAD -- Tests` is
+empty, so whatever those assertions check, they check the organizer's own file
+against a scored surface I have not modified. Flagging as unverified rather than
+claiming a pass.
 
 ## Byte budget
 
