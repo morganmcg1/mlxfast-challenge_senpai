@@ -11043,7 +11043,7 @@ private let lagunaInjectPrefillMatmuls = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_MATMULS", 0)
 /// Empty dispatches injected per single-token decode step.
 private let lagunaInjectDecodeEmpty = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
+    "DARKBLOOM_INJECT_DECODE_EMPTY", 100)
 /// Empty dispatches injected per multi-token forward.
 private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_PREFILL_EMPTY", 0)
@@ -11052,10 +11052,15 @@ private let lagunaInjectPrefillEmpty = lagunaInjectEnvInt(
 /// per-dispatch cost depends on placement.
 private let lagunaInjectEmptySpread = lagunaInjectEnvInt(
     "DARKBLOOM_INJECT_EMPTY_SPREAD", 1) != 0
-/// Threadgroups per empty dispatch (256 threads each); 160 matches the
-/// isolated M4 empty-dispatch datum of 2.46 us.
+/// Threadgroups per empty dispatch (256 threads each); 8 is `0411779d`'s
+/// geometry, so n=0/100/400 lie on one M5 curve.
 private let lagunaInjectEmptyThreadgroups = lagunaInjectEnvInt(
-    "DARKBLOOM_INJECT_EMPTY_TG", 160)
+    "DARKBLOOM_INJECT_EMPTY_TG", 8)
+/// 0 unchains the empties: each binds a never-written control array, so no
+/// `memoryBarrier` is emitted (`device.cpp:325`). Unchained outputs all stay in
+/// `pending` so a recycled buffer cannot re-trip it as a WAW (`:331`).
+private let lagunaInjectEmptyChain = lagunaInjectEnvInt(
+    "DARKBLOOM_INJECT_EMPTY_CHAIN", 1) != 0
 
 private let lagunaInjectPoolUInt4 = 1 << 24  // 16,777,216 x 16 B = 256 MiB
 /// 256 threadgroups x 256 threads, 256 uint4 per thread. The pass loop lives
@@ -11152,15 +11157,11 @@ private enum LagunaInjectStore {
 
 /// Tail of the injected-dispatch dependency chain, carried across layer
 /// boundaries. MLX's compute encoder is `DispatchTypeConcurrent`
-/// (`device.cpp:548`) and only inserts a barrier when a dispatch binds a buffer
-/// a previous dispatch wrote (`device.cpp:325`, `:339`). An injected dispatch
-/// that binds nothing the GPU has written therefore runs *concurrently* with
-/// real work and costs almost nothing — measured directly here: 40 unchained
-/// empty dispatches per decode step moved `T` by 0.006 ms, 16x less than one
-/// isolated dispatch cost each. Chaining every injected dispatch to the
-/// previous one reproduces the strictly serialised stream nezuko measured for
-/// the real model (`gpu_busy_sum == gpu_busy_union` to 6 ns), which is the
-/// regime whose marginal cost this instrument is meant to read.
+/// (`device.cpp:548`) and only inserts a barrier on a real hazard
+/// (`device.cpp:325`, `:339`), so an unchained injected dispatch runs
+/// concurrently with real work and costs almost nothing. Chaining reproduces
+/// the strictly serialised stream the real model runs in, which is the regime
+/// whose marginal cost it reads. See `research/tanjiro-pr47-d1.md`.
 private enum LagunaInjectChain {
     nonisolated(unsafe) static var tail: MLXArray?
 }
@@ -11203,18 +11204,22 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
         pending.append(matmul(scratch.matA, scratch.matB))
     }
     if empties > 0 {
-        var chainTail = LagunaInjectChain.tail ?? scratch.control[0]
+        var tail = LagunaInjectChain.tail ?? scratch.control[0]
         for k in 0..<empties {
-            chainTail = lagunaInjectEmptyKernel(
-                [scratch.control[(layer + k) & 7], chainTail],
+            tail = lagunaInjectEmptyKernel(
+                [
+                    scratch.control[(layer + k) & 7],
+                    lagunaInjectEmptyChain ? tail : scratch.control[7],
+                ],
                 grid: (lagunaInjectEmptyThreadgroups * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[256]],
                 outputDTypes: [.uint32]
             )[0]
+            if !lagunaInjectEmptyChain { pending.append(tail) }
         }
-        LagunaInjectChain.tail = chainTail
-        pending.append(chainTail)
+        LagunaInjectChain.tail = tail
+        if lagunaInjectEmptyChain { pending.append(tail) }
     }
     guard !pending.isEmpty else { return }
     asyncEval(pending)
