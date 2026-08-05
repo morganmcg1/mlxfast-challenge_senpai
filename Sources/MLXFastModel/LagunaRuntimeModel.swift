@@ -4601,9 +4601,23 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
+/// SIMD groups per R1 threadgroup. Each SIMD still owns exactly one output row
+/// with the same K order, so widening this only regroups rows into fewer, wider
+/// threadgroups; it is the amortization surface a folded norm producer needs.
+private let lagunaDecodeNVFP4QKVR1SIMDGroups: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment[
+            "DARKBLOOM_DECODE_NVFP4_QKV_R1_SIMDGROUPS"],
+        let n = Int(raw), [1, 2, 4, 8, 16].contains(n)
+    else { return 2 }
+    return n
+}()
+
+private let lagunaDecodeNVFP4QKVR1Threads = 32 * lagunaDecodeNVFP4QKVR1SIMDGroups
+
 private let lagunaDecodeNVFP4QKVR1Source = """
     constexpr uint axis_size = 2048;
-    constexpr uint num_simdgroups = 2;
+    constexpr uint num_simdgroups = \(lagunaDecodeNVFP4QKVR1SIMDGroups);
     constexpr uint values_per_thread = 16;
     constexpr uint block_size = 512;
     constexpr uint in_vec_size_w = axis_size / 2;
@@ -4646,7 +4660,9 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                + (lagunaDecodeNVFP4QKVR1SIMDGroups == 2
+                    ? "" : "_g\(lagunaDecodeNVFP4QKVR1SIMDGroups)"),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVR1Source,
@@ -4673,14 +4689,15 @@ private func lagunaDecodeNVFP4QKVR1(
         bank.packedCodes.dims(rows, hidden / 8),
         bank.scales.dtype == .uint8,
         bank.scales.dims(rows, hidden / 16),
-        rows % 2 == 0,
+        rows % lagunaDecodeNVFP4QKVR1SIMDGroups == 0,
         let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads]
     else { return nil }
     lagunaTrace("decode nvfp4 qkv r1 h\(heads)")
     return kernel(
         [normalized, bank.packedCodes, bank.scales],
-        grid: ((rows / 2) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: ((rows / lagunaDecodeNVFP4QKVR1SIMDGroups)
+            * lagunaDecodeNVFP4QKVR1Threads, 1, 1),
+        threadGroup: (lagunaDecodeNVFP4QKVR1Threads, 1, 1),
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16]
     )[0]
