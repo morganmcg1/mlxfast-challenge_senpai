@@ -242,6 +242,14 @@ model on this host.
 
 ## The recovery ratio: what a family is actually worth
 
+> **SUPERSEDED -- DO NOT RANK WORK OFF THIS SECTION.** Round 3 below measures the
+> serialised budget directly and shows the `skip` deltas used here under-report
+> removable time by about 2x, because every `skip` arm corrupts the residual
+> stream and randomises downstream expert routing. The "recovery ratio" column
+> and the "46.7% recoverable / 53.3% shared floor" split are retracted. The
+> section is kept because the `dup` column in it is still valid and is reused in
+> round 3 as a first-touch measurement. Use the round 3 table for ranking.
+
 Combining the instruments gives, per family, the cost of one extra call (`dup`)
 and the time returned by not running it at all (`skip`). Their ratio is the
 fraction of the family's GPU time that is on the critical path rather than
@@ -415,3 +423,126 @@ numbers.
   `Vendor/mlx-swift/.../backend/metal/device.cpp`, which is **not** in
   `editablePaths`. Nothing in this census is submittable and no census code is in
   this branch's diff.
+
+## Round 3: a serialised budget that refutes the recovery-ratio table
+
+Everything above ranks families by *marginal* effect on the overlapped GPU union.
+Round 3 measures the complementary quantity directly: with `SPLIT=1` every
+dispatch gets its own command buffer, so each kernel runs alone on the whole
+machine and the profiler reports a per-kernel serialised time.
+
+Run `1c8aded9-029b-461e-95bb-9570606f7c47`, exit 0, 45 s, 250 steps, arm `base`,
+**0 divergences**. Per steady step: wall 10.154 ms, `gpu_busy_sum` 8.850 ms,
+`gpu_busy_union` 8.849 ms, gap 1.305 ms, 406 command buffers, 406 dispatches.
+`sum == union` confirms full serialisation.
+
+### The bracket: the decode step is ~93% serial
+
+| quantity | us/step |
+| --- | ---: |
+| `SPLIT=1` serialised sum (each kernel alone, whole machine) | 8850.3 |
+| `SPLIT=0` real overlapped union | 8272.4 |
+| excess | 577.9 = **6.99%** of the step, 1.423 us/dispatch |
+
+Giving every kernel the entire GPU to itself, one at a time, costs only 7.0%
+more than the real overlapped step. Command-buffer overhead is inside that 7.0%
+as well. So **inter-kernel overlap plus command-buffer overhead together account
+for at most 7% of decode**: the step is ~93% one-kernel-at-a-time execution, and
+per-kernel serialised time is very nearly an honest ranking metric.
+
+That is the opposite of what the recovery-ratio table above concluded.
+
+### The `skip` instrument under-reports by about 2x, and I retract its deltas
+
+The censused families have a serialised total of 7358 us, but their round-1
+`skip` deltas sum to only 3860 us of recoverable time -- **52%**. Under a 93%
+serial step, removing a family's dispatches should recover nearly its full
+serialised cost. It does not, so `skip` is measuring something else.
+
+Likely mechanism: skipping any kernel corrupts the residual stream, so the
+router's top-8 selection downstream becomes effectively random across 256
+experts instead of correlated between layers. That destroys expert-gather
+locality and makes the *surviving* MoE kernels slower, which partly cancels the
+work that was removed. Every `skip` arm diverged (147-150 tokens), so every
+`skip` arm has this confound, in the same direction, for every family.
+
+Two corrections to my own earlier text:
+
+- I described `skip` deltas as **upper bounds** on removable time. They are
+  **lower bounds**, roughly half the true value. Retracted.
+- The "46.7% recoverable / 53.3% unattributable shared floor" split is an
+  artefact of that confound. The serialised budget accounts for **106.8%** of
+  the step across 16 families with only 18.8 us unlisted, so there is no large
+  unattributable floor. Retracted.
+
+The `dup` arms remain valid -- 0 divergences, no data confound -- but they
+measure the cost of an *additional, cache-warm* call, not the cost of the first.
+
+### What `dup/serialised` actually tells us: first-touch cost
+
+`true/call` is the serialised per-call time minus the 1.33 us command-buffer
+floor. `dup/ser` is the round-2 duplicate cost divided by it.
+
+| family | calls | serialised us/step | % of step | true us/call | dup/ser |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `routed_nvfp4_swiglu_qmv` | 39 | 1561.5 | 18.88% | 38.71 | 0.958 |
+| `decode_nvfp4_qkv_h64` | 30 | 1402.3 | 16.95% | 45.41 | 0.770 |
+| `oproj_act_h64` | 30 | 1183.1 | 14.30% | 38.11 | **0.601** |
+| `down_residual` | 39 | 894.8 | 10.82% | 21.61 | 0.872 |
+| `sliding_fused_attn` | 30 | 637.7 | 7.71% | 19.93 | 0.971 |
+| `lmhead_int5` (4 kernels) | 4 | 505.0 | 6.10% | — | — |
+| `decode_nvfp4_qkv_h48` | 10 | 378.7 | 4.58% | 36.54 | — |
+| `gate_sp` h64+h48 | 40 | 325.6 | 3.94% | 6.76 | **0.659** |
+| `residual_rms_router` | 39 | 319.2 | 3.86% | 6.85 | **0.605** |
+| `oproj_act_h48` | 10 | 317.6 | 3.84% | 30.43 | — |
+| `shared_nvfp4_swiglu_qmv` | 39 | 295.0 | 3.57% | 6.23 | 0.721 |
+| `dense_gate_up_swiglu` | 1 | 267.4 | 3.23% | 266.02 | — |
+| `full_fused_attn` | 10 | 259.9 | 3.14% | 24.66 | 0.785 |
+| `decode_router_top8_ordinal` | 39 | 205.4 | 2.48% | 3.94 | — |
+| `rmsbfloat16` | 41 | 143.3 | 1.73% | 2.17 | — |
+| `dense_down_residual` | 1 | 135.0 | 1.63% | 133.65 | — |
+| sum of listed | | 8831.5 | 106.76% | | |
+
+A duplicate call costs 60-97% of the first. The spread is the useful signal:
+
+- `dup/ser` near 1 (`routed_nvfp4_swiglu_qmv` 0.958, `sliding_fused_attn` 0.971,
+  `lmhead_int5` 0.970) means a second call is as expensive as the first: the
+  kernel is bandwidth- or occupancy-bound with nothing left in cache to reuse.
+  Improving these needs a better kernel.
+- `dup/ser` well below 1 (`oproj_act_h64` 0.601, `residual_rms_router` 0.605,
+  `gate_sp` 0.659, `shared_nvfp4_swiglu_qmv` 0.721) means the *first* call pays a
+  large first-touch weight-streaming cost that the duplicate does not repeat.
+  For these, **fusing with a neighbour so the weights are touched once** is the
+  lever, not making the arithmetic faster.
+
+`oproj_act_h64` is the standout: 14.3% of the step, and 40% of its per-call cost
+is first-touch. It is the strongest fusion candidate in the model.
+
+### The r1 hypothesis of this PR, closed without the broken instrument
+
+`shared_nvfp4_swiglu_qmv` is 295.0 us/step = **3.57%** of decode. The `-4.5%`
+kernel-body win measured in r1 is therefore worth `0.045 x 295.0 = 13.3 us`, or
+**0.160% of decode** -- below the `+/- 16 us` resolution of the instrument that
+measured it. The r1 result of `+8.3 +/- 7.6 us` is exactly what a 13 us win
+looks like through a 16 us aperture.
+
+This closes the hypothesis on arithmetic that does not depend on the discredited
+`skip` deltas at all, and it supersedes the "negative recovery ratio" reading:
+the shared QMV is not *free*, it is simply too small a share of the step for a
+4.5% body win to be measurable, let alone rankable.
+
+### Sliding attention per-call time, cross-checked
+
+This host now reads `sliding_fused_attn_ring_v1` at 21.26 us/call serialised
+(19.93 us true), against 22.34 us/call on the previous host -- agreement within
+5%, so my figure reproduces across hosts and rebuilds. fern's circulating
+~30 us/call does not match either measurement; the nearest kernel to that value
+is the full-attention twin `full_fused_attn_grow_v1` at 25.99 us/call. Worth
+reconciling before either number is used to price an attention change.
+
+### Reproduction
+
+```bash
+research/sweep_shared_qmv_staging.sh 1 250 base   # SPLIT=1 per-kernel table
+python3 research/nezuko_serial_budget.py          # bracket + first-touch ratios
+```
