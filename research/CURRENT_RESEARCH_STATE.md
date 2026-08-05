@@ -1,5 +1,5 @@
 # SENPAI Research State
-- 2026-08-05T19:55:00Z
+- 2026-08-05T19:57:00Z
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
 - Operator authorized official submissions from AWS Macs; updated submission attribution rules (use `--model "senpai"` first)
 - PR #52 (birch-askeladd) first to submit: inconclusive, revision requested (3 bundled changes, no M4-viable _nax evidence, no W&B)
@@ -116,18 +116,69 @@ buffering and barrier elision should be separate follow-up experiments.
 Key concern: all _nax changes are invisible on M4. Only the bm=32→16 non-_nax
 dispatch change was M4-testable and showed no improvement (-0.1% prefill).
 
+## Competitor Analysis (2026-08-05T19:49Z)
+
+### Leaderboard State
+- **lBroth** at 2.5523 (~4% above our 2.455). Uses context-copy drafting +
+  MTPLX turbo kernels (speculative approach — may be on a different track or
+  using serial-compatible variants).
+- 122 promoted submissions from 30 solvers reached 2.39x by Aug 2. The ~5%
+  acceptance band means compounding wins of ~5% each.
+
+### Key Finding: omlx issue #2238
+- Profiles the EXACT Laguna architecture (256 experts, top-8, NVFP4, M=1 decode)
+- Documents a **fused MoE decode kernel + free gate+up regroup: +6.6-7.6% decode**
+- This is the strongest public proxy for our optimization target
+
+### Five Technique Clusters from Public Research
+1. **M5 `_nax` tensor-core prefill kernels** (BaseRT papers, Apple WWDC2026)
+2. **Fused MoE decode kernels** (SGLang/candle/ExecuTorch/omlx) — confirmed +6.6-7.6%
+3. **Inline NVFP4 dequant** (Modular cooperative-SMEM, Apple cooperative tensors)
+4. **SWA ring caches** (lucebox) — already implemented in our codebase
+5. **Gate+up weight layout fusion** (Blaizzy/mlx-vlm) — partially implemented
+
+### Six Novel Ideas from Competitor Analysis
+1. Cooperative-tensor NVFP4 dequant for prefill MoE GEMM
+2. Morton-order traversal in `_nax` gather GEMM
+3. **Fused down+weighted-sum+shared-expert kernel** — merge all MoE work
+4. Backporting upstream adaptive split-K NAX tuning
+5. Pre-encoded Metal indirect command buffers (ICBs) — reduces CPU launch overhead
+6. JIT-vs-AOT metallib correctness/performance diagnostic
+
+### Student Redirect
+- **Thorfinn** redirected from full-attention decode (10/40 layers, 25%) to
+  merge shared + routed gate/up QMV (30/40 layers, 75%). This is the single
+  biggest available decode win per competitor analysis. Code has `mergedSharedActivated`
+  at line 10248 designed for this but never implemented.
+
+## Current Student Status (2026-08-05T19:57Z)
+
+| Student | PR | Hypothesis | Status |
+|---------|-----|-----------|--------|
+| birch-edward | #49 | Compiled decode segments (graph-visible KV) | Startup guidance sent |
+| birch-thorfinn | #50 | **PIVOTED**: Merge shared+routed gate/up QMV | Pivot feedback sent |
+| birch-alphonse | #51 | LM-head coarse pass byte reduction | Startup guidance sent |
+| birch-askeladd | #52 | Prefill MoE tile geometry (revision) | Revision reminder sent |
+
+All four students idle at ~6h since assignment. No visible code on PRs #49-51.
+PR #52 has 4 commits but revision requested (3 bundled changes).
+
 ## Potential Next Research Directions
 
-- **Merge shared + routed gate/up QMV** (strongest follow-up): fill the
+- **Merge shared + routed gate/up QMV** (ASSIGNED to Thorfinn): fill the
   `mergedSharedActivated` gap at LagunaRuntimeModel.swift:10248. Eliminates
-  39 dispatches/step. Could be a bonus direction for any student whose
-  primary arm fails quickly.
+  39 dispatches/step. Competitor confirms +6.6-7.6% decode.
+- **Metal indirect command buffers (ICBs)**: Pre-encode a sequence of dispatches
+  into a single command buffer, reducing CPU-side encoding overhead without
+  changing kernel dispatch logic. Alternative to MLX.compile() for Edward's arm.
+- **Cooperative-tensor NVFP4 dequant for prefill MoE GEMM**: Apple cooperative
+  tensors + inline dequant may improve prefill MoE throughput on M5.
+- **Morton-order traversal in `_nax` gather GEMM**: Better cache locality for
+  the short expert runs in prefill MoE.
 - **MoE down kernel outputs_per_simd 1→2**: small ~1-2% gain, low risk.
   Potential bonus for a student working on MoE path.
 - **Interleave FP8 scales with FP4 codes**: transform+kernel change, medium
   risk, targets the bandwidth bottleneck directly.
-- **KV cache NHD layout for sliding layers**: may overlap with Thorfinn's
-  full-attention experiment if he finds layout issues.
 - **Graph-visible cache + compiled segments expansion**: If Edward's P0
   prototype succeeds, extend to full-model compiled decode.
 - **Source budget reclamation**: Remove dormant negative arms to free byte
