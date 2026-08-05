@@ -1,15 +1,15 @@
 # SENPAI Research State
-- 2026-08-05T20:20:00Z
-- Frontier deep-code-analysis agent completed (1 of 2); grid over-dispatch finding
-  CORRECTED as false; packed scales for down projection is a new medium-potential idea
+- 2026-08-05T21:00:00Z
+- All 4 student PRs received baseline_advanced: advisor branch moved bb523807→d017e1d
+  (advisor-only research notes commit, NO scored code change). Accepted without rerun.
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
-- Operator authorized official submissions from AWS Macs; updated submission attribution rules (use `--model "senpai"` first)
-- PR #52 (birch-askeladd) first to submit: inconclusive, revision requested (3 bundled changes, no M4-viable _nax evidence, no W&B)
-- PRs #49, #50, #51 still in progress (status:wip, ~6 hours since assignment)
-- Dead code budget analysis COMPLETE: 4 Tier-1 candidates (~12K bytes) identified, doc at research/DEAD_CODE_REMOVAL.md
-- Current best on leaderboard: 2.5523 (lBroth, commit bca94c5 = our ORGANIZER_FRONTIER_SHA). Many recent rejections.
-- Advisor branch SHA: 19c909d (doc-only: research state + dead code plan). Accepted without rerun for all students.
+- Operator authorized official submissions from AWS Macs; use `--model "senpai"` first
+- PR #52 (birch-askeladd): inconclusive → revision requested (narrow to variant 5→4 only)
+- PRs #49, #50, #51: WIP, ~7 hours since assignment, no student code commits yet
+- Competitor analysis agent completed: comprehensive omlx/SGLang/Modular findings
+- Current best on leaderboard: 2.5523 (lBroth, commit bca94c5 = our ORGANIZER_FRONTIER_SHA)
 - Students' assigned BASE_SHA: bb523807 (original frontier, scored code unchanged)
+- Current base for new measurements: d017e1d (advisor research notes only)
 
 ## Current Research Focus and Themes
 
@@ -210,37 +210,84 @@ dispatch change was M4-testable and showed no improvement (-0.1% prefill).
 ### Decode Dispatch Inventory (frontier agent — STILL RUNNING)
 - Pending: comprehensive per-layer dispatch inventory for the full decode path.
 
+## Competitor Analysis Findings (2026-08-05T21:00Z)
+
+### Leaderboard State (Updated)
+- lBroth at 2.5523 IS our ORGANIZER_FRONTIER_SHA — we're optimizing ON TOP of it
+- 122 promoted submissions from 30 solvers as of Aug 1; leader at 184.4 decode tok/s
+- lBroth's MTPLX repo uses MTP speculative decoding for parallel track (NOT our serial track)
+- Serial-track wins must come from kernel-level optimization, dispatch reduction, weight layout
+
+### Key Public Evidence (from competitor analysis agent)
+1. **Fuse gate+up into one gather_qmm** (omlx #2238, mlx-vlm PR #1650): +6.6-7.6% decode,
+   bit-exact, zero Metal changes. Reduces gather_qmm calls from 141→94 per token.
+   Already partially implemented (DARKBLOOM_FUSED_ROUTED_GATE_UP) — the remaining gap is
+   merging the SHARED expert's gate/up with the routed dispatch.
+2. **Eliminate AsType/dtype-mismatch dispatches** (vmlx-swift-lm): Swift's MLXArray defaults
+   to float32 for scalar literals, forcing AsType casts. Found 1100+ extra AsType ops/step
+   in a Swift port = ~22ms overhead/token. MUST AUDIT our codebase for implicit float32
+   promotion from scalar literals.
+3. **Cooperative SMEM dequant** (Modular AppleM5Fp4MatMul): BK=64 at BM=128 = +34-45% at
+   large M, bit-exact. CRITICAL: SIMD arithmetic >16 lanes crashes Metal. BK=64/BM=128 =
+   exactly 16 (sweet spot).
+4. **Coalesce scale loads into SMEM** (Modular): cooperative threadgroup load of scales
+   +7-12%. WARNING: per-thread register caching of scales REGRESSED 20-30% (MLX #3251).
+   Must be cooperative load, not per-thread.
+5. **FMA-optimized dequant** (flash-moe): Rearrange `(nibble*scale+bias)*x` to
+   `fma(nibble, scale*x, bias*x)`. +12% faster dequant inner loop.
+6. **Audit eval() call count** (MLX discussion #3801): eval-per-call ~0.33-0.45ms vs
+   in-graph dispatch ~105µs = 3.1x difference. Reducing eval() calls per decode step is
+   high-leverage.
+7. **M5 architecture**: 614 GB/s, decode is bandwidth-bound (~34-50% of roofline for MoE).
+   Dense model hits 94% of roofline — gap is the single-token structure itself.
+
+### AsType Audit — HIGH PRIORITY NEW DIRECTION
+The vmlx-swift-lm finding (1100+ AsType ops = ~22ms overhead) is the single largest
+untested hypothesis for our Swift runtime. Every scalar literal (0.5, 1.0, 2.5, etc.)
+and intermediate computation that implicitly promotes to float32 creates an AsType
+cast dispatch. This is potentially 10-20% decode improvement with ZERO numerical risk.
+Must audit the codebase for: scalar dtype inference, sigmoid cast removal, universal
+bfloat16 conversion, identity-weight dtype, MoE gate zero-out dtype.
+
 ## Potential Next Research Directions
 
-- **Merge shared + routed gate/up QMV** (ASSIGNED to Thorfinn): fill the
-  `mergedSharedActivated` gap at LagunaRuntimeModel.swift:10248. Eliminates
-  39 dispatches/step. Competitor confirms +6.6-7.6% decode.
-- **Metal indirect command buffers (ICBs)**: Pre-encode a sequence of dispatches
-  into a single command buffer, reducing CPU-side encoding overhead without
-  changing kernel dispatch logic. Alternative to MLX.compile() for Edward's arm.
-- **Cooperative-tensor NVFP4 dequant for prefill MoE GEMM**: Apple cooperative
-  tensors + inline dequant may improve prefill MoE throughput on M5.
-- **Morton-order traversal in `_nax` gather GEMM**: Better cache locality for
-  the short expert runs in prefill MoE.
-- **MoE down kernel outputs_per_simd 1→2** (ASSIGNED to Edward): amortize barrier+reduce
-  across 2 rows, halves threadgroups from 2048→1024. Low risk, stacks with reduction
-  parallelization.
+### Currently Assigned (In-Flight)
+- **Merge shared + routed gate/up QMV** (ASSIGNED to Thorfinn, PR #50): fill the
+  `mergedSharedActivated` gap at L10248. Eliminates 39 dispatches/step. +6.6-7.6% decode.
+- **MoE down kernel outputs_per_simd 1→2** (ASSIGNED to Edward, PR #49): amortize
+  barrier+reduce across 2 rows. Low risk, ~1-2% gain. Stacks with reduction parallelization.
+- **Norm+QKV fusion for INT8 path** (ASSIGNED to Alphonse, PR #51): extend
+  `lagunaNormAffineQKV` to cover INT8 layers. Save 40 dispatches/step.
+- **Prefill MoE _nax variant 5→4 switch** (ASSIGNED to Askeladd, PR #52 revision):
+  WN=2, 256 thr/TG. Needs M5 validation. +17.47% kernel-level.
+
+### High-Priority Next Experiments
+- **AsType/dtype-mismatch audit** (NEW, HIGHEST PRIORITY): Audit all scalar literals and
+  intermediate computations for implicit float32 promotion. Potential 10-20% decode gain
+  with zero numerical risk. This is the single largest untested hypothesis.
+- **FMA-optimized dequant inner loop**: Rearrange NVFP4 dequant to use FMA.
+  `fma(nibble, scale*x, bias*x)` instead of `(nibble*scale+bias)*x`. +12% on dequant.
+- **Cooperative SMEM scale loading**: Threadgroup-cooperative load of NVFP4 scales into
+  shared memory. +7-12%. Must NOT be per-thread register caching (that regresses 20-30%).
+- **Audit eval() call count per decode step**: If >1 eval()/step, reducing to 1 could
+  save ~0.3ms/step. High-leverage if applicable.
 - **MoE down 8-way reduction parallelization**: spread 8 routed slots across lanes
-  0-7, O(1) vs O(8) serial reduction. Independent of and stacks with outputs_per_simd.
-- **Norm+QKV fusion for INT8 path**: NVFP4 tail has `lagunaNormAffineQKV` (L5722) but
-  INT8 group-32 path has no norm-fused kernel. Save 40 dispatches/step. Kernel dev.
-- **Deferred-gate softplus for INT8 O-proj**: deferred-gate fusion only fires for NVFP4
-  OProj (L3902). INT8 path runs separate softplus dispatch. Save 40 dispatches/step.
-- **LM-head dispatch consolidation** (ASSIGNED to Alphonse): merge argmax+threshold
-  dispatches (#2+#3) into one. Save 1 dispatch/step, zero certificate risk.
-- **Packed scales for down projection**: Extend `DARKBLOOM_PACKED_SCALES` to down
-  projection (~504 MB/step traffic). Medium risk, ~624 MB added resident memory.
-- **Interleave FP8 scales with FP4 codes**: transform+kernel change, medium
-  risk, targets the bandwidth bottleneck directly.
-- **Graph-visible cache + compiled segments expansion**: If Edward's P0
-  prototype succeeds, extend to full-model compiled decode.
-- **Source budget reclamation**: Remove dormant negative arms to free byte
-  budget for new kernel families.
-- **NOTE**: The "dead mask construction" idea was investigated and found to be
-  a non-issue — `createAttentionMask` returns a lightweight Swift enum (`.none`
-  during decode), not an MLXArray allocation. No wasted work to eliminate.
+  0-7, O(1) vs O(8). Independent of and stacks with outputs_per_simd.
+
+### Medium-Priority Directions
+- **Metal indirect command buffers (ICBs)**: Pre-encode dispatch sequences, reducing
+  CPU-side encoding overhead. Alternative to MLX.compile().
+- **Cooperative-tensor NVFP4 dequant for prefill MoE GEMM**: BK=64/BM=128 tiling for
+  prefill path. +34-45% at large M (prefill, 25% weight). M5-only validation.
+- **Morton-order traversal in `_nax` gather GEMM**: Better cache locality for short runs.
+- **Packed scales for down projection**: Extend DARKBLOOM_PACKED_SCALES to down proj.
+- **Interleave FP8 scales with FP4 codes**: ARCQuant-style co-located layout.
+- **Graph-visible cache + compiled segments**: If Edward's prototype succeeds, expand.
+- **Source budget reclamation**: Remove dormant negative arms to free byte budget.
+
+### Non-Issues (Verified Dead Ends)
+- Dead mask construction: `createAttentionMask` returns `.none` during decode — no waste.
+- Grid over-dispatch: false alarm — MLX grid = total threads, not threadgroups.
+- Async scheduling sweep: 66 runs confirm 6-fire ties 40-fire. Already near-optimal.
+- LM-head int4: would double quant error, inflate candidate tail. Not worth pursuing.
+- LM-head dispatch consolidation: 4-dispatch sequence is already maximally fused.
