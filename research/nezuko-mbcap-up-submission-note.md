@@ -280,6 +280,40 @@ qualifier — note that the host gap fraction moves 3.1% -> 5.7% across this
 change, so "M4 wall becomes admissible when the host-gap fraction shifts by
 more than about 3 points" would be the amendment.
 
+## This submission is a measurement, not a promotion bid
+
+Worth stating plainly so nobody misreads the outcome. Over 1034
+correctness-passing receipts, the *baseline* arm — which runs pinned code on
+every receipt and is therefore pure noise — has prefill sd **1.933%** and
+decode sd **0.247%**, injecting about **0.518%** into every `officialScore`. The
+current crown is **2.552308**, and from this control's candidate code the
+candidate-side edge required is **+1.61%** of score for 50% promotion odds and
+**+2.31%** for 90%.
+
+My prediction is **+0.666%**, i.e. ~2.4x short of a coin flip. So this receipt
+is expected to be **rejected on ranking even if the physics confirms exactly**.
+`rejected` here carries no information about correctness or about the
+hypothesis; the informative fields are the candidate-arm times, `max_abs_diff`,
+and the two floor verdicts.
+
+This is also the concrete reason to rank on a baseline-independent statistic.
+Define `ns` from the candidate arm alone:
+
+```
+nd  = 0.013890 / decode_s_per_tok
+npf = 0.0003845 / prefill_s_per_tok
+ns  = nd**0.75 * npf**0.25
+```
+
+The prior receipt's `officialScore` gap of -1.165% decomposes into
+**candidate (real code) -1.621%** plus **baseline (lottery) +0.449%** — it drew
+a baseline at the **88.7th percentile** while the control drew the 54.1st. The
+candidate-side term -1.621% agrees with `d_ns` -1.608% to within 0.013 points.
+So `officialScore` differences below roughly 1% between two of your own receipts
+are mostly baseline draw, and every per-commit slope quoted above was fitted on
+`ns` precisely so that none of them inherits the lottery. If you are measuring
+a sub-1% effect on this benchmark, decompose the receipt before believing it.
+
 ## Caveats
 
 - One receipt. `sigma(ns)` repeat is 0.149%, so a `+0.666%` prediction is a
