@@ -1,18 +1,26 @@
 # SENPAI Research State
 
-- **2026-08-05 14:25 UTC** (advisor: meridian). Round 8 closed (three merges),
+- **2026-08-05 15:00 UTC** (advisor: meridian). Round 8 closed (three merges),
   round 9 in flight (#44 r2, #35 r3, #47, #48). The measurement instrument was
   re-characterised over rounds 7–8 and it is now **fully characterised** (§0).
   That work invalidated a batch of prior conclusions, four of them mine. Read §0
-  first, and §0.9 for the six new laws — the **M4 TRANSFER LAW** in §0.9.2 now
+  first, and §0.9 for the seven new laws — the **M4 TRANSFER LAW** in §0.9.2 now
   gates which evidence any brief is allowed to price, §0.9.8 explains why the
-  gather-GEMM staging arms had to come out null, and §0.9.9 is a mandatory
-  pre-flight check for any `_nax` kernel edit.
+  gather-GEMM staging arms had to come out null, §0.9.9 is a mandatory
+  pre-flight check for any `_nax` kernel edit, and **§0.9.11 is the
+  LEDGER-HYGIENE LAW: a banked queue price is not evidence.**
 - **★ Retraction this round:** the "+1.9 to +2.6% unowned" gather-GEMM SM=16
   banding item is **withdrawn and struck from the queue** — it was an
   arithmetic identity misread as headroom. The 15.4 ms excess is still real and
   still unowned, but it has **no surviving mechanism**; see
   `research/GATHER_GEMM_REGIME_DESIGN.md`.
+- **★ Correction this round, the same failure in the other direction:** the
+  sliding-attention kernel rewrite was banked at `~+0.6%` and sat at queue rank
+  4. Re-derived from its source table it is worth **+3.1% to +8.5%** — the
+  **largest single decode-side item in the programme** — and it is
+  M4-screenable. It is now queue rank 1. §0.9.11a carries the full derivation.
+  Two of the first four banked prices audited this way were wrong, which is why
+  §0.9.11 now exists.
 - **Most recent human research direction:** operator authorised the advisor and
   all four students to dispatch official `mlxfast submit` runs, and directs the
   campaign to continue with all four students on distinct high-value
@@ -554,6 +562,102 @@ compilability are all readable on M4 for a kernel that will never run there.
 fern's merged `research/nax_msl_compile_check.sh` is the existing precedent.
 This is what makes the gather-GEMM D2 occupancy audit a free, local arm.
 
+#### 0.9.11 ★★ LEDGER-HYGIENE LAW — a banked queue price is not evidence
+
+**Re-derive every price from its source table before you assign it. Two of the
+first four prices audited this way were wrong, and both errors had been sitting
+in the queue for days steering student time.**
+
+| audited item | banked price | truth | error |
+|---|---:|---|---|
+| gather-GEMM #2, `SM=16` banding | +1.9 to +2.6% | **0** — `SM = BM/WM` is pinned to 16, `TM = SM/16` integer-divides to 0 below it, and `453,120 = Σ ceil(n_e/16)·16` is identically the floor | fictitious |
+| sliding-attention kernel rewrite | ~+0.6% | **+3.1% to +8.5%** (§0.9.11a below) | low by 5–14× |
+| gather-GEMM #1, `Ws` staging | "the mechanism" | measured **null**, twice | refuted by measurement |
+| M5 dispatch constant `c` | 4.1 µs/dispatch | bracket **[0.36, 2.09] µs** | void |
+
+The failure mode is not statistical. Both bad prices were *derived* numbers
+banked in a summary table, and in both cases **the prose in the same file
+already contradicted the table**:
+
+- The `SM=16` row sat two screens away from the geometry comment at
+  `fp_quantized_nax.h:1649` that pins the geometry it proposed to change.
+- The sliding-attention `~+0.6%` row sat in the same document as the M4
+  recoverable table in §1, which says in words *"the sliding-attention line is
+  the one to price first, and it is the rare case where **M4 understates the M5
+  prize**"* — i.e. the prose says *underpriced* while the table says *small*.
+
+So the check is cheap and mechanical:
+
+1. Open the source table the number came from. Verify its own internal
+   arithmetic (the sliding-attention row reproduces: 22.34 × 30 = 670 µs/step;
+   30 × 2.097 MB = 62.91 MB/step; 62.91e6 / 260.2e9 = 241.8 µs; 670 − 242 =
+   428 µs recoverable ✓).
+2. Re-derive the score conversion yourself using the exchange rates in §A
+   (14.862 %/ms decode, 0.371 %/ms prefill). If you cannot reproduce the
+   banked percentage from *any* defensible route, the price is not an estimate
+   — it is a haircut someone forgot to document, and it is void.
+3. Sanity-check against the residual it must fit inside (M5 decode residual
+   1.340 ms; prefill remainder 31.28 ms). A price that needs more than its
+   residual is wrong; a price far below what the residual affords deserves the
+   same suspicion.
+4. Confirm the mechanism is still reachable in source at today's HEAD, not at
+   the HEAD where the number was banked.
+
+**No brief may quote a queue price that has not been through steps 1–4 in that
+brief's own text.** State the derivation in the assignment so the student can
+falsify it, and say explicitly which residual it is drawn against.
+
+##### 0.9.11a The sliding-attention reprice, in full
+
+Source: `research/nezuko-pr9-dispatch-fusion.md:120-144` (M4, ceiling
+260.2 GB/s, `true µs = split µs/call − 1.33`, `recoverable = µs/step −
+bytes/step/ceiling`). Row: `sliding_fused_attn_ring_v1`, n = 30 calls/step,
+22.34 µs true/call, **670 µs/step**, 2.097 MB/call ⇒ **62.91 MB/step**,
+94 GB/s = **36% of ceiling**, **428 µs/step recoverable on M4**.
+
+M5 conversion, both ends:
+
+- **Byte floor.** The same 62.91 MB/step at the measured M5 QMV rate
+  651.8 GB/s costs **96.5 µs** (vs 241.8 µs on M4). That is the floor for this
+  stream on the official box.
+- **Lower bound — the kernel scales with the machine.** Scale the M4
+  recoverable by the decode wall ratio `T_M5/T_M4 = 4.281/8.769 = 0.4882`:
+  428 × 0.4882 = **209 µs/step ⇒ +3.11% of score** at 14.862 %/ms.
+- **Upper bound — the kernel does not scale.** nezuko's own diagnosis is
+  *"This is an occupancy problem, not a dispatch-count problem"*
+  (`nezuko-pr9-dispatch-fusion.md:180-193`): the kernel launches roughly 8
+  threadgroups, which already fails to fill M4's 20 cores and fails *worse* on
+  M5's ~40. If it therefore still costs ~670 µs/step on M5, recoverable is
+  670 − 96.5 = **573 µs/step ⇒ +8.5% of score**.
+- **Fit check.** The whole M5 decode residual is 1.340 ms, so 209 µs is 15.6%
+  of it and 573 µs is 42.8%. Both fit. Neither is contradictory.
+
+None of the obvious reconstructions of the banked "~+0.6%" work:
+0.428 ms × 14.862 = 6.36%; 428/8545 = 5.0%; (428/13344)×0.75 = 2.4%;
+(428/8769)×0.75 = 3.66%. The banked figure is below every one of them.
+
+Two constraints any brief must carry:
+
+- **Bit-exactness.** The admissible direction is **more lanes inside one
+  threadgroup** over the 512 sliding positions, keeping the reduction order
+  identical. **Splitting positions across threadgroups is NOT bit-exact** — a
+  flash-decoding-style cross-threadgroup combine changes softmax accumulation
+  order and will fail the greedy-token gate.
+- **Fusion cannot help this one.** The dup/ser first-touch ratio for
+  `sliding_attn` is **0.971** (§A4), i.e. the bytes are already
+  first-touch and there is no redundant read for a fusion to delete. This is a
+  *kernel* change or nothing.
+
+And it is **M4-screenable**, unusually for an attention item:
+`sliding_fused_attn_ring_v1` is a custom Laguna kernel emitted at
+`Sources/MLXFastModel/LagunaRuntimeModel.swift:1382`, **not** the `_nax`-gated
+MLX SDPA path at `scaled_dot_product_attention.cpp:177`. It executes on M4, and
+in-kernel efficiency is exactly the class the M4 TRANSFER LAW (§0.9.2) admits
+M4 wall-clock for. Companion row for the same rewrite:
+`full_fused_attn_grow_v1`, n = 10, ~23.5 µs, 235 µs/step, 2.621 MB/call,
+112 GB/s, 43% of ceiling, **~130 µs recoverable** — same kernel family, same
+constraint, worth folding into the same arm.
+
 ---
 
 ## THE FIVE THINGS TO READ FIRST
@@ -723,6 +827,16 @@ where **M4 understates the M5 prize**: the official M5 has roughly twice the
 cores, so ~8 threadgroups leaves *more* of the machine idle there. That
 prediction is falsifiable in one census arm (#32 deliverable B, re-aimed
 2026-08-05).
+
+**★ That pricing has now been done — see §0.9.11a. The answer is +3.1% to
++8.5%, not the `~+0.6%` the round-9 queue had banked for it, and it is now
+queue rank 1.** The two ends of the bracket are the two answers to the very
+question this paragraph poses: if the kernel scales with M5's extra cores the
+recoverable time falls to 209 µs/step (+3.11%); if it does not scale — which is
+what ~8 threadgroups on ~40 cores predicts — it stays near 573 µs/step
+(+8.5%). Either way the item is worth 5–14× its banked price, and because
+`sliding_fused_attn_ring_v1` is a custom Laguna kernel rather than an
+`_nax` one, a student can screen the rewrite on M4 for free.
 
 Standing caution kept from the old text: every "hidden host cost" datum except
 the M5 RoPE-probe null is M4-based, and M4 is known-blind to exactly this
@@ -2408,16 +2522,31 @@ tanjiro's **#47**; the attention scale planes are frieren's **#35 r3**.
 
 **★ Ranked by expected score, biggest first, of what remains UNOWNED:**
 
+**Every price below has been re-derived under §0.9.11 or is marked
+`UNAUDITED`. Do not quote an `UNAUDITED` price in a brief — audit it first.**
+
 | # | item | est. score | class | M4-screenable? |
 |---|---|---:|---|---|
-| 1 | **gather-GEMM D2 — occupancy audit** (unblocks the 15.4 ms / +5.7%) | diagnostic, free | static compiler property | ✓ **M4-legal** (compiles, never runs) |
-| 2 | **M2 — gather elision via `lhs_indices`** (2–2.9 ms) | +0.4 to +0.5% | byte stream | ✓ (byte-stream class) |
-| 3 | D-MLP prefill fusion pool | +1.56% claimed, unaudited | byte dedup | ✓ |
-| 4 | sliding-attention kernel rewrite (428 µs at 36% of ceiling) | ~+0.6% | in-kernel occupancy | ✓ |
-| 5 | `residual_rms_router` rpg8→rpg4/2 (~106 µs/step) | ~+0.3% | in-kernel | ✓ |
-| 6 | **P-SHARED** — rider only, see below | +0.18 to +0.33% | byte dedup | ✓ |
+| 1 | **★ sliding-attention kernel rewrite** (+ `full_fused_attn_grow_v1`) — 428 + 130 µs/step at 36% / 43% of ceiling | **+3.1% to +8.5%** (§0.9.11a) | in-kernel occupancy | ✓ **yes** — custom Laguna kernel, not `_nax` |
+| 2 | **gather-GEMM D2 — occupancy audit** (unblocks the 15.4 ms / +5.7%) | diagnostic, free | static compiler property | ✓ **M4-legal** (compiles, never runs) |
+| 3 | D-MLP prefill fusion pool | +1.56% **UNAUDITED** | byte dedup | ✓ |
+| 4 | **M2 — gather elision via `lhs_indices`** (2–2.9 ms) | +0.4 to +0.5% **UNAUDITED** | byte stream | ✓ (byte-stream class) |
+| 5 | `residual_rms_router` rpg8→rpg4/2 (~106 µs/step M4) | ~+0.3% **UNAUDITED** | in-kernel | ✓ |
+| 6 | **P-SHARED** — rider only, see below | +0.18 to +0.33% **UNAUDITED** | byte dedup | ✓ |
 | — | ~~gather-GEMM mechanism #2 — SM=16 banding~~ | ~~+1.9 to +2.6%~~ | **STRUCK: closed at the `kFragRows` floor** | — |
 | — | gather-GEMM mechanism #3 — x re-read (~1–3 ms) | +0.4 to +1.1% *if the floor holds* | **HELD: contingent on D1** | ✗ `_nax`-gated |
+
+**Item 1 is new to the top of this table and it did not get there by a new
+measurement.** It was sitting at rank 4 priced `~+0.6%`; re-deriving it under
+§0.9.11 put it at **+3.1% to +8.5%**, which makes it the largest single
+decode-side item in the programme — larger than fern's #48 (+0.43 to +2.48%),
+frieren's #35 r3 (+1.71 to +1.83%), and nezuko's cap-up arm (+0.65 to +0.83%).
+It is also the rare attention item that is genuinely M4-screenable, so a student
+can iterate on it locally for free and only spend a ranked receipt on a
+mechanism that already won on M4. Two hard constraints travel with it: the
+rewrite must add lanes **within** a threadgroup (cross-threadgroup position
+splits break bit-exactness), and fusion is not the lever here (first-touch
+ratio 0.971). Read §0.9.11a before writing the brief.
 
 The two items that used to head this table are gone. Mechanism #2 was never a
 knob — `SM = BM/WM` is pinned to 16 by the host guard at `quantized.cpp:1662`
@@ -2426,10 +2555,15 @@ any smaller `SM`, so the "banding win" was an arithmetic identity misread as
 headroom. Mechanism #3 prices against the same 27.9 ms floor and is held until
 D1 says whether that floor is real. **The 15.4 ms is still the largest
 unexplained residual in the programme (+5.7% of score at 0.371 %/ms) and it now
-needs a diagnostic, not another mechanism.** Item 1 (D2) is the cheapest
+needs a diagnostic, not another mechanism.** Item 2 (D2) remains the cheapest
 possible next step: it costs no ranked receipt, runs on M4 because occupancy is
 a static compiler property, and either names the binding occupancy term or
-proves the kernel is not occupancy-limited. **Next free student gets item 1.**
+proves the kernel is not occupancy-limited.
+
+**Assignment order for the next two free students: item 1, then item 2.** Item
+1 is the bigger prize and is screenable without a receipt; item 2 is free and
+unblocks a bigger one. Neither competes for the ranked channel in its first
+phase, so they can run concurrently.
 
 - **⛔ P-GLUE as a census is CANCELLED (audited 2026-08-05).** Two independent
   agents — one adversarial verifier, one bottom-up designer — converged on the
