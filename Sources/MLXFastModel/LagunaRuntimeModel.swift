@@ -2828,33 +2828,6 @@ private func lagunaIndexedAffineMetadata(
     )
 }
 
-private func lagunaPackedAffineMetadata(
-    scales: MLXArray, biases: MLXArray, layer: Int
-) -> MLXArray? {
-    guard scales.dtype == .bfloat16, biases.dtype == .bfloat16,
-        scales.shape == biases.shape, scales.size > 0
-    else {
-        return nil
-    }
-
-    let scaleBits = scales.view(dtype: .uint16).asArray(UInt16.self)
-    let biasBits = biases.view(dtype: .uint16).asArray(UInt16.self)
-    guard scaleBits.count == biasBits.count else { return nil }
-
-    let pairs = zip(scaleBits, biasBits).map {
-        UInt32($0.0) | (UInt32($0.1) << 16)
-    }
-    if lagunaTraceFusion {
-        precondition(pairs.indices.allSatisfy {
-            UInt16(truncatingIfNeeded: pairs[$0]) == scaleBits[$0]
-                && UInt16(truncatingIfNeeded: pairs[$0] >> 16) == biasBits[$0]
-        })
-        lagunaTrace(
-            "packed affine oproj metadata layer \(layer) groups \(pairs.count) unique \(Set(pairs).count) bit-identical")
-    }
-    return MLXArray(pairs).reshaped(scales.shape)
-}
-
 struct LagunaNativeAffineWeight {
     let packedCodes: MLXArray
     let scales: MLXArray
@@ -2865,13 +2838,11 @@ struct LagunaNativeAffineWeight {
     var bits: Int = 8
     var mode: QuantizationMode = .affine
     var indexedMetadata: LagunaIndexedAffineMetadata? = nil
-    var packedMetadata: MLXArray? = nil
 
     var arrays: [MLXArray] {
         [packedCodes, scales]
             + (biases.map { [$0] } ?? [])
             + (indexedMetadata?.arrays ?? [])
-            + (packedMetadata.map { [$0] } ?? [])
     }
 }
 
@@ -3825,10 +3796,10 @@ func lagunaGateProductSoftplus(
 // MARK: - Gated native-affine INT8 output projection (one dispatch)
 
 /// Exact per-head softplus gate plus group-32 affine INT8 output GEMV.
-private func lagunaGatedAffineOProjSource(heads: Int, packed: Bool = false) -> String {
-    let metadataPointers = packed
+private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> String {
+    let metadataPointers = indexed
         ? """
-        const device uint* md = packed_metadata + out_row * in_vec_size_g +
+        const device ushort* mi = metadata_indices + out_row * in_vec_size_g +
             simd_lid / scale_step_per_thread;
         """
         : """
@@ -3837,9 +3808,9 @@ private func lagunaGatedAffineOProjSource(heads: Int, packed: Bool = false) -> S
         const device bfloat* bs = weight_biases + out_row * in_vec_size_g +
             simd_lid / scale_step_per_thread;
         """
-    let metadataLoad = packed
+    let metadataLoad = indexed
         ? """
-            uint pair = md[row * in_vec_size_g];
+            uint pair = metadata_lut[mi[row * in_vec_size_g]];
             float scale = float(as_type<bfloat>(ushort(pair)));
             float bias = float(as_type<bfloat>(ushort(pair >> 16)));
         """
@@ -3847,8 +3818,8 @@ private func lagunaGatedAffineOProjSource(heads: Int, packed: Bool = false) -> S
             float scale = float(sc[row * in_vec_size_g]);
             float bias = float(bs[row * in_vec_size_g]);
         """
-    let metadataAdvance = packed
-        ? "md += block_size / group_size;"
+    let metadataAdvance = indexed
+        ? "mi += block_size / group_size;"
         : """
         sc += block_size / group_size;
         bs += block_size / group_size;
@@ -3956,16 +3927,17 @@ private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     return kernels
 }()
 
-private let lagunaGatedAffineOProjPackedKernels: [Int: MLXFast.MLXFastKernel] = {
+private let lagunaGatedAffineOProjIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_packed_v1",
+            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_idx_v1",
             inputNames: [
-                "attention_output", "gate_logits", "weight_codes", "packed_metadata",
+                "attention_output", "gate_logits", "weight_codes",
+                "metadata_indices", "metadata_lut",
             ],
             outputNames: ["projected"],
-            source: lagunaGatedAffineOProjSource(heads: heads, packed: true),
+            source: lagunaGatedAffineOProjSource(heads: heads, indexed: true),
             ensureRowContiguous: true
         )
     }
@@ -4040,7 +4012,7 @@ func lagunaGatedAffineOProj(
     codes: MLXArray,
     scales: MLXArray,
     biases: MLXArray,
-    packedMetadata: MLXArray? = nil,
+    indexedMetadata: LagunaIndexedAffineMetadata? = nil,
     heads: Int
 ) -> MLXArray? {
     let inVec = heads * LagunaConstants.headDim
@@ -4059,14 +4031,17 @@ func lagunaGatedAffineOProj(
         return nil
     }
 
-    if let metadata = packedMetadata,
-        let kernel = lagunaGatedAffineOProjPackedKernels[heads],
-        metadata.dtype == .uint32,
-        metadata.shape == [outVec, inVec / 32]
+    if let metadata = indexedMetadata,
+        let kernel = lagunaGatedAffineOProjIndexedKernels[heads],
+        metadata.indices.dtype == .uint16,
+        metadata.indices.shape == [outVec, inVec / 32],
+        metadata.lut.dtype == .uint32,
+        metadata.lut.ndim == 1,
+        metadata.lut.size <= 65_536
     {
-        lagunaTrace("gated affine oproj qmv h\(heads) packed")
+        lagunaTrace("gated affine oproj qmv h\(heads) indexed")
         return kernel(
-            [attentionOutput, gateLogits, codes, metadata],
+            [attentionOutput, gateLogits, codes, metadata.indices, metadata.lut],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16]
@@ -5264,8 +5239,8 @@ final class LagunaRuntimeAttention: Module {
         if preparedWO.mode == .affine, preparedWO.bits == 8,
             preparedWO.groupSize == 32, let biases = preparedWO.biases
         {
-            preparedWO.packedMetadata = lagunaPackedAffineMetadata(
-                scales: preparedWO.scales, biases: biases, layer: layerIdx)
+            preparedWO.indexedMetadata = lagunaIndexedAffineMetadata(
+                scales: preparedWO.scales, biases: biases)
         }
         _nativeAffineOProj = preparedWO
         return preparedWO.arrays
@@ -5911,7 +5886,7 @@ final class LagunaRuntimeAttention: Module {
                 if lagunaFusedGatedAffineOProjEnabled, !gateIsActivated,
                     affineWO.mode == .affine, affineWO.bits == 8,
                     affineWO.groupSize == 32,
-                    affineWO.packedMetadata != nil,
+                    affineWO.indexedMetadata != nil,
                     let affineBiases = affineWO.biases,
                     let fusedProjection = lagunaGatedAffineOProj(
                         attentionOutput: output,
@@ -5919,7 +5894,7 @@ final class LagunaRuntimeAttention: Module {
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
                         biases: affineBiases,
-                        packedMetadata: affineWO.packedMetadata,
+                        indexedMetadata: affineWO.indexedMetadata,
                         heads: nHeads)
                 {
                     return fusedProjection
