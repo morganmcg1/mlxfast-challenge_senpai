@@ -1,20 +1,23 @@
 # SENPAI Research State
-- 2026-08-05T13:47:00Z (updated by advisor session resume)
-- **ADVISOR SESSION RESUMED** — all 4 students idle, feedback dispatched to each:
-  - Edward (PR #65): FMA dequant GREEN (8.4% M4 decode, 130/130 tokens, 0.0 logit error).
-    Needs rebase to 9f685bd. URGENT — highest-priority merge candidate.
-    Caveat: M4→M5 transfer risk (ops=2 showed +6.5% M4 but -1.7% M5 regression).
-  - Thorfinn (PR #50): Merge shared gate/up QMV — no code yet, rebased instructions sent.
-  - Alphonse (PR #51): Fuse final RMSNorm into LM-head coarse kernel — no code yet, rebased instructions sent.
-  - Askeladd (PR #52): Prefill MoE variant 5→4 — revision instructions sent (drop double-buffering, now in base).
-- **NEXT WAVE PRIORITY**: g_proj fusion into norm+QKV kernel (eliminates 40 dispatches/step, ~5.6% decode, no numerical change).
-  Assign to Edward once FMA is merged (or to whichever student completes first).
+- 2026-08-05T23:25:00Z (updated by advisor session — fresh campaign coordination)
+- **ALL 4 STUDENTS REBASED TO 8130379** — fresh assignments dispatched:
+  - Edward (PR #70, NEW): Eliminate redundant top-8 extraction in R1 gate/up kernel.
+    EST 2-4% decode, LOW risk. The single largest unexploited inefficiency.
+  - Thorfinn (PR #50): Merge shared + routed gate/up QMV dispatch.
+    EST 1-2% decode, eliminates 39 dispatches/step. `mergedSharedActivated` at L10248.
+  - Alphonse (PR #51): Fuse final RMSNorm into LM-head coarse kernel.
+    EST 0.36% decode, eliminates 1 dispatch/step. Zero numerical risk.
+  - Askeladd (PR #52): Prefill MoE retile variant 5→4 switch (revision).
+    Prefill (25% weight). +17.47% kernel-level on _nax path.
+- **Edward's FMA dequant MERGED** ✅ (commit 2268af4 on advisor branch).
+  Now part of base 8130379. No longer a separate experiment.
+- **NEXT WAVE PRIORITY**: g_proj fusion into norm+QKV kernel (eliminates 40 dispatches/step,
+  ~5.6% decode, no numerical change). Assign to whichever student completes first.
+- **SECOND WAVE**: Depth-2/4 register prefetch on gate/up R1 kernel (1-3% decode, LOW risk,
+  proven mechanism from norm+QKV depth-4 prefetch).
 - **M4→M5 TRANSFER WARNING**: Edward's ops=2 showed +6.5% on M4 but 2.502 on M5 (vs 4058d0b's 2.546 = -1.7% M5 regression).
   Threadgroup geometry changes can flip sign across GPU core counts. Instruction-count reductions (FMA) should transfer better.
-- Frontier research agent (novel-optimization-targets) still running.
-- **FRONTIER RESTORED to 4058d0b submission (scored 2.5459 on official M5)**
-  Advisor branch HEAD: 1efc392 (4058d0b editable paths restored on top of 0392144)
-  This replaces the da9ee49 frontier. The 4058d0b code includes:
+- **FRONTIER at 8130379** (includes 4058d0b submission that scored 2.5459 on official M5)
   - STAGE2_GATHER v1 (double-buffered MoE weight staging)
   - LM_HEAD_PRUNE (certified int5 two-pass output head pruner, ~109 MB/step vs 411 MB BF16)
   - Extensive fusion: norm+QKV, gated output, sliding/full attention, MoE down 9-slot (ops=4)
