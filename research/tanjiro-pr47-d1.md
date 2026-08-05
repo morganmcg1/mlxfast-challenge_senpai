@@ -404,6 +404,42 @@ This is a *model-free* comparison — same `n`, same arm, same session, same
 reduction, only `EMPTY_TG` differs. It does not lean on the fitted slope, the
 fitted offset, or on the knee being hard rather than soft.
 
+### n = 6400 confirmation points, and the regime warning they carry
+
+Two further tg=8 points were banked at `n = 6400` (`d1-tg8-r1-n6400-c1.json`,
+`d1-tg8-r1-n6400-c0.json`; both `passed_correctness: true`, `max_abs_diff: 0`,
+empty `error`). There is no tg=160 companion at `n = 6400`, so these cannot
+extend the matched-`n` cross-`tg` test. What they do give is a second, wholly
+independent estimate of the tg=8 marginal rate, taken from the *segment* slope
+between `n = 3200` and `n = 6400` rather than from the anchor.
+
+| arm | dT(3200) ms | dT(6400) ms | segment slope 3200→6400 | tg=160 supra-knee fit |
+| --- | --- | --- | --- | --- |
+| chained | 5.51885 | 13.65894 | **2.5438 µs/disp** | 2.7406 ± 0.0829 |
+| unchained | 5.32090 | 16.08431 | **3.3636 µs/disp** | 2.6773 ± 0.1636 |
+
+Both tg=8 segment slopes land in the same 2.5–3.4 µs/dispatch class as the
+tg=160 supra-knee fits (ratios 0.93 and 1.26). `H_probe` would have required
+0.449× of those, i.e. 1.23 and 1.20 µs/dispatch. So the occupancy-independence
+conclusion reproduces on a second, anchor-free estimator.
+
+**But these two points also inverted the arm ordering**: at `n = 6400` the
+*unchained* arm is 2.43 ms slower than the chained one, where at `n = 3200` it
+was 0.20 ms faster. That gap is far larger than any rep spread I have measured
+(0.192 ms at `n = 3200`, tg=160), and its sign is physically backwards. With one
+rep per point I cannot separate noise from a real regime change, and I am not
+going to guess. What I will record is the concrete reason to distrust `n = 6400`
+as a clean operating point: at `max_ops_per_buffer = 50` it forces ~128 extra
+command buffers per decode step and inflates decode from 8.8 ms to 22–25 ms per
+step, a 2.5–2.8× stretch of the timed window. The harness thermal gate was
+calibrated for the unstretched window.
+
+**Neither the primary discriminator nor any conclusion above depends on these
+points.** The discriminator is the matched-`n` comparison at `n = 3200`, which is
+untouched. The `n = 6400` pair is reported as corroboration of the slope class
+and as an explicit warning that the ladder should not be pushed past `n = 3200`
+on this host without replication.
+
 ### What that settles, and what it does not
 
 **Settled: the exposed in-model marginal cost on M4 is host-encode-class.** It

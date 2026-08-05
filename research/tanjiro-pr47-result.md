@@ -435,10 +435,75 @@ No W&B runs: this track's evidence is ranked receipt IDs and `research/*.md`.
   D5 is the last arm that needs it. See §7 for the current state.
 - **D5 needs a separate grant.** Prereg is written
   (`research/tanjiro-pr47-prereg-n400-unchained.md`) including the §4.1 aliasing
-  enumeration. I have not submitted it and will not without a grant.
+  enumeration. I have not submitted it and will not without a grant. **But read
+  the next two bullets before you spend a slot on it — I think its expected
+  information yield just dropped, and I would rather tell you that than quietly
+  cash the grant.**
 - **D3 (n=200)** stays conditional. I have not pre-spent it.
-- The tg=8 D1 addendum was **deliberately paused** with `r1-n0` banked; the
-  script skips completed points, so it resumes for free.
+- The tg=8 D1 addendum is **finished** and its decisive comparison is
+  model-free (`research/tanjiro-pr47-d1.md`, § "tg=8 addendum"). Matched `n`,
+  matched arm, matched session, only `EMPTY_TG` differs, no fitted law involved:
+
+  | n = 3200 | dT tg=160 (mean of 2) | dT tg=8 | ratio |
+  |---|---|---|---|
+  | chained | 5.48373 ms | 5.51885 ms | **1.0064** |
+  | unchained | 5.31514 ms | 5.32090 ms | **1.0011** |
+
+  `H_host` predicts 1.00; `H_probe` predicts 0.449 (the standalone probe's own
+  chained cost is 1.2624 µs/dispatch at tg=8 versus 2.8134 at tg=160). A 20×
+  occupancy change (2048 → 40960 threads/dispatch) moves the exposed marginal
+  cost by **under 1%**, in *both* arms. Control: the `n = 0` anchor is
+  tg-independent to +0.00467 ms, inside the 0.0097 ms rep spread.
+
+  So the exposed in-model marginal cost on M4 is **host-encode-class**, and the
+  1.0237 chained/unchained ratio from the tg=160 ladder needs no leaked barriers
+  to explain it. My preregistered reading of that ratio stays recorded as a
+  failure (§2.3).
+- **The two `n = 6400` tg=8 points confirm the slope class and simultaneously
+  flag a regime limit.** Segment slopes over 3200→6400 are 2.5438 µs/dispatch
+  chained and 3.3636 unchained, against the tg=160 supra-knee fits of 2.7406 and
+  2.6773 — the same class on a second, anchor-free estimator, where `H_probe`
+  would have needed 1.2 µs/dispatch. But at `n = 6400` the arm ordering
+  **inverts** (unchained 2.43 ms *slower*, sign backwards, gap far exceeding any
+  rep spread I have measured), and `n = 6400` stretches the decode step from
+  8.8 ms to 22–25 ms — ~128 extra command buffers per step at
+  `max_ops_per_buffer = 50`, i.e. a 2.5–2.8× stretch of a timed window the
+  thermal gate was calibrated for unstretched. One rep cannot separate noise from
+  a real regime change and I am not going to guess. Recorded as corroboration
+  plus a do-not-exceed marker at `n = 3200` on this host; **no conclusion in this
+  PR depends on those two points.**
+- **Why that is bad news for D5, stated plainly.** The same data prices the
+  barrier's *own* marginal cost on M4: chained − unchained is 0.0527 µs/dispatch
+  at tg=160 and 0.0619 µs/dispatch at tg=8 — i.e. ~3% of the 1.71 µs/dispatch
+  total, and itself tg-**in**dependent, which reads as the barrier's host-side
+  encode cost rather than partial exposure of its GPU cost. I am not allowed to
+  transfer that magnitude to M5 (transfer law, boundary class), so this is not a
+  prediction. What it *is*, is a warning about degeneracy: `S0` ("unchained
+  costs the same as chained") is now the outcome an experienced reader would
+  expect on physical grounds **and** the outcome that allocator output recycling
+  would manufacture. Per my own §4.1 pre-commitment I would not be able to
+  report `S0` as a physical conclusion. A slot that can only return an
+  uninterpretable outcome plus two interpretable ones is worth less than the
+  prereg assumed.
+- **A concrete fix, if you want D5 to be decisive.** The undischarged residual
+  is output-buffer recycling: `set_output_array` calls `set_input_array` first
+  (`device.cpp:320-327`), so a recycled buffer that was a previous *output* is a
+  WAW hazard and gets a barrier — in the unchained arm too. In the unchained arm
+  today every empty's output is dropped at the end of
+  `lagunaInjectLayerWork` (`pending` goes out of scope after `asyncEval`), which
+  is exactly what feeds the allocator cache. Retaining those outputs in a static
+  list for the whole timed window makes recycling structurally impossible
+  (400 × 256 × 4 B per step; ~51 MB across 128 steps, against a 21.6 GB
+  resident model). It has to be applied **symmetrically to both arms**, because
+  never-freed outputs force fresh allocations and that has its own host cost. I
+  have **not** implemented it: it needs a byte-budget decision (current growth
+  in `LagunaRuntimeModel.swift` is 182 B against your +200 B allowance, so this
+  wants frieren's deletion to land first, or an explicit new allowance) and D5
+  itself needs a grant. Flagging, not doing.
+- **If you would rather not spend the slot at all**, my D4 recommendation is
+  unchanged and is the reason: Rank 1 (attention occupancy/geometry, ~4.31%,
+  zero dispatches removed) is **bracket-independent** — it does not need the
+  [0.36, 2.09] µs/dispatch question answered to be worth trying.
 - The probe's unexplained tg=640 `fenceonly`/`bindchurn` cost wants one more arm
   (bind a *fixed* second sink). I did not implement it — flagging, not doing.
 - **Submission authority.** I read the chain as: `AGENTS.md` and
