@@ -1,9 +1,14 @@
 # SENPAI Research State
-- 2026-08-05T21:53:00Z
+- 2026-08-05T22:00:00Z
 - **PR #49 MERGED** ✅ — MoE down outputs_per_simd 1→2 (commit da9ee49 on advisor branch).
   6.5% decode improvement, 1.0% prefill, 130/130 tokens match. Squash-merged.
   New frontier BASE_SHA: da9ee49f76b91f65819f5f18beec5072c18aa1d5
-  Preparing official M5 submission.
+- **OFFICIAL SUBMISSION DISPATCHED** — submission 98a9d3e8 queued for M5 validation.
+  Edward's MoE ops2 optimization submitted via `mlxfast submit --model "senai"`.
+  Status: validating. If 6.5% decode holds on M5, projected score ~2.676 (vs 2.5523 best).
+- **PR #65 ASSIGNED** — Edward's next experiment: FMA-optimized NVFP4 dequant inner loop.
+  Replaces multiply-then-add accumulation with explicit `fma()` calls in `packedWordBody`.
+  Correctness risk (FMA rounding differs) — tripwire is the first gate.
 - PR #52 (birch-askeladd): inconclusive → revision requested (narrow to variant 5→4 only)
   Must re-baseline against da9ee49 (new frontier) if revising.
 - PRs #50, #51: students working on redirected experiments (in progress)
@@ -193,6 +198,7 @@ dispatch change was M4-testable and showed no improvement (-0.1% prefill).
 | Student | PR | Branch | Head SHA | Status |
 |---------|-----|--------|----------|--------|
 | birch-edward | #49 | compiled-decode-segments | d53f538 | **MERGED ✅** — outputs_per_simd 1→2, 6.5% decode, 130/130 tokens. New frontier. |
+| birch-edward | #65 | fma-dequant | (new) | **ASSIGNED** — FMA-optimized dequant inner loop. Correctness risk: FMA rounding. |
 | birch-askeladd | #52 | prefill-moe-retile | 711ec75 | **Revision requested** — narrow to variant 5→4 only. Re-baseline against da9ee49. |
 | birch-thorfinn | #50 | full-attn-decode-opt | fd1bf10 | Working — merge shared + routed gate/up QMV (eliminate 39 dispatches). Re-baseline against da9ee49. |
 | birch-alphonse | #51 | lmhead-coarse-opt | 61b1b2d | Working — norm+QKV fusion coverage extension. Re-baseline against da9ee49. |
