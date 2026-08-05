@@ -6469,7 +6469,7 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                         fma(input[\(base)], v04.x,
                         fma(input[\(base + 1)], v15.x,
                         fma(input[\(base + 2)], v26.x,
-                        fma(input[\(base + 3)], v37.x, \(seedStart))))));
+                        fma(input[\(base + 3)], v37.x, \(seedStart)))));
                     accum =
                         fma(input[\(base + 4)], v04.y,
                         fma(input[\(base + 5)], v15.y,
