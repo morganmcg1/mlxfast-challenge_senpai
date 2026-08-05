@@ -1,16 +1,19 @@
 # SENPAI Research State
-- 2026-08-05T21:28:00Z
-- All 4 student PRs received base-acceptance feedback (advisor branch at 6a0cfa4).
+- 2026-08-05T21:47:00Z
+- PR #49 (birch-edward): REVIEW-READY WINNER — MoE down outputs_per_simd 1→2.
+  6.5% decode improvement, 1.0% prefill improvement, 130/130 tokens match.
+  Attempting merge (blocked by GitHub mergeability computation). Score est: 2.455→~2.60.
+- PR #52 (birch-askeladd): inconclusive → revision requested (narrow to variant 5→4 only)
+- PRs #50, #51: students working on redirected experiments (in progress)
+- All 4 student PRs received base-acceptance feedback (advisor branch at 67ea914).
   Students' BASE_SHA bb523807 remains valid (no scored code change on advisor branch).
 - Fresh independent research campaign launched (mlxfast-birch-20260805)
 - Operator authorized official submissions from AWS Macs; use `--model "senpai"` first
-- PR #52 (birch-askeladd): inconclusive → revision requested (narrow to variant 5→4 only)
-- PRs #49, #50, #51: ~8 hours since assignment, no student code commits yet
-- Metal MoE optimization literature search complete (search agent returned)
-- Decode dispatch analysis agent still running
+- Sub-agent research complete: eval-count-audit, competitor-analysis, metal-moe-optimization,
+  merge-gateup-analysis, lm-head-analysis all returned. Two frontier agents failed (timeout).
 - Current best on leaderboard: 2.5523 (lBroth, commit bca94c5 = our ORGANIZER_FRONTIER_SHA)
 - Students' assigned BASE_SHA: bb523807 (original frontier, scored code unchanged)
-- Current advisor branch HEAD: 6a0cfa4 (research notes only)
+- Current advisor branch HEAD: 67ea914 (research notes only)
 
 ## Current Research Focus and Themes
 
@@ -186,10 +189,10 @@ dispatch change was M4-testable and showed no improvement (-0.1% prefill).
 ### Student Progress Summary
 | Student | PR | Branch | Head SHA | Status |
 |---------|-----|--------|----------|--------|
+| birch-edward | #49 | compiled-decode-segments | d53f538 | **REVIEW-READY WINNER** — outputs_per_simd 1→2, 6.5% decode, 130/130 tokens. ATTEMPTING MERGE. |
 | birch-askeladd | #52 | prefill-moe-retile | 711ec75 | **Submitted (inconclusive)** — revision requested: narrow to variant 5→4 only |
-| birch-edward | #49 | compiled-decode-segments | eacc663 | No code yet — sent attention analysis + quick-win guidance |
-| birch-thorfinn | #50 | full-attn-decode-opt | fd1bf10 | No code yet — sent MoE down findings as bonus |
-| birch-alphonse | #51 | lmhead-coarse-opt | 61b1b2d | No code yet — sent LM-head format correction + dispatch consolidation idea |
+| birch-thorfinn | #50 | full-attn-decode-opt | fd1bf10 | Working — redirected to merge shared + routed gate/up QMV (eliminate 39 dispatches) |
+| birch-alphonse | #51 | lmhead-coarse-opt | 61b1b2d | Working — redirected to norm+QKV fusion coverage extension |
 
 ## Frontier Agent Findings (2026-08-05T20:15Z)
 
@@ -321,14 +324,47 @@ AsType audit is a **non-issue** for our codebase. Downgraded from high priority.
 - NVFP4 tensor-scale (global_scale) is broken on Metal (MLX #3550). Our code uses
   per-group NVFP4 (no global_scale) — unaffected.
 
+## Sub-Agent Research Findings (2026-08-05T21:40Z)
+
+### eval-count-audit (explore agent)
+- **Result**: The decode path already has **0 blocking `eval()` calls** and **8 non-blocking `asyncEval()` fences** per step.
+- The 6 `eval()` calls in the file are all init/warmup, NOT on the scored decode path.
+- The 8 asyncEval fences are measured-tuned (notes/52: off=10.37ms vs ladder8=9.45ms, +9.7% from overlap).
+- **Verdict**: This is an "already optimized" finding, not an opportunity. No eliminable eval overhead remains.
+
+### competitor-analysis (search agent)
+- **lBroth's MTPLX** uses MTP speculative decoding — FORBIDDEN on our serial track. Their serial-track win must come from kernel-level optimization, dispatch reduction, and weight layout.
+- **Fuse gate+up into one gather_qmm**: bit-exact, +6.6-7.6%. Already partially implemented (DARKBLOOM_FUSED_ROUTED_GATE_UP). Remaining gap is shared expert merge — assigned to Thorfinn.
+- **AsType/dtype-mismatch audit**: 1100+ AsType ops was from vmlx-swift-lm (different Swift port). Our codebase has only 28 AsType calls, all intentional. **DOWNGRADED TO NON-ISSUE.**
+- **FMA-optimized dequant**: `fma(nibble, scale*x, bias*x)` +12% kernel-level. Not yet tested in our codebase.
+- **Cooperative SMEM scale loading**: +7-12%, but must be cooperative (not per-thread register caching, which regresses 20-30%).
+
+### metal-moe-optimization (search agent)
+- **Single command buffer per forward pass**: #1 finding in literature. Our path already uses lazy eval + asyncEval (confirmed by eval-count-audit).
+- **Dedicated M=1 register-resident GEMV for NVFP4 decode**: 1.53x over bf16 GEMV. Our decode already uses custom GEMV kernels, not MMA. Already on correct path.
+- **M5 denormal behavior**: f16 domain must be used for NVFP4 decode (correctness-critical). Our kernels use BF16 accumulation — verify safe on M5.
+- **16-lane SIMD width hard limit**: Metal crashes on ≥24-lane 16-bit SIMD arithmetic. All accumulation must be fp32.
+
+### merge-gateup-analysis (explore agent)
+- Confirmed `mergedSharedActivated` (L10248) is dead plumbing — declared `nil`, never assigned.
+- Shared gate/up QMV is always a separate dispatch (1 per layer × 39 sparse layers = 39 dispatches/step).
+- The merge opportunity is untouched — confirmed as a viable experiment.
+
+### lm-head-analysis (explore agent)
+- LM-head prune path is already maximally optimized — 4-dispatch sequence cannot be collapsed further.
+- Argmax stage1 + threshold is a standard two-pass reduction over 100,352 elements.
+- Coarse + stage1 cannot merge because coarse outputs must materialize for the exact pass.
+- **Verdict**: LM-head dispatch consolidation is a dead end. Alphonse was correctly redirected to norm+QKV fusion.
+
 ## Potential Next Research Directions
 
 ### Currently Assigned (In-Flight)
+- **MoE down kernel outputs_per_simd 1→2** (ASSIGNED to Edward, PR #49): ✅ WINNER —
+  6.5% decode improvement, 1.0% prefill, 130/130 tokens. REVIEW-READY, ATTEMPTING MERGE.
+  Next: assign Edward a follow-up (reduction parallelization or FMA dequant).
 - **Merge shared + routed gate/up QMV** (ASSIGNED to Thorfinn, PR #50): fill the
   `mergedSharedActivated` gap at L10248. Eliminates 39 dispatches/step. +6.6-7.6% decode.
-- **MoE down kernel outputs_per_simd 1→2** (ASSIGNED to Edward, PR #49): amortize
-  barrier+reduce across 2 rows. Low risk, ~1-2% gain. Stacks with reduction parallelization.
-- **Norm+QKV fusion for INT8 path** (ASSIGNED to Alphonse, PR #51): extend
+- **Norm+QKV fusion coverage extension** (ASSIGNED to Alphonse, PR #51): extend
   `lagunaNormAffineQKV` to cover INT8 layers. Save 40 dispatches/step.
 - **Prefill MoE _nax variant 5→4 switch** (ASSIGNED to Askeladd, PR #52 revision):
   WN=2, 256 thr/TG. Needs M5 validation. +17.47% kernel-level.
