@@ -362,6 +362,53 @@ If `dS` moves materially while `dT` does not, the arm has measured a prefill
 session artefact and not the knee, and I will say so rather than converting a
 prefill draw into a dispatch constant.
 
+### PRE-RECEIPT AMENDMENT: the M4 companion pair says the knee is soft, not hard
+
+Added 2026-08-05 ~15:20Z, **before** the ranked submission, so it is a
+prediction and not a post-hoc rescue.
+
+The `--local-iterate` gate run of this exact submitted tree (`5a72af3`) is an
+M4 n=100 point at tg=8/chained/spread=1, and I already hold the matching n=0
+point at the same geometry (`c7a874d`, banked as
+`research/tanjiro-pr47/d1-tg8-r1-n0.json`). Paired:
+
+| tree | S (ms) | T (ms) |
+|---|---|---|
+| `c7a874d` n=0 | 571.4312 | 8.83084 |
+| `5a72af3` n=100 | 569.7498 | 8.89438 |
+
+`dS = -1.6815 ms (-0.294%)`, `dT = +0.06354 ms (+0.719%)` ⇒ implied M4
+`0.6354 µs/dispatch` across n=0→100.
+
+Two rigid models both fail this datum:
+
+- the **hard-knee** M4 law from D1 (`knee = 1209`) predicts `dT(100) = 0`;
+- a **no-knee** M4 law at D1's supra-knee slope `2.7406 µs/disp` predicts
+  `dT(100) = 0.27406 ms`, 4.3× what I measured.
+
+`dT` is 6.6× the n=0 anchor spread (0.0097 ms over 2 points), so it is very
+unlikely to be pure noise, and `dS` moved the *wrong way* (faster) so a
+session-wide slowdown cannot explain it either. The M4 absorption region is
+therefore **soft**: partial exposure well below the knee, about 23% of the
+supra-knee marginal rate at n=100.
+
+Caveat stated at full strength: under the **M4 transfer law** (nezuko, PR #44)
+boundary *timing* does not transfer M4→M5 in magnitude or sign, so this cannot
+establish a soft knee on the M5. It is one unreplicated pair.
+
+What it does change, and this is the binding part:
+
+1. It **raises my prior on region R3** (the gap `(2.484242, 2.528276)`). My §4
+   rule calls R3 a "gap"; I am amending that now. **R3 will be read through the
+   §6 continuous map as a genuine intermediate `dT`, not as an instrument
+   fault.** Only R5 remains pre-declared as a fault region.
+2. It weakens the `dT(n) = c·max(0, n−k)` hard-knee form that both
+   H_knee0/H_knee300 and Reading A of §5 assume. If the M5 point lands in R3, I
+   will report the soft-knee family as the leading explanation and will **not**
+   quote a single knee `k` as if it were resolved.
+3. It does **not** move the R1/R2 acceptance windows, which stay exactly as
+   preregistered.
+
 ## 9. Cost and constraints
 
 One ranked submission. Two earlier L2 submissions were refused at 10:30:11Z and
@@ -370,8 +417,12 @@ The #27 instrument block in `LagunaRuntimeModel.swift` (~11049-11232) must stay
 alive until this receipt lands; frieren's deletion authority unblocks the moment
 I say so in my result.
 
-Editable-path budget at base `1849b376d73f69f9a6b9018619ac665ae4bceb33`:
-`current=2940973/3000000 headroom=59027 growth=0/262144 files=142`. This file
-and its script live in `research/`, outside `editablePaths`: **0 submitted
-bytes**. The only submitted change is the `+179 B` unchained-empties knob
-already counted against the `+200 B` ceiling.
+Editable-path budget at the accepted base
+`173277080dec8207add0654711ec2f65344de981`, measured on the submitted tree
+`5a72af3`: `current=2941155/3000000 headroom=58845 growth=182/262144 files=142
+(base=142)`. This file and its script live in `research/`, outside
+`editablePaths`: **0 submitted bytes**. Total submitted growth is `+182 B`
+against my `+200 B` ceiling — the `+179 B` unchained-empties knob plus `+3 B`
+from rewriting the `EMPTY_TG` doc comment, which previously justified `160` with
+the stale M4 `2.46 µs` datum. `LagunaRuntimeModel.swift` is 508,711 B against
+the 524,288 B per-file cap (15,577 B spare).
