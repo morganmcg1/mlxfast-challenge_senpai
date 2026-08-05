@@ -6404,12 +6404,12 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     // Word `w` owns `input[8w .. 8w+7]`, exactly the indices the `8 * j` form
     // produced, so the multiply/add expressions and their association are
     // untouched.
-    func inputValue(_ index: Int, bf16: Bool) -> String {
-        bf16
-            ? "float(input[\(index / 4)][\(index % 4)])"
-            : "input[\(index)]"
-    }
     func packedWordBody(_ word: Int, bf16: Bool = false) -> String {
+        func value(_ index: Int) -> String {
+            bf16
+                ? "float(input[\(index / 4)][\(index % 4)])"
+                : "input[\(index)]"
+        }
         let codeWord = word == 0 ? "codes.x" : "codes.y"
         let base = 8 * word
         let seedOperator =
@@ -6424,15 +6424,15 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                     const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
                     const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
                     \(seedOperator)
-                        (\(inputValue(base, bf16: bf16)) * v04.x +
-                         \(inputValue(base + 1, bf16: bf16)) * v15.x +
-                         \(inputValue(base + 2, bf16: bf16)) * v26.x +
-                         \(inputValue(base + 3, bf16: bf16)) * v37.x);
+                        (\(value(base)) * v04.x +
+                         \(value(base + 1)) * v15.x +
+                         \(value(base + 2)) * v26.x +
+                         \(value(base + 3)) * v37.x);
                     accum +=
-                        (\(inputValue(base + 4, bf16: bf16)) * v04.y +
-                         \(inputValue(base + 5, bf16: bf16)) * v15.y +
-                         \(inputValue(base + 6, bf16: bf16)) * v26.y +
-                         \(inputValue(base + 7, bf16: bf16)) * v37.y);
+                        (\(value(base + 4)) * v04.y +
+                         \(value(base + 5)) * v15.y +
+                         \(value(base + 6)) * v26.y +
+                         \(value(base + 7)) * v37.y);
                 }
             """
     }
