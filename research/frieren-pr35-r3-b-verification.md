@@ -483,4 +483,134 @@ against `90bbc33d` and paste the numbers.
 
 ## 9. Results of this revision's runs
 
-*(filled in below as each run terminates)*
+### 9.1 V6 — pure-configuration timing screen (B lane-major QKV vs stock)
+
+Script `research/frieren_pr35_lm_pure.sh`, training id
+`b10beb11-7faf-479a-b252-e78fda484586`, exit 0, 526 s wall, 12 passes of
+`STEPS=512`. Both arms carried `DARKBLOOM_ATTN_SCALE_NARROW=0` so the r1 narrow
+`o_proj` bank was **inactive in both arms**; the only difference is
+`DARKBLOOM_ATTN_SCALE_LANEMAJOR`. ABBA×3 (`on_r/off_r/off_s/on_s`).
+
+Per-pass step-time medians (ms):
+
+| round | on_r | off_r | off_s | on_s |
+| --- | --- | --- | --- | --- |
+| 1 | 8.6133 | 8.6524 | 8.6467 | 8.6230 |
+| 2 | 8.6147 | 8.5779 | 8.6968 | 8.6230 |
+| 3 | 8.6230 | 8.6528 | 8.6585 | 8.6176 |
+
+| statistic | value |
+| --- | --- |
+| ON mean of 6 pass medians | 8.6191 ms (stdev **4.5 µs**) |
+| OFF mean of 6 pass medians | 8.6475 ms (stdev 38.6 µs) |
+| **OFF − ON** | **+28.4 µs/step** |
+| round-paired estimates | +31.4, +18.5, +35.4 µs |
+| round-paired SE (n=3) | 5.1 µs |
+| paired 95 % CI (t, 2 df) | **[+6.5, +50.3] µs/step** |
+| unpaired pooled SE | 15.9 µs |
+| relative | **+0.329 %** of the OFF step |
+
+**The lane-major bank is faster, the sign is the same in all three rounds, and
+the paired interval excludes zero.** The ON arm's 4.5 µs spread across six
+passes is the tightest dispersion I have measured on this host, which is what
+makes an effect this small readable at all on M4.
+
+Reachability, verified per pass from the symmetric dispatch log:
+
+- all six ON passes: `built lane-major: qkv`, `lane-major: qkv h48`,
+  `lane-major: qkv h64`, `inactive: oproj h48/h64`;
+- all six OFF passes: `inactive: qkv h48/h64`, `inactive: oproj h48/h64`.
+
+So every ON pass built **and dispatched** the bank at both head geometries, and
+no pass dispatched an `o_proj` narrow bank.
+
+**Correctness signal from the screen itself.** Every one of the twelve passes is
+a 512-step teacher-forced greedy run and every one reported
+`teacher-forced greedy tokens: 0 divergences (all match)` — **3,072 ON steps
+with zero divergence**, alongside 3,072 matched OFF steps. This is the same
+class of evidence as the greedy probe (§3), so it is a reachability-plus-no-gross-
+error signal rather than an addressing certificate, but it is 24× the step count
+of the original 128-step probe and it is now paired against a matched control.
+
+**Memory — and a correction to what I expected to write.** `mlx_peak_gb` is
+*deterministic within each arm* and differs *between* arms:
+
+| arm | `mlx_peak_gb` | passes |
+| --- | --- | --- |
+| ON (lane-major) | **36.41** exactly | 6/6 |
+| OFF (stock) | **36.39** exactly | 6/6 |
+
+`worker_rss_gb` 20.71–20.73 and `peak_ram_gb` 20.7143–20.7255 overlap between
+arms. So the lane-major arm carries **+0.02 GB ≈ +20 MB** of device peak. I had
+expected to report "flat" here, and that would have been wrong. The honest
+reading:
+
+- The predicted bank footprint is `bases[389120]` (0.39 MB) plus
+  `nibbles[389120, 64]` (24.9 MB) = **25.3 MB**, which is exactly what
+  `+0.02 GB` means at this log's two-decimal rounding.
+- This is an *addition over stock*, and it is inherent rather than a bug: the
+  stock plane must stay resident to serve the 0.63 % escaped rows, so a narrowed
+  plane is necessarily additive against stock. You cannot narrow a plane for free.
+- It is **not** the failure mode the advisor's stop rule targets. That rule says
+  a rise means lane-major *duplicated* the r1 bank instead of replacing it. Here
+  both arms ran `NARROW=0`, so no r1 bank exists in either arm and there is
+  nothing to replace — the comparison is against stock by construction. The
+  replacement property is a lane-major-vs-r1 question, and it is what the
+  identical peak across the ON passes (36.41 to the last digit, six times)
+  supports: one bank, built once, no per-pass leak or double allocation.
+- 25 MB against a 21.6 GB resident tower on a 128 GB ranked host is
+  inconsequential, but it must be *stated*, not glossed as flat.
+
+### 9.2 What the number means — the roofline efficiency factor
+
+Predicted from the byte roofline in §5: −24.5 MB/step at the measured attention
+rate of 651.8 GB/s ⇒ −37.6 µs/step. Measured −28.4 µs/step.
+
+| quantity | value |
+| --- | --- |
+| **realised fraction of the byte roofline** | **75.5 %** |
+| stop rule (advisor) | 30 % — **passed with margin** |
+| effective rate of the bytes actually removed | 24.5 MB / 28.4 µs = **863 GB/s** |
+
+The removed scale bytes moved at ~863 GB/s, i.e. **faster than the 651.8 GB/s
+average attention byte**, so they were cheaper than average bytes. That is the
+physically sensible outcome: scale planes are tiny relative to the code planes,
+they are re-read across rows, and — as §5's coalescing correction established —
+the stock access was *already* fully coalesced. Lane-major buys total bytes and
+nothing else, and bytes near the top of the cache hierarchy return less than the
+DRAM roofline suggests.
+
+**I therefore propose 0.755 as the measured plane-narrowing efficiency factor
+and recommend rescaling every remaining prediction in this family by it.** This
+is the single most useful number this revision produced, because it converts the
+whole family's paper roofline into a calibrated forecast.
+
+### 9.3 Consequences for the score and for the receipt decision
+
+Using the advisor's own conversions (`d ln score = -0.148620 × dT(ms)`,
+`dT = -6.734558 ms × d ln ns`, ranked `σ(dT) = ±14.2 µs`):
+
+| arm | Δ MB/step | Δ µs/step | ranked σ | Δ score |
+| --- | --- | --- | --- | --- |
+| **B alone (measured)** | −24.5 | **−28.4** | **2.0σ** | **+0.42 %** |
+| B + `attn.o` (forecast at 0.755) | −44.1 | −51.1 | 3.6σ | +0.76 % |
+| all planes, advisor's −75.2 MB, rescaled | −75.2 | −87.2 | 6.1σ | **+1.30 %** |
+
+Two conclusions, and I want to be blunt about the second one.
+
+1. **B alone must not consume the ranked slot.** 28.4 µs is 2.0σ against the
+   ranked rig — right at the 95 % minimum-detectable boundary and below the
+   advisor's ~43 µs (≈3σ) receipt-resolvability floor. A receipt for B alone
+   would most likely come back as an unresolvable near-tie, which is exactly the
+   "buying measurement with ranked receipts" the round-9 directive forbids.
+   **I am not asking for the slot in this revision.** See Ask 5.
+2. **The family's carried value should come down from +1.71–1.83 % to ≈+1.30 %.**
+   That is below the measured +1.830 % P=80 % promotion bar. The mechanism is
+   real, measurable and prefill-safe, but on this evidence it is a *contributor*
+   to a promotable stack rather than a promotable stack on its own. I would
+   rather hand over that revision now than discover it after spending a receipt.
+
+The right next byte-shipping step is unchanged and is now quantified: extend the
+same bank to `attn.o` (§5.1), which forecasts −22.7 µs on top of B's −28.4 µs
+and takes the stack to 3.6σ — the first configuration in this family that a
+ranked receipt can actually resolve.
