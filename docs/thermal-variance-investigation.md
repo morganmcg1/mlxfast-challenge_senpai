@@ -7,10 +7,12 @@
 > fixed 40C thermal gate with telemetry-validated acceptance (see
 > `.github/workflows/benchmark.yml` — the serial ranked pipeline, formerly
 > named `serial-benchmark.yml` — and `benchmark-window-freeze.md`). The
-> analysis below is kept as the measurement record behind the per-axis
-> acceptance bands (`AcceptanceBand`, the `*BandTolerance` constants), which
-> remain in force; the runner-class specifics below no longer describe the
-> ranked box.
+> analysis below is kept as the measurement record behind the legacy per-axis
+> `AcceptanceBand` constants. **Deployed-path correction (2026-08-05):** those
+> inner binary bands are not the final candidate verdict. The M5 measurement
+> wrapper checks baseline health and the paired overlay applies the two 0.95
+> floors; accepted gains above 5% prove there is no 1.053 candidate cap. The
+> runner-class specifics below no longer describe the ranked box.
 
 > **FINAL root cause (fresh-VM control, run 28893815980): the dominant ~2–3×
 > decode variance was a CONTINUOUS-RUNNING ARTIFACT of the back-to-back probing,

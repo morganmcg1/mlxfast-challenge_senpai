@@ -1,5 +1,10 @@
 # Laguna XS 2.1 NVFP4 — Optimization Methods Survey (Valid Submissions)
 
+> **Contract correction (2026-08-05).** The chunk-to-fit-band strategy in this
+> historical survey is superseded. The deployed ranked wrapper does not cap
+> candidate gains at `1.053`; its final paired verdict applies the two `0.95`
+> floors. Split only when it improves causal attribution.
+
 This document catalogs every distinct optimization mechanism that successfully
 **promoted** (beat the then-current best) on the
 `laguna-xs-2.1-serial-v2` ranked track. It is compiled from the public

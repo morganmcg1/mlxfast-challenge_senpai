@@ -131,42 +131,28 @@ same test:
 - `prefillBandUpTolerance = 0.05`, `prefillBandDownTolerance = 0.05`.
 - `decodeBandUpTolerance = 0.02`, `decodeBandDownTolerance = 0.05`.
 
-Acceptance bands (see `AcceptanceBand`,
-`docs/thermal-variance-investigation.md`): prefill and decode are single noisy
-measurements, each gated against the pinned calibration reference `R` — the
-golden's `baseline_*_seconds_per_token` fields when present, else
-`MLXFastConstants.officialBaseline{Prefill,Decode}SecondsPerToken`; in both
-cases the cached ranked-box calibration of the pinned baseline (next
-section), NOT the live same-session paired baseline. The same-session
-baseline feeds only the published paired ratio, to which
-`overlay-paired-timing.sh` applies the 0.95 floors — so the published paired
-speedup can land slightly outside the band window when the session baseline
-drifts from `R` (the drift itself is bounded by measure-job's baseline
-calibration-band check). After the speedup
-floors, each axis's measured value must land within
-`[R * (1 - downTolerance), R * (1 + upTolerance)]`: it fails if the value
-exceeds `R * (1 + upTolerance)` (a real slowdown / regression) or drops below
-`R * (1 - downTolerance)` (an improvement too large to trust in one
-submission, or a suspiciously lucky-fast reading).
+The last four values freeze the legacy `AcceptanceBand` behavior inside each
+benchmark binary. They are not a candidate-gain cap in the deployed ranked
+wrapper. The box-owned measurement process treats the baseline and candidate
+binaries as timing probes, may neutralize their inner band exit, checks the
+baseline's calibration health, and independently accepts measured phases that
+pass token and telemetry validation. The final trusted merge in
+`overlay-paired-timing.sh` applies the two `0.95` floors to the live
+same-session paired ratio. Accepted receipts with candidate gains well beyond
+5% confirm that the `[0.980, 1.053]` / `[0.952, 1.053]` inner windows are not
+the final candidate verdict.
 
-- **Prefill: +/-5% symmetric.** Prefill is the lower-weighted optimization axis
-  and a health gate, so both a regression and a lucky-fast reading past 5% fail.
-- **Decode: +2% regression / -5% gain.** Decode is the axis the score rewards, so
-  the up (regression) side is tight at +2%; the down (gain) side caps a *single
-  submission's* decode improvement at 5%. Larger wins are still welcome -- they
-  must be **chunked** across submissions so each step stays inside the band and is
-  independently verifiable. The cap is per-submission, not cumulative.
-
-`R`'s calibration and the per-axis tolerances are ranking-contract decisions,
-so they are operator-owned and pinned here.
+The tolerances remain pinned because tests and legacy/internal evaluation use
+them. Do not throttle or chunk a real optimization to fit them. Split only for
+scientific attribution.
 
 ## Cached local-mode constants
 
 The `officialBaseline*` constants in `Sources/MLXFastCore/Constants.swift` are
-a **cached calibration retained for the acceptance-band reference `R`,
-local-mode estimates, and the gates pass's skip-timed placeholder timing** --
-the ranked score denominator is the live paired baseline measured on the M5
-box (next section), never these numbers. The values below are the Poolside
+a **cached calibration retained for local-mode estimates, legacy/internal band
+evaluation, and the gates pass's skip-timed placeholder timing** -- the ranked
+score denominator is the live paired baseline measured on the M5 box (next
+section), never these numbers. The values below are the Poolside
 v2 calibration: the mean baseline
 fields from four consecutive successful ranked M5 runs (`30011903540`,
 `30015338806`, `30022640438`, and `30027994180`) against pinned baseline

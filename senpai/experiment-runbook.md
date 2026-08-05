@@ -47,6 +47,18 @@ fixed for the experiment. If `origin/main` advances, finish the current
 measurement against its recorded base. Reapply and remeasure a promising
 candidate before promotion.
 
+Before assigning work, copy [`assignment-template.md`](assignment-template.md),
+list every proposed submitted path, and validate the committed base contract:
+
+```bash
+senpai/validate-assignment-scope.sh "$BASE_SHA" PATH [PATH ...]
+senpai/check-editable-budget.sh "$BASE_SHA"
+```
+
+The assignment must identify how its control reaches the scored shape and who
+owns official dispatch. Research-only paths are listed separately and are not
+passed to the scope validator.
+
 Run `./setup.sh` when the host, toolchain, checkpoint, or maintained base
 changes.
 
@@ -104,6 +116,10 @@ Use the fresh same-host seconds/token comparison for research decisions. Local
 `score` and `*_speedup` fields use cached M5 calibration and are secondary.
 The paired estimate is not an official score.
 
+Use `--local-iterate` for causal timing. `--local-submit` is the longer final
+packaging/correctness gate and can dilute a seed-forward improvement across its
+1023 decode steps.
+
 Score files are ignored evidence and must not be committed:
 
 - `score.local-*.json`
@@ -116,12 +132,26 @@ Score files are ignored evidence and must not be committed:
 git status --short
 git diff --name-only "$BASE_SHA"
 git diff --stat "$BASE_SHA"
+senpai/check-editable-budget.sh "$BASE_SHA"
 ```
 
 Separate submitted model/runtime changes from research-only tests and docs.
 Every submitted file must be in `benchmark.json`'s `editablePaths`. For kernel
 changes, cover the runtime-effective JIT or AOT source and relevant `_nax`
 variant as described in `AGENTS.md`.
+
+After committing the candidate, run the same base-derived check used by the
+trusted workflow:
+
+```bash
+BASE_SHA="$BASE_SHA" HEAD_SHA="$(git rev-parse HEAD)" \
+  .github/scripts/enforce-modifiable-surface.sh
+```
+
+For numerical, representation, dispatch, or layout changes, run
+`research/run_upstream_equivalence.sh`. It uses the exact bare Swift Testing
+filter and fails if no oracle report was produced; zero selected tests is not
+validation.
 
 ## Confirm and promote
 
@@ -135,7 +165,15 @@ swift test --force-resolved-versions
 Apply `quality-evaluation.md` only when its risk trigger is present. Before
 promotion, commit the candidate, update from `origin/main`, reapply that exact
 commit if the base moved, rerun the matched comparison, and inspect the final
-diff. Only the advisor or human operator dispatches an official submission.
+diff. Only the advisor or human operator dispatches an official submission;
+never run `mlxfast submit` from a private AWS host.
+
+An official `rejected` status can be ranking-only. Inspect `error`,
+`passed_correctness`, the hidden-gate fields, and both component-floor verdicts
+before classifying the mechanism. A byte-identical editable archive is deduped
+as an existing submission: tests, docs, or research notes outside
+`editablePaths` do not create a new candidate. Poll with `mlxfast submissions`
+and honor retry guidance; never call `mlxfast submit` merely to check status.
 
 ## Research search
 

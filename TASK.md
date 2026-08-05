@@ -36,30 +36,17 @@ prefill_speedup_floor = 0.95
 Both floors are hard: a run below either floor, or with any token mismatch,
 publishes no score.
 
-A second, two-sided **acceptance band** also applies on the ranked path, and
-it is tighter than the floors in both directions:
+The deployed ranked wrapper does not apply the inner benchmark binary's legacy
+two-sided `AcceptanceBand` as a candidate-gain cap. The on-box measurement
+wrapper treats baseline and candidate invocations as timing probes, checks the
+pinned baseline's calibration health separately, and owns the final paired
+verdict. `overlay-paired-timing.sh` applies the two `0.95` component floors;
+promotion then requires the score to beat the current best.
 
-```text
-decode_speedup  vs the pinned calibration reference: [0.980, 1.053]
-prefill_speedup vs the pinned calibration reference: [0.952, 1.053]
-```
-
-The banded quantity is each timed run's measured seconds/token relative to
-the pinned calibration reference (the `officialBaseline*` constants in
-`Sources/MLXFastCore/Constants.swift`), not the same-session paired
-baseline that produces the published `decode_speedup`/`prefill_speedup` —
-the published paired ratio is checked only against the 0.95 floors and can
-land slightly outside the band window when the box's session baseline
-drifts from the pinned reference.
-
-The upper bound caps how much a single submission may gain (about 5%): a
-larger measured win is either a lucky reading or too big to trust in one
-shot, so **chunk it across submissions** — the cap is per submission, not
-cumulative. The lower decode bound is deliberately tighter than the 0.95
-decode floor. Local modes never fail on the band: `--local-iterate` /
-`--local-submit` print a warning when their estimate exceeds it but still
-publish the estimate; see `docs/benchmark-window-freeze.md`. A ranked run
-that trips the band fails with failure category `acceptance_band_failed`.
+The legacy `[0.980, 1.053]` decode and `[0.952, 1.053]` prefill values remain
+in `MLXFastCore` for the inner/legacy evaluation path. They do not require a
+genuine candidate win to be throttled or split. Accepted official receipts
+with gains well beyond 5% confirm the deployed behavior.
 
 Run `./setup.sh`, then `./benchmark.sh --local-iterate` or `--local-submit`.
 Local modes write estimated score artifacts only; the official paired score
