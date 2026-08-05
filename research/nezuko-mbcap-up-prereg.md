@@ -1,0 +1,136 @@
+# Pre-registration — PR #44 r2, `MLX_MAX_MB_PER_BUFFER` upward axis
+
+Written and committed **before** the ranked receipt. Supersedes
+`research/nezuko-mb50-prereg.md`, which covered the downward half of the same
+axis (r1, refuted: 50 MB measured −1.608% on ns).
+
+- Arm: `Sources/MLXFastModel/LagunaRuntimeWeights.swift:386`,
+  `MLX_MAX_MB_PER_BUFFER` `"50"` → `"512"`. One file, one token.
+- Held fixed: `MLX_MAX_OPS_PER_BUFFER` = `200` (proven inert on this axis),
+  `MLX_BFS_MAX_WIDTH` = `50`.
+- Control: `c3ce66e`, `cand_pre 191.308 µs`, `cand_dec 5.04644 ms`,
+  ns **2.544360**.
+- Bit-exact by construction: the cap only moves command-buffer flush
+  boundaries. Every arithmetic op, order, and dtype is unchanged.
+
+## Why the upward half is the live half
+
+`200 MB` is not a tuned value. Commit `814652a0` imported it from a
+competitor snapshot, replacing `512`, and it was never validated in this
+codebase — it was confounded with the ops-per-buffer knob that is now proven
+inert. r1 tested only 200 → 50 (downward) and found it worse. The upward
+direction had never been measured. `512` is therefore a *restoration* of this
+file's pre-import value, not a novel extreme.
+
+## B1 measured counts (M4 Pro, this host, counts-only evidence)
+
+`research/nezuko_mbpb_up.sh`, 100 decode steps per cell,
+`DARKBLOOM_STARTUP_MEMORY_PROFILE=full`, ops cap pinned at 200. Prefill cb
+recovered by differencing the `--prefill` and decode-only totals.
+
+| cap MB | decode cb/step | prefill cb | dispatches | divergences | mlx_peak_gb | peak_ram_gb |
+|-------:|---------------:|-----------:|-----------:|------------:|------------:|------------:|
+| 200 | 34.0 | 81 | 406.0 | 0 | 36.39 | 20.72 |
+| 400 | 19.0 | 42 | 406.0 | 0 | 36.94 | 20.72 |
+| **512** | **18.0** | **41** | 406.0 | 0 | 36.94 | 20.72 |
+| 1024 | 13.0 | 41 | 406.0 | 0 | 36.94 | 20.72 |
+| 2048 | 9.0 | 41 | 406.0 | 0 | 36.94 | 20.72 |
+
+Dispatch count is invariant at 406 and greedy tokens match at every cap, so
+the cap moves boundaries only — it does not change the work graph.
+`gpu_busy_sum == gpu_busy_union` in all ten cells, so GPU time is cleanly
+serial and the counts are trustworthy.
+
+**Hard stop did not fire.** The assignment's no-arm condition was a cb curve
+already flat at 200 in both phases. It is not flat: 200 → 400 removes 44% of
+decode boundaries and 48% of prefill boundaries.
+
+### Knee
+
+- Prefill cb reaches its floor of **41** at **512** and stays there through
+  2048. The prefill half of this axis is *closed* by this receipt.
+- Decode cb has **no floor** at or below 2048 (still 9 and falling).
+
+## Why 512 and not 2048
+
+Predicted ns gain is monotone in the cap (+0.640 / +0.666 / +0.748 / +0.814%
+for 400 / 512 / 1024 / 2048), so "largest predicted" would say 2048. I am
+spending the single receipt at 512 because:
+
+1. 512 captures **40 of 40** available prefill boundaries — the larger half of
+   the predicted win (+0.404% of +0.666%).
+2. It is past the decode elbow: 34 → 19 removes 15 cb, 19 → 18 removes one
+   more. All 16 cheap decode boundaries are already gone at 512.
+3. The extra +0.148% from 512 → 2048 is **~1σ of ns repeat noise**
+   (cv 0.149%). One receipt cannot resolve it, so spending the receipt there
+   buys no decidable information.
+4. Mechanism warning against the deep end: M4 `gpu_busy_sum` — a GPU-side
+   quantity, and clean because sum == union — is *minimised at 400* and then
+   rises monotonically (8.335 → 8.181 → 8.233 → 8.248 → 8.271 ms at 200 / 400
+   / 512 / 1024 / 2048). My own transfer law forbids using that to predict the
+   M5 *magnitude*, but it is direct evidence that the linear count model is
+   incomplete above ~400–512. 9 cb/step is a 3.8× extrapolation below the
+   measured M5 point (34 cb) into exactly that region.
+5. Memory is a non-issue and cannot be the reason to stay low: `mlx_peak_gb`
+   is 36.94 for every cap ≥ 400 and worker `peak_ram_gb` is 20.72 everywhere.
+   The cap is a flush threshold, not an allocation.
+
+## Prediction (from my own counts × r1's own M5 per-boundary costs)
+
+Slopes measured by the r1 ranked receipt `3e6fdcba` on M5, not assumed:
+decode **+1.1045 µs/cb** (56.33 µs over 51 added cb), prefill
+**+27.177 µs/cb** (2147 µs over 79 added cb). Score conversion from tanjiro's
+PR #34 M5 dispatch law: 1 ms of T = 14.862% of score, 1 ms of S = 0.37134%.
+
+Applying `research/nezuko_mbcap_predict.py --dec-cb 18 --pre-cb 41`:
+
+- decode cb 34 → 18 (−16): `dT = −17.67 µs` → **+0.2626%** of score
+- prefill cb 81 → 41 (−40): `dS = −1.0871 ms` → **+0.4037%** of score
+- **predicted d_ns = +0.6663%**
+- implies `cand_pre 189.185 µs`, `cand_dec 5.020275 ms`, ns **2.561436**
+
+Hand-computed acceptance band (decode `[0.980, 1.053]`, prefill
+`[0.952, 1.053]`): predicted decode ratio **1.0052**, predicted prefill ratio
+**1.0112**. Both comfortably interior, so neither floor nor the legacy band is
+at risk under the prediction, and a band failure would itself be information.
+
+## Decision rule, fixed in advance
+
+σ = 0.149% (candidate-side ns repeat cv). Verdict is read off measured d_ns
+against control ns 2.544360, and **rank on ns, never on officialScore**.
+
+| measured d_ns | verdict | what it means |
+|---|---|---|
+| > +0.97% | **OVERSHOOT** | per-cb cost is *larger* than r1's slope; the count law is superlinear. Justifies an immediate 1024/2048 follow-up receipt. |
+| +0.37% … +0.97% | **CONFIRM** | prediction ± 2σ. The M5 boundary-count law is linear and symmetric in direction; merge 512. |
+| +0.15% … +0.37% | **PARTIAL** | boundary removal helps but less than the r1 slope; the law is concave in count. Merge if it beats best, but do not extrapolate further. |
+| −0.15% … +0.15% | **NULL** | boundary count is not causal on M5 in the downward direction. r1's 50 MB regression was a small-buffer pathology, not a linear boundary law. Revert the token to 200 and close the axis. |
+| < −0.15% | **REFUTE** | removing boundaries *hurts* M5. The M4 `gpu_busy` turnover transferred and the count law is wrong in this direction. Revert to 200 and amend the transfer law. |
+
+## Which cell of the four-cell B−C model each sign tests
+
+The model from Deliverable C: boundary **counts** transfer M4 → M5 exactly;
+boundary **timing** does not, not even in sign.
+
+- **Cells 1–2** (decode-count → M5 decode time; prefill-count → M5 prefill
+  time) are tested **out-of-sample in the opposite direction**. r1 measured
+  both slopes by *adding* boundaries; this receipt *removes* them. CONFIRM
+  puts both cells on a two-point line through the shipped config.
+- **Cell 3** (M4 boundary timing → M5 boundary timing, proven
+  non-transferring) gets its decisive out-of-sample test. frieren's M4 wall
+  datum says 400 MB is **+2.50% worse** (t = +4.0), and my own M4 wall agrees
+  (8.599 → 8.734 ms at 512, worse) while M4 *GPU* time improves. Cell 3 says
+  that wall datum is inadmissible. A positive d_ns confirms the non-transfer
+  and retires frieren's datum. A negative d_ns means M4 wall *did* transfer
+  here, and the law needs the qualifier "M4 wall becomes admissible when the
+  host-gap fraction moves by more than ~3 points" (it moves 3.1% → 5.7%).
+- **Cell 4** (M4 count = M5 count) is not re-tested; it is assumed, and every
+  number above depends on it. The 200 MB row reproducing decode 34 / prefill
+  81 exactly — the counts r1 measured on M5 — is the consistency check that
+  licenses the assumption.
+
+## Budget
+
+Exactly **one** ranked receipt, at 512. No re-measurement, no second arm. If
+the verdict is NULL or REFUTE the token goes back to `200` and the axis closes
+with the upward half measured rather than assumed.
