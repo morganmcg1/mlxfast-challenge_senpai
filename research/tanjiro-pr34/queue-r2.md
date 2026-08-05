@@ -89,10 +89,18 @@ for the two inert receipts taken on the *current* promoted frontier:
 | `c3ce66ec` | r2 L0 | 97.9496 | 4.28121 | 2.544361 |
 
 They agree to 0.129 percent, which matches the 0.149 percent coefficient of
-variation already recorded for `ns`. The three older inert receipts I have on
-file (`f8502e12` 2.48558, `71586bcf` 2.51595, `f3cda678` 2.50895) sit about 1.3
-percent lower and must **not** be pooled with these two: they were taken on an
-earlier promoted frontier, so their lower `ns` is a real level shift in the
-base rather than session noise. Pooling all five would have inflated the
-apparent replicate spread from 0.13 percent to about 1 percent and made every
-subsequent comparison look untrustworthy.
+variation already recorded for `ns`.
+
+CORRECTION (after recomputing `ns` properly): the three figures I first wrote
+here for the older inert receipts (`f8502e12` 2.48558, `71586bcf` 2.51595,
+`f3cda678` 2.50895) were copied `officialScore` values, not computed `ns`.
+`71586bcf`'s actual `ns` is 2.510648, a 1.45 percent gap to `b6032aeb` rather
+than the 1.3 percent asserted from the wrong column. The claim that those
+receipts sit on an earlier promoted frontier is a plausible reading of the
+monotone fall in candidate `T` (4.38283, 4.34279, 4.27468 at flat `S`) but I
+cannot verify it without the promotion history, so it is a hypothesis and not a
+finding. What stands regardless: do not pool receipts across days on `ns` or on
+any speedup without first checking whether the scored code changed, because the
+pooled spread (about 1 percent) and the same-code spread (0.129 percent) differ
+by nearly an order of magnitude. See the drift-attribution section of the r2
+result report for the full decomposition.
