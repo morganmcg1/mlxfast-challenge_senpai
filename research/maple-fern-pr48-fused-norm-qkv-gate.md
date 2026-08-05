@@ -24,6 +24,16 @@ either a local measurement on the host above, or a citation to a ranked
 
 ## 0. Headline
 
+> **FINAL — read §9.6 first.** The ranked M5 receipt landed: correctness fully
+> green (1344 checked steps, 11 cases, GPQA 9/9, TTFT 9/9, both floors pass),
+> timing **−0.1488 % vs control** on the pre-registered `ns` statistic. That is
+> the `< 0 %` band: **Reading A refuted, this axis closes, no resubmission.**
+> Two honesty corrections below are load-bearing: the equivalence oracle never
+> executed this kernel and never passed on this host (§9.4), and the defensible
+> correctness claim is "no gross always-on corruption", not "bit-exact" (§9.7).
+> The word "bit-exact" in the paragraph immediately below is a *design*
+> assertion that predates §9.7 and is not independently verified.
+
 Steps 1, 2 and 3 are all complete and bit-exact. The decode dispatch count
 drops **406 → 326, exactly −80**, satisfying the assignment's hard stop.
 
@@ -935,6 +945,89 @@ or per-head-count out-of-bounds row indexing — several of which are
 zero-mean, input-dependent, or occupancy-dependent and can survive 1025 argmax
 comparisons. Frieren's zero-mean lane shuffle surviving all 1025 steps is the
 direct demonstration. That gap is the honest residual risk on this candidate.
+
+### 9.6 ★ THE RANKED RECEIPT — Reading B confirmed, axis closes
+
+Ticket `285f79fa-089f-4184-b1ec-0647cb51e61b`, created 2026-08-05T19:00:49Z,
+measured 19:12:03Z, `status rejected`, `officialScore 2.50450520378964`
+(not ranked on, per §9.1). Submitted `--model senpai`; no model-value rejection.
+
+**Correctness — everything green on the official M5:**
+
+`passed_correctness True` · `max_abs_diff 0` · `checked_steps 1344` ·
+`case_count 11` · `num_layers 40` · `first_failing_case/layer/step` all null ·
+`error ''`. Hidden gates: `gpqa_ttft_passed True` 9/9, p50 0.07 s, max 2.3 s;
+`semantic_gpqa_passed True` 9/9. Both floors pass: decode 2.7347 ≥ 0.95,
+prefill 1.9238 ≥ 0.95. `peak_ram_gb 21`.
+Provenance: commit `3234ece1e2f2c43cf25bfa981f9c75a702564917`,
+`golden_hash be7738fc…c67fcf71`, `harness_hash 237e80a2…cb9e69cbf`,
+`weights_hash aff99430…6b294b3d`, `runtime swift`.
+
+This is far stronger correctness evidence than anything local: 1344 checked
+steps over 11 cases plus 18 hidden GPQA/TTFT cases, on the authoritative M5.
+It does not repair §9.4 — argmax gates still cannot prove bit-exactness — but
+it does retire the practical risk for this candidate.
+
+**Timing — negative:**
+
+| | candidate | control `c3ce66ec` |
+|---|---|---|
+| `decode_seconds_per_token` | 0.00505923275 | — |
+| `prefill_seconds_per_token` | 0.000190994708984375 | — |
+| `nd` = 0.013890/decode | 2.745476 | 2.754322 |
+| `npf` = 0.0003845/prefill | 2.013145 | 2.013145¹ |
+| **`ns` = nd^0.75·npf^0.25** | **2.540575** | **2.544360** |
+
+¹ session baselines `baseline_decode 0.01383549609375`,
+`baseline_prefill 0.00036743359375`; S (prefill wall) 97.7893 ms,
+T (prefill-netted decode) 4.29525 ms.
+
+**Δ vs control = −0.1488 %.** Pre-registered band: `< 0 %` ⇒ **report
+immediately, do not resubmit.** Honoured — no resubmission.
+
+**What this settles.** Reading A predicted 80 × 2.1828 µs ⇒ +2.595 %; the
+pre-registered separation between A and B was 10.2 σ. The measurement came in at
+−0.15 %, i.e. *below* even Reading B's +0.44 %. Reading A is refuted outright.
+The axis closes: the mode-2 default flip buys nothing on M5, and both component
+speedups are marginally *worse* than the unchanged control (decode 2.7347 vs
+2.7543; prefill 1.9238 vs 1.9401). Consistent with a wash plus session noise;
+I claim no real regression from a single paired receipt.
+
+Because the pre-registered rule sends a `< 0 %` result straight to "report", the
+ambiguous-band handoff to tanjiro's `DARKBLOOM_INJECT_SWEEP_PASSES` is **not**
+triggered.
+
+### 9.7 What I am actually entitled to claim (frontier critique)
+
+I commissioned an independent context-free frontier review of the §9.5 evidence.
+It sharpened the claim in a way I should have caught myself:
+
+- The 1025/1344-step greedy gate detects logit deviations ≳0.1, is ambiguous at
+  1e-2, and is **blind below 1e-3**. An all-pass gives only a 0.29 %/step
+  flip-rate bound (95 % UCB, rule of three) — that does not transfer to hidden
+  suites unless equality is exact.
+- `max_abs_diff = 0` on token IDs **carries no precision information**. §9.5(c)
+  proved this empirically: it stayed 0 while the run failed.
+- The +1 control validates the detector only for always-on coherent O(1) shifts
+  of the *gate* output, and proves liveness. It cannot see
+  permutation/statistics-preserving errors (the demonstrated blind spot, and the
+  likeliest fusion-bug class), races, missing barriers, occupancy/compiler
+  effects, uninitialised threadgroup memory, config-triggered indexing bugs,
+  small ε, or **any QKV-phase bug** — the QKV side was never injected at all.
+- On de-blinding the oracle: naively preparing NVFP4 banks there breaks zero
+  tolerance (NVFP4 vs BF16 differ by construction) and any tolerance would mask
+  sub-quantization-noise bugs. The sound fix is an *intra-runtime* `FUSE=2` vs
+  `FUSE=0` comparison with banks prepared on both sides, as a new trace-verified
+  test, leaving the BF16 oracle intact for the other 14 sites. **This supersedes
+  the one-line suggestion in §9.4** — I withdraw that as under-thought.
+
+**Therefore the strongest defensible claim from §9.5(b)+(c) is "no gross
+always-on corruption on the common path", not "bit-exact".** Bit-exactness
+remains an unverified design assertion. The direct test would be a
+fused-vs-unfused bitwise A/B of QKV/gate/logits on the scored path across head
+counts, layers and window-boundary positions (~1–2 h). I did **not** run it: the
+candidate is a negative, so it would spend GPU time frieren's precondition sweep
+needs, on a change that will not be merged for speed.
 
 ## 10. Suggested follow-ups I did not implement
 
