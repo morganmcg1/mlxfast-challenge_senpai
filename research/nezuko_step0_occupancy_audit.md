@@ -449,3 +449,28 @@ by the independent oversubscription count of Phase D.
 4. Correct the "24 simdgroup slots per core" figure in
    `research/CURRENT_RESEARCH_STATE.md:1026-1027` to 96 simdgroup slots (24
    threadgroups per core *for a 4-simdgroup threadgroup*), per §6.
+
+---
+
+## 11. Baseline advance during this assignment
+
+The assignment base `7290a7be` advanced to `7e39f4ee` while Step 0 was running,
+and the advance touches the editable path
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` (508,529 → 508,711 B, +182 B),
+so it is not a silent-accept case.
+
+Reviewed: every hunk in the scored file lands between `:11046` and `:11224`, in
+the `lagunaInject*` diagnostic-injection block. The two fused attention kernels
+(`:1381-1803` and `:1855-2320`), their `source:`/`header:` literals, their
+threadgroup declarations and their dispatch geometry are byte-identical across
+the advance — `git show <rev>:Sources/MLXFastModel/LagunaRuntimeModel.swift |
+sed -n '1381,2320p' | md5` is `74f1b45315323e9a34412511563ece70` at both
+revisions. Phases A–E extract those literals directly, so **every number in
+this document holds unchanged against the newer baseline**, and the result is
+submitted with the advance accepted. Per-file headroom drops from 15,759 B to
+15,577 B; this result changes zero scored bytes, so the R2 allowance is
+unaffected.
+
+`AGENTS.md` also changed in the advance: official submissions from this
+campaign must use `mlxfast submit --model "senpai"`. No receipt was dispatched
+here.
