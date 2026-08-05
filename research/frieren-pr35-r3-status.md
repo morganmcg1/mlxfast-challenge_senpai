@@ -22,9 +22,10 @@ verification ledger:
 | # | check | criterion | status |
 |---|---|---|---|
 | V1 | `swift test --force-resolved-versions` | all pass | ✅ 456/456, exit 0 |
-| V2 | upstream-equivalence oracle | decode steps 0–7 exactly 0 | ✅ 8/8 |
+| V2 | upstream-equivalence oracle | decode steps 0–7 exactly 0 | ✅ 8/8 — and now B's *primary* evidence |
 | V3 | `./benchmark.sh --local-submit` | `max_abs_diff 0`, 1025 steps, flat `peak_ram_gb` | ⬜ next |
-| V4 | power control | fault arm > 0 divergences, control 0 | ✅ see below |
+| V4a | power control, greedy probe | fault > 0 divergences, control 0 | ⚠️ passes only for catastrophic faults — see below |
+| V4b | power control, **logit oracle** | permutation fault < 8 exact steps, control 8 | 🔄 running |
 | V5 | off-path identity | `LANEMAJOR=0` ⇒ r1 text/banks byte-identical | ✅ stock-arm oracle leg |
 | V6 | 12×512 pure-configuration timing screen | ≥30% of byte roofline | ⬜ after V3 |
 
@@ -166,18 +167,61 @@ near-uniform rescale of Q, K and V is close to benign (it is a softmax
 temperature nudge plus an output rescale). That fixes the probe's sensitivity
 floor empirically.
 
-Given that floor, the `xor 1` lane swap being silent is expected, not anomalous:
-it exchanges the codes of groups `L` and `L+1`, i.e. columns **16** apart, and
-the census says neighbouring groups usually carry the *same* code (global code
-mass 6 = 28.7%, 7 = 24.2%, 8 = 15.9%; top-7 ≈ 97.9%). Where they differ they
-differ by ±1, which mode 2 shows is nearly invisible to greedy argmax. So the
-swap is mostly a no-op on the data, not on the code path.
+Given that floor, my working hypothesis was that the `xor 1` lane swap is silent
+because it exchanges the codes of groups `L` and `L+1`, i.e. columns **16**
+apart, and the census says neighbouring groups usually carry the *same* code
+(global code mass 6 = 28.7%, 7 = 24.2%, 8 = 15.9%; top-7 ≈ 97.9%) — so the swap
+would be mostly a no-op on the data rather than on the code path. That
+hypothesis makes a sharp prediction, so I tested it instead of asserting it.
 
-I did not want to leave that as an argument, so round 2 (running now) uses the
-permutations that move a code across columns **512** apart, where no such
-correlation exists: mode 5 reverses the four K-block codes inside a lane's word,
-mode 6 reads the word 16 lanes away, and mode 1 is re-run alongside them at 128
-steps. Result appended below when it lands.
+I did not want to leave that as an argument, so round 2 used the permutations
+that move a code across columns **512** apart, where no such correlation
+exists: mode 5 reverses the four K-block codes inside a lane's word, mode 6
+reads the word 16 lanes away, and mode 1 was re-run alongside them at **128**
+steps.
+
+**My explanation was wrong, and the result is more useful than the one I
+predicted.** All three are silent:
+
+| mode | fault | divergences @128 steps |
+|---|---|---|
+| 5 | reverse a lane's four K-block codes | **0** |
+| 6 | read the lane word 16 lanes away | **0** |
+| 1 | read the neighbour lane word (`xor 1`) | **0** |
+| 0 | control | **0** |
+
+Every arm logged `narrow-scales built lane-major: qkv`, so every fault was
+reachable — this is not a code-path artefact. The correct conclusion is stronger
+and less convenient than "adjacent codes agree":
+
+> **The greedy teacher-forced argmax probe cannot detect a lane-major
+> addressing error at all.** It only detects catastrophic faults (code → 0,
+> i.e. scale → 0). Every *permutation* of a row's own codes is invisible to it.
+
+That follows from mode 2 plus the census: a row's codes span ≤ 15, so any
+permutation of a row's own codes moves each block's scale by a factor bounded
+near 1, and mode 2 showed that a **100%-coverage** perturbation of that
+magnitude moves at most one argmax in 32 steps. Argmax over a 512-token seed
+simply has more margin than these faults consume.
+
+**So I am retracting the claim that the 32/128/256/512-step greedy probes
+certify B's addressing.** They establish that both arms are live and that the
+kernel is dispatched, and nothing more. I flagged this rather than quietly
+banking four green probe results, because the four green probes would have
+looked like strong evidence and are not.
+
+The instrument that *can* see this is the one V2 already uses: the
+upstream-equivalence oracle reports `maximumAbsoluteLogitError` per step, and it
+reports **exactly 0** on all 8 decode steps. A permutation fault must perturb
+logits, so a logit-exact zero is a real constraint where an argmax match is not.
+`research/frieren_pr35_lm_fault_oracle.sh` fault-injects that oracle to prove
+the zero is a measurement and not a tautology; the readout is
+`EQUIVALENCE_EXACT_STEPS`, which must fall below 8 under each permutation fault
+and return to 8 on the control. That run is on the GPU now and its result is
+appended below.
+
+This also upgrades V2 from "a check I ran" to "the check B rests on", which is
+the honest accounting.
 
 The whole ladder is temporary research scaffolding and is **removed before
 submission**; the patch is kept at
