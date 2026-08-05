@@ -270,8 +270,8 @@ certificate**. Full accounting, including the frontier-reviewed one-hot
 
 ## Corrections to this note
 
-Two statements above were true when written and are now superseded. Recording
-both rather than editing them away:
+Several statements above were true when written and are now superseded.
+Recording them rather than editing them away:
 
 1. **`accepted_base_sha`.** The note names
    `d267ebda88c50a6e1b539d9265050dbaae00c268`. Two further `baseline_advanced`
@@ -307,6 +307,21 @@ both rather than editing them away:
    `MLXFAST_LOCAL_COOL_GATE=0` fallback and carries no thermal caveat. Details in
    `research/frieren-pr35-r3-b-verification.md` §9.5, gate-power measurement in
    §9.6.
+
+5. **That gate-power measurement is now in, and it resolves the V4 question.**
+   The wiring control (mode 3, every fitting-row code forced to 0) makes the same
+   1025-step gate **fail at `checked_steps 3`** (`first_failing_step 2`,
+   teacher-forced token mismatch), so the gate is genuinely wired to the
+   lane-major kernel's non-escaped arm and V3's PASS is a live result. The same
+   gate stays silent on a within-lane code permutation (mode 5, `pass`, 1025
+   steps, `max_abs_diff 0`), which proves the golden gate **cannot** serve as B's
+   addressing certificate: if the shipped kernel had that defect, the gate would
+   not have caught it. The one-hot 128-probe sweep of §4.1.1 is therefore
+   necessary, not optional. Mode 3 needed three gated attempts — this host idles
+   at 39.9–40.4 °C against the 40 °C threshold — and then one disclosed
+   `MLXFAST_LOCAL_COOL_GATE=0` retry, which voids only that fault arm's
+   meaningless timings. No arm whose timings I quote used that fallback. Full
+   record in `research/frieren-pr35-r3-b-verification.md` §9.6.
 
 The Ask 2 reasoning in this note still stands on its own terms — `attn.o` is
 still the strongest next extension — but it is no longer a *precondition* for the

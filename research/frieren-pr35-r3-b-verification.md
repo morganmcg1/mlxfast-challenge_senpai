@@ -16,7 +16,7 @@ below is decode-side and M4-legal.
 
 ## 0. Headline
 
-Two things happened in this revision.
+Four things happened in this revision.
 
 1. **The mechanism is built and its layout is now certified analytically from
    three independent directions.** Deliverable B — the 4-bit lane-major QKV
@@ -32,6 +32,22 @@ Two things happened in this revision.
    gap before I cited it. That is my error and it is the most important thing in
    this note, because the same mistake is available to every student on this
    programme.
+
+3. **The mechanism measures, and the branch default is receipt-resolvable.**
+   Two 12-pass ABBA screens at 512 steps each: B alone is **−28.4 µs/step**
+   (75.5 % of its byte roofline, §9.1), and the whole branch default versus base
+   behaviour is **−97.9 µs/step = −1.131 % of step ≈ 6.9σ ≈ +1.46 % of score**
+   (§9.4), with 0 divergences in 12×512 steps and a peak-memory decomposition
+   that matches the replacement model to 0.01 GB. That is 2.3× the ≈43 µs
+   receipt-resolvability floor, so **I am asking for the ranked slot** (Ask 5).
+
+4. **The correctness instrument I quote is now validated, and its blind spot is
+   measured.** The 1025-step golden gate passes the shipped kernel
+   (`max_abs_diff 0`) *and* flags a fault on the same kernel arm in 3 checked
+   steps, so V3's PASS is live rather than vacuous. The same gate is silent on a
+   within-lane code permutation, which proves it cannot serve as B's addressing
+   certificate and makes the one-hot 128-probe sweep of §4.1.1 necessary rather
+   than optional (§9.6).
 
 ---
 
@@ -519,8 +535,8 @@ against `90bbc33d` and paste the numbers.
 | V3 | `./benchmark.sh --local-submit` | `max_abs_diff 0`, `checked_steps 1025`, flat `peak_ram_gb` | ✅ **PASS** — `passed true`, `max_abs_diff 0`, `checked_steps 1025`, `peak_ram_gb 21` (§9.5) |
 | V4a | greedy-probe fault injection | fault > 0, control 0 | ⚠️ catastrophic-only; retracted as an addressing certificate (§3) |
 | V4b | oracle fault injection | permutation fault < 8 | ❌ **instrument invalid** — modes 3/4/5/6/1 all 8/8 (§1.2) |
-| V4c mode 5 | shipping-gate permutation fault | fault arm classifies `fail` | ⚠️ **SILENT** — `pass`, 1025 steps, `max_abs_diff 0`; uninterpretable without the mode-3 control (§9.6) |
-| V4c mode 3 | shipping-gate wiring control | **must** classify `fail` | _pending_ (§9.6) |
+| V4c mode 5 | shipping-gate permutation fault | fault arm classifies `fail` | ⚠️ **SILENT** — `pass`, 1025 steps, `max_abs_diff 0`; now interpretable as measured blindness, given mode 3 (§9.6) |
+| V4c mode 3 | shipping-gate wiring control | **must** classify `fail` | ✅ **FLAGGED** — `fail` at `checked_steps 3`, `first_failing_step 2`, token mismatch; ungated after 3 thermal aborts (§9.6) |
 | V5 | off-path identity `LANEMAJOR=0` | r1 text/banks byte-identical | ⚠️ retracted (oracle-based); the screen's OFF arm re-derives it from the worker instead |
 | V6 | 12×512 pure-configuration timing screen (B vs stock) | ≥30 % of byte roofline | ✅ **+28.4 µs/step = 75.5 % of roofline**, 0 divergences in 6×512 ON steps (§9.1) |
 | V7 | 12×512 stack-vs-stock timing screen | prices the r1 strip | ✅ **+97.9 µs/step**, of which r1 narrow `o_proj` is +69.5 µs (§9.4) |
@@ -914,15 +930,28 @@ can establish that, which is the whole reason it is in the table.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `v3_gated` | none | **pass** | 1025 | 0 | `047449cb…` | `62a939f` | 296.3 s |
 | `v4c_mode5` | lane word reversed | **pass** (SILENT) | 1025 | 0 | `c6c505f6…` | `14611a3` | 333.0 s |
-| `v4c_mode3` | all fitting codes → 0 | _pending_ | — | — | — | — | — |
+| `v4c_mode3_ungated` | all fitting codes → 0 | **fail** (FLAGGED) | 3 | 0 | `c6c505f6…` | `3958acd` | 171 s |
 
-The two arms that produced verdicts, `v3_gated` and `v4c_mode5`, both opened the
-40 °C cool gate on their first *gated* attempt (39.69 °C and 39.80 °C), so
-**neither used the `MLXFAST_LOCAL_COOL_GATE=0` fallback** and neither
-correctness verdict carries a thermal caveat. Mode 3 was not so lucky, and the
-next two subsections are the honest record of why.
+Mode 3's full payload (training `dbd067b3-d95f-486d-8d61-f2f2731b5ac9`, exit 0,
+174 s, artefacts `/tmp/pr35_gate_v4c_mode3_ungated{,_score.json}`):
+`passed false`, `score 0.9956999925725201`, `passed_correctness false`,
+`checked_steps 3`, `first_failing_step 2`, `first_failing_case "local-submit"`,
+`first_failing_layer null`, `case_count 1`, `max_abs_diff 0`,
+`error "local-submit teacher-forced token mismatch"`,
+`golden_hash f49e4c2c…` (identical to V3's), `peak_ram_gb 21`,
+`correctness_seconds 10`, `commit 3958acd`,
+`harness_hash c6c505f645156f14035afdd6508ec474f3596de7929a943307ff4f4681632f98`.
+`max_abs_diff` stays 0 because the gate aborts on the first *token* mismatch
+before it accumulates a logit delta; `first_failing_step 2` is the real signal.
 
-#### Mode 3 attempt history (three attempts)
+`v3_gated` (39.69 °C) and `v4c_mode5` (39.80 °C) both opened the 40 °C cool gate
+on their first *gated* attempt, so **neither used the
+`MLXFAST_LOCAL_COOL_GATE=0` fallback** and neither correctness verdict carries a
+thermal caveat. Mode 3 needed three gated attempts and then the disclosed
+ungated fallback; the next two subsections are the honest record of why, and why
+that fallback voids nothing this arm is read for.
+
+#### Mode 3 attempt history (three gated attempts, then one ungated)
 
 1. **Attempt 1 — thermal abort.** Artefacts preserved as
    `/tmp/pr35_gate_v4c_mode3_attempt1.txt` and `…_attempt1_score.json`
@@ -943,8 +972,21 @@ next two subsections are the honest record of why.
    now tolerates an already-applied patch and asserts the hook is textually
    present in the file it is about to compile (`f8170ce`), so no arm can
    silently run against unhooked sources.
-3. **Attempt 3** — training `eef1beb2-3fe0-4c1d-9d9d-6641cde46307`, recorded in
-   the table above.
+3. **Attempt 3 — thermal abort.** Training
+   `eef1beb2-3fe0-4c1d-9d9d-6641cde46307`, exit 0, 551 s; artefacts
+   `/tmp/pr35_gate_v4c_mode3_attempt3{,_score.json}`. Same payload shape as
+   attempt 1: `checked_steps 0`, `case_count 0`, `score null`,
+   `benchmark_wall_seconds 320`, commit `f8170ce`, `harness_hash c6c505f6…`,
+   `error "local GPU cool-down gate failed for prefill with status 1"`. The
+   script itself *started* at 40.33 °C and `cool_wait 180` gave up before the
+   arm even launched (arm began at t=203 s); the benchmark's own gate then
+   entered at 42.7 °C and flattened at 40.3 °C. This is the attempt that
+   diagnosed the host floor, so it is also the attempt that licensed the
+   fallback.
+4. **Attempt 4 — ungated, FLAGGED.** The single pre-registered ungated retry
+   (`FAULT_UNGATED=1 FAULT_COOL_BUDGET=0`, hardened in `3958acd`), recorded in
+   the table above. Skipping `cool_wait` and the benchmark gate cut the arm to
+   171 s and it reached the verdict on its first try.
 
 Attempt 1 also carries two pieces of positive evidence that survive its
 inconclusive verdict:
@@ -977,31 +1019,53 @@ being the only way to obtain the verdict it does read. That is the narrow
 condition under which I use it, and I use it nowhere else: V3, V6 and V7 — the
 arms whose timings are actually quoted — ran fully gated.
 
-#### What each outcome licenses
+#### Verdict: the instrument is live, and that is what makes V3 admissible
 
-* **mode 3 fails (expected).** The gate is wired to the lane-major kernel and
-  has real power, so mode 5's silence becomes a genuine *measurement of
-  permutation-blindness* rather than a dead hook. It would then agree with the
-  independent ±1-code sensitivity analysis: row spans are ≤15 codes and the top
-  seven global codes carry ≈97.9 % of all mass (§11 census), so a lane
-  permutation overwhelmingly exchanges codes that are equal or ±1 apart, and
-  `raw = ushort(bits) << 7` makes ±1 worth only ≈8.3 % of a scale. Modes 5/6/1
-  at 0 divergences in 128 greedy steps already bound per-step divergence below
-  ≈2.3 % (95 %). B's addressing would then rest on the analytic derivation
-  (§6), the reconstruction certificate, and the frontier-reviewed one-hot
-  128-probe sweep (§4.1.1) as the only route to a true certificate — **not** on
-  any fault instrument.
-* **mode 3 passes.** The `--local-submit` fault plumbing is dead and the whole
-  V4c instrument is invalid on this path, exactly as V4b was. I would report
-  that as a second failed instrument and claim **no** addressing certificate
-  from it.
-* **mode 3 aborts thermally again.** The instrument is never validated, mode 5's
-  silence stays uninterpretable, and I claim **no** addressing certificate from
-  V4c. This is the weakest outcome but it is not a blocker: B's correctness
-  evidence is V3's independent 1025-step PASS at `max_abs_diff 0`, and B's
-  addressing rests on the analytic derivation (§6) plus the proposed one-hot
-  128-probe sweep (§4.1.1). I cap this at one ungated retry rather than spend
-  the ranked-slot window on an epistemic control.
+Mode 3 landed on the pre-registered expected outcome. **The 1025-step golden
+gate detects a corruption of the lane-major fitting arm within 3 checked steps**
+(`first_failing_step 2`, teacher-forced token mismatch). Three things follow, and
+only three.
+
+1. **The gate is wired to the shipped kernel, on the arm that matters.** Modes 3
+   and 5 patch the *same* reconstruction site on the *same* non-escaped arm:
+   mode 3 replaces `uint8_t(row_base + nibble)` with `uint8_t(0)`, mode 5
+   reverses the four codes packed in one lane's `ushort`. Mode 3 changing the
+   checked token stream proves the dispatch takes that arm, the golden gate
+   observes its output, and the `DARKBLOOM_LM_FAULT` plumbing reaches
+   `--local-submit`. V4b's failure mode — a hook that never executes — is
+   excluded.
+2. **V3's PASS is therefore a live result, not a vacuous one.** Same
+   `golden_hash f49e4c2c…`, same 1025-step case, same `peak_ram_gb 21`; the only
+   difference is the fault. An instrument that flags mode 3 in 3 steps and
+   passes the shipped kernel for 1025 is genuinely exercising the kernel. This
+   is the evidence that replaces the retracted V2 oracle claim (§2).
+3. **The gate is nonetheless blind to the addressing class B must certify, and
+   this measures that blindness.** Mode 5 is exactly the "nibble shift order"
+   defect from the frontier blind-spot list (§4.1.1), and it survives 1025
+   checked steps at `max_abs_diff 0`. Read contrapositively: *if the shipped
+   kernel had that defect, the golden gate would not have caught it.* So the
+   golden gate cannot be B's addressing certificate — no matter how many times
+   it passes.
+
+The wiring result also tells us the blindness is a **power** limit, not a
+plumbing one, and the census explains the power gap quantitatively. Mode 3 slams
+every fitting code to 0 (a whole-scale-magnitude error); mode 5 permutes codes
+within a lane, and row spans are ≤15 codes with the top seven global codes
+carrying ≈97.9 % of all mass (§11), so a lane permutation overwhelmingly
+exchanges codes that are equal or ±1 apart, and `raw = ushort(bits) << 7` makes
+±1 worth only ≈8.3 % of one scale. Modes 5/6/1 at 0 divergences in 128 greedy
+steps already bounded per-step divergence below ≈2.3 % (95 %); the 1025-step
+gate now extends that bound to the shipping case without closing it.
+
+**What B's addressing rests on, after V4c:** the analytic derivation of the
+layout (§6, re-derived and confirmed twice), the
+`lagunaLaneMajorScaleBankReproducesScales` reconstruction certificate (which
+proves only `builder⁻¹∘builder = id`), and — for a true certificate — the
+frontier-reviewed one-hot 128-probe sweep of §4.1.1. V4c's contribution is
+**not** an addressing certificate; it is the demonstration that the one instrument
+I do quote for correctness is alive, plus a measurement of precisely which defect
+class it cannot see. That measurement is the argument for §4.1.1 being necessary
+rather than belt-and-braces, and it is gated behind Ask 3 (bytes).
 
 Mode 2 (uniform +1 on every fitting code, ≈+8.3 % scale error, 100 % row
 coverage, 1 divergence in 32 greedy steps) would bracket the gate's sensitivity
@@ -1009,4 +1073,3 @@ floor between "invisible permutation" and "catastrophic zeroing". It was
 deliberately **not** run: it is a cheap follow-up, and holding the ranked-slot
 request past its usable window costs the programme more than the bracket is
 worth.
-
