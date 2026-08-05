@@ -187,6 +187,38 @@ same `control` buffer, which is read-after-read and no hazard. At `spread=1` the
 50-op `needs_commit()` cap (`device.cpp:484-487`) forces extra commits, but
 identically in both arms, so it cancels in the ratio.
 
+### 4.1 Buffer-argument enumeration (the pre-submission check, discharged)
+
+The advisor required the buffer arguments be checked for aliasing before this
+arm is submitted. There are exactly three per empty dispatch
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:11208-11218`):
+
+| # | binding at `CHAIN=0` | lifetime | written by anything? | hazard class reachable |
+| ---: | --- | --- | --- | --- |
+| in 0 | `scratch.control[(layer + k) & 7]` | static `Scratch`, allocated `:11146`, `eval`'d `:11153`, **never freed** | **no** | none |
+| in 1 | `scratch.control[7]` | same | **no** | none |
+| out | fresh `[256]` `uint32` per dispatch | held in `pending` until `asyncEval` | yes, by this dispatch only | WAW / WAR **only via allocator recycling** |
+
+`grep -n control Sources/MLXFastModel/LagunaRuntimeModel.swift` confirms the
+control arrays appear only in `inputNames` (`:11089`, `:11122`) and as bound
+*inputs* (`:11196`, `:11211`, `:11212`). No kernel in the instrument or in the
+model writes them. Therefore:
+
+- **RAW is structurally impossible** at `CHAIN=0`: both inputs are
+  never-written buffers, so `prev_outputs_.contains(buf)` can never be true for
+  them. This is the intended contrast with `CHAIN=1`, where input 1 is the
+  previous empty's output and RAW fires by construction.
+- **WAR on the inputs is impossible**: `register_output_array` tests the
+  *output* against `prev_inputs_`, and the output is never a control buffer.
+- The **only** surviving path is a recycled output address, i.e. exactly the
+  residual declared above. Nothing new is found by this enumeration, which is
+  the point of recording it: the risk is one specific, named, directional
+  mechanism rather than an open question about the bindings.
+
+One cosmetic non-issue found while doing this: `LagunaInjectChain.tail` is
+assigned (`:11221`) even at `CHAIN=0`, where `tail` is never consumed as an
+input. It is dead state on the unchained path and affects no binding.
+
 ## 5. Why D1 must be read before this slot is spent — and what it currently says
 
 D1 is the M4 in-model chained-vs-unchained ladder. Under the M4 TRANSFER LAW its
