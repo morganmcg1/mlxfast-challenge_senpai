@@ -747,6 +747,83 @@ is `officialScore`, and the current best is ≈**2.55231** (`c3ce66e` 2.523276 a
 This is the promotion bar, and it is a different quantity from the `ns` I rank
 on; §9.1's verdict table stays on `ns`.
 
+### 9.3 The receipt reader, its self-test, and the band-convention reconciliation
+
+Written while the ticket validated, so that reading the receipt is one command
+and not an exercise in arithmetic under time pressure.
+
+**Why not the CLI.** `mlxfast submissions` truncates `details` and has no
+`--json`. The full metric set comes from the submissions endpoint, which
+publishes `officialMetrics` for **rejected** submissions too — 1040 of 1515
+submissions currently carry timing:
+
+```bash
+curl -s -H "Authorization: Bearer $MLXFAST_API_TOKEN" \
+  "https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions" \
+  -o /tmp/subs.json
+python3 research/maple-fern-pr48-receipt.py /tmp/subs.json
+```
+
+`research/maple-fern-pr48-receipt.py` prints the correctness gates, the hidden
+GPQA/TTFT gates, both floors, provenance hashes, the timing observables, the
+renormalised `ns`, and the §9.1 pre-registered verdict.
+
+**Self-test (this is the part that matters).** Run against the control
+`c3ce66e` the reader independently reproduces all three of the advisor's
+published control values from raw `seconds_per_token`:
+
+| quantity | reader | advisor's published control |
+|---|---|---|
+| `ns` | 2.544360 | 2.544360 |
+| S | 97.9496 ms | 97.9496 ms |
+| T | 4.28121 ms | 4.28121 ms |
+
+`nd = 0.013890/0.0050464443 = 2.752433`, `npf = 0.0003845/0.00019130778 =
+2.009850`, `ns = nd^0.75 · npf^0.25 = 2.544360`, delta vs control −0.0000%.
+The renormalisation chain is therefore verified end to end before my own
+numbers go through it.
+
+**§6(b), the two band conventions — reconciled.** The advisor flagged that
+tanjiro and I use incompatible definitions of the legacy band ratio and asked
+us to align. The arithmetic settles it: **the two conventions are
+reciprocals.**
+
+- *speedup* = baseline/candidate (higher is better) — what the feed publishes
+  as `decode_speedup`/`prefill_speedup`.
+- *time-ratio* = candidate/baseline (lower is better) = 1/speedup.
+
+Evaluated on the **unchanged control**:
+
+| axis | convention | control ratio | band | verdict |
+|---|---|---:|---|---|
+| decode | speedup | 2.754322 | [0.980, 1.053] | ABOVE hi (+161.57%) |
+| decode | time-ratio | 0.363066 | [0.980, 1.053] | BELOW lo (−62.95%) |
+| prefill | speedup | 1.940058 | [0.952, 1.053] | ABOVE hi (+84.24%) |
+| prefill | time-ratio | 0.515449 | [0.952, 1.053] | BELOW lo (−45.86%) |
+
+The identification is exact: the advisor reports tanjiro's D2 hand-computation
+failing by **−45.9%** on prefill, and the control's prefill *time-ratio* is
+**−45.86%** below `lo`. That is his convention, confirmed to 0.04 pp. (His
+decode figure of −60.2% differs from the control's −62.95% only because his
+receipt is a different candidate with a different `decode_speedup`.) I had been
+quoting the *speedup* convention.
+
+The substantive conclusion is convention-independent and is the thing worth
+banking: **under both conventions the unchanged control fails the legacy band
+as badly as any candidate does** — +161.57%/+84.24% over the ceiling as
+speedup, −62.95%/−45.86% under the floor as time-ratio. A gate that the
+do-nothing tree fails by 45–160% is not discriminating between candidates. It
+is not measuring what `AcceptanceBand` measures; per AGENTS.md the deployed
+wrapper treats those inner invocations as **timing probes** and does not cap
+candidate gains at 1.053. So the band is a convention artefact on the published
+paired speedups, which is the same conclusion the advisor reached empirically
+from tanjiro's green gates, now derived from the control's own numbers rather
+than from a candidate's.
+
+Practical consequence for this arm: my §7 band worry was already void, and it
+is void under *either* convention. I record the numbers because the advisor
+asked for hand-computed band arithmetic, not because either cell is a hazard.
+
 ---
 
 ## 10. Suggested follow-ups I did not implement
