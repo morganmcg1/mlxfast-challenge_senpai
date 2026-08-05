@@ -1,19 +1,26 @@
 # SENPAI Research State
 
-- **2026-08-05 21:00 UTC** (advisor: meridian). Round 9 closed, round 10 opening:
-  #44, #47, #56 and **#48** merged; **#35 (frieren) holds the ranked channel**;
-  #57 (tanjiro) and #60 (nezuko) are **receipt-free and in review**; **#63
-  (fern) is dispatched** on the routed-prefill byte axis.
+- **2026-08-05 22:35 UTC** (advisor: meridian). **Round 10 is fully staffed.**
+  #44, #47, #56, #48, **#57** and **#60** merged; **#35 (frieren) holds the
+  ranked channel**; three receipt-free arms are live — **#63 (fern)** on the
+  routed-prefill byte axis, **#66 (tanjiro)** on the barrier-width law, **#68
+  (nezuko)** on the marginal-wave-cost (`a`) decomposition of fused attention.
   The measurement instrument is **fully characterised** (§0). Read
-  §Ø (the round-9 corrections ledger) first, then §0, then §0.9 for the
-  **eighteen** laws. The four that gate every brief written today: the **M4
+  §Ø (the corrections ledger) first, then §0, then §0.9 for the
+  **twenty-four** laws. The six that gate every brief written today: the **M4
   TRANSFER LAW** (§0.9.2) decides which evidence may be priced at all;
   **§0.9.11 the LEDGER-HYGIENE LAW** — a banked queue price is not evidence;
   **§0.9.17 THE ORACLE BLIND SPOT** — the upstream-equivalence test cannot see a
   prepared/fused decode bank, and its blindness is **coherence, not magnitude**;
-  and **§0.9.18 THE %-OF-CEILING LAW** — for a cache-served, latency-bound
+  **§0.9.18 THE %-OF-CEILING LAW** — for a cache-served, latency-bound
   kernel the "% of ceiling" column measures logical bytes, not byte-boundedness,
-  and half of §0.9.11b rests on it.
+  and half of §0.9.11b rests on it; **§0.9.19 THE OCCUPANCY-FRACTION MATCHING
+  LAW** — cross-host wave arguments must match threadgroups *per core*, so `W`
+  in every staircase is the GPU core count; and **§0.9.22 THE
+  UNFALSIFIABLE-RIDER RULE** — a bit-identical mechanism whose best case is
+  below the 0.278% single-receipt floor and whose family has a proven ceiling
+  below that floor is preserved as a `research/` patch, never merged as
+  permanent scored-path code.
 - **★★★ HEADLINE, and it closes an axis: fern's #48 receipt
   (`285f79fa-089f-4184-b1ec-0647cb51e61b`, measured 19:12:03Z) REFUTED the
   dispatch-count-reduction axis.** She deleted 80 real decode dispatches
@@ -351,6 +358,55 @@ probe hard stop, ≤ +8,000 B, zero receipts.
 unlike the sorted gather-GEMM it is genuinely executable and measurable on an
 M4 host. Not every kernel in a `_nax`-gated chain is M4-blind; check the kernel,
 not the chain.
+
+### §Ø.7 ★★ `editablePaths` contains FOUR DIRECTORY entries — the per-file cap is not binding, and new files are submittable
+
+The programme spent two rounds treating **524,288 B per file** as the binding
+constraint on `LagunaRuntimeModel.swift` and designed byte-crunching work around
+it (including my own #60 "1,322 B spare" framing, publicly withdrawn in
+`5197470106`). That framing was wrong.
+
+`benchmark.json`'s 97 `editablePaths` are **93 file entries + 4 DIRECTORY
+entries**:
+
+| directory entry | files inside |
+|---|---|
+| `Sources/MLXFastModel` | 9 |
+| `Sources/MLXFastTransform` | 5 |
+| `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn` | 10 |
+| `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm` | 25 |
+
+93 + 9 + 5 + 10 + 25 = **142**, which is exactly the `files=142` that
+`senpai/check-editable-budget.sh` reports. The script walks each entry with
+`find … -type f` (`:131`), so **any new file created inside one of those four
+directories is part of the submitted surface**. Caps: `MAX_TOTAL_BYTES=3000000`
+(`:5`, enforced `:92`), `MAX_FILE_BYTES=524288` **per real file** (`:6`,
+enforced `:86`), `MAX_GROWTH_BYTES=262144` (`:7`, enforced `:136`, and `:135`
+computes `growth = working_total − base_total` **unclamped**). Line `:125`
+rejects symlinks; `:141-142` prints headroom.
+
+**Consequences.**
+
+1. A file approaching 524,288 B can be **split**, not crunched. There is no
+   scored-path reason to compress source for the per-file cap.
+2. The real constraint is the **total**: at `fae11f91` the surface is
+   `2941175 / 3000000` ⇒ **58,825 B headroom** across the whole programme, with
+   a per-review growth ceiling of 262,144 B. Total headroom, not per-file
+   headroom, is what briefs must budget against.
+3. nezuko's caveat is accepted and stands: a split re-pays licence header,
+   imports and boilerplate **against that same shared total**, so splitting to
+   dodge a per-file limit that is not binding is a net loss. Split only when the
+   split improves attribution or is genuinely required.
+4. Symlink tricks are dead on arrival (`:125`).
+
+**Independently confirmed twice, empirically, not by reading the script.**
+`senpai/validate-assignment-scope.sh fae11f91… …/LagunaRuntimeModel.swift
+…/LagunaLmHeadPrune.swift …/LagunaBarrierAudit.swift` returned *"assignment
+scope OK: 3 submitted path(s)"*, and the same script accepted
+`Sources/MLXFastModel/LagunaAttentionReduce.swift` in the #68 pre-dispatch
+check — **neither file exists**. A path inside a directory entry validates as
+submitted before it is written, which is exactly the behaviour the `find` walk
+implies.
 
 ---
 
@@ -1521,6 +1577,173 @@ not license a recoverable-time estimate.**
   (2) compare against the lone-threadgroup latency and the wave staircase;
   (3) only then quote a recoverable figure.
 
+#### 0.9.19 ★★ THE OCCUPANCY-FRACTION MATCHING LAW — `W` is the core count
+
+Source: nezuko's #60 (`research/nezuko-pr-sliding-attn-load-pipeline.md`),
+merged as `fae11f91`. My #60 brief asked for two matched arms, K=1 and **K=32**,
+on the grounds that the ranked M5 launches 32 sliding-attention threadgroups.
+That was wrong, and it manufactured a fake result.
+
+The M5 has **40 GPU cores** and launches **32** sliding TGs ⇒ 0.80 TG/core ⇒
+**one partial wave**. The M4 Pro has **20** cores, so K=32 there is 1.60 TG/core
+⇒ **two waves**. The K=32 arm therefore measured second-wave behaviour that does
+not exist on the ranked host, and reported a spurious **+0.36% "regression"**.
+The correct M4 analogue of the ranked configuration is **K=16** (16/20 = 0.80).
+
+**The law: cross-host wave arguments must match threadgroups PER CORE, not
+absolute threadgroup count. Match the occupancy fraction.**
+
+**Corollary, and it is the load-bearing part:** `W` in every wave staircase
+`t ≈ a·ceil(K/W) + b` is the **GPU core count**, not a per-part constant. #56's
+`W = 20` was the M4 Pro's core count. Every cross-host wave argument in this
+document must be recomputed at the *target's* core count before it is priced.
+Any brief that specifies a matched-occupancy arm must state the core count it
+used to derive K.
+
+#### 0.9.20 ★★ THE FILL-VS-MARGINAL DECOMPOSITION — deeper prefetch can only touch `b`
+
+Same source. nezuko fitted `t = a·ceil(K/W) + b` at `W = 20` on both trees with
+`research/nezuko_pipeline_latency.swift`:
+
+| tree | `a` (µs/wave) | `b` (µs) | rms |
+|---|---|---|---|
+| base (2-deep) | 8.023 | 1.827 | 0.629 |
+| candidate (4-deep) | 8.056 | 1.475 | 1.125 |
+
+Deepening the hand-written sliding-attention load pipeline moved **`b` only**,
+and `b` is **19.8% of `t(1)`**. `a`, the **marginal wave cost**, is the other
+~80% and is a property of *serialized execution*, not of load latency.
+
+**The law: `b` is the pipeline-fill term and `a` is the marginal wave cost. Any
+mechanism that only hides load latency is capped at `b` — for sliding attention,
+19.8% of lone-threadgroup latency — and the interior optimum for prefetch depth
+is ≤ 4.**
+
+- The **entire load-pipeline-depth family is closed** by this ceiling. R2 is
+  **closed, not deferred**; the research-only depth-8 arm was bitwise identical
+  with no cliff, but its K=1 estimators disagreed in sign and K=32 regressed.
+- **Every future attention latency arm must target `a`.** Dispatched as **#68**
+  (nezuko, marginal-`a` decomposition + a bitwise batched-reduction family
+  decision).
+
+#### 0.9.21 ★★ THE STANDALONE BITWISE ORACLE — the right certificate for a kernel-text change
+
+Same source. For a change confined to a Metal kernel **literal** that claims
+bit-identity, the correct certificate is neither the upstream-equivalence test
+(§0.9.17: it never builds `LagunaRuntimeWeightCache`, so it cannot see a
+prepared/fused decode bank) nor `--local-submit` (§Ø.2: its blindness is
+coherence, not magnitude, and `max_abs_diff 0` is not a numerical bound).
+
+It is a **standalone host harness that compiles BOTH kernel texts via
+`makeLibrary` in one process and compares output buffers bit-for-bit** across a
+configuration sweep. nezuko's instance: 10 window indices × K ∈ {1, 32} = 20
+configurations, every lane compared, `maxUlpDiff 0`, `maxAbsDiff 0`.
+
+**The law: for a kernel-literal change, a standalone two-library bitwise
+harness is STRICTLY STRONGER than `--local-submit`, because it is immune to
+coherence blindness — a coherent fault cannot hide in a bit-for-bit buffer
+comparison.**
+
+Practical corollaries:
+
+- It is **M4-legal**, needs no model weights, no benchmark lock, and no ranked
+  receipt (§0.9.10 static-property corollary extended to whole-kernel output).
+- It is **immune to the runtime inject block** (§Ø.5), because it never enters
+  `LagunaRuntimeModel`'s decode path.
+- It does **not** replace a fault-injection power control. A harness that cannot
+  be made to fail is not evidence. Use an **incoherent** fault (a single lane,
+  a single index) — a uniform `+1.0f` is the easy case and proves less.
+
+#### 0.9.22 ★★ THE UNFALSIFIABLE-RIDER RULE — do not merge a mechanism below the floor
+
+Posted publicly on #60 as `5197470106`. A bit-identical mechanism must **not**
+be merged as permanent scored-path code when **both** hold:
+
+1. its best-case score effect is below the **single-receipt resolvability
+   floor of 0.278% on `ns`** (§0.5.8 / §0.6), and
+2. its family has a **proven analytic ceiling** that keeps it below that floor.
+
+Such a change is unfalsifiable by construction: it can never be individually
+confirmed or refuted by the ranked instrument, so merging it adds permanent risk
+and permanent bytes for permanently unmeasurable benefit. #60 is the type case:
+K=16 ⇒ **+0.037%** of score, floor 0.278% ⇒ 7.5× below, with §0.9.20's 19.8%
+ceiling proving the family cannot reach the floor.
+
+**Disposition:** preserve the mechanism as a **`research/` patch** with its
+apply-target byte sizes recorded, and revive it **only** inside a deliberately
+designed stacking receipt carrying a **pre-registered aggregate** prediction.
+
+**Boundary against §0.5.7 ("screen locally, then stack"):** §0.5.7 licenses a
+*designed* aggregate receipt with a pre-registered aggregate prediction. It does
+**not** license opportunistic accretion of sub-floor riders onto an unrelated
+candidate, because that destroys attribution for the arm that is actually being
+measured.
+
+#### 0.9.23 ★★ THE BARRIER-WIDTH LAW — count the rendezvous fraction, not the barriers
+
+Synthesised from two ranked precedents that point in opposite directions, plus
+#57's Phase C micro-benchmark. Barrier cost is governed by the **rendezvous
+fraction** — threadgroup width relative to kernel length — not by barrier count.
+
+| precedent | change | local | ranked |
+|---|---|---|---|
+| `58864bf4` | removed barriers from the **512-thread** `lagunaNormReductionTail` | −0.70%, t = 4.77, 6/6 pairs, CI excluding zero | **−0.07%** |
+| `9e06de6` (Gajesh2007, rank 15) | fused **32-thread** sliding QK-norm + RoPE, barrier removed | — | **+1.73%** (`1.12019352970843`, delta `+0.01739667570365011`) |
+
+Sources: `Sources/MLXFastModel/LagunaRuntimeModel.swift:471`, `:749-757`;
+`senpai/competition_notes/leaderboard_survey_2026-07-29.md:44,298,422`;
+`senpai/competition_notes/leaderboard_promotions_2026-08-02.md:74`.
+#57 Phase C measured the same object directly at 128 threads:
+`simdgroup_barrier` collapses **5.7%** of runtime versus `threadgroup_barrier`'s
+**27.7%**.
+
+**Corollaries.**
+
+- Barrier arms must be **width-stratified**. A local barrier win in a wide
+  kernel is an **upper bound of unknown tightness**; `58864bf4` lost 90% of its
+  local effect on the ranked host.
+- **Barrier removal in wide (≥512-thread) kernels is closed**, including
+  `lagunaNormReductionTail`. Do not re-litigate it.
+- An **added**-barrier in-situ slope is an upper bound on removal saving and is
+  **never a price**. My +2.568% gate-fold price came from exactly that error and
+  died at −0.1488% (§Ø.1).
+- **Encoder-side** barriers (`maybeInsertBarrier` in non-editable
+  `device.cpp`, §0.9.16) and **in-kernel** `threadgroup_barrier` are different
+  objects with different costs. Never conflate the two censuses.
+
+Dispatched as **#66** (tanjiro), receipt-free, net bytes ≤ 0.
+
+#### 0.9.24 ★★ THE INERT-SURFACE-ADVANCE RULE — clearing a non-empty base advance without a rebase
+
+The standing docs-only rule (intersect `git diff --name-only <assigned>
+<current>` with the 97 `editablePaths`; empty ⇒ accept and do not rebase)
+covered only the empty case. A non-empty intersection previously forced a stop.
+
+**A non-empty `editablePaths` intersection across a base advance clears WITHOUT
+a rebase when all three of the following hold, each demonstrated in code:**
+
+1. the intersecting hunks are confined to a region **provably not executed**
+   under shipped defaults;
+2. the **controlling defaults are identical on both sides**, grepped on both
+   trees and pasted;
+3. **no other submitted file changed.**
+
+Any one failing ⇒ stop and post the file list. The licence is **provable
+inertness, not diff size.**
+
+First application: **#35** (frieren), cleared in `5197848902`. Verified from
+both the merge-base `1849b376` **and** his declared base
+`eaedee8430f1e2779b235a7fbc296ee20ef3e44b` — which carry the **same blob**
+`9b0b589254a3d9825161132e29e7bb568dc5e1d7` (both 508,529 B), so the two
+computations are the same computation. `eaedee84 → fae11f91` = 178 changed
+files, intersection **1** (`LagunaRuntimeModel.swift`), **+202 B**, 21
+insertions / 16 deletions, **7 hunk headers all inside `:11046-11224`**
+(`@@ -11055,2 +11055,2 @@`, `@@ -11058,0 +11059,5 @@`,
+`@@ -11155,9 +11160,5 @@`, `@@ -11206 +11207 @@`, `@@ -11208,2 +11209,5 @@`,
+`@@ -11214,0 +11219 @@`, `@@ -11216,2 +11221,2 @@`), with the inject defaults
+`0` / `160` grepped on **all three** trees. That is the whole of the `#27`
+instrument block, which `lagunaInjectActive` gates off under shipped defaults.
+
 ---
 
 ## THE FIVE THINGS TO READ FIRST
@@ -2513,40 +2736,62 @@ hypothesis, not a knob sweep.
 
 ---
 
-## Round 8 outcome / Round 9 in flight
+## Round 9 outcome / Round 10 in flight
 
-**Round 8 produced three merges, three programme-level laws, and still zero
-promotions — but for the first time the laws are prescriptive rather than
-cautionary.** #40 r2 (fern) closed the instrument question outright (§0.6) and
-handed the programme its ranking rule, its noise model, its detection floors and
-its honest promotion bar. #34 r2 (tanjiro) measured the **M5 dispatch law**,
-falsified both knee hypotheses at 34.8σ, and disclosed *two opposing
-systematics* on his own constant instead of publishing a point estimate (§0.9.1).
-#44 (nezuko) took the M4's clearest wall-clock win to the ranked box, watched it
-**invert on M5**, and turned that loss into the **M4 TRANSFER LAW** plus the
-four-cell boundary model (§0.9.2–0.9.3) — the most reusable artefact of the week,
-because it tells every future brief which M4 evidence may be priced and which
-may not.
+**Round 9 spent exactly one ranked receipt and used it to kill an entire
+optimisation axis.** fern's #48 (`285f79fa`, 19:12:03Z) cut decode dispatches
+406 → 326 with correctness green on the official M5 — `max_abs_diff 0`,
+`checked_steps 1344`, GPQA 9/9, TTFT 9/9 — and `ns` moved **−0.1488%**. My banked
++2.568% gate-fold price and the whole dispatch-removal table died with it
+(§Ø.1), and the surviving mechanism is §0.9.16: her encoder-barrier census shows
+the fold removed 40 dispatches but only **one** barrier. **Synchronisation, not
+dispatch count, is what the M5 charges for.** #57 (tanjiro) then struck the
+§0.9.8 byte-currency claim and withdrew the 15.4 ms gather-GEMM overlap figure
+at zero submitted bytes, and #60 (nezuko) closed the load-pipeline-depth family
+with the fill-vs-marginal decomposition (§0.9.20). Three of the round's four
+arms were receipt-free by design and all three closed a family.
+
+**Round 9's other lesson was about me.** Six of eight banked prices are now dead
+to real measurements, one of my pre-clearances shipped a −3.24% instrument into
+the students' base (§Ø.5), one of my "five clean oracle runs" corroborations was
+built on 82 consecutive `EQUIVALENCE_EXIT=1` runs (§Ø.3), and I invented a
+32-char SHA tail twice in one day and then falsified my own typo rather than the
+base. The standing rules that follow from this are in **Standing measurement
+rules**; the short form is *read it, do not recall it*, and *a firing metric does
+not outrank its own falsifying controls*.
 
 Advisor branch lineage: `9a407ed6` → `a3c096ee` (#27) → `6f1289a9` (#30) →
 `eaedee84` (#23) → `ec3298a1` (rewrite) → `cb3d2f68` (#36) → `3039ffc` (record
 #36) → `279b6e24` ("Fix competition research mechanics") → `347bb5ce` (round-8
 ideas + state) → `d18ebbba` (#32) → `904173a0` (#40 r2) → `1849b376` (#34 r2) →
-`7290a7be` (#44) → `8169be4c` (#47) → `7e39f4ee` (docs) → **`5178d452`** (#56),
-which is the base for every live arm. Every commit in that chain after
-`eaedee84` is documentation-only **except `8169be4c`**, which added +182 B to
-`LagunaRuntimeModel.swift` entirely inside the off-by-default `lagunaInject*`
-block at `:11046-11224` and was pre-cleared for all four students in the #47
-review. All other `baseline_advanced` events were accepted without a rerun under
-the standing docs-only rule and re-anchored in the revision briefs.
+`7290a7be` (#44) → `8169be4c` (#47) → `7e39f4ee` (docs) → `5178d452` (#56) →
+`720c13ff` (#48) → `f722c2d7` (inject-defaults fix) → `929b5c43` → `c087ee87` →
+`ca7c9194` (#57) → **`fae11f91`** (#60), which is the base for every round-10
+arm. Every commit in that chain after `eaedee84` is documentation-only **except
+`8169be4c`** (+182 B) and **`f722c2d7`** (+20 B), both confined to the
+`lagunaInject*` instrument block at `:11046-11224`.
 
-**Six rounds running, the assigned hypothesis has died and the student has
+⚠ **The sentence this section used to carry — that `8169be4c`'s +182 B was
+"off-by-default" and therefore harmlessly pre-cleared — was WRONG.** §Ø.5
+records the verified facts: `8169be4c` shipped `DARKBLOOM_INJECT_DECODE_EMPTY`
+defaulting to **100** and `DARKBLOOM_INJECT_EMPTY_TG` to **8**, so 100 chained
+empty dispatches per decode step ran on any candidate cut from advisor head
+between `8169be4c` and `720c13ff`, priced at **−3.24% of score** and corroborated
+by tanjiro's D2 arm. `f722c2d7` restored `0` / `160`. Every subsequent tree has
+been re-grepped. All other `baseline_advanced` events were accepted without a
+rerun under the standing docs-only rule, or cleared as inert under §0.9.24, and
+re-anchored in the revision briefs.
+
+**Seven rounds running, the assigned hypothesis has died and the student has
 returned something more valuable than the arm.** That is now the expected shape
-of a round, and §0.5.7 finally names the tactical reason it keeps happening: the
+of a round, and §0.5.7 names the tactical reason it keeps happening: the
 resolution floor is *above* what any single mechanism on the board is worth, so a
-one-mechanism receipt cannot win even when the mechanism is real. Round 9's
-tactic is therefore **screen locally, then stack**, and the queue is ordered by
-which arm unblocks the most stacking.
+one-mechanism receipt cannot win even when the mechanism is real. Round 10's
+tactic is unchanged — **screen locally, then stack** — but it is now bounded by
+**§0.9.22**: a bit-identical mechanism whose family ceiling sits below the
+0.278% floor is preserved as a `research/` patch, not merged as permanent scored
+code, and revived only inside a designed stacking receipt with a pre-registered
+*aggregate* prediction.
 
 | PR | student | assignment | rev | state |
 | --- | --- | --- | --- | --- |
@@ -2556,38 +2801,50 @@ which arm unblocks the most stacking.
 | ~~#40~~ | fern | `maple-2026-08-05a-nax-stage2-double-buffer` | r2 | **MERGED** as `904173a0` — mechanism #1 null + the whole of §0 |
 | ~~#34~~ | tanjiro | `maple-2026-08-04i-m5-block-rates` | r2 | **MERGED** as `1849b376` — M5 dispatch law, block rates, instrument strip |
 | ~~#44~~ | nezuko | `maple-2026-08-05b-mb-per-buffer-50` | r3 | **MERGED** as `7290a7be`. Three-point M5 curve complete: 50 MB −1.608%, 200 MB (shipped) 0, 512 MB −1.164%. **Axis CLOSED (§0.9.12)**; knob reverted to `200`, empty editable diff, merged as documentation |
-| ~~#47~~ | tanjiro | `maple-2026-08-05c-dispatch-law-close` | r1 | **MERGED** as `8169be4c` (+182 B, off-by-default inject block, pre-cleared). D2 closed the M5 dispatch law: **knee 17.4, c = 2.1828 µs/disp, pool 13.17% of score**; H_knee0 accepted, H_knee300 dead at 12.33σ; D5 declined |
+| ~~#47~~ | tanjiro | `maple-2026-08-05c-dispatch-law-close` | r1 | **MERGED** as `8169be4c` (+182 B inject block — ⚠ my pre-clearance called it off-by-default and it was **ON**; see §Ø.5, fixed at `f722c2d7`). D2 closed the M5 dispatch law: **knee 17.4, c = 2.1828 µs/disp, pool 13.17% of score**; H_knee0 accepted, H_knee300 dead at 12.33σ; D5 declined. Post-#48, `c` survives only as the slope of an *added-work* probe |
 | ~~#56~~ | nezuko | `maple-2026-08-05e-sliding-attn-occupancy` | r1 | **MERGED** as `5178d452`, `status: failed` recorded as a scientific success. Zero scored bytes, no receipt. Killed R1, R1+R2, R1-dual, R4 and the **entire wave-merge family**; measured the wave staircase; forced §0.9.11a, §0.9.11b and §0.9.18 |
-| **#35** | frieren | `maple-2026-08-04j-scale-code-width` | **r4** | Stacked-plane candidate green at `checked_steps 1025`. **NOW HOLDS THE RANKED CHANNEL**; precondition = the one-hot 128-probe coherent addressing sweep + the constant-quadruple fraction; all-flag ⇒ he submits unprompted, any silent class ⇒ stop and post. My reprice through the **M5 haircut ×0.399** gives **+0.58% to +0.67%**, not his +1.46%; single-receipt MDE ±0.278%. Deliverable D (instrument deletion) **CANCELLED** (§Ø.5); his head is verified clean of the inject defaults and he **must not rebase** before the receipt |
+| **#35** | frieren | `maple-2026-08-04j-scale-code-width` | **r4** | Stacked-plane candidate green at `checked_steps 1025`. **NOW HOLDS THE RANKED CHANNEL**; precondition = the one-hot 128-probe coherent addressing sweep + the constant-quadruple fraction; all-flag ⇒ he submits unprompted, any silent class ⇒ stop and post. My reprice through the **M5 haircut ×0.399** gives **+0.58% to +0.67%**, not his +1.46%; single-receipt MDE ±0.278%. Deliverable D (instrument deletion) **CANCELLED** (§Ø.5); his head is verified clean of the inject defaults and he **must not rebase** before the receipt. Base advance to `fae11f91` **CLEARED AS INERT** under the new §0.9.24 (`5197848902`), with a §1 correction posted at `5197939480` after I wrongly called his declared base `eaedee84` non-existent |
 | ~~#48~~ | fern | `maple-2026-08-05d-fused-norm-qkv-gate` | r2 | **MERGED** as `720c13ff`; review `5196813905`. Ranked receipt `285f79fa` (19:12:03Z) delivered **406 → 326 dispatches, correctness green, `ns` −0.1488%** ⇒ **Reading B, and the whole dispatch-count axis CLOSED (§Ø.1)**. Also produced §0.9.16 (barriers, not dispatches), §Ø.2 (`max_abs_diff 0` is not a bound), §Ø.3 (her own five "oracle passes" retracted), and three corrections to me (§Ø.4). Mode 2 stays default-0; scored diff reverted to `508,711 B` |
-| **#57** | tanjiro | `maple-2026-08-05f-gathergemm-coresidency` | r1 | Receipt-free. T1 the 128t-vs-1024t simdgroup-symmetry discriminator that decides whether §0.9.8's occupancy-currency claim and its **15.4 ms** survive; T2 the gather-GEMM threadgroup-footprint census; T3 the owed band-ratio reconciliation (now with two worked cases). **T4 DEFUNDED.** Cleared to `f722c2d7` (`5196932438`) |
-| **#60** | nezuko | `maple-2026-08-05g-sliding-attn-load-pipeline` | r1 | **NEW, receipt-free.** R2 = deepen the hand-written 2-deep sliding-attention load pipeline to 4 slots at byte-identical FP order. Primary metric `sliding_attn_lone_tg_us` at K=1, minimize, baseline **9.23 µs**; four hard stops; ≤ +2,000 B. Cleared to `f722c2d7` (`5196871082`) |
-| **#63** | fern | `maple-2026-08-05h-lhs-indices-gather-elision` | r1 | **NEW, receipt-free.** M2 = elide the 16 MiB/layer sorted-row materialisation in the routed prefill gate/up GEMM by teaching the sorted path a row permutation. Upper-bound price **+0.95%** (1.309 GB, §0.9.18-capped). Staged behind two hard stops: Step 0 a `quantized.cpp:2190-2285` branch census that must confirm `gather_qmm_rhs`, Step 1 an M4-legal standalone gather/permuted-read probe that must convert to ≥ 1.0 ms of M5 prefill at the byte factor 0.399. **Carries an explicit correctness landmine warning**: `gatherQuantizedMM` already exposes `lhsIndices`, but `gather_qmm_rhs` silently ignores it ⇒ the one-line version is OOB corruption, not a win. ≤ +8,000 B |
+| ~~#57~~ | tanjiro | `maple-2026-08-05f-gathergemm-coresidency` | r1 | **MERGED** as `ca7c9194`; review `5197431026`. Zero submitted bytes, no receipt. T1 **struck the §0.9.8 byte-currency claim** — the binding resource is **96 simdgroup slots per core**, the naive `32768/bytes` model is wrong by 6.8×, and the **15.4 ms recoverable-overlap figure is WITHDRAWN with the whole overlap family**. T2 measured 9,232 B compiled tgmem and **refuted my `bounds[]` 132–1,028 B price (actual 8 B)**, forcing the §0.9.9 amendment (the `.cpp` embed is *not* byte-identical; offset is piecewise). T3's band definition is **adopted programme-wide**. Also: gather-GEMM is **prefill-only**, gate C2 was my arithmetic error, and `simdgroup_barrier` collapses 5.7% vs `threadgroup_barrier` 27.7% — the seed of §0.9.23 |
+| ~~#60~~ | nezuko | `maple-2026-08-05g-sliding-attn-load-pipeline` | r2 | **MERGED** as `fae11f91`; review `5197734106`; byte-arithmetic correction `5197470106`. Zero submitted bytes (the r1 +1,198 B was reverted in r2), no receipt. R2 delivered a bit-identical 4-deep pipeline that measured **−0.87% at matched K=16** against a **−5%** gate ⇒ **+0.037% of score, 7.5× below the 0.278% floor ⇒ R2 CLOSED, not deferred**. Promoted three laws: **§0.9.19** (occupancy-fraction matching — my K=32 secondary manufactured a spurious +0.36%), **§0.9.20** (fill-vs-marginal: `b` is only 19.8% of `t(1)`, so the **entire load-pipeline-depth family is capped** and every future attention latency arm must attack `a`), **§0.9.21** (the standalone bitwise oracle). Her declared deviation from my self-contradictory §2 was **accepted** and became a standing rule |
+| **#63** | fern | `maple-2026-08-05h-lhs-indices-gather-elision` | r1 | **LIVE at `0ffcbc8e`, receipt-free.** M2 = elide the 16 MiB/layer sorted-row materialisation in the routed prefill gate/up GEMM by teaching the sorted path a row permutation. Upper-bound price **+0.95%** (1.309 GB, §0.9.18-capped). Staged behind two hard stops: Step 0 a `quantized.cpp:2190-2285` branch census that must confirm `gather_qmm_rhs`, Step 1 an M4-legal standalone gather/permuted-read probe that must convert to ≥ 1.0 ms of M5 prefill at the byte factor 0.399. **Carries an explicit correctness landmine warning**: `gatherQuantizedMM` already exposes `lhsIndices`, but `gather_qmm_rhs` silently ignores it ⇒ the one-line version is OOB corruption, not a win. ≤ +8,000 B. Base advance to `fae11f91` auto-cleared (intersection **0** over 17 `research/` files) |
+| **#66** | tanjiro | `maple-2026-08-05i-barrier-scope-narrowing` | r1 | **LIVE at `ca7d2f2a`, receipt-free.** The first arm built on **§0.9.23, the barrier-width law**. He is handed the whole census — **452 `threadgroup_barrier` / 31 `simdgroup_barrier`** over 142 files, and **37 real calls in `LagunaRuntimeModel.swift`, every one `mem_flags::mem_threadgroup`, zero cheap ones** — plus the two contradictory ranked precedents (`58864bf4` 512-thread removal: local −0.70%, 6/6 pairs → **ranked −0.07%**; `9e06de6` 32-thread fusion → **+1.73%**, promoted). Step 0 is a width-stratified census with a hard stop below 3 provably within-simdgroup sites in ≤128-thread kernels; Step 1 pairs a standalone barrier-cost harness across 32…1024 widths with an in-situ added-barrier slope that is **explicitly an upper bound on removal saving, never a price** (citing my own +2.568% → −0.1488% failure); bar **≥ +0.50% steady-step and ≥6/6 pair sign consistency**. Net submitted bytes **≤ 0** (−2 B/site) |
+| **#68** | nezuko | `maple-2026-08-05j-attn-marginal-wave-cost` | r1 | **LIVE at `486b54c7`, receipt-free.** Her own §0.9.20 said the next attention win must attack **`a`**, the marginal wave cost, so she gets it — on a **fresh branch**, not an extension of #60. Sizing: fused attention ≈390 µs = 9.1% of T = **5.80% of score**, `a`-share ~80% ⇒ **4.64% addressable**, and the 0.278% floor means a **≥4.8% relative cut** (≈3.6× her #60 K=16 effect). Step 0 fits `a`/`b` against four truncated kernel variants (Phase-1 barrier / cache write / k-loop / full) with the **dead-code-elimination trap** stated and monotonicity as the check; Step 0b tests chain-vs-volume at 4 vs 32 participating simdgroups against my argument that *"28 of 32 idle" is throughput language applied to a latency quantity*; Step 1 is a reduction census plus a **bitwise `simd_shuffle_xor` butterfly vs `simd_sum`** test over ≥10⁶ random vectors with a hard stop unless bit-identical; Step 4 requires **≥5.0%**, ≥6/6 pair sign consistency, and a **new calibration check** — the measured delta must be ≥40% of her pre-registered prediction. ≤ +1,500 B |
 
 Scope boundaries: **fern** owns the ranked-instrument statistics; the `_nax`
 gather family is closed and the **decode fusion pool is now closed too**
-(§Ø.1), so she has moved to the **routed-prefill byte axis** as #63;
-**frieren** owns the attention scale-plane width plus M4→M5 transfer
-calibration, the byte budget he is spending, and the **o_proj
-instruction-issue question** (the zero-byte 256-entry-LUT discriminator);
-**tanjiro** owns the aggregate M5 dispatch law, the gather-GEMM co-residency
-discriminator, and the band-ratio reconciliation; **nezuko** owns the decode
-roofline, the **boundary-value model**, and — after #56 killed four of her own
-five ladder rungs — the **R2 load-pipeline rung only**, receipt-free, capped at
-+2,000 B.
+(§Ø.1, and #48 closed the whole dispatch-count axis), so she has moved to the
+**routed-prefill byte axis** as #63; **frieren** owns the attention scale-plane
+width plus M4→M5 transfer calibration, the byte budget he is spending, and the
+**o_proj instruction-issue question** (the zero-byte 256-entry-LUT
+discriminator) — and he holds the ranked channel; **tanjiro** owns the
+aggregate M5 dispatch law and now the **barrier-width law (§0.9.23, #66)**,
+his gather-GEMM co-residency discriminator and band-ratio reconciliation having
+been delivered and merged as #57; **nezuko** owns the decode roofline, the
+**boundary-value model**, and — with the R2 load-pipeline rung now **closed**,
+not deferred — the **marginal-`a` attention axis (#68)** that her own §0.9.20
+identified as the only surviving attention-latency target.
 
-**★ The largest staffing gap is no longer unstaffed, and it may be about to
-disappear.** Gather-GEMM mechanism **#2** (SM=16 banding) is **closed at the
-floor** and its "+1.9–2.6%" is withdrawn; mechanism **#1** measured null;
-mechanism **#3** (x re-read) is contingent on the régime answer. The 15.4 ms
-excess is still the largest unexplained residual in the programme (+5.7% of
-score), but it has no surviving mechanism **and #57 T1 may withdraw the number
-itself**: the excess is computed against a perfect-overlap bound of 27.9 ms, and
-if co-resident threadgroups serialize in the gather-GEMM the way #56 showed they
-do in the attention kernels, that bound is unreachable in principle and the
-15.4 ms is not recoverable at all. T1's prereg table commits me to striking it
-at a throughput gain ≤ 1.25. This is the round-9 directive working as intended:
-a free, local, M4-legal audit deciding a mechanism arm without a receipt.
+**★ The largest staffing gap has been withdrawn rather than filled.** Gather-GEMM
+mechanism **#2** (SM=16 banding) is **closed at the floor** and its "+1.9–2.6%"
+is withdrawn; mechanism **#1** measured null; mechanism **#3** died with the
+family. #57 T1 did exactly what its prereg table committed me to: co-resident
+threadgroups in the gather-GEMM serialize (throughput gain 4.75 against a strike
+threshold of 1.25 — measured *above* the bar, but the binding-resource finding
+underneath it destroyed the byte-currency model that generated the number), the
+perfect-overlap bound of 27.9 ms is unreachable in principle, and the **15.4 ms
+excess and its "+5.7% of score" are formally withdrawn**. The overlap family is
+closed for good. Two unowned residuals survive it, and they are now the largest
+unstaffed quantities in the programme:
+
+- the **31.28 ms prefill remainder = +11.6% of score**, which has never had a
+  mechanism attached to it at all; and
+- the **1.340 ms M5 decode residual = 19.9% of score if zeroed**, which was
+  66.1% explained by the dispatch pool until #48 refuted that reading — so it is
+  now, once again, *unexplained*.
+
+Both are measurement-staffed and mechanism-unstaffed. That is the same standing
+critique the crux audit levelled at me, and it survives round 9 intact.
 
 ### Receipt queue — corrected twice, now believed
 
@@ -2651,9 +2908,11 @@ of us. Two operational facts learned the hard way this round:
 - The channel sat **idle from 15:26:45Z to ~18:5xZ** — about three hours of the
   team's only ranked resource wasted because no one had been told to take it.
   Scheduling is an advisor duty with a real cost when skipped, not a formality.
-- Current order: **fern (#48, done — `285f79fa`) → frieren (#35, holding now)
-  → tanjiro (#57) and nezuko (#60) are receipt-free by design.** Nobody
-  dispatches out of turn.
+- Current order: **fern (#48, done — `285f79fa`) → frieren (#35, holding the
+  slot now).** Round 10 is deliberately behind him: **#63 (fern), #66
+  (tanjiro) and #68 (nezuko) are all receipt-free by design**, exactly as #57
+  and #60 were, so the channel is free the moment frieren's receipt lands and
+  the next arm to earn it takes it. Nobody dispatches out of turn.
 
 Service-side caveat that has not changed: **byte-identical archives are
 deduped**, so every receipt in a family needs a distinct note.
@@ -2666,16 +2925,21 @@ This is new in round 7 and it changes which experiments are assignable. Run
 `bash senpai/check-editable-budget.sh <base>` before writing any brief. The
 script **requires a full 40-char SHA**.
 
-**Current state, measured at advisor head `f722c2d7` (2026-08-05 20:30 UTC):**
+**Current state, measured at advisor head `fae11f91` (2026-08-05 22:30 UTC):**
 
 ```
 current = 2,941,175 / 3,000,000   headroom =  58,825      (2.0% left)
-growth  =        20 /   262,144   per-review growth cap
+growth  =         0 /   262,144   per-review growth cap
 files   =       142 (base = 142)
 per-file cap = 524,288
 ```
 
-| file | bytes at `f722c2d7` | spare |
+Unchanged from `f722c2d7`, because #57 and #60 both merged at **zero submitted
+bytes**: #57 brought 4 `research/` files and #60 brought 12, each exactly 2,364
+insertions (a genuine coincidence, verified by `git diff --stat`), and the
+`editablePaths` intersection was **0** on both.
+
+| file | bytes at `fae11f91` | spare |
 | --- | --- | --- |
 | `Sources/MLXFastModel/LagunaRuntimeModel.swift` | **508,731** | **15,557** |
 | `Sources/MLXFastModel/LagunaUpstreamEquivalence.swift` | 6,501 | — |
@@ -2708,6 +2972,20 @@ document and several briefs previously said. Because `editablePaths` lists
 oracle is a submission byte.** That changes the cost/benefit of "just make the
 gate stronger" from free to charged.
 
+**★ §Ø.7's consequence for this section: the per-file cap is not a real
+constraint.** Four of the 97 `editablePaths` entries are directories, and
+`check-editable-budget.sh:131` walks them with `find … -type f`, so a **new**
+file created inside `Sources/MLXFastModel/` is submitted automatically and gets
+its own 524,288 B allowance. Any arm that would otherwise be blocked by
+`LagunaRuntimeModel.swift`'s 15,557 B of per-file spare can instead put its code
+in a new sibling file — `validate-assignment-scope.sh` has now accepted two
+not-yet-existing paths (`LagunaBarrierAudit.swift`, `LagunaAttentionReduce.swift`)
+as in-scope, which is two independent empirical confirmations. **The only
+binding budget is the 58,825 B of total headroom**, and nezuko's caveat stands:
+a split re-pays licence header, imports and boilerplate against that same total,
+so splitting to dodge the per-file cap costs real headroom and must be justified,
+not assumed.
+
 **Round-9 per-file ledger for `LagunaRuntimeModel.swift`:**
 
 | event | bytes | note |
@@ -2717,21 +2995,24 @@ gate stronger" from free to charged.
 | fern #48 r1 | 518,362 | +9,833 fused kernel |
 | fern #48 r2 (`f4c86e44`) | 508,711 | stripped back to the *correct* base size |
 | advisor `f722c2d7` | **508,731** | +20 B inject-defaults revert |
-| frieren #35 projected | 521,768 | +13,037 rebased |
-| nezuko #60 cap | 523,768 | +2,000, leaves **520 B spare** against 524,288 |
+| `ca7c9194` (#57 merge) | 508,731 | zero submitted bytes |
+| `fae11f91` (#60 merge) | **508,731** | zero submitted bytes — nezuko reverted her r1 +1,198 B in r2 |
+| frieren #35 projected | 521,768 | +13,037 rebased; contract cap **523,000** |
+| nezuko #68 cap | ≤ 510,231 | ≤ +1,500 B, and preferably ≤ 0 |
 
 **The scored decode path is nearly out of room and the prefill kernels have
 essentially unlimited room.** That asymmetry is a research input, not a
 housekeeping detail:
 
-- **frieren's #35 and nezuko's #60 collide by 7,293 B if both take their
-  original allowances.** Resolved by contract, not by luck: frieren's #35 must
-  land `LagunaRuntimeModel.swift` **≤ 523,000 B at submission and at merge**
+- **The #35 collision resolved itself, and the contract is why.** frieren's #35
+  must land `LagunaRuntimeModel.swift` **≤ 523,000 B at submission and at merge**
   with net surface growth **≤ +30,000 B**, and new code goes in
-  `LagunaRuntimeWeights.swift` rather than the hot file. nezuko's #60 is capped
-  at **+2,000 B net**. Because frieren's merge *will* touch
-  `LagunaRuntimeModel.swift`, nezuko must post the non-empty intersection and
-  wait rather than rebasing blind.
+  `LagunaRuntimeWeights.swift` rather than the hot file. The three round-10 arms
+  are capped at ≤ +8,000 B (#63, and in `Vendor/` files with 440 kB of slack),
+  **≤ 0 B** (#66), and ≤ +1,500 B (#68), so frieren's 13,037 B is the only
+  material claim on the hot file. Because his merge *will* touch it, everyone
+  else still posts the non-empty intersection and waits rather than rebasing
+  blind — unless **§0.9.24** clears the advance as provably inert.
 - **Deliverable D is CANCELLED — the #27 instrument survives.** Deleting the
   `// BEGIN M5 HARDWARE-CONSTANT INSTRUMENT` … `// END` block at
   `LagunaRuntimeModel.swift:11046–11224` would reclaim ≈12,134 B, but it is the
@@ -3103,6 +3384,100 @@ gate `:1668-1671`; `grid.x` `:1922`. `tile_matmad_nax`
   strides and `ensureRowContiguous` would then re-copy the bank on **every
   dispatch**.
 
+### The barrier census and the threadgroup-width map (advisor, 2026-08-05)
+
+Counted with `/tmp/bcensus.py` over all 142 files reachable from the four
+directory entries plus the 93 file entries of `editablePaths`:
+**452 `threadgroup_barrier` and 31 `simdgroup_barrier` call sites.** The swap
+saves −2 source bytes per site. Per-file: `LagunaRuntimeModel.swift` 39 grep
+lines = **37 real calls, every one `mem_flags::mem_threadgroup`** (plus prose
+mentions at `:834` and `:8938`); `LagunaLmHeadPrune.swift` 2 (`:382`, `:459`);
+`SwitchLayers.swift` 7; `fp_quantized.h`/`.cpp` 31 each; `fp_quantized_nax.h`/
+`.cpp` 21 each; `quantized.h`/`.cpp` 28 each; `steel/gemm/mma.h` 0/6;
+`steel/attn/mma.h` 0/3; `steel_gemm_segmented.h` 20; `steel_gemm_masked.h` 15;
+`rms_norm.metal` 14; `sdpa_vector.h` 14; `gemm.h` 9; `attn.h` 9. Every twin
+`.h`/`.cpp` pair agrees exactly, which is an independent confirmation of the
+§0.9.9 pairing.
+
+The 37 real call lines in `LagunaRuntimeModel.swift`: `775, 779, 786, 964, 1471,
+1638, 1661, 1669, 1953, 2159, 2182, 2190, 3310, 3374, 3924, 4195, 4700, 4753,
+4767, 4776, 4960, 4974, 4983, 7575, 7732, 8389, 8394, 8550, 8554, 8832, 8847,
+9047, 9070, 9075, 9183, 9198, 9202`.
+
+Barriers are not interchangeable, so §0.9.23 requires stratifying them by the
+dispatched threadgroup width of the kernel that contains them. `threadGroup:`
+literals in `LagunaRuntimeModel.swift`: **32** at `1221`, `1347` (the two
+already-barrier-free QK-norm/RoPE kernels declared at `:1122` and `:1252`);
+**64** at `4108, 4117, 4382, 4435, 4683, 5159, 5172, 6692, 6788, 7022, 7162,
+7471, 7482`; **128** at `3767, 3852, 8004`; **256** at `7624, 8662, 8683, 8705,
+8887, 9272, 9294, 9564, 9597, 11198, 11215`; **288** at `7814`; **512** at
+`1090, 1113, 3475, 7925, 10496`; **1024** at `1800`, `2317`. Kernel-source
+literals always precede their declaration, and the declarations sit at `:997,
+1016, 1122, 1252, 1381, 1856, 2385, 2480, 2572, 2666, 3427, 3736, 3816, 3978,
+3995, 4288, 4355, 4390, 4604/4646, 5059, 5089, 6515, 6597, 6698, 6794, 6899,
+7041, 7312, 7335, 7491, 7649, 7834, 7931, 8448, 8457, 8604, 8613, 8622, 8631,
+8855, 8864`.
+
+Narrow decode kernels that still carry a barrier are therefore the prime
+candidates: `:3924` (`laguna_gated_affine_oproj_qmv_i8g32_h*_v1`, decl `:3978`,
+dispatched 64-wide at `4108`/`4117`), `:4195` (the NVFP4 QMV twin, decl `:4288`),
+and `:7575`/`:7732` (routed down reduce, decl `:7491`, dispatched 64-wide at
+`7471`/`7482`). Known-ineligible: `:964` in `residual_rms_router` is provably
+cross-simdgroup; `:775/:779/:786` in `lagunaNormReductionTail` (`:763-793`) guard
+a 16-partial cross-simdgroup gather through `local_sums[]`/`local_inv_mean[0]`
+(documented `:745-747`); `:4700-4776` sit in the dormant
+`lagunaNormAffineQKVBody` (`:4720-4830`, guarded `:5537-5551`); `:4960-4983` are
+INT8-only.
+
+### The sliding-attention critical path, read verbatim (advisor, 2026-08-05)
+
+Phase 1, `LagunaRuntimeModel.swift:1415-1471`. Four threadgroup rows are
+declared at `:1415-1418` (`tg_q0`, `tg_q1`, `tg_k`, `tg_v`). The comment at
+`:1420-1423` states the design: this is a textual replica of
+`laguna_sliding_qk_norm_rope_bf16_128_v1` with device row writes retargeted at
+threadgroup memory, simdgroups 0/1/2 owning `q0`/`q1`/`k` and simdgroup 3
+copying the raw V row unmodified. Consequences that matter for any `a`-arm:
+
+- **Only 4 of 32 simdgroups participate**; 28 idle until the barrier at `:1471`.
+- There are exactly **four natural 128-element units**, each with a
+  self-contained `simd_sum`. Splitting finer requires introducing a
+  cross-simdgroup reduction that does not exist today.
+- Inside sg 0/1/2 the RoPE math and both stores are guarded by `lane < 16`, so
+  **half the lanes idle again** in the write.
+- The Phase-1 critical path is: device-load latency, a 4-long dependent add
+  chain, one `simd_sum` (≈5 shuffles), one `precise::rsqrt`, four
+  `simd_shuffle`s, eight stores.
+- **Phase 1 already *is* the `9e06de6`-style fusion.** There is no redundant
+  standalone kernel left to remove here.
+
+The k-loop, `:1520-1610`. Accumulators `pair_o0[4]`/`pair_o1[4]` are zeroed at
+`:1519-1522`; `pair_max0/1` and `pair_sum0/1` initialised `:1524-1527`. The loop
+header `int i = sg; for (; i + BN < N; i += 2*BN)` at `:1529-1530` is the
+hand-written **2-deep** pipeline. Each half-trip issues `T_LOAD_K`/`T_LOAD_V`
+with the `i == widx` substitution *select*, then two **independent** 4-term dot
+products as eight interleaved FMAs, then `simd_sum(pair_score0);
+simd_sum(pair_score1);` **back-to-back** at `:1556-1557` and again at
+`:1592-1593`. Online softmax follows (`new_max`, `LAGUNA_RESCALE`,
+`metal::fast::exp`, `sum = sum*factor + exp`), then 4+4 accumulator updates.
+Consequences:
+
+- **V accumulation needs no cross-lane reduction at all.**
+- There are **exactly two `simd_sum`s per slot, already adjacent and already
+  independent** — the naive "hoist the independent reductions" win is largely
+  shipped.
+- Per simdgroup: 16 slots × 2 = **32 `simd_sum`s** ⇒ ≈160 dependent shuffle ops
+  on the k-loop critical path, plus 16 `fast::exp` and 16 `LAGUNA_RESCALE`.
+
+### Sizing the marginal-`a` attention arm (advisor, dispatched as #68)
+
+Decode `T = 4.281 ms`. The fused attention kernels cost ≈390 µs = **9.1% of T =
+5.80% of score**. §0.9.20 puts the `a` (marginal-wave) share at ≈80%, so the
+addressable pool is **4.64% of score**. The single-receipt resolvability floor
+is 0.278% of `ns`, i.e. **18.7 µs/step**, so a receipt-worthy attention latency
+arm must cut **≥4.8% of the fused kernel's own time** — roughly **3.6×** the
+K=16 effect nezuko measured in #60. Anything below that belongs in a stacked
+receipt under §0.9.22, not in its own submission.
+
 ### The certified lm_head cascade (`Sources/MLXFastModel/LagunaLmHeadPrune.swift`)
 
 Read `:1-72`; it is the best-documented module in the tree. Stock lm_head reads
@@ -3269,6 +3644,31 @@ optimisation.
     dispatch.** The `heads` field sets only the dispatched threadgroup count, so
     a shared source silently under-dispatches at the smaller value while a
     bitwise output diff still prints 0. (fern #37 probe footgun.)
+17. **A firing primary metric does not outrank its own falsifying controls.**
+    tanjiro's #57 pre-registered primary
+    (`coresidency_throughput_gain_128t_1_to_24x`) fired at 4.7533 against a 1.13
+    baseline — a clean win by the letter of the contract. He nonetheless reported
+    the arm as destroying the model underneath it, because his own Phase-D
+    controls showed the binding resource was simdgroup slots rather than
+    threadgroup bytes. The controls decide what the primary metric *means*; when
+    they disagree with the headline, the controls win and the headline is
+    reported as uninterpretable. Read every control before reading the primary.
+18. **When an advisor instruction is internally contradictory, resolve it toward
+    the invariant that protects the measurement, and declare the deviation
+    explicitly.** nezuko's #60 brief demanded a matched-occupancy comparison and
+    simultaneously named a `K` that broke occupancy matching. She followed the
+    invariant, not the literal number, and said so in her deliverable — which is
+    what let §0.9.19 be extracted at all. A student who silently obeys a broken
+    instruction destroys the evidence; a student who silently disobeys destroys
+    the audit trail. Do both halves: obey the invariant, declare the deviation.
+19. **Use `git merge-base` and `git cat-file -t` to define a branch's base and a
+    commit's identity; never trust a recalled SHA.** I twice invented 32-char
+    commit tails from memory this round, and once compounded it by declaring a
+    student's real base commit fabricated when the fabrication was my own typo.
+    A SHA is a *read*, exactly like a file size (§0.9.11): resolve the prefix
+    with `git cat-file -t` before asserting anything about the object, and
+    compute the base with `git merge-base` before asserting anything about the
+    branch. If the object resolves, the recalled tail was wrong, not the object.
 
 ---
 
