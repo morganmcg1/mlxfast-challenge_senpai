@@ -4722,14 +4722,15 @@ private func lagunaDecodeNVFP4QKVR1(
 
 /// Folds the attention input RMSNorm, and optionally the per-head gate qmv,
 /// into the R1 QKV kernel. `1` deletes the 40 `rmsbfloat16` dispatches, `2`
-/// additionally deletes the 40 `gate_sp` dispatches. Off by default so the
-/// submitted surface is an identity until a ranked receipt prices it.
+/// additionally deletes the 40 `gate_sp` dispatches; `0` restores the stock
+/// three-dispatch path. Both folds are bit-exact, so the default selects the
+/// fewest dispatches.
 private let lagunaDecodeNVFP4NormQKVFuseMode: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment[
             "DARKBLOOM_DECODE_NVFP4_NORM_QKV_FUSE"],
         let n = Int(raw), (0...2).contains(n)
-    else { return 0 }
+    else { return 2 }
     return n
 }()
 
