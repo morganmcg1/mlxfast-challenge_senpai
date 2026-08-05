@@ -108,8 +108,84 @@ avoids the prefill dispatch axis that PR #27 found self-inconsistent by 7×.
 
 A receipt contributes to the fit only if it reports `max_abs_diff = 0` and
 `passed_correctness`. The fit is reported with per-point receipt IDs, `S`, `T`,
-both floor verdicts, and the wall-clock of the concurrent batch. If every point
+both floor verdicts, and the wall-clock of the series (serial, not concurrent: the channel allows one
+submission in flight per account). If every point
 comes back at `dT ≈ 0`, the reported conclusion is "M5 is even further below the
 knee than 2400 injected dispatches", `c` is reported as unmeasured with an upper
 bound, and dispatch-count reduction is reported as worth 0 ms — this is a real
 answer, not a failed experiment.
+
+## Analysis rules, fixed before any reading arrives
+
+Written while L0 is still validating and every level above it is unsubmitted, so
+none of this is chosen with a reading in hand.
+
+**Estimator.** Each level's `T` comes from its own session's own paired
+baseline, via `T = 1000 · decode_seconds_per_token − S/128` on the candidate and
+the same expression on that session's baseline. `dT(n)` is the candidate `T` at
+level `n` minus **that same level's paired baseline `T`**, not minus L0's
+candidate `T`. The paired baseline is the drift control the harness already
+provides, and it is measured in the same session as the point it corrects, which
+L0 is not. L0's role is therefore a check that the paired-baseline estimator
+reads zero on a tree that is byte-identical to base, plus a third independent
+free-baseline replicate; it is not the subtrahend. If the paired baselines
+disagree across sessions by more than 1%, I report both estimators side by side
+rather than picking the flattering one.
+
+**Segmented fit.** Fit `dT(n) = max(0, c·(n − n_knee))` by least squares over the
+four injected levels plus the L0 zero, scanning `n_knee` on a 1-dispatch grid
+over `[0, 2400]` and taking `c` from the ordinary-least-squares slope of the
+points strictly above the candidate knee. A level counts as "above the knee" only
+if at least two levels are, so a fit resting on a single point above the knee is
+reported as a bound, not a slope. `slack = c · n_knee`. The reported uncertainty
+on `n_knee` is the profile interval where the residual sum of squares rises by
+one `sigma²`, with `sigma = 0.024` ms (the pre-registered two-receipt
+differencing noise), not a bootstrap over five points.
+
+**Numeric action threshold.** A candidate fusion that removes `k` dispatches per
+decode step is worth pursuing only if
+
+```
+k · ĉ − ŝ > 0.1 ms      with  ŝ = max(0, slack estimate)
+```
+
+where 0.1 ms is about 2% of the 5.087 ms frontier step and about four times the
+differencing noise. This threshold is what makes the result actionable rather
+than descriptive, and it is deliberately harsh on small fusions: even `H_sat`'s
+own `slack ≤ 0.2 ms` voids every `k ≲ 80` fusion, because such a fusion buys
+`80 × 2.3 µs = 0.18 ms` and spends the slack first. I will report the verdict at
+`k = 40` (a per-layer fusion), `k = 100`, `k = 200` and `k = 400`.
+
+**Fallback if all three hypotheses are rejected.** If the five points are not
+consistent with any `max(0, n·c − slack)` — a negative slope, a decreasing
+`dT`, superlinear growth beyond the registered `c` range, or a fitted `c`
+outside `[1.0, 5.0] µs` — I do not fit a fourth model chosen to match. I report
+the raw five points, state that the saturation law does not describe M5's decode
+step, and name the specific shape observed. A refusal to extrapolate is the
+honest output there; the advisor's downstream fusion decision then has no
+quantitative licence from me in either direction, which is worth knowing.
+
+**Scope limit, stated up front.** This probe prices the *host-encode margin of
+empty, dependency-free dispatches*. That is exactly the quantity in the
+"+4.1 µs per dispatch of invisible host cost" claim, so a large slack does
+falsify that claim. It is **not** the whole cost of a real kernel boundary: GPU
+launch ramp and tail, inter-kernel gaps, and intermediate-tensor round-trips are
+GPU-side costs that a real fusion removes and an empty dispatch cannot expose.
+The unattributed 1.27–1.38 ms of the decode step divided by 406 dispatches is
+3.1–3.4 µs each, which is the right size for those GPU-side costs. So a
+`slack ≈ 0` reading green-lights fusion (it pays on both axes), while a large
+slack retires only the host-cost argument for fusion and leaves the GPU-side
+argument untouched. I will not write "dispatch reduction is worthless on M5"
+without that qualification attached, and the 4.1 µs measured encode cost versus
+whatever `c` this fit returns is a discrepancy I will report rather than
+average away.
+
+**Known blind spot.** There is no level in `n ∈ (0, 400)`, which is where the
+realistic counterfactual of removing 50–200 of 406 dispatches lives. Under
+`H_sat` the slack is then a pure extrapolated intercept. The ladder can still
+decide the question at the margin — if `dT(400) = 0` then `slack ≥ 400c ≈ 1 ms`
+and removing 40 or 100 dispatches is worth zero, while if `dT(400) > 0` we are
+in `H_sat` territory where the decision needs the slope rather than the exact
+knee — but a knee at ~200 would make "remove 40" worthless and "remove 300"
+valuable, and this ladder cannot separate those two. I say so rather than
+implying resolution I do not have.
