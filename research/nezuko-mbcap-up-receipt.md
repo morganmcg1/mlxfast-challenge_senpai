@@ -208,8 +208,17 @@ was over-applied. Amended:
    direction in which they were measured. They must never be quoted above it.
    The one time I extrapolated the prefill rate upward it was wrong in sign and
    2.7x in magnitude, which is the whole content of this clause.
-3. **HYPOTHESIS (on trial in r3, not yet a law): the transferable timing proxy
-   is the M4 `wall - gpu_busy_union` gap, not M4 wall time and not the count.**
+
+   **Tightened again in r3 by section 11.9:** the +27.177 us/cb prefill rate is
+   not even valid across the whole downward branch. Prefill buffer count is
+   almost flat between 200 and 100 (81 -> 84, +3.7%) while decode cb/step rises
+   53% (34 -> 52) over the same move, so the two axes do not share a cap
+   response and the fitted prefill rate is **interval-local to 200 vs 50**.
+3. ~~**HYPOTHESIS (on trial in r3, not yet a law): the transferable timing proxy
+   is the M4 `wall - gpu_busy_union` gap, not M4 wall time and not the count.**~~
+   **RETIRED in r3.** The downward sweep refuted it; it is replaced by the much
+   weaker clause 3' in section 11.7. The rest of this clause is kept verbatim as
+   the record of what was believed and why it was wrong.
    That gap is non-overlapped CPU encode/submit time, a CPU-side property, so
    it *should* survive the Apple GPU generation change that `_nax` kernel
    selection does not. It was already in the B1 table and it already ranked 200
@@ -288,6 +297,21 @@ surface diff against base `1849b376` is **empty**. Everything retained is under
 - `research/nezuko-mbcap-up-submission-note.md` - public note attached to `c747336`
 - this file
 
+Added in r3, all research-only:
+
+- `research/nezuko-mbcap-down-prereg.md` - r3 prereg, committed `b16dea5` before
+  the sweep's first arm timestamp
+- `research/nezuko_mbpb_down.sh` - the 31-arm profiled sweep driver
+- `research/nezuko-mbpb-down.log` - its full log
+- `research/nezuko_mbpb_down_stats.py` - contrast, precondition and count tables
+- `research/nezuko_cb_idle.py` - idle-interval distribution tool for the named
+  discriminator (see the limitation stated in section 11.5)
+- `research/nezuko_mbpb_up.sh` - the r2 upward driver, restored for symmetry
+
+The r3 profiler patch to `Vendor/mlx-swift/.../metal/device.cpp` and `device.h`
+is **local instrumentation only and is reverted before submission**, so the
+submitted-surface diff against base is still empty.
+
 ## 8. Suggested follow-ups (not implemented)
 
 1. Take the next assignment as written: `oproj_act_h64/h48` fusion with the
@@ -295,8 +319,10 @@ surface diff against base `1849b376` is **empty**. Everything retained is under
    14.30% of the decode step, ratio 0.601. It shortens the encode stream rather
    than enlarging the buffer, so it is on the right side of the corollary above.
 2. ~~Adopt the M4 `wall - gpu_busy` gap as a standing free pre-screen for any
-   dispatch-shape candidate.~~ **Withdrawn in r3 pending section 11.** "It had
-   the right answer" was only ever checked where it could not be wrong.
+   dispatch-shape candidate.~~ **Withdrawn.** "It had the right answer" was only
+   ever checked where it could not be wrong, and section 11.4 refuted it on the
+   branch that mattered. What survives is the far narrower clause 3' in
+   section 11.7: an upward-only hazard screen, never a ranking statistic.
 3. The +0.518% baseline lottery on every `officialScore` is larger than most
    single-mechanism effects. Consider making `ns` the campaign's reported
    ranking statistic and `officialScore` a secondary field.
@@ -460,4 +486,201 @@ worker stderr files are still on disk. `research/nezuko_cb_idle.py` computes it;
 results are in section 11. Only *inter*-buffer idle is observable at `SPLIT=0`;
 intra-buffer idle would need `SPLIT=1`, which inflates absolute time and is
 attribution-only.
+
+## 11. r3 verdict: clause 3 is retired, and the gap is a tail stall
+
+### 11.1 What ran
+
+Mirror-balanced (F R R F) downward sweep, caps 12/25/50/100/200/400,
+`STEPS=120` (119 steady steps), one discarded warm-up arm at 200, 24 decode
+arms and 6 prefill-count arms, on the locally profiled build. Log
+`research/nezuko-mbpb-down.log`; driver `research/nezuko_mbpb_down.sh`;
+pre-registration `research/nezuko-mbcap-down-prereg.md`, committed as `b16dea5`
+before the log's first timestamp (15:03Z commit, 15:04Z first arm). Finished
+15:31:17Z, exit 0, 31/31 arms.
+
+### 11.2 Preconditions, checked before reading the verdict
+
+| check | pre-registered requirement | measured | verdict |
+|---|---|---|---|
+| session validity | `W(50) < W(200)` at `abs(t) >= 3` | `dW = -0.1930 ms`, `t = -31.96` | PASS |
+| not AMBIGUOUS | pooled within-level sd of `G` < 0.05 ms | `0.0263 ms` | PASS |
+| pass / thermal effect | not pre-registered; added because thermal drifted 40.4 -> 43.9 C | span `0.0180 ms` = 9.3% of the measured `dW(50)` magnitude, and non-monotone in pass order (p1 -0.007, p2 +0.006, p3 +0.010, p4 -0.009) | PASS |
+| determinism | not pre-registered | command-buffer totals identical across all four passes at every cap (11150 / 11029 / 10771 / 6579 / 4345 / 2419); `.err` files byte-identical in size within a cap | PASS |
+| correctness | every arm | 0 divergences in all 31 arms; 406 dispatches/step at every cap | PASS |
+
+The thermal excursion is the one I flagged mid-run. It did not bias the
+contrasts: the pass effect is an order of magnitude below the effect being
+measured, and its sign pattern is not the monotone ramp a thermal trend would
+produce. The mirror did its job, but this is measured, not assumed.
+
+### 11.3 Per-level decode means (n = 4 arms each)
+
+| cap MB | wall ms | sd | union ms | sd | gap G ms | sd | cb/step | gap x cb |
+|---|---|---|---|---|---|---|---|---|
+| 12 | 8.496 | 0.017 | 8.190 | 0.040 | 0.3060 | 0.0432 | 86 | 26.32 |
+| 25 | 8.470 | 0.010 | 8.206 | 0.039 | 0.2642 | 0.0343 | 86 | 22.73 |
+| 50 | **8.406** | 0.007 | **8.157** | 0.006 | **0.2482** | 0.0067 | 85 | 21.10 |
+| 100 | 8.506 | 0.048 | 8.251 | 0.044 | 0.2550 | 0.0140 | 52 | 13.26 |
+| 200 | 8.599 | 0.010 | 8.337 | 0.010 | 0.2618 | 0.0053 | 34 | 8.90 |
+| 400 | 8.784 | 0.034 | 8.216 | 0.016 | 0.5673 | 0.0291 | 19 | 10.78 |
+
+Contrasts vs 200 (Welch, n = 4): `dG(50) = -0.0135 ms` (`t = -3.19`),
+`dG(400) = +0.3055 ms` (`t = +20.65`), `dW(50) = -0.1930 ms` (`t = -31.96`,
+-2.245%), `dW(400) = +0.1850 ms` (`t = +10.52`, +2.151%),
+`dU(50) = -0.1800 ms` (`t = -31.68`), `dU(400) = -0.1215 ms` (`t = -13.19`).
+
+### 11.4 Verdict against the pre-registered rule
+
+**REFUTE**, with the **ONE-SIDED hazard sub-flag** set.
+
+`argmin G = 50 MB`, so `G(200)` is not the strict minimum the CONFIRM branch
+required; `dG(50) = -0.0135 <= 0` triggers REFUTE directly; and
+`dG(400) = +0.3055` at `t = +20.65` sets the one-sided flag.
+
+My committed prediction was REFUTE via ONE-SIDED with `dG(50) ~ -0.002 ms` and
+`W(50) ~ -2%`. The direction of both was right and `W(50) = -2.245%` was close.
+`dG(50)` was 6.8x larger in magnitude than I predicted, so I called the sign
+correctly and the size badly; I had guessed the downward gap would be flat, and
+it is instead slightly but significantly *better* at 50 MB.
+
+### 11.5 The named discriminator answers the section 10 question
+
+Per-boundary inter-command-buffer GPU idle, from the GPUPROF records
+(`research/nezuko_cb_idle.py`). r3 down sweep at left, r2 up sweep at right:
+
+| cap MB | p50 us | p90 us | p99 us | top-10% share of idle | boundaries/step |
+|---|---|---|---|---|---|
+| 12 | 0.88 | 1.17 | 140.1 | 90.6% | 93.7 |
+| 25 | 0.87 | 1.17 | 138.5 | 71.8% | 92.7 |
+| 50 | 0.87 | 4.17 | 137.6 | 77.5% | 90.5 |
+| 100 | 0.92 | 4.25 | 147.1 | 72.1% | 55.3 |
+| 200 | 3.71 | 4.25 | 178.4 | 72.8% | 36.5 |
+| 400 | 0.92 | **114.4** | 334.6 | 93.4% | 20.3 |
+| 400 (r2) | 0.92 | **153.8** | 439.0 | 91.4% | 20.6 |
+| 512 (r2) | 0.92 | **76.7** | 314.7 | 94.6% | 19.5 |
+| 1024 (r2) | 1.00 | **244.0** | 566.5 | 79.2% | 14.2 |
+| 2048 (r2) | 1.00 | **273.6** | 843.5 | 67.8% | 10.1 |
+
+**`H_encode` is refuted.** If each command buffer carried a fixed encode or
+submit cost `E`, the *typical* boundary would carry it. Instead the median
+boundary costs 0.87-1.00 us at every cap from 12 to 2048 MB - flat across a
+215x range in cap and a 9x range in boundary count. There is no per-buffer
+constant to pay. That is why `gap x cb` in 11.3 varies by 3.0x and
+non-monotonically: `gap` was never `E x n_cb`.
+
+**`H_stall` is confirmed on the upward branch.** At every cap at or above 400
+MB the 90th percentile jumps from ~4 us to 77-274 us while the median stays
+~1 us. At 400 MB that is roughly two ~100-300 us stalls per decode step across
+20.3 boundaries, which is the whole 0.567 ms gap. The 400 MB "anomaly" of
+section 10 is therefore not an anomaly and not encode cost: it is a small
+number of long stalls per step.
+
+**Association worth recording:** 400 MB is the only cap in this sweep where
+`mlx_peak_gb` leaves 36.390 (it is 36.929-36.940), and in r2 every cap at or
+above 400 sat at 36.88-36.94 with a large gap. The tail-stall onset and the
+peak-memory step coincide exactly across both sessions. That makes a memory
+pressure or large-buffer allocation stall the leading hypothesis. I am not
+promoting it: coincidence across two sessions on one host is an association,
+and the r2 lesson in section 9 was precisely not to name a cause I have not
+isolated.
+
+**Limitation of my own tool, stated plainly.** `nezuko_cb_idle.py` windows by
+tail fraction, not by the exact steady-step window `decode_probe.py` uses, so
+its *absolute* per-step idle is not authoritative - for r2 cap 200 it reports
+0.547 ms against a logged 0.265 ms, inflated mostly by one 22.1 ms outlier
+(0.223 ms/step by itself). Isolated 4-22 ms outliers appear in several files,
+including r2 arms recorded when I was not touching the host, so I do not
+attribute them. Only the *shape* statistics (p50/p90/p99, tail share) are used
+above; they are robust to those outliers, and the authoritative `gap` is always
+the windowed value from the log.
+
+### 11.6 Where the 50 MB M4 win actually comes from
+
+Not from the gap. Of the -0.1930 ms wall win at 50 MB vs 200 MB, the gap
+contributes only -0.0135 ms (7%); the GPU-busy union contributes -0.1800 ms.
+
+Union and gap are granularity-dependent: 50 MB has 51 more boundaries per step
+than 200 MB, and idle that falls inside a command buffer is invisible at
+`SPLIT=0` and therefore counted as busy. At the measured 0.87 us median, those
+51 extra boundaries mechanically reveal 0.0444 ms of idle that 200 MB hides -
+24.6% of the union difference. Correcting for it:
+
+| component | ms | share of `dW` |
+|---|---|---|
+| real GPU-busy reduction | -0.1356 | 70.3% |
+| real idle reduction | -0.0579 | 30.0% |
+| sum (check vs `dW = -0.1930`) | -0.1935 | 100.3% |
+
+So on M4 the downward-cap decode win is about 70% *less GPU work* and 30% less
+true idle. Nothing in it is command-buffer encode overhead. `gpu_busy_sum`
+equals `gpu_busy_union` in all 31 arms, so buffers never overlap and this is
+not a concurrency effect either.
+
+Why smaller command buffers would reduce GPU busy time is **not established**.
+`mlx_peak_gb` is identical (36.390) for every cap at or below 200, so it is not
+the peak-memory effect that 11.5 associates with the upward branch. Candidates
+I did not separate: residency or cache behaviour of intermediate buffers freed
+sooner; contention between the GPU and the CPU encoder writing large buffers;
+kernel-launch scheduling granularity. Naming one now would repeat exactly the
+error section 9 critique 2 recorded.
+
+### 11.7 Clause 3 is retired and replaced
+
+Clause 3 of section 6 - `gap` as a general proxy for command-buffer overhead,
+usable as a cheap M4 pre-screen - **is retired**. It failed its own
+pre-registered test, and 11.5 shows the mechanism it assumed does not exist:
+there is no per-buffer constant cost.
+
+What survives is narrower and has a stated mechanism:
+
+> **Clause 3' (upward hazard screen only).** A large rise in `gap` together
+> with a p90 inter-buffer idle rising from ~4 us into the 10^2 us range
+> indicates tail stalls, empirically co-occurring with an `mlx_peak_gb` step.
+> This is a one-sided *hazard* screen: it can flag that a cap increase will
+> hurt. It has no downward sensitivity (`dG(50)` is -0.0135 ms against a
+> -0.1930 ms wall win), it does not rank candidates, and a screen result never
+> substitutes for a wall measurement.
+
+The section 8 follow-up 2 pre-screen proposal stays withdrawn.
+
+### 11.8 The cross-machine lesson this sweep actually delivers
+
+The 50 MB decode win on M4 is as strong as local evidence gets: -2.245% at
+`t = -31.96`, argmin of both wall and gap, reproduced in two independent
+sessions (r1 and r3), on a bit-identical dispatch stream, with the pass effect
+9% of the effect size, and now decomposed into busy and idle components that
+close to 0.0005 ms.
+
+On the ranked M5 it was **1.608% slower** (`3e6fdcb`).
+
+A mechanistically decomposed, highly significant, twice-reproduced M4 decode
+win inverted sign on the ranked host. This is the strongest evidence in my
+receipts for the standing rule that M4 decode timing is not evidence for ranked
+decode, and it is worth more than the cap knob itself: it says the bar for
+"M4 says yes" is not statistical strength or even mechanism, but kernel-family
+and architecture reachability. Combined with the ranked 512 MB result
+(-1.164%), 200 MB is a two-sided interior optimum on M5 and the whole
+command-buffer-cap family is closed.
+
+### 11.9 Prefill command-buffer counts, by differencing
+
+Prefill cb per 512-token forward = (prefill-arm total) - (same-cap decode-arm
+total), valid because the totals are deterministic to the buffer:
+
+| cap MB | decode total (x4) | prefill total | prefill cb / 512-tok fwd | decode cb / step |
+|---|---|---|---|---|
+| 12 | 11150 | 11384 | 234 | 86 |
+| 25 | 11029 | 11231 | 202 | 86 |
+| 50 | 10771 | 10931 | 160 | 85 |
+| 100 | 6579 | 6663 | 84 | 52 |
+| 200 | 4345 | 4426 | 81 | 34 |
+| 400 | 2419 | 2461 | 42 | 19 |
+
+Consequence for clause 2: prefill and decode do not respond to the cap on the
+same schedule. From 200 to 100 the prefill count barely moves (81 -> 84,
++3.7%) while decode cb/step rises 53% (34 -> 52). A single `us/cb` prefill rate
+therefore cannot describe both axes or be extrapolated across intervals; the
++27.177 us/cb figure in clause 2 is valid only for the interval it was measured
+on, which is now recorded there.
 

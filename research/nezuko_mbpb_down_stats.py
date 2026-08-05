@@ -28,6 +28,9 @@ STEP = re.compile(
     r"\(([\d.]+)% of wall\) cbs=([\d.]+) dispatches=([\d.]+)")
 PEAK = re.compile(r"^cap=(\d+) (\w+) (\S+) .*mlx_peak_gb[\"']?[:= ]+([\d.]+)")
 DIV = re.compile(r"^cap=(\d+) (\w+) (\S+) .*divergence")
+TOTAL = re.compile(
+    r"^cap=(\d+) (\w+) (\S+) profile: (\d+) command buffers total, "
+    r"(\d+) inside (\d+) steady steps")
 
 
 def welch(a, b):
@@ -49,8 +52,14 @@ def main() -> int:
     rows = []
     divergences = []
     peaks = defaultdict(list)
+    totals = defaultdict(list)
     with open(args.log, errors="replace") as fh:
         for line in fh:
+            m = TOTAL.match(line)
+            if m:
+                if m[3] != "warmup-discard":
+                    totals[(int(m[1]), m[2])].append(int(m[4]))
+                continue
             m = STEP.match(line)
             if m:
                 rows.append(dict(
@@ -126,16 +135,43 @@ def main() -> int:
     print(f"\npooled within-level sd of G = {pooled:.4f} ms "
           f"(AMBIGUOUS threshold 0.05)")
 
+    print("\n== pass (thermal drift) effect: decode wall by pass, all caps ==")
+    tags = sorted({r["tag"] for r in dec})
+    print(f"{'tag':>4} {'n':>2} {'mean wall':>10} {'mean-of-level-mean':>20}")
+    lvl = {c: statistics.fmean([r["wall"] for r in by[c]]) for c in caps}
+    for t in tags:
+        g = [r for r in dec if r["tag"] == t]
+        centred = statistics.fmean([r["wall"] - lvl[r["cap"]] for r in g])
+        print(f"{t:>4} {len(g):2d} {statistics.fmean([r['wall'] for r in g]):10.3f}"
+              f" {centred:+20.4f}")
+    span = max(statistics.fmean([r["wall"] - lvl[r["cap"]]
+                                 for r in dec if r["tag"] == t]) for t in tags)
+    span -= min(statistics.fmean([r["wall"] - lvl[r["cap"]]
+                                  for r in dec if r["tag"] == t]) for t in tags)
+    print(f"pass-effect span = {span:.4f} ms; |dW(50)| = "
+          f"{abs(res[50]['dw']):.4f} ms; ratio = {span / abs(res[50]['dw']):.2f}")
+
+    if totals:
+        print("\n== command-buffer totals (determinism + prefill by "
+              "differencing) ==")
+        print(f"{'cap':>5} {'decode totals':>28} {'prefill':>8} "
+              f"{'pre cb/512-tok fwd':>19} {'dec cb/step':>12}")
+        for c in caps:
+            dt = totals.get((c, "decode"), [])
+            pt = totals.get((c, "prefill"), [])
+            uniq = sorted(set(dt))
+            d = f"{uniq[0]} x{len(dt)}" if len(uniq) == 1 else str(uniq)
+            pre_cb = (pt[0] - uniq[0]) if (pt and len(uniq) == 1) else float("nan")
+            print(f"{c:5d} {d:>28} {(pt[0] if pt else 0):8d} "
+                  f"{pre_cb:19.0f} {statistics.fmean([r['cbs'] for r in by[c]]):12.1f}")
+
     if pre:
-        print("\n== prefill arms (counts; cb per 512-token forward by "
-              "differencing vs same-cap decode) ==")
-        print(f"{'cap':>5} {'wall':>8} {'union':>8} {'gap':>8} {'cbs':>7} "
-              f"{'d_cbs':>7}")
+        print("\n== prefill arms (wall/union/gap are decode-phase metrics; "
+              "the prefill signal is the count above) ==")
+        print(f"{'cap':>5} {'wall':>8} {'union':>8} {'gap':>8} {'cbs':>7}")
         for r in sorted(pre, key=lambda r: r["cap"]):
-            base = statistics.fmean([d["cbs"] for d in by.get(r["cap"], [])]) \
-                if r["cap"] in by else float("nan")
             print(f"{r['cap']:5d} {r['wall']:8.3f} {r['union']:8.3f} "
-                  f"{r['gap']:8.4f} {r['cbs']:7.1f} {r['cbs'] - base:+7.1f}")
+                  f"{r['gap']:8.4f} {r['cbs']:7.1f}")
 
     if peaks:
         print("\n== mlx_peak_gb ==")
