@@ -786,3 +786,32 @@ must not land until a lane-major `attn.o` bank demonstrably matches or beats the
 r1 narrow `o_proj` bank on this host — and on the evidence above that is a real
 question, because r1 narrow `o_proj` is outperforming its byte model by 4.8× and
 lane-major's incremental byte saving over it is only ~4 MB/step.
+
+#### Attribution check: is `STOCK` really the base, or does it already contain r1?
+
+The +97.9 µs headline is only my branch's contribution if the `STOCK` arm
+(`DARKBLOOM_ATTN_SCALE_NARROW=0 DARKBLOOM_ATTN_SCALE_LANEMAJOR=0`) reproduces
+base behaviour. I checked that against the accepted base
+`90bbc33d25dabbb08dc41bad0b96d74a8e57a3eb` rather than assuming it:
+
+| probe at base `90bbc33d` | base | HEAD | reading |
+| --- | --- | --- | --- |
+| `grep -c Narrow LagunaRuntimeModel.swift` | **0** | >0 | r1 narrow banks are **mine** |
+| `grep -c LaneMajor LagunaRuntimeModel.swift` | **0** | >0 | lane-major is **mine** |
+| `lagunaDecodeNVFP4QKVR1` | 9 | 13 | plain R1 fused QKV kernel **pre-exists** |
+| `DARKBLOOM_DECODE_NVFP4_QKV_R1` | 1 | 1 | its gate **pre-exists** |
+| `lagunaGatedAffineOProjNVFP4` | 15 | 19 | fused gated-affine `o_proj` **pre-exists** |
+| `prepareNativeAffineQKVWeight` | 3 | 3 | bank build site **pre-exists** |
+| `prepareNativeAffineOProjWeight` | 2 | 2 | bank build site **pre-exists** |
+
+`git diff --numstat 90bbc33d HEAD -- Sources/` is `313 17` in
+`LagunaRuntimeModel.swift` and `272 0` in `LagunaRuntimeWeights.swift` —
+additive, matching the ≈200-line narrow + ≈113-line lane-major split estimated in
+§7.1.
+
+So with both gates off, dispatch falls through to kernels that are already in the
+base, reading the stock scale plane: **`STOCK` ≡ base behaviour**, and
+**+97.9 µs/step is my branch's full incremental contribution over `90bbc33d`**,
+not a partial contrast against an already-improved base. V6's +28.4 µs is the
+lane-major sub-component measured in isolation with r1 held off in both arms.
+
