@@ -1,0 +1,104 @@
+=== device ===
+name                    Apple M4 Pro
+architecture            applegpu_g16s
+gpu cores               20
+
+=== arms ===
+A base  /tmp/base_LagunaRuntimeModel.swift
+  body lines                     304
+  assembled MSL bytes            15120
+  staticThreadgroupMemoryLength  18432 B
+  maxTotalThreadsPerThreadgroup  1024
+  threadExecutionWidth           32
+B cand  Sources/MLXFastModel/LagunaRuntimeModel.swift
+  body lines                     278
+  assembled MSL bytes            16148
+  staticThreadgroupMemoryLength  18432 B
+  maxTotalThreadsPerThreadgroup  1024
+  threadExecutionWidth           32
+
+=== bitwise output comparison (pseudorandom bfloat16 inputs) ===
+Every checked lane must match bit-for-bit: the rewrite claims the same
+slot order and the same statement order, not a tolerance.
+   widx      K   lanes   bitwise-equal   maxUlpDiff   maxAbsDiff
+      0      1     256   yes            0    0.000e+00
+      0     32    8192   yes            0    0.000e+00
+      1      1     256   yes            0    0.000e+00
+      1     32    8192   yes            0    0.000e+00
+     15      1     256   yes            0    0.000e+00
+     15     32    8192   yes            0    0.000e+00
+     31      1     256   yes            0    0.000e+00
+     31     32    8192   yes            0    0.000e+00
+     32      1     256   yes            0    0.000e+00
+     32     32    8192   yes            0    0.000e+00
+     33      1     256   yes            0    0.000e+00
+     33     32    8192   yes            0    0.000e+00
+    255      1     256   yes            0    0.000e+00
+    255     32    8192   yes            0    0.000e+00
+    288      1     256   yes            0    0.000e+00
+    288     32    8192   yes            0    0.000e+00
+    480      1     256   yes            0    0.000e+00
+    480     32    8192   yes            0    0.000e+00
+    511      1     256   yes            0    0.000e+00
+    511     32    8192   yes            0    0.000e+00
+verdict: every checked lane is bit-identical across the two arms
+
+=== ABBA matched latency (us/call, best-of-3 command buffers) ===
+Each pair runs A,B,B,A; the arm value is the mean of its two slots, so a
+monotone drift over the pair cancels to first order.
+  K=16
+     pair    A base    B cand    B/A
+        1    13.796    11.143   0.8077
+        2     9.278     9.396   1.0128
+        3     9.474     9.276   0.9791
+        4     9.075     9.423   1.0383
+        5     9.488     9.253   0.9752
+        6     9.192     9.421   1.0249
+        7     9.479     9.257   0.9766
+        8     9.235     9.388   1.0166
+        9     9.472     9.296   0.9814
+       10     9.331     9.364   1.0036
+       11     9.446     9.314   0.9860
+       12     9.319     9.357   1.0040
+       13     9.221     9.323   1.0110
+       14     9.141     9.384   1.0266
+       15     9.429     9.276   0.9838
+       16     9.248     9.359   1.0120
+       17     9.485     9.310   0.9816
+       18     9.349     9.344   0.9994
+       19     9.475     9.317   0.9834
+       20     9.372     9.307   0.9930
+       21     9.456     9.292   0.9826
+       22     9.358     9.281   0.9917
+       23     9.476     9.253   0.9765
+       24     9.338     9.253   0.9909
+   median     9.365     9.316   0.9913   (candidate -0.87%)
+     mean     9.539     9.400   0.9891   +- 0.0087 sem  -> -1.09% +- 0.87%
+  K=20
+     pair    A base    B cand    B/A
+        1     9.491     9.287   0.9785
+        2     9.442     9.395   0.9949
+        3     9.476     9.276   0.9789
+        4     9.487     9.387   0.9895
+        5     9.469     9.387   0.9913
+        6     9.477     9.387   0.9905
+        7     9.354     9.366   1.0013
+        8     9.482     9.259   0.9765
+        9     9.447     9.409   0.9960
+       10     9.483     9.008   0.9499
+       11     9.338     9.260   0.9916
+       12     9.275     9.299   1.0025
+       13     9.391     9.279   0.9881
+       14     9.483     9.354   0.9864
+       15     9.339     9.313   0.9972
+       16     9.482     9.323   0.9832
+       17     9.249     9.421   1.0187
+       18     9.453     9.303   0.9842
+       19     9.204     9.392   1.0205
+       20     9.481     9.302   0.9811
+       21     9.219     9.410   1.0207
+       22     9.487     9.371   0.9878
+       23     9.204     9.415   1.0229
+       24     9.474     9.259   0.9773
+   median     9.461     9.338   0.9900   (candidate -1.00%)
+     mean     9.404     9.328   0.9921   +- 0.0034 sem  -> -0.79% +- 0.34%

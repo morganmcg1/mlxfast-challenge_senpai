@@ -1,0 +1,92 @@
+=== device ===
+name                    Apple M4 Pro
+architecture            applegpu_g16s
+gpu cores               20
+
+=== arms ===
+A base  /tmp/base_LagunaRuntimeModel.swift
+  body lines                     304
+  assembled MSL bytes            15120
+  staticThreadgroupMemoryLength  18432 B
+  maxTotalThreadsPerThreadgroup  1024
+  threadExecutionWidth           32
+B cand  Sources/MLXFastModel/LagunaRuntimeModel.swift
+  body lines                     278
+  assembled MSL bytes            16148
+  staticThreadgroupMemoryLength  18432 B
+  maxTotalThreadsPerThreadgroup  1024
+  threadExecutionWidth           32
+
+=== bitwise output comparison (pseudorandom bfloat16 inputs) ===
+Every checked lane must match bit-for-bit: the rewrite claims the same
+slot order and the same statement order, not a tolerance.
+   widx      K   lanes   bitwise-equal   maxUlpDiff   maxAbsDiff
+      0      1     256   yes            0    0.000e+00
+      0     32    8192   yes            0    0.000e+00
+      1      1     256   yes            0    0.000e+00
+      1     32    8192   yes            0    0.000e+00
+     15      1     256   yes            0    0.000e+00
+     15     32    8192   yes            0    0.000e+00
+     31      1     256   yes            0    0.000e+00
+     31     32    8192   yes            0    0.000e+00
+     32      1     256   yes            0    0.000e+00
+     32     32    8192   yes            0    0.000e+00
+     33      1     256   yes            0    0.000e+00
+     33     32    8192   yes            0    0.000e+00
+    255      1     256   yes            0    0.000e+00
+    255     32    8192   yes            0    0.000e+00
+    288      1     256   yes            0    0.000e+00
+    288     32    8192   yes            0    0.000e+00
+    480      1     256   yes            0    0.000e+00
+    480     32    8192   yes            0    0.000e+00
+    511      1     256   yes            0    0.000e+00
+    511     32    8192   yes            0    0.000e+00
+verdict: every checked lane is bit-identical across the two arms
+
+=== ABBA matched latency (us/call, best-of-3 command buffers) ===
+Each pair runs A,B,B,A; the arm value is the mean of its two slots, so a
+monotone drift over the pair cancels to first order.
+  K=1
+     pair    A base    B cand    B/A
+        1    13.699     9.159   0.6686
+        2     9.268     9.540   1.0294
+        3     9.421     9.123   0.9684
+        4     9.228     9.334   1.0116
+        5     9.376     9.187   0.9799
+        6     9.268     9.185   0.9911
+   median     9.322     9.186   0.9855   (candidate -1.45%)
+  K=32
+     pair    A base    B cand    B/A
+        1    19.114    18.706   0.9786
+        2    18.676    19.046   1.0199
+        3    17.325    17.828   1.0291
+        4    18.454    18.956   1.0272
+        5    18.449    18.969   1.0282
+        6    18.723    18.982   1.0138
+   median    18.565    18.963   1.0235   (candidate +2.35%)
+
+=== staircase sweep (us/call) ===
+        K    A base    B cand      B/A
+        1     9.246     9.142   0.9888
+        2     9.052     9.243   1.0211
+        4     9.121     9.261   1.0153
+        8     9.400     9.097   0.9678
+       16     9.450     9.331   0.9874
+       20     9.206     9.397   1.0208
+       24    18.317    18.681   1.0199
+       32    19.222    18.730   0.9744
+       40    18.837    18.859   1.0012
+       48    26.023    25.981   0.9984
+       56    26.354    26.434   1.0030
+       60    26.493    26.682   1.0071
+       64    33.444    33.449   1.0002
+       72    34.530    33.934   0.9827
+       96    42.345    38.797   0.9162
+      120    50.076    48.767   0.9739
+      128    57.385    56.108   0.9777
+      240    97.722    99.940   1.0227
+
+=== staircase refit  t(K) = a + b*ceil(K/W) ===
+      arm     W        a        b      rms   a/t(1)
+   A base    20    1.827    8.023    0.629    0.198
+   B cand    20    1.475    8.056    1.125    0.161
