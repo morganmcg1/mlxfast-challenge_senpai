@@ -1,0 +1,22 @@
+== gate ladder (assignment definitions) ==
+
+model.layers.0.mlp.gate_proj.weight (8192, 2048) rows(channels)=8192 len=2048
+  pack_frac_row(14)=0.735718  pack_frac_row(30)=1.000000
+  row exponent span: median=13 p90=16 p99=19 max=26
+  outliers_per_row(14): median=0 p90=1 p99=2 max=4 (==7798)
+  frac(tz>=4)=0.062725   distinct16(all)=11162  max distinct16 per 4096-tile=2114
+  SANITY pass | GO-8 FAIL | GO-12 FAIL | GO-12e PASS | GO-13 PASS | T8 FAIL
+
+model.layers.0.mlp.up_proj.weight (8192, 2048) rows(channels)=8192 len=2048
+  pack_frac_row(14)=0.742432  pack_frac_row(30)=1.000000
+  row exponent span: median=13 p90=16 p99=19 max=24
+  outliers_per_row(14): median=0 p90=1 p99=2 max=4 (==7794)
+  frac(tz>=4)=0.062744   distinct16(all)=11131  max distinct16 per 4096-tile=2136
+  SANITY pass | GO-8 FAIL | GO-12 FAIL | GO-12e PASS | GO-13 PASS | T8 FAIL
+
+model.layers.0.mlp.down_proj.weight (2048, 8192) rows(channels)=8192 len=2048
+  pack_frac_row(14)=0.735840  pack_frac_row(30)=1.000000
+  row exponent span: median=13 p90=16 p99=19 max=26
+  outliers_per_row(14): median=0 p90=1 p99=2 max=4 (==7806)
+  frac(tz>=4)=0.062650   distinct16(all)=11290  max distinct16 per 4096-tile=1797
+  SANITY pass | GO-8 FAIL | GO-12 FAIL | GO-12e PASS | GO-13 PASS | T8 FAIL

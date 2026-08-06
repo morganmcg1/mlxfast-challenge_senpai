@@ -1,0 +1,18 @@
+== scheme table (whole-channel best-placed window) ==
+
+model.layers.0.mlp.gate_proj.weight (8192, 2048) base_axis=1 channels=8192
+  d=3 esc_elt=0.20858878 max_per_channel=2047 bits/weight=14.3413 (89.63% of BF16) packed=30.076 MB guard_ok=True
+  d=4 esc_elt=0.00015104 max_per_channel=4 bits/weight=12.0063 (75.04% of BF16) packed=25.179 MB guard_ok=True
+  d=5 esc_elt=0.00000000 max_per_channel=0 bits/weight=13.0039 (81.27% of BF16) packed=27.271 MB guard_ok=True
+
+model.layers.0.mlp.up_proj.weight (8192, 2048) base_axis=1 channels=8192
+  d=3 esc_elt=0.21353137 max_per_channel=2047 bits/weight=14.4204 (90.13% of BF16) packed=30.242 MB guard_ok=True
+  d=4 esc_elt=0.00014567 max_per_channel=4 bits/weight=12.0062 (75.04% of BF16) packed=25.179 MB guard_ok=True
+  d=5 esc_elt=0.00000000 max_per_channel=0 bits/weight=13.0039 (81.27% of BF16) packed=27.271 MB guard_ok=True
+
+model.layers.0.mlp.down_proj.weight (2048, 8192) base_axis=0 channels=8192
+  d=3 esc_elt=0.21135241 max_per_channel=2047 bits/weight=14.3855 (89.91% of BF16) packed=30.169 MB guard_ok=True
+  d=4 esc_elt=0.00014955 max_per_channel=4 bits/weight=12.0063 (75.04% of BF16) packed=25.179 MB guard_ok=True
+  d=5 esc_elt=0.00000000 max_per_channel=0 bits/weight=13.0039 (81.27% of BF16) packed=27.271 MB guard_ok=True
+
+  d=4 totals: stock=100.663 MB packed=75.537 MB saved=25.126 MB/step
