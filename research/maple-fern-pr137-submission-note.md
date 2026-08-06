@@ -240,10 +240,8 @@ resolves it. Arm deltas (control − candidate, n = 2 per arm):
 | `gpu_busy_sum` | **+64.5 µs** | — |
 | host gap (wall − busy) | 265.0 → 262.0 µs = +3.0 µs | — |
 
-`gpu_busy_union == gpu_busy_sum` in every profiled cell and in both arms, so the
-decode queue is fully serialised and the change alters no concurrency. Under
-identical profiler settings the wall saving equals the GPU-busy saving and the
-host gap is flat, so **there is no host-gap component**: the defensible figure
+Under identical profiler settings the wall saving equals the GPU-busy saving
+and the host gap is flat, so **there is no host-gap component**: the defensible figure
 is −64.5 µs of GPU-busy time. The r1 probe's 112.5 µs had a 95 % CI of [29, 196]
 which contains 64.5, so the two instruments never actually disagreed. All eight
 cells reported zero token divergences.

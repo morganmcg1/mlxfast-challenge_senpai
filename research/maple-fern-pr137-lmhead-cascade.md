@@ -413,19 +413,20 @@ Every one of the eight cells reported `0 divergences (all match)`.
 
 ### 6.2 Result
 
-µs per decode step; `busySum` is Σ per-encoder GPU busy, `busyUni` the union of
-their busy intervals, `wall−busySum` the host gap.
+µs per decode step; `busySum` is Σ per-command-buffer GPU busy and
+`wall−busySum` the host gap. (The `gpu_busy_union` column this table originally
+carried has been removed — see conclusion 1.)
 
-| cell | p10 ms | median | mean | wall | busySum | busyUni | wall−busySum |
-|---|---|---|---|---|---|---|---|
-| profoff arm0 a | 8.197 | 8.245 | 8.256 | — | — | — | — |
-| profoff arm0 b | 8.143 | 8.302 | 8.272 | — | — | — | — |
-| profoff arm1 a | 8.172 | 8.233 | 8.235 | — | — | — | — |
-| profoff arm1 b | 8.169 | 8.225 | 8.240 | — | — | — | — |
-| profon arm0 a | 8.217 | 8.273 | 8.289 | 8.286 | 8.016 | 8.016 | 270.0 µs |
-| profon arm0 b | 8.144 | 8.285 | 8.266 | 8.263 | 8.003 | 8.003 | 260.0 µs |
-| profon arm1 a | 8.069 | 8.212 | 8.194 | 8.191 | 7.933 | 7.933 | 258.0 µs |
-| profon arm1 b | 8.163 | 8.221 | 8.226 | 8.223 | 7.957 | 7.957 | 266.0 µs |
+| cell | p10 ms | median | mean | wall | busySum | wall−busySum |
+|---|---|---|---|---|---|---|
+| profoff arm0 a | 8.197 | 8.245 | 8.256 | — | — | — |
+| profoff arm0 b | 8.143 | 8.302 | 8.272 | — | — | — |
+| profoff arm1 a | 8.172 | 8.233 | 8.235 | — | — | — |
+| profoff arm1 b | 8.169 | 8.225 | 8.240 | — | — | — |
+| profon arm0 a | 8.217 | 8.273 | 8.289 | 8.286 | 8.016 | 270.0 µs |
+| profon arm0 b | 8.144 | 8.285 | 8.266 | 8.263 | 8.003 | 260.0 µs |
+| profon arm1 a | 8.069 | 8.212 | 8.194 | 8.191 | 7.933 | 258.0 µs |
+| profon arm1 b | 8.163 | 8.221 | 8.226 | 8.223 | 7.957 | 266.0 µs |
 
 Arm deltas (old − new, n = 2 per arm):
 
@@ -436,15 +437,28 @@ Arm deltas (old − new, n = 2 per arm):
 | mean | +67.5 µs | +26.5 µs |
 | wall | +67.5 µs | — |
 | `gpu_busy_sum` | **+64.5 µs** | — |
-| `gpu_busy_union` | +64.5 µs | — |
 | host gap (wall − busySum) | 265.0 → 262.0 = **+3.0 µs** | — |
 
 ### 6.3 Three conclusions
 
-1. **The queue is fully serialised.** `gpu_busy_union == gpu_busy_sum` to the
-   digit in all four profiled cells and in both arms. The change neither creates
-   nor destroys encoder concurrency, which independently reproduces the
-   serialisation premise the census rests on.
+1. **Retracted: I cannot claim the queue is serialised, and I do not need to.**
+   My first draft read `gpu_busy_union == gpu_busy_sum` — which held to the digit
+   in all four profiled cells — as independent proof of full serialisation. It is
+   no such thing. The union is merged over *command-buffer* intervals recorded by
+   a CB completion handler (`research/decode_probe.py:175-190`), and MLX packs
+   every op onto one queue, so command buffers cannot overlap and the identity
+   holds by construction, whatever the kernels inside them do. tanjiro settled it
+   with a positive control: two kernels hiding almost perfectly (`overlap_eff`
+   1.0024) while the CB-derived overlap statistic read exactly 0.000000
+   (`research/tanjiro-pr157-result.md` §2, merged as `f4bfa59`, which retires the
+   statistic programme-wide; it postdates my base, so I cite rather than
+   re-verify it). The column is gone from §6.2.
+   This does put a caveat on §3.1: if kernels *can* overlap, a per-kernel census
+   cannot by itself prove that a per-kernel saving reaches the frame. What
+   licenses §3.1 here is not serialisation but the agreement in this very table —
+   census −64.5 µs against wall −67.5 µs. Wall time cannot hide a saving that
+   never happened, so the shipped claim rests on the measurement that is immune
+   to the retraction.
 2. **No host-gap component.** Under identical profiler settings the wall saving
    (+67.5 µs) equals the GPU-busy saving (+64.5 µs) inside noise, and the host
    gap itself is flat at 262–265 µs — 3.2 % of an 8.2 ms step, matching the
