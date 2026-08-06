@@ -2201,43 +2201,18 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
 struct LagunaFullAttentionParams {
     private var entry: (writeIdx: Int, capacity: Int, params: MLXArray)?
-    private var requests = 0
-    private var hits = 0
-    private var misses = 0
-    private var fallbacks = 0
-    private var layers: [Int] = []
 
-    mutating func params(writeIdx: Int, capacity: Int, layer: Int) -> MLXArray {
-        requests += 1
-        layers.append(layer)
-        if let entry {
-            if entry.writeIdx == writeIdx, entry.capacity == capacity {
-                hits += 1
-                return entry.params
-            }
-            fallbacks += 1
-            return Self.make(writeIdx: writeIdx, capacity: capacity)
+    mutating func params(writeIdx: Int, capacity: Int) -> MLXArray {
+        if let entry,
+            entry.writeIdx == writeIdx, entry.capacity == capacity
+        {
+            return entry.params
         }
-        misses += 1
-        let params = Self.make(writeIdx: writeIdx, capacity: capacity)
+        let params = MLXArray([
+            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+        ])
         entry = (writeIdx, capacity, params)
         return params
-    }
-
-    private static func make(writeIdx: Int, capacity: Int) -> MLXArray {
-        MLXArray([UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity)])
-    }
-
-    func trace() {
-        guard lagunaTraceFusion, let entry else { return }
-        precondition(
-            requests == 10 && misses == 1 && hits == 9 && fallbacks == 0 &&
-                layers == [0, 4, 8, 12, 16, 20, 24, 28, 32, 36],
-            "full-attention parameter carrier cohort mismatch")
-        let words = "\(entry.writeIdx),\(entry.writeIdx + 1),\(entry.capacity)"
-        lagunaTrace(
-            "full params words=[\(words)] reused=[\(words)] layers=\(layers) "
-                + "requests=\(requests) misses=\(misses) hits=\(hits) fallbacks=\(fallbacks)")
     }
 }
 
@@ -5782,8 +5757,7 @@ final class LagunaRuntimeAttention: Module {
                 writeIdx: append.writeIdx,
                 params: fullAttentionParams.params(
                     writeIdx: append.writeIdx,
-                    capacity: append.keys.dim(2),
-                    layer: layerIdx),
+                    capacity: append.keys.dim(2)),
                 scale: _fusedAttnScale
             )
             simple.fusedAppendAdvance()
@@ -10854,7 +10828,6 @@ final class LagunaRuntimeModelInner: Module {
             }
         }
 
-        fullAttentionParams.trace()
         return h
     }
 }
