@@ -462,8 +462,15 @@ git diff --stat 97457fc 03b2c04 -- Sources/ Vendor/    -> (empty)
 ```
 
 All three commits changed only `research/` prose. The uploaded scored surface is
-therefore byte-identical to the surface at the final result commit, and the
-receipt's `submissionCommitSha` identifies the same candidate code.
+therefore byte-identical to the surface at the final result commit.
+
+**Amendment after reading the receipt.** The receipt reports
+`submissionCommitSha 4bdeaae6a85a5269951edc3b2338ba0ff6d07adf`, and
+`git cat-file -t 4bdeaae6…` fails locally, so that SHA is **not** any local
+commit — the service synthesises its own commit from the uploaded surface. The
+local-`HEAD` question above is therefore informative about provenance but is not
+what the receipt records, and no local SHA should be claimed to "be" the
+submitted commit.
 
 ### Receipt (terminal)
 
@@ -472,5 +479,88 @@ the numbers below are the raw `officialMetrics` fields rather than any
 `*_speedup` convenience field:
 
 ```
-RECEIPT_BLOCK_PENDING
+status                : 'rejected'
+officialScore         : 2.52045366445076
+improved              : False
+rejectionReason       : 'score did not improve current best'
+submissionCommitSha   : '4bdeaae6a85a5269951edc3b2338ba0ff6d07adf'
+createdAt             : '2026-08-06T00:11:58.043Z'
+updatedAt             : '2026-08-06T00:33:28.616Z'
+
+passed_correctness           : True
+passed_prefill_speedup_floor : True
+passed_decode_speedup_floor  : True
+error                        : ''
+first_failing_case/layer/step: None / None / None
+
+decode_seconds_per_token          : 0.005011932296875
+prefill_seconds_per_token         : 0.000191656169921875
+baseline_decode_seconds_per_token : 0.013843359703125
+baseline_prefill_seconds_per_token: 0.000367052978515625
+peak_ram_gb                       : 21
+golden_hash   : be7738fccd6a28807ae7d18c038cbbc9e1b05dab26b99b2f247358fdc67fcf71
+harness_hash  : 9d8f03583db140897adc2d247556f1dd3980bf9217303e6b8ae0fd5baab28c33
+weights_hash  : aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d
+
+derived: ns 2.556325618   S 98.127959 ms   T 4.2453076 ms
+vs paired baseline 0c21dc18: ns +1.0512 %, T -1.6869 %, S +0.1006 %
+PREREG READING: STRONG CONFIRMATION (>= +0.60 %)
 ```
+
+`officialScore` reproduces exactly from the paired baseline, which confirms the
+field is a same-session paired score and not a normalised one:
+
+```
+(0.013843359703125/0.005011932296875)^0.75
+  * (0.000367052978515625/0.000191656169921875)^0.25
+  = 2.52045366445076   (reported: 2.52045366445076)
+```
+
+### Where this candidate stands, and why it was still rejected
+
+`research/frieren_pr35_ns_leaderboard.py` ranks every gate-passing receipt on
+the normalised `ns` plane, which is the only cross-session comparable:
+
+```
+rank of 0d123661 by ns : 1 of 1046 gate-passing receipts
+this receipt ns        : 2.556326
+best other receipt ns  : 2.547641  (b6032aeb)
+margin over field      : +0.3409 %
+```
+
+The `officialScore` record holder `46eeccf0` (off 2.552308) has `ns` of only
+**2.524190**, so on the normalised plane this candidate is **+1.27 %** faster
+than the receipt that currently defines the leaderboard.
+
+The reason is that `officialScore` inherits the noise of the baseline it was
+paired against, and the two baseline axes are wildly unequal
+(`research/frieren_pr35_baseline_modes.py`):
+
+| baseline axis | stdev/mean | max/min spread | weight | contribution to score noise |
+| --- | ---: | ---: | ---: | ---: |
+| `baseline_decode`  | 0.247 % | +1.921 % | 0.75 | 0.185 % |
+| `baseline_prefill` | 1.933 % | +9.290 % | 0.25 | 0.483 % |
+
+So baseline **prefill** dominates, despite carrying only a quarter of the
+weight. Re-scoring this exact candidate against all 1046 observed baseline
+*pairs* gives median 2.527385, p90 2.549877, max 2.584802, and it exceeds
+2.552308 under **72 of 1046 draws (6.9 %)** — 4/4 within the small slow-prefill
+tail (n=4, mean 0.000394668, separated by 6.01 %) versus 68/1042 in the main
+mass. This candidate drew the **fast** prefill mode (0.000367053).
+
+**Correction to an intermediate analysis.** A first pass
+(`research/frieren_pr35_baseline_drift.py`) resampled only `baseline_decode`,
+holding this receipt's `baseline_prefill` fixed, and concluded that *no* draw
+could promote the candidate (0/1046). That conclusion was an artifact of
+varying the low-noise axis alone, and the joint resampling above supersedes it.
+The script is kept so the error is visible rather than quietly deleted.
+
+Two honest consequences:
+
+1. The mechanism is confirmed. `+1.0512 %` on `ns` is ~3.8x the `±0.278 %`
+   single-receipt MDE and above the priced `+0.58 %..+0.67 %` band, and all
+   three official gates pass with an empty `error`.
+2. Promotion of *this* candidate is now mostly a baseline-draw lottery at about
+   a 7 % hit rate per submission. Resubmitting the unchanged surface to catch a
+   favourable draw would be noise-mining, not evidence, so it is deliberately
+   **not** done here and is left as an explicit advisor decision.

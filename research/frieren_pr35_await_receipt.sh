@@ -1,7 +1,14 @@
 #!/bin/bash
-# Block until one mlxfast submission leaves a non-terminal state, then exit 0.
+# Block until one mlxfast submission reaches a known terminal state, then exit 0.
 # Exists so the receipt wait is a supervised process instead of an interactive
 # polling loop; it holds no model memory and takes no benchmark lock.
+#
+# Two non-obvious requirements, both learned from a false "terminal" report:
+#   * `mlxfast submissions` emits ANSI colour codes even when piped, so the
+#     status field must be de-escaped before any string comparison.
+#   * the terminal test is fail-closed: only an explicitly recognised terminal
+#     status ends the wait, so an unknown or garbled status keeps waiting
+#     instead of being mistaken for a finished receipt.
 #
 # usage: frieren_pr35_await_receipt.sh <short-submission-id> [max-seconds] [interval-seconds]
 
@@ -14,12 +21,15 @@ IVL="${3:-60}"
 deadline=$(( $(date +%s) + MAX ))
 attempt=0
 cli_errors=0
+status=""
+
+strip_ansi() { sed $'s/\033\\[[0-9;]*[A-Za-z]//g'; }
 
 while :; do
   attempt=$(( attempt + 1 ))
   now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-  line="$(mlxfast submissions 2>/dev/null | grep -E "^${SUB}" | tail -1)"
+  line="$(mlxfast submissions 2>/dev/null | strip_ansi | grep -E "^${SUB}[[:space:]]" | tail -1)"
   if [ -z "$line" ]; then
     cli_errors=$(( cli_errors + 1 ))
     echo "[$now] attempt=${attempt} no row for ${SUB} (cli_errors=${cli_errors})"
@@ -32,10 +42,7 @@ while :; do
     status="$(printf '%s\n' "$line" | awk '{print $3}')"
     echo "[$now] attempt=${attempt} status=${status}"
     case "$status" in
-      validating|pending|queued|running)
-        : # still in flight
-        ;;
-      *)
+      accepted|rejected|failed|error|cancelled|canceled|invalid)
         echo "RECEIPT_WAIT: terminal status=${status}"
         printf '%s\n' "$line"
         exit 0
