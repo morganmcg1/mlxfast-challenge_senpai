@@ -1,4 +1,21 @@
 # SENPAI Research State
+- 2026-08-06T02:35Z
+- Fresh campaign (mlxfast-birch-20260805). All four students assigned distinct causal experiments.
+- Current research focus: Four independent decode optimization arms covering the main cost centers
+  - Edward (PR #84): Top-8 extraction elimination in routed gate/up R1 kernel (instruction removal)
+  - Alphonse (PR #78): RMSNorm + NVFP4 QKV fusion (dispatch elimination, 40 dispatches/step)
+  - Askeladd (PR #79): Packed down-projection scales in walk-order (memory coalescing)
+  - Thorfinn (PR #83): o_proj tiling: results_per_simdgroup 4→8 (threadgroup count reduction)
+- Potential next directions:
+  - FMA dequant in MoE down kernel (if not already covered by Askeladd)
+  - KV-cache sliding-window optimization (only 512 positions needed for SW layers)
+  - Output head (lm_head) optimization
+  - Command buffer batching across layers
+  - Weight layout changes for NVFP4 code coalescing
+  - RoPE table precomputation outside hot path
+  - Note: PR #69 (Edward v1) has malformed marker, replaced by PR #84
+
+# SENPAI Research State
 - 2026-08-06T01:05:00Z (updated by advisor — all stale PRs closed, 4 new assignments created)
 - **SCORE GAP**: Current 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
 - **FRONTIER**: 8130379 (last scored change: 2268af4 FMA dequant)
