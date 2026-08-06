@@ -542,25 +542,10 @@ void CommandEncoder::synchronize() {
   }
 }
 
-// RESEARCH PROBE (PR #101, reverted before submission; device.cpp is not an
-// editable path). Forces serial dispatch so the intra-command-buffer shadow
-// execution that a command-buffer-grain census cannot observe becomes visible
-// as a step-time delta.
-static bool darkbloomForceSerialDispatch() {
-  static const bool v = [] {
-    const char* s = getenv("DARKBLOOM_FORCE_SERIAL_DISPATCH");
-    bool on = s != nullptr && s[0] == '1';
-    fprintf(stderr, "DISPATCHTYPE-PLUMB serial=%d\n", on ? 1 : 0);
-    return on;
-  }();
-  return v;
-}
-
 MTL::ComputeCommandEncoder* CommandEncoder::get_command_encoder() {
   if (!encoder_) {
-    encoder_ = NS::RetainPtr(buffer_->computeCommandEncoder(
-        darkbloomForceSerialDispatch() ? MTL::DispatchTypeSerial
-                                       : MTL::DispatchTypeConcurrent));
+    encoder_ = NS::RetainPtr(
+        buffer_->computeCommandEncoder(MTL::DispatchTypeConcurrent));
     fence_ = NS::TransferPtr(device_.mtl_device()->newFence());
     // Reset error when user starts to encode new commands, they are supposed to
     // have handled the error in synchronize() or Event::wait().
