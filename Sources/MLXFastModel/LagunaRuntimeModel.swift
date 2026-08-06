@@ -2856,6 +2856,11 @@ struct LagunaNativeAffineWeight {
     let scales: MLXArray
     let biases: MLXArray?
     let originalShape: [Int]
+    /// Pre-expanded NVFP4 half2 pattern words (p0..p3) packed as uint4 per code
+    /// word, built once at init when `lagunaNvfp4CodePreExpansionEnabled` is on.
+    /// When present the decode kernel loads a uint4 instead of extracting p0..p3
+    /// from the raw code byte. `nil` for INT8 affine or when pre-expansion is off.
+    var expandedCodes: MLXArray? = nil
     /// Shipped group-32 affine INT8 or the inherited group-16 NVFP4 tail.
     var groupSize: Int = 32
     var bits: Int = 8
@@ -2866,7 +2871,30 @@ struct LagunaNativeAffineWeight {
         [packedCodes, scales]
             + (biases.map { [$0] } ?? [])
             + (indexedMetadata?.arrays ?? [])
+            + (expandedCodes.map { [$0] } ?? [])
     }
+}
+
+/// Pre-expands packed NVFP4 code bytes into the four half2 pattern words
+/// (p0..p3) that the decode O-proj kernel would otherwise compute with
+/// per-qdot bitwise operations. The expansion is bit-exact: the same
+/// `c & 0x0F0F0F0F`, shift, and mask operations are applied once at init
+/// time rather than in every kernel invocation. The result is laid out as
+/// `[outVec, inVec/8, 4]` uint32 so that when reshaped to
+/// `[outVec, inVec/8]` and cast to `uint4*`, the kernel loads one `uint4`
+/// per code word with p0..p3 in .xyzw.
+func lagunaNvfp4ExpandCodes(_ codes: MLXArray) -> MLXArray {
+    let xe = bitwiseAnd(codes, UInt32(0x0F0F0F0F))
+    let ge = bitwiseOr(xe, leftShift(xe, UInt32(3)))
+    let yo = bitwiseAnd(codes, UInt32(0xF0F0F0F0))
+    let go = bitwiseOr(yo, rightShift(yo, UInt32(3)))
+    let mask = UInt32(0x8E008E00)
+    let p0 = bitwiseAnd(leftShift(ge, UInt32(9)), mask)
+    let p1 = bitwiseAnd(leftShift(go, UInt32(8)), mask)
+    let p2 = bitwiseAnd(leftShift(ge, UInt32(1)), mask)
+    let p3 = bitwiseAnd(go, mask)
+    let expanded = contiguous(stacked([p0, p1, p2, p3], axis: -1))
+    return expanded.reshaped([codes.dim(0), codes.dim(1) * 4])
 }
 
 /// Group-16 NVFP4 attention tail start layer. NVFP4 as shipped costs
@@ -4026,6 +4054,18 @@ let lagunaE4M3SignDomainCertified =
 let lagunaNvfp4QmvSeedElisionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_QMV_SEED_ELIDE"] != "0"
 
+/// `DARKBLOOM_NVFP4_CODE_PREEXPANSION` (default ON; set "0" to disable):
+/// pre-computes the four half2 pattern words (p0..p3) from the packed NVFP4
+/// code bytes at init time and stores them as a uint4 side bank, so the
+/// decode kernel loads a single uint4 per qdot instead of performing 7
+/// bitwise extract operations per code word. The computation is bit-exact —
+/// only its location moves from the GPU hot loop to a one-time CPU/GPU init
+/// pass over the code tensor. The side bank costs 4× the code tensor's memory
+/// (uint32 → uint4), but code traffic is a small fraction of total weight
+/// traffic and the kernel is instruction-bound, not bandwidth-bound.
+let lagunaNvfp4CodePreExpansionEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_CODE_PREEXPANSION"] != "0"
+
 /// Gate product + native-affine INT8 output projection in one dispatch, or
 /// `nil` when any shape, dtype or wire-format guard declines (caller then runs
 /// the exact two-dispatch chain).
@@ -4091,7 +4131,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     heads: Int,
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
-    preActivatedGate: Bool = false
+    preActivatedGate: Bool = false,
+    preExpanded: Bool = false
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -4124,7 +4165,17 @@ func lagunaGatedAffineOProjNVFP4Source(
         : "accum +=\n"
             + "                dot(float4(x_thread[8 * j], x_thread[8 * j + 1], x_thread[8 * j + 2], x_thread[8 * j + 3]),\n"
             + "                    float4(v04.x, v15.x, v26.x, v37.x));"
-    let extract = """
+    // When pre-expanded, the four half2 bit patterns p0..p3 are loaded
+    // directly from a uint4 side bank prepared at init time, eliminating
+    // all 13 bitwise extract ops per code word at 4× the code-bytes
+    // bandwidth. On the instruction-bound M5 the ALU savings dominate.
+    let extract = preExpanded ? """
+                    const uint4 patterns = wl[j];
+                    const uint p0 = patterns.x;
+                    const uint p1 = patterns.y;
+                    const uint p2 = patterns.z;
+                    const uint p3 = patterns.w;
+    """ : """
                     const uint xe = c & 0x0F0F0F0Fu;
                     const uint ge = xe | (xe << 3);
                     const uint yo = c & 0xF0F0F0F0u;
@@ -4160,6 +4211,21 @@ func lagunaGatedAffineOProjNVFP4Source(
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
         """
+    let wsDecl = preExpanded
+        ? """
+    const device uint4* ws =
+        (const device uint4*)weight_codes +
+        out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
+    """
+        : """
+    const device uint32_t* ws =
+        (const device uint32_t*)weight_codes +
+        out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
+    """
+    let wlDecl = preExpanded
+        ? "            const device uint4* wl = ws + row * (in_vec_size / 8);"
+        : "            const device uint32_t* wl = ws + row * (in_vec_size / 8);"
+    let loadCode = preExpanded ? "" : "                const uint c = wl[j];"
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -4182,9 +4248,7 @@ func lagunaGatedAffineOProjNVFP4Source(
 
     uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
         simd_gid * results_per_simdgroup;
-    const device uint32_t* ws =
-        (const device uint32_t*)weight_codes +
-        out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
+    \(wsDecl)
     const device uint8_t* sc = weight_scales +
         out_row * in_vec_size_g + simd_lid;
     const device bfloat* xp = attention_output + simd_lid * values_per_thread;
@@ -4197,7 +4261,7 @@ func lagunaGatedAffineOProjNVFP4Source(
         \(loadInput)
 
         for (uint row = 0; row < results_per_simdgroup; ++row) {
-            const device uint32_t* wl = ws + row * (in_vec_size / 8);
+            \(wlDecl)
             // Defer the exact E4M3 2^22 renormalization to the per-row
             // epilogue. Every partial remains the exact 2^-22 rescaling of
             // the control until the multiply before the existing BF16 round.
@@ -4206,7 +4270,7 @@ func lagunaGatedAffineOProjNVFP4Source(
             \(accumDecl)
             #pragma unroll
             for (uint j = 0; j < codes_per_thread; ++j) {
-                const uint c = wl[j];
+                \(loadCode)
                 \(extract)
                 const float2 v04 = float2(as_type<half2>(p0))\(weightScale);
                 const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
@@ -4248,6 +4312,27 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(heads: heads),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
+
+/// Pre-expanded variant: loads p0..p3 from a uint4 side bank instead of
+/// extracting them per-qdot from raw code bytes.
+private let lagunaGatedAffineOProjNVFP4PreExpandedKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1_pe"
+                + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+            inputNames: [
+                "attention_output", "gate_logits", "weight_codes",
+                "weight_scales",
+            ],
+            outputNames: ["projected"],
+            source: lagunaGatedAffineOProjNVFP4Source(heads: heads, preExpanded: true),
             ensureRowContiguous: true
         )
     }
@@ -4361,11 +4446,15 @@ func lagunaGatedAffineOProjNVFP4(
     codes: MLXArray,
     scales: MLXArray,
     heads: Int,
-    gateIsActivated: Bool = false
+    gateIsActivated: Bool = false,
+    expandedCodes: MLXArray? = nil
 ) -> MLXArray? {
+    let usePreExpanded = expandedCodes != nil && !gateIsActivated
     let selected = gateIsActivated
         ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjKernels[heads] : nil)
-        : lagunaGatedAffineOProjNVFP4Kernels[heads]
+        : (usePreExpanded
+            ? lagunaGatedAffineOProjNVFP4PreExpandedKernels[heads]
+            : lagunaGatedAffineOProjNVFP4Kernels[heads])
     guard let kernel = selected else { return nil }
     let inVec = heads * LagunaConstants.headDim
     let outVec = LagunaConstants.hiddenSize
@@ -4373,17 +4462,23 @@ func lagunaGatedAffineOProjNVFP4(
         attentionOutput.dims(1, 1, inVec),
         gateLogits.dtype == .bfloat16,
         gateLogits.dims(1, 1, heads),
-        codes.dtype == .uint32,
-        codes.dims(outVec, inVec / 8),
         scales.dtype == .uint8,
         scales.dims(outVec, inVec / 16)
     else {
         return nil
     }
+    // The pre-expanded side bank has 4× the code columns but is still
+    // uint32. Validate its shape: [outVec, inVec/8 * 4] = [outVec, inVec/2].
+    let weightCodes = usePreExpanded ? expandedCodes! : codes
+    guard weightCodes.dtype == .uint32,
+        weightCodes.dims(outVec, usePreExpanded ? inVec / 2 : inVec / 8)
+    else {
+        return nil
+    }
 
-    lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
+    lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)\(usePreExpanded ? " pe" : "")")
     return kernel(
-        [attentionOutput, gateLogits, codes, scales],
+        [attentionOutput, gateLogits, weightCodes, scales],
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
@@ -5257,6 +5352,11 @@ final class LagunaRuntimeAttention: Module {
             preparedWO.indexedMetadata = lagunaIndexedAffineMetadata(
                 scales: preparedWO.scales, biases: biases)
         }
+        if preparedWO.mode == .nvfp4, preparedWO.bits == 4,
+            preparedWO.groupSize == 16, lagunaNvfp4CodePreExpansionEnabled
+        {
+            preparedWO.expandedCodes = lagunaNvfp4ExpandCodes(preparedWO.packedCodes)
+        }
         _nativeAffineOProj = preparedWO
         return preparedWO.arrays
     }
@@ -5959,7 +6059,8 @@ final class LagunaRuntimeAttention: Module {
                         gateLogits: projectedGate,
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
-                        heads: nHeads)
+                        heads: nHeads,
+                        expandedCodes: affineWO.expandedCodes)
                 {
                     return fusedProjection
                 }
