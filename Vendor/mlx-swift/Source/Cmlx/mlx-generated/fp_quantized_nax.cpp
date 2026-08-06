@@ -495,8 +495,11 @@ struct QuantizedBlockLoader {
       // covers it exactly as the scalar loop's `i` would.
       ((n_reads_per_scale % kSrcBytesPerChunk) == 0) &&
       (BCOLS_PACKED * BROWS >= tgp_size);
-  // A single 16B device load covers this thread's whole source run.
-  MLX_MTL_CONST bool kWideLoadShapeOk = kWidenShapeOk && (kSrcBytes == 16);
+  // A whole number of 16B device loads covers this thread's source run. 16B is
+  // the one-load case; 32B (BK 128) is the same bytes into the same sb[] slots
+  // as two contiguous 16B loads, which the alignas(16) WideSrc copy emits.
+  MLX_MTL_CONST bool kWideLoadShapeOk =
+      kWidenShapeOk && ((kSrcBytes == 16) || (kSrcBytes == 32));
   // A single 8B device load covers it instead (the 256-thread expert-aligned
   // geometry: n_reads 8, one packed byte each). Same exactness class as the
   // 16B form -- the same bytes reach the same sb[] slots -- and the host
@@ -508,8 +511,8 @@ struct QuantizedBlockLoader {
     T v[kWideElems];
   };
   // Sized by kSrcBytes rather than a literal 16 so the copy loop below stays
-  // in bounds for every instantiation, including the 8-bit ones where
-  // kSrcBytes is 32 and the wide-load path is statically disabled.
+  // in bounds for every instantiation. kWidenShapeOk already restricts the
+  // wide path to 4-bit staging, so 8-bit instantiations never reach it.
   struct alignas(16) WideSrc {
     uint8_t b[kSrcBytes];
   };
