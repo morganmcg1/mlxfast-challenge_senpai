@@ -4765,10 +4765,10 @@ private func lagunaNormAffineQKVBody(
             const device uint8_t* wl = ws + row * axis_size;
             float scale = float(sc[row * in_vec_size_g]);
             float bias = float(bs[row * in_vec_size_g]);
-            float accum = 0.0f;
-            for (uint i = 0; i < values_per_thread; ++i) {
-                accum += x_thread[i] * wl[i];
-            }
+            float accum = dot(float4(x_thread[0], x_thread[1], x_thread[2], x_thread[3]),
+                              float4(float(wl[0]), float(wl[1]), float(wl[2]), float(wl[3]))) +
+                         dot(float4(x_thread[4], x_thread[5], x_thread[6], x_thread[7]),
+                              float4(float(wl[4]), float(wl[5]), float(wl[6]), float(wl[7])));
             result[row] += scale * accum + sum * bias;
         }
 
@@ -4961,10 +4961,10 @@ private func lagunaNormAffineQKVPrefetchSource(
             x_thread[i] = value;
         }
         for (uint row = 0; row < results_per_simdgroup; ++row) {
-            float accum = 0.0f;
-            for (uint i = 0; i < values_per_thread; ++i) {
-                accum += x_thread[i] * pf_w[d][row][i];
-            }
+            float accum = dot(float4(x_thread[0], x_thread[1], x_thread[2], x_thread[3]),
+                              float4(float(pf_w[d][row][0]), float(pf_w[d][row][1]), float(pf_w[d][row][2]), float(pf_w[d][row][3]))) +
+                         dot(float4(x_thread[4], x_thread[5], x_thread[6], x_thread[7]),
+                              float4(float(pf_w[d][row][4]), float(pf_w[d][row][5]), float(pf_w[d][row][6]), float(pf_w[d][row][7])));
             result[row] += pf_s[d][row] * accum + sum * pf_b[d][row];
         }
         ws += block_size;
@@ -4984,10 +4984,10 @@ private func lagunaNormAffineQKVPrefetchSource(
         for (uint row = 0; row < results_per_simdgroup; ++row) {
             const device uint8_t* wl = ws + row * axis_size;
             \(metadataLoad)
-            float accum = 0.0f;
-            for (uint i = 0; i < values_per_thread; ++i) {
-                accum += x_thread[i] * wl[i];
-            }
+            float accum = dot(float4(x_thread[0], x_thread[1], x_thread[2], x_thread[3]),
+                              float4(float(wl[0]), float(wl[1]), float(wl[2]), float(wl[3]))) +
+                         dot(float4(x_thread[4], x_thread[5], x_thread[6], x_thread[7]),
+                              float4(float(wl[4]), float(wl[5]), float(wl[6]), float(wl[7])));
             result[row] += scale * accum + sum * bias;
         }
 
@@ -5019,9 +5019,9 @@ private let lagunaNormAffineQKVKernels: [Int: MLXFast.MLXFastKernel] = {
             let pf = staged ? 0 : lagunaNormAffineQKVPrefetchDepth
             kernels[rows] = MLXFast.metalKernel(
                 name: pf > 0
-                    ? "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_pf\(pf)_v1"
+                    ? "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_pf\(pf)_d4_v1"
                     : "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
-                        + (staged ? "tg" : "inl") + "_v1",
+                        + (staged ? "tg" : "inl") + "_d4_v1",
                 inputNames: [
                     "residual", "norm_weight", "weight_codes", "weight_scales",
                     "weight_biases",
@@ -5049,7 +5049,7 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
             if kernels[rows] != nil { continue }
             kernels[rows] = MLXFast.metalKernel(
                 name: "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
-                    + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_v1",
+                    + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_d4_v1",
                 inputNames: [
                     "residual", "norm_weight", "weight_codes",
                     "metadata_indices", "metadata_lut",
