@@ -3951,6 +3951,7 @@ private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjSource(heads: heads),
+            header: "[[max_total_threads_per_threadgroup(64)]]\n",
             ensureRowContiguous: true
         )
     }
@@ -3968,6 +3969,7 @@ private let lagunaGatedAffineOProjIndexedKernels: [Int: MLXFast.MLXFastKernel] =
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjSource(heads: heads, indexed: true),
+            header: "[[max_total_threads_per_threadgroup(64)]]\n",
             ensureRowContiguous: true
         )
     }
@@ -4263,6 +4265,7 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(heads: heads),
+            header: "[[max_total_threads_per_threadgroup(64)]]\n",
             ensureRowContiguous: true
         )
     }
@@ -4331,6 +4334,7 @@ private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
             inputNames: ["input", "packed_codes", "scales", "biases"],
             outputNames: ["gate_values"],
             source: lagunaGateSoftplusSource(heads: heads),
+            header: "[[max_total_threads_per_threadgroup(64)]]\n",
             ensureRowContiguous: true)
     }
     return result
@@ -4371,6 +4375,7 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(heads: heads, preActivatedGate: true),
+            header: "[[max_total_threads_per_threadgroup(64)]]\n",
             ensureRowContiguous: true)
     }
     return result
@@ -4624,7 +4629,7 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVR1Source,
-            header: lagunaTailNVFP4QMVHeader,
+            header: lagunaTailNVFP4QMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
             ensureRowContiguous: true)
     }
     return kernels
@@ -5057,6 +5062,7 @@ private let lagunaNormAffineQKVKernels: [Int: MLXFast.MLXFastKernel] = {
                 source: pf > 0
                     ? lagunaNormAffineQKVPrefetchSource(rows: rows, depth: pf)
                     : lagunaNormAffineQKVSource(rows: rows, staged: staged),
+                header: "[[max_total_threads_per_threadgroup(64)]]\n",
                 ensureRowContiguous: true
             )
         }
@@ -5085,6 +5091,7 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
                 source: lagunaNormAffineQKVPrefetchSource(
                     rows: rows, depth: lagunaNormAffineQKVPrefetchDepth,
                     indexed: true),
+                header: "[[max_total_threads_per_threadgroup(64)]]\n",
                 ensureRowContiguous: true
             )
         }
@@ -6612,7 +6619,7 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
             }
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
     ensureRowContiguous: true
 )
 
@@ -6703,7 +6710,7 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
             activated[row] = bfloat(silu * up);
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
     ensureRowContiguous: true
 )
 
@@ -6802,7 +6809,7 @@ private let lagunaSharedDownResidualKernel = MLXFast.metalKernel(
             }
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
     ensureRowContiguous: true
 )
 
@@ -6936,7 +6943,7 @@ private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
             }
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
     ensureRowContiguous: true
 )
 
@@ -7035,7 +7042,7 @@ private let lagunaRoutedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
                 bfloat(silu * up);
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
     ensureRowContiguous: true
 )
 
@@ -7180,7 +7187,7 @@ private let lagunaRoutedSwiGLUQMVPackedKernel = MLXFast.metalKernel(
             }
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
     ensureRowContiguous: true
 )
 
@@ -7317,7 +7324,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
     source: lagunaRoutedSwiGLUQMVPackedSelectedSource(
         prologue: "",
         expertExpression: "uint(indices[expert_slot])"),
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
     ensureRowContiguous: true
 )
 
@@ -7441,7 +7448,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
                 bfloat(silu * up);
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(64)]]\n",
     ensureRowContiguous: true
 )
 
@@ -7584,7 +7591,7 @@ private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
             routed[first_row + lane] = bfloat(total * bfloat(2.5f));
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(256)]]\n",
     ensureRowContiguous: true
 )
 
@@ -7756,7 +7763,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 bfloat(residual[first_row + lane] + r2);
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "[[max_total_threads_per_threadgroup(288)]]\n",
     ensureRowContiguous: true
 )
 
