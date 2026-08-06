@@ -1,0 +1,31 @@
+drift guard   : harness body matches runtime template tail (796 bytes)
+host          : Version 26.5.2 (Build 25F84)
+device        : Apple M4 Pro
+payload       : 400 cold weight slots/CB = 52.4 MB (h64), 39.3 MB (h48)
+
+per-dispatch GPU time, microseconds (median of 9 command buffers of 400 dispatches)
+
+heads geom     ser_gate ser_empty  ser_exec   con_gate con_empty  con_exec   ser/con
+   64 R4NS2       5.561     0.557     5.004      1.163     0.173     0.990      4.78x
+   64 R4NS4       5.605     0.578     5.027      1.182     0.171     1.012      4.74x
+   64 R4NS1       5.381     0.611     4.770      0.585     0.179     0.406      9.20x
+   64 R2NS2       4.823     0.597     4.226      0.607     0.183     0.424      7.94x
+   64 R2NS4       4.930     0.591     4.339      0.563     0.174     0.389      8.76x
+   64 R2NS1       4.968     0.565     4.403      0.713     0.258     0.454      6.97x
+   64 R1NS2       3.466     0.601     2.865      0.751     0.261     0.490      4.62x
+   64 R1NS4       3.483     0.701     2.783      0.700     0.156     0.544      4.97x
+   64 R1NS1       3.585     0.681     2.904      0.908     0.297     0.611      3.95x
+   48 R4NS2       4.958     0.531     4.427      0.417     0.171     0.246     11.88x
+   48 R4NS4       5.028     0.547     4.481      0.428     0.169     0.259     11.76x
+   48 R4NS1       5.390     0.544     4.846      0.465     0.175     0.290     11.60x
+   48 R2NS2       5.380     0.747     4.633      0.471     0.174     0.297     11.43x
+   48 R2NS4       4.575     0.619     3.957      0.424     0.173     0.251     10.79x
+   48 R2NS1       5.026     0.601     4.424      0.623     0.181     0.442      8.07x
+   48 R1NS2       4.013     0.607     3.406      0.680     0.157     0.523      5.90x
+   48 R1NS4       4.609     0.586     4.024      0.516     0.175     0.341      8.93x
+   48 R1NS1       3.132     0.896     2.236      0.795     0.272     0.523      3.94x
+
+stock serial gate_sp per step : 30 x 5.561 + 10 x 4.958 = 216.4 us
+fixed launch floor per step   : 30 x 0.557 + 10 x 0.531 = 22.0 us (10%)
+h64  isolated exec across geometries: 2.783..5.027 us (stock 5.004, spread 80.6%)
+h48  isolated exec across geometries: 2.236..4.846 us (stock 4.427, spread 116.7%)

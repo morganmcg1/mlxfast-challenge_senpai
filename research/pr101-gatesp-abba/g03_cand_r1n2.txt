@@ -1,0 +1,10 @@
+worker up in 42.7s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717727661132812 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 547.55 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.310 8.151 8.059 8.069 8.029 8.059 8.000 8.147
+decode steps=400 mean=8.264 ms median=8.310 ms p10=8.113 ms p90=8.371 ms min=8.000 ms max=9.310 ms total=3.306 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.7242431640625 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/pr101-gatesp-abba/g03_cand_r1n2.worker.err

@@ -1,0 +1,10 @@
+worker up in 44.2s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.716873168945312 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 548.02 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.954 8.731 8.593 8.684 8.665 8.817 8.683 8.668
+decode steps=400 mean=8.754 ms median=8.745 ms p10=8.643 ms p90=8.845 ms min=8.553 ms max=9.954 ms total=3.501 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.723464965820312 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/pr101-serial-dispatch/s06_serial.worker.err

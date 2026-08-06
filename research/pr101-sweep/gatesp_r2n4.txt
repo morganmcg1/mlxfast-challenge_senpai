@@ -1,0 +1,11 @@
+worker up in 42.6s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718093872070312 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 570.39 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.368 8.396 8.330 8.241 8.157 8.170 8.299 8.329
+decode steps=160 mean=8.339 ms median=8.321 ms p10=8.276 ms p90=8.436 ms min=8.099 ms max=9.368 ms total=1.334 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.720672607421875 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> research/pr101-sweep/gatesp_r2n4.worker.err
+profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)

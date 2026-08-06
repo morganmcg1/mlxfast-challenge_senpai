@@ -1,0 +1,47 @@
+drift guard   : harness body matches runtime template tail (796 bytes)
+host          : Version 26.5.2 (Build 25F84)
+device        : Apple M4 Pro
+compile opts  : mathMode=safe languageVersion=262144
+
+--- resolution: bfloat kernel output
+h64 R4 NS2: reference, 64/64 normal gate values, 55 distinct
+h64 R4 NS4 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=4 tgWidth=128)
+h64 R4 NS1 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=16 tgWidth=32)
+h64 R2 NS2 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=16 tgWidth=64)
+h64 R2 NS4 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=8 tgWidth=128)
+h64 R2 NS1 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=32 tgWidth=32)
+h64 R1 NS2 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=32 tgWidth=64)
+h64 R1 NS4 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=16 tgWidth=128)
+h64 R1 NS1 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=64 tgWidth=32)
+h48 R4 NS2: reference, 48/48 normal gate values, 47 distinct
+h48 R4 NS4 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=3 tgWidth=128)
+h48 R4 NS1 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=12 tgWidth=32)
+h48 R2 NS2 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=12 tgWidth=64)
+h48 R2 NS4 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=6 tgWidth=128)
+h48 R2 NS1 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=24 tgWidth=32)
+h48 R1 NS2 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=24 tgWidth=64)
+h48 R1 NS4 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=12 tgWidth=128)
+h48 R1 NS1 [bf16]: BITWISE EQUAL on 4/4 payloads (tiles=48 tgWidth=32)
+
+--- resolution: float32 pre-rounding accumulator
+h64 R4 NS2 [f32]: reference
+h64 R4 NS4 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=4 tgWidth=128)
+h64 R4 NS1 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=16 tgWidth=32)
+h64 R2 NS2 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=16 tgWidth=64)
+h64 R2 NS4 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=8 tgWidth=128)
+h64 R2 NS1 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=32 tgWidth=32)
+h64 R1 NS2 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=32 tgWidth=64)
+h64 R1 NS4 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=16 tgWidth=128)
+h64 R1 NS1 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=64 tgWidth=32)
+h48 R4 NS2 [f32]: reference
+h48 R4 NS4 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=3 tgWidth=128)
+h48 R4 NS1 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=12 tgWidth=32)
+h48 R2 NS2 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=12 tgWidth=64)
+h48 R2 NS4 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=6 tgWidth=128)
+h48 R2 NS1 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=24 tgWidth=32)
+h48 R1 NS2 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=24 tgWidth=64)
+h48 R1 NS4 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=12 tgWidth=128)
+h48 R1 NS1 [f32]: BITWISE EQUAL on 4/4 payloads (tiles=48 tgWidth=32)
+CONTROL: perturbed kernel flagged at float32 (15/64 rows differ)
+
+RESULT: PASS -- 128 payload comparisons bitwise equal across 9 geometries
