@@ -65,6 +65,11 @@ neither.
    4+1 → 3+2 re-split (this PR) is the shape of the only remaining move on
    this kernel, and why the 25.69 MB it removes is the whole of its expected
    value.
+   **Superseded by the PR #105 census.** The 25.69 MB is gross, not net: the
+   re-split pushes 85.7 % of the vocabulary into tier 2, which costs more than
+   it saves. See `research/maple-fern-pr105-r1-result.md`. The correct reading
+   of this erratum is 1 and 2 only — stage 1 is saturated and bytes are the
+   only lever — and the census then shows there are no bytes left to take.
 4. Any future census row that averages a large streaming kernel with small
    dispatch-bound kernels should report per-kernel achieved bandwidth, not an
    aggregate ratio. The aggregate is what produced this error.
