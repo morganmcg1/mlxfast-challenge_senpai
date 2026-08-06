@@ -212,6 +212,67 @@ func testCacheSerialization(creator: (() -> any KVCache)) async throws {
     assertArraysClose(restored.state, cache.state)
 }
 
+
+@Test func testFusedAppendPrepareMemoInvalidation() throws {
+    let cache = KVCacheSimple(initialSlack: true)
+    cache.step = 2
+    let twoKeys = MLXArray.ones([1, 1, 2, 4], dtype: .float32)
+    let twoValues = MLXArray.ones([1, 1, 2, 4], dtype: .float32)
+    let oneKey = MLXArray.ones([1, 1, 1, 4], dtype: .float32)
+    let oneValue = MLXArray.ones([1, 1, 1, 4], dtype: .float32)
+
+    _ = cache.update(keys: twoKeys, values: twoValues)
+    #expect(cache.fusedAppendPrepare()?.writeIdx == 2)
+    cache.fusedAppendAdvance()
+    #expect(cache.fusedAppendPrepare()?.writeIdx == 3)
+    cache.fusedAppendAdvance()
+    #expect(cache.fusedAppendPrepare() == nil)
+
+    _ = cache.update(keys: oneKey, values: oneValue)
+    #expect(cache.fusedAppendPrepare()?.writeIdx == 5)
+    let reboundState = cache.state
+    cache.state = reboundState
+    #expect(cache.fusedAppendPrepare() == nil)
+
+    _ = cache.update(keys: oneKey, values: oneValue)
+    #expect(cache.fusedAppendPrepare()?.writeIdx == 6)
+    #expect(cache.trim(1) == 1)
+    #expect(cache.fusedAppendPrepare()?.writeIdx == 5)
+}
+
+@Test func testFusedRingPrepareMemoInvalidation() throws {
+    let cache = RotatingKVCache(maxSize: 4, step: 4)
+    let keys = MLXArray.ones([1, 1, 4, 4], dtype: .float32)
+    let values = MLXArray.ones([1, 1, 4, 4], dtype: .float32)
+
+    _ = cache.update(keys: keys, values: values)
+    #expect(cache.fusedRingPrepare()?.writeIdx == 0)
+    cache.fusedRingAdvance()
+    #expect(cache.fusedRingPrepare()?.writeIdx == 1)
+
+    let fullState = cache.state
+    let validMeta = cache.metaState
+    cache.state = [
+        MLXArray.zeros([1, 1, 3, 4], dtype: .float32),
+        MLXArray.zeros([1, 1, 3, 4], dtype: .float32),
+    ]
+    #expect(cache.fusedRingPrepare() == nil)
+
+    cache.state = fullState
+    cache.metaState = validMeta
+    #expect(cache.fusedRingPrepare()?.writeIdx == 1)
+    var keepMeta = validMeta
+    keepMeta[0] = "1"
+    cache.metaState = keepMeta
+    #expect(cache.fusedRingPrepare() == nil)
+
+    cache.metaState = validMeta
+    #expect(cache.fusedRingPrepare()?.writeIdx == 1)
+    let copied = try #require(cache.copy() as? RotatingKVCache)
+    #expect(copied.fusedRingPrepare()?.writeIdx == 1)
+}
+
+
 /// Verify that copy() produces an independent cache: same type, same state,
 /// but mutating the copy does not affect the original.
 @Test(
