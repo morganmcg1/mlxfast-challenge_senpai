@@ -57,6 +57,21 @@
   PR #119 (Alphonse NVFP4 O-proj dot4) merged → 639646a. PR #98 reverted → cc63c1c.
   PR #121 (Edward NVFP4 Code Pre-Expansion) closed inconclusive.
   PR #125 (Alphonse Scale Decode LUT) closed dead.
+- **NEXT-WAVE CANDIDATES** (for assignment when students finish current work):
+  1. Affine QKV prefetch simd_sum pack (L4992): DEFAULT decode path, every affine-tail
+     layer. Bit-exact. 4 scalar simd_sum → 1 packed simd_sum(vec<float,4>). Independent.
+  2. NVFP4 O-proj simd_sum pack (L4230): DEFAULT decode path, every decode layer.
+     Bit-exact. 4 scalar simd_sum → 1 packed. Independent.
+  3. Fused down simd_sum pack (L7641): DEFAULT decode path, every sparse decode layer.
+     Bit-exact. ORTHOGONAL to Thorfinn's PR #128 (weight staging). Compose after merge.
+  4. Dense MLP dot4 (L7799, L7886): LOW PRIORITY (layer 0 only, 1/40 layers).
+  5. Shared SwiGLU 2-row simd_sum pack (L6525, L6846, L7090): FALLBACK path (R1 default).
+     Lower priority.
+- **DEPLETED DIRECTIONS** (proven not worth pursuing):
+  - Attention ALU optimization: MEMORY-BOUND (PR #122)
+  - Scatter-to-float4: compiler already optimizes to registers (PR #123)
+  - LM head int4: bandwidth-bound, zero saving (frontier analysis)
+  - NVFP4 code pre-expansion: 4x memory traffic risk, inconclusive (PR #121)
 
 ## COMPOSITION STRATEGY (see research/COMPOSITION_STRATEGY.md for full analysis)
 
