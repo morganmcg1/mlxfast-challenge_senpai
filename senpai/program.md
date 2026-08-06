@@ -114,17 +114,19 @@ cores is frequently wrong at the official host's ~40, and can invert sign.
    - **work-reducing, byte-reducing, or host-CPU-reducing** -> plausibly
      transfers; an M4 measurement is meaningful evidence;
    - **thread re-tiling across cores** (threads per threadgroup, rows or outputs
-     per SIMD group, heads per threadgroup, grid divisors) -> does **not**
-     transfer; an M4 measurement is not evidence and must not be reported as if
-     it were.
-2. For any geometry change, report threadgroup count, threads per threadgroup,
-   threadgroup memory, and the wave count `ceil(TGs / cores)` for **both 20 and
-   40 cores**, and state the predicted sign on each host before measuring.
+     per SIMD group, heads per threadgroup, grid divisors) -> is core-count
+     sensitive; interpret M4 timing with wave analysis rather than presenting it
+     as sufficient M5 evidence.
+2. When using an M4 geometry result to predict M5, report threadgroup count,
+   threads per threadgroup, threadgroup memory, and the wave count
+   `ceil(TGs / cores)` for **both 20 and 40 cores**, and state the predicted sign
+   on each host.
 3. Settle geometry on the official M5 host. A rejected submission still returns
    complete official metrics, so an official run is a measurement instrument
    with a round trip of roughly 35 minutes.
-4. Compare official runs only after normalising away the per-session baseline
-   draw, which is worth about 1 to 1.6% of score on its own:
+4. When attributing a mechanism across official sessions, use normalised metrics
+   alongside the official fields to account for the per-session baseline draw,
+   which is worth about 1 to 1.6% of score on its own:
 
 ```text
 norm_decode_su  = 0.013890 / decode_seconds_per_token
@@ -161,18 +163,19 @@ exactly one prefill site (`:9631`).
 
 **Working rules that follow:**
 
-1. Never run a prefill *kernel* experiment on a student host. A local timing pair
-   there is not weak evidence about the M5; it is evidence about different code.
-2. Justify prefill mechanisms from **host-independent** facts — routing
-   statistics, analytic byte and FLOP budgets, rooflines — and then measure them
-   officially.
-3. The `_nax` editable surface is what the M5 selects and is therefore reachable
-   only through official submissions. `fp_gather_qmm_rhs_expert_nax` is
-   additionally **JIT-only**: it is never instantiated in the AOT metallib and is
-   built at runtime from the string in `mlx-generated/fp_quantized_nax.cpp`.
-   Editing the header alone changes nothing at runtime, and the header must stay
-   identical to the generated copy because the AOT metallib compiles it for other
-   kernels.
+1. Use student-host prefill experiments to validate implementation, correctness,
+   reachability, or a hypothesis. Because most timed kernels differ, do not treat
+   their timing as ranking evidence for the M5 `_nax` path.
+2. Ground M5 prefill predictions in **host-independent** facts — routing
+   statistics, analytic byte and FLOP budgets, rooflines — and measure relevant
+   changes officially.
+3. The standard M4 student-host benchmark does not select the `_nax` surface;
+   validate its implementation locally where possible, but measure its ranking
+   effect on M5. `fp_gather_qmm_rhs_expert_nax` is additionally **JIT-only**: it
+   is never instantiated in the AOT metallib and is built at runtime from the
+   string in `mlx-generated/fp_quantized_nax.cpp`. Editing the header alone
+   changes nothing at runtime, and the header must stay identical to the
+   generated copy because the AOT metallib compiles it for other kernels.
 4. That kernel family has three silent-failure modes: `tile_matmad_nax` compiles
    to an empty function for any geometry with odd `TN > 1`; `SM < 16` yields
    `TM = 0` and no MMA at all; and falling off the `bm == 64 && wm == 4` accept
@@ -203,9 +206,8 @@ worth 1.76x more per percent. Neither 0.25 nor 0.52 is correct.
 
 Working rules:
 
-1. Report `S` and `T`, for both candidate and paired baseline, for every official
-   run. `decode_speedup` alone is uninterpretable because it blends a 2.83x step
-   with a 1.97x forward.
+1. Decompose an official result into `S` and `T` when identifying where its gain
+   came from. `decode_speedup` alone blends the seed forward and steady step.
 2. A student host under `--local-iterate` has `sigma = 33.6%`. It therefore
    **under-reports a pure steady-step win by 1.28x** and **over-reports a pure
    seed-forward win by 1.385x**. Apply the correction before predicting M5.
@@ -428,11 +430,14 @@ only when their documented risk trigger is present.
 
 ### ADDED 2026-08-04: how to read an official M5 receipt
 
-Every official submission must be reported renormalised, decomposed, and in a
-family of at least three. Measured on 7 byte-identical families (27 dof),
-`officialScore` is **3.3× noisier than renormalised `ns`** — pooled cv 0.489% vs
-0.149% — because it carries the session baseline draw. Resolving a 0.25% effect at
-2σ takes **3 receipts on `ns` and 31 on `officialScore`**.
+When comparing official submissions across sessions, use renormalised and
+decomposed metrics alongside the service fields. Match repetition to the
+decision: one receipt can justify a clear win or follow-up, while a marginal
+effect near observed variance benefits from repeated receipts. Measured on 7
+byte-identical families (27 dof), `officialScore` is **3.3× noisier than
+renormalised `ns`** — pooled cv 0.489% vs 0.149% — because it carries the session
+baseline draw. Resolving a 0.25% effect at 2σ takes **3 receipts on `ns` and 31
+on `officialScore`**.
 
 ```
 norm_decode_su  = 0.013890  / decode_seconds_per_token
@@ -442,18 +447,19 @@ S = 512000 * prefill_seconds_per_token          # ms, the seed 512-token forward
 T = 1000 * decode_seconds_per_token - S / 128   # ms, the marginal steady step
 ```
 
-- **Never rank by `officialScore`, and never quote a `*_speedup` field as
-  evidence.** `baseline_prefill` is bimodal with a 3.61% gap between modes, which
-  is why `prefill_speedup` has a 4.9% noise floor. Never treat a *ratio's*
-  apparent stability as a noise floor either — one A/B pair gave
-  `decode_speedup` 0.010% purely by numerator/denominator cancellation, a 60×
-  underestimate.
-- The 2σ floor for comparing two n=3 families is **0.243% on `ns`**; the advisor's
-  acceptance bar is 2× that, **0.61%**.
-- Per-receipt report: submission id, `officialScore`, `ns`, `S`, `T`.
-- The service dedupes byte-identical archives, so the base tree already has a
-  free 3-receipt control (`f8502e12`, `71586bcf`, `f3cda678`). Reuse it rather
-  than spending submissions on a fresh control.
+- `officialScore` is authoritative for leaderboard ranking, but it and the raw
+  `*_speedup` fields are noisy evidence for attributing a small mechanism across
+  sessions. `baseline_prefill` is bimodal with a 3.61% gap between modes, which
+  is why `prefill_speedup` has a 4.9% noise floor. A ratio can also look stable
+  through numerator/denominator cancellation: one A/B pair reported
+  `decode_speedup` 0.010%, a 60× underestimate of the underlying change.
+- The observed 2σ floor for comparing two n=3 families is **0.243% on `ns`**.
+  Use it as noise context, not a universal submission or promotion threshold.
+- For marginal comparisons, record the submission id, `officialScore`, `ns`,
+  `S`, and `T`.
+- The service dedupes byte-identical archives. For comparisons against the
+  recorded byte-identical base, reuse its 3-receipt control (`f8502e12`,
+  `71586bcf`, `f3cda678`) rather than spending submissions on a fresh control.
 
 ### 5. Official promotion
 
@@ -590,25 +596,30 @@ score gain  =  0.638 * (MB removed per token) / 1794
               59 MB -> 2.10% (a coin flip)
 ```
 
-Nothing else in this problem is anywhere near its hardware ceiling. The practical
-consequences, which should shape any decode proposal before it is written:
+Current evidence makes bandwidth the strongest model for steady decode. The
+practical consequences, which should shape a decode proposal before it is
+written:
 
-- **A decode change that neither removes bytes nor improves bytes/second is worth
-  approximately nothing.** Dispatch count, kernel fusion, in-loop host CPU,
-  threadgroup occupancy, and instruction mix have each been individually
-  falsified on this tree with numbers. The roofline explains why: none of them
-  was ever the binding constraint. Do not reopen them without new evidence about
-  bandwidth.
-- The two live decode levers are **remove logical bytes** and **close the 21.4%
-  gap** between 1794 MB at 260.2 GB/s (6.89 ms) and the measured 8.77 ms step.
-- Precision is not a lever in either direction; see the envelope note above.
+- The byte model is the strongest current prior: a decode change that neither
+  removes bytes nor plausibly improves effective bytes/second starts with low
+  expected value. Dispatch count, kernel fusion, in-loop host CPU, threadgroup
+  occupancy, and instruction mix have each failed on this tree. Revisit one when
+  a proposal identifies a new mechanism or new evidence rather than repeating a
+  closed arm.
+- The strongest evidenced decode levers are **remove logical bytes** and **close
+  the 21.4% gap** between 1794 MB at 260.2 GB/s (6.89 ms) and the measured
+  8.77 ms step.
+- Within the permitted envelope and current frontier, precision is not an
+  evidenced lever; a new proposal must first show a compliant byte or math
+  advantage. See the envelope note above.
 - **Prefill is a different regime.** On the official M5 the 512-token forward runs
   at ~28.8 TFLOP/s and ~272 GB/s, roughly half of each M5 roofline, so prefill is
   neither compute- nor bandwidth-saturated. It is also the axis the public field
   has been stuck on for 102 consecutive submissions — because 94.2% of prefill GPU
-  time on any non-gen-17 host runs kernels the M5 never executes, so nobody can
-  measure it locally. Treat prefill claims as requiring host-independent
-  reasoning plus official 3-receipt confirmation.
+  time on the M4 student hosts runs kernels the M5 never executes, so those hosts
+  cannot directly time the M5-only `_nax` path. Ground prefill claims in
+  host-independent reasoning and official confirmation; repeat receipts when
+  the effect is marginal or noisy.
 
 `research/CURRENT_RESEARCH_STATE.md` carries the current numbers, the closed-family
 list, and the measurement floors. Read it before proposing a decode mechanism.
