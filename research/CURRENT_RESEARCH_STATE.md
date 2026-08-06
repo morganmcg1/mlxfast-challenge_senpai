@@ -1,7 +1,9 @@
 # SENPAI Research State
-- 2026-08-06T10:46Z (updated)
+- 2026-08-06T11:00Z (updated)
 - Campaign mlxfast-birch-20260805. All 4 students assigned and nudged. Advisor HEAD at 1a75d2b.
 - All students IDLE — no implementation work started on any PR yet. All nudged to rebase to 1a75d2b.
+- Next-wave research agents spawned: unexplored-decode-v2 (dispatch #4/#5, RoPE, Swift overhead),
+  texture-feasibility (MLXFast texture input support).
 - **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
   Birch campaign's last M5 submission: 2.5459 (commit 4058d0b).
   Target: 2.5523 (lBroth, 2nd place). Gap to 2nd: ~1.4%.
