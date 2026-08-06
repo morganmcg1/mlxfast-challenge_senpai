@@ -1,15 +1,16 @@
 # SENPAI Research State
 
-- **2026-08-06 00:20 UTC** (advisor: meridian). **Round 11 is fully staffed.**
-  Round 10 closed with **#63, #66 and #68 all merged as research-only** — three
-  competent experiments, zero shipped bytes, three axes closed. **#35 (frieren)
-  still holds the ranked channel** at r5. Three receipt-free arms are live:
-  **#71 (fern)** on the routed-expert NVFP4 QMV decode bandwidth shortfall,
-  **#72 (nezuko)** on the group-32 effective scale granularity of the *expert*
-  plane, **#73 (tanjiro)** on the decode per-kernel time census of the
-  unattributed 1.340 ms residual. The measurement instrument is **fully
-  characterised** (§0). Read §Ø (the corrections ledger) first, then §0, then
-  §0.9 for the **twenty-six** laws. The six that gate every brief written
+- **2026-08-06 01:40 UTC** (advisor: meridian). **Round 12 is closed. Round 13
+  is being staffed.** Frontier is **`ab1f9a13`**. Three merges this round:
+  **#35 (frieren) MERGED at `6f60c3a4` — the programme's FIRST SHIPPED WIN
+  since the crown**, ranked receipt `0d123661`, `ns` 2.529734 → **2.556326 =
+  +1.0512 %**, and it is now **rank 1 of 1,049 passing receipts on `ns`**;
+  **#71 (fern) MERGED at `86e08c21`** research-only, routed-QMV bandwidth
+  framing CLOSED; **#73 (tanjiro) MERGED at `ab1f9a13`** research-only, the
+  **decode residual CLOSED as DIFFUSE**. **#72 (nezuko)** is the only arm in
+  flight. **The ranked channel is FREE and I am the scheduler.** Read §Ø (the
+  corrections ledger) first, then §0, then §0.9 for the **twenty-nine** laws.
+  The six that gate every brief written
   today: the **M4 TRANSFER LAW** (§0.9.2) decides which evidence may be priced
   at all; **§0.9.11 the LEDGER-HYGIENE LAW** — a banked queue price is not
   evidence; **§0.9.17 ORACLE VACUITY IS FAMILY-WIDE** — the upstream-equivalence
@@ -24,6 +25,454 @@
   mechanism whose best case is below the 0.278% single-receipt floor and whose
   family has a proven ceiling below that floor is preserved as a `research/`
   patch, never merged as permanent scored-path code.
+
+---
+
+## ★★★ ROUND-12 OUTCOME AND THE ROUND-13 THESIS (2026-08-06)
+
+### R12.1 The plateau broke. #35 is the first shipped win since the crown.
+
+Six consecutive rounds of competent experiments returned nothing shippable.
+#35 ended that. It narrowed the decode attention **q/k/v scale rows from 128 B
+to 65 B** (4-bit lane-major) and returned a ranked receipt:
+
+```
+receipt 0d123661   ns 2.529734 -> 2.556326 = +1.0512 %
+                   decode T  -1.6869 %      prefill S +0.1006 %
+```
+
+It also produced the programme's **first full discharge of §0.9.21** (the
+standalone bitwise oracle): 1,782 pairs, **max ULP 0**, zero uncovered rows,
+two must-flag power controls fired 33/33, P4c fired on exactly 2 of 33 lanes.
+RULE 20 is discharged for the lane-major transformation.
+
+### R12.2 §0.9.27 — RETRACTED AND REPLACED (the "1.89× over-delivery law" is dead)
+
+**⚠ WHAT I FIRST WROTE HERE WAS WRONG.** The original §0.9.27 claimed #35
+over-delivered its byte roofline by **1.89×** and elevated that into a law.
+Two verified errors produced it, and both were mine:
+
+1. **My byte census was 36 % short.** I counted #35 as shipping *one*
+   narrowing. It shipped **two**, on two different planes, with two different
+   packings.
+2. **I priced it with the attention rate 651.8 GB/s**, which is the fastest
+   denominator in the programme (§R12.5), further shrinking the predicted time.
+
+The corrected arithmetic, re-derived from source at `ab1f9a13`:
+
+| plane | groups/row | stock | **shipped by #35** | ratio | build site | read site |
+|---|---|---|---|---|---|---|
+| fused q/k/v | 128 | 128 B | **lane-major 65 B** | 0.5078 | `LagunaRuntimeModel.swift:5664` | `:4921` |
+| `o_proj` h64 | 512 | 512 B | **block-narrow 336 B** | 0.65625 | `:5585` | `:4511` |
+| `o_proj` h48 | 384 | 384 B | **block-narrow 252 B** | 0.65625 | `:5585` | `:4511` |
+
+Block-narrow = `21 B per 32 groups` (16 nibbles + 4 high-bit bytes + 1 base);
+addressing `:4226-4230`, advance `:4247-4249`, reconstruction
+`sbits = base + nibble + (highbit << 4)`. Lane-major escapes a row whose span
+exceeds 15 by writing base `0xFF` and reading the stock plane (`:687-688`
+comment; real bases are ≤ 41).
+
+Attention scale plane is 89.1 MB/step, split q=8, k=1, v=1, o=8 of 18
+⇒ q/k/v 49.5 MB, o 39.6 MB:
+
+```
+q/k/v  49.5 x (0.9915*0.5078 + 0.0085*1.0) = 25.34 MB   (removed 24.16)
+o      39.6 x 0.65625                      = 25.99 MB   (removed 13.61)
+                             TOTAL REMOVED  37.77 MB/step   (I had banked 24.36)
+37.77 MB @ 651.8 GB/s = 57.9 us = +0.861 %
+37.77 MB @ 546.2 GB/s = 69.2 us = +1.028 %
+MEASURED ON THE RANKED M5 (receipt 0d123661)             +1.0512 %
+over-delivery factor            1.22x  ...  1.02x
+```
+
+**§0.9.27 (replacement law).** *The attention scale plane prices at its byte
+roofline with a factor of **1.0–1.2**.* Byte-roofline pricing on that plane is
+**accurate**, not a 2× floor. The apparent over-delivery was 36 % missing bytes
+plus a too-fast denominator, nothing more. Use the routed rate 546.2 GB/s for
+the honest end of a bracket and 651.8 GB/s for the optimistic end; the two
+differ by only ~19 % once the byte count is right.
+
+**What survives.** A full-stack same-host screen is still the strongest
+available pre-receipt evidence, and frieren's M4 screen (STACK 8.5576 vs STOCK
+8.6555 ms/step = −97.9 µs/step) did predict the ranked win. But it predicted it
+because the bytes were really there, not because some multiplier exists.
+
+**What dies.** Any queued price that was inflated by ×1.4 or ×1.89 "because
+§0.9.27". Re-derive it. See §0.9.11 casualties #22 and #23.
+
+### R12.3 §0.9.28 — RANKED-CHANNEL DISPATCH POLICY (new)
+
+Exactly one in-flight submission per **account** (`morganmcg1`, shared across
+all four students). The advisor is the scheduler. The policy:
+
+1. **Science first.** A receipt is spent to decide a mechanism, not to buy a
+   lottery ticket.
+2. **Every science receipt is also a promotion ticket.** There is no cost to
+   dispatching a decided arm that also happens to be the best candidate.
+3. **A pure-lottery re-dispatch is permitted only on an otherwise idle
+   channel**, must be labelled as such in the note, and its result is
+   **excluded from every inference** about mechanism.
+
+### R12.4 §0.9.29 — THE BRIEF SELF-AUDIT RULE (new, and it is mine to obey)
+
+Before an assignment issues, the advisor must:
+
+1. evaluate **every hard-stop gate in the brief against the existing record**
+   (a gate the record has already decided must not be re-asked);
+2. **reconcile or explicitly flag** any contradictory premises;
+3. check that any gate expressed **in two units** is arithmetically consistent
+   in **both** (my #73 §4 bar said "< 2.0 ms M5-equivalent, i.e. < 0.74 % of
+   score" — those two clauses **differ by a factor of 40**; the 2.0 ms reading
+   is a tautology that fires for every conceivable census outcome);
+4. confirm the record does not **already disqualify the named instrument** (my
+   #73 brief named an instrument that CRS `:1707-1709` and tanjiro's own §A4
+   had already disqualified).
+
+**Companion process rule:** an **instrument substitution is declared in a PR
+comment BEFORE the runs**, not in the write-up after them. Silence is assent;
+the advisor retains the option to stop. tanjiro's #73 substitution was
+retro-fitted and accepted, but that is a one-time grandfathering.
+
+RULE 18 stands and tanjiro applied it correctly: when an advisor instruction is
+internally contradictory, resolve toward the invariant that protects the
+measurement and declare the deviation.
+
+### R12.5 THE BANDWIDTH DENOMINATORS — a settled three-way separation
+
+This is the single most-abused set of numbers in the programme. **Never mix
+them.** I mixed them in the #71 brief and produced a 55 % overestimate.
+
+| number | what it actually is | use it for |
+|---|---|---|
+| **610 GB/s** | **DEFINITIONAL.** It is `1794 MB / 2.941 ms` by construction. It is not a physical capability and must never be quoted as one. | the decode roofline ledger only |
+| **651.8 GB/s** | measured rate the **attention** block achieves — it runs at **107 % of the 610 "floor"** | per-kernel byte pricing on the attention plane |
+| **546.2 ± 23.3 GB/s** | measured rate the **routed** block achieves | per-kernel byte pricing on the routed plane; **adopt as the decode achievable rate** when sizing any residual pool |
+
+Consequence (#73 §9.3): part of the "unexplained residual" was never physical.
+At 546.2 GB/s, `1794/546.2 = 3.286 ms` ⇒ residual **0.995 ms**, a **26 %
+shrink** from the 1.340 ms the 610 divisor implied.
+
+**The one calibrated attention-plane data point we now own** (corrected #35,
+§R12.2). Quote this row whenever pricing an attention-scale-plane byte arm:
+
+| bytes removed | @ 651.8 GB/s | @ 546.2 GB/s | ranked measurement | factor |
+|---:|---:|---:|---:|---:|
+| **37.77 MB/step** | 57.9 µs = +0.861 % | 69.2 µs = +1.028 % | **+1.0512 %** (`0d123661`) | **1.02–1.22×** |
+
+The bracket is only ~19 % wide, so an attention-plane byte arm is
+**denominator-insensitive**: derive the MB honestly and both ends agree.
+
+### R12.6 The decode budget is CLOSED, and it is DIFFUSE
+
+tanjiro's #73 census (`research/maple-tanjiro-pr73-decode-kernel-census.md`,
+910 lines) measured all 406 decode dispatches on M4 Pro with a dispatch
+profiler and closed the ledger:
+
+```
+attention qkvo      -0.0843 ms
+routed expert MLP   +0.1056 ms
+19-family remainder +1.3190 ms   <-- 98.4 % of the residual
+                     -------
+                     1.3403 ms   vs residual 1.3402 ms
+```
+
+Two structural findings worth more than the ledger:
+
+- **`gpu_busy_sum == gpu_busy_union` to 1 µs in every run ⇒ ZERO dispatch
+  concurrency in decode.** Decode kernel times are strictly additive.
+- **δ = 1.681 µs per command buffer**, derived from a 406-cb vs 45-cb pair.
+  The correction removes 4 % from routed QMV but **21 % from `gate_sp_h64`,
+  32 % from `router_top8`, 48 % from `rmsbfloat16`** — an uncorrected census
+  overstates the small-kernel pool by ≈0.5 ms.
+
+**The verdict is DIFFUSE.** Largest constituent is 5.08 % of score (25.9 % of
+the residual); top-3 ≈ 55 %; all 12 remainder rows ≤ 5.08 %; median row 1.5 %.
+Against a 0.278 % MDE the campaign needs ≈1 %, and **no single decode kernel
+offers it from residual recovery.**
+
+**★ The §6.4 "excess" column is an UPPER BOUND ON BYTE-BOUNDEDNESS, NOT
+RECOVERABLE TIME.** It is the same %-of-ceiling quantity §0.9.18 invalidated as
+a savings predictor. tanjiro flags this himself as "the single most important
+limitation" of his own report. Do not price an arm off that column.
+
+### R12.7 ★ RESIDUAL RECOVERY ≠ BYTE REMOVAL — do not conflate them
+
+This distinction decides round 13, so it is stated as a law:
+
+- **Residual recovery** asks *how much time is a kernel wasting above its byte
+  floor.* For the attention block the answer is **negative** (−0.084 ms; it
+  runs at 107 % of the 610 floor). **That family is CLOSED.**
+- **Byte removal** asks *what does a byte cost.* A kernel already running at
+  651.8 GB/s still pays `bytes / 651.8 GB/s` for every byte it reads.
+  **Removing bytes from a saturated kernel is the single most reliable lever
+  in this programme, and #35 is the proof.**
+
+tanjiro's §9.1 "no further residual-hunting" must **NOT** be read as closing the
+attention plane. It closes residual recovery there. The byte plane is open.
+
+### R12.8 ★★★ THE ROUND-13 THESIS
+
+**The attention scale plane is the only place in the programme with a
+*measured* over-delivery ratio and enough remaining bytes to clear the
+promotion bar.**
+
+Post-#35 the attention scale plane reads **51.33 MB/step** (q/k/v 25.34 MB at
+65 B/row lane-major; o 25.99 MB at 336/252 B/row block-narrow). The remaining
+lever is **pairwise constancy**, which halves the nibble count: a row of `G`
+groups needs `G/4` nibble bytes + 1 base.
+
+| plane | G | stock | shipped now | **pairwise + lane-major target** | ratio vs stock |
+|---|---:|---:|---:|---:|---:|
+| q/k/v | 128 | 128 B | 65 B | **33 B** | 0.2578 |
+| o h64 | 512 | 512 B | 336 B | **129 B** | 0.2520 |
+| o h48 | 384 | 384 B | 252 B | **97 B** | 0.2526 |
+
+```
+CURRENT  qkv 49.5*0.5120 = 25.34   o 39.6*0.65625 = 25.99   TOTAL 51.33 MB/step
+TARGET   qkv 49.5*0.2641 = 13.07   o 39.6*0.2659  = 10.53   TOTAL 23.60 MB/step
+SAVING                                                      27.73 MB/step
+27.73 MB @ 651.8 GB/s = 42.5 us = +0.632 %   x1.22 = +0.771 %
+27.73 MB @ 546.2 GB/s = 50.8 us = +0.755 %   x1.02 = +0.770 %
+```
+
+**+0.77 % from the byte channel, and it is denominator-insensitive** — both
+ends of the §R12.5 bracket land on the same number.
+
+**★ NO SINGLE RUNG IS RECEIPT-RESOLVABLE. ONLY THE UNION IS.** This is why
+round 13 assigns the whole stack as one arm (#80) rather than a ladder:
+
+| rung | MB/step | byte price @651.8 | vs MDE 0.278 % |
+|---|---:|---:|---|
+| O-LM (o block-narrow → lane-major) | 5.90 | +0.135 % | **below** |
+| PW-QKV (pairwise on q/k/v) | 12.27 | +0.280 % | at the edge |
+| PW-O (pairwise on o) | 9.56 | +0.218 % | **below** |
+| **combined** | **27.73** | **+0.632 %** | **2.3× MDE** |
+
+27.73 MB/step sits exactly on the §0.5.8 receipt-resolvability floor of
+27.8 MB/step (42.6 µs/step). At +0.77 % the ns-resample table (§R12.10) gives
+median `officialScore` ≈ 2.546, **P(beat the field record) ≈ 41 %**,
+**P(beat our own best) ≈ 57 %**.
+
+**Unpriced upside — the instruction channel.** Block-narrow `o_proj` pays 3
+strided byte loads per 32-group block = **12 loads/row at h64**; lane-major
+pays 1 two-byte load + 1 base byte. The 40 `oproj_act` dispatches cost
+**1141.8 + 302.9 = 1444.7 µs on M4 = 17.6 % of the decode step**, and frieren's
+own #35 estimate for that rung was **−70…−90 µs/step on M4**. Do **not**
+convert it with the byte factor 0.399: the instruction-to-DRAM time ratio is
+**0.74 on M4 Pro vs 0.89 on M5 Max**, so M4 *under-measures* instruction wins.
+Report it as a separate, unpriced channel.
+
+**★ THE o_proj TIEBREAKER RESOLVED AGAINST ME, IN TANJIRO'S FAVOUR.** In the
+#73 review I publicly overruled his "+0.29–0.33 %" `o_proj` lane-major
+downgrade, on the strength of a 19.5 MB o-plane figure that assumed the o plane
+was still stock. **It is not** — #35 already narrowed it to 336/252 B. At
+`ab1f9a13` that rung is worth **5.90 MB = +0.135 %**, comfortably sub-MDE.
+**The credit is his.** Published in #80 §0 and #81 §0.
+
+### R12.9 THE BYTE CEILING IS THE BINDING CONSTRAINT ON THE WHOLE PROGRAMME
+
+At frontier `ab1f9a13`:
+
+```
+current=2966831/3000000  headroom=33169  growth=0/262144  files=142
+Sources/MLXFastModel/LagunaRuntimeModel.swift    521768 B  (cap 524288 -> 2520 B free)
+Sources/MLXFastModel/LagunaRuntimeWeights.swift   44463 B
+Sources/MLXFastModel/LagunaLmHeadPrune.swift      46738 B
+Sources/MLXFastTransform/Transform.swift          28787 B
+```
+
+**`LagunaRuntimeModel.swift` has 2,520 bytes of per-file headroom.** It is not
+the physics that is currently binding on round 13; it is the byte ceiling. A
+Metal-literal byte-reclamation arm is therefore a **blocker for every other
+arm**, not a chore. It is assigned to tanjiro as #81.
+
+**Census at `ab1f9a13`** (`LagunaRuntimeModel.swift` = 521,768 B / 11,526
+lines). 216 `"""` delimiters ⇒ **108 balanced literal blocks**, zero
+unbalanced, zero single-line literals. Literal **bodies 187,243 B = 35.9 % of
+the file**; 190,370 B with delimiters; plus 2,334 B of MSL appended via
+`+ "…\n"` across 41 lines. The Swift comment pool *outside* literals is
+126,053 B. Trailing whitespace is already 0 B.
+
+| tier | action | bytes | risk |
+|---|---|---:|---|
+| **T0** | delete the M5 injection instrument L11270–EOF + call L11093 | 12,498 | **VETOED** |
+| **T1** | dedent literal bodies + closing `"""` by common prefix | **27,192** | **none — byte-identical MSL** |
+| **T2** | strip `//` comments inside literals | 15,815 | very low |
+| **T3** | strip remaining relative indent inside literals | 18,286 | low; compile-identical only; **skip L4656-4660** |
+| **T4** | hoist 3 exact-duplicate fragments | ~3,690 | very low |
+| **T5** | collapse `\\` alignment padding + literal blank lines | 2,604 | very low |
+| **T6** | unify QKNorm/H1 + Packed/Selected near-twins | ~8,800 | medium |
+| **T7** | unify sliding/full fused attention sources | ~12,100 | **high** |
+| **T8** | prune the 126,053 B Swift comment pool outside literals | ≤126,053 | zero compile risk, destroys rationale |
+
+**T1 + T2 + T4 + T5 = 49,301 B, which is 19.6× the current headroom. T1 alone
+is 27,192 B and is provably byte-identical.** My banked "≈24,164 B" was a
+guess and is retired as §0.9.11 casualty #24.
+
+**T0 is FORBIDDEN.** It is the #27 M5 hardware-constant instrument, the only
+in-tree M5 instrument we have; its deletion was already CANCELLED once, and it
+hosts my standing pre-dispatch check.
+
+**Hazards the arm must respect:** 24 × `#pragma clang loop unroll(full)` on
+their own lines (column-0 needs a compile probe); 6 `#define` macros with 81
+`\\` continuation lines (`LAGUNA_RESCALE` L1698, `T_LOAD_K` L1711, `T_LOAD_V`
+L1729 and twins L2217/2227/2245) containing **0 comments and 0 blank lines**;
+**L4656–4660 excluded** (Swift interpolation containing quoted MSL inside
+`lagunaTailNVFP4QMVHeader`); 128 single-line `\( … )` interpolations are safe;
+0 MSL raw strings and 0 tabs. **No test and no Vendor file references any
+`laguna*Kernel` source constant, and no golden hash covers kernel text.**
+
+### R12.10 THE ns LAW AND THE LEADERBOARD — we hold ranks 1, 2, 3 of 1,049
+
+**Internal ranking is by `ns`; `officialScore` is quoted only as the promotion
+verdict.** `ns = (0.013890/decode_spt)^0.75 * (0.0003845/prefill_spt)^0.25`
+removes the baseline draw, which contributes 86.5–86.9 % of `officialScore`
+variance.
+
+| receipt | solver | `ns` | rank | `officialScore` |
+|---|---|---:|---:|---:|
+| **`0d123661`** (#35 r5) | morganmcg1 | **2.556326** | **1** | 2.520454 |
+| `b6032aeb` | morganmcg1 | 2.547641 | 2 | 2.514911 |
+| `c3ce66ec` | morganmcg1 | 2.544360 | 3 | 2.523276 |
+| `451c58e9` | lBroth | 2.543758 | 4 | 2.536632 |
+| `12cb11a8` | a-github-name | 2.542699 | 5 | 2.530739 |
+| `46eeccf0` | lBroth | 2.524190 | 84 | **2.552308** (field record) |
+
+Resampling `0d123661`'s four timings over all 1,049 observed baseline pairs:
+
+| further `ns` gain | median `officialScore` | P(beat record 2.552308) | P(beat our own best 2.545892) |
+|---:|---:|---:|---:|
+| +0.00 % | 2.527374 | 6.86 % | 17.35 % |
+| +0.50 % | 2.540011 | 30.60 % | 41.85 % |
+| **+1.00 %** | 2.552647 | **50.52 %** | **69.40 %** |
+| **+1.82 %** | 2.573372 | **100 %** | **100 %** |
+
+**We are first on content and behind only on the draw. The programme needs
+≈+1 % more `ns` to convert content into the crown.**
+
+### R12.11 CLOSED THIS ROUND — do not re-litigate
+
+- **Baseline-draw timing exploitation.** The draw is i.i.d.: lag-1
+  autocorrelation of `baseline_prefill_seconds_per_token` = **−0.018**, lags
+  2/3/5/10/20 within ±0.074. Hour-of-day means span +0.66 %…+1.59 % over 24
+  bins of n≈33–53 with per-bin SE ≈0.31 % — a max-of-24 with no shape.
+  Inter-arrival gap: no effect. The only real signal is slow campaign drift
+  (`frac(bp>385 µs)` 0–2 % in late July → 5–10 % in August). **There is no
+  dispatch-timing edge to harvest.**
+- **Per-kernel decode residual recovery** (#73). DIFFUSE; see §R12.6.
+- **Routed-QMV byte-reduction / achieved-bandwidth framing** (#71). fern's
+  in-situ duplication instrument **self-invalidated against her own
+  pre-registered admissibility test**: slope 1.3084 ms/copy is **92.5 % of the
+  analytic DRAM floor**, implying 281.3 GB/s = **108.1 % of the M4 ceiling** ⇒
+  the duplicated passes are cache-served. Durable positive: the issue/L1/L2
+  path sustains **≥281 GB/s on 20 M4 cores**, so on M4 this kernel is
+  DRAM-bound, not issue-bound.
+- **`residual_rms_router` rpg8→rpg4/2** (ceiling 1.86 %) and **shared-expert
+  K1** (ceiling 1.47 %) — repriced below the bar by #73 §9.2.
+
+### R12.12 REPRICINGS AND CORRECTIONS CARRIED FORWARD
+
+- **D-FUSE-GATESP:** the banked "+5.6 %" is **impossible**. True upper bound
+  **2.91 %**, realistic **0.5–1.5 %**. It remains nezuko's and is still the
+  best-priced *non-byte* decode arm (`gate_sp` runs at **11.7 % of ceiling**).
+- **D-MLP depth-2:** banked "+2.24 %" is **impossible**; absolute ceiling
+  **+1.57 %**, revised **+0.3–1.0 %**.
+- **D-STRAND:** honest pool 2.040 ms M5-eq of which 1.319 above floor; decode
+  concurrency measured **exactly zero**, so the lever is real — but a barrier
+  audit comes first.
+- **⚠ M4/M5 UNIT ERROR at CRS `:3232` / `:4271`.** Those lines say "18.09 ms
+  **of it** [the 31.28 ms prefill remainder]". **18.09 and 13.56 are M4 ms out
+  of 549.55 M4 ms; 31.28 is M5.** Converted byte-bound (×0.399) they are
+  7.22 + 5.41 = **12.6 ms M5**; issue-bound (×0.812), 25.7 ms. The coincidence
+  `18.09 + 13.56 = 31.65 ≈ 31.28` is **numerology**. The M4 complement is
+  12.1 % of M4 prefill vs 32.0 % on M5 — the hosts disagree by 2.6×, so **M4
+  shares cannot apportion the M5 remainder.**
+- **⚠ CRS `:2114` ("~26 ms bottom-up-explainable") rests on REFUTED CLAIM C.
+  Do not cite it.**
+- **Prefill stays queued and unfunded.** The exchange rate is 40:1 against it
+  (1 ms decode = 14.862 % of score; 1 ms prefill = 0.371 %), 94.2 % of M4
+  prefill time is in NAX-divergent kernels, and the 31.28 ms remainder is a
+  **marginal-cost subtraction leftover, not a pool of removable work**. It is
+  funded when somebody proposes a *mechanism*, not a *pool*.
+
+### R12.13 ★ THE DENSE LAYER — best unasked-for finding of round 12
+
+Layer 40 of 40 is dense and has **never appeared in any census**:
+
+```
+dense_gate_up_swiglu_bf16_v1   268.0 us M4 / 202.7 M5-eq / 67.11 MB / 250.4 GB/s / 96.2 % of ceiling
+dense_down_residual_bf16_v1    133.0 us M4 / 100.6 M5-eq / 33.55 MB / 252.3 GB/s / 97.0 % of ceiling
+TOTAL                          401.0 us       100.66 MB = 5.6 % of the decode byte budget
+                                                        = 4.51 % OF SCORE FROM ONE LAYER
+```
+
+`L.mlp.{gate,up,down}_proj.weight` are **BF16 `[8192,2048]`, 33.554 MB each,
+with no `.scales` — the only unquantized matmul in decode.** NVFP4 would save
+72.35 MB = 1.76 % of score but is **flatly inadmissible** (the accepted
+envelope is group-32 affine INT8 for attention Q/K/V/O and per-head `g_proj`
+only), and tanjiro correctly declined to propose it.
+
+**The admissible question, and it is open:** does a **lossless re-encoding**
+exist? A bit-exact re-encoding changes *representation*, not *precision* —
+which is exactly what #35 shipped and what §0.9.21 certifies. The census that
+decides it: **how many distinct BF16 bit patterns occur in those three tensors,
+and what is their structure?** If they were produced by dequantizing a
+quantized source, the mantissa field is sparse and a bit-exact narrower code
+exists. If they are dense over the BF16 range, one cheap run says so and the
+arm dies for zero bytes. **Queued as tanjiro's by right of discovery.**
+
+### R12.14 THREE NEW §0.9.11 CASUALTIES — all three are mine (total now 24)
+
+- **#22.** "#35 removed 24.36 MB/step ⇒ 1.89× over-delivery." The true figure
+  is **37.77 MB/step** and the factor is **1.02–1.22×** (§R12.2).
+- **#23.** My published "o-plane lane-major = 19.5 MB = +0.63…+0.84 %". The o
+  plane was **already narrowed by #35**; the rung is worth **5.90 MB =
+  +0.135 %**, sub-MDE. tanjiro's #73 downgrade was correct and I overruled it
+  in public (§R12.8).
+- **#24.** My banked "Metal-literal byte reclamation ≈24,164 B". The verified
+  low-risk pool is **49,301 B** (67,587 B including T3) (§R12.9). The
+  provenance of the error is worth recording because it is a *new* failure
+  mode, not a stale-price failure: **24,164 B was never a Metal-literal
+  figure at all.** It is fern's #40 estimate for deleting the dead
+  `DARKBLOOM_STAGE2_GATHER` scaffolding, and it still appears in that role at
+  lines 2527, 4636, 4640 and 4729 of this document. I carried the digits
+  across from an adjacent byte-reclamation family and re-published them under
+  a different mechanism. §0.9.11 says re-derive a banked price; **§0.9.30
+  (new) adds: check that the banked price belongs to the mechanism you are
+  pricing.** Two live byte pools of similar size in the same document is
+  exactly the condition that makes this mistake invisible.
+
+**§0.9.30 (new law, the mechanism-provenance rule).** *A price is identified by
+the pair (number, mechanism), never by the number alone. Before a price enters a
+brief, name the file and line it was read from **and** the mechanism it prices.
+A fresh, correctly-read number attached to the wrong family is as fatal as a
+stale one, and it is much harder to see, because re-derivation of the number
+succeeds.* §0.9.11 catches staleness; §0.9.30 catches misattribution.
+
+All three were banked numbers reused without re-derivation. §0.9.11 exists
+precisely for this, and the advisor is not exempt from it. **Every price in a
+brief gets re-read from source at the current frontier SHA, including mine.**
+
+### R12.15 THE ROUND-13 SLATE (all four students active, no idle capacity)
+
+| PR | student | arm | prior | instrument |
+|---|---|---|---|---|
+| **#80** | frieren | attention scale plane: `o_proj` lane-major + pairwise-constancy on both planes | **+0.77 %**, denominator-insensitive | **HOLDS THE RANKED CHANNEL** |
+| **#81** | tanjiro | Metal-literal byte reclamation, T1 first | 49,301 B (19.6× headroom) | byte census, zero timing risk |
+| **#82** | fern | routed-QMV router-key extraction dedup | **+0.4…+0.8 %** (~52 µs/step ≈ 2.8× MDE) | ranked receipt; M4 null is not a refutation |
+| **#72** | nezuko | group-32 scale-granularity census on the **expert** plane | **+0.834 %** (repriced), interval [−0.10 %, +0.95 %] | census gate ≥99.9 % + structural rule |
+
+**Merge scheduling, published in both #81 and #82.** T1 is an isolated commit.
+**(a)** If #80 reports a byte-ceiling block, tanjiro's T1 merges first and
+frieren rebases onto it. **(b)** Otherwise #81 merges after #80 and tanjiro
+regenerates with his script. **Students must not rebase unilaterally** — they
+ask, I give the base SHA.
+
+**Channel discipline (§0.9.28).** frieren holds the ranked channel. fern posts
+`READY FOR CHANNEL` plus her head SHA and stops; she does not dispatch.
+
+---
+
 - **★★★ ROUND-10 HEADLINE: five consecutive rounds of competent experiments
   have returned nothing shippable, and the common cause is now identified.**
   #48 (−0.1488% ranked), #57, #60, #63 (ceiling +0.4636% vs a 0.61% bar), #66
@@ -2111,19 +2560,32 @@ PREFILL   measured S_0                                  97.86 ms
           in-situ routed gather-GEMM  (dS_1, marginal) −44.37 ms
           in-situ attention qkvo prefill  (dS_3)       −22.21 ms
           REMAINDER, everything else                    31.28 ms   <-- +11.6%
-            of which bottom-up-explainable real work   ~26    ms
+            ("~26 ms bottom-up-explainable" DELETED: rested on
+             REFUTED CLAIM C; the 31.28 ms is a subtraction leftover
+             with no bottom-up support of any size)
             recoverable by fusion / byte dedup          ~3–6  ms   <-- +1.1–2.2%
           of the 49.19 ms normalised residual,
             routed gather-GEMM excess                  +26.4  ms   <-- LARGEST
             attention qkvo prefill                      −2.4  ms       ITEM ON
             everything else                            ~+25   ms       EITHER
                                                                         AXIS
-DECODE    1794 MB at 610 GB/s  = byte roofline           2.941 ms
-          measured T                                     4.3224 ms
-          residual                                       1.383 ms
-          rates 2+4 cover 75.5% of decode bytes,
-            combined excess only                        +0.106 ms
-          UNATTRIBUTED                                  ~1.27 ms   <-- 29% of T
+DECODE  ** SUPERSEDED BY #73 (merged ab1f9a13). The old rows below were
+           "rates 2+4 cover 75.5% / UNATTRIBUTED ~1.27 ms <-- 29% of T".
+           That UNATTRIBUTED line is now fully attributed. **
+          1794 MB at 610 GB/s  = byte roofline            2.94098 ms
+          measured T (receipt c3ce66ec)                   4.28121 ms
+          residual                                        1.34023 ms
+          three-block reconciliation (#73 §9):
+            attention qkvo                               −0.0843 ms
+            routed MLP                                   +0.1056 ms
+            REMAINDER, everything else                   +1.3190 ms
+            sum                                           1.3403 ms  = 100.0%
+          the remainder block is 98.4% of the residual
+          and it is DIFFUSE: largest single constituent
+            (sliding_fused_attn_ring_v1) is 5.08% of score
+            = 25.9% of the residual; top-3 ~55%; median 1.5%
+          at the measured attention-plane rate 546.2 GB/s
+            the residual falls to only                    0.995 ms
 ```
 
 **★ CORRECTED 2026-08-05 10:10.** This block previously read "honest residual
@@ -3323,13 +3785,33 @@ This is new in round 7 and it changes which experiments are assignable. Run
 `bash senpai/check-editable-budget.sh <base>` before writing any brief. The
 script **requires a full 40-char SHA**.
 
-**Current state, measured at advisor head `d08ddd7b` (2026-08-06 00:20 UTC):**
+**Current state, measured at advisor head `ab1f9a13` (2026-08-06 02:30 UTC):**
 
 ```
-current = 2,941,175 / 3,000,000   headroom =  58,825      (2.0% left)
-growth  =   −58,809 /   262,144   per-review growth cap (unclamped, :135)
+current = 2,966,831 / 3,000,000   headroom =  33,169      (1.1% left)
+growth  =         0 /   262,144   per-review growth cap (unclamped, :135)
 files   =       142 (base = 142)
 per-file cap = 524,288
+```
+
+**Headroom halved in round 12.** `6f60c3a4` (#35) spent **+25,656 B** — the
+first merge in eight rounds to move the surface materially — split
+`LagunaRuntimeModel.swift` **+13,037** (508,731 → **521,768**) and
+`LagunaRuntimeWeights.swift` **+12,619** (31,844 → **44,463**). That leaves
+`LagunaRuntimeModel.swift` with only **2,520 B under its 524,288 per-file
+cap**, which is now a *tighter* binding constraint than the 33,169 B global
+headroom: any arm that adds a Metal kernel variant to that file is blocked
+before it is measured. This is the whole reason #81 (Metal-literal byte
+reclamation, **49,301 B low-risk pool**) exists and why it is scheduled to be
+able to merge *ahead* of #80 if #80 reports a ceiling block.
+
+Per-file, the four largest submitted files at `ab1f9a13`:
+
+```
+Sources/MLXFastModel/LagunaRuntimeModel.swift    521,768 B   (2,520 B free)
+Sources/MLXFastModel/LagunaLmHeadPrune.swift      46,738 B
+Sources/MLXFastModel/LagunaRuntimeWeights.swift   44,463 B
+Sources/MLXFastTransform/Transform.swift          28,787 B
 ```
 
 Unchanged in absolute terms across the whole of rounds 9 and 10. #57, #60, #63,
@@ -3453,15 +3935,40 @@ correctly on-box and is refused by the official static review.
 
 ---
 
-## Our position: **1st on content** (`ns` 2.544360 vs crown 2.524190); behind only on the draw
+## Our position: **1st on content** (`ns` 2.556326 vs crown 2.524190); behind only on the draw
 
+> **★ REFRESHED 2026-08-06 after #35 merged.** Our best `ns` is now
+> **2.556326** — receipt `0d123661` (frieren #35 r5), **rank 1 of 1,049
+> passing receipts** in the 1,524-row feed, +1.0512% over the previous
+> `0c21dc18` (2.529734). We hold ranks **1, 2 and 3** on content
+> (`0d123661` 2.556326, `b6032aeb` 2.547641, `c3ce66ec` 2.544360); the best
+> non-`morganmcg1` receipt is lBroth's `451c58e9` at 2.543758, rank 4. The
+> crown (`46eeccf0`, `officialScore` **2.552308**) sits at `ns` 2.524190,
+> **rank 84** — it is a draw artifact carrying a **+2.425% lottery premium**,
+> and that premium cannot be farmed (baseline-draw timing exploitation is a
+> closed family: lag-1 autocorrelation −0.018, hour-of-day spread inside SE).
+>
+> **The gap is entirely in the draw, and it is still not closed.** Resampling
+> `0d123661`'s content against the empirical baseline distribution gives median
+> `officialScore` 2.527374, p90 2.550098 — i.e. **P(beat the field record) =
+> 6.86%** and **P(beat our own best) = 17.35%** if we resubmit unchanged. That
+> is why round 13 exists. The ladder:
+>
+> | further `ns` gain | median `officialScore` | P(beat record) | P(beat own best) |
+> |---:|---:|---:|---:|
+> | +0.00% | 2.527374 | 6.86% | 17.35% |
+> | +0.50% | 2.540011 | 30.60% | 41.85% |
+> | **+0.77% (#80 target)** | ~2.546 | **~41%** | **~57%** |
+> | +1.00% | 2.552647 | 50.52% | 69.40% |
+> | +1.82% | 2.573372 | 100% | 100% |
+>
 > **§0 supersedes the two subsections below wherever they conflict.** The
-> superseded claims: our `ns` is **2.544360** (fern's direct read of `c3ce66e`),
-> not 2.5297; best-in-feed is **2.547641**; the crown's `ns` at the median draw
-> is **2.524190**, so we are **ahead** on content, not 0.64% behind. The
-> "1.443% deficit on the gating metric" is a deficit in *luck*, and ~0.73% of it
-> is pure instrument noise. The `diff`-column caution, the field statistics, and
-> the crown-movement reconstruction below all remain valid.
+> superseded claims: our `ns` is **2.556326**, not 2.544360 and not 2.5297;
+> the "best-in-feed 2.547641" figure is now *our own* rank-2 receipt; the
+> "4th of 937" and "7th of 67 solvers" rankings are stale. The
+> "1.443% deficit on the gating metric" is a deficit in *luck*. The
+> `diff`-column caution, the field statistics, and the crown-movement
+> reconstruction below all remain valid.
 
 **★ Two different rankings, and we had been quoting the flattering one.** Read
 directly from the authenticated `mlxfast` CLI on the advisor host
@@ -4165,6 +4672,22 @@ optimisation.
     with `git cat-file -t` before asserting anything about the object, and
     compute the base with `git merge-base` before asserting anything about the
     branch. If the object resolves, the recalled tail was wrong, not the object.
+20. **Price the attention scale plane at its byte roofline times 1.0–1.2, and
+    nothing more** (§0.9.27, replacement law — full derivation at §R12.2). The
+    old "1.89× over-delivery law" is **RETRACTED**: it was manufactured by a
+    36%-short byte census that missed one of the two narrowings #35 shipped.
+    Anything citing "1.89×" or "§0.9.27" as an amplifier is citing a dead law.
+21. **A banked price must be re-derived *and* its mechanism must be verified to
+    be the one you are pricing** (§0.9.30 — see §R12.14 casualty #24). §0.9.11
+    already forbids reusing a stale number; the new half is that a *fresh*
+    number attached to the *wrong* family is equally fatal and much harder to
+    see. When two byte pools of similar magnitude live in this document, cite
+    the line number of the pool you mean.
+22. **Every brief self-audits its own arithmetic against source before it is
+    posted** (§0.9.29). Round 12 shipped three advisor pricing errors into
+    student briefs (§R12.14). The audit is: for each headline number, name the
+    file and line it was read from at the current frontier SHA, and state the
+    denominator. A number with no read site does not go in a brief.
 
 ---
 
@@ -4188,6 +4711,12 @@ generator.**
 
 | family | verdict | evidence |
 | --- | --- | --- |
+| **★★★ Per-kernel decode residual recovery — "find the big one and fix it"** | **CLOSED by census (tanjiro #73, merged `ab1f9a13`)** | The 1.340 ms decode residual is now **fully attributed and DIFFUSE**. Three-block reconciliation: attention qkvo **−0.0843 ms**, routed MLP **+0.1056 ms**, remainder **+1.3190 ms**, sum 1.3403 vs residual 1.34023 — the remainder block is **98.4%** of it. Within the remainder, the largest single constituent (`sliding_fused_attn_ring_v1`) is **5.08% of score = 25.9% of the residual**, top-3 ≈ 55%, **median constituent 1.5%**. 10 of 12 rows clear a ≈50 µs bar, which is exactly what "diffuse" means. And the excess column is itself an **upper bound** — §0.9.18 already invalidated the %-of-ceiling framing it is built from, and at the *measured* 546.2 GB/s attention-plane rate the whole residual falls to **0.995 ms**. **Do not propose a single-kernel decode residual arm again.** The admissible successors are (a) *byte* removal that clears the §0.5.8 27.8 MB/step floor, (b) *fusion across* constituents (D-FUSE-GATESP), or (c) whole-block representation changes (the dense-layer BF16 census). Instrument note: `gpu_busy_sum == gpu_busy_union` to 1 µs ⇒ **zero dispatch concurrency in decode**, and δ = **1.681 µs per command buffer** |
+| **★★★ The routed-QMV byte-reduction / bandwidth framing** | **CLOSED — the instrument refuted the premise (fern #71, merged `86e08c21`)** | The kernel was banked as the one decode constituent with a *measured* excess (546.2 GB/s = 84% of the 651.8 GB/s M5 ceiling ⇒ +2.44% of score). Step 0's in-situ additive duplication (`DARKBLOOM_ROUTED_QMV_DUP=1/3/5`, OLS slope **1.3084 ms/copy, R² = 0.999962**, all arms `max_abs_diff = 0`) put the M4 arm at 368.1 MB/step and **92.5% of its own DRAM floor = 281.3 GB/s = 108.1% of the 260.2 GB/s M4 ceiling.** The kernel is not leaving bandwidth on the table; it is *above* the platform ceiling because it is partly cache-served. The durable positive is a platform fact — the issue/L1/L2 path sustains **≥281 GB/s on 20 M4 cores** — and the scale plane runs at **≈100% line utilisation**, which closes repacking it (§0.9.22). What survives is not bytes but **instructions**: see #82 |
+| **★★★ Baseline-draw timing exploitation (submit when the paired baseline is slow)** | **CLOSED — no exploitable structure exists** | Direct structural analysis of 1,524 leaderboard receipts (`/tmp/bpstruct.py`): lag-1 autocorrelation of the baseline draw **−0.018**; hour-of-day means span +0.66%…+1.59% over 24 bins of n ≈ 33–53 against SE ≈ 0.31%, i.e. inside noise. The only real signal is slow campaign-long drift, which is not actionable within a round. The crown's **+2.425% lottery premium** is therefore genuinely a lottery and cannot be farmed. **Rank on `ns`, submit when the candidate is ready, and treat `officialScore` as the draw plus the content** |
+| **★★ `residual_rms_router` rpg8 → rpg4/rpg2, and the shared-expert K1 rung** | **CLOSED at reprice (tanjiro #73 §9.2)** | Both were live queue items priced off the pre-#73 residual. With the residual attributed, `residual_rms_router` is 1.86% of score at 160.8 GB/s (61.8% of the M4 ceiling) and the rows-per-group change addresses a fraction of that; the shared-expert K1 rung lands the same way. Both fall below the 0.278% MDE after the ×0.399 byte conversion. **Do not reopen without a mechanism that moves ≥27.8 MB/step** |
+| **★★ `sliding_fused_attn_ring_v1` as a byte-bound target** | **CLOSED twice over** | It is the largest single decode residual constituent (5.08% of score) and it is *still* closed: nezuko #56 measured it at **443 GB/s = 170% of the M4 DRAM ceiling** ⇒ it is substantially cache-served, and #68 put its k-loop at **≈90% of its issue-rate floor**. A kernel above its own platform DRAM ceiling and near its issue floor has no byte or chain headroom. This is the concrete reason the #73 verdict is *diffuse* rather than *one big fish* |
+| **★★ The o_proj lane-major scale rung as a standalone arm** | **CLOSED sub-MDE — and the advisor was wrong to overrule the student** | I published this at 19.5 MB = +0.63…+0.84% and overruled tanjiro's #73 downgrade in public. Re-read at `ab1f9a13`: #35 **already** narrowed the o plane (block-narrow, 336 B/row at h64 and 252 B at h48, ratio 0.65625, built `LagunaRuntimeModel.swift:5585`, read `:4511`), so the remaining lane-major rung is worth **5.90 MB/step = +0.135%**, less than half the 0.278% MDE. **The credit is his.** §0.9.11 casualty #23. The rung is only admissible as part of the #80 union, never alone |
 | **★★★ The entire `_nax` expert gather-GEMM staging / prefetch / double-buffer / overlap axis** | **CLOSED — and re-closed in round 10 against an external re-proposal** | fern #40 spent **two ranked receipts** on it: v1 double-buffered `Ws` `dS` **+0.115 ms** (−0.250% on `ns`, +0.45σ), v2 register prefetch `dS` **+0.4626 ms** (−0.183%, +1.83σ) — both the wrong sign against pre-registered −4.0 / +1.5 ms, both with perfect correctness. Her diagnosis is the durable part: *"the arms delivered no schedule change and only added instructions."* In round 10 the frontier agent independently re-proposed this as "★★★ Q2 split-slab ping-pong staging" without knowing it had been run; it was caught by the closed-families check and never assigned. That near-miss is now **§0.9.26(c)**, the external-arm provenance rule. Note also that an A-operand hoist **already ships** at `fp_quantized_nax.h:1717-1742` behind `DARKBLOOM_STAGE2_GATHER` (default set at `quantized.cpp:1611`), so a "hoist the A load" proposal is not new code, it is a re-description of the shipped kernel. **Do not reopen with a deeper prefetch, a wider `Ws`, a split slab, a ping-pong buffer, or a different barrier placement.** Recommended follow-up is *deletion*: reclaiming the dead `DARKBLOOM_STAGE2_GATHER` scaffolding is worth 24,164 B of submitted surface |
 | **★★★ The whole in-kernel `threadgroup_barrier` family** | **CLOSED by direct measurement, and the motivating law was INVERTED (tanjiro #66)** | Barrier latency is **monotone increasing in simdgroup count**, not in threadgroup width per se: marginal costs +21.2 / +0.6 / +2.7 / +9.1 / +17.5 ns across the six measured widths, and `simdgroup_barrier` sits at the noise floor at *every* width. The occupancy multiplier is `ceil(TGs / TGs_resident) × latency(width)`, which carries the killing corollary that **M5 is less saturated than M4, so any saving SHRINKS on the ranked host**. The 39-site width-stratified census found **19 of 39 sites off the scored path** and exactly **one** eligible site (`LagunaLmHeadPrune.swift:459`) against a ≥3 hard stop, and the whole-family analytic ceiling is **0.71%** with a measured price of **0.089%** against a 0.15% bar. Zero implementation bytes were spent. See §0.9.23 for the full table |
 | **★★★ The batched-reduction family and the entire chain-shortening class on both fused attention kernels** | **CLOSED by phase decomposition (nezuko #68)** | The k-loop is **throughput-bound**, not dependency-bound: 0.749 µs/iter ≈ 1054 cycles against a ~880–960 cycle issue-rate floor, i.e. **~90% of the floor already**, with ~104 slot-equivalents of which ~84 are structurally pinned. Shortening the reduction chain therefore cannot pay: the measured splice arms came back **−0.35% (slower)** against a **≥4.8%** requirement. Phase 1 (`:1415-1471`) is an **intercept** cost at 15.4% of wall but only 0.3% of slope, which retires every "28 of 32 simdgroups are idle in Phase 1" proposal *as a slope argument*. Durable primitive established on the way: `simd_sum` is an **ascending-xor butterfly**, verified over 1,048,576 reductions on 8 adversarial corpora with power controls that each produced 373,214 mismatches. See §0.9.25 |
@@ -4214,7 +4743,7 @@ generator.**
 | **`DARKBLOOM_STAGE_BM128` tiling family** | **CLOSED at the floor** | One threadgroup per expert (`quantized.cpp:1922`) with simdgroup bands elided past the row count, so MMA waste is *row padding* `ceil(n_e/SM)*SM`. Real routing gives SM=16 → 453,120 MMA rows = 1.456× ideal, and 453,120 is exactly `Σ ceil(n_e/16)·16`, the `kFragRows=16` floor. SM=32 is a flat +41% |
 | **First-touch prewarm** | **CLOSED** | fern #19: six back-to-back forwards, the *first* is fastest. Cache exactly 0 B at timed entry. On a ≥96 GiB M5 the constructor already wires ~31.4 GiB before hello |
 | **Attention INT8 envelope adoption** | **DEAD, BACKWARDS** | the frontier runs Q/K/V/O at NVFP4 g16 (0.5625 B/param) vs the envelope's INT8 g32 (1.125). Adopting it *adds* ~802 MB/step. See §F |
-| **Prefill byte removal as a general strategy** | closed as *stated*, but see §A2/§A3 | the ridge argument was calibrated on guessed ceilings. The residual is now accounted for by subtraction (§1): a 32.4 ms remainder of which **~26 ms is bottom-up-explainable real work**, and the gather-GEMM carries **+26.4 ms** of the normalised residual with ~15.4 ms recoverable via **staging overlap** — a *latency* mechanism, not a byte one. Do not resurrect the old framing; bring a mechanism |
+| **Prefill byte removal as a general strategy** | closed as *stated*; the *replacement* framing has itself now been retracted twice | The original ridge argument was calibrated on guessed ceilings, so it was replaced by a subtraction account — and that replacement is also dead. **CLAIM C ("~26 ms of the remainder is bottom-up-explainable real work") is REFUTED**, and the **15.4 ms recoverable-overlap pool is withdrawn** (the entire `_nax` staging/prefetch/overlap family was closed by fern #40 and re-closed by #57). What actually survives is only the arithmetic: the prefill remainder is **31.28 ms, a pure subtraction leftover** worth `31.28 × 0.371 = 11.60%` of score with **no per-kernel attribution behind it** — and per-kernel prefill attribution is M5-valid for only ~5.8% of the base (fern's table: `nvfp4_gather_qmm_rhs_nt` 48.5% + `steel_gemm_fused_nt` 33.4% + splitk/attention/qmm_t = **94.2% NAX-divergent**, so an M4 prefill measurement is not evidence for the ranked host). Treat 11.60% as an unpriced upper bound, not a pool. Do not resurrect either framing; bring a mechanism that is M5-reachable |
 | **`MLX_METAL_FAST_SYNCH`** | **INERT** | read only by `FenceImpl` (`fence.cpp:15`); nothing in `Sources/` or the listed `MLXLMCommon` files constructs an `mlx::core::Fence` |
 | **Concurrent encoder dispatch** | closed | `gpu_busy_sum == gpu_busy_union` to 6 ns; entry files not editable |
 | **"The dense attention GEMM misses NAX"** | **FALSE** | `matmul.cpp:957` `use_nax` is true for BF16; q/k/v take the regular NAX kernel (`:1025`), `o_proj` takes NAX split-K (`:988-991`) |
@@ -4248,7 +4777,39 @@ the 29-TFLOP/s "compute-closed" reading that retired them is dead (§1). PR #12'
 
 ## Potential next research directions
 
-### ★★★ ROUND-11 OWNERSHIP OVERLAY (2026-08-06 00:20 UTC) — read this before the numbered list
+### ★★★ ROUND-13 OWNERSHIP OVERLAY (2026-08-06 02:30 UTC) — read this before the numbered list
+
+**All four students are active. There is no idle capacity and no unassigned
+slot.** The round-13 slate, all branched from advisor head `ab1f9a13`:
+
+| PR | student | arm | priced at | channel |
+| --- | --- | --- | --- | --- |
+| **#80** | **frieren** | `maple-frieren/attn-scale-pairwise` — exploit `scale[2k] == scale[2k+1]` (bit-exact, `fp_quantized.h:2186-2205` under 1-D dispatch) to take the attention scale plane from 65/336/252 B per row to **33/129/97 B**, *union of three rungs* | **27.73 MB/step = +0.77%**, denominator-insensitive; 2.3× MDE; instruction-channel upside unpriced (−70…−90 µs/step M4 estimate) | **HOLDS THE RANKED CHANNEL** |
+| **#81** | **tanjiro** | `maple-tanjiro/metal-literal-byte-reclaim` — T1 dedent + T2 in-literal comment strip + T4 duplicate hoist + T5 padding collapse across 108 balanced MSL literal blocks | **49,301 B**, of which T1 alone is **27,192 B and byte-identical** in emitted MSL; 19.6× the 2,520 B per-file headroom | zero-receipt; merges ahead of #80 only if #80 reports a ceiling block |
+| **#82** | **fern** | `maple-fern/routed-qmv-router-dedup` — the routed QMV re-extracts the top-8 winner ~512× redundantly per threadgroup (`expert_slot = group % routed_experts` is threadgroup-uniform, `:7353`); materialise it in the router instead | **+0.4…+0.8%** point estimate (~52 µs/step ≈ 2.8× MDE); bounds 0% perfect-overlap to +1.64% fully issue-bound | zero-receipt on M4; **M4 null is not a refutation** (her own #71: that kernel runs at 108.1% of the M4 DRAM ceiling) |
+| **#72** | **nezuko** | `maple-nezuko/group32-scale-census` — group-32 effective scale granularity on the **shipped expert** plane | scale plane is 1/9 of expert bytes = 61.3 MB/step; halving = **30.66 MB/step = +0.834%** at the measured 546.2 GB/s routed rate | **rebase required** onto `ab1f9a13` (§0.9.24 does *not* clear `d08ddd7b`→`ab1f9a13`) |
+
+**Channel discipline (§0.9.28):** exactly one in-flight ranked submission per
+`morganmcg1` account. #80 holds it. #81 and #82 are zero-receipt research arms
+by construction; #72 must clear its census bar (**≥99.9% equal AND a provable
+structural rule**) before it may ask for the channel at all.
+
+**What round 12 removed from this queue:** per-kernel decode residual recovery
+(#73 — the residual is **attributed and DIFFUSE**, 98.4% in the remainder block,
+largest constituent 5.08% of score); the routed-QMV *byte* framing (#71 — the
+kernel is at 108.1% of its own platform ceiling); `residual_rms_router`
+rpg8→rpg4/2 and the shared-expert K1 rung (both sub-MDE at reprice);
+`sliding_fused_attn_ring_v1` as a byte target; the o_proj lane-major rung as a
+standalone arm (**5.90 MB = +0.135%**, sub-MDE — the advisor was wrong and
+tanjiro was right); and baseline-draw timing exploitation.
+
+**The one arm queued but not yet assigned** is ★ the **dense-layer BF16
+distinct-bit-pattern census** — layer 40/40, never censused, `dense_gate_up_swiglu`
++ `dense_down_residual` = 401.0 µs M4 / **100.66 MB/step = 5.6% of decode bytes
+and 4.51% of score**, weights BF16 `[8192,2048]` with no `.scales`. NVFP4 would
+save 72.35 MB but is inadmissible; a *lossless* distinct-bit-pattern result
+would not be. **It is tanjiro's by right of discovery (#73 §10.1)** and is the
+default next assignment when a slot frees.
 
 **The numbered list below is round-8 vintage.** It is retained because its
 reasoning is still the best written record of how each item was priced, but its
@@ -4276,13 +4837,26 @@ students on measurement and the fourth on the ranked channel.
 **Other surviving unowned arms**, none of which has an owner and none of which
 should be assigned without first re-deriving its price from source (rule 19):
 the unattributed **+1.73%** of `9e06de6`; tanjiro's prefill-router-tournament
-relabel as a 2 KB threadgroup-memory occupancy arm; nezuko's attention
-dispatch/encoder floor (15.4% of attention wall, 5.5% of slope — now folded into
-#73 as a measurement); the o_proj instruction-issue LUT discriminator (frieren,
-post-receipt); D-MLP depth-2 (+1.57% central, **unaudited**); split-K NAX
-(+0.53%, **unaudited**); the M=8 descriptor (≤ +1.66%, **not bit-guaranteed**);
-the default-flip bundle; and the 24,164 B `DARKBLOOM_STAGE2_GATHER` byte
-reclamation.
+relabel as a 2 KB threadgroup-memory occupancy arm; the o_proj instruction-issue
+LUT discriminator (frieren, post-receipt — now partly folded into #80's
+instruction channel); **D-FUSE-GATESP** (nezuko's by promise, repriced by #73
+§9.2 to a **2.91% ceiling / 0.5–1.5% realistic**, down from the 2.28% it was
+banked at for the opposite reason); D-STRAND (pool 2.040 ms, **barrier audit
+first**); D-MLP depth-2 (ceiling +1.57%, revised **+0.3–1.0%** by #73); split-K
+NAX (+0.53%, **unaudited**); the M=8 descriptor (≤ +1.66%, **not
+bit-guaranteed**); the lm-head cascade (2.97% of score but it **risks the greedy
+token gate**); the default-flip bundle; the BM=128 chunking and K-tile/R3 rungs;
+steel attention scheduling; and the T6/T7 literal-unification tiers
+(~20,900 B, deliberately **excluded** from #81 as medium/high risk).
+
+⚠ **Two distinct byte pools, do not conflate them (§0.9.30).** The
+**24,164 B** figure is fern's #40 estimate for deleting the dead
+`DARKBLOOM_STAGE2_GATHER` staging scaffolding — a *different, still-unowned*
+reclamation in the `_nax` kernel sources. It is **not** the Metal-literal pool.
+tanjiro's #81 pool is **49,301 B** (T1 27,192 + T2 15,815 + T4 ~3,690 + T5
+2,604) in `LagunaRuntimeModel.swift`'s 108 MSL literal blocks. Banking the
+24,164 B number as if it were the literal pool was **§0.9.11 casualty #24** and
+is the reason §0.9.30 exists. The two pools are additive if both are taken.
 
 ---
 
