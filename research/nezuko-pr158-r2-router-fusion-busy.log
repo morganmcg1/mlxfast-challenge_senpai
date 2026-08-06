@@ -1,0 +1,88 @@
+=== arm=base pass=1 env='' hook=1 tag=base-p1-220531 t=22:05:31 thermal={"cpu_temp":39.67741394042969,"gpu_pw":0.005534526892006397,"ram_pw":0.26168376207351685}
+[base-p1-220531] worker up in 38.9s
+[base-p1-220531] ipc_floor before_decode: n=5 mean=75.4 us median=71.1 us p10=63.2 us p90=99.0 us min=63.2 us max=99.0 us
+[base-p1-220531] decode_begin seed forward: 547.32 ms
+[base-p1-220531] teacher-forced: 0 divergences (all match)
+[base-p1-220531] decode_step wall: n=199 mean=8227.6 us median=8178.8 us p10=8122.8 us p90=8287.8 us min=8087.5 us max=10018.0 us
+[base-p1-220531] ipc_floor after_decode: n=5 mean=18.6 us median=18.1 us p10=17.8 us p90=19.9 us min=17.8 us max=19.9 us
+[base-p1-220531] SUMMARY wall_median=8.179 ms ipc_floor_median=18.1 us ipc_share_of_wall=0.22%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== arm=base pass=1 done t=22:06:15 thermal={"cpu_temp":40.523624420166016,"gpu_pw":0.0073914723470807076,"ram_pw":0.05724195018410683}
+=== arm=nonorm pass=1 env='DARKBLOOM_FUSED_ROUTER_NORM=0' hook=1 tag=nonorm-p1-220617 t=22:06:17 thermal={"cpu_temp":42.378047943115234,"gpu_pw":0.00740191200748086,"ram_pw":0.08451160043478012}
+[nonorm-p1-220617] worker up in 39.2s
+[nonorm-p1-220617] ipc_floor before_decode: n=5 mean=28.5 us median=24.9 us p10=19.5 us p90=45.8 us min=19.5 us max=45.8 us
+[nonorm-p1-220617] decode_begin seed forward: 546.95 ms
+[nonorm-p1-220617] teacher-forced: 0 divergences (all match)
+[nonorm-p1-220617] decode_step wall: n=199 mean=8673.2 us median=8628.7 us p10=8578.4 us p90=8748.5 us min=8514.2 us max=13732.3 us
+[nonorm-p1-220617] ipc_floor after_decode: n=5 mean=19.0 us median=18.2 us p10=18.0 us p90=21.7 us min=18.0 us max=21.7 us
+[nonorm-p1-220617] SUMMARY wall_median=8.629 ms ipc_floor_median=18.2 us ipc_share_of_wall=0.21%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== arm=nonorm pass=1 done t=22:07:02 thermal={"cpu_temp":40.8493766784668,"gpu_pw":0.006268324330449104,"ram_pw":0.25803178548812866}
+=== arm=nocast pass=1 env='DARKBLOOM_FUSED_ROUTER_CAST=0' hook=1 tag=nocast-p1-220704 t=22:07:04 thermal={"cpu_temp":42.81156921386719,"gpu_pw":0.0064337183721363544,"ram_pw":0.27381014823913574}
+[nocast-p1-220704] worker up in 38.7s
+[nocast-p1-220704] ipc_floor before_decode: n=5 mean=22.6 us median=22.0 us p10=19.5 us p90=29.3 us min=19.5 us max=29.3 us
+[nocast-p1-220704] decode_begin seed forward: 545.73 ms
+[nocast-p1-220704] teacher-forced: 0 divergences (all match)
+[nocast-p1-220704] decode_step wall: n=199 mean=8544.8 us median=8524.6 us p10=8478.1 us p90=8654.9 us min=8393.8 us max=8878.6 us
+[nocast-p1-220704] ipc_floor after_decode: n=5 mean=19.4 us median=19.1 us p10=18.2 us p90=21.5 us min=18.2 us max=21.5 us
+[nocast-p1-220704] SUMMARY wall_median=8.525 ms ipc_floor_median=19.1 us ipc_share_of_wall=0.22%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== arm=nocast pass=1 done t=22:07:48 thermal={"cpu_temp":40.927024841308594,"gpu_pw":0.006522894836962223,"ram_pw":0.2524421513080597}
+=== arm=base2 pass=1 env='' hook=1 tag=base2-p1-220751 t=22:07:51 thermal={"cpu_temp":40.562320709228516,"gpu_pw":0.0069914585910737514,"ram_pw":0.04632727429270744}
+[base2-p1-220751] worker up in 38.7s
+[base2-p1-220751] ipc_floor before_decode: n=5 mean=82.9 us median=75.5 us p10=59.9 us p90=103.9 us min=59.9 us max=103.9 us
+[base2-p1-220751] decode_begin seed forward: 548.06 ms
+[base2-p1-220751] teacher-forced: 0 divergences (all match)
+[base2-p1-220751] decode_step wall: n=199 mean=8267.2 us median=8265.4 us p10=8229.5 us p90=8309.2 us min=8197.3 us max=8426.4 us
+[base2-p1-220751] ipc_floor after_decode: n=5 mean=18.6 us median=18.3 us p10=17.8 us p90=19.3 us min=17.8 us max=19.3 us
+[base2-p1-220751] SUMMARY wall_median=8.265 ms ipc_floor_median=18.3 us ipc_share_of_wall=0.22%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== arm=base2 pass=1 done t=22:08:35 thermal={"cpu_temp":40.79143524169922,"gpu_pw":0.006241785828024149,"ram_pw":0.17341135442256927}
+=== arm=base2 pass=2 env='' hook=1 tag=base2-p2-220837 t=22:08:37 thermal={"cpu_temp":40.6728515625,"gpu_pw":0.006396298296749592,"ram_pw":0.2897164225578308}
+[base2-p2-220837] worker up in 38.9s
+[base2-p2-220837] ipc_floor before_decode: n=5 mean=76.3 us median=74.1 us p10=60.0 us p90=104.1 us min=60.0 us max=104.1 us
+[base2-p2-220837] decode_begin seed forward: 547.96 ms
+[base2-p2-220837] teacher-forced: 0 divergences (all match)
+[base2-p2-220837] decode_step wall: n=199 mean=8139.6 us median=8154.8 us p10=8028.7 us p90=8224.9 us min=8009.3 us max=8674.7 us
+[base2-p2-220837] ipc_floor after_decode: n=5 mean=19.2 us median=18.8 us p10=17.9 us p90=22.1 us min=17.9 us max=22.1 us
+[base2-p2-220837] SUMMARY wall_median=8.155 ms ipc_floor_median=18.8 us ipc_share_of_wall=0.23%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== arm=base2 pass=2 done t=22:09:21 thermal={"cpu_temp":40.836490631103516,"gpu_pw":0.006583488546311855,"ram_pw":0.26620471477508545}
+=== arm=nocast pass=2 env='DARKBLOOM_FUSED_ROUTER_CAST=0' hook=1 tag=nocast-p2-220924 t=22:09:24 thermal={"cpu_temp":40.61901092529297,"gpu_pw":0.00817919336259365,"ram_pw":0.05098000168800354}
+[nocast-p2-220924] worker up in 39.0s
+[nocast-p2-220924] ipc_floor before_decode: n=5 mean=76.0 us median=73.5 us p10=59.8 us p90=102.6 us min=59.8 us max=102.6 us
+[nocast-p2-220924] decode_begin seed forward: 547.67 ms
+[nocast-p2-220924] teacher-forced: 0 divergences (all match)
+[nocast-p2-220924] decode_step wall: n=199 mean=8687.1 us median=8659.8 us p10=8626.0 us p90=8709.6 us min=8563.9 us max=11825.7 us
+[nocast-p2-220924] ipc_floor after_decode: n=5 mean=18.6 us median=18.3 us p10=18.0 us p90=19.7 us min=18.0 us max=19.7 us
+[nocast-p2-220924] SUMMARY wall_median=8.660 ms ipc_floor_median=18.3 us ipc_share_of_wall=0.21%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== arm=nocast pass=2 done t=22:10:08 thermal={"cpu_temp":40.76005172729492,"gpu_pw":0.007827536202967167,"ram_pw":0.04818294942378998}
+=== arm=nonorm pass=2 env='DARKBLOOM_FUSED_ROUTER_NORM=0' hook=1 tag=nonorm-p2-221011 t=22:10:11 thermal={"cpu_temp":44.115501403808594,"gpu_pw":0.007329262793064117,"ram_pw":0.2309834361076355}
+[nonorm-p2-221011] worker up in 39.2s
+[nonorm-p2-221011] ipc_floor before_decode: n=5 mean=28.6 us median=24.4 us p10=22.2 us p90=45.9 us min=22.2 us max=45.9 us
+[nonorm-p2-221011] decode_begin seed forward: 545.30 ms
+[nonorm-p2-221011] teacher-forced: 0 divergences (all match)
+[nonorm-p2-221011] decode_step wall: n=199 mean=8443.7 us median=8399.0 us p10=8353.5 us p90=8564.7 us min=8319.1 us max=8703.2 us
+[nonorm-p2-221011] ipc_floor after_decode: n=5 mean=19.4 us median=18.7 us p10=18.0 us p90=22.5 us min=18.0 us max=22.5 us
+[nonorm-p2-221011] SUMMARY wall_median=8.399 ms ipc_floor_median=18.7 us ipc_share_of_wall=0.22%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== arm=nonorm pass=2 done t=22:10:56 thermal={"cpu_temp":40.87263107299805,"gpu_pw":0.0064112041145563126,"ram_pw":0.26664239168167114}
+=== arm=base pass=2 env='' hook=1 tag=base-p2-221058 t=22:10:58 thermal={"cpu_temp":43.12670135498047,"gpu_pw":0.04419843479990959,"ram_pw":0.20223751664161682}
+[base-p2-221058] worker up in 39.0s
+[base-p2-221058] ipc_floor before_decode: n=5 mean=84.7 us median=85.6 us p10=64.7 us p90=104.1 us min=64.7 us max=104.1 us
+[base-p2-221058] decode_begin seed forward: 548.06 ms
+[base-p2-221058] teacher-forced: 0 divergences (all match)
+[base-p2-221058] decode_step wall: n=199 mean=8218.5 us median=8183.7 us p10=8147.3 us p90=8236.4 us min=8096.7 us max=12622.1 us
+[base-p2-221058] ipc_floor after_decode: n=5 mean=18.3 us median=17.8 us p10=17.4 us p90=19.6 us min=17.4 us max=19.6 us
+[base-p2-221058] SUMMARY wall_median=8.184 ms ipc_floor_median=17.8 us ipc_share_of_wall=0.22%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== arm=base pass=2 done t=22:11:42 thermal={"cpu_temp":40.74981689453125,"gpu_pw":0.0078124734573066235,"ram_pw":0.08715982735157013}
