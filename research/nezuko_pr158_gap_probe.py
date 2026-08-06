@@ -61,12 +61,24 @@ def main() -> int:
     ap.add_argument("--profile", action="store_true")
     ap.add_argument("--profile-top", type=int, default=44)
     ap.add_argument("--label", default="")
+    ap.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="truncate the seed prompt to N tokens; shrinks attention KV work "
+        "without changing dispatch or command-buffer counts. Decode free-runs "
+        "greedily instead of teacher-forcing, so this arm is timing-only.",
+    )
     args = ap.parse_args()
 
     with open(GOLDEN) as fh:
         case = json.load(fh)["cases"][0]
     prompt = case["prompt_tokens"]
     expected = case["expected_tokens"]
+    free_run = 0 < args.seed < len(prompt)
+    if free_run:
+        prompt = prompt[: args.seed]
+        expected = expected[:1]
 
     env = dict(os.environ)
     env.setdefault("MLXFAST_WEIGHTS_PATH", args.weights)
@@ -129,9 +141,13 @@ def main() -> int:
         if i + 1 < len(expected) and resp["token"] != expected[i + 1]:
             mismatches.append((i, expected[i + 1], resp["token"]))
         token = expected[i + 1] if i + 1 < len(expected) else resp["token"]
-    print(f"[{args.label}] teacher-forced: {len(mismatches)} divergences"
-          + (f" first={mismatches[0]}" if mismatches else " (all match)"),
-          flush=True)
+    if free_run:
+        print(f"[{args.label}] free-run seed={len(prompt)}: "
+              "timing-only arm, no divergence check", flush=True)
+    else:
+        print(f"[{args.label}] teacher-forced: {len(mismatches)} divergences"
+              + (f" first={mismatches[0]}" if mismatches else " (all match)"),
+              flush=True)
 
     steady = [b - a for a, b in step_spans[1:]]
     wall_median = stats(f"[{args.label}] decode_step wall", steady)

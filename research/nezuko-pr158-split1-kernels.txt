@@ -1,0 +1,26 @@
+records=88482 window=80794 window_span=9.859 ms/step gpu_busy_sum=8583.0 us/step kernels=24
+  us/step   share  n/step  us/call     p10     p90  kernel
+   1500.7  17.48%   39.00    38.48   37.88   39.17  custom_kernel_laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_bfloat16_t_uint32_t_uint8_t_uint32_t_bfloat16_t
+   1334.2  15.54%   30.00    44.47   43.92   45.21  custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t
+   1116.6  13.01%   30.00    37.22   36.67   37.87  custom_kernel_laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t
+    868.3  10.12%   39.00    22.26   21.87   22.71  custom_kernel_laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5_bfloat16_t_uint32_t_uint8_t_uint32_t_float_bfloat16_t_uint32_t_uint8_t_bfloat16_t_bfloat16_t
+    634.8   7.40%   30.00    21.16   20.83   21.50  custom_kernel_laguna_sliding_fused_attn_ring_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t
+    421.9   4.92%    1.00   421.86  418.38  427.33  custom_kernel_laguna_lmhead_int5_base_coarse_delta_bf16_v1_bfloat16_t_uint8_t_uint8_t_float_bfloat16_t
+    364.0   4.24%   10.00    36.40   35.88   37.00  custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t
+    319.9   3.73%   39.00     8.20    8.00    8.46  custom_kernel_laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_bfloat16_t_uint32_t
+    303.1   3.53%   10.00    30.31   29.75   31.00  custom_kernel_laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1_bfloat16_t_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t
+    293.0   3.41%   39.00     7.51    7.25    7.75  custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t
+    270.0   3.15%    1.00   270.01  266.29  275.00  custom_kernel_laguna_dense_gate_up_swiglu_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t
+    254.1   2.96%   10.00    25.41   23.25   27.62  custom_kernel_laguna_full_fused_attn_grow_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_float_bfloat16_t_bfloat16_t_uint32_tc_floatc_bfloat16_t
+    241.7   2.82%   30.00     8.06    7.88    8.21  custom_kernel_laguna_gate_sp_h64_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t
+    202.1   2.35%   39.00     5.18    5.04    5.33  custom_kernel_laguna_decode_router_top8_ordinal_table_norm_v1_bfloat16_t_float_uint32_t_float
+    142.7   1.66%   41.00     3.48    3.37    3.62  rmsbfloat16
+    135.0   1.57%    1.00   135.01  132.71  138.04  custom_kernel_laguna_dense_down_residual_bf16_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t
+     77.3   0.90%   10.00     7.73    7.54    7.88  custom_kernel_laguna_gate_sp_h48_v1_bfloat16_t_uint32_t_bfloat16_t_bfloat16_t_bfloat16_t
+     75.7   0.88%    1.00    75.73   74.29   77.88  custom_kernel_laguna_lmhead_exact_fused_int5_sparse_refine_v1_float_bfloat16_t_floatc_bfloat16_t_bfloat16_t_uint8_t_uint8_t_bfloat16_t
+      9.3   0.11%    1.00     9.30    8.75   10.21  argmax_bfloat16
+      4.6   0.05%    1.00     4.60    4.38    4.88  custom_kernel_laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t_bfloat16_t_bfloat16_t_float
+      3.9   0.05%    1.00     3.93    3.62    4.29  custom_kernel_laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t
+      3.6   0.04%    1.00     3.58    3.25    4.00  gather_frontbfloat16_int32_int_2
+      3.6   0.04%    1.00     3.55    3.37    3.71  custom_kernel_laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t_float_float_int32_ts_bfloat16_t_float_float
+      3.0   0.03%    1.00     2.98    2.83    3.12  custom_kernel_laguna_residual_rms_bf16_2048_v1_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t_bfloat16_t
