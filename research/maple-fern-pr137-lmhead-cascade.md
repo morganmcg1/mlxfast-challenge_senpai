@@ -748,3 +748,139 @@ honest datum is: **one observation, ≥ 2 h 43 min, still running.**
 - Did not add a liveness-adaptive dispatch that would pick the old geometry when
   survivors exceed ~12.5 %. The 24× margin does not justify the branch today,
   but it is the natural guard if the pruner's threshold policy ever loosens.
+
+## 9. Wave analysis across 20 and 40 cores (required by the softened geometry rule)
+
+Organizer commit `f30bd49` ("Soften Maple research heuristics") changed the
+status of this arm's evidence, so this section is not optional bookkeeping.
+
+Under the previous wording, thread re-tiling — explicitly including *grid
+divisors* — "does **not** transfer; an M4 measurement is not evidence and must
+not be reported as if it were." The shipped change is exactly a grid-divisor
+change, so under that rule my entire local case was inadmissible by
+construction. The new wording reclassifies it as "core-count sensitive;
+interpret M4 timing with wave analysis rather than presenting it as sufficient
+M5 evidence", and requires that any M4→M5 geometry prediction report the
+threadgroup count, threads per threadgroup, threadgroup memory, and wave count
+`ceil(TGs / cores)` for both 20 and 40 cores, with a predicted sign per host.
+That is the analysis below. I am flagging the dependency openly: my evidence is
+reportable because the rule was softened, not because the measurement changed.
+
+### 9.1 Launch geometry, both arms
+
+Read from the dispatch site in `Sources/MLXFastModel/LagunaLmHeadPrune.swift`
+(MLX's `grid` argument is *total threads*, not threadgroups):
+
+| | control (`..._sparse_refine_v1`) | shipped (`..._sparse_refine_rowmajor_v1`) |
+|---|---|---|
+| grid expression | `vocab / 32 * 256` | `vocab` |
+| total threads | 802,816 | 100,352 |
+| threads / threadgroup | 256 | 256 |
+| **threadgroups** | **3,136** | **392** |
+| threads per output row | 8 | 1 |
+| threadgroup memory | 0 B | 0 B |
+| partial threadgroup | none (3136 × 256 exact) | none (392 × 256 exact) |
+
+Threadgroup memory is zero in both arms, so occupancy cannot be the hidden
+confounder in either direction.
+
+### 9.2 Wave counts
+
+| cores | control waves | shipped waves | ratio |
+|---|---|---|---|
+| 20 (M4 Pro, this host) | `ceil(3136/20)` = **157** | `ceil(392/20)` = **20** | 7.85× |
+| 40 (M5 Max, ranked) | `ceil(3136/40)` = **79** | `ceil(392/40)` = **10** | 7.90× |
+
+The wave *ratio* is essentially identical on both hosts, which is the useful
+part: the relative speedup should transfer even though the absolute saving
+should not.
+
+### 9.3 Predicted sign, per host
+
+**Negative (faster) on both, high confidence.** The inversion mode for a
+geometry change is under-occupancy — the threadgroup count falling toward or
+below the core count, leaving cores idle. At 40 cores the shipped arm still
+launches 392 TGs, i.e. 9.8 TGs per core, so every core is ~10× oversubscribed
+and no core idles. There is no mechanism here for the sign to flip.
+
+This is the structural difference from the `MLX_MAX_MB_PER_BUFFER` precedent
+(receipt `3e6fdcb`), where two balanced M4 confirmations of −1.76% and −1.99%
+inverted to `ns` −1.608% on M5. That was a global allocator knob whose effect
+was mediated by machine-wide scheduling; this is a local removal of 7/8 of the
+dispatched threads for a fixed amount of output.
+
+### 9.4 Predicted magnitude — this revises my own projection **downward**
+
+Per-wave cost implied by the M4 census (200 steps): control 77.4 µs / 157 waves
+= 0.493 µs/wave; shipped 13.7 µs / 20 waves = 0.685 µs/wave. The shipped arm's
+waves are individually heavier, as expected, since one thread now carries a
+whole row.
+
+Holding per-wave latency fixed and halving the wave count at 40 cores:
+
+- control: 79 × 0.493 = **38.9 µs**
+- shipped: 10 × 0.685 = **6.9 µs**
+- **predicted M5 saving ≈ 32 µs, transfer factor ≈ 0.50**
+
+My r1 submission assumed a transfer factor of **0.75** (47.8 µs, +0.70%). That
+0.75 was never derived — it was a round conservatism margin. The wave model says
+**0.50 is the better central estimate**, because the dominant term is
+wave-proportional and the M5's extra cores halve the wave count for both arms
+together.
+
+Honest band: **0.50–0.75, i.e. 32–48 µs, i.e. +0.47% to +0.70%**. The upper end
+requires a component of the control arm's cost that is *not* wave-proportional
+(e.g. memory-latency exposure that the M5 cannot hide any better than the M4);
+the lower end is the pure throughput model.
+
+**This band straddles the advisor's 40 µs GO gate**, which the r1 projection did
+not. I am recording that before the receipt rather than after, because a
+prediction stated only once the answer is known is worth nothing. It also makes
+the measured transfer factor the most valuable number on the receipt: it is a
+direct test of a 0.50 wave model against a 0.75 guess, on a kernel both hosts
+genuinely execute.
+
+### 9.5 A bounded counterexample to the byte-roofline prior
+
+`f30bd49` also softened "a decode change that neither removes bytes nor improves
+bytes/second is worth approximately nothing … do not reopen [dispatch count,
+kernel fusion, threadgroup occupancy] without new evidence about bandwidth" to
+"starts with low expected value … revisit one when a proposal identifies a new
+mechanism or new evidence".
+
+This arm is that new evidence, and it is worth stating precisely because the
+prior is otherwise well supported:
+
+- S4 moved 803 KB in 77.4 µs = **10.7 GB/s**, about **4 % of the M4 ceiling**.
+  The kernel was nowhere near the bandwidth roof; it was thread-count/latency
+  bound.
+- The shipped change removes **no bytes at all**. Every one of the 100,352
+  output rows is still written. It removes 7/8 of the *threads* dispatched to
+  write them, and wins 63.7 µs on M4.
+
+The reconciliation is that the 1794 MB / 260.2 GB/s roofline is a *step
+aggregate*. Individual kernels can sit far below it, and when one does, thread
+count rather than bytes is the binding constraint for that kernel. The prior
+should be read as "bytes bind for the kernels that dominate the step", not as
+"nothing but bytes can ever pay". The practical filter I would suggest: before
+dismissing an occupancy or dispatch proposal, price the target kernel's achieved
+GB/s. At 4 % of ceiling the byte prior simply does not apply.
+
+### 9.6 Reporting consequences of the softening
+
+- **Receipt count.** "Every official submission must be reported … in a family
+  of at least three" became "match repetition to the decision: one receipt can
+  justify a clear win, while a marginal effect near observed variance benefits
+  from repeated receipts." My projected +0.47 % to +0.70 % sits above the
+  0.243 % 2σ noise floor at the top of the band and near it at the bottom, so a
+  single clear receipt can settle a win, while a result landing near +0.25 %
+  would need repetition. Budget unchanged at 3; I still expect to spend 1.
+- **Thresholds.** The programme-wide "advisor's acceptance bar is 2× that,
+  0.61 %" line was deleted, and the 0.243 % floor is now "noise context, not a
+  universal submission or promotion threshold". I am nonetheless still reporting
+  against the advisor's explicitly pre-registered r2 bars — **GO `ns ≥ 2.6045`,
+  KILL `ns < 2.5919`** — because those were set for this arm in this assignment
+  and a pre-registered bar that is relaxed after the fact is not a bar.
+- **`S`/`T` decomposition** softened from "must, for every official run" to
+  "when identifying where the gain came from". I am reporting it regardless;
+  this arm's whole claim is a `T`-only change with `S` flat by construction.
