@@ -381,7 +381,9 @@ func newOut(_ elems: Int) -> MTLBuffer {
 var pairs: [Pair] = []
 
 let aluSizes = [2, 5, 10, 20, 40, 240, 1000]
-let mixSizes = [2, 10, 20, 240]
+// 512 and 9792 are the measured prefill-512 threadgroup counts for a sliding
+// attention dispatch and for one layer's compacted MoE gather-GEMM.
+let mixSizes = [2, 10, 20, 240, 512, 2048, 9792]
 
 for tgs in aluSizes {
   let outA = newOut(tgs * threadsPerTG), outB = newOut(tgs * threadsPerTG)
@@ -420,9 +422,10 @@ for tgs in mixSizes {
 // K is calibrated per shape so every GEMM cell lands near targetMs; otherwise
 // the occupancy sweep would confound threadgroup count with kernel duration.
 let gemmShapes: [(String, Int, Int, Int)] = [
-  ("small", 64, 64, 65536),    //   16 TGs
-  ("half",  128, 160, 65536),  //   80 TGs
-  ("fill",  512, 1024, 8192),  // 2048 TGs
+  ("small", 64, 64, 65536),      //   16 TGs
+  ("half",  128, 160, 65536),    //   80 TGs
+  ("fill",  512, 1024, 8192),    // 2048 TGs
+  ("moe512", 512, 4896, 4096),   // 9792 TGs = one layer's compacted MoE grid
 ]
 for (label, m, n, probeK) in gemmShapes {
   let tgs = (m / 16) * (n / 16)
