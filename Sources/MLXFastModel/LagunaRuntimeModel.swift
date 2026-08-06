@@ -2199,6 +2199,48 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+struct LagunaFullAttentionParams {
+    private var entry: (writeIdx: Int, capacity: Int, params: MLXArray)?
+    private var requests = 0
+    private var hits = 0
+    private var misses = 0
+    private var fallbacks = 0
+    private var layers: [Int] = []
+
+    mutating func params(writeIdx: Int, capacity: Int, layer: Int) -> MLXArray {
+        requests += 1
+        layers.append(layer)
+        if let entry {
+            if entry.writeIdx == writeIdx, entry.capacity == capacity {
+                hits += 1
+                return entry.params
+            }
+            fallbacks += 1
+            return Self.make(writeIdx: writeIdx, capacity: capacity)
+        }
+        misses += 1
+        let params = Self.make(writeIdx: writeIdx, capacity: capacity)
+        entry = (writeIdx, capacity, params)
+        return params
+    }
+
+    private static func make(writeIdx: Int, capacity: Int) -> MLXArray {
+        MLXArray([UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity)])
+    }
+
+    func trace() {
+        guard lagunaTraceFusion, let entry else { return }
+        precondition(
+            requests == 10 && misses == 1 && hits == 9 && fallbacks == 0 &&
+                layers == [0, 4, 8, 12, 16, 20, 24, 28, 32, 36],
+            "full-attention parameter carrier cohort mismatch")
+        let words = "\(entry.writeIdx),\(entry.writeIdx + 1),\(entry.capacity)"
+        lagunaTrace(
+            "full params words=[\(words)] reused=[\(words)] layers=\(layers) "
+                + "requests=\(requests) misses=\(misses) hits=\(hits) fallbacks=\(fallbacks)")
+    }
+}
+
 /// Fused decode attention for a full-attention layer with spare backing
 /// capacity. Returns `[1, heads, 1, headDim]`; the caller advances the
 /// cache clock via `KVCacheSimple.fusedAppendAdvance()`.
@@ -2212,6 +2254,7 @@ func lagunaFullFusedAttention(
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
+    params: MLXArray,
     scale: MLXArray
 ) -> MLXArray {
     let heads = LagunaConstants.fullAttentionHeads
@@ -2236,9 +2279,6 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
-    let params = MLXArray([
-        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
-    ])
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
@@ -2285,6 +2325,7 @@ func lagunaWarmFullFusedAttentionKernel() {
         cacheKeys: cacheKeys,
         cacheValues: cacheValues,
         writeIdx: 1,
+        params: MLXArray([UInt32(1), UInt32(2), UInt32(2)]),
         scale: scale
     ))
 }
@@ -5423,6 +5464,7 @@ final class LagunaRuntimeAttention: Module {
         inputNorm: RMSNorm,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
+        fullAttentionParams: inout LagunaFullAttentionParams,
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
@@ -5738,6 +5780,10 @@ final class LagunaRuntimeAttention: Module {
                 cacheKeys: append.keys,
                 cacheValues: append.values,
                 writeIdx: append.writeIdx,
+                params: fullAttentionParams.params(
+                    writeIdx: append.writeIdx,
+                    capacity: append.keys.dim(2),
+                    layer: layerIdx),
                 scale: _fusedAttnScale
             )
             simple.fusedAppendAdvance()
@@ -10233,6 +10279,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         _ x: MLXArray,
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
+        fullAttentionParams: inout LagunaFullAttentionParams,
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
@@ -10241,6 +10288,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             inputNorm: inputLayerNorm,
             mask: mask,
             cache: cache,
+            fullAttentionParams: &fullAttentionParams,
             qkRoPEAngles: qkRoPEAngles,
             qkRoPEOffsets: qkRoPEOffsets
         )
@@ -10744,6 +10792,7 @@ final class LagunaRuntimeModelInner: Module {
             h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
 
         let isSingleTokenDecode = inputs.shape == [1, 1]
+        var fullAttentionParams = LagunaFullAttentionParams()
         let decodeFireMask: UInt64 =
             switch lagunaDecodeAsyncStage {
             case .off, .norm, .logits:
@@ -10777,6 +10826,7 @@ final class LagunaRuntimeModelInner: Module {
                         h,
                         mask: mask,
                         cache: cache?[i],
+                        fullAttentionParams: &fullAttentionParams,
                         qkRoPEAngles: qkRoPEAngles,
                         qkRoPEOffsets: qkRoPEOffsets
                     )
@@ -10789,6 +10839,7 @@ final class LagunaRuntimeModelInner: Module {
                     h,
                     mask: mask,
                     cache: cache?[i],
+                    fullAttentionParams: &fullAttentionParams,
                     qkRoPEAngles: qkRoPEAngles,
                     qkRoPEOffsets: qkRoPEOffsets
                 )
@@ -10803,6 +10854,7 @@ final class LagunaRuntimeModelInner: Module {
             }
         }
 
+        fullAttentionParams.trace()
         return h
     }
 }
