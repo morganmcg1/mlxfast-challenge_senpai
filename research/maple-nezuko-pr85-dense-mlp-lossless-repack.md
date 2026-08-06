@@ -9,9 +9,15 @@ ceiling. If those planes can be re-encoded to fewer bytes *without changing a
 single emitted BF16 bit pattern*, decode time should fall in proportion to the
 bytes removed.
 
-**Result headline.** The encoding works and is provably lossless — 25.14 MB
-removed per step, 0 mismatching bit patterns over 50,331,648 weights, end-to-end
-`max_abs_diff: 0`. The timing verdict is in §6.
+**Result headline — NO-GO. The hypothesis is refuted.** The encoding works and
+is provably lossless: 25.14 MB removed per step, 0 mismatching bit patterns over
+50,331,648 weights, end-to-end `max_abs_diff: 0` on all 12 timed runs. But the
+bytes do not buy time. On 6 v 6 paired runs the packed path is **+0.905 %
+slower** to decode (95 % CI [+0.35 %, +1.46 %], exact permutation p = 0.0087),
+i.e. a score change of **−0.71 %**, against a predicted **+0.59 %…+0.68 %**
+gain. The unpack ALU costs ≈ 2.2× the bandwidth it buys on this host and ≈ 5.3×
+on the ranked host (§6.5). Do not merge. Full timing analysis in §6; §6.6
+withdraws the d = 5 follow-up on the same arithmetic.
 
 ---
 
@@ -287,6 +293,16 @@ Note that the pessimistic figure still sits above the advisor's ≈ 0.61 %
 acceptance bar at 546.2 GB/s and just below it at 610 GB/s, so the *rate*
 assumption, not the escape tax, is what decides whether this clears the bar.
 
+> **Superseded by measurement.** This whole prediction is a pure byte-roofline
+> forecast: it prices the bytes removed and silently assumes the unpack
+> arithmetic is free. §6.2 measures **−0.71 %** where this section predicts
+> **+0.59 %…+0.68 %**, and §6.5 recovers the missing term — the unpack ALU costs
+> ≈ 219.6 µs/step, roughly 2.2× the 100.6 µs of bandwidth it buys on this host.
+> The escape tax, which this section works hard to bound, turns out to be
+> irrelevant: it is at most 3.8 % of a saving that is itself swamped by an ALU
+> cost 2.2× larger. Read §5.1.1 as a record of what the byte roofline predicts,
+> not as a live claim.
+
 ### 5.2 §0.9.31 RAM allocation accounting
 
 With the mechanism ON, the stock fused 67.11 MB BF16 bank is **not built**.
@@ -510,13 +526,26 @@ GPU generation 16, low-memory startup profile, ~250 GB/s effective, idles at
 ~40.3 °C against a 40 °C cool gate). The ranked host is an **M5 Max** with
 128 GB. This box does not select `_nax` kernels at all.
 
-For *this* experiment the cross-machine risk is unusually structured, and cuts
-in a specific direction: the mechanism trades **bytes for integer ALU work**
-(roughly 9 extra integer ops per weight to unpack). Whether that trade wins
-depends entirely on the host's bytes-per-ALU-op balance. An M4 Pro at ~250 GB/s
-with fewer GPU cores is *more* likely to be ALU-limited than an M5 Max. So a
-null or negative result here is **weaker** evidence against the mechanism on M5
-than a positive result here would have been for it.
+For *this* experiment the cross-machine risk is unusually structured: the
+mechanism trades **bytes for integer ALU work** (roughly 9 extra integer ops per
+weight to unpack), so whether the trade wins depends on the host's
+bytes-per-ALU-op balance, and an M4 Pro at ~250 GB/s with fewer GPU cores is
+*more* likely to be ALU-limited than an M5 Max.
+
+Written before the campaign, that asymmetry was the reason to treat a *null*
+here as weak evidence against the mechanism. **It does not rescue the result
+that actually came back**, and §6.5 is what settles the question rather than
+this section. The reason is that the M4 outcome is not a null but a large
+signed regression whose magnitude can be converted: the 25.14 MB saved is worth
+100.6 µs at 250 GB/s, the measured cost is +118.97 µs, so the unpack ALU is
+≈ 219.6 µs — about **2.2× the bandwidth it buys**. Moving to the M5's
+~610 GB/s makes the *numerator* worse, not better: the same bytes are then worth
+only 41.2 µs, so the M5 needs the ALU term to fall by **5.3×** merely to break
+even. The M5's advantage in ALU throughput over an M4 Pro is nowhere near that.
+The host asymmetry is real and it points the right way, but it is roughly a
+2× effect against a deficit that needs 5.3×, so the sign of the conclusion does
+not change. I would still want the ranked host to confirm the exact number; I
+do not think it can flip it.
 
 ### 7.2 Prefill is a control, not a claim
 
@@ -575,42 +604,47 @@ DARKBLOOM_DENSE_PACKED=0 ./benchmark.sh --local-iterate
 
 ## 9. Suggested follow-ups (not implemented)
 
-Ordered by my estimate of expected value per unit of effort. None of these are
-implemented here; several are cheap enough to be worth a slot.
+This section was drafted before the campaign. §6 refuted the arm, so the list
+below has been rewritten to say what is actually still worth a slot. §9.1 is
+**withdrawn by my own measurement** and is kept, struck, so nobody re-opens it.
 
-### 9.1 P13 branch-free — the strongest follow-up
+### 9.1 P13 branch-free — WITHDRAWN, do not run this
 
-The census says `d=5` reaches **zero escapes** (§2.3): a 5-bit delta with a
-per-channel base covers every element of all three planes with no exceptions
-at all. That costs 13.0039 b/w against P12's 12.0063 b/w, so it moves ~8 %
-more bytes than the shipped scheme — but it buys three structural
-simplifications that P12 cannot have:
+This was drafted as the strongest follow-up. **§6.6 kills it and I am
+withdrawing it rather than leaving it on the list.**
 
-1. **No escape branch in the kernel.** The `LAGUNA_ANY_ESCAPE` mask test and
-   the anti-hoist pointer dance in §3 disappear entirely. That is roughly
-   4 of the ~9 integer ALU ops per weight.
-2. **No resident stock plane.** The +8.41 MB net allocation of §5.2 becomes
-   roughly **−33 MB**, because the escape fallback is what forces the original
-   BF16 plane to stay live.
-3. **No exception accounting**, so §5.1.1's pessimistic tax is identically zero
-   and the ledger has no soft edge.
+The original argument: the census says `d=5` reaches **zero escapes** (§2.3), so
+a 5-bit delta with a per-channel base covers every element of all three planes
+with no exceptions. That costs 13.0039 b/w against P12's 12.0063 b/w — ~8 %
+more bytes — but removes the `LAGUNA_ANY_ESCAPE` mask test and the anti-hoist
+pointer dance (roughly 4 of the ~9 integer ALU ops per weight), removes the
+resident stock plane (turning §5.2's +8.41 MB into roughly −33 MB), and makes
+§5.1.1's escape tax identically zero.
 
-Whether P13 beats P12 is exactly the bytes-versus-ALU question §7.1 says this
-host cannot settle. If the M5 result shows the mechanism is byte-limited, P12
-wins by ~8 %. If it shows the mechanism is ALU-limited — which is what a null
-on this host would hint at — **P13 branch-free may well be the better kernel
-despite moving more bytes**, and it is strictly simpler code. I would run this
-as the first variant after the first M5 receipt, not before, because the
-receipt tells you which regime you are in and the census work is already done.
+Why it does not survive: P13 removes ~4 of ~9 ALU ops, so on the measured
+≈ 219.6 µs unpack cost it would still spend ≈ 122 µs — while *reducing* the
+byte saving to ~18.9 MB, worth ~75 µs on this host and only ~31 µs on the M5.
+It is a smaller win on the term that is already losing and a smaller loss on
+the term that is already too small. It is underwater by ~1.6× on M4 and ~3.9×
+on M5, which is worse than P12 on M5. The three structural simplifications are
+real and P13 is genuinely nicer code; none of that matters when the sign is
+wrong. **Do not spend a slot on it.**
 
 ### 9.2 Interleave the M and D planes
 
 The shipped scheme keeps mantissa bytes and delta nibbles in two separate
 arrays, so each weight costs two loads from two streams. Packing 2 weights into
 3 contiguous bytes gives one stream at the cost of byte-unaligned extraction.
-Two coalesced streams are usually fine on Apple Silicon, so I did not spend the
-budget on this, but it is a self-contained kernel-only change with an unchanged
-certificate and it would halve the number of live streams in the inner loop.
+It is a self-contained kernel-only change with an unchanged certificate.
+
+**Downgraded, and I would not run it either.** It attacks stream count, not the
+term that lost. §6.5 puts the unpack ALU at ≈ 219.6 µs against ≈ 100.6 µs of
+bandwidth bought (≈ 41.2 µs on M5); byte-unaligned extraction *adds* shift and
+mask work, so the most optimistic reading is that it trades a little load-issue
+pressure for a little more ALU on the side of the ledger that is already 2.2×
+over. This is only worth revisiting if someone first shows the unpack can be
+made ~5× cheaper, in which case the stream count becomes the next thing to fix
+rather than the first.
 
 ### 9.3 Do not chase P8 or T8 — both are closed
 
@@ -644,11 +678,36 @@ structure again.
 
 ### 9.5 Instrument work the programme needs more than it needs this arm
 
-§7.1 is the binding constraint on everything above: a 0.6 % effect against a
-host whose A/A spread is of the same order cannot be resolved locally at n=6
-per arm. The campaign here is the best available answer, but the honest
-statement is that **this host cannot confirm a 0.6 % win, only fail to find a
-regression**. If the programme wants local pre-screening of sub-1 % arms to
-mean anything, it needs either many more repetitions per arm or a lower-variance
+The measurement limit is asymmetric, and this campaign is a clean illustration
+of both halves. A 0.6 % *win* cannot be confirmed on this host at n = 6 per arm:
+the A/A null (§6.3) has p95 ≈ 0.69–0.80 %, so a true +0.6 % is inside the noise
+floor. A ~0.9 % *regression* is a different matter — it cleared that same null
+with an exact permutation p = 0.0087 and survived prefill adjustment (§6.4).
+So the honest statement is that **this host can refute an arm it cannot
+confirm**, and pre-screening for negatives is worth more here than
+pre-screening for positives.
+
+That asymmetry is worth building on rather than working around. Cheap, high
+value: establish the A/A null *before* the arm rather than after it. My null
+here is honest but post hoc — it comes from 20 within-arm 3 v 3 splits of the
+same 12 runs (§6.3), so it costs no extra GPU time but the threshold was known
+only after the result was. A pre-registered per-host null would cost one idle
+campaign and would make every subsequent sub-1 % verdict on that host cheaper to
+defend. More expensive
+but more useful: if the programme wants local pre-screening to *confirm* sub-1 %
+arms, it needs either many more repetitions per arm or a lower-variance
 measurement than end-to-end `--local-iterate`. That is a programme-level
 decision, not something to fix inside one experiment.
+
+### 9.6 The generalisable finding, which is not about this arm
+
+The transferable result is not "the repack failed" but a **priced exchange
+rate**: on this model's dense BF16 planes, a per-channel-base delta scheme buys
+25.14 MB/step at a cost of ≈ 219.6 µs of unpack ALU. Any future
+bytes-for-arithmetic trade in this runtime can be screened against that number
+before anyone writes a kernel. Concretely, a decode-path unpack scheme is only
+worth building if it costs under ~4 integer ops per weight *and* saves more than
+~25 % of its plane — and on the ranked M5, where saved bytes are worth 2.4×
+less, the ALU budget is roughly **5× tighter still**. §6.6 shows that test
+correctly rejecting P13 without a run. I would rather the programme keep that
+constant than keep this kernel.
