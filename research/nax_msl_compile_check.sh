@@ -80,10 +80,21 @@ for std in metal4.0 metal3.2 ""; do
 done
 
 if [ "${status}" -eq 0 ] && [ "${EMIT_LIB:-0}" = "1" ]; then
-  if xcrun -sdk macosx metallib "${OUT}/unit.air"  if xcrun -sdk .m  if xcrun -s     > "${OUT}/metallib.log" 2>&1; then
+  if xcrun -sdk macosx metallib "${OUT}/unit.air" -o "${OUT}/unit.metallib" \
+      > "${OUT}/metallib.log" 2>&1; then
     echo "METALLIB OK -> ${OUT}/unit.metallib"
   else
     echo "metallib link failed:"; head -15 "${OUT}/metallib.log"; status=1
+  fi
+fi
+
+if [ "${status}" -eq 0 ] && [ "${EMIT_IR:-0}" = "1" ]; then
+  if xcrun -sdk macosx metal -x metal -std=metal4.0 -Wno-c++17-extensions \
+      -Wno-c++20-extensions -fno-fast-math -S -emit-llvm "${SRC}" \
+      -o "${OUT}/unit.ll" > "${OUT}/emitir.log" 2>&1; then
+    echo "IR OK -> ${OUT}/unit.ll"
+  else
+    echo "IR emit failed:"; head -15 "${OUT}/emitir.log"; status=1
   fi
 fi
 exit "${status}"
