@@ -24,7 +24,10 @@ scale bytes where the promoted frontier reads 51.25 MB/step and stock reads
 **+0.756 %** at the *effective* figure. Bitwise equality with the
 unmodified runtime is certified over the full 100,352-entry logit vector for 64
 consecutive decode steps, and that certificate is shown to have power by a
-13-arm fault-injection matrix.
+13-arm fault-injection matrix. A matched same-session base-vs-candidate pair on
+the real harness (§6.6) moves M4 decode −1.81 % with an identical `golden_hash`;
+that is directional context on a non-ranked generation, not the claim, and §6.7
+separates what transfers to M5 from what does not.
 
 ### 1.1 Where this sits against the receipt-resolvability floor
 
@@ -43,13 +46,17 @@ So on the pessimistic denominator this arm lands *exactly on* the single-receipt
 19 %. The advisor's independent arithmetic (27.73 MB/step, +0.77 %) is the
 effective-denominator row and agrees with my census to 0.1 %.
 
-Two things push the true value toward the upper row rather than the lower. First,
-the §6 M4 ladder measured an observed/predicted ratio of **1.13** across the whole
-B→D stack, i.e. peak-bandwidth division *under*-predicts the real saving, which is
-what an effective-bandwidth model predicts. Second, the three rungs are only
-resolvable as a union: PW-QKV alone (+0.280 %) sits at the MDE, and PW-O (+0.218 %)
-and O-LM (+0.135 %) are individually below it. That is why I ship the union and
-make no per-rung ranked claim.
+Both rows are byte-channel arithmetic, which is the only class of quantity that
+§0.9.33 lets me carry to M5. On M4 the observed decode movement is about 2.25×
+what the byte model prices there (§6.6, §6.7); I am deliberately **not** pricing
+that residual into the rows above, because issue rate and address-generation cost
+are machine-determined and do not transfer. It is unpriced upside, not headroom
+I am claiming.
+
+The one thing that does argue for the upper row over the lower is that the three
+rungs are only resolvable as a union: PW-QKV alone (+0.280 %) sits at the MDE, and
+PW-O (+0.218 %) and O-LM (+0.135 %) are individually below it. That is why I ship
+the union and make no per-rung ranked claim.
 
 I am *not* claiming the 2.6×-headroom figure that comes from the 0.243 % floor at
 `:2445`. That floor is defined for **two n=3 receipt families in one session**; a
@@ -435,8 +442,9 @@ number should *not* be read as a result:
   artifact, not a regression. The floor is computed against the official-runner
   constant `0.000368 s/token`, which is an M5 `_nax` number; this M4 Pro reports
   Apple GPU generation 16 and does not select the `_nax` prefill kernels at all.
-  The local M4 baseline for prefill is `0.00114 s/token` and the candidate
-  measured `0.001142` — i.e. unchanged on the axis this host can actually see.
+  The matched same-session base of §6.6 measured `0.001131525 s/token` here and
+  the candidate `0.001142057`, a `+0.93 %` gap that sits inside the measured A/A
+  spread on this instrument; no prefill claim is made from this host either way.
 * The `vs score.local-iterate.baseline.json` line reports `decode 0.012914 ->
   0.013019 s/token (+0.8%)`. That file has mtime `Aug 5 13:36` — it was written
   the previous day against a tree that predates both #72 and #81. It is a
@@ -513,8 +521,8 @@ degraded arm cannot be reported as a win.
 
 ### 5.6 The standing oracle was still run — and its base control
 
-`research/run_upstream_equivalence.sh` was run at HEAD `62c10e5`
-(training id `d70f9146-28e6-43f9-b43c-472364af0945`). **It exits 1.** Read the
+`research/run_upstream_equivalence.sh` was re-run at the rebased tree
+(training id `1d078aa0-c1cd-4054-b688-b1b3d6f5e2ef`). **It exits 1.** Read the
 next three paragraphs before drawing any conclusion from that.
 
 ```text
@@ -526,19 +534,36 @@ EQUIVALENCE_EXACT_STEPS=8
 EQUIVALENCE_EXIT=1
 ```
 
+The invocation is not a vacuous one. The XCTest shim in the log reports
+`Executed 0 tests` because the case is a swift-testing `@Test`, but the
+swift-testing run reports `Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled()
+started` and `Test run with 1 test in 0 suites failed` — one test really ran, so
+this is not the zero-test invocation AGENTS.md warns must never be called a pass.
+
+The failing assertion is `passes(maximumAbsoluteLogitError: tolerance → 0.0)`.
 The wrapper's tolerance is zero and covers prefill, so a `0.125` prefill logit
 delta fails it. The wrapper also carries its own instruction for this case: *"on
 a non-M5 host, compare the unchanged BASE_SHA before attributing drift."* So the
 identical command was re-run with only
 `Sources/MLXFastModel/LagunaRuntimeModel.swift` and
-`Sources/MLXFastModel/LagunaRuntimeWeights.swift` checked out at `ab1f9a13`
-(`git diff ab1f9a13 -- Sources/` empty), every other file left at HEAD
-(training id `0b31cb89-6555-4db0-9fce-8679eb525a10`; the throwaway commit that
-carried it has been reset and HEAD is back at `62c10e5`).
+`Sources/MLXFastModel/LagunaRuntimeWeights.swift` checked out at `f2fedd58`
+(`git diff f2fedd58 -- Sources/` empty), every other file left at HEAD
+(training id `d4b751e4-519d-456a-85a0-6f93670c91df`; the throwaway commit that
+carried it has been reset and HEAD is back on the work branch).
 
-**The base control produces a byte-identical report** — same `0.125`, same
-`0.011933609`, the same nine `runtimeToken`/`upstreamToken` pairs, the same
-`EQUIVALENCE_EXACT_STEPS=8`, the same exit 1.
+**The base control produces a byte-identical report.** This is a mechanical
+check, not an eyeball one — a filtered diff over every `label`,
+`maximumAbsoluteLogitError`, `meanAbsoluteLogitError`, `runtimeToken`,
+`upstreamToken` and `EQUIVALENCE_*` line of the two logs is empty:
+
+```bash
+diff <(grep -E 'label|AbsoluteLogitError|runtimeToken|upstreamToken|EQUIVALENCE_' /tmp/pr80_eq2_cand.log) \
+     <(grep -E 'label|AbsoluteLogitError|runtimeToken|upstreamToken|EQUIVALENCE_' /tmp/pr80_eq2_base.log)
+# -> no output
+```
+
+Same `0.125`, same `0.011933609`, the same nine `runtimeToken`/`upstreamToken`
+pairs, the same `EQUIVALENCE_EXACT_STEPS=8`, the same exit 1.
 
 Stated conservatively, that means:
 
@@ -636,20 +661,24 @@ over-interpreted; only the aggregate is well determined.
 
 The most likely explanation is the dull one: dividing by *peak* bandwidth
 under-predicts the time a real streaming read costs, because achieved bandwidth
-on this access pattern is below peak. If that is right, the same reasoning
-applies to the M5 figure, and the score numbers in §4 — which all divide by the
-M5 **peak** 651.8 GB/s — are conservative rather than optimistic. I am claiming
-the byte-ledger numbers, not the 1.13-scaled ones.
+on this access pattern is below peak, and part of the saving is instruction-side
+rather than byte-side at all. Either way the ratio is a wall-time quantity on M4
+hardware, so §0.9.33 puts it in the non-transferring class: it is a reason to
+prefer the *effective*-bandwidth row of §1.1 over the peak row as a matter of
+judgement, not a coefficient I may carry to M5. §6.7 separates the two channels
+explicitly. I am claiming the byte-ledger numbers, not the 1.13-scaled ones.
 
 ### 6.4 What this screen does and does not cover
 
 Covered: `B→D`, i.e. 22.00 MB/step of the submitted arm's 27.70 MB/step.
 
-**Not covered: the `A→B` rung** (o_proj block-narrow → lane-major, 5.70 MB/step,
-+0.130 %). Arm A is the promoted frontier and needs a *different binary*; a
-mid-ladder rebuild is exactly the confound the single-binary design exists to
-avoid. It is priced from the byte ledger only. It is also below the 0.278 %
-receipt MDE on its own, which is why the arm ships as a union.
+**Not covered by this ladder: the `A→B` rung** (o_proj block-narrow →
+lane-major, 5.70 MB/step, +0.130 %). Arm A is the promoted frontier and needs a
+*different binary*; a mid-ladder rebuild is exactly the confound the
+single-binary design exists to avoid. It is priced from the byte ledger only. It
+is also below the 0.278 % receipt MDE on its own, which is why the arm ships as
+a union. §6.6 does span it, but with a two-build `--local-iterate` pair at n=1
+per arm, which is a weaker instrument than this one and is reported as context.
 
 That gap is bounded rather than ignored. The advisor's standing rule is that an
 M4 null is not a refutation but an M4 **regression** is, so what actually matters
@@ -743,6 +772,112 @@ that **my arm-to-arm contrasts are clean**, and it is *not* evidence about ranke
 no-harm. Per programme law §0.9.32 the no-harm claim rests on the §5 identity
 certificate, not on any timing I have.
 
+### 6.6 Matched same-session base-vs-candidate on the real harness
+
+§5.3.2 flagged that the only end-to-end number the harness handed me came with a
+stale cross-tree comparison attached. This subsection replaces it. Arm A is not
+reachable in the shipped binary (§8, decision 3), so an end-to-end A→D contrast
+cannot be produced by an environment gate; it needs two builds. That is what was
+run, back to back in one session on one host under one thermal policy:
+
+```bash
+# base control
+git checkout f2fedd58 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
+                         Sources/MLXFastModel/LagunaRuntimeWeights.swift
+git diff f2fedd58 -- Sources/          # empty, verified before launch
+bash research/run_local_benchmark.sh --local-iterate    # 130.9 s, exit 0
+```
+
+| | base (`f2fedd58` `Sources/`) | candidate (arm D) |
+|---|---|---|
+| `passed_correctness` | `true` | `true` |
+| `max_abs_diff` | `0` | `0` |
+| `golden_hash` | `b9509697…a58d7a63` | **identical** |
+| `harness_hash` | `e7cd0328…a70c9ebe` | `8e5a6370…be675a8e` |
+| `decode_seconds_per_token` | 0.013258814 | **0.013018829** |
+| `prefill_seconds_per_token` | 0.001131525 | 0.001142057 |
+
+```
+decode   0.013258814 -> 0.013018829    -1.810 %   (-240.0 us/step, faster)
+prefill  0.001131525 -> 0.001142057    +0.931 %
+```
+
+Both JSONs carry the same pinned constants
+(`baseline_decode_seconds_per_token = 0.01385621216015625`), so the two runs are
+on the same ruler and the seconds/token columns are directly comparable.
+
+**The differing `harness_hash` is the point, not a defect.** The two runs have
+different `Sources/`, so they must produce different worker binaries; a matching
+hash would have meant the base control silently reused the candidate build. This
+is the opposite configuration from tanjiro's §0.9.32 A/A, where the hash was
+*identical* because the bytes were identical — and that A/A is exactly why the
+number below is framed as context rather than as the claim.
+
+What this does and does not establish:
+
+- It **withdraws the stale `+0.8 % slower` artifact.** Measured against a
+  matched same-session base rather than a day-old pre-#72/#81 snapshot, decode
+  moves −1.81 %, i.e. the sign reverses. The stale file was the artifact.
+- It is **n=1 per arm and not counterbalanced.** Tanjiro's measured A/A spread on
+  this same `--local-iterate` instrument was decode +0.460 % on a null change,
+  so −1.81 % is ≈3.9× that spread — suggestive, not decisive. The rigorous
+  instrument in this report remains §6.2's counterbalanced ABBA ladder
+  (n=4/arm, one binary, 25σ on `B→D`).
+- **No prefill claim is made.** +0.931 % is inside the measured A/A spread
+  (−0.822 % on a null change), and this M4 Pro is Apple GPU generation 16 and
+  never selects the `_nax` prefill kernels the ranked M5 uses.
+- Correctness at the shipping arm is unchanged: same `golden_hash` as the base
+  control and as the value the advisor published for `f2fedd58`.
+
+### 6.7 Channel separation under programme law §0.9.33
+
+§0.9.33 says a census quantity crosses Apple Silicon generations if and only if
+the algorithm determines it, not the machine. This change produces evidence in
+both classes and they must not be added together, so here they are separated.
+
+**Byte channel — transfers to M5 exactly.** The 27,698,336 B/step of §4 is a
+count derived from the model geometry, the per-row cost model, and the measured
+escape census. It contains no rate, no wall time, and no occupancy term. It is
+the same number on M4 and on M5. Only the *rate* used to price it is the target
+machine's own:
+
+| basis | rate | priced saving | vs §0.5.8 3σ = 42.6 µs | score |
+|---|---|---|---|---|
+| M5 peak | 651.8 GB/s | **42.50 µs/step** | 2.99σ | **+0.633 %** |
+| M5 effective | 546.2 GB/s | **50.71 µs/step** | 3.57σ | **+0.756 %** |
+| M4 (this host) | 260.2 GB/s | 106.45 µs/step | — | — |
+
+**This is the submitted claim.** It is receipt-resolvable at 2.3× the MDE on
+either basis.
+
+**Instruction channel — does NOT transfer.** The matched §6.6 pair moved decode
+by 240.0 µs/step on M4 against a byte model that prices only 106.45 µs/step
+there, leaving a 133.5 µs/step residual (observed/byte-model ratio 2.25). That
+residual is real and is the expected sign: block-narrow o_proj issues 12 strided
+byte loads per row at `h=64`, where lane-major issues one two-byte load plus one
+base byte, and the brief's own independent estimate for that rung alone was
+−70…−90 µs/step. But issue rate, address-generation cost, and scheduler
+behaviour are machine-determined quantities in §0.9.33's non-transferring class.
+
+Accordingly:
+
+- I do **not** convert 133.5 µs/step to an M5 figure. The M4→M5 byte-arm factor
+  0.399 is a bandwidth-ratio conversion and applying it to an instruction-channel
+  residual would be a category error under §0.9.33.
+- I do **not** fold the residual into the predicted score. The +0.633 %/+0.756 %
+  above is byte-channel only.
+- The residual is therefore **unpriced upside**, not headroom I am claiming. If
+  it survives on M5 the receipt beats the prediction; if it does not, the
+  prediction stands on its own.
+
+The same rule retires the magnitudes of §6.2 and §6.5 from the transfer
+argument. Those ladders are wall-clock measurements on M4 hardware. What they
+contribute is not their microsecond values but two algorithm-class facts: the
+mechanism is **live** on the scored path (complete arm separation, 25σ and 26σ),
+and it is **monotone and additive** in the direction the byte census predicts
+(`S→D` chained observed/predicted 1.00). Those facts transfer; the microseconds
+do not.
+
 ---
 
 ## 7. Budget
@@ -760,10 +895,16 @@ editable budget OK: current=2934331/3000000 bytes headroom=65669 growth=4247/262
                     files=142 (file count is diagnostic only; base=142)
 ```
 
-`research/` is not in `editablePaths`, so the eleven research files on this
-branch cost zero submitted bytes. Total growth is **4,247 B** against my
-standing 25 kB allocation and the 262,144 B per-review allowance — 17 % of the
-allocation.
+`research/` is not in `editablePaths`, so the eight research files on this
+branch cost zero submitted bytes. Total growth is **4,247 B** against the 25 kB
+allocation the advisor confirmed for this PR in comment 5200283249 (#80 = 25 kB,
+#82 = 15 kB, #85 = 25 kB, 5 kB reserve) and the 262,144 B per-review allowance —
+17 % of the allocation.
+
+The same comment set a standing law that `LagunaRuntimeModel.swift` must retain
+at least **20 kB** of per-file margin. This head leaves **44,537 B**, so it is
+compliant with 24.5 kB to spare, and it would remain compliant even if the whole
+25 kB allocation landed in that one file.
 
 The per-file cap on `LagunaRuntimeModel.swift` was the binding constraint at the
 old base (1,173 B free). PR #81's literal reclaim removed that constraint
@@ -856,6 +997,23 @@ message. Anyone who later moves that packer will not find the reasoning at the
 point of use. That is a genuine, if small, maintainability cost of the literal
 comment-stripping regime, and it belongs in the composition item in §9 rather
 than being papered over.
+
+### 7.2 The second `baseline_advanced` (`f2fedd58` → `6a19fd74`) was not taken
+
+A `baseline_advanced` event moved the advisor branch to `6a19fd74` after this
+work was already rebased. I did **not** rebase again, and the advisor confirmed
+that in comment 5200283249. The reason is checkable in one command:
+
+```bash
+git diff --name-only f2fedd58 6a19fd74
+research/CURRENT_RESEARCH_STATE.md
+```
+
+One file, and it is not in `editablePaths`, so the intersection between that
+advance and my submission surface is empty. Rebasing would have moved every line
+anchor in §3.3 and invalidated the §7.1 verification chain in exchange for
+nothing. `BASE_SHA` for this PR therefore stays `f2fedd58`, and the single
+permitted rebase has been consumed exactly once.
 
 ---
 
