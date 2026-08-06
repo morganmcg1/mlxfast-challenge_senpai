@@ -952,3 +952,122 @@ intervening commit is research-only or `senpai/program.md`, and
 `check-editable-budget.sh` after the merges returns the identical
 `current=2929907/3000000 growth=8160/262144`. So whatever commit the receipt
 names, it describes the same measured editable content.
+
+## 10. Reading the public submission feed as data
+
+`mlxfast submissions` is backed by a feed that returns the full
+`officialMetrics` block of every terminal submission from every solver
+account, not just ours (1,577 rows at 2026-08-06T22:33Z). I had been using it
+only as a status check. Read as data it settles a question this branch could
+not otherwise answer — how much the *official M5* paired baseline moves between
+sessions — and it changes how this receipt should be read.
+
+### 10.1 The v1 dispatcher was halted by a server rate limit, and created nothing
+
+Attempts 1–17 (21:35:58Z → 22:25:02Z, one every ~185 s) each returned the one
+whitelisted retryable response, `{"error":{"code":"conflict","message":"account
+already has 1 submission(s) in flight for this benchmark (limit 1)"}}`. Attempt
+18 at 22:28:04Z returned `Rate limit reached. Try again in 1914 seconds.`, which
+is not that conflict, so the script stopped rather than risk duplicating a
+candidate it could not prove had failed to be created. Supervised run
+`afe1a668` therefore terminated `failed` (exit 1) after 3,135 s.
+
+The rule for an ambiguous response is to check before retrying, so I listed the
+feed first. Nothing of mine exists: the only in-flight row for this account is
+`0e43085` (`validating`, created 22:09:25.005Z), whose note identifies it as
+`mlxfast-cedar-20260806-tanjiro-qkv-r1-sg4`, PR #151 — a different Senpai
+campaign. The rate-limited call was refused before it created anything, as its
+wording implies, and now that is evidence rather than an assumption.
+
+The cost is self-inflicted and worth naming: 18 upload attempts in 52 minutes
+is what tripped the limit. v1 deliberately retried `submit` directly because
+polling-then-submitting had already lost me one slot to a 180 s race window
+(§7.1b). That fix was right about the race and wrong about the price.
+
+### 10.2 Dispatcher v2 separates *when to try* from *trying*
+
+v2 (`/tmp/pr137_submit/retry_submit.sh`, helper `inflight.py`) polls the
+read-only feed every 120 s and calls `submit` only when this account has no
+in-flight row, plus one forced attempt every 900 s so a status I classify
+wrongly cannot stall the dispatcher forever. Submit calls drop from ~20/hour to
+at most ~4/hour while the poll-to-submit race window shrinks from 180 s to a few
+seconds. A rate limit is now retryable: the stated seconds are parsed and
+honoured with a 30 s margin instead of halting the loop. Terminal statuses are
+enumerated positively, so an unknown status delays a submit rather than
+duplicating one, and the forced attempt covers the opposite error. Only the
+in-flight conflict and an explicit rate limit are retried; anything else still
+stops immediately.
+
+### 10.3 The in-flight limit is per solver account, and the account is shared
+
+The conflict message says *account*, and the feed confirms the scope: at
+22:34Z `davidtai` and this account (`morganmcg1`) each had one submission
+validating concurrently. Other solvers are not the constraint — the single slot
+is shared only among Senpai campaigns dispatching under one account, which is
+why a Cedar candidate at 22:09Z blocks a Maple candidate at 22:34Z. v1's
+in-flight check counted *any* solver's row and would have deferred to
+`davidtai` for no reason; v2 filters on the account.
+
+### 10.4 The official paired baseline moves by more than this arm's whole effect
+
+Every receipt reports both a speedup and an absolute seconds-per-token, so the
+session's own baseline is recoverable as `speedup × candidate`:
+
+| receipt | timestamp (UTC) | baseline decode | baseline prefill |
+|---|---|---|---|
+| `97a5090` | 05:14:29Z | 13.844966 ms | 382.68 µs |
+| `4b06e93` | 21:57:41Z | 13.918368 ms | 375.67 µs |
+| `db8b4df` | 22:18:30Z | 13.881933 ms | 381.75 µs |
+
+Across ~17 hours the pinned baseline spans **73.4 µs of decode (0.53 %)** and
+**7.0 µs of prefill (1.87 %)**. Two consequences.
+
+First, this is why the harness pairs. My arm's entire predicted M5 decode
+saving is 32–48 µs (§9.4) — *smaller than the drift of the thing it is measured
+against*. An absolute seconds-per-token comparison across sessions could not
+resolve this arm at all; only the same-session ratio can.
+
+Second, and less comfortably: pairing cancels drift only to the extent that
+drift is common-mode between baseline and candidate. I cannot estimate the
+residual from these rows, because all three ran different code. What I can say
+is that the prefill baseline alone varies by 1.87 %, prefill carries 25 % of the
+score weight, and 0.25 × 1.87 % ≈ 0.47 % of score is the same size as this
+arm's whole predicted effect. If that variance is not common-mode, one receipt
+does not settle a 0.5 % decode change. The softened rule (§9.6) says a marginal
+effect benefits from repetition; this is the quantitative reason it does here.
+
+### 10.5 The ranked contest is currently decided at ~0.05 %
+
+`db8b4df` (another account) was **accepted** at 2.59018571539341, ahead of our
+promoted 2.58882784082067 by **+0.0525 %**. The decomposition is instructive:
+its decode speedup was slightly *worse* (2.818909 vs 2.820684, −0.06 %) and the
+entire gain came from prefill (2.009465 vs 2.001471, +0.40 % ⇒ +0.0997 % of
+score at quarter weight). A candidate can take the frontier while losing ground
+on the 75 %-weighted axis.
+
+Two things follow. The acceptance bar is now 2.59019, not 2.58883, so the
+band between my pre-registered KILL (2.5919) and that bar is a region where a
+receipt reports a real `ns` improvement and is still `rejected` for ranking —
+exactly the case the programme warns to read separately from correctness and
+the floors. And every rejection I can see in the feed is below the *global*
+best of the moment rather than the submitting account's own best
+(`5d086d0` at 2.58416 from the same account that later won with 2.59019), which
+is consistent with a single global bar.
+
+### 10.6 Composing fifteen PRs cost 234 µs of decode
+
+`4b06e93`, "Composed 15-PR Decode + QHOIST Prefill Optimization", is a direct
+measurement of the programme's warning against combining unmeasured mechanisms.
+Against our promoted frontier it is **+233.8 µs/token on decode (+4.76 %)** and
+**+16.1 µs/token on prefill (+8.43 %)**, for −5.43 % of score — while passing
+correctness. The composite lost five to seven times this arm's entire predicted
+effect. Whatever the individual PRs did apart, together they interfered.
+
+### 10.7 How to read my receipt after this
+
+Unchanged: the advisor's pre-registered bands (GO `ns ≥ 2.6045`, KILL
+`ns < 2.5919`) decide the arm, and a bar relaxed after the fact is not a bar.
+Added: report ranking status separately from `ns`, because the ranking bar
+moved to 2.59019 while I was queued; and treat a single receipt inside the band
+as provisional against the 1.87 % prefill-baseline variance above, rather than
+as a settled 0.5 % decode result.
