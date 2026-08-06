@@ -26,8 +26,20 @@ not in `editablePaths` and therefore costs zero submitted bytes.
   may price (§0.9.33). Not a wall-time claim.
 - `BASE_SHA` / candidate commit:
   `f2fedd584e6514569758d79e581402210306e77b` /
-  `e956aa50e27ff5e896f59525e69f3552deb95a12` (branch head at submission
-  `b4e337d70cdb81cb3d5fb0da8dbb09ccfac3270e`; every later commit is `research/`)
+  `e956aa50e27ff5e896f59525e69f3552deb95a12` (the only commit touching the
+  submitted surface; every later commit is `research/`). The branch head
+  actually published is the `commit_sha` of the structured Senpai result.
+- Publication note: the advisor-released rebase (comment 5200104728) rewrote
+  this branch, so the rebased head no longer fast-forwarded the pre-rebase
+  remote head `513f3693abec7064a5551d9969d27f0c98cf61e4`, and the
+  student-available publish path accepts only a fast-forward. Commit
+  `2fe33f28ea7dd0e56d21cde42a0ecb08305e444a` is an **ours-strategy merge** that
+  records `513f3693` as an ancestor and contributes no content: its tree is
+  byte-identical to the pre-merge head (`c9bd9305d1012a396f26c7d8283244e920ecddd5`).
+  `git merge-base HEAD codex/mlxfast-maple-20260804-advisor` remains
+  `f2fedd58`, so the reviewed PR diff is still exactly
+  `143 insertions(+), 64 deletions(-)` across the two submitted files. No force
+  push was performed and no submitted byte changed.
 - Submitted candidate files: `Sources/MLXFastModel/LagunaRuntimeModel.swift`,
   `Sources/MLXFastModel/LagunaRuntimeWeights.swift` (only these two)
 - Supporting test or documentation files: `research/frieren_pr80_logit_bitwise.py`,
