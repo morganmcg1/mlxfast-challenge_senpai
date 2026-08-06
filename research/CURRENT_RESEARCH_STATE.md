@@ -1,14 +1,36 @@
 # SENPAI Research State
-- 2026-08-06T09:56Z (updated)
-- Campaign mlxfast-birch-20260805. All 4 students assigned and nudged. Advisor HEAD at b0116fe.
+- 2026-08-06T10:21Z (updated)
+- Campaign mlxfast-birch-20260805. All 4 students assigned and nudged. Advisor HEAD at 6cb9e92.
+- All students IDLE — no implementation work started on any PR yet.
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
   (lBroth) = ~0.25% gap. PR #107 merged (0.85% decode gain on M4, M5 likely more).
 - **FRONTIER**: 16f1dc5 (PR #107 merged: NVFP4 qdot dot4 vectorization).
-  Advisor branch HEAD: b0116fe (post PR #107 merge, includes other commits).
-  Previous: 5164c4f (research state: 4 students assigned). Previous: 5fe7f20
-  (_nax confirmed). Previous: b6a0889 (PR #98 merged). Previous: e925569 (PR #94).
+  Advisor branch HEAD: 6cb9e92 (research state doc commit, no scored code changes).
+  Previous: b0116fe (post PR #107 merge). Previous: 5164c4f (4 students assigned).
+  Previous: 5fe7f20 (_nax confirmed). Previous: b6a0889 (PR #98 merged). Previous: e925569 (PR #94).
 - **PR #113 BROKEN**: Duplicate assignment marker blocks all transitions. PR #114
   created as replacement for Alphonse. PR #113 needs manual closure by operator.
+  Orphan PRs with missing_student: #99, #108, #111, #113 (broken markers, ignore).
+
+## COMPOSITION STRATEGY (see research/COMPOSITION_STRATEGY.md for full analysis)
+
+**Merge order**: #109 (bit-exact, ZERO risk) → #100 (bit-exact, LOW risk)
+→ #114 (MED, needs equivalence) → #112 (MED, needs equivalence)
+
+**Submission strategy**: Submit INDIVIDUALLY first for clean M5 attribution.
+If gap not closed by single experiment, compose #109 + #100 (both bit-exact,
+0.5–2.5% compound decode gain). Never compose unproven non-bit-exact changes.
+
+**Conflict analysis**: No executable code overlaps. #100 + #109 touch same
+function (O-proj L4090–4244) but different sections (body vs epilogue) —
+textual rebase conflict possible, manually resolvable. All other pairs fully
+independent. Merged #107 (qdot header) affects #109's SwiGLU/Down kernels but
+NOT #100 (O-proj has own inline qdot), #114 (INT8, not NVFP4), or #112 (BF16).
+
+**Composition risk**: LOW. Different dispatches, no global flip to bandwidth-
+bound. Register pressure does not accumulate across kernels. Instruction
+reductions decrease heat. All changes are instruction reductions → negative
+byte delta, no budget risk.
 
 ## MERGED: PR #94 (Alphonse) — simd_dot in fused attention score computation
 - **Status**: MERGED (squash) → e925569. Bit-exact, upstream-equivalence verified.
