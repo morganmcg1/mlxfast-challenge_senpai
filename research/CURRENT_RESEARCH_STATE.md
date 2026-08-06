@@ -101,7 +101,20 @@
     Dense gate/up + down kernels, 2 dispatches/step. Lower value but safe bit-exact win.
     NOTE: Dense MoE dot4 is NOT bit-exact (shared-float accumulation, same as PR #145).
 
+- **SCALE PLANE HALVING (Wave 11 target, VERIFIED)**:
+  MLX quantizer has a pairwise-constancy invariant for NVFP4 (group_size=16): scale[2k]==scale[2k+1]
+  for all k>=1 in each flattened weight matrix. Only k=0 (first 32 elements) can differ.
+  Our attention weights are ALL NVFP4 (DARKBLOOM_NATIVE_AFFINE_NVFP4 default ON, NVFP4_FROM=0).
+  Current scale traffic: ~89 MB/step. Halving via pairwise-constancy packing: ~45 MB/step.
+  Implementation: transform-time packing (store 1 nibble per pair) + kernel read packed format.
+  Exact escape for k=0 exceptions (~1 per matrix, ~160 total). Bit-exact (lossless re-encoding).
+  Budget: ~4K bytes needed, 32K headroom available. Two files: LagunaRuntimeModel.swift + LagunaRuntimeWeights.swift.
+  Expected gain: +0.63-0.76% score (byte channel) + instruction savings (strided load elimination).
+  QKV scale: 128 B/row × 128 groups, 4 k-blocks/row. O-proj: 384-512 B/row, 12-16 k-blocks/row.
+  Kernel access: QKV L4598-4612 (sc[0] per block, advance 32). O-proj L4197-4233 (sc[row*in_vec_size_g]).
+
 - **POTENTIAL NEXT DIRECTIONS (beyond Wave 10)**:
+  - Scale plane halving via quantizer invariant (see above — Wave 11 top priority)
   - H2: Pre-interleaved weight layout (transform-time, 6-10% gate/up) — after H1/H4 results
   - H3: Fused gate/up+down single-dispatch kernel (saves ~39 dispatches/step, 2-5% decode)
   - H6: Instruction diversity / interleaved load+convert+FMA in qdot (0-5%, pipeline overlap)
