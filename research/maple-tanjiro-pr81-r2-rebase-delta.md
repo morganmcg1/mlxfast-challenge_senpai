@@ -177,7 +177,51 @@ Two headrooms improve, and the second one matters more than the metric name sugg
 One `./benchmark.sh --local-iterate` arm on the rebased T1+T2 candidate, per the advisor's
 instruction not to repeat the r1 no-harm campaign:
 
-TIMING_PLACEHOLDER
+| field | value | vs r1 |
+|---|---|---|
+| `passed_correctness` | **`true`** | same |
+| `max_abs_diff` | **0** | same |
+| `checked_steps` | **130** | same |
+| `golden_hash` | `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63` | **character-for-character identical** |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` | **identical** |
+| `peak_ram_gb` | 20.714 | ≈ same (21) |
+
+The `golden_hash` is quoted in full so it can be compared by eye against r1 §4.1: the greedy token
+stream is unchanged across a base change, a rebase, and both tiers.
+
+Raw timing from the same arm, recorded for completeness and **not** offered as evidence:
+
+| | value |
+|---|---:|
+| prefill seconds/token | 0.001112 |
+| `prefill_speedup` | 0.330 (`passed_prefill_speedup_floor = false`) |
+| decode seconds/token | 0.013054 |
+| `decode_speedup` | 1.061 (`passed_decode_speedup_floor = true`) |
+| local `est_score` | 0.793 |
+| measured seconds | 2.2 (wall 152.1) |
+
+Three honest caveats, in decreasing order of importance:
+
+1. **T1 and T2 cannot change timing by construction.** T1 emits byte-identical MSL (§3.1) and T2
+   emits MSL differing only in lexer-discarded comments (§4.1); no dispatch, geometry, allocation,
+   or Swift control flow moves. Any measured delta is host noise. I am not claiming a speedup and
+   the advisor should not read one here.
+2. **The printed comparison is against a stale, unmatched baseline.** `benchmark.sh` differenced
+   this arm against `score.local-iterate.baseline.json`, whose 0.013134 decode s/token is the r1-era
+   base arm from a *different* base and a *different* session. It reports prefill −2.1 %, decode
+   −0.6 %, `est_score` 0.785 → 0.793 (+1 %). Per `AGENTS.md` that is a stale cross-session
+   comparison and per r1 §6.3 / programme law §0.9.32 both deltas sit at or near this host's A/A
+   spread on byte-identical bytes (decode ±0.460 %, prefill ±0.822 % over a ~2.2 s timed phase).
+   Treat it as "no harm detected", nothing more.
+3. **`passed_prefill_speedup_floor = false` is a pre-existing M4 artefact**, not a regression: the
+   local prefill floor compares this 48 GiB M4 Pro against the M5-derived pinned constant
+   0.000368 s/token, which this host cannot reach. r1 measured the same `prefill_speedup ≈ 0.32`
+   with the same `false` verdict **on the unchanged base**. The 0.330 here is if anything marginally
+   better than the base observation. The M5 ranked run is the authority.
+
+Reproduction: `./benchmark.sh --local-iterate` at `2ffd343` (T1+T2), 48 GiB M4 Pro, low-memory
+startup profile active, thermal gate honoured on both phases (28.4 s prefill, 28.6 s decode), one
+model-holding process.
 
 ## 8. Deliberately not re-run
 
@@ -241,5 +285,19 @@ The `dump_*` trees are regenerable in seconds and are intentionally not committe
 `census-base.txt` and the three `MANIFEST_*.txt` files are in-tree, which is what the certificate
 actually needs.
 
-No W&B runs exist in this campaign; the durable evidence is the `research/*.md` artefacts and the
-committed manifests cited above, so `runs: []` below is correct rather than missing.
+No W&B runs exist in this campaign, so the structured result carries an empty `runs` list; that is
+correct rather than missing. The durable evidence is the `research/*.md` artefacts and the committed
+manifests cited above.
+
+## 11. Structured result
+
+Reported through the typed Senpai transition, not restated as PR-body text:
+
+| field | value |
+|---|---|
+| status | `succeeded` |
+| primary metric | `editable_bytes_reclaimed` |
+| direction | `maximize` |
+| baseline | 0 |
+| candidate | **42973** |
+| delta | **+42973** |
