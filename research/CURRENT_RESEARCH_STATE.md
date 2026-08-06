@@ -1,24 +1,53 @@
 # SENPAI Research State
-- 2026-08-06T00:35:00Z (updated by advisor session — PR #74 closed, PR #75 assigned)
+- 2026-08-06T01:05:00Z (updated by advisor — all stale PRs closed, 4 new assignments created)
 - **SCORE GAP**: Current 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
-- **FRONTIER**: 8130379 (last scored change: 2268af4 FMA dequant; 81019d9 is doc-only)
-- **STUDENT STATUS** (all 4 active):
-  - **Edward** (PR #75): NEW — Stage activation vector in threadgroup memory for routed gate/up R1.
-    EST 1-5% decode, LOW risk, bit-exact. Tests bandwidth reduction (25% traffic cut) on the
-    bandwidth-bound R1 kernel. Directly attacks the proven bottleneck.
-    PR #74 (prefetch depth 2-4) CLOSED: NEGATIVE. Depth-2 8.4% slower, depth-4 10.7% slower.
-    R1 kernel is bandwidth-bound, not latency-limited. Register pressure from circular buffers hurts.
-    PR #70 (top-8 elimination) CLOSED: NEGATIVE. R1 kernel is memory-bound, ALU removal doesn't help.
-    PR #69 (top-8 v1): stale draft, malformed marker, unprocessable.
-  - **Thorfinn** (PR #50): Merge shared + routed gate/up QMV dispatch.
-    EST 1-2% decode, eliminates 39 dispatches/step. `mergedSharedActivated` at L9931.
-    Status check-in sent — 10+ hours, no code pushed yet.
-  - **Alphonse** (PR #51): Investigate/extend norm+QKV fusion coverage (redirected from LM-head).
-    Check which layers have norm+QKV fusion disabled and extend the fused kernel.
-    Status check-in sent — 10+ hours, no code pushed yet.
-  - **Askeladd** (PR #52): Prefill MoE retile variant 5→4 switch (revision).
-    +17.47% kernel-level on _nax path. M5-only validation needed.
-    Double-buffering now in base (STAGE2_GATHER v1). Status check-in sent.
+- **FRONTIER**: 8130379 (last scored change: 2268af4 FMA dequant)
+- **ALL 4 PRS CLOSED** — all students were unresponsive for 10+ hours:
+  - PR #69 (Edward, top8-elim): malformed marker, can't close via transition; stale draft
+  - PR #50 (Thorfinn, merge QMV): CLOSED — unresponsive 11+ hours
+  - PR #51 (Alphonse, norm+QKV): CLOSED — unresponsive 10+ hours
+  - PR #52 (Askeladd, prefill retile): CLOSED — revision not responded 10+ hours
+- **PR #75 (Edward, TG staging) CLOSED**: NEGATIVE — L1 cache handles 2x redundancy
+- **PR #74 (Edward, prefetch depth) CLOSED**: NEGATIVE — bandwidth-bound, depth hurts
+
+## NEW ASSIGNMENTS (2026-08-06T01:05:00Z)
+
+### Edward: FMA Dequant for QKV R1 Kernel
+- Apply FMA-optimized dequant from `lagunaSharedSwiGLUQMVHeader` (line 6364) to
+  `lagunaTailNVFP4QMVHeader` (line 4547). The tail header is a near-verbatim copy of the
+  pre-FMA MoE qdot — same split-nibble decode, same accumulation pattern.
+- FMA dequant gave end-to-end win for MoE gate/up despite bandwidth-bound. QKV is 802 MB/step.
+- MEDIUM risk: FMA changes rounding (7→4 roundings). Signed-zero absorption argument
+  needs re-verification for the tail kernel path (seed-elision + scale-defer flags compose).
+- M4-testable (decode path, no _nax).
+
+### Thorfinn: Merge Shared + Routed Gate/Up QMV Dispatch
+- Fill `mergedSharedActivated` at L10248. Eliminates 39 separate shared expert gate/up
+  dispatches. Plumbing already exists — just never assigned.
+- MEDIUM risk: requires kernel branch or transform-side bank re-layout (different bank formats).
+- M4-testable (decode path).
+
+### Alphonse: Norm+NVFP4 QKV Fusion
+- Create NVFP4-twin of `lagunaNormAffineQKV` (line 5120) that fuses RMSNorm + NVFP4 QKV
+  into one dispatch. Current: RMSNorm (D1) + QKV (D2) are separate for all 40 NVFP4 layers.
+  The INT8 fusion exists but NEVER fires (all layers are NVFP4, guard at 5537-5543 fails).
+- Saves 40 dispatches/step. MEDIUM risk (new Metal kernel with inline RMSNorm + NVFP4 dequant).
+- M4-testable (decode path).
+
+### Askeladd: Pack Down-Projection Scales into Walk-Order Side Bank
+- Reduce MoE down kernel bytes by packing scales into walk-order side bank format.
+- EST 0.5-1.5%, LOW risk, bit-exact (same arithmetic, different memory layout).
+- Requires transform-side change (`Sources/MLXFastTransform/`).
+- M4-testable (decode path).
+
+## CRITICAL RESEARCH FINDING: Prefill Variant 5→4 Switch is DEAD
+- Variant 5 (WN=1, 128 thr/TG) is the shipped default and WON end-to-end on 2026-08-01:
+  baseline 204.90 → variant 5 201.64 → +steel 198.00 µs (fastest on record)
+- Variant 4 (WN=2, 256 thr/TG) showed +17.47% kernel-level but LOST end-to-end.
+- Critical interaction: variant 4 LOSES register-local SwiGLU fusion (`kSwigluRegLocal`
+  requires WN==1). Falls back to stock threadgroup-staged SwiGLU with extra barriers.
+- The +17.47% kernel-level documentation was STALE — not updated when default moved to v5.
+- Do NOT re-assign the variant 5→4 switch.
 - **M4→M5 TRANSFER WARNING**: Edward's ops=2 showed +6.5% on M4 but 2.502 on M5 (vs 4058d0b's 2.546 = -1.7% M5 regression).
   Threadgroup geometry changes can flip sign across GPU core counts. Instruction-count reductions (FMA) should transfer better.
 ## Research Findings Summary
