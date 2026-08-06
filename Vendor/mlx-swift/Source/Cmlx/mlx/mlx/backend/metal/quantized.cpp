@@ -1362,19 +1362,26 @@ bool darkbloom_expert_stage_wideld() {
   return v;
 }
 
-// DARKBLOOM_EXPERT_BK128 (default ON; "0" restores bk == 64 as the A/B
-// control): doubles the expert-aligned gather QMM's k-block for the down
-// projection only (K 512, N 2048), halving its k-loop trip count from 8 to 4
-// and with it the per-threadgroup barrier count, at the cost of 17408B rather
-// than 9216B of staged weights. Bit-identical: BK only changes how many
-// 32-wide k-chunks one iteration stages, and every chunk still reaches the
-// same accumulator in the same globally ascending k order. Restricted to
-// `down` because the fused gate/up tile (K 2048, N 1024) would need 4x the
-// staging traffic per barrier saved and is the shape where staging, not
-// barriers, already dominates. Baked into the kernel name and template, so
-// each setting compiles exactly one pipeline for the process lifetime.
+// DARKBLOOM_EXPERT_BK128 (default OFF; "1" enables): doubles the
+// expert-aligned gather QMM's k-block for the down projection only
+// (K 512, N 2048), halving its k-loop trip count from 8 to 4 and with it the
+// per-threadgroup barrier count, at the cost of 17408B rather than 9216B of
+// staged weights. Bit-identical: BK only changes how many 32-wide k-chunks
+// one iteration stages, and every chunk still reaches the same accumulator in
+// the same globally ascending k order. Baked into the kernel name and
+// template, so each setting compiles exactly one pipeline for the process
+// lifetime.
+//
+// Left OFF because the mechanism is unmeasurable on any host we have: MLX
+// only selects the _nax kernels on GPU generation >= 17, so no local
+// benchmark exercises this code, and the modelled effect (~0.1-0.3% prefill,
+// ~0.03-0.08% score) is an order of magnitude under the +/-0.73% local MDE.
+// It is also mutually exclusive with double-buffering the weight tile:
+// 2 * 17408B = 34816B exceeds the 32768B threadgroup limit, whereas
+// 2 * 9216B = 18432B fits, so BK=64 remains the only variant that can stage
+// and multiply concurrently.
 bool darkbloom_expert_bk128() {
-  static const bool v = env::get_var("DARKBLOOM_EXPERT_BK128", "") != "0";
+  static const bool v = env::get_var("DARKBLOOM_EXPERT_BK128", "") == "1";
   return v;
 }
 
@@ -1665,6 +1672,9 @@ void gather_qmm_rhs_nax(
   // bk is shared with every non-Laguna shape reaching this dispatch, so the
   // doubled k-block is applied only under the full expert-aligned predicate
   // for the down projection. align_K below then re-checks 512 % 128.
+  // down-only is the assigned scope, not a structural limit: BK is orthogonal
+  // to BN, so gate_up (K 2048 % 128 == 0) admits the same change with
+  // kSwigluRegLocal's BN == 64 intact, and carries 2x the tile-iterations.
   if (darkbloom_expert_bk128() && darkbloom_expert_aligned_gather() &&
       mode != "affine" && transpose && group_size == 16 && bits == 4 &&
       K == 512 && N == 2048 && M >= 64 && bm == 64 && wm == 4 && wn == 1) {

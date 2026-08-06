@@ -17,7 +17,8 @@
 #                   to kSrcBytes scalar byte loads per thread per k-iteration.
 #
 # Usage: research/nax_safety_rig.sh [BK ...]        (default: 64 128)
-#   BASE_REV=<rev>   git revision for the inertness baseline (default HEAD)
+#   BASE_REV=<rev>   git revision for the inertness baseline (default HEAD;
+#                    must predate the relax or check 2 refuses to run)
 #   KEEP=1           keep scratch dirs
 set -uo pipefail
 
@@ -60,8 +61,18 @@ for f in utils gemm_nax quantized_utils fp_quantized_nax; do
     missing=1
   fi
 done
+# BASE_REV defaults to HEAD, so running this rig on a clean tree after
+# committing the very edit under test compares that edit against itself and
+# reports a green PASS that proves nothing. Refuse that comparison: the
+# baseline has to be a revision that predates the relax.
+identical=1
+for f in utils gemm_nax quantized_utils fp_quantized_nax; do
+  cmp -s "${BASE_GEN}/${f}.cpp" "${REPO_ROOT}/${GEN_REL}/${f}.cpp" || identical=0
+done
 if [ "${missing}" -ne 0 ]; then
   fail "could not extract ${BASE_REV} generated sources"
+elif [ "${identical}" -eq 1 ]; then
+  fail "VACUOUS: ${BASE_REV} generated sources equal the working tree; pass BASE_REV=<rev predating the relax>"
 else
   # Both sides must compile through the SAME scratch path: AIR embeds the
   # source file name, so two output directories differ for a trivial reason.
