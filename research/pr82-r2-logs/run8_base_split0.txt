@@ -1,0 +1,29 @@
+worker up in 42.1s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718032836914062 mlx_active_gb=33.04 mlx_cache_gb=0.00 mlx_peak_gb=36.13
+decode_begin seed forward: 547.95 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 12.960 8.569 8.561 8.369 8.709 8.504 8.379 8.305
+decode steps=200 mean=8.405 ms median=8.384 ms p10=8.328 ms p90=8.430 ms min=8.269 ms max=12.960 ms total=1.681 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721481323242188 mlx_active_gb=33.13 mlx_cache_gb=1.08 mlx_peak_gb=36.13
+worker stderr -> /tmp/pr82r2_run8_base_split0.err
+
+profile: 9666 command buffers total, 8955 inside 199 steady steps
+per steady step: wall=8.383 ms gpu_busy_sum=8.094 ms gpu_busy_union=8.094 ms gap=0.288 ms (3.4% of wall) cbs=45.0 dispatches=406.0
+
+  us/step   share  n/step  us/call  kernel
+   1825.9  22.56%   10.00   182.59  [10] sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_ns1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_se1_sd1
+   1466.4  18.12%    8.00   183.30  [10] residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_ns1_sc1_se1
+   1115.9  13.79%    5.00   223.18  [12] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_ns1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_se1_sd1
+    891.6  11.02%    4.00   222.91  [12] gate_sp_h48_v1|oproj_act_h48_v1_ns1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_ns1_sc1_se1
+    810.7  10.02%    4.00   202.69  [11] sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_ns1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_se1_sd1|full_fused_attn_grow_v1
+    539.0   6.66%    3.00   179.66  [10] rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_ns1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5
+    456.3   5.64%    1.00   456.25  [5] full_fused_attn_grow_v1|oproj_act_h48_v1_ns1_sc1_se1|residual_rms_bf16_2048_v1|dense_gate_up_swiglu_bf16_v1|dense_down_residual_bf16_v1
+    433.5   5.36%    1.00   433.48  [4] rmsbfloat16|lmhead_int5_base_coarse_delta_bf16_v1|lmhead_coarse_argmax_stage1_v5|lmhead_exact_winner_bf16_midpoint_threshold_v1
+    290.1   3.58%    4.00    72.53  [5] residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5
+    131.6   1.63%    1.00   131.57  [8] sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_ns1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5
+     76.1   0.94%    1.00    76.14  lmhead_exact_fused_int5_sparse_refine_v1
+     40.8   0.50%    1.00    40.82  [3] rmsbfloat16|gate_sp_h48_v1|decode_nvfp4_qkv_h48_r1_v1_lm1_se1_sd1
+     13.0   0.16%    1.00    12.97  [2] gather_frontbfloat16_int32_int_2|argmax_bfloat16
+      3.5   0.04%    1.00     3.47  decode_embedding_rope_atlas_bf16_2048_v2
