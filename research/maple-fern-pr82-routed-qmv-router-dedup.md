@@ -276,6 +276,11 @@ exercises the layouts derived in `prepareFusedRuntimeWeights()`, so it is not a
 complete oracle for representation changes. That is why §5's dedicated in-kernel
 oracle exists and is the primary bit-exactness evidence here.
 
+> **Re-run after the rebase.** This whole two-arm pair was repeated at the new
+> base `f2fedd58` and reproduced byte-for-byte, including the same
+> `EQUIVALENCE_EXIT=1` on both arms. See **§10.4.3** for the new training ids
+> and the report hash.
+
 ## 7. §6.1 M4 matched no-harm screen — the predicted gain does not appear
 
 ### 7.1 Sequence 1 — position-balanced B C C B
@@ -1042,6 +1047,62 @@ The submitted surface is still exactly one file. Growth is 662 B against the
 cap. `LagunaRuntimeModel.swift` is 479,195 B against the 524,288 B per-file
 cap, leaving 45,093 B — comfortably inside the standing ≥ 20 kB margin law
 for this file.
+
+#### 10.4.3 Upstream-equivalence at the new base: candidate vs. matched control
+
+The rebase moved the candidate onto a base it had never been checked against,
+so the numerical-behaviour check was re-run at `f2fedd58` as a **two-arm
+matched pair** rather than as a single candidate-only invocation. Both arms
+went through `research/run_upstream_equivalence.sh`, which pins the bare test
+filter, repairs the debug metallib placement, and refuses to call a zero-test
+invocation a pass.
+
+| arm | tree | supervised training id | wall | `EQUIVALENCE_EXACT_STEPS` | `EQUIVALENCE_EXIT` |
+|---|---|---|---|---|---|
+| candidate | branch tip | `652e02e2-953f-4b97-8a8d-e11e445877ae` | 57.4 s | 8 | 1 |
+| control | detached at `f2fedd58` | `4608ca1d-c3f5-4dec-9027-9536193fc41e` | 16.8 s | 8 | 1 |
+
+Test: `lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled()`, 512 prompt
+tokens and 8 teacher-forced decode steps.
+
+**The two emitted reports are byte-identical**, SHA-256
+`6b832aba0f6e3cca9334a2aec0ba79346ab92745e1e6300fb8e55868bf77a959` for both:
+
+```text
+prefill    maximumAbsoluteLogitError 0.125   meanAbsoluteLogitError 0.011933609
+           runtimeToken 5991 == upstreamToken 5991
+decode-0..7 maximumAbsoluteLogitError 0.0    meanAbsoluteLogitError 0.0
+           tokens 509, 902, 5991, 509, 902, 5991, 509, 902 — all matching
+```
+
+Three things this does establish, and one it does not.
+
+1. **The non-zero exit is the unchanged base's own behaviour on this host, not
+   a candidate defect.** The test asserts `maximumAbsoluteLogitError` against a
+   tolerance of exactly `0.0`; the prefill step reports `0.125` on the *base*
+   as well. Reporting the candidate's exit 1 without this control would have
+   been the same category of error as §10.4.1 — an unmatched observation
+   presented as a contrast.
+2. **The candidate changes no checked numerical output relative to its base**
+   at 8 exact decode steps: every decode step is bit-exact against the
+   vendored oracle on both arms, and every emitted token matches.
+3. **The two builds really were different sources.** The compiler emits the
+   known benign `mergedSharedActivated` warning at `LagunaRuntimeModel.swift`
+   line `10004` on the control arm and line `10013` on the candidate arm, so
+   the detached-HEAD control genuinely compiled the base file rather than
+   silently reusing the candidate's build products.
+
+What it does **not** establish: this is an M4 Pro result at 8 decode steps and
+is not a substitute for the official M5 gates — the hidden 512-token
+teacher-forced cases, the 64-step drift tripwire, the anchors and free runs,
+the GPQA behaviour and TTFT checks, or the semantic judge. It is a screen, not
+a clearance. The separate timing evidence carries its own correctness
+certificate: all eight timed runs in §10.4 reported `passed_correctness=True`
+and `max_abs_diff=0` under one shared
+`golden_hash b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`.
+
+`MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was never set at any point in this
+experiment, on either base.
 
 ### 10.5 Corrections I owe the record
 
