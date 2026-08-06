@@ -1,19 +1,19 @@
 # SENPAI Research State
-- 2026-08-05T13:47Z (updated)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at a996a21 (5 merged improvements).
-- **M5 SUBMISSION DISPATCHED**: 5-PR composition submitted to M5 (submission 00de2d3f,
-  validating). Composes #94 + #98 + #107 + #114 + #116 — all bit-exact or numerically verified.
-- **WAVE 2 ASSIGNED**: 4 new dot4/instruction-reduction experiments assigned to all 4 students.
-  Stale PRs #100, #109, #112 closed (no student work delivered).
-  New: PR #117 (Edward INT8 O-proj dot4), PR #118 (Thorfinn attn pair_o float4 FMA),
-  PR #119 (Alphonse NVFP4 O-proj dot4), PR #120 (Askeladd router GEMV dot4).
+- 2026-08-06T12:27Z (updated)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 495e4db (deep research ideas added).
+  Previous frontier: a996a21 (5 merged improvements, M5 submission 00de2d3f).
+- **WAVE 3 ASSIGNED**: 4 new instruction-reduction experiments from DEEP_RESEARCH_IDEAS.md.
+  All 4 students assigned to independent, novel optimization arms targeting different kernel families.
+  PRs: #121 (Edward), #122 (Alphonse), #123 (Thorfinn), #124 (Askeladd).
 - **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
-  Birch campaign best: 2.5459 (commit 1a75d2b).
-  Target: 2.5523 (gap ~0.0064, ~0.25%). Birch advisor branch (a996a21) submitted to M5.
-- **FRONTIER**: a996a21 (5 merged improvements: #94, #98, #107, #114, #116).
-  Previous: 4a2e371 (#116 merged). Previous: 1a75d2b (#114 dot4). Previous: 16f1dc5 (#107 qdot).
-  Previous: b6a0889 (#98 prefill O-proj). Previous: e925569 (#94 simd_dot).
-- **BROKEN PRs**: #99, #108, #111, #113, #115 (orphan drafts with invalid/missing markers). Ignore.
+  Birch campaign best: 2.5459 (commit d4235c9, M5).
+  Target: 2.5523 (gap ~0.0064, ~0.25%).
+- **FRONTIER**: 495e4db (advisor HEAD, deep research ideas committed).
+  Previous: a996a21 (5 merged improvements: #94, #98, #107, #114, #116, M5 submitted).
+- **BROKEN PRs**: #69, #83, #86, #92, #99, #108, #111, #113, #115 (orphan drafts with
+  invalid/missing markers from prior sessions). Cannot close via close_experiment. Ignore.
+- **CLOSED**: PRs #117 (Edward), #118 (Thorfinn), #120 (Askeladd) closed via close_experiment.
+  PR #119 (Alphonse NVFP4 O-proj dot4) merged → 639646a. PR #98 reverted → cc63c1c.
 
 ## COMPOSITION STRATEGY (see research/COMPOSITION_STRATEGY.md for full analysis)
 
@@ -82,23 +82,31 @@ byte delta, no budget risk.
   dequant overhead vs BF16 bandwidth savings), but the mechanism is sound.
   Official M5 measurement needed to confirm gain, not to prevent regression.
 
-## In-Flight Experiments (Wave 2: 4 dot4/instruction-reduction assignments)
+## In-Flight Experiments (Wave 3: novel instruction-reduction arms from DEEP_RESEARCH_IDEAS.md)
 
-All 4 students assigned to independent dot4/instruction-reduction experiments on the decode path.
-These all target the same file (LagunaRuntimeModel.swift) but different kernels/sections.
+All 4 students assigned to independent, novel optimization arms targeting different kernel families.
+These go beyond the scalar-FMA-to-dot4 pattern that dominated prior work.
 
-| Student | PR | Experiment | Mechanism | Risk | Est. Impact | Status |
-|---------|-----|-----------|-----------|------|-------------|--------|
-| Edward | #117 | INT8 O-proj dot4 | Replace 8 scalar FMA with 2 dot(float4)+1 add in INT8 affine O-proj inner loop (L3912-3914). 40 layers, decode. Precedent: PR #114 (INT8 QKV dot4) bit-exact. | MED | 0.3-0.8% decode | ASSIGNED |
-| Thorfinn | #118 | Attention pair_o float4 FMA | Replace 8 scalar FMAs with 2 float4 FMAs in pair attention output accumulation (3 blocks: L2030-37, L2057-64, L2094-101). 40 layers, decode. Element-wise, no cross-element interaction. | LOW | 0.3-1.0% decode | ASSIGNED |
-| Alphonse | #119 | NVFP4 O-proj dot4 | Replace 4 scalar mults with 1 dot(float4) per group in NVFP4 O-proj inline accumulation (L4121-27, L4222-26). 40 layers, decode. Precedent: PR #107 (qdot dot4) bit-exact. | MED | 0.2-0.6% decode | ASSIGNED |
-| Askeladd | #120 | Router GEMV dot4 | Replace 4 scalar FMAs with 1 dot(float4) per group in fused RMSNorm+router kernel (L886-892, L911-912). 39 layers, decode. Precedent: PR #107/#114 bit-exact. Has WARNING about accumulation order — within-group dot preserves across-block order. | MED-HIGH | 0.1-0.3% decode | ASSIGNED |
+| Student | PR | Experiment | Mechanism | Risk | Est. Impact | Bit-exact? | Status |
+|---------|-----|-----------|-----------|------|-------------|------------|--------|
+| Edward | #121 | NVFP4 Code Pre-Expansion Side Bank | Pre-expand 4-bit nibble codes to half2 bit patterns at transform time. Replace 13-op extract macro with 1 uint4 load. O-proj + SwiGLU. ~135K ALU ops/step eliminated. | LOW | 0.5-2.0% decode | YES | ASSIGNED |
+| Alphonse | #122 | Fused pair_a+pair_b Online Softmax | Compute both KV scores first, apply single joint rescale instead of 2 sequential. Attention main loop, ~22K ops/step saved. | MED | 0.5-1.5% decode | NO | ASSIGNED |
+| Thorfinn | #123 | SwiGLU Input Scatter-to-float4 | Eliminate scatter-to-thread-float[16] array, pass float4 by value to qdot. ~45K instructions/step eliminated. | LOW | 0.3-0.8% decode | YES | ASSIGNED |
+| Askeladd | #124 | Gate-Scale Fold in O-proj | Fold gate g into per-group scale, eliminate 16 per-element multiplies + 16 BF16 rounds per k-block. ~38K ops/step. | MED | 0.3-1.0% decode | NO | ASSIGNED |
 
-**All 4 experiments are independent** — they touch different kernels/sections of LagunaRuntimeModel.swift.
-All target the instruction-bound M5 decode path. M4 (bandwidth-bound) may show null results.
+**All 4 experiments are independent** — they touch different kernels/sections:
+- Edward: O-proj extract macro (L4127-4136) + SwiGLU header extract (L6340-6375) + Transform.swift
+- Alphonse: Attention main loop (L1550-1601 sliding, L2013-2064 full) — different kernel entirely
+- Thorfinn: SwiGLU qdot function signature (L6452-6459) + kernel bodies (L6483-6518, L6575-6618)
+- Askeladd: O-proj loadInput (L4152-4162) + scale application (L4220) — different section from Edward
 
-**Composition potential**: If multiple experiments win, they compose (different kernels, no
-register pressure accumulation, all reduce instructions). Maximum compound decode gain: 1-2.5%.
+All target the instruction-bound M5 decode path. Two bit-exact (LOW risk), two not bit-exact (MED risk).
+Maximum compound decode gain if all win: 1.6-5.3%.
+
+### Remaining ideas from DEEP_RESEARCH_IDEAS.md (unassigned, ready for next wave):
+- Idea #4: Scale Decode LUT — 256-entry float LUT replaces 5-op E4M3 decode. Bit-exact, 0.2-0.5%.
+- Idea #5: O-proj block_size 512→1024 — halve loop iterations. Bit-exact, 0.1-0.5%.
+- Idea #6: fma() in attention output — 1 instr savings per element. Not bit-exact, 0.1-0.3%.
 
 ### Key Design Notes
 
