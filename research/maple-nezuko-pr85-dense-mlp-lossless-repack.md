@@ -335,9 +335,169 @@ had `DARKBLOOM_TRACE_FUSION=1` set, which perturbs the hot path.
 
 ---
 
-## 6. Timing
+## 6. Timing — NO-GO. The mechanism is a decode regression.
 
-<!-- FILLED IN AFTER CAMPAIGN A -->
+**The hypothesis is refuted.** Removing 25.14 MB/step of decode weight traffic
+made decode **slower**, not faster, and by roughly the magnitude the byte
+saving was predicted to gain. The unpack arithmetic costs about 2.2x the
+bandwidth it buys.
+
+### 6.1 Design
+
+Campaign A, 12 runs, one build, within-binary `DARKBLOOM_DENSE_PACKED` switch,
+no checkout or rebuild between runs. Arm order `on off off on off on on off on
+off off on`. ON occupies slots {1,4,6,7,9,12} and OFF slots {2,3,5,8,10,11};
+both sum to 39, so both arms have mean slot 6.5 and **arm is exactly
+orthogonal to slot** by construction, not by luck.
+
+`git diff --name-only 2a16e97 c708c77` touches only `research/` files, so every
+slot ran a byte-identical binary. The varying `commit` field in the JSONs is
+cosmetic and `analyze.py` warns rather than fails on it; I verified the span by
+hand because an identical `golden_hash` is necessary but not sufficient.
+
+Raw JSONs are committed as `research/maple-nezuko-pr85/a_*.json`; the two
+analysis logs are `analysis-a.txt` and `covariate-a.txt`.
+
+### 6.2 Result
+
+```
+decode: base(OFF) n=6 mean=0.0131405043 s/tok  sd=0.445%
+decode: cand(ON)  n=6 mean=0.0132594788 s/tok  sd=0.528%
+decode: change   +0.9054% SLOWER   SE 0.2833%   95% CI [+0.35%, +1.46%]
+decode: exact permutation p(ON slower) = 8/924 = 0.0087
+decode: drift-adjusted +0.9013%   (slot trend +0.0517%/run)
+```
+
+Conversion to the ranked axis, using the programme constants (M4->M5 factor
+0.399; 1 ms of decode `T` = 14.862% of score):
+
+| quantity | value |
+|---|---|
+| M4 us/step | **+118.97 slower** |
+| M5 us/step (x0.399) | **+47.47 slower** |
+| score impact | **-0.7055%** |
+| predicted gain (§5.1.1) | +0.589% .. +0.684% |
+
+The sign is wrong and the magnitude is comparable, so this is not a
+"smaller-than-hoped win" — it is a loss of about the size of the hoped-for win.
+
+### 6.3 The A/A null control, and why it is conservative here
+
+```
+decode OFF A/A null (20 balanced 3v3 splits): sd 0.3724%, 95th pct |d| 0.6875%
+decode ON  A/A null (20 balanced 3v3 splits): sd 0.4424%, 95th pct |d| 0.8033%
+```
+
+The observed 0.905% clears both. It clears them by more than it appears to:
+the A/A null is built from 3v3 splits, whose contrast SE is
+`sd*sqrt(1/3+1/3)`, while the real comparison is 6v6 with SE
+`sd*sqrt(1/6+1/6)`. The null is therefore inflated by `sqrt(2)` relative to
+the statistic it is being compared against. Rescaled to a 6v6 contrast the
+95% thresholds are ~0.486% (OFF) and ~0.568% (ON), and the effect clears both
+comfortably.
+
+I am stating this because it cuts against my own result's convenience: had the
+effect been a *win* of 0.7%, the naive 3v3 comparison would have made me call
+it noise when it was not.
+
+### 6.4 The prefill null channel failed, and I checked whether that matters
+
+Prefill is a **mechanism-null channel**. The packed path is gated on
+`x.dims(1, 1, hidden)` (`LagunaRuntimeModel.swift:8405-8428`), so a 512-token
+prefill provably never enters it and both arms execute byte-identical prefill
+code. The only ON-vs-OFF difference prefill can see is the 5 extra resident
+arrays and +8.41 MB of §0.9.31 residency.
+
+That channel nonetheless moved:
+
+```
+prefill(control): change -1.0057% FASTER   SE 0.4388%   p = 24/924 = 0.0260
+```
+
+A nominally significant effect in a channel where the mechanism cannot act is
+exactly the sort of thing that should reduce confidence in the primary result,
+so I tested it rather than noting it:
+
+```
+within-run Pearson r(decode, prefill), n=12 = -0.1560
+decode raw               = +0.9013%   p = 8/924  = 0.0087
+decode prefill-adjusted  = +0.7856%   p = 14/924 = 0.0152
+prefill (null channel)   = -1.0057%   p = 901/924
+```
+
+`r = -0.156` is weak, so the two channels are **not** one run-level see-saw —
+a shared thermal or clock nuisance would move both in the same direction and
+show strong positive `r`. Using prefill as a covariate and re-contrasting the
+residuals retains **+0.7856% of the raw +0.9013%**, i.e. 87% of the regression
+survives removing everything the null channel could explain, and it stays
+significant.
+
+So the decode regression is not an artifact of whatever moved prefill. The
+most plausible reading of the prefill movement is the residency change itself:
++8.41 MB and 5 extra buffers perturb the MLX allocator, and that happens to
+help a 512-token prefill while hurting a 1-token decode. I am not claiming the
+prefill number as a win — it is a side effect of an arm I am recommending
+against.
+
+Adjusted score impact, if one prefers the covariate-adjusted figure:
+**-0.6149%** instead of -0.7055%. Both are regressions.
+
+### 6.5 Why this conclusion transfers off this host
+
+§7.1 warns that a null on M4 Pro is weak evidence against a mechanism that
+trades bytes for ALU, because this host is more likely ALU-limited than the
+ranked M5 Max. That warning was written before the data and I have to apply it
+honestly now. It does not rescue the result, for a reason the measurement
+itself supplies: the experiment does not just give a sign, it gives the
+**magnitude of the ALU cost**.
+
+- Byte saving 25.14 MB/step. At this host's ~250 GB/s that is worth 100.6 us.
+- Observed change: +118.97 us slower.
+- Therefore the unpack arithmetic costs ~**219.6 us/step** on M4 Pro, i.e.
+  ~2.2x the bandwidth it buys.
+
+On the ranked M5 Max the same 25.14 MB is worth only `25.141e6/610e9` =
+**41.2 us**, because higher bandwidth makes each saved byte *cheaper*, not
+dearer. For the mechanism to break even on M5 the unpack cost must fall from
+219.6 us to <=41.2 us — a **5.3x** improvement in ALU throughput per unit of
+memory bandwidth relative to M4 Pro. M5 Max has more GPU cores, but its
+bandwidth rises ~2.4x at the same time, so the ALU:bandwidth ratio does not
+move anything like 5.3x in the required direction.
+
+This is the case where the M4 host *can* settle the question: the byte saving
+is fixed and known, the ALU cost is measured, and the ratio is far outside the
+range that a generation change plausibly spans. A 20% error in either term
+does not change the verdict.
+
+### 6.6 The follow-up variant does not rescue it either
+
+§9.1 proposed P13 (d=5, zero escapes, branch-free). Pricing it with the
+measured ALU cost rather than with hope: it removes the escape branch, ~4 of
+the ~9 integer ops per weight, but raises the code from 12.0063 to 13.0039
+bits/weight, cutting the saving from 25.14 MB to ~18.8 MB.
+
+- ALU cost ~`219.6 * 5/9` = ~122 us
+- Byte saving on M4 = `18.8e6/250e9` = ~75 us
+- Net: still ~47 us **slower** on M4.
+- On M5 the saving is `18.8e6/610e9` = ~31 us against ~122 us of ALU, needing
+  a 4x ALU improvement.
+
+P13 is therefore also dead, and I am withdrawing it as a follow-up rather than
+leaving it in §9 for someone to spend a session on.
+
+### 6.7 The honest threat to this conclusion
+
+The one reading that would overturn the NO-GO is that my kernel is *correct
+but avoidably slow* — a missed vectorized load, an unnecessary barrier, or the
+anti-hoist construct (`const device bfloat* p = LAGUNA_ANY_ESCAPE ? ... : 0;`)
+defeating an optimization. Bit-exactness does not rule this out: every
+correctness gate here proves the *outputs* are right, and none of them prove
+the kernel is as fast as the encoding permits.
+
+I am not claiming the encoding is unimplementable at lower ALU cost. I am
+claiming that at 2.2x overshoot, closing the gap needs a >2x kernel
+improvement merely to reach break-even on M4 and ~5x to win on M5, which is
+not a plausible return on a straightforward GEMV unpack loop.
 
 ---
 
