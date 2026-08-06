@@ -1,9 +1,10 @@
 # SENPAI Research State
-- 2026-08-06T08:22Z (updated)
-- Campaign mlxfast-birch-20260805. 3 students active, 1 free (Alphonse). Advisor HEAD at e925569.
+- 2026-08-06T08:55Z (updated)
+- Campaign mlxfast-birch-20260805. All 4 students active. Advisor HEAD at f4bad35.
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
   (lBroth) = ~0.25% gap. Any single experiment success likely closes this.
-- **FRONTIER**: e925569 (PR #94 merged: simd_dot attention, bit-exact, -39 lines).
+- **FRONTIER**: f4bad35 (advisor record on top of e925569 = PR #94 merged:
+  simd_dot attention, bit-exact, -39 lines).
   Previous frontier: 12a712d (PR #84: top-8 elimination), then 61aef87 (research notes).
 
 ## MERGED: PR #94 (Alphonse) — simd_dot in fused attention score computation
@@ -16,17 +17,26 @@
 - **W&B**: Baseline y81omqko/6ga1mg8e/7qta01sy, Candidate njlm1fh1/rieo4n2q/tk4ca0ad
 - **Note**: Student used dot()+simd_sum (2 ops) not simd_dot() (1 op). Still 60% instruction reduction.
 
-## In-Flight Experiments (2 decode + 1 prefill, all independent)
+## In-Flight Experiments (3 decode + 1 prefill, all independent)
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact |
 |---------|-----|-----------|-----------|------|-------------|
+| Alphonse | #107 | NVFP4 qdot dot4 vectorization | Replace 16 scalar FMA with 4 dot(float4,float4)+adds in shared qdot header (all NVFP4 kernels) | MED | 0.5-2.0% decode |
 | Thorfinn | #102 | Attention threadGroup 1024→128 | Reduce 8× over-provisioning: only 128/1024 threads active. Bit-exact, improves occupancy + barrier latency | ZERO | 0.3-1.0% decode |
 | Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode |
 | Askeladd | #98 | Prefill O-proj affine path extension | Relax L==1 guard → quantizedMM with affine INT8 weights for prefill | MED | 0.3-1.0% prefill |
 
-2 decode arms (75% score weight) + 1 prefill arm (25% weight). All independent code sections.
+3 decode arms (75% score weight) + 1 prefill arm (25% weight). All independent code sections.
 
 ### Key Design Notes
+
+- **Alphonse #107**: Highest-impact experiment. qdot (laguna_nvfp4_qdot_codes_16)
+  is called by ALL NVFP4 kernels (shared SwiGLU QMV, routed SwiGLU R1, down+residual,
+  O-proj). 16 scalar FMA → 4 dot+2 add = 6 instructions (62.5% reduction in qdot body).
+  NOT bit-exact by construction (different summation order). Upstream equivalence
+  REQUIRED. Fallback arms: B (dot only for word 0), C (dot for first group per word),
+  D (close as negative). PR #94 proved dot() is bit-exact for attention on M5.
+  Previous PR #106 (down+residual 4→8) was cancelled — duplicate of PR #89 (NEGATIVE).
 
 - **Thorfinn #102**: Both fused attention kernels (sliding + full) dispatch
   threadGroup=1024 but only 4 simdgroups (128 threads) do work. The kernel
@@ -34,12 +44,12 @@
   Reducing to threadGroup=128 is bit-exact (same sg 0-3 mapping) and reduces
   register waste + barrier latency. Runs on all 40 layers per decode step.
   Independent from #94 (dispatch params vs kernel source — different code sections).
-  NOTE: #94 is now merged, so #102 must rebase to e925569 before testing.
+  NOTE: #94 is now merged, so #102 must rebase to f4bad35 before testing.
 
 - **Edward #100**: Depth-1 prefetch on gated affine INT8 O-proj kernel.
   Prior #93 (down+residual prefetch) was NEGATIVE (bandwidth-bound), but O-proj
   kernel may have different characteristics. M4 null is NOT a refutation for
-  prefetch — M5 memory hierarchy differs.
+  prefetch — M5 memory hierarchy differs. PR #99 is a duplicate — use #100.
 
 - **Askeladd #98**: Extends INT8 affine O-proj from decode-only to prefill.
   Changes memory bandwidth (BF16→INT8), not dispatch count. Key distinction
