@@ -1,10 +1,11 @@
 # SENPAI Research State
-- 2026-08-06T21:30Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 62380ed (pushed to origin).
+- 2026-08-06T21:19Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 00139d0 (pushed to origin).
   Scored code frontier: 5c28822 (639646a + 15 merged optimization PRs #107→#156).
-  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING (submitted 8/6 18:26 UTC).
+  No scored code changes between 5c28822 and 00139d0 (research notes only).
+  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING (submitted 8/6 18:26 UTC, ~3h queue).
   M5 submission of 15-PR composed HEAD blocked by in-flight 57d8f08 (account limit 1).
-  Wave 9 assigned: PRs #159-#162 (4 bit-exact kernel optimization experiments, all Draft, 0 results).
+  Wave 9 assigned: PRs #159-#162 (4 bit-exact kernel optimization experiments, all Draft, baseline-advanced feedback sent).
 
 - **WAVE 8 RESULTS** (3 complete, 1 incomplete):
   PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
@@ -74,6 +75,20 @@
   - Transpose-free attention reduction via quad_shuffle
   - LAGUNA_RESCALE branch elimination in SDPA vector kernel
   - CPU Guard Hoisting (re-attempt with simpler implementation)
+
+- **PREFILL LEVER ANALYSIS** (DARKBLOOM env vars in editable vendored MLX):
+  All DARKBLOOM levers audited. Only ONE unenabled lever on the scored M5 path:
+  - ATTN_QHOIST: DEFAULT OFF (env "" == "1"). Pure hoist of loop-invariant Q fragments
+    in steel_attention_nax prefill kernel. Bit-exact (same pointer/offset/stride/mma order,
+    NO float arithmetic touched). Risk: +28 registers/thread, +16KB/threadgroup. Expected
+    ~17.8% LSU traffic reduction in prefill attention. M4 CANNOT test (gen 16 < 17 NAX
+    threshold — NAX kernel never compiled on M4). Must submit directly to M5.
+    File: Vendor/mlx-swift/.../jit_kernels.cpp L1385. Change: default "" → "1". ~20 bytes.
+    PREPARED but NOT YET SUBMITTED (blocked by 57d8f08 in queue).
+  Already shipping (DEFAULT ON): STAGE2_GATHER (v1), SWIGLU_REGLOCAL, BSEARCH_HOIST,
+    QBLOCK_MAJOR, QBLOCK_ZIGZAG. Dead: GATHER_XMAJOR (hardcoded OFF, arms removed).
+  Operator submissions with STAGE2_GATHER variant changes (26dc269 -7.21%, c95b4e4 -9.16%)
+  both regressed — do NOT change STAGE2_GATHER variant from default 1.
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign, submission 97a5090).
   Target: beat 2.5888. All component speedups must be ≥ 0.95.
