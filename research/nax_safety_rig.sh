@@ -63,50 +63,121 @@ done
 if [ "${missing}" -ne 0 ]; then
   fail "could not extract ${BASE_REV} generated sources"
 else
-  BK=64 OUT_DIR="${RIG}/inert_base" GEN_DIR="${BASE_GEN}" "${CHECK}" \
+  # Both sides must compile through the SAME scratch path: AIR embeds the
+  # source file name, so two output directories differ for a trivial reason.
+  IN="${RIG}/inert"
+  BK=64 OUT_DIR="${IN}" GEN_DIR="${BASE_GEN}" "${CHECK}" \
       > "${RIG}/inert_base.log" 2>&1
-  BK=64 OUT_DIR="${RIG}/inert_head" "${CHECK}" > "${RIG}/inert_head.log" 2>&1
-  if [ ! -f "${RIG}/inert_base/unit.air" ] || [ ! -f "${RIG}/inert_head/unit.air" ]; then
+  cp "${IN}/unit.air" "${RIG}/inert_base.air" 2>/dev/null
+  BK=64 OUT_DIR="${IN}" "${CHECK}" > "${RIG}/inert_head.log" 2>&1
+  cp "${IN}/unit.air" "${RIG}/inert_head.air" 2>/dev/null
+  if [ ! -f "${RIG}/inert_base.air" ] || [ ! -f "${RIG}/inert_head.air" ]; then
     fail "inertness: one side did not compile"
-  elif cmp -s "${RIG}/inert_base/unit.air" "${RIG}/inert_head/unit.air"; then
-    pass "BK=64 AIR byte-identical to ${BASE_REV} ($(wc -c < "${RIG}/inert_head/unit.air") B)"
+  elif cmp -s "${RIG}/inert_base.air" "${RIG}/inert_head.air"; then
+    pass "BK=64 AIR byte-identical to ${BASE_REV} ($(wc -c < "${RIG}/inert_head.air") B)"
   else
     fail "BK=64 AIR DIFFERS from ${BASE_REV}: the relax is not inert"
   fi
 fi
 
 # ------------------------------------------------------------------- 3. mma
-# tile_matmad_nax lowers to air.simdgroup / matrix intrinsics. A kernel whose
-# MMA body vanished still compiles and links, so count the intrinsic calls per
-# host_name'd function rather than trusting the build.
+# tile_matmad_nax lowers to the tensorops cooperative matmul builtin. It
+# compiles to NOTHING for odd TN>1 and for TM=0 (SM<16), and such a kernel
+# still builds, links and runs -- returning zeros, very fast. Count the calls.
 echo "== 3. non-empty MMA body =="
 for bk in "${BKS[@]}"; do
   ll="${RIG}/bk${bk}/unit.ll"
   [ -f "${ll}" ] || { fail "BK=${bk}: no IR"; continue; }
-  n=$(grep -cE 'call .*@air\.(simdgroup_)?matrix|@air\.mma|tile_matmad' "${ll}")
+  n=$(grep -cE '@__tensorops_impl_matmul2d_op_run_cooperative' "${ll}")
   if [ "${n}" -gt 0 ]; then
-    pass "BK=${bk}: ${n} MMA intrinsic calls"
+    pass "BK=${bk}: ${n} cooperative matmul calls"
   else
-    fail "BK=${bk}: ZERO MMA intrinsics -- kernel computes nothing"
+    fail "BK=${bk}: ZERO matmul calls -- kernel computes nothing"
   fi
 done
 
 # -------------------------------------------------------------- 4. wide load
-# The 4/8/16-lane device loads the staging path is supposed to emit show up as
-# `load <N x iM>` / `<N x half>` from addrspace(1). The scalar fallback emits
-# `load i8` from addrspace(1) instead, once per source byte per thread.
-echo "== 4. widened device load taken =="
+# `-S -emit-llvm` is front-end output, so the loader survives as a call whose
+# Itanium mangling carries its template args: QuantizedBlockLoader<Wtype,
+# BROWS, BCOLS, dst_ld, reduction_dim, tgp_size, group_size, bits>. Recompute
+# kSrcBytes from BCOLS/BROWS/tgp_size and require it to be a shape the widened
+# path accepts, so a silent scalar fallback is caught by name rather than by
+# guessing at optimized load widths.
+#
+# The accepted set is scraped from kWideLoadShapeOk/kWideLoad8ShapeOk in the
+# kernel source, never hardcoded here: a rig carrying its own allow-list tests
+# the author's belief about the predicate instead of the predicate.
+HDR="${REPO_ROOT}/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h"
+OKSET=$(sed -n '/kWideLoadShapeOk =/,/;/p;/kWideLoad8ShapeOk =/,/;/p' "${HDR}" \
+  | grep -oE 'kSrcBytes == [0-9]+' | grep -oE '[0-9]+' | sort -un | tr '\n' ' ')
+echo "== 4. widened device load reachable in the emitted loader =="
+if [ -z "${OKSET}" ]; then
+  fail "could not scrape the accepted kSrcBytes set from fp_quantized_nax.h"
+else
+  echo "     accepted kSrcBytes (from kernel source): ${OKSET}"
+fi
 for bk in "${BKS[@]}"; do
   ll="${RIG}/bk${bk}/unit.ll"
   [ -f "${ll}" ] || { fail "BK=${bk}: no IR"; continue; }
-  wide=$(grep -cE 'load <(4|8|16) x i(8|32)>, ptr addrspace\(1\)' "${ll}")
-  scalar=$(grep -cE 'load i8, ptr addrspace\(1\)' "${ll}")
-  if [ "${wide}" -gt 0 ]; then
-    pass "BK=${bk}: ${wide} wide device loads (${scalar} scalar i8)"
+  sigs=$(grep -oE 'QuantizedBlockLoaderI[A-Za-z0-9_]*?(Ls[0-9]+E){7}' "${ll}" \
+    | grep -oE '(Ls[0-9]+E){7}' | sort -u)
+  [ -z "${sigs}" ] && { fail "BK=${bk}: no QuantizedBlockLoader in IR"; continue; }
+  bad=0
+  for sig in ${sigs}; do
+    read -r brows bcols dst_ld rdim tgp gs bits <<< \
+      "$(echo "${sig}" | grep -oE '[0-9]+' | tr '\n' ' ')"
+    pack_factor=$((8 / bits))
+    src_bytes=$(((bcols / pack_factor) * brows / tgp))  # bytes_per_pack==1
+    if [[ " ${OKSET}" == *" ${src_bytes} "* ]]; then
+      echo "        loader<${brows},${bcols},tgp=${tgp}> kSrcBytes=${src_bytes} widened"
+    else
+      bad=1
+      echo "        loader<${brows},${bcols},tgp=${tgp}> kSrcBytes=${src_bytes} NOT widenable"
+    fi
+  done
+  if [ "${bad}" -eq 0 ]; then
+    pass "BK=${bk}: every emitted loader takes the widened device load"
   else
-    fail "BK=${bk}: ZERO wide device loads, ${scalar} scalar i8 -- fell back"
+    fail "BK=${bk}: a loader falls back to per-byte scalar device loads"
   fi
 done
+
+# ------------------------------------------------------- 5. the guard fires
+# A rig that cannot fail proves nothing. The in-kernel static_assert added
+# beside loader_w_t is the authoritative detector for the silent scalar
+# fallback, because it is compiled from the real predicate rather than from a
+# copy of it. Verify it by reverting ONLY the kSrcBytes relax and requiring
+# the largest requested BK to be REJECTED at build time, while BK=64 still
+# builds -- which is also the second, constructive half of the inertness
+# proof in check 2.
+echo "== 5. wide-load guard fires (negative control) =="
+NEG="${RIG}/neg_gen"
+mkdir -p "${NEG}"
+cp "${REPO_ROOT}/${GEN_REL}"/{utils,gemm_nax,quantized_utils,fp_quantized_nax}.cpp \
+   "${NEG}/" 2>/dev/null
+# Narrow the predicate back to the single 16B case.
+perl -0pi -e 's/kWidenShapeOk && \(\(kSrcBytes == 16\) \|\| \(kSrcBytes == 32\)\)/kWidenShapeOk \&\& (kSrcBytes == 16)/' \
+  "${NEG}/fp_quantized_nax.cpp"
+if grep -q 'kSrcBytes == 16) || (kSrcBytes == 32' "${NEG}/fp_quantized_nax.cpp"; then
+  fail "negative control: could not narrow kWideLoadShapeOk"
+else
+  big=64
+  for bk in "${BKS[@]}"; do [ "${bk}" -gt "${big}" ] && big="${bk}"; done
+  if BK=64 OUT_DIR="${RIG}/neg64" GEN_DIR="${NEG}" "${CHECK}" \
+      > "${RIG}/neg64.log" 2>&1; then
+    pass "narrowed predicate still builds BK=64 (relax does not reach it)"
+  else
+    fail "narrowed predicate broke BK=64: the relax is NOT inert"
+  fi
+  if [ "${big}" -gt 64 ]; then
+    if BK="${big}" OUT_DIR="${RIG}/negbig" GEN_DIR="${NEG}" "${CHECK}" \
+        > "${RIG}/negbig.log" 2>&1; then
+      fail "narrowed predicate STILL built BK=${big}: guard does not fire, a silent scalar fallback would ship"
+    else
+      pass "narrowed predicate rejects BK=${big} at build time ($(grep -c 'static_assert failed' "${RIG}/negbig.log") static_assert errors)"
+    fi
+  fi
+fi
 
 echo
 if [ "${fails}" -eq 0 ]; then

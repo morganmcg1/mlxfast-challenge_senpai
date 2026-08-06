@@ -1609,6 +1609,21 @@ template <
       WM * WN * SIMD_SIZE,
       group_size,
       bits>;
+  // The loader's widening is decided by shape constants derived from BN, BK
+  // and tgp_size. When one of them goes false the loader does not fail -- it
+  // silently runs the per-byte scalar chain, which still compiles, still links
+  // and still returns correct values, just with kSrcBytes device loads per
+  // thread per k-iteration instead of one. Asking for widening and not getting
+  // it is a build error rather than a timing mystery.
+  static_assert(
+      !wide_store || loader_w_t::kWidenShapeOk,
+      "expert staging requested a widened threadgroup store but the loader "
+      "shape check disabled it");
+  static_assert(
+      !wide_load ||
+          (loader_w_t::kWideLoadShapeOk || loader_w_t::kWideLoad8ShapeOk),
+      "expert staging requested a widened device load but the loader shape "
+      "check disabled it; the k-loop would fall back to per-byte loads");
 
   constexpr int kWsElems = BN * BK_padded;
   constexpr int kWsPerChunk = 16 / sizeof(Wtype);
