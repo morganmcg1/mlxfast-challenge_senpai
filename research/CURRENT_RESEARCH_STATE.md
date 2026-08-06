@@ -20,14 +20,26 @@
   `Sources/MLXFastTransform/` flips `source_hash()` and forces a full 21.6 GB
   regeneration on the official host, against 49/1399 submissions already dead
   on timeout. Recorded as §9 item 12 behind a null-layout cost probe.
-- **Most recent human research direction:** `bdb77bb0`, "Queue submissions
-  across Senpai instances" (see §10). Standing campaign rules remain: every
-  official submission goes out as `mlxfast submit --model "senpai"`; advisor
-  and all four students are authorized to dispatch; **launch isolation from the
-  parallel `birch` campaign is absolute** — do not inspect, cite, or borrow
-  from it. Note that isolation is a *research* boundary, not a resource one:
-  `bdb77bb0` confirms we share validation capacity with that instance even
-  though we must not share findings.
+- **2026-08-06 21:55 UTC** — two corrections that change how we assign work.
+  (1) The human operator **replaced** the day-old queue rule with `55ab1b2`,
+  "Let submitters manage validation retries": there is now **no queue owner**
+  and each dispatcher owns its own retries (§10). (2) Direct source reading
+  found that our **M4 prefill per-kernel census measures kernels the M5 never
+  executes** — the long-standing "94.2% of prefill is `_nax`" claim is
+  *inverted* (§3a). That closes the row-tile axis of the gather GEMM and
+  **retracts its banked +1.9–2.6% prize** (§8), and it establishes that the
+  steady decode step is **100% host-independent**, so decode-side mechanisms
+  are now strictly better justified than prefill kernel-internals for an
+  M4-only student.
+- **Most recent human research direction:** `55ab1b2`, "Let submitters manage
+  validation retries" (2026-08-06 21:28:52 UTC; supersedes `bdb77bb0`, see
+  §10). Standing campaign rules remain: every official submission goes out as
+  `mlxfast submit --model "senpai"`; advisor and all four students are
+  authorized to dispatch; **launch isolation from the parallel `birch`
+  campaign is absolute** — do not inspect, cite, or borrow from it. Isolation
+  is a *research* boundary, not a resource one: we share account-scoped
+  validation capacity with that instance even though we must not share
+  findings.
 - **This is a living document.** It was 6,874 lines and had become an archive.
   Everything prior to round 22 now lives in
   [`RESEARCH_STATE_ARCHIVE_through-round-21.md`](RESEARCH_STATE_ARCHIVE_through-round-21.md).
@@ -103,11 +115,17 @@ Ratio 1.726 — decode is worth more *per proportional unit*, prefill is 23.6×
 larger *in absolute time*.
 
 Worked prefill points: −3.13 ms = **+1.20%**; −7.82 ms = **+3.10%**;
-−31.28 ms = **+15.17%**.
+−15 ms = **+6.4%**.
 
 > An earlier advisor note put the 3.13 ms figure at "+2.08%". **That was
-> wrong.** The frontier agent's ~11.6% for the full remainder was roughly
-> right. Use the table above.
+> wrong.** Use the table above.
+>
+> ⚠️ **A previous version of this line quoted "−31.28 ms = +15.17%". That
+> number is withdrawn — see §9a.** 31.28 ms was never measured; it is a
+> subtraction residual against a derived roofline floor, and
+> `research/maple-tanjiro-pr91-prefill-budget-census.md:845` already adjudicates
+> that exact value as **mis-sourced / CLOSED**. The elasticity arithmetic is
+> fine; the 31.28 ms input was not.
 
 ### The single most important strategic fact
 
@@ -171,15 +189,19 @@ not bandwidth-bound). Everything else sits at 94.6–100.2%.
    p50 368.5 µs / p90 382.9 µs). The **candidate** arm's prefill redraw sd is
    only **0.260%**, i.e. **0.065% of `ns`** — so `ns` is a *precise prefill
    instrument*: a genuine +1.2% prefill arm lands at roughly **8σ**.
-3. **Receipt channel.** Single shared in-flight slot across all four students,
-   ~35 min per receipt. Round budget ≤10 receipts total. Kill a family if its
-   first receipt is below `best − 0.243%` (2σ).
+3. **Receipt channel.** Round budget ≤10 receipts total. Kill a family if its
+   first receipt is below `best − 0.243%` (2σ). The old "~35 min per receipt,
+   single queue-owner" model is **RETIRED** — see §10 for the rule now in force.
+   The per-receipt price is currently **un-remeasured**; every dispatch must
+   record dispatch time, first "capacity occupied" response, admission time and
+   receipt time so we can rebuild it.
 4. **M4 vs M5.** Students are on M4 Pro, Apple GPU **generation 16**, which
    **cannot execute `_nax` kernels at all**. The official M5 selects `_nax`.
    Any `_nax` arm is therefore M4-blind and needs the safety rig in §5.
    Every writeup must state which kernel family the local run actually
    selected. **Exception:** hand-written decode MSL is executed identically by
-   both hosts, so M4 timing *is* admissible there.
+   both hosts, so M4 timing *is* admissible there. See §3a for the strengthened
+   form of both halves of this rule.
 5. **The greedy-token gate is structurally blind to sub-token logit drift.**
    Measured, not assumed: fern's 1-ULP fault-injection control in #137 made
    **64 of 65** per-step logit digests differ and still reported
@@ -189,6 +211,70 @@ not bandwidth-bound). Everything else sits at 94.6–100.2%.
    control that is *shown to fire* on that digest. A digest test with no firing
    control is vacuous. This raises the evidentiary bar for every future
    precision-relaxation arm, H1 included.
+
+### 3a. ⚠️ CORRECTION (round 24): our M4 prefill census measures kernels the M5 never runs
+
+This is the most consequential correction of the campaign so far. It invalidates
+a claim we have been restating for several rounds, and it simultaneously
+*strengthens* the decode half of our transfer doctrine.
+
+**The evidence.** `research/maple-fern-prefill-roofline.md:15-40` records the
+capability probe taken on the student host:
+
+```text
+arch=applegpu_g16s  gen=16  last=s  nax_gen_required=17  nax_available=false
+```
+
+The OS gate passes; the **GPU generation gate fails**. Every `_nax` kernel is
+unreachable on an M4 Pro. Fern's own words: this is "a strictly stronger failure
+mode than the advisor's 'threadgroup re-tiling does not transfer': it is not the
+same kernel at a different occupancy, it is a *different kernel*."
+
+**The inverted claim.** We have repeatedly written "94.2% of prefill is `_nax`".
+The truth is the exact opposite: **94.2% of the M4 prefill census is *not*
+`_nax`, and every one of those kernels is NAX-divergent** — the M5 runs a
+different Metal function for it.
+
+| observed pipeline on M4 | ms/fwd | share | what the M5 runs instead |
+|---|---:|---:|---|
+| `nvfp4_gather_qmm_rhs_nt` (bm16/bn32/bk32/wm1/wn2) | 266.65 | 48.5% | `nvfp4_gather_qmm_rhs_expert_static_nax_nt_…bm_64_bn_64_bk_64_wm_4_wn_1` |
+| `steel_gemm_fused_nt_bfloat16_bm64_bn64_bk16_wm2_wn2` | 183.37 | 33.4% | `steel_gemm_fused_nax_nt_…` (bm128/bn128/bk512 family) |
+| `steel_gemm_splitk_nt` + `_accum` | 33.04 | 6.0% | NAX split-K branch (`matmul.cpp:988`) |
+| `steel_attention_bfloat16_bq32_bk16_bd128_wm4_wn1` | 28.23 | 5.1% | `steel_attention_nax` at bq64/bk32 |
+| `nvfp4_qmm_t` | 6.64 | 1.2% | `nvfp4_qmm_t_nax_static_…` |
+| **NAX-divergent subtotal** | **517.92** | **94.2%** | |
+| `nvfp4_qmm_t_splitk_fused` | 13.56 | 2.5% | same kernel (split-K precedes the NAX gate) |
+| `laguna_*` custom + elementwise + rms + router + moe_tail + sort/scatter + lm_head | ~18.09 | 3.3% | same kernels |
+
+Note in particular that the routed gather GEMM on M4 runs at
+**bm16/bn32/bk32/wm1/wn2** — a 16-row tile — while the M5 runs a **64-row**
+tile. Any tiling, occupancy or row-padding arithmetic derived from the M4
+census is arithmetic about the wrong kernel.
+
+**Four programme consequences.**
+
+1. Correct the drifted restatements wherever they are cited:
+   `RESEARCH_IDEAS_2026-08-06_09:00.md:189`,
+   `PREFILL_LEDGER_INSTRUMENT.md:10`, `RESEARCH_STATE_ARCHIVE:5823`.
+2. **Absolute M4 prefill per-kernel times, and every tiling/occupancy
+   conclusion drawn from them, do not transfer to M5.** Only the ~3.3% tail of
+   hand-written `laguna_*`/elementwise/rms/router/sort work is common to both
+   hosts. This does *not* invalidate M4 *wall-clock* prefill A/B when the arm
+   changes host-side dispatch structure rather than kernel internals — but it
+   does mean an M4 kernel-internals result is not evidence.
+3. **The steady decode step is 100% host-independent.** Every decode dispatch is
+   a hand-written `laguna_*` kernel (or `rms`/`gather_front`); none sits behind
+   a NAX or `#available` gate. The only capability gate anywhere in `Sources/`
+   is `lagunaExpertAlignedGatherEnabled`
+   (`LagunaRuntimeModel.swift:235-249`), which decode never reaches. Our
+   existing "hand-written decode MSL transfers M4→M5" exception is therefore
+   not an exception at all — it is the general rule for decode.
+4. **Assignment policy.** For an M4-only student, a decode-side mechanism is now
+   *strictly better justified* than a prefill kernel-internals mechanism,
+   independent of which has the larger nominal prize. Decode also carries 75% of
+   the score weight. A prefill kernel-internals arm must either (a) be
+   validated on the ranked M5 channel, or (b) rest on an argument with a ≥100×
+   margin that survives the kernel substitution.
 
 ### Resubmission variance-harvesting: formally REFUTED
 
@@ -230,62 +316,104 @@ selection rule are worth more than marginal positives.
 measured *in isolation* rather than *in situ* is suspect for shadow-execution
 over-attribution. Re-audit as they come up.
 
-### 4.1 ⚠️ Open contradiction: the shadow model vs. the M4 profile
+### 4.1 ✅ RESOLVED (round 23, #157 + #158): the residency-ceiling law
 
-This is now the highest-value unresolved question in the campaign, because it
-decides whether the 75%-weight axis has a lane at all. Three facts, at least
-one of which must be misread:
+The shadow-model contradiction is closed. Two independent PRs agree, so per the
+rule below no single receipt was needed and none was spent.
 
-1. **M4 decode overlap is exactly zero.** `gpu_busy_sum == gpu_busy_union` to
-   **6 ns** (`research/nezuko-decode-roofline.md:193-202`, restated
-   `research/nezuko-terminal-report.md:221-225`; reconfirmed
-   `research/maple-tanjiro-pr73-decode-kernel-census.md:721`). Steady step:
-   wall 9.816 ms, busy 9.492/9.498 ms, **host gap 0.322 ms = 3.3%**, 45 command
-   buffers (1.33 µs each ⇒ only 60 µs/step), 406 dispatches. Stable at 3.0–3.5%
-   across the whole `MLX_MAX_MB_PER_BUFFER` sweep.
-2. **PR #48 removed 80 decode dispatches (406 → 326) for `ns` −0.1488%** —
-   ≈ 0.12 µs per removed dispatch. We explained this as *those dispatches were
-   hazard-free and therefore already shadowed, hence free.*
-3. **PR #34 r2 priced a barrier-serialized dispatch at 1.980 ± 0.044 µs on the
-   M5** — 16× the #48 marginal rate.
+> **THE RESIDENCY-CEILING LAW (#157 D2).** Two independent kernels overlap when
+> their **combined** threadgroup count is at or below the machine's concurrent-TG
+> residency ceiling (**~480 on a 20-core M4 Pro = 24 TG/core; ~960 on a 40-core
+> M5 Max**), and essentially not at all above it.
 
-(1) and (2) are hard to hold together: if nothing overlaps, nothing can be
-shadowed. Candidate resolutions:
+Measured `concurrent_1cb` GEMM ladder with duration held ≈20 ms: 16 TGs →
+`overlap_eff` **1.0112**; 80 → 0.1192; 2048 → 0.0426; 9792 → 0.0128.
+Complementary `alu/mem`: 2 TGs → 0.4954 … 9792 → 0.0259. So overlap is a
+**spare-capacity** property, not a scheduler property.
 
-- **(a)** the M4 `union` is computed per command buffer or from timestamps
-  blind to intra-buffer overlap ⇒ "zero concurrency" is an artifact and
-  shadowing is real;
-- **(b)** shadowing is not real, the #48 dispatches were genuinely ~0.12 µs of
-  GPU work, and 1.980 µs prices *the added barrier* rather than the dispatch;
-- **(c)** M4 and M5 differ structurally — for which we now have hard precedent
-  (§8, `MLX_MAX_MB_PER_BUFFER`).
+Resolution of the three candidate readings:
 
-**Adjudicated by #148's mandatory dose-linearity control.** Per-family slope
-`d(decode_seconds_per_token)/dm` compared against the family's isolated GPU
-duration: slope ≈ isolated ⇒ serial, and `Σ(slopes) ≈ T` ⇒ (b), decode is
-execution-saturated and only layout remains. Slope ≪ isolated ⇒ (a), and every
-in-isolation µs/step claim in the campaign is over-attributed. The residual
-`T − Σ(slopes)` also separates "host gap is absolute" (≈ 322 µs ⇒ 7.8% of the
-M5 step) from "host gap is proportional" (≈ 137 µs) — 185 µs apart.
+- **(a) the instrument is blind — CONFIRMED.** `gpu_busy_union` is computed
+  **per command buffer** (`research/decode_probe.py:147-192`, merge `:177-186`;
+  prefill twin `research/prefill_probe.py:148-165`) from a CB completion
+  handler. MLX packs 20–50 ops per CB on one queue, so `union == sum` is
+  *guaranteed by construction* and carries zero information. Control:
+  `concurrent_1cb` reports union-overlap 0.000000 while wall 13.954 ms against
+  an isolated sum of 27.939 ms — **perfect hiding, invisible to the metric.**
+  Worse, PR #73's run A used `DARKBLOOM_GPU_PROFILE_SPLIT` (`cbs=406
+  dispatches=406`), which makes that evidence self-refuting.
+- **(b) no shadowing at real width — SEPARATELY TRUE**, but for a different
+  reason than we assumed. #157 D5 measured prefill-512 geometry: MoE per layer
+  compacts to **9,798 TGs** (490× the M4 ceiling, 245× the M5 ceiling);
+  attention is 384–512 TGs. Nothing in the scored graph runs under the ceiling.
+  #158 confirms this independently at **decode** width: capping dispatches per
+  CB leaves `gpu_busy_sum` flat at 7.99 ± 0.06 ms while CBs go 45 → 204, so
+  hidden decode work is **≤ 0.06 ms/step (< 1%)**.
+- **(c) M4 ≠ M5 — not needed.** The 245× margin transfers safely.
 
-**No equivalent prefill profile exists.** `research/nezuko_mbpb_prefill.sh:8-14`
-states its `--profile` window covers only steady decode steps, so the busy/wall
-lines in `nezuko-mbpb-prefill.log` are decode. Only prefill total wall is
-recorded (`:2`, 544.93 ms on M4). #148's prefill rows are the first per-family
-prefill attribution this programme will have.
+**Programme consequences (binding):**
 
-**Round 23 attacks this from four independent sides**, which is the reason all
-four assignments were issued against one base:
+1. **`gpu_busy_union` is RETIRED programme-wide.** Every "nothing overlaps
+   because sum == union" claim is withdrawn
+   (`nezuko-decode-roofline.md:193-202`, `nezuko-terminal-report.md:221-225`,
+   `maple-tanjiro-pr73-decode-kernel-census.md:721`). **`gpu_busy_sum` and the
+   per-CB intervals remain valid.** Delete the union column from new reports.
+2. **Attack B (graph-level overlap / co-residency) is CLOSED for prefill**, and
+   closed for decode by #158's flat-`sum` control. Any future "hide X behind Y"
+   proposal must **first** show that X or Y leaves the machine under-occupied
+   (< ~480 combined TGs on M4 Pro, < ~960 on M5 Max). Prefill tail-fill upside
+   is bounded at O(0.5%) ≈ 0.5 ms ≈ **+0.18%** — below bar.
+3. **The decode host gap is PROPORTIONAL, not absolute** (#158 §1.1: slope
+   +0.0594 ± 0.0191 on injected work, 3.10σ nominal — treat as ~1.5–2σ, see the
+   caveat below). Either way the whole dispute is bounded at **gap/wall =
+   3.01%** and the two models differ by only 0.33% of wall. The qualitative
+   conclusion is the one that matters: **there is no host-side pool to harvest;
+   wall time must be bought by removing GPU work.** The hoped +4.7% host-gap
+   pool does not exist.
+4. **#158 §2 headline caveat.** Do **not** promote "406 dispatches × 1.9 µs =
+   771 µs of dead time" as a programme constant. It is a *level* extrapolated
+   from a slope measured at three sites where dispatches were added as whole
+   small kernels carrying their own traffic; additivity is untested for the 138
+   large byte-bound dispatches that are 58% of busy. The two "independent"
+   routes are not independent (Route B is a single unreplicated run in a regime
+   the report itself excludes), the retained marginals are mutually
+   inconsistent at ~5σ, and the joint 4-knob arm gives 1.57 µs. Honest band:
+   **1.6–2.4 µs/dispatch ⇒ 640–990 µs ⇒ 8–12% of busy**, i.e. **9.3% of wall**
+   (8.27 ms), not 9.6%. Arithmetic fix: per-CB de-inflation is
+   `576/(406−45) = 1.596`, not `576/406 = 1.419`. The strongest defence of the
+   instrument, which the report never states, is that the hook is one
+   completion handler **per CB** and CBs stay at 45–46 while dispatches go
+   406 → 601, so it cannot manufacture a per-dispatch inflation.
 
-| PR | angle on §4.1 |
-|---|---|
-| #137 (fern) | 63.7 µs of GPU work removed moved the wall by 112 µs — a `Δwall/Δgpu_busy` of 1.8×, which no purely execution-saturated model predicts |
-| #148 (frieren) | dose-linearity slopes and the residual `T − Σ(slopes)`, the direct adjudication described above |
-| #157 (tanjiro) | instrument-validated probe of whether this stack *ever* runs two independent kernels concurrently, plus a code read of how `gpu_busy_union` is computed |
-| #158 (nezuko) | is the 322 µs host gap absolute or proportional, re-measured on the current base rather than the round-13 base |
+#### 4.1a The real, transferable finding from #158: the fusion price table
 
-Any two of these that agree collapse (a)/(b)/(c) to one resolution. Do not let a
-single receipt settle it.
+Read backwards, #158's unfuse sweep is a **retrospective measurement of four
+already-shipped fusions worth ≈1.17 ms/step ≈ 14% of decode busy**. That prices
+fusion directly, and far better than any flat floor:
+
+| fusion (measured by reversing it) | dispatches removed | µs saved (busy) | **µs per dispatch removed** |
+|---|---:|---:|---:|
+| `DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER` | 39 | 259.5 | **6.65** |
+| `DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV` | 195 | 471.5 | **2.42** |
+| `DARKBLOOM_FUSED_SHARED_SWIGLU_QMV` | 195 | 371.5 | **1.91** |
+| `DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL` | 39 | 71.5 (wall only +20.5) | **1.83** (wall 0.53) |
+| all four jointly | 429 | 673.0 | **1.57** |
+
+Each arm n=1 (±0.36 µs/disp on the 39-dispatch arms, ±0.07 on the 195-dispatch
+arms); all arms showed 0 token divergences.
+
+> **RULE: price a prospective fusion by its traffic delta, not by a flat
+> per-dispatch floor.** Fusions that eliminate a *materialised intermediate*
+> have measured **1.6–6.7 µs per dispatch removed**; a fusion that only removes
+> a launch is worth much less, and `rsdr` shows a busy saving of 71.5 µs
+> converting to only 20.5 µs of **wall** — always check the wall marginal.
+
+**Cheapest reads that would firm this up** (ranked, from the audit): (1)
+replicate `SPLIT=1` at least ×2 — the entire per-kernel census rests on one run;
+(2) rerun the unfuse sweep with the hook **off** and compare wall marginals,
+which also settles `rsdr`; (3) one **true fusion** arm that removes a dispatch
+*without* changing traffic — the only measurement that licenses the level
+interpretation.
 
 ---
 
@@ -444,6 +572,53 @@ The full evidence table lives in the archive
 
 **Closed this session:**
 
+- **The row-tile / row-lane-occupancy axis of the prefill gather GEMM —
+  CLOSED, and its banked prize RETRACTED.** I had queued a round-24 assignment
+  on "25% row-lane utilisation in the (16,256) grid". Direct source reading
+  killed it on three independent grounds:
+  - *The premise was arithmetically wrong.* `grid.y` is **one threadgroup per
+    expert**, not per (expert, row-chunk) (`quantized.cpp:1960`,
+    `fp_quantized_nax.h:1691-1697`); row chunks are an **inner serial loop**
+    (`:1713-1716`). An inactive simdgroup does no MMA (`sg_active`,
+    `:1717-1719`) though it still runs the K-loop, both barriers and the
+    cooperative weight stage. So the real waste is **≈1.29× MMA padding** and
+    **≈1.08× weight re-staging**, not 4×.
+  - *The axis was already swept and shipped at its optimum.* A measured 6-arm
+    `DARKBLOOM_STAGE_BM128` variant sweep lives in editable source
+    (`quantized.cpp:1413-1487` doc, `:1491-1510` selector, `:1659-1667` table):
+    BM64/WM2/WN2 (control) · BM128/WM4 · BM128/WM2 (regression) · BM128/WM8 ·
+    BM64/WM4/WN2 (+15.40%) · **BM64/WM4/WN1 = shipped default**. A separate
+    BM ∈ {16,32,64,128} sweep gives chunks/layer 372.6 / 263.2 / **220.5** /
+    207.9 with idle TGs pinned at 51.9 for *every* BM; 64→128 buys only −5.7%.
+    "The lever is smaller SM, not bigger BM." **SM<16 is impossible**
+    (`TM = SM/16` integer-divides to 0 ⇒ zero MMA; `kFragRows=16`), and
+    **WM=8 is expressible but useless** (only form is bm128/wm8 ⇒ SM=16,
+    identical to shipped).
+  - *Row-lane masking is structurally barred.* A 16-row predicate is
+    thread-varying while `tile_matmad_nax` is a simdgroup-collective op that
+    cannot be lane-masked (`quantized.cpp:1439-1443`; this is why FRAGSKIP was
+    rejected).
+
+  **Formal retraction:** the banked **"+1.9–2.6% row-padding prize" is
+  withdrawn.** `453,120 = Σ ceil(n_e/16)·16` *is* the floor, not a target.
+  Also retired with it: "1 of 4 simdgroups active" (traced to commit `fbc1371`,
+  **reasoned, never measured**), and the idea of cashing it in — variant 5
+  deliberately moved padding *out of MMA into staging*, so the prize would have
+  to be won on the **staging** axis, which is exactly what fern's #40 measured
+  null (`Ws` double-buffer dS = **+0.1150 ms**, register prefetch **+0.4626
+  ms**, both the wrong sign, inside σ = 0.2536, on 3 same-session M5 receipts
+  with `max_abs_diff = 0`).
+
+  Empty threadgroups are priced at **0.355 ms — below the ±0.73% MDE** — and
+  `DARKBLOOM_EXPERT_GATHER_GROUPS` self-refutes coarsening (256/128/64/32 give
+  empty-TG 20.26/4.77/0.33/0.00% but makespan 40.777/40.838/41.386/42.344 ms),
+  so 256 is optimal. Production never operates in the swept occupancy region:
+  gate/up is 4,096 TGs (102/core on a 40-core M5), down 8,192 (205/core), and
+  the binding occupancy term is **96 simdgroups/core, not threadgroup bytes**
+  (#57 + #138; at ≥128 thr/TG, 1 KB / 9,232 / 17,424 / 32,768 B all yield 480
+  TGs). **Only two descendants survive**, both listed in §9: routing-aware
+  two-régime dispatch (needs a *mechanism proposal, not a knob*), and register
+  pressure per simdgroup (never run).
 - **The entire checkpoint-compression family — CLOSED by exhaustive offline
   evidence** (nezuko, #143, merged; zero scored bytes, zero receipts). A
   full-byte hash of **all 60,582 slabs / 21,561,408,512 B**:
@@ -595,6 +770,83 @@ a student wants to treat M4 agreement as M5 evidence.
 
 **Still open in the archive but reopened / unresolved:** prefill glue (old C5),
 shared-expert overlap (old 5b).
+
+---
+
+## 9a. ⚠️ CORRECTION: what we actually know about prefill time
+
+Two numbers this programme has been quoting as measurements are not
+measurements. Both were audited to primary sources on 2026-08-06; correct them
+wherever you see them.
+
+**1. The "31.28 ms unattributed prefill pool" does not exist as a measured
+quantity.** It is a *subtraction residual* — measured M5 wall minus a **derived
+roofline floor**, with no per-kernel attribution behind it.
+`research/maple-tanjiro-pr91-prefill-budget-census.md:845` already adjudicates
+the exact 31.28 value as **mis-sourced / CLOSED**: it is reproducible only under
+an unstated 500 GB/s assumption plus a 20.26% zero-row discount (`:106-112`).
+The census's own honest statement is **UNATTRIBUTED = 22.9–37.9 ms, central
+27.88 ms at 546.2 GB/s** (`:657-658`), explicitly labelled "an **upper bound on
+recoverable time, not recoverable time**" (`:666-667`).
+`RESEARCH_STATE_ARCHIVE_through-round-21.md:1172-1181, :6365` had already
+refuted the related CLAIM C and withdrawn a 15.4 ms overlap pool.
+
+The only *direct* prefill wall-vs-busy measurement we own says the opposite of a
+large pool. `research/pr91-logs/step1-split0.log:15-19` (M4, shipped cap): wall
+**545.242 ms**, `gpu_busy_sum` **540.455 ms = 99.1% of wall**, gap ≈ **4.79 ms
+(0.9%)**, **81 command buffers, 1222 dispatches**, 24.717 GiB bound. Archive
+closure `:6374` says the same at 99.4%. And the M5-measured marginal command
+buffer cost is **+27.177 µs/cb** for prefill (2147 µs / 79 cb,
+`research/nezuko-mbcap-up-prereg.md:80-82`, ranked receipt `3e6fdcba`) — so the
+*entire* 81-CB prefill boundary cost on M5 is **O(2.1 ms)**. CB overhead cannot
+be 31 ms. (Caveat from `RESEARCH_STATE_ARCHIVE:3277`: do not quote the
++27.2 µs/cb rate *above* the shipped cap.)
+
+**2. "94.2% of M5 prefill is `_nax`" is an M4 measurement, and its denominator
+is the M4 per-kernel census total (~550 ms), not M5 wall.** Origin
+`research/maple-fern-prefill-roofline.md:20-35`: `nvfp4_gather_qmm_rhs_nt`
+266.65 ms (48.5%) + `steel_gemm_fused_nt` 183.37 (33.4%) + `steel_gemm_splitk_nt`
++ accum 33.04 (6.0%) + `steel_attention` 28.23 (5.1%) + `nvfp4_qmm_t` 6.64 (1.2%)
+= 517.92 ms = 94.2%. The correct reading is *"these are the M4 kernels that M5
+replaces with `_nax` variants"*. It drifted into a direct M5 claim at
+`RESEARCH_IDEAS_2026-08-06_09:00.md:189`, `PREFILL_LEDGER_INSTRUMENT.md:10` and
+`RESEARCH_STATE_ARCHIVE_through-round-21.md:5823`. The related "~66 ms M5 busy"
+is doubly inferred (`census:998` = 97.95 − 31.28).
+
+**What is actually solid about prefill:**
+
+| fact | value | source |
+|---|---|---|
+| M5 prefill wall (ranked, promoted arm) | **97.895 ms** | receipt `97a5090` |
+| M4 prefill wall / busy / gap | 545.24 / 540.46 / 4.79 ms (**99.1% busy**) | `pr91-logs/step1-split0.log:15-19` |
+| command buffers @ shipped 200 MB cap | **81** prefill, 34 decode/step | `nezuko-mbcap-up-prereg.md:31-37`, **reproduces measured M5 counts exactly** (`-receipt.md:34,:186`) |
+| dispatches | **1222** prefill, 406 decode/step | same |
+| M5 marginal CB cost | prefill **+27.177 µs/cb**, decode **+1.1045 µs/cb** | ranked receipt `3e6fdcba` |
+| honest unattributed band | **22.9–37.9 ms, upper bound only** | `pr91-...-census.md:657-667` |
+
+**The instrument blind spot, and the cheapest fix.** The PR91 hook captures only
+`GPUStartTime()` / `GPUEndTime()` (`research/pr91-gpuprof-hook.patch:137-141`).
+There is **no host-side timestamp and no `addScheduledHandler` anywhere in the
+repo**, so "host is slow building the graph" cannot be separated from "GPU is
+waiting on the driver". `kernelStartTime()` / `kernelEndTime()` are already
+declared in
+`Vendor/mlx-swift/Source/Cmlx/metal-cpp/Metal/MTLCommandBuffer.hpp:165,167` and
+used **nowhere**. Adding those two plus a host clock read at the `commit()` site
+is the smallest instrument upgrade that would answer the causal question, and it
+costs zero receipts.
+
+**Parser bug, free to fix.** The hook emits **six** whitespace-separated fields:
+`GPUPROF <start_s> <end_s> <nops> <input_bytes> <name>|<name>...`.
+`research/prefill_probe.py:48` uses `split(" ", 5)` — correct.
+`research/decode_probe.py:160` and `research/nezuko_cb_idle.py:40` use
+`split(" ", 4)` — **buggy**: the byte count is prepended to the kernel-name
+string. Wall/busy/gap totals are unaffected; per-kernel names are corrupted.
+Whoever next touches decode probing must fix both.
+
+**The one measurement that would settle prefill:** a single M5 session with the
+PR91 hook attached. It either kills the pool outright or converts it into a real
+target. Until then, treat every prefill kernel-level number as M4 evidence about
+a code path M4 does not execute the same way.
 
 ---
 
@@ -864,32 +1116,34 @@ Ordered by expected value, not by ease.
 
 ## 10. Open programme issues
 
-- **§R21.7 is CLOSED by the human operator.** Commit `bdb77bb0` ("Queue
-  submissions across Senpai instances", mmcguire, 2026-08-06 20:41 UTC) adds a
-  six-line rule to `senpai/program.md` that resolves the shared-submission
-  channel I could not file an issue about. Verbatim effect:
-  **multiple Senpai instances share account-scoped validation capacity.** If the
-  API reports the account's current validation slot is occupied, the candidate
-  **stays in the coordinated queue**; **only the queue owner may poll `mlxfast
-  submissions`**, at most **once every ten minutes** and never sooner than the
-  server's own retry guidance; dispatch happens after capacity clears.
-  Operational consequences for this campaign, now propagated to all four
-  round-23 students:
-  - "Slot occupied" is **not** an error and **not** a rejection. It is not
-    evidence about the candidate. Do not re-dispatch, do not mutate the
-    candidate, do not fall back to a different `--model` value (the campaign
-    fallback is authorised **only** on an explicit rejection of `senpai` as a
-    model value, never on a capacity, timeout, or network condition).
-  - Within maple, the **queue owner is the single student currently holding the
-    maple receipt slot** under the §6 channel order. Nobody else polls. Two
-    maple agents polling would violate the once-per-ten-minutes budget without
-    either of them knowing.
-  - A blocked dispatcher **keeps working** against the recorded frontier rather
-    than idling; the queue wait is not a reason to stop the local research.
-  - Our own §6 receipt-channel ordering is now the *inner* serialisation of a
-    *shared outer* queue. Wall-clock per receipt should be assumed **longer
-    than the ~35 min** we have been budgeting, so a family whose value depends
-    on burning several receipts in a row is worth less than it was last round.
+- **Submission lifecycle — CURRENT RULE (supersedes `bdb77bb0`).** Commit
+  **`55ab1b2`** on `main`, "Let submitters manage validation retries" (mmcguire,
+  2026-08-06 21:28:52 UTC), rewrites `senpai/program.md` §5. It is propagated to
+  every branch (advisor `ad57f32`, fern `f13d659`, frieren `c5c8c6d`,
+  nezuko `1a014f5`). The previous "queue owner / once-per-ten-minutes" model in
+  `bdb77bb0` is **retired**; do not apply it. What is in force:
+  - **There is no queue owner and no queue manager.** Any authorised advisor,
+    student, or human operator holding a committed, preflighted candidate may
+    dispatch, and **owns that candidate's submission lifecycle end to end,
+    including retries**. Never wait for another agent's permission and never
+    hand a candidate off.
+  - If validation capacity is occupied: preserve the exact commit and note, keep
+    doing useful work, recheck periodically **without a tight polling loop** and
+    never sooner than the server's own retry guidance, then retry the
+    *identical* `mlxfast submit --model "senpai"`.
+  - **Before retrying after a timeout or ambiguous response, first check whether
+    the first request already created a submission.**
+  - "Capacity occupied" is **not** a rejection and carries **zero** information
+    about the candidate. Never fall back to another `--model` value for a
+    capacity, timeout, network, or validation condition — the campaign fallback
+    is authorised **only** on an explicit rejection of `senpai` as a model
+    value, and must then be recorded in the public note.
+  - The **~35 min per-receipt price is retired and un-remeasured.** Every
+    dispatch must record dispatch time, first "occupied" response, admission
+    time and receipt time so the programme can rebuild that constant.
+  - Operator broadcast `<!-- senpai-submission-lifecycle-correction:v1 -->` was
+    posted to PR #137 and PR #148 at 2026-08-06T21:32Z. That notification item
+    is **discharged**; round-24 assignments carry the rule in their body.
 - The prior blocker text is retained for provenance: there is still **no typed
   transition to open a new GitHub issue**, so cross-campaign coordination
   continues to require a human operator. `bdb77bb0` is the precedent for how
