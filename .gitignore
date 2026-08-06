@@ -65,3 +65,4 @@ local-docs/
 __pycache__/
 **/__pycache__/
 wandb/
+.agent_tmp/
