@@ -6461,6 +6461,31 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                 }
             """
     }
+    // float4-input twin of `packedWordBody`: reads `input[word*2]` and
+    // `input[word*2+1]` as ready-made float4 vectors instead of reconstructing
+    // them from 8 scalar loads.  Bit-exact: the same float values, same FMA
+    // association, same accumulation order.
+    func packedWordBodyVec4(_ word: Int) -> String {
+        let codeWord = word == 0 ? "codes.x" : "codes.y"
+        let seedElided =
+            (word == 0 && lagunaNvfp4QdotSeedElisionEnabled)
+        let seedOp = seedElided ? "=" : "+="
+        return """
+                {
+                    const uint c = \(codeWord);
+            \(extract)
+                    const float2 v04 = float2(as_type<half2>(p0))\(weightScale);
+                    const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
+                    const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
+                    const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
+                    const float4 w_a = float4(v04.x, v15.x, v26.x, v37.x);
+                    const float4 w_b = float4(v04.y, v15.y, v26.y, v37.y);
+                    const float4 in_a = input[\(word * 2)];
+                    const float4 in_b = input[\(word * 2 + 1)];
+                    accum \(seedOp) dot(w_a, in_a) + dot(w_b, in_b);
+                }
+            """
+    }
     let accumDeclaration =
         lagunaNvfp4QdotSeedElisionEnabled
         ? "float accum;" : "float accum = 0.0f;"
@@ -6492,6 +6517,26 @@ let lagunaSharedSwiGLUQMVHeader: String = {
         const device uint2* packed = (const device uint2*)weight;
         return laguna_nvfp4_qdot_codes_16(packed[0], input, scale);
     }
+
+    static inline float laguna_nvfp4_qdot_codes_16_vec4(
+        uint2 codes,
+        const thread float4* input,
+        float scale
+    ) {
+        \(accumDeclaration)
+    \(packedWordBodyVec4(0))
+    \(packedWordBodyVec4(1))
+        return scale * accum;
+    }
+
+    static inline float laguna_nvfp4_qdot_16_vec4(
+        const device uint8_t* weight,
+        const thread float4* input,
+        float scale
+    ) {
+        const device uint2* packed = (const device uint2*)weight;
+        return laguna_nvfp4_qdot_codes_16_vec4(packed[0], input, scale);
+    }
     """
 }()
 
@@ -6515,18 +6560,14 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
 
         thread float gate_result[2] = {0.0f, 0.0f};
         thread float up_result[2] = {0.0f, 0.0f};
-        thread float input_values[values_per_lane];
+        thread float4 input_values[values_per_lane / 4];
 
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*)(
                     input + block + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
+                input_values[i] = float4(input_vectors[i]);
             }
 
             for (uint row = 0; row < 2; ++row) {
@@ -6545,11 +6586,11 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
                     fused_scales + up_row * scale_row_bytes +
                     block / 16 + lane;
 
-                gate_result[row] += laguna_nvfp4_qdot_16(
+                gate_result[row] += laguna_nvfp4_qdot_16_vec4(
                     gate_weight,
                     input_values,
                     laguna_nvfp4_scale(gate_scale[0]));
-                up_result[row] += laguna_nvfp4_qdot_16(
+                up_result[row] += laguna_nvfp4_qdot_16_vec4(
                     up_weight,
                     input_values,
                     laguna_nvfp4_scale(up_scale[0]));
@@ -6607,7 +6648,7 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
-        thread float input_values[values_per_lane];
+        thread float4 input_values[values_per_lane / 4];
 
         // Depth-1 weight staging: block b+1's gate/up code words and scale
         // bytes are issued before block b's qdots consume b's registers, so
@@ -6624,11 +6665,7 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
                 (const device vec<bfloat, 4>*) (
                     input + block + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
+                input_values[i] = float4(input_vectors[i]);
             }
 
             const uint2 cur_gate_codes = gate_codes;
@@ -6645,10 +6682,10 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
                     up_row_weight + next_block / 2);
             }
 
-            gate_result += laguna_nvfp4_qdot_codes_16(
+            gate_result += laguna_nvfp4_qdot_codes_16_vec4(
                 cur_gate_codes, input_values,
                 laguna_nvfp4_scale(cur_gate_sb));
-            up_result += laguna_nvfp4_qdot_codes_16(
+            up_result += laguna_nvfp4_qdot_codes_16_vec4(
                 cur_up_codes, input_values,
                 laguna_nvfp4_scale(cur_up_sb));
         }
@@ -7686,8 +7723,13 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 row_codes[row],
                 input_values,
                 laguna_nvfp4_scale(row_sb[row]));
-            result[row] = simd_sum(result[row]);
         }
+        vec<float, 4> packed = simd_sum(vec<float, 4>(
+            result[0], result[1], result[2], result[3]));
+        result[0] = packed.x;
+        result[1] = packed.y;
+        result[2] = packed.z;
+        result[3] = packed.w;
 
         threadgroup bfloat down_outputs[
             (routed_experts + 1) * outputs_per_simd
