@@ -598,3 +598,23 @@ A prior "fused tail norm+QKV+gate" kernel was removed after a re-sweep measured 
 - LM-head dispatch consolidation: 4-dispatch sequence is already maximally fused.
 - AsType audit: only 28 calls in our codebase, all intentional. Not the same as the
   vmlx-swift-lm 1100+ ops finding. Not applicable.
+
+
+## Research Agent Findings (2026-08-06T03:45Z)
+
+### Prefill Optimization Surface (unexplored, 25% of score)
+- Prefill O-proj: STOCK BF16 matmul, NOT optimized
+- Prefill O-proj gate: SEPARATE softplus + multiply — fuse into 1 dispatch (save 40 dispatches)
+- Prefill SDPA: steel_attention_nax bq=64/bk=32/bd=128 — tile tuning possible but M5-only
+- Prefill MoE: gather_qmm_rhs_nax NVFP4 — largest prefill compute (78 GEMM dispatches)
+- M5 caveat: M4 does NOT select _nax variants; M4 prefill timing is NOT evidence for _nax changes
+
+### MoE Input Read Redundancy (decode path)
+- Routed SwiGLU R1 QMV: 2048 threadgroups x 2 simdgroups = 4096 full-input reads (16 MiB)
+- Shared SwiGLU QMV: 256 threadgroups x 2 simdgroups = 512 full-input reads (2 MiB)
+- Total gate/up: 4608 reads of 4KB input — massive redundancy, but likely L2-cached
+- Key insight: This is LSU/instruction pressure, NOT DRAM bandwidth
+- M5 (instruction-bound at 89% capacity) may benefit more from staging than M4 (bandwidth-bound)
+- Down+residual kernel already uses threadgroup shared memory (for output reduction, not input staging)
+- PR #75 (Edward, TG staging) was NEGATIVE on M4 — but M4 is bandwidth-bound, not instruction-bound
+- The 9-slot mega-kernel pattern (down+residual) is proven feasible for gate/up fusion
