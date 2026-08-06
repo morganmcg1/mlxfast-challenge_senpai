@@ -1,0 +1,11 @@
+worker up in 44.4s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718154907226562 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 545.74 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.224 8.234 8.187 8.147 8.179 8.134 8.168 8.147
+decode steps=160 mean=8.249 ms median=8.273 ms p10=8.130 ms p90=8.321 ms min=8.081 ms max=9.224 ms total=1.320 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.720718383789062 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> research/pr101-sweep/oproj_hoist_on.worker.err
+profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)
