@@ -20,9 +20,11 @@
   Also: MLX_METAL_FAST_SYNCH=1 is not set by our code (defaults to 0). Could reduce sync overhead.
   Source: metaspartan public note 1f891fe, same organizer frontier bca94c5.
 
-- **WAVE 8 RESULTS** (3 complete, 1 incomplete):
-  PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
-  PR #154 (Edward) — Async-eval Shared Expert: CLOSED. DEAD — MLX already overlaps eval.
+- **WAVE 9 RESULTS** (4 PRs, all resolved):
+  PR #159 (Edward) — max_total_threads_per_threadgroup: MERGED. Bit-exact occupancy hint, M4 decode +0.47% (noise), prefill +1.65%.
+  PR #160 (Alphonse) — Register-resident float4: WIP (no result yet).
+  PR #161 (Thorfinn) — Threadgroup input sharing: WIP (no result yet).
+  PR #162 (Askeladd) — is_shared branch elimination: CLOSED. DEAD — Metal compiler already optimizes uniform ternary.
   PR #147 (Alphonse) — CPU Guard Hoisting: CLOSED (incomplete, no result submitted).
   PR #155 (Thorfinn) — Attention Epilogue 1-pass: CLOSED (incomplete, no result submitted).
 
