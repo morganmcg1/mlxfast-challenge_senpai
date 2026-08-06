@@ -28,12 +28,30 @@
   executes** — the long-standing "94.2% of prefill is `_nax`" claim is
   *inverted* (§3a). That closes the row-tile axis of the gather GEMM and
   **retracts its banked +1.9–2.6% prize** (§8), and it establishes that the
-  steady decode step is **100% host-independent**, so decode-side mechanisms
-  are now strictly better justified than prefill kernel-internals for an
-  M4-only student.
-- **Most recent human research direction:** `55ab1b2`, "Let submitters manage
-  validation retries" (2026-08-06 21:28:52 UTC; supersedes `bdb77bb0`, see
-  §10). Standing campaign rules remain: every official submission goes out as
+  steady decode step is **100% host-independent**, while an M4 host can still
+  validate a prefill kernel change's implementation, correctness and
+  reachability — only its *timing* is not M5 ranking evidence.
+- **2026-08-06 21:55 UTC (operator `eae07f01`, "Soften Maple research
+  heuristics")** — a direct critique of this advisor's posture: **we have been
+  closing families too fast and applying numeric gates too rigidly.** Six
+  binding changes, all recorded in §0a: the **+0.61% advisor acceptance bar is
+  deleted**; 0.243% is noise context, **not** a submission or promotion
+  threshold; **one receipt can justify a clear win**; student-host prefill
+  experiments are **endorsed** for implementation/correctness/reachability
+  validation; `officialScore` **is** authoritative for ranking (`ns` remains
+  the attribution instrument); and a closed family may be reopened by a **new
+  mechanism or new evidence**, not merely a repeat. The same commit
+  independently confirms our §3a census correction ("94.2% of prefill GPU time
+  on the M4 student hosts runs kernels the M5 never executes") and records
+  that the public field has been stuck on the prefill axis for **102
+  consecutive submissions**.
+- **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
+  precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
+  softening commits after `eae07f01` (21:55:23 UTC). Both are recorded in §0a;
+  `55ab1b2`'s submitter-owns-retries rule remains in force (§10). **Read the
+  pattern, not just the diffs: two operator commits inside ten minutes, both
+  loosening prohibitions this advisor had hardened.** Standing campaign rules
+  remain: every official submission goes out as
   `mlxfast submit --model "senpai"`; advisor and all four students are
   authorized to dispatch; **launch isolation from the parallel `birch`
   campaign is absolute** — do not inspect, cite, or borrow from it. Isolation
@@ -45,6 +63,71 @@
   [`RESEARCH_STATE_ARCHIVE_through-round-21.md`](RESEARCH_STATE_ARCHIVE_through-round-21.md).
   Read that only when you need the derivation behind a number quoted here.
   Keep *this* file short. Prune it every round.
+
+---
+
+## 0a. Operator `eae07f01` — the heuristics that were softened
+
+`eae07f01` ("Soften Maple research heuristics", mmcguire, 2026-08-06 21:55:23
+UTC) edits `senpai/program.md` only (+66 / −55) and is now the remote head of
+the advisor branch. Read it as a critique of *this* advisor: we have been
+**too quick to close families and too rigid about numeric gates**. Each row
+below is binding; the "was" column exists so nobody re-derives the old rule
+from an older document.
+
+| # | was | is now |
+| --- | --- | --- |
+| 1 | thread re-tiling "does **not** transfer; an M4 measurement is not evidence" | "is core-count sensitive; interpret M4 timing with **wave analysis** rather than presenting it as sufficient M5 evidence" |
+| 2 | "**Never** run a prefill kernel experiment on a student host" | "**Use** student-host prefill experiments to validate implementation, correctness, reachability, or a hypothesis"; only their *timing* is not `_nax` ranking evidence |
+| 3 | S/T decomposition mandatory "for every official run" | decompose "**when identifying where its gain came from**" |
+| 4 | every submission needs "a family of at least three" | "**one receipt can justify a clear win or follow-up**"; repeat only for a marginal effect near observed variance |
+| 5 | "**Never** rank by `officialScore`" | `officialScore` **is authoritative for leaderboard ranking**; it and the raw `*_speedup` fields are only *noisy for attributing a small mechanism across sessions* |
+| 6 | 0.243% noise floor, "the advisor's acceptance bar is 2× that, **0.61%**" | that clause is **deleted**. 0.243% is "noise context, **not a universal submission or promotion threshold**" |
+| 7 | a closed decode arm is "worth approximately nothing… do not reopen" | "**starts with low expected value**… revisit one when a proposal **identifies a new mechanism or new evidence**" |
+| 8 | precision "not a lever in either direction" | "within the permitted envelope and current frontier, precision is not an *evidenced* lever; a new proposal must first show a compliant byte or math advantage" |
+| 9 | attention precision "a **dead lever** … do not treat as headroom in either direction" (`3fbbd2d3`) | "a **low-priority direction** … **revisit** only when a mechanism stays inside the accepted envelope and shows a **net byte or math advantage**" |
+
+`3fbbd2d3` ("Soften Maple attention precision guidance", 2026-08-06 22:04:20
+UTC) is a second operator commit in the same direction, also touching
+`senpai/program.md` only. The arithmetic is unchanged and still fatal to the
+naive move: Q/K/V/O already run **NVFP4 group-16 at 0.5625 B/param** where the
+envelope permits **group-32 affine INT8 at 1.125 B/param**, so *adopting* the
+envelope adds ~802 MB/token — ~28% of the decode axis. What changed is the
+verdict on the *family*: it is now open to a proposal that finds a **net** byte
+or math advantage inside the envelope, rather than forbidden outright. The
+unchanged prohibition: **do not propose taking any other class below its
+current representation.**
+
+
+**What this changes operationally.**
+
+1. **The +0.61% advisor acceptance bar is retired as a universal gate.** Three
+   leads were killed by it alone and are legitimate to revive on their own
+   merits: the prefill `PREFILL_ASYNC_LADDER` stride sweep (**+0.34%**, one
+   literal, bit-exact, byte-neutral, §9), the shared-expert SwiGLU epilogue
+   (**+0.040%**, plus a **+0.028%** zero-byte sub-lead, §7), and the lm-head
+   cascade fusion remainder (**+0.060%**). None of these is large; each is
+   cheap, and the field has moved less than that per round.
+2. **Receipt families are sized to the decision, not to a constant.** A
+   designed effect that is large and unmissable needs one or two receipts. An
+   effect within ±0.243% on `ns` still needs repetition, because that is what
+   the noise says — but that is now a *statement about the effect*, not a
+   standing tax on every submission.
+3. **`officialScore` for ranking, `ns` for attribution.** Both statements are
+   true simultaneously. Quote `officialScore` when the question is "did we
+   move on the board"; quote `ns` when the question is "did mechanism X pay".
+4. **An M4-only student may be assigned a prefill kernel change** whose
+   deliverable is implementation, correctness, bit-exactness, reachability and
+   *wave analysis* — with the ranking verdict deferred to an M5 receipt. This
+   supersedes the stricter phrasing this document carried at §3a item 4.
+5. **Closure is provisional.** §8 remains the record of what has been
+   falsified, but a genuinely new mechanism or new evidence reopens any row in
+   it. Repeating a closed arm unchanged still does not.
+
+Also recorded by the same commit, and consistent with our own findings: on the
+M5 the 512-token forward runs at ~28.8 TFLOP/s and ~272 GB/s — roughly **half
+of each M5 roofline** — and the public field has been stuck on that axis for
+**102 consecutive submissions**.
 
 ---
 
@@ -183,14 +266,21 @@ not bandwidth-bound). Everything else sits at 94.6–100.2%.
 1. **Local M4 `--local-iterate` MDE is ±0.73%.** Established empirically by
    tanjiro in PR #103 §11.2 using byte-identical Sources. No win *or* loss may
    be claimed inside that band.
-2. **Judge official receipts by `ns`, never by `officialScore`.**
+2. **`officialScore` for ranking, `ns` for attribution** (revised by `eae07f01`,
+   §0a row 5). `officialScore` *is* the authoritative leaderboard number; what
+   it and the raw `*_speedup` fields are bad at is attributing a small
+   mechanism across sessions. Use `ns` for that.
    Pooled cv: `ns` **0.149%**, `officialScore` **0.553%**. The gap is entirely
    the paired baseline's prefill arm, which is **bimodal** (sd 1.933%,
    p50 368.5 µs / p90 382.9 µs). The **candidate** arm's prefill redraw sd is
    only **0.260%**, i.e. **0.065% of `ns`** — so `ns` is a *precise prefill
    instrument*: a genuine +1.2% prefill arm lands at roughly **8σ**.
-3. **Receipt channel.** Round budget ≤10 receipts total. Kill a family if its
-   first receipt is below `best − 0.243%` (2σ). The old "~35 min per receipt,
+3. **Receipt channel.** Round budget ≤10 receipts total. **Size the family to
+   the decision, not to a constant** (`eae07f01`, §0a row 4): one receipt can
+   justify a clear win or a follow-up; an effect inside ±0.243% on `ns` needs
+   repetition because that is what the noise says. 0.243% is noise context —
+   **not** a submission or promotion threshold, and the old "advisor acceptance
+   bar = 0.61%" is deleted. The old "~35 min per receipt,
    single queue-owner" model is **RETIRED** — see §10 for the rule now in force.
    The per-receipt price is currently **un-remeasured**; every dispatch must
    record dispatch time, first "capacity occupied" response, admission time and
@@ -269,12 +359,16 @@ census is arithmetic about the wrong kernel.
    (`LagunaRuntimeModel.swift:235-249`), which decode never reaches. Our
    existing "hand-written decode MSL transfers M4→M5" exception is therefore
    not an exception at all — it is the general rule for decode.
-4. **Assignment policy.** For an M4-only student, a decode-side mechanism is now
-   *strictly better justified* than a prefill kernel-internals mechanism,
-   independent of which has the larger nominal prize. Decode also carries 75% of
-   the score weight. A prefill kernel-internals arm must either (a) be
-   validated on the ranked M5 channel, or (b) rest on an argument with a ≥100×
-   margin that survives the kernel substitution.
+4. **Assignment policy** (softened by `eae07f01`, §0a rows 1–2). An M4-only
+   student **may** be assigned a prefill kernel change. What the student host
+   delivers is implementation, correctness, bit-exactness, kernel-reachability
+   and **wave analysis**; what it cannot deliver is a ranking verdict for the
+   M5 `_nax` surface. Every such writeup must state which kernel family the
+   local run actually selected, and must defer the ranking claim to one of
+   (a) an M5 receipt, or (b) an argument with a ≥100× margin that survives the
+   kernel substitution. Decode still carries 75% of the score weight and is
+   host-independent, so it remains the cheaper place to *close* a question —
+   but that is an expected-value statement, not a prohibition.
 
 ### Resubmission variance-harvesting: formally REFUTED
 
@@ -564,7 +658,13 @@ merges first consumes headroom for the rest — report byte deltas in every PR.
 
 ---
 
-## 8. Closed families — do not re-litigate
+## 8. Closed families — do not repeat, but reopening is allowed
+
+**Closure here is provisional** (`eae07f01`, §0a row 7). A closed family
+"starts with low expected value"; it is reopened by a proposal that
+**identifies a new mechanism or new evidence**, and is *not* reopened by
+re-running the same arm or by hoping for a different draw. Read each row for
+*what was falsified*, then ask whether your proposal actually attacks that.
 
 The full evidence table lives in the archive
 ([`RESEARCH_STATE_ARCHIVE_through-round-21.md`](RESEARCH_STATE_ARCHIVE_through-round-21.md),
@@ -637,8 +737,10 @@ The full evidence table lives in the archive
     16 codes ⇒ a uniform 4-bit recode is **impossible**. Critically, **PR #72
     already halves the routed scale plane at load** (`scale_row_bytes` 32→16),
     so runtime routed scale traffic is **30.67 MB/step, not 61.34**. Uniform
-    6-bit is therefore worth **+0.167%** (below the 0.243% 2σ kill line) and
-    mixed 4/6-bit **+0.310%** (below the 0.61% acceptance bar).
+    6-bit is therefore worth **+0.167%** (below the 0.243% 2σ noise line) and
+    mixed 4/6-bit **+0.310%**. Note that this family is *not* closed by a
+    numeric bar — the 0.61% bar is deleted (§0a) — it is closed by the entropy
+    census showing a uniform 4-bit recode is arithmetically impossible.
   - Routed experts are 39 × 256 × 3 = 29,952 mantissa + 29,952 scale slabs =
     **16.45 GiB = 81.94%** of the checkpoint, so this closure covers the
     overwhelming majority of the bytes.
@@ -753,11 +855,14 @@ general tactic (three independent arms died at their own analytic ceiling) ·
 ceiling, ~90% of its issue floor) · offline codes/scales interleave (closed
 twice) · attention byte de-amplification / head packing · `MLX_MAX_OPS_PER_BUFFER`
 (inert ≥40) · `MLX_METAL_FAST_SYNCH` (inert) · decode graph repartitioning ·
-in-loop host CPU · decode head latency · first-touch prewarm · attention INT8
-envelope adoption (backwards — adds ~802 MB/step) · certified lm-head screening ·
+in-loop host CPU · decode head latency · first-touch prewarm · *naive* attention
+INT8 envelope adoption (backwards — adds ~802 MB/step; the **family** is only
+low-priority now, reopenable by a net byte/math advantage inside the envelope,
+§0a row 9) · certified lm-head screening ·
 NVFP4 scale-plane amplification (A = 1.000) · quantized attention weights in
-prefill · prefill overlap C1/C2 · `DARKBLOOM_STAGE_BM128` · ranking a candidate
-by `officialScore` · `./probe` on the M5 (impossible — no shell on the ranked
+prefill · prefill overlap C1/C2 · `DARKBLOOM_STAGE_BM128` · **attributing** a
+small mechanism from `officialScore` (it remains authoritative for *ranking*,
+§0a row 5) · `./probe` on the M5 (impossible — no shell on the ranked
 host; the only M5 channel is a submitted candidate plus its receipt `metrics`).
 
 **`MLX_MAX_MB_PER_BUFFER` — CLOSED, and it is our canonical M4→M5 inversion.**
