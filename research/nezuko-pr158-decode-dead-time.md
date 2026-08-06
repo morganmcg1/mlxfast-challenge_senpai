@@ -1001,7 +1001,9 @@ than biasing it, which is the failure mode one wants.
    reported in, and `analyze_profile` refuses to print a blank profile: an empty
    window with non-empty records raises a loud `WINDOW CORRELATION FAILED`
    diagnostic quoting both time ranges. A silent zero is exactly what let this
-   survive five arms unnoticed.
+   survive five arms unnoticed. The clock is exported as `decode_probe.mach_now`
+   and `research/nezuko_pr158_gap_probe.py` — the sweep driver that actually ran
+   every r2 arm — imports it, so the two probes cannot drift apart again.
 
    Measured against a `ctypes` call to `mach_absolute_time` on this host
    (timebase 125/3), both interpreters agree on the new clock and only one

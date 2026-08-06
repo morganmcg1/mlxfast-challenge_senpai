@@ -29,7 +29,7 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "research"))
-from decode_probe import analyze_profile  # noqa: E402
+from decode_probe import analyze_profile, mach_now  # noqa: E402
 
 WORKER = os.path.join(REPO, ".build-worker/release/mlxfast-runtime-worker")
 GOLDEN = os.path.join(
@@ -135,9 +135,9 @@ def main() -> int:
     mismatches = []
     token = expected[0]
     for i in range(args.steps):
-        t0 = time.perf_counter()
+        t0 = mach_now()
         resp, _ = send({"id": 100 + i, "kind": "decode_step", "token": token})
-        step_spans.append((t0, time.perf_counter()))
+        step_spans.append((t0, mach_now()))
         if i + 1 < len(expected) and resp["token"] != expected[i + 1]:
             mismatches.append((i, expected[i + 1], resp["token"]))
         token = expected[i + 1] if i + 1 < len(expected) else resp["token"]

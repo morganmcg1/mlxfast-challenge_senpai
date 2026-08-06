@@ -23,6 +23,18 @@ GOLDEN = os.path.join(
 )
 
 
+def mach_now() -> float:
+    """Seconds on the same epoch as `MTLCommandBuffer.GPUStartTime`.
+
+    `time.perf_counter()` is NOT interchangeable with it: CPython 3.9 on macOS
+    implements `perf_counter` on a process-relative epoch, so correlating its
+    timestamps against driver records silently yields an empty window. 3.13
+    happens to agree with mach absolute time to within a few µs. `CLOCK_UPTIME_RAW`
+    is mach absolute time on every interpreter.
+    """
+    return time.clock_gettime(time.CLOCK_UPTIME_RAW)
+
+
 def parse_gpuprof_line(line: str):
     """Return (start, end, nops, names_field) for either GPUPROF hook variant.
 
@@ -124,9 +136,9 @@ def main() -> int:
     token = expected[0]
     print("DECODE_PHASE_START", flush=True)
     for i in range(args.steps):
-        t0 = time.perf_counter()
+        t0 = mach_now()
         resp = send({"id": 100 + i, "kind": "decode_step", "token": token})
-        step_spans.append((t0, time.perf_counter()))
+        step_spans.append((t0, mach_now()))
         if i + 1 < len(expected) and resp["token"] != expected[i + 1]:
             mismatches.append((i, expected[i + 1], resp["token"]))
         token = expected[i + 1] if i + 1 < len(expected) else resp["token"]
@@ -165,9 +177,9 @@ def main() -> int:
 def analyze_profile(err_path: str, step_spans, top: int) -> None:
     """Attribute GPUPROF command-buffer records to the steady decode window.
 
-    MTLCommandBuffer.GPUStartTime and time.perf_counter share the mach
-    absolute-time epoch on macOS, so the driver's per-step wall spans window
-    the GPU records directly.
+    `step_spans` must come from `mach_now()`, which shares the mach absolute-time
+    epoch with `MTLCommandBuffer.GPUStartTime`, so the driver's per-step wall
+    spans window the GPU records directly.
     """
     records = []
     with open(err_path, errors="replace") as fh:
@@ -189,6 +201,13 @@ def analyze_profile(err_path: str, step_spans, top: int) -> None:
     print(f"\nprofile: {len(records)} command buffers total, "
           f"{len(window)} inside {len(steady)} steady steps")
     if not window:
+        print("profile: WINDOW CORRELATION FAILED -- 0 of "
+              f"{len(records)} records fall inside the driver window. "
+              f"driver [{lo:.6f}, {hi:.6f}] vs "
+              f"records [{min(r[0] for r in records):.6f}, "
+              f"{max(r[1] for r in records):.6f}]. "
+              "The two clocks are on different epochs; step_spans must use "
+              "mach_now() (CLOCK_UPTIME_RAW), not time.perf_counter().")
         return
 
     busy = sum(e - s for s, e, _, _ in window)
