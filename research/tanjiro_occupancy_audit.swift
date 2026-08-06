@@ -54,18 +54,30 @@ kernel void wave_probe(
 }
 """
 
-let residentSource = """
+// A *statically* sized threadgroup array is what the driver actually charges
+// against a core's local-memory budget. An earlier version of this probe used
+// `setThreadgroupMemoryLength` with a dynamic `threadgroup float*` and touched
+// only 1 KB of it; the driver did not treat that as a residency cost, so the
+// probe reported the 96-simdgroup ceiling at every footprint. Bake the size in.
+func residentSourceStatic(bytes: Int) -> String {
+    let floats = max(bytes / 4, 256)
+    return """
 #include <metal_stdlib>
 using namespace metal;
+
+#define PROBE_FLOATS \(floats)
 
 kernel void resident_probe(
     device atomic_uint* live [[buffer(0)]],
     device uint* peak [[buffer(1)]],
     const constant uint& budget [[buffer(2)]],
-    threadgroup float* scratch [[threadgroup(0)]],
     uint tid [[thread_index_in_threadgroup]],
+    uint ntg [[threads_per_threadgroup]],
     uint tgid [[threadgroup_position_in_grid]]) {
-  scratch[tid % 256u] = float(tid + tgid);
+  threadgroup float scratch[PROBE_FLOATS];
+  for (uint i = tid; i < PROBE_FLOATS; i += ntg) {
+    scratch[i] = float(i + tgid);
+  }
   threadgroup_barrier(mem_flags::mem_threadgroup);
   if (tid == 0u) {
     // Claim the slot, then hold it for the whole spin. Every co-resident
@@ -79,11 +91,14 @@ kernel void resident_probe(
     peak[tgid] = seen;
     atomic_fetch_sub_explicit(live, 1u, memory_order_relaxed);
   }
-  // Keep the other threads alive so the group really occupies its slot.
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  if (scratch[tid % 256u] == -1.0f) { peak[tgid] = tid; }
+  // Data-dependent sink over the whole array so nothing can be elided.
+  float acc = 0.0f;
+  for (uint i = tid; i < PROBE_FLOATS; i += ntg) { acc += scratch[i]; }
+  if (acc == -1.0f) { peak[tgid] = tid; }
 }
 """
+}
 
 func makeOptions() -> MTLCompileOptions {
     let options = MTLCompileOptions()
@@ -104,6 +119,10 @@ func die(_ message: String) -> Never {
 guard let device = MTLCreateSystemDefaultDevice() else {
     die("no Metal device")
 }
+
+// Metal exposes no core count. Pass the real number for this host so the
+// per-core columns mean something; the raw TG count is reported regardless.
+let cores = Int(ProcessInfo.processInfo.environment["TANJIRO_CORES"] ?? "") ?? 20
 
 func entryPoint(of text: String) -> String? {
     guard let range = text.range(of: "[[kernel]] void ") else { return nil }
@@ -285,30 +304,32 @@ func floatBuffer(_ values: [Float]) -> MTLBuffer {
 
 func resident(threadCounts: [Int], memBytes: [Int], groups: Int, budget: UInt32) {
     guard let queue = device.makeCommandQueue() else { die("no queue") }
-    let library: MTLLibrary
-    do {
-        library = try device.makeLibrary(source: residentSource,
-                                         options: makeOptions())
-    } catch { die("resident probe compile failed:\n\(error)") }
-    guard let function = library.makeFunction(name: "resident_probe") else {
-        die("no resident_probe")
-    }
-    let pipeline: MTLComputePipelineState
-    do {
-        pipeline = try device.makeComputePipelineState(function: function)
-    } catch { die("resident pipeline failed:\n\(error)") }
-
     let live = device.makeBuffer(length: 4, options: .storageModeShared)!
     let peak = device.makeBuffer(length: groups * 4,
                                  options: .storageModeShared)!
-    print("resident probe: groups=\(groups) budget=\(budget) "
-          + "maxTotalThreadsPerThreadgroup=\(pipeline.maxTotalThreadsPerThreadgroup)")
-    for threads in threadCounts {
-        if threads > pipeline.maxTotalThreadsPerThreadgroup { continue }
-        for bytes in memBytes {
-            if bytes > device.maxThreadgroupMemoryLength { continue }
+    let trials = Int(ProcessInfo.processInfo
+        .environment["TANJIRO_RESIDENT_TRIALS"] ?? "") ?? 5
+    print("resident probe: groups=\(groups) budget=\(budget) trials=\(trials)")
+    for bytes in memBytes {
+        if bytes > device.maxThreadgroupMemoryLength { continue }
+        let library: MTLLibrary
+        do {
+            library = try device.makeLibrary(
+                source: residentSourceStatic(bytes: bytes),
+                options: makeOptions())
+        } catch { die("resident probe compile failed at \(bytes)B:\n\(error)") }
+        guard let function = library.makeFunction(name: "resident_probe") else {
+            die("no resident_probe")
+        }
+        let pipeline: MTLComputePipelineState
+        do {
+            pipeline = try device.makeComputePipelineState(function: function)
+        } catch { die("resident pipeline failed at \(bytes)B:\n\(error)") }
+        let actual = pipeline.staticThreadgroupMemoryLength
+        for threads in threadCounts {
+            if threads > pipeline.maxTotalThreadsPerThreadgroup { continue }
             var best = 0
-            for _ in 0..<5 {
+            for _ in 0..<trials {
                 live.contents().storeBytes(of: UInt32(0), as: UInt32.self)
                 memset(peak.contents(), 0, groups * 4)
                 var budgetValue = budget
@@ -318,7 +339,6 @@ func resident(threadCounts: [Int], memBytes: [Int], groups: Int, budget: UInt32)
                 encoder.setBuffer(live, offset: 0, index: 0)
                 encoder.setBuffer(peak, offset: 0, index: 1)
                 encoder.setBytes(&budgetValue, length: 4, index: 2)
-                encoder.setThreadgroupMemoryLength(max(bytes, 1024), index: 0)
                 encoder.dispatchThreadgroups(
                     MTLSize(width: groups, height: 1, depth: 1),
                     threadsPerThreadgroup: MTLSize(width: threads,
@@ -331,8 +351,11 @@ func resident(threadCounts: [Int], memBytes: [Int], groups: Int, budget: UInt32)
                                                      capacity: groups)
                 for g in 0..<groups { best = max(best, Int(raw[g])) }
             }
-            print(String(format: "  threads/TG=%4d tgmem=%6dB  peak co-resident TGs=%3d",
-                         threads, bytes, best))
+            let simdsPerCore = Double(best) * Double(threads) / 32.0 / Double(cores)
+            print(String(format:
+                "  threads/TG=%4d requested=%6dB static=%6dB maxThreads=%4d  peak co-resident TGs=%3d  (%.2f TG/core, %.1f simd/core)",
+                threads, bytes, actual, pipeline.maxTotalThreadsPerThreadgroup,
+                best, Double(best) / Double(cores), simdsPerCore))
         }
     }
 }
@@ -612,8 +635,17 @@ case "wave":
 case "resident":
     let groups = args.count > 1 ? Int(args[1]) ?? 128 : 128
     let budget = args.count > 2 ? UInt32(args[2]) ?? 30_000 : 30_000
-    resident(threadCounts: [1024, 512, 256],
-             memBytes: [1024, 9472, 16384, 18432, 32768],
+    let env = ProcessInfo.processInfo.environment
+    func intList(_ key: String, _ fallback: [Int]) -> [Int] {
+        guard let raw = env[key] else { return fallback }
+        let parsed = raw.split(separator: ",").compactMap {
+            Int($0.trimmingCharacters(in: .whitespaces))
+        }
+        return parsed.isEmpty ? fallback : parsed
+    }
+    resident(threadCounts: intList("TANJIRO_THREADS", [1024, 512, 256]),
+             memBytes: intList("TANJIRO_TGMEM",
+                               [1024, 9472, 16384, 18432, 32768]),
              groups: groups, budget: budget)
 case "bench":
     let rest = Array(args.dropFirst())

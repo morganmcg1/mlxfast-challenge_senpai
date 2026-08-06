@@ -11,10 +11,13 @@
 # Usage: research/nax_msl_compile_check.sh [NAME|NAME=VALUE ...]
 #   GEN_DIR=<dir>  override the mlx-generated directory (for stock comparison)
 #   OUT_DIR=<dir>  override the scratch output directory
+#   BK=<n>         k-tile depth template arg (default 64)
+#   EMIT_LIB=1     also link a .metallib so pipeline stats can be read back
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN="${GEN_DIR:-${REPO_ROOT}/Vendor/mlx-swift/Source/Cmlx/mlx-generated}"
+BK="${BK:-64}"
 OUT="${OUT_DIR:-/tmp/nax_msl_check}"
 mkdir -p "${OUT}"
 
@@ -50,8 +53,8 @@ SRC="${OUT}/unit.metal"
   # wide-staging certifications on, exactly as get_template_definition emits.
   echo "// ---- template_def (get_template_definition) ----"
   for shape in "2048, 1024" "512, 2048"; do
-    targs="bfloat16_t, 16, 4, 64, 64, 64, 4, 1, true, ${shape}, bfloat, 256, true, true"
-    name="fp_gather_qmm_rhs_expert_nax_check_${shape//, /x}"
+    targs="bfloat16_t, 16, 4, 64, 64, ${BK}, 4, 1, true, ${shape}, bfloat, 256, true, true"
+    name="fp_gather_qmm_rhs_expert_nax_check_${shape//, /x}_bk${BK}"
     cat <<EOF
 template [[host_name("${name}")]] [[kernel]] decltype(
     fp_gather_qmm_rhs_expert_nax<${targs}>)
@@ -75,4 +78,23 @@ for std in metal4.0 metal3.2 ""; do
   echo "compile failed (std=${std:-default}); first errors:"
   grep -E "error:" "${log}" | head -15
 done
+
+if [ "${status}" -eq 0 ] && [ "${EMIT_LIB:-0}" = "1" ]; then
+  if xcrun -sdk macosx metallib "${OUT}/unit.air" -o "${OUT}/unit.metallib" \
+      > "${OUT}/metallib.log" 2>&1; then
+    echo "METALLIB OK -> ${OUT}/unit.metallib"
+  else
+    echo "metallib link failed:"; head -15 "${OUT}/metallib.log"; status=1
+  fi
+fi
+
+if [ "${status}" -eq 0 ] && [ "${EMIT_IR:-0}" = "1" ]; then
+  if xcrun -sdk macosx metal -x metal -std=metal4.0 -Wno-c++17-extensions \
+      -Wno-c++20-extensions -fno-fast-math -S -emit-llvm "${SRC}" \
+      -o "${OUT}/unit.ll" > "${OUT}/emitir.log" 2>&1; then
+    echo "IR OK -> ${OUT}/unit.ll"
+  else
+    echo "IR emit failed:"; head -15 "${OUT}/emitir.log"; status=1
+  fi
+fi
 exit "${status}"
