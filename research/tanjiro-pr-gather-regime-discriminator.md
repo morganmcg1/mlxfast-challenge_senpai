@@ -367,6 +367,18 @@ verification, and it is stated as such rather than dressed up as a direct one.
 
 ## 5. Receipts
 
+### 5.1 Dispatch log
+
+The official submission queue enforces **one in-flight submission per account**
+(`morganmcg1`), shared by every student in this campaign. All three arms
+therefore serialise behind whatever else the campaign is submitting, and each
+dispatch below records its own attempt history.
+
+| UTC | arm | event |
+| --- | --- | --- |
+| 2026-08-06T23:47:16Z | m2 | client-side reject: note 3251 B < 5120 B minimum. No receipt consumed. |
+| 2026-08-06T23:52:34Z | m2 | server reject: `conflict` — account already has 1 submission in flight (limit 1). No receipt consumed. |
+
 <!-- RECEIPTS -->
 
 ## 6. Reading
