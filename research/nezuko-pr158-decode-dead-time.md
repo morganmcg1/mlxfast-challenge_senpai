@@ -15,6 +15,12 @@ are `research/`-only.
    that command buffers on one serial queue do not overlap each other. It is
    *vacuous* as evidence about concurrency between dispatches. §4.1's reading
    (a) ("zero concurrency") was never measured; the instrument could not see it.
+   **Priority: @maple-tanjiro established this first** in
+   `research/tanjiro-pr157-result.md` §2 (merged `f4bfa59`), including the
+   `concurrent_1cb` positive control that my read lacks. Cite him; §1.1.c here
+   is corroboration, and my own prior claims to the contrary are corrected in
+   `research/nezuko-decode-roofline.md:201` and
+   `research/nezuko-terminal-report.md:221`.
 2. **Measured with an instrument that *can* see it, decode really is
    ~serial.** Forcing a hard serialization boundary every 2 dispatches instead
    of every ~9 raises total GPU busy time by 0.56 %; forcing one per dispatch
@@ -50,6 +56,16 @@ are `research/`-only.
    *removing a dispatch* recovers the floor; making a kernel cheaper recovers
    only its work-proportional part. That floor is 771 µs, **9.6 % of the
    8007 µs step** — three times the host gap. The corrected census is in §2.
+7. **Byte-price CI audit (advisor ask): the advisor read the PR #110 ledger
+   correctly and nothing needs withdrawing.** The three quoted intervals are
+   arithmetically right, but only one of them is an empirical CI: the lm-head
+   band is ±1 SEM (≈68 %, not 95 %) over 6 receipts of a *single* arm, and the
+   routed band is a propagated imported MDE from an unreplicated Δt row, not a
+   measured spread. The overlap between the lm-head and routed bands is 83.4 %
+   of the former and 60.8 % of the latter, so the two planes are statistically
+   indistinguishable and the 27.7 % deficit is neither established nor
+   excluded. The one comparison that *is* safe — 651.8 < 700.3 B/% — is the one
+   the advisor relied on. Health warnings are now in the ledger itself. §3.
 
 ---
 
@@ -201,8 +217,31 @@ magnitude is not.
 
 ### 1.1.c How `gpu_busy_union` is computed — and what `sum == union` proves
 
-Posting this for the §4.1 record and for @maple-tanjiro's #157 so he does not
-duplicate the read.
+**Attribution — corrected.** An earlier draft of this section implied I reached
+this result first and offered it to @maple-tanjiro so he would not duplicate the
+read. That is backwards, and I withdraw it. **@maple-tanjiro derived and
+demonstrated the retirement of `gpu_busy_union` first**, in
+`research/tanjiro-pr157-result.md` §2, merged as `f4bfa59`. He identified the
+same CB-completion-handler construction (`research/decode_probe.py:177-186`
+merging spans emitted by the `CommandEncoder::commit()` patch in
+`research/pr91-gpuprof-hook.patch`, `device.cpp:~578-595`), and — the part I did
+not do — he built the **positive control** that proves the statistic is blind:
+`concurrent_1cb` compresses 27.939 ms of isolated work into 13.954 ms of wall,
+`overlap_eff` 1.0024 (perfect hiding), while the CB-derived overlap statistic
+reads exactly `0.000000`; his `two_queue` / `two_cb` arms correctly read 0.4998
+and `two_cb_serial` correctly reads `0.000000`. That is a decisive experiment
+and it is his. The paragraphs below are my independent read of the same code
+path, reported because it corroborates him, not because it precedes him. Quote
+his §2 as the source.
+
+He is also right that PR #73's `SPLIT=1` run is self-refuting **as evidence
+about concurrency via the union statistic**: splitting to one dispatch per
+buffer changes the very quantity the union is measuring. That criticism does not
+reach my SPLIT *sweep* in §1.1.e, which reads only `gpu_busy_sum` — a statistic
+that survives the retirement untouched. Holding dispatches fixed at 406 while
+forcing 45 → 406 buffers moves `gpu_busy_sum` by ≤0.06 ms (<1%), which is a
+genuine upper bound on *real* hidden intra-buffer concurrency and is the
+complement to his control rather than a restatement of it.
 
 `gpu_busy_union` is computed **per command buffer, not per dispatch.** The
 `DARKBLOOM_GPU_PROFILE` hook in
@@ -688,4 +727,80 @@ the trustworthy class. One adjustment in their favour: a byte-priced estimate
    slope, but the result would not change any decision: the whole question is
    worth ≤3.0 % of wall, and both branches say the same thing about where to
    spend effort.
+
+
+---
+
+## 3. Byte-price CI audit (advisor ask `f-158-gpu-busy-union-retired`, item 3)
+
+**Question.** Did the advisor read the `n` and dispersion fields of
+`research/maple-nezuko-byte-price.csv` and
+`research/maple-nezuko-pr110-byte-price-ledger.md` correctly, and does anything
+need withdrawing?
+
+**Answer: essentially correct — nothing needs withdrawing.** No row he flagged
+as n=1 turns out to have replicates. Four refinements follow, all of which make
+the picture *weaker*, not stronger, so no published claim gets promoted.
+
+### 3.a What the source rows actually say
+
+From `research/maple-nezuko-byte-price.csv` (columns
+`… value, unit, label, byte_basis, n, dispersion, dispersion_kind, source`):
+
+| line | quantity | value | `n` | dispersion | `dispersion_kind` |
+|---|---|---:|---:|---|---|
+| `:37` | `delta_decode_us` | 43.796 | **1** | — | `n1_no_replication` |
+| `:38` | `marginal_rate_R_marg` | 700.3 GB/s | **1** | `[493.1, 1207.9]` | `interval_from_imported_MDE_0.278pct` |
+| `:39` | `average_rate_R_avg` | 546.2 GB/s | **1** | 0.034 | `ms_half_range_on_1.01067` |
+| `:40` | `sigma_R_avg_over_R_marg` | 0.780 | 1 | `[0.452, 1.108]` | derived |
+
+and from the ledger `:658-663` (S7.1): attention NVFP4 scale **493.8, n=2**,
+±30.3 GB/s half-range of {524.1, 463.5}; routed MoE scale **700.3, n=1**,
+"none — [493.1, 1207.9] on the imported MDE"; lm-head cascade **968.4**,
+"1 arm / 6 receipts", `[773.6, 1294.6]`, "1 sem"; everything else UNKNOWN, n=0.
+
+### 3.b The four refinements
+
+1. **The lm-head band is ±1 SEM (~68 %), not a 95 % CI.** The ledger says so
+   explicitly at `:663` ("1 sem"), but the number is easy to read as a CI when
+   quoted next to `[493.1, 1207.9]`. At 95 % it is roughly twice as wide. Six
+   receipts also replicate the *receipt*, not the *arm*: there is still exactly
+   one intervention.
+2. **The routed band is not an empirical interval at all.** `[493.1, 1207.9]`
+   is the imported ±0.278 % timing MDE propagated through `R = MB/Δt`; because
+   `Δt = 43.796 µs` is small, that fractional timing uncertainty blows up into
+   a **2.45× span**. The `Δt` row is literally tagged `n1_no_replication`.
+   Treating this as "the CI of the routed plane" over-states what was done.
+3. **"The intervals overlap almost entirely" — fair for lm-head, slightly
+   strong for routed.** `[773.6, 1294.6] ∩ [493.1, 1207.9] = [773.6, 1207.9]`,
+   which is **83.4 %** of the lm-head band but only **60.8 %** of the routed
+   band. The correct statement is that the two planes are **not
+   distinguishable** on this evidence — and equally, the apparent 27.7 %
+   deficit between them is **not excluded** either. Neither direction is
+   established.
+4. **`R_avg` propagates to ±18.4, not ±23.3.** `research/tanjiro-pr34-result.md`
+   `:602` gives routed-expert QMV decode 552.08 MB / **1.01067 ± 0.034 ms** ⇒
+   546.2 GB/s, and propagating the ±0.034 ms gives **±18.4 GB/s**,
+   `[528.5, 565.3]`. If ±23.3 came from another receipt I would like the
+   pointer; otherwise the narrower figure is the one implied by the published
+   ms band. Same treatment for attention q/k/v/o at `:598`: 802.16 MB /
+   1.23070 ± 0.028 ms ⇒ **651.8 ± 14.8**, `[637.3, 666.9]`, n=1. Both are bare
+   point estimates in the source table, with the ± decorating the ms delta
+   only.
+
+### 3.c One thing the audit confirms rather than weakens
+
+Attention q/k/v/o `R_avg` = 651.8 GB/s involves **no gather**, and it sits
+*below* the routed marginal 700.3 GB/s. So a gather-specific explanation for
+the routed plane's rate is ruled out, and that conclusion is robust to every
+width above — it only needs the ordering, and the bands do not cross for that
+comparison at ±18 GB/s.
+
+### 3.d Action taken
+
+Health warnings added to `research/maple-nezuko-pr110-byte-price-ledger.md`:
+one under **S7.1** giving the correct quoting form for each row, and one
+directly beneath the **Table R** R1–R4 block at `:271` pointing to it. No value
+in either file was changed; the numbers were right, only their advertised
+precision was not.
 

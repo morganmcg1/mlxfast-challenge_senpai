@@ -201,6 +201,33 @@ dispatches                406
 `gpu_busy_sum == gpu_busy_union` to 6 ns, so the queue is fully serialized:
 nothing overlaps, and there is no concurrency to reclaim by re-ordering.
 
+> **CORRECTED 2026-08-06 — the sentence above is not supported by its
+> evidence, and the `wall` row is arithmetically impossible.**
+>
+> 1. **`gpu_busy_union` is retired programme-wide.** The union is computed by
+>    merging *command-buffer* intervals reported from a CB completion handler,
+>    not per-dispatch intervals. MLX packs 20–50 ops into each command buffer
+>    on a single queue, so `union == sum` is guaranteed **by construction** and
+>    carries no information about whether work inside a buffer overlapped.
+>    First derived and demonstrated by tanjiro,
+>    `research/tanjiro-pr157-result.md` §2 (merged as `f4bfa59`): his
+>    `concurrent_1cb` positive control hides 27.939 ms of isolated work in
+>    13.954 ms of wall (`overlap_eff` 1.0024, i.e. perfect hiding) while the
+>    CB-derived overlap statistic reads exactly `0.000000`. Cite that section
+>    rather than this paragraph.
+> 2. **The serialization claim is still true here, but for a different
+>    reason.** My independent SPLIT *sweep*
+>    (`research/nezuko-pr158-split-sweep.log`) uses only `gpu_busy_sum`, which
+>    survives the retirement. Forcing 45 → 406 command buffers moves
+>    `gpu_busy_sum` by ≤0.06 ms (<1%) at a constant 406 dispatches, which
+>    bounds *real* hidden intra-buffer concurrency at ≤0.06 ms. That is a
+>    genuine bound; "`sum == union` to 6 ns" is not.
+> 3. **The numbers in the block above are retired.** `9.816 − 9.498 = 0.318`,
+>    not the quoted `0.322`, and `union > sum` is impossible. Fresh rows
+>    re-measured on `9dd2eec3` are `8.267 / 8.016 / 8.016 / 0.251` and
+>    `8.220 / 7.985 / 7.985 / 0.235` (wall / sum / union / gap, ms). See
+>    `research/nezuko-pr158-decode-dead-time.md` §1.1.
+
 Two consequences:
 
 1. **Command-buffer overhead is 1.33 us each.** Forcing one dispatch per
