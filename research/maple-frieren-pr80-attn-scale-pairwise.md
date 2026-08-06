@@ -8,6 +8,14 @@ advisor comment 5200104728; original assignment base was
 `ab1f9a1323421703f944ac1895841e39b8302542`)
 Branch `maple-frieren/attn-scale-pairwise`
 
+**Ranked outcome: PROMOTED — new record.** Receipt
+`97a5090c-a408-4222-b6d6-dd85c4bce09e`, `status = accepted`,
+`promotionStatus = promoted`, `improved = true`, `error = ""`,
+`passed_correctness = true` (11 cases, 1344 checked steps),
+both floors passed (`decode_speedup = 2.8207`, `prefill_speedup = 2.0015`,
+floors 0.95), `officialScore = 2.58882784082067`. Full six-line report,
+base-vs-candidate attribution, and the baseline-draw caveat are in §11.
+
 Submitted change is one commit touching `Sources/`: `e956aa5` (143 insertions,
 64 deletions, two files). Everything else on the branch is `research/`, which is
 not in `editablePaths` and therefore costs zero submitted bytes.
@@ -1416,3 +1424,244 @@ git checkout f2fedd58 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
 bash research/run_local_benchmark.sh --local-iterate
 git checkout HEAD -- Sources/
 ```
+
+---
+
+## 11. Dispatch, ranked receipt, and channel release
+
+Head is now `fc6c13d` (research files only). The **ranked commit is `2b030838`**, tag
+`pr80-publish-head`; nothing under `editablePaths` has changed since the advisor
+review, and the two commits above it touch `research/` only.
+
+### 11.1 Dispatch disclosure — one conflict, no model fallback
+
+| | |
+|---|---|
+| attempt 1 | `2026-08-06T05:00:26Z` — **conflict**: `account already has 1 submission(s) in flight for this benchmark (limit 1)`. No submission was created. |
+| attempt 2 | `2026-08-06T05:04:15Z` — **OK**, submission `97a5090c-a408-4222-b6d6-dd85c4bce09e`, status `validating`, model `senpai`. |
+
+Both attempts ran the **verbatim identical command**,
+`mlxfast submit --model "senpai" --note-file /tmp/pr80_note.md`. Attempt 1 failed on
+**channel occupancy**, which is not an explicit rejection of the model value, so the
+campaign fallback rule was **not** triggered and **no model other than `senpai` was
+ever used**. Recorded in `/tmp/pr80_dispatch.txt`.
+
+One durable CLI fact worth having: **in-flight submissions are not listed by
+`mlxfast submissions` at all** until they reach a terminal state. That is why no
+`pending` row was visible during the conflict, and why `--all` (paginated,
+stale-tailed) is useless for finding recent entries. The occupying submission was
+`58e28b8` (04:42Z), which cleared on its own about 22 minutes after its own dispatch.
+
+### 11.2 Ranked receipt — **PROMOTED, new record**
+
+The six lines the advisor asked for, in the requested order. Nothing here is inferred;
+every value is a field of the receipt's `officialMetrics`.
+
+1. **Receipt ID** — `97a5090c-a408-4222-b6d6-dd85c4bce09e` (dispatched
+   `2026-08-06T05:04:23.273Z`, measured `05:14:29Z`, terminal `05:26:43.321Z`).
+2. **Correctness** — `passed_correctness = true`. `case_count = 11`,
+   `checked_steps = 1344`,
+   `first_failing_case / first_failing_step / first_failing_layer = null`,
+   `partial_result = false`. `semantic_gpqa_passed = true` (9/9, judge
+   `claude-opus-4-8`), `gpqa_ttft_passed = true` (9/9, measured 0.41 s, p50 0.071 s,
+   cap 2.4 s).
+3. **Error** — `error = ""` (empty). `rejectionReason = null`.
+4. **Decode floor** — `decode_speedup = 2.82068398043601` against
+   `decode_speedup_floor = 0.95` → `passed_decode_speedup_floor = true`. **PASS**,
+   2.97× the floor.
+5. **Prefill floor** — `prefill_speedup = 2.0014713863613727` against
+   `prefill_speedup_floor = 0.95` → `passed_prefill_speedup_floor = true`. **PASS**,
+   2.11× the floor.
+6. **Ranking status** — `status = "accepted"`, `improved = true`,
+   `promotionStatus = "promoted"`, `promotionReason = null`. **Promoted.** This is the
+   first promoted receipt on the account.
+
+**Normalised score.** `decode_spt = 0.0049083720703125`,
+`prefill_spt = 0.00019120068359375`, so
+
+```
+norm_decode_su  = 0.013890  / 0.0049083720703125 = 2.829858821
+norm_prefill_su = 0.0003845 / 0.00019120068359375 = 2.010976074
+ns = 2.829858821^0.75 * 2.010976074^0.25         = 2.598216
+S = 512000 * prefill_spt      =  97.8948 ms
+T = 1000 * decode_spt - S/128 =   4.1436 ms
+```
+
+| ns | receipt | who |
+|---|---|---|
+| **2.598216** | **`97a5090` (this one)** | **us — promoted** |
+| 2.575430 | `58e28b8` | us, 04:42Z |
+| 2.556326 | `0d12366` | us, previous best of ours |
+| 2.526002 | `21f1d1a` | metaspartan |
+| 2.524190 | `46eeccf` | lBroth — the record this displaced |
+| 2.516663 | `8415f63` | a-github-name |
+
+`officialScore` 2.588827841 vs the previous best 2.552308140491 (`46eeccf`, lBroth,
+promoted 2026-08-04T15:04:14Z) = **+0.036520, or +1.431 %**. The CLI table renders that
+delta as `+0.03652 (+3.64%)`; I could not reproduce the `3.64 %` figure from any pair
+of receipt fields, so treat the percentage in the CLI as a display artefact and use the
+arithmetic above.
+
+#### 11.2.1 The previous receipt is our exact base — so this is a real increment
+
+`58e28b8`'s own submission note opens ``# Laguna XS 2.1 NVFP4 — candidate `f2fedd58` ``
+and lists only the routed-expert scale planes (#72) and the Metal-literal reclamation
+(#81). **`f2fedd58` is precisely this PR's base commit.** So the official M5 measured
+`f2fedd58` at 04:49:44Z and `f2fedd58 + PR #80` at 05:14:29Z — 25 minutes apart,
+differing by exactly the two-file diff under review. That is much better attribution
+than I expected to be able to offer.
+
+| | `58e28b8` = base | `97a5090` = base + #80 | change |
+|---|---|---|---|
+| `decode_seconds_per_token` | 0.00496813671875 | 0.00490837207031 | **−1.2176 %** |
+| `prefill_seconds_per_token` | 0.000190995605469 | 0.000191200683594 | +0.1074 % (slower) |
+| `decode_speedup` | 2.78882521978 | 2.82068398044 | +1.1424 % |
+| `golden_hash` | `be7738fc…cf71` | `be7738fc…cf71` | **byte-identical** |
+| `harness_hash` | `35fe8b02…` | `c037fea1…` | differs (binaries really differ) |
+| `weights_hash` | `aff99430…` | `aff99430…` | identical |
+| `checked_steps` | 1344 | 1344 | — |
+
+Two independent readings of the decode increment:
+
+- **raw** `decode_spt` ratio → **+1.2176 % decode → +0.913 % of score**;
+- **drift-cancelled** (each receipt's speedup divided by its own same-session pinned
+  baseline) → +1.1424 % decode → **+0.857 % of score**.
+
+They agree to within 0.06 % of score because `baseline_decode_seconds_per_token` is a
+stable normaliser: across the last 40 scored sessions its relative sd is **0.236 %**
+(peak-to-peak 1.03 %). Call the decode increment **+0.86 % to +0.91 % of score**.
+
+#### 11.2.2 Reconciliation with the submitted claim — the claim was conservative
+
+| channel | µs/token | % of score |
+|---|---|---|
+| **submitted claim** (bytes @ M5 peak 651.8 GB/s, assuming a 5036 µs step) | 42.50 | **+0.633 %** |
+| same bytes, corrected to the real 4908.4 µs `decode_spt` | 42.50 | +0.649 % |
+| same bytes @ M5 *effective* 546.2 GB/s | 50.71 | +0.775 % |
+| **observed** (raw, base → candidate) | **59.76** | **+0.913 %** |
+
+The whole of the submitted claim's conservatism is one stale assumption: I priced
+27,698,336 B/step against a 5036 µs decode step, and the actual frontier step is
+4908 µs, so the same byte saving is worth 1.22× more of the score than I claimed.
+Observed / effective-bandwidth = **1.18×**; the residual **+0.09…+0.14 % of score** is
+the instruction channel I flagged as unpriced.
+
+**The M4 instruction residual did not transfer, exactly as §0.9.33 says it must not.**
+On M4 the residual was 133.5 µs against a 106.45 µs byte share — a ratio of **2.25×**.
+On M5 it is 9.05 µs against a 50.71 µs byte share — a ratio of **0.18×**. The byte
+census transferred to within 18 %; the M4 wall-clock residual over-stated the
+instruction channel by more than an order of magnitude. I would not have known this
+without the receipt, and it is the single most useful calibration fact I got out of
+this run.
+
+#### 11.2.3 Prefill on the ranked machine, and a caveat I have to raise myself
+
+Raw prefill wall time rose **+0.107 %** — i.e. the candidate is a hair *slower* — from
+97.7897 ms to 97.8948 ms. The receipt-level prefill instrument has a relative sd of
+**1.99 %** across the last 40 sessions, so that shift is **0.05 σ**: no detectable
+change, in either direction.
+
+Do **not** read the drift-cancelled prefill number. It says `prefill_speedup` rose
++3.94 %, but that is an artefact: `baseline_prefill_seconds_per_token` is **8.4×
+noisier** than the decode baseline (relative sd 1.99 % vs 0.236 %, peak-to-peak 6.7 %),
+and my session drew `0.000382682697265625` — the **highest of the last twelve sessions,
++1.32 σ above the 40-session mean**. My headline `prefill_speedup = 2.0015` is
+flattered by a slow baseline draw.
+
+Since that inflates the reported `officialScore`, here is the correction, unprompted:
+
+```
+as measured                           officialScore = 2.588827841
+both baselines set to 40-session mean officialScore = 2.573889892
+previous best (46eeccf)                             = 2.552308140
+  margin as measured         = +0.036520  (+1.431 %)
+  margin baseline-normalised = +0.021582  (+0.846 %)
+```
+
+The promotion survives the correction with room to spare, but **+1.43 % overstates the
+true margin; +0.85 % is the honest figure.**
+
+#### 11.2.4 Correctness, confirmed on the ranked machine
+
+`golden_hash` is **byte-identical** between the base receipt and this one —
+`be7738fccd6a28807ae7d18c038cbbc9e1b05dab26b99b2f247358fdc67fcf71` in both — across
+1344 checked steps and 11 cases, while `harness_hash` differs. That is direct M5
+confirmation of the bit-identical claim that §5 had verified only locally (four-arm
+bitwise certificate, digest `3447204b…`, M4). Note that I am **not** citing
+`max_abs_diff = 0`: that field is a hardcoded literal in the receipt and is not
+evidence of anything.
+
+Other fields worth recording: `peak_ram_gb = 21`,
+`process_resident_memory_gb = 0.11`, `bandwidth_gb_per_token = 0` and every `expert_*`
+counter zero (expected — RAM-resident model, no expert cache),
+`benchmark_wall_seconds = 52`, `timed_benchmark_seconds = 46`,
+`correctness_seconds = 39`, `preflight_seconds = 0.00013`, `num_layers = 40`,
+`weights_byte_count = 21568891382` across 9 files.
+
+#### 11.2.5 What I am not claiming
+
+- Not claiming the +1.431 % headline margin; §11.2.3 corrects it to +0.85 %.
+- Not claiming the two receipts are a *harness-paired* A/B. Each has its own
+  same-session baseline; the base-vs-candidate comparison is across sessions, and I
+  lean on it only because `baseline_decode_spt` is demonstrably stable at 0.236 % and
+  the two readings agree.
+- Not claiming the instruction-channel residual is resolved. +0.09…+0.14 % of score is
+  one measurement, comfortably inside the prefill-term noise of `ns`.
+- Not claiming any of this generalises to a different frontier. It is one receipt on
+  one base.
+
+#### 11.2.6 How to get these fields
+
+The CLI truncates `metrics` and has no `--json`. The full record is at
+`GET https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions`
+with `Authorization: Bearer $MLXFAST_API_TOKEN`. One gotcha that cost me a cycle: the
+secret is injected **only when the literal string `MLXFAST_API_TOKEN` appears in the
+shell command text**, so a bare `python3 fetch.py` receives nothing — it has to be
+written `MLXFAST_API_TOKEN="${MLXFAST_API_TOKEN:-}" python3 fetch.py`. The response is
+~17 MB and every record carries its full note, so filter before printing. Everything in
+this section is reproduced by `research/pr80_receipt_analyze.py`.
+
+### 11.3 The advisor's §4 prefill premise, closed
+
+Full treatment is in §6.8; the verdict in one place:
+
+- **Static.** The advisor priced a possible prefill regression at **−0.338 % of score**
+  on the premise that the o_proj narrow scale bank is read by prefill (anchors 6165 /
+  6181 at `f2fedd58`). The anchors are real but sit **inside an `L == 1` block**, and
+  the QKV lane-major kernel's single caller is likewise `B == 1, L == 1` gated. Base
+  and candidate issue identical kernels with identical arguments for all 512 prefill
+  rows, so the priced risk has no mechanism to act through. The only surviving channel
+  is *residency*, not *issued work*.
+- **Measured (M4, counterbalanced ABBA `784e8c2f`).** `D − S = +0.114 ms = +0.022 %`
+  of prefill, `|t| = 2.91` on 3 dof (below `t_crit = 3.18`), 2·SE upper limit
+  **+0.036 % of prefill** ⇒ worst case **−0.009 % of score**, 37× below the priced
+  risk. §6.6's +0.931 % was noise.
+- **Measured (M5, this receipt).** +0.107 % of prefill wall time = **0.05 σ** of the
+  receipt instrument. The priced −0.338 % of score would have been −1.322 ms on a
+  97.8 ms prefill — 12.6× larger than what was observed. Not present.
+
+Three independent lines agree, and the ranked machine is the one that counts.
+
+### 11.4 Channel released
+
+The submission channel is **released to the advisor**. I am not merging and not
+rebasing, per the review's §6 order of operations.
+
+The five review findings (a)–(h) are recorded in the review thread and **not** actioned
+in this PR, as instructed. For the queued `gate_sp` occupancy brief, ★(a) — the o_proj
+register hoist — is the natural companion: `rb = bs[row]`
+(`LagunaRuntimeModel.swift:4138`) and `sp[0]` (`:4143`) re-execute *inside* the K loop
+for all 4 rows, where QKV correctly hoists `scale_bases[out_row]` plus one 2-byte
+nibble load into `sb[]` before the loop (`:4749-4758`). Given §11.2.2 — the M5
+instruction residual is 0.18× the byte share, not the 2.25× M4 suggested — I would now
+price a pure instruction-side change conservatively until it has its own receipt.
+
+One correction to my own §9 follow-up while it is fresh: the real binding constraint
+behind the `groups % 64 == 0` guard is the **nibble packing** at
+`LagunaRuntimeWeights.swift:915-922` — `blocks = groups / 32` with a
+`view(dtype: .uint16)` that fuses adjacent blocks, so `blocks` must be **even** — and
+*not* the pairwise split at `:906`. The correct general form is `blocks % 2 == 0`,
+which should unblock the queued #72 × #35 composition.
+
+_This section was written by an AI agent (OpenHands) acting as the Senpai research
+student `maple-frieren`, on behalf of @morganmcg1._
