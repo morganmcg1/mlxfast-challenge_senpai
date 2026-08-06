@@ -302,6 +302,21 @@ allocation *increase* even though it is a per-step traffic *decrease*. At
 `peak_ram_gb: 21` against 128 GB of ranked unified memory this is immaterial,
 but it is recorded because the accounting rule requires it.
 
+**Measured, not just predicted:** every one of the 12 campaign-A arms reports
+`peak_ram_gb = 21.000` regardless of arm. The +8.41 MB delta is 0.04 % of the
+21 GB peak and therefore sits **below the harness's own reporting resolution**
+— the harness rounds to whole GB. So I can state the allocation delta from the
+build accounting above and from the trace, but I cannot corroborate it from
+`peak_ram_gb`; that field is simply not sensitive enough to see it. Recorded
+this way rather than as "no RAM difference", per the §0.9.32 wording rule.
+
+This is the §0.9.31 test the advisor handed me. My arm changes load-time
+allocations by 5 extra arrays and +8.41 MB — a far larger allocation-image
+perturbation than the null A/A arm, which changes them by exactly zero. §6
+reports the prefill control for both, so if §0.9.31 is a real mechanism the
+arm's prefill should move and the A/A's should not; if it is host noise they
+should move alike.
+
 ### 5.3 End-to-end correctness in the certificate run
 
 ```
@@ -400,4 +415,80 @@ DARKBLOOM_DENSE_PACKED=0 ./benchmark.sh --local-iterate
 
 ## 9. Suggested follow-ups (not implemented)
 
-<!-- FILLED IN AFTER CAMPAIGN A -->
+Ordered by my estimate of expected value per unit of effort. None of these are
+implemented here; several are cheap enough to be worth a slot.
+
+### 9.1 P13 branch-free — the strongest follow-up
+
+The census says `d=5` reaches **zero escapes** (§2.3): a 5-bit delta with a
+per-channel base covers every element of all three planes with no exceptions
+at all. That costs 13.0039 b/w against P12's 12.0063 b/w, so it moves ~8 %
+more bytes than the shipped scheme — but it buys three structural
+simplifications that P12 cannot have:
+
+1. **No escape branch in the kernel.** The `LAGUNA_ANY_ESCAPE` mask test and
+   the anti-hoist pointer dance in §3 disappear entirely. That is roughly
+   4 of the ~9 integer ALU ops per weight.
+2. **No resident stock plane.** The +8.41 MB net allocation of §5.2 becomes
+   roughly **−33 MB**, because the escape fallback is what forces the original
+   BF16 plane to stay live.
+3. **No exception accounting**, so §5.1.1's pessimistic tax is identically zero
+   and the ledger has no soft edge.
+
+Whether P13 beats P12 is exactly the bytes-versus-ALU question §7.1 says this
+host cannot settle. If the M5 result shows the mechanism is byte-limited, P12
+wins by ~8 %. If it shows the mechanism is ALU-limited — which is what a null
+on this host would hint at — **P13 branch-free may well be the better kernel
+despite moving more bytes**, and it is strictly simpler code. I would run this
+as the first variant after the first M5 receipt, not before, because the
+receipt tells you which regime you are in and the census work is already done.
+
+### 9.2 Interleave the M and D planes
+
+The shipped scheme keeps mantissa bytes and delta nibbles in two separate
+arrays, so each weight costs two loads from two streams. Packing 2 weights into
+3 contiguous bytes gives one stream at the cost of byte-unaligned extraction.
+Two coalesced streams are usually fine on Apple Silicon, so I did not spend the
+budget on this, but it is a self-contained kernel-only change with an unchanged
+certificate and it would halve the number of live streams in the inner loop.
+
+### 9.3 Do not chase P8 or T8 — both are closed
+
+Recording these so nobody re-opens them:
+
+- **P8 is dead.** GO-8 failed decisively: `frac(tz>=4) ≈ 1/16`, and
+  `P(tz >= k)` is *exactly* geometric (§2.1), which is the signature of
+  uniformly random mantissa bits. There is no mantissa headroom in this
+  checkpoint at all. The 50.33 MB / +1.37 % line in the brief's pricing table
+  is unreachable.
+- **T8 is dead.** Max per-4096-tile `distinct16` is 1,797–2,136 against a bar
+  of 256 — off by ~8×.
+- **Block-shared bases are dead.** Measured at B=128 they need 12.1162 b/w,
+  *worse* than the per-channel 12.0063 b/w, because a block spanning channels
+  inherits the union of their exponent ranges (§2.4).
+- **Wrong-axis bases are catastrophic**, escape rate ≈ 0.95.
+
+All four were measured rather than assumed, which is the point of §2.4.
+
+### 9.4 Where the same mechanism could apply next
+
+This experiment consumed the only plain-BF16 MLP in the model — layer 0 is the
+sole layer whose MLP is `Linear` rather than `QuantizedLinear`. So the exact
+mechanism does not generalise to layers 1–39, whose MLPs are already NVFP4.
+The transferable asset is the **census + certificate + counterbalanced-campaign
+template**, now run twice (#72, #85), and the finding that this checkpoint's
+BF16 exponents carry ~4 bits of exploitable structure per weight while its
+mantissas carry none. Any future BF16 plane in this model should be priced at
+**12 b/w with a per-channel base**, and should not be censused for mantissa
+structure again.
+
+### 9.5 Instrument work the programme needs more than it needs this arm
+
+§7.1 is the binding constraint on everything above: a 0.6 % effect against a
+host whose A/A spread is of the same order cannot be resolved locally at n=6
+per arm. The campaign here is the best available answer, but the honest
+statement is that **this host cannot confirm a 0.6 % win, only fail to find a
+regression**. If the programme wants local pre-screening of sub-1 % arms to
+mean anything, it needs either many more repetitions per arm or a lower-variance
+measurement than end-to-end `--local-iterate`. That is a programme-level
+decision, not something to fix inside one experiment.
