@@ -1,16 +1,17 @@
 # SENPAI Research State
-- 2026-08-06T10:21Z (updated)
-- Campaign mlxfast-birch-20260805. All 4 students assigned and nudged. Advisor HEAD at 6cb9e92.
-- All students IDLE — no implementation work started on any PR yet.
-- **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
-  (lBroth) = ~0.25% gap. PR #107 merged (0.85% decode gain on M4, M5 likely more).
-- **FRONTIER**: 16f1dc5 (PR #107 merged: NVFP4 qdot dot4 vectorization).
-  Advisor branch HEAD: 6cb9e92 (research state doc commit, no scored code changes).
-  Previous: b0116fe (post PR #107 merge). Previous: 5164c4f (4 students assigned).
-  Previous: 5fe7f20 (_nax confirmed). Previous: b6a0889 (PR #98 merged). Previous: e925569 (PR #94).
-- **PR #113 BROKEN**: Duplicate assignment marker blocks all transitions. PR #114
-  created as replacement for Alphonse. PR #113 needs manual closure by operator.
-  Orphan PRs with missing_student: #99, #108, #111, #113 (broken markers, ignore).
+- 2026-08-06T10:46Z (updated)
+- Campaign mlxfast-birch-20260805. All 4 students assigned and nudged. Advisor HEAD at 1a75d2b.
+- All students IDLE — no implementation work started on any PR yet. All nudged to rebase to 1a75d2b.
+- **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
+  Birch campaign's last M5 submission: 2.5459 (commit 4058d0b).
+  Target: 2.5523 (lBroth, 2nd place). Gap to 2nd: ~1.4%.
+  The birch advisor branch (1a75d2b) has NOT been submitted to M5 yet.
+- **FRONTIER**: 1a75d2b (PR #114 merged: INT8 QKV dot4 vectorization).
+  Previous: eab02f4 (composition strategy). Previous: 6cb9e92 (research state).
+  Previous: b0116fe (post #107). Previous: 16f1dc5 (PR #107: qdot dot4).
+  Previous: b6a0889 (PR #98: prefill O-proj). Previous: e925569 (PR #94: simd_dot).
+- **BROKEN PRs**: #99, #108, #111, #113, #115 (orphan drafts with invalid/missing markers). Ignore.
+  PR #112 is Thorfinn's actual assignment (not #111). PR #116 is Alphonse's actual assignment (not #115).
 
 ## COMPOSITION STRATEGY (see research/COMPOSITION_STRATEGY.md for full analysis)
 
@@ -83,24 +84,29 @@ byte delta, no budget risk.
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact |
 |---------|-----|-----------|-----------|------|-------------|
-| Alphonse | #114 | INT8 QKV kernel dot4 vectorization | 8 scalar FMA → 2 dot(float4,float4) + 1 add in QKV inner loops. 62.5% instruction reduction. M5 is instruction-bound. | MED | 0.3-0.5% decode |
-| Thorfinn | #112 | Attention epilogue 1-pass merge (bfloat16 exchange) | Merge 2-pass epilogue (2 barriers) into 1-pass (1 barrier) by using bfloat16 for cross-sg exchange. 40 layers × 1 barrier saved. | MED | 0.3-0.6% decode |
+| Alphonse | #116 | Shared SwiGLU QMV rows1 depth-1 weight staging | Port depth-1 weight staging from routed R1 kernel to shared kernel. Bit-exact, mechanical. 39 layers/step. | ZERO | 0.3-0.6% decode |
+| Thorfinn | #112 | Attention epilogue 1-pass merge (bfloat16 exchange) | Merge 2-pass epilogue (2 barriers) into 1-pass (1 barrier) by using bfloat16 for cross-sg exchange. 40 layers x 1 barrier saved. | MED | 0.3-0.6% decode |
 | Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode |
 | Askeladd | #109 | simd_sum vectorization sweep | Pack scalar simd_sum into vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU). Bit-exact. 75% fewer shuffle instructions. | ZERO | 0.2-1.0% decode |
 
-Note: PR #113 (Alphonse's original QKV dot4) has a duplicate assignment marker that
-blocks all transitions. PR #114 was created as a clean replacement. PR #113 needs
-manual closure by the operator.
+Note: All 4 students are IDLE (no commits yet). All nudged to rebase to 1a75d2b.
+PR #115 (broken orphan, first attempt at Alphonse's assignment) — ignore. PR #116 is the actual assignment.
+PR #111 (broken orphan, Thorfinn's first attempt) — ignore. PR #112 is the actual assignment.
 
-4 decode arms (75% score weight). All independent code sections. All compose cleanly.
+**MERGED improvements on advisor branch 1a75d2b** (all compose, all independent):
+- PR #94 (simd_dot attention, bit-exact): merged
+- PR #98 (prefill O-proj affine INT8): merged, +3.3% prefill on M4
+- PR #107 (qdot dot4 vectorization, bit-exact): merged, -0.85% decode on M4
+- PR #114 (INT8 QKV dot4, numerically verified): merged
+- Top-8 routing elimination: merged (reduces routed expert GEMM work)
 
-**BASELINE ADVANCED to b0116fe** (post PR #107 merge). All three PRs need rebase +
-re-run. PR #107 changes `packedWordBody()` (qdot), which is independent from:
-- Alphonse #114 (QKV kernel inner loops) — different kernel entirely
-- Thorfinn #112 (attention kernel epilogue) — different code section
-- Edward #100 (O-proj prefetch) — different kernel
-- Askeladd #109 (simd_sum in down+residual/O-proj/SwiGLU) — different functions
-All four should rebase cleanly.
+The advisor branch has NOT been submitted to M5. After students deliver and merge winners, the composed branch should be submitted for M5 measurement.
+
+### Rebase status (to 1a75d2b)
+- Alphonse #116: Fresh branch from 1a75d2b, no rebase needed
+- Thorfinn #112: Rebase from 5164c4f → 1a75d2b (independent changes, clean expected)
+- Edward #100: Rebase from 61aef87 → 1a75d2b (independent changes, clean expected)
+- Askeladd #109: Rebase from 5fe7f20 → 1a75d2b (independent changes, clean expected)
 
 Note: PR #108 and PR #111 are broken orphan drafts (invalid markers). Ignore them.
 
