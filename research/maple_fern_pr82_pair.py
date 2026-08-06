@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
 """Position-balanced (B C C B) merge of four ./benchmark.sh --local-iterate scores for PR #82."""
 import json
+import os
 import sys
+
+HERE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pr82-scores")
+
+BASE_H = "56ba8b02"
+CAND_H = "712c4035"
 
 
 def load(path):
-    d = json.load(open(path))
+    d = json.load(open(os.path.join(HERE, path)))
     return d.get("metrics", d)
 
 
 ORDER = [
-    ("B1", "score.local-iterate.baseline.json"),
-    ("C1", "score.local-iterate.candidate.json"),
-    ("C2", "score.local-iterate.candidate2.json"),
-    ("B2", "score.local-iterate.baseline2.json"),
+    ("B1", "score.seq1.B1.json"),
+    ("C1", "score.seq1.C1.json"),
+    ("C2", "score.seq1.C2.json"),
+    ("B2", "score.seq1.B2.json"),
 ]
 
 runs = {}
 for name, path in ORDER:
     runs[name] = load(path)
+    expect = BASE_H if name.startswith("B") else CAND_H
+    assert runs[name]["harness_hash"].startswith(expect), f"{name} arm mislabelled"
 
 print("pos arm decode_s_per_tok  prefill_s_per_tok  corr  max_abs_diff  golden8   harness8")
 for i, (name, _) in enumerate(ORDER, start=1):
