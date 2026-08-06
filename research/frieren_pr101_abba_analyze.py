@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Research-only: PR #101 arm A round-3 ABBA ABBA analysis.
+"""Research-only: PR #101 two-condition ABBA analysis.
 
-Eight 400-step runs alternate stock (R4NS2) and candidate (R1NS2) in
-A B B A A B B A order. With four replicates per condition the honest noise
-scale is the spread *within* a condition across separate worker processes, so
-the contrast is reported against that spread and against a permutation test
-over run-level medians. A step-level bootstrap is deliberately not used: steps
-inside one worker share that worker's clock, cache and thermal state.
+Eight 400-step runs alternate baseline and candidate in A B B A A B B A order.
+With four replicates per condition the honest noise scale is the spread
+*within* a condition across separate worker processes, so the contrast is
+reported against that spread and against a permutation test over run-level
+medians. A step-level bootstrap is deliberately not used: steps inside one
+worker share that worker's clock, cache and thermal state.
 
-The isolated-dispatch microbenchmark predicts -0.87 % for this geometry; the
-test is powered to see that if it is real.
+Defaults reproduce the arm A gate_sp comparison (stock R4NS2 vs candidate
+R1NS2), whose isolated-dispatch microbenchmark serial arm predicts -0.87 %.
 """
 import glob
 import itertools
@@ -19,9 +19,15 @@ import statistics
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "research", "pr101-gatesp-abba")
 WARMUP = 8
-PREDICTED_PCT = -0.87  # research/pr101-gatesp-dispatch-bench.txt, serial arm
+
+# argv: [dir] [baseline-tag-substring] [candidate-tag-substring] [predicted %]
+DIRNAME = sys.argv[1] if len(sys.argv) > 1 else "pr101-gatesp-abba"
+BASE_KEY = sys.argv[2] if len(sys.argv) > 2 else "stock"
+CAND_KEY = sys.argv[3] if len(sys.argv) > 3 else "cand"
+PREDICTED_PCT = float(sys.argv[4]) if len(sys.argv) > 4 else -0.87
+OUT = os.path.join(ROOT, "research", DIRNAME)
+# Default prediction: research/pr101-gatesp-dispatch-bench.txt, serial arm.
 
 
 def load(tag):
@@ -44,7 +50,7 @@ def summary(xs):
 
 
 tags = sorted(os.path.basename(p)[:-10]
-              for p in glob.glob(os.path.join(OUT, "g*_*.steps.txt")))
+              for p in glob.glob(os.path.join(OUT, "*_*.steps.txt")))
 if len(tags) != 8:
     print("warning: expected 8 runs, found %d" % len(tags))
 
@@ -55,8 +61,8 @@ for t, xs in runs:
     print("%-18s %4d %8.3f %8.3f %8.3f %8.3f %8.3f"
           % (t, s["n"], s["mean"], s["median"], s["p10"], s["min"], s["sd"]))
 
-stock = [(t, xs) for t, xs in runs if "stock" in t]
-cand = [(t, xs) for t, xs in runs if "cand" in t]
+stock = [(t, xs) for t, xs in runs if BASE_KEY in t]
+cand = [(t, xs) for t, xs in runs if CAND_KEY in t]
 print("\nreplicates: %d stock, %d candidate" % (len(stock), len(cand)))
 
 print("\nstat        stock     cand    effect        within-stock  within-cand"
@@ -73,7 +79,7 @@ for key in ("mean", "median", "p10", "min"):
           % (key, s, c, delta, -delta / s * 100.0, ws, wc, verdict))
 
 # Exact two-sided permutation test over the eight run-level medians.
-meds = [(("cand" in t), summary(xs)["median"]) for t, xs in runs]
+meds = [((CAND_KEY in t), summary(xs)["median"]) for t, xs in runs]
 vals = [m for _, m in meds]
 obs = (statistics.mean([m for k, m in meds if not k])
        - statistics.mean([m for k, m in meds if k]))
@@ -111,7 +117,7 @@ def sweep_median(path):
 # so the definitions are close enough to pool, and the pooling is reported as a
 # secondary analysis rather than the headline.
 prev = []
-for d in ("pr101-sweep", "pr101-sweep-r2"):
+for d in (("pr101-sweep", "pr101-sweep-r2") if DIRNAME == "pr101-gatesp-abba" else ()):
     for geom, cond in (("gatesp_r4n2", "stock"), ("gatesp_r1n2", "cand")):
         p = os.path.join(ROOT, "research", d, geom + ".txt")
         if os.path.exists(p):
