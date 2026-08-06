@@ -1,25 +1,23 @@
 # SENPAI Research State
-- 2026-08-06T06:45Z (updated)
-- Campaign mlxfast-birch-20260805. Three students on decode experiments (#94-96),
-  Edward reassigned to prefill experiment (#97) after #93 negative result.
-  Advisor HEAD at bc659cb (research-only commits, no scored code change).
+- 2026-08-06T06:50Z (updated)
+- Campaign mlxfast-birch-20260805. Two students on decode experiments (#94, #96),
+  two on prefill experiments (#97, #98). Advisor HEAD at 2261035 (research-only
+  commits, no scored code change).
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
   (lBroth) = ~0.25% gap. Any single experiment success likely closes this.
-- **FRONTIER**: bc659cb (advisor HEAD, research state update). Previous frontier
-  12a712d (PR #84: top-8 elimination, bit-exact, -49 lines, merged).
+- **FRONTIER**: 2261035 (advisor HEAD, research state + negative results).
+  Previous frontier 12a712d (PR #84: top-8 elimination, bit-exact, -49 lines, merged).
 
-## In-Flight Experiments (3 decode + 1 prefill, all independent code sections)
+## In-Flight Experiments (2 decode + 2 prefill, all independent code sections)
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact |
 |---------|-----|-----------|-----------|------|-------------|
 | Alphonse | #94 | simd_dot in attention score computation | Replace 4 scalar FMA + simd_sum with simd_dot (5→1 ops) | MED | 0.2-1.0% decode |
-| Askeladd | #95 | O-proj unroll sweep (DARKBLOOM_L5_UNROLL 2→4) | Double outstanding loads per thread | LOW | 0.2-1.0% decode |
 | Thorfinn | #96 | Register-prefetch on shared SwiGLU QMV (Rows1) | Depth-1 prefetch (4 blocks), overlap weight loads with compute | LOW | 0.3-1.5% decode |
 | Edward | #97 | Prefill shared expert fused bank guard | Remove x.dim(1)==1 guard → fused [gate;up] bank QMM for prefill | ZERO | 39 dispatches prefill |
+| Askeladd | #98 | Prefill O-proj affine path extension | Relax L==1 guard → quantizedMM with affine INT8 weights for prefill | MED | 0.3-1.0% prefill |
 
-3 decode arms (75% score weight) + 1 prefill arm (25% weight). All independent.
-Edward pivoted from decode to prefill after #93 negative. Prefill is largely
-unexplored — any measurable prefill gain is valuable at 25% score weight.
+2 decode arms (75% score weight) + 2 prefill arms (25% weight). All independent.
 
 ## Next-Wave Experiments (READY TO ASSIGN when students free up)
 
@@ -32,13 +30,12 @@ unexplored — any measurable prefill gain is valuable at 25% score weight.
 - Complexity: MEDIUM (one new Metal kernel + Swift wiring)
 - **Conflicts with Thorfinn #96** — assign after #96 resolves
 
-### Wave 2b: Prefill O-proj affine path extension
+### Wave 2b: Prefill O-proj affine path extension — ASSIGNED to Askeladd (#98)
 - Extend INT8 affine O-proj path from decode-only (L==1) to prefill (L>1)
-- Add new guard block: `quantizedMM` with affine weights instead of `wo(output)`
-- Saves 40 dispatches + BF16→INT8/INT4 weight bandwidth reduction
-- Risk: MEDIUM (numerical behavior change, but within accepted envelope)
-- Independence: Prefill path, zero overlap with decode arms
-- **Detailed implementation plan available** (see MERGE_SHARED_QMV_BRIEF.md)
+- Relax guard at lines 5941-5947 → quantizedMM with affine weights instead of `wo(output)`
+- _nax quantized GEMM auto-selected on M5 (K % 64 == 0, N % 64 == 0)
+- Explore agent confirmed HIGH feasibility: guard relaxation, not new kernel work
+- Risk: MEDIUM (accumulated quantization error over 512 tokens must pass hidden gates)
 
 ### Wave 2c: callLastPrefillRow fused O-proj
 - Terminal prefill layer (layer 39) uses stock BF16 `wo(output)` 
@@ -74,6 +71,7 @@ unexplored — any measurable prefill gain is valuable at 25% score weight.
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
 | #93 | Edward | Register-prefetch on down+residual kernel | NEGATIVE — W&B run 3jhy0yb3 verified, bandwidth-bound kernel, prefetch adds overhead |
+| #95 | Askeladd | O-proj unroll sweep (DARKBLOOM_L5_UNROLL 2→4) | DEAD — env var controls BF16 kernel UNREACHABLE on scored decode path; bit-exact but no effect. W&B run k0c3pi23 |
 | #75 | Edward | TG input staging (routed R1) | NEGATIVE on M4 — L1 handles 2x redundancy |
 | #74 | Edward | Prefetch depth 2→4 | NEGATIVE — bandwidth-bound, depth hurts |
 | #89 | — | Down+residual 4→8 SIMD groups | NEGATIVE — register pressure regression |
