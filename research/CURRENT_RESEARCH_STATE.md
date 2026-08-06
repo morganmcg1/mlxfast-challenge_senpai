@@ -9,11 +9,25 @@
   **bytes** to **time**: three of the four round-23 arms attack the §4.1
   contradiction directly. #137 pivoted off its refuted hypothesis into the
   round's first genuine green arm and holds the receipt slot.
-- **Most recent human research direction:** none new this session. Standing
-  campaign rules remain: every official submission goes out as
-  `mlxfast submit --model "senpai"`; advisor and all four students are
-  authorized to dispatch; **launch isolation from the parallel `birch` campaign
-  is absolute** — do not inspect, cite, or borrow from it.
+- **2026-08-06 21:00 UTC** — no receipts yet; all four round-23 arms still
+  `status:wip`. Two things changed. (1) A **human operator** amended
+  `senpai/program.md` (`bdb77bb0`) to define a **cross-instance submission
+  queue**; this closes §R21.7, retires our ~35 min per-receipt price, and
+  reprices receipt-free work upward (§6, §10). (2) An audit of the **offline
+  transform surface** found that 123 of our 142 editable files have never been
+  touched, that the Laguna transform is a byte-identical CoW pass-through, and
+  that its output is pinned by **no** golden digest — but also that editing
+  `Sources/MLXFastTransform/` flips `source_hash()` and forces a full 21.6 GB
+  regeneration on the official host, against 49/1399 submissions already dead
+  on timeout. Recorded as §9 item 12 behind a null-layout cost probe.
+- **Most recent human research direction:** `bdb77bb0`, "Queue submissions
+  across Senpai instances" (see §10). Standing campaign rules remain: every
+  official submission goes out as `mlxfast submit --model "senpai"`; advisor
+  and all four students are authorized to dispatch; **launch isolation from the
+  parallel `birch` campaign is absolute** — do not inspect, cite, or borrow
+  from it. Note that isolation is a *research* boundary, not a resource one:
+  `bdb77bb0` confirms we share validation capacity with that instance even
+  though we must not share findings.
 - **This is a living document.** It was 6,874 lines and had become an archive.
   Everything prior to round 22 now lives in
   [`RESEARCH_STATE_ARCHIVE_through-round-21.md`](RESEARCH_STATE_ARCHIVE_through-round-21.md).
@@ -299,9 +313,14 @@ that embedded source is what gets compiled at runtime.
 
 ## 6. Round 23 — in flight
 
-**BASE_SHA `9dd2eec38a11d0e0bc7bcdbc5aec46e3436f284f`** for #157/#158.
-#137 (`a8d4936e`) and #148 (`9205efa8`) carry over from round 22 on their own
-bases and **must not rebase**.
+**BASE_SHA `bdb77bb0f54f232ddaa4ebd2ff735441fd2dcb2e`.** All four PRs were
+rebased onto it by the controller at 20:41 UTC; the head SHAs are now #137
+`922020b9`, #148 `b055f970`, #157 `e30a8320`, #158 `b446fff8`. The commit is a
+human-operator edit to `senpai/program.md` alone — **six lines, zero scored
+bytes** — so it invalidates no completed local timing and no dose. All four are
+still on one shared base, which is what the #148 dose ledger needs. Students
+were told: the controller moved you, do not rebase again on your own
+initiative, do not re-run anything because of it.
 
 **Governing rule this round: attack the §4.1 contradiction.** Round 22 proved
 the free-offline-falsifier rule works; it also proved we have run out of cheap
@@ -317,8 +336,30 @@ with a falsifier or a pre-registered kill rule.
 | **#158** | maple-nezuko | **decode dead time** (frontier "Attack A"): is the 322 µs/step host gap absolute or proportional? + re-geometrization of `gate_sp` / `residual_rms_router` | kill rule: if useful-lane fraction >50% and threadgroups are not oversubscribed, **say so and stop** | gap fully closed ≈ **+4.7%** | r1 — slot #4 |
 
 **Receipt channel order this round: fern (#137) → frieren (#148) →
-tanjiro (#157, only on GO) → nezuko (#158).** One in-flight receipt
-campaign-wide, ~35 min each.
+tanjiro (#157, only on GO) → nezuko (#158).**
+
+**The ~35 min per-receipt price is now RETIRED and must be re-measured.** As of
+`bdb77bb0` (§10) our channel order is only the **inner** serialisation of a
+**shared outer queue**: maple and the other Senpai instance draw on the same
+account-scoped validation capacity, and we can neither see nor control the
+outer ordering. Treat per-receipt wall-clock as longer than 35 min with
+unknown variance until frieren's per-dose queue-wait numbers come back. Two
+consequences that change how I rank work:
+1. **A family whose value needs several receipts in a row is worth less than
+   it was last round.** #148 is the only round-23 arm in that category; I have
+   told him to pre-register which single dose would most change my mind and
+   dispatch that one first, so a starved family still leaves the informative
+   half rather than an arbitrary half.
+2. **Receipt-free work is repriced upward.** #157's Step 0 and #158's §1.1/§1.2
+   are now the highest-value items on the board precisely because they cannot
+   be queue-starved. #158 has been told to plan on the assumption that he may
+   get **no receipt at all** this round, and that this is not a demotion.
+
+**Only the queue owner polls, once per ten minutes.** Within maple the queue
+owner is the single student actually holding the receipt slot — currently fern.
+The other three were explicitly told **not** to poll `mlxfast submissions`,
+because two maple agents polling would blow the shared budget with neither of
+them able to detect it.
 
 **The question all four now bear on:** `Δwall / Δgpu_busy`. #137 measured
 62 µs of `gpu_busy` reduction against 112.5 µs of paired wall reduction —
@@ -743,13 +784,118 @@ Ordered by expected value, not by ease.
     specifically a bit-exactness proof rather than an envelope appeal. It is
     also M4-blind, so it needs a receipt slot to evaluate at all.
 
+12. **The offline transform surface — an untouched 87% of the submittable
+    board (advisor audit, 2026-08-06).** Verified facts, each checked against
+    source rather than inferred:
+    - `editablePaths`' 97 entries expand to **142 files**, and **123 of them
+      (87%) have never been modified by this team** on any branch. All five
+      files of `Sources/MLXFastTransform/` are among them, as is every file
+      under `steel/attn` and all of `steel/gemm` except `nax.h`.
+    - **On Laguna the transform is a pass-through.** `Transform.swift:219-226`
+      APFS CoW-clones each reference shard byte-identically; `:250-269`
+      explicitly returns *empty* metadata reports for Laguna, so
+      `AffineMetadataCoding.swift` and `TiedHeadMetadataCoding.swift`
+      (~32 KB combined) are dead on our path and reachable only from the
+      `.gemma4` branch.
+    - **The transform output is not pinned by a golden digest.** Every pinned
+      SHA-256 in `fixtures/poolside_laguna_xs_2_1_nvfp4_tensor_inventory.json`
+      and `Tests/MLXFastTests/LagunaArtifactContractTests.swift:275-300` hashes
+      the **input** reference checkpoint. The only trusted output check is
+      `Sources/MLXFastTrustedHarness/TransformVerification.swift:78-91`, which
+      re-runs *our own submitted* transform and byte-compares — a determinism
+      check, not a fixed digest — and it is opt-in
+      (`MLXFAST_VERIFY_TRANSFORM`, `benchmark.sh:2150`, workflow default
+      false). The only hard output constraint is the 25 GiB cap in
+      `Sources/MLXFastCore/Constants.swift:176`.
+    - AGENTS.md sanctions this explicitly: "Use transform metadata or layout
+      changes that let the runtime skip real work without changing behavior."
+
+    **Two findings that cut the other way, and they are why this is item 12
+    and not item 1:**
+    - **Editing `Sources/MLXFastTransform/` forces a full 21.6 GB
+      regeneration on the official host.** `source_hash()`
+      (`benchmark.sh:1579-1586`) hashes `Package.swift`, `Package.resolved`,
+      `Sources/MLXFastCore` and `Sources/MLXFastTransform`; a mismatch against
+      `SOURCE_HASH_PATH` triggers the regenerate branch at `:2125-2135`. Today
+      that branch is nearly free because it is a CoW clone. A real re-layout
+      must *read and rewrite* the whole checkpoint. Worse, the paired session
+      runs a pristine-transform baseline and our candidate, so the hash flips
+      **twice** and the cost may be paid twice. Against a base rate of
+      **49/1399 submissions dead on timeout**, that is a first-order risk, not
+      a footnote.
+    - **`docs/laguna-weight-contract.md:131` says the `switch_mlp` tensors
+      "must not be split into per-expert tensors."** Read in context that
+      paragraph describes the *input* schema, and the trusted tests
+      (`LagunaArtifactContractTests.swift:344,368`) only pin
+      `LagunaCheckpointValidation.expectedTensorInventory()` to the public 912
+      and require it to reject input mutations. But the prose is ambiguous and
+      a static review could read it as governing the output. **Nobody spends a
+      receipt on a re-layout until this is resolved.**
+
+    **Therefore: Step 0 is a null-layout legality-and-cost probe, not a
+    re-layout.** Change the transform so the output is semantically identical
+    (same 912 tensor names, dtypes, shapes and bytes) but the *source hash
+    changes* and the write path is a real copy rather than a CoW clone. Measure
+    the added session wall-clock on the M5 and confirm the receipt still
+    publishes. Kill rule: **if the paired session grows by more than ~40 s, or
+    any run times out, the entire offline-layout direction is dead** and we
+    have bought that knowledge for one receipt instead of a round.
+
+    **And note what this direction does *not* yet have: a mechanism.** The
+    audit found an opportunity surface, not a lever. The most attractive
+    candidate target is the **700.3 vs 968.4 GB/s marginal-rate deficit**
+    (§9.4) — closing it on 552.1 MB/step of routed traffic would be
+    `552.1/700.3 = 788 µs` falling to `552.1/968.4 = 570 µs`, i.e. **218 µs =
+    +3.19%**, larger than the entire remaining byte-removal ceiling. But
+    within-tensor code/scale interleave is already closed (§8), so the deficit
+    must first be *explained* — alignment, gather indirection, wave
+    quantisation at M=1, or two disjoint streams per expert are all live and
+    they imply completely different fixes.
+
+    **Cheap side-benefit, worth taking whenever someone is in that module:**
+    deleting the ~32 KB of Laguna-dead sidecar coders would lift global surface
+    headroom from 73,089 B to ~105,000 B (+44%). It does **not** relieve the
+    binding constraint, which is the 57,121 B remaining inside
+    `LagunaRuntimeModel.swift`, and it requires also removing the `.gemma4`
+    branch that calls them — check `Tests/MLXFastTests/TransformTests.swift`
+    first.
+
 ---
 
 ## 10. Open programme issues
 
-- **§R21.7 remains open:** there is **no typed transition to open a new GitHub
-  issue**, so the birch/maple shared-submission-channel coordination issue
-  cannot be filed by an agent. This needs a human operator.
+- **§R21.7 is CLOSED by the human operator.** Commit `bdb77bb0` ("Queue
+  submissions across Senpai instances", mmcguire, 2026-08-06 20:41 UTC) adds a
+  six-line rule to `senpai/program.md` that resolves the shared-submission
+  channel I could not file an issue about. Verbatim effect:
+  **multiple Senpai instances share account-scoped validation capacity.** If the
+  API reports the account's current validation slot is occupied, the candidate
+  **stays in the coordinated queue**; **only the queue owner may poll `mlxfast
+  submissions`**, at most **once every ten minutes** and never sooner than the
+  server's own retry guidance; dispatch happens after capacity clears.
+  Operational consequences for this campaign, now propagated to all four
+  round-23 students:
+  - "Slot occupied" is **not** an error and **not** a rejection. It is not
+    evidence about the candidate. Do not re-dispatch, do not mutate the
+    candidate, do not fall back to a different `--model` value (the campaign
+    fallback is authorised **only** on an explicit rejection of `senpai` as a
+    model value, never on a capacity, timeout, or network condition).
+  - Within maple, the **queue owner is the single student currently holding the
+    maple receipt slot** under the §6 channel order. Nobody else polls. Two
+    maple agents polling would violate the once-per-ten-minutes budget without
+    either of them knowing.
+  - A blocked dispatcher **keeps working** against the recorded frontier rather
+    than idling; the queue wait is not a reason to stop the local research.
+  - Our own §6 receipt-channel ordering is now the *inner* serialisation of a
+    *shared outer* queue. Wall-clock per receipt should be assumed **longer
+    than the ~35 min** we have been budgeting, so a family whose value depends
+    on burning several receipts in a row is worth less than it was last round.
+- The prior blocker text is retained for provenance: there is still **no typed
+  transition to open a new GitHub issue**, so cross-campaign coordination
+  continues to require a human operator. `bdb77bb0` is the precedent for how
+  that arrives — as a commit to `senpai/program.md` on the advisor branch,
+  surfaced to me as a `baseline_advanced` event. **Always diff an unexplained
+  `baseline_advanced` SHA before assuming it is machine noise.**
 - **`gh` CLI has no token** in the advisor shell, by design. All GitHub
   mutation goes through typed transitions. Field notes on their required fields:
   `create_assignment` needs `revision_id` **and** `expected_base_sha`, and uses
