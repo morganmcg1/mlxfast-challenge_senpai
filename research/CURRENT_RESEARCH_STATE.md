@@ -1,24 +1,42 @@
 # SENPAI Research State
-- 2026-08-05T13:46Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 5f6468b (research notes only).
-  Last scored merge: 639646a (NVFP4 O-proj dot4, PR #119).
-  Scored code frontier unchanged from 639646a through 5f6468b (diff is research notes only).
-- **WAVE 3+4 IN PROGRESS**: 4 distinct instruction-reduction experiments, all seed-only:
-  PR #121 (Edward) — NVFP4 Code Pre-Expansion Side Bank (bit-exact, Transform.swift + Runtime)
-  PR #123 (Thorfinn) — SwiGLU Input Scatter-to-float4 (bit-exact, Runtime only)
-  PR #124 (Askeladd) — Gate-Scale Fold in O-proj (NOT bit-exact, Runtime only)
-  PR #125 (Alphonse) — Scale Decode LUT (bit-exact, Runtime only)
-  All four have valid markers, proceed-wave3 feedback sent. Students are idle and should
-  pick up assignments automatically.
-- **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
-  Birch campaign best: 2.5459 (commit d4235c9, M5).
-  Target: 2.5523 (gap ~0.0064, ~0.25%).
-- **FRONTIER**: 5f6468b (advisor HEAD, research notes). Scored code at 639646a.
+- 2026-08-06T15:00Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 0a2d3bf (research notes only).
+  Scored code frontier unchanged from 639646a (NVFP4 O-proj dot4, PR #119).
+- **WAVE 3 RESULTS**: 2 closed (dead), 1 M5-validating, 2 implementing, 1 just assigned.
+  PR #121 (Edward) — NVFP4 Code Pre-Expansion: INCONCLUSIVE on M4 (1.5% within noise),
+    bit-exact, M5 submission c95b4e4 VALIDATING. 4x memory traffic is the risk.
+  PR #122 (Alphonse) — Fused pair_a+pair_b Softmax: CLOSED DEAD. Attention is
+    memory-bound, not instruction-bound. Also failed upstream equivalence (maxAbsError 0.97).
+  PR #123 (Thorfinn) — SwiGLU Scatter-to-float4: CLOSED NULL. Compiler already
+    optimizes thread float[16] scatter-to-array into registers. REFUTES all scatter-to-float4.
+  PR #124 (Askeladd) — Gate-Scale Fold in O-proj: OPEN DRAFT, implementing.
+    NOT bit-exact, eliminates 38K multiply+round ops.
+  PR #125 (Alphonse) — Scale Decode LUT: OPEN DRAFT, implementing.
+    Bit-exact, replaces 3-5 ALU ops with constant memory lookup.
+  PR #127 (Thorfinn) — Routed MoE Scatter-to-Float4: CLOSED (refuted by PR #123 evidence).
+  PR #128 (Thorfinn) — Fused Down+Residual Weight Staging: JUST ASSIGNED.
+    Bit-exact, ports proven staging from standalone kernel to fused hot-path kernel.
+- **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign, commit 3e165fa).
+  Birch campaign best: 2.5459 (rejected). New target: beat 2.5888 (gap ~0.043, ~1.7%).
+- **KEY FINDINGS**:
+  1. Attention main loop is MEMORY-BOUND (PR #122). Do NOT pursue attention ALU optimization.
+  2. Metal compiler optimizes thread float[N] scatter-to-array into registers (PR #123).
+     Do NOT pursue scatter-to-array elimination for ANY kernel.
+  3. Weight staging (pre-loading codes/scales before qdot loop) is PROVEN (PR #116 merged).
+  4. dot(float4) vectorization is PROVEN (PRs #107, #114 merged).
+  5. M5 is instruction-bound at ~89%. M4 is bandwidth-bound. M4 evidence is directional only.
+- **FRONTIER**: 0a2d3bf (advisor HEAD, research notes). Scored code at 639646a.
   Merged improvements: #94 (simd_dot attention), #98 (prefill O-proj affine, reverted),
   #107 (qdot dot4), #114 (INT8 QKV dot4), #116 (SwiGLU staging), #119 (O-proj dot4),
   FMA dequant (cherry-picked from PR #65), 4058d0b frontier (STAGE2_GATHER v1, LM_HEAD_PRUNE).
 - **BUDGET**: 2,963,116 / 3,000,000 bytes total (36,884 headroom).
   LagunaRuntimeModel.swift: 506,508 / 524,288 bytes (17,780 per-file headroom).
+- **COMPOSITION ANALYSIS**: 11 active experiment PRs across 4 students. Key independent
+  groups for composition: Edward #121 (all NVFP4 qdots) + Alphonse #125 (all scale decodes)
+  + Alphonse #113 (QKV) + Thorfinn #111 (attn) + Askeladd #108 (3 epilogues). These 5 are
+  independent (different code paths) and compose for ~2-5% decode gain.
+  Prior orphan PRs (#69, #83, #86, #92, #99, #108, #111, #113, #115) are broken from
+  prior sessions — cannot close via close_experiment. Ignore.
 - **SCALE DECODE LUT (TOP WAVE 4)**: Source analysis found 108.3M NVFP4 scale-decode
   operations per decode token. Each performs 5 ALU ops (shift, half convert, float widen).
   A 256-entry constant LUT replaces all 540M FP-ALU ops with constant cache reads.
