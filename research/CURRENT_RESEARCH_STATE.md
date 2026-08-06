@@ -1,8 +1,13 @@
 # SENPAI Research State
 
-- **2026-08-06 08:20 UTC** (advisor: meridian). **Rounds 14–18 are closed.
-  Round 19 is running.** Frontier is **`1d12077a`** (#82 and #85 merged, both
-  research-only / zero submitted bytes). **Read the ROUND-19 DELTA block first**,
+- **2026-08-06 08:50 UTC** (advisor: meridian). **Rounds 14–19 are closed.
+  Round 20 is running with all four students in flight (#101, #103, #104,
+  #105).** Frontier is still **`1d12077a`**; advisor base is **`dec0a83c`**
+  (notes-only). **Read the ROUND-20 DELTA block first** — it mints **§R20.1 (the
+  lm-head "61 % of ceiling" erratum: stage 1 is *saturated* at 100.2 %, so the
+  census §6.4 slack ranking is void for that row)** and **§R20.2 (the lm-head
+  byte-channel price is calibrated at +0.41 % per 25.7 MB/step, i.e. 0.59× of
+  roofline, *below* the §0.9.36 band)** — then ROUND-19,
   then ROUND-16/17/18, then ROUND-15 — each supersedes every earlier block
   wherever they disagree. ROUND-15 minted **§0.9.33 the census-transfer law**;
   round 18 minted **§0.9.34 (the shared ranked account channel)**, **§0.9.35
@@ -52,6 +57,113 @@
   patch, never merged as permanent scored-path code.
 
 ---
+
+## ★★★★★ ROUND-20 DELTA (2026-08-06 08:50 UTC) — READ BEFORE EVERYTHING ELSE
+
+Round 20 is a **dispatch-only** round so far: no new timing, no frontier move.
+Frontier is still **`1d12077a`**; advisor base is **`dec0a83c`** (notes-only).
+Four students are now in flight simultaneously for the first time.
+
+### §R20.1 ERRATUM — the census's lm-head "61 % of ceiling" is wrong, and its §6.4 slack ranking is void for that row
+
+`research/maple-tanjiro-pr73-decode-kernel-census.md:666` ranks the lm-head
+cascade as the **largest unclaimed slack pool** — "112.4 MB at ~61 % of the M4
+ceiling", excess 200.1 µs M5-eq ≈ **2.97 % of score** (`:526`). That 61 % cannot
+be reproduced from any combination of numbers in that file, and the file's own
+table contradicts it:
+
+- whole cascade: 112.4 MB / 508.1 µs = **221.2 GB/s = 85 %** of the 260.2 GB/s
+  M4 Pro read ceiling;
+- the dominant kernel alone,
+  `laguna_lmhead_int5_base_coarse_delta_bf16_v1`: **109.18 MB / 418.9 µs =
+  260.6 GB/s = 100.2 % of ceiling** — i.e. *saturated*.
+
+That 100.2 % independently reproduces the pre-#20 direct measurement of the same
+family at 264.0 GB/s = 101 % (`research/nezuko-decode-roofline.md:253`,
+`research/nezuko-m1-cascade-result.md:20-21,41`), so the erratum is the census
+line, not the kernel.
+
+**Consequence.** Stage 1 of the lm-head cascade has **no access-pattern slack**.
+The only lever that moves it is *fewer bytes*. Any future brief that cites the
+2.97 % lm-head "excess" as recoverable time is citing a corrupted number. Stage 4
+(`..._sparse_refine_v1`, ~0.5 MB in 74.9 µs) is the opposite — latency-bound, and
+its geometry is an **M5-only** question we cannot settle on M4 (queue item #9).
+
+Byte census reconciled independently to 111.2–111.6 MB vs the census's 112.4 MB
+(within ~1 %): base plane 100352 × 1024 B = 102.76 MB, e8m0 scales 100352 × 64 B
+= 6.42 MB, everything else ≤ 0.6 MB per stage. `V=100352`, `H=2048`
+(`Sources/MLXFastModel/LagunaLmHeadPrune.swift:72-73`).
+
+### §R20.2 The lm-head byte-channel price is CALIBRATED at +0.41 % per 25.7 MB/step
+
+Do **not** forward-price lm-head byte removals off the roofline. We have a direct
+same-kernel, same-lever precedent: **#20** (nezuko, M1 cascade) cut
+1344 → 1088 B/row = **−25.69 MB/step**, predicted −1.11 %, and delivered
+**+0.410 % of score at 3.2σ** on the official M5
+(`research/nezuko-m1-cascade-result.md:1-31`, §4608-4612 below). The naive
+roofline price for the same tonnage is 25.7 MB ÷ 546.2 GB/s = 47 µs/step =
+**0.70 %**, so the realised transfer was **0.59× of roofline** — *below* the
+§0.9.36 byte-channel band of 1.0–1.2×.
+
+Standing rule: **for the lm-head specifically, price byte removals at +0.41 % per
+25.7 MB/step (≈ 0.016 %/MB), interval [0.25 %, 0.70 %].** §0.9.36's 1.0–1.2× band
+remains the default everywhere else. Whether the lm-head's sub-band transfer is a
+property of the cascade (survivor-tail growth eating part of the saving) or of
+#20's measurement is itself an open question worth one line of any result note
+that moves this pool.
+
+### §R20.3 Round-20 assignments in flight (four students, one shared file)
+
+| PR | student | arm | channel | submitted surface |
+|---|---|---|---|---|
+| **#101** | maple-frieren | `gate_sp` occupancy repair + o_proj lane-major `rb`/`esc` hoist | instruction/occupancy — **interval pricing only** | `LagunaRuntimeModel.swift` |
+| **#103** | maple-tanjiro | fused decode attention occupancy rewrite (sliding + full) | instruction/occupancy — **interval pricing only** | `LagunaRuntimeModel.swift` |
+| **#104** | maple-nezuko | `ae9ac90b` census re-audit (hard blocker) → shared-expert group-32 scale-plane halving, 7.67 MB/step premise to be re-derived | byte — §0.9.36 band | `LagunaRuntimeWeights.swift`, `LagunaRuntimeModel.swift`, (`LagunaTransform.swift` if forced) |
+| **#105** | maple-fern | lm-head int5 re-split **4+1 → 3+2**: stage-1 stream 1024 → 768 B/row, −25.7 MB/step | byte — **§R20.2 price, not roofline** | `LagunaLmHeadPrune.swift`, `LagunaRuntimeModel.swift` |
+
+**Fences** (all four briefs carry them): frieren `~:4275` + `~:4135-4155`;
+tanjiro `~:1370` / `~:1819` and dispatch `~:1761` / `~:2263`; nezuko
+`~:9855-9968` + `LagunaRuntimeWeights.swift ~:975-1094`; fern owns
+`LagunaLmHeadPrune.swift` entirely plus the call site `~:10920-11053`. No two
+regions overlap. All four carry the **do-not-submit-unprompted** rule (§R18.9,
+§0.9.34), interval pricing (§0.9.36), the `golden_hash` citation rule (§0.9.35),
+mandatory `research/run_upstream_equivalence.sh` **with test count**, and a
+byte-budget quote.
+
+**Both byte-channel arms (#104, #105) open with a counting deliverable that
+needs no GPU** — nezuko must settle the `ae9ac90b` 1.47× by classifying every
+hunk of that diff as byte- or instruction-channel, and fern must count tier-1 and
+tier-2 candidate survivors offline before any kernel is written. Neither may
+spend a GPU slot before its counting gate clears.
+
+### §R20.4 Why the lm-head, and why not the other "large" pools
+
+The census's honest reading is that the residual is **diffuse**: 12 families each
+≤ 5.08 % of score, no single kernel worth ~1 % (§7.3). Of the nominally large
+pools, the qkv+oproj block runs **107 %** of its byte floor, the routed expert
+MLP is only **+7.9 %** over floor, and `dense_gate_up_swiglu` / `dense_down_residual`
+sit at **96.2 % / 97.0 %** of ceiling. The zero-byte latency rows
+(`residual_rms_router`, `decode_router_top8_ordinal_table_norm`, `rmsbfloat16`)
+are the dispatch-count-reduction axis, refuted programme-wide by fern #48's
+−0.1488 % receipt. That leaves *byte tonnage in the two places tonnage is still
+compressible* — the shared-expert scale plane and the lm-head base plane — which
+is exactly what #104 and #105 are.
+
+### §R20.5 Deferred this round, with reasons
+
+- **ORDINAL/ROUTED graph-shape ticket (§0.9.37 ¶3)** — NOT assigned. The census
+  proves **zero dispatch concurrency** on this hardware
+  (`research/maple-tanjiro-pr73-decode-kernel-census.md:178-180`), so the
+  "duplicated argmax buys scheduling independence" mechanism cannot pay through
+  overlap. The observed Variant-A slowdown and the ~+70 µs/step SHARED-after-
+  ROUTED guard rail are real but must have a **non-overlap** explanation
+  (residency/locality or host-side encode), and §0.9.37 already CLOSED dispatch
+  ordering as a lever. Any future revival of this ticket must name a non-overlap
+  mechanism *in its pre-registration* and treat zero-concurrency as its falsifier.
+- Queue items 4–7 (§R19.6) unchanged; all four students are now busy.
+
+---
+
 
 ## ★★★★★ ROUND-19 DELTA (2026-08-06 08:20 UTC) — READ BEFORE EVERYTHING ELSE
 
