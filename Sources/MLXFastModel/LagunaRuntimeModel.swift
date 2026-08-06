@@ -6426,6 +6426,25 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                 }
             """
     }
+    func packedWordBodyF4(_ word: Int) -> String {
+        let codeWord = word == 0 ? "codes.x" : "codes.y"
+        let seedElided =
+            (word == 0 && lagunaNvfp4QdotSeedElisionEnabled)
+        let seedOp = seedElided ? "=" : "+="
+        return """
+                {
+                    const uint c = \(codeWord);
+            \(extract)
+                    const float2 v04 = float2(as_type<half2>(p0))\(weightScale);
+                    const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
+                    const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
+                    const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
+                    const float4 w_a = float4(v04.x, v15.x, v26.x, v37.x);
+                    const float4 w_b = float4(v04.y, v15.y, v26.y, v37.y);
+                    accum \(seedOp) dot(w_a, in\(2 * word)) + dot(w_b, in\(2 * word + 1));
+                }
+            """
+    }
     let accumDeclaration =
         lagunaNvfp4QdotSeedElisionEnabled
         ? "float accum;" : "float accum = 0.0f;"
@@ -6457,6 +6476,26 @@ let lagunaSharedSwiGLUQMVHeader: String = {
         const device uint2* packed = (const device uint2*)weight;
         return laguna_nvfp4_qdot_codes_16(packed[0], input, scale);
     }
+
+    static inline float laguna_nvfp4_qdot_codes_16_f4(
+        uint2 codes,
+        float4 in0, float4 in1, float4 in2, float4 in3,
+        float scale
+    ) {
+        \(accumDeclaration)
+    \(packedWordBodyF4(0))
+    \(packedWordBodyF4(1))
+        return scale * accum;
+    }
+
+    static inline float laguna_nvfp4_qdot_16_f4(
+        const device uint8_t* weight,
+        float4 in0, float4 in1, float4 in2, float4 in3,
+        float scale
+    ) {
+        const device uint2* packed = (const device uint2*)weight;
+        return laguna_nvfp4_qdot_codes_16_f4(packed[0], in0, in1, in2, in3, scale);
+    }
     """
 }()
 
@@ -6480,19 +6519,15 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
 
         thread float gate_result[2] = {0.0f, 0.0f};
         thread float up_result[2] = {0.0f, 0.0f};
-        thread float input_values[values_per_lane];
 
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*)(
                     input + block + lane * values_per_lane);
-            for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
-            }
+            float4 in0 = float4(input_vectors[0]);
+            float4 in1 = float4(input_vectors[1]);
+            float4 in2 = float4(input_vectors[2]);
+            float4 in3 = float4(input_vectors[3]);
 
             for (uint row = 0; row < 2; ++row) {
                 uint gate_row = first_row + row;
@@ -6510,13 +6545,13 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
                     fused_scales + up_row * scale_row_bytes +
                     block / 16 + lane;
 
-                gate_result[row] += laguna_nvfp4_qdot_16(
+                gate_result[row] += laguna_nvfp4_qdot_16_f4(
                     gate_weight,
-                    input_values,
+                    in0, in1, in2, in3,
                     laguna_nvfp4_scale(gate_scale[0]));
-                up_result[row] += laguna_nvfp4_qdot_16(
+                up_result[row] += laguna_nvfp4_qdot_16_f4(
                     up_weight,
-                    input_values,
+                    in0, in1, in2, in3,
                     laguna_nvfp4_scale(up_scale[0]));
             }
         }
@@ -6572,13 +6607,12 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
-        thread float input_values[values_per_lane];
 
         // Depth-1 weight staging: block b+1's gate/up code words and scale
         // bytes are issued before block b's qdots consume b's registers, so
         // the weight stream rides under the current block's compute. Same
         // bytes, same addresses, same nibble decode via
-        // laguna_nvfp4_qdot_codes_16, identical accumulation order.
+        // laguna_nvfp4_qdot_codes_16_f4, identical accumulation order.
         uint2 gate_codes = *(const device uint2*)(gate_row_weight);
         uint2 up_codes = *(const device uint2*)(up_row_weight);
         uint8_t gate_sb = gate_row_scale[0];
@@ -6588,13 +6622,10 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
                     input + block + lane * values_per_lane);
-            for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
-            }
+            float4 in0 = float4(input_vectors[0]);
+            float4 in1 = float4(input_vectors[1]);
+            float4 in2 = float4(input_vectors[2]);
+            float4 in3 = float4(input_vectors[3]);
 
             const uint2 cur_gate_codes = gate_codes;
             const uint2 cur_up_codes = up_codes;
@@ -6610,11 +6641,11 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
                     up_row_weight + next_block / 2);
             }
 
-            gate_result += laguna_nvfp4_qdot_codes_16(
-                cur_gate_codes, input_values,
+            gate_result += laguna_nvfp4_qdot_codes_16_f4(
+                cur_gate_codes, in0, in1, in2, in3,
                 laguna_nvfp4_scale(cur_gate_sb));
-            up_result += laguna_nvfp4_qdot_codes_16(
-                cur_up_codes, input_values,
+            up_result += laguna_nvfp4_qdot_codes_16_f4(
+                cur_up_codes, in0, in1, in2, in3,
                 laguna_nvfp4_scale(cur_up_sb));
         }
 
