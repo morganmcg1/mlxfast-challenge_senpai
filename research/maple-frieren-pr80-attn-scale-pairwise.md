@@ -1028,6 +1028,91 @@ do not.
 
 ---
 
+### 6.8 The prefill question, closed: static proof plus a counterbalanced ABBA
+
+§6.6 reported prefill **+0.931 %** on the candidate at n=1/arm. The advisor
+priced that against the ranked window at **−0.338 % of score**, enough to eat
+half the byte claim, so it had to be resolved rather than waved away. Two
+independent lines now close it, and they agree.
+
+**Line 1 — static reachability. Neither mechanism in this PR is reachable at
+L = 512.** Verified at the current tree and, independently, at the `f2fedd58`
+base via `git show f2fedd58:Sources/MLXFastModel/LagunaRuntimeModel.swift`:
+
+| consumer | call sites | enclosing guard | verdict |
+|---|---|---|---|
+| o_proj `lagunaGatedAffineOProjNVFP4` (current) | `:6186`, `:6202` | `if` opens `:6139`; guard `:6140` = `gatePerHead, B == 1, L == 1, wo.bias == nil` | decode-only |
+| o_proj at base `f2fedd58` | `:6160`, `:6176` — the `narrowScales:` argument lines are exactly `:6165` / `:6181` | `if` opens `:6112`; guard `:6114` = `gatePerHead, B == 1, L == 1` | decode-only |
+| QKV `lagunaDecodeNVFP4QKVR1` (declared `:4810`) | exactly one caller, `:5761` | nested in `B == 1, L == 1` at `:5704-5705` (base `:5679`) | decode-only |
+
+The advisor's anchors `6165`/`6181` are real, but they sit *inside* the
+`L == 1` block; they are decode call sites, not prefill ones. Base and
+candidate therefore issue **identical kernels with identical arguments for all
+512 prefill rows**. The predicted prefill compute effect is exactly zero, and
+the −0.338 % has no mechanism to act through.
+
+**The one channel the static argument does not close** is residency, not
+compute. `DARKBLOOM_ATTN_SCALE_NARROW_OPROJ` gates bank *construction* at
+`LagunaRuntimeModel.swift:5483-5488`, so the shipped default leaves ~23.5 MB of
+extra arrays resident, which could in principle perturb prefill through
+allocator or page pressure.
+
+**Line 2 — counterbalanced prefill ABBA measuring exactly that channel.**
+`research/pr80_prefill_abba.sh`, one binary, arms selected by env:
+`D` = shipped default (bank built), `S` = `..._NARROW_OPROJ=0` (bank not
+built). Nine visits, `p00-discard D` then `D S S D D S S D`; each arm's
+positions sum to 18, so any linear drift in position cancels. Per visit:
+4 warm-up + **20 measured** whole-prompt `prefill` requests at L = 512, each
+repetition using a **different** prompt so no identical-forward memo can serve
+one repetition from another.
+
+| pos | arm | mean (ms) | within-visit sd | median | min |
+|---|---|---|---|---|---|
+| p01 | D | 527.440 | 1.304 | 527.409 | 525.126 |
+| p02 | S | 527.370 | 1.207 | 527.323 | 525.659 |
+| p03 | S | 527.269 | 1.402 | 527.434 | 524.420 |
+| p04 | D | 527.512 | 1.261 | 527.681 | 525.167 |
+| p05 | D | 527.442 | 1.073 | 527.563 | 525.642 |
+| p06 | S | 527.412 | 1.060 | 527.396 | 525.661 |
+| p07 | S | 527.300 | 1.043 | 527.387 | 525.199 |
+| p08 | D | 527.411 | 1.325 | 527.676 | 525.259 |
+
+Arm D 527.451 ms (between-visit sd 0.037), arm S 527.338 ms (0.056).
+
+```
+D - S = +0.114 ms  = +0.022 % of S
+pooled between-visit SE = 0.039 ms,  |t| = 2.91 on 3 dof  (t_crit = 3.18)
+2*SE interval = [+0.035, +0.192] ms  =  [+0.007 %, +0.036 %]
+```
+
+**Reading.** The residency channel is at most marginal — |t| = 2.91 does not
+clear the 3.18 two-tailed critical value at 3 degrees of freedom — and even its
+95 %-style upper limit is **+0.036 % of prefill**. Prefill carries weight 0.25,
+so the worst case is `0.25 × 0.036 % = −0.009 % of score`; the point estimate
+is **−0.0054 %**. That is **37× smaller** than the advisor's priced −0.338 %
+and **70× smaller** than the +0.633 % byte claim.
+
+§6.6's +0.931 % is therefore **noise**, exactly as the static proof predicts:
+on this scale +0.931 % would be +4.91 ms, and the ABBA excludes anything above
++0.192 ms with four counterbalanced visits per arm. Note the instrument is
+sharp enough to say so: within-visit sd is ~1.2 ms (0.25 %), but the
+between-visit sd of the 20-sample mean is only 0.04–0.06 ms, so the ABBA's
+resolution is ~25× finer than the effect it is refuting.
+
+**Caveat, stated plainly.** This is an M4 Pro measurement of an M4 Pro prefill
+(527 ms here versus ~98 ms for the M5 candidate). Under programme law §0.9.33
+the *microseconds* do not transfer. What transfers is the reachability fact —
+which is source-level, machine-independent, and verified at both trees — plus
+the algorithm-class conclusion that the only surviving channel is resident
+bytes rather than issued work. If the ranked prefill nevertheless disagrees,
+**the receipt wins** and the residency channel becomes the first place to look.
+
+Analyzer: `research/pr80_prefill_analyze.py`. Log: supervised run
+`784e8c2f-4735-4f01-8d4d-4487d3a9511e` (exit 0), thermal gate healthy
+throughout (GPU 40.0 °C at start).
+
+---
+
 ## 7. Budget
 
 Measured with `git cat-file -s` at `BASE_SHA` = `f2fedd58` and at branch head:
