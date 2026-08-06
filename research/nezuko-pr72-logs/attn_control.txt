@@ -1,0 +1,141 @@
+=== step 4a: attention plane positive control ===
+kernel  nvfp4_quantize_bfloat16_t_gs_16_b_4  (fp_quantize<bfloat16_t, 16, 4>)
+source  utils + gemm + quantized_utils + fp_quantized, math mode safe
+dispatches: 120
+
+=== per-dispatch exceptions (flat scale pair index) ===
+L0.q_proj pairs    393216  exceptions  1  at 0
+L0.k_proj pairs     65536  exceptions  1  at 0
+L0.v_proj pairs     65536  exceptions  1  at 0
+L1.q_proj pairs    524288  exceptions  0  at none
+L1.k_proj pairs     65536  exceptions  0  at none
+L1.v_proj pairs     65536  exceptions  0  at none
+L2.q_proj pairs    524288  exceptions  1  at 0
+L2.k_proj pairs     65536  exceptions  0  at none
+L2.v_proj pairs     65536  exceptions  1  at 0
+L3.q_proj pairs    524288  exceptions  1  at 0
+L3.k_proj pairs     65536  exceptions  1  at 0
+L3.v_proj pairs     65536  exceptions  0  at none
+L4.q_proj pairs    393216  exceptions  1  at 0
+L4.k_proj pairs     65536  exceptions  0  at none
+L4.v_proj pairs     65536  exceptions  1  at 0
+L5.q_proj pairs    524288  exceptions  0  at none
+L5.k_proj pairs     65536  exceptions  0  at none
+L5.v_proj pairs     65536  exceptions  0  at none
+L6.q_proj pairs    524288  exceptions  1  at 0
+L6.k_proj pairs     65536  exceptions  0  at none
+L6.v_proj pairs     65536  exceptions  1  at 0
+L7.q_proj pairs    524288  exceptions  0  at none
+L7.k_proj pairs     65536  exceptions  1  at 0
+L7.v_proj pairs     65536  exceptions  1  at 0
+L8.q_proj pairs    393216  exceptions  1  at 0
+L8.k_proj pairs     65536  exceptions  1  at 0
+L8.v_proj pairs     65536  exceptions  1  at 0
+L9.q_proj pairs    524288  exceptions  0  at none
+L9.k_proj pairs     65536  exceptions  1  at 0
+L9.v_proj pairs     65536  exceptions  1  at 0
+L10.q_proj pairs    524288  exceptions  1  at 0
+L10.k_proj pairs     65536  exceptions  0  at none
+L10.v_proj pairs     65536  exceptions  1  at 0
+L11.q_proj pairs    524288  exceptions  1  at 0
+L11.k_proj pairs     65536  exceptions  1  at 0
+L11.v_proj pairs     65536  exceptions  1  at 0
+L12.q_proj pairs    393216  exceptions  1  at 0
+L12.k_proj pairs     65536  exceptions  0  at none
+L12.v_proj pairs     65536  exceptions  1  at 0
+L13.q_proj pairs    524288  exceptions  1  at 0
+L13.k_proj pairs     65536  exceptions  0  at none
+L13.v_proj pairs     65536  exceptions  1  at 0
+L14.q_proj pairs    524288  exceptions  0  at none
+L14.k_proj pairs     65536  exceptions  1  at 0
+L14.v_proj pairs     65536  exceptions  1  at 0
+L15.q_proj pairs    524288  exceptions  1  at 0
+L15.k_proj pairs     65536  exceptions  0  at none
+L15.v_proj pairs     65536  exceptions  1  at 0
+L16.q_proj pairs    393216  exceptions  1  at 0
+L16.k_proj pairs     65536  exceptions  1  at 0
+L16.v_proj pairs     65536  exceptions  1  at 0
+L17.q_proj pairs    524288  exceptions  1  at 0
+L17.k_proj pairs     65536  exceptions  1  at 0
+L17.v_proj pairs     65536  exceptions  1  at 0
+L18.q_proj pairs    524288  exceptions  1  at 0
+L18.k_proj pairs     65536  exceptions  0  at none
+L18.v_proj pairs     65536  exceptions  1  at 0
+L19.q_proj pairs    524288  exceptions  1  at 0
+L19.k_proj pairs     65536  exceptions  1  at 0
+L19.v_proj pairs     65536  exceptions  1  at 0
+L20.q_proj pairs    393216  exceptions  1  at 0
+L20.k_proj pairs     65536  exceptions  1  at 0
+L20.v_proj pairs     65536  exceptions  1  at 0
+L21.q_proj pairs    524288  exceptions  1  at 0
+L21.k_proj pairs     65536  exceptions  0  at none
+L21.v_proj pairs     65536  exceptions  0  at none
+L22.q_proj pairs    524288  exceptions  1  at 0
+L22.k_proj pairs     65536  exceptions  1  at 0
+L22.v_proj pairs     65536  exceptions  1  at 0
+L23.q_proj pairs    524288  exceptions  1  at 0
+L23.k_proj pairs     65536  exceptions  1  at 0
+L23.v_proj pairs     65536  exceptions  1  at 0
+L24.q_proj pairs    393216  exceptions  1  at 0
+L24.k_proj pairs     65536  exceptions  1  at 0
+L24.v_proj pairs     65536  exceptions  1  at 0
+L25.q_proj pairs    524288  exceptions  0  at none
+L25.k_proj pairs     65536  exceptions  1  at 0
+L25.v_proj pairs     65536  exceptions  1  at 0
+L26.q_proj pairs    524288  exceptions  1  at 0
+L26.k_proj pairs     65536  exceptions  1  at 0
+L26.v_proj pairs     65536  exceptions  1  at 0
+L27.q_proj pairs    524288  exceptions  1  at 0
+L27.k_proj pairs     65536  exceptions  0  at none
+L27.v_proj pairs     65536  exceptions  1  at 0
+L28.q_proj pairs    393216  exceptions  0  at none
+L28.k_proj pairs     65536  exceptions  1  at 0
+L28.v_proj pairs     65536  exceptions  1  at 0
+L29.q_proj pairs    524288  exceptions  1  at 0
+L29.k_proj pairs     65536  exceptions  1  at 0
+L29.v_proj pairs     65536  exceptions  1  at 0
+L30.q_proj pairs    524288  exceptions  1  at 0
+L30.k_proj pairs     65536  exceptions  1  at 0
+L30.v_proj pairs     65536  exceptions  1  at 0
+L31.q_proj pairs    524288  exceptions  0  at none
+L31.k_proj pairs     65536  exceptions  1  at 0
+L31.v_proj pairs     65536  exceptions  1  at 0
+L32.q_proj pairs    393216  exceptions  0  at none
+L32.k_proj pairs     65536  exceptions  0  at none
+L32.v_proj pairs     65536  exceptions  1  at 0
+L33.q_proj pairs    524288  exceptions  1  at 0
+L33.k_proj pairs     65536  exceptions  0  at none
+L33.v_proj pairs     65536  exceptions  0  at none
+L34.q_proj pairs    524288  exceptions  1  at 0
+L34.k_proj pairs     65536  exceptions  1  at 0
+L34.v_proj pairs     65536  exceptions  1  at 0
+L35.q_proj pairs    524288  exceptions  1  at 0
+L35.k_proj pairs     65536  exceptions  1  at 0
+L35.v_proj pairs     65536  exceptions  0  at none
+L36.q_proj pairs    393216  exceptions  1  at 0
+L36.k_proj pairs     65536  exceptions  1  at 0
+L36.v_proj pairs     65536  exceptions  1  at 0
+L37.q_proj pairs    524288  exceptions  1  at 0
+L37.k_proj pairs     65536  exceptions  0  at none
+L37.v_proj pairs     65536  exceptions  1  at 0
+L38.q_proj pairs    524288  exceptions  1  at 0
+L38.k_proj pairs     65536  exceptions  1  at 0
+L38.v_proj pairs     65536  exceptions  1  at 0
+L39.q_proj pairs    524288  exceptions  0  at none
+L39.k_proj pairs     65536  exceptions  1  at 0
+L39.v_proj pairs     65536  exceptions  1  at 0
+
+=== aggregate ===
+pairs examined                24903680
+even-pair equal               24903591  (99.999643%)
+odd-pair (shift) equal         6709878  (26.943449%)
+exceptions total                    89
+dispatches with exception           89 of 120
+exceptions off pair 0                0
+distinct E4M3 codes                 36
+subnormal code fraction       80.9699%
+
+=== verdict ===
+PASS: every exception is at flat scale pair 0 of its own quantize dispatch,
+      matching fp_quantized.cpp:2346-2352 (only the first simdgroup of a
+      1-D dispatch sees tidx.x < 16 for any lane).

@@ -1,0 +1,22 @@
+=== fixture ===
+packed_scales    1048576 B -> halved 524416 B (allowed pairs [0, 16], violations 0)
+down_scales      524288 B -> halved 262272 B (allowed pairs [0], violations 0)
+
+=== equivalence ===
+r1 activated      8192 B, differing bytes = 0
+down routed       4096 B, differing bytes = 0
+sdr output        4096 B, differing bytes = 0
+baseline outputs non-degenerate: true
+
+=== power controls (each MUST flag) ===
+1a. packed patch header dropped (even byte substituted): differing bytes = 2 -> FLAGGED
+1b. down patch header dropped (even byte substituted): differing bytes = 1 -> FLAGGED
+2a. ordinary halved packed scale byte bit-flipped: differing bytes = 1 -> FLAGGED
+2b. ordinary halved down scale byte bit-flipped: differing bytes = 2 -> FLAGGED
+1c. sdr patch header dropped (even byte substituted): differing bytes = 1 -> FLAGGED
+2c. ordinary halved sdr scale byte bit-flipped: differing bytes = 1 -> FLAGGED
+3a. down weight byte corrupted: differing bytes = 1 -> FLAGGED
+3b. sdr weight byte corrupted: differing bytes = 1 -> FLAGGED
+
+=== verdict ===
+PASS: halved scale planes reproduce the shipped routed decode outputs bit-exactly, and all power controls flagged.
