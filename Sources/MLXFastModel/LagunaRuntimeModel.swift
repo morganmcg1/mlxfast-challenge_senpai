@@ -3908,10 +3908,10 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
         for (uint row = 0; row < results_per_simdgroup; ++row) {
             const device uint8_t* wl = ws + row * in_vec_size;
             \(metadataLoad)
-            float accum = 0.0f;
-            for (uint i = 0; i < values_per_thread; ++i) {
-                accum += x_thread[i] * wl[i];
-            }
+            float accum = dot(float4(x_thread[0], x_thread[1], x_thread[2], x_thread[3]),
+                              float4(float(wl[0]), float(wl[1]), float(wl[2]), float(wl[3]))) +
+                         dot(float4(x_thread[4], x_thread[5], x_thread[6], x_thread[7]),
+                              float4(float(wl[4]), float(wl[5]), float(wl[6]), float(wl[7])));
             result[row] += scale * accum + sum * bias;
         }
 
@@ -3921,9 +3921,16 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
         column += block_size;
     }
 
-    for (uint row = 0; row < results_per_simdgroup; ++row) {
-        result[row] = simd_sum(result[row]);
-        if (simd_lid == 0) {
+    {
+        const vec<float, 4> packed = simd_sum(
+            vec<float, 4>(result[0], result[1], result[2], result[3]));
+        result[0] = packed.x;
+        result[1] = packed.y;
+        result[2] = packed.z;
+        result[3] = packed.w;
+    }
+    if (simd_lid == 0) {
+        for (uint row = 0; row < results_per_simdgroup; ++row) {
             projected[out_row + row] = bfloat(result[row]);
         }
     }
@@ -3937,7 +3944,7 @@ private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_v1",
+            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_d4_v1",
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "weight_scales", "weight_biases",
@@ -3954,7 +3961,7 @@ private let lagunaGatedAffineOProjIndexedKernels: [Int: MLXFast.MLXFastKernel] =
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_idx_v1",
+            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_idx_d4_v1",
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "metadata_indices", "metadata_lut",
