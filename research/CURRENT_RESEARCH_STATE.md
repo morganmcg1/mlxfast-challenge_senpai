@@ -1,13 +1,14 @@
 # SENPAI Research State
 
-- **2026-08-06 20:10 UTC** — round 22 mid-flight, all four students occupied.
-  #142 resolved and merged as a successful negative; frieren reassigned to the
-  prefill ledger as **#148**. This revision absorbs the round-23 frontier
-  review: the +2.85% decode ceiling is re-scoped as a *byte-removal* ceiling
-  (§2, §4.1), the ledger's decode axis is promoted to co-primary with a
-  mandatory multi-dose linearity control (§9.2), a decode dead-time programme
-  becomes the top next direction (§9.1), and `MLX_MAX_MB_PER_BUFFER` is closed
-  as our canonical M4→M5 sign inversion (§8).
+- **2026-08-06 20:40 UTC** — round 22 closed, **round 23 launched**. #143 and
+  #138 merged; the base advanced to `9dd2eec3`. Round 22's governing rule
+  ("every arm has a free offline falsifier that runs FIRST") paid three times:
+  #142, #143 and #137's Step 0 each reached a terminal verdict for **zero
+  receipts**. Two whole byte families are now permanently closed by exhaustive
+  offline evidence (§8), and the programme's centre of gravity moves from
+  **bytes** to **time**: three of the four round-23 arms attack the §4.1
+  contradiction directly. #137 pivoted off its refuted hypothesis into the
+  round's first genuine green arm and holds the receipt slot.
 - **Most recent human research direction:** none new this session. Standing
   campaign rules remain: every official submission goes out as
   `mlxfast submit --model "senpai"`; advisor and all four students are
@@ -37,21 +38,28 @@ Later leaderboard receipts `26dc269`, `c95b4e4`, `00de2d3` and the in-flight
 `57d8f082` are **birch**, not ours. Do not read them as competition from a
 third party and do not chase them.
 
-Advisor branch HEAD: **`3d745e438d47c6a32d4391c7da161ad1004fbde1`**
-(`ORGANIZER_FRONTIER_SHA=afcb8320912aa1162f841f282442d7c093e6b2e5`). The two
-commits since round 22 opened are **research-only**; the byte budget below is
-unchanged, and the `baseline_advanced` events they fire on #137/#138/#143 do not
-require a rebase. Students must not rebase; the advisor supplies
-`accepted_base_sha` at merge.
+Advisor branch HEAD / **round-23 BASE_SHA**:
+**`9dd2eec38a11d0e0bc7bcdbc5aec46e3436f284f`**
+(`ORGANIZER_FRONTIER_SHA=afcb8320912aa1162f841f282442d7c093e6b2e5`). #143 (zero
+scored bytes) and #138 (+5,164 scored bytes) merged into it. Students must not
+rebase onto later advisor commits; the advisor supplies `accepted_base_sha` at
+merge. **#148 in particular must not rebase** — its doses are instruments, and
+the invariant is that every dose shares one base.
 
 ### Byte budget at BASE_SHA
 
 ```
-current=2921747/3000000   headroom=78253   growth=0/262144   files=142
+current=2926911/3000000   headroom=73089   growth=0/262144   files=142
 Sources/MLXFastModel/LagunaRuntimeModel.swift = 467167/524288  (headroom 57121 B)
 ```
 
-Headroom is now a real constraint. Prefer `quantized.cpp` for new kernel source.
+Headroom is a real constraint, and **`LagunaRuntimeModel.swift` is the binding
+one**: all four round-23 students touch it and it has only 57,121 B of per-file
+room. There is **no `.metal` file in `Sources/MLXFastModel/`** — the decode MSL
+is embedded as Swift string literals, which is why that one file is 467 KB.
+Prefer `quantized.cpp` (listed) for new kernel source. `device.h` is **not**
+listed. `senpai/check-editable-budget.sh` requires a full 40-char SHA; it
+rejects `HEAD`.
 
 ---
 
@@ -156,7 +164,17 @@ not bandwidth-bound). Everything else sits at 94.6–100.2%.
    **cannot execute `_nax` kernels at all**. The official M5 selects `_nax`.
    Any `_nax` arm is therefore M4-blind and needs the safety rig in §5.
    Every writeup must state which kernel family the local run actually
-   selected.
+   selected. **Exception:** hand-written decode MSL is executed identically by
+   both hosts, so M4 timing *is* admissible there.
+5. **The greedy-token gate is structurally blind to sub-token logit drift.**
+   Measured, not assumed: fern's 1-ULP fault-injection control in #137 made
+   **64 of 65** per-step logit digests differ and still reported
+   `token_mismatches: 0`. A passing token gate is therefore **not** evidence of
+   bit-exactness. Any arm claiming bit-exactness must carry a **bitwise logit
+   digest** (`top_k = 100352`, all 64 steps) **and** a deliberately perturbed
+   control that is *shown to fire* on that digest. A digest test with no firing
+   control is vacuous. This raises the evidentiary bar for every future
+   precision-relaxation arm, H1 included.
 
 ### Resubmission variance-harvesting: formally REFUTED
 
@@ -242,6 +260,19 @@ lines in `nezuko-mbpb-prefill.log` are decode. Only prefill total wall is
 recorded (`:2`, 544.93 ms on M4). #148's prefill rows are the first per-family
 prefill attribution this programme will have.
 
+**Round 23 attacks this from four independent sides**, which is the reason all
+four assignments were issued against one base:
+
+| PR | angle on §4.1 |
+|---|---|
+| #137 (fern) | 63.7 µs of GPU work removed moved the wall by 112 µs — a `Δwall/Δgpu_busy` of 1.8×, which no purely execution-saturated model predicts |
+| #148 (frieren) | dose-linearity slopes and the residual `T − Σ(slopes)`, the direct adjudication described above |
+| #157 (tanjiro) | instrument-validated probe of whether this stack *ever* runs two independent kernels concurrently, plus a code read of how `gpu_busy_union` is computed |
+| #158 (nezuko) | is the 322 µs host gap absolute or proportional, re-measured on the current base rather than the round-13 base |
+
+Any two of these that agree collapse (a)/(b)/(c) to one resolution. Do not let a
+single receipt settle it.
+
 ---
 
 ## 5. `_nax` safety rig (mandatory for any `_nax` arm)
@@ -266,52 +297,59 @@ that embedded source is what gets compiled at runtime.
 
 ---
 
-## 6. Round 22 — in flight
+## 6. Round 23 — in flight
 
-**BASE_SHA `2443984f8de7544170a256ad854a22fcf18c8460` for #137/#138/#143;
-`3d745e438d47c6a32d4391c7da161ad1004fbde1` for #148.**
+**BASE_SHA `9dd2eec38a11d0e0bc7bcdbc5aec46e3436f284f`** for #157/#158.
+#137 (`a8d4936e`) and #148 (`9205efa8`) carry over from round 22 on their own
+bases and **must not rebase**.
 
-**Governing rule this round: every arm has a free offline falsifier that runs
-FIRST.** This is the direct remedy for rounds 19, 20 and 21, which shipped
-**zero scored bytes** between them. The only scored-byte movement in four
-rounds is nezuko's 259-line deletion in #110. **The rule is already paying:**
-#142 reached a defensible terminal verdict in under an hour for **zero GPU cost
-and zero receipts**.
+**Governing rule this round: attack the §4.1 contradiction.** Round 22 proved
+the free-offline-falsifier rule works; it also proved we have run out of cheap
+*byte* arms. Three of four arms below therefore measure **time structure** —
+overlap, dead time, dispatch cost — rather than bytes. Every arm still opens
+with a falsifier or a pre-registered kill rule.
 
-| PR | student | arm | falsifier (runs first) | expected | state |
+| PR | student | arm | falsifier / kill rule (runs first) | expected | state |
 | --- | --- | --- | --- | --- | --- |
-| **#137** | maple-fern | lm-head cascade **fusion** across RAW-dependent stages | calibrated-injection slope test `dStep/dX`, spin X ∈ {0,5,10,20,40} µs at each boundary → per-site critical-path map. GO ≥40 µs, STOP <25 µs | 80 µs = **+1.17%**, bit-exact, M4-measurable | wip |
-| **#138** | maple-tanjiro | prefill `_nax` **BK 64→128** (gate_up 32→16 trips, down 8→4); secondary BN arm **down-only** | offline MSL compile + occupancy audit; Ws 9.2→17.4 kB; kill if TG/core 3→1, re-scope down-only if 3→2 | **+0.7…+1.8%** | wip |
-| **#142** | maple-frieren | device-compacted **LPT expert queue** via `dispatchThreadgroups(indirectBuffer:)` | rows-per-expert histogram + pure-arithmetic LPT makespan simulation | — | **MERGED as a successful negative** (§8) |
-| **#143** | maple-nezuko | checkpoint **expert-slab dedup** + scale-plane census (`MLXFastTransform` + sort-time merge) | **pure CPU scan of the 21.6 GB checkpoint — zero GPU, zero receipts**; kill at <5% byte-duplicate rate | 10% hit ≈ −2…−4 ms S = **+0.7…+1.4%**, bit-exact | wip |
-| **#148** | maple-frieren | **prefill ledger R1** — measure `T_gather` on the real M5 by calibrated bit-exact work injection, read off the receipt's `officialMetrics` | three free offline falsifiers: (a) M4 elision check, (b) bit-exactness + bf16 overflow margin, (c) wall-time projection ≤70% of timeout | resolves the §9.1 strategic fork | wip |
+| **#137** | maple-fern | **lm-head S4 row-major re-geometrization** (pivot; the assigned fusion hypothesis was refuted by its own Step 0) | Step 0 injection slope: fusion worth **5.2 µs = +0.060%**, 5× below the 25 µs STOP ⇒ refuted | S4 **77.4 → 13.7 µs**; wall Δ **112.5 µs** paired | **wip r2 — receipt #1 authorized, dispatching** |
+| **#148** | maple-frieren | **prefill *and decode* ledger** by calibrated bit-exact work injection, read off the receipt's `officialMetrics` | R1 Step 0 **M4 elision check is now his and is non-optional** — no receipt until a dose shows measurable M4 slowdown | resolves §4.1 and prices the two axes | wip r1 — **slot #2** |
+| **#157** | maple-tanjiro | **graph-level co-residency falsifier** (frontier "Attack B" gate), then two-chunk wavefront prefill only on GO | instrument validation first (positive control must show `union < sum`; negative control `union ≈ sum`), then 4 dispatch patterns × 3 sizes. Pre-registered table; **all four outcomes count as success** | GO ⇒ 0…+4% prefill; NO-GO closes a whole structural family | r1 — free, no receipt |
+| **#158** | maple-nezuko | **decode dead time** (frontier "Attack A"): is the 322 µs/step host gap absolute or proportional? + re-geometrization of `gate_sp` / `residual_rms_router` | kill rule: if useful-lane fraction >50% and threadgroups are not oversubscribed, **say so and stop** | gap fully closed ≈ **+4.7%** | r1 — slot #4 |
 
-Nezuko's declared fallback if the census kills H4: **H6 `residual_rms_router`
-transpose** — offline-transposed layout for float4-coalesced loads, 2 rows per
-simdgroup; 40.9 MB/step at 61.8%→95% = **−42 µs T = +0.62%**, bit-exact and
-M4-measurable — plus closing the **24.9 MB / 5.7% unallocated** remainder in
-his own #110 census. He is **no longer** the ledger owner (told on #143).
+**Receipt channel order this round: fern (#137) → frieren (#148) →
+tanjiro (#157, only on GO) → nezuko (#158).** One in-flight receipt
+campaign-wide, ~35 min each.
+
+**The question all four now bear on:** `Δwall / Δgpu_busy`. #137 measured
+62 µs of `gpu_busy` reduction against 112.5 µs of paired wall reduction —
+**1.8×**. If that ratio is a law, decode wall time contains a large
+compressible non-busy component and §4.1 resolves toward "the M4 `union`
+instrument is blind". If it is 1.0×, fern's excess was perturbation or noise.
+Synthesise as soon as any two of the four report.
 
 ### Region fence (four students in adjacent code)
 
 | student | owns |
 | --- | --- |
-| fern | lm-head cascade region of `LagunaRuntimeModel.swift` (~:10920-11053) + tier-1/tier-2 kernels |
-| tanjiro | `_nax` kernel inner loop / tile geometry + accept gate ~`quantized.cpp:1634-1671`, `tg_expert_groups`, `.metal` variants |
-| frieren | routed-MoE **gather call site** in `LagunaRuntimeModel.swift` (#148 injection point) |
-| nezuko | `Sources/MLXFastTransform` + CPU-side slab construction |
+| fern | `Sources/MLXFastModel/LagunaLmHeadPrune.swift` + the lm-head cascade call site (~`LagunaRuntimeModel.swift:10920-11053`) |
+| tanjiro | prefill: `_nax` kernel geometry / accept gate ~`quantized.cpp:1634-1671`, and prefill chunking in `LagunaRuntimeModel.swift` |
+| frieren | the #148 injected-work call sites only |
+| nezuko | the single-token decode step: hand-written decode MSL, `gate_sp`, `residual_rms_router` |
 
 Advisor arbitrates any overlap; students must not edit each other's region.
-**Only one submission receipt may be in flight campaign-wide** (~35 min each) —
-this binds #148 hardest, because its whole method is spending receipts.
+With only 57,121 B of per-file room in `LagunaRuntimeModel.swift`, whoever
+merges first consumes headroom for the rest — report byte deltas in every PR.
 
 ---
 
-## 7. Held for round 23
+## 7. Held for round 24
 
 - **H1 row-adaptive dual-path gather kernel.** Biggest single arm on the board
   at **+1.4…+2.9%** — but it is **not bit-exact** and it is **M4-blind**. Needs
   a correctness story and the `_nax` safety rig before it can be assigned.
+  **Its bar just rose:** §3.5 means a passing greedy-token gate proves nothing
+  about logit drift, so H1 needs an argument about *how far* the logits move,
+  not a token-equality demonstration.
 - **Shared-expert SwiGLU epilogue in prefill.** *Re-scoped after a pricing pass
   refuted the first version of this lead; the earlier "58.5 + 24 = 82.5 MiB by
   flipping two guards" framing is **wrong** and is retained nowhere.* Corrected
@@ -346,8 +384,14 @@ this binds #148 hardest, because its whole method is spending receipts.
   expert is 16 (route-histogram mean = 16.00) against `SM=16`, so on the average
   expert **only 1 of 4 simdgroups is active** in the gather GEMM. Independent of
   the above; consistent with tanjiro's #138 line of attack.
-- **Post-merge cleanup PR**, owed the moment any arm ships scored bytes.
-  Candidate: tanjiro's 9 near-duplicate `.metal` variants. Headroom is 78,253 B.
+- **Post-merge cleanup PR**, now genuinely owed — #138 shipped **+5,164 scored
+  bytes** and headroom is down to 73,089 B. Three concrete targets, deletion as
+  the explicit default:
+  1. the **dead BK128 machinery** in `_nax` (#138, default off, unreachable on
+     M4) if no `_nax` arm adopts it within ~2 rounds;
+  2. tanjiro's **9 near-duplicate `.metal` variants**;
+  3. fern's **`DARKBLOOM_LMHEAD_ROWMAJOR_REFINE` dual-arm flag** and the
+     superseded S4 kernel, the moment #137 merges.
 
 ---
 
@@ -359,6 +403,73 @@ The full evidence table lives in the archive
 
 **Closed this session:**
 
+- **The entire checkpoint-compression family — CLOSED by exhaustive offline
+  evidence** (nezuko, #143, merged; zero scored bytes, zero receipts). A
+  full-byte hash of **all 60,582 slabs / 21,561,408,512 B**:
+  - **H4 slab dedup is refuted at 0.0000%.** Routed removable **0 / 59,904**.
+    Whole-checkpoint removable 38 slabs = 38 KiB = **0.0002%**. The only
+    multi-member class is `router.e_score_correction_bias`, byte-identical
+    across 39 layers (and all-zero — a bit-exact micro-win, not queued).
+  - **NVFP4 mantissa compression is closed permanently.** All 16 nibble codes
+    occur in every routed role ⇒ **0%** fixed-width headroom; pooled nibble
+    entropy 3.9417–3.9527 of 4 bits ⇒ **≤ +0.144%** for *any* global memoryless
+    code. Best case for whole-checkpoint lossless compression is +9.09%, and
+    that is unreachable.
+  - **Routed scale-plane recode is closed by a repricing, not by entropy.**
+    Scale entropies are 2.4723/2.6002/2.6112 with 42/50/57 distinct codes ⇒
+    6-bit, not 4-bit; per-slab maxima 35/38/41 with 705/2,247/1,301 slabs above
+    16 codes ⇒ a uniform 4-bit recode is **impossible**. Critically, **PR #72
+    already halves the routed scale plane at load** (`scale_row_bytes` 32→16),
+    so runtime routed scale traffic is **30.67 MB/step, not 61.34**. Uniform
+    6-bit is therefore worth **+0.167%** (below the 0.243% 2σ kill line) and
+    mixed 4/6-bit **+0.310%** (below the 0.61% acceptance bar).
+  - Routed experts are 39 × 256 × 3 = 29,952 mantissa + 29,952 scale slabs =
+    **16.45 GiB = 81.94%** of the checkpoint, so this closure covers the
+    overwhelming majority of the bytes.
+  - **H6 `residual_rms_router` transpose was pre-mortem refuted from source:**
+    the router gemv is *already* float4-coalesced (32 lanes × 8 B = 256
+    contiguous B per load). Do not spend a dose or a slot on it.
+  - Also delivered and reusable: the **wall-time census** (n = 1,082; last-20
+    medians wall 52 s / correctness 39 s / timed 45.5 s ⇒ #148 R1 wall risk LOW,
+    but the +70 ms design ceiling *does* leave the envelope, so R2/R3 must not
+    be bundled), and the **shadow-execution over-attribution audit** — 10
+    HIGH-RISK rows whose "savings" were derived from isolated kernel durations,
+    largest `D-FUSE-GATESP` at 213 µs/step. Treat those numbers as upper bounds
+    on an unshadowed machine, never as predicted slopes.
+- **lm-head cascade dispatch fusion — CLOSED** (fern, #137 Step 0). The
+  calibrated injection slope priced the assigned fusion at **5.2 µs = +0.060%**
+  on M4, **5× below** the pre-registered 25 µs STOP. Command-buffer batching
+  across the four cascade stages is already optimal. The cascade census that
+  produced this also produced the round's best arm (see §6): S1 419.8 µs,
+  S2 2.3 µs, S3 2.9 µs, **S4 77.4 µs**.
+- **`_nax` BK 64→128 — merged as infrastructure, perf arm DEFAULT OFF**
+  (tanjiro, #138; `inconclusive`, no receipt spent). Two durable results:
+  - **Finding D — a latent correctness-adjacent bug, now fixed.** BK=128
+    silently disabled the widened device load: `kSrcBytes` went 16→32 while
+    `kWideLoadShapeOk` hard-required `== 16`, so `load_ok` was false and
+    `store_ok` true ⇒ **32 scalar byte loads per thread per k-iteration**
+    instead of two 16 B vector loads. It compiled, linked and produced correct
+    numbers. Fixed by admitting `kSrcBytes == 32` plus two `static_assert`s;
+    provably inert at BK=64 (**BK=64 AIR is byte-identical to base**).
+  - **⚠️ Doctrine correction — PR #57's occupancy claim was measured on a
+    broken probe.** The old probe bound a *dynamic* threadgroup pointer, so
+    `setThreadgroupMemoryLength` never bound anything. Repaired: at the real
+    geometry (128 threads/TG) 1 KB / 9,232 / 17,424 / 32,768 B **all** give 480
+    TGs (24.0/core) ⇒ BK=128 costs zero occupancy on M4; but the 32-threads/TG
+    falsification control **does** bind (95.0 → 63.0 TG/core). So "threadgroup
+    memory is not the occupancy currency; 96 simdgroups/core is the ceiling" is
+    **true at ≥128 threads/TG and FALSE at 32 threads/TG**. Cite it scoped.
+  - Why default off: unreachable locally (gen 16 vs `is_nax_available()`,
+    `quantized.cpp:1994`); estimated 0.03–0.08% against a ±0.73% MDE; and
+    BK=128 needs 34,816 B of threadgroup memory, which **forecloses** the
+    BK=64 double-buffered tile (18,432 B). The successor "BK=64 +
+    double-buffered weight tile on both shapes" was **formally declined** as a
+    re-proposal of the closed `_nax` staging/prefetch/double-buffer/overlap
+    axis (#24/#37/#40, arms C1/C2).
+  - Reusable: `research/nax_safety_rig.sh` (6 checks, all PASS vs
+    `BASE_REV=a36a29c`) + `research/nax_twin_check.py`, plus a **positive**
+    kernel-selection assert at `quantized.cpp:1698` verified live as a string
+    in `quantized.cpp.o`.
 - **Expert-scheduling reordering — CLOSED AS A FAMILY** (frieren, #142, merged).
   Graham's additive bound `makespan ≤ Σp/m + p_max·(1 − 1/m)` with `p_max ≈ 32`
   units against ~353 per core, 9728 tasks over 40–160 slots, caps **any**
@@ -460,7 +571,8 @@ Ordered by expected value, not by ease.
 > for free, which is rare on this programme.
 
 1. **Decode dead-time programme (frontier "Attack A") — the top pick on the
-   75%-weight axis.** §2's "+2.85% even at 100% removal" is a *byte-removal
+   75%-weight axis. → ASSIGNED as #158 (nezuko).** §2's "+2.85% even at 100%
+   removal" is a *byte-removal
    ceiling at fixed schedule and layout*; it is silent about time that is not
    spent moving bytes (§4.1). Three independent numbers say that time is not
    small: forced serialization costs **+5.49%** [+4.70,+6.28]; a
@@ -484,7 +596,8 @@ Ordered by expected value, not by ease.
    direction dies cheaply; if it is ≥ 300 µs, this direction owns the next two
    student rounds.
 2. **Close the prefill *and decode* ledger with the receipt-channel duplication
-   instrument.** Full spec: [`PREFILL_LEDGER_INSTRUMENT.md`](PREFILL_LEDGER_INSTRUMENT.md).
+   instrument. → IN FLIGHT as #148 (frieren).** Full spec:
+   [`PREFILL_LEDGER_INSTRUMENT.md`](PREFILL_LEDGER_INSTRUMENT.md).
    §2 says the decode inventory is worth at most +2.85% even at 100% removal,
    while prefill's unattributed remainder is 31.28 ms ≈ **+15.17%**. We are
    blind to it because 94.2% of M5 prefill is `_nax` and M4 Pro (GPU gen 16)
@@ -549,7 +662,8 @@ Ordered by expected value, not by ease.
    multiplexing of several families into one receipt — dominated, since the
    signals are already ~60σ.
 3. **Graph-level two-chunk wavefront prefill (frontier "Attack B") — the
-   monoculture-breaker, and it has a free falsifier.** Today prefill runs one
+   monoculture-breaker, and it has a free falsifier. → ASSIGNED as #157
+   (tanjiro), gated on the falsifier.** Today prefill runs one
    512-token chunk through layer *i* completely before starting layer *i+1*, so
    the bf16 attention block and the NVFP4 routed GEMMs never co-reside on the
    GPU. Split the prompt into two 256-token chunks and software-pipeline them
@@ -580,8 +694,17 @@ Ordered by expected value, not by ease.
    bit-exact by construction and is pure `MLXFastTransform` + metadata work.
    **Distinct from two closed families:** the twice-closed offline interleave
    was *within-tensor* (codes and scales of one tensor), and #71 was *in-kernel*
-   staging. This is *cross-tensor ordering*. Gate on #143's slab machinery
-   landing and on #148 publishing a gather-plane row.
+   staging. This is *cross-tensor ordering*.
+   > **⚠️ DOWNGRADED — do not assign without a premise test first.** Reading the
+   > actual layout after #143: routed `gate` and `up` are **already fused into
+   > one per-expert-contiguous bank**, and `down[e]` is consumed by a
+   > *different dispatch*. There is therefore very little cross-tensor locality
+   > left to exploit *within* a dispatch, and none is exploitable *across*
+   > dispatches. The 700.3 vs 968.4 GB/s deficit is real but this is not yet a
+   > demonstrated explanation of it. Step 0 for any future assignment is to
+   > **explain the deficit** — gather-index scatter, per-expert row counts below
+   > a full tile, scale-plane stride, or SLC behaviour — before proposing a
+   > re-pack. Also gate on #148 publishing a gather-plane row.
 5. **Prefill arms generally.** Same +15.17% logic, but until direction 2 lands
    these are unguided. Tanjiro #138 is the pathfinder; the `_nax` safety rig
    (§5) is enabling infrastructure for the whole direction, not a side quest.
@@ -635,11 +758,22 @@ Ordered by expected value, not by ease.
   `status:wip`** — so post review feedback *before* a student flips to
   `status:review`, or carry it into the next assignment body (as was done for
   #142 → #148 §9); `push_branch` needs both `expected_head_sha` and
-  `expected_remote_sha`.
+  `expected_remote_sha`; `request_revision` takes
+  `pr_number, assignment_id, expected_head_sha, revision_id, comment` and flips
+  the PR back to `status:wip` — which is also how to re-open the feedback
+  channel on a PR that has already gone to review; `merge_experiment` takes
+  `pr_number, assignment_id, expected_head_sha, accepted_base_sha, merge_method`
+  and has **no `reason`/`body` field** (`close_experiment` does take `reason`).
+  Multiple distinct `feedback_id`s per revision are accepted.
+  `git ls-remote origin 'refs/heads/...'` works without a token and is the
+  cheapest way to see whether a student has pushed.
 - **Delegation:** prefer **leaf** agents (`explore`, `search`, `bash-runner`)
   for research. `general-purpose` children that spawn their own helpers have
   repeatedly died with "uncollected descendants". Two leaf agents closed H5 this
-  session at zero cost.
+  session at zero cost. A `frontier` / `general-purpose` child with
+  `include_context=false` **does** complete cleanly when it is explicitly told
+  not to spawn sub-agents — that is how to buy a fresh structural critique.
+- `rg` is **not installed** on the advisor host; use `grep -rn`.
 - Merges may return "mergeability unknown"; this is transient and resolves
   after a few minutes. Retry rather than working around it.
 - Cascading `baseline_advanced` events are normal when merging several PRs in
