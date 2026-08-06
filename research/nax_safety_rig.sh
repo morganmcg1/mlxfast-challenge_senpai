@@ -4,7 +4,7 @@
 #
 # M4 Pro reports Apple GPU generation 16, so `_nax` is unreachable locally and
 # NO local benchmark exercises this code. Every _nax change therefore ships on
-# static evidence alone. The four checks below are the evidence:
+# static evidence alone. The six checks below are the evidence:
 #
 #   1. compile   -- every requested BK instantiates and links (both shapes).
 #   2. inert     -- a guard/constant relax that is claimed not to change the
@@ -15,6 +15,11 @@
 #   4. wideload  -- the widened device load is actually taken. When
 #                   kWideLoadShapeOk goes false the loader silently falls back
 #                   to kSrcBytes scalar byte loads per thread per k-iteration.
+#   5. guard     -- negative control: narrowing the relaxed predicate back must
+#                   still build BK=64 and must REJECT the widened BK. A guard
+#                   that never fires is not a guard.
+#   6. twin      -- the mlx-generated/*.cpp copy is what the GPU actually runs.
+#                   A header-only edit passes checks 1-5 and changes nothing.
 #
 # Usage: research/nax_safety_rig.sh [BK ...]        (default: 64 128)
 #   BASE_REV=<rev>   git revision for the inertness baseline (default HEAD;
@@ -188,6 +193,16 @@ else
       pass "narrowed predicate rejects BK=${big} at build time ($(grep -c 'static_assert failed' "${RIG}/negbig.log") static_assert errors)"
     fi
   fi
+fi
+
+# --------------------------------------------------------------- 6. twin
+# Everything above compiles the .h. The GPU runs the mlx-generated/*.cpp copy.
+# A header-only edit passes all five checks and changes nothing at runtime.
+echo "== 6. generated twin matches the header =="
+if python3 "${REPO_ROOT}/research/nax_twin_check.py" > "${RIG}/twin.log" 2>&1; then
+  pass "fp_quantized_nax.cpp preamble matches fp_quantized_nax.h ($(grep -c structural "${RIG}/twin.log") structural hunks)"
+else
+  fail "generated twin is stale: $(grep DIVERGENT "${RIG}/twin.log" | tr '\n' ' ')"
 fi
 
 echo
