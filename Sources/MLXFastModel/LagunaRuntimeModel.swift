@@ -8233,6 +8233,13 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     /// one of the two banks is ever non-nil on a given instance.
     var _fusedDenseGateUpWeight: MLXArray?
 
+    /// Retained losslessly repacked BF16 planes for the layer-0 dense MLP
+    /// (notes/85). When non-nil this supersedes `_fusedDenseGateUpWeight`:
+    /// the packed banks encode exactly the same BF16 bit patterns in fewer
+    /// bytes, so the decode GEMVs move ~25 MB/step less while performing an
+    /// identical reduction. See `LagunaDensePacked.swift`.
+    var _densePackedBanks: LagunaDenseMLPBanks?
+
     init(dimensions: Int, hiddenDimensions: Int) {
         self._gateProj.wrappedValue = Linear(dimensions, hiddenDimensions, bias: false)
         self._upProj.wrappedValue = Linear(dimensions, hiddenDimensions, bias: false)
@@ -8440,7 +8447,12 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         }
 
         let activated: MLXArray
-        if lagunaFusedDenseGateUpSwiGLUEnabled,
+        if let banks = _densePackedBanks {
+            lagunaTrace("dense gate/up packed GEMV + SwiGLU")
+            activated = lagunaDensePackedGateUpSwiGLU(x, banks: banks)
+            return lagunaDensePackedDownResidual(
+                activated, residual: residual, banks: banks)
+        } else if lagunaFusedDenseGateUpSwiGLUEnabled,
             let fusedWeight = _fusedDenseGateUpWeight,
             fusedWeight.dtype == .bfloat16,
             fusedWeight.dims(2 * intermediate, hidden)
@@ -11033,7 +11045,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                     fusedArrays.append(contentsOf: sparse.prepareFusedRoutedGateUp())
                 }
             } else if let dense = layer.mlp as? LagunaRuntimeMLP {
-                if lagunaFusedDenseGateUpSwiGLUEnabled,
+                fusedArrays.append(contentsOf: dense.prepareDensePacked())
+                if dense._densePackedBanks == nil,
+                    lagunaFusedDenseGateUpSwiGLUEnabled,
                     let fused = dense.prepareFusedDenseGateUp()
                 {
                     fusedArrays.append(fused)
