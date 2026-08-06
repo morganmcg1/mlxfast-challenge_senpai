@@ -231,6 +231,20 @@ and it is why I priced 3+2 with §R20.2 above.
 the *refine* kernel, whose cost is latency-heavy rather than purely streaming,
 so the real regression is likely larger than R20.2's byte-proportional estimate.
 
+**Two compliance notes.** (i) This is not a revival of the retired "0.59 % of
+roofline" gloss. The gloss asserted a *transfer fraction* as if it were a
+property worth citing; the calculation above does the opposite — it uses
+§0.9.39 to show the roofline denominator is **inadmissible** for this channel
+and must be abandoned in favour of R20.2's own measurements, which is the
+advisor's position. My required-denominator figure (951 GB/s) agrees with the
+advisor's independently derived 934 GB/s to 1.8 %; the small gap is 25.52 vs
+25.69 MB. (ii) Every price in this note uses either §R20.2's empirical constant
+or the **measured 260.6 GB/s of `laguna_lmhead_int5_base_coarse_delta_bf16_v1`**
+(source: the erratum §2, from `maple-tanjiro-pr73-decode-kernel-census.md` §6.4,
+corroborated at 264.0 GB/s in `research/nezuko-decode-roofline.md:253` and
+`research/nezuko-m1-cascade-result.md:20-21,41`). **546.2 GB/s is not used
+anywhere in this note.**
+
 ---
 
 ## 5. Deliverable 1 — the 3+2 superset proof (sound, but economically dead)
