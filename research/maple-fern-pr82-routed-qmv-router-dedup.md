@@ -25,6 +25,14 @@ against the new one (advisor comment 5200286285, `research/CURRENT_RESEARCH_STAT
 only, intersection with `editablePaths` empty). This result is therefore measured
 against `f2fedd58`, and `accepted_base_sha` is `f2fedd58`.
 
+**Section-number legend.** Three numbering schemes appear here and they are not
+the same. `§1`…`§11` with no decimal prefix are sections *of this report*.
+`§3.0`, `§4.1`, `§4.2`, `§6.1` are sections of the **assignment brief**, and
+each report heading names the brief section it discharges (e.g. "## 5. §4.1
+bit-exactness oracle" means report §5 answers brief §4.1). `§0.9.32` and
+`§0.9.33` are **programme laws** recorded in
+`research/CURRENT_RESEARCH_STATE.md`, not sections of either document.
+
 ## Verdict: bit-exact; the predicted gain is below this host's resolution — `inconclusive`, and I am *not* requesting a ranked slot
 
 The change is bit-exact (§5 oracle, 5320 pairs, 0 differing; upstream-equivalence
@@ -52,9 +60,10 @@ decode_gain     0.993272449   prefill_gain 1.003324221
 all-run decode spread +3.108 %
 ```
 
-The two bases agree on `decode_gain` to 0.02 pp. In both, the contrast is
-smaller than the spread the *same arm* shows against itself, which is the
-whole content of the resolution statement below.
+The two bases agree on `decode_gain` to 0.22 pp (0.993272 vs 0.991039), which
+is itself several times smaller than either arm's A/A spread. In both, the
+contrast is smaller than the spread the *same arm* shows against itself, which
+is the whole content of the resolution statement below.
 
 **Two retractions are recorded in this report, and they are the most useful
 part of it.**
@@ -373,8 +382,8 @@ under identical conditions:
 seq3 (C B B C) alone:  decode_gain 1.000060315 (+0.006 %)   paired 1.000370015
 ```
 
-**The mirror shows no difference at all** — +0.006 % on decode, which is 80×
-smaller than this host's A/A decode floor of 0.48 %.
+**The mirror puts the contrast far below this host's resolution of 0.48 %** —
++0.006 % on decode, which is 80× smaller than that A/A decode floor.
 
 Pooling sequence 1 and sequence 3 gives a fully position-balanced 4-vs-4 design
 in which each arm occupies each of the four positions exactly once
@@ -413,9 +422,12 @@ the two pairs agreed because they shared the same accident, not because the
 effect was real.
 
 **Retraction.** I withdraw the §7.2 claim of a real −1.35 % regression. The
-correct reading of this host is that the change is **performance-neutral**: no
-estimator supports the pre-registered gain, and no estimator robust to a single
-outlier supports a loss either.
+correct reading of this host is that the contrast is **below this host's
+resolution of 0.48 %**: no estimator supports the pre-registered gain, and no
+estimator robust to a single outlier supports a loss either. (The word
+"performance-neutral" stood here in an earlier draft and is itself withdrawn
+under §0.9.32 — see §11.2. A below-resolution measurement on M4 Pro is not
+evidence that the effect is absent on M5.)
 
 ### 7.4 What the null result means
 
@@ -607,7 +619,6 @@ from the emitted `harness_hash`, never from launch order or intent. The merge
 scripts used in this report assert the hash before a value enters an estimate,
 so a repeat of this mistake fails loudly instead of quietly biasing a mean.
 
-
 ### 8.3 What the two null results say about this kernel
 
 §7.3 removed the regression and §8.2 removed the scheduling explanation for it,
@@ -780,6 +791,16 @@ spends scarce per-file byte headroom (9.4), so I do not recommend merging it.
 
 ### 9.4 Per-file byte pressure in `LagunaRuntimeModel.swift`
 
+> **Numbers superseded (added after §10).** The figures below were true at the
+> old base `ab1f9a13` and are **no longer the budget position**. PR #81
+> (maple-tanjiro, Metal-literal byte reclamation) landed between the two bases
+> and freed 43,235 B in this file. At the submitted base `f2fedd58` the file is
+> **478,533 B**, and at this branch's head **479,195 B** — leaving **45,093 B**
+> under the 524,288 B per-file cap, comfortably inside the standing ≥ 20 kB
+> margin law. The concern in this section was real when written and was acted
+> on; do not use its numbers for allocation. See §10.4.2 for the current
+> certificates.
+
 Unrelated to the hypothesis but worth the advisor's attention: the submitted
 file is now within **1,866 bytes** of the 524,288 per-file cap
 (521,768 at base). Several plausible future experiments in this file will not
@@ -912,8 +933,9 @@ declares no `threadgroup` storage at all.
 ### 10.3 Empirical answer
 
 The analytical argument predicts that the new-base contrast should look like
-the old-base contrast: a null. Section 10.4 reports the measured
-counterbalanced result at `f2fedd58`.
+the old-base contrast: a below-resolution contrast. Section 10.4 reports the
+measured counterbalanced result at `f2fedd58`.
+
 ### 10.4 The new-base screen, measured
 
 Eight timed runs on the rebased branch, plus one excluded warm-up. The
@@ -988,8 +1010,9 @@ this host's resolution of ±1.4…1.8 % (decode, same-arm A/A)**; this
 instrument cannot distinguish the predicted +0.4…+0.8 % from zero, and it
 equally cannot distinguish it from the −0.896 % it happened to print. The
 new-base screen reproduces the old-base screen (§7.3, pooled
-`decode_gain 0.993272449`) to within 0.02 pp, which is reassuring about the
-*method* and says nothing about the *mechanism*.
+`decode_gain 0.993272449`) to within 0.22 pp — itself several times smaller
+than either arm's A/A spread — which is reassuring about the *method* and says
+nothing about the *mechanism*.
 
 #### 10.4.1 A methodological near-miss worth recording
 
