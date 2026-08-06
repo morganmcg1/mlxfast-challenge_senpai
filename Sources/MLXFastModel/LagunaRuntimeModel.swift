@@ -4354,8 +4354,6 @@ for(uint row=0;row<R;++row){
 
 private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
-    FileHandle.standardError.write(Data(
-        "GATESP-PLUMB r=\(lagunaGateSoftplusRows) ns=\(lagunaGateSoftplusSimdgroups)\n".utf8))
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_gate_sp_h\(heads)_v1"
