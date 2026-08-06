@@ -1,10 +1,10 @@
 # SENPAI Research State
-- 2026-08-06T20:59Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at bfb393a (pushed to origin).
-  Scored code frontier: 639646a + 15 merged optimization PRs (#107→#156).
-  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING.
-  M5 submission of 15-PR composed HEAD blocked by in-flight 57d8f08. Will retry when slot opens.
-  Wave 9 assigned: PRs #159-#162 (4 bit-exact kernel optimization experiments).
+- 2026-08-06T21:30Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 62380ed (pushed to origin).
+  Scored code frontier: 5c28822 (639646a + 15 merged optimization PRs #107→#156).
+  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING (submitted 8/6 18:26 UTC).
+  M5 submission of 15-PR composed HEAD blocked by in-flight 57d8f08 (account limit 1).
+  Wave 9 assigned: PRs #159-#162 (4 bit-exact kernel optimization experiments, all Draft, 0 results).
 
 - **WAVE 8 RESULTS** (3 complete, 1 incomplete):
   PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
@@ -77,8 +77,11 @@
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign, submission 97a5090).
   Target: beat 2.5888. All component speedups must be ≥ 0.95.
-- **FRONTIER**: Advisor HEAD at 0f05798. Scored code at 639646a + 15 merges (#107→#156).
+  Birch campaign best: 2.5459 (rejected, -0.64%). All birch submissions so far below 2.5888.
+  15-PR composed HEAD (5c28822) pending submission — blocked by 57d8f08 validating.
+- **FRONTIER**: Advisor HEAD at 62380ed (meta). Scored code at 5c28822 (639646a + 15 merges #107→#156).
 - **BUDGET**: ~2,964K / 3,000,000 bytes total. LagunaRuntimeModel.swift: ~510K / 524K per file.
+  Headroom: ~36K total, ~14K per file. Wave 9 changes are small (<600 bytes each).
 - **KEY FINDINGS**:
   1. Attention main loop is MEMORY-BOUND (PR #122). Do NOT pursue attention ALU optimization.
   2. Metal compiler optimizes thread float[N] scatter to registers (PR #123).
@@ -99,10 +102,18 @@
 
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
-| #145 | Thorfinn | QKV+gate projection dot4 | ASSIGNED (Wave 7). Bit-exact, 39x/step. |
-| #144 | Edward | R1 gate/up float4 input_values | ASSIGNED (Wave 7). Bit-exact, 312x/step. |
-| #140 | Alphonse | float4 input_values shared SwiGLU | IN PROGRESS (Wave 6). Bit-exact. |
-| #134 | Askeladd | Fused down+residual packed simd_sum | IN PROGRESS (Wave 6). Bit-exact. |
+| #162 | Askeladd | is_shared branch elimination (select()) | IN PROGRESS (Wave 9). Bit-exact. |
+| #161 | Thorfinn | Threadgroup input sharing across simdgroups | IN PROGRESS (Wave 9). Bit-exact. |
+| #160 | Alphonse | Register-resident float4 input_values | IN PROGRESS (Wave 9). Bit-exact. |
+| #159 | Edward | max_total_threads_per_threadgroup | IN PROGRESS (Wave 9). Bit-exact. |
+| #156 | Askeladd | Fused down+residual float4 input_values | MERGED. Bit-exact, +1.03% decode M4. |
+| #154 | Edward | async-eval shared expert | CLOSED. DEAD — MLX already overlaps. |
+| #147 | Alphonse | CPU guard hoisting | CLOSED (incomplete, no result). |
+| #146 | Askeladd | Prefill MoE BM128 variant 4 | MERGED. Bit-exact, +17.47% kernel prefill. |
+| #145 | Thorfinn | QKV+gate dot4 | CLOSED. DEAD — not bit-exact (shared-float accum). |
+| #144 | Edward | R1 gate/up float4 input_values | MERGED. Bit-exact, 312x/step. |
+| #140 | Alphonse | float4 input_values shared SwiGLU | MERGED. Bit-exact. |
+| #134 | Askeladd | Fused down+residual packed simd_sum | MERGED. Bit-exact, +0.83% decode M4. |
 | #133 | Thorfinn | Shared SwiGLU down packed simd_sum | MERGED. Bit-exact. |
 | #132 | Alphonse | Affine QKV packed simd_sum | MERGED. Bit-exact. |
 | #131 | Edward | NVFP4 O-proj packed simd_sum | MERGED. Bit-exact. |
