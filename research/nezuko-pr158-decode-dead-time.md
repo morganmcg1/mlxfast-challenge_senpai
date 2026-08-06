@@ -855,6 +855,7 @@ untouched at `9dd2eec`+0 for `Sources/`.
 | "free fix": six-field GPUPROF mis-parse | **premise wrong** — two hook variants exist, each probe parsed its own correctly; hardened anyway | §4.1 |
 | naming: `gate_sp` is per-head `g_proj`+softplus | **already correct** at §1.2.a | §1.2.a |
 | per-CB-handler objection (anticipated) | **rebutted by construction** | §4.1.c |
+| (self-reported) GPUPROF window silently empty under CPython 3.9 | **real defect, found during r2, fixed and cross-validated** | §4.1.d |
 | (a) replicate `SPLIT=1` ×3 more | **done, dispersion is 0.12 %** | §4.5 |
 | (b) hook-off wall-currency unfuse sweep | **done** | §4.6 |
 | (c) one TRUE traffic-neutral fusion arm | **done** | §4.7 |
@@ -935,6 +936,93 @@ That construction rules the hook out as the source of the Route-A floor:
 
 The one place a per-CB instrument cost *does* bite is the `SPLIT` sweep, where
 CB count is the swept variable (45 → 406). §4.5 treats that explicitly.
+
+### 4.1.d A second instrument defect, found while running r2, and disclosed
+
+The advisor's audit did not catch this one and neither did r1; I found it while
+running measurement (c). Every r2 profile arm printed
+
+```
+profile: 9666 command buffers total, 0 inside 199 steady steps
+```
+
+and no `per steady step:` line at all, where r1 printed `8955 inside 199 steady
+steps`. The GPU records were all present — 9666 of them, correctly parsed — but
+the window was empty.
+
+**Cause, and it is not a code regression.** `decode_probe.analyze_profile`
+correlates GPU records with the driver's per-step `time.perf_counter()` spans,
+on the documented assumption that `perf_counter` and
+`MTLCommandBuffer.GPUStartTime` share the mach-absolute epoch. That assumption
+is *interpreter-dependent*. On this host:
+
+| interpreter | `perf_counter − mach_absolute_time` |
+| --- | --- |
+| venv CPython 3.13.14 | `−2.5e−07` s |
+| `/usr/bin/python3`, CPython 3.9.6 | `−137996.9` s (process-relative epoch) |
+
+CPython ≤3.9 gives macOS `perf_counter` an epoch fixed at process start. r1's
+sweeps were launched from an interactive shell whose `PATH` resolved `python3`
+to the 3.13 venv; r2's were launched through `run_training`, whose environment
+resolves it to the 3.9 system interpreter. Identical code, identical worker
+binary, silently different instrument. Nothing in `f790af0` (the shared-parser
+commit) is implicated — the shared parser returns correct records here, as the
+`9666 command buffers total` line itself proves.
+
+**Two things this did *not* corrupt.** Measurement (a) (§4.5) never used the
+driver window: `nezuko_pr158_r2_replicate_stats.py` reads the raw `.err` files
+offline. Measurement (b) (§4.6) ran with `HOOK=0` and reports only driver wall,
+which is a *difference* of two `perf_counter` reads and so is epoch-invariant.
+The defect destroys the busy-currency column of a profiled arm outright rather
+than biasing it, which is the failure mode one wants.
+
+**Fix, in two parts.**
+
+1. `research/nezuko_pr158_r2_step_census.py` (new) reconstructs the per-step
+   census *with no driver clock at all*. The lm-head projection runs exactly
+   once per decode step, so the record stream segments itself: collapse each
+   run of adjacent lm-head command buffers to its last index and every pair of
+   consecutive cluster ends delimits one step. This is strictly better than the
+   `perf_counter` window — it cannot be desynchronised, and it recovers per-step
+   dispatch counts, which the r1 instrument could only report as an average.
+2. `research/decode_probe.py` now timestamps steps with
+   `time.clock_gettime(time.CLOCK_UPTIME_RAW)`, which on Darwin *is*
+   `mach_absolute_time` in seconds and therefore the domain `GPUStartTime` is
+   reported in, and `analyze_profile` refuses to print a blank profile: an empty
+   window with non-empty records raises a loud `WINDOW CORRELATION FAILED`
+   diagnostic quoting both time ranges. A silent zero is exactly what let this
+   survive five arms unnoticed.
+
+   Measured against a `ctypes` call to `mach_absolute_time` on this host
+   (timebase 125/3), both interpreters agree on the new clock and only one
+   agrees on the old one:
+
+   | interpreter | `CLOCK_UPTIME_RAW − mach` | `perf_counter − mach` |
+   | --- | --- | --- |
+   | 3.13.14 (venv, r1) | +4.2 µs | +5.9 µs |
+   | 3.9.6 (`/usr/bin/python3`, r2) | +2.1 µs | **−138 000 s** |
+
+   The residual few µs is the cost of the two calls themselves. The replacement
+   is interpreter-independent, which the original was not.
+
+**Cross-validation that the replacement instrument is sound.** The census's
+per-step *span* (first record start to last record end) is derived only from
+GPU timestamps; the driver's `wall_median` is derived only from host
+`perf_counter` differences. They agree to ~3 µs on all four pass-1 arms of
+measurement (c):
+
+| arm | census span (µs/step) | driver `wall_median` (µs/step) | Δ |
+| --- | --- | --- | --- |
+| `base` | 8176.1 | 8179 | 2.9 |
+| `nonorm` | 8628.0 | 8629 | 1.0 |
+| `nocast` | 8521.5 | 8525 | 3.5 |
+| `base2` | 8262.2 | 8265 | 2.8 |
+
+Two independent clocks, agreeing to 0.04 %. That agreement also settles a
+question §1 could only argue: the host-side cost *outside* the GPU record span
+— IPC, Swift dispatch, Python — is ~3 µs/step, not hundreds. Whatever the
+~240 µs gap is, it is idle *between* command buffers inside the GPU's own
+timeline, not host time bolted on the end.
 
 ## 4.2 Audit point 4: `1.419` and `1.596` are two different constants, both correct
 
@@ -1200,7 +1288,75 @@ arm effects being measured. Any single-pass reading of this sweep is therefore
 uninterpretable, including r1's. The pass-averaged baseline below is the only
 one I will quote.
 
-<!-- TABLE-4.6.c -->
+### 4.6.c The table
+
+Log: `research/nezuko-pr158-r2-unfuse-wall.log`. **0 token divergences in all
+12 runs** (6 arms × 2 passes), teacher-forced against the golden.
+
+Baseline, pooling the four unmodified observations (`base` and `base2`, one
+each per pass):
+
+| | p1 | p2 | mean | median | half-range |
+| --- | --- | --- | --- | --- | --- |
+| `base` | 8274.0 | 8277.3 | | | |
+| `base2` | 8163.4 | 8281.6 | | | |
+| **pooled n=4** | | | **8249.1 µs** | 8275.6 µs | **59.1 µs (0.72 %)** |
+
+`base2-p1` is not a single stalled step being caught by the median — its whole
+distribution is shifted (p10 8036, p90 8222, min 7992 against `base-p1`'s
+8234 / 8311 / 8185). It is a genuine ~110 µs low-side excursion of the machine,
+and it is the honest width of the baseline. I keep it.
+
+| arm | knob off | Δ dispatch/step | wall p1 | wall p2 | wall mean | Δ wall vs pooled base | **wall µs/dispatch** | r1 busy µs/dispatch |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `rrr` | `FUSED_RESIDUAL_RMS_ROUTER` | +39 | 8457.2 | 8423.0 | 8440.1 | +191.0 | **4.90 ± 1.95** | 6.65 |
+| `rsdr` | `FUSED_ROUTED_SHARED_DOWN_RESIDUAL` | +39 | 8423.5 | 8417.5 | 8420.5 | +171.4 | **4.40 ± 1.59** | 1.83 |
+| `ssq` | `FUSED_SHARED_SWIGLU_QMV` | +195 | 8490.5 | 8639.6 | 8565.0 | +316.0 | **1.62 ± 0.69** | 1.91 |
+| `rsq` | `FUSED_ROUTED_SWIGLU_QMV` | +195 | 8713.5 | 8664.6 | 8689.0 | +440.0 | **2.26 ± 0.43** | 2.42 |
+
+Uncertainties are `(arm half-range + baseline half-range) / Δdispatch`. Against
+the *median* baseline (8275.6) instead of the mean the four figures become
+4.22, 3.71, 1.48, 2.12 — the ordering and the conclusion below are unchanged.
+
+### 4.6.d What the table says, and it is not what r1 said
+
+**1. `rsdr` is resolved, and the resolution goes against r1.** r1 read
+`rsdr` as busy +73 µs against wall +20.5 µs and could not explain it. With the
+drift removed the wall cost is **+171 µs**, so wall now *exceeds* busy by 2.4×
+rather than falling short of it. r1's specific paradox was an artefact of a
+single-pass baseline. But the corrected number is 4.40 µs/dispatch, which is
+**2.3× the "≈1.9 µs floor" r1 built its headline on**. Fixing the anomaly did
+not rescue the thesis; it damaged it further.
+
+**2. The marginal is not a constant — and it varies the wrong way.** Across
+four arms the wall marginal spans **1.62 to 4.90 µs/dispatch, a 3.0× range**.
+Worse, it is *anti*-correlated with the number of dispatches added:
+
+| Δ dispatch/step | arms | wall µs/dispatch |
+| --- | --- | --- |
+| +39 | `rrr`, `rsdr` | 4.90, 4.40 |
+| +195 | `ssq`, `rsq` | 1.62, 2.26 |
+
+A genuine per-dispatch floor is by construction the *same* price whether you add
+39 of them or 195 of them. Observing 4.4–4.9 µs for the small-count arms and
+1.6–2.3 µs for the large-count arms is the signature of a marginal that is
+**dominated by the per-arm work each unfused chain adds**, with dispatch count
+merely correlated with it. It cannot be read as a count-driven overhead.
+
+**3. Command buffers are not the confound.** The four arms move command buffers
+per step by at most ±1 (45 → 45, 46, 46, 45). At the 4.25 µs/CB wall price from
+§4.5.c, that is ≤4 µs out of deltas of 171–440 µs. The CB channel explains
+essentially none of this table.
+
+**4. Therefore the number that must be struck is the extrapolation, not the
+measurement.** The individual marginals are real; what is unsupported is
+`1.9 µs/dispatch × 406 dispatches/step = 771 µs of recoverable floor`. Using
+this table's own arms, the same extrapolation would produce anywhere from 658 µs
+(`ssq`) to 1989 µs (`rrr`) — up to 24 % of an 8.25 ms step, which is not
+credible as pure overhead. **A quantity whose extrapolation ranges over 3× is
+not a floor; it is a slope of something else.** §4.7 tries to find out what.
+
+
 
 ## 4.7 Measurement (c): a traffic-neutral unfusion, the cleanest test available
 
@@ -1238,6 +1394,43 @@ Turning the **cast** sink off (`nocast`) additionally forces
 reads 512 B and writes 1024 B. `nocast − nonorm` therefore isolates *one*
 dispatch per layer carrying ~1.5 KB, giving a byte-slope measured inside the
 same tiny-dispatch regime.
+
+### 4.7.b Design and predictions, registered before the run
+
+Four arms — `base`, `nonorm`, `nocast`, `base2` — palindrome over two passes,
+run twice: once with the GPUPROF hook on (busy currency and, critically, the
+per-step dispatch count) and once with it off (wall currency). Same golden
+prompt, same 200/199-step protocol as §4.6. No file in `Sources/` is modified;
+both knobs are already-shipped, default-on environment flags.
+
+```bash
+ARMS='base: nonorm:DARKBLOOM_FUSED_ROUTER_NORM=0 nocast:DARKBLOOM_FUSED_ROUTER_CAST=0 base2:' \
+  HOOK=1 PASSES=2 PALINDROME=1 STEPS=200 \
+  OUT=research/nezuko-pr158-r2-router-fusion-busy.log \
+  bash research/nezuko_pr158_unfuse_sweep.sh
+# ... and the same with HOOK=0, OUT=research/nezuko-pr158-r2-router-fusion-wall.log
+```
+
+Registered predictions, so the arm cannot be reinterpreted after the fact:
+
+| | `nonorm` | `nocast` | `nocast − nonorm` |
+| --- | --- | --- | --- |
+| extra dispatches/step | +78 (2 × 39 sparse layers) | +117 (3 × 39) | **+39** |
+| extra bytes/step | ~4 KB | ~62 KB | **~58 KB** |
+| if a ~1.9 µs/dispatch floor is real | +148 µs | +222 µs | +74 µs |
+| if the marginal is pure traffic | ≈0 µs | ≈0 µs | ≈0 µs |
+
+The `nonorm` arm is the decisive one: **78 extra dispatches carrying essentially
+no bytes.** If the wall cost of `nonorm` is ~150 µs the per-dispatch floor
+survives §4.6 and r1's headline is directionally right after all. If it is
+tens of µs or less, the floor is an artefact of confounded traffic and the
+headline must be withdrawn, not merely widened.
+
+Divergences are reported honestly rather than assumed zero: the norm sink sums
+eight FP32 scores inside the top-8 kernel, and MLX's `sum` over the same eight
+elements need not use the same summation order, so `nonorm` may produce a
+different last-bit weight and a different token. Both arms are diagnostic; the
+default (fused) configuration is what ships and is unaffected either way.
 
 <!-- TABLE-4.7 -->
 
