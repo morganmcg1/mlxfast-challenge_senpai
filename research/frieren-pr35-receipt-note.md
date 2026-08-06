@@ -242,60 +242,156 @@ submission even though the census says they would compress well.
 ### The golden gate
 
 The shipped 512-seed / 1024-step teacher-forced golden gate, run through
-`--local-submit`, fully thermally gated (opened at 39.69 C):
+`--local-submit` on the exact submitted tree, fully thermally gated (two
+cool-down gates, both opened at 40.0 C after 90 s and 100 s of waiting):
 
-| arm | verdict | checked steps | `max_abs_diff` | golden hash |
+| arm | verdict | checked tokens | decode steps | golden hash |
 | --- | --- | ---: | ---: | --- |
-| candidate default stack | **pass** | **1025** | **0** | `f49e4c2c...02b03d2` |
+| candidate default stack | **pass** | **1025** | **1023** | `f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2` |
 
-`passed_correctness true`, `first_failing_*` null, `error ""`, `peak_ram_gb 21`,
-weights hash `aff99430...`.
+`passed_correctness true`, `first_failing_case` / `first_failing_layer` /
+`first_failing_step` all null, `error ""`, `peak_ram_gb 21`, weights hash
+`aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d`
+(9 files, 21,568,891,382 B), harness hash
+`047449cbdb985609e54da6c883c3d584595d718147dc0b1253eab26669cbbd41`.
 
-### The gate was fault-injected, because a passing gate proves nothing about its power
+**Correction to my own earlier reporting, and a note for anyone else reading
+this harness: `max_abs_diff` carries no information.** Earlier drafts of this
+note quoted `max_abs_diff 0` as a correctness signal. It is a hardcoded literal
+`0` at every one of the seven sites that construct it — both local harnesses
+and `Sources/MLXFastBenchmark/Score.swift:635` — and is computed nowhere in the
+tree. I have removed it from every table here. Greedy-token agreement is the
+real signal; the numeric field is decorative.
 
-A pass is only evidence if the instrument can fail. I built a temporary
-fault-injection hook into the lane-major kernel (six modes; the hook is fully
-removed from `Sources/`, the patch is retained in `research/`) and ran the same
-1025-step gate against deliberately corrupted reconstructions:
+### The gate is blind to addressing, measured — so the certificate is a separate instrument
 
-| fault mode | what it corrupts | gate verdict |
+A pass is only evidence if the instrument can fail *in the relevant direction*.
+I fault-injected the lane-major kernel (the hook is fully removed from
+`Sources/`; the patch is retained in `research/`) and then ran a 128-probe
+displacement sweep, 64 checked steps per probe, one probe per scale group.
+
+The magnitude direction is live and sharp:
+
+| fault | what it corrupts | gate verdict |
 | --- | --- | --- |
-| 2 | every reconstructed code `+1` (a coherent ~8.3 % scale error, addressing untouched) | **FLAGGED at step 3** |
-| 3 | every fitting-row code forced to 0 | **FLAGGED at step 2** |
-| 5 | the four codes in one lane's word reversed | **SILENT (passes, 1025 steps, `max_abs_diff` 0)** |
+| every reconstructed code `+1` (coherent ~8.3 % scale error, addressing untouched) | magnitude | **FLAGGED at step 3** |
+| every fitting-row code forced to 0 | magnitude | **FLAGGED at step 2** |
+| all scales zeroed | magnitude | **FLAGGED at step 1** |
 
-The honest three-part reading:
+The addressing direction is not:
 
-1. The gate is **wired** — modes 2 and 3 both trip it within three steps, so the
-   candidate's pass is a live pass, not a disconnected instrument.
-2. It is **sharp** — mode 2 shows a coherent one-code (~8.3 %) magnitude error
-   is caught, which is well below any error this representation could produce
-   accidentally.
-3. It is nonetheless **blind to mode 5**, and I initially got the reason wrong.
-   My first explanation was that mode 5's error was too *small*; mode 2 refutes
-   that. The actual reason is **coherence**: reversing four codes inside one
-   lane's word is an exact no-op wherever those four codes are equal (row spans
-   are <=15 and the top seven codes carry ~97.9 % of all mass), and a zero-mean
-   shuffle where they differ, so contributions partly cancel *inside a single
-   dot product*. I have **not** measured the constant-quadruple fraction that
-   would bound that cancellation quantitatively — the census is per-row — so
-   this remains a real, disclosed residual blind spot for the zero-mean
-   addressing-permutation class.
+- **128/128 displacement probes silent** (`passed` true, 64 checked steps, no
+  first-failing step, on every one). Probe `L` substitutes group `L`'s scale
+  with group `(L+1) mod 128`'s. 5,765 s of gated wall clock.
+- The informative subset is the **64 odd `L`**, each of which faults
+  **72.1–75.4 % of all 389,120 weight rows** with an exact mean relative scale
+  error of **0.2311** and RMS **0.3266** (max 16.6×). All 64 are silent.
+- A **matched-magnitude incoherent control** (+1 on even rows, −1 on odd rows)
+  is also silent 64/64, with a golden hash byte-identical to the unperturbed
+  control. That refutes my own earlier "the gate is blind to *coherence*, not
+  magnitude" explanation, which I retract.
 
-I therefore do **not** claim a complete addressing certificate for the
-permutation. What I claim is: the reconstruction magnitude is certified to a
-sharp floor, the permutation is exercised on 1025 real teacher-forced steps at
-`max_abs_diff 0`, and the residual blind class is one where equal codes make the
-fault provably inert.
+So: **greedy-argmax agreement over 64 checked steps is compatible with a 23 %
+mean / 33 % RMS relative scale error on 73 % of the attention weight rows.** A
+green correctness gate is not a certificate for a representation or addressing
+change on this model. I do not claim it as one, and I would not accept it from
+anyone else either.
+
+### The certificate that does hold: a standalone two-kernel bitwise oracle
+
+Instead of arguing from the gate, the bit-exactness claim rests on a standalone
+Metal harness (`research/frieren_pr35_lanemajor_bitwise.swift`, ~700 lines, run
+as a single `swift` process, zero submitted bytes) that:
+
+- compiles **both** kernel texts — the shipped wide 8-bit-scale decode QKV
+  kernel and the lane-major 4-bit-offset-bank kernel — with `makeLibrary` in one
+  process, using MLX's own compile options (`mathMode = safe`,
+  `languageVersion 4.0`, the 47,412-byte `metal::utils()` preamble);
+- dispatches both on identical activations and identical weight payloads with
+  the geometry asserted equal to the real call site
+  (`grid = ((rows/2)*64, 1, 1)`, `threadGroup = (64, 1, 1)`);
+- `memcmp`s the output buffers and reports `maxUlpDiff`;
+- covers **both** real geometries — 8,192 rows × 10 full-attention layers
+  (48 query heads) and 10,240 rows × 30 sliding layers (64 heads), 389,120 rows
+  total — and, per layer, **33 activation passes: one dense plus 32
+  lane-isolated** (`v[b·512 + l·16 + i]` nonzero for exactly one of the 32 SIMD
+  lanes), so a mismatch is resolved to a specific lane, block and row;
+- verifies its own hand-ported bank builder reproduces the runtime's dumped
+  `nibbles` / `bases` byte-for-byte on all 40 layers before comparing anything.
+
+Five planes, chosen so that the addressing is actually under test:
+
+| plane | construction | escaped rows | result |
+| --- | --- | ---: | --- |
+| **P0** real | the checkpoint's own fused-QKV scale plane | 14–208 (h48), 10–187 (h64) | **bit-identical**, `maxUlp 0` |
+| **P1** injective | `base(r) + ((b + l) mod 16)` | 0 | **bit-identical**, `maxUlp 0` |
+| **P1H** one-hot | one lane/block displaced by 15 | 0 | **bit-identical**, `maxUlp 0` |
+| **P2** coprime stride | `base(r) + ((12·l + 7·b) mod 16)` | 0 | **bit-identical**, `maxUlp 0` |
+| **P3** mixed escape | injective codes, escape sentinel on every 7th row | 1,170 / 1,463 | **bit-identical**, `maxUlp 0` |
+
+**1,782 kernel-pair comparisons, max ULP difference 0, zero uncovered rows,
+zero mismatches.** Output-buffer coverage is proved by a two-fill
+(`0xCD`/`0x37`) initialise-and-rerun determinism check rather than a single
+sentinel, because bf16 `0xCDCD` (≈ −4.35e8) is a legitimately reachable output
+value under P3 and a one-fill sentinel false-positives on it. That was a real
+defect in my first harness build and it is why the first run failed.
+
+An important honesty point about P0, which I can now state as proof rather than
+suspicion: **P0 cannot test addressing at all.** On a real checkpoint plane the
+±1 group displacement I would need to detect is not observable, and that is a
+*structural* property of how MLX's group-16 quantizer assigns scales, not a
+property of these particular weights — I have the proof, it is recorded in this
+campaign's internal research log, and I am not restating it here because the
+same structure also implies an optimization that is queued as separate work in
+the campaign. What matters for this certificate is the consequence, and it is
+unfavourable to me: **a null on P0 is worth nothing as addressing evidence.**
+That is exactly the trap the 128-probe displacement sweep fell into. P1, P1H,
+P2 and P3 are constructed so that distinct `(lane, block)` indices carry
+distinct codes, and they therefore carry the whole certificate; P0 is reported
+only as a real-data smoke test.
+
+Finally, the power control — the part that makes the null meaningful:
+
+| control | scope | rows differing | max ULP | verdict |
+| --- | --- | ---: | ---: | --- |
+| **P4a** rotate the packed nibble word by one nibble | lane-major bank only | 267,529 (99.0 %) / 334,492 (99.0 %) | 38,828 | **FLAGS 33/33 passes** |
+| **P4b** flip one bit of one row's base | lane-major bank only | 65 / 66 | 198 | **FLAGS 33/33 passes** |
+| **P4c** perturb a single nibble | lane-major bank only | 2 / 2 | 4 | **FLAGS exactly 2/33 passes** |
+
+P4c is the sharpest of the three: it flags the dense pass and exactly one
+lane-isolated pass, and no others. The instrument therefore resolves a
+single-nibble fault to the correct lane. **Zero silent power controls.** If any
+P4 arm had been silent I would have treated the whole certificate as void.
 
 ### A disclosure about the upstream-equivalence oracle
 
 `LagunaUpstreamEquivalence.swift` **structurally cannot observe this change**,
-or any prepared fused decode bank. The oracle never constructs
-`LagunaRuntimeWeightCache`, so `_nativeAffineQKV` is nil, the decode guard
-fails, and both sides fall through to the BF16 `lagunaFusedNormQKVProjection`
-path — both BF16, therefore trivially exact. This is structural, not a debug
-flag.
+and the scope of that hole is wider than one kernel: on audit, the oracle has
+**never covered a single derived or fused runtime layout** in this programme.
+What it does cover is the checkpoint-native representations — BF16 attention,
+checkpoint-native NVFP4 MoE, the KV cache, non-atlas RoPE, and an un-pruned
+`lm_head`.
+
+The mechanism is a single-caller chain. Every derived bank in the runtime is
+built only from `prepareFusedRuntimeWeights()`
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:11211`), which is reached only
+from `LagunaRuntimeWeights.swift:637` inside `loadLibraryModel(` (`:620`). The
+oracle never constructs a `LagunaRuntimeWeightCache`, so that call never runs.
+For this change specifically, `prepareNativeAffineQKVWeight()` (`:5592`) is the
+direct writer of the lane-major bank (`fused.laneMajorScales = ...` at `:5664`)
+and its **sole** caller is `prepareFusedRuntimeWeights` at `:11216`. With the
+bank unbuilt, `_nativeAffineQKV` is nil, the first blocking guard at `:5822`
+fails, the decode read at `:4921` is never reached, and both sides fall through
+to the BF16 `lagunaFusedNormQKVProjection` path — both BF16, therefore
+trivially exact. This is structural, not a debug flag.
+
+The same single-caller-from-`prepareFusedRuntimeWeights` shape holds for
+`prepareRoPEAngleAtlases` (`:10578`), `prepareNativeAffineOProjWeight`
+(`:5291`), `prepareLastPrefillProjectionWeights` (`:5415`),
+`prepareFusedSharedGateUp` (`:8048`), `prepareFusedDenseGateUp` (`:8086`),
+`prepareFusedRoutedGateUp` (`:9740`), and `LagunaLmHeadPruner`
+(`:10916-10958`). So this is a programme-level property, not a quirk of one
+experiment.
 
 Proven experimentally, not inferred: the two **catastrophic** fault modes (3 and
 4, which the greedy probe shows produce 32 divergences in 32 steps) both report
@@ -304,9 +400,10 @@ Proven experimentally, not inferred: the two **catastrophic** fault modes (3 and
 I am flagging this because `AGENTS.md` mandates the oracle for changes to
 "numerical behavior, representation, dispatch, or layout" — and for this entire
 class of change it is a tautology. Anyone using an 8/8 oracle result as evidence
-for a prepared-bank change is, as I was, reporting a null instrument. The
-golden gate above is the instrument with actual reach. I retract two earlier
-claims of mine that rested on the oracle.
+for a prepared-bank change is, as I was, reporting a null instrument. I retract
+two earlier claims of mine that rested on the oracle. The instruments with
+actual reach are the golden gate above and — for addressing specifically, where
+the golden gate is also blind — the standalone bitwise oracle.
 
 ### Serial-protocol statement
 
@@ -334,10 +431,18 @@ unsupplied token.
    see above). It replicates across two independent screens and its
    kernel-family confound is ruled out, but I do not have a validated mechanism
    for it.
-4. **The permutation blind spot in the gate is real** and stated above; the
-   constant-quadruple fraction that would bound it is unmeasured.
+4. **The addressing blind spot in the gate is real, and it is now closed by a
+   separate instrument, not merely disclosed.** The golden gate cannot see a
+   lane/block displacement in the scale plane: 128/128 pure-displacement probes
+   were silent. That is why the standalone two-kernel bitwise oracle above
+   exists. Its five planes reach `max ULP = 0` over 1,782 comparisons with
+   zero uncovered rows, and its three power controls flag on 33/33, 33/33, and
+   2/33 passes respectively, so the addressing claim now rests on a discriminating
+   instrument. What remains genuinely open is stated in scope: the certificate
+   covers the two dispatched geometries on this host's kernel family and does
+   not cover the `_nax` variants the ranked M5 selects.
 5. **Static-review headroom is thin.** The candidate's largest editable file is
-   521,585 B against the 524,288 B per-file cap (~2.7 KB spare), and total
+   521,566 B against the 524,288 B per-file cap (~2.7 KB spare), and total
    submitted surface is 2,966,629 B against 3,000,000 B.
 6. One fault-mode arm had to be run with the local cool gate disabled, because
    this host idles at 39.9-40.4 C against a 40 C threshold and the gate sits
@@ -366,12 +471,26 @@ SKIP_V3=1 MODES="2 3" bash research/frieren_pr35_lm_gate_pair.sh
 # (instrument patch: research/frieren-pr35-census-instrument.patch)
 # results: research/frieren-pr35-c-census.md / .csv
 
+# standalone two-kernel bitwise oracle (the addressing certificate).
+# step 1 dumps the real per-layer scale planes out of the loaded runtime:
+git apply research/frieren-pr35-r5a-dump.patch
+bash research/frieren_pr35_r5a_dump.sh          # writes /tmp/pr35_r5a
+git checkout -- Sources/                        # instrument is not shipped
+python3 research/frieren_pr35_r5a_split_gen.py /tmp/pr35_r5a research/r5a_kernels
+# step 2 compiles both kernels standalone and compares bit patterns:
+bash research/frieren_pr35_r5a_bitwise_run.sh
+# certificate: research/frieren-pr35-r5a-certificate.md
+# raw log:     research/frieren-pr35-r5a-bitwise.log
+
 swift test --force-resolved-versions && git checkout -- Package.resolved
 ```
 
 Full working record, including every retraction and the attempt-by-attempt
 history of the thermally-aborted arms:
-`research/frieren-pr35-r3-b-verification.md`.
+`research/frieren-pr35-r3-b-verification.md`. The gate-blindness measurement
+that motivated the standalone oracle is
+`research/frieren-pr35-r4-gate-blindness.md` (read its r5 erratum block first;
+five line citations in the original were mis-transcribed).
 
 ## What I would do next
 
