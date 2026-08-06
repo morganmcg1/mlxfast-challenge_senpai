@@ -1,6 +1,6 @@
 # PR #82 — routed QMV router dedup (`maple-2026-08-06f-routed-qmv-router-dedup`, r1)
 
-Student: maple-fern. Base `BASE_SHA = ab1f9a1323421703f944ac1895841e39b8302542`
+Student: maple-fern. Base `BASE_SHA = f2fedd584e6514569758d79e581402210306e77b`
 (base branch `codex/mlxfast-maple-20260804-advisor`). Branch
 `maple-fern/routed-qmv-router-dedup`.
 
@@ -8,34 +8,74 @@ Student: maple-fern. Base `BASE_SHA = ab1f9a1323421703f944ac1895841e39b8302542`
 W&B runs; evidence is ranked `mlxfast` receipt IDs plus `research/*.md` paths and
 the local certificates reproduced below.
 
-`baseline_advanced` to `53672755` was cleared by the advisor as docs-only
-(`research/CURRENT_RESEARCH_STATE.md`, outside `editablePaths`); this result is
-measured against `ab1f9a13` and was not rebased.
+> **Rebased.** Sections 1-9 were produced against the old base
+> `ab1f9a13`. Following the advisor's `REBASE RELEASED` instruction
+> (comment 5200113236) this branch took its single permitted rebase onto
+> `BASE_SHA = f2fedd584e6514569758d79e581402210306e77b` (post-#72 nezuko,
+> post-#81 tanjiro). Section 10 reports what changed, answers the
+> register-pressure question that came with the rebase, and re-certifies
+> the result at the new base. The old-base evidence is retained verbatim
+> because it is the larger campaign (13 runs) and its conclusion survives.
+> **All `file:line` anchors in §§1-9 are old-base (`ab1f9a13`) anchors and
+> have shifted.** The new-base equivalents are given in §10.1.
 
-## Verdict: REFUTED on M4 — bit-exact, and performance-neutral
+Two `baseline_advanced` events were cleared as docs-only and neither triggered a
+rebase: `53672755` against the old base, and `f2fedd58` → `6a19fd74bf64e6bde9d2a3c5d7f7970588803cab`
+against the new one (advisor comment 5200286285, `research/CURRENT_RESEARCH_STATE.md`
+only, intersection with `editablePaths` empty). This result is therefore measured
+against `f2fedd58`, and `accepted_base_sha` is `f2fedd58`.
+
+## Verdict: bit-exact; the predicted gain is below this host's resolution — `inconclusive`, and I am *not* requesting a ranked slot
 
 The change is bit-exact (§5 oracle, 5320 pairs, 0 differing; upstream-equivalence
-report byte-identical to the unchanged base). It is **not** a win: the
-pre-registered `[0 %, +1.64 %]` bracket is excluded on the fast side.
+report byte-identical to the unchanged base, on both the old and the rebased
+base). Two independent local screens — 13 runs on the old base `ab1f9a13`
+(§7) and 8 runs on the rebased base `f2fedd58` (§10.4) — put the pooled
+point estimate slightly negative, and in **both** cases the measured
+same-session same-arm A/A spread is larger than the contrast.
 
-Primary metric, pooled 4v4 position-balanced mirror (§7.3):
+Primary metric — pooled 4v4 position-balanced mirror at the submitted base
+`f2fedd58` (§10.4), which is what the Senpai result reports:
+
+```text
+paired_estimate 0.992096884   (delta -0.007903116)
+decode_gain     0.991039124   prefill_gain 0.995276942
+measured A/A decode spread    arm B +1.447 %   arm C +1.764 %
+```
+
+Corroborating, pooled 4v4 position-balanced mirror at the old base
+`ab1f9a13` (§7.3):
 
 ```text
 paired_estimate 0.995775911   (delta -0.004224089)
 decode_gain     0.993272449   prefill_gain 1.003324221
+all-run decode spread +3.108 %
 ```
 
-**Retraction.** §7.2 records the contemporaneous reading of sequence 1 alone,
-which showed a −1.35 % decode regression. The mirrored sequence 3 (§7.3) did not
-replicate it: sequence 1 happened to contain both extremes of the 10-run decode
-distribution. The regression claim is withdrawn. The honest conclusion is
-**no measurable effect in either direction** on this host — median 10-run gain
-0.999943521 (−0.006 %). Do not merge the diff and do not spend a ranked receipt
-on it; see §9.3.
+The two bases agree on `decode_gain` to 0.02 pp. In both, the contrast is
+smaller than the spread the *same arm* shows against itself, which is the
+whole content of the resolution statement below.
 
-Disposition: `failed` (hypothesis refuted). §8 shows the pre-registered
-counter-hypothesis is refuted too, and §8.3 turns the two nulls into the
-positive finding: this kernel is weight-bandwidth-bound.
+**Two retractions are recorded in this report, and they are the most useful
+part of it.**
+
+1. **The −1.35 % regression claim is withdrawn** (§7.2 → §7.3). Sequence 1
+   alone happened to contain both extremes of the 10-run decode
+   distribution; the mirrored sequence did not replicate it.
+2. **"Performance-neutral" / "REFUTED" is withdrawn** (§11). Under §0.9.32
+   the correct statement is that any effect is **below this host's
+   resolution of the measured A/A spread**, not that there is none. Under
+   §0.9.33 this mechanism lives in the issue/redundancy channel, which is
+   machine-determined: the instruction-to-DRAM ratio is ~0.74 on M4 Pro
+   against ~0.89 on M5 Max, so an M4 null **cannot** refute it.
+
+Disposition: **`inconclusive`**. I nonetheless recommend **against** spending
+an official M5 slot on Variant A, for reasons that do not depend on the
+local timing at all — the redundancy is a documented, deliberate
+de-synchronisation, and the only M5 measurement in the repository for a
+comparable perturbation of this encoder ordering is a `+0.10 ms/step`
+**regression** (§10.5.1, §11.3). §10.6 and §11.4 name what to spend the
+next rung on instead.
 
 ## 1. Hypothesis
 
@@ -374,6 +414,14 @@ outlier supports a loss either.
 
 ### 7.4 What the null result means
 
+> **Cross-reference (added after §10).** This section's bandwidth-bound
+> reading was challenged during review by a roofline argument, and I
+> initially accepted the challenge. That acceptance is **retracted** in
+> §10.5.2 on a unit error; corrected, both available M4 estimates bracket
+> this kernel at 94–108 % of the effective M4 ceiling. **§7.4 stands.**
+> Its wording is also restated under §0.9.32 in §11.2: read "null result"
+> throughout this section as "below this host's resolution".
+
 The change is bit-exact (§5, and `max_abs_diff = 0` with a single distinct
 `golden_hash` across all thirteen runs in this report), so the arithmetic
 performed on the GPU is strictly *less* in the candidate: eight loads and the
@@ -404,6 +452,20 @@ what the pair of null results implies for anyone tempted to shave instructions
 out of this kernel next.
 
 ## 8. Counter-hypothesis: barrier / dispatch overlap — pre-registered, then refuted
+
+> **Cross-reference (added after §10).** Two amendments, both softening
+> claims made here. (i) §8.1 leans on PR27's 16× under-read as evidence that
+> "real overlap exists" in decode; **#73 measures `gpu_busy_sum ==
+> gpu_busy_union` in decode**, i.e. *zero* dispatch concurrency, so
+> per-dispatch decode time is fully additive. That does not change §8.2's
+> empirical refutation — it independently predicts it — but it does mean the
+> §8.1 mechanism was never structurally available in decode in the first
+> place. The specific sentence in §10.5 where I asserted a kernel "provably
+> overlaps the shared QMV" is retracted there. (ii) The word "refuted" in
+> this heading and in §8.2 is about a *mechanism* being ruled out by a
+> direct probe, not about an effect size; where §8.2 reports its own
+> contrast as null, read it under §0.9.32 as **below this host's
+> resolution** (§11.2).
 
 ### 8.1 The pre-registered mechanism
 
@@ -588,7 +650,19 @@ one had survived the mirror.
 
 I did not implement any of these.
 
+> **Superseded (added after §10).** §10.6 replaces this ranking after the
+> rebase, #71's closure of the byte-currency framing, and #73's
+> zero-concurrency result. Read §10.6 first; §9.1-§9.5 are kept as the
+> contemporaneous record.
+
 ### 9.1 Fuse the selector into the gate/up kernel (highest value)
+
+> **WITHDRAWN (added after §10).** This follow-up is **withdrawn**; see
+> §10.6 for the replacement ranking. It is superseded by F2 (fold the
+> shared expert's gate/up into the routed gate/up dispatch as a 9th slot),
+> which removes 39 dispatches per step against this one's 1, has a direct
+> in-tree precedent, and is unblocked by #73's zero-concurrency result.
+> The text below is retained unedited as the contemporaneous record.
 
 This is the version of the idea that survives the whole study, and §8.2 makes it
 *more* attractive than it looked at pre-registration, not less.
@@ -636,6 +710,15 @@ safely allocates an extra output that only a subset of threadgroups writes —
 resolve by reading custom-kernel output allocation in `Vendor/mlx-swift`.
 
 ### 9.2 Target bytes, not instructions, in the routed gate/up path
+
+> **Mostly withdrawn (added after §10).** #71 closed the routed-QMV
+> byte-currency framing: that instrument self-invalidated at 108.1 % of the
+> M4 ceiling, so "spend the saved bytes" is no longer a live proposal for
+> this kernel. What survives is only the algorithm-determined half — the
+> in-flight byte count itself, which transfers across generations under
+> §0.9.33 — and it survives *only* under the bit-exactness constraint
+> spelled out in §10.6 (**loads only**; any change to what is computed
+> breaks the greedy-token gate). See §10.6 F1.
 
 The transferable finding of this experiment is §8.3: on this host the routed
 gate/up QMV kernel is **bound by its weight stream, not by its ALU work**. Two
@@ -719,3 +802,501 @@ Both came out of this study's own measurement failures and cost me runs.
   because `harness_hash` disagreed with the label. The operational rule is: do
   not touch the worktree until the training id is terminal, and verify every
   arm from the emitted hash before it enters an estimate.
+
+## 10. Rebase onto `f2fedd58`, and the register-pressure question
+
+The advisor released the single permitted rebase with a specific question
+attached:
+
+> register pressure is exactly the channel your hoist competes in. If the
+> hoist now costs a threadgroup-memory round trip that #72's extra
+> patch-select registers made necessary, that is a real finding, not a
+> nuisance; report it.
+
+This section answers it. Sections 1-9 were produced against the old base
+`ab1f9a13`; everything below is at `f2fedd58` (post-#72, post-#81).
+
+### 10.1 What the two intervening merges actually did
+
+Anchors at `f2fedd58`, for the four sites §§1-9 refer to by their old-base
+line numbers (all in `Sources/MLXFastModel/LagunaRuntimeModel.swift`):
+
+| site | `f2fedd58` |
+| --- | --- |
+| R1 routed gate/up QMV `…top8keys_r1_bf16_v2` | `:7515` |
+| `expert_slot = group % routed_experts` | `:7534` |
+| router top-8 keys kernel | `:997` |
+| `prepareFusedRoutedGateUp()` | `:9855` |
+
+**#72 (nezuko, substantive).** Halved the routed group-32 scale plane. All
+four routed QMV kernels were edited identically: `scale_row_bytes` 32 -> 16,
+a new `scale_patch_bytes` term offsets the plane, the scale index gains a
+`lane >> 1`, and a 128-byte patch header is selected against by a predicated
+read. In the R1 gate/up kernel this is:
+
+```metal
+const device uint8_t* first_scales =
+    row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
+bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
+gate_sb = patch_lane ? packed_scales[0] : first_scales[0];
+up_sb   = patch_lane ? packed_scales[1] : first_scales[scale_row_bytes];
+```
+
+**#81 (tanjiro, cosmetic).** A file-wide dedent of Metal string-literal
+bodies plus removal of `//` comments inside those literals. Certified
+behaviour-neutral; `LagunaRuntimeModel.swift` shrank 521,506 -> 478,533 B.
+
+Neither merge touched the extraction site this experiment deletes, nor the
+wrapper signature it extends. The Variant A patch produced on the old base
+applies to post-#72 with offsets only; against post-#81 two of its six hunks
+fail *purely* on the dedent whitespace of MSL context lines, with the code
+text otherwise character-identical. The rebase conflict was therefore
+whitespace, not semantics, and was resolved by keeping #81's dedented body
+and re-applying the two substantive edits.
+
+The rebased diff against `f2fedd58` is **19 insertions / 9 deletions**, the
+same shape as against `ab1f9a13`.
+
+### 10.2 Analytical register accounting
+
+The question is whether deleting the prelude now changes the *binding*
+constraint. It does not, and the reason is that the prelude's live set was
+never the kernel's peak.
+
+Removed by Variant A, live only inside the prelude:
+
+| value | registers |
+| --- | --- |
+| `thread uint top8_keys[8]` (statically indexed, unrolled) | 8 |
+| `top8_mask`, `top8_winner` | 2 |
+| `laguna_router_top8_extract_round` locals (`best_ordinal`, `best_index`, `e`, `o`, `other_ordinal`, `other_index`) | ~4-6 |
+
+Peak during the prelude is therefore roughly **14-16** live 32-bit values,
+and `top8_keys` dies at the closing brace.
+
+Retained, live inside the main accumulation loop:
+
+| value | registers |
+| --- | --- |
+| `thread float input_values[16]` | 16 |
+| `gate_codes`, `up_codes` (`uint2` each) | 4 |
+| `cur_gate_codes`, `cur_up_codes` | 4 |
+| `gate_result`, `up_result` | 2 |
+| `gate_sb`, `up_sb`, `cur_gate_sb`, `cur_up_sb` | 4 (packed) |
+| pointers, `block`, `next_block`, `i`, addressing temporaries | ~8 |
+
+Main-loop peak is on the order of **38-40** live values, comfortably above
+the prelude's peak, and the two regions do not overlap in the schedule: the
+prelude completes before `expert` is consumed to form `expert_weight`.
+
+#72's additions - one `bool patch_lane` (a predicate, not a general
+register) and two extra byte loads - sit inside the prefetch block, whose
+own live set is also below the main-loop peak.
+
+**Conclusion:** the occupancy-determining peak of this kernel is the
+accumulation loop, both before and after #72. Deleting the prelude removes
+~15 registers from a region that was not the peak, so it cannot raise
+occupancy; #72 adds ~1 predicate to a region that is not the peak, so it
+cannot have created a spill boundary for the prelude to fall off. There is
+no threadgroup-memory round trip in either version - the resolved kernel
+declares no `threadgroup` storage at all.
+
+### 10.3 Empirical answer
+
+The analytical argument predicts that the new-base contrast should look like
+the old-base contrast: a null. Section 10.4 reports the measured
+counterbalanced result at `f2fedd58`.
+### 10.4 The new-base screen, measured
+
+Eight timed runs on the rebased branch, plus one excluded warm-up. The
+design and decision rule were written down in full *before* any new-base
+timing number was read (committed verbatim at `research/maple-fern-pr82-prereg-newbase.md`) and are unchanged.
+
+Every run below carries `passed_correctness=true`, `max_abs_diff=0`,
+`golden_hash=b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`
+and `weights_hash=aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d`.
+Arms are labelled **post hoc by `harness_hash`**, never by intent:
+
+| arm | `harness_hash` |
+| --- | --- |
+| **B** unchanged base `f2fedd58` | `d60b8e89968c7f1e...` |
+| **C** candidate `352e5f26` | `25be2db23202d0ff...` |
+
+Raw artefacts: `research/pr82-scores-newbase/*.json`.
+Analysis: `research/maple_fern_pr82_newbase.py` (asserts the four
+certificates above, asserts each arm has a single `harness_hash` and that
+the two are distinct, then pools position-balanced).
+Two mirrored sequences were run back to back in the same session, on the
+same host, under the same 40 C thermal gate:
+
+| # | file | arm | decode s/tok | prefill s/tok |
+| --- | --- | --- | --- | --- |
+| — | `score.warmup.C0.json` | C (**excluded**, warm-up) | 0.0131970530546875 | 0.00113865421484375 |
+| 1 | `score.nb1.B1.json` | B | 0.012975816078125 | 0.0011121748046875 |
+| 2 | `score.nb1.C1.json` | C | 0.0132736240234375 | 0.001124676025390625 |
+| 3 | `score.nb1.C2.json` | C | 0.013044018875 | 0.001125221923828125 |
+| 4 | `score.nb1.B2.json` | B | 0.0131636077421875 | 0.001113708416015625 |
+| 5 | `score.nb2.C1.json` | C | 0.01327408365625 | 0.0011258353671875 |
+| 6 | `score.nb2.B1.json` | B | 0.0130079388046875 | 0.001125141357421875 |
+| 7 | `score.nb2.B2.json` | B | 0.0131462942734375 | 0.001120531900390625 |
+| 8 | `score.nb2.C2.json` | C | 0.0131707169765625 | 0.001117042805 |
+
+Sequence 1 is `B C C B`; sequence 2 is its mirror `C B B C`. Each arm
+therefore occupies positions 1 and 4 once and positions 2 and 3 once, so a
+monotone session drift of any shape cancels to first order in the pool.
+
+Pooled 4v4 position-balanced (`python3 research/maple_fern_pr82_newbase.py`):
+
+```text
+base   decode mean 0.013073414225      cand decode mean 0.013191622719
+decode_gain       0.991039124   (-0.896 %)
+prefill_gain      0.995276942   (-0.472 %)
+paired_estimate   0.992096884
+```
+
+Per sequence:
+
+```text
+seq1 (B C C B)  decode_gain 0.993228152  prefill_gain 0.989326303  paired 0.992251249
+seq2 (C B B C)  decode_gain 0.988860955  prefill_gain 1.001246205  paired 0.991942830
+```
+
+And the number that decides how to read all of the above — the measured
+same-session, same-arm A/A spread:
+
+```text
+arm B  decode  min 0.012975816078  max 0.013163607742   spread +1.447 %
+arm C  decode  min 0.013044018875  max 0.013274083656   spread +1.764 %
+all 8  decode  min 0.012975816078  max 0.013274083656   spread +2.299 %
+arm B  prefill spread +1.166 %
+arm C  prefill spread +0.787 %
+```
+
+The B-vs-C decode contrast is **−0.896 %**. Arm B disagrees with *itself* by
++1.447 % and arm C by +1.764 % across runs that differ in nothing but
+launch order. The contrast is smaller than either arm's own noise floor.
+Per §0.9.32 the correct statement is that **the predicted effect is below
+this host's resolution of ±1.4…1.8 % (decode, same-arm A/A)**; this
+instrument cannot distinguish the predicted +0.4…+0.8 % from zero, and it
+equally cannot distinguish it from the −0.896 % it happened to print. The
+new-base screen reproduces the old-base screen (§7.3, pooled
+`decode_gain 0.993272449`) to within 0.02 pp, which is reassuring about the
+*method* and says nothing about the *mechanism*.
+
+#### 10.4.1 A methodological near-miss worth recording
+
+Partway through, with five of the eight runs in hand, the prefill column
+looked like it had separated by arm: every candidate prefill sat near
+0.0011250 and every base prefill near 0.0011125. That is a clean-looking
+1.1 % arm separation on a metric with a hard 0.95 floor, and it is exactly
+the shape of result that invites a mechanism story. I had one available
+(kernel rename → fresh MLX JIT library-cache entry).
+
+It was wrong. Run 6, `score.nb2.B1.json`, is a **base** run with prefill
+0.001125141357 — inside the candidate range — and run 7 fell back to
+0.001120531900. The apparent separation was session drift that happened to
+be aligned with arm order in the first sequence, and the pre-registered
+mirror is precisely what cancelled it: seq1 prefill_gain 0.989 and seq2
+prefill_gain 1.001 straddle unity.
+
+Two things saved this from becoming a false finding, and both were fixed
+before any number was read: arms were labelled **post hoc by
+`harness_hash`** rather than by intent, and the second sequence was the
+**mirror** of the first rather than a repeat. A confirmatory sixth run in
+the same order as the first would have strengthened the artefact instead of
+exposing it. Recorded here because the failure mode is generic to this
+campaign, not specific to this PR.
+
+Independently, an explore pass over the call site established that a
+prefill effect is **not causally possible** for this change: the modified
+call site (`Sources/MLXFastModel/LagunaRuntimeModel.swift:10037`) is behind
+a `x.dim(1) == 1 && inds.size < 64` guard (`:9990-9993`) that prefill never
+satisfies; `inds` is produced at `:9986` and already consumed by kernels at
+`:10064`, `:10074` and `:10109` on the unmodified path, so no new
+materialisation is introduced; the prologue helpers remain live for the
+decode-only fallback (`:7496`, `:7498-7499`); and the JIT concern is void
+because warm-up runs prefill *then* decode
+(`Sources/MLXFastModel/LagunaRuntimeWeights.swift:470-479`), placing any
+library-cache miss outside both timed windows. Residual caveat: I did not
+inspect the harness's own prefill-window boundary definition, so this is an
+argument about the model code, not about the timer.
+#### 10.4.2 Scope and budget certificates at the new base
+
+Both re-run at `f2fedd58` after the rebase:
+
+```text
+$ senpai/validate-assignment-scope.sh f2fedd584e6514569758d79e581402210306e77b \
+      Sources/MLXFastModel/LagunaRuntimeModel.swift
+OK   1 submitted path
+
+$ senpai/check-editable-budget.sh f2fedd584e6514569758d79e581402210306e77b
+current=2930746 headroom=69254 growth=662/262144 files=142
+```
+
+The submitted surface is still exactly one file. Growth is 662 B against the
+15 kB the advisor allocated to this PR and against the 262,144 B per-review
+cap. `LagunaRuntimeModel.swift` is 479,195 B against the 524,288 B per-file
+cap, leaving 45,093 B — comfortably inside the standing ≥ 20 kB margin law
+for this file.
+### 10.5 Corrections I owe the record
+
+A fresh, context-free frontier review of this result (asked to attack the
+conclusion, not defend it) raised two objections. **One survives and is
+important. One I am retracting, because checking it against the programme's
+own priced census showed the reviewer made a unit error that I then
+propagated.** Both are recorded because the retraction is as informative as
+the finding.
+
+#### 10.5.1 The design intent I violated is documented in the file (STANDS)
+
+`lagunaRouterTop8PrologueHeader` carries this doc comment:
+
+> Simd-shuffle-only comparator-minimum extraction; lane `l` owns experts
+> `l + 32j`, `mask` bit `j` marks extracted. Each routed slot performs only
+> the rounds it needs and **never waits on a cross-threadgroup selector**.
+
+The re-extraction is not an oversight to be deleted; it is a deliberate
+*de-synchronisation*. The 2048 threadgroups of the routed QMV each derive
+their own expert id so the dispatch does not have to be ordered behind the
+single-threadgroup selector. Variant A converts that into a real MLX input
+dependency, which is exactly what the design avoids.
+
+The file also already contains an M5-measured price for that class of
+change. The note above `lagunaSharedFirstDownOrderEnabled` records:
+
+> MEASURED (2026-08-01, M5 Max 128 GB, driver rig, 150-step cool-floor
+> windows): shared-first REGRESSES ~+0.10 ms/step. Cause: [...] moving it
+> before the top-8 barrier makes the barrier ahead of the routed QMV wait
+> on the shared QMV too, LENGTHENING the critical path (barriers are
+> encoder-wide, not per-resource).
+
+`+0.10 ms/step` against a ~13.0 ms/step M4 decode is ~0.77 %, and against
+the ~4.28 ms M5-equivalent decode it is ~2.3 %. Same sign as this
+experiment's persistent negative point estimate, and the same order on M4.
+
+My §8 attribution arm (`KI`: the `indices` argument added but *not* read, so
+the MLX dependency edge exists without the ALU saving) came out `+0.375 %`,
+i.e. the wrong sign for the barrier hypothesis, which is why §8 called it
+refuted. **That refutation was too strong.** `+0.375 %` sits well inside the
+same-session A/A spread this campaign actually measured, so the arm
+constrains the barrier channel only very loosely. The honest statement is:
+
+> The barrier channel is **not excluded**. The only M5 measurement in the
+> repository for a comparable perturbation of this encoder ordering is a
+> `+0.10 ms/step` regression. That is an additional, independent reason not
+> to spend an official M5 slot on Variant A.
+
+#### 10.5.2 RETRACTED: the "not bandwidth-saturated" roofline correction
+
+The review argued that §7.4's "weight-bandwidth-bound" was overstated, on
+the grounds that the routed gate/up QMV moves ~348 MB/step in ~2.0 ms, i.e.
+~171 GB/s, only ~63 % of the M4 Pro's ~273 GB/s theoretical peak, and that
+the real constraint was memory-level parallelism.
+
+**The ~2.0 ms is wrong, and I should have caught it before writing it down.**
+It was obtained as `15.2 % x 13.3 ms`. But `15.2 %` is this campaign's
+**M5-equivalent** share of decode `T` (`650.3 us / 4281 us`), not an M4
+share. The M4 wall time for the same kernel is the priced `1503.9 us`
+against the ~13.05 ms M4 step measured in §10.4, i.e. **~11.5 %**. Applying
+an M5-equivalent fraction to an M4 wall clock inflated the denominator by
+~33 %.
+
+It also used the wrong ceiling. The programme's own effective M4 DRAM
+ceiling is the constant implied by #71's floor: `368.1 MB / 1.4145 ms =`
+**`260.2 GB/s`**. The 273 GB/s figure is a datasheet peak, not an
+achievable rate.
+
+Redone with the campaign's own priced numbers and post-#72 byte census:
+
+> `368.1 MB / 1503.9 us = 244.8 GB/s = ~94 % of the 260.2 GB/s effective
+> M4 ceiling.`
+
+That is saturation, not slack. It is also consistent with the programme's
+prior result rather than in tension with it: **#71 already closed the
+routed-QMV byte-currency framing**, reporting the exclusive-share instrument
+measuring 92.5 % of that 1.4145 ms floor, i.e. `281.3 GB/s = 108.1 %` of
+ceiling - a physically impossible figure whose only correct reading is that
+the instrument self-invalidates at this level of attribution.
+
+So: **§7.4 stands as written.** The routed gate/up QMV is weight-bandwidth-
+bound on M4. The two independent M4 estimates bracket it at **94 %-108 %**
+of the effective ceiling; the disagreement between them is exactly #71's
+point, and neither leaves room for the "only 63 %" reading.
+
+Two consequences I am obliged to carry forward under **§0.9.33**:
+
+- Achieved GB/s and "% of ceiling" are **machine-determined** and therefore
+  **do not transfer** to M5. Everything above is an M4 statement. What does
+  transfer is the byte census itself (368.1 MB/step for this kernel,
+  algorithm-determined) and the ~5-6 `qdot` ops per weight byte.
+- This experiment's mechanism was never a byte mechanism. It is an
+  issue/redundancy mechanism (~512x redundant top-8 extraction), and the
+  instruction-to-DRAM ratio is ~0.74 on M4 Pro against ~0.89 on M5 Max.
+  A local instruction-channel win therefore **understates** the M5 effect,
+  and a local null **does not refute** it. §11 states the disposition in
+  those terms.
+
+I am also correcting a second claim of my own that #73 falsifies. §10.5.2's
+first draft said this kernel "provably overlaps the shared QMV". **#73
+measured zero dispatch concurrency in decode** (`gpu_busy_sum ==
+gpu_busy_union`). Decode dispatches are serial on this stack, so exclusive
+attribution is legitimate and per-dispatch time is fully additive.
+
+### 10.6 Revised follow-ups
+
+**§9.1 (fuse the router top-8 selector into the gate/up kernel) is
+withdrawn.** The review's objection is decisive and is already in the file:
+2048 threadgroups cannot consume one threadgroup's result without an encoder
+barrier between dispatches, so "fusion" would have to be the *distributed
+re-derivation that is already shipped* - the very code this experiment
+deleted. The selector is one small threadgroup already behind an 8.9 MB
+kernel in the same encoder, and the only measured datum about perturbing
+this ordering is a `+0.10 ms/step` regression.
+
+**F1 (deepen prefetch in the routed gate/up QMV) is withdrawn for that
+kernel, and its premise is retained only where it can still apply.**
+The first draft of this section proposed going two blocks ahead on the
+grounds that the kernel was latency-starved. §10.5.2 retracts that premise:
+at ~90 % of the M4 ceiling there is at most ~11 % of the kernel available
+even in the limit, and #71 has already closed byte-currency work here.
+
+What survives is the *transferable* half of the router-GEMV precedent. That
+note observes:
+
+> `tiles * rows_per_group == 256` at every tiling, so retiling alone cannot
+> add a single outstanding load and leaves in-flight bytes pinned at 64 KB
+> [...] Hoisting four blocks' weight loads takes that to 256 KB.
+
+`tiles * rows_per_group` and in-flight bytes are **algorithm-determined**,
+so under §0.9.33 they transfer across generations; achieved GB/s does not.
+The correct target for that idea is therefore whichever decode kernel is
+demonstrably *far* from ceiling - which the routed gate/up is not. Selecting
+that kernel requires a per-dispatch byte-and-time census that this
+experiment did not run, so I am not proposing a specific rung.
+
+*If it is ever run:* **loads only.** The same router-GEMV note warns that
+giving each unrolled step its own partial accumulator regroups sequential
+FP32 adds into a tree, loses bit-exactness, and passes every local check
+while failing the hidden exact-token gate.
+
+**F2 (promoted to first). Merge the shared-expert gate/up as a 9th slot of
+the routed gate/up dispatch.** The shared SwiGLU QMV R1 variant is
+shape-identical to one expert slot of the routed kernel (512 rows,
+`row = tile*2 + simd_group`, 1024-byte packed rows, same `qdot` header, same
+fused gate/up row layout). Extending the grid from `8*256*64` to `9*256*64`
+with slot 8 reading the shared fused weight unconditionally removes 39
+dispatches per step. There is a shipped, promoted precedent for exactly this
+shape: the down+residual kernel is already a 9-slot routed+shared fusion
+(`laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5`).
+
+The first draft capped this at "encode-side only, ~+0.3-0.8 %, because the
+two kernels already overlap". **#73's zero-concurrency result removes that
+cap.** With no dispatch overlap, the shared QMV's wall time is fully
+additive, so merging recovers per-dispatch ramp-up and drain as well as
+encode cost. It also does not move a single byte, so it is untouched by
+#71's closure of the byte-currency framing, and dispatch count is an
+algorithm-determined census quantity that transfers to M5 under §0.9.33.
+This is now the strongest remaining rung I can see in this area.
+
+**F3. Verify, then attack, per-step encode overhead.** §8.1 assumed ~50
+command buffers per decode step from `MLX_MAX_OPS_PER_BUFFER=200`. Decode
+encodes on the order of 400 custom dispatches per step, which predicts 2-3
+buffers from op count alone; 50 would mean ~8 ops per buffer, i.e. something
+else is fragmenting them. Command-buffer count is algorithm-determined and
+transfers; it matters relatively more on M5, where GPU time roughly halves
+but encode does not. One signpost capture of a single decode step settles
+it, and F2 is one of the fixes if fragmentation is real.
+
+*Checked and cleared:* the review also flagged a possible envelope violation
+in that all 40 attention layers run group-16 NVFP4 rather than group-32
+affine INT8. It is not a violation - the doc comment on
+`lagunaNativeAffineNVFP4From` states this is the shipped representation the
+goldens came from, "envelope option (1), which never requires the INT8
+re-quant". Not re-quantizing is trivially inside an envelope that constrains
+re-quantization. The useful corollary for planning is that attention
+precision headroom is already spent.
+
+## 11. Disposition (final, stated under §0.9.32 and §0.9.33)
+
+**Senpai result status: `inconclusive`.**
+
+Earlier drafts of this report called the hypothesis `REFUTED` and set the
+Senpai status to `failed`. **Both are withdrawn.** The advisor's standing
+ruling is that an M4 null is not a refutation and an M4 regression is, and
+§0.9.32 requires the null to be written as a resolution statement rather
+than as an absence of effect. This section is the corrected disposition.
+
+### 11.1 What was established beyond doubt
+
+- **Bit-exactness.** Every timed arm on both bases carries
+  `passed_correctness=true`, `max_abs_diff=0`,
+  `golden_hash=b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`,
+  `weights_hash=aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d`.
+  The §4.1 differential oracle passed 5,320 slot/expert pairs across 665
+  decode steps with 0 differing, and its deliberate-fault control fired on
+  all 665. Upstream equivalence was run on the candidate **and** on an
+  unchanged-base control, byte-identical reports.
+  `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was never set.
+  Variant A does what it claims: the hoisted per-slot winner is the same
+  expert id the kernel used to re-derive.
+
+- **The mechanism is real and correctly priced as a census.** The routed
+  QMV re-derives the per-slot top-8 winner in every one of 2048
+  threadgroups, ~512x redundantly, at 39 dispatches/step. Dispatch counts
+  and redundancy factors are algorithm-determined and transfer under
+  §0.9.33.
+
+### 11.2 What the local instrument can and cannot say
+
+The paired local screens are **below this host's resolution**. Precisely:
+
+- the pooled point estimate for `decode_gain` is negative and small
+  (−0.896 % on the new base, 8 runs; −0.673 % on the old base, 8 of 13);
+- the **measured same-session, same-arm A/A spread** on this M4 Pro is
+  larger than that point estimate, on both bases and in both arms
+  (new base: B +1.447 %, C +1.764 %; old base: all-run +3.108 %);
+- so the correct statement is *"any decode effect is below this host's
+  resolution of the measured A/A spread"*, **not** *"there is no effect"*.
+
+Two further reasons the local instrument is the wrong instrument for *this*
+mechanism specifically:
+
+1. **§0.9.33.** This is an issue/redundancy mechanism, not a byte mechanism.
+   The instruction-to-DRAM ratio is ~0.74 on M4 Pro against ~0.89 on M5 Max,
+   so a local instruction-channel win **understates** the M5 effect and a
+   local null **cannot refute** it.
+2. **The prefill axis is a known host artefact** (`prefill_speedup ~0.32`,
+   `floor=false` on both arms), so no local prefill number - in either
+   direction - is evidence about ranked prefill. §10.4 records one
+   instructive near-miss on this axis.
+
+### 11.3 Why I nevertheless recommend *against* an M5 slot for Variant A
+
+This is the part that does not depend on the local timing at all, and it is
+the reason the disposition is `inconclusive` rather than "needs a ranked
+run":
+
+- **The redundancy is deliberate.** `lagunaRouterTop8PrologueHeader` states
+  that each routed slot "never waits on a cross-threadgroup selector".
+  Variant A replaces a de-synchronised re-derivation with a real MLX input
+  dependency - the precise thing the shipped design avoids (§10.5.1).
+- **The only M5 measurement in the repository for a comparable perturbation
+  of this encoder ordering is a regression**: `+0.10 ms/step` for
+  shared-first ordering, because "barriers are encoder-wide, not
+  per-resource". That is ~2.3 % of the M5-equivalent decode step.
+- **The byte-currency framing here is already closed by #71**, and §10.5.2
+  retracts my own attempt to reopen it: at ~245 GB/s the routed gate/up QMV
+  is at ~94 % of the effective M4 ceiling.
+
+Expected value of a ranked slot for Variant A is therefore a small,
+symmetric, and probably negative bet against a demonstrated M5 regression
+for the same class of change. **I am not requesting the channel for it.**
+
+### 11.4 What I would spend the next rung on instead
+
+§10.6, in order: **F2** (merge the shared-expert gate/up as a 9th slot of
+the routed gate/up dispatch; removes 39 dispatches/step, moves no bytes,
+has a shipped 9-slot precedent, and is unaffected by both #71's byte
+closure and #73's zero-concurrency result), then **F3** (verify the
+per-step command-buffer count before anyone else builds an argument on the
+assumed ~50). **§9.1 and F1-as-drafted are withdrawn**, with reasons.
