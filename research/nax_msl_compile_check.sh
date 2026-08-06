@@ -12,12 +12,14 @@
 #   GEN_DIR=<dir>  override the mlx-generated directory (for stock comparison)
 #   OUT_DIR=<dir>  override the scratch output directory
 #   BK=<n>         k-tile depth template arg (default 64)
+#   PROBE=<n>      regime-discriminator template arg (default 0 = shipped)
 #   EMIT_LIB=1     also link a .metallib so pipeline stats can be read back
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN="${GEN_DIR:-${REPO_ROOT}/Vendor/mlx-swift/Source/Cmlx/mlx-generated}"
 BK="${BK:-64}"
+PROBE="${PROBE:-0}"
 OUT="${OUT_DIR:-/tmp/nax_msl_check}"
 mkdir -p "${OUT}"
 
@@ -52,9 +54,16 @@ SRC="${OUT}/unit.metal"
   # shipped variant-5 tiling (bm/bn/bk 64, wm 4, wn 1), egroups 256 and both
   # wide-staging certifications on, exactly as get_template_definition emits.
   echo "// ---- template_def (get_template_definition) ----"
+  # PROBE=0 emits neither the trailing argument nor a name suffix, exactly as
+  # quantized.cpp does, so a probe-capable tree and a pre-probe tree produce
+  # byte-identical AIR for the shipped kernel (safety-rig inertness check 2).
   for shape in "2048, 1024" "512, 2048"; do
     targs="bfloat16_t, 16, 4, 64, 64, ${BK}, 4, 1, true, ${shape}, bfloat, 256, true, true"
     name="fp_gather_qmm_rhs_expert_nax_check_${shape//, /x}_bk${BK}"
+    if [ "${PROBE}" != "0" ]; then
+      targs="${targs}, ${PROBE}"
+      name="${name}_pb${PROBE}"
+    fi
     cat <<EOF
 template [[host_name("${name}")]] [[kernel]] decltype(
     fp_gather_qmm_rhs_expert_nax<${targs}>)

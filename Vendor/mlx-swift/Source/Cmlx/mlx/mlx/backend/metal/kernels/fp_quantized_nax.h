@@ -1567,7 +1567,13 @@ template <
     typename Wtype = bfloat,
     int tg_expert_groups = 64,
     bool wide_store = false,
-    bool wide_load = false>
+    bool wide_load = false,
+    // Regime discriminator (research instrument, 0 = shipped kernel).
+    // 1 = M2: double the MMA chain only. 2 = S2: double weight load+dequant
+    // +threadgroup staging only. 3 = B2: double the k-loop barrier count
+    // only. Every arm is bit-exact; each adds work to exactly one resource
+    // axis so its marginal wall cost names the binding constraint.
+    int probe = 0>
 [[kernel]] void fp_gather_qmm_rhs_expert_nax(
     const device T* x,
     const device uint32_t* w,
@@ -1586,6 +1592,10 @@ template <
   static_assert(transpose, "expert-aligned Laguna QMM requires NT weights");
   static_assert(group_size == 16, "expert-aligned Laguna QMM requires gs16");
   static_assert(bits == 4, "expert-aligned Laguna QMM requires NVFP4");
+
+  constexpr bool kProbeM2 = (probe == 1);
+  constexpr bool kProbeS2 = (probe == 2);
+  constexpr bool kProbeB2 = (probe == 3);
 
   constexpr int pack_factor = get_pack_factor<8, bits>();
   constexpr int bytes_per_pack = get_bytes_per_pack();
@@ -1721,6 +1731,13 @@ template <
       NAXTile<float, TM, TN> Dtile;
       Dtile.clear();
 
+      // M2 shadow accumulator. At probe == 0 nothing below ever reads or
+      // writes it, so it is dead on declaration and emits no code.
+      NAXTile<float, TM, TN> Dshadow;
+      if constexpr (kProbeM2) {
+        Dshadow.clear();
+      }
+
       const device T* xn =
           x + size_t(chunk_start + tm) * kernel_K;
       thread loader_w_t loader_w(
@@ -1730,8 +1747,24 @@ template <
           Ws,
           simd_group_id,
           simd_lane_id);
+      // S2 shadow loader: the neighbouring expert's weight region, which is
+      // always in bounds (the w/scales buffers hold all `experts` slabs) and
+      // lands on different cache lines, so the arm really doubles the NVFP4
+      // code+scale device reads, the nibble decode and the threadgroup
+      // stores. Its constructor is pure pointer arithmetic, so at probe != 2
+      // it is dead on declaration.
+      thread loader_w_t loader_w2(
+          wl + size_t((expert + 1) % experts) * stride_w,
+          scale_base + size_t((expert + 1) % experts) * stride_s,
+          kernel_K,
+          Ws,
+          simd_group_id,
+          simd_lane_id);
 
       for (int k = 0; k < K_it; ++k) {
+        if constexpr (kProbeB2) {
+          threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
         // Bit-exact A-operand hoist (the XMAJOR arm's shipped pattern at
         // one-eighth its register cost): this iteration's x fragments load
         // into registers BEFORE the two staging barriers, overlapping the
@@ -1760,6 +1793,22 @@ template <
           }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
+        // S2: stage the neighbouring expert's tile into Ws first, then let
+        // the real staging below overwrite it. Every thread writes exactly
+        // the same destination address set in both calls (loader addressing
+        // depends only on lid/simd ids), the sets are disjoint across
+        // threads, and no thread reads Ws in between, so Ws holds precisely
+        // the stock bytes when the MMA loop starts. The intervening barrier
+        // is a threadgroup memory clobber, which is what stops the first
+        // store set from being dead-store eliminated.
+        if constexpr (kProbeS2) {
+          if constexpr (wide_store || wide_load) {
+            loader_w2.template load_unsafe_wide<wide_store, wide_load>();
+          } else {
+            loader_w2.load_unsafe();
+          }
+          threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
         // DARKBLOOM_EXPERT_STAGE_WIDEST / DARKBLOOM_EXPERT_STAGE_WIDELD:
         // same bytes, same addresses, same nibble decode, same scale mapping
         // -- only the access widths change (16 scalar 2B threadgroup stores
@@ -1804,11 +1853,42 @@ template <
                 Btile,
                 metal::bool_constant<true>{});
 
+            // M2: an identical-shape MMA chain into a separate accumulator,
+            // fed by the OTHER already-resident A fragment and the same
+            // Btile. No extra device or threadgroup read, and the operand
+            // pair (A fragment, B column band) is distinct from every pair
+            // the real chain ever uses, so it cannot be common-subexpression
+            // eliminated against it. Dtile is untouched.
+            if constexpr (kProbeM2) {
+              tile_matmad_nax(
+                  Dshadow,
+                  Atile[(kk1 / SK + 1) % (BK / SK)],
+                  metal::bool_constant<false>{},
+                  Btile,
+                  metal::bool_constant<true>{});
+            }
           }
         }
 
         xn += BK;
         loader_w.next();
+        if constexpr (kProbeS2) {
+          loader_w2.next();
+        }
+        if constexpr (kProbeB2) {
+          threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+      }
+
+      // M2 sink: keeps the shadow chain live without changing any stored
+      // value. run_skip_pct is host-clamped to [1,100] so the guard is never
+      // true, but it is a runtime constant-buffer scalar the compiler cannot
+      // fold; the MMA intrinsic is convergent, so it cannot be sunk into the
+      // guarded region either.
+      if constexpr (kProbeM2) {
+        if (run_skip_pct > 1000) {
+          y[0] = static_cast<T>(Dshadow.frag_at(0, 0)[0]);
+        }
       }
 
 #ifndef DARKBLOOM_SWIGLU_REGLOCAL
