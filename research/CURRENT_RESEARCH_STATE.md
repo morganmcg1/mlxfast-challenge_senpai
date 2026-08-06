@@ -1,34 +1,75 @@
 # SENPAI Research State
-- 2026-08-06T18:20Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 0f05798 (pushed to origin).
-  Scored code frontier: 639646a + 15 merged optimization PRs (#107→#156).
-  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING.
-  M5 submission of 14-PR composed HEAD blocked by in-flight 57d8f08. Will retry when slot opens.
+- 2026-08-06T22:15Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at c7f0bdf (origin/mlxfast-birch-20260805-advisor).
+  Scored code frontier: c7f0bdf (includes #166 dense MoE simd_sum, #160 register float4, #159 max_threads).
 
-- **WAVE 8 RESULTS** (3 complete, 1 incomplete):
-  PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
-  PR #154 (Edward) — Async-eval Shared Expert: CLOSED. DEAD — MLX already overlaps eval.
+## CRITICAL: Submission History Analysis
+  Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
+  ALL post-promotion submissions REJECTED or FAILED:
+    00de2d3 (11:23): FAILED (15-PR composed)
+    26dc269 (12:11): rejected -7.21%
+    c95b4e4 (14:35): rejected -9.16%
+    57d8f08 (18:26): FAILED (3-PR composed)
+    4b06e93 (21:30): rejected -14% (15-PR + QHOIST)
+    0e43085 (22:09): VALIDATING (unknown contents)
+
+  KEY FINDING: The promoted submission (05:04 UTC) was submitted BEFORE PR #107 (dot4, 09:44 UTC).
+  The promoted code surface contained: PR #84 (top-8 elimination), FMA-optimized dequant, STAGE2_GATHER,
+  LM_HEAD_PRUNE, MoE down ops2 disabled. It did NOT contain dot4, simd_sum, float4, or max_total_threads.
+
+  CONCLUSION: Our entire instruction-count reduction strategy (dot4, packed simd_sum, float4 input_values,
+  register float4, max_total_threads) may be COUNTERPRODUCTIVE on M5. The M5 may be bandwidth-bound, not
+  instruction-bound. The "89% ALU utilization" figure may not apply to these kernel sizes or may be misleading.
+
+  STRATEGY SHIFT: Prioritize BANDWIDTH reduction (scale plane halving) over instruction-count reduction.
+  Consider reverting max_total_threads_per_threadgroup (#159) — it changes GPU occupancy on M5.
+  Do NOT compose multiple unmeasured instruction-count changes. Test individually on M5 where possible.
+
+  PR #160 merged: thread float[N]→thread float4[N/4] in 6 remaining MoE qdot kernels. Bit-exact, -1160 bytes.
+  PR #166 merged: dense MoE simd_shuffle_down→simd_sum. Bit-exact, -6 bytes, no M4 gain (2 dispatches/step).
+  M5 submission 4b06e931 REJECTED -14%. New submission 0e43085 VALIDATING.
+  Previous 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED. 27b9c7c: rejected 2.4972.
+  Wave 10 in progress: PR #165 (Edward, ops-per-buffer — not started), #161 (Thorfinn, tg input sharing — not started).
+  Wave 11 assigned: PR #167 (Alphonse, tail_nvfp4_qdot dot4 — in progress).
+  Wave 11 briefs ready: scale plane halving (BANDWIDTH reduction — assign to Askeladd), attention pair_planes 2→4.
+
+## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
+  The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.
+  Our code (LagunaRuntimeWeights.swift:387) sets MLX_MAX_OPS_PER_BUFFER=200, but metaspartan
+  proved that 200→400 promoted at 2.5282, and 400→800 gave another ~10us decode improvement.
+  The M5 loses ~282us/step (5.2% of decode) at command-buffer boundaries. This is a ONE-LINE
+  change in an EDITABLE file. Bit-exact (scheduling only, no numerical change).
+  MLX_MAX_MB_PER_BUFFER should stay at 200 (larger hurts prefill +3.4%).
+  Also: MLX_METAL_FAST_SYNCH=1 is not set by our code (defaults to 0). Could reduce sync overhead.
+  Source: metaspartan public note 1f891fe, same organizer frontier bca94c5.
+
+- **WAVE 9 RESULTS** (4 PRs, all resolved):
+  PR #159 (Edward) — max_total_threads_per_threadgroup: MERGED. Bit-exact occupancy hint, M4 decode +0.47% (noise), prefill +1.65%.
+  PR #160 (Alphonse) — Register-resident float4: WIP (no result yet).
+  PR #161 (Thorfinn) — Threadgroup input sharing: WIP (no result yet).
+  PR #162 (Askeladd) — is_shared branch elimination: CLOSED. DEAD — Metal compiler already optimizes uniform ternary.
   PR #147 (Alphonse) — CPU Guard Hoisting: CLOSED (incomplete, no result submitted).
   PR #155 (Thorfinn) — Attention Epilogue 1-pass: CLOSED (incomplete, no result submitted).
 
-- **WAVE 9 ASSIGNED** (4 students, BASE_SHA=0f05798, all bit-exact, all distinct arms):
-  PR TBA (Edward) — H1: max_total_threads_per_threadgroup attribute. Add Apple-recommended
+- **WAVE 9 ASSIGNED** (4 students, BASE_SHA=5ec8550, all bit-exact, all distinct arms):
+  PR #159 (Edward) — H1: max_total_threads_per_threadgroup attribute. Add Apple-recommended
     occupancy hint to ALL decode MoE kernels (R1 gate/up: 64 threads, shared SwiGLU: 64,
     fused down+residual: 288, QKV, O-proj, gate-softplus). #1 priority: 5-15% decode on M5.
     Bit-exact. References: Apple Tech Talks 10580, WWDC20, MLX discussion #3801.
-  PR TBA (Alphonse) — H4: Thread-local array → register-resident float4 values. Replace
+  PR #160 (Alphonse) — H4: Thread-local array → register-resident float4 values. Replace
     `thread float input_values[16]` with explicit float4 variables in qdot inner loops.
     WWDC16 warns stack arrays force spills. 0-10% if compiler is spilling. Bit-exact.
-  PR TBA (Thorfinn) — H5: Threadgroup input sharing across simdgroups. Both simdgroups in
+  PR #161 (Thorfinn) — H5: Threadgroup input sharing across simdgroups. Both simdgroups in
     R1 gate/up kernel load same input independently. Share via threadgroup memory + barrier.
     Eliminates 2.1M redundant bfloat→float conversions per step. 3-5% gate/up kernel. Bit-exact.
-  PR TBA (Askeladd) — H8: Eliminate is_shared branch in 9-slot down+residual kernel. Split
-    shared expert (slot 8) into separate template, let compiler eliminate branch. 1-2% decode.
-    Bit-exact.
+  PR #162 (Askeladd) — H8: Eliminate is_shared branch in 9-slot down+residual kernel. Use
+    select() or split shared expert into separate template. 1-2% decode. Bit-exact.
 
-- **M5 SUBMISSION**: 57d8f08 (composed #130+#128+#129 — 3 bit-exact decode optimizations).
-  Status: VALIDATING. All changes bit-exact, different kernels, no overlap.
-  Next submission: 15-PR composed HEAD (0f05798) — blocked by in-flight 57d8f08.
+- **M5 SUBMISSION**: 4b06e931 (composed 15 decode PRs + QHOIST prefill).
+  Status: VALIDATING (submitted 8/6 ~21:30 UTC). Bit-exact, all merged PRs + QHOIST.
+  Previous: 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED.
+  27b9c7c: rejected, 2.4972. 97a5090 (maple): promoted, 2.5888.
+  Next: Wave 9 winners (pending) or Dense MoE (Wave 10 target).
 
 - **WAVE 7 RESULTS** (complete, all merged):
   PR #144 (Edward) — R1 Gate/Up float4 input_values: MERGED. Bit-exact, 312x/step.
@@ -66,19 +107,78 @@
   5. dot(float4) IS bit-exact for per-word NVFP4 qdot (independent accumulators) but NOT for
      shared-float cross-iteration accumulation (single FP32 register, sequential adds).
 
-- **POTENTIAL NEXT DIRECTIONS (beyond Wave 9)**:
+- **WAVE 10 PLAN** (4 distinct experiments, highest-value first):
+  P1 (Edward): MLX_MAX_OPS_PER_BUFFER 200→800 in LagunaRuntimeWeights.swift:387.
+    One-line setenv change. Bit-exact scheduling optimization. Expected 3-5% decode on M5.
+    This is the HIGHEST-VALUE change — proven by metaspartan public note 1f891fe.
+    Also test MLX_METAL_FAST_SYNCH=1 if time permits. Submit ALONE to isolate effect.
+  P2 (Alphonse): V-accumulate float4 in fused sliding attention kernel (L1567-1601).
+    Pack pair_o0/pair_o1 into float4 temporaries, use vector FMA instead of 8 scalar FMAs
+    per K-iteration. Bit-exact (same FMA per lane, scalar broadcast). 30 layers × 256 K-iters.
+    Expected 1-3% decode on M5 (instruction-bound). Also update tail (L1607-1614).
+  P3 (Thorfinn): V-accumulate float4 in fused FULL attention kernel (L2030-2064).
+    Same pattern as P2 but for the 9 full-attention layers. Also update tail (L2094-2101).
+    Bit-exact. Independent code path from P2.
+  P4 (Askeladd): Dense MoE simd_shuffle_down→simd_sum (L7889-7896).
+    Replace 5-iter simd_shuffle_down loop with simd_sum(). Bit-exact cross-lane reduction.
+    Dense gate/up + down kernels, 2 dispatches/step. Lower value but safe bit-exact win.
+    NOTE: Dense MoE dot4 is NOT bit-exact (shared-float accumulation, same as PR #145).
+
+- **SCALE PLANE HALVING (Wave 11 target, VERIFIED)**:
+  MLX quantizer has a pairwise-constancy invariant for NVFP4 (group_size=16): scale[2k]==scale[2k+1]
+  for all k>=1 in each flattened weight matrix. Only k=0 (first 32 elements) can differ.
+  Our attention weights are ALL NVFP4 (DARKBLOOM_NATIVE_AFFINE_NVFP4 default ON, NVFP4_FROM=0).
+  Current scale traffic: ~89 MB/step. Halving via pairwise-constancy packing: ~45 MB/step.
+  Implementation: transform-time packing (store 1 nibble per pair) + kernel read packed format.
+  Exact escape for k=0 exceptions (~1 per matrix, ~160 total). Bit-exact (lossless re-encoding).
+  Budget: ~4K bytes needed, 32K headroom available. Two files: LagunaRuntimeModel.swift + LagunaRuntimeWeights.swift.
+  Expected gain: +0.63-0.76% score (byte channel) + instruction savings (strided load elimination).
+  QKV scale: 128 B/row × 128 groups, 4 k-blocks/row. O-proj: 384-512 B/row, 12-16 k-blocks/row.
+  Kernel access: QKV L4598-4612 (sc[0] per block, advance 32). O-proj L4197-4233 (sc[row*in_vec_size_g]).
+
+- **POTENTIAL NEXT DIRECTIONS (beyond Wave 10)**:
+  - Scale plane halving via quantizer invariant (see above — Wave 11 top priority)
+  - tail_nvfp4_qdot scalar→dot4: LAST remaining scalar NVFP4 qdot kernel (L4536-4572).
+    Runs 40× per decode step (all attention layers). ~1600 instructions saved/thread/step.
+    Bit-exact (same pattern as O-proj L4224-4227 and MoE qdot L6508). HIGH PRIORITY.
+  - JIT attention pair_planes 2→4: collapse 3 barriers to 1 per attention layer (L1610/2106).
+    80 fewer barriers per decode step. ~0.4% decode. Bit-exact (same as stock PLANES=4).
+    Threadgroup 8960 bytes (within 32KB limit). MEDIUM PRIORITY.
+  - Packed simd_sum(float2) for paired QK scores in JIT fused kernels (L1550-1551).
+    ~520 instructions saved per decode step. Bit-exact (per-component independence). LOW PRIORITY.
   - H2: Pre-interleaved weight layout (transform-time, 6-10% gate/up) — after H1/H4 results
   - H3: Fused gate/up+down single-dispatch kernel (saves ~39 dispatches/step, 2-5% decode)
   - H6: Instruction diversity / interleaved load+convert+FMA in qdot (0-5%, pipeline overlap)
   - H7: Half2 FMA accumulation (5-8% but HIGH risk — precision change, likely fails exactness)
   - Transpose-free attention reduction via quad_shuffle
+  - MLX_METAL_FAST_SYNCH=1 (fast fence sync, needs Metal 3.2+ / macOS 15+)
   - LAGUNA_RESCALE branch elimination in SDPA vector kernel
   - CPU Guard Hoisting (re-attempt with simpler implementation)
+  - Dense MoE layer (layer 0): simd_shuffle_down→simd_sum, scalar FMA→dot(float4).
+    BF16 weights, 96 MB/step read, 1/40 layers but largest single-layer bandwidth consumer.
+    Bit-exact, same proven patterns as routed kernels. 2 dispatches/step.
+
+- **PREFILL LEVER ANALYSIS** (DARKBLOOM env vars in editable vendored MLX):
+  All DARKBLOOM levers audited. Only ONE unenabled lever on the scored M5 path:
+  - ATTN_QHOIST: DEFAULT OFF (env "" == "1"). Pure hoist of loop-invariant Q fragments
+    in steel_attention_nax prefill kernel. Bit-exact (same pointer/offset/stride/mma order,
+    NO float arithmetic touched). Risk: +28 registers/thread, +16KB/threadgroup. Expected
+    ~17.8% LSU traffic reduction in prefill attention. M4 CANNOT test (gen 16 < 17 NAX
+    threshold — NAX kernel never compiled on M4). Must submit directly to M5.
+    File: Vendor/mlx-swift/.../jit_kernels.cpp L1385. Change: default "" → "1". ~20 bytes.
+    PREPARED but NOT YET SUBMITTED (blocked by 57d8f08 in queue).
+  Already shipping (DEFAULT ON): STAGE2_GATHER (v1), SWIGLU_REGLOCAL, BSEARCH_HOIST,
+    QBLOCK_MAJOR, QBLOCK_ZIGZAG. Dead: GATHER_XMAJOR (hardcoded OFF, arms removed).
+  Operator submissions with STAGE2_GATHER variant changes (26dc269 -7.21%, c95b4e4 -9.16%)
+  both regressed — do NOT change STAGE2_GATHER variant from default 1.
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign, submission 97a5090).
   Target: beat 2.5888. All component speedups must be ≥ 0.95.
-- **FRONTIER**: Advisor HEAD at 0f05798. Scored code at 639646a + 15 merges (#107→#156).
+  Birch campaign best: 2.5459 (rejected, -0.64%). All birch submissions so far below 2.5888.
+  15-PR composed HEAD (5c28822) pending submission — blocked by 57d8f08 validating.
+- **FRONTIER**: Advisor HEAD at 62380ed (meta). Scored code at 5c28822 (639646a + 15 merges #107→#156).
 - **BUDGET**: ~2,964K / 3,000,000 bytes total. LagunaRuntimeModel.swift: ~510K / 524K per file.
+  Headroom: ~36K total, ~14K per file. Wave 9 changes are small (<600 bytes each).
 - **KEY FINDINGS**:
   1. Attention main loop is MEMORY-BOUND (PR #122). Do NOT pursue attention ALU optimization.
   2. Metal compiler optimizes thread float[N] scatter to registers (PR #123).
@@ -99,10 +199,18 @@
 
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
-| #145 | Thorfinn | QKV+gate projection dot4 | ASSIGNED (Wave 7). Bit-exact, 39x/step. |
-| #144 | Edward | R1 gate/up float4 input_values | ASSIGNED (Wave 7). Bit-exact, 312x/step. |
-| #140 | Alphonse | float4 input_values shared SwiGLU | IN PROGRESS (Wave 6). Bit-exact. |
-| #134 | Askeladd | Fused down+residual packed simd_sum | IN PROGRESS (Wave 6). Bit-exact. |
+| #162 | Askeladd | is_shared branch elimination (select()) | IN PROGRESS (Wave 9). Bit-exact. |
+| #161 | Thorfinn | Threadgroup input sharing across simdgroups | IN PROGRESS (Wave 9). Bit-exact. |
+| #160 | Alphonse | Register-resident float4 input_values | IN PROGRESS (Wave 9). Bit-exact. |
+| #159 | Edward | max_total_threads_per_threadgroup | IN PROGRESS (Wave 9). Bit-exact. |
+| #156 | Askeladd | Fused down+residual float4 input_values | MERGED. Bit-exact, +1.03% decode M4. |
+| #154 | Edward | async-eval shared expert | CLOSED. DEAD — MLX already overlaps. |
+| #147 | Alphonse | CPU guard hoisting | CLOSED (incomplete, no result). |
+| #146 | Askeladd | Prefill MoE BM128 variant 4 | MERGED. Bit-exact, +17.47% kernel prefill. |
+| #145 | Thorfinn | QKV+gate dot4 | CLOSED. DEAD — not bit-exact (shared-float accum). |
+| #144 | Edward | R1 gate/up float4 input_values | MERGED. Bit-exact, 312x/step. |
+| #140 | Alphonse | float4 input_values shared SwiGLU | MERGED. Bit-exact. |
+| #134 | Askeladd | Fused down+residual packed simd_sum | MERGED. Bit-exact, +0.83% decode M4. |
 | #133 | Thorfinn | Shared SwiGLU down packed simd_sum | MERGED. Bit-exact. |
 | #132 | Alphonse | Affine QKV packed simd_sum | MERGED. Bit-exact. |
 | #131 | Edward | NVFP4 O-proj packed simd_sum | MERGED. Bit-exact. |
