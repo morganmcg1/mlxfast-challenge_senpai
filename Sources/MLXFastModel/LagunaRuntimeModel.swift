@@ -8211,8 +8211,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        if x.dim(1) == 1,
-            let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales
+        if let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales
         {
             if lagunaFusedSharedSwiGLUQMVEnabled,
                 x.dtype == .bfloat16,
