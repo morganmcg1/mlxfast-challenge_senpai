@@ -3179,9 +3179,7 @@ private func lagunaFusedQKVProjectionSource(
                     (const device vec<bfloat, 4>*)(
                         weight + (row_base + row) * in_vec_size + column);
                 const vec<bfloat, 4> w = row_values[0];
-                for (uint i = 0; i < values_per_thread; ++i) {
-                    result[row] += float(w[i]) * coefficients[i];
-                }
+                result[row] += dot(float4(w), float4(coefficients[0], coefficients[1], coefficients[2], coefficients[3]));
             }
 
             column += block_width;
@@ -3312,9 +3310,7 @@ private func lagunaFusedQKVProjectionSource(
                             gate_weight + (gate_row + r) * in_vec_size +
                                 gate_column);
                     const vec<bfloat, 4> gw = row_values[0];
-                    for (uint i = 0; i < values_per_thread; ++i) {
-                        gate_result[r] += float(gw[i]) * gate_input[i];
-                    }
+                    gate_result[r] += dot(float4(gw), float4(gate_input[0], gate_input[1], gate_input[2], gate_input[3]));
                 }
                 gate_column += gate_block_width;
             }
