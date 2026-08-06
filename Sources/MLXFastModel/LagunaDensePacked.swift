@@ -23,8 +23,12 @@ import MLXNN
 // so the channel is the REDUCTION index and the base is an 8192-byte vector
 // every row re-reads out of cache. Basing either plane on the wrong axis
 // escapes ~95% of weights.
+// Opt-in, not opt-out. The encoding is lossless and certified, but the unpack
+// ALU measured ~2.2x the bandwidth it buys, so enabling it costs ~0.7% of score
+// (see research/maple-nezuko-pr85-dense-mlp-lossless-repack.md). Default OFF so
+// that merging this branch for its write-up cannot regress the frontier.
 let lagunaDensePackedEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_DENSE_PACKED"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_DENSE_PACKED"] == "1"
 
 /// Init-time full-tensor certificate. Off by default: the packer only ever
 /// publishes a bank that reproduces its source, and the check costs a second

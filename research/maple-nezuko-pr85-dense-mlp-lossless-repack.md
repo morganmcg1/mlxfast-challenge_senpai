@@ -583,21 +583,45 @@ measurement confound to investigate, not evidence of a prefill win.
 
 ## 8. Reproduction
 
+### ⚠ Flag polarity was inverted *after* the campaign
+
+The brief specified `DARKBLOOM_DENSE_PACKED` default **ON**, `"0"` to disable,
+and that is what campaign A ran under: the ON arm set nothing and the OFF arm
+set `=0`. That is what `run-campaign-a.sh` and the slot table in
+`research/maple-nezuko-pr85/README.md` record, and I have not rewritten either.
+
+Because §6 measures the mechanism as a **regression**, shipping it default-ON
+would mean that merging this branch for its write-up silently costs ~0.7 % of
+score. So the flag is now **opt-in**: `DARKBLOOM_DENSE_PACKED=1` enables the
+packed path and anything else (including unset) takes the stock path.
+`LagunaDensePacked.swift:26-31`. Nothing else about the mechanism changed, the
+certificate is unaffected, and the default path is now bit- and
+byte-identical to base.
+
+**Consequence for reproduction:** to re-run campaign A against the current head
+you must invert the arms — set `DARKBLOOM_DENSE_PACKED=1` for the ON arm and
+leave it unset for OFF. `run-campaign-a.sh` as committed reproduces the
+*recorded* arms only against a tree with the original default; run it against
+the current head and both arms are OFF, which is itself a usable A/A.
+
 ```bash
 # census
 python3 research/nezuko_dense_census.py all
 
 # certificate (single run, traced)
-DARKBLOOM_TRACE_FUSION=1 DARKBLOOM_DENSE_PACKED_VERIFY=1 ./benchmark.sh --local-iterate
+DARKBLOOM_TRACE_FUSION=1 DARKBLOOM_DENSE_PACKED=1 \
+  DARKBLOOM_DENSE_PACKED_VERIFY=1 ./benchmark.sh --local-iterate
 
 # timing campaign A (12 paired runs, ~40 min)
+#   NB: edit the arm variable per the note above before re-running.
 bash research/maple-nezuko-pr85/run-campaign-a.sh
 
 # analysis
 cd research/maple-nezuko-pr85 && python3 analyze.py a
+cd research/maple-nezuko-pr85 && python3 covariate.py
 
-# kill switch
-DARKBLOOM_DENSE_PACKED=0 ./benchmark.sh --local-iterate
+# enable the packed path (now opt-in); omit the variable for stock
+DARKBLOOM_DENSE_PACKED=1 ./benchmark.sh --local-iterate
 ```
 
 ---
