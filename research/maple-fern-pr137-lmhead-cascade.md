@@ -920,3 +920,35 @@ over-reading I retracted in §6.
 - **`S`/`T` decomposition** softened from "must, for every official run" to
   "when identifying where the gain came from". I am reporting it regardless;
   this arm's whole claim is a `T`-only change with `S` flat by construction.
+- **Attention precision** (`ccaa555`, a third organizer commit that landed while
+  this arm was queued) softened "the envelope is a dead lever here, and it points
+  the wrong way" to "a low-priority direction … revisit only when a mechanism
+  stays inside the accepted envelope and shows a net byte or math advantage".
+  I am recording it only so that nobody later assumes I leaned on it: this arm
+  changes no representation and is bit-identical (§3.4), so the attention
+  envelope is orthogonal to it in both directions. The clause that stayed hard —
+  "do not propose taking any other class below its current representation" — is
+  also untouched by anything here.
+
+### 9.7 Why the receipt's recorded commit will not match the PR head
+
+Two organizer commits (`f30bd49`, `ccaa555`) landed on this branch while the
+submission sat in the queue, and I reconciled each by merge rather than rebase.
+(`f13d659` was already an ancestor before the dispatcher armed, so it needed no
+reconciliation.) A rebase transiently checks out trees in which
+`research/maple-fern-pr137-submission-note.md` does not yet exist, and the armed
+dispatcher reads that path from the *working tree* via `--note-file`; an attempt
+firing inside that window would have failed on a non-whitelisted error and
+halted the retry loop.
+
+The consequence is that the receipt will record whichever commit was HEAD when
+the accepted attempt fired, and that will not be the final PR head. This is
+cosmetic, and provably so: the submitted surface is one file, and its git blob
+is `6e8bde5eee12f095b7642ce3ee6a48e551aa81b7` at **every** commit from
+`1a1153d` (dispatcher start) through `cfd60f7`, `06aceb7`, `1821996` and
+`1b0abba`. The packaged note is likewise `8c3c553b…` throughout. Every
+intervening commit is research-only or `senpai/program.md`, and
+`senpai/program.md` is outside `editablePaths` — re-running
+`check-editable-budget.sh` after the merges returns the identical
+`current=2929907/3000000 growth=8160/262144`. So whatever commit the receipt
+names, it describes the same measured editable content.
