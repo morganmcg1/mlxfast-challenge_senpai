@@ -353,6 +353,29 @@ struct NVFP4QuantizedMMTests {
             salt: 71
         )
     }
+
+    @Test
+    func nvfp4ScalePairwiseConstancyHoldsForKGe1() {
+        guard nvfp4RuntimeTestsEnabled else { return }
+
+        // The MLX NVFP4 quantizer (group_size=16) has a pairwise-constancy
+        // invariant: scale[2k] == scale[2k+1] for k >= 1, caused by the
+        // tidx.x-based left/right split in fp_quantized.h.
+        for shape in [[8192, 2048], [1024, 2048], [256, 2048]] {
+            let w = deterministicNVFP4Source(shape: shape, salt: 42)
+            let (_, scales, _) = quantized(
+                w, groupSize: 16, bits: 4, mode: .nvfp4)
+            let flat = scales.asArray(UInt8.self)
+            let nCols = shape[1] / 16
+            // k >= 1: all even/odd pairs must be equal
+            for k in 1..<(flat.count / 2) {
+                #expect(flat[2 * k] == flat[2 * k + 1])
+            }
+            // k == 0: may or may not differ — just record it
+            let k0Differs = flat[0] != flat[1]
+            print("shape=\(shape) k0Differs=\(k0Differs)")
+        }
+    }
 }
 
 private let nvfp4RuntimeTestsEnabled =
