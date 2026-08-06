@@ -1469,13 +1469,16 @@ int darkbloom_stage_bm128_variant() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_STAGE_BM128", "");
     if (s.empty()) {
-      // Default 5 (2026-08-01, final): API absolutes across our four scored
-      // sessions prove the mechanism — candidate prefill 204.90 (base) →
-      // 201.64 (wn1) → 201.42 (steel) → 198.00 µs (both; fastest on record).
-      // Earlier rejections were session-baseline draw fog (bpre 364-371 vs
-      // the 375-386 every recent promotion drew), not mechanism failures.
-      // DARKBLOOM_STAGE_BM128=4 restores the WN2 tiling.
-      return 5;
+      // Default 4 (2026-08-06): variant 4 measured +17.47% vs variant 5 at
+      // kernel level (ABBA, 4/4 pairs, zero distributional overlap: 342-371
+      // vs 414-434 µs). Both reach SM=16; variant 4 buys the split from
+      // thread count (256 thr/TG, TN=2, Dtile=16) instead of the column axis
+      // (variant 5: 128 thr/TG, TN=4, Dtile=32), halving accumulator registers
+      // and doubling parallelism to hide staging latency. Bit-exact: SN=32,
+      // TN=2, TK=2 unchanged from upstream, same K partition per output row.
+      // Steady-state decode flat; gain is prefill.
+      // DARKBLOOM_STAGE_BM128=5 restores the WN1 tiling.
+      return 4;
     }
     if (s == "1") {
       return 1;
