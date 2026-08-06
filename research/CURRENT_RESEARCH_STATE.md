@@ -1,14 +1,14 @@
 # SENPAI Research State
-- 2026-08-06T21:22Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 86aa348 (pushed to origin).
+- 2026-08-06T21:30Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at d8ae547 (pushed to origin).
   Scored code frontier: 5c28822 (639646a + 15 merged optimization PRs #107→#156).
-  No scored code changes between 5c28822 and 86aa348 (research notes only).
-  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING (submitted 8/6 18:26 UTC, ~3h queue).
-  M5 submission of 15-PR composed HEAD blocked by in-flight 57d8f08 (account limit 1).
-  QHOIST prefill lever: PREPARED on branch birch-kepler/qhoist-prefill-v1 (commit a54d69b).
-    Bit-exact, M5-only (M4 gen 16 < 17 NAX threshold). Blocked by 57d8f08 in queue.
+  No scored code changes between 5c28822 and d8ae547 (research notes only).
+  M5 submission 4b06e931 (composed 15 decode PRs + QHOIST prefill) VALIDATING (submitted 8/6 ~21:30 UTC).
+  Previous 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED. 27b9c7c: rejected 2.4972.
+  QHOIST prefill lever: SUBMITTED in composed branch birch-kepler/qhoist-prefill-v1 (commit a54d69b).
+    Bit-exact, M5-only (M4 gen 16 < 17 NAX threshold). Now in M5 queue as part of 4b06e931.
   Wave 9 in progress: PRs #159-#162 (4 bit-exact kernel optimization experiments, all WIP).
-    Baseline-advanced feedback sent to #159 (86aa348). #160-#162 pending (GitHub 403 rate limit).
+    Baseline-advanced feedback sent to #159. #160-#162 pending (GitHub 403 rate limit).
 
 - **WAVE 8 RESULTS** (3 complete, 1 incomplete):
   PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
@@ -30,12 +30,11 @@
   PR #162 (Askeladd) — H8: Eliminate is_shared branch in 9-slot down+residual kernel. Use
     select() or split shared expert into separate template. 1-2% decode. Bit-exact.
 
-- **M5 SUBMISSION QUEUE**: 57d8f08 (composed #130+#128+#129 — 3 bit-exact decode optimizations).
-  Status: VALIDATING (submitted 8/6 18:26 UTC, ~3h). All changes bit-exact, different kernels, no overlap.
-  Next submission candidates (blocked by 57d8f08):
-    1. 15-PR composed HEAD (5c28822) — all merged optimization PRs composed.
-    2. QHOIST prefill (a54d69b on birch-kepler/qhoist-prefill-v1) — bit-exact, M5-only, ~17.8% LSU reduction.
-    3. Wave 9 winners (pending student results from PRs #159-#162).
+- **M5 SUBMISSION**: 4b06e931 (composed 15 decode PRs + QHOIST prefill).
+  Status: VALIDATING (submitted 8/6 ~21:30 UTC). Bit-exact, all merged PRs + QHOIST.
+  Previous: 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED.
+  27b9c7c: rejected, 2.4972. 97a5090 (maple): promoted, 2.5888.
+  Next: Wave 9 winners (pending) or Dense MoE (Wave 10 target).
 
 - **WAVE 7 RESULTS** (complete, all merged):
   PR #144 (Edward) — R1 Gate/Up float4 input_values: MERGED. Bit-exact, 312x/step.
@@ -81,6 +80,9 @@
   - Transpose-free attention reduction via quad_shuffle
   - LAGUNA_RESCALE branch elimination in SDPA vector kernel
   - CPU Guard Hoisting (re-attempt with simpler implementation)
+  - Dense MoE layer (layer 0): simd_shuffle_down→simd_sum, scalar FMA→dot(float4).
+    BF16 weights, 96 MB/step read, 1/40 layers but largest single-layer bandwidth consumer.
+    Bit-exact, same proven patterns as routed kernels. 2 dispatches/step.
 
 - **PREFILL LEVER ANALYSIS** (DARKBLOOM env vars in editable vendored MLX):
   All DARKBLOOM levers audited. Only ONE unenabled lever on the scored M5 path:
