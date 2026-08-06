@@ -1,11 +1,14 @@
 # SENPAI Research State
-- 2026-08-06T21:19Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 00139d0 (pushed to origin).
+- 2026-08-06T21:22Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 86aa348 (pushed to origin).
   Scored code frontier: 5c28822 (639646a + 15 merged optimization PRs #107→#156).
-  No scored code changes between 5c28822 and 00139d0 (research notes only).
+  No scored code changes between 5c28822 and 86aa348 (research notes only).
   M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING (submitted 8/6 18:26 UTC, ~3h queue).
   M5 submission of 15-PR composed HEAD blocked by in-flight 57d8f08 (account limit 1).
-  Wave 9 assigned: PRs #159-#162 (4 bit-exact kernel optimization experiments, all Draft, baseline-advanced feedback sent).
+  QHOIST prefill lever: PREPARED on branch birch-kepler/qhoist-prefill-v1 (commit a54d69b).
+    Bit-exact, M5-only (M4 gen 16 < 17 NAX threshold). Blocked by 57d8f08 in queue.
+  Wave 9 in progress: PRs #159-#162 (4 bit-exact kernel optimization experiments, all WIP).
+    Baseline-advanced feedback sent to #159 (86aa348). #160-#162 pending (GitHub 403 rate limit).
 
 - **WAVE 8 RESULTS** (3 complete, 1 incomplete):
   PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
@@ -27,9 +30,12 @@
   PR #162 (Askeladd) — H8: Eliminate is_shared branch in 9-slot down+residual kernel. Use
     select() or split shared expert into separate template. 1-2% decode. Bit-exact.
 
-- **M5 SUBMISSION**: 57d8f08 (composed #130+#128+#129 — 3 bit-exact decode optimizations).
-  Status: VALIDATING. All changes bit-exact, different kernels, no overlap.
-  Next submission: 15-PR composed HEAD (0f05798) — blocked by in-flight 57d8f08.
+- **M5 SUBMISSION QUEUE**: 57d8f08 (composed #130+#128+#129 — 3 bit-exact decode optimizations).
+  Status: VALIDATING (submitted 8/6 18:26 UTC, ~3h). All changes bit-exact, different kernels, no overlap.
+  Next submission candidates (blocked by 57d8f08):
+    1. 15-PR composed HEAD (5c28822) — all merged optimization PRs composed.
+    2. QHOIST prefill (a54d69b on birch-kepler/qhoist-prefill-v1) — bit-exact, M5-only, ~17.8% LSU reduction.
+    3. Wave 9 winners (pending student results from PRs #159-#162).
 
 - **WAVE 7 RESULTS** (complete, all merged):
   PR #144 (Edward) — R1 Gate/Up float4 input_values: MERGED. Bit-exact, 312x/step.
