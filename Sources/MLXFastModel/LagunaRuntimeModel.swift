@@ -4505,14 +4505,51 @@ func lagunaTailNVFP4QDotAccumDeclSource(seedElide: Bool) -> String {
     seedElide ? "float accum;" : "float accum = 0;"
 }
 
+/// `DARKBLOOM_QKV_FMA_DEQUANT` (default ON; set "0" to restore the multiply-add
+/// accumulation): replaces the four-term `a*b + c*d + e*f + g*h` chains in
+/// `laguna_tail_nvfp4_qdot` with nested `fma()` calls, mirroring the proven
+/// MoE `packedWordBody` pattern. FMA fuses each multiply-add pair into a single
+/// rounded operation (4 roundings per group instead of 7), reducing ALU
+/// pressure on the bandwidth-bound R1 kernel. Under `setFastMathEnabled(false)`
+/// the Metal `fma` is a true IEEE fused multiply-add; the reduced rounding can
+/// shift the result by ≤1 ULP relative to the multiply-add form, so correctness
+/// must be verified empirically.
+private let lagunaTailNVFP4QKVFmaDequantEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_QKV_FMA_DEQUANT"] != "0"
+
 /// First four-term product group of `laguna_tail_nvfp4_qdot`. Seed-elided, the
 /// first code word (`j == 0`) assigns the accumulator; every other word adds.
 /// The `if (j == 0)` / `else` split and the multiply/add expressions are the
 /// exact text o_proj's `firstAccum` emits, so the association is untouched --
 /// only a signed-zero can differ, absorbed by the `+0.0f`-seeded `result` and
 /// the BF16 epilogue. The non-elided arm reproduces the frontier group verbatim.
-func lagunaTailNVFP4QDotFirstGroupSource(seedElide: Bool) -> String {
-    seedElide
+/// When `fmaEnabled`, nested `fma()` replaces the multiply-add chain, matching
+/// the MoE `packedWordBody` form. Seed-elided FMA seeds `j == 0` with `0.0f`
+/// (not `accum`, which is uninitialized when seed-elided).
+func lagunaTailNVFP4QDotFirstGroupSource(seedElide: Bool, fmaEnabled: Bool) -> String {
+    if fmaEnabled {
+        if seedElide {
+            return "if (j == 0) {\n"
+                + "                accum =\n"
+                + "                    fma(x_thread[8 * j], v04.x,\n"
+                + "                    fma(x_thread[8 * j + 1], v15.x,\n"
+                + "                    fma(x_thread[8 * j + 2], v26.x,\n"
+                + "                    fma(x_thread[8 * j + 3], v37.x, 0.0f))));\n"
+                + "            } else {\n"
+                + "                accum =\n"
+                + "                    fma(x_thread[8 * j], v04.x,\n"
+                + "                    fma(x_thread[8 * j + 1], v15.x,\n"
+                + "                    fma(x_thread[8 * j + 2], v26.x,\n"
+                + "                    fma(x_thread[8 * j + 3], v37.x, accum))));\n"
+                + "            }"
+        }
+        return "accum =\n"
+            + "                fma(x_thread[8 * j], v04.x,\n"
+            + "                fma(x_thread[8 * j + 1], v15.x,\n"
+            + "                fma(x_thread[8 * j + 2], v26.x,\n"
+            + "                fma(x_thread[8 * j + 3], v37.x, accum))));"
+    }
+    return seedElide
         ? "if (j == 0) {\n"
             + "                accum =\n"
             + "                    (x_thread[8 * j] * v04.x +\n"
@@ -4531,6 +4568,23 @@ func lagunaTailNVFP4QDotFirstGroupSource(seedElide: Bool) -> String {
             + "             x_thread[8 * j + 1] * v15.x +\n"
             + "             x_thread[8 * j + 2] * v26.x +\n"
             + "             x_thread[8 * j + 3] * v37.x);"
+}
+
+/// Second four-term product group of `laguna_tail_nvfp4_qdot`. Always
+/// accumulates into the existing `accum`. When `fmaEnabled`, uses nested
+/// `fma()` matching the MoE `packedWordBody` second-half form.
+func lagunaTailNVFP4QDotSecondGroupSource(fmaEnabled: Bool) -> String {
+    fmaEnabled
+        ? "accum =\n"
+            + "                fma(x_thread[8 * j + 4], v04.y,\n"
+            + "                fma(x_thread[8 * j + 5], v15.y,\n"
+            + "                fma(x_thread[8 * j + 6], v26.y,\n"
+            + "                fma(x_thread[8 * j + 7], v37.y, accum))));"
+        : "accum +=\n"
+            + "            (x_thread[8 * j + 4] * v04.y +\n"
+            + "             x_thread[8 * j + 5] * v15.y +\n"
+            + "             x_thread[8 * j + 6] * v26.y +\n"
+            + "             x_thread[8 * j + 7] * v37.y);"
 }
 
 /// The deferred `2^22` re-applied once per output row at the R1 epilogue when
@@ -4582,12 +4636,8 @@ private let lagunaTailNVFP4QMVHeader = """
             const float2 v15 = float2(as_type<half2>(p1));
             const float2 v26 = float2(as_type<half2>(p2));
             const float2 v37 = float2(as_type<half2>(p3));
-            \(lagunaTailNVFP4QDotFirstGroupSource(seedElide: lagunaTailNVFP4QKVSeedElisionEnabled))
-            accum +=
-                (x_thread[8 * j + 4] * v04.y +
-                 x_thread[8 * j + 5] * v15.y +
-                 x_thread[8 * j + 6] * v26.y +
-                 x_thread[8 * j + 7] * v37.y);
+            \(lagunaTailNVFP4QDotFirstGroupSource(seedElide: lagunaTailNVFP4QKVSeedElisionEnabled, fmaEnabled: lagunaTailNVFP4QKVFmaDequantEnabled))
+            \(lagunaTailNVFP4QDotSecondGroupSource(fmaEnabled: lagunaTailNVFP4QKVFmaDequantEnabled))
         }
         \(lagunaTailNVFP4QDotReturn)
     }
@@ -4646,7 +4696,8 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                + (lagunaTailNVFP4QKVFmaDequantEnabled ? "_fma1" : ""),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVR1Source,
