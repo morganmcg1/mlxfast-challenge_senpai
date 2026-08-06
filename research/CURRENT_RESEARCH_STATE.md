@@ -1,10 +1,11 @@
 # SENPAI Research State
-- 2026-08-06T09:00Z (updated)
-- Campaign mlxfast-birch-20260805. All 4 students assigned. Advisor HEAD at b6a0889.
+- 2026-08-06T13:50Z (updated)
+- Campaign mlxfast-birch-20260805. All 4 students assigned. Advisor HEAD at 5fe7f20.
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
   (lBroth) = ~0.25% gap. Any single experiment success likely closes this.
-- **FRONTIER**: b6a0889 (PR #98 merged: prefill affine O-proj extension + PR #94 +
-  advisor notes). Previous frontier: f4bad35, then e925569 (PR #94 simd_dot attention).
+- **FRONTIER**: 5fe7f20 (research state update: _nax confirmed for quantizedMM on M5).
+  Previous: b6a0889 (PR #98 merged: prefill affine O-proj extension + PR #94 +
+  advisor notes). Previous: f4bad35, then e925569 (PR #94 simd_dot attention).
 
 ## MERGED: PR #94 (Alphonse) — simd_dot in fused attention score computation
 - **Status**: MERGED (squash) → e925569. Bit-exact, upstream-equivalence verified.
@@ -37,15 +38,20 @@
   dequant overhead vs BF16 bandwidth savings), but the mechanism is sound.
   Official M5 measurement needed to confirm gain, not to prevent regression.
 
-## In-Flight Experiments (3 decode, all independent)
+## In-Flight Experiments (4 decode, all independent)
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact |
 |---------|-----|-----------|-----------|------|-------------|
 | Alphonse | #107 | NVFP4 qdot dot4 vectorization | Replace 16 scalar FMA with 4 dot(float4,float4)+adds in shared qdot header (all NVFP4 kernels) | MED | 0.5-2.0% decode |
 | Thorfinn | #102 | Attention threadGroup 1024→128 | Reduce 8× over-provisioning: only 128/1024 threads active. Bit-exact, improves occupancy + barrier latency | ZERO | 0.3-1.0% decode |
 | Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode |
+| Askeladd | #109 | simd_sum vectorization sweep | Pack scalar simd_sum into vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU). Bit-exact. 75% fewer shuffle instructions. | ZERO | 0.2-1.0% decode |
 
-3 decode arms (75% score weight). All independent code sections.
+4 decode arms (75% score weight). All independent code sections. All compose cleanly.
+
+Note: PR #108 was a broken duplicate of #109 (invalid marker on line 3). PR #109
+is the live assignment for birch-askeladd. PR #108 is an orphan draft — cannot be
+closed via transition due to invalid marker; ignore it.
 
 ### Key Design Notes
 
