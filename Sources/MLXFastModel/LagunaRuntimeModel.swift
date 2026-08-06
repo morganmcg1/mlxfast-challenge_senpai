@@ -1325,7 +1325,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
+        "k_cache", "v_cache", "params",
     ],
     outputNames: ["attended"],
     source: """
@@ -1348,7 +1348,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         uint sg = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
         uint widx = params[0];
-        float scale = scale_arr[0];
+        const float scale = as_type<float>(0x3db504f3u);
 
         threadgroup bfloat tg_q0[head_dim];
         threadgroup bfloat tg_q1[head_dim];
@@ -1700,8 +1700,7 @@ func lagunaSlidingFusedAttention(
     angles: MLXArray,
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
-    writeIdx: Int,
-    scale: MLXArray
+    writeIdx: Int
 ) -> MLXArray {
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -1722,7 +1721,6 @@ func lagunaSlidingFusedAttention(
     precondition(
         cacheValues.shape == [1, kvHeads, window, LagunaConstants.headDim])
     precondition(writeIdx >= 0 && writeIdx < window)
-    precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
@@ -1731,7 +1729,7 @@ func lagunaSlidingFusedAttention(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
-            cacheKeys, cacheValues, params, scale,
+            cacheKeys, cacheValues, params,
         ],
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
@@ -1795,7 +1793,7 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
+        "k_cache", "v_cache", "params",
     ],
     outputNames: ["attended"],
     source: """
@@ -1819,7 +1817,7 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         uint widx = params[0];
         int N = int(params[1]);
         uint capacity = params[2];
-        float scale = scale_arr[0];
+        const float scale = as_type<float>(0x3db504f3u);
 
         threadgroup bfloat tg_q0[head_dim];
         threadgroup bfloat tg_q1[head_dim];
@@ -2211,8 +2209,7 @@ func lagunaFullFusedAttention(
     angles: MLXArray,
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
-    writeIdx: Int,
-    scale: MLXArray
+    writeIdx: Int
 ) -> MLXArray {
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -2233,7 +2230,6 @@ func lagunaFullFusedAttention(
     precondition(
         cacheValues.shape == [1, kvHeads, capacity, LagunaConstants.headDim])
     precondition(writeIdx >= 0 && writeIdx < capacity)
-    precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
     let params = MLXArray([
@@ -2243,7 +2239,7 @@ func lagunaFullFusedAttention(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
-            cacheKeys, cacheValues, params, scale,
+            cacheKeys, cacheValues, params,
         ],
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
@@ -2274,7 +2270,6 @@ func lagunaWarmFullFusedAttentionKernel() {
         [1, kvHeads, 2, headDim], dtype: .bfloat16)
     let cacheValues = MLXArray.zeros(
         [1, kvHeads, 2, headDim], dtype: .bfloat16)
-    let scale = MLXArray([pow(Float(headDim), -0.5)])
     eval(lagunaFullFusedAttention(
         rawQueries: rawQueries,
         rawKeys: rawKeys,
@@ -2284,8 +2279,7 @@ func lagunaWarmFullFusedAttentionKernel() {
         angles: angles,
         cacheKeys: cacheKeys,
         cacheValues: cacheValues,
-        writeIdx: 1,
-        scale: scale
+        writeIdx: 1
     ))
 }
 
@@ -5162,10 +5156,6 @@ final class LagunaRuntimeAttention: Module {
     let gatePerHead: Bool
     let isSliding: Bool
     let layerIdx: Int
-    /// Retained `[1]` FP32 carrier of `scale` for the fused decode
-    /// attention kernel (same float the stock SDPA call passes), built once
-    /// so the per-step graph adds no fresh scalar upload for it.
-    lazy var _fusedAttnScale: MLXArray = MLXArray([scale])
     let attentionGateProjection: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray
 
     @ModuleInfo(key: "q_proj") var wq: Linear
@@ -5713,8 +5703,7 @@ final class LagunaRuntimeAttention: Module {
                 angles: fusedAngles,
                 cacheKeys: ring.keys,
                 cacheValues: ring.values,
-                writeIdx: ring.writeIdx,
-                scale: _fusedAttnScale
+                writeIdx: ring.writeIdx
             )
             rotating.fusedRingAdvance()
             qkNormRoPEFused = true
@@ -5737,8 +5726,7 @@ final class LagunaRuntimeAttention: Module {
                 angles: fusedAngles,
                 cacheKeys: append.keys,
                 cacheValues: append.values,
-                writeIdx: append.writeIdx,
-                scale: _fusedAttnScale
+                writeIdx: append.writeIdx
             )
             simple.fusedAppendAdvance()
             qkNormRoPEFused = true
