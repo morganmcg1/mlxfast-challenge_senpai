@@ -1,33 +1,40 @@
 # SENPAI Research State
-- 2026-08-05T13:47Z (updated)
-- Campaign mlxfast-birch-20260805. All 4 students assigned. Advisor HEAD at 61aef87.
+- 2026-08-06T08:22Z (updated)
+- Campaign mlxfast-birch-20260805. 3 students active, 1 free (Alphonse). Advisor HEAD at e925569.
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
   (lBroth) = ~0.25% gap. Any single experiment success likely closes this.
-- **FRONTIER**: 61aef87 (advisor HEAD, research state + negative results).
-  Previous frontier 12a712d (PR #84: top-8 elimination, bit-exact, -49 lines, merged).
+- **FRONTIER**: e925569 (PR #94 merged: simd_dot attention, bit-exact, -39 lines).
+  Previous frontier: 12a712d (PR #84: top-8 elimination), then 61aef87 (research notes).
 
-## In-Flight Experiments (3 decode + 1 prefill, all independent)
+## MERGED: PR #94 (Alphonse) — simd_dot in fused attention score computation
+- **Status**: MERGED (squash) → e925569. Bit-exact, upstream-equivalence verified.
+- **Change**: Replaced 4 scalar FMA + simd_sum (5 ops) with dot(float4,float4) + simd_sum (2 ops)
+  in both sliding (v1→v2) and full (v1→v2) fused attention kernels. -39 lines, -1,640 bytes.
+- **M4 timing**: INCONCLUSIVE (+0.25% decode, within noise). Expected — M4 is bandwidth-bound.
+- **M5 hypothesis**: Instruction reduction on instruction-bound M5. Unverified on M5.
+- **Composition**: Safe to compose with #102 (threadGroup) and #100 (O-proj prefetch).
+- **W&B**: Baseline y81omqko/6ga1mg8e/7qta01sy, Candidate njlm1fh1/rieo4n2q/tk4ca0ad
+- **Note**: Student used dot()+simd_sum (2 ops) not simd_dot() (1 op). Still 60% instruction reduction.
+
+## In-Flight Experiments (2 decode + 1 prefill, all independent)
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact |
 |---------|-----|-----------|-----------|------|-------------|
-| Alphonse | #94 | simd_dot in attention score computation | Replace 4 scalar FMA + simd_sum with simd_dot (5→1 ops) | MED | 0.2-1.0% decode |
 | Thorfinn | #102 | Attention threadGroup 1024→128 | Reduce 8× over-provisioning: only 128/1024 threads active. Bit-exact, improves occupancy + barrier latency | ZERO | 0.3-1.0% decode |
 | Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode |
 | Askeladd | #98 | Prefill O-proj affine path extension | Relax L==1 guard → quantizedMM with affine INT8 weights for prefill | MED | 0.3-1.0% prefill |
 
-3 decode arms (75% score weight) + 1 prefill arm (25% weight). All independent code sections.
+2 decode arms (75% score weight) + 1 prefill arm (25% weight). All independent code sections.
 
 ### Key Design Notes
 
-- **Thorfinn #102** (NEW): Both fused attention kernels (sliding + full) dispatch
+- **Thorfinn #102**: Both fused attention kernels (sliding + full) dispatch
   threadGroup=1024 but only 4 simdgroups (128 threads) do work. The kernel
   comment at line 2366 confirms "one threadgroup of 128 threads (four simdgroups)".
   Reducing to threadGroup=128 is bit-exact (same sg 0-3 mapping) and reduces
   register waste + barrier latency. Runs on all 40 layers per decode step.
   Independent from #94 (dispatch params vs kernel source — different code sections).
-
-- **Alphonse #94**: simd_dot replaces 4 FMA + simd_sum in attention score
-  computation. M4 null is expected (M4 is bandwidth-bound, M5 is instruction-bound).
+  NOTE: #94 is now merged, so #102 must rebase to e925569 before testing.
 
 - **Edward #100**: Depth-1 prefetch on gated affine INT8 O-proj kernel.
   Prior #93 (down+residual prefetch) was NEGATIVE (bandwidth-bound), but O-proj
@@ -78,10 +85,11 @@
 - Attention kernels use threadGroup=1024 but only 128 threads active (4 simdgroups).
   Grid: (heads/2)*1024. Reducing to threadGroup=128 is bit-exact (NEW: #102).
 
-## Prior Negative Results (DO NOT REPEAT)
+## Prior Results (DO NOT REPEAT)
 
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
+| #94 | Alphonse | simd_dot (dot+simd_sum) in attention | MERGED — bit-exact, -39 lines. M4 inconclusive, M5 unverified. |
 | #97 | Edward | Prefill shared expert fused bank guard | NEGATIVE — dispatch elimination is NOT a win. Dispatch overhead negligible. |
 | #96 | Thorfinn | Register-prefetch on shared SwiGLU QMV | NEGATIVE — register pressure regression. Shared kernel has precomputed addresses. |
 | #93 | Edward | Register-prefetch on down+residual kernel | NEGATIVE — bandwidth-bound kernel, prefetch adds overhead. W&B run 3jhy0yb3 |
