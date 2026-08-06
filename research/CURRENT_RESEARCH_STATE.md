@@ -1,9 +1,15 @@
 # SENPAI Research State
 
-- **2026-08-06 09:10 UTC** (advisor: meridian). **Rounds 14–19 are closed.
-  Round 20 is running; #104 has landed and three arms remain in flight (#101,
-  #103, #105).** Frontier is still **`1d12077a`**; advisor base is
-  **`b60bdd75`** (notes-only). **Read the ROUND-20.5 DELTA block first** — it
+- **2026-08-06 09:35 UTC** (advisor: meridian). **Rounds 14–20 are closed.
+  Round 21 is running; all four students are busy (#101, #103, #105, #110).**
+  Frontier is still **`1d12077a`**; advisor base is **`2f3ed2e2`** (notes-only).
+  **Read the ROUND-21 DELTA block first** — it opens the **PRICE-OF-A-BYTE
+  CRISIS** (our two working byte→score calibrations disagree by **1.71×**, and
+  the corpus may contain **no M5-measured per-kernel timing at all**), assigns
+  #110 to settle it, and banks six externally-generated round-21 hypotheses
+  including **R1, the certified-exact router screen** (40.9 MB/step plane,
+  bit-exact by construction, the largest single pre-priceable byte arm on the
+  board). Then read the ROUND-20.5 DELTA block — it
   mints **§0.9.39 (the DENOMINATOR LAW: an observed/predicted ratio is
   meaningless unless the denominator is the achieved rate of the kernel that
   reads those bytes, on the host where the measurement was taken)** and
@@ -63,6 +69,149 @@
   mechanism whose best case is below the 0.278% single-receipt floor and whose
   family has a proven ceiling below that floor is preserved as a `research/`
   patch, never merged as permanent scored-path code.
+
+---
+
+## ★★★★★ ROUND-21 DELTA (2026-08-06 09:35 UTC) — READ BEFORE EVERYTHING ELSE
+
+### §R21.1 THE PRICE-OF-A-BYTE CRISIS — the programme's pricing model is not
+### trustworthy to within a factor of two, and #110 is assigned to fix it
+
+§0.9.39 said the denominator must be the rate of the kernel that reads the
+bytes. Round 21 found the consequence is worse than the law implied. **The two
+empirical calibrations the programme actually uses disagree with each other by
+1.71×:**
+
+| calibration | figure | implied %/MB |
+|---|---|---|
+| #72, routed scale plane | +0.834 % per 30.66 MB/step | **0.0272 %/MB** |
+| §R20.2, lm-head re-split | +0.41 % per 25.7 MB/step | **0.01595 %/MB** |
+
+Every queued arm carries one of these, chosen by habit rather than by kernel.
+**Bundling under §R18.9 requires ~1 % of `ns`; a 1.71× pricing error is enough
+to turn a planned 1.05 % bundle into a 0.61 % bundle and burn a submission slot
+that is shared with birch (§0.9.34).** Pricing is therefore now a higher-value
+target than any single arm on the board.
+
+**The arithmetic that makes this urgent.** 1 MB at 546.2 GB/s is 1.831 µs;
+1.831e-3 ms × 14.862 %/ms = **0.02721 %/MB**, which reproduces #72's +0.834 %
+from 30.66 MB to four significant figures. Either that is a striking
+confirmation of the roofline model, or **#72's "empirical anchor" is a
+prediction that has been quoted back to us as a measurement.** #110 must settle
+which, with a `path:line` citation to the receipt. The same test applied to
+§R20.2 suggests the lm-head arm predicted −1.11 % and observed +0.41 %, an
+observed/predicted ratio of **0.37×** — far outside the §0.9.36 1.0–1.2× band.
+
+**§R21.2 THE M5-BLINDNESS FINDING (provisional, #110 must confirm or refute).**
+A survey of `research/` reports that **no file contains a per-kernel timing
+table measured on an M5**. Every census names M4 Pro, Apple GPU generation 16
+(`maple-tanjiro-pr73-decode-kernel-census.md:160-161`;
+`maple-tanjiro-pr91-prefill-budget-census.md:172-177`), and CRS itself states
+the rule at `:861-863`: *"Every M-labelled timing is M4 Pro, gen 16 … No
+M-labelled figure here is a claim about M5 timing."* If that holds, the **only**
+genuine M5 price points we own are the ranked receipts — one paired score delta
+each. Assembling them is #110's Table R. **If Table R yields fewer than four
+usable MEASURED rows, that is the headline finding of the round**: it would mean
+the programme has been navigating on three data points.
+
+**§R21.3 SANCTIONED-RATE PROVENANCE (leads, not established fact).** 651.8 →
+`tanjiro-pr34-result.md:599`; 546.2 → `:602`; 415 → `tanjiro-pr27-result.md:152`
+(a whole-step *average*, later withdrawn at CRS `:2809`); 281.3 →
+`maple-fern-pr71-routed-qmv-bandwidth.md:134` ("108.1 % of the M4 ceiling");
+260.6 (lm-head) → CRS `:96`. **Three of the five exceed the M4 DRAM ceiling of
+260.2 GB/s, so they are cache-assisted effective rates, not DRAM rates.** Any
+brief quoting one must say which.
+
+**§R21.4 THE SATURATION COEFFICIENT.** The achieved rate alone does not price a
+removal; the *regime* does. If a kernel runs at its ceiling, removing bytes
+removes time at the achieved rate (σ ≈ 1). If it is issue- or latency-bound,
+removing bytes removes almost nothing (σ ≪ 1) — and note the sign trap:
+dividing by a *lower* achieved rate predicts a *larger* saving, so a slow,
+issue-bound kernel is exactly where naive roofline pricing over-predicts worst.
+The working model handed to #110 is
+`Δscore% = bytes_removed / rate_kernel × 14.862 %/ms × σ_kernel`, and its
+falsification condition is that per-kernel repricing fails to collapse the
+historical ratios into the §0.9.36 band.
+
+### §R21.5 ROUND-21 HYPOTHESIS SET (external frontier review, full text at
+### `research/RESEARCH_IDEAS_2026-08-06_09:00.md`)
+
+Six ideas, generated without access to this conversation, ranked by expected
+value per source byte. Advisor annotations follow each.
+
+- **R1 — certified-exact router screen.** The fused
+  `laguna_residual_rms_router_bf16_2048_rpg*` kernel reads the full 2048×256
+  BF16 router weight per layer: **40.9 MB/step**. Replace the in-kernel GEMV
+  with an INT8/INT4 coarse GEMV plus a per-row error bound, then re-evaluate in
+  exact BF16, in stock FMA order, every expert whose coarse upper bound reaches
+  the 8th-best lower bound. **Bit-exact by construction** — the same
+  certification class as the already-shipped lm-head cascade — and fused, so
+  **zero added dispatches**. −17.8 MB (INT8) to −28.1 MB (INT4). *Advisor: this
+  is the strongest new arm on the board. Its offline falsifier (survivor-count
+  simulation over the real router weights) is free and needs no GPU. **Do not
+  assign it until #110 returns the router kernel's rate and σ** — pricing it
+  today would be the exact §0.9.39 error.*
+- **R2 — decode-traversal-order weight arena.** Pack decode-hot weight banks
+  into one arena in traversal order to attack page-walk/TLB and buffer-switch
+  overhead. Load-time only, trivially bit-exact. *Advisor: a genuinely unprobed
+  axis — grep-verified absent from this corpus. Stage 0 (log allocation vs
+  traversal order, count distinct buffers/step) is an hour and can close it for
+  free.*
+- **R3 — prefill routed gather-GEMM tile fit, BN 64→32.** *Advisor: this is
+  §R20.10's C2, independently rediscovered. Convergent promotion from two
+  directions raises my confidence. New content worth taking: average rows per
+  expert is 512·8/256 = **16** against a 64-row tile, and the analytic
+  issue-waste check from a rows-per-expert histogram is a free pre-filter.
+  Constraint unchanged: **no M4 host can validate a NAX prefill change**, so
+  this consumes a ranked M5 receipt.*
+- **R4 — lm-head stage-4 `sparse_refine` M5 geometry.** *Advisor: consistent
+  with §R20.1 (stage 1 saturated at 100.2 %, so only stage 4 has slack). Small
+  and M5-only; a bundling rider, not a lead arm.*
+- **R5 — prefill glue-pass reduction.** *Advisor: **already refuted.** §R20.10
+  demoted C5 on hard data — `sort_scatter` minus `arange` is 78 dispatches /
+  **2.17 ms**, not 98.4 ms, and total non-NAX glue is ≈14.8 ms of 545 ms. The
+  external reviewer lacked this. Recorded here so it is not re-proposed.*
+- **R6 — free structure censuses.** (a) stride-4 (g64) constancy on the expert
+  scale plane, stacking on #72/#104; (b) zero-cacheline clustering in the NVFP4
+  nibble planes. *Advisor: (a) is attractive — #72 found 99.999983 % pairwise
+  equality with 168 structured exceptions, which smells like a re-expanded
+  coarser artifact, and nobody has tested stride-4. Zero GPU, zero scored bytes
+  until a census passes. Queue behind #110.*
+
+The same review independently re-closed attention-scale g16→g32 (banked by
+#35/#80), KV-cache and dense-layer lossy requant (outside the accepted
+envelope), RotatingKVCache rotation copies, native FP4 NAX MMA
+(`fp_quantized_nax.h` dequantizes to T before MMA), popularity-based expert
+placement (fixture specialization), and the dispatch/barrier/encode-order
+families. Those closures now have two independent confirmations.
+
+### §R21.6 ROUND-21 ASSIGNMENT — #110 (nezuko), zero ranked GPU time
+
+`maple-2026-08-06l-m5-byte-price-ledger`, base `2f3ed2e2`. **Arm A**
+(research-only, zero submitted bytes): Table R (every ranked receipt, with
+MEASURED/DERIVED/PREDICTED and READ/REMOVED labels per cell), Table K
+(per-kernel achieved GB/s from the M4 census ÷ first-principles bytes, with a
+SATURATED/PARTIAL/ISSUE-BOUND class), the 1.71× reconciliation, a pasteable
+pricing law with residual dispersion, and repriced intervals for #105, #72/#104,
+the router plane, and the dense BF16 plane. **Arm B** (maintenance): delete
+§R20.11 row 1 — `LagunaRuntimeModel.swift:11072-11325` (12,336 B, verified) plus
+the single call at `:10894` — for ≈12.4 kB, i.e. **28 % of the remaining 44,537
+B per-file headroom**. Gates: clean `--local-iterate` build, upstream
+equivalence *with the test count reported*, identical `golden_hash` under
+differing `harness_hash`. **No timing claim for Arm B.**
+
+Region fence in the shared file: #101 owns `gate_sp` ~:4275 and o_proj scale
+reads ~:4135-4155; #103 owns the fused-attn kernel strings ~:1370/~:1819 and
+dispatch ~:1761/~:2263; #105 owns `LagunaLmHeadPrune.swift` and ~:10920-11053;
+#110 owns `:10894` and `:11054-11327` only.
+
+### §R21.7 OPEN, NEEDS A HUMAN OPERATOR
+
+The birch/maple shared submission channel (§0.9.34) still has no typed
+transition for opening a new issue, and `respond_to_issue` requires an existing
+human-authored message id. **This will block the moment two arms report GO and
+want to bundle.** Flagging it here so the next advisor does not discover it
+under time pressure.
 
 ---
 
