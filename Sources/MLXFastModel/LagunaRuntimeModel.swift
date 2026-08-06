@@ -135,10 +135,6 @@ let lagunaFusedRoutedSwiGLUQMVEnabled =
 let lagunaPackedScalesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES"] != "0"
 
-/// Request exact corrected router ordinals for the non-R1 packed consumer.
-private let lagunaRouterPrecomputedKeysRequested =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_PRECOMPUTED_KEYS"] != "0"
-
 /// One-shot stderr visibility for the packed-scales arm: with the flag set,
 /// the arm MUST announce either "active" (bank built / packed dispatch taken)
 /// or "inactive" (a guard declined and the stock kernel ran instead), so a
@@ -7322,7 +7318,7 @@ let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
 private var lagunaRouterPrecomputedKeysProduced: Bool {
-    lagunaRouterPrecomputedKeysRequested && !lagunaRoutedGateUpR1Enabled
+    !lagunaRoutedGateUpR1Enabled
 }
 
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
@@ -9928,8 +9924,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 {
                     lagunaPackedScalesLog.note(
                         "active", "routed swiglu qmv packed dispatch")
-                    if lagunaRouterPrecomputedKeysRequested,
-                        (lagunaRoutedGateUpR1Enabled
+                    if (lagunaRoutedGateUpR1Enabled
                             || (routerKeys?.dtype == .uint32
                                 && routerKeys?.size == LagunaConstants.numExperts)),
                         gate.topK == LagunaConstants.numExpertsPerTok,
