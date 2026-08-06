@@ -1695,6 +1695,17 @@ void gather_qmm_rhs_nax(
       darkbloom_expert_aligned_gather() && mode != "affine" && transpose &&
       group_size == 16 && bits == 4 && laguna_moe_shape && M >= 64 &&
       align_N && align_K && bm == 64 && wm == 4 && (wn == 2 || wn == 1);
+  // Positive kernel-selection assert. Falling off expert_aligned dispatches
+  // the non-expert kernel silently, so a bk that only the expert kernel was
+  // reasoned about would be measured on code nobody analysed. bk != 64 is
+  // reachable only from the gate above, whose predicate is a strict superset
+  // of expert_aligned's; this turns that argument into an enforced invariant
+  // rather than a comment that a later edit can invalidate.
+  if (bk != 64 && !expert_aligned) {
+    throw std::runtime_error(
+        "[gather_qmm_rhs_nax] widened k-block escaped the expert-aligned "
+        "path; it would silently dispatch the non-expert kernel");
+  }
   std::string type_string = get_type_string(x.dtype());
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
