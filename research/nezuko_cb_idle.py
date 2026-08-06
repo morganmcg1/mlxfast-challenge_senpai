@@ -29,7 +29,12 @@ run's logged gap. Records are read tail-first via --tail-frac to drop the
 512-token prefill seed and step 0 without needing the driver's step spans.
 """
 import argparse
+import os
 import statistics
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from decode_probe import parse_gpuprof_line  # noqa: E402
 
 
 def load(path):
@@ -37,8 +42,9 @@ def load(path):
     with open(path, errors="replace") as fh:
         for line in fh:
             if line.startswith("GPUPROF "):
-                _, s, e, nops, _names = line.rstrip("\n").split(" ", 4)
-                rec.append((float(s), float(e), int(nops)))
+                parsed = parse_gpuprof_line(line)
+                if parsed is not None:
+                    rec.append(parsed[:3])
     rec.sort()
     return rec
 

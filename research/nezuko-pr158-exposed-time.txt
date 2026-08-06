@@ -1,0 +1,34 @@
+SPLIT=1 busy_sum          8583.0 us/step over 406 dispatches
+SPLIT=0 busy_sum          8007.0 us/step (independent measurement)
+per-dispatch inflation     1.419 us/dispatch
+per-dispatch floor         1.900 us/dispatch (unfuse-sweep marginal cost)
+
+  exposed   share     n  us/call   floor     work  kernel
+   1445.4  18.05%    39    37.06    74.1   1371.3  routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+   1291.5  16.13%    30    43.05    57.0   1234.5  decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1074.0  13.41%    30    35.80    57.0   1017.0  oproj_act_h64_v1_lm1_pw1_sc1_se1
+    812.8  10.15%    39    20.84    74.1    738.7  routed_shared_nvfp4_down_residual_bf16_r1_v5
+    592.2   7.40%    30    19.74    57.0    535.2  sliding_fused_attn_ring_v1
+    420.4   5.25%     1   420.44     1.9    418.5  lmhead_int5_base_coarse_delta_bf16_v1
+    349.8   4.37%    10    34.98    19.0    330.8  decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+    288.9   3.61%    10    28.89    19.0    269.9  oproj_act_h48_v1_lm1_pw1_sc1_se1
+    268.6   3.35%     1   268.59     1.9    266.7  dense_gate_up_swiglu_bf16_v1
+    264.5   3.30%    39     6.78    74.1    190.4  residual_rms_router_bf16_2048_rpg8_keys_v1
+    239.9   3.00%    10    23.99    19.0    220.9  full_fused_attn_grow_v1
+    237.6   2.97%    39     6.09    74.1    163.5  shared_nvfp4_swiglu_qmv_rows1_bf16_v1
+    199.2   2.49%    30     6.64    57.0    142.2  gate_sp_h64_v1
+    146.7   1.83%    39     3.76    74.1     72.6  decode_router_top8_ordinal_table_norm_v1
+    133.6   1.67%     1   133.59     1.9    131.7  dense_down_residual_bf16_v1
+     84.5   1.06%    41     2.06    77.9      6.6  rmsbfloat16
+     74.3   0.93%     1    74.31     1.9     72.4  lmhead_exact_fused_int5_sparse_refine_v1
+     63.1   0.79%    10     6.31    19.0     44.1  gate_sp_h48_v1
+      7.9   0.10%     1     7.88     1.9      6.0  argmax_bfloat16
+      3.2   0.04%     1     3.18     1.9      1.3  lmhead_exact_winner_bf16_midpoint_threshold_v1
+      2.5   0.03%     1     2.51     1.9      0.6  lmhead_coarse_argmax_stage1_v5
+      2.2   0.03%     1     2.16     1.9      0.3  gather_frontbfloat16_int32_int_2
+      2.1   0.03%     1     2.13     1.9      0.2  decode_embedding_rope_atlas_bf16_2048_v2_int32_tc
+      1.6   0.02%     1     1.56     1.9      0.0  residual_rms_bf16_2048_v1
+
+corrected total      8006.6 us/step  (target 8007.0, error -0.4 us = -0.00%)
+per-dispatch floor    771.4 us/step = 9.6% of GPU busy time
+work-proportional    7235.2 us/step

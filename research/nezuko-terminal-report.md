@@ -221,6 +221,26 @@ most useful correction for the other arms.
 **3. The step is 96.7% GPU-busy — there is no host-side stall.** Per steady
 step: wall 9.816 ms, `gpu_busy_sum` 9.492 ms = `gpu_busy_union` 9.498 ms,
 **gap 0.322 ms (3.3%)**, across **45 command buffers and 406 dispatches**.
+
+> **CORRECTED 2026-08-06.** Two defects in the sentence above.
+> (a) The `gpu_busy_union` half of the "= `gpu_busy_union`" claim is retired
+> programme-wide: the union merges *command-buffer* intervals from a CB
+> completion handler, and MLX packs 20–50 ops per buffer on one queue, so
+> `union == sum` holds **by construction** and proves nothing about
+> serialization. This was first derived by tanjiro,
+> `research/tanjiro-pr157-result.md` §2 (merged `f4bfa59`); his
+> `concurrent_1cb` control reads `overlap_eff` 1.0024 (perfect hiding) while
+> the CB-derived overlap statistic reads `0.000000`. Cite him, not this line.
+> (b) The arithmetic is impossible: `9.816 − 9.498 = 0.318 ≠ 0.322`, and
+> `union > sum` cannot occur. The row is retired; fresh measurements on
+> `9dd2eec3` give `8.267 / 8.016 / 8.016 / 0.251` ms.
+>
+> The *conclusion* — the step is ~97% GPU-busy with no additive host stall —
+> survives, on independent evidence that does not use the union: `wall −
+> gpu_busy_sum` is 3.01% of wall, and a 19-row regression over a 9.2% busy
+> range excludes an absolute (busy-independent) host pool at 3.10σ. See
+> `research/nezuko-pr158-decode-dead-time.md` §1.1.
+
 Command-buffer submission costs **1.33 µs** each, so all 45 buffers cost only
 60 µs/step. `MLX_MAX_OPS_PER_BUFFER` is **inert** here: MLX's 40 MB-per-buffer
 limit trips first and a sparse layer is already ≈38 MB.
