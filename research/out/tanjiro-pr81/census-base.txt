@@ -1,0 +1,26 @@
+file:           Sources/MLXFastModel/LagunaRuntimeModel.swift
+size:           521768 B   lines: 11526
+""" delimiters: 216
+blocks:         108
+literal bodies: 187237 B = 35.9 % of file
++ delimiters:   190364 B
+T1 savings:     29736 B
+T2 pool (// inside literals): 14971 B on 216 lines
+comment pool OUTSIDE literals: 125860 B
+`+ "..."` concat lines outside literals: 39, 2341 B
+tabs: 0  CR: 0  trailing-ws lines: 0
+
+top literals by body bytes:
+  source                                               L1864-2215 lines= 350 bytes= 15719 indent= 8 t1= 2568
+  source                                               L1389-1694 lines= 304 bytes= 13591 indent= 8 t1= 2232
+  ?                                                    L3240-3431 lines= 190 bytes=  8571 indent= 8 t1= 1400
+  ?                                                    L9269-9399 lines= 129 bytes=  6794 indent= 8 t1=  960
+  metadataAdvance                                      L5181-5319 lines= 137 bytes=  5365 indent= 4 t1=  496
+  source                                               L7635-7744 lines= 108 bytes=  5035 indent= 8 t1=  808
+  source                                               L7094-7187 lines=  92 bytes=  4323 indent= 8 t1=  688
+  ?                                                    L8640-8720 lines=  79 bytes=  4163 indent= 8 t1=  592
+
+indent histogram (closing delimiter width -> blocks):
+    4: 17
+    8: 83
+   12: 8
