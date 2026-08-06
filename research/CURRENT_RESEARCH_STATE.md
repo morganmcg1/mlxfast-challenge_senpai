@@ -1,6 +1,6 @@
 # SENPAI Research State
-- 2026-08-06T23:15Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at b09ceb5 (origin/mlxfast-birch-20260805-advisor).
+- 2026-08-06T23:22Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 05707b7 (origin/mlxfast-birch-20260805-advisor).
   Clean scored code frontier: 12a712d (top-8 elimination, FMA dequant, STAGE2_GATHER, LM_HEAD_PRUNE).
   Composed base 13fdaf6 includes all dot4/simd_sum/float4 changes (CONFIRMED COUNTERPRODUCTIVE on M5).
 
@@ -37,9 +37,12 @@
     Submitted to M5 as 2278bd85. Correctness all passed. Bit-exact scheduling change.
     If accepted: new promoted frontier. If rejected: need other scheduling/bandwidth levers.
 
-  PR #173 (Thorfinn) — MLX_METAL_FAST_SYNCH=1. DRAFT, in progress.
+  PR #173 (Thorfinn) — MLX_METAL_FAST_SYNCH=1. REVIEW READY (results submitted).
     Fast fence synchronization via shared-memory buffers instead of Event objects.
     Bit-exact scheduling change. Targets command-buffer synchronization overhead.
+    Review pending (GitHub API temporarily blocked 403). Merge when API recovers.
+    Research agent confirmed: fast mode replaces MTL Event with shared-memory
+    MTLBuffer + GPU fence kernels + barrier. Only relevant if asyncEval fires remain.
 
   PR #175 (Edward) — MLX_BFS_MAX_WIDTH 50→100. JUST ASSIGNED.
     More aggressive graph optimization to reduce Metal dispatch count.
@@ -54,12 +57,44 @@
     dot4/simd_sum are counterproductive on M5, this experiment may need redirection
     to a scheduling or bandwidth target.
 
+## NEW: Research Agent Scheduling Findings (2026-08-06T23:22)
+  Research agent identified 5 NEW scheduling/bandwidth opportunities:
+
+  1. **Whole-step compiled decode** (HIGHEST IMPACT, Medium-High complexity)
+     Scored decode path calls model UNCOMPILED with non-compilable caches.
+     CompiledDecode.swift:87-92 isEnabled=true but only invoked by GenerationBatch
+     (scored worker doesn't use it). Fix: make newCache() return CompilableKVCache/
+     CompilableRotatingKVCache + wrap decode in compile(). Fuses entire 40-layer graph.
+     Files: LagunaRuntimeModel.swift, CompilableKVCache.swift, CompilableRotatingKVCache.swift
+
+  2. **Zero asyncEval fires** (DARKBLOOM_DECODE_ASYNC_STAGE=off, Trivial)
+     With ops-per-buffer=800, entire 40-layer decode (~400 ops) fits in ONE command buffer.
+     Default fires asyncEval at 7 layers (at:0,1,7,15,23,31,39), splitting into 7 buffers
+     with 7 fence pairs. On bandwidth-bound M5, GPU rarely idle — fence/boundary cost
+     may exceed overlap benefit. Bit-exact (only changes enqueue timing, not computation).
+     ASSIGN TO ALPHONSE NEXT.
+
+  3. **MLX_MAX_MB_PER_BUFFER tuning** (Trivial, needs instrumentation)
+     200 MB limit may force premature auto-commit before 800 ops reached (weight buffers
+     count toward buffer_sizes_). Check which limit fires first (ops vs bytes).
+     If byte-count fires first, increase MB to 1000-2000. Bit-exact.
+
+  4. **MLX_METAL_FAST_SYNCH=1** (PR #173, IN FLIGHT, Trivial)
+     Only relevant if asyncEval fires remain. With 7 fires/step, saves 7 Event round-trips.
+     If asyncEval=off wins, this becomes moot for decode. Bit-exact.
+
+  5. **NO_SIMPLIFY compile mode** (Speculative, depends on #1, Medium)
+     If whole-step compiled decode enabled, compile() runs 3 simplify passes on full
+     40-layer graph. Skip simplify with MLX_COMPILE_MODE_NO_SIMPLIFY to keep only fuse.
+     Needs C bridge (not exposed in Swift MLX). Bit-exact (simplify only applies
+     algebraic identities). Low-Medium impact.
+
 ## Potential Next Research Directions
-  1. Compose scheduling winners (ops-800 + BFS-100 + fast-synch) for cumulative M5 gain
-  2. MLX_MAX_OPS_PER_BUFFER sweep (400, 600, 1000) to find optimal value
-  3. MLX_BFS_MAX_WIDTH sweep (100, 200) on clean code for graph optimization
-  4. Bandwidth: scale-byte halving, scale-byte LUT, weight layout optimization
-  5. Host-side: KV cache prepare fast-lane (cedar-fern PR #171 showed +0.5% on M4)
+  1. Compose scheduling winners (ops-800 + BFS-100 + fast-synch + asyncEval=off) for cumulative M5 gain
+  2. Zero asyncEval fires (DARKBLOOM_DECODE_ASYNC_STAGE=off) — trivial, assign to Alphonse
+  3. Whole-step compiled decode (CompilableKVCache + compile) — highest structural impact
+  4. MLX_MAX_MB_PER_BUFFER tuning — check if byte-count or op-count triggers commit first
+  5. Bandwidth: scale-byte halving (Askeladd in progress), packed down-scales
 
 ## READY-TO-ASSIGN EXPERIMENTS
   1. MLX_METAL_FAST_SYNCH=1: One-line setenv, fast fence sync. Bit-exact. M5-specific.
