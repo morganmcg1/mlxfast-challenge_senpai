@@ -7288,12 +7288,13 @@ let lagunaRoutedGateUpR1Enabled =
 /// `DARKBLOOM_MERGE_SHARED_ROUTED_QMV` (default ON; set "0" to disable):
 /// issues the routed gate/up SwiGLU QMV and the shared expert gate/up SwiGLU
 /// QMV as a single Metal dispatch instead of two, eliminating 39 dispatches
-/// per decode step (one per sparse MoE layer). The routed branch (first 2048
-/// threadgroups) and the shared branch (next 256) are fully independent —
-/// different threadgroups, no warp divergence — and each preserves the exact
-/// weight/scale layout, accumulation order, and SwiGLU of its standalone
-/// kernel. Falls back to separate dispatches when any precondition (packed
-/// scales, both R1 variants, shared banks available) is not met.
+/// per decode step (one per sparse MoE layer). The routed branch (first
+/// 131,072 threadgroups) and the shared branch (next 16,384) are fully
+/// independent — different threadgroups, no warp divergence — and each
+/// preserves the exact weight/scale layout, accumulation order, and SwiGLU of
+/// its standalone kernel. Falls back to separate dispatches when any
+/// precondition (packed scales, both R1 variants, shared banks available) is
+/// not met.
 let lagunaMergeSharedRoutedQMVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_MERGE_SHARED_ROUTED_QMV"] != "0"
 
@@ -7452,12 +7453,12 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
 }
 
 /// Merged routed+shared R1 SwiGLU QMV kernel. Issues both the routed gate/up
-/// and shared gate/up as one Metal dispatch. The first 2048 threadgroups
-/// (8 experts × 256 tiles) execute the routed R1 path; the next 256
-/// threadgroups execute the shared R1 path. Each branch is textually
-/// identical to its standalone kernel, preserving weight/scale layout,
-/// accumulation order, and SwiGLU. No warp divergence: every threadgroup runs
-/// exactly one branch.
+/// and shared gate/up as one Metal dispatch. The first 131,072 threadgroups
+/// (8 experts × 256 tiles × 64) execute the routed R1 path; the next 16,384
+/// threadgroups (256 × 64) execute the shared R1 path. Each branch is
+/// textually identical to its standalone kernel, preserving weight/scale
+/// layout, accumulation order, and SwiGLU. No warp divergence: every
+/// threadgroup runs exactly one branch.
 private let lagunaMergedRoutedSharedSwiGLUQMVR1Kernel = MLXFast.metalKernel(
     name: "laguna_merged_routed_shared_nvfp4_swiglu_qmv_r1_bf16_v1",
     inputNames: [
