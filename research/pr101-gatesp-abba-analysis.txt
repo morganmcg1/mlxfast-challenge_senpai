@@ -1,0 +1,25 @@
+run                 n     mean   median      p10      min       sd
+g01_stock_r4n2      392    8.319    8.322    8.252    8.200    0.058
+g02_cand_r1n2       392    8.309    8.310    8.250    8.100    0.053
+g03_cand_r1n2       392    8.265    8.311    8.115    8.011    0.110
+g04_stock_r4n2      392    8.364    8.351    8.260    8.204    0.146
+g05_stock_r4n2      392    8.236    8.233    8.045    8.007    0.199
+g06_cand_r1n2       392    8.285    8.281    8.146    8.033    0.107
+g07_cand_r1n2       392    8.292    8.299    8.222    8.095    0.080
+g08_stock_r4n2      392    8.314    8.308    8.264    8.224    0.052
+
+replicates: 4 stock, 4 candidate
+
+stat        stock     cand    effect        within-stock  within-cand   verdict
+mean        8.308    8.288   +0.020 ms (-0.25%)    0.128        0.044   BELOW noise
+median      8.303    8.300   +0.003 ms (-0.04%)    0.118        0.030   BELOW noise
+p10         8.205    8.183   +0.022 ms (-0.27%)    0.220        0.135   BELOW noise
+min         8.159    8.060   +0.099 ms (-1.22%)    0.217        0.088   BELOW noise
+
+permutation over run medians: observed +0.003 ms, p = 62/70 = 0.886
+microbench prediction: -0.87% (-0.072 ms); measured: -0.04% (-0.003 ms)
+
+pooled over all rounds: 6 stock, 6 cand run medians
+  stock 8.297  cand 8.294  effect +0.003 ms  95% CI [-0.040, +0.046] ms
+  as speedup: +0.04%  95% CI [-0.48%, +0.55%]
+  microbench prediction -0.87% is EXCLUDED by this interval

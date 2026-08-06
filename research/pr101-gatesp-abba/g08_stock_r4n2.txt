@@ -1,0 +1,10 @@
+worker up in 42.9s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717987060546875 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 547.67 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.343 8.368 8.255 8.272 8.227 8.258 8.313 8.228
+decode steps=400 mean=8.316 ms median=8.307 ms p10=8.263 ms p90=8.370 ms min=8.224 ms max=9.343 ms total=3.326 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.724411010742188 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/pr101-gatesp-abba/g08_stock_r4n2.worker.err
