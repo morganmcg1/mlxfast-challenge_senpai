@@ -1,14 +1,37 @@
 # SENPAI Research State
-- 2026-08-06T18:19Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 01f133d (origin/mlxfast-birch-20260805-advisor).
-  Scored code frontier: 5c28822 (639646a + 15 merged optimization PRs #107→#156).
-  No scored code changes between 5c28822 and 01f133d (research notes only).
-  M5 submission 4b06e931 (composed 15 decode PRs + QHOIST prefill) VALIDATING (submitted 8/6 ~21:30 UTC).
+- 2026-08-06T22:15Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at c7f0bdf (origin/mlxfast-birch-20260805-advisor).
+  Scored code frontier: c7f0bdf (includes #166 dense MoE simd_sum, #160 register float4, #159 max_threads).
+
+## CRITICAL: Submission History Analysis
+  Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
+  ALL post-promotion submissions REJECTED or FAILED:
+    00de2d3 (11:23): FAILED (15-PR composed)
+    26dc269 (12:11): rejected -7.21%
+    c95b4e4 (14:35): rejected -9.16%
+    57d8f08 (18:26): FAILED (3-PR composed)
+    4b06e93 (21:30): rejected -14% (15-PR + QHOIST)
+    0e43085 (22:09): VALIDATING (unknown contents)
+
+  KEY FINDING: The promoted submission (05:04 UTC) was submitted BEFORE PR #107 (dot4, 09:44 UTC).
+  The promoted code surface contained: PR #84 (top-8 elimination), FMA-optimized dequant, STAGE2_GATHER,
+  LM_HEAD_PRUNE, MoE down ops2 disabled. It did NOT contain dot4, simd_sum, float4, or max_total_threads.
+
+  CONCLUSION: Our entire instruction-count reduction strategy (dot4, packed simd_sum, float4 input_values,
+  register float4, max_total_threads) may be COUNTERPRODUCTIVE on M5. The M5 may be bandwidth-bound, not
+  instruction-bound. The "89% ALU utilization" figure may not apply to these kernel sizes or may be misleading.
+
+  STRATEGY SHIFT: Prioritize BANDWIDTH reduction (scale plane halving) over instruction-count reduction.
+  Consider reverting max_total_threads_per_threadgroup (#159) — it changes GPU occupancy on M5.
+  Do NOT compose multiple unmeasured instruction-count changes. Test individually on M5 where possible.
+
+  PR #160 merged: thread float[N]→thread float4[N/4] in 6 remaining MoE qdot kernels. Bit-exact, -1160 bytes.
+  PR #166 merged: dense MoE simd_shuffle_down→simd_sum. Bit-exact, -6 bytes, no M4 gain (2 dispatches/step).
+  M5 submission 4b06e931 REJECTED -14%. New submission 0e43085 VALIDATING.
   Previous 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED. 27b9c7c: rejected 2.4972.
-  QHOIST prefill lever: SUBMITTED in composed branch birch-kepler/qhoist-prefill-v1 (commit a54d69b).
-    Bit-exact, M5-only (M4 gen 16 < 17 NAX threshold). Now in M5 queue as part of 4b06e931.
-  Wave 9 in progress: PRs #159-#162 (4 bit-exact kernel optimization experiments, all WIP).
-    Baseline-advanced feedback sent to #159. #160-#162 pending (GitHub 403 rate limit).
+  Wave 10 in progress: PR #165 (Edward, ops-per-buffer — not started), #161 (Thorfinn, tg input sharing — not started).
+  Wave 11 assigned: PR #167 (Alphonse, tail_nvfp4_qdot dot4 — in progress).
+  Wave 11 briefs ready: scale plane halving (BANDWIDTH reduction — assign to Askeladd), attention pair_planes 2→4.
 
 ## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
   The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.
@@ -20,9 +43,11 @@
   Also: MLX_METAL_FAST_SYNCH=1 is not set by our code (defaults to 0). Could reduce sync overhead.
   Source: metaspartan public note 1f891fe, same organizer frontier bca94c5.
 
-- **WAVE 8 RESULTS** (3 complete, 1 incomplete):
-  PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
-  PR #154 (Edward) — Async-eval Shared Expert: CLOSED. DEAD — MLX already overlaps eval.
+- **WAVE 9 RESULTS** (4 PRs, all resolved):
+  PR #159 (Edward) — max_total_threads_per_threadgroup: MERGED. Bit-exact occupancy hint, M4 decode +0.47% (noise), prefill +1.65%.
+  PR #160 (Alphonse) — Register-resident float4: WIP (no result yet).
+  PR #161 (Thorfinn) — Threadgroup input sharing: WIP (no result yet).
+  PR #162 (Askeladd) — is_shared branch elimination: CLOSED. DEAD — Metal compiler already optimizes uniform ternary.
   PR #147 (Alphonse) — CPU Guard Hoisting: CLOSED (incomplete, no result submitted).
   PR #155 (Thorfinn) — Attention Epilogue 1-pass: CLOSED (incomplete, no result submitted).
 
@@ -99,7 +124,28 @@
     Dense gate/up + down kernels, 2 dispatches/step. Lower value but safe bit-exact win.
     NOTE: Dense MoE dot4 is NOT bit-exact (shared-float accumulation, same as PR #145).
 
+- **SCALE PLANE HALVING (Wave 11 target, VERIFIED)**:
+  MLX quantizer has a pairwise-constancy invariant for NVFP4 (group_size=16): scale[2k]==scale[2k+1]
+  for all k>=1 in each flattened weight matrix. Only k=0 (first 32 elements) can differ.
+  Our attention weights are ALL NVFP4 (DARKBLOOM_NATIVE_AFFINE_NVFP4 default ON, NVFP4_FROM=0).
+  Current scale traffic: ~89 MB/step. Halving via pairwise-constancy packing: ~45 MB/step.
+  Implementation: transform-time packing (store 1 nibble per pair) + kernel read packed format.
+  Exact escape for k=0 exceptions (~1 per matrix, ~160 total). Bit-exact (lossless re-encoding).
+  Budget: ~4K bytes needed, 32K headroom available. Two files: LagunaRuntimeModel.swift + LagunaRuntimeWeights.swift.
+  Expected gain: +0.63-0.76% score (byte channel) + instruction savings (strided load elimination).
+  QKV scale: 128 B/row × 128 groups, 4 k-blocks/row. O-proj: 384-512 B/row, 12-16 k-blocks/row.
+  Kernel access: QKV L4598-4612 (sc[0] per block, advance 32). O-proj L4197-4233 (sc[row*in_vec_size_g]).
+
 - **POTENTIAL NEXT DIRECTIONS (beyond Wave 10)**:
+  - Scale plane halving via quantizer invariant (see above — Wave 11 top priority)
+  - tail_nvfp4_qdot scalar→dot4: LAST remaining scalar NVFP4 qdot kernel (L4536-4572).
+    Runs 40× per decode step (all attention layers). ~1600 instructions saved/thread/step.
+    Bit-exact (same pattern as O-proj L4224-4227 and MoE qdot L6508). HIGH PRIORITY.
+  - JIT attention pair_planes 2→4: collapse 3 barriers to 1 per attention layer (L1610/2106).
+    80 fewer barriers per decode step. ~0.4% decode. Bit-exact (same as stock PLANES=4).
+    Threadgroup 8960 bytes (within 32KB limit). MEDIUM PRIORITY.
+  - Packed simd_sum(float2) for paired QK scores in JIT fused kernels (L1550-1551).
+    ~520 instructions saved per decode step. Bit-exact (per-component independence). LOW PRIORITY.
   - H2: Pre-interleaved weight layout (transform-time, 6-10% gate/up) — after H1/H4 results
   - H3: Fused gate/up+down single-dispatch kernel (saves ~39 dispatches/step, 2-5% decode)
   - H6: Instruction diversity / interleaved load+convert+FMA in qdot (0-5%, pipeline overlap)
