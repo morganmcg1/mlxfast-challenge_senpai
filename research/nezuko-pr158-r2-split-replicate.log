@@ -1,0 +1,55 @@
+=== split=0 tag=split0-214950 t=21:49:50 thermal={"cpu_temp":39.659305572509766,"gpu_pw":0.004967806860804558,"ram_pw":0.2678877115249634}
+[split0-214950] worker up in 38.8s
+[split0-214950] ipc_floor before_decode: n=19 mean=54.6 us median=44.8 us p10=41.0 us p90=94.7 us min=40.9 us max=106.4 us
+[split0-214950] decode_begin seed forward: 547.39 ms
+[split0-214950] teacher-forced: 0 divergences (all match)
+[split0-214950] decode_step wall: n=199 mean=8138.3 us median=8153.7 us p10=8036.8 us p90=8203.1 us min=8007.3 us max=8379.2 us
+[split0-214950] ipc_floor after_decode: n=19 mean=18.6 us median=18.3 us p10=16.8 us p90=20.6 us min=16.5 us max=24.0 us
+[split0-214950] SUMMARY wall_median=8.154 ms ipc_floor_median=18.3 us ipc_share_of_wall=0.22%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== split=0 done t=21:50:34 thermal={"cpu_temp":40.718013763427734,"gpu_pw":0.006137778051197529,"ram_pw":0.2597694993019104}
+=== split=1 tag=split1-215037 t=21:50:37 thermal={"cpu_temp":40.30367660522461,"gpu_pw":0.00751139223575592,"ram_pw":0.05241510644555092}
+[split1-215037] worker up in 39.1s
+[split1-215037] ipc_floor before_decode: n=19 mean=21.4 us median=19.2 us p10=17.5 us p90=35.6 us min=17.3 us max=38.8 us
+[split1-215037] decode_begin seed forward: 570.15 ms
+[split1-215037] teacher-forced: 0 divergences (all match)
+[split1-215037] decode_step wall: n=199 mean=9838.1 us median=9807.3 us p10=9754.3 us p90=9939.1 us min=9708.0 us max=10210.0 us
+[split1-215037] ipc_floor after_decode: n=19 mean=18.3 us median=18.0 us p10=16.8 us p90=20.9 us min=16.5 us max=22.5 us
+[split1-215037] SUMMARY wall_median=9.807 ms ipc_floor_median=18.0 us ipc_share_of_wall=0.18%
+
+profile: 88482 command buffers total, 0 inside 199 steady steps
+=== split=1 done t=21:51:22 thermal={"cpu_temp":40.6684684753418,"gpu_pw":0.007167350500822067,"ram_pw":0.05673695355653763}
+=== split=1 tag=split1-215124 t=21:51:24 thermal={"cpu_temp":35.27570343017578,"gpu_pw":0.006141685880720615,"ram_pw":0.2821437120437622}
+[split1-215124] worker up in 37.6s
+[split1-215124] ipc_floor before_decode: n=19 mean=22.5 us median=19.8 us p10=17.3 us p90=37.0 us min=17.3 us max=43.9 us
+[split1-215124] decode_begin seed forward: 588.84 ms
+[split1-215124] teacher-forced: 0 divergences (all match)
+[split1-215124] decode_step wall: n=199 mean=10105.8 us median=9930.1 us p10=9862.0 us p90=10284.9 us min=9803.3 us max=15413.7 us
+[split1-215124] ipc_floor after_decode: n=19 mean=22.3 us median=20.3 us p10=19.2 us p90=28.1 us min=19.2 us max=34.5 us
+[split1-215124] SUMMARY wall_median=9.930 ms ipc_floor_median=19.8 us ipc_share_of_wall=0.20%
+
+profile: 88482 command buffers total, 0 inside 199 steady steps
+=== split=1 done t=21:52:07 thermal={"cpu_temp":40.891414642333984,"gpu_pw":0.006037472747266293,"ram_pw":0.28336164355278015}
+=== split=1 tag=split1-215210 t=21:52:10 thermal={"cpu_temp":40.696510314941406,"gpu_pw":0.006660738028585911,"ram_pw":0.13681596517562866}
+[split1-215210] worker up in 38.0s
+[split1-215210] ipc_floor before_decode: n=19 mean=22.0 us median=19.5 us p10=17.5 us p90=34.3 us min=17.4 us max=44.6 us
+[split1-215210] decode_begin seed forward: 570.45 ms
+[split1-215210] teacher-forced: 0 divergences (all match)
+[split1-215210] decode_step wall: n=199 mean=9789.3 us median=9773.0 us p10=9735.5 us p90=9884.6 us min=9679.6 us max=10143.7 us
+[split1-215210] ipc_floor after_decode: n=19 mean=19.6 us median=17.8 us p10=17.0 us p90=29.5 us min=17.0 us max=33.5 us
+[split1-215210] SUMMARY wall_median=9.773 ms ipc_floor_median=17.8 us ipc_share_of_wall=0.18%
+
+profile: 88482 command buffers total, 0 inside 199 steady steps
+=== split=1 done t=21:52:54 thermal={"cpu_temp":40.802764892578125,"gpu_pw":0.006566430442035198,"ram_pw":0.046027664095163345}
+=== split=0 tag=split0-215256 t=21:52:56 thermal={"cpu_temp":40.552833557128906,"gpu_pw":0.007778706029057503,"ram_pw":0.05429714545607567}
+[split0-215256] worker up in 37.8s
+[split0-215256] ipc_floor before_decode: n=19 mean=54.7 us median=44.3 us p10=40.6 us p90=103.1 us min=35.9 us max=104.6 us
+[split0-215256] decode_begin seed forward: 548.71 ms
+[split0-215256] teacher-forced: 0 divergences (all match)
+[split0-215256] decode_step wall: n=199 mean=8287.6 us median=8266.3 us p10=8217.3 us p90=8317.8 us min=8163.1 us max=10617.1 us
+[split0-215256] ipc_floor after_decode: n=19 mean=17.8 us median=17.6 us p10=16.7 us p90=19.2 us min=16.3 us max=20.7 us
+[split0-215256] SUMMARY wall_median=8.266 ms ipc_floor_median=17.6 us ipc_share_of_wall=0.21%
+
+profile: 9666 command buffers total, 0 inside 199 steady steps
+=== split=0 done t=21:53:39 thermal={"cpu_temp":24.704551696777344,"gpu_pw":0.007086487021297216,"ram_pw":0.21788567304611206}

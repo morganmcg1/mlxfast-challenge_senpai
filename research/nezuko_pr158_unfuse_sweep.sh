@@ -19,6 +19,14 @@ cd "$(dirname "$0")/.."
 
 STEPS="${STEPS:-200}"
 OUT="${OUT:-research/nezuko-pr158-unfuse-sweep.log}"
+# HOOK=0 drops DARKBLOOM_GPU_PROFILE and --profile so the arm is timed in wall
+# currency by the unmodified dispatch path. Busy currency needs the hook; wall
+# currency must not assume the hook is free.
+HOOK="${HOOK:-1}"
+# PASSES>1 replays the arm list; PALINDROME=1 reverses every even pass so a
+# monotone thermal or clock drift cancels between an arm's two placements.
+PASSES="${PASSES:-1}"
+PALINDROME="${PALINDROME:-1}"
 : >"$OUT"
 
 thermal() {
@@ -29,16 +37,34 @@ thermal() {
 
 ARMS="${ARMS:-base:  rrr:DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER=0 rsdr:DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL=0 ssq:DARKBLOOM_FUSED_SHARED_SWIGLU_QMV=0 rsq:DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV=0 base2:}"
 
-for arm in $ARMS; do
-  name="${arm%%:*}"
-  kv="${arm#*:}"
-  tag="$name-$(date +%H%M%S)"
-  echo "=== arm=$name env='$kv' tag=$tag t=$(date +%H:%M:%S) thermal=$(thermal)" | tee -a "$OUT"
-  env ${kv:+"$kv"} DARKBLOOM_GPU_PROFILE=1 \
-    python3 research/nezuko_pr158_gap_probe.py \
-    --steps "$STEPS" --pings 6 --profile --profile-top 6 \
-    --label "$tag" --stderr "/tmp/nezuko-pr158-$tag.err" 2>&1 | tee -a "$OUT"
-  echo "=== arm=$name done t=$(date +%H:%M:%S) thermal=$(thermal)" | tee -a "$OUT"
+run_arm() {
+  local arm="$1" pass="$2"
+  local name="${arm%%:*}"
+  local kv="${arm#*:}"
+  local tag="$name-p$pass-$(date +%H%M%S)"
+  echo "=== arm=$name pass=$pass env='$kv' hook=$HOOK tag=$tag t=$(date +%H:%M:%S) thermal=$(thermal)" | tee -a "$OUT"
+  if [ "$HOOK" = "1" ]; then
+    env ${kv:+"$kv"} DARKBLOOM_GPU_PROFILE=1 \
+      python3 research/nezuko_pr158_gap_probe.py \
+      --steps "$STEPS" --pings 6 --profile --profile-top 6 \
+      --label "$tag" --stderr "/tmp/nezuko-pr158-$tag.err" 2>&1 | tee -a "$OUT"
+  else
+    env ${kv:+"$kv"} \
+      python3 research/nezuko_pr158_gap_probe.py \
+      --steps "$STEPS" --pings 6 \
+      --label "$tag" --stderr "/tmp/nezuko-pr158-$tag.err" 2>&1 | tee -a "$OUT"
+  fi
+  echo "=== arm=$name pass=$pass done t=$(date +%H:%M:%S) thermal=$(thermal)" | tee -a "$OUT"
+}
+
+for pass in $(seq 1 "$PASSES"); do
+  order="$ARMS"
+  if [ "$PALINDROME" = "1" ] && [ $((pass % 2)) -eq 0 ]; then
+    order="$(printf '%s\n' $ARMS | tail -r | tr '\n' ' ')"
+  fi
+  for arm in $order; do
+    run_arm "$arm" "$pass"
+  done
 done
 
 echo "=== log -> $OUT"
