@@ -4114,22 +4114,16 @@ func lagunaGatedAffineOProjNVFP4Source(
     let firstAccum = seedElide
         ? "if (j == 0) {\n"
             + "                accum =\n"
-            + "                    (x_thread[8 * j] * v04.x +\n"
-            + "                     x_thread[8 * j + 1] * v15.x +\n"
-            + "                     x_thread[8 * j + 2] * v26.x +\n"
-            + "                     x_thread[8 * j + 3] * v37.x);\n"
+            + "                    dot(float4(x_thread[8 * j], x_thread[8 * j + 1], x_thread[8 * j + 2], x_thread[8 * j + 3]),\n"
+            + "                        float4(v04.x, v15.x, v26.x, v37.x));\n"
             + "            } else {\n"
             + "                accum +=\n"
-            + "                    (x_thread[8 * j] * v04.x +\n"
-            + "                     x_thread[8 * j + 1] * v15.x +\n"
-            + "                     x_thread[8 * j + 2] * v26.x +\n"
-            + "                     x_thread[8 * j + 3] * v37.x);\n"
+            + "                    dot(float4(x_thread[8 * j], x_thread[8 * j + 1], x_thread[8 * j + 2], x_thread[8 * j + 3]),\n"
+            + "                        float4(v04.x, v15.x, v26.x, v37.x));\n"
             + "            }"
         : "accum +=\n"
-            + "                (x_thread[8 * j] * v04.x +\n"
-            + "                 x_thread[8 * j + 1] * v15.x +\n"
-            + "                 x_thread[8 * j + 2] * v26.x +\n"
-            + "                 x_thread[8 * j + 3] * v37.x);"
+            + "                dot(float4(x_thread[8 * j], x_thread[8 * j + 1], x_thread[8 * j + 2], x_thread[8 * j + 3]),\n"
+            + "                    float4(v04.x, v15.x, v26.x, v37.x));"
     let extract = """
                     const uint xe = c & 0x0F0F0F0Fu;
                     const uint ge = xe | (xe << 3);
@@ -4220,10 +4214,8 @@ func lagunaGatedAffineOProjNVFP4Source(
                 const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
                 \(firstAccum)
                 accum +=
-                    (x_thread[8 * j + 4] * v04.y +
-                     x_thread[8 * j + 5] * v15.y +
-                     x_thread[8 * j + 6] * v26.y +
-                     x_thread[8 * j + 7] * v37.y);
+                    dot(float4(x_thread[8 * j + 4], x_thread[8 * j + 5], x_thread[8 * j + 6], x_thread[8 * j + 7]),
+                        float4(v04.y, v15.y, v26.y, v37.y));
             }
             result[row] += scale * accum;
         }
