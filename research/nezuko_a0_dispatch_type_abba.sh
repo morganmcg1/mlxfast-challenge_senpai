@@ -44,6 +44,7 @@ run_point() {
   local tag="$1"; local serial="$2"; local hook="$3"; local split="$4"
   local log="$OUT/$tag.txt"
   echo "=== $tag steps=$STEPS serial=$serial hook=$hook split=$split ==="
+  mkdir -p "$OUT"
   thermals
   local -a envv=(DARKBLOOM_FORCE_SERIAL_DISPATCH="$serial")
   local -a extra=()
@@ -51,8 +52,9 @@ run_point() {
     envv+=(DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT="$split")
     extra+=(--profile --profile-top 60)
   fi
+  # bash 3.2 (macOS) treats "${extra[@]}" as unbound under `set -u` when empty.
   env "${envv[@]}" "$PY" research/decode_probe.py --steps "$STEPS" \
-      "${extra[@]}" \
+      ${extra[@]+"${extra[@]}"} \
       --dump-steps "$OUT/$tag.steps.txt" \
       --stderr "$OUT/$tag.worker.err" >"$log" 2>&1
   echo "exit=$?"
