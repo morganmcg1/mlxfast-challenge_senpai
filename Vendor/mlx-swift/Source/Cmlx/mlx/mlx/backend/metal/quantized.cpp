@@ -1622,9 +1622,15 @@ bool darkbloom_bsearch_hoist() {
 //   m2 -> 1  double the MMA chain, no extra memory traffic
 //   s2 -> 2  double the weight load+dequant staging (+1 barrier)
 //   b2 -> 3  two extra threadgroup barriers per k-iteration
+// The official runner strips the environment (benchmark.sh's timed path runs
+// under `sudo env_reset` + `env -i`), so for a ranked measurement arm the
+// compiled-in default IS the arm. Each official receipt flips this one token
+// and nothing else; "" is the shipped kernel and is what stays committed.
+constexpr const char* kNaxGatherProbeDefault = "";
+
 int darkbloom_nax_gather_probe() {
   static const int v = [] {
-    auto s = env::get_var("DARKBLOOM_NAX_GATHER_PROBE", "");
+    auto s = env::get_var("DARKBLOOM_NAX_GATHER_PROBE", kNaxGatherProbeDefault);
     if (s == "m2") {
       return 1;
     }
