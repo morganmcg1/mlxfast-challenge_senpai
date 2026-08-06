@@ -455,17 +455,20 @@ out of this kernel next.
 
 > **Cross-reference (added after §10).** Two amendments, both softening
 > claims made here. (i) §8.1 leans on PR27's 16× under-read as evidence that
-> "real overlap exists" in decode; **#73 measures `gpu_busy_sum ==
-> gpu_busy_union` in decode**, i.e. *zero* dispatch concurrency, so
-> per-dispatch decode time is fully additive. That does not change §8.2's
-> empirical refutation — it independently predicts it — but it does mean the
-> §8.1 mechanism was never structurally available in decode in the first
-> place. The specific sentence in §10.5 where I asserted a kernel "provably
-> overlaps the shared QMV" is retracted there. (ii) The word "refuted" in
-> this heading and in §8.2 is about a *mechanism* being ruled out by a
-> direct probe, not about an effect size; where §8.2 reports its own
-> contrast as null, read it under §0.9.32 as **below this host's
-> resolution** (§11.2).
+> "real overlap exists" in decode. **#73 measures `gpu_busy_sum ==
+> gpu_busy_union` in decode** — *zero* dispatch concurrency, per-dispatch
+> decode time fully additive — which independently predicts §8.2's outcome:
+> there was no overlap available to lose. My own "provably overlaps the
+> shared QMV" phrasing is retracted in §10.5. But note the §0.9.33 limit:
+> **achieved concurrency is a scheduling property, not an
+> algorithm-determined census quantity**, so #73 does not transfer to M5 the
+> way a dispatch count does. That is precisely why §10.5.1 keeps the
+> encoder-wide *barrier* channel open on M5 even though the *overlap*
+> channel is closed on this host. (ii) "Refuted" in this heading and in §8.2
+> means a mechanism ruled out by a direct probe, not an effect size measured
+> to zero; where §8.2 reports its own contrast as null, read it under
+> §0.9.32 as **below this host's resolution** (§11.2), and see §10.5.1 for
+> why the K/KI arm constrains the barrier channel only loosely.
 
 ### 8.1 The pre-registered mechanism
 
@@ -1020,6 +1023,7 @@ because warm-up runs prefill *then* decode
 library-cache miss outside both timed windows. Residual caveat: I did not
 inspect the harness's own prefill-window boundary definition, so this is an
 argument about the model code, not about the timer.
+
 #### 10.4.2 Scope and budget certificates at the new base
 
 Both re-run at `f2fedd58` after the rebase:
@@ -1038,6 +1042,7 @@ The submitted surface is still exactly one file. Growth is 662 B against the
 cap. `LagunaRuntimeModel.swift` is 479,195 B against the 524,288 B per-file
 cap, leaving 45,093 B — comfortably inside the standing ≥ 20 kB margin law
 for this file.
+
 ### 10.5 Corrections I owe the record
 
 A fresh, context-free frontier review of this result (asked to attack the
@@ -1193,7 +1198,12 @@ The first draft capped this at "encode-side only, ~+0.3-0.8 %, because the
 two kernels already overlap". **#73's zero-concurrency result removes that
 cap.** With no dispatch overlap, the shared QMV's wall time is fully
 additive, so merging recovers per-dispatch ramp-up and drain as well as
-encode cost. It also does not move a single byte, so it is untouched by
+encode cost. Caveat, stated once and inherited by any rung built on this:
+#73 is an M4 measurement and achieved concurrency does **not** transfer
+under §0.9.33, so on M5 the *upside* above the encode-side floor is
+unverified. The floor itself — 39 dispatches removed — is a dispatch count
+and does transfer, which is why F2 is ranked on the floor and not on the
+upside. It also does not move a single byte, so it is untouched by
 #71's closure of the byte-currency framing, and dispatch count is an
 algorithm-determined census quantity that transfers to M5 under §0.9.33.
 This is now the strongest remaining rung I can see in this area.
