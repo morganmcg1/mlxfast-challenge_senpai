@@ -4,6 +4,15 @@
   Scored code frontier: 13fdaf6 (includes #165 ops-per-buffer 800, #166 dense MoE simd_sum,
   #160 register float4, #159 max_threads, #156 fused down float4, #152 top-8 elimination, etc.)
 
+## PENDING M5 SUBMISSION: Clean ops-per-buffer 800 (commit e98e46b)
+  Candidate: birch-edward/clean-ops-buffer-800-v1 @ e98e46b
+  Diff vs promoted 12a712d: 1 line (MLX_MAX_OPS_PER_BUFFER 200→800)
+  Correctness: ALL PASSED (local-iterate, local-submit 1025 steps, upstream equivalence 8/8, swift test 456/456)
+  M4 timing: -0.91% decode (EXPECTED — M4 bandwidth-bound, M5 is decisive)
+  Submission note: submission-note-ops800.md (12,586 bytes)
+  STATUS: RATE LIMITED — retry `mlxfast submit --note-file submission-note-ops800.md --model "senpai"`
+  Must checkout e98e46b first: `git checkout e98e46bf226fda76cc4f039f4731a5310f3f65dc`
+
 ## CRITICAL: Submission History Analysis
   Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
   Promoted code surface at commit 12a712d: PR #84 (top-8 elimination), FMA-optimized dequant,
