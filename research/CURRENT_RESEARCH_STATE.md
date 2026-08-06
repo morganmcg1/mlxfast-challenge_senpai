@@ -1,15 +1,21 @@
 # SENPAI Research State
-- 2026-08-06T12:27Z (updated)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 495e4db (deep research ideas added).
-  Previous frontier: a996a21 (5 merged improvements, M5 submission 00de2d3f).
-- **WAVE 3 ASSIGNED**: 4 new instruction-reduction experiments from DEEP_RESEARCH_IDEAS.md.
-  All 4 students assigned to independent, novel optimization arms targeting different kernel families.
-  PRs: #121 (Edward), #122 (Alphonse), #123 (Thorfinn), #124 (Askeladd).
+- 2026-08-06T12:41Z (updated)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 89ebda4 (Wave 3 assigned).
+  Previous frontier: 495e4db (deep research ideas). a996a21 (5 merged, M5 submitted).
+- **WAVE 3 ASSIGNED**: 4 instruction-reduction experiments. PRs: #121 (Edward),
+  #122 (Alphonse), #123 (Thorfinn), #124 (Askeladd). No student activity yet.
 - **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
   Birch campaign best: 2.5459 (commit d4235c9, M5).
   Target: 2.5523 (gap ~0.0064, ~0.25%).
-- **FRONTIER**: 495e4db (advisor HEAD, deep research ideas committed).
+- **FRONTIER**: 495e4db (advisor HEAD with deep research ideas).
   Previous: a996a21 (5 merged improvements: #94, #98, #107, #114, #116, M5 submitted).
+- **LM HEAD ANALYSIS (2026-08-06)**: Frontier agent confirmed LM head coarse pass is
+  **bandwidth-bound** (~0.09 FLOP/byte), NOT instruction-bound. The 89% instruction-bound
+  figure applies to the overall decode step (39 MoE layers), not the LM head. The fused-
+  refinement path already reads only the 4-bit nibble (1088 B/row = 109 MB). int4 with
+  group-32 reads the IDENTICAL 1088 B/row — ZERO bandwidth saving. The "54.6 MB" figure
+  was wrong (that's int2, not int4). int4 is a NET NEGATIVE: same bandwidth, worse error
+  bounds. Wave 2f (LM head int4) is DEAD — do not pursue.
 - **BROKEN PRs**: #69, #83, #86, #92, #99, #108, #111, #113, #115 (orphan drafts with
   invalid/missing markers from prior sessions). Cannot close via close_experiment. Ignore.
 - **CLOSED**: PRs #117 (Edward), #118 (Thorfinn), #120 (Askeladd) closed via close_experiment.
@@ -172,13 +178,8 @@ Awaiting M5 result. This is the first birch-campaign M5 submission of the compos
 
 ## Next-Wave Experiments (READY TO ASSIGN when students free up)
 
-### Wave 2a: Shared SwiGLU QMV rows1 depth-1 weight staging (Finding A)
-- **HIGHEST PRIORITY unassigned bit-exact idea**
-- Port depth-1 staging from routed R1 kernel to shared kernel
-- Same qdot, same K-block count, same threadgroup geometry
-- Proven in sibling kernel, mechanical change
-- Expected: 0.3-0.6% decode
-- Assign when Edward or Thorfinn frees up
+### Wave 2a: Shared SwiGLU QMV rows1 depth-1 weight staging (Finding A) — MERGED
+- Already merged as PR #116 → a996a21. Bit-exact. M4 neutral (expected, bandwidth-bound).
 
 ### Wave 2b: MoE gate/up block_width 512→1024
 - Halve loop iterations in gate/up QMV kernels
@@ -201,13 +202,12 @@ Awaiting M5 result. This is the first birch-campaign M5 submission of the compos
 - INT8 affine O-proj kernel is shape-compatible (`[1,1,H*D]`)
 - 1 layer, LOW complexity, LOW risk — quick win if affine GEMV beats BF16 GEMM
 
-### Wave 2f: LM head int4 coarse screen (HIGHEST POTENTIAL, HIGHEST RISK)
-- Coarse pass reads 109 MB/step (int5 weights) — dominant LM head cost
-- int4 would halve to 54.6 MB (2× fewer bytes, bandwidth-bound kernel)
-- **BLOCKER**: breaks ratio-bound certificate (|q|≤15 needs 5 bits; int4 max |q|≤7)
-- Requires re-derived error bound + new codebook + overflow guard fix
-- This is the single highest-potential decode lever found by subagent analysis
-- Defer until simpler experiments are exhausted
+### Wave 2f: LM head int4 coarse screen — DEAD (2026-08-06)
+- Frontier agent analysis proved int4 offers ZERO bandwidth saving vs the existing
+  fused-refinement path (both read 1088 B/row = 109 MB). The "54.6 MB" figure was wrong
+  (that's int2, not int4). int4 also has worse error bounds (larger half-cell error).
+- The LM head coarse pass is bandwidth-bound (~0.09 FLOP/byte), not instruction-bound.
+- Do NOT pursue. The LM head is already optimized with the int5 coarse + exact pass design.
 
 ## Key Research Context
 
