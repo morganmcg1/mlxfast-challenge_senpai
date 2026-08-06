@@ -2,6 +2,12 @@
 
 Main write-up: `research/maple-nezuko-pr85-dense-mlp-lossless-repack.md`.
 
+**Verdict: NO-GO.** The re-encode is provably lossless (0 mismatching bit
+patterns over 50,331,648 weights) and removes 25.14 MB/decode step, but decode
+is **+0.905 % slower** (p = 0.0087), a score change of −0.71 % against a
+predicted +0.59 %…+0.68 %. The unpack ALU costs ≈ 2.2× the bandwidth it buys.
+Not for merge.
+
 ## Census
 
 | file | contents |
@@ -74,7 +80,27 @@ cd research/maple-nezuko-pr85 && python3 analyze.py a
 `checked_steps == 130` on every slot, then reports per-arm mean/sd/SE and 95 %
 CI, an exact permutation test, a slot-ordered OLS drift fit, the mandatory
 §0.9.32 **A/A null control** built from balanced 3-vs-3 splits within each arm,
-`peak_ram_gb`, and the M4 → M5 → score conversion.
+`peak_ram_gb`, and the M4 → M5 → score conversion. Its captured output is
+`analysis-a.txt`.
+
+The prefill null channel did not come back flat (−1.01 %, p = 0.026), so
+`covariate.py` re-tests the decode effect controlling for it:
+
+```bash
+cd research/maple-nezuko-pr85 && python3 covariate.py
+```
+
+It reports the within-run Pearson `r(decode, prefill)`, the OLS slope
+`d(decode)/d(prefill)`, and a prefill-adjusted decode effect with its own exact
+permutation test. Captured output is `covariate-a.txt`. Result: `r = −0.156`
+rules out a shared see-saw, and **87 % of the regression survives adjustment**
+(+0.786 %, p = 0.0152), so the prefill anomaly does not explain the decode
+result. §6.4 of the write-up discusses this.
+
+| file | contents |
+|---|---|
+| `analysis-a.txt` | `analyze.py a` output — headline effect, permutation test, A/A null |
+| `covariate-a.txt` | `covariate.py` output — prefill-adjusted decode effect |
 
 ## Ranked dispatch
 
