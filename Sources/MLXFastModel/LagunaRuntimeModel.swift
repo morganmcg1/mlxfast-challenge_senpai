@@ -7599,8 +7599,8 @@ let lagunaSharedFirstDownOrderEnabled =
 
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v6sf"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v6",
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7658,36 +7658,16 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         }
 
         thread float result[outputs_per_simd] = {0.0f};
-
-        // Depth-1 weight staging: pre-load row 0's uint2 code words and scale
-        // byte before the loop, then prefetch row r+1 while row r's qdot
-        // consumes row r's registers. Same bytes, same addresses, same nibble
-        // decode via laguna_nvfp4_qdot_codes_16, identical accumulation order.
-        uint2 cur_codes;
-        uint8_t cur_scale;
-        {
-            uint output_row = first_row;
-            const device uint2* packed =
-                (const device uint2*)(expert_weight + output_row * packed_row_bytes + lane * 8);
-            cur_codes = packed[0];
-            cur_scale = expert_scales[output_row * scale_row_bytes + lane];
-        }
-
         for (uint row = 0; row < outputs_per_simd; ++row) {
             uint output_row = first_row + row;
-            const uint2 codes = cur_codes;
-            const uint8_t scale_byte = cur_scale;
-            if (row + 1 < outputs_per_simd) {
-                uint next_row = first_row + row + 1;
-                const device uint2* next_packed =
-                    (const device uint2*)(expert_weight + next_row * packed_row_bytes + lane * 8);
-                cur_codes = next_packed[0];
-                cur_scale = expert_scales[next_row * scale_row_bytes + lane];
-            }
-            result[row] = laguna_nvfp4_qdot_codes_16(
-                codes,
+            const device uint8_t* weight =
+                expert_weight + output_row * packed_row_bytes + lane * 8;
+            const device uint8_t* scale =
+                expert_scales + output_row * scale_row_bytes + lane;
+            result[row] = laguna_nvfp4_qdot_16(
+                weight,
                 input_values,
-                laguna_nvfp4_scale(scale_byte));
+                laguna_nvfp4_scale(scale[0]));
             result[row] = simd_sum(result[row]);
         }
 
