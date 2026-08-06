@@ -308,17 +308,19 @@ affine INT8. Read the full
 [accepted attention quantization envelope](../TASK.md#accepted-attention-quantization-envelope)
 before changing representation or trusted-harness assumptions.
 
-**The envelope is a dead lever here, and it points the wrong way.** The tree we
-inherited already runs Q/K/V/O at **NVFP4 group-16** — 0.5625 B/param — where the
-envelope permits group-32 affine INT8 at 1.125 B/param. Q/K/V/O plus `g_proj` is
-807.7 MB of the ~1794 MB read per decode step, so "adopting the envelope" would
-*add* roughly 802 MB/token and cost ~28% of the decode axis. The re-quantization
-site is `Sources/MLXFastModel/LagunaRuntimeModel.swift:2960-2974` and `:5302-5305`
-(disk is BF16, per `LagunaCheckpointValidation.swift:355-358`); `g_proj` is the
-one class actually at group-32 INT8 (`:431-448`). This came in with organizer
+Current evidence makes attention re-quantization a low-priority direction. The
+tree we inherited already runs Q/K/V/O at **NVFP4 group-16** — 0.5625 B/param —
+where the envelope permits group-32 affine INT8 at 1.125 B/param. Q/K/V/O plus
+`g_proj` is 807.7 MB of the ~1794 MB read per decode step, so directly adopting
+the permitted INT8 form would *add* roughly 802 MB/token and cost ~28% of the
+decode axis. The re-quantization site is
+`Sources/MLXFastModel/LagunaRuntimeModel.swift:2960-2974` and `:5302-5305` (disk
+is BF16, per `LagunaCheckpointValidation.swift:355-358`); `g_proj` is the one
+class actually at group-32 INT8 (`:431-448`). This came in with organizer
 frontier commit `99b974c`, not from us, and has passed official gates repeatedly.
-Do not treat attention precision as headroom in either direction, and do not
-propose taking any other class below its current representation.
+Revisit attention precision only when a mechanism stays inside the accepted
+envelope and shows a net byte or math advantage. Do not propose taking any other
+class below its current representation.
 
 Before a kernel experiment, identify the runtime-effective JIT or AOT source
 and relevant `_nax` form from the organizer docs. Numerical evidence is
