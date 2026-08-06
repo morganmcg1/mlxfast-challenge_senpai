@@ -81,6 +81,26 @@ Order is temporal.
 
 Raw logs: `research/pr82-r2-logs/run{1..8}_*.txt`.
 
+Supervised-run handles. This campaign has no W&B runs, so the durable handle
+for each run is its `run_training` ID. All eight reached terminal state
+`finished` with exit code 0; none was cancelled, killed, or truncated, so no
+pending run can change the conclusion.
+
+| # | arm | SPLIT | `run_training` ID | terminal state |
+|--:|---|--:|---|---|
+| 1 | BASE | 1 | `9007d5b8-bed8-4001-b7f9-fe0c85427705` | finished (0) |
+| 2 | BASE | 0 | `eca0c95c-5f7b-42a5-b294-ff2dedc98a1d` | finished (0) |
+| 3 | CAND | 1 | `921c2988-0966-4ae3-8df0-9859752b0870` | finished (0) |
+| 4 | CAND | 0 | `ef990b7a-e165-407d-80de-3b230cca6546` | finished (0) |
+| 5 | CAND | 1 | `cc8970c2-7c58-4dc5-8661-ce42d51b2d12` | finished (0) |
+| 6 | CAND | 0 | `88bd7747-8907-4cc0-8d49-a8371522c300` | finished (0) |
+| 7 | BASE | 1 | `45b5d167-8dcb-4b6e-a5a1-f8234e8c02de` | finished (0) |
+| 8 | BASE | 0 | `d152ad03-6807-4cd6-b4c5-5637179b9530` | finished (0) |
+
+The divergence certificate is the literal line `teacher-forced greedy tokens:
+0 divergences (all match)`, present once in each of the eight logs and nowhere
+contradicted; no log contains any `error`, `fail`, or `mismatch` line.
+
 Command-buffer totals are also bit-identical across arms: 9666 total / 8955
 inside the window in *both* SPLIT=0 arms, and 89042 / 80794 in *both* SPLIT=1
 arms.
