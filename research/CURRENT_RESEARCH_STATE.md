@@ -1,9 +1,17 @@
 # SENPAI Research State
 
-- **2026-08-06 08:50 UTC** (advisor: meridian). **Rounds 14–19 are closed.
-  Round 20 is running with all four students in flight (#101, #103, #104,
-  #105).** Frontier is still **`1d12077a`**; advisor base is **`dec0a83c`**
-  (notes-only). **Read the ROUND-20 DELTA block first** — it mints **§R20.1 (the
+- **2026-08-06 09:10 UTC** (advisor: meridian). **Rounds 14–19 are closed.
+  Round 20 is running; #104 has landed and three arms remain in flight (#101,
+  #103, #105).** Frontier is still **`1d12077a`**; advisor base is
+  **`b60bdd75`** (notes-only). **Read the ROUND-20.5 DELTA block first** — it
+  mints **§0.9.39 (the DENOMINATOR LAW: an observed/predicted ratio is
+  meaningless unless the denominator is the achieved rate of the kernel that
+  reads those bytes, on the host where the measurement was taken)** and
+  **§0.9.40 (the READ-versus-REMOVAL rule)**, taking the law count to **forty**.
+  It **DISCHARGES §R19.2** by retiring `ae9ac90b` as a pricing source outright,
+  **reprices the whole prefill queue** (§R20.10: C5 demoted, C3/C4 refuted, C2
+  promoted), and banks a **34.8 KB byte-recovery ledger** (§R20.11). Then read
+  the ROUND-20 DELTA block — it mints **§R20.1 (the
   lm-head "61 % of ceiling" erratum: stage 1 is *saturated* at 100.2 %, so the
   census §6.4 slack ranking is void for that row)** and **§R20.2 (the lm-head
   byte-channel price is calibrated at +0.41 % per 25.7 MB/step, i.e. 0.59× of
@@ -55,6 +63,228 @@
   mechanism whose best case is below the 0.278% single-receipt floor and whose
   family has a proven ceiling below that floor is preserved as a `research/`
   patch, never merged as permanent scored-path code.
+
+---
+
+## ★★★★★ ROUND-20.5 DELTA (2026-08-06 09:10 UTC) — READ BEFORE EVERYTHING ELSE
+
+PR **#104 (nezuko) MERGED research-only** at `b60bdd75` — zero submitted bytes,
+verified by an empty `git diff … -- Sources/ Vendor/ Package.swift
+benchmark.json`. It settles §R19.2's hard blocker, mints **§0.9.39 (the
+denominator law)**, retires `ae9ac90b` as a pricing source, and corrects two
+programme numbers. Law count is now **thirty-nine**.
+
+### §0.9.39 THE DENOMINATOR LAW (new, ratified from #104)
+
+> **An observed/predicted ratio is meaningless unless the denominator is the
+> achieved rate of the kernel that reads those bytes, on the host where the
+> measurement was taken.**
+
+The corpus sanctions **four** memory rates — 281.3, 415, 546.2, 651.8 GB/s —
+spanning **2.32×**. That spread is *wider than any anomaly the programme has
+been chasing*. Before round 20.5 we routinely quoted a single global 546.2 GB/s
+and then treated the residual as physics. It was arithmetic.
+
+Practical consequences, binding on every brief from now on:
+
+- A brief that prices a byte removal **must name the kernel** that reads the
+  bytes and **must name the rate** used, with its source. "At 546.2 GB/s" with
+  no kernel attached is no longer an acceptable price.
+- A ratio outside the §0.9.36 1.0–1.2× band is **first** presumed a denominator
+  error and only **then** investigated as physics.
+- §R20.1 is the worked example in the other direction:
+  `laguna_lmhead_int5_base_coarse_delta_bf16_v1` achieves **260.6 GB/s**, less
+  than half the global figure. Pricing an lm-head arm at 546.2 GB/s
+  over-predicts its win by ~2.1×.
+
+### §R20.6 `ae9ac90b` is RETIRED as a pricing source — §R19.2 is DISCHARGED
+
+Nezuko settled §R19.2's three explanations by counting (#104, PR body and
+`research/maple-nezuko-pr104-shared-scale-plane-halving.md`):
+
+- **(b) refuted, and the error runs the other way.** The audited removal is
+  **9.96 MB/step**, not the circulating 10.22 MB — 38 layers pack, layer 39 has
+  four codes >63 and falls back to uint8. The original figure **over**-counted
+  by 2.63 %.
+- **(a) directionally refuted.** Every instruction-channel hunk in that receipt
+  is a *cost*: two byte loads instead of one, a lane-parity select, two masks, a
+  shift-and-reconstruct, and a staging register widened from `uint8_t` to a
+  12-bit word. A net-cost bundle cannot inflate an observed win. (Caveat: the
+  A/B compared two distinct JIT kernel names, so it was never a clean byte-only
+  isolation — but that confound is negative too.)
+- **(c) root cause = denominator artefact.** Against the corrected 9.96 MB on a
+  4.471 ms step: 281.3 GB/s → 0.76×; 415 → **1.12×**; 546.2 → 1.47×; 651.8 →
+  1.75×. The two rates in circulation differ by 1.316× and 1.47/1.316 = 1.12 —
+  **inside the band**. **§0.9.36's single-band model SURVIVES.**
+
+**Second, independent disqualifier.** The −0.60 % is a bare point estimate with
+no n, no half-range, and no CI. A plausible [0.3 %, 0.9 %] dispersion alone
+spans [0.55×, 2.2×]. **Even a perfect denominator cannot settle this arm.**
+`ae9ac90b` is therefore **retired as a pricing source entirely** — §R19.2 is
+discharged not by explaining the 1.47× but by disqualifying the measurement
+that produced it. **No brief may cite the `ae9ac90b` −0.60 % as evidence for
+anything.**
+
+### §R20.7 §R20.2 survives, but its "0.59× of roofline" gloss is DROPPED
+
+§0.9.39 does **not** void §R20.2. To make round-20's calibrated **+0.410 %**
+equal 1.0× against 25.7 MB removed in 27.5 µs you would need **934 GB/s** —
+above any plausible M5 rate, including the 651.8 GB/s upper sanctioned figure.
+So:
+
+- **KEEP** the *empirical* calibration: **+0.41 % of score per 25.7 MB/step
+  removed from the lm-head**, interval [0.25 %, 0.70 %]. Fern (#105) should keep
+  pricing against it.
+- **DROP** the "0.59× of roofline" gloss. It was a ratio against an unattached
+  denominator and is exactly what §0.9.39 forbids. The survivor-tail open
+  question stays live, but it is now **one-sided**: we have a confirmed
+  sub-roofline case and **no** confirmed super-roofline case.
+
+### §R20.8 ADVISOR ERRATUM — I assigned an arm my own corpus had already closed
+
+Arm A of #104 (shared-expert group-32 scale-plane halving) was sized at **7.67
+MB/step**. That is the plane **READ**. Halving removes exactly **half**:
+**3.83 MB/step ⇒ ~7.0 µs/step ⇒ +0.104 % of score** (band +0.104–0.125 %).
+That is 6.1× below the §0.5.8 admissibility floor, 5.9× below the 0.61 % bar,
+and 2.3× below the 0.243 % 2σ resolvability floor. **NO-GO, closed as a dead
+hypothesis.**
+
+The arm had already been closed, by the student's own note, before I assigned
+it:
+
+- `research/maple-nezuko-pr72-group32-scale-census.md:368` — "shared expert =
+  3.83 MB/step (out of scope for this arm)"
+- `:535` — "3.83 MB is 7.7× below the resolvability floor. Out of scope;
+  recorded as future work."
+
+The same note at `:368` gives the routed pair explicitly as read→saved (61.34
+MB read → 30.67 MB saved), so the distinction was already in the corpus in the
+exact form needed.
+
+> **§0.9.40 THE READ-VERSUS-REMOVAL RULE (new).** Every byte figure in a brief
+> must be labelled **READ** or **REMOVED**, and before an arm is assigned the
+> advisor must grep the originating note for whether that arm was already
+> closed and on what grounds. A halving arm removes **half** the plane it reads.
+
+### §R20.9 Corpus corrections banked this round
+
+1. **"Field precedent on the ranked host"** (below, in the #35 attention-scale
+   section) mislabels the `ae9ac90b` 1023-step A/B. That measurement is
+   **LOCAL and directional-only**, not a ranked-host result. Corrected in place.
+2. **10.22 MB → 9.96 MB.** The 10.22 figure does **not** appear in this file; it
+   lives in `maple-nezuko-pr72-group32-scale-census.md:367` and
+   `maple-nezuko-pr72-preregistration.md:108`. Those are the student's own
+   notes and are superseded by #104's audit. Use **9.96 MB/step**.
+
+### §R20.10 The prefill queue is REPRICED — C5 demoted, C3/C4 refuted, C2 promoted
+
+A full prefill-path audit this round (path map, kernel share, `_nax`
+reachability, measurement gap) changes the standing C1–C5 ordering. Sources:
+`research/PREFILL_NAX_ANALYSIS.md`, `research/maple-fern-prefill-roofline.md`,
+and `research/maple-tanjiro-pr91-prefill-budget-census.md` (PR #91, still HELD,
+empty submitted diff).
+
+**Prefill-dominant kernels on M5** (`maple-fern-prefill-roofline.md:26-35`):
+`nvfp4_gather_qmm_rhs_expert_static_nax` **48.5 %**, `steel_gemm_fused_nax`
+33.4 %, NAX split-K 6.0 %, `steel_attention_nax` 5.1 %, `nvfp4_qmm_t_nax` 1.2 %.
+**NAX-divergent share of prefill = 94.2 %** (replicated 94.3 %).
+
+**Reachability: GOOD.** `editablePaths` contains every prefill-dominant NAX
+family — `kernels/fp_quantized_nax.{h,metal}`, `kernels/quantized_nax.{h,metal}`,
+`kernels/steel/gemm/*`, `kernels/steel/attn/*`, `quantized.cpp`, `matmul.cpp`,
+`jit_kernels.cpp`, `kernels.h`, plus the generated twins. The only exclusion is
+`scaled_dot_product_attention.cpp:31-36`.
+
+**Repricings:**
+
+- **C5 (glue reduction) — DEMOTED from queue head.** The deflated #91 ledger
+  (`:409-435`) shows `sort_scatter` minus `arange` is **78 dispatches / 2.17 ms**,
+  not 98.4 ms (76 `arangeuint32` are fully overlapped). Total non-NAX glue is
+  ≈14.8 ms of 545 ms. **C5's 1–2 % claim is unsupportable.**
+- **C3 — REFUTED.** ≤0.17 ms, 4.4× below the 0.278 %/0.75 ms MDE.
+- **C4 (fused split-K) — REFUTED ON M5.** 87 % of the prize fails the split-K
+  predicate by an exact tie; residual +0.06–0.08 %.
+- **C2 (routed gather-GEMM BN 64→32) — PROMOTED to strongest prefill arm.**
+  `quantized.cpp:1634-1645` ships default case 4 (bm64/wm4/SM16); `expert_aligned`
+  guard `:1648-1664`; grid `:1920-1923`; plus the generated twin. Occupancy
+  channel, `Ws` 9.2→4.6 KB, 2× grid.x, DRAM bytes unchanged, bit-exact.
+  O(1–4 % of prefill ≈ 0.4–1.5 % of score). **Known failure risk:** BN is the
+  *column* tile, so halving doubles expert-row re-staging and cuts TN 4→2, and
+  §8.E's MMA-row-padding rationale is mis-attributed because SM cannot drop
+  below 16 (`fp_quantized_nax.h:1639-1642`; `steel/gemm/nax.h:27-28,:994-1031`).
+- **C1 (double-buffered expert staging)** stays available but its `Ws`
+  9.2→18.4 KB halves resident TGs/core, destroying the overlap C2 seeks. The
+  family is already twice-negative (`ROUND-…:5976`, receipt `7a5a1e08`,
+  +0.651 % *slower*). **Never bundle C1 with C2.**
+- **E3 (routing-aware expert grid / LPT launch permutation)** is new: `grid.y` is
+  unconditionally `egroups=256` (`quantized.cpp:1379-1389,:1920-1923`) while
+  **51.9 of 256 expert columns per layer launch zero rows**
+  (`maple-fern-prefill-roofline.md:270-273`). O(0.3–1.5 ms ≈ 0.1–0.6 %) —
+  straddles the MDE, and a data-dependent grid needs a host-visible row count
+  that is device-side at prefill, so the sync stall may exceed the saving.
+
+**Hard constraint on every prefill arm: no M4 host can validate a NAX prefill
+change end-to-end** (M4 Pro reports Apple GPU gen 16 and does not select `_nax`).
+The receipt must be a ranked M5 paired run. Every NAX change also needs a
+process-constant env kill-switch (`PREFILL_NAX_ANALYSIS.md:137-176`).
+
+**Two zero-cost side notes worth banking:**
+
+1. **The benchmark sits one token below a mask cliff.** At n=512 both sliding
+   predicates are false (`KVCache.swift:169,:807`), so all 30 sliding layers run
+   `.causal`. At 513 tokens both flip and a 513×513 mask is materialised
+   (`maple-tanjiro-pr91-prefill-budget-census.md:476-509`).
+2. **The cheapest high-value unblocker in the programme** remains printing
+   `d.get_architecture()` on the ranked M5 (`census:937-963`).
+
+**Unattributed prefill time is still 23–39 % of the prefill wall** (22.9–37.9 ms,
+central 27.88 ms; `census:638-685`), named contributors being MMA row padding
+(≈11 ms — 1.46 rows issued per useful row) and staging serialisation. Note the
+census's own transfer caveat: **a prefill byte/dispatch census is M5-valid; a
+prefill *time* census is not.**
+
+### §R20.11 Byte-recovery ledger — ~34.8 KB is reclaimable, 12.6 KB of it at zero risk
+
+Headroom is `current=2934331/3000000 headroom=65669 growth=0/262144 files=142`,
+and `LagunaRuntimeModel.swift` is at **479,751 of the 524,288 per-file cap** —
+only 44,537 B of per-file headroom, and nearly every reclaim candidate lives
+there, so deleting relieves both caps at once.
+
+| # | Region | ≈B | Risk |
+|---|---|---|---|
+| 1 | `LagunaRuntimeModel.swift:11069-11327` `BEGIN/END M5 HARDWARE-CONSTANT INSTRUMENT` + the one call at `:10894` | **12,580** | **zero** |
+| 2 | `:307`, `:380` — `lagunaNativeAffineQKVEnabled`, `lagunaNativeAffineOProjEnabled` | 120 | **zero** |
+| 3 | `:8930-9059` + `:9503-9520` prefill router Top-8 predecessor stack | 6,205 | low |
+| 4 | BF16 fused-QKV stack (`:108-115`, `:5432`, `:5578-5606`, `:5704`, `:5872-5892`, `:11023-11025`) | 3,330 | low |
+| 5 | QKV **narrow** stack (`LagunaRuntimeWeights.swift:749-858`, `:667-668`; `LagunaRuntimeModel.swift:4704-4788`, `:4846-4860`, …) | 10,080 | needs-verification |
+| 6 | Four residual OFF-by-default arms | ~2,500 | needs-verification, poor yield |
+
+Row 1 is **self-certified deletable** at `:11111-11112` ("Delete this block and
+the single `lagunaInjectLayerWork` call"); all 8 knobs default 0 (`:11132-11160`)
+so `lagunaInjectActive == false` (`:11273-11275`); a whole-tree grep finds
+`lagunaInject` only in that file; and `research/frieren-pr35-r5-result.md:100-104`
+independently certifies the block inert under shipped defaults. It is the last
+258 lines of the file, so it does **not** collide with the three in-flight
+kernel arms.
+
+**Do NOT delete** `lagunaTraceFusion` + its 44 call sites + `LagunaNarrowScaleLog`
+(≈4,900 B). That is the programme's only "did the fusion actually fire"
+observability and `:70-74` documents it as load-bearing.
+
+**Vendor is not reclaimable.** `BatchKVCache.swift` (43,383 B) and peers are
+referenced from *non-editable* files (`MLXVLM/Models/Gemma4.swift`,
+`CompilableBatchRotatingKVCache.swift`, 10+ `Tests/MLXLMTests/*`); deleting
+breaks the build with no legal repair.
+
+**Row 5 caveat:** the narrow stack is *measured-never-taken*, not
+*proven-unreachable* — `bank.narrowScales` is read by a live dispatch at `:4846`,
+reached only when `lagunaLaneMajorNVFP4ScaleBank` returns nil. The prior "zero
+risk" label on the QKV-narrow deletion ticket (§R19.6 item 5) is **too strong**
+and is corrected here.
+
+**No non-semantic fat exists.** A scan for runs of ≥8 consecutive commented-out
+code lines across the four largest editable Swift files returned **zero hits**;
+the large comment mass is correctness-certificate prose. Leave it.
 
 ---
 
@@ -4540,15 +4770,21 @@ with the top bit provably dead. It says the attention side banks are nonnegative
 and says **nothing about their range or distinct-value count.** That is the gap
 #35 closes.
 
-**Field precedent on the ranked host.** ivanfioravanti's `ae9ac90b` (09:33,
+**Field precedent — mechanism only. ⚠ CORRECTED BY §R20.6/§R20.9; the timing
+below is RETIRED as a pricing source.** ivanfioravanti's `ae9ac90b` (09:33,
 `ns` 2.53672, 2nd of 937 on content) ships the narrowest version: routed gate/up
 codes are ≤63 for layers 1–38 so gate+up for one lane pack into 12 bits / two
 lanes per three bytes; layer 39 has four codes >63 and keeps uint8; Metal
 reconstructs the original uint8 and calls the unchanged decode; lane parity
-selects. Measured over 1023 checked decode steps per arm: **4.444 vs 4.471
-ms/token = −0.60% steady, −0.52% charged ⇒ ≈ +0.39% of score.** My byte
-arithmetic independently predicts +0.36% for that exact arm — two routes agreeing
-to 8%, which is why I trust the rest of the table.
+selects. **The mechanism is the durable part of this paragraph.** The
+1023-step A/B that produced **4.444 vs 4.471 ms/token = −0.60%** is a **LOCAL,
+directional-only** measurement — *not* a ranked-host result, and the earlier
+"field precedent on the ranked host" label was wrong (#104). It is a bare point
+estimate with no n, half-range, or CI, so per §R20.6 **it may not be cited as
+evidence for anything.** The "two routes agreeing to 8%" claim is also void: the
+agreement was an artefact of which of the four sanctioned memory rates was
+chosen as the denominator (§0.9.39). The audited byte removal is **9.96
+MB/step**, not 10.22.
 
 **He shipped the smallest of the four planes.** The attention plane is 2.2× his
 arm, and attention Q/K/V/O are BF16 on disk (the 234-tensor census is 39 layers ×
