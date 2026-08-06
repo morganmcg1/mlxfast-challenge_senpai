@@ -4098,15 +4098,19 @@ func lagunaGatedAffineOProjNVFP4Source(
     // Sign-carry fold: E4M3 is sign-magnitude, so carrying the sign bit into
     // the half pattern is the exact negation over all 256 bytes (incl. -0.0h);
     // the OFF arm keeps the negate-after-convert form verbatim.
-    let scaleDecode = signCarry
-        ? (lagunaE4M3SignDomainCertified
-            ? "ushort sraw = ushort(sbits) << 7;\n"
-                + "        float scale = float(as_type<half>(sraw));"
-            : "ushort sraw = ushort(sbits + (sbits & 128)) << 7;\n"
-                + "        float scale = float(as_type<half>(sraw));")
-        : "ushort sraw = ushort(sbits & 127) << 7;\n"
-            + "        half sconverted = as_type<half>(sraw);\n"
-            + "        float scale = float((sbits & 128) ? -sconverted : sconverted);"
+    // LUT: when active, replace the 3-7 ALU ops with a single constant-memory
+    // lookup. The table stores the same raw half→float value.
+    let scaleDecode = lagunaNvfp4ScaleLUTActiveOProj
+        ? "float scale = laguna_scale_lut[sbits];"
+        : (signCarry
+            ? (lagunaE4M3SignDomainCertified
+                ? "ushort sraw = ushort(sbits) << 7;\n"
+                    + "        float scale = float(as_type<half>(sraw));"
+                : "ushort sraw = ushort(sbits + (sbits & 128)) << 7;\n"
+                    + "        float scale = float(as_type<half>(sraw));")
+            : "ushort sraw = ushort(sbits & 127) << 7;\n"
+                + "        half sconverted = as_type<half>(sraw);\n"
+                + "        float scale = float((sbits & 128) ? -sconverted : sconverted);")
     // Seed elision: assign the first four-term group instead of adding it to a
     // dead `+0.0f` seed. Only a signed-zero can differ, and the `+0.0f`-seeded
     // `result[row]` plus BF16 epilogue absorb it. OFF arm keeps the seed.
@@ -4241,13 +4245,15 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaNvfp4ScaleLUTSuffix,
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "weight_scales",
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(heads: heads),
+            header: lagunaNvfp4ScaleLUTActiveOProj ? lagunaNvfp4ScaleLUTSource() : "",
             ensureRowContiguous: true
         )
     }
@@ -4343,13 +4349,15 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + lagunaNvfp4ScaleLUTSuffix,
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "weight_scales",
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(heads: heads, preActivatedGate: true),
+            header: lagunaNvfp4ScaleLUTActiveOProj ? lagunaNvfp4ScaleLUTSource() : "",
             ensureRowContiguous: true)
     }
     return result
@@ -4497,7 +4505,53 @@ private let lagunaTailNVFP4QDotReturn = lagunaTailNVFP4ScaleFoldEnabled
     ? "return scale * accum;"
     : "return (scale * 16384.0f) * accum;"
 
-private let lagunaTailNVFP4QMVHeader = """
+private let lagunaTailNVFP4QMVHeader = lagunaNvfp4ScaleLUTActiveTail
+    ? """
+    \(lagunaNvfp4ScaleLUTSource())
+
+    static inline float laguna_tail_nvfp4_scale(uint8_t bits) {
+        return laguna_scale_lut[bits];
+    }
+
+    static inline float laguna_tail_nvfp4_qdot(
+        const device uint8_t* w,
+        const thread float* x_thread,
+        float scale
+    ) {
+        \(lagunaTailNVFP4QDotAccumDeclSource(seedElide: lagunaTailNVFP4QKVSeedElisionEnabled))
+        const device uint2* wq = (const device uint2*)w;
+        const uint2 codes = wq[0];
+    #pragma unroll
+        for (int j = 0; j < 2; j++) {
+            const uint32_t c = (j == 0) ? codes.x : codes.y;
+            // Split-nibble decode: the same eight `half` bit patterns per
+            // code word as the original shift+mask sequence, in fewer
+            // integer ops with three mask constants instead of eight — the
+            // form the current stock `fp_qmv_fast` compiles (every form is
+            // an OR of masked shifts, so the decode is bit-identical).
+            const uint32_t xe = c & 0x0F0F0F0Fu;
+            const uint32_t ge = xe | (xe << 3);
+            const uint32_t yo = c & 0xF0F0F0F0u;
+            const uint32_t go = yo | (yo >> 3);
+            const uint32_t p0 = (ge << 9) & 0x8E008E00u;
+            const uint32_t p1 = (go << 8) & 0x8E008E00u;
+            const uint32_t p2 = (ge << 1) & 0x8E008E00u;
+            const uint32_t p3 = go & 0x8E008E00u;
+            const float2 v04 = float2(as_type<half2>(p0));
+            const float2 v15 = float2(as_type<half2>(p1));
+            const float2 v26 = float2(as_type<half2>(p2));
+            const float2 v37 = float2(as_type<half2>(p3));
+            \(lagunaTailNVFP4QDotFirstGroupSource(seedElide: lagunaTailNVFP4QKVSeedElisionEnabled))
+            accum +=
+                (x_thread[8 * j + 4] * v04.y +
+                 x_thread[8 * j + 5] * v15.y +
+                 x_thread[8 * j + 6] * v26.y +
+                 x_thread[8 * j + 7] * v37.y);
+        }
+        \(lagunaTailNVFP4QDotReturn)
+    }
+    """
+    : """
     static inline float laguna_tail_nvfp4_scale(uint8_t bits) {
         \(lagunaTailNVFP4ScaleFoldEnabled
             ? (lagunaE4M3SignDomainCertified
@@ -4599,7 +4653,8 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                + lagunaNvfp4ScaleLUTSuffix,
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVR1Source,
@@ -6315,6 +6370,75 @@ let lagunaNvfp4ScaleDeferEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_SCALE_DEFER"] != "0"
     && lagunaNvfp4ScaleFoldEnabled
 
+/// `DARKBLOOM_NVFP4_SCALE_LUT` (default ON; set "0" to restore the ALU scale
+/// decode): replaces the 3-7 ALU ops per E4M3 scale byte with a single
+/// constant-memory lookup into a 256-entry `constexpr constant float` table.
+/// The table stores `float(as_type<half>(ushort(bits) << 7))` for all 256 byte
+/// values — the exact result the current ALU produces under the default
+/// sign-domain-certified, scale-folded, scale-deferred configuration.
+///
+/// Bit-exactness: every byte value produces the identical `float` as the
+/// existing `ushort raw = bits << 7; half converted = as_type<half>(raw);
+/// return float(converted)` path, because the table is generated by the same
+/// `Float16(bitPattern: UInt16(bits) << 7) → Float` conversion in Swift and
+/// interpolated as a compile-time constant array. The `* 4194304.0f` deferred
+/// fold is NOT in the table; it remains applied once per output row by the
+/// existing `lagunaNvfp4RowScaleSuffix` / tail epilogue.
+///
+/// Requires `lagunaNvfp4ScaleFoldEnabled` (no `* 256.0` needed) and
+/// `lagunaE4M3SignDomainCertified` (all scale bytes have sign bit 0, so
+/// `bits << 7` is the correct raw expression without sign-carry or negate).
+let lagunaNvfp4ScaleLUTEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_SCALE_LUT"] != "0"
+    && lagunaNvfp4ScaleFoldEnabled
+    && lagunaE4M3SignDomainCertified
+
+/// MoE SwiGLU header LUT gate: requires scale defer so `laguna_nvfp4_scale`
+/// returns the raw half→float (the `* 4194304.0f` is per-row, not per-group).
+let lagunaNvfp4ScaleLUTActiveMoE =
+    lagunaNvfp4ScaleLUTEnabled && lagunaNvfp4ScaleDeferEnabled
+
+/// Tail QKV LUT gate: requires the tail's own fold + defer.
+let lagunaNvfp4ScaleLUTActiveTail =
+    lagunaNvfp4ScaleLUTEnabled
+    && lagunaTailNVFP4ScaleFoldEnabled
+    && lagunaTailNVFP4QKVScaleDeferEnabled
+
+/// O-proj LUT gate: the O-proj always applies `* 4194304.0f` per row, so the
+/// scale value is always the raw half→float when fold + sign domain are on.
+let lagunaNvfp4ScaleLUTActiveOProj = lagunaNvfp4ScaleLUTEnabled
+
+/// Kernel name suffix to force Metal JIT cache invalidation when the LUT
+/// changes the generated source.
+let lagunaNvfp4ScaleLUTSuffix = lagunaNvfp4ScaleLUTEnabled ? "_lut1" : ""
+
+/// Generates the 256-entry `constexpr constant float` LUT as Metal source.
+/// Each entry is `float(as_type<half>(ushort(bits) << 7))`, matching the
+/// existing ALU scale decode under the default configuration exactly.
+func lagunaNvfp4ScaleLUTSource() -> String {
+    var entries: [String] = []
+    for bits in 0..<256 {
+        let raw = UInt16(bits) << 7
+        let half = Float16(bitPattern: raw)
+        let f = Float(half)
+        if f.isInfinite {
+            entries.append("INFINITY")
+        } else if f.isNaN {
+            entries.append("NAN")
+        } else {
+            entries.append(String(f) + "f")
+        }
+    }
+    var result = "constexpr constant float laguna_scale_lut[256] = {\n"
+    for i in stride(from: 0, to: 256, by: 8) {
+        result += "    "
+        result += entries[i..<min(i + 8, 256)].joined(separator: ", ")
+        result += ",\n"
+    }
+    result += "};"
+    return result
+}
+
 /// The `2^22` that `laguna_nvfp4_scale` stops applying under
 /// `DARKBLOOM_NVFP4_SCALE_DEFER`, re-applied once per output row at the
 /// accumulator-to-BF16 boundary. It appears at exactly one site per
@@ -6429,7 +6553,9 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     let accumDeclaration =
         lagunaNvfp4QdotSeedElisionEnabled
         ? "float accum;" : "float accum = 0.0f;"
-    return """
+    let scaleFunction = lagunaNvfp4ScaleLUTActiveMoE
+        ? "\(lagunaNvfp4ScaleLUTSource())\n\n    static inline float laguna_nvfp4_scale(uint8_t bits) {\n        return laguna_scale_lut[bits];\n    }"
+        : """
     static inline float laguna_nvfp4_scale(uint8_t bits) {
     \(lowScaleFastPath)
         ushort raw = \(scaleRawExpression);
@@ -6437,6 +6563,9 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     \(scale256)    half signed_value = \(scaleSignExpression);
     \(scaleTail)
     }
+    """
+    return """
+    \(scaleFunction)
 
     static inline float laguna_nvfp4_qdot_codes_16(
         uint2 codes,
@@ -6461,7 +6590,8 @@ let lagunaSharedSwiGLUQMVHeader: String = {
 }()
 
 private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_bf16_v1",
+    name: "laguna_shared_nvfp4_swiglu_qmv_bf16_v1"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
     source: """
@@ -6543,7 +6673,8 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
 /// One-output-row scheduling twin of `lagunaSharedSwiGLUQMVKernel`.
 /// Arithmetic is textually identical per row; only row ownership changes.
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_s1",
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_s1"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
     source: """
@@ -6666,7 +6797,8 @@ func lagunaSharedSwiGLUQMV(
 }
 
 private let lagunaSharedDownResidualKernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_down_residual_bf16_v1",
+    name: "laguna_shared_nvfp4_down_residual_bf16_v1"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: [
         "activated", "down_weight", "down_scales", "routed", "residual",
     ],
@@ -6762,7 +6894,8 @@ func lagunaSharedDownResidual(
 }
 
 private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_bf16_v2",
+    name: "laguna_routed_nvfp4_swiglu_qmv_bf16_v2"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: ["input", "fused_weight", "fused_scales", "indices"],
     outputNames: ["activated"],
     source: """
@@ -6867,7 +7000,8 @@ private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
 /// one output row rather than two. Two simdgroups per 64-thread group and 256
 /// tiles cover all 512 expert rows exactly once.
 private let lagunaRoutedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_rows1_bf16_v1",
+    name: "laguna_routed_nvfp4_swiglu_qmv_rows1_bf16_v1"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: ["input", "fused_weight", "fused_scales", "indices"],
     outputNames: ["activated"],
     source: """
@@ -7009,7 +7143,8 @@ func lagunaRoutedSwiGLUQMV(
 /// identical dequant/accumulate/SwiGLU chain — only scale address computation
 /// differs.
 private let lagunaRoutedSwiGLUQMVPackedKernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_bf16_v1",
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_bf16_v1"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: ["input", "fused_weight", "packed_scales", "indices"],
     outputNames: ["activated"],
     source: """
@@ -7234,7 +7369,8 @@ func lagunaRoutedSwiGLUQMVPackedSelectedSource(
 }
 
 private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v1",
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v1"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: ["input", "fused_weight", "packed_scales", "indices"],
     outputNames: ["activated"],
     source: lagunaRoutedSwiGLUQMVPackedSelectedSource(
@@ -7256,7 +7392,8 @@ let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: ["input", "fused_weight", "packed_scales", "indices"],
     outputNames: ["activated"],
     source: """
@@ -7410,7 +7547,8 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
 }
 
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_down_reduce_bf16_v2",
+    name: "laguna_routed_nvfp4_down_reduce_bf16_v2"
+        + lagunaNvfp4ScaleLUTSuffix,
     inputNames: [
         "activated", "down_weight", "down_scales", "indices", "router_weights",
     ],
@@ -7570,7 +7708,9 @@ let lagunaSharedFirstDownOrderEnabled =
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
         ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5",
+            + lagunaNvfp4ScaleLUTSuffix
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5"
+            + lagunaNvfp4ScaleLUTSuffix,
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
