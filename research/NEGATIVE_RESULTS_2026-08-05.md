@@ -8,6 +8,15 @@
 - **W&B**: https://wandb.ai/wandb-applied-ai-team/mlxfast-birch/runs/3jhy0yb3
 - **Lesson**: The down+residual kernel is NOT memory-latency-bound — it is compute/instruction-bound. Register prefetch only helps when there is substantial compute to hide it behind. Combined with PR #89 (4→8 SIMD groups also regressed via register pressure), the down+residual kernel is sensitive to register pressure and not amenable to tiling or prefetch changes.
 
+## PR #95 — O-proj Unroll Sweep: DARKBLOOM_L5_UNROLL 2→4 (Askeladd)
+- **Hypothesis**: Increasing DARKBLOOM_L5_UNROLL from 2 to 4 increases outstanding GPU loads per thread in the gated output projection decode kernel
+- **Result**: DEAD HYPOTHESIS — DARKBLOOM_L5_UNROLL is a no-op on the scored decode path
+- **Root cause**: DARKBLOOM_L5_UNROLL (line 3718) controls the BF16 gated output projection kernel selection (line 3753). This BF16 kernel is UNREACHABLE during decode because the native affine o_proj block (lines 5941-6046) always returns before the BF16 fallback at line 6047. With lagunaNativeAffineNVFP4From=0 (default), all 40 layers use the NVFP4 affine o_proj path.
+- **Correctness**: Bit-exact (identical golden_hash b9509697c08a2cf3, max_abs_diff=0)
+- **Timing**: Baseline decode=0.013123, candidate=0.013157 s/tok (+0.26% noise), prefill=0.001122 vs 0.001121 (-0.09% noise)
+- **W&B**: https://wandb.ai/wandb-applied-ai-team/mlxfast-birch/runs/k0c3pi23
+- **Lesson**: The code comment at line 3713 ("highest-information measurement left on this box") is misleading — the kernel it refers to is NOT on the scored path. Always trace the env var to the scored runtime path before timing. Follow-up: the NVFP4 affine o_proj kernel (line 4373) IS on the scored path but uses a different unroll mechanism — would need its own unroll sweep.
+
 ## PR #89 — Down+Residual Kernel: outputs_per_simd 4→8 (Thorfinn)
 - **Hypothesis**: Doubling output rows per SIMD halves threadgroup count, increases input reuse, reduces decode latency
 - **Result**: FAILED — decode regressed +2.39% (0.013211 → 0.013526 s/token)
