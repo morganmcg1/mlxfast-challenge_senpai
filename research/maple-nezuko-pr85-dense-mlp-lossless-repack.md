@@ -472,13 +472,20 @@ itself supplies: the experiment does not just give a sign, it gives the
 - Therefore the unpack arithmetic costs ~**219.6 us/step** on M4 Pro, i.e.
   ~2.2x the bandwidth it buys.
 
-On the ranked M5 Max the same 25.14 MB is worth only `25.141e6/610e9` =
-**41.2 us**, because higher bandwidth makes each saved byte *cheaper*, not
-dearer. For the mechanism to break even on M5 the unpack cost must fall from
-219.6 us to <=41.2 us — a **5.3x** improvement in ALU throughput per unit of
-memory bandwidth relative to M4 Pro. M5 Max has more GPU cores, but its
-bandwidth rises ~2.4x at the same time, so the ALU:bandwidth ratio does not
-move anything like 5.3x in the required direction.
+> **r2 correction.** §10.2 re-derives this from primary sources and gets
+> **212-219 us**, so the paragraph below stands. But the M5 denominator used
+> here was **610 GB/s**, which R12.5 forbids as a physical rate: it is
+> definitional (`1794 MB / 2.941 ms`). The admissible measured M5 rates are
+> 546.2 and 651.8 GB/s. Corrected figures are inlined below and derived in
+> §10.4.
+
+On the ranked M5 Max the same 25.14 MB is worth only **38.6-46.0 us**
+(`25.141e6` at 651.8 / 546.2 GB/s), because higher bandwidth makes each saved
+byte *cheaper*, not dearer. For the mechanism to break even on M5 the unpack
+cost must fall from ~219 us to <=46 us — a **4.8x to 5.7x** improvement in ALU
+throughput per unit of memory bandwidth relative to M4 Pro. M5 Max has more GPU
+cores, but its bandwidth rises ~2.2-2.6x at the same time, so the ALU:bandwidth
+ratio does not move anything like 5x in the required direction.
 
 This is the case where the M4 host *can* settle the question: the byte saving
 is fixed and known, the ALU cost is measured, and the ratio is far outside the
@@ -495,8 +502,9 @@ bits/weight, cutting the saving from 25.14 MB to ~18.8 MB.
 - ALU cost ~`219.6 * 5/9` = ~122 us
 - Byte saving on M4 = `18.8e6/250e9` = ~75 us
 - Net: still ~47 us **slower** on M4.
-- On M5 the saving is `18.8e6/610e9` = ~31 us against ~122 us of ALU, needing
-  a 4x ALU improvement.
+- On M5 the saving is ~29-34 us (at 651.8 / 546.2 GB/s; the r1 text used the
+  forbidden 610 divisor, see §6.5) against ~122 us of ALU, needing a 3.5-4.2x
+  ALU improvement.
 
 P13 is therefore also dead, and I am withdrawing it as a follow-up rather than
 leaving it in §9 for someone to spend a session on.
@@ -583,44 +591,59 @@ measurement confound to investigate, not evidence of a prefill win.
 
 ## 8. Reproduction
 
-### ⚠ Flag polarity was inverted *after* the campaign
+### 8.1 ⚠ The mechanism is not present at this branch head
 
-The brief specified `DARKBLOOM_DENSE_PACKED` default **ON**, `"0"` to disable,
-and that is what campaign A ran under: the ON arm set nothing and the OFF arm
-set `=0`. That is what `run-campaign-a.sh` and the slot table in
-`research/maple-nezuko-pr85/README.md` record, and I have not rewritten either.
+r2 reverted both submitted files, so **`HEAD` of this branch carries no kernel,
+no `LagunaDensePacked.swift`, and no `DARKBLOOM_DENSE_PACKED` flag at all** —
+the PR is research-only and its submitted surface is identical to base. Nothing
+below runs against `HEAD`. The last commit that carries the implementation is
+**`44f4992`**, and every timing/certificate command in §8.3 must be run from
+there.
 
-Because §6 measures the mechanism as a **regression**, shipping it default-ON
-would mean that merging this branch for its write-up silently costs ~0.7 % of
-score. So the flag is now **opt-in**: `DARKBLOOM_DENSE_PACKED=1` enables the
-packed path and anything else (including unset) takes the stock path.
-`LagunaDensePacked.swift:26-31`. Nothing else about the mechanism changed, the
-certificate is unaffected, and the default path is now bit- and
-byte-identical to base.
+### 8.2 ⚠ Flag polarity changed twice; the recorded campaign used the first one
 
-**Consequence for reproduction:** to re-run campaign A against the current head
-you must invert the arms — set `DARKBLOOM_DENSE_PACKED=1` for the ON arm and
-leave it unset for OFF. `run-campaign-a.sh` as committed reproduces the
-*recorded* arms only against a tree with the original default; run it against
-the current head and both arms are OFF, which is itself a usable A/A.
+Three distinct polarities exist in this branch's history and confusing them
+reproduces the wrong arm, so they are tabulated rather than described:
+
+| tree | ON arm is spelled | OFF arm is spelled |
+|---|---|---|
+| campaign-A tree (`262efe4` and earlier; default **ON** as the brief specified) | unset | `DARKBLOOM_DENSE_PACKED=0` |
+| `11facb6 … 44f4992` (default **OFF**, opt-in) | `DARKBLOOM_DENSE_PACKED=1` | unset |
+| `cfbad24` = branch `HEAD` (r2 revert) | *does not exist* | *does not exist* |
+
+Campaign A ran under row 1. Because §6 measures the mechanism as a
+**regression**, leaving it default-ON would have meant that merging this branch
+for its write-up silently cost ~0.7 % of score, so `11facb6` made it opt-in
+(`LagunaDensePacked.swift:26-31` at `44f4992`). Nothing else about the
+mechanism changed and the certificate is unaffected.
+
+`run-campaign-a.sh` as originally committed hard-coded row 1 (`off` → `=0`,
+`on` → unset). Against a row-2 tree that spells **both** arms OFF, which is a
+silent A/A rather than an error. r2 fixes the script to row-2 polarity so that
+running it against `44f4992` reproduces the recorded arms; the row-1 spelling
+is retained in a comment as the historical record.
+
+### 8.3 Commands
 
 ```bash
-# census
+# census -- the only step that runs against HEAD
 python3 research/nezuko_dense_census.py all
+
+# everything below needs the implementation:
+git checkout 44f4992
 
 # certificate (single run, traced)
 DARKBLOOM_TRACE_FUSION=1 DARKBLOOM_DENSE_PACKED=1 \
   DARKBLOOM_DENSE_PACKED_VERIFY=1 ./benchmark.sh --local-iterate
 
-# timing campaign A (12 paired runs, ~40 min)
-#   NB: edit the arm variable per the note above before re-running.
+# timing campaign A (12 paired runs, ~40 min); opt-in polarity, matches 44f4992
 bash research/maple-nezuko-pr85/run-campaign-a.sh
 
-# analysis
+# analysis (runs against the committed JSONs, so HEAD is fine)
 cd research/maple-nezuko-pr85 && python3 analyze.py a
 cd research/maple-nezuko-pr85 && python3 covariate.py
 
-# enable the packed path (now opt-in); omit the variable for stock
+# enable the packed path by hand (opt-in); omit the variable for stock
 DARKBLOOM_DENSE_PACKED=1 ./benchmark.sh --local-iterate
 ```
 
@@ -661,14 +684,16 @@ arrays, so each weight costs two loads from two streams. Packing 2 weights into
 3 contiguous bytes gives one stream at the cost of byte-unaligned extraction.
 It is a self-contained kernel-only change with an unchanged certificate.
 
-**Downgraded, and I would not run it either.** It attacks stream count, not the
-term that lost. §6.5 puts the unpack ALU at ≈ 219.6 µs against ≈ 100.6 µs of
-bandwidth bought (≈ 41.2 µs on M5); byte-unaligned extraction *adds* shift and
+**CLOSED by §10.6(b), not merely downgraded.** It attacks stream count, not the
+term that lost. §6.5 puts the unpack ALU at ≈ 219 µs against ≈ 100.6 µs of
+bandwidth bought (≈ 39–46 µs on M5); byte-unaligned extraction *adds* shift and
 mask work, so the most optimistic reading is that it trades a little load-issue
 pressure for a little more ALU on the side of the ledger that is already 2.2×
-over. This is only worth revisiting if someone first shows the unpack can be
-made ~5× cheaper, in which case the stream count becomes the next thing to fix
-rather than the first.
+over. §10.6(b) then closes it outright: 1 B + 0.5 B in two planes and 3 B per
+2 weights in one plane are the **same 1.5 B/weight**, so this arm removes
+**zero** bytes while adding in-loop ops, and the break-even law rejects it for
+every positive exchange rate without needing a measurement. Do not spend a slot
+on it.
 
 ### 9.3 Do not chase P8 or T8 — both are closed
 
@@ -727,24 +752,316 @@ decision, not something to fix inside one experiment.
 
 The transferable result is not "the repack failed" but a **priced exchange
 rate**: on this model's dense BF16 planes, a per-channel-base delta scheme buys
-25.14 MB/step at a cost of ≈ 219.6 µs of unpack ALU. Any future
+25.14 MB/step at a cost of ≈ 212–219 µs of unpack ALU. Any future
 bytes-for-arithmetic trade in this runtime can be screened against that number
-before anyone writes a kernel. Concretely, a decode-path unpack scheme is only
-worth building if it costs under ~4 integer ops per weight *and* saves more than
-~25 % of its plane — and on the ranked M5, where saved bytes are worth 2.4×
-less, the ALU budget is roughly **5× tighter still**. §6.6 shows that test
-correctly rejecting P13 without a run. I would rather the programme keep that
-constant than keep this kernel.
+before anyone writes a kernel. §6.6 shows that test correctly rejecting P13
+without a run. I would rather the programme keep that constant than keep this
+kernel.
+
+**§10 is the finished form of this paragraph** and supersedes the rule of thumb
+that stood here in r1. The screening constant is
+`bits_removed_per_weight ≥ k × ops_per_element / G`, with `k ≈ 1 bit/op` on
+M4 Pro and `k ∈ [0.94, 2.52]` on M5, and the amortisation factor `G` — not the
+op count — is what decides most arms.
 
 ---
 
-## 10. `SENPAI-RESULT`
+## 10. The break-even exchange rate for in-kernel unpacking
 
-A git object cannot contain its own hash, so `commit_sha` below names the last
-commit touching a **submitted** path (`98c3221`, the flag-polarity flip). The
-authoritative branch-head SHA is carried by the typed Senpai transition; it
-differs from `98c3221` only by research-only documentation commits, which are
-not part of the submitted surface.
+This is the r2 deliverable. §9.6 said the transferable asset is a priced
+exchange rate; this section actually prices it, states it as a law with an
+explicit interval, and applies it to the three arms currently queued behind it.
+
+Per **§0.9.11** ("a banked price is not evidence") every input below is
+re-derived from a primary source and cited. Two labelling notes for the record:
+the banked-price rule is **§0.9.11**
+(`CURRENT_RESEARCH_STATE.md:2417-2436`), not §0.9.13 (`:2622-2652`, which is
+the 6-of-8 audit tally); and §6.5/§9.2/§9.6 as written in r1 quoted **610 GB/s**
+as an M5 rate, which R12.5 (`:1096`) forbids — 610 is definitional
+(`1794 MB / 2.941 ms`) and "must never be quoted as one". Those three places are
+corrected below and in situ.
+
+### 10.1 The advisor's derivation, and the one thing wrong with it
+
+As given in PR #85 comment 5:
+
+```text
+unpack ALU ≈ (0.905 % + 1.133 %) × 8530 µs ≈ 174 µs
+           ≈ +43 % on top of the ~401 µs stock dense pair
+```
+
+The construction is right and the second term checks out exactly: the byte
+saving is `25,141,248 B / 260.2 GB/s = 96.62 µs`, and `96.62 / 8530 = 1.1327 %`.
+So the 1.133 % term is the byte saving expressed as a fraction of an
+**8530 µs** step.
+
+The error is in the first term. My measured **+0.9054 % is a fraction of
+D = 13,140.5 µs**, the `--local-iterate` `decode_seconds_per_token` on my AWS
+M4 Pro (§6.1). The 8530 µs is a *different host and a different instrument*:
+it is `wall 8.530 ms` from maple-tanjiro's instrumented `decode_probe.py`
+census (`maple-tanjiro-pr73-decode-kernel-census.md:292`), whose own doc warns
+at `:120-123` that profiled wall is `fputs`-inflated and must not be compared
+against non-profiled runs. Multiplying my percentage by that step silently
+rescales the measured delta from a 13.14 ms denominator onto an 8.53 ms one:
+
+- advisor's implied delta: `0.905 % × 8530 = 77.2 µs`
+- actual measured delta: **`0.9054 % × 13,140.5 = 118.97 µs`** (§6.1)
+
+The delta is understated by 41.8 µs, so the ALU total is understated by the
+same amount. **The fix is to never convert the measured effect through a
+percentage at all** — the campaign yields an absolute delta, so use it.
+
+### 10.2 The corrected ALU cost
+
+```text
+ALU_seconds = measured_delta_seconds + bytes_removed / R
+```
+
+Both terms are host-internal to my campaign except `R`, and `R` is bracketed:
+
+| input | value | source |
+|---|---|---|
+| measured delta | **+118.97 µs/step** (95 % CI [+46, +192] µs) | §6.1, 12 counterbalanced runs |
+| bytes removed, gross | **25,141,248 B/step** | §5.1, certificate |
+| bytes removed, net of pessimistic escape tax | **24,182,912 B/step** | §5.1.1 (7,487 escapes × 128 B) |
+| `R` host streaming ceiling | **260.2 GB/s** | `research/host_bandwidth_ceiling.swift` via `maple-fern-prefill-roofline.md:66` |
+| `R` achieved by these two kernels | **~251.0 GB/s** (252.3 / 250.4, i.e. 96–97 % of ceiling) | `pr73-census.md:496-500` |
+
+Four corners:
+
+| bytes | `R` | value of bytes | ALU |
+|---|---|---:|---:|
+| gross | 260.2 | 96.62 µs | **215.6 µs** |
+| gross | 251.0 | 100.16 µs | **219.1 µs** |
+| net | 260.2 | 92.94 µs | **211.9 µs** |
+| net | 251.0 | 96.35 µs | **215.3 µs** |
+
+**Unpack ALU = 212–219 µs/step on M4 Pro**, ~24 % above the advisor's 174 µs
+and consistent with the 219.6 µs §6.5 reported. The campaign CI widens this to
+[143, 292] µs; the corner spread (±2 %) is negligible against it.
+
+As a surcharge on the stock dense pair, the honest figure is an interval,
+because the pair cost is measured on tanjiro's host and the ALU on mine:
+
+- against the census pair as printed, `269.7 + 134.6 = 404.3 µs`
+  (`pr73-census.md:191,196`): **+52 % to +54 %**
+- against that pair scaled to my host's step, `404.3 × 13140.5/8530 = 622.9 µs`:
+  **+34 % to +35 %**
+
+So **+34 % to +54 %**, not +43 %. The advisor's +43 % happens to land inside
+that interval, but by cancelling two errors — the understated delta and the
+unscaled denominator — rather than by being right.
+
+### 10.3 The rate
+
+Divide by the work, not by the step. The three planes hold **50,331,648
+weights** (§2), and the decode unpack expression is **~9 integer ops per
+weight** (§6.6).
+
+```text
+t_op = ALU / (weights × ops_per_weight)
+     = 212…219 µs / (50,331,648 × 9)
+     = 0.468 … 0.484 ps per integer op per weight
+```
+
+One byte of stream costs `1/R`: 3.843 ps at 260.2 GB/s, 3.984 ps at 251.0 GB/s.
+So the break-even constant is
+
+```text
+k = t_op × R   =   0.94 … 1.01 bits removed per weight, per added integer op
+                    per weight, on M4 Pro
+```
+
+**≈ 1 bit per op.** Stated as a law:
+
+```text
+bits_removed_per_weight  ≥  k × ops_per_weight
+```
+
+Self-check against the arm that produced it: this scheme spends 9 ops/weight,
+so it needs ≥ 8.5–9.1 bits/weight. It removes `16 − 12.0063 = 3.9937`
+bits/weight. Short by **2.1–2.3×** — which is exactly the 2.2× overshoot §6.5
+reports by a completely different route. The rate reproduces its own input.
+
+### 10.4 The M5 interval, and why it must be an interval
+
+**§0.9.36** (`CURRENT_RESEARCH_STATE.md:193-227`) is the governing rule: byte
+removals transfer M4→M5 at **1.0–1.2×** (confirmed a third time at 1.18×), but
+instruction- and occupancy-channel M4 wall residuals **do not transfer** and
+have been over-stated by ~12× (M4 2.25 % vs M5 ranked 0.18 %). `k` is a ratio
+of an instruction-channel term to a byte term, so its M5 value cannot be a
+point.
+
+The byte side is well determined. Per R12.5, the admissible M5 denominators are
+the two *measured* rates — **546.2 GB/s** (routed block, the adopted decode
+achievable rate) and **651.8 GB/s** (attention block) — never 610. This dense
+BF16 MLP plane is neither, so it is bracketed by both:
+`t_byte(M5) = 1.53 … 1.83 ps/B`, i.e. **a removed byte is worth 2.2–2.6× less
+time on M5 than on M4**, not "2.4×" (§6.5, corrected).
+
+The ALU side has no M5 measurement, so bound it by two principled assumptions:
+
+| assumption | `t_op` on M5 | `k` on M5 |
+|---|---|---|
+| ALU seconds invariant (kernel is bandwidth-bound, unpack sits on the critical path) | 0.468–0.484 ps | **2.04 – 2.52 bits/op** |
+| ALU throughput scales with bandwidth (M5's extra cores absorb it proportionally) | 0.19–0.22 ps | **0.94 – 1.01 bits/op** |
+
+```text
+k_M5  ∈  [0.94, 2.52]  bits/weight per added integer op/weight
+```
+
+That is a **2.7× interval and it is not narrowable from M4 data.** Worse, it is
+not even a hard lower bound: §0.9.36's single calibrated instruction-channel
+observation, taken literally, implies the ALU term can shrink ~12× as a
+fraction of step — and because the M5 step is 3.07× shorter (4.28121 ms,
+receipt `c3ce66ec`, `pr73-census.md:461`, vs my 13.1405 ms) that is ~38× in
+absolute seconds, i.e. `k_M5 ≈ 0.05`. I do not treat that as a calibrated
+bound, but it fixes how the interval may be used:
+
+> **Use `k = 2.5 bits/op` to decide whether to *build* an unpacking scheme.
+> Never use `k` to *kill* an arm whose byte side already clears the rate** —
+> the instruction channel is the term M4 cannot bound from below.
+
+Applying that to this experiment: at the neutral end my arm needs 8.5 bits and
+removes 4.0, so it fails by ~2.1×; only a >2× instruction-channel transfer
+discount would rescue it on M5. §6.5 declines to bet on that and §6.7 records
+it as the honest residual threat. This section does not change the NO-GO; it
+quantifies exactly how far outside the interval the arm sits.
+
+### 10.5 The qualifier that makes the rate usable: amortisation and the critical path
+
+`k` was measured on ops that sit in the **innermost per-weight loop**, where
+they compete with load issue for the same registers. The general form is:
+
+```text
+bits_removed_per_weight  ≥  k × ops_per_element / G
+```
+
+where an *element* is the object being unpacked and `G` is the number of
+weights it serves. My arm had `G = 1`, which is the worst possible case and is
+why it is the only one of the queued arms the rate rejects. Two corollaries,
+both load-bearing:
+
+1. **`G` is the dominant term.** A group-32 scale-plane repack pays its ops
+   once per 32 weights, so it clears the same `k` by 1–2 orders of magnitude.
+2. **Hoisted ops are cheaper than `k` says.** An op lifted out of the inner
+   loop is latency-hidden under the weight loads it precedes; §10.6(c) below is
+   direct evidence that at `G = 32` the ALU term falls under the measurement
+   floor entirely. So `k × ops/G` is an *upper* bound for hoisted work, and a
+   tight estimate only for in-loop work.
+
+### 10.6 Pricing the three queued arms
+
+**(a) Fold the o_proj row base into the codes plane (#80).**
+`maple-frieren-pr80-attn-scale-pairwise.md:1383-1384` records the `+1` byte per
+row as **4 % of the pairwise o_proj row cost**. The element is a row: 8 bits
+removed per element, `G` = the row length, and the fold is address arithmetic
+of order 1–3 integer ops per row, hoisted entirely out of the inner loop.
+Even ignoring `G` and pricing it as in-loop work, `2.5 × 3 = 7.5 bits` required
+against **8 bits removed** — it clears, marginally, at the most conservative
+point of the interval; with `G` in the hundreds it clears by two orders of
+magnitude. **The rate does not block this arm.** It does supply one concrete
+design constraint worth carrying into the brief: **keep the fold to ≤ 3 integer
+ops per row and keep them hoisted**, because at 1 op per *weight* the same
+8 bits/row would be nowhere near enough. The real risk for (a) is addressing
+and occupancy, which this rate does not price (§10.7).
+
+**(b) My own §9.2 M/D plane interleave.**
+Priced properly it is not a byte arm at all: two planes at 1 B + 0.5 B per
+weight and one plane at 3 B per 2 weights are the **same 1.5 B/weight**. So
+`bits_removed_per_weight = 0` while `ops_per_weight > 0`, all of them
+byte-unaligned shift/mask work in the innermost loop with `G = 1`. The law
+rejects it for **every** `k > 0`, with no interval required and no measurement
+needed. §9.2 downgraded it; this rate **closes** it. Its only conceivable
+payoff is a load-issue/locality effect that `k` does not price, sitting on top
+of a mechanism already refuted by 2.1–2.3×. Do not spend a slot on it.
+
+**(c) ivanfioravanti's 12-bit/3-byte routed gate/up scale packing (`ae9ac90b`).**
+`CURRENT_RESEARCH_STATE.md:4258-4266` and `nezuko-harvest-report.md:481-483`:
+`scale_row_bytes` 32→24 (16 scales at 16 bits → 16 scales at 12 bits), i.e.
+**4 bits removed per element**, ~10 MB/token over 39 layers, measured
+4.444 vs 4.471 ms/token = −0.60 % steady ⇒ ≈ **+0.39 % of score**.
+
+This arm is the section's most valuable calibration point, because **the
+conservative end of the rate would have rejected it**: `2.5 × 2 ops = 5 bits`
+required against 4 bits removed. It won anyway. The resolution is §10.5:
+the element is a group-32 scale, so `G = 32`, the two unpack ops are hoisted
+and latency-hidden, and the requirement is `2.5 × 2/32 = 0.16 bits/weight`
+against `4/32 = 0.125 bits/weight` removed — which is the same near-tie, so
+even the amortised form only just clears. The measurement settles it: at
+`G = 32` **the ALU term is not resolvable at all**, and the arm delivers its
+byte prediction.
+
+Two honest flags on (c). Its observed −0.60 % *exceeds* the pure-byte
+prediction (`10 MB / 546.2 GB/s = 18.3 µs` on a 4.471 ms step = **+0.41 %**) by
+1.47×, above §0.9.36's 1.0–1.2 × transfer band. An ALU term can only subtract,
+so either the 10 MB figure is understated or a second effect is present; I have
+not resolved which, and the 10 MB is the number I would re-derive first. And
+the 2-op estimate is mine, not measured — unlike my own 9, which came from
+counting the shipped expression.
+
+**Bearing on my next assignment.** The queued shared-expert group-32
+scale-plane halving (7.67 MB/step, reusing `lagunaHalvedGroup32ScalePlane` from
+#72) has the same shape as (c): `G = 32`, ~1–2 hoisted ops, 8 bits removed per
+16-bit scale. Required at the conservative end: `2.5 × 2/32 = 0.16 bits/weight`
+against `8/32 = 0.25 bits/weight` removed — it clears by ~1.6× on the amortised
+form and by far more once the hoisting discount in (c) is admitted. **The rate
+green-lights it**, and predicts the outcome will be set by whether the 7.67 MB
+survives re-derivation, not by unpack cost.
+
+### 10.7 What this rate does not price
+
+Stating the scope so nobody over-applies it:
+
+- **Stream count, locality and load issue.** §9.2's only remaining argument
+  lives here and is invisible to `k`.
+- **Occupancy and register-pressure cliffs.** A scheme can clear `k` on op
+  count and still lose a threadgroup's worth of occupancy.
+- **Prefill.** This is a decode-path constant. §6.4 found the prefill channel
+  could not resolve the effect, and #91 §0.9.C
+  (`maple-tanjiro-pr91-prefill-budget-census.md:129-139`) is an independent
+  second observation that the prefill instrument is the weaker one.
+- **Correctness cost.** `k` prices time, not the escape-handling, certificate
+  or gate work an encoding needs.
+
+### 10.8 The two "2.4×" factors are unrelated (r2 item 4)
+
+r1's §6.5 said saved bytes are "worth 2.4× less on M5"; #91 §0.9.C says the
+brief's mandated M4→M5 factors "overshoot prefill by 2.4×". They are not the
+same number and neither supports the other.
+
+§6.5's factor was a **bandwidth ratio**, `610/251 = 2.43` — and §10.4 has now
+retired it twice over: 610 is the forbidden definitional divisor (R12.5), and
+the correct bracket from the two measured rates is `546.2…651.8 / 251.0` =
+**2.2–2.6×**. #91's factor is a **prediction-error ratio**: decode-derived
+factors (×0.3886 attention, ×0.4324 routed, ×0.7565 remainder) predict ≥ 211 ms
+against an actual S ≈ 97.95 ms. Its own underlying root ratio is the M4→M5
+prefill wall ratio `97.95/545.0 = 0.180`, against decode's 0.5019 — a 2.79×
+separation, not 2.4×.
+
+Different constructions, different denominators, different quantities; the
+agreement to two significant figures is a **coincidence**, and a near one at
+that (2.2–2.6 vs 2.4). I checked for a shared factor and found none. Recording
+it so the next reader does not spend the same half hour on it.
+
+---
+
+## 11. `SENPAI-RESULT`
+
+**r2 status.** This revision is packaging-only: no new GPU time, no new timing
+campaign, and no change to any measurement in §6. It rebases onto
+`ea501bc8`, reverts both submitted files so the PR is research-only
+(`growth=0`, `files=142`), adds §10 (the break-even exchange rate the advisor
+asked for), corrects the forbidden 610 GB/s divisor wherever r1 used it, and
+fixes the §8 reproduction polarity. The verdict is unchanged: **NO-GO**.
+
+A git object cannot contain its own hash, so — keeping r1's convention —
+`commit_sha` below names the **last commit touching a submitted path**, which
+for r2 is `cfbad24`, the revert itself. The authoritative branch-head SHA is
+carried by the typed Senpai transition. Note the consequence of that revert:
+`cfbad24` is the last commit to *touch* a submitted path, but **no commit on
+this branch now contributes to the submitted diff** — `git diff ea501bc8 HEAD
+-- Sources/ Vendor/ Package.swift benchmark.json` is empty.
 
 `runs` is empty and that is not an omission. This campaign has **no W&B runs**:
 `wandb-applied-ai-team/mlxfast-maple` holds none for this PR or for any
@@ -758,9 +1075,9 @@ SENPAI-RESULT
   "schema_version": 1,
   "status": "failed",
   "hypothesis": "Layer-0 dense MLP BF16 planes can be losslessly re-encoded as per-channel exponent-base + 4-bit delta + 7-bit mantissa (P12/GO-12e), cutting 25.14 MB/step of decode weight traffic for roughly +0.61% of official score.",
-  "summary": "Hypothesis REFUTED by measurement, not by construction. The census fired GO-12e and the encoder is provably lossless (0 mismatching BF16 bit patterns over 50,331,648 weights, CPU memcmp), delivering the predicted 25,141,248 B/step. But the unpack ALU costs more than the bytes are worth: 12 counterbalanced same-binary runs give decode +0.9054% SLOWER (95% CI [+0.35%, +1.46%], exact permutation p = 8/924 = 0.0087), +0.7856% after prefill adjustment (p = 0.0152). That is -0.71% of score on M4 and worse on M5, where saved bytes are worth 2.4x less. Flag is now opt-in so the regression cannot land by default.",
+  "summary": "Hypothesis REFUTED by measurement, not by construction. The census fired GO-12e and the encoder is provably lossless (0 mismatching BF16 bit patterns over 50,331,648 weights, CPU memcmp), delivering the predicted 25,141,248 B/step. But the unpack ALU costs more than the bytes are worth: 12 counterbalanced same-binary runs give decode +0.9054% SLOWER (95% CI [+0.35%, +1.46%], exact permutation p = 8/924 = 0.0087), +0.7856% after prefill adjustment (p = 0.0152). That is -0.71% of score on M4 and worse on M5, where saved bytes are worth 2.2-2.6x less. r2 is packaging-only (no new GPU time): both submitted files are reverted so the PR is research-only (growth=0, files=142), and the deliverable is S10, the break-even exchange rate -- unpack ALU 212-219 us/step, k = 1 bit removed per weight per added in-loop integer op on M4 Pro and k in [0.94, 2.52] on M5, with the amortisation factor G deciding most arms. It closes S9.2, green-lights the o_proj row-base fold and the group-32 scale-plane arms, and explains why ae9ac90b won despite sitting at the same nominal rate.",
   "runs": [],
-  "commit_sha": "98c3221",
+  "commit_sha": "cfbad24",
   "primary_metric": {
     "name": "same_host_paired_decode_ratio",
     "direction": "minimize",

@@ -14,10 +14,13 @@ unset DARKBLOOM_TRACE_FUSION
 i=0
 for arm in on off off on off on on off on off off on; do
     i=$((i + 1))
+    # Opt-in polarity, matching 44f4992. The recorded campaign ran against the
+    # earlier default-ON tree, where these two branches were reversed
+    # (on => unset, off => DARKBLOOM_DENSE_PACKED=0). See report S8.2.
     if [ "$arm" = off ]; then
-        export DARKBLOOM_DENSE_PACKED=0
-    else
         unset DARKBLOOM_DENSE_PACKED
+    else
+        export DARKBLOOM_DENSE_PACKED=1
     fi
     echo "=== campaign A slot $i arm $arm $(date -u +%H:%M:%S) ==="
     rm -f score.local-iterate.json

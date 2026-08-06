@@ -55,11 +55,14 @@ across all 12 slots.
 
 > ⚠ **The polarity in this table is historical.** At campaign time the flag was
 > opt-out (`!= "0"`), so ON = unset. After the campaign returned NO-GO the flag
-> was inverted to opt-in (`== "1"`) in commit `98c3221`, so that a merged
+> was inverted to opt-in (`== "1"`) in commit `11facb6`, so that a merged
 > negative write-up cannot silently land the measured regression on the
-> frontier. This table is left as-run for provenance; to reproduce the arms
-> against current `HEAD`, spell ON as `DARKBLOOM_DENSE_PACKED=1` and OFF as
-> unset. See §8 of the main report.
+> frontier. In r2 the mechanism was reverted out of the branch entirely, so
+> **the flag does not exist at `HEAD`** and neither arm is reachable there.
+> This table is left as-run for provenance. To reproduce the arms, check out
+> `44f4992` (the last commit carrying the implementation) and spell ON as
+> `DARKBLOOM_DENSE_PACKED=1` and OFF as unset — which is what
+> `run-campaign-a.sh` now does. See §8 of the main report.
 
 **The order is exactly orthogonal to slot position.** ON occupies slots
 {1,4,6,7,9,12} summing to 39; OFF occupies {2,3,5,8,10,11} also summing to 39.
