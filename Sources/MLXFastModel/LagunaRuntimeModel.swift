@@ -7659,8 +7659,13 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 row_codes[row],
                 input_values,
                 laguna_nvfp4_scale(row_sb[row]));
-            result[row] = simd_sum(result[row]);
         }
+        vec<float, 4> packed = simd_sum(vec<float, 4>(
+            result[0], result[1], result[2], result[3]));
+        result[0] = packed.x;
+        result[1] = packed.y;
+        result[2] = packed.z;
+        result[3] = packed.w;
 
         threadgroup bfloat down_outputs[
             (routed_experts + 1) * outputs_per_simd
