@@ -1,21 +1,20 @@
 # SENPAI Research State
-- 2026-08-06T15:00Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 0a2d3bf (research notes only).
+- 2026-08-06T15:15Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at f26a8cd (pushed to origin).
   Scored code frontier unchanged from 639646a (NVFP4 O-proj dot4, PR #119).
-- **WAVE 3 RESULTS**: 2 closed (dead), 1 M5-validating, 2 implementing, 1 just assigned.
-  PR #121 (Edward) — NVFP4 Code Pre-Expansion: INCONCLUSIVE on M4 (1.5% within noise),
-    bit-exact, M5 submission c95b4e4 VALIDATING. 4x memory traffic is the risk.
-  PR #122 (Alphonse) — Fused pair_a+pair_b Softmax: CLOSED DEAD. Attention is
-    memory-bound, not instruction-bound. Also failed upstream equivalence (maxAbsError 0.97).
-  PR #123 (Thorfinn) — SwiGLU Scatter-to-float4: CLOSED NULL. Compiler already
-    optimizes thread float[16] scatter-to-array into registers. REFUTES all scatter-to-float4.
-  PR #124 (Askeladd) — Gate-Scale Fold in O-proj: OPEN DRAFT, implementing.
+- **WAVE 4 STATUS**: 4 active experiments across 4 students.
+  PR #121 (Edward) — NVFP4 Code Pre-Expansion: CLOSED (inconclusive on M4,
+    1.5% within noise, 4x memory traffic risk). M5 result pending separately.
+  PR #124 (Askeladd) — Gate-Scale Fold in O-proj: OPEN, feedback sent (branch e1431a6).
     NOT bit-exact, eliminates 38K multiply+round ops.
-  PR #125 (Alphonse) — Scale Decode LUT: OPEN DRAFT, implementing.
-    Bit-exact, replaces 3-5 ALU ops with constant memory lookup.
-  PR #127 (Thorfinn) — Routed MoE Scatter-to-Float4: CLOSED (refuted by PR #123 evidence).
-  PR #128 (Thorfinn) — Fused Down+Residual Weight Staging: JUST ASSIGNED.
+  PR #128 (Thorfinn) — Fused Down+Residual Weight Staging: OPEN, feedback sent (branch 5d89cd5).
     Bit-exact, ports proven staging from standalone kernel to fused hot-path kernel.
+  PR #129 (Edward) — INT8 O-proj dot4 + packed simd_sum: JUST ASSIGNED.
+    Bit-exact, 75% instruction reduction in INT8 O-proj inner loop (16 layers).
+    Proven pattern from PR #119 (NVFP4 O-proj dot4). No memory traffic tradeoff.
+  PR #130 (Alphonse) — Gate-softplus dot4 + packed simd_sum: JUST ASSIGNED.
+    Bit-exact, 75% instruction reduction in gate-softplus inner loop (all 39 layers).
+    Proven pattern from PRs #107, #114, #119.
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign, commit 3e165fa).
   Birch campaign best: 2.5459 (rejected). New target: beat 2.5888 (gap ~0.043, ~1.7%).
 - **KEY FINDINGS**:
@@ -56,6 +55,8 @@
   invalid/missing markers from prior sessions). Cannot close via close_experiment. Ignore.
 - **CLOSED**: PRs #52 (Askeladd, stale), #65 (Edward, cherry-picked), #117, #118, #120.
   PR #119 (Alphonse NVFP4 O-proj dot4) merged → 639646a. PR #98 reverted → cc63c1c.
+  PR #121 (Edward NVFP4 Code Pre-Expansion) closed inconclusive.
+  PR #125 (Alphonse Scale Decode LUT) closed dead.
 
 ## COMPOSITION STRATEGY (see research/COMPOSITION_STRATEGY.md for full analysis)
 
