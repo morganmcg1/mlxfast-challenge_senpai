@@ -1,0 +1,21 @@
+prompt tokens: 512
+load: 43.1 s
+prefill 0:   547.51 ms  (1069.36 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 1:   573.78 ms  (1120.67 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 2:   545.28 ms  (1065.00 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 3:   545.11 ms  (1064.67 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 4:   545.00 ms  (1064.46 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 5:   545.64 ms  (1065.70 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 6:   544.84 ms  (1064.13 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 7:   545.46 ms  (1065.35 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 8:   545.39 ms  (1065.22 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 9:   546.11 ms  (1066.62 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 10:   545.51 ms  (1065.44 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 11:   545.15 ms  (1064.74 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 12:   545.51 ms  (1065.45 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 13:   544.72 ms  (1063.92 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 14:   545.02 ms  (1064.49 us/token)  cbs=    0 dispatches=    0  token=5991
+prefill 15:   545.13 ms  (1064.71 us/token)  cbs=    0 dispatches=    0  token=5991
+peak_ram_gb: 20.718612670898438
+
+prefill warm median: 545.280 ms/forward (1065.00 us/token) over 15 reps

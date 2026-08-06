@@ -1,0 +1,78 @@
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[1/3] Compiling allocator.cpp
+[2/36] Compiling event.cpp
+[3/36] Compiling device_info.cpp
+[4/36] Compiling utils.cpp
+[5/36] Compiling distributed.cpp
+[6/36] Compiling softmax.cpp
+[7/36] Compiling eval.cpp
+[8/36] Compiling binary.cpp
+[9/36] Compiling ternary.cpp
+[10/36] Compiling unary.cpp
+[11/36] Compiling copy.cpp
+[12/36] Compiling compiled.cpp
+[13/36] Compiling sort.cpp
+[14/36] Compiling custom_kernel.cpp
+[15/36] Compiling resident.cpp
+[16/36] Compiling scan.cpp
+[17/36] Compiling conv.cpp
+[18/36] Compiling slicing.cpp
+[19/36] Compiling rope.cpp
+[20/36] Compiling metal.cpp
+[21/36] Compiling logsumexp.cpp
+[22/36] Compiling reduce.cpp
+[23/36] Compiling primitives.cpp
+[24/36] Compiling scaled_dot_product_attention.cpp
+[25/36] Compiling normalization.cpp
+[26/36] Compiling fence.cpp
+[27/36] Compiling hadamard.cpp
+[28/36] Compiling quantized.cpp
+[29/36] Compiling indexing.cpp
+[30/36] Compiling matmul.cpp
+[31/36] Compiling jit_kernels.cpp
+[32/36] Compiling device.cpp
+[33/36] Compiling fft.cpp
+[35/37] Compiling MLX ArrayAt.swift
+[36/38] Compiling MLXFast MLXFast.swift
+[37/39] Compiling MLXLMCommon DoRA+Layers.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[37/39] Write Objects.LinkFileList
+[38/39] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (48.87s)
+
+real	0m49.592s
+user	1m23.101s
+sys	0m8.935s

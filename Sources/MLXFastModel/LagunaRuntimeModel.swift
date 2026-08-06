@@ -4032,7 +4032,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
     preActivatedGate: Bool = false,
-    narrow: Bool = false
+    laneMajor: Bool = false,
+    pairwise: Bool = false
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -4107,37 +4108,48 @@ float g=gt[column>>head_shift];
 for(uint i=0;i<values_per_thread;++i)
     x_thread[i]=float(bfloat(float(xp[i])*g));
 """
-    // Narrow arm: three planes replace the 32-byte uint8 scale group. Lane
-    // `simd_lid` owns group `simd_lid` of its block, so it reads nibble
-    // `simd_lid & 1` of byte `simd_lid >> 1` and bit `simd_lid & 7` of byte
-    // `simd_lid >> 3`, then reconstructs the original scale byte.
+    // Lane-major arm: one row-wide base plus a 4-bit offset per group, stored
+    // so that lane `simd_lid` -- or pair-lane `simd_lid >> 1`, whose two lanes
+    // provably share a scale byte -- owns a contiguous nibble run. A block's
+    // scale is then one byte load and a shift instead of the stock 32-byte
+    // group read. An escaped row (`base == 0xFF`) selects the stock plane's
+    // *address*, so both arms issue exactly one load and the compiler cannot
+    // speculate the wide read this replaces.
+    let nibDiv = pairwise ? 4 : 2
+    let laneIdx = pairwise ? "(simd_lid >> 1)" : "simd_lid"
     let scaleSetup =
-        narrow
+        laneMajor
         ? """
-const device uint8_t* nb = scale_nibbles +
-    out_row * (in_vec_size_g / 2) + (simd_lid >> 1);
-const device uint8_t* hb = scale_high_bits +
-    out_row * (in_vec_size_g / 8) + (simd_lid >> 3);
-const device uint8_t* bs = scale_bases + out_row * (in_vec_size_g / 32);
+const device uint8_t* nq = scale_nibbles +
+    out_row * (in_vec_size_g / \(nibDiv)) +
+    \(laneIdx) * (in_vec_size_g / 64);
+const device uint8_t* bs = scale_bases + out_row;
+const device uint8_t* sc = weight_scales +
+    out_row * in_vec_size_g + simd_lid;
+uint nsh = 0;
 """
         : """
 const device uint8_t* sc = weight_scales +
     out_row * in_vec_size_g + simd_lid;
 """
     let scaleRead =
-        narrow
+        laneMajor
         ? """
-uint8_t sbits = bs[row * (in_vec_size_g / 32)] +
-            ((nb[row * (in_vec_size_g / 2)] >> ((simd_lid & 1) << 2)) & 0x0Fu) +
-            (((hb[row * (in_vec_size_g / 8)] >> (simd_lid & 7)) & 0x01u) << 4);
+const uint8_t rb = bs[row];
+    const bool esc = rb == 0xFFu;
+    const device uint8_t* sp = esc
+        ? (sc + row * in_vec_size_g)
+        : (nq + row * (in_vec_size_g / \(nibDiv)));
+    const uint8_t raw = sp[0];
+    uint8_t sbits = esc ? raw : uint8_t(rb + ((raw >> nsh) & 0x0Fu));
 """
         : "uint8_t sbits = sc[row * in_vec_size_g];"
     let scaleAdvance =
-        narrow
+        laneMajor
         ? """
-nb += block_size / 32;
-    hb += block_size / 128;
-    bs += block_size / 512;
+sc += block_size / group_size;
+nq += nsh >> 2;
+nsh ^= 4;
 """
         : "sc += block_size / group_size;"
     return """
@@ -4232,21 +4244,25 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
     return kernels
 }()
 
-/// Narrow-scale twins of the two NVFP4 o_proj registries. Distinct kernel
-/// names so a JIT cache can never serve one arm's binary to the other.
-private let lagunaGatedAffineOProjNVFP4NarrowKernels: [Int: MLXFast.MLXFastKernel] = {
+/// Lane-major twins of the two NVFP4 o_proj registries. Distinct kernel names
+/// so a JIT cache can never serve one arm's binary to the other. `weight_scales`
+/// stays bound because the escaped-row arm reads it.
+private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1_ns1"
+            name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1_lm1"
+                + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
-                "scale_nibbles", "scale_high_bits", "scale_bases",
+                "scale_nibbles", "scale_bases", "weight_scales",
             ],
             outputNames: ["projected"],
-            source: lagunaGatedAffineOProjNVFP4Source(heads: heads, narrow: true),
+            source: lagunaGatedAffineOProjNVFP4Source(
+                heads: heads, laneMajor: true,
+                pairwise: lagunaAttnScalePairwiseOProjEnabled),
             ensureRowContiguous: true
         )
     }
@@ -4354,20 +4370,22 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     return result
 }()
 
-private let lagunaActivatedOProjNarrowKernels: [Int: MLXFast.MLXFastKernel] = {
+private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_h\(heads)_v1_ns1"
+            name: "laguna_oproj_act_h\(heads)_v1_lm1"
+                + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
-                "scale_nibbles", "scale_high_bits", "scale_bases",
+                "scale_nibbles", "scale_bases", "weight_scales",
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(
-                heads: heads, preActivatedGate: true, narrow: true),
+                heads: heads, preActivatedGate: true, laneMajor: true,
+                pairwise: lagunaAttnScalePairwiseOProjEnabled),
             ensureRowContiguous: true)
     }
     return result
@@ -4378,7 +4396,7 @@ func lagunaGatedAffineOProjNVFP4(
     gateLogits: MLXArray,
     codes: MLXArray,
     scales: MLXArray,
-    narrowScales: LagunaNarrowScaleBank? = nil,
+    laneMajorScales: LagunaLaneMajorScaleBank? = nil,
     heads: Int,
     gateIsActivated: Bool = false
 ) -> MLXArray? {
@@ -4396,20 +4414,21 @@ func lagunaGatedAffineOProjNVFP4(
         return nil
     }
 
-    if let narrow = narrowScales,
-        narrow.nibbles.dtype == .uint8, narrow.nibbles.dims(outVec, inVec / 32),
-        narrow.highBits.dtype == .uint8, narrow.highBits.dims(outVec, inVec / 128),
-        narrow.bases.dtype == .uint8, narrow.bases.dims(outVec, inVec / 512),
+    if let lane = laneMajorScales,
+        lane.pairwise == lagunaAttnScalePairwiseOProjEnabled,
+        lane.nibbles.dtype == .uint8, lane.nibbles.dims(outVec, lane.nibbleBytes),
+        lane.bases.dtype == .uint8, lane.bases.dims(outVec),
+        lane.groups == inVec / 16,
         let kernel = gateIsActivated
-            ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjNarrowKernels[heads] : nil)
-            : lagunaGatedAffineOProjNVFP4NarrowKernels[heads]
+            ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjLaneMajorKernels[heads] : nil)
+            : lagunaGatedAffineOProjNVFP4LaneMajorKernels[heads]
     {
-        lagunaTrace("gated affine oproj nvfp4 qmv h\(heads) narrow")
-        lagunaNarrowScaleLog.noteDispatch("active", "oproj h\(heads)")
+        lagunaTrace("gated affine oproj nvfp4 qmv h\(heads) lane-major")
+        lagunaNarrowScaleLog.noteDispatch("lane-major", "oproj h\(heads)")
         return kernel(
             [
-                attentionOutput, gateLogits, codes, narrow.nibbles,
-                narrow.highBits, narrow.bases,
+                attentionOutput, gateLogits, codes, lane.nibbles, lane.bases,
+                scales,
             ],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
@@ -4708,7 +4727,7 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 /// requests. An escaped row (`base == 0xFF`) takes the simdgroup-uniform else
 /// arm and reads the stock plane. Both arms fill the same `sb` registers, so
 /// the K loop below is the R1 loop with its scale argument already resident.
-private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
+private func lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: Bool) -> String {
     """
 constexpr uint axis_size = 2048;
 constexpr uint num_simdgroups = 2;
@@ -4730,7 +4749,8 @@ thread uint8_t sb[blocks_per_row];
 const uint8_t row_base = scale_bases[out_row];
 if (row_base != 0xFFu) {
     const device ushort* nb = (const device ushort*)(
-        scale_nibbles + out_row * (in_vec_size_g / 2)) + simd_lid;
+        scale_nibbles + out_row * (in_vec_size_g / \(pairwise ? 4 : 2)))
+        + \(pairwise ? "(simd_lid >> 1)" : "simd_lid");
     const ushort packed = nb[0];
 #pragma unroll
     for (uint b = 0; b < blocks_per_row; ++b) {
@@ -4771,6 +4791,7 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
+                + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: [
@@ -4778,7 +4799,8 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
                 "weight_scales",
             ],
             outputNames: ["projected"],
-            source: lagunaDecodeNVFP4QKVLaneMajorSource(),
+            source: lagunaDecodeNVFP4QKVLaneMajorSource(
+                pairwise: lagunaAttnScalePairwiseQKVEnabled),
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
@@ -4805,7 +4827,9 @@ private func lagunaDecodeNVFP4QKVR1(
         rows % 2 == 0
     else { return nil }
     if let lane = bank.laneMajorScales,
-        lane.nibbles.dtype == .uint8, lane.nibbles.dims(rows, hidden / 32),
+        lane.pairwise == lagunaAttnScalePairwiseQKVEnabled,
+        lane.nibbles.dtype == .uint8,
+        lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
         lane.bases.dtype == .uint8, lane.bases.dims(rows),
         let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
     {
@@ -5459,8 +5483,9 @@ final class LagunaRuntimeAttention: Module {
         if lagunaAttnScaleNarrowOProjEnabled, preparedWO.mode == .nvfp4,
             preparedWO.bits == 4, preparedWO.groupSize == 16
         {
-            preparedWO.narrowScales = lagunaNarrowNVFP4ScaleBank(
-                preparedWO.scales, site: "oproj", layer: layerIdx)
+            preparedWO.laneMajorScales = lagunaLaneMajorNVFP4ScaleBank(
+                preparedWO.scales, site: "oproj", layer: layerIdx,
+                pairwise: lagunaAttnScalePairwiseOProjEnabled)
         }
         _nativeAffineOProj = preparedWO
         return preparedWO.arrays
@@ -5539,7 +5564,8 @@ final class LagunaRuntimeAttention: Module {
             // only the one that will dispatch keeps a single side plane
             // resident instead of both.
             fused.laneMajorScales = lagunaLaneMajorNVFP4ScaleBank(
-                fused.scales, site: "qkv", layer: layerIdx)
+                fused.scales, site: "qkv", layer: layerIdx,
+                pairwise: lagunaAttnScalePairwiseQKVEnabled)
             if fused.laneMajorScales == nil {
                 fused.narrowScales = lagunaNarrowNVFP4ScaleBank(
                     fused.scales, site: "qkv", layer: layerIdx)
@@ -6162,7 +6188,7 @@ final class LagunaRuntimeAttention: Module {
                         gateLogits: projectedGate,
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
-                        narrowScales: affineWO.narrowScales,
+                        laneMajorScales: affineWO.laneMajorScales,
                         heads: nHeads,
                         gateIsActivated: true)
                 {
@@ -6178,7 +6204,7 @@ final class LagunaRuntimeAttention: Module {
                         gateLogits: projectedGate,
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
-                        narrowScales: affineWO.narrowScales,
+                        laneMajorScales: affineWO.laneMajorScales,
                         heads: nHeads)
                 {
                     return fusedProjection

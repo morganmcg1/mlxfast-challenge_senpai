@@ -1,0 +1,31 @@
+prefill SPLIT=1 ledger, per-command-buffer overhead removed
+  SPLIT=1 sum              648.007 ms   (M)
+  SPLIT=1 union            547.993 ms   (M)
+  arangeuint32 (overlapped, non-additive)   95.762 ms over 76 calls   (M)
+  SPLIT=0 union == sum     540.699 ms   (M, serial ground truth)
+
+  per-cb 5.88 us [warm-median delta (headline)]: deflated total  545.368 ms  residual  +4.669 ms  (+0.86 %)
+  per-cb 6.17 us [wall delta]: deflated total  545.035 ms  residual  +4.336 ms  (+0.80 %)
+  per-cb 7.41 us [union delta]: deflated total  543.614 ms  residual  +2.915 ms  (+0.54 %)
+
+per-family detail at the headline 5.88 us/cb
+family                     n    raw ms  deflated ms   tax ms  %serial
+routed_gather_gemm        76   266.605      266.158    0.447   48.80%
+steel_gemm_bf16          392   219.295      216.990    2.305   39.79%
+sort_scatter              78     2.632        2.173    0.459    0.40%
+attention_core            40    28.209       27.974    0.235    5.13%
+nvfp4_dense_qmm          116    20.135       19.453    0.682    3.57%
+elementwise              235     4.747        3.365    1.382    0.62%
+qk_norm_rope              41     4.323        4.082    0.241    0.75%
+moe_tail                  38     2.537        2.314    0.223    0.42%
+rms_norm                  82     1.687        1.205    0.482    0.22%
+router                    40     0.959        0.724    0.235    0.13%
+lm_head                    5     0.668        0.639    0.029    0.12%
+other                      3     0.309        0.291    0.018    0.05%
+TOTAL                                       545.368
+
+self-consistency: deflated 545.368 ms vs SPLIT=0 union 540.699 ms -> residual +4.669 ms = +0.86 % over-attribution
+A positive residual means the SPLIT=1 ledger over-attributes: the isolated
+dispatches are individually slower than the same dispatches inside shipped
+command buffers even after the per-cb tax is removed.  Treat every family
+figure as an upper bound with this much headroom.

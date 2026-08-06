@@ -1,10 +1,20 @@
 # SENPAI Research State
 
-- **2026-08-06 03:45 UTC** (advisor: meridian). **Round 14 is closed. Round 15
-  is running.** Frontier is **`f2fedd58`** (#81 merged; read the ROUND-15 DELTA
-  block first — it supersedes the ROUND-14 block wherever they disagree, and
-  it mints **§0.9.33 the census-transfer law**, taking the law count to
-  **thirty-three**). Historical context follows. Four merges in round 13:
+- **2026-08-06 06:10 UTC** (advisor: meridian). **Rounds 14–17 are closed.
+  Round 18 is running.** Frontier is **`62ca3a93`** (#80 merged). **Read the
+  ROUND-16/17/18 DELTA block first**, then the ROUND-15 DELTA block — each
+  supersedes every earlier block wherever they disagree. ROUND-15 minted
+  **§0.9.33 the census-transfer law**; round 18 mints **§0.9.34 (the shared
+  ranked account channel)**, **§0.9.35 (`max_abs_diff` is not evidence)** and
+  **§0.9.36 (the two-channel M4→M5 transfer model)**, taking the law count to
+  **thirty-six**. ★★★★★ **THE LIVE HEADLINE: WE ARE RANK 1 OF THE ENTIRE
+  FIELD.** Receipt **`97a5090c-a408-4222-b6d6-dd85c4bce09e`** (PR #80, frieren,
+  ranked commit `2b030838`) came back **`accepted` / `improved: true` /
+  `promotionStatus: promoted`** with **officialScore 2.58882784082067**,
+  displacing lBroth's 2.55230814049095. This is **morganmcg1's first ever
+  accepted-and-promoted submission** (`accepted: 1` in the entire 1,534-row
+  feed). **The honest, baseline-normalised margin is +0.846 %, not the +1.431 %
+  the raw board arithmetic shows** — see §R18.1. Historical context follows. Four merges in round 13:
   **#35 (frieren) MERGED at `6f60c3a4` — the programme's FIRST SHIPPED WIN
   since the crown**, ranked receipt `0d123661`, `ns` 2.529734 → **2.556326 =
   +1.0512 %**, and it is now **rank 1 of 1,049 passing receipts on `ns`**;
@@ -36,6 +46,492 @@
   patch, never merged as permanent scored-path code.
 
 ---
+
+## ★★★★★ ROUND-16/17/18 DELTA (2026-08-06 06:10 UTC) — READ BEFORE EVERYTHING
+
+Frontier `62ca3a93` (#80 merged). This block supersedes every earlier block
+wherever they disagree.
+
+### §R18.1 ★★★★★ THE PROMOTION — RANK 1 OF THE FIELD
+
+Receipt `97a5090c-a408-4222-b6d6-dd85c4bce09e`, PR #80 (frieren), ranked commit
+`2b030838` (synthesized `commit 3e165fa52be994d9a162951405273a007b9aa3c1`).
+Dispatched 05:04:23.273Z, measured 05:14:29Z, terminal 05:26:43.321Z.
+**`status: accepted`, `improved: true`, `promotionStatus: promoted`,
+`officialScore = 2.58882784082067`, `rejectionReason: null`, `error: ""`.**
+
+Verbatim `officialMetrics`:
+
+| field | value |
+|---|---|
+| `decode_speedup` | 2.82068398043601 |
+| `prefill_speedup` | 2.0014713863613727 |
+| `decode_seconds_per_token` | 0.0049083720703125 |
+| `prefill_seconds_per_token` | 0.00019120068359375 |
+| `baseline_decode_seconds_per_token` | 0.01384496646875 |
+| `baseline_prefill_seconds_per_token` | 0.000382682697265625 |
+| `passed_correctness` | true (1,344 checked steps, 11 cases, no `first_failing_*`) |
+| `semantic_gpqa_passed` / `gpqa_ttft_passed` | true 9/9 / true 9/9 (judge `claude-opus-4-8`) |
+| `gpqa_ttft_seconds` | 0.41 (p50 0.071, cap 2.4) |
+| `golden_hash` | `be7738fccd6a28807ae7d18c038cbbc9e1b05dab26b99b2f247358fdc67fcf71` |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` |
+| `harness_hash` | `c037fea1be8d387738c5e5717700ee0405f7b3391549280faeafc0678136237a` |
+| `peak_ram_gb` / `bandwidth_gb_per_token` | 21 / 0 |
+| `benchmark_wall_seconds` | 52 (timed 46, correctness 39, preflight 0.00013) |
+
+Both floors cleared by a wide margin: decode 2.97× the 0.95 floor, prefill
+2.11×.
+
+**★★★ THE HONEST MARGIN (frieren's §11, adopted as the campaign's official
+figure).** The prefill baseline draw `0.000382682697265625` was the **highest
+of the last twelve sessions, +1.32σ above the 40-session mean**. Renormalising
+both baselines to the 40-session mean:
+
+```
+as measured                            officialScore = 2.588827841
+both baselines set to 40-session mean  officialScore = 2.573889892
+previous best (46eeccf, lBroth)                      = 2.552308140
+  margin as measured         = +0.036520 (+1.431 %)
+  margin baseline-normalised = +0.021582 (+0.846 %)
+```
+
+**Quote +0.846 %, never +1.431 %.** Session-stability refresh over the last 40
+sessions: `baseline_decode_spt` relative sd **0.236 %** (p2p 1.03 %);
+`baseline_prefill_spt` relative sd **1.99 %** (p2p 6.7 %) — **8.4× noisier**.
+
+**★ The `ns` lead is much wider than the board shows.** On the drift-cancelled
+statistic `ns = (0.013890/dec)^0.75 * (0.0003845/pre)^0.25`:
+
+| `ns` | receipt | who |
+|---:|---|---|
+| **2.598216** | `97a5090` | **us — promoted** |
+| 2.575430 | `58e28b8` | us 04:42Z |
+| 2.556326 | `0d12366` | us, prior best |
+| 2.526002 | `21f1d1a` | metaspartan |
+| 2.524190 | `46eeccf` | lBroth (displaced record) |
+| 2.516663 | `8415f63` | a-github-name |
+
+**Our `ns` lead over lBroth is +2.933 %** against a +1.43 % raw / +0.85 %
+normalised officialScore gap. lBroth's oS/ns ratio is 1.0111 (a favourable
+draw); ours is 0.9964. **The engineering gap is wider than the leaderboard.**
+
+### §R18.2 ★★★ CORRECTED THREE-RECEIPT DECOMPOSITION
+
+| receipt | candidate | `ns` | officialScore | decode s/tok | prefill s/tok | status |
+|---|---|---:|---:|---:|---:|---|
+| `0d123661` | #35 r5 | 2.556326 | 2.520454 | 0.005011932 | 0.000191656 | rejected |
+| `58e28b8d` | `f2fedd58` (#72+#81) | 2.575430 | 2.542165 | 0.004968137 | 0.000190996 | rejected |
+| **`97a5090c`** | **#80 `2b030838`** | **2.598216** | **2.588828** | 0.004908372 | 0.000191201 | **PROMOTED** |
+
+- **`f2fedd58` vs #35 r5: `ns` +0.7473 %** (decode +0.8815 %, prefill
+  +0.3456 %). #81 is byte-reclaim only, so essentially all of this is **#72's
+  group-32 routed-expert NVFP4 scale-plane halving. #72 was merged as "never
+  ranked" — it is now RETRO-VALIDATED at +0.75 % `ns`.**
+- **#80 vs `f2fedd58`: `ns` +0.8848 %** — decode **+1.2176 %** (≈7σ against
+  cand_dec sd 0.151–0.168 %); prefill **−0.1072 %** (0.05σ ⇒ **NEUTRAL**, the
+  predicted prefill regression did not materialise).
+- Drift-cancelled decode reading +1.1424 % ⇒ **+0.857 % of score**; raw
+  +1.2176 % ⇒ **+0.913 %**. **Quote +0.86…+0.91 % of score.**
+- **Cumulative #35 r5 → #80: `ns` +1.6387 %, decode +2.1099 %.**
+- At #80: `S = 512000 × prefill_spt = 97.8948 ms`;
+  `T = 1000 × decode_spt − S/128 = 4.1436 ms`.
+
+### §R18.3 ★★★ §0.9.34 — THE RANKED ACCOUNT CHANNEL IS SHARED
+
+**`morganmcg1` has 31 submissions, split between TWO concurrent campaigns in
+the same repo.** The second is **birch** — base branch
+`mlxfast-birch-20260805-advisor`, `BASE_SHA=cb2bf366916c51324f16d1de189f722531b4edca`,
+PR numbers **#69, #70, #74, #75, #84** interleaved with ours.
+
+Track attribution (from `/tmp/mine9.py` over `/tmp/subs8.json`):
+
+- **Explicitly BIRCH**: `7f6fe89c` (08-05T23:15, 2.499299, "FMA-Optimized NVFP4
+  Dequant Inner Loop for MoE QMV Kernels"); `d59ae7f5` (08-06T03:03, 2.502725,
+  birch PR #84).
+- **Very likely BIRCH**: `285f79fa` (08-05T19:00, 2.504505); `98a9d3e8`
+  (08-05T21:40, 2.502029).
+- **Confirmed MAPLE**: `0d123661`, `58e28b8d`, `97a5090c`, and all 08-04 /
+  early-08-05 receipts.
+
+**★★★ RETRACTION.** I previously reported `d59ae7f5` as fern's #82 Variant A
+and inferred a **−1.925 % ranked regression** from it. **That is WRONG and is
+fully retracted.** `d59ae7f5` is birch PR #84, "Eliminate Redundant top-8
+Extraction in Routed Gate/Up MoE Kernels", `commit
+62fc435635df236826dba7b8ab7e54df65c39c09`, base `cb2bf366`. Its tree is
+provably different from ours: `LagunaRuntimeModel.swift` **508,489 B** (ours
+479,195), total **2,963,125 B** (ours 2,930,746). **No inference about fern's
+Variant A is warranted; #82's pre-registered decision rule stands as written.**
+Usefully, birch #84's own M4 matched pair reported **decode +0.39 %, prefill
++0.97 %** (both regressions/noise) — independent corroboration that M4 cannot
+resolve this mechanism. It also independently confirms the **0.125 prefill
+logit error is pre-existing in the baseline**.
+
+**§0.9.34 (NEW LAW). The "one in-flight submission per account" limit is a
+property of the GitHub *account*, not of this campaign.** A conflict response
+(`account already has 1 submission(s) in flight (limit 1)`) may be caused by
+another campaign and is **not** an explicit rejection of `--model "senpai"`.
+Corollaries: (i) never treat a channel conflict as a model-name rejection;
+(ii) **birch's future submissions must now beat OUR 2.5888**, and their tree is
+~2 % behind ours, so their channel usage is close to pure waste — **escalate to
+the human operator**; (iii) the account's promoted snapshot is now the #80 tree;
+(iv) receipts must be attributed by note text and tree fingerprint, never by
+assuming a receipt is ours.
+
+### §R18.4 ★★★ §0.9.35 — `max_abs_diff` IS NOT EVIDENCE
+
+frieren: *"that field is a hardcoded literal in the receipt and is not evidence
+of anything."* **Accepted and adopted programme-wide.** Every prior citation of
+`max_abs_diff = 0` as a correctness certificate is withdrawn.
+
+**§0.9.35 (NEW LAW). The campaign's correctness citation for a ranked receipt
+is: an identical `golden_hash` obtained under a *differing* `harness_hash`.**
+For #80: `golden_hash be7738fc…cf71` identical to base receipt `58e28b8`, while
+`harness_hash` differs (`35fe8b02…` base vs `c037fea1…` candidate), across
+1,344 checked steps and 11 cases. That is a genuine, load-bearing certificate.
+`max_abs_diff`, `partial_result`, and `first_failing_*` are not.
+
+### §R18.5 ★★★ §0.9.36 — THE TWO-CHANNEL M4→M5 TRANSFER MODEL
+
+frieren's §11.2.2 calibrated the instruction channel for the first time:
+
+| channel | residual : byte share |
+|---|---:|
+| M4 | 133.5 µs : 106.45 µs = **2.25×** |
+| M5 ranked | 9.05 µs : 50.71 µs = **0.18×** |
+
+The byte census transferred to within 18 %; **the M4 wall-clock residual
+over-stated the instruction channel by more than 10×.**
+
+**§0.9.36 (NEW LAW). M4→M5 transfer has two channels and only one of them
+transfers.**
+
+1. **Byte removals** transfer at **1.0–1.2× the effective-bandwidth roofline**
+   and may be priced in advance. §0.9.27 is now confirmed a **third** time, at
+   **1.18×** (#35 1.02–1.22×, #72, #80).
+2. **Instruction / occupancy removals measured as an M4 wall-clock residual do
+   NOT transfer** and may be over-stated by **~12×**. An M4 residual is
+   sign-and-existence evidence only. **Every banked "recoverable µs" figure
+   derived from an M4 residual must be re-quoted as a wide interval, never a
+   point estimate.**
+
+frieren's pricing ladder for #80 shows the same thing from the other side:
+
+| channel | µs/token | % of score |
+|---|---:|---:|
+| submitted claim (bytes @ M5 peak 651.8 GB/s, assuming a 5036 µs step) | 42.50 | +0.633 % |
+| same bytes, corrected to the real 4908.4 µs step | 42.50 | +0.649 % |
+| same bytes @ M5 effective 546.2 GB/s | 50.71 | +0.775 % |
+| **observed (raw, base → candidate)** | **59.76** | **+0.913 %** |
+
+**★ My standing byte pricing used a stale 5036 µs step. The real frontier step
+is 4908 µs**, which is a 1.22× correction on its own. Use 4908 µs.
+
+Frieren's own disclaimers, accepted: this is not a harness-paired A/B; the
++0.09…+0.14 % instruction residual is a single measurement; it does not
+generalise to another frontier.
+
+### §R18.6 ★★ THE PACKER CONSTRAINT IS `blocks % 2 == 0` — #72 × #35 UNBLOCKED
+
+The constraint I had recorded as `groups % 64 == 0` is **not** imposed by the
+pairwise split at `LagunaRuntimeWeights.swift:906` — that divides the always-32
+lane axis and imposes nothing. The binding constraint is the **nibble packing
+at `:915-922`**: `blocks = groups / 32`, and `view(dtype: .uint16)` fuses
+adjacent elements, so **`blocks` must be even**. This is identical for the
+pairwise and non-pairwise arms. All four attention sites have
+`groups ∈ {128, 384, 512}` ⇒ `blocks ∈ {4, 12, 16}`, all even.
+
+**⇒ The #72 × #35 composition is UNBLOCKED.** #72's hunks (`:7330-8101`,
+`:10021-10340`) do not intersect frieren's four attention sites, so they
+compose. frieren's census independently confirms #72's root cause from the
+other side: 985,300,992 even-byte pairs, 99.999983 % equal, **exactly 168
+exceptions across 234 tensors — one per tensor, always at flat pair 0** — with
+an odd-index control at 23.24 % mismatch.
+
+### §R18.7 ★★★ D-FUSE-GATESP RESOLVED — RUNG 2 PERMANENTLY CLOSED
+
+The shipped decode gate producer is the **standalone `lagunaGateSoftplus`
+kernel**. `lagunaFusedNormQKVProjection` (`LagunaRuntimeModel.swift:3347`) is
+**dead code by default**. Verbatim source proof at `:5749-5752`:
+
+```
+// The fused tail norm+QKV+gate kernel was removed after the
+// r=1-regime re-sweep re-measured it +2.7% (its defusion is
+// the promoted state); the placeholder keeps the downstream
+// defer/eager gate-activation plumbing unchanged.
+let fusedTailGateLogits: MLXArray? = nil
+```
+
+**D-FUSE-GATESP rung 2 (re-fusing the gate into its producer) is PERMANENTLY
+CLOSED — it was built, re-measured at +2.7 %, and its defusion is the promoted
+state. Cite `LagunaRuntimeModel.swift:5749-5752`.** Comment `:5766-5768`
+confirms the standalone gate kernel replaces the BF16 GEMV "one dispatch for
+one dispatch". Fused and standalone are **not** bit-exact.
+
+**Rung 1 survives: a bit-exact occupancy repair.** `lagunaGateSoftplusSource`
+(`:4259-4300`) has `K=2048, GS=32, V=8, BK=256, R=4, NS=2, KG=64, SS=4`, with
+`orow = tile*(NS*R) + sg*R` ⇒ **8 rows per threadgroup**. Dispatch
+(`:4317-4339`) uses `grid: ((heads/8)*64,1,1)`, `threadGroup: (64,1,1)` ⇒
+**8 threadgroups at h64, 6 at h48**. `R` and `NS` are **provably bit-exact
+parallelism knobs**: per-row accumulation over `k` uses `BK=256` independent of
+`R`, and `simd_sum` is over the same 32 lanes with the same partials — only the
+row→(threadgroup, simdgroup) assignment changes. R=4→1 at NS=2 gives **32 TGs
+at h64 / 24 at h48 (4×)**, costing an `x[V]` re-read ≈16 KB/dispatch. **Do NOT
+use split-K — it breaks bit-exactness.**
+
+Occupancy diagnosis (#73): `gate_sp_h64` 191.7 µs over 30 dispatches
+(6.39 µs/disp) + `gate_sp_h48` 67.3 µs over 10 (6.73 µs/disp) = **259.0 µs on
+M4**. **h48 is slower per dispatch than h64 despite moving fewer bytes.**
+Achieved 30.4 GB/s = **11.7 % of the 260.2 GB/s DRAM ceiling** ⇒ ~92 % of
+`gate_sp` time is launch/occupancy/latency. **On a 40-core M5 Max the
+starvation is worse**: 8 TGs on 40 cores is 20 % occupancy versus 40 % on M4.
+**That core-count argument is the surviving structural case — not the M4 wall
+clock.**
+
+**★ Under §0.9.36 the 2.72 %-of-score point estimate is WITHDRAWN. Price this
+arm at +0.2 … +1.2 %.** It is locally falsifiable on M4 as sign-and-existence
+(194 µs of an 8530 µs step = 2.3 % decode versus `baseline_decode` sd 0.247 %,
+≈9σ). The diff is two constants plus the grid/threadgroup expression; byte cost
+≈ 0. **Caution to state explicitly in the brief:** #48 refuted `router_top8`
+(139.6 µs) and `rmsbfloat16` (74.6 µs) — but it did so **by removing
+dispatches, not by increasing intra-dispatch threadgroup parallelism**, so #48
+does not pre-refute this arm.
+
+**⚠ UNRESOLVED byte discrepancy the student must settle:** #73 banks
+7.86 MB/step for `gate_sp`; my re-derivation gives **5.53 MB/step** (2304 B/row;
+sliding 30×64×2304 = 4,423,680; full 10×48×2304 = 1,105,920). 1.42× apart.
+
+### §R18.8 ★ #80 — TERMINAL RESULT, VERIFICATION, AND FOLLOW-UPS
+
+Assignment `maple-2026-08-06d-attn-scale-pairwise`, r1. Terminal
+`SENPAI-RESULT` `succeeded`; primary metric
+`attention_scale_bytes_per_decode_step`, minimize, **51,254,656 → 23,556,320
+(−27,698,336, −54.0 %)**; `runs: []` (no W&B in this campaign).
+
+Byte ledger (verified independently). Per-row: `stock = g`;
+`narrow = g/2+g/8+g/32`; `lane-major = g/2+1`; `lane-major pairwise = g/4+1`;
+`escaped = g+1`.
+
+| plane | rows/layer | groups/row `g` | layers |
+|---|---|---|---|
+| fused q/k/v, full-attn (48 heads) | 8192 | 128 | 10 |
+| fused q/k/v, sliding (64 heads) | 10240 | 128 | 30 |
+| o_proj, full-attn | 2048 | 384 | 10 |
+| o_proj, sliding | 2048 | 512 | 30 |
+
+Arms: stock 89,128,960 B; **A (prior frontier) 51,254,656**; B 45,556,288;
+C 33,190,·; **D (defaults = shipped) 23,556,320** (qkv 13,085,088; o_proj
+10,471,232).
+
+**★ THE PREFILL HAZARD IS CLOSED, three ways.** Both lane-major consumers sit
+inside `B==1, L==1` guards (o_proj `:6140`, QKV's single caller `:5761` inside
+`:5704`). ABBA experiment `784e8c2f`: 9 visits, `D S S D D S S D`, 20 prefills
+each; D−S = +0.114 ms = **+0.022 %**, |t| = 2.91 on 3 dof (t_crit 3.18); the
+2·SE upper limit is +0.036 % ⇒ worst case **−0.009 % of score, 37× below the
+priced risk**. §6.6's earlier +0.931 % was noise. **The ranked receipt then
+measured prefill at −0.1072 % = 0.05σ — neutral.** Family retired.
+
+My independent verification at `2b030838`, all passed: merge-base `f2fedd58`;
+0 conflicts; 2 submitted files (124+83 = 207 = 143+64 ✓); ours-merge proven
+contentless (`2fe33f28^{tree} == 9308e4e^{tree} == c9bd9305`); `assignment scope
+OK`; `editable budget OK: current=2934331/3000000 headroom=65669
+growth=4247/262144 files=142`; injection guard L11143 `0` / L11155 `160`;
+escape census exact **qkv 2543/389120 (0.6535 %), o_proj 1563/81920
+(1.9080 %)**; pairwise predicate marginal cost exactly **+89 QKV rows and +37
+o_proj rows**.
+
+**Standing follow-ups from the #80 review (all non-blocking, all live):**
+
+- **(a) ★ o_proj gets the byte win but not the request win.** QKV hoists
+  `scale_bases[out_row]` plus a 2-byte nibble load before the K loop into
+  `sb[]` (`Model.swift:4749-4758`); o_proj re-executes `rb = bs[row]` (`:4138`)
+  and `sp[0]` (`:4143`) **inside** the K loop for all 4 rows ⇒ 4×12 (h48) /
+  4×16 (h64) dependent load pairs per lane. `oproj_act` is 1444.7 µs on M4 =
+  17.6 % of the decode step. Kernel comment `:4111-4117` argues the opposite
+  and is stale. **This is arm 2 of the next frieren ticket.**
+- **(b)** o_proj's fallback is a silent downgrade: QKV has lane-major → narrow
+  → stock (`:5569-5572`, consumed `:4846-4850`), but o_proj `:5483-5489` sets
+  only `laneMajorScales`, so a nil bank drops past `:4417` straight to stock
+  (`:4439-4447`) ⇒ `DARKBLOOM_ATTN_SCALE_LANEMAJOR=0` is no longer a clean
+  control.
+- **(c)** The `in_vec_size_g / 64` trap (`Model.swift:4125`, implicitly `:4753`)
+  has no Swift counterpart; integrality comes only from `Weights.swift:885`.
+  o_proj dispatch checks `lane.groups == inVec/16` (`:4421`); QKV dispatch
+  (`:4829-4833`) does not check `lane.groups` at all.
+- **(d)** There is no host-side test of the kernel's byte walk. The runtime
+  certificate (`Weights.swift:929-932`, `:942-972`, pairwise re-expansion
+  `:958-963`) inverts the **packer**, not the **kernel**. `Tests/` is not
+  editable ⇒ any harness goes in `research/`.
+- **(e)** The escape census should read `note` (`Weights.swift:933`), not the
+  default-off `noteDispatch` (`:739-744`).
+- **(f)** Stale naming/docs: `lagunaAttnScaleNarrowOProjEnabled` /
+  `DARKBLOOM_ATTN_SCALE_NARROW_OPROJ` (`Weights.swift:674`) now gates the
+  **lane-major** o_proj bank; struct doc `:850-858` still says "`groups/2+1`";
+  `:688-693` still quotes 193/257 B; drop the `pairwise: Bool = false` default
+  (`:881`).
+- **(g)** Dead-but-live code: `LagunaNarrowScaleBank` (`Weights.swift:753`),
+  `lagunaNarrowNVFP4ScaleBank` (`:769`),
+  `lagunaNarrowScaleBankReproducesScales` (`:825`),
+  `lagunaDecodeNVFP4QKVR1Source(narrow:)` (`Model.swift:4618`),
+  `lagunaDecodeNVFP4QKVR1NarrowKernels` (`:4704`). **Deleting the QKV narrow
+  stack is UNBLOCKED and is byte headroom.**
+- **(h)** An all-`0xFF` row gives `span==0` ⇒ `fits` ⇒ base `0xFF` ⇒ it reads
+  as escaped (`:4139`, `:4749`); `escapedRows` (`:913`, `:926-927`)
+  under-counts, so **the census is a lower bound**. `halves` is computed
+  unconditionally at `:906` even when `!pairwise`.
+- **★ `LagunaUpstreamEquivalence.swift` never reaches
+  `prepareFusedRuntimeWeights()`.** Extending it there would let all future
+  scale-plane work use the standing oracle instead of a bespoke certificate.
+  This is a high-leverage, zero-ranked-risk research task.
+- Folding the o_proj row base into the codes plane: the `+1` B/row is now 4 %
+  of the pairwise o_proj row cost.
+
+frieren's 22 self-flagged weaknesses stand. Report:
+`research/maple-frieren-pr80-attn-scale-pairwise.md` (§5 certificate, §6.8
+prefill, §9 follow-ups, §11 receipt analysis).
+
+### §R18.9 ★★ PROMOTION ODDS — THE BAR IS NOW OUR OWN 2.58883
+
+200k draws, seed 11, over 1,060 observed baseline draws, starting from #80's
+candidate seconds/token:
+
+| further `ns` gain | median oS | p10 | p90 | P(> field 2.55231) | **P(> own 2.58883)** |
+|---:|---:|---:|---:|---:|---:|
+| +0.0 % | 2.568812 | 2.557124 | 2.591662 | 99.24 % | **14.22 %** |
+| +0.5 % | 2.581634 | 2.569906 | 2.604616 | 100 % | **39.62 %** |
+| +1.0 % | 2.594500 | 2.582662 | 2.617492 | 100 % | **65.70 %** |
+| +1.5 % | 2.607322 | 2.595477 | 2.630537 | 100 % | **99.80 %** |
+| +2.0 % | 2.620166 | — | — | 100 % | 100 % |
+
+**★★★ STRATEGIC FLIP.** Rank 1 is held with 99.24 % probability at zero further
+gain, but a *further promotion* now needs **≥ ~1 % additional `ns`** to be more
+likely than not. **Submit fewer, larger candidates.** Bundling two independent
++0.5 % arms into one ticket is now strictly better than two separate
+submissions, provided each arm is separately verified for correctness and the
+composition is argued from source (non-intersecting hunks), because the channel
+is the scarce resource and a sub-1 % candidate is a coin-flip that also blocks
+birch and us for ~22 minutes.
+
+### §R18.10 ★ CLI AND DISPATCH FACTS (from frieren's #80 dispatch log)
+
+- Attempt 1 at `05:00:26Z` hit **conflict**: `account already has 1
+  submission(s) in flight (limit 1)`. The occupant was **our own `58e28b8`**
+  (dispatched 04:42Z), which cleared ~22 min after dispatch. **Not birch.**
+  Attempt 2 at `05:04:15Z` succeeded.
+- Both attempts used verbatim `mlxfast submit --model "senpai" --note-file
+  /tmp/pr80_note.md`. **No fallback was triggered; only `senpai` was ever
+  used.** Log at `/tmp/pr80_dispatch.txt`.
+- **In-flight submissions are NOT listed by `mlxfast submissions` at all until
+  terminal**; `--all` is paginated with a stale tail and is useless for recent
+  entries.
+- The CLI has **no `--json`** and truncates `metrics`. The full record comes
+  from `GET https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions`
+  with `Authorization: Bearer $MLXFAST_API_TOKEN` (~17 MB; filter before
+  printing).
+- **★ Secret injection requires the literal string `MLXFAST_API_TOKEN` in the
+  shell command text.** A bare `python3 fetch.py` receives nothing; write
+  `MLXFAST_API_TOKEN="${MLXFAST_API_TOKEN:-}" python3 fetch.py`.
+- **★ The CLI's rendered `+3.64 %` delta is not reproducible from any pair of
+  receipt fields** ⇒ display artefact. Use arithmetic on `officialMetrics`.
+
+### §R18.11 #82 (fern) — r2 REQUESTED; RETRACTIONS ACCEPTED
+
+Assignment `maple-2026-08-06f-routed-qmv-router-dedup`. r1 terminal result:
+`inconclusive`; primary metric `paired_estimate`, maximize, baseline 1.0,
+candidate **0.992096884** (delta −0.007903116); decode 0.991039124 (−0.896 %),
+prefill 0.995276942; 8 timed runs, pooled 4v4 mirror `B C C B + C B B C`.
+A/A same-arm spread: arm B +1.447 %, arm C +1.764 %, all-8 +2.299 % — **the
+instrument cannot resolve the effect**. Correctness was excellent: all arms
+`golden_hash b9509697…`; differential oracle over **5,320 slot/expert pairs
+across 665 decode steps, 0 differing**, fault control 665/665; upstream
+equivalence matched pair **byte-identical** (sha256 `6b832aba…`).
+
+I accepted fern's three retractions, including the corrected **94–108 %
+M4-ceiling bracket** which supersedes #71's single "108.1 %" figure
+(368.1 MB / 1503.9 µs = 244.8 GB/s ≈ 94 %; the two estimates bracket it).
+#71 §7.4 stands.
+
+r2 is a pure instrumentation revision: keep `LagunaRuntimeModel.swift`
+byte-identical at `361a649`, apply the GPUPROF hooks from `a8a269d`, run
+`research/decode_probe.py --steps 200 --profile --profile-top 44` with
+`DARKBLOOM_GPU_PROFILE=1` on BASE and CANDIDATE matched and counterbalanced,
+revert the hooks before any timing run and report the revert SHA. **The
+pre-registered decision rule: ship iff the R1 kernel's true time does not
+increase AND command-buffer count, dispatch count, and sum-vs-union are all
+unchanged; otherwise close with a stated mechanism.** F2 was rejected on #48
+grounds.
+
+**★★★ THE dead-`router_keys` FOLLOW-UP (fern's next rung, high value).**
+`routerKeys` has exactly two consumers, both in
+`lagunaRoutedSwiGLUQMVPackedTop8`: `:7645` (the R1 branch, which **no longer
+reads it after Variant A**) and `:7656` (non-R1). With
+`lagunaRoutedGateUpR1Enabled` defaulting true (`:7511`), the producer's
+`router_keys` output is **dead work**. Producer:
+`lagunaResidualRMSNormRouterKernels` (`:991-1010`); under
+`lagunaRouterPrecomputedKeysEnabled` (`:171-172`) it takes a 5th input
+`correction_bias`, emits a 4th output `router_keys` `[1,1,256]` uint32, and
+pulls in `lagunaDecodeRouterOrdinalHeader`. The extra per-row work is
+`routerStore` at `:861-871` for all 256 experts × 39 layers per step. Wrapper
+`lagunaResidualRMSNormRouter` at `:1055-1096`. **⇒ Pure removal, no new
+dependency edge, targeting a 254.3 µs / 160.8 GB/s / 61.8 %-of-ceiling /
+1.86 %-of-score SUSPECT kernel (#73 §8).**
+
+### §R18.12 PREFILL CANDIDATE QUEUE (from `research/PREFILL_NAX_ANALYSIS.md`)
+
+Five instruments are testable **without** a `_nax`-capable host (`:137-176`):
+histogram arithmetic (free, exact); offline `xcrun metal` compilation of the
+generated JIT source; the M4 structural analogue via the non-NAX twin
+`fp_quantized.h`; bit-exactness by construction (**every NAX change must carry
+a process-constant env kill-switch**); and differential official receipts
+(candidate-absolute S σ ≈ 0.50 %).
+
+| # | lines | name | claimed value | M4-falsifiable | files |
+|---|---|---|---|---|---|
+| **C1** | 180-194 | Double-buffered weight staging in `fp_gather_qmm_rhs_expert_nax` | **2-6 % of S (~3 %)** | partial; 1 receipt | `fp_quantized_nax.h:1616-1621, 1727-1795` + twin |
+| **C2** | 196-210 | BN=64→32 expert-kernel variant | **1.5-4 % of S** | static + 1 receipt | `quantized.cpp:1637-1663` |
+| **C3** | 212-228 | Prefill row-concat QKV (q+k+v only, BF16) | **1-3 % of S** | token-exactness only | attention prefill ~`:5476`+ |
+| **C4** | 230-244 | Bit-exact fused split-K for the NAX steel path | **1.5-3 % of S** | **yes, partially** | `matmul.cpp:689-810` + `steel_gemm_splitk_nax.h` |
+| **C5** | 245-254 | Glue-pass reduction measured entirely on M4 | **~1-2 % of S** | **yes — the only fully local family** | — |
+
+Author's ordering (`:256-262`): C2 first, C1 second; C3/C4 independent; C5 in
+parallel at zero receipt cost. **C3 == my mechanism B; C4 == my mechanism C;
+C1 and C5 are novel. Never bundle C1 with C2.** ⚠ C1 has tension with the
+already-retired `_nax` staging/prefetch/double-buffer axis — re-read that
+closure before assigning it. Under §0.9.11 the following claims are uncited and
+must be re-derived before use: `:142`, `:187` ("staging is 39.5 % of prefill"),
+`:188`, `:200`, `:206`, `:223`, `:225`, `:235-236`, `:238`, `:247`, `:251`.
+
+Note that prefill is worth only 25 % of the score weight and 1 ms of prefill S
+is **0.371 %** versus 14.862 % for 1 ms of decode T — 40:1. Prefill work is
+justified only when the decode queue is genuinely blocked or when a prefill arm
+can be bundled into a decode ticket at near-zero marginal channel cost.
+
+### §R18.13 ★ CORRECTION — A UNIT ERROR IN OUR OWN NOTES
+
+`CURRENT_RESEARCH_STATE.md:3232` and `:4271` say "18.09 ms **of it**", implying
+the M4 glue figure explains part of the M5 31.28 ms prefill remainder. **That is
+a unit error.** 18.09 ms and 13.56 ms are **M4 ms out of a 549.55 ms M4
+prefill**; the 31.28 ms remainder is **M5**. Converting: byte-bound ×0.399 ⇒
+12.6 ms M5; issue-bound ×0.812 ⇒ 25.7 ms. The apparent coincidence is
+numerology. **No per-kernel attribution of the 31.28 ms exists.** The M4
+complement is 66.5 ms = 12.1 % of M4 prefill versus 32.0 % on M5 — the hosts
+disagree by **2.6×**.
+
+### §R18.14 ROUND-18 QUEUE
+
+Immediately actionable, in priority order:
+
+1. **`gate_sp` occupancy repair (R/NS knob) + o_proj register hoist** — one
+   ticket, two arms, for frieren. Priced +0.2…+1.2 % and +0.29…+0.33 %.
+2. **Drop the now-dead `router_keys` output and compute from
+   `residual_rms_router`** — fern's next rung, 1.86 %-of-score SUSPECT kernel.
+3. **#72 × #35 composition** — now unblocked by §R18.6.
+4. **Delete the QKV narrow stack** (#80 (g)) — byte headroom, zero risk.
+5. **Extend `LagunaUpstreamEquivalence.swift` to reach
+   `prepareFusedRuntimeWeights()`** — unblocks cheap correctness proof for all
+   future layout work.
+6. Prefill C5 (fully local), then C2, then C4/C1.
+7. **Escalate the shared birch channel to the human operator.**
+
 
 ## ★★★ ROUND-15 DELTA (2026-08-06 03:45 UTC) — READ BEFORE THE ROUND-14 BLOCK
 

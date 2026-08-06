@@ -57,6 +57,44 @@ def thread_cpu_ms(pid):
     return times
 
 
+def run_prefill(args, send, proc):
+    """Repeated whole-prompt `prefill` requests, each timed individually.
+
+    The worker's `prefill` kind is self-contained: it resets the allocator,
+    builds a fresh cache, runs one L=`--seed-tokens` forward and `eval`s the
+    logits before replying, so host wall time around the request is the GPU
+    prefill time plus a fixed protocol constant. Every repetition uses a
+    DIFFERENT prompt, so no identical-forward memo can serve one repetition
+    from another; the token values themselves do not change the work.
+    """
+    n_warm, n_meas = args.warmup_steps, args.measure_steps
+    t_load = time.monotonic()
+    rid, samples = 1, []
+    for rep in range(n_warm + n_meas):
+        prompt = [(i * 7919 + rep * 104_729) % 100_000 + 16
+                  for i in range(args.seed_tokens)]
+        t0 = time.monotonic()
+        resp = send({"id": rid, "kind": "prefill", "prompt_tokens": prompt})
+        dt = (time.monotonic() - t0) * 1000
+        rid += 1
+        if rep == 0:
+            print(f"[{args.label}] load+first {time.monotonic() - t_load:.1f}s "
+                  f"token={resp['token']}", flush=True)
+        if rep >= n_warm:
+            samples.append(dt)
+
+    samples.sort()
+    n = len(samples)
+    mean = sum(samples) / n
+    var = sum((x - mean) ** 2 for x in samples) / (n - 1) if n > 1 else 0.0
+    median = (samples[n // 2] if n % 2
+              else (samples[n // 2 - 1] + samples[n // 2]) / 2)
+    print(f"[{args.label}] mode=prefill L={args.seed_tokens} n={n} "
+          f"prefill_ms_mean={mean:.4f} prefill_ms_sd={var ** 0.5:.4f} "
+          f"prefill_ms_median={median:.4f} prefill_ms_min={samples[0]:.4f}",
+          flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed-tokens", type=int, default=512)
@@ -67,6 +105,9 @@ def main():
                          "measure window and write the profile here")
     ap.add_argument("--sample-out", default="/tmp/frieren_worker_sample.txt")
     ap.add_argument("--label", default="arm")
+    ap.add_argument("--mode", choices=("decode", "prefill"), default="decode",
+                    help="decode: steady one-token steps. prefill: repeated "
+                         "whole-prompt `prefill` requests at --seed-tokens.")
     args = ap.parse_args()
 
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -94,6 +135,15 @@ def main():
 
     hello = json.loads(proc.stdout.readline())
     assert hello.get("ok"), hello
+
+    if args.mode == "prefill":
+        run_prefill(args, send, proc)
+        proc.stdin.close()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+        return
 
     t_load = time.monotonic()
     # Deterministic pseudo-realistic seed: spread over the vocabulary so expert
