@@ -328,7 +328,8 @@ Step 2 is GPU-only, holds no model, and completed in **2.525 s**
 
 ## 11. Contract state at r5
 
-Re-verified this session at `HEAD = 98e2872`:
+Re-verified at the shipped commit `HEAD = 97457fc` (the note-only commit on top
+of `592bd14`; the submitted surface is unchanged from `b3319dfb`):
 
 ```
 editable budget OK: current=2966629/3000000 bytes headroom=33371 growth=-33355/262144 files=142 (file count is diagnostic only; base=142)
@@ -347,3 +348,99 @@ b3319dfb5c13d7c3c669424139d50acaac044f70:Sources/MLXFastModel/LagunaRuntimeModel
 `Vendor/.../steel/attn` are **directory** entries in `editablePaths` (97 entries
 expanding to 142 files), so any claim that a `steel/*` file is outside the
 surface is false.
+
+## 12. Dispatch and queue authorization (internal record)
+
+The r5-B grant was conditional on r5-A being bit-identical on P0–P3 with the P4
+controls flagging. It is, so this section records the six preconditions I
+checked before dispatching, because one of them is easy to get wrong.
+
+**1. Host rule.** The `senpai/program.md` copy *on this branch* is unrebased and
+still carries the old prohibition ("must never run `mlxfast submit` from a
+private AWS host", line 462). That copy is **stale**. The live rule is on the
+integration base `origin/codex/mlxfast-maple-20260804-advisor` =
+`d08ddd7b2c33e9421c7c1d894c8b00071507fd31`, `senpai/program.md:458-470`, which
+reads that an authorized advisor, student, or human operator may dispatch an
+official submission, that a student must first commit the candidate and
+coordinate its queue entry with the advisor, and that an authorized campaign
+role **may** submit from a provisioned AWS host but must never print or commit
+its credentials. The rule change landed in
+`279b6e2409a2ca92f7b874e08a3dabc2c6ff4a0b` (2026-08-05T09:32:45+02:00). Anyone
+auditing this dispatch against the on-branch file will see the wrong rule; that
+is why it is written down here.
+
+**2. Advisor coordination.** r5-B is an explicit binding conditional grant
+("P0–P3 all bit-identical AND P4 flags ⇒ dispatch the ranked receipt
+immediately, unprompted. You hold the channel and it is idle. Do not wait for
+me."), reaffirmed in PR #35 comment 17 at 2026-08-05T23:34:54Z, which
+post-dates the rule-change commit.
+
+**3. Channel idle, verified rather than assumed.** `mlxfast submissions` listed
+27 submissions immediately before dispatch, **every one terminal** (26
+`rejected`, 1 `failed`), most recent `7f6fe89` at 8/5 11:15 PM. The account
+limit is one submission in flight, not one per student, so this check is a hard
+precondition and not a formality.
+
+**4. r5-A PASS** — sections 1–10 above.
+
+**5. Candidate committed, surface byte-identical.**
+`git diff --stat b3319dfb..97457fc -- Sources/ Vendor/` is empty, and the
+fault-injection defaults are at their required values at the shipped commit
+(`DARKBLOOM_INJECT_DECODE_EMPTY 0`, `DARKBLOOM_INJECT_PREFILL_EMPTY 0`,
+`DARKBLOOM_INJECT_EMPTY_TG 160`).
+
+**6. `--local-submit` preflight passed** on the exact submitted tree
+(`run_training` `68123fbc-21f5-4f31-8f7e-035332a979ee`, exit 0, 428.867 s):
+`passed_correctness true`, `passed_decode_speedup_floor true`, `passed true`.
+`passed_prefill_speedup_floor` is **false**, which is the expected sub-64 GiB
+M4 artifact and not ranked evidence — the local baseline
+`prefill_seconds_per_token 0.000368` is an official-M5 constant and the
+assignment directs me to ignore local prefill entirely.
+
+### Baseline-advance clearance
+
+The advisor cleared the `baseline_advanced` move `eaedee84` →
+`d08ddd7b2c33e9421c7c1d894c8b00071507fd31` with "Accept `current_base_sha
+d08ddd7b…`. Do NOT rebase." Unlike the three earlier clearances in this span,
+the intersection was **not** empty: of 188 changed files, exactly one is on the
+submitted surface — `Sources/MLXFastModel/LagunaRuntimeModel.swift`, 21
+insertions / 16 deletions in 7 hunks, all inside the #27 M5 hardware-constant
+instrument block (tanjiro's `DARKBLOOM_INJECT_EMPTY_CHAIN` lever from #47, read
+only under `if empties > 0`). It is cleared because the controlling defaults are
+identical on all three trees. If the typed submission reports a
+`baseline_advanced` conflict, `accepted_base_sha` is
+`d08ddd7b2c33e9421c7c1d894c8b00071507fd31`.
+
+### Dispatch
+
+```
+mlxfast submit --model "senpai" --note-file research/frieren-pr35-receipt-note.md
+```
+
+Queued 2026-08-06 as submission `0d123661-66d8-4b8c-962d-28dac448fa21`, status
+`validating`, note 26.8 KiB. **The literal model value `senpai` was accepted**,
+so the single permitted provider/model fallback was not used and the public note
+carries no fallback disclosure. No credential was printed or committed at any
+point (`mlxfast config` was never invoked).
+
+### Scoring pre-registration this receipt is read against
+
+Reported per receipt as `submission id, officialScore, ns, S, T`, with
+
+```
+ns = (0.013890/decode_spt)^0.75 * (0.0003845/prefill_spt)^0.25
+S  = 512000 * prefill_spt        (ms)
+T  = 1000 * decode_spt - S/128   (ms)
+```
+
+Never ranked by `officialScore`, and no `*_speedup` field quoted as evidence.
+Baseline frontier receipt `0c21dc18`: **T 4.3181 ms, S 98.029 ms, ns 2.52973**.
+Elasticities `d ln score / d ln T = 0.638`, `d ln S = 0.362`. The mechanism is
+priced at **+0.58 % to +0.67 %** on `ns`; single-receipt MDE is **±0.278 %**.
+
+| observed Δ`ns` vs `0c21dc18` | reading |
+| --- | --- |
+| ≥ +0.60 % | strong confirmation |
+| +0.15 % … +0.60 % | report only; do **not** resubmit |
+| −0.28 % … +0.15 % | inside single-receipt noise |
+| < −0.28 % | report immediately |
