@@ -1,0 +1,85 @@
+== building harness
+== running harness
+host          : Version 26.5.2 (Build 25F84)
+device        : Apple M4 Pro
+plane dir     : /tmp/pr35_r5a
+kernel dir    : ./research/r5a_kernels
+compile opts  : mathMode=safe languageVersion=262144
+preamble      : 47412 bytes from Vendor/mlx-swift/.../mlx-generated/utils.cpp
+call-site geom: 3 occurrence(s) of `grid: ((rows / 2) * 64, 1, 1)`
+call-site geom: 16 occurrence(s) of `threadGroup: (64, 1, 1)`
+harness geom  : dispatchThreads(width: rows/2*64) tg(64,1,1)  [matches call site]
+
+================ geometry h48: rows=8192 layers=10
+pipeline custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t
+   staticThreadgroupMemoryLength=0 maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+pipeline custom_kernel_laguna_decode_nvfp4_qkv_h48_r1_v1_se1_sd1_bfloat16_t_uint32_t_uint8_t_bfloat16_t
+   staticThreadgroupMemoryLength=0 maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+  P0-real-L00            esc=26     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L04            esc=49     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L08            esc=160    diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L12            esc=50     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L16            esc=95     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L20            esc=14     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L24            esc=208    diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L28            esc=63     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L32            esc=19     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L36            esc=27     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P1-injective           esc=0      diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P1H-onehot             esc=0      diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P2-stride              esc=0      diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P3-mixed-escape        esc=1170   diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P4a-rotate-nibbles     esc=0      diffPasses=33/33  diffRows=267529    maxUlp=38828  FLAGGED                 every lane ushort rotated by one nibble
+  P4b-flip-base-bit      esc=0      diffPasses=33/33  diffRows=65        maxUlp=198    FLAGGED                 bases[0] and bases[4096] xor 1
+  P4c-single-nibble      esc=0      diffPasses=2/33   diffRows=2         maxUlp=4      FLAGGED                 row 3 lane 7 block 0 nibble xor 1
+
+================ geometry h64: rows=10240 layers=30
+pipeline custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_se1_sd1_bfloat16_t_uint32_t_uint8_t_uint8_t_uint8_t_bfloat16_t
+   staticThreadgroupMemoryLength=0 maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+pipeline custom_kernel_laguna_decode_nvfp4_qkv_h64_r1_v1_se1_sd1_bfloat16_t_uint32_t_uint8_t_bfloat16_t
+   staticThreadgroupMemoryLength=0 maxTotalThreadsPerThreadgroup=1024 threadExecutionWidth=32
+  P0-real-L01            esc=22     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L02            esc=32     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L03            esc=53     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L05            esc=175    diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L06            esc=41     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L07            esc=27     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L09            esc=14     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L10            esc=34     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L11            esc=10     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L13            esc=77     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L14            esc=124    diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L15            esc=21     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L17            esc=92     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L18            esc=16     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L19            esc=26     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L21            esc=54     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L22            esc=22     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L23            esc=22     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L25            esc=147    diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L26            esc=42     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L27            esc=54     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L29            esc=46     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L30            esc=48     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L31            esc=83     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L33            esc=60     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L34            esc=43     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L35            esc=35     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L37            esc=44     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L38            esc=92     diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P0-real-L39            esc=187    diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P1-injective           esc=0      diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P1H-onehot             esc=0      diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P2-stride              esc=0      diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P3-mixed-escape        esc=1463   diffPasses=0/33   diffRows=0         maxUlp=0      bit-identical           -
+  P4a-rotate-nibbles     esc=0      diffPasses=33/33  diffRows=334492    maxUlp=38713  FLAGGED                 every lane ushort rotated by one nibble
+  P4b-flip-base-bit      esc=0      diffPasses=33/33  diffRows=66        maxUlp=168    FLAGGED                 bases[0] and bases[5120] xor 1
+  P4c-single-nibble      esc=0      diffPasses=2/33   diffRows=2         maxUlp=3      FLAGGED                 row 3 lane 7 block 0 nibble xor 1
+
+pairs compared        : 1782
+max ULP diff (P0-P3)  : 0
+uncovered rows        : 0  (two-fill coverage + determinism check)
+mismatch failures     : 0
+silent power controls : 0
+
+R5A_VERDICT: PASS  (P0-P3 bit-identical on every geometry, plane and lane; every P4 power control flagged)

@@ -1,0 +1,59 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+index 2b39dd8..e4045eb 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -4925,6 +4925,28 @@ private func lagunaDecodeNVFP4QKVR1(
+     {
+         lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
+         lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
++        if let genDir = ProcessInfo.processInfo.environment["DARKBLOOM_DUMP_GEN_DIR"] {
++            let saved = dup(1)
++            let fd = open("\(genDir)/gen_h\(heads).txt", O_WRONLY | O_CREAT | O_TRUNC, 0o644)
++            if fd >= 0 {
++                fflush(stdout)
++                dup2(fd, 1)
++                close(fd)
++            }
++            _ = kernel(
++                [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
++                grid: ((rows / 2) * 64, 1, 1), threadGroup: (64, 1, 1),
++                outputShapes: [[1, 1, rows]], outputDTypes: [.bfloat16], verbose: true)
++            if let wide = lagunaDecodeNVFP4QKVR1Kernels[heads] {
++                _ = wide(
++                    [normalized, bank.packedCodes, bank.scales],
++                    grid: ((rows / 2) * 64, 1, 1), threadGroup: (64, 1, 1),
++                    outputShapes: [[1, 1, rows]], outputDTypes: [.bfloat16], verbose: true)
++            }
++            fflush(stdout)
++            dup2(saved, 1)
++            close(saved)
++        }
+         return kernel(
+             [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
+             grid: ((rows / 2) * 64, 1, 1),
+diff --git a/Sources/MLXFastModel/LagunaRuntimeWeights.swift b/Sources/MLXFastModel/LagunaRuntimeWeights.swift
+index 881a288..2b01c20 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeWeights.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeWeights.swift
+@@ -879,6 +879,21 @@ func lagunaLaneMajorNVFP4ScaleBank(
+         ((u16 & MLXArray(UInt16(0x000F)))
+             | ((u16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8))
+ 
++    if let dumpDir = ProcessInfo.processInfo.environment["DARKBLOOM_DUMP_PLANE_DIR"],
++        site == "qkv"
++    {
++        func dump(_ a: MLXArray, _ kind: String) {
++            let path =
++                "\(dumpDir)/\(kind)_r\(rows)_g\(groups)_L\(String(format: "%02d", layer)).bin"
++            try? Data(a.asArray(UInt8.self)).write(to: URL(fileURLWithPath: path))
++        }
++        dump(plane, "plane")
++        dump(nibbles, "nibbles")
++        dump(bases, "bases")
++        FileHandle.standardError.write(
++            Data("[dump-plane] wrote r\(rows) g\(groups) L\(layer)\n".utf8))
++    }
++
+     let bank = LagunaLaneMajorScaleBank(
+         nibbles: nibbles, bases: bases, rows: rows, groups: groups,
+         escapedRows: rows - fitting)

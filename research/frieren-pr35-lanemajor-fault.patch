@@ -1,0 +1,80 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+index 2b39dd8..7420e78 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -4820,8 +4820,41 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] =
+ /// requests. An escaped row (`base == 0xFF`) takes the simdgroup-uniform else
+ /// arm and reads the stock plane. Both arms fill the same `sb` registers, so
+ /// the K loop below is the R1 loop with its scale argument already resident.
++/// TEMPORARY power-control ladder (research only, removed in the next commit).
++/// `DARKBLOOM_LM_FAULT` corrupts what the kernel reads while leaving the bank
++/// and its reconstruction certificate correct, which is exactly the
++/// kernel-addressing class the certificate is structurally blind to:
++///   1 - every lane reads its neighbour's packed word (`simd_lid ^ 1`)
++///   2 - every reconstructed code is biased by +1 (fires on every fitting row)
++///   3 - every fitting-row code is forced to 0
++///   4 - every escaped-row code is forced to 0
++///   5 - the four K-block codes in a lane's word are reversed
++///   6 - every lane reads the word 16 lanes away (`(simd_lid + 16) & 31`)
++/// 3 and 4 are the localisers: whichever one changes the output tells us which
++/// arm the dispatch actually takes. 1, 5 and 6 are the representative
++/// addressing permutations; 5 and 6 move a code across columns that are 512
++/// apart, where neighbouring-group correlation cannot mask the swap.
++private let lagunaLaneMajorFaultMode =
++    Int(ProcessInfo.processInfo.environment["DARKBLOOM_LM_FAULT"] ?? "0") ?? 0
++
+ private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
+-    """
++    let laneIndex: String
++    switch lagunaLaneMajorFaultMode {
++    case 1: laneIndex = "(simd_lid ^ 1u)"
++    case 6: laneIndex = "((simd_lid + 16u) & 31u)"
++    default: laneIndex = "simd_lid"
++    }
++    let shift = lagunaLaneMajorFaultMode == 5 ? "((3u - b) << 2)" : "(b << 2)"
++    let nibble = "((packed >> \(shift)) & 0x0Fu)"
++    let fittingCode: String
++    switch lagunaLaneMajorFaultMode {
++    case 2: fittingCode = "uint8_t(row_base + \(nibble) + 1u)"
++    case 3: fittingCode = "uint8_t(0)"
++    default: fittingCode = "uint8_t(row_base + \(nibble))"
++    }
++    let escapedCode = lagunaLaneMajorFaultMode == 4
++        ? "uint8_t(0)" : "sc[b * (block_size / 16)]"
++    return """
+     constexpr uint axis_size = 2048;
+     constexpr uint num_simdgroups = 2;
+     constexpr uint values_per_thread = 16;
+@@ -4844,18 +4877,18 @@ private func lagunaDecodeNVFP4QKVLaneMajorSource() -> String {
+         // `out_row * in_vec_size_g / 2` is a multiple of blocks_per_row / 2, so
+         // the lane's run is ushort-aligned; a wider cast would not be.
+         const device ushort* nb = (const device ushort*)(
+-            scale_nibbles + out_row * (in_vec_size_g / 2)) + simd_lid;
++            scale_nibbles + out_row * (in_vec_size_g / 2)) + \(laneIndex);
+         const ushort packed = nb[0];
+     #pragma unroll
+         for (uint b = 0; b < blocks_per_row; ++b) {
+-            sb[b] = uint8_t(row_base + ((packed >> (b << 2)) & 0x0Fu));
++            sb[b] = \(fittingCode);
+         }
+     } else {
+         const device uint8_t* sc = weight_scales +
+             out_row * in_vec_size_g + simd_lid;
+     #pragma unroll
+         for (uint b = 0; b < blocks_per_row; ++b) {
+-            sb[b] = sc[b * (block_size / 16)];
++            sb[b] = \(escapedCode);
+         }
+     }
+ 
+@@ -4886,7 +4919,9 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
+         kernels[heads] = MLXFast.metalKernel(
+             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
+                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
++                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
++                + (lagunaLaneMajorFaultMode != 0
++                    ? "_fault\(lagunaLaneMajorFaultMode)" : ""),
+             inputNames: [
+                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
+                 "weight_scales",

@@ -163,9 +163,18 @@ from one distribution look like.
 Two consequences, and the second one matters more than this arm:
 
 1. `S +0.130%` on the 400 receipt **cannot be caused by the knob**, so it is not a
-   mechanism story for the PR #12 tip's `S +0.236%` regression. **That regression
-   is still unexplained** and should be reopened rather than closed against this
-   knob.
+   mechanism story for the PR #12 tip's `S +0.236%` regression.
+
+   **Retracted 2026-08-05 (self-correction under the advisor's metric rule).** The
+   original wording here was "that regression is still unexplained and should be
+   reopened". That is a sub-noise over-read and I withdraw it. My three
+   bit-identical base free receipts give candidate `S` a 1σ of **0.2603%**
+   (`research/m5-calibration/`, n=3: 97.6222 / 97.5129 / 97.9979 ms). The quoted
+   `S +0.236%` is **below one standard deviation of a single `S` draw**, so the
+   correct statement is that there is no evidence a regression exists at all. It
+   needs no mechanism story and should not be reopened; it should be treated as
+   one draw from the `S` distribution. Anyone who wants to know whether a real
+   `S` shift of that size is present needs replicates, not an explanation.
 2. Control + 160 + 240 + 400 + X is a **five-tree A/A family already paid for on
    the ranked host**. Anyone wanting an empirical ranked-host dispersion for `T`,
    `S` and `ns` - instead of the propagated 2σ floor - can read it straight off

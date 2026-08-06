@@ -39,6 +39,8 @@ def main() -> int:
                     help="parse GPUPROF records from the worker stderr and "
                          "attribute GPU time to the steady decode window")
     ap.add_argument("--profile-top", type=int, default=40)
+    ap.add_argument("--dump-steps", default=None,
+                    help="write one per-step millisecond value per line")
     args = ap.parse_args()
 
     with open(GOLDEN) as fh:
@@ -116,6 +118,9 @@ def main() -> int:
           + (f" first={mismatches[0]}" if mismatches else " (all match)"),
           flush=True)
     step_times = [b - a for a, b in step_spans]
+    if args.dump_steps:
+        with open(args.dump_steps, "w") as fh:
+            fh.write("".join(f"{t*1e3:.6f}\n" for t in step_times))
 
     print("first 8 steps (ms): "
           + " ".join(f"{t*1e3:.3f}" for t in step_times[:8]), flush=True)
