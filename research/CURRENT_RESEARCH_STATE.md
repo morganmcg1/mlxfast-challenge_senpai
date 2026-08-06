@@ -1,10 +1,11 @@
 # SENPAI Research State
-- 2026-08-06T05:39Z (updated)
+- 2026-08-06T05:50Z (updated)
 - Campaign mlxfast-birch-20260805. Four students assigned round-2 decode
   optimization experiments (PRs #93-96), all IDLE awaiting student commits.
+  Baseline advanced to cfaad108 (research-only commit, no scored code change).
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
   (lBroth) = ~0.25% gap. Any single experiment success likely closes this.
-- **FRONTIER**: aa3d227 (advisor HEAD, decode audit notes). Previous frontier
+- **FRONTIER**: cfaad108 (advisor HEAD, research state update). Previous frontier
   12a712d (PR #84: top-8 elimination, bit-exact, -49 lines, merged).
 
 ## In-Flight Experiments (4 decode arms, all independent code sections)
