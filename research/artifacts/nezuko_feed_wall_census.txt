@@ -1,0 +1,46 @@
+
+== whole population with officialMetrics (n=1082) ==
+  benchmark_wall_seconds     med=  46.00 p90=  48.0 min=  33.0 max=  54.0
+  correctness_seconds        med=  36.00 p90=  37.0 min=  22.0 max=  41.0
+  timed_benchmark_seconds    med=  39.00 p90=  41.0 min=  25.0 max=  47.0
+  prefill_ms                 med=101.136 min= 97.188 max=203.912
+  decode_ms                  med=  6.515 min=  4.908 max= 13.754
+
+== last 20 receipts carrying metrics (n=20) ==
+  benchmark_wall_seconds     med=  52.00 p90=  53.0 min=  45.0 max=  54.0
+  correctness_seconds        med=  39.00 p90=  39.0 min=  36.0 max=  39.0
+  timed_benchmark_seconds    med=  45.50 p90=  46.0 min=  39.0 max=  47.0
+  prefill_ms                 med= 97.917 min= 97.188 max=100.130
+  decode_ms                  med=  4.951 min=  4.908 max=  5.188
+
+== pooled OLS (INVALID: era-confounded, keep as a warning) ==
+  benchmark_wall_seconds     n= 1082 =   58.075 -0.08988*prefill_ms -0.55808*decode_ms  rmse=2.85
+  correctness_seconds        n= 1082 =   50.592 -0.14226*prefill_ms -0.00759*decode_ms  rmse=2.55
+  timed_benchmark_seconds    n= 1082 =   51.345 -0.04439*prefill_ms -1.49102*decode_ms  rmse=2.96
+
+== harness eras (era key = harness_hash, checked_steps, case_count) ==
+  n=  15 h=ec21942e29 steps=1344 cases=11 2026-07-28..2026-07-29 P= 127.8- 137.7 D= 9.49- 9.83 corr=36-36 timed=30-30 wall=42-43
+  n=  15 h=a33f7384fd steps=1344 cases=11 2026-08-03..2026-08-03 P=  97.5- 103.6 D= 5.11- 5.15 corr=36-36 timed=40-40 wall=47-47
+  n=  15 h=a864809215 steps=1344 cases=11 2026-08-03..2026-08-04 P=  97.4- 107.9 D= 5.10- 5.19 corr=36-36 timed=38-39 wall=45-46
+  n=  14 h=367e5d71a7 steps=1344 cases=11 2026-08-02..2026-08-06 P=  99.6- 100.2 D= 5.13- 5.21 corr=36-37 timed=40-41 wall=47-48
+  n=  10 h=e605c6594d steps=1344 cases=11 2026-08-02..2026-08-03 P=  99.3- 101.4 D= 5.13- 5.16 corr=36-36 timed=40-40 wall=47-47
+  n=   8 h=d7e8b87995 steps=1344 cases=11 2026-08-01..2026-08-01 P= 100.4- 101.2 D= 6.46- 6.49 corr=37-37 timed=40-41 wall=47-48
+  n=   7 h=0f671703e5 steps=1344 cases=11 2026-07-28..2026-07-29 P= 128.5- 137.8 D= 9.49- 9.68 corr=36-36 timed=30-30 wall=42-43
+  n=   7 h=5d59ea66e6 steps=1344 cases=11 2026-07-31..2026-07-31 P= 118.6- 122.4 D= 6.85- 6.89 corr=33-33 timed=31-31 wall=39-39
+  n=   7 h=bba66c63c6 steps=1344 cases=11 2026-08-04..2026-08-06 P=  97.6-  98.3 D= 5.10- 5.12 corr=36-36 timed=39-39 wall=45-46
+  n=   6 h=4b2c8eea0d steps=1344 cases=11 2026-07-31..2026-08-01 P= 104.7- 105.6 D= 6.86- 6.90 corr=33-33 timed=31-32 wall=40-40
+  n=   6 h=0aa682ab03 steps=1344 cases=11 2026-08-01..2026-08-02 P=  99.8- 100.4 D= 5.28- 5.33 corr=36-36 timed=39-40 wall=46-47
+  n=   5 h=bff67f593b steps=512 cases=7 2026-07-24..2026-07-24 P= 194.3- 195.8 D=13.52-13.60 corr=23-23 timed=26-26 wall=45-45
+  n=   5 h=6f6a9abece steps=512 cases=7 2026-07-25..2026-07-25 P= 157.6- 168.4 D=11.40-11.57 corr=23-24 timed=29-29 wall=36-36
+  n=   5 h=0b89e851ec steps=512 cases=7 2026-07-26..2026-07-26 P= 146.0- 147.1 D=10.40-10.44 corr=23-23 timed=29-29 wall=36-36
+  n=   5 h=ee948878b5 steps=1344 cases=11 2026-07-29..2026-07-29 P= 126.4- 128.1 D= 9.44- 9.53 corr=35-36 timed=30-30 wall=42-42
+  n=   5 h=04f48236e4 steps=1344 cases=11 2026-07-30..2026-07-30 P= 122.8- 128.5 D= 7.13- 7.17 corr=33-33 timed=30-31 wall=39-40
+  n=   5 h=643582bc60 steps=1344 cases=11 2026-07-30..2026-07-31 P= 121.8- 127.2 D= 7.07- 7.11 corr=32-32 timed=30-30 wall=39-39
+  n=   5 h=19d3e48631 steps=1344 cases=11 2026-08-02..2026-08-02 P=  99.8- 104.0 D= 5.15- 5.19 corr=37-37 timed=41-41 wall=48-48
+
+== R1 envelope test (routed_gather_gemm x2, m=1) ==
+  frontier now (current era): P=97.9 ms  D=4.951 ms/step
+  R1 probe projection:        P=137.9 ms  D=6.901 ms/step
+  receipts with prefill >= probe under steps=1344: n=24  wall max=47  corr max=38  timed max=40
+  receipts with decode >= probe under steps=1344: n=266  wall max=48  corr max=41  timed max=41
+  observed all-time maxima: wall=54 corr=41 timed=47
