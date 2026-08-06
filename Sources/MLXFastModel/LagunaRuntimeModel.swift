@@ -4303,7 +4303,7 @@ private let lagunaGateSoftplusRows: Int = {
 
 private let lagunaGateSoftplusSimdgroups: Int = {
     let v = Int(ProcessInfo.processInfo.environment["DARKBLOOM_GATESP_NS"] ?? "") ?? 2
-    return [2, 4].contains(v) ? v : 2
+    return [1, 2, 4].contains(v) ? v : 2
 }()
 
 private func lagunaGateSoftplusSource(heads: Int, rows: Int, simdgroups: Int) -> String {
