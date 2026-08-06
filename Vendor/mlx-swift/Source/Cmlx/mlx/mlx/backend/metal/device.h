@@ -58,7 +58,6 @@ class MLX_API CommandEncoder {
   void maybeInsertBarrier();
 
   void set_compute_pipeline_state(MTL::ComputePipelineState* kernel) {
-    current_pso_ = kernel;
     get_command_encoder()->setComputePipelineState(kernel);
   }
 
@@ -140,13 +139,6 @@ class MLX_API CommandEncoder {
   // A map of prior command encoder outputs to their corresponding fence.
   std::unordered_map<const void*, NS::SharedPtr<MTL::Fence>> prev_ce_outputs_;
   std::mutex outputs_mtx_;
-
-  // LOCAL-ONLY GPU dispatch profiler state (revert before timing).
-  MTL::ComputePipelineState* current_pso_{nullptr};
-  std::vector<const void*> profile_psos_;
-  // buffer_sizes_ cannot serve as a byte counter: array::data_size() is in
-  // item_size units, not bytes (mlx/array.h:346).
-  size_t profile_nbytes_{0};
 };
 
 class MLX_API Device {
