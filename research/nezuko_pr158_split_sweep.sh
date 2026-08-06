@@ -19,6 +19,7 @@ cd "$(dirname "$0")/.."
 
 STEPS="${STEPS:-200}"
 PINGS="${PINGS:-20}"
+PROFILE_TOP="${PROFILE_TOP:-12}"
 OUT="${OUT:-research/nezuko-pr158-split-sweep.log}"
 : >"$OUT"
 
@@ -33,7 +34,7 @@ for k in ${SPLITS:-0 1 2 4 8 0}; do
   echo "=== split=$k tag=$tag t=$(date +%H:%M:%S) thermal=$(thermal)" | tee -a "$OUT"
   DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT="$k" \
     python3 research/nezuko_pr158_gap_probe.py \
-    --steps "$STEPS" --pings "$PINGS" --profile --profile-top 12 \
+    --steps "$STEPS" --pings "$PINGS" --profile --profile-top "$PROFILE_TOP" \
     --label "$tag" --stderr "/tmp/nezuko-pr158-$tag.err" 2>&1 | tee -a "$OUT"
   echo "=== split=$k done t=$(date +%H:%M:%S) thermal=$(thermal)" | tee -a "$OUT"
 done
