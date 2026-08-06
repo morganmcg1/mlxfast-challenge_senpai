@@ -14,12 +14,24 @@ committed as `38b0c91` **before any r3 measurement ran**.
 
 ## Headline
 
-**The r2 causal story is falsified.** r2 attributed a +56.5 µs/step SPLIT=0
-regression to Variant A hoisting the router top-8 ordinal kernel ahead of the
-shared-expert QMV. r3 reproduced that exact emission-order flip in the BASE
-build with the routed R1 QMV kernel **unmodified**, and measured
-**−14.3 ± 34.5 µs/step** against a pre-registered point prediction of
-**+54.5 µs/step**. Dispatch order is not the mechanism.
+Two separable claims were on trial, and they resolve in opposite directions.
+
+**1. The regression is real.** Variant A replicates as a genuine slowdown:
+**+114.0 µs/step (+1.434 %)**, with all three CAND runs slower than all three
+BASE runs (exact one-sided permutation p = 1/20 = 0.050, the floor at n=3).
+This is the same sign as r2's SPLIT=0 result at roughly 2× the magnitude.
+
+**2. The r2 causal story for it is falsified.** r2 attributed that regression
+to Variant A hoisting the router top-8 ordinal kernel ahead of the shared-expert
+QMV. r3 reproduced that exact emission-order flip in the BASE build with the
+routed R1 QMV kernel **unmodified**, and measured **−14.3 ± 34.5 µs/step**
+against a pre-registered point prediction of **+54.5 µs/step**. Dispatch order
+is not the mechanism.
+
+The practical consequence for the advisor: **the PR #82 hypothesis is dead on
+this host as posed** — the "duplicated" top-8 selection is load-bearing, not
+waste — but the reason r2 gave for its failure should not be carried forward
+into the next design.
 
 PR #82 carries **zero submitted bytes**. Every probe in this revision is
 local-only and reverted; the final head is byte-identical to `ea501bc8` across
@@ -126,6 +138,17 @@ reproduce r2 CAND's emission order exactly.
 `dispatches=406` and `cbs=45` unchanged in all nine arms, and
 `0 divergences (all match)` on teacher-forced greedy tokens in all nine.
 
+Verified from the emitted kernel names in all nine logs:
+
+- every arm ran `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2`, i.e. the
+  routed R1 QMV kernel is **byte-identical across arms** — the probe only
+  permuted the down-residual input list;
+- the three `O0` arms emitted `routed_shared_nvfp4_down_residual_bf16_r1_v5`
+  with **no suffix**, confirming the identity permutation is the shipped path
+  and not a fourth variant;
+- the permuted arms carry their `ob`/`osf`/`oc`/`od` suffix, confirming each
+  arm actually compiled and dispatched its own kernel.
+
 **Verdict — pre-registered branch 2: NULL.**
 
 ```
@@ -148,6 +171,10 @@ normalized router weights consumed by `DOWN`. So the two are genuine
 independent siblings, and the top-8 selection really is computed twice — the
 duplication PR #82 set out to remove is real. Only its *cost attribution* was
 wrong.
+
+This sibling independence is also the key input to item 2's reading: it is
+precisely what Variant A destroys, and it is why "the duplication is real" and
+"removing the duplication is a regression" are not in tension.
 
 ### Item 4 — symmetric probe (descriptive only)
 
@@ -175,7 +202,74 @@ the down-residual input list must not push `SHARED` behind `ROUTED`.
 
 ## Item 2 — Variant A replication (interleaved, n=3 per cell)
 
-<!--ITEM2-->
+One env-gated build, arms interleaved `BASE CAND BASE CAND BASE CAND` in a
+single session (deviation 3). `DARKBLOOM_ROUTED_QMV_INDICES=1` selects Variant
+A; unset selects the shipped path.
+
+| arm | run | µs/step | gap µs | cbs | disp | routed R1 kernel | tokens |
+| --- | --- | --: | --: | --: | --: | --- | --- |
+| BASE | `base_a` | 7977.0 | 312.0 | 45 | 406 | `…top8keys_r1_bf16_v2` | 0 divergences |
+| BASE | `base_b` | 7887.0 | 227.0 | 45 | 406 | `…top8keys_r1_bf16_v2` | 0 divergences |
+| BASE | `base_c` | 7990.0 | 289.0 | 45 | 406 | `…top8keys_r1_bf16_v2` | 0 divergences |
+| CAND | `cand_a` | 8089.0 | 293.0 | 45 | 406 | `…top8idx_r1_bf16_v2` | 0 divergences |
+| CAND | `cand_b` | 8084.0 | 294.0 | 45 | 406 | `…top8idx_r1_bf16_v2` | 0 divergences |
+| CAND | `cand_c` | 8023.0 | 257.0 | 45 | 406 | `…top8idx_r1_bf16_v2` | 0 divergences |
+
+| cell | n | mean µs/step | half-range |
+| --- | --: | --: | --: |
+| BASE | 3 | 7951.3 | 51.5 |
+| CAND | 3 | 8065.3 | 33.0 |
+
+```
+CAND - BASE = +114.0 us/step (+1.434 %)  pooled half-range noise 84.50
+exact one-sided permutation test: p = 1/20 = 0.050
+   (separation: min CAND 8023.0 vs max BASE 7990.0)
+=> replicates: Variant A is a real regression
+```
+
+**Verdict: Variant A replicates as a genuine regression, roughly 2× the r2
+magnitude.** Every CAND run is slower than every BASE run, so the arms separate
+perfectly by rank. At n=3 vs n=3 that is the smallest attainable one-sided
+permutation p (1/20 = 0.050) — I report it because a mean ± half-range summary
+alone understates how clean the separation is, and because the half-range is
+inflated by a single low `base_b`.
+
+Verification that the arms are the intended contrast, checked mechanically on
+every run rather than assumed:
+
+- The routed R1 kernel name differs exactly as designed (`top8keys` vs
+  `top8idx`), confirming the env gate reached the scored dispatch.
+- `cbs=45` and `dispatches=406` are identical across all six runs, so the
+  regression is not extra dispatches or extra command buffers.
+- All six runs report `0 divergences (all match)` on teacher-forced greedy
+  tokens: Variant A is bit-exact, it is simply slower.
+
+**Env-gating cost is nil, and session drift is small.** The item-2 BASE cell
+(7951.3, hr 51.5) and the item-3 `O0` cell (7986.3, hr 10.0) are the same
+shipped path measured in two different builds and sessions. They differ by
+−35.0 µs (−0.44 %), inside the pooled half-range of 61.5. The env gate
+therefore adds no measurable cost, and the two items are on a common scale.
+
+### Why the "remove duplicated work" intuition fails here (hypothesis, untested)
+
+Variant A deletes the in-kernel top-8 argmax, so it strictly *removes*
+arithmetic — yet it is reliably slower. The natural reading is that it also
+**adds a dependency edge**:
+
+- Shipped, the routed R1 QMV consumes `router_keys` from
+  `residual_rms_router_bf16_2048_rpg8_keys_v1` and recovers the winner itself.
+  It and `decode_router_top8_ordinal_table_norm_v1` are then independent
+  siblings. Item 3 proves this empirically: arm `Od` encodes `ROUTED` *before*
+  `ORDINAL`, which is only possible if no edge exists.
+- Variant A consumes `indices`, which is the ordinal kernel's output. The
+  routed QMV — the largest MoE kernel on the step — is thereby forced to wait
+  for the ordinal table, where before it could overlap with it.
+
+So the duplicated argmax is not waste; it is buying scheduling independence.
+I did **not** test this. Item 3's pre-registered branch 2 says "re-attribute
+and stop", and I am honouring that rather than chasing a third mechanism on a
+non-authoritative host. It is offered to the advisor as the most promising
+framing, not as a result.
 
 ---
 
@@ -187,8 +281,16 @@ the down-residual input list must not push `SHARED` behind `ROUTED`.
 | SPLIT=0 µs/step | 8101.0 (hr 7.0) | 8157.5 (hr 24.5) | **+56.5 (+0.698 %)** |
 | routed R1 kernel, SPLIT=1 | 1494.65 | 1438.20 | −45.12 (−3.15 %), δ-corrected, noise 4.10 |
 
-r2's two axes already disagreed in sign. r3 shows the SPLIT=0 arm was the
-unreliable one.
+r2's two axes disagreed in sign, and r3 resolves that disagreement in favour of
+SPLIT=0: the interleaved n=3 replication reproduces the SPLIT=0 regression with
+perfect rank separation. The SPLIT=1 axis is the one to distrust here —
+`DARKBLOOM_GPU_PROFILE_SPLIT=1` forces one kernel per command buffer, which
+removes exactly the intra-command-buffer overlap that the hypothesis in
+§"Why the intuition fails" says the shipped path is exploiting. A measurement
+that dissolves the effect it is trying to measure will show the change as free
+or beneficial. That makes the r2 SPLIT=1 routed-kernel win (−45.12 µs, −3.15 %)
+an artefact candidate rather than a surviving positive signal: it is a real
+statement about isolated kernel cost, but not about step time.
 
 ---
 
@@ -217,25 +319,39 @@ Each arm: `DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=0` with
 
 | probe | applied | reverted |
 | --- | --- | --- |
-| MLX dispatch profiler (`device.cpp`/`device.h`, **not** in `editablePaths`) | `d66c36b` | <!--REVERT-PROF--> |
+| MLX dispatch profiler (`device.cpp`/`device.h`, **not** in `editablePaths`) | `d66c36b` | `60b7387` |
 | `DARKBLOOM_DOWN_INPUT_ORDER` ordering probe | `068bd6c` | `b0444d0` |
-| `DARKBLOOM_ROUTED_QMV_INDICES` Variant A | `4ef8abc` | <!--REVERT-VA--> |
+| `DARKBLOOM_ROUTED_QMV_INDICES` Variant A | `8b0e5b0` | `8f1c5d3` |
+
+`8f1c5d3` also removed six arm logs that had ridden along in `8b0e5b0`;
+`99621a3` restores those logs (evidence only, no code).
 
 ## Suggested follow-ups (not implemented)
 
-1. **Re-price the duplication on M5 before any further Variant A work.** The
-   M4 Pro null does not transfer: M5 selects `_nax` kernels and has a different
-   core count. The r2 SPLIT=1 routed-kernel win (−45.12 µs, −3.15 %) is the
-   only surviving positive signal and deserves an M5 paired check.
-2. **Variant A′ / Route 1** — produce the 8-entry index vector inside
-   `residual_rms_router_..._keys_v1` so `ORDINAL` can be dropped entirely. Must
-   be priced against the ~206 µs/step `ordinal_table` cost it would remove.
-3. **Dead `router_keys` production.** If a future variant stops consuming
+1. **Retire Variant A as posed; do not spend M5 time re-pricing it.** It is a
+   bit-exact regression on M4 Pro at p = 0.050 with no dispatch-count change.
+   The M4/M5 caveat cuts both ways and I would not claim the magnitude
+   transfers, but nothing here argues for the change, so an M5 paired run would
+   be spending scarce authoritative time to confirm a negative.
+2. **Test the dependency-edge hypothesis directly, since it is cheap and it
+   decides the whole family.** If the shipped duplication is buying
+   `ROUTED ∥ ORDINAL` overlap, then any variant that makes routed QMV consume
+   an ordinal output is doomed, and Variant A′ / Route 1 below is the *only*
+   viable direction. The clean control is a Variant A build that consumes
+   `indices` but is given an artificial edge-free source of the same values, or
+   simply reading whether CAND's routed QMV loses its overlap in a SPLIT=0
+   dispatch trace. This is the single highest-value next measurement.
+3. **Variant A′ / Route 1** — produce the 8-entry index vector inside
+   `residual_rms_router_..._keys_v1` so `ORDINAL` can be dropped entirely. This
+   is the one variant the dependency-edge reading still permits, because it
+   removes the ordinal kernel rather than depending on it. Must be priced
+   against the ~206 µs/step `ordinal_table` cost it would remove.
+4. **Dead `router_keys` production.** If a future variant stops consuming
    `router_keys`, its producer becomes dead and should be removed with it.
-4. **Hygiene, independent of this experiment:** the stale R1-selection guard
+5. **Hygiene, independent of this experiment:** the stale R1-selection guard
    and the stale `routerKeys` preconditions in
    `lagunaRoutedSwiGLUQMVPackedTop8`; and `mergedSharedActivated` is declared
    `var` but never mutated (build warning).
-5. **Order guard rail** — if the `SHARED`-after-`ROUTED` rule is worth
+6. **Order guard rail** — if the `SHARED`-after-`ROUTED` rule is worth
    trusting, confirm it at n=3 on M5 and record it as a constraint on the
    down-residual input list.
