@@ -12,8 +12,12 @@ decode steps (the trailing IPC pings and shutdown emit no command buffers).
 """
 import argparse
 import collections
+import os
 import statistics
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from decode_probe import parse_gpuprof_line  # noqa: E402
 
 
 def main() -> int:
@@ -28,10 +32,10 @@ def main() -> int:
         for line in fh:
             if not line.startswith("GPUPROF "):
                 continue
-            parts = line.split()
-            if len(parts) < 5:
+            parsed = parse_gpuprof_line(line)
+            if parsed is None:
                 continue
-            records.append((float(parts[1]), float(parts[2]), parts[4]))
+            records.append((parsed[0], parsed[1], parsed[3]))
 
     want = args.steps * args.per_step
     if len(records) < want:

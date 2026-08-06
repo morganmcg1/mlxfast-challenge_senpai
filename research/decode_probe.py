@@ -23,6 +23,23 @@ GOLDEN = os.path.join(
 )
 
 
+def parse_gpuprof_line(line: str):
+    """Return (start, end, nops, names_field) for either GPUPROF hook variant.
+
+    `research/nezuko-pr158-gpuprof-hook.patch` emits
+    `GPUPROF <start> <end> <nops> <names>`; `research/pr91-gpuprof-hook.patch`
+    inserts an `<input_bytes>` field before the names. A kernel name is never
+    a bare integer, so the 5th field discriminates the two layouts.
+    """
+    parts = line.rstrip("\n").split(" ", 5)
+    if len(parts) < 5:
+        return None
+    if len(parts) == 6 and parts[4].isdigit():
+        return float(parts[1]), float(parts[2]), int(parts[3]), parts[5].strip()
+    parts = line.rstrip("\n").split(" ", 4)
+    return float(parts[1]), float(parts[2]), int(parts[3]), parts[4].strip()
+
+
 def rss_gb(pid: int) -> float:
     out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)],
                          capture_output=True, text=True).stdout.strip()
@@ -157,8 +174,9 @@ def analyze_profile(err_path: str, step_spans, top: int) -> None:
         for line in fh:
             if not line.startswith("GPUPROF "):
                 continue
-            _, start, end, nops, names = line.rstrip("\n").split(" ", 4)
-            records.append((float(start), float(end), int(nops), names))
+            rec = parse_gpuprof_line(line)
+            if rec is not None:
+                records.append(rec)
     if not records:
         print("profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)")
         return
