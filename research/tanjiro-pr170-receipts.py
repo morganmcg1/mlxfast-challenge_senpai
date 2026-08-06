@@ -26,15 +26,44 @@ CTRL = {
     "ns": 2.5982163,
 }
 
-# Baseline decomposition of the gather GEMM on the control receipt.
-DS1 = 43.2619          # ms, measured gather-GEMM cost
-DS1_SD = 0.402         # ms
-ROOFLINE_FRAC = 0.67   # of BOTH compute and bandwidth roofline
-STREAM = ROOFLINE_FRAC * DS1   # 28.99 ms per stream in isolation
-SERIAL = 2 * STREAM            # 57.98 ms if perfectly serial
-L_BRACKET = SERIAL - DS1       # +14.72 ms, added work fully absorbed
-R_BRACKET = STREAM             # +28.99 ms, added work absorbs nothing
-EXCESS = DS1 - STREAM          # +14.27 ms over the higher roofline
+# Measured cost of the routed gather GEMM on the control receipt. This is the
+# only empirical anchor; everything else below is an exact ledger derivation.
+W = 43.2619            # ms, measured prefill gather-GEMM wall
+W_SD = 0.402           # ms
+
+# Exact per-window work, derived from weights/config.json:
+#   hidden=2048, moe_intermediate=512, experts=256, top_k=8, blocks=40 with
+#   L_moe=39 MoE blocks (one block is a dense MLP), NVFP4 4.5 bit = 0.5625 B.
+#   values/expert = 2*(2048*512) + 512*2048            = 3,145,728
+#   FLOP  = 512*8 * values * 2 * 39                    = 1005.022 GFLOP
+#   bytes = 256  * values * 0.5625  * 39               = 17,666.41 MB
+# Both reproduce the ledger exactly, which shows the ledger byte figure is
+# WEIGHTS ONLY: activations/outputs (~42 MB/layer vs ~453 MB of weights) are
+# not counted, so real DRAM traffic is ~9% higher than GBYTE.
+GFLOP = 1005.02
+GBYTE = 17.66641       # GB of expert weights read per prefill window
+AI = GFLOP / GBYTE     # 56.89 FLOP/B -- equals the 34700/610 ridge exactly
+
+TFLOPS_PEAK = 34.7     # M5 Max GPU fp16/bf16 matmul peak
+GBPS = {"546.2": 546.2, "610": 610.0, "651.8": 651.8}
+
+# Peak-rate lower bounds on the marginal cost of one added stream. A peak rate
+# can only OVERSTATE the machine, so these are floors on an honest measurement:
+# an arm below its floor means the injected work did not execute as intended.
+M_PEAK = GFLOP / TFLOPS_PEAK                        # 28.96 ms at 34.7 TFLOP/s
+D_PEAK = {k: GBYTE / v * 1000.0 for k, v in GBPS.items()}  # 32.3 / 29.0 / 27.1
+
+# Instrument-failure gates (see report section 4.1). Half the peak-derived
+# floor is the void threshold; a 2.3x-of-floor cap flags a runaway arm.
+FLOOR_M2 = 13.0        # dM2 below this -> R0a, arm void
+FLOOR_S2 = 9.5         # dS2 below this -> R0a, arm void
+CAP_M2 = 33.3          # dM2 above this -> R0b, flag
+CAP_S2 = 37.2          # dS2 above this -> R0b, flag
+
+MU = 0.10 * W          # 4.326 ms, minimum separation for a directional claim
+R1_WIN = 0.25 * W      # 10.82 ms, dB2 at or above this makes H3 the headline
+R1_MAT = 0.10 * W      # 4.326 ms, dB2 at or above this is material
+R5_SUM = W - MU        # 38.94 ms, both streams fitting under this implies H3
 
 
 def S_ms(prefill_s_per_tok):
@@ -63,35 +92,82 @@ def load(path):
     raise SystemExit(f"no submission list in {path}: keys={list(d)}")
 
 
-def verdict(dM2, dS2p, dB2):
-    """Pre-registered decision rules R1-R5. Deltas are ms of prefill wall."""
+def verdict(dM2, dS2, dB2):
+    """Pre-registered decision rules R0-R5 from report section 4.2.
+
+    Deltas are ms of added prefill wall. dS2 is the RAW S2 delta; the pure
+    load cost dS2p is only bracketed, not known, because S2 also adds one
+    barrier and B2 adds two whose costs may coalesce:
+        dS2p in [dS2 - dB2, dS2 - dB2/2]
+    """
     out = []
+
+    # R0: instrument-failure gates. An arm below its peak-derived floor did
+    # not execute the work it claims to have added, so it measures nothing.
+    void = []
+    if dM2 is not None and dM2 < FLOOR_M2:
+        void.append(f"dM2={dM2:+.3f} < {FLOOR_M2}")
+    if dS2 is not None and dS2 < FLOOR_S2:
+        void.append(f"dS2={dS2:+.3f} < {FLOOR_S2}")
+    if void:
+        out.append("R0a ARM VOID: " + "; ".join(void) + ". Below the peak-rate "
+                   "floor, so the injected stream did not run as intended "
+                   "(dead-code elimination, wrong probe compiled in, or the "
+                   "kernel was not selected). Do not interpret as a regime.")
+        return out
+    if dM2 is not None and dM2 > CAP_M2:
+        out.append(f"R0b FLAG: dM2={dM2:+.3f} > {CAP_M2}; the arm cost far more "
+                   "than a peak-rate second stream. Suspect occupancy loss "
+                   "(register pressure) rather than pure arithmetic.")
+    if dS2 is not None and dS2 > CAP_S2:
+        out.append(f"R0b FLAG: dS2={dS2:+.3f} > {CAP_S2}; suspect threadgroup-"
+                   "memory or occupancy loss rather than pure load bandwidth.")
+
+    # R1: barriers first, because a large dB2 contaminates dS2's bracket.
     if dB2 is not None:
-        if dB2 >= 7:
-            out.append("R1 H3 WINS: schedule/barrier latency explains >=half "
-                       "the roofline excess; next mechanism is barrier removal "
-                       "/ occupancy, not fewer FLOPs or bytes.")
-        elif dB2 >= 3:
-            out.append("R1 H3 PARTIAL: barriers are a real but minority cost.")
-        elif dB2 < 1.5:
-            out.append("R1 H3 DEAD: synchronisation is not the constraint.")
+        if dB2 >= R1_WIN:
+            out.append(f"R1 H3 HEADLINE: dB2={dB2:+.3f} >= {R1_WIN:.2f} "
+                       "(0.25W). Synchronisation latency dominates; the next "
+                       "mechanism is removing barriers / raising occupancy, "
+                       "not fewer FLOPs or bytes. dS2's bracket is wide here, "
+                       "so treat R2/R3 below as provisional.")
+        elif dB2 >= R1_MAT:
+            out.append(f"R1' H3 MATERIAL: {R1_MAT:.2f} <= dB2={dB2:+.3f} < "
+                       f"{R1_WIN:.2f}. Barriers cost real time but are not the "
+                       "binding constraint on their own.")
         else:
-            out.append("R1 H3 WEAK: 1.5 <= dB2 < 3, no claim.")
-    if dM2 is not None and dS2p is not None:
-        if dM2 >= 24 and dM2 - dS2p >= 6:
-            out.append("R2 H1 WINS: MMA-limited. Reduce arithmetic.")
-        elif dS2p >= 24 and dS2p - dM2 >= 6:
-            out.append("R3 H2 WINS: load+dequant-limited. Reduce bytes moved "
-                       "or make dequant cheaper.")
-        elif 13 <= dM2 <= 19 and 13 <= dS2p <= 19 and (dB2 or 0) < 1.5:
-            out.append("R4 H0: jointly saturated; both streams already overlap "
-                       "as well as the hardware allows.")
-        if dM2 >= 24 and dS2p >= 24 and (dB2 or 0) < 1.5:
-            out.append("R5 NEW REGIME (outside H0-H3): neither stream absorbs "
-                       "the other -- they run back to back. Next mechanism is "
-                       "OVERLAPPING them (software pipelining / double-buffered "
-                       "staging), not shrinking either one.")
-    return out or ["no rule fired; report the raw deltas without a claim"]
+            out.append(f"R1'' H3 MINOR: dB2={dB2:+.3f} < {R1_MAT:.2f}. "
+                       "Synchronisation is not the constraint; dS2p is tightly "
+                       "bracketed.")
+
+    if dM2 is None or dS2 is None or dB2 is None:
+        out.append("R2-R5 need all three arms; not all receipts are in.")
+        return out
+
+    lo, hi = dS2 - dB2, dS2 - dB2 / 2.0
+
+    # R5 is checked before R2/R3: if both injected streams are largely
+    # absorbed, neither is the constraint regardless of which is larger.
+    if dM2 + hi <= R5_SUM:
+        out.append(f"R5 H3 BY ELIMINATION: dM2+dS2p_hi={dM2 + hi:.3f} <= "
+                   f"{R5_SUM:.2f} (W-mu). The kernel absorbed a full extra "
+                   "compute stream AND a full extra load stream without "
+                   "paying for them, so neither arithmetic nor bandwidth is "
+                   "binding. The remaining cost is latency/schedule.")
+    elif dM2 - hi >= MU:
+        out.append(f"R2 H1 WINS: dM2={dM2:+.3f} exceeds dS2p_hi={hi:+.3f} by "
+                   f">= mu={MU:.2f}. MMA-limited: reduce arithmetic.")
+    elif lo - dM2 >= MU:
+        out.append(f"R3 H2 WINS: dS2p_lo={lo:+.3f} exceeds dM2={dM2:+.3f} by "
+                   f">= mu={MU:.2f}. Load+dequant-limited: move fewer bytes or "
+                   "make dequant cheaper.")
+    else:
+        out.append(f"R4 H0 JOINTLY SATURATED: dM2={dM2:+.3f} and dS2p in "
+                   f"[{lo:+.3f}, {hi:+.3f}] are within mu={MU:.2f} of each "
+                   "other and neither is absorbed. Both streams are already "
+                   "overlapped about as well as the hardware allows; only a "
+                   "change that shrinks both helps.")
+    return out
 
 
 def main():
@@ -106,8 +182,13 @@ def main():
     ctrl_T = T_ms(CTRL["decode_s_per_tok"], CTRL["prefill_s_per_tok"])
     print(f"control 97a5090  S={ctrl_S:8.3f} ms  T={ctrl_T:7.5f} ms  "
           f"ns={CTRL['ns']:.6f}")
-    print(f"gather GEMM dS1={DS1:.4f}+-{DS1_SD:.3f} ms  stream={STREAM:.2f} ms  "
-          f"excess={EXCESS:.2f} ms  brackets [+{L_BRACKET:.2f}, +{R_BRACKET:.2f}]")
+    print(f"gather GEMM W={W:.4f}+-{W_SD:.3f} ms   {GFLOP:.2f} GFLOP  "
+          f"{GBYTE:.4f} GB (weights only)  AI={AI:.2f} FLOP/B")
+    dp = "  ".join(f"{k}GB/s:{v:.1f}" for k, v in sorted(D_PEAK.items()))
+    print(f"peak-rate stream cost   compute {M_PEAK:.1f} ms   dram {dp}  (ms)")
+    print(f"gates  dM2 void<{FLOOR_M2}  flag>{CAP_M2}   dS2 void<{FLOOR_S2}  "
+          f"flag>{CAP_S2}   mu={MU:.3f}  R1_win={R1_WIN:.2f}  "
+          f"R5_sum={R5_SUM:.2f}")
     print()
 
     got = {}
@@ -145,7 +226,7 @@ def main():
     dM2 = got.get("m2", {}).get("dS")
     dS2 = got.get("s2", {}).get("dS")
     dB2 = got.get("b2", {}).get("dS")
-    dS2p = None if (dS2 is None or dB2 is None) else dS2 - dB2 / 2.0
+    span = None if (dS2 is None or dB2 is None) else (dS2 - dB2, dS2 - dB2 / 2.0)
     print("--- decomposition ---")
     print(f"  dM2  (pure MMA doubling)        = "
           f"{'n/a' if dM2 is None else f'{dM2:+.3f} ms'}")
@@ -153,11 +234,11 @@ def main():
           f"{'n/a' if dB2 is None else f'{dB2:+.3f} ms'}")
     print(f"  dS2  (raw, load+dequant+1 barr) = "
           f"{'n/a' if dS2 is None else f'{dS2:+.3f} ms'}")
-    print(f"  dS2p (= dS2 - dB2/2, pure load) = "
-          f"{'n/a' if dS2p is None else f'{dS2p:+.3f} ms'}")
+    print(f"  dS2p (pure load, interval)      = "
+          f"{'n/a' if span is None else f'[{span[0]:+.3f}, {span[1]:+.3f}] ms'}")
     print()
     print("--- verdict ---")
-    for line in verdict(dM2, dS2p, dB2):
+    for line in verdict(dM2, dS2, dB2):
         print(f"  {line}")
     print()
     print("--- decode control (must be unchanged) ---")

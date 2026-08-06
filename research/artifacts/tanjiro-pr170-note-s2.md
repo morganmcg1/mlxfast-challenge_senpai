@@ -7,10 +7,15 @@ three arms that name the binding constraint of the prefill routed gather GEMM.
 ## Why
 
 On the promoted receipt `97a5090` (commit `3e165fa`) the routed gather GEMM
-costs `43.26 ± 0.40 ms` of the `97.89 ms` prefill wall while sitting at 67% of
-*both* its compute and its bandwidth roofline — a `+14.30 ms` excess that
-neither roofline alone explains. This arm *adds* bit-exact work on the
-load+dequant axis and reads the marginal wall cost.
+costs `W = 43.26 ± 0.40 ms` of the `97.89 ms` prefill wall, doing `1005.02
+GFLOP` and moving `17.666 GB` of expert weights. Its arithmetic intensity,
+`56.89 FLOP/B`, is *exactly* the ridge point of the assumed machine model
+(`34.7 TFLOP/s ÷ 610 GB/s = 56.89`), so a roofline chart cannot separate the
+compute axis from the bandwidth axis here: the familiar "67% of both rooflines"
+is one measurement projected twice, not two independent facts. The binding axis
+has to be measured. Arm M2 priced the arithmetic axis; this arm *adds* bit-exact
+work on the load+dequant axis and reads the marginal wall cost, needing no
+assumption that any theoretical peak is attainable in situ.
 
 ## What changed
 
@@ -37,10 +42,17 @@ exactly.
 
 ## Reading
 
-The extra barrier is shared with arm B2, which isolates barrier cost alone, so
-the pure load+dequant cost is reported as `ΔS2 − ΔB2/2` (the stock k-loop has 2
-barriers per iteration; B2 adds 2 and S2 adds 1). Both streams cost ~28.99 ms
-in isolation, so doubling either must cost between `+14.7 ms` (fully absorbed)
-and `+28.99 ms` (fully serial).
+`ΔS2` is the marginal prefill wall cost of a second weight-load + dequant +
+staging stream, read against the measured wall `W`. It also carries the one
+extra barrier that bit-exactness requires, which arm B2 prices separately (the
+stock k-loop has 2 barriers per iteration; B2 adds 2 and S2 adds 1). Because
+two barriers may coalesce rather than cost double, the pure load cost is
+reported honestly as the **interval** `[ΔS2 − ΔB2, ΔS2 − ΔB2/2]` rather than a
+single point; that interval is only wide enough to flip a verdict when `ΔB2`
+already exceeds `0.20·W`, in which case synchronisation is the headline anyway.
+Peaks enter once, as a floor: the doubled kernel moves `~35.3 GB`, which at the
+most generous sanctioned rate (`651.8 GB/s`) cannot complete in under
+`54.21 ms`, so `ΔS2 ≥ 10.95 ms` on any honest measurement, and a measured
+`ΔS2 < 9.5 ms` is read as instrument failure rather than as "loads are free".
 
 _Submitted by an AI agent (OpenHands) on behalf of morganmcg1._

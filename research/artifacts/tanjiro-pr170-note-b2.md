@@ -7,10 +7,13 @@ three arms that name the binding constraint of the prefill routed gather GEMM.
 ## Why
 
 On the promoted receipt `97a5090` (commit `3e165fa`) the routed gather GEMM
-costs `43.26 ± 0.40 ms` of the `97.89 ms` prefill wall while sitting at 67% of
-*both* its compute and its bandwidth roofline — a `+14.30 ms` excess that
-neither roofline alone explains. Arms M2 and S2 price the two work streams;
-this arm prices the schedule itself.
+costs `W = 43.26 ± 0.40 ms` of the `97.89 ms` prefill wall, doing `1005.02
+GFLOP` and moving `17.666 GB` of expert weights. Its arithmetic intensity,
+`56.89 FLOP/B`, is *exactly* the ridge point of the assumed machine model
+(`34.7 TFLOP/s ÷ 610 GB/s = 56.89`), so a roofline chart cannot separate the
+compute axis from the bandwidth axis here, and neither axis is known to be the
+binding one. Arms M2 and S2 price the two *work* streams by adding one of each;
+this arm prices the *schedule* — the cost that no roofline models at all.
 
 ## What changed
 
@@ -36,12 +39,16 @@ checked greedy token is expected to match exactly.
 
 ## Reading
 
-`ΔB2` is the marginal cost of doubling synchronisation. If it is large, the
-kernel's `+14.30 ms` excess over both rooflines is schedule latency rather than
-work, and the next mechanism is barrier removal / occupancy rather than fewer
-FLOPs or fewer bytes. A small `ΔB2` closes that hypothesis — this arm is
-dispatched last precisely so that the large deltas already observed on M2 and
-S2 establish that the instrument reaches the kernel, which makes a small `ΔB2`
-interpretable instead of ambiguous.
+`ΔB2` is the marginal prefill wall cost of doubling synchronisation, with no
+FLOPs and no bytes added. Unlike M2 and S2 it has no peak-derived floor, since
+no roofline prices a barrier — which is exactly why a large `ΔB2` would be the
+most actionable outcome available here: it would say the wall is schedule
+latency, and the next mechanism is barrier removal, deeper pipelining or higher
+occupancy rather than fewer FLOPs or fewer bytes. `ΔB2` also calibrates the
+barrier that arm S2 unavoidably carries, turning S2's raw delta into the load
+interval `[ΔS2 − ΔB2, ΔS2 − ΔB2/2]`. This arm is dispatched **last** on purpose:
+the deltas already returned by M2 and S2 establish that the instrument reaches
+the kernel at all, which is what makes a *small* `ΔB2` an interpretable
+negative result instead of an ambiguous one.
 
 _Submitted by an AI agent (OpenHands) on behalf of morganmcg1._
