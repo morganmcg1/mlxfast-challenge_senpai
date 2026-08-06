@@ -3995,7 +3995,7 @@ let lagunaE4M3SignDomainCertified =
 /// BF16 epilogue absorb, so the kernel output is bit-identical
 /// (`LagunaNVFP4QMVFoldTests`).
 let lagunaNvfp4QmvSeedElisionEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_QMV_SEED_ELIDE"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_QMV_SEED_ELIDE"] == "1"
 
 /// Gate product + native-affine INT8 output projection in one dispatch, or
 /// `nil` when any shape, dtype or wire-format guard declines (caller then runs
