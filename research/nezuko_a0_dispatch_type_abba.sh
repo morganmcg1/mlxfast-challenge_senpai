@@ -41,15 +41,15 @@ except Exception as e:
 }
 
 run_point() {
-  local tag="$1"; local serial="$2"; local hook="$3"
+  local tag="$1"; local serial="$2"; local hook="$3"; local split="$4"
   local log="$OUT/$tag.txt"
-  echo "=== $tag steps=$STEPS serial=$serial hook=$hook ==="
+  echo "=== $tag steps=$STEPS serial=$serial hook=$hook split=$split ==="
   thermals
   local -a envv=(DARKBLOOM_FORCE_SERIAL_DISPATCH="$serial")
   local -a extra=()
   if [ "$hook" = 1 ]; then
-    envv+=(DARKBLOOM_GPU_PROFILE=1)
-    extra+=(--profile --profile-top 40)
+    envv+=(DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT="$split")
+    extra+=(--profile --profile-top 60)
   fi
   env "${envv[@]}" "$PY" research/decode_probe.py --steps "$STEPS" \
       "${extra[@]}" \
@@ -61,19 +61,25 @@ run_point() {
   sleep "$SETTLE"
 }
 
-# Phase hook=1: wall + gpu_busy_sum + per-kernel from the same runs.
-# Phase hook=0: wall-only confirmation that the delta is not a hook artifact.
+# Phases are "<hook>:<split>" specs.
+#   1:0  wall + gpu_busy_sum + per-kernel from the same runs (headline).
+#   0:0  wall-only confirmation that the delta is not a GPUPROF-hook artifact.
+#   1:2  overlap that survives when only adjacent dispatch pairs share a buffer.
+#   1:1  control: one dispatch per command buffer leaves no intra-encoder
+#        concurrency to remove, so serial-minus-concurrent must be ~0.
 ORDER="${ORDER:-A B B A A B B A}"
-PHASES="${PHASES:-1 0}"
+PHASES="${PHASES:-1:0 0:0}"
 
-for hook in $PHASES; do
+for phase in $PHASES; do
+  hook="${phase%%:*}"
+  split="${phase##*:}"
   i=0
   for cond in $ORDER; do
     i=$((i + 1))
     if [ "$cond" = A ]; then
-      run_point "$(printf 'h%s_s%02d_concurrent' "$hook" "$i")" 0 "$hook"
+      run_point "$(printf 'h%sk%s_s%02d_concurrent' "$hook" "$split" "$i")" 0 "$hook" "$split"
     else
-      run_point "$(printf 'h%s_s%02d_serial' "$hook" "$i")" 1 "$hook"
+      run_point "$(printf 'h%sk%s_s%02d_serial' "$hook" "$split" "$i")" 1 "$hook" "$split"
     fi
   done
 done
