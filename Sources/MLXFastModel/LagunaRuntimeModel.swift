@@ -7634,16 +7634,24 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         }
 
         thread float result[outputs_per_simd] = {0.0f};
+        // Stage all rows' code words/scales before computing any qdot,
+        // porting the proven depth-1 staging pattern from the standalone
+        // lagunaRoutedDownReduceKernel. Separates device loads from compute
+        // to reduce instruction count on the instruction-bound M5.
+        uint2 row_codes[outputs_per_simd];
+        uint8_t row_sb[outputs_per_simd];
         for (uint row = 0; row < outputs_per_simd; ++row) {
             uint output_row = first_row + row;
-            const device uint8_t* weight =
-                expert_weight + output_row * packed_row_bytes + lane * 8;
-            const device uint8_t* scale =
-                expert_scales + output_row * scale_row_bytes + lane;
-            result[row] = laguna_nvfp4_qdot_16(
-                weight,
+            row_codes[row] = *(const device uint2*)(
+                expert_weight + output_row * packed_row_bytes + lane * 8);
+            row_sb[row] =
+                expert_scales[output_row * scale_row_bytes + lane];
+        }
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            result[row] = laguna_nvfp4_qdot_codes_16(
+                row_codes[row],
                 input_values,
-                laguna_nvfp4_scale(scale[0]));
+                laguna_nvfp4_scale(row_sb[row]));
             result[row] = simd_sum(result[row]);
         }
 
