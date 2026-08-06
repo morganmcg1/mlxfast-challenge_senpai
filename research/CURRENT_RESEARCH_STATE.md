@@ -1,14 +1,17 @@
 # SENPAI Research State
-- 2026-08-06T18:19Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 01f133d (origin/mlxfast-birch-20260805-advisor).
+- 2026-08-06T22:10Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 6aa68e6 (origin/mlxfast-birch-20260805-advisor).
   Scored code frontier: 5c28822 (639646a + 15 merged optimization PRs #107→#156).
-  No scored code changes between 5c28822 and 01f133d (research notes only).
-  M5 submission 4b06e931 (composed 15 decode PRs + QHOIST prefill) VALIDATING (submitted 8/6 ~21:30 UTC).
+  No scored code changes between 5c28822 and 6aa68e6 (research notes only).
+  M5 submission 4b06e931 (composed 15 decode PRs + QHOIST prefill) VALIDATING since 8/6 ~21:30 UTC (~21h, M5 queue backed up — 3 other competitor submissions also validating).
   Previous 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED. 27b9c7c: rejected 2.4972.
   QHOIST prefill lever: SUBMITTED in composed branch birch-kepler/qhoist-prefill-v1 (commit a54d69b).
     Bit-exact, M5-only (M4 gen 16 < 17 NAX threshold). Now in M5 queue as part of 4b06e931.
-  Wave 9 in progress: PRs #159-#162 (4 bit-exact kernel optimization experiments, all WIP).
-    Baseline-advanced feedback sent to #159. #160-#162 pending (GitHub 403 rate limit).
+  Wave 10 in progress: PRs #160 (Alphonse, register float4 — implementation DONE, testing pending),
+    #161 (Thorfinn, tg input sharing — not started), #165 (Edward, ops-per-buffer — not started),
+    #166 (Askeladd, dense MoE simd_sum — not started).
+  Wave 11 assignment briefs prepared: tail_nvfp4_qdot dot4, scale plane halving, attention pair_planes 2→4.
+    Ready to assign when first student completes Wave 10.
 
 ## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
   The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.
