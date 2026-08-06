@@ -647,18 +647,59 @@ ready to dispatch, the slot was held by submission `57d8f082-b303-4a63-8301-
 | before 20:48 | three direct `mlxfast submit` attempts | in-flight conflict; nothing created |
 | 20:58:50 | poller `295ce1ce` poll 1 | `validating` |
 | 21:09:23 | poller `295ce1ce` poll 2 | `validating` |
+| 21:23:25 | poller `aa5bea7f` poll 1 | `validating` |
+| 21:33:1x | poller `aa5bea7f` poll 2 | **`failed`** (commit `b52831e`) |
 
-That is **2 h 43 min in `validating` with zero state transitions**, and the
-figure is a *lower bound*: the submission had not cleared when the observation
-window ended. Whatever the true service time is, it is at least 4.7× the ~35 min
-planning number, and I never saw the transition that would let me quote an
-actual mean.
+So the wait resolved, and the resolution is worse than a long wait: the
+submission occupied campaign-wide validation capacity for **up to 3 h 07 min and
+then terminated as `failed`**, publishing no score. The elapsed figure is an
+upper bound on its service time and a lower bound on the capacity it consumed;
+either way roughly **five times** the ~35 min planning number was spent on a
+submission that returned nothing.
 
 The three direct attempts are worth recording separately because they establish
-the failure mode is clean: each returned `account already has 1 submission(s) in
-flight for this benchmark (limit 1)` and **created nothing**. A busy slot is not
-a rejection and carries no information about the candidate — which is exactly
-why the rule now forbids re-dispatching into it.
+the conflict response is clean: each returned `account already has 1
+submission(s) in flight for this benchmark (limit 1)` and **created nothing**.
+A busy slot is not a rejection and carries no information about the candidate.
+
+### 7.1b The rule changed mid-wait, and the old cadence immediately cost me the slot
+
+At **21:28:52Z**, `senpai/program.md` commit `f13d659` ("Let submitters manage
+validation retries") replaced the coordinated queue with self-managed retry:
+there is no central queue owner, any authorized submitter with a committed,
+preflighted candidate owns its own lifecycle and must not wait for another
+agent's permission, and on a busy slot the submitter preserves the exact commit
+and note and rechecks "periodically without a tight polling loop and no sooner
+than server retry guidance". The earlier ten-minute single-owner cadence is
+repealed, so the sentence this section originally ended on — that the rule
+forbids re-dispatching into a busy slot — no longer holds and has been removed.
+
+The consequence was immediate and measurable:
+
+| time (UTC) | event |
+| --- | --- |
+| 21:28:52 | `f13d659` lands; retry becomes self-managed |
+| ~21:30 | `57d8f082` fails, freeing capacity |
+| 21:30 | **`4b06e93` created by another submitter** |
+| 21:33:1x | my poller's next scheduled poll observes the slot already retaken |
+
+I lost the slot by roughly three minutes, to a cadence that the rule governing
+it had been repealed two minutes earlier. That is worth stating plainly because
+it is a *design* failure, not bad luck: under a single-owner queue the cadence
+was mandated and detection latency was free, but the moment admission became
+first-come, detection latency became the competitive variable.
+
+There is a second, sharper flaw in the design I had been running. Polling
+`mlxfast submissions` and *then* dispatching leaves a race window between the
+observation and the submit call; whoever submits inside that window wins. The
+fix is to stop polling and retry `mlxfast submit` directly on a periodic
+cadence, which is also exactly what the new rule prescribes: the server itself
+arbitrates capacity, and the in-flight conflict response is verified to create
+nothing, so a rejected retry is free. My replacement dispatcher does that at a
+180 s interval, still honouring any larger server retry guidance, and treats
+**only** the explicit in-flight conflict as retryable — any other non-zero
+response stops the script, since it might have created a submission and the
+rule forbids duplicating one that is queued or validating.
 
 ### 7.2 Why this matters more than it looks
 
