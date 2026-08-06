@@ -449,8 +449,11 @@ Arm deltas (old − new, n = 2 per arm):
    (+67.5 µs) equals the GPU-busy saving (+64.5 µs) inside noise, and the host
    gap itself is flat at 262–265 µs — 3.2 % of an 8.2 ms step, matching the
    0.322 ms already on record. Its arm delta is +3.0 µs, i.e. nothing. Removing
-   7/8 of the dispatched threads does not shorten dispatch overhead, because the
-   overhead is per-encoder, not per-thread.
+   7/8 of the dispatched threads does not shorten dispatch overhead. The encoder
+   accounting is also *exactly* unchanged — 45.0 command buffers and 406.2
+   dispatches per step in all four profiled cells — so the arm did not alter the
+   graph's commit structure either. §6.5 goes further and shows the gap is not
+   per-buffer elastic in the first place.
 3. **The r1 −112.5 µs was never distinguishable from the census number.** Its
    95 % CI was [29, 196], which contains 64.5. The apparent "1.8× wall
    amplification" was a point estimate read as if it were a measurement. The
@@ -470,9 +473,9 @@ Arm deltas (old − new, n = 2 per arm):
 - **Decode host dead time should not be promoted as a programme target on this
   evidence.** 262 µs/step of host gap is real and is 3.2 % of decode, but it is
   invariant to a change that deletes 87.5 % of one kernel's threads, so it is
-  not thread- or occupancy-elastic. Attacking it would require reducing the
-  *number of encoders*, which is a different (and much more invasive)
-  experiment.
+  not thread- or occupancy-elastic. I first guessed that attacking it would mean
+  reducing the *number of encoders*; §6.5 retracts that guess — the gap is not
+  encoder-count elastic either, and I have no mechanism for it.
 - Methodological rule for the programme: never contrast a profiled census
   against unprofiled wall timing. Cross the instrumentation factor, or quote the
   census alone.
@@ -480,6 +483,102 @@ Arm deltas (old − new, n = 2 per arm):
 Scripts and raw cell outputs: `/tmp/pr137_gpuprof/{run_arms.sh,run_off.sh,aggregate.py}`
 and `/tmp/pr137_gpuprof/prof{on,off}_arm{0,1}_r{a,b}.out`. (Local scratch, not
 committed; the hook patch and the probe are in `research/`.)
+
+### 6.5 Retraction: encoder count is not the host-gap lever
+
+§6.4's closing suggestion — that attacking the gap "would require reducing the
+number of encoders" — is wrong, and the arithmetic behind it is spurious. Three
+findings, then the consequence.
+
+1. **Per-command-buffer host cost is measured at ~0 in this repo.** nezuko
+   varied the byte cap and found the host gap flat, 0.249 ms at 200 versus
+   0.250 ms at 50, while command buffers per step tripled from ~48 to ~140
+   (`research/nezuko-mb50-mechanism.md:1-10`). Ninety-two extra buffers cost
+   1 µs in total, i.e. ≤ 0.01 µs per buffer. So `262 / 45 = 5.8 µs per command
+   buffer` is a division I performed, not a coefficient anyone measured, and it
+   is off by roughly three orders of magnitude. The 262 µs is a fixed per-step
+   cost that happens to be divisible by 45.
+2. **My own 2×2 says the same thing from the other side.** Across all four
+   profiled cells — both arms, both replicates — the encoder accounting is
+   *exactly* identical: 45.0 command buffers and 406.2 dispatches per step
+   (17955/399 steady). Thread count changed drastically, buffer count did not
+   move, gap did not move. On its own that is consistent with any per-buffer
+   coefficient; combined with nezuko's varying-buffer experiment the
+   coefficient is pinned near zero. It does, though, kill the alternative story
+   that the arm somehow changed the graph's commit structure.
+3. **What the byte cap actually moves is GPU-busy, not host time.** nezuko's
+   mechanism: the cap converts in-encoder `memoryBarrier` drains, which are
+   booked inside `[GPUStartTime, GPUEndTime]`, into buffer seams, which measure
+   free — ~2 µs each, with an interior optimum near 50 rather than a monotone
+   trend. frieren prices the ranked profile at 48 buffers/step at cap 200 and
+   78 at 128, and confirms the op cap never binds
+   (`research/frieren-pr23-result.md:163-175`).
+
+Mechanism, verified in source, recorded so nobody re-derives it:
+
+- the only cap predicate is `CommandEncoder::needs_commit()`,
+  `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp:484-487`,
+  evaluated once per array eval at `metal/eval.cpp:59-64`;
+- `buffer_sizes_` accumulates `a.data_size()`, which is **elements, not bytes**
+  (`mlx/array.h:345-348`), deduplicated by buffer pointer
+  (`device.cpp:315-321`) and reset only in `commit()` (`device.cpp:528-529`) —
+  frieren's "Mi-elements, not MB" correction, independently confirmed;
+- ~182 Mi elements per layer against the 200 cap trips roughly one cut per
+  layer; add the 7 `asyncEval` finalizes at `LagunaRuntimeModel.swift:680`
+  (layers 0, 1, 7, 15, 23, 31, 39) and you get ~45 buffers and 406/45 ≈ 9
+  dispatches each, which is what the probe reports;
+- the op cap cannot bind: 406 dispatches against a 200 cap permits at most 2
+  cuts.
+
+**Host-class trap, cost me one scan.** On this 48 GiB box
+`RuntimeStartupMemoryPolicy.apply()` sets both caps with `setenv(..., 1)` —
+overwrite — at `Sources/MLXFastModel/RuntimeStartupMemoryPolicy.swift:170-182`,
+so an exported `MLX_MAX_MB_PER_BUFFER` is silently discarded on any sub-64 GiB
+host. The >= 64 GiB branch uses `setenv(..., 0)` at
+`LagunaRuntimeWeights.swift:385-387` and *would* honour an export unless
+`DARKBLOOM_POST_WIRE_COMMAND_BUFFER=0`. My 3-cell env scan (base / 200 / 1000,
+300 steps per cell, arm pinned to 1, `0 divergences` throughout) returned
+45.0 buffers/step in every cell: **null by construction, not by physics**.
+frieren hit the identical trap and burned a 6-arm run on it
+(`research/frieren-pr23-result.md:163-166`). Nobody should run the cap env
+screen on a sub-64 GiB host; vary the constant instead, or run it on the M5.
+
+**Consequence.** Encoder-count reduction is not a host-gap lever. The ground
+the cap does control — in-encoder barrier cost, inside GPU-busy — is already
+held by nezuko and frieren, and the shipped 200 is their tuned point. Decode
+host dead time is real at 262 µs/step and 3.2 % of wall, but it is neither
+occupancy-elastic (§6.2) nor encoder-count-elastic (nezuko), and I have no
+mechanism for it. frieren's decomposition further attributes 122 µs of it to
+the trusted harness, which is not ours to remove.
+
+### 6.6 Outside review, and where it lost
+
+I put the per-buffer question to an independent frontier reviewer with no
+repository context, deliberately feeding it the 5.8 µs/buffer premise. It
+judged 5.8 µs/buffer plausible and near the hardware floor, bracketing it with
+measured 27–50 µs commit→completion round trips.
+
+That endorsement is **superseded by nezuko's direct measurement**. I record the
+exchange because the failure mode is the instructive part: 5.8 µs/buffer is
+entirely plausible *a priori* for Metal, which is exactly why the division
+looked like a finding. An outside-view plausibility argument lost to an in-repo
+controlled experiment, and it should have.
+
+Three things it contributed that do survive, all flagged as unverified by me:
+
+- it re-derived the mega-elements (not megabytes) accounting from source
+  independently, agreeing with frieren;
+- it checked `benchmark.json` and observed that `metal/quantized.cpp` and
+  `metal/matmul.cpp` are inside the submitted surface (lines 26 and 61) while
+  `metal/device.cpp` and `metal/eval.cpp` are not — so any future cap work must
+  move the call sites, never the predicate. Recorded for whoever picks it up;
+  it is not my assignment, and §6.5 argues the payoff is not there anyway;
+- it argues from a bandwidth roofline (~1.5 GB of weight traffic per token)
+  that GPU-busy sits several times above the achievable floor, leaving multiple
+  milliseconds of headroom, against at most 0.26 ms in the gap. I have not
+  checked the traffic figure, but the ratio is the same argument §6.4 makes
+  from the other direction, and it is the reason to spend campaign effort on
+  kernel efficiency rather than on dispatch overhead.
 
 ---
 
