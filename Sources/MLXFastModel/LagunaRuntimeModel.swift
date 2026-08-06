@@ -7688,16 +7688,12 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             ? shared_down_scales
             : routed_down_scales + expert * scale_expert_bytes;
 
-        thread float input_values[values_per_lane];
+        thread float4 input_values[values_per_lane / 4];
         const device vec<bfloat, 4>* input_vectors =
             (const device vec<bfloat, 4>*)(
                 expert_input + lane * values_per_lane);
         for (uint i = 0; i < values_per_lane / 4; ++i) {
-            const vec<bfloat, 4> values = input_vectors[i];
-            input_values[4 * i] = values[0];
-            input_values[4 * i + 1] = values[1];
-            input_values[4 * i + 2] = values[2];
-            input_values[4 * i + 3] = values[3];
+            input_values[i] = float4(input_vectors[i]);
         }
 
         thread float result[outputs_per_simd] = {0.0f};
@@ -7715,7 +7711,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 expert_scales[output_row * scale_row_bytes + lane];
         }
         for (uint row = 0; row < outputs_per_simd; ++row) {
-            result[row] = laguna_nvfp4_qdot_codes_16(
+            result[row] = laguna_nvfp4_qdot_codes_16_vec4(
                 row_codes[row],
                 input_values,
                 laguna_nvfp4_scale(row_sb[row]));
