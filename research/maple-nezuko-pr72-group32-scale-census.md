@@ -61,7 +61,13 @@ implementation.
    M4 evidence is consistent with the +0.834 % roofline bound and equally
    consistent with zero, and I am not presenting it as a win (§8.3.3).
 
-Timing verdict is in §8. Correctness is bit-exact everywhere it was checked.
+Timing verdict is in §8. On correctness, state the exit status plainly: the
+upstream-equivalence wrapper **exits 1 on this M4 host, for the candidate and
+for the unchanged base alike**. That is a pre-existing prefill-only drift on an
+axis this change provably cannot reach — not a candidate regression. Everything
+the change does touch is bit-exact: all eight decode steps are 0.0 against the
+vendored oracle, and the candidate's report matches the unchanged base in every
+printed field (§8.1).
 
 ---
 
