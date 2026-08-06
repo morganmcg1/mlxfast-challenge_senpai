@@ -1,10 +1,10 @@
 # SENPAI Research State
-- 2026-08-06T19:02Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 2f9fa56 (pushed to origin).
+- 2026-08-06T19:05Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 0e30672 (pushed to origin).
   Scored code frontier: 639646a + 11 merged optimization PRs (#107→#133).
   M5 submission 57d8f08 (composed #130+#128+#129). Status: VALIDATING (since 18:26Z).
 
-- **WAVE 7 ASSIGNED** (all 4 students active, BASE_SHA advanced to 2f9fa56):
+- **WAVE 7 IN PROGRESS** (all 4 students at status:wip, BASE_SHA advanced to 0e30672):
   PR #144 (Edward) — R1 Gate/Up float4 input_values: eliminate 16 scalar stores+8 extractions
     per block in routed SwiGLU kernel (312x/step, bit-exact). HIGHEST-IMPACT lever.
   PR #145 (Thorfinn) — QKV+Gate Projection dot4: convert 4 scalar FMAs to 1 dot(float4)
@@ -42,19 +42,52 @@
   5. REMAINING SCALAR simd_sum: 5 sites. Site #5 (fused down+residual, L7689, 4 rows, DEFAULT path)
      is the standout → Askeladd (#134) is on this. Sites #1-4 are fallback arms.
 
-- **POTENTIAL NEXT DIRECTIONS** (for future waves):
-  - Shared+routed SwiGLU fusion: eliminate 39 separate dispatches/step (needs shared expert
-    row merging into routed bank, `mergedSharedActivated` plumbing exists)
+- **POTENTIAL NEXT DIRECTIONS (Wave 8 candidates, ranked by expected impact)**:
+
+  **#1 PREFILL MoE VARIANT 4 (HIGHEST PRIORITY)**:
+    One-line change: `return 5` → `return 4` at quantized.cpp L1478.
+    File: Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp (IN editable surface).
+    Code's own ABBA: +17.47% kernel-level vs variant 5 (4/4 pairs, zero overlap: 342-371 vs 414-434 µs).
+    Variant 4: BM64, WM4, WN2, 256 thr/TG, SM=16, TN=2, Dtile=16 (vs variant 5: WN1, 128 thr/TG, TN=4, Dtile=32).
+    Bit-exact: YES (max_abs_diff=0 on full 1025-step gate).
+    M4 testable: NO (_nax only, M5 gen 17+). Correctness verifiable on M4, timing needs M5.
+    Expected: 2-5% prefill end-to-end = 0.5-1.25% total score (prefill is 25% weight).
+    Note: Variant 5 was chosen because it showed API-level improvement; variant 4 was measured at
+    kernel level but never validated end-to-end. This is the highest-impact untried change.
+
+  **#2 CPU GUARD HOISTING (HIGH PRIORITY)**:
+    5 invariant guard chains re-evaluated 39× per decode step in LagunaRuntimeModel.swift.
+    All depend only on static layer identity + flags read once at startup. All precomputable at init.
+    a) lagunaUseNativeAffineQKV/OProj/GProj (L351-428): integer arithmetic + env constants per layer.
+    b) fusedNormQKV mega-guard (L5495-5514, ~20 conditions): type checks, bias, dims, gating flags.
+    c) mlp as? LagunaRuntimeSparseMoEBlock casts (L10276, 10289, 10297): always same result per layer.
+    d) fusedQKNormShapesMatch + fusion mode (L5696-5747, ~15 booleans): per-layer invariants.
+    e) isFull/mask/angle triple-selection (L10731-10733): fixed array lookup per step.
+    Bit-exact: YES (behavior-preserving refactoring, no math changes).
+    M4 testable: YES (correctness + timing). M5 GPU at 89% utilization → 11% idle may include CPU dispatch gaps.
+    Expected: 0.3-1% decode if CPU overhead creates dispatch bubbles.
+
+  **#3 ASYNC-EVAL SHARED EXPERT (MEDIUM PRIORITY)**:
+    Move sharedExpert(x) before routed path + asyncEval in prefill (LagunaRuntimeModel.swift).
+    Shared expert has no data dependency on routed gate/up+down. asyncEval overlaps GPU work.
+    Bit-exact: YES (same ops, different scheduling).
+    M4 testable: Partially (shared uses regular GEMM, routed timing differs on M4).
+    Expected: 1-3% prefill.
+
+  **#4 SHARED+ROUTED SwiGLU FUSION (LOW-MEDIUM, defer)**:
+    Feasible with moderate changes. Down projection already fused (lagunaRoutedSharedDownResidual).
+    Gate/up fusion requires shared weight re-layout to 32-row interleave + kernel merge.
+    Bit-exact: YES. Gain likely modest (gate/up QMV is compute-bound, dispatch overhead small fraction).
+    `mergedSharedActivated` plumbing exists but never populated. Would save ~39 dispatches/step.
+
   - Dense MLP dot4 (layer 0): bit-exact, low frequency (1x/step) but easy win
   - Router GEMV sequential-accumulator dot4 (39x/step): risky, needs careful equivalence testing
-  - Prefill MoE variant 5→4 (_nax): +17.47% kernel-level, can't test on M4
   - LAGUNA_RESCALE branch elimination in SDPA vector kernel
   - Attention epilogue 1-pass bfloat16 exchange (eliminate 1 barrier per dispatch, 40 layers)
-  - CPU-side guard check reduction (~3000+ per step)
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign, submission 97a5090).
   Target: beat 2.5888. All component speedups must be ≥ 0.95.
-- **FRONTIER**: Advisor HEAD at 2f9fa56. Scored code at 639646a + 11 merges (#107→#133).
+- **FRONTIER**: Advisor HEAD at 0e30672. Scored code at 639646a + 11 merges (#107→#133).
 - **BUDGET**: 2,965,182 / 3,000,000 bytes total (headroom: 34,818). LagunaRuntimeModel.swift: ~507K / 524K per file.
 - **KEY FINDINGS**:
   1. Attention main loop is MEMORY-BOUND (PR #122). Do NOT pursue attention ALU optimization.
