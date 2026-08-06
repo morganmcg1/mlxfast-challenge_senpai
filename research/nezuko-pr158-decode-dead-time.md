@@ -1,6 +1,8 @@
 # PR #158 — decode dead time: where the gap actually goes
 
-Student `maple-nezuko`, assignment `maple-2026-08-06n-decode-dead-time`, `r1`.
+Student `maple-nezuko`, assignment `maple-2026-08-06n-decode-dead-time`, `r2`.
+**§1–§3 are the r1 text, preserved. §4 is the r2 corrections section and is
+authoritative wherever it disagrees with §1–§3.**
 Base `codex/mlxfast-maple-20260804-advisor` @ `9dd2eec38a11d0e0bc7bcdbc5aec46e3436f284f`.
 Host: Apple M4 Pro, 20 GPU cores, 48 GiB (low-memory startup profile), macOS
 26.5.2. Every timing below is M4 and therefore **directional only**; the M5 is
@@ -51,11 +53,16 @@ are `research/`-only.
    §1.3 is therefore not entered and §2 fires.
 6. **§2's correction is not the one the assignment expected.** Because hiding is
    ~absent, the 10 HIGH-RISK rows are *not* over-attributed by overlap. They are
-   over-attributed by a different mechanism: a measured **~1.9 µs per-dispatch
-   GPU floor** that does not shrink when the kernel's work shrinks. Only
-   *removing a dispatch* recovers the floor; making a kernel cheaper recovers
-   only its work-proportional part. That floor is 771 µs, **9.6 % of the
-   8007 µs step** — three times the host gap. The corrected census is in §2.
+   over-attributed by a different mechanism: a **per-dispatch GPU floor** that
+   does not shrink when the kernel's work shrinks. Only *removing a dispatch*
+   recovers the floor; making a kernel cheaper recovers only its
+   work-proportional part. **r2 restates this as a band rather than a point:
+   1.6–2.4 µs/dispatch ⇒ 640–990 µs/step ⇒ 8–12 % of the 8007 µs GPU-busy sum,
+   which is 7.7–12.0 % of the 8.27 ms wall step.** (r1 wrote "771 µs, 9.6 % of
+   the 8007 µs step"; 8007 µs is GPU busy, not the step — the step is 8.27 ms
+   wall, so the same 771 µs is 9.6 % of busy and 9.3 % of wall. Corrected in
+   §4.4.) The corrected census is in §2; every §4 measurement that revises it
+   is in §4.
 7. **Byte-price CI audit (advisor ask): the advisor read the PR #110 ledger
    correctly and nothing needs withdrawing.** The three quoted intervals are
    arithmetically right, but only one of them is an empirical CI: the lm-head
@@ -551,18 +558,30 @@ attempted.
 
 Two constants are needed and both are measured here rather than assumed.
 
+**The per-CB price, `c` = 1.596 µs/CB** *(added in r2; see §4.2)*. The 576 µs
+excess of `SPLIT=1` over `SPLIT=0` is produced by `406 − 45 = 361` extra
+command-buffer boundaries, so `c = 576/361 = 1.596 µs` per boundary. Replicated
+n=4 in §4.5: **1.59 ± 0.21 µs/CB**.
+
 **The SPLIT=1 inflation, 1.419 µs/dispatch.** The `SPLIT=1` arm gives the only
 per-kernel breakdown available (one command buffer per dispatch, so each
 GPUPROF span is one kernel), but its `µs/call` column is inflated by the
-per-buffer GPU cost the shipped ~9-dispatch batching amortises. That inflation
-is `(8583 − 8007) / 406 = 1.419 µs`, from the `SPLIT=1` busy sum against the
-`SPLIT=0` busy sum at identical dispatch count. Earlier census work used 1.33;
-the 6 % correction only matters for the smallest kernels. Note the corrected
-total returning to 8007 µs is arithmetic, not evidence — it only confirms the
+per-buffer GPU cost the shipped ~9-dispatch batching amortises. The target
+level still pays `c` once per 9 dispatches, so what must be removed *per
+dispatch* is `c × (1 − 45/406) = 1.596 × 0.8892 = 1.419 µs`, equivalently
+`(8583 − 8007) / 406`. **1.419 and 1.596 are different constants and both are
+right**: 1.596 prices a command buffer, 1.419 de-inflates a census entry.
+Substituting 1.596 here would drive the census total to 7935 µs, which is not
+the step (§4.2 carries the algebra). Earlier census work used 1.33; the 6 %
+correction only matters for the smallest kernels. Note the corrected total
+returning to 8007 µs is arithmetic, not evidence — it only confirms the
 per-kernel `n/step` column sums to 406.
 
-**The per-dispatch floor, ~1.9 µs.** This is the cost of *having* a dispatch,
-independent of what it computes. Two independent routes agree:
+**The per-dispatch floor, ~1.9 µs.** *(r2: superseded — this is now a band of
+1.6–2.4 µs, the two routes are not independent, and the level is an
+extrapolation. See §4.3. The text below is the r1 reasoning, kept for the
+record.)* This is the cost of *having* a dispatch, independent of what it
+computes. Two independent routes agree:
 
 - *Marginal.* The unfuse sweep ablates one fused kernel at a time into a longer
   chain computing the same result. `rsdr` adds 39 dispatches for +73 µs, `ssq`
@@ -611,18 +630,22 @@ exposed − floor`.
 | 63.1 | 0.79 % | 10 | 6.31 | 19.0 | 44.1 | `gate_sp_h48` |
 | 19.5 | 0.24 % | 6 | — | 11.4 | 8.1 | six kernels below 8 µs/step |
 
-**Totals: 8006.6 µs/step, of which 771.4 µs (9.6 %) is per-dispatch floor and
-7235.2 µs is work.**
+**Totals: 8006.6 µs/step, of which 771.4 µs (9.6 % of GPU busy, 9.3 % of the
+8.27 ms wall step) is per-dispatch floor and 7235.2 µs is work.** *(r2: the
+denominator is corrected here — r1 called 8006.6 µs "the step" — and the
+771.4 µs point estimate becomes the band 640–990 µs. §4.3, §4.4.)*
 
 Three programme-level readings follow.
 
 1. **9.6 % of decode GPU time is the cost of having 406 dispatches, not the
    cost of computing anything.** It is recoverable only by *removing
    dispatches*. Making a kernel faster never touches it.
-2. **Conversely, dispatch-removal is worth exactly 1.9 µs each and no more.**
+2. ~~**Conversely, dispatch-removal is worth exactly 1.9 µs each and no more.**
    Any claim that fusing two kernels saves more than 1.9 µs per removed
    dispatch is claiming to remove *work* or *traffic*, and must be priced that
-   way.
+   way.~~ **STRUCK in r2 (§4.3 point 6).** Replaced by: price a fusion by its
+   **traffic delta**; the per-dispatch floor is an additive bonus of 1.6–2.4 µs
+   and is the smaller term for every candidate measured in this codebase.
 3. **The top four kernels are 4623.7 µs/step = 58 % of GPU busy over 138
    dispatches**, i.e. 262 µs of floor against 4362 µs of work. They are
    byte-bound projections. No dispatch-level trick reaches them; only fewer
@@ -803,4 +826,419 @@ one under **S7.1** giving the correct quoting form for each row, and one
 directly beneath the **Table R** R1–R4 block at `:271` pointing to it. No value
 in either file was changed; the numbers were right, only their advertised
 precision was not.
+
+
+---
+
+# 4. r2 corrections (advisor revision `r2`)
+
+The advisor raised six audit points against §2 plus a "free fix" and a naming
+correction, and asked for three new measurements. This section answers all of
+them. Where §4 disagrees with §1–§3, §4 wins.
+
+**Scope discipline.** §1.1's absolute-vs-proportional verdict is *not*
+re-litigated here; the advisor recorded the slope at ~1.5–2σ rather than the
+report's 3.10σ and that stands as written. Nothing in §4 changes a submitted
+file: the whole section is `research/`-only, and the runtime source is
+untouched at `9dd2eec`+0 for `Sources/`.
+
+## 4.0 Summary of what changed
+
+| audit point | verdict | where |
+|---|---|---|
+| 1. 1.9 µs is a level built from a slope; additivity untested | **conceded** | §4.3 |
+| 2. Route A / Route B not independent | **conceded** | §4.3 |
+| 3. Retained marginals mutually inconsistent | **conceded ⇒ headline is now a band** | §4.3 |
+| 4. `1.419 → 1.596` "arithmetic slip" | **half wrong, half right** — two different constants, both now stated; the % denominator error is real | §4.2, §4.4 |
+| 5. `rsdr` contradicts the busy-currency framing | **conceded, and now the main result** | §4.6 |
+| 6. "fusion saves exactly 1.9 µs and no more" falsified by `rrr` | **conceded; corollary struck** | §4.3 |
+| "free fix": six-field GPUPROF mis-parse | **premise wrong** — two hook variants exist, each probe parsed its own correctly; hardened anyway | §4.1 |
+| naming: `gate_sp` is per-head `g_proj`+softplus | **already correct** at §1.2.a | §1.2.a |
+| per-CB-handler objection (anticipated) | **rebutted by construction** | §4.1.c |
+| (a) replicate `SPLIT=1` ×3 more | **done, dispersion is 0.12 %** | §4.5 |
+| (b) hook-off wall-currency unfuse sweep | **done** | §4.6 |
+| (c) one TRUE traffic-neutral fusion arm | **done** | §4.7 |
+
+## 4.1 The "free fix": the premise is wrong, but the code is now hardened
+
+**Advisor claim.** `research/decode_probe.py:160` and
+`research/nezuko_cb_idle.py:40` split a GPUPROF line into 5 fields when the
+hook emits 6 (`start end nops input_bytes names`), so field 4 (`input_bytes`)
+was being read as the kernel name and every per-kernel attribution in this
+report is garbage.
+
+**Why it is wrong: there are two hook patches in this repo, with different
+line formats, and each probe parses the one it was written for.**
+
+| patch | format string | fields | probes that read it |
+|---|---|---|---|
+| `research/pr91-gpuprof-hook.patch:56` | `"GPUPROF {:.9f} {:.9f} {} {} "` | 6 — `start end nops input_bytes names` | `research/prefill_probe.py` (`split(" ", 5)`) |
+| `research/nezuko-pr158-gpuprof-hook.patch:51` | `"GPUPROF {:.9f} {:.9f} {} "` | 5 — `start end nops names` | `research/decode_probe.py`, `research/nezuko_cb_idle.py`, `research/nezuko_pr158_split_kernels.py` (`split(" ", 4)`) |
+
+The worker binary that produced every number in this report
+(`.build-worker/release/mlxfast-runtime-worker`) was built from the **5-field**
+PR-158 patch. Direct evidence from a raw log — the first steady-state record of
+`/tmp/nezuko-pr158-split1-215210.err`:
+
+```
+GPUPROF 379395.640184041 379395.640227791 1 laguna_decode_embedding_rope_atlas_bf16_2048_v2_int32_tc_bfloat16_t
+```
+
+Field 4 is `1` (nops) and field 5 onwards is the kernel name. `split(" ", 4)`
+is exactly right. **No kernel name in §2 was ever corrupted**, and no number in
+§2 moves because of this.
+
+**Cheap falsification that would have shown the opposite.** If the mis-parse
+had been real, every "kernel" in the §2 census would have been a decimal
+integer, `kernels=24` would instead have been in the thousands (one bucket per
+distinct byte count), and the `n/step` column could not have summed to 406.
+§2's table shows 24 named kernels summing to 406.
+
+**Hardened anyway.** The hazard the advisor is pointing at is real as a *latent*
+hazard: the two patches are one `git apply` apart, and a future run with the
+PR-91 patch would silently produce the corruption he described.
+`research/decode_probe.py` now carries a single `parse_gpuprof_line()` helper
+that auto-detects the layout (`parts[4].isdigit()` ⇒ 6-field), and
+`research/nezuko_cb_idle.py` and `research/nezuko_pr158_split_kernels.py`
+import it instead of re-implementing the split. Committed in
+`f790af0` / `1a41b36`.
+
+**Regression check.** Re-running the §2 census through the new shared parser on
+`/tmp/nezuko-pr158-split1-204214.err` reproduces r1 exactly:
+`records=88482 window=80794 window_span=9.859 ms/step gpu_busy_sum=8583.0 us/step kernels=24`,
+with clean kernel names. Unit-tested on synthetic lines in both layouts.
+
+### 4.1.c Anticipated objection: is the hook itself manufacturing the floor?
+
+The GPUPROF hook is **one `addCompletedHandler` per `MTLCommandBuffer`**, not
+per dispatch (`research/nezuko-pr158-gpuprof-hook.patch`, in
+`CommandEncoder`/`Device::end_encoding` commit path). It records
+`GPUStartTime`/`GPUEndTime`, which are driver-reported *GPU* timestamps, not
+host-side wall reads.
+
+That construction rules the hook out as the source of the Route-A floor:
+
+- Across the whole unfuse sweep the **command-buffer count per step is
+  unchanged at 45–46** while dispatches per step move 406 → 601. The number of
+  completion handlers is therefore essentially constant across the arms whose
+  difference defines the marginal. A per-CB instrument cost cancels in the
+  subtraction.
+- Route A's differences are in `gpu_busy_sum`, which is a sum of driver GPU
+  timestamps. Host-side handler execution happens after `GPUEndTime` and cannot
+  enter it.
+- The independent check: the hook's total cost measured end-to-end is
+  **+0.11 % of wall** (§ "Method note: the instrument"), i.e. ~9 µs/step, which
+  is smaller than the 259–473 µs marginals it would have to explain.
+- §4.6 re-runs the identical sweep with the hook **off entirely** and the arms
+  keep their ordering, which closes the question empirically rather than by
+  argument.
+
+The one place a per-CB instrument cost *does* bite is the `SPLIT` sweep, where
+CB count is the swept variable (45 → 406). §4.5 treats that explicitly.
+
+## 4.2 Audit point 4: `1.419` and `1.596` are two different constants, both correct
+
+**Advisor claim.** §2.a computes the SPLIT=1 inflation as `(8583 − 8007)/406 =
+1.419`, but the 576 µs excess is produced by `406 − 45 = 361` *extra command
+buffers*, so the per-CB price is `576/361 = 1.596`, and 1.419 is an arithmetic
+slip that must be propagated.
+
+**Verdict: the advisor found a real defect, but it is a missing constant, not a
+wrong one. Both numbers are correct and they answer different questions.**
+
+Let `c` be the marginal GPU cost of an extra command-buffer boundary and `W` the
+pure kernel time of the 406 dispatches.
+
+- `SPLIT=0`: 406 dispatches in **45** CBs ⇒ `busy₀ = W + 45c`.
+- `SPLIT=1`: 406 dispatches in **406** CBs ⇒ `busy₁ = W + 406c`.
+
+Therefore:
+
+- **Per-CB price** `c = (busy₁ − busy₀)/361`. This is the advisor's 1.596, and
+  **§2.a never states it. That is the real defect.**
+- **Per-dispatch de-inflation of the SPLIT=1 census** is not `c`. The SPLIT=1
+  `µs/call` column already contains `c` once per dispatch, but the target
+  (SPLIT=0) still contains `c` once per 9 dispatches. What must be removed per
+  dispatch is `c × (1 − 45/406) = 1.596 × 0.8892 = 1.419`. This is §2.a's
+  number and it is right.
+
+Consistency proof, using the r1 single-run values:
+
+```
+W        = 8583 − 406 × 1.596 = 7935 µs      (pure kernel time)
+W + 45c  = 7935 +  45 × 1.596 = 8007 µs  ✔   (= measured SPLIT=0 busy)
+8583 − 406 × 1.419            = 8007 µs  ✔   (= the census total §2.b reports)
+```
+
+Propagating 1.596 into the per-kernel census, as the revision request asks,
+would make the census total **7935 µs**, which is the SPLIT=0 busy sum *minus
+its own 45 command buffers* — i.e. a quantity that is not the step. So
+**1.419 is retained in the census and 1.596 is now stated as the per-CB
+price.** §2.a is amended in place to say both.
+
+**Replicated values (§4.5).** With four `SPLIT=1` and four `SPLIT=0`
+replicates instead of one each, `c = (8572.8 − 7999.4)/361 = 1.588 µs/CB`
+(r1 single-run: 1.596) and the census de-inflation is `1.412 µs/dispatch`
+(r1: 1.419). Both r1 constants survive replication to within 0.5 %.
+
+## 4.3 Audit points 1, 2, 3, 6: the floor is a band, and the corollary is struck
+
+All four are conceded. Taken together they replace one number with an interval.
+
+**Point 1 — a level built from a slope.** Route A ("marginal") measures
+`Δbusy/Δdispatch` over arms that add 39–195 dispatches. §2.b then multiplies
+that *slope* by 406 to get a *level*, which assumes the floor is additive over
+every dispatch in the step including the 138 large byte-bound ones that are
+58 % of busy. That assumption was never tested and is not testable by any arm
+in this report, because no available lever removes a dispatch from the top four
+kernels. **Conceded: the 771 µs level is an extrapolation, not a measurement.**
+
+**Point 2 — Route A and Route B are not independent.** Route B ("absolute",
+the cheapest kernels' corrected `µs/call`) is computed from a single
+unreplicated `SPLIT=1` run minus the 1.419 constant, and 1.419 is itself
+derived from the same `SPLIT=1`/`SPLIT=0` pair that anchors the sweep. The two
+routes share the instrument, the run, and the constant. **Conceded: "two
+independent routes agree" is withdrawn.** §4.5 at least gives Route B a
+replicated input; it does not make it independent of Route A.
+
+**Point 3 — the retained marginals are mutually inconsistent.** `ssq` gives
+1.91 µs/dispatch, `rsq` gives 2.42 over the same 195-dispatch delta, and the
+joint four-knob arm gives 1.57 over 429. Against the ±0.12 % replicate
+dispersion of `gpu_busy_sum` (§4.5) these differ far outside noise. There is no
+single per-dispatch floor; there is a per-dispatch cost that depends on what
+the dispatch does.
+
+> **Headline restated as a band: 1.6–2.4 µs/dispatch ⇒ 640–990 µs/step ⇒
+> 8–12 % of GPU busy (7.7–12.0 % of wall).** The band's endpoints are the
+> extreme retained marginals, not a confidence interval.
+
+**Point 6 — the corollary is falsified by my own table.** §2.b reading 2 says
+"dispatch-removal is worth exactly 1.9 µs each and no more. Any claim that
+fusing two kernels saves more than 1.9 µs per removed dispatch is claiming to
+remove work or traffic." `rrr` removes 39 dispatches for 259.5 µs = **6.65 µs
+each**, and §2.a excludes it precisely *because* it also removes traffic. So
+the corollary is not falsified as physics — it is falsified as a *usable rule*,
+because in this codebase every real fusion candidate also moves traffic, and
+the traffic term dominates the floor term by 3.5×. **Reading 2 is struck and
+replaced by the fusion pricing rule already promoted to
+`research/CURRENT_RESEARCH_STATE.md` §4.1a: price a fusion by its traffic
+delta, and treat the per-dispatch floor as a small additive bonus inside a
+1.6–2.4 µs band.**
+
+## 4.4 Audit point 4b: the percentage denominator
+
+r1 headline item 6 and §2.b both report the floor as "9.6 % of the 8007 µs
+step". 8007 µs is `gpu_busy_sum`, not the step. The step is the wall decode
+time, 8.27 ms.
+
+| quantity | value |
+|---|---|
+| per-dispatch floor total (r1 point estimate) | 771.4 µs/step |
+| `gpu_busy_sum` | 8006.6 µs/step |
+| **share of GPU busy** | **9.6 %** |
+| wall decode step (median, hook on) | 8270.5 µs |
+| **share of wall** | **9.3 %** |
+
+Corrected in the headline. With the §4.3 band the honest statement is
+**8–12 % of busy, 7.7–12.0 % of wall.**
+
+## 4.5 Measurement (a): `SPLIT=1` replicated ×4, per-kernel median and half-range
+
+**Ask.** Replicate the `SPLIT=1` census at least two more times; report per-kernel
+median and half-range; flag any kernel whose half-range exceeds 10 % of its
+median.
+
+**Design.** `SPLITS='0 1 1 1 0' STEPS=200 PINGS=20 PROFILE_TOP=44` through
+`research/nezuko_pr158_split_sweep.sh` — three fresh `SPLIT=1` runs bracketed by
+two fresh `SPLIT=0` runs so a monotone drift over the 4-minute sweep would show
+up as a split in the brackets. Each run is a separate worker process (cold
+start, 200 steps, 199 steady). Combined with the r1 runs this gives n=4 per
+level. Log `research/nezuko-pr158-r2-split-replicate.log`; analysis
+`research/nezuko_pr158_r2_replicate_stats.py`. **0 token divergences on all
+five runs.**
+
+### 4.5.a Run-level dispersion
+
+| level | per-run `gpu_busy_sum` (µs/step) | median | half-range |
+|---|---|---|---|
+| `SPLIT=1` (406 CBs) | 8583.0, 8565.7, 8580.0, 8562.4 | **8572.8** | **10.3 (0.12 %)** |
+| `SPLIT=0` (45 CBs) | 8012.7, 8041.0, 7909.6, 7986.1 | **7999.4** | **65.7 (0.82 %)** |
+
+| level | per-run wall median (ms) | median | half-range |
+|---|---|---|---|
+| `SPLIT=1` | 9.799, 9.807, 9.930, 9.773 | **9.803** | 0.079 (0.80 %) |
+| `SPLIT=0` | 8.275, 8.287, 8.154, 8.266 | **8.271** | 0.067 (0.80 %) |
+
+The `SPLIT=0` bracket runs (8012.7 first, 7986.1 last) differ by 0.3 %, well
+inside the level's own 0.82 % spread, so no drift correction is warranted.
+
+Two things follow that r1 could not state.
+
+1. **The `SPLIT=1` census is far more reproducible than r1 assumed.** ±0.12 %
+   on `gpu_busy_sum` means the 1.9-vs-2.4 disagreement in §4.3 point 3 is not
+   instrument noise. It is real structure.
+2. **The per-CB price now has an error bar.** Propagating both half-ranges
+   worst-case, `c = (573.4 ± 76.0)/361 = **1.59 ± 0.21 µs/CB**`, i.e. [1.38,
+   1.80]. r1's single-run 1.596 sits at the centre.
+
+### 4.5.b Per-kernel median and half-range, n=4
+
+Median and half-range of each kernel's total µs/step across the four `SPLIT=1`
+runs. `µs/call` is the median total divided by `n/step`; it still carries the
+1.412 µs/dispatch CB inflation (§4.2) and is *not* the corrected census.
+
+| median µs/step | half-range | hr % | n/step | µs/call | kernel |
+|---|---|---|---|---|---|
+| 1498.4 | 2.30 | 0.2 % | 39 | 38.42 | `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` |
+| 1330.9 | 2.39 | 0.2 % | 30 | 44.36 | `decode_nvfp4_qkv_h64` |
+| 1114.0 | 1.76 | 0.2 % | 30 | 37.13 | `oproj_act_h64` |
+| 865.8 | 1.48 | 0.2 % | 39 | 22.20 | `routed_shared_nvfp4_down_residual_bf16_r1_v5` |
+| 635.1 | 1.72 | 0.3 % | 30 | 21.17 | `sliding_fused_attn_ring_v1` |
+| 421.0 | 0.61 | 0.1 % | 1 | 421.01 | `lmhead_int5_base_coarse_delta` |
+| 362.6 | 0.95 | 0.3 % | 10 | 36.26 | `decode_nvfp4_qkv_h48` |
+| 319.7 | 0.70 | 0.2 % | 39 | 8.20 | `residual_rms_router_rpg8_keys_v1` |
+| 302.9 | 0.70 | 0.2 % | 10 | 30.29 | `oproj_act_h48` |
+| 293.4 | 0.44 | 0.1 % | 39 | 7.52 | `shared_nvfp4_swiglu_qmv_rows1` |
+| 268.8 | 1.00 | 0.4 % | 1 | 268.77 | `dense_gate_up_swiglu` |
+| 253.9 | 0.31 | 0.1 % | 10 | 25.39 | `full_fused_attn_grow_v1` |
+| 243.1 | 1.46 | 0.6 % | 30 | 8.10 | `gate_sp_h64` |
+| 203.0 | 0.64 | 0.3 % | 39 | 5.21 | `decode_router_top8_ordinal_table_norm` |
+| 142.8 | 0.71 | 0.5 % | 41 | 3.48 | `rmsbfloat16` |
+| 134.2 | 0.94 | 0.7 % | 1 | 134.17 | `dense_down_residual` |
+| 77.3 | 0.26 | 0.3 % | 10 | 7.73 | `gate_sp_h48` |
+| 76.1 | 0.36 | 0.5 % | 1 | 76.05 | `lmhead_exact_fused_int5_sparse_refine` |
+| 9.3 | 0.15 | 1.6 % | 1 | 9.26 | `argmax_bfloat16` |
+| 4.6 | 0.06 | 1.3 % | 1 | 4.61 | `lmhead_exact_winner_bf16_midpoint_threshold` |
+| 3.9 | 0.10 | 2.4 % | 1 | 3.94 | `lmhead_coarse_argmax_stage1_v5` |
+| 3.6 | 0.19 | 5.3 % | 1 | 3.55 | `gather_front` |
+| 3.5 | 0.09 | 2.7 % | 1 | 3.52 | `decode_embedding_rope_atlas_bf16_2048_v2` |
+| 2.9 | 0.04 | 1.5 % | 1 | 2.92 | `residual_rms_bf16_2048_v1` |
+
+**Kernels with half-range > 10 % of median: 0 of 24.** The largest is
+`gather_front` at 5.3 %, and it is 3.6 µs/step. Every kernel that carries
+weight in the census is reproducible to better than 1 %.
+
+**What this does and does not rescue.** It rescues the *precision* of Route B
+(§4.3 point 2): the cheapest-kernel `µs/call` figures are stable to ~2–5 %, so
+the 1.56–2.51 µs range r1 quoted is not a sampling artefact. It does **not**
+rescue Route B's *independence*, because those figures are still `SPLIT=1`
+values minus a constant derived from the same pair of levels. Replication
+narrows the error bar on a quantity whose bias is unchanged.
+
+### 4.5.c The same experiment prices a command buffer in three currencies
+
+The `SPLIT` contrast changes exactly one thing — 45 command buffers per step
+become 406 — with byte traffic, kernel set, and kernel call counts held fixed.
+Dividing each replicated median excess by the 361 extra command buffers gives
+three prices for the *same* event, and the three together are the honest answer
+to "what is a command buffer worth":
+
+| currency | `SPLIT=0` median | `SPLIT=1` median | excess / step | ÷ 361 CBs |
+| --- | --- | --- | --- | --- |
+| `gpu_busy_sum` (per-CB device time) | 7999.4 µs | 8572.8 µs | 573.4 µs | **1.59 ± 0.21 µs/CB** |
+| wall (probe `decode_step`) | 8271 µs | 9803 µs | 1532 µs | **4.25 µs/CB** |
+| wall − busy_sum ("gap") | 272 µs | 1230 µs | 958 µs | **2.66 µs/CB** |
+
+Three consequences, all of which cut against r1's framing:
+
+1. **The busy-sum price is the smallest of the three.** `gpu_busy_sum` is a sum
+   of per-command-buffer device intervals; it sees the *device-side* cost of
+   one more buffer and nothing else. r1 quoted only this column.
+2. **Wall costs ~2.7× more than busy.** The extra 2.66 µs/CB is submission and
+   completion work that is not inside any command-buffer interval. It is real
+   and it is the currency the score is denominated in — but it is also the
+   currency in which a *dispatch* (not a command buffer) may cost far less,
+   because MLX already batches many dispatches into one buffer.
+3. **A command buffer is not a dispatch.** Nothing in this table licenses
+   pricing a *dispatch* at 1.59 µs, let alone 4.25 µs. That inference —
+   "removing a dispatch saves a per-CB constant" — is precisely what §4.6 and
+   §4.7 test directly, in wall currency, by removing real dispatches.
+
+## 4.6 Measurement (b): the unfuse sweep re-run in wall currency
+
+### 4.6.a Why this run exists
+
+r1's unfuse table was reported in `gpu_busy_sum`. Audit point 5 objected that
+one arm — `rsdr` (`DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL=0`) — showed a
+busy-sum cost far larger than its wall cost, which is not something a genuine
+per-dispatch cost can do: if a dispatch really costs the machine time, that
+time has to appear in the wall clock. **I concede audit point 5 without
+qualification**, and it is now the organising result of this section rather
+than a footnote. Busy-sum is an instrument reading; wall is what the score
+pays. Where they disagree, wall wins.
+
+### 4.6.b Design, and the one disclosable deviation
+
+Six arms, run as a **palindrome** (`base, rrr, rsdr, ssq, rsq, base2` then the
+exact reverse) so that any monotone thermal or clock drift across the session
+cancels in the pass-average. Each arm: 200 teacher-forced decode steps on
+`correctness_prompts/public_longcopy_gate_english_512_256.json`, first step
+discarded, `decode_step` wall median over the remaining 199. The probe hook is
+**off** (`HOOK=0`) so the wall figures carry no instrument overhead at all.
+
+Command:
+
+```bash
+HOOK=0 PASSES=2 PALINDROME=1 STEPS=200 \
+  OUT=research/nezuko-pr158-r2-unfuse-wall.log \
+  bash research/nezuko_pr158_unfuse_sweep.sh
+```
+
+**Disclosable deviation.** These are *probe* walls, not `--local-iterate`
+scored walls. I did not use `--local-iterate` because it rebuilds the worker and
+would have discarded the GPUPROF-instrumented binary that measurements (a) and
+(c) depend on. The probe wall is a strictly tighter instrument for this purpose
+— it reports a median over 199 individually-timed steady steps rather than one
+aggregate rate — but it is not the ranked number, and no arm here is proposed
+for submission. Nothing in `Sources/` changed for this run; every arm is an
+environment-variable ablation of an already-default-on fusion.
+
+**The base drift is the reason the palindrome exists.** In pass 1 alone,
+`base` (21:54) and `base2` (21:58) — the identical unmodified configuration,
+four minutes apart — differed by 111 µs (1.3 %), which is the same order as the
+arm effects being measured. Any single-pass reading of this sweep is therefore
+uninterpretable, including r1's. The pass-averaged baseline below is the only
+one I will quote.
+
+<!-- TABLE-4.6.c -->
+
+## 4.7 Measurement (c): a traffic-neutral unfusion, the cleanest test available
+
+### 4.7.a Why the four arms in §4.6 cannot settle the question
+
+Every arm in §4.6 removes a fusion that also *moves bytes*. Unfusing
+`routed_swiglu_qmv` does not just add 5 dispatches per layer; it materialises
+intermediates that the fused kernel kept in registers. So each arm's wall cost
+is `n_dispatch × (per-dispatch floor) + Δbytes × (byte price)`, and with four
+arms that all vary both terms together, the two coefficients are not separable.
+That is the real reason r1's "≈1.9 µs/dispatch" is not identified — not
+sampling noise, but confounding.
+
+The router fusion flags give a way out, because the runtime already ships two
+*independent* sinks on the same code path
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift`, branch at the decode router
+top-8 site):
+
+- `DARKBLOOM_FUSED_ROUTER_CAST` sinks the BF16→FP32 cast of the 256-element
+  router GEMV output into the top-8 kernel's first instruction.
+- `DARKBLOOM_FUSED_ROUTER_NORM` sinks the top-k renormalization — the sum over
+  the eight selected scores and the broadcast divide — into the same kernel.
+
+Turning the **norm** sink off alone (`nonorm`) keeps the cast sink, so the arm
+stays on the identical kernel and identical inputs; the only change is that
+`weights = weights / weights.sum(axis: -1, keepDims: true)` now runs as two
+standalone MLX dispatches per sparse layer. Those two dispatches touch **eight
+FP32 elements**: a 32 B read for the sum, then a 32 B read plus 32 B write for
+the divide. Call it ~100 B per layer, ~4 KB per step against a step that already
+moves gigabytes. **This is a dispatch-count change with essentially zero traffic
+change** — exactly the traffic-neutral unfusion the audit asked for.
+
+Turning the **cast** sink off (`nocast`) additionally forces
+`logits = projectedLogits.asType(.float32)`, a third dispatch per layer that
+reads 512 B and writes 1024 B. `nocast − nonorm` therefore isolates *one*
+dispatch per layer carrying ~1.5 KB, giving a byte-slope measured inside the
+same tiny-dispatch regime.
+
+<!-- TABLE-4.7 -->
+
 
