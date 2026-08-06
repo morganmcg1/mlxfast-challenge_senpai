@@ -963,7 +963,6 @@ for (uint i = 0; i < n_reads; ++i) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-// --- router projection ---
 \(guardOpen)\
 uint router_row = tile * rows_per_group + simd_group * rows_per_thread;
 thread float router_result[rows_per_thread] = {\(zeros)};
@@ -1151,10 +1150,6 @@ for (uint i = 0; i < 4; ++i) {
     float value = float(input[base + i]);
     sum += value * value;
 }
-// `simd_sum` already returns the total to every lane, so each lane
-// derives the same `precise::rsqrt` locally. That removes the
-// threadgroup slot and the barrier this one-simdgroup-per-head kernel
-// would otherwise pay for on every head.
 sum = simd_sum(sum);
 float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
 
@@ -1279,10 +1274,6 @@ for (uint i = 0; i < 4; ++i) {
     float value = float(input[base + i]);
     sum += value * value;
 }
-// `simd_sum` already returns the total to every lane, so each lane
-// derives the same `precise::rsqrt` locally. That removes the
-// threadgroup slot and the barrier this one-simdgroup-per-head kernel
-// would otherwise pay for on every head.
 sum = simd_sum(sum);
 float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
 
@@ -1292,7 +1283,6 @@ for (uint i = 0; i < 4; ++i) {
         bfloat(float(input[base + i]) * inverse_rms);
 }
 
-// Element `p + 64`, the partner of pair `p`, lives 16 lanes away.
 thread float paired[4];
 for (uint i = 0; i < 4; ++i) {
     paired[i] = simd_shuffle(float(normalized[i]), lane ^ 16);
@@ -1302,8 +1292,6 @@ device bfloat* output =
     head < query_heads
     ? queries + head * head_dim
     : keys + (head - query_heads) * head_dim;
-// Every element rotates, so the lower sixteen lanes own all 64 pairs
-// and write both halves of each.
 if (lane < 16) {
     for (uint i = 0; i < 4; ++i) {
         uint pair = base + i;
@@ -1392,10 +1380,6 @@ constexpr uint window = 512;
 constexpr uint gqa = 8;
 constexpr int BN = 32;
 constexpr int BD = 32;
-// Pad the epilogue exchange stride off a power of two: the
-// transposing write below is `lane * stride + sg`, which at
-// stride 32 puts all 32 lanes of a simdgroup in one threadgroup
-// memory bank. The odd stride keeps the read contiguous.
 constexpr int BDP = BD + 1;
 constexpr int qk_per_thread = 4;
 constexpr int v_per_thread = 4;
@@ -1418,10 +1402,6 @@ threadgroup bfloat tg_q1[head_dim];
 threadgroup bfloat tg_k[head_dim];
 threadgroup bfloat tg_v[head_dim];
 
-// Phase 1: per-head RMSNorm + plain RoPE, textual replica of
-// laguna_sliding_qk_norm_rope_bf16_128_v1 with the device row
-// writes retargeted at threadgroup memory. simdgroups 0/1/2 own
-// q0/q1/k; simdgroup 3 copies the raw V row (stored unmodified).
 if (sg < 3) {
     const device bfloat* input =
         sg == 0 ? raw_queries + head0 * head_dim
@@ -1470,11 +1450,6 @@ if (sg < 3) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-// Phase 2: one writer threadgroup per KV head persists the new row
-// for future steps. No threadgroup reads slot widx from device this
-// dispatch (all substitute the threadgroup copy), so cross-group
-// ordering is irrelevant; the next step observes the write through
-// command-buffer sequencing.
 if ((head0 % gqa) == 0 && sg == 0) {
     device bfloat* kc = (device bfloat*)k_cache +
         (size_t)kv_head * (window * head_dim) +
@@ -1488,10 +1463,6 @@ if ((head0 % gqa) == 0 && sg == 0) {
     }
 }
 
-// Phase 3: GQA-pair attention over the ring in slot order, textual
-// replica of the sdpa_vector pair path at fixed kL = 512 (steady
-// ring: the 8-trip two-deep pipeline covers all 16 slots per
-// simdgroup with no tail).
 threadgroup U outputs[4 * BN * BDP];
 threadgroup U max_scores[2 * BN];
 threadgroup U sum_exp_scores[2 * BN];
@@ -1619,8 +1590,6 @@ for (; i + BN < N; i += 2 * BN) {
     pair_values += 2 * inner_v_stride;
 }
 
-// Combine: promoted two-plane exchange, textual replica of the
-// sdpa_vector pair path epilogue.
 constexpr int pair_planes = 2;
 constexpr int pair_plane_size = BN * BDP;
 if (lane == 0) {
@@ -1693,8 +1662,6 @@ if (lane == 0) {
 }
 """,
     header: """
-// Alpha-skip rescale, replica of sdpa_vector.h's shipped
-// DARKBLOOM_RESCALE_FACTOR (DARKBLOOM_ALPHASKIP == 1 arm).
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -1705,9 +1672,6 @@ if (lane == 0) {
     }                                           \\
   } while (false)
 
-// K loads: 8-byte vec loads from the ring, or the threadgroup
-// substitute for the just-written slot. Same elements, same order,
-// same bfloat -> float conversion points as the scalar form.
 #define T_LOAD_K(dst, substitute, ptr)                     \\
   do {                                                     \\
     if (substitute) {                                      \\
@@ -1744,8 +1708,6 @@ if (lane == 0) {
     }                                                      \\
   } while (false)
 
-// (trailing newline required: the JIT concatenates the generated
-// [[kernel]] signature directly after this header string)
 
 """,
     ensureRowContiguous: true
@@ -1866,10 +1828,6 @@ constexpr uint head_dim = 128;
 constexpr uint gqa = 6;
 constexpr int BN = 32;
 constexpr int BD = 32;
-// Pad the epilogue exchange stride off a power of two: the
-// transposing write below is `lane * stride + sg`, which at
-// stride 32 puts all 32 lanes of a simdgroup in one threadgroup
-// memory bank. The odd stride keeps the read contiguous.
 constexpr int BDP = BD + 1;
 constexpr int qk_per_thread = 4;
 constexpr int v_per_thread = 4;
@@ -1894,9 +1852,6 @@ threadgroup bfloat tg_q1[head_dim];
 threadgroup bfloat tg_k[head_dim];
 threadgroup bfloat tg_v[head_dim];
 
-// Phase 1: per-head RMSNorm + partial YaRN RoPE, textual replica of
-// laguna_full_qk_norm_yarn_bf16_128_v4 with the device row writes
-// retargeted at threadgroup memory.
 if (sg < 3) {
     const device bfloat* input =
         sg == 0 ? raw_queries + head0 * head_dim
@@ -1952,7 +1907,6 @@ if (sg < 3) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-// Phase 2: one writer threadgroup per KV head persists the new row.
 if ((head0 % gqa) == 0 && sg == 0) {
     device bfloat* kc = (device bfloat*)k_cache +
         (size_t)kv_head * (capacity * head_dim) +
@@ -1966,9 +1920,6 @@ if ((head0 % gqa) == 0 && sg == 0) {
     }
 }
 
-// Phase 3: GQA-pair attention over the first N rows in slot order,
-// textual replica of the sdpa_vector pair path (runtime N, tail
-// row included).
 threadgroup U outputs[4 * BN * BDP];
 threadgroup U max_scores[2 * BN];
 threadgroup U sum_exp_scores[2 * BN];
@@ -2140,8 +2091,6 @@ if (i < N) {
     pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
 }
 
-// Combine: promoted two-plane exchange, textual replica of the
-// sdpa_vector pair path epilogue.
 constexpr int pair_planes = 2;
 constexpr int pair_plane_size = BN * BDP;
 if (lane == 0) {
@@ -2260,8 +2209,6 @@ if (lane == 0) {
     }                                                      \\
   } while (false)
 
-// (trailing newline required: the JIT concatenates the generated
-// [[kernel]] signature directly after this header string)
 
 """,
     ensureRowContiguous: true
@@ -2423,10 +2370,6 @@ for (uint i = 0; i < 4; ++i) {
     float value = float(input[base + i]);
     sum += value * value;
 }
-// `simd_sum` already returns the total to every lane, so each lane
-// derives the same `precise::rsqrt` locally, matching the shipped
-// decode kernels. The stock single-simdgroup threadgroup's extra
-// `local_sums` round adds only zeros and cannot change the total.
 sum = simd_sum(sum);
 float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
 
@@ -2437,10 +2380,6 @@ for (uint i = 0; i < 4; ++i) {
         bfloat(float(input[base + i]) * inverse_rms);
 }
 
-// Element `p + 64`, the partner of pair `p`, lives 16 lanes away.
-// Every fixed-four loop in this prefill-only kernel is explicitly
-// scalarized. This removes loop-control ALU while preserving the
-// exact source order of the dependent RMS sum and rotary arithmetic.
 thread float paired[4];
 #pragma clang loop unroll(full)
 for (uint i = 0; i < 4; ++i) {
@@ -2449,8 +2388,6 @@ for (uint i = 0; i < 4; ++i) {
 
 const device float* angle_row =
     angles + (uint(offsets[0]) + t) * (2 * rotary_pairs);
-// Every element rotates, so the lower sixteen lanes own all 64
-// pairs and write both halves of each.
 if (lane < 16) {
     #pragma clang loop unroll(full)
     for (uint i = 0; i < 4; ++i) {
@@ -2527,9 +2464,6 @@ for (uint i = 0; i < 4; ++i) {
         bfloat(float(input[base + i]) * inverse_rms);
 }
 
-// Every fixed-four loop in this prefill-only kernel is explicitly
-// scalarized. This removes loop-control ALU while preserving the
-// exact source order of the dependent RMS sum and rotary arithmetic.
 thread float paired[4];
 #pragma clang loop unroll(full)
 for (uint i = 0; i < 4; ++i) {
@@ -2621,9 +2555,6 @@ for (uint i = 0; i < 4; ++i) {
         bfloat(float(input[base + i]) * inverse_rms);
 }
 
-// Element `p + 32`, the rotary partner of pair `p` inside the
-// 64-wide YaRN half, lives 8 lanes away. As in the sliding twin,
-// scalarize the fixed-four plumbing without changing arithmetic.
 thread float paired[4];
 #pragma clang loop unroll(full)
 for (uint i = 0; i < 4; ++i) {
@@ -2714,8 +2645,6 @@ for (uint i = 0; i < 4; ++i) {
         bfloat(float(input[base + i]) * inverse_rms);
 }
 
-// As in the sliding twin, scalarize the fixed-four plumbing without
-// changing arithmetic.
 thread float paired[4];
 #pragma clang loop unroll(full)
 for (uint i = 0; i < 4; ++i) {
@@ -3076,10 +3005,6 @@ if (global_row < query_rows) {
 thread float result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
 constexpr uint scale_groups = in_vec_size / 32;
 
-// Contiguous TensorFold mapping: every lane owns two complete
-// 32-value MXFP8 groups. Codes and activations are loaded as eight
-// packed words per group, each scale is read once, and the final
-// simd reduction combines the 32 contiguous lane partials.
 for (uint row = 0; row < rows_per_thread; ++row) {
     float row_acc = 0.0f;
     for (uint gg = 0; gg < 2; ++gg) {
@@ -3141,9 +3066,6 @@ constexpr uint palette_block_width = 1024;
 constexpr uint palette_blocks = in_vec_size / palette_block_width;
 constexpr uint subblocks_per_palette = palette_block_width / block_width;
 
-// One simdgroup owns four output rows. Lanes 0..<16 hold those rows'
-// sixteen literal high bytes, and `simd_shuffle` turns each packed
-// nibble into the exact high byte without a scattered device lookup.
 for (uint palette_segment = 0;
     palette_segment < palette_blocks; ++palette_segment)
 {
@@ -3253,16 +3175,6 @@ constexpr uint gate_tiles = \(heads / 8);
 constexpr uint query_tiles_per_round = query_tiles / kv_tiles;
 constexpr float norm_eps = 1.0e-6f;
 
-// The projection used to launch every Q tile, then every K tile,
-// then every V tile. Decode on the ranked M5 is latency-bound rather
-// than bandwidth-bound, so that order presents only one independent
-// weight bank to each scheduling wave. Preserve sequential row order
-// within every bank, but issue one K, one V, and (while available)
-// one gate tile before each proportional run of Q tiles.
-//
-// This is a pure bijection over the existing threadgroups. `tile`
-// below is the old logical tile number, so row ownership, K-loop
-// order, reductions, writes, and total work are unchanged.
 uint scheduled_tile = threadgroup_position_in_grid.x;
 uint round;
 uint position;
@@ -3296,7 +3208,6 @@ uint local_id = thread_position_in_threadgroup.x;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 
-// --- input RMSNorm, mirroring rms_single_row at 512 threads ---
 \(lagunaNormInvMeanScratch)
 threadgroup float local_sums[32];
 threadgroup bfloat normalized_row[in_vec_size];
@@ -3319,23 +3230,12 @@ for (uint i = 0; i < values_per_thread; ++i) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-// --- per-head gate projection, on the tiles past the Q/K/V rows ---
-//
-// `g_proj` is the one Laguna projection MLX does not run with the
-// plain ladder: out_vec 64 with in_vec 2048 satisfies
-// `K >= 16 * out_vec`, so gemv_axbpy switches to BM 1 / BN 8, i.e.
-// eight simdgroups split K eight ways and then reduce through
-// threadgroup memory in ascending simdgroup order. Reproduced here
-// verbatim: two of those eight-simdgroup groups per 16-simdgroup
-// threadgroup, four rows each.
 constexpr uint gate_rows = 64;
 constexpr uint gate_simds = 8;
 constexpr uint gate_block_width = 1024;
 constexpr uint gate_blocks = in_vec_size / gate_block_width;
 constexpr uint qkv_tiles = query_tiles + 2 * kv_tiles;
 
-// Flat, because Metal will not take a multidimensional threadgroup
-// array here: [gate_half][split][row] laid out row-major by hand.
 threadgroup float gate_partials[2 * gate_simds * rows_per_thread];
 
 if (tile >= qkv_tiles) {
@@ -3390,9 +3290,6 @@ if (tile >= qkv_tiles) {
                     (gate_half * gate_simds + sgn) * rows_per_thread + r
                 ];
             }
-            // Preserve the stock boundary: the projection first
-            // rounds to BF16, then softplus widens that rounded logit
-            // to FP32 and rounds the activated value back to BF16.
             bfloat rounded_logit = bfloat(total);
             float logit = float(rounded_logit);
             float gate;
@@ -3411,7 +3308,6 @@ if (tile >= qkv_tiles) {
     return;
 }
 
-// --- projections ---
 uint global_row = tile * rows_per_group + simd_group * rows_per_thread;
 
 \(projectionPointerSetup)
@@ -3623,7 +3519,6 @@ private func lagunaGatedOutputProjectionSource(
         body = """
         uint column = lane * values_per_thread;
         for (uint block = 0; block < blocks; ++block) {
-            // Column `4 * lane + 128 * block` sits in head `block`.
             float gate = float(gate_values[block]);
             const device vec<bfloat, 4>* gated =
                 (const device vec<bfloat, 4>*)(attention_output + column);
@@ -3660,8 +3555,6 @@ private func lagunaGatedOutputProjectionSource(
             }
 
             for (uint u = 0; u < unroll; ++u) {
-                // Column `4 * lane + 128 * (block + u)` is in head
-                // `block + u`.
                 float gate = float(gate_values[block + u]);
                 for (uint i = 0; i < values_per_thread; ++i) {
                     coefficients[i] =
@@ -3900,9 +3793,9 @@ bs += block_size / group_size;
 constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
 constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
 constexpr uint gate_heads = \(heads);
-constexpr uint head_shift = 7;              // head_dim == 128
-constexpr uint values_per_thread = 8;       // pack_factor 4 * packs_per_thread 2
-constexpr uint block_size = 256;            // values_per_thread * SIMD_SIZE
+constexpr uint head_shift = 7;
+constexpr uint values_per_thread = 8;
+constexpr uint block_size = 256;
 constexpr uint results_per_simdgroup = 4;
 constexpr uint num_simdgroups = 2;
 constexpr uint group_size = 32;
@@ -3914,8 +3807,6 @@ uint lid = thread_position_in_threadgroup.x;
 uint simd_gid = simdgroup_index_in_threadgroup;
 uint simd_lid = thread_index_in_simdgroup;
 
-// One softplus per head, in the FP32 form and at the BF16 rounding point
-// `lagunaGateProductSoftplusSource` uses.
 threadgroup float gate_table[gate_heads];
 if (lid < gate_heads) {
     float logit = float(gate_logits[lid]);
@@ -4286,9 +4177,6 @@ for (uint k = 0; k < in_vec_size; k += block_size) {
 
     for (uint row = 0; row < results_per_simdgroup; ++row) {
         const device uint32_t* wl = ws + row * (in_vec_size / 8);
-        // Defer the exact E4M3 2^22 renormalization to the per-row
-        // epilogue. Every partial remains the exact 2^-22 rescaling of
-        // the control until the multiply before the existing BF16 round.
         \(scaleRead)
         \(scaleDecode)
         \(accumDecl)
@@ -4841,8 +4729,6 @@ const device uint8_t* ws = (const device uint8_t*)weight_codes +
 thread uint8_t sb[blocks_per_row];
 const uint8_t row_base = scale_bases[out_row];
 if (row_base != 0xFFu) {
-    // `out_row * in_vec_size_g / 2` is a multiple of blocks_per_row / 2, so
-    // the lane's run is ushort-aligned; a wider cast would not be.
     const device ushort* nb = (const device ushort*)(
         scale_nibbles + out_row * (in_vec_size_g / 2)) + simd_lid;
     const ushort packed = nb[0];
@@ -4998,14 +4884,14 @@ private func lagunaNormAffineQKVBody(
     return """
 constexpr uint axis_size = \(LagunaConstants.hiddenSize);
 constexpr uint out_vec_size = \(rows);
-constexpr uint n_reads = 4;                 // RMS_N_READS
-constexpr uint norm_threads = axis_size / n_reads;   // 512 virtual threads
+constexpr uint n_reads = 4;
+constexpr uint norm_threads = axis_size / n_reads;
 constexpr uint real_threads = 64;
-constexpr uint virtual_per_thread = norm_threads / real_threads;  // 8
+constexpr uint virtual_per_thread = norm_threads / real_threads;
 constexpr uint simd_size = 32;
 constexpr float norm_eps = 1.0e-6f;
-constexpr uint values_per_thread = 8;       // pack_factor 4 * packs_per_thread 2
-constexpr uint block_size = 256;            // values_per_thread * SIMD_SIZE
+constexpr uint values_per_thread = 8;
+constexpr uint block_size = 256;
 constexpr uint results_per_simdgroup = 4;
 constexpr uint num_simdgroups = 2;
 constexpr uint group_size = 32;
@@ -5021,7 +4907,6 @@ threadgroup float local_inv_mean[1];
 threadgroup float local_sums[simd_size];
 \(scratch)
 
-// --- rms_single_row replica, 512 virtual threads over 64 real ones ---
 if (lid < simd_size) {
     local_sums[lid] = 0.0f;
 }
@@ -5052,7 +4937,6 @@ threadgroup_barrier(mem_flags::mem_threadgroup);
 
 float laguna_inv_mean = local_inv_mean[0];
 \(normalize)
-// --- affine_qmv_fast replica over the normalized row ---
 uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
     simd_gid * results_per_simdgroup;
 
@@ -5181,14 +5065,14 @@ bs += block_size / group_size;
     return """
 constexpr uint axis_size = \(LagunaConstants.hiddenSize);
 constexpr uint out_vec_size = \(rows);
-constexpr uint n_reads = 4;                 // RMS_N_READS
-constexpr uint norm_threads = axis_size / n_reads;   // 512 virtual threads
+constexpr uint n_reads = 4;
+constexpr uint norm_threads = axis_size / n_reads;
 constexpr uint real_threads = 64;
-constexpr uint virtual_per_thread = norm_threads / real_threads;  // 8
+constexpr uint virtual_per_thread = norm_threads / real_threads;
 constexpr uint simd_size = 32;
 constexpr float norm_eps = 1.0e-6f;
-constexpr uint values_per_thread = 8;       // pack_factor 4 * packs_per_thread 2
-constexpr uint block_size = 256;            // values_per_thread * SIMD_SIZE
+constexpr uint values_per_thread = 8;
+constexpr uint block_size = 256;
 constexpr uint results_per_simdgroup = 4;
 constexpr uint num_simdgroups = 2;
 constexpr uint group_size = 32;
@@ -5204,10 +5088,6 @@ uint simd_lid = thread_index_in_simdgroup;
 threadgroup float local_inv_mean[1];
 threadgroup float local_sums[simd_size];
 
-// Stream pointers and the first pf_depth k-blocks' loads issued BEFORE
-// the norm reduction: the weight stream is in flight while the prologue
-// runs. Pure reads of immutable weights, consumed below in the stock
-// k-loop's exact per-i order.
 uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
     simd_gid * results_per_simdgroup;
 
@@ -5228,7 +5108,6 @@ for (uint d = 0; d < pf_depth; ++d) {
     }
 }
 
-// --- rms_single_row replica, textually the stock inline variant's ---
 if (lid < simd_size) {
     local_sums[lid] = 0.0f;
 }
@@ -5259,8 +5138,6 @@ threadgroup_barrier(mem_flags::mem_threadgroup);
 
 float laguna_inv_mean = local_inv_mean[0];
 
-// --- affine_qmv_fast replica; first pf_depth blocks consume the
-// prefetched registers with the identical accumulation order ---
 thread float x_thread[values_per_thread];
 thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
 
@@ -7104,11 +6981,6 @@ constexpr uint values_per_lane = 16;
 constexpr uint tiles_per_expert = 128;
 constexpr uint routed_experts = 8;
 
-// Tile-major order keeps one threadgroup per expert exactly as before,
-// but places the eight independent weight banks next to one another in
-// the dispatch stream. This exposes expert-bank memory latency across
-// a scheduling wave instead of issuing all 128 tiles of one expert
-// before touching the next bank.
 uint group = threadgroup_position_in_grid.x;
 uint expert_slot = group % routed_experts;
 uint tile = group / routed_experts;
@@ -7668,12 +7540,6 @@ thread float gate_result = 0.0f;
 thread float up_result = 0.0f;
 thread float input_values[values_per_lane];
 
-// Depth-1 weight staging: block b+1's gate/up code words (the same
-// uint2 laguna_nvfp4_qdot_16 loads internally) and scale bytes are
-// issued before block b's qdots consume b's registers, so the
-// expert-dependent weight stream rides under the current block's
-// compute. Same bytes, same addresses, same nibble decode via
-// laguna_nvfp4_qdot_codes_16, identical accumulation order.
 uint2 gate_codes;
 uint2 up_codes;
 uint8_t gate_sb;
@@ -7832,8 +7698,6 @@ for (uint i = 0; i < values_per_lane / 4; ++i) {
 thread float result[outputs_per_simd] = {
     0.0f, 0.0f, 0.0f, 0.0f
 };
-// Rows' code words/scales stage first; one packed simd_sum, same
-// bytes/decode/order per component as stock.
 uint2 row_codes[outputs_per_simd];
 uint8_t row_sb[outputs_per_simd];
 for (uint row = 0; row < outputs_per_simd; ++row) {
@@ -7870,10 +7734,6 @@ if (lane == 0) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-// `weightedExpertSum` first multiplies BF16 expert outputs by router
-// weights cast from FP32 to BF16. Its small strided BF16 reduction
-// initializes with zero, then visits expert slots 0 through 7 in
-// order. The scalar 2.5 is constructed in the BF16 result dtype.
 if (expert_slot == 0 && lane < outputs_per_simd) {
     bfloat total = bfloat(0);
     for (uint slot = 0; slot < experts_per_token; ++slot) {
@@ -8152,10 +8012,6 @@ thread float coefficients[values_per_thread];
 
 uint column = lane * values_per_thread;
 for (uint block = 0; block < blocks; ++block) {
-    // vec<bfloat,4> activation load: same bytes, same per-element
-    // float conversion in the same order as the scalar loop — the
-    // pattern this kernel already uses for its weight rows.
-    // Alignment: column = lane * 4 elements = 8-byte multiples.
     const vec<bfloat, 4> c4 =
         *((const device vec<bfloat, 4>*)(input + column));
     for (uint i = 0; i < values_per_thread; ++i) {
@@ -8247,7 +8103,6 @@ thread float coefficients[values_per_thread];
 
 uint column = lane * values_per_thread;
 for (uint block = 0; block < blocks; ++block) {
-    // vec<bfloat,4> activation load — see the gate/up twin's note.
     const vec<bfloat, 4> c4 =
         *((const device vec<bfloat, 4>*)(activated + column));
     for (uint i = 0; i < values_per_thread; ++i) {
@@ -8650,25 +8505,6 @@ float my_score = x < 0.0f ? y : 1.0f - y;
 float my_key = -(my_score + float(correction_bias[lane]));
 uint my_index = lane;
 
-// A total order (choice key, then original expert index) makes this
-// network match the stock stable merge sort even for exact ties,
-// signed zero, and NaNs. The lower half of each final sequence keeps
-// the better entries, so ranks 0..<8 are the desired top experts.
-//
-// The network's schedule, comparator, and pair roles are unchanged
-// from the threadgroup-memory version; only WHERE a pair exchanges
-// its operands differs. For stride < 32, `partner = lane ^ stride`
-// never leaves the calling simdgroup (only bits 0-4 flip), so those
-// 30 stages exchange through registers with `simd_shuffle_xor` --
-// the same value-passing idiom the promoted QK-norm kernels use --
-// touching no memory and needing no barrier. Shuffles are
-// bit-preserving, both partners compute the identical swap decision
-// from identical operands (`lane & sequence` agrees across a pair
-// because stride < sequence), and each keeps its side of the
-// exchange, so every stage's resulting values are bit-identical to
-// the memory version's. Only the six stages with stride >= 32 cross
-// a simdgroup boundary and go through threadgroup memory with full
-// barriers.
 for (uint sequence = 2; sequence <= 256; sequence <<= 1) {
     for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
         float other_key;
@@ -8712,10 +8548,6 @@ for (uint sequence = 2; sequence <= 256; sequence <<= 1) {
     }
 }
 
-// Ranks 0..<8 live in lanes 0..<8 of simdgroup 0. The epilogue runs
-// unguarded so every shuffle source lane is active; only lanes < 8
-// write. The rank-order left fold reproduces the stock epilogue's
-// `total = scores[i] + total` operand order exactly.
 \(epilogue)
 """
 }
@@ -8830,9 +8662,6 @@ float key = -(score + float(correction_bias[lane]));
 uint my_ordinal = laguna_router_key_ordinal(key);
 uint my_index = lane;
 
-// Byte-for-byte the accepted 256-element Batcher schedule and pair
-// roles: 30 intra-simdgroup stages and six cross-simdgroup stages.
-// Only the exact sortable payload representation differs.
 for (uint sequence = 2; sequence <= 256; sequence <<= 1) {
     for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
         uint other_ordinal;
@@ -8855,9 +8684,6 @@ for (uint sequence = 2; sequence <= 256; sequence <<= 1) {
         bool want_better = lower_wants_better == is_lower;
         bool other_before_my = laguna_router_ordinal_before(
             other_ordinal, other_index, my_ordinal, my_index);
-        // Expert indices are globally unique, so `my` and `other`
-        // can never compare equal. This is the accepted a/b pair-role
-        // rule reduced algebraically to a direct take-other decision.
         bool take_other = want_better ? other_before_my : !other_before_my;
         if (take_other) {
             my_ordinal = other_ordinal;
@@ -8877,8 +8703,6 @@ METAL_FUNC uint laguna_router_key_ordinal(float key) {
     if (magnitude > 0x7F800000u) {
         return 0xFFFFFFFFu;
     }
-    // The accepted comparator considers -0 and +0 equal and breaks that
-    // tie only by original expert index.
     if (magnitude == 0u) {
         return 0x80000000u;
     }
@@ -9127,10 +8951,6 @@ float my_key = -corrected;
 choice_keys[lane] = my_key;
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-// Stable-argsort rank by predecessor count under the strict total
-// order (key, then original index). Ranks are a permutation of
-// 0..255, so the eight winners land in distinct output slots in
-// exactly the stock argsort-slice order.
 uint rank = 0;
 for (uint j = 0; j < 256; ++j) {
     rank += laguna_router_key_before(
@@ -9283,10 +9103,6 @@ float my_score = x < 0.0f ? y : 1.0f - y;
 float my_key = -(my_score + float(correction_bias[lane]));
 uint my_index = lane;
 
-// Phase 1: eight independent 32-lane bitonic sorts (one per
-// simdgroup), entirely via simd_shuffle_xor. Identical stage
-// structure and comparator calls to the promoted decode router's
-// low-stride stages; just not continued past sequence == 32.
 for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
     for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
         float other_key = simd_shuffle_xor(my_key, ushort(stride));
@@ -9315,21 +9131,6 @@ for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
     }
 }
 
-// Each simdgroup's 32 lanes are now fully sorted by (key, index) --
-// but NOT all eight blocks ascending: this is stage `sequence ==
-// 32` of the standard Batcher network, whose direction test
-// `(lane & sequence) == 0` reads bit 5 of `lane` at that stage,
-// which is exactly the block-parity bit. Even-indexed blocks
-// (0, 2, 4, 6) sort ascending (within_block 0 = best); odd-indexed
-// blocks (1, 3, 5, 7) sort DESCENDING (within_block 31 = best) --
-// required so a continued network could merge each adjacent
-// ascending/descending pair into a bitonic sequence at sequence ==
-// 64, even though this network stops here instead of continuing.
-// Extract each block's true local top-8 in rank order (0 = best)
-// from whichever end that block actually sorted its best element
-// to; the local-top-8-contains-global-top-8 proof above depends
-// only on each block being internally sorted by the total order,
-// not on a particular direction.
 uint block = lane >> 5;
 uint within_block = lane & 31;
 bool block_ascending = (block & 1) == 0;
@@ -9342,11 +9143,6 @@ if (is_local_top8) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-// Phase 2: bitonic-sort the 64-candidate union. Every thread
-// participates uniformly -- lanes 64-255 load a harmless wrapped
-// duplicate of the real 64 candidates (`lane & 63`) so every
-// thread in the threadgroup reaches the stride >= 32 barrier
-// below identically; only lanes < 8 are ever read.
 float my_key2 = candidate_keys[lane & 63];
 uint my_index2 = candidate_indices[lane & 63];
 float my_score2 = candidate_scores[lane & 63];
@@ -9393,8 +9189,6 @@ for (uint sequence = 2; sequence <= 64; sequence <<= 1) {
     }
 }
 
-// Ranks 0..<8 of the 64-candidate merge are the row's global
-// top-8, in exactly the stock argsort-slice order.
 \(epilogue)
 """
 }
@@ -9445,7 +9239,6 @@ float key = -(score + float(correction_bias[lane]));
 uint my_ordinal = laguna_router_key_ordinal(key);
 uint my_index = lane;
 
-// Phase 1: identical 15-stage local 32-lane Batcher sorts.
 for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
     for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
         uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
@@ -9464,7 +9257,6 @@ for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
     }
 }
 
-// Identical direction-aware local-top-8 extraction.
 uint block = lane >> 5;
 uint within_block = lane & 31;
 bool block_ascending = (block & 1) == 0;
@@ -9474,11 +9266,8 @@ if (is_local_top8) {
     candidate_ordinals[block * 8 + rank_in_block] = my_ordinal;
     candidate_indices[block * 8 + rank_in_block] = my_index;
 }
-// This accepted inter-phase barrier also makes every lane's initial
-// original_scores store visible before the final indexed reads.
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-// Phase 2: identical wrapped 64-candidate, 21-stage Batcher sort.
 uint my_ordinal2 = candidate_ordinals[lane & 63];
 uint my_index2 = candidate_indices[lane & 63];
 for (uint sequence = 2; sequence <= 64; sequence <<= 1) {
