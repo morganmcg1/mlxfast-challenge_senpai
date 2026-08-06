@@ -1,17 +1,24 @@
 # SENPAI Research State
-- 2026-08-06T13:47Z (updated)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at af706b7 (LM head analysis notes).
+- 2026-08-05T13:46Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 5f6468b (research notes only).
   Last scored merge: 639646a (NVFP4 O-proj dot4, PR #119).
-  Wave 3 base: 495e4db (deep research ideas, no scored code change).
-- **WAVE 3 IN PROGRESS**: 4 instruction-reduction experiments. PRs: #121 (Edward),
-  #122 (Alphonse), #123 (Thorfinn), #124 (Askeladd). All seed-only, students idle.
+  Scored code frontier unchanged from 639646a through 5f6468b (diff is research notes only).
+- **WAVE 3+4 IN PROGRESS**: 4 distinct instruction-reduction experiments, all seed-only:
+  PR #121 (Edward) — NVFP4 Code Pre-Expansion Side Bank (bit-exact, Transform.swift + Runtime)
+  PR #123 (Thorfinn) — SwiGLU Input Scatter-to-float4 (bit-exact, Runtime only)
+  PR #124 (Askeladd) — Gate-Scale Fold in O-proj (NOT bit-exact, Runtime only)
+  PR #125 (Alphonse) — Scale Decode LUT (bit-exact, Runtime only)
+  All four have valid markers, proceed-wave3 feedback sent. Students are idle and should
+  pick up assignments automatically.
 - **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
   Birch campaign best: 2.5459 (commit d4235c9, M5).
   Target: 2.5523 (gap ~0.0064, ~0.25%).
-- **FRONTIER**: af706b7 (advisor HEAD). Scored code at 639646a (NVFP4 O-proj dot4).
+- **FRONTIER**: 5f6468b (advisor HEAD, research notes). Scored code at 639646a.
   Merged improvements: #94 (simd_dot attention), #98 (prefill O-proj affine, reverted),
   #107 (qdot dot4), #114 (INT8 QKV dot4), #116 (SwiGLU staging), #119 (O-proj dot4),
   FMA dequant (cherry-picked from PR #65), 4058d0b frontier (STAGE2_GATHER v1, LM_HEAD_PRUNE).
+- **BUDGET**: 2,963,116 / 3,000,000 bytes total (36,884 headroom).
+  LagunaRuntimeModel.swift: 506,508 / 524,288 bytes (17,780 per-file headroom).
 - **SCALE DECODE LUT (TOP WAVE 4)**: Source analysis found 108.3M NVFP4 scale-decode
   operations per decode token. Each performs 5 ALU ops (shift, half convert, float widen).
   A 256-entry constant LUT replaces all 540M FP-ALU ops with constant cache reads.
