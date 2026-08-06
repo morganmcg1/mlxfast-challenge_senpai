@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """r3 item 2: interleaved BASE/CAND replication of PR #82 Variant A."""
+import itertools
 import pathlib
 import re
 import statistics
@@ -10,7 +11,9 @@ STEP = re.compile(
     r"gpu_busy_union=(?P<union>[\d.]+) ms gap=(?P<gap>[\d.]+) ms .* "
     r"cbs=(?P<cbs>[\d.]+) dispatches=(?P<disp>[\d.]+)"
 )
-GROUP = re.compile(r"^\s*\d+:\s+([\d.]+)\s+([\d.]+)%\s+([\d.]+)\s+([\d.]+)\s+\[\d+\]\s+(.*)$")
+GROUP = re.compile(
+    r"^\s+([\d.]+)\s+([\d.]+)%\s+([\d.]+)\s+([\d.]+)\s+(?:\[\d+\]\s+)?(\S.*)$"
+)
 MOE = ("swiglu_qmv", "ordinal_table", "down_residual", "router_bf16")
 ARMS = {"BASE": ["base_a", "base_b", "base_c"], "CAND": ["cand_a", "cand_b", "cand_c"]}
 
@@ -49,8 +52,10 @@ def parse(tag):
     return rec
 
 
+# routedQMV/ordinal are group-share proxies: SPLIT=0 fuses many kernels into one
+# command buffer, so a group's time is divided evenly across its members.
 print(f"{'arm':<6} {'run':<8} {'busy_sum':>9} {'gap':>7} {'cbs':>5} {'disp':>6} "
-      f"{'routedQMV':>10} {'ordinal':>8} {'kernel':>7} {'exact':>6}")
+      f"{'~routedQMV':>11} {'~ordinal':>9} {'kernel':>7} {'exact':>6}")
 cells = {}
 for arm, tags in ARMS.items():
     vals = []
@@ -61,7 +66,7 @@ for arm, tags in ARMS.items():
             continue
         vals.append(r["sum_us"])
         print(f"{arm:<6} {tag:<8} {r['sum_us']:9.1f} {r['gap']*1000:7.1f} {r['cbs']:5.0f} "
-              f"{r['disp']:6.0f} {r['routed_qmv']:10.1f} {r['ordinal']:8.1f} "
+              f"{r['disp']:6.0f} {r['routed_qmv']:11.1f} {r['ordinal']:9.1f} "
               f"{r['variant']:>7} {str(r['tokens']):>6}")
     if vals:
         cells[arm] = (statistics.mean(vals), (max(vals) - min(vals)) / 2, len(vals))
@@ -77,6 +82,21 @@ if len(cells) == 2:
     noise = b_hr + c_hr
     print(f"\nCAND - BASE = {delta:+.1f} us/step ({delta / b_mean * 100:+.3f} %)"
           f"  pooled half-range noise {noise:.2f}")
+
+    base_v = [parse(t)["sum_us"] for t in ARMS["BASE"]]
+    cand_v = [parse(t)["sum_us"] for t in ARMS["CAND"]]
+    pool = base_v + cand_v
+    obs = statistics.mean(cand_v) - statistics.mean(base_v)
+    splits = list(itertools.combinations(range(len(pool)), len(base_v)))
+    extreme = 0
+    for pick in splits:
+        b = [pool[i] for i in pick]
+        c = [pool[i] for i in range(len(pool)) if i not in pick]
+        if statistics.mean(c) - statistics.mean(b) >= obs:
+            extreme += 1
+    print(f"exact one-sided permutation test: p = {extreme}/{len(splits)} "
+          f"= {extreme / len(splits):.3f}"
+          f"   (separation: min CAND {min(cand_v):.1f} vs max BASE {max(base_v):.1f})")
     print("r2 reported SPLIT=0 CAND - BASE = +56.5 us/step (+0.698 %)")
     if abs(delta) < noise:
         print("=> NULL: r2 SPLIT=0 regression does NOT replicate at n=3 interleaved")
