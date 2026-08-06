@@ -1,13 +1,19 @@
 # SENPAI Research State
 
-- **2026-08-06 06:10 UTC** (advisor: meridian). **Rounds 14–17 are closed.
-  Round 18 is running.** Frontier is **`62ca3a93`** (#80 merged). **Read the
-  ROUND-16/17/18 DELTA block first**, then the ROUND-15 DELTA block — each
-  supersedes every earlier block wherever they disagree. ROUND-15 minted
-  **§0.9.33 the census-transfer law**; round 18 mints **§0.9.34 (the shared
-  ranked account channel)**, **§0.9.35 (`max_abs_diff` is not evidence)** and
-  **§0.9.36 (the two-channel M4→M5 transfer model)**, taking the law count to
-  **thirty-six**. ★★★★★ **THE LIVE HEADLINE: WE ARE RANK 1 OF THE ENTIRE
+- **2026-08-06 08:20 UTC** (advisor: meridian). **Rounds 14–18 are closed.
+  Round 19 is running.** Frontier is **`1d12077a`** (#82 and #85 merged, both
+  research-only / zero submitted bytes). **Read the ROUND-19 DELTA block first**,
+  then ROUND-16/17/18, then ROUND-15 — each supersedes every earlier block
+  wherever they disagree. ROUND-15 minted **§0.9.33 the census-transfer law**;
+  round 18 minted **§0.9.34 (the shared ranked account channel)**, **§0.9.35
+  (`max_abs_diff` is not evidence)** and **§0.9.36 (the two-channel M4→M5
+  transfer model)**; round 19 mints **§0.9.37 (the encode-order law — MLX encode
+  order is tape-determined, so dispatch ordering is CLOSED as a lever)** and
+  **§0.9.38 (the exchange law — `bits_removed ≥ k · ops_per_weight`, k ∈ [0.94,
+  2.52] on M5, used to BUILD and never to KILL)**, taking the law count to
+  **thirty-eight**. Round 19 also **VOIDS the SPLIT=1 −45.12 µs/call win**
+  (§R19.1) and rules the **`ae9ac90b` 1.47× excess inadmissible as a pricing
+  coefficient** (§R19.2). ★★★★★ **THE LIVE HEADLINE: WE ARE RANK 1 OF THE ENTIRE
   FIELD.** Receipt **`97a5090c-a408-4222-b6d6-dd85c4bce09e`** (PR #80, frieren,
   ranked commit `2b030838`) came back **`accepted` / `improved: true` /
   `promotionStatus: promoted`** with **officialScore 2.58882784082067**,
@@ -44,6 +50,173 @@
   mechanism whose best case is below the 0.278% single-receipt floor and whose
   family has a proven ceiling below that floor is preserved as a `research/`
   patch, never merged as permanent scored-path code.
+
+---
+
+## ★★★★★ ROUND-19 DELTA (2026-08-06 08:20 UTC) — READ BEFORE EVERYTHING ELSE
+
+Advisor: meridian. **Round 18 is closed. Round 19 is running.** Frontier is
+**`1d12077a26f3300fa0fa784105d3c6c5b8847d57`** on
+`codex/mlxfast-maple-20260804-advisor`. Two research-only merges landed this
+morning — **#82 (fern)** at `fafb7b7e` and **#85 (nezuko)** at `1d12077a` —
+**both with zero submitted bytes**, so `Sources/` and `Vendor/` are byte-identical
+to `ea501bc8`. Rank 1 is unchanged and still ours: receipt `97a5090c`,
+`officialScore 2.58882784082067`, decode 0.004908372 s/tok, prefill
+0.000191201 s/tok. This block mints **§0.9.37** and **§0.9.38**, taking the law
+count to **thirty-eight**, and it **retracts one banked number**.
+
+### §R19.1 RETRACTION — the SPLIT=1 −45.12 µs/call win is VOID
+
+PR #82 r2 banked a −45.12 µs/call improvement on the routed-QMV `SPLIT=1` path.
+**The student retracted it himself in r3 as an instrument artefact, and the
+retraction is accepted.** It is de-banked. No brief may cite it as headroom, and
+no arm may be sized on it. This is the programme's third self-retraction by a
+student and the behaviour is exactly right.
+
+The r3 pre-registered rule predicted +54.5 µs from dispatch reordering; the
+measured outcome was **NULL** (`Ob − O0 = −14.3 µs`, inside noise). Primary
+metric `decode_busy_us_per_step` went 7951.3 → 8065.3 (+1.434 %, a regression),
+pooled half-range 84.50, permutation p = 1/20. Correctness was clean throughout:
+9/9 arms 0 divergences, `golden_hash b9509697…`, differential oracle 5,320
+slot/expert pairs over 665 steps with 0 differing (fault control 665/665),
+upstream-equivalence matched pair sha256 `6b832aba…` byte-identical.
+
+### §0.9.37 THE ENCODE-ORDER LAW — MLX encode order is tape-determined, not statement-determined
+
+From #82. In `Vendor/mlx-swift/.../transforms.cpp` (~110-230,
+`MLX_BFS_MAX_WIDTH=20`) the encode order is produced by the **BFS tape build**,
+and among independent siblings **the input declared later is encoded earlier**.
+
+Consequences, all binding:
+
+1. **Reordering Swift statements inside a `forward` is a no-op on encode order.**
+   Any proposal claiming a win from Swift-level statement reordering is refuted
+   on sight unless it changes the **dependency graph** itself.
+2. **Dispatch ordering is CLOSED as a lever.** It is a *guard rail* — breaking it
+   costs real time (SHARED-after-ROUTED ≈ +70 µs/step) — but it is not a source
+   of gain. No further ordering experiments will be assigned.
+3. The one surviving descendant is a **graph-shape** claim, not an ordering
+   claim: fern's hypothesis that Variant A's duplicated argmax buys ORDINAL/ROUTED
+   scheduling independence by *adding a dependency edge*. **Deferred to its own
+   ticket with its own pre-registration** — not bolted onto anything else.
+
+### §0.9.38 THE EXCHANGE LAW — a repack pays only if `bits_removed ≥ k · ops_per_weight`
+
+From #85. Supersedes the advisor's cross-host percent-of-step arithmetic, which
+the student correctly refuted: the 8530 µs denominator came from a **different
+host and instrument**, and dividing an absolute delta by it was invalid.
+
+> **`bits_removed ≥ k · ops_per_weight`**, with **k = 0.94–1.01 bits/op** measured
+> on M4 Pro and an **M5 interval of k ∈ [0.94, 2.52]**.
+
+**The asymmetry is part of the law: use k = 2.5 to decide to BUILD, never to
+KILL.** Supporting measurements: ALU cost 212–219 µs/step (CI [143, 292]);
+surcharge +34…+54 % on the 404.3 µs stock dense pair.
+
+Immediate consequences banked:
+
+- **§9.2 M/D interleave is KILLED.**
+- **The o_proj row-base fold is CLEARED** (it passes the exchange test).
+- **`ae9ac90b` is rescued via hoisting, not repacking.**
+
+### §R19.2 The `ae9ac90b` 1.47× anomaly — UNEXPLAINED, and not a multiplier
+
+Receipt `ae9ac90b`'s −0.60 % exceeds its pure-byte prediction by **1.47×**, above
+§0.9.36's 1.0–1.2× roofline band. Ruling:
+
+- **An unexplained excess is not a multiplier.** 1.47× is **not admissible as a
+  forward pricing coefficient**. §0.9.36's 1.0–1.2× band remains the pricing band
+  for byte removals.
+- Three live explanations, distinguishable by re-auditing that receipt's diff and
+  byte census: (a) the receipt bundled an instruction/occupancy change alongside
+  the byte change, so the residual is cross-channel and per §0.9.36 does not
+  transfer; (b) the byte census under-counted; (c) the band is an interval and
+  1.47× sits in its upper tail.
+- **That audit is the first deliverable of any group-32 scale-plane halving
+  ticket, ahead of any kernel work** — that arm's 7.67 MB premise depends on it.
+  Until it lands, no brief may cite 1.47× and no arm may be sized on it.
+
+### §R19.3 Revert-base rule ratified
+
+#85 reverted to `ea501bc8` rather than merge-base `f2fedd58`, because reverting to
+the merge-base would have backed out the #80 rank-1 promotion. Ratified as a
+standing rule: **a revert base must never regress the promoted frontier; if
+merge-base and frontier disagree, the frontier wins.**
+
+#85's other durable artefacts, all banked: the strongest correctness certificate
+the programme has produced — `lagunaDensePackedReproduces` true on all three
+planes with **0 mismatching BF16 bit patterns over 50,331,648 weights**, plus
+`passed_correctness=true`, `checked_steps=130`, `golden_hash b9509697…`; and a
+reliable byte census of **25,141,248 B/step gross / 24,182,912 net** removed. Only
+the **timing verdict is a NO-GO** (`same_host_paired_decode_ratio` 1.0 → 1.00905,
++0.9054 % slower, exact permutation p = 8/924), and it is M4-class.
+
+### §R19.4 Advisor error on the record
+
+My #82 r3 brief asserted that `6a19fd74 → ea501bc8` does not touch the submitted
+surface. **That was false** — #80 changed `LagunaRuntimeModel.swift` (+124) and
+`LagunaRuntimeWeights.swift` (+83). fern caught it and re-measured n=3 fresh on
+`ea501bc8` instead of reusing the older pool, which is the only reason his result
+is admissible. **Every brief must verify its own base-diff claim mechanically
+before asserting it.**
+
+### §R19.5 Round-19 assignments in flight
+
+| PR | student | arm | channel | submitted surface |
+|---|---|---|---|---|
+| **#101** | maple-frieren | `gate_sp` occupancy repair (R∈{4,2,1}×NS∈{2,4}, grid divisor → `heads/(NS*R)`) + o_proj lane-major `rb`/`esc` hoist out of the K loop | instruction/occupancy — **interval pricing only** | `LagunaRuntimeModel.swift` |
+| **#103** | maple-tanjiro | fused decode attention occupancy rewrite: `sliding_fused_attn_ring_v1` + `full_fused_attn_grow_v1` (R1/R2/R3 per `research/BRIEF_QUEUED_SLIDING_ATTN_REWRITE.md`) | instruction/occupancy — **interval pricing only** | `LagunaRuntimeModel.swift` |
+
+Both students are editing **the same file**; fences are stated in both briefs
+(frieren: gate_sp ~:4275 and o_proj ~:4135-4155 only; tanjiro: the two fused-attn
+kernel regions ~:1370 and ~:1819 and their dispatch sites ~:1761 / ~:2263 only).
+Both carry an explicit **do-not-submit-unprompted** rule per §R18.9 and §0.9.34.
+
+Two stale-brief hazards were corrected on dispatch and are recorded here so they
+are not reintroduced:
+
+- `research/BRIEF_QUEUED_SLIDING_ATTN_REWRITE.md` prices its arm through a
+  **×0.812 residual-class conversion** to **+5.16 % / +1.57 % / +6.7 % combined**.
+  **Those point estimates are retracted** — §0.9.36 says the wall-clock residual
+  of an *occupancy* arm does not transfer M4→M5 and may be over-stated ~12×. The
+  **453 µs combined M4 pool is NOT retracted**; it remains the largest measured,
+  source-attributed pool in the programme. Only the M5 conversion is void.
+- That brief's line numbers are at `d267ebda` and the drift to `1d12077a` is
+  **not uniform**. Verified re-anchors: sliding kernel name **:1370**, full
+  **:1819**, sliding `gqa=8` **:1380**, `head0 = pair_tg * 2` **:1392**,
+  `qk_per_thread=4` **:1384**, sliding grid **:1761**, full grid **:2263**.
+
+Also still true and still the reason `gate_sp` R=4 is suspect: it dispatches
+`grid: ((heads/8)*64,1,1)` with `threadGroup: (64,1,1)` — 8 rows/TG, so **8
+threadgroups at h64 / 6 at h48 on a 40-core M5 Max ≈ 20 % occupancy**. R=4→1 at
+NS=2 gives 32/24 TGs. Bit-exact because per-row accumulation over k at BK=256 is
+independent of R and the `simd_sum` is over the same 32 lanes. **Never split K.**
+
+**Unsettled and owed by #101:** PR #73 banked **7.86 MB/step** for `gate_sp`;
+re-derivation from the row map gives **5.53 MB/step** (2304 B/row). One is wrong,
+other briefs cite the 7.86, and it must be settled **by counting**, not by
+inferring from a timing delta.
+
+### §R19.6 Queue after round 19
+
+1. ~~`gate_sp` occupancy + o_proj hoist~~ → **assigned, #101**
+2. ~~drop dead `router_keys`~~ → **subsumed / closed by §0.9.37**
+3. ~~sliding-attn occupancy rewrite~~ → **assigned, #103**
+4. #72 × #35 composition — likely already in the frontier; verify before assigning
+5. Delete the QKV narrow stack (byte headroom, zero risk) — cheap, unowned
+6. Extend `LagunaUpstreamEquivalence.swift` to reach `prepareFusedRuntimeWeights()`
+7. Prefill C5 → C2 → C4/C1
+8. **NEW:** ORDINAL/ROUTED scheduling-independence graph-shape ticket (§0.9.37 ¶3)
+9. **NEW:** `ae9ac90b` byte-census re-audit — **blocks** any group-32 scale-plane
+   halving assignment (§R19.2)
+10. **ESCALATED TO HUMAN OPERATOR:** the one-submission-in-flight limit is **per
+    GitHub account and shared with the birch campaign** (§0.9.34). A conflict is
+    *not* a model-name rejection. This is an operational constraint the advisor
+    cannot resolve alone.
+
+**Byte budget at `1d12077a`:** `current=2934331/3000000 headroom=65669
+growth=0/262144 files=142`. Headroom is the scarcest resource in the programme
+and two kernel-rewrite arms are now in flight against it.
 
 ---
 
