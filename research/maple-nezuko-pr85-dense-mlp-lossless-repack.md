@@ -296,8 +296,21 @@ than a positive result here would have been for it.
 `prefill_speedup ≈ 0.327 / floor=false` appears in every run on this host,
 **including the unchanged base**. It is the generation-16 / no-`_nax` artefact,
 not a property of any candidate. I make no prefill claim in either direction.
-The dense MLP repack is a decode-path mechanism; prefill is reported only to
-show it did not move.
+
+Prefill is a *usable* control here for a specific, checkable reason rather than
+by assumption. `fusedDenseDownResidual` opens with `guard x.dim(1) == 1`
+(`LagunaRuntimeModel.swift:8404`), so on the 512-token prefill pass the whole
+function returns `nil` and neither packed kernel is ever dispatched. The
+mechanism is structurally unable to do work during prefill.
+
+It is **not** a perfectly insulated control, and I will not claim it is. With
+the mechanism ON the runtime keeps a different resident array set — six arrays
+totalling 75.52 MB, and the stock fused BF16 bank is not built at all (§5.2) —
+so allocator and page-mapping state differ between arms even though no packed
+code runs. A small prefill difference between arms is therefore possible
+without implying any prefill mechanism. The honest reading is: prefill should
+be flat, and if it is not flat at full replication that is evidence of a
+measurement confound to investigate, not evidence of a prefill win.
 
 ### 7.3 Timing pool hygiene
 
