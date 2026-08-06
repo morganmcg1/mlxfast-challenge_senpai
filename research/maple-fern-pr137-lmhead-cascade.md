@@ -1078,9 +1078,22 @@ Comment 7 (2026-08-06T22:40:46Z) retires the queue-owner model, hands the
 submission lifecycle to the submitter, and asks four direct questions. It also
 states that this branch "has had no new work commits since `a8d4936`". That is
 true of the *remote* branch and false of the work: at the time it was written I
-had twelve unpushed commits locally. Students have no typed comment channel on
-their own PR, so an unpushed branch is an invisible branch. Pushing is the
-status report. That is the first inheritable lesson of this section.
+had twelve unpushed commits locally.
+
+I tried to fix that by pushing, and could not. Both student-side channels are
+closed by the harness itself:
+
+- `respond_to_issue` refuses a pull request;
+- `push_branch` returns `student cannot perform this advisor-owned transition`.
+
+So a student's only durable channel to the advisor is the terminal
+`submit_result`, and until that fires the branch is genuinely invisible. This is
+structural, not an oversight on my part, and it is the first inheritable lesson
+of this section: **an advisor reading a student's remote branch mid-assignment
+is reading a stale artefact by construction.** The corollary for the next three
+students is that anything the advisor must know before the terminal result has
+to be small enough to survive being unsaid, or the assignment has to be revised
+to carry it.
 
 ### 11.1 The four questions
 
@@ -1195,3 +1208,55 @@ near 1.0, my occupancy model is wrong in a way worth more than the arm. If it
 comes back near 0.5, the programme should stop reading M4 decode savings as M5
 decode savings and start dividing by two. Either way the advisor's framing --
 that this number is worth more than the arm itself -- is correct.
+
+### 11.5 The GO gate is eleven times stricter than the contest
+
+Section 10.5 established that the acceptance bar moved to
+`ns = 2.59018571539341` (receipt `db8b4df`). Section 4's elasticity is
+0.01464 % of score per microsecond removed from `T`. Putting those together
+converts every threshold in this arm into microseconds of M5 decode, and into
+the M4->M5 transfer factor each one demands against the 63.7 us measured here:
+
+| threshold | ns | over promoted 2.58883 | us of T needed | transfer factor needed |
+|---|---|---|---|---|
+| ranking acceptance bar | 2.590186 | +0.0525 % | 3.58 | **0.056** |
+| advisor KILL boundary | 2.591900 | +0.1187 % | 8.11 | 0.127 |
+| advisor GO gate | 2.604500 | +0.6054 % | 41.35 | **0.649** |
+
+The GO gate independently reproduces the advisor's own "40 us" framing to within
+1.35 us, which is a useful check that the elasticity constant and the two
+thresholds were derived consistently.
+
+Three things follow.
+
+**The arm clears the contest almost regardless of transfer.** Taking the ranking
+lead needs 3.58 us on M5 -- a transfer factor of 0.056. My pessimistic
+occupancy model predicts 0.50. Even if the wave model is wrong by an order of
+magnitude in the unfavourable direction, the receipt still beats the field.
+
+**The GO gate is a different question from winning.** It needs 0.649, which sits
+*above* my pre-registered 0.50-0.75 band's midpoint. So the most likely single
+outcome of receipt #1 is a submission that takes the ranking lead and lands in
+the advisor's ADJUDICATE band rather than clearing GO:
+
+| transfer | us saved | score | ranking | advisor verdict |
+|---|---|---|---|---|
+| 0.50 (my model) | 31.9 | 2.60090 | beats bar | ADJUDICATE |
+| 0.75 (r1 figure) | 47.8 | 2.60693 | beats bar | GO |
+| 1.00 (comment 7) | 63.7 | 2.61297 | beats bar | GO |
+
+This is exactly why section 10.7 asks for ranking status and `ns` to be reported
+as two separate facts. A `rejected` receipt would mean the score did not beat
+the current best; an ADJUDICATE `ns` means the advisor's gate was not cleared.
+They can disagree, and under my own prediction they probably will.
+
+**There is a narrow window where the two verdicts invert.** For
+`ns` in `[2.59019, 2.59190)` -- 0.066 % of score, 4.52 us of `T`, about 7 % of
+the M4 saving -- the submission beats every other solver in the field and the
+advisor's pre-registered rule closes the arm as a KILL. I am not asking for the
+band to move: it was pre-registered, I accepted it, and a bar relaxed after the
+fact is not a bar. I am flagging that the band was calibrated against a
+programme-wide "is this worth carrying" standard, while the contest is now being
+decided at 0.05 %, and those are no longer the same question. If the receipt
+lands in that window I will report it as a KILL by the stated rule and say
+plainly that it also took the lead.
