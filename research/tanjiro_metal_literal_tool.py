@@ -24,6 +24,17 @@ dedent FILE
 
 verify FILE
     Assert the parser round-trips FILE byte-for-byte.
+
+strip FILE
+    Apply tier T2 in place: delete `//` line comments that sit inside literal
+    bodies.  Refuses to touch a `\\`-continued macro body, a Swift
+    newline-continuation line, or a forbidden region.  Idempotent.
+
+certify BASEDIR CANDDIR
+    T2 certificate.  For every dumped string, either the candidate is
+    byte-identical to the base, or an *independent* C-style comment stripper
+    applied to the base reproduces the candidate byte-for-byte.  Any other
+    outcome is reported as UNEXPLAINED and exits non-zero.
 """
 
 from __future__ import annotations
@@ -349,6 +360,229 @@ def cmd_dedent(path):
               f"indent={b.indent} foregone={cost} B")
 
 
+# --------------------------------------------------------------------------- #
+# strip (T2) - remove `//` line comments that sit inside literal bodies
+# --------------------------------------------------------------------------- #
+
+TRAILING_BS = re.compile(r"(\\+)$")
+
+
+def swift_comment_at(line):
+    """Index of the `//` that opens a Metal line comment, or None.
+
+    Scans the *Swift source* text of one literal body line.  Raises on any
+    shape the scanner does not model, so an unexpected construct stops the
+    tool instead of silently corrupting a kernel.
+    """
+    if "/*" in line or "*/" in line:
+        raise SystemExit(f"block comment inside literal: {line!r}")
+    m = TRAILING_BS.search(line)
+    if m and len(m.group(1)) % 2 == 1:
+        # Swift newline-continuation escape: the line boundary is significant.
+        return None
+    n = len(line)
+    i = 0
+    in_str = False
+    while i < n:
+        c = line[i]
+        if in_str:
+            if c == "\\":
+                i += 2
+            elif c == '"':
+                in_str = False
+                i += 1
+            else:
+                i += 1
+            continue
+        if c == "\\":
+            if i + 1 < n and line[i + 1] == "(":
+                depth = 1
+                j = i + 2
+                while j < n and depth:
+                    if line[j] == "(":
+                        depth += 1
+                    elif line[j] == ")":
+                        depth -= 1
+                    elif line[j] == '"':
+                        j += 1
+                        while j < n and line[j] != '"':
+                            j += 2 if line[j] == "\\" else 1
+                    j += 1
+                if depth:
+                    raise SystemExit(f"interpolation not closed on its line: {line!r}")
+                i = j
+                continue
+            i += 2
+            continue
+        if c == '"':
+            in_str = True
+            i += 1
+            continue
+        if line.startswith("//", i):
+            return i
+        i += 1
+    if in_str:
+        raise SystemExit(f"unterminated Metal string literal on one line: {line!r}")
+    return None
+
+
+def macro_body_lines(lines, body_range):
+    """Body lines that belong to a `\\`-continued preprocessor macro."""
+    out = set()
+    for l in body_range:
+        m = TRAILING_BS.search(lines[l - 1])
+        if m:
+            out.add(l)
+            out.add(l + 1)
+    return out
+
+
+def cmd_strip(path):
+    lines, trailing_nl = read_lines(path)
+    blocks = parse(lines)
+    ranges = excluded_ranges(lines)
+    before = join_lines(lines, trailing_nl).encode()
+    out = list(lines)
+    drop = set()
+    deleted = truncated = 0
+    skipped = []
+    for b in blocks:
+        if is_excluded(b, ranges):
+            skipped.append(b)
+            continue
+        macro = macro_body_lines(lines, b.body)
+        for l in b.body:
+            line = lines[l - 1]
+            at = swift_comment_at(line)
+            if at is None:
+                continue
+            if l in macro:
+                raise SystemExit(
+                    f"line {l}: comment inside a `\\`-continued macro body; "
+                    f"§5.2 forbids touching these: {line!r}"
+                )
+            prefix = line[:at]
+            if prefix.strip() == "":
+                drop.add(l)
+                deleted += 1
+            else:
+                new = prefix.rstrip()
+                m = TRAILING_BS.search(new)
+                if m and len(m.group(1)) % 2 == 1:
+                    raise SystemExit(f"line {l}: truncation would create a continuation escape")
+                out[l - 1] = new
+                truncated += 1
+    for l in sorted(drop):
+        prev = l - 1
+        m = TRAILING_BS.search(lines[prev - 1])
+        if m and len(m.group(1)) % 2 == 1:
+            raise SystemExit(f"line {l}: deleting a line after a continuation escape")
+    kept = [s for i, s in enumerate(out, 1) if i not in drop]
+    after = join_lines(kept, trailing_nl).encode()
+    open(path, "wb").write(after)
+    print(f"T2: {deleted} comment-only lines deleted, {truncated} trailing comments cut, "
+          f"{len(before) - len(after)} bytes removed, new size {len(after)} B")
+    for b in skipped:
+        pool = 0
+        for l in b.body:
+            line = lines[l - 1]
+            try:
+                at = swift_comment_at(line)
+            except SystemExit:
+                continue  # a shape the scanner refuses; it is excluded anyway
+            if at is not None:
+                pool += (len(line) + 1) if line[:at].strip() == "" else (len(line) - len(line[:at].rstrip()))
+        print(f"  skipped (forbidden region): {b.label} L{b.open_line}-{b.close_line} "
+              f"comment bytes foregone={pool}")
+
+
+# --------------------------------------------------------------------------- #
+# certify (T2) - independent comment stripper applied to the base MSL dumps
+# --------------------------------------------------------------------------- #
+
+def strip_comments_msl(text, skip_interpolations=False):
+    """Remove `//` comments from a Metal source string.
+
+    Deliberately a *separate, simpler* implementation from `swift_comment_at`:
+    a plain C-like scanner over the emitted text.  Agreement between the two
+    is the T2 certificate.
+    """
+    res = []
+    for line in text.split("\n"):
+        n = len(line)
+        i = 0
+        in_str = False
+        in_char = False
+        at = None
+        while i < n:
+            c = line[i]
+            if in_str or in_char:
+                if c == "\\":
+                    i += 2
+                    continue
+                if (c == '"' and in_str) or (c == "'" and in_char):
+                    in_str = in_char = False
+                i += 1
+                continue
+            if skip_interpolations and c == "\\" and i + 1 < n and line[i + 1] == "(":
+                depth = 1
+                j = i + 2
+                while j < n and depth:
+                    if line[j] == "(":
+                        depth += 1
+                    elif line[j] == ")":
+                        depth -= 1
+                    j += 1
+                i = j
+                continue
+            if c == '"':
+                in_str = True
+            elif c == "'":
+                in_char = True
+            elif line.startswith("//", i):
+                at = i
+                break
+            i += 1
+        if at is None:
+            res.append(line)
+            continue
+        prefix = line[:at]
+        if prefix.strip() == "":
+            continue
+        res.append(prefix.rstrip())
+    return "\n".join(res)
+
+
+def cmd_certify(basedir, canddir):
+    names = sorted(f for f in os.listdir(basedir) if f.endswith(".msl"))
+    cand_names = sorted(f for f in os.listdir(canddir) if f.endswith(".msl"))
+    if names != cand_names:
+        raise SystemExit(f"dump sets differ: {set(names) ^ set(cand_names)}")
+    identical = differ = matched = failed = 0
+    failures = []
+    for name in names:
+        base = open(os.path.join(basedir, name)).read()
+        cand = open(os.path.join(canddir, name)).read()
+        if base == cand:
+            identical += 1
+            continue
+        differ += 1
+        if strip_comments_msl(base) == cand:
+            matched += 1
+        elif strip_comments_msl(base, skip_interpolations=True) == cand:
+            matched += 1
+            failures.append((name, "matched only with interpolation-skipping scanner"))
+        else:
+            failed += 1
+            failures.append((name, "UNEXPLAINED"))
+    print(f"certify: {len(names)} strings compared; {identical} byte-identical; "
+          f"{differ} differ; {matched} explained as pure comment removal; {failed} UNEXPLAINED")
+    for name, why in failures:
+        print(f"  {name}: {why}")
+    if failed:
+        raise SystemExit("T2 certificate FAILED")
+
+
 def cmd_verify(path):
     lines, trailing_nl = read_lines(path)
     raw = open(path, "rb").read()
@@ -373,6 +607,10 @@ def main():
         cmd_dedent(path)
     elif cmd == "verify":
         cmd_verify(path)
+    elif cmd == "strip":
+        cmd_strip(path)
+    elif cmd == "certify":
+        cmd_certify(path, sys.argv[3])
     else:
         raise SystemExit(__doc__)
 
