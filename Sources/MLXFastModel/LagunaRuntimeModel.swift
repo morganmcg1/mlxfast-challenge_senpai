@@ -4023,6 +4023,9 @@ func lagunaGatedAffineOProj(
 
 // MARK: - Gated NVFP4 output projection for the affine tail layers
 
+let lagunaOProjLaneMajorHoistEnabled = ProcessInfo.processInfo.environment[
+    "DARKBLOOM_OPROJ_LM_HOIST"] == "1"
+
 /// NVFP4 twin of `lagunaGatedAffineOProjSource` for layers using the native
 /// group-16 NVFP4 output projection. It folds the softplus gate, broadcast
 /// product, and contraction into one dispatch while preserving the BF16 gate
@@ -4033,7 +4036,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
     preActivatedGate: Bool = false,
     laneMajor: Bool = false,
-    pairwise: Bool = false
+    pairwise: Bool = false,
+    hoistBases: Bool = lagunaOProjLaneMajorHoistEnabled
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -4117,6 +4121,20 @@ for(uint i=0;i<values_per_thread;++i)
     // speculate the wide read this replaces.
     let nibDiv = pairwise ? 4 : 2
     let laneIdx = pairwise ? "(simd_lid >> 1)" : "simd_lid"
+    // `bs` is never advanced, so the row base and its escape flag are invariant
+    // across the K loop; hoisting them lifts a dependent byte load per row-step.
+    let hoistDecl =
+        hoistBases
+        ? """
+thread uint8_t rbv[results_per_simdgroup];
+thread bool escv[results_per_simdgroup];
+#pragma unroll
+for (uint row = 0; row < results_per_simdgroup; ++row) {
+    rbv[row] = bs[row];
+    escv[row] = rbv[row] == 0xFFu;
+}
+"""
+        : ""
     let scaleSetup =
         laneMajor
         ? """
@@ -4127,6 +4145,7 @@ const device uint8_t* bs = scale_bases + out_row;
 const device uint8_t* sc = weight_scales +
     out_row * in_vec_size_g + simd_lid;
 uint nsh = 0;
+\(hoistDecl)
 """
         : """
 const device uint8_t* sc = weight_scales +
@@ -4135,8 +4154,8 @@ const device uint8_t* sc = weight_scales +
     let scaleRead =
         laneMajor
         ? """
-const uint8_t rb = bs[row];
-    const bool esc = rb == 0xFFu;
+const uint8_t rb = \(hoistBases ? "rbv[row]" : "bs[row]");
+    const bool esc = \(hoistBases ? "escv[row]" : "rb == 0xFFu");
     const device uint8_t* sp = esc
         ? (sc + row * in_vec_size_g)
         : (nq + row * (in_vec_size_g / \(nibDiv)));
@@ -4252,6 +4271,7 @@ private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKe
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1_lm1"
+                + (lagunaOProjLaneMajorHoistEnabled ? "_hb1" : "")
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
@@ -4272,10 +4292,25 @@ private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKe
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
 
-private func lagunaGateSoftplusSource(heads: Int) -> String {
-    """
+// Sweep knobs for the gate_sp occupancy repair. `R` rows per simdgroup and
+// `NS` simdgroups per threadgroup jointly set the tile height `NS*R`, hence the
+// threadgroup count `heads/(NS*R)`. The stock 8-row tile leaves 8 threadgroups
+// at h64 on a 40-core GPU.
+private let lagunaGateSoftplusRows: Int = {
+    let v = Int(ProcessInfo.processInfo.environment["DARKBLOOM_GATESP_R"] ?? "") ?? 4
+    return [1, 2, 4].contains(v) ? v : 4
+}()
+
+private let lagunaGateSoftplusSimdgroups: Int = {
+    let v = Int(ProcessInfo.processInfo.environment["DARKBLOOM_GATESP_NS"] ?? "") ?? 2
+    return [2, 4].contains(v) ? v : 2
+}()
+
+private func lagunaGateSoftplusSource(heads: Int, rows: Int, simdgroups: Int) -> String {
+    let seed = Array(repeating: "0.0f", count: rows).joined(separator: ",")
+    return """
 constexpr uint K=\(LagunaConstants.hiddenSize),GS=32,V=8;
-constexpr uint BK=V*32,R=4,NS=2,KG=K/GS,SS=GS/V;
+constexpr uint BK=V*32,R=\(rows),NS=\(simdgroups),KG=K/GS,SS=GS/V;
 uint tile=threadgroup_position_in_grid.x;
 uint sg=simdgroup_index_in_threadgroup;
 uint lane=thread_index_in_simdgroup;
@@ -4284,7 +4319,7 @@ const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
 const device bfloat* sc=scales+orow*KG+lane/SS;
 const device bfloat* bs=biases+orow*KG+lane/SS;
 thread float x[V];
-thread float r[R]={0.0f,0.0f,0.0f,0.0f};
+thread float r[R]={\(seed)};
 uint col=lane*V;
 for(uint k=0;k<K;k+=BK){
     float sum=0.0f;
@@ -4321,10 +4356,13 @@ private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_gate_sp_h\(heads)_v1",
+            name: "laguna_gate_sp_h\(heads)_v1"
+                + "_r\(lagunaGateSoftplusRows)n\(lagunaGateSoftplusSimdgroups)",
             inputNames: ["input", "packed_codes", "scales", "biases"],
             outputNames: ["gate_values"],
-            source: lagunaGateSoftplusSource(heads: heads),
+            source: lagunaGateSoftplusSource(
+                heads: heads, rows: lagunaGateSoftplusRows,
+                simdgroups: lagunaGateSoftplusSimdgroups),
             ensureRowContiguous: true)
     }
     return result
@@ -4344,10 +4382,12 @@ private func lagunaGateSoftplus(
         biases.dims(heads, LagunaConstants.hiddenSize / 32)
     else { return nil }
 
+    let width = lagunaGateSoftplusSimdgroups * 32
+    let tiles = heads / (lagunaGateSoftplusSimdgroups * lagunaGateSoftplusRows)
     return kernel(
         [input, bank.packedCodes, bank.scales, biases],
-        grid: ((heads / 8) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: (tiles * width, 1, 1),
+        threadGroup: (width, 1, 1),
         outputShapes: [[1, 1, heads]],
         outputDTypes: [.bfloat16])[0]
 }
@@ -4375,6 +4415,7 @@ private let lagunaActivatedOProjLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1_lm1"
+                + (lagunaOProjLaneMajorHoistEnabled ? "_hb1" : "")
                 + (lagunaAttnScalePairwiseOProjEnabled ? "_pw1" : "")
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
                 + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
