@@ -918,3 +918,135 @@ func lagunaLaneMajorScaleBankReproducesScales(
         .asType(.int32).sum().item(Int32.self)
     return mismatches == 0
 }
+
+/// Size of the patch header that `lagunaHalvedGroup32ScalePlane` puts in
+/// front of a group-32 halved scale plane. One byte per allowed exception
+/// pair is used; the rest is padding that keeps the plane itself aligned to a
+/// full Apple GPU cache line.
+let lagunaScalePatchHeaderBytes = 128
+
+/// Byte length of the halved packed routed gate/up scale bank, header included.
+let lagunaPackedRoutedGateUpScaleBytes =
+    lagunaScalePatchHeaderBytes
+    + LagunaConstants.numExperts * 2 * LagunaConstants.moeIntermediateSize * 4
+    * (LagunaConstants.hiddenSize / 128)
+
+/// Byte length of the halved routed down-projection scale plane, header
+/// included.
+let lagunaRoutedDownScaleBytes =
+    lagunaScalePatchHeaderBytes
+    + LagunaConstants.numExperts * LagunaConstants.hiddenSize
+    * (LagunaConstants.moeIntermediateSize / 32)
+
+/// Halves a group-16 NVFP4 uint8 scale plane along its last (group) axis by
+/// keeping only the even-indexed byte of every adjacent group pair, so a
+/// decode kernel reads one scale byte per 32 weights instead of two.
+///
+/// The shipped Laguna checkpoint stores one scale byte per 16 weights, but its
+/// expert planes were produced by MLX's Metal `fp_quantize`, whose
+/// per-simdgroup absmax makes both halves of every 32-weight span carry the
+/// same byte. Census over all 39 sparse layers (234 tensors, 985,300,992
+/// pairs): 985,300,824 pairs are byte-identical and all 168 exceptions are the
+/// very first pair of a tensor, the one span the quantizer's first simdgroup
+/// writes twice.
+///
+/// `allowedFlatPairs` lists the flat pair indices allowed to break the rule.
+/// Their odd byte is copied into a `lagunaScalePatchHeaderBytes` header placed
+/// in front of the halved plane, which both keeps the plane cache-line aligned
+/// and lets the kernels restore the exact byte without a second buffer
+/// binding. Returns nil unless every other discarded odd byte is bitwise equal
+/// to its even partner, so the halved plane is installed only when it is
+/// provably lossless for the loaded checkpoint; callers keep their
+/// full-resolution path for the nil case.
+func lagunaHalvedGroup32ScalePlane(
+    _ scales: MLXArray, allowedFlatPairs: [Int]
+) -> MLXArray? {
+    let pairCount = scales.size / 2
+    guard scales.dtype == .uint8, scales.ndim >= 1, scales.dim(-1) % 2 == 0,
+        !allowedFlatPairs.isEmpty,
+        allowedFlatPairs.count <= lagunaScalePatchHeaderBytes,
+        allowedFlatPairs.allSatisfy({ $0 >= 0 && $0 < pairCount })
+    else {
+        return nil
+    }
+    let pairs = scales.reshaped([pairCount, 2])
+    let even = pairs[0..., 0]
+    let odd = pairs[0..., 1]
+    let mismatch = MLX.notEqual(even, odd).asType(.int32)
+    var violations = mismatch.sum()
+    for index in allowedFlatPairs {
+        violations = violations - mismatch[index]
+    }
+    guard violations.item(Int32.self) == 0 else { return nil }
+    var header = [UInt8](repeating: 0, count: lagunaScalePatchHeaderBytes)
+    for (slot, index) in allowedFlatPairs.enumerated() {
+        header[slot] = odd[index].item(UInt8.self)
+    }
+    return contiguous(concatenated([MLXArray(header), even]))
+}
+
+extension LagunaRuntimeSparseMoEBlock {
+    /// Builds the `DARKBLOOM_PACKED_SCALES` side bank from the (lazy) fused
+    /// routed gate/up arrays: bytes are only reordered, never recomputed.
+    /// Per expert the packed layout is `[tile 128][k-block 4][sub 8][16 B]`
+    /// with `sub = (simd_group*2 + row)*2 + {0 gate, 1 up}`, behind the shared
+    /// `lagunaScalePatchHeaderBytes` header. The row remap
+    /// below (gateRow = (logical/32)*64 + logical%32, up = +32) is the stock
+    /// kernel's mapping over the 32-row gate/up-interleaved fused bank, baked
+    /// into scale storage order. The code bytes remain in the resident fused
+    /// weight bank, so this side copy is ~32 MB per sparse layer instead of
+    /// duplicating the ~256 MB code bank.
+    func preparePackedRoutedGateUpBank(
+        fusedScales: MLXArray,
+        experts: Int,
+        split: Int
+    ) -> [MLXArray] {
+        guard lagunaPackedScalesEnabled else { return [] }
+        guard split == LagunaConstants.moeIntermediateSize,
+            experts == LagunaConstants.numExperts,
+            LagunaConstants.hiddenSize == 2048
+        else {
+            lagunaPackedScalesLog.note(
+                "inactive", "packed routed gate/up bank (geometry guard declined)")
+            return []
+        }
+        let rows = 2 * split  // 1024 fused (gate/up-interleaved) rows
+        let rowBlocks = fusedScales.reshaped([experts, rows * 4, 32])
+        // Walk-order gather over scale row-blocks: packed position (tile,
+        // kblock, sub) reads fused scale row-block (fusedRow, kblock).
+        var order = [Int32]()
+        order.reserveCapacity(rows * 4)
+        for tile in 0..<(rows / 8) {
+            for kblock in 0..<4 {
+                for sub in 0..<8 {
+                    let logicalRow = tile * 4 + sub / 2
+                    let gateRow = (logicalRow / 32) * 64 + logicalRow % 32
+                    let fusedRow = sub % 2 == 0 ? gateRow : gateRow + 32
+                    order.append(Int32(fusedRow * 4 + kblock))
+                }
+            }
+        }
+        // `take(axis: 1)` materializes with permuted strides (NOT
+        // row-contiguous), and the custom kernel's `ensureRowContiguous`
+        // would then re-copy the side bank on EVERY dispatch. Force the
+        // one-time row-contiguous materialization here, at init, so dispatches
+        // bind the bank buffer directly.
+        let packed = contiguous(take(rowBlocks, MLXArray(order), axis: 1))
+        // Group-32 halving: inside a packed 32-byte row-block lane `l` reads
+        // original group `l`, so the checkpoint's byte-identical (2k, 2k+1)
+        // group pairs collapse to `half[l >> 1]`. The walk order puts fused
+        // gate row 0 of expert 0 at row-block 0 and fused up row 0 at
+        // row-block 1, so their first pairs are flat pair 0 and 16 -- the
+        // only two the quantizer can leave unequal in this bank.
+        guard let halved = lagunaHalvedGroup32ScalePlane(
+            packed, allowedFlatPairs: [0, 16])
+        else {
+            lagunaPackedScalesLog.note(
+                "inactive", "packed routed gate/up bank (scale halving declined)")
+            return []
+        }
+        _packedRoutedGateUpBank = halved
+        lagunaPackedScalesLog.note("active", "packed routed gate/up bank prepared")
+        return [halved]
+    }
+}
