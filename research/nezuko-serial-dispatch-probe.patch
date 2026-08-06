@@ -1,0 +1,42 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+index 2a8e15a..590e40f 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+@@ -1,5 +1,6 @@
+ // Copyright © 2023-2024 Apple Inc.
+ 
++#include <cstdio>
+ #include <cstdlib>
+ #include <sstream>
+ 
+@@ -542,10 +543,28 @@ void CommandEncoder::synchronize() {
+   }
+ }
+ 
++namespace {
++
++// Research probe (PR #101 reproduction). Not part of the submitted surface.
++bool darkbloom_force_serial_dispatch() {
++  static const bool value = [] {
++    const char* raw = std::getenv("DARKBLOOM_FORCE_SERIAL_DISPATCH");
++    bool on = raw != nullptr && raw[0] == '1';
++    std::fprintf(stderr, "DARKBLOOM_SERIAL_DISPATCH_PROBE force_serial=%d\n",
++                 on ? 1 : 0);
++    std::fflush(stderr);
++    return on;
++  }();
++  return value;
++}
++
++} // namespace
++
+ MTL::ComputeCommandEncoder* CommandEncoder::get_command_encoder() {
+   if (!encoder_) {
+-    encoder_ = NS::RetainPtr(
+-        buffer_->computeCommandEncoder(MTL::DispatchTypeConcurrent));
++    encoder_ = NS::RetainPtr(buffer_->computeCommandEncoder(
++        darkbloom_force_serial_dispatch() ? MTL::DispatchTypeSerial
++                                          : MTL::DispatchTypeConcurrent));
+     fence_ = NS::TransferPtr(device_.mtl_device()->newFence());
+     // Reset error when user starts to encode new commands, they are supposed to
+     // have handled the error in synchronize() or Event::wait().
