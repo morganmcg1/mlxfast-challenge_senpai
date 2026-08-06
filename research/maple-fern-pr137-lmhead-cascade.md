@@ -1720,3 +1720,154 @@ Three habits should change, and none of them costs a run.
    bar. The GO/KILL band in section 11.5 was written before this was known; it
    is honoured as pre-registered, but a band 0.7 sigma wide should not have
    been set on a single point, and the next one should not be.
+
+### 13.11 Correction, before the receipt: the band is on `ns`, and my sigma was three times too large
+
+Written after 13.1-13.10 and still before the receipt for `99b71258` landed.
+Re-reading the advisor's authorisation comment against my own arithmetic
+turned up two errors in the section above, one of which inverts its main
+recommendation. Both are corrected here rather than edited into the text
+above, so the order in which I knew things stays auditable.
+
+**Error 1: I put the GO/KILL band in the wrong units.** The advisor wrote
+"judge by `ns`, never `officialScore`", gave the anchor as
+`ns = 2.5982163` for receipt `97a5090`, and set GO and KILL at `+-0.243 %` of
+it. My fixed-normaliser statistic evaluated on that receipt is
+
+```
+ns(97a5090c) = (0.013890/d)^0.75 * (0.0003845/p)^0.25 = 2.5982163
+```
+
+which reproduces his anchor to every digit he quoted, so his `ns` and mine are
+the same quantity. The thresholds then check out exactly:
+
+| anchor | GO 2.6045 | KILL 2.5919 |
+|---|---|---|
+| **`ns`(97a5090c) = 2.5982163** | **+0.242 %** | **-0.243 %** |
+| `officialScore`(97a5090c) = 2.5888278 | +0.605 % | +0.119 % |
+| `currentBestScore` = 2.5901857 | +0.553 % | +0.066 % |
+
+Only the first row is the symmetric `+-0.243 %` he described. The band lives
+on `ns`. Section 13.8's sentence "the primary verdict stays exactly as section
+11.5 set it: GO if `officialScore >= 2.6045`" is therefore wrong, and so is
+the 13.7 table that measures those thresholds against the ranking bar. The
+near-coincidence that `KILL = 2.5919` sits 0.066 % from `currentBestScore =
+2.5901857` is what let the mistake survive; they are different quantities that
+happen to land close together.
+
+This matters. On the `ns` axis the two thresholds are symmetric about our own
+promoted receipt and say something clean - "did we move `ns` by more than a
+quarter of a percent in either direction". Read as `officialScore` thresholds
+they are lopsided and mostly a statement about a bar set by another campaign.
+
+**Error 2: my cluster CVs are contaminated, and the contamination is entirely
+on the candidate axes.** The advisor's noise numbers, "pooled cv 0.149 % vs
+0.553 %", reproduce as the two documented identical-tree replicate triplets:
+mean per-triplet CV 0.553 % on `officialScore` and 0.128 % on `ns`, pooled
+over 4 dof 0.559 % and 0.138 %. Those six rows are the gold standard - the
+notes say so in as many words ("an identical tree, submitted twice, to measure
+the official run-to-run noise floor"), and all six share `golden_hash
+be7738fccd6a` and `weights_hash aff99430`. I dismissed them in 13.10 as
+"collected and then not used"; in fact they were used, by him, correctly.
+
+Both estimates on the same statistics:
+
+| statistic | triplets (identical trees) | my 27 clusters | ratio |
+|---|---|---|---|
+| baseline decode s/tok | 0.243 % | 0.249 % | 1.02 |
+| baseline prefill s/tok | 2.457 % | 1.949 % | 0.79 |
+| candidate decode s/tok | 0.197 % | 0.294 % | 1.49 |
+| candidate prefill s/tok | 0.195 % | 0.912 % | 4.68 |
+| `officialScore` | 0.559 % | 0.753 % | 1.35 |
+| `ns` | 0.138 % | 0.425 % | 3.08 |
+| `nsd` | 0.148 % | 0.220 % | 1.49 |
+
+The **baseline** rows agree between the two methods to within 20 %, which they
+must, because no candidate code can move the baseline arm. The **candidate**
+rows do not, and candidate prefill disagrees by 4.7x. That is the signature of
+exactly the bias my clustering rule allows: I required candidate *decode* to
+span under 1.5 % within a cluster and put no constraint at all on candidate
+prefill, so a cluster of a solver's day happily contains arms with genuinely
+different prefill. My candidate-side CVs are upper bounds containing real
+code differences; the triplets measure the instrument. **The triplet numbers
+supersede mine wherever they disagree, and `analyze_receipt.py` now carries
+them.**
+
+**What this does to the conclusions above.**
+
+Strengthened:
+
+- The variance budget argument gets stronger, not weaker. On identical trees
+  the candidate prefill measurement is quiet (0.195 %) while the *baseline*
+  prefill is wild (2.457 %). Propagating through
+  `score = dspd^0.75 * pspd^0.25`, the baseline prefill draw alone accounts
+  for about 84 % of the variance of `officialScore`, against the 64 % I
+  estimated in 13.4.
+- The pairing result survives and sharpens: within-triplet
+  `rho(candidate, baseline)` is **-0.346** on decode and **+0.076** on
+  prefill. Dividing by the paired baseline still adds variance rather than
+  cancelling it, and the measured `decode_speedup` CV of 0.361 % is exactly
+  what `sqrt(0.197^2 + 0.243^2 - 2*(-0.346)*0.197*0.243)` predicts.
+- 13.6 is untouched: the bar being an inflated order statistic is arithmetic
+  on published rows, not a noise estimate.
+- 13.5's retraction of the drift claim is untouched, and now matters more:
+  the triplets all sit inside two hours of 2026-08-04, so on their own they
+  bound only short-timescale noise. The 0.052 % day-to-day figure is what
+  licenses using them for a comparison against a receipt from 08-06.
+
+Reversed:
+
+- **13.8's central recommendation is withdrawn.** I argued that the decode
+  axis was 3.4x tighter than `ns` and should be the statistic of record. On
+  identical trees `ns` (0.138 %) and `nsd` (0.148 %) are indistinguishable -
+  ratio 0.94x - because dropping a candidate prefill term that is itself only
+  0.195 % noisy buys nothing. The 3.4x I measured was 3.4x less contamination,
+  not 3.4x less noise. The real and large gain, 4.05x, is `officialScore` ->
+  `ns`, which is precisely the substitution the advisor prescribed.
+- **13.7's "the band is a coin flip" is withdrawn.** Against the correct axis
+  and the correct sigma the pre-registered band is a real threshold:
+
+| | vs sd | sd of paired difference | GO in sigma | full transfer in sigma |
+|---|---|---|---|---|
+| `ns`, triplet sd 0.138 % | 0.138 % | 0.195 % | **+1.24** | **+4.78** |
+| `ns`, my cluster sd 0.425 % | 0.425 % | 0.601 % | +0.40 | +1.55 |
+| `officialScore`, triplet sd 0.559 % | 0.559 % | 0.791 % | +0.31 | +1.18 |
+
+  A full-transfer effect is `0.933 %` of `ns`, so a single receipt read on
+  `ns` estimates the transfer factor with **sd 0.209** - better than the 0.33
+  I claimed for the decode axis and five times better than reading
+  `officialScore`. The advisor's instrument choice was right and my proposed
+  replacement was a step sideways at best.
+
+**The pre-registration, restated correctly and still before the fact.**
+
+- **Primary, unchanged from the advisor's r2 authorisation:** GO if
+  `ns >= 2.6045`, KILL if `ns < 2.5919`, adjudicate the middle on the transfer
+  factor. `ns` is the fixed-normaliser statistic above, referenced to
+  `ns(97a5090c) = 2.5982163`.
+- **Transfer factor:** `t = (ns/2.5982163 - 1) / 0.933 %`, with 1 sigma
+  **+-0.21** from the identical-tree replicates. Section 11.4 predicted
+  `t ~ 0.50`; the advisor predicted `t ~ 1.00`. Those are 2.4 sigma apart on
+  this axis, so one receipt genuinely does discriminate them.
+- **Corroborating:** `nsd` and the raw candidate decode microseconds against
+  `97a5090c`'s `4.9083720703125 ms`, 1 sigma 0.197 %. Reported alongside, not
+  instead.
+- **Ranking:** `officialScore` against `currentBestScore = 2.59018571539341`
+  decides whether the receipt is accepted and promoted. It is reported and it
+  is what the leaderboard sees, but per the advisor it does not decide the
+  arm.
+- Unchanged: the six-merge confound in 13.9 still applies to every
+  cross-receipt comparison here, and the flipped-default A/B remains the way
+  to remove it. On the corrected `ns` axis that A/B separates `t = 0.5` from
+  `t = 1.0` by 2.4 sigma, so it is worth the second receipt for a sharper
+  reason than I gave in 13.9.
+
+13.10's third habit stands, with its first two rewritten by this section:
+prefer fixed normalisers because the *baselines* are the noisy part, not
+because pairing is theoretically impure; and stop reading `officialScore` as
+exact, because one draw is +-0.56 %, not +-0.75 %. The honest summary of
+sections 13.1 to 13.10 is that clustering was a reasonable way to look for
+replicates in a feed that hides them, that it recovered the baseline-side
+noise correctly, and that it should have been checked against the six rows
+where the answer was already known before it was used to argue with the
+advisor's band.

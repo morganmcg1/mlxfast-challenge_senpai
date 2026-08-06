@@ -42,13 +42,15 @@ BEST_NSD = 2.17645653
 PROMOTED_NS_FIXED = 2.59821630
 PROMOTED_NSD = 2.18184340
 
-# Instrument noise, from 27 same-solver/same-day clusters (253 rows) of the
-# public feed whose candidate decode spread is under 1.5 %.  See section 13.
-SD_SCORE_PCT = 0.753
-SD_NS_PCT = 0.425
-SD_NSD_PCT = 0.220
-SD_DSPD_PCT = 0.334
-SD_DECODE_PCT = 0.294
+# Instrument noise from the two documented identical-tree replicate triplets
+# (f8502e12/71586bcf/f3cda678 and 5d522d6a/5e0e9cd1/c210d200; 6 rows, 4 dof).
+# Section 13.11: the 27-cluster estimates are contaminated by real code
+# differences on the candidate axes and are upper bounds, not noise.
+SD_SCORE_PCT = 0.559
+SD_NS_PCT = 0.138
+SD_NSD_PCT = 0.148
+SD_DSPD_PCT = 0.361
+SD_DECODE_PCT = 0.197
 
 # Score-axis size of a full-transfer (t = 1) effect, from the section 11.5
 # elasticity: 63.7 us * 0.01464 %/us.
@@ -117,37 +119,38 @@ def main():
     dspd = met.get("decode_speedup")
     pspd = met.get("prefill_speedup")
 
-    print("--- score axis: officialScore (pre-registered, section 11.5) ---")
+    print("--- PRIMARY: ns, fixed normalisers (advisor's pre-registered band) ---")
+    print(f"ns                {ns:.8f}   [1 sigma = {SD_NS_PCT} %]")
+    print(f"  vs 97a5090c {PROMOTED_NS_FIXED:.8f}"
+          f"   {(ns / PROMOTED_NS_FIXED - 1) * 100:+.3f} %")
+    print(f"  GO   >= {GO_NS}   -> {'GO' if ns >= GO_NS else 'no'}")
+    print(f"  KILL <  {KILL_NS}   -> {'KILL' if ns < KILL_NS else 'no'}")
+    if KILL_NS <= ns < GO_NS:
+        print("  -> inside the pre-registered adjudication window;"
+              " advisor adjudicates on the transfer factor")
+    t, sdt = transfer((ns / PROMOTED_NS_FIXED - 1) * 100, EFFECT_SCORE_PCT, SD_NS_PCT)
+    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}")
+    print(f"  vs bar   {BEST_NS_FIXED:.8f}   {(ns / BEST_NS_FIXED - 1) * 100:+.3f} %")
+    print()
+
+    print("--- ranking axis: officialScore (decides promotion, not the arm) ---")
     print(f"officialScore     {score:.8f}")
     print(f"  vs bar {BEST_NS:.8f}   {score - BEST_NS:+.8f}"
           f"  ({(score / BEST_NS - 1) * 100:+.3f} %)   [1 sigma = {SD_SCORE_PCT} %]")
-    print(f"  GO   >= {GO_NS}   -> {'GO' if score >= GO_NS else 'no'}")
-    print(f"  KILL <  {KILL_NS}   -> {'KILL' if score < KILL_NS else 'no'}")
-    if KILL_NS <= score < GO_NS:
-        print("  -> inside the pre-registered adjudication window")
-    if BEST_NS <= score < KILL_NS:
-        print("  -> INVERSION: beats the ranking bar and is still a KILL")
+    print(f"  -> {'beats' if score > BEST_NS else 'does not beat'} the ranking bar")
     print(f"  vs promoted 97a5090c {PROMOTED_NS:.8f}"
           f"   {(score / PROMOTED_NS - 1) * 100:+.3f} %")
     t, sdt = transfer((score / PROMOTED_NS - 1) * 100, EFFECT_SCORE_PCT, SD_SCORE_PCT)
-    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}")
+    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}   (4x looser: see 13.11)")
     print()
 
-    print("--- same score, fixed normalisers (drops the baseline draw) ---")
-    print(f"ns                {ns:.8f}   [1 sigma = {SD_NS_PCT} %]")
-    print(f"  vs bar   {BEST_NS_FIXED:.8f}   {(ns / BEST_NS_FIXED - 1) * 100:+.3f} %")
-    print(f"  vs 97a5090c {PROMOTED_NS_FIXED:.8f}   {(ns / PROMOTED_NS_FIXED - 1) * 100:+.3f} %")
-    t, sdt = transfer((ns / PROMOTED_NS_FIXED - 1) * 100, EFFECT_SCORE_PCT, SD_NS_PCT)
-    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}")
-    print()
-
-    print("--- decode axis (pre-registered secondary, section 13) ---")
+    print("--- corroborating decode axis (section 13.8) ---")
     print(f"nsd = (norm/d)^.75 {nsd:.8f}   [1 sigma = {SD_NSD_PCT} %]")
     print(f"  vs bar   {BEST_NSD:.8f}   {(nsd / BEST_NSD - 1) * 100:+.3f} %")
     print(f"  vs 97a5090c {PROMOTED_NSD:.8f}   {(nsd / PROMOTED_NSD - 1) * 100:+.3f} %")
     t, sdt = transfer((nsd / PROMOTED_NSD - 1) * 100,
                       EFFECT_SCORE_PCT, SD_NSD_PCT)
-    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}   <-- tightest estimator")
+    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}")
     print(f"candidate decode  {d}   ({dms:.6f} ms)")
     print(f"  vs 97a5090c     {PROMOTED_DECODE_MS:.6f} ms"
           f"   {(PROMOTED_DECODE_MS - dms) * 1000.0:+.1f} us"
@@ -173,7 +176,7 @@ def main():
     print(f"candidate prefill {p}   (S = {S:.5f} ms, promoted {PROMOTED_S_MS})")
     if pspd:
         print(f"prefill_speedup   {pspd}   vs 97a5090c {PROMOTED_PSPD:.6f}"
-              f"   {(pspd / PROMOTED_PSPD - 1) * 100:+.3f} %   [1 sigma = 2.26 %]")
+              f"   {(pspd / PROMOTED_PSPD - 1) * 100:+.3f} %   [1 sigma = 2.45 %, all of it the baseline draw]")
     print(f"T (marginal, ms)  {T:.6f}   (promoted {PROMOTED_T_MS})"
           f"   {(T - PROMOTED_T_MS) * 1000.0:+.1f} us")
     print()
