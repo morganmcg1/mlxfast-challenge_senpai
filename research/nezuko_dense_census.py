@@ -115,7 +115,9 @@ def channel_bases(exp, base_axis, d):
     covering the most elements with exponent in [b, b + (1<<d) - 2]. The last
     code (all ones) is reserved as the escape marker.
     """
-    axis = 1 - base_axis  # reduce over the non-base axis
+    # BASE_AXIS names the axis the base is *constant along*, which is exactly
+    # the axis to reduce over when choosing that base.
+    axis = base_axis
     width = (1 << d) - 1  # codes 0 .. width-1 usable, `width` == escape
     lo = exp.min(axis=axis, keepdims=True)
     best_base = lo.copy()
@@ -145,8 +147,7 @@ def cmd_axis():
                 print(f"  d={d} base_axis={axis} [{tag}] esc_elt={esc/exp.size:.8f} max_per_channel={mx}")
             # min-placed base for contrast: shows placement, not the base
             # concept, is what makes the scheme work.
-            ax = 1 - right
-            lo = exp.min(axis=ax, keepdims=True)
+            lo = exp.min(axis=right, keepdims=True)
             w = (1 << d) - 1
             esc_min = int(((exp < lo) | (exp >= lo + w)).sum())
             print(f"  d={d} base=min (no search)         esc_elt={esc_min/exp.size:.8f}")
@@ -237,7 +238,7 @@ def cmd_scheme():
         bits, shape = load_bf16(name)
         _, exp, _ = parts(bits)
         base_axis = BASE_AXIS[name]
-        nch = shape[base_axis]
+        nch = shape[1 - base_axis]  # one base per channel
         n = exp.size
         print(f"\n{name} {shape} base_axis={base_axis} channels={nch}")
         for d in (3, 4, 5):
