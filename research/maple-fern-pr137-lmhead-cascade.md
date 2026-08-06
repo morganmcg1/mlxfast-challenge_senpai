@@ -292,7 +292,95 @@ Prefill is untouched by construction: the refine path is gated on
 
 ---
 
-## 5. What I did not do
+## 5. Programme-level finding: the greedy-token gate is blind to 1-ULP logit drift
+
+This is not a fact about this arm. It is a fact about our **instruments**, and it
+was produced as a by-product of §3.4's fault control. Promoted here at the
+advisor's request so it can be cited programme-wide.
+
+**Observation.** A deliberate one-ULP perturbation of every value stored by the
+lm-head refine kernel changed **64 of 65 logit digests** — i.e. essentially every
+decode step produced a different logit vector — and the same run reported
+**`token_mismatches: 0`**. The greedy argmax never moved.
+
+| instrument | control (unfaulted) | 1-ULP fault | discriminates? |
+|---|---|---|---|
+| SHA-256 over exact logit bits, `top_k = 100352`, 64 steps | `3447204b…` | `da56c419…`, 64/65 step digests differ | **yes** |
+| greedy token match (`token_mismatches`) | 0 | **0** | **no** |
+
+**Why this happens.** The gap between the argmax logit and the runner-up is
+enormous compared with one ULP of bf16 (or of the f32 accumulator), so the
+argmax is stable under perturbations many orders of magnitude larger than the
+smallest representable change. The token gate therefore certifies *ranking
+stability*, not *numerical identity*. Those are different claims, and only the
+second one is what "bit-exact" means.
+
+This composes with `research/frieren-pr35-r4-gate-blindness.md`, which found the
+same blindness at the *other* end of the scale: a coherent attention-scale
+displacement faulting 72–75 % of 389,120 rows at mean relative error **0.2311**
+also produced zero token changes. Between the two results the token gate is
+demonstrably blind from 1 ULP up to ~23 % relative error on at least two
+distinct planes.
+
+**Consequences, stated as rules.**
+
+1. `max_abs_diff: 0` and `token_mismatches: 0` from the harness are **necessary
+   and not sufficient** for a bit-exactness claim. Do not write "bit-exact" on
+   the strength of a token gate.
+2. Any PR whose claim is bit-identity must carry a **logit digest with a fault
+   control that fires**. An oracle that has not been shown to fail is not
+   evidence.
+3. This raises the evidentiary bar on the open H1 bit-exactness question
+   specifically: prior arms that rested on token agreement have *not* been shown
+   to be bit-identical, only argmax-stable.
+4. It also cuts the other way and is worth saying plainly: a change that fails a
+   digest is **not** thereby shown to fail the official gates, which are token
+   gates. Digest failure is a reason to escalate to the quality panel, not an
+   automatic veto.
+
+**Reproduction.** Two runs of the same driver, differing only by the injected
+fault. Both are model-holding runs; run them one at a time on a quiet host.
+
+```bash
+# 1. reference digest, unfaulted candidate arm
+python3 research/frieren_pr80_logit_bitwise.py --label ref --steps 64 \
+    --out /tmp/pr137_cert/ref.json
+
+# 2. apply the 1-ULP fault to the row-major store in
+#    Sources/MLXFastModel/LagunaLmHeadPrune.swift, inside
+#    laguna_lmhead_exact_fused_int5_sparse_refine_rowmajor_v1:
+#
+#        if (lane == 0) {
+#            assembled[r] = bfloat(result);          // <- original
+#        }
+#
+#    becomes
+#
+#        if (lane == 0) {
+#            bfloat _v = bfloat(result);
+#            assembled[r] = as_type<bfloat>(ushort(as_type<ushort>(_v) ^ 1));
+#        }
+#
+#    (also apply the same XOR to the non-live `bfloat(c0)` store so every row
+#    is perturbed, not only the 0.53 % live ones)
+
+./benchmark.sh --local-iterate          # rebuild the worker with the fault
+python3 research/frieren_pr80_logit_bitwise.py --label fault --steps 64 \
+    --out /tmp/pr137_cert/fault.json
+
+# 3. compare: the whole-run digest differs (3447204b… vs da56c419…) and 64/65
+#    per-step digests differ, while both JSONs report token_mismatches: 0.
+#    Revert the patch and re-run step 1 to confirm the digest returns.
+```
+
+The driver is `research/frieren_pr80_logit_bitwise.py`; it drives the runtime
+worker's teacher-forced `correctness_begin` / `correctness_step` protocol with
+`top_k = 100352`, so each step's digest covers the exact bit pattern of the full
+vocabulary, not a truncated top-k.
+
+---
+
+## 6. What I did not do
 
 - Did not touch routed/shared MoE gather-GEMM or any `_nax` kernel (tanjiro,
   frieren) or `Sources/MLXFastTransform` (nezuko).
