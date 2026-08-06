@@ -1,0 +1,11 @@
+within-run Pearson r(decode, prefill) over n=12: -0.1560
+  a strong NEGATIVE r would mean a run-level see-saw; a weak r means the
+  two channels move independently and cannot be one shared nuisance.
+
+OLS slope d(decode)/d(prefill) = -1.3452
+
+decode raw            : on-minus-off = +0.9013%   exact p(on slower) = 8/924 = 0.0087
+decode prefill-adjusted: on-minus-off = +0.7856%   exact p(on slower) = 14/924 = 0.0152
+prefill (null channel) : on-minus-off = -1.0057%   exact p(on slower) = 901/924 = 0.9751
+
+regression retained after adjusting for the null channel: +0.7856% of +0.9013%
