@@ -7332,11 +7332,137 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+/// `DARKBLOOM_ROUTED_R1_DEPTH` (default `1`; `2`/`4` deepen prefetch):
+/// weight-staging prefetch depth for the routed gate/up R1 decode kernel.
+/// Depth-1 is the stock one-block-ahead pipeline (true ablation control);
+/// depth-2 uses a 2-slot circular buffer; depth-4 loads all 4 blocks upfront.
+/// Same bytes, same addresses, same nibble decode, identical accumulation
+/// order — only the timing of weight loads changes.
+let lagunaRoutedR1PrefetchDepth: Int = {
+    guard let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_R1_DEPTH"],
+        let value = Int(raw), [1, 2, 4].contains(value)
+    else { return 1 }
+    return value
+}()
+
+/// Source generator for the routed gate/up R1 kernel parameterized by
+/// prefetch depth. Depth-1 emits the exact stock source; depth-2/4 use a
+/// circular-buffer staging that issues more outstanding loads to hide
+/// memory latency. The qdot computation and accumulation order are
+/// identical across all depths.
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(depth: Int) -> String {
+    let numBlocks = 4 // input_width / block_width = 2048 / 512
+
+    // --- Register declarations ---
+    let stagingDecls: String
+    var preLoopLoad = ""
+    let loopStaging: String
+
+    if depth == 1 {
+        // Exact stock source: scalar registers, load block 0, prefetch +1
+        stagingDecls = """
+        uint2 gate_codes;
+        uint2 up_codes;
+        uint8_t gate_sb;
+        uint8_t up_sb;
+        {
+            const device uint8_t* first_scales =
+                row_scales + sub * 2 * scale_row_bytes + lane;
+            gate_sb = first_scales[0];
+            up_sb = first_scales[scale_row_bytes];
+            gate_codes = *(const device uint2*)(
+                expert_weight + gate_row * fused_row_bytes + lane * 8);
+            up_codes = *(const device uint2*)(
+                expert_weight + up_row * fused_row_bytes + lane * 8);
+        }
+"""
+        loopStaging = """
+            const uint2 cur_gate_codes = gate_codes;
+            const uint2 cur_up_codes = up_codes;
+            const uint8_t cur_gate_sb = gate_sb;
+            const uint8_t cur_up_sb = up_sb;
+            const uint next_block = block + block_width;
+            if (next_block < input_width) {
+                const device uint8_t* next_scales =
+                    row_scales + (next_block / block_width) * scale_kblock_bytes
+                    + sub * 2 * scale_row_bytes + lane;
+                gate_sb = next_scales[0];
+                up_sb = next_scales[scale_row_bytes];
+                gate_codes = *(const device uint2*)(
+                    expert_weight + gate_row * fused_row_bytes
+                    + next_block / 2 + lane * 8);
+                up_codes = *(const device uint2*)(
+                    expert_weight + up_row * fused_row_bytes
+                    + next_block / 2 + lane * 8);
+            }
+"""
+    } else {
+        // Depth-N: circular buffer of N slots
+        let slots = depth
+        stagingDecls = """
+        uint2 gate_codes[\(slots)];
+        uint2 up_codes[\(slots)];
+        uint8_t gate_sb[\(slots)];
+        uint8_t up_sb[\(slots)];
+"""
+        // Pre-load blocks 0..depth-1 (capped at numBlocks)
+        var preLoadLines: [String] = []
+        let preLoadCount = min(depth, numBlocks)
+        for b in 0..<preLoadCount {
+            preLoadLines.append("""
+        {
+            const device uint8_t* block_scales =
+                row_scales + \(b) * scale_kblock_bytes
+                + sub * 2 * scale_row_bytes + lane;
+            gate_sb[\(b)] = block_scales[0];
+            up_sb[\(b)] = block_scales[scale_row_bytes];
+            gate_codes[\(b)] = *(const device uint2*)(
+                expert_weight + gate_row * fused_row_bytes
+                + \(b) * block_width / 2 + lane * 8);
+            up_codes[\(b)] = *(const device uint2*)(
+                expert_weight + up_row * fused_row_bytes
+                + \(b) * block_width / 2 + lane * 8);
+        }
+""")
+        }
+        preLoopLoad = preLoadLines.joined(separator: "\n")
+
+        let pfBlock = "block + \(depth) * block_width"
+        let pfBlockIdx = "(\(pfBlock)) / block_width"
+        loopStaging = """
+        {
+            uint slot = (block / block_width) % \(slots);
+            const uint2 cur_gate_codes = gate_codes[slot];
+            const uint2 cur_up_codes = up_codes[slot];
+            const uint8_t cur_gate_sb = gate_sb[slot];
+            const uint8_t cur_up_sb = up_sb[slot];
+            if (\(pfBlock) < input_width) {
+                const device uint8_t* pf_scales =
+                    row_scales + \(pfBlockIdx) * scale_kblock_bytes
+                    + sub * 2 * scale_row_bytes + lane;
+                gate_sb[slot] = pf_scales[0];
+                up_sb[slot] = pf_scales[scale_row_bytes];
+                gate_codes[slot] = *(const device uint2*)(
+                    expert_weight + gate_row * fused_row_bytes
+                    + \(pfBlock) / 2 + lane * 8);
+                up_codes[slot] = *(const device uint2*)(
+                    expert_weight + up_row * fused_row_bytes
+                    + \(pfBlock) / 2 + lane * 8);
+            }
+            gate_result += laguna_nvfp4_qdot_codes_16(
+                cur_gate_codes, input_values,
+                laguna_nvfp4_scale(cur_gate_sb));
+            up_result += laguna_nvfp4_qdot_codes_16(
+                cur_up_codes, input_values,
+                laguna_nvfp4_scale(cur_up_sb));
+        }
+"""
+    }
+
+    // The pre-loop load section (empty for depth-1 since it's inline in stagingDecls)
+    let preLoopSection = depth == 1 ? "" : preLoopLoad
+
+    return """
         constexpr uint input_width = 2048;
         constexpr uint output_width = 512;
         constexpr uint block_width = 512;
@@ -7372,27 +7498,8 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
         thread float up_result = 0.0f;
         thread float input_values[values_per_lane];
 
-        // Depth-1 weight staging: block b+1's gate/up code words (the same
-        // uint2 laguna_nvfp4_qdot_16 loads internally) and scale bytes are
-        // issued before block b's qdots consume b's registers, so the
-        // expert-dependent weight stream rides under the current block's
-        // compute. Same bytes, same addresses, same nibble decode via
-        // laguna_nvfp4_qdot_codes_16, identical accumulation order.
-        uint2 gate_codes;
-        uint2 up_codes;
-        uint8_t gate_sb;
-        uint8_t up_sb;
-        {
-            const device uint8_t* first_scales =
-                row_scales + sub * 2 * scale_row_bytes + lane;
-            gate_sb = first_scales[0];
-            up_sb = first_scales[scale_row_bytes];
-            gate_codes = *(const device uint2*)(
-                expert_weight + gate_row * fused_row_bytes + lane * 8);
-            up_codes = *(const device uint2*)(
-                expert_weight + up_row * fused_row_bytes + lane * 8);
-        }
-
+        \(stagingDecls)
+        \(preLoopSection)
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
@@ -7405,31 +7512,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
                 input_values[4 * i + 3] = values[3];
             }
 
-            const uint2 cur_gate_codes = gate_codes;
-            const uint2 cur_up_codes = up_codes;
-            const uint8_t cur_gate_sb = gate_sb;
-            const uint8_t cur_up_sb = up_sb;
-            const uint next_block = block + block_width;
-            if (next_block < input_width) {
-                const device uint8_t* next_scales =
-                    row_scales + (next_block / block_width) * scale_kblock_bytes
-                    + sub * 2 * scale_row_bytes + lane;
-                gate_sb = next_scales[0];
-                up_sb = next_scales[scale_row_bytes];
-                gate_codes = *(const device uint2*)(
-                    expert_weight + gate_row * fused_row_bytes
-                    + next_block / 2 + lane * 8);
-                up_codes = *(const device uint2*)(
-                    expert_weight + up_row * fused_row_bytes
-                    + next_block / 2 + lane * 8);
-            }
-
-            gate_result += laguna_nvfp4_qdot_codes_16(
-                cur_gate_codes, input_values,
-                laguna_nvfp4_scale(cur_gate_sb));
-            up_result += laguna_nvfp4_qdot_codes_16(
-                cur_up_codes, input_values,
-                laguna_nvfp4_scale(cur_up_sb));
+        \(loopStaging)
         }
 
         gate_result = simd_sum(gate_result);
@@ -7445,11 +7528,27 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
             activated[expert_slot * output_width + logical_row] =
                 bfloat(silu * up);
         }
-        """,
-    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
-        + "\n" + lagunaRouterTop8PrologueHeader,
-    ensureRowContiguous: true
-)
+        """
+}
+
+/// Every prefetch depth, built eagerly so one binary serves all ablation
+/// arms and MLX's JIT cache never sees two sources under one name.
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernels:
+    [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for depth in [1, 2, 4] {
+        kernels[depth] = MLXFast.metalKernel(
+            name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_d\(depth)",
+            inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+            outputNames: ["activated"],
+            source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(depth: depth),
+            header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+                + "\n" + lagunaRouterTop8PrologueHeader,
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
@@ -7465,7 +7564,18 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(routerKeys.size == LagunaConstants.numExperts)
 
     if lagunaRoutedGateUpR1Enabled {
-        return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
+        guard let kernel = lagunaRoutedSwiGLUQMVPackedTop8R1Kernels[lagunaRoutedR1PrefetchDepth]
+        else { return lagunaRoutedSwiGLUQMVPackedTop8R1Kernels[1]!(
+            [input, fusedWeight, packedScales, routerKeys],
+            grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+            threadGroup: (64, 1, 1),
+            outputShapes: [[
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ]],
+            outputDTypes: [.bfloat16]
+        )[0] }
+        return kernel(
             [input, fusedWeight, packedScales, routerKeys],
             grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
             threadGroup: (64, 1, 1),
