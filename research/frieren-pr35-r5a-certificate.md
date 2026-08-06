@@ -444,3 +444,33 @@ priced at **+0.58 % to +0.67 %** on `ns`; single-receipt MDE is **±0.278 %**.
 | +0.15 % … +0.60 % | report only; do **not** resubmit |
 | −0.28 % … +0.15 % | inside single-receipt noise |
 | < −0.28 % | report immediately |
+
+### Which commit the upload actually carried
+
+The upload ran at `2026-08-06T00:11:58Z`. Local commit times are
+`592bd14 2026-08-05T23:59:43Z`, `97457fc 2026-08-06T00:11:24Z`, and
+`03b2c04 2026-08-06T00:13:35Z`,
+so branch `HEAD` at upload time was **`97457fc`**, not `03b2c04`. This does not
+weaken the receipt, because none of those three commits touches the submitted
+surface:
+
+```
+git show --stat 592bd14 | grep -E 'Sources/|Vendor/'   -> (none)
+git show --stat 97457fc | grep -E 'Sources/|Vendor/'   -> (none)
+git show --stat 03b2c04 | grep -E 'Sources/|Vendor/'   -> (none)
+git diff --stat 97457fc 03b2c04 -- Sources/ Vendor/    -> (empty)
+```
+
+All three commits changed only `research/` prose. The uploaded scored surface is
+therefore byte-identical to the surface at the final result commit, and the
+receipt's `submissionCommitSha` identifies the same candidate code.
+
+### Receipt (terminal)
+
+Read with `research/frieren_pr35_receipt_read.py` against a fresh feed dump, so
+the numbers below are the raw `officialMetrics` fields rather than any
+`*_speedup` convenience field:
+
+```
+RECEIPT_BLOCK_PENDING
+```
