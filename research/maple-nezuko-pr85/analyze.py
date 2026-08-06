@@ -20,12 +20,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PREFIX = sys.argv[1] if len(sys.argv) > 1 else "a"
 M4_TO_M5 = 0.399          # M4 us/step saved -> M5 us/step saved
 MS_TO_SCORE_PCT = 14.862  # M5 ms saved -> % of normalised score
-DECODE, PREFILL = 1, 2
+SLOT, PATH, DECODE, PREFILL, RAM = 0, 1, 2, 3, 4
 
 
 def load():
     """Returns {arm: [(slot, path, decode, prefill, peak_ram_gb), ...]}."""
     arms = {}
+    provenance = {}
     for path in sorted(glob.glob(os.path.join(HERE, f"{PREFIX}_*.json"))):
         stem = os.path.basename(path)[:-len(".json")]
         _, slot, arm = stem.split("_", 2)
@@ -33,11 +34,42 @@ def load():
         assert d["passed_correctness"], f"{path}: correctness failed"
         assert d["max_abs_diff"] == 0, f"{path}: max_abs_diff={d['max_abs_diff']}"
         assert d["checked_steps"] == 130, f"{path}: checked_steps={d['checked_steps']}"
+        for key in ("golden_hash", "harness_hash", "weights_hash", "runtime",
+                    "num_layers", "commit"):
+            provenance.setdefault(key, {}).setdefault(d[key], []).append(stem)
         arms.setdefault(arm, []).append((
             int(slot), path,
             d["decode_seconds_per_token"], d["prefill_seconds_per_token"],
             d["peak_ram_gb"]))
+    check_provenance(provenance)
     return arms
+
+
+def check_provenance(provenance):
+    """A paired campaign is only interpretable if every run did identical work
+    against identical inputs. golden_hash covers emitted tokens, weights_hash
+    the checkpoint, harness_hash the measurement code; all three must be
+    single-valued or the arms are not comparable. `commit` is provenance only:
+    it moves whenever any tracked file changes, including research notes that
+    are not build inputs, so it warns rather than fails."""
+    for key in ("golden_hash", "harness_hash", "weights_hash", "runtime",
+                "num_layers"):
+        seen = provenance.get(key, {})
+        assert len(seen) == 1, (
+            f"campaign is not comparable: {key} took {len(seen)} distinct "
+            f"values across runs -> " + "; ".join(
+                f"{v!r} in {sorted(runs)}" for v, runs in seen.items()))
+        print(f"provenance {key:13s} = {next(iter(seen))}")
+    commits = provenance.get("commit", {})
+    if len(commits) > 1:
+        print("provenance commit        = WARNING, "
+              f"{len(commits)} distinct values across runs:")
+        for value, runs in sorted(commits.items()):
+            print(f"    {value} in {sorted(runs)}")
+        print("    verify by hand that no build input changed across the span; "
+              "identical golden_hash above is necessary but not sufficient.")
+    else:
+        print(f"provenance commit        = {next(iter(commits))}")
 
 
 def contrast(base, cand, idx):
@@ -106,9 +138,9 @@ def null_control(name, rows, idx):
 def drift_ols(name, base, cand, idx):
     """Slot-ordered OLS: value ~ intercept + arm + slot, so a monotone thermal
     or clock trend across the session cannot masquerade as an arm effect."""
-    rows = [(r[0], 0, r[idx]) for r in base] + [(r[0], 1, r[idx]) for r in cand]
+    rows = [(r[SLOT], 0, r[idx]) for r in base] + [(r[SLOT], 1, r[idx]) for r in cand]
     n = len(rows)
-    slots = [r[0] for r in rows]
+    slots = [r[SLOT] for r in rows]
     arm = [r[1] for r in rows]
     y = [r[2] for r in rows]
     ms, ma = st.mean(slots), st.mean(arm)
@@ -157,7 +189,7 @@ drift_ols("prefill(control)", base, cand, PREFILL)
 null_control(f"prefill {base_name}", base, PREFILL)
 
 for arm in (base_name, cand_name):
-    rams = sorted({r[4] for r in arms[arm]})
+    rams = sorted({r[RAM] for r in arms[arm]})
     print(f"\npeak_ram_gb {arm}: {rams}")
 
 us_m4 = (mb - mc) * 1e6
