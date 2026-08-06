@@ -189,18 +189,42 @@ Awaiting M5 result. This is the first birch-campaign M5 submission of the compos
 
 ## Wave 4 Experiments (READY TO ASSIGN when students free up)
 
-### Wave 4a: Scale Decode LUT — TOP PRIORITY
+### Wave 4a: Scale Decode LUT — TOP PRIORITY (READY TO ASSIGN)
 - Replace 3 E4M3 byte→float32 scale-decode functions with a 256-entry constant LUT
-- 108.3M scale decodes/token × 5 ALU ops = 540M FP-ALU ops eliminated per decode step
-- BIT-EXACT (same values through constant cache instead of ALU computation)
-- M4-testable (runs on all GPU generations, not _nax-specific)
-- ~2KB growth, fits budget easily (36,884 bytes total, 17,780 per-file headroom)
-- Three functions to rewrite: laguna_nvfp4_scale (MoE), O-proj scale decode, laguna_tail_nvfp4_scale (QKV)
-- Expected: 0.5-1.5% decode improvement on instruction-bound M5
+- **CORRECTED** (explore agent): shipped defaults already reduce to ~3 ALU ops
+  (shift + bitcast + widen), NOT 5. Savings: ~324M ALU ops/token, not 540M.
+- All three functions share identical pattern under defaults: `float(as_type<half>(ushort(bits) << 7))`
+  - laguna_nvfp4_scale (MoE, line 6433) + branch fast-path for bits < 16
+  - O-proj inline scale decode (line 4101-4109, in lagunaGatedAffineOProjNVFP4Source)
+  - laguna_tail_nvfp4_scale (QKV, line 4501)
+- BIT-EXACT by construction (same float values, same bit patterns including -0.0)
+- ~300 bytes Swift source growth (generate LUT in Swift, interpolate into Metal string)
+- **KEY RISK**: LUT trades 3 ALU for 1 constant-memory load with variable index.
+  Helps only if constant unit has spare capacity on instruction-bound M5. M4 evidence
+  not transferable. This is the central empirical bet.
+- Expected: 0.3-1.0% decode improvement (adjusted down from 0.5-1.5%)
 
 ### Wave 4b: Prefill MoE Variant 5→4 Switch — BONUS (needs M5 validation)
 - WN=2, 256 thr/TG variant for _nax gather-QMM
 - +17.47% kernel-level improvement (Askeladd's PR #52 analysis)
+
+### Wave 4c: Routed Gate/Up R1 Scatter-to-Float4 — READY TO ASSIGN
+- Routed MoE gate/up R1 kernel (L7318-7326): 16-element scalar scatter → float4 vectorized load
+- Same proven technique as Thorfinn's PR #123 (shared SwiGLU), applied to the ROUTED kernel
+- Different kernel, identical unoptimized pattern, NOT covered by any in-flight PR
+- Bit-exact instruction reduction, 0.3-0.8% decode estimate
+- Default ON, 131K threadgroups/step (dominant decode cost)
+
+### Wave 4d: Routed Down Reduce Scatter-to-Float4 — READY TO ASSIGN
+- Routed down-projection kernel (L7449-7453): same 16-element scalar scatter
+- Fed into qdot, same fix as Wave 4c
+- Bit-exact, HIGH priority
+
+### Wave 4e: Gate-sp (g_proj) INT8 Scalar dot4 — READY TO ASSIGN (with caution)
+- Gate softplus affine INT8 kernel (L4284): 256 scalar FMAs/thread/step, runs 39× per decode step
+- Structural twin of "Router GEMV dot4" but at 39× the frequency (g_proj is always separate)
+- MED-HIGH priority, numerical-equivalence caveat on s*a+sum*b accumulation order
+- Requires upstream-equivalence check for numerical validation
 - M4 can't validate (_nax-only, GPU gen 16 < gen 17)
 - Needs direct M5 submission to validate
 - Expected: prefill improvement, contributes 25% to score
