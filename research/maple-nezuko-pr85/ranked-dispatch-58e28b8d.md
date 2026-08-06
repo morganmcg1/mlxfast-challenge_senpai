@@ -132,8 +132,91 @@ SHA and stop.
 
 ---
 
+## Step 0b — scope and budget re-check at my head
+
+Advisor required Step 0b be re-run at my own head, not only at the marker.
+Executed at `HEAD=5d06a4e48fb34bc0f140f9ab04b2c7db3c9ad5a3`,
+`BASE=f2fedd584e6514569758d79e581402210306e77b`:
+
+```
+assignment scope OK: 2 submitted path(s) against BASE_SHA=f2fedd58...
+editable budget OK: current=2949380/3000000 bytes headroom=50620
+                    growth=19296/262144 files=143 (base=142)
+```
+
+Both pass. The two submitted paths are
+`Sources/MLXFastModel/LagunaDensePacked.swift` (new, 18,462 B) and
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` (three edits). Everything
+else this branch touches is under `research/` and is not submitted.
+
+Advisor's calibration at PR #80's head was `headroom=65669 growth=4247`.
+Mine is `headroom=50620` because my 18,462 B new file is already counted.
+The number that matters for programme packaging is the **global** headroom,
+which is 50,620 B once this branch is in — under 2 % of the cap and
+shrinking. Flagged for the advisor's packaging plan.
+
+## Channel collision — please read first
+
+**A collision exists between this dispatch and the reallocation in advisor
+comment `5200560920` (04:58:29Z).** I am surfacing it rather than acting on
+it, because I have no way to reach the advisor except through this record
+and the terminal submission (`send_assignment_feedback` and `push_branch`
+are advisor-owned; a student invocation returns
+`student cannot perform this advisor-owned transition`).
+
+Timeline:
+
+| time (UTC) | event |
+| --- | --- |
+| 04:42 | I dispatched Step 0: submission `58e28b8d-d677-499e-a0cf-03bf2e767e8a`, commit `f2fedd58`, `--model "senpai"` accepted first attempt |
+| 04:50 | status `validating` |
+| 04:58:29 | advisor comment: "STEP 0 IS DEFERRED. Do not request the channel." — channel reallocated to PR #80, "dispatching now" |
+| 05:0x | `mlxfast submissions` still shows `58e28b8` as `validating`; **no #80 submission present in the account list** |
+
+The advisor's comment was written 16 minutes *after* my dispatch and almost
+certainly without knowledge of it. Since the account allows exactly one
+in-flight ranked submission, a #80 dispatch attempted while `58e28b8` is
+validating is expected to be refused by the API. That failure is loud and
+recoverable — the advisor will see the rejection — so this is wasted effort
+and confusion rather than silent corruption. It is still the advisor's call,
+not mine, and they should have it as early as possible.
+
+Mitigating fact: the collision costs less than it looks. PR #80's merge-base
+**is** `f2fedd58`, so a #80 receipt would measure #72 + #81 + #80 jointly and
+would not, on its own, separate them. My in-flight receipt measures exactly
+#72 + #81. That is precisely the decomposition the advisor said would
+otherwise have to be run *after* an ambiguous #80 receipt. So the dispatch is
+not wasted work; it is the same measurement, taken earlier, in the order that
+happens to be cheaper.
+
+I am **not** requesting the channel again. Nothing below depends on it.
+
+### The advisor's comment also reflects a stale view of this PR
+
+Comment `5200560920` instructs "Step 1 (CPU census): START NOW" and "post
+status the moment you have SANITY and GO-8 answers". Those are already
+answered and committed: the census, the full implementation, and the
+losslessness certificate are all complete (see the main report §2, §3-4, §5).
+SANITY **passed**; GO-8 **failed** (`frac(tz>=4)` is ~1/16, i.e. mantissas are
+incompressible); the firing gate is **GO-12e**, which passed.
+
+Cause is mechanical, not a disagreement: the PR's remote head is stale at
+`def303e9` because `push_branch` is advisor-owned, so my commits do not
+become visible to the advisor until `submit_result` performs its own
+lease-push at terminal submission. Every intermediate result in this branch
+is therefore invisible from the PR page by construction. Worth fixing at the
+programme level — a student with no push and no comment channel cannot report
+progress before the end.
+
 ## Channel release
 
 <!-- appended once the receipt for 58e28b8d resolves -->
 
-_status: PENDING — channel still HELD._
+_status: PENDING — receipt for `58e28b8` had not resolved at last check._
+
+Regardless of how it resolves, I am releasing my claim on the ranked channel
+now and will not re-request it. When the receipt lands I owe six separately
+stated lines — receipt ID, `correctness`, `error`, decode floor verdict,
+prefill floor verdict, and ranking status **last** — because a `rejected`
+receipt means only "did not beat current best" and must not be read as a
+correctness or floor failure.
