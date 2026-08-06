@@ -1,7 +1,7 @@
 # SENPAI Research State
-- 2026-08-06T18:52Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 448881c (pushed to origin).
-  Scored code frontier: 639646a + 8 merged optimization PRs (#107→#131).
+- 2026-08-06T19:00Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 27ff3f8 (pushed to origin).
+  Scored code frontier: 639646a + 11 merged optimization PRs (#107→#133).
   M5 submission queued: 57d8f082 (composed #130+#128+#129). Status: validating.
 - **WAVE 5 RESULTS** (complete):
   PR #131 (Edward) — NVFP4 O-proj packed simd_sum: MERGED. Bit-exact, M4 inconclusive (bandwidth-bound).
@@ -15,10 +15,17 @@
   PR #128 (Thorfinn) — Fused down+residual weight staging: MERGED. Bit-exact, +1.14% decode M4.
   PR #124 (Askeladd) — Gate-Scale Fold in O-proj: CLOSED. Dead: non-bit-exact prefill.
 
-- **WAVE 6 ASSIGNED**:
+- **WAVE 7 ASSIGNED** (created this session):
+  PR #144 (Edward) — R1 Gate/Up float4 input_values: eliminate 16 scalar stores+8 extractions
+    per block in routed SwiGLU kernel (312x/step, bit-exact). BASE_SHA=27ff3f8.
+  PR #145 (Thorfinn) — QKV+Gate Projection dot4: convert 4 scalar FMAs to 1 dot(float4)
+    in fused BF16 QKV+gate kernel (39x/step, bit-exact). BASE_SHA=27ff3f8.
+
+- **WAVE 6 IN PROGRESS**:
   PR #140 (Alphonse) — float4 input_values vectorization for shared SwiGLU QMV kernels.
     Add vec4 qdot helpers + convert input_values from float[16] to float4[4].
     Eliminates scalar→vector→scalar→vector round-trip overhead. Bit-exact.
+  PR #134 (Askeladd) — Fused down+residual packed simd_sum. Draft, no result yet.
   Research agent (frontier) running for Wave 7+ ideas.
 
 - **M5 SUBMISSION**: Composed #130+#128+#129 (3 bit-exact decode optimizations).
@@ -35,8 +42,8 @@
   - block_width tuning in MoE gate/up kernels
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign). Target: beat 2.5888.
-- **FRONTIER**: Advisor HEAD at 448881c. Scored code at 639646a + 8 merges (#107→#131).
-- **BUDGET**: ~2,963K / 3,000K bytes total. LagunaRuntimeModel.swift: ~507K / 524K per file.
+- **FRONTIER**: Advisor HEAD at 27ff3f8. Scored code at 639646a + 11 merges (#107→#133).
+- **BUDGET**: 2,965,182 / 3,000,000 bytes total (headroom: 34,818). LagunaRuntimeModel.swift: ~507K / 524K per file.
 - **M5 SUBMISSION**: 57d8f082 (composed #130+#128+#129). Status: validating.
 - **KEY FINDINGS**:
   1. Attention main loop is MEMORY-BOUND (PR #122). Do NOT pursue attention ALU optimization.
@@ -53,6 +60,10 @@
 
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
+| #145 | Thorfinn | QKV+gate projection dot4 | ASSIGNED (Wave 7). Bit-exact, 39x/step. |
+| #144 | Edward | R1 gate/up float4 input_values | ASSIGNED (Wave 7). Bit-exact, 312x/step. |
+| #140 | Alphonse | float4 input_values shared SwiGLU | IN PROGRESS (Wave 6). Bit-exact. |
+| #134 | Askeladd | Fused down+residual packed simd_sum | IN PROGRESS (Wave 6). Bit-exact. |
 | #133 | Thorfinn | Shared SwiGLU down packed simd_sum | MERGED. Bit-exact. |
 | #132 | Alphonse | Affine QKV packed simd_sum | MERGED. Bit-exact. |
 | #131 | Edward | NVFP4 O-proj packed simd_sum | MERGED. Bit-exact. |
