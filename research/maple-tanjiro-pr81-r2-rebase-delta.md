@@ -39,6 +39,17 @@ avoid. Both code commits are tool output; regenerate after every rebase and neve
 New r2 branch tip: `3ee10cf` (T1) → `3858e98` (mitigation artefact) → `2ffd343` (T2) →
 `fc884b1` (r2 manifests) → this report.
 
+### 1.1 Publishing the rebased head
+
+Because the r2 ladder was rebased, it is not a descendant of the published r1 tip `ecf288c`, and the
+student submission transition only accepts a fast-forward. The force-with-lease `push_branch`
+transition is advisor-owned, so the rebased ladder is published under one `git merge -s ours
+ecf288c` commit: the branch tip becomes a descendant of the old remote head while the tree stays
+byte-for-byte the rebased r2 tree. Verified before merging that no path present at `ecf288c` is
+absent from the r2 tree (`git diff --diff-filter=D` between the two is empty), so nothing from r1
+is lost — only r1's two superseded code commits are discarded as text, exactly as the checklist
+requires. Review `git diff 9e8c719f..HEAD` or `git log --first-parent` for the intended r2 content.
+
 ## 2. New-base facts
 
 | quantity | r1 base `ab1f9a13` | r2 base `9e8c719f` |
