@@ -1,20 +1,19 @@
 # SENPAI Research State
-- 2026-08-06T11:22Z (updated)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 4a2e371 (5 merged improvements).
+- 2026-08-05T13:47Z (updated)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at a996a21 (5 merged improvements).
 - **M5 SUBMISSION DISPATCHED**: 5-PR composition submitted to M5 (submission 00de2d3f,
   validating). Composes #94 + #98 + #107 + #114 + #116 — all bit-exact or numerically verified.
-- Alphonse DELIVERED: PR #116 merged (shared SwiGLU staging, bit-exact, M4 neutral expected).
-  Edward, Thorfinn, Askeladd still IDLE — no results despite 5-12 nudges each.
+- **WAVE 2 ASSIGNED**: 4 new dot4/instruction-reduction experiments assigned to all 4 students.
+  Stale PRs #100, #109, #112 closed (no student work delivered).
+  New: PR #117 (Edward INT8 O-proj dot4), PR #118 (Thorfinn attn pair_o float4 FMA),
+  PR #119 (Alphonse NVFP4 O-proj dot4), PR #120 (Askeladd router GEMV dot4).
 - **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
-  Birch campaign's last M5 submission: 2.5459 (commit 4058d0b).
-  Target: 2.5523 (lBroth, 2nd place). Gap to 2nd: ~1.4%.
-  Birch advisor branch (4a2e371) submitted to M5 — awaiting result.
-- **FRONTIER**: 4a2e371 (PR #116 merged: shared SwiGLU QMV rows1 depth-1 weight staging).
-  Previous: 51bcf6c (docs-only). Previous: 1a75d2b (PR #114: INT8 QKV dot4).
-  Previous: 16f1dc5 (PR #107: qdot dot4). Previous: b6a0889 (PR #98: prefill O-proj).
-  Previous: e925569 (PR #94: simd_dot).
+  Birch campaign best: 2.5459 (commit 1a75d2b).
+  Target: 2.5523 (gap ~0.0064, ~0.25%). Birch advisor branch (a996a21) submitted to M5.
+- **FRONTIER**: a996a21 (5 merged improvements: #94, #98, #107, #114, #116).
+  Previous: 4a2e371 (#116 merged). Previous: 1a75d2b (#114 dot4). Previous: 16f1dc5 (#107 qdot).
+  Previous: b6a0889 (#98 prefill O-proj). Previous: e925569 (#94 simd_dot).
 - **BROKEN PRs**: #99, #108, #111, #113, #115 (orphan drafts with invalid/missing markers). Ignore.
-  PR #112 is Thorfinn's actual assignment (not #111). PR #116 is Alphonse's actual assignment (not #115).
 
 ## COMPOSITION STRATEGY (see research/COMPOSITION_STRATEGY.md for full analysis)
 
@@ -83,58 +82,59 @@ byte delta, no budget risk.
   dequant overhead vs BF16 bandwidth savings), but the mechanism is sound.
   Official M5 measurement needed to confirm gain, not to prevent regression.
 
-## In-Flight Experiments (3 students still idle, 1 delivered)
+## In-Flight Experiments (Wave 2: 4 dot4/instruction-reduction assignments)
+
+All 4 students assigned to independent dot4/instruction-reduction experiments on the decode path.
+These all target the same file (LagunaRuntimeModel.swift) but different kernels/sections.
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact | Status |
 |---------|-----|-----------|-----------|------|-------------|--------|
-| Thorfinn | #112 | Attention epilogue 1-pass merge (bfloat16 exchange) | Merge 2-pass epilogue (2 barriers) into 1-pass (1 barrier) by using bfloat16 for cross-sg exchange. 40 layers x 1 barrier saved. | MED | 0.3-0.6% decode | IDLE (no commits) |
-| Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode | IDLE (no commits) |
-| Askeladd | #109 | simd_sum vectorization sweep | Pack scalar simd_sum into vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU). Bit-exact. 75% fewer shuffle instructions. | ZERO | 0.2-1.0% decode | IDLE (no commits) |
+| Edward | #117 | INT8 O-proj dot4 | Replace 8 scalar FMA with 2 dot(float4)+1 add in INT8 affine O-proj inner loop (L3912-3914). 40 layers, decode. Precedent: PR #114 (INT8 QKV dot4) bit-exact. | MED | 0.3-0.8% decode | ASSIGNED |
+| Thorfinn | #118 | Attention pair_o float4 FMA | Replace 8 scalar FMAs with 2 float4 FMAs in pair attention output accumulation (3 blocks: L2030-37, L2057-64, L2094-101). 40 layers, decode. Element-wise, no cross-element interaction. | LOW | 0.3-1.0% decode | ASSIGNED |
+| Alphonse | #119 | NVFP4 O-proj dot4 | Replace 4 scalar mults with 1 dot(float4) per group in NVFP4 O-proj inline accumulation (L4121-27, L4222-26). 40 layers, decode. Precedent: PR #107 (qdot dot4) bit-exact. | MED | 0.2-0.6% decode | ASSIGNED |
+| Askeladd | #120 | Router GEMV dot4 | Replace 4 scalar FMAs with 1 dot(float4) per group in fused RMSNorm+router kernel (L886-892, L911-912). 39 layers, decode. Precedent: PR #107/#114 bit-exact. Has WARNING about accumulation order — within-group dot preserves across-block order. | MED-HIGH | 0.1-0.3% decode | ASSIGNED |
 
-**Alphonse #116: DELIVERED and MERGED** — shared SwiGLU QMV rows1 depth-1 weight staging.
-Bit-exact, M4 neutral (expected), M5 submission dispatched.
+**All 4 experiments are independent** — they touch different kernels/sections of LagunaRuntimeModel.swift.
+All target the instruction-bound M5 decode path. M4 (bandwidth-bound) may show null results.
 
-All 3 remaining students are IDLE (no commits yet). All nudged to rebase to 4a2e371.
-Baseline advanced to 4a2e371 for all 3 (PR #116 merge — SwiGLU staging, independent from their work).
+**Composition potential**: If multiple experiments win, they compose (different kernels, no
+register pressure accumulation, all reduce instructions). Maximum compound decode gain: 1-2.5%.
 
-**MERGED improvements on advisor branch 4a2e371** (5 improvements, all compose, all independent):
+### Key Design Notes
+
+- **Edward #117 (INT8 O-proj dot4)**: Same pattern as merged PR #114 (INT8 QKV
+  dot4). The INT8 affine O-proj inner loop has 8 scalar FMAs (values_per_thread=8).
+  Replacing with 2 dot(float4)+1 add reduces 8 instructions to 3. PR #114 proved
+  bit-exact for the same transformation on the QKV kernel. 40 layers, decode.
+
+- **Thorfinn #118 (attn pair_o float4 FMA)**: The pair attention output accumulation
+  does 8 scalar FMAs per iteration (pair_o0[0..3] and pair_o1[0..3] each updated
+  with factor*old + exp*value). float4 FMA is element-wise — no cross-element
+  interaction, no reduction order change. Should be bit-exact. 3 blocks in the
+  kernel: main loop sub_a, sub_b, and tail. N iterations per layer (up to 512).
+
+- **Alphonse #119 (NVFP4 O-proj dot4)**: The NVFP4 O-proj kernel has its own
+  inline dequant + accumulation (NOT using laguna_nvfp4_qdot_16 which was already
+  optimized by PR #107). Each group of 4 scalar multiply-adds can be replaced
+  with 1 dot(float4,float4). PR #107 proved dot() bit-exact for the same pattern.
+  seedElide branch needs careful handling (assign vs add for j==0).
+
+- **Askeladd #120 (router GEMV dot4)**: The fused RMSNorm+router kernel has an
+  EXPLICIT WARNING (L846-848) about accumulation order: regrouping 64 sequential
+  adds into a tree broke the hidden gate. Using dot() WITHIN each 4-element group
+  preserves across-block sequential order. PRs #107/#114 prove dot() is sequential
+  FMA on Apple Silicon. But the router is the strictest accumulation gate —
+  upstream-equivalence verification is mandatory. 39 layers, decode.
+
+### Merged improvements on advisor branch a996a21 (5 improvements, all compose):
 - PR #94 (simd_dot attention, bit-exact): merged
 - PR #98 (prefill O-proj affine INT8): merged, +3.3% prefill on M4
 - PR #107 (qdot dot4 vectorization, bit-exact): merged, -0.85% decode on M4
 - PR #114 (INT8 QKV dot4, numerically verified): merged
 - PR #116 (shared SwiGLU staging, bit-exact): merged, M4 neutral (expected)
-- Top-8 routing elimination: merged (reduces routed expert GEMM work)
 
-**M5 SUBMISSION DISPATCHED**: 5-PR composition (4a2e371) submitted as submission 00de2d3f.
+**M5 SUBMISSION DISPATCHED**: 5-PR composition (a996a21) submitted as submission 00de2d3f.
 Awaiting M5 result. This is the first birch-campaign M5 submission of the composed advisor branch.
-
-### Rebase status (to 4a2e371)
-- Alphonse #116: Fresh branch from 1a75d2b, no rebase needed
-- Thorfinn #112: Rebase from 5164c4f → 1a75d2b (independent changes, clean expected)
-- Edward #100: Rebase from 61aef87 → 1a75d2b (independent changes, clean expected)
-- Askeladd #109: Rebase from 5fe7f20 → 1a75d2b (independent changes, clean expected)
-
-Note: PR #108 and PR #111 are broken orphan drafts (invalid markers). Ignore them.
-
-### Key Design Notes
-
-- **Thorfinn #112**: Attention epilogue 1-pass merge using bfloat16 exchange.
-  Current epilogue uses 2 passes (2 barriers per dispatch): pass 1 computes
-  partial sums + writes to shared memory, pass 2 does final reduction. Using
-  bfloat16 for cross-simdgroup exchange allows merging into 1 pass (1 barrier).
-  40 layers × 1 barrier saved per decode step. MEDIUM risk: bfloat16 exchange
-  may introduce tiny numerical differences (not bit-exact). Requires upstream
-  equivalence check. Replaces closed PR #102.
-
-- **Edward #100**: Depth-1 prefetch on gated affine INT8 O-proj kernel.
-  Prior #93 (down+residual prefetch) was NEGATIVE (bandwidth-bound), but O-proj
-  kernel may have different characteristics. M4 null is NOT a refutation for
-  prefetch — M5 memory hierarchy differs. PR #99 is a duplicate — use #100.
-
-- **Askeladd #109**: simd_sum vectorization sweep. Pack scalar simd_sum into
-  vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU).
-  Bit-exact — same sum, fewer shuffle instructions. ZERO risk. 75% fewer
-  shuffle ops. Builds on PR #94's approach (dot+simd_sum in attention).
 
 ## MoE Kernel Analysis Findings (from frontier subagent, 2026-08-06)
 
