@@ -212,6 +212,22 @@ func testCacheSerialization(creator: (() -> any KVCache)) async throws {
     assertArraysClose(restored.state, cache.state)
 }
 
+@Test func testFusedRingPrepareTrimInvalidation() {
+    let cache = RotatingKVCache(maxSize: 4, step: 4)
+    let keys = MLXArray.ones([1, 1, 4, 4], dtype: .float32)
+    let values = MLXArray.ones([1, 1, 4, 4], dtype: .float32)
+
+    _ = cache.update(keys: keys, values: values)
+    #expect(cache.offset == 4)
+    #expect(cache.fusedRingPrepare()?.writeIdx == 0)
+    #expect(cache.fusedRingPrepare()?.writeIdx == 0)
+
+    #expect(cache.trim(1) == 1)
+    #expect(cache.offset == 3)
+    #expect(cache.fusedRingPrepare() == nil)
+}
+
+
 /// Verify that copy() produces an independent cache: same type, same state,
 /// but mutating the copy does not affect the original.
 @Test(
