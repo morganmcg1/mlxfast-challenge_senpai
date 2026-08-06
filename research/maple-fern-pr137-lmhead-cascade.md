@@ -94,9 +94,16 @@ There is no CB-level headroom either.
 
 ### Diagnosis
 
-S4 moves ~803 KB (`assembled`, bf16, 100,352 rows) in 74.9–77.4 µs = **10.7 GB/s
-= 4 % of the M4 Pro's ~260 GB/s ceiling**. It is not bandwidth-bound; it is
-thread-count- and latency-bound.
+S4 moves at most ~803 KB in 74.9–77.4 µs = **10.4 GB/s = 4 % of the M4 Pro's
+~260 GB/s ceiling**. It is not bandwidth-bound; it is thread-count- and
+latency-bound.
+
+The 803 KB is deliberately the *generous* end of the accounting: the bf16
+`assembled[100352]` store alone is only 200,704 B, which would put the kernel at
+2.6 GB/s (1 % of ceiling), and 803 KB assumes roughly four times that in
+combined read and write traffic. Over-stating traffic over-states achieved
+bandwidth and so makes the kernel look *closer* to the roof than it is, which is
+the conservative direction for every claim built on this number.
 
 The shipped kernel dispatches **802,816 threads — 8 lanes per output row** — so
 each simdgroup covers 4 rows and every lane pays the full per-row prologue
@@ -851,9 +858,10 @@ mechanism or new evidence".
 This arm is that new evidence, and it is worth stating precisely because the
 prior is otherwise well supported:
 
-- S4 moved 803 KB in 77.4 µs = **10.7 GB/s**, about **4 % of the M4 ceiling**.
-  The kernel was nowhere near the bandwidth roof; it was thread-count/latency
-  bound.
+- S4 moved at most 803 KB in 77.4 µs = **10.4 GB/s**, about **4 % of the M4
+  ceiling**, and 1 % if only the bf16 store is counted (see §"Diagnosis" for the
+  accounting, which is deliberately generous). The kernel was nowhere near the
+  bandwidth roof; it was thread-count/latency bound.
 - The shipped change removes **no bytes at all**. Every one of the 100,352
   output rows is still written. It removes 7/8 of the *threads* dispatched to
   write them, and wins 63.7 µs on M4.
@@ -865,6 +873,34 @@ should be read as "bytes bind for the kernels that dominate the step", not as
 "nothing but bytes can ever pay". The practical filter I would suggest: before
 dismissing an occupancy or dispatch proposal, price the target kernel's achieved
 GB/s. At 4 % of ceiling the byte prior simply does not apply.
+
+It is worth pricing the aggregate too, because doing so shows the prior is
+well founded rather than merely convenient. 1794 MB against the candidate's
+8.478 ms `gpu_busy_sum` is **211.6 GB/s, or 81 % of the 260.2 GB/s ceiling**.
+The decode step really is close to the roof. So both statements are true at
+once, and the distribution across kernels is what reconciles them:
+
+| | achieved | % of ceiling | share of step |
+|---|---|---|---|
+| decode step, aggregate | 211.6 GB/s | 81 % | 100 % |
+| S4 sparse refine (control) | 10.4 GB/s | 4 % | 0.91 % |
+
+The asymmetry has a consequence that cuts both ways, and I would rather state
+it against my own result than let it be discovered later. Because the aggregate
+already sits at 81 %, the entire pool available to pure bandwidth work is
+bounded by the remaining ~19 % of step time. Kernels far below the roof have a
+much larger *relative* headroom — S4 went 5.65× faster — but each holds only a
+small *absolute* share, and S4 held 0.91 %. Byte-bound work therefore has a
+capped but broad pool; latency-bound work has huge multiples on narrow slices.
+Neither class dominates a priori, which is precisely why the target kernel has
+to be priced individually instead of inheriting the step-level number.
+
+What I did **not** do is size the latency-bound pool. That needs per-kernel byte
+accounting across the whole census, not just the one stage I instrumented, and I
+did not collect it. So this section establishes that the byte prior admits
+counterexamples and shows how to test for one; it does not establish that there
+are enough of them to matter. Treating it as the latter would be exactly the
+over-reading I retracted in §6.
 
 ### 9.6 Reporting consequences of the softening
 
