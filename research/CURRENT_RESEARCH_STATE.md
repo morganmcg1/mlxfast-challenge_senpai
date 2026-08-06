@@ -11,20 +11,19 @@
   PR #147 (Alphonse) — CPU Guard Hoisting: CLOSED (incomplete, no result submitted).
   PR #155 (Thorfinn) — Attention Epilogue 1-pass: CLOSED (incomplete, no result submitted).
 
-- **WAVE 9 ASSIGNED** (4 students, BASE_SHA=0f05798, all bit-exact, all distinct arms):
-  PR TBA (Edward) — H1: max_total_threads_per_threadgroup attribute. Add Apple-recommended
+- **WAVE 9 ASSIGNED** (4 students, BASE_SHA=5ec8550, all bit-exact, all distinct arms):
+  PR #159 (Edward) — H1: max_total_threads_per_threadgroup attribute. Add Apple-recommended
     occupancy hint to ALL decode MoE kernels (R1 gate/up: 64 threads, shared SwiGLU: 64,
     fused down+residual: 288, QKV, O-proj, gate-softplus). #1 priority: 5-15% decode on M5.
     Bit-exact. References: Apple Tech Talks 10580, WWDC20, MLX discussion #3801.
-  PR TBA (Alphonse) — H4: Thread-local array → register-resident float4 values. Replace
+  PR #160 (Alphonse) — H4: Thread-local array → register-resident float4 values. Replace
     `thread float input_values[16]` with explicit float4 variables in qdot inner loops.
     WWDC16 warns stack arrays force spills. 0-10% if compiler is spilling. Bit-exact.
-  PR TBA (Thorfinn) — H5: Threadgroup input sharing across simdgroups. Both simdgroups in
+  PR #161 (Thorfinn) — H5: Threadgroup input sharing across simdgroups. Both simdgroups in
     R1 gate/up kernel load same input independently. Share via threadgroup memory + barrier.
     Eliminates 2.1M redundant bfloat→float conversions per step. 3-5% gate/up kernel. Bit-exact.
-  PR TBA (Askeladd) — H8: Eliminate is_shared branch in 9-slot down+residual kernel. Split
-    shared expert (slot 8) into separate template, let compiler eliminate branch. 1-2% decode.
-    Bit-exact.
+  PR #162 (Askeladd) — H8: Eliminate is_shared branch in 9-slot down+residual kernel. Use
+    select() or split shared expert into separate template. 1-2% decode. Bit-exact.
 
 - **M5 SUBMISSION**: 57d8f08 (composed #130+#128+#129 — 3 bit-exact decode optimizations).
   Status: VALIDATING. All changes bit-exact, different kernels, no overlap.
