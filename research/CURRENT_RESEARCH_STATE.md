@@ -1,24 +1,34 @@
 # SENPAI Research State
-- 2026-08-06T20:10Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 8f78dd2 (pushed to origin).
-  Scored code frontier: 639646a + 14 merged optimization PRs (#107→#144).
-  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING since 18:26Z.
+- 2026-08-06T18:20Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 0f05798 (pushed to origin).
+  Scored code frontier: 639646a + 15 merged optimization PRs (#107→#156).
+  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING.
   M5 submission of 14-PR composed HEAD blocked by in-flight 57d8f08. Will retry when slot opens.
 
-- **WAVE 8 ASSIGNED** (4 students, BASE_SHA=8f78dd2, all bit-exact, all distinct arms):
-  PR TBA (Edward) — CPU Guard Hoisting: precompute 5 invariant guard chains into per-layer
-    struct. 5120 evaluations/step → 1 lookup. Bit-exact. 0.3-1% decode if CPU overhead creates bubbles.
-  PR TBA (Thorfinn) — Async-eval Shared Expert: insert asyncEval between routed and shared
-    computation in prefill (L10108→L10129) and decode (L10007→L10012). Bit-exact. 1-3% prefill.
-  PR TBA (Alphonse) — Attention Epilogue 1-pass: eliminate 2 barriers in fused decode attention
-    kernels (sliding L1614/1637/1645, full L2120/2143/2151). Bit-exact IF threadgroup memory fits
-    8-plane buffer (~33KB vs ~32KB limit). Risk: memory capacity. 0.3-0.6% decode.
-  PR TBA (Askeladd) — Fused down+residual float4 input_values: LAST remaining DEFAULT-path
-    vec4 target (L7691). Same proven pattern as #140/#144. Bit-exact. Small decode gain.
+- **WAVE 8 RESULTS** (3 complete, 1 incomplete):
+  PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
+  PR #154 (Edward) — Async-eval Shared Expert: CLOSED. DEAD — MLX already overlaps eval.
+  PR #147 (Alphonse) — CPU Guard Hoisting: CLOSED (incomplete, no result submitted).
+  PR #155 (Thorfinn) — Attention Epilogue 1-pass: CLOSED (incomplete, no result submitted).
+
+- **WAVE 9 ASSIGNED** (4 students, BASE_SHA=0f05798, all bit-exact, all distinct arms):
+  PR TBA (Edward) — H1: max_total_threads_per_threadgroup attribute. Add Apple-recommended
+    occupancy hint to ALL decode MoE kernels (R1 gate/up: 64 threads, shared SwiGLU: 64,
+    fused down+residual: 288, QKV, O-proj, gate-softplus). #1 priority: 5-15% decode on M5.
+    Bit-exact. References: Apple Tech Talks 10580, WWDC20, MLX discussion #3801.
+  PR TBA (Alphonse) — H4: Thread-local array → register-resident float4 values. Replace
+    `thread float input_values[16]` with explicit float4 variables in qdot inner loops.
+    WWDC16 warns stack arrays force spills. 0-10% if compiler is spilling. Bit-exact.
+  PR TBA (Thorfinn) — H5: Threadgroup input sharing across simdgroups. Both simdgroups in
+    R1 gate/up kernel load same input independently. Share via threadgroup memory + barrier.
+    Eliminates 2.1M redundant bfloat→float conversions per step. 3-5% gate/up kernel. Bit-exact.
+  PR TBA (Askeladd) — H8: Eliminate is_shared branch in 9-slot down+residual kernel. Split
+    shared expert (slot 8) into separate template, let compiler eliminate branch. 1-2% decode.
+    Bit-exact.
 
 - **M5 SUBMISSION**: 57d8f08 (composed #130+#128+#129 — 3 bit-exact decode optimizations).
-  Status: VALIDATING (since 18:26Z). All changes bit-exact, different kernels, no overlap.
-  Next submission: 14-PR composed HEAD (8f78dd2) — blocked by in-flight 57d8f08.
+  Status: VALIDATING. All changes bit-exact, different kernels, no overlap.
+  Next submission: 15-PR composed HEAD (0f05798) — blocked by in-flight 57d8f08.
 
 - **WAVE 7 RESULTS** (complete, all merged):
   PR #144 (Edward) — R1 Gate/Up float4 input_values: MERGED. Bit-exact, 312x/step.
@@ -56,15 +66,18 @@
   5. dot(float4) IS bit-exact for per-word NVFP4 qdot (independent accumulators) but NOT for
      shared-float cross-iteration accumulation (single FP32 register, sequential adds).
 
-- **POTENTIAL NEXT DIRECTIONS (beyond Wave 8)**:
-  - Shared+Routed SwiGLU gate/up dispatch fusion (saves ~39 dispatches/step, needs weight re-layout)
-  - Transpose-free attention reduction via quad_shuffle (if 1-pass buffer doesn't fit)
+- **POTENTIAL NEXT DIRECTIONS (beyond Wave 9)**:
+  - H2: Pre-interleaved weight layout (transform-time, 6-10% gate/up) — after H1/H4 results
+  - H3: Fused gate/up+down single-dispatch kernel (saves ~39 dispatches/step, 2-5% decode)
+  - H6: Instruction diversity / interleaved load+convert+FMA in qdot (0-5%, pipeline overlap)
+  - H7: Half2 FMA accumulation (5-8% but HIGH risk — precision change, likely fails exactness)
+  - Transpose-free attention reduction via quad_shuffle
   - LAGUNA_RESCALE branch elimination in SDPA vector kernel
-  - Router GEMV optimization (risky — source says regrouping loses bit-exactness)
+  - CPU Guard Hoisting (re-attempt with simpler implementation)
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign, submission 97a5090).
   Target: beat 2.5888. All component speedups must be ≥ 0.95.
-- **FRONTIER**: Advisor HEAD at 8f78dd2. Scored code at 639646a + 14 merges (#107→#144).
+- **FRONTIER**: Advisor HEAD at 0f05798. Scored code at 639646a + 15 merges (#107→#156).
 - **BUDGET**: ~2,964K / 3,000,000 bytes total. LagunaRuntimeModel.swift: ~510K / 524K per file.
 - **KEY FINDINGS**:
   1. Attention main loop is MEMORY-BOUND (PR #122). Do NOT pursue attention ALU optimization.
