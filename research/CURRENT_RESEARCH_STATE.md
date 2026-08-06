@@ -1,22 +1,20 @@
 # SENPAI Research State
-- 2026-08-06T22:32Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 13fdaf6 (origin/mlxfast-birch-20260805-advisor).
-  Scored code frontier: 13fdaf6 (includes #165 ops-per-buffer 800, #166 dense MoE simd_sum,
-  #160 register float4, #159 max_threads, #156 fused down float4, #152 top-8 elimination, etc.)
+- 2026-08-06T23:15Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at b09ceb5 (origin/mlxfast-birch-20260805-advisor).
+  Clean scored code frontier: 12a712d (top-8 elimination, FMA dequant, STAGE2_GATHER, LM_HEAD_PRUNE).
+  Composed base 13fdaf6 includes all dot4/simd_sum/float4 changes (CONFIRMED COUNTERPRODUCTIVE on M5).
 
-## PENDING M5 SUBMISSION: Clean ops-per-buffer 800 (commit e98e46b)
-  Candidate: birch-edward/clean-ops-buffer-800-v1 @ e98e46b
-  Diff vs promoted 12a712d: 1 line (MLX_MAX_OPS_PER_BUFFER 200→800)
-  Correctness: ALL PASSED (local-iterate, local-submit 1025 steps, upstream equivalence 8/8, swift test 456/456)
+## M5 SUBMISSION STATUS: Clean ops-per-buffer 800 (submission 2278bd85, VALIDATING)
+  Candidate: birch-edward/clean-ops-buffer-800-v1 @ e98e46b (1-line diff vs 12a712d)
+  Diff: MLX_MAX_OPS_PER_BUFFER 200→800 in LagunaRuntimeWeights.swift:387
+  Correctness: ALL PASSED (local-iterate, local-submit 1025 steps, upstream equiv 8/8, swift test 456/456)
   M4 timing: -0.91% decode (EXPECTED — M4 bandwidth-bound, M5 is decisive)
-  Submission note: submission-note-ops800.md (12,586 bytes)
-  STATUS: RATE LIMITED — retry `mlxfast submit --note-file submission-note-ops800.md --model "senpai"`
-  Must checkout e98e46b first: `git checkout e98e46bf226fda76cc4f039f4731a5310f3f65dc`
+  Submitted: 2026-08-06T23:10 UTC as 2278bd85-01a1-41df-97dc-f744335ad3c4
+  Previous submission 0e43085: REJECTED at -12.91% (score 2.4606, composed kernel changes)
 
 ## CRITICAL: Submission History Analysis
   Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
-  Promoted code surface at commit 12a712d: PR #84 (top-8 elimination), FMA-optimized dequant,
-  STAGE2_GATHER, LM_HEAD_PRUNE, MoE down ops2 disabled. NO dot4/simd_sum/float4/max_threads.
+  Promoted code surface at commit 12a712d (CLEAN — no dot4/simd_sum/float4/max_threads).
 
   ALL post-promotion submissions REJECTED or FAILED:
     00de2d3 (11:23): FAILED (15-PR composed, no ops-per-buffer)
@@ -24,28 +22,44 @@
     c95b4e4 (14:35): rejected -9.16%
     57d8f08 (18:26): FAILED (3-PR composed)
     4b06e93 (21:30): rejected -14% (15-PR + QHOIST)
-    0e43085 (22:09): VALIDATING (unknown contents, ~80+ min in queue)
+    0e43085 (22:09): rejected -12.91% (composed kernel changes at 13fdaf6)
 
-  KEY FINDING: The promoted submission was submitted BEFORE ALL dot4/simd_sum/float4/max_threads changes.
-  These instruction-count reductions are COUNTERPRODUCTIVE on M5. M5 is bandwidth-bound for these kernel sizes.
+  KEY FINDING: Instruction-count reductions (dot4, simd_sum, float4, max_threads) are
+  COUNTERPRODUCTIVE on M5. M5 is bandwidth-bound for these kernel sizes despite 89% ALU utilization.
+  The 89% ALU figure includes stall cycles — the ALU is active but waiting for memory.
 
-  STRATEGY: Isolate ops-per-buffer 800 on CLEAN promoted code (12a712d) for M5 submission.
-  This is the HIGHEST PRIORITY experiment (PR #172, Edward).
-  Metaspartan proved 200→400 alone promoted at 2.5282. 200→800 should be even better.
+  STRATEGY PIVOT: Focus on scheduling (ops-per-buffer, BFS width, fast synch) and
+  bandwidth reduction (scale halving). Test each ISOLATED on clean promoted code (12a712d).
 
-  PR #165 merged: MLX_MAX_OPS_PER_BUFFER 200→800. Bit-exact, 0 bytes growth.
-  PR #166 merged: dense MoE simd_shuffle_down→simd_sum. Bit-exact, -6 bytes.
-  PR #160 merged: thread float[N]→thread float4[N/4]. Bit-exact, -1160 bytes.
+## CURRENT WAVE (Wave 13 — Scheduling/Bandwidth Strategy)
 
-## CURRENT WAVE (Wave 12)
-  PR #172 (Edward) — Clean ops-per-buffer 800 on promoted code 12a712d. HIGHEST PRIORITY.
-    Isolates the scheduling change from all dot4/simd_sum/float4 kernel changes.
-    Target: beat 2.5888 on M5. One-line change, bit-exact.
-  PR #169 (Askeladd) — Scale plane halving (BANDWIDTH reduction, 39 MiB/step saved).
-    Extends NVFP4 scale halving to QKV+O-proj. Bit-exact. In progress.
-  PR #167 (Alphonse) — tail_nvfp4_qdot dot4. Instruction-count reduction — likely dead end
-    given strategy shift. Let finish, then close as dead.
-  PR #161 (Thorfinn) — tg input sharing. Mixed instruction/bandwidth. Let finish, evaluate.
+  PR #172 (Edward) — Clean ops-per-buffer 800 on promoted code 12a712d. REVIEWED GREEN.
+    Submitted to M5 as 2278bd85. Correctness all passed. Bit-exact scheduling change.
+    If accepted: new promoted frontier. If rejected: need other scheduling/bandwidth levers.
+
+  PR #173 (Thorfinn) — MLX_METAL_FAST_SYNCH=1. DRAFT, in progress.
+    Fast fence synchronization via shared-memory buffers instead of Event objects.
+    Bit-exact scheduling change. Targets command-buffer synchronization overhead.
+
+  PR #175 (Edward) — MLX_BFS_MAX_WIDTH 50→100. JUST ASSIGNED.
+    More aggressive graph optimization to reduce Metal dispatch count.
+    Bit-exact scheduling change. Independent of ops-per-buffer, composable later.
+
+  Askeladd — Scale-plane-halving (in progress, no PR yet).
+    Bandwidth reduction by halving scale bytes in MoE down kernels.
+    Targets scale traffic in the dominant NVFP4 MoE path.
+
+  Alphonse — Tail NVFP4 qdot dot4 (in progress, no PR yet).
+    NOTE: This is an instruction-count reduction. Given the strategy pivot confirming
+    dot4/simd_sum are counterproductive on M5, this experiment may need redirection
+    to a scheduling or bandwidth target.
+
+## Potential Next Research Directions
+  1. Compose scheduling winners (ops-800 + BFS-100 + fast-synch) for cumulative M5 gain
+  2. MLX_MAX_OPS_PER_BUFFER sweep (400, 600, 1000) to find optimal value
+  3. MLX_BFS_MAX_WIDTH sweep (100, 200) on clean code for graph optimization
+  4. Bandwidth: scale-byte halving, scale-byte LUT, weight layout optimization
+  5. Host-side: KV cache prepare fast-lane (cedar-fern PR #171 showed +0.5% on M4)
 
 ## READY-TO-ASSIGN EXPERIMENTS
   1. MLX_METAL_FAST_SYNCH=1: One-line setenv, fast fence sync. Bit-exact. M5-specific.
