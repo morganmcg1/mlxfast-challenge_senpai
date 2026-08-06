@@ -385,6 +385,7 @@ public final class LagunaRuntimeWeightCache {
                 if env["DARKBLOOM_POST_WIRE_COMMAND_BUFFER"] != "0" {
                     setenv("MLX_MAX_MB_PER_BUFFER", "200", 0)
                     setenv("MLX_MAX_OPS_PER_BUFFER", "800", 0)
+                    setenv("MLX_METAL_FAST_SYNCH", "1", 0)
                 }
                 startupMemoryPolicy = nil
             }
