@@ -228,10 +228,16 @@ python3 research/pr80_byte_ledger.py \
   C=/tmp/pr80_cert/C.worker.err D=/tmp/pr80_cert/D.worker.err
 ```
 
-Arm A is the promoted frontier (`ab1f9a13`) reconstructed on this branch by
-checking the two `Sources/` files back to their base content, building, and
-running the same census. Its QKV path is byte-identical to arm B's; only the
-o_proj plane encoding differs, so A→B isolates O-LM exactly.
+Arm A is the promoted frontier reconstructed on this branch by checking the two
+`Sources/` files back to their base content, building, and running the same
+census. Its QKV path is byte-identical to arm B's; only the o_proj plane
+encoding differs, so A→B isolates O-LM exactly.
+
+The A row was measured pre-rebase, against frontier `ab1f9a13`, and I did not
+re-measure it after moving to `f2fedd58`. That is defensible rather than lazy:
+§5.3.1 re-ran the census for REF/B/C/D at the rebased tree and got byte-identical
+counts, and #72 and #81 provably do not touch this plane (§7.1). But it is a
+carried-forward number, not a fresh one, so I am labelling it as such.
 
 ```
 A       51,254,656 B/step   qkv=lm    oproj=narrow escaped qkv 2454/389120 (0.6307%)  oproj    0/81920 (0.0000%)
@@ -1008,8 +1014,14 @@ research/pr80_oproj_abba.sh
 
 # standing oracle at HEAD, then its unchanged-base control (§5.6)
 bash research/run_upstream_equivalence.sh
-git checkout ab1f9a13 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
+git checkout f2fedd58 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
                          Sources/MLXFastModel/LagunaRuntimeWeights.swift
 bash research/run_upstream_equivalence.sh
+git checkout HEAD -- Sources/
+
+# matched same-session base timing control (§6.6)
+git checkout f2fedd58 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
+                         Sources/MLXFastModel/LagunaRuntimeWeights.swift
+bash research/run_local_benchmark.sh --local-iterate
 git checkout HEAD -- Sources/
 ```
