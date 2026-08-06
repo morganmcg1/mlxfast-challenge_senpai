@@ -1,11 +1,13 @@
 # PR #80 — Attention scale-plane: lane-major o_proj + pairwise-constancy halving
 
 Student: maple-frieren · Assignment `maple-2026-08-06d-attn-scale-pairwise` rev `r1`
-Base `BASE_SHA` = `ab1f9a1323421703f944ac1895841e39b8302542`
+Base `BASE_SHA` = `f2fedd584e6514569758d79e581402210306e77b` (rebased 2026-08-06,
+advisor comment 5200104728; original assignment base was
+`ab1f9a1323421703f944ac1895841e39b8302542`)
 Branch `maple-frieren/attn-scale-pairwise`
 
-Submitted change is one commit touching `Sources/`: `7302823` (146 insertions,
-66 deletions, two files). Everything else on the branch is `research/`, which is
+Submitted change is one commit touching `Sources/`: `e956aa5` (143 insertions,
+64 deletions, two files). Everything else on the branch is `research/`, which is
 not in `editablePaths` and therefore costs zero submitted bytes.
 
 ---
@@ -152,31 +154,39 @@ rather than disqualifying the plane.
 
 ### 3.3 Files
 
-`Sources/MLXFastModel/LagunaRuntimeWeights.swift`
+All line anchors below are at `BASE_SHA` = `f2fedd58` + this branch's
+`Sources/` commit, i.e. **after** the rebase of §7.1. Symbol names are stable;
+prefer `grep -n` over the numbers.
 
-* `:687-718` flags. `DARKBLOOM_ATTN_SCALE_LANEMAJOR`, plus new
-  `DARKBLOOM_ATTN_SCALE_PAIRWISE_QKV` and `DARKBLOOM_ATTN_SCALE_PAIRWISE_OPROJ`,
-  both default-on. Per-site kill switches exist so the M4 ladder is nested and
-  isolable **against one identical binary**.
+`Sources/MLXFastModel/LagunaRuntimeWeights.swift` (not touched by PR #81, so
+these anchors are unchanged from the pre-rebase report)
+
+* `:687-716` flags. `DARKBLOOM_ATTN_SCALE_LANEMAJOR` (`:688`), plus new
+  `DARKBLOOM_ATTN_SCALE_PAIRWISE_QKV` (`:713`) and
+  `DARKBLOOM_ATTN_SCALE_PAIRWISE_OPROJ` (`:716`), both default-on. Per-site
+  kill switches exist so the M4 ladder is nested and isolable **against one
+  identical binary**.
 * `:860-873` `LagunaLaneMajorScaleBank` — `nibbles, bases, rows, groups,
   escapedRows, pairwise`; `nibbleBytes = pairwise ? groups/4 : groups/2`.
-* `:875-937` `lagunaLaneMajorNVFP4ScaleBank(_:site:layer:pairwise:)`. Requires
+* `:880-937` `lagunaLaneMajorNVFP4ScaleBank(_:site:layer:pairwise:)`. Requires
   `groups % 64 == 0`. Transposes to lane-major, splits the two halves of each
   pair, and when `pairwise` ANDs `halves[0] == halves[1]` (all axes) into
   `fits`. Non-fitting rows get base `0xFF` and nibble 0.
-* `:939-975` `lagunaLaneMajorScaleBankReproducesScales` — decodes the bank back
+* `:942-973` `lagunaLaneMajorScaleBankReproducesScales` — decodes the bank back
   to a full plane and requires **zero** mismatches over non-escaped rows. This
   is a hard gate: a failure declines the plane and the runtime keeps the stock
   path.
 
 `Sources/MLXFastModel/LagunaRuntimeModel.swift`
 
-* `:4841+` `lagunaDecodeNVFP4QKVLaneMajorSource(pairwise:)`; kernels at
-  `:4903-4922`; dispatch guard at `:4938-4959` re-checks
-  `lane.pairwise == <flag>` and the exact `nibbles` dims before using the bank.
-* `:4139-4262` `lagunaGatedAffineOProjNVFP4Source(laneMajor:pairwise:)`, with
-  lane-major kernels at `:4359-4382` / `:4485-4504` and dispatch at
-  `:4506-4565`.
+* `:4730-4787` `lagunaDecodeNVFP4QKVLaneMajorSource(pairwise:)`; kernels at
+  `:4789-4808`; dispatch guard at `:4829-4845` re-checks
+  `lane.pairwise == lagunaAttnScalePairwiseQKVEnabled` and the exact `nibbles`
+  dims (`hidden / (lane.pairwise ? 64 : 32)`) before using the bank.
+* `:4030-4226` `lagunaGatedAffineOProjNVFP4Source(laneMajor:pairwise:)`, with
+  the escape address-select at `:4135-4144`, lane-major kernels at
+  `:4250-4371` / `:4373-4392`, and dispatch at `:4394-4453` (kernel pick
+  `:4423-4424`).
 
 One decode-path detail worth recording: the o_proj escape check is written as an
 **address select**, not a branch —
@@ -341,7 +351,49 @@ Pre-flight gate check (both defaults confirmed unchanged, `0` and `160`):
 ```
 grep -n -A1 'DARKBLOOM_INJECT_DECODE_EMPTY"\|DARKBLOOM_INJECT_EMPTY_TG"' \
   Sources/MLXFastModel/LagunaRuntimeModel.swift
+11143:    "DARKBLOOM_INJECT_DECODE_EMPTY", 0)
+11155:    "DARKBLOOM_INJECT_EMPTY_TG", 160)
 ```
+
+#### 5.3.1 Re-run after the rebase onto `f2fedd58` — artifacts in `/tmp/pr80_cert2/`
+
+The whole four-arm certificate was re-run unchanged at the rebased tree
+(`run_training` `42ef1d7d-2f0a-4915-a208-126b7602002d`, 168.0 s, exit 0):
+
+```
+REF 3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928 mm=0 nsteps=65
+B   3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928 mm=0 nsteps=65
+C   3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928 mm=0 nsteps=65
+D   3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928 mm=0 nsteps=65
+```
+
+Two things are worth separating here.
+
+1. **The intended claim still holds:** all four arms agree, so the shipped arm D
+   is bitwise identical to the stock reference at the new base.
+2. **An unintended and stronger observation:** the digest is *the same 64-step
+   value as before the rebase*. The rebase pulled in PR #72 (routed-plane
+   group-32 narrowing) and PR #81 (Metal-literal comment stripping). Neither
+   moved a single one of 64 × 100,352 logits on this host. That is direct
+   independent corroboration of both students' equivalence claims, obtained for
+   free. I did not design the certificate to test them and I am not claiming it
+   as a general proof of their correctness — it is one 64-step trajectory on one
+   prompt on an M4 Pro — but a mechanism that perturbed logits would have had to
+   dodge 6.4 M values to produce this.
+
+The escape census is also byte-identical to the pre-rebase run (`REF` is stock,
+so its escape counts are trivially zero):
+
+```
+REF     89,128,960 B/step   qkv=stock oproj=stock      escaped qkv     0/389120  oproj     0/81920
+B       45,556,288 B/step   qkv=lm    oproj=lm         escaped qkv  2454/389120  oproj  1526/81920
+C       33,191,520 B/step   qkv=lm_pw oproj=lm         escaped qkv  2543/389120  oproj  1526/81920
+D       23,556,320 B/step   qkv=lm_pw oproj=lm_pw      escaped qkv  2543/389120  oproj  1563/81920
+```
+
+Identical to §4 down to the last row and byte, which is the expected result if
+neither #72 nor #81 touches the attention scale plane — and is the empirical
+counterpart to the source-level dump-diff in §7.1.
 
 ### 5.4 Fault injection — proving the certificate has power
 
@@ -644,35 +696,76 @@ certificate, not on any timing I have.
 
 ## 7. Budget
 
-Measured with `git cat-file -s` at `BASE_SHA` and at branch head:
+Measured with `git cat-file -s` at `BASE_SHA` = `f2fedd58` and at branch head:
 
-| file | base `ab1f9a13` | head | delta | free to 524,288 cap |
+| file | base `f2fedd58` | head | delta | free to 524,288 cap |
 |---|---|---|---|---|
-| `Sources/MLXFastModel/LagunaRuntimeModel.swift` | 521,768 | 523,115 | **+1,347** | **1,173** |
-| `Sources/MLXFastModel/LagunaRuntimeWeights.swift` | 44,463 | 47,492 | +3,029 | 476,796 |
+| `Sources/MLXFastModel/LagunaRuntimeModel.swift` | 478,533 | 479,751 | **+1,218** | **44,537** |
+| `Sources/MLXFastModel/LagunaRuntimeWeights.swift` | 50,951 | 53,980 | +3,029 | 470,308 |
 
 ```
-bash senpai/check-editable-budget.sh ab1f9a1323421703f944ac1895841e39b8302542
-editable budget OK: current=2971207/3000000 bytes headroom=28793 growth=4376/262144
-                    files=142 (base=142)
+bash senpai/check-editable-budget.sh f2fedd584e6514569758d79e581402210306e77b
+editable budget OK: current=2934331/3000000 bytes headroom=65669 growth=4247/262144
+                    files=142 (file count is diagnostic only; base=142)
 ```
 
-`research/` is not in `editablePaths`, so the ten research files on this branch
-cost zero submitted bytes. Total growth is 4,376 B against a 262,144 B
-per-review allowance.
+`research/` is not in `editablePaths`, so the eleven research files on this
+branch cost zero submitted bytes. Total growth is **4,247 B** against my
+standing 25 kB allocation and the 262,144 B per-review allowance — 17 % of the
+allocation.
 
-**The per-file cap on `LagunaRuntimeModel.swift` is the binding constraint, and
-it is met with 1,173 B to spare.** It is also met against the newer frontier the
-advisor flagged: at `9e8c719f` that file is 521,506 B, so 2,782 B free versus my
-+1,347 B delta. This arm therefore does not depend on PR #81's literal reclaim
-landing first — #81 turns a tight fit into a comfortable one, but the arm fits
-either way.
+The per-file cap on `LagunaRuntimeModel.swift` was the binding constraint at the
+old base (1,173 B free). PR #81's literal reclaim removed that constraint
+entirely: the same +1,218 B delta now sits 44,537 B under the cap. Nothing in
+this arm was traded away for bytes *after* the rebase, but two things had
+already been traded away before it and are left as-is because they are still the
+better engineering call (§8): the block-narrow o_proj kernel family is deleted
+rather than kept behind a third selector, and
+`DARKBLOOM_ATTN_SCALE_NARROW_OPROJ` keeps its now-inaccurate name.
 
-Two consequences were accepted deliberately to stay inside that cap: the
-block-narrow o_proj kernel family was deleted rather than kept behind a third
-selector (§8), and no MSL literal in `LagunaRuntimeModel.swift` was re-indented
-or comment-stripped, because PR #81 is running exactly that transformation
-concurrently and a textual collision would be expensive for both branches.
+### 7.1 The rebase onto `f2fedd58`, and why it is behaviour-preserving
+
+The single permitted rebase was taken at advisor comment 5200104728. It
+conflicted in exactly one file, `LagunaRuntimeModel.swift`, in five hunks — all
+inside Metal string literals that my commit edits and that PR #81 dedented and
+comment-stripped. Every conflict was cosmetic on the `f2fedd58` side and
+semantic on mine, so hand-merging would have meant re-deriving #81's transform
+by eye across five hunks.
+
+PR #81's own commit message prescribes the alternative: *"Generated by
+`research/tanjiro_metal_literal_tool.py dedent`; regenerate after any rebase
+instead of hand-editing."* That is what was done, with the tool's fidelity
+checked first rather than assumed:
+
+1. **The tool reproduces #81 exactly.** Applying `dedent` then `strip` to
+   `f2fedd58^:LagunaRuntimeModel.swift` yields a file byte-identical to
+   `f2fedd58:LagunaRuntimeModel.swift` (`cmp` clean). So running the tool is
+   indistinguishable from replaying #81.
+2. **My diff applies cleanly to #81's pre-transform parent.**
+   `git diff 513f369 7302823 -- …LagunaRuntimeModel.swift` applies to
+   `f2fedd58^` with `git apply` reporting no fuzz and no rejects. This is the
+   independent confirmation of the advisor's claim that PR #72 does not touch my
+   mechanism: #72 is in that parent, and it does not perturb a single one of my
+   context lines.
+3. **The transform is emitted-MSL-neutral on my source too.**
+   `tanjiro_metal_literal_tool.py certify` over dumps of my patched file before
+   and after the transform: `109 strings compared; 77 byte-identical; 32 differ;
+   32 explained as pure comment removal; 0 UNEXPLAINED`.
+4. **My attention-plane MSL survived the rebase unchanged.** Dumping every
+   literal from the certified pre-rebase tree (`7302823`) and from the rebased
+   pre-transform tree and diffing the two dump directories yields exactly five
+   differing strings — `075_source`, `076_lagunaRoutedSwiGLUQMVPackedSelected‑
+   Source`, `079_source`, `080_source`, `081_source` — all in the routed plane,
+   i.e. all #72's. **No literal this arm touches changed.**
+
+The resolved file was written from step 3's output, so the shipped commit is
+`#81's transform ∘ my change`, not a hand-merge. `git status` is clean and no
+conflict markers survive (the three `=======` hits in the file are pre-existing
+Swift comment rules at `:11071`, `:11113`, `:11326`).
+
+The rebase did move every line anchor in the file. The commit message body and
+all line references in §3.3 were re-derived by symbol name at the new base; the
+symbols themselves are unchanged.
 
 ---
 
@@ -755,6 +848,31 @@ failure mode is *correct but slow*, never wrong.
   is precisely what a first-simdgroup-only split predicts, and it is the strongest
   external confirmation the mechanism has. Her hunks (`:7330-8101`, `:10021-10340`)
   do not intersect my four sites, so the two changes compose.
+* **The `groups % 64 == 0` guard the advisor flagged as a composition item.**
+  It is `LagunaRuntimeWeights.swift:885` (`scales.dim(1).isMultiple(of: 64)`).
+  I did **not** relax it, and — this is the part the advisor actually needs —
+  **the pairwise arm does not tighten it either.** I traced where the `64`
+  really comes from, because my first guess was wrong and worth recording as
+  such: it is *not* the pairwise split. That split is
+  `lanes.reshaped([rows, 16, 2, blocks])` at `:906`, and it divides the **lane**
+  axis, which is always exactly 32. It imposes no divisibility condition on
+  `groups` at all.
+
+  The binding constraint is the nibble packing at `:915-922`. The index plane is
+  laid out lane-major, so one lane's run is `blocks = groups / 32` elements
+  long, and `view(dtype: .uint16)` fuses *adjacent* elements into one byte. For
+  no byte to straddle a lane boundary, `blocks` must be even — hence
+  `groups % 64 == 0`. That condition is identical for the pairwise and
+  non-pairwise arms, since pairwise only shrinks the lane axis from 32 to 16
+  and leaves the run length `blocks` untouched.
+
+  So for a shared packer the guard's real form is `blocks % 2 == 0`, and
+  relaxing it means changing how nibbles pair (pair within a lane along a
+  different axis, or pad `blocks` to even), not weakening anything pairwise
+  introduced. All four attention sites have `groups ∈ {128, 384, 512}`, so
+  `blocks ∈ {4, 12, 16}` and nothing here depends on which spelling is used.
+  Whether the routed plane's geometry survives the same relaxation is #72's
+  question, not one I can answer from here.
 * **Fix the artifact at the source instead of exploiting it.** If
   `fp_quantized.h:2175-2215` used a group-local index the quantizer would emit
   genuinely distinct scales, which would *lose* this saving but might improve
