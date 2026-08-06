@@ -1,0 +1,154 @@
+table,row,arm,plane,kernel_or_block,machine,quantity,value,unit,label,byte_basis,n,dispersion,dispersion_kind,source
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,bytes_removed_per_step,25.690112,MB,MEASURED,REMOVED,1,0,exact_byte_count,research/nezuko-m1-cascade-result.md:20;:28
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,plane_bytes_read_before,134.87,MB,MEASURED,READ,1,0,exact_byte_count,research/CURRENT_RESEARCH_STATE.md:5602-5612
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,plane_bytes_read_after,109.18,MB,MEASURED,READ,1,0,exact_byte_count,research/CURRENT_RESEARCH_STATE.md:308-309
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,t_before_decode_ms,5.1135025,ms,MEASURED,,4,0.0055248,sem_of_4_control_receipts,research/CURRENT_RESEARCH_STATE.md:5539;:5540;:5541;:5545 via D=S/128+T
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,t_after_decode_ms,5.0869753,ms,MEASURED,,2,0.0037600,sem_of_2_Y_receipts,research/CURRENT_RESEARCH_STATE.md:5542;:5543 + research/frieren-pr35-r5-result.md:288
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,delta_decode_us,26.527,us,DERIVED,,6,6.683,propagated_sem_n6,t_before-t_after
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,marginal_rate_R_marg,968.4,GB_per_s,DERIVED,REMOVED,6,"[773.6,1294.6]",interval_1sem_n6,25.690112 MB / 26.527 us
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M4,average_rate_R_avg,260.6,GB_per_s,MEASURED,READ,199,UNKNOWN,no_half_range_published,research/CURRENT_RESEARCH_STATE.md:308-309
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,average_rate_R_avg,UNKNOWN,GB_per_s,UNKNOWN,,0,UNKNOWN,no_M5_lm-head_rate_exists,research/tanjiro-pr34-result.md:38-40
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,mixed,sigma_R_avg_over_R_marg,0.269,dimensionless,DERIVED,,6,"[0.201,0.337]",interval_1sem_n6,260.6/968.4 (M4 R_avg vs M5 R_marg - see report S6)
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,elasticity_75_over_t_after,14.7435,pct_per_ms,DERIVED,,1,0,exact_arithmetic,75/5.0869753
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,decode_score_delta_reconstructed,0.3911,pct,DERIVED,,6,0.0985,propagated_sem_n6,75*dt/t_after
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,published_score_delta,0.410,pct,MEASURED,,6,0.129,1sigma_4ctrl_vs_2cand,research/CURRENT_RESEARCH_STATE.md:4955-4960
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,residual_published_minus_reconstructed,0.0189,pct,DERIVED,,1,0,exact_arithmetic,prefill quarter-weight + rounding
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,realised_price,0.015224,pct_per_MB,DERIVED,REMOVED,6,0.003834,propagated_sem_n6,0.3911/25.690112
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,bytes_removed_per_step,37.77,MB,MEASURED,REMOVED,1,0,exact_byte_count,research/CURRENT_RESEARCH_STATE.md:1541-1548
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,plane_bytes_read_before,89.13,MB,MEASURED,READ,1,0,exact_byte_count,research/CURRENT_RESEARCH_STATE.md:1541-1548
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,plane_bytes_read_after,51.33,MB,MEASURED,READ,1,0,exact_byte_count,research/CURRENT_RESEARCH_STATE.md:1541-1548
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,t_before_decode_ms,5.0840029,ms,MEASURED,,1,UNKNOWN,single_receipt_0c21dc18,research/frieren-pr35-r5-result.md:288
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,t_after_decode_ms,5.0119323,ms,MEASURED,,1,UNKNOWN,single_receipt_0d123661,research/CURRENT_RESEARCH_STATE.md:634-650
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,delta_decode_us,72.071,us,DERIVED,,1,UNKNOWN,n1_no_replication,t_before-t_after
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,marginal_rate_R_marg,524.1,GB_per_s,DERIVED,REMOVED,1,"[418.6,700.5]",interval_from_imported_MDE_0.278pct,37.77 MB / 72.071 us
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,average_rate_R_avg,651.8,GB_per_s,MEASURED,READ,1,0.028,ms_half_range_on_1.23070,research/tanjiro-pr34-result.md:599
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,sigma_R_avg_over_R_marg,1.244,dimensionless,DERIVED,,1,"[0.923,1.564]",interval_from_imported_MDE,651.8/524.1
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,elasticity_75_over_t_after,14.9643,pct_per_ms,DERIVED,,1,0,exact_arithmetic,75/5.0119323
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,decode_score_delta_reconstructed,1.0785,pct,DERIVED,,1,0.278,imported_MDE,75*dt/t_after
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,published_score_delta,1.0512,pct,MEASURED,,1,0.278,MDE_1v1_cross_session,research/frieren-pr35-r5-result.md:286-290
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,residual_published_minus_reconstructed,-0.0273,pct,DERIVED,,1,0,exact_arithmetic,prefill -0.1005pct at quarter weight = -0.0251
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,realised_price,0.028555,pct_per_MB,DERIVED,REMOVED,1,0.007360,propagated_from_imported_MDE,1.0785/37.77
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,seam_alt_t_before_5.0869753,503.3,GB_per_s,DERIVED,REMOVED,1,UNKNOWN,alternative_chaining_see_report_S3,uses R1 n=2 Y mean instead of single 0c21dc18
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,bytes_removed_per_step,30.67,MB,MEASURED,REMOVED,1,0,exact_byte_count,research/maple-nezuko-pr72-group32-scale-census.md:363-368
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,plane_bytes_read_before,61.34,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-nezuko-pr72-group32-scale-census.md:363-368
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,block_bytes_read,552.08,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-405
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,t_before_decode_ms,5.0119323,ms,MEASURED,,1,UNKNOWN,single_receipt_0d123661,research/CURRENT_RESEARCH_STATE.md:634-650
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,t_after_decode_ms,4.9681367,ms,MEASURED,,1,UNKNOWN,single_receipt_58e28b8d,research/CURRENT_RESEARCH_STATE.md:634-650
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,delta_decode_us,43.796,us,DERIVED,,1,UNKNOWN,n1_no_replication,t_before-t_after
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,marginal_rate_R_marg,700.3,GB_per_s,DERIVED,REMOVED,1,"[493.1,1207.9]",interval_from_imported_MDE_0.278pct,30.67 MB / 43.796 us
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,average_rate_R_avg,546.2,GB_per_s,MEASURED,READ,1,0.034,ms_half_range_on_1.01067,research/tanjiro-pr34-result.md:602
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,sigma_R_avg_over_R_marg,0.780,dimensionless,DERIVED,,1,"[0.452,1.108]",interval_from_imported_MDE,546.2/700.3
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,elasticity_75_over_t_after,15.0962,pct_per_ms,DERIVED,,1,0,exact_arithmetic,75/4.9681367
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,decode_score_delta_reconstructed,0.6611,pct,DERIVED,,1,0.278,imported_MDE,75*dt/t_after
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,published_score_delta,0.7473,pct,MEASURED,,1,0.278,MDE_1v1_imported_from_pr35,research/CURRENT_RESEARCH_STATE.md:638;:641-644
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,residual_published_minus_reconstructed,0.0862,pct,DERIVED,,1,0,exact_arithmetic,prefill +0.3456pct at quarter weight = +0.0864
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,realised_price,0.021555,pct_per_MB,DERIVED,REMOVED,1,0.009064,propagated_from_imported_MDE,0.6611/30.67
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,published_roofline_price,0.0272,pct_per_MB,DERIVED,,0,0,identity_not_observation_see_report_S5,14.862/546.2 - RETIRED as evidence
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,published_roofline_score_delta,0.834,pct,DERIVED,,0,0,circular_lower_bound_never_measured,research/maple-nezuko-pr72-group32-scale-census.md:382-406
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,bytes_removed_per_step,27.698336,MB,MEASURED,REMOVED,1,0,exact_byte_count,research/maple-frieren-pr80-attn-scale-pairwise.md:31-32;:409-410
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,plane_bytes_read_after,23.556,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-frieren-pr80-attn-scale-pairwise.md:406-410
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,t_before_decode_ms,4.9681367,ms,MEASURED,,1,UNKNOWN,single_receipt_58e28b8d,research/CURRENT_RESEARCH_STATE.md:634-650
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,t_after_decode_ms,4.9083721,ms,MEASURED,,1,UNKNOWN,single_receipt_97a5090c_PROMOTED,research/CURRENT_RESEARCH_STATE.md:634-650
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,delta_decode_us,59.765,us,DERIVED,,1,UNKNOWN,n1_no_replication,t_before-t_after
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,marginal_rate_R_marg,463.5,GB_per_s,DERIVED,REMOVED,1,"[355.4,666.1]",interval_from_imported_MDE_0.278pct,27.698336 MB / 59.765 us
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,marginal_rate_R_marg_drift_cancelled,493.9,GB_per_s,DERIVED,REMOVED,1,UNKNOWN,point_only_uses_0.857pct,research/maple-frieren-pr80-attn-scale-pairwise.md:1541
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,average_rate_R_avg,651.8,GB_per_s,MEASURED,READ,1,0.028,ms_half_range_on_1.23070,research/tanjiro-pr34-result.md:599
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,sigma_R_avg_over_R_marg,1.406,dimensionless,DERIVED,,1,"[0.978,1.835]",interval_from_imported_MDE,651.8/463.5
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,elasticity_75_over_t_after,15.2800,pct_per_ms,DERIVED,,1,0,exact_arithmetic,75/4.9083721
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,decode_score_delta_reconstructed,0.9132,pct,DERIVED,,1,0.278,imported_MDE,75*dt/t_after
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,decode_only_score_delta_published,0.913,pct,MEASURED,,1,0.278,NOT_the_full_ns_delta_see_report_S9,research/maple-frieren-pr80-attn-scale-pairwise.md:1539-1543
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,published_score_delta_drift_cancelled,0.857,pct,MEASURED,,1,0.278,MDE_1v1_imported_from_pr35,research/maple-frieren-pr80-attn-scale-pairwise.md:1526;:1541
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,residual_published_minus_reconstructed,-0.0002,pct,DERIVED,,1,0,exact_arithmetic,prefill +0.1074pct NEUTRAL at 0.05sigma
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,realised_price,0.032969,pct_per_MB,DERIVED,REMOVED,1,0.010037,propagated_from_imported_MDE,0.9132/27.698336
+R,R4a,pr80,attention scale rung A->B,attn qkvo block,M5,bytes_removed_per_step,5.698368,MB,MEASURED,REMOVED,1,0,exact_byte_count,research/maple-frieren-pr80-attn-scale-pairwise.md:412-416
+R,R4a,pr80,attention scale rung A->B,attn qkvo block,M5,observed_decode_delta,0.1302,pct,MEASURED,,1,0.278,below_MDE,research/maple-frieren-pr80-attn-scale-pairwise.md:412-416
+R,R4b,pr80,attention scale rung B->C,attn qkvo block,M5,bytes_removed_per_step,12.364768,MB,MEASURED,REMOVED,1,0,exact_byte_count,research/maple-frieren-pr80-attn-scale-pairwise.md:412-416
+R,R4b,pr80,attention scale rung B->C,attn qkvo block,M5,observed_decode_delta,0.2825,pct,MEASURED,,1,0.278,at_MDE,research/maple-frieren-pr80-attn-scale-pairwise.md:412-416
+R,R4c,pr80,attention scale rung C->D,attn qkvo block,M5,bytes_removed_per_step,9.635200,MB,MEASURED,REMOVED,1,0,exact_byte_count,research/maple-frieren-pr80-attn-scale-pairwise.md:412-416
+R,R4c,pr80,attention scale rung C->D,attn qkvo block,M5,observed_decode_delta,0.2202,pct,MEASURED,,1,0.278,below_MDE,research/maple-frieren-pr80-attn-scale-pairwise.md:412-416
+R,RAGG,pr35r5+pr72+pr80,M5-priced chain R2->R4 aggregated,attn+routed blocks,M5,bytes_removed_per_step,96.138336,MB,DERIVED,REMOVED,3,0,sum_of_R2_R3_R4,exact_arithmetic
+R,RAGG,pr35r5+pr72+pr80,M5-priced chain R2->R4 aggregated,attn+routed blocks,M5,delta_decode_us,175.631,us,DERIVED,,3,UNKNOWN,chain_endpoints_0c21dc18_to_97a5090c,5.0840029-4.9083721
+R,RAGG,pr35r5+pr72+pr80,M5-priced chain R2->R4 aggregated,attn+routed blocks,M5,marginal_rate_R_marg,547.4,GB_per_s,DERIVED,REMOVED,3,UNKNOWN,aggregate_identity_see_report_S6,96.138336 MB / 175.631 us
+R,RAGG,pr35r5+pr72+pr80,M5-priced chain R2->R4 aggregated,attn+routed blocks,M5,sigma_R_avg_over_R_marg,0.998,dimensionless,DERIVED,,3,UNKNOWN,explains_the_1.0-1.2_band,546.2/547.4
+R,RAGG,pr35r5+pr72+pr80,M5-priced chain R2->R4 aggregated,attn+routed blocks,M5,decode_score_delta_reconstructed,2.6836,pct,DERIVED,,3,UNKNOWN,cumulative,75*dt/4.9083721
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,prefill_S_before_ms,97.939200,ms,MEASURED,,4,UNKNOWN,control_mean_of_S,research/CURRENT_RESEARCH_STATE.md:5539;:5540;:5541;:5545
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,prefill_S_after_ms,97.862500,ms,MEASURED,,2,UNKNOWN,Y_mean_of_S,research/CURRENT_RESEARCH_STATE.md:5542;:5543
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,prefill_quarter_weight_contribution,0.0196,pct,DERIVED,,1,0,exact_arithmetic,25*(Sb-Sa)/Sa
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,ns_delta_reconstructed,0.4105,pct,DERIVED,,1,0,exact_identity,(Db/Da)^0.75*(Sb/Sa)^0.25-1
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,ns_delta_published,0.4102,pct,MEASURED,,6,0.129,1sigma_4ctrl_vs_2cand,research/CURRENT_RESEARCH_STATE.md:4955-4960 (2.529700/2.519365)
+R,R1,pr20,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M5,identity_residual,0.0003,pct,DERIVED,,1,0,exact_arithmetic,recon-published
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,prefill_S_before_ms,98.029000,ms,MEASURED,,1,UNKNOWN,single_receipt_0c21dc18,research/CURRENT_RESEARCH_STATE.md:5542
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,prefill_S_after_ms,98.127872,ms,MEASURED,,1,UNKNOWN,single_receipt_0d123661,research/CURRENT_RESEARCH_STATE.md:634-650 (0.000191656*512*1000)
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,prefill_quarter_weight_contribution,-0.0252,pct,DERIVED,,1,0,exact_arithmetic,25*(Sb-Sa)/Sa
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,ns_delta_reconstructed,1.0511,pct,DERIVED,,1,0,exact_identity,(Db/Da)^0.75*(Sb/Sa)^0.25-1
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,ns_delta_published,1.0513,pct,MEASURED,,1,0.278,MDE_1v1,research/frieren-pr35-r5-result.md:286-290 (2.556326/2.529730)
+R,R2,pr35r5,attention NVFP4 scale plane,attn qkvo block,M5,identity_residual,-0.0002,pct,DERIVED,,1,0,exact_arithmetic,recon-published
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,prefill_S_before_ms,98.127872,ms,MEASURED,,1,UNKNOWN,single_receipt_0d123661,research/CURRENT_RESEARCH_STATE.md:634-650
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,prefill_S_after_ms,97.789952,ms,MEASURED,,1,UNKNOWN,single_receipt_58e28b8d,research/CURRENT_RESEARCH_STATE.md:634-650 (0.000190996*512*1000)
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,prefill_quarter_weight_contribution,0.0864,pct,DERIVED,,1,0,exact_arithmetic,25*(Sb-Sa)/Sa
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,ns_delta_reconstructed,0.7473,pct,DERIVED,,1,0,exact_identity,(Db/Da)^0.75*(Sb/Sa)^0.25-1
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,ns_delta_published,0.7473,pct,MEASURED,,1,0.278,MDE_1v1,research/CURRENT_RESEARCH_STATE.md:638 (2.575430/2.556326)
+R,R3,pr72,routed MoE group-32 scale plane,routed MoE QMV block,M5,identity_residual,-0.0001,pct,DERIVED,,1,0,exact_arithmetic,recon-published
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,prefill_S_before_ms,97.789952,ms,MEASURED,,1,UNKNOWN,single_receipt_58e28b8d,research/CURRENT_RESEARCH_STATE.md:634-650
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,prefill_S_after_ms,97.894912,ms,MEASURED,,1,UNKNOWN,single_receipt_97a5090c,research/CURRENT_RESEARCH_STATE.md:634-650 (0.000191201*512*1000)
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,prefill_quarter_weight_contribution,-0.0268,pct,DERIVED,,1,0,exact_arithmetic,25*(Sb-Sa)/Sa
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,ns_delta_reconstructed,0.8848,pct,DERIVED,,1,0,exact_identity,(Db/Da)^0.75*(Sb/Sa)^0.25-1
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,ns_delta_published,0.8847,pct,MEASURED,,1,0.278,MDE_1v1,research/CURRENT_RESEARCH_STATE.md:634-650 (2.598216/2.575430)
+R,R4,pr80,attention NVFP4 scale plane (pairwise),attn qkvo block,M5,identity_residual,0.0000,pct,DERIVED,,1,0,exact_arithmetic,recon-published
+R,RIDENT,all four rows,identity closure check,n/a,M5,rms_identity_residual,0.00019,pct,DERIVED,,4,0,exact_arithmetic,1431x tighter than the 0.278pct 1v1 MDE
+K,K01,,routed MoE expert weights,routed_nvfp4_swiglu_qmv_packed_top8keys,M4,dispatches_per_step,39,count,MEASURED,,199,UNKNOWN,drift_control_only,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K01,,routed MoE expert weights,routed_nvfp4_swiglu_qmv_packed_top8keys,M4,time_per_step,1503.9,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K02,,attention q/k/v NVFP4 (h64 layers),decode_nvfp4_qkv_h64,M4,time_per_step,1358.4,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K03,,attention o_proj (h64 layers),oproj_act_h64,M4,time_per_step,1141.8,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K04,,routed + shared expert down projection,routed_shared_nvfp4_down_residual,M4,time_per_step,833.4,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K05,,sliding-window KV,sliding_fused_attn_ring_v1,M4,time_per_step,588.3,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K05,,sliding-window KV,sliding_fused_attn_ring_v1,M4,bytes_read_per_step,62.91,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-422
+K,K06,,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M4,time_per_step,418.9,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K06,,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M4,bytes_read_per_step,109.18,MB,MEASURED,READ,1,0,exact_byte_count,research/CURRENT_RESEARCH_STATE.md:308-309
+K,K06,,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M4,achieved_rate,260.6,GB_per_s,DERIVED,READ,199,UNKNOWN,no_half_range_published,109.18/0.4189
+K,K06,,lm-head stage-1 base plane,lmhead_int5_base_coarse_delta,M4,pct_of_M4_ceiling,100.2,pct,DERIVED,,1,0,exact_arithmetic,260.6/260.2
+K,K07,,attention q/k/v NVFP4 (h48 layers),decode_nvfp4_qkv_h48,M4,time_per_step,363.9,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K08,,attention o_proj (h48 layers),oproj_act_h48,M4,time_per_step,302.9,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K09,,dense layer-0 gate/up BF16,dense_gate_up_swiglu,M4,time_per_step,268.0,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K09,,dense layer-0 gate/up BF16,dense_gate_up_swiglu,M4,bytes_read_per_step,67.11,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-422
+K,K09,,dense layer-0 gate/up BF16,dense_gate_up_swiglu,M4,achieved_rate,250.4,GB_per_s,MEASURED,READ,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K09,,dense layer-0 gate/up BF16,dense_gate_up_swiglu,M4,pct_of_M4_ceiling,96.2,pct,DERIVED,,1,0,exact_arithmetic,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K10,,router logits BF16,residual_rms_router,M4,time_per_step,254.3,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K10,,router logits BF16,residual_rms_router,M4,bytes_read_per_step,40.89,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-422
+K,K10,,router logits BF16,residual_rms_router,M4,achieved_rate,160.8,GB_per_s,MEASURED,READ,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K10,,router logits BF16,residual_rms_router,M4,pct_of_M4_ceiling,61.8,pct,DERIVED,,1,0,exact_arithmetic,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K11,,full-attention KV,full_fused_attn_grow_v1,M4,time_per_step,237.9,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K11,,full-attention KV,full_fused_attn_grow_v1,M4,bytes_read_per_step,20.97,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-422
+K,K12,,shared expert gate/up NVFP4,shared_nvfp4_swiglu_qmv_rows1,M4,time_per_step,230.5,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K12,,shared expert gate/up NVFP4,shared_nvfp4_swiglu_qmv_rows1,M4,bytes_read_per_step,46.00,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-422
+K,K12,,shared expert gate/up NVFP4,shared_nvfp4_swiglu_qmv_rows1,M4,achieved_rate,199.6,GB_per_s,MEASURED,READ,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K12,,shared expert gate/up NVFP4,shared_nvfp4_swiglu_qmv_rows1,M4,pct_of_M4_ceiling,76.7,pct,DERIVED,,1,0,exact_arithmetic,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K13,,per-head g_proj INT8 (h64),gate_sp_h64,M4,time_per_step,191.7,us,MEASURED,,199,1.24,max_abs_drift_pct_A_to_C,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K13,,per-head g_proj INT8,gate_sp (h64+h48),M4,bytes_read_per_step,7.86,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-422
+K,K13,,per-head g_proj INT8,gate_sp (h64+h48),M4,achieved_rate,30.4,GB_per_s,MEASURED,READ,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K13,,per-head g_proj INT8,gate_sp (h64+h48),M4,pct_of_M4_ceiling,11.7,pct,DERIVED,,1,0,exact_arithmetic,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K14,,router top-k selection,decode_router_top8_ordinal_table_norm,M4,time_per_step,139.6,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K15,,dense layer-0 down BF16,dense_down_residual,M4,time_per_step,133.0,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K15,,dense layer-0 down BF16,dense_down_residual,M4,bytes_read_per_step,33.55,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-422
+K,K15,,dense layer-0 down BF16,dense_down_residual,M4,achieved_rate,252.3,GB_per_s,MEASURED,READ,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K15,,dense layer-0 down BF16,dense_down_residual,M4,pct_of_M4_ceiling,97.0,pct,DERIVED,,1,0,exact_arithmetic,research/maple-tanjiro-pr73-decode-kernel-census.md:433-441
+K,K16,,lm-head stage-2 refine,lmhead_exact_fused_int5_sparse_refine,M4,time_per_step,74.9,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,K17,,RMS norms,rmsbfloat16,M4,time_per_step,74.6,us,MEASURED,,199,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,KB1,,attention qkvo (4-kernel block),decode_nvfp4_qkv_h64+h48 / oproj_act_h64+h48,M4,bytes_read_per_step,802.16,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-405
+K,KB1,,attention qkvo (4-kernel block),decode_nvfp4_qkv_h64+h48 / oproj_act_h64+h48,M4,time_per_step,3167.0,us,DERIVED,,199,UNKNOWN,sum_of_K02_K03_K07_K08,1358.4+1141.8+363.9+302.9
+K,KB1,,attention qkvo (4-kernel block),decode_nvfp4_qkv_h64+h48 / oproj_act_h64+h48,M4,achieved_rate,253.3,GB_per_s,DERIVED,READ,199,UNKNOWN,no_half_range_published,802.16/3.1670
+K,KB1,,attention qkvo (4-kernel block),decode_nvfp4_qkv_h64+h48 / oproj_act_h64+h48,M4,pct_of_M4_ceiling,97.3,pct,DERIVED,,1,0,exact_arithmetic,253.3/260.2
+K,KB1,,attention qkvo (4-kernel block),decode_nvfp4_qkv_h64+h48 / oproj_act_h64+h48,M5,time_per_step,1230.70,us,MEASURED,,1,28,us_half_range,research/tanjiro-pr34-result.md:599
+K,KB1,,attention qkvo (4-kernel block),decode_nvfp4_qkv_h64+h48 / oproj_act_h64+h48,M5,achieved_rate,651.8,GB_per_s,MEASURED,READ,1,UNKNOWN,derived_from_us_half_range,research/tanjiro-pr34-result.md:599
+K,KB2,,routed MoE (2-kernel block),routed_nvfp4_swiglu_qmv_packed_top8keys / routed_shared_nvfp4_down_residual,M4,bytes_read_per_step,552.08,MB,MEASURED,READ,1,0,exact_byte_count,research/maple-tanjiro-pr73-decode-kernel-census.md:402-405
+K,KB2,,routed MoE (2-kernel block),routed_nvfp4_swiglu_qmv_packed_top8keys / routed_shared_nvfp4_down_residual,M4,time_per_step,2337.3,us,DERIVED,,199,UNKNOWN,sum_of_K01_K04,1503.9+833.4
+K,KB2,,routed MoE (2-kernel block),routed_nvfp4_swiglu_qmv_packed_top8keys / routed_shared_nvfp4_down_residual,M4,achieved_rate,246.0,GB_per_s,DERIVED,READ,199,UNKNOWN,includes_23.00MB_shared_down,575.08/2.3373
+K,KB2,,routed MoE (2-kernel block),routed_nvfp4_swiglu_qmv_packed_top8keys / routed_shared_nvfp4_down_residual,M4,pct_of_M4_ceiling,94.6,pct,DERIVED,,1,0,exact_arithmetic,246.0/260.2
+K,KB2,,routed MoE (2-kernel block),routed_nvfp4_swiglu_qmv_packed_top8keys / routed_shared_nvfp4_down_residual,M5,time_per_step,1010.67,us,MEASURED,,1,34,us_half_range,research/tanjiro-pr34-result.md:602
+K,KB2,,routed MoE (2-kernel block),routed_nvfp4_swiglu_qmv_packed_top8keys / routed_shared_nvfp4_down_residual,M5,achieved_rate,546.2,GB_per_s,MEASURED,READ,1,UNKNOWN,flagged_provisional,research/tanjiro-pr34-result.md:602
+K,KB3,,whole decode step,all,M4,time_per_step,8200.7,us,MEASURED,,199,UNKNOWN,delta_corrected_sum,research/maple-tanjiro-pr73-decode-kernel-census.md:341-367
+K,KB3,,whole decode step,all,M4,bytes_read_per_step,1794,MB,MEASURED,READ,1,0,certified_total,research/maple-tanjiro-pr73-decode-kernel-census.md:402-405
+K,KB3,,whole decode step,all,M5,achieved_rate,415,GB_per_s,MEASURED,READ,1,UNKNOWN,whole_step_aggregate,research/tanjiro-pr27-result.md:152
+K,KB3,,whole decode step,all,M5,definitional_rate,610,GB_per_s,DERIVED,READ,1,0,not_a_physical_capability,research/CURRENT_RESEARCH_STATE.md:1611
+K,KC1,,M4 Pro streaming ceiling,-,M4,ceiling_rate,260.2,GB_per_s,MEASURED,READ,1,UNKNOWN,no_half_range_published,research/maple-tanjiro-pr73-decode-kernel-census.md:431
+K,KC2,,M5 streaming ceiling,-,M5,ceiling_rate,UNKNOWN,GB_per_s,UNKNOWN,,0,UNKNOWN,never_measured_lower_bound_919,research/tanjiro-pr34-result.md:38-40
