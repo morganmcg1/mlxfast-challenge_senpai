@@ -1,15 +1,21 @@
 # SENPAI Research State
 
-- **2026-08-06 01:40 UTC** (advisor: meridian). **Round 12 is closed. Round 13
-  is being staffed.** Frontier is **`ab1f9a13`**. Three merges this round:
+- **2026-08-06 03:20 UTC** (advisor: meridian). **Round 13 is closed. Round 14
+  is running.** Frontier is **`9e8c719f`**. Four merges in round 13:
   **#35 (frieren) MERGED at `6f60c3a4` — the programme's FIRST SHIPPED WIN
   since the crown**, ranked receipt `0d123661`, `ns` 2.529734 → **2.556326 =
   +1.0512 %**, and it is now **rank 1 of 1,049 passing receipts on `ns`**;
   **#71 (fern) MERGED at `86e08c21`** research-only, routed-QMV bandwidth
   framing CLOSED; **#73 (tanjiro) MERGED at `ab1f9a13`** research-only, the
-  **decode residual CLOSED as DIFFUSE**. **#72 (nezuko)** is the only arm in
-  flight. **The ranked channel is FREE and I am the scheduler.** Read §Ø (the
-  corrections ledger) first, then §0, then §0.9 for the **twenty-nine** laws.
+  **decode residual CLOSED as DIFFUSE**; **#72 (nezuko) MERGED at `9e8c719f`**
+  — a **bit-identical halving of the routed NVFP4 scale plane**, decisive
+  census, second full §0.9.21 discharge, **not yet ranked**. Four arms are in
+  flight: **#80** (frieren, attention pairwise scale halving), **#81**
+  (tanjiro, Metal-literal byte reclamation, **r2 requested, MERGE PRIORITY**),
+  **#82** (fern, routed-QMV router dedup), **#85** (nezuko, layer-0 dense-MLP
+  lossless re-encode census). **The ranked channel is ALLOCATED to #72** and
+  nezuko dispatches it as Step 0 of #85. Read §Ø (the
+  corrections ledger) first, then §0, then §0.9 for the **thirty-two** laws.
   The six that gate every brief written
   today: the **M4 TRANSFER LAW** (§0.9.2) decides which evidence may be priced
   at all; **§0.9.11 the LEDGER-HYGIENE LAW** — a banked queue price is not
@@ -25,6 +31,316 @@
   mechanism whose best case is below the 0.278% single-receipt floor and whose
   family has a proven ceiling below that floor is preserved as a `research/`
   patch, never merged as permanent scored-path code.
+
+---
+
+## ★★★ ROUND-14 STATE (2026-08-06 03:20 UTC) — READ THIS FIRST
+
+### R14.0 Where the programme stands
+
+The plateau is broken and the shape of the remaining work has changed. #35
+proved that **moving fewer bytes on a decode weight plane is the only lever
+that has ever produced a ranked win in this campaign**, and #73 proved that
+**there is no single fat residual kernel left to recover** — the 1.340 ms
+non-roofline residual is 98.4 % "remainder block" and DIFFUSE, largest single
+item 5.08 % of score. Round 14 therefore commits the whole roster to the byte
+axis, one plane per student, plus one byte-budget enabling arm:
+
+| plane | who | PR | MB/step removed | priced |
+|---|---|---|---:|---:|
+| attention scales (q/k/v + o), pairwise halving on top of #35 | frieren | #80 | 27.73 | **+0.77 %** |
+| routed NVFP4 scales, pairwise halving | nezuko | **#72 MERGED** | 30.67 | **+0.834 %** |
+| routed QMV router re-extraction (instruction side, not bytes) | fern | #82 | — | +0.4…+0.8 % |
+| layer-0 dense MLP BF16 lossless re-encode | nezuko | #85 | 25.2…50.3 | +0.61…+1.37 % |
+| `LagunaRuntimeModel.swift` byte reclamation (enables all of the above) | tanjiro | #81 | — | headroom |
+
+**The binding resource in round 14 is not GPU time — it is bytes of source.**
+`LagunaRuntimeModel.swift` sat at 521,506 / 524,288 B after #72, i.e. **2,782 B
+free**. Every remaining decode idea edits that file. #81 reclaims 42,757 B of
+it losslessly and therefore has **merge priority over every other arm**; a
+**merge freeze on submitted-file PRs is in force until #81 r2 lands**.
+
+### R14.1 #72 (nezuko) MERGED at `9e8c719f` — the routed scale plane is halved
+
+Census was decisive and structural, not statistical. Across the 234 routed
+scale tensors there are **985,300,992 even-byte pairs and exactly 168
+exceptions — one per tensor, always flat pair 0**, i.e. 99.999983 % equality;
+the odd-index control disagrees 23.24 % of the time. The mechanism is provable
+from source: `Vendor/mlx-swift/.../kernels/fp_quantized.h:2192-2194` predicates
+the scale write on `tidx.x` under a 1-D dispatch
+(`quantized.cpp:2455-2478`, `per_thread=1`), so `scale[2k] == scale[2k+1]`
+bit-exactly. The JIT twins agree and there is **no `_nax` override**.
+
+Shipped as `[128-B patch header][even-byte halved plane]`, built inside
+`prepareFusedRoutedGateUp()` off `prepareFusedRuntimeWeights()`
+(`LagunaRuntimeModel.swift:11052`), untimed, returning `nil` on any violation;
+four kernels changed identically (`scale_row_bytes 32→16`, `+
+scale_patch_bytes`, `lane>>1`, predicated patch select). `allowedFlatPairs` is
+`[0,16]` for gate/up and `[0]` for down. Fixture: `packed_scales`
+1,048,576→524,416 B, `down_scales` 524,288→262,272 B, violations 0.
+
+Timing (M4, two campaigns): Campaign A decode **+1.0762 %** (SE 0.2274);
+Campaign B, counterbalanced, decode **+0.7260 %** (SE 0.4565), drift-adjusted
++0.6370, adjacent-pair +0.6074; prefill control +0.7646 % (SE 0.3346). All six
+Campaign-B replicates `max_abs_diff = 0`, `peak_ram_gb 21`. Result recorded
+`inconclusive` on M4 with primary metric `same_host_paired_decode_ratio`
+1.00731. **Merged on the certificate, not the timing** — see §0.9.32.
+
+This is the programme's **second full §0.9.21 discharge**: three kernel pairs
+built from one `makeLibrary` in a single process, `memcmp` returning 0
+differing bytes, and **eight incoherent power controls all firing**.
+
+Artefacts: `research/maple-nezuko-pr72-group32-scale-census.md` (1,245 lines),
+`…-preregistration.md`, `research/maple-nezuko-pr72/` (16 score JSONs +
+`analyze.py` + `drift.py`), `research/nezuko-pr72-logs/`,
+`research/nezuko_group32_halving_check.swift`, `research/nezuko_g32_extract.py`,
+`research/nezuko_g32_dump.py`, `research/nezuko_scale_census.py`,
+`research/nezuko_attention_scale_control.swift`, `research/nezuko_attn_dump.py`.
+
+**Cross-student transfer is now mandatory reading for #80.** frieren is
+building the same pairwise-constancy mechanism on the attention plane;
+nezuko's design, exception structure (168, always flat pair 0 — the same shape
+as frieren's 89 exceptions at `g=0`), and census tooling all port directly.
+
+### R14.2 ★ THE 14.862 %/ms EXCHANGE RATE IS DERIVED AND CONFIRMED
+
+This retires the naive linearisation that produced several banked prices.
+
+```
+decode_spt(ms) = T + S/128                     (harness definition)
+               = 4.281 + 97.95/128 = 5.04623
+d(score)/dT    = 0.75 / 5.04623 = 0.148626      ->  14.862 % per ms
+naive 0.75*delta/T                              ->  17.519 % per ms  (WRONG)
+```
+
+The gap is the dropped **0.76523 ms amortised-prefill term**. Concretely: #72's
+30.67 MB/step is **+0.834 %**, not the +0.983 % the naive form gives. **The
+naive `0.75·δ/T` linearisation is retired programme-wide.** Every price in this
+document and in every brief now uses 14.862 %/ms decode and 0.371 %/ms prefill,
+so one decode ms is worth **40.0 prefill ms**, and a resolvable decode win
+needs **≥ 18.7 µs/step**.
+
+### R14.3 §0.9.31 — THE ALLOCATION-IMAGE CONFOUND (**DEMOTED**)
+
+Minted in round 13 after #72's prefill control moved +0.76 % on an arm that
+cannot touch prefill. The hypothesis: a load-time change to the number, size
+and ordering of MLX allocations changes the resident memory image, and prefill
+(which is allocation-heavy and runs first) picks that up.
+
+**It is now one of two live explanations and host noise is ahead of it**,
+because #81 §6.3 measured a base↔base A/A prefill spread of **−0.822 %** on
+byte-identical bytes. §0.9.31 is retained as a *hypothesis to be settled*, not
+a law. **#85 is the arm that settles it**: nezuko's packed dense plane changes
+load-time allocations massively (it drops a 67.11 MB fused bank and adds a
+~25 MB packed plane), so she must report **count, total size and ordering of
+load-time allocations per arm** next to the prefill control delta. If §0.9.31
+is real, prefill moves predictably with the allocation delta; if it is host
+noise, her A/A arm moves prefill just as much. Either answer is publishable.
+
+### R14.4 ★★ §0.9.32 — A LOCAL A/A NO-HARM BAND IS NOT A STOP CONDITION
+
+**New law, credited to tanjiro (#81 §6.3).** He ran base↔base on
+byte-identical bytes with an identical `harness_hash` and measured decode
+**+0.460 %** and prefill **−0.822 %**. Across four MSL-equivalent arms the
+spread was **1.588 % decode / 2.105 % prefill** — with zero semantic
+difference between any of them.
+
+Three consequences, all binding on every brief:
+
+**(a)** A no-harm band or a win threshold must be derived from a **measured
+same-session A/A in the same campaign on the same host** and must exceed
+**that measured spread**. A fixed constant band written into a brief in
+advance is withdrawn as a stop condition. This directly withdraws the fixed
+band I had given frieren in #80.
+
+**(b)** For a **bit-equivalent** arm the identity certificate *is* the
+evidence. Local timing adds nothing to the merge decision and must not be
+allowed to veto it. This is why #72 merged while recording `inconclusive`.
+
+**(c)** `prefill_speedup ~ 0.32 / floor=false` appearing on **both** base and
+candidate is a host artefact of the research box, not a candidate property.
+
+**Every campaign from round 14 onwards must include a base↔base A/A arm**,
+counterbalanced, using nezuko's Campaign-B protocol
+(`research/maple-nezuko-pr72/analyze.py`, `drift.py`). It costs one arm and it
+is the only way to know what a local delta means.
+
+### R14.5 ★ §0.9.11 CASUALTY #25 — THE DENSE MLP IS **LAYER 0**, NOT LAYER 40
+
+I had it backwards in every prior brief. The in-source comment is explicit:
+
+```
+Sources/MLXFastModel/LagunaRuntimeModel.swift:586-592
+  "Layer 0 is the only layer whose MLP is plain BF16 Linear
+   rather than NVFP4 QuantizedLinear"
+```
+
+This matters because layer 0 runs **first** in every decode step, so its
+100.66 MB/step of BF16 weight traffic is on the critical path before any
+routed work begins, and because the round-9 byte census (1,657 vs 1,794 MB) is
+missing **exactly this ~100.66 MB item** — the frontier critique agent found
+the discrepancy and the layer-0 error explains it.
+
+Verified line table at `9e8c719f` (line numbers moved from my old notes — use
+these):
+
+```
+:586-592  layer-0 comment (the citation above)
+:591      lagunaFusedDenseGateUpSwiGLUEnabled  <- DARKBLOOM_FUSED_DENSE_GATE_UP_SWIGLU (ON)
+:596+     DARKBLOOM_FUSED_DENSE_DOWN_RESIDUAL (ON)
+:8153-54  metalKernel laguna_dense_gate_up_swiglu_bf16_v1
+:8231     func lagunaDenseGateUpSwiGLU(...)      grid ((8192/64)*512,1,1) at :8243
+:8250-51  metalKernel laguna_dense_down_residual_bf16_v1
+:8307     func lagunaDenseDownResidual(...)      precondition :8313, dims :8316, dispatch :8320
+:8353     var _fusedDenseGateUpWeight: MLXArray?
+:8405-20  func prepareFusedDenseGateUp()         (BUILD site)
+:8537     func fusedDenseDownResidual(...)       guard x.dim(1)==1 at :8542
+:8562-68  gate/up decode call ; :8575-76 down decode call ; :8578 stock fallback
+:8581-83  callAsFunction guard  <- SHARED-expert path, NOT dense
+:11221-22 load hook: prepareFusedDenseGateUp()
+LagunaConfig.swift:17 hiddenSize 2048  :19 denseIntermediateSize 8192  :33 sharedExpertIntermediateSize 512
+```
+
+The two dense kernels are **already at the byte roofline** — 250.4 GB/s
+(96.2 %) and 252.3 GB/s (97.0 %) of the 260.2 GB/s M4 ceiling — so no kernel
+rewrite can help. **The only lever is moving fewer bytes**, which is #85.
+
+### R14.6 Round-14 assignments in flight
+
+**#80 (frieren) — attention pairwise scale halving.** Head
+`513f3693`, r1, `status:wip`. Corrected arithmetic: current planes are 51.33
+MB/step (qkv 25.34 after #35's lane-major 65 B, o 25.99 after #35's
+block-narrow 336/252 B); pairwise halving takes them to 23.60 MB/step, a
+**27.73 MB/step saving = +0.77 %, denominator-insensitive** (+0.771 % at
+651.8 GB/s × 1.22, +0.770 % at 546.2 GB/s × 1.02). **Only the union is
+receipt-resolvable** — the three rungs individually price at +0.135 %,
++0.280 % and +0.218 % against an MDE of 0.278 %. Cleared on the
+`ab1f9a13`→`9e8c719f` baseline advance: #72's hunks (`7330-8101`,
+`10021-10340`) miss all four of his sites (`:5585`, `:5664`, `:4511`, `:4921`).
+**Do not rebase yet — rebase once, onto the post-#81 head.**
+
+**#81 (tanjiro) — Metal-literal byte reclamation.** Head `ecf288c3`, **r2
+requested**, `status:wip`, **MERGE PRIORITY / FAST LANE**. r1 reclaimed
+**42,757 B**: `LagunaRuntimeModel.swift` 521,768 → **479,011 B**, per-file
+headroom 2,520 → **45,277 B (17.97×)**. Certificate was complete: 108
+triple-quote blocks + 1 concat blob = 109 = 100 % coverage; base→T1
+byte-identical on all 109 with `git diff --ignore-all-space` **empty**; base→T2
+77 identical / 32 differ, **all pure `//` removal, 0 UNEXPLAINED**, and the
+13,397 B string-internal delta equals the whole-file delta. Four correctness
+arms all `passed_correctness=true`, `max_abs_diff=0`, `golden_hash
+b9509697c08a…`. r2 is a **mechanical rebase only** onto `9e8c719f` (#72 landed
+inside the literal range and `git merge-tree` shows 5 conflict regions);
+regenerate with the tool, never hand-edit. **T4 is proven** (2,449 B of
+byte-identical duplicated attention headers); T3 (18,286 B) remains available.
+
+**#82 (fern) — routed QMV router re-extraction.** Head `ede561b6`, r1,
+`status:wip`. The kernel
+`routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` re-derives the same
+expert id in ~4096/routed_experts ≈ 512× redundant threads. This is an
+**instruction-side** arm, not a byte arm: routed QMV is 1503.9 µs M4 ×0.4324 =
+650.3 µs M5-equivalent = **9.66 % of score**, and the estimate is **+0.4…+0.8 %
+(~52 µs/step ≈ 2.8× MDE)**. **#72 changed her exact kernel** (decl `:7334`,
+body `:7339-7446`, wrapper `:7453-7489`), which *raises* her price slightly
+because #72 removed 20.45 MB/step from it, so a fixed instruction overhead is
+now a larger share. Her mechanism (`:7353`, `:7357`, `:7359`) is orthogonal and
+survives. **Read the post-#72 kernel now, but rebase once, after #81.**
+
+**#85 (nezuko) — layer-0 dense MLP lossless BF16 re-encode.** Created this
+round at `https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/85`,
+head `def303e9`, r1, base `9e8c719f`. Target: the 100.66 MB/step of BF16
+dense weight traffic = **5.61 % of the decode step = 4.51 % of score**. Step 0
+is the **ranked M5 dispatch of merged #72** (the channel is allocated to her).
+Step 1 is a decisive **census** of `model.layers.0.mlp.{gate,up,down}_proj.weight`
+computing `pack_frac_row(W)` for W ∈ {14, 30}, per-row outlier counts, a
+trailing-zero histogram, `distinct16` per 4096-tile, and entropy. Gate ladder
+GO-8 → GO-12 → GO-12e → GO-13 → T8 → STOP. **My stated prior, falsifiable:
+GO-8 fails (BF16 mantissas are ~uniform so `frac(tz≥4)` ≈ 1/16), GO-12 or
+GO-12e passes.** Schemes: P8 saves 50.33 MB (**+1.23…1.37 %**), P12 saves
+25.17 MB (**+0.61…0.69 %**, and at a realistic 90 % pack fraction
+**+0.55…0.62 % = 2.0–2.2× MDE**), P13 saves 18.87 MB. The design constraint I
+minted for this arm: **the packed kernel must keep the identical reduction
+order and arithmetic — only the weight fetch changes** — so bit-identity of the
+decoded weights implies bit-identity of the output and the certificate is a
+pure CPU `memcmp`. A NO-GO census is a successful experiment and I will merge
+it.
+
+**Admissibility note for #85:** a lossless re-encode of BF16 weights is **not**
+re-quantization (`TASK.md:92-94` restricts the *attention* quantization
+envelope), and `Transform.swift:69-84` passes these tensors through unchanged,
+so the pack happens at load time with no transform change. Precedent:
+`LagunaRuntimeWeights.swift:653-680` and
+`research/frieren-pr35-r5a-certificate.md`.
+
+### R14.7 Byte-budget position (the round's binding constraint)
+
+At `9e8c719f`:
+
+```
+current=2973057/3000000   headroom=26943   growth=0/262144   files=142
+Sources/MLXFastModel/LagunaRuntimeModel.swift    521506 B   (cap 524288 -> 2782 B free)
+Sources/MLXFastModel/LagunaRuntimeWeights.swift   50951 B
+Sources/MLXFastModel/LagunaLmHeadPrune.swift      46738 B
+Sources/MLXFastTransform/Transform.swift          28787 B
+```
+
+After #81 r2 (T1+T2): `LagunaRuntimeModel.swift` → ~479 KB, per-file headroom
+**~45,277 B**, aggregate ~69,700 B. **A brand-new file under
+`Sources/MLXFastModel/` is inside the submitted contract** (the
+`editablePaths` groups are directory-prefixed) — verified with
+`senpai/validate-assignment-scope.sh` for `LagunaDensePacked.swift`. That is
+why #85 packages its new code as a new file rather than growing the capped one.
+
+### R14.8 Frontier-agent output banked this round
+
+Three reports committed with this update (batch
+`maple-round14-hypotheses-2026-08-06T0240Z`, consumed):
+
+- `research/RESEARCH_IDEAS_2026-08-06_02:40-dense-lossless.md` — folded whole
+  into #85.
+- `research/RESEARCH_IDEAS_2026-08-06_02:40-critique.md` — found the layer-0
+  error and the matching gap in the round-9 byte census; diagnosed the casualty
+  generator as **a multi-stage unit-conversion pipeline whose regime
+  preconditions are never stored with the banked number**; and identified a
+  **survivorship asymmetry**: optimistic errors die by receipt, but *closures*
+  priced with since-retracted logic are never re-screened. That is an
+  unmanaged **Type-II risk** and it now has an owner slot (see R14.9).
+- `research/RESEARCH_IDEAS_2026-08-06_02:40-prefill.md` — ranked the prefill
+  attack channels. Best unassigned mechanism is the **fused split-K port to the
+  NAX steel path** (recipe `quantized.cpp:852-893`, target `matmul.cpp:689`,
+  `:736-738`, `:988-991`), worth **+0.44…0.49 %** and **uniquely
+  M4-falsifiable**. Also flagged that **the binding capability gap for the
+  prefill axis is the absence of an M5/M5-Max local host**, which I am raising
+  to the human team every round.
+
+### R14.9 Next research directions (unowned, ranked)
+
+1. **Fused split-K port to NAX steel** (+0.44…0.49 % prefill, M4-falsifiable,
+   staged: free census → non-NAX twin port → identical NAX port → one receipt
+   bundled as the prefill axis of a decode candidate). **Strongest unassigned
+   arm.**
+2. **Prefill remainder bracket census** — free, and it unlocks the 31.28 ms
+   unattributed pool worth **11.60 % of score**. Uses the protected in-tree M5
+   injection instrument.
+3. **#72 × #35 composition** — pairwise halving (alphabet) × lane-major/narrow
+   (width) compose multiplicatively for ~4× on the routed plane. Blocked on
+   #80; `lagunaLaneMajorNVFP4ScaleBank:850-853`'s `groups % 64 == 0` guard has
+   to move first.
+4. **D-FUSE-GATESP** — `gate_sp` runs at 30.4 GB/s (11.7 % of ceiling), 2.72 %
+   of score, ceiling 2.91 %, realistic **+0.5…1.5 %**.
+5. **Kernel-side gather elision** in `fp_gather_qmm_rhs_expert_nax`
+   (+0.80 % central, 0.28…1.19 % range) — M5-blind, so it needs a receipt.
+6. **Funded re-screen of Type-II closures** priced with retracted logic —
+   specifically the "suspect-ceiling" `residual_rms_router` and the
+   shared-expert K1 rows, both closed per-kernel *before* the diffuse-residual
+   finding. Cheap, and it doubles as the D-STRAND barrier audit.
+7. **Two-regime MoE dispatch** (+2.65 % ceiling, EXPENSIVE).
+8. Remaining literal tiers T3/T5/T6/T7 and the separate **24,164 B
+   `DARKBLOOM_STAGE2_GATHER` deletion pool** — byte headroom, not score.
+
+**Standing ask to the human team:** an M5 or M5 Max research host. Every
+prefill mechanism above is M5-blind or M5-only on the research box, and the
+round-13/14 A/A data (§0.9.32) shows the M4 Pro's own noise floor is the same
+order as the effects we are trying to resolve.
 
 ---
 
