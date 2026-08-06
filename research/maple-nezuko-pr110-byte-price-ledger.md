@@ -808,7 +808,119 @@ committed. `research/maple-nezuko-byte-price.csv` is long-format with columns
 `table, row, arm, plane, kernel_or_block, machine, quantity, value, unit, label,
 byte_basis, n, dispersion, dispersion_kind, source`.
 
-## Appendix B · Arm B
+## Appendix B · Arm B — deletion of the dead `#27` hardware-constant instrument
 
-Recorded separately below once the maintenance deletion has passed its four
-gates. Arm A stands independently of Arm B's outcome.
+Arm A stands independently of this arm. Arm B is **maintenance, not a timing
+optimisation**, and it makes **no timing claim**.
+
+### B.1 What was removed
+
+`Sources/MLXFastModel/LagunaRuntimeModel.swift`, two disjoint regions inside my
+declared fence:
+
+| region | lines | bytes |
+|---|---:|---:|
+| fenced instrument block through EOF | 11070–11327 | 12,498 |
+| the single call site `lagunaInjectLayerWork(layer:isSingleTokenDecode:)` | 10894 | 86 |
+| **total** | **259** | **12,584** |
+
+File: 479,751 → **467,167 B**; 11,327 → **11,068** lines. No other file changed;
+`git diff 9c284dd 66056e5 --stat` is one file, 259 deletions, 0 insertions.
+
+### B.2 Why it was safe to remove
+
+The block's only three non-`private` symbols — `lagunaInjectSweepBytes`,
+`lagunaInjectMatmulFlops`, `lagunaInjectLayerWork` — had **no referent**
+anywhere in `Sources/`, `Tests/`, or `Vendor/` other than the one call site
+deleted with them. All eight knobs default to `0`, so `lagunaInjectActive` was
+false and the guard returned before any work: the block was **inert on the
+scored path**, not merely unused. After deletion,
+`grep -rn 'lagunaInject\|DARKBLOOM_INJECT' Sources/` returns nothing.
+
+Six research-only drivers outside `editablePaths` become inert. They are
+deliberately left untouched, since they are not submitted and the advisor may
+want their history: `senpai/tools/pr34_m4_ladder.sh`,
+`senpai/tools/pr47_d1_chain_ladder.sh`, `senpai/tools/pr47_d1_tg8_addendum.sh`,
+`senpai/tools/pr34_block_rates.py`, `senpai/tools/pr34_make_notes.py`,
+`research/maple-fern-pr48-receipt.py`.
+
+### B.3 Gate outcomes — 4 / 4 PASS
+
+**Gate 1 · clean scored-worker build and `--local-iterate`: PASS.**
+`./benchmark.sh --local-iterate`, exit 0, 233.6 s.
+
+**Gate 2 · upstream equivalence: PASS as a matched differential.**
+The oracle's *absolute* verdict is `EQUIVALENCE_EXIT=1` on this host — but it is
+`1` **identically with and without the deletion**. Run both trees, one commit
+apart:
+
+| tree | prefill max/mean abs logit err | prefill tok | decode steps exact | exit |
+|---|---|---|---:|---:|
+| `9c284dd` control (pre-deletion) | 0.125 / 0.011933609 | 5991 = 5991 | 8 / 8 | 1 |
+| `66056e5` candidate (post-deletion) | 0.125 / 0.011933609 | 5991 = 5991 | 8 / 8 | 1 |
+
+The two emitted JSON reports are **MD5-identical**:
+`69cfdc8a4f677c7b70669235500975c8`. The differential attributable to the
+deletion is exactly zero, which is the strongest form this gate can return.
+
+The residual is pre-existing and host-attributable, exactly as `AGENTS.md`
+prescribes checking: this is an **M4 Pro**, which reports Apple GPU generation
+16 and does not select the `_nax` prefill kernels the ranked M5 uses — so only
+`prefill` diverges while all eight decode steps stay bit-exact, and the argmax
+is unchanged. `0.125 = 2^-3` is a 1–2 ULP bf16 rounding difference, i.e. kernel
+accumulation order, not logic. The gate's default tolerance is `0` (exact), so
+any ULP-level host difference fails it outright.
+
+This is not a new discovery: `research/nezuko_equiv_control.sh` /
+`nezuko_equiv_control.log` already recorded the same signature on the
+**unchanged BASE_SHA** on this host, invariant across three
+`MLX_MAX_MB_PER_BUFFER` arms (200 / 50 / 512), down to the same
+`0.011933609` mean. My two runs reproduce it to all nine significant figures.
+**The M5 remains authoritative for the absolute verdict; I claim only the
+zero differential.**
+
+**Gate 3 · `golden_hash` identity under a deliberately changed `harness_hash`:
+PASS.** Candidate receipt (commit `66056e5`, `2026-08-06T10:09:43Z`):
+
+- `golden_hash` `b9509697…a58d7a63` — **identical** to the prior receipt
+- `harness_hash` `266a56a6…89b77461` — **differs**, as it must
+- `passed_correctness` true · `max_abs_diff` 0 · `checked_steps` 130 ·
+  `first_failing_*` null · `partial_result` false · `weights_hash` `aff99430…`
+  unchanged
+
+*Method note.* `harnessHash()`
+(`Sources/MLXFastTrustedHarness/LagunaRuntimePreflight.swift:44-90`) is SHA256
+over sorted absolute paths + contents of `Package.swift, Sources, Tests,
+benchmark.json, benchmark.sh, setup.sh, tools, README.md, TASK.md`. It
+**includes `Sources/` and excludes `research/`** — so Arm A provably *cannot*
+move it and Arm B provably *must*. I mirrored the function offline (96 files)
+and **pre-registered** `266a56a6…` before launching; the receipt published that
+value exactly. The matched-base (Arm A tree) hash reconstructs as
+`cc2490fa1e042dd11fa2988bc749ca1bd547c5e953e1c5ec1a3f70dfac84ad71`. This makes
+"did the harness surface change, and only as intended?" checkable without
+spending a run.
+
+**Gate 4 · byte accounting: PASS.**
+`senpai/check-editable-budget.sh 2f3ed2e2` →
+`current=2921747/3000000 headroom=78253 growth=-12584/262144 files=142 (base=142)`.
+
+| | before | after |
+|---|---:|---:|
+| submitted surface | 2,934,331 B | **2,921,747 B** |
+| total headroom | 65,669 B | **78,253 B** |
+| headroom in this file | 44,537 B | **57,121 B** |
+
+Growth is **negative**, so this arm cannot consume review budget; it returns
+12,584 B of it. The per-file headroom gain matters most: this file is the
+scored forward pass and the likeliest place a future arm hits the 524,288 B
+per-file cap.
+
+### B.4 No timing claim
+
+The candidate receipt's decode figure differs from the last stored receipt, but
+that receipt came from commit `c708c77`, **not** from the Arm A tree, so the two
+are not a matched pair. The block is provably inert (§B.2), so no timing effect
+is physically available to claim, and I make none. Any apparent delta is noise
+plus a different tree. A matched timing pair was deliberately **not** spent
+here: at this host's 0.278 % 1v1 MDE, confirming a predicted-zero effect is not
+a defensible use of the allocation.
