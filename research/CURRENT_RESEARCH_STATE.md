@@ -1,14 +1,24 @@
 # SENPAI Research State
-- 2026-08-06T21:30Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at d8ae547 (pushed to origin).
+- 2026-08-06T18:19Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 01f133d (origin/mlxfast-birch-20260805-advisor).
   Scored code frontier: 5c28822 (639646a + 15 merged optimization PRs #107→#156).
-  No scored code changes between 5c28822 and d8ae547 (research notes only).
+  No scored code changes between 5c28822 and 01f133d (research notes only).
   M5 submission 4b06e931 (composed 15 decode PRs + QHOIST prefill) VALIDATING (submitted 8/6 ~21:30 UTC).
   Previous 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED. 27b9c7c: rejected 2.4972.
   QHOIST prefill lever: SUBMITTED in composed branch birch-kepler/qhoist-prefill-v1 (commit a54d69b).
     Bit-exact, M5-only (M4 gen 16 < 17 NAX threshold). Now in M5 queue as part of 4b06e931.
   Wave 9 in progress: PRs #159-#162 (4 bit-exact kernel optimization experiments, all WIP).
     Baseline-advanced feedback sent to #159. #160-#162 pending (GitHub 403 rate limit).
+
+## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
+  The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.
+  Our code (LagunaRuntimeWeights.swift:387) sets MLX_MAX_OPS_PER_BUFFER=200, but metaspartan
+  proved that 200→400 promoted at 2.5282, and 400→800 gave another ~10us decode improvement.
+  The M5 loses ~282us/step (5.2% of decode) at command-buffer boundaries. This is a ONE-LINE
+  change in an EDITABLE file. Bit-exact (scheduling only, no numerical change).
+  MLX_MAX_MB_PER_BUFFER should stay at 200 (larger hurts prefill +3.4%).
+  Also: MLX_METAL_FAST_SYNCH=1 is not set by our code (defaults to 0). Could reduce sync overhead.
+  Source: metaspartan public note 1f891fe, same organizer frontier bca94c5.
 
 - **WAVE 8 RESULTS** (3 complete, 1 incomplete):
   PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
@@ -72,12 +82,30 @@
   5. dot(float4) IS bit-exact for per-word NVFP4 qdot (independent accumulators) but NOT for
      shared-float cross-iteration accumulation (single FP32 register, sequential adds).
 
-- **POTENTIAL NEXT DIRECTIONS (beyond Wave 9)**:
+- **WAVE 10 PLAN** (4 distinct experiments, highest-value first):
+  P1 (Edward): MLX_MAX_OPS_PER_BUFFER 200→800 in LagunaRuntimeWeights.swift:387.
+    One-line setenv change. Bit-exact scheduling optimization. Expected 3-5% decode on M5.
+    This is the HIGHEST-VALUE change — proven by metaspartan public note 1f891fe.
+    Also test MLX_METAL_FAST_SYNCH=1 if time permits. Submit ALONE to isolate effect.
+  P2 (Alphonse): V-accumulate float4 in fused sliding attention kernel (L1567-1601).
+    Pack pair_o0/pair_o1 into float4 temporaries, use vector FMA instead of 8 scalar FMAs
+    per K-iteration. Bit-exact (same FMA per lane, scalar broadcast). 30 layers × 256 K-iters.
+    Expected 1-3% decode on M5 (instruction-bound). Also update tail (L1607-1614).
+  P3 (Thorfinn): V-accumulate float4 in fused FULL attention kernel (L2030-2064).
+    Same pattern as P2 but for the 9 full-attention layers. Also update tail (L2094-2101).
+    Bit-exact. Independent code path from P2.
+  P4 (Askeladd): Dense MoE simd_shuffle_down→simd_sum (L7889-7896).
+    Replace 5-iter simd_shuffle_down loop with simd_sum(). Bit-exact cross-lane reduction.
+    Dense gate/up + down kernels, 2 dispatches/step. Lower value but safe bit-exact win.
+    NOTE: Dense MoE dot4 is NOT bit-exact (shared-float accumulation, same as PR #145).
+
+- **POTENTIAL NEXT DIRECTIONS (beyond Wave 10)**:
   - H2: Pre-interleaved weight layout (transform-time, 6-10% gate/up) — after H1/H4 results
   - H3: Fused gate/up+down single-dispatch kernel (saves ~39 dispatches/step, 2-5% decode)
   - H6: Instruction diversity / interleaved load+convert+FMA in qdot (0-5%, pipeline overlap)
   - H7: Half2 FMA accumulation (5-8% but HIGH risk — precision change, likely fails exactness)
   - Transpose-free attention reduction via quad_shuffle
+  - MLX_METAL_FAST_SYNCH=1 (fast fence sync, needs Metal 3.2+ / macOS 15+)
   - LAGUNA_RESCALE branch elimination in SDPA vector kernel
   - CPU Guard Hoisting (re-attempt with simpler implementation)
   - Dense MoE layer (layer 0): simd_shuffle_down→simd_sum, scalar FMA→dot(float4).
