@@ -1,5 +1,7 @@
 # PR #80 — Attention scale-plane: lane-major o_proj + pairwise-constancy halving
 
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"attention_scale_bytes_per_decode_step","available":true,"value":23556320},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
+
 Student: maple-frieren · Assignment `maple-2026-08-06d-attn-scale-pairwise` rev `r1`
 Base `BASE_SHA` = `f2fedd584e6514569758d79e581402210306e77b` (rebased 2026-08-06,
 advisor comment 5200104728; original assignment base was
@@ -9,6 +11,140 @@ Branch `maple-frieren/attn-scale-pairwise`
 Submitted change is one commit touching `Sources/`: `e956aa5` (143 insertions,
 64 deletions, two files). Everything else on the branch is `research/`, which is
 not in `editablePaths` and therefore costs zero submitted bytes.
+
+- Student / PR: `maple-frieren` / #80 (`maple-2026-08-06d-attn-scale-pairwise`,
+  revision `r1`)
+- Hypothesis and target cost: MLX's `fp_quantize` dispatches a flat 1-D grid, so
+  for `group_size != 32` only the first simdgroup of each plane actually splits
+  its half-max; every later chunk writes the *same* E4M3 byte to both members of
+  a scale pair (§2.2). The NVFP4 attention scale planes are therefore pairwise
+  constant almost everywhere, and the decode kernels can read a quarter to a half
+  as many scale bytes per row with no change to any produced number. Target cost
+  is scale-plane traffic on the decode path: **51.25 MB/step** at the promoted
+  frontier, **23.56 MB/step** shipped, a **27.70 MB/step** reduction.
+- Decision: **green** on the byte channel, which is the only channel this host
+  may price (§0.9.33). Not a wall-time claim.
+- `BASE_SHA` / candidate commit:
+  `f2fedd584e6514569758d79e581402210306e77b` /
+  `e956aa50e27ff5e896f59525e69f3552deb95a12` (branch head at submission
+  `b4e337d70cdb81cb3d5fb0da8dbb09ccfac3270e`; every later commit is `research/`)
+- Submitted candidate files: `Sources/MLXFastModel/LagunaRuntimeModel.swift`,
+  `Sources/MLXFastModel/LagunaRuntimeWeights.swift` (only these two)
+- Supporting test or documentation files: `research/frieren_pr80_logit_bitwise.py`,
+  `research/pr80_cert_run.sh`, `research/pr80_byte_ledger.py`,
+  `research/pr80_fault_patch.py`, `research/pr80_ladder_abba.sh`,
+  `research/pr80_ladder_analyze.py`, `research/pr80_oproj_abba.sh`, and this
+  report. None is on the submitted surface; the candidate builds and runs
+  without any of them.
+- Official submission `--model` value (planned or used; default `senpai`):
+  **planned `senpai`, not dispatched.** Advisor comment 5200283249 allocates the
+  ranked channel to PR #85 Step 0, so this PR posts `READY FOR CHANNEL` and
+  stops. When authorised the command is `mlxfast submit --model "senpai"`.
+- Explicit API model-value rejection, if fallback attribution was required:
+  **n/a** — no submission attempted, so no rejection and no fallback.
+- Assignment-scope preflight:
+  `senpai/validate-assignment-scope.sh f2fedd58… Sources/MLXFastModel/LagunaRuntimeModel.swift Sources/MLXFastModel/LagunaRuntimeWeights.swift`
+  → `assignment scope OK: 2 submitted path(s) against BASE_SHA=f2fedd58…`
+- Editable bytes / headroom / growth:
+  `editable budget OK: current=2934331/3000000 bytes headroom=65669 growth=4247/262144 files=142 (base=142)`.
+  Growth 4,247 B against the 25 kB allocation in comment 5200283249.
+  `LagunaRuntimeModel.swift` 478,533 → 479,751 B leaves **44,537 B** under the
+  524,288 B per-file cap, satisfying the standing ≥20 kB margin law (§7).
+- Scored-path reachability evidence: `LagunaRuntimeModel.swift` *is* the scored
+  forward pass. The two rewritten kernels are the ones the decode path actually
+  selects — `lagunaGatedAffineOProjNVFP4` picks the lane-major variant at
+  `:4423-4424` and the QKV dispatch guard at `:4829-4845` picks the lane-major
+  QKV kernel. Reachability is demonstrated dynamically, not by inspection: the
+  per-layer escape census (§4) is emitted from inside those dispatches, and the
+  matched same-session harness pair in §6.6 changes measured decode time while
+  holding `golden_hash` identical.
+
+### Evidence
+
+- Host, memory profile, toolchain, and thermal policy: Apple **M4 Pro** (Apple
+  GPU generation 16), 48 GiB unified memory → low-memory startup profile, macOS
+  26.5.2 (25F84), Apple Swift 6.3.3 (swiftlang-6.3.3.1.3). The board's GPU temp
+  sensor is stuck at 2.37 °C, so `research/run_local_benchmark.sh` re-points
+  `MLXFAST_GPU_TEMP_CMD` at a live CPU-die sensor and sets
+  `MLXFAST_LOCAL_FAN_PROMPT=0`; the 40 C gate is *enforced*, not disabled. This
+  is **not** the ranked M5: generation 16 does not select the `_nax` prefill
+  kernels, so no prefill claim is made from this host (§6).
+- Exact baseline and candidate commands: full list in §10. The two that carry
+  the headline results are
+  `bash research/pr80_cert_run.sh` (bitwise logit certificate, §5) and
+  `bash research/run_local_benchmark.sh --local-iterate` run once on a tree with
+  `git diff f2fedd58 -- Sources/` empty and once on the candidate (§6.6).
+- Tests and risk-based checks run, including selected-test count:
+  `research/run_upstream_equivalence.sh` → **1 selected test**
+  (`lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`), run on the candidate
+  *and* on an unchanged-base control; the zero-test failure mode is explicitly
+  ruled out in §5.6. Harness correctness gate via `--local-iterate` → passed.
+  13-arm fault-injection matrix (§5.4) → 7/7 planted faults detected.
+- Correctness and serial-protocol verdict: **PASS.** All four arms produce the
+  identical 64-step logit digest
+  `3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928` over the
+  full 100,352-entry vector, `mm=0`, `nsteps=65`. The matched harness pair
+  reports `passed_correctness = True` with an identical `golden_hash`
+  `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63` on both
+  sides. Serial protocol is untouched: this change re-encodes a *weight-derived*
+  scale plane prepared outside the scored hot path. It adds no KV row, no
+  speculative row, no cross-request state, and no input-keyed cache; the packing
+  depends only on the checkpoint.
+- Divergent tokens or failure category, if any: **none.** The one nonzero number
+  anywhere in the equivalence oracle is a prefill
+  `maximumAbsoluteLogitError 0.125`, and §5.6 shows byte-identical oracle output
+  from an unchanged-base control run, i.e. it is pre-existing at `f2fedd58` on
+  this M4 Pro and the candidate adds exactly zero drift.
+- Peak RAM or generated-weight size, if relevant: unchanged. The pairwise bank is
+  strictly smaller than the plane it replaces, and the stock plane stays resident
+  for the escape path, so resident footprint moves by well under the ~21.6 GB
+  tower's noise. No new generated-weight artifact.
+- Official ranking status versus correctness/floor status, if submitted: **not
+  submitted** — ranked channel allocated elsewhere (see `--model` field above).
+
+| Metric | Baseline | Candidate | Ratio / delta |
+| --- | ---: | ---: | ---: |
+| attention scale bytes / decode step (exact census, transfers per §0.9.33) | 51,254,656 | 23,556,320 | −27,698,336 B (−54.0 %) |
+| M5 score value of that reduction @ peak 651.8 GB/s | — | — | +0.633 % |
+| M5 score value of that reduction @ effective 546.2 GB/s | — | — | +0.756 % |
+| decode seconds/token (M4 Pro, matched same-session, n=1/arm) | 0.013258813796875 | 0.0130188287734375 | 1.0184x |
+| prefill seconds/token (M4 Pro, matched same-session, n=1/arm) | 0.001131525064453125 | 0.00114205655859375 | 0.9908x |
+| same-host paired estimate (M4 Pro, directional only) | — | 1.011448 | — |
+
+The paired estimate is a same-host research metric, not an official M5 score.
+Under §0.9.33 the byte row is the claim; the three M4 timing rows are
+directional context on a non-ranked GPU generation and are decomposed in §6.7.
+
+### Conclusion
+
+- What happened and why: the scale planes really are pairwise constant, for the
+  concrete dispatch reason in §2.2 rather than as a statistical accident, so the
+  redundant half can simply not be stored or read. The residual 0.65 % of QKV
+  rows and 1.91 % of o_proj rows that violate the predicate take an exact
+  per-row `0xFF` escape into the untouched stock plane, which is why the output
+  is bit-identical rather than approximately equal.
+- Evidence for or against the mechanism: three independent instruments agree.
+  The per-layer census gives the byte ledger exactly. The M4 B→C→D ladder
+  separates the two sub-rungs at 25 σ with a 5.4 µs A/A floor, and the S→B
+  o_proj rung separates completely at 26 σ with observed/predicted 0.84. The
+  matched same-session harness pair moves decode −1.81 % with a *different*
+  `harness_hash` (proving the base control genuinely rebuilt) and an *identical*
+  `golden_hash`.
+- Uncertainty or M5 transfer risk: the byte reduction is arithmetic and
+  transfers. The M4 wall-clock does not: §6.7 shows the byte channel explains
+  only 106 µs of the observed 240 µs/step, leaving a 133 µs instruction-channel
+  residual (ratio 2.25) that is deliberately left unpriced. The live hazard is
+  the 89 `g=0` exceptions, handled by an exact escape rather than a tolerance
+  (§5.5). A frontier adversarial transfer review (§8.1) found no `_nax` override
+  for `Quantize::eval_gpu`, confirmed the fail-closed gate covers
+  0xFF-collision, NaN, saturation, and overflow, and verified packer-vs-MSL
+  layout agreement for g ∈ {128, 384, 512}; its residual concern is that all
+  three lane-major arms get first-ever M5 exposure here, with a
+  correct-but-slow, never-wrong failure mode.
+- Smallest useful next action: dispatch this candidate on the ranked M5 when the
+  channel frees, and read the paired verdict's two floors separately from
+  ranking status.
+- Recommendation: **merge**, then dispatch when the channel is released.
 
 ---
 
