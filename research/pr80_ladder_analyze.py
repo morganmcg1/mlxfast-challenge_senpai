@@ -19,7 +19,7 @@ import sys
 from statistics import mean, stdev
 
 # Escape-adjusted per-step scale-plane read, from research/pr80_byte_ledger.py.
-ARM_BYTES = {"B": 45_556_288, "C": 33_191_520, "D": 23_556_320}
+ARM_BYTES = {"S": 64_771_456, "B": 45_556_288, "C": 33_191_520, "D": 23_556_320}
 M4_BW = 260.2e9
 
 LINE = re.compile(r"\[(p\d+)-([A-Z])\] steps=(\d+) wall_ms_per_step=([\d.]+)")
@@ -60,7 +60,7 @@ def main() -> None:
     print(f"2-sigma bar on a single arm-to-arm delta: {2 * pooled * 1000:.1f} us")
 
     print(f"\n{'delta':<10} {'observed us':>12} {'predicted us':>13} {'ratio':>7}  verdict")
-    for a, b in (("B", "C"), ("C", "D"), ("B", "D")):
+    for a, b in (("S", "B"), ("B", "C"), ("C", "D"), ("B", "D")):
         if a not in stats or b not in stats:
             continue
         got = (stats[a][0] - stats[b][0]) * 1000.0

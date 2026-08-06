@@ -383,7 +383,120 @@ degraded arm cannot be reported as a win.
 
 ## 6. M4 screen
 
-[FILL]
+### 6.1 Design, and why it satisfies programme law §0.9.32
+
+§0.9.32 withdrew fixed pre-registered no-harm bands and requires the bar to come
+from a **measured same-session A/A**. The ladder was built to produce that bar as
+a by-product rather than as a separate experiment.
+
+`research/pr80_ladder_abba.sh` runs **one binary**. Arms are selected only by
+`DARKBLOOM_*` environment, so there is no rebuild between arms and no code-layout
+confound. Two positions of the same arm are therefore a genuine A/A: identical
+bytes, identical kernels, identical session, identical host state. Each arm is
+run four times, so the pooled within-arm standard deviation *is* this session's
+measured noise floor.
+
+Ordering is position-balanced — one discarded warm-up arm, then
+`B C D | D C B | B C D | D C B`. Every arm's positions sum to 26 and every block
+of three contains each arm once, so smooth thermal drift cancels to first order.
+The recorded thermals confirm drift was real and was absorbed: CPU rose 37.5 °C →
+42.6 °C over the first four arms and then held.
+
+Arms, all on the shipping binary:
+
+| arm | QKV plane | o_proj plane | scale bytes/step |
+|---|---|---|---|
+| B | lane-major | lane-major | 45.56 MB |
+| C | lane-major + pairwise | lane-major | 33.19 MB |
+| D | lane-major + pairwise | lane-major + pairwise | 23.56 MB (shipping) |
+
+### 6.2 Result
+
+```
+bash research/pr80_ladder_abba.sh                  # 13 arms, 1200 steps each, ~13 min
+python3 research/pr80_ladder_analyze.py /tmp/pr80_ladder.log
+```
+
+```
+arm   n   mean ms   sd us  pos sum  positions
+B     4    8.5966     6.8       26  8.6039 8.6008 8.5906 8.5911
+C     4    8.5309     4.2       26  8.5356 8.5278 8.5331 8.5270
+D     4    8.5010     4.8       26  8.5060 8.5033 8.4997 8.4949
+
+measured same-session A/A floor (pooled within-arm sd): 5.4 us  (dof=9)
+2-sigma bar on a single arm-to-arm delta: 10.7 us
+
+delta       observed us  predicted us   ratio  verdict
+B->C               65.7          47.5    1.38  resolved (2se=7.6)
+C->D               29.9          37.0    0.81  resolved (2se=7.6)
+B->D               95.6          84.6    1.13  resolved (2se=7.6)
+```
+
+**The measured A/A floor is 5.4 µs.** Every arm's four replicates fall inside a
+17 µs band while the arms themselves separate by 30–96 µs. `B->D` is 95.6 µs
+against a 3.8 µs standard error on the difference — a 25σ separation, and 11×
+the A/A floor. This is the §0.9.32-compliant evidence: the bar was measured in
+the same session, not asserted in advance.
+
+For scale, tanjiro's null-change base↔base A/A in PR #81 §6.3 moved decode by
++0.460 % (≈ 39 µs at this step size). That is 7× my measured floor, which is
+what §0.9.32 was minted to address — and it is still four times smaller than
+this arm's B→D effect, so the conclusion survives even under his noisier
+measurement regime.
+
+### 6.3 Reading the observed/predicted ratio honestly
+
+The aggregate ratio is **1.13**: the ladder saves slightly *more* time than
+dividing the byte saving by the M4's 260.2 GB/s peak predicts. The two rungs
+bracket 1.0 (1.38 and 0.81), so the per-rung ratios should not be
+over-interpreted; only the aggregate is well determined.
+
+The most likely explanation is the dull one: dividing by *peak* bandwidth
+under-predicts the time a real streaming read costs, because achieved bandwidth
+on this access pattern is below peak. If that is right, the same reasoning
+applies to the M5 figure, and the score numbers in §4 — which all divide by the
+M5 **peak** 651.8 GB/s — are conservative rather than optimistic. I am claiming
+the byte-ledger numbers, not the 1.13-scaled ones.
+
+### 6.4 What this screen does and does not cover
+
+Covered: `B→D`, i.e. 22.00 MB/step of the submitted arm's 27.70 MB/step.
+
+**Not covered: the `A→B` rung** (o_proj block-narrow → lane-major, 5.70 MB/step,
++0.130 %). Arm A is the promoted frontier and needs a *different binary*; a
+mid-ladder rebuild is exactly the confound the single-binary design exists to
+avoid. It is priced from the byte ledger only. It is also below the 0.278 %
+receipt MDE on its own, which is why the arm ships as a union.
+
+That gap is bounded rather than ignored. The advisor's standing rule is that an
+M4 null is not a refutation but an M4 **regression** is, so what actually matters
+is excluding a regression on the o_proj read path — specifically the escape
+address-select, the one construct a Metal compiler could plausibly if-convert
+into an unconditional double load. `research/pr80_oproj_abba.sh` closes that on
+the same binary by substituting a reachable bound:
+
+| arm | o_proj plane | bytes/step |
+|---|---|---|
+| S | stock (untouched) | 39.32 MB |
+| B | lane-major | 20.11 MB |
+
+Arm A's block-narrow plane sits strictly between S and B in bytes (252/336 B per
+row against stock 384/512 and lane-major 193/257) and decodes from three planes
+instead of two. If `S→B` resolves as a gain near the byte-model rate, the
+lane-major o_proj read path is healthy and `A→B` being a regression is not
+credible.
+
+Also not covered: **prefill**. Decode on this runtime is 100 % custom Laguna MSL,
+but the M4 Pro reports Apple GPU generation 16 and does not select the `_nax`
+prefill kernels the ranked M5 uses, so no prefill claim is made from this host.
+The change reduces bytes read in both phases and adds no work to either, and the
+scale banks are built once outside the timed window.
+
+```
+S->B  19.215 MB -> 73.8 us/step predicted at 260.2 GB/s
+```
+
+Result: see §6.5.
 
 ---
 
