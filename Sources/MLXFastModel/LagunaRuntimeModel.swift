@@ -4095,6 +4095,8 @@ func lagunaGatedAffineOProjNVFP4Source(
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
+    let gateFold = lagunaGateScaleFoldEnabled
+    let scaleGateExpr = gateFold ? "scale * g" : "scale"
     // Sign-carry fold: E4M3 is sign-magnitude, so carrying the sign bit into
     // the half pattern is the exact negation over all 256 bytes (incl. -0.0h);
     // the OFF arm keeps the negate-after-convert form verbatim.
@@ -4150,16 +4152,28 @@ func lagunaGatedAffineOProjNVFP4Source(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     """
     let loadInput = preActivatedGate
-        ? """
+        ? (gateFold
+            ? """
+        float g=float(gate_values[column>>head_shift]);
+        for(uint i=0;i<values_per_thread;++i)
+            x_thread[i]=float(xp[i]);
+        """
+            : """
         float g=float(gate_values[column>>head_shift]);
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
+        """)
+        : (gateFold
+            ? """
+        float g=gt[column>>head_shift];
+        for(uint i=0;i<values_per_thread;++i)
+            x_thread[i]=float(xp[i]);
         """
-        : """
+            : """
         float g=gt[column>>head_shift];
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
-        """
+        """)
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -4217,7 +4231,7 @@ func lagunaGatedAffineOProjNVFP4Source(
                     dot(float4(x_thread[8 * j + 4], x_thread[8 * j + 5], x_thread[8 * j + 6], x_thread[8 * j + 7]),
                         float4(v04.y, v15.y, v26.y, v37.y));
             }
-            result[row] += scale * accum;
+            result[row] += \(scaleGateExpr) * accum;
         }
 
         ws += block_size / 8;
@@ -6166,6 +6180,14 @@ final class LagunaRuntimeAttention: Module {
 /// kernel MLX selects.
 let lagunaNvfp4ScaleFoldEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_SCALE_FOLD"] != "0"
+
+/// Gate-scale fold: fold the per-head softplus gate `g` into the per-group
+/// scale in the O-proj NVFP4 kernel, eliminating 16 per-element BF16 multiply
+/// + 16 BF16 rounds per k-block per row. Mathematically:
+///   sum(x_i * g * w_i) * scale = sum(x_i * w_i) * (g * scale)
+/// NOT bit-exact: the intermediate BF16 rounding of `x_i * g` is removed.
+let lagunaGateScaleFoldEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_GATE_SCALE_FOLD"] != "0"
 
 /// `DARKBLOOM_NVFP4_NIBBLE_SPLIT` (default `1` = split; set `0` for the stock
 /// shuffle, `2` for the 2-constant control arm): a strictly shorter
