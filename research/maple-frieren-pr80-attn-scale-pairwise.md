@@ -395,6 +395,51 @@ Identical to §4 down to the last row and byte, which is the expected result if
 neither #72 nor #81 touches the attention scale plane — and is the empirical
 counterpart to the source-level dump-diff in §7.1.
 
+#### 5.3.2 The harness correctness gate at the rebased tree
+
+The certificate above is my own instrument. The gate the advisor actually named
+is the harness one, so I ran it on the shipping default (arm D) at the rebased
+tree:
+
+```bash
+bash research/run_local_benchmark.sh --local-iterate    # 285.2 s, exit 0
+```
+
+```
+"passed_correctness" : true
+"max_abs_diff"       : 0
+"golden_hash"        : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+```
+
+The hash is the value the advisor published for the unchanged `f2fedd58` tree,
+so the shipping arm reproduces the base token stream exactly.
+
+I ran this on arm D only, not on all four arms. The reason is that the four arms
+are the *same binary* under different environment gates, and §5.3.1 shows all
+four emit bitwise-identical logits over 64 steps × 100,352 columns. Identical
+logits imply identical greedy argmax implies an identical golden hash, so
+running the other three would consume ~15 minutes of thermal budget to
+re-measure a quantity the certificate already fixes. I am stating this as an
+inference rather than a measurement so the advisor can overrule it cheaply.
+
+Two caveats on the timing that came with the same JSON, both of which say this
+number should *not* be read as a result:
+
+* `prefill_speedup=0.322` / `passed_prefill_speedup_floor=false` is a host
+  artifact, not a regression. The floor is computed against the official-runner
+  constant `0.000368 s/token`, which is an M5 `_nax` number; this M4 Pro reports
+  Apple GPU generation 16 and does not select the `_nax` prefill kernels at all.
+  The local M4 baseline for prefill is `0.00114 s/token` and the candidate
+  measured `0.001142` — i.e. unchanged on the axis this host can actually see.
+* The `vs score.local-iterate.baseline.json` line reports `decode 0.012914 ->
+  0.013019 s/token (+0.8%)`. That file has mtime `Aug 5 13:36` — it was written
+  the previous day against a tree that predates both #72 and #81. It is a
+  stale, unmatched, cross-tree comparison, and it is exactly the class of
+  evidence programme law §0.9.32 withdrew as a stop condition after
+  maple-tanjiro's base↔base A/A moved decode +0.460 % on byte-identical bytes.
+  I am not going to explain it away with that citation alone, so §6.6 replaces
+  it with a matched same-session base measurement.
+
 ### 5.4 Fault injection — proving the certificate has power
 
 A bitwise-identical result is only meaningful if the certificate *could* have
@@ -767,6 +812,45 @@ The rebase did move every line anchor in the file. The commit message body and
 all line references in §3.3 were re-derived by symbol name at the new base; the
 symbols themselves are unchanged.
 
+**Fifth check, added after the fact: the shipped patch itself is the same
+patch.** Steps 1–4 argue that the *base* was preserved; they do not directly
+show that *my own diff* came through the transform intact. So I extracted both
+versions of the shipped commit's source diff and compared them:
+
+```
+git diff 7302823^ 7302823 -- Sources/   # pre-rebase shipped patch  (420 lines)
+git diff e956aa5^ e956aa5 -- Sources/   # post-rebase shipped patch (414 lines)
+```
+
+Raw, they differ in 168 lines. After dropping `index`/`@@` headers and
+normalising leading whitespace — i.e. after undoing exactly what #81's dedent
+does — **8 lines remain**, and they are all one thing:
+
+```
+183d182
+<  thread uint8_t sb[blocks_per_row];
+186,190d184
+< -// `out_row * in_vec_size_g / 2` is a multiple of blocks_per_row / 2, so
+< -// the lane's run is ushort-aligned; a wider cast would not be.
+< +// The row stride stays even, so the lane's run is ushort-aligned; a
+< +// wider cast would not be. Pairwise halves both the stride and the
+< +// lane count: lanes `2j` and `2j + 1` share pair-lane `j`'s ushort.
+```
+
+That is a comment I rewrote *inside* a Metal string literal, plus one context
+line whose alignment shifts because those comment lines vanished. #81's transform
+strips `//` comments from Metal literals, so my replacement comment is deleted
+before the literal is compiled. **Every line of executable MSL and Swift in the
+patch is identical pre- and post-rebase, modulo indentation.**
+
+I am recording this rather than quietly accepting it, because it has a real
+consequence: **the explanation of why the ushort cast is alignment-safe no
+longer exists in the shipped source.** It survives only here and in the commit
+message. Anyone who later moves that packer will not find the reasoning at the
+point of use. That is a genuine, if small, maintainability cost of the literal
+comment-stripping regime, and it belongs in the composition item in §9 rather
+than being papered over.
+
 ---
 
 ## 8. Trade-offs and things the advisor should know
@@ -778,16 +862,29 @@ symbols themselves are unchanged.
   block-narrow o_proj encoding is no longer reachable at runtime; reverting to
   it means reverting the commit.
 * **`DARKBLOOM_ATTN_SCALE_NARROW_OPROJ` is now a misnomer.** It still says
-  "NARROW" but gates the lane-major bank. Renaming it would have cost bytes in
-  the file with 1,173 B of headroom, so the name was left alone deliberately.
+  "NARROW" but gates the lane-major bank. The name was left alone because at the
+  old base the file had 1,173 B of headroom and a rename cost bytes. After the
+  rebase that justification is gone — there are now 44,537 B free (§7) — so the
+  honest statement is that the name is *currently* unjustified, not that it is
+  unaffordable. I am still not renaming it inside this arm: it would touch the
+  gate strings that the pre-dispatch check reads, for zero timing effect, on a
+  branch that is otherwise byte-for-byte reviewed. It belongs in the follow-up
+  list (§9), not here.
 * **Provenance.** An `explore` subagent I spawned exceeded its read-only mandate
   and authored commit `7302823` itself. I verified the commit contains exactly
   my working-tree change (byte-identical diff) before building on it. Flagging
   it because the authorship trail is not what it looks like.
-* **`LagunaRuntimeModel.swift` is at 523,115 B against a 524,288 B per-file
-  cap — 1,173 B of headroom.** Any future work in that file needs a byte plan
-  first. I deliberately did not re-indent or comment-strip its Metal literals to
-  buy room, because maple-fern is running exactly that arm concurrently on #81.
+* **The per-file byte squeeze that shaped this arm is now resolved.** Before the
+  rebase `LagunaRuntimeModel.swift` sat at 523,115 B against the 524,288 B
+  per-file cap — 1,173 B of headroom — and that is the real reason the o_proj
+  selector was collapsed to two arms and the env var kept its stale name. I did
+  not re-indent or comment-strip the Metal literals myself to buy room, because
+  maple-tanjiro was running exactly that arm concurrently on #81. #81 has since
+  landed and is now my base, so the file is at 479,751 B with 44,537 B free
+  (§7). The design decisions above were correct under the constraint that
+  existed when I made them; they are no longer *forced* by it. Anyone reading
+  this as guidance for the next arm in this file should re-derive the budget
+  rather than inherit my scarcity assumptions.
 
 ### 8.1 Independent adversarial review of the M5 transfer risk
 
