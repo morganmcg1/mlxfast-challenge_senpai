@@ -18,12 +18,41 @@ as many scale bytes per row, with no change to any produced number. Measured on
 the real per-layer escape census, the shipping arm reads **23.56 MB/step** of
 scale bytes where the promoted frontier reads 51.25 MB/step and stock reads
 89.13 MB/step. The arm-to-arm reduction from the promoted frontier is
-**27.70 MB/step**, worth **+0.633 %** of score at the M5 memory figure — above
-the advisor's 0.61 % bar and 2.6× the n=3 receipt-family 2σ floor of 0.243 %.
-Bitwise equality with the
+**27.70 MB/step**, worth **+0.633 %** of score at the M5 *peak* memory figure and
+**+0.756 %** at the *effective* figure. Bitwise equality with the
 unmodified runtime is certified over the full 100,352-entry logit vector for 64
 consecutive decode steps, and that certificate is shown to have power by a
 13-arm fault-injection matrix.
+
+### 1.1 Where this sits against the receipt-resolvability floor
+
+I want to be precise about this rather than pick the flattering denominator.
+`CURRENT_RESEARCH_STATE.md:639-644` sets the bar for a ranked byte-trading arm at
+**3σ = 42.6 µs/step**. Converting my measured 27.698 MB/step at the two published
+memory figures:
+
+| memory figure | predicted saving | vs 3σ = 42.6 µs | score % |
+|---|---|---|---|
+| 651.8 GB/s (peak, 107 % of nominal) | 42.50 µs/step | **2.99σ** | +0.633 % |
+| 546.2 GB/s (effective) | 50.71 µs/step | **3.57σ** | +0.756 % |
+
+So on the pessimistic denominator this arm lands *exactly on* the single-receipt
+3σ floor, not comfortably above it; on the effective denominator it clears it by
+19 %. The advisor's independent arithmetic (27.73 MB/step, +0.77 %) is the
+effective-denominator row and agrees with my census to 0.1 %.
+
+Two things push the true value toward the upper row rather than the lower. First,
+the §6 M4 ladder measured an observed/predicted ratio of **1.13** across the whole
+B→D stack, i.e. peak-bandwidth division *under*-predicts the real saving, which is
+what an effective-bandwidth model predicts. Second, the three rungs are only
+resolvable as a union: PW-QKV alone (+0.280 %) sits at the MDE, and PW-O (+0.218 %)
+and O-LM (+0.135 %) are individually below it. That is why I ship the union and
+make no per-rung ranked claim.
+
+I am *not* claiming the 2.6×-headroom figure that comes from the 0.243 % floor at
+`:2445`. That floor is defined for **two n=3 receipt families in one session**; a
+single dispatched receipt does not get that averaging, so §0.5.8's 3σ is the bar
+that actually applies to me.
 
 ---
 
@@ -554,15 +583,65 @@ concurrently and a textual collision would be expensive for both branches.
   first. I deliberately did not re-indent or comment-strip its Metal literals to
   buy room, because maple-fern is running exactly that arm concurrently on #81.
 
+### 8.1 Independent adversarial review of the M5 transfer risk
+
+Because every timing number I have is from an M4 Pro and the ranked host is an
+M5 Max, I commissioned a separate context-free frontier review of commit
+`7302823` charged with finding reasons it would behave differently on M5. Its
+verdict was **safe to dispatch, moderate-high confidence**, on the grounds that
+the design is self-validating per host: the plane is quantized on-device at load,
+the packer derives pairwise equality from the bytes actually produced *on that
+host*, the certificate byte-checks the inverse decode on that same host, and any
+row or bank that fails escapes to the resident stock plane. Nothing in the design
+assumes the M4 result transfers.
+
+It confirmed three things I had asserted and one I had not checked:
+
+* `Quantize::eval_gpu` (`quantized.cpp:2396-2478`) has **no** `is_nax_available()`
+  branch — nax gates only `qmm`/`gather_qmm` — and the runtime-compiled JIT twin
+  `mlx-generated/fp_quantized.cpp:2334-2360` embeds the identical `w_max_l`/
+  `w_max_r` source. The artifact is architecture-independent, as §2.2 claims.
+* The fail-closed gate is sound: 0xFF-sentinel collision, NaN/Inf E4M3 bytes,
+  nibble saturation and overflow are all closed by construction.
+* Packer and MSL layouts agree at both sites for g ∈ {128, 384, 512}. A latent
+  `g % 64 ≠ 0` / odd-block hazard exists but the packer guard makes it
+  unreachable for this model's geometry. Worth a comment if the encoding is ever
+  reused at another site.
+
+**The finding I had not made myself, and the one the advisor should weigh:**
+`CURRENT_RESEARCH_STATE.md:639-645` records that deliverable A (~2.6 MB/step) and
+deliverable B alone (12.4 MB/step) were both held *off* the ranked path for being
+below the resolvability floor. The consequence is that **all three lane-major
+arms get their first ever M5 exposure in this dispatch** — no part of this read
+path has ever run on the ranked host. That is a real, if low-likelihood,
+gen-17-codegen risk, and it is high-cost because it burns the channel.
+
+Two cheap mitigations, neither of which I can run from this host:
+
+1. Run the M5 drift tripwire / upstream-equivalence pass before the timed phase.
+2. One-off M5 escape census via `DARKBLOOM_ATTN_SCALE_NARROW_LOG=1`. If the
+   pairwise artifact were somehow absent on M5 the arm degrades to mass escapes —
+   still bit-exact, just slower — and the census would say so immediately.
+
+Residual risk that the artifact is absent on M5 is rated moderate-low, and its
+failure mode is *correct but slow*, never wrong.
+
 ---
 
 ## 9. Suggested follow-ups (not implemented)
 
-* The same pairwise artifact should hold for the **MoE routed and shared expert**
-  scale planes, which are far larger than attention. The `fp_quantize` root
-  cause is site-independent; only the group geometry needs re-deriving. This is
-  plausibly a multiple of the present win and is the single highest-value
-  follow-up.
+* ~~The same pairwise artifact should hold for the **MoE routed and shared
+  expert** scale planes.~~ **Already done — this is PR #72 (nezuko), merged
+  02:48Z at `9e8c719f`.** She took the identical `fp_quantize` constancy property
+  (`fp_quantized.h:2186-2205`, predicate `:2192-2194`) onto the routed plane with
+  a `[128-B patch header][even-byte halved plane]` layout and an
+  `allowedFlatPairs` gate. Her census independently reproduces my root cause from
+  the other side: 985,300,992 even-byte pairs, 99.999983 % equal, **exactly 168
+  exceptions across 234 tensors — one per tensor, always at flat pair 0**, with an
+  odd-index control at 23.24 % mismatch. That "one exception per tensor at pair 0"
+  is precisely what a first-simdgroup-only split predicts, and it is the strongest
+  external confirmation the mechanism has. Her hunks (`:7330-8101`, `:10021-10340`)
+  do not intersect my four sites, so the two changes compose.
 * **Fix the artifact at the source instead of exploiting it.** If
   `fp_quantized.h:2175-2215` used a group-local index the quantizer would emit
   genuinely distinct scales, which would *lose* this saving but might improve
