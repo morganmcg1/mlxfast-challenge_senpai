@@ -1776,9 +1776,12 @@ template <
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         if (sg_active) {
-          // PRAGMA-VARIANT 01: SK-step staging+MMA loop, 2 iterations
-          // (BK=64/SK=32): Atile TMxTK=1x2 device frags + Btile TNxTK=2x2
-          // threadgroup frags per step, serially-dependent Dtile MMA chain.
+          // PRAGMA-VARIANT 01: SK-step staging+MMA loop, BK/SK iterations
+          // (2 at BK=64, 4 at BK=128): Atile TMxTK=1x2 device frags + Btile
+          // TNxTK=2x2 threadgroup frags per step, serially-dependent Dtile
+          // MMA chain. The global 32-wide chunk index is k*(BK/SK) + kk1/SK,
+          // so every BK enumerates the same chunks in the same ascending
+          // order into the same Dtile: changing BK is bit-identical.
           // Full unroll + volatile removal let the second step's 6 fragment
           // loads hoist ahead of the first step's MMAs. This kernel is built
           // WITHOUT function constants (static expert shape path), so the
@@ -1788,8 +1791,9 @@ template <
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
             NAXTile<Wtype, TN, TK> Btile;
 
-            // Ws is 16B-aligned (NAXWsChunk16), BK_padded*2B = 144B row
-            // stride, runs at multiples of 8B: same bytes, same slots.
+            // Ws is 16B-aligned (NAXWsChunk16); BK_padded*2B row stride is
+            // 144B at BK=64 and 272B at BK=128, both multiples of 16, and
+            // kk1*2B steps by 64B: same bytes, same slots.
             Btile.template load_contig_tg<Wtype, BK_padded>(
                 Ws + tn * BK_padded + kk1);
 

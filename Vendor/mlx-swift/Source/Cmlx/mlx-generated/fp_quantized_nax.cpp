@@ -1923,8 +1923,9 @@ template <
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
             NAXTile<Wtype, TN, TK> Btile;
 
-            // Ws is 16B-aligned (NAXWsChunk16), BK_padded*2B = 144B row
-            // stride, runs at multiples of 8B: same bytes, same slots.
+            // Ws is 16B-aligned (NAXWsChunk16); BK_padded*2B row stride is
+            // 144B at BK=64 and 272B at BK=128, both multiples of 16, and
+            // kk1*2B steps by 64B: same bytes, same slots.
             Btile.template load_contig_tg<Wtype, BK_padded>(
                 Ws + tn * BK_padded + kk1);
 
