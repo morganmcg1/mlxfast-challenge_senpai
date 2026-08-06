@@ -158,11 +158,12 @@ def main() -> int:
               f"total {tot:+.1f} us/step over {tot_calls:.0f} calls/step "
               f"= {tot / tot_calls if tot_calls else float('nan'):+.3f} us/call")
         print(f"  {'d_us/step':>10} {'conc':>9} {'serial':>9} {'n/step':>7} "
-              f"{'d_us/call':>10} {'share_d':>8}  kernel")
+              f"{'d_us/call':>10} {'share_d':>8} {'E':>6}  kernel")
         for d, k, mc, ms_, nc, _ns in rows[:args.top]:
             print(f"  {d:10.1f} {mc:9.1f} {ms_:9.1f} {nc:7.2f} "
                   f"{d / nc if nc else float('nan'):10.3f} "
-                  f"{d / tot * 100 if tot else float('nan'):7.1f}%  {k}")
+                  f"{d / tot * 100 if tot else float('nan'):7.1f}% "
+                  f"{mc / ms_ if ms_ else float('nan'):6.3f}  {k}")
         rest = rows[args.top:]
         if rest:
             print(f"  {sum(t[0] for t in rest):10.1f} {'':9} {'':9} "
