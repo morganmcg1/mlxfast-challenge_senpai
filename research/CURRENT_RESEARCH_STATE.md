@@ -1,17 +1,18 @@
 # SENPAI Research State
-- 2026-08-06T11:00Z (updated)
-- Campaign mlxfast-birch-20260805. All 4 students assigned and nudged. Advisor HEAD at 1a75d2b.
-- All students IDLE — no implementation work started on any PR yet. All nudged to rebase to 1a75d2b.
-- Next-wave research agents spawned: unexplored-decode-v2 (dispatch #4/#5, RoPE, Swift overhead),
-  texture-feasibility (MLXFast texture input support).
+- 2026-08-06T11:22Z (updated)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 4a2e371 (5 merged improvements).
+- **M5 SUBMISSION DISPATCHED**: 5-PR composition submitted to M5 (submission 00de2d3f,
+  validating). Composes #94 + #98 + #107 + #114 + #116 — all bit-exact or numerically verified.
+- Alphonse DELIVERED: PR #116 merged (shared SwiGLU staging, bit-exact, M4 neutral expected).
+  Edward, Thorfinn, Askeladd still IDLE — no results despite 5-12 nudges each.
 - **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
   Birch campaign's last M5 submission: 2.5459 (commit 4058d0b).
   Target: 2.5523 (lBroth, 2nd place). Gap to 2nd: ~1.4%.
-  The birch advisor branch (1a75d2b) has NOT been submitted to M5 yet.
-- **FRONTIER**: 1a75d2b (PR #114 merged: INT8 QKV dot4 vectorization).
-  Previous: eab02f4 (composition strategy). Previous: 6cb9e92 (research state).
-  Previous: b0116fe (post #107). Previous: 16f1dc5 (PR #107: qdot dot4).
-  Previous: b6a0889 (PR #98: prefill O-proj). Previous: e925569 (PR #94: simd_dot).
+  Birch advisor branch (4a2e371) submitted to M5 — awaiting result.
+- **FRONTIER**: 4a2e371 (PR #116 merged: shared SwiGLU QMV rows1 depth-1 weight staging).
+  Previous: 51bcf6c (docs-only). Previous: 1a75d2b (PR #114: INT8 QKV dot4).
+  Previous: 16f1dc5 (PR #107: qdot dot4). Previous: b6a0889 (PR #98: prefill O-proj).
+  Previous: e925569 (PR #94: simd_dot).
 - **BROKEN PRs**: #99, #108, #111, #113, #115 (orphan drafts with invalid/missing markers). Ignore.
   PR #112 is Thorfinn's actual assignment (not #111). PR #116 is Alphonse's actual assignment (not #115).
 
@@ -82,29 +83,32 @@ byte delta, no budget risk.
   dequant overhead vs BF16 bandwidth savings), but the mechanism is sound.
   Official M5 measurement needed to confirm gain, not to prevent regression.
 
-## In-Flight Experiments (4 students, all assigned and nudged 2026-08-06)
+## In-Flight Experiments (3 students still idle, 1 delivered)
 
-| Student | PR | Experiment | Mechanism | Risk | Est. Impact |
-|---------|-----|-----------|-----------|------|-------------|
-| Alphonse | #116 | Shared SwiGLU QMV rows1 depth-1 weight staging | Port depth-1 weight staging from routed R1 kernel to shared kernel. Bit-exact, mechanical. 39 layers/step. | ZERO | 0.3-0.6% decode |
-| Thorfinn | #112 | Attention epilogue 1-pass merge (bfloat16 exchange) | Merge 2-pass epilogue (2 barriers) into 1-pass (1 barrier) by using bfloat16 for cross-sg exchange. 40 layers x 1 barrier saved. | MED | 0.3-0.6% decode |
-| Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode |
-| Askeladd | #109 | simd_sum vectorization sweep | Pack scalar simd_sum into vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU). Bit-exact. 75% fewer shuffle instructions. | ZERO | 0.2-1.0% decode |
+| Student | PR | Experiment | Mechanism | Risk | Est. Impact | Status |
+|---------|-----|-----------|-----------|------|-------------|--------|
+| Thorfinn | #112 | Attention epilogue 1-pass merge (bfloat16 exchange) | Merge 2-pass epilogue (2 barriers) into 1-pass (1 barrier) by using bfloat16 for cross-sg exchange. 40 layers x 1 barrier saved. | MED | 0.3-0.6% decode | IDLE (no commits) |
+| Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode | IDLE (no commits) |
+| Askeladd | #109 | simd_sum vectorization sweep | Pack scalar simd_sum into vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU). Bit-exact. 75% fewer shuffle instructions. | ZERO | 0.2-1.0% decode | IDLE (no commits) |
 
-Note: All 4 students are IDLE (no commits yet). All nudged to rebase to 1a75d2b.
-PR #115 (broken orphan, first attempt at Alphonse's assignment) — ignore. PR #116 is the actual assignment.
-PR #111 (broken orphan, Thorfinn's first attempt) — ignore. PR #112 is the actual assignment.
+**Alphonse #116: DELIVERED and MERGED** — shared SwiGLU QMV rows1 depth-1 weight staging.
+Bit-exact, M4 neutral (expected), M5 submission dispatched.
 
-**MERGED improvements on advisor branch 1a75d2b** (all compose, all independent):
+All 3 remaining students are IDLE (no commits yet). All nudged to rebase to 4a2e371.
+Baseline advanced to 4a2e371 for all 3 (PR #116 merge — SwiGLU staging, independent from their work).
+
+**MERGED improvements on advisor branch 4a2e371** (5 improvements, all compose, all independent):
 - PR #94 (simd_dot attention, bit-exact): merged
 - PR #98 (prefill O-proj affine INT8): merged, +3.3% prefill on M4
 - PR #107 (qdot dot4 vectorization, bit-exact): merged, -0.85% decode on M4
 - PR #114 (INT8 QKV dot4, numerically verified): merged
+- PR #116 (shared SwiGLU staging, bit-exact): merged, M4 neutral (expected)
 - Top-8 routing elimination: merged (reduces routed expert GEMM work)
 
-The advisor branch has NOT been submitted to M5. After students deliver and merge winners, the composed branch should be submitted for M5 measurement.
+**M5 SUBMISSION DISPATCHED**: 5-PR composition (4a2e371) submitted as submission 00de2d3f.
+Awaiting M5 result. This is the first birch-campaign M5 submission of the composed advisor branch.
 
-### Rebase status (to 1a75d2b)
+### Rebase status (to 4a2e371)
 - Alphonse #116: Fresh branch from 1a75d2b, no rebase needed
 - Thorfinn #112: Rebase from 5164c4f → 1a75d2b (independent changes, clean expected)
 - Edward #100: Rebase from 61aef87 → 1a75d2b (independent changes, clean expected)
