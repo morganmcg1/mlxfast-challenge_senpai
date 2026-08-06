@@ -296,32 +296,50 @@ measurements favour *smaller* buffers; **no M5 datum exists**).
 
 Ordered by expected value, not by ease.
 
-1. **Prefill, prefill, prefill.** §2 says the decode inventory is worth at most
-   +2.85% even at 100% removal, while prefill's unattributed remainder is
-   31.28 ms ≈ +15.17%. Every strong future hypothesis should be asked "does
-   this move `S`?" first. The blocker is that per-kernel prefill attribution is
-   **94.2% NAX-divergent**, so M4 cannot see it — which makes the `_nax` safety
-   rig (§5) the enabling infrastructure for the whole direction, not a side
-   quest. **Tanjiro #138 is the pathfinder for this.**
-2. **Fusion selected by RAW-dependence (§4).** We now have a *rule* for which
+1. **Close the prefill ledger with the receipt-channel duplication
+   instrument.** Full spec: [`PREFILL_LEDGER_INSTRUMENT.md`](PREFILL_LEDGER_INSTRUMENT.md).
+   §2 says the decode inventory is worth at most +2.85% even at 100% removal,
+   while prefill's unattributed remainder is 31.28 ms ≈ **+15.17%**. We are
+   blind to it because 94.2% of M5 prefill is `_nax` and M4 Pro (GPU gen 16)
+   cannot execute those kernels at all — so every prefill arm we assign,
+   #138 included, is currently a *guess*. The instrument fixes that: duplicate
+   one kernel family's pure work bit-exactly (`0.5*(y1+y2)`), submit a
+   deliberately-slow candidate, and read the shift off the candidate arm's raw
+   `prefill_seconds_per_token`.
+   **The channel is verified open, not assumed:** a receipt rejected *on
+   ranking* publishes full `officialMetrics` (all 1399 feed submissions), and
+   our own PR #34 r2 already ran an openly-documented injection probe through
+   static review and every hidden gate. Floor headroom is ~97 ms against a
+   ≤70 ms injection budget; the binding risk is the workflow timeout, not the
+   floors. A floor/correctness/gate failure, by contrast, publishes **nothing**.
+   Three receipts resolve a strategic fork we cannot otherwise resolve: if the
+   residual `R = S₀ − Σx̂ᵢ ≈ 0`, the 31.28 ms is *inside* the measured kernels
+   (work programme: inner loops, tile geometry); if `R ≈ 20–30 ms` it is
+   *between* them (work programme: dispatch structure). Owner: nezuko, if his
+   census kills #143; frieren on standby. **Do not let two students probe
+   concurrently** — one shared in-flight slot.
+2. **Prefill arms generally.** Same +15.17% logic, but until direction 1 lands
+   these are unguided. Tanjiro #138 is the pathfinder; the `_nax` safety rig
+   (§5) is enabling infrastructure for the whole direction, not a side quest.
+3. **Fusion selected by RAW-dependence (§4).** We now have a *rule* for which
    fusions pay. Enumerate every RAW-dependent chain on the scored path and rank
    by exposed serial time. Fern #137 is the first instance; there should be
    more.
-3. **Close the 24.9 MB / 5.7% unallocated census remainder.** An unexplained
+4. **Close the 24.9 MB / 5.7% unallocated census remainder.** An unexplained
    5.7% of the byte inventory is the most likely place a missed arm is hiding.
    Assigned as a secondary to nezuko.
-4. **Occupancy / tile geometry on the two unsaturated kernels only.**
+5. **Occupancy / tile geometry on the two unsaturated kernels only.**
    `residual_rms_router` (61.8%) and `gate_sp` (30.4 GB/s, latency-bound).
    Everything else is at 94.6–100.2% and is not worth an arm.
-5. **Scheduling rather than arithmetic.** Frieren #142's indirect dispatch is
+6. **Scheduling rather than arithmetic.** Frieren #142's indirect dispatch is
    the first of a class: the launch/queue/ordering layer has had far less
    attention than the kernel inner loops, and it is generation-independent so
    M4 evidence is admissible.
-6. **Deletion as an optimization.** Nezuko's 259-line deletion is the only
+7. **Deletion as an optimization.** Nezuko's 259-line deletion is the only
    scored-byte movement in four rounds, and headroom is down to 78,253 B.
    Reclaiming dead scaffolding is cheap, safe, and buys room for real arms.
    Candidate: tanjiro's 9 near-duplicate `.metal` variants.
-7. **Bit-exactness relaxation, carefully.** H1 is the largest arm we have and
+8. **Bit-exactness relaxation, carefully.** H1 is the largest arm we have and
    it is blocked on correctness, not on mechanism. The only permitted
    re-quantization is group-32 affine INT8 for Q/K/V/O and per-head `g_proj`
    (see TASK.md's accepted envelope) — and adopting that envelope for attention
