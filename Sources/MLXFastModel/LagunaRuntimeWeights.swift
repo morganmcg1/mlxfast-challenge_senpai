@@ -687,6 +687,34 @@ let lagunaAttnScaleNarrowOProjEnabled =
 let lagunaAttnScaleLaneMajorEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_LANEMAJOR"] != "0"
 
+/// `o_proj` uses the same encoding: its decode simdgroup walks the input axis in
+/// the same `block_size / group_size` lane order, so a row costs `groups / 2 + 1`
+/// bytes (193 at 48 heads, 257 at 64) against the 21-per-32-group block form's
+/// 252 and 336. `DARKBLOOM_ATTN_SCALE_NARROW_OPROJ=0` still drops that site to
+/// the stock plane.
+///
+/// Pairwise halving, per site (`DARKBLOOM_ATTN_SCALE_PAIRWISE_QKV` and
+/// `..._PAIRWISE_OPROJ`, both default ON), which stores one nibble per PAIR of
+/// groups instead of one per group.
+///
+/// This is exact, not an approximation. MLX dispatches `fp_quantize` over a flat
+/// 1-D grid of `w.size()` threads (`per_thread = max(group_size / simd_size, 1)`
+/// is 1 at group 16), so `tidx.x` is the flattened element index and the
+/// kernel's `tidx.x < 16` half-select is true only inside the FIRST simdgroup of
+/// the whole call. Every later simdgroup has all 32 lanes on the `>= 16` side, so
+/// `w_max_l` collapses to 0 and all of them take `w_max_r`, the max over 32
+/// contiguous elements: both groups of that chunk are handed the identical E4M3
+/// byte. The exception is one group pair per `quantized()` call, and q/k/v/o are
+/// quantized separately, so at most three fused-QKV rows and one o_proj row per
+/// layer differ. Those rows take the existing `0xFF` base escape, and the
+/// certificate below still requires byte-for-byte reproduction, so a build where
+/// the artifact did not hold would lose speed and not correctness.
+let lagunaAttnScalePairwiseQKVEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_PAIRWISE_QKV"] != "0"
+
+let lagunaAttnScalePairwiseOProjEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_SCALE_PAIRWISE_OPROJ"] != "0"
+
 /// `DARKBLOOM_ATTN_SCALE_NARROW_LOG=1` reports which scale plane each attention
 /// QMV dispatch reads. Off by default so the scored dispatch pays no lock and
 /// no string interpolation, exactly as `lagunaTrace` is gated.
@@ -835,8 +863,13 @@ struct LagunaLaneMajorScaleBank {
     let rows: Int
     let groups: Int
     let escapedRows: Int
+    let pairwise: Bool
 
     var arrays: [MLXArray] { [nibbles, bases] }
+
+    /// Nibble bytes per row: one per group pair when `pairwise`, else one per two
+    /// groups. Both the dispatch guard and the certificate key on this.
+    var nibbleBytes: Int { pairwise ? groups / 4 : groups / 2 }
 }
 
 /// Packs a uint8 NVFP4 scale plane into `LagunaLaneMajorScaleBank`. `groups`
@@ -845,7 +878,7 @@ struct LagunaLaneMajorScaleBank {
 /// than declining the whole plane; the certificate then requires every
 /// non-escaped row to reproduce the plane byte for byte.
 func lagunaLaneMajorNVFP4ScaleBank(
-    _ scales: MLXArray, site: String, layer: Int
+    _ scales: MLXArray, site: String, layer: Int, pairwise: Bool = false
 ) -> LagunaLaneMajorScaleBank? {
     guard lagunaAttnScaleLaneMajorEnabled,
         scales.dtype == .uint8, scales.ndim == 2,
@@ -863,17 +896,27 @@ func lagunaLaneMajorNVFP4ScaleBank(
     // A measured attention base never reaches 0xFF (codes top out at 41), and a
     // row whose minimum somehow did would simply read the stock plane, so the
     // sentinel cannot silently lose a byte either way.
-    let fits = span .<= 15
-    let bases = contiguous(which(fits, rowMin, MLXArray(UInt8(0xFF))).reshaped([rows]))
-    let fitting = Int(fits.asType(.int32).sum().item(Int32.self))
+    var fits = span .<= 15
     // [rows, block, group-in-block] -> [rows, lane, block]: lane `l` owns group
     // `l` of every block, so the codes it reads become adjacent.
     let lanes = contiguous(plane.reshaped([rows, blocks, 32]).transposed(0, 2, 1))
+    // Lane `2j` and `2j + 1` hold the two halves of one quantizer 32-element
+    // chunk, so the pairwise arm keeps the even lane and drops the odd one for
+    // every row where the two agree. A row that disagrees escapes.
+    let halves = lanes.reshaped([rows, 16, 2, blocks]).split(parts: 2, axis: 2)
+    var kept = lanes
+    if pairwise {
+        fits = fits .&& (halves[0] .== halves[1]).all(axes: [1, 2, 3]).reshaped([rows, 1])
+        kept = halves[0]
+    }
+    let bases = contiguous(which(fits, rowMin, MLXArray(UInt8(0xFF))).reshaped([rows]))
+    let fitting = Int(fits.asType(.int32).sum().item(Int32.self))
     let index = which(
-        fits.reshaped([rows, 1, 1]),
-        lanes.asType(.int32) - rowMin.asType(.int32).reshaped([rows, 1, 1]),
+        fits,
+        kept.reshaped([rows, pairwise ? groups / 2 : groups]).asType(.int32)
+            - rowMin.asType(.int32),
         MLXArray(Int32(0))
-    ).asType(.uint8).reshaped([rows, groups])
+    ).asType(.uint8)
     let u16 = contiguous(index).view(dtype: .uint16)
     let nibbles = contiguous(
         ((u16 & MLXArray(UInt16(0x000F)))
@@ -881,14 +924,15 @@ func lagunaLaneMajorNVFP4ScaleBank(
 
     let bank = LagunaLaneMajorScaleBank(
         nibbles: nibbles, bases: bases, rows: rows, groups: groups,
-        escapedRows: rows - fitting)
+        escapedRows: rows - fitting, pairwise: pairwise)
+    let form = pairwise ? "lane-major pairwise" : "lane-major"
     guard lagunaLaneMajorScaleBankReproducesScales(bank, scales) else {
-        lagunaNarrowScaleLog.note("declined L\(layer) (lane-major mismatch)", site)
+        lagunaNarrowScaleLog.note("declined L\(layer) (\(form) mismatch)", site)
         return nil
     }
     lagunaNarrowScaleLog.noteDispatch(
-        "lane-major L\(layer) escaped \(bank.escapedRows)/\(rows)", site)
-    lagunaNarrowScaleLog.note("built lane-major", site)
+        "\(form) L\(layer) escaped \(bank.escapedRows)/\(rows)", site)
+    lagunaNarrowScaleLog.note("built \(form)", site)
     return bank
 }
 
@@ -900,15 +944,24 @@ func lagunaLaneMajorScaleBankReproducesScales(
 ) -> Bool {
     let rows = bank.rows
     let groups = bank.groups
-    guard bank.nibbles.dtype == .uint8, bank.nibbles.dims(rows, groups / 2),
+    let blocks = groups / 32
+    let lanes = bank.pairwise ? 16 : 32
+    guard bank.nibbles.dtype == .uint8, bank.nibbles.dims(rows, bank.nibbleBytes),
         bank.bases.dtype == .uint8, bank.bases.dims(rows),
         scales.dims(rows, groups)
     else {
         return false
     }
-    let nib = bank.nibbles.asType(.int32).reshaped([rows, groups / 2, 1])
-    let nibValues = concatenated([nib & 0x0F, (nib >> 4) & 0x0F], axis: 2)
-        .reshaped([rows, 32, groups / 32])
+    let nib = bank.nibbles.asType(.int32).reshaped([rows, bank.nibbleBytes, 1])
+    var nibValues = concatenated([nib & 0x0F, (nib >> 4) & 0x0F], axis: 2)
+        .reshaped([rows, lanes, blocks])
+    if bank.pairwise {
+        // Lane `j` of a pairwise bank stands for the plane's lanes `2j` and
+        // `2j + 1`; re-expanding here is what makes the comparison below a
+        // statement about the plane the kernels read, not about the packing.
+        let one = nibValues.reshaped([rows, lanes, 1, blocks])
+        nibValues = concatenated([one, one], axis: 2).reshaped([rows, 32, blocks])
+    }
     let decoded = contiguous(
         (bank.bases.asType(.int32).reshaped([rows, 1, 1]) + nibValues)
             .transposed(0, 2, 1)
