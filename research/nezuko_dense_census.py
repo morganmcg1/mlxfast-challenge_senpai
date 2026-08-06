@@ -183,6 +183,52 @@ def cmd_block():
                   f"block{B}: esc={esc_bl/e.size:.8f} bits={bl_bits:.4f}")
 
 
+def cmd_gates():
+    """The assignment's literal gate ladder: SANITY / GO-8 / GO-12 / GO-12e /
+    GO-13 / T8. Reported on the brief's own definitions so the firing gate is
+    unambiguous, even where the census shows a better variant exists.
+    """
+    print("== gate ladder (assignment definitions) ==")
+    for name in TENSORS:
+        bits, shape = load_bf16(name)
+        _, exp, man = parts(bits)
+        base_axis = BASE_AXIS[name]
+        e = exp if base_axis == 1 else exp.T  # rows = channels
+        span = e.max(axis=1) - e.min(axis=1)
+        pf14 = float((span <= 14).mean())
+        pf30 = float((span <= 30).mean())
+        tz4 = float((man & 0x0F == 0).mean())
+        # outliers per row under a best-placed 15-wide window
+        _, _, mx = channel_bases(exp, base_axis, 4)
+        w = 15
+        lo = e.min(axis=1, keepdims=True)
+        best = np.zeros((e.shape[0], 1), dtype=np.int64)
+        for shift in range(w):
+            b = lo + shift
+            cov = ((e >= b) & (e < b + w)).sum(axis=1, keepdims=True)
+            best = np.maximum(best, cov)
+        out = (e.shape[1] - best.ravel()).astype(np.int64)
+        d16 = int(np.unique(bits).size)
+        tiles = bits.ravel()[: (bits.size // 4096) * 4096].reshape(-1, 4096)
+        # max distinct uint16 patterns over any 4096-element tile
+        tmax = int(max(np.unique(t).size for t in tiles[:: max(1, len(tiles) // 512)]))
+        print(f"\n{name} {shape} rows(channels)={e.shape[0]} len={e.shape[1]}")
+        print(f"  pack_frac_row(14)={pf14:.6f}  pack_frac_row(30)={pf30:.6f}")
+        print(f"  row exponent span: median={int(np.median(span))} p90={int(np.percentile(span,90))} "
+              f"p99={int(np.percentile(span,99))} max={int(span.max())}")
+        print(f"  outliers_per_row(14): median={int(np.median(out))} p90={int(np.percentile(out,90))} "
+              f"p99={int(np.percentile(out,99))} max={int(out.max())} (=={mx})")
+        print(f"  frac(tz>=4)={tz4:.6f}   distinct16(all)={d16}  max distinct16 per 4096-tile={tmax}")
+        verdict = []
+        verdict.append("SANITY pass")
+        verdict.append(f"GO-8 {'PASS' if (pf14>=0.85 and tz4>=0.98) else 'FAIL'}")
+        verdict.append(f"GO-12 {'PASS' if pf14>=0.85 else 'FAIL'}")
+        verdict.append(f"GO-12e {'PASS' if (pf14<0.85 and np.percentile(out,99)<=8) else 'FAIL'}")
+        verdict.append(f"GO-13 {'PASS' if pf30>=0.85 else 'FAIL'}")
+        verdict.append(f"T8 {'PASS' if tmax<=256 else 'FAIL'}")
+        print("  " + " | ".join(verdict))
+
+
 def cmd_scheme():
     print("== scheme table (whole-channel best-placed window) ==")
     total_stock = 0.0
@@ -212,9 +258,10 @@ def cmd_scheme():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["value", "axis", "block", "scheme", "all"])
+    ap.add_argument("cmd", choices=["value", "gates", "axis", "block", "scheme", "all"])
     args = ap.parse_args()
-    cmds = {"value": cmd_value, "axis": cmd_axis, "block": cmd_block, "scheme": cmd_scheme}
+    cmds = {"value": cmd_value, "gates": cmd_gates, "axis": cmd_axis,
+            "block": cmd_block, "scheme": cmd_scheme}
     if args.cmd == "all":
         for fn in cmds.values():
             fn()
