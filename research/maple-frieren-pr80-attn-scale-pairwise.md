@@ -16,9 +16,11 @@ The NVFP4 attention scale planes are read in full on every decode step. This
 change re-encodes them so the decode kernels read between a quarter and a half
 as many scale bytes per row, with no change to any produced number. Measured on
 the real per-layer escape census, the shipping arm reads **23.56 MB/step** of
-scale bytes where the promoted frontier reads more and stock reads 89.13 MB/step.
-The arm-to-arm reduction from the promoted frontier is [FILL] MB/step, worth
-**[FILL] %** of score at the M5 memory figure. Bitwise equality with the
+scale bytes where the promoted frontier reads 51.25 MB/step and stock reads
+89.13 MB/step. The arm-to-arm reduction from the promoted frontier is
+**27.70 MB/step**, worth **+0.633 %** of score at the M5 memory figure — above
+the advisor's 0.61 % bar and 2.6× the n=3 receipt-family 2σ floor of 0.243 %.
+Bitwise equality with the
 unmodified runtime is certified over the full 100,352-entry logit vector for 64
 consecutive decode steps, and that certificate is shown to have power by a
 13-arm fault-injection matrix.
@@ -183,19 +185,33 @@ Reproduce with:
 
 ```
 python3 research/pr80_byte_ledger.py \
-  B=/tmp/pr80_cert/B.worker.err C=/tmp/pr80_cert/C.worker.err D=/tmp/pr80_cert/D.worker.err
+  A=/tmp/pr80_armA/A.worker.err B=/tmp/pr80_cert/B.worker.err \
+  C=/tmp/pr80_cert/C.worker.err D=/tmp/pr80_cert/D.worker.err
 ```
 
+Arm A is the promoted frontier (`ab1f9a13`) reconstructed on this branch by
+checking the two `Sources/` files back to their base content, building, and
+running the same census. Its QKV path is byte-identical to arm B's; only the
+o_proj plane encoding differs, so A→B isolates O-LM exactly.
+
 ```
+A       51,254,656 B/step   qkv=lm    oproj=narrow escaped qkv 2454/389120 (0.6307%)  oproj    0/81920 (0.0000%)
 B       45,556,288 B/step   qkv=lm    oproj=lm     escaped qkv 2454/389120 (0.6307%)  oproj 1526/81920 (1.8628%)
 C       33,191,520 B/step   qkv=lm_pw oproj=lm     escaped qkv 2543/389120 (0.6535%)  oproj 1526/81920 (1.8628%)
 D       23,556,320 B/step   qkv=lm_pw oproj=lm_pw  escaped qkv 2543/389120 (0.6535%)  oproj 1563/81920 (1.9080%)
 stock   89,128,960 B/step
 
-B -> C   12,364,768 B = 12.365 MB   -> +0.2825 %
-C -> D    9,635,200 B =  9.635 MB   -> +0.2202 %
-B -> D   21,999,968 B = 22.000 MB   -> +0.5027 %
+A -> B    5,698,368 B =  5.698 MB   -> +0.1302 %   (O-LM)
+B -> C   12,364,768 B = 12.365 MB   -> +0.2825 %   (PW-QKV)
+C -> D    9,635,200 B =  9.635 MB   -> +0.2202 %   (PW-O)
+A -> D   27,698,336 B = 27.698 MB   -> +0.6329 %   (submitted arm)
 ```
+
+The block-narrow o_proj plane in arm A never escapes (0/81920) because its
+predicate is weaker; lane-major trades a 1.86 % escape rate for a much cheaper
+accepted row and still wins by 5.70 MB/step. The three rungs are additive by
+construction — each prices a disjoint set of plane bytes — and the measured
+A→D total equals the sum of the rungs exactly.
 
 Score conversion, at the M5 memory figure and the pinned decode step:
 
@@ -206,8 +222,6 @@ PCT_PER_MB = 0.75 * (1e6 / 651.8e9) / 5036e-6 * 100 = 0.0228 % per MB/step
 The escape rates are the honest cost of fail-closed packing: 0.65 % of QKV rows
 and 1.91 % of o_proj rows fall back to the full stock plane and are billed at
 `g + 1` bytes, not `g/4 + 1`. That penalty is already inside every number above.
-
-**Arm A (promoted frontier) ledger: [FILL]**
 
 ---
 
@@ -290,8 +304,15 @@ the clean branch head is `653933f`.
 | DF2 | D-F2 force `fits` all-true | **declines 80/80** | `797cbe32…6242b` | = (fail-closed) |
 | DF2B | D-F2 + bypass | bypassed | `4936d47f…e54a` | **≠** |
 | KF1 | K-F1 pair-lane XOR (kernel) | n/a — bank builds | `70bdf35d…1566` | **≠** |
-| KF2 | K-F2 block-index XOR (kernel) | n/a — bank builds | [FILL] | [FILL] |
-| KF3 | K-F3 force no-escape (kernel) | n/a — bank builds | [FILL] | [FILL] |
+| KF2 | K-F2 block-index XOR (kernel) | n/a — bank builds | `b7ee2b37…88e4` | **≠** |
+| KF3 | K-F3 force no-escape (kernel) | n/a — bank builds | **NaN logits** | **≠** |
+
+All seven faults are detected. K-F3 is detected maximally: forcing the kernel to
+treat every row as non-escaped makes escaped rows decode nibble garbage into an
+out-of-range E4M3 scale, and the worker dies serializing `nan` at
+`top_logits[0].logit` on the very first step. That is a useful signal in its own
+right — it proves the escape path is **load-bearing**, not defensive
+scaffolding. The non-zero exit of the fault sweep is this expected crash.
 
 Three things this establishes:
 
