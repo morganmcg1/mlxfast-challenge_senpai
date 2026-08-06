@@ -62,10 +62,21 @@ research-only `DARKBLOOM_GPU_PROFILE` hook (commit `1604524`, additions only).
 `MTLCommandBuffer`**. `DARKBLOOM_GPU_PROFILE_SPLIT=k` caps dispatches per buffer
 at `k` (`k=0` = shipped policy).
 
-Both files are in `editablePaths`, so the hook is **never committed**; it is
-applied, built, and reverted before the worktree is committed. The binary under
-test (`.build-worker/release/mlxfast-runtime-worker`) retains it while the
-source tree is clean.
+Both files are in `editablePaths`, so the hook is **never carried in the
+submitted surface**. It ships here as an unapplied research patch,
+`research/nezuko-pr158-gpuprof-hook.patch`, and is applied, built, and reverted
+around a measurement session. The binary under test
+(`.build-worker/release/mlxfast-runtime-worker`) retains it while the two vendor
+files at `HEAD` are byte-identical to the base. To reproduce:
+
+```bash
+git apply research/nezuko-pr158-gpuprof-hook.patch
+CLANG_MODULE_CACHE_PATH="${PWD}/.build-worker/clang-module-cache" \
+  swift build -c release --force-resolved-versions \
+  --scratch-path .build-worker --product mlxfast-runtime-worker   # ~57 s
+git checkout -- Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp \
+                Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
+```
 
 The consequence that matters: at `k=0`, `gpu_busy_union` cannot see inside a
 buffer. It cannot see intra-buffer idle and it cannot see intra-buffer
