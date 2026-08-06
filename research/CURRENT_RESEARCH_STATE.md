@@ -1,30 +1,30 @@
 # SENPAI Research State
-- 2026-08-06T18:20Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at d20e890 (pushed to origin).
-  Scored code frontier: 639646a + 3 Wave 4 merges (PRs #130, #128, #129).
-  M5 submission queued: 57d8f082 (composed #130+#128+#129).
-- **WAVE 4 RESULTS** (complete):
-  PR #130 (Alphonse) — Gate-softplus dot4: GREEN. Bit-exact, +1.44% decode M4.
-    MERGED into advisor frontier.
-  PR #129 (Edward) — INT8 O-proj dot4: INCONCLUSIVE (bit-exact, M4 bandwidth-bound).
-    MERGED into advisor frontier for M5 verdict (instruction reduction proven in source).
-  PR #128 (Thorfinn) — Fused down+residual weight staging: GREEN. Bit-exact, +0.8% decode M4.
-    MERGED into advisor frontier.
-  PR #124 (Askeladd) — Gate-Scale Fold in O-proj: DEAD. No decode speedup,
-    non-bit-exact prefill (maxAbsError=0.125). CLOSED.
-  PR #121 (Edward) — NVFP4 Code Pre-Expansion: CLOSED (inconclusive on M4).
+- 2026-08-06T18:52Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 448881c (pushed to origin).
+  Scored code frontier: 639646a + 8 merged optimization PRs (#107→#131).
+  M5 submission queued: 57d8f082 (composed #130+#128+#129). Status: validating.
+- **WAVE 5 RESULTS** (complete):
+  PR #131 (Edward) — NVFP4 O-proj packed simd_sum: MERGED. Bit-exact, M4 inconclusive (bandwidth-bound).
+  PR #132 (Alphonse) — Affine QKV packed simd_sum: MERGED. Bit-exact.
+  PR #133 (Thorfinn) — Shared SwiGLU down packed simd_sum: MERGED. Bit-exact.
+  PR #134 (Askeladd) — Fused down+residual packed simd_sum: IN PROGRESS (draft, no result yet).
 
-- **M5 SUBMISSION**: Composed #130+#128+#129 (5 bit-exact decode optimizations).
+- **WAVE 4 RESULTS** (complete):
+  PR #130 (Alphonse) — Gate-softplus dot4: MERGED. Bit-exact, +1.44% decode M4.
+  PR #129 (Edward) — INT8 O-proj dot4: MERGED. Bit-exact, M4 inconclusive.
+  PR #128 (Thorfinn) — Fused down+residual weight staging: MERGED. Bit-exact, +1.14% decode M4.
+  PR #124 (Askeladd) — Gate-Scale Fold in O-proj: CLOSED. Dead: non-bit-exact prefill.
+
+- **WAVE 6 ASSIGNED**:
+  PR #140 (Alphonse) — float4 input_values vectorization for shared SwiGLU QMV kernels.
+    Add vec4 qdot helpers + convert input_values from float[16] to float4[4].
+    Eliminates scalar→vector→scalar→vector round-trip overhead. Bit-exact.
+  Research agent (frontier) running for Wave 7+ ideas.
+
+- **M5 SUBMISSION**: Composed #130+#128+#129 (3 bit-exact decode optimizations).
   Submission ID: 57d8f082-b303-4a63-8301-3ad8219db272. Status: validating.
   All changes bit-exact, different kernels, no overlap. Awaiting M5 verdict.
-
-- **WAVE 5 ASSIGNED** (4 new PRs, all bit-exact packed simd_sum):
-  PR #131 (Edward) — NVFP4 O-proj simd_sum pack (L4237): factor *4194304.0f, pack 4→1
-  PR #132 (Alphonse) — Affine QKV simd_sum pack (L4787+L5005): pack 4→1 in staged+non-staged
-  PR #133 (Thorfinn) — Shared SwiGLU down simd_sum pack (L6728): pack 4→1, 39 layers
-  PR #134 (Askeladd) — Fused down+residual simd_sum pack (L7662): pack 4→1, 39 layers
-  All 4 target different kernels, all bit-exact, all on scored decode path.
-  Research agent launched for Wave 6+ ideas (frontier model).
+  After M5 result: compose new submission with all Wave 5 merges (#131, #132, #133).
 
 - **POTENTIAL NEXT DIRECTIONS** (for future waves):
   - Prefill MoE variant 5→4 (_nax): +17.47% kernel-level, can't test on M4
@@ -35,7 +35,7 @@
   - block_width tuning in MoE gate/up kernels
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign). Target: beat 2.5888.
-- **FRONTIER**: Advisor HEAD at d20e890. Scored code at 639646a + Wave 4 merges (#130, #128, #129).
+- **FRONTIER**: Advisor HEAD at 448881c. Scored code at 639646a + 8 merges (#107→#131).
 - **BUDGET**: ~2,963K / 3,000K bytes total. LagunaRuntimeModel.swift: ~507K / 524K per file.
 - **M5 SUBMISSION**: 57d8f082 (composed #130+#128+#129). Status: validating.
 - **KEY FINDINGS**:
@@ -53,9 +53,12 @@
 
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
+| #133 | Thorfinn | Shared SwiGLU down packed simd_sum | MERGED. Bit-exact. |
+| #132 | Alphonse | Affine QKV packed simd_sum | MERGED. Bit-exact. |
+| #131 | Edward | NVFP4 O-proj packed simd_sum | MERGED. Bit-exact. |
 | #130 | Alphonse | Gate-softplus dot4 + simd_sum | MERGED. Bit-exact, +1.44% decode M4. |
 | #129 | Edward | INT8 O-proj dot4 + simd_sum | MERGED. Bit-exact, M4 inconclusive. |
-| #128 | Thorfinn | Fused down+residual weight staging | MERGED. Bit-exact, +0.8% decode M4. |
+| #128 | Thorfinn | Fused down+residual weight staging | MERGED. Bit-exact, +1.14% decode M4. |
 | #124 | Askeladd | Gate-scale fold in O-proj | CLOSED. Dead: no speedup, non-bit-exact prefill. |
 | #121 | Edward | NVFP4 code pre-expansion | CLOSED. Inconclusive, 4x memory traffic risk. |
 | #119 | Alphonse | NVFP4 O-proj dot4 | MERGED. Bit-exact. |
