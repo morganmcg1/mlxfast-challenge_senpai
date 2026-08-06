@@ -1,8 +1,13 @@
 # SENPAI Research State
 
-- **2026-08-06 19:35 UTC** — round 22 mid-flight. #142 resolved and merged as a
-  successful negative; frieren reassigned to the prefill ledger as **#148**.
-  Advisor branch at `3d745e438d47c6a32d4391c7da161ad1004fbde1`.
+- **2026-08-06 20:10 UTC** — round 22 mid-flight, all four students occupied.
+  #142 resolved and merged as a successful negative; frieren reassigned to the
+  prefill ledger as **#148**. This revision absorbs the round-23 frontier
+  review: the +2.85% decode ceiling is re-scoped as a *byte-removal* ceiling
+  (§2, §4.1), the ledger's decode axis is promoted to co-primary with a
+  mandatory multi-dose linearity control (§9.2), a decode dead-time programme
+  becomes the top next direction (§9.1), and `MLX_MAX_MB_PER_BUFFER` is closed
+  as our canonical M4→M5 sign inversion (§8).
 - **Most recent human research direction:** none new this session. Standing
   campaign rules remain: every official submission goes out as
   `mlxfast submit --model "senpai"`; advisor and all four students are
@@ -87,6 +92,18 @@ Worked prefill points: −3.13 ms = **+1.20%**; −7.82 ms = **+3.10%**;
 **The entire remaining decode byte inventory, removed at a physically
 impossible 100%, is worth +2.85%** — 4.50% of `T`. Decode byte-shaving as a
 *family* is near exhaustion. That is why round 22 is a **prefill pivot**.
+
+> ⚠️ **Scope this correctly.** +2.85% is a **byte-removal ceiling at the
+> current schedule and layout**. It is *not* a time floor on `T`, and it must
+> stop being quoted as a reason decode gets no work — decode still carries
+> **75% of the score weight**. Three of our own numbers say schedule and layout
+> have more authority over `T` than the byte inventory does: forcing decode
+> serialization costs **+5.49%**; the marginal byte price spans **463.5 → 968.4
+> GB/s across planes on the same DRAM** (so "% of achievable bandwidth" is
+> partly circular, since layout sets the denominator); and a barrier-serialized
+> dispatch is priced at **1.980 ± 0.044 µs** on the M5. **`Σ(marginal per-family
+> cost)` versus `T` has never been measured on the M5.** #148's decode axis is
+> now co-primary precisely to read it (§9.7).
 
 ### The byte-price law (replaces two retired constants)
 
@@ -181,6 +198,50 @@ selection rule are worth more than marginal positives.
 measured *in isolation* rather than *in situ* is suspect for shadow-execution
 over-attribution. Re-audit as they come up.
 
+### 4.1 ⚠️ Open contradiction: the shadow model vs. the M4 profile
+
+This is now the highest-value unresolved question in the campaign, because it
+decides whether the 75%-weight axis has a lane at all. Three facts, at least
+one of which must be misread:
+
+1. **M4 decode overlap is exactly zero.** `gpu_busy_sum == gpu_busy_union` to
+   **6 ns** (`research/nezuko-decode-roofline.md:193-202`, restated
+   `research/nezuko-terminal-report.md:221-225`; reconfirmed
+   `research/maple-tanjiro-pr73-decode-kernel-census.md:721`). Steady step:
+   wall 9.816 ms, busy 9.492/9.498 ms, **host gap 0.322 ms = 3.3%**, 45 command
+   buffers (1.33 µs each ⇒ only 60 µs/step), 406 dispatches. Stable at 3.0–3.5%
+   across the whole `MLX_MAX_MB_PER_BUFFER` sweep.
+2. **PR #48 removed 80 decode dispatches (406 → 326) for `ns` −0.1488%** —
+   ≈ 0.12 µs per removed dispatch. We explained this as *those dispatches were
+   hazard-free and therefore already shadowed, hence free.*
+3. **PR #34 r2 priced a barrier-serialized dispatch at 1.980 ± 0.044 µs on the
+   M5** — 16× the #48 marginal rate.
+
+(1) and (2) are hard to hold together: if nothing overlaps, nothing can be
+shadowed. Candidate resolutions:
+
+- **(a)** the M4 `union` is computed per command buffer or from timestamps
+  blind to intra-buffer overlap ⇒ "zero concurrency" is an artifact and
+  shadowing is real;
+- **(b)** shadowing is not real, the #48 dispatches were genuinely ~0.12 µs of
+  GPU work, and 1.980 µs prices *the added barrier* rather than the dispatch;
+- **(c)** M4 and M5 differ structurally — for which we now have hard precedent
+  (§8, `MLX_MAX_MB_PER_BUFFER`).
+
+**Adjudicated by #148's mandatory dose-linearity control.** Per-family slope
+`d(decode_seconds_per_token)/dm` compared against the family's isolated GPU
+duration: slope ≈ isolated ⇒ serial, and `Σ(slopes) ≈ T` ⇒ (b), decode is
+execution-saturated and only layout remains. Slope ≪ isolated ⇒ (a), and every
+in-isolation µs/step claim in the campaign is over-attributed. The residual
+`T − Σ(slopes)` also separates "host gap is absolute" (≈ 322 µs ⇒ 7.8% of the
+M5 step) from "host gap is proportional" (≈ 137 µs) — 185 µs apart.
+
+**No equivalent prefill profile exists.** `research/nezuko_mbpb_prefill.sh:8-14`
+states its `--profile` window covers only steady decode steps, so the busy/wall
+lines in `nezuko-mbpb-prefill.log` are decode. Only prefill total wall is
+recorded (`:2`, 544.93 ms on M4). #148's prefill rows are the first per-family
+prefill attribution this programme will have.
+
 ---
 
 ## 5. `_nax` safety rig (mandatory for any `_nax` arm)
@@ -251,17 +312,35 @@ this binds #148 hardest, because its whole method is spending receipts.
 - **H1 row-adaptive dual-path gather kernel.** Biggest single arm on the board
   at **+1.4…+2.9%** — but it is **not bit-exact** and it is **M4-blind**. Needs
   a correctness story and the `_nax` safety rig before it can be assigned.
-- **Extend the *existing* fused SwiGLU to the two cases it currently skips.**
-  This is the replacement for H5 and it is the strongest round-23 candidate
-  precisely because it invents nothing. Two sites take the unfused path:
-  (a) the **shared expert in prefill** (`LagunaRuntimeModel.swift:8503`) —
-  gate 0.5 MiB + up 0.5 MiB + activated 0.5 MiB per layer = **58.5 MiB per
-  512-token prefill**; (b) **dense layer 0**, where fusion is gated on
-  `x.dim(1) == 1` (`:8423`), i.e. decode only — **~24 MiB**. Together ~82.5 MiB
-  of prefill round trip that a shipped, production kernel can already remove.
-  **Do not assign until the SLC-adjusted price is written down** (§8, H5) —
-  apply the byte-price law with a sceptical `R_marg`, because the per-layer
-  working sets are small enough to be cache-served. Full evidence:
+- **Shared-expert SwiGLU epilogue in prefill.** *Re-scoped after a pricing pass
+  refuted the first version of this lead; the earlier "58.5 + 24 = 82.5 MiB by
+  flipping two guards" framing is **wrong** and is retained nowhere.* Corrected
+  position:
+  - The shipped `fuse_swiglu` predicate lives inside the **routed-expert gather
+    kernel** (`fp_quantized_nax.h:1797`) and needs `lhs_indices`/`rhs_indices`
+    plus `M>=64 && bm==64 && wm==4`. **Neither candidate site can dispatch to
+    it.** There is no guard to flip.
+  - **Dense layer 0 is closed.** `N=16384` fails the predicate *and* the weights
+    are plain bf16 `Linear` (`LagunaRuntimeModel.swift:8438-8446`) — no
+    quantized kernel exists to extend. The `x.dim(1)==1` guard at `:8423` is
+    **load-bearing correctness**: it protects single-row GEMVs with hard
+    `precondition`s that crash at `M=512`.
+  - **Shared expert is still worth a slot.** The concatenated NVFP4 `[gate; up]`
+    bank already exists (`prepareFusedSharedGateUp()` `:8248-8276`, default on),
+    so **no `MLXFastTransform` work is needed**. The prefill guard is at
+    **`:8463`** (not `:8503`) and is conservative scoping, not correctness.
+  - **But the real work is adding a new epilogue to `fp_qmm_t_nax_static`**,
+    which ships `wm=2, wn=2` ⇒ `SN=32` ⇒ `kSwigluRegLocal` false. Threadgroup
+    and register budget are **free** (9,224 B of 32,768; the stage is a cast
+    alias). Value **78.0 MiB written+read** (2.000 MiB × 39 layers) + 78 fewer
+    dispatches. Lifting the guard *alone* saves **zero bytes**, only 39
+    dispatches ≈ **+0.028%** — below MDE, stepping stone only.
+  - **Prefill-only.** Both sites are already fused in decode, so this cannot
+    touch the 75%-weight axis.
+  - Top bit-exactness risk: the fused epilogue's bf16 sigmoid under
+    `fp contract(off)` vs `MLXNN.silu(gate)*up` under `compile(shapeless:)`.
+    Greedy-token gates prove token equality, **not** bit-exactness.
+  Full corrected evidence:
   [`h5-per-expert-fused-ffn-closure.md`](h5-per-expert-fused-ffn-closure.md) §6.
 - **Incidental occupancy datum from the same investigation:** average rows per
   expert is 16 (route-histogram mean = 16.00) against `SM=16`, so on the average
@@ -354,9 +433,16 @@ prefill · prefill overlap C1/C2 · `DARKBLOOM_STAGE_BM128` · ranking a candida
 by `officialScore` · `./probe` on the M5 (impossible — no shell on the ranked
 host; the only M5 channel is a submitted candidate plus its receipt `metrics`).
 
+**`MLX_MAX_MB_PER_BUFFER` — CLOSED, and it is our canonical M4→M5 inversion.**
+Earlier notes said "no M5 datum exists"; that is **false**. 200 → 50 was
+submitted (receipt `3e6fdcb`, commit `1ce8373`, `research/nezuko-mb50-receipt.md`)
+and returned **`ns` −1.608%** on the M5 — `S` +2.193%, `T` +1.316% — against
+**two independent balanced M4 confirmations of −1.76% and −1.99% wall/step,
+monotone in the cap.** Opposite sign. Do not re-propose it, and cite it whenever
+a student wants to treat M4 agreement as M5 evidence.
+
 **Still open in the archive but reopened / unresolved:** prefill glue (old C5),
-shared-expert overlap (old 5b), `MLX_MAX_MB_PER_BUFFER` magnitude (two M4
-measurements favour *smaller* buffers; **no M5 datum exists**).
+shared-expert overlap (old 5b).
 
 ---
 
@@ -364,7 +450,40 @@ measurements favour *smaller* buffers; **no M5 datum exists**).
 
 Ordered by expected value, not by ease.
 
-1. **Close the prefill ledger with the receipt-channel duplication
+> **Structural criticism to keep in view (round-23 frontier review).** Every one
+> of the 20+ families in §8 is either a kernel-micro-optimisation or a
+> byte-currency argument. We have never tested a *graph-level execution
+> structure* change — how the forward pass is decomposed into dispatches,
+> chunks and command buffers — and we have never spent a round on decode
+> **dead time** as opposed to decode **bytes**. Directions 1, 3 and 4 below
+> exist to break that monoculture. Two of them (1, 3) are falsifiable on M4
+> for free, which is rare on this programme.
+
+1. **Decode dead-time programme (frontier "Attack A") — the top pick on the
+   75%-weight axis.** §2's "+2.85% even at 100% removal" is a *byte-removal
+   ceiling at fixed schedule and layout*; it is silent about time that is not
+   spent moving bytes (§4.1). Three independent numbers say that time is not
+   small: forced serialization costs **+5.49%** [+4.70,+6.28]; a
+   barrier-serialized dispatch was priced at **1.980 ± 0.044 µs** on M5 (PR #34
+   r2) and the decode step has ~150–250 RAW boundaries, i.e. **300–500 µs =
+   7–12% of `T = 4.1436 ms`**; and the M4 profile shows a **0.322 ms host/queue
+   gap (3.3%)** plus 45 command buffers at 1.33 µs each (60 µs/step).
+   The programme is: enumerate every RAW-dependent chain on the scored decode
+   path, rank by exposed serial time, and attack the top ones with the #137
+   fusion pattern plus encode-order changes that let hazard-free work be
+   enqueued between the two halves of a hazard. This *subsumes and replaces the
+   old standalone "fusion selected by RAW-dependence" direction* — that was the
+   rule, this is the systematic sweep.
+   Expected +2–5%. Decisive advantages: it is **incremental** (each fused chain
+   is a separate small commit, so a partial result still ships), it is
+   **M4-falsifiable end to end** (decode kernels are hand-written MSL/QMV, not
+   `_nax`, so M4 executes the whole path — the one axis where local timing is
+   real evidence), and it sits on the 75% weight. Sequencing: gated on #148's
+   decode-axis verdict (§4.1 decision rule). If the ledger's residual
+   `T − Σ(slopes)` is ≈ 0, decode really is execution-saturated and this
+   direction dies cheaply; if it is ≥ 300 µs, this direction owns the next two
+   student rounds.
+2. **Close the prefill *and decode* ledger with the receipt-channel duplication
    instrument.** Full spec: [`PREFILL_LEDGER_INSTRUMENT.md`](PREFILL_LEDGER_INSTRUMENT.md).
    §2 says the decode inventory is worth at most +2.85% even at 100% removal,
    while prefill's unattributed remainder is 31.28 ms ≈ **+15.17%**. We are
@@ -388,14 +507,29 @@ Ordered by expected value, not by ease.
    measured" in #142, so he fills the hole he found. Nezuko was told on #143 that
    he no longer owns this. **Do not let two students probe concurrently** — one
    shared in-flight slot.
-   Two refinements added since the spec was written:
-   **(a) Dual axis.** `prefill_seconds_per_token` and `decode_seconds_per_token`
-   publish independently, so a both-phase family such as `routed_gather_gemm`
-   yields **two ledger rows per receipt**. The decode row may matter more (75%
-   weight): the "decode is exhausted at +2.85%" claim is a **bandwidth** argument
-   from per-kernel roofline utilisation (94.6–100.2%), and roofline utilisation
-   says nothing about **gap time between kernels**. The decode slope gives
-   Σ(kernel time) directly; compare it to `T = 4.1436 ms/step`.
+   Refinements added since the spec was written:
+   **(a) The decode axis is now co-primary, not a bonus row.**
+   `prefill_seconds_per_token` and `decode_seconds_per_token` publish
+   independently, so **every** receipt must carry a decode row, not only
+   both-phase families such as `routed_gather_gemm`. The decode row probably
+   matters more (75% weight): the "decode is exhausted at +2.85%" claim is a
+   **bandwidth** argument from per-kernel roofline utilisation (94.6–100.2%),
+   and roofline utilisation says nothing about **gap time between kernels**.
+   The decode slope gives Σ(kernel time) directly; the residual
+   `T − Σ(slopes)` against `T = 4.1436 ms/step` is the number that arbitrates
+   §4.1 and gates direction 1. "Host gap is absolute" predicts ≈322 µs (7.8% of
+   the M5 step); "host gap is proportional" predicts ≈137 µs — 185 µs apart,
+   comfortably resolvable.
+   **(a′) Multi-dose linearity is mandatory.** Each family must be injected at
+   ≥2 levels and reported as a **slope in absolute µs/step per duplicated copy**,
+   plus the linearity residual. A slope that does not scale with dose is not a
+   measurement of that kernel; it is a measurement of the schedule, and that
+   disagreement is itself a publishable shadow-execution finding. Predict the
+   M4 slope ≈ 1.0× the kernel's isolated GPU duration before running; a slope
+   materially below that means the duplicate was elided and the probe is invalid.
+   Prefer large-isolated-duration families for dose 1, and include at least one
+   #48-style *hazard-free* family, because hazard-free vs hazard-bearing is
+   exactly what discriminates §4.1 resolution (a) from (b).
    **(b) Wall-time trap.** Injection also multiplies work in the hidden
    correctness suite, anchors, free runs and GPQA checks — far more forward
    passes than the timed window. Project
@@ -414,36 +548,77 @@ Ordered by expected value, not by ease.
    double-append KV. **Rejected design:** Hadamard/compressed-sensing
    multiplexing of several families into one receipt — dominated, since the
    signals are already ~60σ.
-2. **Prefill arms generally.** Same +15.17% logic, but until direction 1 lands
+3. **Graph-level two-chunk wavefront prefill (frontier "Attack B") — the
+   monoculture-breaker, and it has a free falsifier.** Today prefill runs one
+   512-token chunk through layer *i* completely before starting layer *i+1*, so
+   the bf16 attention block and the NVFP4 routed GEMMs never co-reside on the
+   GPU. Split the prompt into two 256-token chunks and software-pipeline them
+   (chunk A at layer *i+1* while chunk B is at layer *i*) so the two very
+   different kernel families overlap. **This is legal**: every row still
+   corresponds to a token supplied in the same invocation, which the serial
+   non-speculative rule explicitly permits for multi-row kernels.
+   Arithmetic: the tax is re-reading the ~17.7 GB of routed expert banks at
+   roughly 1.7–1.9× (two chunks of 256 rows touch nearly the same expert set as
+   one chunk of 512), ≈ **+24 ms** on `S`; the prize is hiding 25–35 ms of bf16
+   attention behind GEMM time. Net **−1 to +11 ms**, i.e. **0 to +4%** — a
+   fat-tailed bet, not a favourite. What makes it worth a slot anyway is the
+   **zero-receipt M4 falsifier**: tape-interleave two independent large GEMMs
+   and check whether `gpu_busy_union < gpu_busy_sum`. §4.1 records that in the
+   *measured* decode profile these are equal to 6 ns — nothing overlaps — so if
+   an explicitly interleaved pair also fails to overlap, Apple's scheduler does
+   not co-resident-execute distinct kernel families at all and **the entire
+   family dies for one student-day and no receipts**. Run that falsifier first,
+   always.
+4. **Offline cross-tensor expert-slab re-pack in consumption order (frontier
+   "Attack C").** The byte-price law (§2) shows the same DRAM delivering
+   968.4 GB/s to the lm-head plane but only 700.3 GB/s to the routed MoE g32
+   plane. That 27.7% gap is a *layout* property, not a bandwidth property.
+   Re-pack the routed expert banks offline so that bytes are laid out in the
+   order the gather kernel consumes them across tensors. If the routed plane
+   cleared at the lm-head rate, 553 MB/step × (1/700.3 − 1/968.4) ≈ **219 µs**,
+   a **+3.2%** cap; realistically **+1–2%**. Values are untouched, so this is
+   bit-exact by construction and is pure `MLXFastTransform` + metadata work.
+   **Distinct from two closed families:** the twice-closed offline interleave
+   was *within-tensor* (codes and scales of one tensor), and #71 was *in-kernel*
+   staging. This is *cross-tensor ordering*. Gate on #143's slab machinery
+   landing and on #148 publishing a gather-plane row.
+5. **Prefill arms generally.** Same +15.17% logic, but until direction 2 lands
    these are unguided. Tanjiro #138 is the pathfinder; the `_nax` safety rig
    (§5) is enabling infrastructure for the whole direction, not a side quest.
-3. **Fusion selected by RAW-dependence (§4).** We now have a *rule* for which
-   fusions pay. Enumerate every RAW-dependent chain on the scored path and rank
-   by exposed serial time. Fern #137 is the first instance; there should be
-   more.
-4. **Close the 24.9 MB / 5.7% unallocated census remainder.** An unexplained
+6. **Close the 24.9 MB / 5.7% unallocated census remainder.** An unexplained
    5.7% of the byte inventory is the most likely place a missed arm is hiding.
    Assigned as a secondary to nezuko.
-5. **Occupancy / tile geometry on the two unsaturated kernels only.**
+7. **Occupancy / tile geometry on the two unsaturated kernels only.**
    `residual_rms_router` (61.8%) and `gate_sp` (30.4 GB/s, latency-bound).
    Everything else is at 94.6–100.2% and is not worth an arm.
-6. **Scheduling rather than arithmetic — narrowed, not closed.** #142 closed
+8. **Scheduling rather than arithmetic — narrowed, not closed.** #142 closed
    *reordering* (§8: Graham's bound caps it distribution-free). What survives is
    the rest of the launch layer: encoder construction, command-buffer
    partitioning, barrier placement, and the number of dispatches. That layer is
    generation-independent, so M4 evidence is admissible — its main advantage over
-   every prefill arm. Direction 1's `R` verdict tells us whether it is worth
-   anything: `R ≈ 20–30 ms` makes this the round-23 headline, `R ≈ 0` demotes it.
-7. **Deletion as an optimization.** Nezuko's 259-line deletion is the only
+   every prefill arm. On the decode side this is direction 1; on the prefill
+   side direction 2's `R` verdict decides its worth: `R ≈ 20–30 ms` makes it the
+   round-23 headline, `R ≈ 0` demotes it.
+9. **Deletion as an optimization.** Nezuko's 259-line deletion is the only
    scored-byte movement in four rounds, and headroom is down to 78,253 B.
    Reclaiming dead scaffolding is cheap, safe, and buys room for real arms.
    Candidate: tanjiro's 9 near-duplicate `.metal` variants.
-8. **Bit-exactness relaxation, carefully.** H1 is the largest arm we have and
-   it is blocked on correctness, not on mechanism. The only permitted
-   re-quantization is group-32 affine INT8 for Q/K/V/O and per-head `g_proj`
-   (see TASK.md's accepted envelope) — and adopting that envelope for attention
-   is already closed as *backwards*. So H1 needs a different correctness
-   argument, probably a bit-exactness proof rather than an envelope appeal.
+10. **Shared-expert prefill SwiGLU epilogue.** Held detail in §7. Prefill-only,
+    78.0 MiB/step of written+read traffic across 39 sparse layers plus 78 fewer
+    dispatches; the concatenated NVFP4 `[gate;up]` bank already exists so there
+    is no `MLXFastTransform` work. The real task is adding a SwiGLU epilogue to
+    `fp_qmm_t_nax_static`, and the dominant risk is bf16 bit-exactness of the
+    fused sigmoid against `compiledSiluProduct`. Dense layer 0 is **closed** —
+    bf16 `Linear`, `N=16384`, and its `x.dim(1)==1` guard is load-bearing
+    correctness.
+11. **Bit-exactness relaxation, carefully.** H1 (row-adaptive dual-path gather
+    kernel, +1.4…+2.9%) is the largest single arm we have and it is blocked on
+    correctness, not on mechanism. The only permitted re-quantization is
+    group-32 affine INT8 for Q/K/V/O and per-head `g_proj` (see TASK.md's
+    accepted envelope) — and adopting that envelope for attention is already
+    closed as *backwards*. So H1 needs a different correctness argument,
+    specifically a bit-exactness proof rather than an envelope appeal. It is
+    also M4-blind, so it needs a receipt slot to evaluate at all.
 
 ---
 

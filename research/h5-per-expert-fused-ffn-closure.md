@@ -134,38 +134,142 @@ anyway), H5 is closed.
 
 ## 6. The lead that replaces it: the *shared* expert is unfused in prefill
 
-While confirming §2 the code reader found two places where the **already-working,
-already-shipped** fused-SwiGLU path is simply **not applied**:
+> **This section was substantially wrong in its first draft and has been
+> rewritten after a dedicated pricing pass. The original claimed that flipping
+> two call-site guards would reuse the shipped fused kernel at both sites for
+> 58.5 + 24 MiB. Both the mechanism and the byte counts were wrong. What
+> follows is the corrected version; the numbers below supersede any earlier
+> quotation of "58.5 MiB", "24 MiB", "82.5 MiB", or line `:8503`.**
 
-1. **Shared expert, prefill — unfused** (`LagunaRuntimeModel.swift:8503`).
-   Costs gate 0.5 MiB + up 0.5 MiB + activated 0.5 MiB per layer =
-   **58.5 MiB per 512-token prefill**.
-2. **Dense layer 0** — fusion is gated on `x.dim(1) == 1`
-   (`LagunaRuntimeModel.swift:8423`), i.e. decode only. Prefill takes the
-   unfused path. **~24 MiB.**
+### 6.1 The shipped fused epilogue is not reachable from either candidate site
 
-Together that is **~82.5 MiB of prefill round-trip** that the existing fused
-kernel is already capable of eliminating. Unlike H5 this needs **no new kernel,
-no new tile geometry, and no threadgroup-budget miracle** — it extends a proven
-mechanism to two cases it currently skips.
+The sole `fuse_swiglu` predicate lives **inside the routed-expert gather
+kernel** `fp_gather_qmm_rhs_expert_nax`
+(`fp_quantized_nax.h:1568-1886`, predicate at `:1797`). Reaching it requires
+`lhs_indices`/`rhs_indices` (`quantized.cpp:2197-2198`) via
+`GatherQMM::eval_gpu` (`:2213`) ← `gather_qmm_rhs` (`:1943,1961`) ←
+`gather_qmm_rhs_nax` (`:1593`), plus the host gate
+`M>=64 && bm==64 && wm==4` (`quantized.cpp:1658-1661`). **Neither the shared
+expert nor dense layer 0 dispatches through a gather path at all.** There is no
+guard to flip.
 
-Pricing it honestly is the first job: the same SLC argument in §5 applies, and
-the per-layer figures here (1.5 MiB and ~24 MiB) are small, so the byte-price
-law `Δscore% = 15.2800 × MB_removed / R_marg[GB/s]` should be applied with a
-sceptical `R_marg` before anyone gets excited. But the *change* is small and the
-*mechanism* is already in production, which is exactly the risk profile rounds
-19–21 lacked.
+### 6.2 Dense layer 0 is dead on arrival
 
-**Round-23 candidate. Do not assign until the SLC-adjusted price is written
-down.**
+Two independent killers:
+
+- The predicate is false regardless: `N = 16384`
+  (`_fusedDenseGateUpWeight.dims(2*8192, 2048)`, `LagunaRuntimeModel.swift:8446`,
+  built `:8300-8301`).
+- **The dense weights are plain bf16 `Linear`** (`:8438-8445`) — no quantized
+  kernel is involved, so no NVFP4 epilogue exists to extend. Fusing would
+  require a new bf16 steel-GEMM epilogue in `steel_gemm_fused_nax.h`: a
+  different kernel family with no bit-exactness argument available.
+
+The `x.dim(1) == 1` guard at `:8423` is **load-bearing correctness**, not
+conservatism: it protects the bespoke single-row Metal GEMVs
+`lagunaDenseGateUpSwiGLU` (`:8113-8130`) and `lagunaDenseDownResidual`
+(`:8188-8207`), both of which carry hard `precondition`s. Feeding them `M=512`
+crashes. **Do not touch it.**
+
+### 6.3 The shared expert is worth a slot, but re-scoped
+
+Good news first: **the concatenated NVFP4 `[gate; up]` bank already exists and
+is already built.** `prepareFusedSharedGateUp()` (`:8248-8276`) concatenates on
+axis 0, is called per sparse layer at `:11028-11029` under
+`DARKBLOOM_FUSED_SHARED_GATE_UP` (default on, `:121-122`), and is eval'd at
+`:11041-11043`. **No `MLXFastTransform` work is needed.**
+
+The prefill non-use is the `x.dim(1) == 1` guard at **`:8463`** (not `:8503`),
+gating the concat-bank `quantizedMM` branch at `:8490-8502`. Prefill falls
+through to `:8504`: two separate `quantizedMM` calls plus
+`compiledSiluProduct`. Unlike §6.2 this guard **is** conservative scoping
+rather than correctness.
+
+But lifting it does **not** get a fused SwiGLU. The host path it reaches is
+`fp_qmm_t_nax_static`, which ships `wm=2, wn=2` (`quantized.cpp:494-495`) ⇒
+`SN=32` ⇒ `kSwigluRegLocal` (`:1655-1657`) is **false**. A real fusion means
+**adding a new epilogue to `fp_qmm_t_nax_static`**, using either the
+threadgroup-staged arm (`:1838+`, free via the `Ws` alias) or forcing `wn=1`.
+That is a kernel change, not a call-site change.
+
+### 6.4 Corrected numbers
+
+Earlier figures counted **writes only**. Written + read:
+
+| item | corrected | earlier (wrong) |
+| --- | --- | --- |
+| shared expert, full fusion | **2.000 MiB/layer × 39 = 78.0 MiB** per 512-token prefill, + 78 fewer dispatches | 58.5 MiB |
+| dense layer 0 | **32.0 MiB** + 2 dispatches — but unreachable, see §6.2 | ~24 MiB |
+
+The `activated` round trip is **not** removed either way, because `down_proj`
+still consumes it.
+
+**Cheap sub-lead (lift the `:8463` guard only, no new epilogue): saves ZERO
+bytes.** It writes `[1, 512, 1024]` = 1.0 MiB and reads 1.0 MiB straight back
+through strided slices. Its entire value is **39 fewer QMM dispatches** plus
+newly enabling `qmm_t_nax_static` (predicate `(K==2048 && N==1024) ||
+(K==512 && N==2048)`, `quantized.cpp:510-514`). At the M5 barrier-serialized
+dispatch price of 1.980 µs that is at most ~77 µs of prefill = **+0.028%** —
+below MDE on its own, so it is only worth doing as a stepping stone to the
+epilogue, or if the `qmm_t_nax_static` template flip turns out to matter.
+
+### 6.5 Decode is already fused at both sites
+
+`lagunaSharedSwiGLUQMV` (`:8473-8480`), `fusedSharedDownResidual`
+(`:8380-8403`, batched at `:10104`), `lagunaDenseGateUpSwiGLU` (`:8449`) and
+`lagunaDenseDownResidual` (`:8456`), called at `:10426` and `:10496`.
+**This is a prefill-only gap. It cannot help the 75%-weight axis.**
+
+### 6.6 Budget is a non-issue
+
+A fused epilogue costs **zero** extra threadgroup memory and **zero** extra
+tile registers. `gate_up_stage` is a cast alias of `Ws_storage`
+(`:1613-1614`); the register-local arm reads `Dtile.frag_at` in place
+(`:1822-1825`). Threadgroup usage is exactly **9,224 B of 32,768**
+(`kWsElems = 64×72 = 4608` bf16 = 9216 B at `:1590, 1608-1612`, plus `bounds`
+8 B at `:1617`). Per-thread MMA state ≈80–112 GPR against a ~128 ceiling
+(`Dtile NAXTile<float,1,4>` `:1703` = 32 GPR; `Atile[2]` `:1730` = 16;
+`Btile NAXTile<bfloat,4,2>` `:1771` = 32, doubled if both unrolled steps are
+live).
+
+### 6.7 Bit-exactness risks, ranked
+
+1. **Largest.** The fused epilogue computes a bf16 sigmoid `1/(1+exp(|g|))`
+   under `#pragma clang fp contract(off)` (`:1817-1826`), whereas the unfused
+   path is `MLXNN.silu(gate) * up` under `compile(shapeless: true)`
+   (`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/SwitchLayers.swift:19-27`). The
+   routed path passing greedy-token gates proves **token equality, not
+   bit-exactness.** Verify by direct tensor comparison before anything else.
+2. Flipping the kernel template N 512→1024 switches `fp_qmm_t_nax` →
+   `_static`. Mitigated: the shared `down_proj` (K=512, N=2048) already
+   satisfies the `_static` predicate.
+3. The strided slices `gateUp[..., 0..<512]` / `[512...]` (`:8500-8501`) are
+   non-contiguous; MLX may insert a copy, which can make the cheap §6.4
+   variant **net negative**.
+4. The generated twin `mlx-generated/fp_quantized_nax.cpp:1932-1934` must stay
+   in lockstep.
+5. Dense layer 0's epilogue family (§6.2) is entirely uncovered by any existing
+   exactness argument.
+
+### 6.8 Verdict
+
+**Round-23 candidate, prefill-only, re-scoped to: add a SwiGLU epilogue to
+`fp_qmm_t_nax_static` and lift the `:8463` guard.** 78.0 MiB written+read plus
+78 dispatches. Dense layer 0 is closed. The `MLXFastTransform` half of the
+original idea is unnecessary — the bank already exists.
 
 ---
 
 ## 7. Smallest next read
 
-`NAXTile` / `BaseNAXFrag` in
-`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/nax.h` — needed to
-confirm the register-budget arithmetic in §4 and to price §6 properly.
+1. The body of `fp_qmm_t_nax_static` (`fp_quantized_nax.h:952-1001`) — where
+   the epilogue would be inserted, and whether `wn=1` is admissible there.
+2. One bit-exactness probe of the routed fused epilogue against
+   `compiledSiluProduct` (risk §6.7.1).
+
+Note for anyone re-running the §4 register arithmetic: the correct header is
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm/nax.h`
+(`BaseNAXFrag:27`, `NAXTile:638`) — **not** `kernels/nax.h`.
 
 ---
 
