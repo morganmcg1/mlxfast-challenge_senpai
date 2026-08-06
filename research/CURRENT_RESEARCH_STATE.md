@@ -1,21 +1,31 @@
 # SENPAI Research State
-- 2026-08-06T19:05Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 0e30672 (pushed to origin).
-  Scored code frontier: 639646a + 11 merged optimization PRs (#107→#133).
-  M5 submission 57d8f08 (composed #130+#128+#129). Status: VALIDATING (since 18:26Z).
+- 2026-08-06T20:10Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 8f78dd2 (pushed to origin).
+  Scored code frontier: 639646a + 14 merged optimization PRs (#107→#144).
+  M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING since 18:26Z.
+  M5 submission of 14-PR composed HEAD blocked by in-flight 57d8f08. Will retry when slot opens.
 
-- **WAVE 7 IN PROGRESS** (all 4 students at status:wip, BASE_SHA advanced to 0e30672):
-  PR #144 (Edward) — R1 Gate/Up float4 input_values: eliminate 16 scalar stores+8 extractions
-    per block in routed SwiGLU kernel (312x/step, bit-exact). HIGHEST-IMPACT lever.
-  PR #145 (Thorfinn) — QKV+Gate Projection dot4: convert 4 scalar FMAs to 1 dot(float4)
-    in fused BF16 QKV+gate kernel (39x/step, bit-exact).
-  PR #140 (Alphonse) — float4 input_values vectorization for shared SwiGLU QMV kernels.
-    Add vec4 qdot helpers + convert input_values from float[16] to float4[4]. Bit-exact.
-  PR #134 (Askeladd) — Fused down+residual packed simd_sum. 4 scalar → 1 packed (39 layers). Bit-exact.
+- **WAVE 8 ASSIGNED** (4 students, BASE_SHA=8f78dd2, all bit-exact, all distinct arms):
+  PR TBA (Edward) — CPU Guard Hoisting: precompute 5 invariant guard chains into per-layer
+    struct. 5120 evaluations/step → 1 lookup. Bit-exact. 0.3-1% decode if CPU overhead creates bubbles.
+  PR TBA (Thorfinn) — Async-eval Shared Expert: insert asyncEval between routed and shared
+    computation in prefill (L10108→L10129) and decode (L10007→L10012). Bit-exact. 1-3% prefill.
+  PR TBA (Alphonse) — Attention Epilogue 1-pass: eliminate 2 barriers in fused decode attention
+    kernels (sliding L1614/1637/1645, full L2120/2143/2151). Bit-exact IF threadgroup memory fits
+    8-plane buffer (~33KB vs ~32KB limit). Risk: memory capacity. 0.3-0.6% decode.
+  PR TBA (Askeladd) — Fused down+residual float4 input_values: LAST remaining DEFAULT-path
+    vec4 target (L7691). Same proven pattern as #140/#144. Bit-exact. Small decode gain.
 
 - **M5 SUBMISSION**: 57d8f08 (composed #130+#128+#129 — 3 bit-exact decode optimizations).
-  Status: VALIDATING. All changes bit-exact, different kernels, no overlap.
-  After M5 result: compose new submission with Wave 5 merges (#131, #132, #133) + Wave 7 winners.
+  Status: VALIDATING (since 18:26Z). All changes bit-exact, different kernels, no overlap.
+  Next submission: 14-PR composed HEAD (8f78dd2) — blocked by in-flight 57d8f08.
+
+- **WAVE 7 RESULTS** (complete, all merged):
+  PR #144 (Edward) — R1 Gate/Up float4 input_values: MERGED. Bit-exact, 312x/step.
+  PR #146 (Askeladd) — Prefill MoE BM128 Variant 4: MERGED. Bit-exact, +17.47% kernel-level prefill.
+  PR #140 (Alphonse) — float4 input_values shared SwiGLU: MERGED. Bit-exact.
+  PR #134 (Askeladd) — Fused down+residual packed simd_sum: MERGED. Bit-exact, 39 layers.
+  PR #145 (Thorfinn) — QKV+gate dot4: CLOSED. DEAD — dot4 NOT bit-exact for shared-float accumulation.
 
 - **WAVE 5 RESULTS** (complete, all merged):
   PR #131 (Edward) — NVFP4 O-proj packed simd_sum: MERGED. Bit-exact, M4 inconclusive.
@@ -28,78 +38,49 @@
   PR #128 (Thorfinn) — Fused down+residual weight staging: MERGED. Bit-exact, +1.14% decode M4.
   PR #124 (Askeladd) — Gate-Scale Fold in O-proj: CLOSED. Dead: non-bit-exact prefill.
 
-- **RESEARCH AGENT FINDINGS (Wave 7 intelligence)**:
-  1. REGISTER PRESSURE: `thread float input_values[16]` (scalar) is the dominant persistent
-     register consumer across ALL MoE kernels. Converting to `thread float4 input_values[4]`
-     is the biggest vectorization lever → Edward (#144) and Alphonse (#140) are on this.
-  2. DISPATCH COUNT: 324 kernel dispatches per decode step. Top opportunity: shared SwiGLU QMV
-     is a separate dispatch from routed SwiGLU QMV (39 extra dispatches/step, ~12% of total).
-     `mergedSharedActivated` plumbing exists but is never populated in decode.
-  3. WEIGHT STAGING GAPS: 6 MoE kernels load weight codes/scales inside qdot loop. Most are
-     fallbacks (non-default). The fused down path was already addressed by PR #128.
-  4. REMAINING SCALAR FMA: 2 clean bit-exact targets (dense MLP layer 0, 1x/step each — low freq).
-     Router GEMV (39x/step) is risky — source says regrouping loses bit-exactness.
-  5. REMAINING SCALAR simd_sum: 5 sites. Site #5 (fused down+residual, L7689, 4 rows, DEFAULT path)
-     is the standout → Askeladd (#134) is on this. Sites #1-4 are fallback arms.
+- **RESEARCH AGENT FINDINGS (Wave 8 intelligence)**:
+  1. CPU GUARD HOISTING: 5 invariant guard chains (L351-428, L5495-5514, L10265/10314/10327,
+     L5696-5747, L10769-10771) re-evaluated 5120 times/step. All depend only on static layer
+     identity + startup flags. Precomputable into per-layer `struct LagunaDecodeLayerPlan`.
+  2. ASYNC-EVAL: sharedExpert(x) has ZERO data dependency on routed path. Prefill builds ~400-op
+     graph with GPU idle until final eval. asyncEval(y) between L10108 and L10129 overlaps routed
+     down/scatter with shared gate/up dispatch. mergedSharedActivated (L9938) is dead/nil.
+  3. ATTENTION EPILOGUE: Two decode-only fused kernels (L1381-1670, L1841-2176). 3 barriers in
+     epilogue (A/B/C). Exchange is float32. 1-pass merge IS bit-exact if buffer doubled to 8
+     planes (all 4 pair_o0/o1 reduced in one loop). Constraint: ~33KB vs ~32KB threadgroup limit.
+     Alternative: transpose-free reduction via quad_shuffle — changes reduction tree order.
+  4. REMAINING FLOAT4: Only 1 DEFAULT-path target left — lagunaRoutedSharedDownResidualKernel
+     (L7691). qdot already uses dot4 internally, conversion is bit-exact. All remaining scalar
+     FMA loops are shared-float accumulation — NOT bit-exact for dot4 (PR #145 proof).
+     Dense gate/up SwiGLU (L7841) is NOT clean — same PR #145 structure.
+  5. dot(float4) IS bit-exact for per-word NVFP4 qdot (independent accumulators) but NOT for
+     shared-float cross-iteration accumulation (single FP32 register, sequential adds).
 
-- **POTENTIAL NEXT DIRECTIONS (Wave 8 candidates, ranked by expected impact)**:
-
-  **#1 PREFILL MoE VARIANT 4 (HIGHEST PRIORITY)**:
-    One-line change: `return 5` → `return 4` at quantized.cpp L1478.
-    File: Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp (IN editable surface).
-    Code's own ABBA: +17.47% kernel-level vs variant 5 (4/4 pairs, zero overlap: 342-371 vs 414-434 µs).
-    Variant 4: BM64, WM4, WN2, 256 thr/TG, SM=16, TN=2, Dtile=16 (vs variant 5: WN1, 128 thr/TG, TN=4, Dtile=32).
-    Bit-exact: YES (max_abs_diff=0 on full 1025-step gate).
-    M4 testable: NO (_nax only, M5 gen 17+). Correctness verifiable on M4, timing needs M5.
-    Expected: 2-5% prefill end-to-end = 0.5-1.25% total score (prefill is 25% weight).
-    Note: Variant 5 was chosen because it showed API-level improvement; variant 4 was measured at
-    kernel level but never validated end-to-end. This is the highest-impact untried change.
-
-  **#2 CPU GUARD HOISTING (HIGH PRIORITY)**:
-    5 invariant guard chains re-evaluated 39× per decode step in LagunaRuntimeModel.swift.
-    All depend only on static layer identity + flags read once at startup. All precomputable at init.
-    a) lagunaUseNativeAffineQKV/OProj/GProj (L351-428): integer arithmetic + env constants per layer.
-    b) fusedNormQKV mega-guard (L5495-5514, ~20 conditions): type checks, bias, dims, gating flags.
-    c) mlp as? LagunaRuntimeSparseMoEBlock casts (L10276, 10289, 10297): always same result per layer.
-    d) fusedQKNormShapesMatch + fusion mode (L5696-5747, ~15 booleans): per-layer invariants.
-    e) isFull/mask/angle triple-selection (L10731-10733): fixed array lookup per step.
-    Bit-exact: YES (behavior-preserving refactoring, no math changes).
-    M4 testable: YES (correctness + timing). M5 GPU at 89% utilization → 11% idle may include CPU dispatch gaps.
-    Expected: 0.3-1% decode if CPU overhead creates dispatch bubbles.
-
-  **#3 ASYNC-EVAL SHARED EXPERT (MEDIUM PRIORITY)**:
-    Move sharedExpert(x) before routed path + asyncEval in prefill (LagunaRuntimeModel.swift).
-    Shared expert has no data dependency on routed gate/up+down. asyncEval overlaps GPU work.
-    Bit-exact: YES (same ops, different scheduling).
-    M4 testable: Partially (shared uses regular GEMM, routed timing differs on M4).
-    Expected: 1-3% prefill.
-
-  **#4 SHARED+ROUTED SwiGLU FUSION (LOW-MEDIUM, defer)**:
-    Feasible with moderate changes. Down projection already fused (lagunaRoutedSharedDownResidual).
-    Gate/up fusion requires shared weight re-layout to 32-row interleave + kernel merge.
-    Bit-exact: YES. Gain likely modest (gate/up QMV is compute-bound, dispatch overhead small fraction).
-    `mergedSharedActivated` plumbing exists but never populated. Would save ~39 dispatches/step.
-
-  - Dense MLP dot4 (layer 0): bit-exact, low frequency (1x/step) but easy win
-  - Router GEMV sequential-accumulator dot4 (39x/step): risky, needs careful equivalence testing
+- **POTENTIAL NEXT DIRECTIONS (beyond Wave 8)**:
+  - Shared+Routed SwiGLU gate/up dispatch fusion (saves ~39 dispatches/step, needs weight re-layout)
+  - Transpose-free attention reduction via quad_shuffle (if 1-pass buffer doesn't fit)
   - LAGUNA_RESCALE branch elimination in SDPA vector kernel
-  - Attention epilogue 1-pass bfloat16 exchange (eliminate 1 barrier per dispatch, 40 layers)
+  - Router GEMV optimization (risky — source says regrouping loses bit-exactness)
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign, submission 97a5090).
   Target: beat 2.5888. All component speedups must be ≥ 0.95.
-- **FRONTIER**: Advisor HEAD at 0e30672. Scored code at 639646a + 11 merges (#107→#133).
-- **BUDGET**: 2,965,182 / 3,000,000 bytes total (headroom: 34,818). LagunaRuntimeModel.swift: ~507K / 524K per file.
+- **FRONTIER**: Advisor HEAD at 8f78dd2. Scored code at 639646a + 14 merges (#107→#144).
+- **BUDGET**: ~2,964K / 3,000,000 bytes total. LagunaRuntimeModel.swift: ~510K / 524K per file.
 - **KEY FINDINGS**:
   1. Attention main loop is MEMORY-BOUND (PR #122). Do NOT pursue attention ALU optimization.
   2. Metal compiler optimizes thread float[N] scatter to registers (PR #123).
   3. Weight staging pre-loading codes/scales before qdot is PROVEN (PR #116, #128).
-  4. dot(float4) vectorization is PROVEN (PRs #107, #114, #119, #129, #130).
-  5. M5 is instruction-bound at ~89%. M4 is bandwidth-bound. M4 evidence directional only.
-  6. Gate-scale fold is NOT bit-exact for prefill (PR #124). Folding changes BF16 rounding point.
-  7. NVFP4 code pre-expansion inconclusive (PR #121). 4x memory traffic risk.
-  8. LM head int4 DEAD — bandwidth-bound, zero saving.
-  9. Scale Decode LUT closed dead (PR #125). Core bet: constant-cache load vs ALU on M5.
-  10. `input_values[16]` scalar→float4[4] is the biggest remaining vectorization lever (agent finding).
+  4. dot(float4) vectorization is PROVEN for per-word qdot (PRs #107, #114, #119, #129, #130).
+  5. dot(float4) is NOT bit-exact for shared-float cross-iteration accumulation (PR #145).
+  6. M5 is instruction-bound at ~89%. M4 is bandwidth-bound. M4 evidence directional only.
+  7. Gate-scale fold is NOT bit-exact for prefill (PR #124). Folding changes BF16 rounding point.
+  8. NVFP4 code pre-expansion inconclusive (PR #121). 4x memory traffic risk.
+  9. LM head int4 DEAD — bandwidth-bound, zero saving.
+  10. Scale Decode LUT closed dead (PR #125). Core bet: constant-cache load vs ALU on M5.
+  11. input_values[16]→float4[4] is bit-exact when qdot uses dot4 internally (PRs #140, #144).
+  12. asyncEval adds no operation — only enqueues already-constructed work earlier (L656-658).
+  13. mergedSharedActivated (L9938) is dead/nil — never assigned, plumbing unconnected.
+  14. Prefill builds ~400-op graph with GPU idle until final eval (comment L719-730).
 
 ## Prior Results (DO NOT REPEAT)
 
