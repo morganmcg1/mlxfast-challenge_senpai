@@ -1,6 +1,6 @@
 # SENPAI Research State
-- 2026-08-06T04:10Z
-- Fresh campaign (mlxfast-birch-20260805). All four students assigned distinct causal experiments.
+- 2026-08-05T13:46Z
+- Fresh campaign (mlxfast-birch-20260805). All four students assigned distinct causal experiments, all in early implementation (no code pushed yet).
 - **SCORE GAP**: Current best 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
 - **FRONTIER**: 12a712d (Edward's PR #84 top-8 elimination merged, bit-exact, -49 lines)
 - Current research focus: Four independent decode optimization arms targeting dispatch elimination and kernel tiling
@@ -10,11 +10,20 @@
   - Askeladd (PR #90): Threadgroup input staging for shared SwiGLU QMV kernel (eliminate 2x redundant DRAM reads)
 - All 4 arms are on independent code sections of LagunaRuntimeModel.swift, no conflicts
 - M4 is bandwidth-bound (GPU gen 16); dispatch elimination may show larger gains on M5
+- **PREFILL AUDIT COMPLETE** (2026-08-05): Prefill is 25% of score and partially optimized.
+  Key findings:
+  - Prefill QK-norm+RoPE already fused (prefill kernels for both sliding and full attention)
+  - Prefill O-proj is 3 stock dispatches (softplus→broadcast multiply→matmul) for ALL 40 layers
+  - Intermediate tensor: [1,512,8192] BF16 (3.1-4.2 MB) materialized and discarded per layer × 40 = ~150 MB traffic
+  - All decode fused O-proj kernels are hard-gated to L==1; prefill gets zero fusion benefit
+  - `callLastPrefillRow` (terminal prefill layer) has L=1-shaped O-proj but misses decode kernel reuse — QUICK WIN
+  - New prefill GEMM kernel estimated at ~5-7KB, fits within 17,771-byte per-file headroom
 - Potential next directions (from RESEARCH_IDEAS_NEXT_WAVE.md and NOVEL_FUSION_IDEAS.md):
+  - **Prefill O-proj gate fusion GEMM**: Fuse softplus+gate+matmul into 1 dispatch for L>1 (P0, ~5-7KB, MEDIUM risk)
+  - **callLastPrefillRow O-proj reuse**: Add guard to use existing decode BF16 GEMV kernel (P0, <1KB, LOW risk)
   - Register-resident scale pre-loading across blocks (2-4%, LOW risk, bit-exact)
   - Router GEMV + top-8 fusion (2-4%, MEDIUM risk)
   - Texture-backed NVFP4 weight storage (5-15%, MEDIUM risk, needs API investigation)
-  - Prefill path optimization (25% of score, largely unexplored)
   - Apply same TG staging to routed SwiGLU QMV (8x redundant reads → 1x, 87.5% savings)
   - Fuse down+residual with shared expert SwiGLU (1-2%, MEDIUM risk)
 - Prior negative results to avoid repeating:
