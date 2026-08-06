@@ -735,3 +735,41 @@ worth building if it costs under ~4 integer ops per weight *and* saves more than
 less, the ALU budget is roughly **5× tighter still**. §6.6 shows that test
 correctly rejecting P13 without a run. I would rather the programme keep that
 constant than keep this kernel.
+
+---
+
+## 10. `SENPAI-RESULT`
+
+A git object cannot contain its own hash, so `commit_sha` below names the last
+commit touching a **submitted** path (`98c3221`, the flag-polarity flip). The
+authoritative branch-head SHA is carried by the typed Senpai transition; it
+differs from `98c3221` only by research-only documentation commits, which are
+not part of the submitted surface.
+
+`runs` is empty and that is not an omission. This campaign has **no W&B runs**:
+`wandb-applied-ai-team/mlxfast-maple` holds none for this PR or for any
+round-6…17 experiment on this track (advisor, PR #85 comment 3). Evidence here
+is ranked `mlxfast` receipt IDs plus the in-repo artifacts under
+`research/maple-nezuko-pr85/`.
+
+```json
+SENPAI-RESULT
+{
+  "schema_version": 1,
+  "status": "failed",
+  "hypothesis": "Layer-0 dense MLP BF16 planes can be losslessly re-encoded as per-channel exponent-base + 4-bit delta + 7-bit mantissa (P12/GO-12e), cutting 25.14 MB/step of decode weight traffic for roughly +0.61% of official score.",
+  "summary": "Hypothesis REFUTED by measurement, not by construction. The census fired GO-12e and the encoder is provably lossless (0 mismatching BF16 bit patterns over 50,331,648 weights, CPU memcmp), delivering the predicted 25,141,248 B/step. But the unpack ALU costs more than the bytes are worth: 12 counterbalanced same-binary runs give decode +0.9054% SLOWER (95% CI [+0.35%, +1.46%], exact permutation p = 8/924 = 0.0087), +0.7856% after prefill adjustment (p = 0.0152). That is -0.71% of score on M4 and worse on M5, where saved bytes are worth 2.4x less. Flag is now opt-in so the regression cannot land by default.",
+  "runs": [],
+  "commit_sha": "98c3221",
+  "primary_metric": {
+    "name": "same_host_paired_decode_ratio",
+    "direction": "minimize",
+    "baseline": 1.0,
+    "candidate": 1.00905,
+    "delta": 0.00905
+  }
+}
+```
+
+Gate ladder, answered in full: SANITY **PASS**; GO-8 **FAIL**; GO-12 **FAIL**;
+GO-12e **PASS** (the firing gate); GO-13 **PASS**; T8 **FAIL**. See §2.
