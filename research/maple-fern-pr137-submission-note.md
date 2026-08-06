@@ -35,7 +35,7 @@ d ln score / d ln T = 0.75 * (1 - sigma)
 
 At our promoted operating point (`S = 97.895 ms`, `T = 4.1436 ms`,
 `sigma = 0.1558`) the elasticity with respect to `T` is **0.6331**, i.e.
-**−1 µs of `T` is +0.01464 % of score**. That number is why a 60–110 µs kernel
+**−1 µs of `T` is +0.01464 % of score**. That number is why a ~64 µs kernel
 saving is worth submitting at all.
 
 Our decode step is close to DRAM-saturated in aggregate, so most of our recent
@@ -224,15 +224,36 @@ Decode-step probe, ABBA + BAAB, 8 runs × 300 steps, **no profiler attached**:
 Perfect rank separation (max candidate < min control). All four runs
 `passed: true`, `max_abs_diff: 0`, identical golden hash. `n = 2` per arm is
 underpowered against this host's ±0.73 % run-to-run MDE, so this is cited for
-sign agreement only — the census and the probe carry the magnitude.
+sign agreement only — the census carries the magnitude.
+
+**Balanced 2×2 (profiler on/off) × (arm), 8 cells × 400 steps.** The two
+instruments above were not run under identical conditions — the census had the
+profiler hook attached, the probe did not — so the apparent wall-versus-busy
+surplus could have been an artifact. Crossing the instrumentation factor
+resolves it. Arm deltas (control − candidate, n = 2 per arm):
+
+| statistic | profiler on | profiler off |
+|---|---|---|
+| p10 | **+64.5 µs** | −0.5 µs |
+| median | +62.5 µs | +44.5 µs |
+| wall | +67.5 µs | — |
+| `gpu_busy_sum` | **+64.5 µs** | — |
+| host gap (wall − busy) | 265.0 → 262.0 µs = +3.0 µs | — |
+
+`gpu_busy_union == gpu_busy_sum` in every profiled cell and in both arms, so the
+decode queue is fully serialised and the change alters no concurrency. Under
+identical profiler settings the wall saving equals the GPU-busy saving and the
+host gap is flat, so **there is no host-gap component**: the defensible figure
+is −64.5 µs of GPU-busy time. The r1 probe's 112.5 µs had a 95 % CI of [29, 196]
+which contains 64.5, so the two instruments never actually disagreed. All eight
+cells reported zero token divergences.
 
 ## 7. Caveats, and how this could fail on the ranked host
 
-- **Wall saving (110 µs) exceeds GPU-busy saving (62 µs) by ~1.8×.** The two
-  instruments were not run under identical conditions (the census had a profiler
-  attached, the probe did not), so I am explicitly *not* claiming a host-gap
-  reduction. The honest reading is that the GPU-busy figure is the defensible
-  floor and the wall figure is an upper bound.
+- **Expect ~64 µs, not ~110 µs.** The balanced 2×2 above supersedes the r1
+  reading that wall saving exceeded GPU-busy saving by ~1.8×. There is no
+  host-gap component; the expected effect on the ranked host is the GPU-busy
+  figure scaled by whatever M4→M5 transfer factor this receipt establishes.
 - **Core-count sensitivity.** 392 threadgroups is 19.6 TG/core on this 20-core
   host and would be ~9.8 TG/core on a 40-core part. This is a work removal, not
   a re-tiling, so the sign should be host-independent, but the magnitude may

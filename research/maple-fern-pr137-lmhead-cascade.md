@@ -15,8 +15,9 @@ Two results, in the order they were produced:
 2. The census produced while falsifying (1) exposed a different, larger defect
    in the *same* region: the final cascade stage S4 burns 77 µs of GPU time for
    803 KB of traffic. A one-thread-per-row restructure removes **63.7 µs of GPU
-   busy time (M4, per-kernel census)** / **110–114 µs of decode wall time (M4,
-   ABBA)** with **bit-identical logits**.
+   busy time (M4, per-kernel census)** with **bit-identical logits**. r1 also
+   quoted 110–114 µs of *wall* saving; §6 retracts that — a balanced 2×2 shows
+   the wall saving equals the busy saving and there is no host-gap component.
 
 ---
 
@@ -198,9 +199,10 @@ Every other census row is unchanged, so the saving is localised to S4.
 | median | 8284.3 ± 14.0 µs | 8175.0 ± 40.9 µs | **109.3 µs** | [49, 169] |
 | mean | 8298.5 µs | 8184.5 µs | 114.0 µs | — |
 
-The wall saving exceeds the GPU-busy saving, which is consistent with removing
-7/8 of the dispatched threads also shortening the tail that the next dependent
-encoder waits on.
+The wall saving exceeds the GPU-busy saving. At r1 I read that as removing 7/8
+of the dispatched threads also shortening the tail that the next dependent
+encoder waits on. **§6 retracts that reading**: under a balanced design the gap
+does not survive, and the honest point estimate is the census number.
 
 `research/decode_probe.py:160-167` was made tolerant of both 4-field and
 5-field `GPUPROF` lines (research-only fix, no runtime effect).
@@ -380,7 +382,108 @@ vocabulary, not a truncated top-k.
 
 ---
 
-## 6. What I did not do
+## 6. GPU-busy versus wall: the r1 gap does not survive a balanced design
+
+r1 reported a −63.7 µs S4 census saving (§3.1) but a −112.5 µs p10 wall saving
+(§3.2), and I attributed the ~49 µs surplus to host/dispatch dead time. The
+advisor asked whether that surplus is (i) a real host-gap component — which
+would make decode dead time a promotable programme target — or (ii)/(iii) an
+artifact of comparing a profiler-instrumented census against profiler-free wall
+timing. **The answer is (iii): the discrepancy dissolves. There is no host-gap
+component. The win is GPU-busy time, ~64.5 µs.**
+
+### 6.1 Design
+
+The r1 comparison was unbalanced: the census ran with the `GPUPROF` hook
+compiled in and the wall ABBA ran without it. This experiment crosses the two
+factors so the profiler cannot confound the arm contrast.
+
+Balanced 2×2 ABBA over {profiler on, off} × {arm 1 = new row-major, arm 0 = old
+cascade}, 2 replicates per cell, 400 steps per cell, driven by
+`research/decode_probe.py --steps 400 [--profile]` with `DARKBLOOM_GPU_PROFILE`
+and `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE`. The hook is
+`research/pr91-gpuprof-hook.patch` applied to
+`Vendor/mlx-swift/.../metal/device.{cpp,h}`; it is **local-only research
+instrumentation and is not part of the submitted surface** — the branch was
+`git reset --hard`ed back to the research HEAD before submission, and
+`git diff BASE_SHA --stat` shows `Sources/MLXFastModel/LagunaLmHeadPrune.swift`
+as the only scored file touched.
+
+Every one of the eight cells reported `0 divergences (all match)`.
+
+### 6.2 Result
+
+µs per decode step; `busySum` is Σ per-encoder GPU busy, `busyUni` the union of
+their busy intervals, `wall−busySum` the host gap.
+
+| cell | p10 ms | median | mean | wall | busySum | busyUni | wall−busySum |
+|---|---|---|---|---|---|---|---|
+| profoff arm0 a | 8.197 | 8.245 | 8.256 | — | — | — | — |
+| profoff arm0 b | 8.143 | 8.302 | 8.272 | — | — | — | — |
+| profoff arm1 a | 8.172 | 8.233 | 8.235 | — | — | — | — |
+| profoff arm1 b | 8.169 | 8.225 | 8.240 | — | — | — | — |
+| profon arm0 a | 8.217 | 8.273 | 8.289 | 8.286 | 8.016 | 8.016 | 270.0 µs |
+| profon arm0 b | 8.144 | 8.285 | 8.266 | 8.263 | 8.003 | 8.003 | 260.0 µs |
+| profon arm1 a | 8.069 | 8.212 | 8.194 | 8.191 | 7.933 | 7.933 | 258.0 µs |
+| profon arm1 b | 8.163 | 8.221 | 8.226 | 8.223 | 7.957 | 7.957 | 266.0 µs |
+
+Arm deltas (old − new, n = 2 per arm):
+
+| statistic | profiler on | profiler off |
+|---|---|---|
+| p10 | **+64.5 µs** | −0.5 µs |
+| median | +62.5 µs | +44.5 µs |
+| mean | +67.5 µs | +26.5 µs |
+| wall | +67.5 µs | — |
+| `gpu_busy_sum` | **+64.5 µs** | — |
+| `gpu_busy_union` | +64.5 µs | — |
+| host gap (wall − busySum) | 265.0 → 262.0 = **+3.0 µs** | — |
+
+### 6.3 Three conclusions
+
+1. **The queue is fully serialised.** `gpu_busy_union == gpu_busy_sum` to the
+   digit in all four profiled cells and in both arms. The change neither creates
+   nor destroys encoder concurrency, which independently reproduces the
+   serialisation premise the census rests on.
+2. **No host-gap component.** Under identical profiler settings the wall saving
+   (+67.5 µs) equals the GPU-busy saving (+64.5 µs) inside noise, and the host
+   gap itself is flat at 262–265 µs — 3.2 % of an 8.2 ms step, matching the
+   0.322 ms already on record. Its arm delta is +3.0 µs, i.e. nothing. Removing
+   7/8 of the dispatched threads does not shorten dispatch overhead, because the
+   overhead is per-encoder, not per-thread.
+3. **The r1 −112.5 µs was never distinguishable from the census number.** Its
+   95 % CI was [29, 196], which contains 64.5. The apparent "1.8× wall
+   amplification" was a point estimate read as if it were a measurement. The
+   profiler-off half here is likewise noise-dominated at n = 2 (p10 −0.5, median
+   +44.5, mean +26.5, with ±60 µs of scatter between replicates of the *same*
+   cell), so it neither confirms nor refutes anything on its own — which is the
+   point. Note also that the profiler hook costs nothing systematic: profon
+   minus profoff is +10.5 µs on arm 0 and −54.5 µs on arm 1, i.e. smaller than
+   the replicate scatter, so instrumentation bias is not the explanation either;
+   the r1 gap was simply sampling noise.
+
+### 6.4 What this changes
+
+- The honest headline for this change is **−64.5 µs of GPU-busy time on M4**,
+  not −112.5 µs of wall. §4's M5 projection should be read off the census, which
+  is what it already does.
+- **Decode host dead time should not be promoted as a programme target on this
+  evidence.** 262 µs/step of host gap is real and is 3.2 % of decode, but it is
+  invariant to a change that deletes 87.5 % of one kernel's threads, so it is
+  not thread- or occupancy-elastic. Attacking it would require reducing the
+  *number of encoders*, which is a different (and much more invasive)
+  experiment.
+- Methodological rule for the programme: never contrast a profiled census
+  against unprofiled wall timing. Cross the instrumentation factor, or quote the
+  census alone.
+
+Scripts and raw cell outputs: `/tmp/pr137_gpuprof/{run_arms.sh,run_off.sh,aggregate.py}`
+and `/tmp/pr137_gpuprof/prof{on,off}_arm{0,1}_r{a,b}.out`. (Local scratch, not
+committed; the hook patch and the probe are in `research/`.)
+
+---
+
+## 7. What I did not do
 
 - Did not touch routed/shared MoE gather-GEMM or any `_nax` kernel (tanjiro,
   frieren) or `Sources/MLXFastTransform` (nezuko).
