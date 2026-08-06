@@ -7537,17 +7537,9 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-/// Slot-indexed R1 gate/up: `expert_slot` is threadgroup-uniform, so the keys
-/// arm re-ran the whole top-8 extraction in all 2048 threadgroups to recover a
-/// single expert id. The rank-`slot` expert is already published as
-/// `indices[slot]`: the promoted down+residual kernel pairs this kernel's
-/// `activated[slot]` row block with `indices[slot]`/`router_weights[slot]`, so
-/// `top8_winner(slot) == indices[slot]` is an existing invariant of the
-/// promoted frontier, not a new assumption. Reading it directly is bit-exact
-/// and deletes the extraction; every other operation is unchanged.
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8idx_r1_bf16_v1",
-    inputNames: ["input", "fused_weight", "packed_scales", "indices"],
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
     outputNames: ["activated"],
     source: """
 constexpr uint input_width = 2048;
@@ -7570,7 +7562,8 @@ uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
-uint expert = uint(indices[expert_slot]);
+\(lagunaRouterTop8PrecomputedPrelude)
+uint expert = top8_winner;
 
 const device uint8_t* expert_weight =
     (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
@@ -7654,7 +7647,8 @@ if (lane == 0) {
         bfloat(silu * up);
 }
 """,
-    header: lagunaSharedSwiGLUQMVHeader,
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
 
@@ -7662,8 +7656,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
     fusedWeight: MLXArray,
     packedScales: MLXArray,
-    routerKeys: MLXArray,
-    indices: MLXArray
+    routerKeys: MLXArray
 ) -> MLXArray {
     precondition(input.dtype == .bfloat16)
     precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
@@ -7672,12 +7665,10 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
     precondition(routerKeys.dtype == .uint32)
     precondition(routerKeys.size == LagunaConstants.numExperts)
-    precondition(indices.dtype == .uint32)
-    precondition(indices.dims(1, 1, LagunaConstants.numExpertsPerTok))
 
     if lagunaRoutedGateUpR1Enabled {
         return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
-            [input, fusedWeight, packedScales, indices],
+            [input, fusedWeight, packedScales, routerKeys],
             grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[
@@ -10064,8 +10055,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                             x,
                             fusedWeight: fusedWeight,
                             packedScales: packedBank,
-                            routerKeys: routerKeys,
-                            indices: inds
+                            routerKeys: routerKeys
                         )
                     } else {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed scales)")
