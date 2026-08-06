@@ -7332,11 +7332,45 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(tgStaging: Bool) -> String {
+    let inputRead: String
+    if tgStaging {
+        inputRead = """
+            threadgroup bfloat tg_input[input_width];
+                uint tg_tid = simd_group * 32 + lane;
+                for (uint tg_i = tg_tid; tg_i < input_width; tg_i += 64) {
+                    tg_input[tg_i] = input[tg_i];
+                }
+                threadgroup_barrier(mem_flags::mem_threadgroup);
+
+                for (uint block = 0; block < input_width; block += block_width) {
+                    const threadgroup vec<bfloat, 4>* input_vectors =
+                        (const threadgroup vec<bfloat, 4>*) (
+                            tg_input + block + lane * values_per_lane);
+                    for (uint i = 0; i < values_per_lane / 4; ++i) {
+                        const vec<bfloat, 4> values = input_vectors[i];
+                        input_values[4 * i] = values[0];
+                        input_values[4 * i + 1] = values[1];
+                        input_values[4 * i + 2] = values[2];
+                        input_values[4 * i + 3] = values[3];
+                    }
+        """
+    } else {
+        inputRead = """
+            for (uint block = 0; block < input_width; block += block_width) {
+                    const device vec<bfloat, 4>* input_vectors =
+                        (const device vec<bfloat, 4>*) (
+                            input + block + lane * values_per_lane);
+                    for (uint i = 0; i < values_per_lane / 4; ++i) {
+                        const vec<bfloat, 4> values = input_vectors[i];
+                        input_values[4 * i] = values[0];
+                        input_values[4 * i + 1] = values[1];
+                        input_values[4 * i + 2] = values[2];
+                        input_values[4 * i + 3] = values[3];
+                    }
+        """
+    }
+    return """
         constexpr uint input_width = 2048;
         constexpr uint output_width = 512;
         constexpr uint block_width = 512;
@@ -7393,17 +7427,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
                 expert_weight + up_row * fused_row_bytes + lane * 8);
         }
 
-        for (uint block = 0; block < input_width; block += block_width) {
-            const device vec<bfloat, 4>* input_vectors =
-                (const device vec<bfloat, 4>*) (
-                    input + block + lane * values_per_lane);
-            for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
-            }
+        \(inputRead)
 
             const uint2 cur_gate_codes = gate_codes;
             const uint2 cur_up_codes = up_codes;
@@ -7445,11 +7469,34 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
             activated[expert_slot * output_width + logical_row] =
                 bfloat(silu * up);
         }
-        """,
-    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
-        + "\n" + lagunaRouterTop8PrologueHeader,
-    ensureRowContiguous: true
-)
+        """
+}
+
+/// `DARKBLOOM_ROUTED_R1_TG_INPUT` (default OFF; set "1" to stage the
+/// 2048-element BF16 input vector in threadgroup memory): both simdgroups in
+/// the R1 threadgroup read the same input from device memory — a 2×
+/// redundancy. Staging it cooperatively in threadgroup (tile) memory loads it
+/// once and reads from local memory, halving input device-memory traffic. The
+/// same BF16 values, same qdot, same accumulation order — only the read source
+/// changes. Bit-exact.
+let lagunaRoutedR1TGInput: Bool =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_R1_TG_INPUT"] == "1"
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernels: [Bool: MLXFast.MLXFastKernel] = {
+    var kernels: [Bool: MLXFast.MLXFastKernel] = [:]
+    for staging in [false, true] {
+        kernels[staging] = MLXFast.metalKernel(
+            name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_\(staging ? "tg" : "v2")",
+            inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+            outputNames: ["activated"],
+            source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(tgStaging: staging),
+            header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+                + "\n" + lagunaRouterTop8PrologueHeader,
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
@@ -7465,7 +7512,8 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(routerKeys.size == LagunaConstants.numExperts)
 
     if lagunaRoutedGateUpR1Enabled {
-        return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
+        let kernel = lagunaRoutedSwiGLUQMVPackedTop8R1Kernels[lagunaRoutedR1TGInput]!
+        return kernel(
             [input, fusedWeight, packedScales, routerKeys],
             grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
             threadGroup: (64, 1, 1),
