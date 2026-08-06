@@ -7289,7 +7289,7 @@ let lagunaRoutedGateUpR1Enabled =
 /// issues the routed gate/up SwiGLU QMV and the shared expert gate/up SwiGLU
 /// QMV as a single Metal dispatch instead of two, eliminating 39 dispatches
 /// per decode step (one per sparse MoE layer). The routed branch (first
-/// 2,048 threadgroups) and the shared branch (next 256) are fully
+/// 131,072 threadgroups) and the shared branch (next 16,384) are fully
 /// independent — different threadgroups, no warp divergence — and each
 /// preserves the exact weight/scale layout, accumulation order, and SwiGLU of
 /// its standalone kernel. Falls back to separate dispatches when any
@@ -7453,15 +7453,12 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
 }
 
 /// Merged routed+shared R1 SwiGLU QMV kernel. Issues both the routed gate/up
-/// and shared gate/up as one Metal dispatch. The first 2,048 threadgroups
-/// (8 experts × 256 tiles) execute the routed R1 path; the next 256
-/// threadgroups execute the shared R1 path. Each branch is textually
-/// identical to its standalone kernel, preserving weight/scale layout,
-/// accumulation order, and SwiGLU. No warp divergence: every threadgroup
-/// runs exactly one branch. The standalone kernels multiply the grid by 64
-/// for GPU occupancy, but the merged kernel uses the minimum threadgroup
-/// count to prevent out-of-bounds writes from one branch corrupting the
-/// other branch's output buffer.
+/// and shared gate/up as one Metal dispatch. The first 131,072 threadgroups
+/// (8 experts × 256 tiles × 64) execute the routed R1 path; the next 16,384
+/// threadgroups (256 × 64) execute the shared R1 path. Each branch is
+/// textually identical to its standalone kernel, preserving weight/scale
+/// layout, accumulation order, and SwiGLU. No warp divergence: every
+/// threadgroup runs exactly one branch.
 private let lagunaMergedRoutedSharedSwiGLUQMVR1Kernel = MLXFast.metalKernel(
     name: "laguna_merged_routed_shared_nvfp4_swiglu_qmv_r1_bf16_v1",
     inputNames: [
@@ -7476,8 +7473,8 @@ private let lagunaMergedRoutedSharedSwiGLUQMVR1Kernel = MLXFast.metalKernel(
         constexpr uint values_per_lane = 16;
         constexpr uint routed_experts = 8;
         constexpr uint routed_tiles = 256;
-        constexpr uint routed_groups = routed_experts * routed_tiles;
-        constexpr uint shared_groups = 256;
+        constexpr uint routed_groups = routed_experts * routed_tiles * 64;
+        constexpr uint shared_groups = 256 * 64;
         constexpr uint fused_row_bytes = 1024;
         constexpr uint fused_expert_bytes = 1024 * fused_row_bytes;
         constexpr uint scale_row_bytes = 32;
@@ -7658,8 +7655,8 @@ func lagunaMergedRoutedSharedSwiGLUQMVR1(
     precondition(sharedWeight.dtype == .uint32)
     precondition(sharedScales.dtype == .uint8)
 
-    let routedGroups = LagunaConstants.numExpertsPerTok * 256
-    let sharedGroups = 256
+    let routedGroups = LagunaConstants.numExpertsPerTok * 256 * 64
+    let sharedGroups = 256 * 64
     let outputs = lagunaMergedRoutedSharedSwiGLUQMVR1Kernel(
         [input, routedWeight, routedScales, indices, sharedWeight, sharedScales],
         grid: (routedGroups + sharedGroups, 1, 1),
