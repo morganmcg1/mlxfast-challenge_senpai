@@ -1,18 +1,18 @@
 # SENPAI Research State
 
-- **Updated:** 2026-08-06 22:05 UTC
+- **Updated:** 2026-08-06 22:16 UTC
 - **Most recent human research direction:** Authorized campaign roles own the exact lifecycle of any committed, fully preflighted official candidate. Do not wait for a central queue owner; follow server retry guidance, avoid tight polling and duplicate submissions after ambiguous responses, and continue useful research while admission is busy. Submit with `mlxfast submit --model "senpai"` first; only an explicit invalid-or-unsupported model rejection permits one fallback.
-- **Current integrated baseline:** `86e53b329667760f55d67716dca0e9778401d8e7` on `codex/mlxfast-cedar-20260804-advisor`. The same-session normalized baseline is decode `1.0`, prefill `1.0`, and weighted score `1.0`; both official component floors are `0.95`. The editable surface is `2,998,093 / 3,000,000` bytes, leaving `1,907` bytes. Ranked paired M5 evidence is authoritative.
+- **Current integrated baseline:** `9ab186e759ae1217eb8130078bbc5aa359e2ba56` on `codex/mlxfast-cedar-20260804-advisor`; its scored runtime frontier is `0e04cf64e35f969635d0bad6c977d0e7de77850a`, with only advisor documentation above it. The same-session normalized baseline is decode `1.0`, prefill `1.0`, and weighted score `1.0`; both official component floors are `0.95`. The editable surface is `2,998,093 / 3,000,000` bytes, leaving `1,907` bytes. Ranked paired M5 evidence is authoritative.
 - **Current research focus and themes:**
   - [PR #150](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/150) is the merged current winner, making router-key suppression canonical.
-  - [PR #151](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/151), Tanjiro revision `r2`, is rebuilding only SG4 on the exact current base and requires paired official M5 evidence; its M4 gain is directional.
-  - [PR #164](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/164), Fern, tests fixed fused-attention assertion compile-out.
-  - [PR #168](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/168), Nezuko, tests one `(writeIdx, capacity)`-keyed full-attention parameter carrier in `LagunaRuntimeModel.swift`, with strict trace, A/B/A, correctness, budget, and M5 gates.
-  - [PR #163](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/163), scale baking, and [PR #152](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/152), outer layer-0 removal, are closed negatives.
-  - [PR #33](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/33), the deletion-focused cleanup, awaits an exact current-base comparison.
+  - [PR #151](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/151), Tanjiro revision `r2`, isolates SG4 QKV geometry on the current frontier and requires paired official M5 evidence; its prior M4 weighted mean of `1.018298977` is directional.
+  - [PR #168](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/168), Nezuko, tests one `(writeIdx, capacity)`-keyed full-attention parameter carrier in `LagunaRuntimeModel.swift`, with strict trace, matched timing, correctness, budget, and M5 gates.
+  - [PR #171](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/171), Fern, tests validated fused-KV-prepare fast lanes in `KVCache.swift`, memoizing steady-state shape and capacity invariants while requiring complete invalidation around fallback mutation and rebind paths.
+  - [PR #33](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/33), the deletion-focused routed-R1 cleanup, awaits an exact current-base comparison.
+  - [PR #164](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/164), fixed fused-attention assertion compile-out, is a closed negative: correctness passed `130/130`, but its mirrored M4 weighted score was `0.992834572` (`-0.7165%`). [PR #163](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/163), scale baking, and [PR #152](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/152), outer layer-0 removal, are also closed negatives.
 - **Potential next research directions and themes:**
   - Prefer deletion-first or byte-neutral reached-path work because only `1,907` editable bytes remain.
-  - Preserve reverse seed-elision ablation and validated KV-prepare fast lanes as reserve hypotheses.
+  - Preserve reverse seed-elision ablation and other per-layer host-dispatch elimination ideas as reserve hypotheses, without overlapping active QKV, parameter-carrier, KV-prepare, or cleanup work.
   - Avoid geometry-only conclusions from M4 when the M5 result can change sign.
   - Require exact scope and budget validation, an intact 40C gate, same-host matched evidence, checked outputs, and official M5 evidence for promotion.
   - Candidate submitters must record the exact commit and receipt, own the terminal status, follow server retry guidance, and never duplicate a submission after an ambiguous response.
