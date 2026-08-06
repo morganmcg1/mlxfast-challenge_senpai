@@ -1,63 +1,80 @@
 # SENPAI Research State
-- 2026-08-05T13:46:52Z (updated by advisor session — baseline_advanced handling + research synthesis)
+- 2026-08-05T13:46:52Z (updated by advisor session — Edward's new assignment + student check-ins)
 - **SCORE GAP**: Current 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
-- **FRONTIER**: a92d2289 (last scored change: 2268af4 FMA dequant; a92d228 and 72c450a are doc-only)
-- **ALL 4 STUDENTS ASSIGNED** — baseline_advanced feedback sent to PRs #50, #51, #52:
-  - Edward (PR #70): Eliminate redundant top-8 extraction in R1 gate/up kernel.
-    EST 2-4% decode, LOW risk. The single largest unexploited inefficiency.
-    Base 8130379, no rebase needed (doc-only advance). Ready to start.
-  - Thorfinn (PR #50): Merge shared + routed gate/up QMV dispatch.
-    EST 1-2% decode, eliminates 39 dispatches/step. `mergedSharedActivated` at L10248.
-    Base advanced bb523807→a92d2289 (scored code changed). Re-baseline required.
-  - Alphonse (PR #51): Fuse RMSNorm + NVFP4 QKV into one dispatch (redirected from LM-head).
-    EST 5.3% decode, eliminates 40 RMSNorm dispatches/step. STRONGEST available win.
-    Base advanced bb523807→a92d2289 (scored code changed). Re-baseline required.
-  - Askeladd (PR #52): Prefill MoE retile variant 5→4 switch (revision).
-    Prefill (25% weight). +17.47% kernel-level on _nax path. M5-only validation needed.
-    Double-buffering now in base (STAGE2_GATHER v1). Base advanced. Re-baseline required.
-- **Edward's FMA dequant MERGED** ✅ (commit 2268af4 on advisor branch).
-  Now part of base. No longer a separate experiment.
-- **NEXT WAVE PRIORITY**: g_proj fusion into norm+NVFP4 QKV kernel (eliminates 40 more
-  dispatches/step on top of Alphonse's norm+QKV fusion, ~5.6% additional decode).
-  Assign to whichever student completes first.
-- **SECOND WAVE**: Depth-2/4 register prefetch on gate/up R1 kernel (1-3% decode, LOW risk,
-  proven mechanism from norm+QKV depth-4 prefetch).
+- **FRONTIER**: a92d2289 (last scored change: 2268af4 FMA dequant; 72c450a and 651a826 are doc-only)
+- **STUDENT STATUS** (all 4 active):
+  - **Edward** (PR #74): NEW — Register prefetch depth 2-4 for routed gate/up R1 decode kernel.
+    EST 1-3% decode, LOW risk. Proven mechanism (norm+QKV depth-4 = +12%). Bit-exact.
+    Tests whether outstanding loads (not bandwidth) limits the gate/up kernel family.
+    PR #70 (top-8 elimination) CLOSED: dead hypothesis, decode is memory-bound, ALU removal doesn't help.
+    PR #69 (top-8 v1): stale draft, superseded by #70.
+  - **Thorfinn** (PR #50): Merge shared + routed gate/up QMV dispatch.
+    EST 1-2% decode, eliminates 39 dispatches/step. `mergedSharedActivated` at L9931.
+    Status check-in sent — 10+ hours, no code pushed yet.
+  - **Alphonse** (PR #51): Investigate/extend norm+QKV fusion coverage (redirected from LM-head).
+    Check which layers have norm+QKV fusion disabled and extend the fused kernel.
+    Status check-in sent — 10+ hours, no code pushed yet.
+  - **Askeladd** (PR #52): Prefill MoE retile variant 5→4 switch (revision).
+    +17.47% kernel-level on _nax path. M5-only validation needed.
+    Double-buffering now in base (STAGE2_GATHER v1). Status check-in sent.
 - **M4→M5 TRANSFER WARNING**: Edward's ops=2 showed +6.5% on M4 but 2.502 on M5 (vs 4058d0b's 2.546 = -1.7% M5 regression).
   Threadgroup geometry changes can flip sign across GPU core counts. Instruction-count reductions (FMA) should transfer better.
-- **FRONTIER at 8130379** (includes 4058d0b submission that scored 2.5459 on official M5)
-  - STAGE2_GATHER v1 (double-buffered MoE weight staging)
-  - LM_HEAD_PRUNE (certified int5 two-pass output head pruner, ~109 MB/step vs 411 MB BF16)
-  - Extensive fusion: norm+QKV, gated output, sliding/full attention, MoE down 9-slot (ops=4)
-  - ~180 DARKBLOOM feature flags, most default ON
-  Byte budget: 1,921,734 / 3,000,000 (1,078,266 bytes headroom)
-- **All 4 student PRs received baseline_advanced event** (advisor branch moved to 1efc392)
-  Feedback sent to each student with specific rebase and re-run guidance.
-  - PR #65 (Edward): FMA dequant — still valid, needs rebase + re-run
-  - PR #50 (Thorfinn): merge shared gate/up QMV — still valid, high-value dispatch elimination
-  - PR #51 (Alphonse): redirected to fuse final RMSNorm into LM-head coarse kernel
-  - PR #52 (Askeladd): double-buffering now in base; variant 5→4 switch still novel
-- **PR #49 MERGED** ✅ — MoE down outputs_per_simd 1→2 (commit da9ee49 on advisor branch).
-  6.5% decode improvement, 1.0% prefill, 130/130 tokens match. Squash-merged.
-  New frontier BASE_SHA: da9ee49f76b91f65819f5f18beec5072c18aa1d5
-- **OFFICIAL SUBMISSION DISPATCHED** — submission 98a9d3e8 queued for M5 validation.
-  Edward's MoE ops2 optimization submitted via `mlxfast submit --model "senai"`.
-  Status: validating. If 6.5% decode holds on M5, projected score ~2.676 (vs 2.5523 best).
-- **PR #65 ASSIGNED** — Edward's next experiment: FMA-optimized NVFP4 dequant inner loop.
-  Replaces multiply-then-add accumulation with explicit `fma()` calls in `packedWordBody`.
-  Correctness risk (FMA rounding differs) — tripwire is the first gate.
-- PR #52 (birch-askeladd): inconclusive → revision requested (narrow to variant 5→4 only)
-  Must re-baseline against da9ee49 (new frontier) if revising.
-- PRs #50, #51: students working on redirected experiments (in progress)
-  Must re-baseline against da9ee49 (new frontier) since Edward's change touches decode path.
-- All 4 student PRs received baseline_advanced event (advisor branch advanced to da9ee49).
-  The scored code change is Edward's MoE down kernel — affects decode path only.
-- Fresh independent research campaign launched (mlxfast-birch-20260805)
+## Research Findings Summary
+
+### Decode Dispatch Map (403 dispatches/step)
+- 40 attention blocks × 5 dispatches = 200
+- 39 MoE blocks × 5 dispatches = 195
+- 1 dense MLP × 3 = 3
+- Final RMSNorm + LM-head = 5
+- asyncEval boundaries: 8 fences/step (non-blocking, already tuned near-optimal)
+- 0 blocking eval() per decode step (already optimized)
+
+### Top Fusion Opportunities (by dispatch savings)
+1. RMSNorm + QKV NVFP4 GEMV (attention 1+2): saves 40/step — `lagunaNormAffineQKV` exists but declines for NVFP4
+2. Gate softplus into QKV dispatch (attention 2+3): saves 40/step — prior 3-way failed (+2.7%)
+3. Router top-8 into residual+RMSNorm+router (MoE 1+2): saves 39/step — hard (O(256²) reduction)
+4. Shared gate/up into routed gate/up (MoE 3+4): saves 39/step — `mergedSharedActivated` plumbing exists
+5. O-proj into fused attention (attention 4+5): saves 40/step — architecturally hardest
+
+### Novel Optimization Targets (from research agents)
+1. ✅ Eliminate redundant top-8 extraction → DEAD (PR #70, memory-bound, ALU removal doesn't help)
+2. Pack down-projection scales into walk-order side bank (EST 0.5-1.5%, LOW risk, transform required)
+3. ✅ Extend register prefetch depth 2-4 to routed gate/up R1 → ASSIGNED to Edward (PR #74)
+4. Fuse shared expert SwiGLU into down kernel (EST 1-2%, MEDIUM risk)
+5. Vectorized online-softmax in sliding attention (EST 0.3-1%, HIGH risk)
+
+### Next-Wave Research Ideas (from frontier agent, research/RESEARCH_IDEAS_NEXT_WAVE.md)
+- P0: Stage activation vector in threadgroup memory (5-10% decode, LOW risk) — activation read many times across rows
+- P0: Depth-2 block unroll / prefetch next block's weights (3-6%, LOW risk) — ASSIGNED to Edward (PR #74)
+- P1: Register-resident scale pre-loading across blocks (2-4%, LOW risk)
+- P1: Texture-backed NVFP4 weight storage (5-15%, MEDIUM risk, needs API investigation)
+- Key finding: decode GEMV is bandwidth-bound, NOT compute-bound. Hardware MMA is wrong tool.
+  Activation vector (read many times) should be staged in threadgroup memory.
+  Weight matrix (read once) should NOT be staged.
+
+### Literature Search Findings (metal-moe-optimization)
+1. Single command buffer per decode forward — #1 finding (5.2× in fak case study) — already optimized (0 blocking evals)
+2. Free bit-exact gate+up concatenation — +6.6-7.6% — ALREADY DONE (routed SwiGLU QMV is already fused)
+3. Fuse SwiGLU into gate gather_qmv epilogue — ALREADY DONE
+4. Fuse down projection + score-weighted sum + shared-expert add — ALREADY DONE (lagunaRoutedSharedDownResidual)
+5. FMA-optimized dequant inner loop — +12% — MERGED (commit 2268af4)
+6. Per-assignment GEMV with high block parallelism — 28% TPOT (vLLM) — potentially applicable
+7. Reduce KV-cache movement — sliding-window layers need only latest 512 positions — already implemented
+
+### Eval Count Audit
+- Total blocking eval() per decode step: 0 (already optimized)
+- Total asyncEval() per decode step: 8 (already tuned to near-optimal)
+- No leftover intermediate eval to eliminate
+
+## Campaign State
+- Fresh independent research campaign (mlxfast-birch-20260805)
+- Advisor branch: `mlxfast-birch-20260805-advisor` @ 651a826
+- Fixed experiment BASE_SHA: bb523807d3f70757d7cbae4b4b24ecfe5981a43d
+- ORGANIZER_FRONTIER_SHA: bca94c5aa472a773a990ac61904340ce56465229
 - Operator authorized official submissions from AWS Macs; use `--model "senpai"` first
-- Sub-agent research complete: eval-count-audit, competitor-analysis, metal-moe-optimization,
-  merge-gateup-analysis, lm-head-analysis all returned. Two frontier agents failed (timeout).
-- Current best on leaderboard: 2.5523 (lBroth, commit bca94c5 = our ORGANIZER_FRONTIER_SHA)
-- Previous frontier BASE_SHA: bb523807 (original frontier)
-- Current advisor branch HEAD: da9ee49 (Edward's MoE down win merged)
+- W&B project: wandb-applied-ai-team/mlxfast-birch
+- Byte budget: 2,965,156 / 3,000,000 (34,844 headroom)
+- LagunaRuntimeModel.swift: 508,548 / 524,288 bytes (15,740 per-file headroom)
 
 ## Current Research Focus and Themes
 
