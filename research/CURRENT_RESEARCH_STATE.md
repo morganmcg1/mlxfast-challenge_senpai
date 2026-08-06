@@ -1,33 +1,33 @@
 # SENPAI Research State
-- 2026-08-06T02:35Z
+- 2026-08-06T04:10Z
 - Fresh campaign (mlxfast-birch-20260805). All four students assigned distinct causal experiments.
-- Current research focus: Four independent decode optimization arms covering the main cost centers
-  - Edward (PR #84): Top-8 extraction elimination in routed gate/up R1 kernel (instruction removal)
-  - Alphonse (PR #78): RMSNorm + NVFP4 QKV fusion (dispatch elimination, 40 dispatches/step)
-  - Askeladd (PR #79): Packed down-projection scales in walk-order (memory coalescing)
-  - Thorfinn (PR #83): o_proj tiling: results_per_simdgroup 4→8 (threadgroup count reduction)
-- Potential next directions:
-  - FMA dequant in MoE down kernel (if not already covered by Askeladd)
-  - KV-cache sliding-window optimization (only 512 positions needed for SW layers)
-  - Output head (lm_head) optimization
-  - Command buffer batching across layers
-  - Weight layout changes for NVFP4 code coalescing
-  - RoPE table precomputation outside hot path
-  - Note: PR #69 (Edward v1) has malformed marker, replaced by PR #84
+- **SCORE GAP**: Current best 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
+- **FRONTIER**: 12a712d (Edward's PR #84 top-8 elimination merged, bit-exact, -49 lines)
+- Current research focus: Four independent decode optimization arms targeting dispatch elimination and kernel tiling
+  - Edward (PR #87): Merge shared+routed gate/up SwiGLU QMV into one dispatch — saves 39 dispatches/step (13.7%)
+  - Alphonse (PR #88): Fuse RMSNorm into NVFP4 QKV decode kernel — saves 39 norm dispatches/step
+  - Thorfinn (PR #89): Double output rows per SIMD in down+residual kernel (4→8, halves threadgroup count)
+  - Askeladd (PR #90): Threadgroup input staging for shared SwiGLU QMV kernel (eliminate 2x redundant DRAM reads)
+- All 4 arms are on independent code sections of LagunaRuntimeModel.swift, no conflicts
+- M4 is bandwidth-bound (GPU gen 16); dispatch elimination may show larger gains on M5
+- Potential next directions (from RESEARCH_IDEAS_NEXT_WAVE.md and NOVEL_FUSION_IDEAS.md):
+  - Register-resident scale pre-loading across blocks (2-4%, LOW risk, bit-exact)
+  - Router GEMV + top-8 fusion (2-4%, MEDIUM risk)
+  - Texture-backed NVFP4 weight storage (5-15%, MEDIUM risk, needs API investigation)
+  - Prefill path optimization (25% of score, largely unexplored)
+  - Apply same TG staging to routed SwiGLU QMV (8x redundant reads → 1x, 87.5% savings)
+  - Fuse down+residual with shared expert SwiGLU (1-2%, MEDIUM risk)
+- Prior negative results to avoid repeating:
+  - PR #75 (Edward, TG input staging): NEGATIVE — L1 cache handles 2x redundancy on M4
+  - PR #74 (Edward, prefetch depth): NEGATIVE — bandwidth-bound, depth hurts
+  - PR #50 (Thorfinn, merge QMV): CLOSED — unresponsive (but idea is sound, now reassigned to Edward as #87)
+  - M4 instruction-removal nulls are NOT refutations (M5 is instruction-bound at 89% capacity)
 
-# SENPAI Research State
-- 2026-08-06T01:05:00Z (updated by advisor — all stale PRs closed, 4 new assignments created)
-- **SCORE GAP**: Current 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
-- **FRONTIER**: 8130379 (last scored change: 2268af4 FMA dequant)
-- **ALL 4 PRS CLOSED** — all students were unresponsive for 10+ hours:
-  - PR #69 (Edward, top8-elim): malformed marker, can't close via transition; stale draft
-  - PR #50 (Thorfinn, merge QMV): CLOSED — unresponsive 11+ hours
-  - PR #51 (Alphonse, norm+QKV): CLOSED — unresponsive 10+ hours
-  - PR #52 (Askeladd, prefill retile): CLOSED — revision not responded 10+ hours
-- **PR #75 (Edward, TG staging) CLOSED**: NEGATIVE — L1 cache handles 2x redundancy
-- **PR #74 (Edward, prefetch depth) CLOSED**: NEGATIVE — bandwidth-bound, depth hurts
+---
 
-## NEW ASSIGNMENTS (2026-08-06T01:05:00Z)
+## Archive (2026-08-06T01:05:00Z)
+
+Previous campaign state from 2026-08-06T01:05:00Z (all stale PRs closed, 4 new assignments created at that time). See git history for prior frontier state.
 
 ### Edward: FMA Dequant for QKV R1 Kernel
 - Apply FMA-optimized dequant from `lagunaSharedSwiGLUQMVHeader` (line 6364) to
