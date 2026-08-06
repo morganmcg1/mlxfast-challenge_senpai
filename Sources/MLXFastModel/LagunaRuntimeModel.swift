@@ -7843,37 +7843,21 @@ func lagunaRoutedDownReduce(
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
-// LOCAL-ONLY r3 ordering probe. Generalises the shared-first arm above into a
-// permutation table over the 9 canonical slots so the router block can be moved
-// independently of the routed block:
-//   0 routed_activated  1 routed_down_weight  2 routed_down_scales
-//   3 indices           4 router_weights
-//   5 shared_activated  6 shared_down_weight  7 shared_down_scales
-//   8 residual
-let lagunaDownInputOrderID: String =
-    ProcessInfo.processInfo.environment["DARKBLOOM_DOWN_INPUT_ORDER"]
-    ?? (lagunaSharedFirstDownOrderEnabled ? "sf" : "0")
-
-let lagunaDownInputPermutation: [Int] = {
-    switch lagunaDownInputOrderID {
-    case "sf": return [5, 6, 7, 0, 1, 2, 3, 4, 8]
-    case "b": return [0, 1, 2, 5, 6, 7, 3, 4, 8]
-    case "c": return [3, 4, 0, 1, 2, 5, 6, 7, 8]
-    case "d": return [8, 3, 4, 5, 6, 7, 0, 1, 2]
-    default: return [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    }
-}()
-
-private let lagunaDownCanonicalInputNames = [
-    "routed_activated", "routed_down_weight", "routed_down_scales",
-    "indices", "router_weights", "shared_activated",
-    "shared_down_weight", "shared_down_scales", "residual",
-]
-
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
-    name: "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5"
-        + (lagunaDownInputOrderID == "0" ? "" : "o\(lagunaDownInputOrderID)"),
-    inputNames: lagunaDownInputPermutation.map { lagunaDownCanonicalInputNames[$0] },
+    name: lagunaSharedFirstDownOrderEnabled
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5",
+    inputNames: lagunaSharedFirstDownOrderEnabled
+        ? [
+            "shared_activated", "shared_down_weight", "shared_down_scales",
+            "routed_activated", "routed_down_weight", "routed_down_scales",
+            "indices", "router_weights", "residual",
+        ]
+        : [
+            "routed_activated", "routed_down_weight", "routed_down_scales",
+            "indices", "router_weights", "shared_activated",
+            "shared_down_weight", "shared_down_scales", "residual",
+        ],
     outputNames: ["output"],
     source: """
 constexpr uint input_width = 512;
@@ -8019,13 +8003,18 @@ func lagunaRoutedSharedDownResidual(
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
 
-    let canonical = [
-        routedActivated, routedDownWeight, routedDownScales,
-        indices, routerWeights, sharedActivated,
-        sharedDownWeight, sharedDownScales, residual,
-    ]
     return lagunaRoutedSharedDownResidualKernel(
-        lagunaDownInputPermutation.map { canonical[$0] },
+        lagunaSharedFirstDownOrderEnabled
+            ? [
+                sharedActivated, sharedDownWeight, sharedDownScales,
+                routedActivated, routedDownWeight, routedDownScales,
+                indices, routerWeights, residual,
+            ]
+            : [
+                routedActivated, routedDownWeight, routedDownScales,
+                indices, routerWeights, sharedActivated,
+                sharedDownWeight, sharedDownScales, residual,
+            ],
         grid: (LagunaConstants.hiddenSize / 4 * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
