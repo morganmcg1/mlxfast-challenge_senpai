@@ -115,6 +115,14 @@
 
 - **POTENTIAL NEXT DIRECTIONS (beyond Wave 10)**:
   - Scale plane halving via quantizer invariant (see above — Wave 11 top priority)
+  - tail_nvfp4_qdot scalar→dot4: LAST remaining scalar NVFP4 qdot kernel (L4536-4572).
+    Runs 40× per decode step (all attention layers). ~1600 instructions saved/thread/step.
+    Bit-exact (same pattern as O-proj L4224-4227 and MoE qdot L6508). HIGH PRIORITY.
+  - JIT attention pair_planes 2→4: collapse 3 barriers to 1 per attention layer (L1610/2106).
+    80 fewer barriers per decode step. ~0.4% decode. Bit-exact (same as stock PLANES=4).
+    Threadgroup 8960 bytes (within 32KB limit). MEDIUM PRIORITY.
+  - Packed simd_sum(float2) for paired QK scores in JIT fused kernels (L1550-1551).
+    ~520 instructions saved per decode step. Bit-exact (per-component independence). LOW PRIORITY.
   - H2: Pre-interleaved weight layout (transform-time, 6-10% gate/up) — after H1/H4 results
   - H3: Fused gate/up+down single-dispatch kernel (saves ~39 dispatches/step, 2-5% decode)
   - H6: Instruction diversity / interleaved load+convert+FMA in qdot (0-5%, pipeline overlap)
