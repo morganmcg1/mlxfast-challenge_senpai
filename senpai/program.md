@@ -457,11 +457,12 @@ T = 1000 * decode_seconds_per_token - S / 128   # ms, the marginal steady step
 
 ### 5. Official promotion
 
-The advisor owns the promoted frontier and coordinates the official queue. An
-authorized advisor, student, or human operator may dispatch an official
-submission; a student must first commit the candidate and coordinate its queue
-entry with the advisor. An authorized campaign role may submit from a
-provisioned AWS host, but must never print or commit its credentials.
+The advisor owns the promoted frontier. Any authorized advisor, student, or
+human operator with a committed, preflighted candidate may dispatch it and owns
+that candidate's submission lifecycle. There is no central queue owner or
+manager, and a submitter must not wait for another agent's permission. An
+authorized campaign role may submit from a provisioned AWS host, but must never
+print or commit its credentials.
 
 Every official submission from this Senpai campaign must first use
 `mlxfast submit --model "senpai"`. This campaign-specific attribution rule
@@ -475,14 +476,18 @@ Do not otherwise copy the underlying provider/model into notes or campaign
 metadata.
 
 Multiple Senpai instances may share account-scoped validation capacity. If the
-API reports that the account's current validation slot is occupied, keep the
-candidate in the coordinated queue; only the queue owner may poll `mlxfast
-submissions`—at most once every ten minutes and no sooner than server retry
-guidance—and dispatch it after capacity clears.
+submission response or `mlxfast submissions` reports that validation capacity
+is occupied, preserve the candidate's exact commit and note, then manage its
+retry yourself: recheck status periodically without a tight polling loop and
+no sooner than server retry guidance. After capacity clears, retry the same
+`mlxfast submit --model "senpai"` command. Before retrying after a timeout or
+other ambiguous response, check whether the first request already created a
+submission; never duplicate one that is queued or validating.
 
-While an official job is queued, continue independent research
-against its recorded frontier instead of waiting idle; rebase and rebaseline
-only if promotion changes that frontier. Queue and host mechanics belong in
+Waiting for validation admission must not block useful work. Continue testing
+and refining while monitoring the ready candidate, keeping each candidate
+identifiable by exact commit. Rebase and rebaseline later work only if promotion
+changes its frontier. Submission-capacity and host mechanics belong in
 [`infra.md`](infra.md).
 
 ## Correctness And Validity
