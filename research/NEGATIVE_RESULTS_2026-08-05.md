@@ -1,5 +1,13 @@
 # Negative Results Log (2026-08-05/06)
 
+## PR #93 — Down+Residual Kernel: Register-Prefetch (Edward)
+- **Hypothesis**: Adding depth-1 register-prefetch to the routed+shared down+residual kernel reduces kernel duration by overlapping weight loads with compute
+- **Result**: FAILED — decode regressed ~0.48% (0.013351 → 0.013415 s/tok) over two matched runs
+- **Correctness**: Passed (max_abs_diff=0, golden_hash matches)
+- **Root cause**: The down+residual kernel's loop body (4 rows, 1 qdot each, pre-loaded input) provides insufficient compute to overlap prefetch with. The gate/up R1 kernel where the same pattern won -12% has 8 qdots and 16 float loads per iteration. Prefetch adds register pressure (4 extra thread variables) and address computation overhead with no compensating latency hiding.
+- **W&B**: https://wandb.ai/wandb-applied-ai-team/mlxfast-birch/runs/3jhy0yb3
+- **Lesson**: The down+residual kernel is NOT memory-latency-bound — it is compute/instruction-bound. Register prefetch only helps when there is substantial compute to hide it behind. Combined with PR #89 (4→8 SIMD groups also regressed via register pressure), the down+residual kernel is sensitive to register pressure and not amenable to tiling or prefetch changes.
+
 ## PR #89 — Down+Residual Kernel: outputs_per_simd 4→8 (Thorfinn)
 - **Hypothesis**: Doubling output rows per SIMD halves threadgroup count, increases input reuse, reduces decode latency
 - **Result**: FAILED — decode regressed +2.39% (0.013211 → 0.013526 s/token)
