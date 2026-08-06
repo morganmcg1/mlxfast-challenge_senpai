@@ -1,11 +1,11 @@
 # SENPAI Research State
-- 2026-08-06T13:50Z (updated)
-- Campaign mlxfast-birch-20260805. All 4 students assigned. Advisor HEAD at 5fe7f20.
+- 2026-08-06T09:44Z (updated)
+- Campaign mlxfast-birch-20260805. All 4 students assigned. Advisor HEAD at 16f1dc5.
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
-  (lBroth) = ~0.25% gap. Any single experiment success likely closes this.
-- **FRONTIER**: 5fe7f20 (research state update: _nax confirmed for quantizedMM on M5).
-  Previous: b6a0889 (PR #98 merged: prefill affine O-proj extension + PR #94 +
-  advisor notes). Previous: f4bad35, then e925569 (PR #94 simd_dot attention).
+  (lBroth) = ~0.25% gap. PR #107 merged (0.85% decode gain on M4, M5 likely more).
+- **FRONTIER**: 16f1dc5 (PR #107 merged: NVFP4 qdot dot4 vectorization).
+  Previous: 5164c4f (research state: 4 students assigned). Previous: 5fe7f20
+  (_nax confirmed). Previous: b6a0889 (PR #98 merged). Previous: e925569 (PR #94).
 
 ## MERGED: PR #94 (Alphonse) — simd_dot in fused attention score computation
 - **Status**: MERGED (squash) → e925569. Bit-exact, upstream-equivalence verified.
@@ -16,6 +16,22 @@
 - **Composition**: Safe to compose with #102 (threadGroup) and #100 (O-proj prefetch).
 - **W&B**: Baseline y81omqko/6ga1mg8e/7qta01sy, Candidate njlm1fh1/rieo4n2q/tk4ca0ad
 - **Note**: Student used dot()+simd_sum (2 ops) not simd_dot() (1 op). Still 60% instruction reduction.
+
+## MERGED: PR #107 (Alphonse) — NVFP4 qdot dot4 vectorization
+- **Status**: MERGED (squash) → 16f1dc5. Bit-exact, upstream-equivalence verified.
+- **Change**: Replaced 16 scalar fma() with 4 dot(float4,float4) + 2 add in
+  `packedWordBody()` (the shared NVFP4 qdot header). 7 insertions, 12 deletions.
+  62.5% instruction reduction in the qdot body.
+- **M4 same-host timing**: decode 0.013387→0.013273 s/tok (-0.85%), prefill
+  neutral (+0.1%). Correctness: max_abs_diff=0 (bit-exact).
+- **Upstream equivalence**: All 8 decode steps EXACT (maxAbsError=0). Prefill
+  maxAbsError=0.125 is pre-existing M4 fixture drift (identical to baseline).
+- **Full tests**: 456/456 passed.
+- **Key finding**: dot(float4,float4) is numerically safe for NVFP4 qdot —
+  identical greedy tokens and exact decode-step logits vs upstream oracle.
+  M4 (bandwidth-bound) shows 0.85%; M5 (ALU-bound) should show larger gain.
+- **Composition**: qdot is called by ALL NVFP4 kernels. Composes with all
+  other experiments (different code paths).
 
 ## MERGED: PR #98 (Askeladd) — Prefill O-proj affine INT8 path extension
 - **Status**: MERGED (squash) → b6a0889. Bit-exact, upstream-equivalence verified.
@@ -38,48 +54,44 @@
   dequant overhead vs BF16 bandwidth savings), but the mechanism is sound.
   Official M5 measurement needed to confirm gain, not to prevent regression.
 
-## In-Flight Experiments (4 decode, all independent)
+## In-Flight Experiments (3 decode, all independent)
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact |
 |---------|-----|-----------|-----------|------|-------------|
-| Alphonse | #107 | NVFP4 qdot dot4 vectorization | Replace 16 scalar FMA with 4 dot(float4,float4)+adds in shared qdot header (all NVFP4 kernels) | MED | 0.5-2.0% decode |
-| Thorfinn | #102 | Attention threadGroup 1024→128 | Reduce 8× over-provisioning: only 128/1024 threads active. Bit-exact, improves occupancy + barrier latency | ZERO | 0.3-1.0% decode |
+| Thorfinn | #112 | Attention epilogue 1-pass merge (bfloat16 exchange) | Merge 2-pass epilogue (2 barriers) into 1-pass (1 barrier) by using bfloat16 for cross-sg exchange. 40 layers × 1 barrier saved. | MED | 0.3-0.6% decode |
 | Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode |
 | Askeladd | #109 | simd_sum vectorization sweep | Pack scalar simd_sum into vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU). Bit-exact. 75% fewer shuffle instructions. | ZERO | 0.2-1.0% decode |
 
-4 decode arms (75% score weight). All independent code sections. All compose cleanly.
+3 decode arms (75% score weight). All independent code sections. All compose cleanly.
 
-Note: PR #108 was a broken duplicate of #109 (invalid marker on line 3). PR #109
-is the live assignment for birch-askeladd. PR #108 is an orphan draft — cannot be
-closed via transition due to invalid marker; ignore it.
+**BASELINE ADVANCED to 16f1dc5** (PR #107 merged). All three PRs need rebase +
+re-run. PR #107 changes `packedWordBody()` (qdot), which is independent from:
+- Thorfinn #112 (attention kernel epilogue) — different code section
+- Edward #100 (O-proj prefetch) — different kernel
+- Askeladd #109 (simd_sum in down+residual/O-proj/SwiGLU) — different functions
+All three should rebase cleanly.
+
+Note: PR #108 and PR #111 are broken orphan drafts (invalid markers). Ignore them.
 
 ### Key Design Notes
 
-- **Alphonse #107**: Highest-impact experiment. qdot (laguna_nvfp4_qdot_codes_16)
-  is called by ALL NVFP4 kernels (shared SwiGLU QMV, routed SwiGLU R1, down+residual,
-  O-proj). 16 scalar FMA → 4 dot+2 add = 6 instructions (62.5% reduction in qdot body).
-  NOT bit-exact by construction (different summation order). Upstream equivalence
-  REQUIRED. Fallback arms: B (dot only for word 0), C (dot for first group per word),
-  D (close as negative). PR #94 proved dot() is bit-exact for attention on M5.
-  Previous PR #106 (down+residual 4→8) was cancelled — duplicate of PR #89 (NEGATIVE).
-
-- **Thorfinn #102**: Both fused attention kernels (sliding + full) dispatch
-  threadGroup=1024 but only 4 simdgroups (128 threads) do work. The kernel
-  comment at line 2366 confirms "one threadgroup of 128 threads (four simdgroups)".
-  Reducing to threadGroup=128 is bit-exact (same sg 0-3 mapping) and reduces
-  register waste + barrier latency. Runs on all 40 layers per decode step.
-  Independent from #94 (dispatch params vs kernel source — different code sections).
-  NOTE: #94 is now merged, so #102 must rebase to f4bad35 before testing.
+- **Thorfinn #112**: Attention epilogue 1-pass merge using bfloat16 exchange.
+  Current epilogue uses 2 passes (2 barriers per dispatch): pass 1 computes
+  partial sums + writes to shared memory, pass 2 does final reduction. Using
+  bfloat16 for cross-simdgroup exchange allows merging into 1 pass (1 barrier).
+  40 layers × 1 barrier saved per decode step. MEDIUM risk: bfloat16 exchange
+  may introduce tiny numerical differences (not bit-exact). Requires upstream
+  equivalence check. Replaces closed PR #102.
 
 - **Edward #100**: Depth-1 prefetch on gated affine INT8 O-proj kernel.
   Prior #93 (down+residual prefetch) was NEGATIVE (bandwidth-bound), but O-proj
   kernel may have different characteristics. M4 null is NOT a refutation for
   prefetch — M5 memory hierarchy differs. PR #99 is a duplicate — use #100.
 
-- **Askeladd #98**: Extends INT8 affine O-proj from decode-only to prefill.
-  Changes memory bandwidth (BF16→INT8), not dispatch count. Key distinction
-  from #97 (which proved dispatch elimination is NOT a win for prefill).
-  M4 prefill timing NOT evidence for _nax kernels (M4 doesn't select them).
+- **Askeladd #109**: simd_sum vectorization sweep. Pack scalar simd_sum into
+  vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU).
+  Bit-exact — same sum, fewer shuffle instructions. ZERO risk. 75% fewer
+  shuffle ops. Builds on PR #94's approach (dot+simd_sum in attention).
 
 ## Next-Wave Experiments (READY TO ASSIGN when students free up)
 
@@ -124,8 +136,10 @@ closed via transition due to invalid marker; ignore it.
 
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
-| #94 | Alphonse | simd_dot (dot+simd_sum) in attention | MERGED — bit-exact, -39 lines. M4 inconclusive, M5 unverified. |
-| #98 | Askeladd | Prefill O-proj affine INT8 path extension | MERGED — bit-exact, M4 prefill +3.3%. _nax confirmed reachable on M5 (source-verified). Official M5 measurement needed to confirm gain. |
+| #107 | Alphonse | NVFP4 qdot dot4 vectorization | MERGED → 16f1dc5. Bit-exact, 62.5% instruction reduction. M4 decode -0.85%, M5 should show more. |
+| #94 | Alphonse | simd_dot (dot+simd_sum) in attention | MERGED → e925569. Bit-exact, -39 lines. M4 inconclusive, M5 unverified. |
+| #98 | Askeladd | Prefill O-proj affine INT8 path extension | MERGED → b6a0889. Bit-exact, M4 prefill +3.3%. _nax confirmed reachable on M5. |
+| #102 | Thorfinn | Attention threadGroup 1024→128 | CLOSED — 7.4% speedup was from doing half the work, not threadGroup change. |
 | #97 | Edward | Prefill shared expert fused bank guard | NEGATIVE — dispatch elimination is NOT a win. Dispatch overhead negligible. |
 | #96 | Thorfinn | Register-prefetch on shared SwiGLU QMV | NEGATIVE — register pressure regression. Shared kernel has precomputed addresses. |
 | #93 | Edward | Register-prefetch on down+residual kernel | NEGATIVE — bandwidth-bound kernel, prefetch adds overhead. W&B run 3jhy0yb3 |
