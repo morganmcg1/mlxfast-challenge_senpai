@@ -1,6 +1,6 @@
 # SENPAI Research State
 - 2026-08-06T18:20Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at e5edb41 (pushed to origin).
+- Campaign mlxfast-birch-20260805. Advisor HEAD at d20e890 (pushed to origin).
   Scored code frontier: 639646a + 3 Wave 4 merges (PRs #130, #128, #129).
   M5 submission queued: 57d8f082 (composed #130+#128+#129).
 - **WAVE 4 RESULTS** (complete):
@@ -18,11 +18,13 @@
   Submission ID: 57d8f082-b303-4a63-8301-3ad8219db272. Status: validating.
   All changes bit-exact, different kernels, no overlap. Awaiting M5 verdict.
 
-- **WAVE 5 PLAN** (4 new assignments, all students idle):
-  1. NVFP4 O-proj simd_sum pack (L4232) — 4 scalar → 1 packed simd_sum, bit-exact
-  2. Affine QKV simd_sum pack (L5005) — 4 scalar → 1 packed simd_sum, bit-exact
-  3. Fused down simd_sum pack (L7662) — 4 per-row → 1 packed simd_sum, bit-exact
-  4. Scale Decode LUT — 256-entry constant LUT replaces 5-ALU-op scale decode, bit-exact
+- **WAVE 5 ASSIGNED** (4 new PRs, all bit-exact packed simd_sum):
+  PR #131 (Edward) — NVFP4 O-proj simd_sum pack (L4237): factor *4194304.0f, pack 4→1
+  PR #132 (Alphonse) — Affine QKV simd_sum pack (L4787+L5005): pack 4→1 in staged+non-staged
+  PR #133 (Thorfinn) — Shared SwiGLU down simd_sum pack (L6728): pack 4→1, 39 layers
+  PR #134 (Askeladd) — Fused down+residual simd_sum pack (L7662): pack 4→1, 39 layers
+  All 4 target different kernels, all bit-exact, all on scored decode path.
+  Research agent launched for Wave 6+ ideas (frontier model).
 
 - **POTENTIAL NEXT DIRECTIONS** (for future waves):
   - Prefill MoE variant 5→4 (_nax): +17.47% kernel-level, can't test on M4
@@ -33,7 +35,7 @@
   - block_width tuning in MoE gate/up kernels
 
 - **LEADERBOARD**: Current promoted best: 2.5888 (maple campaign). Target: beat 2.5888.
-- **FRONTIER**: Advisor HEAD at e5edb41. Scored code at 639646a + Wave 4 merges (#130, #128, #129).
+- **FRONTIER**: Advisor HEAD at d20e890. Scored code at 639646a + Wave 4 merges (#130, #128, #129).
 - **BUDGET**: ~2,963K / 3,000K bytes total. LagunaRuntimeModel.swift: ~507K / 524K per file.
 - **M5 SUBMISSION**: 57d8f082 (composed #130+#128+#129). Status: validating.
 - **KEY FINDINGS**:
