@@ -135,10 +135,8 @@ let lagunaFusedRoutedSwiGLUQMVEnabled =
 let lagunaPackedScalesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES"] != "0"
 
-/// Publish exact corrected router ordinals from the existing fused producer
-/// so routed QMV consumers avoid repeating the nonlinear key construction.
-/// The OFF arm restores the promoted selector dependency exactly.
-private let lagunaRouterPrecomputedKeysEnabled =
+/// Request exact corrected router ordinals for the non-R1 packed consumer.
+private let lagunaRouterPrecomputedKeysRequested =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_PRECOMPUTED_KEYS"] != "0"
 
 /// One-shot stderr visibility for the packed-scales arm: with the flag set,
@@ -806,7 +804,7 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     let guardOpen = activeSimdGroups < simdGroups
         ? "        if (simd_group < active_simd_groups) {\n" : ""
     let guardClose = activeSimdGroups < simdGroups ? "        }\n" : ""
-    let routerStore = lagunaRouterPrecomputedKeysEnabled
+    let routerStore = lagunaRouterPrecomputedKeysProduced
         ? """
                 bfloat logit = bfloat(router_result[r]);
                 router_logits[router_row + r] = logit;
@@ -944,15 +942,15 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
                 rowsPerGroup,
                 MLXFast.metalKernel(
                     name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_"
-                        + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2"),
-                    inputNames: lagunaRouterPrecomputedKeysEnabled
+                        + (lagunaRouterPrecomputedKeysProduced ? "keys_v1" : "v2"),
+                    inputNames: lagunaRouterPrecomputedKeysProduced
                         ? ["residual", "branch", "weight", "router_weight", "correction_bias"]
                         : ["residual", "branch", "weight", "router_weight"],
-                    outputNames: lagunaRouterPrecomputedKeysEnabled
+                    outputNames: lagunaRouterPrecomputedKeysProduced
                         ? ["summed", "normalized", "router_logits", "router_keys"]
                         : ["summed", "normalized", "router_logits"],
                     source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
-                    header: lagunaRouterPrecomputedKeysEnabled
+                    header: lagunaRouterPrecomputedKeysProduced
                         ? lagunaDecodeRouterOrdinalHeader : "",
                     ensureRowContiguous: true
                 )
@@ -1029,7 +1027,7 @@ func lagunaResidualRMSNormRouter(
     let rowsPerGroup = lagunaRouterRowsPerGroup
     let tiles = experts / rowsPerGroup
     lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
-    let inputs = lagunaRouterPrecomputedKeysEnabled
+    let inputs = lagunaRouterPrecomputedKeysProduced
         ? [residual, branch, weight, routerWeight, correctionBias]
         : [residual, branch, weight, routerWeight]
     let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
@@ -1037,9 +1035,9 @@ func lagunaResidualRMSNormRouter(
         grid: (tiles * 512, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, hidden], [1, 1, hidden], [1, 1, experts]]
-            + (lagunaRouterPrecomputedKeysEnabled ? [[1, 1, experts]] : []),
+            + (lagunaRouterPrecomputedKeysProduced ? [[1, 1, experts]] : []),
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
-            + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : [])
+            + (lagunaRouterPrecomputedKeysProduced ? [.uint32] : [])
     )
     return (outputs[0], outputs[1], outputs[2], outputs.count > 3 ? outputs[3] : nil)
 }
@@ -7323,6 +7321,10 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
+private var lagunaRouterPrecomputedKeysProduced: Bool {
+    lagunaRouterPrecomputedKeysRequested && !lagunaRoutedGateUpR1Enabled
+}
+
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_indices_r1_bf16_v1",
     inputNames: ["input", "fused_weight", "packed_scales", "indices"],
@@ -7416,15 +7418,13 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
     fusedWeight: MLXArray,
     packedScales: MLXArray,
-    routerKeys: MLXArray,
+    routerKeys: MLXArray?,
     indices: MLXArray
 ) -> MLXArray {
     precondition(input.dtype == .bfloat16)
     precondition(input.shape == [1, 1, LagunaConstants.hiddenSize])
     precondition(fusedWeight.dtype == .uint32)
     precondition(packedScales.dtype == .uint8)
-    precondition(routerKeys.dtype == .uint32)
-    precondition(routerKeys.size == LagunaConstants.numExperts)
 
     if lagunaRoutedGateUpR1Enabled {
         precondition(indices.dtype == .uint32)
@@ -7440,6 +7440,12 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
             outputDTypes: [.bfloat16]
         )[0]
     }
+
+    guard let routerKeys else {
+        preconditionFailure("router keys required by non-R1 packed routed gate/up")
+    }
+    precondition(routerKeys.dtype == .uint32)
+    precondition(routerKeys.size == LagunaConstants.numExperts)
     return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
         [input, fusedWeight, packedScales, routerKeys],
         grid: (LagunaConstants.numExpertsPerTok * 128 * 64, 1, 1),
@@ -9922,10 +9928,10 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 {
                     lagunaPackedScalesLog.note(
                         "active", "routed swiglu qmv packed dispatch")
-                    if lagunaRouterPrecomputedKeysEnabled,
-                        let routerKeys,
-                        routerKeys.dtype == .uint32,
-                        routerKeys.size == LagunaConstants.numExperts,
+                    if lagunaRouterPrecomputedKeysRequested,
+                        (lagunaRoutedGateUpR1Enabled
+                            || (routerKeys?.dtype == .uint32
+                                && routerKeys?.size == LagunaConstants.numExperts)),
                         gate.topK == LagunaConstants.numExpertsPerTok,
                         gate.routerLogitSoftcapping == 0,
                         gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
