@@ -53,6 +53,14 @@ across all 12 slots.
 | 11 | `a_11_off.json` | OFF | `0` |
 | 12 | `a_12_on.json` | ON | unset |
 
+> ⚠ **The polarity in this table is historical.** At campaign time the flag was
+> opt-out (`!= "0"`), so ON = unset. After the campaign returned NO-GO the flag
+> was inverted to opt-in (`== "1"`) in commit `98c3221`, so that a merged
+> negative write-up cannot silently land the measured regression on the
+> frontier. This table is left as-run for provenance; to reproduce the arms
+> against current `HEAD`, spell ON as `DARKBLOOM_DENSE_PACKED=1` and OFF as
+> unset. See §8 of the main report.
+
 **The order is exactly orthogonal to slot position.** ON occupies slots
 {1,4,6,7,9,12} summing to 39; OFF occupies {2,3,5,8,10,11} also summing to 39.
 Both arms therefore have mean slot 6.5, so arm ⊥ slot and any linear
