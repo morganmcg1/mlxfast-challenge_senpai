@@ -1,0 +1,122 @@
+run                 n     mean   median      p10      min       sd
+s01_concurrent      392    8.284    8.317    8.116    8.074    0.100
+s02_serial          392    8.803    8.804    8.746    8.689    0.057
+s03_serial          392    8.750    8.727    8.592    8.527    0.136
+s04_concurrent      392    8.265    8.254    8.204    8.143    0.064
+s05_concurrent      392    8.314    8.318    8.252    8.119    0.059
+s06_serial          392    8.752    8.746    8.643    8.553    0.105
+s07_serial          392    8.762    8.787    8.607    8.544    0.132
+s08_concurrent      392    8.351    8.351    8.281    8.134    0.079
+
+replicates: 4 stock, 4 candidate
+
+stat        stock     cand    effect        within-stock  within-cand   verdict
+mean        8.304    8.767   -0.463 ms (+5.58%)    0.086        0.053   resolved
+median      8.310    8.766   -0.456 ms (+5.49%)    0.097        0.077   resolved
+p10         8.213    8.647   -0.434 ms (+5.28%)    0.165        0.154   resolved
+min         8.117    8.578   -0.461 ms (+5.68%)    0.069        0.162   resolved
+
+permutation over run medians: observed -0.456 ms, p = 2/70 = 0.029
+microbench prediction: +0.00% (+0.000 ms); measured: +5.49% (+0.456 ms)
+
+pooled over all rounds: 4 stock, 4 cand run medians
+  stock 8.310  cand 8.766  effect -0.456 ms  95% CI [-0.522, -0.390] ms
+  as speedup: -5.49%  95% CI [-6.28%, -4.70%]
+  microbench prediction +0.00% is EXCLUDED by this interval
+
+================================================================================
+PROBE VALIDITY
+================================================================================
+Plumbing proof (stderr banner printed once per worker, so a null could not be
+confused with a dead knob) -- ABBA order confirmed live in the worker:
+  s01_concurrent serial=0   s02_serial     serial=1
+  s03_serial     serial=1   s04_concurrent serial=0
+  s05_concurrent serial=0   s06_serial     serial=1
+  s07_serial     serial=1   s08_concurrent serial=0
+
+Correctness: all 8 runs report "teacher-forced greedy tokens: 0 divergences
+(all match)". Serial dispatch is strictly more conservative than concurrent
+dispatch plus MLX's hazard barriers, so bit-identical output is expected; it is
+confirmed rather than assumed.
+
+Separation: every concurrent run (median 8.254..8.351 ms) is faster than every
+serial run (median 8.727..8.804 ms). p = 2/70 is the exact minimum attainable
+for a two-sided 4-vs-4 permutation, i.e. complete separation.
+
+Timing basis: wall-clock step time from the worker. DARKBLOOM_GPU_PROFILE hooks
+are absent from this tree, so no in-situ GPU timestamps were available.
+
+================================================================================
+WHAT THIS MEASURES
+================================================================================
+Vendor/mlx-swift/.../backend/metal/device.cpp opens every compute encoder with
+MTL::DispatchTypeConcurrent, and needs_barrier_ is set only on a real RAW/WAR
+hazard, so hazard-free neighbours inside one barrier group may execute
+simultaneously. The probe flips that single constructor argument to
+MTL::DispatchTypeSerial and changes nothing else: same 406 dispatches, same 45
+command buffers, same kernels, same weights, same output.
+
+Delta = 0.456 ms/step is the decode step's total realised benefit from
+intra-command-buffer dispatch concurrency (overlap plus avoided per-dispatch
+drain/refill): 5.5 % of the step. Normalised, 0.456 ms / 406 dispatches =
+1.12 us per dispatch of average serialisation penalty. That is a different
+quantity from the per-dispatch launch floor (0.53-0.90 us, same-PSO, inside an
+open encoder, research/pr101-gatesp-dispatch-bench.txt), which is paid in both
+conditions.
+
+================================================================================
+DECOMPOSITION OF THE PR#73 CENSUS "DISPATCH OVERHEAD" CONSTANT
+================================================================================
+census.md:316 derives, from two configurations differing in command-buffer
+count:
+    delta = (8.883 - 8.276) ms / (406 - 45) cbs = 0.607 ms / 361
+          = 1.681 us per command buffer
+and attributes the whole 0.607 ms/step to command-buffer cost.
+
+This probe holds command-buffer structure fixed at the shipped 45 and varies
+only the encoder dispatch type, isolating the de-overlap term:
+
+    de-overlap (measured, CB count fixed) = 0.456 ms/step  [0.390, 0.522]
+    census gap (CB count varied)          = 0.607 ms/step
+    de-overlap share of the census gap    = 75 %           [64 %, 86 %]
+    residual attributable to CB count     = 0.151 ms / 361 = 0.42 us/cb
+                                            [0.085, 0.217] -> [0.24, 0.60] us/cb
+
+Two caveats, both of which widen rather than narrow the conclusion:
+  (a) DispatchTypeSerial inside one encoder is not identical to one dispatch
+      per command buffer. SPLIT=1 additionally loses cross-encoder pipelining
+      and pays encoder creation, so it destroys at least as much concurrency as
+      this probe does. 75 % is therefore a lower bound on the de-overlap share.
+  (b) The census gap is a gpu_busy_sum delta; this probe is a wall-clock delta.
+      In the shipped configuration wall - busy is only 0.254 ms (3.0 %), so the
+      two are comparable at this magnitude, but they are not the same estimator.
+
+================================================================================
+CONSEQUENCE FOR PER-KERNEL ATTRIBUTION
+================================================================================
+The census's zero-concurrency licence
+  ("gpu_busy_sum == gpu_busy_union ... zero dispatch concurrency in decode ...
+    per-kernel times are strictly additive", census.md:178-180)
+is measured in SPLIT=1, where command-buffer grain and dispatch grain coincide.
+At that grain the statement is true, but it cannot detect the phenomenon in
+question: one command buffer contributes one [gpuStartTime, gpuEndTime]
+interval, so overlap *inside* a command buffer shortens that interval and is
+invisible by construction. SPLIT=1 is itself the configuration that removes the
+concurrency it reports as absent, and this probe measures what SPLIT=1 costs.
+
+The census then corrects each family by subtracting a CONSTANT per command
+buffer. De-overlap is not constant per dispatch. A small hazard-free kernel
+that ran entirely in a larger sibling's shadow bears ~100 % of its own isolated
+time as de-overlap; a large kernel on the barrier group's critical path bears
+~0. A constant-per-CB correction therefore systematically OVER-attributes
+marginal cost to exactly the small hazard-free kernels that look like the most
+attractive optimisation targets.
+
+gate_sp is the canonical case. It reads `normalized`, the same input as the
+fused QKV dispatch that precedes it (LagunaRuntimeModel.swift:5758, :5761-5762,
+:5802-5803), not QKV's output: no hazard, no barrier, same barrier group,
+~8 threadgroups on a 20-core GPU beside a multi-MB qmv. Its census attribution
+of 259.0 us/step (3.1 %) is therefore an upper bound on its marginal cost, and
+the arm A result -- 43 % off its isolated serial execution time buying -0.04 %
+[-0.55 %, +0.48 %] end to end -- is what that bound being loose looks like.
+

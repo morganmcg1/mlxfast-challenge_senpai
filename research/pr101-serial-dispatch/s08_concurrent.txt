@@ -1,0 +1,10 @@
+worker up in 41.9s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.71832275390625 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 545.43 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 11.220 8.436 8.270 8.272 8.241 8.218 8.270 8.208
+decode steps=400 mean=8.357 ms median=8.350 ms p10=8.278 ms p90=8.411 ms min=8.134 ms max=11.220 ms total=3.343 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.72467041015625 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/pr101-serial-dispatch/s08_concurrent.worker.err
