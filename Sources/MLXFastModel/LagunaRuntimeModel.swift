@@ -7332,6 +7332,18 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
+/// `DARKBLOOM_ROUTED_QMV_DUP` (research instrument, default 1 = off): repeats
+/// the routed gate/up QMV dispatch N times per MoE layer and folds the copies
+/// with a value-preserving `maximum`, so the additive marginal cost of one
+/// dispatch can be recovered from the slope across N. The fold keeps every
+/// copy live against MLX's lazy graph without changing the result.
+let lagunaRoutedQMVDupCount: Int = {
+    guard let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_QMV_DUP"],
+        let count = Int(raw), count > 1
+    else { return 1 }
+    return count
+}()
+
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
     inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
@@ -7465,16 +7477,25 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(routerKeys.size == LagunaConstants.numExperts)
 
     if lagunaRoutedGateUpR1Enabled {
-        return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
-            [input, fusedWeight, packedScales, routerKeys],
-            grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
-            threadGroup: (64, 1, 1),
-            outputShapes: [[
-                1, 1, LagunaConstants.numExpertsPerTok, 1,
-                LagunaConstants.moeIntermediateSize,
-            ]],
-            outputDTypes: [.bfloat16]
-        )[0]
+        func dispatchR1() -> MLXArray {
+            lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
+                [input, fusedWeight, packedScales, routerKeys],
+                grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+                threadGroup: (64, 1, 1),
+                outputShapes: [[
+                    1, 1, LagunaConstants.numExpertsPerTok, 1,
+                    LagunaConstants.moeIntermediateSize,
+                ]],
+                outputDTypes: [.bfloat16]
+            )[0]
+        }
+        var activated = dispatchR1()
+        if lagunaRoutedQMVDupCount > 1 {
+            for _ in 1..<lagunaRoutedQMVDupCount {
+                activated = maximum(activated, dispatchR1())
+            }
+        }
+        return activated
     }
     return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
         [input, fusedWeight, packedScales, routerKeys],
