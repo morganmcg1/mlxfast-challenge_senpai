@@ -1,7 +1,10 @@
 # SENPAI Research State
 
-- **2026-08-06 03:20 UTC** (advisor: meridian). **Round 13 is closed. Round 14
-  is running.** Frontier is **`9e8c719f`**. Four merges in round 13:
+- **2026-08-06 03:45 UTC** (advisor: meridian). **Round 14 is closed. Round 15
+  is running.** Frontier is **`f2fedd58`** (#81 merged; read the ROUND-15 DELTA
+  block first — it supersedes the ROUND-14 block wherever they disagree, and
+  it mints **§0.9.33 the census-transfer law**, taking the law count to
+  **thirty-three**). Historical context follows. Four merges in round 13:
   **#35 (frieren) MERGED at `6f60c3a4` — the programme's FIRST SHIPPED WIN
   since the crown**, ranked receipt `0d123661`, `ns` 2.529734 → **2.556326 =
   +1.0512 %**, and it is now **rank 1 of 1,049 passing receipts on `ns`**;
@@ -33,6 +36,140 @@
   patch, never merged as permanent scored-path code.
 
 ---
+
+## ★★★ ROUND-15 DELTA (2026-08-06 03:45 UTC) — READ BEFORE THE ROUND-14 BLOCK
+
+Round 14's byte-budget arm has landed. This block records only what changed
+since the round-14 block below was written; everything not contradicted here
+still stands.
+
+### R15.0 Frontier
+
+**Frontier is `f2fedd584e6514569758d79e581402210306e77b`** (was `9e8c719f`).
+**#81 (tanjiro) MERGED** — Metal-literal byte reclamation in
+`LagunaRuntimeModel.swift`. Behaviour-neutral by construction and verified as
+such: a 100 %-coverage identity certificate over all 108 literal blocks plus
+the concatenated blob, base→T1 byte-identical under
+`git diff --ignore-all-space`, base→T2 differing only by `//` removal with
+**0 unexplained bytes**, and the string-internal delta (−13,397 B) equal to the
+whole-file T1→T2 delta exactly. `max_abs_diff=0`, `checked_steps=130`,
+`golden_hash b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`.
+It is the programme's **third** full static-equivalence discharge (#35 r5-A,
+#72 §0.9.21, #81 §6.1).
+
+| | before | after |
+|---|---:|---:|
+| `LagunaRuntimeModel.swift` | 521,506 B | **478,533 B** |
+| per-file headroom (cap 524,288) | 2,782 B | **45,755 B (16.4×)** |
+| total budget headroom | 26,943 B | **69,916 B** |
+| growth this review | — | **−42,973 / 262,144** |
+| editable files | 142 | 142 |
+
+`f2fedd58` is **NOT docs-only**: it rewrites a submitted file. All three open
+arms (#80, #82, #85) therefore consumed their single permitted rebase this
+round, released 2026-08-06 03:40 UTC.
+
+### R15.1 Three standing policies minted this round
+
+**(a) Byte allocation of the 69,916 B.** **#80 = 25 kB · #82 = 15 kB ·
+#85 = 25 kB · 5 kB reserve.** A student must ask before exceeding, and must
+re-run `senpai/check-editable-budget.sh f2fedd58…` at their own head before
+reporting. The budget is a shared resource with three simultaneous claimants;
+first-come-first-served would let one arm strand the other two.
+
+**(b) Per-file margin law.** **Maintain ≥ 20 kB of per-file headroom on
+`LagunaRuntimeModel.swift`.** T3 (strip remaining relative indent inside
+literals, ~18,286 B) is the **reserve that defends that margin** and is **NOT
+AUTHORISED** until headroom actually falls below 20 kB. Reclamation tiers are
+insurance, not currency to be spent on sight.
+
+**(c) T8 is permanently declined.** The 126,053 B pool of ordinary Swift
+comments in `LagunaRuntimeModel.swift` is the largest single reclamation
+target in the tree and we will not touch it. Those comments are how four
+agents and a human team keep a 478 kB kernel file legible across sessions.
+**We buy bytes from string literals, never from reasoning.**
+
+### R15.2 Reclamation ladder — current disposition
+
+| tier | action | est. | actual | status |
+|---|---|---:|---:|---|
+| T0 | delete M5 injection instrument | 12,498 | — | **VETOED** |
+| T1 | dedent literal bodies | 27,192 | **29,576** | **SHIPPED** |
+| T2 | strip `//` inside literals | 15,815 | **13,397** | **SHIPPED** |
+| T3 | strip remaining relative indent | 18,286 | — | **RESERVE**, gated on <20 kB headroom |
+| T4 | hoist duplicate MSL fragments | ~3,690 | **2,449 proven** | **APPROVED, queued** |
+| T5 | collapse `\\` padding + literal blanks | 2,604 | — | low risk, unqueued |
+| T6 | unify QKNorm/H1 + Packed/Selected twins | ~8,800 | — | medium risk |
+| T7 | unify sliding/full fused attention | ~12,100 | — | high risk |
+| T8 | prune Swift comment pool | ≤126,053 | — | **PERMANENTLY DECLINED** |
+
+Also queued: tanjiro's T1/T2 identity certificate promoted to a **runnable
+`research/` script** so any future literal edit can be re-certified in one
+command. It cannot live in `Tests/` — `Tests/` is not in `editablePaths`.
+Separately open: the **24,164 B `DARKBLOOM_STAGE2_GATHER`** deletion pool
+(§0.9.30).
+
+### R15.3 ★ New law — §0.9.33 THE CENSUS-TRANSFER LAW
+
+A census quantity transfers across Apple Silicon generations **iff it is
+determined by the algorithm rather than by the machine**.
+
+- **Transfers exactly:** byte traffic, FLOP counts, dispatch counts, command
+  buffer counts, threadgroup geometry, threadgroup-memory footprint, tensor
+  shapes and dtypes, and any ratio built only from those.
+- **Does not transfer:** achieved GB/s, achieved FLOP/s, kernel wall time,
+  occupancy residency, and "% of ceiling".
+
+This is why #73's decode census was decisive: its load-bearing column was
+**bytes** (1794 MB/step), which is M5-valid, and its M4 timings were used only
+to rank *within* a family. It is also the answer to the standing objection
+that an M4 prefill census is worthless because `_nax` divergence covers 94.2 %
+of prefill kernel time (`research/maple-fern-prefill-roofline.md:26-35`): the
+`_nax` twin computes the same result from the same operands, so **it moves the
+same bytes and issues the same FLOPs**. Only the rate differs. A prefill
+*byte and dispatch* census is therefore fully M5-valid; a prefill *time*
+census is not.
+
+Corollary for brief-writing: state, for every census column, whether it is
+algorithmic or machine-determined. #73 did this implicitly and got it right;
+saying it out loud is what stops the next §0.9.11 casualty.
+
+### R15.4 Round 15 opens on the prefill axis
+
+Round 14 committed the entire roster to the decode byte axis. That was correct
+when it was decided and all three arms are still live, but it leaves the
+programme with **zero prefill work in flight** against a score that weights
+prefill at 25 % and floors it at 0.95. The largest single unexplained pool in
+the programme is on that axis: **31.28 ms of M5 prefill `S` is a pure
+subtraction leftover = 11.60 % of score**, and the three retracted attempts to
+explain it ("~34 ms", "46 ms of prefill glue", "~26 ms bottom-up-explainable",
+CLAIM C) are exactly why it is still open.
+
+**tanjiro → prefill budget census (P-CENSUS).** Zero submitted bytes, so it
+does not compete for the 69,916 B; M5-valid by §0.9.33 construction; and it
+pre-prices the queued prefill mechanisms (split-K fusion port, kernel-side
+gather elision, LPT expert-launch permutation) before we spend a student-round
+implementing any of them. This is the prefill twin of #73.
+
+### R15.5 Ranked channel
+
+Allocated to **#85 Step 0** (nezuko), dispatching from `f2fedd58`. That receipt
+measures **#72 + #81 together** against the pinned baseline and must be
+labelled that way. Rationale: #81 is inert by construction so #72's
+attribution is unharmed; the channel is our scarcest resource at roughly ten
+submissions per promotion; and #81's T2 strip has never been compiled on the
+official M5, so bundling buys that confirmation free. nezuko releases the
+channel back to the advisor immediately afterwards.
+
+### R15.6 Mechanic learned
+
+`send_assignment_feedback` **fails on a merged PR** (`pull request must be open
+and unmerged`). **Post all feedback to a PR BEFORE calling `merge_experiment`.**
+A post-merge thank-you or next-step note has to be delivered through the
+student's next assignment PR instead.
+
+---
+
 
 ## ★★★ ROUND-14 STATE (2026-08-06 03:20 UTC) — READ THIS FIRST
 
