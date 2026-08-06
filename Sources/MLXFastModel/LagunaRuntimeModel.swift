@@ -7369,7 +7369,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
-        thread float input_values[values_per_lane];
+        thread float4 input_values[values_per_lane / 4];
 
         // Depth-1 weight staging: block b+1's gate/up code words (the same
         // uint2 laguna_nvfp4_qdot_16 loads internally) and scale bytes are
@@ -7397,11 +7397,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
                 (const device vec<bfloat, 4>*) (
                     input + block + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
+                input_values[i] = float4(input_vectors[i]);
             }
 
             const uint2 cur_gate_codes = gate_codes;
@@ -7423,10 +7419,10 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
                     + next_block / 2 + lane * 8);
             }
 
-            gate_result += laguna_nvfp4_qdot_codes_16(
+            gate_result += laguna_nvfp4_qdot_codes_16_vec4(
                 cur_gate_codes, input_values,
                 laguna_nvfp4_scale(cur_gate_sb));
-            up_result += laguna_nvfp4_qdot_codes_16(
+            up_result += laguna_nvfp4_qdot_codes_16_vec4(
                 cur_up_codes, input_values,
                 laguna_nvfp4_scale(cur_up_sb));
         }
