@@ -1,0 +1,31 @@
+census [SPLIT=0 (shipped batching)]  trace=research/pr91-logs/step1-split0.worker.err
+  command-buffer records in trace  990
+  dispatches in trace              15180
+  trailing forwards recovered      6 x 1222 dispatches
+  command buffers per forward      [81, 81, 81, 81, 81, 81]
+  kept                             5 (dropped first 1 as cold)
+
+  command buffers / forward   81
+  dispatches / forward        1222
+  gpu busy (additive sum)       540.699 ms
+  gpu busy (interval union)     540.699 ms
+  fully-overlapped (arange)      34.921 ms
+  serial-equivalent basis       505.777 ms (sum - overlapped; union is 540.699, 6.46% apart)
+  bound input bytes / forward    26.540 GB (24.717 GiB)
+
+  family                  n/fwd    ms/fwd  %serial   GB/fwd
+  steel_gemm_bf16           392   181.601   35.91%    8.353
+  elementwise               235   107.988   21.35%    4.948
+  sort_scatter              154    69.949   13.83%    3.301
+  nvfp4_dense_qmm           116    52.542   10.39%    2.465
+  rms_norm                   82    36.083    7.13%    1.854
+  routed_gather_gemm         76    34.921    6.90%    1.597
+  qk_norm_rope               41    18.367    3.63%    0.880
+  attention_core             40    18.287    3.62%    0.846
+  router                     40    17.621    3.48%    0.867
+  moe_tail                   38     2.910    0.58%    0.878
+  other                       3     0.240    0.05%    0.103
+  lm_head                     5     0.174    0.03%    0.446
+  TOTAL                    1222   540.684
+  closure: family dispatch sum 1222 vs profiler 1222 -> OK
+  closure: family ms sum 540.684 vs additive busy 540.699 -> 0.003% OK
