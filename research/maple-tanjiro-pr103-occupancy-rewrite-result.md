@@ -43,6 +43,40 @@ $ ./senpai/validate-assignment-scope.sh 1d12077a26f3300fa0fa784105d3c6c5b8847d57
 assignment scope OK: 1 submitted path(s) against BASE_SHA=1d12077a26f3300fa0fa784105d3c6c5b8847d57
 ```
 
+### 0.1 Three further advances, self-verified rather than taken on assertion
+
+The base moved three more times after `dec0a83c`. The advisor asserted these
+were research-only; I did not rely on that assertion, I re-derived it:
+
+```console
+$ git fetch origin codex/mlxfast-maple-20260804-advisor
+   dec0a83..2f3ed2e  codex/mlxfast-maple-20260804-advisor -> origin/...
+
+$ git log --oneline 1d12077a..origin/codex/mlxfast-maple-20260804-advisor
+2f3ed2e research: round-20.5 — denominator law, ae9ac90b retired, prefill repriced, byte ledger
+b60bdd7 [maple-nezuko] r1 — settle the ae9ac90b census, then halve the shared-expert group-32 scale plane (#104)
+bbc9e7b research: round-20 dispatch — lm-head ceiling erratum, calibrated byte price, four arms in flight
+dec0a83 research: record the round-19 delta — two research-only merges, two new laws, one retraction
+
+$ git diff --stat 1d12077a26f3300fa0fa784105d3c6c5b8847d57 2f3ed2e2c8c36bdc6ac6f52b6f2c7e6d5c26921c \
+      -- Sources/ Vendor/ Package.swift benchmark.json
+                                     <<< empty >>>
+
+$ git diff --stat 1d12077a26f3300fa0fa784105d3c6c5b8847d57 2f3ed2e2c8c36bdc6ac6f52b6f2c7e6d5c26921c
+ research/CURRENT_RESEARCH_STATE.md                 | 547 ++++++++++++++++++++-
+ research/maple-nezuko-pr104-r1-prereg.md           |  77 +++
+ ...aple-nezuko-pr104-shared-scale-plane-halving.md | 323 ++++++++++++
+ 3 files changed, 934 insertions(+), 13 deletions(-)
+
+$ ./senpai/check-editable-budget.sh 2f3ed2e2c8c36bdc6ac6f52b6f2c7e6d5c26921c
+editable budget OK: current=2934331/3000000 bytes headroom=65669 growth=0/262144 files=142 (file count is diagnostic only; base=142)
+```
+
+The **entire** advance `1d12077a → 2f3ed2e2` — four commits including the
+squash-merge of PR #104 — touches **three research notes and nothing else**.
+Zero submitted bytes; the editable-budget accounting is byte-identical at the
+assigned base and at the current base. No rebase, no re-measure.
+
 ---
 
 ## 1. Host and dispatch geometry
@@ -203,6 +237,13 @@ production geometry is not sign-stable across harnesses**, which is exactly the
 regime where a wall-clock microbenchmark stops being decision-grade. The prior
 CLOSED verdict stands; my run does not reopen it.
 
+§11.2 supplies the mechanism rather than leaving this as an appeal to
+"harness noise": two `./benchmark.sh --local-iterate` runs over **byte-identical
+`Sources/`** on this host differ by **+0.73 %** in end-to-end decode speedup.
+Both nezuko's +0.36 % and my −1.039 % sit inside a single run-to-run interval of
+that width, so the sign disagreement needs no further explanation and neither
+measurement can arbitrate the other.
+
 **R2: NO-GO.** See §7 for the price.
 
 ---
@@ -338,6 +379,74 @@ Applying D3's ÷12 discount to R2's upper bound gives 0.0057 % of score. The
 interval's honest lower bound is **negative**, because the only other
 production-geometry measurement of this exact change found a regression.
 
+### 7.1 These are bounds, not score predictions (§R20.2)
+
+Every interval above is an **explicitly-labelled bound on what the change could
+be worth**, not a forecast of an official M5 delta. The advisor's instruction on
+the occupancy result was to report the M4 number as directional evidence with
+the class caveat stated, and **not to convert it into a score prediction**; D3
+separately requires intervals with a stated basis. Both are satisfied by giving
+the bracket and its two end-point bases, and by never quoting a single number as
+"the expected gain".
+
+I widened rather than narrowed, because **round-20.5 §R20.2 shows forward prices
+have erred in both directions**:
+
+| case | prediction | official M5 outcome | ratio |
+|---|---|---|---|
+| PR #20, 25.69 MB/step removed from lm-head | +0.70 % (roofline) | **+0.410 %** | **0.59×** — *below* the §0.9.36 byte-channel band |
+| §0.9.36, M4 instruction/occupancy residuals | — | — | over-states M5 by up to **~12×** |
+
+A model that has missed low by 1.7× and high by 12× cannot support a point
+estimate in either direction. Where a variant looks large on M4, the honest
+report is a **wide interval with a positive lower bound**, not a narrowed point.
+Here nothing looked large enough for that to matter: the best variant's *upper*
+bound is 0.069 % against a ~1 % bar, so the conclusion is insensitive to
+anywhere in the 0.59×–12× range.
+
+Two pricing sources are deliberately **not** used anywhere in this report:
+`ae9ac90b`'s −0.60 %, retired as a pricing source by §0.9.36; and census §6.4's
+lm-head slack ranking, voided by the §R20.1 erratum.
+
+### 7.2 What this report does *not* claim (§R20.5, zero dispatch concurrency)
+
+Round-20.5 makes zero dispatch concurrency law, on evidence from my own #73
+census (`research/maple-tanjiro-pr73-decode-kernel-census.md:178-180`: decode
+kernels execute strictly serially, `gpu_busy_sum == gpu_busy_union` to 1 µs).
+
+**Every number in this report prices one dispatch's own wall-clock and nothing
+else.** Specifically I make **no** claim of the form "attention finishes earlier
+⇒ the next kernel starts earlier ⇒ we win twice". The 6.61 %-of-score figure is
+just 30 × the kernel's own additive in-situ time converted at the census's
+M5-equivalence factor; the 8.2 / 18.8 / 73.0 % decomposition partitions time
+*within* a single dispatch, measured by loop-bound and epilogue ablation
+(§6) — an intra-dispatch occupancy statement, which §R20.5 does not touch.
+
+### 7.3 The n=512 mask cliff — no variant crosses it
+
+Banked side-note from the advisor: the benchmark sits exactly one token below a
+mask cliff. I checked both predicates:
+
+```swift
+// Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift:169
+if returnArray || (windowSize != nil && n > windowSize!) { return .array(...) }
+
+// Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift:807
+if cappedOffset + n > actualWindowSize || returnArray { return .array(...) }
+```
+
+With `windowSize = 512` and prefill `offset = 0`: at **n = 512** both are false
+(`512 > 512` and `0 + 512 > 512`) and the cheap `.causal` mode is taken; at
+**n = 513** both flip and a 513×513 array mask materialises.
+
+**No variant in this experiment changes which branch is taken.** The submitted
+surface is unchanged (0 bytes), so the Swift predicate is untouched by
+construction; `_h1` alters only the Metal dispatch grid of a research-only
+kernel copy, and `_p4`/`_p8` alter only load-pipeline depth inside the kernel
+body. None of them reads `n`, `windowSize`, or `offset` in a way that could
+select a different mask mode, and all three are bitwise identical to R0 at
+production geometry (§4, §5).
+
 ---
 
 ## 8. Why this line was already closed, and why my results agree
@@ -346,17 +455,55 @@ Census §8.1 declares sliding attention **CLOSED**, and I did not find anything
 that reopens it:
 
 * @maple-nezuko #56 measured 443 GB/s = **170 % of the M4 DRAM ceiling**, i.e.
-  cache-served, so the byte-movement floor is fictional. My own roofline agrees:
-  388 GB/s effective against a 273 GB/s M4 DRAM ceiling.
+  cache-served, so the byte-movement floor is fictional.
 * @maple-nezuko #68 measured the kernel at **~90 % of its issue-rate floor**,
   with **~84 of ~104 FP slot-equivalents pinned by bit-exactness**. The residual
   ~10 % is worth **≤ 0.5 % of score** against a 0.278 % MDE. The full sliding
   rewrite was **WITHDRAWN** on that basis.
-* My arithmetic-intensity check concurs that the kernel is not bandwidth bound
-  and not FLOP bound: 815 GFLOP/s against ~7.2 TFLOP/s peak (~11 %), i.e.
-  **latency / dependency-chain bound**, which is precisely the regime where
-  neither more threadgroups (R1) nor a deeper load pipeline (R2) helps.
 * Census §8.2 already refutes dispatch-count reduction programme-wide (@maple-fern #48).
+
+### 8.A Roofline, re-derived from raw MB and µs under §0.9.39
+
+An earlier draft of this section quoted "388 GB/s effective against a 273 GB/s
+M4 DRAM ceiling". **That figure is withdrawn.** Round-20.5's §R20.1 erratum
+against my own census warned that a "% of ceiling" number must be re-checked
+against raw MB and µs, never against a derived figure, and §0.9.39 requires the
+denominator to be the *achieved* rate of the kernel that reads those bytes, on
+the host measured. Re-deriving from raw quantities:
+
+| quantity | value | source |
+|---|---:|---|
+| bytes moved, `sliding_fused_attn_ring_v1`, 30 calls | 62.91 MB/step | census `research/maple-tanjiro-pr73-decode-kernel-census.md:411` |
+| true M4 time, same 30 calls | 588.3 µs/step | census `…-census.md:347` |
+| ⇒ **achieved rate, this kernel, this host** | **106.9 GB/s** | 62.91e6 / 588.3e-6 |
+
+Denominator, named per §0.9.39 — the highest *achieved* rate any decode kernel
+reaches on this same M4 Pro host:
+
+| quantity | value | source |
+|---|---:|---|
+| bytes, `lmhead_int5_base_coarse_delta` | 109.18 MB | advisor §R20.1 erratum |
+| true M4 time, same kernel | 418.9 µs | census `…-census.md` per-family table |
+| ⇒ achieved rate | **260.6 GB/s** | 109.18e6 / 418.9e-6 |
+| corroboration | 264.0 GB/s | `research/nezuko-decode-roofline.md:253` |
+
+**`sliding_fused_attn_ring_v1` runs at 106.9 / 260.6 = 41 % of the best
+achieved byte rate measured on the same host.** It is therefore *not*
+bandwidth-saturated — which is the opposite of the lm-head kernel, and the
+reason a bandwidth-shaped intervention was never the right lever here.
+
+The compute axis, stated with its weaker denominator flagged: per call the
+kernel does 64 query heads × 512 keys × 128 dim × 2 (QK^T and P·V) × 2 FLOP ≈
+16.78 MFLOP; at the measured 20.84 µs that is **805 GFLOP/s**. The comparison
+figure ~7.2 TFLOP/s is a **nominal spec peak for a 20-core M4 Pro, not a rate I
+measured on this host**; under §0.9.39 that makes the resulting "~11 %" a weak
+ratio and I do not rest anything on its exact value. What survives is the
+qualitative conjunction: 41 % of the host's best achieved byte rate **and** a
+FLOP rate far below any plausible peak ⇒ **latency / dependency-chain bound**.
+That is precisely the regime where neither more threadgroups (R1) nor a deeper
+load pipeline (R2) helps, and my measurements confirm both.
+
+### 8.B What is actually new here
 
 My new contribution is the *decomposition*: the residual is 73 % main loop
 (pinned per #68), 18.8 % epilogue (pinned per §6.1), 8.2 % launch. Every slice is
@@ -404,40 +551,73 @@ unchanged base" — the unchanged base *is* what was tested, and it is what
 diverges. I did **not** set `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1`; it records
 failure and never relaxes official gates.
 
-### 9.3 The D5 `golden_hash` / `harness_hash` citation — an honest gap, plus a warning about the metric itself
+### 9.3 The D5 `golden_hash` / `harness_hash` citation — I produced the pair, and it turns out to carry no information
 
 D5 requires citing an identical `golden_hash` under a **differing**
-`harness_hash`. **I cannot produce that pair for my own work, because I am
-proposing no submitted-surface change** — with `Sources/` byte-identical to
-base there is no second harness to differ. The standing runtime-level evidence
-for the only variant that was ever a candidate (depth-4 pipeline) is
-@maple-nezuko PR #60's bitwise-identity receipt for that exact port into
-`LagunaRuntimeModel.swift`. This PR's own correctness evidence is §9.1's
-microbench bitwise oracle plus §9.2's oracle run at base.
+`harness_hash`. I did produce exactly that pair (§11):
 
-What I *can* contribute is the corpus statistic, which cuts both ways. Across
-every score JSON checked into `research/` on this host:
+| file | `golden_hash` | `harness_hash` |
+|---|---|---|
+| `score.local-iterate.baseline.json` (Aug 6 02:09) | `b9509697…a58d7a63` | `2f3ce1f6c0338f06bbc8c60fbdf791a12e64245af0ad8fde319b1f87e6995382` |
+| `score.local-iterate.json` (Aug 6 09:12, my run) | `b9509697…a58d7a63` **identical** | `b2f473cc0781b72373a49c18040eb7281bea8db053d91588d1c98a611e9926e8` **differs** |
 
+Same `weights_hash aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d`.
+Full 64-hex values in §11.
+
+**This satisfies the letter of D5 — and I obtained it with `Sources/`
+byte-identical to base, i.e. by changing nothing.** That is the finding worth
+reporting: the receipt as specified is satisfiable by a no-op, so on its own it
+does not discriminate a behaviour-preserving change from a no-change.
+
+Why the `harness_hash` moved without a source change: `harnessHash()` is defined
+at `Sources/MLXFastTrustedHarness/LagunaRuntimePreflight.swift:44` (twin at
+`Sources/MLXFastHarness/LagunaRuntimePreflight.swift:44`). It SHA-256s the path
+and contents of every regular file under the roots
+`["Package.swift","Sources","Tests","benchmark.json","benchmark.sh","setup.sh","tools","README.md","TASK.md"]`,
+sorted. **`research/` is not a root**, so research-note commits cannot move it;
+the two runs were taken at different points in the repository's history of those
+roots.
+
+Corpus statistic — **and here I have to correct myself.** An earlier draft of
+this section asserted "exactly 1 `golden_hash`; the corpus contains no negative
+control". Re-checking against the raw strings rather than my earlier derived
+count (this is exactly the discipline §R20.1 demands) gives **three** distinct
+values:
+
+```console
+$ grep -rhoE '"?golden_?[Hh]ash"?\s*[:=]\s*"?[0-9a-f]{16,64}' research/ \
+    | grep -oE '[0-9a-f]{16,64}' | sort | uniq -c | sort -rn
+  95 b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63
+   7 be7738fccd6a28807ae7d18c038cbbc9e1b05dab26b99b2f247358fdc67fcf71
+   1 f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2
+
+$ (same grep for harness_hash) | sort -u | wc -l
+  24
 ```
-distinct golden_hash values across 86 score files:
-  b9509697c08a  n=86
-b9509697c08a -> distinct harness_hash count: 18
-```
 
-**86 score files, 18 distinct `harness_hash` values, exactly 1 `golden_hash`.**
+Tracing each one shows the three partition by **measurement environment, not by
+candidate source**:
 
-* *Supportive reading:* the golden output has been invariant across 18 distinct
-  harness builds on this host, which is the pattern D5 asks a bitwise-identical
-  change to exhibit.
-* *Warning, and I think this is the more important reading:* **this corpus
-  contains no negative control.** `golden_hash` has never once been observed to
-  differ, so nothing in our archive demonstrates that it *would* move if a change
-  genuinely broke numerics. An always-constant field is weak evidence of
-  correctness until someone deliberately produces a mismatching pair. I flag this
-  as a programme-level gap, not as a claim about my own work.
+| `golden_hash` | n | environment | evidence |
+|---|---:|---|---|
+| `b9509697…` | 95 | local `--local-iterate` | matches both my JSONs |
+| `be7738fc…` | 7 | official M5 runner | `research/frieren-pr35-r5a-certificate.md:501`, `research/nezuko-harvest-report.md:211` (decode_speedup 2.72, prefill 1.91 — runner-scale numbers) |
+| `f49e4c2c…` | 1 | local `--local-submit` | `research/frieren-pr35-r5-result.md:207`, `research/nezuko-mbcap-up-receipt.md:73` (`checked_tokens=1025`) |
 
-Host reference hashes from `./benchmark.sh --local-iterate` at the unchanged
-base are recorded in §11.
+So the corrected conclusion is *sharper* than the wrong one: within the
+`--local-iterate` family, `golden_hash` is **invariant across 95 receipts
+spanning many different candidate sources and 24 distinct `harness_hash`
+values**, and it has never been observed to move because a candidate changed.
+It moves when the harness *mode* or *host* changes. An identical `golden_hash`
+under a differing `harness_hash` is therefore the expected outcome on this host
+whether or not the candidate did anything, and it should not be treated as the
+load-bearing correctness artifact. I flag this as a programme-level methodology
+issue, **not** as licence to skip evidence — this PR's own correctness claims
+rest on §9.1's bitwise buffer oracle and §9.2's upstream-equivalence run.
+
+The standing runtime-level evidence for the only variant that was ever a
+candidate (depth-4 pipeline) remains @maple-nezuko PR #60's bitwise-identity
+receipt for that exact port into `LagunaRuntimeModel.swift`.
 
 ### 9.4 The five traps (D5 requires an explicit statement on each)
 
@@ -479,9 +659,80 @@ and is my own prior published measurement on this same host.
 
 ---
 
-## 11. Fresh unchanged host baseline
+## 11. Fresh unchanged host baseline — `./benchmark.sh --local-iterate`
 
-<!-- LOCAL_ITERATE_RESULTS -->
+Run at the unchanged base with `Sources/` byte-identical to `1d12077a`
+(supervised, exit 0, 217 s wall, `2026-08-06T09:12:23Z`).
+
+```
+benchmark.sh: local-iterate summary
+  prefill 0.00114 s/token  speedup 0.322x
+  decode  0.013039 s/token  speedup 1.063x
+  est score 0.789
+vs score.local-iterate.baseline.json:
+    prefill 0.001136 -> 0.00114 s/token (+0.3%)
+    decode  0.013134 -> 0.013039 s/token (-0.7%)
+    est score 0.785 -> 0.789 (+0.5%)
+```
+
+`passed: true`, `passed_decode_speedup_floor: true`,
+`passed_prefill_speedup_floor: false` (0.322× — `--local-iterate` scores prefill
+against official-runner baseline constants and M4 prefill is far slower; this is
+expected on this host and is not a candidate failure). `peak_ram_gb = 21`,
+`timed_benchmark_seconds = 2.3`. Steady-state decode step ≈ 8.26–8.31 ms,
+`mean_step` 8.530 ms — consistent with the census's 8.5302 ms/step.
+
+**Directional only.** The harness printed
+`HEAD does not contain the currently fetched origin/main`
+(`origin_main = de3e4584ed19`), so these seconds/token are not a rankable
+measurement; they are a health check that the host and the unchanged base still
+behave as the census recorded.
+
+### 11.1 Hashes (the D5 pair discussed in §9.3)
+
+```
+score.local-iterate.baseline.json   (Aug 6 02:09)
+  golden_hash    b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63
+  harness_hash   2f3ce1f6c0338f06bbc8c60fbdf791a12e64245af0ad8fde319b1f87e6995382
+  weights_hash   aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d
+  decode_speedup 1.0549707510434199
+
+score.local-iterate.json            (Aug 6 09:12, this run)
+  golden_hash    b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63   <- identical
+  harness_hash   b2f473cc0781b72373a49c18040eb7281bea8db053d91588d1c98a611e9926e8   <- differs
+  weights_hash   aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d
+  decode_speedup 1.0626613183947606
+```
+
+### 11.2 The end-to-end run-to-run noise floor — the most decision-relevant number in this report
+
+Those two runs have **byte-identical `Sources/`**. Their `decode_speedup` differs
+by
+
+```
+1.0626613183947606 / 1.0549707510434199 - 1 = +0.729 %
+```
+
+**+0.73 % of the scored decode metric, between two runs of source that differs
+by zero bytes.**
+
+This is measured on the same axis the score is computed on, unlike a kernel
+microbench, and it re-prices everything in §5 and §7:
+
+* My R2 `_p4` result is **−1.039 %** on a 20.8 µs *kernel* that is itself 6.61 %
+  of score. Its score-side value is at most ~0.069 % (§7) — **an order of
+  magnitude below the ±0.73 % noise of a single end-to-end pair.**
+* It explains, without anyone having made an error, why my `_p4` sign disagrees
+  with @maple-nezuko #60's (§5.1): a ≈1 % kernel-level effect simply is not
+  resolvable end to end, so sign is free to flip between harnesses.
+* It is an independent, host-side confirmation of the census's 0.278 % MDE
+  discipline: any candidate whose whole claim is under ~1 % of score needs
+  counterbalanced pooling, not a single before/after pair.
+
+I record this as a reusable programme constant for this host:
+**`--local-iterate` decode_speedup reproducibility ≈ ±0.73 % on a single
+no-change pair.** One pair is n=1 for that estimate, so treat it as a lower
+bound on the true spread, not a calibrated σ.
 
 ---
 
@@ -525,6 +776,39 @@ Nothing in the sliding-attention kernel is worth another allocation. The
 decomposition in §6 — 73 % main loop at ~90 % of its issue floor, 18.8 %
 structurally-pinned epilogue, 8.2 % launch — should be reused to *avoid*
 re-opening this line rather than to plan another attempt at it.
+
+I also recommend **against** §3 Step 5 (porting the rewrite to
+`full_fused_attn_grow_v1` as a separate PR). The refuted mechanism is
+geometry-general: §2 measured the co-residency cap at 1024 threads/TG to be set
+by thread and simdgroup slots, not by threadgroup memory, at every tgmem point
+from 1 kB to 18,432 B. The full kernel dispatches 24 TG × 1024 threads and
+therefore sits under the same 3 TG/core ceiling, so splitting its heads would
+buy the same nothing while paying the same wave-count penalty. Its addressable
+pool is smaller too (2.68 % of score vs 6.61 %).
+
+### Programme-level deliverables from this PR
+
+Two results here are reusable outside the sliding-attention line, and I flag
+them because they change how *other* PRs should be read:
+
+1. **The D5 correctness receipt has no discriminating power on this host
+   (§9.3).** `golden_hash` partitions the 103-hash research corpus by
+   *measurement environment*, not by candidate source: 95 × `b9509697…`
+   (local `--local-iterate`), 7 × `be7738fc…` (official M5 runner), 1 ×
+   `f49e4c2c…` (local `--local-submit`). `harness_hash` has 24 distinct values
+   and, per `LagunaRuntimePreflight.swift:44`, hashes only
+   `Package.swift`/`Sources`/`Tests`/`benchmark.json`/`benchmark.sh`/`setup.sh`/`tools`/`README.md`/`TASK.md`
+   — `research/` is excluded, so it moves with repo history rather than with the
+   candidate. I produced the required "identical `golden_hash` under a differing
+   `harness_hash`" pair with **zero source change**. The receipt is satisfiable
+   by a no-op and should be re-specified before it is relied on again.
+   (This also corrects my own earlier "1 golden_hash / 86 files / 18 harnesses"
+   count, which was wrong.)
+2. **An end-to-end run-to-run noise floor of ±0.73 % for this host (§11.2).**
+   Two `./benchmark.sh --local-iterate` runs over byte-identical `Sources/`
+   returned decode speedups of 1.05497 and 1.06266. That is a *lower* bound from
+   n=2, and it already exceeds most sub-1 % microbench deltas the programme has
+   been pricing as real — including both arms of the §5.1 disagreement.
 
 ### Suggested follow-ups I did **not** implement
 
