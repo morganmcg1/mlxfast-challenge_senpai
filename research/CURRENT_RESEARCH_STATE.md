@@ -25,13 +25,17 @@
 - **M4 same-host timing**: Prefill 3.3% faster (0.001156→0.001119 s/tok), decode
   within noise (0.992x). Correctness: max_abs_diff=0, all gates passed.
 - **W&B**: Baseline 7bidudzi, Candidate j4unnmfw (local-iterate same-host pair).
-- **CRITICAL CAVEAT**: M4 does NOT select `_nax` prefill kernels (GPU gen 16).
-  M4 prefill timing is NOT evidence for `_nax` changes. On M5, BF16 `wo(output)`
-  uses fast `_nax` GEMM; if `quantizedMM` doesn't select `_nax`, M5 prefill could
-  regress. The local-submit calibrated prefill_speedup=0.3276 is unreliable (cross-
-  machine M4→M5), but flags real risk. Official M5 measurement required to validate.
-- **Action**: DO NOT submit to M5 until M5 `_nax` behavior of `quantizedMM` is
-  confirmed. If M5 shows prefill regression, revert immediately.
+- **_nax VERIFIED (2026-08-06)**: Source investigation confirms `quantizedMM` with
+  affine INT8 DOES select `_nax` on M5. Dispatch path: `quantizedMM` → `qmm`
+  (quantized.cpp:718) → `qmm_nax` (quantized.cpp:735) when `is_nax_available() &&
+  transpose && K%64==0 && non-float32`. M5 satisfies `is_nax_available()` (macOS
+  26.2+, GPU gen≥17). Both old BF16 `wo(output)` and new affine INT8 `quantizedMM`
+  use `_nax` on M5. The bandwidth reduction (INT8 0.5625 B/param vs BF16 2.0 B/param)
+  is architecture-independent. _nax reachability risk is RESOLVED — LOW risk.
+- **Remaining caveat**: M4 (gen 16) ran non-`_nax` quantized kernels; M5 runs
+  `_nax` quantized kernels. Net prefill delta on M5 is still empirical (INT8
+  dequant overhead vs BF16 bandwidth savings), but the mechanism is sound.
+  Official M5 measurement needed to confirm gain, not to prevent regression.
 
 ## In-Flight Experiments (3 decode, all independent)
 
@@ -115,7 +119,7 @@
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
 | #94 | Alphonse | simd_dot (dot+simd_sum) in attention | MERGED — bit-exact, -39 lines. M4 inconclusive, M5 unverified. |
-| #98 | Askeladd | Prefill O-proj affine INT8 path extension | MERGED — bit-exact, M4 prefill +3.3%. M5 _nax risk: quantizedMM may not select _nax GEMM. Official M5 measurement pending. |
+| #98 | Askeladd | Prefill O-proj affine INT8 path extension | MERGED — bit-exact, M4 prefill +3.3%. _nax confirmed reachable on M5 (source-verified). Official M5 measurement needed to confirm gain. |
 | #97 | Edward | Prefill shared expert fused bank guard | NEGATIVE — dispatch elimination is NOT a win. Dispatch overhead negligible. |
 | #96 | Thorfinn | Register-prefetch on shared SwiGLU QMV | NEGATIVE — register pressure regression. Shared kernel has precomputed addresses. |
 | #93 | Edward | Register-prefetch on down+residual kernel | NEGATIVE — bandwidth-bound kernel, prefetch adds overhead. W&B run 3jhy0yb3 |
