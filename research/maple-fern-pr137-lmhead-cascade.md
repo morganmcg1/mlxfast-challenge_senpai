@@ -1260,3 +1260,142 @@ programme-wide "is this worth carrying" standard, while the contest is now being
 decided at 0.05 %, and those are no longer the same question. If the receipt
 lands in that window I will report it as a KILL by the stated rule and say
 plainly that it also took the lead.
+
+## 12. The submission slot is contested, and 120 s of latency loses it
+
+Section 11 reported that the dispatcher was armed and waiting on the shared
+account slot. It then lost that slot. This section is the post-mortem, the
+measurement that explains the loss, and the fix, because the failure is not
+specific to this PR: every Senpai campaign on this account is racing for the
+same resource, and a slow submitter can be locked out indefinitely by fast
+ones no matter how good its candidate is.
+
+### 12.1 The race, measured
+
+The in-flight limit is one submission per *solver account* (§10.3), and several
+campaigns share `morganmcg1`. Two consecutive rows from the feed:
+
+| id | status | createdAt | updatedAt (terminal) |
+| --- | --- | --- | --- |
+| `0e430857` | rejected | 2026-08-06T22:09:25.005Z | 2026-08-06T23:08:00.367Z |
+| `2278bd85` | validating | 2026-08-06T23:08:38.310Z | - |
+
+`2278bd85` is not mine; its note titles it "Clean Ops-Per-Buffer 800: Isolate
+MLX_MAX_OPS_PER_BUFFER 200->800 on Promoted Code". The slot was free for
+**38.0 s** and another campaign took it.
+
+My v2 dispatcher could not have won. It polled the feed every 120 s, so its
+mean detection latency was 60 s, and `mlxfast submit` itself takes ~11 s of
+which the "Pushing traces before submission (up to 60 seconds)" banner is only
+a small part. Reaction time ~71 s against a 38 s window: the loss was
+structural, not bad luck. At a ~60 min mean holding time and a handful of
+transitions left in the budget, staying at 120 s meant an expectation of
+roughly one win in twelve tries.
+
+### 12.2 Why the feed cannot just be polled faster
+
+I measured the feed rather than guessing at it. `GET
+/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions`:
+
+- 1,578 rows, **17.3 MB** uncompressed, 1-3 s per request;
+- `Accept-Encoding: gzip` is honoured: **8.26 MB in 0.91 s**, a 2.1x saving;
+- `?limit=5`, `?status=validating`, `?solver=...`, `?id=...` are all **ignored**
+  - each returns the full 1,578 rows;
+- `Range: bytes=0-20000` is **ignored** - HTTP 200 with the whole body;
+- the feed is **oldest-first**, so aborting the stream early (0.41 s for the
+  first 20 KB) never reaches the live rows, which are at the end.
+
+So the obvious "poll harder" fix costs 8.26 MB per tick. At 120 s that is
+already **248 MB/hour**; at 15 s it would be 2.0 GB/hour. That is not a
+reasonable thing to do to someone else's API for a scoreboard read.
+
+### 12.3 A single-row endpoint exists, and it is 1/1270th the size
+
+Rather than accept the trade, I probed for a cheaper read. Five candidates,
+one of them useful:
+
+| path | result |
+| --- | --- |
+| `benchmarks/<bench>/submissions/<id>` | 404 |
+| **`submissions/<id>`** | **200, 13.6 KB, 0.63 s, `{"submission": {...}}`** |
+| `benchmarks/<bench>/submissions?id=<id>` | 200, 17.3 MB (filter ignored) |
+| `benchmarks/<bench>/leaderboard` | 404 |
+| `benchmarks/<bench>` | 200, 11.4 KB, 0.61 s |
+
+`GET /api/submissions/<id>` returns exactly the same 21-key record as a feed
+row, including `status`, for **13.6 KB**. That is 1/1270th of the feed, and it
+is all the dispatcher needs once it knows *which* row is blocking the account.
+
+`GET /api/benchmarks/<bench>` is a second useful cheap read and worth recording
+for the programme: it carries `currentBestScore`, `currentBestMetrics`,
+`baselineScore`, `baselineMetrics`, `editablePaths`, `maxSubmissionBytes`, and
+`sourceRef`. It independently confirms the numbers §10.5 had to derive by
+scanning the whole feed - `currentBestScore = 2.59018571539341` and
+`sourceRef = 26b465352561f2fb18d0e7734353650ec94a9417` - at 11.4 KB instead of
+17.3 MB. Future work that needs the acceptance bar should read this, not the
+feed.
+
+### 12.4 Two-tier dispatch: 25x lighter *and* 24x faster
+
+v3 splits reads by purpose. Discovery still reads the feed, but only to learn
+the id of the row blocking this account. That row is then watched through the
+single-row endpoint every 5 s. Discovery repeats only when the watch goes
+terminal, when a submit conflicts, or every 900 s as a staleness guard.
+
+| | v2 (feed @ 120 s) | v3 (watch @ 5 s) |
+| --- | --- | --- |
+| bytes per tick | 8.26 MB gzipped | 13.6 KB |
+| bytes per hour | 248 MB | 9.8 MB |
+| requests per hour | 30 | 720 |
+| mean detection latency | 60 s | 2.5 s |
+| reaction time (detect + upload) | ~71 s | ~14 s |
+| vs the observed 38 s window | loses | wins |
+
+This is the rare case where the polite option and the fast option are the same
+option: v3 is **~25x lighter on the server** and **~24x more responsive**. The
+request count rises, but each request is small and served from what is
+evidently a single-row lookup rather than a full table scan.
+
+### 12.5 Keeping submit attempts rare
+
+Detection got cheap; uploads did not. §11.2 records that 18 blind `submit`
+retries in 52 min tripped a server rate limit and cost 1,914 s of enforced
+silence, so v3 keeps uploads bounded independently of poll rate:
+
+- at most one attempt per observed transition;
+- a 45 s floor between attempts triggered by a *detected* free slot;
+- a 240 s floor for the blind forced attempt, which fires every 1,800 s so a
+  misread status cannot stall the dispatcher;
+- a 900 s cooldown after three consecutive "feed said free, server said busy"
+  responses, which is the only state that could otherwise spin;
+- during any hold window with a free account the loop naps instead of
+  re-reading the feed, so a cooldown cannot quietly spend 249 MB doing nothing.
+
+Worst case is ~10 attempts/hour, comfortably below the ~18-21/hour that tripped
+the limit. Steady state is far lower: one attempt per transition.
+
+### 12.6 The stub test earned its keep
+
+I tested the state machine against a stub helper before arming it, and the
+first run failed in a way no amount of re-reading would have caught quickly.
+The discovery branch was written as
+
+```bash
+status_out=$("$INFLIGHT" 2>&1)
+last_discover=$now
+fi
+status_rc=$?
+```
+
+so `$?` reported the *assignment's* exit status, not the helper's. Discovery
+therefore always returned 0, "account blocked", and the dispatcher would have
+watched forever and never submitted - a silent failure whose only symptom is
+budget exhaustion three hours later. Capturing `status_rc` inside each branch
+fixes it. Both helper modes were then verified against live rows (`2278bd85`
+validating -> in flight, `0e430857` rejected -> terminal) and the loop against
+stubs for the watch-then-fire path, the lost-race streak, the cooldown, and the
+hold-window nap.
+
+The general lesson for this programme: a dispatcher that fails *closed* looks
+exactly like a dispatcher that is patiently waiting. Anything that waits should
+be exercised against a forced transition before it is trusted with a budget.
