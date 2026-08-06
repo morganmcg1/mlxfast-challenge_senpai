@@ -1,11 +1,14 @@
 # SENPAI Research State
-- 2026-08-06T09:44Z (updated)
-- Campaign mlxfast-birch-20260805. All 4 students assigned. Advisor HEAD at 16f1dc5.
+- 2026-08-06T09:56Z (updated)
+- Campaign mlxfast-birch-20260805. All 4 students assigned and nudged. Advisor HEAD at b0116fe.
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
   (lBroth) = ~0.25% gap. PR #107 merged (0.85% decode gain on M4, M5 likely more).
 - **FRONTIER**: 16f1dc5 (PR #107 merged: NVFP4 qdot dot4 vectorization).
+  Advisor branch HEAD: b0116fe (post PR #107 merge, includes other commits).
   Previous: 5164c4f (research state: 4 students assigned). Previous: 5fe7f20
   (_nax confirmed). Previous: b6a0889 (PR #98 merged). Previous: e925569 (PR #94).
+- **PR #113 BROKEN**: Duplicate assignment marker blocks all transitions. PR #114
+  created as replacement for Alphonse. PR #113 needs manual closure by operator.
 
 ## MERGED: PR #94 (Alphonse) — simd_dot in fused attention score computation
 - **Status**: MERGED (squash) → e925569. Bit-exact, upstream-equivalence verified.
@@ -54,22 +57,28 @@
   dequant overhead vs BF16 bandwidth savings), but the mechanism is sound.
   Official M5 measurement needed to confirm gain, not to prevent regression.
 
-## In-Flight Experiments (3 decode, all independent)
+## In-Flight Experiments (4 students, all assigned and nudged 2026-08-06)
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact |
 |---------|-----|-----------|-----------|------|-------------|
+| Alphonse | #114 | INT8 QKV kernel dot4 vectorization | 8 scalar FMA → 2 dot(float4,float4) + 1 add in QKV inner loops. 62.5% instruction reduction. M5 is instruction-bound. | MED | 0.3-0.5% decode |
 | Thorfinn | #112 | Attention epilogue 1-pass merge (bfloat16 exchange) | Merge 2-pass epilogue (2 barriers) into 1-pass (1 barrier) by using bfloat16 for cross-sg exchange. 40 layers × 1 barrier saved. | MED | 0.3-0.6% decode |
 | Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode |
 | Askeladd | #109 | simd_sum vectorization sweep | Pack scalar simd_sum into vec4/vec2 in 3 decode NVFP4 kernels (down+residual, O-proj, shared SwiGLU). Bit-exact. 75% fewer shuffle instructions. | ZERO | 0.2-1.0% decode |
 
-3 decode arms (75% score weight). All independent code sections. All compose cleanly.
+Note: PR #113 (Alphonse's original QKV dot4) has a duplicate assignment marker that
+blocks all transitions. PR #114 was created as a clean replacement. PR #113 needs
+manual closure by the operator.
 
-**BASELINE ADVANCED to 16f1dc5** (PR #107 merged). All three PRs need rebase +
+4 decode arms (75% score weight). All independent code sections. All compose cleanly.
+
+**BASELINE ADVANCED to b0116fe** (post PR #107 merge). All three PRs need rebase +
 re-run. PR #107 changes `packedWordBody()` (qdot), which is independent from:
+- Alphonse #114 (QKV kernel inner loops) — different kernel entirely
 - Thorfinn #112 (attention kernel epilogue) — different code section
 - Edward #100 (O-proj prefetch) — different kernel
 - Askeladd #109 (simd_sum in down+residual/O-proj/SwiGLU) — different functions
-All three should rebase cleanly.
+All four should rebase cleanly.
 
 Note: PR #108 and PR #111 are broken orphan drafts (invalid markers). Ignore them.
 
@@ -93,21 +102,64 @@ Note: PR #108 and PR #111 are broken orphan drafts (invalid markers). Ignore the
   Bit-exact — same sum, fewer shuffle instructions. ZERO risk. 75% fewer
   shuffle ops. Builds on PR #94's approach (dot+simd_sum in attention).
 
+## MoE Kernel Analysis Findings (from frontier subagent, 2026-08-06)
+
+### Finding A (HIGH, BIT-EXACT) — Shared SwiGLU QMV rows1 depth-1 weight staging
+- `lagunaSharedSwiGLUQMVRows1Kernel` (L6558-6640) lacks depth-1 weight staging
+- Routed R1 kernel (L7246-7396) already stages block b+1's codes/scales before block b's qdots
+- Shared kernel uses non-staging `laguna_nvfp4_qdot_16` instead of `laguna_nvfp4_qdot_codes_16`
+- **Port the exact staging pattern** — same qdot, same K-block count, same TG geometry
+- Proven in sibling kernel, mechanical change
+- Expected: 0.3-0.6% decode
+
+### Finding B (MEDIUM, BIT-EXACT) — Fused down+residual simd_sum vectorization
+- L7628-7633 uses 4 separate scalar `simd_sum` calls
+- Standalone `lagunaRoutedDownReduceKernel` (L7469-7474) uses single `vec<float,4>` packed `simd_sum`
+- Replace 4 scalar with 1 packed — 442K fewer cross-lane reductions per token
+- **ALREADY ASSIGNED to Askeladd as part of PR #109**
+
+### Finding C (MEDIUM, BIT-EXACT) — Fused down+residual weight staging
+- L7618-7633 loads weight/scale per-row inside the loop
+- Standalone kernel (L7453-7467) stages all 4 rows' codes/scale bytes before computing any qdot
+- Port the staging pattern
+
+### Finding E (LOW-MED, NOT bit-exact) — Prefill gather-GEMM tiling
+- BM=BN=BK=64, WM=WN=2. Could try BK=128 or asymmetric WM/WN
+- Changes reduction order → requires upstream equivalence test
+- M4 doesn't select `_nax`, so M5-only evidence needed. Defer.
+
 ## Next-Wave Experiments (READY TO ASSIGN when students free up)
 
-### Wave 2a: Merge shared QMV into routed QMV dispatch
+### Wave 2a: Shared SwiGLU QMV rows1 depth-1 weight staging (Finding A)
+- **HIGHEST PRIORITY unassigned bit-exact idea**
+- Port depth-1 staging from routed R1 kernel to shared kernel
+- Same qdot, same K-block count, same threadgroup geometry
+- Proven in sibling kernel, mechanical change
+- Expected: 0.3-0.6% decode
+- Assign when Edward or Thorfinn frees up
+
+### Wave 2b: MoE gate/up block_width 512→1024
+- Halve loop iterations in gate/up QMV kernels
+- Bit-exact (same computation, fewer loop overhead)
+- Expected: 0.3-0.8% decode
+
+### Wave 2c: LAGUNA_RESCALE branch elimination
+- Remove dead branch, always call exp(0)=1
+- Bit-exact, zero risk
+- Expected: 0.2-0.4% decode
+
+### Wave 2d: Merge shared QMV into routed QMV dispatch
 - Activate `mergedSharedActivated` scaffold (line 9931, always nil)
 - Saves 39 dispatches/step (13.7% dispatch reduction)
 - **WARNING**: PR #97 proved dispatch elimination is NOT a prefill win.
   This may also not help if dispatch overhead is truly negligible.
-- **Conflicts with Thorfinn #102** — assign after #102 resolves
 
-### Wave 2b: callLastPrefillRow fused O-proj
+### Wave 2e: callLastPrefillRow fused O-proj
 - Terminal prefill layer (layer 39) uses stock BF16 `wo(output)`
 - INT8 affine O-proj kernel is shape-compatible (`[1,1,H*D]`)
 - 1 layer, LOW complexity, LOW risk — quick win if affine GEMV beats BF16 GEMM
 
-### Wave 2c: LM head int4 coarse screen (HIGHEST POTENTIAL, HIGHEST RISK)
+### Wave 2f: LM head int4 coarse screen (HIGHEST POTENTIAL, HIGHEST RISK)
 - Coarse pass reads 109 MB/step (int5 weights) — dominant LM head cost
 - int4 would halve to 54.6 MB (2× fewer bytes, bandwidth-bound kernel)
 - **BLOCKER**: breaks ratio-bound certificate (|q|≤15 needs 5 bits; int4 max |q|≤7)
