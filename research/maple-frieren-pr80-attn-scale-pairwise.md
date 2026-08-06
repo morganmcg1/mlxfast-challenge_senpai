@@ -408,6 +408,57 @@ totals are in §4. `research/pr80_byte_ledger.py` refuses to price a log
 containing any `declined` line or a witness count other than 40, so a silently
 degraded arm cannot be reported as a win.
 
+### 5.6 The standing oracle was still run — and its base control
+
+`research/run_upstream_equivalence.sh` was run at HEAD `62c10e5`
+(training id `d70f9146-28e6-43f9-b43c-472364af0945`). **It exits 1.** Read the
+next three paragraphs before drawing any conclusion from that.
+
+```text
+prefill    maximumAbsoluteLogitError 0.125  meanAbsoluteLogitError 0.011933609
+           runtimeToken 5991 == upstreamToken 5991
+decode-0..7  maximumAbsoluteLogitError 0    meanAbsoluteLogitError 0
+           all eight token pairs equal
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1
+```
+
+The wrapper's tolerance is zero and covers prefill, so a `0.125` prefill logit
+delta fails it. The wrapper also carries its own instruction for this case: *"on
+a non-M5 host, compare the unchanged BASE_SHA before attributing drift."* So the
+identical command was re-run with only
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` and
+`Sources/MLXFastModel/LagunaRuntimeWeights.swift` checked out at `ab1f9a13`
+(`git diff ab1f9a13 -- Sources/` empty), every other file left at HEAD
+(training id `0b31cb89-6555-4db0-9fce-8679eb525a10`; the throwaway commit that
+carried it has been reset and HEAD is back at `62c10e5`).
+
+**The base control produces a byte-identical report** — same `0.125`, same
+`0.011933609`, the same nine `runtimeToken`/`upstreamToken` pairs, the same
+`EQUIVALENCE_EXACT_STEPS=8`, the same exit 1.
+
+Stated conservatively, that means:
+
+- The prefill divergence is **pre-existing at `BASE_SHA` on this M4 Pro host**
+  and is not attributable to this PR. The argmax token is identical at every
+  step, so it is a near-tie logit-magnitude difference of the kind AGENTS.md
+  anticipates on a non-M5 generation, not a token difference.
+- The candidate adds **exactly zero** additional drift: the two reports agree to
+  the last printed digit.
+- This is **not** positive evidence for the change. Per §5.1 the oracle never
+  calls `prepareFusedRuntimeWeights()`, so the banks are never built inside it
+  and the runtime it exercises falls back to the stock plane. A byte-identical
+  report is precisely what an *inert* code path predicts. The correctness
+  evidence for this PR is the §5.2–5.5 bitwise certificate on the real worker
+  path.
+- The one thing this run does add that the certificate does not: it rules out
+  the possibility that the new dispatch guards perturbed the **stock** attention
+  path in the bank-absent configuration. That fallback is bit-identical to base
+  through 512 prefill positions and 8 decode steps.
+
+I have not attempted to fix the pre-existing prefill delta; it is outside this
+assignment and it reproduces on unmodified base sources.
+
 ---
 
 ## 6. M4 screen
@@ -736,4 +787,14 @@ python3 research/pr80_fault_patch.py check && python3 research/pr80_fault_patch.
 
 # position-balanced M4 ladder
 research/pr80_ladder_abba.sh
+
+# o_proj S->B rung
+research/pr80_oproj_abba.sh
+
+# standing oracle at HEAD, then its unchanged-base control (§5.6)
+bash research/run_upstream_equivalence.sh
+git checkout ab1f9a13 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
+                         Sources/MLXFastModel/LagunaRuntimeWeights.swift
+bash research/run_upstream_equivalence.sh
+git checkout HEAD -- Sources/
 ```
