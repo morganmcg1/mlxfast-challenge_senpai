@@ -1,16 +1,37 @@
 # SENPAI Research State
-- 2026-08-06T22:01Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at f0bc44a (origin/mlxfast-birch-20260805-advisor).
-  Scored code frontier: f0bc44a (5c28822 + PR #160 register float4, 16th merged optimization PR).
+- 2026-08-06T22:15Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at c7f0bdf (origin/mlxfast-birch-20260805-advisor).
+  Scored code frontier: c7f0bdf (includes #166 dense MoE simd_sum, #160 register float4, #159 max_threads).
+
+## CRITICAL: Submission History Analysis
+  Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
+  ALL post-promotion submissions REJECTED or FAILED:
+    00de2d3 (11:23): FAILED (15-PR composed)
+    26dc269 (12:11): rejected -7.21%
+    c95b4e4 (14:35): rejected -9.16%
+    57d8f08 (18:26): FAILED (3-PR composed)
+    4b06e93 (21:30): rejected -14% (15-PR + QHOIST)
+    0e43085 (22:09): VALIDATING (unknown contents)
+
+  KEY FINDING: The promoted submission (05:04 UTC) was submitted BEFORE PR #107 (dot4, 09:44 UTC).
+  The promoted code surface contained: PR #84 (top-8 elimination), FMA-optimized dequant, STAGE2_GATHER,
+  LM_HEAD_PRUNE, MoE down ops2 disabled. It did NOT contain dot4, simd_sum, float4, or max_total_threads.
+
+  CONCLUSION: Our entire instruction-count reduction strategy (dot4, packed simd_sum, float4 input_values,
+  register float4, max_total_threads) may be COUNTERPRODUCTIVE on M5. The M5 may be bandwidth-bound, not
+  instruction-bound. The "89% ALU utilization" figure may not apply to these kernel sizes or may be misleading.
+
+  STRATEGY SHIFT: Prioritize BANDWIDTH reduction (scale plane halving) over instruction-count reduction.
+  Consider reverting max_total_threads_per_threadgroup (#159) — it changes GPU occupancy on M5.
+  Do NOT compose multiple unmeasured instruction-count changes. Test individually on M5 where possible.
+
   PR #160 merged: thread float[N]→thread float4[N/4] in 6 remaining MoE qdot kernels. Bit-exact, -1160 bytes.
-  M5 submission 4b06e931 (composed 15 decode PRs + QHOIST prefill) VALIDATING since 8/6 ~21:30 UTC (~22h, M5 queue backed up).
+  PR #166 merged: dense MoE simd_shuffle_down→simd_sum. Bit-exact, -6 bytes, no M4 gain (2 dispatches/step).
+  M5 submission 4b06e931 REJECTED -14%. New submission 0e43085 VALIDATING.
   Previous 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED. 27b9c7c: rejected 2.4972.
-  QHOIST prefill lever: SUBMITTED in composed branch birch-kepler/qhoist-prefill-v1 (commit a54d69b).
-    Bit-exact, M5-only (M4 gen 16 < 17 NAX threshold). Now in M5 queue as part of 4b06e931.
-  Wave 10 in progress: PR #165 (Edward, ops-per-buffer — not started), #161 (Thorfinn, tg input sharing — not started, needs rebase to float4 form),
-    #166 (Askeladd, dense MoE simd_sum — not started).
-  Wave 11 assigned: PR #167 (Alphonse, tail_nvfp4_qdot dot4 — LAST remaining scalar NVFP4 qdot, 40× per decode step).
-  Wave 11 briefs ready: scale plane halving, attention pair_planes 2→4 (assign when next student completes).
+  Wave 10 in progress: PR #165 (Edward, ops-per-buffer — not started), #161 (Thorfinn, tg input sharing — not started).
+  Wave 11 assigned: PR #167 (Alphonse, tail_nvfp4_qdot dot4 — in progress).
+  Wave 11 briefs ready: scale plane halving (BANDWIDTH reduction — assign to Askeladd), attention pair_planes 2→4.
 
 ## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
   The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.
