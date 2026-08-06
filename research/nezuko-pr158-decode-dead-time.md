@@ -56,13 +56,21 @@ are `research/`-only.
    over-attributed by a different mechanism: a **per-dispatch GPU floor** that
    does not shrink when the kernel's work shrinks. Only *removing a dispatch*
    recovers the floor; making a kernel cheaper recovers only its
-   work-proportional part. **r2 restates this as a band rather than a point:
-   1.6–2.4 µs/dispatch ⇒ 640–990 µs/step ⇒ 8–12 % of the 8007 µs GPU-busy sum,
-   which is 7.7–12.0 % of the 8.27 ms wall step.** (r1 wrote "771 µs, 9.6 % of
-   the 8007 µs step"; 8007 µs is GPU busy, not the step — the step is 8.27 ms
-   wall, so the same 771 µs is 9.6 % of busy and 9.3 % of wall. Corrected in
-   §4.4.) The corrected census is in §2; every §4 measurement that revises it
-   is in §4.
+   work-proportional part. **r2 measured this properly and the answer is worse
+   than a band.** Six arms over three sweeps and two currencies (28 runs, 0
+   token divergences) put the marginal at **≈1.5–8 µs/dispatch, and the spread
+   is site-specific, not count- or traffic-driven**: `rrr` and `rsdr` add the
+   same +39 dispatches in the same sweep and price at 7.43 vs 1.83 µs. The cost
+   is nonetheless **real** — the traffic-free `nonorm` arm (+78 dispatches,
+   ~4 KB) costs +280 µs wall / +322 µs busy, so it is not a bandwidth artefact
+   — and it sits **inside GPU busy** at fixed command-buffer count, distinct
+   from the §4.5 inter-CB gap and the §1.1 host gap. **No single value may be
+   multiplied by 406: the extrapolation and its percentage are both retired,
+   not re-banded.** (r1 wrote "771 µs, 9.6 % of the 8007 µs step"; 8007 µs is
+   GPU busy, not the step — the step is 8.27 ms wall. §4.4.) I also report a
+   reproducibility failure against myself: within-sweep half-ranges understate
+   between-sweep scatter by 2–5×, so every ± in §4.5–§4.7 is optimistic.
+   §4.6.e, §4.7.c, **§4.8**. The corrected census is in §2.
 7. **Byte-price CI audit (advisor ask): the advisor read the PR #110 ledger
    correctly and nothing needs withdrawing.** The three quoted intervals are
    arithmetically right, but only one of them is an empirical CI: the lm-head
@@ -848,7 +856,7 @@ untouched at `9dd2eec`+0 for `Sources/`.
 |---|---|---|
 | 1. 1.9 µs is a level built from a slope; additivity untested | **conceded** | §4.3 |
 | 2. Route A / Route B not independent | **conceded** | §4.3 |
-| 3. Retained marginals mutually inconsistent | **conceded ⇒ headline is now a band** | §4.3 |
+| 3. Retained marginals mutually inconsistent | **conceded ⇒ band in §4.3, then the band itself retired in §4.8: the price is site-specific, 1.5–8 µs/dispatch** | §4.3, §4.8 |
 | 4. `1.419 → 1.596` "arithmetic slip" | **half wrong, half right** — two different constants, both now stated; the % denominator error is real | §4.2, §4.4 |
 | 5. `rsdr` contradicts the busy-currency framing | **conceded, and now the main result** | §4.6 |
 | 6. "fusion saves exactly 1.9 µs and no more" falsified by `rrr` | **conceded; corollary struck** | §4.3 |
@@ -858,7 +866,9 @@ untouched at `9dd2eec`+0 for `Sources/`.
 | (self-reported) GPUPROF window silently empty under CPython 3.9 | **real defect, found during r2, fixed and cross-validated** | §4.1.d |
 | (a) replicate `SPLIT=1` ×3 more | **done, dispersion is 0.12 %** | §4.5 |
 | (b) hook-off wall-currency unfuse sweep | **done** | §4.6 |
-| (c) one TRUE traffic-neutral fusion arm | **done** | §4.7 |
+| (b′) same four arms replicated in busy currency | **done — and it exposes a 3.3× cross-sweep disagreement on `rsdr` that my error bars did not cover** | §4.6.e |
+| (c) one TRUE traffic-neutral fusion arm | **done — cost is real, +280 µs wall / +322 µs busy for ~4 KB** | §4.7 |
+| (self-reported) within-sweep ± understates between-sweep scatter 2–5× | **disclosed; all §4.5–§4.7 intervals are optimistic** | §4.6.e, §4.8 |
 
 ## 4.1 The "free fix": the premise is wrong, but the code is now hardened
 
@@ -1100,6 +1110,15 @@ the dispatch does.
 > 8–12 % of GPU busy (7.7–12.0 % of wall).** The band's endpoints are the
 > extreme retained marginals, not a confidence interval.
 
+**This band is itself superseded by the r2 measurements.** §4.6.e replicates the
+four arms and adds two more in §4.7.c; across six arms and three independent
+sweeps the marginal spans **≈1.5–8 µs/dispatch**, and its within-sweep error
+bars understate between-sweep scatter by 2–5×. The final position is in §4.8:
+the per-dispatch cost is **real but site-specific**, and *no* single value —
+1.9 µs, 2.4 µs, or 8 µs — may be multiplied by 406 to produce a step-level
+recoverable total. Read the paragraph above as the intermediate r2 concession it
+was, not as the report's conclusion.
+
 **Point 6 — the corollary is falsified by my own table.** §2.b reading 2 says
 "dispatch-removal is worth exactly 1.9 µs each and no more. Any claim that
 fusing two kernels saves more than 1.9 µs per removed dispatch is claiming to
@@ -1111,7 +1130,8 @@ the traffic term dominates the floor term by 3.5×. **Reading 2 is struck and
 replaced by the fusion pricing rule already promoted to
 `research/CURRENT_RESEARCH_STATE.md` §4.1a: price a fusion by its traffic
 delta, and treat the per-dispatch floor as a small additive bonus inside a
-1.6–2.4 µs band.**
+1.6–2.4 µs band.** (§4.7.c widens that bonus band to 3–4 µs at a traffic-free
+site; the rule's shape — traffic first, dispatch count second — is unchanged.)
 
 ## 4.4 Audit point 4b: the percentage denominator
 
@@ -1129,6 +1149,12 @@ time, 8.27 ms.
 
 Corrected in the headline. With the §4.3 band the honest statement is
 **8–12 % of busy, 7.7–12.0 % of wall.**
+
+**And with the r2 replication even that is too confident.** Applying the
+§4.6.e envelope (1.5–8 µs/dispatch) to 406 dispatches gives 0.6–3.3 ms, i.e.
+7–40 % of the step. A quantity whose "share of the step" cannot be pinned
+tighter than 7–40 % is not a share; the denominator correction above is right,
+but the numerator should not be quoted at all. **§4.8 retires the percentage.**
 
 ## 4.5 Measurement (a): `SPLIT=1` replicated ×4, per-kernel median and half-range
 
@@ -1318,6 +1344,10 @@ Uncertainties are `(arm half-range + baseline half-range) / Δdispatch`. Against
 the *median* baseline (8275.6) instead of the mean the four figures become
 4.22, 3.71, 1.48, 2.12 — the ordering and the conclusion below are unchanged.
 
+The rightmost column is r1's **single-pass, single-baseline** busy number and is
+retained only for traceability. It is superseded by §4.6.e, which replicates the
+same four arms in busy currency under the same palindromic protocol.
+
 ### 4.6.d What the table says, and it is not what r1 said
 
 **1. `rsdr` is resolved, and the resolution goes against r1.** r1 read
@@ -1328,20 +1358,20 @@ single-pass baseline. But the corrected number is 4.40 µs/dispatch, which is
 **2.3× the "≈1.9 µs floor" r1 built its headline on**. Fixing the anomaly did
 not rescue the thesis; it damaged it further.
 
-**2. The marginal is not a constant — and it varies the wrong way.** Across
-four arms the wall marginal spans **1.62 to 4.90 µs/dispatch, a 3.0× range**.
-Worse, it is *anti*-correlated with the number of dispatches added:
+**2. The marginal is not a constant.** Across four arms the wall marginal spans
+**1.62 to 4.90 µs/dispatch, a 3.0× range**. In this table alone the small-Δ arms
+(`rrr`, `rsdr`, +39) price high at 4.90 and 4.40 while the large-Δ arms (`ssq`,
+`rsq`, +195) price low at 1.62 and 2.26, which reads as an anti-correlation with
+dispatch count.
 
-| Δ dispatch/step | arms | wall µs/dispatch |
-| --- | --- | --- |
-| +39 | `rrr`, `rsdr` | 4.90, 4.40 |
-| +195 | `ssq`, `rsq` | 1.62, 2.26 |
-
-A genuine per-dispatch floor is by construction the *same* price whether you add
-39 of them or 195 of them. Observing 4.4–4.9 µs for the small-count arms and
-1.6–2.3 µs for the large-count arms is the signature of a marginal that is
-**dominated by the per-arm work each unfused chain adds**, with dispatch count
-merely correlated with it. It cannot be read as a count-driven overhead.
+**I withdraw that reading in §4.6.e.** The replication shows the two +39 arms
+separate to 7.43 and 1.83 µs/dispatch under the identical protocol, so they do
+not form a "small-Δ" class at all, and the apparent anti-correlation is an
+artefact of the +39 arms being the ones whose estimates are least reproducible.
+What survives is the weaker and better-supported claim: a genuine per-dispatch
+floor is by construction the *same* price at every site, and this marginal is
+not — it is **dominated by what each unfused chain does**, with dispatch count
+only partly explanatory. It cannot be read as a purely count-driven overhead.
 
 **3. Command buffers are not the confound.** The four arms move command buffers
 per step by at most ±1 (45 → 45, 46, 46, 45). At the 4.25 µs/CB wall price from
@@ -1355,6 +1385,80 @@ this table's own arms, the same extrapolation would produce anywhere from 658 µ
 (`ssq`) to 1989 µs (`rrr`) — up to 24 % of an 8.25 ms step, which is not
 credible as pure overhead. **A quantity whose extrapolation ranges over 3× is
 not a floor; it is a slope of something else.** §4.7 tries to find out what.
+
+### 4.6.e Replication in busy currency, and a reproducibility failure I have to report
+
+The four arms of §4.6.c were run a **third** time, palindromic ×2, this time with
+`DARKBLOOM_GPU_PROFILE=1` so the driver-clock-free census of §4.1.d could price
+them in busy currency as well as wall. Log:
+`research/nezuko-pr158-r2-unfuse-busy.log`, 12 runs, **0 token divergences in
+all 12**.
+
+| arm | busy p1 | busy p2 | busy mean | Δ busy | **busy µs/disp** | CBs/step | disp/step |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `base` | 7940.9 | 7999.3 | | | | 45 | 406 |
+| `base2` | 7954.3 | 7995.6 | **7972.5** (pooled n=4, ±29.2) | | | 45 | 406 |
+| `rrr` | 8260.5 | 8264.3 | 8262.4 (±1.9) | +289.9 | **7.43 ± 0.80** | 45 | 445 |
+| `rsdr` | 8061.3 | 8026.1 | 8043.7 (±17.6) | +71.2 | **1.83 ± 1.20** | 46 | 445 |
+| `ssq` | 8379.7 | 8363.7 | 8371.7 (±8.0) | +399.2 | **2.05 ± 0.19** | 46 | 601 |
+| `rsq` | 8424.6 | 8349.9 | 8387.3 (±37.4) | +414.7 | **2.13 ± 0.34** | 45 | 601 |
+
+The dispatch counts confirm the registered +39/+39/+195/+195 deltas exactly, and
+the same sweep's wall medians (pooled base 8225.8 ± 52.5; `rrr` 8540.0, `rsdr`
+8277.5, `ssq` 8644.0, `rsq` 8650.0) give wall marginals of 8.06 ± 1.37, 1.33 ±
+1.60, 2.14 ± 0.29, 2.18 ± 0.54. **Within this sweep, wall and busy agree on every
+arm.** That is a good internal control.
+
+**The problem is between sweeps.** Putting the same arm's estimate from the two
+independent wall sweeps side by side:
+
+| arm | Δ disp | §4.6.c wall (HOOK=0) | §4.6.e wall (HOOK=1) | §4.6.e busy | arm-level Δ between sweeps |
+| --- | --- | --- | --- | --- | --- |
+| `rrr` | +39 | 4.90 ± 1.95 | 8.06 ± 1.37 | 7.43 ± 0.80 | 100 µs |
+| `rsdr` | +39 | 4.40 ± 1.59 | 1.33 ± 1.60 | 1.83 ± 1.20 | 143 µs |
+| `ssq` | +195 | 1.62 ± 0.69 | 2.14 ± 0.29 | 2.05 ± 0.19 | 79 µs |
+| `rsq` | +195 | 2.26 ± 0.43 | 2.18 ± 0.54 | 2.13 ± 0.34 | 39 µs |
+
+`ssq` and `rsq` reproduce. `rrr` and `rsdr` do not: `rsdr` moves from 4.40 to
+1.33 µs/dispatch, a **3.3× disagreement between two runs of the identical
+protocol**, and `rrr` moves from 4.90 to 8.06. Neither gap is covered by the
+quoted uncertainties.
+
+**The mechanism is not mysterious, and it indicts my error bars, not the arms.**
+The pooled baselines of the two sweeps differ by only 23 µs (8249.1 vs 8225.8),
+so this is not baseline drift. It is *arm-level* between-session scatter of
+39–143 µs, roughly ±70 µs typical. Divide that by Δdispatch and it becomes a
+systematic uncertainty of **±1.8 µs/dispatch for the +39 arms and only
+±0.36 µs/dispatch for the +195 arms** — which is exactly the observed pattern of
+which arms reproduce. Palindromic ordering removes *within-session* drift, which
+is why the intra-sweep half-ranges are as small as ±1.9 µs; it does nothing about
+session-to-session state.
+
+**Consequence, stated plainly: every ± in §4.5, §4.6 and §4.7 of this report is
+a within-session half-range and understates the true uncertainty by roughly 2–5×
+on the small-Δ arms.** The correct way to read the marginals is as the envelope
+across independent sweeps, not as any single sweep's interval:
+
+| arm | traffic added | envelope across all sweeps (µs/dispatch) |
+| --- | --- | --- |
+| `rsdr` | yes | 1.3 – 4.4 |
+| `ssq` | yes | 1.6 – 2.1 |
+| `rsq` | yes | 2.1 – 2.3 |
+| `nocast` (§4.7) | ~62 KB | 3.1 – 3.4 |
+| `nonorm` (§4.7) | **~4 KB, traffic-free** | 3.6 – 4.1 |
+| `rrr` | yes | 4.9 – 8.1 |
+
+Three of six arms are tightly determined (`ssq`, `rsq`, `nocast`), two more are
+adequately determined (`nonorm`, `rrr`-as-high), and one (`rsdr`) is not
+determined at all. The band that survives replication is **≈1.5–8 µs/dispatch,
+site-dependent**, with the cleanest traffic-free estimate at **3.6–4.1**.
+
+**What this does *not* do is rescue the anti-correlation story.** `rrr` and
+`rsdr` add the same +39 dispatches and price at 7.43 and 1.83 µs in the *same
+sweep, same currency, adjacent runs* — a 4× separation with no dispatch-count
+difference to explain it. Nor does traffic explain it: the traffic-free
+`nonorm` sits at 4.13 busy, in the middle of the range, not at the bottom.
+**Price is set by what the dispatch does at that site.**
 
 
 
@@ -1490,6 +1594,78 @@ is therefore a *second traffic-free estimate*, statistically indistinguishable
 from the first, not a measurement of what bytes cost. The honest reading is that
 at this scale the dispatch floor dominates and the byte term is unresolvable.
 
-<!-- TABLE-4.7-BUSY -->
+**The cost lands inside GPU busy, not in added idle.** The hook-on sweep also
+yields a driver-clock-free busy census (§4.1.d), which localises where the
+280 µs goes:
+
+| arm | busy p1 | busy p2 | busy mean (µs) | half-range | CBs/step | disp/step |
+| --- | --- | --- | --- | --- | --- | --- |
+| `base` | 7933.9 | 7992.3 | — | — | 45 | 406 |
+| `base2` | 7940.3 | 7932.5 | **7949.8** (pooled n=4) | 29.9 | 45 | 406 |
+| `nonorm` | 8369.0 | 8174.8 | **8271.9** | 97.1 | 45 | 484 |
+| `nocast` | 8287.7 | 8385.7 | **8336.7** | 49.0 | 45 | 523 |
+
+| contrast | Δ disp | busy Δ (µs) | busy µs/disp |
+| --- | --- | --- | --- |
+| `nonorm` − base | +78 | +322.2 | **4.13 ± 1.63** |
+| `nocast` − base | +117 | +387.0 | **3.31 ± 0.67** |
+| `nocast` − `nonorm` | +39 | +64.8 | 1.66 ± 3.75 |
+
+Three things follow. **(i)** Busy and wall agree arm for arm (nonorm +322 busy
+vs +280/+318 wall; nocast +387 busy vs +367/+397 wall), so the added cost is
+GPU-resident work, not extra host stall. **(ii)** Command-buffer count is
+*identical* at 45/step across all three arms, which means none of this is the
+inter-CB idle gap of §4.5 — a per-dispatch floor and a per-command-buffer gap
+are separate line items, and this experiment isolates the former. **(iii)** The
+busy marginals reproduce the wall marginals within uncertainty (4.13 vs 3.59,
+3.31 vs 3.13), giving a third independent confirmation that the effect is not
+an instrumentation artefact.
+
+## 4.8 Final position on the per-dispatch floor
+
+Six arms, three independent sweeps, two currencies, 28 runs, **0 token
+divergences in all 28**. This is what I am prepared to defend.
+
+**1. The per-dispatch cost is real.** `nonorm` adds 78 dispatches carrying ~4 KB
+— traffic-free by any measure — and costs +280 µs wall and +322 µs busy. There
+is no bandwidth story for 4 KB. The audit's hypothesis that §2's marginals were
+pure traffic artefacts is **rejected on the one arm designed to test it**.
+
+**2. It is not a floor, because it is not one price.** The replicated envelope
+across the six arms is **≈1.5–8 µs/dispatch**, and the spread is *not* explained
+by dispatch count (`rrr` 7.43 and `rsdr` 1.83 at the same +39, same sweep, same
+currency, adjacent runs) or by traffic (traffic-free `nonorm` sits mid-range at
+3.6–4.1, not at the bottom). **The price is set by what the dispatch does at
+that site.** "Floor" is the wrong word and I am retiring it; the right phrase is
+*per-dispatch overhead, site-specific*.
+
+**3. The 771 µs extrapolation stays struck, and no band replaces it.** Every arm
+in this report *adds* dispatches at a site of its choosing; none removes one from
+the 138 large byte-bound dispatches that are 58 % of busy. Multiplying any
+measured marginal by 406 assumes an additivity that is untested and, given the 5×
+site spread, unlikely. Applied to the envelope it would yield 0.6–3.3 ms
+(7–40 % of the step), which is not a useful statement. **§4.4's percentage is
+retired rather than re-banded.**
+
+**4. It lives inside GPU busy, not in the inter-CB gap.** `nonorm` and `nocast`
+hold command-buffer count fixed at 45/step and still pay 322–387 µs of *busy*.
+That separates this line item cleanly from §4.5's 2.66 µs/CB idle gap and from
+§1.1's ~265 µs host gap; they are three different costs and must not be summed
+from the same evidence.
+
+**5. My error bars were too small, and I say so before anyone checks.** §4.6.e
+found a 3.3× cross-sweep disagreement on `rsdr` and a 100 µs one on `rrr` that
+the quoted within-sweep half-ranges did not cover. Palindromic pass ordering
+suppresses within-session drift but not session-to-session state; arm-level
+between-session scatter is ~±70 µs, which is ±1.8 µs/dispatch at Δ=39 and
+±0.36 at Δ=195. **Every ± in §4.5–§4.7 should be inflated accordingly, and
+future dispatch-price arms should be designed with Δ ≥ 150 dispatches.**
+
+**6. What a fusion is actually worth.** The operative rule is unchanged from
+`research/CURRENT_RESEARCH_STATE.md` §4.1a and is now better supported: price a
+candidate fusion by its **traffic delta first**, then add a per-dispatch bonus
+sized from a measurement *at that site* — 3–4 µs is the best traffic-free
+estimate available, but it is an order-of-magnitude prior, not a coefficient.
+Do not budget a fusion from a report-wide constant.
 
 
