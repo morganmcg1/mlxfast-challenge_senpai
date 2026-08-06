@@ -1547,58 +1547,36 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 pipe_values_b);
 
             float4 pk_a = float4(pipe_ka[0], pipe_ka[1], pipe_ka[2], pipe_ka[3]);
+            float4 pk_b = float4(pipe_kb[0], pipe_kb[1], pipe_kb[2], pipe_kb[3]);
             U pair_score0 = simd_sum(dot(pq0, pk_a));
             U pair_score1 = simd_sum(dot(pq1, pk_a));
-
-            U pair_new_max0 = metal::max(pair_max0, pair_score0);
-            U pair_new_max1 = metal::max(pair_max1, pair_score1);
-            U pair_factor0;
-            U pair_factor1;
-            LAGUNA_RESCALE(pair_factor0, pair_max0 - pair_new_max0);
-            LAGUNA_RESCALE(pair_factor1, pair_max1 - pair_new_max1);
-            U pair_exp0 = metal::fast::exp(pair_score0 - pair_new_max0);
-            U pair_exp1 = metal::fast::exp(pair_score1 - pair_new_max1);
-
-            pair_max0 = pair_new_max0;
-            pair_max1 = pair_new_max1;
-            pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
-            pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
-
-            pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
-            pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
-            pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
-            pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
-            pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
-            pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
-            pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
-            pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
-
-            float4 pk_b = float4(pipe_kb[0], pipe_kb[1], pipe_kb[2], pipe_kb[3]);
             U pipeb_score0 = simd_sum(dot(pq0, pk_b));
             U pipeb_score1 = simd_sum(dot(pq1, pk_b));
 
-            U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
-            U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
-            U pipeb_factor0;
-            U pipeb_factor1;
-            LAGUNA_RESCALE(pipeb_factor0, pair_max0 - pipeb_new_max0);
-            LAGUNA_RESCALE(pipeb_factor1, pair_max1 - pipeb_new_max1);
-            U pipeb_exp0 = metal::fast::exp(pipeb_score0 - pipeb_new_max0);
-            U pipeb_exp1 = metal::fast::exp(pipeb_score1 - pipeb_new_max1);
+            U joint_new_max0 = metal::max(metal::max(pair_max0, pair_score0), pipeb_score0);
+            U joint_new_max1 = metal::max(metal::max(pair_max1, pair_score1), pipeb_score1);
+            U factor0;
+            U factor1;
+            LAGUNA_RESCALE(factor0, pair_max0 - joint_new_max0);
+            LAGUNA_RESCALE(factor1, pair_max1 - joint_new_max1);
+            U exp_a0 = metal::fast::exp(pair_score0 - joint_new_max0);
+            U exp_a1 = metal::fast::exp(pair_score1 - joint_new_max1);
+            U exp_b0 = metal::fast::exp(pipeb_score0 - joint_new_max0);
+            U exp_b1 = metal::fast::exp(pipeb_score1 - joint_new_max1);
 
-            pair_max0 = pipeb_new_max0;
-            pair_max1 = pipeb_new_max1;
-            pair_sum0 = pair_sum0 * pipeb_factor0 + pipeb_exp0;
-            pair_sum1 = pair_sum1 * pipeb_factor1 + pipeb_exp1;
+            pair_max0 = joint_new_max0;
+            pair_max1 = joint_new_max1;
+            pair_sum0 = pair_sum0 * factor0 + exp_a0 + exp_b0;
+            pair_sum1 = pair_sum1 * factor1 + exp_a1 + exp_b1;
 
-            pair_o0[0] = pair_o0[0] * pipeb_factor0 + pipeb_exp0 * pipe_vb0;
-            pair_o1[0] = pair_o1[0] * pipeb_factor1 + pipeb_exp1 * pipe_vb0;
-            pair_o0[1] = pair_o0[1] * pipeb_factor0 + pipeb_exp0 * pipe_vb1;
-            pair_o1[1] = pair_o1[1] * pipeb_factor1 + pipeb_exp1 * pipe_vb1;
-            pair_o0[2] = pair_o0[2] * pipeb_factor0 + pipeb_exp0 * pipe_vb2;
-            pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * pipe_vb2;
-            pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
-            pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
+            pair_o0[0] = pair_o0[0] * factor0 + exp_a0 * pipe_va0 + exp_b0 * pipe_vb0;
+            pair_o1[0] = pair_o1[0] * factor1 + exp_a1 * pipe_va0 + exp_b1 * pipe_vb0;
+            pair_o0[1] = pair_o0[1] * factor0 + exp_a0 * pipe_va1 + exp_b0 * pipe_vb1;
+            pair_o1[1] = pair_o1[1] * factor1 + exp_a1 * pipe_va1 + exp_b1 * pipe_vb1;
+            pair_o0[2] = pair_o0[2] * factor0 + exp_a0 * pipe_va2 + exp_b0 * pipe_vb2;
+            pair_o1[2] = pair_o1[2] * factor1 + exp_a1 * pipe_va2 + exp_b1 * pipe_vb2;
+            pair_o0[3] = pair_o0[3] * factor0 + exp_a0 * pipe_va3 + exp_b0 * pipe_vb3;
+            pair_o1[3] = pair_o1[3] * factor1 + exp_a1 * pipe_va3 + exp_b1 * pipe_vb3;
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
@@ -2010,58 +1988,36 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 pipe_values_b);
 
             float4 pk_a = float4(pipe_ka[0], pipe_ka[1], pipe_ka[2], pipe_ka[3]);
+            float4 pk_b = float4(pipe_kb[0], pipe_kb[1], pipe_kb[2], pipe_kb[3]);
             U pair_score0 = simd_sum(dot(pq0, pk_a));
             U pair_score1 = simd_sum(dot(pq1, pk_a));
-
-            U pair_new_max0 = metal::max(pair_max0, pair_score0);
-            U pair_new_max1 = metal::max(pair_max1, pair_score1);
-            U pair_factor0;
-            U pair_factor1;
-            LAGUNA_RESCALE(pair_factor0, pair_max0 - pair_new_max0);
-            LAGUNA_RESCALE(pair_factor1, pair_max1 - pair_new_max1);
-            U pair_exp0 = metal::fast::exp(pair_score0 - pair_new_max0);
-            U pair_exp1 = metal::fast::exp(pair_score1 - pair_new_max1);
-
-            pair_max0 = pair_new_max0;
-            pair_max1 = pair_new_max1;
-            pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
-            pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
-
-            pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
-            pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
-            pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
-            pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
-            pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
-            pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
-            pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
-            pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
-
-            float4 pk_b = float4(pipe_kb[0], pipe_kb[1], pipe_kb[2], pipe_kb[3]);
             U pipeb_score0 = simd_sum(dot(pq0, pk_b));
             U pipeb_score1 = simd_sum(dot(pq1, pk_b));
 
-            U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
-            U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
-            U pipeb_factor0;
-            U pipeb_factor1;
-            LAGUNA_RESCALE(pipeb_factor0, pair_max0 - pipeb_new_max0);
-            LAGUNA_RESCALE(pipeb_factor1, pair_max1 - pipeb_new_max1);
-            U pipeb_exp0 = metal::fast::exp(pipeb_score0 - pipeb_new_max0);
-            U pipeb_exp1 = metal::fast::exp(pipeb_score1 - pipeb_new_max1);
+            U joint_new_max0 = metal::max(metal::max(pair_max0, pair_score0), pipeb_score0);
+            U joint_new_max1 = metal::max(metal::max(pair_max1, pair_score1), pipeb_score1);
+            U factor0;
+            U factor1;
+            LAGUNA_RESCALE(factor0, pair_max0 - joint_new_max0);
+            LAGUNA_RESCALE(factor1, pair_max1 - joint_new_max1);
+            U exp_a0 = metal::fast::exp(pair_score0 - joint_new_max0);
+            U exp_a1 = metal::fast::exp(pair_score1 - joint_new_max1);
+            U exp_b0 = metal::fast::exp(pipeb_score0 - joint_new_max0);
+            U exp_b1 = metal::fast::exp(pipeb_score1 - joint_new_max1);
 
-            pair_max0 = pipeb_new_max0;
-            pair_max1 = pipeb_new_max1;
-            pair_sum0 = pair_sum0 * pipeb_factor0 + pipeb_exp0;
-            pair_sum1 = pair_sum1 * pipeb_factor1 + pipeb_exp1;
+            pair_max0 = joint_new_max0;
+            pair_max1 = joint_new_max1;
+            pair_sum0 = pair_sum0 * factor0 + exp_a0 + exp_b0;
+            pair_sum1 = pair_sum1 * factor1 + exp_a1 + exp_b1;
 
-            pair_o0[0] = pair_o0[0] * pipeb_factor0 + pipeb_exp0 * pipe_vb0;
-            pair_o1[0] = pair_o1[0] * pipeb_factor1 + pipeb_exp1 * pipe_vb0;
-            pair_o0[1] = pair_o0[1] * pipeb_factor0 + pipeb_exp0 * pipe_vb1;
-            pair_o1[1] = pair_o1[1] * pipeb_factor1 + pipeb_exp1 * pipe_vb1;
-            pair_o0[2] = pair_o0[2] * pipeb_factor0 + pipeb_exp0 * pipe_vb2;
-            pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * pipe_vb2;
-            pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
-            pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
+            pair_o0[0] = pair_o0[0] * factor0 + exp_a0 * pipe_va0 + exp_b0 * pipe_vb0;
+            pair_o1[0] = pair_o1[0] * factor1 + exp_a1 * pipe_va0 + exp_b1 * pipe_vb0;
+            pair_o0[1] = pair_o0[1] * factor0 + exp_a0 * pipe_va1 + exp_b0 * pipe_vb1;
+            pair_o1[1] = pair_o1[1] * factor1 + exp_a1 * pipe_va1 + exp_b1 * pipe_vb1;
+            pair_o0[2] = pair_o0[2] * factor0 + exp_a0 * pipe_va2 + exp_b0 * pipe_vb2;
+            pair_o1[2] = pair_o1[2] * factor1 + exp_a1 * pipe_va2 + exp_b1 * pipe_vb2;
+            pair_o0[3] = pair_o0[3] * factor0 + exp_a0 * pipe_va3 + exp_b0 * pipe_vb3;
+            pair_o1[3] = pair_o1[3] * factor1 + exp_a1 * pipe_va3 + exp_b1 * pipe_vb3;
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
