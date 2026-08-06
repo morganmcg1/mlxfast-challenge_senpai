@@ -4277,16 +4277,22 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
             x[i]=float(input[col+i]);
             sum+=x[i];
         }
+        float4 x0=float4(x[0],x[1],x[2],x[3]);
+        float4 x1=float4(x[4],x[5],x[6],x[7]);
         for(uint row=0;row<R;++row){
             const device uint8_t* wl=ws+row*K;
             float s=float(sc[row*KG]),b=float(bs[row*KG]),a=0.0f;
-            for(uint i=0;i<V;++i) a+=x[i]*wl[i];
+            float4 w0=float4(float(wl[0]),float(wl[1]),float(wl[2]),float(wl[3]));
+            float4 w1=float4(float(wl[4]),float(wl[5]),float(wl[6]),float(wl[7]));
+            a+=dot(x0,w0);
+            a+=dot(x1,w1);
             r[row]+=s*a+sum*b;
         }
         ws+=BK; sc+=BK/GS; bs+=BK/GS; col+=BK;
     }
+    vec<float,4> packed=simd_sum(vec<float,4>(r[0],r[1],r[2],r[3]));
+    r[0]=packed.x; r[1]=packed.y; r[2]=packed.z; r[3]=packed.w;
     for(uint row=0;row<R;++row){
-        r[row]=simd_sum(r[row]);
         if(lane==0){
             float l=float(bfloat(r[row]));
             float g;
