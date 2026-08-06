@@ -223,6 +223,41 @@ The escape rates are the honest cost of fail-closed packing: 0.65 % of QKV rows
 and 1.91 % of o_proj rows fall back to the full stock plane and are billed at
 `g + 1` bytes, not `g/4 + 1`. That penalty is already inside every number above.
 
+### 4.1 The pairwise predicate is nearly free — and the residual is exactly the predicted one
+
+Differencing the census arms separates the two predicates that share the escape
+path. The lane-major base-range predicate is pre-existing; the pairwise
+predicate is what this change adds.
+
+| site | escapes without pairwise | escapes with pairwise | **marginal cost of pairwise** |
+|---|---|---|---|
+| fused q/k/v | 2454 (arm B) | 2543 (arm C) | **+89 rows** |
+| o_proj | 1526 (arm C) | 1563 (arm D) | **+37 rows** |
+
+The root-cause model in §2 predicts this number a priori. Exactly one group pair
+per `quantized()` call is a genuine exception — the first simdgroup, the only one
+where `tidx.x < 16` actually splits the halves. `q`, `k` and `v` are quantized
+separately, so the upper bound is 3 rows/layer × 40 layers = **120** for fused
+QKV and 1 × 40 = **40** for o_proj. Observed: 89 and 37. Both sit under the
+bound, and the shortfall is accounted for by exception rows that were already
+escaping on the base-range predicate and so cost nothing extra.
+
+So the mechanism is not "most rows happen to be pairwise-constant". It is
+"**every** row is pairwise-constant except one per quantized tensor, and that one
+is a deterministic consequence of the dispatch geometry, not of the data". That
+is why the saving is a structural 2× on the accepted plane rather than a
+data-dependent average.
+
+**This independently reproduces PR #72.** nezuko found the same artefact on the
+routed MoE scale plane: 985,300,992 even-byte pairs, 99.999983 % equal, **exactly
+168 exceptions — one per tensor, always at flat pair 0**, across 234 tensors
+(`research/maple-nezuko-pr72-group32-scale-census.md`). Two students, two
+disjoint weight planes, identical signature. The odd-index control in her census
+(23.24 % mismatch) rules out the trivial explanation that these scales are just
+smooth. Neither census can be a fixture artefact, and since no `fp_quantize`
+override exists in `fp_quantized_nax.{h,metal}`, the property is
+architecture-independent and holds on the ranked M5.
+
 ---
 
 ## 5. Correctness: bitwise logit certificate
@@ -354,7 +389,35 @@ degraded arm cannot be reported as a win.
 
 ## 7. Budget
 
-[FILL]
+Measured with `git cat-file -s` at `BASE_SHA` and at branch head:
+
+| file | base `ab1f9a13` | head | delta | free to 524,288 cap |
+|---|---|---|---|---|
+| `Sources/MLXFastModel/LagunaRuntimeModel.swift` | 521,768 | 523,115 | **+1,347** | **1,173** |
+| `Sources/MLXFastModel/LagunaRuntimeWeights.swift` | 44,463 | 47,492 | +3,029 | 476,796 |
+
+```
+bash senpai/check-editable-budget.sh ab1f9a1323421703f944ac1895841e39b8302542
+editable budget OK: current=2971207/3000000 bytes headroom=28793 growth=4376/262144
+                    files=142 (base=142)
+```
+
+`research/` is not in `editablePaths`, so the ten research files on this branch
+cost zero submitted bytes. Total growth is 4,376 B against a 262,144 B
+per-review allowance.
+
+**The per-file cap on `LagunaRuntimeModel.swift` is the binding constraint, and
+it is met with 1,173 B to spare.** It is also met against the newer frontier the
+advisor flagged: at `9e8c719f` that file is 521,506 B, so 2,782 B free versus my
++1,347 B delta. This arm therefore does not depend on PR #81's literal reclaim
+landing first — #81 turns a tight fit into a comfortable one, but the arm fits
+either way.
+
+Two consequences were accepted deliberately to stay inside that cap: the
+block-narrow o_proj kernel family was deleted rather than kept behind a third
+selector (§8), and no MSL literal in `LagunaRuntimeModel.swift` was re-indented
+or comment-stripped, because PR #81 is running exactly that transformation
+concurrently and a textual collision would be expensive for both branches.
 
 ---
 
