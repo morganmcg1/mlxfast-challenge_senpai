@@ -1,11 +1,10 @@
 # SENPAI Research State
-- 2026-08-06T08:55Z (updated)
-- Campaign mlxfast-birch-20260805. All 4 students active. Advisor HEAD at f4bad35.
+- 2026-08-06T09:00Z (updated)
+- Campaign mlxfast-birch-20260805. All 4 students assigned. Advisor HEAD at b6a0889.
 - **SCORE GAP**: Current best 2.5459 (commit 4058d0b on M5) vs target 2.5523
   (lBroth) = ~0.25% gap. Any single experiment success likely closes this.
-- **FRONTIER**: f4bad35 (advisor record on top of e925569 = PR #94 merged:
-  simd_dot attention, bit-exact, -39 lines).
-  Previous frontier: 12a712d (PR #84: top-8 elimination), then 61aef87 (research notes).
+- **FRONTIER**: b6a0889 (PR #98 merged: prefill affine O-proj extension + PR #94 +
+  advisor notes). Previous frontier: f4bad35, then e925569 (PR #94 simd_dot attention).
 
 ## MERGED: PR #94 (Alphonse) — simd_dot in fused attention score computation
 - **Status**: MERGED (squash) → e925569. Bit-exact, upstream-equivalence verified.
@@ -17,16 +16,32 @@
 - **W&B**: Baseline y81omqko/6ga1mg8e/7qta01sy, Candidate njlm1fh1/rieo4n2q/tk4ca0ad
 - **Note**: Student used dot()+simd_sum (2 ops) not simd_dot() (1 op). Still 60% instruction reduction.
 
-## In-Flight Experiments (3 decode + 1 prefill, all independent)
+## MERGED: PR #98 (Askeladd) — Prefill O-proj affine INT8 path extension
+- **Status**: MERGED (squash) → b6a0889. Bit-exact, upstream-equivalence verified.
+- **Change**: Extended affine INT8 O-proj `quantizedMM` path from L==1 (decode-only)
+  to L>1 (prefill). Guard relaxation: removed `B==1, L==1` constraint, replaced
+  `dims(1,1,...)` with `ndim==3, dim(-1)==...`. Fused GEMV kept decode-only (self-
+  declines for L>1). Gate product softplus guarded to L==1. 6 insertions, 6 deletions.
+- **M4 same-host timing**: Prefill 3.3% faster (0.001156→0.001119 s/tok), decode
+  within noise (0.992x). Correctness: max_abs_diff=0, all gates passed.
+- **W&B**: Baseline 7bidudzi, Candidate j4unnmfw (local-iterate same-host pair).
+- **CRITICAL CAVEAT**: M4 does NOT select `_nax` prefill kernels (GPU gen 16).
+  M4 prefill timing is NOT evidence for `_nax` changes. On M5, BF16 `wo(output)`
+  uses fast `_nax` GEMM; if `quantizedMM` doesn't select `_nax`, M5 prefill could
+  regress. The local-submit calibrated prefill_speedup=0.3276 is unreliable (cross-
+  machine M4→M5), but flags real risk. Official M5 measurement required to validate.
+- **Action**: DO NOT submit to M5 until M5 `_nax` behavior of `quantizedMM` is
+  confirmed. If M5 shows prefill regression, revert immediately.
+
+## In-Flight Experiments (3 decode, all independent)
 
 | Student | PR | Experiment | Mechanism | Risk | Est. Impact |
 |---------|-----|-----------|-----------|------|-------------|
 | Alphonse | #107 | NVFP4 qdot dot4 vectorization | Replace 16 scalar FMA with 4 dot(float4,float4)+adds in shared qdot header (all NVFP4 kernels) | MED | 0.5-2.0% decode |
 | Thorfinn | #102 | Attention threadGroup 1024→128 | Reduce 8× over-provisioning: only 128/1024 threads active. Bit-exact, improves occupancy + barrier latency | ZERO | 0.3-1.0% decode |
 | Edward | #100 | Depth-1 prefetch on gated affine INT8 O-proj kernel | Prefetch weight blocks behind compute in O-proj decode kernel | LOW | 0.3-1.5% decode |
-| Askeladd | #98 | Prefill O-proj affine path extension | Relax L==1 guard → quantizedMM with affine INT8 weights for prefill | MED | 0.3-1.0% prefill |
 
-3 decode arms (75% score weight) + 1 prefill arm (25% weight). All independent code sections.
+3 decode arms (75% score weight). All independent code sections.
 
 ### Key Design Notes
 
@@ -100,6 +115,7 @@
 | PR | Student | Idea | Result |
 |----|---------|------|--------|
 | #94 | Alphonse | simd_dot (dot+simd_sum) in attention | MERGED — bit-exact, -39 lines. M4 inconclusive, M5 unverified. |
+| #98 | Askeladd | Prefill O-proj affine INT8 path extension | MERGED — bit-exact, M4 prefill +3.3%. M5 _nax risk: quantizedMM may not select _nax GEMM. Official M5 measurement pending. |
 | #97 | Edward | Prefill shared expert fused bank guard | NEGATIVE — dispatch elimination is NOT a win. Dispatch overhead negligible. |
 | #96 | Thorfinn | Register-prefetch on shared SwiGLU QMV | NEGATIVE — register pressure regression. Shared kernel has precomputed addresses. |
 | #93 | Edward | Register-prefetch on down+residual kernel | NEGATIVE — bandwidth-bound kernel, prefetch adds overhead. W&B run 3jhy0yb3 |
