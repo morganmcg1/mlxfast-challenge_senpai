@@ -277,6 +277,16 @@ let lagunaSwiGLUQMVRows1Enabled =
 let lagunaSharedSwiGLUQMVRows1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_R1"] != "0"
 
+/// `DARKBLOOM_MERGED_SHARED_SWIGLU_QMV` (default ON; set "0" to disable):
+/// issues the routed gate/up packed-top8 R1 QMV and the shared-expert
+/// gate/up R1 QMV as a single GPU dispatch with two output buffers, saving
+/// one `dispatchThreads` call per sparse layer per decode step (39 fewer
+/// dispatches/step). Each group computes the same arithmetic as its
+/// standalone kernel, so the merge is bit-exact. Falls back to the separate
+/// dispatches when shared fused banks are unavailable.
+let lagunaMergedSharedSwiGLUQMVEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_MERGED_SHARED_SWIGLU_QMV"] != "0"
+
 /// Folds the per-head softplus gate into the output projection's GEMV (see
 /// `lagunaGatedOutputProjectionSource`), with one kernel variant per attention
 /// family. Set `DARKBLOOM_FUSED_GATED_OUTPUT=0` to ablate.
@@ -7488,6 +7498,259 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     )[0]
 }
 
+
+// MARK: - Merged routed + shared gate/up QMV (single dispatch)
+
+/// Merged dispatch: the routed gate/up packed-top8 R1 QMV and the shared
+/// gate/up R1 QMV issued as one GPU dispatch with two output buffers. The
+/// routed groups run first (identical to `lagunaRoutedSwiGLUQMVPackedTop8R1Kernel`),
+/// then shared groups (identical to `lagunaSharedSwiGLUQMVRows1Kernel`).
+/// Each group computes the exact same arithmetic as its standalone kernel,
+/// so the merge is bit-exact; it only saves one `dispatchThreads` call per
+/// sparse layer per decode step (39 dispatches/step eliminated).
+private let lagunaMergedRoutedSharedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_merged_routed_shared_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v1",
+    inputNames: [
+        "input", "routed_weight", "routed_packed_scales", "router_keys",
+        "shared_weight", "shared_scales",
+    ],
+    outputNames: ["activated", "shared_activated"],
+    source: """
+        constexpr uint input_width = 2048;
+        constexpr uint output_width = 512;
+        constexpr uint block_width = 512;
+        constexpr uint values_per_lane = 16;
+        constexpr uint routed_experts = 8;
+        constexpr uint routed_tiles_per_expert = 256;
+        constexpr uint routed_total_groups = routed_experts * routed_tiles_per_expert;
+        // Shared R1: 256 tiles, 2 simdgroups per group → 512 rows
+        constexpr uint shared_tiles = 256;
+        constexpr uint shared_total_groups = shared_tiles;
+        constexpr uint shared_packed_row_bytes = 1024;
+        constexpr uint shared_scale_row_bytes = 128;
+        // Routed packed scales
+        constexpr uint routed_fused_row_bytes = 1024;
+        constexpr uint routed_fused_expert_bytes = 1024 * routed_fused_row_bytes;
+        constexpr uint routed_scale_row_bytes = 32;
+        constexpr uint routed_scale_sub_bytes = 8 * routed_scale_row_bytes;
+        constexpr uint routed_scale_kblock_bytes = routed_scale_sub_bytes;
+        constexpr uint routed_scale_tile_bytes = 4 * routed_scale_kblock_bytes;
+        constexpr uint routed_packed_expert_bytes = 128 * routed_scale_tile_bytes;
+
+        uint group = threadgroup_position_in_grid.x;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+
+        if (group < routed_total_groups) {
+            // === ROUTED PATH (identical to lagunaRoutedSwiGLUQMVPackedTop8R1Kernel) ===
+            uint expert_slot = group % routed_experts;
+            uint tile = group / routed_experts;
+            uint logical_row = tile * 2 + simd_group;
+            thread uint top8_keys[8];
+            for (uint j = 0; j < 8; ++j) {
+                top8_keys[j] = router_keys[lane + 32u * j];
+            }
+            uint top8_mask = 0u;
+            uint top8_winner = 0u;
+            for (uint r = 0; r <= expert_slot; ++r) {
+                top8_winner = laguna_router_top8_extract_round(
+                    top8_keys, top8_mask, lane);
+            }
+            uint expert = top8_winner;
+
+            const device uint8_t* expert_weight =
+                (const device uint8_t*)routed_weight + expert * routed_fused_expert_bytes;
+            const device uint8_t* row_scales =
+                routed_packed_scales + expert * routed_packed_expert_bytes
+                + (logical_row / 4) * routed_scale_tile_bytes;
+            uint sub = logical_row % 4;
+            uint gate_row = (logical_row / 32) * 64 + logical_row % 32;
+            uint up_row = gate_row + 32;
+
+            thread float gate_result = 0.0f;
+            thread float up_result = 0.0f;
+            thread float input_values[values_per_lane];
+
+            uint2 gate_codes;
+            uint2 up_codes;
+            uint8_t gate_sb;
+            uint8_t up_sb;
+            {
+                const device uint8_t* first_scales =
+                    row_scales + sub * 2 * routed_scale_row_bytes + lane;
+                gate_sb = first_scales[0];
+                up_sb = first_scales[routed_scale_row_bytes];
+                gate_codes = *(const device uint2*)(
+                    expert_weight + gate_row * routed_fused_row_bytes + lane * 8);
+                up_codes = *(const device uint2*)(
+                    expert_weight + up_row * routed_fused_row_bytes + lane * 8);
+            }
+
+            for (uint block = 0; block < input_width; block += block_width) {
+                const device vec<bfloat, 4>* input_vectors =
+                    (const device vec<bfloat, 4>*) (
+                        input + block + lane * values_per_lane);
+                for (uint i = 0; i < values_per_lane / 4; ++i) {
+                    const vec<bfloat, 4> values = input_vectors[i];
+                    input_values[4 * i] = values[0];
+                    input_values[4 * i + 1] = values[1];
+                    input_values[4 * i + 2] = values[2];
+                    input_values[4 * i + 3] = values[3];
+                }
+
+                const uint2 cur_gate_codes = gate_codes;
+                const uint2 cur_up_codes = up_codes;
+                const uint8_t cur_gate_sb = gate_sb;
+                const uint8_t cur_up_sb = up_sb;
+                const uint next_block = block + block_width;
+                if (next_block < input_width) {
+                    const device uint8_t* next_scales =
+                        row_scales + (next_block / block_width) * routed_scale_kblock_bytes
+                        + sub * 2 * routed_scale_row_bytes + lane;
+                    gate_sb = next_scales[0];
+                    up_sb = next_scales[routed_scale_row_bytes];
+                    gate_codes = *(const device uint2*)(
+                        expert_weight + gate_row * routed_fused_row_bytes
+                        + next_block / 2 + lane * 8);
+                    up_codes = *(const device uint2*)(
+                        expert_weight + up_row * routed_fused_row_bytes
+                        + next_block / 2 + lane * 8);
+                }
+
+                gate_result += laguna_nvfp4_qdot_codes_16(
+                    cur_gate_codes, input_values,
+                    laguna_nvfp4_scale(cur_gate_sb));
+                up_result += laguna_nvfp4_qdot_codes_16(
+                    cur_up_codes, input_values,
+                    laguna_nvfp4_scale(cur_up_sb));
+            }
+
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
+            if (lane == 0) {
+                bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
+                bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
+                bfloat exp_abs = metal::exp(metal::abs(gate));
+                bfloat denominator = bfloat(1) + exp_abs;
+                bfloat y = bfloat(1) / denominator;
+                bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+                bfloat silu = bfloat(gate * sigmoid);
+                activated[expert_slot * output_width + logical_row] =
+                    bfloat(silu * up);
+            }
+        } else {
+            // === SHARED PATH (identical to lagunaSharedSwiGLUQMVRows1Kernel) ===
+            uint shared_group = group - routed_total_groups;
+            uint tile = shared_group;
+            uint row = tile * 2 + simd_group;
+
+            const device uint8_t* gate_row_weight =
+                (const device uint8_t*)shared_weight +
+                row * shared_packed_row_bytes + lane * 8;
+            const device uint8_t* up_row_weight =
+                (const device uint8_t*)shared_weight +
+                (row + output_width) * shared_packed_row_bytes + lane * 8;
+            const device uint8_t* gate_row_scale =
+                shared_scales + row * shared_scale_row_bytes + lane;
+            const device uint8_t* up_row_scale =
+                shared_scales + (row + output_width) * shared_scale_row_bytes + lane;
+
+            thread float gate_result = 0.0f;
+            thread float up_result = 0.0f;
+            thread float input_values[values_per_lane];
+
+            for (uint block = 0; block < input_width; block += block_width) {
+                const device vec<bfloat, 4>* input_vectors =
+                    (const device vec<bfloat, 4>*) (
+                        input + block + lane * values_per_lane);
+                for (uint i = 0; i < values_per_lane / 4; ++i) {
+                    const vec<bfloat, 4> values = input_vectors[i];
+                    input_values[4 * i] = values[0];
+                    input_values[4 * i + 1] = values[1];
+                    input_values[4 * i + 2] = values[2];
+                    input_values[4 * i + 3] = values[3];
+                }
+
+                gate_result += laguna_nvfp4_qdot_16(
+                    gate_row_weight + block / 2,
+                    input_values,
+                    laguna_nvfp4_scale(gate_row_scale[block / 16]));
+                up_result += laguna_nvfp4_qdot_16(
+                    up_row_weight + block / 2,
+                    input_values,
+                    laguna_nvfp4_scale(up_row_scale[block / 16]));
+            }
+
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
+            if (lane == 0) {
+                bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
+                bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
+                bfloat exp_abs = metal::exp(metal::abs(gate));
+                bfloat denominator = bfloat(1) + exp_abs;
+                bfloat y = bfloat(1) / denominator;
+                bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+                bfloat silu = bfloat(gate * sigmoid);
+                shared_activated[row] = bfloat(silu * up);
+            }
+        }
+        """,
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+/// Merged dispatch returning both routed and shared gate/up activations in
+/// one GPU dispatch. The routed half mirrors `lagunaRoutedSwiGLUQMVPackedTop8`
+/// (R1, packed scales, top8 keys); the shared half mirrors
+/// `lagunaSharedSwiGLUQMV` (R1, non-packed scales). Bit-exact: each group
+/// computes the same arithmetic as its standalone kernel.
+func lagunaMergedRoutedSharedSwiGLUQMVPackedTop8(
+    _ input: MLXArray,
+    routedFusedWeight: MLXArray,
+    routedPackedScales: MLXArray,
+    routerKeys: MLXArray,
+    sharedFusedWeight: MLXArray,
+    sharedFusedScales: MLXArray
+) -> (routed: MLXArray, shared: MLXArray) {
+    precondition(input.dtype == .bfloat16)
+    precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
+    precondition(routedFusedWeight.dtype == .uint32)
+    precondition(routedPackedScales.dtype == .uint8)
+    precondition(routerKeys.dtype == .uint32)
+    precondition(routerKeys.size == LagunaConstants.numExperts)
+    precondition(sharedFusedWeight.dtype == .uint32)
+    precondition(
+        sharedFusedWeight.dims(
+            2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 8))
+    precondition(sharedFusedScales.dtype == .uint8)
+    precondition(
+        sharedFusedScales.dims(
+            2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 16))
+
+    let routedGrid = LagunaConstants.numExpertsPerTok * 256 * 64
+    let sharedGrid = 256 * 64
+    let results = lagunaMergedRoutedSharedSwiGLUQMVPackedTop8R1Kernel(
+        [
+            input, routedFusedWeight, routedPackedScales, routerKeys,
+            sharedFusedWeight, sharedFusedScales,
+        ],
+        grid: (routedGrid + sharedGrid, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [
+            [
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ],
+            [1, 1, LagunaConstants.sharedExpertIntermediateSize],
+        ],
+        outputDTypes: [.bfloat16, .bfloat16]
+    )
+    return (results[0], results[1])
+}
+
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_down_reduce_bf16_v2",
     inputNames: [
@@ -9952,12 +10215,29 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
                     {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys)")
-                        activated = lagunaRoutedSwiGLUQMVPackedTop8(
-                            x,
-                            fusedWeight: fusedWeight,
-                            packedScales: packedBank,
-                            routerKeys: routerKeys
-                        )
+                        if lagunaMergedSharedSwiGLUQMVEnabled,
+                            lagunaSharedSwiGLUQMVRows1Enabled,
+                            let sharedBanks = sharedExpert.fusedSharedBanks(x)
+                        {
+                            lagunaTrace("merged routed+shared gate/up QMV + SwiGLU (packed, producer keys)")
+                            let merged = lagunaMergedRoutedSharedSwiGLUQMVPackedTop8(
+                                x,
+                                routedFusedWeight: fusedWeight,
+                                routedPackedScales: packedBank,
+                                routerKeys: routerKeys,
+                                sharedFusedWeight: sharedBanks.gateUpWeight,
+                                sharedFusedScales: sharedBanks.gateUpScales
+                            )
+                            activated = merged.routed
+                            mergedSharedActivated = merged.shared
+                        } else {
+                            activated = lagunaRoutedSwiGLUQMVPackedTop8(
+                                x,
+                                fusedWeight: fusedWeight,
+                                packedScales: packedBank,
+                                routerKeys: routerKeys
+                            )
+                        }
                     } else {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed scales)")
                         activated = lagunaRoutedSwiGLUQMVPacked(
