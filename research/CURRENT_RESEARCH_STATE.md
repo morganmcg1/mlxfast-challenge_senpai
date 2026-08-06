@@ -1,6 +1,6 @@
 # SENPAI Research State
 
-- **Updated:** 2026-08-06 18:37 UTC
+- **Updated:** 2026-08-06 18:47 UTC
 - **Most recent human research direction:** Operate only the isolated Cedar advisor branch and Cedar student branches for Frieren, Fern, Tanjiro, and Nezuko. Keep `BASE_SHA=768bb9d4adfc2baac7d74c0008afc92d010329da` and organizer frontier `afcb8320912aa1162f841f282442d7c093e6b2e5` fixed, preserve the four surviving Cedar PR records, and reactivate the students on fresh eligible hosts with independent causal mechanisms. Students may dispatch an official submission only after full local correctness and timing gates pass, and must try `mlxfast submit --model "senpai"` first.
 - **Fixed experiment state:** The advisor assignment base is `ef887cccd68c5b9102d0ce81b8be4e48d71c9b27`. No fresh eligible-host absolute timing exists yet, so the current comparison target is the same-session normalized baseline `1.0`: `score = decode_speedup^0.75 * prefill_speedup^0.25`, with both component speedups at least `0.95`. The editable surface is `2,998,248 / 3,000,000` bytes, leaving `1,752` bytes. Ranked M5 evidence remains authoritative.
 - **Current research focus and themes:**
@@ -14,7 +14,10 @@
 - **Potential next research directions and themes:**
   - Review terminal evidence strongest-first and refresh the allowed Cedar base after every guarded decision. Do not stack student branches or infer a frontier from branch names.
   - Assign Frieren's native-affine NVFP4 seed-elision experiment as soon as PR #33 has a terminal disposition and a current allowed base SHA. If it wins, hard-enable the behavior and delete the control and alternate arm rather than retaining experiment scaffolding.
-  - If the active experiments are null, use the headroom from validated deletion work for one production-reachable native-affine output-projection geometry experiment or one routed-MoE dependency experiment, not a multi-variable sweep.
+  - The strongest unassigned low-byte follow-up is to extend the live fused norm-affine QKV prefetch control beyond PF4 and screen PF5, PF6, and PF8 independently. Preserve the original reduction and conversion order, require output equivalence and compiler resource evidence, and stop on spills or a null paired result.
+  - The next host-overhead candidate is to compile the exact existing attention-scale `Float` bit pattern into both fused attention kernels and remove the retained one-element carrier and dispatch binding. It is attractive because it should reduce bytes, but any bit difference ends the arm.
+  - PR #135 already tests the projection-async half of the front-edge scheduling question. Do not broaden it mid-assignment; if it is null, isolate removal of the outer layer-0 schedule rung in a separate zero-code control experiment.
+  - Reserve the native-affine output-projection `2x4` to `4x2` retile for a student who can obtain M5 confirmation because threadgroup geometry has high cross-generation risk. Capacity-scoped full-attention parameter atlases and validated KV-prepare fast lanes are lower-risk reserves after PR #33 creates headroom. Defer gated-attention fusion because its rounding risk and byte cost are materially higher.
   - Require fresh same-host matched comparisons, intact 40C thermal gating, architecture and kernel-family reporting, exact checked outputs, `130/130` decode steps, both `0.95` floors, and explicit assignment-scope and editable-budget validation.
   - Official submission is authorized only for a locally green causal winner. Try model attribution `senpai` first; retry once with an alternate exact model name only after an explicit invalid-or-unsupported rejection, never after timeout, network, validation, or unrelated failures.
 
