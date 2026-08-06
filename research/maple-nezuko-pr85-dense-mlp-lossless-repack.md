@@ -43,6 +43,22 @@ block | scheme | all`). Logs: `research/maple-nezuko-pr85/census-value.log`,
 Tensors: `model.layers.0.mlp.{gate_proj,up_proj}.weight` BF16 `[8192, 2048]`;
 `model.layers.0.mlp.down_proj.weight` BF16 `[2048, 8192]`.
 
+**§0.9.33 admissibility.** Every quantity in this census is a property of the
+checkpoint's bits, computed on CPU by `numpy`, with no GPU, no timer and no
+dispatch involved. `pack_frac_row(W)`, `outliers_per_row(14)`, the `tz`
+histogram, `distinct16`, the entropies and the escape rate are all determined
+by the *algorithm applied to the weight file*, not by the machine that applied
+it. Re-running this script on the ranked M5 against the same
+`reference_weights/laguna-xs-2.1-nvfp4-mlx` would return **bit-identical
+numbers**. That is what makes an M4 census a legitimate gate for an M5 change,
+and it is why §7.1's host caveat applies to the *timing* in §6 but not to
+anything in this section.
+
+The derived byte counts in §5.1 are in the same transferring class — they are
+counts, not rates. The *prices* in §5.1.1 are not: they multiply transferring
+byte counts by a machine-determined GB/s, so they are labelled as estimates
+and quoted over a rate range rather than as a single number.
+
 ### 2.1 Value census — mantissas are incompressible
 
 | statistic | gate | up | down |
@@ -234,6 +250,42 @@ rounding.
 
 Escape rates observed at runtime: gate/up 4,978 / 33,554,432 = **0.014836 %**;
 down 2,509 / 16,777,216 = **0.014955 %**. Both match the census scheme table.
+
+#### 5.1.1 Escape traffic, booked pessimistically
+
+The table above is the *gross* ledger and it is not yet honest, because an
+escaped element also costs a read from the stock BF16 plane, which stays
+resident. The advisor asked me to copy frieren's #80 technique and book that
+tax in the direction that can only hurt my own claim, so here are both bounds.
+
+An escape is a **per-element** event in this design, not a per-row one. That
+matters: the packed planes are always full-width regardless of escapes, so
+escapes never cost me a whole row — they are a small additive tax on top of a
+fixed gross saving. (A per-row escape scheme, which the brief anticipated,
+would have forfeited entire rows.)
+
+| bound | charge per escape | tax | net saved | effective |
+|---|---:|---:|---:|---:|
+| optimistic | 2 B (the BF16 word) | 14,974 B | 25,126,274 B (25.126 MB) | 75.04 % of stock |
+| **pessimistic** | **128 B (a full cache line)** | **958,336 B** | **24,182,912 B (24.183 MB)** | **75.98 % of stock** |
+
+The pessimistic bound assumes every one of the 7,487 escapes lands on its own
+private 128 B cache line and shares that line with nothing else — false in
+practice, since escapes cluster in the low-magnitude tail, but it is the bound
+that cannot flatter me.
+
+Re-pricing against §0.9.27's byte roofline at the exchange rate 14.862 %/ms:
+
+| bound | @610 GB/s | @546.2 GB/s |
+|---|---|---|
+| optimistic | 41.19 µs → **+0.6122 %** (2.20× MDE) | 46.00 µs → **+0.6837 %** (2.46× MDE) |
+| **pessimistic** | 39.64 µs → **+0.5892 %** (2.12× MDE) | 44.27 µs → **+0.6580 %** (2.37× MDE) |
+
+**The honest predicted band is +0.589 % … +0.684 % of score**, i.e. 2.1–2.4×
+the 0.278 % MDE, and the escape tax costs at most 3.8 % of the gross saving.
+Note that the pessimistic figure still sits above the advisor's ≈ 0.61 %
+acceptance bar at 546.2 GB/s and just below it at 610 GB/s, so the *rate*
+assumption, not the escape tax, is what decides whether this clears the bar.
 
 ### 5.2 §0.9.31 RAM allocation accounting
 
