@@ -550,12 +550,45 @@ overwrite — at `Sources/MLXFastModel/RuntimeStartupMemoryPolicy.swift:170-182`
 so an exported `MLX_MAX_MB_PER_BUFFER` is silently discarded on any sub-64 GiB
 host. The >= 64 GiB branch uses `setenv(..., 0)` at
 `LagunaRuntimeWeights.swift:385-387` and *would* honour an export unless
-`DARKBLOOM_POST_WIRE_COMMAND_BUFFER=0`. My 3-cell env scan (base / 200 / 1000,
-300 steps per cell, arm pinned to 1, `0 divergences` throughout) returned
-45.0 buffers/step in every cell: **null by construction, not by physics**.
+`DARKBLOOM_POST_WIRE_COMMAND_BUFFER=0`. My env scan (300 steps per cell, arm
+pinned to 1, `0 divergences` throughout) returned **45.0 buffers/step and 406.3
+dispatches/step in every cell that ran**: null by construction, not by physics.
 frieren hit the identical trap and burned a 6-arm run on it
 (`research/frieren-pr23-result.md:163-166`). Nobody should run the cap env
 screen on a sub-64 GiB host; vary the constant instead, or run it on the M5.
+
+**Correction to an earlier draft of this paragraph, and what the wreckage is
+worth.** I first described that scan as three cells including an unmodified
+`base` control. Re-reading the log, it was six planned cells of which **three
+never executed**: `base_on`, `base_off` and `mb1000_off` each died on
+`caps[@]: unbound variable` / `extra[@]: unbound variable`. Bash 3.2 under
+`set -u` treats the expansion of an *empty* array as unbound, so the script
+killed exactly the cells that set no cap override and the cell that passed no
+`--profile` flag — i.e. precisely the controls. **The scan contained no
+baseline cell at all.** The "null by construction" conclusion does not depend on
+it (it follows from the `setenv` overwrite plus the identical counts), but the
+design description was wrong and is corrected here.
+
+The three cells that did run are worth more as an accident than as a scan.
+`mb200_on`, `mb1000_on` and `both_on` (ops=500, mb=1000) requested three
+different configurations, and the overwrite makes all three **physically the
+same configuration**, confirmed by identical `cbs=45.0` and
+`dispatches=406.3`. So they are three unreplicated 300-step runs of one config —
+a free negative control:
+
+| cell | wall (ms) | `gpu_busy_sum` (ms) | gap (ms) |
+| --- | --- | --- | --- |
+| `mb200_on` | 8.204 | 7.966 | 0.238 |
+| `mb1000_on` | 8.118 | 7.890 | 0.228 |
+| `both_on` | 8.210 | 7.949 | 0.260 |
+| **spread** | **92 µs** | **76 µs** | **32 µs** |
+
+Identical configurations differ by up to **92 µs of wall and 76 µs of GPU-busy**
+across single 300-step cells. That spread is *larger than the −64.5 µs arm
+effect this PR ships*. It is the cleanest local justification for why §6.1 used a
+balanced, replicated, profiler-crossed ABBA rather than cell-vs-cell
+comparison: on this host a single 300-step cell cannot resolve the effect at
+all, and any unreplicated A-vs-B here would have been noise with a sign.
 
 **Consequence.** Encoder-count reduction is not a host-gap lever. The ground
 the cap does control — in-encoder barrier cost, inside GPU-busy — is already
