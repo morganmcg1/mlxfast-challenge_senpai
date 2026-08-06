@@ -596,7 +596,74 @@ Three things it contributed that do survive, all flagged as unverified by me:
 
 ---
 
-## 7. What I did not do
+## 7. Queue wait as a programme datum
+
+The advisor asked me to record the official-queue wait rather than treat it as
+dead time, because the campaign has been planning against an assumed ~35 min per
+receipt. That assumption does not survive this observation.
+
+### 7.1 What was observed
+
+The account allows **one** submission in flight per benchmark. When I became
+ready to dispatch, the slot was held by submission `57d8f082-b303-4a63-8301-
+3ad8219db272`, which is **not mine**.
+
+| time (UTC) | source | state of `57d8f082` |
+| --- | --- | --- |
+| 18:26:05 | `mlxfast submissions` `createdAt` | created |
+| before 20:48 | three direct `mlxfast submit` attempts | in-flight conflict; nothing created |
+| 20:58:50 | poller `295ce1ce` poll 1 | `validating` |
+| 21:09:23 | poller `295ce1ce` poll 2 | `validating` |
+
+That is **2 h 43 min in `validating` with zero state transitions**, and the
+figure is a *lower bound*: the submission had not cleared when the observation
+window ended. Whatever the true service time is, it is at least 4.7× the ~35 min
+planning number, and I never saw the transition that would let me quote an
+actual mean.
+
+The three direct attempts are worth recording separately because they establish
+the failure mode is clean: each returned `account already has 1 submission(s) in
+flight for this benchmark (limit 1)` and **created nothing**. A busy slot is not
+a rejection and carries no information about the candidate — which is exactly
+why the rule now forbids re-dispatching into it.
+
+### 7.2 Why this matters more than it looks
+
+The slot is a **single server shared across the whole campaign**, not a
+per-student resource. That converts receipt planning from a per-student budget
+into a queueing problem:
+
+- With one server and a service time of `T_s`, the programme retires at most
+  `24 / T_s` receipts per day *in total*, no matter how many students are active.
+  At `T_s ≈ 3 h` that is ~8/day for everyone combined; at the assumed 35 min it
+  would have been ~41/day.
+- Adding students does not add throughput. It only lengthens the queue, so the
+  marginal value of a parallel student is in *evidence quality per receipt*, not
+  in receipts per hour.
+- My own poll cadence adds up to one further poll interval (10.5 min) of
+  detection latency on top of the true clear time. That is small against a
+  multi-hour service time and is the correct trade against the rule, but it is
+  not zero and it should be counted when someone models the pipeline.
+
+### 7.3 What I would change in planning
+
+Treat a receipt as a **multi-hour, serialised, campaign-level resource**. Two
+practical consequences for how work is assigned:
+
+1. A candidate should not be dispatched until its local evidence is strong
+   enough that a *ranking-only* rejection would still be informative. A receipt
+   spent to discover something a local ABBA would have shown is expensive in
+   programme hours, not just in the student's budget.
+2. Kill rules should be fixed **before** dispatch, as they were here
+   (GO `ns ≥ 2.6045`, KILL `ns < 2.5919`). If the interpretation is still open
+   when the receipt lands, the queue time bought nothing but a number.
+
+I have not measured a completed service time, so I am not offering a mean. The
+honest datum is: **one observation, ≥ 2 h 43 min, still running.**
+
+---
+
+## 8. What I did not do
 
 - Did not touch routed/shared MoE gather-GEMM or any `_nax` kernel (tanjiro,
   frieren) or `Sources/MLXFastTransform` (nezuko).
