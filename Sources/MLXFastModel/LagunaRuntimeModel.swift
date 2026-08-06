@@ -3802,9 +3802,9 @@ func lagunaGateProductSoftplus(
     else { return nil }
     let inVec = heads * LagunaConstants.headDim
     precondition(attentionOutput.dtype == .bfloat16)
-    guard attentionOutput.dims(1, 1, inVec) else { return nil }
+    precondition(attentionOutput.dims(1, 1, inVec))
     precondition(gateLogits.dtype == .bfloat16)
-    guard gateLogits.dims(1, 1, heads) else { return nil }
+    precondition(gateLogits.dims(1, 1, heads))
 
     lagunaTrace("gate product softplus h\(heads)")
     return kernel(
@@ -5893,11 +5893,11 @@ final class LagunaRuntimeAttention: Module {
             // 8192-wide output.
             if lagunaUseNativeAffineOProj(layer: layerIdx),
                 let affineWO = _nativeAffineOProj,
-                gatePerHead, wo.bias == nil,
+                gatePerHead, B == 1, L == 1, wo.bias == nil,
                 headDim == LagunaConstants.headDim,
                 output.dtype == .bfloat16, projectedGate.dtype == .bfloat16,
-                output.ndim == 3, output.dim(-1) == nHeads * headDim,
-                projectedGate.ndim == 3, projectedGate.dim(-1) == nHeads
+                output.dims(1, 1, nHeads * headDim),
+                projectedGate.dims(1, 1, nHeads)
             {
                 // Raw logits + gated affine GEMV: ONE dispatch for the softplus
                 // chain, the broadcast product AND the INT8 contraction (see
@@ -5969,7 +5969,7 @@ final class LagunaRuntimeAttention: Module {
                 // compiled-softplus + donated in-place multiply whenever the
                 // gate is already activated or the kernel declines.
                 let gated: MLXArray
-                if !gateIsActivated, L == 1,
+                if !gateIsActivated,
                     let fusedGated = lagunaGateProductSoftplus(
                         attentionOutput: output, gateLogits: projectedGate,
                         heads: nHeads)
