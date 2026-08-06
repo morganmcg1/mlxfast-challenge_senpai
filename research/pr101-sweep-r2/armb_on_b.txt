@@ -1,0 +1,10 @@
+worker up in 43.2s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717575073242188 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 545.10 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 13.337 8.339 8.171 8.157 8.037 8.109 8.049 8.079
+decode steps=400 mean=8.279 ms median=8.244 ms p10=8.122 ms p90=8.422 ms min=8.037 ms max=13.337 ms total=3.312 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.724014282226562 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/pr101-sweep-r2/armb_on_b.worker.err

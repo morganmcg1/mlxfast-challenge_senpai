@@ -1,0 +1,10 @@
+worker up in 44.2s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.71795654296875 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 548.37 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.440 8.341 8.314 8.229 8.275 8.208 8.257 8.189
+decode steps=160 mean=8.274 ms median=8.264 ms p10=8.229 ms p90=8.312 ms min=8.189 ms max=9.440 ms total=1.324 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.720718383789062 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> research/pr101-sweep-r2/gatesp_r1n4.worker.err
