@@ -112,9 +112,76 @@ have reported the same `0` for a probe that was wired to nothing.
 
 <!-- FILL: local-iterate correctness, goldens, upstream equivalence, injection guard, budget, bytes -->
 
-## 7. §6.1 M4 matched no-harm screen
+## 7. §6.1 M4 matched no-harm screen — the mechanism is refuted
 
-<!-- FILL -->
+Host: Apple M4 Pro, 48.0 GiB. Every run is a full `./benchmark.sh
+--local-iterate`, one model-holding process at a time, behind the standard 40 C
+cool-down gate. Baseline runs execute at detached `ede561b6` (content-identical
+to `BASE_SHA` for `Sources/`); candidate runs at the branch head.
+
+Four runs were taken in the position-balanced order **B C C B**. This is a true
+ABBA: the baseline occupies positions 1 and 4 (sum 5) and the candidate
+positions 2 and 3 (sum 5), so any *linear* drift over the sequence cancels
+exactly in the arm means.
+
+| pos | arm | decode s/tok | prefill s/tok | correctness | `max_abs_diff` | `golden_hash` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | baseline | 0.012945894211 | 0.001125843668 | pass | 0 | `b9509697…` |
+| 2 | candidate | 0.013105335289 | 0.001112878500 | pass | 0 | `b9509697…` |
+| 3 | candidate | 0.013348218422 | 0.001124709635 | pass | 0 | `b9509697…` |
+| 4 | baseline | 0.013149964516 | 0.001123731445 | pass | 0 | `b9509697…` |
+
+Position-balanced merge (`research/maple_fern_pr82_pair.py`):
+
+```text
+mean baseline decode   = 0.013047929363     mean candidate decode  = 0.013226776855
+mean baseline prefill  = 0.001124787557     mean candidate prefill = 0.001118794067
+decode_gain     = 0.986478377   (-1.352 %)
+prefill_gain    = 1.005357098   (+0.536 %)
+paired_estimate = 0.991164559
+```
+
+### Why this is a refutation and not noise
+
+The assignment's A/A floor for this host is prefill −1.30 % and decode
+**+0.48 %**. The measured decode change is **−1.352 %, i.e. 2.8× the A/A decode
+floor**, and the brief is explicit that a regression outside the floor *is* a
+refutation.
+
+Three independent checks say the signal is real rather than a drift artefact:
+
+1. **Both adjacent pairs agree.** B1/C1 gives decode_gain 0.987834 and B2/C2
+   gives 0.985148 — the same sign and a spread of only 0.27 %, even though the
+   two pairs sit at opposite ends of the thermal sequence.
+2. **The drift is monotone and common-mode.** The repeat spread within each arm
+   is +1.576 % (baseline) and +1.853 % (candidate) — both positive and of
+   similar size, which is the signature of thermal drift rising across the
+   sequence, not of an arm difference. This drift is larger than the quoted A/A
+   floor, which is exactly why the unbalanced single pair could not have settled
+   the question and the balanced design was necessary.
+3. **The regression survives the balancing.** Drift inflates positions 3 and 4
+   most; the candidate holds positions 2 and 3 and the baseline 1 and 4, so the
+   *un*balanced reading would if anything flatter the baseline. Balancing
+   removes that and the candidate is still 1.35 % slower.
+
+Prefill improved +0.536 %, well inside its −1.30 % A/A floor and of no
+consequence: the change touches a decode-only kernel (`lagunaRoutedGateUpR1`
+dispatches from the single-token decode path), so a prefill move here is noise
+by construction and I do not claim it.
+
+The pre-registered bracket in §1 was **[0 %, +1.64 %]** on score with a point
+estimate of +0.4 % to +0.8 %. The measured `paired_estimate` of 0.9912 is
+**below the bottom of the bracket**, so the bracket is falsified in the
+direction §8 predicted, not merely unmet.
+
+### Attribution
+
+Because the change is bit-exact (§5, and `max_abs_diff = 0` with a single
+distinct `golden_hash` across all four runs), the arithmetic performed on the
+GPU is strictly *less* in the candidate: the extraction rounds are deleted and
+nothing is added. A bit-exact strict-work-reduction that runs **slower** can
+only be a scheduling effect, which is precisely the §8 counter-hypothesis, and
+that counter-hypothesis was registered before any timing was taken.
 
 ## 8. Pre-registered counter-hypothesis: barrier / dispatch overlap
 
