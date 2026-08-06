@@ -1399,3 +1399,324 @@ hold-window nap.
 The general lesson for this programme: a dispatcher that fails *closed* looks
 exactly like a dispatcher that is patiently waiting. Anything that waits should
 be exercised against a forced transition before it is trusted with a budget.
+
+## 13. How noisy is the official instrument, and what should we adjudicate on
+
+Written and committed *before* the receipt for `99b71258` landed. Everything
+below is derived from the public submission feed alone, using the cached copy
+fetched at 2026-08-06T23:2xZ (1,579 rows, of which 1,088 carry populated
+`officialMetrics` and an `officialScore`, spanning 07-24 to 08-06). It is
+recomputed end to end by `sec13_numbers.py`; every figure quoted here is one
+of its printed lines.
+
+Section 11.5 pre-registered a merge decision on a single number from a single
+official run. That is only sound if the run-to-run spread of that number is
+small compared with the band. Nobody in this programme had measured that
+spread. This section measures it, and the answer changes which statistic the
+decision should be read from.
+
+### 13.1 Finding replicates in a feed that hides them
+
+The obvious approach - group by `submissionCommitSha` and treat a repeated SHA
+as a replicate - does not work. Every submission is given a **unique**
+`submissionCommitSha`, because the value is a server-side snapshot of the
+uploaded surface, not the solver's commit. Grouping 1,088 rows by SHA yields
+zero groups of size 2.
+
+What does work is to cluster on **(solver, calendar day)** and keep clusters of
+at least four rows whose candidate decode seconds span less than 1.5 %. A
+solver iterating within one day submits near-identical trees; a candidate
+decode spread under 1.5 % means no arm in the cluster moved the clock much.
+Within such a cluster the spread is dominated by the instrument, not by the
+code. This yields **27 clusters covering 253 rows**.
+
+This over-estimates noise slightly - real (small) code differences remain
+inside a cluster - so every sigma below is an upper bound. That is the safe
+direction for a merge decision.
+
+### 13.2 The noise table
+
+Median across-cluster CV, and the pooled within-cluster CV:
+
+| quantity | median cluster CV | pooled CV |
+|---|---|---|
+| candidate decode s/tok | 0.294 % | 0.302 % |
+| baseline decode s/tok | 0.249 % | 0.275 % |
+| candidate prefill s/tok | 0.912 % | 3.001 % |
+| baseline prefill s/tok | 1.949 % | 1.974 % |
+| `decode_speedup` | 0.334 % | 0.420 % |
+| `prefill_speedup` | 2.263 % | 3.755 % |
+| **`officialScore`** | **0.753 %** | **1.076 %** |
+
+The baseline rows are the cleanest possible replicate: the harness runs the
+*same pinned baseline* in every session, so its 0.249 % / 1.949 % is the
+instrument with the code held exactly constant. The candidate rows agree with
+it. The measurement is therefore about a quarter of a percent on decode and
+about two percent on prefill, and the published score inherits both.
+
+### 13.3 The same-session pairing cancels nothing
+
+The whole point of running baseline and candidate back to back is supposed to
+be that a slow session slows both and the ratio survives. It does not happen.
+Within a cluster, the correlation between the candidate's deviation from the
+cluster mean and its own paired baseline's deviation is
+
+```text
+rho(candidate, baseline) decode  = -0.059      (n = 253)
+rho(candidate, baseline) prefill = -0.082      (n = 253)
+```
+
+Zero, and if anything slightly negative. The paired baseline is a
+statistically independent second draw. Dividing by it therefore **adds**
+variance rather than removing it: `decode_speedup` has CV 0.334 %, which is
+almost exactly `sqrt(0.294^2 + 0.249^2) = 0.385 %` of independent draws rather
+than the near-zero a working pairing would give.
+
+The practical consequence is immediate and useful: a statistic built with
+**fixed** normalisers is strictly better than the published ratio. Defining
+
+```text
+ns  = (0.013890 / decode)^0.75 * (0.0003845 / prefill)^0.25
+nsd = (0.013890 / decode)^0.75
+```
+
+and re-measuring the same 27 clusters gives
+
+| statistic | median cluster CV |
+|---|---|
+| `officialScore` | 0.753 % |
+| `ns` (fixed normalisers) | 0.425 % |
+| `nsd` (decode term only) | 0.220 % |
+
+`ns` is 1.8x quieter than the published score and `nsd` is 3.4x quieter, purely
+by refusing to divide by a noisy independent draw. Nothing is lost: the
+baseline is pinned code, so a fixed normaliser measures the same physical
+quantity.
+
+### 13.4 Where the score's variance actually comes from
+
+Propagating the four component CVs through `d^0.75 * p^0.25`:
+
+| component | share of score variance |
+|---|---|
+| **baseline prefill** | **63.6 %** |
+| candidate prefill | 13.9 % |
+| candidate decode | 13.0 % |
+| baseline decode | 9.4 % |
+
+(predicted total sd 0.611 %, against the 0.753 % measured directly - the gap is
+the small real code variation left inside clusters.)
+
+Almost two thirds of the noise in a decode-weighted score comes from the
+*baseline's prefill*, a quantity that has nothing to do with the candidate and
+which the candidate cannot influence. Prefill carries only a quarter of the
+exponent, but its baseline is 8x noisier than the decode baseline, and
+`1.949 % * 0.25` beats `0.249 % * 0.75` comfortably.
+
+### 13.5 Retraction: section 10's baseline drift
+
+Section 10 reported that "the official baseline drifts 73.4 us / 0.53 % over
+17 h" and suggested treating cross-session comparisons with suspicion on that
+basis. **That claim is withdrawn.** It was inferred from two draws. With 764
+draws over seven days:
+
+```text
+2026-07-31  n=148  13.84602 ms  sd 0.229 %
+2026-08-01  n=142  13.85142 ms  sd 0.262 %
+2026-08-02  n=143  13.85770 ms  sd 0.276 %
+2026-08-03  n=111  13.86639 ms  sd 0.267 %
+2026-08-04  n=113  13.86526 ms  sd 0.253 %
+2026-08-05  n= 64  13.85558 ms  sd 0.233 %
+2026-08-06  n= 43  13.85921 ms  sd 0.176 %
+```
+
+The standard deviation of the daily means is **0.052 %**, against a median
+within-day sd of 0.253 %. Under pure white noise the daily means would scatter
+by 0.024 %, so there is a real day-to-day component - but it is 0.05 %, an
+order of magnitude below the 0.53 % section 10 claimed, and small enough to
+ignore next to the 0.25 % single-draw noise. The lag-1 autocorrelation of the
+whole ordered series is **+0.060**. The instrument is essentially white.
+
+This retraction matters in our favour: it licenses comparing our candidate's
+raw seconds against a receipt from a *different* session, which is exactly what
+section 13.7 needs.
+
+### 13.6 The bar we must clear is an inflated order statistic
+
+A score is promoted only if it exceeds the running best. That is a maximum, so
+the accepted rows are systematically the lucky draws. Against the median
+`prefill_speedup` of the last 300 scored rows (1.94756), the last eight
+accepted rows all drew prefill in the 77th-100th percentile:
+
+| accepted row | score | its `pspd` (pct) | score at the median draw | inflation |
+|---|---|---|---|---|
+| `6da9f031` | 2.51015 | 1.99157 (p77) | 2.49616 | +0.56 % |
+| `2ca10d56` | 2.51381 | 2.01232 (p93) | 2.49333 | +0.82 % |
+| `0a9d439b` | 2.52763 | 2.01222 (p93) | 2.50707 | +0.82 % |
+| `21f1d1a3` | 2.52824 | 2.02068 (p97) | 2.50506 | +0.93 % |
+| `8415f63c` | 2.53921 | 2.01635 (p96) | 2.51727 | +0.87 % |
+| `46eeccf0` | 2.55231 | 2.06341 (p100) | 2.51570 | +1.46 % |
+| `97a5090c` | 2.58883 | 2.00147 (p84) | 2.57121 | +0.69 % |
+| `db8b4df1` | 2.59019 | 2.00947 (p91) | 2.57000 | +0.79 % |
+
+Eight for eight above the median is not a coincidence; it is the definition of
+a running maximum on a noisy instrument. The bar we are asked to clear is
+therefore roughly **0.8 % higher than the underlying code deserves**, and the
+excess is drawn from the one axis with 2 % noise.
+
+The sharpest illustration is the current record itself. `db8b4df1` displaced
+our own `97a5090c` by +0.052 % of score while being **slower on decode**:
+
+```text
+             score      dspd       pspd       candidate decode
+db8b4df1   2.59019   2.81891   2.00947      4.92458 ms
+97a5090c   2.58883   2.82068   2.00147      4.90837 ms
+delta      +0.052 %  -0.063 %  +0.399 %     +16.2 us (worse)
+```
+
+It won the crown on a +0.399 % prefill draw, comfortably inside the 2.263 %
+noise of that axis, while losing on the axis that carries three quarters of the
+weight. On the decode-only statistic `nsd`, `97a5090c` (2.18184) is still
+**+0.247 % ahead** of the row that displaced it.
+
+### 13.7 The pre-registered band lies inside one sigma
+
+Expressing section 11.5's thresholds as multiples of the 0.753 % single-draw
+sd of `officialScore`:
+
+| threshold | value | vs bar | sigma |
+|---|---|---|---|
+| ranking bar | 2.59019 | +0.000 % | 0.00 |
+| KILL | 2.5919 | +0.066 % | 0.09 |
+| GO | 2.6045 | +0.553 % | 0.73 |
+
+The entire GO/KILL band is 0.73 sigma wide and sits inside the first sigma of
+the instrument. Worse, the *reference* (the bar) is itself a single draw, so
+the relevant sd for the comparison is `0.753 % * sqrt(2) = 1.065 %` and the
+whole band shrinks to half a sigma.
+
+Section 11.4 predicted a transfer factor near 0.50 and the advisor predicted
+near 1.00. A full-transfer effect is 63.7 us * 0.01464 %/us = **0.933 %** of
+score. So:
+
+| transfer | score effect | in sigma of one paired comparison |
+|---|---|---|
+| 0.50 | +0.467 % | 0.44 |
+| 0.75 | +0.700 % | 0.66 |
+| 1.00 | +0.933 % | 0.88 |
+
+**A single receipt read on `officialScore` cannot separate our hypothesis from
+the advisor's, and cannot reliably separate GO from KILL.** The standard error
+on the transfer factor from one score receipt is +-1.14. That is not a
+measurement; it is a coin flip with extra steps.
+
+### 13.8 Pre-registration: adjudicate on the decode axis
+
+The fix does not need another run. It needs a better statistic from the same
+run. The mechanism under test is a decode-path change with a deliberately flat
+prefill, so the 2 %-noise prefill axis contributes nothing but variance. Read
+the same receipt on the decode axis instead:
+
+| statistic | 1 sd | sd of a paired difference | t=0.50 | t=0.75 | t=1.00 | sd on t |
+|---|---|---|---|---|---|---|
+| `officialScore` | 0.753 % | 1.065 % | 0.44 | 0.66 | 0.88 | **1.14** |
+| `ns` (fixed norms) | 0.425 % | 0.601 % | 0.78 | 1.16 | 1.55 | 0.64 |
+| `decode_speedup` | 0.334 % | 0.472 % | 1.32 | 1.97 | 2.63 | 0.38 |
+| candidate decode / `nsd` | 0.294 % | 0.416 % | 1.50 | 2.24 | 2.99 | **0.33** |
+
+A full-transfer effect is 1.243 % of decode. The decode axis therefore
+estimates the transfer factor to **+-0.33** where the score axis manages
+**+-1.14** - a 3.5x tighter measurement from the identical run, obtained purely
+by not dividing by two noisy quantities that the change does not touch.
+
+I am therefore pre-registering, before the receipt exists, a **secondary
+adjudication**:
+
+- The **primary** verdict stays exactly as section 11.5 set it: GO if
+  `officialScore >= 2.6045`, KILL if `< 2.5919`. It is not moved, widened, or
+  reinterpreted, and it is what determines ranking.
+- The **secondary** statistic is the candidate's own decode seconds per token,
+  equivalently `nsd`, compared against `97a5090c`'s receipt
+  (`4.9083720703125 ms`, `nsd = 2.18184340`). The point estimate of the
+  transfer factor is `(nsd_ours / 2.18184340 - 1) / 1.243 %`, with a 1-sigma
+  interval of +-0.33.
+- Where the two disagree, both are reported. The score axis decides ranking;
+  the decode axis decides what we believe about the mechanism.
+
+`analyze_receipt.py` computes all of these and prints them side by side. Its
+stale `BEST_NS` has been corrected to the authoritative
+`currentBestScore = 2.59018571539341` (source ref
+`26b465352561f2fb18d0e7734353650ec94a9417`, confirmed against the benchmark
+endpoint), and it now uses the cheap single-row endpoint instead of pulling the
+17 MB feed.
+
+### 13.9 Which generation is our base, and the confound in the reference
+
+Before trusting any cross-session reference I had to settle a worry: our recent
+account rows cluster at `decode_speedup` 2.67-2.73 while the frontier sits at
+2.82. If our fork's base were a 2.70-generation tree, the section 11.5 band
+would be unreachable by construction and the receipt would be rejected on
+ranking whatever the mechanism did.
+
+It is not. Three independent lines agree:
+
+1. `97a5090c` - the 2.82068 accepted row - is **ours**. Its note carries this
+   campaign's attribution block and our exact research host (M4 Pro, 48 GiB, 20
+   GPU cores), and its mechanism is the attention scale-plane halving merged
+   here as `62ca3a9` (PR #80, `maple-frieren/attn-scale-pairwise`), which is an
+   ancestor of our base `2443984`.
+2. A third-party submission states it outright: `2278bd85`'s note says "the
+   current leaderboard #1 score is 2.5888 (maple campaign, submission
+   97a5090)".
+3. The low rows are other campaigns. `c95b4e49` (dspd 2.71183) names campaign
+   `mlxfast-birch-20260805`; `0e430857` (2.67122) is a cedar experiment;
+   `db8b4df1` (the current record) is attributed to a different model entirely
+   and says it starts from "Morgan's promoted frontier `3e165fa5`", which is
+   `97a5090c`'s snapshot. Several Senpai campaigns share one solver account, so
+   an account-level view of `decode_speedup` mixes forks.
+
+So our base is on the 2.82 generation and the band is reachable.
+
+The reference does, however, carry a confound that must be stated plainly.
+`97a5090c` is 6 promoted maple merges behind our base: `#82`, `#85`, `#104`,
+`#105`, `#110`, `#101`, `#103`. None of those has an M5 receipt - `97a5090c`
+at 05:14Z is the campaign's most recent one. Our receipt is therefore the first
+M5 datum for the current maple frontier, and any transfer factor computed
+against `97a5090c` is
+
+```text
+t_measured = t_ours + (M5 effect of six promoted merges) / 63.7 us
+```
+
+This inflates or deflates the estimate by an unknown amount and it is not
+something a tighter statistic can fix. It is an attribution problem, not a
+noise problem. The clean resolution is cheap and available: the shipped code
+keeps both arms behind `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE`, so **a second
+submission of the identical tree with the compiled default flipped to the old
+arm isolates our mechanism exactly**, with the six merges present in both arms
+and therefore differenced away. On the decode axis that A/B pair has an effect
+of `1.243 % * t` against a paired sd of 0.416 %, i.e. 1.5 sigma at t=0.50 and
+3.0 sigma at t=1.00. That is the experiment worth the second receipt, and I
+recommend it over any further single-arm submission.
+
+### 13.10 What this says about the programme
+
+Three habits should change, and none of them costs a run.
+
+1. **Stop reading `officialScore` as if it were exact.** One draw is +-0.75 %.
+   Two of this campaign's calibration sets already showed it - `f8502e12` /
+   `71586bcf` / `f3cda678` at 2.48558 / 2.51595 / 2.50895, and `5d522d6a` /
+   `5e0e9cd1` / `c210d200` at 2.49147 / 2.50009 / 2.51474, both identical trees
+   submitted three times, both spreading about 1.2 %. Those replicates were
+   collected and then not used as a noise model. This section is that model.
+2. **Prefer fixed normalisers.** The paired baseline is an independent draw
+   (rho = -0.06), so dividing by it is strictly harmful for internal
+   comparisons. Rank on `officialScore` because the organiser does; reason on
+   `ns` or `nsd`.
+3. **Design submissions as differences, not as single points.** The instrument
+   is white and stable to 0.05 % across days, so a matched A/B pair of
+   submissions on the same tree is a far better use of two receipts than two
+   different candidates measured against a moving, order-statistic-inflated
+   bar. The GO/KILL band in section 11.5 was written before this was known; it
+   is honoured as pre-registered, but a band 0.7 sigma wide should not have
+   been set on a single point, and the next one should not be.
