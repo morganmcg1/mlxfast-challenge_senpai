@@ -1071,3 +1071,127 @@ Added: report ranking status separately from `ns`, because the ranking bar
 moved to 2.59019 while I was queued; and treat a single receipt inside the band
 as provisional against the 1.87 % prefill-baseline variance above, rather than
 as a settled 0.5 % decode result.
+
+## 11. Status report against advisor comment 7 (self-managed dispatch)
+
+Comment 7 (2026-08-06T22:40:46Z) retires the queue-owner model, hands the
+submission lifecycle to the submitter, and asks four direct questions. It also
+states that this branch "has had no new work commits since `a8d4936`". That is
+true of the *remote* branch and false of the work: at the time it was written I
+had twelve unpushed commits locally. Students have no typed comment channel on
+their own PR, so an unpushed branch is an invisible branch. Pushing is the
+status report. That is the first inheritable lesson of this section.
+
+### 11.1 The four questions
+
+**Is the candidate committed?** Yes. The submitted surface is exactly one file,
+`Sources/MLXFastModel/LagunaLmHeadPrune.swift` (+195/-8), blob
+`6e8bde5eee12f095b7642ce3ee6a48e551aa81b7`, unchanged in every commit since
+`1a1153d`. The packaged note is blob `8c3c553b54ef187d7af309180f58bde949b84210`
+(15,254 B). Both are re-verified at `23a128c` in section 9.7.
+
+**Is it preflighted?** Yes. `senpai/validate-assignment-scope.sh` reports one
+submitted path; `senpai/check-editable-budget.sh` reports
+`current=2929907/3000000 headroom=70093 growth=8160/262144 files=142`.
+
+**Has it been dispatched?** Yes, repeatedly, and it has not yet been admitted.
+Dispatch has been continuously armed since 21:35:58Z. See 11.2.
+
+**If it is waiting, on what?** On the shared solver account's single validation
+slot, which was held from 22:09:25Z by `0e43085` -- a *different* Senpai
+campaign's candidate (`mlxfast-cedar-20260806-tanjiro-qkv-r1-sg4`, PR #151) --
+and before that by my own attempts colliding with it. Section 10.3 establishes
+the limit is per solver account, not per campaign or per agent.
+
+### 11.2 Dispatch history, and the cost of the rule I was operating under
+
+I was already operating the self-managed retry model comment 7 now mandates; the
+retirement of the queue owner changes nothing about my posture. What it does
+change is the interpretation of the wait: the slot contention is real and
+mechanical, not a permission I was waiting on.
+
+| what | when (UTC) | outcome |
+|---|---|---|
+| dispatcher v1 armed | 21:35:58Z | 18 attempts, ~185 s apart |
+| attempts 1-17 | 21:35:58Z - 22:25:02Z | `conflict`: 1 submission in flight (limit 1) |
+| attempt 18 | 22:28:04Z | `Rate limit reached. Try again in 1914 seconds.` |
+| v1 halted | 22:28:26Z | not a whitelisted retryable, stopped |
+| feed audited | 22:33Z | **nothing of mine was created** -- verified, not assumed |
+| dispatcher v2 armed | 22:34:36Z | running, budget to 01:24:36Z |
+
+Comment 7's point 3 -- check before retrying after an ambiguous response -- is
+exactly the failure this audit was run to exclude, and it is the one place a
+retry can hurt. I did it by listing the feed and filtering on our account rather
+than by trusting the error string.
+
+The self-inflicted part is worth stating plainly: **eighteen blind attempts in
+fifty-two minutes bought a 1,914 s rate-limit penalty and no submission.**
+A blind retry loop against a capacity limit converts a queue wait into a
+strictly longer queue wait. Dispatcher v2 therefore reads the feed first and
+only calls `submit` when our account is actually free:
+
+- poll the read-only feed every 120 s; submit only when `morganmcg1` has no
+  in-flight row, so submit calls fall from ~20/hour to <=4/hour;
+- a forced attempt every 900 s, so a status I failed to classify cannot stall
+  dispatch forever;
+- rate limits are parsed and honoured (`Try again in N seconds`, plus 30 s);
+- unknown statuses count as in-flight, so misclassification delays rather than
+  duplicates;
+- everything except the in-flight conflict and an explicit rate limit exits
+  immediately for inspection.
+
+Both files are committed (`research/maple-fern-submit-dispatcher.sh`,
+`research/maple-fern-submit-inflight.py`) so the next three students inherit the
+mechanism and not just the anecdote.
+
+### 11.3 What "waiting must not block useful work" actually bought
+
+Comment 7's point 4 is the right rule and I had been following it. The wait has
+been spent on work that does not touch the frozen candidate surface -- the
+constraint is real, because `mlxfast submit` uploads the working tree, so any
+edit to an editable path while dispatch is armed would silently change what gets
+submitted. Research-only files are safe; `Sources/` is not. What the wait
+produced:
+
+- section 6: the balanced 2x2 profiler-crossed ABBA that **retracts my own r1
+  1.8x wall-vs-busy claim** and replaces the headline with -64.5 us of GPU-busy
+  and no host-gap component;
+- section 9: the wave analysis the softened geometry rule requires, which
+  **revised my own M5 prediction down** from 48 us to a 32-48 us band that
+  straddles the advisor's 40 us GO gate -- recorded before the receipt, on
+  purpose;
+- section 10: the public submission feed read as data, which produced three
+  programme-level findings I could not have obtained by measuring my own arm
+  (baseline drift larger than my effect, the ranking bar moving to 2.59019, and
+  a 15-PR composition costing 234 us/token of decode).
+
+### 11.4 One correction to the transfer-factor expectation
+
+Comment 7 predicts the M4->M5 transfer factor "should be close to 1.0" because
+the steady decode step is host-independent and every decode dispatch is
+hand-written. The dispatch-reachability half of that is right, and I verified it
+independently: no decode kernel in this path sits behind a NAX or `#available`
+gate, so the M5 runs the same kernel family.
+
+But reachability is not magnitude. Section 9.4 derives the expectation from
+occupancy rather than from kernel identity. The control launches 3,136
+threadgroups and the shipped arm launches 392; waves are `ceil(TGs/cores)`, so
+the saving scales with the *core count*, which is exactly the thing that differs
+between the 20-core M4 Pro and the ~40-core M5 Max. Per-wave costs of 0.493 us
+(control) and 0.685 us (shipped) give 38.9 us vs 6.9 us at 40 cores, i.e. a
+predicted M5 saving near 32 us against 63.7 us measured on M4:
+
+**predicted transfer factor ~ 0.50, not ~ 1.0.**
+
+The reason is not that the kernel changes but that at 40 cores the shipped arm's
+392 threadgroups are ~9.8 per core -- still oversubscribed, so it keeps most of
+its benefit -- while the control's 3,136 threadgroups drain roughly twice as
+fast as they do at 20 cores. A more parallel host shrinks the *absolute* saving
+available from removing parallel work it never struggled to schedule.
+
+This is pre-registered here so the receipt adjudicates between two stated
+numbers rather than confirming a single one. If the measured factor comes back
+near 1.0, my occupancy model is wrong in a way worth more than the arm. If it
+comes back near 0.5, the programme should stop reading M4 decode savings as M5
+decode savings and start dividing by two. Either way the advisor's framing --
+that this number is worth more than the arm itself -- is correct.
