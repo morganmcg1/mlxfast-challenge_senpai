@@ -4539,7 +4539,7 @@ private let lagunaDecodeNVFP4QKVR1Enabled =
 
 private let lagunaDecodeNVFP4QKVR1Source = """
     constexpr uint axis_size = 2048;
-    constexpr uint num_simdgroups = 2;
+    constexpr uint num_simdgroups = 4;
     constexpr uint values_per_thread = 16;
     constexpr uint block_size = 512;
     constexpr uint in_vec_size_w = axis_size / 2;
@@ -4580,7 +4580,7 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
+            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_sg4_v1"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
@@ -4609,14 +4609,14 @@ private func lagunaDecodeNVFP4QKVR1(
         bank.packedCodes.shape == [rows, hidden / 8],
         bank.scales.dtype == .uint8,
         bank.scales.shape == [rows, hidden / 16],
-        rows % 2 == 0,
+        rows % 4 == 0,
         let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads]
     else { return nil }
-    lagunaTrace("decode nvfp4 qkv r1 h\(heads)")
+    lagunaTrace("decode nvfp4 qkv r1 sg4 h\(heads)")
     return kernel(
         [normalized, bank.packedCodes, bank.scales],
-        grid: ((rows / 2) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
+        grid: ((rows / 4) * 128, 1, 1),
+        threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16]
     )[0]
