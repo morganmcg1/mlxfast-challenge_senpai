@@ -57,10 +57,12 @@ a number, this document says **UNKNOWN** and does not interpolate.
    theory.
 
 5. **The 1.71× gap between #72's `0.0272 %/MB` and §R20.2's `0.01595 %/MB`
-   factorises exactly into three terms** — PLANE 1.3829 × ESTIMATOR 1.2821 ×
-   CONVENTION 0.9621 = **1.7059**, against a target of 1.7053. None of the three
-   is measurement noise. The largest is real physics; the second is an
-   estimator bug; the third is bookkeeping.
+   attributes cleanly to three named causes** — PLANE 1.3828 × ESTIMATOR 1.2821
+   × CONVENTION 0.9622 = **1.7059**. This is an *accounting identity, not a
+   test*: the two marginal rates cancel, so the product is pinned at
+   931.8 / 546.2 by construction and cannot fail (S5.1). Its value is
+   attribution, not confirmation. The largest term is real physics; the second
+   is an estimator bug; the third is bookkeeping.
 
 6. **Two of the four "queued" arms do not exist and a third is already
    shipped.** Repricing kills the router plane outright on arithmetic alone
@@ -155,12 +157,19 @@ numbers:
 |---|---|---:|---:|---:|---:|---:|
 | R1 | #20 lm-head cascade | 0.3911 | +0.0196 | **0.4105** | 0.4102 | +0.0003 |
 | R2 | #35 r5 attn scale | 1.0785 | −0.0252 | **1.0511** | 1.0513 | −0.0002 |
-| R3 | #72+#81 routed scale | 0.6611 | +0.0864 | **0.7473** | 0.7473 | −0.0001 |
-| R4 | #80 attn pairwise | 0.9132 | −0.0268 | **0.8848** | 0.8847 | +0.0000 |
+| R3 | #72+#81 routed scale | 0.6611 | +0.0864 | **0.7473** | 0.7473 | −0.0000 |
+| R4 | #80 attn pairwise | 0.9132 | −0.0268 | **0.8848** | 0.8847 | +0.0001 |
 
-**RMS residual = 0.00019 score points.** All inputs MEASURED; all outputs
-DERIVED by exact arithmetic. Published Δns% are ratios of the receipts' own `ns`
-values (`CURRENT_RESEARCH_STATE.md:634-650`, `:4955-4960`, `:5539-5545`).
+**The first two columns do not add to the third, and are not meant to.** They are
+the *linearised* contributions `75·ΔD/D` and `25·ΔS/S`; the reconstructed column
+is the *exact* ratio identity of S1.2. The difference is the second-order term —
+at most 0.0022 points here (R2), which is why the linearisation is safe to quote
+but the identity is what gets validated.
+
+**RMS residual = 0.00019 %** — the `Δns%` unit used throughout, i.e. percentage
+points of normalised score. All inputs MEASURED; all outputs DERIVED by exact
+arithmetic. Published Δns% are ratios of the receipts' own `ns` values
+(`CURRENT_RESEARCH_STATE.md:634-650`, `:4955-4960`, `:5539-5545`).
 
 This matters for three reasons. It proves the decomposition is exact rather than
 approximate, so every `R_marg` below inherits only *receipt* noise and no model
@@ -281,14 +290,22 @@ at `CURRENT_RESEARCH_STATE.md:634-650`.
 | row | `n` receipts | `Δt` dispersion | `R_marg` interval | **σ interval** |
 |---|---:|---|---|---|
 | **R1** | **6** (4 ctrl + 2 cand) | ±6.683 µs, 1 sem | **[773.6, 1294.6]** | **[0.201, 0.337]** |
-| R2 | 1 pair | imported 0.278 % MDE | [418.6, 700.5] | [0.923, 1.564] |
+| R2 | 1 pair | imported 0.278 % MDE | [418.6, 700.5] | [0.930, 1.557] |
 | R3 | 1 pair | imported 0.278 % MDE | [493.1, 1207.9] | [0.452, 1.108] |
-| R4 | 1 pair | imported 0.278 % MDE | [355.4, 666.1] | [0.978, 1.835] |
+| R4 | 1 pair | imported 0.278 % MDE | [355.4, 666.1] | [0.979, 1.834] |
+
+**Convention.** Every `σ` endpoint is `R_avg / R_marg` evaluated at the printed
+`R_marg` endpoints, so the last two columns are consistent by construction. The
+`R_marg` endpoints come from perturbing each arm's own `Δt` by the decode-time
+equivalent of the 0.278 % score MDE; that perturbation is ±18.2 µs to within
+±1 %, and varies slightly across arms because each sits at a different `D`.
 
 R1's interval is propagated from the **actual replicate spread** — control sd
 0.0110495 ms over n=4, candidate range→sd over n=2 — giving `Δt = 26.527 ±
-6.683 µs` and a reconstructed `Δns = 0.3911 ± 0.0985 %`, comfortably consistent
-with the published `0.4102 ± 0.129 %`. R2–R4 have **no replication at all**;
+6.683 µs`. That is a `±0.0985 %` uncertainty on the decode term `75·ΔD/D =
+0.3911 %`, hence a reconstructed `Δns = 0.4105 ± 0.0985 %` (S1.3), comfortably
+consistent with the published `0.4102 ± 0.129 %`. R2–R4 have **no replication at
+all**;
 their intervals import the campaign's 1v1 MDE and are therefore *assumptions*,
 not measurements. This asymmetry drives the whole verdict in S6.
 
@@ -303,20 +320,41 @@ but a ledger that hides its seams is not a ledger.
 
 ### S3.3 The rung structure inside R4
 
-#80 shipped four rungs, individually costed at
-`maple-frieren-pr80-attn-scale-pairwise.md:412-416`:
+#80 shipped four rungs. `maple-frieren-pr80-attn-scale-pairwise.md:412-416`
+costs them individually — but **those three numbers are roofline predictions,
+not measurements.** They are `MB × PCT_PER_MB` at a constant
+`PCT_PER_MB = 0.022849` (`:426`), i.e. an assumed **668.8 GB/s**, and they sum to
+**+0.6329**, not to the A→D total. The A→D total is the one quantity here that
+*is* measured: it is R4 of Table R, `R_marg = 463.5 GB/s`. Repricing the rungs at
+R4's own measured rate through this ledger's law
+(`Δ% = 15.2800 · MB / R_marg`) makes the column sum:
 
-| rung | bytes REMOVED | Δ decode % | vs 0.278 % MDE |
-|---|---:|---:|---|
-| A→B | 5,698,368 | +0.1302 | 0.47× — **below** |
-| B→C | 12,364,768 | +0.2825 | 1.02× — **at** |
-| C→D | 9,635,200 | +0.2202 | 0.79× — **below** |
-| **A→D** | **27,698,336** | **+0.9132** | 3.28× |
+| rung | bytes REMOVED | Δ% predicted @ 668.8 | **Δ% repriced @ 463.5** | vs 0.278 % MDE |
+|---|---:|---:|---:|---|
+| A→B | 5,698,368 | +0.1302 | **+0.1879** | 0.68× — below |
+| B→C | 12,364,768 | +0.2825 | **+0.4077** | **1.47× — clears** |
+| C→D | 9,635,200 | +0.2202 | **+0.3177** | **1.14× — clears** |
+| **A→D** | **27,698,336** | +0.6329 | **+0.9132** | **3.28×** |
 
-**Not one rung is individually resolvable.** #80 is only a measurement because
-its rungs were shipped together. This is the strongest practical argument in the
-whole ledger for **bundling** byte removals rather than attributing them, and it
-directly contradicts the instinct to split a win for causal attribution.
+Only the A→D cell is MEASURED. Both rung columns are DERIVED, and both assume
+all four rungs stream at one rate — the assumption S5 shows to be false *between*
+planes. Within a single plane it is the best available, and the repriced column
+is the one to use because its rate is the plane's own measured rate rather than
+an imported constant.
+
+**Correction.** An earlier draft of this section asserted "not one rung is
+individually resolvable" and used that to argue for bundling. That is wrong. It
+was already contradicted by the predicted column's own 1.02× on B→C, and at the
+measured rate **two of the three rungs clear the MDE on their own** (1.47× and
+1.14×). Only A→B does not.
+
+**What the rung structure does support.** Bundling A→D is justified by run
+economy and SNR, not by unresolvability: one paired receipt buys 3.28× the MDE,
+whereas three paired receipts buy 0.68× / 1.47× / 1.14× — one of which is
+unresolvable outright, and the other two of which sit close enough to the floor
+that a single noisy session can invert a rung's sign. That is a cost/precision
+trade, and it points the same way as the campaign rule: **split when causal
+attribution is the deliverable, bundle when the score is.**
 
 ---
 
@@ -347,9 +385,13 @@ its achieved-rate column is what makes S6's plane ordering interpretable.
 | `dense_gate_up_swiglu` | 268.0 | 1 | | remaining 6 kernels | 17.4 | — |
 | `residual_rms_router` | 254.3 | 39 | | **total** | **8200.7** | |
 
+The µs column above sums to exactly 8200.7, as printed.
+
 Step decomposition (`:330-336`): **8.2006 ms kernel + 0.0756 ms command-buffer
 + 0.2540 ms host gap = 8.5302 ms wall.** The raw (un-δ-corrected) table at
-`:184-210` sums to 8883.1 µs.
+`:184-210` sums to 8883.1 µs. The source's kernel term (8.2006 ms) and its own
+column total (8200.7 µs = 8.2007 ms) are independently rounded and disagree in
+the last digit by 0.1 µs (0.001 %); both are transcribed as published.
 
 **No ±half-range is published for any row.** The only stability evidence is an
 A→C drift control: total −0.288 %, worst single kernel `gate_sp_h64` at
@@ -370,8 +412,17 @@ records it as such.
 | *routed + shared block* (DERIVED) | 246.0 | **94.6 %** | saturated |
 | *lm-head base plane* (DERIVED) | 260.6 | **100.2 %** | at ceiling |
 
-The last three are my own DERIVED aggregates: 802.16 MB / 3167.0 µs,
-575.08 MB / 2337.3 µs, 109.18 MB / 418.9 µs.
+The last three are my own DERIVED aggregates: 802.16 MB / 3.1670 ms,
+575.08 MB / 2.3373 ms, 109.18 MB / 0.4189 ms. (Throughout this report the rate
+unit is `MB / ms = GB/s`; a `MB / µs` quotient would be 1000× larger.) Each
+block time is the sum of its S4.1 rows: 1358.4 + 1141.8 + 363.9 + 302.9 =
+3167.0 µs, 1503.9 + 833.4 = 2337.3 µs, and 418.9 µs.
+
+The first six rows are transcribed from `:439`, not recomputed. Redividing the
+source's own byte and time columns reproduces every one to within 0.05 GB/s
+except `gate_sp`, where 7.86 MB / 0.2590 ms = 30.35 against the published 30.4
+— a 0.2 % source rounding that does not move the 11.7 % reading. The published
+value is kept.
 
 **The single most useful number here is 100.2 %.** On M4 the lm-head base plane
 runs *at* the machine's streaming ceiling. If it is equally saturated on M5 —
@@ -388,8 +439,10 @@ than an outlier to be explained away.
 `shared_nvfp4_swiglu_qmv_rows1` 46.00 · `residual_rms_router` 40.89 ·
 `dense_down_residual` 33.55 · shared-expert down 23.00 ·
 `full_fused_attn_grow_v1` 20.97 · `gate_sp` 7.86 · `rmsbfloat16` ~0.17 ·
-router top-8 ~0.02. **Allocated 414.88 of the 439.76 MB non-attn/non-routed
-remainder; 24.9 MB (5.7 %) unallocated.** The M5 master ledger
+router top-8 ~0.02. Those thirteen entries total 1769.12 MB; subtracting the
+two large blocks already accounted for (`attn qkvo` 802.16 and `routed MLP`
+552.08) leaves **414.88 allocated of the 439.76 MB non-attn/non-routed
+remainder, so 24.88 MB (5.7 %) is unallocated.** The M5 master ledger
 (`CURRENT_RESEARCH_STATE.md:5602-5612`) agrees on the two large blocks.
 
 The **5.7 % unallocated** is itself a finding: it is larger than every queued
@@ -398,11 +451,13 @@ most of the arms currently under consideration.
 
 ### S4.4 Rate cross-check on the M4→M5 step
 
-M5 / M4 attention-block ratio = 3167.0 µs / 1230.7 µs = **2.573×**. Whatever
-else is uncertain, the M5 moves attention bytes about 2.6× faster than this
-host. Any M4-derived timing intuition should be discounted accordingly, and no
-M4 rate is used to price an M5 byte anywhere in this document except R1's σ,
-which is flagged ⚠.
+**M4 / M5** attention-block *time* ratio = 3167.0 µs (M4, S4.1) / 1230.7 µs
+(M5, `research/tanjiro-pr34-result.md:599`, ±28 µs) = **2.573×**. The larger
+number is the slower machine; the ratio is written M4-over-M5 so that it reads
+as a speedup. Whatever else is uncertain, the M5 moves attention bytes about
+2.6× faster than this host. Any M4-derived timing intuition should be
+discounted accordingly, and no M4 rate is used to price an M5 byte anywhere in
+this document except R1's σ, which is flagged ⚠.
 
 ---
 
@@ -425,13 +480,27 @@ measurement; it is a restatement of the routed block's average rate.**
 
 ### S5.1 The three factors
 
+**This is an accounting decomposition, not a test — and it cannot fail.** The
+three ratios telescope: `R_marg,lm/R_marg,routed · R_marg,routed/R_avg,routed ·
+R_corp,lm/R_marg,lm ≡ R_corp,lm / R_avg,routed`. Both marginal rates cancel, so
+the product is pinned at `931.8 / 546.2` whatever values they take. Read the
+table as an **attribution** of a gap that was already known, with each named term
+separately checkable against Table R — not as an independent prediction meeting
+a measurement.
+
 | # | factor | value | what it is |
 |---|---|---:|---|
-| 1 | **PLANE** `R_marg,lm / R_marg,routed` = 968.4 / 700.3 | **1.3829** | real physics: lm-head bytes stream ~38 % faster than routed-scale bytes |
+| 1 | **PLANE** `R_marg,lm / R_marg,routed` = 968.4 / 700.3 | **1.3828** | real physics: lm-head bytes stream ~38 % faster than routed-scale bytes |
 | 2 | **ESTIMATOR** `R_marg,routed / R_avg,routed` = 700.3 / 546.2 | **1.2821** | estimator bug: the roofline used the *block average*, but the removed sub-plane moved faster |
-| 3 | **CONVENTION** `R_corp,lm / R_marg,lm` = 931.8 / 968.4 | **0.9621** | bookkeeping: §R20.2 uses the stale corpus elasticity and omits #20's prefill term |
+| 3 | **CONVENTION** `R_corp,lm / R_marg,lm` = 931.8 / 968.4 | **0.9622** | bookkeeping: §R20.2 uses the stale corpus elasticity and omits #20's prefill term |
 
-**Product = 1.7059. Target = 0.0272 / 0.01595 = 1.7053.** Closes to 0.04 %.
+**Product of the printed factors = 1.7059; the exact telescoped value is
+931.8 / 546.2 = 1.7060.** The "target" `0.0272 / 0.01595 = 1.7053` is *the same
+quantity recomputed*, because `931.8 = 14.862 / 0.01595` and
+`546.4 = 14.862 / 0.0272` — the stale corpus elasticity cancels out of the ratio.
+The residual is 0.04 %, and it is entirely the rounding of 546.397 to 546.2.
+**Do not read it as agreement between an independent prediction and a
+measurement.**
 
 ### S5.2 Reading
 
@@ -525,7 +594,7 @@ about plane physics.
 **Aggregate the whole M5-priced chain** `0c21dc18 → 97a5090c`:
 
 ```
-96.138336 MB REMOVED  /  175.631 µs  =  547.4 GB/s
+96.138336 MB REMOVED  /  0.175631 ms (= 175.631 µs)  =  547.4 GB/s
 σ_agg = R_avg,routed / R_marg,agg = 546.2 / 547.4 = 0.998
 ```
 
@@ -661,7 +730,12 @@ replane is **un-costed**: ~458 of 25,088 four-row blocks (≈1.8 %) at 16 kB per
 live block (`CURRENT_RESEARCH_STATE.md:5903-5905`). (ii) §R20.1
 (`:300-320`) states stage 1 has **zero access-pattern slack**, so there is no
 headroom to absorb a worse pattern. At 1.46× the MDE, either debit could put
-#105 below resolvability. **Recommend shipping it bundled**, per S3.3.
+#105 below resolvability. **Recommend shipping it bundled with a byte removal on
+another plane** — not because 1.46× is unresolvable (it is not; see the S3.3
+correction), but because the margin is thin enough that either un-costed debit
+can drop it under the floor, and bundling keeps the combined effect comfortably
+resolvable from one paired receipt. If causal attribution of #105 specifically is
+what the advisor wants, ship it alone and accept that a null is uninformative.
 
 ### S8.2 #104 shared scale plane — arithmetically unmeasurable
 
@@ -669,8 +743,9 @@ Already closed **NO-GO with zero GPU time**
 (`maple-nezuko-pr104-shared-scale-plane-halving.md:10-11`, `:116-118`). This
 ledger confirms it quantitatively: 3.824 MB net of the 39×256 B headers
 (`lagunaScalePatchHeaderBytes = 128`, `LagunaRuntimeWeights.swift:979`) prices
-at **+0.0836 %**, or **0.30× the MDE**. Detecting it at 3σ against the observed
-0.16 % candidate sd needs **n ≥ 33 paired receipts**. Correctly closed; the
+at **+0.0834 %**, or **0.30× the MDE**. Detecting it at 3σ against the observed
+0.16 % candidate sd needs **n ≥ 34 paired receipts** — `(3 × 0.16 / 0.0834)² =
+33.1`. Correctly closed; the
 close should be recorded as *unmeasurable*, not *ineffective*.
 
 ### S8.3 Router coarse screen — closed on arithmetic
@@ -756,6 +831,34 @@ problem at all.
 | 14 | the brief's claim that receipts give **"only paired score deltas"** | **refuted** (S2.1) |
 | 15 | the brief's four-arm **queue** | #72 is shipped; #104 is closed; the router arm never existed. Only #105 is live |
 
+**Self-corrections applied to this report before submission** (found by an
+adversarial re-audit of my own draft; every one is a defect I introduced):
+
+| # | item | status |
+|---|---|---|
+| 16 | S3.3's **"not one rung is individually resolvable"** | **RETRACTED.** The rung Δ% column was `maple-frieren-pr80`'s roofline prediction at 668.8 GB/s, mixed into a table whose total was measured at 463.5 GB/s — so it did not sum. Repriced at the measured rate, **B→C (1.47×) and C→D (1.14×) each clear the MDE**. S8.1's bundling advice for #105 was rewritten to rest on SNR and run economy instead |
+| 17 | #80's rung costs in `maple-frieren-pr80-attn-scale-pairwise.md:412-416` | **relabel PREDICTED, not measured.** They are `MB × 0.022849` (`:426`). CSV rows now carry both `roofline_decode_delta` and `repriced_decode_delta` |
+| 18 | S5's three-factor **"factorises exactly"** claim | **reframed.** The product telescopes to `931.8 / 546.2` and cannot fail; it attributes a known gap rather than testing a prediction. Factor roundings corrected to 1.3828 / 0.9622 |
+| 19 | S8.2's **`+0.0836 %` / `n ≥ 33`** | corrected to **`+0.0834 %` / `n ≥ 34`** |
+| 20 | S3.1's R2 σ interval **[0.923, 1.564]** | corrected to **[0.930, 1.557]**, consistent with its own printed `R_marg` endpoints; R4 [0.978, 1.835] → **[0.979, 1.834]**; the σ convention is now stated |
+| 21 | S6.3 and S4.1 printed rates as **`MB / µs`** | the quotient is `MB / ms = GB/s`; the numbers were right, the unit label was 1000× off |
+| 22 | S1.3 residuals for R3/R4, and its **"score points"** unit | R3 −0.0001 → −0.0000, R4 +0.0000 → +0.0001 (exactly −0.00003 and +0.00006); unit harmonised to `%`. A note now says the two linearised columns are not meant to sum to the exact identity |
+| 23 | S3.1's **"reconstructed Δns = 0.3911 ± 0.0985 %"** | 0.3911 is the *decode term*; the reconstructed Δns is **0.4105** (S1.3). Interval unchanged |
+| 24 | S4.4's **"M5 / M4 attention-block ratio"** | **label was inverted.** 3167.0 µs is the M4 figure and 1230.7 µs the M5 one, so 2.573× is M4-over-M5. The number and the surrounding claim were already correct; only the label is fixed |
+| 25 | S4.2's `gate_sp` **30.4 GB/s** | **kept as transcribed.** Redividing the source's own columns gives 7.86 MB / 0.2590 ms = 30.35. The 0.2 % gap is source-internal rounding and does not move the 11.7 % reading. Now disclosed in-place |
+| 26 | S4.1's **8.2006 ms** vs its own **8200.7 µs** column total | **both kept.** They are independently rounded source figures differing by 0.1 µs (0.001 %). Now disclosed in-place |
+
+A closing sweep re-derived every remaining arithmetic claim in S4 that the
+earlier audit had not covered: the 19-row µs column sums to exactly 8200.7; the
+8.2006 + 0.0756 + 0.2540 = 8.5302 ms decomposition is exact; all three DERIVED
+block aggregates and all four recomputable single-kernel rates in S4.2 reproduce
+to within 0.05 GB/s; and S4.3's byte allocation closes at 1769.12 − 802.16 −
+552.08 = 414.88 of 439.76 MB. Only items 24–26 above needed action.
+
+**Rounding convention.** Every derived value in this report is computed from
+unrounded inputs and rounded only for display, so a printed quantity need not
+equal the same arithmetic performed on the printed operands.
+
 ---
 
 ## S10 · What to measure next
@@ -826,6 +929,13 @@ declared fence:
 
 File: 479,751 → **467,167 B**; 11,327 → **11,068** lines. No other file changed;
 `git diff 9c284dd 66056e5 --stat` is one file, 259 deletions, 0 insertions.
+
+**Two different bases are in play here, deliberately.** This diff is taken
+against `9c284dd` (Arm A's research-only commit) because that isolates Arm B's
+submitted-surface change from Arm A's zero-byte one. Gate 4 in §B.4 instead
+measures growth against the assignment base `2f3ed2e2`, which is the budget the
+official static review applies. Arm A adds no submitted bytes, so the two agree
+on the −12,584 B figure.
 
 ### B.2 Why it was safe to remove
 
