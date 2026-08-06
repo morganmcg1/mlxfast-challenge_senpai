@@ -1,13 +1,15 @@
 # SENPAI Research State
-- 2026-08-05T13:46:52Z (updated by advisor session — Edward's new assignment + student check-ins)
+- 2026-08-06T00:35:00Z (updated by advisor session — PR #74 closed, PR #75 assigned)
 - **SCORE GAP**: Current 2.5459 vs target 2.5523 (lBroth) = ~0.25% gap
-- **FRONTIER**: a92d2289 (last scored change: 2268af4 FMA dequant; 72c450a and 651a826 are doc-only)
+- **FRONTIER**: 8130379 (last scored change: 2268af4 FMA dequant; 81019d9 is doc-only)
 - **STUDENT STATUS** (all 4 active):
-  - **Edward** (PR #74): NEW — Register prefetch depth 2-4 for routed gate/up R1 decode kernel.
-    EST 1-3% decode, LOW risk. Proven mechanism (norm+QKV depth-4 = +12%). Bit-exact.
-    Tests whether outstanding loads (not bandwidth) limits the gate/up kernel family.
-    PR #70 (top-8 elimination) CLOSED: dead hypothesis, decode is memory-bound, ALU removal doesn't help.
-    PR #69 (top-8 v1): stale draft, superseded by #70.
+  - **Edward** (PR #75): NEW — Stage activation vector in threadgroup memory for routed gate/up R1.
+    EST 1-5% decode, LOW risk, bit-exact. Tests bandwidth reduction (25% traffic cut) on the
+    bandwidth-bound R1 kernel. Directly attacks the proven bottleneck.
+    PR #74 (prefetch depth 2-4) CLOSED: NEGATIVE. Depth-2 8.4% slower, depth-4 10.7% slower.
+    R1 kernel is bandwidth-bound, not latency-limited. Register pressure from circular buffers hurts.
+    PR #70 (top-8 elimination) CLOSED: NEGATIVE. R1 kernel is memory-bound, ALU removal doesn't help.
+    PR #69 (top-8 v1): stale draft, malformed marker, unprocessable.
   - **Thorfinn** (PR #50): Merge shared + routed gate/up QMV dispatch.
     EST 1-2% decode, eliminates 39 dispatches/step. `mergedSharedActivated` at L9931.
     Status check-in sent — 10+ hours, no code pushed yet.
@@ -39,13 +41,15 @@
 ### Novel Optimization Targets (from research agents)
 1. ✅ Eliminate redundant top-8 extraction → DEAD (PR #70, memory-bound, ALU removal doesn't help)
 2. Pack down-projection scales into walk-order side bank (EST 0.5-1.5%, LOW risk, transform required)
-3. ✅ Extend register prefetch depth 2-4 to routed gate/up R1 → ASSIGNED to Edward (PR #74)
+3. ✅ Extend register prefetch depth 2-4 to routed gate/up R1 → DEAD (PR #74, bandwidth-bound, prefetch depth HURTS: depth-2 8.4% slower, depth-4 10.7% slower due to register pressure)
 4. Fuse shared expert SwiGLU into down kernel (EST 1-2%, MEDIUM risk)
 5. Vectorized online-softmax in sliding attention (EST 0.3-1%, HIGH risk)
 
 ### Next-Wave Research Ideas (from frontier agent, research/RESEARCH_IDEAS_NEXT_WAVE.md)
-- P0: Stage activation vector in threadgroup memory (5-10% decode, LOW risk) — activation read many times across rows
-- P0: Depth-2 block unroll / prefetch next block's weights (3-6%, LOW risk) — ASSIGNED to Edward (PR #74)
+- P0: Stage activation vector in threadgroup memory (5-10% decode, LOW risk) — ASSIGNED to Edward (PR #75)
+  Tests on routed gate/up R1 kernel (2× redundancy, 25% traffic cut). If L1 handles 2× redundancy,
+  follow up with shared SwiGLU QMV kernel (4× redundancy, 37.5% traffic cut).
+- P0: Depth-2 block unroll / prefetch next block's weights (3-6%, LOW risk) — DEAD (PR #74, negative)
 - P1: Register-resident scale pre-loading across blocks (2-4%, LOW risk)
 - P1: Texture-backed NVFP4 weight storage (5-15%, MEDIUM risk, needs API investigation)
 - Key finding: decode GEMV is bandwidth-bound, NOT compute-bound. Hardware MMA is wrong tool.
@@ -494,17 +498,21 @@ A prior "fused tail norm+QKV+gate" kernel was removed after a re-sweep measured 
 ## Potential Next Research Directions
 
 ### Currently Assigned (In-Flight)
-- **Top-8 elimination in R1 gate/up kernel** (Edward, PR #70): Replaces bitonic
-  prelude with direct index read. EST 2-4% decode, LOW risk. Base 8130379, ready.
+- **Stage activation vector in TG memory for routed R1 gate/up kernel** (Edward, PR #75):
+  Stages 2048-element BF16 input in threadgroup memory, eliminating 2× redundant device reads.
+  25% total traffic reduction for bandwidth-bound kernel. Bit-exact, LOW risk.
+  Follow-up: if positive, extend to shared SwiGLU QMV (4× redundancy, 37.5% traffic cut).
+  PR #74 (prefetch depth) CLOSED NEGATIVE: bandwidth-bound, depth-2 8.4% slower, depth-4 10.7% slower.
+  PR #70 (top-8 elimination) CLOSED NEGATIVE: memory-bound, ALU removal doesn't help.
 - **Merge shared + routed gate/up QMV** (Thorfinn, PR #50): Fill the
   `mergedSharedActivated` gap at L10248. Eliminates 39 dispatches/step. +6.6-7.6% decode.
-  Re-baselining against a92d2289.
+  Re-baselining against 8130379. Status check-in sent.
 - **Fuse RMSNorm + NVFP4 QKV into one dispatch** (Alphonse, PR #51, redirected):
   EST 5.3% decode, eliminates 40 RMSNorm dispatches/step. STRONGEST available win.
-  Re-baselining against a92d2289.
+  Re-baselining against 8130379. Status check-in sent.
 - **Prefill MoE _nax variant 5→4 switch** (Askeladd, PR #52 revision):
   WN=2, 256 thr/TG. Needs M5 validation. +17.47% kernel-level.
-  Double-buffering now in base. Re-baselining against a92d2289.
+  Double-buffering now in base. Re-baselining against 8130379. Status check-in sent.
 
 ### High-Priority Next Experiments
 - **Fuse RMSNorm + NVFP4 QKV into one dispatch** (STRONGEST): Create
