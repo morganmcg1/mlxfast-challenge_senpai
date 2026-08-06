@@ -1,24 +1,35 @@
 # SENPAI Research State
-- 2026-08-06T12:41Z (updated)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 89ebda4 (Wave 3 assigned).
-  Previous frontier: 495e4db (deep research ideas). a996a21 (5 merged, M5 submitted).
-- **WAVE 3 ASSIGNED**: 4 instruction-reduction experiments. PRs: #121 (Edward),
-  #122 (Alphonse), #123 (Thorfinn), #124 (Askeladd). No student activity yet.
+- 2026-08-06T13:47Z (updated)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at af706b7 (LM head analysis notes).
+  Last scored merge: 639646a (NVFP4 O-proj dot4, PR #119).
+  Wave 3 base: 495e4db (deep research ideas, no scored code change).
+- **WAVE 3 IN PROGRESS**: 4 instruction-reduction experiments. PRs: #121 (Edward),
+  #122 (Alphonse), #123 (Thorfinn), #124 (Askeladd). All seed-only, students idle.
 - **LEADERBOARD**: Our team (morganmcg1) holds #1 at 2.5888 (maple campaign).
   Birch campaign best: 2.5459 (commit d4235c9, M5).
   Target: 2.5523 (gap ~0.0064, ~0.25%).
-- **FRONTIER**: 495e4db (advisor HEAD with deep research ideas).
-  Previous: a996a21 (5 merged improvements: #94, #98, #107, #114, #116, M5 submitted).
+- **FRONTIER**: af706b7 (advisor HEAD). Scored code at 639646a (NVFP4 O-proj dot4).
+  Merged improvements: #94 (simd_dot attention), #98 (prefill O-proj affine, reverted),
+  #107 (qdot dot4), #114 (INT8 QKV dot4), #116 (SwiGLU staging), #119 (O-proj dot4),
+  FMA dequant (cherry-picked from PR #65), 4058d0b frontier (STAGE2_GATHER v1, LM_HEAD_PRUNE).
+- **SCALE DECODE LUT (TOP WAVE 4)**: Source analysis found 108.3M NVFP4 scale-decode
+  operations per decode token. Each performs 5 ALU ops (shift, half convert, float widen).
+  A 256-entry constant LUT replaces all 540M FP-ALU ops with constant cache reads.
+  BIT-EXACT (same values, different path). M4-testable (not _nax-specific). Simple
+  implementation (1 constant array + 3 function rewrites). Budget fits (~2KB growth,
+  36,884 bytes total headroom, 17,780 per-file headroom).
+  Three decode functions: laguna_nvfp4_scale (MoE), lagunaGatedAffineOProj scale (O-proj),
+  laguna_tail_nvfp4_scale (QKV). All share the same E4M3 byte→float32 pattern.
+- **PREFILL MoE VARIANT 5→4 (BONUS WAVE 4)**: Askeladd's PR #52 showed +17.47% kernel-level
+  on the _nax gather-QMM variant 5→4 switch (WN=2, 256 thr/TG). M4 can't validate (_nax-only).
+  PR #52 closed stale (no response to revision). Viable for reassignment with M5 validation.
 - **LM HEAD ANALYSIS (2026-08-06)**: Frontier agent confirmed LM head coarse pass is
-  **bandwidth-bound** (~0.09 FLOP/byte), NOT instruction-bound. The 89% instruction-bound
-  figure applies to the overall decode step (39 MoE layers), not the LM head. The fused-
-  refinement path already reads only the 4-bit nibble (1088 B/row = 109 MB). int4 with
-  group-32 reads the IDENTICAL 1088 B/row — ZERO bandwidth saving. The "54.6 MB" figure
-  was wrong (that's int2, not int4). int4 is a NET NEGATIVE: same bandwidth, worse error
-  bounds. Wave 2f (LM head int4) is DEAD — do not pursue.
+  **bandwidth-bound** (~0.09 FLOP/byte), NOT instruction-bound. int4 with group-32 reads
+  the IDENTICAL 1088 B/row as existing fused-refinement path — ZERO bandwidth saving.
+  Wave 2f (LM head int4) is DEAD — do not pursue.
 - **BROKEN PRs**: #69, #83, #86, #92, #99, #108, #111, #113, #115 (orphan drafts with
   invalid/missing markers from prior sessions). Cannot close via close_experiment. Ignore.
-- **CLOSED**: PRs #117 (Edward), #118 (Thorfinn), #120 (Askeladd) closed via close_experiment.
+- **CLOSED**: PRs #52 (Askeladd, stale), #65 (Edward, cherry-picked), #117, #118, #120.
   PR #119 (Alphonse NVFP4 O-proj dot4) merged → 639646a. PR #98 reverted → cc63c1c.
 
 ## COMPOSITION STRATEGY (see research/COMPOSITION_STRATEGY.md for full analysis)
@@ -175,6 +186,32 @@ Awaiting M5 result. This is the first birch-campaign M5 submission of the compos
 - BM=BN=BK=64, WM=WN=2. Could try BK=128 or asymmetric WM/WN
 - Changes reduction order → requires upstream equivalence test
 - M4 doesn't select `_nax`, so M5-only evidence needed. Defer.
+
+## Wave 4 Experiments (READY TO ASSIGN when students free up)
+
+### Wave 4a: Scale Decode LUT — TOP PRIORITY
+- Replace 3 E4M3 byte→float32 scale-decode functions with a 256-entry constant LUT
+- 108.3M scale decodes/token × 5 ALU ops = 540M FP-ALU ops eliminated per decode step
+- BIT-EXACT (same values through constant cache instead of ALU computation)
+- M4-testable (runs on all GPU generations, not _nax-specific)
+- ~2KB growth, fits budget easily (36,884 bytes total, 17,780 per-file headroom)
+- Three functions to rewrite: laguna_nvfp4_scale (MoE), O-proj scale decode, laguna_tail_nvfp4_scale (QKV)
+- Expected: 0.5-1.5% decode improvement on instruction-bound M5
+
+### Wave 4b: Prefill MoE Variant 5→4 Switch — BONUS (needs M5 validation)
+- WN=2, 256 thr/TG variant for _nax gather-QMM
+- +17.47% kernel-level improvement (Askeladd's PR #52 analysis)
+- M4 can't validate (_nax-only, GPU gen 16 < gen 17)
+- Needs direct M5 submission to validate
+- Expected: prefill improvement, contributes 25% to score
+
+### Wave 4c: Router GEMV dot4 — PROVEN PATTERN, never completed
+- Replace 64 sequential scalar adds with 16 dot(float4,float4) + simd_sum
+- Same pattern that won PRs #107 and #114
+- Warning: router has STRICT accumulation order (L846-848 warning)
+- Must preserve within-group order using dot(), not tree reduction
+- Upstream equivalence mandatory (not bit-exact due to FMA rounding)
+- Expected: 0.3-0.8% decode improvement
 
 ## Next-Wave Experiments (READY TO ASSIGN when students free up)
 
