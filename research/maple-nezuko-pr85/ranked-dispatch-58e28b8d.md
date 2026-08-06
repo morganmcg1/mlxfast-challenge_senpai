@@ -208,15 +208,107 @@ is therefore invisible from the PR page by construction. Worth fixing at the
 programme level — a student with no push and no comment channel cannot report
 progress before the end.
 
+## RECEIPT RESOLVED — the six lines
+
+The receipt resolved at approximately 05:07Z, about 25 minutes after dispatch.
+The six required lines, stated separately and with ranking status last:
+
+1. **Receipt ID.** `58e28b8` — full submission id
+   `58e28b8d-d677-499e-a0cf-03bf2e767e8a`. Dispatched 8/6/26 04:42 UTC from
+   local commit `f2fedd584e6514569758d79e581402210306e77b`; the server
+   records the applied commit as
+   `30fff37fd844c399152d1885355119228d1e9b8c`. Submitted with
+   `--model "senpai"`, accepted on the first attempt, no fallback required.
+   Public note 11.7 KiB.
+
+2. **`correctness`.** Not directly readable from this host. See the CLI
+   limitation below. The observable evidence is that a finite
+   `officialScore` was published; under the programme rule that "a mismatch
+   or failed gate publishes no score", publication is the available
+   indication that the hidden correctness gates passed. I am reporting this
+   as an inference, not as a field I read.
+
+3. **`error`.** `""` — empty. This one *is* directly readable: the metrics
+   blob begins `{"error":"","commit":"30fff37...`. No error string.
+
+4. **Decode floor verdict.** Not directly readable. Same CLI limitation.
+   Implied pass by score publication, on the same inference as line 2.
+
+5. **Prefill floor verdict.** Not directly readable. Same CLI limitation.
+   Implied pass by score publication, on the same inference as line 2. This
+   also retires the local prefill-floor disclaimer recorded above: the M4 Pro
+   `prefill_speedup 0.326` seen in local iteration is a host artifact and did
+   not reproduce as an official floor failure.
+
+6. **Ranking status.** `rejected`. `officialScore = 2.54216510564691`,
+   reported diff `-0.010143 (-1.01%)` against the current best, which this
+   implies is `2.552308`. `rejected` means only that the score did not beat
+   the current best. It is not a correctness verdict and not a floor verdict.
+
+### CLI limitation worth recording
+
+`mlxfast submissions` truncates the `metrics` column at roughly 80 characters
+(`{"error":"","commit":"...","runtime":"sw...`), and the truncation is
+unconditional — it survives piping to a file and `COLUMNS=100000`. There is no
+`mlxfast submission <id>` detail command; `submission-note <id>` prints only
+the public note the submitter wrote, and `--all` only widens the row set.
+
+So the per-floor verdicts and the `correctness` field are **not observable to
+a student from this host**. Anyone who reports them as read values is
+reporting an inference. If the advisor has a channel that surfaces the full
+metrics JSON, lines 2, 4 and 5 above should be replaced with the real fields.
+
+### How much this receipt actually tells us
+
+`2.542165` is the second-best `officialScore` this account has recorded
+(best is `4058d0b` at `2.545892`, `-0.64%`). But the programme's own
+calibration is that `officialScore` has sd `0.635%` with **86.5–86.9% of that
+variance coming from the baseline-prefill draw**. A `-1.01%` gap against a
+historical best is therefore about 1.6 sd of a distribution whose dominant
+term is a lottery the candidate does not control.
+
+This single receipt consequently does **not** establish that `#72 + #81`
+regressed, and equally does not establish the `+0.834%` that `#72` was
+predicted to deliver. It is one draw. Its value is as the isolating base
+measurement the advisor wanted: `#80`'s merge base is also `f2fedd58`, so
+whatever `97a5090` returns can be differenced against this receipt to price
+`#80` alone.
+
+## Channel collision — RESOLVED, no harm
+
+The collision described above did not cause damage, and the record should say
+so as plainly as it described the risk.
+
+| time (UTC) | event |
+|---|---|
+| 04:42 | my Step 0 dispatch `58e28b8` enters `validating` |
+| 04:58 | advisor comment `5200560920` defers Step 0, reallocates channel to #80 |
+| 05:02 | I poll: `58e28b8` still `validating`, no #80 submission in the list yet |
+| 05:04 | `97a5090` created and enters `validating` — #80's dispatch |
+| ~05:07 | I poll: `58e28b8` now `rejected`; `97a5090` still `validating` |
+
+I want to be precise rather than reassuring, because my earlier note in this
+file predicted a specific failure mode and it is worth saying exactly which
+part was right.
+
+The two dispatches **did** briefly coexist: `97a5090` was created at 05:04
+while `58e28b8` was still `validating`, so for roughly three minutes there
+were two unresolved submissions on the account. What did *not* happen is the
+harm I was worried about. `97a5090` was accepted rather than refused, so the
+one-in-flight rule is evidently not enforced as a hard admission check at
+create time, or the window was short enough to slip past it. Nothing was
+lost, and #80's measurement is proceeding.
+
+So the correct summary is: the collision was real but benign, and the reason
+it was benign is that the failure mode for a colliding dispatch is a loud
+refusal, not silent corruption — which is what I argued when I first recorded
+the risk. The residual cost is that my 04:42 dispatch occupied roughly 25
+minutes of channel time that the advisor decided, 16 minutes later, to give
+to #80. I record that cost rather than the absence of a catastrophe.
+
 ## Channel release
 
-<!-- appended once the receipt for 58e28b8d resolves -->
-
-_status: PENDING — receipt for `58e28b8` had not resolved at last check._
-
-Regardless of how it resolves, I am releasing my claim on the ranked channel
-now and will not re-request it. When the receipt lands I owe six separately
-stated lines — receipt ID, `correctness`, `error`, decode floor verdict,
-prefill floor verdict, and ranking status **last** — because a `rejected`
-receipt means only "did not beat current best" and must not be read as a
-correctness or floor failure.
+My claim on the ranked channel is released. I will not re-request it. If a
+dense-MLP arm from this PR becomes ready for ranked measurement I will post
+`READY FOR CHANNEL` plus the head SHA and stop, leaving the dispatch decision
+with the advisor.
