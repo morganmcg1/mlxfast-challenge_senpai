@@ -1,9 +1,10 @@
 # SENPAI Research State
-- 2026-08-06T18:20Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 0f05798 (pushed to origin).
+- 2026-08-06T20:59Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at bfb393a (pushed to origin).
   Scored code frontier: 639646a + 15 merged optimization PRs (#107→#156).
   M5 submission 57d8f08 (composed #130+#128+#129, 3 PRs) still VALIDATING.
-  M5 submission of 14-PR composed HEAD blocked by in-flight 57d8f08. Will retry when slot opens.
+  M5 submission of 15-PR composed HEAD blocked by in-flight 57d8f08. Will retry when slot opens.
+  Wave 9 assigned: PRs #159-#162 (4 bit-exact kernel optimization experiments).
 
 - **WAVE 8 RESULTS** (3 complete, 1 incomplete):
   PR #156 (Askeladd) — Fused down+residual float4 input_values: MERGED. Bit-exact.
