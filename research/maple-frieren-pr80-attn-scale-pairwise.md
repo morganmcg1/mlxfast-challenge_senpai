@@ -525,7 +525,69 @@ scale banks are built once outside the timed window.
 S->B  19.215 MB -> 73.8 us/step predicted at 260.2 GB/s
 ```
 
-Result: see §6.5.
+### 6.5 The `S→B` o_proj rung: result
+
+`research/pr80_oproj_abba.sh`, 9 arms (one discarded warm-up then `B S S B B S S B`,
+positions counterbalanced to sum 18 each), 1200 steps per arm, same binary:
+
+```
+arm   n   mean ms   sd us  pos sum  positions
+B     4    8.5957     4.1       18  8.5948 8.5975 8.6000 8.5905
+S     4    8.6581     2.6       18  8.6569 8.6554 8.6586 8.6615
+
+measured same-session A/A floor (pooled within-arm sd): 3.4 us  (dof=6)
+2-sigma bar on a single arm-to-arm delta: 6.8 us
+
+delta       observed us  predicted us   ratio  verdict
+S->B               62.4          73.8    0.84  resolved (2se=4.8)
+```
+
+**The lane-major o_proj read path is a gain, not a regression.** 62.4 µs against a
+2 se bar of 4.8 µs is 26σ. The arms separate completely: the *slowest* B position
+(8.6000) is still 55.4 µs faster than the *fastest* S position (8.6554), so the
+verdict does not depend on the summary statistic.
+
+**It is not thermal.** CPU temperature was 42.4–42.7 °C for every S arm, and two of
+the four B arms sat at 42.5–42.6 °C in the same band. Restricting to arms ≥ 42 °C
+gives B = 8.5987 (n=2) vs S = 8.6581 (n=4), a **59.4 µs** contrast — the same
+conclusion from a temperature-matched subset. The two extreme-temperature arms
+(p01 at 40.2 °C, p08 at 38.1 °C) are both B and both fast, so dropping them makes
+the estimate *more* conservative, not less.
+
+**This closes the §6.4 gap.** The concern was never that `A→B` might be a null —
+it was that the escape address-select in the o_proj read path could be
+if-converted by the Metal compiler into an unconditional double load, turning a
+byte saving into a byte *cost*. Arm S exercises the stock plane and arm B the
+lane-major plane through that exact construct, and B wins at 84 % of the byte-model
+rate. Arm A's block-narrow plane sits strictly between S and B in bytes, so `A→B`
+being a regression is not credible.
+
+**Aggregate byte-model validation.** Arm B was measured independently in this run
+(8.5957) and in the §6.2 ladder (8.5966) — **0.9 µs apart across two separate
+process launches**, well inside both runs' A/A floors. Chaining the two runs on
+that basis:
+
+| chain | observed | predicted | ratio |
+|---|---|---|---|
+| `S→B` (this run) | 62.4 µs | 73.8 µs | 0.84 |
+| `B→D` (§6.2) | 95.6 µs | 84.6 µs | 1.13 |
+| **`S→D` chained** | **158.0 µs** | **158.4 µs** | **1.00** |
+
+Over the full stock-o_proj-to-shipping-arm span the byte model is accurate to
+0.3 %. I read the per-rung ratios as real but partly compensating: both o_proj
+rungs land near 0.82–0.84 and the QKV rung at 1.38, which is consistent with the
+larger QKV projections (8192/10240 rows) being more purely bandwidth-bound than
+o_proj (2048 rows). I do not have evidence to settle that mechanism, and nothing
+in the submitted claim depends on it.
+
+**One caution about the 0.9 µs cross-run agreement.** That is a genuine measured
+same-campaign A/A datum, and it is ~500× tighter than the ±0.46 % that tanjiro
+measured on a null ranked change. The difference is that this probe is a tight
+in-process decode loop on a fixed seed, whereas a ranked session includes process
+start, harness setup, and cross-session drift. So this number is good evidence
+that **my arm-to-arm contrasts are clean**, and it is *not* evidence about ranked
+no-harm. Per programme law §0.9.32 the no-harm claim rests on the §5 identity
+certificate, not on any timing I have.
 
 ---
 
