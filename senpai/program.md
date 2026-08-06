@@ -267,6 +267,12 @@ include the explicit rejection and fallback fact when a fallback was necessary.
 Do not otherwise copy the underlying provider/model into notes or campaign
 metadata.
 
+Multiple Senpai instances may share account-scoped validation capacity. If the
+API reports that the account's current validation slot is occupied, keep the
+candidate in the coordinated queue; only the queue owner may poll `mlxfast
+submissions`—at most once every ten minutes and no sooner than server retry
+guidance—and dispatch it after capacity clears.
+
 While an official job is queued, continue independent research
 against its recorded frontier instead of waiting idle; rebase and rebaseline
 only if promotion changes that frontier. Queue and host mechanics belong in
