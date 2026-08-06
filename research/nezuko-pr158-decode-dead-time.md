@@ -1432,6 +1432,64 @@ elements need not use the same summation order, so `nonorm` may produce a
 different last-bit weight and a different token. Both arms are diagnostic; the
 default (fused) configuration is what ships and is unaffected either way.
 
-<!-- TABLE-4.7 -->
+### 4.7.c Result: the traffic-neutral unfusion is expensive
+
+**Correctness first.** All 16 runs — every arm, both passes, both hook settings
+— report `0 divergences (all match)`. The summation-order worry in §4.7.b did
+not materialise: `nonorm` and `nocast` are bit-equivalent to the shipped fused
+configuration on this prompt. Nothing here is a correctness trade.
+
+**Dispatch counts came out exactly as registered.** The §4.1.d census recovers
+per-step dispatch counts directly from the GPU record stream: `base` 406,
+`nonorm` 484 (**+78**), `nocast` 523 (**+117**), `base2` 406. Both predictions
+hit on the nose, which is the strongest possible evidence that the knobs do
+what §4.7.a claims and that the census segmentation is correct.
+
+Wall medians, pass-averaged over the palindrome, with the two `base` arms pooled
+(n=4) as the reference:
+
+| arm | Δ dispatch | wall, hook **on** (µs) | wall, hook **off** (µs) |
+| --- | --- | --- | --- |
+| `base` pooled | 0 | 8195.8 ± 55.0 | 8250.8 ± 49.0 |
+| `nonorm` | +78 | 8514.0 ± 115.0 | 8530.5 ± 63.5 |
+| `nocast` | +117 | 8592.5 ± 67.5 | 8617.5 ± 61.5 |
+
+Marginal price, propagating the half-ranges:
+
+| contrast | Δ disp | Δ bytes | hook **on** (µs/disp) | hook **off** (µs/disp) |
+| --- | --- | --- | --- | --- |
+| `nonorm` − base | +78 | ~4 KB | 4.08 ± 2.18 | **3.59 ± 1.44** |
+| `nocast` − base | +117 | ~62 KB | 3.39 ± 1.05 | **3.13 ± 0.94** |
+| `nocast` − `nonorm` | +39 | ~58 KB | 2.01 ± 4.68 | 2.23 ± 3.21 |
+
+**The registered decision rule resolves cleanly.** §4.7.b committed in advance:
+"If the wall cost of `nonorm` is ~150 µs the per-dispatch floor survives §4.6
+… If it is tens of µs or less, the floor is an artefact of confounded traffic
+and the headline must be withdrawn." Measured `nonorm` cost is **+279.8 µs** —
+not tens of µs, and in fact **1.9× the 148 µs that a 1.9 µs/dispatch floor
+predicts.** The pure-traffic hypothesis is rejected outright: 78 dispatches
+moving ~4 KB in total cannot cost 280 µs through bandwidth, since 4 KB at any
+plausible rate is sub-microsecond.
+
+**So the per-dispatch floor is real, and r1 understated it at this site.** This
+is the one arm in the whole report where dispatch count moves and traffic does
+not, and it prices a dispatch at **3.59 ± 1.44 µs** — above, not below, r1's
+1.9 µs. The audit's suspicion that §2's marginals were traffic artefacts is
+answered: strip the traffic and the cost remains.
+
+**Two controls worth naming.** First, the hook-on and hook-off columns agree
+within uncertainty on every contrast (4.08 vs 3.59; 3.39 vs 3.13), so the
+GPUPROF instrumentation does not manufacture the effect it measures. Second,
+pooled `base` differs by only 55 µs between the two sweeps (8195.8 vs 8250.8),
+inside both half-ranges — the hook's own wall cost is at or below noise.
+
+**What this experiment cannot do is measure a byte slope.** `nocast − nonorm`
+adds 39 dispatches carrying ~58 KB, which at any realistic bandwidth is ~0.1 µs
+of transfer — far below the ±3.2 µs resolution of the contrast. Its 2.23 µs/disp
+is therefore a *second traffic-free estimate*, statistically indistinguishable
+from the first, not a measurement of what bytes cost. The honest reading is that
+at this scale the dispatch floor dominates and the byte term is unresolvable.
+
+<!-- TABLE-4.7-BUSY -->
 
 
