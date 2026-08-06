@@ -1,0 +1,48 @@
+
+=== M5 family floors, no zero-row discount ===
+stage                   GB    GFLOP    dram@485   dram@500   dram@530 dram@546.2   dram@610   mma@60   bound
+attn_proj_qkvo       3.743   1465.3        7.72       7.49       7.06       6.85       6.14    24.42 compute
+routed_experts      19.465   1005.0       40.13      38.93      36.73      35.64      31.91    16.75  memory
+attn_core            0.713    161.4        1.47       1.43       1.35       1.31       1.17     2.69 compute
+shared_expert        0.294    125.6        0.61       0.59       0.55       0.54       0.48     2.09 compute
+dense_mlp_layer0     0.130     51.5        0.27       0.26       0.25       0.24       0.21     0.86 compute
+router               0.133     20.9        0.27       0.27       0.25       0.24       0.22     0.35 compute
+lm_head              0.411      0.4        0.85       0.82       0.78       0.75       0.67     0.01  memory
+norm_rope            0.965      0.0        1.99       1.93       1.82       1.77       1.58     0.00  memory
+moe_tail             0.818      0.0        1.69       1.64       1.54       1.50       1.34     0.00  memory
+embedding            0.004      0.0        0.01       0.01       0.01       0.01       0.01     0.00  memory
+
+ divisor GB/s  sum max floor ms  UNATTRIBUTED ms   % of S  % of score
+        485.0             75.08            22.87    23.4%       8.49%
+        500.0             73.74            24.21    24.7%       8.98%
+        530.0             71.29            26.66    27.2%       9.89%
+        546.2             70.07            27.88    28.5%      10.34%
+        610.0             65.92            32.03    32.7%      11.88%
+
+  whole-forward DRAM floor  55.00ms@485  53.35ms@500  50.33ms@530  48.84ms@546.2  43.73ms@610
+  whole-forward MMA floor   47.17ms@60TFLOP/s
+  total A-column bytes      26.676 GB, 2830.1 GFLOP, intensity 106.1 FLOP/B
+
+=== M5 family floors, routed weight bytes discounted 20.26% for zero-row experts ===
+stage                   GB    GFLOP    dram@485   dram@500   dram@530 dram@546.2   dram@610   mma@60   bound
+attn_proj_qkvo       3.743   1465.3        7.72       7.49       7.06       6.85       6.14    24.42 compute
+routed_experts      15.886   1005.0       32.75      31.77      29.97      29.08      26.04    16.75  memory
+attn_core            0.713    161.4        1.47       1.43       1.35       1.31       1.17     2.69 compute
+shared_expert        0.294    125.6        0.61       0.59       0.55       0.54       0.48     2.09 compute
+dense_mlp_layer0     0.130     51.5        0.27       0.26       0.25       0.24       0.21     0.86 compute
+router               0.133     20.9        0.27       0.27       0.25       0.24       0.22     0.35 compute
+lm_head              0.411      0.4        0.85       0.82       0.78       0.75       0.67     0.01  memory
+norm_rope            0.965      0.0        1.99       1.93       1.82       1.77       1.58     0.00  memory
+moe_tail             0.818      0.0        1.69       1.64       1.54       1.50       1.34     0.00  memory
+embedding            0.004      0.0        0.01       0.01       0.01       0.01       0.01     0.00  memory
+
+ divisor GB/s  sum max floor ms  UNATTRIBUTED ms   % of S  % of score
+        485.0             67.70            30.25    30.9%      11.22%
+        500.0             66.58            31.37    32.0%      11.64%
+        530.0             64.53            33.42    34.1%      12.40%
+        546.2             63.52            34.43    35.2%      12.77%
+        610.0             60.06            37.89    38.7%      14.06%
+
+  whole-forward DRAM floor  47.62ms@485  46.19ms@500  43.58ms@530  42.29ms@546.2  37.86ms@610
+  whole-forward MMA floor   47.17ms@60TFLOP/s
+  total A-column bytes      23.097 GB, 2830.1 GFLOP, intensity 122.5 FLOP/B

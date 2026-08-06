@@ -1,0 +1,5 @@
+mlxfast: narrow-scales built lane-major: qkv
+mlxfast: narrow-scales built: oproj
+mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast: lm_head prune active (coarse copy resident)
+mlxfast: packed-scales active: routed swiglu qmv packed dispatch

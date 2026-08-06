@@ -1,0 +1,17 @@
+derived stage(s)                            A GB    M GB    M/A
+routed_experts                            19.465  18.968  0.974
+attn_proj_qkvo + router + dense_mlp_layer0   4.006   4.552  1.136
+attn_core                                  0.713   0.696  0.976
+shared_expert                              0.294   0.652  2.218
+lm_head                                    0.411   0.959  2.333
+norm_rope                                  0.965   1.264  1.310
+moe_tail                                   0.818   0.878  1.073
+--------------------------------------------------------------
+mapped subtotal                           26.672  27.969  1.049
+unmapped (sort_scatter,elementwise,other)   0.004   2.979
+TOTAL                                     26.676  30.948  1.160
+
+note: A has no counterpart for the sort/scatter, elementwise and 'other' families;
+      prefill_budget.py folds their traffic into the norm_rope and moe_tail
+      activation rows, so the unmapped 2.979 GB of M is the residual the A column
+      does not itemise.
