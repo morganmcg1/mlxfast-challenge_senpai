@@ -25,12 +25,19 @@ are `research/`-only.
    `9.816 / 9.492 / 9.498 / 0.322` has `union > sum` (9.498 > 9.492), which the
    instrument cannot produce, and `9.816 − 9.498 = 0.318 ≠ 0.322`. It was
    hand-transcribed. A fresh self-consistent row is in §1.1.
-4. **The gap is real, not a profiler artifact, and it is not per-command-buffer.**
-   A paired ABBA run of the same binary with the hook on and off puts the hook's
-   cost at `+0.11 %` (indistinguishable from run-to-run spread). Two independent
-   sweeps that vary buffers per step 2.5× and 4.5× leave the gap flat. The gap
-   decomposes as **16 µs IPC + ~0.56 µs × buffers + ~220 µs step-fixed host
-   cost**, i.e. ~0.54 µs per MLX dispatch of host-side work.
+4. **The §1.1 answer is PROPORTIONAL, not absolute — and there is no host-side
+   pool either way.** The gap is real (hook cost `+0.11 %`, inside run-to-run
+   spread) and is ~265 ± 20 µs. Across 19 configurations spanning 9.2 % of
+   `gpu_busy`, `gap ~ 1 + busy` has slope **+0.059 ± 0.019**, which **rejects
+   the absolute model at 3.1σ** and cannot reject proportional (0.032, 1.4σ).
+   A lever that adds 90 dispatches at constant busy moves the gap by
+   **−0.12 ± 0.22 µs/dispatch — a null** — and the per-buffer coefficient is
+   ≤0.6 µs, against the 1.33 µs/CB the assignment assumed. My earlier
+   "absolute" reading came from sweeps whose busy range was only 6.8 %, where
+   the two models differ by less than the ±19.5 µs replicate noise. The
+   practical point survives either reading: the gap is 3.01 % of the step, the
+   two models differ by 0.33 % of wall on a 10 % busy cut, and **no wall time is
+   recoverable without removing GPU work.** §1.1.e.
 5. **§1.2's pre-registered kill rule fires for both kernels.** `gate_sp` runs at
    100 % useful-lane fraction with no divergence; `residual_rms_router`'s idle
    half is a compile-time whole-simdgroup guard, so there is nothing for a
@@ -38,10 +45,11 @@ are `research/`-only.
    §1.3 is therefore not entered and §2 fires.
 6. **§2's correction is not the one the assignment expected.** Because hiding is
    ~absent, the 10 HIGH-RISK rows are *not* over-attributed by overlap. They are
-   over-attributed by a different mechanism: a fixed ~5–8 µs per-dispatch floor
-   that does not shrink when the kernel's work shrinks. Only *removing a
-   dispatch* recovers the floor; making a kernel cheaper recovers only its
-   work-proportional part. The corrected census is in §2.
+   over-attributed by a different mechanism: a measured **~1.9 µs per-dispatch
+   GPU floor** that does not shrink when the kernel's work shrinks. Only
+   *removing a dispatch* recovers the floor; making a kernel cheaper recovers
+   only its work-proportional part. That floor is 771 µs, **9.6 % of the
+   8007 µs step** — three times the host gap. The corrected census is in §2.
 
 ---
 
@@ -100,13 +108,31 @@ the quoted `0.322`. The row is a hand transcription with at least two errors,
 and the "6 ns agreement" repeated three times in the research state
 (`CURRENT_RESEARCH_STATE.md:203-206`) descends from it. In the fresh rows above
 `sum` and `union` agree **exactly, bit for bit**, which is what the code
-actually produces at `SPLIT=0` — and §0.1 explains why that agreement is
-uninformative.
+actually produces at `SPLIT=0` — and headline answer 1 explains why that
+agreement is uninformative.
 
-### 1.1.b Verdict: the gap is ABSOLUTE, and I can decompose it
+### 1.1.b Verdict: the gap is PROPORTIONAL, and the additive host pool does not exist
 
-Comparing the two rows alone is not a clean test (different binaries, and one
-of them is corrupt). So I measured the gap's structure directly, three ways.
+Short answer, stated first because it is the opposite of what I believed after
+the first three probes: across 19 profiled configurations spanning 9.2 % of
+`gpu_busy`, the gap tracks `gpu_busy` with slope **+0.059 ± 0.019 ms per ms**,
+which **excludes the absolute model (slope 0) at 3.1σ** and sits 1.4σ from the
+pure-proportional prediction (0.032). The dispatch-count and buffer-count
+coefficients, measured on levers that move those counts *at constant busy*, are
+both statistically zero. Full evidence and the fit are in **§1.1.e**; this
+subsection records the three structural probes that constrain the answer.
+
+The operationally important part is that **this verdict does not open a pool.**
+The gap is 3.01 % of the step. Under the absolute model a 10 % cut in
+`gpu_busy` buys 10.74 % of wall; under the proportional model it buys 11.11 %.
+The two readings of §4.1 differ by **0.33 % of wall**, and no reading of them
+makes the gap a separate additive quantity that can be attacked without
+reducing GPU work. The assignment's premise — "if absolute, the gap is a
+separate pool worth attacking" — fails on its antecedent *and* would have been
+worth at most 3.0 % if it had held.
+
+Comparing the two rows in §1.1.a alone is not a clean test (different binaries,
+and one of them is corrupt). So I measured the gap's structure directly.
 
 **(i) It is not a profiler artifact.** Paired ABBA on one binary, hook on (A)
 versus hook off (B), order a1 b1 b2 a2, 0 token divergences in every arm
@@ -147,20 +173,20 @@ gap  ≈  16 µs IPC  +  ~0.2–0.6 µs × CBs  +  ~224 µs residual
      ≈  16 µs      +  ~10–25 µs          +  ~224 µs
 ```
 
-**None of those three terms references GPU busy time.** The gap does not
-contain a term proportional to how long the GPU worked. It is a host-side
-absolute cost. **§4.1's "absolute" branch is the correct one for the decode
-axis**, and the assignment's framing follows: as `gpu_busy` falls, this cost is
-a *growing* share of the step. On this host it is 3.04 % of an 8.27 ms step
-where it was ~3.3 % of a 9.8 ms step.
+Probes (i)–(iii) settle what the gap is *not*: not an artifact, not
+per-command-buffer at any material size, and not IPC. They leave a **~224 µs
+residual**, and at that point I wrote down the wrong conclusion — I read "no
+per-CB term and no per-dispatch term" as "therefore a fixed per-step host
+cost", i.e. absolute. That inference does not follow. Both sweeps held
+`gpu_busy` inside a 6.8 % window, so a genuinely proportional residual would
+have moved only ~17 µs across them, which is under the ±19.5 µs replicate
+noise. **The absolute reading was an artifact of insufficient dynamic range on
+the one variable that distinguishes the two models.** §1.1.e widens that range
+and reverses the verdict.
 
-Two caveats I will not paper over. First, the residual is **~224 µs and 406
-dispatches came out at 0.55 µs each** — both sweeps held dispatch count fixed
-at 406, so I cannot separate "fixed per step" from "0.55 µs per dispatch" from
-these data. That distinction decides whether the pool is reachable at all, and
-it is measured in §1.1.d. Second, this is a *host* cost and the M5 has a
-different CPU: the **structure** (absolute, not proportional) transfers; the
-**224 µs magnitude** does not.
+One caveat survives either way: this is a *host*-side measurement and the M5
+has a different CPU. Only the qualitative structure is portable; the 224 µs
+magnitude is not.
 
 ### 1.1.c How `gpu_busy_union` is computed — and what `sum == union` proves
 
@@ -226,7 +252,8 @@ evidence. It now stands on the `SPLIT` sweep.
 contradiction, and not excluded either.** Decode MSL is hand-written and both
 hosts execute it identically, so the serial-execution finding transfers. The
 *host gap* is a CPU-side cost and its magnitude does not. Keep (c) alive for
-the absolute µs value, retire it as an explanation of the overlap question.
+the µs magnitude of the gap, retire it as an explanation of the overlap
+question.
 
 **Consequence for the corollary at `CURRENT_RESEARCH_STATE.md:197-199.`** The
 programme's standing worry was that isolated-duration claims are inflated
@@ -234,6 +261,116 @@ because the kernel is partly hidden behind others. On the decode axis that
 worry is **unfounded**: nothing is hidden. Isolated duration ≈ exposed serial
 time. But the claims are still over-attributed, by a completely different
 mechanism — see §2.
+
+### 1.1.e The evidence that settles absolute vs proportional
+
+Three levers, 19 profiled configurations, one fit. Everything below is the same
+binary on the same host under the same 40 °C gate.
+
+**Lever 1 — fusion ablation** (`research/nezuko-pr158-unfuse-sweep.log`). Each
+`DARKBLOOM_FUSED_*` knob off in turn. 0 token divergences in every arm.
+
+| arm | knob off | CBs | dispatches | wall (ms) | busy (ms) | gap (ms) |
+|---|---|---|---|---|---|---|
+| base | — | 45 | 406 | 8.274 | 8.001 | 0.273 |
+| rrr | `FUSED_RESIDUAL_RMS_ROUTER` | 45 | 445 | 8.536 | 8.262 | 0.275 |
+| rsdr | `FUSED_ROUTED_SHARED_DOWN_RESIDUAL` | 46 | 445 | 8.296 | 8.074 | 0.222 |
+| ssq | `FUSED_SHARED_SWIGLU_QMV` | 46 | 601 | 8.639 | 8.374 | 0.265 |
+| rsq | `FUSED_ROUTED_SWIGLU_QMV` | 45 | 601 | 8.755 | 8.474 | 0.281 |
+| base2 | — (replicate) | 45 | 406 | 8.277 | 8.004 | 0.273 |
+
+This moves dispatches 1.5× but busy only 5.9 %, so it cannot separate the
+models on its own. It is what produced the misleading "flat gap" reading.
+
+**Lever 2 — 2×2 busy-range sweep** (`research/nezuko-pr158-busy-range-sweep.log`,
+harness `research/nezuko_pr158_busy_range_sweep.sh`). ABBA order
+`a1 b1 c1 d1 d2 c2 b2 a2`, replicates averaged. Factor 1 is seed length
+(512 → 32 via `--seed`, a free-running timing-only arm); factor 2 is all four
+fusion knobs off at once. Seeded arms verified 0 divergences.
+
+| cell | seed | fusion | CBs | dispatches | busy (ms) | gap (µs) |
+|---|---|---|---|---|---|---|
+| a | 512 | on | 45 | 406 | 7.931 | 246.5 |
+| b | 32 | on | 45 | 496 | 7.929 | 236.0 |
+| c | 512 | off ×4 | 51 | 835 | 8.604 | 274.0 |
+| d | 32 | off ×4 | 51 | 925 | 8.643 | 308.5 |
+
+The seed lever behaved differently than designed, and better. At seed 512 the
+sliding layers take the capacity-filled `sliding_fused_attn_ring_v1` path; at
+seed 32 they take the grow path (`sliding_qk_norm_rope` + two copies +
+`sdpa_vector`). The shorter KV saves exactly as much as the extra kernels cost,
+so **`b` and `a` differ by +90 dispatches at Δbusy = −1.5 µs**: a clean
+*dispatch-count-only* lever.
+
+| contrast | Δbusy | Δdispatches | ΔCBs | Δgap |
+|---|---|---|---|---|
+| a → b (dispatch only) | −1.5 µs | +90 | 0 | **−10.5 µs** |
+| c → d (dispatch only) | +38.5 µs | +90 | 0 | +34.5 µs |
+| a → c (busy) | +673.5 µs | +429 | +6 | +27.5 µs |
+
+Replicate half-ranges are ±19.5 / ±10.0 / ±17.0 / ±31.5 µs (mean ±19.5 µs), so
+`a → b` is **−0.12 ± 0.22 µs per dispatch — a null**. Adding 90 dispatches
+(+22 %) at unchanged total GPU busy time does not lengthen the step's host gap.
+
+Two things this contrast is not. It is not a claim that dispatches are free on
+the GPU: busy is unchanged in `a → b` because two large effects cancel — the
++90 dispatches carry the ~1.9 µs each GPU floor of §2.a (~171 µs) while the
+shorter KV removes about as much attention work. The regression conditions on
+total busy, which is the correct conditioning for the *host gap*, so the null
+is about host cost per dispatch and does not contradict §2.a's GPU-side floor.
+Nor is it evidence about command buffers: CBs are held at 45 in both cells.
+
+**The fit** (`research/nezuko_pr158_gap_fit.py` →
+`research/nezuko-pr158-gap-fit.txt`), all 19 rows, gap mean 264.9 µs, busy
+range 7.917–8.645 ms (9.2 %), dispatches 406–925, CBs 45–204. `SPLIT=1` is
+excluded as a different regime (host becomes the critical path).
+
+| model | R² | rmse | coefficients |
+|---|---|---|---|
+| `1 + cbs` | 0.047 | 27.9 µs | cbs = +0.00016 ± 0.00018 |
+| `1 + disp` | 0.269 | 24.4 µs | disp = +0.000075 ± 0.000030 |
+| `1 + busy` | **0.362** | 22.8 µs | **busy = +0.0594 ± 0.0191** |
+| `1 + cbs + disp` | 0.364 | 23.5 µs | cbs = +0.00023 ± 0.00015, disp = +0.000083 ± 0.000029 |
+| `1 + cbs + busy` | **0.449** | 21.9 µs | cbs = +0.00022 ± 0.00014, busy = +0.0631 ± 0.0185 |
+| `1 + cbs + disp + busy` | 0.452 | 22.5 µs | disp = **−0.000023 ± 0.000074**, busy = +0.0772 ± 0.0498 |
+
+`gpu_busy` is the only regressor that survives. Once it is in the model the
+dispatch coefficient collapses to zero and flips sign, matching the direct
+`a → b` contrast; the univariate `1 + disp` fit is picking up busy through the
+collinearity of the fusion lever.
+
+**The test.** Absolute predicts d(gap)/d(busy) = 0. Proportional predicts
+gap/busy = 0.0324.
+
+| model | slope | absolute | proportional | 95 % CI |
+|---|---|---|---|---|
+| `1 + busy` | +0.0594 ± 0.0191 | 3.10σ — **excluded** | 1.41σ — inside | [+0.022, +0.097] |
+| `1 + cbs + disp + busy` | +0.0772 ± 0.0498 | 1.55σ — inside | 0.90σ — inside | [−0.020, +0.175] |
+
+**Verdict: proportional.** The best-conditioned model rejects the absolute
+branch at 3.1σ and cannot reject proportional. The saturated model is
+underdetermined — busy and dispatch count are collinear across the fusion
+lever — but its point estimate also sits closer to proportional. Nothing in
+these data supports a fixed per-step host cost. If anything the slope is
+*super*-proportional (0.059 vs 0.032), which is what you would expect if part
+of the residual is command-buffer completion handling whose cost rises with
+buffer occupancy, but that excess is only 1.4σ and I am not claiming it.
+
+**Three honest limits.** (1) The busy lever is confounded: fusion ablation
+raises busy *and* dispatches together, and the one unconfounded lever (seed)
+happened to move busy by 0.02 %, so it constrains dispatches, not busy. The
+3.1σ rejection rests on the univariate fit. (2) 9.2 % of dynamic range against
+±19.5 µs noise is thin; I would not defend a slope estimate to better than a
+factor of two. (3) M4 host, M4 CPU. What transfers to M5 is the qualitative
+claim (the gap is not a fixed additive pool), not 0.059.
+
+**Why this matters less than it looks.** The whole dispute is bounded by
+gap/wall = **3.01 %**. For a hypothetical 10 % reduction in `gpu_busy` the
+absolute model predicts 10.74 % wall speedup and the proportional model 11.11 %
+— a **0.33 %** difference. Either way the conclusion for the programme is the
+same and it is the one that matters: **there is no host-side pool to attack
+separately.** Every µs of decode wall time must be bought by removing GPU work,
+and §2 says where.
 
 ---
 
@@ -353,3 +490,191 @@ for 12,288 B of unique data and roughly 24 % of the kernel's lane-instructions.
 Fixing it means splitting the fused kernel — which adds a dispatch, and §2
 explains why that trade is probably negative. Recorded as a follow-up, not
 attempted.
+
+---
+
+## 2. Ranked exposed serial time, and the corrected census
+
+§1.2's kill rule fired for both kernels, so §1.3 is not entered and §2 fires.
+
+### 2.a Method: exposed serial time, and a measured per-dispatch floor
+
+Two constants are needed and both are measured here rather than assumed.
+
+**The SPLIT=1 inflation, 1.419 µs/dispatch.** The `SPLIT=1` arm gives the only
+per-kernel breakdown available (one command buffer per dispatch, so each
+GPUPROF span is one kernel), but its `µs/call` column is inflated by the
+per-buffer GPU cost the shipped ~9-dispatch batching amortises. That inflation
+is `(8583 − 8007) / 406 = 1.419 µs`, from the `SPLIT=1` busy sum against the
+`SPLIT=0` busy sum at identical dispatch count. Earlier census work used 1.33;
+the 6 % correction only matters for the smallest kernels. Note the corrected
+total returning to 8007 µs is arithmetic, not evidence — it only confirms the
+per-kernel `n/step` column sums to 406.
+
+**The per-dispatch floor, ~1.9 µs.** This is the cost of *having* a dispatch,
+independent of what it computes. Two independent routes agree:
+
+- *Marginal.* The unfuse sweep ablates one fused kernel at a time into a longer
+  chain computing the same result. `rsdr` adds 39 dispatches for +73 µs, `ssq`
+  adds 195 for +373 µs, `rsq` adds 195 for +473 µs — **1.9, 1.9 and 2.4 µs per
+  added dispatch.** (`rrr` is +6.7 µs and is excluded: it also materialises a
+  2048-wide bf16 intermediate, so it prices traffic, not floor.)
+- *Absolute.* The cheapest dispatches actually present in the step, corrected,
+  cost `residual_rms` 1.56, `rmsbfloat16` 2.06, `gather_front` 2.16,
+  `decode_embedding_rope` 2.13, `lmhead_coarse_argmax_stage1` 2.51 µs.
+
+A marginal cost derived from ablation and an absolute cost read off unrelated
+tiny kernels are different quantities, and they land on the same 1.6–2.5 µs.
+I use **1.9 µs**.
+
+**Why "exposed" is now the right word.** §1.1.d measured that decode has no
+usable intra-buffer concurrency (hidden work ≤ 0.06 ms/step, under 1 % of the
+step). Isolated duration therefore *is* exposed serial time. This is the
+assignment's expected correction inverted: the 10 HIGH-RISK rows are not
+over-attributed by overlap, because there is no overlap.
+
+### 2.b The ranking
+
+`research/nezuko_pr158_exposed_time.py` →
+`research/nezuko-pr158-exposed-time.txt`. `floor = 1.9 µs × n`; `work =
+exposed − floor`.
+
+| exposed µs/step | share | n | µs/call | floor | work | kernel |
+|---|---|---|---|---|---|---|
+| 1445.4 | 18.05 % | 39 | 37.06 | 74.1 | 1371.3 | `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` |
+| 1291.5 | 16.13 % | 30 | 43.05 | 57.0 | 1234.5 | `decode_nvfp4_qkv_h64` |
+| 1074.0 | 13.41 % | 30 | 35.80 | 57.0 | 1017.0 | `oproj_act_h64` |
+| 812.8 | 10.15 % | 39 | 20.84 | 74.1 | 738.7 | `routed_shared_nvfp4_down_residual_bf16_r1_v5` |
+| 592.2 | 7.40 % | 30 | 19.74 | 57.0 | 535.2 | `sliding_fused_attn_ring_v1` |
+| 420.4 | 5.25 % | 1 | 420.44 | 1.9 | 418.5 | `lmhead_int5_base_coarse_delta` |
+| 349.8 | 4.37 % | 10 | 34.98 | 19.0 | 330.8 | `decode_nvfp4_qkv_h48` |
+| 288.9 | 3.61 % | 10 | 28.89 | 19.0 | 269.9 | `oproj_act_h48` |
+| 268.6 | 3.35 % | 1 | 268.59 | 1.9 | 266.7 | `dense_gate_up_swiglu` |
+| 264.5 | 3.30 % | 39 | 6.78 | 74.1 | 190.4 | `residual_rms_router_rpg8_keys_v1` |
+| 239.9 | 3.00 % | 10 | 23.99 | 19.0 | 220.9 | `full_fused_attn_grow_v1` |
+| 237.6 | 2.97 % | 39 | 6.09 | 74.1 | 163.5 | `shared_nvfp4_swiglu_qmv_rows1` |
+| 199.2 | 2.49 % | 30 | 6.64 | 57.0 | 142.2 | `gate_sp_h64` |
+| 146.7 | 1.83 % | 39 | 3.76 | 74.1 | 72.6 | `decode_router_top8_ordinal_table_norm` |
+| 133.6 | 1.67 % | 1 | 133.59 | 1.9 | 131.7 | `dense_down_residual` |
+| 84.5 | 1.06 % | 41 | 2.06 | 77.9 | 6.6 | `rmsbfloat16` |
+| 74.3 | 0.93 % | 1 | 74.31 | 1.9 | 72.4 | `lmhead_exact_fused_int5_sparse_refine` |
+| 63.1 | 0.79 % | 10 | 6.31 | 19.0 | 44.1 | `gate_sp_h48` |
+| 19.5 | 0.24 % | 6 | — | 11.4 | 8.1 | six kernels below 8 µs/step |
+
+**Totals: 8006.6 µs/step, of which 771.4 µs (9.6 %) is per-dispatch floor and
+7235.2 µs is work.**
+
+Three programme-level readings follow.
+
+1. **9.6 % of decode GPU time is the cost of having 406 dispatches, not the
+   cost of computing anything.** It is recoverable only by *removing
+   dispatches*. Making a kernel faster never touches it.
+2. **Conversely, dispatch-removal is worth exactly 1.9 µs each and no more.**
+   Any claim that fusing two kernels saves more than 1.9 µs per removed
+   dispatch is claiming to remove *work* or *traffic*, and must be priced that
+   way.
+3. **The top four kernels are 4623.7 µs/step = 58 % of GPU busy over 138
+   dispatches**, i.e. 262 µs of floor against 4362 µs of work. They are
+   byte-bound projections. No dispatch-level trick reaches them; only fewer
+   bytes or better achieved bandwidth does.
+
+### 2.c Corrected census of the 10 HIGH-RISK rows
+
+Line numbers are `research/CURRENT_RESEARCH_STATE.md` via
+`research/maple-nezuko-pr143-expert-slab-dedup.md:502-529`.
+
+**Global correction first.** All ten were flagged HIGH RISK because isolated
+duration might be partly hidden behind a neighbour. **That objection is
+withdrawn for the decode axis** (§1.1.d). Items 2–9 do *not* inherit an overlap
+defect. They inherit a different one: they price a saving without separating
+the ~1.9 µs floor from the work term.
+
+| # | row | old verdict | new verdict |
+|---|---|---|---|
+| 1 | `:5789-5805` root generator | HIGH RISK | **CONFIRMED, constant corrected** |
+| 2 | `:6508`/`:6782` D-FUSE-GATESP | 213 µs ⇒ score +2.28 % | **claim struck; mechanism is net-negative; a *different*, larger prize exists** |
+| 3 | `:6648` router rpg | 106 µs/step | **struck; mechanism dead** |
+| 4 | `:6649` shared-expert K1 | 65 µs/step | **survives, ceiling ~44 µs without dispatch removal** |
+| 5 | `:6574` latency-only 76.6 µs | maximally shadowable | **objection struck; row survives** |
+| 6 | `:4994` 2.2 µs/layer × 30 | HIGH RISK | **objection struck; row survives** |
+| 7 | `:5056-5057` K3 843.6 / K1 −13.3 | HIGH RISK | **K3 confirmed to 4 %; K1 struck as sub-noise** |
+| 8 | `:3139`/`:3486`→`:6663` 40–80 µs | struck to residue | **residue survives; price at 1.9 µs/dispatch** |
+| 9 | `:537` SHARED-after-ROUTED +70 µs | no overlap explanation | **overlap excluded as the explanation; needs ABBA re-measure** |
+| 10 | `:6776` D-STRAND 0.59 ms pool | already VOID | **VOID confirmed by direct measurement** |
+
+Detail on the ones where the verdict changes the queue:
+
+**2. D-FUSE-GATESP — the largest queued exposure, and it does not hold.**
+Measured exposed serial time is `gate_sp_h64` 199.2 + `gate_sp_h48` 63.1 =
+**262.3 µs/step**, *higher* than the quoted 213. But the proposed mechanism
+recovers only the floor: fusing `gate_sp` into `oproj_act` removes 40
+dispatches = **76 µs**, not 150. The other 186 µs is work, and fusion does not
+delete it — the per-head gate weights still have to be read. §1.2.b then shows
+the fusion is actively negative: `oproj_act` launches 256 threadgroups
+(`LagunaRuntimeModel.swift:4448-4449`), each of which would need the gate
+column block, so a naive fusion issues ≈32 MB of redundant reads per layer to
+avoid a 131 KB kernel. **Strike "decode +2.95 % ⇒ score +2.28 %".**
+
+The prize that *is* there is a different one, and the lane audit found it.
+`gate_sp` is 100 % useful-lane with no divergence, but it launches 512 threads
+(h64) / 384 (h48) on a 20-core GPU and moves 131 KB in 6.64 µs ≈ 20 GB/s, a few
+percent of achievable bandwidth. It is **occupancy-bound, not work-bound**.
+Splitting `K = 2048` across more threadgroups with a two-stage reduce attacks
+the 186 µs work term rather than the 76 µs floor term. Unreachable ceiling if
+driven all the way to the floor: **186 µs/step = 2.3 % of GPU busy** — larger
+than the fusion prize ever was, and with a mechanism the audit supports.
+
+**3. Router rpg — dead, with a source-level reason.** Exposed 264.5 µs/step;
+floor 74.1, work 190.4. The rpg sweep already returned null and §1.2.c explains
+why it had to: `tiles × rows_per_group == 256` at every legal tiling
+(`:826-852`), so retiling cannot raise outstanding loads, and `**LOADS ONLY**`
+(`:844-852`) forbids splitting the accumulator. The remaining structural waste
+is the 32× redundant norm prologue (393,216 B read for 12,288 B unique, ~24 %
+of lane-instructions); removing it costs one added dispatch, so the ceiling is
+roughly 0.24 × 190.4 − 1.9 ≈ **44 µs/step**, not 106.
+
+**7. K1 = −0.34 µs/call is not a measurable quantity.** It is below the 1.9 µs
+floor, below the p10–p90 spread of its own kernel, and negative. Strike it as
+noise rather than treating it as a small real cost.
+
+**9. `:537` needs a new explanation, not a new measurement of the same thing.**
+±70 µs/step is 0.9 % of busy, comfortably above the 0.35 % replicate noise, so
+the magnitude is plausibly real. But both orderings issue the same dispatches
+with the same bytes, and overlap is now excluded, so the only mechanisms left
+are memory locality (L2 residency of the shared-expert weights across the
+routed gather) and drift. It should be re-measured ABBA before anyone banks it.
+
+**10. D-STRAND is void by direct measurement, not by inference.** The
+small-kernel pool in the table above (everything at ≤ 8 µs/call) is ~1013
+µs/step across 203 dispatches, so a 0.59 ms/step "hideable" pool is
+numerically in range. It is nonetheless unreachable: §1.1.d bounds *all*
+hidden concurrent work at ≤ 0.06 ms/step, and 386 µs of that pool is
+per-dispatch floor that hiding could not remove even if concurrency existed.
+
+**LOW-RISK byte-priced rows** (`:296`, `:483`, `:1865`, `:4903`, `:4957`,
+`:6557`, `:1710`, `:2075`) are unaffected by the overlap question and remain
+the trustworthy class. One adjustment in their favour: a byte-priced estimate
+*under*-counts by 1.9 µs for every dispatch the change also removes.
+
+### 2.d Follow-ups I did not implement
+
+1. **`gate_sp` occupancy** (§2.c item 2). Largest measured, mechanism-supported
+   decode opportunity in this report: ceiling ~186 µs/step. Two-stage reduce
+   over `K = 2048`; bit-exactness needs care because the reduction order
+   changes, so it must be validated by logit digest, not assumed.
+2. **`gate_sp` scalar loads.** 256 single-byte `uint8` loads per lane could
+   become 32 aligned `uint2` loads, bit-exact and independent of (1). Note the
+   kernel is latency-bound, so this may do nothing on its own; it is cheap to
+   test alongside (1).
+3. **Router norm prologue** (§2.c item 3). ~44 µs/step ceiling, costs a
+   dispatch.
+4. **ABBA re-measure of `:537`.**
+5. **A cleaner busy lever for §1.1.e.** The 3.1σ rejection of the absolute
+   model rests on a lever (fusion ablation) that moves `gpu_busy` and dispatch
+   count together. An unconfounded lever would hold the kernel graph fixed and
+   change only how long each kernel runs — for example an `MLX_METAL_*` clock
+   or a deliberately slowed variant of one large kernel. That would tighten the
+   slope, but the result would not change any decision: the whole question is
+   worth ≤3.0 % of wall, and both branches say the same thing about where to
+   spend effort.
+

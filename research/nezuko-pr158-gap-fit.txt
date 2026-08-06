@@ -1,0 +1,39 @@
+n=19  gap mean=264.9 us  busy range=7.917-8.645 ms (9.2%)  disp range=406-925  cbs range=45-204
+
+-- replicate noise (half-range of the two ABBA replicates) --
+  config a: +/- 19.5 us
+  config b: +/- 10.0 us
+  config c: +/- 17.0 us
+  config d: +/- 31.5 us
+  mean half-range: +/-19.5 us
+
+-- 2x2 contrasts (means of the two replicates) --
+  a: cbs= 45.0 disp= 406.0 busy=7.931 ms gap= 246.5 us
+  b: cbs= 45.0 disp= 496.0 busy=7.929 ms gap= 236.0 us
+  c: cbs= 51.0 disp= 835.0 busy=8.604 ms gap= 274.0 us
+  d: cbs= 51.0 disp= 925.0 busy=8.643 ms gap= 308.5 us
+  seed512->32 fused   (dispatch-only lever): d_busy=   -1.5 us  d_disp=   +90  d_cbs=  +0  d_gap= -10.5 us
+  seed512->32 unfused (dispatch-only lever): d_busy=  +38.5 us  d_disp=   +90  d_cbs=  +0  d_gap= +34.5 us
+  fused->unfused x4   (busy lever)         : d_busy= +673.5 us  d_disp=  +429  d_cbs=  +6  d_gap= +27.5 us
+
+-- OLS on all rows --
+1+cbs                  R2= 0.047 rmse= 27.9us  int=+0.255633+/-0.012019  cbs=+0.000159+/-0.000175
+1+disp                 R2= 0.269 rmse= 24.4us  int=+0.224284+/-0.017166  disp=+0.000075+/-0.000030
+1+busy                 R2= 0.362 rmse= 22.8us  int=-0.220727+/-0.156535  busy=+0.059379+/-0.019129
+1+cbs+disp             R2= 0.364 rmse= 23.5us  int=+0.206728+/-0.020040  cbs=+0.000230+/-0.000149  disp=+0.000083+/-0.000029
+1+cbs+busy             R2= 0.449 rmse= 21.9us  int=-0.264028+/-0.152437  cbs=+0.000219+/-0.000138  busy=+0.063114+/-0.018478
+1+cbs+disp+busy        R2= 0.452 rmse= 22.5us  int=-0.366757+/-0.370276  cbs=+0.000213+/-0.000143  disp=-0.000023+/-0.000074  busy=+0.077205+/-0.049781
+
+-- absolute vs proportional --
+  gap ~ 1 + busy             : d(gap)/d(busy) = +0.0594 +/- 0.0191
+    ABSOLUTE     predicts 0.0000 -> 3.10 sigma away
+    PROPORTIONAL predicts 0.0324 -> 1.41 sigma away
+    95% CI [+0.0219, +0.0969]  (absolute EXCLUDED, proportional inside)
+  gap ~ 1 + cbs + disp + busy: d(gap)/d(busy) = +0.0772 +/- 0.0498
+    ABSOLUTE     predicts 0.0000 -> 1.55 sigma away
+    PROPORTIONAL predicts 0.0324 -> 0.90 sigma away
+    95% CI [-0.0204, +0.1748]  (absolute inside, proportional inside)
+
+-- what the two models imply for a 10% cut in gpu_busy --
+  base wall 8176 us -> absolute 7384 us (10.74% speedup), proportional 7359 us (11.11% speedup)
+  the two models differ by 0.33% of wall; the entire question is bounded by gap/wall = 3.01%

@@ -1,0 +1,152 @@
+=== arm=a1 seed=0 unfuse=0 tag=a1-205948 t=20:59:48 thermal={"cpu_temp":39.69118881225586,"gpu_pw":0.0058150566183030605,"ram_pw":0.2398388832807541}
+[a1-205948] worker up in 38.5s
+[a1-205948] ipc_floor before_decode: n=5 mean=80.4 us median=76.0 us p10=66.8 us p90=108.9 us min=66.8 us max=108.9 us
+[a1-205948] decode_begin seed forward: 547.97 ms
+[a1-205948] teacher-forced: 0 divergences (all match)
+[a1-205948] decode_step wall: n=199 mean=8211.6 us median=8154.0 us p10=8113.5 us p90=8259.0 us min=8073.2 us max=16050.5 us
+[a1-205948] ipc_floor after_decode: n=5 mean=18.0 us median=17.0 us p10=16.7 us p90=20.4 us min=16.7 us max=20.4 us
+[a1-205948] SUMMARY wall_median=8.154 ms ipc_floor_median=17.0 us ipc_share_of_wall=0.21%
+
+profile: 9666 command buffers total, 8955 inside 199 steady steps
+per steady step: wall=8.212 ms gpu_busy_sum=7.945 ms gpu_busy_union=7.945 ms gap=0.266 ms (3.2% of wall) cbs=45.0 dispatches=406.0
+
+  us/step   share  n/step  us/call  kernel
+   1786.8  22.49%   10.00   178.68  [10] sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1437.3  18.09%    8.00   179.66  [10] residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1
+   1087.8  13.69%    5.00   217.57  [12] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+    867.3  10.92%    4.00   216.82  [12] gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1
+   2766.2  34.81%                   ... 10 more
+=== arm=a1 done t=21:00:31 thermal={"cpu_temp":40.61894607543945,"gpu_pw":0.006728967186063528,"ram_pw":0.20921410620212555}
+=== arm=b1 seed=32 unfuse=0 tag=b1-210034 t=21:00:34 thermal={"cpu_temp":40.41827392578125,"gpu_pw":0.007831390015780926,"ram_pw":0.0546334832906723}
+[b1-210034] worker up in 38.8s
+[b1-210034] ipc_floor before_decode: n=5 mean=98.6 us median=94.1 us p10=83.1 us p90=121.6 us min=83.1 us max=121.6 us
+[b1-210034] decode_begin seed forward: 318.67 ms
+[b1-210034] free-run seed=32: timing-only arm, no divergence check
+[b1-210034] decode_step wall: n=199 mean=8166.3 us median=8182.0 us p10=8047.9 us p90=8248.5 us min=7919.3 us max=8317.5 us
+[b1-210034] ipc_floor after_decode: n=5 mean=18.4 us median=17.4 us p10=16.8 us p90=22.3 us min=16.8 us max=22.3 us
+[b1-210034] SUMMARY wall_median=8.182 ms ipc_floor_median=17.4 us ipc_share_of_wall=0.21%
+
+profile: 9666 command buffers total, 8955 inside 199 steady steps
+per steady step: wall=8.166 ms gpu_busy_sum=7.920 ms gpu_busy_union=7.920 ms gap=0.246 ms (3.0% of wall) cbs=45.0 dispatches=496.0
+
+  us/step   share  n/step  us/call  kernel
+   2193.3  27.69%   12.00   182.78  [13] residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_qk_norm_rope_bf16_128_v1|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1
+   1823.8  23.03%   10.00   182.38  [13] sliding_qk_norm_rope_bf16_128_v1|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1041.4  13.15%    5.00   208.28  [12] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+    892.7  11.27%    4.00   223.18  [16] sliding_qk_norm_rope_bf16_128_v1|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1
+   1969.1  24.86%                   ... 9 more
+=== arm=b1 done t=21:01:18 thermal={"cpu_temp":40.646888732910156,"gpu_pw":0.00669394014403224,"ram_pw":0.08512984961271286}
+=== arm=c1 seed=0 unfuse=1 tag=c1-210120 t=21:01:20 thermal={"cpu_temp":40.633697509765625,"gpu_pw":0.006932247430086136,"ram_pw":0.2809768319129944}
+[c1-210120] worker up in 38.8s
+[c1-210120] ipc_floor before_decode: n=5 mean=70.9 us median=73.4 us p10=49.2 us p90=86.9 us min=49.2 us max=86.9 us
+[c1-210120] decode_begin seed forward: 547.81 ms
+[c1-210120] teacher-forced: 0 divergences (all match)
+[c1-210120] decode_step wall: n=199 mean=8860.1 us median=8835.0 us p10=8736.8 us p90=8989.0 us min=8713.6 us max=10827.6 us
+[c1-210120] ipc_floor after_decode: n=5 mean=18.2 us median=17.6 us p10=17.0 us p90=20.1 us min=17.0 us max=20.1 us
+[c1-210120] SUMMARY wall_median=8.835 ms ipc_floor_median=17.6 us ipc_share_of_wall=0.20%
+
+profile: 10874 command buffers total, 10149 inside 199 steady steps
+per steady step: wall=8.860 ms gpu_busy_sum=8.603 ms gpu_busy_union=8.603 ms gap=0.257 ms (2.9% of wall) cbs=51.0 dispatches=835.0
+
+  us/step   share  n/step  us/call  kernel
+   5513.0  64.08%   28.00   196.89  [21] vv_Addbfloat16|vv_Addbfloat16|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    928.7  10.80%    5.00   185.74  [21] vv_Addbfloat16|vv_Addbfloat16|rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    729.2   8.48%    4.00   182.31  [19] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    460.5   5.35%    1.00   460.52  [5] full_fused_attn_grow_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|dense_gate_up_swiglu_bf16_v1|dense_down_residual_bf16_v1
+    971.6  11.29%                   ... 7 more
+=== arm=c1 done t=21:02:05 thermal={"cpu_temp":40.866416931152344,"gpu_pw":0.006647143512964249,"ram_pw":0.2631322145462036}
+=== arm=d1 seed=32 unfuse=1 tag=d1-210207 t=21:02:07 thermal={"cpu_temp":35.26070022583008,"gpu_pw":0.007807724177837372,"ram_pw":0.04897499084472656}
+[d1-210207] worker up in 39.2s
+[d1-210207] ipc_floor before_decode: n=5 mean=69.3 us median=62.0 us p10=52.4 us p90=86.3 us min=52.4 us max=86.3 us
+[d1-210207] decode_begin seed forward: 85.68 ms
+[d1-210207] free-run seed=32: timing-only arm, no divergence check
+[d1-210207] decode_step wall: n=199 mean=8918.3 us median=8906.6 us p10=8817.2 us p90=8995.0 us min=8642.0 us max=10655.4 us
+[d1-210207] ipc_floor after_decode: n=5 mean=20.7 us median=18.7 us p10=17.1 us p90=31.0 us min=17.1 us max=31.0 us
+[d1-210207] SUMMARY wall_median=8.907 ms ipc_floor_median=18.7 us ipc_share_of_wall=0.21%
+
+profile: 10874 command buffers total, 10149 inside 199 steady steps
+per steady step: wall=8.918 ms gpu_busy_sum=8.641 ms gpu_busy_union=8.641 ms gap=0.277 ms (3.1% of wall) cbs=51.0 dispatches=925.0
+
+  us/step   share  n/step  us/call  kernel
+   5663.6  65.54%   28.00   202.27  [24] vv_Addbfloat16|vv_Addbfloat16|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_qk_norm_rope_bf16_128_v1|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    879.8  10.18%    5.00   175.95  [21] vv_Addbfloat16|vv_Addbfloat16|rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    677.8   7.84%    4.00   169.46  [19] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    441.9   5.11%    1.00   441.94  [5] full_fused_attn_grow_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|dense_gate_up_swiglu_bf16_v1|dense_down_residual_bf16_v1
+    978.2  11.32%                   ... 7 more
+=== arm=d1 done t=21:02:51 thermal={"cpu_temp":40.62215042114258,"gpu_pw":0.006410743109881878,"ram_pw":0.04850725829601288}
+=== arm=d2 seed=32 unfuse=1 tag=d2-210254 t=21:02:54 thermal={"cpu_temp":40.629493713378906,"gpu_pw":0.007139389868825674,"ram_pw":0.25727206468582153}
+[d2-210254] worker up in 38.7s
+[d2-210254] ipc_floor before_decode: n=5 mean=82.5 us median=79.3 us p10=66.2 us p90=103.3 us min=66.2 us max=103.3 us
+[d2-210254] decode_begin seed forward: 86.18 ms
+[d2-210254] free-run seed=32: timing-only arm, no divergence check
+[d2-210254] decode_step wall: n=199 mean=8985.4 us median=8911.8 us p10=8815.1 us p90=8991.0 us min=8751.5 us max=20356.9 us
+[d2-210254] ipc_floor after_decode: n=5 mean=18.2 us median=17.5 us p10=16.7 us p90=20.1 us min=16.7 us max=20.1 us
+[d2-210254] SUMMARY wall_median=8.912 ms ipc_floor_median=17.5 us ipc_share_of_wall=0.20%
+
+profile: 10874 command buffers total, 10149 inside 199 steady steps
+per steady step: wall=8.985 ms gpu_busy_sum=8.645 ms gpu_busy_union=8.645 ms gap=0.340 ms (3.8% of wall) cbs=51.0 dispatches=925.0
+
+  us/step   share  n/step  us/call  kernel
+   5668.9  65.57%   28.00   202.46  [24] vv_Addbfloat16|vv_Addbfloat16|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_qk_norm_rope_bf16_128_v1|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    877.2  10.15%    5.00   175.44  [21] vv_Addbfloat16|vv_Addbfloat16|rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    677.6   7.84%    4.00   169.39  [19] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    442.2   5.12%    1.00   442.25  [5] full_fused_attn_grow_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|dense_gate_up_swiglu_bf16_v1|dense_down_residual_bf16_v1
+    979.3  11.33%                   ... 7 more
+=== arm=d2 done t=21:03:38 thermal={"cpu_temp":40.85508728027344,"gpu_pw":0.006050152704119682,"ram_pw":0.27943873405456543}
+=== arm=c2 seed=0 unfuse=1 tag=c2-210340 t=21:03:40 thermal={"cpu_temp":40.570003509521484,"gpu_pw":0.0070911552757024765,"ram_pw":0.19525259733200073}
+[c2-210340] worker up in 38.7s
+[c2-210340] ipc_floor before_decode: n=5 mean=71.9 us median=71.0 us p10=55.4 us p90=90.5 us min=55.4 us max=90.5 us
+[c2-210340] decode_begin seed forward: 547.80 ms
+[c2-210340] teacher-forced: 0 divergences (all match)
+[c2-210340] decode_step wall: n=199 mean=8897.3 us median=8853.9 us p10=8814.2 us p90=8906.9 us min=8781.0 us max=14622.4 us
+[c2-210340] ipc_floor after_decode: n=5 mean=18.0 us median=16.9 us p10=16.0 us p90=20.3 us min=16.0 us max=20.3 us
+[c2-210340] SUMMARY wall_median=8.854 ms ipc_floor_median=16.9 us ipc_share_of_wall=0.19%
+
+profile: 10874 command buffers total, 10149 inside 199 steady steps
+per steady step: wall=8.897 ms gpu_busy_sum=8.606 ms gpu_busy_union=8.606 ms gap=0.291 ms (3.3% of wall) cbs=51.0 dispatches=835.0
+
+  us/step   share  n/step  us/call  kernel
+   5522.5  64.17%   28.00   197.23  [21] vv_Addbfloat16|vv_Addbfloat16|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    928.5  10.79%    5.00   185.69  [21] vv_Addbfloat16|vv_Addbfloat16|rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    728.8   8.47%    4.00   182.19  [19] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0|arangeuint32|decode_router_top8_ordinal_table_norm_v1|g1_copybfloat16bfloat16|nvfp4_gather_qmv_fast|nvfp4_qmv_fast|g2_copybfloat16bfloat16|g2_copybfloat16bfloat16|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IBroadcastBFIV2OMultiplyGH_VV_V2V2_11160318154034397263_contiguous|g1_copybfloat16bfloat16|nvfp4_qmv_fast|routed_nvfp4_down_reduce_bf16_v2
+    456.7   5.31%    1.00   456.71  [5] full_fused_attn_grow_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|dense_gate_up_swiglu_bf16_v1|dense_down_residual_bf16_v1
+    970.0  11.27%                   ... 7 more
+=== arm=c2 done t=21:04:24 thermal={"cpu_temp":40.76780319213867,"gpu_pw":0.00794060155749321,"ram_pw":0.06050221249461174}
+=== arm=b2 seed=32 unfuse=0 tag=b2-210427 t=21:04:27 thermal={"cpu_temp":40.640953063964844,"gpu_pw":0.00815214030444622,"ram_pw":0.05035049468278885}
+[b2-210427] worker up in 38.8s
+[b2-210427] ipc_floor before_decode: n=5 mean=83.8 us median=80.7 us p10=59.5 us p90=102.7 us min=59.5 us max=102.7 us
+[b2-210427] decode_begin seed forward: 83.63 ms
+[b2-210427] free-run seed=32: timing-only arm, no divergence check
+[b2-210427] decode_step wall: n=199 mean=8165.8 us median=8165.0 us p10=8086.1 us p90=8253.6 us min=7959.0 us max=8334.1 us
+[b2-210427] ipc_floor after_decode: n=5 mean=17.6 us median=17.0 us p10=16.4 us p90=20.1 us min=16.4 us max=20.1 us
+[b2-210427] SUMMARY wall_median=8.165 ms ipc_floor_median=17.0 us ipc_share_of_wall=0.21%
+
+profile: 9666 command buffers total, 8955 inside 199 steady steps
+per steady step: wall=8.166 ms gpu_busy_sum=7.939 ms gpu_busy_union=7.939 ms gap=0.226 ms (2.8% of wall) cbs=45.0 dispatches=496.0
+
+  us/step   share  n/step  us/call  kernel
+   2196.5  27.67%   12.00   183.04  [13] residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_qk_norm_rope_bf16_128_v1|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1
+   1833.5  23.09%   10.00   183.35  [13] sliding_qk_norm_rope_bf16_128_v1|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1042.2  13.13%    5.00   208.43  [12] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+    896.4  11.29%    4.00   224.10  [16] sliding_qk_norm_rope_bf16_128_v1|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1
+   1970.9  24.82%                   ... 9 more
+=== arm=b2 done t=21:05:11 thermal={"cpu_temp":24.594823837280273,"gpu_pw":0.007942362688481808,"ram_pw":0.17599011957645416}
+=== arm=a2 seed=0 unfuse=0 tag=a2-210513 t=21:05:13 thermal={"cpu_temp":40.68215560913086,"gpu_pw":0.006748491898179054,"ram_pw":0.28753870725631714}
+[a2-210513] worker up in 39.1s
+[a2-210513] ipc_floor before_decode: n=5 mean=79.5 us median=76.4 us p10=68.7 us p90=94.2 us min=68.7 us max=94.2 us
+[a2-210513] decode_begin seed forward: 547.73 ms
+[a2-210513] teacher-forced: 0 divergences (all match)
+[a2-210513] decode_step wall: n=199 mean=8143.9 us median=8154.0 us p10=8040.7 us p90=8206.3 us min=7994.9 us max=8290.9 us
+[a2-210513] ipc_floor after_decode: n=5 mean=17.8 us median=17.7 us p10=16.5 us p90=19.9 us min=16.5 us max=19.9 us
+[a2-210513] SUMMARY wall_median=8.154 ms ipc_floor_median=17.7 us ipc_share_of_wall=0.22%
+
+profile: 9666 command buffers total, 8955 inside 199 steady steps
+per steady step: wall=8.144 ms gpu_busy_sum=7.917 ms gpu_busy_union=7.917 ms gap=0.227 ms (2.8% of wall) cbs=45.0 dispatches=406.0
+
+  us/step   share  n/step  us/call  kernel
+   1781.3  22.50%   10.00   178.13  [10] sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1429.2  18.05%    8.00   178.65  [10] residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1
+   1082.2  13.67%    5.00   216.45  [12] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+    864.0  10.91%    4.00   216.00  [12] gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1
+   2759.9  34.86%                   ... 10 more
+=== arm=a2 done t=21:05:57 thermal={"cpu_temp":35.7105598449707,"gpu_pw":0.018717076629400253,"ram_pw":0.239048570394516}
