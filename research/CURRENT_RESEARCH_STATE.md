@@ -1,17 +1,16 @@
 # SENPAI Research State
-- 2026-08-06T22:10Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 6aa68e6 (origin/mlxfast-birch-20260805-advisor).
-  Scored code frontier: 5c28822 (639646a + 15 merged optimization PRs #107→#156).
-  No scored code changes between 5c28822 and 6aa68e6 (research notes only).
-  M5 submission 4b06e931 (composed 15 decode PRs + QHOIST prefill) VALIDATING since 8/6 ~21:30 UTC (~21h, M5 queue backed up — 3 other competitor submissions also validating).
+- 2026-08-06T22:01Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at f0bc44a (origin/mlxfast-birch-20260805-advisor).
+  Scored code frontier: f0bc44a (5c28822 + PR #160 register float4, 16th merged optimization PR).
+  PR #160 merged: thread float[N]→thread float4[N/4] in 6 remaining MoE qdot kernels. Bit-exact, -1160 bytes.
+  M5 submission 4b06e931 (composed 15 decode PRs + QHOIST prefill) VALIDATING since 8/6 ~21:30 UTC (~22h, M5 queue backed up).
   Previous 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED. 27b9c7c: rejected 2.4972.
   QHOIST prefill lever: SUBMITTED in composed branch birch-kepler/qhoist-prefill-v1 (commit a54d69b).
     Bit-exact, M5-only (M4 gen 16 < 17 NAX threshold). Now in M5 queue as part of 4b06e931.
-  Wave 10 in progress: PRs #160 (Alphonse, register float4 — implementation DONE, testing pending),
-    #161 (Thorfinn, tg input sharing — not started), #165 (Edward, ops-per-buffer — not started),
+  Wave 10 in progress: PR #165 (Edward, ops-per-buffer — not started), #161 (Thorfinn, tg input sharing — not started, needs rebase to float4 form),
     #166 (Askeladd, dense MoE simd_sum — not started).
-  Wave 11 assignment briefs prepared: tail_nvfp4_qdot dot4, scale plane halving, attention pair_planes 2→4.
-    Ready to assign when first student completes Wave 10.
+  Wave 11 assigned: PR #167 (Alphonse, tail_nvfp4_qdot dot4 — LAST remaining scalar NVFP4 qdot, 40× per decode step).
+  Wave 11 briefs ready: scale plane halving, attention pair_planes 2→4 (assign when next student completes).
 
 ## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
   The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.
