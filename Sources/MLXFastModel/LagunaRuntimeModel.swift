@@ -6989,12 +6989,27 @@ private let lagunaRoutedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         thread float up_result = 0.0f;
         thread float4 input_values[values_per_lane / 4];
 
+        // Threadgroup input sharing: both simdgroups load the same input
+        // vector (address depends only on lane, not simd_group). Only
+        // simd_group 0 loads from device memory and converts bfloat→float4;
+        // both simdgroups then read from threadgroup memory. Eliminates
+        // redundant device loads and bfloat→float conversions for sg 1.
+        threadgroup float4 shared_input[32 * (values_per_lane / 4)];
+
         for (uint block = 0; block < input_width; block += block_width) {
-            const device vec<bfloat, 4>* input_vectors =
-                (const device vec<bfloat, 4>*) (
-                    input + block + lane * values_per_lane);
+            if (simd_group == 0) {
+                const device vec<bfloat, 4>* input_vectors =
+                    (const device vec<bfloat, 4>*) (
+                        input + block + lane * values_per_lane);
+                for (uint i = 0; i < values_per_lane / 4; ++i) {
+                    shared_input[lane * (values_per_lane / 4) + i] =
+                        float4(input_vectors[i]);
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                input_values[i] = float4(input_vectors[i]);
+                input_values[i] = shared_input[lane * (values_per_lane / 4) + i];
             }
 
             const device uint8_t* gate_weight =
@@ -7358,6 +7373,13 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
         thread float up_result = 0.0f;
         thread float4 input_values[values_per_lane / 4];
 
+        // Threadgroup input sharing: both simdgroups load the same input
+        // vector (address depends only on lane, not simd_group). Only
+        // simd_group 0 loads from device memory and converts bfloat→float4;
+        // both simdgroups then read from threadgroup memory. Eliminates
+        // redundant device loads and bfloat→float conversions for sg 1.
+        threadgroup float4 shared_input[32 * (values_per_lane / 4)];
+
         // Depth-1 weight staging: block b+1's gate/up code words (the same
         // uint2 laguna_nvfp4_qdot_16 loads internally) and scale bytes are
         // issued before block b's qdots consume b's registers, so the
@@ -7380,11 +7402,19 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
         }
 
         for (uint block = 0; block < input_width; block += block_width) {
-            const device vec<bfloat, 4>* input_vectors =
-                (const device vec<bfloat, 4>*) (
-                    input + block + lane * values_per_lane);
+            if (simd_group == 0) {
+                const device vec<bfloat, 4>* input_vectors =
+                    (const device vec<bfloat, 4>*) (
+                        input + block + lane * values_per_lane);
+                for (uint i = 0; i < values_per_lane / 4; ++i) {
+                    shared_input[lane * (values_per_lane / 4) + i] =
+                        float4(input_vectors[i]);
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                input_values[i] = float4(input_vectors[i]);
+                input_values[i] = shared_input[lane * (values_per_lane / 4) + i];
             }
 
             const uint2 cur_gate_codes = gate_codes;
