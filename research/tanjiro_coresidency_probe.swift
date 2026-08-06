@@ -115,7 +115,8 @@ let rounds = args.count > 1 ? Int(args[1])! : 7
 let targetMs = args.count > 2 ? Double(args[2])! : 20.0
 
 guard let device = MTLCreateSystemDefaultDevice(),
-      let queue = device.makeCommandQueue() else {
+      let queue = device.makeCommandQueue(),
+      let queue2 = device.makeCommandQueue() else {
   fatalError("no Metal device")
 }
 let library = try device.makeLibrary(source: shaderSource, options: nil)
@@ -178,6 +179,8 @@ enum Arm: String, CaseIterable {
   case raw = "raw_1cb"
   case serialenc = "serialenc_1cb"
   case twoCB = "two_cb"
+  case twoQueue = "two_queue"
+  case twoCBSerial = "two_cb_serial"
 }
 
 struct Sample {
@@ -185,6 +188,9 @@ struct Sample {
   var busySumMs: Double
   var busyUnionMs: Double
   var cbs: Int
+  /// Per-command-buffer [start,end] in ms relative to the earliest start, so
+  /// the actual interval layout is evidence rather than inference.
+  var layout: [(Double, Double)]
 }
 
 /// Sweep-merge of [start,end] intervals, byte-for-byte the algorithm in
@@ -234,9 +240,17 @@ func runArm(_ arm: Arm, a: Job, b: Job, rawDep: MTLBuffer) -> Sample {
     encode(enc, a); encode(enc, b)
     enc.endEncoding()
     cbs = [cb]
-  case .twoCB:
+  case .twoCB, .twoCBSerial:
     for j in [a, b] {
       let cb = queue.makeCommandBuffer()!
+      let enc = cb.makeComputeCommandEncoder(dispatchType: .concurrent)!
+      encode(enc, j)
+      enc.endEncoding()
+      cbs.append(cb)
+    }
+  case .twoQueue:
+    for (j, q) in zip([a, b], [queue, queue2]) {
+      let cb = q.makeCommandBuffer()!
       let enc = cb.makeComputeCommandEncoder(dispatchType: .concurrent)!
       encode(enc, j)
       enc.endEncoding()
@@ -245,16 +259,25 @@ func runArm(_ arm: Arm, a: Job, b: Job, rawDep: MTLBuffer) -> Sample {
   }
 
   let t0 = DispatchTime.now().uptimeNanoseconds
-  for cb in cbs { cb.commit() }
-  cbs.last!.waitUntilCompleted()
+  if arm == .twoCBSerial {
+    // Proper two-command-buffer NEGATIVE control: the second buffer is not
+    // even enqueued until the first has fully retired, so no honest
+    // instrument may report union < sum here.
+    for cb in cbs { cb.commit(); cb.waitUntilCompleted() }
+  } else {
+    for cb in cbs { cb.commit() }
+    for cb in cbs { cb.waitUntilCompleted() }
+  }
   let t1 = DispatchTime.now().uptimeNanoseconds
 
   let iv = cbs.map { ($0.gpuStartTime, $0.gpuEndTime) }
   let sum = iv.reduce(0.0) { $0 + ($1.1 - $1.0) }
+  let origin = iv.map { $0.0 }.min() ?? 0
   return Sample(wallMs: Double(t1 - t0) / 1e6,
                 busySumMs: sum * 1e3,
                 busyUnionMs: mergedSpan(iv) * 1e3,
-                cbs: cbs.count)
+                cbs: cbs.count,
+                layout: iv.map { (($0.0 - origin) * 1e3, ($0.1 - origin) * 1e3) })
 }
 
 // MARK: - clock pinning
@@ -394,33 +417,45 @@ for tgs in mixSizes {
 
 // bf16 GEMMs. TS=16 tiles, so threadgroups = (N/16) * (M/16).
 // small / half / fill relative to the 20-core device.
+// K is calibrated per shape so every GEMM cell lands near targetMs; otherwise
+// the occupancy sweep would confound threadgroup count with kernel duration.
 let gemmShapes: [(String, Int, Int, Int)] = [
-  ("small", 64, 64, 262144),    //   16 TGs
-  ("half",  128, 160, 131072),  //  80 TGs
-  ("fill",  512, 1024, 8192),   // 2048 TGs
+  ("small", 64, 64, 65536),    //   16 TGs
+  ("half",  128, 160, 65536),  //   80 TGs
+  ("fill",  512, 1024, 8192),  // 2048 TGs
 ]
-for (label, m, n, k) in gemmShapes {
+for (label, m, n, probeK) in gemmShapes {
   let tgs = (m / 16) * (n / 16)
-  let aBuf = device.makeBuffer(length: m * k * 2, options: .storageModePrivate)!
-  let bBuf = device.makeBuffer(length: k * n * 2, options: .storageModePrivate)!
-  let cA = newOut(m * n), cB = newOut(m * n)
-  func gemm(_ out: MTLBuffer) -> Job {
+  func makeGemm(_ k: Int, _ aBuf: MTLBuffer, _ bBuf: MTLBuffer, _ out: MTLBuffer) -> Job {
     Job(pso: psoGemm, out: out, depIn: scratchDep,
         buffers: [(3, aBuf), (4, bBuf)],
         vec3: [(2, SIMD3<UInt32>(UInt32(m), UInt32(n), UInt32(k)))],
         grid: MTLSize(width: n / 16, height: m / 16, depth: 1),
         tg: MTLSize(width: 16, height: 16, depth: 1))
   }
+  let pA = device.makeBuffer(length: m * probeK * 2, options: .storageModePrivate)!
+  let pB = device.makeBuffer(length: probeK * n * 2, options: .storageModePrivate)!
+  let pC = newOut(m * n)
+  pinClocks(ms: 15)
+  var probeMs = Double.infinity
+  for _ in 0..<3 {
+    let j = makeGemm(probeK, pA, pB, pC)
+    probeMs = min(probeMs, runArm(.aOnly, a: j, b: j, rawDep: scratchDep).wallMs)
+  }
+  let k = max(1024, Int((Double(probeK) * targetMs / max(probeMs, 0.05)) / 16.0) * 16)
+  let aBuf = device.makeBuffer(length: m * k * 2, options: .storageModePrivate)!
+  let bBuf = device.makeBuffer(length: k * n * 2, options: .storageModePrivate)!
+  let cA = newOut(m * n), cB = newOut(m * n)
   pairs.append(Pair(name: "gemm/gemm",
                     sizeLabel: "\(label) M=\(m) N=\(n) K=\(k) tg=\(tgs)",
-                    a: gemm(cA), b: gemm(cB), rawDep: cA,
-                    tgCount: tgs, threadsPerTG: 256))
+                    a: makeGemm(k, aBuf, bBuf, cA), b: makeGemm(k, aBuf, bBuf, cB),
+                    rawDep: cA, tgCount: tgs, threadsPerTG: 256))
 }
 
 // MARK: - measure
 
 print("# arms")
-print("pair,size,arm,wall_ms,busy_sum_ms,busy_union_ms,cbs,cbunion_overlap")
+print("pair,size,arm,wall_ms,busy_sum_ms,busy_union_ms,cbs,cbunion_overlap,cb_layout_ms")
 var samples: [String: [Arm: [Sample]]] = [:]
 
 for round in 0..<rounds {
@@ -435,16 +470,23 @@ for round in 0..<rounds {
     samples[key, default: [:]][arm, default: []].append(s)
     if round == 0 {
       let ov = s.busySumMs > 0 ? 1 - s.busyUnionMs / s.busySumMs : 0
+      let lay = s.layout.map { "[\(fmt($0.0, 3))-\(fmt($0.1, 3))]" }.joined(separator: " ")
       print("\(p.name),\(p.sizeLabel),\(arm.rawValue),\(fmt(s.wallMs)),\(fmt(s.busySumMs))," +
-            "\(fmt(s.busyUnionMs)),\(s.cbs),\(fmt(ov, 6))")
+            "\(fmt(s.busyUnionMs)),\(s.cbs),\(fmt(ov, 6)),\(lay)")
     }
   }
 }
 
 print("")
-print("# summary: overlap = 1 - wall(arm) / (wall(a_only) + wall(b_only)), within-round ratios")
-print("pair,size,arm,wall_ms_med,iso_sum_ms_med,overlap_med,overlap_lo,overlap_hi," +
-      "cb_busy_sum_med,cb_busy_union_med,cb_overlap_med")
+// overlap     = 1 - wall(arm) / (wall_a + wall_b). Headline figure named by the
+//               assignment. Its ceiling is 0.5 only when A and B cost the same.
+// overlap_eff = (sum - wall) / (sum - max(a,b)). Fraction of the *achievable*
+//               saving that was realised, so unequal pairs stay interpretable.
+//               1.0 = the shorter kernel was fully hidden, 0.0 = pure serial.
+print("# summary: within-round ratios; overlap = 1 - wall(arm)/(wall_a+wall_b);")
+print("# overlap_eff = (iso_sum - wall)/(iso_sum - max(wall_a,wall_b))")
+print("pair,size,arm,wall_ms_med,iso_sum_ms_med,iso_max_ms_med,overlap_med,overlap_lo," +
+      "overlap_hi,overlap_eff_med,cb_busy_sum_med,cb_busy_union_med,cb_overlap_med")
 
 for p in pairs {
   let key = "\(p.name)|\(p.sizeLabel)"
@@ -454,13 +496,18 @@ for p in pairs {
   for arm in Arm.allCases {
     let ss = byArm[arm]!
     let ratios = (0..<ss.count).map { 1 - ss[$0].wallMs / (aW[$0] + bW[$0]) }
+    let effs = (0..<ss.count).map { i -> Double in
+      let sum = aW[i] + bW[i], mx = max(aW[i], bW[i])
+      return sum - mx > 1e-9 ? (sum - ss[i].wallMs) / (sum - mx) : Double.nan
+    }
     let (lo, hi) = bootstrapCI(ratios)
     let cbSum = median(ss.map { $0.busySumMs })
     let cbUni = median(ss.map { $0.busyUnionMs })
     let cbOv = cbSum > 0 ? 1 - cbUni / cbSum : 0
     print("\(p.name),\(p.sizeLabel),\(arm.rawValue),\(fmt(median(ss.map { $0.wallMs })))," +
           "\(fmt(median((0..<ss.count).map { aW[$0] + bW[$0] })))," +
-          "\(fmt(median(ratios), 4)),\(fmt(lo, 4)),\(fmt(hi, 4))," +
+          "\(fmt(median((0..<ss.count).map { max(aW[$0], bW[$0]) })))," +
+          "\(fmt(median(ratios), 4)),\(fmt(lo, 4)),\(fmt(hi, 4)),\(fmt(median(effs), 4))," +
           "\(fmt(cbSum)),\(fmt(cbUni)),\(fmt(cbOv, 6))")
   }
 }
