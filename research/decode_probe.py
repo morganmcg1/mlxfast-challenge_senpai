@@ -157,7 +157,13 @@ def analyze_profile(err_path: str, step_spans, top: int) -> None:
         for line in fh:
             if not line.startswith("GPUPROF "):
                 continue
-            _, start, end, nops, names = line.rstrip("\n").split(" ", 4)
+            # The hook has shipped in a 4-field and a 5-field form (the latter
+            # adds bound-input bytes before the name list); accept both.
+            fields = line.rstrip("\n").split(" ", 5)
+            if len(fields) == 6:
+                _, start, end, nops, _bytes, names = fields
+            else:
+                _, start, end, nops, names = line.rstrip("\n").split(" ", 4)
             records.append((float(start), float(end), int(nops), names))
     if not records:
         print("profile: no GPUPROF records (was DARKBLOOM_GPU_PROFILE=1 set?)")
