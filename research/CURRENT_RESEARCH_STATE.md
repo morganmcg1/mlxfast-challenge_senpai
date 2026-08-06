@@ -1,37 +1,48 @@
 # SENPAI Research State
-- 2026-08-06T22:15Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at c7f0bdf (origin/mlxfast-birch-20260805-advisor).
-  Scored code frontier: c7f0bdf (includes #166 dense MoE simd_sum, #160 register float4, #159 max_threads).
+- 2026-08-06T22:32Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 13fdaf6 (origin/mlxfast-birch-20260805-advisor).
+  Scored code frontier: 13fdaf6 (includes #165 ops-per-buffer 800, #166 dense MoE simd_sum,
+  #160 register float4, #159 max_threads, #156 fused down float4, #152 top-8 elimination, etc.)
 
 ## CRITICAL: Submission History Analysis
   Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
+  Promoted code surface at commit 12a712d: PR #84 (top-8 elimination), FMA-optimized dequant,
+  STAGE2_GATHER, LM_HEAD_PRUNE, MoE down ops2 disabled. NO dot4/simd_sum/float4/max_threads.
+
   ALL post-promotion submissions REJECTED or FAILED:
-    00de2d3 (11:23): FAILED (15-PR composed)
+    00de2d3 (11:23): FAILED (15-PR composed, no ops-per-buffer)
     26dc269 (12:11): rejected -7.21%
     c95b4e4 (14:35): rejected -9.16%
     57d8f08 (18:26): FAILED (3-PR composed)
     4b06e93 (21:30): rejected -14% (15-PR + QHOIST)
-    0e43085 (22:09): VALIDATING (unknown contents)
+    0e43085 (22:09): VALIDATING (unknown contents, ~80+ min in queue)
 
-  KEY FINDING: The promoted submission (05:04 UTC) was submitted BEFORE PR #107 (dot4, 09:44 UTC).
-  The promoted code surface contained: PR #84 (top-8 elimination), FMA-optimized dequant, STAGE2_GATHER,
-  LM_HEAD_PRUNE, MoE down ops2 disabled. It did NOT contain dot4, simd_sum, float4, or max_total_threads.
+  KEY FINDING: The promoted submission was submitted BEFORE ALL dot4/simd_sum/float4/max_threads changes.
+  These instruction-count reductions are COUNTERPRODUCTIVE on M5. M5 is bandwidth-bound for these kernel sizes.
 
-  CONCLUSION: Our entire instruction-count reduction strategy (dot4, packed simd_sum, float4 input_values,
-  register float4, max_total_threads) may be COUNTERPRODUCTIVE on M5. The M5 may be bandwidth-bound, not
-  instruction-bound. The "89% ALU utilization" figure may not apply to these kernel sizes or may be misleading.
+  STRATEGY: Isolate ops-per-buffer 800 on CLEAN promoted code (12a712d) for M5 submission.
+  This is the HIGHEST PRIORITY experiment (PR #172, Edward).
+  Metaspartan proved 200→400 alone promoted at 2.5282. 200→800 should be even better.
 
-  STRATEGY SHIFT: Prioritize BANDWIDTH reduction (scale plane halving) over instruction-count reduction.
-  Consider reverting max_total_threads_per_threadgroup (#159) — it changes GPU occupancy on M5.
-  Do NOT compose multiple unmeasured instruction-count changes. Test individually on M5 where possible.
+  PR #165 merged: MLX_MAX_OPS_PER_BUFFER 200→800. Bit-exact, 0 bytes growth.
+  PR #166 merged: dense MoE simd_shuffle_down→simd_sum. Bit-exact, -6 bytes.
+  PR #160 merged: thread float[N]→thread float4[N/4]. Bit-exact, -1160 bytes.
 
-  PR #160 merged: thread float[N]→thread float4[N/4] in 6 remaining MoE qdot kernels. Bit-exact, -1160 bytes.
-  PR #166 merged: dense MoE simd_shuffle_down→simd_sum. Bit-exact, -6 bytes, no M4 gain (2 dispatches/step).
-  M5 submission 4b06e931 REJECTED -14%. New submission 0e43085 VALIDATING.
-  Previous 57d8f08 (3-PR composed): FAILED. 00de2d3 (15-PR): FAILED. 27b9c7c: rejected 2.4972.
-  Wave 10 in progress: PR #165 (Edward, ops-per-buffer — not started), #161 (Thorfinn, tg input sharing — not started).
-  Wave 11 assigned: PR #167 (Alphonse, tail_nvfp4_qdot dot4 — in progress).
-  Wave 11 briefs ready: scale plane halving (BANDWIDTH reduction — assign to Askeladd), attention pair_planes 2→4.
+## CURRENT WAVE (Wave 12)
+  PR #172 (Edward) — Clean ops-per-buffer 800 on promoted code 12a712d. HIGHEST PRIORITY.
+    Isolates the scheduling change from all dot4/simd_sum/float4 kernel changes.
+    Target: beat 2.5888 on M5. One-line change, bit-exact.
+  PR #169 (Askeladd) — Scale plane halving (BANDWIDTH reduction, 39 MiB/step saved).
+    Extends NVFP4 scale halving to QKV+O-proj. Bit-exact. In progress.
+  PR #167 (Alphonse) — tail_nvfp4_qdot dot4. Instruction-count reduction — likely dead end
+    given strategy shift. Let finish, then close as dead.
+  PR #161 (Thorfinn) — tg input sharing. Mixed instruction/bandwidth. Let finish, evaluate.
+
+## READY-TO-ASSIGN EXPERIMENTS
+  1. MLX_METAL_FAST_SYNCH=1: One-line setenv, fast fence sync. Bit-exact. M5-specific.
+  2. MoE scale-plane halving: Extend attention scale halving to MoE experts (~33 MB/step).
+  3. Packed walk-order down-scales: Add DARKBLOOM_PACKED_SCALES to 3 down kernels.
+  4. QHOIST prefill isolated: ~17.8% prefill LSU reduction, needs isolated M5 testing.
 
 ## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
   The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.
