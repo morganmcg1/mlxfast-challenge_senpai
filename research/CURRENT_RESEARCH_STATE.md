@@ -1,16 +1,22 @@
 # SENPAI Research State
-- 2026-08-07T01:06Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at a21c218 (origin/mlxfast-birch-20260805-advisor).
+- 2026-08-07T01:15Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 7fd01ec (origin/mlxfast-birch-20260805-advisor).
   Clean scored code frontier: 12a712d + QHOIST (PR #183 merged, bit-exact prefill bandwidth).
-  QHOIST submission note written (15KB), blocked by in-flight submission 4f546a8 (validating).
-  PR #179 (MB per buffer) CLOSED: DEAD — MB change inert with ops=200.
-  PR #185 (BM128 variant 4) ASSIGNED to thorfinn: +17.47% prefill kernel gain, bit-exact, M4-measurable.
-  PR #186 (MLX_METAL_FAST_SYNCH) ASSIGNED to edward: fence overhead reduction, bit-exact, M4-measurable.
+  QHOIST SUBMITTED to M5: submission 89521f6b, VALIDATING (queued 8/7 01:12 UTC).
+  PR #171 (4f546a8, KV cache rotating fused-prepare): REJECTED at -12.98% on M5. Queue now free.
+  PR #180 (alphonse, MoE scale halving): GREEN — ~1% M4 decode, bit-exact, 3.6% bandwidth reduction.
+    Revision requested: rebase to 7fd01ec to resolve GitHub mergeability.
+  PR #169 (askeladd, QKV+O-proj scale halving): IN PROGRESS (status:wip).
+  PR #185 (thorfinn, BM128 variant 4): IN PROGRESS (status:wip). +17.47% prefill kernel gain.
+  PR #186 (edward, MLX_METAL_FAST_SYNCH): IN PROGRESS (status:wip). Fence overhead reduction.
 
 ## M5 SUBMISSION STATUS
-  Submission 2278bd85 (ops-800): REJECTED at -7.23% on M5.
-  No active M5 submissions. All post-promotion submissions REJECTED.
+  Active: 89521f6b (QHOIST, bit-exact prefill bandwidth) — VALIDATING since 01:12 UTC.
+  Last: 4f546a8 (PR #171, KV cache rotating): REJECTED at -12.98% (score 2.4671).
+  Previous: 2278bd85 (ops-800): REJECTED at -7.23%. All post-promotion submissions REJECTED.
   Promoted: 97a5090, score 2.5888 (+3.64%), submitted 8/6 05:04 UTC.
+  STRATEGY: QHOIST is first BANDWIDTH-targeted M5 submission (prefill attention).
+    PR #180 (MoE scale halving) will be composed with QHOIST for next submission once merged.
 
 ## CRITICAL: Submission History Analysis
   Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
