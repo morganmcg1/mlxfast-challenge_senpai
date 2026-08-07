@@ -7560,20 +7560,6 @@ func lagunaRoutedDownReduce(
             1, 1, LagunaConstants.numExpertsPerTok, 1,
             LagunaConstants.moeIntermediateSize,
         ])
-    precondition(downWeight.dtype == .uint32)
-    precondition(
-        downWeight.shape == [
-            LagunaConstants.numExperts,
-            LagunaConstants.hiddenSize,
-            LagunaConstants.moeIntermediateSize / 8,
-        ])
-    precondition(downScales.dtype == .uint8)
-    precondition(
-        downScales.shape == [
-            LagunaConstants.numExperts,
-            LagunaConstants.hiddenSize,
-            LagunaConstants.moeIntermediateSize / 16,
-        ])
     precondition(indices.dtype == .uint32)
     precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
     precondition(routerWeights.dtype == .float32)
@@ -9792,8 +9778,21 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         _fusedRoutedGateUpScales = fusedScales
         _fusedRoutedGateUpSplit = split
         _routedDownProj = downModule
-        _routedDownWeight = downWeight
-        _routedDownScales = downScales
+        if downWeight.shape == [
+            LagunaConstants.numExperts,
+            LagunaConstants.hiddenSize,
+            LagunaConstants.moeIntermediateSize / 8,
+        ],
+            downScales.shape == [
+                LagunaConstants.numExperts,
+                LagunaConstants.hiddenSize,
+                LagunaConstants.moeIntermediateSize / 16,
+            ],
+            routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor)
+        {
+            _routedDownWeight = downWeight
+            _routedDownScales = downScales
+        }
         var prepared = [fusedWeight, fusedScales]
         prepared.append(
             contentsOf: preparePackedRoutedGateUpBank(
@@ -10028,21 +10027,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     1, 1, LagunaConstants.numExpertsPerTok, 1,
                     LagunaConstants.moeIntermediateSize,
                 ],
-                downWeight.dtype == .uint32,
-                downWeight.shape == [
-                    LagunaConstants.numExperts,
-                    LagunaConstants.hiddenSize,
-                    LagunaConstants.moeIntermediateSize / 8,
-                ],
-                downScales.dtype == .uint8,
-                downScales.shape == [
-                    LagunaConstants.numExperts,
-                    LagunaConstants.hiddenSize,
-                    LagunaConstants.moeIntermediateSize / 16,
-                ],
                 weights.dtype == .float32,
-                weights.shape == [1, 1, LagunaConstants.numExpertsPerTok],
-                routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor)
+                weights.shape == [1, 1, LagunaConstants.numExpertsPerTok]
             {
                 lagunaTrace("routed down reduce")
                 y = lagunaRoutedDownReduce(
