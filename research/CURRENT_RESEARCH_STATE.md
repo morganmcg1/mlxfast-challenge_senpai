@@ -1,15 +1,22 @@
 # SENPAI Research State
-- 2026-08-07T00:40Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 5f1ddde (origin/mlxfast-birch-20260805-advisor).
-  Clean scored code frontier: 12a712d (top-8 elimination, FMA dequant, STAGE2_GATHER, LM_HEAD_PRUNE).
-  Advisor branch scored code NOW MATCHES promoted frontier exactly (0 diff vs 12a712d).
-  All 17+ dot4/simd_sum/float4/weight-staging PRs reverted (counterproductive on M5, -5.68% confirmed).
-  Students notified to rebase to 5f1ddde and re-measure baselines.
+- 2026-08-07T01:15Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 7fd01ec (origin/mlxfast-birch-20260805-advisor).
+  Clean scored code frontier: 12a712d + QHOIST (PR #183 merged, bit-exact prefill bandwidth).
+  QHOIST SUBMITTED to M5: submission 89521f6b, VALIDATING (queued 8/7 01:12 UTC).
+  PR #171 (4f546a8, KV cache rotating fused-prepare): REJECTED at -12.98% on M5. Queue now free.
+  PR #180 (alphonse, MoE scale halving): GREEN — ~1% M4 decode, bit-exact, 3.6% bandwidth reduction.
+    Revision requested: rebase to 7fd01ec to resolve GitHub mergeability.
+  PR #169 (askeladd, QKV+O-proj scale halving): IN PROGRESS (status:wip).
+  PR #185 (thorfinn, BM128 variant 4): IN PROGRESS (status:wip). +17.47% prefill kernel gain.
+  PR #186 (edward, MLX_METAL_FAST_SYNCH): IN PROGRESS (status:wip). Fence overhead reduction.
 
 ## M5 SUBMISSION STATUS
-  Submission 2278bd85 (ops-800): REJECTED at -7.23% on M5.
-  No active M5 submissions. All post-promotion submissions REJECTED.
+  Active: 89521f6b (QHOIST, bit-exact prefill bandwidth) — VALIDATING since 01:12 UTC.
+  Last: 4f546a8 (PR #171, KV cache rotating): REJECTED at -12.98% (score 2.4671).
+  Previous: 2278bd85 (ops-800): REJECTED at -7.23%. All post-promotion submissions REJECTED.
   Promoted: 97a5090, score 2.5888 (+3.64%), submitted 8/6 05:04 UTC.
+  STRATEGY: QHOIST is first BANDWIDTH-targeted M5 submission (prefill attention).
+    PR #180 (MoE scale halving) will be composed with QHOIST for next submission once merged.
 
 ## CRITICAL: Submission History Analysis
   Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
@@ -146,11 +153,22 @@
   4. Test asyncEval=off with ops=200 (previous test was with ops=800 — different regime)
   5. Investigate MLX_METAL_FAST_SYNCH=1 for fence overhead reduction
 
-## READY-TO-ASSIGN EXPERIMENTS
-  1. MLX_METAL_FAST_SYNCH=1: One-line setenv, fast fence sync. Bit-exact. M5-specific.
-  2. MoE scale-plane halving: Extend attention scale halving to MoE experts (~33 MB/step).
+## READY-TO-ASSIGN EXPERIMENTS (Next Wave)
+  1. **DARKBLOOM_STAGE_BM128 variant 5→4** (PREFILL MoE tiling, bit-exact, HIGH priority)
+     - One-line change in quantized.cpp: `return 5` → `return 4`
+     - Variant 4: WM=4, WN=2, SM=16, SN=32, 256 thr/TG, Dtile=16
+     - Variant 5: WM=4, WN=1, SM=16, SN=64, 128 thr/TG, Dtile=32
+     - Variant 4 measured +17.47% vs variant 5 at kernel level (ABBA, 4/4 pairs, 342-371 vs 414-434 µs)
+     - Decode flat (-0.18%). Gain is prefill (MoE gather-GEMM staging latency 39.5% of prefill)
+     - Works on BOTH M4 and M5 (not _nax-specific). M4 can measure timing!
+     - Bit-exact: same SN=32, TN=2, TK=2, same per-row K partition, same accumulation order
+     - Reverted with the clean frontier restore. Needs to be re-enabled and tested in isolation.
+     - Expected: ~8.7% prefill improvement × 25% score weight = ~2.2% overall
+     - INDEPENDENT of QHOIST (different kernels: MoE gather-GEMM vs attention)
+     - Composes with QHOIST if both win (both prefill, different kernels)
+
+  2. MLX_METAL_FAST_SYNCH=1: One-line setenv, fast fence sync. Bit-exact. M5-specific.
   3. Packed walk-order down-scales: Add DARKBLOOM_PACKED_SCALES to 3 down kernels.
-  4. QHOIST prefill isolated: ~17.8% prefill LSU reduction, needs isolated M5 testing.
 
 ## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
   The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.

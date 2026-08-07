@@ -386,6 +386,11 @@ public final class LagunaRuntimeWeightCache {
                     setenv("MLX_MAX_MB_PER_BUFFER", "200", 0)
                     setenv("MLX_MAX_OPS_PER_BUFFER", "200", 0)
                 }
+                // Enable Q-fragment hoisting in M5 prefill attention (steel_attention_nax).
+                // The kb loop advances K/V but never Q, yet Qtile.load re-reads identical
+                // fragments each iteration. Hoisting them once before the loop is bit-exact.
+                // overwrite=0 allows external A/B (DARKBLOOM_ATTN_QHOIST=0 disables).
+                setenv("DARKBLOOM_ATTN_QHOIST", "1", 0)
                 startupMemoryPolicy = nil
             }
         } else {
