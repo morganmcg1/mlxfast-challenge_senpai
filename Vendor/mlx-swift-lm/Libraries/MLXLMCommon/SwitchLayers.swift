@@ -126,7 +126,7 @@ private let routeFusedScatterTopK = 8
 private let routeFusedScatterKernel: MLXFast.MLXFastKernel = {
     let m = routeFusedScatterTopK
     return MLXFast.metalKernel(
-        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v3",
+        name: "mlx_lm_route_csort_scatter_fused_m\(m)_u32_v4",
         inputNames: ["keys"],
         outputNames: ["row_order", "sorted_keys", "inverse_order"],
         source: """
@@ -143,6 +143,10 @@ private let routeFusedScatterKernel: MLXFast.MLXFastKernel = {
             // commutative, so accumulation order cannot change the tables.
             threadgroup atomic_uint tg_total[256];
             threadgroup atomic_uint tg_before[256];
+            threadgroup uint tile_keys[TILE];
+            if (k < TILE) {
+                tile_keys[k] = keys[t * TILE + k];
+            }
             atomic_store_explicit(&tg_total[k], 0u, memory_order_relaxed);
             atomic_store_explicit(&tg_before[k], 0u, memory_order_relaxed);
             threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -168,18 +172,24 @@ private let routeFusedScatterKernel: MLXFast.MLXFastKernel = {
             for (uint s = 0; s < simd_id; ++s) {
                 simd_base += simd_totals[s];
             }
-            // Rank base for key k in tile t: global base + earlier tiles.
-            uint off = simd_base + lane_excl +
-                atomic_load_explicit(&tg_before[k], memory_order_relaxed);
-            // Walk this tile's slice in input order for stable ties.
-            for (uint i = 0; i < TILE; ++i) {
-                uint idx = t * TILE + i;
-                if (keys[idx] == k) {
-                    row_order[off] = idx / M;
-                    sorted_keys[off] = k;
-                    inverse_order[idx] = off;
-                    ++off;
+            // Reuse the completed totals table for each key's tile base.
+            atomic_store_explicit(
+                &tg_total[k], simd_base + lane_excl +
+                    atomic_load_explicit(&tg_before[k], memory_order_relaxed),
+                memory_order_relaxed);
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (k < TILE) {
+                uint key = tile_keys[k];
+                uint local_rank = 0;
+                for (uint j = 0; j < k; ++j) {
+                    local_rank += tile_keys[j] == key;
                 }
+                uint idx = t * TILE + k;
+                uint off = atomic_load_explicit(
+                    &tg_total[key], memory_order_relaxed) + local_rank;
+                row_order[off] = idx / M;
+                sorted_keys[off] = key;
+                inverse_order[idx] = off;
             }
             """,
         ensureRowContiguous: false

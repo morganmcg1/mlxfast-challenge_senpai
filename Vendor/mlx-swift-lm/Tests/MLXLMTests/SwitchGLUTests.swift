@@ -169,6 +169,62 @@ struct SwitchGLUTests {
         }
     }
 
+    @Test func fusedRouteSortMatchesStableGenericOracle() {
+        var randomState: UInt32 = 0x6d2b_79f5
+        let random = (0 ..< 4096).map { _ in
+            randomState = randomState &* 1_664_525 &+ 1_013_904_223
+            return randomState >> 24
+        }
+        let cases: [(String, [UInt32])] = [
+            ("all equal", Array(repeating: 255, count: 128)),
+            ("monotone", (0 ..< 256).map(UInt32.init)),
+            ("reverse", (0 ..< 256).reversed().map(UInt32.init)),
+            ("duplicate heavy", (0 ..< 384).map { $0 % 19 == 0 ? 255 : UInt32($0 % 5) }),
+            ("expert boundaries", (0 ..< 256).map { $0 % 4 < 2 ? 0 : 255 }),
+            ("cross tile tie", (0 ..< 256).map { 112 ..< 144 ~= $0 ? 42 : UInt32($0 % 17) }),
+            ("seeded random multiple tiles", random),
+        ]
+
+        for (name, keys) in cases {
+            checkRouteSort(keys, name: name)
+        }
+    }
+
+    private func checkRouteSort(_ keys: [UInt32], name: String) {
+        let rows = keys.count / 8
+        let x = MLXArray((0 ..< rows).map(UInt32.init)).reshaped(rows, 1, 1, 1)
+        let specializedIndices = MLXArray(keys).reshaped(rows, 8)
+        let genericIndices = MLXArray(keys.map(Int32.init)).reshaped(rows, 8)
+        let specialized = gatherSort(x: x, indices: specializedIndices)
+        let generic = gatherSort(x: x, indices: genericIndices)
+        eval(specialized.0, specialized.1, specialized.2, generic.0, generic.1, generic.2)
+
+        let order = keys.indices.sorted {
+            keys[$0] == keys[$1] ? $0 < $1 : keys[$0] < keys[$1]
+        }
+        let expectedRows = order.map { UInt32($0 / 8) }
+        let expectedKeys = order.map { keys[$0] }
+        var expectedInverse = Array(repeating: UInt32(0), count: keys.count)
+        for (offset, inputIndex) in order.enumerated() {
+            expectedInverse[inputIndex] = UInt32(offset)
+        }
+
+        let specializedRows = specialized.0.asArray(UInt32.self)
+        let specializedKeys = specialized.1.asArray(UInt32.self)
+        let specializedInverse = specialized.2.asArray(UInt32.self)
+        let genericRows = generic.0.asArray(UInt32.self)
+        let genericKeys = generic.1.asArray(Int32.self).map(UInt32.init)
+        let genericInverse = generic.2.asArray(UInt32.self)
+        let context = Comment(rawValue: "route sort case: \(name)")
+
+        #expect(specializedRows == expectedRows, context)
+        #expect(specializedKeys == expectedKeys, context)
+        #expect(specializedInverse == expectedInverse, context)
+        #expect(specializedRows == genericRows, context)
+        #expect(specializedKeys == genericKeys, context)
+        #expect(specializedInverse == genericInverse, context)
+    }
+
     /// Total bytes of every MLXArray reachable from `root` via reflection,
     /// deduped by array instance. Sees arrays stored in plain (non-parameter)
     /// properties — exactly where the removed cache lived — and only this
