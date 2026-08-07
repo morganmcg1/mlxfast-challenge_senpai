@@ -44,29 +44,41 @@ in a GPU census.
 Measured pass-through of injected duplicate work, per family, on the same host
 in the same session (full ledger and run IDs in §5):
 
-| family | calls/step | marginal us/call | **marginal us/step** | absorbed slack | verdict |
-| --- | --- | ---: | ---: | ---: | --- |
-| `T2c_routed_qmv` | 39 | 30.354 | **1184** | `-0.26` copy-sets | on the spine |
-| `T2d_down_residual` | 39 | 14.228 | **555** | `0.00` | on the spine |
-| `T1c_lmhead` | 1 | 474.22 | **474** | `-0.60` | on the spine |
-| `T2a_shared_qmv` | 39 | 1.893 | **74** | `-0.22` | on the spine |
-| `T1a_residual_rms_router` | 39 | 2.73 (chained) | **106** | 15.16 copy-sets | partly shadowed |
-| `T0a_router_top8` | 39 | 0.00 +/- 0.12 | **0** | 15.33 copy-sets | fully shadowed |
+| family | calls/step | marginal us/call | **marginal us/step** | share of step | absorbed slack | `E` | verdict |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `T0b_qkv` | 40 | 31.900 | **1276** | 15.6 % | `-0.17` copy-sets | 0.74 | on the spine |
+| `T2c_routed_qmv` | 39 | 30.354 | **1184** | 14.4 % | `-0.26` | 0.75 | on the spine |
+| `T2d_down_residual` | 39 | 14.228 | **555** | 6.8 % | `0.00` | 0.62 | on the spine |
+| `T1c_lmhead` | 1 | 474.22 | **474** | 5.8 % | `-0.60` | 1.11 | on the spine |
+| `T1a_residual_rms_router` | 39 | 2.73 (chained) | **106** | 1.3 % | 15.16 copy-sets | 0.35 | partly shadowed |
+| `T2a_shared_qmv` | 39 | 1.893 | **74** | 0.9 % | `-0.22` | 0.31 | thin spine |
+| `T0a_router_top8` | 39 | 0.00 +/- 0.12 | **0** | 0.0 % | 15.33 copy-sets | 0.00 | fully shadowed |
 
-`T2c` (the routed-expert top-8 SwiGLU QMV) has **zero absorbed slack** and its
-very first injected duplicate already costs `+1377.7 +/- 1.1 us` at `t = 1272`.
-`T0a` absorbs 15.3 copy-sets - about 2.85 ms of GPU work - before it costs
-anything at all, and `#204`'s independent deletion of that same family measured
-`-0.9 +/- 12.1 us`, exactly as this instrument predicts.
+`E` is the pass-through efficiency: measured marginal us/step divided by the
+independently published GPU-census duration of the same family
+(`research/maple-tanjiro-pr73-decode-kernel-census.md`,
+`research/nezuko-decode-roofline.md`). `E ~ 1` means an added copy costs what
+the census says the original costs. `E ~ 0` means the family is free at the
+margin no matter what the census says.
+
+`T0b` (the fused NVFP4 QKV projection) and `T2c` (the routed-expert top-8
+SwiGLU QMV) both have **zero absorbed slack**: the very first injected
+duplicate already costs `+1629.7 +/- 25.3 us` and `+1377.7 +/- 1.1 us`
+respectively. `T0a` absorbs 15.3 copy-sets - about 2.85 ms of GPU work - before
+it costs anything at all, and `#204`'s independent deletion of that same family
+measured `-0.9 +/- 12.1 us`, exactly as this instrument predicts.
 
 The practical consequence re-prices the remaining search space:
 
 > Do not spend effort on the small decode kernels. Router top-8, and the
 > norm/router glue, are *proven* to be in the shadow: making them faster, or
-> deleting them, is worth ~0. The routed-expert QMV path, the down/residual
-> merge and the lm_head are *proven* to be on the spine at ~100 % pass-through -
-> those are the only families measured so far where a microsecond saved is a
-> microsecond earned.
+> deleting them, is worth ~0. The fused QKV projection, the routed-expert QMV
+> path, the down/residual merge and the lm_head are *proven* to be on the spine
+> at 62-111 % pass-through - those are the only families measured so far where
+> a microsecond saved is close to a microsecond earned.
+
+The four spine families sum to **3489 us/step, 42.6 % of the 8.20 ms host
+step**, priced by direct measurement rather than by census attribution.
 
 This gives a quantitative explanation for the programme's long run of
 "census says 200 us, deletion measures 0 +/- 12 us" results, and it converts
@@ -128,13 +140,16 @@ E = slope / census = -8.45 / 185.7 = -0.045
 `|slope| = 8.45 < 30` and `E = -0.045` inside `[-0.16, 0.16]`. **A1 passes**,
 and it reproduces #204's independent deletion result to within noise.
 
-### A2 (positive control) - original site VOID, replaced and PASSED
+### A2 (positive control on `T0b_qkv`) - PASS, after the named site was found dead and re-wired
 
-The pre-registered A2 used `T0b_qkv`, wired to `lagunaNormAffineQKV`. Its first
-two runs produced clean, tight nulls (`-9.36 +/- 6.54 us`, then `+0.50 +/-
-1.09 us` at K up to 33). **Those nulls were an artefact.** The all-site census
-added afterwards shows `T0b_qkv` produces **zero** `DUPCOUNT` records in decode
-*or* prefill: the site never executes.
+Pre-registered target: `T0b_qkv`, the decode QKV projection, predicted a
+chain-link with `E_pred = 1.0`, acceptance `[0.70, 1.30]`.
+
+The first wiring attached that name to `lagunaNormAffineQKV`, and its first two
+runs produced clean, tight nulls (`-9.36 +/- 6.54 us`, then `+0.50 +/- 1.09 us`
+at K up to 33). **Those nulls were an artefact.** The all-site `DUPCOUNT`
+census added afterwards shows that wiring produced **zero** injected copies in
+decode *or* prefill: the site never executes.
 
 Cause (confirmed by source audit, all reasons checkpoint-structural, not
 env-dependent): the outer decode fast path at `:5822-5840` passes, but the
@@ -142,33 +157,59 @@ norm-fusion inner guard at `:5852-5858` declines because
 `lagunaNativeAffineNVFP4From` defaults to `0`, so every layer's bank is
 `mode == .nvfp4, bits == 4, groupSize == 16` and fails `mode == .affine &&
 bits == 8`; NVFP4 also yields no affine biases, and gate folding requires
-group-32 INT8 so `_nativeAffineQKVGateRows` stays `0 != nHeads`. The real
-decode QKV projection is `lagunaDecodeNVFP4QKVR1` at `:5887-5891`.
+group-32 INT8 so `_nativeAffineQKVGateRows` stays `0 != nHeads`.
 `lagunaNormAffineQKV` is dead code on this checkpoint.
 
-**A2 was re-run on `T1c_lmhead`**, a confirmed-live site (1 call/forward) that
-carries a published census row in the advisor's own decode tier table, so the
-`E = slope/census` test is well posed:
+The *live* decode QKV projection is `lagunaDecodeNVFP4QKVR1`. `T0b_qkv` was
+re-wired onto it at `:5883-5887`, the census confirmed `T0b_qkv=40` calls per
+decode forward with `copies == 40 x (K-1)`, and A2 was re-run **on its
+originally named target**:
+
+```
+run ab7e4b94, schedule 1,2,3,5,9,9,5,3,2,1 x2, 216 steps/segment, 0 divergences
+DUPCOUNT: T0b_qkv=40 calls/decode-forward, 0 in prefill
+OLS slope = 1276.01 +/- 11.48 us per copy-set   (t = 111)
+census     = 1722.3 us   (nezuko roofline: h64 1358.4 + h48 363.9)
+             1789.6 us   (PR73 pairing: 1408.9 + 380.7)
+E = 1276.01 / 1722.3 = 0.741      (0.713 against the PR73 pairing)
+```
+
+`E = 0.741` is inside the pre-registered acceptance band `[0.70, 1.30]`.
+**A2 passes on its pre-registered target.** Absorbed slack is `-0.17`
+copy-sets: the very first duplicate already costs `+1629.7 +/- 25.3 us`
+(t = 64), so there is no slack at this site at all.
+
+The shortfall from `E = 1` is itself informative rather than a gate failure,
+and §4 shows it is the cache-warm discount: QKV is the one decode family
+independently measured at **100 % of the host's roofline bandwidth ceiling**
+(260.6 GB/s of 260.6), so a warm duplicate is exactly where a discount should
+appear. `E = 0.74` puts that discount at ~26 %.
+
+#### Supplementary A2 control: a confirmed chain-link with `E > 1`
+
+`T1c_lmhead` was measured while the QKV wiring was still believed dead, and it
+is retained as the reference chain-link because it is the cleanest linear site
+in the ledger:
 
 ```
 run a0357d34, schedule 1,2,3,5,9,9,5,3,2,1 x2, 216 steps/segment, 0 divergences
 OLS slope = 474.22 +/- 4.87 us per copy-set   (t = 97)
-census     = 427.0 us
+census     = 427.0 us  (PR73: 420.6 us)
 E = 474.22 / 427.0 = 1.111
 ```
 
-`E = 1.111` is inside the pre-registered A2 acceptance band `[0.7, 1.3]`.
-**A2 passes.** The linearity is exact: the K1->K2 step costs `499.86 us` and the
-K2->K5 slope is `508.44 us/copy-set`, a ratio of `1.02`. This is the reference
-"chain-link" behaviour the gate was designed to detect - a site with no slack,
-whose duplicate costs the same as the original.
+Its linearity is exact: the K1->K2 step costs `499.86 us` and the K2->K5 slope
+is `508.44 us/copy-set`, a ratio of `1.02`. A single 1x2048 x 2048x131072
+int5 GEMV has no cache reuse to exploit, so unlike QKV it shows **no** warm
+discount - `E` sits just above 1. Two independent sites therefore bracket the
+chain-link regime from both sides.
 
 #### Supplementary control: the instrument can move wall time by 5 ms
 
-Because the original A2 target was dead, a second, *target-independent* control
-was added: a big-K saturation sweep on the confirmed-live `T0a_router_top8`
-site - the same family that produced the A1 null. If the A1 null were dead
-injection rather than genuine absorption, no K would ever move the clock.
+A second, *target-independent* control: a big-K saturation sweep on the
+confirmed-live `T0a_router_top8` site - the same family that produced the A1
+null. If the A1 null were dead injection rather than genuine absorption, no K
+would ever move the clock.
 
 Run `cabf0bf5`, schedule `1,5,17,65,65,17,5,1` x2, 0 divergences,
 `copies = 39*(K-1)` verified at every arm:
@@ -277,10 +318,43 @@ warm duplicate is unambiguously on the critical path. Both statements are
 useful, and the asymmetry is the right way round for a screening test: it will
 not send anyone chasing a phantom win.
 
-`T2c_routed_qmv` is the interesting case. Its per-layer routed working set is
-far larger than cache, so partial re-fetch is unavoidable and its measured
+#### 4.1 The warm discount, measured
+
+`T0b_qkv` lets the discount be quantified rather than assumed, because it is
+the one decode family with an independent bandwidth measurement.
+`research/nezuko-decode-roofline.md:277,281` puts
+`decode_nvfp4_qkv_h64_r1_v1` at 11.80 MB/call and **260.6 GB/s**, and
+`..._h48` at 9.44 MB/call and **258.9 GB/s**, against a roofline ceiling of
+260.6 GB/s measured on this same host. QKV runs at **100 % of the achievable
+memory bandwidth** and moves `30 x 11.80 + 10 x 9.44 = 448.4 MB` per decode
+step - a quarter of the step's entire 1794 MB.
+
+For a family pinned to the bandwidth ceiling, a warm duplicate is precisely
+where a discount must appear, and the ledger measures it directly:
+
+```text
+E(T0b) = 1276.01 / 1722.3 = 0.741    =>  warm discount ~= 26 %
+E(T1c) = 474.22  /  427.0 = 1.111    =>  no discount (no reuse to exploit)
+```
+
+`T1c_lmhead` is the control: one `1x2048 * 2048x131072` int5 GEMV streams a
+weight matrix far too large for any cache and is read exactly once by the
+original, so its duplicate gets no help and `E` sits just above 1. QKV re-reads
+a 11.8 MB bank that the original just pulled in, and keeps 74 % of the cost
+anyway. So on this host the cache-warm discount on a 100 %-of-roofline family
+is about a quarter, not an order of magnitude - which bounds how much the
+ledger's spine rows are understated.
+
+Applying the same reading to the routed rows: `E(T2c) = 1183.81/1569.8 = 0.754`
+and `E(T2d) = 554.89/898.8 = 0.617`. All three streaming families land in
+`0.62-0.75`, consistent with one shared mechanism rather than three
+coincidences.
+
+`T2c_routed_qmv` remains the interesting case. Its per-layer routed working set
+is far larger than cache, so partial re-fetch is unavoidable and its measured
 `30.35 us/call` is *still* a lower bound. That a lower bound already accounts
-for `1.18 ms` of an `8.20 ms` step is the strongest single finding here.
+for `1.18 ms` of an `8.20 ms` step is one of the two strongest findings here;
+`T0b`'s `1.28 ms` is the other.
 
 ---
 
@@ -291,18 +365,26 @@ the same palindromic-schedule / block-paired protocol, and every run reported
 `divergences=0` against the public golden. `us/step` is `slope x calls`, the
 family's total marginal weight in the decode step.
 
-| site | what it is | calls/step | us/copy-set (OLS +/- se) | us per call | **us/step** | share of 8.20 ms | absorbed slack | run |
-| --- | --- | --: | --- | --: | --: | --: | --: | --- |
-| `T2c_routed_qmv` | routed top-8 SwiGLU QMV | 39 | 1183.81 +/- 8.44 (t=140) | 30.354 | **1184** | 14.44 % | `-0.26` copy-sets | `f5edeba0` |
-| `T2d_down_residual` | routed+shared down proj & residual | 39 | 554.89 +/- 6.09 (t=91) | 14.228 | **555** | 6.77 % | `0.00` | `aca5a48b` |
-| `T1c_lmhead` | final logits projection | 1 | 474.22 +/- 4.87 (t=97) | 474.22 | **474** | 5.78 % | `-0.60` | `a0357d34` |
-| `T1a_residual_rms_router` | residual + RMSNorm + router glue | 39 | 106.4 chained (K=5) | 2.73 | **106** | 1.30 % | `15.16` | `ee407682` |
-| `T2a_shared_qmv` | shared-expert fused SwiGLU QMV | 39 | 73.82 +/- 3.79 (t=19.5) | 1.893 | **74** | 0.90 % | `-0.22` | `ec307cd1` |
-| `T0a_router_top8` | top-8 selection from router logits | 39 | `-8.45` +/- 4.83 (t=-1.7) | 0.00 +/- 0.12 | **0** | 0.00 % | `15.33` | `d7b8f9cf` |
+| site | what it is | calls/step | us/copy-set (OLS +/- se) | us per call | **us/step** | share of 8.20 ms | absorbed slack | census us | `E` | run |
+| --- | --- | --: | --- | --: | --: | --: | --: | --: | --: | --- |
+| `T0b_qkv` | fused NVFP4 QKV projection | 40 | 1276.01 +/- 11.48 (t=111) | 31.900 | **1276** | 15.56 % | `-0.17` copy-sets | 1722.3 | 0.741 | `ab7e4b94` |
+| `T2c_routed_qmv` | routed top-8 SwiGLU QMV | 39 | 1183.81 +/- 8.44 (t=140) | 30.354 | **1184** | 14.44 % | `-0.26` | 1569.8 | 0.754 | `f5edeba0` |
+| `T2d_down_residual` | routed+shared down proj & residual | 39 | 554.89 +/- 6.09 (t=91) | 14.228 | **555** | 6.77 % | `0.00` | 898.8 | 0.617 | `aca5a48b` |
+| `T1c_lmhead` | final logits projection | 1 | 474.22 +/- 4.87 (t=97) | 474.22 | **474** | 5.78 % | `-0.60` | 427.0 | 1.111 | `a0357d34` |
+| `T1a_residual_rms_router` | residual + RMSNorm + router glue | 39 | 106.4 chained (K=5) | 2.73 | **106** | 1.30 % | `15.16` | 305.1 | 0.349 | `ee407682` |
+| `T2a_shared_qmv` | shared-expert fused SwiGLU QMV | 39 | 73.82 +/- 3.79 (t=19.5) | 1.893 | **74** | 0.90 % | `-0.22` | 237.5 | 0.311 | `ec307cd1` |
+| `T0a_router_top8` | top-8 selection from router logits | 39 | `-8.45` +/- 4.83 (t=-1.7) | 0.00 +/- 0.12 | **0** | 0.00 % | `15.33` | 185.7 | -0.045 | `d7b8f9cf` |
 
-Sum of the priced rows: **2393 us/step, 29.2 % of the 8.20 ms host step.** The
-remaining 71 % is attention, KV movement, RoPE, the norms, and the fixed
-per-step dispatch/synchronisation floor - none of which is wired here.
+Sum of the priced rows: **3669 us/step, 44.7 % of the 8.20 ms host step**, of
+which the four spine rows are **3489 us, 42.6 %.** The remaining ~55 % is
+attention, KV movement, RoPE, the norms, and the fixed per-step
+dispatch/synchronisation floor - none of which is wired here.
+
+Every `E` is measured marginal over the independently published census
+duration for the same family. Reading down the column, the ledger separates
+three regimes cleanly: `E ~ 1` chain-link (`T1c`), `E ~ 0.6-0.75` streaming
+chain-link with a cache-warm discount (`T0b`, `T2c`, `T2d`), `E <= 0.35`
+shadowed or thin (`T1a`, `T2a`, `T0a`).
 
 A negative "absorbed slack" is a fit artefact of a perfectly linear family (the
 two-regime hinge has nowhere to put a knee); read `<= 0` as "no slack".
@@ -313,30 +395,45 @@ it. It is not a promise that deleting the family returns exactly that much -
 see the cache-warm caveat in §4, which makes these numbers lower bounds for the
 two routed rows.
 
-### 5.1 The routed-expert path is the whole story
+### 5.1 The big weight-streaming projections are the whole story
 
-`T2c` and `T2d` together are **1739 us/step, 21 % of the decode step**, and
-both are at ~100 % pass-through with **zero** absorbed slack. Everything else
-measured is between 0 % and 1.3 %.
+`T0b`, `T2c` and `T2d` together are **3015 us/step, 37 % of the decode step**,
+all three with **zero** absorbed slack and `E` in `0.62-0.75`. Add the lm_head
+and the four spine rows are 42.6 %. Everything else measured is between 0 % and
+1.3 %.
 
-The two rows behave qualitatively differently from the two glue rows and the
+The spine rows behave qualitatively differently from the glue rows and the
 difference is not subtle:
 
-| | `T2c` / `T2d` | `T0a` / `T1a` |
+| | `T0b` / `T2c` / `T2d` | `T0a` / `T1a` |
 | --- | --- | --- |
-| first duplicate (K=2) | already resolved, `t = 1272` / `t = 103` | invisible until K=17 / K=11 |
-| absorbed slack | `-0.26` / `0.00` copy-sets | `15.3` / `15.2` copy-sets |
+| first duplicate (K=2) | already resolved, `t = 64` / `1272` / `103` | invisible until K=17 / K=11 |
+| absorbed slack | `-0.17` / `-0.26` / `0.00` copy-sets | `15.3` / `15.2` copy-sets |
 | scaling | linear from K=1 | flat, then convex, then linear |
 
 A family with zero absorbed slack is, by construction, *not* running in the
 shadow of some other serial dependency - it **is** the serial dependency.
 
+What the three share is not FLOPs and not dispatch count, it is **bytes**:
+each is a quantized weight bank read once per token with no reuse. The lever
+they respond to is bytes moved per token, which is also the only lever that
+survives the move to the ranked M5 (614 GB/s, ~89 % instruction-bound) with a
+predictable sign.
+
 ### 5.2 Why this contradicts the intuitive reading of a GPU census
 
-A GPU census orders these families as `T1c (427 us) > T2c > T1a (305) > T0a
-(186)`. The marginal ledger orders them `T2c (1184) > T2d (555) > T1a (106) >
-T0a (0)`. `T0a` and `T1a` have census costs within 1.6x of each other and
-marginal costs that differ by more than an order of magnitude.
+A GPU census orders these families as `T0b (1722) > T2c (1570) > T2d (899) >
+T1c (427) > T1a (305) > T0a (186)`. The marginal ledger orders them
+`T0b (1276) ~ T2c (1184) > T2d (555) > T1c (474) > T1a (106) > T0a (0)`. The
+top of the list survives; the bottom does not. `T0a` and `T1a` have census
+costs within 1.6x of each other and marginal costs that differ by more than an
+order of magnitude, and `T1a`'s census (305 us) is 1.6x `T0a`'s while both are
+worth essentially nothing at the margin.
+
+The census is therefore not useless - it is a good *upper* bound and it ranks
+the large streaming families correctly. It fails exactly where the programme
+kept getting burned: on the small kernels, where it reports plausible
+three-figure microsecond costs for work that is entirely hidden.
 
 Census answers "how many GPU microseconds does this kernel occupy". The decode
 step is not asking that question. It is asking "does this kernel sit on the
@@ -390,11 +487,12 @@ upper bound on what a perfect removal of each family could be worth:
 
 | family | share of host step | M5-equivalent us/step | directional score `+%` if fully removed |
 | --- | --: | --: | --: |
+| `T0b_qkv` | 15.56 % | 645 | **+9.85 %** |
 | `T2c_routed_qmv` | 14.44 % | 598 | **+9.14 %** |
 | `T2d_down_residual` | 6.77 % | 280 | +4.29 % |
 | `T1c_lmhead` | 5.78 % | 240 | +3.66 % |
-| `T2a_shared_qmv` | 0.90 % | 37 | +0.57 % |
 | `T1a_residual_rms_router` | 1.30 % | 54 | +0.82 % |
+| `T2a_shared_qmv` | 0.90 % | 37 | +0.57 % |
 | `T0a_router_top8` | 0.00 % | 0 | **+0.00 %** |
 
 These are *ceilings on a fully successful removal*, not forecasts. Nobody
@@ -433,24 +531,45 @@ Two caveats, both stated so the numbers are not over-read:
 
 **Open and now justified by measurement:**
 
-1. **The routed-expert QMV path (`T2c`), by a wide margin.** 14.4 % of the
-   step, ~100 % pass-through, zero slack, and the measured value is a *lower*
-   bound. This is the only family in the ledger where the arithmetic supports a
-   multi-percent score move. Levers worth pricing, in order of expected
-   leverage:
+1. **The fused NVFP4 QKV projection (`T0b`), the largest single family.**
+   15.6 % of the step, `E = 0.74`, zero slack, 40 calls, and independently
+   measured at **100 % of this host's roofline bandwidth** while moving
+   448.4 MB/step. Being pinned to the bandwidth ceiling is the strongest
+   possible statement about which lever works: only *fewer bytes* can help,
+   because tiling, occupancy and dispatch count have nothing left to recover
+   on this host. Concretely - a narrower KV representation, or fusing the
+   `h64`/`h48` variants so the bank is read once instead of per-head-group.
+   Note the M5 caveat: it is ~89 % instruction-bound at 614 GB/s, so a
+   byte-reduction that is a pure win here may be neutral there, and the sign
+   of any *occupancy* change is not transferable at all.
+2. **The routed-expert QMV path (`T2c`), essentially tied with `T0b`.** 14.4 %
+   of the step, `E = 0.75`, zero slack, and the measured value is a *lower*
+   bound. Levers worth pricing, in order of expected leverage:
    - fewer *bytes* per routed GEMV (the family is on the long arm of the
-     diamond and appears traffic-limited, see §6.2);
+     diamond and, like `T0b`, is traffic-limited - see §6.2);
    - fewer *dispatches* per layer across the 8 routed experts;
    - overlapping the routed fetch with the shared-expert arm, which has 0.90 %
      of the step of its own work and is issued in parallel.
-2. **`T2d_down_residual` (6.8 %) as the second target,** and specifically as a
+
+   `T0b` and `T2c` differ by `92 +/- 14 us/step`, but they were measured in
+   different worker sessions where arm-level scatter is `+/- 70 us`. Treat them
+   as **comparable, both ~1.2 ms**, not as a strict ordering.
+3. **`T2d_down_residual` (6.8 %) as the third target,** and specifically as a
    *fusion partner for `T2c`*, since the two are adjacent on the same serial
    arm and jointly account for 21 % of the step with zero slack between them.
-3. **`T1c_lmhead` (5.8 %, one call).** A single 474 us dispatch at 100 %
+4. **`T1c_lmhead` (5.8 %, one call).** A single 474 us dispatch at 111 %
    pass-through is an unusually clean target: there is no per-call overhead to
    amortise, only the projection itself. Vocabulary pruning, output-tile
    blocking, or splitting it to overlap with the last layer's tail are all
    testable against a `E = 1.111` reference.
+
+**Not yet priced, and the obvious next probe:** attention and o-proj
+(`sliding_fused_attn_ring_v1`, `full_fused_attn_grow_v1`, `oproj_act_h64/h48`)
+carry ~27 % of the census between them and are deliberately unwired here
+because their kernels mutate KV in place and advance the cache clock, so a
+duplicate is not side-effect-free. Pricing them needs a
+copy-on-write KV scratch buffer for the duplicate - a real but bounded piece of
+instrument work, and the single highest-value extension of this ledger.
 
 **Method recommendation for the programme:** make a duplicate-injection probe
 the *first* step of any decode optimisation proposal. It costs one 110-second
