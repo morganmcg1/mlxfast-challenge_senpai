@@ -1436,22 +1436,32 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         U pair_sum0 = 0;
         U pair_sum1 = 0;
 
+        const bool owns_write_slot = uint(sg) == (widx & 31u);
         int i = sg;
         for (; i + BN < N; i += 2 * BN) {
             const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
             const device bfloat* pipe_values_b = pair_values + inner_v_stride;
-            const bool sub_a = uint(i) == widx;
-            const bool sub_b = uint(i + BN) == widx;
             U pipe_ka[4];
             U pipe_kb[4];
-            T_LOAD_K(pipe_ka, sub_a, pair_keys);
-            T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
             bfloat pipe_va0, pipe_va1, pipe_va2, pipe_va3;
             bfloat pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3;
-            T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
-                pair_values);
-            T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
-                pipe_values_b);
+            if (owns_write_slot) {
+                const bool sub_a = uint(i) == widx;
+                const bool sub_b = uint(i + BN) == widx;
+                T_LOAD_K(pipe_ka, sub_a, pair_keys);
+                T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
+                T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
+                    pair_values);
+                T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
+                    pipe_values_b);
+            } else {
+                T_LOAD_DEVICE_K(pipe_ka, pair_keys);
+                T_LOAD_DEVICE_K(pipe_kb, pipe_keys_b);
+                T_LOAD_DEVICE_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3,
+                    pair_values);
+                T_LOAD_DEVICE_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3,
+                    pipe_values_b);
+            }
 
             U pair_score0 = 0;
             U pair_score1 = 0;
@@ -1618,6 +1628,17 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         // K loads: 8-byte vec loads from the ring, or the threadgroup
         // substitute for the just-written slot. Same elements, same order,
         // same bfloat -> float conversion points as the scalar form.
+        #define T_LOAD_DEVICE_K(dst, ptr)                          \\
+          do {                                                     \\
+            const vec<bfloat, 4> v_ =                              \\
+                *reinterpret_cast<const device vec<bfloat, 4>*>(   \\
+                    ptr);                                          \\
+            dst[0] = v_.x;                                         \\
+            dst[1] = v_.y;                                         \\
+            dst[2] = v_.z;                                         \\
+            dst[3] = v_.w;                                         \\
+          } while (false)
+
         #define T_LOAD_K(dst, substitute, ptr)                     \\
           do {                                                     \\
             if (substitute) {                                      \\
@@ -1626,14 +1647,19 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
               dst[2] = tg_k[lane * qk_per_thread + 2];             \\
               dst[3] = tg_k[lane * qk_per_thread + 3];             \\
             } else {                                               \\
-              const vec<bfloat, 4> v_ =                            \\
-                  *reinterpret_cast<const device vec<bfloat, 4>*>( \\
-                      ptr);                                        \\
-              dst[0] = v_.x;                                       \\
-              dst[1] = v_.y;                                       \\
-              dst[2] = v_.z;                                       \\
-              dst[3] = v_.w;                                       \\
+              T_LOAD_DEVICE_K(dst, ptr);                           \\
             }                                                      \\
+          } while (false)
+
+        #define T_LOAD_DEVICE_V(d0, d1, d2, d3, ptr)               \\
+          do {                                                     \\
+            const vec<bfloat, 4> v_ =                              \\
+                *reinterpret_cast<const device vec<bfloat, 4>*>(   \\
+                    ptr);                                          \\
+            d0 = v_.x;                                             \\
+            d1 = v_.y;                                             \\
+            d2 = v_.z;                                             \\
+            d3 = v_.w;                                             \\
           } while (false)
 
         #define T_LOAD_V(d0, d1, d2, d3, substitute, ptr)          \\
@@ -1644,13 +1670,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
               d2 = tg_v[lane * v_per_thread + 2];                  \\
               d3 = tg_v[lane * v_per_thread + 3];                  \\
             } else {                                               \\
-              const vec<bfloat, 4> v_ =                            \\
-                  *reinterpret_cast<const device vec<bfloat, 4>*>( \\
-                      ptr);                                        \\
-              d0 = v_.x;                                           \\
-              d1 = v_.y;                                           \\
-              d2 = v_.z;                                           \\
-              d3 = v_.w;                                           \\
+              T_LOAD_DEVICE_V(d0, d1, d2, d3, ptr);                \\
             }                                                      \\
           } while (false)
 
