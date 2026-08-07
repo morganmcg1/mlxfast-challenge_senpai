@@ -1,37 +1,40 @@
 # SENPAI Research State
-- 2026-08-07T02:00Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 7b0f3a9 (pushed to origin).
-  Clean scored code frontier: 12a712d (pre-QHOIST, pre-BM128-v4, pre-dot4/simd_sum/float4).
-  QHOIST (#183) + BM128-v4 (#185) REVERTED — M5 submission 89521f6 REJECTED at -11.48% (score 2.4822).
-  PR #186 (edward, MLX_METAL_FAST_SYNCH): CLOSED. DEAD — no decode/prefill gain. Fence overhead ~0.5%.
-  PR #169 (askeladd, QKV+O-proj scale halving): CLOSED. DEAD — attention scale traffic too small (~0.2-0.5%).
-  PR #180 (alphonse, MoE scale halving): MERGED v2. Squash-merged into advisor as 9807f56.
-    Bit-exact (max_abs_diff=0). ~1% M4 decode gain (4 of 5 runs faster). 45.5 MiB/step bandwidth savings.
-    All 3 MoE kernel paths halved: routed gate/up R1, routed+shared down, shared SwiGLU QMV gate/up.
-    FIRST WAVE 5 WINNER. M5 submission candidate.
-  PR #188 (thorfinn, packed down-scales): CLOSED. DEAD — 1.2-1.6% slower. Down scales already coalesced.
-    KEY FINDING: Down path's per-expert scale access is ALREADY coalesced (32 contiguous bytes/row).
-    Gate/up packed bank works because it fixes a within-expert ROW REMAP; down path has no remap to fix.
-    IMPLICATION: QKV (PR #191) and O-proj (PR #192) packed-scales also likely dead — their scale
-    accesses are also contiguous (32 lanes × 1 byte = 32 contiguous bytes). Students warned + redirected.
-  PR #193 (thorfinn, attention scale halving): ASSIGNED. Re-test prematurely closed PR #169 hypothesis.
-    QKV+O-proj scale traffic = ~90 MiB/step (corrected from earlier 0.2-0.5% estimate → 0.76% of step time).
-    First step: verify pairwise constancy in QKV/O-proj scale tensors. If >50%, implement halving.
-  PR #191 (edward, QKV packed-scales): WIP, redirected to QKV scale halving.
-  PR #192 (askeladd, O-proj packed-scales): WIP, redirected to O-proj scale halving.
-  Bandwidth audit complete: see research/BANDWIDTH_AUDIT_20260807.md.
-  PR #187 (thorfinn, duplicate marker): IGNORE — PR #188 replaces it.
+- 2026-08-07T05:05Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 215e45f (pushed to origin).
+  9 composed changes on current frontier. LRM: 522,197/524,288 = 2,091 B headroom.
+
+## MERGED FRONTIER (9 changes, all bit-exact)
+  1. MoE scale halving (PR #180): 45.5 MiB/step bandwidth savings, ~1% M4 decode gain
+  2. Packed simd_sum (PR #194): instruction reduction in cross-lane reductions
+  3. O-proj NVFP4 scale halving (PR #192): bandwidth savings for O-proj
+  4. Prefill MoE scale halving (PR #198): ~1.0-1.5% composite prefill gain
+  5. INT8 gate-softplus dedup (PR #200): simd_shuffle broadcast, -0.72% M4 decode
+  6. INT8 O-proj dedup (PR #207): simd_shuffle broadcast, -1.7% M4 decode
+  7. INT8 QKV dedup (PR #206): simd_shuffle broadcast, +0.57% M4 (noise)
+  8. Shared SwiGLU float4 input (PR #209): float4 pointer cast stores, -0.1% M4 (neutral), -336B
+  9. Routed MoE scatter float4 (PR #212): float4 pointer cast stores, +0.8% M4, -324B
 
 ## M5 SUBMISSION STATUS
-  QHOIST+BM128-v4 (89521f6): REJECTED at -11.48% (score 2.4822). Prefill-only changes regressed on M5.
-  Last: 4f546a8 (PR #171, KV cache rotating): REJECTED at -12.98% (score 2.4671).
-  Previous: 2278bd8 (ops-800): REJECTED at -7.23%. All post-promotion submissions REJECTED.
-  Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%), committed 8/6 05:04 UTC.
+  Previous rejections: 27b9c7c (2.4972), a3e3800 (2.4073), f2160f8 (2.5582),
+    ec2b0a5 (2.4839), 0fe73ec (2.4629, -13.45% — student submission from another campaign)
+  259c265: VALIDATING (another campaign submission, blocking our slot)
+  Submission note ready: research/SUBMISSION_NOTE_215e45f.md (11,725 bytes)
+  Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%).
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
-  STRATEGY: DECODE bandwidth reductions only. Prefill M4 gains do NOT transfer to M5.
-    Wave 5 (current): scale halving experiments, all bit-exact.
-      PR #180 v2 (alphonse): MERGED. MoE scale halving. ~1% M4 decode, 45.5 MiB/step savings. ✓
-      PR #191 (edward): QKV packed-scales → REDIRECTED to QKV scale halving (coalescing already optimal).
+  STRATEGY: Bandwidth + instruction-count reductions, all bit-exact. M5 is instruction-bound (~89%).
+
+## IN-PROGRESS EXPERIMENTS
+  PR #210 (alphonse): Attention epilogue 1-pass merge (eliminate 1 barrier/dispatch, 40 layers, ≤200B)
+  PR #211 (askeladd): LM head argmax+threshold fuse (eliminate 1 dispatch/step, LagunaLmHeadPrune.swift)
+  PR #214 (edward): INT8 QKV indexed path dedup (complete QKV dedup family, ~50-100B)
+
+## RESEARCH THEMES
+  - INT8 scale/bias dedup family: COMPLETE (gate-softplus ✓, O-proj ✓, QKV ✓, indexed QKV in progress)
+  - Float4 vectorization: shared kernel ✓ (neutral), routed kernel ✓ (slight M4 regression, M5 TBD)
+  - Prefill MoE halving: MERGED (PR #198, ~1.0-1.5% composite estimate)
+  - LM head dispatch reduction: in progress (argmax+threshold fuse)
+  - Attention barrier elimination: in progress (1-pass epilogue merge)
+  - REMAINING IDEAS: standalone shared down halving (fallback only, low priority)
       PR #192 (askeladd): O-proj packed-scales → REDIRECTED to O-proj scale halving (coalescing already optimal).
       PR #193 (thorfinn): DEAD. Attention QKV+O-proj scale halving -2.7% decode regression.
       Escape mechanism overhead exceeds ~0.62% bandwidth savings. Attention scale halving exhausted.
