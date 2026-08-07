@@ -112,6 +112,8 @@ class WorkerSession:
                     "dispatch_count",
                     "logical_cache_delta_min",
                     "logical_cache_delta_max",
+                    "physical_cache_delta_min",
+                    "physical_cache_delta_max",
                     "pending_root_count",
                     "top8_rotated_overlap_by_layer",
                 ],
@@ -163,7 +165,7 @@ class WorkerSession:
 
     def _parse_marker(self, line):
         fields = line.split("\t")
-        if fields[0] == MARKER and len(fields) == 11:
+        if fields[0] == MARKER and len(fields) == 13:
             row = {
                 "label": fields[1],
                 "mode": fields[2],
@@ -173,8 +175,10 @@ class WorkerSession:
                 "dispatch_count": int(fields[6]),
                 "logical_cache_delta_min": int(fields[7]),
                 "logical_cache_delta_max": int(fields[8]),
-                "pending_root_count": int(fields[9]),
-                "top8_rotated_overlap_by_layer": fields[10],
+                "physical_cache_delta_min": int(fields[9]),
+                "physical_cache_delta_max": int(fields[10]),
+                "pending_root_count": int(fields[11]),
+                "top8_rotated_overlap_by_layer": fields[12],
             }
             self.measurements.append(row)
             if self._measurement_writer:
@@ -305,6 +309,8 @@ def validate_measurements(rows, arms, steps_per_arm):
             raise RuntimeError(f"dispatch count mismatch: {row}")
         if row["logical_cache_delta_min"] != 1 or row["logical_cache_delta_max"] != 1:
             raise RuntimeError(f"logical cache advancement mismatch: {row}")
+        if row["physical_cache_delta_min"] != 1 or row["physical_cache_delta_max"] != 1:
+            raise RuntimeError(f"physical cache advancement mismatch: {row}")
         if row["pending_root_count"] != 0:
             raise RuntimeError(f"pending roots survived request: {row}")
         overlaps = [int(value) for value in row["top8_rotated_overlap_by_layer"].split(",")]
@@ -368,7 +374,8 @@ def correctness_command(args):
         "returned_logit_digests": session.digests,
         "measurements": session.measurements,
         "logical_kv_advancement_exact": True,
-        "physical_kv_position_directly_observable": False,
+        "physical_kv_advancement_exact": True,
+        "physical_kv_position_directly_observable": True,
         "pending_future_state": False,
         "stderr_diagnostics": session.diagnostics,
         "system": system_metadata(),
@@ -496,7 +503,8 @@ def matrix_command(args):
         "reference_seed_token": reference_seed_token,
         "token_divergence_count": token_divergence_count,
         "logical_kv_advancement_exact": True,
-        "physical_kv_position_directly_observable": False,
+        "physical_kv_advancement_exact": True,
+        "physical_kv_position_directly_observable": True,
         "pending_future_state": False,
         "elapsed_wall_seconds": time.time() - started,
         "stderr_diagnostics": session.diagnostics,
@@ -545,6 +553,8 @@ def analyze_command(args):
             "dispatch_count",
             "logical_cache_delta_min",
             "logical_cache_delta_max",
+            "physical_cache_delta_min",
+            "physical_cache_delta_max",
             "pending_root_count",
         ):
             row[field] = int(row[field])
@@ -616,12 +626,14 @@ def analyze_command(args):
     bootstrap_slopes = {"warm": [], "cold": []}
     bootstrap_ratios = []
     batch_count = len(next(iter(batch_medians.values())))
+    if any(len(values) != batch_count for values in batch_medians.values()):
+        raise ValueError("bootstrap arms have inconsistent batch counts")
     for _ in range(args.bootstrap_replicates):
-        sampled_medians = {}
-        for label, values in batch_medians.items():
-            sampled_medians[label] = statistics.median(
-                rng.choice(values) for _ in range(batch_count)
-            )
+        sampled_indices = [rng.randrange(batch_count) for _ in range(batch_count)]
+        sampled_medians = {
+            label: statistics.median(values[index] for index in sampled_indices)
+            for label, values in batch_medians.items()
+        }
         _fits, sampled_slopes = fit_from_medians(sampled_medians)
         if sampled_slopes["warm"] <= 0:
             continue
@@ -671,11 +683,18 @@ def analyze_command(args):
         "status": "passed",
         "estimator": "per-arm median; per-block four-point Theil-Sen; median of three block slopes",
         "confidence_interval": {
-            "method": "moving-block bootstrap of 30-step batch medians",
+            "method": (
+                f"paired non-overlapping {args.bootstrap_block_size}-step block "
+                "bootstrap of arm medians"
+            ),
             "replicates_requested": args.bootstrap_replicates,
             "replicates_retained": len(bootstrap_ratios),
             "seed": args.bootstrap_seed,
         },
+        "measurement_scope": (
+            "K>=1 slopes estimate repeated selected-bank marginal cost; one-time bank "
+            "first-touch costs contribute to the fitted intercept rather than the slope."
+        ),
         "arm_summaries": arm_summaries,
         "block_fits": block_fits,
         "overall_slope_us_per_step_per_duplicate": slopes,

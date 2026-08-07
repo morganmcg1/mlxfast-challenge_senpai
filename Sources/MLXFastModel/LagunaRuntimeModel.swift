@@ -91,8 +91,11 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
     private var activeStep = 0
     private var startNanoseconds: UInt64 = 0
     private var cacheOffsets: [Int] = []
+    private var cachePhysicalPositions: [Int] = []
+    private var overlapIndices: [MLXArray] = []
     private var scratchRoots: [MLXArray] = []
-    private var overlapRoots: [MLXArray] = []
+    private var scratchDispatchCount = 0
+    private var faultRootMaterialized = false
     private var referenceDigestBytes: Data?
 
     private init() {
@@ -133,14 +136,26 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         return UInt64(value.tv_sec) * 1_000_000_000 + UInt64(value.tv_nsec)
     }
 
+    @inline(__always)
+    private func physicalPosition(_ cache: KVCache) -> Int {
+        guard let maxSize = cache.maxSize else { return cache.offset }
+        precondition(maxSize > 0, "invalid rotating cache size")
+        return cache.offset % maxSize
+    }
+
     private func write(_ line: String) {
         FileHandle.standardError.write(Data((line + "\n").utf8))
     }
 
     func begin(inputs: MLXArray, cache: [KVCache]?) {
         guard !arms.isEmpty, inputs.shape == [1, 1] else { return }
-        precondition(activeArm == nil, "cold duplicate roots survived a request boundary")
-        precondition(scratchRoots.isEmpty && overlapRoots.isEmpty, "pending cold duplicate roots")
+        precondition(activeArm == nil, "cold duplicate state survived a request boundary")
+        precondition(
+            cacheOffsets.isEmpty && cachePhysicalPositions.isEmpty
+                && overlapIndices.isEmpty && scratchRoots.isEmpty,
+            "pending cold duplicate state")
+        precondition(scratchDispatchCount == 0, "pending cold duplicate dispatch count")
+        precondition(!faultRootMaterialized, "pending cold duplicate fault state")
         precondition(armIndex < arms.count, "cold duplicate schedule exhausted")
         guard let cache else {
             preconditionFailure("cold duplicate measurement requires a cache")
@@ -149,11 +164,13 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         activeArm = arms[armIndex]
         activeStep = stepInArm
         cacheOffsets = cache.map(\.offset)
+        cachePhysicalPositions = cache.map(physicalPosition)
         startNanoseconds = uptimeNanoseconds()
     }
 
     func recordPacked(
         input: MLXArray,
+        ordinary: MLXArray,
         fusedWeight: MLXArray,
         packedScales: MLXArray,
         indices: MLXArray
@@ -161,12 +178,11 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         guard let arm = activeArm else { return }
         let rotated = MLX.remainder(
             indices + MLXArray(UInt32(8)), MLXArray(UInt32(LagunaConstants.numExperts)))
-        let originalRows = MLX.expandedDimensions(indices, axes: [-1])
-        let rotatedRows = MLX.expandedDimensions(rotated, axes: [-2])
-        overlapRoots.append(MLX.sum(MLX.equal(originalRows, rotatedRows)))
         let selected = arm.mode == "warm" ? indices : rotated
+        var roots: [MLXArray] = []
+        roots.reserveCapacity(arm.duplicateCount)
         for _ in 0..<arm.duplicateCount {
-            scratchRoots.append(
+            roots.append(
                 lagunaRoutedSwiGLUQMVPackedTop8(
                     input,
                     fusedWeight: fusedWeight,
@@ -174,43 +190,103 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
                     indices: selected
                 ))
         }
+        var scheduled = [indices]
+        scheduled.append(contentsOf: roots)
+        // The pinned evaluator visits root tapes in reverse; ordinary last preserves
+        // ordinary-then-duplicate dispatch order without a host barrier.
+        scheduled.append(ordinary)
+        asyncEval(scheduled)
+        overlapIndices.append(indices)
+        scratchRoots.append(contentsOf: roots)
+        scratchDispatchCount += roots.count
     }
 
     func finish(fullHidden: MLXArray, cache: [KVCache]?) -> LagunaColdDuplicateMeasurement? {
         guard let arm = activeArm else { return nil }
         let expectedLayers = LagunaConstants.numHiddenLayers - 1
-        precondition(overlapRoots.count == expectedLayers, "packed routed path did not reach every sparse layer")
+        precondition(
+            overlapIndices.count == expectedLayers,
+            "packed routed path did not reach every sparse layer")
         precondition(
             scratchRoots.count == expectedLayers * arm.duplicateCount,
+            "cold duplicate root count mismatch")
+        precondition(
+            scratchDispatchCount == expectedLayers * arm.duplicateCount,
             "cold duplicate dispatch count mismatch")
-        let firstScratchRoot = scratchRoots.first
-        eval([fullHidden] + scratchRoots + overlapRoots)
+        var completionRoots = [fullHidden]
+        completionRoots.append(contentsOf: overlapIndices)
+        completionRoots.append(contentsOf: scratchRoots)
+        eval(completionRoots)
         let elapsed = uptimeNanoseconds() - startNanoseconds
-        let overlaps = overlapRoots.map { Int($0.asArray(Int32.self)[0]) }
+        completionRoots.removeAll()
+
+        let overlaps = overlapIndices.map { indices in
+            let originalIDs = indices.asArray(UInt32.self)
+            precondition(
+                originalIDs.count == LagunaConstants.numExpertsPerTok,
+                "unexpected routed expert count")
+            precondition(
+                Set(originalIDs).count == LagunaConstants.numExpertsPerTok,
+                "routed expert indices were not unique")
+            let rotatedIDs = originalIDs.map {
+                ($0 + UInt32(8)) % UInt32(LagunaConstants.numExperts)
+            }
+            return Set(originalIDs).intersection(Set(rotatedIDs)).count
+        }
+        if injectFault {
+            precondition(!scratchRoots.isEmpty, "fault injection requires a duplicate root")
+            _ = scratchRoots[0].asData(access: .copy).data.count
+            faultRootMaterialized = true
+        }
         guard let cache else {
             preconditionFailure("cold duplicate measurement lost its cache")
         }
-        let deltas = zip(cacheOffsets, cache.map(\.offset)).map { $1 - $0 }
-        precondition(deltas.count == LagunaConstants.numHiddenLayers, "unexpected cache delta count")
-        precondition(deltas.allSatisfy { $0 == 1 }, "decode did not advance every cache exactly once")
+        let logicalDeltas = zip(cacheOffsets, cache.map(\.offset)).map { $1 - $0 }
+        let physicalDeltas = zip(cachePhysicalPositions, cache).map { pair in
+            let (before, current) = pair
+            let after = physicalPosition(current)
+            guard let maxSize = current.maxSize else { return after - before }
+            return (after - before + maxSize) % maxSize
+        }
+        precondition(
+            logicalDeltas.count == LagunaConstants.numHiddenLayers,
+            "unexpected logical cache delta count")
+        precondition(
+            physicalDeltas.count == LagunaConstants.numHiddenLayers,
+            "unexpected physical cache delta count")
+        precondition(
+            logicalDeltas.allSatisfy { $0 == 1 },
+            "decode did not advance every logical cache exactly once")
+        precondition(
+            physicalDeltas.allSatisfy { $0 == 1 },
+            "decode did not advance every physical cache exactly once")
         let measurement = LagunaColdDuplicateMeasurement(arm: arm, step: activeStep)
-        let dispatchCount = scratchRoots.count
-        scratchRoots.removeAll(keepingCapacity: true)
-        overlapRoots.removeAll(keepingCapacity: true)
+        let dispatchCount = scratchDispatchCount
+        let logicalMin = logicalDeltas.min()!
+        let logicalMax = logicalDeltas.max()!
+        let physicalMin = physicalDeltas.min()!
+        let physicalMax = physicalDeltas.max()!
+        let faultProof = faultRootMaterialized
+        let overlapText = overlaps.map(String.init).joined(separator: ",")
         cacheOffsets.removeAll(keepingCapacity: true)
+        cachePhysicalPositions.removeAll(keepingCapacity: true)
+        overlapIndices.removeAll(keepingCapacity: true)
+        scratchRoots.removeAll(keepingCapacity: true)
+        scratchDispatchCount = 0
+        faultRootMaterialized = false
         activeArm = nil
         stepInArm += 1
         if stepInArm == stepsPerArm {
             stepInArm = 0
             armIndex += 1
         }
-        let overlapText = overlaps.map(String.init).joined(separator: ",")
         write(
             "DARKBLOOM_COLD_DUPLICATE\t\(arm.label)\t\(arm.mode)\t\(arm.duplicateCount)"
-                + "\t\(measurement.step)\t\(elapsed)\t\(dispatchCount)\t1\t1\t0\t\(overlapText)")
+                + "\t\(measurement.step)\t\(elapsed)\t\(dispatchCount)"
+                + "\t\(logicalMin)\t\(logicalMax)\t\(physicalMin)\t\(physicalMax)"
+                + "\t0\t\(overlapText)")
         if injectFault {
-            precondition(firstScratchRoot != nil, "fault injection requires at least one duplicate")
-            _ = firstScratchRoot!.asData(access: .copy).data.count
+            precondition(faultProof, "fault injection did not materialize a duplicate root")
             write(
                 "DARKBLOOM_COLD_DUPLICATE_FAULT\t\(arm.label)\t\(arm.mode)"
                     + "\t\(arm.duplicateCount)\t\(measurement.step)\troot_materialized")
@@ -9758,6 +9834,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     )
                     lagunaColdDuplicateProbe.recordPacked(
                         input: x,
+                        ordinary: activated,
                         fusedWeight: fusedWeight,
                         packedScales: packedBank,
                         indices: inds)
