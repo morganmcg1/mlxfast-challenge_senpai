@@ -296,13 +296,13 @@ scale-plane density change.
 
 | Kernel | `on` µs/call (sd) | `pairwise` µs/call (sd) | Δ | 95 % CI | Δ % |
 | --- | --- | --- | --- | --- | --- |
-| `laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1` (changed) | 7.210 (0.078) | 7.350 (0.026) | **+0.140** | [+0.058, +0.222] | **+1.94 %** |
+| `laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1` (changed) | 7.210 (0.078) | 7.350 (0.026) | **+0.139** | [+0.057, +0.221] | **+1.93 %** |
 | `routed_shared_nvfp4_…_qmv_…` (invariant control) | 38.817 (0.250) | 38.368 (0.075) | **−0.449** | — | **−1.16 %** |
 
 Two facts to read together:
 
 1. **The mechanism failed on its own kernel.** Halving the scale plane made the
-   kernel it changes *slower* by +1.94 % (df 6.1, perfect 6-v-6 separation).
+   kernel it changes *slower* by +1.93 % (df 6.1, perfect 6-v-6 separation).
    `on`'s mean reproduced Stage 1's `on` mean to three decimals (7.210), so the
    harness was stable across the two stages. The likely cause is that the kernel
    was never scale-fetch-bound: the same number of scalar byte loads is still
@@ -317,17 +317,50 @@ Two facts to read together:
    −1.40 %; GPU busy 8.5923 → 8.5243 ms, −0.79 %; 406 command buffers in both
    arms.
 
-I can offer two unseparated explanations for (2) and I did not run the
-experiment that would separate them:
+Candidate explanations for (2), ranked, with what would separate them. None is
+established; I did not run the separating experiment.
 
-- *Real bandwidth relief.* The pairwise arm removes 39 × 65,408 B ≈ 2.55 MB of
-  scale traffic per decode step, which could free cache/bandwidth for the
-  neighbouring decode kernels. But 2.55 MB at this host's achieved decode
-  bandwidth accounts for only ~6–7 µs/step, whereas the neighbours together
-  gained ~59 µs/step. The magnitudes do not match.
-- *Allocation/layout artifact.* The pairwise arm allocates one extra buffer per
-  layer and builds a second pipeline-state object, which changes heap layout and
-  page placement for everything else.
+1. *Arm ↔ slot-within-rep confound.* The rep order is palindromic, so each arm
+   has the same **mean** slot (2.5) — but not the same **kind** of slot: `on`
+   always occupies the two edge slots and `pairwise` always the two middle
+   slots. The variance pattern is consistent with a slot effect in both stages:
+   the edge arm has 3× the process-level sd of the middle arm (Stage 1 `off`
+   0.120 vs `on` 0.070; Stage 2 `on` 0.078 vs `pairwise` 0.026). It is *not*
+   consistent in sign — the edge arm is the slower one in Stage 1 and the
+   faster one in Stage 2 — so a monotone edge penalty cannot be the whole
+   story, but a slot-linked variance/level effect is not excluded. The driver's
+   own comment that a host drift "cannot line up with arm labels" is true for
+   mean position and false for edge-vs-middle.
+   *Separator (cheap, env-only, ~500 s):* rerun with `ORDER="pairwise on on
+   pairwise"`. If the control's −1.16 % follows the *slot* it is an artifact; if
+   it follows the *arm* it is real.
+2. *Decode-phase cache-capacity relief.* Decode with `pairwise` stops streaming
+   the full 5.1 MB gate/up scale planes, which frees system-level cache for the
+   routed experts. This is the only candidate that also explains the axis
+   asymmetry: prefill takes the QMM path in both arms, and prefill-dominated
+   `nvfp4_gather_qmm` moved −0.03 % while every decode neighbour moved
+   −0.6…−2.7 % in one direction. The magnitude is still unexplained (≈2.55 MB
+   of scale traffic removed per step vs ≈59 µs/step gained across neighbours).
+3. *Power/DVFS headroom.* Less DRAM traffic during decode can raise sustained
+   clocks, and prefill runs in a different power regime. No clock or power
+   telemetry was captured, so this is untested.
+4. *Allocation/heap-layout side effect.* The pairwise arm allocates one extra
+   buffer per layer, which changes heap layout and page placement for
+   everything else. Weakened by the fact that the halved plane also exists
+   during prefill, which did not move. *Separator:* an allocate-but-do-not-use
+   arm (build the plane, keep the `_ps_` kernel off).
+5. *Bandwidth sharing between the two QMV kernels.* Refuted: `SPLIT=1`
+   serialises the profiled dispatches, so the two kernels are not concurrently
+   contending, and the byte magnitudes differ by ~10×.
+6. *Argument-encoding or TLB effects.* Ruled out by inspection: the same three
+   buffers are bound, and ~4 fewer pages per layer is negligible.
+
+One earlier draft of this section claimed the pairwise arm "builds a second
+pipeline-state object". That is wrong and it is withdrawn. The flag selects a
+kernel **name** in a single `MLXFast.metalKernel` construction
+(`:6933-6936`), so exactly one pipeline exists per process either way; the only
+extra cost is a one-time JIT/library compile for the differently-named variant,
+which happens before the steady window the statistics use.
 
 Verdict: mechanism (b) is **refuted** as a kernel-level optimisation, and its
 whole-step delta is **not claimed**, because the stage does not satisfy its own
@@ -335,6 +368,16 @@ invariant-control precondition. The honest residue is a *new* observation worth
 its own experiment (§7): on this host, reducing decode-phase scale traffic
 appears to speed up unrelated decode kernels far more than it speeds up the
 kernel whose traffic was reduced.
+
+Two further limits on this stage, for the record. The six neighbour-kernel
+comparisons quoted above carry **no multiplicity control**; their evidential
+weight comes from the uniform direction and the prefill/decode asymmetry, not
+from any single one of them. And Stage 1's "the control did not move" precondition
+is only asserted to Stage 1's own resolution: its control CI is ±0.62 µs
+(±1.6 %), which cannot exclude a shift of the size Stage 2 later observed
+(−0.449 µs). Both stages' process-level intervals also treat 6 process means as
+i.i.d. despite the fixed order, so they should be read as descriptive rather
+than as strict frequentist coverage.
 
 ---
 
