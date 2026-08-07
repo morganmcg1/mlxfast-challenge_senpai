@@ -221,6 +221,9 @@ let lagunaFusedRoutedGateUpEnabled =
 let lagunaPrefillFusedRoutedGateUpEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_GATE_UP"] != "0"
 
+let lagunaPrefillFusedRoutedGateUpHalvedEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_GATE_UP_HALVED"] != "0"
+
 func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
     guard osSupportsNAX,
         let generation = Int(architecture.suffix(3).prefix(2))
@@ -9814,6 +9817,8 @@ private func lagunaFusedSortedRoutedGateUp(
     indices: MLXArray,
     fusedWeight: MLXArray,
     fusedScales: MLXArray,
+    halvedScales: MLXArray?,
+    scalesEscape: MLXArray?,
     split: Int,
     downProj: SwitchLinear,
     deferUnsort: Bool
@@ -9844,18 +9849,16 @@ private func lagunaFusedSortedRoutedGateUp(
     // tile-interleaved `fusedWeight`/`fusedScales` bank instead of twice over
     // the separate banks is the fusion; every other argument matches the
     // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
-    let gateUp = MLX.gatherQuantizedMM(
-        sortedX,
-        fusedWeight,
-        scales: fusedScales,
-        biases: nil,
-        rhsIndices: idx,
-        transpose: true,
-        groupSize: 16,
-        bits: 4,
-        mode: .nvfp4,
-        sortedIndices: doSort
-    )
+    let gateUp: MLXArray
+    let useHalved = halvedScales != nil && scalesEscape != nil
+        && lagunaPrefillFusedRoutedGateUpHalvedEnabled
+        && lagunaExpertAlignedGatherEnabled
+    gateUp = MLX.gatherQuantizedMM(
+        sortedX, fusedWeight,
+        scales: useHalved ? halvedScales! : fusedScales,
+        biases: useHalved ? scalesEscape : nil,
+        rhsIndices: idx, transpose: true, groupSize: 16,
+        bits: 4, mode: .nvfp4, sortedIndices: doSort)
     let activated: MLXArray
     if lagunaExpertAlignedGatherEnabled {
         // The expert kernel writes rows with a physical stride of `split`
@@ -9916,6 +9919,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// per-expert escape [experts, 2] (gate, up) uint8.
     var _halvedPackedRoutedGateUpBank: MLXArray?
     var _packedRoutedGateUpEscape: MLXArray?
+    /// Halved fused gate/up scales [experts, 2*split, K/32] + escape [experts, 2].
+    var _halvedFusedRoutedGateUpScales: MLXArray?
+    var _fusedRoutedGateUpScalesEscape: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -10000,6 +10006,13 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         _routedDownProj = downModule
         _routedDownWeight = downWeight
         _routedDownScales = downScales
+        _halvedFusedRoutedGateUpScales = contiguous(
+            fusedScales[0..., 0..., .stride(from: 0, by: 2)])
+        _fusedRoutedGateUpScalesEscape = contiguous(stacked([
+            fusedScales[0..., 0, 1].reshaped([experts, 1]),
+            fusedScales[0..., split, 1].reshaped([experts, 1])], axis: 1))
+        var prepared = [fusedWeight, fusedScales,
+            _halvedFusedRoutedGateUpScales!, _fusedRoutedGateUpScalesEscape!]
         // Halve routed down scales: [experts, 2048, 32] -> [experts, 2048, 16]
         // + escape [experts, 1]. The NVFP4 quantizer pairwise-constancy
         // invariant guarantees scale[2k]==scale[2k+1] for k>=1 in each
@@ -10016,7 +10029,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             downScales[0..., 0, 1].reshaped([experts, 1]))
         _halvedRoutedDownScales = halvedDown
         _routedDownScalesEscape = downEscape
-        var prepared = [fusedWeight, fusedScales]
         prepared.append(
             contentsOf: preparePackedRoutedGateUpBank(
                 fusedScales: fusedScales,
@@ -10334,6 +10346,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     indices: inds,
                     fusedWeight: fusedWeight,
                     fusedScales: fusedScales,
+                    halvedScales: _halvedFusedRoutedGateUpScales,
+                    scalesEscape: _fusedRoutedGateUpScalesEscape,
                     split: _fusedRoutedGateUpSplit,
                     downProj: downProj,
                     deferUnsort:
