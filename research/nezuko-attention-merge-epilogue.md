@@ -12,8 +12,34 @@ advisor's revised +12,000-byte cap.
 Research-only: this file, `research/nezuko_epilogue_probe.swift`,
 `research/nezuko_epilogue_abba.sh`,
 `research/nezuko_pr205_rebase_verify.sh`,
-`research/nezuko_pr205_dispatch_receipt.sh` and
+`research/nezuko_pr205_dispatch_receipt.sh`,
+`research/nezuko_epilogue_decode_probe.sh`,
+`research/nezuko_decode_probe_stats.py`,
+`research/nezuko_decode_probe_pool.py`,
+`research/nezuko_decode_traffic.py`,
+`research/nezuko_pooled_stats.py` and
 `research/nezuko-pr205-submission-note.md`.
+
+---
+
+## Verdict in one box
+
+| axis | outcome |
+|---|---|
+| correctness | **perfect.** Bit-exact by construction; `max_abs_diff = 0` on 1344 checked steps, 11 cases, GPQA TTFT 9/9, semantic judge 9/9, both official floors passed (§6, §7, §9, §11) |
+| budget | **−454 bytes** net editable growth, one file (§8) |
+| isolated kernel (M4, ABBA, `0.1 µs` resolution) | **wins**: sliding `+0.400 µs/call (+2.51 %)`, full `+0.202 µs/call (+1.11 %)`; residency-robust (§4, §13.6) |
+| projected step effect | `30 × 0.400 + 10 × 0.202 ≈ 14.02 µs/step` — pre-registered before any receipt (§5) |
+| official M5 receipt (1 of 2 spent) | `c03dc117`, `officialScore 2.5490802`, `decode_speedup 2.804788`. Point prediction **rejected at 95 %** (`−1.35σ` vs ranked anchor), but the CI contains zero: **a regression is not established** (§11) |
+| in-situ M4 decode, 18 palindromic pairs, 52k bit-exact steps | `+7.99 ± 8.70 µs/step` — **underpowered null** (§12) |
+| combined M4 + M5 | `+1.86 ± 7.82 µs/step`, CI `[−13.48, +17.19]` — contains **both** zero and full transfer (§12.4) |
+| my own explanatory mechanism (§13.1, "the harness was cache-resident") | **pre-registered a discriminator against myself (§13.5) and it refuted me (§13.6)**. Retracted. |
+| **status** | **inconclusive on timing**, not negative. The effect is real per call and smaller than every instrument available; the honest ceiling (`46.8 µs/step`) is below this programme's 3σ receipt-confirmable floor (`53.8 µs/step`, §11.2) |
+
+The reusable outputs are §11.2's **certified programme-wide receipt noise
+floor** (1112 baselines, 322 near-identical candidate pairs, two independent
+instruments agreeing to 5 %), §13.2's **decode traffic model**, and §13.4's
+**bound-match axis**, which is orthogonal to PR #204's exposure axis.
 
 ---
 
@@ -1100,13 +1126,109 @@ projected half-width `≈ 10.4 µs`. Pairing is strictly *within* session and
 *between adjacent runs*, so a between-session level shift cannot bias the pooled
 mean.
 
-## 13. The mechanism: the isolated harness measured a different machine
+### 12.4 Session 2 and the pooled M4 verdict
+
+Session 2 ran the pre-registered 24-run palindrome
+(`A B B A` × 6, `/tmp/nezprobe2`, supervised id `5ed570a4`, 1272 s). Every
+guard passed again: `SRC_MD5_HEAD eee114e4…` ≠ `SRC_MD5_BASE 917039f5…`,
+`BIN_MD5_A 14106905…` ≠ `BIN_MD5_B 8afd31eb…`, `BINARIES_DIFFER 1`,
+`WORKTREE_DIRTY_AFTER_BUILD 0`, all 24 runs `RUN_RC 0`, and all 24 reported
+`0 divergences (all match)` — a further 28,800 teacher-forced steps, **52,000+
+cumulative across the two sessions**, all bit-exact. (The two sessions' binaries
+differ from each other: Swift release builds are not byte-reproducible across
+sessions. That is expected, and it is why the guard compares A against B
+*within* a session and never across.)
+
+Session-2 run medians (µs): 8274.88 · 8280.65 · 8313.48 · 8276.15 · 8279.42 ·
+8309.44 · 8324.79 · 8260.63 · 8286.73 · 8296.17 · 8282.90 · 8261.58 · 8274.29 ·
+8315.06 · 8283.77 · 8316.29 · 8297.42 · 8288.62 · 8290.06 · 8260.71 · 8367.50 ·
+8266.40 · 8302.38 · 8267.52.
+
+```
+SESSION 2  n=12  saved mean +10.88 us/step  sd 43.34  se 12.51  t +0.87
+           95% CI [-16.65, +38.42]
+POOLED     n=18  saved mean  +7.99 us/step  sd 36.89  se  8.70  t +0.92
+           95% CI [-10.36, +26.34]   half-width 18.35 us = 0.0963 % of the step
+             pre-registered +14.02 inside CI ?  YES
+             zero inside CI ?                   YES  (still a null)
+```
+
+The projected half-width was `10.4 µs`; the realised one is `18.35 µs`, because
+session 2's per-pair sd (43.3) was twice session 1's (20.9). One pair
+(`−101.10`) is a thermal/noise excursion driven by run 21A's 8367.50 median,
+the slowest run in either session. **The pooled result is still underpowered and
+still a null.**
+
+Secondary robust statistics, **not pre-registered**, reported because the
+distribution is visibly heavy-tailed and suppressing them would be selective:
+
+```
+median +15.38   10%-trimmed mean +12.32   (trim drops -101.10, -32.52, +40.77, +64.17)
+sign test    11/18 positive   one-sided p = 0.2403
+Wilcoxon     W+ = 119         one-sided p = 0.0770
+bootstrap mean 95% CI [-9.79, +23.22]
+```
+
+These lean positive and the Wilcoxon is suggestive, but none of them clears a
+threshold, and I am not entitled to promote a secondary statistic over the
+pre-registered mean because it reads better. **The honest statement is that 18
+pairs of in-situ M4 decode cannot distinguish `+14 µs` from `0`.** For 80 %
+power the observed variance implies **55 pairs** against `+14.02 µs` (≈ 94 min
+of probe) and **218 pairs** against a half-size `+7 µs` effect (≈ 371 min).
+
+Combining the two independent instruments — with the caveat that they are
+different machines and one of them is a single contrast:
+
+```
+M4 in-situ  +7.99 +- 8.70 us/step   (n = 18 pairs)
+M5 receipt -24.21 +- 17.92 us/step  (n = 1 contrast, sigma from §11.2)
+agreement:  z = +1.62  -> the two hosts are NOT statistically distinguishable
+combined:   +1.86 +- 7.82   95% CI [-13.48, +17.19]
+              zero inside CI: YES     pre-registered +14.02 inside CI: YES
+```
+
+This is worth stating plainly because it **weakens** §11.4 rather than
+reinforcing it. The M5 receipt alone rejects the `+14.02 µs` point prediction at
+95 % (§11.4). The *combined* evidence does not: the pooled M4 point estimate is
+positive, and the meta-analytic interval still contains full transfer. What is
+established across both instruments is only that **the effect, if it exists,
+sits below both instruments' floors** — and that a change with an M4
+isolated-kernel win of `+2.51 %` moved neither host's step time measurably.
+
+Two caveats I will not paper over. First, the adversarial review is right that
+18 pairs can reject *full* transfer but cannot separate *partial* transfer
+(`+5–7 µs`) from zero; ~37 pairs would be needed for that, and I did not run
+them. Second, the M5 σ of `17.92 µs/step` is a corpus-derived population figure
+(§11.2), not a within-session repeat of my own submission, so the combined
+interval inherits that assumption.
+
+Every number in this subsection is reproduced by
+`python3 research/nezuko_pooled_stats.py`, which carries both sessions' pair
+savings as literals and recomputes the pre-registered mean, the robust
+secondaries (exact sign test, exact-enumeration Wilcoxon, 200k bootstrap), the
+M5 contrast, the heterogeneity `z`, the inverse-variance combination and the
+power table. It takes no arguments and no GPU.
+
+## 13. The mechanism: a traffic model of the decode step, and one refuted hypothesis
 
 This section is the part of the PR I expect to outlive the patch. It is
 arithmetic over `LagunaConfig.swift` constants and my own S1 measurement; it
-uses no new GPU time and no receipts.
+uses no receipts. §13.1–§13.4 were written first and use no new GPU time at
+all. §13.5 then pre-registered a discriminator against my own claim and §13.6
+reports its result: **26 s of GPU time refuted §13.1.** I have left the
+original reasoning in place rather than rewriting history, with a retraction
+banner on the subsection that did not survive.
 
 ### 13.1 The isolated ABBA harness provably ran cache-resident
+
+> **RETRACTED IN PART — read §13.6 before using this subsection.** The
+> bandwidth arithmetic below is correct, but the *inference* I drew from it is
+> not. I pre-registered a discriminating experiment (§13.5), ran it (S5), and
+> it refuted me: the 4× reuse factor is intrinsic to the kernel's GQA
+> structure and is present in situ too, so "the harness was cache-resident and
+> the real machine is not" does not follow. §13.2 (traffic arithmetic) and
+> §13.4 (the taxonomy rules) survive; §13.1's conclusion and the parts of
+> §13.3 that depend on it do not.
 
 Take the sliding kernel exactly as §2.1 measured it: `18.446 µs` per call,
 32 threadgroups. Each threadgroup streams the whole 512-position window for its
@@ -1177,6 +1299,13 @@ evidence: a 20→40 GPU-core ratio is also ≈2, so the step ratio cannot
 discriminate bandwidth-bound from compute-bound. §13.1 does that work alone.
 
 ### 13.3 Why this predicts a zero step-level effect, on both machines
+
+> **RETRACTED IN PART — see §13.6.** The first row of the table below ("KV
+> source: SLC") is exactly what S5 tested and refuted. Everything in this
+> subsection that rests on "the isolated loop was cache-resident and the real
+> step is not" falls with it. What survives is the *bytes* observation — the
+> patch removes zero DRAM bytes — and the closing note that the saving is
+> issue slots rather than bytes.
 
 The patch removes **zero DRAM bytes**. It removes six threadgroup stores and
 six threadgroup loads per thread, i.e. on-chip transactions and
@@ -1301,3 +1430,98 @@ collapses in µs is H-onchip. The null arm's spread at each slot count is the
 resolution claim; a delta inside the null spread is not a measurement.
 
 The result is §13.6.
+
+### 13.6 S5 result — my own mechanism is refuted
+
+Supervised run `6167bd06-e97b-4310-9771-f27690aa102a`, exit 0, **26 s** of
+wall-clock, `PROBE_RC=0`, against `BASE_SRC_MD5 917039f5a7afd0bd7eb099b222176fb4`
+(`git show 747d130b:Sources/MLXFastModel/LagunaRuntimeModel.swift`).
+
+```
+kernel   slots  wsMiB    us/call    issGB/s     V1saved [min max]     nullsaved [min max]
+sliding      1      2     18.482      453.9  +0.406 [+0.183 +0.497]  +0.011 [-0.127 +0.131]
+sliding      2      4     18.746      447.5  +0.404 [+0.154 +0.474]  -0.030 [-0.142 +0.112]
+sliding      4      8     19.466      430.9  +0.331 [+0.275 +0.409]  +0.039 [-0.063 +0.100]
+sliding      8     16     20.264      414.0  +0.311 [+0.266 +0.425]  -0.013 [-0.066 +0.042]
+sliding     16     32     20.238      414.5  +0.361 [+0.255 +0.441]  +0.003 [-0.103 +0.057]
+sliding     32     64     19.360      433.3  +0.221 [-0.191 +0.875]  -0.007 [-0.048 +0.144]
+full         1      2     15.871      396.4  +0.145 [+0.057 +0.241]  -0.060 [-0.083 -0.035]
+full         2      4     18.220      345.3  +0.172 [-0.103 +0.374]  -0.087 [-0.229 +0.888]
+full         4      8     19.365      324.9  +0.430 [+0.331 +0.538]  -0.047 [-0.208 +0.051]
+full         8     16     20.664      304.5  +0.447 [+0.357 +0.571]  -0.085 [-0.140 +0.029]
+full        16     32     21.080      298.5  +0.528 [+0.378 +0.625]  -0.025 [-0.139 +0.046]
+full        32     64     21.080      298.5  +0.471 [+0.421 +0.596]  -0.071 [-0.163 +0.214]
+```
+
+**The instrument worked.** The rotation really did move the KV out of cache:
+the sliding call slows `18.482 → 20.264 µs` (`+9.6 %`) and the full call
+`15.871 → 21.080 µs` (`+32.8 %`) with the kernel, the grid and the byte count
+per call all identical — the only thing that changed is where those bytes live.
+And the null arm — a second independent build of the identical source, paired
+the same way at every slot count — stays inside `[−0.087, +0.039] µs` on all
+twelve rows, so the resolution is about `0.1 µs` and every `V1saved` figure
+above `0.15 µs` is a measurement rather than noise.
+
+**And the pre-registered prediction fails.**
+
+| | sliding | full |
+|---|---|---|
+| `delta(1 slot)` | +0.406 µs | +0.145 µs |
+| `delta(32 slots)` | **+0.221 µs** | **+0.471 µs** |
+| ratio | 0.54× | **3.25×** |
+| H-onchip predicted | ≤ 0.25× (≤ +0.10 µs) | ≤ 0.25× |
+| verdict | **fails** | **fails, with the opposite sign** |
+
+On sliding the delta decays by roughly a sixth over a 16× working-set increase
+(`0.406 → 0.361` at 32 MiB) and the only point near the predicted collapse is
+the 64 MiB row, whose spread `[−0.191, +0.875]` is the one genuinely noisy cell
+in the table. On full the delta does not decay at all — it *triples*, and it is
+largest and tightest exactly where the kernel is slowest and least
+cache-resident (`+0.528 [+0.378 +0.625]` at 32 MiB).
+
+**So §13.1's inference was wrong, and I am retracting it.** The observation in
+§13.1 is still true as a description of the harness: with `kReps = 400`
+dispatches over one 2 MiB slice, the S4 measurement re-read a cache-resident KV
+cache. What does not follow — and what S5 directly tests and rejects — is the
+*inference* that residency is **why** V1 won. Take the residency away and the
+win stays. The `455 GB/s > 273 GB/s` contradiction that motivated §13.1 has a
+more boring resolution than I gave it: issued bytes are 4× unique bytes because
+32 threadgroups share 8 KV heads, and that `64/8 = 8`-way GQA reuse is
+**intrinsic to the kernel and present in situ too**, not a property of my
+harness. At the largest working set the *unique* DRAM rate is only
+`2 MiB / 19.36 µs = 108 GB/s` (sliding) and `2 MiB / 21.08 µs = 100 GB/s`
+(full) — 36–40 % of the M4 Pro peak. There was never a bandwidth contradiction
+to explain.
+
+**What this does and does not settle.** S5 removed *inter-call* KV residency,
+which is the artifact my harness introduced. It did not — and structurally
+could not — reproduce the in-situ regime, where the binding resource is the
+`≈ 810 MB/step` of MoE and dense weight traffic computed in §13.2, of which the
+attention KV stream is `82.5 MB`, about 10 %. So:
+
+- **refuted**: "the S4 win is an artifact of a cache-resident harness";
+- **untouched**: §13.2's traffic arithmetic, which is arithmetic over
+  `LagunaConstants` and does not depend on S5;
+- **untested**: the bound-match form of §13.3/§13.4 — that in situ the epilogue
+  relieves a resource which is slack because *weight* traffic binds the step.
+  Nothing in S5 puts the GPU under that kind of pressure.
+
+**Where that leaves the experiment.** With §13.1 retracted, the per-call saving
+of `+0.4 µs` (sliding) and `+0.15…+0.5 µs` (full) is a real, residency-robust,
+`0.1 µs`-resolved effect, and the `30 × 0.400 + 10 × 0.202 ≈ 14 µs/step`
+projection is no longer suspect at the per-call end. The simplest reading of
+the whole PR is now the least dramatic one: **the effect is probably real and
+simply smaller than every instrument I have.** That is exactly what §12.4's
+combined estimate says — `+1.86 ± 7.82 µs/step`, an interval containing both
+zero and the full `+14.02` — and it is why this experiment is reported as
+**inconclusive on timing** rather than as a negative result. I had written §13
+as a confident explanation of a negative; the honest correction is that I
+explained something that had not been established.
+
+The surviving discriminator is no longer a harness variation. It is either
+(a) ~55 more in-situ M4 pairs (§12.4, ≈ 94 min, no receipt), which would resolve
+`+14 µs` at 80 % power on this host, or (b) a Metal capture of one real decode
+step to measure the attention dispatches' actual exposure — the direct test of
+the bound-match hypothesis, and the one measurement that would let #204's
+taxonomy and this PR's `bound-match` axis be checked against each other rather
+than argued.
