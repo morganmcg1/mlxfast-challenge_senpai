@@ -72,6 +72,17 @@ FLOOR_S2 = 9.5         # dS2 below this -> R0a, arm void
 CAP_M2 = 33.3          # dM2 above this -> R0b, flag
 CAP_S2 = 37.2          # dS2 above this -> R0b, flag
 
+# Pre-registered S3 split (s3 submission note, section 8), fixed before the
+# receipt existed. S3 runs S2's staging body verbatim but points the shadow
+# loader at this expert's OWN tile -- the exact lines the real loader reads one
+# barrier later -- so the instruction vector is identical and the extra DRAM
+# bytes are zero. dS3 is therefore the pure issue/occupancy term and dS2 - dS3
+# is the byte term. S3 is deliberately NOT in ADDS: its instruction vector
+# equals S2's, so feeding it to the linear program would make the system
+# degenerate. The byte term lives outside the instruction model by design.
+S3_ISSUE_FRAC = 0.75   # R-S3-A: dS3 >= this * dS2 -> issue/structure-bound
+S3_BYTE_FRAC = 0.35    # R-S3-B: dS3 <= this * dS2 -> byte-bound
+
 # Measured instrument noise (report section 4.6), from the 1583-submission
 # feed. Selection is non-circular: pick the n=16 receipts whose CANDIDATE
 # decode is within 1% of the control's, then read their CANDIDATE PREFILL
@@ -551,7 +562,77 @@ def staging_reading(dM2, dS2, dB2):
                f"marginal vs {GBYTE / (W / 1e3):.0f} GB/s for the body")
     out.append("  the neighbour slab may be partly cache-served, in which case "
                "the marginal bytes are fewer and the cost is staging pipeline "
-               "rather than DRAM. S3 is the arm that separates those.")
+               "rather than DRAM. S3 separates those; see the split below.")
+    return out
+
+
+def byte_split(dS2, dS3):
+    """Split dS2 into a staging-issue term and a DRAM-byte term using S3.
+
+    S2 and S3 compile to the same instruction vector on every priced axis
+    (dev_load 8, tg_store 6, barrier 8, mma 1, int_alu 91); the only IR
+    difference is one extra const_load for the guard scalar. The single
+    behavioural difference is WHERE the shadow loader reads: S2 reads the
+    neighbour expert's slab, which is 5.89 GB of genuinely new DRAM traffic,
+    while S3 re-reads this expert's own slab, which the real loader touches one
+    barrier later and is therefore already resident. So
+
+        dS3        -> issue/occupancy cost of the staging instructions
+        dS2 - dS3  -> cost of the bytes those instructions move
+
+    which is the one decomposition the instruction census cannot produce,
+    because both arms have the same census.
+    """
+    out = ["--- staging: issue vs bytes (S3 minus S2) ---"]
+    if dS2 is None or dS3 is None:
+        out.append("  needs both the S2 and the S3 receipt")
+        return out
+    frac = dS3 / dS2
+    byte_term = dS2 - dS3
+    add_gb = GBYTE * ADDS["s2"]["dev_load"] / BODY["dev_load"]
+    out.append(f"  dS2 = {dS2:+.3f} ms (staging + {add_gb:.2f} GB of new DRAM)")
+    out.append(f"  dS3 = {dS3:+.3f} ms (same staging, zero new DRAM) = "
+               f"{100 * frac:.1f}% of dS2")
+    out.append(f"  byte term dS2 - dS3 = {byte_term:+.3f} ms "
+               f"({100 * (1 - frac):.1f}% of dS2)")
+    if abs(byte_term) <= 3 * SIGMA_D:
+        out.append(f"  byte term is inside 3 sigma ({3 * SIGMA_D:.2f} ms), so no "
+                   "marginal bandwidth can be read from it")
+    elif byte_term > 0:
+        bw = add_gb / (byte_term / 1e3)
+        out.append(f"  implied marginal bandwidth {bw:.0f} GB/s vs "
+                   f"{GBYTE / (W / 1e3):.0f} GB/s for the body")
+        if bw > max(GBPS.values()):
+            out.append(f"  that exceeds the fastest quoted peak "
+                       f"({max(GBPS.values()):.1f} GB/s), so the bytes were not "
+                       "streamed at that rate -- they were absorbed into stalls "
+                       "the kernel was already paying for.")
+    else:
+        out.append("  !! dS3 exceeds dS2 by more than 3 sigma. dS3 <= dS2 is "
+                   "forced by construction, so the byte accounting is wrong: "
+                   "the neighbour slab S2 reads was already cache-served, and "
+                   "the split below prices nothing.")
+    if frac >= S3_ISSUE_FRAC:
+        out.append("  => R-S3-A ISSUE/STRUCTURE-BOUND. The bytes are nearly "
+                   "free; what costs is the staging pipeline itself. Optimise "
+                   "structure: double buffering, wider loads, fewer barriers, "
+                   "deeper software pipelining. Do NOT spend effort on byte "
+                   "reduction.")
+    elif frac <= S3_BYTE_FRAC:
+        out.append("  => R-S3-B BYTE-BOUND. The staging instructions are nearly "
+                   "free; what costs is the traffic. Optimise bytes and reuse: "
+                   "larger tiles, better expert blocking, less re-fetch. Do NOT "
+                   "spend effort on pipeline restructuring.")
+    else:
+        out.append(f"  => R-S3-C MIXED. Issue share {100 * frac:.0f}%, byte "
+                   f"share {100 * (1 - frac):.0f}%. Both terms are real; the "
+                   "larger one is the first place to spend, and neither branch "
+                   "alone can recover all of dS2.")
+    out.append("  caveat (pre-registered): S3's shadow read hits cache in steady "
+               "state but the first touch per threadgroup may still miss, so "
+               "dS3 slightly over-states the pure issue term. The bias runs "
+               "toward R-S3-A, which is the conservative direction for anyone "
+               "who would rather chase bytes.")
     return out
 
 
@@ -612,7 +693,7 @@ def main():
         T = T_ms(dsec, p)
         got[name] = {"S": S, "T": T, "dS": S - ctrl_S, "dT": T - ctrl_T,
                      "ns": ns_of(dsec, p), "id": hit.get("id"),
-                     "dec": dsec,
+                     "dec": dsec, "m": m,
                      "dec_base": m.get("baseline_decode_seconds_per_token")}
         for k in ("passed_correctness", "max_abs_diff",
                   "passed_prefill_speedup_floor", "passed_decode_speedup_floor",
@@ -630,6 +711,22 @@ def main():
     dM2 = got.get("m2", {}).get("dS")
     dS2 = got.get("s2", {}).get("dS")
     dB2 = got.get("b2", {}).get("dS")
+    dS3 = got.get("s3", {}).get("dS")
+    # R-S3-V and its equivalents on the other arms. A probe that did not run
+    # bit-exact, or that failed a floor, prices nothing: its delta is then a
+    # measurement of a different computation, not of the axis under test.
+    for name, g in got.items():
+        m = g["m"]
+        bad = [k for k in ("passed_correctness", "passed_prefill_speedup_floor",
+                           "passed_decode_speedup_floor") if m.get(k) is False]
+        if m.get("max_abs_diff") not in (0, 0.0, None):
+            bad.append(f"max_abs_diff={m['max_abs_diff']}")
+        if bad:
+            print(f"  VOID {name}: {', '.join(bad)}. This arm did not run "
+                  "bit-exact against the pinned baseline, so its delta prices "
+                  "nothing and must be excluded from every reading below.")
+            if name == "s3":
+                dS3 = None
     span = (None if (dS2 is None or dB2 is None)
             else tuple(sorted((dS2 - dB2, dS2 - dB2 / 2.0))))
     print("--- decomposition ---")
@@ -641,6 +738,8 @@ def main():
           f"{'n/a' if dS2 is None else f'{dS2:+.3f} ms'}")
     print(f"  dS2p (pure load, interval)      = "
           f"{'n/a' if span is None else f'[{span[0]:+.3f}, {span[1]:+.3f}] ms'}")
+    print(f"  dS3  (same staging, no bytes)   = "
+          f"{'n/a' if dS3 is None else f'{dS3:+.3f} ms'}")
     print()
     print("--- resource-share ceilings (each arm read on its own) ---")
     for name, delta in (("m2", dM2), ("s2", dS2), ("b2", dB2)):
@@ -650,6 +749,9 @@ def main():
             print(line)
     print()
     for line in staging_reading(dM2, dS2, dB2):
+        print(line)
+    print()
+    for line in byte_split(dS2, dS3):
         print(line)
     print()
     for line in joint_ceiling({"m2": dM2, "s2": dS2, "b2": dB2}):
