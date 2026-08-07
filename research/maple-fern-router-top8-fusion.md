@@ -231,7 +231,103 @@ and the submitted surface is reverted to base.
 Teacher-forced greedy tokens: **0 divergences in every one of the 8 runs**, so
 the regression is a genuine timing result and not a correctness artefact.
 
-<!-- ATTRIBUTION SECTION PENDING -->
+## 5. Attribution: where the +36 µs comes from, and what the dispatches were worth
+
+The end-to-end contrast conflates two things: the fused kernel got *more
+expensive*, and the 39 deleted dispatches were worth *something*. A third arm
+separates them.
+
+| arm | `DARKBLOOM_DECODE_ROUTER_EMIT_SINK` | emit kernel | standalone dispatch |
+|---|---|---|---|
+| **A** | `1` | runs, output used | **deleted** |
+| **B** | `0` | not built | runs, output used |
+| **C** | `2` | runs, output **ignored** | runs, output used |
+
+so that
+
+- `ΔC = C − B` = the emit-variant QMV's own added cost, dispatch count held fixed
+- `ΔD = A − C` = the marginal value of removing 39 dispatches/step
+- `ΔC + ΔD = A − B` (identity, must hold)
+
+18 runs, 3 palindromic **ABCCBA** blocks, 1200 timed steps each, one binary.
+The palindrome gives all three arms the same mean position in the session
+(3.5), so a linear drift cancels for every contrast, not just for one.
+
+### 5.1 Results
+
+| arm | mean of run medians | median of run medians | between-run sd |
+|---|---|---|---|
+| A emit sink | 8339.8 µs | 8335.6 µs | 16.0 µs |
+| B base | 8303.3 µs | 8298.9 µs | 28.1 µs |
+| C emit + standalone | 8340.6 µs | 8322.8 µs | 34.5 µs |
+
+| contrast | paired mean | sd | sem | t (df=5) | verdict |
+|---|---|---|---|---|---|
+| `ΔC = C − B` emit kernel's own cost | **+37.3 µs** | 12.1 | 4.9 | **7.6** | `p ≈ 0.0006` |
+| `ΔD = A − C` 39 dispatches removed | **−0.9 µs** | 29.7 | 12.1 | −0.07 | `p ≈ 0.94`, **null** |
+| `A − B` end-to-end | +36.4 µs | 24.2 | 9.9 | 3.7 | `p ≈ 0.014` |
+
+The identity closes exactly: `+37.3 − 0.9 = +36.4`. The end-to-end figure also
+**replicates across sessions**: the independent 8-run ABBA block gave a paired
+mean of `+36.3 µs`, this 18-run ABCCBA block gives `+36.4 µs`.
+
+Teacher-forced greedy tokens: **0 divergences in all 18 runs**.
+
+### 5.2 What this says
+
+**Removing 39 router dispatches per decode step is worth nothing.**
+`ΔD = −0.9 ± 12.1 µs/step`; a 95 % interval is roughly `[−32, +30] µs`. The
+census-derived prediction for this exact quantity was `−105 … −185 µs/step`.
+The most favourable end of the measured interval is still **3.5× smaller** than
+the least aggressive census prediction, and the point estimate is **two orders
+of magnitude** below the 185.7 µs/step headline. The dispatches were not on the
+critical path at all.
+
+The entire +36 µs regression is the **fused kernel's own added cost**
+(`ΔC = +37.3 ± 4.9 µs`, ≈ `+0.95 µs` per call over 39 calls). The trade the
+experiment actually made was: pay ~1 µs/call to make the gate/up QMV emit the
+router, in exchange for deleting dispatches that were free.
+
+Read against the mechanism table registered before the arm-C data was seen:
+
+| candidate mechanism | predicted `ΔC` | predicted `ΔD` | outcome |
+|---|---|---|---|
+| **census-true** (dispatches really cost 105–205 µs/step) | +150…+230 | −105…−185 | **decisively excluded** (`ΔD` is ~9 sem away) |
+| barrier / command-buffer boundary reshuffle | small or negative | **> 0** | not dominant (`ΔC` is large and positive) |
+| **occupancy / register-pressure step in the QMV** | +35…+55 | −0…−10 | **consistent** |
+| **MLX 3-output primitive bookkeeping** | +35…+55, GPU time flat | −0…−10 | **consistent** |
+| emitter-tail serialization | +35…+55 | −0…−10 | consistent but implausible: the emitting group is #7 of 2048, so it launches in the first wave and its extra ~0.3–0.5 µs hides under a ~45–80 µs kernel |
+| dispatches are free (side-branch) | ≈ +40 by identity | **≈ 0** | **this is what happened** |
+
+Three mechanisms survive for the `+37 µs` and this experiment cannot separate
+them further — doing so needs pipeline reflection (register count, max threads
+per threadgroup) and per-kernel GPU durations, which is not worth spending on a
+change that is being reverted. What *is* settled, and is the point of the
+experiment, is `ΔD ≈ 0`.
+
+One known bias: arm C materializes two small unused output arrays per layer
+that neither A nor B carries, which biases `ΔC` **up** and `ΔD` **down** by a
+few µs. Correcting for it moves `ΔD` even closer to zero or slightly positive.
+It cannot rescue the hypothesis.
+
+### 5.3 Arm-C validity
+
+`ΔD ≈ 0` would also be the reading if arm C had silently collapsed onto arm A —
+for example if `SINK=2` enabled the sink (it is `!= "0"`) while the
+keep-standalone branch never fired. Arms A and C are byte-identical in worker
+stderr, so the logs cannot separate them. This is checked directly instead, by
+fault injection:
+
+a single **bfloat16 ULP** is added to the *emit kernel's* `router_scores`
+output only, and the per-step logit digests are recompiled and re-run.
+
+| arm | consumes | expected digest |
+|---|---|---|
+| A | emit scores | **changes** vs clean reference |
+| C | standalone scores | **identical** to clean reference |
+
+<!-- ARM-C VALIDITY WITNESS PENDING -->
+
 
 ## 6. Why the census figure was not a marginal cost
 
