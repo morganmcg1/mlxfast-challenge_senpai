@@ -267,9 +267,11 @@ let lagunaFusedQKVProjectionEnabled =
 /// weight per attention layer and serve Q/K/V from a single projection
 /// dispatch during prefill (L > 1). Bit-exact for bias-free `Linear`
 /// projections; decode keeps its existing fused norm+QKV kernel. Set
-/// `DARKBLOOM_FUSED_QKV=0` to ablate.
+/// `DARKBLOOM_FUSED_QKV=1` to enable. Default OFF: the concatenated [Wq;Wk;Wv]
+/// bank matmul changes M5 _nax GEMM accumulation order and can flip near-tie
+/// tokens. Enabled only for M4 research where it is bit-exact.
 let lagunaFusedQKVEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV"] == "1"
 
 /// TensorFold-derived within-token batching for the serial decode stream.
 /// A native group-32 affine INT8 side layout packs Q/K/V into one batched
@@ -10467,6 +10469,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             && selfAttn.wo.weight.dtype == .bfloat16
             && postAttentionLayerNorm.weight.dtype == .bfloat16
             && x.dims(1, L, LagunaConstants.hiddenSize)
+            && ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_ADDMM"] == "1"
         let r = selfAttn(
             x,
             inputNorm: inputLayerNorm,
