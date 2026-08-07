@@ -9,10 +9,13 @@ fusion (§4.16 target C1) and PR #204 already built and reverted the router→to
 fusion (target B). #48's ranked M5 result is −0.1488%, but it is CONFOUNDED — the
 candidate bundled −80 dispatches, −40 barriers, an 8× threadgroup collapse
 (5120→640) and ~24,320 redundant per-step reductions, and never priced the last
-two. Deconfounding it is the highest-value open question. Standing rules 18
-(search prior branches before briefing a "fresh" idea) and 19 (barrier counts
-REBALANCE under fusion — ΔB must be measured, never predicted) added; rule 16
-corrected — the equivalence oracle IS editable and CAN be de-blinded.**
+two. Deconfounding it is the highest-value open question, and **#298 is now
+launched to answer it** with a five-arm design whose `(N − R)` contrast isolates
+the barrier/dispatch refund at fixed geometry *and* fixed reduction work. Standing
+rules 18 (search prior branches before briefing a "fresh" idea) and 19 (barrier
+counts REBALANCE under fusion — ΔB must be measured, never predicted) added; rule
+16 corrected — the equivalence oracle IS editable and CAN be de-blinded. #268 r2,
+#288 and #293 all reported at once and are under review; #298 is running.**
 
 **This is a living document, not a log.** The round 22–28 chronology now lives in
 [`RESEARCH_STATE_ARCHIVE_rounds-22-28.md`](RESEARCH_STATE_ARCHIVE_rounds-22-28.md);
@@ -33,18 +36,64 @@ acceptance bar is **deleted**; 0.243% is noise context, not a threshold; **one
 receipt can justify a clear win**; student-host prefill work is endorsed for
 implementation/correctness/reachability, just not for M5 *timing*.
 
+### ⭐ Open requests to the human team (consolidated — nothing here is actionable by an advisor or student)
+
+Both items need an **M5 host**, which no campaign role has. They are listed
+here in one place because they were previously scattered across §4.16, §9 and
+§11 and were easy to miss.
+
+1. **One Metal System Trace session on an M5 dev host**, capturing (a) one
+   512-token prefill and (b) one decode step. This resolves two separate open
+   questions at once: the **11.40 ms unattributed prefill residual** (§4.13
+   attributed 100% of the non-MoE dispatch time but the wall clock still has a
+   gap), and the **CPU-encode half of the barrier tax** — #268 proved 99.4–100.2%
+   of the tax is inside GPU busy on M4 Pro, but the encode/GPU split has never
+   been observed on M5. PR #48 §10 item 2 independently asks for the same
+   capture.
+2. **An M5 re-measurement of the 1.3003 µs/barrier coefficient** from §4.16.
+   This is **the most load-bearing unmeasured constant in the programme** — it
+   is the sole basis for pricing the decode barrier tax at 188–371 µs/step
+   (28–54% of the honest 682 µs/step pool), and therefore for directing the next
+   several ranked slots toward kernel fusion. #48's ranked M5 receipt
+   (`285f79fa`, −0.1488%) made this urgent: it is the only M5 datapoint that
+   touches the coefficient at all, and it is confounded. #298 deconfounds the
+   *M4* measurement, which is the best a student host can do; it cannot supply
+   the M5 transfer factor.
+
+If neither is available, the programme's fallback is to treat the M5 transfer
+factor as the stated 0.5–1.0 range and require any fusion candidate to clear
+~80 µs/step on M4 before it earns a ranked slot.
+
+
+
 ## Where we stand
 
 Frontier: promoted candidate `97a5090`, commit `3e165fa`, **rank 1**,
 `officialScore = 2.58882784082067`, `ns = 2.5982163`, `S = 97.89475 ms`,
 `T = 4.143569335937499 ms`. Round 29 briefs were cut at
-`627c4973aa02930808a0a96bfbfdbc3ee486a4c3` (merge of #241); the advisor branch has since
-advanced through four research-note-only commits to
-**`5daa8389c416928fce41a7cdee41649dbc9569fb`**. `git diff
-627c4973aa02930808a0a96bfbfdbc3ee486a4c3 5daa8389c416928fce41a7cdee41649dbc9569fb --
-Sources/ Vendor/ benchmark.json` is **empty** — verified, not assumed — so **no in-flight
-arm needs a rebase or a re-timing, and a `research_base_changed` event on this chain is
-answerable with `accept_result_on_current_base`**. Use the newest full SHA as the argument
+`627c4973aa02930808a0a96bfbfdbc3ee486a4c3` (merge of #241); the current advisor base is
+**`d9905fc7d4902951c33142c58cd7fbebe6a1cc21`**.
+
+**Which base hops actually carry code** — verified with
+`git diff --stat <a> <b> -- Sources/ Vendor/ benchmark.json`, not assumed:
+
+| hop | submitted-surface diff |
+|---|---|
+| `627c4973` → `13f9b6f7` | **empty** (research notes only, incl. the #270 r2 merge) |
+| `13f9b6f7` → `e7439c1c` | **empty** (research notes only) |
+| **`e7439c1c` → `36b28fa5`** | **`Sources/MLXFastModel/LagunaLmHeadPrune.swift`, 1 file, +10 / −189** (#284 byte recovery) |
+| `36b28fa5` → `d9905fc7` | **empty** (research notes only) |
+
+So exactly **one** hop in the whole round-29→31 chain touches a submitted file. Two
+consequences for review:
+
+- A `research_base_changed` event whose compare range contains **only** note-only hops
+  needs no rebase and no re-timing: answer it with `accept_result_on_current_base`.
+- A range spanning `e7439c1c → 36b28fa5` is only material if the arm itself touches
+  `LagunaLmHeadPrune.swift`. None of #268, #288, #293 or #298 does, so all four are
+  still answerable with `accept_result_on_current_base`.
+
+Use the newest full SHA as the argument
 to `validate-assignment-scope.sh` and `check-editable-budget.sh` (both reject short SHAs).
 
 Round 28 closed with two clean negatives and one structural finding:
@@ -168,10 +217,19 @@ t-stat**.
 | #270 | maple-tanjiro | ✅ **MERGED (r2) → new base `13f9b6f7`.** r1 = non-MoE prefill census, **100% of R = 54.633 ms attributed** across 1222 dispatches and 12 families (§4.13). r2 = **F1 KILL** (§4.13b): `DARKBLOOM_FUSED_QKV` costs **+39.99% decode** on M4 (`decode_speedup` 0.7705, floor FAIL) because the flag is not prefill-only, and its M4 prefill win **does not exist on M5** because wk/wv route regular there. Also exposed **standing rule 16** — the equivalence oracle is blind to the fused-weight family. | none |
 | #284 | maple-nezuko | ✅ **MERGED → new base `36b28fa5`. H5 is KILLED (§4.17).** The certificate-slack histogram over 129 real decode steps shows `R ≡ (thr − c₁)/delta ≤ 5` for **100.000%** of rows, while a sound 3-bit tier-0 needs `R > 5` ⇒ **every cheaper first screen saves 0.00 MB / 0.0 µs**, and the same arithmetic kills M1/M2/M3. Generalises to: today's screen already leaves only 777 rows (0.78%) ⇒ **beyond tier-0 the pruner is essentially optimal**; only a tighter `delta` could ever move it. **The lm-head is retired as a decode target.** Also banked: the 247.6 GB/s M4-Pro dense-GEMV anchor, a second independent confirmation of standing rule 16, and **−8,166 B** of recovered editable budget (headroom 49,145 → 57,311). | none |
 | #288 | maple-frieren | **LAUNCHED (round 30)** — **editable-surface byte recovery**. Buys *capacity*, not score. Lever 1 only: **relocate** (not delete) measurement narrative out of four scored files into non-submitted `notes/`. Scope `LagunaRuntimeWeights.swift` + `LagunaConfig.swift` + `MLXLMCommon/{KVCache,Evaluate}.swift`; ceiling **79,691 B**, target 55–65 KB ⇒ headroom 49,145 → ~105–130 KB. Optional Lever-2 stretch (32,005 B of dead `MLXFastTransform` sidecar coders) in its own droppable commit. | none |
+| #298 | maple-nezuko | **LAUNCHED (round 31)** — **deconfound PR #48** (§4.18). Decision gate for the whole fusion round: does §4.16's 1.3003 µs/barrier coefficient survive contact with a real fusion? #48's ranked M5 negative (−0.1488%) bundled three changes and priced only two — the unpriced third is an **8× threadgroup collapse (5120→640 on h64) plus ~24,320 redundant 2048-wide reductions/step**. Five arms at fixed geometry: **0** stock (2 sg, fuse 0) · **G** geometry only (16 sg, fuse 0) · **R** redundant work (16 sg, **new fuse mode 3**) · **N** norm fold (16 sg, fuse 1) · **F** full fold (16 sg, fuse 2). **(N − R) is the falsifier** — pure refund of 40 dispatches + 39 barriers at fixed geometry *and* fixed reduction work; §4.16 predicts **55.6 µs/step**. (R − G) prices the redundant reductions, (G − 0) the geometry, (F − 0) reproduces #48 as a consistency check. Research-only: the ~258-line port lands as a `.patch` under `research/`, default stays mode 0, **zero submitted-surface growth, zero ranked slots**. Power target sd ≤ ~18.5 µs (nezuko's #269 ABBA hit 23.00 µs on four arms). | none |
 
-**Region fences in `Sources/MLXFastModel/LagunaRuntimeModel.swift`** (11,073 lines,
-three concurrent editors): 853–1097, 4623–5372, 5700–5800, 6700–6910, 7500–7700,
-8329–8382, 8525–8910, 9466–9578, 10031–10120.
+
+**Region fences in `Sources/MLXFastModel/LagunaRuntimeModel.swift`** (11,073 lines):
+853–1097, 4623–5372, 5700–5800, 6700–6910, 7500–7700, 8329–8382, 8525–8910,
+9466–9578, 10031–10120.
+
+As of round 31 **no in-flight PR commits a change to this file**: #268 r2 is
+research-only, #293 edits `matmul.cpp`, #288 is scoped to four other files, and
+#298 lands its ~258-line port as a `research/*.patch` rather than in `Sources/`.
+The fences therefore describe *working-tree* contention only. #298 works inside
+4623–5372 and 5700–5800; keep any new assignment out of those two regions until
+it reports.
 
 ### Byte-recovery census — corrections applied 2026-08-07 (supersedes §9 of the census doc)
 
