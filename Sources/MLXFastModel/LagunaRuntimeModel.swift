@@ -44,8 +44,6 @@ func lagunaRopeScalingConfig(_ spec: LagunaRopeSpec) -> [String: StringOrNumber]
 /// nothing. This makes "did it actually run" observable without a debugger.
 private let lagunaTraceFusion =
     ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_FUSION"] == "1"
-private let lagunaTraceAttentionCalls =
-    ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_ATTENTION_CALLS"] == "1"
 private let lagunaTracedFusions = LagunaFusionTraceLog()
 
 final class LagunaFusionTraceLog: @unchecked Sendable {
@@ -66,14 +64,6 @@ final class LagunaFusionTraceLog: @unchecked Sendable {
 func lagunaTrace(_ site: @autoclosure () -> String) {
     guard lagunaTraceFusion else { return }
     lagunaTracedFusions.note(site())
-}
-
-@inline(never)
-private func lagunaTraceAttentionCall(_ site: String) {
-    guard lagunaTraceAttentionCalls else { return }
-    let architecture = GPU.deviceInfo().architecture
-    FileHandle.standardError.write(
-        Data("mlxfast: attention call: \(site) architecture=\(architecture)\n".utf8))
 }
 
 // MARK: - Runtime fusion feature flags
@@ -1707,9 +1697,6 @@ func lagunaSlidingFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < window)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    if writeIdx == 0 {
-        lagunaTraceAttentionCall("sliding writeIdx=0")
-    }
     lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
@@ -2221,9 +2208,6 @@ func lagunaFullFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < capacity)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    if writeIdx == LagunaConstants.slidingWindow {
-        lagunaTraceAttentionCall("full writeIdx=512")
-    }
     lagunaTrace("full fused attention")
     let params = MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
