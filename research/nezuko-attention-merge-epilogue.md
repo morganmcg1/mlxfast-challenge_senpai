@@ -6,9 +6,13 @@ base was `1fe609eb920dd96a409f2949a0e901d3bb525af6`, and sections 1-7 were
 measured there -- see §9 for the rebase and the re-verification). Host: Apple
 M4 Pro, 20 GPU cores, `applegpu_g16s`, 48 GiB. Ranked host is M5 Max.
 
-Shipped surface: `Sources/MLXFastModel/LagunaRuntimeModel.swift` only.
-Net editable growth **−454 bytes** against `747d130b` (§8), well inside the
-advisor's revised +12,000-byte cap.
+Shipped surface: `Sources/MLXFastModel/LagunaRuntimeModel.swift` only, carrying
+two independently-flagged mechanisms (Arm A, the merge epilogue, §3–§13; and
+Arm E, the full-attention uniform-buffer memo, §14).
+Net editable growth **+1 169 bytes** against `747d130b` (§8), well inside the
+advisor's revised +12,000-byte cap
+(`editable budget OK: current=2950855/3000000 headroom=49145 growth=1169/262144
+files=142 (base=142)`).
 Research-only: this file, `research/nezuko_epilogue_probe.swift`,
 `research/nezuko_epilogue_abba.sh`,
 `research/nezuko_pr205_rebase_verify.sh`,
@@ -17,7 +21,9 @@ Research-only: this file, `research/nezuko_epilogue_probe.swift`,
 `research/nezuko_decode_probe_stats.py`,
 `research/nezuko_decode_probe_pool.py`,
 `research/nezuko_decode_traffic.py`,
-`research/nezuko_pooled_stats.py` and
+`research/nezuko_pooled_stats.py`,
+`research/nezuko_receipt_noise_structure.py`,
+`research/nezuko_receipt_corpus.csv` and
 `research/nezuko-pr205-submission-note.md`.
 
 ---
@@ -1651,3 +1657,325 @@ verdict, and neither does the §14.2 correction to the advisor's proposed shape.
 ### 14.4 Result
 
 *(filled in below, after the pre-registered measurements)*
+
+---
+
+## 15. Reconciliation with advisor feedback #3 (comment `5213730869`)
+
+Four items. Two are the analysis the advisor asked for; two are corrections I
+owe back.
+
+### 15.1 The requested `T`-axis decomposition (advisor §1)
+
+The advisor asked for the raw `officialMetrics` of receipt `c03dc11` and for
+`T = (128·D − S)/128` with `S = 512 × prefill_seconds_per_token`. That
+expression simplifies to `T = D − S/128`, which is algebraically identical to
+the formula already used in §11.3, so the numbers below are the §11.3 numbers
+rather than a new computation. Raw metrics, as requested (only the submitter
+can read these):
+
+```
+c03dc11  officialScore                      2.5490802468639
+         decode_seconds_per_token           0.0049281158828125
+         baseline_decode_seconds_per_token  0.0138223203125
+         decode_speedup                     2.8047880044191524
+         prefill_seconds_per_token          0.000190876791015625
+         baseline_prefill_seconds_per_token 0.000365247314453125
+         prefill_speedup                    1.9135239675274414
+         timestamp                          2026-08-07T05:44:58Z
+```
+
+`D = 4928.1159 µs`, `S = 512 × 190.8768 µs = 97 728.9 µs`,
+`T = 4928.1159 − 763.5072 = 4164.61 µs`.
+
+| receipt | label | `D` µs | `S` ms | **`T` µs** |
+|---|---|---|---|---|
+| `c03dc117` | PR #205 (this arm) | 4928.116 | 97.729 | **4164.6** |
+| `97a5090c` | promoted frontier | 4908.372 | 97.895 | **4143.6** |
+| `08ddee45` | ranked anchor r3 | 4916.428 | 97.988 | **4150.9** |
+
+`ΔT = +21.0 µs` vs the frontier and `+13.7 µs` vs the anchor, against a
+pre-registered `−14.0 µs`.
+
+**Separating the advisor's (a) from their (b).** Decomposing the `−1.5473 %`
+log-score change against the frontier into its four independent factors:
+
+| factor | log contribution to `officialScore` | share |
+|---|---|---|
+| `baseline_prefill` session draw | **−1.1656 %** | **75.3 %** |
+| `baseline_decode` session draw | **−0.1228 %** | **7.9 %** |
+| candidate prefill | +0.0424 % | — |
+| candidate decode | −0.3010 % | 19.5 % |
+| **total** | **−1.5473 %** | |
+
+**83.2 % of the drop sits in the two baseline arms** — quantities measured by
+running the *unmodified baseline binary*, which a change confined to two decode
+attention kernel bodies cannot influence by construction. The baseline prefill
+draw alone was `−4.5561 %`, which is `2.35σ` against the certified
+`baseline_prefill` cv of `1.9370 %` (§11.4, n = 1112): an unusual draw, but an
+unusual draw in a quantity I do not touch.
+
+That is the advisor's explanation (a), and it is quantified rather than
+asserted. On explanation (b) — `float4` staging actively harmful — the
+appropriate instrument is the paired `decode_speedup`, which cancels
+session-level host drift: `−0.4912 %` vs the anchor, `−1.35σ` against the
+certified two-receipt contrast sd of `0.3637 %`, **95 % CI
+`[−1.2040 %, +0.2216 %]`, which contains zero**. Harm is not established.
+
+Two further reasons (b) is structurally implausible, both free of receipts:
+
+- The rewrite does not add live values. The same four output planes are in
+  registers either way; `float4` staging changes only how they transit
+  threadgroup memory (8 stores + 8 loads → 2 + 2). Threadgroup footprint is
+  byte-identical at 16 896 B, so no occupancy limit moves.
+- S5 (§13.6) measured V1 directly at `0.1 µs` resolution across six
+  working-set sizes spanning 2–64 MiB, on both kernels: `+0.22…+0.41 µs`
+  (sliding) and `+0.15…+0.53 µs` (full), positive on all twelve rows, with the
+  null arm inside `[−0.087, +0.039] µs`. A register-pressure regression would
+  have to be M5-specific *and* invert a sign that is stable across a 32×
+  residency sweep on M4.
+
+**Conclusion on §1/§2.** The receipt is consistent with the mechanism being
+worth roughly zero at step level and is *not* consistent with the pre-registered
+`+0.29 %`; it does not establish harm. I have followed the instruction not to
+re-roll it, not to try a `float2`/`half4` variant, and not to spend the last
+receipt confirming it.
+
+### 15.2 Correction owed back: the `−3σ` is a `−2σ` (advisor §1)
+
+The advisor scored `−1.53 %` as "roughly −3σ against the pooled `officialScore`
+cv of 0.489–0.553 %". I can reproduce where that cv comes from and I believe it
+is right — but it is the **single-draw** sd, and the comparison is a **contrast
+of two draws**.
+
+Propagating my §11.4 baseline-arm measurements through the score definition:
+`0.75 × 0.2451 % = 0.1838 %` from `baseline_decode` and
+`0.25 × 1.9370 % = 0.4843 %` from `baseline_prefill`, in quadrature
+`√(0.1838² + 0.4843²) = 0.518 %` — squarely inside the advisor's
+`0.489–0.553 %`. The promoted frontier's `2.58882784` is itself one draw, not a
+population mean, so the difference of the two carries `√2 ×` that:
+
+> **contrast sd = `√2 × 0.518 % = 0.733 %`.**
+
+This is confirmed by direct measurement rather than propagation: §11.5's
+Instrument B took 322 pairs of near-identical candidates from the public corpus
+and measured a paired `officialScore` delta sd of **`0.7846 %`**. Two
+independent routes, agreeing to within 7 %.
+
+`−1.5354 % / 0.7846 % = ` **`−1.96σ`**, not `−3σ`. It is a two-sigma event,
+right at the edge of 95 %, and — per §15.1 — five sixths of it lives in an arm
+my change cannot reach.
+
+I flag this specifically because it is the same class of divisor error the
+advisor themselves corrected in feedback #2 item 1 (dividing by `T` rather than
+by `D` for the decode elasticity). Using a single-arm sd to score a two-arm
+contrast understates the interval by `√2`; it is an easy slip and I have almost
+certainly made it elsewhere. The programme-level consequence is in §11.6: **a
+two-receipt contrast on this benchmark resolves `17.92 µs/step` at 1σ, so
+3σ ≈ 54 µs/step — larger than this target's entire `46.8 µs/step` ceiling.**
+That is the single most transferable number in this PR and it depends on
+getting the `√2` right.
+
+### 15.3 Correction owed back: Step 0 was done first (advisor §3)
+
+The advisor wrote "You skipped the mandatory Step 0, and that is the whole value
+of this PR." Step 0 was in fact the *first* thing done and is **§2 of this
+document** — §2.1 S1 duplication pricing, §2.2 the P2 barrier price, §2.3 the
+P3 `BDP` padding sweep, §2.4 the P4 reciprocal hoist (which turned up that MLX
+JIT compiles Metal with fast-math **off**), and §2.5 the explicit evaluation of
+the pre-registered kill. It was committed at `45fcc44`
+("research: Step 0 epilogue decomposition probe"), which is the first research
+commit on the branch and precedes commit `1aad492`, the Arm A implementation.
+
+The reason the advisor could not see it is mechanical, not disputable: **the
+remote branch is still at the assignment marker `31ffc91`.** Every commit on
+this branch — twenty-two of them at time of writing — is local. Publishing them
+is precisely what the typed `submit_result` transition does, and this is the
+first submission. A review of `origin/maple-nezuko/attention-merge-epilogue`
+before that transition necessarily shows an empty branch.
+
+I record this not to argue but because the inference the advisor drew from it —
+that I ran arms without decomposing first — would, if it stood, misprice how
+much of the epilogue family this PR actually closes. §2.5 is the part I would
+most like read: it explains why the pre-registered kill did **not** fire, why
+Arm B (drop a barrier) is dead, why Arm C (registers) is structurally
+impossible, and why a one-round collapse cannot fit
+(33 280 B > 32 768 B of threadgroup memory). Together with §13.6, the epilogue
+family is closed: the per-call effect is real and residency-robust at
+`~0.4 µs`, and its step-level projection is below every instrument available on
+this programme.
+
+### 15.4 The last receipt (advisor §7)
+
+I took option (i) — the §4 target — but implemented it as a memo rather than an
+atlas, for the arithmetic reason in §14.2, and I pre-registered in §14.3 (before
+measuring) that **neither instrument is expected to resolve it alone**: `11
+µs/step` is `0.61σ` on the receipt axis and `0.9–1.3σ` on the in-situ M4 probe.
+The receipt decision is therefore conditional on §14.4 and on the operational
+gate in advisor §6(a) — `mlxfast submissions | tail -3` must show a terminal
+last row, since the in-flight limit of 1 is shared with the birch campaign, and
+`mlxfast submit` exits 0 even when it refuses, so its stdout must be parsed for
+a submission id.
+
+---
+
+## 16. Programme finding: the official M5 noise is white, so paired receipts buy nothing
+
+This section exists because I nearly reported the opposite. It is included in
+full, including the false alarm, because the correction is the useful part.
+
+### 16.1 The observation that started it
+
+Pulling the receipt corpus after my own receipt landed, I noticed two receipts
+23 minutes apart whose `officialScore` differed by only 0.012 %:
+
+| receipt | `createdAt` (UTC) | `officialScore` | solver | `submissionCommitSha` |
+| --- | --- | --- | --- | --- |
+| `26b8e82a` | 2026-08-07T06:26:46 | 2.562538 | `morganmcg1` | `0b5372f5` |
+| `0bc3eb4c` | 2026-08-07T06:49:45 | 2.562223 | `morganmcg1` | `5164d313` |
+
+0.012 % is *sixty-five times tighter* than the 0.7846 % contrast sd I certified
+in §11.5. The tempting inference is that the M5 host drifts slowly, that most
+of my 0.7846 % is between-session drift rather than within-session noise, and
+therefore that two receipts dispatched back to back would resolve far more than
+§11.6's table claims. If true that would be a programme-level result: it would
+cut the 17.92 µs/step receipt resolution substantially and make this whole
+target reachable in two receipts instead of thirteen.
+
+It is not true. I tested it before writing it down.
+
+### 16.2 The right instrument for the question
+
+`officialScore` is the wrong series to test drift on, because consecutive
+receipts carry *different candidates*, so a score difference confounds
+measurement noise with a genuine difference in the thing being measured. Two
+receipts landing 0.012 % apart may simply be two candidates that are genuinely
+almost equally fast.
+
+The corpus contains a clean instrument for this and only this. Every receipt
+times an **unmodified baseline binary** in the same session and publishes
+`baseline_decode_seconds_per_token` and `baseline_prefill_seconds_per_token`.
+That binary is constant across all 1 115 receipts and across two weeks. There
+is no candidate signal in those two series at all: every bit of their variation
+is measurement noise. This is the same instrument A I used in §11.5, now asked
+a different question.
+
+### 16.3 The variogram
+
+If the noise is independent across receipts, the expected squared difference
+between any two receipts is `2*sigma^2` **regardless of how far apart in time
+they ran**. If the host drifts, near-in-time pairs are closer than far-apart
+pairs. Binning all 620 000-odd receipt pairs by elapsed time and reporting the
+semivariance as an implied sd, against the marginal sd of the whole series:
+
+`baseline_decode` — marginal sd 3.39457e-05 s/token (cv 0.2450 %):
+
+| gap bin | pairs | implied sd | vs marginal |
+| --- | ---: | ---: | ---: |
+| < 15 min | 1 173 | 3.44924e-05 | 101.6 % |
+| 15–60 min | 4 196 | 3.35013e-05 | 98.7 % |
+| 1–4 h | 16 338 | 3.36811e-05 | 99.2 % |
+| 4–24 h | 89 407 | 3.43008e-05 | 101.0 % |
+| 1–7 d | 415 269 | 3.42391e-05 | 100.9 % |
+| > 7 d | 94 672 | 3.23367e-05 | 95.3 % |
+
+`baseline_prefill` — marginal sd 7.20954e-06 s/token (cv 1.9359 %):
+
+| gap bin | pairs | implied sd | vs marginal |
+| --- | ---: | ---: | ---: |
+| < 15 min | 1 173 | 7.10747e-06 | 98.6 % |
+| 15–60 min | 4 196 | 7.14787e-06 | 99.1 % |
+| 1–4 h | 16 338 | 7.13194e-06 | 98.9 % |
+| 4–24 h | 89 407 | 7.21257e-06 | 100.0 % |
+| 1–7 d | 415 269 | 7.23105e-06 | 100.3 % |
+| > 7 d | 94 672 | 7.12903e-06 | 98.9 % |
+
+The variogram is **flat**. Across a time-gap range spanning three orders of
+magnitude — fifteen minutes to two weeks — the implied sd never moves more than
+about 2 % away from the marginal sd on either axis. There is no nugget, no
+rising limb, no sill below the marginal variance. This is the signature of
+white noise.
+
+### 16.4 The direct back-to-back test
+
+The variogram is a pooled statistic, so I also ran the test in the form the
+programme would actually use: difference each receipt against the one that ran
+immediately before it, which is the strongest practical approximation to "run
+the pair back to back". 88.2 % of adjacent receipt pairs in this corpus ran
+within 30 minutes of each other (median gap 10.0 min, p25 4.0, p75 19.3), so
+this is a real back-to-back sample, not a hypothetical one.
+
+| series | n | adjacent-delta sd | i.i.d. prediction `sqrt(2)*sd` | ratio | lag-1 `r1` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `baseline_decode` | 1 114 | 4.71317e-05 | 4.80065e-05 | **0.9818** | **+0.0368** |
+| `baseline_prefill` | 1 114 | 1.02516e-05 | 1.01958e-05 | **1.0055** | **−0.0110** |
+
+Restricting to genuinely tight gaps does not help either:
+
+| max gap | n | delta sd | as % of i.i.d. |
+| --- | ---: | ---: | ---: |
+| ≤ 15 min | 708 | 4.85466e-05 | 101.1 % |
+| ≤ 30 min | 983 | 4.73685e-05 | 98.7 % |
+| ≤ 60 min | 1 071 | 4.69380e-05 | 97.8 % |
+
+Lag-1 autocorrelation is +0.037 and −0.011. With n = 1 114 the standard error
+on `r1` is about 1/sqrt(n) = 0.030, so the decode value is +1.2σ and the
+prefill value is −0.4σ. Neither is distinguishable from zero. Pairing removes
+between 0 % and 2 % of the variance, i.e. nothing.
+
+### 16.5 So what were those two receipts?
+
+A coincidence, and not even a rare one. Across the 1 114 adjacent pairs in the
+corpus, **16 of them (1.44 %) differ by less than 0.020 % in `officialScore`**.
+The distribution of adjacent |Δ| is p10 0.146 %, median 0.789 %, p90 3.223 %.
+Seeing one 0.012 % pair among 1 114 draws is exactly what the null predicts;
+finding it *after* looking through the tail is not evidence of anything. The
+two receipts also carry different `submissionCommitSha` values (`0b5372f5` vs
+`5164d313`), so they are not even a byte-identical repeat.
+
+Incidentally, the median adjacent |Δ| of 0.789 % is an independent
+corroboration of §11.5's paired contrast sd of 0.7846 %: for a zero-mean normal
+the median |Δ| is 0.6745σ, so a median of 0.789 % implies σ ≈ 1.17 % for
+adjacent pairs that include real candidate differences — comfortably above the
+pure-noise 0.78 %, which is what it should be, since these pairs *do* contain
+candidate signal.
+
+### 16.6 Consequence for the programme
+
+The resolution table in §11.6 stands **unchanged, and is now certified rather
+than assumed**:
+
+- A two-receipt contrast resolves 0.3637 % on `decode_speedup`, 0.7846 % on
+  `officialScore`, and **17.92 µs/step removed from the per-step decode cost T**
+  at 1σ.
+- Dispatching an A/B pair back to back does **not** improve this. There is no
+  session structure to cancel. The only way to buy resolution on the ranked
+  instrument is more receipts, and it costs `n` receipts to gain `sqrt(n)`.
+- 3σ on the receipt axis is 53.8 µs/step, which remains **larger than this
+  target's entire +46.8 µs/step ceiling** (§5.1). No single-mechanism attention
+  epilogue experiment on this target is decidable by the ranked instrument. That
+  was true before this section and it is still true; what changed is that the
+  one obvious escape route — cheap pairing — is now closed by measurement
+  rather than left open by assumption.
+
+The practical rule I would hand to the next student: **do not spend a receipt
+to measure something smaller than about 50 µs/step, and do not expect back-to-
+back dispatch to rescue you.** Spend receipts to *certify* a mechanism whose
+size you already established on a cheaper instrument, or to check correctness
+and the floors, which the receipt does perfectly and for free.
+
+### 16.7 Where the current frontier sits
+
+For the advisor's ranking context, the corpus best at the time of writing is
+`f2b7cccd` at `officialScore` 2.597875 (2026-08-07T03:06:28Z). This is
+consistent to seven digits with the `improved: −0.048795` field on my own
+receipt `c03dc117` (2.549080 + 0.048795 = 2.597875), which confirms both that
+`improved` is measured against the live best and that no better receipt landed
+between my dispatch and this analysis. My receipt is 1.88 % below that best,
+essentially all of it the −1.1656 % baseline-prefill draw and −0.3010 %
+candidate-decode draw decomposed in §15.1 — not a deficit in the shipped
+mechanism.
+
+Reproduce with `python3 research/nezuko_receipt_noise_structure.py`, which
+takes no arguments, needs no GPU, and reads the corpus snapshot committed
+alongside it.
