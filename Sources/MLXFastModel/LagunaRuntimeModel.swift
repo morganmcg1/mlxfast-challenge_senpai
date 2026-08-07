@@ -7738,6 +7738,12 @@ let lagunaDecodeRouterEmitSinkEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_ROUTER_EMIT_SINK"]
     != "0"
 
+/// Research-only attribution arm: run the emit-variant QMV but keep and use the
+/// standalone router dispatch, so its cost separates from the emit kernel's.
+let lagunaDecodeRouterEmitSinkKeepStandalone =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_ROUTER_EMIT_SINK"]
+    == "2"
+
 /// Routed gate/up packed QMV that also publishes the decode router top-8
 /// indices and normalized FP32 weights. Returns `(activated, indices, weights)`.
 func lagunaRoutedSwiGLUQMVPackedTop8Emit(
@@ -10181,13 +10187,20 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     routerKeys: routerKeys,
                     routerLogits: routerLogits
                 )
+            var useIndices = sunkIndices
+            var useWeights = sunkWeights
+            if lagunaDecodeRouterEmitSinkKeepStandalone {
+                let (inds, weights) = gate(x, logits: routerLogits)
+                useIndices = inds
+                useWeights = weights
+            }
             lagunaTrace("routed+shared down residual")
             return lagunaRoutedSharedDownResidual(
                 routedActivated: activated,
                 routedDownWeight: downWeight,
                 routedDownScales: downScales,
-                indices: sunkIndices,
-                routerWeights: sunkWeights,
+                indices: useIndices,
+                routerWeights: useWeights,
                 sharedActivated: sharedInputs.activated,
                 sharedDownWeight: sharedInputs.downWeight,
                 sharedDownScales: sharedInputs.downScales,

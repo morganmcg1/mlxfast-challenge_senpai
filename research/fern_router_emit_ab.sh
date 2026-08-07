@@ -17,7 +17,11 @@ mkdir -p "$outdir"
 
 run_arm() {
   local arm="$1" tag="$2" sink
-  [ "$arm" = "A" ] && sink=1 || sink=0
+  case "$arm" in
+    A) sink=1 ;;   # emit kernel publishes the router; standalone dispatch gone
+    B) sink=0 ;;   # base: stock QMV + standalone router dispatch
+    C) sink=2 ;;   # emit kernel runs, standalone dispatch kept (attribution)
+  esac
   echo "=== run $tag arm=$arm EMIT_SINK=$sink ===" >&2
   /usr/bin/env MLXFAST_WEIGHTS_PATH=weights \
     DARKBLOOM_DECODE_ROUTER_EMIT_SINK="$sink" \
@@ -28,12 +32,17 @@ run_arm() {
     2>&1 | sed "s/^/[$tag] /"
 }
 
+# Palindromic block: every arm's mean position within a block is identical, so
+# a linear thermal/clock drift cancels for all arms, not just for a pair.
+block="${ARMS:-ABBA}"
+
 rc=0
 for p in $(seq 1 "$pairs"); do
-  # ABBA within each block of four runs.
-  run_arm A "p${p}r1.A" || rc=1
-  run_arm B "p${p}r2.B" || rc=1
-  run_arm B "p${p}r3.B" || rc=1
-  run_arm A "p${p}r4.A" || rc=1
+  i=0
+  while [ "$i" -lt "${#block}" ]; do
+    arm="${block:$i:1}"
+    i=$((i + 1))
+    run_arm "$arm" "p${p}r${i}.${arm}" || rc=1
+  done
 done
 exit "$rc"

@@ -21,6 +21,12 @@ import sys
 # the benchmark scores.
 WARMUP_STEPS = 16
 
+LABELS = {
+    "A": "emit sink (candidate)",
+    "B": "standalone dispatch (base)",
+    "C": "emit kernel + standalone kept",
+}
+
 
 def load(path: pathlib.Path):
     vals = [float(line) for line in path.read_text().split() if line.strip()]
@@ -28,12 +34,13 @@ def load(path: pathlib.Path):
 
 
 def main() -> int:
+    global WARMUP_STEPS
+
     ap = argparse.ArgumentParser()
     ap.add_argument("outdir")
     ap.add_argument("--warmup", type=int, default=WARMUP_STEPS)
     args = ap.parse_args()
 
-    global WARMUP_STEPS
     WARMUP_STEPS = args.warmup
 
     runs = sorted(pathlib.Path(args.outdir).glob("*.steps.txt"))
@@ -41,7 +48,7 @@ def main() -> int:
         print(f"no *.steps.txt under {args.outdir}", file=sys.stderr)
         return 1
 
-    arms = {"A": [], "B": []}
+    arms = {"A": [], "B": [], "C": []}
     print(f"{'run':<12} {'arm':<4} {'n':>6} {'median_ms':>11} {'mean_ms':>10} "
           f"{'p10_ms':>9} {'p90_ms':>9}")
     for path in runs:
@@ -64,28 +71,33 @@ def main() -> int:
         m = statistics.median(meds)
         sd = statistics.stdev(meds) if len(meds) > 1 else float("nan")
         summary[arm] = (m, sd, len(meds))
-        label = "emit (candidate)" if arm == "A" else "standalone (base)"
-        print(f"arm {arm} {label:<18} runs={len(meds)} "
+        print(f"arm {arm} {LABELS[arm]:<34} runs={len(meds)} "
               f"median_of_medians={m*1e3:.1f} us  "
               f"between_run_sd={sd*1e3:.1f} us  "
               f"medians={[round(v*1e3, 1) for v in meds]}")
 
-    if "A" in summary and "B" in summary:
-        a, b = summary["A"][0], summary["B"][0]
-        delta = a - b
+    # A-B is the end-to-end verdict; C isolates the emit kernel's own cost
+    # (C-B, dispatch count held fixed) from the dispatch saving (A-C).
+    for lhs, rhs, what in (("A", "B", "end-to-end (emit sink vs base)"),
+                           ("C", "B", "emit-kernel overhead alone"),
+                           ("A", "C", "39 standalone dispatches removed")):
+        if lhs not in summary or rhs not in summary:
+            continue
+        delta = summary[lhs][0] - summary[rhs][0]
+        base = summary["B"][0]
         print()
-        print(f"delta (emit - base) = {delta*1e3:+.1f} us/step "
-              f"({delta/b*100:+.3f} % of base decode step)")
-        # Paired ABBA contrast: pair the i-th A with the i-th B in run order so
-        # each pair spans a short, drift-balanced window.
-        n = min(len(arms["A"]), len(arms["B"]))
-        diffs = [arms["A"][i] - arms["B"][i] for i in range(n)]
+        print(f"{lhs} - {rhs}  [{what}] = {delta*1e3:+.1f} us/step "
+              f"({delta/base*100:+.3f} % of base decode step)")
+        # Pair the i-th run of each arm in run order so every pair spans a
+        # short, drift-balanced window inside the palindromic block.
+        n = min(len(arms[lhs]), len(arms[rhs]))
+        diffs = [arms[lhs][i] - arms[rhs][i] for i in range(n)]
         if n > 1:
             dm = statistics.mean(diffs)
             dsd = statistics.stdev(diffs)
-            print(f"paired diffs (us): {[round(d*1e3, 1) for d in diffs]}")
-            print(f"paired mean = {dm*1e3:+.1f} us, sd = {dsd*1e3:.1f} us, "
-                  f"sem = {dsd/ (n ** 0.5)*1e3:.1f} us, n = {n}")
+            print(f"  paired diffs (us): {[round(d*1e3, 1) for d in diffs]}")
+            print(f"  paired mean = {dm*1e3:+.1f} us, sd = {dsd*1e3:.1f} us, "
+                  f"sem = {dsd/(n ** 0.5)*1e3:.1f} us, n = {n}")
     return 0
 
 
