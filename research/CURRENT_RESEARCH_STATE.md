@@ -57,9 +57,11 @@
   CLOSED: PR #222 (askeladd fold-shared-gateup) — DEAD: merged 9-slot kernel 0.55%
     SLOWER. asyncEval already overlaps independent dispatches. Key learning:
     dispatch fusion with if/else branching hurts performance.
-  PR #229 (edward): Prefill MoE down projection scale halving — halve prefill down
-    scales via NVFP4 pairwise constancy. ~0.46% score, bit-exact, M5-only.
-    NOTE: PR #229 has duplicate marker bug; Edward can still work on it.
+  ABANDONED: PR #229 (edward prefill-down-halving-v1) — duplicate assignment marker
+    bug blocks ALL typed transitions. Edward reassigned to PR #234 (clean marker).
+  PR #234 (edward): Prefill MoE down scale halving v2 — halve 64 MiB prefill down
+    scale traffic via NVFP4 pairwise constancy. ~0.46% score, bit-exact, M5-only.
+        scales via NVFP4 pairwise constancy. ~0.46% score, bit-exact, M5-only.
   PR #230 (alphonse): Fuse g_proj INT8 matmul + softplus into NVFP4 O-proj kernel —
     eliminate 40 dispatches/step. ~0.75% score, bit-exact, M4-testable. HIGHEST priority.
     KEY: eliminates DEPENDENT dispatch (gate-softplus→O-proj data dependency,
