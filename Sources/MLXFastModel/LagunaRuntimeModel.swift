@@ -458,24 +458,8 @@ private func lagunaNativeAffineGProjWeight(_ weight: MLXArray) -> LagunaNativeAf
 /// **DEFAULT ON, deliberately** (`!= "0"`; set
 /// `DARKBLOOM_FUSED_SLIDING_QK_NORM_ROPE=0` to ablate).
 ///
-/// History, because the negative result and its resolution are the
-/// instructive part — but note the default is ON today:
-///  * Submission `7333473` ranked this fusion at **-0.19%** (1.09995 against
-///    a 1.10187 frontier) and it shipped default-off. The diagnosis at the
-///    time — "one simdgroup per head is a bad kernel shape" — was wrong.
-///  * The actual cause was one redundant line. The kernel parked the inverse
-///    RMS in a `threadgroup` slot and issued a `simdgroup_barrier` to
-///    broadcast it, but `simd_sum` already returns the total to *every* lane,
-///    so each lane can derive the same `precise::rsqrt` locally and
-///    bit-identically. At 72 threadgroups per layer across 30 sliding layers
-///    that barrier was paid **2160 times per decode token** for nothing, and
-///    the full-attention twin had the identical pattern (another 560).
-///  * Deleting both and **re-enabling** this fusion measured 10.456 -> 10.326
-///    ms steady step (+1.19%, 4/4 pairs) and promoted as `9e06de6` at
-///    **1.12019, +1.73%** — the largest single win in the project.
-///
-/// So the -0.19% figure describes a kernel that no longer exists. Do not
-/// spend measurement pairs re-ablating this on the strength of that number.
+/// Default ON since `9e06de6` (+1.73%): the original -0.19% was caused by a
+/// redundant `simdgroup_barrier` for inverse-RMS broadcast, not kernel shape.
 let lagunaFusedSlidingQKNormRoPEEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_QK_NORM_ROPE"] != "0"
 
@@ -609,26 +593,9 @@ let lagunaFusedDenseDownResidualEnabled =
 /// sub-8 shapes): router output rows owned by one threadgroup in
 /// `laguna_residual_rms_router_bf16_2048`.
 ///
-/// The router GEMV reads the whole `[256, 2048]` BF16 gate — 1,048,576 B —
-/// once per sparse layer. At `64` (16 simdgroups x 4 rows) the 256 rows need
-/// `256/64 = 4` threadgroups, and it measures 140.2 GB/s against a 575 GB/s
-/// box (`notes/47` §2a): four threadgroups cannot cover the machine's cores.
-/// Each halving doubles the tile count at constant total work, 8 -> 32
-/// threadgroups. `rows_out` stays 256 in every setting, so no wave
-/// quantization hole is created (`notes/50` §6b-§6d).
-///
-/// Bit-exact. `rows_per_group` changes only WHICH THREADGROUP OWNS WHICH ROW.
-/// Every output row keeps its own private FP32 accumulator, its own K-loop
-/// over `router_blocks` in `(block, i)` order, its own `simd_shuffle_down`
-/// ladder, and one BF16 round. No add is regrouped: the reduction tree exists
-/// only at lane level and this knob does not touch it.
-///
-/// SUB-8 IS MEASURED NULL (`notes/exp-rpgrouter.md`, 2026-07-31, 6.15 ms era):
-/// rpg1 vs rpg8 paired A/B mean −5 µs/step (−29.5/−13.5/+25.5/−4.0 µs, inside
-/// the ~18 µs local floor); rpg4/rpg2 single runs +25/+35 µs. Each extra tile
-/// re-runs the barriered 2048-wide norm before its router rows, so below 8 the
-/// redundant norm cancels whatever row-latency overlap the extra threadgroups
-/// buy. Do not re-sweep; the values stay accepted only as ablation controls.
+/// At `64` only 4 threadgroups (140 GB/s, 24% of box). Halving doubles tiles: 8->32.
+/// Bit-exact: only changes which threadgroup owns which row; no add regrouped.
+/// Sub-8 is measured null (redundant norm cancels extra-tile overlap).
 let lagunaRouterRowsPerGroup: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ROWS_PER_GROUP"],
@@ -660,23 +627,9 @@ private enum LagunaDecodeAsyncStage {
 /// token — it only enqueues already-constructed work earlier — so every
 /// schedule here is bit-exact and the choice is purely a measurement.
 ///
-/// MEASURED, `notes/52` (two Latin squares, 66 runs, 66/66 `passed_correctness`,
-/// steady step 8..128, all contrasts 6/6 paired). `off` is 10.3735 ms and the
-/// previous `ladder8` default 9.4533, so overlap was already worth +9.7%; the
-/// remaining prize is 0.15 ms and this default takes essentially all of it:
-///
-///     ladder8   (5 fires)  1.0000   the promoted default, unswept
-///     ladder6   (6 fires)  1.0064
-///     ladder2  (20 fires)  1.0169
-///     ladder1  (40 fires)  1.0178
-///     at:1,7,15,23,31,39   1.0170   <- six fires, ties forty
-///
-/// `ladderN`'s first fire is at layer `N-1`, so it structurally skips the
-/// widest GPU-idle window in the step: the front. Adding ONE rung at layer 1
-/// to `ladder8`'s own boundaries is worth as much as quadrupling the ladder,
-/// for one extra scheduler round trip instead of thirty-five. The front rung
-/// is worthless alone — a lone fire at layer 1 measures 0.9476, the worst
-/// schedule tested — and only pays once the rest of the step is covered.
+/// MEASURED (`notes/52`, 66 runs, all passed): ladder8=1.000, ladder6=1.0064,
+/// ladder2=1.0169, ladder1=1.0178, at:1,7,15,23,31,39=1.0170. Adding one front
+/// rung to ladder8 matches 40-fire ladder1 for one extra scheduler round trip.
 private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
     let raw =
         ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_ASYNC_STAGE"]?
@@ -749,14 +702,7 @@ private let lagunaRoPEAngleAtlasLength = 4096
 /// threadgroup memory -- `simd_shuffle*` reaches only the 32 lanes of the
 /// calling simdgroup, so no shuffle crosses from simdgroup 5 to simdgroup 0.
 ///
-/// A `DARKBLOOM_SHUF_NORM_BCAST` / `DARKBLOOM_SHUF_NORM_INIT` pair once made
-/// the two non-gather barriers here optional. Both were measured locally at
-/// -0.70% steady step (6/6 pairs, t=4.77, 95% CI excluding zero) and shipped
-/// as submission `58864bf4`, which the ranked runner **rejected at -0.07%**.
-/// The effect did not exist on the ranked box. Barrier removal has only ever
-/// paid in narrow 32-thread kernels (`9e06de6`, +1.73%), where the rendezvous
-/// is a large fraction of the kernel; in a 512-thread kernel it is free.
-/// Removed rather than left default-OFF so nobody re-derives it.
+/// SHUF_NORM_BCAST/INIT barrier removal: rejected on ranked box (-0.07%), removed.
 private let lagunaNormInvMeanScratch = "threadgroup float local_inv_mean[1];"
 
 /// Emits the cross-simdgroup half of that prologue, from the sixteen partial
@@ -808,51 +754,13 @@ private let lagunaNormReductionTailQKV = lagunaNormReductionTail(
 /// Post-attention residual add + RMSNorm with the MoE router's projection
 /// folded in.
 ///
-/// Every sparse layer follows this norm with a `[256, 2048]` BF16 GEMV whose
-/// only input is the normalized row, so that GEMV is the very next link in the
-/// dependency chain and nothing can overlap it. Folding it in costs each
-/// threadgroup a redundant 4 KB read of the normalized row it just produced
-/// and removes a kernel from the chain.
-///
-/// Exactness: the router half replicates MLX's gemv for out_vec 256 and in_vec
-/// 2048, which selects BM 4, BN 1, SM 1, SN 32, TM 4, TN 4. Lane `l` covers
-/// columns `4l + 128i`, products accumulate in `i` then `tn` order in FP32,
-/// and the simdgroup reduces with the same `simd_shuffle_down` ladder before
-/// one BF16 round. The norm half is untouched.
-///
-/// `rowsPerGroup` (see `DARKBLOOM_ROUTER_ROWS_PER_GROUP`) chooses only WHICH
-/// THREADGROUP OWNS WHICH ROW. 256 divides evenly by 64/32/16/8, every row
-/// keeps its own private accumulator and its own `(block, i)` K-loop, and no
-/// add is regrouped. **At `rowsPerGroup == 64` this emits the pre-widening
-/// kernel** — no guard, no unroll, the same four-element initializer, and
-/// `tile * rows_per_group` is the literal 64 the old
-/// `tile * (simd_size * rows_per_thread / 2)` folded to. That is what makes
-/// `DARKBLOOM_ROUTER_ROWS_PER_GROUP=64` a null by construction and therefore a
-/// usable control (`notes/50` §7e).
-///
-/// Below 16 rows per group there are fewer rows than simdgroups, so
-/// `rows_per_thread` bottoms out at 1 and the surplus simdgroups sit out the
-/// router phase behind `active_simd_groups`. They still run the norm, which
-/// needs all 512 threads, and the guard opens *after* the norm's
-/// `threadgroup_barrier` and closes *after* the logit write, so no thread is
-/// skipped past a barrier and no row goes unwritten.
-///
-/// At `rows_per_thread == 1` the block loop is also unrolled four deep. This
-/// is the load-level-parallelism half of `notes/50` §6b-ter: `tiles *
-/// rows_per_group == 256` at every tiling, so retiling alone cannot add a
-/// single outstanding load and leaves in-flight bytes pinned at 64 KB — which
-/// is the whole of the measured 140 GB/s. Hoisting four blocks' weight loads
-/// takes that to 256 KB.
-///
-/// **LOADS ONLY.** `router_result[0]` stays a single accumulator stepped in
-/// strict `(block, i)` order: block 0's four products, then block 1's, and so
-/// on into the same register. Giving each unrolled step its own partial and
-/// summing the four at the end would regroup 64 sequential FP32 adds into a
-/// tree — bit-exactness lost, every local check still green, the hidden
-/// exact-token gate failed. `router_blocks == 16` and `16 % 4 == 0`, so there
-/// is no tail. The `normalized_row` coefficients are read inline rather than
-/// staged: at one row per thread both cost `n_reads` threadgroup reads per
-/// block, so staging would buy nothing and cost 16 registers per unroll step.
+/// Folds the `[256,2048]` BF16 router GEMV into the norm kernel (redundant 4KB read,
+/// removes a dispatch). Router half replicates MLX gemv (BM4/BN1/SM1/SN32, `i` then
+/// `tn` FP32 accumulation, `simd_shuffle_down` reduce, one BF16 round). `rowsPerGroup`
+/// only changes WHICH threadgroup owns which row; no add is regrouped. **LOADS ONLY**:
+/// `router_result[0]` is a single accumulator in strict `(block,i)` order — tree-summing
+/// the 4-block unroll would regroup 64 FP32 adds and break bit-exactness. At
+/// `rows_per_group==1` the block loop unrolls 4-deep (256KB in-flight vs 64KB).
 private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     let simdGroups = 512 / 32
     let rowsPerThread = rowsPerGroup >= simdGroups ? rowsPerGroup / simdGroups : 1
@@ -5910,10 +5818,7 @@ final class LagunaRuntimeAttention: Module {
                         rows: fusedAffine.originalShape[0])
                 }
 
-                // The fused tail norm+QKV+gate kernel was removed after the
-                // r=1-regime re-sweep re-measured it +2.7% (its defusion is
-                // the promoted state); the placeholder keeps the downstream
-                // defer/eager gate-activation plumbing unchanged.
+                // Fused tail norm+QKV+gate kernel removed (r=1 re-sweep: +2.7%); placeholder only.
                 let fusedTailGateLogits: MLXArray? = nil
                 // Only materialized when the fused kernel declined; the gate
                 // branches below that read it are unreachable when it fired.
@@ -6560,37 +6465,9 @@ final class LagunaRuntimeAttention: Module {
 /// `DARKBLOOM_NVFP4_SCALE_FOLD` (default on; set "0" to restore the pre-fold
 /// arithmetic): hoists the `2^14` out of `laguna_nvfp4_qdot_16`'s sixteen
 /// per-call multiplies and folds it into the one multiply
-/// `laguna_nvfp4_scale` already performs. **−16 scalar multiplies per
-/// `qdot_16` call, −16.5% of the dequantize ALU, ~−1104 M float multiplies per
-/// token across L8 + L9, and nothing added** (`notes/57` §10).
-///
-/// Bit-exact. `16384 == 2^14`, and scaling a binary float by an exact power of
-/// two touches only the exponent field, so every product, partial sum and
-/// rounding decision in the accumulator chain is exactly `2^-14 ×` its old
-/// value — same bits, different exponent — and the `2^14` reappears once in
-/// the scale before the single final rounding.
-///
-/// **The dtype move is range-checked, not assumed** (`notes/58` §1a). The
-/// multiply moves from half to float because `4194304` overflows half, and a
-/// power-of-two argument does NOT by itself survive a dtype change — so all
-/// 256 E4M3 scale bytes were enumerated through both paths, in half and in
-/// float, with an explicit `isfinite` check on the old path. **Zero
-/// divergence, and no overflow is reachable:** the shuffle
-/// `(bits & 127) << 7` maps E4M3 into half format, and since E4M3's exponent
-/// bias is 7 against half's 15 it already yields the scale divided by 256 —
-/// which is exactly what the old `*= 256.0` corrected. The half-domain
-/// intermediate therefore peaks at **1.875**, and the scale at **480**,
-/// against half's finite max of 65504. **136x headroom.**
-///
-/// The compiler cannot do this fold itself: `device.cpp:631` sets
-/// `setFastMathEnabled(false)`, so reassociating `Σ(a·h·2^14)` into
-/// `2^14·Σ(a·h)` is forbidden and all sixteen multiplies really are emitted.
-/// `device.cpp` is outside `editablePaths`, so it is done by hand.
-///
-/// Safe under the `notes/00` kernel-selection rule: this is a pure arithmetic
-/// identity **inside our own Metal source**. No shape, dtype, tile count or
-/// reduction order that MLX can observe changes, so it cannot alter which
-/// kernel MLX selects.
+/// Hoists `2^14` into `laguna_nvfp4_scale`: -16 multiplies/call, -1104M/token.
+/// Bit-exact: power-of-two scaling touches only exponents. Dtype move range-checked
+/// (half peak 1.875, scale 480, 136x headroom). Compiler can't fold (fastMath off).
 let lagunaNvfp4ScaleFoldEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_SCALE_FOLD"] != "0"
 
@@ -6600,43 +6477,9 @@ let lagunaNvfp4ScaleFoldEnabled =
 /// code word. Values, dtypes, FP32 accumulation and its order, and the single
 /// final BF16 round are untouched -- only the integer sequence that builds the
 /// half bit patterns changes.
-///
-///   0  stock. Each of the four `half2` words takes its own magnitude
-///      shift+mask, its own sign shift+mask and an OR: 5 int ops (4 for `p3`,
-///      whose sign is already in place) = **19 per code word, 38 per 16-value
-///      group**, spread over **eight distinct 32-bit mask constants**.
-///
-///   1  split. Separate the even and odd nibbles once, and in the same step
-///      slide each nibble's sign three places so magnitude and sign sit at a
-///      FIXED offset from one another. After that one shift+mask yields a
-///      whole `half2`:
-///
-///          xe = c & 0x0F0F0F0F   even nibbles: mag 4j..4j+2, sign 4j+3
-///          ge = xe | (xe << 3)   sign copied to 4j+6 -- those bits are zero
-///                                in `xe`, so the OR cannot collide
-///          yo = c & 0xF0F0F0F0   odd nibbles
-///          go = yo | (yo >> 3)   mag copied down to 4j-3..4j-1, sign kept
-///          p0 = (ge << 9) & M    p2 = (ge << 1) & M
-///          p1 = (go << 8) & M    p3 =  go       & M     M = 0x8E008E00
-///
-///      **13 int ops per code word, 26 per group (-12), and three mask
-///      constants instead of eight (-5 live constant registers).**
-///
-///   2  the op-count control. Identical 19-op structure to stock -- shift
-///      first, then mask -- but only TWO distinct mask constants. It isolates
-///      "fewer live constants" from "fewer instructions": if `2` alone moves
-///      the needle the win is register pressure, if only `1` moves it the win
-///      is the instruction count.
-///
-/// Bit-exactness is by construction, not tolerance. Every form here is an OR
-/// of masked shifts, so each output bit is an OR of a fixed subset of input
-/// bits and the 33 single-bit basis words pin the function completely. All 33
-/// basis words plus 300 000 random words agree bit-for-bit with stock, and
-/// decoding every (nibble position, code) pair through both yields the
-/// identical float -- the NVFP4 alphabet {0, .5, 1, 1.5, 2, 3, 4, 6} x 2^-14.
-///
-/// Composes with `DARKBLOOM_NVFP4_SCALE_FOLD`: that flag scales the decoded
-/// weights, this one only changes how their bits are assembled.
+/// 0=stock (19 ops/word, 8 masks), 1=split (13 ops/word, 3 masks, -12/group),
+/// 2=op-count control (19 ops, 2 masks). Bit-exact by construction: OR of masked
+/// shifts, verified against 33 basis words + 300K random words. Composes with SCALE_FOLD.
 let lagunaNvfp4NibbleSplit: Int = {
     guard
         let raw = ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_NIBBLE_SPLIT"],
@@ -6667,44 +6510,9 @@ let lagunaNvfp4ScaleCarry: Bool =
 /// with ~69 M groups per decoded token across the nine routed/shared
 /// SwiGLU-QMV and down kernels that is ~69 M dead FP adds per token, ~1.4% of
 /// this loop's ALU.
-///
-/// **Bit-exactness is a closed case analysis over signed zero, not a
-/// tolerance.** Write the four partial sums `t0..t3` (`t0` is the first
-/// four-term group of packed word `codes.x`). Current: `a = (((+0 + t0) + t1)
-/// + t2) + t3`. Elided: `a' = ((t0 + t1) + t2) + t3`.
-///
-///  1. If `t0 != -0.0` then `+0.0 + t0 == t0` bit-for-bit (IEEE 754 round-to-
-///     nearest: `+0` is the additive identity for every operand except `-0`),
-///     so `a' == a` and nothing downstream can differ.
-///  2. If `t0 == -0.0` then the current form holds `+0.0` and the elided form
-///     `-0.0`. Both are zeros, so each subsequent add either lands on the same
-///     nonzero value (`±0 + x == x`) or keeps both operands zero. `a` and `a'`
-///     can therefore differ ONLY as `+0.0` versus `-0.0`, and only when all
-///     sixteen products of the group are `-0.0` (a sum of floats is `-0.0`
-///     only if both addends are `-0.0`).
-///  3. `scale` is always finite — `laguna_nvfp4_scale` builds its half from
-///     `(bits & 127) << 7`, whose largest magnitude is 1.875h, so no E4M3 byte
-///     can make it Inf/NaN — hence `scale * (±0.0) == ±0.0` and `qdot`'s
-///     return differs at most in the sign of a zero.
-///  4. Every call site absorbs that sign. The SwiGLU kernels accumulate into
-///     `gate_result`/`up_result`, seeded `+0.0f`: `+0.0 + (-0.0) == +0.0`, and
-///     once the accumulator is nonzero a `±0.0` addend leaves it unchanged, so
-///     a `-0.0` row accumulator is unreachable in either form. The down
-///     kernels assign `result[row]`, `simd_sum` it (again `+0 + -0 == +0`
-///     unless all 32 lanes are `-0.0`), cast to BF16, and then reach the
-///     output only through `routed + shared` / `product + routed_total` /
-///     `residual + r2`, whose left operands are themselves `+0.0`-seeded
-///     accumulations or the residual — so the `-0.0` is absorbed there too.
-///
-/// `LagunaNVFP4QdotSeedTests` executes 1-4 over the adversarial signed-zero
-/// domain on the CPU, including groups whose every NVFP4 code is `-0.0`
-/// (code 8) and every activation `+0.0`.
-///
-/// The two packed-word bodies are emitted textually in BOTH arms of the flag,
-/// so the flag isolates the seed and nothing else. That costs no arithmetic:
-/// the Metal compiler must already fully unroll the two-iteration `j` loop —
-/// `input` is a `thread float[16]` that only stays in registers under constant
-/// indices — so the unrolled text is what it was already compiling.
+/// Bit-exact by signed-zero case analysis (not tolerance): eliding `+0.0f` seed
+/// can only flip `+0.0` to `-0.0` when all 16 products are `-0.0`, and every call
+/// site absorbs that sign via `+0.0`-seeded accumulators. Tested by `LagunaNVFP4QdotSeedTests`.
 let lagunaNvfp4QdotSeedElisionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_QDOT_SEED_ELIDE"] != "0"
 
@@ -6715,29 +6523,9 @@ let lagunaNvfp4QdotSeedElisionEnabled =
 /// group. `laguna_nvfp4_scale` drops from five ops to four (and, add, shift,
 /// convert) and the group cost falls by one FP multiply -- the same ~69 M
 /// removals per decoded token as the seed elision above.
-///
-/// Off by default **on purpose**. Unlike the seed elision, the carry sign-fold
-/// and the nibble split, this one is not exact by case analysis: it is exact
-/// under a range condition. Multiplying by an exact power of two is exact and
-/// commutes with rounding, so with `s' = scale * 2^-22` every group product
-/// `fl(s' * accum)` is exactly `2^-22 * fl(scale * accum)`, every partial sum
-/// of those products is exactly `2^-22` times the current one, and the single
-/// epilogue multiply restores it before the one BF16 rounding -- **provided no
-/// product lands in the FP32 subnormal range**, where scaling no longer
-/// commutes with rounding.
-///
-/// The condition, stated exactly: the deferred form diverges only if some
-/// group has `0 < |scale * accum| < 2^-104`. `s'` is at least `2^-17` (the
-/// smallest nonzero E4M3 byte, `2^-9`, over 256), so that needs
-/// `|accum| < 2^-109`; every NVFP4 weight is a multiple of `2^-15` and every
-/// activation is BF16, so a nonzero `accum` below `2^-109` needs all sixteen
-/// activations of the group below roughly `2^-99`. This model cannot produce
-/// them: activations are BF16 roundings of `O(1)` residual-stream and RMSNorm
-/// quantities, and cancellation in BF16 lands on that same coarse grid, so a
-/// hidden value is either exactly zero (which contributes an exact zero and is
-/// safe) or within a few tens of binades of the row's scale. The margin is
-/// ~60 binades — promoted to the shipped default on that basis; the
-/// exact-token gates fail loudly if the range assumption is ever violated.
+/// Exact under a range condition (not case analysis): diverges only if some group has
+/// `0 < |scale*accum| < 2^-104`, which needs all 16 activations < ~2^-99. This model's
+/// BF16 activations are O(1) RMSNorm quantities, so the margin is ~60 binades.
 let lagunaNvfp4ScaleDeferEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_SCALE_DEFER"] != "0"
     && lagunaNvfp4ScaleFoldEnabled
@@ -9389,66 +9177,11 @@ private func lagunaPrefillRouterTop8(
     return (outputs[0], outputs[1])
 }
 
-/// `DARKBLOOM_PREFILL_ROUTER_TOURNAMENT` (default on; set "0" to ablate):
-/// credited re-land of saucegod's `aeabc27` two-stage tournament, the
-/// mechanism this replaces `lagunaPrefillRouterTop8` above's O(256) per-lane
-/// predecessor count with (that one stays in the tree, default off, as its
-/// own independent ablation point -- `DARKBLOOM_PREFILL_ROUTER_TOP8=1`).
-///
-/// Same comparator, same total order, same normalization idiom as the
-/// promoted decode router (`laguna_router_key_before`,
-/// `lagunaDecodeRouterTop8Header` above) -- reused verbatim, not
-/// reimplemented -- but a genuinely cheaper selection network instead of a
-/// full 256-element sort or an O(256^2) predecessor count:
-///
-/// Phase 1 -- eight independent 32-lane bitonic sorts, one per simdgroup.
-/// This is exactly the promoted decode kernel's own low-stride bitonic
-/// network code (`sequence` from 2 to 32, `stride` from `sequence>>1` down
-/// to 1, `simd_shuffle_xor`-only exchanges, identical comparator calls),
-/// simply not continued past `sequence == 32`: since `stride <
-/// sequence <= 32` throughout, no exchange's `lane ^ stride` ever crosses a
-/// 32-lane simdgroup boundary (XORing bits 0-4 cannot flip bit 5), so this
-/// is EXACTLY 8 independent, fully-correct bitonic sorts of each
-/// simdgroup's own 32-lane block, needing no threadgroup memory. Each
-/// block IS fully sorted by the total order after this phase, but NOT all
-/// eight ascending: standard Batcher-network direction alternates by block
-/// parity at an intermediate stage like this one (needed if the network
-/// continued merging into larger blocks, which this one does not) --
-/// even-indexed blocks land ascending (rank 0 at `within_block == 0`),
-/// odd-indexed blocks land descending (rank 0 at `within_block == 31`).
-/// The extraction step below reads each block's true rank-0..7 from
-/// whichever end it actually sorted to.
-///
-/// Exactness of the local-top-8-is-sufficient claim: if an expert `e` is in
-/// the row's GLOBAL top-8, it cannot rank below 7 within its own 32-lane
-/// block -- if it did, that one block alone would already contain 8
-/// experts strictly better than `e` (its within-block betters, all real,
-/// all in the same 256-row), giving `e` a global rank of at least 9,
-/// contradicting global top-8 membership. So the 8 blocks' local top-8
-/// sets (64 candidates total) provably contain the row's true top-8 as a
-/// SET, for any partition into blocks -- this holds regardless of block
-/// size or which 32 experts land in which block.
-///
-/// Phase 2 -- repack the 64 candidates into one contiguous threadgroup
-/// array (unavoidably a real cross-simdgroup data movement, one barrier)
-/// then bitonic-sort THAT 64-element union using the same comparator
-/// (`sequence` 2 to 64). All 256 threads participate uniformly (Metal
-/// requires uniform control flow to reach a `threadgroup_barrier`); lanes
-/// 64-255 operate on a harmless wrapped duplicate of the same 64
-/// candidates (`lane & 63`) and are never read. Because a strict total
-/// order applied consistently preserves relative order within any subset,
-/// the sorted union's first 8 entries are the row's true top-8 IN THE SAME
-/// ORDER the full 256-element stable argsort would have produced them --
-/// same proof structure the promoted decode kernel and the existing
-/// (default-off) `lagunaPrefillRouterTop8` predecessor-count kernel both
-/// already rely on for their own exactness arguments.
-///
-/// The normalizing epilogue reuses the decode kernel's own trick verbatim:
-/// after phase 2, ranks 0..<8 are physical lanes 0..<8, all within
-/// simdgroup 0, so `simd_shuffle(my_score2, i)` gathers all eight winning
-/// scores through registers (no threadgroup memory) and folds them in
-/// ascending-lane order -- bit-identical to stock `weights.sum(axis: -1)`'s
-/// left fold and the IEEE FP32 divide that follows it.
+/// Two-phase tournament replacing O(256) predecessor count: (1) 8 independent 32-lane
+/// bitonic sorts per simdgroup (same decode kernel network, no threadgroup memory);
+/// (2) repack 64 candidates, bitonic-sort the union, take first 8. Same comparator and
+/// total order as decode router. Local-top-8 provably contains global top-8. Normalizing
+/// epilogue via `simd_shuffle` is bit-identical to stock `weights.sum(axis: -1)`.
 private func lagunaPrefillRouterTournamentKernelSource(normalizing: Bool) -> String {
     let epilogue =
         normalizing
