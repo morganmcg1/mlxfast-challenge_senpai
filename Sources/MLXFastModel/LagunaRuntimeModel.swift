@@ -7527,11 +7527,8 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
                 (const device vec<bfloat, 4>*) (
                     input + block + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
+                *(thread float4*)(input_values + 4 * i) =
+                    float4(input_vectors[i]);
             }
 
             const uint2 cur_gate_codes = gate_codes;
@@ -7844,11 +7841,8 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             (const device vec<bfloat, 4>*)(
                 expert_input + lane * values_per_lane);
         for (uint i = 0; i < values_per_lane / 4; ++i) {
-            const vec<bfloat, 4> values = input_vectors[i];
-            input_values[4 * i] = values[0];
-            input_values[4 * i + 1] = values[1];
-            input_values[4 * i + 2] = values[2];
-            input_values[4 * i + 3] = values[3];
+            *(thread float4*)(input_values + 4 * i) =
+                float4(input_vectors[i]);
         }
 
         thread float result[outputs_per_simd] = {0.0f};
