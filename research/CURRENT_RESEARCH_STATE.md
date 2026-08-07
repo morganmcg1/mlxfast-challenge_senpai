@@ -149,6 +149,299 @@ of each M5 roofline** — and the public field has been stuck on that axis for
 
 ---
 
+## 0c. M5 / NAX hardware facts and published ceilings
+
+Source: plateau-escalation research batch
+`maple-r25-plateau-escalation-2026-08-06`, tasks `ab3a87f3` (hardware,
+general web) and `1986eb13` (research publications), 2026-08-06. **Read this
+before writing any kernel-level assignment.** Facts are tagged
+**[documented]** (Apple or MLX source), **[reverse-engineered]**
+(philipturner/metal-benchmarks and equivalents), or **[measured]** (a named
+third-party benchmark). Do not promote a reverse-engineered figure to a
+prediction without a matching in-tree measurement.
+
+### 0c.1 M5 Max machine constants
+
+| quantity | value | status |
+|---|---|---|
+| DRAM bandwidth, M5 Max 40-core | **614 GB/s** | [documented] LPDDR5X-8533 |
+| DRAM bandwidth, M5 Max 32-core | 460 GB/s | [documented] |
+| DRAM bandwidth, M5 Pro / M5 | 307 / 153 GB/s | [documented] |
+| unified memory | 128 GB | [documented] |
+| peak GPU compute vs M4 | ">4×" (Apple's claim) | [documented] |
+| max threads/threadgroup | 1024 | [documented] apple7+ |
+| max threadgroup memory (API) | 32 KB | [documented] |
+| SIMD width | 32 | [documented] |
+| bf16 | a documented Metal 4 tensor type | [documented] |
+| **SLC size** | **unknown** | rumour only — see below |
+| GPU clock, registers/thread, resident simdgroups/core | **not published** | — |
+
+⚠️ **No Apple document gives the M5 Max SLC size, GPU clock, register count
+per thread, or resident simdgroups per core.** Every figure circulating for
+M5 Max SLC is rumour-grade. Our working assumption remains "≥48 MB, unknown"
+(§ Apple SLC facts). Do not build a staging argument on an assumed SLC size.
+
+**Per-core structure [reverse-engineered], Apple7/8 baseline:**
+- 1 core = 4 partitions × 32 lanes = **128 FP32 FMA/clk**; each partition
+  issues 1 instruction/clk from 1 simdgroup ⇒ **4 instructions/clk/core**.
+- Register file ≈ **208 KB/core**. Physical threadgroup memory ≈ 60 KB/core
+  versus the 32 KB API limit.
+- I-cache 12 KB; L1 data 8 KB; **global cache line 128 B**; on-core data
+  bandwidth **64 B/clk/core**.
+- Occupancy ladder: 1024 threads/core = **32 simdgroups** at ≤104 half-
+  registers, falling to 832 / 640 / 512 / **384 (12 simdgroups)** at
+  128 / 160 / 208 / 256 half-registers.
+- **ALU utilisation saturates at ~24 simdgroups/core**; below that the core is
+  issue/latency-limited, not throughput-limited.
+- ALU latency 3–6 cycles. FP32 dependent-FMA chains take 6.6 cycles at minimum
+  occupancy versus 3.9 for FP16. M3+ **dual-issues FP32 with FP16/INT**.
+- **Address arithmetic is real work.** 64-bit integer add (`IADD64`) is
+  emulated in **4 operations**. Dynamic (non-constant) `BITEXTRACT` /
+  `BITINSERT` degrade to **8–12 cycles** versus ~1 for the constant form.
+  ⇒ NVFP4 unpack and gather pointer math compete for the same issue slots as
+  the FMAs. **This is the main support for §4.10's third-resource
+  hypothesis.**
+
+⚠️ **UNRECONCILED DISCREPANCY — 32 vs 96 simdgroups/core.** The public
+reverse-engineered maximum is **32 simdgroups/core**. Our own #57 + #138 work
+concluded the binding occupancy term is **96 simdgroups/core**, and #157's
+residency ceiling of ~24 TG/core × 4 simdgroups per 128-thread TG also gives
+96. These are **3× apart**. Possible resolutions: (a) the public figure is
+Apple7/8 and M4/M5 tripled it; (b) our 96 is really "96 simdgroups' worth of
+*work* queued per core", i.e. a scheduling depth, not a residency limit;
+(c) one of the two is simply wrong. **Do not use either number as a hard
+constraint in an assignment until this is resolved.** Both of our derivations
+came from the same measurement family, so they are not independent.
+
+### 0c.2 The Neural Accelerator (NAX)
+
+- **One NAX per shader core**, alongside the ALU pipelines. Reachable only
+  through Metal 4 `MTLTensor` + `mpp::tensor_ops` (MPP), gated on
+  **`MTLGPUFamily.apple10` and later**. [documented]
+- **Apple's own tile recommendation** (MPP Programming Guide §2.3.2): on M5,
+  a simdgroup tile of **SM = SN = 32** is a good starting point for 16-bit
+  operands; smaller data types may need *larger* tiles; too-large tiles
+  regress. [documented]
+- Apple and the MLX team both state **threadgroup staging is not required for
+  peak GEMM** — device-memory streaming through the cache is fastest.
+  [documented]
+- **[measured, A19, 5 cores ~1.46 GHz]** FP16 matmul **7.5 TFLOP/s**
+  (~1024 FLOP/core/clk); **FP32 accumulate is free**; INT8→INT32
+  **13.4 TOPS** (~2× FP16). SIMD-path FP32 1.88 / FP16 3.2 TFLOP/s ⇒ the
+  matrix path is ≈**4× the FP16 SIMD path**.
+- Extrapolated 40-core M5 Max at ~1.75 GHz: **~70 TFLOP/s FP16, ~130 TOPS
+  INT8, ~18 TFLOP/s FP32 SIMD**.
+- **[measured] MLX PR #3211: 52–60 TFLOP/s fp16 on a real M5 Max** — 75–85%
+  of the extrapolation. **Use 52–60 TFLOP/s, not 70, as the practical dense
+  ceiling.**
+- **Optimal tile ≈32×32; larger regresses. Transposes are free.**
+- **~256 cycles to produce a 32×32×32 product** ⇒ NAX latency is long; deep
+  pipelining with multiple independent accumulators is required to cover it.
+  ⚠️ Consequence: **adding a second accumulator can make a latency-bound NAX
+  kernel *faster*, not slower.** An arm that adds MMA work and comes back flat
+  or faster is evidence of latency-boundness, not of spare MMA throughput.
+- Keeping one core's NAX fed needs ~64 B/clk ≈ **93 GB/s per core** ⇒ NAX
+  kernels are **cache/reuse-bound by construction**.
+- **Cooperative tensor fragments live in per-thread registers** ⇒ they share
+  the 208 KB register file with vector ALU state, so extra accumulators carry
+  a second-order occupancy cost. Issue-slot sharing between NAX and the vector
+  ALU is **undocumented**.
+- Apple tech talk 111432: NAX utilisation is a **separate counter**, and the
+  practical limiter in Apple's own worked example was **data supply** —
+  utilisation went 50% → 100% purely by changing threadgroup traversal order.
+
+### 0c.3 MLX `_nax` gating and geometry (read from our own checkout)
+
+- `is_nax_available()`, `Vendor/mlx-swift/.../metal/device.cpp:913`:
+  `MLX_METAL_NO_NAX` off, **runtime macOS ≥ 26.2**, `architecture_gen >= 17`
+  (**18** if the arch string ends in `'p'`).
+- Per-op gates: `env::enable_tf32() || dtype != float32`. Quantized
+  additionally needs **`transpose && K % 64 == 0`**
+  (`quantized.cpp:733, 972, 2005`). SDPA excludes `head_dim == 80`
+  (`scaled_dot_product_attention.cpp:177`). Device-class routing switches on
+  `architecture().back()` (`'s'`/`'c'`/`'d'`).
+- **Hardware fragment shape:** `steel/gemm/nax.h:503` builds
+  `mpp::tensor_ops::matmul2d_descriptor(16, 32, 16, …)` at
+  `execution_simdgroup` scope ⇒ **M16 × N32 × K16 per simdgroup**, two
+  N-halves per call.
+- Fused NAX GEMM defaults (`matmul.cpp:227`): `bm128 bn128 bk512 wm4 wn4`;
+  for `'s'/'c'/'d'` devices `bm64 wm2`, with `bk=64` when
+  `K ≥ 8192 && K > M+N` else 256. Split-K NAX fires when `K ≥ 3·max(M,N)` or
+  (`max(M,N) ≤ 1024 && K > 2·max(M,N)`).
+- ⚠️ **`gather_mm_rhs_nax` (`matmul.cpp:2091`) disagrees with our shipped
+  geometry at our shape.** It fixes `bn128 bk128 wn4` and picks `bm/wm` by
+  `M/E`: 64/2 when `M/E > 48`, 32/1 when `> 24`, else **16/1**. Our prefill is
+  M = 4096 rows/layer over E = 256 experts ⇒ **M/E = 16 ⇒ upstream MLX would
+  choose `bm16/wm1`**. We ship `bm64/wm4` (arm 5 of the
+  `DARKBLOOM_STAGE_BM128` sweep) and measured it better. This is not a bug,
+  but it is a second independent signal that **our kernel's binding constraint
+  is not the one MLX's heuristic models** — the first being §4.10.
+- ⚠️ Our shipped `BM=64, WM=4, WN=1` gives **SM=16, SN=64**. Apple's
+  recommended starting point (SM=SN=32) is exactly our sweep **arm 0**
+  (`BM64 WM2 WN2`), which measured **2.13% slower** than what we ship.
+  Empirical optimum disagrees with the vendor recommendation. Weak evidence
+  **against** MMA-throughput-boundness: an MMA-limited kernel should prefer
+  the vendor-optimal fragment packing.
+
+### 0c.4 Known MLX limitations in exactly our regime
+
+- **MLX discussion #3691:** the MoE weight-reuse GEMM **tops out around
+  80 GB/s at small M on an M5 Pro**, and the NAX path is *on* that curve, not
+  above it. Explicitly names the (16,32,16) descriptor at M = 16–64 — our
+  primitive, our regime. (We measure 408.4 GB/s on M5 Max, so we are not on
+  the pathological curve, but the family is known-fragile at small M/E and
+  upstream has not solved it.)
+- **MLX issue #3584:** `quantized_matmul` runs **1.5–1.8× slower than fp16**
+  at M = 96/128 because a split-K path fires when the single-kernel
+  `qmm_t_nax` would win. ⇒ **Any stray split-K instantiation in a scored run
+  is a red flag.** A scored run must generate exactly two NVFP4 gather-rhs
+  pipelines (`..._k_2048_n_1024_eg_256_ws_1_wl_{1|0}` and
+  `..._k_512_n_2048_eg_256_ws_1_wl_{1|0}`).
+- Crashes from missing instantiations: issue #3362, PR #3632.
+- Large-K NAX slow tail: issue #3017 (split-K up to 1.6×); segmented NAX
+  matmul PR #3419 (1.1–2.75×).
+- Third-party datum: bypassing NAX regressed 828 → 400 tok/s (jundot/omlx)
+  ⇒ **NAX helps prefill more than decode**, consistent with our own split.
+
+### 0c.5 Bandwidth-versus-peak calibration
+
+- GPU STREAM on M1–M4 reaches **~85% of theoretical peak** (arXiv 2502.05317).
+- llama.cpp Q4 decode on a 40-core M4 Max: 296/546 GB/s = **~54%**.
+- Apple's MLX post: the M5-vs-M4 *decode* gain of 19–27% tracks the 28%
+  bandwidth gain — **decode is bandwidth-bound, prefill is compute-bound.**
+- Practical reading for us: 85% is the ceiling a perfect streaming kernel
+  reaches; 54% is what a real quantized decode loop reaches. Our decode
+  aggregate at ~71% of the 614 GB/s floor is therefore **between** those two,
+  which is why §7's 1.20 ms pool is plausible but not free.
+
+⚠️ **Do not cite arXiv 2607.19438 ("BaseRT" page).** It asserts M5 reports
+`apple9`, contradicting Apple's documented `apple10`. Treat the whole page as
+unreliable. (The *separate* BaseRT paper 2607.00501 is fine — see §0c.7.)
+
+### 0c.6 Exact-compression ceilings — the headline negative
+
+**No published technique reduces bytes-read below "all top-k expert weights"
+at batch 1 while preserving exact numerics.** This is the strongest negative
+result from the literature pass and it closes a family we kept half-open.
+
+- **Lossless entropy coding of already-4-bit tensors has a measured ceiling of
+  ~1.04×** (Q4_K 1.041–1.045×; ~1.01× over a whole GGUF). The bf16 ceiling is
+  ≈**1.495×**. ⇒ **Entropy-coding the NVFP4 payload nibbles is not worth
+  doing.** Formally closed.
+- ✅ **The one exact opportunity nobody measured: the scale plane.** Every
+  cited study coded the *payload*. The NVFP4 scale plane is 1 byte per 16
+  values ≈ **12.5% of payload bytes**, and E4M3/E8M0 scale distributions are
+  low-entropy. **Nobody has measured its entropy.** This is a cheap offline
+  histogram — see §7 idea 8's method, applied to scales rather than bf16.
+- **TritonMoE** (2605.23911): fused gate+up reaches 43% of peak bandwidth, but
+  its own limitations section states that **for 256-expert / top-8 models the
+  bottleneck is loading expert weights, not dispatch efficiency**. The reuse
+  argument dies at batch 1. Matches our 552.1 MB finding exactly.
+- Layout precedents that are free and exact: **M2XFP** (2601.19213) stores
+  three separate contiguous fixed-length streams (4-bit elements / 8-bit
+  shared scale / 8-bit metadata) for alignment and independent parallel
+  access; **MOSS** (2511.05811) stores scales contiguously aligned to the MMA
+  inner-loop access pattern; **MicroMix** (2508.02343) uses offline channel
+  permutation. ⚠️ We refuted H-a (alignment) and H-d (two disjoint streams)
+  in-tree — cite these only as design vocabulary, not as revival evidence.
+- **Fixed-length beats variable-length on SIMD:** **ZipServ** (2603.17435)
+  uses a TCA-TBE fixed-length bitmap giving **branch-divergence-free
+  constant-time decode** straight into registers feeding the MMA. **dtANS**
+  (2603.01915) is engineered so decode is not the bottleneck in a
+  memory-bound GEMV. Shannon-bound tile-level ANS (2606.15789) aligns to GEMM
+  tiling. **DFloat11** (2504.11651) achieves 30% bit-identical but is
+  bf16-only. ⇒ if we ever code the scale plane, **fixed-length, not ANS**.
+- **FASQ** (2605.04084), batch-1 GEMV: eliminating the shared-memory LUT gave
+  **zero SMEM, zero barriers ⇒ 12 resident blocks/SM versus 1**; split-K
+  across grid-z tuned to ~8 blocks/SM. The codebook part is lossy and
+  therefore out of bounds, but **the occupancy structure transfers**.
+- ⚠️ **Split-K warning** (2402.00025): W4A16 at M = 1–16 gave 1.24× on H100,
+  1.14× on A100-40, and **0.64× — a regression — on A100-80**. The optimal
+  split factor **flips sign across GPUs**. Any split-K proposal needs its own
+  M5 measurement; M4 evidence is worthless for it.
+
+### 0c.7 Fusion and dispatch-count literature — supports §7 ideas 1–4
+
+- ⭐ **Fusion gains are non-additive. Do not screen components individually.**
+  **ClusterFusion++** (2604.23553) on Pythia-2.8B: TPOT 6.80 → 5.32 ms
+  (attention-only fusion) → **4.90 ms fully fused (1.39×)**. The MLP-down
+  fusion measured **0.75× — slower — in isolation**, yet contributed
+  positively inside the full fusion. **This is a direct warning against our
+  own habit of pricing each fusion separately** (§4.1a's price table), and it
+  is the main literature support for §7 idea 1.
+- **ClusterFusion** (2508.18850) fuses QKV-projection + attention +
+  O-projection into one kernel, exactly. This is the published form of §7
+  idea 3's endpoint.
+- **Open-TQ-Metal** (2604.16957): a fused Metal SDPA with dequant in
+  registers, online softmax and zero intermediates ran **48× faster than
+  dequantize-then-attend at 128K context**; separately,
+  **`mx::set_wired_limit()` recovered 10× throughput (0.6 → 6.0 tok/s)**.
+  ⚠️ Check whether our harness already sets a wired limit before treating
+  this as a lead — at 21.6 GB resident on a 128 GB box it is probably moot,
+  but it is a one-line check.
+- **BaseRT** (2607.00501, the real one): separate GEMV(M=1) and GEMM kernels
+  per format, dequant fused in the inner loop, **zero allocation in the decode
+  loop**, per-chip threadgroup config selected from core count.
+- ⭐ **Radix-8 FFT on Apple GPUs** (2603.27569): **the 208 KiB register file is
+  the primary resident tier; the 32 KiB threadgroup memory is an exchange
+  buffer only. Barriers cost ~2 cycles, while scattered threadgroup access is
+  expensive. `simdgroup_matrix` did not help.** ⇒ supports tanjiro's B2 arm
+  being a *weak* perturbation and S2 being a strong one.
+- **Rigel** (2606.12765) on M4 Max: `matmul2d` runs on the shader cores with
+  no dedicated matrix datapath; fp8 is emulated at 0.94× fp16;
+  **hand-fused GEMM+bias+GELU gained +12.9% while bare-GEMM rewrites did not
+  help — epilogue fusion is the lever.** Consistent with our own §7 R2
+  shared-expert SwiGLU epilogue lead.
+- **SAR fusion** (2604.03585): 22× from single-dispatch fusion on M1; the MMA
+  FFT reached only 93% of scalar.
+- **Multi-node MoE on Apple Silicon** (10.1145/3649601.3698722):
+  **pre-stacking expert weights as one 4D tensor keeps execution time stable**
+  versus separate 2D matrices. We already do this; recorded as confirmation.
+- **vllm-mlx** (2601.19139): M4 Max worked example, 56 ms theoretical versus
+  ~67 ms observed = **~11 ms of CPU-side overhead**. Independent corroboration
+  that host-side cost is real on Apple Silicon at this scale.
+- Metal-Sci (2605.09708) puts SLC at ≈24 MB on M1 Pro — consistent with our
+  M4 Pro figure, still no M5 Max number.
+
+### 0c.8 Dispatch-count evidence — the quantitative case for §7 idea 2
+
+- ⭐ **TaxBreak** (2603.12465): **OLMoE runs at 260.5 ms/token at BS=1, 11.7×
+  slower than dense Llama-3 at equal activated parameters. 93,053 kernels per
+  inference versus 8,475. GPU utilisation 15.5% versus 58.9%. Persistently
+  host-bound through BS=16.** This is the single strongest published
+  statement that **sparse MoE decode at batch 1 is a dispatch-count problem,
+  not a bandwidth problem** — exactly §7 claim 1.
+- **Fleet** (2604.15379): a persistent megakernel gives **1.3–1.5× lower
+  decode latency at bs=1–16 on MI350X**, and explains why graph capture is
+  strictly weaker than a persistent kernel — L2 is flushed at kernel
+  boundaries, forcing intermediates through HBM.
+- **Event Tensor** (2604.13327) handles data-dependent megakernel dynamism —
+  i.e. the MoE routing case, which is the hard part for us.
+- **Batch-1 instrument** (2605.30571): CUDA-Graph A/B isolates launch
+  overhead — 1.259× on H100 versus 1.028× on L4. Also: int4 realization
+  varies **45.24 ms (Marlin) versus 17.36 ms (ExLlamaV2)** — implementation,
+  not bit width.
+- **Ada-MK** (2605.11581): launch overhead is 14.6% of end-to-end and +23.6%
+  single-batch.
+- **RaMP** (2604.26039): a 4-term cost model cuts geometry-selection regret
+  from 8.1% to 0.93%. Relevant if we ever re-open geometry selection.
+
+### 0c.9 Roofline methodology we should be using
+
+- Williams 2009 in-core ceilings; Williams 2010 **Little's Law: required
+  in-flight bytes = latency × peak bandwidth**. We have never computed our
+  in-flight byte requirement. For decode at 614 GB/s and ~1 µs of dispatch
+  latency that is ~614 KB in flight — a number worth checking against our
+  actual outstanding-load depth.
+- **Instruction Roofline** (10.1002/cpe.6591; 2110.08221): count *instructions*
+  to expose fetch–decode–issue limits. **This is the missing axis in §4.10.**
+- **Time-based roofline** (2009.04598): runtime = launch latency × kernel
+  count. Kernels **<5 µs are launch-dominated** — several of our decode
+  kernels are in that range.
+- **SAAKE** (10.1145/3192366.3192397): perturb one resource by ±10% and
+  re-emulate; the highest-sensitivity resource is the binding one. **This is
+  precisely tanjiro's #170 design**, arrived at independently. Good sign.
+
 ## 1. Where we stand
 
 **We are rank 1.**
@@ -684,6 +977,72 @@ measurement sets ~20% apart in one document. Resolve before quoting either.
 > `gate_sp` unique DRAM traffic is 2304 B/row × 2400 rows = **5.5296 MB/step**;
 > achieved bandwidth is 22.2 GB/s (h64) and 17.5 GB/s (h48).
 
+
+### 4.10 ⚠️ The roofline-ridge identity — the 67%/67% signature is *one* number
+
+**This retires the most-quoted interpretation in the whole document.**
+
+For nine rounds we have quoted the in-situ M5 gather-GEMM measurement as
+"408.4 GB/s = 67% of 610, *and* 23.23 TFLOP/s = 67% of 34.7 — neither a
+bandwidth problem nor a FLOP problem, therefore jointly saturated." That
+reading is wrong, and the coincidence is algebraically forced.
+
+Compute the kernel's arithmetic intensity from first principles:
+
+```
+AI = 2 × (tokens per expert) / (bytes per parameter)
+   = 2 × 16 / 0.5625
+   = 56.9 FLOP/B
+```
+
+Now compute the machine balance of the M5 Max:
+
+```
+machine balance = 34.7 TFLOP/s / 610 GB/s = 56.9 FLOP/B
+```
+
+**These are identical.** The prefill routed gather-GEMM sits *exactly on the
+roofline ridge point*. When a kernel sits on the ridge, its bandwidth
+utilisation and its FLOP utilisation are the **same number by construction** —
+they are `θ` and `θ`, one efficiency scalar, not two independent roofs both
+happening to bind at 0.67.
+
+**Consequences, all binding:**
+
+1. **"Jointly saturated" is not an observation.** Any kernel at this shape
+   would show matching percentages at any θ. The 67%/67% coincidence conveys
+   essentially zero information about *which* resource limits us.
+2. **The byte total and the FLOP total are both pinned** by the model and the
+   quantization format. We cannot move either. **Only θ moves.** Every prefill
+   MoE idea must therefore be stated as "this raises θ from 0.67 to X, by
+   mechanism Y" or it is not a proposal.
+3. **There is a third resource.** If neither DRAM nor the FMA pipe is the sole
+   limiter at θ=0.67, something else is stealing issue slots. The leading
+   candidate is **three-way issue contention** — buffer loads, dequant integer
+   ops, and FMAs each consuming roughly a third of issue bandwidth yields
+   exactly ⅔ on both axes. See §0c on AGX address arithmetic: 64-bit integer
+   add is emulated in 4 operations and dynamic `BITEXTRACT`/`BITINSERT` cost
+   8–12 cycles. NVFP4 unpack is dynamic bit extraction plus 64-bit pointer
+   math on the same ports as the FMAs.
+4. **This is the sub-hypothesis tanjiro's #170 does not currently test.** His
+   arms M2/S2/B2 perturb MMA count, threadgroup staging, and barriers — not
+   address/bitfield issue pressure. Advisor feedback on #170
+   (`pr170-r1-apple-nax-facts-and-optional-fourth-arm-2026-08-06`) offers an
+   optional 4th arm and, more importantly, tells him that **a null on M2/S2/B2
+   must not be reported as "H0 confirmed"** — it must be reported as "jointly
+   saturated on the axes we tested".
+5. **§7 idea 6 (dequant instruction diet) is the constructive follow-on** if
+   #170's H3 wins.
+
+**Calibration for how much θ is on the table:** MLX PR #3211 measures
+**52–60 TFLOP/s fp16 on a real M5 Max** dense GEMM. Our gather-GEMM achieves
+23.23 TFLOP/s — about **40%** of what the same silicon does on a dense fp16
+matmul. That gap, not the 67%, is the prize.
+
+**What this does *not* change:** the withdrawn "15.4 ms recoverable overlap
+pool" stays withdrawn; the row-tile axis stays closed (§8); the excess
++14.30 ms over the derived floor is still a residual, not a measured pool.
+
 ---
 
 ## 5. `_nax` safety rig (mandatory for any `_nax` arm)
@@ -872,6 +1231,145 @@ bit-exactness and correctness — it just cannot rank the result.
   2. tanjiro's **9 near-duplicate `.metal` variants**;
   3. fern's **`DARKBLOOM_LMHEAD_ROWMAJOR_REFINE` dual-arm flag** and the
      superseded S4 kernel, the moment #137 merges.
+
+### ⭐ Round-25 frontier programme: own the *inter-kernel timeline*
+
+Source: plateau-escalation frontier readout, 2026-08-06 (batch
+`maple-r25-plateau-escalation-2026-08-06`, task `208828fb`). This is the
+**strategy-tier change** demanded by the plateau protocol. Every family in §8
+was closed by attacking *intra-kernel* efficiency. The two structural claims
+below say the remaining money is somewhere else.
+
+**Structural claim 1 — decode's remaining 1.20 ms is *between* kernels.**
+Decode reads ≈1794 MB/step. At the M5 Max's 614 GB/s that is a **2.94 ms**
+floor; we measure **4.144 ms**. The pool is **1.20 ms = +17.6% of score**. But
+every big decode kernel we have profiled runs at **94.6–100.2% of its
+achievable rate in isolation**, while the aggregate sits at ~71% of the floor.
+Those two facts can only be reconciled if ~0.8–1.0 ms/step lives in dispatch
+gaps, CPU encode, pass-boundary drains, and serial latency chains
+(SDPA→O-proj, norm→router→top-k→gather). We have never systematically attacked
+that. **The tier change is: own the timeline, not the kernels.**
+
+⚠️ This 1.20 ms pool and §4.9's contradiction are the *same question asked
+twice*. Do not spend two students on it. #174 (nezuko) is already measuring
+the exposure side; ideas 2 and 4 below are the instrumentation that would
+close it. Sequence them after #174 reports.
+
+**Structural claim 2 — the prefill gather-GEMM sits at the roofline ridge by
+algebraic necessity.** See the new §4.10. The 67%/67% signature is *one*
+number, not two roofs. Read §4.10 before assigning any prefill gather work.
+
+**Red herrings, named and killed:**
+- 552.1 MB routed-expert decode traffic = 8/256 × 16.45 GiB **exactly** ⇒
+  decode already reads only live experts. There is no dead-expert traffic to
+  remove. Do not re-propose expert-traffic pruning.
+- The 45% attention read (807.7 MB) has **no byte lever** inside our precision
+  rules (§0a row 9 arithmetic). Its only levers are dispatch count and stream
+  structure.
+- Sliding-window incremental softmax is **not bit-exact** — window membership
+  changes every step. And KV is only 4.7% of the read anyway.
+
+#### The eight ranked ideas
+
+Each carries: mechanism / why §8 does not already close it / magnitude /
+**cheapest falsifier** / risk. Magnitudes use the §2 elasticities
+(decode −1 µs = +0.01464%; prefill −1 ms = +0.362%).
+
+**1. Fuse the per-layer serial epilogue chain — ≈290 µs ⇒ +4.3%.**
+Residual-add + RMSNorm + router matvec (2048×256) + top-8 selection in one
+kernel (≈5 KB threadgroup, well under the 32 KB limit — this is *not* the
+74 KB H5 case that closed). Gate-softplus becomes an epilogue of the
+O-projection GEMV. Not closed by §8: the closed fusion work priced *traffic*
+deltas; this prices a **serial latency chain** where each stage's output is
+the next stage's address input.
+*Falsifier:* GPU-timestamp the norm→router→top-k→softplus chain per layer.
+Kill if the chain costs <3 µs/layer.
+*Risk:* **top-8 tie-breaking must preserve exact accumulation and comparison
+order or expert selection flips.** This is a correctness cliff, not a drift
+risk — one flipped expert changes tokens.
+
+**2. Pre-encode the whole decode step — ≈550 µs ⇒ +8.1%.**
+Indirect command buffer, or a single concurrent encoder with hand-placed
+narrow fences. Expert-GEMV base addresses come from a **GPU-written argument
+buffer** filled by the top-k kernel, so the CPU never touches the hot loop.
+Recovers ~⅔ of the 0.75–0.95 ms host/gap pool.
+*Falsifier:* one Metal System Trace of one decode step, summing GPU-idle plus
+encode time between kernels. Kill if <200 µs.
+*Risk:* **high.** Replacing MLX's hazard tracking with manual fences can
+produce intermittently wrong logits that still pass local goldens. Byte budget
+is 73 KB ⇒ prototype the concurrent-encoder variant (cheap) before ICB
+(expensive). Requires idea 3 as an on-ramp.
+
+**3. Slab-merge the static GEMVs + consumption-ordered weight arena —
+≈150–200 µs ⇒ +2.5%.**
+Offline-concatenate Q|K|V|g_proj per layer into one slab; one GEMV with split
+epilogues. Order all static-address planes in step-consumption order.
+*Falsifier:* microbench fused QKVg against four dispatches, then in-situ. Kill
+if in-situ Δ <30 µs.
+*Risk:* **low** — per-row accumulation order is unchanged, so bit-exactness is
+structural, not empirical. **This is the low-risk on-ramp to idea 2** and the
+best round-25 opener for a student who has not worked the decode path.
+
+**4. Prefill attribution audit of the unattributed ~28 ms — ≈8 ms ⇒ +2.9%.**
+QKV/O projections at 512 tokens are ≈1.3 TFLOP ≈15–20 ms at θ≈0.7. If our
+"attention ≈22 ms" figure is SDPA *only*, the projections are most of the
+so-called unattributed pool. Note §9a already says that pool is a subtraction
+residual, not a measurement — this idea is how we replace it with a real one.
+*Falsifier:* one GPU trace; attribute every kernel >0.3 ms.
+*Risk:* **none — information only.** Highest information per GPU-hour on the
+board. ⚠️ Must run on M5 (§3a: 94.2% of M4 prefill time is kernels the M5
+never runs), and **no M5 GPUPROF artifact exists yet** — see §10.
+
+**5. Two-level lm-head screening cascade — ≈148 µs ⇒ +2.2%.**
+Add an ~8–16 MB weight-derived *bound* plane read before the 134.9 MB int5
+plane. At an 80% kill rate: ~45 MB versus 134.9 MB.
+*Falsifier:* offline survivor fraction on fixture activations. Kill if
+survivors >60%.
+*Risk:* a loose bound explodes survivors on hidden prompts; argmax must remain
+**provably** exact, not empirically exact. Overlaps fern's #137 surface —
+sequence after #137 lands.
+
+**6. Dequant instruction diet in the gather-GEMM family (raise θ) — ~+3%.**
+Offline-recode NVFP4 so in-kernel dequant is one table lookup per byte-aligned
+code pair; per-group 16-entry scale×code LUT built once per tile. θ 0.67→0.78
+takes MoE 44→37.8 ms = +2.2%, plus ~+1–1.5% if the same family serves prefill
+projections.
+*Falsifier:* Metal GPU counters on the gather-GEMM. Kill if the buffer-load
+pipe is >85% busy with ALU <50% (then pivot to wider vectorized loads).
+*Risk:* the LUT must reproduce **bit-identical** products; threadgroup-memory
+bank conflicts can eat the win. **This is the constructive follow-on to
+tanjiro's #170 if H3 wins**, and the AGX ISA facts in §0c row "address
+arithmetic" are its main support.
+
+**7. SLC-timed weight staging under SDPA/router latency windows —
+≈100 µs ⇒ +1.5%.**
+Cross-kernel, per-step, *timed* staging. Distinct from the closed first-touch
+prewarm (§8) and the closed in-kernel prefetch (§8) because the unit is a
+scheduled window, not a kernel.
+*Falsifier:* DRAM-busy counter during SDPA windows. Kill if >85% busy.
+*Risk:* requires idea 2's encoder structure to exist first. **Do not assign
+standalone.**
+
+**8. Lossless entropy recode of the bf16 planes — ≈35 MB ⇒ +0.85%.**
+Layer-0 MLP (100.7 MB) plus routers (40.9 MB). Per-group exponent base plus
+3–4-bit offsets, branchless decode to identical bf16 bits.
+*Falsifier:* offline exponent-entropy histogram. Kill if <15% reduction.
+*Risk:* low, but see §0c: the measured lossless ceiling on **already-4-bit**
+data is only ~1.04×, so this must stay confined to the **bf16** planes where
+the ceiling is ≈1.495×.
+
+**Frontier's closing judgement, recorded verbatim in substance:** *everyone
+sweeps kernels; almost nobody owns the timeline. The decisive artifacts are
+two traces — one decode step, one prefill — with a limiter/counter readout,
+not another geometry sweep.* Ideas 1–3 form one coherent decode programme
+worth a defensible **~+10–14%**; ideas 4 and 6 are the only theory-consistent
+prefill movers.
+
+**Advisor's sequencing for round 25:** idea 4 first (zero risk, pure
+information, and it repairs §9a), then idea 3 (low risk, real gain, on-ramps
+idea 2), then ideas 1 and 6 in parallel, holding 2 and 7 until 3 and 4 have
+reported. Idea 5 waits on #137; idea 8 is a filler.
+
 
 ---
 
