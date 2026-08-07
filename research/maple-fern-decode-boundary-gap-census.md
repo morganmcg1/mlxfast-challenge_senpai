@@ -263,7 +263,12 @@ move the slope** (1.295 → 1.431 µs, i.e. if anything slightly *up*, and well
 inside 1σ of the pooled value). A per-command-buffer cost would have fallen by
 ~100×. The confound is therefore ruled out: the tax is genuinely
 **per-dispatch + per-barrier**, not per-command-buffer. Pooled estimate across
-all five runs ≈ **1.42 µs per injected boundary** on this M4 Pro.
+these five command-buffer-control runs = **1.3914 µs per injected boundary** on
+this M4 Pro. The five multi-call sites of §2 pool to 1.4796 µs. The two pools
+bracket the headline constant used from here on: **c ≈ 1.4 µs**, with a
+site-to-site range of 1.29–1.73 µs. (The W&B run's `pooled/us_per_boundary` and
+`prize/*` keys were logged from the §2 six-site pool, 1.4796 µs, so they read
+~6 % higher than the numbers below; same measurement, different pooling basis.)
 
 Two corollaries fall out of the same three runs:
 
@@ -332,13 +337,36 @@ the unmodified `LagunaRuntimeModel.swift`:
 | 9 | `lagunaSharedSwiGLUQMV` (via `fusedSharedDownInputs`) | ~10088-10090 |
 | 10 | `lagunaRoutedSharedDownResidual` | ~10105-10116 |
 
-At 1.42 µs each, the whole decode step's dispatch tax is
-`(10 × 39 + 9 × 1 + 1) × 1.42 ≈ 568 µs` of the 8.20 ms M4 Pro step — **6.9 %**.
-Removing *one* per-layer dispatch is 39 × 1.42 ≈ **55 µs/step here**. Scaling by
-the step-time ratio (4.1436 / 8.20) that is ≈ **28 µs/step on the ranked M5**,
-i.e. ≈ **0.42 % of score** at the measured prize slope of 0.015280 %/µs — about
-14σ of the cross-session decode-difference noise (σ = 15.34 µs). That is a
-receipt-sized effect from a single dispatch.
+At c ≈ 1.4 µs each, the whole decode step's dispatch tax is
+`(10 × 39 + 9 × 1 + 1) × 1.4 = 400 × 1.4 ≈ 560 µs` of the 8.20 ms M4 Pro step —
+**6.8 %**. Removing *one* per-layer dispatch is 39 × 1.4 ≈ **54.6 µs/step here**.
+Scaling by the step-time ratio (4.1436 / 8.20) that is ≈ **27.6 µs/step on the
+ranked M5**, i.e. ≈ **0.42 % of score** at the measured prize slope of
+0.015280 %/µs.
+
+**How large is that against noise? Smaller than it first looks.** The
+cross-session decode-difference σ measured on the promoted frontier is 15.34 µs,
+so 27.6 µs is **1.80σ**, not the 14σ an earlier draft of this section claimed.
+(The 14σ figure came from mis-applying the *whole spine total*, 235 µs/step M4
+Pro ≈ 119 µs/step M5 ≈ 7.7σ — and from using the M4 Pro number where the M5 one
+belongs. Both errors are corrected here; the underlying measurements are
+unchanged.) The honest reading:
+
+- One removed per-layer dispatch ≈ 0.42 % of score, ≈ 1.8σ against
+  cross-session noise. That is *worth having* but it is a **marginal lone
+  receipt** — a single such change has a real chance of landing inside the noise
+  band on any one ranked session.
+- The ranked protocol runs candidate and baseline **back to back in the same
+  session**, which removes most of the cross-session drift that σ = 15.34 µs
+  measures. The paired noise floor is smaller than 15.34 µs, so 1.8σ is a
+  conservative lower bound on the detection margin, not the expected one.
+- The safe way to spend a receipt is therefore to **bundle 2–3 dispatch
+  removals** into one candidate: 3 × 27.6 ≈ 83 µs/step M5 ≈ 1.3 % of score
+  ≈ 5.4σ cross-session, which is unambiguous under any pairing assumption.
+
+The whole 400-dispatch tax, if it could be halved, would be ≈ 280 µs/step M4 Pro
+≈ 142 µs/step M5 ≈ **2.2 % of score**. That is the size of the prize this census
+prices; it is not claimed to be fully recoverable.
 
 ### 6.2 Why the two published nulls do not block this
 
@@ -366,7 +394,7 @@ boundary count, and its standard errors (0.05–0.20 µs) are small against the
 packed top-8 QMV.** The code already anticipates this: there is a declared
 `var mergedSharedActivated: MLXArray?` with a doc comment describing exactly this
 batching, and the variable is **never assigned**, so dispatch #9 fires on every
-one of the 39 sparse layers. Worth 39 × 1.42 ≈ 55 µs/step (M4 Pro), ≈ 28 µs/step
+one of the 39 sparse layers. Worth 39 × 1.4 ≈ 54.6 µs/step (M4 Pro), ≈ 27.6 µs/step
 (M5), ≈ 0.42 % of score. Both the routed and the shared expert use the same
 NVFP4 weight format, so the shared expert is representable as one more row of
 the packed batch. Bit-exactness is the risk: the two kernels must accumulate in
@@ -375,7 +403,7 @@ list and it is inside the maple-fern region fence.
 
 **(2) Remove dispatch #7 — fold the top-8 selection into
 `lagunaResidualRMSNormRouter`.** That kernel already materialises the packed
-router keys that `lagunaDecodeRouterTop8` then re-derives. Same 55 µs/step. Note
+router keys that `lagunaDecodeRouterTop8` then re-derives. Same 54.6 µs/step (M4 Pro) / 27.6 µs/step (M5). Note
 that `T0a_router_top8` has E = −0.045 — it is *fully shadowed*, so under the old
 E-weighted rule this target scored zero. Under the corrected rule it is worth
 exactly as much as any other. **This is the single sharpest test of §2.2's
@@ -386,7 +414,7 @@ discriminator even before the bigger fusions.
 **(3) Remove dispatch #1 — fuse the input RMSNorm into the QKV GEMV prologue.**
 The fused path already exists (`lagunaNormAffineQKV`) but declines on this
 checkpoint because it requires affine 8-bit group-32 weights and all 40 layers
-are NVFP4. Extending it to NVFP4 is the original H13 proposal. Worth 40 × 1.42 ≈
+are NVFP4. Extending it to NVFP4 is the original H13 proposal. Worth 40 × 1.4 ≈
 57 µs/step. Highest bitwise risk of the three (RMSNorm reduction order inside a
 GEMV prologue), and the QKV wrapper is outside the maple-fern fence.
 
@@ -415,7 +443,7 @@ is already F32 (`MLXArray.asType` returns `self` on a dtype match, so these are
 ### 6.5 What would falsify the model in §2.2
 
 If target (2) — removing the fully-shadowed router top-8 dispatch — buys
-substantially less than 39 × 1.42 µs, then the injected-boundary cost is not
+substantially less than 39 × 1.4 µs, then the injected-boundary cost is not
 symmetric with removal, and the 1.4 µs figure is an upper bound on the prize
 rather than an estimate of it. The asymmetries to look for, in order of prior
 likelihood: (a) the removed dispatch's barrier is immediately re-triggered by
