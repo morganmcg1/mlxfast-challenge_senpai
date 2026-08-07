@@ -14,18 +14,21 @@
   M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
 
 ## M5 SUBMISSION STATUS
-  d417eaa: FAILED (150+ min) — frontier 6739b6a (wrong vendor files from incomplete _nax revert)
-  2cbf31e2: FAILED (~17 min) — frontier 36df213 (halved disable, still wrong vendor files)
-  400ba6c: VALIDATING — vendor files restored to 68b66c5 state + current LRM (29+ opt)
-  Root cause: _nax revert (87aff2f) reverted to WRONG pre-PR#243 state, creating vendor-LRM mismatch.
-  Fix: restored vendor files to exact 68b66c5 state (last successful M5 submission, scored 2.5520).
+  400ba6c: FAILED — vendor files from 68b66c5 had darkbloom_expert_bk128 that LRM doesn't use
+  9753441c: VALIDATING — 87aff2f vendor files (organizer frontier) + 30 LRM optimizations
+  Root cause: 68b66c5 vendor files have darkbloom_expert_bk128/darkbloom_stage_wide_scale_ok
+  functions that the current LRM doesn't call. The 87aff2f vendor files (organizer frontier
+  revert of PR #243/#263) are the M5-safe base.
   Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
 
-## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=d33533f5)
-  PR #296 (alphonse): Fuse final RMSNorm into LM head coarse kernel — eliminate 1 dispatch/step (bit-exact, ~0.3-0.4% decode)
-  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, needs clean rebase on d33533f5
+## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=2bd3c3f)
+  PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — halve grid from 73728 to 36864 TGs (bit-exact, ~50B, decode)
+  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, needs clean rebase on 2bd3c3f
   PR #292 (askeladd): Prefill gate-product+softplus multi-token extension — awaiting work
   PR #294 (thorfinn): Dead code removal — awaiting work (~12KB LRM budget recovery)
+
+## CLOSED
+  PR #296 (alphonse): RMSNorm→LM head fusion — CLOSED (bandwidth-negative: 25MB extra norm-weight reads across 6272 TGs)
 
 ## MERGED WAVE 14
   PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — MERGED (bit-exact, +0.676% decode, +222B)
