@@ -456,12 +456,35 @@ optimal. `RESEARCH_IDEAS_FRESH_20260807_v2.md` (Idea 5) noted this as
 
 ---
 
+## Verification Results (2026-08-07)
+
+### Idea 1: VERIFIED FEASIBLE ✅
+- Fused bank already resident at init (L8298-8360, prepareFusedSharedGateUp)
+- quantizedMM-over-fused-bank path already exists for decode (L8586-8599) but gated by x.dim(1) == 1
+- Extending to L > 1 is a shape relaxation — quantizedMM supports arbitrary M
+- Bit-exact: row-wise independence of quantizedMM (comment at L8580-8585)
+- Eliminates 1 dispatch per layer × 39 layers
+- ~200-300 B in LRM, fits within 9,587 B headroom
+- M4 testable
+- KEY: uses plain quantizedMM (not custom kernel), identical FLOPs and memory traffic
+
+### Idea 2: REFUTED ❌ (documented negative result)
+- The exact change was already tried and REGRESSED on ranked measurement (commit 8841cd9)
+- Comment at L5365-5367: "Ranked measurement showed the larger gate/product graph regressing the complete prefill schedule"
+- The L == 1 guard was ADDED specifically to prevent the regression
+- Non-shapeless compile() recompiles for L=512, disturbing broader MLX scheduling
+- DO NOT ASSIGN — this is a known negative result
+
+### Idea 3: Unverified, M5-only (vendor kernel mod)
+### Idea 4: Low priority (marginal gain, 1 layer only)
+### Idea 5: Low priority (env var sweep, M5-only)
+
 ## Summary
 
 | # | Idea | Component | Mechanism | Est. Score | Budget (LRM) | M4? | Priority |
 |---|---|---|---|---|---|---|---|
 | 1 | Prefill shared expert gate/up fusion | Prefill | 1 dispatch/layer | ~0.125-0.25% | ~200-300 B | YES | **HIGH** |
-| 2 | Prefill O-proj gate dispatch fusion | Prefill | 2 dispatches/layer | ~0.25-0.5% | ~0 B | YES | **HIGH** |
+| 2 | Prefill O-proj gate dispatch fusion | Prefill | ~~2 dispatches/layer~~ | **DEAD** | ~0 B | YES | ❌ REFUTED |
 | 3 | Prefill shared expert scale halving | Prefill | 3.74 MiB bandwidth | ~0.22% | ~20-30 B | NO | **MEDIUM** |
 | 4 | `callLastPrefillRow` gate fusion | Prefill | 2 dispatches (1 layer) | ~0.01% | ~0 B | YES | LOW |
 | 5 | `EXPERT_GATHER_GROUPS=256` M5 measurement | Prefill | 0-byte sweep | 0-0.25% | 0 B | NO | LOW |
