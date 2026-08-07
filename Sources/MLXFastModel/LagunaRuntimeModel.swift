@@ -9496,19 +9496,11 @@ private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
         uint col = thread_position_in_grid.x * n_cols;
         const device float* weight_row = router_weights + row * experts;
 
-        uint lane = thread_index_in_simdgroup;
-        bfloat lane_weight = bfloat(0);
-        uint lane_sorted_row = 0;
-        if (lane < experts) {
-            lane_weight = bfloat(weight_row[lane]);
-            lane_sorted_row = inverse_order[row * experts + lane];
-        }
-
         bfloat expert_weights[experts];
         uint sorted_rows[experts];
         for (uint e = 0; e < experts; ++e) {
-            expert_weights[e] = simd_shuffle(lane_weight, ushort(e));
-            sorted_rows[e] = simd_shuffle(lane_sorted_row, ushort(e));
+            expert_weights[e] = bfloat(weight_row[e]);
+            sorted_rows[e] = inverse_order[row * experts + e];
         }
 
         for (uint i = 0; i < n_cols; ++i) {
