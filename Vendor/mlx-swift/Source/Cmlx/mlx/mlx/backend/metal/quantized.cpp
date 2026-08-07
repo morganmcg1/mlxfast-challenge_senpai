@@ -1638,7 +1638,7 @@ int darkbloom_stage2_gather_variant() {
   static const int v = [] {
     const std::string s = env::get_var("DARKBLOOM_STAGE2_GATHER", "");
     if (s.empty()) {
-      return 1;
+      return 2;
     }
     if (s == "0") {
       return 0;
