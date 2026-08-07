@@ -81,6 +81,20 @@
   per *pair* of query heads (32 and 24 TGs on a 20-core GPU), 37.1% / 34.7%
   unique-byte efficiency, and an **occupancy/latency** mechanism, which is
   §4.11.3's privileged transfer class. See §4.12 and the v3 sequencing.
+- **2026-08-07 02:40 UTC** — #174 **merged** (advisor branch → `3b75a115`) and
+  **T1 assigned as #196** (nezuko,
+  `maple-2026-08-07a-decode-attention-occupancy`). Before writing that brief I
+  read both attention kernels directly and **two of #174 §5.1's premises did
+  not survive** (new **§4.12.8**): the threadgroups are **1024 threads**, not
+  32, so the shipped grid is 32/24 threadgroups of 32 simdgroups each; and the
+  kernel **already implements flash-decoding** (per-simdgroup running max/sum,
+  a post-loop `simd_max`/`simd_sum` merge, no barrier in the KV loop), so a KV
+  split is a *lift* of already-bit-exact code. Integer-wave arithmetic then
+  kills the proposed **S=2** arm outright (zero gain on both host core counts)
+  and picks **S=5** as the unique small exactly-optimal split, and it kills the
+  head-axis repartition twice over. Everything downstream is gated by one
+  unmeasured number — **32 vs 96 co-resident simdgroups per core** — so #196
+  opens with a residency staircase that is merge-worthy on its own.
 - **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
   precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
   softening commits after `eae07f01` (21:55:23 UTC). Both are recorded in §0a;
@@ -1310,20 +1324,18 @@ The two attention kernels run at **101.4 GB/s (37.1% of peak)** and **95 GB/s
 
 #### 4.12.6 The priced target list
 
-- **T1 — decode attention occupancy. 564 µs/step, +8.26%. Unowned. Now the
-  head of the decode queue.** Both decode attention kernels dispatch **one
-  threadgroup per PAIR of query heads** (`LagunaRuntimeModel.swift:1370`
+- **T1 — decode attention occupancy. 564 µs/step, +8.26%. Owned by #196
+  (nezuko). Head of the decode queue.** Both decode attention kernels dispatch
+  **one threadgroup per PAIR of query heads** (`LagunaRuntimeModel.swift:1370`
   sliding, `:1819` full; both compute `head0 = pair_tg * 2`). 64 sliding heads
-  ⇒ **32 TGs**; 48 full heads ⇒ **24 TGs** — on a 20-core GPU, 1.60 and 1.20
-  waves. The serial chain is read directly from shipped source
-  (`window = 512`, `BN = 32`, `N = 512`) ⇒ **16 sequential KV iterations, no
-  split, no flash-decoding merge**. Bytes are not the constraint: GQA
+  ⇒ **32 TGs**; 48 full heads ⇒ **24 TGs**. Bytes are not the constraint: GQA
   replication puts replicated traffic at 149%/104% of DRAM peak, i.e.
   cache-served, while unique bytes are 37.1%/34.7%. ⚠️ Her tail-quantization
   estimate (227 µs/step) assumes one resident TG per core and she measured no
   occupancy instrument — treat it as untested. The **solid** number is the pool
   ceiling: 881 µs/step at 101/95 GB/s vs the 98.2% the same host demonstrates
-  on `decode_nvfp4_qkv_h64`.
+  on `decode_nvfp4_qkv_h64`. **⚠️ Two of her §5.1 premises are RETRACTED — see
+  §4.12.8.**
 - **T2 — routed-MoE matvec bandwidth. 188 µs/step, +2.75%. Fenced to #148.**
   `routed_..._top8keys_r1_bf16_v2` at 91.0% (gap 7.2 pts, 110 µs) and
   `routed_shared_..._down_residual_bf16_r1_v5` at 89.3% (8.9 pts, 78 µs). Soft
@@ -1363,6 +1375,102 @@ per-dispatch overhead.
   re-derives it.**
 - `lmhead_int5_base_coarse_delta` (427.0 µs/step, 6.25%, census rank 6) is not
   byte-modellable (pruned/sparse) and is fenced to #137.
+
+#### 4.12.8 ⭐⭐⭐ CORRECTION to §5.1 — the decode attention kernels, read directly
+
+Advisor read both kernels in `Sources/MLXFastModel/LagunaRuntimeModel.swift` at
+base `3b75a115`. Four premises change; two of them invert the arm ranking #174
+§5.1 proposed. Handed to #196 as its §1.
+
+**(A) The threadgroup is 1024 threads = 32 simdgroups, not 32 threads.**
+`lagunaSlidingFusedAttention` wrapper **:1719-1765**, kernel
+`laguna_sliding_fused_attn_ring_v1` declared **:1369-1370**:
+`grid ((heads/2)*1024, 1, 1)`, `threadGroup (1024,1,1)`,
+`outputShapes [[1, heads, 1, headDim]]`, `.bfloat16`; `heads = 64` ⇒ **32 TGs ×
+1024 threads**. `params` comes from `lagunaRingIdxAtlas[writeIdx]` when
+`lagunaParamsAtlasEnabled` (env `DARKBLOOM_PARAMS_ATLAS != "0"`, default ON);
+512-entry atlas built during warmup at **:1774-1790**.
+`lagunaFullFusedAttention` wrapper **:2220-2266**, kernel
+`laguna_full_fused_attn_grow_v1` declared **:1818-1819**: same grid/TG shape,
+`heads = 48` ⇒ **24 TGs**; `params = MLXArray([writeIdx, writeIdx+1,
+capacity])` (no atlas); `angles` is `headDim/2` wide vs full `headDim` for
+sliding. Call sites: sliding **:5972**, full **:5998**; full-attention pipeline
+prewarm **:2270-2293**.
+
+**(B) The kernel ALREADY implements a 32-way flash-decoding split with a
+working merge.** §5.1's "16 sequential KV iterations, no split, no
+flash-decoding merge" is **RETRACTED**. Offsets relative to the sliding body at
+:1369 — constants `head_dim=128, window=512, gqa=8, BN=32, BD=32, BDP=BD+1,
+qk_per_thread=4, v_per_thread=4, rotary_pairs=64, N=512, typedef float U`.
+Prologue `if (sg < 3)` stages q(head0)/q(head1)/k(kv_head) with RMSNorm+RoPE
+into `tg_q0/tg_q1/tg_k`, `else if (sg == 3)` stages v; **one**
+`threadgroup_barrier` after the prologue (rel :83); then
+`if ((head0 % gqa) == 0 && sg == 0)` writes the new K/V ring row (rel :85-:96).
+Threadgroup arrays `outputs[4*BN*BDP]`, `max_scores[2*BN]`,
+`sum_exp_scores[2*BN]` (rel :98-:100) plus four `bfloat[head_dim]` planes. The
+KV loop `for (; i + BN < N; i += 2*BN)` (rel :133) strides by **64**, is 2-deep
+software pipelined (`pair_score0/1`, `pipeb_score0/1`, each `simd_sum`'d), and
+runs **8 iterations covering 16 KV positions per simdgroup**. **There is NO
+`threadgroup_barrier` inside the KV loop**; barriers occur only in the
+post-loop merge at rel :239, :262, :270. That merge (rel :225-:290) carries
+per-simdgroup running `pair_max0/1`, `pair_sum0/1`, publishes them to
+`max_scores`/`sum_exp_scores`, `simd_max`es the global max, rescales by
+`pair_global_factor`, `simd_sum`s the partials, and accumulates `outputs[]`
+over two planes (`pair_planes = 2`, `pair_plane_size = BN*BDP`). The
+full-attention kernel mirrors it exactly (`gqa=6`, `rotary_pairs=32`,
+`yarn_mscale=1.3465735912322998f`, loop rel :142, merge rel :277-:314).
+⇒ **A KV split across threadgroups is a LIFT of existing, already-bit-exact
+code, not a new algorithm.**
+
+**(C) Integer-wave arithmetic — this kills the S=2 prototype.** A 1024-thread
+TG at ≤104 half-regs consumes the whole 208 KB register file, so plausibly one
+TG per core. Under that model concurrent TG slots C = 20 (M4 Pro) / 40 (M5
+Max) and makespan = `ceil(N/C) × d`. **Efficiency must be computed with INTEGER
+waves; fractional-wave estimates are wrong and can invert an arm's ranking.**
+At the shipped grid: sliding N=32 ⇒ 80% on both hosts; full N=24 ⇒ 60% on both
+⇒ recoverable tail 20%/40%, reproducing #174's 227 µs/step M4 estimate
+*conditional on one-TG-per-core*. With a KV split of S TGs per head-pair
+(N = 32S / 24S, per-TG duration `d/S`), relative makespan = `ceil(N/C)/S`:
+
+| S | sliding M5 (C=40) | sliding M4 (C=20) | full M5 (C=40) | full M4 (C=20) |
+|---:|---|---|---|---|
+| 1 | 1.00 | 2.00 | 1.00 | 2.00 |
+| 2 | **1.00** | **2.00** | **1.00** | 1.50 |
+| 3 | 1.00 | 1.667 | 0.667 | 1.333 |
+| 4 | 1.00 | 1.75 | 0.75 | 1.25 |
+| **5** | **0.80** | **1.60** | **0.60** | **1.20** |
+| 8 | 0.80 | 1.625 | 0.60 | 1.25 |
+| 10 | 0.80 | 1.60 | 0.60 | 1.20 |
+
+**S = 2 — #174's recommended "cheap direct test" — yields EXACTLY ZERO
+quantization gain for sliding on both hosts and for full on M5. It is the worst
+possible discriminator and is RETRACTED.** **S = 5 is the unique small value
+exactly optimal for both kernels at both 20 and 40 cores** (32×5 = 160 = 8×20 =
+4×40; 24×5 = 120 = 6×20 = 3×40); S = 10 also exact. 512/5 = 102.4 is not
+integral, but uneven chunks (104/104/104/104/96) are fine and uneven durations
+help dynamic scheduling.
+
+**(D) The head-axis repartition idea (1 head per TG, grid 32→64 / 24→48) is
+DEAD by the same arithmetic** — 64/80 = 80%, identical to today on both hosts —
+**and it additionally doubles K/V read traffic**, because the two heads in a
+pair currently share the staged K/V (`tg_k`, `tg_v`, `kv_head = head0/gqa`).
+Closed; do not re-derive.
+
+**(E) The merge is the hazard.** An inter-TG merge must be added. (a) a second
+dispatch is **RAW-dependent hence fully exposed** — ~3–5 µs × 40 calls/step =
+120–200 µs/step, plausibly eating the whole 227 µs prize; (b) float atomics
+break reduction order; (c) **atomic-counter "last TG merges" with a fixed
+index-order reduction over the S partials is deterministic and bit-exact —
+recommended**; (d) folding into `oproj_act` is misaligned (contraction
+6144/8192). Merge cost must be pre-registered as a separately measured row.
+
+**(F) ⚠️ THE GATING UNKNOWN.** The public Apple figure is 32 simdgroups/core,
+but our own #57/#138 binding occupancy term and #157's ~24 TG/core × 4
+simdgroups both imply **96**. If 3 of these TGs co-reside per core, slots
+become 60/120, shipped efficiency drops to 53%/27%, and the optimal S changes.
+**#196 Step 0 is a direct duration-vs-N staircase to settle it.** Pre-registered
+kill: ≥2 co-resident TGs *and* no staircase step at N = cores ⇒ the tail model
+is wrong, stop.
 
 ## 5. `_nax` safety rig (mandatory for any `_nax` arm)
 
@@ -2053,16 +2161,21 @@ concurrency is real, already harvested, and worth ~448 µs/step that we are
 already collecting. That kills the whole "buy more overlap" branch and
 promotes a target nobody was working on.
 
-1. ⭐ **T1 — decode attention occupancy** (#174 §5.1). Priced **564 µs/step =
-   +8.26%**, unowned, and the mechanism is **occupancy/latency, not bytes**,
-   which puts it in §4.11.3's privileged transfer class. Both decode attention
-   kernels run **one threadgroup per PAIR of query heads** —
-   `LagunaRuntimeModel.swift:1370` (sliding, 64 heads → 32 TGs) and `:1819`
-   (full, 48 heads → 24 TGs) — on a 20-core M4 Pro (1.60 and 1.20 waves) and a
-   40-core M5 (worse). Unique-byte efficiency is **101 GB/s (37.1%)** and
-   **95 GB/s (34.7%)** against the 98.2% that `decode_nvfp4_qkv_h64`
-   demonstrates on the same host. **First assignment when a slot frees**; the
-   cheapest discriminator is a grid doubling, not the online-softmax merge.
+1. ⭐ **T1 — decode attention occupancy** (#174 §5.1). **Assigned: PR #196
+   (nezuko), `maple-2026-08-07a-decode-attention-occupancy`, r1 at base
+   `3b75a115`.** Priced **564 µs/step = +8.26%**, and the mechanism is
+   **occupancy/latency, not bytes**, which puts it in §4.11.3's privileged
+   transfer class. Both decode attention kernels run **one 1024-thread
+   threadgroup per PAIR of query heads** — `LagunaRuntimeModel.swift:1370`
+   (sliding, 64 heads → **32 TGs**) and `:1819` (full, 48 heads → **24 TGs**)
+   — against 20 M4 Pro cores and 40 M5 cores. Unique-byte efficiency is
+   **101 GB/s (37.1%)** and **95 GB/s (34.7%)** against the 98.2% that
+   `decode_nvfp4_qkv_h64` demonstrates on the same host.
+   ⚠️ **Two of #174 §5.1's premises are RETRACTED — see §4.12.8.** The kernel
+   already implements flash-decoding internally, so a KV split is a *lift* of
+   bit-exact code, not a new algorithm; and **S=2 buys exactly zero**. #196
+   opens with a **residency staircase (Step 0)** because the 32-vs-96
+   simdgroups/core question gates every downstream number.
 2. **T3 candidate 2 — fuse `decode_router_top8_ordinal_table_norm` into
    `residual_rms_router_rpg8_keys_v1`** (#174 §5.3). 185.7 µs/step ≈ **+2.72%**,
    reads no new bytes, and the selector sorts 1.03 kB at an implied 0.2 GB/s.
@@ -2109,6 +2222,22 @@ The full evidence table lives in the archive
 
 **Closed this session:**
 
+- **⭐⭐ Attention head-axis repartition (one query head per threadgroup) —
+  CLOSED by integer-wave arithmetic *and* by a byte argument (§4.12.8 D).**
+  Splitting the head pair doubles the grid (32 → 64 sliding, 24 → 48 full) but
+  64/80 = 80% and 48/60 = 80% are **exactly the shipped efficiencies** on both
+  20 and 40 cores, so the quantization gain is zero; and the two heads in a
+  pair share the staged `tg_k`/`tg_v` planes (`kv_head = head0 / gqa`), so the
+  split **doubles K/V read traffic**. It is null-to-negative on both axes.
+- **⭐⭐ The S=2 KV split of the decode attention kernels — CLOSED before it
+  was built (§4.12.8 C).** #174 §5.1 proposed S=2 as the cheap direct test.
+  With 1024-thread threadgroups the makespan is `ceil(N/C) × d`, so S=2 gives
+  relative makespan `ceil(64/40)/2 = 1.00` (sliding, M5) and
+  `ceil(64/20)/2 = 2.00` (sliding, M4) — **identical to the shipped grid on
+  both hosts**, and identical for full attention on M5. The unique small split
+  that is exactly optimal for both kernels at both 20 and 40 cores is
+  **S = 5** (32×5 = 160 = 8×20 = 4×40; 24×5 = 120 = 6×20 = 3×40). Recorded so
+  nobody spends a build on the arm that cannot move.
 - **⭐⭐⭐ Decode intra-CB concurrency, per-CB overhead, and the three shadowed
   kernels — CLOSED by PR #174 (§4.12).** The overlap is real (382–448 µs/step)
   and MLX's concurrent encoder **already harvests all of it**; there is nothing
