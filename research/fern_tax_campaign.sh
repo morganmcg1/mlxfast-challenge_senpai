@@ -59,6 +59,11 @@ run spin40     spin40   "$SITE_SCHED"  8192      1   1 "$BLOCKS" 1400
 run dist40_8k  dist40   "$SITE_SCHED"  8192    256   1 "$BLOCKS" 1400
 # A4/E3 matched control: identical K, identical bytes, ONE reused source.
 run fat40_8k   fat40    "$SITE_SCHED"  8192      1   1 "$BLOCKS" 1400
+# A6/E2: same anchored position and ~the same dispatch count as fat40, but the
+# K injected kernels are independent of each other, so MLX emits O(1) barriers
+# instead of O(K).  Separates a per-dispatch launch cost from a per-barrier
+# serialization cost -- i.e. whether fusing *parallel* siblings can refund.
+run fan40      fan40    "$SITE_SCHED"  8192      1   1 "$BLOCKS" 1400
 # A1/E2: identical dispatch counts, dependent chain, OFF the critical path.
 run chain      chain    "$BATCH_SCHED" 8192      1   1 "$BLOCKS" 1400
 # A1/E2: identical dispatch counts, independent (no barriers), off-path.
