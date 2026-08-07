@@ -37,13 +37,13 @@ EXPECTED_STORAGE_PROOF = {
 }
 COMMAND_GRAPH_PROOF = {
     "measurement_activation": (
-        "explicitly armed after constructor warmup and before protocol hello"
+        "model-observed on the first runtime 512-token seed after constructor warmup decode"
     ),
     "kernel_routine": "lagunaRoutedSwiGLUQMVPackedTop8",
     "mode_dependent_control": {
-        "warm_selected_experts": "indices",
+        "warm_selected_experts": "(indices + 256) % 256",
         "cold_selected_experts": "(indices + 8) % 256",
-        "only_difference": "selected expert row addresses",
+        "only_difference": "addend selecting expert row addresses",
     },
     "k0_control": (
         "host sparse-layer reachability accounting only; no rotated tensor, duplicate root, "
@@ -65,14 +65,15 @@ COMMAND_GRAPH_PROOF = {
 PRETOUCH_PROTOCOL = (
     "Blocking eval of every fused array, then a page-stride CPU read across each complete "
     "256-expert routed weight bank and packed-scale bank in all 39 sparse layers before "
-    "constructor warmup. Measurement activates explicitly after constructor warmup and before "
-    "protocol hello; the first 16 identical forced-token steps of every arm are discarded "
-    "before retained timing."
+    "constructor warmup. Measurement activates on the first runtime seed after constructor "
+    "warmup; the first 16 identical forced-token steps of every arm are discarded before "
+    "retained timing."
 )
 STORAGE_INDEPENDENCE_SCOPE = (
-    "All 78 complete routed-bank backing ranges are pairwise non-overlapping; each bank is "
-    "expert-first contiguous, making distinct expert rows disjoint. Dynamic warm/cold top-8 "
-    "row overlap is recorded for every sparse layer and decode step."
+    "All 78 complete routed-bank virtual backing ranges are pairwise non-overlapping; each "
+    "bank is expert-first contiguous, making distinct expert rows virtually disjoint. Dynamic "
+    "warm/cold top-8 row overlap is recorded for every sparse layer and decode step. This "
+    "proves virtual-range separation only."
 )
 RESIDUAL_CONFOUND = (
     "Cache-set mapping and physical page placement remain uncontrolled; DRAM traffic and "
