@@ -10764,6 +10764,65 @@ final class LagunaRuntimeModelInner: Module {
         // seed row, so the angles are the exact floats that layer's kernel
         // would have computed rather than a re-derivation.
 
+        if isSingleTokenDecode {
+            for (i, layer) in layers.enumerated() {
+                let isFull = layerTypes[i] == .full
+                let mask = isFull ? fullMask : slidingMask
+                let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
+                h = layer(
+                    h,
+                    mask: mask,
+                    cache: cache?[i],
+                    qkRoPEAngles: qkRoPEAngles,
+                    qkRoPEOffsets: qkRoPEOffsets
+                )
+                if (decodeFireMask >> UInt64(i)) & 1 == 1 {
+                    asyncEval(h)
+                }
+            }
+            return h
+        }
+
+        if h.dim(1) > 1, let lastLayerIndex = layers.indices.last {
+            for i in 0..<lastLayerIndex {
+                let layer = layers[i]
+                let isFull = layerTypes[i] == .full
+                let mask = isFull ? fullMask : slidingMask
+                let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
+                h = layer(
+                    h,
+                    mask: mask,
+                    cache: cache?[i],
+                    qkRoPEAngles: qkRoPEAngles,
+                    qkRoPEOffsets: qkRoPEOffsets
+                )
+                if lagunaPrefillAsyncLadderStride > 0,
+                    (i + 1) % lagunaPrefillAsyncLadderStride == 0
+                {
+                    asyncEval(h)
+                }
+            }
+
+            let i = lastLayerIndex
+            let layer = layers[i]
+            let isFull = layerTypes[i] == .full
+            let mask = isFull ? fullMask : slidingMask
+            let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
+            if case .causal = mask {
+                h = layer.callLastPrefillRow(
+                    h, cache: cache?[i], angles: qkRoPEAngles, offsets: qkRoPEOffsets)
+            } else {
+                h = layer(
+                    h,
+                    mask: mask,
+                    cache: cache?[i],
+                    qkRoPEAngles: qkRoPEAngles,
+                    qkRoPEOffsets: qkRoPEOffsets
+                )
+            }
+            return h
+        }
+
         for (i, layer) in layers.enumerated() {
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
