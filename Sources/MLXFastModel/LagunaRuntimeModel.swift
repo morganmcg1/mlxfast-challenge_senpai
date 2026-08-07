@@ -5857,23 +5857,13 @@ final class LagunaRuntimeAttention: Module {
                     let affineBiases = fusedAffine.biases
                 {
                     fusedQKV = lagunaNormAffineQKV(
-                        residual: LagunaDecodeDup.faultInput("T0b_qkv", input),
+                        residual: input,
                         normWeight: inputNorm.weight,
                         codes: fusedAffine.packedCodes,
                         scales: fusedAffine.scales,
                         biases: affineBiases,
                         indexedMetadata: fusedAffine.indexedMetadata,
                         rows: fusedAffine.originalShape[0])
-                    LagunaDecodeDup.inject("T0b_qkv") { _, _ in
-                        lagunaNormAffineQKV(
-                            residual: input,
-                            normWeight: inputNorm.weight,
-                            codes: fusedAffine.packedCodes,
-                            scales: fusedAffine.scales,
-                            biases: affineBiases,
-                            indexedMetadata: fusedAffine.indexedMetadata,
-                            rows: fusedAffine.originalShape[0])
-                    }
                 }
 
                 // The fused tail norm+QKV+gate kernel was removed after the
@@ -5889,6 +5879,12 @@ final class LagunaRuntimeAttention: Module {
                     ? lagunaDecodeNVFP4QKVR1(
                         normalized: normalized, bank: fusedAffine, heads: nHeads)
                     : nil
+                if decodeNVFP4QKVR1 != nil {
+                    LagunaDecodeDup.inject("T0b_qkv") { _, _ in
+                        lagunaDecodeNVFP4QKVR1(
+                            normalized: normalized, bank: fusedAffine, heads: nHeads)
+                    }
+                }
                 let qkv =
                     fusedQKV
                     ?? decodeNVFP4QKVR1
