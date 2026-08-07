@@ -31,14 +31,15 @@ Do NOT revisit this hypothesis.
   same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
-## ACTIVE ASSIGNMENTS (Wave 17-18, BASE_SHA=504a2d9e)
+## ACTIVE ASSIGNMENTS (Wave 17-18, BASE_SHA=ed5d2d00)
   PR #342 (edward): Prefill nax halved scales — WIP (M5-only, ~0.9% total score)
   PR #343 (alphonse): Prefill attentionGateProjection multitoken extension — WIP (~0.1-0.2% prefill)
-  PR #348 (thorfinn): Prefill unsorted gatherQuantizedMM — JUST ASSIGNED (~2.2% total score, ★★★)
-  PR #346 (askeladd): Threadgroup bank conflict padding — WIP (~1% decode)
+  PR #348 (thorfinn): Prefill unsorted gatherQuantizedMM — WIP (~2.2% total score, ★★★)
+  PR #349 (askeladd): Prefill RMSNorm+QKV fusion via MLX.compile — JUST ASSIGNED (~0.6% total, ★★★)
 
 ## CLOSED WAVE 17
   PR #345 (thorfinn): Prefill addMM enablement — DEAD (-36.1% regression, breaks fused residual+RMSNorm+router)
+  PR #346 (askeladd): Threadgroup bank conflict padding — DEAD (0.43% decode, within noise. Bank conflicts negligible vs NVFP4 compute)
 
 ## RECENTLY CLOSED (Wave 16)
   PR #339 (askeladd): LM head TG doubling — NEGATIVE. ~0.45% decode regression. Dispatch overhead is per-kernel-LAUNCH not per-TG. Larger TGs hurt occupancy.
