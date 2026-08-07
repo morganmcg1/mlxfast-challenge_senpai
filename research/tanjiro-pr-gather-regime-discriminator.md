@@ -1520,6 +1520,93 @@ delta. If any arm returns one, occupancy or scheduling changed rather than work
 being added, and every ceiling derived from that arm is void. `joint_ceiling()`
 refuses to compute in that case rather than returning a number.
 
+### 6.8 The reading, on three receipts
+
+All three arms returned bit-exact (`max_abs_diff = 0`), passed both speedup
+floors, passed GPQA TTFT and the semantic judge, and were `rejected` on ranking
+only — which is the designed outcome, since every arm deliberately adds work.
+
+| arm | axis perturbed | receipt | `S` (ms) | `Δ` (ms) | `Δ/W` | in σ |
+| --- | --- | --- | --- | --- | --- | --- |
+| control `97a5090` | — | — | `97.895` | — | — | — |
+| **M2** | `mma +1`, `int_alu +15` | `d786ad5c` | `99.941` | `+2.046` | `4.7%` | `4.5σ` |
+| **S2** | `dev_load +2`, `tg_store +1`, `barrier +1`, `int_alu +4` | `a3e38005` | `113.856` | **`+15.961`** | `36.9%` | `35σ` |
+| **B2** | `barrier +2` | `f2160f8f` | `98.735` | `+0.841` | `1.9%` | `1.9σ` |
+
+Against `μ = 4.326 ms` (`9.6σ`), the pre-registered rules fire cleanly:
+
+- **R1″ → H3 MINOR.** `ΔB2 = +0.841 ms` for a **`+29%`** increase in barrier
+  count. Synchronisation is not the constraint.
+- **R3 → H2 WINS.** `dS2p ∈ [+15.120, +15.541] ms` exceeds `ΔM2 = +2.046 ms` by
+  more than `μ`, in the *small-`dM2` / large-`dS2p`* cell.
+- **SUM CHECK consistent.** `ΔM2 + dS2p_hi = 17.59 ms ≤ W + μ = 47.59 ms`, so
+  no arm is double-counting the same stall.
+
+> **The prefill routed gather GEMM `fp_gather_qmm_rhs_expert_nax` is
+> load/staging-limited. H1 (MMA) and H0 (jointly saturated) are eliminated; H3
+> (synchronisation) is real but minor; H2 is positively identified.**
+
+This is a *positive identification*, not a residual argument, and that
+distinction is what makes it worth the receipts. §6.4's residual bound from M2
+alone said only "≥ 72.6% of the critical path is none of the axes I perturbed" —
+true, but it names nothing. S2 names it directly.
+
+**B2 prices the barrier axis outright.** B2 is the one arm whose IR moves a
+single axis and nothing else (`barrier 7→9`, everything else byte-identical), so
+it yields a *price* rather than a ceiling:
+
+```
+c_bar = ΔB2 / 2 = 0.4203 ms per barrier
+```
+
+That price is what converts S2 from a bundle into a measurement. S2's own extra
+barrier costs `0.420 ms`, M2 caps `c_alu ≤ ΔM2/15 = 0.1364 ms/op` so S2's `+4`
+integer ops cost at most `0.546 ms`, and subtracting both leaves
+
+> **≥ 14.995 ms — 34.7% of the entire gather GEMM — attributable to two extra
+> device loads and one extra threadgroup store.**
+
+**On the staging axis the marginal price is not below the body average but
+above it, which is what turns the linear model from an assumption into a
+measurement.** The body carries 11 staging instructions (`dev_load 6` +
+`tg_store 5`); S2 adds 3, a `+27.3%` increase, and the wall moves `+36.9%`.
+Marginal cost per staging instruction is `4.998 ms` against `3.933 ms` if
+staging owned the whole body — a ratio of **`1.27`**. If marginal equalled
+average, staging would account for `54.98 ms`, i.e. **`127%` of `W`**.
+The overshoot is itself informative: it says
+staging does not merely dominate the kernel, it is being charged at a *higher*
+marginal rate than the body average, which is the signature of a resource at or
+past saturation.
+
+**Where the honest limits are.** Three, stated plainly:
+
+1. *Marginal is not share.* Each `c_r` is measured by **adding** work, so
+   `body_r · c_r` is local sensitivity — what a proportional reduction could
+   save — not a share of serial execution. A pipelined unit can slot added,
+   dataflow-independent work into idle issue slots while body ops sit on serial
+   dependence chains, in which case the marginal price reads *spare* capacity.
+   This is exactly why the `1.27` ratio matters: on the staging axis the
+   marginal price is not cheap-because-idle, it is dearer than average, so the
+   linear model is empirically validated *on the axis that carries the result*.
+   The `≥ 72.6%` residual from M2 survives only in the weaker form "the kernel
+   is not MMA-**issue-throughput**-bound".
+2. *The joint LP is vacuous here, as pre-registered.* Solving all three arms
+   against five axes gives a ceiling of `89.79 ms = 207.5%` of `W`, so it
+   bounds nothing. §6.7 registered that outcome in advance, and it is the
+   correct one: an LP that maximises a ceiling cannot tighten when one arm has
+   already named the constraint directly.
+3. *`tg_load` is unpriced.* No arm in this tree perturbs threadgroup **reads**
+   (body count 4). Staging is identified as the constraint, but the split
+   between *filling* threadgroup memory and *reading* it back — including
+   possible bank conflicts on the read side — is not resolved here. §8 says what
+   would resolve it.
+
+**What S3 adds.** S2 conflates two things that call for opposite optimisations:
+the *instructions* that stage a tile, and the *bytes* those instructions move.
+S2's shadow loader reads the neighbour expert's slab, which is `5.89 GB` of
+genuinely new DRAM traffic, so its `+15.961 ms` could be a pipeline cost, a
+bandwidth cost, or any mixture. The fourth and final receipt separates them.
+
 <!-- READING -->
 
 ## 7. Decode control
@@ -1531,17 +1618,55 @@ correctly-scoped arm must leave decode alone. A decode movement tracking the
 prefill movement would mean the probe had escaped its intended scope and would
 invalidate the prefill reading.
 
-| arm | decode ms/step | vs control `4.90837` | paired baseline decode | vs feed median `13.86539` | verdict |
-| --- | --- | --- | --- | --- | --- |
-| M2 | `4.95821` | `+1.02%` | `13.89203` | `+0.19%` | **OK** (tol `2%`) |
+### 7.1 The control must be applied to `T`, not to the raw decode column
 
-M2 passes. The `+1.02%` is within the pre-registered `2%` tolerance and is not
-attributable to the arm: the paired baseline drifted `+0.19%` in the same
-session, and decode wall is the noisier of the two axes in the feed. Critically,
-the decode movement is **not proportional** to the prefill movement — prefill
-moved `+2.09%` while the *ratio* of the two arms' decode to their baselines is
-essentially flat — which is the signature of session drift rather than of a
-probe leaking into the decode path.
+The raw `decode_seconds_per_token` cannot be used as the negative control, and
+this is a property of the harness rather than a convenience. The harness's
+decode pass is a **512-token seed prefill followed by 128 one-token steps**, and
+it divides the *whole pass* by 128. Every arm's own prefill delta therefore
+lands in the raw decode column at `dS/128`, by construction, under exactly zero
+leakage.
+
+S2 is the case that makes this unmissable: its raw decode reads `+2.65%`, which
+would breach the `2%` tolerance and void the strongest result in the tree — and
+`+2.54%` of that `+2.65%` is arithmetically just its own `+15.961 ms` of honest
+prefill spread over 128 steps. The residual actual decode movement is `+0.13%`.
+Testing the raw column would fail any arm *for succeeding at its job*.
+
+`T_ms` subtracts the seed term:
+
+```
+T = (128 · decode_s_per_tok − 512 · prefill_s_per_tok) / 128
+```
+
+This is a wiring repair, not a post-hoc rescue: `T_ms` has been the R7 estimator
+since `9ddd94f` (2026-08-06T23:15:47Z), **three hours before the first receipt
+existed**. The raw column is still printed as a diagnostic, and the table below
+shows both so the correction can be audited rather than trusted.
+
+### 7.2 Results
+
+| arm | seed-corrected `T` | vs control `4.14357` | raw decode | of which is own prefill | paired baseline decode | vs feed median `13.86539` | verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| M2 | `4.17742` | `+0.82%` | `4.95821` (`+1.02%`) | `+0.33%` | `13.89203` | `+0.19%` | **OK** |
+| S2 | `4.14897` | `+0.13%` | `5.03847` (`+2.65%`) | `+2.54%` | `13.81409` | `−0.37%` | **OK** |
+| B2 | `4.17483` | `+0.75%` | `4.94620` (`+0.77%`) | `+0.13%` | `13.82008` | `−0.33%` | **OK** |
+
+Tolerance `2%`; session-health band on the paired baseline `1%`.
+
+**All three arms pass, and they pass in the informative direction.** The
+strongest test is not that each `|ΔT|` is small — it is that `ΔT` is
+**uncorrelated with `ΔS`**. If a probe had escaped into the decode path, decode
+movement would track prefill movement. Instead S2, which moved prefill nearly
+**eight times** further than M2 (`+15.961` vs `+2.046 ms`), moved corrected
+decode the *least* of the three (`+0.13%` vs `+0.82%`). That inversion is
+exactly what §2's static argument predicts: at decode `M==1` fails the
+`B/E>=4` prefill gate, so the probed kernel is **not dispatchable at all**, and
+the small residual scatter is session noise rather than leakage.
+
+Session health is clean on every arm: all three paired baselines sit within
+`0.4%` of the n=16 feed median, well inside the `1%` band, so no receipt in this
+tree is reading a degraded session.
 
 <!-- DECODE -->
 
