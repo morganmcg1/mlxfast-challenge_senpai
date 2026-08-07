@@ -33,12 +33,15 @@
 ## MERGED WAVE 14
   PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — MERGED (bit-exact, +0.676% decode, +222B)
 
-## NEXT-WAVE IDEAS (from FRESH_DECODE_IDEAS_20260807.md)
-  1. Fuse final RMSNorm into LM head coarse — ASSIGNED to alphonse (PR #296)
-  2. Down+residual outputs_per_simd 8→16 — UNASSIGNED (~50B, big threadgroup reduction)
+## NEXT-WAVE IDEAS (from FRESH_DECODE_IDEAS_20260807.md + research agent)
+  1. Fuse final RMSNorm into LM head coarse — CLOSED (bandwidth-negative, 25MB extra reads)
+  2. Down+residual outputs_per_simd 8→16 — ASSIGNED to alphonse (PR #297)
   3. NVFP4 OProj results_per_simd 8→16 — UNASSIGNED (~50B, 40 layers)
   4. Gate/up R1 9-simdgroup input sharing — LIKELY DEAD (input-vector staging already failed)
   5. Dense down rows_per_thread 4→8 — LOW IMPACT (1 layer only)
+  6. Device-atomic two-phase norm+QKV fusion — UNASSIGNED (saves 40 dispatch boundaries/step, complex)
+  7. Device-atomic router top-8 fusion — UNASSIGNED (saves 39 dispatch boundaries/step, complex)
+  8. Decode path is extremely well-optimized: 8 dispatches per sparse layer, nearly fully fused
   PR #292 (askeladd): Extend gate-product+softplus kernel to multi-token prefill — 40 dispatches, ~200-400B
   PR #294 (thorfinn): Dead code removal — free ~12KB LRM budget, 4 default-OFF flags, net-negative
 
