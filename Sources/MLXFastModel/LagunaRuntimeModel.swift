@@ -9127,6 +9127,16 @@ private let lagunaPrefillMoETailEnabled =
 private let lagunaPrefillSortedMoETailEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SORTED_MOE_TAIL"] != "0"
 
+/// `DARKBLOOM_PREFILL_UNSORTED_MOE=1` (default OFF): skip `gatherSort` /
+/// `scatterUnsort` entirely for prefill MoE by forcing `doSort = false` in
+/// `lagunaFusedSortedRoutedGateUp`. `gatherQuantizedMM` with
+/// `sortedIndices: false` computes the same per-element dot products as the
+/// sorted path — only the memory access order of expert weights changes.
+/// The output is already in token order, so the non-sorted
+/// `lagunaPrefillMoETail` path handles it (inverseOrder is nil).
+private let lagunaPrefillUnsortedMoEEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_UNSORTED_MOE"] == "1"
+
 /// Two-phase tournament replacing O(256) predecessor count: (1) 8 independent 32-lane
 /// bitonic sorts per simdgroup (same decode kernel network, no threadgroup memory);
 /// (2) repack 64 candidates, bitonic-sort the union, take first 8. Same comparator and
@@ -9819,7 +9829,9 @@ private func lagunaFusedSortedRoutedGateUp(
     // SwitchGLU: `var x = MLX.expandedDimensions(x, axes: [-2, -3])`
     var sortedX = MLX.expandedDimensions(x, axes: [-2, -3])
     // SwitchGLU: `let doSort = indices.size >= 64`; call site already guards this.
-    let doSort = indices.size >= 64
+    // When unsorted prefill MoE is enabled, force `doSort = false` to skip
+    // gatherSort/scatterUnsort. The GEMM handles unsorted indices directly.
+    let doSort = indices.size >= 64 && !lagunaPrefillUnsortedMoEEnabled
     // SwitchGLU: `var idx = indices` / `var inverseOrder = MLXArray()`
     var idx = indices
     var inverseOrder = MLXArray()
