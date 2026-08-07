@@ -64,7 +64,7 @@ def main() -> int:
         per_block[s // block_len].setdefault(seg_k[s], []).append(seg_med[s])
 
     blocks = sorted(per_block)
-    print("\nblock-paired contrasts vs K=1 (us per copy-set per step)")
+    print("\nblock-paired contrasts vs K=1 (total us added per step)")
     print(f"{'K':>3} {'mean_us':>10} {'se':>8} {'t':>7} {'ci95_lo':>9} "
           f"{'ci95_hi':>9}  per-block")
     contrasts = {}
@@ -115,6 +115,34 @@ def main() -> int:
           f"{slope*PERCENT_PER_US:+.4f} % of score "
           f"(CI [{(slope-h)*PERCENT_PER_US:+.4f}, "
           f"{(slope+h)*PERCENT_PER_US:+.4f}])")
+
+    # Two-regime hinge: injected independent work is absorbed free until the
+    # step's idle-GPU slack is exhausted, then passes through at a fixed rate.
+    big = [k for k in arms if k in contrasts]
+    if len(big) >= 2:
+        k1, k2 = big[-2], big[-1]
+        m1, m2 = contrasts[k1][0], contrasts[k2][0]
+        rate = (m2 - m1) / float(k2 - k1)
+        if rate > 0:
+            knee = (k2 - 1) - m2 / rate
+            print(f"\ntwo-regime hinge (arms K={k1},{k2}): saturated marginal "
+                  f"cost {rate:.2f} us per copy-set; absorbed slack "
+                  f"{knee:.2f} copy-sets")
+            if args.census:
+                print(f"  injected work absorbed free: "
+                      f"{knee*args.census:.0f} us/step "
+                      f"(census {args.census:.1f} us per copy-set)")
+                print(f"  saturated pass-through: "
+                      f"{100.0*rate/args.census:.1f}% of injected GPU us")
+                print("  K needed to resolve this family unchained: "
+                      f"{knee+1.0:.1f}")
+            print(f"{'K':>4} {'injected_us':>12} {'measured_us':>12} "
+                  f"{'hinge_pred_us':>14}")
+            for k in arms:
+                inj = (k - 1) * (args.census or float("nan"))
+                meas = 0.0 if k == 1 else contrasts[k][0]
+                pred = max(0.0, rate * ((k - 1) - knee))
+                print(f"{k:4d} {inj:12.0f} {meas:12.1f} {pred:14.1f}")
 
     if 2 in contrasts and 5 in contrasts and contrasts[2][0]:
         early = contrasts[2][0]
