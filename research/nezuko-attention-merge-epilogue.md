@@ -840,12 +840,26 @@ carries the prefill baseline draw.
 |---|---|
 | `decode_speedup` | **0.3637 %** |
 | `officialScore` | **0.7846 %** |
-| decode window `T = 4165 µs` | **15.15 µs/step** |
+| µs/step removed from `T` | **17.92 µs/step** |
 
-So **a single ranked receipt cannot resolve anything below ~30 µs/step at 2σ.**
-This target's *entire* ceiling is 46.8 µs/step — only 1.5× the two-sigma
-resolution of the instrument used to judge it. Any campaign target in the
-sub-50 µs class is being measured with a ruler barely finer than the object.
+The percentage figures are primitive; the µs figure is derived. The conversion
+must use the **same divisor as the advisor's corrected elasticity**, namely
+`D = decode_seconds_per_token = 4928.12 µs` for this receipt, *not* the decode
+window `T = 4164.6 µs`. Removing `X` µs from `T` removes the same `X` µs from
+`D`, so `dlog(D) = -X/D`; the `T` divisor would understate σ by 18 %. Hence
+`0.3637 % x 4928.12 µs = 17.92 µs/step`.
+
+So **a single ranked receipt cannot resolve anything below ~36 µs/step at 2σ.**
+This target's *entire* ceiling is 46.8 µs/step — only 1.3× the two-sigma
+resolution of the instrument used to judge it, and *below* the 3σ figure of
+53.8 µs/step that a submission would need to clear to be confirmable rather
+than merely favourable. Any campaign target in the sub-50 µs class is being
+measured with a ruler coarser than the object.
+
+This retires my own earlier "15.15 µs/step / ~30 µs at 2σ" phrasing, which
+divided by `T` while converting the prediction with `D`. The %-space verdict in
+§11.4 was computed entirely in %-space and is unaffected: `+0.2853 %` predicted
+vs `-0.4912 %` observed at `sd 0.3637 %` is a `-2.13σ` residual either way.
 
 Sanity check on the floor: the promoted frontier `97a5090c` and the ranked
 anchor `08ddee45` differ by `-0.0727 %` on `decode_speedup` = **−0.20σ**. Two
@@ -1085,3 +1099,183 @@ Session 2 runs a 24-run palindrome (12 further pairs) for **18 pooled pairs**,
 projected half-width `≈ 10.4 µs`. Pairing is strictly *within* session and
 *between adjacent runs*, so a between-session level shift cannot bias the pooled
 mean.
+
+## 13. The mechanism: the isolated harness measured a different machine
+
+This section is the part of the PR I expect to outlive the patch. It is
+arithmetic over `LagunaConfig.swift` constants and my own S1 measurement; it
+uses no new GPU time and no receipts.
+
+### 13.1 The isolated ABBA harness provably ran cache-resident
+
+Take the sliding kernel exactly as §2.1 measured it: `18.446 µs` per call,
+32 threadgroups. Each threadgroup streams the whole 512-position window for its
+KV head: `512 x 128 x 2 (K and V) x 2 B (bfloat) = 256 KiB`. Issued reads per
+call are therefore `32 x 256 KiB = 8.0 MiB`, of which only
+`8 KV heads x 256 KiB = 2.0 MiB` are unique — a 4× cross-threadgroup reuse
+factor that follows directly from `slidingAttentionHeads / numKeyValueHeads
+= 64 / 8`.
+
+```
+8.0 MiB / 18.446 us  =  455 GB/s   effective read bandwidth
+M4 Pro peak DRAM bandwidth          273 GB/s
+```
+
+**The isolated kernel sustained 1.67× the machine's DRAM peak.** That is not an
+interpretation, it is a contradiction: those bytes cannot have come from DRAM.
+In a 400-rep ABBA loop the 2.0 MiB working set is SLC-resident after the first
+rep, so every subsequent rep is served on-chip. The harness that produced my
+`+0.400 µs (+2.51 %)` S4 result was, by its own numbers, benchmarking an
+on-chip-throughput-bound kernel.
+
+That single line reframes everything below it.
+
+### 13.2 In situ, the decode step is memory-traffic-dominated
+
+Per decode step at batch 1, from `LagunaConstants` (script `research/nezuko_decode_traffic.py`;
+NVFP4 = 4 bits + one E4M3 scale per 16 values = `0.5625 B/param`):
+
+| component | MB/step |
+|---|---|
+| routed top-8 (39 layers) + shared expert | 592.3 |
+| KV cache read (30 sliding + 10 full) | 82.5 |
+| dense MLP layer 0 + routers | 135.0 |
+| **hard floor, charging attention and `lm_head` nothing at all** | **809.8** |
+| attention q/k/v/o at INT8 g32 | 1700.0 |
+| attention q/k/v/o at BF16 | 2720.0 |
+| `lm_head` at BF16 | 392.0 |
+
+The same accounting reproduces the resident model: `16.45 GB` routed experts +
+`2.66 GB` attention + `0.80 GB` head/embed/routers + `0.16 GB` dense and
+shared = **20.07 GB** against the ~21.6 GB the brief states, which validates
+the parameter model.
+
+Now bound it. The M4 Pro moves at most `273 GB/s x 8290 µs = 2158 MB` in one
+measured step. So:
+
+```
+hard floor  809.8 MB / 2158 MB  =  37.5 % of peak DRAM bandwidth
+```
+
+and *any* configuration that charges attention weights even at INT8 exceeds
+100 % of peak — which is impossible, so the true frontier configuration lies
+between those bounds. **Per-step DRAM traffic is therefore between 38 % and
+100 % of everything the memory system can deliver, and the weight inventory
+forces it toward the top of that range.** Decode is memory-traffic-dominated,
+and it is dominated by weight streaming, not by arithmetic.
+
+I flag the honest weakness: I did not audit which of the ~200 merged frontier
+optimizations reduced attention or head traffic, so I cannot name the exact
+fraction. I do not need to. The floor alone — computed while charging the
+entire attention stack and the whole vocabulary head *zero* — is already 37.5 %
+of peak, and the floor is not reachable.
+
+The corroborating cross-machine ratio is `8290 / 4165 = 1.990`, implying
+`543 GB/s` on the ranked M5 Max if both machines are bandwidth-bound. That is
+exactly the Max-tier bandwidth class. I deliberately do **not** claim this as
+evidence: a 20→40 GPU-core ratio is also ≈2, so the step ratio cannot
+discriminate bandwidth-bound from compute-bound. §13.1 does that work alone.
+
+### 13.3 Why this predicts a zero step-level effect, on both machines
+
+The patch removes **zero DRAM bytes**. It removes six threadgroup stores and
+six threadgroup loads per thread, i.e. on-chip transactions and
+instruction-issue slots. Line up the two regimes:
+
+| | isolated ABBA loop | in-situ decode step |
+|---|---|---|
+| KV source | SLC (proved: 455 GB/s > 273 peak) | DRAM |
+| binding resource | on-chip transaction throughput | DRAM bytes |
+| does the patch relieve it? | **yes** | **no** |
+| predicted effect | `+0.400 µs/call` ✓ observed | **≈ 0** |
+
+On Apple family-9 GPUs threadgroup memory and the L1/data path are carved from
+the same on-chip storage and share ports. Cache-resident, KV loads and my
+epilogue's threadgroup traffic contend for that port, so deleting 12 of 16
+accesses per thread relieves the binding resource — the measured `+2.51 %`.
+DRAM-resident, those ports idle while simdgroups wait on memory, so the same
+deletion relieves a resource with slack.
+
+Note also what the patch does *not* save: a `float4` threadgroup access is
+512 B per simdgroup-instruction. If the port moves ~128 B/cycle it costs the
+same four beats as four scalar accesses. The saving is issue slots, address
+generation and bank-conflict windows — never bytes. That is precisely the class
+of saving that is worth something when the port is busy and nothing when it is
+idle, and it is why the naive "16→4 instructions ≈ 50 ns" estimate
+under-predicted the isolated delta by 8×.
+
+**This single mechanism explains all three evidence lines at once** — the
+isolated `+2.51 %` win (§4), the M5 receipt's failure to move (§11), and the M4
+end-to-end null (§12) — without invoking any M4→M5 architectural difference.
+It is also strictly more parsimonious than the "M4→M5 inversion" hypothesis I
+carried into §11.5, because it predicts the *same-host* null that §12 measures,
+which an architecture-inversion hypothesis cannot.
+
+### 13.4 Consequences for the taxonomy, and for the campaign
+
+§10 asked whether this target is chain-link or side-branch and answered
+chain-link on three independent grounds, all of which still hold: the kernel is
+not being deleted, `E ≥ 0.90` for the enclosing kernel (PR #174 §3.6), and the
+epilogue is 12.9 % of a 512-row call (PR #196 §7.1). Every one of those
+statements is true. **They were also insufficient**, and that is the finding.
+
+The #204 taxonomy classifies *dispatches* by concurrency exposure. It has no
+term for the case where a dispatch is fully exposed but the resource the change
+relieves is not the resource that binds. So the taxonomy needs a second,
+orthogonal axis:
+
+> **Exposure** answers *"is this dispatch on the critical path?"*
+> **Bound-match** answers *"does this change relieve the resource that binds
+> this dispatch, in the regime where it actually runs?"*
+>
+> A saving reaches the step only if **both** are yes. `E ≥ 0.90` with
+> bound-match ≈ 0 is worth exactly as much as a side-branch: nothing.
+
+fern's #204 kernel was `E ≈ 0`, bound-match irrelevant. Mine is `E ≥ 0.90`,
+bound-match ≈ 0. Both produce a null; they are different failure modes and they
+need different pre-registration checks.
+
+Three rules I would apply to any future decode-kernel assignment:
+
+1. **Residency rule.** If per-step traffic ÷ last-level-cache capacity ≫ 1
+   (here `~2 GB / ~35 MB ≈ 60`), a microbenchmark that loops one kernel over a
+   fixed buffer characterises a *different machine*. Either sweep the working
+   set across `R` independent KV buffer sets until the effect stops depending
+   on `R`, or discount the result entirely. The cheap tell costs no runtime:
+   divide issued bytes by measured time and compare with DRAM peak. Mine failed
+   that check by 1.67× and I did not run it.
+2. **Bound-match rule.** Isolated deltas in on-chip-contention resources
+   (threadgroup transactions, bank conflicts, L1 port pressure) measured
+   cache-resident are *upper bounds* with a prior transfer coefficient near
+   zero. Only serial-dependency-latency deltas transfer at roughly `E`. Classify
+   the resource before pre-registering a step-level number.
+3. **Receipt-floor rule.** §11.2 puts the ranked instrument at
+   `17.92 µs/step` (1σ). A submission is confirmable only at about `3σ ≈ 54
+   µs/step` — which is **larger than this target's entire `46.8 µs/step`
+   ceiling**. This target was unconfirmable by a single ranked receipt *even if
+   the mechanism had been perfect*. My `+14.02 µs` prediction was `0.78σ`;
+   reaching 80 % power would have taken ~13 receipts. That is a
+   go/no-go arithmetic check that costs nothing and should gate every future
+   assignment in the sub-50 µs class.
+
+### 13.5 The cheap experiment I would run next, and did not
+
+The strongest remaining discriminator is **not** the `BDP=32` stressor I had
+queued. That stressor is confounded — forcing `BDP=32` shrinks the threadgroup
+allocation `16,896 → 16,384 B`, which can change occupancy, and its penalty
+mechanism (bank-conflict serialisation latency) is not the patch's saving
+mechanism (transaction count). Both mechanism (2) and mechanism (3) predict
+"step doesn't move", so it separates neither.
+
+The right experiment is a **working-set sweep**: keep the ABBA harness and its
+null arm exactly as built, but rotate the kernel across `R` independent KV
+buffer sets, sweeping `R x 2.0 MiB` from 4 MB to 512 MB. §13.1 predicts the
+`+0.400 µs` delta decays toward zero as the working set crosses the SLC, giving
+a dose–response curve at ~`0.1 µs` resolution instead of a `10–20 µs`
+end-to-end noise floor — minutes of runtime, no kernel edit, no bit-exactness
+risk, no receipt. If the delta *persists* DRAM-resident, §13.1 is wrong, the
+per-call saving is real in situ, and the loss is at step level after all.
+
+I am reporting this rather than running it because it is a new instrument
+rather than a variation of the assigned arms, and the assignment's remaining
+budget is better spent certifying the result I have.
