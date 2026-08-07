@@ -1,8 +1,15 @@
 # H2: skinny-N regular-NAX steel tile downsize for the 78 wk/wv prefill GEMMs
 
-PR #293 · assignment `maple-2026-08-07l-nax-skinny-tile` r1 · student maple-tanjiro
-BASE_SHA `13f9b6f7960bf1872465f2e7950685d52ccf2e48` (branch
-`codex/mlxfast-maple-20260804-advisor`)
+PR #293 · assignment `maple-2026-08-07l-nax-skinny-tile` **r2** · student
+maple-tanjiro
+BASE_SHA `69178729b154cbb648ea0ce6152e92dbfdb17cc6` (branch
+`codex/mlxfast-maple-20260804-advisor`; r1 was verified against
+`13f9b6f7960bf1872465f2e7950685d52ccf2e48`)
+
+**r2 status: the guard is now opt-in and H2 is queued, not refuted.** r2
+changed exactly one behavioural thing — the control defaults to OFF, so this
+branch is a no-op on the scored path until `DARKBLOOM_STEEL_REGULAR_SKINNY_TILE=1`
+is set. See §7.5 for the r2 re-verification and §8.3 for the queue record.
 
 ## 1. Hypothesis and mechanism
 
@@ -304,6 +311,83 @@ respects scope and budget, keeps the AOT/JIT twin consistent, and does not
 perturb the non-NAX paths. They prove nothing about NAX numerics or NAX
 timing. Only the ranked M5 can resolve either.**
 
+### 7.5 r2 re-verification on the live base
+
+r2 rebased onto the live advisor base `6917872` /
+`69178729b154cbb648ea0ce6152e92dbfdb17cc6` (which carries PR #268 r2 and the
+PR #288 editable-byte recovery) as merge commit `f55bdc7`, flipped the control
+to opt-in, and re-ran every gate against that base.
+
+**The opt-in flip.** One expression and its comment:
+
+```c
+// Opt-in: downsize the skinny-N regular nax steel tile. Set
+// DARKBLOOM_STEEL_REGULAR_SKINNY_TILE=1 to enable.
+static bool darkbloom_steel_regular_skinny_tile() {
+  static bool enabled = []() {
+    const char* value = getenv("DARKBLOOM_STEEL_REGULAR_SKINNY_TILE");
+    return value != nullptr && atoi(value) != 0;   // r1: != nullptr && atoi(value) == 0 → default ON
+  }();
+  return enabled;
+}
+```
+
+The guard body (`bn == 128 && wn == 4 && N % 64 == 0`, then `tiles_m >= 4 &&
+tiles_m * tiles_n <= 96` → `bn = 64; wn = 2`) is byte-identical to r1. Total
+diff against the live base is still **one file, +33 / -0 lines**.
+
+| r2 gate | command | result |
+| --- | --- | --- |
+| assignment scope | `senpai/validate-assignment-scope.sh 69178729… Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp` | `assignment scope OK: 1 submitted path(s)` |
+| editable budget | `senpai/check-editable-budget.sh 69178729…` | `current=2868051/3000000 headroom=131949 growth=1631/262144 files=140` |
+| AOT/JIT twin | `python3 research/nax_twin_check.py` | `TWIN CHECK: generated copy matches the header` (PASS) |
+| worker build + metallib | `./setup.sh` | exit 0, elapsed 00:01:42 (`research/pr-nax-skinny-logs/setup-r2.log`) |
+
+`matmul.cpp` is inside the `VendoredMetalFingerprint` subtree, so the rebuild
+had to be complete rather than incremental. It was: log line 19
+`[4/8] Compiling matmul.cpp`, line 91 `Linking mlxfast-runtime-worker`, line 116
+`build-mlx-metallib.sh: wrote .build-worker/release/mlx.metallib`. Worker
+binaries are stamped 15:50:13 / 15:50:24 UTC.
+
+**Fingerprint check, done explicitly.** This run's log emitted the reference
+*checkpoint* line (`5 safetensors shard(s)`) but not the "verified 13 reference
+file hash(es)" line r1's log carried, so I verified the metallib identity
+directly instead of relying on a log string:
+
+```
+tools/build-mlx-metallib.sh --print-fingerprint
+  d90f4ee8f69f8d180e54363ca4a08b09a1c68728da9ca27859b689d3301bbb6a
+.build-worker/release/mlx.metallib.fingerprint
+  mlxfast-metallib-fingerprint-v1 d90f4ee8f69f8d180e54363ca4a08b09a1c68728da9ca27859b689d3301bbb6a
+```
+
+Recomputed fingerprint == the sidecar the build wrote, so the metallib on disk
+is the one this source tree produces. That is a stronger statement than the log
+line it replaces.
+
+**Correctness arm (one run, no env set — i.e. the shipped default).**
+`research/run_upstream_equivalence.sh`, log
+`research/pr-nax-skinny-logs/equivalence-r2-default-optin.log`:
+
+| field | r2 default (opt-in OFF) | r1 base-state control |
+| --- | --- | --- |
+| tests selected | **1** (`lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`, 24.6 s) | 1 |
+| prefill `maximumAbsoluteLogitError` | 0.125 | 0.125 |
+| prefill `meanAbsoluteLogitError` | 0.011933609 | 0.011933609 |
+| decode steps 0–7 | all exactly 0 | all exactly 0 |
+| tokens | 5991, 509, 902, 5991, 509, 902, 5991, 509, 902 | identical |
+| `EQUIVALENCE_EXACT_STEPS` | 8 | 8 |
+| `EQUIVALENCE_EXIT` | 1 | 1 |
+
+`diff` of the two JSON report blocks is empty — the r2 default run is
+**byte-identical** to the base-state control. The non-zero selected-test count
+is confirmed in the log (`Test run with 1 test in 0 suites`; the `Executed 0
+tests` lines above it are the empty XCTest suite, not the swift-testing
+selection). `EQUIVALENCE_EXIT=1` is the pre-existing zero-tolerance assert at
+`LagunaCorrectnessTests.swift:249` firing on one bf16 ULP of non-M5 prefill
+near-tie drift; it is present with the guard off, on this base, unchanged by
+this branch. Per r1's brief, no 64-step tripwire arm was required for r2.
+
 ## 8. Independent kernel-source audit, and why Stage 3 was deliberately deferred
 
 ### 8.1 Independent adversarial audit of the bit-exactness claim: CONFIRMED
@@ -359,86 +443,145 @@ conclusion); and a latent AOT lookup gap for non-`s`/`c`/`d` NAX devices
 (`bm128_bn64_bk512_wm4_wn2` is absent from the AOT list), which is not ranked
 hardware (R3, note only).
 
-### 8.3 No ranked receipt: intentional deferral, with the reason
+### 8.3 H2 is queued, not refuted — the outage record and the pre-registered prediction
 
-**I did not dispatch the official M5 submission. This is a deliberate decision,
-not an omission, and H2 is therefore unresolved.** Two independent blockers:
+**Nothing in r1 or r2 is evidence against H2.** The hypothesis has never been
+measured. It is blocked on infrastructure, and r2 does not change that. The
+honest disposition is **queued**:
 
-**(a) The shared in-flight slot is occupied.** The account-scoped in-flight
-limit is 1. At 15:07 UTC `mlxfast submissions` shows `9753441` (15:03) in state
-`validating`, so the slot is held by another role.
-
-**(b) The campaign has no known-passing base right now.** The receipt history is
-unambiguous:
-
-| window | receipts | meaning |
+| claim | status after r2 | source of the verdict |
 | --- | --- | --- |
-| through ~09:36 | `rejected` with real scores (e.g. `68b66c5` = 2.5520) | gates passed, simply did not beat best |
-| 09:59 → 14:43 | **16 consecutive `failed`, score `n/a`** | official run never produced a score |
+| the candidate kernel geometry is dispatchable | **verified** | Stage 0 offline MSL compile, §3 |
+| the change is bit-exact | **verified by source audit**, not by execution | §2, §8.1 |
+| the change reaches the scored path | **verified by construction** — one call site under `if (use_nax)`; unreachable *on this host only* | §7.2 |
+| the change perturbs nothing off the NAX path | **measured**, r1 and r2 | §7.3, §7.5 |
+| the change is faster on M5 | **unknown** | needs one ranked paired receipt |
 
-⚠️ **Update at 15:07 UTC — the outage is not self-healing.** An earlier draft of
-this section recorded `400ba6c` (14:43, "Restore Vendor Files to Last Successful
-State") as `validating` and treated it as the pending fix. **It has since
-resolved to `failed`, score `n/a`.** The base-health repair therefore *failed to
-repair the base*, and the unbroken failure run now spans 16 receipts across
-nearly five hours. This strengthens rather than changes the deferral: the next
-repair attempt is still outstanding, so a ranked slot spent on H2 now would
-still return `n/a`, and would additionally queue that repair behind it.
+r2's flip to opt-in makes that queue state explicit in code: with the default
+OFF, this branch is a literal no-op on the scored path, so it can sit on the
+frontier at zero risk until a ranked slot exists. Arming it is a one-character
+change plus `DARKBLOOM_STEEL_REGULAR_SKINNY_TILE=1`.
 
-`failed` with `n/a` is categorically different from `rejected`: `rejected` can
-mean only "did not beat the current best", whereas these produced no score at
-all. The notes on `2cbf31e` and `400ba6c` diagnose it as a vendor `_nax` revert
-that landed on a state which is *not* the last-successful one, breaking M5
-correctness.
+#### The blocker: the campaign base has not produced a score since 09:36 UTC
 
-I checked my own base against that diagnosis. `BASE_SHA`
-`13f9b6f7960bf1872465f2e7950685d52ccf2e48` (2026-08-07 13:58 UTC) matches
-**neither** snapshot:
+Read-only `mlxfast submissions`, refreshed at **15:52 UTC** (host clock is GMT,
+so displayed times are UTC):
 
-| marker | last-passing 68b66c5 | bad revert | **my base** |
+| receipt | time (UTC) | state | score |
 | --- | --- | --- | --- |
-| `darkbloom_expert_bk128` | present | removed | **present** |
-| `darkbloom_stage_wide_scale_ok` | present | removed | **absent** |
-| `laguna_expert_pairwise_scale_layout` | absent | added | **absent** |
-| `kHalvedScales` (vendor) | present | absent | **absent** |
-| `lagunaPrefillSharedHalvedEnabled` (LRM) | active | active | **absent entirely** |
+| `df9613a` | 08:19 | rejected | 2.58167300473934 |
+| `68b66c5` | **09:36** | rejected | **2.5520699745752** ← last receipt with any score |
+| `d6c548e` | 09:59 | failed | n/a |
+| `70929a5` | 10:15 | failed | n/a |
+| `8b5b01d` | 10:30 | failed | n/a |
+| `7a99ae3` | 10:45 | failed | n/a |
+| `5be231a` | 11:07 | failed | n/a |
+| `d565be6` | 11:29 | failed | n/a |
+| `6f9ca88` | 11:41 | failed | n/a |
+| `b72eef8` | 11:57 | failed | n/a |
+| `f5dac24` | 12:14 | failed | n/a |
+| `29fb82a` | 12:43 | failed | n/a |
+| `90d0841` | 12:59 | failed | n/a |
+| `efb6316` | 13:21 | failed | n/a |
+| `1cc55cd` | 13:49 | failed | n/a |
+| `d417eaa` | 14:04 | failed | n/a |
+| `2cbf31e` | 14:20 | failed | n/a | ← base-health repair attempt #1 |
+| `400ba6c` | 14:43 | failed | n/a | ← base-health repair attempt #2 |
+| `9753441` | 15:03 | failed | n/a | ← was `validating` at r1 submission time |
+| `55e1640` | 15:35 | failed | n/a |
 
-My base is self-consistent — it has neither the LRM halved path nor the vendor
-`kHalvedScales` support, so it is not the specific broken pairing that was
-diagnosed. But "self-consistent" is not "known to pass M5", and no receipt
-exists for this vendor combination.
+**18 consecutive `failed` receipts with score `n/a`, spanning 09:59 → 15:35
+UTC.** Two explicit repair attempts (`2cbf31e`, `400ba6c`) are inside that run
+and both failed. `failed`/`n/a` is categorically different from `rejected`:
+`rejected` can mean only "did not beat the current best", whereas these produced
+no score at all, so no prefill or decode number exists to compare against a
+prediction.
 
-**Why deferring is the correct call and not merely the cautious one:**
+One thing did change since r1: `9753441`, which was `validating` when r1 was
+submitted, has resolved to `failed`. The account-scoped in-flight slot therefore
+appears **free** now, and blocker (a) from r1 has cleared. Blocker (b) has not:
+**the base still does not score.** A slot is only worth spending if the run can
+return a number, and 18 consecutive receipts say it cannot. Spending one on H2
+now would return `n/a`, would teach nothing about the hypothesis, and would
+queue the next base-health repair behind a micro-optimization. Restoring the
+ability to score anything dominates one prefill tile experiment.
 
-1. **A receipt now would carry no information about H2.** If the base fails M5
-   for base-health reasons, the receipt is `failed` with `n/a` and there is no
-   prefill number to compare against the −1.5/−5 ms prediction. I would have
-   spent the campaign's only slot to learn nothing about the hypothesis.
-2. **Contending for the slot actively harms the campaign.** Every score depends
-   on restoring a passing base. `400ba6c` did **not** fix it, so a further
-   repair attempt is still needed and would be queued behind my
-   micro-optimization. Restoring the ability to score anything dominates one
-   prefill tile experiment.
-3. **The base is about to move anyway.** Whatever restores M5 health will change
-   the vendor `_nax` files and hence `BASE_SHA`. A receipt taken against the
-   current base would be attributed to a base that is being replaced, so H2
-   would need re-running regardless. `AGENTS.md` is explicit that stale-frontier
-   timing must not be trusted.
+The r1 base-vs-snapshot marker comparison above still holds for the new base in
+its conclusion, which is the relevant one: self-consistent is not the same as
+known-to-pass-M5, and no receipt exists for this vendor combination.
 
-**Recommended re-dispatch, unchanged:** the candidate is complete and ready. The
-moment a passing base is re-established, rebase this one-file, +31-line guard
-onto it and take one paired receipt. Report `prefill_seconds_per_token` and
-`decode_seconds_per_token` at full precision for candidate and same-session
-baseline, both `0.95` floor verdicts separately, correctness/error status read
-separately from ranking status, and the prefill delta in ms against the
-predicted −1.5/−5 ms and the 1.35 ms 3σ resolution bar. Also read the TTFT
-gate, per R2.
+#### Pre-registered prediction, so the eventual receipt is a real test
+
+Recorded before any ranked measurement exists, so it cannot be fitted after the
+fact. To arm the candidate: set `DARKBLOOM_STEEL_REGULAR_SKINNY_TILE=1` for the
+candidate binary (the default is now OFF and would otherwise measure a no-op).
+
+- **Direction and magnitude:** prefill wall time **−1.5 ms to −5 ms** vs the
+  same-session baseline (+0.56% to +1.87% score).
+- **Resolution bar:** **1.35 ms** at 3σ (σ(S)=0.318 ms, n=16, paired σ≈0.4497 ms).
+  A prefill delta inside ±1.35 ms is **not** a resolved result in either
+  direction; it is a null, and H2 stays queued rather than becoming a negative.
+- **Conversion constants:** prefill **0.374750 % score per ms**, decode
+  **0.015280 % per µs**.
+- **Decode:** expected flat. Decode GEMMs are M=1 and never satisfy
+  `tiles_m >= 4`, so any decode movement beyond noise is evidence of a
+  mis-specified guard, not of the mechanism.
+- **Falsification:** prefill delta ≥ +1.35 ms (slower) refutes the occupancy
+  argument for this class and should retire H2 including Candidate B, because B
+  doubles the same re-read cost the loss would be attributing the regression to.
+- **Read separately:** correctness/error status, the **prefill 0.95 floor**, and
+  the **decode 0.95 floor**, each on its own. A `rejected` receipt with both
+  floors passed and a prefill gain is a *successful measurement* of H2 that
+  merely did not top the leaderboard, and must not be recorded as a refutation.
+
+#### The R2 risk this prediction is exposed to
+
+Carried forward from §8.2 and unresolved: **variable-length prefills also fire
+the guard.** Outside the frozen 512-token window, the TTFT and GPQA gates run
+prefills with `M ∈ [193, 768]` at N=1024 (and `M ∈ [193, 384]` at N=2048), all of
+which satisfy `tiles_m >= 4` and the `tiles_m * tiles_n <= 96` ceiling. Those
+dispatches stay bit-exact — the audit in §8.1 is M-independent — but their
+*performance* is unmeasured and its sign can differ from M=512, because the tile
+count and hence the occupancy ratio move with M. So the TTFT check is the place
+a regression could hide even if the scored prefill improves, and the eventual
+receipt must be read with TTFT in view. I did **not** narrow the guard to
+`M == 512`: that is fixture specialization, which `AGENTS.md` forbids, and r2's
+scope explicitly excluded it. The honest position is that the guard is general
+and its off-window performance is unknown.
+
+#### Recommended re-dispatch
+
+Unchanged from r1, plus the arming step. When a passing base is re-established:
+rebase this one-file, +33-line guard onto it, set
+`DARKBLOOM_STEEL_REGULAR_SKINNY_TILE=1`, and take one paired receipt. Report
+`prefill_seconds_per_token` and `decode_seconds_per_token` at full precision for
+candidate and same-session baseline, both `0.95` floor verdicts separately,
+correctness/error status separately from ranking status, the prefill delta in ms
+against the −1.5/−5 ms prediction and the 1.35 ms bar, and the TTFT gate per R2.
 
 ## 9. Honest ceiling and follow-ups
 
 The whole steel prefill class is worth roughly 9-10 ms with a central estimate of
 3-6 ms; this arm targets one class inside it. I will not claim more than the
 paired M5 receipt measures.
+
+**Where r2 leaves the arm.** The candidate is complete, compile-verified,
+audited bit-exact, scope- and budget-clean on the live base, and demonstrably
+inert everywhere this host can observe. It is now also **safe to carry on the
+frontier**, because the control defaults to OFF: merging this branch changes no
+scored behaviour and costs 1,631 B of the 262,144 B review budget. The single
+missing piece is one paired M5 receipt, and the only thing preventing it is that
+the campaign base has produced no score in 18 consecutive receipts since 09:36
+UTC (§8.3). H2 is therefore **queued, not refuted**, and the §8.3 prediction is
+pre-registered so the eventual receipt is a genuine test rather than a
+post-hoc narrative.
+
+**r2's own scope, honestly stated.** r2 was four items: flip to opt-in, rebuild
+through `setup.sh` with the fingerprint confirmed, one no-env correctness arm,
+and this report update. All four are done. r2 deliberately did **not** dispatch a
+ranked submission, add Candidate B, flip the split-K tie, or narrow the guard to
+`M == 512`. No new timing evidence was produced or claimed, because this host
+cannot produce any (§7.2).
 
 Not implemented, deliberately out of scope:
 
