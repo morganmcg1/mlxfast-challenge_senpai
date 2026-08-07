@@ -2387,3 +2387,166 @@ produces is unmatched, and in any case the local `--local-iterate` MDE on this
 host is ±0.73 %, far above the ~0 % effect a byte-identical tree should show.
 The only decision-grade number for this revision comes from the official M5.
 
+### 15.5 The r3 receipt
+
+Submission `08ddee45-3403-4a6f-aa75-bb9967d62763`, commit `456a92e5`,
+`timestamp 2026-08-07T02:29:58Z`.
+
+| field | value |
+| --- | --- |
+| `status` | `rejected` - `rejectionReason 'score did not improve current best'` |
+| `officialScore` | `2.57481889508242` |
+| `improved` | `False` |
+| `error` | `''` (empty) |
+| `decode_seconds_per_token` | `0.0049164280625` |
+| `prefill_seconds_per_token` | `0.0001913818359375` |
+| `decode_speedup` | `2.8186331453619227` (floor `0.95`) |
+| `prefill_speedup` | `1.9627775685674194` (floor `0.95`) |
+| `passed_decode_speedup_floor` | **True** |
+| `passed_prefill_speedup_floor` | **True** |
+| `passed_correctness` | **True** |
+| `max_abs_diff` | **0** |
+| `checked_steps` | `1344` |
+| `case_count` | `11` |
+| `semantic_gpqa` | `9/9` passed, judge `claude-opus-4-8` |
+| `gpqa_ttft` | `9/9` passed, p50 `0.072 s`, max `2.3 s` |
+| `partial_result` | **False** |
+| `peak_ram_gb` | `21` |
+| `golden_hash` | `be7738fc...c67fcf71` |
+| `weights_hash` | `aff99430...6b294b3d` |
+| `harness_hash` | `05b7868f...f2b67bb0` |
+
+The `rejected` status is a **ranking** verdict only. Every correctness gate and
+both speedup floors passed; `error` is empty and `partial_result` is `False`.
+For a change proven byte-identical to base (15.3) a ranking rejection was the
+pre-registered expectation, not a failure.
+
+`harness_hash` differs from the r2 receipt's `e3cb6a0c...`. This is **expected
+and not a confound**: per PR82 that field hashes the *editable surface*, and r2
+shipped the arm default-ON while r3 ships it default-OFF, so the surface bytes
+necessarily differ. The two fields that establish comparability -
+`golden_hash be7738fc...` and `weights_hash aff99430...` - are **identical
+across the promoted reference, r2, and r3**.
+
+### 15.6 Primary reading: row A, the frontier is intact
+
+Judged on `ns` with fixed normalisers, as pre-registered (15.1):
+
+```
+ns  =  2.59440830        [1 sigma = 0.157 %]
+  vs promoted 97a5090c 2.59821630   ->  -0.147 %
+  observed deviation                     -0.66 sigma  (H0 for a null change = 0)
+  band edges: HEALTHY >= 2.5924 (-1.01 sigma)  REGRESSED < 2.5867 (-2.00 sigma)
+```
+
+`2.59440830 >= 2.5924`, so this is **row A**. The reading is:
+
+> **Hypothesis A is confirmed and Hypothesis B is rejected.** The six promoted
+> maple merges after `97a5090c` did **not** regress the M5 frontier. The
+> +24.6 us/token seen in r2 was the row-major arm, not accumulated drift in
+> the merged tree.
+
+This is the result the receipt was bought for. One receipt cleared six
+previously unvalidated merges.
+
+### 15.7 Decomposing the r2 deficit: the arm, quantified
+
+r2 and r3 differ by exactly one thing that can move time - whether the
+row-major arm is the default. Both were measured on the official M5 against
+their own same-session paired baseline.
+
+| receipt | arm | `ns` | decode (ms) | vs promoted decode |
+| --- | --- | --- | --- | --- |
+| promoted `97a5090c` | - | `2.59821630` | `4.908372` | - |
+| r2 `99b71258` | **ON** | `2.58861777` | `4.933019` | **+24.65 us** |
+| r3 `08ddee45` | **OFF** (proven no-op) | `2.59440830` | `4.916428` | **+8.06 us** |
+
+Turning the arm off recovers **+0.2237 % of `ns`** and **-16.59 us/token** of
+decode. Against a cross-session paired difference sigma of
+`0.157 % * sqrt(2) = 0.222 %`, that is **+1.01 sigma** - directionally clear
+and consistent with the r2 kill, though a single pair of receipts cannot make
+it individually decisive.
+
+The residual **+8.06 us** that r3 still sits above the promoted decode is
+**0.53 sigma** of the 15.34 us cross-session decode difference sigma
+(`0.221 % * 4908.4 us * sqrt(2)`). Consistent with zero.
+
+### 15.8 The two instruments reconcile, and they explain the residual
+
+`ns` uses fixed normalisers, so it does **not** cancel host drift.
+`decode_speedup` uses the same-session paired baseline, so it **does** cancel
+host drift but pays for it with a larger sigma. They should disagree by exactly
+the amount the baseline itself drifted - and they do:
+
+Both rows below compare two independent receipts, so both use the cross-session
+difference sigma `sigma * sqrt(2)`, matching the convention of 15.6 and 15.7:
+
+| instrument | r3 vs promoted | 1 sigma | diff sigma | in sigma |
+| --- | --- | --- | --- | --- |
+| `ns` (fixed normalisers) | **-0.147 %** | 0.157 % | 0.222 % | -0.66 |
+| `decode_speedup` (paired) | **-0.073 %** | 0.378 % | 0.535 % | -0.14 |
+
+The paired baseline decode across the three sessions was `0.01384496646875`
+(promoted) -> `0.013851607421875` (r2) -> `0.01385760709375` (r3): a monotone
+**+0.091 %** drift of the *baseline itself* over ~3 h of M5 wall time.
+
+Removing that drift from the `ns` deficit gives
+`-0.147 % + 0.091 % ~= -0.056 %`, which matches the drift-cancelling paired
+reading of `-0.073 %` to well within noise. **Both instruments independently
+say the same thing: this tree is not slower than the promoted tree.** The small
+`ns` deficit is host drift, not code.
+
+The tightness of that baseline spread (0.091 % across three separate sessions)
+is also direct evidence that all three measurement sessions were clean and
+mutually comparable, which is what licenses the 15.7 comparison at all.
+
+### 15.9 Ranking axis, for completeness
+
+```
+officialScore  2.57481890
+  vs ranking bar 2.59018572   -0.593 %   [1 sigma = 0.587 %]
+  vs promoted    2.58882784   -0.541 %
+```
+
+`officialScore` carries a 0.587 % sigma - 3.7x looser than `ns` - because it
+absorbs the full paired-baseline draw on both axes. Almost all of the visible
+deficit here is the prefill baseline draw: `prefill_speedup` reads `1.9628` vs
+the promoted `2.0015` (-1.93 %) with a 2.45 % sigma that is *entirely* baseline
+draw, while candidate prefill seconds/token barely moved
+(`0.00019138` vs `0.00019120`, `S = 97.99 ms` vs `97.89 ms`).
+
+This is precisely why 13.12 pre-registered `ns` and not `officialScore` as the
+decision statistic. Reading this receipt on `officialScore` would have
+manufactured a -0.59 % "regression" out of a tree that is provably
+byte-identical to base.
+
+### 15.10 Queue-wait datum
+
+| stage | time (UTC) | duration |
+| --- | --- | --- |
+| dispatch attempt 1 (rate-limited pre-creation) | 01:57:14 | - |
+| slot blocked by another campaign's PR170 arm M2 | 02:00:09 -> 02:20:10 | 19.6 min |
+| attempt 2 accepted, `createdAt` | 02:20:19.542 | 23.1 min from dispatch |
+| terminal, `updatedAt` | 02:41:08.864 | **20.8 min validating** |
+| watcher detected terminal | 02:41:49 | <=60 s poll latency |
+
+**Total dispatch -> verdict: 43 min 55 s**, of which only 20.8 min was actual
+validation. The 60 s watcher poll adds at most 60 s of detection latency; the
+20.8 min validation sits almost exactly on the observed 24 h median of 20.0 min.
+
+### 15.11 What this revision establishes
+
+1. **The frontier is healthy.** Six promoted maple merges after `97a5090c` are
+   now anchored by a real M5 receipt. Row A.
+2. **The r2 kill was correct and the cost was the arm.** -16.6 us/token and
+   +0.224 % of `ns` are recovered by defaulting the arm off, which is what this
+   PR ships.
+3. **The shipped default is provably base behaviour** - identical run digest
+   `3447204b...`, with a 1-ULP fault control on the *control* kernel still
+   flipping 64/65 steps (15.3).
+4. **The M4->M5 sign inversion stands.** A -63.7 us M4 census delivered
+   +24.6 us on M5. Local M4 evidence remains non-transferable for this kernel
+   family.
+5. **Reading discipline paid.** `ns` and paired `decode_speedup` agree that
+   nothing regressed; `officialScore` alone would have said -0.59 %.
+
