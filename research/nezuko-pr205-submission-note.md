@@ -1,10 +1,20 @@
-# Decode attention merge epilogue: stage the cross-simdgroup transpose as `float4`
+# Decode attention: `float4` merge epilogue, plus a uniform-buffer memo
 
-Single mechanism, one file (`Sources/MLXFastModel/LagunaRuntimeModel.swift`),
-**net −454 bytes**, and **bit-identical by construction**.
+Two independently-flagged mechanisms, one file
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift`), **net +1 169 bytes**, and
+**bit-identical by construction** on both.
+
+This is the second and last official receipt from this experiment. The first,
+`c03dc117-5f3d-4e8f-aa74-a806880be49a`, carried mechanism A alone and returned
+perfect correctness (`max_abs_diff 0`, 1 344 checked steps, 11 cases, GPQA TTFT
+9/9, semantic judge 9/9, both floors passed) with `officialScore 2.5490802468639`.
+It is referenced throughout.
 
 ## Provenance and environment
 
+- **Submitter**: student `maple-nezuko`, PR #205, assignment
+  `maple-2026-08-07c-attention-merge-epilogue`, revision `r1`, on the Senpai
+  campaign branch `codex/mlxfast-maple-20260804-advisor`.
 - **Harness / coding agent**: OpenHands, driven autonomously under the Senpai
   advisor–student research loop. Model attribution is recorded as `senpai` per
   that campaign's attribution policy.
@@ -49,6 +59,11 @@ mattered).
 
 ## What changed
 
+Two mechanisms, each behind its own ablation flag so they can be reverted
+independently.
+
+### Mechanism A — `float4` merge epilogue (`DARKBLOOM_*`, §3–§13 of the writeup)
+
 Both decode attention kernels (sliding-window and full) process two heads per
 threadgroup and finish with a cross-simdgroup merge: each simdgroup holds a
 partial softmax result for its own KV block, and the epilogue transposes those
@@ -69,13 +84,49 @@ total static threadgroup memory 18 432 B), grid and threadgroup size are
 unchanged, and all barriers are retained — including the new round-1-read →
 round-2-write WAR barrier that buffer reuse requires.
 
-## Why it cannot change a bit
+### Mechanism E — full-attention uniform-buffer memo (`DARKBLOOM_FULL_PARAMS_MEMO`)
 
-`U` is `typedef float`, so the `float4` staging is a pure repack of the same
-32-bit values. The writer→reader transpose is the same bijection as before
-(`lane*BDP+sg` written, `sg*BDP+lane` read), so **every `simd_sum` consumes the
-same 32 scalar products from the same lanes in the same order**. Only the
-grouping of independent reductions changed, which cannot perturb a result.
+`lagunaFullFusedAttention` built its 3-word uniform buffer fresh on **every
+call**:
+
+```swift
+MLXArray([UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity)])
+```
+
+Ten full-attention layers × 127 decode steps is roughly **1 270 host-side array
+constructions and graph nodes inside the scored window**, purely to restate two
+integers that almost never change. The sliding-window twin already avoids this
+with a precomputed `lagunaRingIdxAtlas`.
+
+The obvious fix is the same atlas, and it does not work here: the full-attention
+cache has **no fixed modulus**. `capacity` is `cacheKeys.dim(2)`, chosen by the
+growth policy, so a capacity-keyed atlas can only be built lazily — and lazily
+means *inside the scored window*, because the decode timing window opens at the
+512-token seed prefill. That pays back most of what it saves.
+
+Instead: a **single-entry memo keyed on `(writeIdx, capacity)`**. All ten
+full-attention layers share one cache clock
+(`KVCacheSimple.fusedAppendPrepare()`), so within a step they all ask for the
+same pair; the first builds, the other nine hit. That removes **1 143 of the
+1 270 constructions (90 %)** with zero build cost and no assumption about
+`capacity` at all. A capacity change simply misses and rebuilds.
+
+## Why neither can change a bit
+
+**Mechanism A.** `U` is `typedef float`, so the `float4` staging is a pure
+repack of the same 32-bit values. The writer→reader transpose is the same
+bijection as before (`lane*BDP+sg` written, `sg*BDP+lane` read), so **every
+`simd_sum` consumes the same 32 scalar products from the same lanes in the same
+order**. Only the grouping of independent reductions changed, which cannot
+perturb a result.
+
+**Mechanism E.** A hit returns an array whose three words were computed from
+the *same* `(writeIdx, capacity)` the fresh construction would have used, so the
+bytes are identical. The key is cache geometry only — never a token value,
+never a prompt, never a request identity — so this is an
+input-independent-state cache of exactly the kind the track rules permit, not a
+memo on the benchmark repeating itself. Worker decode is single-threaded, which
+is why the `nonisolated(unsafe)` storage is sound.
 
 ## Correctness evidence
 
@@ -113,6 +164,21 @@ grouping of independent reductions changed, which cannot perturb a result.
   `harness_hash`). Incidentally the new-base digest equals the old-base digest,
   so the intervening frontier commit is itself bit-exact on this prompt and
   this change is bit-exact on top of it.
+- **Certified by the official M5 once already.** Mechanism A alone was submitted
+  as receipt `c03dc117-5f3d-4e8f-aa74-a806880be49a`, which returned
+  `passed_correctness: true`, `max_abs_diff: 0`, `checked_steps: 1344` across
+  11 cases, `gpqa_ttft_passed` 9/9, `semantic_gpqa_passed` 9/9, `error: ""`,
+  `partial_result: false`, and both speedup floors true. Its `rejected` status
+  was ranking-only (`rejectionReason: "score did not improve current best"`).
+- **Mechanism E re-certified from scratch on the same instrument.** With both
+  mechanisms applied, the two-build digest run was repeated: identical whole-run
+  digest `3447204b…4928`, **0 of 65 per-step digests differing**, 0 token
+  mismatches on both arms, and `./benchmark.sh --local-submit` clean
+  (`passed: true`, `max_abs_diff: 0`, 1025 checked tokens). The memo is the only
+  stateful object in this diff, so it was audited specifically for the one
+  failure mode that matters — a **stale hit** — and the key includes `capacity`
+  (`cacheKeys.dim(2)`) as well as `writeIdx`, so cache growth misses and
+  rebuilds rather than returning a stale buffer.
 
 ## Timing evidence
 
@@ -134,14 +200,55 @@ combinations) were at or below the null floor and were not shipped. Per decode
 step the model runs 30 sliding and 10 full attention layers, projecting
 **≈ 14 µs/step** on this host.
 
-A matched end-to-end check (8 arms interleaved cand/base/base/cand/cand/base/
-base/cand at the canonical worker path, both binaries really built from source,
-no arm rebuilding) came back at **+0.61 µs/step, 95 % CI [−50.4, +51.6]**, with
-all 8 arms `passed_correctness` / `max_abs_diff 0`. That interval is 3.6× the
-≈14 µs/step the kernel measurement projects, so this host cannot resolve the
-effect end to end — it is reported as a no-regression check only, not as
-confirmation. The kernel-level measurement above is the load-bearing timing
-evidence.
+Mechanism E is not measurable at kernel level — it removes host-side graph work,
+not GPU work — so it is estimated structurally: 1 270 per-call
+`MLXArray([UInt32, UInt32, UInt32])` constructions per scored decode window
+(10 full-attention layers × 127 steps), of which the memo eliminates 1 143
+(90 %). At an honest 10–30 ns per small-array construction-plus-graph-node this
+is a few µs/step; I pre-registered a point estimate of **11 µs/step** with a
+4–20 µs range before measuring anything.
+
+**End-to-end, in situ, on the real worker.** A matched ABBA driver builds both
+workers once from source (candidate from `HEAD`, base from
+`git show 747d130b:Sources/…`), asserts the two binaries hash differently, then
+runs a palindromic A/B/B/A schedule of 1 200-step teacher-forced decodes,
+swapping *binaries as files* so no arm rebuilds. The run median in µs is the
+unit of replication and adjacent (A,B) pairs are differenced.
+
+| session | pairs | mean µs/step saved | sd | 95 % CI |
+|---|---|---|---|---|
+| mechanism A, session 1 | 6 | +2.20 | 20.86 | [−19.7, +24.1] |
+| mechanism A, session 2 | 12 | +10.88 | 43.34 | [−16.7, +38.4] |
+| **mechanism A pooled** | **18** | **+7.99** | 36.89 | **[−10.4, +26.3]** |
+
+Median +15.38, 10 %-trimmed +12.32, sign test 11/18 (p = 0.240), Wilcoxon
+W⁺ = 119 (p = 0.077). Positive-leaning and consistent with the +14 µs/step
+kernel projection, but not significant: the standard error is 8.7 µs/step and
+80 % power against +14 µs/step would need **55 pairs** (~94 min of paired GPU
+time), against +7 µs/step **218 pairs**.
+
+**The official M5 receipt.** Mechanism A was submitted once
+(`c03dc117-5f3d-4e8f-aa74-a806880be49a`): `officialScore 2.5490802468639`,
+`decode_speedup 2.8047880044191524`, `prefill_speedup 1.9135239675274414`. I
+had pre-registered **+0.2853 %** on `decode_speedup` against the ranked anchor
+`08ddee45` (2.818633); the observed value is **−0.4912 %**, so the point
+prediction is rejected at 95 %. But the 1σ resolution of a two-receipt contrast
+on this axis is 0.364 % (see *Learning*), so the observation is **−1.35σ** with
+a 95 % CI of [−1.204 %, +0.222 %] that contains zero: this is a failure to
+confirm, not a demonstrated regression. Decomposing the score drop against the
+promoted frontier, **83 % of it sits in the two baseline arms** of that session
+(`baseline_prefill` alone accounts for 75 %), i.e. in the part of the receipt
+my code cannot touch.
+
+Combining the M4 in-situ estimate (+7.99 ± 8.70) with the M5 receipt implied
+(−24.2 ± 17.9) gives an agreement z of +1.62 (they do not conflict) and a
+fixed-effect combination of **+1.86 ± 7.82 µs/step, CI [−13.5, +17.2]**.
+
+The honest summary of the timing axis is therefore: the kernel-level effect is
+real and cleanly measured at the kernel level; **no instrument available to me
+can resolve it end to end**, because the mechanism is worth ~0.3 % of a decode
+step and the cheapest certified instrument has a 1σ of ~18 µs/step. This is
+reported as **inconclusive on timing, not as a win and not as a regression**.
 
 The mechanism is entirely intra-threadgroup — threadgroup-memory access width
 and count, with essentially zero incremental DRAM traffic — and it is
@@ -207,11 +314,25 @@ restore from `HEAD`.
   the load-bearing evidence and it is a same-host, same-kernel-family, matched
   comparison — but generation-16 vs the ranked M5 is a real gap, and
   threadgroup geometry can change sign across core counts.
-- The end-to-end check is a **no-regression check only**; it cannot resolve a
-  0.11 % effect on this host and is not offered as confirmation.
-- The change is unconditional, with no heuristic or threshold that could select
+- The end-to-end checks are **underpowered**, not negative. The M4 in-situ probe
+  has a 1σ of 8.7 µs/step against a ~14 µs/step target, and the official receipt
+  contrast has a 1σ of ~18 µs/step. Both intervals contain both zero and the
+  predicted effect.
+- Mechanism A is unconditional, with no heuristic or threshold that could select
   differently on another architecture — which is the main reason I expect the
   sign to transfer even though the magnitude may not.
+- Mechanism E is the only stateful object here. It is keyed purely on cache
+  *geometry* (`writeIdx`, `capacity`), never on token, prompt, or request
+  identity, so it is an input-independent cache of the kind the track rules
+  permit — not a memo whose only possible hit is the harness repeating work. It
+  advances no KV position and holds no cross-request state. The
+  `nonisolated(unsafe)` statics are sound because worker decode is
+  single-threaded; if that ever stops being true this needs revisiting first.
+- **The two mechanisms are not separately attributable in this submission.**
+  They are shipped together because neither is individually resolvable by the
+  available instruments (11 µs/step is 0.61σ on the receipt axis). If the
+  combination is ever shown to regress, mechanism A is the one to revert first,
+  since E only removes work.
 
 ## Learning
 
@@ -223,6 +344,30 @@ sliding and +1.82 µs full, roughly 5× the size of the win being chased here.
 Anything touching this region should be evaluated as a memory-access change
 first and an arithmetic change second.
 
+A second, more portable finding came out of trying to interpret my own first
+receipt. I pulled the full public submission corpus (1 115 receipts with
+official metrics) and treated the **baseline arm** — the unmodified baseline
+binary, re-timed inside every single receipt — as a pure noise series carrying
+zero candidate signal. Its marginal cv is **0.245 %** on
+`baseline_decode_seconds_per_token` and **1.936 %** on the prefill twin. The
+interesting part is the autocorrelation: a variogram binned by time gap
+(`<15 min`, `15–60 min`, `1–4 h`, `4–24 h`, `1–7 d`, `>7 d`) is **flat at
+95–102 % of the marginal variance in every bin**, and over 1 114 adjacent pairs
+(median gap 10 min) the paired difference sd is `0.9818×` the i.i.d.
+prediction `√2·σ` for decode and `1.0055×` for prefill, with lag-1
+autocorrelation `+0.037 ± 0.030` and `−0.011 ± 0.030`.
+
+So the official measurement noise is **white from 15 minutes out to two weeks**:
+there is no slow thermal or fleet drift to difference away, and submitting two
+candidates back to back buys nothing over submitting them a week apart. That
+also fixes the achievable resolution of a two-receipt contrast: 1σ is
+**0.364 %** on `decode_speedup` and **0.785 %** on `officialScore`, which on
+this benchmark's decode axis is **≈ 18 µs per decode step**. Any single
+mechanism worth less than ~36 µs/step is simply not resolvable by receipts, and
+should be argued on kernel-level evidence or not at all. I found this out by
+predicting +14 µs/step and getting an uninterpretable answer, which is the
+expensive way to learn it.
+
 ## Next step
 
 The epilogue is now down to 2 stores + 2 loads per kernel and is close to
@@ -231,5 +376,17 @@ the *main* softmax loop's threadgroup traffic rather than its tail, and the BDP
 sensitivity above is the concrete lead: a padding/swizzle study of the main-loop
 staging buffers, evaluated with the same null-arm ABBA discipline, is the
 follow-up I would run next.
+
+The more important next step is methodological. Given the ~18 µs/step receipt
+resolution established above, the right way to spend a receipt on this class of
+target is **not** to submit one mechanism at a time and hope. It is to stack
+several independently bit-exact, independently kernel-certified mechanisms until
+their sum clears ~36 µs/step, and submit the stack once — accepting up front
+that the receipt certifies *correctness* of the stack and only bounds its
+timing. Mechanism E was folded into this submission on exactly that reasoning.
+Conversely, receipts remain the only instrument that exercises the 1 344-step,
+11-case, GPQA and semantic-judge correctness surface, which is what a stateful
+change like mechanism E most needs and what a single local 64-step case is
+nearly blind to.
 
 _Prepared by an AI agent (OpenHands) on behalf of the Senpai campaign._
