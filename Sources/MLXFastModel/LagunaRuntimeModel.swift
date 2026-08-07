@@ -1679,23 +1679,23 @@ func lagunaSlidingFusedAttention(
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
     let window = LagunaConstants.slidingWindow
-    assert(rawQueries.dtype == .bfloat16)
-    assert(rawKeys.dtype == .bfloat16)
-    assert(rawValues.dtype == .bfloat16)
-    assert(rawQueries.shape == [1, 1, heads * LagunaConstants.headDim])
-    assert(rawKeys.shape == [1, 1, kvHeads * LagunaConstants.headDim])
-    assert(rawValues.shape == [1, 1, kvHeads * LagunaConstants.headDim])
-    assert(queryWeight.shape == [LagunaConstants.headDim])
-    assert(keyWeight.shape == [LagunaConstants.headDim])
-    assert(angles.dtype == .float32)
-    assert(angles.shape == [1, 1, 1, LagunaConstants.headDim])
+    precondition(rawQueries.dtype == .bfloat16)
+    precondition(rawKeys.dtype == .bfloat16)
+    precondition(rawValues.dtype == .bfloat16)
+    precondition(rawQueries.shape == [1, 1, heads * LagunaConstants.headDim])
+    precondition(rawKeys.shape == [1, 1, kvHeads * LagunaConstants.headDim])
+    precondition(rawValues.shape == [1, 1, kvHeads * LagunaConstants.headDim])
+    precondition(queryWeight.shape == [LagunaConstants.headDim])
+    precondition(keyWeight.shape == [LagunaConstants.headDim])
+    precondition(angles.dtype == .float32)
+    precondition(angles.shape == [1, 1, 1, LagunaConstants.headDim])
     precondition(cacheKeys.dtype == .bfloat16)
     precondition(
         cacheKeys.shape == [1, kvHeads, window, LagunaConstants.headDim])
     precondition(
         cacheValues.shape == [1, kvHeads, window, LagunaConstants.headDim])
     precondition(writeIdx >= 0 && writeIdx < window)
-    assert(scale.dtype == .float32 && scale.size == 1)
+    precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
@@ -2190,23 +2190,23 @@ func lagunaFullFusedAttention(
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
     let capacity = cacheKeys.dim(2)
-    assert(rawQueries.dtype == .bfloat16)
-    assert(rawKeys.dtype == .bfloat16)
-    assert(rawValues.dtype == .bfloat16)
-    assert(rawQueries.shape == [1, 1, heads * LagunaConstants.headDim])
-    assert(rawKeys.shape == [1, 1, kvHeads * LagunaConstants.headDim])
-    assert(rawValues.shape == [1, 1, kvHeads * LagunaConstants.headDim])
-    assert(queryWeight.shape == [LagunaConstants.headDim])
-    assert(keyWeight.shape == [LagunaConstants.headDim])
-    assert(angles.dtype == .float32)
-    assert(angles.shape == [1, 1, 1, LagunaConstants.headDim / 2])
+    precondition(rawQueries.dtype == .bfloat16)
+    precondition(rawKeys.dtype == .bfloat16)
+    precondition(rawValues.dtype == .bfloat16)
+    precondition(rawQueries.shape == [1, 1, heads * LagunaConstants.headDim])
+    precondition(rawKeys.shape == [1, 1, kvHeads * LagunaConstants.headDim])
+    precondition(rawValues.shape == [1, 1, kvHeads * LagunaConstants.headDim])
+    precondition(queryWeight.shape == [LagunaConstants.headDim])
+    precondition(keyWeight.shape == [LagunaConstants.headDim])
+    precondition(angles.dtype == .float32)
+    precondition(angles.shape == [1, 1, 1, LagunaConstants.headDim / 2])
     precondition(cacheKeys.dtype == .bfloat16)
     precondition(
         cacheKeys.shape == [1, kvHeads, capacity, LagunaConstants.headDim])
     precondition(
         cacheValues.shape == [1, kvHeads, capacity, LagunaConstants.headDim])
     precondition(writeIdx >= 0 && writeIdx < capacity)
-    assert(scale.dtype == .float32 && scale.size == 1)
+    precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
     let params = MLXArray([
