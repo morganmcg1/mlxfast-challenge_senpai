@@ -1,0 +1,369 @@
+{
+  "command_graph_proof": {
+    "duplicate_root_construction_order": "slot 0 through K-1",
+    "evaluator_dispatch_order": "ordinary, duplicate[K-1...0], indices dependencies",
+    "final_blocking_eval_roots": "[fullHidden, indices layer-major, duplicates layer-major slot-ascending]",
+    "k0_control": "host sparse-layer reachability accounting only; no rotated tensor, duplicate root, asyncEval, retained MLX root, or blocking probe eval",
+    "k_values": [
+      1,
+      2,
+      3,
+      5
+    ],
+    "kernel_routine": "lagunaRoutedSwiGLUQMVPackedTop8",
+    "measurement_activation": "explicitly armed after constructor warmup and before protocol hello",
+    "mode_dependent_control": {
+      "cold_selected_experts": "(indices + 8) % 256",
+      "only_difference": "selected expert row addresses",
+      "warm_selected_experts": "indices"
+    },
+    "per_sparse_layer_async_eval_roots": "[indices, duplicate[0...K-1], ordinary]",
+    "scratch_root_retention_order": "layer-major, slot 0 through K-1",
+    "synchronization": "for K=1,2,3,5: one asyncEval per sparse layer and one blocking eval after layer 39",
+    "warm_cold_command_graph_identical": true
+  },
+  "decode_begin_tokens": [
+    5991,
+    5991,
+    5991,
+    5991,
+    5991,
+    5991,
+    5991,
+    5991,
+    5991
+  ],
+  "decode_step_tokens": [
+    509,
+    509,
+    509,
+    509,
+    509,
+    509,
+    509,
+    509,
+    509
+  ],
+  "dense_full_logit_digests": [
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 0,
+      "fnv1a64": "956add317e7211aa",
+      "label": "c0",
+      "mode": "warm",
+      "shape": "1,1,100352",
+      "step": 0
+    },
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 1,
+      "fnv1a64": "956add317e7211aa",
+      "label": "w1",
+      "mode": "warm",
+      "shape": "1,1,100352",
+      "step": 0
+    },
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 1,
+      "fnv1a64": "956add317e7211aa",
+      "label": "c1",
+      "mode": "cold",
+      "shape": "1,1,100352",
+      "step": 0
+    },
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 2,
+      "fnv1a64": "956add317e7211aa",
+      "label": "w2",
+      "mode": "warm",
+      "shape": "1,1,100352",
+      "step": 0
+    },
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 2,
+      "fnv1a64": "956add317e7211aa",
+      "label": "c2",
+      "mode": "cold",
+      "shape": "1,1,100352",
+      "step": 0
+    },
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 3,
+      "fnv1a64": "956add317e7211aa",
+      "label": "w3",
+      "mode": "warm",
+      "shape": "1,1,100352",
+      "step": 0
+    },
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 3,
+      "fnv1a64": "956add317e7211aa",
+      "label": "c3",
+      "mode": "cold",
+      "shape": "1,1,100352",
+      "step": 0
+    },
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 5,
+      "fnv1a64": "956add317e7211aa",
+      "label": "w5",
+      "mode": "warm",
+      "shape": "1,1,100352",
+      "step": 0
+    },
+    {
+      "byte_count": 200704,
+      "dtype": "bfloat16",
+      "duplicate_count": 5,
+      "fnv1a64": "956add317e7211aa",
+      "label": "c5",
+      "mode": "cold",
+      "shape": "1,1,100352",
+      "step": 0
+    }
+  ],
+  "fixture_case": "longcopy-gate-english-512",
+  "logical_kv_advancement_exact": true,
+  "measurements": [
+    {
+      "dispatch_count": 0,
+      "duplicate_count": 0,
+      "elapsed_ns": 6648792,
+      "label": "c0",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "warm",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": ""
+    },
+    {
+      "dispatch_count": 39,
+      "duplicate_count": 1,
+      "elapsed_ns": 9758375,
+      "label": "w1",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "warm",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": "0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1"
+    },
+    {
+      "dispatch_count": 39,
+      "duplicate_count": 1,
+      "elapsed_ns": 367575667,
+      "label": "c1",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "cold",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": "0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1"
+    },
+    {
+      "dispatch_count": 78,
+      "duplicate_count": 2,
+      "elapsed_ns": 10670709,
+      "label": "w2",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "warm",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": "0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1"
+    },
+    {
+      "dispatch_count": 78,
+      "duplicate_count": 2,
+      "elapsed_ns": 11280708,
+      "label": "c2",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "cold",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": "0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1"
+    },
+    {
+      "dispatch_count": 117,
+      "duplicate_count": 3,
+      "elapsed_ns": 11283084,
+      "label": "w3",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "warm",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": "0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1"
+    },
+    {
+      "dispatch_count": 117,
+      "duplicate_count": 3,
+      "elapsed_ns": 12028875,
+      "label": "c3",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "cold",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": "0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1"
+    },
+    {
+      "dispatch_count": 195,
+      "duplicate_count": 5,
+      "elapsed_ns": 12889208,
+      "label": "w5",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "warm",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": "0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1"
+    },
+    {
+      "dispatch_count": 195,
+      "duplicate_count": 5,
+      "elapsed_ns": 13499541,
+      "label": "c5",
+      "logical_cache_delta_max": 1,
+      "logical_cache_delta_min": 1,
+      "mode": "cold",
+      "pending_root_count": 0,
+      "physical_cache_delta_max": 1,
+      "physical_cache_delta_min": 1,
+      "step": 0,
+      "top8_rotated_overlap_by_layer": "0,1,0,0,0,0,0,2,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1"
+    }
+  ],
+  "pending_future_state": false,
+  "physical_kv_advancement_exact": true,
+  "physical_kv_position_directly_observable": true,
+  "pre_touch_protocol": "Blocking eval of every fused array, then a page-stride CPU read across each complete 256-expert routed weight bank and packed-scale bank in all 39 sparse layers before constructor warmup. Measurement activates explicitly after constructor warmup and before protocol hello; the first 16 identical forced-token steps of every arm are discarded before retained timing.",
+  "residual_confound": "Cache-set mapping and physical page placement remain uncontrolled; DRAM traffic and cache residency are not directly measured.",
+  "schedule": [
+    {
+      "k": 0,
+      "label": "c0",
+      "mode": "warm"
+    },
+    {
+      "k": 1,
+      "label": "w1",
+      "mode": "warm"
+    },
+    {
+      "k": 1,
+      "label": "c1",
+      "mode": "cold"
+    },
+    {
+      "k": 2,
+      "label": "w2",
+      "mode": "warm"
+    },
+    {
+      "k": 2,
+      "label": "c2",
+      "mode": "cold"
+    },
+    {
+      "k": 3,
+      "label": "w3",
+      "mode": "warm"
+    },
+    {
+      "k": 3,
+      "label": "c3",
+      "mode": "cold"
+    },
+    {
+      "k": 5,
+      "label": "w5",
+      "mode": "warm"
+    },
+    {
+      "k": 5,
+      "label": "c5",
+      "mode": "cold"
+    }
+  ],
+  "status": "passed",
+  "stderr_diagnostics": [
+    "mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out",
+    "mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run",
+    "mlxfast: packed-scales active: packed routed gate/up bank prepared",
+    "mlxfast: lm_head prune active (coarse copy resident)",
+    "mlxfast: packed-scales active: routed swiglu qmv packed dispatch"
+  ],
+  "storage_independence_scope": "All 78 complete routed-bank backing ranges are pairwise non-overlapping; each bank is expert-first contiguous, making distinct expert rows disjoint. Dynamic warm/cold top-8 row overlap is recorded for every sparse layer and decode step.",
+  "storage_proof": {
+    "bank_ranges_nonoverlap": "1",
+    "checksum": "47e8a018fe07ce34",
+    "contiguous": "1",
+    "eager_eval": "1",
+    "expert_row_bytes": "1179648",
+    "expert_rows_nonoverlap": "1",
+    "experts": "256",
+    "full_bank_pretouch": "1",
+    "layers": "39",
+    "packed_scale_row_bytes": "131072",
+    "page_bytes": "16384",
+    "weight_row_bytes": "1048576"
+  },
+  "system": {
+    "git_head": "2f9d304d7f78063cba88fcbd2aac9b981fea72b0",
+    "logical_cpu_count": "14",
+    "mac_model": "Mac16,11",
+    "machine": "arm64",
+    "memory_bytes": "51539607552",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "processor": "arm",
+    "python": "3.13.14 (main, Jul 23 2026, 14:48:16) [Clang 22.1.3 ]"
+  },
+  "token_divergence_count": 0,
+  "worker_hello": {
+    "expert_stats": {
+      "expert_bytes_read": 0,
+      "expert_cache_evictions": 0,
+      "expert_cache_hits": 0,
+      "expert_cache_misses": 0,
+      "expert_peak_cached_tensors": 0,
+      "expert_read_seconds": 0
+    },
+    "id": 0,
+    "nonce": "a699e76fc68a9013f2e9ed3e1c9acce6",
+    "ok": true
+  },
+  "worker_return_code": 0
+}
