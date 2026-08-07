@@ -78,13 +78,13 @@ struct RMSNormBarrierExperimentTests {
             samples.append(Double(end - start) / Double(batchSize))
         }
 
-        let median = median(samples)
-        let deviations = samples.map { abs($0 - median) }
+        let sampleMedian = median(samples)
+        let deviations = samples.map { abs($0 - sampleMedian) }
         let mad = median(deviations)
         let formattedSamples = samples.map { String(format: "%.3f", $0) }.joined(separator: ",")
         print(
             "RMS_TIMING label=\(label) rows=\(rows) axis=\(axis) batch=\(batchSize) "
-                + "median_ns=\(String(format: "%.3f", median)) "
+                + "median_ns=\(String(format: "%.3f", sampleMedian)) "
                 + "mad_ns=\(String(format: "%.3f", mad)) samples_ns=\(formattedSamples)"
         )
     }
