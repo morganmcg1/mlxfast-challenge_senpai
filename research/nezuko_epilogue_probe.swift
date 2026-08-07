@@ -486,7 +486,7 @@ for t in targets {
     var row: [String: Double] = [:]
     let nul = paired(pNull, pRef, k: t.shippedTGs, bind: binder(t.params))
     print("  " + pad("null", 11)
-        + String(format: "%8.3f us  %+8.3f us marginal  %s  ", nul.a, -nul.delta,
+        + String(format: "%8.3f us  %+8.3f us marginal  %@  ", nul.a, -nul.delta,
             nul.spread as NSString) + "second build of the same source")
     for d in dupProbes {
         guard let p = compile(t.k, body: d.make(ref, m).joined(separator: "\n")) else {
@@ -495,7 +495,7 @@ for t in targets {
         let r = paired(p, pRef, k: t.shippedTGs, bind: binder(t.params))
         row[d.name] = r.delta
         print("  " + pad(d.name, 11)
-            + String(format: "%8.3f us  %+8.3f us marginal  %s  ", r.a, r.delta,
+            + String(format: "%8.3f us  %+8.3f us marginal  %@  ", r.a, r.delta,
                 r.spread as NSString) + d.prices)
     }
     dupResult[t.name] = row
