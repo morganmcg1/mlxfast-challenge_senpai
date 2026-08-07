@@ -215,7 +215,82 @@ isolates dispatch overhead at fixed arithmetic.
 
 ## Step 4 — Correctness
 
-<!--CORRECTNESS-->
+### The default scored path is untouched
+
+The call site sits in the deepest `else` of `LagunaRuntimeMoEGate`, which is
+reached only when `lagunaDecodeRouterTop8Enabled` is false — i.e. only under
+`DARKBLOOM_FUSED_ROUTER=0`. With default environment the fused Metal router
+`laguna_decode_router_top8_ordinal_table_norm_v1` runs and returns early, so
+none of the new code executes. The census confirms this: the default arm still
+issues **exactly 406 dispatches/step**, unchanged from the pre-registered
+Step 1 census.
+
+### The restructure is bit-exact by construction
+
+The stock tail already computed `var logits = projectedLogits.asType(.float32)`
+*before* the branch, so moving that same cast inside the compiled region is not
+a precision change — it is the identical `AsType` node relocated so `is_fusable`
+can absorb it. The rest is algebra:
+
+| stock | mine |
+| --- | --- |
+| `scores = sigmoid(logits)` | `sigmoid(projectedLogits.asType(.float32))` |
+| `scoresForChoice = scores + bias.asType(scores.dtype)` | `bias` is already f32, so `.asType` is a no-op |
+| `argPartition(-scoresForChoice, …)` | `argPartition(negScoresForChoice, …)` with `negScoresForChoice = -(scores + bias)` |
+
+MLX's laziness matters here: when my branch fires, the outer `logits` value is
+never consumed, so its `AsType` is dead and never dispatched. That is why `U`
+shows exactly one `v_copybfloat16float32` per gate and not two.
+
+### Measured correctness
+
+| gate | result |
+| --- | --- |
+| Golden teacher-forced, census arms (60 steps × base/U/C) | `0 divergences (all match)` on all three |
+| Golden teacher-forced, ABBA (247 steps × 18 runs) | `golden_divergences = 0` on every run |
+| **`C` vs `U` token streams** | **bit-identical**; each arm emitted exactly 1 distinct sequence across its 8 runs |
+| Vendored-upstream equivalence (default path) | see below |
+
+`bash research/run_upstream_equivalence.sh` on the candidate reports
+`EQUIVALENCE_EXACT_STEPS=8`: all eight decode steps have
+`maximumAbsoluteLogitError = 0` and every runtime token equals the upstream
+token, including prefill (5991 == 5991). The test nevertheless exits 1 because
+prefill shows `maximumAbsoluteLogitError = 0.125` against a `0.0` tolerance.
+
+Following the AGENTS.md rule for a non-M5 host disagreeing with a public
+golden, I re-ran the identical test on the **unchanged base** via a throwaway
+control commit that reverted `LagunaRuntimeModel.swift` to `b731a0fd` (verified
+by an empty `git diff BASE HEAD -- Sources/ Vendor/ benchmark.json`). The base
+produces a **byte-identical report**, down to
+`meanAbsoluteLogitError = 0.011933609` in all nine significant figures:
+
+| arm | prefill maxAbsErr | prefill meanAbsErr | decode-0…7 maxAbsErr | tokens |
+| --- | ---: | ---: | ---: | --- |
+| base `b731a0fd` | 0.125 | 0.011933609 | all 0 | all match |
+| candidate `09deba7` | 0.125 | 0.011933609 | all 0 | all match |
+
+This is the pre-existing M4 Pro divergence AGENTS.md warns about: this host
+reports Apple GPU generation 16, never selects the `_nax` prefill kernels, and
+the public fixtures were generated on M5. **The candidate is numerically
+identical to the base on this gate**, and the control commit was discarded
+(`git reset --hard 09deba7`).
+
+### Preflight at the current base
+
+```
+senpai/validate-assignment-scope.sh b731a0fd… Sources/MLXFastModel/LagunaRuntimeModel.swift
+  → assignment scope OK: 1 submitted path(s)
+senpai/check-editable-budget.sh b731a0fd…
+  → editable budget OK: current=2952621/3000000 headroom=47379 growth=1766/262144
+```
+
+Per-file: 468,336 → 470,102 B, **54,186 B under the 524,288 B cap.** The
+vendored-Metal fingerprint tree is untouched at HEAD (`git diff HEAD --
+Vendor/mlx-swift/Source/Cmlx/` is empty); the GPUPROF hook used for the census
+was applied to a scratch build only, reverted before commit, and the worker was
+rebuilt clean afterwards. All timing evidence in Step 3 comes from the clean
+binary (ABBA finished 12:21:15, the hooked binary was not built until
+12:22:19).
 
 ## Interpretation
 
