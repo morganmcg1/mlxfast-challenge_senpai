@@ -191,7 +191,7 @@ struct LagunaFullFusedAttentionHarnessTests {
             angles: angles,
             cacheKeys: cacheKeys,
             cacheValues: cacheValues,
-            scale: MLXArray(Float(0.08838834764831845))
+            scale: MLXArray([Float(0.08838834764831845)])
         )
     }
 
