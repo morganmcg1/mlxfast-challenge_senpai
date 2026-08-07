@@ -1546,12 +1546,18 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
                 pipe_values_b);
 
-            U pair_score0 = simd_sum(dot(
-                vec<float, 4>(pair_q0[0], pair_q0[1], pair_q0[2], pair_q0[3]),
-                vec<float, 4>(pipe_ka[0], pipe_ka[1], pipe_ka[2], pipe_ka[3])));
-            U pair_score1 = simd_sum(dot(
-                vec<float, 4>(pair_q1[0], pair_q1[1], pair_q1[2], pair_q1[3]),
-                vec<float, 4>(pipe_ka[0], pipe_ka[1], pipe_ka[2], pipe_ka[3])));
+            U pair_score0 = 0;
+            U pair_score1 = 0;
+            pair_score0 += pair_q0[0] * pipe_ka[0];
+            pair_score1 += pair_q1[0] * pipe_ka[0];
+            pair_score0 += pair_q0[1] * pipe_ka[1];
+            pair_score1 += pair_q1[1] * pipe_ka[1];
+            pair_score0 += pair_q0[2] * pipe_ka[2];
+            pair_score1 += pair_q1[2] * pipe_ka[2];
+            pair_score0 += pair_q0[3] * pipe_ka[3];
+            pair_score1 += pair_q1[3] * pipe_ka[3];
+            pair_score0 = simd_sum(pair_score0);
+            pair_score1 = simd_sum(pair_score1);
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
@@ -1576,12 +1582,18 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
 
-            U pipeb_score0 = simd_sum(dot(
-                vec<float, 4>(pair_q0[0], pair_q0[1], pair_q0[2], pair_q0[3]),
-                vec<float, 4>(pipe_kb[0], pipe_kb[1], pipe_kb[2], pipe_kb[3])));
-            U pipeb_score1 = simd_sum(dot(
-                vec<float, 4>(pair_q1[0], pair_q1[1], pair_q1[2], pair_q1[3]),
-                vec<float, 4>(pipe_kb[0], pipe_kb[1], pipe_kb[2], pipe_kb[3])));
+            U pipeb_score0 = 0;
+            U pipeb_score1 = 0;
+            pipeb_score0 += pair_q0[0] * pipe_kb[0];
+            pipeb_score1 += pair_q1[0] * pipe_kb[0];
+            pipeb_score0 += pair_q0[1] * pipe_kb[1];
+            pipeb_score1 += pair_q1[1] * pipe_kb[1];
+            pipeb_score0 += pair_q0[2] * pipe_kb[2];
+            pipeb_score1 += pair_q1[2] * pipe_kb[2];
+            pipeb_score0 += pair_q0[3] * pipe_kb[3];
+            pipeb_score1 += pair_q1[3] * pipe_kb[3];
+            pipeb_score0 = simd_sum(pipeb_score0);
+            pipeb_score1 = simd_sum(pipeb_score1);
 
             U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
             U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
@@ -2012,12 +2024,18 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
                 pipe_values_b);
 
-            U pair_score0 = simd_sum(dot(
-                vec<float, 4>(pair_q0[0], pair_q0[1], pair_q0[2], pair_q0[3]),
-                vec<float, 4>(pipe_ka[0], pipe_ka[1], pipe_ka[2], pipe_ka[3])));
-            U pair_score1 = simd_sum(dot(
-                vec<float, 4>(pair_q1[0], pair_q1[1], pair_q1[2], pair_q1[3]),
-                vec<float, 4>(pipe_ka[0], pipe_ka[1], pipe_ka[2], pipe_ka[3])));
+            U pair_score0 = 0;
+            U pair_score1 = 0;
+            pair_score0 += pair_q0[0] * pipe_ka[0];
+            pair_score1 += pair_q1[0] * pipe_ka[0];
+            pair_score0 += pair_q0[1] * pipe_ka[1];
+            pair_score1 += pair_q1[1] * pipe_ka[1];
+            pair_score0 += pair_q0[2] * pipe_ka[2];
+            pair_score1 += pair_q1[2] * pipe_ka[2];
+            pair_score0 += pair_q0[3] * pipe_ka[3];
+            pair_score1 += pair_q1[3] * pipe_ka[3];
+            pair_score0 = simd_sum(pair_score0);
+            pair_score1 = simd_sum(pair_score1);
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
@@ -2042,12 +2060,18 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
 
-            U pipeb_score0 = simd_sum(dot(
-                vec<float, 4>(pair_q0[0], pair_q0[1], pair_q0[2], pair_q0[3]),
-                vec<float, 4>(pipe_kb[0], pipe_kb[1], pipe_kb[2], pipe_kb[3])));
-            U pipeb_score1 = simd_sum(dot(
-                vec<float, 4>(pair_q1[0], pair_q1[1], pair_q1[2], pair_q1[3]),
-                vec<float, 4>(pipe_kb[0], pipe_kb[1], pipe_kb[2], pipe_kb[3])));
+            U pipeb_score0 = 0;
+            U pipeb_score1 = 0;
+            pipeb_score0 += pair_q0[0] * pipe_kb[0];
+            pipeb_score1 += pair_q1[0] * pipe_kb[0];
+            pipeb_score0 += pair_q0[1] * pipe_kb[1];
+            pipeb_score1 += pair_q1[1] * pipe_kb[1];
+            pipeb_score0 += pair_q0[2] * pipe_kb[2];
+            pipeb_score1 += pair_q1[2] * pipe_kb[2];
+            pipeb_score0 += pair_q0[3] * pipe_kb[3];
+            pipeb_score1 += pair_q1[3] * pipe_kb[3];
+            pipeb_score0 = simd_sum(pipeb_score0);
+            pipeb_score1 = simd_sum(pipeb_score1);
 
             U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
             U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
@@ -2082,12 +2106,18 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_t,
                 pair_values);
 
-            U pair_score0 = simd_sum(dot(
-                vec<float, 4>(pair_q0[0], pair_q0[1], pair_q0[2], pair_q0[3]),
-                vec<float, 4>(pair_k[0], pair_k[1], pair_k[2], pair_k[3])));
-            U pair_score1 = simd_sum(dot(
-                vec<float, 4>(pair_q1[0], pair_q1[1], pair_q1[2], pair_q1[3]),
-                vec<float, 4>(pair_k[0], pair_k[1], pair_k[2], pair_k[3])));
+            U pair_score0 = 0;
+            U pair_score1 = 0;
+            pair_score0 += pair_q0[0] * pair_k[0];
+            pair_score1 += pair_q1[0] * pair_k[0];
+            pair_score0 += pair_q0[1] * pair_k[1];
+            pair_score1 += pair_q1[1] * pair_k[1];
+            pair_score0 += pair_q0[2] * pair_k[2];
+            pair_score1 += pair_q1[2] * pair_k[2];
+            pair_score0 += pair_q0[3] * pair_k[3];
+            pair_score1 += pair_q1[3] * pair_k[3];
+            pair_score0 = simd_sum(pair_score0);
+            pair_score1 = simd_sum(pair_score1);
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
