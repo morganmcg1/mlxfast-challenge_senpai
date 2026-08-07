@@ -1,9 +1,18 @@
 # SENPAI Research State
-- 2026-08-07T12:49Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: d99519c (pushed to origin).
-  25 composed changes on current frontier (24 previous + PR #267 merge shared QMV).
-  LRM: 521,590/524,288 = 2,698 B headroom. Total surface ~2,986K/3,000,000 = 14,260B headroom.
-  PR #267 freed 2,094B in LRM (merged shared gate/up into routed dispatch).
+- 2026-08-07T13:20Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 4bea532 (pushed to origin).
+  27 composed changes on current frontier (26 + M5 crash fix).
+  LRM: 504,942/524,288 = 19,346 B headroom. Total surface ~2,969K/3,000,000 = 30,908B headroom.
+
+## M5 CRASH FIX (CRITICAL — 2026-08-07T13:20Z)
+  Root cause found by _nax audit agent: PR #220 and PR #234 passed non-nil `biases`
+  to `MLX.gatherQuantizedMM` with `mode: .nvfp4`. Stock MLX `ops.cpp:4508-4513`
+  (NON-EDITABLE) throws exception for non-nil biases with nvfp4 mode, crashing the
+  process on M5 where `lagunaExpertAlignedGatherEnabled=true` → `useHalved=true` →
+  biases non-nil. On M4, `lagunaExpertAlignedGatherEnabled=false` → no crash.
+  Fix: set `useHalved=false` and `useHalvedDown=false` (disables ~0.5% prefill gain).
+  M5 submission efb6316 VALIDATING (frontier 4bea532).
+  PR #285 (edward): Proper fix — embed escape in scales tensor, pass biases:nil.
 
 ## CRITICAL FIX THIS SESSION: Variant 3 Revert
   Variant 3 (BM128/WM8/WN1, commit 3c30a3b) SILENTLY DISABLED the expert_aligned
@@ -66,10 +75,11 @@
 ## CLOSED THIS SESSION (Wave 15)
   PR #277 (thorfinn): 4-way scale constancy — DEAD (invariant holds only 20-37%, need 95%. 2-way holds 100%)
 
-## ACTIVE ASSIGNMENTS (Wave 16, BASE_SHA=a6231e4)
-  PR #276 (edward): Fuse final RMSNorm into LM head coarse kernel — eliminate 1 dispatch/step (bit-exact, final norm no ULP accumulation)
+## ACTIVE ASSIGNMENTS (Wave 16, BASE_SHA=4bea532)
+  PR #276 (edward): RMSNorm→LM head fusion — CLOSED (negative: RMSNorm replicated across 6272 TGs > 1 dispatch saved)
   PR #281 (alphonse): Fuse router GEMV + top-8 tournament into single kernel — eliminate 39 decode dispatches (bit-exact, ~0.2-0.5% decode)
   PR #283 (thorfinn): Double O-proj results_per_simdgroup 4→8 (bit-exact, 0-byte, decode, precedent: PR #280 down kernel)
+  PR #285 (edward): Fix routed MoE halved scales — embed escape in scales tensor, pass biases:nil (recover ~0.5% prefill, M5-only, bit-exact)
 
 ## NEXT-WAVE IDEAS (from NOVEL_OPTIMIZATION_IDEAS.md)
   1. Fuse RMSNorm+router into O-proj — DEAD (incompatible parallelism structures: 16384 TGs vs 1 TG)
