@@ -1048,6 +1048,11 @@ dispatch below records its own attempt history.
 | 2026-08-07T02:23:14Z | s2 | watcher started for arm 2 (deadline 03:18Z). Slot observed busy at 02:23:23Z: `08ddee4 validating`, a submission from another student that entered after M2 cleared. |
 | 2026-08-07T02:41:19Z | — | `08ddee4` cleared (`rejected`). Slot free. The watcher had been silent for 18 minutes; that silence was the design (it logs only on status *change*), not a hang. |
 | 2026-08-07T02:41:26Z | s2 | **DISPATCHED** as `a3e38005-5510-4529-93c5-da236eff0950`, 7 s after the slot opened, on the watcher's first attempt. Armed window ≈ 7 s; tree restored to probe 0 in the same command. Watcher exit 0 after 1091.8 s. |
+| 2026-08-07T03:03:05Z | s2 | **RECEIPT** — terminal `rejected` (ranking only), all gates passed, `max_abs_diff = 0`. 21 min 39 s in queue against `benchmark_wall_seconds = 53`. |
+| 2026-08-07T03:03:12Z | b2 | **DISPATCHED** as `f2160f8f-7166-4c64-a92f-5efcc46f576a`, 7 s after S2's slot released — the same first-attempt-into-an-observed-slot tactic, now three for three. |
+| 2026-08-07T03:23:54Z | b2 | **RECEIPT** — terminal `rejected` (ranking only), all gates passed, `max_abs_diff = 0`. 20 min 42 s in queue. Waiter exit 0 after 1056.1 s. |
+| 2026-08-07T03:26Z | s3 | S3 built, validated and committed (`aa05cee`) while B2 was still in the queue, so the fourth arm was ready to dispatch the moment the slot freed. Dispatcher started against a clean tree. |
+
 
 **Two dispatch tactics were tried. The first was wrong, and it cost a cycle.**
 
@@ -1177,6 +1182,60 @@ all three hold.
    against the frontier session's `195.93 ms` (`+0.28%`, well inside the 12.6%
    baseline dispersion of §4.6) and `13.89203 ms/step` decode against a feed
    median of `13.86539` (`+0.19%`). Nothing about this session was unusual.
+
+### 5.3 Receipt S2 — `a3e38005` (arm 2 of 3)
+
+| field | value |
+| --- | --- |
+| submission | `a3e38005-5510-4529-93c5-da236eff0950` |
+| harness commit | `47e8f5ec8095d950c39e7bda399b17d2fd31b48d` |
+| dispatched / receipt | `2026-08-07T02:41:26Z` / `2026-08-07T03:03:05Z` (~21.6 min) |
+| status | `rejected` — `rejectionReason: score did not improve current best` |
+| `officialScore` | `2.40727961939956` |
+| `passed_correctness` | **`True`**, `max_abs_diff = 0` |
+| `passed_prefill_speedup_floor` | **`True`** (`prefill_speedup = 1.6294238289570744`) |
+| `passed_decode_speedup_floor` | **`True`** (`decode_speedup = 2.7417258764555257`) |
+| `gpqa_ttft_passed` / `semantic_gpqa_passed` | `True` / `True` |
+| `prefill_seconds_per_token` | `0.000222374185546875` ⇒ **`S = 113.856 ms`** |
+| `baseline_prefill_seconds_per_token` | `0.000362341796875` ⇒ `185.52 ms` |
+| `decode_seconds_per_token` | `0.0050384658203125` ⇒ `5.03847 ms/step` raw |
+| `baseline_decode_seconds_per_token` | `0.0138140921171875` ⇒ `13.81409 ms/step` |
+| `benchmark_wall_seconds` | `53` |
+| `peak_ram_gb` | `21` |
+
+**`ΔS2 = 113.856 − 97.895 = +15.961 ms` — 36.9% of `W`, and `35σ`.**
+
+This is the largest single number the instrument produced, and it is the one
+that turned a residual into an identification. M2 had established that at least
+72.6% of the critical path was *not* MMA and *not* integer ALU, but a residual
+names nothing on its own. S2 fills it directly.
+
+### 5.4 Receipt B2 — `f2160f8f` (arm 3 of 3)
+
+| field | value |
+| --- | --- |
+| submission | `f2160f8f-7166-4c64-a92f-5efcc46f576a` |
+| harness commit | `702c1d8d690c2c082fca2e3603ff45a0a883ae87` |
+| dispatched / receipt | `2026-08-07T03:03:12Z` / `2026-08-07T03:23:54Z` (~20.7 min) |
+| status | `rejected` — `rejectionReason: score did not improve current best` |
+| `officialScore` | `2.55817063147974` |
+| `passed_correctness` | **`True`**, `max_abs_diff = 0` |
+| `passed_prefill_speedup_floor` | **`True`** (`prefill_speedup = 1.9633684178542896`) |
+| `passed_decode_speedup_floor` | **`True`** (`decode_speedup = 2.7940794090795658`) |
+| `gpqa_ttft_passed` / `semantic_gpqa_passed` | `True` / `True` |
+| `prefill_seconds_per_token` | `0.000192842529296875` ⇒ **`S = 98.735 ms`** |
+| `baseline_prefill_seconds_per_token` | `0.000378620931640625` ⇒ `193.854 ms` |
+| `decode_seconds_per_token` | `0.004946203125` ⇒ `4.94620 ms/step` raw |
+| `baseline_decode_seconds_per_token` | `0.0138200843046875` ⇒ `13.82008 ms/step` |
+| `benchmark_wall_seconds` | `53` |
+| `peak_ram_gb` | `21` |
+
+**`ΔB2 = 98.735 − 97.895 = +0.841 ms` — 1.9% of `W`, `2.6σ`.**
+
+B2 is the cleanest arm in the tree: the IR census showed it moves `barrier` and
+*nothing else*, on both live threadgroup shapes. So `c_bar = ΔB2 / 2 =
+0.4203 ms` per barrier is a direct price rather than an interval, and that is
+what makes it worth a receipt despite being the smallest effect.
 
 <!-- RECEIPTS -->
 
