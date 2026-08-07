@@ -3974,10 +3974,10 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
         for (uint row = 0; row < results_per_simdgroup; ++row) {
             const device uint8_t* wl = ws + row * in_vec_size;
             \(metadataLoad)
-            float accum = 0.0f;
-            for (uint i = 0; i < values_per_thread; ++i) {
-                accum += x_thread[i] * wl[i];
-            }
+            float accum = dot(float4(x_thread[0], x_thread[1], x_thread[2], x_thread[3]),
+                              float4(float(wl[0]), float(wl[1]), float(wl[2]), float(wl[3])));
+            accum += dot(float4(x_thread[4], x_thread[5], x_thread[6], x_thread[7]),
+                         float4(float(wl[4]), float(wl[5]), float(wl[6]), float(wl[7])));
             result[row] += scale * accum + sum * bias;
         }
 
