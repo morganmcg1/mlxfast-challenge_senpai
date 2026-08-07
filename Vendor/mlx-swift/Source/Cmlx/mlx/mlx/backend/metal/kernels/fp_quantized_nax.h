@@ -206,7 +206,8 @@ template <
     short reduction_dim,
     short tgp_size,
     short group_size,
-    short bits>
+    short bits,
+    bool kHalvedScales = false>
 struct QuantizedBlockLoader {
   MLX_MTL_CONST short pack_factor = get_pack_factor<8, bits>();
   MLX_MTL_CONST short bytes_per_pack = get_bytes_per_pack();
@@ -220,6 +221,7 @@ struct QuantizedBlockLoader {
   MLX_MTL_CONST short n_steps_per_read = n_reads / n_reads_per_scale;
 
   MLX_MTL_CONST short n_groups = BCOLS / group_size;
+  MLX_MTL_CONST short n_groups_halved = BCOLS / (group_size * 2);
 
   const int src_ld;
   const int tile_stride;
@@ -234,6 +236,8 @@ struct QuantizedBlockLoader {
   threadgroup T* dst;
   const device uint8_t* src;
   const device uint8_t* scales;
+  const device uint8_t* escape;
+  const int escape_mode; // 0=none, 1=gate row0, 2=up row0
 
   QuantizedBlockLoader(
       const device uint8_t* src_,
@@ -241,7 +245,9 @@ struct QuantizedBlockLoader {
       const int src_ld_,
       threadgroup T* dst_,
       ushort simd_group_id [[simdgroup_index_in_threadgroup]],
-      ushort simd_lane_id [[thread_index_in_simdgroup]])
+      ushort simd_lane_id [[thread_index_in_simdgroup]],
+      const device uint8_t* escape_ = nullptr,
+      const int escape_mode_ = 0)
       : src_ld(src_ld_),
         tile_stride(
             reduction_dim ? BCOLS_PACKED * bytes_per_pack
@@ -254,7 +260,31 @@ struct QuantizedBlockLoader {
         dst(dst_ + bi * dst_ld + bj * pack_factor),
         src(src_ + bi * src_ld * bytes_per_pack / pack_factor +
             bj * bytes_per_pack),
-        scales(scales_ + bi * src_ld / group_size + group_id) {}
+        scales(kHalvedScales
+               ? scales_ + bi * src_ld / (group_size * 2) + group_id / 2
+               : scales_ + bi * src_ld / group_size + group_id),
+        escape(escape_),
+        escape_mode(escape_mode_) {}
+
+  // Read scale byte i with halved indexing and escape handling.
+  // In the tile-interleaved fused gate/up layout, gate-row-0 is at bi==0 and
+  // up-row-0 is at bi==BROWS/2, both within tile 0 (tid.x==0).
+  inline uint8_t read_scale(short i) const {
+    if constexpr (kHalvedScales) {
+      uint8_t sc = scales[i / 2];
+      if (escape_mode > 0 && group_id == 0 && i == 1) {
+        if (bi == 0) {
+          sc = escape[0];
+        } else if (bi == BROWS / 2) {
+          sc = escape[1];
+        }
+      }
+      return sc;
+    } else {
+      return scales[i];
+    }
+  }
+
 
   // The NVFP4 staging fast path applies when the packing is one byte per two
   // values, the scale is e4m3, and the byte run governed by ONE scale splits
@@ -271,7 +301,7 @@ struct QuantizedBlockLoader {
     if constexpr (fp4nv_fast) {
       int k = 0;
       for (int i = 0; i < n_steps_per_read; i++) {
-        const float scale = fp4nv_scale_x16384(scales[i]);
+        const float scale = fp4nv_scale_x16384(read_scale(i));
         for (int j = 0; j < n_reads_per_scale / 4; j++) {
           T vals[8];
           fp4nv_decode8<T>(fp4nv_pack4(src + k), scale, vals);
@@ -284,7 +314,7 @@ struct QuantizedBlockLoader {
     } else {
       int k = 0;
       for (int i = 0; i < n_steps_per_read; i++) {
-        T scale = dequantize_scale<T, group_size>(scales[i]);
+        T scale = dequantize_scale<T, group_size>(read_scale(i));
         for (int j = 0; j < n_reads_per_scale; j++) {
           dequantize<T, bits>(
               src[k * bytes_per_pack], scale, dst + k * pack_factor);
@@ -451,14 +481,14 @@ struct QuantizedBlockLoader {
       // is 4 for bfloat/half staging, 2 for float). Same values either way.
       if constexpr (fp4nv_fast && (kSrcBytesPerChunk % 4) == 0) {
         const float scale =
-            fp4nv_scale_x16384(scales[k0 / n_reads_per_scale]);
+            fp4nv_scale_x16384(read_scale(k0 / n_reads_per_scale));
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk / 4; b++) {
           fp4nv_decode8<T>(fp4nv_pack4(sb + k0 + b * 4), scale, &out.v[b * 8]);
         }
       } else {
         T scale =
-            dequantize_scale<T, group_size>(scales[k0 / n_reads_per_scale]);
+            dequantize_scale<T, group_size>(read_scale(k0 / n_reads_per_scale));
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk; b++) {
           dequantize_pair(sb[k0 + b], scale, &out.v[b * pack_factor]);
@@ -537,7 +567,7 @@ struct QuantizedBlockLoader {
     }
     STEEL_PRAGMA_UNROLL
     for (short i = 0; i < n_steps_per_read; i++) {
-      r.sc[i] = scales[i];
+      r.sc[i] = read_scale(i);
     }
     return r;
   }
@@ -620,9 +650,11 @@ struct QuantizedBlockLoader {
   void next() {
     src += tile_stride;
     if (reduction_dim == 1) {
-      scales += n_groups;
+      scales += kHalvedScales ? n_groups_halved : n_groups;
     } else {
-      scales += n_groups * group_stride;
+      scales += kHalvedScales
+          ? n_groups_halved * group_stride
+          : n_groups * group_stride;
     }
   }
 };
@@ -1682,11 +1714,13 @@ template <
     typename Wtype = bfloat,
     int tg_expert_groups = 64,
     bool wide_store = false,
-    bool wide_load = false>
+    bool wide_load = false,
+    bool kHalvedScales = false>
 [[kernel]] void fp_gather_qmm_rhs_expert_nax(
     const device T* x,
     const device uint32_t* w,
     const device uint8_t* scales,
+    const device uint8_t* escape,
     const device uint32_t* indices,
     device T* y,
     const constant int& M,
@@ -1723,7 +1757,8 @@ template <
       true,
       WM * WN * SIMD_SIZE,
       group_size,
-      bits>;
+      bits,
+      kHalvedScales>;
 
   constexpr int kWsElems = BN * BK_padded;
   constexpr int kWsPerChunk = 16 / sizeof(Wtype);
@@ -1752,7 +1787,7 @@ template <
 #endif
 
   const int K_w = kernel_K * bytes_per_pack / pack_factor;
-  const int K_g = kernel_K / group_size;
+  const int K_g = kernel_K / (group_size * (kHalvedScales ? 2 : 1));
   const int K_it = kernel_K / BK;
   const size_t stride_w = size_t(kernel_N) * K_w;
   const size_t stride_s = size_t(kernel_N) * K_g;
@@ -1836,13 +1871,22 @@ template <
 
       const device T* xn =
           x + size_t(chunk_start + tm) * kernel_K;
+      // In the tile-interleaved fused gate/up layout, both gate-row-0 (bi==0)
+      // and up-row-0 (bi==BN/2) are in tile 0 (tid.x==0). The read_scale
+      // function uses bi to select the correct escape byte.
+      int escape_mode = 0;
+      if (kHalvedScales && tid.x == 0) {
+        escape_mode = 1;
+      }
       thread loader_w_t loader_w(
           wl + size_t(expert) * stride_w,
           scale_base + size_t(expert) * stride_s,
           kernel_K,
           Ws,
           simd_group_id,
-          simd_lane_id);
+          simd_lane_id,
+          escape + size_t(expert) * 2,
+          escape_mode);
 
 #if defined(DARKBLOOM_STAGE2_GATHER) && DARKBLOOM_STAGE2_GATHER == 1
       // Variant 1: double-buffered weight staging.
