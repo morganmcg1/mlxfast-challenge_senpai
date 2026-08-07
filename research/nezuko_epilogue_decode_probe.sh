@@ -22,7 +22,7 @@ cd "${REPO}" || exit 1
 BASE_SHA="747d130be532383d3eabd190f54f8b1b2bc6f9fd"
 SRC="Sources/MLXFastModel/LagunaRuntimeModel.swift"
 WORKER=".build-worker/release/mlxfast-runtime-worker"
-OUT="/tmp/nezprobe"
+OUT="${OUT:-/tmp/nezprobe}"
 STEPS="${STEPS:-1200}"
 SEQ="${SEQ:-A B B A A B B A A B B A}"
 
