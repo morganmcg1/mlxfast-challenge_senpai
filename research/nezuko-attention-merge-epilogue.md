@@ -277,6 +277,51 @@ count changes occupancy, so the *magnitude* may differ. The *sign* is carried
 by the P3 result, which shows the threadgroup access pattern is the dominant
 epilogue cost on this family.
 
+### 5.1 Pre-registered expected magnitude
+
+Written **before** the official receipt returns, so the verdict is read against
+a stated prior rather than rationalised afterwards.
+
+Per decode step the model runs 30 sliding and 10 full attention layers, so the
+§4 kernel measurements project
+
+```
+30 x 0.400 us  +  10 x 0.202 us  =  14.02 us/step   (M4 Pro)
+```
+
+against a measured M4 candidate decode step of 8881.5 µs/token (§9.4), i.e. an
+implied base of ~8895.5 µs:
+
+| quantity | value |
+|---|---|
+| projected decode saving | 14.02 µs/step |
+| relative decode gain | **+0.158 %** |
+| implied `decode_speedup` multiplier | 1.00158 |
+| implied score effect (`d^0.75`) | **+0.118 %** |
+| fraction of the assignment's 46.8 µs/step epilogue ceiling | **30 %** |
+
+Two honest caveats on that arithmetic:
+
+1. It assumes the epilogue saving translates ~1:1 into wall-clock decode, which
+   requires the attention kernel to be on the critical path and not hidden
+   behind other work. Decode is serial and latency-bound, so this is plausible,
+   but it is an assumption the kernel-level probe cannot itself test — and the
+   end-to-end ABBA (§7.5) could not resolve an effect this small on this host.
+2. It is an **M4 Pro** projection. The M5 is a different core count and a
+   different bottleneck regime (instruction-bound rather than bandwidth-bound),
+   which is the argument for the sign transferring but explicitly *not* an
+   argument for the magnitude transferring.
+
+So the pre-registered expectation is a **small positive**: roughly +0.1 % on
+score, comfortably inside the noise band of a single cross-session comparison
+(paired cross-session sd on `ns` is 0.222 %, itself ~2x the predicted effect).
+That has a direct consequence for how the receipt should be read: a single
+official run **cannot** resolve an effect of this size either. If the receipt
+comes back near the frontier in any direction, the correct reading is "not
+resolved", not "confirmed" and not "refuted". The evidence that this mechanism
+is real remains the §4 kernel-level ABBA, where the effect is 3-5x its own
+interval on both kernels against a null arm that straddles zero.
+
 ---
 
 ## 6. Correctness
