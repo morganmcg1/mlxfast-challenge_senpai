@@ -1,0 +1,27 @@
+# Pipeline reflection, control + four arms, both ranked shapes
+# Regenerate:
+#   for p in 0 1 2 3 4; do PROBE=$p BK=64 EMIT_LIB=1 OUT_DIR=/tmp/naxlib$p bash research/nax_msl_compile_check.sh; done
+#   FILTER=expert swift research/tanjiro_metallib_stats.swift /tmp/naxlib{0,1,2,3,4}/unit.metallib
+# pb1=M2 pb2=S2 pb3=B2 pb4=S3; no suffix = shipped control
+# Host: Apple M4 Pro (applegpu_g16s). Offline compile+reflect only; _nax never dispatches here.
+
+device: Apple M4 Pro
+  maxThreadgroupMemoryLength = 32768 B
+
+function  tgMem_B  maxThreads  width  regs_bound
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pb1       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pb2       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pb3       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pb4       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pb1       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pb2       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pb3       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pb4       9232         1024     32  <=32*
+
+* maxThreads is at the 1024 Metal API ceiling, so the register bound is saturated:
+  it cannot distinguish 8 from 32 registers/thread and cannot resolve the 104/128/160
+  half-register occupancy cliffs. Threadgroup-memory residency IS settled by tgMem_B.
+  Register-driven residency on the ranked GPU generation is NOT establishable from this
+  host's offline pipeline build; treat it as an open confound.

@@ -3,6 +3,30 @@
 Assignment `maple-2026-08-06o-gather-regime-discriminator`, revision `r1`.
 Base `codex/mlxfast-maple-20260804-advisor` @ `f1f7c1b`.
 
+## Result
+
+Four official M5 receipts, all four bit-exact (`max_abs_diff = 0`), both
+speedup floors passed, all `rejected` on ranking as designed. Marginal prefill
+wall cost of adding one bit-exact unit of work to `W = 43.2619 ms`:
+
+| arm | axis added | receipt | `S` (ms) | `Δ` (ms) | % of `W` | `σ` |
+| --- | --- | --- | --- | --- | --- | --- |
+| control `97a5090` | — | — | `97.895` | — | — | — |
+| **M2** | MMA (+ALU) | `d786ad5c` | `99.941` | `+2.046` | `4.7%` | `4.5` |
+| **S2** | staging + `5.89 GB` | `a3e38005` | `113.856` | `+15.961` | `36.9%` | `35` |
+| **B2** | barriers | `f2160f8f` | `98.735` | `+0.841` | `1.9%` | `1.9` |
+| **S3** | staging, `0` bytes | `ec2b0a57` | `105.747` | `+7.853` | `18.2%` | `17.5` |
+
+**H1 (compute) eliminated. H0 eliminated. H3 (sync) minor. H2 (load/staging)
+positively identified** — `ΔS2` is `7.8×` `ΔM2` and `19×` `ΔB2`. The fourth
+receipt then splits H2 in two: with the staging instruction stream held
+identical and only the DRAM bytes removed, `ΔS3 = 49.2%` of `ΔS2`, so the
+constraint is **`49%` load-issue / `51%` DRAM bytes** (`R-S3-C MIXED`;
+the `49%` is an *upper* bound on the issue share on two independent grounds,
+§6.9 and §6.10). No single-branch optimisation can recover all of it.
+
+Next mechanism, with arithmetic, in §8; what not to spend on, in §8.5.
+
 ## 0. Question
 
 On the promoted receipt `97a5090` (commit `3e165fa`, `officialScore =
@@ -137,7 +161,7 @@ pb  kernel                      mma  barr  dev_ld  tg_ld  tg_st  ir_lines
 3   512x2048_bk64   (B2)          1     7       6      2      4       585
 ```
 
-**Confound verdict on the memory and barrier axes: all three arms CLEAN.**
+**Confound verdict on the memory and barrier axes: all four arms CLEAN.**
 
 - **M2** — `mma 1 -> 2`; barriers, device loads, threadgroup loads and
   threadgroup stores **all unchanged**. CSE and DCE both defeated, and the arm
@@ -146,6 +170,11 @@ pb  kernel                      mma  barr  dev_ld  tg_ld  tg_st  ir_lines
   carries one extra barrier *by construction*; §4 subtracts it.
 - **B2** — `barr +2`, every other counter unchanged. The compiler did not merge
   or hoist the added barriers.
+- **S3** — built after this table was taken, so its census lives in §5.5. It is
+  **counter-identical to S2** at AIR on both shapes; the only entry that moves
+  anywhere is `const_load 1 -> 2`, which is the extra scalar the CSE defence
+  reads. That identity is the whole point of the arm: S3 holds the staging
+  instruction stream fixed and removes only the DRAM bytes.
 
 > **Superseded in part by §4.0.2.** These counters cover memory traffic, MMA and
 > barriers but **not ALU**. Adding an ALU column later showed M2 also carries
@@ -158,18 +187,18 @@ pb  kernel                      mma  barr  dev_ld  tg_ld  tg_st  ir_lines
 Every added call site sits inside the same loop nest as the original it
 shadows, so the **static ratio equals the dynamic ratio**.
 
-Pipeline reflection is identical across all four arms and both shapes:
-`threadgroupMemoryLength = 9232 B`, `maxTotalThreadsPerThreadgroup = 1024`,
-`threadExecutionWidth = 32`, giving `floor(32768 / 9232) = 3` threadgroups per
-core. **Occupancy is unchanged by every arm.**
+Pipeline reflection is identical across the control and all four arms, on both
+shapes: `threadgroupMemoryLength = 9232 B`,
+`maxTotalThreadsPerThreadgroup = 1024`, `threadExecutionWidth = 32`.
+**Occupancy is unchanged by every arm.** §6.10 gives the full ten-row table and
+works through what it does and does not discharge.
 
 *Honest caveat — register residency is not measurable offline here, and this is
 the one confound I cannot close.* The advisor asked for register/occupancy
-stats per arm. Occupancy I can give and did: `tgMem_B = 9232` on a 32768 B
-core budget pins **3 threadgroups/core, identical across all four arms and both
-shapes**, so *threadgroup-memory* residency is settled and no arm moves it.
-Registers I cannot give, and I would rather say so than publish a number that
-looks like a measurement.
+stats per arm. Occupancy I can give and did: `tgMem_B = 9232` is **identical
+across the control and all four arms and both shapes**, so *threadgroup-memory*
+residency is settled and no arm moves it. Registers I cannot give, and I would
+rather say so than publish a number that looks like a measurement.
 
 The only offline handle is `maxTotalThreadsPerThreadgroup`, which inverts to a
 register *bound*, not a count. It reads 1024 for every arm — but 1024 is also
@@ -1641,6 +1670,161 @@ S2's shadow loader reads the neighbour expert's slab, which is `5.89 GB` of
 genuinely new DRAM traffic, so its `+15.961 ms` could be a pipeline cost, a
 bandwidth cost, or any mixture. The fourth and final receipt separates them.
 
+### 6.9 The fourth receipt: issue or bytes?
+
+S3 stages exactly what S2 stages, with the same instruction vector on every
+priced axis (§4.6: `dev_load +2`, `tg_store +1`, `barrier +1`, `int_alu +6` at
+IR / `+4` at AIR; the only difference anywhere is `const_load 1 → 2`). The single
+change is *what address* the shadow loader reads: S2 reads the **neighbour**
+expert's slab, S3 reads **this** expert's own tile — the same lines `loader_w`
+reads one barrier later. S3 therefore pays the full staging pipeline and moves
+**zero new DRAM bytes**.
+
+| | staging instructions | new DRAM | measured `Δ` | share of `W` |
+| --- | --- | --- | --- | --- |
+| S2 | +3 | `5.89 GB` | `+15.961 ms` | `36.9%` |
+| S3 | +3 | `0 GB` | `+7.853 ms` | `18.2%` |
+| difference (byte term) | 0 | `5.89 GB` | `+8.108 ms` | `18.7%` |
+
+**`R-S3-C MIXED` fires.** The pre-registered thresholds were `dS3 ≥ 11.97 ms`
+for issue-bound (`R-S3-A`) and `dS3 ≤ 5.59 ms` for byte-bound (`R-S3-B`);
+`7.853 ms` sits between them. Verbatim from the reader:
+
+```
+--- staging: issue vs bytes (S3 minus S2) ---
+  dS2 = +15.961 ms (staging + 5.89 GB of new DRAM)
+  dS3 = +7.853 ms (same staging, zero new DRAM) = 49.2% of dS2
+  byte term dS2 - dS3 = +8.108 ms (50.8% of dS2)
+  implied marginal bandwidth 726 GB/s vs 408 GB/s for the body
+  that exceeds the fastest quoted peak (651.8 GB/s), so the bytes were not streamed at
+  that rate -- they were absorbed into stalls the kernel was already paying for.
+  => R-S3-C MIXED. Issue share 49%, byte share 51%. Both terms are real; the larger one
+  is the first place to spend, and neither branch alone can recover all of dS2.
+  caveat (pre-registered): S3's shadow read hits cache in steady state but the first touch
+  per threadgroup may still miss, so dS3 slightly over-states the pure issue term. The bias
+  runs toward R-S3-A, which is the conservative direction for anyone who would rather chase bytes.
+```
+
+**Two things follow, and they matter more than the 49/51 headline.**
+
+*First, the pure issue term is large on its own.* Pricing away S3's confounds
+with the same coefficients §6.8 used — `c_bar = 0.4203 ms/op` from B2 and
+`c_alu ≤ 0.1364 ms/op` from M2 — leaves
+
+> `dS3 − 1·c_bar − 4·c_alu = 7.853 − 0.420 − 0.546 = 6.887 ms = 15.9%` of `W`
+> attributable to **three staging instructions that move no bytes at all**,
+> i.e. `≥ 2.296 ms` per staging instruction of pure issue/occupancy cost.
+
+That is the part no bandwidth improvement can touch. It is also the part that a
+restructuring — deeper buffering, fewer staging round-trips per unit of MMA —
+can attack directly.
+
+*Second, the byte term is not a clean bandwidth reading.* `5.89 GB` in
+`8.108 ms` implies `726 GB/s` marginal. The body streams at `408 GB/s`
+effective, and the fastest peak quoted anywhere for this part is `651.8 GB/s`.
+A marginal rate above peak is not physical as a streaming rate; the honest
+reading is that S2's extra bytes were **partly absorbed into stalls the kernel
+was already paying for**. So `8.108 ms` is a *lower* bound on what those bytes
+would cost in a kernel that had eliminated the issue-side stalls, not an
+independent measurement of DRAM throughput.
+
+**The pre-registered caveat cuts the same way, and I am not going to soften
+it.** S3's shadow read is guaranteed resident in steady state, but the *first*
+touch of a tile by a threadgroup can still miss, so some small fraction of
+`dS3` is byte cost misattributed to issue. That biases the reading toward
+`R-S3-A` — it makes the issue term look bigger than it is. Anyone who would
+rather spend effort on byte volume should read `49%` as an upper bound on the
+issue share, and the conclusion below is written to survive that.
+
+**What this closes.** §6.8 identified staging as the constraint but could not
+say which half of staging. It now can, and the answer is *both, roughly evenly,
+with neither branch able to recover more than about half of `dS2` alone*. A
+plan that only reduces bytes and a plan that only reduces staging round-trips
+each leave most of the cost on the table. §8 is written against that.
+
+### 6.10 The residency confound, and why the deltas survive it
+
+Review raised this after the receipts were already spent, so it is worth being
+precise about what is measured and what is argued. The concern: if a staging arm
+allocates a *second* threadgroup buffer, it doubles the threadgroup footprint,
+halves threadgroups-per-core, and doubles the occupancy-wave count — and then
+"load+dequant is on the critical path" and "we halved residency" are the same
+number and cannot be separated afterwards.
+
+**The arms never had that confound, by construction.** `loader_w2` is built
+against the **same `Ws` buffer** as `loader_w`
+(`fp_quantized_nax.h:1774-1781`); the staging site loads the shadow tile into
+`Ws`, barriers, and lets the real staging overwrite it in place
+(`:1815-1830`). Nothing is allocated. This is the review's own preferred
+remedy — reuse the existing buffer rather than add one — and it was the shipped
+design from the first arm, not a repair.
+
+The compiler agrees, on every variant and both ranked shapes:
+
+```
+function                                              tgMem_B  maxThreads  width
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64        9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pb1    9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pb2    9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pb3    9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pb4    9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64         9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pb1     9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pb2     9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pb3     9232        1024     32
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pb4     9232        1024     32
+```
+
+(`research/artifacts/tanjiro-pr170-pipeline-stats.txt`; `pb1..pb4` are
+M2/S2/B2/S3, no suffix is the shipped control.) Threadgroups-per-core on the
+threadgroup-memory axis is `floor(budget / 9232)`, and **the conclusion is
+invariant to which budget figure is right**: `32768 B` per-threadgroup API limit
+gives `3`, the reverse-engineered `~60 KB` physical per-core figure gives `6`,
+and either way the number is *the same for the control and all four arms*.
+
+**Why this matters more than it looks, under the corrected occupancy model.**
+The programme's current model (from the merged threadgroup-count sweep) is
+`T = a + W·φ + work` with `W = ceil(TGs / (C · TG_per_core))`, and idle slots
+below the residency ceiling cost **zero** — cost is a step function in `W`, not
+a ratio. Production dispatches ~102 and ~205 threadgroups per core, so `W` is
+large and the `W·φ` term is a big share of `T`. But `W` depends on the arm only
+through `TG_per_core`, and `TG_per_core` is identical across arms on the
+measured axis. **So `W·φ` cancels exactly in every `Δ` this report publishes.**
+The deltas are pure `work` terms. That is a stronger statement than "occupancy
+probably did not change" — under the step-function model, an unchanged
+`TG_per_core` means an unchanged wave count means an identically-cancelling
+constant.
+
+I am *not* carrying across the sweep's finding that residency was flat in
+threadgroup memory from 16 B to 32768 B: that was measured at 1024 threads per
+threadgroup, where thread count was the binding limiter. This kernel runs 128
+threads / 4 simdgroups, a different regime. The argument above does not need
+that constant — it only needs `TG_per_core` to be *equal across arms*, which is
+measured, not assumed.
+
+**What remains open, stated plainly.** `maxTotalThreadsPerThreadgroup` is
+saturated at the `1024` API ceiling on every variant (§1), so it cannot rule out
+a *register*-driven residency difference on the ranked generation. Two things
+bound that risk:
+
+1. **It cancels in the byte term regardless.** S2 and S3 are the same code with
+   one address expression different; their register demand is identical. So
+   whatever residency cost either pays, it is the same cost, and it subtracts
+   out of `dS2 − dS3 = 8.108 ms`. **The byte term of §6.9 is residency-immune by
+   differencing**, independent of any register argument.
+2. **The arm with the largest register add is the cheapest arm.** M2 adds a
+   whole extra accumulator tile — by far the biggest register demand increase in
+   the tree — and cost `+2.046 ms`, the smallest non-trivial delta measured. If
+   crossing a register occupancy cliff were producing multi-millisecond wave
+   costs at these magnitudes, M2 is where it should have shown first.
+
+That leaves the *issue* half of §6.9 as the one quantity a hidden register
+effect could still inflate. It would push the split toward byte-bound — the same
+direction as §6.9's cache caveat, and the opposite direction from the one that
+would flatter this report's conclusion. `49%` is an upper bound on the issue
+share on **two independent grounds**, and §8 is ranked to survive being wrong
+about it.
+
 <!-- READING -->
 
 ## 7. Decode control
@@ -1685,32 +1869,250 @@ shows both so the correction can be audited rather than trusted.
 | M2 | `4.17742` | `+0.82%` | `4.95821` (`+1.02%`) | `+0.33%` | `13.89203` | `+0.19%` | **OK** |
 | S2 | `4.14897` | `+0.13%` | `5.03847` (`+2.65%`) | `+2.54%` | `13.81409` | `−0.37%` | **OK** |
 | B2 | `4.17483` | `+0.75%` | `4.94620` (`+0.77%`) | `+0.13%` | `13.82008` | `−0.33%` | **OK** |
+| S3 | `4.15361` | `+0.24%` | `4.97977` (`+1.45%`) | `+1.25%` | `13.86561` | `+0.00%` | **OK** |
 
 Tolerance `2%`; session-health band on the paired baseline `1%`.
 
-**All three arms pass, and they pass in the informative direction.** The
+**All four arms pass, and they pass in the informative direction.** The
 strongest test is not that each `|ΔT|` is small — it is that `ΔT` is
 **uncorrelated with `ΔS`**. If a probe had escaped into the decode path, decode
 movement would track prefill movement. Instead S2, which moved prefill nearly
 **eight times** further than M2 (`+15.961` vs `+2.046 ms`), moved corrected
-decode the *least* of the three (`+0.13%` vs `+0.82%`). That inversion is
-exactly what §2's static argument predicts: at decode `M==1` fails the
+decode the *least* of the four (`+0.13%` vs `+0.82%`). S3 repeats the inversion
+at a second point: it moved prefill nearly four times further than M2 and
+corrected decode less than a third as far (`+0.24%` vs `+0.82%`). That inversion
+is exactly what §2's static argument predicts: at decode `M==1` fails the
 `B/E>=4` prefill gate, so the probed kernel is **not dispatchable at all**, and
 the small residual scatter is session noise rather than leakage.
 
-Session health is clean on every arm: all three paired baselines sit within
+Session health is clean on every arm: all four paired baselines sit within
 `0.4%` of the n=16 feed median, well inside the `1%` band, so no receipt in this
-tree is reading a degraded session.
+tree is reading a degraded session. S3's paired baseline lands `0.00%` from that
+median — the cleanest session in the tree — which is worth noting because S3
+carries the split that §6.9 reads.
 
 <!-- DECODE -->
 
 ## 8. Next mechanism
 
-<!-- NEXT -->
+This tree is out of receipts. §8 is therefore a **handoff**, written so the next
+tree can start from a named constraint and a pre-computed threshold instead of
+re-deriving both. Nothing below is a measured claim about a candidate; every
+number is either from this tree's receipts or from static analysis of the
+shipped kernel, and each item says which.
+
+**The constraint, in one line.** `fp_gather_qmm_rhs_expert_nax` is
+**staging-bound**, and staging splits roughly evenly into a `~6.9 ms` pure
+issue/occupancy term that no bandwidth improvement can touch (§6.9) and a byte
+term that is *at least* `8.1 ms` but is not a clean bandwidth reading because
+its implied marginal rate exceeds peak. MMA issue throughput is not the
+constraint (`+2.046 ms` to double it) and synchronisation is not the constraint
+(`+0.841 ms` for two extra barriers).
+
+**What the reading rules out as a plan.** Any single-branch plan. A
+bytes-only plan leaves the `~6.9 ms` issue term untouched; an issue-only plan
+leaves the byte term untouched. §6.9's `49/51` split is the reason to fund both,
+and it is also the reason not to expect either alone to be worth a submission.
+
+### 8.1 Do this first, and it costs nothing
+
+**Resolve the byte census analytically before spending any receipt.** The
+`GBYTE = 17.66641` figure this report uses throughout (§4) is an *analytic*
+footprint that assumes every one of the `256 × 39` expert slots stages its
+slab. The shipped kernel contradicts that assumption: the per-expert row bounds
+come from a binary search (`fp_quantized_nax.h:1712-1725`), the chunk loop runs
+`ceil(rows/BM)` times (`:1730-1731`), and an expert with zero rows executes zero
+chunks and therefore stages nothing. The measured route histogram
+(`research/prefill-512-route-histogram.txt`) says **`20.3%` of expert slots
+receive zero rows** at `T=512`.
+
+Both halves of that cannot be true. Either
+
+- the real staged volume is materially below `17.66641 GB`, in which case the
+  `408 GB/s` "effective bandwidth" quoted in §4 and §6.9 **overstates** what the
+  kernel achieves, the streaming floor is below the `27.1–32.3 ms` band, and the
+  headroom is larger than this report has been crediting; or
+- the real traffic matches the analytic figure anyway, in which case roughly a
+  fifth of it is **dead** — fetched and never consumed — which is a far more
+  directly actionable defect than anything else in this list.
+
+The histogram already on disk is enough to compute the first branch exactly:
+sum `ceil(rows_e / BM)` staged slabs over the real distribution instead of
+assuming `256`. Static analysis of that histogram already puts the count at
+`16,758` stagings against a `15,514` nonzero-expert floor, i.e. **`+8.0%` from
+experts that exceed `BM` and restage the same slab back to back** (likely
+cache-warm, so cheap). Confirming the *absolute* number against hardware DRAM
+counters needs an M5 and is out of scope here — this host is gen 16 and never
+dispatches the kernel at all (§3).
+
+This item is first because it is free, and because it changes the sign of the
+advice on item 8.4.
+
+### 8.2 Attack the issue term: pipeline the `K` loop
+
+This is the term S3 isolated and the term a kernel restructure can definitely
+reach. The ranked instantiation runs `BK = 64` over `K = 2048` for the fused
+`[gate;up]` projection, i.e. **32 K-iterations**, each currently a
+`load → barrier → MMA → barrier` round trip against a single-buffered
+threadgroup tile. Register-staged prefetch of iteration `i+1` during the MMA of
+iteration `i` removes one full stall per iteration without changing a single
+arithmetic result — the operand values, their order into `tile_matmad_nax`, and
+the accumulator sequence are all preserved, so it is bit-exact by construction
+rather than by tolerance.
+
+The `M`-chunk loop is **not** a pipelining candidate and should not be
+attempted: mean nonzero rows per expert is `20.07` against `BM = 64`, so most
+experts run exactly one chunk and there is no second iteration to overlap with.
+
+### 8.3 Free threadgroup memory: stop staging the `A` operand
+
+`A` is consumed by a single simdgroup, so routing it through threadgroup memory
+buys no reuse — it pays a `tg_store` and a `tg_load` per tile to hand data from
+a simdgroup to itself. Removing that staging attacks the issue term directly and
+frees roughly `8 KB` of the `9232 B` static threadgroup allocation measured on
+the shipped binary, which is what makes 8.2's double-buffering of `B` fit.
+
+These two belong in the same change. Separately, 8.2 has nowhere to put the
+prefetched tile and 8.3 has nothing to spend the freed memory on.
+
+### 8.4 The byte term is mostly structural — do not over-invest
+
+The measured tile-quantization padding is **`31%` of `M` row-work**
+(`453,120` MMA rows against `311,296` useful; `research/expert_row_padding.py`).
+That number looks like a large prize and is not one, and it is worth writing
+down why so the next tree does not spend a receipt learning it:
+
+- Padding costs **no extra bytes**. Weight staging is threadgroup-wide and
+  unconditional (`fp_quantized_nax.h:1836-1843`); a 16-row expert stages the
+  same `BN × K` slab as a 64-row one.
+- Padding costs **MMA row-work**, and M2 priced MMA at `+2.046 ms` for a full
+  doubling. Removing `31%` of it is worth well under a millisecond.
+- The `sg_active` guard already elides whole `SM = 16` bands
+  (`:1732-1736`), including the `A` load, the `tile_matmad_nax` chain, and the
+  epilogue. Only sub-16 remainders run a full 16-row MMA with a masked write.
+
+The real consequence of the routing distribution is not the padding — it is that
+the staged slab is amortised over `~20` rows instead of `64`, which is a **`~4×`
+arithmetic-intensity penalty** that no kernel change can remove at `T = 512`.
+With `4096` token-expert pairs spread over `256` experts, the mean is structural.
+This is the single strongest reason to expect the streaming floor, not the
+compute ceiling, to bound this kernel — and it is why 8.1's census matters more
+than any byte-side micro-optimisation.
+
+### 8.5 What not to spend a receipt on
+
+- **Wider loads / operand relayout.** The shipped path already issues `~16 B`
+  loads via `load_unsafe_wide`. This pays only if 8.1's counters show burst
+  amplification, and 8.1 is free.
+- **Split-K or atomic accumulation.** Discharged in §4: there is no such
+  variant reachable on the ranked selector, and `get_qmm_nax_kernel` throws
+  rather than falling back.
+- **Per-expert `BM` variation.** `bm == 64 && wm == 4` is a hard admission
+  condition (`quantized.cpp:1734`) and `BM` is a template argument fixed per
+  process; making it dynamic is a much larger change than 8.2 + 8.3 for a
+  smaller, already-priced prize.
+- **Anything outside the accepted attention quantization envelope.** Not
+  applicable to this kernel and not a licence this tree holds.
+
+### 8.6 What it is worth, arithmetically
+
+Prefill enters the score at `0.25` weight, and the control's prefill wall is
+`S = 97.895 ms` against a `195.93 ms` baseline. Score elasticity is therefore
+`0.2554%` per millisecond removed from `S`:
+
+| saving in `W` | `S` | prefill speedup | score | vs control `2.58883` |
+| --- | --- | --- | --- | --- |
+| `−8.26 ms` (`43.26 → 35.0`) | `89.635` | `2.1859` | `2.646512` | `+2.23%` |
+| `−10.26 ms` (`43.26 → 33.0`) | `87.635` | `2.2358` | `2.661484` | `+2.81%` |
+| `−16.26 ms` (`43.26 → 27.0`) | `81.635` | `2.4001` | `2.709095` | `+4.65%` |
+
+My honest expectation for 8.2 + 8.3 executed well is the **first two rows**: the
+issue term is `~6.9 ms` and a restructure recovers some fraction of it, not all.
+The third row needs 8.1 to come back saying there are dead bytes. **This is a
+low-single-digit percent play on the score, and it should be presented that way
+rather than as a headline.** It is still the largest single mechanism this tree
+found, and unlike the alternatives it now has a named constraint behind it.
 
 ## 9. Follow-ups
 
-<!-- FOLLOWUPS -->
+### 9.1 Written after all four receipts
+
+**Tile-quantization padding: measure it if it is free, but do not spend a
+receipt on it.** The routed grid's `M` axis is a fixed expert-group count
+(`quantized.cpp:2059-2062`, `egroups` default `256` at `:1402-1412`), and the
+per-expert `ceil(rows/BM)` loop inside the kernel (`:1730-1731`) walks bounds
+that come from a binary search (`:1712-1725`). At `T = 512` that gives
+`453,120` MMA rows against `311,296` useful ones — a `1.456×` ratio, i.e.
+**`31%` padding** — with `20.3%` of the `256 × 39` slots taking zero rows, a
+mean of `20.07` rows per non-empty slot and a median of `11`
+(`research/expert_row_padding.py`,
+`research/prefill-512-route-histogram.txt`; independently confirmed at
+`research/h5-per-expert-fused-ffn-closure.md:106-110`). The number looks like a
+prize and is not one: the `sg_active` guard already elides whole `SM = 16`
+bands (`fp_quantized_nax.h:1732-1736`) so only sub-16 remainders waste a full
+MMA, padding moves **zero bytes**, and M2 priced a *full doubling* of the MMA
+axis at `+2.046 ms`. Removing `31%` of an axis worth `2.05 ms` at `100%` is
+worth well under a millisecond. §8.4 has the full argument. What the
+distribution *does* cost is arithmetic intensity — the staged slab amortises
+over `~20` rows rather than `64` — and that is structural at `T = 512`, not a
+kernel bug.
+
+**The `tg_load` blind spot: nothing in this tree prices threadgroup *reads*.**
+The census body count is `tg_load = 4` on `2048x1024` and `2` on `512x2048`,
+and the delta is `+0` for **every one of the four arms**. M2 adds MMA, S2 adds
+device loads plus a threadgroup *store*, B2 adds barriers, S3 adds the same
+store with no bytes. So when §6.9 calls the residual `6.887 ms` an "issue"
+term, that is specifically *store*-side and address-generation issue: the cost
+of reading the staged slab back out — including any bank conflicts on the
+`Ws` layout — is inside the unperturbed body and is invisible to all four
+receipts. This matters for §8.3, which proposes to stop staging the `A` operand:
+if the read path is bank-limited, the fix is a swizzle rather than a
+restructure, and the two are not interchangeable. The missing instrument is a
+fifth arm that adds one redundant threadgroup read from a bank-aliasing
+address, with no device traffic and no extra barrier — cheap to build, and the
+one axis this partition genuinely left open.
+
+**Correct the programme's receipt-latency constant: I measured `~20` min, not
+`~44`.** The advisor timed receipt `08ddee45` end to end at 43 min 55 s
+(dispatch `01:57:14Z`, terminal `02:41:08Z`) and proposed retiring the older
+`~35` min constant upward. My four receipts all came back in `~20-22` min;
+S3 is the cleanest instance, dispatched `03:27:41.125Z` and terminal
+`03:47:59.993Z` for **20.3 min**. The difference is almost certainly not the
+machine — `benchmark_wall_seconds = 53` on all four, so `~98%` of the wall is
+queue — but *slot discipline*. The account allows exactly one in-flight
+submission, so a blind dispatch inherits the entire residual of whoever
+currently holds the slot before its own `~20` min even starts. `mlxfast
+submissions` is account-scoped, answers in `~9 s`, and is **not** rate-limited,
+so watching the slot costs nothing; I submitted within `7 s`, `7 s` and `6 s`
+of it freeing on the last three arms. The planning constant should therefore be
+"`~20` min of own service time, plus however long the slot is already
+occupied", and a campaign that polls the free check before dispatching roughly
+doubles its receipts per wall-clock hour. This is worth a programme-wide note
+because the four-receipt budget in this assignment was sized against the
+`~35-44` min figure.
+
+**Amendment to the register-residency limitation recorded below.** That
+paragraph was written before any receipt and still stands, but two things have
+moved. (i) The reflection dump is now a committed artifact covering the control
+and all four probes on both shapes
+(`research/artifacts/tanjiro-pr170-pipeline-stats.txt`): `tgMem_B = 9232`,
+`maxThreads = 1024`, `width = 32`, byte-identical in all ten rows. The census
+tool now prints `regs_bound = <=32*` with a footer stating that `maxThreads` is
+saturated at the API ceiling, so the column can no longer be misread as a
+measurement. (ii) §6.10 shows the **byte** term (`+8.108 ms`, from `S2 − S3`)
+is residency-*immune* by construction, because S2 and S3 have identical static
+footprints and any `W·φ` wave term cancels exactly in the difference. The
+residue is confined to the issue term and to M2 — and M2, which adds the most
+registers, returned the *smallest* delta, which is the wrong sign for an
+occupancy-step explanation. What is still genuinely open is the register count
+under a gen-17 toolchain; one `newComputePipelineStateWithDescriptor`
+reflection dump on an M5 closes it for zero receipts. Related: the advisor's
+"S2 adds a second staging buffer" confound does **not** apply to this
+implementation — `loader_w2` is constructed against the same `Ws` allocation
+(`fp_quantized_nax.h:1774-1781`), which is the advisor's own preferred
+option (a), shipped from arm 1. §6.10 has the construction and the evidence.
+
+### 9.2 Registered before any receipt
 
 **Registered before any receipt, so they cannot be mistaken for post-hoc
 excuses.**
@@ -1808,6 +2210,12 @@ is held out of tree pending a firing condition. Registered before any receipt:
 A2 fires if the reading is a flat null, if S2 reads positive, or if `ΔM2` is
 large. A flat null across M2/S2/B2 should be reported as "H3 *or* H1b", not as
 H3, unless A2 has been run.
+> **Superseded by §6.4.** `ΔM2` bounded integer ALU at `≤ 27.4%` of the path
+> *jointly* with MMA, so A2 could not have been the headline under any outcome
+> and was **withdrawn**, not merely held — before S2 read positive and before
+> its widened firing condition could trigger. The patch stays on disk as unspent
+> work, and it targets probe slot 4, which arm S3 now occupies; it must not be
+> applied as-is.
 
 **Two redesigns for a second-generation S2.** (i) The current S2 stages through
 threadgroup memory and therefore drags a barrier along, which is the whole
@@ -1854,15 +2262,22 @@ discriminator for that fork.
 ## 10. Reproduction
 
 ```bash
-# offline census (both threadgroup shapes, all four arms)
-for p in 0 1 2 3; do PROBE=$p research/nax_msl_compile_check.sh; done
+# offline census (both threadgroup shapes, control + all four arms)
+for p in 0 1 2 3 4; do PROBE=$p research/nax_msl_compile_check.sh; done
 
 # §4.0.3: LLVM IR control-flow check that the shadow MMA is not sunk into the
 # runtime-false guard, plus the independent op-class delta table
-for p in 0 1 2 3; do
+for p in 0 1 2 3 4; do
   PROBE=$p BK=64 EMIT_IR=1 OUT_DIR=/tmp/naxpb$p research/nax_msl_compile_check.sh
 done
 python3 research/tanjiro_ir_cfg_check.py /tmp/naxpb0 /tmp/naxpb1 /tmp/naxpb2 /tmp/naxpb3
+python3 research/tanjiro_ir_census_lib.py /tmp/naxpb2/unit.ll /tmp/naxpb4/unit.ll expert
+
+# §6.10 / §2: pipeline reflection -> research/artifacts/tanjiro-pr170-pipeline-stats.txt
+for p in 0 1 2 3 4; do
+  PROBE=$p BK=64 EMIT_LIB=1 OUT_DIR=/tmp/naxlib$p bash research/nax_msl_compile_check.sh
+done
+FILTER=expert swift research/tanjiro_metallib_stats.swift /tmp/naxlib{0,1,2,3,4}/unit.metallib
 
 # twin consistency + inertness rig
 python3 research/nax_twin_check.py
@@ -1873,15 +2288,18 @@ research/nax_safety_rig.sh
 
 # receipts: flip the one constant, submit, then restore
 #   Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
-#   constexpr const char* kNaxGatherProbeDefault = "m2";   # or "s2" / "b2"
-mlxfast submit --model "senpai" --note-file research/artifacts/tanjiro-pr170-note-m2.md
-git checkout -- Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+#   constexpr const char* kNaxGatherProbeDefault = "m2";  # or "s2" / "b2" / "s3"
+# research/tanjiro-pr170-dispatch.py does the flip, submit and restore atomically
+python3 research/tanjiro-pr170-dispatch.py m2 --max-runtime-seconds 3480
+python3 research/tanjiro-pr170-await-receipt.py m2 <full-uuid> --max-runtime-seconds 1800
 
-# verdict
-curl -s -H "Authorization: Bearer $MLXFAST_API_TOKEN" \
-  "https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions" \
-  -o /tmp/subs.json
-python3 research/tanjiro-pr170-receipts.py /tmp/subs.json m2=<id> s2=<id> b2=<id>
+# verdict, from the four saved receipts
+python3 research/tanjiro-pr170-receipts.py \
+  research/artifacts/tanjiro-pr170-receipt-m2.json \
+  research/artifacts/tanjiro-pr170-receipt-s2.json \
+  research/artifacts/tanjiro-pr170-receipt-b2.json \
+  research/artifacts/tanjiro-pr170-receipt-s3.json \
+  m2=d786ad5c s2=a3e38005 b2=f2160f8f s3=ec2b0a57
 ```
 
 Local build health at the committed default: `./benchmark.sh --local-iterate`
