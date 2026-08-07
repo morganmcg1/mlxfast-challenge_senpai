@@ -6842,8 +6842,8 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     // two four-term FP groups. The first group of the FIRST word seeds the
     // accumulator when the seed elision is enabled; every other group adds.
     // Word `w` owns `input[8w .. 8w+7]`, exactly the indices the `8 * j` form
-    // produced, so the multiply/add expressions and their association are
-    // untouched.
+    // produced. The dot4 form replaces 8 scalar nested fma() per word with 2
+    // dot(float4) + 2 adds, using vector FMA throughput.
     func packedWordBody(_ word: Int) -> String {
         let codeWord = word == 0 ? "codes.x" : "codes.y"
         let base = 8 * word
@@ -6858,16 +6858,12 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                     const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
                     const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
                     const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
-                    accum =
-                        fma(input[\(base)], v04.x,
-                        fma(input[\(base + 1)], v15.x,
-                        fma(input[\(base + 2)], v26.x,
-                        fma(input[\(base + 3)], v37.x, \(seedStart)))));
-                    accum =
-                        fma(input[\(base + 4)], v04.y,
-                        fma(input[\(base + 5)], v15.y,
-                        fma(input[\(base + 6)], v26.y,
-                        fma(input[\(base + 7)], v37.y, accum))));
+                    const float4 in0 = float4(input[\(base)], input[\(base + 1)], input[\(base + 2)], input[\(base + 3)]);
+                    const float4 wt0 = float4(v04.x, v15.x, v26.x, v37.x);
+                    const float4 in1 = float4(input[\(base + 4)], input[\(base + 5)], input[\(base + 6)], input[\(base + 7)]);
+                    const float4 wt1 = float4(v04.y, v15.y, v26.y, v37.y);
+                    accum = dot(in0, wt0) + \(seedStart);
+                    accum = dot(in1, wt1) + accum;
                 }
             """
     }
