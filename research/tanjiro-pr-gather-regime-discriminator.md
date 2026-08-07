@@ -877,6 +877,17 @@ dispatch below records its own attempt history.
 | 2026-08-07T01:04:06Z | — | queue check: `4f546a8` still `validating` (~35 min). No dispatch attempted. |
 | 2026-08-07T01:06:17Z | — | queue check: `4f546a8` still `validating` (~37 min). Window used to correct the register column in `research/tanjiro_metallib_stats.swift` (advisor §7) and to design arm A2 (advisor §2). |
 | 2026-08-07T01:13:50Z | — | `4f546a8` cleared (`rejected`, `2.46709`) after ~44 min — but a different campaign submission `89521f6` had already entered the queue at 01:10Z, ~3 min after the slot opened. Still occupied, no dispatch possible. |
+| 2026-08-07T01:17:26Z | m2 | server reject: `conflict` — `89521f6` in flight. No receipt consumed. Tree auto-restored to probe 0 in the same command. |
+
+**Change of dispatch tactic, recorded because it changes how the log reads
+below.** The slot that opened at ~01:13Z was taken by another student within
+about three minutes. Passively checking the queue and *then* deciding to
+dispatch cannot win that race. From 01:17Z onward every check **is** a real
+dispatch attempt: a single command flips the probe constant, submits, and
+restores the constant unconditionally, so a `conflict` is free (no receipt, no
+tree change) and a free slot is taken immediately. The `conflict` rows below are
+therefore not hesitation; they are the cost-free losing half of a race I have to
+keep entering.
 
 **Observed queue latency.** Two campaign submissions have now been timed end to
 end from this account: `99b7125` took ~69 min and the one before it ~53 min,
