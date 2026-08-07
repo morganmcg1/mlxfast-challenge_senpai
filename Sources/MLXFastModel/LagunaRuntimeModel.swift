@@ -9772,6 +9772,15 @@ final class LagunaRuntimeMoEGate: Module {
     @ParameterInfo(key: "weight") var weight: MLXArray
     @ParameterInfo(key: "e_score_correction_bias") var eScoreCorrectionBias: MLXArray
 
+    private var _float32CorrectionBias: MLXArray?
+    var float32CorrectionBias: MLXArray {
+        if let cached = _float32CorrectionBias { return cached }
+        let upcast = eScoreCorrectionBias.asType(.float32)
+        eval(upcast)
+        _float32CorrectionBias = upcast
+        return upcast
+    }
+
     init(_ config: LagunaConfig) {
         self.topK = config.numExpertsPerTok
         self.normTopkProb = config.normTopkProb
@@ -9801,7 +9810,7 @@ final class LagunaRuntimeMoEGate: Module {
             lagunaTrace("prefill router tournament")
             return lagunaPrefillRouterTournament(
                 logits: projectedLogits,
-                correctionBias: eScoreCorrectionBias.asType(.float32),
+                correctionBias: float32CorrectionBias,
                 rows: projectedLogits.dim(1),
                 normalizing: normTopkProb
             )
@@ -9819,7 +9828,7 @@ final class LagunaRuntimeMoEGate: Module {
             lagunaTrace("prefill router top8")
             return lagunaPrefillRouterTop8(
                 logits: projectedLogits,
-                correctionBias: eScoreCorrectionBias.asType(.float32),
+                correctionBias: float32CorrectionBias,
                 rows: projectedLogits.dim(1),
                 normalizing: normTopkProb
             )
@@ -9840,7 +9849,7 @@ final class LagunaRuntimeMoEGate: Module {
                     : "decode router top8 (cast sink)")
             (inds, weights) = lagunaDecodeRouterTop8(
                 logits: projectedLogits,
-                correctionBias: eScoreCorrectionBias.asType(.float32),
+                correctionBias: float32CorrectionBias,
                 normalizing: sinkNormalization
             )
             if sinkNormalization {
@@ -9859,12 +9868,12 @@ final class LagunaRuntimeMoEGate: Module {
                 lagunaTrace("decode router top8 (fp32 logits)")
                 (inds, weights) = lagunaDecodeRouterTop8(
                     logits: logits,
-                    correctionBias: eScoreCorrectionBias.asType(.float32)
+                    correctionBias: float32CorrectionBias
                 )
             } else {
                 let scores = sigmoid(logits)
                 let scoresForChoice =
-                    scores + eScoreCorrectionBias.asType(scores.dtype)
+                    scores + float32CorrectionBias
                 inds =
                     argPartition(-scoresForChoice, kth: topK - 1, axis: -1)[
                         .ellipsis, ..<topK]
