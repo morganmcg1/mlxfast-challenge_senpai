@@ -92,6 +92,12 @@ def main() -> int:
     )
 
     summary = {"residual_sd_us": rsd, "residual_df": odf}
+    ref_us = statistics.mean([r[3] for r in runs if r[2] == S.REF])
+    # Prefer this campaign's own anchor over the PR #298 constant: the two
+    # disagree by ~25%, and only the in-campaign value is same-session paired.
+    pct_per_us = 100.0 / ref_us
+    summary["pct_per_us_measured"] = pct_per_us
+    summary["pct_per_us_pr298"] = PCT_PER_US
     for arm in S.ARMS:
         ms = [r[3] for r in runs if r[2] == arm]
         if ms:
@@ -109,7 +115,7 @@ def main() -> int:
         summary[f"{key}/fe_t"] = m / se if se else float("inf")
         summary[f"{key}/fe_ci_lo_us"] = m - h
         summary[f"{key}/fe_ci_hi_us"] = m + h
-        summary[f"{key}/fe_pct_of_decode"] = -m * PCT_PER_US
+        summary[f"{key}/fe_pct_of_decode"] = -m * pct_per_us
         d = deltas.get(name, [])
         if len(d) >= 2:
             bm = statistics.mean(d)

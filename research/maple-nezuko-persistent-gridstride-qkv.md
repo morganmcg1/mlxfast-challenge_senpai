@@ -149,23 +149,64 @@ fused-norm refund it was supposed to preserve.
 
 ### 6.2 ABBA campaign
 
-_(pending — filled from `research/nezuko_pr309_stats.py`)_
+4 blocks × 14 runs, palindromic arm order, one warm-up run discarded ⇒ 56 timed
+runs, **n = 8 per arm**. Each run is 192 decode steps, first 8 dropped, per-run
+estimator = upper-5%-trimmed mean of the remaining 184. Two-way (block × arm)
+fixed effects: **residual sd 21.9 µs over 46 df, se of every contrast 11.0 µs.**
 
-Interim, block 1 only (n=2/arm, 192 steps, 8 warm-up dropped, upper-5%-trimmed
-per-run means, residual sd 20.0 µs over 7 df) — the full 4-block table replaces
-this:
+Arm means:
 
-| contrast | µs/step | t | meaning |
-|---|---|---|---|
-| `G640-a0` | −18.0 | −0.90 | fused geometry alone |
-| `R640-G640` | +58.8 | 2.94 | redundant reduction at 640 TGs |
-| `N640-R640` | −113.1 | −5.65 | dispatch refund at 640 TGs |
-| `N640-a0` | −72.3 | −3.61 | PR #48 reproduced on this binary |
-| `G128-G640` | **+180.8** | 9.04 | multi-row confound priced alone |
-| `R128-G128` | +13.3 | 0.67 | redundant reduction amortised 5x |
-| `N128-R128` | −131.8 | −6.59 | dispatch refund at 128 TGs |
-| `N128-N640` | **+116.6** | 5.83 | persistent grid on top of #48 |
-| `N128-a0` | +44.3 | 2.21 | candidate vs stock anchor |
+| arm | S | fuse | T | mean µs/step | sd of run means | within-run sd |
+|---|---|---|---|---|---|---|
+| `a0` | 2 | 0 | 0 | 8166.9 | 19.3 | 62.3 |
+| `G640` | 16 | 0 | 0 | 8160.0 | 9.7 | 42.7 |
+| `R640` | 16 | 3 | 0 | 8216.5 | 13.3 | 37.9 |
+| `N640` | 16 | 1 | 0 | 8133.2 | 37.5 | 64.0 |
+| `G128` | 16 | 0 | 128 | 8334.8 | 21.6 | 51.3 |
+| `R128` | 16 | 3 | 128 | 8356.7 | 6.8 | 36.7 |
+| `N128` | 16 | 1 | 128 | 8230.1 | 28.3 | 41.8 |
+
+Contrasts (fixed effects; se = 11.0 µs, 46 df throughout):
+
+| contrast | µs/step | t | 95% CI | meaning |
+|---|---|---|---|---|
+| `G640-a0` | −6.9 | −0.63 | [−28.9, +15.0] | fused geometry alone: free |
+| `R640-G640` | +56.5 | 5.15 | [+34.5, +78.4] | redundant reduction at 640 TGs |
+| `N640-R640` | −83.3 | −7.59 | [−105.2, −61.3] | dispatch refund at 640 TGs |
+| `N640-a0` | −33.7 | −3.07 | [−55.6, −11.8] | PR #48 reproduced on this binary |
+| `G128-G640` | **+174.9** | 15.93 | [+152.9, +196.8] | **multi-row confound priced alone** |
+| `R128-G128` | +21.9 | 1.99 | [−0.1, +43.8] | redundant reduction amortised 5x |
+| `N128-R128` | −126.6 | −11.53 | [−148.5, −104.6] | dispatch refund at 128 TGs |
+| `N128-N640` | **+96.9** | 8.83 | [+75.0, +118.9] | **assignment claim refuted** |
+| `G128-a0` | +167.9 | 15.30 | [+146.0, +189.9] | persistent geometry vs stock |
+| `N128-a0` | **+63.2** | 5.76 | [+41.3, +85.2] | **HEADLINE: candidate is slower** |
+
+Per-block arm means were stable to within ~30 µs across all four blocks; no run
+exceeded 4× the median within-run sd, so no block was thermally compromised.
+
+**Reading of the two mechanism terms.** Both halves of the assignment's cost
+model are confirmed on their own axis:
+
+- The redundant reduction *is* real and *is* amortised. It costs +56.5 µs at
+  640 threadgroups (1 row per simdgroup) and only +21.9 µs at 128 threadgroups
+  (5 rows per simdgroup) — a 2.6x reduction, close to the predicted ~+29 µs.
+- The fused-norm dispatch refund *is* preserved and in fact grows, from
+  −83.3 µs at 640 threadgroups to −126.6 µs at 128.
+
+The hypothesis fails on a term the assignment did not price: the grid geometry
+itself. `G128 − G640` is **+174.9 µs with the fold switched off on both sides**,
+so it cannot be a fold artefact — it is the pure cost of running the same total
+row-work through 128 threadgroups instead of 640. That single term is 5x the
+saving it enables (+21.9 → the amortisation is worth only ~34.6 µs) and roughly
+2x the entire PR #298/#48 refund it was meant to protect.
+
+Net: `N128 − a0 = +63.2 µs/step`, i.e. the candidate is **0.77% slower** than
+stock decode (8166.9 µs/step anchor), and `N128 − N640 = +96.9 µs/step` means it
+also destroys the already-merged #48 win rather than adding to it.
+
+### 6.3 Threadgroup-count ladder (mechanism falsification)
+
+_(pending)_
 
 ## 7. Mechanism
 
