@@ -1,8 +1,8 @@
 # SENPAI Research State
-- 2026-08-07T17:45Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 3c8a0db2 (pushed to origin).
-  33 composed changes on current frontier (30 LRM opts + vendor fix + PR #306 + PR #307).
-  LRM budget: 42,519B headroom. Total surface ~2,958K/3,000,000.
+- 2026-08-07T18:10Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 1eac38a5 (pushed to origin).
+  35 composed changes on current frontier (33 previous + PR #306 + PR #307).
+  LRM budget: 22,652B headroom. Total surface ~2,958K/3,000,000 = 42,519B headroom.
 
 ## CRITICAL M5 BUILD FIX (d9b2df37, 2026-08-07)
   ROOT CAUSE of ALL birch M5 build failures since 8/5: PR #243 added kHalvedScales
@@ -37,17 +37,33 @@
   Vendor file fix (d9b2df37): restored to pre-PR#243 state (M5 build fix)
 
 ## M5 SUBMISSION STATUS
-  935c6831: VALIDATING — frontier d9b2df37 (vendor fix only, 31 changes)
-  Composed frontier (3c8a0db2, 33 changes): QUEUED, waiting for capacity
-  Birch best M5: 2.5459 (4058d0b, 8/5). Leaderboard #1: 2.5888 (maple, 97a5090).
-  Gap to close: +1.69% from 2.5459 to 2.5888.
+  f68477a0: VALIDATING — frontier 1eac38a5 (vendor fix + PR #306 + PR #307, 35 changes)
+  935c6831: FAILED — vendor fix only (cc66cb5)
+  df9613a: REJECTED, 2.5817 — last scored birch submission (8/7 8:19 AM)
+  4058d0b: REJECTED, 2.5459 — last successful M5 build (8/5)
+  Birch best scored: 2.5817 (df9613a). Leaderboard #1: 2.5888 (maple, 97a5090).
+  Gap to close: +0.27% from 2.5817 to 2.5888.
 
-## ACTIVE ASSIGNMENTS
-  PR #285 (edward): Revision v3 requested — rebase on 3c8a0db2, ensure no
-    fp_quantized_nax.h/.cpp changes, only quantized.cpp gather_qmm_rhs_nax + LRM.
-  PR #305 (alphonse): CLOSED — dead hypothesis (per-row GEMV slower than batched GEMM).
-  alphonse: IDLE — needs new assignment.
-  askeladd: IDLE — needs new assignment.
+## CLOSED EXPERIMENTS (this session)
+  PR #313 (alphonse): CLOSED — dead hypothesis. Prefill attention values/output
+    transposes are already free (metadata-only) in MLX. No dispatches to eliminate.
+  PR #285 (edward): CLOSED — too risky. Routed halved escape fix requires vendor
+    file (quantized.cpp) modifications that caused M5 build failures. M4 can't
+    validate _nax path. Halved scales can be re-derived later with M5-safe approach.
+
+## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=1eac38a5)
+  PR #315 (alphonse): Re-enable prefill QKV bank fusion — restore prepareFusedQKVWeight()
+    and flip default to ON (0-byte, bit-exact, 78 dispatch eliminations, prefill-only).
+    Proven correct by PR #261. M4 decode +37% regression is M4-specific (1.48GB memory
+    pressure on 36GB); M5 with 128GB should see no regression.
+  PR #316 (thorfinn): Fuse gate-softplus matmul into NVFP4 O-proj kernel (decode) —
+    eliminate 40 separate g_proj dispatches by computing g_proj+softplus inside
+    O-proj kernel (~0.75% score, LRM-only, M4-testable).
+  PR #317 (edward): Prefill post-attention RMSNorm + router GEMM fusion — fuse 2
+    separate dispatches into 1 per sparse layer (39 dispatch eliminations, prefill,
+    ~0.03-0.06% score, LRM-only).
+  PR #314 (askeladd): Prefill MoE residual add elimination — fuse residual add into
+    MoE block output (39 dispatch eliminations, prefill, in progress, draft).
 
 ## RESEARCH THEMES
   - M5 is bandwidth-bound (~89% GPU util). Only bandwidth reduction or dispatch elimination helps.
