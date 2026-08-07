@@ -1,0 +1,56 @@
+Upstream-equivalence digest: shared-QMV K-block prefetch (ON) vs unchanged base (OFF)
+=====================================================================================
+
+Host: Mac16,11 (M4 Pro, 20-core GPU, 48 GiB, macOS 26.5.2). Apple GPU generation 16,
+so `_nax` kernels are unreachable here and prefill numerics are NOT M5 evidence.
+
+Driver: research/run_upstream_equivalence.sh (exact bare test filter, repairs the debug
+metallib placement, refuses to treat a zero-test invocation as a pass). Both invocations
+used the same checkout, same debug build cache, and the same 512-prompt / 8-decode-step
+teacher-forced case. Arms differ only by the environment flag.
+
+Arm A  DARKBLOOM_SHARED_QMV_PREFETCH=1   (candidate, prefetch kernel live)
+       run_training cb580c70-3a74-4dc4-903f-7217510b7586, exit 1, 75.3 s
+Arm B  (flag unset)                       (unchanged base, HEAD kernel text)
+       run_training cbf704b6-1227-4fd9-8f83-62b1c811c14c, exit 1, 76.0 s
+
+Reports are byte-for-byte identical between the two arms:
+
+  step        maxAbsLogitErr   meanAbsLogitErr   runtimeToken   upstreamToken
+  prefill     0.125            0.011933609       5991           5991
+  decode-0    0                0                 509            509
+  decode-1    0                0                 902            902
+  decode-2    0                0                 5991           5991
+  decode-3    0                0                 509            509
+  decode-4    0                0                 902            902
+  decode-5    0                0                 5991           5991
+  decode-6    0                0                 509            509
+  decode-7    0                0                 902            902
+
+  EQUIVALENCE_EXACT_STEPS=8      (both arms)
+  EQUIVALENCE_EXIT=1             (both arms)
+
+Reading
+-------
+1. The only non-exact step is `prefill`, and it is non-exact by exactly the same
+   amount with the flag on and with the flag off. The divergence is therefore
+   host-intrinsic on this Apple-GPU-gen-16 machine, not caused by the change.
+   This is the documented "non-M5 host disagrees with a public golden -> test the
+   unchanged base" situation; the base shows the same near-tie divergence.
+2. Every teacher-forced decode step is exactly 0 in both arms, and the greedy
+   argmax token matches upstream in all nine steps including prefill.
+3. The changed kernel (`laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1`) is only
+   dispatched on the 1-token decode path (39 dispatches/step, Stage 0 probe); it
+   is not on the prefill path at all, so it cannot be the source of the prefill
+   delta. The exact-0 decode steps are the direct test of the change and they pass.
+4. Independent token-level evidence: the Stage 1 ABBA sweep ran 12 worker
+   processes (6 OFF, 6 ON) of 33 teacher-forced decode steps each and reported
+   0 greedy-token divergences in every process
+   (research/shared-qmv-logs/stage1.prefetch-abba.log).
+5. Static argument: the ON arm reorders only *when* the code/scale words are
+   loaded, never the accumulation order or the number of `laguna_nvfp4_qdot`
+   calls, and the OFF arm literal is byte-identical to HEAD (verified by
+   emulating Swift multiline-literal indent stripping: old == new(OFF)).
+
+The M5 remains authoritative for the prefill near-tie. No local override
+(MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT) was used to produce these numbers.
