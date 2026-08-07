@@ -7259,8 +7259,8 @@ let lagunaSharedFirstDownOrderEnabled =
 
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf_bf4_pw5"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4_bf4_pw5",
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf_bf4"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4_bf4",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7288,65 +7288,57 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             output_width * scale_row_bytes;
 
         uint tile = threadgroup_position_in_grid.x;
-        uint worker = simdgroup_index_in_threadgroup;
+        uint slot = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
         uint first_row = tile * outputs_per_simd;
-        uint first_slot = worker * 2;
-        uint slot_count = worker == 4 ? 1 : 2;
+        bool is_shared = slot == shared_slot;
+        uint expert = is_shared ? 0 : uint(indices[slot]);
+
+        const device bfloat* expert_input = is_shared
+            ? shared_activated
+            : routed_activated + slot * input_width;
+        const device uint8_t* expert_weight = is_shared
+            ? (const device uint8_t*)shared_down_weight
+            : (const device uint8_t*)routed_down_weight +
+                expert * packed_expert_bytes;
+        const device uint8_t* expert_scales = is_shared
+            ? shared_down_scales
+            : routed_down_scales + expert * scale_expert_bytes;
+
+        thread vec<bfloat, 4> input_values[values_per_lane / 4];
+        const device vec<bfloat, 4>* input_vectors =
+            (const device vec<bfloat, 4>*)(
+                expert_input + lane * values_per_lane);
+        for (uint i = 0; i < values_per_lane / 4; ++i) {
+            input_values[i] = input_vectors[i];
+        }
+
+        thread float result[outputs_per_simd] = {0.0f};
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            uint output_row = first_row + row;
+            const device uint8_t* weight =
+                expert_weight + output_row * packed_row_bytes + lane * 8;
+            const device uint8_t* scale =
+                expert_scales + output_row * scale_row_bytes + lane;
+            result[row] = laguna_nvfp4_qdot_bf16_16(
+                weight,
+                input_values,
+                laguna_nvfp4_scale(scale[0]));
+            result[row] = simd_sum(result[row]);
+        }
 
         threadgroup bfloat down_outputs[
             (routed_experts + 1) * outputs_per_simd
         ];
-        for (uint worker_slot = 0;
-             worker_slot < slot_count;
-             ++worker_slot) {
-            uint slot = first_slot + worker_slot;
-            bool is_shared = slot == shared_slot;
-            uint expert = is_shared ? 0 : uint(indices[slot]);
-
-            const device bfloat* expert_input = is_shared
-                ? shared_activated
-                : routed_activated + slot * input_width;
-            const device uint8_t* expert_weight = is_shared
-                ? (const device uint8_t*)shared_down_weight
-                : (const device uint8_t*)routed_down_weight +
-                    expert * packed_expert_bytes;
-            const device uint8_t* expert_scales = is_shared
-                ? shared_down_scales
-                : routed_down_scales + expert * scale_expert_bytes;
-
-            thread vec<bfloat, 4> input_values[values_per_lane / 4];
-            const device vec<bfloat, 4>* input_vectors =
-                (const device vec<bfloat, 4>*)(
-                    expert_input + lane * values_per_lane);
-            for (uint i = 0; i < values_per_lane / 4; ++i) {
-                input_values[i] = input_vectors[i];
-            }
-
-            thread float result[outputs_per_simd] = {0.0f};
+        if (lane == 0) {
             for (uint row = 0; row < outputs_per_simd; ++row) {
-                uint output_row = first_row + row;
-                const device uint8_t* weight =
-                    expert_weight + output_row * packed_row_bytes + lane * 8;
-                const device uint8_t* scale =
-                    expert_scales + output_row * scale_row_bytes + lane;
-                result[row] = laguna_nvfp4_qdot_bf16_16(
-                    weight,
-                    input_values,
-                    laguna_nvfp4_scale(scale[0]));
-                result[row] = simd_sum(result[row]);
-            }
-
-            if (lane == 0) {
-                for (uint row = 0; row < outputs_per_simd; ++row) {
-                    down_outputs[slot * outputs_per_simd + row] =
-                        bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
-                }
+                down_outputs[slot * outputs_per_simd + row] =
+                    bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (worker == 0 && lane < outputs_per_simd) {
+        if (slot == 0 && lane < outputs_per_simd) {
             bfloat routed_total = bfloat(0);
             for (uint routed_slot = 0;
                  routed_slot < routed_experts;
@@ -7439,8 +7431,8 @@ func lagunaRoutedSharedDownResidual(
                 indices, routerWeights, sharedActivated,
                 sharedDownWeight, sharedDownScales, residual,
             ],
-        grid: ((LagunaConstants.hiddenSize / 2) * 160, 1, 1),
-        threadGroup: (160, 1, 1),
+        grid: ((LagunaConstants.hiddenSize / 2) * 288, 1, 1),
+        threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
     )[0]
