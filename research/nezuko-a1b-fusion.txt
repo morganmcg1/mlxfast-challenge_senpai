@@ -1,0 +1,27 @@
+runs=12  token divergences: NONE
+
+==========================================================================
+fused_qkv_projection
+==========================================================================
+  dS  wall  on=8.2512+-0.0517 ms (n=4)  off=13.2000+-0.0621 ms (n=4)  dS=+4948.7 us/step  perm p=0.0571 (of 70)
+  dI  census sum on=8562.0+-14.9 off=13517.1+-96.2 us/step  dI=+4955.2+-111.2 us/step   (busy_sum check +4955.0 us)
+   on us/step off us/step     delta  kernel
+          0.0      5047.1   +5047.1  gemv_al_bfloat16_bm8_bn1_sm1_sn32_tm4_tn4_nc0_axpby0
+          0.0      1581.7   +1581.7  gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0
+       1329.5         0.0   -1329.5  decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+          0.0      1148.7   +1148.7  gated_affine_oproj_nvfp4_qmv_h64_v1_lm1_pw1_sc1_se1
+       1112.0         0.0   -1112.0  oproj_act_h64_v1_lm1_pw1_sc1_se1
+        362.1         0.0    -362.1  decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+          0.0       312.4    +312.4  gated_affine_oproj_nvfp4_qmv_h48_v1_lm1_pw1_sc1_se1
+        303.6         0.0    -303.6  oproj_act_h48_v1_lm1_pw1_sc1_se1
+          0.0       277.0    +277.0  gemv_al_bfloat16_bm1_bn8_sm1_sn32_tm4_tn4_nc0_axpby0
+        243.0         0.0    -243.0  gate_sp_h64_v1
+
+  EXPOSURE  E = dS/dI = +4948.7 / +4955.2 = 0.999
+            interval [0.87, 1.14] from dS +-341 us, dI +-334 us
+
+==========================================================================
+SUMMARY
+==========================================================================
+  knob                             dI us     dS us       E         interval  power
+  fused_qkv_projection            4955.2    4948.7   0.999 [  0.87,   1.14]  ok

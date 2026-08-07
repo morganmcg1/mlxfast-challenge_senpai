@@ -1,0 +1,26 @@
+   phase       n     cbs    disp   seams    busy_c    busy_s   D_busy   D_wall       p  tokens
+    h1k1 4v4       406.2   406.2     0.0    8598.5    8665.0    +66.5    -56.4   0.057  OK
+    h1k2 4v4       204.1   406.2   202.1    8086.5    8473.5   +387.0   +296.1   0.057  OK
+    h1k0 4v4        45.0   406.2   361.2    8022.0    8470.0   +448.0   +420.9   0.086  OK
+
+  c (serial arms, k=1 vs k=0) = (8665.0 - 8470.0) / 361.2 = 0.540 us/CB
+  zero-overlap work W        = 8445.7 us/step
+  PR #158 published c        = 1.596 us/CB (3.0x this)
+  census de-inflation        = 0.480 us/dispatch (PR #158 used 1.419)
+
+  identity check: c from concurrent arms = (8598.5 - 8022.0) / 361.2 = 1.596
+    c_true + [D(k=0)-D(k=1)]/361.2 = 0.540 + 381.5/361.2 = 1.596  <- same number
+
+  c is NOT constant (serial arms, no overlap anywhere):
+    c(45 -> 204 CB/step) = 0.022 us/CB
+    c(204 -> 406 CB/step) = 0.948 us/CB
+    ratio 43x -- a single-slope model fitted at k=1 cannot be extrapolated to the shipped split
+
+  D(k=2)/D(k=0) observed     = 0.864
+    R-A uniform seams predicts 0.560 (202/361 seams)
+    R-B sibling shadow predicts ~0.95
+  VERDICT: R-B sibling shadowing
+
+  control D(k=1) = +66.5 us/step (must be ~0; >50 us withdraws the A0 conclusion)
+    same runs, wall currency: -56.4 us/step (opposite sign)
+    treating D(k=1) as additive bias: D(k=0)=+381.5, D(k=2)=+320.5, ratio 0.840

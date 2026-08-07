@@ -1,0 +1,46 @@
+runs=24  token divergences: NONE
+
+==========================================================================
+routed_gateup_r1
+==========================================================================
+  dS  wall  on=8.2622+-0.0573 ms (n=4)  off=8.3273+-0.0446 ms (n=4)  dS=+65.0 us/step  perm p=0.1714 (of 70)
+  dI  census sum on=8582.5+-22.8 off=8600.8+-1.0 us/step  dI=+18.2+-23.8 us/step   (busy_sum check +18.0 us)
+   on us/step off us/step     delta  kernel
+          0.0      1517.8   +1517.8  routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v1
+       1497.3         0.0   -1497.3  routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+         77.8        83.7      +5.9  gate_sp_h48_v1
+        635.1       641.0      +5.9  sliding_fused_attn_ring_v1
+        243.0       237.6      -5.4  gate_sp_h64_v1
+        255.2       252.3      -2.8  full_fused_attn_grow_v1
+       1334.8      1332.3      -2.5  decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+       1114.9      1117.3      +2.4  oproj_act_h64_v1_lm1_pw1_sc1_se1
+
+  EXPOSURE  E = dS/dI = +65.0 / +18.2 = 3.562
+            interval UNBOUNDED: dI = +18.2 +-71 us/step straddles zero
+            *** UNDERPOWERED: |dI| = 18 us/step < the 150 us/step design floor. E is not resolvable from this arm; report the bound, not the point estimate. ***
+
+==========================================================================
+shared_qmv_r1
+==========================================================================
+  dS  wall  on=8.2860+-0.0501 ms (n=4)  off=8.2381+-0.0201 ms (n=4)  dS=-47.9 us/step  perm p=0.2000 (of 70)
+  dI  census sum on=8564.9+-5.0 off=8589.2+-13.8 us/step  dI=+24.4+-18.8 us/step   (busy_sum check +24.0 us)
+   on us/step off us/step     delta  kernel
+          0.0       317.4    +317.4  shared_nvfp4_swiglu_qmv_bf16_v1
+        293.1         0.0    -293.1  shared_nvfp4_swiglu_qmv_rows1_bf16_v1
+        242.8       238.2      -4.6  gate_sp_h64_v1
+         77.4        81.3      +3.9  gate_sp_h48_v1
+        203.2       206.9      +3.7  decode_router_top8_ordinal_table_norm_v1
+       1113.2      1116.3      +3.1  oproj_act_h64_v1_lm1_pw1_sc1_se1
+        865.2       862.7      -2.6  routed_shared_nvfp4_down_residual_bf16_r1_v5
+        634.8       636.5      +1.8  sliding_fused_attn_ring_v1
+
+  EXPOSURE  E = dS/dI = -47.9 / +24.4 = -1.969
+            interval UNBOUNDED: dI = +24.4 +-56 us/step straddles zero
+            *** UNDERPOWERED: |dI| = 24 us/step < the 150 us/step design floor. E is not resolvable from this arm; report the bound, not the point estimate. ***
+
+==========================================================================
+SUMMARY
+==========================================================================
+  knob                             dI us     dS us       E         interval  power
+  routed_gateup_r1                  18.2      65.0   3.562 [  -inf,    inf]  UNDERPOWERED
+  shared_qmv_r1                     24.4     -47.9  -1.969 [  -inf,    inf]  UNDERPOWERED

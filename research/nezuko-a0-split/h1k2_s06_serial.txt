@@ -1,0 +1,37 @@
+worker up in 39.1s ok=True
+diagnostics after load: worker_rss_gb=20.71 peak_ram_gb=20.7139892578125 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 560.86 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 10.033 8.779 8.725 8.703 8.699 8.685 8.682 8.681
+decode steps=400 mean=8.737 ms median=8.732 ms p10=8.669 ms p90=8.790 ms min=8.646 ms max=10.033 ms total=3.495 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.720687866210938 mlx_active_gb=33.11 mlx_cache_gb=0.16 mlx_peak_gb=36.10
+worker stderr -> research/nezuko-a0-split/h1k2_s06_serial.worker.err
+
+profile: 85697 command buffers total, 81436 inside 399 steady steps
+per steady step: wall=8.734 ms gpu_busy_sum=8.477 ms gpu_busy_union=8.477 ms gap=0.256 ms (2.9% of wall) cbs=204.1 dispatches=406.2
+
+  us/step   share  n/step  us/call  kernel
+   2327.3  27.45%   39.00    59.68  [2] routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5
+   1414.6  16.69%   30.00    47.15  [2] rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1342.9  15.84%   30.00    44.76  [2] oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1
+    872.1  10.29%   30.00    29.07  [2] sliding_fused_attn_ring_v1|gate_sp_h64_v1
+    477.2   5.63%   39.00    12.24  [2] shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1
+    424.7   5.01%    1.00   424.74  [2] rmsbfloat16|lmhead_int5_base_coarse_delta_bf16_v1
+    351.5   4.15%    9.00    39.06  [2] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+    341.8   4.03%    9.00    37.97  [2] oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1
+    313.3   3.70%    8.98    34.90  [2] full_fused_attn_grow_v1|gate_sp_h48_v1
+    269.9   3.18%    1.00   269.89  [2] residual_rms_bf16_2048_v1|dense_gate_up_swiglu_bf16_v1
+    135.1   1.59%    1.00   135.08  dense_down_residual_bf16_v1
+     79.7   0.94%    1.00    79.69  [2] lmhead_exact_fused_int5_sparse_refine_v1|gather_frontbfloat16_int32_int_2
+     57.5   0.68%    1.00    57.67  [2] full_fused_attn_grow_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1
+     43.5   0.51%    1.00    43.55  [2] gate_sp_h48_v1|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+      9.0   0.11%    1.00     9.00  argmax_bfloat16
+      8.3   0.10%    1.00     8.33  [2] lmhead_coarse_argmax_stage1_v5|lmhead_exact_winner_bf16_midpoint_threshold_v1
+      6.7   0.08%    1.00     6.66  [2] decode_embedding_rope_atlas_bf16_2048_v2|rmsbfloat16
+      0.9   0.01%    0.02    40.24  [2] sdpa_vector|gate_sp_h48_v1
+      0.6   0.01%    0.05    11.22  [2] gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16
+      0.4   0.01%    0.03    17.88  [3] sn_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16
+      0.2   0.00%    0.00    65.79  [2] sdpa_vector|oproj_act_h48_v1_lm1_pw1_sc1_se1
+      0.2   0.00%    0.03     6.44  [2] full_qk_norm_yarn_bf16_128_v4|sn_copybfloat16bfloat16

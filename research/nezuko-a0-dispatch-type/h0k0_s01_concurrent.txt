@@ -1,0 +1,10 @@
+worker up in 39.0s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.71746826171875 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 547.87 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.320 8.273 8.150 8.190 8.103 8.142 8.161 8.108
+decode steps=400 mean=8.197 ms median=8.193 ms p10=8.130 ms p90=8.254 ms min=8.086 ms max=9.320 ms total=3.279 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.723983764648438 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/nezuko-a0-dispatch-type/h0k0_s01_concurrent.worker.err
