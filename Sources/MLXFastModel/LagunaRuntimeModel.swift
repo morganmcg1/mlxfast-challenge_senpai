@@ -1294,7 +1294,7 @@ let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
 private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_packet_prefetch_v1",
+    name: "laguna_sliding_fused_attn_ring_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
@@ -1420,19 +1420,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         thread U pair_o0[v_per_thread];
         thread U pair_o1[v_per_thread];
 
-        bool current_sub_a;
-        bool current_sub_b;
-        bool next_sub_a;
-        bool next_sub_b;
-        U current_ka[4];
-        U current_kb[4];
-        U next_ka[4];
-        U next_kb[4];
-        bfloat current_va0, current_va1, current_va2, current_va3;
-        bfloat current_vb0, current_vb1, current_vb2, current_vb3;
-        bfloat next_va0, next_va1, next_va2, next_va3;
-        bfloat next_vb0, next_vb1, next_vb2, next_vb3;
-
         for (int j = 0; j < qk_per_thread; ++j) {
             pair_q0[j] =
                 static_cast<U>(scale) * tg_q0[lane * qk_per_thread + j];
@@ -1450,28 +1437,32 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         U pair_sum1 = 0;
 
         int i = sg;
-        current_sub_a = uint(i) == widx;
-        current_sub_b = uint(i + BN) == widx;
-        const device bfloat* current_keys_b = pair_keys + inner_k_stride;
-        const device bfloat* current_values_b = pair_values + inner_v_stride;
-        T_LOAD_K(current_ka, current_sub_a, pair_keys);
-        T_LOAD_K(current_kb, current_sub_b, current_keys_b);
-        T_LOAD_V(current_va0, current_va1, current_va2, current_va3,
-            current_sub_a, pair_values);
-        T_LOAD_V(current_vb0, current_vb1, current_vb2, current_vb3,
-            current_sub_b, current_values_b);
-
         for (; i + BN < N; i += 2 * BN) {
+            const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
+            const device bfloat* pipe_values_b = pair_values + inner_v_stride;
+            const bool sub_a = uint(i) == widx;
+            const bool sub_b = uint(i + BN) == widx;
+            U pipe_ka[4];
+            U pipe_kb[4];
+            T_LOAD_K(pipe_ka, sub_a, pair_keys);
+            T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
+            bfloat pipe_va0, pipe_va1, pipe_va2, pipe_va3;
+            bfloat pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3;
+            T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
+                pair_values);
+            T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
+                pipe_values_b);
+
             U pair_score0 = 0;
             U pair_score1 = 0;
-            pair_score0 += pair_q0[0] * current_ka[0];
-            pair_score1 += pair_q1[0] * current_ka[0];
-            pair_score0 += pair_q0[1] * current_ka[1];
-            pair_score1 += pair_q1[1] * current_ka[1];
-            pair_score0 += pair_q0[2] * current_ka[2];
-            pair_score1 += pair_q1[2] * current_ka[2];
-            pair_score0 += pair_q0[3] * current_ka[3];
-            pair_score1 += pair_q1[3] * current_ka[3];
+            pair_score0 += pair_q0[0] * pipe_ka[0];
+            pair_score1 += pair_q1[0] * pipe_ka[0];
+            pair_score0 += pair_q0[1] * pipe_ka[1];
+            pair_score1 += pair_q1[1] * pipe_ka[1];
+            pair_score0 += pair_q0[2] * pipe_ka[2];
+            pair_score1 += pair_q1[2] * pipe_ka[2];
+            pair_score0 += pair_q0[3] * pipe_ka[3];
+            pair_score1 += pair_q1[3] * pipe_ka[3];
             pair_score0 = simd_sum(pair_score0);
             pair_score1 = simd_sum(pair_score1);
 
@@ -1489,45 +1480,25 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
             pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
 
-            pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * current_va0;
-            pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * current_va0;
-            pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * current_va1;
-            pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * current_va1;
-            pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * current_va2;
-            pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * current_va2;
-            pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * current_va3;
-            pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * current_va3;
-
-            const bool has_next = i + 3 * BN < N;
-            if (has_next) {
-                const device bfloat* next_keys_a =
-                    pair_keys + 2 * inner_k_stride;
-                const device bfloat* next_keys_b =
-                    pair_keys + 3 * inner_k_stride;
-                const device bfloat* next_values_a =
-                    pair_values + 2 * inner_v_stride;
-                const device bfloat* next_values_b =
-                    pair_values + 3 * inner_v_stride;
-                next_sub_a = uint(i + 2 * BN) == widx;
-                next_sub_b = uint(i + 3 * BN) == widx;
-                T_LOAD_K(next_ka, next_sub_a, next_keys_a);
-                T_LOAD_K(next_kb, next_sub_b, next_keys_b);
-                T_LOAD_V(next_va0, next_va1, next_va2, next_va3,
-                    next_sub_a, next_values_a);
-                T_LOAD_V(next_vb0, next_vb1, next_vb2, next_vb3,
-                    next_sub_b, next_values_b);
-            }
+            pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
+            pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
+            pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
+            pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
+            pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
+            pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
+            pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
+            pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
 
             U pipeb_score0 = 0;
             U pipeb_score1 = 0;
-            pipeb_score0 += pair_q0[0] * current_kb[0];
-            pipeb_score1 += pair_q1[0] * current_kb[0];
-            pipeb_score0 += pair_q0[1] * current_kb[1];
-            pipeb_score1 += pair_q1[1] * current_kb[1];
-            pipeb_score0 += pair_q0[2] * current_kb[2];
-            pipeb_score1 += pair_q1[2] * current_kb[2];
-            pipeb_score0 += pair_q0[3] * current_kb[3];
-            pipeb_score1 += pair_q1[3] * current_kb[3];
+            pipeb_score0 += pair_q0[0] * pipe_kb[0];
+            pipeb_score1 += pair_q1[0] * pipe_kb[0];
+            pipeb_score0 += pair_q0[1] * pipe_kb[1];
+            pipeb_score1 += pair_q1[1] * pipe_kb[1];
+            pipeb_score0 += pair_q0[2] * pipe_kb[2];
+            pipeb_score1 += pair_q1[2] * pipe_kb[2];
+            pipeb_score0 += pair_q0[3] * pipe_kb[3];
+            pipeb_score1 += pair_q1[3] * pipe_kb[3];
             pipeb_score0 = simd_sum(pipeb_score0);
             pipeb_score1 = simd_sum(pipeb_score1);
 
@@ -1545,35 +1516,14 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             pair_sum0 = pair_sum0 * pipeb_factor0 + pipeb_exp0;
             pair_sum1 = pair_sum1 * pipeb_factor1 + pipeb_exp1;
 
-            pair_o0[0] = pair_o0[0] * pipeb_factor0 + pipeb_exp0 * current_vb0;
-            pair_o1[0] = pair_o1[0] * pipeb_factor1 + pipeb_exp1 * current_vb0;
-            pair_o0[1] = pair_o0[1] * pipeb_factor0 + pipeb_exp0 * current_vb1;
-            pair_o1[1] = pair_o1[1] * pipeb_factor1 + pipeb_exp1 * current_vb1;
-            pair_o0[2] = pair_o0[2] * pipeb_factor0 + pipeb_exp0 * current_vb2;
-            pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * current_vb2;
-            pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * current_vb3;
-            pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * current_vb3;
-
-            if (has_next) {
-                current_sub_a = next_sub_a;
-                current_sub_b = next_sub_b;
-                current_ka[0] = next_ka[0];
-                current_ka[1] = next_ka[1];
-                current_ka[2] = next_ka[2];
-                current_ka[3] = next_ka[3];
-                current_kb[0] = next_kb[0];
-                current_kb[1] = next_kb[1];
-                current_kb[2] = next_kb[2];
-                current_kb[3] = next_kb[3];
-                current_va0 = next_va0;
-                current_va1 = next_va1;
-                current_va2 = next_va2;
-                current_va3 = next_va3;
-                current_vb0 = next_vb0;
-                current_vb1 = next_vb1;
-                current_vb2 = next_vb2;
-                current_vb3 = next_vb3;
-            }
+            pair_o0[0] = pair_o0[0] * pipeb_factor0 + pipeb_exp0 * pipe_vb0;
+            pair_o1[0] = pair_o1[0] * pipeb_factor1 + pipeb_exp1 * pipe_vb0;
+            pair_o0[1] = pair_o0[1] * pipeb_factor0 + pipeb_exp0 * pipe_vb1;
+            pair_o1[1] = pair_o1[1] * pipeb_factor1 + pipeb_exp1 * pipe_vb1;
+            pair_o0[2] = pair_o0[2] * pipeb_factor0 + pipeb_exp0 * pipe_vb2;
+            pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * pipe_vb2;
+            pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
+            pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
