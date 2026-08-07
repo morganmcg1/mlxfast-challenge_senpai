@@ -1686,8 +1686,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaSlidingDenominatorDiagnosticsEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_DENOMINATOR_DIAGNOSTICS"] == "1"
+private let lagunaSlidingDenominatorDiagnosticsEnabled = true
 
 private enum LagunaSlidingDenominatorDiagnostics {
     nonisolated(unsafe) static var activeTokenCount: Int?
