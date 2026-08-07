@@ -1,9 +1,9 @@
 # SENPAI Research State
-- 2026-08-07T15:36Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 1ee80e40 (pushed to origin).
-  31 composed changes (30 LRM optimizations + M5 build fix + PR #292 prefill gate-softplus).
-  LRM: ~508,740/524,288 = ~15,548 B headroom.
-  Total surface: ~2,972,000/3,000,000 = ~28,000 B headroom.
+- 2026-08-07T15:45Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: c3645b48 (pushed to origin).
+  32 composed changes (30 LRM optimizations + M5 build fix + PR #292 prefill gate-softplus + PR #294 dead code removal).
+  LRM: ~499,452/524,288 = ~24,836 B headroom (after PR #294 freed 9,288B).
+  Total surface: ~2,962,000/3,000,000 = ~38,000 B headroom.
 
 ## CRITICAL: M5 BUILD FIX (2026-08-07T15:35Z)
   ROOT CAUSE of ALL birch M5 build failures: M5 Metal compiler (GPU gen 17+) rejects
@@ -38,11 +38,11 @@
 
 ## MERGED WAVE 15
   PR #292 (askeladd): Prefill gate-product+softplus multi-token — MERGED (6.0% prefill, bit-exact, +2954B)
+  PR #294 (thorfinn): Dead code removal — MERGED (3 flags removed, -9,288B LRM, bit-exact)
 
-## ACTIVE ASSIGNMENTS (base 1ee80e40, all need rebase)
+## ACTIVE ASSIGNMENTS (base c3645b48, all need rebase)
   PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — wip, rebase nudge sent (M5 fix warning)
   PR #285 (edward): Routed MoE halved scales escape fix — wip v2, rebase nudge sent (M5 fix warning)
-  PR #294 (thorfinn): Dead code removal — APPROVED, revision v2 requested (rebase on current base, conflict with PR #291)
 
 ## CLOSED
   PR #296 (alphonse): RMSNorm→LM head fusion — CLOSED (bandwidth-negative: 25MB extra norm-weight reads across 6272 TGs)
