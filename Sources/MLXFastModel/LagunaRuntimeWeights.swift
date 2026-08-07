@@ -55,7 +55,7 @@ public struct LagunaWeightLoader {
 
     public func validateRequiredMetadata(config: LagunaConfig) throws {
         let allTensorNames = denseStore.tensorNames
-        let expectedOutputMajorNames = Set(
+        let expectedOutputMajorNames: Set<String> = Set(
             (0..<config.numHiddenLayers).compactMap { layerIndex in
                 guard config.isSparse(layer: layerIndex) else { return nil }
                 return LagunaWeightNames.outputMajorRoutedDownWeight(layerIndex)
