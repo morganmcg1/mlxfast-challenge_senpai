@@ -96,6 +96,19 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
+/// Research-only reachability census (advisor feedback #5, standing rule 1).
+/// `DARKBLOOM_CALL_CENSUS=1` writes one stderr line per dispatch so the number
+/// of times an instrumented site actually executes on the scored path can be
+/// counted rather than assumed. Reverted before submission.
+private let lagunaCallCensus =
+    ProcessInfo.processInfo.environment["DARKBLOOM_CALL_CENSUS"] == "1"
+
+@inline(__always)
+func lagunaCensus(_ site: @autoclosure () -> String) {
+    guard lagunaCallCensus else { return }
+    FileHandle.standardError.write(Data("mlxfast: CENSUS \(site())\n".utf8))
+}
+
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -1733,6 +1746,7 @@ func lagunaSlidingFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("sliding fused attention")
+    lagunaCensus("sliding cap=\(window)")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
     return lagunaSlidingFusedAttentionKernel(
@@ -2257,6 +2271,7 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
+    lagunaCensus("full cap=\(capacity)")
     let params = lagunaFullFusedAttentionParams(
         writeIdx: writeIdx, capacity: capacity)
     return lagunaFullFusedAttentionKernel(
