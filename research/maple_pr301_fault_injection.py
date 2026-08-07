@@ -15,6 +15,17 @@ under test, so a single worker build can serve every fault arm:
                     block's scale byte instead of the next one, i.e. the
                     "forgot to advance the prefetch index" bug. K-blocks 1..3
                     of every row then use a stale scale.
+    prefetch_zero   mechanism (a), calibration at the *same* patched line.
+                    The prefetched scale bytes are forced to 0, so K-blocks
+                    1..3 contribute nothing. If this diverges while
+                    `prefetch_stale` does not, the hook site is demonstrably
+                    live and the stale-scale perturbation is genuinely
+                    subthreshold rather than absent.
+    activation_zero shared-expert calibration. The rows1 kernel writes 0 for
+                    every activation, i.e. the shared expert is deleted. This
+                    bounds the teacher-forced tripwire's power on this code
+                    path: if even this is undetected, no 0-divergence result
+                    on the shared QMV has any power at all.
     plane_byte      mechanism (b), minimal. One data byte of the halved
                     group-32 scale plane is bit-flipped, which corrupts the
                     scale of exactly 16 gate weights of one row: the smallest
@@ -49,6 +60,8 @@ FAULT_FLAG_PATCH = FAULT_FLAG_ANCHOR + '''
 // applied and reverted by research/maple_pr301_fault_injection.py.
 private let lagunaSharedQMVFaultMode =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_FAULT"] ?? ""
+private let lagunaSharedQMVFaultActivationSuffix =
+    lagunaSharedQMVFaultMode == "activation_zero" ? " * bfloat(0)" : ""
 '''
 
 PREFETCH_ANCHOR = r'''            gate_sb = gate_row_scale[next_block / \(weightsPerScaleByte)];
@@ -57,12 +70,22 @@ PREFETCH_ANCHOR = r'''            gate_sb = gate_row_scale[next_block / \(weight
 
 PREFETCH_PATCH = r'''            gate_sb = gate_row_scale[\(faultStaleBlock) / \(weightsPerScaleByte)];
             up_sb = up_row_scale[\(faultStaleBlock) / \(weightsPerScaleByte)];
+            \(faultScaleOverride)
 '''
 
 STALE_LET_ANCHOR = "    let weightsPerScaleByte = lagunaSharedSwiGLUQMVRows1WeightsPerScaleByte\n"
 STALE_LET_PATCH = STALE_LET_ANCHOR + (
     '    let faultStaleBlock =\n'
     '        lagunaSharedQMVFaultMode == "prefetch_stale" ? "block" : "next_block"\n'
+    '    let faultScaleOverride =\n'
+    '        lagunaSharedQMVFaultMode == "prefetch_zero"\n'
+    '        ? "gate_sb = 0; up_sb = 0;" : ""\n'
+)
+
+ACT_ANCHOR = "    activated[row] = bfloat(silu * up);\n"
+ACT_PATCH = (
+    "    activated[row] = bfloat(silu * up)"
+    "\\(lagunaSharedQMVFaultActivationSuffix);\n"
 )
 
 NAME_ANCHOR = '''    name: lagunaSharedSwiGLUQMVPairwiseScalesEnabled
@@ -98,11 +121,18 @@ EDITS = [
     (MODEL, FAULT_FLAG_ANCHOR, FAULT_FLAG_PATCH),
     (MODEL, STALE_LET_ANCHOR, STALE_LET_PATCH),
     (MODEL, PREFETCH_ANCHOR, PREFETCH_PATCH),
+    (MODEL, ACT_ANCHOR, ACT_PATCH),
     (MODEL, NAME_ANCHOR, NAME_PATCH),
     (WEIGHTS, PLANE_ANCHOR, PLANE_PATCH),
 ]
 
-MODES = ("prefetch_stale", "plane_byte", "plane_shift")
+MODES = (
+    "prefetch_stale",
+    "prefetch_zero",
+    "activation_zero",
+    "plane_byte",
+    "plane_shift",
+)
 
 
 def check() -> int:

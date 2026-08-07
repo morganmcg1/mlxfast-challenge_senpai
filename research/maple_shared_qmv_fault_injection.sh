@@ -26,6 +26,8 @@ SUMMARY="${OUT}/summary.txt"
 ARMS=(
   "on-control:1::"
   "on-fault-prefetch_stale:1::prefetch_stale"
+  "on-fault-prefetch_zero:1::prefetch_zero"
+  "on-fault-activation_zero:1::activation_zero"
   "pairwise-control::1:"
   "pairwise-fault-plane_byte::1:plane_byte"
   "pairwise-fault-plane_shift::1:plane_shift"
