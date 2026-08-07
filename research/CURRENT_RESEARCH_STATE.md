@@ -1371,6 +1371,209 @@ idea 2), then ideas 1 and 6 in parallel, holding 2 and 7 until 3 and 4 have
 reported. Idea 5 waits on #137; idea 8 is a filler.
 
 
+#### ⭐ De-risking pass (2026-08-07): three of the eight ideas are now materially different
+
+Two source-reading agents were sent into the shipped decode path before any
+round-25 assignment was written. They changed the ranking. **Read this
+subsection before assigning from the list above.**
+
+##### (a) Idea 3 is re-specified: Q/K/V are *already* one slab. The live residue is **QKV + `g_proj` in one dispatch**.
+
+- Q, K and V are already **one fused dispatch over one concatenated bank**.
+  `prepareNativeAffineQKVWeight()` (`LagunaRuntimeModel.swift:5494`)
+  concatenates the q/k/v code planes and scale planes (`:5536-5537`) into
+  `_nativeAffineQKV` (`:5573`, declared `:5444`); rows =
+  `(heads + 2*numKeyValueHeads)*headDim` (`:4816`) = **10240 (h64) / 8192
+  (h48)**, contraction K = 2048. The bank is built **once outside the timed
+  loop** by `prepareFusedRuntimeWeights()` (`:11011`, `eval(fusedArrays)`
+  `:11042`), called from `LagunaRuntimeWeights.swift:637`. Decode call
+  `lagunaDecodeNVFP4QKVR1` `:5759-5762`; kernels
+  `laguna_decode_nvfp4_qkv_h{48,64}_r1_v1` `:4692` / `_ns1` `:4708` / `_lm1`
+  `:4793`; three mutually-exclusive dispatch sites `:4838`, `:4856`, `:4865`.
+- **`o_proj` cannot join — REFUTED on two independent grounds.** Its bank
+  `_nativeAffineOProj` (`:5450`, built `:5467` from `wo.weight`
+  `[hiddenSize, nHeads*headDim]` `:5471`) has contraction dim **6144 (h48) /
+  8192 (h64)**, not 2048; and its input is the post-SDPA `output`, a strict
+  serial RAW on the *same layer's* QKV. Kernels `laguna_oproj_act_h{48,64}_v1`
+  `:4359` / `_v1_lm1` `:4377`; gated block `:6138-6145`; NVFP4 arm `:6181-6194`.
+  **Recorded as closed (§8).**
+- **`g_proj` is the only remaining merge candidate, and its contraction dim
+  matches.** `_nativeAffineGProj` (declared `:5459`, assigned `:5534`) is built
+  by `lagunaNativeAffineGProjWeight` (`:435-448`), which **always** uses
+  group-32 affine INT8 (`:441-442`) because the accepted envelope caps `g_proj`
+  there (`:433-434`, `TASK.md:80-88`). Shapes (`:4342-4344`): `packedCodes
+  [heads,512]`, `scales [heads,64]`, `biases [heads,64]`; original
+  `[heads,2048]` (`LagunaCheckpointValidation.swift:359`). **K = 2048 — the
+  same as Q/K/V.** Output width = `heads`, known at build time; kernels are
+  pre-specialised per `heads ∈ {64,48}` (`:4320-4327`), output `[1,1,heads]`
+  (`:4351`), grid `(heads/8)*64` (`:4349`). Call `lagunaGateSoftplus` `:5802`;
+  kernel `laguna_gate_sp_h{48,64}_v1` built `:4324`, dispatched `:4347-4353`;
+  flag `DARKBLOOM_AFFINE_GATE_SOFTPLUS` `:4272-4273`.
+- ⇒ A single *bank* merge is barred (NVFP4 vs INT8 are different
+  representations, and moving either one is an envelope violation). **A single
+  *dispatch* binding both an NVFP4 plane and an INT8 plane, selected by a
+  simdgroup-uniform `out_row` branch, is barred by nothing in the source.**
+- ⭐ **The consumer side is already written and already validated.**
+  `prepareNativeAffineQKVWeight` contains a `foldGateIntoBank` path at
+  `:5510-5533` (`totalRows += nHeads`, `_nativeAffineQKVGateRows = nHeads`) and
+  the consumer already slices gate rows out of the QKV output at `:5787-5790`.
+  It requires `groupSize==32 && bits==8 && mode==.affine` (`:5521-5522`).
+  Because the shipped default is `DARKBLOOM_NATIVE_AFFINE_NVFP4_FROM = "0"`
+  (`:2856-2861`), `lagunaNativeAffineWeight` takes the NVFP4 branch on **all 40
+  layers** (`:2909-2922`), so `foldGateIntoBank` is **false everywhere** and the
+  gate always pays its own dispatch. **Do not delete this dead path — it is the
+  reusable half of this idea.**
+- ⭐ **A fourth dispatch is stranded by the same gate.** The input RMSNorm is a
+  separate dispatch every layer because `lagunaFusedNormAffineQKV` requires an
+  INT8 bank **and** folded gate rows (`:5733-5738`), so it never fires on the
+  shipped config. **Folding the gate in is a precondition for recovering
+  norm+QKV fusion too.**
+- **Dispatch arithmetic.** Per layer today: (1) `decode_nvfp4_qkv_h{48,64}`
+  K=2048 N=8192/10240; (2) `gate_sp_h{48,64}` K=2048 N=48/64; (3)
+  `oproj_act_h{48,64}` K=6144/8192 N=2048 ⇒ **120 projection dispatches/token**.
+  Merging (2) into (1) ⇒ **−40/token (−33%)**; recovering the norm fusion ⇒
+  another −40. The gate's ~110 KB/layer of INT8 is **already** being read, so
+  **the prize is launch/latency, not bandwidth.**
+- **Price.** 40 dispatches at #158's measured 3.13–3.59 µs/dispatch ≈ **132
+  µs/step ≈ 3.2% of T = 4.1436 ms ⇒ ≈ +2.0% score**; ≈ +4.0% if the norm fusion
+  also lands. Precision is unchanged for both classes ⇒ envelope-compliant,
+  **zero submitted bytes**.
+- **Instrument.** Δ = 40 dispatches is *below* the §4.1b LAW 2 threshold of
+  Δ ≥ 150 for a local M4 decode arm. The ranked M5 receipt channel resolves
+  ~10 µs/step (cv 0.235%) ≫ 132 µs ⇒ **measure on M5, not on the local probe.**
+- **Pre-registered caveat.** `gate_sp` is the known-shadowed calibrator
+  (§4.9, E ≈ 0.1; PR #101 measured its occupancy re-geometrization at −0.04%).
+  So the *kernel body* may already be free — **the prize is the seam, not the
+  work.** If #174 returns E ≈ 0.1 for a 1-threadgroup sibling, this idea's
+  expected value falls with it.
+- **Rejected sub-option:** reverting layers to INT8 g32 so the existing
+  `foldGateIntoBank` fires. It doubles Q/K/V weight traffic (0.5625 → 1.125
+  B/param) and the in-repo sweep records it as monotone worse (~−0.5%/layer,
+  `:2849-2854`).
+- **Build pattern to copy** — `prepareFusedSharedGateUp()` (`:8248-8275`):
+  idempotence guard `:8249`; exact-stock-config guard `:8250-8258`;
+  dtype/shape guards `:8259-8266`; **`return []` on any decline so the caller
+  silently keeps the stock path** `:8267-8268`; `concatenated(axis: 0)`
+  separately for codes and scales `:8269-8270`; retain side copies + a split
+  offset `:8272-8274` with the consumer slicing at `:8500-8501`; return arrays
+  so the caller batches **one** `eval` `:11042`, run once from
+  `prepareFusedRuntimeWeights()` `:11029` after checkpoint `update`+`eval` and
+  before warmup (`LagunaRuntimeWeights.swift:631-637`). **The module tree is
+  never restructured — every fused layout is a derived side copy**
+  (`:11005-11010`).
+
+**Verdict: this is the strongest round-25 opener and replaces idea 3 at the top
+of the queue.**
+
+##### (b) Idea 1 is DOWNGRADED: the epilogue chain is already fused; only a 1-threadgroup sibling remains
+
+- `DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER` (flag `:531-533`, default ON) already
+  computes **all four** of: the residual+branch BF16 add (`:940-949`), the
+  2048-wide FP32 RMS reduction and weight scale (`:953-963`), the full
+  `[256,2048]` BF16 router mat-vec with one FP32 accumulator per expert row
+  (`:966-978`, body `:875-900`), and — because `DARKBLOOM_ROUTER_PRECOMPUTED_KEYS`
+  also defaults ON (`:171-172`) — the per-expert sigmoid score plus
+  `correction_bias` plus a monotone sortable `uint` ordinal, emitted as a 4th
+  output `router_keys[256]` (`:861-869`, helper `laguna_router_key_ordinal`
+  `:8749`). Kernel `laguna_residual_rms_router_bf16_2048_rpg8_keys_v1` built
+  `:993-1010`, **one** dispatch, grid `tiles*512 = 32*512` (`:1086-1094`),
+  call-site guard `:10351-10369`. It does **not** do top-8 selection.
+- Top-8 happens in two places, both real. (i) A **separate selector dispatch**
+  per sparse layer: `gate(x, logits:)` `:10004` → `lagunaDecodeRouterTop8`
+  (`:9527-9538`, impl `:8881-8899`), kernel
+  `laguna_decode_router_top8_ordinal_table_(norm_)v1` (`:8792-8807`), grid/TG
+  **(256,256) = 1 threadgroup, 256 threads** (`:8872-8877`); the cast sink
+  `:8911` and the top-k renorm sink `:8918` are already folded in (both default
+  ON, `normTopkProb` default true, `LagunaConfig.swift:446`) ⇒ **no extra cast,
+  sum or divide dispatch exists.** (ii) Top-8 is *also* folded into the routed
+  gate/up GEMV: `laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2`
+  (`:7541`) runs the shuffle-only comparator prelude
+  `lagunaRouterTop8PrecomputedPrelude` (`:7504-7516`, helper `:7475-7502`), so
+  each threadgroup re-extracts only its own `expert_slot` winner from
+  `router_keys` and **never waits on the selector** (`:7566`). Dispatch
+  `:10046-10062`, wrapper `:7655-7690`.
+- ⇒ **Only two distinct dispatches exist between the end of `o_proj` and the
+  start of the routed gate/up GEMV.** Nothing else: `eScoreCorrectionBias` is
+  already F32 (`LagunaCheckpointValidation.swift:462`) so the `asType(.float32)`
+  at `:9537` is a no-op; the shared-expert gate/up is issued **after** routed
+  inside `fusedSharedDownInputs` (`:10105`); and `mergedSharedActivated` is
+  declared but **never assigned** (`:10030`, `:10105`) ⇒ no merged
+  routed+shared gate/up dispatch exists today.
+- ⭐ **The selector is a sibling branch, not on the critical path.** Dispatch 1
+  → routed gate/up GEMV is a true RAW (the GEMV reads both `normalized` and
+  `router_keys`, `:10056-10061`, preconditions `:7661-7667`), and dispatch 1 →
+  dispatch 2 is a true RAW. But **dispatch 2 → routed gate/up GEMV is not a
+  dependency** — the GEMV takes `routerKeys`, not `inds`; every use of `inds`
+  before it is shape/dtype metadata only (`:10009`, `:10052-10057`). The
+  selector is on the critical path only to `lagunaRoutedSharedDownResidual` /
+  `lagunaRoutedDownReduce` (`:10112-10113`, `:10125-10130`). The shared-expert
+  branch is likewise documented as independent of the router top-8 (`:274-276`).
+- At **1 threadgroup**, far below the ~480-TG residency ceiling (§4.1), that
+  sibling should overlap essentially perfectly. **The residue of idea 1 is 39
+  dispatch seams ≈ 129 µs ≈ +1.9%, and only if a 1-TG sibling actually costs
+  its seam — which is exactly what PR #174 arm A1 is measuring. Sequence idea 1
+  strictly after #174 reports.** Folding top-8 *into* `residual_rms_router`
+  would need a cross-threadgroup reduction over its 32 threadgroups (a global
+  sync), so it is not a one-kernel change.
+- For the record, the already-shipped decode fusion flags (all default ON,
+  `!= "0"`): `DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV` `:149-150`,
+  `DARKBLOOM_FUSED_SHARED_SWIGLU_QMV` `:127-129`,
+  `DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL` `:141-145` (8 routed downs +
+  shared down + router-weight reduction + routed scale + both BF16 residual
+  adds in one **288-thread** dispatch), plus the two retiles
+  `DARKBLOOM_ROUTED_GATEUP_R1` `:7529-7538` and `DARKBLOOM_QMV_R1` `:269-271`,
+  and `DARKBLOOM_PACKED_SCALES` `:152-166`.
+  **Idea 1 was priced against a chain that no longer exists. Its +4.3% estimate
+  is withdrawn.**
+
+##### (c) `mx::set_wired_limit()` is CLOSED — we already call it, but only on the M5
+
+`LagunaRuntimeWeights.swift:546-598` `wireResidentWeightsIfEnabled()` computes
+`target = 1.0 × Memory.activeMemory + 64 MiB` (≈31.4 GiB, constants
+`:541-542`), clamps to `GPU.maxRecommendedWorkingSetBytes() − 256 MiB`
+(`:571-573`) and applies it through `WiredMemoryTicket(...).start()`
+(`:575-590`) → `mlx_set_wired_limit` (`Vendor/mlx-swift/Source/MLX/WiredMemory.swift:28`).
+It is invoked once from construction (`:460-462`) under `DARKBLOOM_WIRED_ZH !=
+"0"` (default ON) **and `physicalMemory >= 96 GiB` (`:547-548`)**, logging
+`mlxfast: wired-zh ...` to stderr (`:592-598`). `MLX_WIRED_LIMIT` is not
+present; `setShouldMaximizeConcurrentCompilation` is not called anywhere
+(headers only). **The Open-TQ-Metal `set_wired_limit` lead from §0c.7 is
+therefore already harvested — recorded in §8.**
+
+⚠️ **Doctrine caveat this creates.** "The steady decode step is host-independent
+for kernel selection" now needs an asterisk: **the ranked M5 runs with its
+weights wired-resident and the 48 GiB M4 student hosts never trip that gate.**
+Kernel *selection* is still identical, and the organizer states the <64 GiB
+profile "changes allocator management, not ranked code paths", so this is a
+caveat rather than a crisis — but any M4 decode result whose mechanism is
+residency, page faulting, or first-touch behaviour is **not** transferable.
+
+##### (d) Idea 4 is INFEASIBLE as written; its only available form is already PR #148
+
+The prefill attribution audit was specified as a Metal System Trace of one
+prefill on the ranked machine. **Students have no M5 shell; the M5 is reachable
+only through `mlxfast submit`, which returns `officialMetrics` and no GPU
+trace.** No M5 GPUPROF artifact exists anywhere in the repo, and none can be
+produced. The only executable form of idea 4 is **calibrated work injection
+read back through the ranked receipt channel** — which is precisely the
+experiment maple-frieren is already running in PR #148. **Do not assign a
+second student to idea 4.** The advisor sequencing note above ("idea 4 first")
+is superseded.
+
+##### Revised round-25 sequencing
+
+1. **QKV + `g_proj` single-dispatch merge** (re-specified idea 3) — first
+   assignment when a slot frees; ≈ +2.0%, ≈ +4.0% with the stranded norm
+   fusion; zero bytes; measured on the M5 receipt channel.
+2. **#174 reports** → decides whether idea 1's 39-seam residue (≈ +1.9%) is
+   real, and simultaneously re-prices the seam term inside idea 3.
+3. **#170 reports** → if H3 (schedule+latency-limited) wins, idea 6 (dequant
+   instruction diet, θ 0.67 → 0.78, ~+3%) becomes the constructive follow-on.
+4. **#137 reports** → gates idea 5 (two-level lm-head screening cascade).
+5. **#148 reports** → is idea 4, in its only available form.
+6. Ideas 2 and 7 stay held; idea 8 remains filler.
+
+
 ---
 
 ## 8. Closed families — do not repeat, but reopening is allowed
@@ -1387,6 +1590,17 @@ The full evidence table lives in the archive
 
 **Closed this session:**
 
+- **`mx::set_wired_limit()` — CLOSED, already shipped.** The Open-TQ-Metal
+  lead (§0c.7, 10× throughput recovery) is already in the runtime:
+  `LagunaRuntimeWeights.swift:546-598`, invoked at `:460-462`, gated on
+  `DARKBLOOM_WIRED_ZH != "0"` **and `physicalMemory >= 96 GiB` (`:547-548`)**.
+  Reopening requires a *different* residency mechanism, not this call. See
+  §7's de-risking subsection (c) for the M4-vs-M5 doctrine caveat it creates.
+- **`o_proj` joining the fused QKV slab — CLOSED (refuted twice over).** Its
+  contraction dim is 6144/8192 rather than 2048, and its input is post-SDPA
+  `output`, a strict serial RAW on the same layer's QKV. `g_proj` (K = 2048,
+  independent of SDPA) is the only remaining merge candidate; see §7
+  subsection (a).
 - **The row-tile / row-lane-occupancy axis of the prefill gather GEMM —
   CLOSED, and its banked prize RETRACTED.** I had queued a round-24 assignment
   on "25% row-lane utilisation in the (16,256) grid". Direct source reading
