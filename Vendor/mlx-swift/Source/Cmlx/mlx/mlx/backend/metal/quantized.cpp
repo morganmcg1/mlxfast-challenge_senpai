@@ -1362,29 +1362,6 @@ bool darkbloom_expert_stage_wideld() {
   return v;
 }
 
-// DARKBLOOM_EXPERT_BK128 (default OFF; "1" enables): doubles the
-// expert-aligned gather QMM's k-block for the down projection only
-// (K 512, N 2048), halving its k-loop trip count from 8 to 4 and with it the
-// per-threadgroup barrier count, at the cost of 17408B rather than 9216B of
-// staged weights. Bit-identical: BK only changes how many 32-wide k-chunks
-// one iteration stages, and every chunk still reaches the same accumulator in
-// the same globally ascending k order. Baked into the kernel name and
-// template, so each setting compiles exactly one pipeline for the process
-// lifetime.
-//
-// Left OFF because the mechanism is unmeasurable on any host we have: MLX
-// only selects the _nax kernels on GPU generation >= 17, so no local
-// benchmark exercises this code, and the modelled effect (~0.1-0.3% prefill,
-// ~0.03-0.08% score) is an order of magnitude under the +/-0.73% local MDE.
-// It is also mutually exclusive with double-buffering the weight tile:
-// 2 * 17408B = 34816B exceeds the 32768B threadgroup limit, whereas
-// 2 * 9216B = 18432B fits, so BK=64 remains the only variant that can stage
-// and multiply concurrently.
-bool darkbloom_expert_bk128() {
-  static const bool v = env::get_var("DARKBLOOM_EXPERT_BK128", "") == "1";
-  return v;
-}
-
 // DARKBLOOM_EXPERT_GATHER_GROUPS (default 128; "64" restores the promoted
 // four-experts-per-threadgroup schedule and "256" selects one expert per
 // threadgroup, both kept as A/B controls): how many threadgroups the
@@ -1570,56 +1547,6 @@ bool darkbloom_stage_wide_load_ok(
   return true;
 }
 
-// Certifies that the NVFP4 SCALE plane -- a separate buffer from the packed
-// weights -- can be read 16B at a time by the loader's scale window, which
-// replaces two 1B scale loads per k-iteration with one aligned 16B load every
-// four iterations. Every address the loader forms is
-//
-//   scales.offset() + (y_col + expert*N + bi) * K_g + 4*iter + group_id
-//
-// with K_g = K/group_size, y_col a multiple of bn, bi in [0, bn), and the
-// window base taken at `- group_id`. So a single divisibility fact,
-// K_g % 16 == 0, aligns the per-expert stride, the tile column base AND the
-// per-row base simultaneously; only the buffer offset needs a separate check.
-// K_g % 16 == 0 also implies the device-side src_ld % (group_size*16) == 0
-// guard, so host and kernel agree by construction rather than by coincidence.
-//
-// The tail is exact, not merely in bounds: phase-0 windows start at
-// 4*iter for iter in {0, 4, ..., K/bk - 4}, each spans 16B, and the scale row
-// is 4*(K/bk) bytes long, so (K/bk) % 4 == 0 makes the last window end on the
-// row's final byte. Nothing outside the row is ever touched.
-bool darkbloom_stage_wide_scale_ok(
-    const array& scales,
-    bool transpose,
-    int bits,
-    int group_size,
-    int K,
-    int bk) {
-  if (bits != 4 || group_size != 16 || !transpose) {
-    return false;
-  }
-  // The window holds exactly one k-iteration's scale advance per 32b lane, so
-  // the loader's n_groups (== bk / group_size) must be 4. At bk == 128 the
-  // kernel's kScaleWideShapeOk is false and its static_assert would turn a
-  // host "yes" into a hard JIT failure; refuse here so the two agree.
-  if ((bk / group_size) != 4) {
-    return false;
-  }
-  if ((K % group_size) != 0 || (K % bk) != 0) {
-    return false;
-  }
-  if (((K / group_size) % 16) != 0) {
-    return false;
-  }
-  if (((K / bk) % 4) != 0) {
-    return false;
-  }
-  if ((scales.offset() % 16) != 0) {
-    return false;
-  }
-  return true;
-}
-
 } // namespace
 
 // DARKBLOOM_GATHER_XMAJOR: fold this many ADJACENT BN-wide column tiles of
@@ -1663,39 +1590,37 @@ bool darkbloom_bsearch_hoist() {
   return v;
 }
 
-// Regime discriminator for the routed prefill gather GEMM. Selects a
-// bit-exact work-injection arm compiled into the kernel as a non-type
-// template parameter, so each arm is a distinct pipeline built once per
-// process (never a mid-process function-constant flip). 0 is the shipped
-// kernel and leaves both the template argument list and the kernel name
-// byte-identical to the promoted frontier.
-//   m2 -> 1  double the MMA chain, no extra memory traffic
-//   s2 -> 2  double the weight load+dequant staging (+1 barrier)
-//   b2 -> 3  two extra threadgroup barriers per k-iteration
-//   s3 -> 4  s2's staging work restaged from this expert's own tile, so the
-//            extra reads hit cache instead of DRAM; s3 - s2 is the byte term
-// The official runner strips the environment (benchmark.sh's timed path runs
-// under `sudo env_reset` + `env -i`), so for a ranked measurement arm the
-// compiled-in default IS the arm. Each official receipt flips this one token
-// and nothing else; "" is the shipped kernel and is what stays committed.
-constexpr const char* kNaxGatherProbeDefault = "";
-
-int darkbloom_nax_gather_probe() {
+// DARKBLOOM_STAGE2_GATHER: overlap weight staging with the MMA chain in the
+// expert-aligned prefill gather-QMM (fp_gather_qmm_rhs_expert_nax). Stock
+// fuses the staging device loads, the nibble decode, and the threadgroup
+// stores into one step wedged between the WAR and RAW barriers, so every
+// thread waits out the device read latency with no arithmetic in flight,
+// K_it times per expert chunk.
+//
+//   0  stock fused staging (guarded blocks preprocess away byte-identically)
+//   1  split staging + two Ws buffers, one barrier per k iteration; costs
+//      2x threadgroup memory, so fewer threadgroups stay co-resident
+//   2  split staging + one Ws buffer, both barriers kept; the next tile's
+//      device reads are issued an iteration early and fly across the RAW
+//      barrier and the MMA chain, at zero occupancy cost
+//
+// Default 1. Parsed once per process; MUST stay in lockstep with the JIT
+// define injected in jit_kernels.cpp (get_qmm_nax_kernel calls this same
+// function), because the variant chooses the kernel's threadgroup
+// allocation as well as its loop shape.
+int darkbloom_stage2_gather_variant() {
   static const int v = [] {
-    auto s = env::get_var("DARKBLOOM_NAX_GATHER_PROBE", kNaxGatherProbeDefault);
-    if (s == "m2") {
+    const std::string s = env::get_var("DARKBLOOM_STAGE2_GATHER", "");
+    if (s.empty()) {
       return 1;
     }
-    if (s == "s2") {
-      return 2;
+    if (s == "0") {
+      return 0;
     }
-    if (s == "b2") {
-      return 3;
+    if (s == "1") {
+      return 1;
     }
-    if (s == "s3") {
-      return 4;
-    }
-    return 0;
+    return 2;
   }();
   return v;
 }
@@ -1754,23 +1679,11 @@ void gather_qmm_rhs_nax(
     default: break;                          // upstream: bm=64, wm=2, wn=2
   }
 
-  const bool laguna_moe_shape =
-      (K == 2048 && N == 1024) || (K == 512 && N == 2048);
-  // bk is shared with every non-Laguna shape reaching this dispatch, so the
-  // doubled k-block is applied only under the full expert-aligned predicate
-  // for the down projection. align_K below then re-checks 512 % 128.
-  // down-only is the assigned scope, not a structural limit: BK is orthogonal
-  // to BN, so gate_up (K 2048 % 128 == 0) admits the same change with
-  // kSwigluRegLocal's BN == 64 intact, and carries 2x the tile-iterations.
-  if (darkbloom_expert_bk128() && darkbloom_expert_aligned_gather() &&
-      mode != "affine" && transpose && group_size == 16 && bits == 4 &&
-      K == 512 && N == 2048 && M >= 64 && bm == 64 && wm == 4 && wn == 1) {
-    bk = 128;
-  }
-
   const bool align_M = (M % bm) == 0;
   const bool align_N = (N % bn) == 0;
   const bool align_K = (K % bk) == 0;
+  const bool laguna_moe_shape =
+      (K == 2048 && N == 1024) || (K == 512 && N == 2048);
   // wn == 1 admitted 2026-07-31 (GatherX): DARKBLOOM_STAGE_BM128=5's
   // BM64/WM4/WN1 tiling (128 thr/TG, SN=64/TN=4) previously fell off the
   // expert path here and silently measured the NON-expert kernel. On the
@@ -1782,23 +1695,9 @@ void gather_qmm_rhs_nax(
       darkbloom_expert_aligned_gather() && mode != "affine" && transpose &&
       group_size == 16 && bits == 4 && laguna_moe_shape && M >= 64 &&
       align_N && align_K && bm == 64 && wm == 4 && (wn == 2 || wn == 1);
-  // Positive kernel-selection assert. Falling off expert_aligned dispatches
-  // the non-expert kernel silently, so a bk that only the expert kernel was
-  // reasoned about would be measured on code nobody analysed. bk != 64 is
-  // reachable only from the gate above, whose predicate is a strict superset
-  // of expert_aligned's; this turns that argument into an enforced invariant
-  // rather than a comment that a later edit can invalidate.
-  if (bk != 64 && !expert_aligned) {
-    throw std::runtime_error(
-        "[gather_qmm_rhs_nax] widened k-block escaped the expert-aligned "
-        "path; it would silently dispatch the non-expert kernel");
-  }
   std::string type_string = get_type_string(x.dtype());
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
-  const bool static_expert_shape =
-      expert_aligned && static_laguna_shapes && mode == "nvfp4" &&
-      type_string == "bfloat16_t" && !biases_.has_value();
   // How many threadgroups the expert path spreads the 256 experts over; the
   // value is baked into the kernel name and template (see
   // darkbloom_expert_gather_groups), so each setting compiles exactly one
@@ -1812,36 +1711,19 @@ void gather_qmm_rhs_nax(
   const bool expert_wideld = expert_aligned &&
       darkbloom_expert_stage_wideld() &&
       darkbloom_stage_wide_load_ok(w, transpose, bits, N, K, bn);
-  // The scale window rides on the wide weight load: it reuses that path's
-  // per-chunk structure, so it is only offered where the wide load already
-  // certified. Same per-bank stability argument as expert_wideld.
-  const bool expert_widescale = expert_wideld &&
-      darkbloom_stage_wide_scale_ok(scales, transpose, bits, group_size, K, bk);
-  // Only the expert-aligned kernel carries the probe template parameter; the
-  // shared non-expert builder keeps its stock signature.
-  const int probe_requested = darkbloom_nax_gather_probe();
-  // Interlock, not a safety net: a requested probe that quietly degraded to 0
-  // would inject nothing and still publish a healthy receipt, which reads as a
-  // true null rather than as an instrument that never armed. Failing loudly
-  // makes "the receipt carries timings at all" sufficient evidence that the
-  // probe landed, since the kernel builder throws rather than substituting a
-  // non-probe kernel. Probe 0 -- the shipped default -- never reaches this.
-  //
-  // Scoped to laguna_moe_shape because that -- and only that -- is the object
-  // under measurement. A Laguna-shaped call that falls off expert_aligned is
-  // the real confound and must abort. A non-Laguna shape was never going to be
-  // probed, so aborting on it would trade a whole official receipt
-  // (officialMetrics = null, zero information, one of four) for no scientific
-  // protection. The unfused switchMLP fallback's gate/up is the only such
-  // shape reachable from the scored path (K 2048, N 512); if it ever ran, the
-  // lost gate/up fusion would move S far past the arm's pre-registered cap and
-  // be caught there rather than silently.
-  if (probe_requested != 0 && !expert_aligned && laguna_moe_shape) {
-    throw std::runtime_error(
-        "[gather_qmm_rhs_nax] gather probe requested off the expert-aligned "
-        "path; it would measure an unarmed control");
-  }
-  const int gather_probe = expert_aligned ? probe_requested : 0;
+
+  // Detect scale-plane-halved NVFP4 scales: when the last scale dimension is
+  // half of K/group_size, the caller packed one scale per pair (scale[2k] at
+  // position k) exploiting the NVFP4 pairwise-constancy invariant. The escape
+  // bytes for the sole exception pair (row 0 byte 1, and up-row-0 byte 1 for
+  // fused gate/up) arrive via the biases_ array.
+  const bool halved_scales = expert_aligned &&
+      scales.shape(-1) == K / (group_size * 2);
+
+  const bool static_expert_shape =
+      expert_aligned && static_laguna_shapes && mode == "nvfp4" &&
+      type_string == "bfloat16_t" &&
+      (!biases_.has_value() || halved_scales);
 
   // DARKBLOOM_STAGE2_GATHER ground truth at the DISPATCH site. The define
   // itself is injected at JIT assembly (jit_kernels.cpp, expert kernels
@@ -1849,27 +1731,25 @@ void gather_qmm_rhs_nax(
   // expert-aligned path that define targets -- the exact confound that made
   // the STAGE_WIDEST/WIDELD arms measure their own control (those function
   // constants only ever reached the non-expert kernel). "active" requires
-  // BOTH the flag and the expert path; a declining guard prints "inactive".
+  // BOTH a non-zero variant and the expert path; a declining guard prints
+  // "inactive". Printed unconditionally (once) so an official receipt log
+  // carries the resolved variant even when no trace env var is set.
   {
-    static const bool stage2_flag =
-        env::get_var("DARKBLOOM_STAGE2_GATHER", "") == "1";
-    static const bool trace_fusion =
-        env::get_var("DARKBLOOM_TRACE_FUSION", "") == "1";
-    if (stage2_flag || trace_fusion) {
-      static std::once_flag stage2_once;
-      std::call_once(stage2_once, [&]() {
-        fprintf(
-            stderr,
-            "mlxfast: fusion %s: stage2_gather "
-            "(dispatch expert=%d egroups=%d N=%d K=%d M=%d)\n",
-            (stage2_flag && expert_aligned) ? "active" : "inactive",
-            int(expert_aligned),
-            egroups,
-            N,
-            K,
-            M);
-      });
-    }
+    static const int stage2_variant = darkbloom_stage2_gather_variant();
+    static std::once_flag stage2_once;
+    std::call_once(stage2_once, [&]() {
+      fprintf(
+          stderr,
+          "mlxfast: fusion %s: stage2_gather v%d "
+          "(dispatch expert=%d egroups=%d N=%d K=%d M=%d)\n",
+          (stage2_variant != 0 && expert_aligned) ? "active" : "inactive",
+          stage2_variant,
+          int(expert_aligned),
+          egroups,
+          N,
+          K,
+          M);
+    });
   }
 
   // DARKBLOOM_GATHER_XMAJOR ground truth at the DISPATCH site, same
@@ -1934,38 +1814,8 @@ void gather_qmm_rhs_nax(
       expert_aligned
           ? ("_eg_" + std::to_string(egroups) + (expert_widest ? "_ws_1" : "_ws_0") +
              (expert_wideld ? "_wl_1" : "_wl_0") +
-             (expert_widescale ? "_sl_1" : "_sl_0"))
-          : "",
-      // The JIT library cache is keyed on the kernel name alone, so a probe
-      // arm MUST change it. Suffix omitted at probe 0 to keep the shipped
-      // name byte-identical.
-      gather_probe ? ("_pb_" + std::to_string(gather_probe)) : "");
-
-  // Probe ground truth at the DISPATCH site, same contract as the stage2 and
-  // xmajor lines above: "active" requires BOTH a requested probe and the
-  // expert-aligned path, and the printed kname is the one actually handed to
-  // the JIT (whose library cache is keyed on that name alone). Gating on the
-  // REQUESTED probe rather than the applied one is deliberate: an arm whose
-  // expert path declined then prints "inactive" instead of printing nothing,
-  // so a receipt can never silently measure its own control.
-  if (probe_requested != 0 ||
-      env::get_var("DARKBLOOM_TRACE_FUSION", "") == "1") {
-    static std::once_flag probe_once;
-    std::call_once(probe_once, [&]() {
-      fprintf(
-          stderr,
-          "mlxfast: fusion %s: nax_gather_probe=%d req=%d (dispatch expert=%d "
-          "N=%d K=%d M=%d kname=%s)\n",
-          gather_probe ? "active" : "inactive",
-          gather_probe,
-          probe_requested,
-          int(expert_aligned),
-          N,
-          K,
-          M,
-          kname.c_str());
-    });
-  }
+             (halved_scales ? "_hs_1" : "_hs_0"))
+          : "");
 
   // Skipping dead runs is a pure work elision (see function constant 203 in
   // fp_quantized_nax): it drops only matmuls whose results store_slice never
@@ -2001,8 +1851,7 @@ void gather_qmm_rhs_nax(
       fprintf(
           stderr,
           "mlxfast: stage active: widest=%d wideld=%d(req=%d wide_ok=%d) "
-          "runbar=%d novol=%d expert=%d expert_ws=%d expert_wl=%d "
-          "expert_sl=%d(s.offset=%zu) bm128=%d "
+          "runbar=%d novol=%d expert=%d expert_ws=%d expert_wl=%d bm128=%d "
           "bm=%d wm=%d wn=%d w.offset=%zu transpose=%d bits=%d N=%d K=%d "
           "bn=%d\n",
           int(stage_widest),
@@ -2014,8 +1863,6 @@ void gather_qmm_rhs_nax(
           int(expert_aligned),
           int(expert_widest),
           int(expert_wideld),
-          int(expert_widescale),
-          size_t(scales.offset()),
           bm128,
           bm,
           wm,
@@ -2088,8 +1935,7 @@ void gather_qmm_rhs_nax(
         egroups,
         expert_widest,
         expert_wideld,
-        expert_widescale,
-        gather_probe);
+        halved_scales);
     kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
   } else {
     kernel = get_gather_qmm_nax_kernel(
@@ -2125,7 +1971,17 @@ void gather_qmm_rhs_nax(
   compute_encoder.set_input_array(x, c++);
   compute_encoder.set_input_array(w, c++);
   compute_encoder.set_input_array(scales, c++);
-  if (biases_) {
+  if (expert_aligned) {
+    // The expert kernel takes an escape buffer at input 3 (between scales and
+    // indices). When halved, the escape arrives via biases_; otherwise pass a
+    // dummy (the kernel ignores it when kHalvedScales is false).
+    if (halved_scales && biases_.has_value()) {
+      array escape = ensure_row_contiguous(*biases_, d, s);
+      compute_encoder.set_input_array(escape, c++);
+    } else {
+      compute_encoder.set_input_array(scales, c++);
+    }
+  } else if (biases_) {
     array biases = ensure_row_contiguous(*biases_, d, s);
     compute_encoder.set_input_array(biases, c++);
   }
