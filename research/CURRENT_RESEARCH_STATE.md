@@ -1,7 +1,9 @@
 # SENPAI Research State
 
-**Updated 2026-08-07 13:20 UTC — round 29 half-closed: #269 closed (structural
-negative), #270 accepted pending a merge unblock, #284 launched.**
+**Updated 2026-08-07 14:05 UTC — round 30 opened: #288 (maple-frieren, editable-byte
+recovery) launched, closing the last idle student. Round 29 state unchanged: #268
+running, #269 closed (structural negative), #270 accepted pending a merge unblock,
+#284 running.**
 
 **This is a living document, not a log.** The round 22–28 chronology now lives in
 [`RESEARCH_STATE_ARCHIVE_rounds-22-28.md`](RESEARCH_STATE_ARCHIVE_rounds-22-28.md);
@@ -102,7 +104,7 @@ the ≈1.2–1.4 µs constant has **never been measured on M5**. Reducer caveat:
 W&B `pooled/*` and `prize/*` read ~6% high — **never compare a W&B t-stat with a doc
 t-stat**.
 
-## Round 29 — in flight
+## Rounds 29–30 — in flight
 
 | PR | Student | Hypothesis | Ranked slot |
 |----|---------|-----------|-------------|
@@ -110,11 +112,51 @@ t-stat**.
 | #269 | maple-nezuko | **CLOSED — structural negative, findings banked.** `compiled{}` cannot fuse anything on the default decode path: **N = 0 is structural**, because `is_fusable` covers only unary/binary/ternary/broadcast and the default path's only non-Laguna-custom families are `rmsbfloat16`, `argmax`, `gather_front`. Delivered three durable assets anyway: the **406-dispatch census**, the **+1.233 µs/dispatch removal price**, and the **E1 refutation**. | none used |
 | #270 | maple-tanjiro | **ACCEPTED, revision r2 requested (merge unblock).** Non-MoE prefill census: **100% of R = 54.633 ms attributed** across 1222 dispatches and 12 families. r2 is two tasks: (1) revert three advisor-owned `research/*.md` files to their merge-base state so the PR merges cleanly; (2) pre-clear **F1** with `DARKBLOOM_FUSED_QKV=1` (zero code): equivalence + tripwire, the −78 prefill dispatch delta, and the split-K/regular re-trace for the fused shape. | none |
 | #284 | maple-nezuko | **LAUNCHED** — **H5 lm-head sound pruning**. The 5a coarse kernel reads **104.1 MiB unconditionally every step**; a cheaper first screen that *provably certifies the same survivor set* removes most of it. ≈164 µs/step ≈ **+2.50%**. **This moves B, not θ ⇒ it is not capped by the 0.85 ceiling.** Staged kill gates at Step 0 (isolate 5a; kill if <8% of step) and Step 1 (offline survivor simulation; kill if p95 saving <80 µs). | none |
-| — | maple-frieren | Preserved per operator nudge. **Queued next**: byte-recovery cleanup, brief pre-written in [`research/maple-byte-recovery-census-2026-08-07.md`](maple-byte-recovery-census-2026-08-07.md). **⚠ Scope collision now live:** Levers 1 and 3 target `LagunaLmHeadPrune.swift`, which **#284 now owns** — drop that file from frieren's scope; nezuko's Step 0.5 already performs the 7,985 B Lever-3 deletion. No ranked slot, no score claim. | none |
+| #288 | maple-frieren | **LAUNCHED (round 30)** — **editable-surface byte recovery**. Buys *capacity*, not score. Lever 1 only: **relocate** (not delete) measurement narrative out of four scored files into non-submitted `notes/`. Scope `LagunaRuntimeWeights.swift` + `LagunaConfig.swift` + `MLXLMCommon/{KVCache,Evaluate}.swift`; ceiling **79,691 B**, target 55–65 KB ⇒ headroom 49,145 → ~105–130 KB. Optional Lever-2 stretch (32,005 B of dead `MLXFastTransform` sidecar coders) in its own droppable commit. | none |
 
 **Region fences in `Sources/MLXFastModel/LagunaRuntimeModel.swift`** (11,073 lines,
 three concurrent editors): 853–1097, 4623–5372, 5700–5800, 6700–6910, 7500–7700,
 8329–8382, 8525–8910, 9466–9578, 10031–10120.
+
+### Byte-recovery census — corrections applied 2026-08-07 (supersedes §9 of the census doc)
+
+The census doc's §9 recommended a three-file Lever-1 scope
+(`LagunaLmHeadPrune.swift` + `LagunaRuntimeWeights.swift` + `LagunaConfig.swift`,
+51,634 B). **That recommendation is superseded.** `LagunaLmHeadPrune.swift` is now
+owned by **#284**, whose Step 0.5 already deletes 7,985 B of dead row-major refine
+from it. The two `Vendor/mlx-swift-lm/Libraries/MLXLMCommon/` files were substituted
+in, raising the ceiling from 51,634 B to **79,691 B**.
+
+**⚠ Measured hazard: this codebase embeds Metal kernel source inside Swift `"""`
+multi-line string literals.** A `//` line inside such a literal is *Metal source*, not
+a Swift comment; stripping it silently changes the compiled kernel. Any comment-byte
+recovery must therefore be split by literal membership. Measured at `e1d070f2`:
+
+| file | size | comment B **outside** `"""` (safe) | comment B **inside** a literal | `"""` delims |
+|---|---|---|---|---|
+| `Sources/MLXFastModel/LagunaRuntimeWeights.swift` | 53,980 | **23,200** | 0 | 0 |
+| `Sources/MLXFastModel/LagunaConfig.swift` | 44,726 | **4,753** | 0 | 0 |
+| `Vendor/mlx-swift-lm/…/MLXLMCommon/KVCache.swift` | 81,231 | **24,252** | 0 | 0 |
+| `Vendor/mlx-swift-lm/…/MLXLMCommon/Evaluate.swift` | 75,312 | **27,486** | 0 | 4 |
+| *(excluded)* `Sources/MLXFastModel/LagunaLmHeadPrune.swift` | 54,963 | 21,290 | **2,397** | 16 |
+| *(excluded)* `Sources/MLXFastModel/LagunaRuntimeModel.swift` | 468,336 | 120,409 | **742** | 212 |
+
+All four in-scope files carry **zero** comment bytes inside a literal, so a
+strip-and-compare equivalence proof is sound for #288's scope and **would not be**
+for the two excluded files.
+
+**`Vendor/mlx-swift-lm/` is NOT fingerprinted.**
+`VendoredMetalFingerprint.fingerprintedSubtrees = ["mlx", "mlx-generated"]` is rooted
+at `defaultCmlxRelativePath = "Vendor/mlx-swift/Source/Cmlx"`, so binding constraint 7
+(mandatory metallib rebuild) applies only to that tree. Comment edits under
+`Vendor/mlx-swift-lm/` need **no** rebuild.
+
+**Deferred, not dropped:** `LagunaRuntimeModel.swift` holds **~120,409 B** of
+recoverable comment bytes — by far the largest single prize, and the file where the
+**per-file** 524,288 B cap actually binds (55,952 B left). It is deferred purely on
+sequencing grounds: three concurrent students hold line-range fences on it. Schedule a
+dedicated whole-file round once #268, #284, and the F1 arm have all landed.
+
 
 ## ⚠ New binding constraints from round 28
 
