@@ -13,6 +13,7 @@ large to keep in the repository; their digests are committed under
 import argparse
 import math
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -65,11 +66,44 @@ AGGREGATE = [
     ("drift_tripwire_128", 3, 128, 384, 0),
 ]
 
+# Standing rule 16: a zero-divergence correctness result is only evidence once
+# the same check is shown to catch a deliberately broken variant.
+FAULT_LOG = "research/shared-qmv-logs/fault-injection.log"
+FAULT_COLS = ["arm", "kind", "rc", "divergences", "first_divergence",
+              "detected"]
+FAULT_RE = re.compile(
+    r"^(?P<tag>\S+)\s+rc=(?P<rc>-?\d+)\s+divergences=(?P<div>\S+)"
+    r"(?:\s+first=(?P<first>.*))?$")
+
+
+def load_fault(path):
+    """Parse the fault-injection driver's summary lines, if archived."""
+    if not os.path.exists(path):
+        return []
+    rows = []
+    for line in open(path):
+        m = FAULT_RE.match(line.strip())
+        if not m:
+            continue
+        tag = m.group("tag")
+        kind = "fault" if "-fault-" in tag else "control"
+        try:
+            div = int(m.group("div"))
+        except ValueError:
+            div = None
+        # A control must find nothing; a fault arm must find something.
+        detected = None if div is None else (
+            div == 0 if kind == "control" else div > 0)
+        rows.append((tag, kind, int(m.group("rc")), div,
+                     (m.group("first") or "").strip(), detected))
+    return rows
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("score_dirs", nargs="+")
     ap.add_argument("--run-name", default="maple-shared-qmv-twin-gap-stage3")
+    ap.add_argument("--fault-log", default=FAULT_LOG)
     ap.add_argument("--offline", action="store_true")
     args = ap.parse_args()
 
@@ -161,6 +195,16 @@ def main():
     summary["correctness/aggregate/comparisons"] = sum(r[3] for r in AGGREGATE)
     summary["correctness/aggregate/divergences"] = sum(r[4] for r in AGGREGATE)
 
+    fault_rows = load_fault(args.fault_log)
+    fault_table = wandb.Table(columns=FAULT_COLS)
+    for rec in fault_rows:
+        fault_table.add_data(*rec)
+        summary[f"correctness/fault_injection/{rec[0]}/divergences"] = rec[3]
+    if fault_rows:
+        summary["correctness/fault_injection/arms"] = len(fault_rows)
+        summary["correctness/fault_injection/all_as_expected"] = \
+            all(r[5] for r in fault_rows)
+
     kernel_table = wandb.Table(columns=KERNEL_COLS)
     for rec in KERNEL_AB:
         per_step = rec[8] * CALLS_PER_STEP
@@ -186,7 +230,8 @@ def main():
 
     run.log({"local_iterate_runs": run_table, "kernel_ab": kernel_table,
              "drift_tripwire_128step": tripwire_table,
-             "correctness_aggregate": aggregate_table})
+             "correctness_aggregate": aggregate_table,
+             "fault_injection": fault_table})
     run.summary.update(summary)
     print(f"logged {len(summary)} scalars, {len(rows)} runs -> {run.url}")
     print(f"run id: {run.id}")
