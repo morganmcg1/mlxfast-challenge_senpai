@@ -1598,6 +1598,13 @@ bool darkbloom_stage_wide_scale_ok(
   if (bits != 4 || group_size != 16 || !transpose) {
     return false;
   }
+  // The window holds exactly one k-iteration's scale advance per 32b lane, so
+  // the loader's n_groups (== bk / group_size) must be 4. At bk == 128 the
+  // kernel's kScaleWideShapeOk is false and its static_assert would turn a
+  // host "yes" into a hard JIT failure; refuse here so the two agree.
+  if ((bk / group_size) != 4) {
+    return false;
+  }
   if ((K % group_size) != 0 || (K % bk) != 0) {
     return false;
   }
