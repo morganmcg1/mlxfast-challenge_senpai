@@ -1416,14 +1416,10 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         uint widx = params[0];
         float scale = scale_arr[0];
 
-        // Single threadgroup buffer: tg_q0/q1/k/v (Phase 1-3a) share
-        // memory with outputs/max/sum (Phase 3b) via pointer cast.
-        // BD stride (32) for the 8-plane exchange fits 32 768 B.
-        threadgroup char tg_mem[8 * BN * BD * sizeof(U)];
-        threadgroup bfloat* tg_q0 = (threadgroup bfloat*)tg_mem;
-        threadgroup bfloat* tg_q1 = (threadgroup bfloat*)(tg_mem + head_dim * sizeof(bfloat));
-        threadgroup bfloat* tg_k  = (threadgroup bfloat*)(tg_mem + 2 * head_dim * sizeof(bfloat));
-        threadgroup bfloat* tg_v  = (threadgroup bfloat*)(tg_mem + 3 * head_dim * sizeof(bfloat));
+        threadgroup bfloat tg_q0[head_dim];
+        threadgroup bfloat tg_q1[head_dim];
+        threadgroup bfloat tg_k[head_dim];
+        threadgroup bfloat tg_v[head_dim];
 
         // Phase 1: per-head RMSNorm + plain RoPE, textual replica of
         // laguna_sliding_qk_norm_rope_bf16_128_v1 with the device row
@@ -1499,10 +1495,9 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         // replica of the sdpa_vector pair path at fixed kL = 512 (steady
         // ring: the 8-trip two-deep pipeline covers all 16 slots per
         // simdgroup with no tail).
-        // outputs/max/sum overlay tg_q0..tg_v via tg_mem (freed after loop).
-        threadgroup U* outputs = (threadgroup U*)tg_mem;
-        threadgroup U* max_scores = (threadgroup U*)tg_mem;
-        threadgroup U* sum_exp_scores = (threadgroup U*)(tg_mem + 2 * BN * sizeof(U));
+        threadgroup U outputs[8 * BN * BDP];
+        threadgroup U max_scores[2 * BN];
+        threadgroup U sum_exp_scores[2 * BN];
 
         const device bfloat* pair_keys = k_cache +
             (size_t)kv_head * (window * head_dim) +
@@ -1626,20 +1621,24 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
         }
-        // Barrier: tg_q0..tg_v are dead past this point; the epilogue
-        // reuses their memory (tg_mem) for the 8-plane exchange.
-        threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // Epilogue: 2 barriers instead of 3.  Max/sum exchange uses the
-        // first 256 B of tg_mem; the 8-plane output exchange then
-        // overwrites it.  BD (32) stride fits 8*32*32 = 32 768 B.
+        // Combine: single-round four-plane exchange (pair_planes=4),
+        // collapsing 3 barriers to 1. Each of the 4 output elements per
+        // pair writes to its own dedicated plane; no RAW/WAR hazard
+        // within a round, so a single barrier suffices.
         constexpr int pair_planes = 4;
-        constexpr int pair_plane_size = BN * BD;
+        constexpr int pair_plane_size = BN * BDP;
         if (lane == 0) {
             max_scores[sg] = pair_max0;
             max_scores[BN + sg] = pair_max1;
             sum_exp_scores[sg] = pair_sum0;
             sum_exp_scores[BN + sg] = pair_sum1;
+        }
+        for (int p = 0; p < pair_planes; ++p) {
+            outputs[p * pair_plane_size + lane * BDP + sg] = pair_o0[p];
+            outputs[
+                (pair_planes + p) * pair_plane_size + lane * BDP + sg] =
+                pair_o1[p];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -1653,20 +1652,12 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         pair_sum1 = simd_sum(sum_exp_scores[BN + lane] * pair_global_factor1);
 
         for (int p = 0; p < pair_planes; ++p) {
-            outputs[p * pair_plane_size + lane * BD + sg] = pair_o0[p];
-            outputs[
-                (pair_planes + p) * pair_plane_size + lane * BD + sg] =
-                pair_o1[p];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        for (int p = 0; p < pair_planes; ++p) {
             U acc0 = simd_sum(
-                outputs[p * pair_plane_size + sg * BD + lane] *
+                outputs[p * pair_plane_size + sg * BDP + lane] *
                 pair_global_factor0);
             U acc1 = simd_sum(
                 outputs[
-                    (pair_planes + p) * pair_plane_size + sg * BD + lane] *
+                    (pair_planes + p) * pair_plane_size + sg * BDP + lane] *
                 pair_global_factor1);
             pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
             pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
@@ -1880,14 +1871,10 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         uint capacity = params[2];
         float scale = scale_arr[0];
 
-        // Single threadgroup buffer: tg_q0/q1/k/v (Phase 1-3a) share
-        // memory with outputs/max/sum (Phase 3b) via pointer cast.
-        // BD stride (32) for the 8-plane exchange fits 32 768 B.
-        threadgroup char tg_mem[8 * BN * BD * sizeof(U)];
-        threadgroup bfloat* tg_q0 = (threadgroup bfloat*)tg_mem;
-        threadgroup bfloat* tg_q1 = (threadgroup bfloat*)(tg_mem + head_dim * sizeof(bfloat));
-        threadgroup bfloat* tg_k  = (threadgroup bfloat*)(tg_mem + 2 * head_dim * sizeof(bfloat));
-        threadgroup bfloat* tg_v  = (threadgroup bfloat*)(tg_mem + 3 * head_dim * sizeof(bfloat));
+        threadgroup bfloat tg_q0[head_dim];
+        threadgroup bfloat tg_q1[head_dim];
+        threadgroup bfloat tg_k[head_dim];
+        threadgroup bfloat tg_v[head_dim];
 
         // Phase 1: per-head RMSNorm + partial YaRN RoPE, textual replica of
         // laguna_full_qk_norm_yarn_bf16_128_v4 with the device row writes
@@ -1964,10 +1951,9 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         // Phase 3: GQA-pair attention over the first N rows in slot order,
         // textual replica of the sdpa_vector pair path (runtime N, tail
         // row included).
-        // outputs/max/sum overlay tg_q0..tg_v via tg_mem (freed after loop).
-        threadgroup U* outputs = (threadgroup U*)tg_mem;
-        threadgroup U* max_scores = (threadgroup U*)tg_mem;
-        threadgroup U* sum_exp_scores = (threadgroup U*)(tg_mem + 2 * BN * sizeof(U));
+        threadgroup U outputs[8 * BN * BDP];
+        threadgroup U max_scores[2 * BN];
+        threadgroup U sum_exp_scores[2 * BN];
 
         const device bfloat* pair_keys = k_cache +
             (size_t)kv_head * (capacity * head_dim) +
@@ -2135,20 +2121,24 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
         }
-        // Barrier: tg_q0..tg_v are dead past this point; the epilogue
-        // reuses their memory (tg_mem) for the 8-plane exchange.
-        threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // Epilogue: 2 barriers instead of 3.  Max/sum exchange uses the
-        // first 256 B of tg_mem; the 8-plane output exchange then
-        // overwrites it.  BD (32) stride fits 8*32*32 = 32 768 B.
+        // Combine: single-round four-plane exchange (pair_planes=4),
+        // collapsing 3 barriers to 1. Each of the 4 output elements per
+        // pair writes to its own dedicated plane; no RAW/WAR hazard
+        // within a round, so a single barrier suffices.
         constexpr int pair_planes = 4;
-        constexpr int pair_plane_size = BN * BD;
+        constexpr int pair_plane_size = BN * BDP;
         if (lane == 0) {
             max_scores[sg] = pair_max0;
             max_scores[BN + sg] = pair_max1;
             sum_exp_scores[sg] = pair_sum0;
             sum_exp_scores[BN + sg] = pair_sum1;
+        }
+        for (int p = 0; p < pair_planes; ++p) {
+            outputs[p * pair_plane_size + lane * BDP + sg] = pair_o0[p];
+            outputs[
+                (pair_planes + p) * pair_plane_size + lane * BDP + sg] =
+                pair_o1[p];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -2162,20 +2152,12 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         pair_sum1 = simd_sum(sum_exp_scores[BN + lane] * pair_global_factor1);
 
         for (int p = 0; p < pair_planes; ++p) {
-            outputs[p * pair_plane_size + lane * BD + sg] = pair_o0[p];
-            outputs[
-                (pair_planes + p) * pair_plane_size + lane * BD + sg] =
-                pair_o1[p];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        for (int p = 0; p < pair_planes; ++p) {
             U acc0 = simd_sum(
-                outputs[p * pair_plane_size + sg * BD + lane] *
+                outputs[p * pair_plane_size + sg * BDP + lane] *
                 pair_global_factor0);
             U acc1 = simd_sum(
                 outputs[
-                    (pair_planes + p) * pair_plane_size + sg * BD + lane] *
+                    (pair_planes + p) * pair_plane_size + sg * BDP + lane] *
                 pair_global_factor1);
             pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
             pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
