@@ -323,11 +323,14 @@ def validate_measurements(rows, arms, steps_per_arm):
 
 
 def correctness_command(args):
-    arms = [
-        {"label": "c0", "mode": "warm", "k": 0},
-        {"label": "cw", "mode": "warm", "k": 1},
-        {"label": "cc", "mode": "cold", "k": 1},
-    ]
+    arms = [{"label": "c0", "mode": "warm", "k": 0}]
+    for duplicate_count in (1, 2, 3, 5):
+        arms.extend(
+            [
+                {"label": f"w{duplicate_count}", "mode": "warm", "k": duplicate_count},
+                {"label": f"c{duplicate_count}", "mode": "cold", "k": duplicate_count},
+            ]
+        )
     schedule = ",".join(f"{arm['label']}:{arm['mode']}:{arm['k']}" for arm in arms)
     seed, forced, case_name = load_fixture(args.fixture, 1)
     session = WorkerSession(
@@ -408,7 +411,8 @@ def fault_command(args):
         raise
     if observed_failure is None:
         raise RuntimeError("fault injection did not interrupt decode_step")
-    if len(session.faults) != 1 or session.faults[0]["proof"] != "root_materialized":
+    expected_proof = f"roots_materialized={SPARSE_LAYER_COUNT}"
+    if len(session.faults) != 1 or session.faults[0]["proof"] != expected_proof:
         raise RuntimeError(f"fault marker missing or invalid: {session.faults}")
     validate_measurements(session.measurements, arms, 1)
     result = {

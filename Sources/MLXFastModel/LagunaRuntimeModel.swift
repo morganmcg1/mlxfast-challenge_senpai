@@ -95,7 +95,7 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
     private var overlapIndices: [MLXArray] = []
     private var scratchRoots: [MLXArray] = []
     private var scratchDispatchCount = 0
-    private var faultRootMaterialized = false
+    private var faultRootsMaterialized = 0
     private var referenceDigestBytes: Data?
 
     private init() {
@@ -155,7 +155,7 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
                 && overlapIndices.isEmpty && scratchRoots.isEmpty,
             "pending cold duplicate state")
         precondition(scratchDispatchCount == 0, "pending cold duplicate dispatch count")
-        precondition(!faultRootMaterialized, "pending cold duplicate fault state")
+        precondition(faultRootsMaterialized == 0, "pending cold duplicate fault state")
         precondition(armIndex < arms.count, "cold duplicate schedule exhausted")
         guard let cache else {
             preconditionFailure("cold duplicate measurement requires a cache")
@@ -235,8 +235,10 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         }
         if injectFault {
             precondition(!scratchRoots.isEmpty, "fault injection requires a duplicate root")
-            _ = scratchRoots[0].asData(access: .copy).data.count
-            faultRootMaterialized = true
+            for root in scratchRoots {
+                _ = root.asData(access: .copy).data.count
+                faultRootsMaterialized += 1
+            }
         }
         guard let cache else {
             preconditionFailure("cold duplicate measurement lost its cache")
@@ -266,14 +268,14 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         let logicalMax = logicalDeltas.max()!
         let physicalMin = physicalDeltas.min()!
         let physicalMax = physicalDeltas.max()!
-        let faultProof = faultRootMaterialized
+        let faultProof = faultRootsMaterialized
         let overlapText = overlaps.map(String.init).joined(separator: ",")
         cacheOffsets.removeAll(keepingCapacity: true)
         cachePhysicalPositions.removeAll(keepingCapacity: true)
         overlapIndices.removeAll(keepingCapacity: true)
         scratchRoots.removeAll(keepingCapacity: true)
         scratchDispatchCount = 0
-        faultRootMaterialized = false
+        faultRootsMaterialized = 0
         activeArm = nil
         stepInArm += 1
         if stepInArm == stepsPerArm {
@@ -286,10 +288,13 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
                 + "\t\(logicalMin)\t\(logicalMax)\t\(physicalMin)\t\(physicalMax)"
                 + "\t0\t\(overlapText)")
         if injectFault {
-            precondition(faultProof, "fault injection did not materialize a duplicate root")
+            precondition(
+                faultProof == expectedLayers * arm.duplicateCount,
+                "fault injection did not materialize every duplicate root")
             write(
                 "DARKBLOOM_COLD_DUPLICATE_FAULT\t\(arm.label)\t\(arm.mode)"
-                    + "\t\(arm.duplicateCount)\t\(measurement.step)\troot_materialized")
+                    + "\t\(arm.duplicateCount)\t\(measurement.step)"
+                    + "\troots_materialized=\(faultProof)")
             fatalError("intentional cold duplicate root fault")
         }
         return measurement

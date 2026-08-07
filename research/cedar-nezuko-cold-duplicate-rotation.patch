@@ -1,5 +1,5 @@
 diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
-index 8a3184a..fb5c62d 100644
+index 8a3184a..1c5db92 100644
 --- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
 +++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
 @@ -1,3 +1,4 @@
@@ -7,7 +7,7 @@ index 8a3184a..fb5c62d 100644
  import Foundation
  import MLX
  import MLXFast
-@@ -66,6 +67,258 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
+@@ -66,6 +67,263 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
      lagunaTracedFusions.note(site())
  }
  
@@ -39,7 +39,7 @@ index 8a3184a..fb5c62d 100644
 +    private var overlapIndices: [MLXArray] = []
 +    private var scratchRoots: [MLXArray] = []
 +    private var scratchDispatchCount = 0
-+    private var faultRootMaterialized = false
++    private var faultRootsMaterialized = 0
 +    private var referenceDigestBytes: Data?
 +
 +    private init() {
@@ -99,7 +99,7 @@ index 8a3184a..fb5c62d 100644
 +                && overlapIndices.isEmpty && scratchRoots.isEmpty,
 +            "pending cold duplicate state")
 +        precondition(scratchDispatchCount == 0, "pending cold duplicate dispatch count")
-+        precondition(!faultRootMaterialized, "pending cold duplicate fault state")
++        precondition(faultRootsMaterialized == 0, "pending cold duplicate fault state")
 +        precondition(armIndex < arms.count, "cold duplicate schedule exhausted")
 +        guard let cache else {
 +            preconditionFailure("cold duplicate measurement requires a cache")
@@ -179,8 +179,10 @@ index 8a3184a..fb5c62d 100644
 +        }
 +        if injectFault {
 +            precondition(!scratchRoots.isEmpty, "fault injection requires a duplicate root")
-+            _ = scratchRoots[0].asData(access: .copy).data.count
-+            faultRootMaterialized = true
++            for root in scratchRoots {
++                _ = root.asData(access: .copy).data.count
++                faultRootsMaterialized += 1
++            }
 +        }
 +        guard let cache else {
 +            preconditionFailure("cold duplicate measurement lost its cache")
@@ -210,14 +212,14 @@ index 8a3184a..fb5c62d 100644
 +        let logicalMax = logicalDeltas.max()!
 +        let physicalMin = physicalDeltas.min()!
 +        let physicalMax = physicalDeltas.max()!
-+        let faultProof = faultRootMaterialized
++        let faultProof = faultRootsMaterialized
 +        let overlapText = overlaps.map(String.init).joined(separator: ",")
 +        cacheOffsets.removeAll(keepingCapacity: true)
 +        cachePhysicalPositions.removeAll(keepingCapacity: true)
 +        overlapIndices.removeAll(keepingCapacity: true)
 +        scratchRoots.removeAll(keepingCapacity: true)
 +        scratchDispatchCount = 0
-+        faultRootMaterialized = false
++        faultRootsMaterialized = 0
 +        activeArm = nil
 +        stepInArm += 1
 +        if stepInArm == stepsPerArm {
@@ -230,10 +232,13 @@ index 8a3184a..fb5c62d 100644
 +                + "\t\(logicalMin)\t\(logicalMax)\t\(physicalMin)\t\(physicalMax)"
 +                + "\t0\t\(overlapText)")
 +        if injectFault {
-+            precondition(faultProof, "fault injection did not materialize a duplicate root")
++            precondition(
++                faultProof == expectedLayers * arm.duplicateCount,
++                "fault injection did not materialize every duplicate root")
 +            write(
 +                "DARKBLOOM_COLD_DUPLICATE_FAULT\t\(arm.label)\t\(arm.mode)"
-+                    + "\t\(arm.duplicateCount)\t\(measurement.step)\troot_materialized")
++                    + "\t\(arm.duplicateCount)\t\(measurement.step)"
++                    + "\troots_materialized=\(faultProof)")
 +            fatalError("intentional cold duplicate root fault")
 +        }
 +        return measurement
@@ -266,7 +271,7 @@ index 8a3184a..fb5c62d 100644
  // MARK: - Runtime fusion feature flags
  
  // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
-@@ -9579,6 +9832,12 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
+@@ -9579,6 +9837,12 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                          packedScales: packedBank,
                          indices: inds
                      )
@@ -279,7 +284,7 @@ index 8a3184a..fb5c62d 100644
                  } else {
                      if lagunaPackedScalesEnabled {
                          lagunaPackedScalesLog.note(
-@@ -10469,7 +10728,10 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10469,7 +10733,10 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
      }
  
      public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
@@ -290,7 +295,7 @@ index 8a3184a..fb5c62d 100644
          // Every consumer of multi-token logits reads only the LAST
          // position's row. Slice before the row-independent final RMSNorm and
          // vocabulary head so prefill neither normalizes nor projects the
-@@ -10498,6 +10760,8 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10498,6 +10765,8 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
          if case .logits = lagunaDecodeAsyncStage, inputs.shape == [1, 1] {
              asyncEval(result)
          }
