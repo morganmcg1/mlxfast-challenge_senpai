@@ -4620,19 +4620,6 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
-/// Research packing knob: SIMD groups per lane-major QKV threadgroup. Every
-/// statement below `out_row` is simdgroup-local and each simdgroup still owns
-/// exactly one row, so this is a pure row-ownership repack and bit-exact for
-/// any value that divides `rows`.
-private let lagunaDecodeNVFP4QKVR1Simdgroups: Int = {
-    guard
-        let raw = ProcessInfo.processInfo.environment[
-            "DARKBLOOM_DECODE_NVFP4_QKV_R1_SIMDGROUPS"],
-        let value = Int(raw), [1, 2, 4, 8, 16, 32].contains(value)
-    else { return 2 }
-    return value
-}()
-
 private func lagunaDecodeNVFP4QKVR1Source(narrow: Bool = false) -> String {
     // Narrow arm: three planes replace the 32-byte uint8 group. Lane `simd_lid`
     // owns group `simd_lid` of the block, so its nibble is byte `simd_lid >> 1`
@@ -4745,12 +4732,10 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 /// requests. An escaped row (`base == 0xFF`) takes the simdgroup-uniform else
 /// arm and reads the stock plane. Both arms fill the same `sb` registers, so
 /// the K loop below is the R1 loop with its scale argument already resident.
-private func lagunaDecodeNVFP4QKVLaneMajorSource(
-    pairwise: Bool, simdgroups: Int = 2
-) -> String {
+private func lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: Bool) -> String {
     """
 constexpr uint axis_size = 2048;
-constexpr uint num_simdgroups = \(simdgroups);
+constexpr uint num_simdgroups = 2;
 constexpr uint values_per_thread = 16;
 constexpr uint block_size = 512;
 constexpr uint in_vec_size_w = axis_size / 2;
@@ -4813,16 +4798,14 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
-                + "_sg\(lagunaDecodeNVFP4QKVR1Simdgroups)",
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
             ],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVLaneMajorSource(
-                pairwise: lagunaAttnScalePairwiseQKVEnabled,
-                simdgroups: lagunaDecodeNVFP4QKVR1Simdgroups),
+                pairwise: lagunaAttnScalePairwiseQKVEnabled),
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
@@ -4853,16 +4836,14 @@ private func lagunaDecodeNVFP4QKVR1(
         lane.nibbles.dtype == .uint8,
         lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
         lane.bases.dtype == .uint8, lane.bases.dims(rows),
-        rows % lagunaDecodeNVFP4QKVR1Simdgroups == 0,
         let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
     {
-        let simdgroups = lagunaDecodeNVFP4QKVR1Simdgroups
-        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major sg\(simdgroups)")
+        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
         return kernel(
             [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
-            grid: (rows * 32, 1, 1),
-            threadGroup: (simdgroups * 32, 1, 1),
+            grid: ((rows / 2) * 64, 1, 1),
+            threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16]
         )[0]

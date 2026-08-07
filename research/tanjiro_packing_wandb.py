@@ -133,6 +133,17 @@ def main() -> int:
     else:
         verdict = "FLAT"
 
+    def contrast(a: str, b: str) -> tuple[float, float]:
+        se, _ = se_diff(a, b)
+        return effect(a) - effect(b), nz.t95(df) * se
+
+    # Pre-registered pivot (S=16) vs both endpoints: an interior optimum needs
+    # both sides significant, which is what distinguishes a basin from a step.
+    piv_lo, piv_lo_h = contrast(tj.PIVOT, "RV")
+    piv_hi, piv_hi_h = contrast(tj.PIVOT, "N")
+    nr, nr_h = contrast("N", "R")
+    rg, rg_h = contrast("R", "G")
+
     run.log({
         "packing_curve": table,
         "adjacent_steps": wandb.Table(
@@ -141,6 +152,19 @@ def main() -> int:
     })
     run.summary.update({
         "argmax_simdgroups": best[0],
+        "pivot_simdgroups": tj.S_OF[tj.PIVOT],
+        "pivot_vs_smallest_S_us": piv_lo,
+        "pivot_vs_smallest_S_half_width_us": piv_lo_h,
+        "pivot_vs_largest_S_us": piv_hi,
+        "pivot_vs_largest_S_half_width_us": piv_hi_h,
+        "pivot_interior_optimum_established": abs(piv_lo) > piv_lo_h and piv_lo < 0
+                                              and abs(piv_hi) > piv_hi_h and piv_hi < 0,
+        "contrast_N_minus_R_us": nr,
+        "contrast_N_minus_R_half_width_us": nr_h,
+        "contrast_N_minus_R_resolved": abs(nr) > nr_h,
+        "contrast_R_minus_G_us": rg,
+        "contrast_R_minus_G_half_width_us": rg_h,
+        "contrast_R_minus_G_resolved": abs(rg) > rg_h,
         "argmax_effect_us_per_step": best[2],
         "argmax_score_pct_if_real": -best[2] * PCT_PER_US,
         "argmax_tied_set": tied,
@@ -155,6 +179,12 @@ def main() -> int:
         "m4_argmax_is_safe_to_ship_blind": False,
         "correctness_gate_all_arms_passed": True,
         "fault_injection_valid": True,
+        # Rule 17: prefill cannot reach this kernel (guard at :4823 needs seq=1).
+        # Measured anyway, S=16 vs S=2, 4 runs/arm, one session (report section 4).
+        "prefill_s16_minus_s2_ms": -0.007,
+        "prefill_ci95_half_width_ms": 1.346,
+        "prefill_default_mean_ms": 547.905,
+        "prefill_affected": False,
     })
     print(f"wandb run: {run.url}\nrun id: {run.id}")
     run.finish()

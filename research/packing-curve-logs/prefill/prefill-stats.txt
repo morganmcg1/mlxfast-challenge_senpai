@@ -1,0 +1,9 @@
+warm-up discarded: [(0, '0', 548.36)]
+arm 0: n=4 mean=547.905 ms sd=0.460 vals=[547.44, 548.32, 548.28, 547.58]
+arm R: n=4 mean=547.898 ms sd=0.999 vals=[547.86, 549.32, 547.28, 547.13]
+block 1: 0=547.880 R=548.590 diff=+0.710
+block 2: 0=547.930 R=547.205 diff=-0.725
+block-paired R-0 = -0.008 ms (sd 1.015, n=2)
+unpaired R-0 = -0.007 ms, pooled sd 0.778, se 0.550, 95%CI +-1.346
+relative: -0.0014 % of prefill
+per-token: -0.015 us/token

@@ -7,6 +7,19 @@ Host: Apple **M4 Pro**, 14 CPU, 48 GiB (low-memory startup profile),
 macOS 26.5.2, Apple GPU generation **16** (no `_nax` kernels).
 Every number below is an **M4 Pro** number. Nothing here is a ranked-M5 claim.
 
+W&B: [`tanjiro-pr308-threadgroup-packing-curve`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/8st0k26f)
+(run id `8st0k26f`) — per-arm table, adjacent-step table, pre-registered
+contrasts, and the decision keys.
+
+**Headline.** The packing curve is a **shallow basin, not a step and not
+monotone**: `S ∈ {1, 2}` flat, bottom at `S ∈ {4, 8, 16}`, partial recovery at
+`S = 32`. M4 argmax `S = 8` at **−36.9 µs/step (95 % CI [−61.0, −12.9])**,
+statistically tied with `S = 16` (`R - G` = +3.6, CI [−20.5, +27.6]). PR #298's
+`S = 16` point replicates to within 2 µs. Prefill is a measured null. Bit-exact
+at every `S`, with a load-bearing fault-injection control. **Recommended ship
+without an M5 run: `S = 8` (§5.3), not the raw argmax** — and no ranked claim is
+made.
+
 ---
 
 ## 0. Corrections to the assignment before any measurement
@@ -55,9 +68,42 @@ with `patch -p1 --dry-run` against `git show 63ab67c8:Sources/MLXFastModel/…`:
 | `research/tanjiro_packing_geometry.patch` | base | the `S` knob alone — used for all Stage 1 timing |
 | `research/tanjiro_packing_probe.patch` | base | knob **+** `PACKPROBE` geometry instrumentation (Stage 0) |
 | `research/tanjiro_packing_fault.patch` | base **+ geometry** | corrected fault injection (§3.2) |
+| `research/tanjiro_packing_default_flip.patch` | base | Stage 3 default flip to `S=8`, **+29 bytes** (§7.2) |
 
-So: `patch -p1 < research/tanjiro_packing_geometry.patch`, rebuild the worker,
-then `bash research/tanjiro_packing_abba.sh <outdir> 4 200`.
+Full sequence, from a clean checkout of `63ab67c8`:
+
+```bash
+patch -p1 < research/tanjiro_packing_geometry.patch
+CLANG_MODULE_CACHE_PATH="${PWD}/.build-worker/clang-module-cache" \
+  swift build -c release --force-resolved-versions \
+  --scratch-path .build-worker --product mlxfast-runtime-worker
+git checkout -- Package.resolved
+
+bash research/tanjiro_packing_stage0.sh /tmp/pk/stage0          # reachability + geometry
+bash research/tanjiro_packing_gate.sh   /tmp/pk/gate            # golden gate, every S
+bash research/tanjiro_packing_abba.sh   /tmp/pk/abba   4 200    # Stage 1, 48 scored runs
+python3 research/tanjiro_packing_stats.py /tmp/pk/abba          # curve + contrasts
+python3 research/tanjiro_packing_stats.py /tmp/pk/abba --trim 0.05
+python3 research/tanjiro_packing_wandb.py /tmp/pk/abba          # W&B record
+
+PREFILL=1 ARM_SEQ="0 R R 0" bash research/tanjiro_packing_abba.sh /tmp/pk/prefill 2 8
+python3 research/tanjiro_packing_prefill_stats.py /tmp/pk/prefill
+```
+
+Stage 1 took **2305 s** (48 scored runs + 1 discarded warm-up); the prefill arm
+took **393 s**. The fault control needs the extra patch and inverted expectation:
+
+```bash
+patch -p1 < research/tanjiro_packing_fault.patch   # on top of geometry
+# rebuild worker, then
+EXPECT=fail ARMS="2 16 1" bash research/tanjiro_packing_gate.sh /tmp/pk/fault
+```
+
+`research/tanjiro_packing_stats.py` deliberately does **not** reimplement the
+statistics: it `importlib`-loads `research/nezuko_pr48_stats.py` and overrides
+only the arm labels, the pre-registered contrast list, and the curve verdict.
+The OLS, block model, `t95`, trimming, and outlier rule are the shared,
+previously reviewed code.
 
 ### 0.2 `S=1` is a real arm here; under nezuko's patch it was a silent no-op.
 
@@ -270,7 +316,208 @@ evidence.
 
 ## 2. Stage 1 — the packing curve
 
-<!-- STAGE1 -->
+### 2.1 Design as executed
+
+| Item | Value |
+|---|---|
+| Driver | `research/tanjiro_packing_abba.sh /tmp/tanjiro/abba 4 200` |
+| Statistics | `research/tanjiro_packing_stats.py` (wraps `research/nezuko_pr48_stats.py`; only `ARM_DESC`/`CONTRASTS` overridden, plus a new curve verdict — the fit itself is PR #298's, unmodified) |
+| Arms | 6: `S ∈ {1, 2, 4, 8, 16, 32}`, labelled `RV, 0, V, G, R, N` (PR #298's alphabet; `0` = shipped default `S=2` = reference) |
+| Block order | palindromic `0 RV V G R N N R G V RV 0` |
+| Blocks | 4 scored + 1 discarded warm-up block (`blk=0`) |
+| Runs | **48 scored** (8 per arm), 49 launched |
+| Steps | 200 requested, first 8 dropped as warm-up, **192 kept per run** |
+| Session | one, one quiet M4 Pro host, one `run_training` invocation (`31d5c157-d675-46d0-b5f5-17e98cd6707f`, exit 0, 2 305 s) |
+| Fuse knob | `DARKBLOOM_DECODE_NVFP4_NORM_QKV_FUSE=0` pinned in every arm |
+| Raw data | `research/packing-curve-logs/stage1/` (both fits, driver log, `steps.tar.gz`) |
+
+The assignment asked for `S ∈ {1,2,4,8,16}`; I added `S = 32` because §1.3 shows
+`S = 32` is the largest legal setting (Metal's 1 024 threads/threadgroup cap), so
+it is the only way to bound the curve on the right. That turned out to matter.
+
+### 2.2 Per-arm results (untrimmed, n = 8 per arm)
+
+| `S` | arm | mean µs/step | sd of run means | median within-run sd |
+|---|---|---|---|---|
+| 1 | `RV` | 8196.2 | 29.3 | 60.5 |
+| **2** | **`0`** | **8196.8** | 27.1 | 52.4 |
+| 4 | `V` | 8180.1 | 9.1 | 49.7 |
+| **8** | **`G`** | **8159.9** | 27.6 | 48.2 |
+| 16 | `R` | 8163.5 | 24.7 | 65.7 |
+| 32 | `N` | 8184.4 | 13.9 | 42.1 |
+
+Per-block arm means, showing the ABBA design is doing its job (block 4 drifted
+slow on the reference arm and the fit absorbs it):
+
+| block | `S=2` | `S=1` | `S=4` | `S=8` | `S=16` | `S=32` |
+|---|---|---|---|---|---|---|
+| 1 | 8197.5 | 8223.9 | 8177.0 | 8144.3 | 8151.3 | 8190.9 |
+| 2 | 8189.4 | 8187.7 | 8186.8 | 8174.1 | 8163.0 | 8188.9 |
+| 3 | 8180.6 | 8197.4 | 8181.8 | 8151.9 | 8147.4 | 8188.9 |
+| 4 | 8219.9 | 8175.8 | 8174.8 | 8169.3 | 8192.1 | 8169.2 |
+
+**Within-run sd / outlier flag.** Median 38.4 µs, max 143.7 µs. **No run exceeds
+4× the cohort median**, so unlike PR #298 (which had one such run) there is no
+outlier to flag here. The 5 % upper trim is therefore a pure sensitivity check
+rather than a correction; §2.5 reports it because the assignment asks for it and
+because it turns out to matter for one contrast.
+
+### 2.3 The curve (two-way fixed effects, 39 df, residual sd 23.8 µs)
+
+Effects are µs/step relative to the shipped default `S = 2`; negative is faster.
+
+| `S` | arm | effect | se | t | 95 % CI | % of score |
+|---|---|---|---|---|---|---|
+| 1 | `RV` | −0.6 | 11.9 | −0.05 | [−24.7, +23.4] | 0.01 |
+| 2 | `0` | 0.0 | — | — | — | 0.00 |
+| 4 | `V` | −16.8 | 11.9 | −1.41 | [−40.8, +7.3] | 0.26 |
+| **8** | **`G`** | **−36.9** | 11.9 | **−3.10** | **[−61.0, −12.9]** | **0.56** |
+| **16** | **`R`** | **−33.4** | 11.9 | **−2.80** | **[−57.4, −9.3]** | **0.51** |
+| 32 | `N` | −12.4 | 11.9 | −1.04 | [−36.4, +11.7] | 0.19 |
+
+Reference `S=2` absolute mean **8196.8 µs/step**. `%` of score uses the campaign
+constant 0.015280 % per µs/step of decode.
+
+**argmax `S = 8` at −36.9 µs/step; statistically tied set = `[4, 8, 16]`.**
+
+Two arms have CIs excluding zero: `S = 8` and `S = 16`. `S = 8` and `S = 16` are
+themselves indistinguishable (`R − G` below). So the honest one-line summary is:
+**packing at `S ∈ {8, 16}` is worth ≈ 0.5 % of score over the shipped `S = 2`, and
+this experiment cannot tell 8 from 16 apart.**
+
+**Replication of PR #298.** #298 measured `S = 16` at **−35.4 µs/step, se 13.6,
+39 df**. I measure **−33.4 µs/step, se 11.9, 39 df** — a 2.0 µs difference, far
+inside either interval, from an independent session with an independently written
+knob. This axis is real and reproducible, which was the single most important
+thing to establish.
+
+### 2.4 Pre-registered contrasts
+
+Both estimators are shown, as PR #298 did. Block-paired differences the two
+occurrences of each arm within a block; fixed-effects pools all 48 runs. They
+agree on every sign.
+
+| contrast | meaning | block-paired mean (sd, t) | fixed-effects mean (se, t) | FE 95 % CI |
+|---|---|---|---|---|
+| `RV−0` | `S=1` vs default | −0.6 (31.2, −0.04) | −0.6 (11.9, −0.05) | [−24.7, +23.4] |
+| `V−0` | `S=4` vs default | −16.8 (21.1, −1.59) | −16.8 (11.9, −1.41) | [−40.8, +7.3] |
+| `G−0` | `S=8` vs default | −36.9 (18.2, **−4.07**) | −36.9 (11.9, **−3.10**) | **[−61.0, −12.9]** |
+| `R−0` | `S=16` vs default | −33.4 (9.0, **−7.40**) | −33.4 (11.9, **−2.80**) | **[−57.4, −9.3]** |
+| `N−0` | `S=32` vs default | −12.4 (26.3, −0.94) | −12.4 (11.9, −1.04) | [−36.4, +11.7] |
+| `N−R` | does the curve keep improving past 16? | +21.0 (30.1, 1.40) | +21.0 (11.9, 1.76) | [−3.1, +45.1] |
+| `R−G` | local slope at the #298 winner | +3.6 (14.9, 0.48) | +3.6 (11.9, 0.30) | [−20.5, +27.6] |
+| `V−RV` | local slope at the small end | −16.1 (21.7, −1.49) | −16.1 (11.9, −1.35) | [−40.2, +8.0] |
+
+Answering the two questions those contrasts were registered to answer:
+
+- **`N−R`: no, the curve does not keep improving past `S = 16`.** The point
+  estimate is a *regression* of +21.0 µs/step, but it does **not** clear its own
+  95 % half-width untrimmed. The right-hand turn is **suggested, not established**
+  (see §2.5 — this is the one contrast the trim moves across the significance
+  boundary, so I treat it as unresolved).
+- **`R−G`: `S = 16` and `S = 8` are a dead null** (+3.6 ± 24.1, t = 0.30). This is
+  the precondition §5.3 depends on, and it holds under both trims.
+
+### 2.5 Trim sensitivity (5 % upper trim)
+
+| contrast | untrimmed | trimmed | moves? |
+|---|---|---|---|
+| `RV−0` | −0.6 [−24.7, +23.4] | −1.9 [−27.0, +23.2] | no |
+| `V−0` | −16.8 [−40.8, +7.3] | −16.2 [−41.3, +8.9] | no |
+| `G−0` | −36.9 [−61.0, −12.9] | −36.0 [−61.1, −10.9] | no |
+| `R−0` | −33.4 [−57.4, −9.3] | −35.7 [−60.8, −10.6] | no |
+| `N−0` | −12.4 [−36.4, +11.7] | −10.2 [−35.3, +14.9] | no |
+| **`N−R`** | **+21.0 [−3.1, +45.1]** | **+25.5 [+0.4, +50.6]** | **yes — crosses zero** |
+| `R−G` | +3.6 [−20.5, +27.6] | +0.3 [−24.8, +25.4] | no |
+| `V−RV` | −16.1 [−40.2, +8.0] | −14.3 [−39.4, +10.8] | no |
+
+Every headline conclusion is trim-invariant **except `N−R`**, whose trimmed CI
+lower bound is `+0.4` — i.e. it "achieves significance" by 0.4 µs on a 25 µs
+half-width. I am not going to call that a result. **The `S = 32` regression is a
+consistent point estimate under both trims and a resolved contrast under
+neither.**
+
+### 2.6 Monotonicity verdict — and why the assignment's question is the wrong one
+
+The assignment asked for "monotone in `S`, U-shaped, or flat with one outlier".
+Reported literally, from adjacent steps:
+
+| step | effect ± 95 % half-width | untrimmed | trimmed |
+|---|---|---|---|
+| `S=1 → 2` | +0.6 ± 24.1 | flat | flat |
+| `S=2 → 4` | −16.8 ± 24.1 | flat | flat |
+| `S=4 → 8` | −20.2 ± 24.1 | flat | flat |
+| `S=8 → 16` | +3.6 ± 24.1 | flat | flat |
+| `S=16 → 32` | +21.0 ± 24.1 | flat | **slower** |
+
+**Adjacent-step verdict: `FLAT` untrimmed** (0 faster, 0 slower, 5 flat);
+`MONOTONE-INCREASING` trimmed. Both labels are misleading, and the reason is
+worth stating because it is a general trap in this kind of sweep:
+
+> No *adjacent* step clears the ±24 µs half-width, because each step is worth
+> ≈ 17–21 µs. But the *cumulative* move `S=2 → S=8` is −36.9 µs and clears it
+> comfortably. A verdict computed only from adjacent differences therefore reports
+> "flat" about a curve with a statistically solid 0.56 %-of-score basin in it.
+
+That is why I extended the stats script with an **interior-optimum test**: is an
+arm significantly better than **both** sweep endpoints (`S=1` and `S=32`)?
+
+| candidate | vs `S=1` | vs `S=32` | untrimmed | trimmed |
+|---|---|---|---|---|
+| `S=16` (pre-registered pivot) | −32.7 ± 24.1 | −21.0 ± 24.1 | not established | INTERIOR OPTIMUM |
+| `S=8` (observed argmax) | −36.3 ± 24.1 | −24.6 ± 24.1 | INTERIOR OPTIMUM | INTERIOR OPTIMUM |
+
+The pivot `S = 16` was fixed **before** the data (it is PR #298's winner); the
+argmax `S = 8` is **selection-biased** by construction, so its "established"
+label is the weaker of the two. Being strict, I report:
+
+> **Shape verdict: a broad interior basin over `S ∈ {4, 8, 16}` with both ends of
+> the legal range worse.** Best point estimate `S = 8`. `S = 8` vs `S = 16` is
+> unresolvable at this power. The left shoulder `S = 1 ≈ S = 2` is flat (`RV−0` is
+> a dead null — there is *no* left wall at `S = 1`, the plateau simply extends
+> down to it). The right shoulder `S = 32` gives back roughly two-thirds of the
+> gain by point estimate but is not a resolved regression.
+
+Note what this rules out: **"bigger `S` is always better" is false.** The maximum
+legal setting `S = 32` is the second-worst arm in the sweep. Anyone extrapolating
+PR #298's single `2 → 16` point to `S = 32` would have shipped away most of the
+gain.
+
+### 2.7 Power, and the null arms
+
+The 95 % half-width on any arm-vs-default contrast is **±24.1 µs/step = ±0.29 %
+of the step time = ±0.37 % of score**. For context, a single
+`--local-iterate` pair on this host has an MDE of ±0.73 %, so this 48-run design
+resolves about **2× finer** than the standard local comparison.
+
+So the three non-significant arms are *bounded*, not merely unmeasured:
+
+- `S = 1` (`−0.6 ± 24.1`) — bounded to worse than −25 µs. A genuine null.
+- `S = 4` (`−16.8 ± 24.1`) — **underpowered, not null.** The point estimate is
+  45 % of the `S = 8` effect and the CI comfortably contains it. `S = 4` is
+  probably a real but smaller gain; this design cannot separate it from zero.
+- `S = 32` (`−12.4 ± 24.1`) — same situation, on the other side of the basin.
+
+Doubling to 16 runs/arm would shrink the half-width to ≈ ±17 µs, which is still
+not enough to separate `S = 8` from `S = 16` (they differ by 3.6 µs). **Separating
+8 from 16 on M4 is not worth buying**; §5.3 argues the decision should be made on
+the transfer argument instead, and §7.2 explains that one paired M5 run answers it
+directly.
+
+### 2.8 Correctness, every arm
+
+The tripwire
+`correctness --golden correctness_prompts/public_longcopy_gate_english_512_256.json`
+was run at **all six** values of `S` in §1.4 (training
+`177c27d5-e2cc-45e7-ac02-63f20c34fe42`), and all six returned
+`passed=True, checked_steps=64, first_failing_step=None, error=''` with the
+**identical** `golden_hash`
+`b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`.
+
+I did not re-run it after the timing sweep, deliberately: the sweep used the same
+worker binary and the same six env settings, so a second run would recompute the
+same six results. The gate is cited, not assumed — and §3 shows it is
+load-bearing rather than vacuous.
 
 ---
 
@@ -346,7 +593,37 @@ passes `seq = 512` and never reaches this kernel at all — it goes through the
 quantized-matmul path. `DARKBLOOM_DECODE_NVFP4_QKV_R1_SIMDGROUPS` therefore
 cannot influence prefill by construction, not merely by measurement.
 
-<!-- PREFILL_MEASURED -->
+I measured it anyway, because a structural argument that is wrong is worse than
+no argument, and because the ranked prefill floor is a hard gate. Same driver,
+same session discipline, `PREFILL=1 ARM_SEQ="0 R R 0"`, two blocks, 8 scored
+512-token prefills (4 per arm) plus one discarded warm-up
+(`research/packing-curve-logs/prefill/`, training id
+`5f636fbe-1ca0-41b1-9e52-c0b0d7d9fb6b`, exit 0):
+
+| arm | `S` | n | mean prefill (ms) | sd (ms) |
+|---|---|---|---|---|
+| `0` | 2 (default) | 4 | 547.905 | 0.460 |
+| `R` | 16 | 4 | 547.898 | 0.999 |
+
+- **`R - 0` = −0.007 ms (−0.015 µs/token), 95 % CI ±1.346 ms (±0.246 % of
+  prefill).** Block-paired: `+0.710` ms in block 1, `−0.725` ms in block 2,
+  mean `−0.008` ms — the two blocks disagree in sign and cancel almost exactly.
+- The point estimate is **1/78 of the CI half-width**. This is not "a small
+  effect I cannot resolve"; it is the signature of *no mechanism at all*, which
+  is what the guard predicts.
+
+Two notes on reading this. First, prefill on this host is a far quieter
+measurement than decode — a between-run sd of 0.46–1.0 ms on 548 ms is
+0.08–0.18 %, so the ±0.246 % MDE here is tight enough to have caught a real
+effect an order of magnitude below the decode effect's relative size (the decode
+argmax is −0.45 % of a step). A null this clean at this resolution is
+informative. Second, the flag is **not** free of prefill risk in general: this
+result licenses only the specific claim that *this* knob on *this* kernel does
+not touch prefill. Any Stage 2 site that also runs at `seq = 512` (the routed
+MoE and o_proj kernels do) would need its own prefill arm, and §6.2's `PURSUE`
+recommendation should be read with that attached.
+
+**Rule 17 verdict: satisfied, prefill unaffected, no floor risk from this knob.**
 
 ---
 
@@ -392,7 +669,14 @@ that differs between this host and the ranked machine.
 
 Composite prediction from 1+2 fighting 3: **a shallow U with a wide flat bottom
 around `S ≈ 8–16`, a steep left wall at `S = 1–2`, and a machine-dependent right
-wall.** Stage 1 (§2) is the test of that prediction.
+wall.** Stage 1 (§2) is the test of that prediction, and it **partly refutes
+it**: the flat bottom is confirmed at `S ∈ {4, 8, 16}`, but there is **no left
+wall** — `S = 1` and `S = 2` are indistinguishable (`RV - 0` = −0.6 µs/step),
+which means mechanisms 1 and 2 are already saturated by `S = 2` on this host and
+gain nothing further from `S = 1`. The right-hand rise toward `S = 32` appears
+with a consistent sign but is not statistically resolved (§2.4). So the
+mechanistic story survives only in its coarse form; the sharp asymmetry it
+predicted at the left edge is not there.
 
 **Consistency note on mechanism 2.** The ≈2.5–5 µs-per-kernel ramp/drain
 estimate is **3–5× larger than the entire measured effect** (§5.1: ≈0.88 µs per
@@ -405,11 +689,13 @@ or mechanism 3 (tail quantisation) is already cancelling most of mechanism 2 at
 the microbenchmark in §5.5 is my top follow-up: it would measure the per-launch
 cost directly instead of estimating it.
 
-The `S=32` right wall has a concrete cause even with zero threadgroup memory: a
-1024-thread TG must be resident **atomically on one core**, needing ≈160–256 KB
+The `S=32` rise has a plausible concrete cause even with zero threadgroup memory:
+a 1024-thread TG must be resident **atomically on one core**, needing ≈160–256 KB
 of register file, which fragments internally and strands registers at retire
 granularity; and 256 TGs over ≈40 M5 cores is only 6.4 TGs/core, which is too
-coarse to balance.
+coarse to balance. §2.4 measures the rise with a consistent positive sign but
+cannot resolve it from zero, so this remains a mechanism *hypothesis* for an
+observed point estimate, not an explanation of a confirmed wall.
 
 ### 5.3 The transfer argument, in TGs-per-core
 
@@ -437,16 +723,27 @@ sit in the same ratio at every `S`, the correspondence is clean: **one step up i
 `S` on M4 is the same TGs-per-core load as the next-lower `S` on M5.**
 
 - **M5 at `S=8`** sits at 25.6 / 32 TGs per core — numerically the same load as
-  **M4 at `S=16`**, the point this sweep measures as the optimum.
-- **M5 at `S=16`** sits at 12.8 / 16 — the same load as **M4 at `S=32`**.
+  **M4 at `S=16`** (−33.4 µs/step here, inside the flat bottom).
+- **M5 at `S=16`** sits at 12.8 / 16 — the same load as **M4 at `S=32`**
+  (−12.4 µs/step here, roughly a third of the available gain and not
+  distinguishable from zero).
 
-That second line is the crux, and Stage 1 is what makes it worth acting on.
-`S=32` is not merely "unvalidated" on M4: §2 measures it as a **significant
-regression against `S=16`** (`N-R`, one of the four contrasts registered before
-the run). So the sweep has located a real right wall, and it has located it at
-12.8 / 16 TGs per core — which is precisely the load `S=16` would produce on the
-ranked M5. Under the heuristic, shipping the raw M4 argmax would put the ranked
-host *on the wall this experiment just found*.
+That second line is the crux. Note carefully what it does and does not rest on.
+It does **not** require `S=32` to be a *significant* regression against `S=16`:
+§2.4 measures `N-R` at **+21.0 µs/step (95 % CI [−3.1, +45.1])** untrimmed and
+**+25.5 [+0.4, +50.6]** under the 5 % upper trim, i.e. a consistently
+positive point estimate that is **resolved under neither trim** — the only
+contrast in the whole sweep whose sign verdict moves with the trim. Calling it a
+right *wall* would overstate the evidence.
+
+What the min-regret argument actually needs is weaker and is robust under both
+trims: `S=32`'s *own* effect against the default (`N-0` = −12.4 untrimmed,
+−10.2 trimmed) recovers only about a third of what `S=16` (−33.4 / −35.7) and
+`S=8` (−36.9 / −36.0) recover. So the TGs-per-core load that `S=16` would
+produce on M5 is the load at which **this host measured most of the gain
+evaporating**, even though the sweep cannot prove that evaporation is
+statistically complete. Under the heuristic, shipping the raw M4 argmax risks
+placing the ranked host at that load.
 
 Two caveats were open when this section was drafted. Stage 1 resolves both, and
 it is worth recording that they were resolved rather than assumed:
@@ -455,20 +752,31 @@ it is worth recording that they were resolved rather than assumed:
    cheap choice if `S=8 ≈ S=16` on M4. Had `S=16` come out strictly and
    significantly better than `S=8`, recommending `S=8` would have been a
    *measured* M4 loss traded for an *unmeasured* M5 hope. §2 measures the `R-G`
-   contrast (`S=16` vs `S=8`) as a tie well inside its own CI, so the trade costs
-   nothing measurable on this host. The precondition held.
+   contrast (`S=16` vs `S=8`) as a dead null (**+3.6 µs/step, CI [−20.5, +27.6]**
+   untrimmed; **+0.3** trimmed), so the trade costs nothing measurable on this
+   host. The precondition held.
 2. **PR #298 never measured `S=8`.** Its arms were `S=2` and `S=16` only, so at
    the time of drafting `S=8` was pure interpolation with no timing evidence on
    any machine. §2 is its first direct measurement, and it lands in the flat
-   bottom rather than on either wall.
+   bottom rather than on either shoulder.
 
 So the **min-regret** choice if exactly one value must ship without an M5
-measurement is **`S=8`**. It is a tie with the argmax on the only host I can
-measure, it lands on the TGs-per-core load that measured *best* here, and it
-keeps the ranked host a full factor of two away from the right wall this sweep
-found. `S=16` is defensible **only** with a paired M5 measurement: shipping the
-raw M4 argmax is exactly what PR #48 arm `N` did (−55.0 µs/step on M4, **+10.0
-on M5**), and what PR #7 did (+7.32% on M4, ≈0.0% on M5).
+measurement is **`S=8`**. Two facts support it, and it is worth separating them
+because only the first is independent evidence:
+
+- `S=8` keeps the ranked host at the TGs-per-core load that measured *best*
+  here, a full factor of two away from the load where most of the gain
+  disappeared. This is the min-regret argument and it does not depend on which
+  M4 arm happened to win.
+- `S=8` also *is* the observed M4 argmax (−36.9 µs/step). This is a coincidence,
+  not confirmation: `S=8` and `S=16` are statistically tied (`R-G` above), so
+  which of the two takes the argmax on a given host is noise. I would still
+  recommend `S=8` had `S=16` taken the argmax, exactly as this section argued
+  before the final block landed.
+
+`S=16` is defensible **only** with a paired M5 measurement: shipping the raw M4
+argmax is exactly what PR #48 arm `N` did (−55.0 µs/step on M4, **+10.0 on M5**),
+and what PR #7 did (+7.32 % on M4, ≈0.0 % on M5).
 
 This also yields a **falsifiable prediction** for whoever runs the M5, which is
 more useful than the recommendation itself: if TGs-per-core is the operative
@@ -654,18 +962,26 @@ than a point. That is the assignment's core question and it is answered.
 
 Three things are now known that were not known before:
 
-1. The curve is **not monotone**. It is a shallow U with a wide flat bottom, a
-   left wall at `S = 1`, and — the new finding — a **right wall at `S = 32`**.
-   The pre-registered `N - R` contrast (`S = 32` vs `S = 16`) is a *significant
-   regression*, not a null. Anyone who assumed "more simdgroups per threadgroup
-   is better" and flipped the default to the maximum legal `S = 32` would have
-   shipped a loss.
-2. PR #298's single point **replicates**: the `S = 16` effect here is within
-   noise of #298's `-35.4 µs/step`, from an independent session with a different
+1. The curve is **not monotone in `S`**, and it is **not a step function
+   either** — the two hypotheses the assignment set up. It is a shallow basin:
+   a flat left shoulder covering `S ∈ {1, 2}` (`RV - 0` = **−0.6 µs/step**, a
+   dead null — so there is *no* left wall at `S = 1`, which I had predicted and
+   which the data refutes), a bottom at `S ∈ {4, 8, 16}`, and a partial recovery
+   toward `S = 32` (`N - 0` = −12.4, about a third of the gain). Whether the
+   right-hand rise is *statistically* resolved depends on the trim: `N - R` is
+   **+21.0 µs/step [−3.1, +45.1]** untrimmed and **+25.5 [+0.4, +50.6]** trimmed,
+   so I report the right side as a **consistent but unresolved rise**, not a
+   wall. What *is* solid is that `S = 32` recovers materially less than
+   `S ∈ {8, 16}` under both trims — enough for §5.3's regret argument, not enough
+   to call it a proven regression.
+2. PR #298's single point **replicates**: the `S = 16` effect here (−33.4 µs/step)
+   is within 2 µs of #298's `-35.4`, from an independent session with a different
    knob implementation. This axis is not a one-session artefact.
-3. `S = 8` is measured for the first time and lands **statistically tied** with
-   `S = 16` (`R - G` in §2 is a null with the CI to back it). That tie is what
-   makes §5.3's recommendation cheap rather than a sacrifice.
+3. `S = 8` is measured for the first time, takes the **argmax** (−36.9 µs/step,
+   CI [−61.0, −12.9]), and lands **statistically tied** with `S = 16` (`R - G` =
+   +3.6 [−20.5, +27.6], a dead null under both trims). The tie is the important
+   half: it means the argmax label is noise between those two, and it is what
+   makes §5.3's `S = 8` recommendation cheap rather than a sacrifice.
 
 ### 7.2 What I recommend shipping, and what I do not claim
 
@@ -677,13 +993,16 @@ have deliberately left it **unapplied**, so `growth` at my PR tip is `0`.
 
 **I do not claim a ranked win.** This is an M4 Pro curve on Apple GPU
 generation 16 with 20 GPU cores, and the ranked host is an M5 Max with 40. §5.3
-sets out the reason `S = 8` rather than the M4 argmax `S = 16`: the one candidate
-invariant that survives the core-count change is **threadgroups per core**, and
-under it `M5 @ S=8 ≡ M4 @ S=16` (the measured optimum) while
-`M5 @ S=16 ≡ M4 @ S=32` — the right wall this experiment just found. Shipping the
-raw M4 argmax would land the ranked host on the wall. The repo's own precedent is
-blunt about the cost of ignoring this: PR #48 arm `N` measured `-55.0 µs/step` on
-M4 and `+10.0 µs/step` on the ranked M5.
+sets out why `S = 8` and not `S = 16`: the one candidate invariant that survives
+the core-count change is **threadgroups per core**, and under it
+`M5 @ S=8 ≡ M4 @ S=16` (−33.4 µs/step, in the basin) while
+`M5 @ S=16 ≡ M4 @ S=32` (−12.4 µs/step, where two thirds of the gain is gone).
+Shipping `S = 16` therefore risks landing the ranked host at the load where this
+host recovered least. Note that the M4 argmax happens to *be* `S = 8`, but that
+is not the argument — `S = 8` and `S = 16` are a dead null here, so §5.3 would
+recommend `S = 8` either way. The repo's own precedent is blunt about the cost of
+ignoring core-count transfer: PR #48 arm `N` measured `-55.0 µs/step` on M4 and
+`+10.0 µs/step` on the ranked M5.
 
 That argument is a **regret-minimising heuristic, not a law**, and §5.3 states the
 falsifiable version: if TGs/core is the invariant, the M5 ordering should be
@@ -697,7 +1016,7 @@ from this whole experiment.
 
 | # | Kernel | Verdict |
 |---|---|---|
-| 0 | **decode NVFP4 QKV lane-major** (`:4735`, this experiment) | **PURSUE** — measured, bit-exact, U-shaped, argmax `S = 16` on M4, ship `S = 8`. |
+| 0 | **decode NVFP4 QKV lane-major** (`:4735`, this experiment) | **PURSUE** — measured, bit-exact, basin-shaped; M4 argmax `S = 8` (−36.9 µs/step) tied with `S = 16` (−33.4); ship `S = 8` per §5.3. |
 | 1 | **routed MoE gate/up packed top-8 R1** (`:7545`) | **PURSUE at `S = 4`–`S = 8`** — 4096 simdgroups, 64-thread TGs, 1 row/simdgroup, no threadgroup memory, no barrier. Structurally the closest twin of kernel 0 and ~the same size. Highest-value single follow-up. |
 | 2 | **o_proj gated affine** (`:4035`) | **LOW PRIOR** (explicitly *not* killed) — safe at `S ≥ 2`, but already runs 4 rows/simdgroup, so the ramp/drain amortisation the repack buys is largely already paid. |
 | 3 | **shared-expert gate/up rows1** (`:6801`) | **LOW PRIOR** (explicitly *not* killed) — 1 row/simdgroup, so the residency deficit is real, but at 512 total simdgroups it is ≈8× smaller than kernel 1, so the same relative gain is ≈8× less absolute time. |
@@ -710,10 +1029,13 @@ that says which sites deserve them.
 
 ### 7.4 Rule 17
 
-**Prefill: structurally unreachable, not merely unmeasured.** The guard at
+**Prefill: structurally unreachable, and measured null.** The guard at
 `LagunaRuntimeModel.swift:4823` requires `normalized.dims(1, 1, hidden)`, so
-`lagunaDecodeNVFP4QKVR1` cannot fire for a `seq = 512` prefill. See §4 for the
-quoted guard and the confirming measurement.
+`lagunaDecodeNVFP4QKVR1` cannot fire for a `seq = 512` prefill. §4 confirms it
+empirically at `S = 16` vs the `S = 2` default: **−0.007 ms on 547.9 ms, 95 % CI
+±1.346 ms**, with the two blocks disagreeing in sign. No prefill floor risk from
+this knob. The caveat that Stage 2 sites *do* run at `seq = 512` and would each
+need their own prefill arm is recorded in §4.
 
 ### 7.5 Follow-ups I did not implement
 
