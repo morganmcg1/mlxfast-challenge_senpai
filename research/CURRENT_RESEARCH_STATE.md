@@ -21,14 +21,14 @@
   Fix: set lagunaPrefillSharedHalvedEnabled = false (falls through to standard groupSize=16).
   Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
 
-## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=6739b6a)
-  PR #290 (thorfinn): Re-enable QKV fusion — LRM-only flag flip, 0-byte, prefill
+## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=74fead1)
+  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, M5-only
   PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — 39 dispatches/decode step, ~50-100B
   PR #292 (askeladd): Extend gate-product+softplus kernel to multi-token prefill — 40 dispatches, ~200-400B
+  PR #294 (thorfinn): Dead code removal — free ~12KB LRM budget, 4 default-OFF flags, net-negative
 
-## PENDING REVISION
-  PR #285 (edward): Routed halved scales fix — revision requested (clean rebase on 6739b6a,
-    drop PR #243 qmm_nax + PR #263 STAGE2_GATHER changes, keep only gather_qmm_rhs_nax escape fix)
+## CLOSED (Wave 13)
+  PR #290 (thorfinn): QKV fusion re-enable — DEAD (38% decode regression from 312MB extra weight)
 
 ## M5 CRASH FIX (CRITICAL — 2026-08-07T13:20Z)
   Root cause found by _nax audit agent: PR #220 and PR #234 passed non-nil `biases`
