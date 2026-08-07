@@ -36,11 +36,14 @@
       PR #193 (thorfinn): DEAD. Attention QKV+O-proj scale halving -2.7% decode regression.
       Escape mechanism overhead exceeds ~0.62% bandwidth savings. Attention scale halving exhausted.
       Key insight: MoE halving works because 256 experts amortize per-kernel overhead; attention (40x/step) doesn't.
-    PR #191 (edward): REDIRECTED. QKV scale halving refuted by PR #193. Awaiting fresh research for new assignment.
-    PR #194 (alphonse): MERGED. PURE packed simd_sum. Bit-exact, M4 inconclusive (expected, bandwidth-bound).
-      12 sites packed across 5 kernel families. M5 is the decisive test (instruction-bound at ~89%).
-      Strategic: if M5 accepts, pure instruction reductions are NOT counterproductive.
+    PR #191 (edward): CLOSED. QKV scale halving refuted. New assignment: PR #199 (RMSNorm+argmax fuse into LM head).
+    PR #193 (thorfinn): DEAD. Closed. New assignment: PR #198 (prefill MoE scale halving, ~1.0-1.5% composite).
+    PR #194 (alphonse): MERGED. PURE packed simd_sum. New assignment: PR #200 (INT8 4x scale/bias dedup).
     PROMOTED FRONTIER: a117214 (clean 12a712d + MoE scale halving + packed simd_sum).
+    Fresh research: RESEARCH_IDEAS_20260807_FRESH.md — 7 ranked ideas. Top 3 assigned.
+    Key finding: LagunaRuntimeModel.swift at 517,008/524,288 (7,280 B headroom — TIGHT).
+      Surface budget: 1,921,734/3,000,000 (1,078,266 B headroom — AMPLE).
+      LagunaLmHeadPrune.swift: 46,738/524,288 (477,550 B headroom — AMPLE).
     FALLBACK: If Wave 5 fails, re-test instruction-count reductions PURE on clean base
       (no ops-800, no QHOIST, no prefill). Start with packed simd_sum (lowest risk).
       Research finding: no pure instruction-reduction submission was EVER tested on M5.
