@@ -48,10 +48,6 @@ public protocol KVCache: Evaluatable, Updatable {
     func copy() -> any KVCache
 }
 
-public protocol EmptyPrefillKVCache: KVCache {
-    func storeEmptyPrefill(keys: MLXArray, values: MLXArray) -> Bool
-}
-
 /// Protocol for caches that support efficient quantized operations
 ///
 /// **Usage Example:**
@@ -300,7 +296,7 @@ public func createSSMMask(h: MLXArray, cache: MambaCache?) -> MLXArray? {
 
 /// Standard KV cache implementation based on Python's KVCache
 /// See https://github.com/ml-explore/mlx-examples/blob/main/llms/mlx_lm/models/base.py#L11
-public class KVCacheSimple: BaseKVCache, EmptyPrefillKVCache, CustomDebugStringConvertible {
+public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     internal var keys: MLXArray?
     internal var values: MLXArray?
     public var step = 256
@@ -313,33 +309,6 @@ public class KVCacheSimple: BaseKVCache, EmptyPrefillKVCache, CustomDebugStringC
 
     public override func innerState() -> [MLXArray] {
         [self.keys, self.values].compactMap { $0 }
-    }
-
-    public func storeEmptyPrefill(keys: MLXArray, values: MLXArray) -> Bool {
-        let tokenCount = keys.dim(2)
-        guard self.keys == nil, self.values == nil, offset == 0, tokenCount > 1,
-            tokenCount.isMultiple(of: step)
-        else { return false }
-
-        if initialSlack {
-            self.keys = concatenated([
-                keys,
-                MLXArray.zeros(
-                    [keys.dim(0), keys.dim(1), step, keys.dim(3)], dtype: keys.dtype
-                ),
-            ], axis: 2)
-            self.values = concatenated([
-                values,
-                MLXArray.zeros(
-                    [values.dim(0), values.dim(1), step, values.dim(3)], dtype: values.dtype
-                ),
-            ], axis: 2)
-        } else {
-            self.keys = keys
-            self.values = values
-        }
-        offset = tokenCount
-        return true
     }
 
     public override func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
@@ -542,7 +511,7 @@ public class KVCacheSimple: BaseKVCache, EmptyPrefillKVCache, CustomDebugStringC
 }
 
 /// Rotating KV cache for sliding window attention
-public class RotatingKVCache: BaseKVCache, EmptyPrefillKVCache, CustomDebugStringConvertible {
+public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     // `internal` (not `private`) so `CompilableRotatingKVCache` (same module)
     // can read/write ring state during promotion and compiled update.
     var keep: Int
@@ -563,18 +532,6 @@ public class RotatingKVCache: BaseKVCache, EmptyPrefillKVCache, CustomDebugStrin
 
     public override func innerState() -> [MLXArray] {
         [self.keys, self.values].compactMap { $0 }
-    }
-
-    public func storeEmptyPrefill(keys: MLXArray, values: MLXArray) -> Bool {
-        let tokenCount = keys.dim(2)
-        guard self.keys == nil, self.values == nil, offset == 0, idx == 0, tokenCount > 1
-        else { return false }
-
-        self.keys = keys
-        self.values = values
-        offset = tokenCount
-        idx = tokenCount
-        return true
     }
 
     private func trim(trimSize: Int, _ array: MLXArray, append: MLXArray? = nil) -> MLXArray {

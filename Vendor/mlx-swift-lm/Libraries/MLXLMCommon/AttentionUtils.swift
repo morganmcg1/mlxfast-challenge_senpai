@@ -86,18 +86,6 @@ public func attentionWithCacheUpdate(
             mask: mask
         )
     }
-    if keys.dim(2) > 1,
-        let prefillCache = cache as? EmptyPrefillKVCache,
-        prefillCache.storeEmptyPrefill(keys: keys, values: values)
-    {
-        return MLXFast.scaledDotProductAttention(
-            queries: queries,
-            keys: keys,
-            values: values,
-            scale: scale,
-            mask: mask
-        )
-    }
     if let quantizedKVCache = cache as? QuantizedKVCacheProtocol {
         let (quantizedKeys, quantizedValues) = quantizedKVCache.updateQuantized(
             keys: keys, values: values)
