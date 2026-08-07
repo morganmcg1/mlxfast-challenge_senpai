@@ -5537,10 +5537,19 @@ final class LagunaRuntimeAttention: Module {
     /// arrays for parameter integrity.
     var _fusedQKVWeight: MLXArray?
 
-    /// Build the row-concatenated `[Wq; Wk; Wv]` BF16 bank for prefill (L > 1).
-    /// Bit-exact for bias-free `Linear` projections: each output row's K-loop
-    /// is independent of which rows share the dispatch. Decode (L == 1) never
-    /// reads this bank; it keeps the existing fused norm+QKV kernel.
+    /// Number of per-head gate rows appended at the tail of `_fusedQKVWeight`
+    /// (0 when the gate is not folded into the bank). The appended rows sit
+    /// after the Q/K/V rows, so the prefill call slices them at
+    /// `queryDim + 2 * kvDim`.
+    var _fusedQKVGateRows = 0
+
+    /// Build the row-concatenated `[Wq; Wk; Wv (, Wg)]` BF16 bank for prefill
+    /// (L > 1). Bit-exact for bias-free `Linear` projections: each output row's
+    /// K-loop is independent of which rows share the dispatch. Decode (L == 1)
+    /// never reads this bank; it keeps the existing fused norm+QKV kernel.
+    /// When per-head gating holds, `g_proj` rows are appended so the prefill
+    /// path slices the gate from the same matmul output, eliminating one
+    /// separate `gProj(normalizedInput)` dispatch per attention layer.
     func prepareFusedQKVWeight() -> MLXArray? {
         guard _fusedQKVWeight == nil,
             type(of: wq) == Linear.self,
@@ -5558,7 +5567,21 @@ final class LagunaRuntimeAttention: Module {
         else {
             return nil
         }
-        let fused = concatenated([wq.weight, wk.weight, wv.weight], axis: 0)
+        var banks = [wq.weight, wk.weight, wv.weight]
+        if gatingEnabled, gatePerHead, let gProj,
+            type(of: gProj) == Linear.self,
+            gProj.bias == nil,
+            gProj.weight.dtype == wq.weight.dtype,
+            gProj.weight.ndim == 2,
+            gProj.weight.dim(0) == nHeads,
+            gProj.weight.dim(1) == wq.weight.dim(1)
+        {
+            _fusedQKVGateRows = nHeads
+            banks.append(gProj.weight)
+        } else {
+            _fusedQKVGateRows = 0
+        }
+        let fused = concatenated(banks, axis: 0)
         _fusedQKVWeight = fused
         return fused
     }
@@ -5990,25 +6013,33 @@ final class LagunaRuntimeAttention: Module {
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
-        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY (L > 1): it
-        // collapses three steel GEMMs into one. Decode (L == 1) never reads
-        // this bank; the fused norm+QKV kernel above handles it instead.
+        // Gate logits sliced from the fused QKV+gate bank during prefill;
+        // nil for decode, stock, or fusedNormQKV paths (which handle the
+        // gate separately).
+        var prefillGateLogits: MLXArray?
+        // The retained BF16 [Wq; Wk; Wv (, Wg)] bank is PREFILL-ONLY (L > 1):
+        // it collapses three (or four with g_proj) steel GEMMs into one.
+        // Decode (L == 1) never reads this bank; the fused norm+QKV kernel
+        // above handles it instead.
         if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
             guard let normalizedInput else {
                 preconditionFailure("retained fused QKV requires normalized input")
             }
-            // One dispatch over the row-concatenated [Wq; Wk; Wv] weight,
-            // identical math to the three bias-free `Linear` calls
-            // (`matmul(x, w.T)`). Each output row's K-loop is independent of
-            // which rows share the dispatch, so every Q/K/V element is
-            // bit-exact; the slices are views and the reshapes below may
-            // copy, which does not change values.
+            // One dispatch over the row-concatenated weight, identical math
+            // to the bias-free `Linear` calls (`matmul(x, w.T)`). Each output
+            // row's K-loop is independent of which rows share the dispatch,
+            // so every Q/K/V/gate element is bit-exact; the slices are views
+            // and the reshapes below may copy, which does not change values.
             let qkv = matmul(normalizedInput, fusedQKVWeight.T)
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
             queries = qkv[.ellipsis, 0 ..< queryDim]
             keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
             values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
+            if _fusedQKVGateRows > 0 {
+                prefillGateLogits =
+                    qkv[.ellipsis, (queryDim + 2 * kvDim) ..< (queryDim + 2 * kvDim + _fusedQKVGateRows)]
+            }
         } else if let fused = fusedNormQKV {
             queries = fused.queries
             keys = fused.keys
@@ -6227,6 +6258,9 @@ final class LagunaRuntimeAttention: Module {
             if let fusedNormQKV {
                 projectedGate = fusedNormQKV.gateValues
                 gateIsActivated = fusedNormQKV.gateActivated
+            } else if let prefillGateLogits {
+                projectedGate = prefillGateLogits
+                gateIsActivated = false
             } else {
                 guard let normalizedInput else {
                     preconditionFailure("attention gate requires normalized input")
@@ -8608,6 +8642,22 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             )
             let gate = gateUp[.ellipsis, 0 ..< _fusedGateUpSplit]
             let up = gateUp[.ellipsis, _fusedGateUpSplit...]
+            return downProj(compiledSiluProduct(gate, up))
+        }
+        // Dense (layer-0) gate/up fusion for prefill: the existing BF16
+        // `_fusedDenseGateUpWeight` bank (built by `prepareFusedDenseGateUp`)
+        // collapses two matmul dispatches into one. Each output row's K-loop
+        // is independent, so this is bit-exact vs. the separate gate/up calls.
+        if x.dim(1) > 1,
+            let fusedWeight = _fusedDenseGateUpWeight,
+            fusedWeight.dtype == .bfloat16,
+            fusedWeight.dims(2 * LagunaConstants.denseIntermediateSize, LagunaConstants.hiddenSize)
+        {
+            lagunaTrace("dense gate/up fusion (prefill)")
+            let gateUp = matmul(x, fusedWeight.T)
+            let intermediate = LagunaConstants.denseIntermediateSize
+            let gate = gateUp[.ellipsis, 0 ..< intermediate]
+            let up = gateUp[.ellipsis, intermediate...]
             return downProj(compiledSiluProduct(gate, up))
         }
         return downProj(compiledSiluProduct(gateProj(x), upProj(x)))
