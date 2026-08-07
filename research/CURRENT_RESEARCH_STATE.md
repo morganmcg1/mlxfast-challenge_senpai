@@ -31,14 +31,15 @@ Do NOT revisit this hypothesis.
   same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
-## ACTIVE ASSIGNMENTS (Wave 18, BASE_SHA=020e3705)
-  PR #342 (edward): Prefill nax halved scales — WIP (M5-only, ~0.9% total score)
+## ACTIVE ASSIGNMENTS (Wave 18-19, BASE_SHA=12eaa973)
   PR #348 (thorfinn): Prefill unsorted gatherQuantizedMM — WIP (~2.2% total score, ★★★)
   PR #349 (askeladd): Prefill RMSNorm+QKV fusion via MLX.compile — WIP (~0.6% total, ★★★)
-  PR #350 (alphonse): JIT kernel consolidation for M5 fix — JUST ASSIGNED (★★★, CRITICAL M5 build fix)
+  PR #350 (alphonse): JIT kernel consolidation for M5 fix — WIP (★★★, CRITICAL M5 build fix)
+  PR #351 (edward): Prefill shared gate/up+SiLU fusion — JUST ASSIGNED (~0.5-1% prefill, ★★☆)
 
 ## MERGED WAVE 18
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — MERGED (2.8% prefill improvement, 2-line change, bit-exact)
+  PR #342 (edward): Prefill nax halved scales via qmm_nax kHalvedScales — MERGED (M5-only, ~0.9% total score, re-applies PR #243 + extends to gather path)
 
 ## CLOSED WAVE 17
   PR #345 (thorfinn): Prefill addMM enablement — DEAD (-36.1% regression, breaks fused residual+RMSNorm+router)
