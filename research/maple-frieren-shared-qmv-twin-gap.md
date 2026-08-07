@@ -31,6 +31,53 @@ Both effects are far below this host's end-to-end resolution. −14.2 µs/step i
 ±0.73 % local-iterate MDE. The end-to-end ABBA in §5 is reported as a point
 estimate with a CI and is **not** treated as a refutation.
 
+### 0.1 Framing: bit-exactness plus in-situ per-dispatch cost
+
+The advisor's 2026-08-07T18:19Z nudge on PR #301 offered to accept this
+experiment as a bit-exactness plus per-dispatch-cost result rather than an
+end-to-end one, because the predicted effect is structurally below the M4 Pro
+detection floor. **I take that framing.** The arithmetic is not close:
+
+| Quantity | Value |
+| --- | --- |
+| Predicted mechanism-(a) benefit | −14.2 µs/step |
+| Decode step wall on this host (§1) | 9.825 ms |
+| Predicted benefit as fraction of decode wall | **0.145 %** |
+| `--local-iterate` MDE at the reps this host can afford | **±0.73 %** |
+| Ratio | effect is **≈5× below** resolution |
+
+So the load-bearing evidence in this report is, in order:
+
+1. **Bit-exactness of each mechanism independently**, argued from source
+   (§2.2, §3.3) and demonstrated by teacher-forced greedy comparison with a
+   **fault-injection power check** (§4.3). Standing rule 16 applies: the
+   equivalence oracle never dispatches this kernel (§4.1), so a zero-divergence
+   result only means something once the same check is shown to catch a
+   deliberately broken variant.
+2. **In-situ per-dispatch cost** of the kernel with each guard on and off
+   (§2.1, §3.2), measured by ABBA with an invariant control.
+3. The end-to-end ABBA (§5), reported as a point estimate with a CI and
+   explicitly **not** as a refutation.
+
+**On standing rule 25 (isolated vs in-situ).** The per-dispatch numbers in §2.1
+and §3.2 are *not* isolated-proxy timings. They come from
+`research/nezuko-pr158-gpuprof-hook.patch` applied to the vendored MLX dispatch
+path in the real `mlxfast-runtime-worker`, running the real 512-token seed plus
+teacher-forced decode loop, with `DARKBLOOM_GPU_PROFILE_SPLIT=1` so each
+dispatch gets its own command buffer. There is therefore no isolated→in-situ
+conversion factor to apply to the *delta*: the 7.53 µs/call figure is already an
+in-situ per-dispatch cost, and the 39-dispatch/step count is an instrumented
+count from the same trace, not an assumption.
+
+The one place rule 25 still bites is the ×39 conversion to µs/step. Splitting
+command buffers removes the overlap that the uninstrumented worker gets, so
+`39 × delta` is an **upper bound** on the wall-clock benefit per step, not a
+prediction of it. #298 vs #300 puts the overlap discount at roughly half for a
+different kernel; if a similar discount applied here the real benefit would be
+nearer −7 µs/step, i.e. ~0.07 % of decode wall — further below resolution, and
+still in the same direction. Every µs/step number in this report should be read
+with that upper-bound caveat.
+
 ---
 
 ## 1. Stage 0 — reachability, by instrumented count
@@ -172,9 +219,23 @@ Invariant control — the routed twin, which the change cannot touch:
 **+0.056 µs/call, CI [−0.563, +0.674]**, i.e. a null, so the effect is not a
 whole-process speed shift mislabelled as a kernel effect.
 
+**Achieved precision, honestly.** The standard error of the OFF→ON delta is
+**0.0567 µs/call** (t ≈ 6.4 on df 8.1). The advisor's nudge asked for the
+per-dispatch SE to be under ~5 % of the predicted per-call delta, i.e. ≲0.028
+µs; I am **2.0× short of that target**. What I have is a delta that is 6.4
+standard errors from zero with perfect 6-versus-6 separation and a passing
+invariant control, which is enough to call the sign and roughly size the effect,
+but the ±0.13 µs CI width means the *magnitude* is only pinned to about ±36 %.
+Reaching 0.028 µs would need roughly 4× the process count (24 processes/arm,
+≈33 min of instrumented GPU time per arm) on a host whose 40 C idle already
+costs a cool-gate failure every few runs; I judged that a poor use of the
+remaining round given the sign and the invariant control both being clean, and
+I am flagging it rather than quietly rounding the CI.
+
 `DARKBLOOM_GPU_PROFILE_SPLIT=1` puts one dispatch per command buffer; that is
 what makes a 0.36 µs/call effect measurable at all. It also means these
-per-call numbers are *not* end-to-end numbers, which §5 covers separately.
+per-call numbers are *not* end-to-end numbers, which §5 covers separately, and
+that the ×39 step conversion above is an upper bound (§0.1, standing rule 25).
 
 ---
 
