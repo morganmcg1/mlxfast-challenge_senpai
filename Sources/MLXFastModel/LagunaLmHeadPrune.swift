@@ -99,12 +99,13 @@ let lagunaLmHeadFusedRefinementEnabled =
 /// exact dispatch: one row per lane for the base screen and the certified-below
 /// store, then a simdgroup-uniform loop over the balloted survivors that runs
 /// the residual refinement and the BF16 GEMV with the same 32-lane cooperative
-/// arithmetic as the fixed-four-row form. DEFAULT ON; set
-/// `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE=0` for the fixed-four-row control arm in
-/// the same binary. Both arms emit bit-identical `assembled` rows.
+/// arithmetic as the fixed-four-row form. DEFAULT OFF after official receipt
+/// `99b71258` measured it +24.6 us/token on the ranked M5 despite -63.7 us on
+/// M4; set `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE=1` to select it. Both arms emit
+/// bit-identical `assembled` rows.
 let lagunaLmHeadRowMajorRefineEnabled =
     ProcessInfo.processInfo.environment[
-        "DARKBLOOM_LMHEAD_ROWMAJOR_REFINE"] != "0"
+        "DARKBLOOM_LMHEAD_ROWMAJOR_REFINE"] == "1"
 
 /// One-line stderr trace hooks (DARKBLOOM_TRACE_FUSION=1) so an active pruner
 /// is visible in run logs.
