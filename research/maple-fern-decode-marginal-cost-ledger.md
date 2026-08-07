@@ -15,21 +15,48 @@ research-only and is published as
 
 ## 0. Headline
 
-The steady one-token decode step **absorbs 2.85 ms of extra independent GPU
-kernel work at zero wall-time cost** - 35 % of the 8.20 ms step. Below that
-threshold the marginal cost of GPU work is statistically zero; above it, work
-passes through at 56 % of its census GPU microseconds.
+**Absorption is per-family, not a single step-level budget.** The decode step
+has a *serial spine* that pays for every microsecond of added work, and a
+*shadow* around it in which extra GPU work is free. Which one a kernel family
+sits in is a measurable property of that family, and the answer varies by more
+than three orders of magnitude across families that look similar in a GPU
+census.
 
-Every kernel family on the decode path has a census cost of 0.12-0.43 ms/step,
-i.e. **5-24x below the absorption threshold**. Therefore:
+Measured pass-through of injected duplicate work, per family, on the same host
+in the same session:
 
-> Making any single decode kernel family cheaper - or deleting it outright -
-> buys approximately nothing. The decode step is not throughput-bound.
+| family | calls/step | marginal cost | pass-through vs census | verdict |
+| --- | --- | --- | --- | --- |
+| `T0a_router_top8` | 39 | **~0 us/call** (slope `-8.4 +/- 4.8` us/copy-set) | 0 % up to 2.85 ms | fully shadowed |
+| `T1a_residual_rms_router` | 39 | 2.73 us/call chained (**106 us/step**) | 35 % | partly shadowed |
+| `T2c_routed_qmv` | 39 | **30.35 us/call** (**1184 us/step**) | ~100 %, **linear from K=1** | on the spine |
 
-This is a quantitative explanation for the programme's long run of
-"census says 200 us, deletion measures 0 +/- 12 us" results (#204 among them),
-and it re-prices the remaining optimization space: the lever is **dispatch
-count and dependency-chain depth**, not arithmetic.
+`T2c` (the routed-expert top-8 SwiGLU QMV) has **zero absorbed slack**
+(hinge fit: `-0.26` copy-sets) and its very first injected duplicate already
+costs `+1377.7 +/- 1.1 us` at `t = 1272`. `T0a` absorbs 15.3 copy-sets - about
+2.85 ms - before it costs anything at all, and `#204`'s independent deletion of
+that same family measured `-0.9 +/- 12.1 us`, exactly as this instrument
+predicts.
+
+The practical consequence re-prices the remaining search space:
+
+> Do not spend effort on the small decode kernels. Router top-8, gate/softplus
+> and the norm/router glue are *proven* to be in the shadow: making them faster,
+> or deleting them, is worth ~0. The routed-expert QMV path is *proven* to be on
+> the spine at ~100 % pass-through - it is the only family measured so far where
+> a microsecond saved is a microsecond earned.
+
+This gives a quantitative explanation for the programme's long run of
+"census says 200 us, deletion measures 0 +/- 12 us" results, and it converts
+that pattern from a mystery into a screening test: **inject before you
+optimize.** One 110-second duplicate-injection probe tells you whether a family
+can pay, before any kernel is written.
+
+A caveat that runs through the whole report: an injected duplicate re-reads
+weights the real dispatch just streamed, so it is *cache-warm*. For families
+whose working set exceeds cache the measured marginal is therefore a **lower
+bound** on the cost of the real, cold dispatch; for small cache-resident
+families it is faithful. See §4.
 
 ---
 
@@ -168,4 +195,48 @@ that family measured `-0.9 +/- 12.1 us`. Two families with comparable census
 cost (185.7 vs 305.1 us/step) differ by more than an order of magnitude in
 marginal cost. **Census time is not marginal cost, and the ledger can tell
 them apart.**
+
+
+---
+
+## 4. What the instrument cannot see: the cache-warm floor
+
+This is the most important limitation of the method and it must be stated
+before the ledger is read.
+
+An injected duplicate runs immediately after the real dispatch and reads
+**exactly the same weight bytes**. Those bytes are still in cache. So the
+duplicate does not pay the DRAM traffic the real dispatch paid:
+
+```text
+census_cold(family) = dram_component + compute_and_launch_component
+duplicate_marginal  =                  compute_and_launch_component   (+ residual DRAM)
+```
+
+Two consequences, in opposite directions, and they must not be mixed up:
+
+1. **For a family whose working set exceeds cache, the measured marginal is a
+   lower bound on the value of removing it.** Deleting the real dispatch also
+   removes its DRAM traffic, which the duplicate never paid. `T1a` shows this
+   plainly: census 7.82 us/call cold versus 2.73 us/call chained-warm, so
+   roughly 65 % of that family's real cost is traffic the instrument cannot
+   charge for.
+2. **For a small cache-resident family the measurement is faithful**, because
+   there was never much traffic to hide. `T0a_router_top8` operates on
+   top-8 logits and router scores; its duplicate and its original cost the
+   same, and the measured `~0` is a real `~0`. This is independently confirmed
+   by #204, which deleted the family for real and also measured zero.
+
+The instrument is therefore **conservative for "this is worth optimizing"** and
+**sound for "this is worth nothing"**. A family that cannot pay for a warm
+duplicate might still pay for a cold deletion; a family that *does* pay for a
+warm duplicate is unambiguously on the critical path. Both statements are
+useful, and the asymmetry is the right way round for a screening test: it will
+not send anyone chasing a phantom win.
+
+`T2c_routed_qmv` is the interesting case. Its per-layer routed working set is
+far larger than cache, so partial re-fetch is unavoidable and its measured
+`30.35 us/call` is *still* a lower bound. That a lower bound already accounts
+for `1.18 ms` of an `8.20 ms` step is the strongest single finding here.
+
 
