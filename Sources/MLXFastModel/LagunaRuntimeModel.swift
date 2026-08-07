@@ -9937,14 +9937,14 @@ private func lagunaFusedSortedRoutedGateUp(
     scalesEscape: MLXArray?,
     split: Int,
     downProj: SwitchLinear,
+    downWeight: MLXArray?,
+    halvedDownScales: MLXArray?,
+    downScalesEscape: MLXArray?,
     deferUnsort: Bool
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
     // SwitchGLU: `var x = MLX.expandedDimensions(x, axes: [-2, -3])`
     var sortedX = MLX.expandedDimensions(x, axes: [-2, -3])
-    // SwitchGLU: `let doSort = indices.size >= 64`. The call site already
-    // guards `indices.size >= 64` before calling in, so this is always true
-    // here; recomputed anyway so this function mirrors SwitchGLU verbatim
-    // and stays correct if that guard is ever loosened.
+    // SwitchGLU: `let doSort = indices.size >= 64`; call site already guards this.
     let doSort = indices.size >= 64
     // SwitchGLU: `var idx = indices` / `var inverseOrder = MLXArray()`
     var idx = indices
@@ -9987,8 +9987,23 @@ private func lagunaFusedSortedRoutedGateUp(
     } else {
         activated = lagunaInterleavedSwiGLU(gateUp, split: split)
     }
-    // SwitchGLU: `x = downProj(activated, idx, sortedIndices: doSort)`
-    var result = downProj(activated, idx, sortedIndices: doSort)
+    // SwitchGLU: `x = downProj(activated, idx, sortedIndices: doSort)`.
+    // With NAX + halved scales, use gatherQuantizedMM with halved scales +
+    // escape biases (bit-exact via NVFP4 pairwise constancy).
+    let useHalvedDown = downWeight != nil && halvedDownScales != nil
+        && downScalesEscape != nil
+        && lagunaPrefillFusedRoutedGateUpHalvedEnabled
+        && lagunaExpertAlignedGatherEnabled
+    var result: MLXArray
+    if useHalvedDown {
+        result = MLX.gatherQuantizedMM(
+            activated, downWeight!,
+            scales: halvedDownScales!, biases: downScalesEscape,
+            rhsIndices: idx, transpose: true, groupSize: 16,
+            bits: 4, mode: .nvfp4, sortedIndices: doSort)
+    } else {
+        result = downProj(activated, idx, sortedIndices: doSort)
+    }
     // SwitchGLU: `if doSort { x = scatterUnsort(x: x, invOrder: inverseOrder, shape: indices.shape) }`
     if doSort && !deferUnsort {
         result = scatterUnsort(x: result, invOrder: inverseOrder, shape: indices.shape)
@@ -10468,6 +10483,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     scalesEscape: _fusedRoutedGateUpScalesEscape,
                     split: _fusedRoutedGateUpSplit,
                     downProj: downProj,
+                    downWeight: _routedDownWeight,
+                    halvedDownScales: _halvedRoutedDownScales,
+                    downScalesEscape: _routedDownScalesEscape,
                     deferUnsort:
                         lagunaPrefillSortedMoETailEnabled
                         && lagunaPrefillMoETailEnabled
