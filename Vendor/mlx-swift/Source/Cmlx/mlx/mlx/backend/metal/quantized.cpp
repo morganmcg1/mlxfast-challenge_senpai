@@ -1495,13 +1495,11 @@ int darkbloom_stage_bm128_variant() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_STAGE_BM128", "");
     if (s.empty()) {
-      // Default 5 (2026-08-01, final): API absolutes across our four scored
-      // sessions prove the mechanism — candidate prefill 204.90 (base) →
-      // 201.64 (wn1) → 201.42 (steel) → 198.00 µs (both; fastest on record).
-      // Earlier rejections were session-baseline draw fog (bpre 364-371 vs
-      // the 375-386 every recent promotion drew), not mechanism failures.
+      // Default 3 (2026-08-07): BM128/WM8/WN1 = SM16 with reglocal epilogue.
+      // Variant 5 (BM64/WM4/WN1) was the prior default; variant 3 keeps WN=1
+      // (preserves kSwigluRegLocal) while doubling the M-tile to 128.
       // DARKBLOOM_STAGE_BM128=4 restores the WN2 tiling.
-      return 5;
+      return 3;
     }
     if (s == "1") {
       return 1;
@@ -1699,7 +1697,7 @@ void gather_qmm_rhs_nax(
   switch (bm128) {
     case 1: bm = 128; wm = 4; break;         // SM=32, less re-staging
     case 2: bm = 128; wm = 2; break;         // SM=64, predicted regression
-    case 3: bm = 128; wm = 8; break;         // SM=16, both mechanisms
+    case 3: bm = 128; wm = 8; wn = 1; break; // SM=16, reglocal (WN=1), 256 thr/TG
     case 4: bm = 64;  wm = 4; break;         // SM=16, 256 thr/TG, SHIPPED DEFAULT
     case 5: bm = 64;  wm = 4; wn = 1; break; // SM=16, 128 thr/TG, TN 2 -> 4
     default: break;                          // upstream: bm=64, wm=2, wn=2
