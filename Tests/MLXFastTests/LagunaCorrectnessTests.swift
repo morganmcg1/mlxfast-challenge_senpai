@@ -256,6 +256,7 @@ private func attentionMaskKind(_ mask: MLXFast.ScaledDotProductAttentionMaskMode
     case .none: "none"
     case .causal: "causal"
     case .array: "array"
+    case .arrays: "arrays"
     }
 }
 
