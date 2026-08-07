@@ -1886,10 +1886,11 @@ that day's candidate deviation across all 11 days with published metrics
 dominated by genuine code differences (detrended daily spread 9.3 % on prefill,
 12.5 % on decode) rather than by machine state. A null here means nothing.
 
-The sharp test is to hold the code fixed. The frontier has been stable for
-several days, so a large plurality of submissions share effectively identical
-candidate code. Clustering on both candidate axes (prefill within ±0.5 %,
-decode within ±0.3 % of the recent mode) leaves 168 rows over four days:
+The sharp test is to hold the code fixed. A large plurality of submissions do
+share effectively identical candidate code: the modal candidate decode over the
+last week sits at 5.11 ms, with 169 of the ~600 recent rows inside three
+0.01 ms bins. Clustering on both candidate axes (prefill within ±0.5 %, decode
+within ±0.3 % of that mode) leaves 168 rows over four days:
 
 | day | n | cand decode | cand prefill | `ns` | `nsd` | base prefill |
 |---|---|---|---|---|---|---|
@@ -1926,6 +1927,20 @@ fall monotonically (5115.2 → 5102.1 µs) inside a ±0.3 % selection band that 
 three times wider than the movement itself, so some of that 0.100 % is the
 cluster's composition drifting as the frontier improves, not the harness. The
 error bars below are therefore conservative.
+
+I also want to be precise about what this cluster is, because it would be easy
+to over-read. It is *not* our frontier family: at 5.11 ms it runs 4.15 % slower
+than `97a5090c`'s 4.9084 ms. It is a widely-shared plateau that many campaigns
+sit on. I could not repeat the measurement on the frontier family itself —
+across the entire 1,579-row feed only 6 receipts land within 0.4 % of
+4.9084 ms, all on a single day, which is nowhere near enough for a day-to-day
+estimate. So the plateau is the only available probe of session-to-session
+movement. The substitution is safe for the purpose: any fixed code measures the
+harness equally well, and the 4 % speed gap changes the relative drift by at
+most 4 % of itself even under the least favourable assumption that drift is
+purely additive in microseconds (0.103 % → 0.107 %). It is worth noting in
+passing that our frontier is genuinely rare — six receipts in the whole feed —
+so the reference we are pairing against has no replicates at its own speed.
 
 **Consequence 1 — this is why `officialScore` is a bad cross-session axis, and
 the reason is not the one I assumed.** `officialScore` is a paired ratio, so I
