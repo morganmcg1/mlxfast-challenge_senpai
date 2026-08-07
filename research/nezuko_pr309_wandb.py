@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Publish the PR #309 persistent grid-stride QKV campaign to W&B.
 
-    python3 research/nezuko_pr309_wandb.py ABBA_DIR STAGE0_DIR [--warmup 8] [--trim 0.05]
+    python3 research/nezuko_pr309_wandb.py ABBA_DIR STAGE0_DIR \
+        [--warmup 8] [--trim 0.05] [--decision KILL] [--ladder-dir DIR]
 
 Re-uses `research/nezuko_pr309_stats.py` as a library so the numbers published
 to W&B are byte-identical to the ones printed in the report, then attaches the
-raw per-step traces, the Stage 0 geometry evidence and both negative controls
-as a single artifact.
+raw per-step traces, the Stage 0 geometry evidence, both negative controls and
+the threadgroup-count ladder as a single artifact.
 """
 import argparse
 import importlib.util
@@ -39,6 +40,7 @@ def main() -> int:
     ap.add_argument("--warmup", type=int, default=8)
     ap.add_argument("--trim", type=float, default=0.05)
     ap.add_argument("--decision", default="UNSET")
+    ap.add_argument("--ladder-dir", default=None)
     args = ap.parse_args()
 
     runs = [r for r in S.load(args.abba_dir, args.warmup, args.trim) if r[1] > 0]
@@ -147,6 +149,37 @@ def main() -> int:
         diverge[t] == 0 for t in timed)
     summary["decision"] = args.decision
 
+    ladder = sorted(Path(args.ladder_dir).glob("*.log")) if args.ladder_dir else []
+    ladder_medians = {}
+    for log in ladder:
+        txt = log.read_text(errors="replace")
+        m = re.search(r"^decode steps=\S+ .*?median=([\d.]+) ms", txt, re.M)
+        if not m:
+            continue
+        us = float(m.group(1)) * 1000.0
+        summary[f"ladder/{log.stem}/median_us"] = us
+        err = log.with_suffix(".err")
+        g = re.search(r"qkv-geometry h64 .*?tg_launched=(\d+) .*?rows_per_sg=(\d+)",
+                      err.read_text(errors="replace") if err.exists() else "")
+        if g:
+            summary[f"ladder/{log.stem}/tg_launched"] = int(g.group(1))
+            summary[f"ladder/{log.stem}/rows_per_sg_h64"] = int(g.group(2))
+        d = re.search(r"greedy tokens: (\d+) divergences", txt)
+        summary[f"ladder/{log.stem}/divergences"] = int(d.group(1)) if d else -1
+        ladder_medians.setdefault(log.stem.rstrip("b"), []).append(us)
+    if ladder_medians:
+        # Palindromic order: each rung has an A and a B replicate, so the
+        # spread between them is the session-drift control.
+        for tag, vals in ladder_medians.items():
+            summary[f"ladder/{tag}/replicate_mean_us"] = statistics.mean(vals)
+            summary[f"ladder/{tag}/replicate_spread_us"] = max(vals) - min(vals)
+        full = statistics.mean(ladder_medians.get("G640", [float("nan")]))
+        for tag, vals in ladder_medians.items():
+            summary[f"ladder/{tag}/delta_vs_full_us"] = (
+                statistics.mean(vals) - full)
+        summary["ladder/all_clean"] = all(
+            summary.get(f"ladder/{p.stem}/divergences", -1) == 0 for p in ladder)
+
     run.log({k: v for k, v in summary.items() if isinstance(v, (int, float, bool))})
     run.summary.update(summary)
 
@@ -155,6 +188,11 @@ def main() -> int:
         art.add_file(str(p), name=f"abba/{p.name}")
     for p in sorted(stage0.glob("*.log")):
         art.add_file(str(p), name=f"stage0/{p.name}")
+    for p in ladder:
+        art.add_file(str(p), name=f"ladder/{p.name}")
+        # The geometry proof (tg_launched, rows_per_sg) is on stderr.
+        if p.with_suffix(".err").exists():
+            art.add_file(str(p.with_suffix(".err")), name=f"ladder/{p.stem}.err")
     run.log_artifact(art)
 
     print(f"WANDB_RUN_ID={run.id}")

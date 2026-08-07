@@ -2,8 +2,23 @@
 
 **Student:** maple-nezuko · **Assignment:** `maple-2026-08-07q-persistent-gridstride-qkv` r1
 **Base:** `63ab67c888e1892086b7b5b623de4dd0ebe68c90`
+**W&B:** [`b624rd0b`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/b624rd0b)
+(arm means, all 10 contrasts, the ladder, Stage 0 validity gates, and the raw
+per-step traces as artifact `pr309-persistent-gridstride-qkv`)
 
 **Decision: KILL** — see §8.
+
+**Headline.** The candidate is `+63.2 ± 11.0 µs/step` (t = 5.76, n = 8/arm)
+*slower* than the stock anchor and `+96.9 µs/step` slower than the merged PR #48
+arm it was meant to extend. Both halves of the assignment's cost model check
+out — the redundant reduction is real and `T=128` does amortise it — but
+abandoning full grid coverage costs `+174.9 ± 11.0 µs/step`, measured with the
+fold switched off on both sides, which is 5x the amortisation it buys. A
+threadgroup-count ladder (§6.3) shows that penalty is flat across an 8x range of
+grid coarseness and then cliffs by `+917 µs` once the grid drops below the GPU
+core count, so no choice of `T` rescues the idea. The M5's usable `T` set is
+strictly smaller than this host's (§9), so this will not reverse on the ranked
+machine.
 
 ## 1. Hypothesis
 
@@ -184,6 +199,14 @@ Contrasts (fixed effects; se = 11.0 µs, 46 df throughout):
 Per-block arm means were stable to within ~30 µs across all four blocks; no run
 exceeded 4× the median within-run sd, so no block was thermally compromised.
 
+**Estimator robustness.** Re-running the same 56 traces with the trim disabled
+(plain mean of the 184 kept steps) moves the headline from +63.2 to +60.7 µs and
+`G128-G640` from +174.9 to +176.0, with residual sd 21.6 instead of 21.9. Every
+contrast keeps its sign, magnitude and significance, so the conclusion does not
+depend on the choice of per-run estimator. Both tables are in
+`research/persistent-qkv-logs/abba-campaign-stats.txt` (trimmed) and reproducible
+by dropping `--trim 0.05`.
+
 **Reading of the two mechanism terms.** Both halves of the assignment's cost
 model are confirmed on their own axis:
 
@@ -206,39 +229,102 @@ also destroys the already-merged #48 win rather than adding to it.
 
 ### 6.3 Threadgroup-count ladder (mechanism falsification)
 
-_(pending)_
+The `G128 − G640` penalty is the whole result, so it deserves its own
+falsification. `S=16` admits `T ∈ {16, 32, 64, 128}` (§2 divisibility), and
+**total row-work is identical at every rung** — only the grid shape changes. A
+pure per-row loop-overhead explanation therefore predicts a *flat* ladder; a
+scheduling explanation predicts structure. Ten runs, 192 steps each, fold off
+everywhere, palindromic order `G640 G128 G64 G32 G16 | G16 G32 G64 G128 G640`
+so the anchor brackets the session.
+
+| T | TGs | TG/core (20) | rows/sg (h64) | median A | median B | mean | Δ vs full coverage |
+|---|---|---|---|---|---|---|---|
+| full | 640 | 32 | 1 | 8.159 | 8.163 | 8.161 | — |
+| 128 | 128 | 6.4 | 5 | 8.340 | 8.346 | 8.343 | **+182 µs** |
+| 64 | 64 | 3.2 | 10 | 8.349 | 8.363 | 8.356 | **+195 µs** |
+| 32 | 32 | 1.6 | 20 | 8.317 | 8.311 | 8.314 | **+153 µs** |
+| 16 | 16 | **0.8** | 40 | 9.076 | 9.080 | 9.078 | **+917 µs** |
+
+Drift control: the two `G640` anchors, run first and last, differ by 4 µs, so
+the session had no thermal drift. Replicate pairs differ by ≤ 14 µs while the
+effects are 153–917 µs. All ten runs reported `0 divergences`.
+
+Cross-session replication: the ladder's full-coverage → `T=128` step is
+**+182 µs**, against the ABBA campaign's `G128 − G640 = +174.9 ± 11.0 µs`
+measured on a different day. Inside one standard error.
+
+**Three things follow.**
+
+1. **Per-row loop overhead is ruled out.** Total row-work is constant across
+   rungs, and the ladder is *non-monotone* in rows/simdgroup: `T=32`
+   (20 rows/sg) is 42 µs **faster** than `T=64` (10 rows/sg). Overhead that
+   scaled with the row loop could not produce that ordering.
+2. **The penalty is close to a step function, not a gradient.** For every rung
+   that still has at least one threadgroup per core, the cost of abandoning
+   full coverage sits on a ~+150…+195 µs plateau — an 8x change in grid
+   coarseness moves it by 42 µs. Whatever full coverage buys, it is bought all
+   at once and is not recovered by tuning `T`.
+3. **There is a hard cliff exactly at the core count.** `T=16` on a 20-core
+   part leaves 4 cores idle for the entire kernel and costs **+917 µs**, 5x the
+   plateau and 4.7x more than `T=32`. The boundary lands precisely where the
+   grid can no longer occupy every core, which is direct evidence that the
+   dominant term is occupancy/scheduling rather than arithmetic.
 
 ## 7. Mechanism
 
-A frontier-model review of Apple GPU scheduling, plus the numbers above,
-converge on a **straggler-wave tail**:
+Two things the data settles, and one it does not.
 
-- 128 persistent threadgroups of 512 threads slightly exceed the concurrent-TG
-  capacity of a 20-core M4 Pro (~80–120 resident TGs at this size). The
-  remainder forms a short second wave running at very low occupancy for a full
-  multi-row threadgroup lifetime — and at `T=128` a threadgroup lifetime is
-  **5 rows**, not 1, so the tail is 5x longer than at full coverage.
-- Per-threadgroup launch cost is essentially free here: `a0 → G640` removes
-  4480 TGs/step and moves timing by only ~17 µs. So the penalty is *not*
-  dispatch overhead; shrinking the grid buys almost nothing on that axis while
-  costing tail latency.
-- Full-coverage grids are what every production Apple GEMV does. MLX's own
-  `qmv` uses 64-thread threadgroups with 8 rows each and full coverage
-  (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp:255-299`,
-  `kernels/fp_quantized.h:537-556`). Metal offers no cross-threadgroup
-  forward-progress guarantee, which is why persistent-CTA idioms common in CUDA
-  are not used on Apple.
+**Settled: the penalty is scheduling, not work.** Per-threadgroup launch cost is
+essentially free here — `a0 → G640` removes 4480 TGs/step and moves timing by
+`−6.9 ± 11.0 µs`, i.e. nothing. So shrinking the grid buys almost nothing on the
+dispatch axis. Meanwhile total row-work, total activation loads, total weight
+traffic and total simdgroup reductions are all identical across the §6.3 ladder,
+yet the ladder spans 917 µs. The cost therefore lives entirely in how the work
+is *scheduled*, not in how much of it there is.
+
+**Settled: occupancy is the dominant term.** The `T=16` cliff is the cleanest
+evidence in this report. Sixteen threadgroups on a twenty-core part leaves four
+cores idle for the whole kernel, and that alone costs +917 µs — 5x the plateau
+that every other rung sits on. Nothing about the kernel body changes at that
+rung; only the grid's ability to reach every core does.
+
+**Refuted: my own first explanation.** I initially expected a straggler-wave
+tail whose cost scales with threadgroup *lifetime*, since a `T=128` threadgroup
+lives 5 rows rather than 1. That model predicts monotone worsening as `T` falls
+and lifetimes grow. The ladder says otherwise: `T=32` (20 rows/simdgroup) is
+*faster* than `T=64` (10 rows/simdgroup), and the whole `T ∈ {32, 64, 128}`
+range is a 42 µs-wide plateau. Tail-lifetime scaling is not what is happening.
+
+**Unresolved: what full coverage actually buys.** The plateau's shape — a
+~+170 µs step taken the moment you leave one-row-per-simdgroup, then near
+indifference to how coarse you go — looks like the loss of a property that
+full coverage has and every persistent configuration lacks equally. The leading
+candidate is memory-level parallelism: at full coverage each simdgroup issues
+one independent NVFP4 weight stream and the scheduler has 10240 of them to
+interleave, whereas persistence serialises the same rows into at most 2048
+dependent chains, so far fewer independent loads are in flight per core to hide
+weight-fetch latency in a bandwidth-bound GEMV. I did not instrument this, so I
+am labelling it a hypothesis rather than a finding. It is testable with a
+Metal capture of memory-stall cycles at `G640` vs `G128`, which I did not run.
+
+**Context.** Full-coverage grids are what every production Apple GEMV uses.
+MLX's own `qmv` runs 64-thread threadgroups with 8 rows each at full coverage
+(`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp:255-299`,
+`kernels/fp_quantized.h:537-556`). Metal offers no cross-threadgroup
+forward-progress guarantee, which is why persistent-CTA idioms common in CUDA
+are not used on Apple. The ladder is consistent with that being a considered
+choice rather than an oversight.
 
 The redundant-reduction cost model from #298 was therefore correct but
 incomplete: it priced the *reduction* work saved and ignored the *scheduling*
 cost of the coarser grid required to save it. On this kernel the second term
-dominates.
+dominates by 5x.
 
 ## 8. Decision: KILL
 
 The mechanism the assignment proposed is real — the reduction *is* redundantly
-paid, and `T=128` *does* amortise it — but capturing it requires a grid coarse
-enough that tail imbalance costs more than the saving. The `G128 − G640`
+paid, and `T=128` *does* amortise it — but capturing it requires abandoning
+full coverage, and that costs more than the saving. The `G128 − G640`
 contrast prices that trade with the fold switched off on both sides:
 **+174.9 ± 11.0 µs/step**, versus a redundant-reduction saving of only
 **34.6 µs** (`R640−G640 = +56.5` falling to `R128−G128 = +21.9`). The grid
@@ -270,10 +356,16 @@ Threadgroups per GPU core:
 | `G640` | 640 | 32 | 16 |
 | `G128` | 128 | **6.4** | **3.2** |
 
-`128 = 40·3 + 8`, so on a 40-core M5 the last wave uses 8 of 40 cores — a worse
-tail than the M4's. Persistence is structurally *more* constrained on M5: the
-no-tail divisibility requirement caps `T` well below full coverage while the
-machine has roughly twice the parallelism to fill.
+The §6.3 ladder makes the M5 prediction sharper than a tail argument would.
+Divisibility admits only `T ∈ {16, 32, 64, 128}` at `S=16`. On a 40-core M5,
+**`T=16` and `T=32` fall at or below the core count** — the cliff regime that
+cost +917 µs here — leaving `T=64` (= 40 + 24) and `T=128` (= 40·3 + 8) as the
+only candidates, and both sit on the plateau whose cost is already measured at
++153…+195 µs. The M5 therefore has *fewer* usable persistent points than this
+host, not more, and its best one is the configuration measured here as the
+losing arm. Doubling the core count doubles the parallelism that full coverage
+must fill while the divisibility constraint keeps `T` fixed, so the penalty
+should if anything grow.
 
 Directional-evidence caveat: PR #48's arm `N` measured −55.0 µs/step on M4 and
 **+10.0 µs/step on M5**. Any M4 result in this family is directional only.
@@ -309,11 +401,18 @@ The prefill axis is unreachable by construction: the caller gates `fuseMode` on
    funding next, and unlike this stage it does not trade grid geometry away.
 2. **Bit-identical prefetch.** Load the first weight tile before the norm
    barrier to hide reduction latency at full coverage. No numerical change.
-3. **S=8 / T=256 on M5.** `S=8` requires `T | 256`, so `T=256` gives
-   256/40 = 6.4 TG/core on M5 — exactly this host's `S=16, T=128` ratio. If a
-   future stage wants to re-test persistence on M5 geometry, that is the
-   matched arm. Given §8 this is low priority.
-4. Coordinate with maple-tanjiro (PR #308) if his `S` argmax ≠ 16.
+3. **Do not re-test persistence on M5.** I previously planned an `S=8, T=256`
+   matched arm (256/40 = 6.4 TG/core, this host's ratio). The §6.3 ladder makes
+   that redundant: the penalty is flat across an 8x range of grid coarseness, so
+   matching the TG/core ratio would not change the answer, and §9 shows the M5's
+   usable `T` set is strictly smaller. Recommend dropping this line entirely
+   rather than deprioritising it.
+4. **Reusable finding for other kernels in this family.** Any future stage that
+   proposes a coarser grid to amortise per-threadgroup work now has a measured
+   price for that trade on this kernel: ~+170 µs/step to leave full coverage,
+   plus a cliff if the grid drops below the core count. That is a large budget
+   to beat and should be checked before, not after, the mechanism is built.
+5. Coordinate with maple-tanjiro (PR #308) if his `S` argmax ≠ 16.
 
 ## 12. Reproduction
 
@@ -326,12 +425,31 @@ git checkout -- Package.resolved
 bash research/nezuko_pr309_stage0.sh /tmp/nez309/stage0b 24
 bash research/nezuko_pr309_abba.sh   /tmp/nez309/abba 4 192
 python3 research/nezuko_pr309_stats.py /tmp/nez309/abba --warmup 8 --trim 0.05
-python3 research/nezuko_pr309_wandb.py /tmp/nez309/abba /tmp/nez309/stage0b --decision KILL
+python3 research/nezuko_pr309_wandb.py /tmp/nez309/abba /tmp/nez309/stage0b \
+  --decision KILL --ladder-dir /tmp/nez309/ladder
 ```
 
-Threadgroup-count ladder:
+The publisher refuses to present the campaign as interpretable unless Stage 0's
+own gates pass: it logs `stage0/valid` as the conjunction of "the injected
+store-row fault diverged at *both* the persistent and the reference geometry"
+and "the non-divisible `T=256` grid was refused at kernel construction". All
+three were `True` for run `b624rd0b`, along with `ladder/all_clean`.
+
+Threadgroup-count ladder (§6.3), palindromic so the anchor brackets the session:
 
 ```bash
-SPECS="G640:16:0:0 G128:16:0:128 G64:16:0:64 G32:16:0:32 G16:16:0:16" \
-  NEGATIVES=0 bash research/nezuko_pr309_stage0.sh /tmp/nez309/ladder 24
+SPECS="G640:16:0:0 G128:16:0:128 G64:16:0:64 G32:16:0:32 G16:16:0:16 \
+       G16b:16:0:16 G32b:16:0:32 G64b:16:0:64 G128b:16:0:128 G640b:16:0:0" \
+  NEGATIVES=0 bash research/nezuko_pr309_stage0.sh /tmp/nez309/ladder 192
+
+for f in G640 G128 G64 G32 G16 G16b G32b G64b G128b G640b; do
+  printf '%-6s ' "$f"; grep -h '^decode steps=' "/tmp/nez309/ladder/$f.log"
+done
 ```
+
+The ladder driver reports the worker's own `median=` summary rather than
+per-step dumps (`--dump-steps` is only wired into the ABBA driver); the effects
+there are 153–917 µs against ≤14 µs replicate spread, so summary medians are
+sufficient.
+
+Raw logs for every stage are committed under `research/persistent-qkv-logs/`.
