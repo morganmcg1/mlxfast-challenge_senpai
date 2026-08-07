@@ -17,7 +17,6 @@ set -uo pipefail
 
 OUT="${OUT:-/tmp/maple-shared-qmv-fault}"
 STEPS="${STEPS:-128}"
-WORKER=".build-worker/release/mlxfast-runtime-worker"
 
 mkdir -p "${OUT}"
 SUMMARY="${OUT}/summary.txt"
@@ -56,7 +55,9 @@ if ! git diff --quiet -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
 fi
 
 trap cleanup EXIT
-python3 research/maple_pr301_fault_injection.py apply | tee "${OUT}/patch.log" || exit 3
+python3 research/maple_pr301_fault_injection.py apply | tee "${OUT}/patch.log"
+[ "${PIPESTATUS[0]}" -eq 0 ] || exit 3
+python3 research/maple_pr301_fault_injection.py check | tee -a "${OUT}/patch.log"
 build_worker "faulted" || exit 4
 
 index=0
