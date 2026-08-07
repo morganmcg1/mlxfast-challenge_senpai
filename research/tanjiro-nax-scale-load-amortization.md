@@ -628,3 +628,51 @@ How I will adjudicate given that:
 This asymmetry — the design can credibly *refute* H16 but not credibly
 *confirm* it — is the single most important thing to know before reading the
 number, which is why it is recorded before the number exists.
+
+### 11.4 Pre-registered inversion: pricing the memory-issue share of the 6.887 ms
+
+Assignment §11 item 6 asks for the memory-op-issue share of the 6.887 ms
+pure-issue term, and says correctly that this number is worth having *however*
+H16 lands, because it prices every future issue-reduction idea in this kernel.
+The receipt pair measures it. Registering the inversion here, before the number.
+
+The assignment's own model is `ΔS = 0.58 × share × 6.887 ms`, so the naive
+inversion is
+
+```
+share_naive = ΔS_ms / (0.58 × 6.887)  =  ΔS_ms / 3.9945
+```
+
+That inversion is **biased low**, and the §10.1 review is why. The change does
+not only remove memory issues; it also adds ≈5–8 ALU issues per iteration. So
+the truth is
+
+```
+ΔS  =  0.58 × share × 6.887  −  c        with  c = added ALU cost ≥ 0
+⇒  share  =  (ΔS_ms + c) / 3.9945   ≥   ΔS_ms / 3.9945
+```
+
+Two consequences I commit to before seeing the data:
+
+1. **`share_naive` is a lower bound on the memory-issue share, not an
+   estimate.** I will report it as a bound. A null therefore bounds the share
+   *below* at ≈0, which on its own is not informative.
+2. To get an upper bound I must price `c`. The only available estimate is the
+   review's shared-issue rate — `6.887 ms / ~190 issues per iteration ≈ 0.036 ms`
+   per instruction per iteration — giving `c ≈ 5–8 × 0.036 ≈ 0.18–0.29 ms`.
+   That figure rests on the *inferred, undocumented* assumption that memory and
+   ALU share one issue slot, so any upper bound I quote inherits that
+   assumption and I will label it as conditional rather than measured.
+
+With `c ≈ 0.2 ms` and the corrected 3σ_paired band of `±1.349 ms`, the
+resolution of this inversion is
+
+```
+±1.349 / 3.9945  =  ±0.34   →  ±34 percentage points of share
+```
+
+So the pair can distinguish "loads are a small part of the issue term" from
+"loads are most of it", and can exclude the assignment's optimistic 45 % arm if
+`ΔS` comes back near zero — but it cannot separate 30 % from 40 %. That is the
+honest resolution of this experiment on the issue-budget question, and it is a
+consequence of the two-receipt budget rather than of anything the kernel does.
