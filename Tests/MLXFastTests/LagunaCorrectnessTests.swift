@@ -215,6 +215,90 @@ func lagunaRuntimeCorrectnessReportsGoldenMetadataWhenWeightsAreMissing() throws
 }
 
 @Test
+func lagunaDecodeRouterHierarchicalOrdinalMatchesAcceptedWhenRuntimeTestsAreEnabled() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
+        return
+    }
+
+    var fixtures: [(name: String, logits: [Float], bias: [Float])] = []
+    let zeros = Array(repeating: Float(0), count: 256)
+    fixtures.append(("all ties", zeros, zeros))
+    fixtures.append((
+        "signed zeros",
+        (0..<256).map { $0.isMultiple(of: 2) ? Float(0) : -Float(0) },
+        zeros
+    ))
+
+    var crossBlockLogits = Array(repeating: Float(-20), count: 256)
+    var crossBlockBias = Array(repeating: Float(-20), count: 256)
+    for index in [0, 31, 32, 63, 64, 95, 128, 224, 255] {
+        crossBlockLogits[index] = 0
+        crossBlockBias[index] = 0
+    }
+    fixtures.append(("nine-way cross-block tie", crossBlockLogits, crossBlockBias))
+
+    var specialLogits = Array(repeating: Float(-8), count: 256)
+    var specialBias = zeros
+    for (offset, index) in [0, 31, 32, 63, 64, 95, 128, 159, 224, 255].enumerated() {
+        if offset.isMultiple(of: 2) {
+            specialLogits[index] = .infinity
+        } else {
+            specialLogits[index] = -.infinity
+            specialBias[index] = 1
+        }
+    }
+    specialLogits[17] = .nan
+    specialLogits[99] = Float.greatestFiniteMagnitude
+    specialLogits[100] = -Float.greatestFiniteMagnitude
+    specialLogits[101] = Float.leastNormalMagnitude
+    specialLogits[102] = -Float.leastNormalMagnitude
+    fixtures.append(("extremes infinities and NaNs", specialLogits, specialBias))
+    fixtures.append(("all NaNs", Array(repeating: Float.nan, count: 256), zeros))
+
+    var state: UInt64 = 0xD1B54A32D192ED03
+    func randomSigned() -> Float {
+        state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        let bits = UInt32(truncatingIfNeeded: state >> 32)
+        return Float(Int32(bitPattern: bits)) / Float(Int32.max)
+    }
+    for sample in 0..<12 {
+        let logits = (0..<256).map { _ in randomSigned() * 16 }
+        let bias = (0..<256).map { _ in randomSigned() * 2 }
+        fixtures.append(("random-\(sample)", logits, bias))
+    }
+
+    for fixture in fixtures {
+        for useBF16 in [false, true] {
+            let logits32 = MLXArray(fixture.logits)
+            let logits = useBF16 ? logits32.asType(.bfloat16) : logits32
+            let bias = MLXArray(fixture.bias)
+            let dtypeName = useBF16 ? "bf16" : "fp32"
+            for normalizing in [false, true] {
+                let accepted = lagunaDecodeRouterTop8AcceptedForTesting(
+                    logits: logits,
+                    correctionBias: bias,
+                    normalizing: normalizing
+                )
+                let hierarchical = lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
+                    logits: logits,
+                    correctionBias: bias,
+                    normalizing: normalizing
+                )
+                eval(accepted.0, accepted.1, hierarchical.0, hierarchical.1)
+
+                let acceptedIndices = accepted.0.asArray(UInt32.self)
+                let hierarchicalIndices = hierarchical.0.asArray(UInt32.self)
+                let acceptedScoreBits = accepted.1.asArray(Float.self).map { $0.bitPattern }
+                let hierarchicalScoreBits = hierarchical.1.asArray(Float.self).map { $0.bitPattern }
+                let caseName = "\(fixture.name), \(dtypeName), normalizing=\(normalizing)"
+                #expect(acceptedIndices == hierarchicalIndices, "index mismatch: \(caseName)")
+                #expect(acceptedScoreBits == hierarchicalScoreBits, "score mismatch: \(caseName)")
+            }
+        }
+    }
+}
+
+@Test
 func lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() throws {
     let environment = ProcessInfo.processInfo.environment
     guard environment["MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE"] == "1" else {
