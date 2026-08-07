@@ -140,6 +140,60 @@ def fe_ols(points, n_blocks):
     return slope, se, df, len(points)
 
 
+def fe_ols2(points, n_blocks):
+    """points: (block, x1, x2, y).  Returns (b1,se1), (b2,se2), df, n.
+
+    Dispatch count and barrier count are collinear in any single arm, so the
+    only way to price them apart is to pool arms whose barrier-per-dispatch
+    ratio differs (chain40=1, fat40=1, fan40 falls to 0 between K=2 and K=4).
+    """
+    by_block = defaultdict(list)
+    for b, x1, x2, y in points:
+        by_block[b].append((x1, x2, y))
+    s11 = s22 = s12 = s1y = s2y = 0.0
+    centred = []
+    for pts in by_block.values():
+        m1 = statistics.mean(p[0] for p in pts)
+        m2 = statistics.mean(p[1] for p in pts)
+        my = statistics.mean(p[2] for p in pts)
+        for x1, x2, y in pts:
+            c1, c2, cy = x1 - m1, x2 - m2, y - my
+            s11 += c1 * c1
+            s22 += c2 * c2
+            s12 += c1 * c2
+            s1y += c1 * cy
+            s2y += c2 * cy
+            centred.append((c1, c2, cy))
+    nan, n = float("nan"), len(points)
+    det = s11 * s22 - s12 * s12
+    if det == 0:
+        return (nan, nan), (nan, nan), 0, n
+    b1 = (s22 * s1y - s12 * s2y) / det
+    b2 = (s11 * s2y - s12 * s1y) / det
+    df = n - n_blocks - 2
+    if df <= 0:
+        return (b1, nan), (b2, nan), 0, n
+    ssr = sum((cy - b1 * c1 - b2 * c2) ** 2 for c1, c2, cy in centred)
+    s2 = ssr / df
+    return ((b1, math.sqrt(s2 * s22 / det)),
+            (b2, math.sqrt(s2 * s11 / det)), df, n)
+
+
+def joint_points(path):
+    """[(block, dispatch, barrier, wall_us)] for the joint fit."""
+    meta, rows = read_timing(path)
+    ctr = read_counters(path + ".ctr.tsv")
+    seg_k, per_seg = {}, defaultdict(list)
+    for seg, k, ms in rows:
+        seg_k[seg] = k
+        per_seg[seg].append(ms)
+    segs = sorted(per_seg)
+    med = {s: statistics.median(per_seg[s]) for s in segs}
+    blen = block_length(seg_k, segs)
+    return [(i // blen, ctr[s]["dispatch"], ctr[s]["barrier"], med[s] * 1e3)
+            for i, s in enumerate(segs) if s in ctr]
+
+
 def project_m5(slope, half, baseline_ms):
     """Print the M5 transfer band for removing dispatches from the live path.
 
@@ -322,13 +376,39 @@ def build_parser():
                     help="override arm label (single-file use only)")
     ap.add_argument("--tsv-out", default=None,
                     help="append one summary row per arm to this TSV")
+    ap.add_argument("--joint", action="store_true",
+                    help="price dispatch and barrier together in one fit "
+                         "(needs >=2 arms with different barriers/dispatch)")
     return ap
+
+
+def joint(paths):
+    pooled = []
+    for fi, p in enumerate(paths):
+        for b, d, x, y in joint_points(p):
+            pooled.append(((fi, b), d, x, y))
+    nb = len({p[0] for p in pooled})
+    (bd, sd), (bb, sb), df, n = fe_ols2(pooled, nb)
+    t = t95(df)
+    names = ", ".join(p.rsplit("/", 1)[-1].replace(".tsv", "") for p in paths)
+    print(f"\n== JOINT ({names}) wall_us ~ dispatch + barrier ==")
+    print(f"  dispatch  {bd:+.4f} +/- {sd:.4f}  "
+          f"95% CI [{bd-t*sd:+.4f}, {bd+t*sd:+.4f}]  t={bd/sd:+.1f}")
+    print(f"  barrier   {bb:+.4f} +/- {sb:.4f}  "
+          f"95% CI [{bb-t*sb:+.4f}, {bb+t*sb:+.4f}]  t={bb/sb:+.1f}")
+    print(f"  df={df}, n={n}, blocks={nb}")
+    print("  a barrier-free dispatch costs the 'dispatch' row; removing a "
+          "dependent\n  edge as well refunds dispatch+barrier")
+    return bd, sd, bb, sb, df, n
 
 
 def main():
     args = build_parser().parse_args()
     if len(args.tsv) > 1 and args.label:
         raise SystemExit("--label is only meaningful with a single TSV")
+    if args.joint:
+        joint(args.tsv)
+        return 0
     results = [analyze(p, args) for p in args.tsv]
     if len(results) < 2:
         return 0

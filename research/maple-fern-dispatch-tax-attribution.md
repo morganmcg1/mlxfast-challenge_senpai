@@ -174,6 +174,76 @@ CPU starvation would show up.
 
 **E1 is refuted.** The tax is spent by the GPU, inside command buffers.
 
+### 4.3 A1 — the tax is a *barrier* cost, not a *dispatch* cost
+
+This is the central result and it changes what the number means.
+
+Four in-chain arms add K units of work at the same 40 anchored sites, but
+with different dependency structure, so they add barriers and dispatches in
+different ratios:
+
+| arm | what each unit is | Δdispatch @K=1/2/4 | Δbarrier @K=1/2/4 |
+|---|---|---|---|
+| `chain40` | `y = y * one`, K times, strictly serial | +40 / +80 / +160 | +40 / +80 / +160 |
+| `fat40_8k` | K serial 8 KiB reductions off one buffer | +120 / +160 / +240 | +120 / +160 / +240 |
+| `dist40_8k` | same, over a 256-buffer pool | +120 / +160 / +240 | +120 / +160 / +240 |
+| `fan40` | K **mutually independent** anchored slices | +80 / +160 / +240 | +80 / +120 / **+120** |
+
+Three of the four arms add barriers and dispatches in exactly 1:1, so they
+cannot separate the two. `fan40` can: its added kernels are mutually
+independent, so MLX only needs a barrier in front of the group, and between
+K=2 and K=4 its barrier count stops growing while its dispatch count keeps
+going.
+
+Per-arm single-regressor fits, y = wall (µs/step):
+
+| arm | per **dispatch** | per **barrier** |
+|---|---|---|
+| `chain40` | +1.3778 ± 0.0535 | +1.3778 ± 0.0535 |
+| `fat40_8k` | +1.3469 ± 0.0593 | +1.3469 ± 0.0593 |
+| `dist40_8k` | +1.4871 ± 0.0488 | +1.4871 ± 0.0488 |
+| `fan40` | **+0.8020 ± 0.0581** | **+1.5582 ± 0.0658** |
+
+Pooling all four with a (file, block) fixed effect and asking whether *one*
+slope explains every arm:
+
+| regressor | pooled slope | arms off the line |
+|---|---|---|
+| **barrier** | **+1.4266 ± 0.0282** (t=50.6, n=192) | **none** |
+| dispatch | +1.2261 ± 0.0352 (t=34.9, n=192) | `dist40_8k`, `fan40` |
+
+Read as a *dispatch* cost the arms disagree by 1.9× (0.80 → 1.49) and two of
+four fall off the pooled line. Read as a *barrier* cost they agree within
+15% (1.35 → 1.56) and all four sit on it.
+
+The cleanest single piece of evidence is a within-arm contrast in `fan40`
+that needs no pooling and no modelling at all:
+
+| `fan40` K | dispatch | barrier | wall ms |
+|---|---|---|---|
+| 2 | 566 | 367 | 8.3631 |
+| 4 | **646** (+80) | **367** (+0)| 8.3804 (+17.3 µs) |
+
+**80 extra GPU dispatches, anchored to the live tensor, at the same encode
+position, adding no barrier, cost 17.3 µs — 0.216 µs each.** The same 80
+dispatches in `chain40` (where each one adds a barrier) cost 110 µs.
+
+Pricing both regressors in one fixed-effects fit (`--joint`), pooled over
+the four arms:
+
+| regressor | µs/step | 95% CI | t |
+|---|---|---|---|
+| **dispatch** (barrier-free) | **+0.173** ± 0.085 | [+0.007, +0.339] | 2.0 |
+| **barrier** | **+1.241** ± 0.095 | [+1.054, +1.427] | 13.0 |
+
+`fan40` alone identifies the same split independently (dispatch
++0.137 ± 0.087, barrier +1.330 ± 0.158, n=48), because its
+barrier-per-dispatch ratio collapses between K=2 and K=4.
+
+**So the ~1.4 µs "per dispatch" is really 1.24 µs of barrier plus 0.17 µs
+of launch.** The tax has been misnamed: 88% of it is the cost of a
+*dependency edge*, not the cost of a *dispatch*.
+
 ## 5. Verdict on E1–E4
 
 TBD
