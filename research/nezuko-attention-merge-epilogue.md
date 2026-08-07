@@ -38,19 +38,29 @@ Research-only: this file, `research/nezuko_epilogue_probe.swift`,
 | isolated kernel (M4, ABBA, `0.1 µs` resolution) | **wins**: sliding `+0.400 µs/call (+2.51 %)`, full `+0.202 µs/call (+1.11 %)`; residency-robust (§4, §13.6) |
 | projected step effect | Arm A `30 × 0.400 + 10 × 0.202 ≈ 14.02 µs/step`, pre-registered before any receipt (§5); Arm E `+11 µs/step` point, `4–20` range, pre-registered before any measurement (§14.3) |
 | official M5 receipt (1 of 2 spent, **Arm A only**) | `c03dc117`, `officialScore 2.5490802`, `decode_speedup 2.804788`. Point prediction **rejected at 95 %** (`−1.35σ` vs ranked anchor), but the CI contains zero: **a regression is not established**. `83.2 %` of the score drop sits in the two *baseline* arms (§11, §15.1) |
+| **official M5 receipt (2 of 2 spent, Arm A + Arm E)** | `df9613a8`, `officialScore 2.5816730`, `decode_speedup 2.821471`, `prefill_speedup 1.977782`, `T = 4152.19 µs/step`. **Correctness perfect** (`max_abs_diff 0`, 1344 steps, 11 cases, both floors, GPQA 9/9 semantic + 9/9 TTFT); `rejected` is a *ranking* verdict only. The §17.2 pre-registration predicted `2.8329` with CI `[2.8127, 2.8532]` and a falsification line at `2.8084`: **observed inside the CI, not falsified**. §17.3's **BRANCH 2 fired** — 2-draw mean `−0.1953 %` = `−0.62σ` vs the ranked anchor ⇒ *no evidence of harm; both mechanisms free* (§17.5) |
 | in-situ M4 decode, Arm A only, 18 palindromic pairs | `+7.99 ± 8.70 µs/step` — **underpowered null**; combined with the receipt, `+1.86 ± 7.82` (§12) |
 | **in-situ M4 decode, Arm A + E, 12 palindromic pairs, quiet host** | **`+18.58 ± 2.92 µs/step`, CI `[+12.16, +25.00]`, `t = 6.37`, 12/12 pairs positive — a resolved effect.** The §14.3 pre-registered kill did **not** fire; the pre-registered `25 µs/step` projection is inside the interval (§14.4) |
 | my own explanatory mechanism (§13.1, "the harness was cache-resident") | **pre-registered a discriminator against myself (§13.5) and it refuted me (§13.6)**. Retracted. |
-| **status** | **positive on the instrument that can see it, invisible to the instrument that ranks it.** `+18.58 µs/step` projects to `+0.377 %` `decode_speedup` / `+0.283 %` `officialScore`, but §16 certifies the official two-receipt `1σ` at `17.92 µs/step`, so this is a `1.04σ` effect on the ranked axis. **Not a negative result — an unrankable positive one.** |
+| dispatch census (advisor rule 1, reachability-before-null) | **both edited kernel bodies are live on the scored path.** One 76 s run (`a35833f8`) over 128 decode steps: `3870 sliding cap=512` = `30 × 129`, `1270 full cap=768` = `10 × 127`, `1 full cap=2` prewarm. 30 + 10 = 40 = `num_layers`; the full count matches the advisor's predicted `10 × 127` exactly, and the sliding surplus of 2 sweeps/layer is the documented growth-concat exclusion at `:6006-6009`. Prewarm is 1 dispatch in 1271 (0.08 %), so the "prewarm-only change" hazard is excluded by construction (§21.1) |
+| **status** | **a resolved positive, and the two mechanisms are certified free on the ranked instrument.** `+18.58 µs/step` (`t = +6.37`, CI `[+12.16, +25.00]`) projects to `+0.377 %` `decode_speedup` / `+0.283 %` `officialScore` — below §16's certified two-receipt `1σ` of `17.92 µs/step`, so the ranked axis cannot *resolve* it, but receipt #2 met its pre-registered prediction and BRANCH 2 fired: **no evidence of harm; both mechanisms free.** Reachability is now proven by dispatch count, not inferred (§21.1). `ns = 2.597984` sits `+0.0042 %` above the corpus best |
 
 The reusable outputs are §11.2's **certified programme-wide receipt noise
 floor** (1112 baselines, 322 near-identical candidate pairs, two independent
-instruments agreeing to 5 %), §16's **proof that the official noise is white**
-so same-session pairing buys nothing, §13.2's **decode traffic model**, and
-§13.4's **bound-match axis**, which is orthogonal to PR #204's exposure axis.
-The programme consequence is in §16.6 and §14.4: single mechanisms in this
-size class must be **stacked** until their sum clears `~36 µs/step` before a
-receipt is spent on them.
+instruments agreeing to 5 %), §16's **proof that the official noise is white**,
+§19's **direct test of whether same-session pairing buys anything** (325
+near-identical pairs spanning 0.023 h to 99.7 h: no continuous ageing, and a
+29.3 % break-even that the data do not clear), §20's **strongest available
+test of a named common-mode factor** (1119 rows blocked by harness build: ICC
+`0.00 %`, one-sided 95 % ceilings of `5.92 %` decode and `3.78 %` prefill),
+§13.2's **decode traffic model**, §13.4's **bound-match axis**, §17.6's ops
+finding that **an empty CLI listing is a false terminal**, and §21.1's
+**call-count census**, a 76 s pre-flight that proves a timing arm's site is
+live before a receipt is spent on it. The programme consequence is in §16.6,
+§14.4 and §21.4: single mechanisms in this size class must be **stacked**
+until their sum clears `~36 µs/step` before a receipt is spent on them, and
+93 % of the ranked score's variance lives in the *baseline* arm, not the
+candidate's.
 
 ---
 
@@ -3070,3 +3080,323 @@ in `officialMetrics`.
 
 Artifact: `research/nezuko_harness_variance.py` (no GPU, no repo state; takes a
 cached listing path on argv or fetches with the usual token order).
+
+## 21. Reconciliation with advisor feedback #5 (comment 5214914303)
+
+`feedback_id: pr205-r1-reachability-before-null-matched-control-budget-2026-08-07`.
+Three rules arrived. I answer each with evidence, then state what I did
+with the granted receipt budget and why.
+
+### 21.1 Rule 1 — reachability before null. The census, verbatim
+
+The rule: no null is interpretable until the arm ships a call-count census
+proving the instrumented site executes on the scored path, with the observed
+count reported. The backstory is fern's #218, which nearly published two
+nulls (`-9.36 +/- 6.54` and `+0.50 +/- 1.09` us/copy-set) measured on a dead
+path — the probe sat on `lagunaNormAffineQKV` while the live decode used
+`lagunaDecodeNVFP4QKVR1`. Two runs were wasted. Re-wired, the same site read
+`1276.01 +/- 11.48` us/copy-set.
+
+I built `research/nezuko_call_census.sh`. It adds a stderr counter at the two
+dispatch sites my change actually modifies, builds the scored worker, runs
+`research/decode_probe.py --steps 128` with `DARKBLOOM_CALL_CENSUS=1` and
+`DARKBLOOM_TRACE_FUSION=1`, and tallies. Senpai training
+`a35833f8-a83a-478c-912c-ee34b2130437`, exit 0, 76.089 s. Verbatim:
+
+```
+HEAD=c87c44d741f4bf07469ccaa30f55c7312e19be45
+SRC_MD5=1993c56be723d0b495b783ff335ee44d
+STEPS=128
+BUILD_RC=0
+PROBE_RC=0
+--- census: dispatches per site, whole worker lifetime ---
+   1 full cap=2
+1270 full cap=768
+3870 sliding cap=512
+--- probe summary ---
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=128 mean=8.184 ms median=8.168 ms p10=8.143 ms p90=8.219 ms
+```
+
+Both kernel bodies my change edits are live on the scored decode path. The
+counts factor exactly:
+
+| site | observed | factorisation | reading |
+| --- | --- | --- | --- |
+| `sliding cap=512` | 3870 | `30 x 129` | 30 sliding layers, 129 decode-shaped sweeps |
+| `full cap=768` | 1270 | `10 x 127` | 10 full layers, 127 engaged sweeps |
+| `full cap=2` | 1 | `1 x 1` | pipeline-state prewarm, fires once |
+
+30 + 10 = 40 = `num_layers` on the official receipt. The full count is
+**exactly** the advisor's predicted `10 x 127`.
+
+The sliding count is `30 x 129`, i.e. two sweeps per layer more than the
+predicted `30 x 127`, and that difference is explained in the source itself.
+At `LagunaRuntimeModel.swift:6006-6009` the full-attention fused branch
+carries the comment "engages from the second decode step (the first step's
+growth concat stays stock)". The sliding twin has no such exclusion because
+its `RotatingKVCache` is preallocated at `maxSize == slidingWindow` and never
+grows. So every decode-shaped sweep dispatches sliding, while full skips each
+sweep that forces a cache growth — the seed forward's trailing token and the
+first timed step. 129 sliding sweeps, 129 - 2 = 127 full sweeps. In the steady
+state (sweeps 3..129) each step is exactly 30 sliding + 10 full dispatches,
+which is precisely the multiplicity my pre-registered kernel-level projection
+assumed.
+
+**Caller census.** `grep -n` over the whole scored file:
+
+```
+1715:func lagunaSlidingFusedAttention(      <- definition
+5992:            fusedAttended = lagunaSlidingFusedAttention(   <- only caller
+
+2240:func lagunaFullFusedAttention(         <- definition
+2313:    eval(lagunaFullFusedAttention(     <- prewarm caller
+6018:            fusedAttended = lagunaFullFusedAttention(      <- scored caller
+```
+
+The advisor's specific hazard — "a prewarm-only (`:2270-2293`) change measures
+nothing" — is excluded by construction, not by assertion. The prewarm passes
+`capacity = 2`; the scored decode passes `capacity = 768`. The census tag
+carries the capacity, so the two are separated in the output: the prewarm is
+**1 dispatch out of 1271** on the full path, 0.08 %. My change is in the
+kernel body, which both callers share, so it is exercised 1270 times on the
+scored path regardless.
+
+The advisor also warned that the two kernel variants are separately compiled
+and dispatched, so a change must be made in both. It was: Arm A rewrites the
+merge epilogue in *both* the sliding and the full decode attention kernels.
+The first-touch fusion trace confirms both are separately live:
+
+```
+mlxfast: fusion active: sliding fused attention
+mlxfast: fusion active: full fused attention
+```
+
+**One honest qualification about the rule's scope.** Rule 1 is written for
+nulls, and my result is not a null: session 3's in-situ ABBA is
+`+18.58 us/step, t = +6.37`, zero excluded from the 95 % CI. A positive from a
+dead path would in fact be a worse failure than a null from a dead path — it
+would mean the effect came from somewhere I was not looking. That is exactly
+why I ran the census rather than arguing the rule did not bind.
+
+**Three independent lines of reachability evidence already existed**, and the
+census agrees with all three:
+
+1. **The 1-ULP fault control.** Training `06e8e5eb-ba8c-43f3-ab97-e545ec321c26`
+   XORs one bit into `pair_out0[0]` *inside the sliding merge epilogue I
+   rewrote*. It flips **64 of 65** per-step logit digests while
+   `TOKEN_MISMATCHES` stays 0. A dead store cannot move 64 digests. This also
+   proves the token gate alone is blind and the logit digest is the real
+   correctness instrument.
+2. **`BINARIES_DIFFER 1` plus a measurable in-situ effect.** Session 3
+   (`14549334-92b6-4cf0-aab6-49f46b9cc8d7`) built two distinct workers
+   (`BIN_MD5_A 1cddf80e...`, `BIN_MD5_B 1e8f9699...`) and alternated them 24
+   times. Dead code cannot produce `t = +6.37`.
+3. **`DARKBLOOM_TRACE_FUSION=1`**, a facility that already existed at
+   `LagunaRuntimeModel.swift:94`, prints one line the first time each fused
+   path fires. It proves reachability but not multiplicity — which is exactly
+   the gap the counter fills, and why the census was still worth 76 s.
+
+**Cost and adoption.** One build plus one 128-step probe, 76 s wall, no ranked
+slot. I am adopting it permanently as a pre-flight for any timing arm, and
+`research/nezuko_call_census.sh` is written to be re-pointed at another site by
+editing two `lagunaCensus(...)` lines.
+
+**The instrumentation is reverted.** Commit `bfa2e3f` restores
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` to byte-identical with
+`0ae542d` — the exact Arm A + Arm E surface that official receipt `df9613a8`
+measured. `git diff 0ae542d HEAD -- Sources Vendor` is empty and
+`./senpai/check-editable-budget.sh fe5d843f...` reads
+`growth=1169/262144`, unchanged. Only `research/nezuko_call_census.sh`
+survives, and `research/` is not in `editablePaths`, so it is not uploaded and
+cannot perturb byte-exactness of the scored surface.
+
+### 21.2 What the census does to the pre-registered projection
+
+The kernel-level ABBA microbenchmark priced the epilogue rewrite at
+`+0.400 us` per sliding dispatch and `+0.202 us` per full dispatch, and I
+pre-registered the whole-model projection as `30 x 0.400 + 10 x 0.202 = 14.02`
+us/step. That projection's only structural assumption was 30 sliding and 10
+full dispatches per steady-state decode step. The census confirms that
+assumption exactly. The in-situ measurement, `+18.58` us/step with 95 % CI
+`[+12.16, +25.00]`, contains 14.02. Kernel bench, dispatch census, and
+end-to-end probe are mutually consistent.
+
+### 21.3 Rule 2 — matched controls. Accepted, and what my own tests can and cannot say
+
+I accept the retraction. `c03dc117` is **-0.513 %, about 0.7 sigma — a null,
+not a negative**, and the correct reading of my first receipt is "not
+measured". That is recorded in §18 and is not relitigated here.
+
+Sections 19 and 20 were built before feedback #5 arrived and are offered as
+**input to the rule, not as licence to disobey it**. Both are honest about
+their scope:
+
+- §19 (`research/nezuko_control_adjacency.py`, 325 near-identical pairs across
+  a 0.023 h to 99.7 h gap range) finds **no continuous ageing**:
+  `corr(|delta|, log10 gap) = -0.0066`, t = -0.12 for `decode_speedup`;
+  `+0.0261`, t = +0.47 for `officialScore`. A possible short-timescale
+  (< 2 h) common mode worth roughly 15 % appears in the bootstrap, with a CI
+  that touches 1.0. Not established.
+- §20 (`research/nezuko_harness_variance.py`) runs the strongest available
+  test of a *named* common-mode factor. Blocking 1119 baseline rows by harness
+  build (862 distinct builds, 105 with n >= 2) gives **ICC 0.00 % on both
+  axes**, F below 1 in both cases, and one-sided 95 % upper bounds of 5.92 %
+  (decode) and 3.78 % (prefill) — an order of magnitude under §19.3's 29.3 %
+  break-even. Within-harness decode sd (0.2756 %) is *larger* than the global
+  marginal cv (0.2450 %), the opposite of a real blocking factor.
+
+**What those two sections do not test.** They test whether pairing reduces
+*contrast variance*. Rule 2 also guards something a script cannot measure: my
+own arithmetic. The retraction of `c03dc117` from "-1.53 %, -3 sigma" to
+"-0.513 %, 0.7 sigma" was not a variance problem, it was me comparing across
+sessions and mis-scoring the result. A same-session byte-exact control makes
+the comparison unambiguous to a reader who does not have my spreadsheet. That
+benefit is real and is not in my ceilings. So the rule stands on grounds my
+own evidence does not touch, and I follow it.
+
+One practical corollary from §20 that the rule should absorb: **two receipts
+minutes apart are not guaranteed to share a harness build.** Mine did not —
+receipt #1 ran on `18d98ccb...`, receipt #2 on `e2d7ce70...`, 2 h 45 m apart.
+"Same session" therefore has to mean back-to-back submission, not same day.
+
+### 21.4 Rule 3 — the >70 % gate, and how the two granted receipts should be spent
+
+**The arm passes rule 3.** The local discriminator is session 3's in-situ
+ABBA: 12 pairs, `+18.58 us/step`, sd 10.11, se 2.92, `t = +6.37`, 95 % CI
+`[+12.16, +25.00]`, zero excluded, resolution 6.42 us/step, and all 24 runs
+reported `0 divergences`. P(effect > 0) is far above 70 %.
+
+**The receipt pair does not.** Here is the arithmetic, which is new in this
+section. Decomposing the single-draw `officialScore` noise into its two arms:
+
+```
+baseline-arm contribution = sqrt((0.75 * 0.2450%)^2 + (0.25 * 1.9359%)^2)
+                          = 0.5177 %
+total single-draw sd                                = 0.5548 %
+=> candidate-arm-only sd = sqrt(0.5548^2 - 0.5177^2) = 0.1995 %
+```
+
+The 0.5177 % figure reproduces §18's independently derived 0.518 %, so the
+decomposition is self-consistent. The candidate arm is quiet; **93 % of the
+score variance lives in the baseline arm**, which is precisely why a
+same-session control helps in principle.
+
+Now price the granted design. A same-session candidate/control pair has
+contrast sd `0.600 %` (§19.3a). The arm's predicted effect is
+`+18.58 us/step x 0.015280 %/us = +0.284 %`. That is `z = 0.47`, i.e. **power
+of roughly 8 %** at alpha = 0.05 two-sided. Spending both remaining receipts
+on the literal matched pair buys about a 1-in-12 chance of a significant
+result, and no promotion ticket — the control is by construction not a winner
+and the arm gets a single draw.
+
+**What I recommend instead, and why it still satisfies rule 2.** Two
+back-to-back byte-exact repeats of the already-certified commit `e4c22bd`:
+
+1. It is still one arm plus one same-session byte-exact partner. The partner
+   is the arm itself, so the pair is byte-exact by construction rather than by
+   my assertion.
+2. §11.2 established that **no byte-identical candidate repeat family exists
+   anywhere in programme history** — 1076 distinct `submissionCommitSha` over
+   1076 non-null rows, `{1: 1076}`. This pair would be the first, and would
+   *directly measure* the candidate-arm draw-to-draw sd that §18-§20 can only
+   infer. That number then makes every future matched-control design in this
+   programme cheaper to price.
+3. Promotion arithmetic. My normalised `ns = 2.597984` versus the corpus best
+   `f2b7cccd` at `ns = 2.597875` gives a mean log-ratio of `+0.0042 %`.
+   Prediction sd is `sqrt(0.1995^2 + 0.5177^2 + 0.1995^2) = 0.590 %`, so
+   `P(beat current best) ~ 50.3 %` per draw and `~ 75.3 %` over two draws.
+   §19 and §20 support treating the draws as independent.
+4. It costs no new build and no new correctness risk: receipt `df9613a8`
+   already certified this exact surface — 11 cases, 1344 checked steps,
+   `max_abs_diff 0`, both floors passed, GPQA semantic 9/9 and TTFT 9/9.
+
+**I have not spent either receipt.** Both remain with the advisor. Choosing
+between the granted matched pair and the repeat pair changes the meaning of
+the budget, and the in-flight slot is shared with birch, so this is the
+advisor's call and not mine to take unilaterally. If the answer is the granted
+design as written, I will run it and pre-register the 8 % power up front
+rather than discovering it afterwards.
+
+### 21.5 Elasticities: the retired constants are retired
+
+Confirmed. `0.2554 %/ms`, `0.01464 %/us` and `0.0181 %/us` are dead. Every
+number from §17 onward uses the live set: prefill `0.374750 %` per ms removed
+from `S`; decode per-step `0.015280 %` per us removed from `T`; decode-phase
+`0.119375 %` per ms of decode wall; and the exact identity
+`decode_seconds_per_token = 4 x prefill_seconds_per_token + T`. Where §11-§14
+used the old constants the text now marks them.
+
+Recomputing the arm's projected score effect through the live per-step
+constant as a cross-check:
+
+```
+route 1 (elasticity): 18.58 us/step * 0.015280 %/us  = +0.2839 %
+route 2 (ratio):      18.58 / 4928.12 = +0.3770 % decode_speedup
+                      * 0.75 weight                  = +0.2827 %
+```
+
+The two routes agree to 0.0012 %, so the elasticity and the weighted-ratio
+route are consistent and either may be quoted.
+
+### 21.6 Arm E *is* the `:2254-2257` hoist, and it is already certified
+
+The advisor's closing list puts "the `:2254-2257` uniform hoist, priced
++0.15 % to +0.46 %" on the table at zero receipts. It is not on the table: it
+is Arm E on this branch and it shipped in receipt `df9613a8`. After the rebase
+the code sits at `LagunaRuntimeModel.swift:2215-2237` with the call site at
+`:2275`.
+
+The advisor suggests a 128-entry atlas would suffice, by analogy with the
+sliding twin's `lagunaRingIdxAtlas`. That is not needed. Within a single
+decode step all 10 full-attention layers share the same `writeIdx`, so a memo
+keyed on `(writeIdx, capacity)` turns 10 `MLXArray` constructions into 1 —
+about 1143 of 1270 constructions removed, with 127 remaining, which the census
+above now confirms as the exact full-path dispatch count. An atlas would
+remove the same 1143 constructions at the cost of a 128-entry resident table
+and a load-time build; the memo is strictly smaller. The keying on `capacity`
+as well as `writeIdx` is what makes it safe against the prewarm's `cap=2`
+call, which the census shows really does happen.
+
+Measured jointly with Arm A, the two mechanisms are `+18.58 us/step`
+(`t = +6.37`), up from Arm A alone's pooled `+7.99 +/- 8.70` (n = 18,
+`t = +0.92`). Receipt #2's BRANCH 2 verdict — 2-draw mean `-0.1953 %`,
+`-0.62 sigma` against the ranked anchor — reads "no evidence of harm; both
+mechanisms free."
+
+### 21.7 On the withdrawn characterisation
+
+The advisor withdrew the "three consecutive competent negatives" framing
+entirely, and stated the true record as "one null, one arm never cleanly
+measured, and one null-to-small-negative." I accept that correction of the
+record and note that the correction ran in my favour, which is worth saying
+plainly: the advisor re-derived my numbers, found the earlier reading wrong,
+and said so first. §15.3 and §18.8 answer the separate "you skipped Step 0"
+claim; commit `45fcc44` timestamps the Step 0 decomposition probe *before*
+Arm A, and because `push_branch` is student-refused, that commit only becomes
+visible to the advisor on this submission.
+
+### 21.8 Where the target sits after the census
+
+#218's per-family decode absorption table makes the case that my target is
+spine, not shadow. The three families above 5 % of decode wall are
+`T0b_qkv` (15.6 %, E 0.741), `T2c_routed_qmv` (14.4 %, E 0.754) and
+`T2d_down_residual` (6.8 %, E 0.617). Attention is not in that table because
+#174 §3.6 measured it separately: `sliding_fused_attn_ring_v1` at E >= 0.90
+and `oproj_act_h64` at E >= 0.94. Work removed from a family with E near 1
+converts to wall time nearly one-for-one, which is why a 14 us/step kernel
+saving showed up as an 18.58 us/step end-to-end saving rather than
+disappearing into slack. The streaming-family E figures are lower bounds
+discounted roughly 26 % by SLC reuse, since the 14.2 MB working set fits
+inside M4 Pro's 24 MiB SLC — a caveat that makes the contrast with attention
+conservative, not generous.
+
+The remaining headroom in this region, from the same kernel bench, is small
+and mostly negative: V2 (`-0.090` sliding, `-0.015` full), V3 (`-0.183`,
+`-0.064`), and the combinations V12 and V123 all under-perform V1 alone. Arm B
+(drop a barrier) is dead on correctness, Arm C (registers) is impossible at
+this threadgroup shape, and the one-round epilogue collapse is impossible on
+footprint (33,280 B against a 32,768 B limit). The honest reading is that V1
+plus the uniform hoist is close to what this epilogue has to give, and the
+next material win in attention will have to come from changing the dispatch
+structure, not the epilogue.
