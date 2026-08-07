@@ -1810,6 +1810,47 @@ private var lagunaRingIdxAtlas: [MLXArray] { LagunaRingIdxAtlasStore.entries }
 let lagunaParamsAtlasEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PARAMS_ATLAS"] != "0"
 
+/// Pre-materialized 12-byte uniform buffers for the full-attention decode
+/// kernel's 3-element params array ([writeIdx, writeIdx+1, capacity]). Unlike
+/// the sliding ring atlas, the values depend on the runtime cache capacity
+/// and the absolute write index, so the atlas is built lazily on the first
+/// fused full-attention call and rebuilt if the capacity changes. Worker
+/// decode is single-threaded, so the write-once unsafe opt-out is sound.
+private enum LagunaFullIdxAtlasStore {
+    nonisolated(unsafe) private static var entries: [MLXArray] = []
+    nonisolated(unsafe) private static var baseWriteIdx: Int = -1
+    nonisolated(unsafe) private static var capacity: Int = -1
+    private static let count = 128
+
+    static func lookup(writeIdx: Int, capacity: Int) -> MLXArray? {
+        if self.capacity != capacity {
+            build(baseWriteIdx: writeIdx, capacity: capacity)
+        }
+        let offset = writeIdx - baseWriteIdx
+        guard offset >= 0, offset < entries.count else { return nil }
+        return entries[offset]
+    }
+
+    private static func build(baseWriteIdx: Int, capacity: Int) {
+        let atlas = (0..<count).map {
+            MLXArray([
+                UInt32(baseWriteIdx + $0),
+                UInt32(baseWriteIdx + $0 + 1),
+                UInt32(capacity),
+            ])
+        }
+        for entry in atlas { eval(entry) }
+        entries = atlas
+        self.baseWriteIdx = baseWriteIdx
+        self.capacity = capacity
+    }
+}
+
+/// `DARKBLOOM_FULL_PARAMS_ATLAS=0` restores the per-call fresh 3-element
+/// array (ablation control; identical bytes either way).
+let lagunaFullIdxAtlasEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FULL_PARAMS_ATLAS"] != "0"
+
 /// `DARKBLOOM_FUSED_FULL_ATTN` (default on; set "0" to disable): decode
 /// fused attention for the ten full-attention layers once the cache backing
 /// has spare capacity (from the second decode step on; the first step's
@@ -2287,9 +2328,10 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
-    let params = MLXArray([
-        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
-    ])
+    let params = lagunaFullIdxAtlasEnabled
+        ? (LagunaFullIdxAtlasStore.lookup(writeIdx: writeIdx, capacity: capacity)
+            ?? MLXArray([UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity)]))
+        : MLXArray([UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity)])
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
