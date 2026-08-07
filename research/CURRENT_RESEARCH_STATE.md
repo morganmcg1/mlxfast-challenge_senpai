@@ -115,6 +115,33 @@
   nezuko's merged version is a strict superset — so #137 went to **r4** with a
   purely mechanical resolution instruction and no re-measurement. fern is
   effectively idle pending that resubmit.
+- **2026-08-07 03:35 UTC** — **#137 merged (`ee914666`), and #196 refuted my own
+  T1 hypothesis decisively.** nezuko's occupancy study returned zero submitted
+  bytes and closed three things at once. (1) **T1 is DEAD.** Sliding dispatches
+  **32** threadgroups and full dispatches **24**; both are ≤ the M5's **40**
+  cores, so *both decode attention dispatches already run in exactly one wave on
+  the ranked host*. The "80%/60% efficiency" numbers are idle slots, and **idle
+  slots cost zero time** — there was never a tail. Worse, the correct cost law is
+  `T = a + W·φ + work`, so a split of S ≥ 2 pays an extra per-wave φ that is not
+  divided by S: **every split loses unconditionally** (wave-matched C=40: S=2
+  1.144×, S=5 1.704×, S=10 2.185× worse). My §4.12.8(C) relative-makespan table
+  and its "S=5 is uniquely optimal" conclusion are **RETRACTED**, along with the
+  20%/40% tail, the ~227 µs/step M4 figure and the ~110 µs/step M5 / +1.6%
+  prize. The refutation rests on `32 ≤ 40` and `24 ≤ 40` — arithmetic over
+  runtime constants — so it transfers to M5 regardless of measurement host.
+  (2) **The 32-vs-96 contradiction, open since round ~14, is RESOLVED**: 96
+  simdgroups/core is the *residency ceiling* (invariant in TG size and flat in
+  threadgroup memory from 16 B to 32768 B), 32 is the *throughput width*.
+  **Model performance with 32; use 96 only for co-residency questions.**
+  (3) Three new measured constants — once-per-call `a = 1.661 µs`, per-wave
+  `φ = 1.469 µs`, marginal `g = 0.7483 µs/KV-iter` — plus the finding that
+  co-residency recovers only ~17% of a wave, i.e. **these kernels are
+  issue/ALU-bound, not latency-bound.** The successor she left behind is the
+  *intra*-kernel merge epilogue: **1.068/1.072/1.170 µs, constant in N, 12.9% of
+  a 512-row call**, ceiling +0.685% score. See §4.12.8 (C), (F), (G).
+  **Standing lesson for me: a geometry argument expressed as a ratio hid a fixed
+  additive cost. Price decode geometry additively or not at all.**
+
 - **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
   precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
   softening commits after `eae07f01` (21:55:23 UTC). Both are recorded in §0a;
@@ -1415,18 +1442,22 @@ The two attention kernels run at **101.4 GB/s (37.1% of peak)** and **95 GB/s
 
 #### 4.12.6 The priced target list
 
-- **T1 — decode attention occupancy. 564 µs/step, +8.26%. Owned by #196
-  (nezuko). Head of the decode queue.** Both decode attention kernels dispatch
-  **one threadgroup per PAIR of query heads** (`LagunaRuntimeModel.swift:1370`
-  sliding, `:1819` full; both compute `head0 = pair_tg * 2`). 64 sliding heads
-  ⇒ **32 TGs**; 48 full heads ⇒ **24 TGs**. Bytes are not the constraint: GQA
-  replication puts replicated traffic at 149%/104% of DRAM peak, i.e.
-  cache-served, while unique bytes are 37.1%/34.7%. ⚠️ Her tail-quantization
-  estimate (227 µs/step) assumes one resident TG per core and she measured no
-  occupancy instrument — treat it as untested. The **solid** number is the pool
-  ceiling: 881 µs/step at 101/95 GB/s vs the 98.2% the same host demonstrates
-  on `decode_nvfp4_qkv_h64`. **⚠️ Two of her §5.1 premises are RETRACTED — see
-  §4.12.8.**
+- **T1 — decode attention occupancy. ⛔ MECHANISM REFUTED by #196 (merged);
+  the 564 µs/step / +8.26% survives ONLY as a bytes-based ceiling with no
+  known route to it.** Both decode attention kernels dispatch **one threadgroup
+  per PAIR of query heads** (`LagunaRuntimeModel.swift:1370` sliding, `:1819`
+  full; both compute `head0 = pair_tg * 2`). 64 sliding heads ⇒ **32 TGs**;
+  48 full heads ⇒ **24 TGs**. Bytes are not the constraint: GQA replication
+  puts replicated traffic at 149%/104% of DRAM peak, i.e. cache-served, while
+  unique bytes are 37.1%/34.7%. The pool ceiling (881 µs/step at 101/95 GB/s
+  vs the 98.2% the same host demonstrates on `decode_nvfp4_qkv_h64`) is still
+  the *arithmetic* target, but **#196 shows the kernels are issue/ALU-bound,
+  not bandwidth-bound** — the marginal wave costs 7.408 µs against an 8.891 µs
+  lone-TG latency, so co-residency recovers only ~17%. A future attack must
+  reduce **instructions**, not bytes or threadgroups. The only measured
+  instruction-side lever left is **the merge epilogue (§4.12.8 G)**, worth
+  +0.685% at ceiling. Both the 227 µs/step tail estimate and every KV-split
+  geometry are dead (§8).
 - **T2 — routed-MoE matvec bandwidth. 188 µs/step, +2.75%. Fenced to #148.**
   `routed_..._top8keys_r1_bf16_v2` at 91.0% (gap 7.2 pts, 110 µs) and
   `routed_shared_..._down_residual_bf16_r1_v5` at 89.3% (8.9 pts, 78 µs). Soft
@@ -1513,33 +1544,48 @@ full-attention kernel mirrors it exactly (`gqa=6`, `rotary_pairs=32`,
 ⇒ **A KV split across threadgroups is a LIFT of existing, already-bit-exact
 code, not a new algorithm.**
 
-**(C) Integer-wave arithmetic — this kills the S=2 prototype.** A 1024-thread
-TG at ≤104 half-regs consumes the whole 208 KB register file, so plausibly one
-TG per core. Under that model concurrent TG slots C = 20 (M4 Pro) / 40 (M5
-Max) and makespan = `ceil(N/C) × d`. **Efficiency must be computed with INTEGER
-waves; fractional-wave estimates are wrong and can invert an arm's ranking.**
-At the shipped grid: sliding N=32 ⇒ 80% on both hosts; full N=24 ⇒ 60% on both
-⇒ recoverable tail 20%/40%, reproducing #174's 227 µs/step M4 estimate
-*conditional on one-TG-per-core*. With a KV split of S TGs per head-pair
-(N = 32S / 24S, per-TG duration `d/S`), relative makespan = `ceil(N/C)/S`:
+**(C) ⛔ RETRACTED IN FULL by PR #196 (merged). The occupancy tail does not
+exist and T1 is CLOSED.** My original table computed *relative makespan*
+`ceil(N/C)/S` and concluded that S = 5 was uniquely optimal on both hosts.
+Nezuko measured the kernels directly (M4 Pro, unit-resolution K = 1…3C
+staircase on **both** kernels) and refuted it on two independent grounds:
 
-| S | sliding M5 (C=40) | sliding M4 (C=20) | full M5 (C=40) | full M4 (C=20) |
-|---:|---|---|---|---|
-| 1 | 1.00 | 2.00 | 1.00 | 2.00 |
-| 2 | **1.00** | **2.00** | **1.00** | 1.50 |
-| 3 | 1.00 | 1.667 | 0.667 | 1.333 |
-| 4 | 1.00 | 1.75 | 0.75 | 1.25 |
-| **5** | **0.80** | **1.60** | **0.60** | **1.20** |
-| 8 | 0.80 | 1.625 | 0.60 | 1.25 |
-| 10 | 0.80 | 1.60 | 0.60 | 1.20 |
+1. **There is no tail to recover.** Sliding dispatches **N = 32** TGs and full
+   dispatches **N = 24** (`LagunaRuntimeModel.swift:1761` / `:2263` with
+   `slidingAttentionHeads = 64`, `fullAttentionHeads = 48`). Both are ≤ C = 40,
+   so **on the ranked M5 both attention dispatches already run in exactly one
+   wave.** The "80% / 60% efficiency" figures are *idle slots*, and **idle slots
+   cost zero time.** The claimed 20%/40% recoverable tail, the ~227 µs/step M4
+   estimate, and the ~110 µs/step M5 / +1.6% score prize are all **dead**.
+2. **The relative-makespan model was wrong because per-TG duration is not
+   `d/S`.** The measured law is `T(K) = a + b·ceil(K/C)` with **a = 1.661 µs**
+   (once per call), **b = 7.408 µs** (per wave), fit error +0.0/+1.5/+0.0% at
+   W = 1/2/3. Decomposing a single wave at K = 20 gives fixed **f = 3.130 µs**
+   and marginal **g = 0.7483 µs/KV-iter**, i.e. per-wave fixed **φ = 1.469 µs**
+   on top of `a`. Because φ is paid per wave and is *not* divided by S, **S = 2
+   is algebraically exactly one extra φ worse than S = 1 for any f > 0**
+   (`a + 2φ + 8g` vs `a + φ + 8g`). Every S ≥ 2 strictly adds waves while
+   conserving work ⇒ **every split loses, unconditionally.**
 
-**S = 2 — #174's recommended "cheap direct test" — yields EXACTLY ZERO
-quantization gain for sliding on both hosts and for full on M5. It is the worst
-possible discriminator and is RETRACTED.** **S = 5 is the unique small value
-exactly optimal for both kernels at both 20 and 40 cores** (32×5 = 160 = 8×20 =
-4×40; 24×5 = 120 = 6×20 = 3×40); S = 10 also exact. 512/5 = 102.4 is not
-integral, but uneven chunks (104/104/104/104/96) are fine and uneven durations
-help dynamic scheduling.
+Measured, wave-matched at C = 40 (P4b emulation): S=1 **9.078 µs**, S=2
+**10.384** (1.144×), S=5 **15.468** (1.704×), S=10 **19.832** (2.185×). At the
+real M4 C = 20, where quantization *is* real, break-even needs a fixed cost
+below 0.533 g = 0.399 µs; the measured f = 3.130 is **7.8× short** and even the
+most generous φ = 1.469 is **3.7× short**. Direct P4 at C = 20 is monotone
+worse: 18.333 / 20.309 / 27.296 / 34.875 µs for S = 1/2/5/10. Note the
+S-efficiency table *does* reproduce my arithmetic (S = 5 is uniquely 100% on
+both kernels at both core counts) — **and those 100% points are among the worst
+absolute timings.** That is the whole lesson.
+
+**M5 transfer is not in doubt.** The refutation rests on `32 ≤ 40` and
+`24 ≤ 40`, arithmetic over runtime constants, not on any M4-only number. The M4
+timings only confirm the mechanism and rule out the two-wave fallback, where the
+split also loses.
+
+**Doctrine that replaces the retracted table:** model a decode kernel as
+`T = a + W·φ + work`, where `W = ceil(N/C)`. **Threadgroups up to C are free**
+(#196 §7.2). **Idle slots below C cost zero.** Never price a decode geometry
+change with a relative-makespan ratio.
 
 **(D) The head-axis repartition idea (1 head per TG, grid 32→64 / 24→48) is
 DEAD by the same arithmetic** — 64/80 = 80%, identical to today on both hosts —
@@ -1555,13 +1601,55 @@ index-order reduction over the S partials is deterministic and bit-exact —
 recommended**; (d) folding into `oproj_act` is misaligned (contraction
 6144/8192). Merge cost must be pre-registered as a separately measured row.
 
-**(F) ⚠️ THE GATING UNKNOWN.** The public Apple figure is 32 simdgroups/core,
-but our own #57/#138 binding occupancy term and #157's ~24 TG/core × 4
-simdgroups both imply **96**. If 3 of these TGs co-reside per core, slots
-become 60/120, shipped efficiency drops to 53%/27%, and the optimal S changes.
-**#196 Step 0 is a direct duration-vs-N staircase to settle it.** Pre-registered
-kill: ≥2 co-resident TGs *and* no staircase step at N = cores ⇒ the tail model
-is wrong, stop.
+**(F) ✅ THE GATING UNKNOWN IS RESOLVED by #196 — 32 and 96 are both correct and
+measure different things.**
+
+- **96 simdgroups/core is the RESIDENCY CEILING** — a hardware slot limit.
+  Nezuko's rendezvous probe measured **3 TGs/core at 1024 threads = 96
+  simdgroups/core**, and the number is *invariant in threadgroup size*
+  (1024/512/256/128 threads ⇒ 3/6/12/24 TGs per core = 96 simdgroups every
+  time) and **flat in threadgroup memory from 16 B all the way to 32768 B**.
+  This reconciles #57, #138 and #157.
+- **32 simdgroups/core is the THROUGHPUT WIDTH** — one 1024-thread TG per core
+  per wave. This is what the staircase measures and what governs performance.
+  **Use 32 for all performance modelling; use 96 only for co-residency
+  questions.**
+
+The staircase is unambiguous. Sliding: flat 8.891–9.104 µs to K = 20, **+6.482
+riser at K = 21**, flat to K = 40, **+6.444 at K = 41**. Full: flat 9.128–9.327,
+**+6.250 at K = 21**, **+6.902 at K = 41**. In-wave mean |Δ| ≈ 0.06 µs, so the
+risers are a **100× discontinuity**. The pre-registered kill (≥2 co-resident TGs
+*and* no step at N = cores) therefore did **not** fire: co-residency is 3, but
+the step at K = C is present and huge.
+
+Two corollaries worth carrying:
+
+- `b / lone-TG latency = 7.408 / 8.891 = 83.3%` ⇒ **co-residency recovers only
+  ~17% of a wave.** These kernels are **issue/ALU-bound, not latency-bound**,
+  consistent with the published "ALU saturates at ~24 simdgroups/core".
+- **Shrinking attention threadgroup memory buys ZERO residency** (#196 §7.3):
+  both the real 18448 B body and a 10000 B halved-plane variant cap at 3 TG/core.
+  That family is closed.
+
+Caveat as stated by the author: measured on M4 Pro (Apple GPU gen 16); the
+96-slot ceiling is **not verified on the ranked M5**. The parts of the
+conclusion we rely on (§4.12.8 C) do not depend on it.
+
+**(G) ⭐ THE SUCCESSOR TARGET #196 LEFT BEHIND — the intra-kernel merge
+epilogue.** While pricing the split, nezuko measured the *existing* post-KV-loop
+merge (3 `threadgroup_barrier`s + 4 threadgroup passes over `outputs[]`,
+sliding-kernel offsets rel :225–:290) at **1.068 / 1.072 / 1.170 µs for
+N = 64 / 256 / 512 rows — CONSTANT in N.** That is ~80% of the very per-wave
+fixed cost φ that killed the split, and **12.9% of a 512-row call**. It is
+therefore the largest *measured, structural* fixed cost inside the two decode
+attention kernels.
+
+Ceiling if the merge were free: 40 calls × 1.17 µs = **46.8 µs/step = +0.685%
+score**. A realistic 30% shave ≈ **+0.21%**. Small, but it is a *fixed* cost on
+the critical path of a kernel with **E ≥ 0.90** (fully exposed, #174 §3.6), it
+needs no new bytes, and the instrumentation already exists. This is the natural
+next assignment on the attention surface — note it is an *intra*-TG cost, so
+none of the inter-TG merge hazards in (E) apply.
 
 ## 5. `_nax` safety rig (mandatory for any `_nax` arm)
 
@@ -2252,28 +2340,39 @@ concurrency is real, already harvested, and worth ~448 µs/step that we are
 already collecting. That kills the whole "buy more overlap" branch and
 promotes a target nobody was working on.
 
-1. ⭐ **T1 — decode attention occupancy** (#174 §5.1). **Assigned: PR #196
-   (nezuko), `maple-2026-08-07a-decode-attention-occupancy`, r1 at base
-   `3b75a115`.** Priced **564 µs/step = +8.26%**, and the mechanism is
-   **occupancy/latency, not bytes**, which puts it in §4.11.3's privileged
-   transfer class. Both decode attention kernels run **one 1024-thread
-   threadgroup per PAIR of query heads** — `LagunaRuntimeModel.swift:1370`
-   (sliding, 64 heads → **32 TGs**) and `:1819` (full, 48 heads → **24 TGs**)
-   — against 20 M4 Pro cores and 40 M5 cores. Unique-byte efficiency is
-   **101 GB/s (37.1%)** and **95 GB/s (34.7%)** against the 98.2% that
-   `decode_nvfp4_qkv_h64` demonstrates on the same host.
-   ⚠️ **Two of #174 §5.1's premises are RETRACTED — see §4.12.8.** The kernel
-   already implements flash-decoding internally, so a KV split is a *lift* of
-   bit-exact code, not a new algorithm; and **S=2 buys exactly zero**. #196
-   opens with a **residency staircase (Step 0)** because the 32-vs-96
-   simdgroups/core question gates every downstream number.
-2. **T3 candidate 2 — fuse `decode_router_top8_ordinal_table_norm` into
-   `residual_rms_router_rpg8_keys_v1`** (#174 §5.3). 185.7 µs/step ≈ **+2.72%**,
-   reads no new bytes, and the selector sorts 1.03 kB at an implied 0.2 GB/s.
-   This is the one glue-pool entry whose price survives a byte floor.
+1. ⛔ **T1 — decode attention occupancy — LANDED AND REFUTED.** PR #196
+   (nezuko, `maple-2026-08-07a-decode-attention-occupancy`) merged with a
+   complete negative and **zero submitted bytes**. The 564 µs/step / +8.26%
+   figure survives only as a *bytes-based ceiling*; #196 proves the
+   occupancy-tail mechanism that was supposed to reach it **does not exist**
+   (32 and 24 TGs both fit inside one M5 wave) and that splitting costs
+   1.144×/1.704×/2.185× at S=2/5/10 even when wave-matched. See §4.12.8 (C),
+   (F) and the three new §8 closures. **The best possible outcome from a
+   negative: it killed a family, a pricing model, and a gating unknown in one
+   pass, and left a measured successor target behind (§4.12.8 G).**
+2. ⭐⭐ **T3 candidate 2 — fuse or DELETE `decode_router_top8_ordinal_table_norm`**
+   (#174 §5.3). **Now the single largest priced decode target left**:
+   185.7 µs/step ≈ **+2.72%**, reads no new bytes, and the selector sorts
+   1.03 kB at an implied 0.2 GB/s. Two facts sharpen it since #174:
+   (a) the kernel is a **full 256-element bitonic sort in ONE threadgroup of
+   256 threads** — 36 compare-exchange rounds, 12 `threadgroup_barrier`s,
+   ~2.5% of one core, and by #196's staircase a 1-TG dispatch costs the same
+   wall time as a 40-TG one, so essentially all 4.70 µs/call is fixed cost on
+   the serial critical path; and (b) on the shipped decode path its
+   `router_indices` output is **dead** — the routed GEMV consumes `router_keys`
+   and recomputes its own top-8 — so the dispatch survives solely to produce
+   **8 normalized fp32 scores**. That admits a *deletion* arm, not just a
+   fusion arm. Price it with #196's `T = a + W·φ + work`, **not** with
+   removed-dispatch-count × µs/dispatch (§4.12.3).
    The other two glue fusions (`rmsbfloat16` into its consumer prologue;
    residual epilogues into producing matvecs) are **separate small
    experiments**, not one bundle.
+2b. ⭐ **The attention merge epilogue** (§4.12.8 G, #196 §7.1) — the successor
+   #196 measured but did not attack. 1.068/1.072/1.170 µs for N=64/256/512,
+   **constant in N**, = 12.9% of a 512-row call, ceiling **+0.685%** score,
+   realistic ~+0.21%. It is *intra*-threadgroup, so §4.12.8 (E)'s inter-TG
+   merge hazards do not apply. Natural next assignment for nezuko, who already
+   instrumented it.
 3. **#170 reports** → if H3 (schedule+latency-limited) wins, idea 6 (dequant
    instruction diet, θ 0.67 → 0.78, ~+3%) becomes the constructive follow-on.
 4. ✅ **#137 r3 (the anchoring receipt) — LANDED.** Receipt `08ddee45` read
@@ -2281,7 +2380,8 @@ promotes a target nobody was working on.
    §4.11.5 is resolved and the standing "no more than ~2 merges without an
    anchor" rule is now a *scheduling* obligation rather than an open risk. It
    also convicted the row-major refine arm, which removes idea 5's second arm.
-   The PR itself is in r4 for a mechanical conflict fix only.
+   **PR #137 merged at r4 as `ee914666`** (r4 was a mechanical conflict fix
+   only; the scored tree is identical to r3).
 5. **#148 reports** → is idea 4, in its only available form. T2 (routed-MoE
    matvec bandwidth, 188 µs/step, +2.75%, a *soft* ceiling) is fenced to it.
 6. **(L2) Encode-site barrier pruning / `start_concurrent()`** in the editable
@@ -2337,15 +2437,43 @@ The full evidence table lives in the archive
   20 and 40 cores, so the quantization gain is zero; and the two heads in a
   pair share the staged `tg_k`/`tg_v` planes (`kv_head = head0 / gqa`), so the
   split **doubles K/V read traffic**. It is null-to-negative on both axes.
-- **⭐⭐ The S=2 KV split of the decode attention kernels — CLOSED before it
-  was built (§4.12.8 C).** #174 §5.1 proposed S=2 as the cheap direct test.
-  With 1024-thread threadgroups the makespan is `ceil(N/C) × d`, so S=2 gives
-  relative makespan `ceil(64/40)/2 = 1.00` (sliding, M5) and
-  `ceil(64/20)/2 = 2.00` (sliding, M4) — **identical to the shipped grid on
-  both hosts**, and identical for full attention on M5. The unique small split
-  that is exactly optimal for both kernels at both 20 and 40 cores is
-  **S = 5** (32×5 = 160 = 8×20 = 4×40; 24×5 = 120 = 6×20 = 3×40). Recorded so
-  nobody spends a build on the arm that cannot move.
+- **⭐⭐⭐ The decode-attention KV-split-across-threadgroups family, at EVERY
+  S — CLOSED by PR #196 (§4.12.8 C).** #174 §5.1 proposed S=2; I then proposed
+  S=5 on a relative-makespan model. **Both are refuted, and so is the model.**
+  Two independent grounds, either one sufficient:
+  (i) **There is no tail to recover.** The shipped grids are 32 TGs (sliding)
+  and 24 TGs (full) against C = 40 M5 cores at 3 threadgroups/core residency.
+  `N ≤ C` at S = 1 ⇒ one wave ⇒ the "occupancy tail" the whole family was
+  built to reclaim **does not exist on the ranked host**. This is arithmetic
+  over runtime constants, so it transfers to M5 from an M4 measurement.
+  (ii) **Splitting costs strictly more even when it is wave-free.** Direct
+  wave-matched measurement at C = 40 (#196 §5): S=1 9.078 µs, S=2 10.384
+  (1.144×), S=5 15.468 (**1.704×**), S=10 19.832 (2.185×). The fixed cost per
+  threadgroup is `f = 3.130 µs` — **34.3% of a full 512-row call** — so every
+  extra shard re-pays a third of the kernel for a fraction of the work.
+  The replacement pricing model is `T = a + W·φ + work` with
+  `a = 1.661 µs`, `φ = 1.469 µs/wave`, `W = ceil(N / (3C))`. **Never price a
+  decode geometry with a relative-makespan ratio again**; idle slots below the
+  residency ceiling cost exactly zero.
+- **⭐⭐ Shrinking attention threadgroup memory to buy residency — CLOSED
+  (#196 §7.3, §4.12.8 F).** The rendezvous probe holds occupancy flat at
+  3 threadgroups/core across tgmem 16 B → 32768 B. Both attention kernels
+  already declare 18432 B of a 32768 B budget and are nowhere near the
+  limiter. Any proposal that spends effort compressing `outputs[]`,
+  `max_scores[]`, `sum_exp_scores[]`, or the staging planes **in order to
+  raise occupancy** buys zero and should be rejected on sight. (Compressing
+  them to reduce *work* is a different, still-open argument.)
+- **⭐⭐ "Idle slots below C cost time" as a pricing model — CLOSED.** The
+  unit-resolution staircase (#196 §2, both kernels, K = 1…3C) is **flat to
+  within ±0.06 µs from K = 1 to K = 20**, then steps +6.48 µs at K = 21 and
+  +6.44 µs at K = 41 — a 100× discontinuity at the wave boundary and nothing
+  in between. A dispatch of 1 threadgroup and a dispatch of C threadgroups
+  take the *same wall time*. Every argument of the form "only 32 of 40 cores
+  are busy, so we are leaving 20% on the table" is therefore **invalid**; the
+  only quantity that costs time is the integer wave count `W`. Note also that
+  the marginal wave costs `b = 7.408 µs` against a lone-TG latency of
+  8.891 µs — co-residency recovers only ~17% of a wave, so these kernels are
+  **issue/ALU-bound, not latency-hiding-bound**.
 - **⭐⭐⭐ Decode intra-CB concurrency, per-CB overhead, and the three shadowed
   kernels — CLOSED by PR #174 (§4.12).** The overlap is real (382–448 µs/step)
   and MLX's concurrent encoder **already harvests all of it**; there is nothing
