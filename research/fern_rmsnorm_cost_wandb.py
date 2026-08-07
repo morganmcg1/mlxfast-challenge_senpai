@@ -20,8 +20,12 @@ LOGDIR = ROOT / "research" / "redundant-rmsnorm-logs"
 LOG = LOGDIR / "stage2-cost.log"
 JSONOUT = LOGDIR / "stage2-cost.json"
 
-reps = sys.argv[1] if len(sys.argv) > 1 else "400"
+reps = sys.argv[1] if len(sys.argv) > 1 else "800"
 LOGDIR.mkdir(parents=True, exist_ok=True)
+
+# Keep W&B scratch out of the checkout so nothing untracked lands in the branch.
+os.environ.setdefault("WANDB_DIR", "/tmp/fern-pr300-wandb")
+os.makedirs(os.environ["WANDB_DIR"], exist_ok=True)
 
 subprocess.run(
     ["swiftc", "-O", str(SRC), "-o", str(BIN), "-framework", "Metal", "-framework", "Foundation"],
