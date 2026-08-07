@@ -1,0 +1,59 @@
+diff --git a/Sources/MLXFastModel/LagunaLmHeadPrune.swift b/Sources/MLXFastModel/LagunaLmHeadPrune.swift
+index 58880c6..4072402 100644
+--- a/Sources/MLXFastModel/LagunaLmHeadPrune.swift
++++ b/Sources/MLXFastModel/LagunaLmHeadPrune.swift
+@@ -100,6 +100,43 @@ let lagunaLmHeadFusedRefinementEnabled =
+ private let lagunaTraceFusionEnabled =
+     ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_FUSION"] == "1"
+ 
++// ---------------------------------------------------------------------------
++// RESEARCH INSTRUMENT (PR284 step 1) -- never submitted; applied from
++// research/nezuko-pr284-slack-probe.patch and reverted after capture.
++//
++// Prices every coarser-bit-plane screen from ONE decode run. With the level-j
++// coarse c_j (j LSBs of the 5-bit code dropped) and its certified bound
++// B_j = 2^j * Q, where Q = 0.5*sd*sum|x| and the stored `delta` = B_1 = 2Q:
++//   row is provably dropped at level j  <=  thr - c_1 > B_1 + 2*B_j
++// so in units of the measurable R = (thr - coarse)/delta the guaranteed-drop
++// bracket is R > 1 + 2^j: R>1 (4-bit, today), R>5 (3-bit), R>9 (2-bit),
++// R>17 (1-bit). #{R <= t} is therefore a conservative UPPER bound on the
++// survivor count that tier would have to refine.
++private let lagunaLmHeadSlackProbeEnabled =
++    ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_SLACK_PROBE"] == "1"
++
++private let lagunaLmHeadSlackProbeThresholds: [Float] = [
++    1, 2, 3, 5, 7, 9, 13, 17, 25, 33,
++]
++
++private func lagunaLmHeadEmitSlackHistogram(
++    coarse: MLXArray, delta: MLXArray, thr: MLXArray, vocab: Int
++) {
++    let ratio = (thr - coarse) / delta.asType(.float32)
++    let cuts = MLXArray(lagunaLmHeadSlackProbeThresholds).reshaped([
++        lagunaLmHeadSlackProbeThresholds.count, 1,
++    ])
++    let counts = (ratio.reshaped([1, vocab]) .<= cuts).asType(.int32).sum(
++        axis: 1)
++    eval(counts)
++    let line =
++        "SLACKHIST "
++        + counts.asArray(Int32.self).map(String.init).joined(separator: " ")
++        + "\n"
++    FileHandle.standardError.write(Data(line.utf8))
++}
++
++
+ /// Kernel header: the bit-exact e8m0 group-scale decoder, inlinable and
+ /// libm-free.
+ private let lagunaLmHeadPruneHeader = """
+@@ -968,6 +1005,10 @@ final class LagunaLmHeadPruner {
+             outputShapes: [[1]],
+             outputDTypes: [.float32]
+         )[0]
++        if lagunaLmHeadSlackProbeEnabled && refine {
++            lagunaLmHeadEmitSlackHistogram(
++                coarse: coarse, delta: delta, thr: thr, vocab: vocab)
++        }
+         let assembled =
+             refine
+             ? lagunaLmHeadRefinedExactKernel(
