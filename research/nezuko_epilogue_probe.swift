@@ -765,3 +765,112 @@ for t in targets {
                 r.b, r.delta, 100 * r.delta / r.a, r.spread as NSString))
     }
 }
+
+// MARK: - S5: working-set residency sweep
+
+/// S4 measured V1 at +0.400 us/call on a KV working set of 2 MiB, which the
+/// official receipt then failed to reproduce end to end. §13.1 of the writeup
+/// explains that with an arithmetic contradiction: the sliding kernel *issues*
+/// 8 MiB of KV per 18.446 us call, i.e. 455 GB/s, against an M4 Pro DRAM peak
+/// of 273 GB/s. Those bytes cannot have come from DRAM, so S4 timed a
+/// cache-resident kernel whose binding resource is on-chip throughput -- the
+/// exact resource V1 relieves -- while in situ the same kernel reads a KV cache
+/// that is one of forty and is DRAM-resident.
+///
+/// This section changes residency and nothing else. The k/v cache buffers are
+/// 64 MiB each; a call touches at most 2 MiB of each. Rebinding them at a
+/// rotating 2 MiB offset between dispatches makes successive calls read
+/// disjoint slices, so `slots` alone sets the working set. The kernel source,
+/// the grid, the reps and the ABBA pairing are untouched, and every value in
+/// the buffers is the same bf16 1.0, so nothing numerical changes either.
+///
+/// PRE-REGISTERED DISCRIMINATOR (recorded before this ran):
+///   H-onchip (§13): the saving is on-chip transaction throughput. As `slots`
+///     grows the kernel becomes DRAM-bound, V1 relieves a slack resource, and
+///     `delta` collapses -- predict delta(32 slots) <= 0.25 * delta(1 slot),
+///     i.e. <= +0.10 us on sliding.
+///   H-serial: the saving is serial latency on the threadgroup's critical path
+///     and is therefore independent of where the KV bytes live -- predict
+///     delta(32 slots) ~= delta(1 slot) = +0.400 us, within the null spread.
+/// The two hypotheses are separated by the *absolute* delta, not its
+/// percentage, because the call time itself grows with the working set.
+let rotStrideBytes = 2 * 1024 * 1024
+let rotSlotsSweep = [1, 2, 4, 8, 16, 32]
+
+func timeOnceRot(
+    _ pipe: MTLComputePipelineState, k: Int, threads: Int, reps: Int,
+    slots: Int, params: MTLBuffer
+) -> Double {
+    let cb = queue.makeCommandBuffer()!
+    let enc = cb.makeComputeCommandEncoder()!
+    enc.setComputePipelineState(pipe)
+    binder(params)(enc)
+    let grid = MTLSize(width: k, height: 1, depth: 1)
+    let tptg = MTLSize(width: threads, height: 1, depth: 1)
+    for r in 0..<reps {
+        let off = (r % slots) * rotStrideBytes
+        enc.setBuffer(dKCache, offset: off, index: 6)
+        enc.setBuffer(dVCache, offset: off, index: 7)
+        enc.dispatchThreadgroups(grid, threadsPerThreadgroup: tptg)
+    }
+    enc.endEncoding()
+    cb.commit()
+    cb.waitUntilCompleted()
+    return (cb.gpuEndTime - cb.gpuStartTime) * 1e6 / Double(reps)
+}
+
+func pairedRot(
+    _ a: MTLComputePipelineState, _ b: MTLComputePipelineState, k: Int,
+    slots: Int, params: MTLBuffer, rounds: Int = kRounds
+) -> Paired {
+    var das: [Double] = []
+    var abs_: [Double] = []
+    var bbs: [Double] = []
+    for _ in 0..<rounds {
+        let a1 = timeOnceRot(a, k: k, threads: 1024, reps: kReps, slots: slots, params: params)
+        let b1 = timeOnceRot(b, k: k, threads: 1024, reps: kReps, slots: slots, params: params)
+        let b2 = timeOnceRot(b, k: k, threads: 1024, reps: kReps, slots: slots, params: params)
+        let a2 = timeOnceRot(a, k: k, threads: 1024, reps: kReps, slots: slots, params: params)
+        let am = 0.5 * (a1 + a2)
+        let bm = 0.5 * (b1 + b2)
+        abs_.append(am)
+        bbs.append(bm)
+        das.append(am - bm)
+    }
+    return Paired(
+        a: median(abs_), b: median(bbs), delta: median(das),
+        lo: das.min()!, hi: das.max()!)
+}
+
+print("\n=== S5: working-set residency sweep (does the S4 win survive DRAM?) ===")
+print("`ws` is the unique KV bytes the rotating slots make the kernel walk.")
+print("`issued GB/s` divides the bytes the grid asks for by the measured call")
+print("time; above the 273 GB/s M4 Pro DRAM peak the reads are being served")
+print("on chip. `saved` is V1 vs shipped, ABBA-paired exactly as in S4.")
+print("kernel   slots  wsMiB    us/call    issGB/s     V1saved [min max]     nullsaved [min max]")
+
+for t in targets {
+    guard let pShip = compile(t.k, body: t.k.body),
+        let pNull = compile(t.k, body: t.k.body + "\n"),
+        let v1src = variantV1(t.k), let pV1 = compile(t.k, body: v1src)
+    else {
+        print("  \(t.name): build FAILED")
+        continue
+    }
+    // Bytes the grid asks for: every threadgroup reads its kv head's whole
+    // 512-position K and V window. Unique bytes are that divided by the 8x
+    // GQA reuse, then multiplied by the number of distinct slots.
+    let issuedPerCall = Double(t.shippedTGs) * 2.0 * 512.0 * 128.0 * 2.0
+    for slots in rotSlotsSweep {
+        let v1 = pairedRot(pShip, pV1, k: t.shippedTGs, slots: slots, params: t.params)
+        let nl = pairedRot(pShip, pNull, k: t.shippedTGs, slots: slots, params: t.params)
+        let wsMiB = Double(slots) * 2.0
+        let gbs = issuedPerCall / (v1.a * 1e-6) / 1e9
+        print(String(format: "%@ %5d %6.0f %10.3f %10.1f %+7.3f %@ %+7.3f %@",
+            t.name.padding(toLength: 8, withPad: " ", startingAt: 0) as NSString,
+            slots, wsMiB, v1.a, gbs,
+            v1.delta, v1.spread as NSString, nl.delta, nl.spread as NSString))
+    }
+}
+print("S5_DONE")
+

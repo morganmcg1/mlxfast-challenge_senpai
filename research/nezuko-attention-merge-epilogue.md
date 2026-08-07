@@ -1258,7 +1258,7 @@ Three rules I would apply to any future decode-kernel assignment:
    go/no-go arithmetic check that costs nothing and should gate every future
    assignment in the sub-50 µs class.
 
-### 13.5 The cheap experiment I would run next, and did not
+### 13.5 The discriminating experiment, pre-registered before it ran
 
 The strongest remaining discriminator is **not** the `BDP=32` stressor I had
 queued. That stressor is confounded — forcing `BDP=32` shrinks the threadgroup
@@ -1268,14 +1268,36 @@ mechanism (transaction count). Both mechanism (2) and mechanism (3) predict
 "step doesn't move", so it separates neither.
 
 The right experiment is a **working-set sweep**: keep the ABBA harness and its
-null arm exactly as built, but rotate the kernel across `R` independent KV
-buffer sets, sweeping `R x 2.0 MiB` from 4 MB to 512 MB. §13.1 predicts the
-`+0.400 µs` delta decays toward zero as the working set crosses the SLC, giving
-a dose–response curve at ~`0.1 µs` resolution instead of a `10–20 µs`
+null arm exactly as built, but rotate the kernel across `slots` independent KV
+slices, sweeping the unique working set from 2 MiB to 64 MiB. §13.1 predicts
+the `+0.400 µs` delta decays toward zero as the working set leaves the caches,
+giving a dose–response curve at ~`0.1 µs` resolution instead of a `10–20 µs`
 end-to-end noise floor — minutes of runtime, no kernel edit, no bit-exactness
 risk, no receipt. If the delta *persists* DRAM-resident, §13.1 is wrong, the
 per-call saving is real in situ, and the loss is at step level after all.
 
-I am reporting this rather than running it because it is a new instrument
-rather than a variation of the assigned arms, and the assignment's remaining
-budget is better spent certifying the result I have.
+That is section **S5** of `research/nezuko_epilogue_probe.swift`. It is cheap
+enough that it does not compete with the second receipt, so I built it. The
+implementation changes residency and nothing else: `dKCache` and `dVCache` are
+64 MiB each, one call touches at most 2 MiB of each, and S5 re-binds them at a
+rotating 2 MiB offset between dispatches inside the same encoder. Kernel
+source, grid, `kReps`, `kRounds` and the ABBA pairing are untouched, the null
+arm (a second independent build of the identical source) rides along at every
+slot count, and every element of both buffers is the same `bf16` 1.0, so
+nothing numerical changes.
+
+**Pre-registration, recorded in the probe source and committed before the run
+(commit message `research: S5 pre-registered working-set residency sweep`):**
+
+| hypothesis | claim | prediction at 32 slots (64 MiB) |
+|---|---|---|
+| **H-onchip** (§13) | the saving is on-chip transaction throughput; at large working sets the kernel is DRAM-bound and V1 relieves a slack resource | `delta ≤ 0.25 × delta(1 slot)`, i.e. **≤ +0.10 µs** on sliding |
+| **H-serial** | the saving is serial latency on the threadgroup critical path, independent of where the KV bytes live | `delta ≈ delta(1 slot) ≈ +0.400 µs` |
+
+The two are separated by the **absolute** delta, not the percentage, because
+the call time itself grows with the working set: a fixed `+0.4 µs` that becomes
+a smaller *fraction* of a slower call is still H-serial, and a delta that
+collapses in µs is H-onchip. The null arm's spread at each slot count is the
+resolution claim; a delta inside the null spread is not a measurement.
+
+The result is §13.6.
