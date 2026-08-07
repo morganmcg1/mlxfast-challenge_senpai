@@ -5,8 +5,10 @@
 #   EXPECT=fail research/tanjiro_packing_gate.sh /tmp/tanjiro/fault 2 16
 #
 # Runs the trusted CLI's public golden gate once per simdgroups-per-threadgroup
-# value and prints `passed_correctness`, `checked_steps`, `max_abs_diff`, and
-# `golden_hash` for each.
+# value and prints `passed`, `checked_steps`, `first_failing_case/step`, and
+# `golden_hash` for each. The CLI verdict field is a boolean `passed` plus
+# failure locators; there is no numeric tolerance field, because the gate is
+# exact greedy-token equality rather than an epsilon compare.
 #
 # With EXPECT=fail the script inverts its own success criterion: it is being used
 # as a fault-injection control, so an arm that *passes* means the tripwire is not
@@ -45,11 +47,14 @@ if i >= 0:
         row, _ = json.JSONDecoder().raw_decode(raw[i:])
     except Exception as exc:
         print(f"  S={sg}: unparseable gate output: {exc}", file=sys.stderr)
-passed = row.get("passed_correctness")
-print(f"  S={sg:>2s} rc={rc} passed_correctness={passed} "
+passed = row.get("passed")
+print(f"  S={sg:>2s} rc={rc} passed={passed} "
       f"checked_steps={row.get('checked_steps')} "
-      f"max_abs_diff={row.get('max_abs_diff')} "
-      f"golden_hash={str(row.get('golden_hash'))[:16]}")
+      f"cases={row.get('case_count')} "
+      f"first_failing_case={row.get('first_failing_case')} "
+      f"first_failing_step={row.get('first_failing_step')} "
+      f"golden_hash={str(row.get('golden_hash'))[:16]} "
+      f"error={row.get('error')!r}")
 ok = (passed is True and rc == "0") if expect == "pass" else (passed is not True or rc != "0")
 if not ok:
     print(f"  S={sg}: UNEXPECTED gate verdict (expected {expect})", file=sys.stderr)
