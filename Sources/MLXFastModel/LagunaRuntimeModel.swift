@@ -8430,6 +8430,11 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     /// escape [2] (gate row 0, up row 0) uint8.
     var _halvedFusedGateUpScales: MLXArray?
     var _fusedGateUpScalesEscape: MLXArray?
+    /// Precomputed full group-32 scale arrays for the prefill halved path,
+    /// built once in `prepareFusedSharedGateUp` to eliminate per-call
+    /// reconstruction dispatches.
+    var _prefillGateUpFullScales: MLXArray?
+    var _prefillDownFullScales: MLXArray?
 
     init(dimensions: Int, hiddenDimensions: Int) {
         self._gateProj.wrappedValue = Linear(dimensions, hiddenDimensions, bias: false)
@@ -8486,6 +8491,10 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             stacked([gateEsc, upEsc]).reshaped([2]))
         _halvedFusedGateUpScales = halvedFuse
         _fusedGateUpScalesEscape = fuseEscape
+        let hg = halvedFuse.dim(1)
+        _prefillGateUpFullScales = contiguous(concatenated([halvedFuse,
+            concatenated([fuseEscape.reshaped([1, 2]),
+                MLXArray.zeros([1, hg - 2], dtype: .uint8)], axis: 1)], axis: 0))
         // Halve shared down scales: [2048, 32] -> [2048, 16] + escape [1].
         if let down = downProj as? QuantizedLinear,
             type(of: down) == QuantizedLinear.self,
@@ -8504,10 +8513,16 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             let dsEscape = contiguous(down.scales[0, 1].reshaped([1]))
             _halvedSharedDownScales = halvedDs
             _sharedDownScalesEscape = dsEscape
+            let r = halvedDs.dim(0)
+            let nd = halvedDs.dim(1)
+            let dsEsc = contiguous(concatenated([stacked([dsEscape[0], halvedDs[r / 2, 0]]).reshaped([1, 2]),
+                MLXArray.zeros([1, nd - 2], dtype: .uint8)], axis: 1))
+            _prefillDownFullScales = contiguous(concatenated([halvedDs, dsEsc], axis: 0))
             return [fusedWeight, fusedScales, halvedFuse, fuseEscape,
-                    halvedDs, dsEscape]
+                    halvedDs, dsEscape, _prefillGateUpFullScales!,
+                    _prefillDownFullScales!]
         }
-        return [fusedWeight, fusedScales, halvedFuse, fuseEscape]
+        return [fusedWeight, fusedScales, halvedFuse, fuseEscape, _prefillGateUpFullScales!]
     }
 
     /// Builds and retains the fused BF16 gate/up bank from layer 0's dense
@@ -8749,10 +8764,8 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         if x.dim(1) > 1,
             lagunaPrefillSharedHalvedEnabled,
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales,
-            let halvedFusedGateUpScales = _halvedFusedGateUpScales,
-            let gateUpEscape = _fusedGateUpScalesEscape,
-            let halvedDownScales = _halvedSharedDownScales,
-            let downScalesEscape = _sharedDownScalesEscape,
+            let cs = _prefillGateUpFullScales,
+            let cds = _prefillDownFullScales,
             let down = downProj as? QuantizedLinear,
             x.dtype == .bfloat16,
             fusedWeight.dtype == .uint32,
@@ -8760,15 +8773,9 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
         {
             lagunaTrace("shared fused [gate; up] bank QMM halved (prefill)")
-            let hg = halvedFusedGateUpScales.dim(1)
-            let cs = concatenated([halvedFusedGateUpScales, concatenated([gateUpEscape.reshaped([1, 2]), MLXArray.zeros([1, hg - 2], dtype: .uint8)], axis: 1)], axis: 0)
             let gu = MLX.quantizedMM(x, fusedWeight, scales: cs, biases: nil, transpose: true, groupSize: 32, bits: 4, mode: .nvfp4)
             let g = gu[.ellipsis, 0 ..< _fusedGateUpSplit], u = gu[.ellipsis, _fusedGateUpSplit...]
             let act = compiledSiluProduct(g, u)
-            let r = halvedDownScales.dim(0)
-            let nd = halvedDownScales.dim(1)
-            let esc = concatenated([stacked([downScalesEscape[0], halvedDownScales[r / 2, 0]]).reshaped([1, 2]), MLXArray.zeros([1, nd - 2], dtype: .uint8)], axis: 1)
-            let cds = concatenated([halvedDownScales, esc], axis: 0)
             return MLX.quantizedMM(act, down.weight, scales: cds, biases: nil, transpose: true, groupSize: 32, bits: down.bits, mode: down.mode)
         }
         return downProj(compiledSiluProduct(gateProj(x), upProj(x)))
