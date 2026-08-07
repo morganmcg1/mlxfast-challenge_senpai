@@ -8031,12 +8031,8 @@ private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
         }
 
         for (uint row = 0; row < rows_per_thread; ++row) {
-            for (ushort delta = 16; delta >= 1; delta >>= 1) {
-                gate_result[row] +=
-                    metal::simd_shuffle_down(gate_result[row], delta);
-                up_result[row] +=
-                    metal::simd_shuffle_down(up_result[row], delta);
-            }
+            gate_result[row] = simd_sum(gate_result[row]);
+            up_result[row] = simd_sum(up_result[row]);
         }
         if (lane == 0) {
             for (uint row = 0; row < rows_per_thread; ++row) {
@@ -8117,9 +8113,7 @@ private let lagunaDenseDownResidualKernel = MLXFast.metalKernel(
         }
 
         for (uint row = 0; row < rows_per_thread; ++row) {
-            for (ushort delta = 16; delta >= 1; delta >>= 1) {
-                result[row] += metal::simd_shuffle_down(result[row], delta);
-            }
+            result[row] = simd_sum(result[row]);
         }
         if (lane == 0) {
             for (uint row = 0; row < rows_per_thread; ++row) {
