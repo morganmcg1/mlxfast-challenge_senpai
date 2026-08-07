@@ -4972,8 +4972,8 @@ private func lagunaNormAffineQKVPrefetchSource(
 ) -> String {
     let metadataPointers = indexed
         ? """
-        const device ushort* mi = metadata_indices + out_row * in_vec_size_g +
-            simd_lid / scale_step_per_thread;
+        const device ushort* mi = metadata_indices + out_row * in_vec_size_g + simd_lid / scale_step_per_thread;
+        uint g = simd_lid & ~3u;
         """
         : """
         const device bfloat* sc = weight_scales + out_row * in_vec_size_g +
@@ -4983,8 +4983,7 @@ private func lagunaNormAffineQKVPrefetchSource(
         """
     let prefetchMetadata = indexed
         ? """
-            uint pair = metadata_lut[
-                mi[d * (block_size / group_size) + row * in_vec_size_g]];
+            uint pair = simd_shuffle(simd_lid == g ? metadata_lut[mi[d * (block_size / group_size) + row * in_vec_size_g]] : 0, g);
             pf_s[d][row] = float(as_type<bfloat>(ushort(pair)));
             pf_b[d][row] = float(as_type<bfloat>(ushort(pair >> 16)));
         """
@@ -5002,7 +5001,7 @@ private func lagunaNormAffineQKVPrefetchSource(
         """
     let metadataLoad = indexed
         ? """
-            uint pair = metadata_lut[mi[row * in_vec_size_g]];
+            uint pair = simd_shuffle(simd_lid == g ? metadata_lut[mi[row * in_vec_size_g]] : 0, g);
             float scale = float(as_type<bfloat>(ushort(pair)));
             float bias = float(as_type<bfloat>(ushort(pair >> 16)));
         """
@@ -5207,7 +5206,7 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
             if kernels[rows] != nil { continue }
             kernels[rows] = MLXFast.metalKernel(
                 name: "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
-                    + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_v1",
+                    + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_v2",
                 inputNames: [
                     "residual", "norm_weight", "weight_codes",
                     "metadata_indices", "metadata_lut",
