@@ -5553,10 +5553,20 @@ final class LagunaRuntimeAttention: Module {
     /// arrays for parameter integrity.
     var _fusedQKVWeight: MLXArray?
 
-    /// Build the row-concatenated `[Wq; Wk; Wv]` BF16 bank for prefill (L > 1).
-    /// Bit-exact for bias-free `Linear` projections: each output row's K-loop
-    /// is independent of which rows share the dispatch. Decode (L == 1) never
-    /// reads this bank; it keeps the existing fused norm+QKV kernel.
+    /// Number of per-head gate rows appended at the tail of the fused QKV bank
+    /// (0 when the gate is not folded into the prefill bank). The appended rows
+    /// sit after the Q/K/V rows, so the prefill call slices them out of the same
+    /// dispatch's output at `queryDim + 2 * kvDim`.
+    var _fusedQKVGateRows = 0
+
+    /// Build the row-concatenated `[Wq; Wk; Wv]` (optionally `+ [Wg]`) BF16 bank
+    /// for prefill (L > 1). Bit-exact for bias-free `Linear` projections: each
+    /// output row's K-loop is independent of which rows share the dispatch.
+    /// Decode (L == 1) never reads this bank; it keeps the existing fused
+    /// norm+QKV kernel. When the per-head gate weight is available and matches
+    /// the QKV dtype, it is appended at the tail so one matmul dispatch
+    /// produces Q/K/V and the gate logits, eliminating 40 separate `g_proj`
+    /// dispatches across all attention layers during a 512-token prefill.
     func prepareFusedQKVWeight() -> MLXArray? {
         guard _fusedQKVWeight == nil,
             type(of: wq) == Linear.self,
@@ -5574,8 +5584,27 @@ final class LagunaRuntimeAttention: Module {
         else {
             return nil
         }
+        // Extend with per-head g_proj when the envelope allows it. Same
+        // invariant as the decode fusion (`_nativeAffineQKVGateRows`) and the
+        // last-prefill projection banks: each output row's K-loop is
+        // independent of which rows share the dispatch, so folding the gate
+        // rows does not move a single Q/K/V value.
+        if gatingEnabled, gatePerHead, let gProj,
+            type(of: gProj) == Linear.self,
+            gProj.bias == nil,
+            gProj.weight.dtype == .bfloat16,
+            wq.weight.dtype == .bfloat16,
+            gProj.weight.dims(nHeads, LagunaConstants.hiddenSize)
+        {
+            let fused = concatenated(
+                [wq.weight, wk.weight, wv.weight, gProj.weight], axis: 0)
+            _fusedQKVWeight = fused
+            _fusedQKVGateRows = nHeads
+            return fused
+        }
         let fused = concatenated([wq.weight, wk.weight, wv.weight], axis: 0)
         _fusedQKVWeight = fused
+        _fusedQKVGateRows = 0
         return fused
     }
 
@@ -6006,25 +6035,31 @@ final class LagunaRuntimeAttention: Module {
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
-        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY (L > 1): it
-        // collapses three steel GEMMs into one. Decode (L == 1) never reads
-        // this bank; the fused norm+QKV kernel above handles it instead.
+        var bankedGate: MLXArray?
+        // The retained BF16 [Wq; Wk; Wv] (+ optional [Wg]) bank is PREFILL-ONLY
+        // (L > 1): it collapses three (or four) steel GEMMs into one. Decode
+        // (L == 1) never reads this bank; the fused norm+QKV kernel above
+        // handles it instead.
         if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
             guard let normalizedInput else {
                 preconditionFailure("retained fused QKV requires normalized input")
             }
-            // One dispatch over the row-concatenated [Wq; Wk; Wv] weight,
-            // identical math to the three bias-free `Linear` calls
-            // (`matmul(x, w.T)`). Each output row's K-loop is independent of
-            // which rows share the dispatch, so every Q/K/V element is
-            // bit-exact; the slices are views and the reshapes below may
-            // copy, which does not change values.
+            // One dispatch over the row-concatenated [Wq; Wk; Wv] (+ [Wg])
+            // weight, identical math to the separate bias-free `Linear`
+            // calls (`matmul(x, w.T)`). Each output row's K-loop is
+            // independent of which rows share the dispatch, so every Q/K/V
+            // (and gate) element is bit-exact; the slices are views and the
+            // reshapes below may copy, which does not change values.
             let qkv = matmul(normalizedInput, fusedQKVWeight.T)
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
+            let qkvEnd = queryDim + 2 * kvDim
             queries = qkv[.ellipsis, 0 ..< queryDim]
             keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
-            values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
+            values = qkv[.ellipsis, (queryDim + kvDim) ..< qkvEnd]
+            if _fusedQKVGateRows > 0 {
+                bankedGate = qkv[.ellipsis, qkvEnd ..< (qkvEnd + _fusedQKVGateRows)]
+            }
         } else if let fused = fusedNormQKV {
             queries = fused.queries
             keys = fused.keys
@@ -6243,6 +6278,12 @@ final class LagunaRuntimeAttention: Module {
             if let fusedNormQKV {
                 projectedGate = fusedNormQKV.gateValues
                 gateIsActivated = fusedNormQKV.gateActivated
+            } else if let bankedGate {
+                // The gate rows rode the prefill QKV bank's single matmul
+                // dispatch; slice them out above. Same row-local math as a
+                // standalone bias-free `gProj(normalizedInput)` call.
+                projectedGate = bankedGate
+                gateIsActivated = false
             } else {
                 guard let normalizedInput else {
                     preconditionFailure("attention gate requires normalized input")
