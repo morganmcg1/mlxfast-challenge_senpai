@@ -872,3 +872,51 @@ Ordered by how much they could change the verdict.
     be `TAXCTR`-verified before a slot is spent on it", not "it is proven
     impossible".
 
+
+---
+
+## §9. r2 addendum — the site census resolves caveats 3 and 11
+
+Revision r2 of this assignment ran a barrier-**site** census on top of the r1 rate
+measurement. Full report:
+[`research/maple-fern-decode-barrier-site-census.md`](maple-fern-decode-barrier-site-census.md).
+Only the parts that revise this document are restated here.
+
+**Caveats 3 and 11 are resolved.** Both rested on the "6.2 measured waves vs ~7
+structural waves per layer" figure, which was a trace reading rather than a direct
+re-count. r2 instruments `device.cpp` to emit, per dispatch, MLX's own resolved RAW
+and WAR producer ordinals plus whether a `memoryBarrier` was charged, and measures
+the fence count directly:
+
+- **7.000 sparse fences per layer** under the ranked/full memory profile (7.103
+  under the local low profile).
+
+So the structural depth is exactly 7, the 6.2 figure was an artefact of the earlier
+reading, and §4.9's breadth-first-tape conclusion is now supported by a direct count
+on the real graph rather than only by the synthetic `diamond1` arm. Rule 6 can be
+stated as measured: **MLX already collapses multi-producer and multi-consumer edges
+onto single fences and absorbs the rest at command-buffer boundaries, refunding ~48%
+of a naïve one-barrier-per-dependency model** (468 naïve sparse barriers vs 238–248
+measured). Reordering graph construction still should not be expected to pay.
+
+Caveat 10 is reinforced rather than resolved. r2 found that **`barrier ∧ cb = 0`**:
+MLX never charges a barrier at a command-buffer boundary, because the commit already
+provides the ordering. Which of the 7 chain edges pays its 1.30 µs is therefore a
+function of where the byte-budget boundary happens to fall, not of the edge itself —
+"a barrier costs what it drains" is right, and *whether* it is charged at all is a
+separate, profile-dependent question.
+
+Two facts from r2 that anyone re-running the r1 arms needs:
+
+1. **`MLX_MAX_MB_PER_BUFFER` and `MLX_MAX_OPS_PER_BUFFER` are inert.**
+   `Sources/MLXFastModel/RuntimeStartupMemoryPolicy.swift:170-183` force-sets both with
+   `setenv(..., 1)`, so MLX's architecture table and any operator-supplied value are
+   discarded. The working control is `DARKBLOOM_STARTUP_MEMORY_PROFILE=auto|full|low`.
+2. **The ranked M5 runs the `full` profile** (128 GB ≥ 64 GiB): 320 MB / 128 ops,
+   30 command buffers per step, **258** charged barriers — not the 247 measured locally
+   under `low`. Total fences are near-invariant (287 vs 291), so this is absorption
+   moving, not depth changing.
+
+The r1 rate result itself is unchanged: barrier +1.3003 ± 0.0597 µs, dispatch
++0.1231 ± 0.0481 µs, dependent pair +1.4234 ± 0.0256 µs.
+
