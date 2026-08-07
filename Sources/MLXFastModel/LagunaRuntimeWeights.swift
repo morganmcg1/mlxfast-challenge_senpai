@@ -391,6 +391,10 @@ public final class LagunaRuntimeWeightCache {
                 // fragments each iteration. Hoisting them once before the loop is bit-exact.
                 // overwrite=0 allows external A/B (DARKBLOOM_ATTN_QHOIST=0 disables).
                 setenv("DARKBLOOM_ATTN_QHOIST", "1", 0)
+                // Use MLX fast fence (shared-memory counter) instead of MTL::Event for
+                // asyncEval synchronization. Bit-exact: same completion semantics, lower
+                // per-fence overhead. overwrite=0 allows external A/B.
+                setenv("MLX_METAL_FAST_SYNCH", "1", 0)
                 startupMemoryPolicy = nil
             }
         } else {
