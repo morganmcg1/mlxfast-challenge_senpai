@@ -470,13 +470,25 @@ public final class LagunaRuntimeWeightCache {
     private static func warmLibraryModel(_ model: LagunaRuntimeModel) {
         let bosToken = Int32(LagunaConstants.bosTokenID)
         let warmupCache = model.newCache(parameters: nil)
+        // Minimal 2-token prefill: dispatches all prefill kernel variants
+        // (same kernels as 512 tokens, but 256x less attention compute).
+        // The warmup only needs to trigger Metal pipeline compilation,
+        // not produce production-shaped outputs.
         let prefillTokens = MLXArray(
-            Array(repeating: bosToken, count: 512),
-            [1, 512]
+            Array(repeating: bosToken, count: 2),
+            [1, 2]
         )
         eval(model(prefillTokens, cache: warmupCache))
-        let decodeToken = MLXArray([bosToken], [1, 1])
-        let warmDecodeLogits = model(decodeToken, cache: warmupCache)
+        // Three decode steps ensure all state-dependent kernel variants
+        // (asyncEval stages, cache-dependent paths) are compiled.
+        var warmDecodeLogits: MLXArray
+        for _ in 0..<3 {
+            let decodeToken = MLXArray([bosToken], [1, 1])
+            warmDecodeLogits = model(decodeToken, cache: warmupCache)
+            eval(warmDecodeLogits)
+        }
+        let lastDecodeToken = MLXArray([bosToken], [1, 1])
+        warmDecodeLogits = model(lastDecodeToken, cache: warmupCache)
         eval(warmDecodeLogits)
         if lagunaFusedFullAttentionEnabled,
             lagunaFusedFullAttentionKernelWarmupEnabled
