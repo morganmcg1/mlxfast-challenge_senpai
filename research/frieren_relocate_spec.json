@@ -1,0 +1,971 @@
+{
+  "base_sha": "e1d070f256a1f5cef5a62a1d001dfbfe8b81bd0c",
+  "files": [
+    {
+      "file": "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift",
+      "note": "MLXLMCommon-Evaluate.notes.md",
+      "blocks": [
+        {
+          "start": 1,
+          "end": 1,
+          "symbol": "line1",
+          "pointer": false
+        },
+        {
+          "start": 7,
+          "end": 10,
+          "symbol": "LogitSampler",
+          "pointer": false
+        },
+        {
+          "start": 13,
+          "end": 13,
+          "symbol": "sample",
+          "pointer": false
+        },
+        {
+          "start": 17,
+          "end": 33,
+          "symbol": "LogitProcessor",
+          "pointer": false
+        },
+        {
+          "start": 36,
+          "end": 36,
+          "symbol": "prompt",
+          "pointer": false
+        },
+        {
+          "start": 39,
+          "end": 39,
+          "symbol": "process",
+          "pointer": false
+        },
+        {
+          "start": 42,
+          "end": 42,
+          "symbol": "didSample",
+          "pointer": false
+        },
+        {
+          "start": 46,
+          "end": 53,
+          "symbol": "GenerateParameters",
+          "pointer": false
+        },
+        {
+          "start": 56,
+          "end": 56,
+          "symbol": "prefillStepSize",
+          "pointer": false
+        },
+        {
+          "start": 59,
+          "end": 59,
+          "symbol": "maxTokens",
+          "pointer": false
+        },
+        {
+          "start": 62,
+          "end": 63,
+          "symbol": "maxKVSize",
+          "pointer": false
+        },
+        {
+          "start": 66,
+          "end": 66,
+          "symbol": "kvBits",
+          "pointer": false
+        },
+        {
+          "start": 69,
+          "end": 69,
+          "symbol": "kvGroupSize",
+          "pointer": false
+        },
+        {
+          "start": 72,
+          "end": 72,
+          "symbol": "quantizedKVStart",
+          "pointer": false
+        },
+        {
+          "start": 75,
+          "end": 75,
+          "symbol": "temperature",
+          "pointer": false
+        },
+        {
+          "start": 78,
+          "end": 78,
+          "symbol": "topP",
+          "pointer": false
+        },
+        {
+          "start": 81,
+          "end": 81,
+          "symbol": "topK",
+          "pointer": false
+        },
+        {
+          "start": 84,
+          "end": 84,
+          "symbol": "minP",
+          "pointer": false
+        },
+        {
+          "start": 87,
+          "end": 87,
+          "symbol": "repetitionPenalty",
+          "pointer": false
+        },
+        {
+          "start": 90,
+          "end": 90,
+          "symbol": "repetitionContextSize",
+          "pointer": false
+        },
+        {
+          "start": 93,
+          "end": 93,
+          "symbol": "presencePenalty",
+          "pointer": false
+        },
+        {
+          "start": 96,
+          "end": 96,
+          "symbol": "presenceContextSize",
+          "pointer": false
+        },
+        {
+          "start": 99,
+          "end": 99,
+          "symbol": "frequencyPenalty",
+          "pointer": false
+        },
+        {
+          "start": 102,
+          "end": 102,
+          "symbol": "frequencyContextSize",
+          "pointer": false
+        },
+        {
+          "start": 157,
+          "end": 158,
+          "symbol": "repetitionPenalty",
+          "pointer": false
+        },
+        {
+          "start": 202,
+          "end": 202,
+          "symbol": "ArgMaxSampler",
+          "pointer": false
+        },
+        {
+          "start": 211,
+          "end": 217,
+          "symbol": "TopPSampler",
+          "pointer": false
+        },
+        {
+          "start": 248,
+          "end": 248,
+          "symbol": "topP",
+          "pointer": false
+        },
+        {
+          "start": 263,
+          "end": 264,
+          "symbol": "applyTopP",
+          "pointer": false
+        },
+        {
+          "start": 271,
+          "end": 271,
+          "symbol": "filtered",
+          "pointer": false
+        },
+        {
+          "start": 276,
+          "end": 277,
+          "symbol": "applyMinP",
+          "pointer": false
+        },
+        {
+          "start": 279,
+          "end": 279,
+          "symbol": "maxLogprob",
+          "pointer": false
+        },
+        {
+          "start": 285,
+          "end": 286,
+          "symbol": "applyTopK",
+          "pointer": false
+        },
+        {
+          "start": 290,
+          "end": 291,
+          "symbol": "maskIndices",
+          "pointer": false
+        },
+        {
+          "start": 297,
+          "end": 297,
+          "symbol": "CategoricalSampler",
+          "pointer": false
+        },
+        {
+          "start": 314,
+          "end": 318,
+          "symbol": "TokenRing",
+          "pointer": false
+        },
+        {
+          "start": 333,
+          "end": 333,
+          "symbol": "validTokens",
+          "pointer": false
+        },
+        {
+          "start": 339,
+          "end": 344,
+          "symbol": "loadPrompt",
+          "pointer": false
+        },
+        {
+          "start": 364,
+          "end": 364,
+          "symbol": "append",
+          "pointer": false
+        },
+        {
+          "start": 373,
+          "end": 373,
+          "symbol": "RepetitionContext",
+          "pointer": false
+        },
+        {
+          "start": 404,
+          "end": 407,
+          "symbol": "PresencePenaltyContext",
+          "pointer": false
+        },
+        {
+          "start": 432,
+          "end": 435,
+          "symbol": "FrequencyPenaltyContext",
+          "pointer": false
+        },
+        {
+          "start": 465,
+          "end": 465,
+          "symbol": "PenaltyProcessor",
+          "pointer": false
+        },
+        {
+          "start": 502,
+          "end": 505,
+          "symbol": "TokenIteratorProtocol",
+          "pointer": false
+        },
+        {
+          "start": 512,
+          "end": 534,
+          "symbol": "TokenIterator",
+          "pointer": false
+        },
+        {
+          "start": 547,
+          "end": 547,
+          "symbol": "kvBits",
+          "pointer": false
+        },
+        {
+          "start": 552,
+          "end": 552,
+          "symbol": "promptPrefillTime",
+          "pointer": false
+        },
+        {
+          "start": 555,
+          "end": 562,
+          "symbol": "line562",
+          "pointer": false
+        },
+        {
+          "start": 585,
+          "end": 596,
+          "symbol": "line596",
+          "pointer": false
+        },
+        {
+          "start": 618,
+          "end": 627,
+          "symbol": "line627",
+          "pointer": false
+        },
+        {
+          "start": 641,
+          "end": 641,
+          "symbol": "line641",
+          "pointer": false
+        },
+        {
+          "start": 658,
+          "end": 658,
+          "symbol": "token",
+          "pointer": false
+        },
+        {
+          "start": 672,
+          "end": 672,
+          "symbol": "logits",
+          "pointer": false
+        },
+        {
+          "start": 676,
+          "end": 676,
+          "symbol": "y",
+          "pointer": false
+        },
+        {
+          "start": 684,
+          "end": 684,
+          "symbol": "step",
+          "pointer": false
+        },
+        {
+          "start": 690,
+          "end": 690,
+          "symbol": "line690",
+          "pointer": false
+        },
+        {
+          "start": 706,
+          "end": 706,
+          "symbol": "previousY",
+          "pointer": false
+        },
+        {
+          "start": 709,
+          "end": 709,
+          "symbol": "token",
+          "pointer": false
+        },
+        {
+          "start": 720,
+          "end": 744,
+          "symbol": "SpeculativeTokenIterator",
+          "pointer": false
+        },
+        {
+          "start": 765,
+          "end": 765,
+          "symbol": "pendingTokens",
+          "pointer": false
+        },
+        {
+          "start": 769,
+          "end": 769,
+          "symbol": "promptPrefillTime",
+          "pointer": false
+        },
+        {
+          "start": 772,
+          "end": 781,
+          "symbol": "line781",
+          "pointer": false
+        },
+        {
+          "start": 822,
+          "end": 822,
+          "symbol": "prepare",
+          "pointer": false
+        },
+        {
+          "start": 826,
+          "end": 826,
+          "symbol": "tokens",
+          "pointer": false
+        },
+        {
+          "start": 839,
+          "end": 839,
+          "symbol": "tokens",
+          "pointer": false
+        },
+        {
+          "start": 852,
+          "end": 852,
+          "symbol": "speculateRound",
+          "pointer": false
+        },
+        {
+          "start": 860,
+          "end": 860,
+          "symbol": "draftProcessor",
+          "pointer": false
+        },
+        {
+          "start": 874,
+          "end": 874,
+          "symbol": "verifyTokens",
+          "pointer": false
+        },
+        {
+          "start": 884,
+          "end": 884,
+          "symbol": "sampled",
+          "pointer": false
+        },
+        {
+          "start": 895,
+          "end": 895,
+          "symbol": "verifyLogits",
+          "pointer": false
+        },
+        {
+          "start": 900,
+          "end": 900,
+          "symbol": "mainTokensList",
+          "pointer": false
+        },
+        {
+          "start": 915,
+          "end": 916,
+          "symbol": "finalToken",
+          "pointer": false
+        },
+        {
+          "start": 921,
+          "end": 921,
+          "symbol": "line921",
+          "pointer": false
+        },
+        {
+          "start": 925,
+          "end": 925,
+          "symbol": "line925",
+          "pointer": false
+        },
+        {
+          "start": 929,
+          "end": 929,
+          "symbol": "line929",
+          "pointer": false
+        },
+        {
+          "start": 933,
+          "end": 934,
+          "symbol": "line934",
+          "pointer": false
+        },
+        {
+          "start": 950,
+          "end": 950,
+          "symbol": "token",
+          "pointer": false
+        },
+        {
+          "start": 958,
+          "end": 958,
+          "symbol": "line958",
+          "pointer": false
+        },
+        {
+          "start": 974,
+          "end": 974,
+          "symbol": "GenerateResult",
+          "pointer": false
+        },
+        {
+          "start": 977,
+          "end": 984,
+          "symbol": "line984",
+          "pointer": false
+        },
+        {
+          "start": 1006,
+          "end": 1006,
+          "symbol": "inputText",
+          "pointer": false
+        },
+        {
+          "start": 1009,
+          "end": 1009,
+          "symbol": "promptTokenIds",
+          "pointer": false
+        },
+        {
+          "start": 1017,
+          "end": 1017,
+          "symbol": "tokenIds",
+          "pointer": false
+        },
+        {
+          "start": 1023,
+          "end": 1023,
+          "symbol": "output",
+          "pointer": false
+        },
+        {
+          "start": 1026,
+          "end": 1026,
+          "symbol": "promptTokenCount",
+          "pointer": false
+        },
+        {
+          "start": 1029,
+          "end": 1029,
+          "symbol": "generationTokenCount",
+          "pointer": false
+        },
+        {
+          "start": 1032,
+          "end": 1032,
+          "symbol": "promptTime",
+          "pointer": false
+        },
+        {
+          "start": 1035,
+          "end": 1035,
+          "symbol": "generateTime",
+          "pointer": false
+        },
+        {
+          "start": 1038,
+          "end": 1038,
+          "symbol": "promptTokensPerSecond",
+          "pointer": false
+        },
+        {
+          "start": 1043,
+          "end": 1043,
+          "symbol": "tokensPerSecond",
+          "pointer": false
+        },
+        {
+          "start": 1056,
+          "end": 1056,
+          "symbol": "GenerateDisposition",
+          "pointer": false
+        },
+        {
+          "start": 1058,
+          "end": 1058,
+          "symbol": "line1058",
+          "pointer": false
+        },
+        {
+          "start": 1061,
+          "end": 1061,
+          "symbol": "SynchronousGenerationLoopResult",
+          "pointer": false
+        },
+        {
+          "start": 1077,
+          "end": 1077,
+          "symbol": "stopTokenIds",
+          "pointer": false
+        },
+        {
+          "start": 1109,
+          "end": 1109,
+          "symbol": "now",
+          "pointer": false
+        },
+        {
+          "start": 1116,
+          "end": 1116,
+          "symbol": "line1116",
+          "pointer": false
+        },
+        {
+          "start": 1130,
+          "end": 1130,
+          "symbol": "maxTokens",
+          "pointer": false
+        },
+        {
+          "start": 1142,
+          "end": 1145,
+          "symbol": "line1145",
+          "pointer": false
+        },
+        {
+          "start": 1157,
+          "end": 1167,
+          "symbol": "generate",
+          "pointer": false
+        },
+        {
+          "start": 1183,
+          "end": 1184,
+          "symbol": "input",
+          "pointer": false
+        },
+        {
+          "start": 1196,
+          "end": 1205,
+          "symbol": "generate",
+          "pointer": false
+        },
+        {
+          "start": 1222,
+          "end": 1231,
+          "symbol": "generate",
+          "pointer": false
+        },
+        {
+          "start": 1258,
+          "end": 1267,
+          "symbol": "generate",
+          "pointer": false
+        },
+        {
+          "start": 1284,
+          "end": 1293,
+          "symbol": "generate",
+          "pointer": false
+        },
+        {
+          "start": 1321,
+          "end": 1369,
+          "symbol": "generate",
+          "pointer": false
+        },
+        {
+          "start": 1385,
+          "end": 1429,
+          "symbol": "generate",
+          "pointer": false
+        },
+        {
+          "start": 1481,
+          "end": 1494,
+          "symbol": "generateTask",
+          "pointer": false
+        },
+        {
+          "start": 1515,
+          "end": 1519,
+          "symbol": "generateTask",
+          "pointer": false
+        },
+        {
+          "start": 1540,
+          "end": 1554,
+          "symbol": "generateTokens",
+          "pointer": false
+        },
+        {
+          "start": 1576,
+          "end": 1593,
+          "symbol": "generateTokens",
+          "pointer": false
+        },
+        {
+          "start": 1624,
+          "end": 1639,
+          "symbol": "generateTokensTask",
+          "pointer": false
+        },
+        {
+          "start": 1660,
+          "end": 1675,
+          "symbol": "generateTokenTask",
+          "pointer": false
+        },
+        {
+          "start": 1710,
+          "end": 1710,
+          "symbol": "task",
+          "pointer": false
+        },
+        {
+          "start": 1727,
+          "end": 1727,
+          "symbol": "line1727",
+          "pointer": false
+        },
+        {
+          "start": 1739,
+          "end": 1739,
+          "symbol": "line1739",
+          "pointer": false
+        },
+        {
+          "start": 1783,
+          "end": 1783,
+          "symbol": "line1783",
+          "pointer": false
+        },
+        {
+          "start": 1786,
+          "end": 1786,
+          "symbol": "ticket",
+          "pointer": false
+        },
+        {
+          "start": 1799,
+          "end": 1799,
+          "symbol": "line1799",
+          "pointer": false
+        },
+        {
+          "start": 1809,
+          "end": 1809,
+          "symbol": "measure",
+          "pointer": false
+        },
+        {
+          "start": 1816,
+          "end": 1816,
+          "symbol": "GenerateStopReason",
+          "pointer": false
+        },
+        {
+          "start": 1818,
+          "end": 1818,
+          "symbol": "GenerateStopReason",
+          "pointer": false
+        },
+        {
+          "start": 1820,
+          "end": 1820,
+          "symbol": "line1820",
+          "pointer": false
+        },
+        {
+          "start": 1823,
+          "end": 1823,
+          "symbol": "line1823",
+          "pointer": false
+        },
+        {
+          "start": 1826,
+          "end": 1826,
+          "symbol": "line1826",
+          "pointer": false
+        },
+        {
+          "start": 1830,
+          "end": 1832,
+          "symbol": "GenerateCompletionInfo",
+          "pointer": false
+        },
+        {
+          "start": 1834,
+          "end": 1834,
+          "symbol": "promptTokenCount",
+          "pointer": false
+        },
+        {
+          "start": 1837,
+          "end": 1837,
+          "symbol": "generationTokenCount",
+          "pointer": false
+        },
+        {
+          "start": 1840,
+          "end": 1840,
+          "symbol": "promptTime",
+          "pointer": false
+        },
+        {
+          "start": 1843,
+          "end": 1843,
+          "symbol": "generateTime",
+          "pointer": false
+        },
+        {
+          "start": 1846,
+          "end": 1846,
+          "symbol": "stopReason",
+          "pointer": false
+        },
+        {
+          "start": 1849,
+          "end": 1849,
+          "symbol": "promptTokensPerSecond",
+          "pointer": false
+        },
+        {
+          "start": 1854,
+          "end": 1854,
+          "symbol": "tokensPerSecond",
+          "pointer": false
+        },
+        {
+          "start": 1881,
+          "end": 1886,
+          "symbol": "Generation",
+          "pointer": false
+        },
+        {
+          "start": 1888,
+          "end": 1888,
+          "symbol": "line1888",
+          "pointer": false
+        },
+        {
+          "start": 1891,
+          "end": 1891,
+          "symbol": "line1891",
+          "pointer": false
+        },
+        {
+          "start": 1894,
+          "end": 1894,
+          "symbol": "chunk",
+          "pointer": false
+        },
+        {
+          "start": 1897,
+          "end": 1897,
+          "symbol": "chunk",
+          "pointer": false
+        },
+        {
+          "start": 1906,
+          "end": 1906,
+          "symbol": "info",
+          "pointer": false
+        },
+        {
+          "start": 1915,
+          "end": 1915,
+          "symbol": "toolCall",
+          "pointer": false
+        },
+        {
+          "start": 1924,
+          "end": 1924,
+          "symbol": "collect",
+          "pointer": false
+        },
+        {
+          "start": 1931,
+          "end": 1933,
+          "symbol": "TokenGeneration",
+          "pointer": false
+        },
+        {
+          "start": 1935,
+          "end": 1935,
+          "symbol": "line1935",
+          "pointer": false
+        },
+        {
+          "start": 1938,
+          "end": 1938,
+          "symbol": "token",
+          "pointer": false
+        },
+        {
+          "start": 1941,
+          "end": 1941,
+          "symbol": "token",
+          "pointer": false
+        },
+        {
+          "start": 1949,
+          "end": 1949,
+          "symbol": "info",
+          "pointer": false
+        },
+        {
+          "start": 1957,
+          "end": 1957,
+          "symbol": "collect",
+          "pointer": false
+        },
+        {
+          "start": 1966,
+          "end": 1966,
+          "symbol": "TokenLoopHandler",
+          "pointer": false
+        },
+        {
+          "start": 1971,
+          "end": 1971,
+          "symbol": "onToken",
+          "pointer": false
+        },
+        {
+          "start": 1977,
+          "end": 1977,
+          "symbol": "onStopToken",
+          "pointer": false
+        },
+        {
+          "start": 1983,
+          "end": 1983,
+          "symbol": "onGenerationEnd",
+          "pointer": false
+        },
+        {
+          "start": 2008,
+          "end": 2008,
+          "symbol": "textToYield",
+          "pointer": false
+        },
+        {
+          "start": 2015,
+          "end": 2015,
+          "symbol": "line2015",
+          "pointer": false
+        }
+      ]
+    },
+    {
+      "file": "Sources/MLXFastModel/LagunaRuntimeWeights.swift",
+      "note": "LagunaRuntimeWeights.notes.md",
+      "blocks": [
+        {
+          "start": 420,
+          "end": 431,
+          "symbol": "wired residency measurement history",
+          "pointer": true
+        },
+        {
+          "start": 451,
+          "end": 459,
+          "symbol": "wired residency host headroom",
+          "pointer": true
+        },
+        {
+          "start": 503,
+          "end": 507,
+          "symbol": "greedy argmax PSO miss trace",
+          "pointer": true
+        },
+        {
+          "start": 526,
+          "end": 537,
+          "symbol": "wired residency dose curve",
+          "pointer": true
+        },
+        {
+          "start": 1001,
+          "end": 1004,
+          "symbol": "group16 scale pair census",
+          "pointer": true
+        }
+      ]
+    },
+    {
+      "file": "Sources/MLXFastModel/LagunaConfig.swift",
+      "note": "LagunaConfig.notes.md",
+      "blocks": [
+        {
+          "start": 8,
+          "end": 13,
+          "symbol": "Laguna architecture summary",
+          "pointer": true
+        }
+      ]
+    }
+  ]
+}
