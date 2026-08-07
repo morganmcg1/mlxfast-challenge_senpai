@@ -148,7 +148,57 @@ why the clean arm needs the *other* six classes to be meaningful.
 
 ### 1c. Real decode rows
 
-<!--STAGE1REAL-->
+Synthetic rows are adversarial but they are not the distribution the kernel
+actually sees, so the probe was rerun against **real** residual-stream rows
+captured from a live decode.
+
+`research/fern_hidden_dump.patch` adds a research-only hook to
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` that appends `outputs[0]` of
+`lagunaResidualRMSNormRouter` / `lagunaResidualRMSNorm` — exactly the bf16
+vector whose squares the 2048-wide reduction accumulates — to a file, capped at
+512 rows and shape-gated to `summed.size == LagunaConstants.hiddenSize` so only
+one-token decode rows are recorded. bf16 → Float32 is exact, so the top 16 bits
+of each `Float32.bitPattern` round-trip the original bf16 pattern with no
+re-rounding. **The patch is carried as a file and is not applied in the
+submitted tree** (`git diff` against `BASE_SHA` over `Sources/` and `Vendor/`
+is empty).
+
+Two harness details cost real time and are worth recording:
+
+* the runtime worker's environment is a **strict allowlist**
+  (`Sources/MLXFastTrustedHarness/LagunaRuntimeWorker.swift:1936-2020`,
+  `sanitizedRuntimeWorkerEnvironment`): it starts from an *empty* environment
+  and readmits only ten exact keys plus the prefixes `DARKBLOOM_`, `DYLD_`,
+  `LC_`, `METAL_`, `MLX_`, `MTL_`. A plain `FERN_HIDDEN_DUMP` is silently
+  dropped; the variable must be named `DARKBLOOM_FERN_HIDDEN_DUMP`.
+* the worker's default local Seatbelt profile
+  (`Sources/MLXFastCLI/main.swift:1643-1656`) is `(deny file-write*)` with only
+  `/dev/null` allowed, so the hook cannot create its file at all unless the run
+  sets `MLXFAST_NO_SANDBOX=1`. This is a diagnostic capture only — no timing or
+  rankability claim is derived from that run.
+
+The capture run was
+`.build/release/mlxfast-swift correctness --golden
+correctness_prompts/public_longcopy_gate_english_512_256.json` with the patched
+worker, and it **passed** (`passed: true`, `checked_steps: 64`, `error: ""`),
+which is itself a small independent check that the hook does not perturb the
+forward pass. It produced 2,097,152 bytes = 512 rows × 2048 × 2 B, stored as
+`research/redundant-rmsnorm-logs/fern_real_rows.bin`.
+
+Feeding those rows back through the same probe
+(`research/redundant-rmsnorm-logs/stage1-real.log`, 1600 rows total):
+
+| class | rows | acc≠ | rsqrt≠ | worst acc ULP | worst rsqrt ULP |
+| --- | --- | --- | --- | --- | --- |
+| `real-decode-hidden-state` (clean) | 512 | 0 | 0 | 0 | 0 |
+| `real-decode-hidden-state` (fault) | 512 | 510 | 510 | 1048577 | 821718 |
+| **TOTAL, all classes (clean)** | **1600** | **0** | **0** | **0** | **0** |
+| TOTAL, all classes (fault) | 1600 | 1002 | 997 | 1065353216 | 38087278 |
+
+The real rows are the *most* fault-sensitive class in the whole suite —
+510/512 of them detect a single `+1.0f` injected into one lane of one virtual
+iteration — and every one of them is bit-identical between the 512-thread and
+64-thread trees. `RESULT: H1 SUPPORTED`, exit 0.
 
 ## Stage 2 — what the redundant reduction actually costs
 
@@ -348,11 +398,14 @@ isolated measurement suggests.
 > Can a 64-thread threadgroup reproduce MLX's 512-lane `rms_bf16` reduction
 > tree bit-exactly?
 
-**Yes.** Proven three ways: by index algebra (Stage 1a), by exhaustive
+**Yes.** Proven four ways: by index algebra (Stage 1a); by exhaustive
 bit-comparison across 1088 adversarial synthetic rows with a working
-fault-injection control (Stage 1b), on real decode rows (Stage 1c), and — most
-decisively — by the fact that the shipped, ranked-M5-validated decode path
-already does it at `LagunaRuntimeModel.swift:4937-4966`.
+fault-injection control (Stage 1b); on 512 real decode residual rows captured
+from a passing correctness run, 510 of which detect the injected fault
+(Stage 1c); and — most decisively — by the fact that the shipped,
+ranked-M5-validated decode path already does it at
+`LagunaRuntimeModel.swift:4937-4966`. Across all 1600 rows: **0 accumulator
+mismatches, 0 `rsqrt` mismatches, worst ULP 0**.
 
 **Consequence for PR #48.** Bit-exactness is not why the 2-rows/TG variant
 regressed 0.1488%. Stage 2 further shows the redundant reduction is not why

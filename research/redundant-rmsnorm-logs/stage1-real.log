@@ -1,0 +1,37 @@
+loaded 512 real decoder rows from /tmp/fern_real_rows.bin
+rows: 1600 (1088 synthetic, 512 real)
+
+=== CLEAN ARM  A(512) vs B(64) ===
+class                     rows   acc!=  rsqrt!=  worstAccULP  worstRsqrtULP
+gaussian-realistic        192    0      0        0            0           
+wide-dynamic-range        192    0      0        0            0           
+cancellation-signs        128    0      0        0            0           
+bf16-denormals            96     0      0        0            0           
+signed-zeros              64     0      0        0            0           
+all-equal                 64     0      0        0            0           
+one-huge-among-tiny       96     0      0        0            0           
+overflow-to-inf           64     0      0        0            0           
+mixed-magnitude-blocks    128    0      0        0            0           
+near-eps-rms              64     0      0        0            0           
+real-decode-hidden-state  512    0      0        0            0           
+TOTAL rows=1600 accMismatch=0 rsqrtMismatch=0
+
+=== FAULT-INJECTION CONTROL  A(512) vs B+1.0f ===
+class                     rows   acc!=  rsqrt!=  worstAccULP  worstRsqrtULP
+gaussian-realistic        192    192    192      2048         1024        
+wide-dynamic-range        192    0      0        0            0           
+cancellation-signs        128    12     7        1            1           
+bf16-denormals            96     96     96       1065353216   38087278    
+signed-zeros              64     64     64       1065353216   38087278    
+all-equal                 64     64     64       262144       132230      
+one-huge-among-tiny       96     0      0        0            0           
+overflow-to-inf           64     0      0        0            0           
+mixed-magnitude-blocks    128    0      0        0            0           
+near-eps-rms              64     64     64       75483517     33426287    
+real-decode-hidden-state  512    510    510      1048577      821718      
+TOTAL rows=1600 accMismatch=1002 rsqrtMismatch=997
+
+--- verdict ---
+comparator can fail (fault arm mismatched): true
+clean arm bit-identical: true
+RESULT: H1 SUPPORTED -- 64-thread tree is bit-identical on all 1600 rows.
