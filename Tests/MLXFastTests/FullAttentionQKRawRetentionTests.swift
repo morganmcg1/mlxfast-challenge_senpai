@@ -197,8 +197,8 @@ private func qkRetentionFixture(length: Int) -> QKRetentionFixture {
         shape: cacheShape, phase: Float(length) * 0.003, magnitude: 0.25)
     let baseValues = patternedBF16(
         shape: cacheShape, phase: Float(length) * 0.005, magnitude: 0.375)
-    let zero = MLXArray(Float(0))
-    let one = MLXArray(Float(1))
+    let zero = MLXArray(Float(0)).asType(.bfloat16)
+    let one = MLXArray(Float(1)).asType(.bfloat16)
     let controlKeys = baseKeys + zero
     let candidateKeys = baseKeys * one
     let controlValues = baseValues + zero
@@ -311,8 +311,8 @@ private func verifyQKRetention(
         scale: fixture.scale,
         controlKeys: fixture.controlKeys,
         controlValues: fixture.controlValues,
-        candidateKeys: fixture.controlKeys + MLXArray(Float(0)),
-        candidateValues: fixture.controlValues + MLXArray(Float(0))
+        candidateKeys: fixture.controlKeys + MLXArray(Float(0)).asType(.bfloat16),
+        candidateValues: fixture.controlValues + MLXArray(Float(0)).asType(.bfloat16)
     )
     eval(corruptFixture.candidateKeys, corruptFixture.candidateValues)
     let reference = runQKRetentionKernel(
