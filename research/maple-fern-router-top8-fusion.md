@@ -175,4 +175,60 @@ inconsistent and cannot all be the *marginal* cost: 4.70 µs/call profiled
 "deconvolved", 105.6 µs/step in a prior critique. The A/B measures the marginal
 cost directly and adjudicates between them.
 
-<!-- RESULTS SECTION PENDING -->
+## 4. Result: the hypothesis is falsified
+
+**The candidate is slower.** Deleting all 39 standalone router dispatches per
+decode step did not speed decode up by ~110 µs/step; it slowed decode down.
+
+### 4.1 Instrument
+
+`--local-iterate` times only 128 decode steps per 216 s run, so its decode
+number carries far too little power for a ~1 % effect. The measurement uses
+`research/decode_probe.py` instead: one worker process, the 512-token golden
+seed, then 1200 teacher-forced single-token `decode_step`s each timed with
+`CLOCK_UPTIME_RAW`. That is ~9× more timed steps for ~¼ of the wall clock.
+
+Both arms are the **same binary**, toggled by
+`DARKBLOOM_DECODE_ROUTER_EMIT_SINK`, so no compiler or layout difference can
+leak into the contrast. Runs are interleaved in palindromic blocks (`ABBA`)
+so a linear thermal/clock drift over the session cancels rather than loading
+onto one arm. The unit of replication is the **run median**, not the step:
+steps inside one process share its clock state, page mapping and thermal
+history, so pooling steps across runs would badly understate the true scatter.
+The first 16 steps of each run are dropped as KV-growth/JIT warmup.
+
+Arm assignment is verified, not assumed: arm B's worker stderr contains
+`packed-scales active: routed swiglu qmv packed dispatch` (the base fused
+chain's one-time log) and arm A's does not, because arm A returns from the
+sink branch before that log site.
+
+### 4.2 End-to-end contrast (8 runs, 2 ABBA blocks, 1200 steps each)
+
+| run | arm | median ms | mean ms | p10 | p90 |
+|---|---|---|---|---|---|
+| p1r1 | A emit | 8.3130 | 8.4069 | 8.1880 | 8.5755 |
+| p1r2 | B base | 8.2718 | 8.2920 | 8.1514 | 8.4832 |
+| p1r3 | B base | 8.2921 | 8.3081 | 8.1905 | 8.4878 |
+| p1r4 | A emit | 8.3551 | 8.3680 | 8.2940 | 8.4440 |
+| p2r1 | A emit | 8.3800 | 8.3556 | 8.2066 | 8.4535 |
+| p2r2 | B base | 8.3260 | 8.3197 | 8.2073 | 8.4017 |
+| p2r3 | B base | 8.3728 | 8.3661 | 8.2288 | 8.4693 |
+| p2r4 | A emit | 8.3599 | 8.3667 | 8.2256 | 8.4981 |
+
+- arm A (emit sink): median-of-medians **8357.5 µs**, between-run sd 28.2 µs
+- arm B (base):      median-of-medians **8309.1 µs**, between-run sd 44.2 µs
+- **Δ = +48.4 µs/step (+0.58 % slower)**
+- paired ABBA diffs: `[+41.3, +63.0, +54.0, −12.9]` µs;
+  mean **+36.3 µs**, sd 34.0 µs, sem 17.0 µs, n = 4
+
+Both estimators agree on sign and rough magnitude. Three of four pairs are
+positive. The pre-registered kill rule was "stop if the decode delta is worse
+than −60 µs/step"; the observed delta is **+36 to +48 µs**, roughly 150 µs on
+the wrong side of the point prediction and outside the 90 % prediction
+interval `[−55, −175]`. The rule fires, so the change is not pursued further
+and the submitted surface is reverted to base.
+
+Teacher-forced greedy tokens: **0 divergences in every one of the 8 runs**, so
+the regression is a genuine timing result and not a correctness artefact.
+
+<!-- ATTRIBUTION SECTION PENDING -->
