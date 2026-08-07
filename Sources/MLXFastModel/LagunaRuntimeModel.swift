@@ -8403,12 +8403,18 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         // Gate and up are concatenated along output rows, so only each source
         // tensor's very first group pair can be left unequal by the quantizer:
         // flat pair 0 and flat pair `gate.scales.size / 2`.
-        if lagunaSharedSwiGLUQMVPairwiseScalesEnabled,
-            let halved = lagunaHalvedGroup32ScalePlane(
+        if lagunaSharedSwiGLUQMVPairwiseScalesEnabled {
+            if let halved = lagunaHalvedGroup32ScalePlane(
                 fusedScales, allowedFlatPairs: [0, gate.scales.size / 2])
-        {
-            _fusedGateUpHalvedScales = halved
-            prepared.append(halved)
+            {
+                _fusedGateUpHalvedScales = halved
+                prepared.append(halved)
+                lagunaPackedScalesLog.note(
+                    "active", "shared gate/up halved scale plane")
+            } else {
+                lagunaPackedScalesLog.note(
+                    "inactive", "shared gate/up halved scale plane (declined)")
+            }
         }
         return prepared
     }
@@ -8469,13 +8475,24 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         downScales: MLXArray
     )? {
         guard let banks = fusedSharedBankGuard(x) else { return nil }
-        let activated =
-            sharedActivation
-            ?? lagunaSharedSwiGLUQMV(
+        let activated: MLXArray
+        if let sharedActivation {
+            activated = sharedActivation
+        } else {
+            // The pairwise arm reads the halved plane; an uncertified (nil)
+            // plane declines this fusion rather than feeding the kernel a
+            // plane of the wrong density.
+            let qmvScales: MLXArray? =
+                lagunaSharedSwiGLUQMVPairwiseScalesEnabled
+                ? _fusedGateUpHalvedScales
+                : banks.gateUpScales
+            guard let scales = qmvScales else { return nil }
+            activated = lagunaSharedSwiGLUQMV(
                 x,
                 fusedWeight: banks.gateUpWeight,
-                fusedScales: banks.gateUpScales
+                fusedScales: scales
             )
+        }
         return (activated, banks.downWeight, banks.downScales)
     }
 
