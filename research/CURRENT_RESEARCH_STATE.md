@@ -21,9 +21,21 @@
   Fix: restored vendor files to exact 68b66c5 state (last successful M5 submission, scored 2.5520).
   Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
 
-## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=74fead1)
-  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, M5-only
-  PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — 39 dispatches/decode step, ~50-100B
+## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=d33533f5)
+  PR #296 (alphonse): Fuse final RMSNorm into LM head coarse kernel — eliminate 1 dispatch/step (bit-exact, ~0.3-0.4% decode)
+  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, needs clean rebase on d33533f5
+  PR #292 (askeladd): Prefill gate-product+softplus multi-token extension — awaiting work
+  PR #294 (thorfinn): Dead code removal — awaiting work (~12KB LRM budget recovery)
+
+## MERGED WAVE 14
+  PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — MERGED (bit-exact, +0.676% decode, +222B)
+
+## NEXT-WAVE IDEAS (from FRESH_DECODE_IDEAS_20260807.md)
+  1. Fuse final RMSNorm into LM head coarse — ASSIGNED to alphonse (PR #296)
+  2. Down+residual outputs_per_simd 8→16 — UNASSIGNED (~50B, big threadgroup reduction)
+  3. NVFP4 OProj results_per_simd 8→16 — UNASSIGNED (~50B, 40 layers)
+  4. Gate/up R1 9-simdgroup input sharing — LIKELY DEAD (input-vector staging already failed)
+  5. Dense down rows_per_thread 4→8 — LOW IMPACT (1 layer only)
   PR #292 (askeladd): Extend gate-product+softplus kernel to multi-token prefill — 40 dispatches, ~200-400B
   PR #294 (thorfinn): Dead code removal — free ~12KB LRM budget, 4 default-OFF flags, net-negative
 
