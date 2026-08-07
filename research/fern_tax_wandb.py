@@ -75,6 +75,27 @@ def pooled(paths, x_kind, y_kind="ms"):
             "baseline_ms": statistics.mean(base)}
 
 
+def joint_pooled(paths):
+    """Price dispatch and barrier apart in one fit, FE = (file, block).
+
+    Dispatch and barrier move together inside any single arm, so this is only
+    identified because fan40 and the anchor-0 arms break the 1:1 ratio.
+    """
+    pts = []
+    for fi, p in enumerate(paths):
+        for b, d, x, y in S.joint_points(p):
+            pts.append(((fi, b), d, x, y))
+    nb = len({p[0] for p in pts})
+    (bd, sd), (bb, sb), df, n = S.fe_ols2(pts, nb)
+    t = S.t95(df)
+    return {"dispatch_slope_us": bd, "dispatch_se_us": sd,
+            "dispatch_ci95_half_us": t * sd,
+            "barrier_slope_us": bb, "barrier_se_us": sb,
+            "barrier_ci95_half_us": t * sb,
+            "fusion_refund_us": bd + bb, "df": df, "n_points": n,
+            "blocks": nb}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("outdir")
@@ -121,7 +142,8 @@ def main():
 
     # Headline: the in-chain family under both candidate regressors.  The
     # regressor that pools without scatter is the one that names the tax.
-    family = [arms[a] for a in ("chain40", "fat40_8k", "fan40") if a in arms]
+    family = [arms[a] for a in
+              ("chain40", "fat40_8k", "dist40_8k", "fan40") if a in arms]
     if len(family) > 1:
         for x_kind in ("dispatch", "barrier"):
             r = pooled(family, x_kind)
@@ -134,6 +156,18 @@ def main():
                 r["slope_us"] * S.N_LAYERS
             summary[f"pooled_inchain/{x_kind}/percent_score_if_1_per_layer"] \
                 = r["slope_us"] * S.N_LAYERS * S.PERCENT_PER_US_DECODE
+
+    # The decision number: what one fused dependent pair actually refunds.
+    for tag, sel in (("joint_inchain", family),
+                     ("joint_all_sites",
+                      [arms[a] for a in sorted(arms)
+                       if a.startswith(("chain40", "fat40", "dist40",
+                                        "fan40"))])):
+        if len(sel) < 2:
+            continue
+        j = joint_pooled(sel)
+        summary.update({f"{tag}/{k}": v for k, v in j.items()})
+        summary[f"{tag}/n_arms"] = len(sel)
 
     run.log({"arms": table})
     run.summary.update(summary)

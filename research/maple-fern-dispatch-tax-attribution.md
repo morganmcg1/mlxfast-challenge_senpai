@@ -244,13 +244,122 @@ barrier-per-dispatch ratio collapses between K=2 and K=4.
 of launch.** The tax has been misnamed: 88% of it is the cost of a
 *dependency edge*, not the cost of a *dispatch*.
 
+### 4.4 Anchoring control — the barrier is charged even off the critical path
+
+`fat40_8k_free` is `fat40_8k` with `DARKBLOOM_TAX_ANCHOR=0`: identical work at
+identical encode positions, but the injected chain never feeds back into the
+residual stream, so none of it is on the data-dependency path from this token's
+input to this token's logits. MLX still emits the kernels, and — because they
+alias the same scratch buffer — still emits barriers, but the barrier count no
+longer tracks K:
+
+| `fat40_8k_free` K | dispatch | barrier | wall ms | Δ vs K=0 |
+|---|---|---|---|---|
+| 0 | 406 | 247 | 8.1754 | — |
+| 1 | 446 (+40) | 287 (+40) | 8.2486 | +73.2 µs |
+| 2 | 486 (+80) | 287 (**+40**) | 8.2456 | +70.2 µs |
+| 4 | 566 (+160) | 301 (+54) | 8.2664 | +91.0 µs |
+
+The K=1→K=2 step is a second model-free contrast, in a different arm and a
+different dependency regime from `fan40`, and it says the same thing:
+**40 additional GPU dispatches that add no barrier cost −3.0 µs, i.e.
+nothing.** The K=2→K=4 step adds 80 dispatches and 14 barriers for +20.8 µs,
+or 1.49 µs per barrier with dispatches free.
+
+Single-regressor fits: +0.478 ± 0.075 µs per dispatch (arms disagree),
++1.719 ± 0.155 µs per barrier. The joint fit on this arm alone gives
+dispatch **−0.074 ± 0.101** (indistinguishable from zero) and barrier
+**+1.903 ± 0.296**.
+
+Two things follow. First, the per-barrier price does **not** fall when the
+injected work leaves the critical path — if anything it is higher here than
+in-chain (1.90 vs 1.24 µs). A barrier is an intra-encoder
+`memoryBarrier(BarrierScopeBuffers)`; it serializes *everything already
+encoded in that command encoder*, so it is charged against the whole step
+regardless of whether the tensor that caused it is live. Second, adding
+`fat40_8k_free` to the pooled joint fit sharpens rather than moves it:
+
+| joint fit, 5 arms (n=240, blocks=30, df=208) | µs/step | 95% CI | t |
+|---|---|---|---|
+| dispatch (barrier-free) | **+0.120** ± 0.061 | [+0.001, +0.240] | 2.0 |
+| barrier | **+1.299** ± 0.073 | [+1.157, +1.442] | 17.9 |
+
 ## 5. Verdict on E1–E4
 
 TBD
 
 ## 6. Decision rule
 
-TBD
+**H-REFUND holds, for the fusion of *dependent* kernels.** Fusing two kernels
+that are joined by a data dependency removes one dispatch *and* one barrier,
+so it refunds
+
+```
+0.120 (dispatch) + 1.299 (barrier) = 1.42 us/step  [conservative pooled joint fit]
+0.173 (dispatch) + 1.241 (barrier) = 1.41 us/step  [4-arm in-chain joint fit]
+```
+
+on this host, comfortably above the 1.0 µs bar the assignment set. But the
+refund is *not* proportional to dispatches removed. Three different fusions
+that all remove "one dispatch per layer" refund three very different amounts:
+
+| what the fusion removes per layer | refund µs/step (×40 layers, this host) |
+|---|---|
+| 1 dependent pair → 1 dispatch **and** 1 barrier | **56.8** |
+| 1 barrier only (make two siblings concurrent, keep both dispatches) | **52.0** |
+| 1 barrier-free dispatch (fuse two already-co-encoded siblings) | **4.8** |
+
+Projecting the barrier term to the ranked M5, using the 1.000× (fixed
+overhead) to 0.506× (scales with step time) transfer band and
+0.015280 % of score per µs of decode step:
+
+| barriers removed per step | µs/step on M5 | % score | σ (15.34 µs) |
+|---|---|---|---|
+| 1 per layer (×40) | 28.9 .. 57.1 | 0.441 .. 0.872 | 1.9 .. 3.7 |
+| 3 per layer (×40) | 86.6 .. 171.2 | 1.323 .. 2.616 | 5.6 .. 11.2 |
+| 10 per layer (×40) | 288.6 .. 570.7 | 4.410 .. 8.720 | 18.8 .. 37.2 |
+
+So the operational rule for the decode programme is:
+
+1. **Count barriers, not dispatches.** MLX inserts one intra-encoder
+   `memoryBarrier` when the next op RAW/WAR-conflicts with anything encoded
+   since the last barrier, and inserting it *resets* that conflict set
+   (`device.cpp:323-375`). Barriers therefore count **waves** of
+   mutually-non-conflicting work, not dependency edges. The decode step runs
+   406 dispatches in 247 waves; per layer that is 10.2 dispatches in 6.2
+   waves. **A fusion that does not reduce the wave count buys ≈ 0.12 µs and is
+   not worth its risk.**
+2. **The unit of profit is a *dependent* pair.** Fusing sibling kernels that
+   already co-encode into the same wave (e.g. router top-8 into the router
+   GEMV, or the shared expert into the routed gate/up) removes zero barriers
+   and is worth ~0.1 µs per site. Fusing a producer into its consumer removes
+   a wave and is worth ~1.4 µs per site.
+3. **Prefer fused kernels over dispatch-side tricks.** Indirect command
+   buffers, CPU/GPU encode overlap, and command-buffer batching all attack the
+   0.12 µs launch term and the 0.60 ms CPU driver time that already hides
+   under a 0.971 GPU-busy fraction (§3, §5/E1). They cannot touch the 1.3 µs
+   barrier term, which is inside GPU-busy time.
+4. **Ceiling check before building.** The per-layer wave budget is roughly
+   `{input norm} {QKV, router-gate} {fused attention} {o_proj}
+   {residual+post-norm+router} {top-8, routed gate/up, shared gate/up}
+   {down+combine+residual}` = 7 waves, matching the 6.2 measured. The
+   realistically fusable dependent pairs are the input RMSNorm into the QKV
+   GEMV, and attention output into `o_proj`. At 1 wave per layer each that is
+   0.44–0.87 % of score apiece on M5, and the RMSNorm→QKV fusion is the one
+   with an existing kernel precedent (the INT8 g32 bank already has the fused
+   form; the NVFP4 path declines it at
+   `Sources/MLXFastModel/LagunaRuntimeModel.swift:5738-5745`). **A realistic
+   near-term ceiling for this direction is ~0.9 % of decode, not the ~4 %
+   implied by "406 dispatches × 1.4 µs".**
+5. **`start_concurrent()` is out of reach.** The obvious way to delete a
+   barrier without deleting a kernel is MLX's concurrent-encoding escape hatch
+   (`device.h:33-46`, `device.cpp:343-345`), which today has exactly one user
+   (`concat_gpu`, `slicing.cpp:35`). `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp`
+   is **not** in `benchmark.json`'s `editablePaths`, so the barrier machinery
+   itself cannot be changed by a submission. Only the kernel sources,
+   `matmul.cpp`, `jit_kernels.cpp`, `kernels.h`, `quantized.cpp` and their
+   `mlx-generated/*.cpp` twins are editable. This is why the answer is
+   **(A) fuse dependent kernels**, not (B) restructure dispatch.
 
 ## 7. Scope
 
@@ -272,4 +381,58 @@ first re-running `tools/build-mlx-metallib.sh`.
 
 ## 8. Caveats
 
-TBD
+Ordered by how much they could change the verdict.
+
+1. **The 1.4 µs has never been measured on the ranked M5.** Every number here
+   is M4 Pro, Apple GPU generation 16, which never selects the `_nax` kernel
+   variants. The transfer band (§6) brackets the two extreme assumptions
+   rather than resolving them. The *sign* and the *decomposition* should carry
+   — they are about how MLX partitions an encoder, which is architecture
+   independent — but the magnitude is directional only.
+2. **`spin40` bounds host slack on the graph-build thread, not MLX's encode
+   thread.** MLX is lazy: the Swift call that `spin40` delays is graph
+   construction, and the actual Metal encoding happens later inside `eval`.
+   So §4.1 shows that the *call path* has ≥ 224 µs/step of slack, which is not
+   quite the same statement as "the encode thread has slack". §4.2 is the
+   stronger E1 test and it agrees: 99–100 % of the added wall time lands in
+   GPU-busy, and the commit→complete gap slope is statistically zero. Note
+   also the seductive coincidence that killed a day: baseline CPU driver time
+   / dispatches = 0.60 ms / 406 = 1.48 µs, almost exactly the tax. It is a
+   coincidence; the CPU time is not on the critical path.
+3. **Barriers count waves, not edges, so "remove a barrier" is a claim about
+   MLX's encoder partition, not about the model graph.** Inserting a barrier
+   resets `prev_outputs_`/`prev_inputs_` (`device.cpp:363-375`), so a fusion
+   that deletes a dependency edge only saves a barrier if that edge was the
+   *first* conflict in its wave. §6's per-layer wave budget is my reading of
+   the trace, not a proof; a fusion candidate should be re-counted with the
+   `TAXCTR` instrument before it is built.
+4. **Injected-work realism.** The injected units are cheap elementwise or
+   small-reduction kernels. A real fused kernel replaces two *large* kernels,
+   and the wave it deletes may have been partly hidden behind other work. The
+   1.4 µs is therefore an upper bound on what one real fusion refunds, and the
+   §6 ceiling should be read as optimistic.
+5. **Splice numerics.** The anchor is `x + (t − t)`, which is bit-exact for
+   finite `t` but maps −0 → +0 and would produce NaN for non-finite `t`. All
+   17 arms ran the teacher-forced golden with **0 divergences** at every K, so
+   this did not bite, but it means the arms are not literally identity
+   transformations of the graph.
+6. **The off-critical-path comparators understate cost.** `chain`, `indep`,
+   `distinct` and `diamond1` inject at a batch boundary rather than inside a
+   layer, where the injected work can overlap with real work. Their slopes are
+   reported for completeness but the in-chain site arms are the ones the
+   verdict rests on.
+7. **Thermal drift and command-buffer partition.** Both are controlled rather
+   than assumed: the K schedule is palindromic (`0,1,2,4,4,2,1,0`) inside each
+   of 6 blocks and the estimator carries a per-block fixed effect, and commit
+   and encoder counts were recorded for every arm at every K (67–68 commits,
+   75–76 encoders, stable ±1 everywhere). No arm repartitions the stream, so
+   E5 stays refuted.
+8. **No prior art to calibrate against.** I could find no published
+   per-dispatch or per-barrier microsecond figure for Apple M-series Metal.
+   The nearest reference points are MLX PR #1773 (MTLFence 15–20 µs vs
+   MTLSharedEvent 150–200 µs for *inter-encoder* sync — two orders of
+   magnitude above the intra-encoder barrier measured here), wgpu#7712's
+   ~48 µs empty-command-buffer floor, and the anukari devlog's ~50 µs
+   per-encode figure. All of those are command-buffer-scale costs, consistent
+   with this step's 67 commits being the expensive part of the *fixed*
+   overhead and the barrier being the marginal one.
