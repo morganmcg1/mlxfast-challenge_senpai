@@ -40,12 +40,17 @@ SUMMARY="${OUT}/summary.txt"
 if [ "${MODE}" = "freerun" ]; then
   # With FAULT unset every fault branch expands to a no-op, so the three
   # unfaulted arms measure the shipped guards on this one faulted-source build.
+  # prefetch_zero and plane_shift are the two faults the teacher-forced battery
+  # already detects; they are the positive controls that make an all-arms-match
+  # hash table evidence instead of a silent detector failure.
   ARMS=(
     "off:::"
     "on:1::"
     "pairwise::1:"
     "on-fault-prefetch_stale:1::prefetch_stale"
+    "on-fault-prefetch_zero:1::prefetch_zero"
     "pairwise-fault-plane_byte::1:plane_byte"
+    "pairwise-fault-plane_shift::1:plane_shift"
   )
 else
   ARMS=(

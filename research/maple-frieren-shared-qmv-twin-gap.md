@@ -377,6 +377,14 @@ mlxfast: packed-scales active: shared gate/up halved scale plane
 
 Observed on this host, so the plane certified and installed.
 
+Two limits of that certificate are worth naming. It certifies *pairwise scale
+equality*, i.e. that halving loses no information; it does **not** certify that
+the kernel then indexes the halved plane correctly — that is exactly what the
+`plane_shift` and `plane_byte` fault arms in §4.3 probe. And the allow-list is
+`[0, 32768]` (`LagunaRuntimeWeights.swift:8408`), so the certificate is a
+statement about the two flat pair offsets this transform actually halves, not
+about the tensor as a whole.
+
 ### 3.4 Byte accounting
 
 Per dispatch the kernel reads ≈1.0 MiB (1,048,576 B) of NVFP4 weight codes plus
@@ -615,6 +623,12 @@ argued bit-exact from the source (§2.2, §3.3) — the tripwire's job is to cat
 a mistake in that argument, not to establish tolerance, and a zero here is
 consistent with the bit-exactness claim rather than a substitute for it.
 
+Third, and most important: §4.3 measures how much this check can actually see,
+and the answer is *less than I assumed*. It catches a zeroed prefetch scale but
+**not** a stale one, so these 1,374 zeros give mechanism (a) only coarse
+protection against the specific bug class §2.2 has to exclude. Read this section
+with §4.3 and §4.4, not on its own.
+
 ### 4.3 Fault injection — does that zero have any power?
 
 §4.2's 1,374 comparisons at 0 divergences are worthless on their own. A check
@@ -624,7 +638,7 @@ standing rule 16 applies: before the zero counts as evidence, the same check
 must be shown to catch a deliberately wrong build **of each mechanism
 separately**.
 
-**Design.** `research/maple_pr301_fault_injection.py` injects three env-gated
+**Design.** `research/maple_pr301_fault_injection.py` injects five env-gated
 faults into the working tree — never committed to the submitted surface, so
 `LagunaRuntimeModel.swift` byte growth is unaffected — and
 `research/maple_shared_qmv_fault_injection.sh` builds **one** worker that serves
@@ -639,26 +653,96 @@ silently serve a fault arm.
 | `prefetch_stale` | (a) | The prefetch loads `block / weightsPerScaleByte` instead of `next_block / …`, so K-blocks 1–3 of every row use the previous block's scale byte | This is *the* bug the prefetch rewrite could plausibly contain: issuing the load but forgetting to advance the index. If the tripwire cannot see this, it cannot vouch for §2.2 |
 | `plane_byte` | (b) | One data byte of the halved group-32 scale plane is bit-flipped (`faultBytes[1] ^= 1`), corrupting the scale of exactly 16 gate weights of one row | The **smallest possible** "halved plane is wrong" fault — a deliberately hard test of sensitivity, not a softball |
 | `plane_shift` | (b) | The plane's whole data region is shifted one byte left, so every lane of every row reads its neighbour's scale | A gross version of the same class, to separate "the check is insensitive" from "this particular fault is subthreshold" |
+| `prefetch_zero` | (a) | `gate_sb = 0; up_sb = 0;` is appended at the **same patched line**, so K-blocks 1–3 contribute nothing | Calibration. If this also passes, the check is blind at that site and no (a) result means anything. It is the upper end of a sensitivity bracket around `prefetch_stale` |
+| `activation_zero` | whole kernel | `activated[row] = bfloat(silu * up) * bfloat(0);` — the rows-1 kernel writes zeros | Calibration of the probe itself: bounds the tripwire's power from above for the entire shared-expert path |
 
-**Arms.** Two controls and three faults, all on the same faulted binary, so a
+**Arms.** Two controls and five faults, all on the same faulted binary, so a
 control that passes rules out "the injected build is broken everywhere":
 
 ```text
-on-control                 PREFETCH=1                    FAULT=          -> expect 0
-on-fault-prefetch_stale    PREFETCH=1                    FAULT=prefetch_stale -> expect >0
-pairwise-control           PAIRWISE_SCALES=1             FAULT=          -> expect 0
-pairwise-fault-plane_byte  PAIRWISE_SCALES=1             FAULT=plane_byte     -> expect >0
-pairwise-fault-plane_shift PAIRWISE_SCALES=1             FAULT=plane_shift    -> expect >0
+on-control                 PREFETCH=1                    FAULT=                 -> expect 0
+on-fault-prefetch_stale    PREFETCH=1                    FAULT=prefetch_stale   -> expect >0
+on-fault-prefetch_zero     PREFETCH=1                    FAULT=prefetch_zero    -> expect >0
+on-fault-activation_zero   PREFETCH=1                    FAULT=activation_zero  -> expect >0
+pairwise-control           PAIRWISE_SCALES=1             FAULT=                 -> expect 0
+pairwise-fault-plane_byte  PAIRWISE_SCALES=1             FAULT=plane_byte       -> expect >0
+pairwise-fault-plane_shift PAIRWISE_SCALES=1             FAULT=plane_shift      -> expect >0
 ```
 
-**Result.** TBD-FAULT
+**Result.** Battery `a22ac0dc-d18e-435c-bfe4-7d0b70039572`, exit 0, 362 s,
+`/tmp/maple-shared-qmv-fault2/summary.txt`:
+
+| Arm | Divergences / 128 | First `(step, expected, got)` | Step mean | Verdict |
+| --- | --- | --- | --- | --- |
+| `01-on-control` | 0 | — | 8.210 ms | as expected |
+| `02-on-fault-prefetch_stale` | **0** | — | 8.236 ms | **fault not detected** |
+| `03-on-fault-prefetch_zero` | 95 | (2, 5991, 947) | 8.348 ms | detected |
+| `04-on-fault-activation_zero` | 125 | (1, 902, 290) | 8.590 ms | detected |
+| `05-pairwise-control` | 0 | — | 8.179 ms | as expected |
+| `06-pairwise-fault-plane_byte` | **0** | — | 8.320 ms | **fault not detected** |
+| `07-pairwise-fault-plane_shift` | 17 | (12, 509, 81) | 8.215 ms | detected |
+
+Two of five fault arms did not fire, so the W&B
+`correctness/fault_injection/all_as_expected` flag is **False**. I am reporting
+that rather than dropping the inconvenient arms. What it means, mechanism by
+mechanism:
+
+**The hook sites are live — the "structurally blind" hypothesis is dead.**
+`prefetch_zero` is injected at *the same patched line* as the shipped prefetch
+loads (`Sources/MLXFastModel/LagunaRuntimeModel.swift:6927-6929`) and flipped
+95 of 128 tokens starting at step 2. `activation_zero` flipped 125 of 128
+starting at step 1. So the fault plumbing compiles, the per-mode PSO name
+defeats caching, the kernel is dispatched on the scored decode path, and the
+128-step probe *can* see a wrong shared-expert result. That is the letter of
+rule 16 for mechanism (a).
+
+**But the realistic-bug arm for (a) is null, and that is a magnitude result,
+not a dead hook.** With `prefetch_stale` the emitted Metal is
+`gate_sb = gate_row_scale[block / 16]` instead of `… [next_block / 16]`. Since
+the scale pointer is already lane-biased and the index advances by 32 bytes per
+512-wide K-block, lane *L* in K-block *i* then consumes the group-16 E4M3 scale
+of lane *L* in K-block *i−1*: **3 of every 4 K-blocks of every row of both the
+gate and up projections use a neighbouring group's scale**, and not one of 128
+greedy argmaxes moved. The demonstrated sensitivity of this check at this site
+is therefore bracketed: it catches *zeroing* those three K-blocks and does not
+catch *mis-scaling* them. Two explanations are consistent with the data and I
+cannot separate them here — adjacent group-16 maxima of one row are often the
+same E4M3 code, so the effective perturbation may be much smaller than 3/4 of
+the rows; and/or the shared expert's contribution to the residual is small
+enough relative to the greedy margin to absorb it. Separating them needs a
+logits-level diff, which the worker protocol does not expose (`decode_step`
+returns only `{"token": …}`) and which I will not get by patching the trusted
+harness.
+
+Consequence, stated plainly: **§4.2's 1,374 zeros do not vouch for mechanism
+(a) against the specific bug class §2.2 has to exclude.** Rule 16's letter is
+met; its spirit is only partly met for (a). Mechanism (a)'s bit-exactness rests
+on §2.2's source-level identity argument and on the byte-identical output of the
+ON build, with the tripwire providing only coarse protection. §4.4 closes part
+of that gap with a more sensitive check.
+
+**Mechanism (b) is fully covered.** `plane_shift` is a demonstrated-power arm
+(17 divergences, first at step 12) on exactly the halved-plane byte-editing
+branch. `plane_byte`'s null is a magnitude result with the branch *proved live
+independently of tokens*: `peak_ram_gb` is 21.93 for `05-pairwise-control` but
+**22.845 for both `06-plane_byte` and `07-plane_shift`**, because both modes run
+the same extra host-side copy of the plane's data region. A one-LSB E4M3 flip is
+one mantissa step (≈12.5 %) on the scale of 16 gate weights of one row out of
+512 — the smallest fault in the battery, deliberately so — and it is
+subthreshold for a 128-step greedy check. Both controls on the faulted binary
+are 0, which rules out "the injected build is broken everywhere".
 
 Reproduce (must be the only model-holding process on the host):
 
 ```bash
-OUT=/tmp/maple-shared-qmv-fault bash research/maple_shared_qmv_fault_injection.sh
-python3 research/maple_pr301_fault_injection.py check   # must print clean x5 afterwards
+OUT=/tmp/maple-shared-qmv-fault2 bash research/maple_shared_qmv_fault_injection.sh
+python3 research/maple_pr301_fault_injection.py check   # must print clean x6 afterwards
+git status --porcelain                                  # must show no Sources/ changes
 ```
+
+Both post-run checks were run and passed: `clean … x1` for all six hook sites
+and no `Sources/` entry in `git status`. The `trap … EXIT` also rebuilt a clean
+worker, so no faulted binary survived into any timing arm.
 
 ---
 

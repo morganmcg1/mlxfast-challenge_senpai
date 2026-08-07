@@ -76,6 +76,12 @@ FAULT_RE = re.compile(
     r"(?:\s+first=(?P<first>.*))?$")
 
 
+FREERUN_STEPS = 256
+FREERUN_COLS = ["arm", "kind", "rc", "token_hash", "matches_off"]
+FREERUN_RE = re.compile(
+    r"^(?P<tag>\S+)\s+rc=(?P<rc>-?\d+)\s+hash=(?P<hash>\S+)$")
+
+
 def load_fault(path):
     """Parse the fault-injection driver's summary lines, if archived."""
     if not os.path.exists(path):
@@ -97,6 +103,25 @@ def load_fault(path):
         rows.append((tag, kind, int(m.group("rc")), div,
                      (m.group("first") or "").strip(), detected))
     return rows
+
+
+def load_freerun(path):
+    """Parse the self-fed free-run trajectory hashes, if archived.
+
+    Teacher forcing resets the trajectory every step, so it only compares
+    single-step argmaxes. A free run compounds any difference, so two builds
+    share a token hash only if every step agreed.
+    """
+    if not os.path.exists(path):
+        return []
+    raw = []
+    for line in open(path):
+        m = FREERUN_RE.match(line.strip())
+        if m:
+            raw.append((m.group("tag"), int(m.group("rc")), m.group("hash")))
+    ref = next((h for t, _, h in raw if t.endswith("-off")), None)
+    return [(tag, "fault" if "-fault-" in tag else "guard", rc, h,
+             None if ref is None else h == ref) for tag, rc, h in raw]
 
 
 def main():
@@ -210,6 +235,21 @@ def main():
         summary["correctness/fault_injection/all_as_expected"] = \
             all(r[5] for r in fault_rows)
 
+    freerun_rows = load_freerun(args.fault_log)
+    freerun_table = wandb.Table(columns=FREERUN_COLS)
+    for rec in freerun_rows:
+        freerun_table.add_data(*rec)
+        summary[f"correctness/free_run/{rec[0]}/token_hash"] = rec[3]
+    if freerun_rows:
+        guards = [r for r in freerun_rows if r[1] == "guard"]
+        faults = [r for r in freerun_rows if r[1] == "fault"]
+        summary["correctness/free_run/arms"] = len(freerun_rows)
+        summary["correctness/free_run/steps"] = FREERUN_STEPS
+        summary["correctness/free_run/guards_bit_exact"] = \
+            len(guards) > 1 and all(r[4] for r in guards)
+        summary["correctness/free_run/faults_all_detected"] = \
+            bool(faults) and all(r[4] is False for r in faults)
+
     kernel_table = wandb.Table(columns=KERNEL_COLS)
     for rec in KERNEL_AB:
         per_step = rec[8] * CALLS_PER_STEP
@@ -236,7 +276,8 @@ def main():
     run.log({"local_iterate_runs": run_table, "kernel_ab": kernel_table,
              "drift_tripwire_128step": tripwire_table,
              "correctness_aggregate": aggregate_table,
-             "fault_injection": fault_table})
+             "fault_injection": fault_table,
+             "free_run_trajectory": freerun_table})
     run.summary.update(summary)
     print(f"logged {len(summary)} scalars, {len(rows)} runs -> {run.url}")
     print(f"run id: {run.id}")
