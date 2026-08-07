@@ -2900,11 +2900,13 @@ struct LagunaNativeAffineWeight {
     var bits: Int = 8
     var mode: QuantizationMode = .affine
     var indexedMetadata: LagunaIndexedAffineMetadata? = nil
+    var qkvEscape: MLXArray? = nil
 
     var arrays: [MLXArray] {
         [packedCodes, scales]
             + (biases.map { [$0] } ?? [])
             + (indexedMetadata?.arrays ?? [])
+            + (qkvEscape.map { [$0] } ?? [])
     }
 }
 
@@ -4694,13 +4696,41 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
-private let lagunaDecodeNVFP4QKVR1Source = """
+private let lagunaQKVScaleHalvingEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_QKV_SCALE_HALVING"] != "0"
+
+private func lagunaDecodeNVFP4QKVR1Source(heads: Int, halvedScales: Bool = false) -> String {
+    let ss = halvedScales ? "in_vec_size_g / 2" : "in_vec_size_g"
+    let sl = halvedScales ? "simd_lid / 2" : "simd_lid"
+    let st = halvedScales ? "block_size / 32" : "block_size / 16"
+    let d = halvedScales ? """
+        constexpr uint q_rows = \(heads * LagunaConstants.headDim);
+        constexpr uint kv_rows = \(LagunaConstants.numKeyValueHeads * LagunaConstants.headDim);
+""" : ""
+    let r: String
+    if halvedScales {
+        r = """
+        uint8_t sbits = sc[0];
+        if (simd_lid == 1 && k == 0) {
+            if (out_row == 0) sbits = qkv_escape[0];
+            else if (out_row == q_rows) sbits = qkv_escape[1];
+            else if (out_row == q_rows + kv_rows) sbits = qkv_escape[2];
+        }
+        result += laguna_tail_nvfp4_qdot(ws, x_thread, laguna_tail_nvfp4_scale(sbits));
+"""
+    } else {
+        r = """
+        result += laguna_tail_nvfp4_qdot(ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
+"""
+    }
+    return """
     constexpr uint axis_size = 2048;
     constexpr uint num_simdgroups = 2;
     constexpr uint values_per_thread = 16;
     constexpr uint block_size = 512;
     constexpr uint in_vec_size_w = axis_size / 2;
     constexpr uint in_vec_size_g = axis_size / 16;
+    \(d)
 
     uint tile = threadgroup_position_in_grid.x;
     uint simd_gid = simdgroup_index_in_threadgroup;
@@ -4710,7 +4740,7 @@ private let lagunaDecodeNVFP4QKVR1Source = """
     const device uint8_t* ws = (const device uint8_t*)weight_codes +
         out_row * in_vec_size_w + simd_lid * 8;
     const device uint8_t* sc = weight_scales +
-        out_row * in_vec_size_g + simd_lid;
+        out_row * (\(ss)) + (\(sl));
 
     thread float x_thread[values_per_thread];
     thread float result = 0.0f;
@@ -4720,10 +4750,9 @@ private let lagunaDecodeNVFP4QKVR1Source = """
         for (uint i = 0; i < values_per_thread; ++i) {
             x_thread[i] = float(normalized[column + i]);
         }
-        result += laguna_tail_nvfp4_qdot(
-            ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
+        \(r)
         ws += block_size / 2;
-        sc += block_size / 16;
+        sc += \(st);
         column += block_size;
     }
 
@@ -4732,6 +4761,7 @@ private let lagunaDecodeNVFP4QKVR1Source = """
         projected[out_row] = bfloat(result);
     }
     """
+}
 
 private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
@@ -4742,11 +4772,26 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
-            source: lagunaDecodeNVFP4QKVR1Source,
+            source: lagunaDecodeNVFP4QKVR1Source(heads: heads),
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
     return kernels
+}()
+
+private let lagunaDecodeNVFP4QKVR1HalvedKernels: [Int: MLXFast.MLXFastKernel] = {
+    var k: [Int: MLXFast.MLXFastKernel] = [:]
+    for h in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        let s = (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+            + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+        k[h] = MLXFast.metalKernel(
+            name: "laguna_decode_nvfp4_qkv_h\(h)_r1_v1\(s)_hs1",
+            inputNames: ["normalized", "weight_codes", "weight_scales", "qkv_escape"],
+            outputNames: ["projected"],
+            source: lagunaDecodeNVFP4QKVR1Source(heads: h, halvedScales: true),
+            header: lagunaTailNVFP4QMVHeader, ensureRowContiguous: true)
+    }
+    return k
 }()
 
 private func lagunaDecodeNVFP4QKVR1(
@@ -4755,6 +4800,7 @@ private func lagunaDecodeNVFP4QKVR1(
     heads: Int
 ) -> MLXArray? {
     guard lagunaDecodeNVFP4QKVR1Enabled else { return nil }
+    let halved = lagunaQKVScaleHalvingEnabled
     let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
     let hidden = LagunaConstants.hiddenSize
     guard normalized.dtype == .bfloat16,
@@ -4765,18 +4811,15 @@ private func lagunaDecodeNVFP4QKVR1(
         bank.packedCodes.dtype == .uint32,
         bank.packedCodes.dims(rows, hidden / 8),
         bank.scales.dtype == .uint8,
-        bank.scales.dims(rows, hidden / 16),
+        bank.scales.dims(rows, halved ? hidden / 32 : hidden / 16),
         rows % 2 == 0,
-        let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads]
+        let kernel = halved
+            ? lagunaDecodeNVFP4QKVR1HalvedKernels[heads]
+            : lagunaDecodeNVFP4QKVR1Kernels[heads]
     else { return nil }
-    lagunaTrace("decode nvfp4 qkv r1 h\(heads)")
-    return kernel(
-        [normalized, bank.packedCodes, bank.scales],
-        grid: ((rows / 2) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
-        outputShapes: [[1, 1, rows]],
-        outputDTypes: [.bfloat16]
-    )[0]
+    var inputs = [normalized, bank.packedCodes, bank.scales]
+    if halved, let esc = bank.qkvEscape, esc.dims(3) { inputs.append(esc) } else if halved { return nil }
+    return kernel(inputs, grid: ((rows / 2) * 64, 1, 1), threadGroup: (64, 1, 1), outputShapes: [[1, 1, rows]], outputDTypes: [.bfloat16])[0]
 }
 
 
@@ -5497,6 +5540,15 @@ final class LagunaRuntimeAttention: Module {
         {
             fused.indexedMetadata = lagunaIndexedAffineMetadata(
                 scales: fused.scales, biases: biases)
+        }
+        if fused.mode == .nvfp4, fused.bits == 4, fused.groupSize == 16,
+            lagunaQKVScaleHalvingEnabled
+        {
+            let qR = wq.weight.dim(0), kvR = wk.weight.dim(0)
+            fused.qkvEscape = contiguous(stacked([
+                fused.scales[0, 1], fused.scales[qR, 1], fused.scales[qR + kvR, 1]
+            ]).reshaped([3]))
+            fused.scales = contiguous(fused.scales[0..., .stride(from: 0, by: 2)])
         }
         _nativeAffineQKV = fused
         return fused.arrays + (_nativeAffineGProj?.arrays ?? [])
