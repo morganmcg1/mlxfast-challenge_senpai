@@ -198,6 +198,39 @@ struct NVFP4QuantizedMMTests {
     }
 
     @Test
+    func nvfp4ScalePairwiseConstancyHoldsForK1PlusWhenRuntimeTestsAreEnabled() {
+        guard nvfp4RuntimeTestsEnabled else { return }
+        defer { Memory.clearCache() }
+
+        // Verify the NVFP4 quantizer's pairwise-constancy invariant:
+        // scale[2k] == scale[2k+1] for all k >= 1. Only scale[0] != scale[1]
+        // is possible. Test with representative attention weight shapes.
+        let shapes: [(String, [Int])] = [
+            ("q", [LagunaConstants.slidingAttentionHeads * LagunaConstants.headDim, LagunaConstants.hiddenSize]),
+            ("k", [LagunaConstants.numKeyValueHeads * LagunaConstants.headDim, LagunaConstants.hiddenSize]),
+            ("o", [LagunaConstants.hiddenSize, LagunaConstants.fullAttentionHeads * LagunaConstants.headDim]),
+        ]
+        for (label, shape) in shapes {
+            let weight = deterministicNVFP4Source(shape: shape, salt: 42)
+            let (_, scales, _) = quantized(
+                weight, groupSize: 16, bits: 4, mode: .nvfp4)
+            let raw = scales.asArray(UInt8.self)
+            let nCols = scales.dim(1)
+            let nRows = scales.dim(0)
+            for r in 0..<nRows {
+                for k in 0..<(nCols / 2) {
+                    let even = raw[r * nCols + 2 * k]
+                    let odd = raw[r * nCols + 2 * k + 1]
+                    if r == 0 && k == 0 { continue }
+                    #expect(
+                        even == odd,
+                        "Scale pairwise-constancy violated at row \(r) col \(2*k) (\(label)): \(even) != \(odd)")
+                }
+            }
+        }
+    }
+
+    @Test
     func affineGroup32SplitKRemainsUnchangedWhenRuntimeTestsAreEnabled() throws {
         guard nvfp4RuntimeTestsEnabled else { return }
 

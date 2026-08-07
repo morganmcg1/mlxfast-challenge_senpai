@@ -4672,7 +4672,7 @@ private let lagunaTailNVFP4QMVHeader = """
     """
 
 private let lagunaScalePlaneHalvingEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_PLANE_HALVING"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_SCALE_PLANE_HALVING"] == "1"
 
 /// Decode-only, static-shape R1 schedule for the live group-16 NVFP4 QKV
 /// bank. The generated QMV gives each SIMD group four output rows. This twin
@@ -4710,19 +4710,29 @@ func lagunaDecodeNVFP4QKVR1Source(heads: Int) -> String {
     thread float x_thread[values_per_thread];
     thread float result = 0.0f;
 
-    uint column = simd_lid * values_per_thread;
-    for (uint k = 0; k < axis_size; k += block_size) {
+    // Block 0: escape for the second lane of each weight's first row.
+    uint8_t sbits0 = sc[0];
+    if (simd_lid == 1) {
+        if (out_row == 0) sbits0 = escape_bytes[0];
+        else if (out_row == q_rows) sbits0 = escape_bytes[1];
+        else if (out_row == q_rows + kv_rows) sbits0 = escape_bytes[2];
+    }
+    for (uint i = 0; i < values_per_thread; ++i) {
+        x_thread[i] = float(normalized[simd_lid * values_per_thread + i]);
+    }
+    result += laguna_tail_nvfp4_qdot(
+        ws, x_thread, laguna_tail_nvfp4_scale(sbits0));
+    ws += block_size / 2;
+    sc += block_size / 32;
+
+    // Remaining blocks: packed scale is exact, no escape needed.
+    uint column = block_size + simd_lid * values_per_thread;
+    for (uint k = block_size; k < axis_size; k += block_size) {
         for (uint i = 0; i < values_per_thread; ++i) {
             x_thread[i] = float(normalized[column + i]);
         }
-        uint8_t sbits = sc[0];
-        if (k == 0 && simd_lid == 1) {
-            if (out_row == 0) sbits = escape_bytes[0];
-            else if (out_row == q_rows) sbits = escape_bytes[1];
-            else if (out_row == q_rows + kv_rows) sbits = escape_bytes[2];
-        }
         result += laguna_tail_nvfp4_qdot(
-            ws, x_thread, laguna_tail_nvfp4_scale(sbits));
+            ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
         ws += block_size / 2;
         sc += block_size / 32;
         column += block_size;
