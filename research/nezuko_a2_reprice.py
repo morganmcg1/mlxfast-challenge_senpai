@@ -7,11 +7,11 @@ PR #158 published
     exposed_i = n_i * (raw_split1_us_per_call_i - 1.419)
 
 where 1.419 us/dispatch was the SPLIT=1 de-inflation implied by a per-command
--buffer cost c = 1.596 us.  A0 shows c = 0.209 us/CB, so the de-inflation is
-0.209 * (1 - 45/406) = 0.186 us/dispatch and the isolated ("zero-overlap")
-work per call is
+-buffer cost c = 1.596 us.  A0's serial-arm regression gives c = 0.540 us/CB, so
+the de-inflation is 0.540 * (1 - 45/406) = 0.480 us/dispatch and the isolated
+("zero-overlap") work per call is
 
-    work_i = n_i * (published_us_per_call_i + 1.419 - 0.186)
+    work_i = n_i * (published_us_per_call_i + 1.419 - 0.480)
 
 The isolated column is still not the marginal price of the kernel on the step,
 because concurrent encoding hides part of it.  The marginal price is
@@ -55,7 +55,7 @@ CENSUS_2B = [
 
 C_PR158 = 1.596          # us/CB, PR #158 §4.5
 DEINFLATE_PR158 = 1.419  # us/dispatch, PR #158 §2.a
-C_A0 = 0.209             # us/CB, this PR
+C_A0 = 0.540             # us/CB, this PR, A0 serial-arm regression
 CBS_SHIP = 45.0
 DISPATCHES = 406.0
 BUSY_SHIP = 7999.4       # us/step, SPLIT=0 concurrent

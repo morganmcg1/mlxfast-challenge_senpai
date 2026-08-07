@@ -102,11 +102,17 @@ is **three kernels hiding under their neighbours**:
 | **predicted total** | | | **499.9** |
 | **measured total (A0 group census)** | | | **451.5** |
 
-Ratio 0.90. Everything else on the decode path -- the big NVFP4 matvecs,
-attention, the router, the LM head -- runs with **exposure factor E ~ 1.0**:
-its GPU time lands on the step wall essentially 1:1. Those three small kernels
-run with **E ~ 0.10**: optimizing them buys almost nothing, because they are
-already free.
+Ratio 0.90. Everything else on the decode path runs with **exposure factor
+E ~ 1.0**: its GPU time lands on the step wall essentially 1:1. Those three small
+kernels run with **E ~ 0.10**: optimizing them buys almost nothing, because they
+are already free.
+
+The strength of that "everything else" claim varies by kernel and §3.6 grades it
+row by row. It is a *direct, wall-currency measurement* for the six-kernel NVFP4
+matvec bundle (`E = 0.999`, interval [0.87, 1.14], on a lever 33x the design
+floor), a *direct group-composition bound* for `sliding_fused_attn_ring_v1`
+(`E >= 0.90`) and `oproj_act_h64` (`E >= 0.94`), and a *pooled-mean assumption*
+for the eleven remaining census rows.
 
 ---
 
@@ -133,6 +139,35 @@ value of `c` -- mine, PR #158's, or none at all -- can move it.
 Linear mixture weight `(0.864 - 0.560) / (0.950 - 0.560)` = **0.78**, i.e.
 **~78 % R-B, ~22 % R-A**. Treating the k=1 residual as an additive bias (below)
 gives 0.840 and **~72 % R-B**. **R-C is rejected outright** (§2.3).
+
+**How precise is 0.78? Not very -- here is the error model.** The mixture weight
+is a ratio of two noisy differences divided by a 0.390-wide interval between two
+model anchors, so it amplifies noise by 2.6x. Taking the within-session
+dispersion actually observed for `D(0)`, `+-31 us/step`, and assuming comparable
+dispersion on `D(2)` (both are n=4/arm paired differences at fixed dispatch
+count):
+
+```text
+sigma_r / r = sqrt((31/387)^2 + (31/448)^2) = 0.106  ->  sigma_r = 0.092
+sigma_w     = sigma_r / 0.390               = 0.235
+w = 0.78 +- 0.24  (1 sigma)  ->  [0.55, 1.00]
+```
+
+Two further sources widen this and neither is quantified. First, the advisor's
+doctrine says within-session half-ranges understate true dispersion by 2-5x; at
+the mildest factor of 2 the interval becomes `0.78 +- 0.47`, which is
+uninformative about the split and informative only about the sign. Second, the
+R-B anchor `~0.95` is a *model* value, not a measurement -- it is what
+"one hazard-free partner per pair suffices" predicts, and a different shadowing
+topology would move it.
+
+So: **do not quote 78/22 as a partition.** The defensible statement is that
+`D(2)/D(0) = 0.864` sits far above the 0.560 that pure seam pipelining requires
+and close to the ~0.95 that pure sibling shadowing requires, so R-B is the
+majority mechanism, plausibly between half and all of the effect, and R-A is at
+most a minor contributor. Every conclusion in sections 4-7 depends only on that
+directional claim, because "not proportional to seam count" is what kills
+constant-per-dispatch pricing, and it does so anywhere above w ~ 0.3.
 
 ### Verdict against the pre-registered thresholds, stated honestly
 
@@ -188,12 +223,29 @@ on how much it costs the conclusions:
    assembled. A small real effect that exists only at 406 command buffers per
    step would not transfer to `k = 0`.
 
-What this costs: the *point value* of `D(0)` is now a range, 382-448 us/step,
-not the +-31 us I would otherwise have quoted. What it does not cost: the
-qualitative claim, the R-B verdict, the rejection of constant-correction
-pricing, or any target ranking. Settling it cleanly needs a k=1 arm at 3-4x the
-replicate count, which I did not have host time for and which would not change
-a single recommendation below.
+**What I am actually doing with the fired criterion.** Taken literally, the
+pre-registration says to withdraw the A0 conclusion, and I am withdrawing it *as
+a pre-registered quantitative result*. `D(0)` is not `448 +- 31 us/step` with
+pre-registered standing; it is a range, 382-448 us/step, carrying a known
+unmodelled additive term. Anything downstream that needs a point value of `D(0)`
+-- and the closure test in §3.2 is the main one -- inherits that range and should
+be read as an aggregate consistency check at ~8 % tolerance rather than a
+calibrated measurement.
+
+What I carry forward is the *qualitative* claim only: the destroyed concurrency
+is hundreds of microseconds per step, an order of magnitude above PR #158's
+`<= 60 us` bound, and it does not scale with seam count. The four facts above are
+my post-hoc reasons for believing that claim survives; they are reasoning offered
+after seeing the data, and they do not restore pre-registered standing to
+anything. A reader who rejects them should discard §1's numbers and keep only
+the two results that do not depend on `D(0)` at all: the exact arithmetic
+identity in §0 (which is algebra on PR #158's own published numbers), and the
+Estimator C bundle reading in §3.5 (which is an independent, well-powered,
+wall-currency measurement on a lever 33x the design floor).
+
+Settling the k=1 residual cleanly needs a k=1 arm at 3-4x the replicate count,
+which I did not have host time for. I flag it as the single highest-value cheap
+follow-up for anyone re-using this instrument.
 
 ---
 
@@ -278,18 +330,31 @@ effect, presumably by serializing a little on its own.
 
 ### 2.4 Cross-session reconciliation with PR #101
 
-| session | delta (us/step) |
-| --- | ---: |
-| this PR, `h1k0` wall | 421 |
-| this PR, `h1k0` busy | 448 |
-| **PR #101** | **456** |
-| this PR, earlier smoke | 490 |
-| this PR, `h0k0` wall (hook off) | 580 |
+| reading | session | delta (us/step) |
+| --- | --- | ---: |
+| `h1k0` wall | this PR, A0 sweep | 421 |
+| `h1k0` busy | this PR, A0 sweep (same runs, other currency) | 448 |
+| `h0k0` wall (hook off) | this PR, A0 sweep (other phase) | 580 |
+| earlier smoke | this PR, separate session | 490 |
+| **PR #101** | **independent, earlier campaign** | **456** |
 
-Five independent sessions spread over ~160 us, consistent with the campaign's
-+-70 us arm-level between-session scatter doctrine. PR #101's +456 us sits in
-the middle of that distribution. **PR #101 replicates.** The working value used
-throughout the rest of this report is `D = 448 +- 31 us/step`.
+**A correction to how I first counted this.** These are five *readings*, not five
+independent sessions. Rows 1-3 all come from the one A0 sweep -- rows 1 and 2 are
+the same runs read in two currencies, and row 3 is a different phase of the same
+sweep -- so the honest count is **three independent sessions** (A0, the earlier
+smoke, and PR #101), with a 421-580 spread *within* the A0 session alone.
+
+That weakens the between-session argument and strengthens a different one: 160 us
+of spread appears even within a single session, which is larger than the +-70
+us/step doctrine would suggest and is itself a reason to distrust any single
+unreplicated `D` measurement. What survives unchanged is the reconciliation:
+PR #101's +456 us/step sits inside the range every one of my readings produced.
+**PR #101 replicates.** The working value used throughout the rest of this report
+is `D = 448 +- 31 us/step`, where the `+-31` is the within-`h1k0` scatter and is
+*not* a claim about session-to-session reproducibility. Per §1, that point value
+also has no pre-registered standing: the honest interval on `D(0)` is the range
+382-448 us/step, and every downstream use of 448 should be read at that
+tolerance.
 
 ### 2.5 R-A vs R-B: the per-group census
 
@@ -427,11 +492,23 @@ serialization penalty by 6.93 us -- almost exactly the isolated cost of
 were not shadowed at all: if `sliding_fused_attn_ring_v1` or `oproj_act_h64` had
 been even 20% hidden, that step would have cost at least 11 us more than it did.
 The residual after subtracting `gate_sp_h64` is 6.93 - 6.64 = 0.29 us; charging
-the whole +-2 us group-delta noise to hidden work still gives
-`E >= 1 - 2/55.54 = 0.96` for the `sliding_attn` + `oproj_h64` pair jointly.
-That is direct, kernel-specific evidence for `E ~ 1` on the two largest
-attention-side kernels, from the same experiment that proves `E ~ 0` for the
-small ones.
+the whole +-2 us group-delta noise to hidden work gives
+`E >= 1 - 2/55.54 = 0.96` for the `sliding_attn` + `oproj_h64` pair **jointly**.
+
+**That joint bound is weaker per kernel, and I originally quoted it as if it were
+not.** The pair bound says their *combined* hidden work is at most 2 us. Applied
+to either kernel on its own, the constraint is `hidden_i <= 2 us`, so
+
+```text
+sliding_fused_attn_ring_v1  (19.74 us/call):  E >= 1 - 2/19.74 = 0.90
+oproj_act_h64               (35.80 us/call):  E >= 1 - 2/35.80 = 0.94
+```
+
+The per-kernel floors are 0.90 and 0.94, not 0.96, and section 3.6 carries those
+numbers rather than the joint one. The qualitative conclusion is untouched: both
+of the two largest attention-side kernels are at least 90% exposed, from the same
+single experiment that proves `E ~ 0` for the small ones. But a reader entitled to
+a per-kernel bound should be handed the per-kernel bound.
 
 Magnitude comes from the budget. Predicted hidden work if those three are 100%
 shadowed:
@@ -451,11 +528,12 @@ E(shadowed) = 1 - 451.5/499.9 = 0.10
 ```
 
 The interval on that 0.10 is set by how well `D(0)` reproduces, not by
-within-session scatter. Five sessions measured `D(0)` at 421 / 442 / 456 (PR
-#101) / 490 / 580 us/step. Propagating that spread through the same ratio gives
-`E(shadowed)` in roughly **[0.00, 0.25]**, truncated at zero. The useful
-statement is not the point estimate -- it is that the whole class is worth at
-most a quarter of its census line.
+within-session scatter. The five readings of section 2.4 -- from three
+independent sessions -- put `D(0)` at 421 / 448 / 456 (PR #101) / 490 / 580
+us/step. Propagating that spread through the same ratio gives `E(shadowed)` in
+roughly **[0.00, 0.25]**, truncated at zero. The useful statement is not the
+point estimate -- it is that the whole class is worth at most a quarter of its
+census line.
 
 ### 3.2 Estimator B -- the closure test (one parameter, 19 rows)
 
@@ -486,10 +564,28 @@ came out at 1.013.
 
 Sensitivity: the census sum reproduces to about +-25 us/step between sessions
 (+-0.003 on `E_rest`), and moving `E(shadowed)` across its entire [0.00, 0.25]
-interval moves `E_rest` by only 0.007. The statistical interval is therefore
-**1.013 +- 0.01**. The honest caveat is systematic rather than statistical: this
-assumes the `SPLIT=1` per-kernel census is the correct "isolated" currency, which
-§2.7 shows is true to within the +66.5 us/step residual discussed in §1.
+interval moves `E_rest` by only 0.007.
+
+> **What this estimator is and is not.** `E_rest` is **one pooled parameter, not
+> sixteen**. Algebraically the closure test is a restatement of a single
+> aggregate comparison: the isolated census sums to 8387.3 us/step, the named
+> hiders and the 45 command buffers account for 516.6 and 24.3, and the residual
+> must equal the measured concurrent busy time of 7999.4. That is the same
+> statement as "the implied total overlap, 412.2 us/step, agrees with the
+> directly measured `D(0) = 448 +- 31 us/step` to about 8 %". It is a genuine
+> and non-trivial *aggregate* consistency check -- it is what rules out diffuse
+> partial overlap spread across all rows -- but it contains **no per-row
+> information whatsoever**. Assigning `E = 1.013` to `rmsbfloat16` and to
+> `oproj_act_h64` is an assumption of homogeneity, not a measurement of either.
+> Any individual row could be at 0.5 or at 1.3 and the closure would still hold
+> provided some other row compensated. Where §3.6 lists an interval sourced
+> "B closure", read it as *the pooled mean is 1.013 +- 0.01; the per-row value is
+> unmeasured*. Only Estimators A and C produce per-kernel readings, and between
+> them they cover eight of the nineteen rows.
+
+The other honest caveat is systematic: this assumes the `SPLIT=1` per-kernel
+census is the correct "isolated" currency, which §2.7 shows is true to within the
++66.5 us/step residual discussed in §1.
 
 ### 3.3 Estimator C -- knob ablation, `E = dS / dI`
 
@@ -557,27 +653,156 @@ why the 150 us/step design floor exists. Anyone who had run one of these two arm
 alone, without the census, would have published either "+65 us regression" or
 "-48 us win" with equal confidence.
 
+### 3.5 Estimator C, attempt 2: a well-powered arm at last
+
+The fix for attempt 1 was to stop picking knobs by name and start picking them by
+measured `dI`. `DARKBLOOM_FUSED_QKV_PROJECTION` (`LagunaRuntimeModel.swift:290`,
+consumed at `:5704`) gates the entire fused-norm-QKV block on the decode path.
+12 runs, `research/nezuko-a1b-fusion`, analysis in
+`research/nezuko-a1b-fusion.txt`. **0 token divergences in all 12 runs.**
+
+| quantity | on | off | delta |
+|---|---|---|---|
+| step wall (hook off, n=4/arm) | 8.2512 +- 0.0517 ms | 13.2000 +- 0.0621 ms | `dS` = **+4948.7 us/step** |
+| isolated census sum (`SPLIT=1`, n=2/arm) | 8562.0 +- 14.9 us | 13517.1 +- 96.2 us | `dI` = **+4955.2 +- 111.2 us/step** |
+| dispatches/step | 406.0 | 486.0 | +80 |
+
+```text
+EXPOSURE  E = dS/dI = +4948.7 / +4955.2 = 0.999
+          interval [0.87, 1.14]     perm p = 0.0571 (of 70, the minimum for n=4/arm)
+```
+
+`dI` is **33x the 150 us/step design floor**. This is the well-powered arm the
+pre-registration asked for and attempt 1 failed to deliver.
+
+**What the knob actually does.** Not what its name suggests. Turning it off does
+not merely unfuse a norm from a projection; it drops the NVFP4-native matvec path
+and falls back to dequantise-to-bf16 plus a generic `gemv`:
+
+```text
+off-only:  gemv_al_bfloat16_bm8_...  +5047.1     gated_affine_oproj_nvfp4_qmv_h64  +1148.7
+           gemv_al_bfloat16_bm4_...  +1581.7     gated_affine_oproj_nvfp4_qmv_h48   +312.4
+           gemv_al_bfloat16_bm1_...   +277.0
+on-only:   decode_nvfp4_qkv_h64      -1329.5     oproj_act_h64                     -1112.0
+           decode_nvfp4_qkv_h48       -362.1     oproj_act_h48                      -303.6
+           gate_sp_h64                -243.0     gate_sp_h48                         -77.7
+```
+
+Removed 3427.9, added 8366.9, net +4939.0; plus +15.1 us/step spread over every
+other row gives +4954.1, against a measured `dI` of +4955.2. The bundle is fully
+accounted for. **Every kernel outside the bundle moved by at most 7.0 us/step**
+(`sliding_fused_attn_ring_v1`, +7.0), so the knob is cleanly localised and `dI` is
+trustworthy.
+
+The 4.95 ms is therefore the standing value of NVFP4-native QKV matvec, not of
+seam fusion: `gated_affine_oproj_nvfp4_qmv_h64` (1148.7) is within 37 us/step of
+the `oproj_act_h64` (1112.0) it replaces, while the QKV half swaps 1691.6 us/step
+of NVFP4 matvec for 6905.8 us/step of bf16 `gemv`.
+
+**The dispatch-count confound, bounded.** The off arm issues +80 dispatches/step.
+In the wall arms the shipped 45-command-buffer split is in force, so the per-CB
+term only applies if the split policy emits more command buffers. Worst case,
+every one of the 80 extra dispatches lands in its own command buffer; at the
+steepest per-CB slope I measured anywhere (`c(204<->406) = 0.948 us/CB`, section
+2.7) that is +75.8 us/step, **1.5 % of `dS`**, which cannot move `E` by more than
+0.015. The confound is real and negligible.
+
+**What this confirms.** Before this arm, `decode_nvfp4_qkv_h*` had *no* direct
+per-kernel exposure reading at all -- it inherited the pooled closure value -- and
+`oproj_act_h64` had only the group-composition floor `E >= 0.94`. Estimator C now
+measures the whole family directly, in wall currency, on a lever 33x the design
+floor: **a microsecond of isolated NVFP4 matvec work is a microsecond of decode
+wall time.** Three estimators built on three different mechanisms at three
+different scales -- microsecond group composition, a one-parameter aggregate
+closure, and a 5 ms ablation -- agree. This is the load-bearing result of §3, and
+it is the one that does not depend on `D(0)`.
+
+**What this does not confirm, and I want to be explicit.** The bundle contains
+`gate_sp_h64` (-243.0) and `gate_sp_h48` (-77.7), which Estimator A prices at
+`E = 0.10`. Those two hypotheses make different predictions for this arm:
+
+| hypothesis | predicted `E_bundle` |
+|---|---|
+| `gate_sp` fully exposed (`E = 1`) | 1.000 |
+| `gate_sp` shadowed (`E = 0.10`, Estimator A) | 1.058 |
+
+Measured `E_bundle = 0.999`, interval [0.87, 1.14]. The point estimate sits on the
+"fully exposed" prediction, but the interval covers both, so **this arm does not
+discriminate** -- it is mild evidence against `E = 0.10` for `gate_sp`, not
+evidence for it, and it is nowhere near decisive. `gate_sp` is 6.5 % of the
+bundle; separating 1.000 from 1.058 at one sigma needs `dS` precision of about
++-145 us/step against the +-341 us/step I have, i.e. roughly `n = 22` per arm
+instead of 4. That is a cheap, concrete follow-up and I flag it as the sharpest
+open question in this report: **Estimators A and C disagree in sign about
+`gate_sp`, and only Estimator A's reading is currently load-bearing** (it is what
+demotes `gate_sp_h64` five ranks in section 4).
+
+**The honest limitation of Estimator C.** `E` here is measured on a perturbation
+that moves the machine to 13.2 ms/step, a *more* GPU-bound regime than the shipped
+8.25 ms/step: at `SPLIT=1` the off arm's wall-minus-busy gap is 0.53-0.72 ms
+against the on arm's 1.34-1.38 ms. A saturated GPU exposes work almost by
+construction, so this arm is better read as confirming that nothing *unexpected*
+absorbs matvec work than as a measurement of `E` at the operating point.
+Extrapolating an exposure factor from a 5 ms lever down to the 50 us
+optimisations section 5 recommends is an assumption. It is, however, the same
+assumption the census itself makes, and Estimators A and B do operate at the
+microsecond scale and agree -- which is precisely why I ran three of them.
+
 ### 3.6 The exposure table
+
+Rows are grouped by **how strong the evidence for that row actually is**, because
+the three estimators are not interchangeable. A and C read individual kernels; B
+reads only the aggregate.
+
+**Group 1 -- per-kernel readings (A direct, or C direct in wall currency).**
 
 | kernel / class | n/step | isolated us/step | `E` | interval | from |
 |---|---|---|---|---|---|
-| `oproj_act_h64` | 30 | 1102.2 | 1.01 | [0.96, 1.03] | A direct + B |
-| `sliding_fused_attn_ring_v1` | 30 | 620.4 | 1.01 | [0.96, 1.03] | A direct + B |
+| the six-kernel NVFP4-matvec bundle: `decode_nvfp4_qkv_h64` + `h48`, `oproj_act_h64` + `h48`, `gate_sp_h64` + `h48` | 140 | 3379.3 | **0.999** | [0.87, 1.14] | C direct, `dS/dI` on a 4955.2 us/step lever, n=4/arm |
+| `oproj_act_h64` | 30 | 1102.2 | >= 0.94 | [0.94, 1.14] | A direct + C bundle |
+| `sliding_fused_attn_ring_v1` | 30 | 620.4 | >= 0.90 | [0.90, 1.05] | A direct |
 | `shared_nvfp4_swiglu_qmv_rows1` | 39 | 274.1 | **0.10** | [0.00, 0.25] | A direct |
 | `gate_sp_h64` | 30 | 227.4 | **0.10** | [0.00, 0.25] | A direct |
 | `gate_sp_h48` | 10 | 72.5 | **0.10** | [0.00, 0.25] | A direct |
-| every other census row (16 rows) | -- | 7813.3 | 1.013 | [1.00, 1.03] | B closure |
 
-Five kernels have a direct, per-kernel exposure reading; the remaining sixteen
-rows share one closure-fitted value that came out at 1.013 against a
-requirement it was in no way forced to meet.
+The bundle row is the strongest single exposure measurement in this report: the
+`DARKBLOOM_FUSED_QKV_PROJECTION` ablation moves isolated cost by 4955.2 us/step,
+**33x the 150 us/step design floor**, and the wall moves by 4948.7. The measured
+`E` for that lever is 0.999. Because the bundle is 3379.3 us/step of shipped
+census work whose replacement is measured in the wall currency the score is paid
+in, this is the one place where "the census line is what it costs" is a *direct
+observation* rather than an inference.
+
+**Group 2 -- no per-kernel reading; assigned the pooled closure value.**
+
+| kernel / class | n/step | isolated us/step | assigned `E` | provenance |
+|---|---|---|---|---|
+| the remaining 11 census rows | -- | 4113.5 | 1.013 | pooled mean, **per-row unmeasured** |
+
+The Group 2 interval is deliberately absent. As §3.2 spells out, `E_rest` is one
+number fitted to one aggregate constraint; quoting a per-row confidence interval
+from it would be inventing precision. The defensible statement is *the
+exposure-weighted mean over those rows is 1.013 +- 0.01*.
+
+**The A-vs-C tension on `gate_sp`, stated openly.** The `gate_sp_h64` / `h48`
+kernels appear in both groups' evidence: Estimator A puts them at `E = 0.10`,
+and they are also inside the Estimator C bundle that came out at `E = 0.999`.
+These are not in conflict *yet*, because the bundle is dominated by the four
+large matvecs: `gate_sp` is 300 of the bundle's 4955 us/step, so `E(gate_sp) = 1`
+predicts a bundle `E` of 1.000 and `E(gate_sp) = 0.10` predicts 1.058. The
+measured [0.87, 1.14] covers both. Separating them needs about n=22/arm, roughly
+five times the allocation this arm used. So the `gate_sp` shadowing rests on
+Estimator A alone -- which is a direct, three-times-replicated group-composition
+reading (§2.6), but a single method.
 
 The operational summary is short. **Three named kernels are shadowed and worth a
-tenth of their census line. Everything else is fully exposed and worth exactly
-its census line.** There is no broad middle band of half-hidden work -- I looked
-for one and the data does not support it. That is a more useful world than the
-alternative, because it means the re-priced census in section 4 can be read as a
-target list directly, with three deletions.
+tenth of their census line. The eight kernels with direct readings, and the pooled
+mean of everything else, are at or near full exposure.** There is no broad middle
+band of half-hidden work -- I looked for one and the aggregate closure rules it
+out. That is a more useful world than the alternative, because it means the
+re-priced census in section 4 can be read as a target list directly, with three
+deletions -- while remembering that "read the census line" is a *measured*
+statement for eight kernels and a *homogeneity assumption* for eleven.
 
 ---
 
@@ -612,14 +837,22 @@ implied overlap      412.2 us/step   (A0 measured 448 raw / 382 bias-corrected)
 E_rest = 1.013                       (1.000 == fully explained)
 ```
 
-`E_rest = 1.013` is not a fitted parameter and is not tautological: three
-exposures were fixed from a different experiment, and the sixteen unconstrained
-kernels came back at 1.3 % from unity. Two independent lines -- the nested-group
-composition census of §2.5-2.6 and this whole-step accounting identity -- agree
-that the decode path is **three hidden kernels and sixteen fully exposed ones**,
-with no diffuse residual left over. The same script run at the earlier
-provisional `c = 0.347` returns `E_rest = 1.007`; the closure is insensitive to
-`c` because `45c` is only 24 us of an 8000 us step.
+`E_rest` *is* solved for, so it is a fitted parameter -- but it is a single
+scalar fitted to one equation whose other inputs came from elsewhere: three
+exposures fixed by A0, and a `busy` total measured directly. What makes the
+result informative is that it came back 1.3 % from unity rather than at, say,
+0.85 or 1.20. Read it the way §3.2 says to read it: as the aggregate statement
+"the census total minus the three named hiders reproduces the measured busy time
+to about 1 %", not as evidence about any individual row. It carries no per-row
+information and assumes homogeneity across the eleven rows that have no direct
+reading of their own.
+
+With that caveat, two independent lines -- the nested-group composition census of
+§2.5-2.6 and this whole-step accounting identity -- agree that the decode path is
+**three hidden kernels and sixteen fully exposed ones**, with no diffuse residual
+left over. The same script run at the earlier provisional `c = 0.347` returns
+`E_rest = 1.007`; the closure is insensitive to `c` because `45c` is only 24 us
+of an 8000 us step.
 
 ### 4.2 The table
 
@@ -722,8 +955,9 @@ whole weight pool.
 
 ### 5.1 T1 -- attention occupancy: split the serial KV sweep
 
-**Priced: 227 us/step (+3.32 % score) conservative lower bound; 564 us/step
-(+8.26 %) arithmetic ceiling. Unowned by any open PR.**
+**Priced: 564 us/step (+8.26 %) arithmetic ceiling on the whole attention pool.
+The 227 us/step tail-quantization number below is a *model-dependent estimate,
+not a measured floor* -- see the caveat. Unowned by any open PR.**
 
 Both decode attention kernels use one threadgroup per *pair* of query heads
 (`Sources/MLXFastModel/LagunaRuntimeModel.swift:1370` sliding,
@@ -740,18 +974,49 @@ Two independent measurements say bytes are not the constraint:
    at 149 % of DRAM peak is being served from cache, so the kernels are not
    waiting on DRAM. Counting *unique* bytes gives 101 GB/s and 95 GB/s, i.e.
    37 % and 35 % of peak. Either way, DRAM is not the wall.
-2. **The grid does not tile the machine.** 32 threadgroups on 20 cores occupies
-   two waves but supplies 1.60 waves of work; 24 on 20 supplies 1.20. Even
-   assuming wave 1 is perfectly packed and *ignoring the serial KV chain
-   entirely*, the idle tail is 20 % of `sliding_fused_attn_ring_v1` (126 us/step)
-   and 40 % of `full_fused_attn_grow_v1` (101 us/step) = **227 us/step**.
+2. **The grid does not tile the machine.** 32 threadgroups on 20 cores supplies
+   1.60 waves of work; 24 on 20 supplies 1.20. *If* the machine ran exactly one
+   threadgroup per core at a time, the idle tail would be 20 % of
+   `sliding_fused_attn_ring_v1` (126 us/step) and 40 % of
+   `full_fused_attn_grow_v1` (101 us/step) = 227 us/step.
 
-That 227 us/step is a floor on the loss, not an estimate of it, because inside
-each threadgroup the sliding kernel walks the 512-position window strictly
-serially: `constexpr uint window = 512; constexpr int BN = 32; constexpr int N =
-512` gives **16 sequential KV iterations with no split and no flash-decoding
-merge**. During the tail wave, 12 of 20 cores are idle for the entire length of
-that 16-iteration chain.
+Inside each threadgroup the sliding kernel walks the 512-position window
+strictly serially: `constexpr uint window = 512; constexpr int BN = 32;
+constexpr int N = 512` gives **16 sequential KV iterations with no split and no
+flash-decoding merge**. That serial chain is read directly from the shipped
+source and is not model-dependent.
+
+> **Caveat on the 227 us/step number -- read this before quoting it.** It is an
+> *estimate under an assumption I did not test*, not a floor. The wave
+> arithmetic assumes one resident threadgroup per core. Apple GPU cores are
+> multi-threadgroup: if two or more of these threadgroups co-reside on a core,
+> the "tail" is not idle silicon, it is a second occupant, and the recoverable
+> quantity shrinks -- possibly to near zero. I did not measure occupancy,
+> residency, or per-core threadgroup count; I have no instrument on this host
+> that reports them. Second, the number is a *pure function of the grid/core
+> ratio*, so it is specific to this 20-core M4 Pro. On the ranked M5 Max the
+> core count is higher, and 32 and 24 threadgroups tile it differently; the tail
+> fraction could be larger, smaller, or absent. AGENTS.md warns explicitly that
+> threadgroup geometry can change sign across core counts. The honest statement
+> is: **the grid is small relative to the machine and the per-threadgroup work
+> is a 16-deep serial chain, so an occupancy-limited regime is plausible and
+> worth one cheap direct test; 227 us/step is the size it would have under the
+> most optimistic reading of that regime, and the measurement that would confirm
+> or kill it has not been run.**
+>
+> The cheap direct test is an `S=2` split prototype timed against the shipped
+> kernel on the same host: if occupancy is the constraint, doubling the grid
+> moves the step; if the cores were already co-resident, it does not. That test
+> costs one build and one paired timing session and should precede any
+> investment in the online-softmax merge.
+
+The measurement that *is* solid here is the pool ceiling, not the tail estimate.
+`sliding_fused_attn_ring_v1` and `full_fused_attn_grow_v1` together cost
+881 us/step and move 101 GB/s and 95 GB/s of unique bytes -- 37 % and 35 % of
+DRAM peak. If they ran at the 98.2 % that `decode_nvfp4_qkv_h64` demonstrates on
+this same host, they would cost 317 us/step. That gap, **564 us/step = 8.26 %
+score**, is arithmetic on measured bytes and measured times; what is uncertain
+is only how much of it any particular mechanism can recover.
 
 **Mechanism.** Split the KV sweep across `S >= 2` threadgroups per head pair and
 merge with the standard online-softmax combine (each partial keeps its running
@@ -769,10 +1034,10 @@ hidden behind a sibling. Re-geometrizing a hidden kernel cannot move the step
 even when the kernel itself gets faster, which is exactly the -0.04 % PR #101
 measured. `sliding_fused_attn_ring_v1` is the opposite case, and it is one of
 only two kernels for which §3.1 has a *direct* per-kernel reading rather than a
-closure fit: admitting it to the serialized group cost nothing, so `E >= 0.96`
-from Estimator A and `E = 1.013` from Estimator B. 628.7 us/step fully exposed,
-census rank 5. This is the single largest non-bytes-bound exposed cost in the
-decode step.
+closure fit: admitting it to the serialized group cost nothing measurable, which
+bounds `E >= 0.90` from Estimator A alone, and the pooled Estimator B fit puts
+it at 1.013. 628.7 us/step fully exposed, census rank 5. This is the single
+largest non-bytes-bound exposed cost in the decode step.
 
 **Risks to state up front.** (a) The merge changes the floating-point reduction
 order, so this needs `LagunaUpstreamEquivalence.swift` via
@@ -909,6 +1174,18 @@ This retro-explains an existing NO-GO rather than proposing anything new: PR
 optimizing a kernel that is already free. The exposure model predicts exactly
 that outcome, which is a useful post-hoc validation of the model.
 
+**Evidence strength, stated plainly.** The `E = 0.10` reading rests on
+Estimator A alone (§2.6): a single method, three independent nested-group
+compositions. Estimator C's bundle arm contains `gate_sp` but is 15x too
+insensitive to separate it (§3.6). The independent corroboration is behavioural
+rather than instrumental -- PR #101 re-geometrized `gate_sp` and the step did not
+move -- which is exactly what `E = 0.10` predicts and hard to explain if `gate_sp`
+were fully exposed. If a future arm needs the number to be tight, the design is
+n>=22/arm on `DARKBLOOM_FUSED_QKV_PROJECTION`, or better, a `gate_sp`-only knob.
+For the operational purpose here -- "do not spend engineering effort on these
+three kernels" -- the current evidence is sufficient, because both the direct
+reading and the one behavioural test point the same way.
+
 ### 6.3 Further overlap, granularity, or dispatch-type engineering
 
 The shipped configuration already captures the available overlap: `E ~ 1.0` for
@@ -984,7 +1261,7 @@ the checkpoint metadata.** Verify the representation and the head count from
 | per-kernel isolated cost, measured at SPLIT=1 | **survives**. At one dispatch per command buffer nothing overlaps, so the per-kernel census is a genuine isolated-work measurement. This is what makes the §2.b kernel times reusable at all. |
 | detecting command-buffer-level concurrency | **survives, and correctly reported zero.** `gpu_busy_union` equals `gpu_busy_sum` in both arms, so no command buffers overlap. That is a true fact about this runtime. |
 | detecting *intra*-command-buffer concurrency | **does not survive.** Both `sum` and `union` are built from command-buffer start/end timestamps. Concurrency between two dispatches inside one buffer is invisible: it shows up as a buffer that finished sooner, i.e. as *work that is not there*, never as overlap. |
-| PR #158's claim "hidden concurrent work <= 0.06 ms/step" | **withdrawn.** The instrument is structurally incapable of supporting it. The true value is 448 +- 31 us/step. |
+| PR #158's claim "hidden concurrent work <= 0.06 ms/step" | **withdrawn.** The instrument is structurally incapable of supporting it. The measured value is 382-448 us/step (§1 range), 6-7x the claimed bound. |
 
 Two concrete rules for future use:
 
@@ -1034,12 +1311,19 @@ PHASES='1:2 1:1' OUT=research/nezuko-a0-split \
   bash research/nezuko_a0_dispatch_type_abba.sh
 python research/nezuko_a0_split_derive.py
 
-# 4. A1 exposure factors E = dS/dI for the default-ON fusion knobs.
+# 4. A1 attempt 1: E = dS/dI for the two pre-registered knobs. Both land
+#    below the 150 us/step design floor -- kept as a recorded negative.
 bash research/nezuko_a1_exposure.sh
 python research/nezuko_a1_analyze.py research/nezuko-a1-exposure
 
-# 5. A2 re-priced census.
-python research/nezuko_a2_reprice.py --top 25 \
+# 4b. A1b attempt 2: the same estimator on a lever 33x the design floor.
+#     This is the well-powered Estimator C reading, E = 0.999 [0.87, 1.14].
+KNOBS=DARKBLOOM_FUSED_QKV_PROJECTION OUT=research/nezuko-a1b-fusion \
+  bash research/nezuko_a1_exposure.sh
+python research/nezuko_a1_analyze.py research/nezuko-a1b-fusion
+
+# 5. A2 re-priced census, at the A0-measured per-command-buffer cost.
+python research/nezuko_a2_reprice.py --c 0.540 --top 25 \
   --exposure '{"gate_sp_h64":0.10,"gate_sp_h48":0.10,"shared_nvfp4_swiglu_qmv_rows1":0.10}'
 
 # 6. Clock-correlation negative control (must print WINDOW CORRELATION FAILED).
