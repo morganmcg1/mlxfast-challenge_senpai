@@ -1871,3 +1871,108 @@ replicates in a feed that hides them, that it recovered the baseline-side
 noise correctly, and that it should have been checked against the six rows
 where the answer was already known before it was used to argue with the
 advisor's band.
+
+### 13.12 The harness's between-session drift lives in the baseline arm, and `ns` never touches it
+
+Section 13.11 fixed the *within-session* error budget. Our receipt is not a
+within-session comparison: `99b71258` was measured ~18 h after `97a5090c`. So
+the remaining question is how much slow drift rides on top of the replicate
+noise, and which statistic it enters.
+
+I first tried the obvious test — correlate each day's baseline deviation with
+that day's candidate deviation across all 11 days with published metrics
+(`research/maple-fern-pr137-drift-rho.py`). It is worthless:
+`rho = +0.018` on prefill, `+0.160` on decode, because the candidate axis is
+dominated by genuine code differences (detrended daily spread 9.3 % on prefill,
+12.5 % on decode) rather than by machine state. A null here means nothing.
+
+The sharp test is to hold the code fixed. The frontier has been stable for
+several days, so a large plurality of submissions share effectively identical
+candidate code. Clustering on both candidate axes (prefill within ±0.5 %,
+decode within ±0.3 % of the recent mode) leaves 168 rows over four days:
+
+| day | n | cand decode | cand prefill | `ns` | `nsd` | base prefill |
+|---|---|---|---|---|---|---|
+| 2026-08-03 | 59 | 0.005115161 | 0.000190935 | 2.519910 | 2.115350 | 0.000372948 |
+| 2026-08-04 | 71 | 0.005111338 | 0.000191112 | 2.520740 | 2.116536 | 0.000376907 |
+| 2026-08-05 | 32 | 0.005109669 | 0.000191079 | 2.521465 | 2.117055 | 0.000374068 |
+| 2026-08-06 |  6 | 0.005102052 | 0.000191063 | 2.524340 | 2.119425 | 0.000369743 |
+
+Comparing the spread of the daily medians against the white-noise floor each
+day's sample size implies (`sd/sqrt(n)`):
+
+| axis | cv of daily medians | white-noise floor | excess = drift |
+|---|---|---|---|
+| baseline prefill | 0.793 % | 0.343 % | **0.715 %** |
+| candidate prefill | 0.041 % | 0.037 % | 0.017 % |
+| candidate decode | 0.108 % | 0.040 % | ≤ 0.100 % |
+| `ns` | 0.076 % | — | — |
+| `nsd` | 0.081 % | — | — |
+
+The same picture appears on the wider cut that clusters on prefill only and
+spans 08-03…08-06 with 265 rows: baseline prefill daily-median cv 0.955 %
+against candidate prefill 0.046 %, a ratio of **0.05**.
+
+This settles the question I set out to answer. A common-mode machine level
+shift — thermal state, background load, OS scheduling — must move both arms by
+the same *relative* amount, because both run back to back in one session on one
+host. It does not. The baseline arm's prefill wanders by ~0.7–0.9 % between
+sessions while the candidate arm, running the same code, holds to 0.02–0.04 %.
+Whatever this is, it is a property of the baseline arm's measurement, not of
+the machine.
+
+I flag the candidate-decode figure as an upper bound. Its four daily medians
+fall monotonically (5115.2 → 5102.1 µs) inside a ±0.3 % selection band that is
+three times wider than the movement itself, so some of that 0.100 % is the
+cluster's composition drifting as the frontier improves, not the harness. The
+error bars below are therefore conservative.
+
+**Consequence 1 — this is why `officialScore` is a bad cross-session axis, and
+the reason is not the one I assumed.** `officialScore` is a paired ratio, so I
+had been treating it as protected against drift. Pairing only cancels drift
+that is *common mode*, and this drift is not. Baseline prefill enters
+`officialScore` at weight 0.25, so it contributes `0.25 × 0.715 % ≈ 0.18 %` of
+pure cross-session error that no amount of same-session pairing removes.
+
+**Consequence 2 — `ns` is structurally immune.** `ns` uses *fixed*
+normalisers, which makes it a single-arm statistic on the candidate:
+`ns = (0.013890/d)^0.75 × (0.0003845/p)^0.25` reads only the candidate's `d`
+and `p`. The baseline arm — where all the drift is — never appears. Its
+cross-session excess is therefore only the candidate arm's own, `0.75 × 0.100
+= 0.075 %`, which matches the directly measured 0.076 % to the third decimal.
+The advisor prescribed fixed normalisers to escape the baseline's *variance*;
+they also escape the baseline's *drift*, which is a second and independent
+reason the prescription is right.
+
+**Consequence 3 — restated error bars for the receipt.** Combining 13.11's
+within-session sigmas with the excess above, and multiplying by `sqrt(2)`
+because both our receipt and `97a5090c` are single measurements:
+
+| axis | within-session | cross-session excess | total | paired | GO threshold | full transfer | sd on `t` |
+|---|---|---|---|---|---|---|---|
+| `ns` | 0.138 % | 0.075 % | 0.157 % | 0.222 % | **+1.09σ** | **+4.20σ** | **±0.24** |
+| `nsd` | 0.148 % | 0.075 % | 0.166 % | 0.235 % | +1.03σ | +3.98σ | ±0.25 |
+| `officialScore` | 0.559 % | 0.179 % | 0.587 % | 0.830 % | +0.29σ | +1.12σ | ±0.89 |
+
+`ns` remains 3.74× tighter than `officialScore` cross-session, against 4.05×
+within-session. One receipt separates `t = 0.50` from `t = 1.00` by 2.10σ and
+`t = 0.50` from `t = 0.75` by 1.05σ. Section 13.11's headline numbers (+1.24σ,
++4.78σ, ±0.21) were the within-session case; these are the ones that apply to
+what we actually measured, and they are 14 % wider.
+
+**Consequence 4 — I withdraw the argument I was about to make for `nsd`.** I
+had expected drift to sit in the baseline arm's *decode* row and to be
+cancelled by a decode-only statistic, which would have made `nsd` the robust
+cross-session corroborator. That is wrong twice over. The drift is on prefill,
+not decode; and because `ns` never reads the baseline, baseline drift is
+irrelevant to both statistics. The drift that does reach them is candidate
+decode, which `ns` and `nsd` carry at the *identical* weight 0.75. `nsd` is
+strictly the weaker instrument here — it discards the prefill term without
+shedding any noise, and measures 0.235 % paired against `ns`'s 0.222 %.
+
+So `nsd` earns no promotion. I will keep reporting it, but only for what it
+honestly is: a mechanism check. Our change touches the decode path alone, so
+`nsd` moving while prefill stays flat is evidence that the effect is the one we
+built, not a session artefact. It is not a second, quieter measurement of the
+same thing. The advisor's single-axis prescription stands unmodified, and every
+GO/KILL call belongs to `ns`.

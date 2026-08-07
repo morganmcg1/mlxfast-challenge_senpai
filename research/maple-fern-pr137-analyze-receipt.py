@@ -46,11 +46,14 @@ PROMOTED_NSD = 2.18184340
 # (f8502e12/71586bcf/f3cda678 and 5d522d6a/5e0e9cd1/c210d200; 6 rows, 4 dof).
 # Section 13.11: the 27-cluster estimates are contaminated by real code
 # differences on the candidate axes and are upper bounds, not noise.
-SD_SCORE_PCT = 0.559
-SD_NS_PCT = 0.138
-SD_NSD_PCT = 0.148
-SD_DSPD_PCT = 0.361
-SD_DECODE_PCT = 0.197
+# Cross-session sigmas: the within-session replicate-triplet values of 13.11
+# combined in quadrature with the candidate-arm drift excess of 13.12.  Our
+# receipt and 97a5090c are ~18 h apart, so these are the applicable ones.
+SD_SCORE_PCT = 0.587
+SD_NS_PCT = 0.157
+SD_NSD_PCT = 0.166
+SD_DSPD_PCT = 0.378
+SD_DECODE_PCT = 0.221
 
 # Score-axis size of a full-transfer (t = 1) effect, from the section 11.5
 # elasticity: 63.7 us * 0.01464 %/us.
@@ -128,6 +131,10 @@ def main():
     if KILL_NS <= ns < GO_NS:
         print("  -> inside the pre-registered adjudication window;"
               " advisor adjudicates on the transfer factor")
+    pair = SD_NS_PCT * 2 ** 0.5
+    print(f"  band edges sit at {(GO_NS / PROMOTED_NS_FIXED - 1) * 100 / pair:+.2f}"
+          f" / {(KILL_NS / PROMOTED_NS_FIXED - 1) * 100 / pair:+.2f} sigma"
+          f" of a cross-session paired difference")
     t, sdt = transfer((ns / PROMOTED_NS_FIXED - 1) * 100, EFFECT_SCORE_PCT, SD_NS_PCT)
     print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}")
     print(f"  vs bar   {BEST_NS_FIXED:.8f}   {(ns / BEST_NS_FIXED - 1) * 100:+.3f} %")
@@ -141,10 +148,13 @@ def main():
     print(f"  vs promoted 97a5090c {PROMOTED_NS:.8f}"
           f"   {(score / PROMOTED_NS - 1) * 100:+.3f} %")
     t, sdt = transfer((score / PROMOTED_NS - 1) * 100, EFFECT_SCORE_PCT, SD_SCORE_PCT)
-    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}   (4x looser: see 13.11)")
+    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}"
+          f"   (3.7x looser cross-session: see 13.12)")
     print()
 
-    print("--- corroborating decode axis (section 13.8) ---")
+    print("--- decode axis: mechanism check only, NOT a second measurement ---")
+    print("    (13.12: nsd shares ns's decode weight 0.75, so it is strictly the")
+    print("     weaker instrument; it shows the effect is on the path we changed.)")
     print(f"nsd = (norm/d)^.75 {nsd:.8f}   [1 sigma = {SD_NSD_PCT} %]")
     print(f"  vs bar   {BEST_NSD:.8f}   {(nsd / BEST_NSD - 1) * 100:+.3f} %")
     print(f"  vs 97a5090c {PROMOTED_NSD:.8f}   {(nsd / PROMOTED_NSD - 1) * 100:+.3f} %")
