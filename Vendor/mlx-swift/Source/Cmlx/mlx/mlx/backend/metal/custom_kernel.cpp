@@ -1,5 +1,7 @@
 // Copyright © 2024 Apple Inc.
 
+#include <cstdio>
+
 #include "mlx/backend/gpu/copy.h"
 #include "mlx/backend/metal/jit/includes.h"
 #include "mlx/backend/metal/utils.h"
@@ -102,6 +104,18 @@ void CustomKernel::eval_gpu(
   const auto [tx, ty, tz] = threadgroup_;
   auto tg_size = tx * ty * tz;
   auto max_tg_size = kernel->maxTotalThreadsPerThreadgroup();
+  if (name_.find("laguna_routed_shared_nvfp4_down_residual") == 0) {
+    std::fprintf(
+        stderr,
+        "MLXFAST_RESOURCE_REPORT name=%s requested_threads=%zu "
+        "thread_execution_width=%zu max_threads_per_threadgroup=%zu "
+        "static_threadgroup_memory_bytes=%zu\n",
+        name_.c_str(),
+        static_cast<size_t>(tg_size),
+        static_cast<size_t>(kernel->threadExecutionWidth()),
+        static_cast<size_t>(max_tg_size),
+        static_cast<size_t>(kernel->staticThreadgroupMemoryLength()));
+  }
   if (tg_size > max_tg_size) {
     std::ostringstream msg;
     msg << "Thread group size (" << tg_size << ") is greater than "
