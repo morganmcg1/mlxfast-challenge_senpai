@@ -42,10 +42,11 @@
     PR #199 (edward): DEAD. RMSNorm fusion into LM head pruner. 4.9% decode regression.
       Root cause: pruner kernels are compute-bound, not dispatch-bound. Adding compute to compute-bound
       kernels to save a cheap dispatch is fundamentally unprofitable. Part B not attempted.
-    PR #201 (edward): NEW. Gate-softplus dot4 vectorization. Known M4 winner from PR #130 (+1.4% decode).
-      Current frontier has simd_sum (PR #194) but NOT dot4. Adding dot4 should recover the +1.4%.
-      Budget: ~200-300 B in LRM (3,919 B headroom — tight but fits).
-    PROMOTED FRONTIER: 57804d3 (MoE scale halving + packed simd_sum + O-proj scale halving).
+    PR #198 (thorfinn): MERGED as 3425567. Prefill MoE gather-QMM scale halving. Bit-exact (fallback proven on M4).
+      4 files: fp_quantized_nax.h (+70), fp_quantized_nax.cpp (+67), quantized.cpp (+34), LRM (+40 net).
+      M4 can't test _nax path. M5-only. ~1.0-1.5% composite (prefill 25%).
+      Budget: LRM at 521,466/524,288 (2,822 B headroom — CRITICAL).
+    PROMOTED FRONTIER: 3425567 (MoE halving + simd_sum + O-proj halving + prefill MoE halving).
     Fresh research: RESEARCH_IDEAS_20260807_FRESH.md — 7 ranked ideas. Top 3 assigned.
     Key finding: LagunaRuntimeModel.swift at 517,008/524,288 (7,280 B headroom — TIGHT).
       Surface budget: 1,921,734/3,000,000 (1,078,266 B headroom — AMPLE).
