@@ -1,12 +1,41 @@
 # SENPAI Research State
-- 2026-08-06T23:22Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 05707b7 (origin/mlxfast-birch-20260805-advisor).
+- 2026-08-07T00:20Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 4f824e5 (origin/mlxfast-birch-20260805-advisor).
   Clean scored code frontier: 12a712d (top-8 elimination, FMA dequant, STAGE2_GATHER, LM_HEAD_PRUNE).
   Composed base 13fdaf6 includes all dot4/simd_sum/float4 changes (CONFIRMED COUNTERPRODUCTIVE on M5).
 
-## M5 SUBMISSION STATUS: Clean ops-per-buffer 800 (submission 2278bd85, VALIDATING)
-  Candidate: birch-edward/clean-ops-buffer-800-v1 @ e98e46b (1-line diff vs 12a712d)
-  Diff: MLX_MAX_OPS_PER_BUFFER 200→800 in LagunaRuntimeWeights.swift:387
+## M5 SUBMISSION STATUS
+  Submission 2278bd85 (ops-800): REJECTED at -7.23% on M5.
+  No active M5 submissions. All post-promotion submissions REJECTED.
+  Promoted: 97a5090, score 2.5888 (+3.64%), submitted 8/6 05:04 UTC.
+
+## CRITICAL: Submission History Analysis
+  Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
+  Promoted code surface at commit 12a712d (CLEAN — no dot4/simd_sum/float4).
+
+  ALL post-promotion submissions REJECTED or FAILED:
+    00de2d3 (11:23): FAILED (15-PR composed, no ops-per-buffer)
+    26dc269 (12:11): rejected -7.21%
+    c95b4e4 (14:35): rejected -9.16%
+    57d8f08 (18:26): FAILED (3-PR composed)
+    4b06e93 (21:30): rejected -14% (15-PR + QHOIST)
+    0e43085 (22:09): rejected -12.91% (composed kernel changes at 13fdaf6)
+    2278bd85 (23:10): rejected -7.23% (clean ops-800 only)
+
+  KEY FINDING: Instruction-count reductions (dot4, simd_sum, float4, max_threads) are
+  COUNTERPRODUCTIVE on M5. M5 is bandwidth-bound for these kernel sizes despite 89% ALU
+  utilization. The 89% ALU figure includes stall cycles — the ALU is active but waiting
+  for memory. The ops-800 submission (clean scheduling change only) was ALSO rejected,
+  suggesting scheduling changes that increase buffer sizes may also be counterproductive.
+
+  COMPILED DECODE: RESEARCHED AND KILLED. Research agent confirmed compiled decode
+  would DISABLE fused Metal kernels (CompilableKVCache ≠ KVCacheSimple, stale offset
+  breaks fusedRingPrepare guard), inflate full-attention K/V traffic 1.5-6.4×, and
+  compile() cannot fuse custom metalKernel dispatches (81 uses, opaque to MLX fusion).
+  Verdict: "Likely to HURT on a bandwidth-bound M5." Do NOT assign compiled decode.
+
+  STRATEGY PIVOT: Focus on bandwidth reduction (scale halving) and command buffer
+  optimization (MB tuning). Test each ISOLATED on the current advisor base.
   Correctness: ALL PASSED (local-iterate, local-submit 1025 steps, upstream equiv 8/8, swift test 456/456)
   M4 timing: -0.91% decode (EXPECTED — M4 bandwidth-bound, M5 is decisive)
   Submitted: 2026-08-06T23:10 UTC as 2278bd85-01a1-41df-97dc-f744335ad3c4
@@ -31,31 +60,36 @@
   STRATEGY PIVOT: Focus on scheduling (ops-per-buffer, BFS width, fast synch) and
   bandwidth reduction (scale halving). Test each ISOLATED on clean promoted code (12a712d).
 
-## CURRENT WAVE (Wave 13 — Scheduling/Bandwidth Strategy)
+## CURRENT WAVE (Wave 14 — Bandwidth + Scheduling, 2026-08-07T00:20Z)
 
-  PR #172 (Edward) — Clean ops-per-buffer 800 on promoted code 12a712d. REVIEWED GREEN.
-    Submitted to M5 as 2278bd85. Correctness all passed. Bit-exact scheduling change.
-    If accepted: new promoted frontier. If rejected: need other scheduling/bandwidth levers.
+  PR #169 (Askeladd) — Scale-plane halving for QKV+O-proj. DRAFT, in progress.
+    Bandwidth reduction: halve NVFP4 scale traffic for attention kernels.
+    Bit-exact. Targets ~39 MiB/step savings. RIGHT direction for bandwidth-bound M5.
 
-  PR #173 (Thorfinn) — MLX_METAL_FAST_SYNCH=1. REVIEW READY (results submitted).
-    Fast fence synchronization via shared-memory buffers instead of Event objects.
-    Bit-exact scheduling change. Targets command-buffer synchronization overhead.
-    Review pending (GitHub API temporarily blocked 403). Merge when API recovers.
-    Research agent confirmed: fast mode replaces MTL Event with shared-memory
-    MTLBuffer + GPU fence kernels + barrier. Only relevant if asyncEval fires remain.
-
-  PR #175 (Edward) — MLX_BFS_MAX_WIDTH 50→100. JUST ASSIGNED.
+  PR #175 (Edward) — MLX_BFS_MAX_WIDTH 50→100. DRAFT, in progress.
     More aggressive graph optimization to reduce Metal dispatch count.
-    Bit-exact scheduling change. Independent of ops-per-buffer, composable later.
+    Bit-exact scheduling change. Independent of MB tuning.
 
-  Askeladd — Scale-plane-halving (in progress, no PR yet).
-    Bandwidth reduction by halving scale bytes in MoE down kernels.
-    Targets scale traffic in the dominant NVFP4 MoE path.
+  PR #179 (Thorfinn) — MLX_MAX_MB_PER_BUFFER 200→800. JUST ASSIGNED.
+    Allow asyncEval segments to fit in one command buffer (weight buffers count
+    toward buffer_sizes_, so 200 MB limit may cause premature commits within
+    segments). Bit-exact scheduling change. Tests if byte limit is binding.
 
-  Alphonse — Tail NVFP4 qdot dot4 (in progress, no PR yet).
-    NOTE: This is an instruction-count reduction. Given the strategy pivot confirming
-    dot4/simd_sum are counterproductive on M5, this experiment may need redirection
-    to a scheduling or bandwidth target.
+  PR #180 (Alphonse) — MoE scale-plane halving. JUST ASSIGNED.
+    Extend pairwise-constancy scale packing to MoE gate/up+down kernels.
+    Bandwidth reduction: halve MoE scale traffic (~10 MiB/step).
+    Bit-exact. Targets the DOMINANT decode cost center.
+    Independent of PR #169 (different kernels), composable if both win.
+
+  Closed in this session:
+    PR #167 (Alphonse, tail dot4) — CLOSED: instruction-count reduction, counterproductive on M5.
+    PR #124 (Askeladd, gate-scale fold) — CLOSED: no speedup + non-bit-exact prefill.
+    PRs #128, #129, #130 — already merged (counterproductive changes in composed submission).
+
+  DEAD EXPERIMENTS (do NOT reassign):
+    - Compiled decode: research confirms regression (disables fused kernels, 6.4× traffic).
+    - asyncEval=off: measured -10.5% regression (overlap is worth +9.7%).
+    - All instruction-count reductions (dot4, simd_sum, float4): counterproductive on M5.
 
 ## NEW: Research Agent Scheduling Findings (2026-08-06T23:22)
   Research agent identified 5 NEW scheduling/bandwidth opportunities:
