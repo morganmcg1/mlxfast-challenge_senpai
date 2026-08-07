@@ -284,7 +284,125 @@ See section 7 for the executed evidence. Protocol (fern's #137):
 
 ## 7. Executed evidence
 
-<!-- filled in below -->
+Every number below came from a supervised run on this host (Apple M4 Pro, 20 GPU
+cores, `applegpu_g16s`, 48 GiB). Training IDs are the Senpai supervised-run IDs;
+their logs are the primary record.
+
+### 7.1 Bitwise logit certificate (the instrument that actually resolves this)
+
+Instrument: `research/frieren_pr80_logit_bitwise.py` against
+`.build-worker/release/mlxfast-runtime-worker`, golden
+`correctness_prompts/public_longcopy_gate_english_512_256.json`, 64 decode steps,
+`top_k = 100352` (the full vocabulary -- no truncation that could hide a
+reordering), SHA-256 over each step's logit block plus one whole-run digest.
+
+| arm | worker source | training id | RUN_DIGEST | token mismatches |
+|---|---|---|---|---|
+| `ref-base` | `1fe609e` `LagunaRuntimeModel.swift` | `cc21ce01-9593-4d9e-8740-3bc35c3f72cb` | `3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928` | 0 |
+| `cand-v1` | this branch | `82cba330-3fa1-4b5f-a296-5d5bb2df4740` | `3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928` | 0 |
+| `fault-1ulp` | candidate + injected fault | `06e8e5eb-ba8c-43f3-ab97-e545ec321c26` | `630e406f351583156e7fdd5da62449f88f75168f157a056a745b37a9dc5d8ec1` | 0 |
+
+**Base and candidate digests are equal. Per-step digests differing: 0 of 65.**
+Raw outputs kept at `/tmp/nez_epi_cert/{ref,cand,fault}.json`.
+
+**The control fires.** The fault arm XORs one bfloat ULP into `pair_out0[0]` in
+the *final store of both edited kernels* -- the smallest perturbation the change
+could possibly have introduced. It flipped **64 of 65** per-step digests. The one
+step it did not flip is step 0, the prefill "begin" step, which is correct: only
+the two decode kernels were faulted. So the digest is demonstrably sensitive to a
+single-ULP change in exactly the code V1 rewrites, and its agreement between base
+and candidate is real evidence rather than an untested gate.
+
+Note also that `TOKEN_MISMATCHES` stayed 0 in the *fault* arm. The greedy-token
+comparison is blind to a perturbation this size; only the logit digest sees it.
+That is why the digest, not the token stream, is the correctness instrument here.
+
+### 7.2 Vendored-upstream equivalence oracle
+
+`research/run_upstream_equivalence.sh`, training `eff0a7d5-03f0-4f8f-bae5-1d9df0ab5067`.
+
+| step | `maximumAbsoluteLogitError` | `meanAbsoluteLogitError` | runtime tok | upstream tok |
+|---|---|---|---|---|
+| prefill | 0.125 | 0.011933609 | 5991 | 5991 |
+| decode-0 .. decode-7 | **0** (all 8) | 0 | 509 / 902 / 5991 ... | equal |
+
+`EQUIVALENCE_EXACT_STEPS=8`, `EQUIVALENCE_EXIT=1`, exactly one test selected
+(`"promptTokenCount" : 512` present, so this is not a zero-test false pass).
+
+**All eight decode steps are exactly zero -- decode is the only thing this change
+touches.** The non-zero exit comes entirely from the prefill row, and that row is
+a pre-existing, independently documented M4 Pro artifact of the batched NVFP4
+prefill path against the BF16 upstream reference. It reproduces byte-for-byte on
+the unmodified base in at least six sibling writeups, with the identical constants
+0.125 / 0.011933609 and the identical token 5991:
+`research/frieren-host-cpu-budget.md:471`,
+`research/maple-fern-pr40-result.md:381`,
+`research/frieren-pr23-r2-cap.md:311`,
+`research/frieren-pr35-r3-b-verification.md:106`,
+`research/maple-fern-pr137-lmhead-cascade.md:266`,
+`research/RESEARCH_STATE_ARCHIVE_through-round-21.md:6085`.
+I therefore did not spend a separate base oracle run reproducing a constant six
+prior runs already pinned.
+
+### 7.3 `./benchmark.sh --local-submit`
+
+Training `6d92dd0f-969a-4820-b442-567239d5dfcb`, exit 0, 227 s.
+
+```
+passed                       : true
+passed_correctness           : true
+max_abs_diff                 : 0
+checked_tokens               : 1025    decode_steps : 1023
+first_failing_case/layer/step: null / null / null
+golden_hash  f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2
+harness_hash 51c1773772ae8007dcb822042b9a62cb418778fbb7e2dfb1cb4c96e6a4bcffa8
+peak_ram_gb 21   num_layers 40
+```
+
+`max_abs_diff = 0` over 1023 checked decode steps, on top of the 64-step digest.
+`passed_prefill_speedup_floor : false` is the ordinary M4 Pro reading -- the
+harness scores local prefill against the M5 official-runner constant
+`0.000368 s/token`, and this host cannot reach it on any build; the floor that
+matters is the same-session paired one on the ranked M5.
+
+### 7.4 Independent adversarial review of the diff
+
+A frontier reviewer with no prior context was given the diff cold and asked for
+hazards, not confirmation. Verdict **SAFE** on all seven classes it was asked to
+break:
+
+1. the read-1 -> store-2 **WAR barrier is present and correctly placed**
+   (`LagunaRuntimeModel.swift:1622` sliding, `:2106` full) -- the buffer is now
+   reused across rounds, so this was the real risk and it is covered;
+2. `typedef float U`, so `float4` staging is a pure repack; the writer -> reader
+   transpose (`lane*BDP+sg` -> `sg*BDP+lane`) delivers each `simd_sum` the
+   identical per-lane operand as before; reordering independent reductions cannot
+   change a bit;
+3. `pair_global_factor1` / `pair_sum1` are live and unmodified into round 2;
+4. footprint identical at 16 896 B (`float4[1056]` == `float[4224]`), max index
+   `31*33+31 = 1054 < 1056`, total static threadgroup memory 18 432 B;
+5. **zero** remaining references to the old `outputs`/`pair_planes` symbols, and
+   **no** `setThreadgroupMemoryLength` / `staticThreadgroupMemoryLength` anywhere
+   in `Sources/MLXFastModel/` -- these are body-declared statics in an
+   `MLXFast.metalKernel` JIT kernel, so there is no host-side length to update
+   and no `mlx-generated/*.cpp` twin;
+6. all four barriers per kernel are at kernel-body top level, none inside
+   `if (lane == 0)`, no early `return`, so all 1024 threads reach them uniformly;
+7. the two new epilogues are **byte-identical** to each other (`diff` empty), so
+   the sliding and full kernels cannot drift apart.
+
+### 7.5 End-to-end matched timing
+
+`research/nezuko_epilogue_abba.sh`, training `a61d8241-7fa5-470d-8026-f8d8421ffb83`.
+
+Both workers are built from real source in the same script -- the base arm is
+`git checkout 1fe609eb -- Sources/MLXFastModel/LagunaRuntimeModel.swift` followed
+by a real `swift build`, not a runtime override -- then interleaved
+**cand/base/base/cand/cand/base/base/cand** at the canonical worker path so the
+sandbox, the freshness gate and the 40 C thermal gate behave exactly as in a
+normal run. Only the worker binary differs between arms.
+
+<!-- ABBA_RESULTS -->
 
 ## 8. Budget
 
