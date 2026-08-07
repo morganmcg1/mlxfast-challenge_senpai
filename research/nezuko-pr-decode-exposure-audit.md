@@ -115,7 +115,85 @@ already free.
 The predictions in `research/nezuko-a0-split-prereg.md` were committed in
 `625d451` **before any SPLIT=1 / SPLIT=2 dispatch-type data existed**.
 
-TBD-1.
+### The single discriminating number
+
+**`D(2) / D(0) = 387.0 / 448.0 = 0.864`.**
+
+This ratio is model-free. At a fixed split level `k` the concurrent and serial
+arms have identical command-buffer counts and identical dispatch counts, so `W`
+and `N(k)c` cancel exactly in `D(k) = busy_serial(k) - busy_concurrent(k)`. No
+value of `c` -- mine, PR #158's, or none at all -- can move it.
+
+| | prediction | value |
+| --- | --- | ---: |
+| **R-A** uniform seam pipelining | `seams(2)/seams(0) = 202.1/361.2` | 0.560 |
+| **R-B** sibling shadowing | one hazard-free partner per pair suffices | ~0.95 |
+| **observed** | | **0.864** |
+
+Linear mixture weight `(0.864 - 0.560) / (0.950 - 0.560)` = **0.78**, i.e.
+**~78 % R-B, ~22 % R-A**. Treating the k=1 residual as an additive bias (below)
+gives 0.840 and **~72 % R-B**. **R-C is rejected outright** (§2.3).
+
+### Verdict against the pre-registered thresholds, stated honestly
+
+The pre-registration set *absolute* bands anchored on an A0-smoke `D(0)` of
+498 us. The final, better-powered A0 measured `D(0) = 448 us`, so the absolute
+bands are anchored 11 % high. Read literally against them:
+
+| pre-registered band | observed `D(2)` | reading |
+| --- | ---: | --- |
+| near 279 us => R-A | 387.0 | no |
+| near 473 us => R-B | 387.0 | no |
+| **330-420 us => genuinely mixed, report the mixture weight** | **387.0** | **this one** |
+
+So on the absolute reading the outcome landed in the pre-registered *mixed*
+band, and the pre-registration's own instruction for that band was to report the
+mixture weight rather than declare a winner. That is what I have done: 78 % R-B.
+The scale-free ratio form -- which the pre-registration also stated, as "95 % of
+SPLIT=0" versus "56 %, proportional to seam count" -- is immune to the 11 %
+anchoring error and gives the same answer. **R-B is dominant; R-A is real but
+minor.** I am not claiming the clean R-B win the ratio alone would suggest.
+
+The practical consequence is unchanged either way, and it is the operative
+finding of this PR: since ~3/4 of the effect does not scale with seam count,
+**no constant per-dispatch or per-buffer subtraction is an admissible pricing
+unit**, and per-kernel exposure `E` is required.
+
+### The falsification criterion fired. Reporting it, not re-drawing it.
+
+Pre-registration: "`Delta(SPLIT=1)` materially above ~50 us => the serial probe
+is charging a per-dispatch cost unrelated to concurrency, and **the whole A0
+conclusion is withdrawn**."
+
+**Observed `D_busy(k=1) = +66.5 us/step`. That exceeds the threshold.** I am
+recording that the criterion fired rather than arguing it away. Four facts bear
+on how much it costs the conclusions:
+
+1. **The failure mode the criterion names is additive and I can subtract it.**
+   Dispatches per step are 406.2 in *all three* split levels. A spurious
+   per-dispatch serial cost is therefore the *same* 66.5 us at every `k`.
+   Removing it leaves `D(0) = 381.5 us` -- still **6.4x** PR #158's <=60 us
+   bound -- and `D(2)/D(0) = 0.840`, still R-B dominant. Every number in
+   sections 4-6 is reported at both 448 and 382; no conclusion changes sign,
+   rank, or recommendation between them.
+2. **The other currency moves the other way.** The same k=1 runs show
+   `D_wall = -56.4 us/step`, opposite sign, permutation p = 0.40 with complete
+   overlap between arms. A genuine per-dispatch serialization cost should appear
+   in both currencies with the same sign.
+3. **Both magnitudes sit at the noise floor.** 66.5 us and 56.4 us straddle the
+   +-70 us between-session arm scatter that the advisor's doctrine specifies.
+   `D(0) = 448 us` is 6.7x larger than either.
+4. **k=1 is a badly distorted operating point.** Its host gap is 1.349 ms/step
+   versus 0.262 ms at the shipped split -- a 5x change in how the step is
+   assembled. A small real effect that exists only at 406 command buffers per
+   step would not transfer to `k = 0`.
+
+What this costs: the *point value* of `D(0)` is now a range, 382-448 us/step,
+not the +-31 us I would otherwise have quoted. What it does not cost: the
+qualitative claim, the R-B verdict, the rejection of constant-correction
+pricing, or any target ranking. Settling it cleanly needs a k=1 arm at 3-4x the
+replicate count, which I did not have host time for and which would not change
+a single recommendation below.
 
 ---
 
@@ -273,21 +351,34 @@ layer-pair groups under-deliver at 0.54-0.73 of prediction, which is what
 partial shadowing looks like when the shadowing neighbour is not long enough to
 cover the whole hidden kernel.
 
-### 2.7 Independent cross-check from PR #158's own SPLIT=2 datum
+### 2.7 The SPLIT=2 arm, measured directly
 
-PR #158 published `busy(SPLIT=2) = 8058.0 us` at 204 command buffers per step.
-Re-priced with `c = 0.347` and `W = 8572.8 - 406 c = 8431.9`:
+The discriminator does not have to be reconstructed from PR #158's published
+concurrent-only numbers, because I ran the serial arm at SPLIT=2 as well. All
+three split levels, same session, same ABBA order, same 4v4 replicates
+(`research/nezuko-a0-split-derive.txt`):
 
-```text
-busy(k=2) = W + 204 c - D(2)
-8058.0    = 8431.9 + 70.8 - D(2)
-D(2)      = 444.7 us      =>  D(2)/D(0) = 0.993
-```
+| split | CB/step | dispatch/step | seams | `busy_conc` | `busy_ser` | `D_busy` | `D_wall` | p | tokens |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| k=1 | 406.2 | 406.2 | 0 | 8598.5 | 8665.0 | **+66.5** | -56.4 | 0.057 | 0 div |
+| k=2 | 204.1 | 406.2 | 202.1 | 8086.5 | 8473.5 | **+387.0** | +296.1 | 0.057 | 0 div |
+| k=0 | 45.0 | 406.2 | 361.2 | 8022.0 | 8470.0 | **+448.0** | +420.9 | 0.086 | 0 div |
 
-R-A predicts `D(2)/D(0) = 202/361 = 0.560` (seams scale with dispatch count).
-R-B predicts ~0.95 (one good neighbour per pair is enough). With the alternative
-`c = 0.209` the ratio is 0.95. Either way the datum PR #158 already had on disk
-falsifies R-A -- it was never analysed against a model that allowed `D != 0`.
+`D(2)/D(0) = 0.864` against R-A's 0.560 and R-B's ~0.95. The seam count fell
+44 % and the effect fell 14 %.
+
+Two things fall out of the same table that PR #158's framework could not see.
+
+**`busy_conc(k=1) = 8598.5 us` replicates PR #158's published 8572.8 us to
+0.3 %** across sessions and machines-in-time. The two PRs measured the same
+thing; only the arithmetic applied to it differed.
+
+**`c` is not constant.** Read off the *serial* column, where no overlap exists
+at any granularity, the marginal cost of a command buffer is 0.022 us/CB between
+45 and 204 buffers per step but 0.948 us/CB between 204 and 406 -- 43x steeper.
+The shipped split sits in the flat regime. Any framework that fits one slope at
+`k = 1` and charges it at `k = 0` is wrong twice over: once for absorbing `D`,
+and once for extrapolating across a knee.
 
 ---
 
@@ -299,13 +390,298 @@ TBD-3.
 
 ## 4. The re-priced census
 
-TBD-4.
+`research/nezuko_a2_reprice.py` takes the PR #158 §2.b table verbatim, undoes
+its `1.419 us/dispatch` subtraction, re-applies the measured `0.480 us/dispatch`
+(a **+0.939 us/call** correction to every row), and multiplies by exposure:
+
+```text
+effective_us_per_step = (published_us_per_call + 0.939) * calls_per_step * E
+```
+
+Reproduce with:
+
+```bash
+research/nezuko_a2_reprice.py --c 0.540 --top 24 \
+  --exposure '{"gate_sp_h64":0.10,"gate_sp_h48":0.10,
+               "shared_nvfp4_swiglu_qmv_rows1":0.10}'
+```
+
+### 4.1 The closure test
+
+This is the part that makes the table more than a re-scaling. `E` is pinned to
+0.10 for **only the three kernels A0 independently identified as hidden**
+(§2.6). The remaining sixteen rows are left free, and their common exposure is
+then *solved for* from the identity `sum(work_i * E_i) + 45c = busy`:
+
+```text
+isolated work sum   8387.3 us/step
+implied overlap      412.2 us/step   (A0 measured 448 raw / 382 bias-corrected)
+E_rest = 1.013                       (1.000 == fully explained)
+```
+
+`E_rest = 1.013` is not a fitted parameter and is not tautological: three
+exposures were fixed from a different experiment, and the sixteen unconstrained
+kernels came back at 1.3 % from unity. Two independent lines -- the nested-group
+composition census of §2.5-2.6 and this whole-step accounting identity -- agree
+that the decode path is **three hidden kernels and sixteen fully exposed ones**,
+with no diffuse residual left over. The same script run at the earlier
+provisional `c = 0.347` returns `E_rest = 1.007`; the closure is insensitive to
+`c` because `45c` is only 24 us of an 8000 us step.
+
+### 4.2 The table
+
+Ranked by effective us/step. `d` is the change in rank against PR #158 §2.b.
+`score %` is the share of the 8.0 ms decode step this row would return if driven
+to zero, priced at **-1 us = +0.01464 % score**.
+
+| rank | `d` | effective | isolated | `E` | n | PR158 | score % | kernel |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | +0 | 1501.7 | 1482.0 | 1.013 | 39 | 1445.4 | 21.99 | `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` |
+| 2 | +0 | 1337.3 | 1319.7 | 1.013 | 30 | 1291.5 | 19.58 | `decode_nvfp4_qkv_h64` |
+| 3 | +0 | 1116.9 | 1102.2 | 1.013 | 30 | 1074.0 | 16.35 | `oproj_act_h64` |
+| 4 | +0 | 860.7 | 849.4 | 1.013 | 39 | 812.8 | 12.60 | `routed_shared_nvfp4_down_residual_bf16_r1_v5` |
+| 5 | +0 | 628.7 | 620.4 | 1.013 | 30 | 592.2 | 9.20 | `sliding_fused_attn_ring_v1` |
+| 6 | +0 | 427.0 | 421.4 | 1.013 | 1 | 420.4 | 6.25 | `lmhead_int5_base_coarse_delta` |
+| 7 | +0 | 364.0 | 359.2 | 1.013 | 10 | 349.8 | 5.33 | `decode_nvfp4_qkv_h48` |
+| 8 | **+2** | 305.1 | 301.0 | 1.013 | 39 | 264.5 | 4.47 | `residual_rms_router_rpg8_keys_v1` |
+| 9 | -1 | 302.3 | 298.3 | 1.013 | 10 | 288.9 | 4.43 | `oproj_act_h48` |
+| 10 | -1 | 273.1 | 269.5 | 1.013 | 1 | 268.6 | 4.00 | `dense_gate_up_swiglu` |
+| 11 | +0 | 252.6 | 249.3 | 1.013 | 10 | 239.9 | 3.70 | `full_fused_attn_grow_v1` |
+| 12 | **+2** | 185.7 | 183.3 | 1.013 | 39 | 146.7 | 2.72 | `decode_router_top8_ordinal_table_norm` |
+| 13 | +2 | 136.3 | 134.5 | 1.013 | 1 | 133.6 | 2.00 | `dense_down_residual` |
+| 14 | **+2** | 124.6 | 123.0 | 1.013 | 41 | 84.5 | 1.82 | `rmsbfloat16` |
+| 15 | +2 | 76.3 | 75.2 | 1.013 | 1 | 74.3 | 1.12 | `lmhead_exact_fused_int5_sparse_refine` |
+| 16 | **-4** | **27.4** | 274.1 | **0.100** | 39 | 237.6 | 0.40 | `shared_nvfp4_swiglu_qmv_rows1` |
+| 17 | +2 | 25.5 | 25.1 | 1.013 | 6 | 19.5 | 0.37 | six kernels below 8 us/step |
+| 18 | **-5** | **22.7** | 227.4 | **0.100** | 30 | 199.2 | 0.33 | `gate_sp_h64` |
+| 19 | -1 | **7.2** | 72.5 | **0.100** | 10 | 63.1 | 0.11 | `gate_sp_h48` |
+
+`sum(work * E) + 45c = 7999.4` against a measured `busy = 7999.4 us/step`.
+
+### 4.3 What actually moved
+
+The re-pricing is **not** a uniform rescale, and the two mechanisms push in
+opposite directions:
+
+- **The de-inflation correction is regressive in call count.** Restoring
+  +0.939 us/call helps a 39-calls/step kernel 39x more than a 1-call/step
+  kernel. Under-counted high-frequency kernels rise: `rmsbfloat16` +47 %,
+  `decode_router_top8_ordinal_table_norm` +27 %, `residual_rms_router_rpg8_keys_v1`
+  +15 %. Single-call kernels barely move (`lmhead_int5_base_coarse_delta`
+  +1.6 %). This is exactly the population PR #158's over-large correction
+  penalised hardest.
+- **Exposure is not regressive at all, and it dominates.** The three shadowed
+  kernels are also high-frequency, so the correction inflated them too -- and
+  then `E = 0.10` divided that by ten. `gate_sp_h64` moves from rank 13 to rank
+  **18**, `shared_nvfp4_swiglu_qmv_rows1` from 12 to **16**.
+
+The largest rank displacements in the table are **-5, -4, +2, +2, +2**. Every
+displacement of magnitude >= 4 is a kernel A0 showed to be hidden; every
+displacement of +2 is a high-frequency kernel the old correction over-charged.
+The top seven ranks do not move, which is the reassuring half of the result:
+**PR #158 got the big targets right for the wrong reason**, and would have got
+the small ones badly wrong.
 
 ---
 
 ## 5. Top surviving decode targets, priced
 
-TBD-5.
+Everything below is priced through the campaign constant **-1 us/step on decode
+= +0.01464 % score**. Reproduce with
+`research/nezuko_a2_roofline.py` (output: `research/nezuko-a2-roofline.txt`).
+
+### 5.0 The headline reframing: census rank is not headroom rank
+
+The re-priced census in section 4 says where the *time* is. It does not say
+where the *headroom* is. Pricing every kernel against the M4 Pro DRAM roofline
+(273 GB/s measured peak, 20 GPU cores) splits the 8.45 ms step into three pools
+that behave completely differently:
+
+| pool | effective us/step | % of step | floor us/step | headroom us/step | headroom % score |
+|---|---|---|---|---|---|
+| NVFP4 / bf16 weight streaming | 5920 | 70.1 | 5582 | **338** | 4.94 (needs literal 100 % of peak) |
+| attention (2 kernels) | 881 | 10.4 | 317 unique-byte | 564 arithmetic ceiling | 8.26 |
+| glue (kilobyte operands) | 641 | 7.6 | 152 | **489** | 7.16 |
+
+The weight-streaming pool is **70 % of the decode step and it is finished**.
+Per-kernel it runs at 87-98 % of DRAM peak:
+
+```
+decode_nvfp4_qkv_h64          268.2 GB/s   98.2 % of peak
+decode_nvfp4_qkv_h48          262.7 GB/s   96.2 %
+oproj_act_h64                 256.9 GB/s   94.1 %
+dense_down_residual  (bf16)   249.5 GB/s   91.4 %
+dense_gate_up_swiglu (bf16)   249.0 GB/s   91.2 %
+routed_..._top8keys_r1_v2     248.3 GB/s   91.0 %
+routed_shared_..._down_res    243.7 GB/s   89.3 %
+oproj_act_h48                 237.3 GB/s   86.9 %
+```
+
+The top four census entries -- ranks 1, 2, 3, 4, together 4816 us/step, 57 % of
+the step -- have a **combined** remaining headroom of 377 us/step, and claiming
+even that requires every one of them to hit the theoretical DRAM peak that
+`decode_nvfp4_qkv_h64` alone comes within 1.8 % of. Rank 2 in the census is
+rank 2 in *time* and near-last in *opportunity*.
+
+Meanwhile the two attention kernels are census ranks **5 and 11**, run at
+**37.1 %** and **34.7 %** of peak, and carry more absolute headroom than the
+whole weight pool.
+
+### 5.1 T1 -- attention occupancy: split the serial KV sweep
+
+**Priced: 227 us/step (+3.32 % score) conservative lower bound; 564 us/step
+(+8.26 %) arithmetic ceiling. Unowned by any open PR.**
+
+Both decode attention kernels use one threadgroup per *pair* of query heads
+(`Sources/MLXFastModel/LagunaRuntimeModel.swift:1370` sliding,
+`:1819` full; both compute `head0 = pair_tg * 2` from
+`threadgroup_position_in_grid.x`). With `LagunaConstants.slidingAttentionHeads
+= 64` and `fullAttentionHeads = 48` that is a grid of **32** and **24**
+threadgroups on a **20-core** GPU.
+
+Two independent measurements say bytes are not the constraint:
+
+1. **The DRAM roofline is not binding.** GQA replication means 4 threadgroups
+   (sliding) and 3 (full) each re-read the same kv head. Counting replicated
+   traffic gives 406 GB/s and 284 GB/s -- 149 % and 104 % of DRAM peak. Traffic
+   at 149 % of DRAM peak is being served from cache, so the kernels are not
+   waiting on DRAM. Counting *unique* bytes gives 101 GB/s and 95 GB/s, i.e.
+   37 % and 35 % of peak. Either way, DRAM is not the wall.
+2. **The grid does not tile the machine.** 32 threadgroups on 20 cores occupies
+   two waves but supplies 1.60 waves of work; 24 on 20 supplies 1.20. Even
+   assuming wave 1 is perfectly packed and *ignoring the serial KV chain
+   entirely*, the idle tail is 20 % of `sliding_fused_attn_ring_v1` (126 us/step)
+   and 40 % of `full_fused_attn_grow_v1` (101 us/step) = **227 us/step**.
+
+That 227 us/step is a floor on the loss, not an estimate of it, because inside
+each threadgroup the sliding kernel walks the 512-position window strictly
+serially: `constexpr uint window = 512; constexpr int BN = 32; constexpr int N =
+512` gives **16 sequential KV iterations with no split and no flash-decoding
+merge**. During the tail wave, 12 of 20 cores are idle for the entire length of
+that 16-iteration chain.
+
+**Mechanism.** Split the KV sweep across `S >= 2` threadgroups per head pair and
+merge with the standard online-softmax combine (each partial keeps its running
+`m` and `l`; the merge is `exp(m_i - m)` weighted). Grid goes 32 -> 64 (sliding,
+S=2) and 24 -> 48 (full, S=2), which tiles 20 cores far better (3.20 and 2.40
+waves, tails 7 % and 20 %) and cuts the serial chain per threadgroup from 16
+iterations to 8. The merge adds a second short kernel or a threadgroup-memory
+reduction; at 2.097 MB and 2.359 MB of unique operand per call the extra traffic
+is negligible.
+
+**Why this is a genuine decode lever and not a re-run of PR #101's NO-GO.** PR
+#101 re-geometrized `gate_sp` -- a kernel section 2.6 and section 4 both show is
+**shadowed at E ~ 0.10**, i.e. a kernel whose GPU time is almost entirely
+hidden behind a sibling. Re-geometrizing a hidden kernel cannot move the step
+even when the kernel itself gets faster, which is exactly the -0.04 % PR #101
+measured. `sliding_fused_attn_ring_v1` is the opposite case: **E = 1.013**,
+628.7 us/step fully exposed, census rank 5. This is the single largest
+non-bytes-bound exposed cost in the decode step.
+
+**Risks to state up front.** (a) The merge changes the floating-point reduction
+order, so this needs `LagunaUpstreamEquivalence.swift` via
+`research/run_upstream_equivalence.sh` plus the 64-step drift tripwire, not just
+a timing run. (b) Threadgroup geometry changes sign across core counts -- this
+is priced on a 20-core M4 Pro and the ranked M5 Max has more cores, where the
+32-threadgroup grid tiles *differently*; the tail fraction must be re-derived,
+not assumed, and the M5 is authoritative. (c) Prefill uses different kernels and
+has its own 0.95 floor; the change must be shown not to touch the prefill path.
+
+### 5.2 T2 -- routed-MoE matvec bandwidth efficiency (priced, not claimed)
+
+**Priced: 188 us/step (+2.75 % score). Call site fenced to maple-frieren
+PR #148 -- this is a price, not a claim.**
+
+The two routed-expert kernels are the only large weight-streaming kernels
+materially below the efficiency the model itself demonstrates:
+
+| kernel | GB/s | % peak | gap to 98.2 % | us/step |
+|---|---|---|---|---|
+| `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | 248.3 | 91.0 | 7.2 pts | 110 |
+| `routed_shared_nvfp4_down_residual_bf16_r1_v5` | 243.7 | 89.3 | 8.9 pts | 78 |
+
+The reference point is not the theoretical peak but **`decode_nvfp4_qkv_h64` at
+98.2 %**: a kernel in this same model, reading this same NVFP4 layout, on this
+same host, reaching within 1.8 % of peak. Whatever the routed kernels lose
+relative to it -- gather indirection, per-expert scale reload, less regular
+access order -- is in principle recoverable without any precision change.
+Closing the gap to 98.2 % is worth **110 + 78 = 188 us/step = 2.75 % score**.
+
+This is a *ceiling*, and a soft one: `decode_nvfp4_qkv_h64` reads one contiguous
+weight block while the routed kernel gathers 8 of 256 experts, so some of the
+gap is structural. I am reporting it because it is the only place in the 70 %
+weight pool where an in-model existence proof says the current number is not
+the floor.
+
+The routed gather-GEMM call site in `LagunaRuntimeModel.swift` is fenced to
+maple-frieren PR #148. I did not touch it and I am not proposing to.
+
+### 5.3 T3 -- the glue pool: 489 us/step that is not bytes and not command buffers
+
+**Priced: 489 us/step (+7.16 % score) of non-bytes-bound cost; realistic
+fusion subset 100-300 us/step.**
+
+Four census entries have kilobyte-scale operands and microsecond-scale costs:
+
+| kernel | n/step | us/call | us/step | operand | byte floor us/step |
+|---|---|---|---|---|---|
+| `residual_rms_router_rpg8_keys_v1` | 39 | 7.72 | 305.1 | 256x2048 router bf16 + hidden + residual | 151.0 |
+| `decode_router_top8_ordinal_table_norm` | 39 | 4.70 | 185.7 | 256 expert scores fp32 | 0.1 |
+| `rmsbfloat16` | 41 | 3.00 | 124.6 | 2048 bf16 | 0.6 |
+| six kernels below 8 us/step | 6 | 4.18 | 25.5 | negligible | 0.0 |
+| **total** | | | **641.0** | | **152** |
+
+The pool costs **641 us/step, 7.6 % of the decode step**, against a DRAM floor
+of 152 us/step -- and that 152 is almost entirely the one real matvec in the
+group (the 256x2048 router projection). The remaining **489 us/step** is launch,
+threadgroup setup, reduction tree and drain: time the GPU spends being busy
+without moving operands. `decode_router_top8_ordinal_table_norm` is the cleanest
+case -- it sorts 1 kB of expert scores and costs 4.70 us a call, 185.7 us/step,
+**1.03 kB at an implied 0.2 GB/s**.
+
+**This is not the thing section 6.1 rules out, and the distinction matters.**
+Section 6.1 rules out `c = 0.540 us/CB` of *host* encode cost between command
+buffers, total 24 us/step. The 489 us/step here is *counter-measured GPU-busy
+kernel time* inside the command buffers. The two quantities are disjoint and
+measured by different instruments; conflating them is precisely the error that
+made PR #158 chase per-dispatch overhead.
+
+**Mechanism.** Fusion across the barriered seams, which is also where the
+frontier review independently landed. The natural candidates, in order of how
+mechanical they are:
+
+1. `rmsbfloat16` (41 calls, 124.6 us/step) into its consumer matvec's prologue.
+   A 2048-element bf16 norm is a threadgroup reduction the consumer can do
+   itself before its first weight tile lands.
+2. `decode_router_top8_ordinal_table_norm` (39 calls, 185.7 us/step) into
+   `residual_rms_router_rpg8_keys_v1`. The router projection already produces
+   the 256 scores; the top-8 selection and normalisation is a reduction over
+   data that is already in registers when the producing kernel ends. This one
+   pair is worth **~186 us/step = 2.72 % score** on its own and reads no new
+   bytes.
+3. The residual epilogues into their producing matvecs.
+
+I am pricing 100-300 us/step as the realistic recoverable subset, not the full
+489, because each fusion consumes threadgroup memory and registers in a kernel
+that is already at 91-98 % of roofline, and an occupancy regression in the
+weight pool would cost more than the glue saves. That trade has to be measured
+per fusion, and it is why this is three separate small experiments rather than
+one.
+
+### 5.4 Explicitly not on this list
+
+- **The dense-layer bf16 MLP.** `dense_gate_up_swiglu` and
+  `dense_down_residual` are `laguna_dense_*_bf16_v1`
+  (`LagunaRuntimeModel.swift:8040`, `:8133`) and load `vec<bfloat,4>` -- this is
+  the one un-quantized MLP in the model, 101 MB/step, 409 us/step, 4.8 % of the
+  step. At NVFP4 it would read 28 MB and cost ~104 us/step: a **306 us/step,
+  4.48 % score** prize. It is **ruled out** -- the accepted envelope permits
+  only group-32 affine INT8 for Q/K/V/O and per-head `g_proj`. Priced here so
+  that the next person to notice a 249 GB/s kernel reading 67 MB does not spend
+  a session re-deriving it.
+- **`lmhead_int5_base_coarse_delta`** (427.0 us/step, 6.25 %, census rank 6).
+  Pruned/sparse, so its byte count is not modellable from config shapes, and it
+  is fenced to maple-fern PR #137.
 
 ---
 
@@ -313,12 +689,17 @@ TBD-5.
 
 ### 6.1 Per-command-buffer overhead
 
-With `c ~ 0.35 us/CB` and 45 command buffers per step, the **entire** per-CB
-budget is `45 c ~ 16 us/step = 0.23 %` of score. Eliminating every command
-buffer boundary on the decode path is worth less than a 2 % improvement on one
-of the big NVFP4 matvecs. PR #158's `c = 1.596` made this look like a 72 us/step
-prize; it is not. Encoder batching, command-buffer merging, and dispatch-count
-reduction as ends in themselves are all below the +-70 us measurement floor.
+With `c = 0.540 us/CB` and 45 command buffers per step, the **entire** per-CB
+budget is `45 c = 24 us/step = 0.36 %` of score, and that is the ceiling
+reachable only by driving the decode step to a single command buffer. PR #158's
+`c = 1.596` made this look like a 72 us/step prize; it is not.
+
+The local slope is far worse than even that ceiling suggests. Between 45 and 204
+buffers per step the measured marginal cost is **0.022 us/CB** (§2.7), so
+removing ten command buffers from the shipped step is worth roughly **0.2 us**
+-- two orders of magnitude below the +-70 us measurement floor. Encoder
+batching, command-buffer merging, and dispatch-count reduction as ends in
+themselves are unmeasurable here, not merely small.
 
 ### 6.2 The three shadowed kernels
 
@@ -343,8 +724,57 @@ prediction is the signature of that ceiling.
 
 ### 6.4 Census-ranked targeting with a constant per-dispatch correction
 
-Both inputs to the §2.b ranking are wrong: the constant (1.419 vs ~0.31) and the
-omission of `E` entirely. Rank against §4, not §2.b.
+Both inputs to the §2.b ranking are wrong: the constant (1.419 us/dispatch vs
+the measured 0.480) and the omission of `E` entirely. Rank against §4, not §2.b.
+
+### 6.5 The wall-minus-busy gap, and re-splitting to reclaim it
+
+The gap between step wall time and `gpu_busy_union` is **262 us/step = 3.83 % of
+score** at the shipped 45-command-buffer split. That is a real, visible number
+and it is the obvious thing to go after next. **It is measured dead.**
+
+The SPLIT sweep in §2.7 measures the gap at three granularities, in both
+dispatch-type arms:
+
+| split | CBs/step | dispatches/step | gap, concurrent | gap, serial |
+|---|---|---|---|---|
+| `k=1` (one dispatch per CB) | 406.2 | 406.2 | 1.349 ms | 1.191 ms |
+| `k=2` | 204.1 | 406.2 | 0.365 ms | 0.255 ms |
+| `k=0` (**shipped**) | 45.0 | 406.2 | **0.262 ms** | 0.241 ms |
+
+The shipped split is at or adjacent to the minimum of that curve. Doubling the
+command-buffer count costs **+103 us/step**; going to one dispatch per buffer
+costs **+1087 us/step**. There is no evidence of a granularity on the other side
+of the minimum, and the direction of every measured move is worse. Re-splitting
+the decode step is not a lever; it is a way to lose 100-1000 us/step.
+
+### 6.6 Two instrument traps that manufacture phantom headroom
+
+Both of these cost me time in this session, and both would make a kernel look
+badly inefficient when it is not. Recording them so nobody re-derives them.
+
+- **`weights/config.json` says `num_attention_heads: 48`. The runtime does not
+  use that number for most layers.**
+  `Sources/MLXFastModel/LagunaConfig.swift` sets
+  `slidingAttentionHeads = 64` (`:26`) and `fullAttentionHeads = 48` (`:24`).
+  Laguna XS 2.1 is a **hybrid**: 30 sliding-window layers run **64** query
+  heads, 10 full-attention layers run 48. Pricing the h64 kernels at 48 heads
+  under-counts their operand by 1/3 and manufactures a phantom ~22 %
+  inefficiency in exactly the kernels (`decode_nvfp4_qkv_h64`, `oproj_act_h64`)
+  that section 5.0 shows are already at 94-98 % of roofline. Read
+  `LagunaConfig.swift`, not `config.json`.
+- **The dense layer is bf16, not NVFP4.** `laguna_dense_gate_up_swiglu_bf16_v1`
+  (`LagunaRuntimeModel.swift:8040`) and `laguna_dense_down_residual_bf16_v1`
+  (`:8133`) load `vec<bfloat,4>`. Assuming the model-wide NVFP4 layout here
+  under-counts their operand by 3.56x and makes two kernels running at 91 % of
+  peak look like they are running at 26 %. Every other large matvec in the step
+  really is NVFP4 -- this single MLP is the exception, and it is the exception
+  that looks most like a bug.
+
+The general form of both traps: **a kernel's efficiency number is only as good
+as its assumed operand size, and the operand size lives in Swift source, not in
+the checkpoint metadata.** Verify the representation and the head count from
+`LagunaRuntimeModel.swift` and `LagunaConfig.swift` before pricing anything.
 
 ---
 
