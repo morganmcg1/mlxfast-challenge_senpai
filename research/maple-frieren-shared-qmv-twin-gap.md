@@ -13,13 +13,28 @@ profile is active, which is expected below 64 GiB.
 No ranked submission was attempted: the ranked pipeline was down for the whole
 round (see the assignment). This is a banked, correctness-verified patch.
 
+W&B run: <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ag6xhecn>
+(run id `ag6xhecn`, project `wandb-applied-ai-team/mlxfast-maple`). It carries
+88 scalars, six result tables (`local_iterate_runs`, `kernel_ab`,
+`drift_tripwire_128step`, `correctness_aggregate`, `fault_injection`,
+`free_run_trajectory`) and the raw per-arm score rows. Three summary flags are
+deliberately not the "clean" value and are explained rather than suppressed:
+`correctness/all_passed` is `False` because of the two cool-gate-aborted §5
+slots, which produced no tokens at all (`correctness/cool_gate_aborts` is 2,
+`correctness/token_mismatches` is 0, and
+`correctness/no_mismatch_in_completed_runs` is `True`);
+`correctness/fault_injection/all_as_expected` and
+`correctness/free_run/faults_all_detected` are `False` because of the two null
+fault arms `prefetch_stale` and `plane_byte` (§4.3–§4.4).
+`correctness/free_run/guards_bit_exact` is `True`.
+
 ---
 
 ## 0. Headline
 
 | Mechanism | Flag (opt-in, default OFF) | Verdict |
 | --- | --- | --- |
-| (a) K-block prefetch in the shared gate/up QMV | `DARKBLOOM_SHARED_QMV_PREFETCH` | **Kernel-level win, bit-exact.** −0.363 µs/call, 95 % CI [−0.495, −0.232], −4.80 %, = **−14.2 µs/step** |
+| (a) K-block prefetch in the shared gate/up QMV | `DARKBLOOM_SHARED_QMV_PREFETCH` | **Kernel-level win; argmax-identical, detector power bracketed (§0.1 item 1).** −0.363 µs/call, 95 % CI [−0.495, −0.232], −4.80 %, = **−14.2 µs/step** |
 | (b) Pairwise (halved) gate/up scale plane | `DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES` (implies (a)) | **No benefit; regression of at least +1.93 %.** +0.139 µs/call, 95 % CI [+0.057, +0.221], = **+5.4 µs/step**; the invariant control also moved, so the accompanying −1.40 % whole-step delta is *not* attributable to this mechanism |
 
 Mechanism (a) is the part of this patch worth banking. Mechanism (b) makes its
@@ -801,12 +816,60 @@ really does leave the attractor and never re-enters a short cycle. That is the
 compounding property I wanted; it just cannot be exercised by an arm that never
 diverges in the first place.
 
+Re-deriving the hashes from the archived `.tokens` files gives a free
+cross-check: the first step at which each fault arm departs from `off` is **2**
+for `prefetch_zero` and **12** for `plane_shift`, which are exactly the
+`first=(2, 5991, 947)` and `first=(12, 509, 81)` steps the independent
+teacher-forced tripwire reported in §4.3. Two differently-fed detectors agreeing
+on the first divergent step is good evidence that both are reading the same
+underlying numeric fault rather than picking up run-to-run noise.
+
+**Trying to escape the attractor, and what that revealed instead.** If the
+period-3 cycle is what blunts the free run, the obvious fix is to start outside
+it, so I added `--free-run-bootstrap <token>` (feed a chosen token at step 0
+instead of `expected[0]`, identically in every arm) and reran the full battery
+with `BOOTSTRAP=7020`, the prompt's first token (`run_training`
+`f9bee8e7-a374-4cf6-b4ec-da229941a481`, exit 0, 371 s,
+`/tmp/maple-shared-qmv-freerun3`, 7/7 arms `rc=0`).
+
+| arm | injected fault | 256-token hash | equals `off`? | first differing step | peak RAM (GB) |
+| --- | --- | --- | --- | --- | --- |
+| `off` | — | `9e80bb16b4477d8f` | reference | — | 21.925 |
+| `on` | — | `9e80bb16b4477d8f` | yes | — | 21.924 |
+| `pairwise` | — | `9e80bb16b4477d8f` | yes | — | 21.931 |
+| `on-fault-prefetch_stale` | `prefetch_stale` | `9e80bb16b4477d8f` | yes — **null** | — | 21.924 |
+| `on-fault-prefetch_zero` | `prefetch_zero` | `77281fa45f474d2e` | **no — detected** | 0 | 21.924 |
+| `pairwise-fault-plane_byte` | `plane_byte` | `9e80bb16b4477d8f` | yes — **null** | — | **22.845** |
+| `pairwise-fault-plane_shift` | `plane_shift` | `a5bf62a1db92f6d0` | **no — detected** | 0 | **22.847** |
+
+The bootstrap **did not** open the trajectory: the guard arms produced
+`509, 902, 7020, 509, 902, 7020, …` — `distinct=3, cycle=3` again, but a
+*different* 3-cycle. That is a fact about the fixture, not about the guards. The
+public long-copy gate drives the model into "emit `509, 902`, then repeat the
+token you were last given", so **every** self-fed trajectory on this gate is a
+period-3 attractor whose third element is whatever you seeded. Free-run
+compounding is therefore unreachable on this fixture by choice of seed token;
+it would need a different prompt, which is outside this assignment's surface.
+
+Two things are nevertheless bought. First, both positive controls now diverge at
+**step 0** rather than at steps 2 and 12, so the detector demonstrably has power
+on the very first forward pass under this input, not only after several steps of
+accumulation. Second, `plane_byte` ran to `rc=0` here (it was the arm lost to my
+mid-run edit in run 2) with the 22.845 GB peak-RAM signature that proves the
+halved-plane byte-editing branch executed, so its null is confirmed by direct
+measurement in a complete battery rather than inherited from run 1.
+
 So §4.4's honest contribution is narrow. It upgrades the two guards from "128
 independent single-step argmaxes match" to "the entire 256-step self-fed
-trajectory is byte-identical", which is a stronger *statement* but, on this
-fixture, rests on the same evidence. It does **not** un-bracket
-`prefetch_stale`: a fault that survives 128 teacher-forced steps also survives
-256 steps of a trajectory it never perturbs.
+trajectory is byte-identical under two different seeds", which is a stronger
+*statement* but, on this fixture, rests on much the same evidence. It does
+**not** un-bracket `prefetch_stale`: that fault survives 128 teacher-forced
+steps and 2 × 256 self-fed steps of trajectories it never perturbs, while the
+two controls that share its build and its input diverge immediately. The most
+defensible reading is that `prefetch_stale`'s null is a **magnitude** result —
+mis-indexing the E4M3 group scale on 3 of every 4 K-blocks genuinely fails to
+move any argmax on this fixture — and not a dead hook. That is weaker than
+"rule 16 satisfied for mechanism (a)", and I am not claiming more.
 
 **One operational error worth recording.** In run 2 I edited
 `research/decode_probe.py` while the battery was still executing it. Arm 6
@@ -935,8 +998,22 @@ same-session baseline; it is not obtainable on this host at any rep count I can
 afford.
 
 **W&B.** Stage 3 timings, the Stage 1/2 kernel A/B, the 128-step tripwire, the
-round-wide correctness aggregate and the fault-injection table are logged to one
-run by `research/maple_shared_qmv_wandb.py` (see §0 for the URL).
+round-wide correctness aggregate, the fault-injection table and the free-run
+trajectory table are logged to one run by
+`research/maple_shared_qmv_wandb.py`:
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ag6xhecn>
+(run id `ag6xhecn`). §0 lists the three summary flags that are intentionally not
+the clean value and why.
+
+```
+WANDB_DIR=/tmp/maple-wandb python3 research/maple_shared_qmv_wandb.py \
+  /tmp/maple-shared-qmv-stage3-r2
+```
+
+Only the `-r2` directory is logged. `/tmp/maple-shared-qmv-stage3-r1` is an
+earlier aborted attempt holding a single `01-rep1-off` score; mixing it in would
+have put two `off` observations from different sessions into the same arm mean,
+which is exactly the session confound §3.5 is about.
 
 ---
 

@@ -30,3 +30,89 @@
 #   python3 research/maple_pr301_fault_injection.py check -> clean x1 on all 6 sites
 #   git status --porcelain                                -> no Sources/ entries
 # The driver's `trap cleanup EXIT` reverted the hooks and rebuilt a clean worker.
+#
+# ==== self-fed free-run trajectory, 256 steps ====
+# Purpose: remove the teacher-forcing reset so a sub-argmax perturbation can
+# compound across steps. Three batteries were run; only ONE can be archived as
+# parsed lines because research/maple_shared_qmv_wandb.py:load_freerun() scans
+# the whole file and takes the first `*-off` tag as the reference. Run #3 is the
+# parsed block (7/7 arms rc=0). Runs #1 and #2 are kept as comments; a leading
+# "# " deliberately does not match FREERUN_RE.
+#
+# ---- run #1 (superseded): run_training 799e3785-69a2-45d3-8545-15b819751402,
+#      exit 0, 277 s, OUT=/tmp/maple-shared-qmv-freerun, MODE=freerun STEPS=256
+#      no bootstrap; 5 arms; every arm collapsed to the same period-3 attractor.
+#   01-off                        rc=0 hash=aed94d1679d31318
+#   02-on                         rc=0 hash=aed94d1679d31318
+#   03-pairwise                   rc=0 hash=aed94d1679d31318
+#   04-on-fault-prefetch_stale    rc=0 hash=aed94d1679d31318
+#   05-pairwise-fault-plane_byte  rc=0 hash=aed94d1679d31318
+#      Weakness: no positive control diverged, so the detector had no
+#      demonstrated power. Runs #2/#3 add prefetch_zero and plane_shift.
+#
+# ---- run #2 (superseded): run_training 2bc2ac36-df13-4a4e-9b57-abda08d5295e,
+#      exit 0, 370 s, OUT=/tmp/maple-shared-qmv-freerun2, MODE=freerun STEPS=256
+#      no bootstrap; 7 arms; two positive controls fired.
+#   01-off                        rc=0 hash=aed94d1679d31318
+#   02-on                         rc=0 hash=aed94d1679d31318
+#   03-pairwise                   rc=0 hash=aed94d1679d31318
+#   04-on-fault-prefetch_stale    rc=0 hash=aed94d1679d31318
+#   05-on-fault-prefetch_zero     rc=0 hash=b1f82d576695e859  first_diff=2
+#   06-pairwise-fault-plane_byte  rc=1 hash=NA                (harness error)
+#   07-pairwise-fault-plane_shift rc=0 hash=7e9b0d71c132ea48  first_diff=12
+#      Arm 06 failed for an operational reason, not a model reason: research/
+#      decode_probe.py was edited while this supervised battery was executing it
+#      (NameError: name '_cycle_len' is not defined). No scored source was
+#      touched and `trap cleanup EXIT` still reverted every fault hook.
+#      Lesson: a supervised run owns the scripts it reads.
+#      The two first_diff steps (2 and 12) coincide exactly with the
+#      teacher-forced tripwire's first=(2, 5991, 947) and first=(12, 509, 81),
+#      an independent cross-check that both detectors see the same perturbation.
+#
+# ---- run #3 (archived below): run_training f9bee8e7-a374-4cf6-b4ec-da229941a481,
+#      exit 0, 371 s, OUT=/tmp/maple-shared-qmv-freerun3
+#      MODE=freerun STEPS=256 BOOTSTRAP=7020
+# Guard arms (01-03) plus the two null faults (04, 06) must share one hash;
+# each detected fault (05, 07) must differ.
+01-off rc=0 hash=9e80bb16b4477d8f
+02-on rc=0 hash=9e80bb16b4477d8f
+03-pairwise rc=0 hash=9e80bb16b4477d8f
+04-on-fault-prefetch_stale rc=0 hash=9e80bb16b4477d8f
+05-on-fault-prefetch_zero rc=0 hash=77281fa45f474d2e
+06-pairwise-fault-plane_byte rc=0 hash=9e80bb16b4477d8f
+07-pairwise-fault-plane_shift rc=0 hash=a5bf62a1db92f6d0
+#
+# Per-arm decode step mean, peak host RAM, and trajectory structure:
+#   01-off                        8.165 ms  peak_ram_gb=21.925  distinct=3 cycle=3
+#   02-on                         8.335 ms  peak_ram_gb=21.924  distinct=3 cycle=3
+#   03-pairwise                   8.199 ms  peak_ram_gb=21.931  distinct=3 cycle=3
+#   04-on-fault-prefetch_stale    8.234 ms  peak_ram_gb=21.924  distinct=3 cycle=3  NULL
+#   05-on-fault-prefetch_zero     8.286 ms  peak_ram_gb=21.924  first_diff=0        DETECTED
+#   06-pairwise-fault-plane_byte  8.219 ms  peak_ram_gb=22.845  distinct=3 cycle=3  NULL
+#   07-pairwise-fault-plane_shift 8.281 ms  peak_ram_gb=22.847  first_diff=0        DETECTED
+#
+# Bootstrap result (the reason run #3 exists): feeding token 7020 instead of the
+# golden continuation did NOT open the trajectory. The guards emit
+# 509, 902, 7020, 509, 902, 7020, ... - a DIFFERENT period-3 attractor from
+# runs #1/#2. The public long-copy gate makes the model emit 509, 902, then
+# repeat whatever token it was last given, so every self-fed trajectory on this
+# fixture is a period-3 attractor seeded by the bootstrap token. Free-run
+# compounding is therefore unreachable on this fixture by seed choice alone.
+# What run #3 did buy: both positive controls now diverge at step 0 (so the
+# detector has demonstrated step-0 power), and plane_byte finally produced a
+# clean rc=0 measurement whose 22.845 GB peak-RAM signature shows the halved-
+# plane branch executed.
+#
+# Honest reading: prefetch_stale's null across all three batteries is a
+# MAGNITUDE result (3 of 4 K-blocks of every gate/up row read a neighbouring
+# group's E4M3 scale and no argmax moved), not evidence of a dead hook - the
+# hook is proven live by prefetch_zero on the same build. Mechanism (a)'s
+# bit-exactness therefore remains BRACKETED, not closed.
+#
+# Reproduce:
+#   OUT=/tmp/maple-shared-qmv-freerun3 MODE=freerun STEPS=256 BOOTSTRAP=7020 \
+#     bash research/maple_shared_qmv_fault_injection.sh
+#
+# Post-run hygiene for run #3 (both verified):
+#   python3 research/maple_pr301_fault_injection.py check -> clean x1 on all 6 sites
+#   git status --porcelain                                -> no Sources/ entries
