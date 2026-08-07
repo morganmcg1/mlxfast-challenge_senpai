@@ -1,0 +1,10 @@
+worker up in 39.5s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.716949462890625 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 551.88 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 14.404 13.251 13.137 13.103 13.076 13.127 13.072 13.122
+decode steps=400 mean=13.136 ms median=13.138 ms p10=13.026 ms p90=13.216 ms min=12.860 ms max=14.404 ms total=5.255 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.723526000976562 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/nezuko-a1b-fusion/fused_qkv_projection_wall_s06_off.worker.err
