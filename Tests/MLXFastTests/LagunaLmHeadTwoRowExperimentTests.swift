@@ -1,4 +1,5 @@
 import Foundation
+import Metal
 import MLX
 import MLXFast
 @testable import MLXFastModel
@@ -250,17 +251,60 @@ struct LagunaLmHeadTwoRowExperimentTests {
     }
 
     @Test
-    func lmHeadTwoRowCompilerEvidence() {
-        guard ProcessInfo.processInfo.environment["MLXFAST_LMHEAD_TWO_ROW_GATE"] == "resources"
-        else { return }
+    func lmHeadTwoRowCompilerEvidence() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["MLXFAST_LMHEAD_TWO_ROW_GATE"] == "resources" else { return }
 
-        let inputs = exactnessInputs(vocab: 16, pattern: 1)
-        let control = launchLmHead(
-            .control, inputs: inputs, vocab: 16, verbose: true)
-        eval(control[0], control[1])
-        let candidate = launchLmHead(
-            .twoRow, inputs: inputs, vocab: 16, verbose: true)
-        eval(candidate[0], candidate[1])
+        let variant = environment["MLXFAST_LMHEAD_RESOURCE_VARIANT"] ?? "both"
+        guard ["control", "candidate", "both"].contains(variant) else {
+            Issue.record("invalid MLXFAST_LMHEAD_RESOURCE_VARIANT: \(variant)")
+            return
+        }
+        let repetitions = max(
+            1, Int(environment["MLXFAST_LMHEAD_RESOURCE_REPETITIONS"] ?? "1") ?? 1)
+        let vocab = repetitions > 1 ? 100_352 : 16
+        let inputs = repetitions > 1
+            ? timingInputs(vocab: vocab)
+            : exactnessInputs(vocab: vocab, pattern: 1)
+
+        let captureManager = MTLCaptureManager.shared()
+        var captureStarted = false
+        if let capturePath = environment["MLXFAST_LMHEAD_CAPTURE_PATH"] {
+            let captureURL = URL(fileURLWithPath: capturePath)
+            try? FileManager.default.removeItem(at: captureURL)
+            guard let device = MTLCreateSystemDefaultDevice() else {
+                Issue.record("Metal device unavailable")
+                return
+            }
+            let descriptor = MTLCaptureDescriptor()
+            descriptor.captureObject = device
+            descriptor.destination = .gpuTraceDocument
+            descriptor.outputURL = captureURL
+            try captureManager.startCapture(with: descriptor)
+            captureStarted = true
+        }
+        defer {
+            if captureStarted {
+                captureManager.stopCapture()
+            }
+        }
+
+        for repetition in 0..<repetitions {
+            if variant != "candidate" {
+                let control = launchLmHead(
+                    .control, inputs: inputs, vocab: vocab, verbose: repetition == 0)
+                eval(control[0], control[1])
+            }
+            if variant != "control" {
+                let candidate = launchLmHead(
+                    .twoRow, inputs: inputs, vocab: vocab, verbose: repetition == 0)
+                eval(candidate[0], candidate[1])
+            }
+        }
+        print(
+            "LMHEAD_RESOURCE_CAPTURE variant=\(variant) repetitions=\(repetitions) "
+                + "vocab=\(vocab) path=\(environment["MLXFAST_LMHEAD_CAPTURE_PATH"] ?? "none")"
+        )
         print("LMHEAD_RESOURCE_REACHABILITY control_tg=512 candidate_tg=256 rows_per_tg=16")
     }
 
