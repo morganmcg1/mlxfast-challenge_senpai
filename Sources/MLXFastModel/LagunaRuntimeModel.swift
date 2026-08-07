@@ -6420,7 +6420,8 @@ final class LagunaRuntimeAttention: Module {
             }
             if !gateIsActivated,
                 gatePerHead && projectedGate.dtype == output.dtype,
-                L == 1, wo.bias == nil, MLXHardwareInfo.isCompiledDecodeSupported
+                wo.bias == nil, MLXHardwareInfo.isCompiledDecodeSupported,
+                prefillResidual == nil
             {
                 return attentionGateProjection(output, projectedGate, wo.weight)
             }
