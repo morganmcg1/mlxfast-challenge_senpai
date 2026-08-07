@@ -1,0 +1,14 @@
+clock control: python 3.9.6, mach_now -> time.perf_counter (deliberately broken); offset perf_counter - CLOCK_UPTIME_RAW = -145217.004005 s
+worker up in 38.2s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717727661132812 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 548.24 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.480 8.385 8.316 8.275 8.267 8.214 8.292 8.240
+decode steps=40 mean=8.284 ms median=8.245 ms p10=8.220 ms p90=8.311 ms min=8.200 ms max=9.480 ms total=0.331 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.718460083007812 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/nezuko_clockfix.worker.err
+
+profile: 2466 command buffers total, 0 inside 39 steady steps
+profile: WINDOW CORRELATION FAILED -- 0 of 2466 records fall inside the driver window. driver [38.859282, 39.181169] vs records [145253.891780, 145256.185115]. The two clocks are on different epochs; step_spans must use mach_now() (CLOCK_UPTIME_RAW), not time.perf_counter().

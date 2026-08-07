@@ -33,33 +33,61 @@ c = [ busy(SPLIT=1) - busy(SPLIT=0) ] / [ 406 - 45 ]
 
 That subtraction is not a clean difference in command-buffer count. Write `W`
 for the zero-overlap GPU work of one decode step, `c` for the true marginal cost
-of one extra command buffer, and `D` for the GPU time saved by concurrent
-execution at the shipped granularity. At SPLIT=1 every command buffer holds one
-dispatch, so **nothing can overlap**:
+of one extra command buffer, and `D(k)` for the GPU time saved by concurrent
+execution at split level `k`. Both terms of PR #158's difference were measured
+with the encoder in its shipped `DispatchTypeConcurrent` mode, so both carry a
+`D`:
 
 ```text
-busy(SPLIT=1) = W + 406 c
-busy(SPLIT=0) = W +  45 c - D
----------------------------------
-difference    =        361 c + D
+busy(SPLIT=1) = W + 406 c - D(1)      one dispatch per buffer: nothing can overlap
+busy(SPLIT=0) = W +  45 c - D(0)      the shipped granularity
+-------------------------------------------------------------
+difference    =       361 c + D(0) - D(1)
 ```
 
-PR #158 assigned the entire 573.4 us to `361 c` and implicitly asserted `D = 0`.
-But `D` is exactly the quantity PR #101 measured, and it is *not* zero. The
-single error inflates `c` and annihilates `D` simultaneously -- which is why the
-same 7.6x shows up on both sides of the contradiction.
+PR #158 assigned the entire 573.4 us to `361 c` and implicitly asserted
+`D(0) = D(1)`. But `D(0)` is exactly the quantity PR #101 measured, and it is
+*not* zero. The single error inflates `c` and annihilates `D` simultaneously --
+which is why the same 7.6x shows up on both sides of the contradiction.
+
+This is an identity, not an estimate. Measuring both split levels again with the
+encoder forced serial isolates `c` with no `D` anywhere, and the two routes
+reconcile to the last digit
+(`research/nezuko-a0-split-derive.txt`):
+
+```text
+c from concurrent arms          = (8598.5 - 8022.0) / 361.2 = 1.596 us/CB
+c_true + [D(0) - D(1)] / 361.2  =  0.540 + 381.5 / 361.2   = 1.596 us/CB
+```
+
+My independently measured `busy_c(SPLIT=1) = 8598.5 us` also reproduces PR
+#158's published `8572.8 us` to **0.3 %** across sessions, so the disagreement
+is in the arithmetic, not in the measurement.
 
 ### The headline
 
 | quantity | PR #158 | this PR |
 | --- | --- | --- |
-| `D`, concurrency benefit at the shipped split | ~0 (bounded <= 60 us/step) | **448 +- 31 us/step** |
-| `c`, marginal GPU cost of one command buffer | 1.596 us/CB | **0.35 +- 0.23 us/CB** |
-| per-dispatch de-inflation applied to every §2.b row | 1.419 us | **~0.24-0.31 us** |
-| `W`, zero-overlap work per step | never formed | **~8.43-8.46 ms/step** |
+| `D(0)`, concurrency benefit at the shipped split | ~0 (bounded <= 60 us/step) | **448 us/step raw, 382 us/step after subtracting the k=1 residual as bias** |
+| `c`, marginal GPU cost of one command buffer | 1.596 us/CB | **0.540 us/CB** over the full range, and **not constant** |
+| per-dispatch de-inflation applied to every §2.b row | 1.419 us | **0.480 us** |
+| `W`, zero-overlap work per step | never formed | **8.446 ms/step** |
 
-`c` is roughly **4.6x smaller** than published. The `1.419 us/dispatch`
-correction sitting under every row of the §2.b census is about **6x too large**.
+`c` is **3.0x smaller** than published, and the `1.419 us/dispatch` correction
+sitting under every row of the §2.b census is **3.0x too large**.
+
+A second, independent flaw in the same framework: `c` is not a constant, so no
+single slope can be carried from one split level to another. Measured on the
+*serial* arms, where no overlap exists at any granularity:
+
+```text
+c(45 -> 204 CB/step)  = 0.022 us/CB
+c(204 -> 406 CB/step) = 0.948 us/CB     43x steeper
+```
+
+Near the shipped split, extra command buffers are very nearly free on the GPU.
+PR #158 fitted its slope in the steep regime at `k = 1` and then charged it to
+every kernel at `k = 0`, where it does not apply.
 
 ### What the concurrency actually is
 
