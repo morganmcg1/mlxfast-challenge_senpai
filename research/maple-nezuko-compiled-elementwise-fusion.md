@@ -100,7 +100,118 @@ The default scored path is untouched: it early-returns before this tail.
 
 ## Step 3 — Measured refund
 
-<!--RESULTS-->
+### Design
+
+`research/nezuko_compile_abba.sh` runs `B, (C U U C) × 4, B` — 18 separate
+worker processes, one model-holding process at a time, 255 teacher-forced
+decode steps each against
+`correctness_prompts/public_longcopy_gate_english_512_256.json`, first 8 steps
+discarded, n = 247 steady samples per run. The ABBA order cancels linear host
+drift inside each block; the two `B` runs bracket the whole session.
+
+* **B** — default scored path (both flags unset).
+* **U** — `DARKBLOOM_FUSED_ROUTER=0`, `DARKBLOOM_COMPILED_ROUTER_TAIL=0`
+  (stock elementwise tail, unfused).
+* **C** — `DARKBLOOM_FUSED_ROUTER=0`, `DARKBLOOM_COMPILED_ROUTER_TAIL=1`
+  (same tail, `compiled{}`).
+
+Analysis: `python3 research/nezuko_compile_stats.py /tmp/nezuko_abba_r1 --warmup 8 --removed <N>`.
+
+### Result
+
+| arm | n runs | mean µs/step | sd of run means |
+| --- | ---: | ---: | ---: |
+| B (default, fused Metal router) | 2 | 8181.1 | (8174.7, 8187.0) |
+| C (stock tail, `compiled{}`) | 8 | 8870.0 | 16.8 |
+| U (stock tail, unfused) | 8 | 9014.3 | 32.6 |
+
+Block-paired `U − C` over 4 ABBA blocks: **+124.1, +143.9, +176.5, +132.3 µs/step**
+
+> **mean = +144.23 µs/step, sd 23.00, se 11.50, t = +12.54,
+> 95% CI [+107.6, +180.8]**
+
+Session drift is +12.3 µs/step between the two bracketing `B` runs over
+13 minutes — 8.5% of the effect, and ABBA-cancelled within blocks.
+
+### Measured dispatch count, and where the refund lands
+
+`research/nezuko_compile_census.sh` re-ran all three arms under the GPUPROF
+command-buffer hook (`research/nezuko-pr158-gpuprof-hook.patch`), 60 steps,
+59 steady. **This is a separate, instrumented binary — it is a dispatch census,
+not the timing evidence.** The hook costs ~55 µs/step, so its absolute numbers
+sit above the clean-binary ABBA above.
+
+| arm | dispatches/step | cbs/step | wall µs | GPU-busy union µs | gap µs |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| B base (fused Metal router) | **406** | 45 | 8235 | 7880 | 355 |
+| U stock tail, unfused | **679** | 45 | 8957 | 8724 | 233 |
+| C stock tail, `compiled{}` | **562** | 45 | 8817 | 8585 | 232 |
+
+`U − C = 117 dispatches/step`, i.e. **exactly the predicted 3 × 39**, with the
+command-buffer count unchanged at 45. The kernel names confirm the mechanism
+directly. The four separate kernels in `U` —
+
+```
+v_copybfloat16float32 | v_Sigmoidfloat32float32 | vv_Addfloat32 | v_Negativefloat32float32
+```
+
+become a single kernel in `C`:
+
+```
+Cf4IAsTypeADf4OSigmoidCEf4IBroadcastDBFf4IBroadcastBDGf4IAddEFHf4ONegativeG_VV_V2f4_…
+```
+
+The **negative control behaves exactly as `is_fusable` predicts.** The
+normalize helper compiles to `Cf4IBroadcastABDf4IBroadcastBAEf4ODivideCD_…`,
+which still sits *beside* an unchanged `row_reduce_small_1_reduce_sumfloat32`:
+`Sum` is a `Reduce`, so it is not fusable, and the compiled region removes
+**0** dispatches. Two dispatches in, two dispatches out. The `is_fusable`
+source reading in Step 1c therefore predicts both arms correctly.
+
+**The refund is GPU-side, not CPU-side.** `gap` (the CPU-side graph-construction
+and submission time not covered by GPU work) is 233 µs in `U` and 232 µs in
+`C` — a 1 µs difference. The entire `U − C` movement is in the GPU-busy union:
+8724 → 8585 µs, **Δunion = 139 µs**, which agrees with the clean-binary ABBA
+estimate of +144.23 ± 11.50 µs/step to within 0.4σ. Fusing these ops does not
+make the host cheaper; it removes real serialized GPU kernel launches.
+
+**The refund is uniform across command-buffer contexts.** Each of the eight
+distinct command-buffer signatures contains exactly one router gate tail, so
+each should shed exactly 3 dispatches:
+
+| gate tails/step | U µs/call | C µs/call | Δ µs/call | Δ per removed dispatch |
+| ---: | ---: | ---: | ---: | ---: |
+| 10 | 198.99 | 195.96 | 3.03 | 1.01 |
+| 8 | 200.35 | 196.15 | 4.20 | 1.40 |
+| 5 | 236.18 | 232.74 | 3.44 | 1.15 |
+| 4 | 237.15 | 233.89 | 3.26 | 1.09 |
+| 4 | 216.56 | 213.07 | 3.49 | 1.16 |
+| 4 | 93.90 | 89.93 | 3.97 | 1.32 |
+| 3 | 196.52 | 192.77 | 3.75 | 1.25 |
+| 1 | 150.06 | 146.81 | 3.25 | 1.08 |
+
+The tails sum to 39, as they must. The weighted total is **138.5 µs/step**,
+reconciling with Δunion. Every signature lands in a tight 1.01–1.40 µs band
+regardless of how much other work shares its command buffer — the signature of
+**true elimination**, not of work relocating into a neighbouring kernel.
+
+### Final refund
+
+Using the measured `N = 117` with the clean-binary ABBA estimate:
+
+> **refund = 144.23 / 117 = +1.233 µs per removed dispatch,
+> 95% CI [+0.920, +1.545]**
+
+The instrumented census independently gives 138.5 / 117 = **+1.18 µs**.
+Both clear the +1.0 µs pre-registered bar; both are far above the +0.3 µs
+falsification floor.
+
+For scale, `B → U` adds 273 dispatches for +844 µs of union (3.09 µs each),
+but that number conflates overhead with genuinely new work: the fused Metal
+router `decode_router_top8_ordinal_table_norm_v1` does the sort, gather,
+reduce and divide itself in one 5.18 µs kernel, so the stock tail is not
+merely more dispatches, it is more arithmetic. Only the `U → C` contrast
+isolates dispatch overhead at fixed arithmetic.
 
 ## Step 4 — Correctness
 
