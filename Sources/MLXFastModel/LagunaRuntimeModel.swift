@@ -3696,12 +3696,23 @@ func lagunaGatedOutputProjection(
 /// chain; the only change is dispatch count. One thread per output element;
 /// the softplus is recomputed per element of a head, which is the same FP32
 /// op stream the standalone softplus dispatch would run once per head.
-private func lagunaGateProductSoftplusSource(heads: Int) -> String {
+private func lagunaGateProductSoftplusSource(heads: Int, multiToken: Bool) -> String {
+    let gateIndex = multiToken
+        ? """
+    constexpr int IN_VEC = N_HEADS * HEAD_DIM;
+    uint token_idx = gid / IN_VEC;
+    int head = (gid % IN_VEC) / HEAD_DIM;
+    float logit = float(gate_logits[token_idx * N_HEADS + head]);
     """
-    constexpr int HEAD_DIM = \(LagunaConstants.headDim);
-    uint gid = thread_position_in_grid.x;
+        : """
     int head = gid / HEAD_DIM;
     float logit = float(gate_logits[head]);
+    """
+    return """
+    constexpr int HEAD_DIM = \(LagunaConstants.headDim);
+    constexpr int N_HEADS = \(heads);
+    uint gid = thread_position_in_grid.x;
+    \(gateIndex)
     float gate;
     if (metal::isnan(logit)) {
         gate = NAN;
@@ -3724,7 +3735,21 @@ private let lagunaGateProductSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
             name: "laguna_gate_product_softplus_bf16_h\(heads)_v1",
             inputNames: ["attention_output", "gate_logits"],
             outputNames: ["gated"],
-            source: lagunaGateProductSoftplusSource(heads: heads),
+            source: lagunaGateProductSoftplusSource(heads: heads, multiToken: false),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
+
+private let lagunaGateProductSoftplusMultiTokenKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_gate_product_softplus_bf16_h\(heads)_mt_v1",
+            inputNames: ["attention_output", "gate_logits"],
+            outputNames: ["gated"],
+            source: lagunaGateProductSoftplusSource(heads: heads, multiToken: true),
             ensureRowContiguous: true
         )
     }
@@ -3758,6 +3783,36 @@ func lagunaGateProductSoftplus(
         grid: (inVec, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, inVec]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+/// Multi-token prefill twin of `lagunaGateProductSoftplus`. Same elementwise
+/// kernel, grid scaled by L. Fuses softplus + gate product into one dispatch,
+/// eliminating the separate compiled-softplus and broadcast-multiply
+/// dispatches (1 fewer dispatch × 40 layers per prefill).
+func lagunaGateProductSoftplusMultiToken(
+    attentionOutput: MLXArray, gateLogits: MLXArray, heads: Int
+) -> MLXArray? {
+    guard lagunaFusedGateProductEnabled,
+        let kernel = lagunaGateProductSoftplusMultiTokenKernels[heads]
+    else { return nil }
+    let inVec = heads * LagunaConstants.headDim
+    precondition(attentionOutput.dtype == .bfloat16)
+    precondition(attentionOutput.dim(0) == 1)
+    let L = attentionOutput.dim(1)
+    precondition(attentionOutput.dim(2) == inVec)
+    precondition(gateLogits.dtype == .bfloat16)
+    precondition(gateLogits.dim(0) == 1)
+    precondition(gateLogits.dim(1) == L)
+    precondition(gateLogits.dim(2) == heads)
+
+    lagunaTrace("gate product softplus mt h\(heads) L\(L)")
+    return kernel(
+        [attentionOutput, gateLogits],
+        grid: (inVec * L, 1, 1),
+        threadGroup: (128, 1, 1),
+        outputShapes: [[1, L, inVec]],
         outputDTypes: [.bfloat16]
     )[0]
 }
@@ -6358,18 +6413,31 @@ final class LagunaRuntimeAttention: Module {
             {
                 return attentionGateProjection(output, projectedGate, wo.weight)
             }
-            let gate =
-                gateIsActivated
-                ? projectedGate
-                : gatePerHead && projectedGate.dtype == output.dtype
-                ? lagunaCompiledSoftplusGate(projectedGate)
-                : softplus(projectedGate.asType(.float32)).asType(output.dtype)
-            if gatePerHead {
-                output =
-                    (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
-                    .reshaped(B, L, -1)
+            // Multi-token prefill: fuse softplus + gate product into one
+            // dispatch (same kernel as decode, grid scaled by L). Eliminates
+            // the separate compiled-softplus and broadcast-multiply dispatches.
+            if !gateIsActivated, gatePerHead, B == 1, L > 1, wo.bias == nil,
+                output.dtype == .bfloat16, projectedGate.dtype == .bfloat16,
+                headDim == LagunaConstants.headDim,
+                let fusedGated = lagunaGateProductSoftplusMultiToken(
+                    attentionOutput: output, gateLogits: projectedGate,
+                    heads: nHeads)
+            {
+                output = fusedGated
             } else {
-                output = output * gate
+                let gate =
+                    gateIsActivated
+                    ? projectedGate
+                    : gatePerHead && projectedGate.dtype == output.dtype
+                    ? lagunaCompiledSoftplusGate(projectedGate)
+                    : softplus(projectedGate.asType(.float32)).asType(output.dtype)
+                if gatePerHead {
+                    output =
+                        (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
+                        .reshaped(B, L, -1)
+                } else {
+                    output = output * gate
+                }
             }
         }
 
