@@ -189,7 +189,7 @@ def main():
               f"{g:8.3f} {kn:8.3f} {sp:8.3f} {g/arm_ms[k]:9.3f}")
 
     # ---- the single estimator --------------------------------------------
-    pts = [(s // blen, xval(s), med[s] * 1e3) for s in segs]
+    pts = [(i // blen, xval(s), med[s] * 1e3) for i, s in enumerate(segs)]
     slope, se, df, n = fe_ols(pts, n_blocks)
     half = t95(df) * se if se == se else float("nan")
     unit = {"k": "per K", "dispatch": "per dispatch", "barrier": "per barrier",
@@ -199,16 +199,25 @@ def main():
     print(f"  95% CI [{slope-half:+.4f}, {slope+half:+.4f}] us {unit}")
 
     if args.x == "dispatch":
-        m5_us = slope
-        print(f"  -> refund of removing ONE dispatch/step: {m5_us:.3f} us "
-              f"[{m5_us-half:.3f}, {m5_us+half:.3f}]")
-        for n_disp, tag in ((1, f"1 per-layer dispatch (x{N_LAYERS} layers)"),
-                            (3, "3 per-layer dispatches"),
-                            (10, "10 per-layer dispatches")):
-            tot = m5_us * n_disp * N_LAYERS
-            print(f"     {tag:34s}: {tot:8.1f} us/step  "
-                  f"{tot*PERCENT_PER_US_DECODE:6.3f}% score  "
-                  f"{tot/M5_DECODE_SIGMA_US:5.2f} sigma")
+        print(f"  -> measured refund of removing ONE dispatch/step on THIS "
+              f"host: {slope:.3f} us [{slope-half:.3f}, {slope+half:.3f}]")
+        # This host is not the ranked host. Report both ends of the transfer
+        # assumption instead of pretending one of them is the answer: 1:1
+        # (per-dispatch cost is fixed overhead, upper bound) and step-time
+        # scaled (per-dispatch cost shrinks with the machine, lower bound).
+        ratio = M5_STEP_MS / (arm_ms[min(arms)] or M5_STEP_MS)
+        print(f"     M5 transfer band: 1.000x (fixed overhead) to "
+              f"{ratio:.3f}x (scales with step time)")
+        print(f"     {'removed dispatches':34s} {'us/step':>18} "
+              f"{'% score':>15} {'sigma':>13}")
+        for n_disp, tag in ((1, f"1 per layer (x{N_LAYERS})"),
+                            (3, f"3 per layer (x{N_LAYERS})"),
+                            (10, f"10 per layer (x{N_LAYERS})")):
+            hi = slope * n_disp * N_LAYERS
+            lo = hi * ratio
+            print(f"     {tag:34s} {lo:8.1f}..{hi:-8.1f} "
+                  f"{lo*PERCENT_PER_US_DECODE:6.3f}..{hi*PERCENT_PER_US_DECODE:-6.3f} "
+                  f"{lo/M5_DECODE_SIGMA_US:5.2f}..{hi/M5_DECODE_SIGMA_US:-5.2f}")
     if args.x == "spin_us":
         print(f"  slope ~1 => CPU-paced (E1 encode starvation); "
               f"slope ~0 => GPU-paced")

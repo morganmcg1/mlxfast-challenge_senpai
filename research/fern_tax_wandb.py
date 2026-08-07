@@ -44,11 +44,11 @@ def reduce_arm(path, x_kind):
         return ctr[s][x_kind]
 
     pts = []
-    for s in segs:
+    for i, s in enumerate(segs):
         v = xval(s)
         if v is None:
             return None
-        pts.append((s // blen, v, med[s] * 1e3))
+        pts.append((i // blen, v, med[s] * 1e3))
     slope, se, df, n = S.fe_ols(pts, n_blocks)
     half = S.t95(df) * se if se == se else float("nan")
     base = [s for s in segs if seg_k[s] == min(seg_k.values())]
@@ -98,8 +98,13 @@ def main():
         "baseline_kernel_ms", "baseline_gpu_busy_frac"])
     summary = {}
     for path in sorted(glob.glob(os.path.join(args.outdir, "*.tsv"))):
+        if path.endswith(".ctr.tsv"):
+            continue
         arm = os.path.basename(path)[:-4]
-        for x_kind in ("k", "dispatch", "barrier", "spin_us"):
+        kinds = ("k", "dispatch", "barrier")
+        if "spin" in arm:
+            kinds = kinds + ("spin_us",)
+        for x_kind in kinds:
             r = reduce_arm(path, x_kind)
             if r is None:
                 continue
