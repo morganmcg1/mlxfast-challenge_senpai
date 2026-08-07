@@ -7815,16 +7815,12 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             escape_val = routed_down_escape[expert];
         }
 
-        thread float input_values[values_per_lane];
+        thread float4 input_values[values_per_lane / 4];
         const device vec<bfloat, 4>* input_vectors =
             (const device vec<bfloat, 4>*)(
                 expert_input + lane * values_per_lane);
         for (uint i = 0; i < values_per_lane / 4; ++i) {
-            const vec<bfloat, 4> values = input_vectors[i];
-            input_values[4 * i] = values[0];
-            input_values[4 * i + 1] = values[1];
-            input_values[4 * i + 2] = values[2];
-            input_values[4 * i + 3] = values[3];
+            input_values[i] = float4(input_vectors[i]);
         }
 
         thread float result[outputs_per_simd] = {0.0f};
@@ -7839,7 +7835,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 sb = escape_val;
             result[row] = laguna_nvfp4_qdot_16(
                 weight,
-                input_values,
+                (const thread float*)input_values,
                 laguna_nvfp4_scale(sb));
             result[row] = simd_sum(result[row]);
         }
