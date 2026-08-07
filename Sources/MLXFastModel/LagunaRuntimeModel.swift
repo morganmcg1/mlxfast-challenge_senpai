@@ -221,10 +221,28 @@ let lagunaExpertAlignedGatherEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
 
-// Disabled 2026-08-07: qmm_nax reverted to pre-PR#243 state (no kHalvedScales).
-// The halved path calls quantizedMM with groupSize=32 and scales [N+1, K/32],
-// which the pre-PR#243 qmm_nax doesn't support. Falls through to standard path.
-let lagunaPrefillSharedHalvedEnabled = false
+func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
+    guard osSupportsNAX,
+        let generation = Int(architecture.suffix(3).prefix(2))
+    else { return false }
+    return generation >= (architecture.hasSuffix("p") ? 18 : 17)
+}
+
+// Prefill shared expert halved-scales via qmm_nax kHalvedScales. The
+// qmm_nax kernel path and its kHalvedScales template are M5 (NAX) only;
+// on non-NAX hardware the non-nax fallback would misread group_size=32
+// scales, so this gate prevents activation on M4.
+let lagunaPrefillSharedHalvedEnabled: Bool = {
+    guard ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_HALVED"] != "0",
+        #available(macOS 26.2, *)
+    else { return false }
+    let configured = ProcessInfo.processInfo.environment["MLX_METAL_GPU_ARCH"]
+    return lagunaNAXAvailable(
+        architecture: configured.flatMap { $0.isEmpty ? nil : $0 }
+            ?? GPU.deviceInfo().architecture,
+        osSupportsNAX: true
+    )
+}()
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
@@ -9814,6 +9832,9 @@ private func lagunaFusedSortedRoutedGateUp(
     downWeight: MLXArray?,
     halvedDownScales: MLXArray?,
     downScalesEscape: MLXArray?,
+    prefillGateUpFullScales: MLXArray?,
+    prefillDownFullScales: MLXArray?,
+    prefillHalvedEnabled: Bool,
     deferUnsort: Bool
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
     // SwitchGLU: `var x = MLX.expandedDimensions(x, axes: [-2, -3])`
@@ -9840,17 +9861,26 @@ private func lagunaFusedSortedRoutedGateUp(
     // the separate banks is the fusion; every other argument matches the
     // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
     let gateUp: MLXArray
-    // Halved scales disabled: gatherQuantizedMM rejects non-nil biases with
-    // .nvfp4 mode (ops.cpp validation throws, crashing M5). Escape bytes must
-    // be embedded in the scales tensor (like PR #243's shared expert path)
-    // rather than passed via the biases parameter.
-    let useHalved = false
-    gateUp = MLX.gatherQuantizedMM(
-        sortedX, fusedWeight,
-        scales: fusedScales,
-        biases: nil,
-        rhsIndices: idx, transpose: true, groupSize: 16,
-        bits: 4, mode: .nvfp4, sortedIndices: doSort)
+    // Halved scales for routed expert prefill gather path. The escape bytes
+    // are embedded in the scales tensor's extra row (like the shared expert
+    // path), not passed via biases (which ops.cpp rejects for .nvfp4 mode).
+    let useHalved = prefillHalvedEnabled
+        && prefillGateUpFullScales != nil
+    if useHalved {
+        gateUp = MLX.gatherQuantizedMM(
+            sortedX, fusedWeight,
+            scales: prefillGateUpFullScales!,
+            biases: nil,
+            rhsIndices: idx, transpose: true, groupSize: 32,
+            bits: 4, mode: .nvfp4, sortedIndices: doSort)
+    } else {
+        gateUp = MLX.gatherQuantizedMM(
+            sortedX, fusedWeight,
+            scales: fusedScales,
+            biases: nil,
+            rhsIndices: idx, transpose: true, groupSize: 16,
+            bits: 4, mode: .nvfp4, sortedIndices: doSort)
+    }
     let activated: MLXArray
     if lagunaExpertAlignedGatherEnabled {
         // The expert kernel writes rows with a physical stride of `split`
@@ -9864,16 +9894,18 @@ private func lagunaFusedSortedRoutedGateUp(
         activated = lagunaInterleavedSwiGLU(gateUp, split: split)
     }
     // SwitchGLU: `x = downProj(activated, idx, sortedIndices: doSort)`.
-    // With NAX + halved scales, use gatherQuantizedMM with halved scales +
-    // escape biases (bit-exact via NVFP4 pairwise constancy).
-    // Halved down scales disabled: same biases crash as gate/up halved path.
-    let useHalvedDown = false
+    // With NAX + halved scales, use gatherQuantizedMM with halved scales with
+    // escape embedded in the scales tensor (bit-exact via NVFP4 pairwise
+    // constancy).
+    let useHalvedDown = useHalved
+        && prefillDownFullScales != nil
+        && downWeight != nil
     var result: MLXArray
     if useHalvedDown {
         result = MLX.gatherQuantizedMM(
             activated, downWeight!,
-            scales: halvedDownScales!, biases: nil,
-            rhsIndices: idx, transpose: true, groupSize: 16,
+            scales: prefillDownFullScales!, biases: nil,
+            rhsIndices: idx, transpose: true, groupSize: 32,
             bits: 4, mode: .nvfp4, sortedIndices: doSort)
     } else {
         result = downProj(activated, idx, sortedIndices: doSort)
@@ -9927,6 +9959,12 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// Halved fused gate/up scales [experts, 2*split, K/32] + escape [experts, 2].
     var _halvedFusedRoutedGateUpScales: MLXArray?
     var _fusedRoutedGateUpScalesEscape: MLXArray?
+    /// Precomputed combined [experts, 2*split+1, K/32] scales for the prefill
+    /// halved gather path, with escape bytes embedded in the extra row.
+    var _prefillRoutedGateUpFullScales: MLXArray?
+    /// Precomputed combined [experts, 2049, K/32] down scales for the prefill
+    /// halved gather path, with escape bytes embedded in the extra row.
+    var _prefillRoutedDownFullScales: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -10036,12 +10074,33 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             downScales[0..., 0, 1].reshaped([experts, 1]))
         _halvedRoutedDownScales = halvedDown
         _routedDownScalesEscape = downEscape
+        // Precompute combined [experts, 2*split+1, K/32] gate/up scales with
+        // escape in the extra row for the prefill halved gather path.
+        let hgGu = _halvedFusedRoutedGateUpScales!.dim(2)
+        let guEscapeRow = concatenated(
+            [_fusedRoutedGateUpScalesEscape!.reshaped([experts, 1, 2]),
+             MLXArray.zeros([experts, 1, hgGu - 2], dtype: .uint8)], axis: 2)
+        _prefillRoutedGateUpFullScales = contiguous(
+            concatenated([_halvedFusedRoutedGateUpScales!, guEscapeRow], axis: 1))
+        // Precompute combined [experts, 2049, K/32] down scales with escape
+        // in the extra row. escape[1] = halvedDown[32, 0] is a no-op for the
+        // spurious bi==BROWS/2 escape read in the gather tile-interleaved
+        // path (down is not gate/up, so row 32 has no escape exception).
+        let hgDs = halvedDown.dim(2)
+        let dsEscapeNoop = halvedDown[0..., 32, 0].reshaped([experts, 1, 1])
+        let dsEscapeRow = concatenated(
+            [downEscape.reshaped([experts, 1, 1]),
+             dsEscapeNoop,
+             MLXArray.zeros([experts, 1, hgDs - 2], dtype: .uint8)], axis: 2)
+        _prefillRoutedDownFullScales = contiguous(
+            concatenated([halvedDown, dsEscapeRow], axis: 1))
         prepared.append(
             contentsOf: preparePackedRoutedGateUpBank(
                 fusedScales: fusedScales,
                 experts: experts,
                 split: split))
-        prepared.append(contentsOf: [halvedDown, downEscape])
+        prepared.append(contentsOf: [halvedDown, downEscape,
+            _prefillRoutedGateUpFullScales!, _prefillRoutedDownFullScales!])
         return prepared
     }
 
@@ -10365,6 +10424,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     downWeight: _routedDownWeight,
                     halvedDownScales: _halvedRoutedDownScales,
                     downScalesEscape: _routedDownScalesEscape,
+                    prefillGateUpFullScales: _prefillRoutedGateUpFullScales,
+                    prefillDownFullScales: _prefillRoutedDownFullScales,
+                    prefillHalvedEnabled: lagunaPrefillSharedHalvedEnabled,
                     deferUnsort:
                         lagunaPrefillSortedMoETailEnabled
                         && lagunaPrefillMoETailEnabled
