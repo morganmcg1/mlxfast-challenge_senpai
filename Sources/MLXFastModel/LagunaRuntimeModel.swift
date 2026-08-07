@@ -9870,20 +9870,10 @@ private func lagunaFusedSortedRoutedGateUp(
         activated = lagunaInterleavedSwiGLU(gateUp, split: split)
     }
     // SwitchGLU: `x = downProj(activated, idx, sortedIndices: doSort)`.
-    // Down halved remains disabled: the expert kernel reads escape at a
-    // fixed stride of 2 (gate+up layout), incompatible with the down path's
-    // 1-byte-per-expert escape.
-    let useHalvedDown = false
-    var result: MLXArray
-    if useHalvedDown {
-        result = MLX.gatherQuantizedMM(
-            activated, downWeight!,
-            scales: halvedDownScales!, biases: nil,
-            rhsIndices: idx, transpose: true, groupSize: 16,
-            bits: 4, mode: .nvfp4, sortedIndices: doSort)
-    } else {
-        result = downProj(activated, idx, sortedIndices: doSort)
-    }
+    // Down halved is disabled: the expert kernel reads escape at a fixed
+    // stride of 2 (gate+up layout), incompatible with the down path's
+    // 1-byte-per-expert escape. Only gate/up halved is enabled.
+    var result = downProj(activated, idx, sortedIndices: doSort)
     // SwitchGLU: `if doSort { x = scatterUnsort(x: x, invOrder: inverseOrder, shape: indices.shape) }`
     if doSort && !deferUnsort {
         result = scatterUnsort(x: result, invOrder: inverseOrder, shape: indices.shape)
