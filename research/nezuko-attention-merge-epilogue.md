@@ -998,3 +998,90 @@ one was deliberately not spent, and the reasoning is part of the deliverable:
   zero receipts.
 
 §12 is that zero-receipt attack.
+
+## 12. The zero-receipt end-to-end probe on M4 Pro
+
+### 12.1 Why `--local-iterate` could not answer this
+
+The effect to resolve is `14.02 µs` on a `~8290 µs` M4 decode step — **0.169 %**.
+`./benchmark.sh --local-iterate` times only **128** decode steps per ~216 s run,
+and §7.4's matched ABBA over 8 full runs returned a 95 % CI of
+`[−50.4, +51.6] µs/step`: a half-width **3.6× the effect**. No affordable number
+of `--local-iterate` runs closes that gap, because most of its variance is
+*between-run* session state, not between-step noise.
+
+The advisor's PR #204 note prescribed the instrument that does work, and I
+adopted it verbatim:
+
+- `research/decode_probe.py`, **1200** decode steps per run, per-step spans from
+  `time.clock_gettime(CLOCK_UPTIME_RAW)`, first **16** steps dropped as warmup;
+- the **run median** is the unit of replication, not the step — this is the key
+  choice, because per-step times are heavy-tailed (one run showed a `33.4 ms`
+  outlier against an `8.30 ms` median) and the mean is not robust to it;
+- **palindromic** arm ordering, so any monotone drift in host state cancels in
+  adjacent-pair differences;
+- **both binaries built once up front and swapped as files**, so no timed run
+  carries a rebuild and the source tree is clean throughout.
+
+Driver: `research/nezuko_epilogue_decode_probe.sh`. Statistics:
+`research/nezuko_decode_probe_stats.py` (single session) and
+`research/nezuko_decode_probe_pool.py` (pooled across sessions).
+
+### 12.2 Arm-validity certification
+
+The advisor's second methodological requirement was to *certify arm validity*
+rather than assume it. Three independent guards, all emitted into the run log:
+
+| guard | session 1 result |
+|---|---|
+| `SRC_MD5_HEAD` vs `SRC_MD5_BASE` | `eee114e4…` ≠ `917039f5…` — the two arms are genuinely different source |
+| `BINARIES_DIFFER` | `1` — and `BIN_MD5_A ba6c5f71…` ≠ `BIN_MD5_B 424f1bd7…`, so the compiler did not fold the difference away |
+| `WORKTREE_DIRTY_AFTER_BUILD` | `0` — `Sources/` restored to HEAD before the first timed run |
+
+The script **fails fast** if either the sources or the binaries compare equal,
+so an inert arm cannot masquerade as a null result. This is the same failure
+mode the advisor flagged in #204, handled statically here.
+
+Independently, §6/§7 already certified arm validity by **fault injection**: a
+1-ULP bfloat perturbation of `pair_out0[0]` flips **64 of 65** per-step logit
+digests. The edited region is demonstrably live on the scored decode path.
+
+Every one of the 12 timed runs returned `RUN_RC 0` and **0 teacher-forced greedy
+divergences**, which is also a 14,400-step bit-exactness check on top of §9.3.
+
+### 12.3 Session 1 — a null, but an *underpowered* null
+
+Sequence `A B B A A B B A A B B A` (A = candidate, B = base), 1200 steps/run,
+1184 steps after warmup, `/tmp/nezprobe`.
+
+| run | arm | median µs | run | arm | median µs |
+|---|---|---|---|---|---|
+| 1 | A | 8282.98 | 7 | B | 8285.98 |
+| 2 | B | 8273.81 | 8 | A | 8292.19 |
+| 3 | B | 8286.71 | 9 | A | 8267.52 |
+| 4 | A | 8256.88 | 10 | B | 8294.02 |
+| 5 | A | 8322.77 | 11 | B | 8300.85 |
+| 6 | B | 8301.67 | 12 | A | 8307.48 |
+
+Adjacent-pair savings (positive = candidate faster): `−9.17, +29.83, −21.10,
+−6.21, +26.50, −6.63 µs/step`.
+
+```
+PAIRED n=6  saved mean +2.20 us/step  sd 20.86  se 8.51  t +0.26
+PAIRED 95% CI [-19.69, +24.10] us/step   (-0.2375 % .. +0.2907 %)
+  pre-registered +14.02 us/step inside CI ?  YES
+  zero inside CI ?                           YES (null)
+```
+
+This is precisely the outcome the advisor warned about: **the CI contains both
+zero and the prediction**, so on its own it discriminates nothing. Resolution
+(half-width) is `21.89 µs`, about `1.6×` too coarse. Reporting it as "the M4
+end-to-end result is null" would have been the uncertified null that *"is worth
+nothing"*.
+
+The fix is cheap and costs no receipts: variance is known (`sd 20.86`), so the
+pair count needed for a `< 14 µs` half-width is `n ≈ 6 × (21.89/14)² ≈ 15`.
+Session 2 runs a 24-run palindrome (12 further pairs) for **18 pooled pairs**,
+projected half-width `≈ 10.4 µs`. Pairing is strictly *within* session and
+*between adjacent runs*, so a between-session level shift cannot bias the pooled
+mean.
