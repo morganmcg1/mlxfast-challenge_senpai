@@ -9,9 +9,16 @@
     GREEN v1 result (~0.6-1.4% M4 decode gain, bit-exact).
     DEAD CODE: _halvedFusedGateUpScales built but never wired to shared SwiGLU QMV kernel.
     v2: fix shared SwiGLU QMV halving + rebase to 7b0f3a9.
-  PR #188 (thorfinn, packed down-scales): ASSIGNED. Pack down-projection scales into walk-order side bank.
-  PR #191 (edward, QKV packed-scales): ASSIGNED. Extend DARKBLOOM_PACKED_SCALES to QKV decode kernel.
-  PR #192 (askeladd, O-proj packed-scales): ASSIGNED. Extend DARKBLOOM_PACKED_SCALES to O-proj NVFP4 decode kernel.
+  PR #188 (thorfinn, packed down-scales): CLOSED. DEAD — 1.2-1.6% slower. Down scales already coalesced.
+    KEY FINDING: Down path's per-expert scale access is ALREADY coalesced (32 contiguous bytes/row).
+    Gate/up packed bank works because it fixes a within-expert ROW REMAP; down path has no remap to fix.
+    IMPLICATION: QKV (PR #191) and O-proj (PR #192) packed-scales also likely dead — their scale
+    accesses are also contiguous (32 lanes × 1 byte = 32 contiguous bytes). Students warned + redirected.
+  PR #193 (thorfinn, attention scale halving): ASSIGNED. Re-test prematurely closed PR #169 hypothesis.
+    QKV+O-proj scale traffic = ~90 MiB/step (corrected from earlier 0.2-0.5% estimate → 0.76% of step time).
+    First step: verify pairwise constancy in QKV/O-proj scale tensors. If >50%, implement halving.
+  PR #191 (edward, QKV packed-scales): WIP, redirected to QKV scale halving.
+  PR #192 (askeladd, O-proj packed-scales): WIP, redirected to O-proj scale halving.
   Bandwidth audit complete: see research/BANDWIDTH_AUDIT_20260807.md.
   PR #187 (thorfinn, duplicate marker): IGNORE — PR #188 replaces it.
 
@@ -22,15 +29,17 @@
   Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%), committed 8/6 05:04 UTC.
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
   STRATEGY: DECODE bandwidth reductions only. Prefill M4 gains do NOT transfer to M5.
-    Wave 5 (current): 4 decode bandwidth/coalescing experiments, all bit-exact.
+    Wave 5 (current): 4 decode bandwidth experiments, all bit-exact.
       PR #180 v2 (alphonse): MoE scale halving + shared SwiGLU fix (~1% M4 decode gain).
-      PR #188 (thorfinn): Packed down-scales walk-order bank (~0.5-1.5% decode).
-      PR #191 (edward): QKV packed-scales coalescing (~1-3% decode, ~50 MiB/step scale traffic).
-      PR #192 (askeladd): O-proj packed-scales coalescing (~1-3% decode, ~40 MiB/step scale traffic).
-    All 4 target PURE BANDWIDTH/COALESCING: same bytes, different layout order, bit-exact.
+      PR #191 (edward): QKV packed-scales → REDIRECTED to QKV scale halving (coalescing already optimal).
+      PR #192 (askeladd): O-proj packed-scales → REDIRECTED to O-proj scale halving (coalescing already optimal).
+      PR #193 (thorfinn): Attention QKV+O-proj scale halving (~0.76% decode, re-test of PR #169).
+    All 4 target PURE BANDWIDTH REDUCTION (halving scale bytes, not coalescing).
     NO instruction-count reductions. NO prefill changes. NO scheduling changes.
-    Next submission: compose winning decode bandwidth optimizations from clean base (12a712d).
-    Submit from CLEAN base + decode optimizations only. NO prefill changes.
+    KEY FINDING: Scale COALESCING is exhausted — QKV, O-proj, and down paths are ALL already coalesced.
+    Scale HALVING is the remaining bandwidth opportunity: MoE (~1% decode) + attention (~0.76% decode).
+    Next submission: compose winning scale-halving experiments from clean base (12a712d).
+    Submit from CLEAN base + decode scale halving only. NO prefill changes.
     FALLBACK: If Wave 5 fails, re-test instruction-count reductions PURE on clean base
       (no ops-800, no QHOIST, no prefill). Start with packed simd_sum (lowest risk).
       Research finding: no pure instruction-reduction submission was EVER tested on M5.
