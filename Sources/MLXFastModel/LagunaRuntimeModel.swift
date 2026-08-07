@@ -235,35 +235,16 @@ func lagunaExpertAlignedStageEnabled(_ value: String?) -> Bool {
     ["", "4", "5"].contains(value ?? "")
 }
 
-let lagunaExpertAlignedGatherEnabled = {
-    let environment = ProcessInfo.processInfo.environment
-    guard environment["DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0",
-        lagunaExpertAlignedStageEnabled(environment["DARKBLOOM_STAGE_BM128"]),
-        #available(macOS 26.2, *)
-    else { return false }
-    let configured = environment["MLX_METAL_GPU_ARCH"]
-    return lagunaNAXAvailable(
-        architecture: configured.flatMap { $0.isEmpty ? nil : $0 }
-            ?? GPU.deviceInfo().architecture,
-        osSupportsNAX: true
-    )
-}()
+func lagunaNAXGate(_ envKey: String) -> Bool {
+    let e = ProcessInfo.processInfo.environment
+    guard e[envKey] != "0", #available(macOS 26.2, *) else { return false }
+    let a = e["MLX_METAL_GPU_ARCH"]
+    return lagunaNAXAvailable(architecture: a.flatMap { $0.isEmpty ? nil : $0 } ?? GPU.deviceInfo().architecture, osSupportsNAX: true)
+}
 
-/// Prefill shared expert halved-scales via qmm_nax kHalvedScales. The
-/// qmm_nax kernel path and its kHalvedScales template are M5 (NAX) only;
-/// on non-NAX hardware the non-nax fallback would misread group_size=32
-/// scales, so this gate prevents activation on M4.
-let lagunaPrefillSharedHalvedEnabled: Bool = {
-    guard ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_HALVED"] != "0",
-        #available(macOS 26.2, *)
-    else { return false }
-    let configured = ProcessInfo.processInfo.environment["MLX_METAL_GPU_ARCH"]
-    return lagunaNAXAvailable(
-        architecture: configured.flatMap { $0.isEmpty ? nil : $0 }
-            ?? GPU.deviceInfo().architecture,
-        osSupportsNAX: true
-    )
-}()
+let lagunaExpertAlignedGatherEnabled = lagunaExpertAlignedStageEnabled(ProcessInfo.processInfo.environment["DARKBLOOM_STAGE_BM128"]) && lagunaNAXGate("DARKBLOOM_EXPERT_ALIGNED_GATHER")
+
+let lagunaPrefillSharedHalvedEnabled = lagunaNAXGate("DARKBLOOM_PREFILL_SHARED_HALVED")
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
@@ -3513,39 +3494,9 @@ func lagunaFusedNormQKVProjection(
 }
 
 /// Decode-only fusion of the per-head attention gate with the output
-/// projection. The stock decode path is two dispatches: one compiled
-/// elementwise kernel that softplus-gates the attention output, and one GEMV
-/// over `o_proj`. This kernel folds the gate into the GEMV's vector loads, so
-/// the 8192-wide gated row is never materialized and the layer spends one
-/// dispatch instead of two.
-///
-/// Exactness. The fused QKV producer has already reproduced
-/// `softplus(gate.asType(.float32)).asType(.bfloat16)` after preserving the
-/// projection's intermediate BF16 rounding boundary. This consumer applies
-/// the same BF16 gate product as stock. The projection reproduces MLX's
-/// `gemv` for this shape exactly: out_vec 2048 and in_vec 8192 select BM 4,
-/// BN 1, SM 1, SN 32, TM 4, TN 4, so a thread owns four output rows, lane `l`
-/// covers input columns `4l + 128i`, products accumulate in `i` then `tn`
-/// order in FP32, and the simdgroup reduces with the same
-/// `simd_shuffle_down` ladder (16, 8, 4, 2, 1) before lane 0 rounds once to
-/// BF16. Because column `4l + 128i` always lies inside head `i`, the gate a
-/// thread needs at step `i` is simply `gate_values[i]`.
-/// Depth-2 block unroll, `notes/54` §11: L5 is the only large kernel whose
-/// in-flight budget is small enough for memory-level parallelism to bind at
-/// all. It holds 512 KB against `lm_head`'s 1280 KB, and at the top of the
-/// measured 287–947 ns latency bracket 512 KB supports 554 GB/s against L5's
-/// measured 553.8. Hoisting two blocks' loads takes that to 1.05 MB, which
-/// clears the 596.1 GB/s fabric ceiling under every calibration in the
-/// bracket. If L5 is fabric-bound instead this is flat — a result, not a
-/// failure. L5's 0.40 waves are what make the ~20 extra registers free: at
-/// 3.2 threadgroups per core against a capacity of 8 there is no occupancy to
-/// lose (`notes/46` §6).
-///
-/// **LOADS ONLY.** `result[row]` stays one accumulator per row, stepped in
-/// strict `(block, i)` order — block 0's four products then block 1's, into
-/// the same register. Per-unroll partial sums combined at the end would
-/// regroup the FP32 chain into a tree and forfeit bit-exactness while passing
-/// every local check. `blocks == heads` is 64 or 48, both even, so no tail.
+/// projection. Folds the softplus gate into the GEMV's vector loads so the
+/// 8192-wide gated row is never materialized — one dispatch instead of two.
+/// Bit-exact: same BF16 gate product and GEMV accumulation order as stock.
 private func lagunaGatedOutputProjectionSource(
     heads: Int, unroll: Int, compact: Bool = false
 ) -> String {
@@ -8810,56 +8761,16 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
         {
             lagunaTrace("shared fused [gate; up] bank QMM halved (prefill)")
-            // Build combined scales [N+1, K/32] with escape bytes in the last
-            // row.  group_size=32 passes the ops.cpp validation (K/32*32==K);
-            // the Metal dispatch detects this and overrides to 16 with
-            // kHalvedScales, reading the escape row via a buffer offset.
-            let halfFuseGroups = halvedFusedGateUpScales.dim(1)
-            let fuseEscapeRow = concatenated(
-                [
-                    gateUpEscape.reshaped([1, 2]),
-                    MLXArray.zeros([1, halfFuseGroups - 2], dtype: .uint8),
-                ], axis: 1
-            )
-            let combinedFuseScales = concatenated(
-                [halvedFusedGateUpScales, fuseEscapeRow], axis: 0)
-            let gateUp = MLX.quantizedMM(
-                x,
-                fusedWeight,
-                scales: combinedFuseScales,
-                biases: nil,
-                transpose: true,
-                groupSize: 32,
-                bits: 4,
-                mode: .nvfp4
-            )
-            let gate = gateUp[.ellipsis, 0 ..< _fusedGateUpSplit]
-            let up = gateUp[.ellipsis, _fusedGateUpSplit...]
-            let activated = compiledSiluProduct(gate, up)
-            // Down projection: escape[1] = halvedDownScales[N/2, 0] makes the
-            // spurious escape at the kernel's y_col==N/2 tile a no-op.
-            let halfDsGroups = halvedDownScales.dim(1)
-            let dsRows = halvedDownScales.dim(0)
-            let downEscNoop = halvedDownScales[dsRows / 2, 0]
-            let dsEscapeRow = concatenated(
-                [
-                    stacked([downScalesEscape[0], downEscNoop])
-                        .reshaped([1, 2]),
-                    MLXArray.zeros([1, halfDsGroups - 2], dtype: .uint8),
-                ], axis: 1
-            )
-            let combinedDsScales = concatenated(
-                [halvedDownScales, dsEscapeRow], axis: 0)
-            return MLX.quantizedMM(
-                activated,
-                down.weight,
-                scales: combinedDsScales,
-                biases: nil,
-                transpose: true,
-                groupSize: 32,
-                bits: down.bits,
-                mode: down.mode
-            )
+            let hg = halvedFusedGateUpScales.dim(1)
+            let cs = concatenated([halvedFusedGateUpScales, concatenated([gateUpEscape.reshaped([1, 2]), MLXArray.zeros([1, hg - 2], dtype: .uint8)], axis: 1)], axis: 0)
+            let gu = MLX.quantizedMM(x, fusedWeight, scales: cs, biases: nil, transpose: true, groupSize: 32, bits: 4, mode: .nvfp4)
+            let g = gu[.ellipsis, 0 ..< _fusedGateUpSplit], u = gu[.ellipsis, _fusedGateUpSplit...]
+            let act = compiledSiluProduct(g, u)
+            let r = halvedDownScales.dim(0)
+            let nd = halvedDownScales.dim(1)
+            let esc = concatenated([stacked([downScalesEscape[0], halvedDownScales[r / 2, 0]]).reshaped([1, 2]), MLXArray.zeros([1, nd - 2], dtype: .uint8)], axis: 1)
+            let cds = concatenated([halvedDownScales, esc], axis: 0)
+            return MLX.quantizedMM(act, down.weight, scales: cds, biases: nil, transpose: true, groupSize: 32, bits: down.bits, mode: down.mode)
         }
         return downProj(compiledSiluProduct(gateProj(x), upProj(x)))
     }
