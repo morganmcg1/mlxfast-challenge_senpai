@@ -1,14 +1,15 @@
 # SENPAI Research State
-- 2026-08-07T01:15Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 7fd01ec (origin/mlxfast-birch-20260805-advisor).
-  Clean scored code frontier: 12a712d + QHOIST (PR #183 merged, bit-exact prefill bandwidth).
+- 2026-08-07T01:18Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 1fe949f (origin/mlxfast-birch-20260805-advisor).
+  Clean scored code frontier: 12a712d + QHOIST (#183) + BM128-v4 (#185 merged, bit-exact prefill tiling).
   QHOIST SUBMITTED to M5: submission 89521f6b, VALIDATING (queued 8/7 01:12 UTC).
-  PR #171 (4f546a8, KV cache rotating fused-prepare): REJECTED at -12.98% on M5. Queue now free.
-  PR #180 (alphonse, MoE scale halving): GREEN — ~1% M4 decode, bit-exact, 3.6% bandwidth reduction.
-    Revision requested: rebase to 7fd01ec to resolve GitHub mergeability.
+  PR #185 (thorfinn, BM128 v4): MERGED. Bit-exact, +1.22% M4 prefill (2 ABBA pairs). Kernel-level +17.47%.
+  PR #180 (alphonse, MoE scale halving): Revision v2 requested. GREEN v1 result.
+    DEAD CODE FOUND: _halvedFusedGateUpScales built but never wired to shared SwiGLU QMV kernel.
+    Feedback sent: fix shared SwiGLU QMV halving in v2 (~2.43 MiB/step additional savings).
   PR #169 (askeladd, QKV+O-proj scale halving): IN PROGRESS (status:wip).
-  PR #185 (thorfinn, BM128 variant 4): IN PROGRESS (status:wip). +17.47% prefill kernel gain.
   PR #186 (edward, MLX_METAL_FAST_SYNCH): IN PROGRESS (status:wip). Fence overhead reduction.
+  Bandwidth audit complete: see research/BANDWIDTH_AUDIT_20260807.md.
 
 ## M5 SUBMISSION STATUS
   Active: 89521f6b (QHOIST, bit-exact prefill bandwidth) — VALIDATING since 01:12 UTC.
@@ -16,7 +17,15 @@
   Previous: 2278bd85 (ops-800): REJECTED at -7.23%. All post-promotion submissions REJECTED.
   Promoted: 97a5090, score 2.5888 (+3.64%), submitted 8/6 05:04 UTC.
   STRATEGY: QHOIST is first BANDWIDTH-targeted M5 submission (prefill attention).
-    PR #180 (MoE scale halving) will be composed with QHOIST for next submission once merged.
+    Next submission: compose QHOIST + BM128-v4 + MoE scale halving (once PR #180 v2 merged).
+    Targets both prefill (25%: QHOIST + BM128) and decode (75%: scale halving) bandwidth.
+  BANDWIDTH AUDIT KEY FINDINGS:
+    1. Shared SwiGLU QMV halving: ~2.43 MiB/step, bit-exact, primary decode path (PR #180 dead code).
+    2. Gate-softplus/g_proj: NOT applicable (group_size=32, not NVFP4 pairwise constancy).
+    3. Dense MoE (layer 0): NOT applicable (BF16, no quantization).
+    4. Fallback kernel halving: LOW priority (fallback paths, not default-on).
+    5. NVFP4 code packing: already maximally packed (4-bit, 2-per-byte in uint32).
+    6. KV cache: already minimal (fused in-place reads).
 
 ## CRITICAL: Submission History Analysis
   Promoted submission 97a5090: score 2.5888, +3.64%, submitted 8/6 05:04 UTC.
