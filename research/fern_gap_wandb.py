@@ -199,6 +199,42 @@ def main():
     run.summary["prize/one_layer_dispatch_percent_score"] = (
         pooled_mean * 39 * M5_STEP_MS / HOST_STEP_MS * PERCENT_PER_US
     )
+    # Additivity control: three same-session arms, slopes in us/step per unit K.
+    # `calls=1` makes block_centred_ols return the whole-step slope directly, so
+    # the joint arm can be compared against the sum of the two solo arms without
+    # having to pick a single calls/step for a two-site injection.
+    add = {}
+    for tag in ("add_solo_T0b", "add_solo_T0a", "add_both"):
+        path = os.path.join(args.tsv_dir, f"{tag}.tsv")
+        if not os.path.exists(path):
+            continue
+        segs = segment_medians(read_tsv(path))
+        fit = block_centred_ols(segs, calls=1, kmin=1)
+        if fit is None:
+            continue
+        k0 = [ms for _, k, ms in segs if k == 0]
+        add[tag] = {
+            "us_per_step_per_k": fit[0],
+            "stderr": fit[1],
+            "k0_step_ms": statistics.median(k0) if k0 else float("nan"),
+        }
+    if {"add_solo_T0b", "add_solo_T0a", "add_both"} <= set(add):
+        predicted = add["add_solo_T0b"]["us_per_step_per_k"] + add["add_solo_T0a"]["us_per_step_per_k"]
+        observed = add["add_both"]["us_per_step_per_k"]
+        se_pred = (add["add_solo_T0b"]["stderr"] ** 2 + add["add_solo_T0a"]["stderr"] ** 2) ** 0.5
+        se_diff = (se_pred ** 2 + add["add_both"]["stderr"] ** 2) ** 0.5
+        add["_summary"] = {
+            "predicted_additive_us_per_step_per_k": predicted,
+            "observed_joint_us_per_step_per_k": observed,
+            "ratio_observed_over_additive": observed / predicted,
+            "difference_us": observed - predicted,
+            "difference_stderr": se_diff,
+            "difference_t": (observed - predicted) / se_diff if se_diff else float("nan"),
+        }
+    for tag, rec in add.items():
+        for key, val in rec.items():
+            run.summary[f"additivity/{tag.lstrip('_')}/{key}"] = val
+
     run.summary["correctness/token_divergences"] = 0
     run.summary["correctness/reachability_census"] = "40/39/39/39/39/1 on every step"
     run.summary["verdict/kill_rule"] = "CLEARED"
