@@ -9481,7 +9481,7 @@ private let lagunaPrefillMoETailKernel = MLXFast.metalKernel(
 /// multiply/add sequence while deleting the intervening 16 MiB copy at the
 /// ranked 512-token window.
 private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_sorted_moe_tail_bf16_v1",
+    name: "laguna_prefill_sorted_moe_tail_bf16_v2",
     inputNames: [
         "sorted_expert_outputs", "inverse_order", "router_weights",
         "shared_output", "residual",
@@ -9496,11 +9496,20 @@ private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
         uint col = thread_position_in_grid.x * n_cols;
         const device float* weight_row = router_weights + row * experts;
 
+        uint lid = thread_position_in_threadgroup.x;
+        threadgroup bfloat staged_expert_weights[experts];
+        threadgroup uint staged_sorted_rows[experts];
+        if (lid < experts) {
+            staged_expert_weights[lid] = bfloat(weight_row[lid]);
+            staged_sorted_rows[lid] = inverse_order[row * experts + lid];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
         bfloat expert_weights[experts];
         uint sorted_rows[experts];
         for (uint e = 0; e < experts; ++e) {
-            expert_weights[e] = bfloat(weight_row[e]);
-            sorted_rows[e] = inverse_order[row * experts + e];
+            expert_weights[e] = staged_expert_weights[e];
+            sorted_rows[e] = staged_sorted_rows[e];
         }
 
         for (uint i = 0; i < n_cols; ++i) {
