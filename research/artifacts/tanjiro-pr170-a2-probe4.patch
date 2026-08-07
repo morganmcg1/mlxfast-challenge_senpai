@@ -1,0 +1,151 @@
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp
+@@ -540,8 +540,18 @@
+     out[1] = scale * Dequantize<4, T>{}(w >> 4);
+   }
+ 
+-  template <bool wide_store, bool wide_load>
+-  void load_unsafe_wide() const {
++  // A2 probe (research instrument, false = shipped loader). Both the gate
++  // and its two payload arguments are defaulted and every use of them sits
++  // inside a discarded `if constexpr`, so the shipped call sites are spelled
++  // and compiled exactly as before. Deliberately a *function* template
++  // parameter with the accumulator passed by pointer: putting either on the
++  // class would change QuantizedBlockLoader's layout and mangled name for
++  // every instantiation, including the shipped one.
++  template <bool wide_store, bool wide_load, bool kProbeA2 = false>
++  void load_unsafe_wide(uint a2seed = 0u, thread uint4* a2acc = nullptr)
++      const {
++    (void)a2seed;
++    (void)a2acc;
+     if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
+       return;
+     }
+@@ -590,6 +600,15 @@
+       }
+     }
+ 
++    // A2 accumulator. Declared unconditionally because a declaration cannot
++    // be `if constexpr`-guarded; at probe != 4 it is written once with a
++    // constant, never read, and dies in the first DCE pass. Keeping it outside
++    // the chunk loop is what keeps the arm ALU-only: `a2acc` is a pointer
++    // parameter of a function the compiler does not inline, so a direct
++    // `*a2acc ^=` in the loop body cannot be promoted and costs a 16B thread
++    // load + store per chunk.
++    uint4 a2local = uint4(0u);
++
+     STEEL_PRAGMA_UNROLL
+     for (short c = 0; c < kWideChunks; c++) {
+       const short e0 = c * kWideElems;
+@@ -623,9 +642,38 @@
+         STEEL_PRAGMA_UNROLL
+         for (short j = 0; j < kWideElems; j++) {
+           dst[e0 + j] = out.v[j];
++        }
++      }
++
++      // A2: re-run the 13-op integer skeleton of fp4nv_decode8 on the code
++      // bytes this chunk already holds in registers, stopping before the
++      // float tail. No device load, no threadgroup traffic, no barrier and no
++      // MMA -- only scalar integer ALU issue. `a2seed` is derived from a
++      // runtime constant-buffer scalar, so `c2 == c` is not provable and the
++      // mask/shift/or chain cannot be CSE'd against the real one;
++      // fp4nv_pack4() IS the same expression, so it is shared rather than
++      // duplicated and the arm adds no load of any kind. Four independent
++      // accumulators mirror the real chain's ILP width of 4, so this adds
++      // issue pressure rather than a serial latency chain.
++      if constexpr (kProbeA2) {
++        STEEL_PRAGMA_UNROLL
++        for (short b = 0; b < kSrcBytesPerChunk / 4; b++) {
++          const uint c2 = fp4nv_pack4(sb + k0 + b * 4) ^ a2seed;
++          const uint xe2 = c2 & 0x0F0F0F0Fu;
++          const uint ge2 = xe2 | (xe2 << 3);
++          const uint yo2 = c2 & 0xF0F0F0F0u;
++          const uint go2 = yo2 | (yo2 >> 3);
++          a2local.x ^= (ge2 << 9) & 0x8E008E00u;
++          a2local.y ^= (go2 << 8) & 0x8E008E00u;
++          a2local.z ^= (ge2 << 1) & 0x8E008E00u;
++          a2local.w ^= go2 & 0x8E008E00u;
+         }
+       }
+     }
++
++    if constexpr (kProbeA2) {
++      *a2acc ^= a2local;
++    }
+   }
+ 
+ 
+@@ -1714,8 +1762,11 @@
+     // Regime discriminator (research instrument, 0 = shipped kernel).
+     // 1 = M2: double the MMA chain only. 2 = S2: double weight load+dequant
+     // +threadgroup staging only. 3 = B2: double the k-loop barrier count
+-    // only. Every arm is bit-exact; each adds work to exactly one resource
+-    // axis so its marginal wall cost names the binding constraint.
++    // only. 4 = A2: re-run the integer skeleton of the NVFP4 nibble decode
++    // on already-register-resident codes only -- no extra device load, no
++    // threadgroup traffic, no barrier, no MMA. Every arm is bit-exact; each
++    // adds work to exactly one resource axis so its marginal wall cost names
++    // the binding constraint.
+     int probe = 0>
+ [[kernel]] void fp_gather_qmm_rhs_expert_nax(
+     const device T* x,
+@@ -1739,6 +1790,12 @@
+   constexpr bool kProbeM2 = (probe == 1);
+   constexpr bool kProbeS2 = (probe == 2);
+   constexpr bool kProbeB2 = (probe == 3);
++  constexpr bool kProbeA2 = (probe == 4);
++  // A2 seed. run_skip_pct is a runtime constant-buffer scalar host-clamped to
++  // [1,100], so the compiler can neither fold this to a constant nor prove
++  // the shadow codes equal the real ones. At probe != 4 it is the literal 0
++  // and every use of it sits inside a discarded `if constexpr`.
++  const uint a2seed = kProbeA2 ? (0x9E3779B9u * uint(run_skip_pct + 1)) : 0u;
+ 
+   constexpr int pack_factor = get_pack_factor<8, bits>();
+   constexpr int bytes_per_pack = get_bytes_per_pack();
+@@ -1879,6 +1936,13 @@
+       NAXTile<float, TM, TN> Dshadow;
+       if constexpr (kProbeM2) {
+         Dshadow.clear();
++      }
++
++      // A2 shadow accumulator, same idiom as Dshadow: at probe != 4 nothing
++      // below ever reads or writes it, so it is dead on declaration.
++      uint4 a2acc;
++      if constexpr (kProbeA2) {
++        a2acc = uint4(0u);
+       }
+ 
+       const device T* xn =
+@@ -1961,7 +2025,12 @@
+         // is host-certified via darkbloom_stage_wide_load_ok and per-thread
+         // self-guarded, falling back to the scalar path on any misalignment.
+         if constexpr (wide_store || wide_load) {
+-          loader_w.template load_unsafe_wide<wide_store, wide_load>();
++          if constexpr (kProbeA2) {
++            loader_w.template load_unsafe_wide<wide_store, wide_load, true>(
++                a2seed, &a2acc);
++          } else {
++            loader_w.template load_unsafe_wide<wide_store, wide_load>();
++          }
+         } else {
+           loader_w.load_unsafe();
+         }
+@@ -2023,6 +2092,17 @@
+         }
+       }
+ 
++      // A2 sink: the same guarded idiom as the M2 sink. The guard is never
++      // true at runtime so no stored value changes, but run_skip_pct is a
++      // constant-buffer scalar the compiler cannot fold, so the four shadow
++      // accumulators stay live.
++      if constexpr (kProbeA2) {
++        if (run_skip_pct > 1000) {
++          y[0] = static_cast<T>(
++              float(a2acc.x ^ a2acc.y ^ a2acc.z ^ a2acc.w));
++        }
++      }
++
+ #ifndef DARKBLOOM_SWIGLU_REGLOCAL
+       // Staged-epilogue arm only: reg-local epilogues read no threadgroup
+       // memory and the next chunk's k-loop opens with its own WAR barrier.

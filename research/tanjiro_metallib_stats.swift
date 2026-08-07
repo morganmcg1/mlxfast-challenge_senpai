@@ -88,13 +88,31 @@ let w = rows.map { $0.fn.count }.max() ?? 8
 print(String(format: "%-\(w)@  %9@  %11@  %5@  %9@",
              "function" as NSString, "tgMem_B" as NSString,
              "maxThreads" as NSString, "width" as NSString,
-             "regs_est" as NSString))
+             "regs_bound" as NSString))
+var anySaturated = false
 for r in rows.sorted(by: { $0.fn < $1.fn }) {
-    // The driver's thread cap is floor(register_file / regs_per_thread) rounded
-    // to the execution width, so this inverts to an order-of-magnitude estimate.
-    let regsEst = r.maxThreads > 0 ? 32768 / r.maxThreads : 0
-    print(String(format: "%-\(w)@  %9d  %11d  %5d  %9d",
-                 r.fn as NSString, r.tgMem, r.maxThreads, r.width, regsEst))
+    // maxTotalThreadsPerThreadgroup is floor(register_file / regs_per_thread)
+    // rounded to the execution width, so it inverts to an UPPER BOUND on the
+    // per-thread register count -- never a point estimate. At the 1024-thread
+    // Metal API ceiling the inversion saturates and proves only "<= 32".
+    let saturated = r.maxThreads >= 1024
+    anySaturated = anySaturated || saturated
+    let bound = r.maxThreads > 0 ? 32768 / r.maxThreads : 0
+    print(String(format: "%-\(w)@  %9d  %11d  %5d  %9@",
+                 r.fn as NSString, r.tgMem, r.maxThreads, r.width,
+                 ("<=\(bound)" + (saturated ? "*" : "")) as NSString))
+}
+if anySaturated {
+    print("")
+    print("* maxThreads is at the 1024 Metal API ceiling, so the register "
+          + "bound is saturated:")
+    print("  it cannot distinguish 8 from 32 registers/thread and cannot "
+          + "resolve the 104/128/160")
+    print("  half-register occupancy cliffs. Threadgroup-memory residency IS "
+          + "settled by tgMem_B.")
+    print("  Register-driven residency on the ranked GPU generation is NOT "
+          + "establishable from this")
+    print("  host's offline pipeline build; treat it as an open confound.")
 }
 
 exit(failed == 0 ? 0 : 1)

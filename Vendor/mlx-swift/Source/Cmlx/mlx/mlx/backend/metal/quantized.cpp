@@ -1613,6 +1613,43 @@ bool darkbloom_bsearch_hoist() {
   return v;
 }
 
+// Regime discriminator for the routed prefill gather GEMM. Selects a
+// bit-exact work-injection arm compiled into the kernel as a non-type
+// template parameter, so each arm is a distinct pipeline built once per
+// process (never a mid-process function-constant flip). 0 is the shipped
+// kernel and leaves both the template argument list and the kernel name
+// byte-identical to the promoted frontier.
+//   m2 -> 1  double the MMA chain, no extra memory traffic
+//   s2 -> 2  double the weight load+dequant staging (+1 barrier)
+//   b2 -> 3  two extra threadgroup barriers per k-iteration
+//   s3 -> 4  s2's staging work restaged from this expert's own tile, so the
+//            extra reads hit cache instead of DRAM; s3 - s2 is the byte term
+// The official runner strips the environment (benchmark.sh's timed path runs
+// under `sudo env_reset` + `env -i`), so for a ranked measurement arm the
+// compiled-in default IS the arm. Each official receipt flips this one token
+// and nothing else; "" is the shipped kernel and is what stays committed.
+constexpr const char* kNaxGatherProbeDefault = "";
+
+int darkbloom_nax_gather_probe() {
+  static const int v = [] {
+    auto s = env::get_var("DARKBLOOM_NAX_GATHER_PROBE", kNaxGatherProbeDefault);
+    if (s == "m2") {
+      return 1;
+    }
+    if (s == "s2") {
+      return 2;
+    }
+    if (s == "b2") {
+      return 3;
+    }
+    if (s == "s3") {
+      return 4;
+    }
+    return 0;
+  }();
+  return v;
+}
+
 void gather_qmm_rhs_nax(
     const array& x_,
     const array& w_,
@@ -1725,6 +1762,31 @@ void gather_qmm_rhs_nax(
   const bool expert_wideld = expert_aligned &&
       darkbloom_expert_stage_wideld() &&
       darkbloom_stage_wide_load_ok(w, transpose, bits, N, K, bn);
+  // Only the expert-aligned kernel carries the probe template parameter; the
+  // shared non-expert builder keeps its stock signature.
+  const int probe_requested = darkbloom_nax_gather_probe();
+  // Interlock, not a safety net: a requested probe that quietly degraded to 0
+  // would inject nothing and still publish a healthy receipt, which reads as a
+  // true null rather than as an instrument that never armed. Failing loudly
+  // makes "the receipt carries timings at all" sufficient evidence that the
+  // probe landed, since the kernel builder throws rather than substituting a
+  // non-probe kernel. Probe 0 -- the shipped default -- never reaches this.
+  //
+  // Scoped to laguna_moe_shape because that -- and only that -- is the object
+  // under measurement. A Laguna-shaped call that falls off expert_aligned is
+  // the real confound and must abort. A non-Laguna shape was never going to be
+  // probed, so aborting on it would trade a whole official receipt
+  // (officialMetrics = null, zero information, one of four) for no scientific
+  // protection. The unfused switchMLP fallback's gate/up is the only such
+  // shape reachable from the scored path (K 2048, N 512); if it ever ran, the
+  // lost gate/up fusion would move S far past the arm's pre-registered cap and
+  // be caught there rather than silently.
+  if (probe_requested != 0 && !expert_aligned && laguna_moe_shape) {
+    throw std::runtime_error(
+        "[gather_qmm_rhs_nax] gather probe requested off the expert-aligned "
+        "path; it would measure an unarmed control");
+  }
+  const int gather_probe = expert_aligned ? probe_requested : 0;
 
   // DARKBLOOM_STAGE2_GATHER ground truth at the DISPATCH site. The define
   // itself is injected at JIT assembly (jit_kernels.cpp, expert kernels
@@ -1817,7 +1879,37 @@ void gather_qmm_rhs_nax(
       expert_aligned
           ? ("_eg_" + std::to_string(egroups) + (expert_widest ? "_ws_1" : "_ws_0") +
              (expert_wideld ? "_wl_1" : "_wl_0"))
-          : "");
+          : "",
+      // The JIT library cache is keyed on the kernel name alone, so a probe
+      // arm MUST change it. Suffix omitted at probe 0 to keep the shipped
+      // name byte-identical.
+      gather_probe ? ("_pb_" + std::to_string(gather_probe)) : "");
+
+  // Probe ground truth at the DISPATCH site, same contract as the stage2 and
+  // xmajor lines above: "active" requires BOTH a requested probe and the
+  // expert-aligned path, and the printed kname is the one actually handed to
+  // the JIT (whose library cache is keyed on that name alone). Gating on the
+  // REQUESTED probe rather than the applied one is deliberate: an arm whose
+  // expert path declined then prints "inactive" instead of printing nothing,
+  // so a receipt can never silently measure its own control.
+  if (probe_requested != 0 ||
+      env::get_var("DARKBLOOM_TRACE_FUSION", "") == "1") {
+    static std::once_flag probe_once;
+    std::call_once(probe_once, [&]() {
+      fprintf(
+          stderr,
+          "mlxfast: fusion %s: nax_gather_probe=%d req=%d (dispatch expert=%d "
+          "N=%d K=%d M=%d kname=%s)\n",
+          gather_probe ? "active" : "inactive",
+          gather_probe,
+          probe_requested,
+          int(expert_aligned),
+          N,
+          K,
+          M,
+          kname.c_str());
+    });
+  }
 
   // Skipping dead runs is a pure work elision (see function constant 203 in
   // fp_quantized_nax): it drops only matmuls whose results store_slice never
@@ -1936,7 +2028,8 @@ void gather_qmm_rhs_nax(
         "bfloat",
         egroups,
         expert_widest,
-        expert_wideld);
+        expert_wideld,
+        gather_probe);
     kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
   } else {
     kernel = get_gather_qmm_nax_kernel(
