@@ -1,8 +1,23 @@
 # SENPAI Research State
-- 2026-08-07T14:50Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 6739b6a (pushed to origin).
-  29 composed changes on current frontier (LRM-only, _nax vendor files reverted to pre-PR#243).
-  LRM: 505,356/524,288 = 18,932 B headroom. Total surface 2,967,227/3,000,000 = 32,773 B.
+- 2026-08-07T15:36Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 1ee80e40 (pushed to origin).
+  31 composed changes (30 LRM optimizations + M5 build fix + PR #292 prefill gate-softplus).
+  LRM: ~508,740/524,288 = ~15,548 B headroom.
+  Total surface: ~2,972,000/3,000,000 = ~28,000 B headroom.
+
+## CRITICAL: M5 BUILD FIX (2026-08-07T15:35Z)
+  ROOT CAUSE of ALL birch M5 build failures: M5 Metal compiler (GPU gen 17+) rejects
+  vectorized simd_sum(vec<float,N>) and dot(float4(...)) in JIT kernel strings.
+  M4 (GPU gen 16) accepts these patterns. Same class as PR #251 simd_dot failure.
+
+  FIX: Replaced 14 simd_sum(vec<float,N>) + 2 dot(float4) with scalar equivalents (d6420f3d).
+  Bit-exact, net -11 bytes. Build verified on M4 (10.72s). M5 submission 55e16401 validating.
+
+  INVESTIGATION AGENT ALSO FLAGGED: *(thread float4*) pointer casts (4 occurrences,
+  0 in last good build). May need separate fix if simd_sum fix alone doesn't resolve M5.
+
+  INVESTIGATION AGENT ALSO FLAGGED: 7 unused constexpr declarations. These existed in
+  the last good build (4058d0b), so they're NOT the cause.
 
 ## CRITICAL: _nax VENDOR REVERT (2026-08-07)
   Reverted fp_quantized_nax.cpp and quantized.cpp to pre-PR#243 state (577a9b6).
@@ -14,18 +29,20 @@
   M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
 
 ## M5 SUBMISSION STATUS
-  400ba6c: FAILED — vendor files from 68b66c5 had darkbloom_expert_bk128 that LRM doesn't use
-  9753441c: VALIDATING — 87aff2f vendor files (organizer frontier) + 30 LRM optimizations
-  Root cause: 68b66c5 vendor files have darkbloom_expert_bk128/darkbloom_stage_wide_scale_ok
-  functions that the current LRM doesn't call. The 87aff2f vendor files (organizer frontier
-  revert of PR #243/#263) are the M5-safe base.
-  Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
+  55e16401: VALIDATING — M5 build fix (simd_sum/dot4 scalar) + PR #292 prefill gate-softplus
+  9753441: FAILED — 87aff2f vendor files + 30 LRM opts (simd_sum vec still present)
+  Root cause confirmed: M5 rejects simd_sum(vec<float,N>) and dot(float4) in JIT kernels
+  Last confirmed birch M5 score: 4058d0b at 2.5459 (8/5 10:53 AM)
+  NOTE: df9613a (2.5817) and 68b66c5 (2.5520) were MAPLE campaign, not birch
+  Leaderboard #1: 2.5888 (maple, 97a5090 promoted).
 
-## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=2bd3c3f)
-  PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — halve grid from 73728 to 36864 TGs (bit-exact, ~50B, decode)
-  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, needs clean rebase on 2bd3c3f
-  PR #292 (askeladd): Prefill gate-product+softplus multi-token extension — awaiting work
-  PR #294 (thorfinn): Dead code removal — awaiting work (~12KB LRM budget recovery)
+## MERGED WAVE 15
+  PR #292 (askeladd): Prefill gate-product+softplus multi-token — MERGED (6.0% prefill, bit-exact, +2954B)
+
+## ACTIVE ASSIGNMENTS (base 1ee80e40, all need rebase)
+  PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — wip, rebase nudge sent (M5 fix warning)
+  PR #285 (edward): Routed MoE halved scales escape fix — wip v2, rebase nudge sent (M5 fix warning)
+  PR #294 (thorfinn): Dead code removal — APPROVED, revision v2 requested (rebase on current base, conflict with PR #291)
 
 ## CLOSED
   PR #296 (alphonse): RMSNorm→LM head fusion — CLOSED (bandwidth-negative: 25MB extra norm-weight reads across 6272 TGs)

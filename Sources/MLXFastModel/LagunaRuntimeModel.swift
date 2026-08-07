@@ -3682,12 +3682,23 @@ func lagunaGatedOutputProjection(
 /// chain; the only change is dispatch count. One thread per output element;
 /// the softplus is recomputed per element of a head, which is the same FP32
 /// op stream the standalone softplus dispatch would run once per head.
-private func lagunaGateProductSoftplusSource(heads: Int) -> String {
+private func lagunaGateProductSoftplusSource(heads: Int, multiToken: Bool) -> String {
+    let gateIndex = multiToken
+        ? """
+    constexpr int IN_VEC = N_HEADS * HEAD_DIM;
+    uint token_idx = gid / IN_VEC;
+    int head = (gid % IN_VEC) / HEAD_DIM;
+    float logit = float(gate_logits[token_idx * N_HEADS + head]);
     """
-    constexpr int HEAD_DIM = \(LagunaConstants.headDim);
-    uint gid = thread_position_in_grid.x;
+        : """
     int head = gid / HEAD_DIM;
     float logit = float(gate_logits[head]);
+    """
+    return """
+    constexpr int HEAD_DIM = \(LagunaConstants.headDim);
+    constexpr int N_HEADS = \(heads);
+    uint gid = thread_position_in_grid.x;
+    \(gateIndex)
     float gate;
     if (metal::isnan(logit)) {
         gate = NAN;
@@ -3710,7 +3721,21 @@ private let lagunaGateProductSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
             name: "laguna_gate_product_softplus_bf16_h\(heads)_v1",
             inputNames: ["attention_output", "gate_logits"],
             outputNames: ["gated"],
-            source: lagunaGateProductSoftplusSource(heads: heads),
+            source: lagunaGateProductSoftplusSource(heads: heads, multiToken: false),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
+
+private let lagunaGateProductSoftplusMultiTokenKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_gate_product_softplus_bf16_h\(heads)_mt_v1",
+            inputNames: ["attention_output", "gate_logits"],
+            outputNames: ["gated"],
+            source: lagunaGateProductSoftplusSource(heads: heads, multiToken: true),
             ensureRowContiguous: true
         )
     }
@@ -3744,6 +3769,36 @@ func lagunaGateProductSoftplus(
         grid: (inVec, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, inVec]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+/// Multi-token prefill twin of `lagunaGateProductSoftplus`. Same elementwise
+/// kernel, grid scaled by L. Fuses softplus + gate product into one dispatch,
+/// eliminating the separate compiled-softplus and broadcast-multiply
+/// dispatches (1 fewer dispatch × 40 layers per prefill).
+func lagunaGateProductSoftplusMultiToken(
+    attentionOutput: MLXArray, gateLogits: MLXArray, heads: Int
+) -> MLXArray? {
+    guard lagunaFusedGateProductEnabled,
+        let kernel = lagunaGateProductSoftplusMultiTokenKernels[heads]
+    else { return nil }
+    let inVec = heads * LagunaConstants.headDim
+    precondition(attentionOutput.dtype == .bfloat16)
+    precondition(attentionOutput.dim(0) == 1)
+    let L = attentionOutput.dim(1)
+    precondition(attentionOutput.dim(2) == inVec)
+    precondition(gateLogits.dtype == .bfloat16)
+    precondition(gateLogits.dim(0) == 1)
+    precondition(gateLogits.dim(1) == L)
+    precondition(gateLogits.dim(2) == heads)
+
+    lagunaTrace("gate product softplus mt h\(heads) L\(L)")
+    return kernel(
+        [attentionOutput, gateLogits],
+        grid: (inVec * L, 1, 1),
+        threadGroup: (128, 1, 1),
+        outputShapes: [[1, L, inVec]],
         outputDTypes: [.bfloat16]
     )[0]
 }
@@ -3852,10 +3907,10 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
         for (uint row = 0; row < results_per_simdgroup; ++row) {
             const device uint8_t* wl = ws + row * in_vec_size;
             \(metadataLoad)
-            float accum = dot(float4(x_thread[0], x_thread[1], x_thread[2], x_thread[3]),
-                              float4(float(wl[0]), float(wl[1]), float(wl[2]), float(wl[3])));
-            accum += dot(float4(x_thread[4], x_thread[5], x_thread[6], x_thread[7]),
-                         float4(float(wl[4]), float(wl[5]), float(wl[6]), float(wl[7])));
+            float accum = x_thread[0] * float(wl[0]) + x_thread[1] * float(wl[1])
+                              + x_thread[2] * float(wl[2]) + x_thread[3] * float(wl[3]);
+            accum += x_thread[4] * float(wl[4]) + x_thread[5] * float(wl[5])
+                         + x_thread[6] * float(wl[6]) + x_thread[7] * float(wl[7]);
             result[row] += scale * accum + sum * bias;
         }
 
@@ -3866,10 +3921,10 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
     }
 
     {
-        const vec<float, 4> packed = simd_sum(
-            vec<float, 4>(result[0], result[1], result[2], result[3]));
-        result[0] = packed.x; result[1] = packed.y;
-        result[2] = packed.z; result[3] = packed.w;
+        result[0] = simd_sum(result[0]);
+        result[1] = simd_sum(result[1]);
+        result[2] = simd_sum(result[2]);
+        result[3] = simd_sum(result[3]);
     }
     if (simd_lid == 0) {
         for (uint row = 0; row < results_per_simdgroup; ++row) {
@@ -4198,14 +4253,14 @@ func lagunaGatedAffineOProjNVFP4Source(
     }
 
     {
-        const vec<float, 4> packed0 = simd_sum(
-            vec<float, 4>(result[0], result[1], result[2], result[3]) * 4194304.0f);
-        result[0] = packed0.x; result[1] = packed0.y;
-        result[2] = packed0.z; result[3] = packed0.w;
-        const vec<float, 4> packed1 = simd_sum(
-            vec<float, 4>(result[4], result[5], result[6], result[7]) * 4194304.0f);
-        result[4] = packed1.x; result[5] = packed1.y;
-        result[6] = packed1.z; result[7] = packed1.w;
+        result[0] = simd_sum(result[0] * 4194304.0f);
+        result[1] = simd_sum(result[1] * 4194304.0f);
+        result[2] = simd_sum(result[2] * 4194304.0f);
+        result[3] = simd_sum(result[3] * 4194304.0f);
+        result[4] = simd_sum(result[4] * 4194304.0f);
+        result[5] = simd_sum(result[5] * 4194304.0f);
+        result[6] = simd_sum(result[6] * 4194304.0f);
+        result[7] = simd_sum(result[7] * 4194304.0f);
     }
     if (simd_lid == 0) {
         for (uint row = 0; row < results_per_simdgroup; ++row) {
@@ -4297,10 +4352,10 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
         ws+=BK; pm+=(BK/GS)*2; col+=BK;
     }
     {
-        const vec<float, 4> packed = simd_sum(
-            vec<float, 4>(r[0], r[1], r[2], r[3]));
-        r[0] = packed.x; r[1] = packed.y;
-        r[2] = packed.z; r[3] = packed.w;
+        r[0] = simd_sum(r[0]);
+        r[1] = simd_sum(r[1]);
+        r[2] = simd_sum(r[2]);
+        r[3] = simd_sum(r[3]);
     }
     for(uint row=0;row<R;++row){
         if(lane==0){
@@ -5033,14 +5088,14 @@ private func lagunaNormAffineQKVBody(
     }
 
     {
-        const vec<float, 4> packed0 = simd_sum(
-            vec<float, 4>(result[0], result[1], result[2], result[3]));
-        result[0] = packed0.x; result[1] = packed0.y;
-        result[2] = packed0.z; result[3] = packed0.w;
-        const vec<float, 4> packed1 = simd_sum(
-            vec<float, 4>(result[4], result[5], result[6], result[7]));
-        result[4] = packed1.x; result[5] = packed1.y;
-        result[6] = packed1.z; result[7] = packed1.w;
+        result[0] = simd_sum(result[0]);
+        result[1] = simd_sum(result[1]);
+        result[2] = simd_sum(result[2]);
+        result[3] = simd_sum(result[3]);
+        result[4] = simd_sum(result[4]);
+        result[5] = simd_sum(result[5]);
+        result[6] = simd_sum(result[6]);
+        result[7] = simd_sum(result[7]);
     }
     if (simd_lid == 0) {
         for (uint row = 0; row < results_per_simdgroup; ++row) {
@@ -6315,18 +6370,31 @@ final class LagunaRuntimeAttention: Module {
             {
                 return attentionGateProjection(output, projectedGate, wo.weight)
             }
-            let gate =
-                gateIsActivated
-                ? projectedGate
-                : gatePerHead && projectedGate.dtype == output.dtype
-                ? lagunaCompiledSoftplusGate(projectedGate)
-                : softplus(projectedGate.asType(.float32)).asType(output.dtype)
-            if gatePerHead {
-                output =
-                    (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
-                    .reshaped(B, L, -1)
+            // Multi-token prefill: fuse softplus + gate product into one
+            // dispatch (same kernel as decode, grid scaled by L). Eliminates
+            // the separate compiled-softplus and broadcast-multiply dispatches.
+            if !gateIsActivated, gatePerHead, B == 1, L > 1, wo.bias == nil,
+                output.dtype == .bfloat16, projectedGate.dtype == .bfloat16,
+                headDim == LagunaConstants.headDim,
+                let fusedGated = lagunaGateProductSoftplusMultiToken(
+                    attentionOutput: output, gateLogits: projectedGate,
+                    heads: nHeads)
+            {
+                output = fusedGated
             } else {
-                output = output * gate
+                let gate =
+                    gateIsActivated
+                    ? projectedGate
+                    : gatePerHead && projectedGate.dtype == output.dtype
+                    ? lagunaCompiledSoftplusGate(projectedGate)
+                    : softplus(projectedGate.asType(.float32)).asType(output.dtype)
+                if gatePerHead {
+                    output =
+                        (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
+                        .reshaped(B, L, -1)
+                } else {
+                    output = output * gate
+                }
             }
         }
 
@@ -6702,10 +6770,8 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 2> packed = simd_sum(
-                vec<float, 2>(gate_result, up_result));
-            gate_result = packed.x;
-            up_result = packed.y;
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
         }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
@@ -6935,11 +7001,10 @@ private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 4> packed = simd_sum(
-                vec<float, 4>(gate_result[0], gate_result[1],
-                              up_result[0], up_result[1]));
-            gate_result[0] = packed.x; gate_result[1] = packed.y;
-            up_result[0] = packed.z; up_result[1] = packed.w;
+            gate_result[0] = simd_sum(gate_result[0]);
+            gate_result[1] = simd_sum(gate_result[1]);
+            up_result[0] = simd_sum(up_result[0]);
+            up_result[1] = simd_sum(up_result[1]);
         }
         for (uint row = 0; row < 2; ++row) {
             if (lane == 0) {
@@ -7042,10 +7107,8 @@ private let lagunaRoutedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 2> packed = simd_sum(
-                vec<float, 2>(gate_result, up_result));
-            gate_result = packed.x;
-            up_result = packed.y;
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
         }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
@@ -7188,11 +7251,10 @@ private let lagunaRoutedSwiGLUQMVPackedKernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 4> packed = simd_sum(
-                vec<float, 4>(gate_result[0], gate_result[1],
-                              up_result[0], up_result[1]));
-            gate_result[0] = packed.x; gate_result[1] = packed.y;
-            up_result[0] = packed.z; up_result[1] = packed.w;
+            gate_result[0] = simd_sum(gate_result[0]);
+            gate_result[1] = simd_sum(gate_result[1]);
+            up_result[0] = simd_sum(up_result[0]);
+            up_result[1] = simd_sum(up_result[1]);
         }
         for (uint row = 0; row < 2; ++row) {
             if (lane == 0) {
@@ -7322,11 +7384,10 @@ func lagunaRoutedSwiGLUQMVPackedSelectedSource(
         }
 
         {
-            const vec<float, 4> packed = simd_sum(
-                vec<float, 4>(gate_result[0], gate_result[1],
-                              up_result[0], up_result[1]));
-            gate_result[0] = packed.x; gate_result[1] = packed.y;
-            up_result[0] = packed.z; up_result[1] = packed.w;
+            gate_result[0] = simd_sum(gate_result[0]);
+            gate_result[1] = simd_sum(gate_result[1]);
+            up_result[0] = simd_sum(up_result[0]);
+            up_result[1] = simd_sum(up_result[1]);
         }
         for (uint row = 0; row < 2; ++row) {
             if (lane == 0) {
@@ -7504,10 +7565,8 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 2> packed = simd_sum(
-                vec<float, 2>(gate_result, up_result));
-            gate_result = packed.x;
-            up_result = packed.y;
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
         }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
@@ -7638,12 +7697,10 @@ private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
                 laguna_nvfp4_scale(row_sb[row]));
         }
         {
-            const vec<float, 4> packed_rows = simd_sum(
-                vec<float, 4>(result[0], result[1], result[2], result[3]));
-            result[0] = packed_rows.x;
-            result[1] = packed_rows.y;
-            result[2] = packed_rows.z;
-            result[3] = packed_rows.w;
+            result[0] = simd_sum(result[0]);
+            result[1] = simd_sum(result[1]);
+            result[2] = simd_sum(result[2]);
+            result[3] = simd_sum(result[3]);
         }
 
         threadgroup bfloat expert_outputs[
