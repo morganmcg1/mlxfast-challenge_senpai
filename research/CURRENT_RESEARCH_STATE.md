@@ -1,8 +1,40 @@
 # SENPAI Research State
-- 2026-08-07T13:20Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 4bea532 (pushed to origin).
-  27 composed changes on current frontier (26 + M5 crash fix).
-  LRM: 504,942/524,288 = 19,346 B headroom. Total surface ~2,969K/3,000,000 = 30,908B headroom.
+- 2026-08-07T14:50Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 6739b6a (pushed to origin).
+  29 composed changes on current frontier (LRM-only, _nax vendor files reverted to pre-PR#243).
+  LRM: 505,356/524,288 = 18,932 B headroom. Total surface 2,967,227/3,000,000 = 32,773 B.
+
+## CRITICAL: _nax VENDOR REVERT (2026-08-07)
+  Reverted fp_quantized_nax.cpp and quantized.cpp to pre-PR#243 state (577a9b6).
+  Reason: PR #243 (kHalvedScales), PR #263 (STAGE2_GATHER v2), PR #261 (QKV fusion)
+  caused 8 consecutive M5 build failures. df9613a (2.5817) was last successful build
+  with these pre-PR#243 vendor files.
+  Also disabled DARKBLOOM_FUSED_QKV (PR #261 flag set to OFF).
+  All 29 LRM-only optimizations retained. useHalved=false crash fix retained.
+  M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
+
+## M5 SUBMISSION STATUS
+  d417eaa: VALIDATING (since 14:04 UTC, 105+ min) — frontier 6739b6a (29 changes, clean _nax)
+  Previous failures (efb6316, 1cc55cd, 29fb82a, etc.) all failed within 15-28 min.
+  d417eaa's 105+ min validation strongly suggests BUILD SUCCEEDED, benchmark running.
+  Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
+
+## POTENTIAL ISSUE: Shared Expert Halved Path
+  lagunaPrefillSharedHalvedEnabled (NAX gate) = TRUE on M5, FALSE on M4.
+  LRM has PR #243's halved path + PR #253's precomputed scales [N+1, K/32].
+  quantized.cpp (reverted) does NOT have kHalvedScales in qmm_nax.
+  The halved path calls quantizedMM with groupSize=32 and scales [N+1, K/32].
+  Pre-PR#243 qmm_nax may handle this via the dynamic kernel path (group_size=32).
+  If d417eaa succeeds, the halved path works. If it fails, need to disable it.
+
+## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=6739b6a)
+  PR #290 (thorfinn): Re-enable QKV fusion — LRM-only flag flip, 0-byte, prefill
+  PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — 39 dispatches/decode step, ~50-100B
+  PR #292 (askeladd): Extend gate-product+softplus kernel to multi-token prefill — 40 dispatches, ~200-400B
+
+## PENDING REVISION
+  PR #285 (edward): Routed halved scales fix — revision requested (clean rebase on 6739b6a,
+    drop PR #243 qmm_nax + PR #263 STAGE2_GATHER changes, keep only gather_qmm_rhs_nax escape fix)
 
 ## M5 CRASH FIX (CRITICAL — 2026-08-07T13:20Z)
   Root cause found by _nax audit agent: PR #220 and PR #234 passed non-nil `biases`
