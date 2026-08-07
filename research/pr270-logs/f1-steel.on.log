@@ -1,0 +1,6 @@
+prompt tokens: 512
+load: 39.9 s
+prefill 0:   540.64 ms  (1055.93 us/token)  cbs=    0 dispatches=    0  token=5991
+peak_ram_gb: 20.706588745117188
+
+prefill warm median: 540.636 ms/forward (1055.93 us/token) over 1 reps
