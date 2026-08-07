@@ -65,21 +65,24 @@
   (PR #234/#243/#263) that only manifest with expert path enabled (variant 5).
   If 90d0841 also fails: revert PR #234, #243, #263 and resubmit.
 
-## MERGED THIS SESSION (Wave 15-16, +3 changes)
+## MERGED THIS SESSION (Wave 15-17, +5 changes)
   PR #267 (askeladd): Merge shared gate/up QMV into routed dispatch — bit-exact, byte-negative -2,094B,
     eliminates 39 decode dispatches, M4 timing +0.50% (noise, M5 may be better with 40 cores)
   PR #278 (alphonse): Compress LRM doc comments — comment-only, bit-exact, byte-negative -16,572B,
     frees LRM headroom from 604B to 17,252B. Enables future kernel work.
   PR #280 (thorfinn): Double down kernel outputs_per_simd 4→8 — bit-exact, 0-byte, M4 +0.4% decode
+  PR #283 (thorfinn): Double NVFP4 O-proj results_per_simdgroup 4→8 — bit-exact, 0-byte, M4 +0.74% (ambiguous, M5 needed)
+  M5 FIX: 4bea532 — disable halved scales path (non-nil biases crash on M5 with nvfp4 mode)
 
 ## CLOSED THIS SESSION (Wave 15-16)
   PR #276 (edward): RMSNorm→LM head fusion — DEAD (RMSNorm replicated across 6272 TGs costs >1 dispatch saved; +0.1% to +1.8% slower)
   PR #277 (thorfinn): 4-way scale constancy — DEAD (invariant holds only 20-37%, need 95%. 2-way holds 100%)
 
-## ACTIVE ASSIGNMENTS (Wave 16, BASE_SHA=4bea532)
+## ACTIVE ASSIGNMENTS (Wave 16-17, BASE_SHA=e4534e4)
   PR #281 (alphonse): Fuse router GEMV + top-8 tournament into single kernel — eliminate 39 decode dispatches (bit-exact, ~0.2-0.5% decode)
-  PR #283 (thorfinn): Double O-proj results_per_simdgroup 4→8 (bit-exact, 0-byte, decode, precedent: PR #280 down kernel)
   PR #285 (edward): Fix routed MoE halved scales — embed escape in scales tensor, pass biases:nil (recover ~0.5% prefill, M5-only, bit-exact)
+  PR #286 (thorfinn): Double norm+affine QKV kernel results_per_simdgroup 4→8 (bit-exact, 0-byte, decode)
+  PR #287 (askeladd): Double INT8 affine O-proj kernel results_per_simdgroup 4→8 (bit-exact, 0-byte, decode)
 
 ## NEXT-WAVE IDEAS (from NOVEL_OPTIMIZATION_IDEAS.md)
   1. Fuse RMSNorm+router into O-proj — DEAD (incompatible parallelism structures: 16384 TGs vs 1 TG)
