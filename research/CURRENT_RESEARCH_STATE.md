@@ -360,6 +360,147 @@
     with a 3σ = 1.35 ms kill and a 12,000 B growth cap covering **both** the
     header and its twin.
 
+- **2026-08-07 05:55 UTC — two programme-level corrections landed together.
+  Read both before pricing any further experiment.**
+
+  - **(A) ⭐⭐⭐ THE SCORE ELASTICITIES WERE WRONG. The 512-token seed prefill
+    is INSIDE the scored decode window.** Source-verified in the trusted
+    harness: `Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift`,
+    `measureWorkerDecode(...)` at `:946` — the clock starts at `:966`,
+    `worker.beginDecode(seedTokens:)` runs at `:968` *inside* that window (the
+    progress line literally reads `includes_seed_prefill=true`), and the
+    reported figure is `measuredSeconds / decodeSteps` at `:1010`/`:1013`.
+    Therefore
+
+    ```
+    decode_seconds_per_token = 4 × prefill_seconds_per_token + T
+    D = (S + 128·T) / 128        (S = 512-token prefill wall, T = per-step cost)
+    ```
+
+    Numerically exact on the promoted receipt `97a5090`:
+    `4 × 0.00019120068359375 + 0.004143569335937499 = 0.0049083720703125` ✓,
+    and `exp(0.75·ln 2.820661 + 0.25·ln 2.001471) = 2.588828` reproduces
+    `officialScore` to the last digit. **Corrected elasticities** at
+    `D_c = 4908.372 µs`, `T_c = 4143.569 µs`, `S = 97.895 ms`:
+
+    | axis | corrected price | composition | discrete check |
+    |---|---|---|---|
+    | **prefill** | **0.374750 % per ms removed from S** | 0.25537 prefill-axis + 0.11938 amortized-seed decode-axis | −8.26 ms ⇒ 2.672902 = **+3.2476%** |
+    | **decode** | **0.015280 % per µs removed from per-step T** | pure decode axis, divided by `D` not `T` | −100 µs ⇒ 2.629157 = **+1.5578%** |
+
+    **RETIRED:** `0.2554 %/ms` (the "Model A" prefill price this advisor
+    canonized in the 05:30 bullet sub-item (c) — it understates prefill by
+    ~46% because it ignores the amortized seed); `0.01464 %/µs` (4.4% low);
+    `0.0181 %/µs` (18.5% high — §11 divided by `T` instead of `D`). The
+    previously-"retired" `0.362 %/ms` was approximately right. **Net effect:
+    prefill is reweighted ≈1.74× in favour relative to decode.** Consequences:
+    tanjiro's #170 §8.6 table used Model A, so his `−8.26 ms ⇒ +2.23%` is
+    really **+3.25%**; the #170/#215 bandwidth arms at 450/500/614 GB/s are
+    worth **+1.29% / +2.52% / +4.58%**; §11 H8 (~6 ms) is **+2.25%**; #205's
+    46.8 µs/step ceiling is **+0.715%**; H7 (60–95 µs) is **+0.92–1.45%**; H9
+    (30–80 µs) is **+0.46–1.22%**.
+
+  - **(B) ⭐⭐⭐ DELETING A DECODE DISPATCH IS WORTH ≈ ZERO UNLESS IT IS A
+    CHAIN-LINK. PR #204 (maple-fern, merged as `0fd78d5c`) — the router top-8
+    fusion family is closed NEGATIVE, with a zero-byte submitted diff.** Three
+    arms in ONE binary via `DARKBLOOM_DECODE_ROUTER_EMIT_SINK ∈ {1,0,2}`:
+    A = emit kernel used + standalone top-8 deleted, B = base, C = emit kernel
+    runs but its output is ignored + standalone kept. 18 runs, three
+    palindromic **ABCCBA** blocks, 1200 timed steps each, `research/decode_probe.py`
+    with `CLOCK_UPTIME_RAW`, run-median as the unit of replication.
+
+    | contrast | paired mean | sd | sem | t (df=5) | verdict |
+    |---|---|---|---|---|---|
+    | `ΔC = C − B` — the emit kernel's own cost | **+37.3 µs** | 12.1 | 4.9 | 7.6 | p ≈ 0.0006 |
+    | **`ΔD = A − C` — 39 dispatches removed** | **−0.9 µs** | 29.7 | 12.1 | −0.07 | **p ≈ 0.94, NULL** |
+    | `A − B` end-to-end | +36.4 µs | 24.2 | 9.9 | 3.7 | p ≈ 0.014 |
+
+    The identity closes exactly (`+37.3 − 0.9 = +36.4`); the end-to-end figure
+    replicates across sessions (an independent 8-run ABBA gave +36.3 µs); 0
+    token divergences in all 26 runs. The pre-registered prediction was
+    **−110 µs, 90% CI [−55, −175]**, so the kill rule fired. **Arm C is
+    validated by fault injection** — one bf16 ULP added to the emit kernel's
+    `router_scores` only, all three arms digested in ONE binary/driver run:
+    `faultA` differs from `faultB` at 66/66 steps starting at step 0, while
+    `faultC` is byte-identical to `faultB` at 0/66. So C genuinely runs the
+    emit kernel and genuinely discards it, and `ΔD ≈ 0` is real.
+
+    **What this establishes.** (1) Removing 39 decode dispatches/step is worth
+    `−0.9 ± 12.1 µs`, 95% CI ≈ [−32, +30]; the census predicted −105…−185 µs.
+    The point estimate is **two orders of magnitude** below the 185.7 µs/step
+    headline. (2) `T = a + W·φ` is a **throughput-slot** cost — an *upper
+    bound* on marginal cost, attained only when the encode front-end
+    saturates, collapsing to ~0 when the streams have slack. (3) ⭐ **The
+    chain-link / side-branch taxonomy.** A *chain-link* dispatch is the sole
+    occupant of its barrier-bounded interval, so deleting it saves ≈ its full
+    duration. A *side-branch* is issued inside a much larger sibling's
+    concurrency interval, so deleting it saves ≈ 0. The router top-8 is a
+    side-branch: `lagunaRoutedSharedDownResidual`
+    (`Sources/MLXFastModel/LagunaRuntimeModel.swift:10100-10130`) consumes
+    **both** `routerWeights` (from the standalone top-8) *and* `routedActivated`
+    (from the big routed gate/up QMV), and both producers are siblings
+    depending on `router_keys` — a classic diamond, and **the short arm of a
+    diamond is free**. (4) **The census contains its own falsification**:
+    `rmsbfloat16` is listed at 1.82 µs/call, *below* the fitted single-TG floor
+    `a + φ = 3.13 µs`. No dispatch can sit below the floor if per-kernel costs
+    are additive.
+
+    ⭐ **STATIC SIDE-BRANCH PREDICATE (advisor formulation, free to evaluate,
+    no GPU trace required):** *dispatch X is a side-branch iff every consumer
+    of X also transitively depends on a sibling Y whose duration is ≫ X, where
+    Y is issued no later than X.* This is readable straight off the Swift
+    dataflow, so it yields a **pre-registrable per-target prediction** and
+    converts any injection sweep from a survey into a real hypothesis test.
+
+  - **(C) Queue re-pricing forced by (B).** **§11.0's organising claim ("the
+    decode residual is per-dispatch fixed cost; the unpulled lever is
+    fewer/fatter dispatches") is REFUTED and is rewritten below.** **H2**
+    (shared expert as a 257th expert) is badly demoted: its kernel
+    `shared_nvfp4_swiglu_qmv_rows1` is one of #174's three kernels measured at
+    exposure `E = 0.10`, so the honest decode-side value is **≈+0.18–0.31%**,
+    not +1.83–3.06%. **H4** (systematic absorption of the remaining
+    elementwise dispatches) is seriously damaged and must be re-scoped to
+    chain-link kernels only. **#205 survives** (intra-kernel work reduction
+    inside `sliding_fused_attn_ring_v1`, measured at `E ≥ 0.90` — a
+    chain-link). **H7 survives** (intra-kernel, attention). **H9 survives**
+    (command-buffer granularity, orthogonal to dispatch count). **H1 survives
+    and rises in importance**: if dispatches are free, the residual ~1.0–1.2 ms
+    must be genuine critical-path kernel time or genuine gaps. **#148 is
+    unaffected and convergent** — fern's §7 marginal-cost probe design is
+    independently the same instrument as `research/tanjiro-pr34/instrument.patch`,
+    which already exists and is M5-validated for `PREFILL_ROUTED`
+    (`dS_1 = 43.2619 ms`). **#174's pooled `E_rest = 1.013` was too coarse** —
+    it averaged over a pool that contained a kernel with `E ≈ 0`.
+
+  - **(D) The reusable instrument that replaces census pricing (#204 §7).**
+    Add `K−1` redundant copies of a target dispatch per layer under
+    `DUP = K ∈ {1,2,3,5}`, each writing its **own scratch output**, and make
+    every copy an **additional eval root** so MLX cannot DCE it. *Defeat DCE by
+    reachability, never by fake arithmetic.* List the duplicate roots BEFORE
+    the logits so the graph DFS encodes each copy adjacent to its own layer,
+    and verify that `39·(K−1)` extra dispatches actually encode. Readout: slope
+    ≈0–10 µs/step ⇒ phantom cost; ≈ the census row ⇒ real. A second variant
+    chains the duplicates to force hazard serialization; the **ratio of the
+    overlapped slope to the serialized slope is a reusable overlap discount**.
+    This is now the mandatory gate before any decode fusion kernel is authored.
+
+  - **(E) Doctrine changes.** Stop quoting a census µs/step figure as a saving;
+    it is an upper bound with real mass at zero and a real chance of net loss.
+    The realized-saving prior for a "delete a small decode kernel worth
+    70–200 µs/step" target is now **10–20% of census**. Triage the whole
+    remaining decode queue with ONE marginal-cost sweep rather than one fusion
+    per hypothesis. Keep #204's correctness methodology verbatim: bitwise logit
+    digest plus a fault-injection sensitivity control proven to fire, with all
+    arms digested inside a single binary and driver run.
+
+  - **(F) Byte budget.** #204 merged with a **zero-byte** submitted diff
+    (`git diff --stat 747d130b..e92d09eb -- Sources/ Vendor/` is empty), so
+    the three in-flight assignments (#215, #205, #148) are each capped at
+    12,000 B against 50,314 B of headroom — worst case 36,000 B, leaving
+    14,314 B of slack. The post-merge cleanup PR is therefore **less urgent**
+    than the 05:30 bullet recorded, though the dead-surface list stands.
+
+
 - **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
   precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
   softening commits after `eae07f01` (21:55:23 UTC). Both are recorded in §0a;
@@ -3602,14 +3743,33 @@ spread over 406 decode dispatches is ≈2.5 µs/dispatch — which is almost exa
 the attention per-call fixed cost measured in #196 (`a = 1.661 µs`) plus one
 wave (`φ = 1.469 µs`).
 
-Theory: **the residual is per-dispatch fixed cost, and the unpulled lever is
-fewer/fatter dispatches achieved by restructuring *what* is computed, not how
-it is packaged.** Every closed item in this family (CB-count reduction, ICB
-pre-encoding, "N dispatches × µs/dispatch" pricing) attacked packaging and left
-the op graph alone.
+⛔ **REFUTED 2026-08-07 by PR #204.** The theory this section originally
+advanced — *"the residual is per-dispatch fixed cost, and the unpulled lever is
+fewer/fatter dispatches"* — is dead. Fern deleted 39 decode dispatches per step
+in a controlled ABCCBA design and measured `−0.9 ± 12.1 µs`, 95% CI ≈
+[−32, +30], against a census prediction of −105…−185 µs. `T = a + W·φ` is a
+**throughput-slot upper bound**, not a marginal cost.
 
-Conversion constants: 1% of decode = 41.4 µs = +0.75% score; 1% of prefill =
-+0.25% score.
+**Replacement organising claim: the residual is *exposed critical-path
+duration*, and the only decode dispatches worth deleting are chain-links.** A
+chain-link is the sole occupant of its barrier-bounded interval; a side-branch
+is issued inside a much larger sibling's concurrency interval and is therefore
+free. Use the **static side-branch predicate** — *X is a side-branch iff every
+consumer of X also transitively depends on a sibling Y with duration ≫ X, where
+Y is issued no later than X* — to pre-register a per-target verdict off the
+Swift dataflow before any GPU work, and confirm it with the #204 §7
+duplicate-injection sweep. The consequence for this slate is that
+work-*reduction* inside a chain-link kernel (H7, #205) and genuine
+critical-path or gap recovery (H1, H9) survive, while dispatch-*count*
+reduction (H2, H4) is demoted until a chain-link verdict is shown.
+
+Conversion constants (**corrected 2026-08-07** — the 512-token seed prefill is
+inside the scored decode window, `D = (S + 128·T)/128`): **1 µs removed from
+per-step `T` = +0.015280% score**, so 1% of decode (41.4 µs) = **+0.633%**; **1
+ms removed from the 512-token prefill wall `S` = +0.374750% score**, so 1% of
+prefill (0.979 ms) = **+0.367%**. The older `0.2554 %/ms` and `0.0181 %/µs`
+constants used elsewhere in this section are retired; every figure below has
+been restated.
 
 ### 11.1 H1 — decode-step gap taxonomy ⭐ DECISION NODE
 
@@ -3645,11 +3805,19 @@ up/gate/down slabs to the expert bank and extend the routing key array with a
 forced 9th entry of weight 1.0. The MoE block then goes from 4 to 2
 weight-streaming dispatches per layer.
 
-Magnitude: ~6.9 → ~2.9 µs/layer ⇒ ~4 µs × 39 = ~155 µs; realistic 120–200 µs =
-**+2.2–3.7% score, byte-neutral**.
+Magnitude: ~6.9 → ~2.9 µs/layer ⇒ ~4 µs × 39 = ~155 µs; census-priced at
+120–200 µs = +1.83–3.06% at the corrected decode elasticity.
 
-First experiment: runtime-only prototype (repack at load, force the 9th key)
-plus tripwire plus upstream equivalence plus timing; 1–2 days.
+⛔ **BADLY DEMOTED 2026-08-07 (#204 + #174).** The kernel this hypothesis
+deletes, `shared_nvfp4_swiglu_qmv_rows1`, is one of the exactly three decode
+kernels #174 measured at exposure **`E = 0.10 [0.00, 0.25]`** — it is a
+textbook side-branch, hidden behind the routed weight-streaming GEMV. Applying
+that exposure, the honest value is **≈+0.18–0.31%**, not +1.8–3.1%. Do not
+assign this as a fusion until the #204 §7 duplicate-injection sweep returns a
+non-zero marginal slope for that specific kernel.
+
+First experiment (if revived): runtime-only prototype (repack at load, force
+the 9th key) plus tripwire plus upstream equivalence plus timing; 1–2 days.
 
 Risk: summation order. The reference computes the shared and routed sums
 separately and then adds them; a fused epilogue must accumulate the routed
@@ -3687,11 +3855,24 @@ bitwise-trivial. Norm-*prologue* fusion is bitwise-achievable only by
 dedicating one simdgroup to reproduce the reference reduction tree exactly and
 then broadcasting, so **do the norms last**.
 
-Magnitude: 3 × 2 µs × 39 ≈ 230 µs gross; realistic 120–200 µs =
-**+2.2–3.7% score**. It also shrinks host encode time, which compounds with H1.
+Magnitude: 3 × 2 µs × 39 ≈ 230 µs gross; census-priced at 120–200 µs =
++1.83–3.06% at the corrected decode elasticity.
 
-First experiment: census-driven; fuse the single largest candidate (likely RoPE
-or a residual add); stop when the marginal gain falls below 20 µs.
+⚠️ **SERIOUSLY DAMAGED 2026-08-07 (#204).** This hypothesis prices every
+absorbed dispatch at its census duration, which is exactly the model #204
+refuted: 39 deleted dispatches bought `−0.9 ± 12.1 µs`. Worse, the census row
+for `rmsbfloat16` (1.82 µs/call) sits *below* the fitted single-TG floor
+`a + φ = 3.13 µs`, which is impossible under additive per-kernel costs — the
+census is internally inconsistent for exactly this class of small elementwise
+kernel. **Re-scope: H4 may only target dispatches that pass the static
+side-branch predicate as chain-links**, and each target must first show a
+non-zero slope in the #204 §7 duplicate-injection sweep. The "shrinks host
+encode time" argument is also weakened: host encode is only on the critical
+path when the front-end saturates.
+
+First experiment: the marginal-cost ledger, not a fusion. Only after a target
+shows a real slope should a fusion kernel be authored; stop when the measured
+marginal gain falls below 20 µs.
 
 ### 11.5 H5 — make lm-head screening prune payload bytes
 
