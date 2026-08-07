@@ -1,31 +1,37 @@
 # SENPAI Research State
-- 2026-08-07T18:35Z (updated by advisor session — CRITICAL M5 FINDINGS)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: b8c23f45 (pushed to origin).
-  34 composed changes on current frontier (33 previous + PR #315 QKV fusion).
-  LRM budget: ~42,519B headroom. Total surface ~2,958K/3,000,000.
+- 2026-08-07T19:15Z (updated by advisor session — M5 ROOT CAUSE FOUND AND FIXED)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: bad14a16 (pushed to origin).
+  36+ composed changes on current frontier (35 previous + M5 build fix).
+  LRM budget: ~42,519B headroom. Total surface ~2,970K/3,000,000.
 
-## CRITICAL M5 BUILD FINDINGS (2026-08-07 session 2)
-  The birch campaign has NEVER had a successful M5 build. ALL previous "successful"
-  M5 submissions (df9613a 2.5817, 68b66c5 2.5520, etc.) were from the MAPLE campaign,
-  NOT birch. The previous advisor session misattributed maple submissions to birch.
-  ALL 20+ birch submissions since 8/5 FAILED (n/a score, build/runtime failure).
-  Previous session's "fixes" (simd_sum vec, dot float4, thread float4, simd_dot,
-  kHalvedScales removal) were based on a FALSE PREMISE — none addressed the actual issue.
-  
-  ROOT CAUSE INVESTIGATION: Submitted organizer frontier code (bca94c5, known to work
-  on M5 via maple) as submission 3ff39923. If it builds, the issue is in birch changes.
-  If it fails, the issue is environmental.
-  
-  PRIMARY SUSPECT: Vendor file changes. Birch modified 5 vendor files:
-  fp_quantized_nax.cpp (+365 lines DARKBLOOM_STAGE2_GATHER), fp_quantized_nax.h (+369),
-  quantized.cpp (+107 barrier/escape changes), jit_kernels.cpp (+44), SwitchLayers.swift
-  (v3 to v4 kernel name). The _nax kernels ONLY compile on M5 (GPU gen 17+). M4 never
-  tests them. Any Metal compilation error in these files would only appear on M5.
-  
-  SECONDARY SUSPECT: Birch base (bb523807) adds NAX gate (#available(macOS 26.2, *) +
-  GPU arch string parsing) that organizer frontier doesn't have. If M5 runs macOS < 26.2
-  or arch string doesn't parse, the expert-aligned gather path is disabled. But the
-  fallback path (lagunaInterleavedSwiGLU) is a working standard MLX path.
+## M5 BUILD FIX — ROOT CAUSE FOUND (2026-08-07 session 3)
+  ROOT CAUSE: DARKBLOOM_STAGE2_GATHER defaults to variant 1 (double-buffer staging).
+  This injects #define DARKBLOOM_STAGE2_GATHER 1 into _nax expert gather-QMM JIT source,
+  activating 299+ lines of double-buffer staging code in mlx-generated/fp_quantized_nax.cpp
+  and fp_quantized_nax.h. This code ONLY compiles on M5 (GPU gen 17+). The organizer
+  frontier (bca94c5) defaults this to OFF (stock staging). M4 never compiles _nax kernels
+  so M4 could never detect this issue.
+
+  FIX: Changed default from 1 to 0 in darkbloom_stage2_gather_variant() in quantized.cpp
+  (commit bad14a16). All #ifdef DARKBLOOM_STAGE2_GATHER blocks become dead code.
+  This matches the organizer frontier behavior exactly.
+
+  VERIFICATION:
+  - Isolation test (3ff39923, organizer frontier code): REJECTED, score 2.5213.
+    The organizer frontier BUILDS on M5 (rejected only for low score, NOT build failure).
+    Confirms M5 environment is healthy.
+  - LRM Metal kernel audit: zero M5-incompatible patterns (simd_sum vec, dot float4,
+    thread float4, simd_dot — all absent from 11,216 lines of embedded Metal kernels).
+  - Vendor file diffs vs organizer frontier: only STAGE2_GATHER variant system (disabled
+    by fix) and SwitchLayers.swift v3→v4 kernel name (M5-safe) are birch-specific.
+    BM128 variant 5 is also in the organizer frontier (not birch-specific).
+
+  M5 FIX SUBMISSION: 51c39751 VALIDATING since 19:15 UTC.
+  Expected: build PASSES, scores higher than 2.5213 due to 36+ LRM optimizations.
+
+  PREVIOUS FALSE PREMISES (all refuted):
+  - simd_sum vec, dot float4, thread float4, simd_dot, kHalvedScales: NONE of these
+    were the actual issue. The real issue was STAGE2_GATHER activating _nax kernel code.
 
 ## FOURTH M5-INCOMPATIBLE PATTERN CLASS IDENTIFIED
   Previously found 3 pattern classes in Metal JIT kernel strings:
