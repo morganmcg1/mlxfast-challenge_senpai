@@ -6637,18 +6637,6 @@ func lagunaSharedSwiGLUQMV(
 ) -> MLXArray {
     precondition(input.dtype == .bfloat16)
     precondition(input.shape == [1, 1, LagunaConstants.hiddenSize])
-    precondition(fusedWeight.dtype == .uint32)
-    precondition(
-        fusedWeight.shape == [
-            2 * LagunaConstants.sharedExpertIntermediateSize,
-            LagunaConstants.hiddenSize / 8,
-        ])
-    precondition(fusedScales.dtype == .uint8)
-    precondition(
-        fusedScales.shape == [
-            2 * LagunaConstants.sharedExpertIntermediateSize,
-            LagunaConstants.hiddenSize / 16,
-        ])
 
     let kernel =
         lagunaSharedSwiGLUQMVRows1Enabled
@@ -7987,15 +7975,15 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     @ModuleInfo(key: "up_proj") var upProj: Linear
     @ModuleInfo(key: "down_proj") var downProj: Linear
 
-    /// Retained fused NVFP4 `[gate; up]` layout (gate output rows first),
-    /// built once after checkpoint load for the shared expert when
-    /// `DARKBLOOM_FUSED_SHARED_GATE_UP` is enabled. Plain stored properties
-    /// with a leading underscore so Module reflection never treats the
-    /// derived layout as checkpoint parameters; the quantized gate/up
-    /// modules keep the original arrays for parameter integrity. Never set
-    /// on the dense (BF16) layer-0 MLP.
+    /// Retained fused NVFP4 `[gate; up]` layout (gate output rows first) and
+    /// validated shared down bank, built once after checkpoint load. Plain
+    /// stored properties with a leading underscore keep Module reflection
+    /// from treating these references as checkpoint parameters. Never set on
+    /// the dense (BF16) layer-0 MLP.
     var _fusedGateUpWeight: MLXArray?
     var _fusedGateUpScales: MLXArray?
+    var _fusedSharedDownWeight: MLXArray?
+    var _fusedSharedDownScales: MLXArray?
     var _fusedGateUpSplit: Int = 0
 
     /// Retained fused BF16 `[gate; up]` bank for the dense (non-quantized)
@@ -8014,39 +8002,53 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         self._downProj.wrappedValue = Linear(hiddenDimensions, dimensions, bias: false)
     }
 
-    /// Builds and retains the fused gate/up NVFP4 bank from the loaded
-    /// shared-expert projections. Called once after weights are installed
-    /// and evaluated (before warmup); returns the new arrays so the caller
-    /// can batch a single eval. Fuses only the exact stock shared-expert
-    /// configuration: two bias-free NVFP4 group-16 4-bit `QuantizedLinear`
-    /// projections with identical packed shapes and no affine biases.
+    /// Builds and retains the fused `[gate; up]` bank after validating the
+    /// complete stock shared-expert gate/up/down configuration once. Called
+    /// after weights are installed and evaluated, before warmup; returns the
+    /// new arrays so the caller can batch a single eval.
     func prepareFusedSharedGateUp() -> [MLXArray] {
+        let hidden = LagunaConstants.hiddenSize
+        let intermediate = LagunaConstants.sharedExpertIntermediateSize
         guard _fusedGateUpWeight == nil, _fusedGateUpScales == nil,
+            _fusedSharedDownWeight == nil, _fusedSharedDownScales == nil,
             let gate = gateProj as? QuantizedLinear,
             let up = upProj as? QuantizedLinear,
+            let down = downProj as? QuantizedLinear,
             type(of: gate) == QuantizedLinear.self,
             type(of: up) == QuantizedLinear.self,
-            gate.mode == .nvfp4, up.mode == .nvfp4,
-            gate.groupSize == 16, up.groupSize == 16,
-            gate.bits == 4, up.bits == 4,
-            gate.bias == nil, up.bias == nil,
-            gate.biases == nil, up.biases == nil,
-            gate.weight.ndim == 2, up.weight.ndim == 2,
+            type(of: down) == QuantizedLinear.self,
+            gate.mode == .nvfp4, up.mode == .nvfp4, down.mode == .nvfp4,
+            gate.groupSize == 16, up.groupSize == 16, down.groupSize == 16,
+            gate.bits == 4, up.bits == 4, down.bits == 4,
+            gate.bias == nil, up.bias == nil, down.bias == nil,
+            gate.biases == nil, up.biases == nil, down.biases == nil,
             gate.weight.dtype == .uint32, up.weight.dtype == .uint32,
-            gate.scales.ndim == 2, up.scales.ndim == 2,
+            down.weight.dtype == .uint32,
+            gate.weight.shape == [intermediate, hidden / 8],
+            up.weight.shape == [intermediate, hidden / 8],
+            down.weight.shape == [hidden, intermediate / 8],
             gate.scales.dtype == .uint8, up.scales.dtype == .uint8,
-            gate.weight.shape == up.weight.shape,
-            gate.scales.shape == up.scales.shape,
-            gate.scales.dim(0) == gate.weight.dim(0),
-            gate.weight.dim(1) * 8 == gate.scales.dim(1) * 16
+            down.scales.dtype == .uint8,
+            gate.scales.shape == [intermediate, hidden / 16],
+            up.scales.shape == [intermediate, hidden / 16],
+            down.scales.shape == [hidden, intermediate / 16]
         else {
             return []
         }
         let fusedWeight = concatenated([gate.weight, up.weight], axis: 0)
         let fusedScales = concatenated([gate.scales, up.scales], axis: 0)
+        guard fusedWeight.dtype == .uint32,
+            fusedWeight.shape == [2 * intermediate, hidden / 8],
+            fusedScales.dtype == .uint8,
+            fusedScales.shape == [2 * intermediate, hidden / 16]
+        else {
+            return []
+        }
         _fusedGateUpWeight = fusedWeight
         _fusedGateUpScales = fusedScales
-        _fusedGateUpSplit = gate.weight.dim(0)
+        _fusedSharedDownWeight = down.weight
+        _fusedSharedDownScales = down.scales
+        _fusedGateUpSplit = intermediate
         return [fusedWeight, fusedScales]
     }
 
@@ -8127,33 +8129,15 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         guard lagunaFusedSharedSwiGLUQMVEnabled,
             let fusedWeight = _fusedGateUpWeight,
             let fusedScales = _fusedGateUpScales,
-            let down = downProj as? QuantizedLinear,
-            type(of: down) == QuantizedLinear.self,
-            down.mode == .nvfp4,
-            down.groupSize == 16,
-            down.bits == 4,
-            down.bias == nil,
-            down.biases == nil,
+            let downWeight = _fusedSharedDownWeight,
+            let downScales = _fusedSharedDownScales,
             x.dtype == .bfloat16,
-            x.shape == [1, 1, LagunaConstants.hiddenSize],
-            fusedWeight.dtype == .uint32,
-            fusedScales.dtype == .uint8,
-            _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize,
-            down.weight.dtype == .uint32,
-            down.weight.shape == [
-                LagunaConstants.hiddenSize,
-                LagunaConstants.sharedExpertIntermediateSize / 8,
-            ],
-            down.scales.dtype == .uint8,
-            down.scales.shape == [
-                LagunaConstants.hiddenSize,
-                LagunaConstants.sharedExpertIntermediateSize / 16,
-            ]
+            x.shape == [1, 1, LagunaConstants.hiddenSize]
         else {
             return nil
         }
 
-        return (fusedWeight, fusedScales, down.weight, down.scales)
+        return (fusedWeight, fusedScales, downWeight, downScales)
     }
 
     func fusedSharedDownResidual(
@@ -8244,10 +8228,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         {
             if lagunaFusedSharedSwiGLUQMVEnabled,
                 x.dtype == .bfloat16,
-                x.shape == [1, 1, LagunaConstants.hiddenSize],
-                fusedWeight.dtype == .uint32,
-                fusedScales.dtype == .uint8,
-                _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
+                x.shape == [1, 1, LagunaConstants.hiddenSize]
             {
                 lagunaTrace("shared gate/up QMV + SwiGLU")
                 return downProj(
