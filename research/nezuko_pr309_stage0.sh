@@ -42,6 +42,9 @@ done
 echo "=== negative control: T=256 is not an exact divisor of h64 rows (10240)"
 probe "neg_tg256" 16 1 256
 
-echo "=== negative control: injected row-map fault at the winning geometry"
+echo "=== negative control: injected store-row fault at the persistent geometry"
 probe "neg_fault" 16 1 128 1
+
+echo "=== negative control: injected store-row fault at the reference geometry"
+probe "neg_fault_a0" 2 0 0 1
 echo "=== $(date -u +%H:%M:%S) stage0 done"

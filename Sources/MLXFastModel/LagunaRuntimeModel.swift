@@ -4886,10 +4886,11 @@ private func lagunaDecodeNVFP4QKVLaneMajorSource(
             "persistent QKV grid needs rows \(rows) divisible by "
                 + "\(totalThreadgroups) threadgroups * \(simdgroups) simdgroups")
     }
-    let rowIndex =
-        lagunaDecodeNVFP4QKVRowFaultInject
-        ? "(global_sg + row_step * total_simdgroups + 1) % \(rows)"
-        : "global_sg + row_step * total_simdgroups"
+    // Rotating `out_row` alone is a bijection over the row set, so it only
+    // reschedules work and stays bit-exact. A sensitivity control has to break
+    // the read/store correspondence, so the fault offsets the store index only.
+    let storeRow =
+        lagunaDecodeNVFP4QKVRowFaultInject ? "(out_row + 1) % \(rows)" : "out_row"
     let rowLoopOpen =
         persistent
         ? """
@@ -4897,7 +4898,7 @@ private func lagunaDecodeNVFP4QKVLaneMajorSource(
         constexpr uint rows_per_simdgroup = \(rows / max(totalSimdgroups, 1));
         uint global_sg = tile * num_simdgroups + simd_gid;
         for (uint row_step = 0; row_step < rows_per_simdgroup; ++row_step) {
-        uint out_row = \(rowIndex);
+        uint out_row = global_sg + row_step * total_simdgroups;
         """
         : "uint out_row = tile * num_simdgroups + simd_gid;"
     let rowLoopClose = persistent ? "\n}" : ""
@@ -4954,7 +4955,7 @@ for (uint k = 0; k < axis_size; k += block_size) {
 
 result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
 if (simd_lid == 0) {
-    projected[out_row] = bfloat(result);
+    projected[\(storeRow)] = bfloat(result);
 }\(rowLoopClose)
 """
 }
