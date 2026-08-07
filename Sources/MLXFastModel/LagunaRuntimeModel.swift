@@ -4371,7 +4371,8 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
         for(uint row=0;row<R;++row){
             const device uint8_t* wl=ws+row*K;
             float s=float(sc[row*KG]),b=float(bs[row*KG]),a=0.0f;
-            for(uint i=0;i<V;++i) a+=x[i]*wl[i];
+            a+=dot(float4(x[0],x[1],x[2],x[3]),float4(float(wl[0]),float(wl[1]),float(wl[2]),float(wl[3])));
+            a+=dot(float4(x[4],x[5],x[6],x[7]),float4(float(wl[4]),float(wl[5]),float(wl[6]),float(wl[7])));
             r[row]+=s*a+sum*b;
         }
         ws+=BK; sc+=BK/GS; bs+=BK/GS; col+=BK;
