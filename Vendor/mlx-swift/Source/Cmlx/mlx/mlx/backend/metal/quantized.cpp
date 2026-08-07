@@ -1766,7 +1766,17 @@ void gather_qmm_rhs_nax(
   // makes "the receipt carries timings at all" sufficient evidence that the
   // probe landed, since the kernel builder throws rather than substituting a
   // non-probe kernel. Probe 0 -- the shipped default -- never reaches this.
-  if (probe_requested != 0 && !expert_aligned) {
+  //
+  // Scoped to laguna_moe_shape because that -- and only that -- is the object
+  // under measurement. A Laguna-shaped call that falls off expert_aligned is
+  // the real confound and must abort. A non-Laguna shape was never going to be
+  // probed, so aborting on it would trade a whole official receipt
+  // (officialMetrics = null, zero information, one of four) for no scientific
+  // protection. The unfused switchMLP fallback's gate/up is the only such
+  // shape reachable from the scored path (K 2048, N 512); if it ever ran, the
+  // lost gate/up fusion would move S far past the arm's pre-registered cap and
+  // be caught there rather than silently.
+  if (probe_requested != 0 && !expert_aligned && laguna_moe_shape) {
     throw std::runtime_error(
         "[gather_qmm_rhs_nax] gather probe requested off the expert-aligned "
         "path; it would measure an unarmed control");
