@@ -29,8 +29,9 @@ AXES = (
 )
 NAME_RE = re.compile(r"^(\d+)-rep(\d+)-([a-z]+)\.score\.json$")
 
-# Welch two-sided 95 % critical values by rounded degrees of freedom; the tail
-# is flat enough above 30 that the z value is used there.
+# Welch two-sided 95 % critical values by degrees of freedom. df is floored and
+# clamped at 30 so a fractional df never picks a value smaller than the exact
+# one; above 30 the 2.042 entry is still conservative against the 1.96 limit.
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
        8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160,
        14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093,
@@ -41,8 +42,7 @@ T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
 def t95(df: float) -> float:
     if df <= 0:
         return float("nan")
-    key = max(1, int(round(df)))
-    return T95.get(key, 1.960)
+    return T95[min(30, max(1, int(math.floor(df))))]
 
 
 def mean(xs):

@@ -43,6 +43,22 @@ def kernel_calls(path: str, kernel: str, steps: int, per_step: int):
     return spans[-want:]
 
 
+# Two-sided 97.5th percentile of Student t by integer degrees of freedom. The
+# lookup floors df and clamps at 30, so a fractional Welch df never picks a
+# critical value smaller than the exact one.
+T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
+       8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160,
+       14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093,
+       20: 2.086, 21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
+       26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042}
+
+
+def t95(df):
+    if df <= 0 or df != df:
+        return float("nan")
+    return T95[min(30, max(1, int(math.floor(df))))]
+
+
 def welch(a, b):
     """Welch two-sample mean difference (b - a) with a 95% interval."""
     na, nb = len(a), len(b)
@@ -55,10 +71,7 @@ def welch(a, b):
     df = (va + vb) ** 2 / (
         (va ** 2 / (na - 1) if na > 1 else 0.0)
         + (vb ** 2 / (nb - 1) if nb > 1 else 0.0))
-    # 97.5th percentile of Student t, small-sample table then normal.
-    tcrit = {1: 12.71, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447,
-             7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228}.get(round(df), 2.0)
-    return mb - ma, tcrit * se, df
+    return mb - ma, t95(df) * se, df
 
 
 def main() -> int:

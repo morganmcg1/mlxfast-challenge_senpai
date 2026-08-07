@@ -211,8 +211,11 @@ The helper indexes **pairs**, not bytes. The fused plane is 131,072 bytes =
 65,536 pairs; up-row 0 group 0 sits at flat byte 65,536, i.e. pair 32,768. Both
 indices are therefore correct, and the resulting plane is
 `lagunaSharedGateUpHalvedScaleBytes =
-lagunaScalePatchHeaderBytes + 2 * 2048 * (32768 / 32) = 2 + 65,536 = 65,664` B,
-i.e. the 2-byte allow-list header plus one kept byte per pair.
+lagunaScalePatchHeaderBytes + 2 * 2048 * (32768 / 32) = 128 + 65,536 = 65,664` B,
+i.e. the 128-byte patch header (`LagunaRuntimeWeights.swift:953`) plus one kept
+byte per pair. The header is what the kernel prologue re-patches for the two
+allow-listed pairs, so its size is load-bearing for the in-bounds argument
+below, not incidental.
 
 ### 3.2 What changed in the kernel
 
