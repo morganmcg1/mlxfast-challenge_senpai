@@ -24,11 +24,12 @@ for rep in $(seq 1 "$REPS"); do
   for arm in $ORDER; do
     idx=$((idx + 1))
     tag=$(printf "%02d-rep%s-%s" "$idx" "$rep" "$arm")
-    if [ "$arm" = on ]; then
-      export DARKBLOOM_SHARED_QMV_PREFETCH=1
-    else
-      unset DARKBLOOM_SHARED_QMV_PREFETCH
-    fi
+    unset DARKBLOOM_SHARED_QMV_PREFETCH DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES
+    case "$arm" in
+      on) export DARKBLOOM_SHARED_QMV_PREFETCH=1 ;;
+      # Implies the prefetch arm; the header fix-up lives in its prologue.
+      pairwise) export DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES=1 ;;
+    esac
     echo "=== $tag ==="
     DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1 \
       python3 research/decode_probe.py --steps "$STEPS" --profile \
