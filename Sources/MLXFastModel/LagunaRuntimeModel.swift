@@ -8606,25 +8606,67 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         }
         if x.dim(1) > 1,
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales,
+            let halvedFusedGateUpScales = _halvedFusedGateUpScales,
+            let gateUpEscape = _fusedGateUpScalesEscape,
+            let halvedDownScales = _halvedSharedDownScales,
+            let downScalesEscape = _sharedDownScalesEscape,
+            let down = downProj as? QuantizedLinear,
             x.dtype == .bfloat16,
             fusedWeight.dtype == .uint32,
             fusedScales.dtype == .uint8,
             _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
         {
-            lagunaTrace("shared fused [gate; up] bank QMM (prefill)")
+            lagunaTrace("shared fused [gate; up] bank QMM halved (prefill)")
+            // Build combined scales [N+1, K/32] with escape bytes in the last
+            // row.  group_size=32 passes the ops.cpp validation (K/32*32==K);
+            // the Metal dispatch detects this and overrides to 16 with
+            // kHalvedScales, reading the escape row via a buffer offset.
+            let halfFuseGroups = halvedFusedGateUpScales.dim(1)
+            let fuseEscapeRow = concatenated(
+                [
+                    gateUpEscape.reshaped([1, 2]),
+                    MLXArray.zeros([1, halfFuseGroups - 2], dtype: .uint8),
+                ], axis: 1
+            )
+            let combinedFuseScales = concatenated(
+                [halvedFusedGateUpScales, fuseEscapeRow], axis: 0)
             let gateUp = MLX.quantizedMM(
                 x,
                 fusedWeight,
-                scales: fusedScales,
+                scales: combinedFuseScales,
                 biases: nil,
                 transpose: true,
-                groupSize: 16,
+                groupSize: 32,
                 bits: 4,
                 mode: .nvfp4
             )
             let gate = gateUp[.ellipsis, 0 ..< _fusedGateUpSplit]
             let up = gateUp[.ellipsis, _fusedGateUpSplit...]
-            return downProj(compiledSiluProduct(gate, up))
+            let activated = compiledSiluProduct(gate, up)
+            // Down projection: escape[1] = halvedDownScales[N/2, 0] makes the
+            // spurious escape at the kernel's y_col==N/2 tile a no-op.
+            let halfDsGroups = halvedDownScales.dim(1)
+            let dsRows = halvedDownScales.dim(0)
+            let downEscNoop = halvedDownScales[dsRows / 2, 0]
+            let dsEscapeRow = concatenated(
+                [
+                    stacked([downScalesEscape[0], downEscNoop])
+                        .reshaped([1, 2]),
+                    MLXArray.zeros([1, halfDsGroups - 2], dtype: .uint8),
+                ], axis: 1
+            )
+            let combinedDsScales = concatenated(
+                [halvedDownScales, dsEscapeRow], axis: 0)
+            return MLX.quantizedMM(
+                activated,
+                down.weight,
+                scales: combinedDsScales,
+                biases: nil,
+                transpose: true,
+                groupSize: 32,
+                bits: down.bits,
+                mode: down.mode
+            )
         }
         return downProj(compiledSiluProduct(gateProj(x), upProj(x)))
     }
