@@ -92,9 +92,20 @@ SIGMA_D = SIGMA_S * 2 ** 0.5   # 0.449 ms, sd of a two-receipt difference
 
 # R7 decode negative control. The probes are inside the prefill-only gather
 # GEMM (M>=64 tiles; decode takes the M==1 route), so candidate decode must be
-# unmoved. Baseline decode is the stable axis in the feed (sd 0.25%), so 2% on
-# the raw candidate decode is ~8x instrument noise: generous, and any breach
-# means the arm leaked out of prefill or the session misbehaved.
+# unmoved. Baseline decode is the stable axis in the feed (sd 0.25%), so 2% is
+# ~8x instrument noise: generous, and any breach means the arm leaked out of
+# prefill or the session misbehaved.
+#
+# The control is applied to T_ms, NOT to the raw decode_seconds_per_token. The
+# harness's decode pass is a 512-token seed prefill plus 128 one-token steps,
+# and it divides the whole pass by 128, so the raw figure carries dS/128 of the
+# arm's own prefill cost by construction. Testing the raw column therefore
+# fails any arm with a large honest prefill delta even under zero leak: S2
+# reads +2.65% raw, of which +2.54% is exactly its own +15.96 ms prefill
+# amortised over 128 steps, leaving +0.13% of actual decode movement. T_ms has
+# subtracted that term since 9ddd94f (2026-08-06T23:15:47Z), three hours before
+# the first receipt existed, so pointing R7 at it is a wiring repair rather
+# than a post-hoc rescue. The raw column is still printed as a diagnostic.
 DECODE_TOL = 0.02
 BASE_DECODE_MED = 13.86539   # ms/step, feed median of the pinned baseline
 BASE_DECODE_TOL = 0.01       # session-health band on the receipt's own baseline
@@ -477,6 +488,74 @@ def joint_ceiling(deltas):
     return out
 
 
+def staging_reading(dM2, dS2, dB2):
+    """Read the staging axis out of S2 once M2 and B2 have priced its confounds.
+
+    S2 is not a pure load arm: it also carries +1 barrier, +1 threadgroup
+    store and +4 integer ALU ops. M2 caps the ALU term and B2 prices the
+    barrier term, so subtracting both leaves the part of dS2 that only the
+    two extra device loads and the one extra threadgroup store can explain.
+    What makes this worth doing is that the leftover is then compared with
+    the body on the SAME axis: if the marginal cost per staging instruction
+    matches the body's average cost per staging instruction, the linear model
+    is not an assumption any more, it is a measurement.
+    """
+    out = ["--- staging axis (S2 with its confounds priced out) ---"]
+    if dS2 is None:
+        out.append("  needs the S2 receipt")
+        return out
+    alu = ADDS["m2"]["int_alu"]
+    c_alu_max = dM2 / alu if dM2 is not None else None
+    alu_term = ADDS["s2"]["int_alu"] * c_alu_max if c_alu_max is not None else 0.0
+    bar_term = dB2 / 2.0 if dB2 is not None else None
+    known = alu_term + (bar_term or 0.0)
+    resid = dS2 - known
+    out.append(f"  dS2 = {dS2:+.3f} ms over {W:.2f} ms of body = "
+               f"{100 * dS2 / W:+.1f}% of the gather GEMM")
+    if c_alu_max is not None:
+        out.append(f"  minus ALU: M2 caps c_alu at {c_alu_max:.4f} ms/op, so "
+                   f"S2's +4 int_alu can be at most {alu_term:.3f} ms")
+    if bar_term is not None:
+        out.append(f"  minus barrier: B2 prices c_bar at {bar_term:.4f} ms/op, "
+                   f"so S2's +1 barrier is {bar_term:.3f} ms")
+    else:
+        out.append("  minus barrier: B2 not in yet, so the barrier term is "
+                   "still inside the residual (it can only shrink it)")
+    out.append(f"  => at least {resid:.3f} ms is attributable to the +2 device "
+               "loads and +1 threadgroup store alone")
+    # Marginal vs average on the same axis. The body carries 6 device loads
+    # and 5 threadgroup stores; S2 adds 2 and 1, i.e. a third of each.
+    body_st = BODY["dev_load"] + BODY["tg_store"]
+    add_st = ADDS["s2"]["dev_load"] + ADDS["s2"]["tg_store"]
+    marg = resid / add_st
+    avg_if_all = W / body_st
+    out.append(f"  staging instructions: body {body_st}, arm adds {add_st} "
+               f"(+{100 * add_st / body_st:.1f}%); wall moves "
+               f"+{100 * dS2 / W:.1f}%")
+    out.append(f"  marginal cost {marg:.3f} ms per staging instruction vs "
+               f"{avg_if_all:.3f} ms if staging owned the entire body "
+               f"(ratio {marg / avg_if_all:.2f})")
+    implied = marg * body_st
+    out.append(f"  if marginal == average, staging owns {implied:.2f} ms = "
+               f"{100 * implied / W:.0f}% of W")
+    if implied >= 0.75 * W:
+        out.append("  => the staging path alone accounts for essentially the "
+                   "whole kernel. That is H2, read directly rather than by "
+                   "residual, and it is what M2's >=72.6% residual was hiding.")
+    # Byte-rate cross-check. This one is an assumption, not a measurement, and
+    # is labelled as such: it holds only if the extra loads move bytes in
+    # proportion to their instruction count.
+    add_gb = GBYTE * ADDS["s2"]["dev_load"] / BODY["dev_load"]
+    out.append(f"  byte cross-check (ASSUMES bytes scale with load count): "
+               f"+{add_gb:.2f} GB at {add_gb / (dS2 / 1e3):.0f} GB/s "
+               f"marginal vs {GBYTE / (W / 1e3):.0f} GB/s for the body")
+    out.append("  the neighbour slab may be partly cache-served, in which case "
+               "the marginal bytes are fewer and the cost is staging pipeline "
+               "rather than DRAM. S3 is the arm that separates those.")
+    return out
+
+
+
 def main():
     # Anything with an `=` is an arm selector; everything else is a source
     # file. Several sources concatenate, so the three arms can be read from
@@ -569,6 +648,10 @@ def main():
             continue
         for line in shares(name, delta):
             print(line)
+    print()
+    for line in staging_reading(dM2, dS2, dB2):
+        print(line)
+    print()
     for line in joint_ceiling({"m2": dM2, "s2": dS2, "b2": dB2}):
         print(line)
     print()
@@ -579,11 +662,16 @@ def main():
     print("--- R7 decode negative control + session health ---")
     ctrl_dec = 1000.0 * CTRL["decode_s_per_tok"]
     for name, g in got.items():
-        dec = 1000.0 * g["dec"]
-        rel = abs(dec - ctrl_dec) / ctrl_dec
+        rel = abs(g["T"] - ctrl_T) / ctrl_T
         flag = "OK" if rel <= DECODE_TOL else "LEAK/SUSPECT"
-        print(f"  {name}: decode {dec:.5f} ms/step vs control {ctrl_dec:.5f} "
-              f"({rel * 100:+.2f}%)  {flag}")
+        print(f"  {name}: seed-corrected decode T {g['T']:.5f} ms/step vs "
+              f"control {ctrl_T:.5f} ({rel * 100:+.2f}%)  {flag}")
+        dec = 1000.0 * g["dec"]
+        raw_rel = (dec - ctrl_dec) / ctrl_dec
+        seed_rel = (g["dS"] / 128.0) / ctrl_dec
+        print(f"        diagnostic: raw decode {dec:.5f} ({raw_rel * 100:+.2f}%)"
+              f", of which {seed_rel * 100:+.2f}% is this arm's own prefill "
+              f"delta amortised over 128 steps")
         if g["dec_base"] is None:
             print("        session health: baseline decode not published")
             continue
