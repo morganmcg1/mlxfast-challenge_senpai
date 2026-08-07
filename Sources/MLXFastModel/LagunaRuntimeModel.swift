@@ -7813,7 +7813,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         constexpr uint output_width = 2048;
         constexpr uint routed_experts = 8;
         constexpr uint shared_slot = 8;
-        constexpr uint outputs_per_simd = 8;
+        constexpr uint outputs_per_simd = 16;
         constexpr uint values_per_lane = 16;
         constexpr uint packed_row_bytes = 256;
         constexpr uint scale_row_bytes = 16;
@@ -7971,7 +7971,7 @@ func lagunaRoutedSharedDownResidual(
                 sharedDownScalesEscape,
                 residual,
             ],
-        grid: (LagunaConstants.hiddenSize / 8 * 288, 1, 1),
+        grid: (LagunaConstants.hiddenSize / 16 * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
