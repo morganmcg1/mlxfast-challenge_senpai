@@ -7537,11 +7537,68 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+/// `emitRouter` appends the decode router top-8 sink: the same eight winners
+/// this kernel already extracts per threadgroup, plus their normalized FP32
+/// scores, published once from the single threadgroup that already runs all
+/// eight extraction rounds (`group == 7` is `expert_slot == 7`, `tile == 0`).
+///
+/// Exactness against the deployed standalone
+/// `laguna_decode_router_top8_ordinal_table_norm_v1` is structural, not
+/// empirical, on all three axes it has to match.
+///
+/// *Selection.* Both sides order `laguna_router_key_ordinal(-(score + bias))`
+/// under `laguna_router_ordinal_before`. That ordinal map is the monotone
+/// float-to-uint total order, with NaN above every finite key and both signed
+/// zeros folded to one code, so it induces exactly the order the original
+/// FP32 comparator `laguna_router_key_before` computes -- including the shared
+/// ascending-index tie break. The keys themselves are the producer's
+/// `router_keys`, already the R1 selection input today.
+///
+/// *Rank.* The standalone kernel's bitonic network leaves rank `i` in lane `i`;
+/// `laguna_router_top8_extract_round` returns rank `r` on round `r`. Both are
+/// exact selection under one total order, so rank for rank they agree.
+///
+/// *Scores.* Recomputed from the same BF16 `router_logits` with the same
+/// sigmoid expression -- never reconstructed from the lossy ordinal key. The
+/// deployed score-table variant instead caches `score` in threadgroup FP32 and
+/// reloads `original_scores[my_index]`; an FP32 store/load of an FP32 value is
+/// the identity, so the cached and recomputed scores are the same bits. The
+/// normalization sum is accumulated in rank order 0..7 through the same
+/// `simd_shuffle` sequence the standalone epilogue uses.
+private func lagunaRoutedSwiGLUQMVPackedTop8R1Source(emitRouter: Bool) -> String {
+    let emit = """
+
+if (group == 7u && simd_group == 0u) {
+    thread uint emit_keys[8];
+    for (uint j = 0; j < 8; ++j) {
+        emit_keys[j] = router_keys[lane + 32u * j];
+    }
+    uint emit_mask = 0u;
+    uint my_index = 0u;
+    for (uint r = 0; r < routed_experts; ++r) {
+        uint winner = laguna_router_top8_extract_round(
+            emit_keys, emit_mask, lane);
+        if (lane == r) {
+            my_index = winner;
+        }
+    }
+    float my_score = 0.0f;
+    if (lane < routed_experts) {
+        float x = float(router_logits[my_index]);
+        float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
+        my_score = x < 0.0f ? y : 1.0f - y;
+    }
+    float total = 0.0f;
+    for (uint i = 0; i < routed_experts; ++i) {
+        total = simd_shuffle(my_score, ushort(i)) + total;
+    }
+    if (lane < routed_experts) {
+        router_indices[lane] = my_index;
+        router_scores[lane] = my_score / total;
+    }
+}
+"""
+    return """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7646,11 +7703,76 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-""",
+\(emitRouter ? emit : "")
+"""
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(emitRouter: false),
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
 )
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1EmitKernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_emit_bf16_v1",
+    inputNames: [
+        "input", "fused_weight", "packed_scales", "router_keys", "router_logits",
+    ],
+    outputNames: ["activated", "router_indices", "router_scores"],
+    source: lagunaRoutedSwiGLUQMVPackedTop8R1Source(emitRouter: true),
+    header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
+        + "\n" + lagunaRouterTop8PrologueHeader,
+    ensureRowContiguous: true
+)
+
+/// `DARKBLOOM_DECODE_ROUTER_EMIT_SINK` (default ON; set "0" to restore the
+/// standalone `laguna_decode_router_top8_ordinal_norm_v1` dispatch): folds the
+/// decode router top-8 selection and its top-k renormalization into the routed
+/// gate/up QMV that already extracts the same eight winners, removing one
+/// serialized dispatch per sparse decode layer.
+let lagunaDecodeRouterEmitSinkEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_ROUTER_EMIT_SINK"]
+    != "0"
+
+/// Routed gate/up packed QMV that also publishes the decode router top-8
+/// indices and normalized FP32 weights. Returns `(activated, indices, weights)`.
+func lagunaRoutedSwiGLUQMVPackedTop8Emit(
+    _ input: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    routerKeys: MLXArray,
+    routerLogits: MLXArray
+) -> (MLXArray, MLXArray, MLXArray) {
+    precondition(input.dtype == .bfloat16)
+    precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
+    precondition(fusedWeight.dtype == .uint32)
+    precondition(packedScales.dtype == .uint8)
+    precondition(packedScales.size == lagunaPackedRoutedGateUpScaleBytes)
+    precondition(routerKeys.dtype == .uint32)
+    precondition(routerKeys.size == LagunaConstants.numExperts)
+    precondition(routerLogits.dtype == .bfloat16)
+    precondition(routerLogits.size == LagunaConstants.numExperts)
+
+    let outputs = lagunaRoutedSwiGLUQMVPackedTop8R1EmitKernel(
+        [input, fusedWeight, packedScales, routerKeys, routerLogits],
+        grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [
+            [
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ],
+            [1, 1, LagunaConstants.numExpertsPerTok],
+            [1, 1, LagunaConstants.numExpertsPerTok],
+        ],
+        outputDTypes: [.bfloat16, .uint32, .float32]
+    )
+    return (outputs[0], outputs[1], outputs[2])
+}
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
@@ -10000,6 +10122,78 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?,
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
+        // DECODE-ONLY router sink. Every guard below restates a guard the
+        // fused decode chain already had to pass, with `inds`/`weights`
+        // predicates replaced by the gate configuration that produces them, so
+        // falling through lands on exactly the branch that would have run. The
+        // routed gate/up QMV already extracts the same eight winners per
+        // threadgroup, so it publishes them and their normalized FP32 weights
+        // directly and the standalone top-8 dispatch disappears from the layer.
+        if lagunaDecodeRouterEmitSinkEnabled,
+            lagunaDecodeRouterTop8Enabled,
+            lagunaDecodeRouterCastSinkEnabled,
+            lagunaDecodeRouterNormSinkEnabled,
+            lagunaFusedRoutedSwiGLUQMVEnabled,
+            lagunaPackedScalesEnabled,
+            lagunaRouterPrecomputedKeysEnabled,
+            lagunaRoutedGateUpR1Enabled,
+            lagunaFusedRoutedSharedDownResidualEnabled,
+            x.dtype == .bfloat16,
+            x.dims(1, 1, LagunaConstants.hiddenSize),
+            gate.topK == LagunaConstants.numExpertsPerTok,
+            gate.normTopkProb,
+            gate.routerLogitSoftcapping == 0,
+            gate.eScoreCorrectionBias.size == LagunaConstants.numExperts,
+            let routerLogits,
+            routerLogits.dtype == .bfloat16,
+            routerLogits.size == LagunaConstants.numExperts,
+            let routerKeys,
+            routerKeys.dtype == .uint32,
+            routerKeys.size == LagunaConstants.numExperts,
+            let fusedWeight = _fusedRoutedGateUpWeight,
+            fusedWeight.dtype == .uint32,
+            _fusedRoutedGateUpScales?.dtype == .uint8,
+            _routedDownProj != nil,
+            _fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize,
+            let packedBank = _packedRoutedGateUpBank,
+            let residual,
+            residual.dtype == .bfloat16,
+            residual.dims(1, 1, LagunaConstants.hiddenSize),
+            let downWeight = _routedDownWeight,
+            downWeight.dtype == .uint32,
+            downWeight.dims(
+                LagunaConstants.numExperts, LagunaConstants.hiddenSize,
+                LagunaConstants.moeIntermediateSize / 8),
+            let downScales = _routedDownScales,
+            downScales.dtype == .uint8,
+            downScales.size == lagunaRoutedDownScaleBytes,
+            routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor),
+            let sharedInputs = sharedExpert.fusedSharedDownInputs(
+                x, sharedActivation: nil)
+        {
+            lagunaTrace(
+                "routed gate/up QMV + SwiGLU (packed, producer keys, router sink)")
+            let (activated, sunkIndices, sunkWeights) =
+                lagunaRoutedSwiGLUQMVPackedTop8Emit(
+                    x,
+                    fusedWeight: fusedWeight,
+                    packedScales: packedBank,
+                    routerKeys: routerKeys,
+                    routerLogits: routerLogits
+                )
+            lagunaTrace("routed+shared down residual")
+            return lagunaRoutedSharedDownResidual(
+                routedActivated: activated,
+                routedDownWeight: downWeight,
+                routedDownScales: downScales,
+                indices: sunkIndices,
+                routerWeights: sunkWeights,
+                sharedActivated: sharedInputs.activated,
+                sharedDownWeight: sharedInputs.downWeight,
+                sharedDownScales: sharedInputs.downScales,
+                residual: residual
+            )
+        }
         let (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
         var routedAlreadyReduced = false
