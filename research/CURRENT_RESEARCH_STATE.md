@@ -36,10 +36,16 @@
       PR #193 (thorfinn): DEAD. Attention QKV+O-proj scale halving -2.7% decode regression.
       Escape mechanism overhead exceeds ~0.62% bandwidth savings. Attention scale halving exhausted.
       Key insight: MoE halving works because 256 experts amortize per-kernel overhead; attention (40x/step) doesn't.
-    PR #191 (edward): CLOSED. QKV scale halving refuted. New assignment: PR #199 (RMSNorm+argmax fuse into LM head).
-    PR #193 (thorfinn): DEAD. Closed. New assignment: PR #198 (prefill MoE scale halving, ~1.0-1.5% composite).
-    PR #194 (alphonse): MERGED. PURE packed simd_sum. New assignment: PR #200 (INT8 4x scale/bias dedup).
-    PROMOTED FRONTIER: a117214 (clean 12a712d + MoE scale halving + packed simd_sum).
+    PR #192 v2 (askeladd): MERGED as 57804d3. O-proj NVFP4 scale halving. Bit-exact, ~0.35% M4 decode (within noise).
+      Composes with MoE halving (different code sections). O-proj scales ~10% of O-proj weight traffic.
+      Budget after merge: LRM at 520,369/524,288 (3,919 B headroom — CRITICAL).
+    PR #199 (edward): DEAD. RMSNorm fusion into LM head pruner. 4.9% decode regression.
+      Root cause: pruner kernels are compute-bound, not dispatch-bound. Adding compute to compute-bound
+      kernels to save a cheap dispatch is fundamentally unprofitable. Part B not attempted.
+    PR #201 (edward): NEW. Gate-softplus dot4 vectorization. Known M4 winner from PR #130 (+1.4% decode).
+      Current frontier has simd_sum (PR #194) but NOT dot4. Adding dot4 should recover the +1.4%.
+      Budget: ~200-300 B in LRM (3,919 B headroom — tight but fits).
+    PROMOTED FRONTIER: 57804d3 (MoE scale halving + packed simd_sum + O-proj scale halving).
     Fresh research: RESEARCH_IDEAS_20260807_FRESH.md — 7 ranked ideas. Top 3 assigned.
     Key finding: LagunaRuntimeModel.swift at 517,008/524,288 (7,280 B headroom — TIGHT).
       Surface budget: 1,921,734/3,000,000 (1,078,266 B headroom — AMPLE).
