@@ -7099,6 +7099,11 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private let lagunaRoutedSwiGLUQMVPackedTop8OutputShapes: [[Int]] = [[
+    1, 1, LagunaConstants.numExpertsPerTok, 1,
+    LagunaConstants.moeIntermediateSize,
+]]
+
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
     fusedWeight: MLXArray,
@@ -7116,10 +7121,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
         [input, fusedWeight, packedScales, indices],
         grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
         threadGroup: (64, 1, 1),
-        outputShapes: [[
-            1, 1, LagunaConstants.numExpertsPerTok, 1,
-            LagunaConstants.moeIntermediateSize,
-        ]],
+        outputShapes: lagunaRoutedSwiGLUQMVPackedTop8OutputShapes,
         outputDTypes: [.bfloat16]
     )[0]
 }
@@ -7384,6 +7386,10 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private let lagunaRoutedSharedDownResidualOutputShapes: [[Int]] = [[
+    1, 1, LagunaConstants.hiddenSize,
+]]
+
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
     routedDownWeight: MLXArray,
@@ -7453,7 +7459,7 @@ func lagunaRoutedSharedDownResidual(
             ],
         grid: ((LagunaConstants.hiddenSize / 2) * 288, 1, 1),
         threadGroup: (288, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
+        outputShapes: lagunaRoutedSharedDownResidualOutputShapes,
         outputDTypes: [.bfloat16]
     )[0]
 }
@@ -8336,6 +8342,10 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
     return (outputs[0], outputs[1])
 }
 
+private let lagunaDecodeRouterOrdinalScoreTableOutputShapes: [[Int]] = [
+    [1, 1, 8], [1, 1, 8],
+]
+
 func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
     logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
 ) -> (MLXArray, MLXArray) {
@@ -8352,7 +8362,7 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
         [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
-        outputShapes: [[1, 1, 8], [1, 1, 8]],
+        outputShapes: lagunaDecodeRouterOrdinalScoreTableOutputShapes,
         outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
