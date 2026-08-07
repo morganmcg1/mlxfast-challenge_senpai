@@ -9,7 +9,8 @@ The × threadGroupSize multiplier in grid expressions is CORRECT. PR #333 was cl
 Do NOT revisit this hypothesis.
 
 ## M5 SUBMISSION STATUS (CRITICAL — 25+ CONSECUTIVE FAILURES)
-  2deac25c: VALIDATING (10:15 PM UTC) — warmup fix (prefill 512→2, 3 extra decode steps).
+  311d4fe3: VALIDATING (10:30 PM UTC) — resubmission of warmup fix (same code).
+  2deac25c: FAILED (10:13 PM) — warmup fix (prefill 512→2, 3 extra decode steps). Insufficient.
   89ab294: FAILED (9:37 PM) — same d7758813 code without warmup fix.
   7e974fa: FAILED (9:20 PM) — resubmission of d7758813 with M5 fixes.
   66c0555: FAILED (9:00 PM) — same code with FUSED_QKV OFF, addMM OFF.
@@ -25,20 +26,23 @@ Do NOT revisit this hypothesis.
   same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
-## ACTIVE ASSIGNMENTS (Wave 16, BASE_SHA=d7758813)
-  PR #335 (thorfinn): Prefill asyncEval stride sweep — 0-byte env-var sweep. IN PROGRESS.
-  PR #339 (askeladd): LM head threadgroup doubling — ~150B, ~0.2% total. IN PROGRESS.
+## ACTIVE ASSIGNMENTS (Wave 17, BASE_SHA=e1559206)
+  PR #342 (edward): Prefill halved scales via qmm_nax kHalvedScales — M5-only, ~0.9% total. IN PROGRESS.
+  PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — ~0.1-0.2% prefill. IN PROGRESS.
+  PR #335 (thorfinn): asyncEval stride sweep v2 — 0-byte env-var sweep. IN PROGRESS.
 
 ## RECENTLY CLOSED (Wave 16)
+  PR #339 (askeladd): LM head TG doubling — NEGATIVE. ~0.45% decode regression. Dispatch overhead is per-kernel-LAUNCH not per-TG. Larger TGs hurt occupancy.
   PR #337 (alphonse): Decode asyncEval=off — NEGATIVE. Current 7-fire schedule is optimal.
-    asyncEval=off is 10% slower, ladder8 is 2% slower. Old notes/52 measurement is stale.
-  PR #338 (edward): Down outputs_per_simd 8→4 — INCONCLUSIVE. Marginal degrading signal
-    (Run1 +0.66%, Run2 +0.53%, Run3 +0.06%). Bandwidth-bound kernel, more TGs don't help.
+  PR #338 (edward): Down outputs_per_simd 8→4 — INCONCLUSIVE. Marginal degrading signal.
 
-## NEXT PRIORITY: JIT Warmup Fix
-  Warmup fix submitted (2deac25c, validating). If M5 still fails, next: consolidate per-head
-  kernel variants or disable less-impactful JIT features to reduce compilation count.
-  Alphonse and edward are free for next assignments.
+## NEXT PRIORITY: M5 Build Fix
+  Warmup fix insufficient (2deac25c FAILED). Resubmitted (311d4fe3 VALIDATING).
+  Root cause: ~30-50 JIT kernel compilations (~100-250s) intermittently exceed M5 runner timeout.
+  Vendor files are CLEAN (0 diff from organizer frontier). All changes are LRM-only.
+  If 311d4fe3 fails: need to reduce JIT kernel count (consolidate per-head variants) or
+  submit at off-peak hours. The code WORKS (68b66c5 proved it) — issue is intermittent M5 state.
+  Alphonse and edward have optimization assignments (PR #342, #343).
 
 ## RECENTLY CLOSED
   PR #334 (askeladd): Prefill router GEMV fusion v2 — FAILED (+2.46% prefill regression).
