@@ -6513,15 +6513,15 @@ let lagunaSharedSwiGLUQMVHeader: String = {
 }()
 
 private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_bf16_v1",
-    inputNames: ["input", "fused_weight", "fused_scales"],
+    name: "laguna_shared_nvfp4_swiglu_qmv_bf16_v1_halved",
+    inputNames: ["input", "fused_weight", "packed_scales", "gate_up_escape"],
     outputNames: ["activated"],
     source: """
         constexpr uint input_width = 2048;
         constexpr uint output_width = 512;
         constexpr uint fused_width = 1024;
         constexpr uint packed_row_bytes = 1024;
-        constexpr uint scale_row_bytes = 128;
+        constexpr uint scale_row_bytes = 64;
         constexpr uint block_width = 512;
         constexpr uint values_per_lane = 16;
 
@@ -6529,6 +6529,8 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
         uint simd_group = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
         uint first_row = tile * 4 + simd_group * 2;
+        uint8_t gate_escape = gate_up_escape[0];
+        uint8_t up_escape = gate_up_escape[1];
 
         thread float gate_result[2] = {0.0f, 0.0f};
         thread float up_result[2] = {0.0f, 0.0f};
@@ -6556,20 +6558,26 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
                     (const device uint8_t*)fused_weight +
                     up_row * packed_row_bytes + block / 2 + lane * 8;
                 const device uint8_t* gate_scale =
-                    fused_scales + gate_row * scale_row_bytes +
-                    block / 16 + lane;
+                    packed_scales + gate_row * scale_row_bytes +
+                    block / 16 + lane / 2;
                 const device uint8_t* up_scale =
-                    fused_scales + up_row * scale_row_bytes +
-                    block / 16 + lane;
+                    packed_scales + up_row * scale_row_bytes +
+                    block / 16 + lane / 2;
 
+                uint8_t gate_sb = gate_scale[0];
+                uint8_t up_sb = up_scale[0];
+                if (gate_row == 0 && lane == 1) {
+                    gate_sb = gate_escape;
+                    up_sb = up_escape;
+                }
                 gate_result[row] += laguna_nvfp4_qdot_16(
                     gate_weight,
                     input_values,
-                    laguna_nvfp4_scale(gate_scale[0]));
+                    laguna_nvfp4_scale(gate_sb));
                 up_result[row] += laguna_nvfp4_qdot_16(
                     up_weight,
                     input_values,
-                    laguna_nvfp4_scale(up_scale[0]));
+                    laguna_nvfp4_scale(up_sb));
             }
         }
 
@@ -6594,15 +6602,18 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
 
 /// One-output-row scheduling twin of `lagunaSharedSwiGLUQMVKernel`.
 /// Arithmetic is textually identical per row; only row ownership changes.
+/// Scale-plane-halved: reads `lane / 2` from a 64-byte packed scale row
+/// (NVFP4 pairwise-constancy: scale[2k]==scale[2k+1] for k>=1). Escape
+/// bytes handle the sole exception pair (gate row 0 byte 1, up row 0 byte 1).
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
-    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1",
-    inputNames: ["input", "fused_weight", "fused_scales"],
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_halved",
+    inputNames: ["input", "fused_weight", "packed_scales", "gate_up_escape"],
     outputNames: ["activated"],
     source: """
         constexpr uint input_width = 2048;
         constexpr uint output_width = 512;
         constexpr uint packed_row_bytes = 1024;
-        constexpr uint scale_row_bytes = 128;
+        constexpr uint scale_row_bytes = 64;
         constexpr uint block_width = 512;
         constexpr uint values_per_lane = 16;
 
@@ -6618,9 +6629,11 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
             (const device uint8_t*)fused_weight +
             (row + output_width) * packed_row_bytes + lane * 8;
         const device uint8_t* gate_row_scale =
-            fused_scales + row * scale_row_bytes + lane;
+            packed_scales + row * scale_row_bytes + lane / 2;
         const device uint8_t* up_row_scale =
-            fused_scales + (row + output_width) * scale_row_bytes + lane;
+            packed_scales + (row + output_width) * scale_row_bytes + lane / 2;
+        uint8_t gate_escape = gate_up_escape[0];
+        uint8_t up_escape = gate_up_escape[1];
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
@@ -6638,14 +6651,20 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
                 input_values[4 * i + 3] = values[3];
             }
 
+            uint8_t gate_sb = gate_row_scale[block / 16];
+            uint8_t up_sb = up_row_scale[block / 16];
+            if (row == 0 && lane == 1) {
+                gate_sb = gate_escape;
+                up_sb = up_escape;
+            }
             gate_result += laguna_nvfp4_qdot_16(
                 gate_row_weight + block / 2,
                 input_values,
-                laguna_nvfp4_scale(gate_row_scale[block / 16]));
+                laguna_nvfp4_scale(gate_sb));
             up_result += laguna_nvfp4_qdot_16(
                 up_row_weight + block / 2,
                 input_values,
-                laguna_nvfp4_scale(up_row_scale[block / 16]));
+                laguna_nvfp4_scale(up_sb));
         }
 
         gate_result = simd_sum(gate_result);
@@ -6668,7 +6687,8 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
 func lagunaSharedSwiGLUQMV(
     _ input: MLXArray,
     fusedWeight: MLXArray,
-    fusedScales: MLXArray
+    packedScales: MLXArray,
+    gateUpEscape: MLXArray
 ) -> MLXArray {
     precondition(input.dtype == .bfloat16)
     precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
@@ -6676,10 +6696,11 @@ func lagunaSharedSwiGLUQMV(
     precondition(
         fusedWeight.dims(2 * LagunaConstants.sharedExpertIntermediateSize,
             LagunaConstants.hiddenSize / 8))
-    precondition(fusedScales.dtype == .uint8)
+    precondition(packedScales.dtype == .uint8)
     precondition(
-        fusedScales.dims(2 * LagunaConstants.sharedExpertIntermediateSize,
-            LagunaConstants.hiddenSize / 16))
+        packedScales.dims(2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 32))
+    precondition(gateUpEscape.dtype == .uint8)
 
     let kernel =
         lagunaSharedSwiGLUQMVRows1Enabled
@@ -6687,7 +6708,7 @@ func lagunaSharedSwiGLUQMV(
         : lagunaSharedSwiGLUQMVKernel
     let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128
     return kernel(
-        [input, fusedWeight, fusedScales],
+        [input, fusedWeight, packedScales, gateUpEscape],
         grid: (tiles * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
@@ -8157,13 +8178,17 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         downWeight: MLXArray,
         downScales: MLXArray
     )? {
-        guard let banks = fusedSharedBankGuard(x) else { return nil }
+        guard let banks = fusedSharedBankGuard(x),
+            let halvedScales = _halvedFusedGateUpScales,
+            let gateUpEscape = _fusedGateUpScalesEscape
+        else { return nil }
         let activated =
             sharedActivation
             ?? lagunaSharedSwiGLUQMV(
                 x,
                 fusedWeight: banks.gateUpWeight,
-                fusedScales: banks.gateUpScales
+                packedScales: halvedScales,
+                gateUpEscape: gateUpEscape
             )
         return (activated, banks.downWeight, banks.downScales)
     }
@@ -8291,6 +8316,8 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales
         {
             if lagunaFusedSharedSwiGLUQMVEnabled,
+                let halvedScales = _halvedFusedGateUpScales,
+                let gateUpEscape = _fusedGateUpScalesEscape,
                 x.dtype == .bfloat16,
                 x.dims(1, 1, LagunaConstants.hiddenSize),
                 fusedWeight.dtype == .uint32,
@@ -8302,7 +8329,8 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
                     lagunaSharedSwiGLUQMV(
                         x,
                         fusedWeight: fusedWeight,
-                        fusedScales: fusedScales
+                        packedScales: halvedScales,
+                        gateUpEscape: gateUpEscape
                     )
                 )
             }
