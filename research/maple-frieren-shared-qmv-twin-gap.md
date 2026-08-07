@@ -20,7 +20,7 @@ round (see the assignment). This is a banked, correctness-verified patch.
 | Mechanism | Flag (opt-in, default OFF) | Verdict |
 | --- | --- | --- |
 | (a) K-block prefetch in the shared gate/up QMV | `DARKBLOOM_SHARED_QMV_PREFETCH` | **Kernel-level win, bit-exact.** −0.363 µs/call, 95 % CI [−0.495, −0.232], −4.80 %, = **−14.2 µs/step** |
-| (b) Pairwise (halved) gate/up scale plane | `DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES` (implies (a)) | **Refuted at kernel level, bit-exact.** +0.140 µs/call, 95 % CI [+0.058, +0.222], +1.94 %, = **+5.5 µs/step**; the invariant control also moved, so the accompanying −1.40 % whole-step delta is *not* attributable to this mechanism |
+| (b) Pairwise (halved) gate/up scale plane | `DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES` (implies (a)) | **Refuted at kernel level, bit-exact.** +0.139 µs/call, 95 % CI [+0.057, +0.221], +1.93 %, = **+5.4 µs/step**; the invariant control also moved, so the accompanying −1.40 % whole-step delta is *not* attributable to this mechanism |
 
 Mechanism (a) is a clean, reproducible, bit-exact kernel win and is the part of
 this patch worth banking. Mechanism (b) makes its own kernel measurably slower
@@ -543,7 +543,7 @@ resolution (§5), exactly as the assignment predicted, so §5 is a point estimat
 and not a verdict.
 
 Mechanism (b) is a clean *negative*: halving the scale plane is lossless and
-bit-exact, it is certified live, and it makes its own kernel 1.94 % slower. The
+bit-exact, it is certified live, and it makes its own kernel 1.93 % slower. The
 useful conclusion is that this kernel is not scale-fetch-bound, which also
 predicts that widening the scale read further would not help.
 

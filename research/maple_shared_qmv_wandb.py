@@ -34,7 +34,7 @@ KERNEL_AB = [
     ("stage1", "off", "on", "invariant_control_routed_qmv",
      None, None, None, None, +0.056, -0.563, +0.674, None),
     ("stage2", "on", "pairwise", "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1",
-     7.210, 0.078, 7.350, 0.026, +0.140, +0.058, +0.222, 6.1),
+     7.210, 0.078, 7.350, 0.026, +0.139, +0.057, +0.221, 6.1),
     ("stage2", "on", "pairwise", "invariant_control_routed_qmv",
      38.817, 0.250, 38.368, 0.075, -0.449, None, None, None),
 ]
@@ -45,6 +45,25 @@ KERNEL_COLS = ["stage", "arm_a", "arm_b", "kernel", "mean_a_us", "sd_a_us",
 RUN_COLS = ["run", "rep", "slot", "arm", "prefill_seconds_per_token",
             "decode_seconds_per_token", "passed_correctness", "checked_steps",
             "score", "passed"]
+
+# 128-step teacher-forced greedy-token tripwire on the uninstrumented worker,
+# from research/shared-qmv-logs/drift-tripwire-128step.log.
+TRIPWIRE_COLS = ["arm", "steps", "divergences", "step_mean_ms",
+                 "seed_forward_ms", "worker_instrumented"]
+TRIPWIRE = [
+    ("off", 128, 0, 8.183, 547.26, False),
+    ("on", 128, 0, 8.211, 547.46, False),
+    ("pairwise", 128, 0, 8.179, 547.30, False),
+]
+# Every model-holding process this round ran the same teacher-forced comparison.
+AGGREGATE_COLS = ["source", "processes", "steps_each", "comparisons",
+                  "divergences"]
+AGGREGATE = [
+    ("stage1_kernel_abba", 12, 33, 396, 0),
+    ("stage2_kernel_abba", 12, 33, 396, 0),
+    ("stage2b_cancelled", 6, 33, 198, 0),
+    ("drift_tripwire_128", 3, 128, 384, 0),
+]
 
 
 def main():
@@ -128,6 +147,19 @@ def main():
                 summary[f"{tag}/ci95_hi_percent"] = 100.0 * (d + hw) / base
                 summary[f"{tag}/df"] = df
 
+    tripwire_table = wandb.Table(columns=TRIPWIRE_COLS)
+    for rec in TRIPWIRE:
+        tripwire_table.add_data(*rec)
+        summary[f"correctness/tripwire/{rec[0]}/divergences"] = rec[2]
+    summary["correctness/tripwire/steps"] = TRIPWIRE[0][1]
+
+    aggregate_table = wandb.Table(columns=AGGREGATE_COLS)
+    for rec in AGGREGATE:
+        aggregate_table.add_data(*rec)
+    summary["correctness/aggregate/processes"] = sum(r[1] for r in AGGREGATE)
+    summary["correctness/aggregate/comparisons"] = sum(r[3] for r in AGGREGATE)
+    summary["correctness/aggregate/divergences"] = sum(r[4] for r in AGGREGATE)
+
     kernel_table = wandb.Table(columns=KERNEL_COLS)
     for rec in KERNEL_AB:
         per_step = rec[8] * CALLS_PER_STEP
@@ -151,7 +183,9 @@ def main():
         if key not in summary:
             raise RuntimeError(f"headline {key} missing; refusing to publish")
 
-    run.log({"local_iterate_runs": run_table, "kernel_ab": kernel_table})
+    run.log({"local_iterate_runs": run_table, "kernel_ab": kernel_table,
+             "drift_tripwire_128step": tripwire_table,
+             "correctness_aggregate": aggregate_table})
     run.summary.update(summary)
     print(f"logged {len(summary)} scalars, {len(rows)} runs -> {run.url}")
     print(f"run id: {run.id}")
