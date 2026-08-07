@@ -74,9 +74,6 @@ template <typename T, int N_READS = RMS_N_READS>
         row_out[i] =
             row_w[i] * static_cast<T>(xcache[i] * local_inv_mean[0]);
       }
-      if (lid == 0) {
-        row_out[0] = static_cast<T>(-123.0f);
-      }
       return;
     }
   }
