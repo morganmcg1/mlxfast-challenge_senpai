@@ -1,9 +1,9 @@
 # SENPAI Research State
-- 2026-08-07T05:05Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 215e45f (pushed to origin).
-  9 composed changes on current frontier. LRM: 522,197/524,288 = 2,091 B headroom.
+- 2026-08-07T05:22Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 4702eaa (pushed to origin).
+  11 composed changes on current frontier. LRM: 522,275/524,288 = 2,013 B headroom.
 
-## MERGED FRONTIER (9 changes, all bit-exact)
+## MERGED FRONTIER (11 changes, all bit-exact)
   1. MoE scale halving (PR #180): 45.5 MiB/step bandwidth savings, ~1% M4 decode gain
   2. Packed simd_sum (PR #194): instruction reduction in cross-lane reductions
   3. O-proj NVFP4 scale halving (PR #192): bandwidth savings for O-proj
@@ -13,20 +13,25 @@
   7. INT8 QKV dedup (PR #206): simd_shuffle broadcast, +0.57% M4 (noise)
   8. Shared SwiGLU float4 input (PR #209): float4 pointer cast stores, -0.1% M4 (neutral), -336B
   9. Routed MoE scatter float4 (PR #212): float4 pointer cast stores, +0.8% M4, -324B
+  10. LM Head argmax+threshold fuse (PR #211): atomic argmax eliminates 1 dispatch, -1.1% M4 decode, LLHP only
+  11. INT8 indexed QKV dedup (PR #214): simd_shuffle broadcast, +0.04% M4 (flat), 78B
 
 ## M5 SUBMISSION STATUS
+  0781a45: FAILED (no score produced — build/runtime error on M5, 9-change frontier at 215e45f)
+  94a8526: VALIDATING (10-change frontier at b5a8bd0, submitted with argmax fuse)
+  NOTE: PR #214 (indexed QKV dedup) merged AFTER 94a8526 submission. Next submission includes all 11 changes.
   Previous rejections: 27b9c7c (2.4972), a3e3800 (2.4073), f2160f8 (2.5582),
-    ec2b0a5 (2.4839), 0fe73ec (2.4629, -13.45% — student submission from another campaign)
-  259c265: VALIDATING (another campaign submission, blocking our slot)
+    ec2b0a5 (2.4839), 0fe73ec (2.4629, -13.45%)
   Submission note ready: research/SUBMISSION_NOTE_215e45f.md (11,725 bytes)
   Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%).
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
   STRATEGY: Bandwidth + instruction-count reductions, all bit-exact. M5 is instruction-bound (~89%).
 
 ## IN-PROGRESS EXPERIMENTS
-  PR #210 (alphonse): Attention epilogue 1-pass merge (eliminate 1 barrier/dispatch, 40 layers, ≤200B)
-  PR #211 (askeladd): LM head argmax+threshold fuse (eliminate 1 dispatch/step, LagunaLmHeadPrune.swift)
-  PR #214 (edward): INT8 QKV indexed path dedup (complete QKV dedup family, ~50-100B)
+  PR #216 (alphonse): Standalone shared down scale halving (bit-exact, fallback path, ≤500B)
+  askeladd: IDLE — needs new assignment (research agent scanning for ideas)
+  thorfinn: IDLE — needs new assignment
+  edward: IDLE — PR #214 merged, needs new assignment
 
 ## RESEARCH THEMES
   - INT8 scale/bias dedup family: COMPLETE (gate-softplus ✓, O-proj ✓, QKV ✓, indexed QKV in progress)
