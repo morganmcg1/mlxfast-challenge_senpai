@@ -3780,6 +3780,63 @@ func lagunaGateProductSoftplus(
     )[0]
 }
 
+private func lagunaPrefillGatedTransposeSource(heads: Int) -> String {
+    """
+    constexpr uint HEADS = \(heads);
+    constexpr uint HEAD_DIM = \(LagunaConstants.headDim);
+    constexpr uint TOKENS = 512;
+
+    uint feature = thread_position_in_grid.x;
+    uint token = thread_position_in_grid.y;
+    uint head = feature / HEAD_DIM;
+    uint dim = feature - head * HEAD_DIM;
+    uint input_index = (head * TOKENS + token) * HEAD_DIM + dim;
+    uint gate_index = token * HEADS + head;
+    uint output_index = token * (HEADS * HEAD_DIM) + feature;
+    output[output_index] = bfloat(
+        float(attention_output[input_index]) * float(gate_values[gate_index]));
+    """
+}
+
+private let lagunaPrefillGatedTransposeKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_prefill_gated_transpose_bf16_h\(heads)_v1",
+            inputNames: ["attention_output", "gate_values"],
+            outputNames: ["output"],
+            source: lagunaPrefillGatedTransposeSource(heads: heads),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
+
+private let lagunaPrefillGatedTransposeEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_GATED_TRANSPOSE"] != "0"
+
+func lagunaPrefillGatedTranspose(
+    attentionOutput: MLXArray, gateValues: MLXArray, heads: Int
+) -> MLXArray? {
+    guard lagunaPrefillGatedTransposeEnabled,
+        let kernel = lagunaPrefillGatedTransposeKernels[heads],
+        attentionOutput.dtype == .bfloat16,
+        attentionOutput.shape == [1, heads, 512, LagunaConstants.headDim],
+        gateValues.dtype == .bfloat16,
+        gateValues.shape == [1, 512, heads]
+    else { return nil }
+
+    let width = heads * LagunaConstants.headDim
+    lagunaTrace("prefill gated transpose h\(heads)")
+    return kernel(
+        [attentionOutput, gateValues],
+        grid: (width, 512, 1),
+        threadGroup: (128, 1, 1),
+        outputShapes: [[1, 512, width]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
 // MARK: - Gated native-affine INT8 output projection (one dispatch)
 
 /// Exact per-head softplus gate plus group-32 affine INT8 output GEMV.
@@ -5995,9 +6052,16 @@ final class LagunaRuntimeAttention: Module {
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
             if gatePerHead {
-                output =
-                    (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
-                    .reshaped(B, L, -1)
+                if let fusedOutput = lagunaPrefillGatedTranspose(
+                    attentionOutput: attended, gateValues: gate, heads: nHeads)
+                {
+                    output = fusedOutput
+                } else {
+                    output =
+                        (output.reshaped(B, L, nHeads, headDim)
+                            * gate[.ellipsis, .newAxis])
+                        .reshaped(B, L, -1)
+                }
             } else {
                 output = output * gate
             }
