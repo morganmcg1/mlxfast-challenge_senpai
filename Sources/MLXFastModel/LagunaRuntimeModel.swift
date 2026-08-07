@@ -135,9 +135,10 @@ let lagunaFusedRoutedSwiGLUQMVEnabled =
 let lagunaPackedScalesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES"] != "0"
 
-/// One-shot stderr visibility for packed-scale preparation: with the flag set,
-/// preparation announces either "active" (bank built) or "inactive" (a guard
-/// declined), so a silently-declining guard can never measure its own control.
+/// One-shot stderr visibility for the packed-scales arm: with the flag set,
+/// the arm MUST announce either "active" (bank built / packed dispatch taken)
+/// or "inactive" (a guard declined and the stock kernel ran instead), so a
+/// silently-declining guard can never measure its own control.
 final class LagunaPackedScalesLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private let lock = NSLock()
@@ -9589,6 +9590,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 if lagunaPackedScalesEnabled,
                     let packedBank = _packedRoutedGateUpBank
                 {
+                    lagunaPackedScalesLog.note(
+                        "active", "routed swiglu qmv packed dispatch")
                     lagunaTrace("routed gate/up QMV + SwiGLU (packed indices R1)")
                     activated = lagunaRoutedSwiGLUQMVPackedTop8(
                         x,
@@ -9597,6 +9600,11 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         indices: inds
                     )
                 } else {
+                    if lagunaPackedScalesEnabled {
+                        lagunaPackedScalesLog.note(
+                            "inactive",
+                            "routed swiglu qmv packed (bank missing; stock kernel dispatched)")
+                    }
                     lagunaTrace("routed gate/up QMV + SwiGLU")
                     activated = lagunaRoutedSwiGLUQMV(
                         x,
