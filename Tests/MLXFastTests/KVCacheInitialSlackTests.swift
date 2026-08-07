@@ -13,7 +13,7 @@ private func expectEqual(_ actual: MLXArray, _ expected: MLXArray) {
     #expect(allClose(actual, expected).item(Bool.self))
 }
 
-@Test(.serialized)
+@Test
 func initialSlackExactStepSkipsFusedAppendContiguization() throws {
     let keys = kvTensor(tokens: 512, width: 4)
     let values = kvTensor(tokens: 512, width: 3, offset: 10)
@@ -75,7 +75,7 @@ func initialSlackExactStepSkipsFusedAppendContiguization() throws {
     expectEqual(cache.state[1], concatenated([values, nextValues, finalValues], axis: 2))
 }
 
-@Test(.serialized)
+@Test
 func exactStepWithoutInitialSlackKeepsFusedAppendFallback() throws {
     let keys = kvTensor(tokens: 512, width: 4)
     let values = kvTensor(tokens: 512, width: 3, offset: 10)
@@ -99,7 +99,7 @@ func exactStepWithoutInitialSlackKeepsFusedAppendFallback() throws {
     expectEqual(cache.state[1], values[.ellipsis, ..<511, 0...])
 }
 
-@Test(.serialized)
+@Test
 func nonMultipleInitialUpdateKeepsFusedAppendFallback() throws {
     let keys = kvTensor(tokens: 511, width: 4)
     let values = kvTensor(tokens: 511, width: 3, offset: 10)

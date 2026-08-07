@@ -331,6 +331,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
                         [values.dim(0), values.dim(1), step, values.dim(3)], dtype: values.dtype
                     ),
                 ], axis: 2)
+                self.fusedAppendContiguized = true
             } else {
                 self.keys = keys
                 self.values = values
