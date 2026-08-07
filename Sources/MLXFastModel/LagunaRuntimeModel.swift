@@ -9140,7 +9140,7 @@ private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
     source: """
         constexpr uint hidden = 2048;
         constexpr uint experts = 8;
-        constexpr uint n_cols = 4;
+        constexpr uint n_cols = 8;
 
         uint row = thread_position_in_grid.y;
         uint col = thread_position_in_grid.x * n_cols;
@@ -9224,7 +9224,7 @@ private func lagunaPrefillSortedMoETail(
             sortedExpertOutputs, inverseOrder, routerWeights, sharedOutput,
             residual,
         ],
-        grid: (LagunaConstants.hiddenSize / 4, rows, 1),
+        grid: (LagunaConstants.hiddenSize / 8, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
