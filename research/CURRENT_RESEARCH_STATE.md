@@ -1,16 +1,50 @@
 # SENPAI Research State
-- 2026-08-07T08:01Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 577a9b6 (pushed to origin).
-  14 composed changes on current frontier (PR #231 merged: prefill shared gate/up fusion).
-  LRM: 515,893/524,288 = 8,395 B headroom. Total: 1,924,953/3,000,000 = 1,075,047 B headroom.
+- 2026-08-07T10:05Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 6758db1 (pushed to origin).
+  19 composed changes on current frontier.
+  LRM: 522,456/524,288 = 1,832 B headroom. Total surface ~2,970K/3,000,000.
 
-## MERGED FRONTIER (13 changes, all bit-exact)
-  1. MoE scale halving (PR #180): 45.5 MiB/step bandwidth savings, decode MoE kernels
-  2. Packed simd_sum (PR #194): instruction reduction in cross-lane reductions
-  3. O-proj NVFP4 scale halving (PR #192): bandwidth savings for O-proj
-  4. INT8 gate-softplus dedup (PR #200): simd_shuffle broadcast
-  5. INT8 O-proj dedup (PR #207): simd_shuffle broadcast
-  6. INT8 QKV dedup (PR #206): simd_shuffle broadcast
+## MERGED FRONTIER (19 changes, all bit-exact)
+  1-14. Previous frontier (PR #180, #194, #192, #107, #114, #116, #119, #231, #232, #114, etc.)
+  15. PR #230: Fuse g_proj+QKV into NVFP4 QKV R1 kernel (decode, ~2.0% decode, bit-exact)
+  16. PR #245: INT8 O-proj dot4 vectorization (decode, ~0.8-1.1% on M5, bit-exact)
+  17. PR #243: Prefill shared expert scale halving via qmm_nax kHalvedScales (prefill, ~0.22%, M5-only)
+  18. PR #234: Prefill MoE down projection scale halving v2 (prefill, ~0.46%, M5-only)
+  19. PR #251: Attention Q·K score dot4 vectorization (decode, bit-exact, -884B budget, perf-neutral on M4, simd_dot unavail on M4)
+  M5 FIX: ad58c92 — removed unused constexpr gate_heads from PR #230 kernel (caused M5 build failures 9500c1f, a69d876)
+
+## M5 SUBMISSION STATUS
+  d6c548e: VALIDATING — frontier 6758db1 (M5 build fix + PRs #230+#245+#243+#234+#251)
+  Previous: df9613a scored 2.5817 (rejected, pre-#230). 9500c1f/a69d876 FAILED (unused constexpr).
+  Leaderboard: fyrsta7 2.6040 (current #1). Our promoted: 97a5090 2.5888 (maple campaign).
+
+## ACTIVE ASSIGNMENTS (Wave 11, BASE_SHA=6758db1)
+  PR #253 (edward): Prefill shared scale array precomputation — ~0.375-1.2% prefill, bit-exact, ~+70-150B
+  PR #254 (alphonse): Router keys dead output elimination — ~0.075-0.225% decode, bit-exact, net-negative bytes
+  PR #255 (thorfinn): Prefill QKV+gate bank fusion — ~0.125-0.25% prefill, bit-exact, ~+300-500B
+  PR #256 (askeladd): eScoreCorrectionBias FP32 hoist — ~0.05-0.1% prefill, bit-exact, ~+150-250B
+
+## CLOSED (Wave 10)
+  PR #248 (alphonse): Scalar RMSNorm fusion — DEAD (9.2% slower + correctness failure, FP reduction order mismatch)
+  PR #247 (askeladd): qdot shared header dot4 — DEAD (compiler auto-vectorizes)
+  PR #251 (thorfinn): Q·K simd_dot — MERGED (perf-neutral on M4, -884B budget savings)
+
+## NEXT-WAVE IDEAS (from RESEARCH_IDEAS_NEXT_WAVE2_20260807.md)
+  1. Prefill shared scale precompute — ASSIGNED to edward (PR #253)
+  2. Router keys dead output — ASSIGNED to alphonse (PR #254)
+  3. Full-attention params atlas — UNASSIGNED (low priority, ~0.0375-0.075% decode)
+  4. Prefill QKV+gate bank — ASSIGNED to thorfinn (PR #255)
+  5. Prefill values transpose fold — UNASSIGNED (medium risk, modifies working kernel)
+  6. eScore correction bias hoist — ASSIGNED to askeladd (PR #256)
+  7. callLastPrefillRow QK-norm fuse — UNASSIGNED (marginal, 1 layer only)
+
+## RESEARCH THEMES
+  - M5 is bandwidth-bound (~89% GPU util). Only bandwidth reduction or dispatch elimination helps.
+  - Instruction-count reduction (dot4) shows gains on M5 but NOT M4 (M4 is bandwidth-bound).
+  - Unused constexpr in Metal JIT kernel strings may cause M5 build failure even when M4 compiles fine.
+  - RMSNorm fusion is a dead end: stock dispatch is optimal, FP reduction order changes flip near-tie tokens.
+  - LRM budget is the binding constraint: 1,832 B headroom. Byte-negative changes (PR #251, #254) are valuable.
+  - Prefill path is relatively unoptimized vs decode — prefill dispatch elimination is the main opportunity.
   7. Shared SwiGLU float4 (PR #209): float4 pointer cast stores
   8. Routed MoE scatter float4 (PR #212): float4 pointer cast stores
   9. LM Head argmax+threshold fuse (PR #211): atomic argmax eliminates 1 dispatch
