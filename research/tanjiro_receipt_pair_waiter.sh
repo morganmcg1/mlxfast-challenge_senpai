@@ -8,6 +8,7 @@
 #   CONTROL_DIR     worktree pinned to the base commit (required)
 #   CONTROL_NOTE    note file for the control submission (required)
 #   ARM_WAIT_S      seconds to wait for the arm       (default 4800)
+#   QUEUE_WAIT_S    seconds to wait for a free slot   (default 3600)
 #   CTL_WAIT_S      seconds to wait for the control   (default 5400)
 
 export PATH="${HOME}/.local/bin:${PATH}"
@@ -16,8 +17,10 @@ ARM_ID="${ARM_ID:?ARM_ID required}"
 CONTROL_DIR="${CONTROL_DIR:?CONTROL_DIR required}"
 CONTROL_NOTE="${CONTROL_NOTE:?CONTROL_NOTE required}"
 ARM_WAIT_S="${ARM_WAIT_S:-4800}"
+QUEUE_WAIT_S="${QUEUE_WAIT_S:-3600}"
 CTL_WAIT_S="${CTL_WAIT_S:-5400}"
 POLL_S=60
+QUEUE_POLL_S=45
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
@@ -75,19 +78,22 @@ log "control worktree HEAD $(git rev-parse HEAD)"
 # The in-flight slot is shared with another track, so wait for it rather than
 # racing; a refused submit still exits 0, so the id is parsed from stdout.
 ctl_id=""
-for attempt in 1 2 3 4 5 6 7 8 9 10; do
+qwaited=0
+while [ "$qwaited" -lt "$QUEUE_WAIT_S" ]; do
   if queue_busy; then
-    log "queue busy, attempt $attempt"
-    sleep 90
+    log "queue busy (${qwaited}s/${QUEUE_WAIT_S}s)"
+    sleep "$QUEUE_POLL_S"
+    qwaited=$((qwaited + QUEUE_POLL_S))
     continue
   fi
-  log "queue clear, submitting control (attempt $attempt)"
+  log "queue clear, submitting control (${qwaited}s waited)"
   out="$(mlxfast submit --model "senpai" --note-file "$CONTROL_NOTE" 2>&1)"
   echo "$out"
   ctl_id="$(echo "$out" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)"
   [ -n "$ctl_id" ] && break
   log "no submission id parsed, retrying"
-  sleep 90
+  sleep "$QUEUE_POLL_S"
+  qwaited=$((qwaited + QUEUE_POLL_S))
 done
 
 if [ -z "$ctl_id" ]; then
