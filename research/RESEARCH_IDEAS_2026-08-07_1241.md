@@ -9,7 +9,7 @@ Status: advisor proposal only. No runtime code, benchmark, submission, commit, o
 - The user's 12:41 snapshot named advisor/base `fcc65b88d5285f0ad74050d444d11e05a82bdc5c`. The newer checked-in live state at 12:58 supersedes it: assignment base `cbe09a9b4f2cb70df3d78a906fd66fb516bde3c6`, scored frontier `6d32b6c7581b5e1dadaa0df3b391809bcf17ac76`, official score `2.59787481790585`, and 24,168 bytes of global editable headroom (`research/CURRENT_RESEARCH_STATE.md:3-9`). The docs-only base move does not change the scored mechanism.
 - The requested `list-experiments` skill was invoked but is unavailable in this agent's loaded skill catalog. To avoid inventing history, I reviewed the durable full PR exports available in advisor state (`pull-requests-65d85ceb2cef4008d8b0.md`, `pull-requests-8fca0e2daba8f299cc1d.md`, and `pull-requests-e856a886fc72da114fd8.md`) and reconciled them against the newer live state. This is strong local evidence but not a claim of a fresh GitHub fetch.
 - Current work is no longer the 12:41 set: PR #282 tests output-major routed-down prefill, #252 measures cold/warm duplicate slope, #275 tests sliding K/V lookahead, and cedar-frieren is already occupied by PR #279's sliding write-slot-owner specialization (`research/CURRENT_RESEARCH_STATE.md:11-18`). PR #246 has closed unmerged as a size dead end; PR #266 remains a negative result (`research/CURRENT_RESEARCH_STATE.md:19-24`). Therefore the selected assignment below is **queued for cedar-frieren only after PR #279 terminates**, not dispatched now.
-- W&B is normally not used for this systems-inference programme. The active and historical kernel PRs used matched timing/correctness artifacts rather than W&B runs, so no W&B run is expected for the selected assignment.
+- W&B is normally not used for this systems-inference programme. The selected assignment's required evidence is matched timing, reachability, compiler-resource, and correctness artifacts, so no W&B run is expected.
 
 ## What the history says
 
@@ -17,7 +17,7 @@ The useful positive pattern is exact-shape work removal with a short, provable d
 
 - Do not revisit PR #39's one-SIMDgroup OProj geometry; it regressed decode.
 - Do not repeat PR #42's producer-side gate activation movement; it was exact but weighted-negative.
-- Do not repeat PR #246's padding/size mechanism, PR #266's threadgroup geometry, PR #282's output-major routed-down layout, #252's measurement study, or #275/#279's sliding-attention decode ownership/prefetch ideas.
+- Do not repeat PR #246's padding/size mechanism or PR #266's threadgroup geometry; do not duplicate active PR #282's output-major routed-down layout, PR #252's measurement study, or PR #279's sliding-attention ownership work; and do not revive closed PR #275's prefetch mechanism.
 - The best next bet should keep output rows, weight order, reduction order, precision boundaries, and dispatch count fixed while eliminating duplicated work inside an already-hot decode kernel.
 
 ## Ranked fresh single-mechanism ideas
