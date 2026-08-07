@@ -63,6 +63,24 @@
   students are live: #137 fern (lm-head cascade fusion, holds the only receipt
   slot), #148 frieren (prefill injection ledger), #170 tanjiro (`_nax`
   gather-GEMM régime discriminator), #174 nezuko (decode exposure audit).
+- **2026-08-07 02:00 UTC** — ⭐ **#174 resolved §4.9 and rewrote the decode
+  map.** The contradiction is settled as **R-B (sibling shadowing)**: #158's
+  "hidden concurrency ≤ 0.06 ms/step" was an **arithmetic artifact**
+  (`busy_c(k) = busy_s(k) − D(k)`), and the corrected per-CB price is
+  **0.540 µs/CB**, not 1.588. Real decode concurrency is **382–448 µs/step**
+  and **we are already collecting all of it** — #101's +456 µs now replicates
+  across three sessions (421/448/456/490/580). Nested-group composition
+  isolates the hiding to exactly three small kernels at **E ≈ 0.10**, while the
+  big matvecs sit at **E ≈ 1.0**. Consequences: the whole *buy-more-overlap*
+  branch (L1 multi-stream, L3 flush placement, dispatch-count pricing) is
+  **closed**, and pricing a decode change by removed-dispatch count is now a
+  banned move (§4.12.3). In its place #174 delivers a roofline re-pricing that
+  says the **weight-streaming pool is FINISHED** (89–98% of the M4 Pro DRAM
+  roofline, 338 µs/step left) and hands us a target nobody was working on:
+  ⭐ **T1, decode attention occupancy — 564 µs/step = +8.26%**, one threadgroup
+  per *pair* of query heads (32 and 24 TGs on a 20-core GPU), 37.1% / 34.7%
+  unique-byte efficiency, and an **occupancy/latency** mechanism, which is
+  §4.11.3's privileged transfer class. See §4.12 and the v3 sequencing.
 - **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
   precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
   softening commits after `eae07f01` (21:55:23 UTC). Both are recorded in §0a;
@@ -900,9 +918,18 @@ between-session scatter of ≈±70 µs**, which is ±1.8 µs/disp at Δ=39 but o
 > the local probe** — and the steady decode step is 100% host-independent. For
 > small decode effects, a receipt is the better instrument, not the fallback.
 
-### 4.9 ⚠️ THE OPEN CONTRADICTION: is there 0.456 ms/step of decode concurrency?
+### 4.9 ✅ RESOLVED (was: THE OPEN CONTRADICTION) — is there 0.456 ms/step of decode concurrency?
 
-**This is the single most important unresolved number in the programme, and it
+> **RESOLVED 2026-08-07 by PR #174 as reading R-B (sibling shadowing). See
+> §4.12.** #158's "hidden concurrency ≤ 0.06 ms/step" bound is **RETRACTED** as
+> an arithmetic artifact: its concurrent-arm de-inflation subtracted the
+> destroyed concurrency `D` along with the per-CB cost `c`. The corrected
+> per-CB cost is **0.540 µs/CB**, not 1.588. Decode intra-CB concurrency is
+> **real, 382–448 µs/step, and already fully realized** by MLX's concurrent
+> encoder. The rest of this section is retained as the record of the
+> contradiction and of how it was posed.
+
+**This was the single most important unresolved number in the programme, and it
 sits directly under the decode axis that carries 75% of the score weight.**
 
 Two measurements on the same host family answer the same question 7.6× apart:
@@ -1044,6 +1071,298 @@ pool" stays withdrawn; the row-tile axis stays closed (§8); the excess
 +14.30 ms over the derived floor is still a residual, not a measured pool.
 
 ---
+
+### 4.11 ⭐⭐⭐ The M4/M5 regime difference — and the first measured transfer factor
+
+**Source: PR #137 (maple-fern), ranked receipt `99b71258-abdd-4cce-bbe8-3e75161032e0`
+(see `research/maple-fern-pr137-lmhead-cascade.md` §14), plus the competitor
+snapshot `4b06e931` note.**
+
+This is the most consequential doctrine change of round 25. It supersedes the
+optimistic reading of "the steady decode step is host-independent".
+
+#### 4.11.1 The regime statement
+
+- **The M5 Max is instruction-bound during decode**, sitting at roughly **89%
+  GPU utilisation**. Competitor snapshot `4b06e931`'s own note records this.
+- **M4 Pro student hosts are bandwidth-bound during decode.** Our whole decode
+  byte inventory (§2) and every byte-price argument was built on that regime.
+
+These are *different limiting resources*. An optimisation that removes bytes
+relieves the M4's binding constraint and does nothing for the M5's — and if it
+buys those bytes with extra instructions, serialisation, or lower occupancy, it
+is a straight loss on the ranked host.
+
+#### 4.11.2 The two independent confirmations
+
+1. **PR #137, our own ranked receipt.** A bit-exact lm-head sparse-refine
+   rewrite measured **−63.7 µs/token** on M4 (kernel S4: 77.4 → 13.7 µs) and
+   **+24.6 µs/token** on M5 (candidate decode `0.0049330185546875` s/tok against
+   the promoted `97a5090c` arm's `0.0049083720703125`). **Transfer factor
+   = −0.40 ± 0.24.** The whole pre-registered honest band (0.50–0.75) is
+   excluded at ≥ 3.8σ. The arm's mechanism was pure bandwidth arithmetic: a
+   traffic model (control ~9–13 MB vs ~3 MB at ~273 GB/s ⇒ ~50–70 µs vs
+   ~11–13 µs) reproduces the M4 result exactly — which is precisely why it did
+   not survive a host where bandwidth is not binding. The cost side is
+   occupancy: the control launches **25,088 concurrent simdgroups**; the
+   row-major arm launches **3,136**, and its serial `while(live_mask)` walk has
+   latency = max over 3,136 Poisson(0.64) draws.
+2. **Competitor snapshot `4b06e931`.** It landed **15 individually-validated
+   bit-exact decode optimisations** and measured **+233.8 µs/token slower** on
+   M5. Fifteen wins, all validated, all in the wrong direction on the ranked
+   host. That is not bad luck; it is a systematic regime error.
+
+#### 4.11.3 ⭐ THE BINDING RULE (applies to every decode assignment from now on)
+
+> **An M4 decode result must state its mechanism — bandwidth reduction versus
+> instruction/latency reduction — before any transfer to M5 is claimed. An M4
+> decode win whose mechanism is bandwidth reduction is presumptively
+> NON-TRANSFERABLE and must not be promoted on M4 evidence alone.**
+
+Corollaries:
+
+- **Instruction-count and latency mechanisms are now the privileged class.**
+  A change that removes *work* (address arithmetic, redundant dequantisation
+  ops, issue-slot contention, serialisation) targets the M5's actual binding
+  resource. §7 idea 6 (the dequant instruction diet, raising θ) moves to the
+  head of the decode queue on exactly this basis.
+- **Byte-removal ideas need a second justification.** §7 idea 5 (lm-head
+  two-level screening) and idea 8 (entropy recode of the bf16 planes) are both
+  byte-based and are now in doubt on transfer grounds, independent of their
+  arithmetic being correct.
+- **This does not retract §3a.** The steady decode step remains
+  host-independent for *kernel selection* — the only capability gate in
+  `Sources/` is `lagunaExpertAlignedGatherEnabled`, which decode never reaches.
+  M4 remains fully valid for implementation, correctness, bit-exactness,
+  reachability, and wave analysis. What it is no longer valid for is
+  **predicting the sign of a decode timing change**.
+- **It also does not retract the byte-price law** (§2). That law converts
+  removed bytes into score *on the assumption that bandwidth is binding*. On
+  the ranked M5 that assumption is now known to be false for decode, so the law
+  is an upper bound on decode and should be quoted as such.
+
+#### 4.11.4 The `officialScore` decomposition — the canonical worked example
+
+PR #137 also produced the cleanest possible demonstration of the
+**`ns` for attribution, `officialScore` for ranking** doctrine (§3).
+
+The receipt's `officialScore` fell **1.283%**. Decomposed:
+
+| term | contribution |
+|---|---:|
+| `0.75 · log(decode_speedup)` | −0.340% |
+| `0.25 · log(prefill_speedup)` | −0.951% |
+
+The prefill term is **entirely the paired baseline draw**: the session's
+baseline prefill drew **−3.755%** against the reference draw and **−4.210%**
+against the pinned normaliser, while the *candidate* prefill was flat at
+−0.022%. Baseline decode was quiet at +0.048% (0.20σ).
+
+So a **−0.37% decode regression** presented as a **−1.28% catastrophe** on
+`officialScore`. Judging the mechanism on `officialScore` would have been a
+3.5× overstatement caused by a coin the candidate never touched. `ns` reported
+the true −0.369%.
+
+This is consistent with §0a row 5: `officialScore` **is** authoritative for
+ranking (it is what the leaderboard uses), and it is **still** the wrong
+instrument for attributing a small mechanism across sessions.
+
+#### 4.11.5 ⚠️ THE FRONTIER HAS BEEN UNANCHORED FOR SIX MERGES
+
+The free-feed audit prompted by this PR found that **every `Model: senpai` row
+after our promoted receipt `97a5090c` belongs to another campaign or failed.**
+
+**No maple merge landed after `97a5090c` has ever been measured on the ranked
+M5.** Our rank-1 standing (`officialScore 2.58882784082067`, commit `3e165fa`)
+rests on a commit roughly six merges behind the current advisor branch. Every
+merge since has been accepted on M4 evidence, research value, or zero-scored-byte
+grounds — which was defensible under the old doctrine and is *not* defensible
+under §4.11.3.
+
+This also means the +24.6 µs/token in PR #137 is **not yet cleanly attributed**:
+it could be the arm, or it could be the six unvalidated merges, or both.
+
+**Action taken:** PR #137 r3 is assigned the **anchoring receipt** — the
+identical tree with `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE` defaulted to the shipped
+arm, dispatched to the ranked M5. Pre-registered decision table (against
+promoted `ns = 2.5982163`; paired cross-session sd on `ns` = 0.222%):
+
+| flipped-default `ns` | reading | action |
+|---|---|---|
+| `≥ 2.5924` | frontier healthy; the +24.6 µs is the arm | merge #137 for the anchor, arm default-OFF |
+| `2.5867 – 2.5924` | ambiguous; cost shared | merge for the anchor, open a bisect assignment |
+| `< 2.5867` | the merged frontier itself regressed | **programme emergency**: bisect the six merges before any further promotion |
+
+**Standing rule from this:** the advisor may not let more than ~2 merges
+accumulate without a ranked anchor. An anchoring receipt is cheap (one default
+flip, no new code) and is now a scheduled programme cost, not an optional one.
+
+---
+
+### 4.12 ⭐⭐⭐ PR #174 — decode concurrency resolved, and the decode step re-priced against the roofline
+
+PR #174 (maple-nezuko, `maple-2026-08-06p-decode-exposure-audit`, head
+`87b1f240`) is the most consequential research round of the campaign so far. It
+carries zero submitted bytes and changes no kernel; what it changes is what we
+believe about where decode time lives.
+
+#### 4.12.1 The arithmetic bug, and the retraction
+
+#158 measured the concurrent arm and the serial arm and de-inflated the
+concurrent one by an estimated per-CB cost `c`. But the concurrent arm's busy
+time is `busy_c(k) = busy_s(k) − D(k)`, where `D(k)` is the concurrency
+destroyed at split `k`. Fitting `c` on the concurrent arm therefore recovers
+not `c` but `c_true + [D(0) − D(1)]/361.2`. Verified directly:
+`(8598.5 − 8022.0)/361.2 = 1.596 = 0.540 + 381.5/361.2`.
+
+**#158 conflated the per-command-buffer cost `c` with destroyed concurrency
+`D`.** Two constants change:
+
+| constant | #158 value | corrected |
+|---|---|---|
+| per-CB cost | 1.588 µs/CB | **0.540 µs/CB** (3.0× smaller) |
+| census de-inflation | 1.412 µs/call | **+0.939 µs/call** (opposite sign) |
+| hidden concurrency | ≤ 60 µs/step | **382–448 µs/step** |
+
+#158's headline bound is retracted. The merge of #158 stands — its
+instrument, its two measurement laws, and its clock-defect fix are all sound —
+but its central number is not.
+
+#### 4.12.2 The verdict: R-B (sibling shadowing)
+
+Three readings were on the table. R-A: the cost is per-*seam* (barrier
+boundaries between dispatch groups). R-B: independent sibling kernels genuinely
+overlap inside one concurrent encoder. R-C: the effect is an artifact of
+wall-vs-busy accounting.
+
+- **R-C dies** on arm A0 (16 runs, ABBA-ABBA, 0 token divergences): forcing
+  serial dispatch at the shipped 45-CB split costs wall **+420.9 µs**
+  (p=.057) and `gpu_busy_sum` **+448.0 µs** (p=.086), while the wall-minus-busy
+  gap moves −21 µs (p=.63) and `gpu_busy_union == gpu_busy_sum`. CBs/step and
+  dispatches/step are exactly unchanged. The destroyed overlap is **intra-CB**.
+- **R-A dies** on the per-group census: the per-seam price varies 4× and
+  **falls** as groups grow (3 dispatches → 3.33 µs/seam; 5 → 1.70; 10 →
+  1.40–1.52; 12 → 0.83–0.93). R-A predicts the opposite ordering.
+- The discriminating number: SPLIT=2 removes 159 seams and gives
+  `D(2)/D(0) = 387.0/448.0 = 0.864`. R-A predicts 0.560; R-B predicts ≈0.95.
+  The mixture weight is `w = 0.78 ± 0.24` (1σ), ±0.47 once doctrine-inflated —
+  **directional only**, but the sign is unambiguous.
+
+PR #101's +456 µs now replicates across three sessions and five arms:
+**421 / 448 / 456 / 490 / 580 µs/step**.
+
+#### 4.12.3 Which kernels are actually hiding — and the exposure factor E
+
+Nested-group composition isolates exactly **three** shadowed kernels:
+`gate_sp_h64` (6.64 µs/call × 30), `gate_sp_h48` (6.31 × 10), and
+`shared_nvfp4_swiglu_qmv_rows1` (6.09 × 39). Budget 499.9 µs/step vs 451.5
+measured ⇒ **E = 0.10, CI [0.00, 0.25]**. All three hide inside 35–43 µs/call
+matvecs. This mechanistically confirms PR #101's `gate_sp` NO-GO: you cannot
+speed up a kernel that is already free.
+
+Everything large is **exposed**. Estimator C's well-powered arm (A1b,
+`FUSED_QKV_PROJECTION`, ΔI = +4955.2 µs/step = 33× the design floor) gives
+**E = 0.999, CI [0.87, 1.14]** across 140 calls / 3379.3 µs/step. Estimator A
+gives `sliding_fused_attn_ring_v1` **E ≥ 0.90** and `oproj_act_h64`
+**E ≥ 0.94**. The remaining 11 census rows (4113.5 µs/step) carry a pooled
+`E_rest = 1.013`.
+
+> **NEW DOCTRINE RULE.** *A §2.b census row is not exposed cost until it has an
+> exposure factor. Small hazard-free kernels sitting beside 35–43 µs/call
+> matvecs have E ≈ 0.10 and are worth approximately nothing.* The re-priced
+> census moves **574 µs/step of nominal cost down to 57 µs/step of real cost**;
+> the top-15 rows barely move (max |Δrank| = 2).
+
+#### 4.12.4 Honesty, and what is carried
+
+The pre-registered k=1 tripwire **fired** (+66.5 µs against a 50 µs limit).
+Nezuko withdrew A0 as a pre-registered quantitative result and carries `D(0)`
+as the **range 382–448 µs/step**. Two results are `D(0)`-independent and stand
+on their own: the §0 algebraic identity, and the §3.5 bundle reading. An
+independent frontier review raised seven findings; all seven were fixed in the
+same revision. `gpu_busy_sum` **survives** as a within-arm work accountant and
+**fails** as a concurrency detector.
+
+#### 4.12.5 ⭐ The re-pricing that matters: census rank is not headroom rank
+
+Pricing the whole decode step against the M4 Pro DRAM roofline (273 GB/s, 20
+cores) splits the 8.45 ms step into three pools:
+
+| pool | effective µs/step | % of step | byte floor µs/step | headroom µs/step | headroom % score |
+|---|---:|---:|---:|---:|---:|
+| NVFP4 / bf16 weight streaming | 5920 | 70.1 | 5582 | **338** | 4.94 |
+| attention (2 kernels) | 881 | 10.4 | 317 | **564** | **8.26** |
+| glue (kilobyte operands) | 641 | 7.6 | 152 | **489** | 7.16 |
+
+Achieved bandwidth in the weight pool: `decode_nvfp4_qkv_h64` **268.2 GB/s
+(98.2% of peak)** · `qkv_h48` 262.7 (96.2) · `oproj_act_h64` 256.9 (94.1) ·
+`dense_down_residual` bf16 249.5 (91.4) · `dense_gate_up_swiglu` bf16 249.0
+(91.2) · `routed_..._top8keys_r1_v2` 248.3 (91.0) ·
+`routed_shared_..._down_res` 243.7 (89.3) · `oproj_act_h48` 237.3 (86.9).
+
+> **The top four census entries are 4816 µs/step = 57% of the decode step, and
+> their combined remaining headroom is 377 µs/step — and capturing even that
+> requires literally 100% of DRAM peak. The weight pool is FINISHED. Rank 2 in
+> time is near-last in opportunity.**
+
+The two attention kernels run at **101.4 GB/s (37.1% of peak)** and **95 GB/s
+(34.7%)** on unique bytes. That is the anomaly, and it is not a byte problem.
+
+#### 4.12.6 The priced target list
+
+- **T1 — decode attention occupancy. 564 µs/step, +8.26%. Unowned. Now the
+  head of the decode queue.** Both decode attention kernels dispatch **one
+  threadgroup per PAIR of query heads** (`LagunaRuntimeModel.swift:1370`
+  sliding, `:1819` full; both compute `head0 = pair_tg * 2`). 64 sliding heads
+  ⇒ **32 TGs**; 48 full heads ⇒ **24 TGs** — on a 20-core GPU, 1.60 and 1.20
+  waves. The serial chain is read directly from shipped source
+  (`window = 512`, `BN = 32`, `N = 512`) ⇒ **16 sequential KV iterations, no
+  split, no flash-decoding merge**. Bytes are not the constraint: GQA
+  replication puts replicated traffic at 149%/104% of DRAM peak, i.e.
+  cache-served, while unique bytes are 37.1%/34.7%. ⚠️ Her tail-quantization
+  estimate (227 µs/step) assumes one resident TG per core and she measured no
+  occupancy instrument — treat it as untested. The **solid** number is the pool
+  ceiling: 881 µs/step at 101/95 GB/s vs the 98.2% the same host demonstrates
+  on `decode_nvfp4_qkv_h64`.
+- **T2 — routed-MoE matvec bandwidth. 188 µs/step, +2.75%. Fenced to #148.**
+  `routed_..._top8keys_r1_bf16_v2` at 91.0% (gap 7.2 pts, 110 µs) and
+  `routed_shared_..._down_residual_bf16_r1_v5` at 89.3% (8.9 pts, 78 µs). Soft
+  ceiling: some of the gap is structural (gather indirection, per-expert scale
+  reload).
+- **T3 — the glue pool. 489 µs/step ceiling, 100–300 µs/step realistic.**
+  `residual_rms_router_rpg8_keys_v1` 305.1 µs/step (floor 151.0) ·
+  `decode_router_top8_ordinal_table_norm` 185.7 (floor 0.1 — it sorts 1.03 kB
+  at an implied **0.2 GB/s**) · `rmsbfloat16` 124.6 (floor 0.6) · six kernels
+  below 8 µs/step totalling 25.5. Fusion candidates in order of mechanicalness:
+  (1) `rmsbfloat16` into its consumer matvec prologue; (2) **the router-top8
+  sort into `residual_rms_router_rpg8_keys_v1` — ~186 µs/step ≈ 2.72% score,
+  reading no new bytes**; (3) residual epilogues into producing matvecs. These
+  are **three separate small experiments**, not one, and each consumes TG
+  memory in kernels already at 91–98% of roofline.
+
+The glue pool is **explicitly disjoint** from per-dispatch host encode cost
+(24 µs/step total). Conflating the two is the error that sent #158 chasing
+per-dispatch overhead.
+
+#### 4.12.7 What this closes
+
+- **Decode intra-CB concurrency: CLOSED — already harvested.** Further overlap,
+  dispatch-granularity, dispatch-type, and CB-re-splitting work is on the STOP
+  list. The shipped 45-CB split is already at the gap minimum.
+- **Per-CB overhead: CLOSED.** 45 CBs × 0.540 µs = **24 µs/step total**.
+- **The three shadowed kernels (`gate_sp_h64`, `gate_sp_h48`,
+  `shared_nvfp4_swiglu_qmv_rows1`): CLOSED at E ≈ 0.10.**
+- **Constant per-dispatch census corrections: CLOSED.** The correction is not a
+  constant; it is an exposure factor that must be measured per family.
+- **The dense bf16 MLP → NVFP4 idea: RULED OUT BY THE PRECISION ENVELOPE.**
+  `dense_gate_up_swiglu` and `dense_down_residual` (`laguna_dense_*_bf16_v1`,
+  `LagunaRuntimeModel.swift:8040`, `:8133`, `vec<bfloat,4>` loads) move 101 MB
+  and 409 µs per step = 4.8% of the step. NVFP4 would be 28 MB / ~104 µs — a
+  306 µs/step, **4.48% score** prize. The accepted envelope permits only
+  group-32 affine INT8 for Q/K/V/O and per-head `g_proj`. **Recorded so nobody
+  re-derives it.**
+- `lmhead_int5_base_coarse_delta` (427.0 µs/step, 6.25%, census rank 6) is not
+  byte-modellable (pruned/sparse) and is fenced to #137.
 
 ## 5. `_nax` safety rig (mandatory for any `_nax` arm)
 
@@ -1726,25 +2045,52 @@ but wall **+20.5 µs**).
    dispatch count at all.* Price it by traffic delta, by exposure factor
    E = ΔS/ΔI measured on the actual kernel, or not at all.
 
-##### Revised round-25 sequencing (v2, supersedes v1)
+##### Revised round-25 sequencing (v3, supersedes v2 — rewritten after #174)
 
-1. **(L1) Multi-stream decode** — the strongest untried mechanism, now
-   confirmed reachable, and the only one of the three replacement levers with a
-   large measured overlap ratio behind it (#157 §4c). First assignment when a
-   slot frees. First movers: the 1-TG top-8 selector, `gate_sp`, lm-head
-   screening.
-2. **#174 reports** → arm A1's exposure factors adjudicate the dispatch-count
-   question directly, and decide whether idea 1's 39-seam residue survives (g).
-3. **(L2) Encode-site barrier pruning / `start_concurrent()`** in the editable
-   `quantized.cpp` / `matmul.cpp`, sequenced after #174 so it is designed
-   against measured exposure rather than counts.
-4. **#170 reports** → if H3 (schedule+latency-limited) wins, idea 6 (dequant
+#174 landed and moved almost every entry. The dispatch-count question it was
+sequenced to adjudicate is now **answered and closed** (§4.12): decode
+concurrency is real, already harvested, and worth ~448 µs/step that we are
+already collecting. That kills the whole "buy more overlap" branch and
+promotes a target nobody was working on.
+
+1. ⭐ **T1 — decode attention occupancy** (#174 §5.1). Priced **564 µs/step =
+   +8.26%**, unowned, and the mechanism is **occupancy/latency, not bytes**,
+   which puts it in §4.11.3's privileged transfer class. Both decode attention
+   kernels run **one threadgroup per PAIR of query heads** —
+   `LagunaRuntimeModel.swift:1370` (sliding, 64 heads → 32 TGs) and `:1819`
+   (full, 48 heads → 24 TGs) — on a 20-core M4 Pro (1.60 and 1.20 waves) and a
+   40-core M5 (worse). Unique-byte efficiency is **101 GB/s (37.1%)** and
+   **95 GB/s (34.7%)** against the 98.2% that `decode_nvfp4_qkv_h64`
+   demonstrates on the same host. **First assignment when a slot frees**; the
+   cheapest discriminator is a grid doubling, not the online-softmax merge.
+2. **T3 candidate 2 — fuse `decode_router_top8_ordinal_table_norm` into
+   `residual_rms_router_rpg8_keys_v1`** (#174 §5.3). 185.7 µs/step ≈ **+2.72%**,
+   reads no new bytes, and the selector sorts 1.03 kB at an implied 0.2 GB/s.
+   This is the one glue-pool entry whose price survives a byte floor.
+   The other two glue fusions (`rmsbfloat16` into its consumer prologue;
+   residual epilogues into producing matvecs) are **separate small
+   experiments**, not one bundle.
+3. **#170 reports** → if H3 (schedule+latency-limited) wins, idea 6 (dequant
    instruction diet, θ 0.67 → 0.78, ~+3%) becomes the constructive follow-on.
-5. **#137 reports** → gates idea 5 (two-level lm-head screening cascade).
-6. **#148 reports** → is idea 4, in its only available form.
-7. **(L3) flush-placement refinement** and idea 8 remain filler; idea 7 has
-   lost its prerequisite and must be re-motivated or dropped; **ideas 2 and 3
-   are closed (§8).**
+4. **#137 r3 (the anchoring receipt)** → re-anchors the frontier after six
+   unvalidated merges (§4.11.5) and gates idea 5.
+5. **#148 reports** → is idea 4, in its only available form. T2 (routed-MoE
+   matvec bandwidth, 188 µs/step, +2.75%, a *soft* ceiling) is fenced to it.
+6. **(L2) Encode-site barrier pruning / `start_concurrent()`** in the editable
+   `quantized.cpp` / `matmul.cpp` — demoted to filler. #174 shows the encoder
+   already delivers the overlap and only three small hazard-free kernels hide.
+
+**Demoted or dead after #174:**
+
+- **(L1) multi-stream decode** — demoted from first place. The concurrent
+  encoder already delivers ~448 µs/step of real intra-CB overlap; only
+  small kernels (`gate_sp_h64`, `gate_sp_h48`,
+  `shared_nvfp4_swiglu_qmv_rows1`, E ≈ 0.10) have anything left to hide. A
+  second queue would be buying a good we already own.
+- **(L3) "more, earlier flushes"** — **dead**. #174 §6 measures the shipped
+  45-CB split as already sitting at the host-gap minimum.
+- **Ideas 2 and 3** remain closed (§8); idea 7 has lost its prerequisite;
+  idea 8 is byte-based and therefore under §4.11.3 transfer doubt.
 
 
 ---
@@ -1763,6 +2109,44 @@ The full evidence table lives in the archive
 
 **Closed this session:**
 
+- **⭐⭐⭐ Decode intra-CB concurrency, per-CB overhead, and the three shadowed
+  kernels — CLOSED by PR #174 (§4.12).** The overlap is real (382–448 µs/step)
+  and MLX's concurrent encoder **already harvests all of it**; there is nothing
+  left to win by changing dispatch type, dispatch granularity, CB count, or the
+  CB split, and the shipped 45-CB split is already at the wall-minus-busy gap
+  minimum. Per-CB overhead is 45 × 0.540 µs = **24 µs/step in total**.
+  `gate_sp_h64`, `gate_sp_h48`, and `shared_nvfp4_swiglu_qmv_rows1` sit at
+  exposure **E = 0.10 [0.00, 0.25]** — they hide inside 35–43 µs/call matvecs
+  and are worth approximately nothing. This also closes **constant
+  per-dispatch census corrections**: the correction is not a constant, it is a
+  per-family exposure factor that must be measured.
+- **⭐⭐⭐ The weight-streaming pool as a target — CLOSED (§4.12.5).** The top
+  four census entries are 57% of the decode step and run at 89–98% of the M4
+  Pro DRAM roofline; their combined remaining headroom is 338 µs/step and
+  capturing it would require literally 100% of peak. **Census rank is not
+  headroom rank.** Attention (10.4% of the step, 564 µs/step of headroom) and
+  the glue pool (7.6%, 489 µs/step) are where the decode headroom actually is.
+- **⭐⭐ The dense bf16 MLP → NVFP4 conversion — CLOSED by the precision
+  envelope, not by measurement (§4.12.7).** `dense_gate_up_swiglu` and
+  `dense_down_residual` move 101 MB / 409 µs per step; NVFP4 would be
+  28 MB / ~104 µs, a **306 µs/step ≈ 4.48% score** prize. The accepted
+  envelope permits only group-32 affine INT8 for Q/K/V/O and per-head
+  `g_proj`. Recorded explicitly so nobody re-derives the prize and proposes it
+  again.
+- **⭐ The lm-head row-major sparse-refine arm — CLOSED on a ranked receipt.**
+  PR #137's `laguna_lmhead_exact_fused_int5_sparse_refine_rowmajor_v1` cut the
+  S4 stage from 77.4 to 13.7 µs on M4 and moved the local decode probe −112.5
+  µs/step with a bit-identical logit digest, then measured **`ns` 2.58861777 =
+  −0.369%** on the ranked M5 (receipt `99b71258-abdd-4cce-bbe8-3e75161032e0`).
+  It will not ship default-ON.
+- **⭐⭐ M4 decode wins whose mechanism is *bandwidth reduction* — CLOSED as a
+  transferable class (§4.11.3).** PR #137 is the measured instance: a −63.7
+  µs/step M4 prediction landed at **+24.6 µs/step on M5**, transfer factor
+  **−0.40 ± 0.24**, with the honest 0.50–0.75 band excluded at ≥3.8σ. M5
+  decode is instruction-bound at ~89% utilization; M4 Pro is bandwidth-bound.
+  A byte-removal decode result is now presumptively non-transferable and may
+  not be promoted on M4 evidence alone. Instruction- and latency-mechanism
+  results remain the privileged class.
 - **⭐⭐ The QKV + `g_proj` single-dispatch merge — CLOSED, because it was
   already built and measured on the ranked M5.** PR #48
   (`research/maple-fern-pr48-fused-norm-qkv-gate.md`) shipped a three-mode
