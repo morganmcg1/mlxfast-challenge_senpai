@@ -1,0 +1,86 @@
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[1/3] Compiling fp_quantized_nax.cpp
+[2/38] Write sources
+[3/38] Compiling utils.cpp
+[4/38] Compiling resident.cpp
+[5/38] Compiling softmax.cpp
+[6/38] Compiling scan.cpp
+[7/38] Compiling rope.cpp
+[8/38] Compiling unary.cpp
+[9/38] Compiling ternary.cpp
+[10/38] Compiling slicing.cpp
+[11/38] Compiling primitives.cpp
+[12/38] Compiling sort.cpp
+[13/38] Compiling reduce.cpp
+[14/38] Compiling scaled_dot_product_attention.cpp
+[15/38] Compiling metal.cpp
+[16/38] Compiling fence.cpp
+[17/38] Compiling logsumexp.cpp
+[18/38] Compiling quantized.cpp
+[19/38] Compiling event.cpp
+[20/38] Compiling normalization.cpp
+[21/38] Compiling hadamard.cpp
+[22/38] Compiling device.cpp
+[23/38] Compiling distributed.cpp
+[24/38] Compiling eval.cpp
+[25/38] Compiling indexing.cpp
+[26/38] Compiling device_info.cpp
+[27/38] Compiling allocator.cpp
+[28/38] Compiling copy.cpp
+[29/38] Compiling binary.cpp
+[30/38] Compiling custom_kernel.cpp
+[31/38] Compiling compiled.cpp
+[32/38] Compiling jit_kernels.cpp
+[33/38] Compiling matmul.cpp
+[34/38] Compiling conv.cpp
+[35/38] Compiling fft.cpp
+[37/39] Compiling MLX ArrayAt.swift
+[38/40] Compiling MLXFast MLXFast.swift
+[39/41] Compiling MLXLMCommon DoRA+Layers.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[40/42] Compiling MLXFastModel DenseTensorStore.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Sources/MLXFastModel/LagunaRuntimeModel.swift:10035:17: warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10033 |             // handed to the down projection instead of being issued again.
+10034 |             // Purely within this invocation; nothing survives it.
+10035 |             var mergedSharedActivated: MLXArray?
+      |                 `- warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10036 |             if lagunaFusedRoutedSwiGLUQMVEnabled,
+10037 |                 x.dtype == .bfloat16,
+[41/43] Compiling MLXFastRuntimeWorkerSupport BenchmarkSupport.swift
+[42/44] Compiling MLXFastRuntimeWorkerCLI main.swift
+[42/44] Write Objects.LinkFileList
+[43/44] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (61.40s)

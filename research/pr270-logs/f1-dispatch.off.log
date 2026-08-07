@@ -1,0 +1,70 @@
+prompt tokens: 512
+load: 6.0 s
+prefill 0:   576.09 ms  (1125.17 us/token)  cbs= 1066 dispatches= 1222  token=5991
+prefill 1:   549.01 ms  (1072.28 us/token)  cbs= 1066 dispatches= 1222  token=5991
+prefill 2:   548.96 ms  (1072.19 us/token)  cbs= 1066 dispatches= 1222  token=5991
+peak_ram_gb: 20.713470458984375
+
+prefill warm median: 549.009 ms/forward (1072.28 us/token) over 2 reps
+
+profile [prefill warm] over 2 request(s)
+  per-request dispatches [1222, 1222]
+  wall               548.985 ms/request
+  gpu busy (sum)     578.581 ms (105.4% of wall)
+  gpu busy (union)   546.098 ms ( 99.5% of wall)
+  command buffers     1066.0 /request
+  dispatches          1222.0 /request
+  bound bytes         28.834 GiB/request
+
+  dispatch                                                    n/req  us/call   ms/req  %wall  MB/call    GB/s   %bw             family
+  nvfp4_gather_qmm_rhs_nt                                      76.0   3495.9  265.691   48.4  238.016    71.4    27 routed_gather_gemm
+  steel_gemm_fused_nt_bfloat16_bfloat16_bm64_bn64_bk16_wm2_wn2_has_batch_n_use   82.0   2230.7  182.918   33.3   39.195    18.4     7    steel_gemm_bf16
+  MIXED:steel_gemm_splitk_accum_bfloat16_float32+steel_gemm_splitk_nt_bfloat  310.0    115.3   35.758    6.5    3.636    33.1    13    steel_gemm_bf16
+  arangeuint32                                                 76.0    371.5   28.237    5.1    0.016     0.0     0       sort_scatter
+  steel_attention_bfloat16_bq32_bk16_bd128_wm4_wn1_maskbfloat16_align_Q_t_alig   39.0    721.4   28.135    5.1   16.974    24.7     9     attention_core
+  nvfp4_qmm_t_splitk_fused                                     76.0    176.0   13.373    2.4    3.062    18.2     7    nvfp4_dense_qmm
+  nvfp4_qmm_t                                                  38.0    173.0    6.573    1.2    3.062    18.6     7    nvfp4_dense_qmm
+  laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2           29.0    113.2    3.283    0.6   20.000   185.3    71       qk_norm_rope
+  laguna_prefill_sorted_moe_tail_bf16_v1                       38.0     69.2    2.629    0.5   22.031   333.9   128           moe_tail
+  gather_frontbfloat16_uint32_int_2                            38.0     53.4    2.029    0.4   18.016   353.8   136       sort_scatter
+  g2_copybfloat16bfloat16                                      76.0     22.2    1.685    0.3    8.000   378.4   145        elementwise
+  CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcastFBHV2IB   77.0     20.0    1.536    0.3    4.649   244.3    94        elementwise
+  g2_Multiplybfloat16                                          40.0     33.2    1.326    0.2   14.601   461.8   177        elementwise
+  laguna_prefill_router_tournament_ordinal_norm_v1             38.0     24.8    0.944    0.2    0.282    11.9     5             router
+  laguna_prefill_full_qk_norm_yarn_bf16_128_h1_v2              10.0     90.5    0.905    0.2   15.000   173.8    67       qk_norm_rope
+  laguna_residual_rms_bf16_2048_v1                             39.0     22.0    0.857    0.2    8.004   381.7   147           rms_norm
+  rmsbfloat16                                                  42.0     19.8    0.831    0.2    3.814   202.0    78           rms_norm
+  custom_kernel_mlx_lm_route_csort_scatter_fused_m8_u32_v4_uint32_t_uint32_t_u   38.0     15.6    0.594    0.1    0.062     4.2     2       sort_scatter
+  laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v6    1.0    575.7    0.576    0.1  129.203   235.3    90            lm_head
+  gemv_al_bfloat16_bm4_bn1_sm1_sn32_tm4_tn4_nc0_axpby0          1.0    146.1    0.146    0.0   32.020   229.8    88              other
+  gemv_al_bfloat16_bm8_bn1_sm1_sn32_tm4_tn4_nc0_axpby0          1.0    145.5    0.145    0.0   32.270   232.6    89              other
+  Cf4IAsTypeADf4IBroadcastCBEf4IBroadcastBCFf4ILogAddExpDEGV2OAsTypeF_VC_V2_10   40.0      3.2    0.130    0.0    0.057    18.4     7        elementwise
+  laguna_lmhead_exact_inline_mask_block_delta_bf16_lane0_mask_v1_float    1.0     75.5    0.075    0.0  392.770  5458.0  2098            lm_head
+  laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2     1.0     40.2    0.040    0.0  272.013  7090.0  2725    nvfp4_dense_qmm
+  sdpa_vector                                                   1.0     26.9    0.027    0.0    2.031    79.3    30     attention_core
+  laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5           1.0     22.7    0.023    0.0  136.579  6300.9  2422              other
+  MIXED:g2_copybfloat16bfloat16+rmsbfloat16                     2.0     10.8    0.022    0.0    1.000    97.6    37           rms_norm
+  vvn_Addbfloat16                                               1.0     20.6    0.021    0.0    4.000   204.0    78        elementwise
+  gather_frontbfloat16_int32_int_2                              2.0      7.9    0.016    0.0  197.192 26326.0 10118       sort_scatter
+  rope                                                          1.0     12.4    0.012    0.0    2.000   169.5    65       qk_norm_rope
+  laguna_residual_rms_router_bf16_2048_rpg8_keys_v1             1.0      9.4    0.009    0.0    1.022   113.8    44             router
+  argmax_bfloat16                                               1.0      8.9    0.009    0.0    0.191    22.7     9            lm_head
+  laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1                  1.0      8.1    0.008    0.0    1.130   146.6    56    nvfp4_dense_qmm
+  laguna_decode_router_top8_ordinal_table_norm_v1               1.0      5.8    0.006    0.0    0.002     0.3     0             router
+  laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1_float_uint32_t    1.0      5.4    0.005    0.0  392.005 75887.9 29165            lm_head
+  laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t    1.0      4.2    0.004    0.0    0.384    96.1    37            lm_head
+  rope_single                                                   1.0      3.2    0.003    0.0    0.016     5.2     2       qk_norm_rope
+
+  family                 n/req   ms/req  %wall    GB/s   %bw
+  routed_gather_gemm      76.0  265.691   48.4    71.4    27
+  steel_gemm_bf16        392.0  218.675   39.8    20.8     8
+  sort_scatter           154.0   30.875    5.6    36.8    14
+  attention_core          40.0   28.161    5.1    24.7    10
+  nvfp4_dense_qmm        116.0   19.995    3.6    32.6    13
+  elementwise            234.0    4.698    0.9   347.4   134
+  qk_norm_rope            41.0    4.203    0.8   182.6    70
+  moe_tail                38.0    2.629    0.5   333.9   128
+  rms_norm                83.0    1.710    0.3   290.8   112
+  router                  40.0    0.959    0.2    12.8     5
+  lm_head                  5.0    0.670    0.1  1432.2   550
+  other                    3.0    0.314    0.1   670.1   258
