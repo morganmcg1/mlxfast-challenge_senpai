@@ -211,6 +211,12 @@ class WorkerSession:
 
     def _raise_worker_failure(self, message):
         return_code = self.process.poll()
+        if return_code is None:
+            try:
+                return_code = self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                return_code = None
+        self._stderr_thread.join(timeout=5)
         tail = "\n".join(self.diagnostics[-20:])
         raise RuntimeError(f"{message}; return_code={return_code}; stderr_tail={tail}")
 
