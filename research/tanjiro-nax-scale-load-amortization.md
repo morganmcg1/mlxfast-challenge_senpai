@@ -21,16 +21,34 @@ Pre-registered target: **1.25**. Pre-registered band: **−1.2 to −1.8 ms on S
 
 ## Verdict up front
 
-Part A (the static, offline-provable half of the assignment) **passed on every
-gate**, and I additionally obtained a receipt the assignment did not ask for and
-did not expect to be possible on this host: a **direct execution-equivalence
-measurement** of both ranked kernel shapes, with **mutation-adequacy evidence
-that the test can actually fail**.
+**H16 is not supported. Close as a negative result.**
 
-What is **not** established from this host: whether the change is *faster*. M4
-Pro never selects `_nax`, so there is no local ranked timing channel, and the
-one static proxy for register pressure is saturated (below). The speed claim
-still needs the M5.
+The mechanism worked exactly as designed and the speed prediction was wrong in
+sign.
+
+- **Mechanism delivered.** Device-load census `3.00 → 1.25` per thread per
+  k-iteration, as pre-registered (§2). Threadgroup memory unchanged at 9 232 B
+  (§6). Scratch demotion ruled out at `-O3` (§6.1).
+- **Bit-identity established twice.** Directly measured on both ranked kernel
+  shapes on this host (§4), with mutation-adequacy evidence that the test can
+  actually fail (§4.1) — and then confirmed on the ranked M5, where the arm
+  receipt came back with `error == ""`, i.e. **every hidden correctness gate
+  passed** (§12.1).
+- **Ranked timing went the wrong way.** Arm `68b66c5` scored
+  `2.5520699745752`; the base-surface control `0bc3eb4` scored
+  `2.56222295324231`. `Δ = −0.010153` points = **−1.06 ms of S-equivalent =
+  −2.36 σ_paired** (§12.3). H16 predicted `+0.01148`.
+- **Not resolved at 3 σ.** `|Δ| = 0.010153 < 3 σ_paired = 0.012903`. §11.3,
+  pre-registered before the number existed, forbids calling this resolved. The
+  honest read is *a 2.36 σ regression signal that refutes the −1.2 ms mechanism
+  without naming its replacement.*
+- **The staleness caveat cuts against the arm.** The control was
+  server-deduplicated to a 2.78 h-older session (§12.2). Drift over that gap is
+  worth `+0.38 σ` **in the arm's favour**; correcting for it gives
+  `Δ = −2.74 σ` (§12.4).
+- **One budgeted ranked receipt returned unspent**, with the arithmetic showing
+  a fresh control cannot change the resolution (§12.5), and a recommendation
+  for where it should go instead (§12.7).
 
 ---
 
@@ -676,3 +694,248 @@ So the pair can distinguish "loads are a small part of the issue term" from
 `ΔS` comes back near zero — but it cannot separate 30 % from 40 %. That is the
 honest resolution of this experiment on the issue-budget question, and it is a
 consequence of the two-receipt budget rather than of anything the kernel does.
+
+---
+
+## 12. Ranked receipts and the read-out
+
+### 12.1 The two receipts
+
+| role | receipt | status | `error` | officialScore | commit | dispatched (UTC) |
+|---|---|---|---|---|---|---|
+| **arm** (`wide_scale`) | `68b66c5` | rejected | `""` | **2.5520699745752** | `56dcf063738ec52c622e05ad4a0ff87d872689b5` | 8/7/26 09:36 |
+| **control** (base surface) | `0bc3eb4` | rejected | `""` | **2.56222295324231** | `5164d313fae0cd5d601b1cda4e1c4620207c1dfc` | 8/7/26 **06:49** |
+
+`error == ""` on the arm is the load-bearing part of that table. It means the
+full hidden M5 gate stack — 64-step drift tripwire, 512-token teacher-forced
+cases, hidden anchors and free runs, GPQA behaviour and TTFT, the semantic
+judge, and in-phase token validation — **passed**. `rejected` here carries no
+correctness meaning; it only says the score did not beat the leader. The
+leader was `2.60402397` at the moment the arm was dispatched (§12.2 shows how
+that number is recoverable), so a `-0.397 %` candidate could not have been
+promoted regardless of what it did to the kernel.
+
+Combined with the offline execution-equivalence measurement of §4 and the
+mutation adequacy of §4.1, the bit-identity claim of H16 is now established
+**both** statically on this host and behaviourally on the ranked M5. That half
+of the hypothesis is settled.
+
+### 12.2 The control was server-deduplicated: no fresh measurement happened
+
+The control was dispatched at 10:13 UTC from a detached worktree at exactly
+`fe5d843f7374f8608e4638a05a17a92a09365ecc` with a verified-empty
+`git diff fe5d843f -- Sources/ Vendor/`. The CLI answered:
+
+```
+Submission already exists
+submission  0bc3eb4c-95b0-4c47-bdb1-28b266a76acd
+status      rejected
+note        not stored (existing submission reused; its original note is kept)
+```
+
+`mlxfast submit` **deduplicates on the content hash of the submitted editable
+surface, not on the commit sha.** My base worktree hashes identically to the
+already-submitted `5164d313` surface — §8 shows why: the base editable surface
+is 2 949 686 B, exactly the advisor's post-#215 frontier figure — so the server
+returned the 06:49 receipt and ran nothing.
+
+Two independent confirmations that no re-measurement occurred:
+
+1. The returned commit is `5164d313`, not the `fe5d843f` I submitted from.
+2. `mlxfast submissions` prints a `diff` column which decodes as
+   `officialScore − best_at_submission_time` (verified against four rows,
+   including `53f19ef`, whose implied previous best `1.003409` reproduces the
+   value implied by the row above it). `0bc3eb4`'s diff of `-0.035652` implies
+   a leader of `2.59787495`; the arm's `-0.051954` implies `2.60402397`. If the
+   control had been re-run at 10:13 it would have been differenced against the
+   *current* `2.604024`, not against the stale 06:49 leader.
+
+Consequence: the control is a **real M5 measurement of the correct surface**,
+but from a session **2.78 hours before** the arm. It cost zero ranked receipts.
+One of the assignment's two budgeted receipts is therefore still unspent
+(§12.5).
+
+### 12.3 The number
+
+```
+Δ = officialScore(arm) − officialScore(control)
+  = 2.5520699745752 − 2.56222295324231
+  = −0.010152978667 points        (−0.39626 %)
+  = −1.0616 ms of S-equivalent    (at 1 ms of S = 0.009564 points)
+  = −2.361 σ_paired               (at σ_paired = 0.004301 points)
+```
+
+**The arm is slower than the control**, by roughly 1.06 ms of S-equivalent.
+
+Adjudicating against the §11.2 table, pre-registered and committed in `b3476c1`
+at 10:06:16 UTC, before the control number existed:
+
+| band | Δ range | this result |
+|---|---|---|
+| H16 confirmed | ≥ +0.01148 | no |
+| weak positive | +0.00912 … +0.01148 | no |
+| NULL | ±0.00912 | no |
+| **regression** | ≤ −0.00912 | **yes** |
+
+The point estimate lands in the regression band, with the sign **opposite** to
+the one H16 predicted. H16 predicted `+0.01148` and the pair returned
+`−0.01015`; the pre-registered mechanism and the observed effect are separated
+by 2.2 registered effect sizes.
+
+But §11.3, also pre-registered, forbids me from stopping there. `|Δ| = 0.010153`
+is **below** the corrected `3 σ_paired = 0.012903`, so by my own committed rule
+this pair does **not** statistically resolve the sign. The honest one-line
+statement is:
+
+> **a 2.36 σ regression signal, not resolved at 3 σ, measured against a control
+> the server refused to re-run.**
+
+This is exactly the asymmetry §11.3 predicted: the design was powered to refute
+H16 but not to confirm it, and it has done the thing it was powered to do —
+it has removed the −1.2 ms mechanism from consideration without being able to
+name the replacement.
+
+### 12.4 The staleness caveat cuts against the arm, not for it
+
+The obvious objection is that the 2.78 h gap explains the gap. It does not, and
+the direction is the interesting part.
+
+The documented M5 drift is `+0.091 %` on paired-baseline decode over ~3 h. A
+*slower* paired baseline inflates `decode_speedup = baseline / candidate`, and
+decode carries 0.75 of the score weight, so the **later** receipt is the one
+that drift favours. The arm is the later receipt. Over 2.78 h:
+
+```
+decode drift  = 0.091 % × (2.784 / 3)   = 0.0844 %
+score drift   = 0.75 × 0.0844 %          = 0.0633 %  =  +0.001623 points
+              = +0.377 σ_paired,  in the ARM's favour
+```
+
+Removing that tailwind gives a drift-corrected
+
+```
+Δ_corrected = −0.011776 points = −1.2313 ms = −2.738 σ_paired
+```
+
+So the staleness is worth about 0.38 σ and it was **helping** the arm. Correcting
+for it moves the result *further* into the regression band, to within 0.26 σ of
+the 3 σ resolution threshold — still short of it, but the caveat does not
+rescue H16.
+
+One counter-datum I record because it is inconvenient rather than because it
+helps. Receipts `26b8e82` (06:26, surface `0b5372f`) and `0bc3eb4` (06:49) are
+23 minutes apart and differ by only `0.00032` points — 32× smaller than my Δ. It
+is tempting to use that as a tighter noise estimate and declare the result
+resolved. I will not, because the advisor's own S readings for those two
+receipts are 98.2092 ms and 97.5250 ms: **0.68 ms of S apart**, worth
+`0.0065` points on the prefill axis alone. Their composite scores agree only
+because the decode axis happened to move the other way by a similar amount.
+Per-axis session noise is therefore clearly *larger* than that composite
+agreement suggests, and the conservative `σ_paired = 0.318 × √2` stays.
+
+### 12.5 Why I am not spending the second receipt on a forced-fresh control
+
+The natural next move is to defeat the content dedupe with an inert
+perturbation of the base surface — a comment-only edit, with AIR-md5 equality
+proving inertness exactly as §3 does — and buy a control from the current
+session. I considered it and decided against it. The reason is arithmetic, not
+caution.
+
+`σ_paired = 0.318 × √2` was derived from **cross-receipt spread**, so it is
+already the variance of an *unpaired* two-receipt difference. Re-running the
+control simply re-draws from the same distribution: the new Δ would carry the
+same `σ_paired = 0.004301` and face the same `3 σ = 0.012903` threshold. A
+fresh control therefore **cannot change the resolution of this pair**. All it
+buys is removal of the 0.377 σ drift bias quantified in §12.4 — and that bias
+currently flatters the arm, so removing it can only make the regression read
+stronger, never weaker. There is no realistic redraw in which a fresh control
+converts this into support for H16.
+
+Resolving a `−1.06 ms` effect at 3 σ needs `N ≥ (3 × 0.318 × √2 / 1.06)² = 1.62`,
+i.e. **2 receipts per arm, 4 ranked runs** — and more if the true effect is
+smaller than the point estimate. That is well outside a two-receipt budget and,
+more to the point, would spend a shared M5 slot to sharpen a number that
+changes no disposition: this branch is not promotable under either outcome.
+
+There is also a contract reason. Assignment §7 specifies a **byte-exact** base
+control. The server has made the literal form of that instruction unexecutable,
+and a perturbed control preserves its intent while violating its letter. That is
+a waiver only the advisor can grant, and it is not worth granting for a receipt
+that cannot move the verdict.
+
+**So one of the two budgeted ranked receipts is returned unspent.** §12.7 says
+where I would spend it instead.
+
+### 12.6 The §11.4 inversion returns a vacuous bound, as pre-registered
+
+Applying the registered inversion to the measured `ΔS`:
+
+```
+share_naive = ΔS_ms / 3.9945 = −1.0616 / 3.9945 = −0.266
+                             (−0.308 drift-corrected)
+```
+
+§11.4 committed in advance to reading `share_naive` as a **lower bound** on the
+memory-op-issue share of the 6.887 ms pure-issue term, because the change also
+adds ALU issues. A negative lower bound is vacuous: it says only "the share is
+at least zero", which was already known.
+
+The inversion has therefore **failed to price the memory-issue share**, and it
+failed for the reason registered before the data arrived. What it does deliver
+is the complementary fact. In
+
+```
+ΔS = 0.58 × share × 6.887 − c
+```
+
+with `ΔS ≈ −1.06 ms` and `share ≥ 0`, the added-ALU term satisfies `c ≥ 1.06 ms`
+— and `c ≥ 1.06 + 0.58 × share × 6.887` for any positive share. The §10.1
+review's conditional estimate was `c ≈ 0.18–0.29 ms` at 0.036 ms per
+instruction per iteration. The measurement wants `c` at least **3.7× larger**
+than that, and larger still if the memory share is non-zero. Either the added
+instruction count is well above the estimated 5–8 per iteration, or the
+per-instruction price in this loop is well above 0.036 ms, or — the branch I
+find most plausible and cannot test from this host — the cost is not
+instruction-count at all but the occupancy/register effect ranked first in the
+review's Q7 list. §6.1 has already eliminated the third item on that list
+(scratch demotion) with O3 evidence, and §6 shows threadgroup memory is
+unchanged, so register-driven occupancy and net ALU issue are the two survivors.
+
+### 12.7 Disposition and where the unspent receipt should go
+
+**H16 is not supported.** The hypothesis was that removing 1.75 device loads per
+thread per k-iteration would buy 1.2–1.8 ms of S. The mechanism was
+delivered exactly as designed — census 3.00 → 1.25, bit-identical on both
+ranked shapes, tgp memory unchanged, all hidden M5 gates green — and the ranked
+measurement came back 1.06 ms in the **wrong direction**. This branch should be
+closed as a negative result, not revised.
+
+The most valuable thing the campaign can take from it is that **eliminating
+device loads in this loader is not automatically profitable**, and the §10.1
+review called that outcome before the receipt existed. Its Q6 discriminating experiment is now
+the obvious use of the unspent receipt, and I recommend it as a separate
+assignment rather than a revision of this one:
+
+> **Dummy-load slope.** Add `{0, +2, +4, +8}` extra *live*, DCE-proofed,
+> cache-hit scale-byte loads per iteration to the **unmodified baseline** and
+> measure the slope of S. My pre-registered model prices a removed byte load at
+> ≈0.98 ms per load per iteration; the shared-issue model prices it at
+> ≈0.03–0.04 ms. That is a **25× separation** on a single monotone axis, it
+> touches no register-allocation-sensitive code, and it is free of the occupancy
+> confound that §12.6 leaves standing. It prices *every* future
+> issue-reduction idea in this kernel, which is what assignment §11 item 6
+> actually wanted and what §12.6 failed to deliver.
+
+Two cheaper follow-ups from §10 remain independently worth doing and are not
+blocked by this result:
+
+1. **Hoist `win_ok` into a constructor-set member.** §6.1 shows it is re-derived
+   every call — an `sdiv` plus two modulo tests per k-iteration on loop-invariant
+   inputs that the non-inlined call boundary prevents the compiler from
+   hoisting. This is a strictly cheaper form of the same mechanism and, given
+   §12.6's finding that the ALU side is the expensive side, it is now the more
+   promising direction. I deliberately did **not** apply it here because it
+   would have invalidated the dispatched receipt pair.
+2. **Offline scale-plane repack in `Sources/MLXFastTransform`.** The review's
+   best unlisted option: it moves the work out of the scored path entirely
+   instead of trading memory issues for ALU issues inside it.
