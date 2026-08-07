@@ -9837,13 +9837,15 @@ private func lagunaFusedSortedRoutedGateUp(
     // the separate banks is the fusion; every other argument matches the
     // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
     let gateUp: MLXArray
-    let useHalved = halvedScales != nil && scalesEscape != nil
-        && lagunaPrefillFusedRoutedGateUpHalvedEnabled
-        && lagunaExpertAlignedGatherEnabled
+    // Halved scales disabled: gatherQuantizedMM rejects non-nil biases with
+    // .nvfp4 mode (ops.cpp validation throws, crashing M5). Escape bytes must
+    // be embedded in the scales tensor (like PR #243's shared expert path)
+    // rather than passed via the biases parameter.
+    let useHalved = false
     gateUp = MLX.gatherQuantizedMM(
         sortedX, fusedWeight,
-        scales: useHalved ? halvedScales! : fusedScales,
-        biases: useHalved ? scalesEscape : nil,
+        scales: fusedScales,
+        biases: nil,
         rhsIndices: idx, transpose: true, groupSize: 16,
         bits: 4, mode: .nvfp4, sortedIndices: doSort)
     let activated: MLXArray
@@ -9861,15 +9863,13 @@ private func lagunaFusedSortedRoutedGateUp(
     // SwitchGLU: `x = downProj(activated, idx, sortedIndices: doSort)`.
     // With NAX + halved scales, use gatherQuantizedMM with halved scales +
     // escape biases (bit-exact via NVFP4 pairwise constancy).
-    let useHalvedDown = downWeight != nil && halvedDownScales != nil
-        && downScalesEscape != nil
-        && lagunaPrefillFusedRoutedGateUpHalvedEnabled
-        && lagunaExpertAlignedGatherEnabled
+    // Halved down scales disabled: same biases crash as gate/up halved path.
+    let useHalvedDown = false
     var result: MLXArray
     if useHalvedDown {
         result = MLX.gatherQuantizedMM(
             activated, downWeight!,
-            scales: halvedDownScales!, biases: downScalesEscape,
+            scales: halvedDownScales!, biases: nil,
             rhsIndices: idx, transpose: true, groupSize: 16,
             bits: 4, mode: .nvfp4, sortedIndices: doSort)
     } else {
