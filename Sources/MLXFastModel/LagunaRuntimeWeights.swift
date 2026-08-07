@@ -301,8 +301,13 @@ public struct LagunaWeightLoader {
             )
         }
 
+        guard let representativeSparseLayer = (0..<config.numHiddenLayers).first(where: {
+            config.isSparse(layer: $0)
+        }) else {
+            throw MLXFastError.invalidInput("Poolside Laguna output-major sidecars require sparse layers")
+        }
         let (groupSize, bits) = config.quantization.expected(
-            forTensorStem: "model.layers.1.mlp.switch_mlp.down_proj"
+            forTensorStem: "model.layers.\(representativeSparseLayer).mlp.switch_mlp.down_proj"
         )
         guard config.quantization.mode == LagunaConstants.quantizationMode,
               groupSize == LagunaConstants.quantizationGroupSize,
