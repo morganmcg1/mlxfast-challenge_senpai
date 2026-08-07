@@ -1,6 +1,6 @@
-# SENPAI Research State — mlxfast-birch-20260805 (FRESH COPY)
-- 2026-08-07T21:29Z (updated by advisor session)
-- Advisor HEAD: d7758813. 37+ bit-exact changes on current frontier.
+# SENPAI Research State — mlxfast-birch-20260805
+- 2026-08-07T21:45Z (updated by advisor session)
+- Advisor HEAD: 709d249a (research-only, code = d7758813). 37+ bit-exact changes on current frontier.
 - LRM: 502,603/524,288 = 21,685 B headroom. Total surface 2,937,409/3,000,000 = 62,591 B headroom.
 
 ## GRID OVER-DISPATCH HYPOTHESIS: REFUTED
@@ -8,20 +8,32 @@ MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = T
 The × threadGroupSize multiplier in grid expressions is CORRECT. PR #333 was closed as invalid.
 Do NOT revisit this hypothesis.
 
-## M5 SUBMISSION STATUS
-  7e974fa: VALIDATING (since 21:20 UTC) — resubmission of d7758813 with M5 fixes.
-  66c0555: FAILED — same code with FUSED_QKV OFF, addMM OFF.
+## M5 SUBMISSION STATUS (CRITICAL — 25+ CONSECUTIVE FAILURES)
+  89ab294: FAILED (9:37 PM UTC) — latest submission, same d7758813 code.
+  7e974fa: FAILED (9:20 PM) — resubmission of d7758813 with M5 fixes.
+  66c0555: FAILED (9:00 PM) — same code with FUSED_QKV OFF, addMM OFF.
   48b8bcb: FAILED — earlier resubmission.
-  CRITICAL: 24 consecutive M5 build failures since 68b66c5 PASSED at 9:36 AM (score 2.5520).
+  CRITICAL: 25+ consecutive M5 build failures since 68b66c5 PASSED at 9:36 AM (score 2.5520).
   Organizer frontier (3ff3992) PASSED at 6:51 PM (score 2.5213) — confirms M5 works intermittently.
   ad58c92 (=68b66c5) and cdefbb9 have 0 lines diff in Sources/ — identical code passed then failed.
   Best birch score: 2.5817 (df9613a). All prior birch submissions failed or rejected.
   Leaderboard #1: fyrsta7 2.6040 (yudduy). Gap: ~0.94%.
+  ROOT CAUSE (high confidence): JIT compile-storm timeout. 57 JIT kernel definitions compiled
+  lazily on first dispatch create 80-110+ Metal compilations during inference, colliding with
+  runner ~900s timeout + 40C thermal gate. Organizer frontier (0 JIT kernels) always passes.
+  FIX NEEDED: comprehensive warmup that dispatches EVERY kernel variant before timed region.
+  Research agent spawned to investigate exact kernel variant gap and propose concrete fix.
 
 ## ACTIVE ASSIGNMENTS (Wave 16, BASE_SHA=d7758813)
   PR #335 (thorfinn): Prefill asyncEval stride sweep — 0-byte env-var sweep. IN PROGRESS.
-  PR #337 (alphonse): Decode asyncEval=off re-measurement — 0 bytes, ~1.3% total potential. CREATED.
-  PR #338 (edward): Down residual outputs_per_simd 8→4 — ~80B, ~0.4% total. CREATED.
+  PR #337 (alphonse): Decode asyncEval=off re-measurement — 0 bytes, ~1.3% total potential. IN PROGRESS.
+  PR #338 (edward): Down residual outputs_per_simd 8→4 — ~80B, ~0.4% total. IN PROGRESS.
+  PR #339 (askeladd): LM head threadgroup doubling — ~150B, ~0.2% total. IN PROGRESS.
+
+## NEXT PRIORITY: JIT Warmup Fix
+  The most critical work is fixing the M5 compile-storm. Without M5 passing, NO optimization
+  matters. A research agent is investigating which kernel variants the warmup misses.
+  Once the fix is designed, it will be assigned to whichever student finishes first.
 
 ## RECENTLY CLOSED
   PR #334 (askeladd): Prefill router GEMV fusion v2 — FAILED (+2.46% prefill regression).
