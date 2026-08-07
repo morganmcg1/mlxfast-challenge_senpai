@@ -3946,6 +3946,10 @@ let lagunaFusedGatedAffineOProjEnabled =
 let lagunaGatedAffineOProjNVFP4Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_GATED_AFFINE_OPROJ_NVFP4"] != "0"
 
+/// Broadcasts each pre-activated BF16 gate across its eight consuming SIMD lanes.
+let lagunaActivatedOProjGateSIMDBroadcastEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_ACTIVATED_GATE_SIMD_BROADCAST"] != "0"
+
 /// `DARKBLOOM_NVFP4_QMV_SIGN_CARRY` (default OFF): in the standalone NVFP4
 /// o_proj QMV decode (`lagunaGatedAffineOProjNVFP4Source`), fold the E4M3
 /// group-scale sign bit into the half bit pattern instead of a conditional
@@ -4055,7 +4059,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     heads: Int,
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
-    preActivatedGate: Bool = false
+    preActivatedGate: Bool = false,
+    simdGateBroadcast: Bool = lagunaActivatedOProjGateSIMDBroadcastEnabled
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -4119,12 +4124,22 @@ func lagunaGatedAffineOProjNVFP4Source(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     """
-    let loadInput = preActivatedGate
+    let activatedLoad = simdGateBroadcast
         ? """
+        float g=0.0f;
+        if((simd_lid&7u)==0u)
+            g=float(gate_values[column>>head_shift]);
+        g=simd_shuffle(g,ushort(simd_lid&~7u));
+        for(uint i=0;i<values_per_thread;++i)
+            x_thread[i]=float(bfloat(float(xp[i])*g));
+        """
+        : """
         float g=float(gate_values[column>>head_shift]);
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
         """
+    let loadInput = preActivatedGate
+        ? activatedLoad
         : """
         float g=gt[column>>head_shift];
         for(uint i=0;i<values_per_thread;++i)
@@ -4315,7 +4330,8 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + (lagunaActivatedOProjGateSIMDBroadcastEnabled ? "_gb1" : ""),
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "weight_scales",
