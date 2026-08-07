@@ -78,6 +78,15 @@ combinations) were at or below the null floor and were not shipped. Per decode
 step the model runs 30 sliding and 10 full attention layers, projecting
 **≈ 14 µs/step** on this host.
 
+A matched end-to-end check (8 arms interleaved cand/base/base/cand/cand/base/
+base/cand at the canonical worker path, both binaries really built from source,
+no arm rebuilding) came back at **+0.61 µs/step, 95 % CI [−50.4, +51.6]**, with
+all 8 arms `passed_correctness` / `max_abs_diff 0`. That interval is 3.6× the
+≈14 µs/step the kernel measurement projects, so this host cannot resolve the
+effect end to end — it is reported as a no-regression check only, not as
+confirmation. The kernel-level measurement above is the load-bearing timing
+evidence.
+
 The mechanism is entirely intra-threadgroup — threadgroup-memory access width
 and count, with essentially zero incremental DRAM traffic — and it is
 unconditional rather than a heuristic that could select differently on another

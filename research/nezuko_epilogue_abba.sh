@@ -13,7 +13,10 @@ OUT=/tmp/nezarm
 BIN=.build-worker/release/mlxfast-runtime-worker
 CLI=.build/release/mlxfast-swift
 
-restore_src() { git checkout -- "${SRC}" 2>/dev/null; git checkout -- Package.resolved 2>/dev/null; }
+# `git checkout <sha> -- <path>` stages as well as writes, so a plain
+# `git checkout -- <path>` restores from that poisoned index and leaves the base
+# content staged. Restore from HEAD to reset index and worktree together.
+restore_src() { git checkout HEAD -- "${SRC}" 2>/dev/null; git checkout HEAD -- Package.resolved 2>/dev/null; }
 trap restore_src EXIT
 
 mkdir -p "${OUT}"

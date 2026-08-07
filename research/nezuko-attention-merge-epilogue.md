@@ -402,7 +402,59 @@ by a real `swift build`, not a runtime override -- then interleaved
 sandbox, the freshness gate and the 40 C thermal gate behave exactly as in a
 normal run. Only the worker binary differs between arms.
 
-<!-- ABBA_RESULTS -->
+`WRAPPER_EXIT=0`, all 8 arms `rc=0`, `passed_corr=True`, `max_abs_diff=0`.
+`PROVENANCE cand=47e8dbd80cec27dd1961c273239a3b14 base=4f5770829edb426cd6beb4014a126bbe`
+-- genuinely distinct binaries, and the `cand` hash equals the `--local-submit`
+build of section 7.3, so the compile is deterministic. `worktree_clean=1`, and
+the base arm really is `git checkout 1fe609eb -- <src>` plus a real `swift build`
+(diff stat: 1 file, 80 insertions, 46 deletions). Grepping all eight per-arm logs
+for `building`/`Compiling`/`swift build` returns **0**: every arm ran a pre-built
+binary, so this is binary-vs-binary and not build-vs-build.
+
+| idx | arm | decode s/tok | idx | arm | decode s/tok |
+|---|---|---|---|---|---|
+| 1 | cand | 0.012925288 | 5 | cand | 0.012916851 |
+| 2 | base | 0.012883427 | 6 | base | 0.012910434 |
+| 3 | base | 0.012923467 | 7 | base | 0.012883693 |
+| 4 | cand | 0.012897529 | 8 | cand | 0.012858930 |
+
+| | n | mean s/tok | sd |
+|---|---|---|---|
+| candidate | 4 | 0.012899649 | 0.000025572 |
+| base | 4 | 0.012900255 | 0.000017320 |
+
+Paired by ABBA position, µs/step saved (positive = candidate faster):
+**−41.86, +25.94, −6.42, +24.76**; mean **+0.61 µs/step (+0.005 %)**,
+median +9.17, sd 32.03, and a 95 % CI of **[−50.4, +51.6] µs/step**.
+
+**This is a no-regression check, and that is all it can be.** I pre-registered
+the arithmetic before running it: the kernel-level result projects to
+30 x 0.400 + 10 x 0.202 = **≈14 µs/step**, against a 12 900 µs step. That is a
+0.11 % effect, and the CI half-width here is 51 µs -- **3.6x the size of the
+effect being looked for**. An instrument that cannot resolve the hypothesis
+cannot confirm it, and it equally cannot refute it. The honest reading of
++0.61 ± 51 µs/step is *"consistent with the predicted +14, and consistent with
+zero, and consistent with −14"*.
+
+So this run discharges exactly two obligations and no others:
+
+1. the pre-registered M4 kill threshold ("worse than −15 µs/step") is **not**
+   triggered -- the point estimate is positive and the lower bound is far short
+   of a real regression at this sample size; and
+2. correctness holds end to end under the real harness on both binaries, in
+   four independent interleaved pairs.
+
+It is **not** evidence that the mechanism works. That claim rests entirely on
+the kernel-level ABBA of section 4, where the effect is 3-5x its own interval on
+both kernels and every section carries a null arm that straddles zero. Reporting
+the +0.005 % end-to-end number as a win would be reading a noise draw; reporting
+the arm-1-vs-arm-2 slice (which, taken alone, showed the candidate 42 µs
+*slower*) as a loss would be the same mistake with the opposite sign. Both are
+why the design interleaved four pairs instead of running one A/B.
+
+Prefill moved +5.45 µs/step (+0.487 %) toward the candidate. V1 touches no
+prefill code, so this is a pure noise reading and a useful scale check on what
+this host's drift looks like over a 20-minute window.
 
 ## 8. Budget
 
