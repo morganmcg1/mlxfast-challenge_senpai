@@ -162,12 +162,6 @@ let lagunaPackedScalesLog = LagunaPackedScalesLog()
 let lagunaFusedRoutedDownReduceEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTED_DOWN_REDUCE"] != "0"
 
-/// Stores the exact normalized decode-router result directly as BF16, matching
-/// the first operation in both fused routed-down consumers. Set
-/// `DARKBLOOM_BF16_ROUTE_WEIGHTS=0` for the accepted FP32 route-weight ABI.
-private let lagunaBF16RouteWeightsEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_BF16_ROUTE_WEIGHTS"] != "0"
-
 /// `DARKBLOOM_FUSED_ROUTED_GATE_UP` (default on; set "0" to disable): after
 /// checkpoint load, retain one row-concatenated NVFP4 `[gate; up]` bank per
 /// sparse layer's routed experts and serve single-token decode's gate/up from
@@ -7130,10 +7124,13 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     )[0]
 }
 
-private func lagunaRoutedDownReduceKernelSource(bf16RouteWeights: Bool) -> String {
-    let routeWeight =
-        bf16RouteWeights ? "router_weights[slot]" : "bfloat(router_weights[slot])"
-    return """
+private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_down_reduce_bf16_v1",
+    inputNames: [
+        "activated", "down_weight", "down_scales", "indices", "router_weights",
+    ],
+    outputNames: ["routed"],
+    source: """
         constexpr uint input_width = 512;
         constexpr uint output_width = 2048;
         constexpr uint experts_per_token = 8;
@@ -7207,7 +7204,7 @@ private func lagunaRoutedDownReduceKernelSource(bf16RouteWeights: Bool) -> Strin
         if (expert_slot == 0 && lane < outputs_per_simd) {
             bfloat total = bfloat(0);
             for (uint slot = 0; slot < experts_per_token; ++slot) {
-                bfloat route_weight = \(routeWeight);
+                bfloat route_weight = bfloat(router_weights[slot]);
                 bfloat product = bfloat(
                     expert_outputs[slot * outputs_per_simd + lane] *
                     route_weight);
@@ -7215,27 +7212,7 @@ private func lagunaRoutedDownReduceKernelSource(bf16RouteWeights: Bool) -> Strin
             }
             routed[first_row + lane] = bfloat(total * bfloat(2.5f));
         }
-        """
-}
-
-private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_down_reduce_bf16_v1",
-    inputNames: [
-        "activated", "down_weight", "down_scales", "indices", "router_weights",
-    ],
-    outputNames: ["routed"],
-    source: lagunaRoutedDownReduceKernelSource(bf16RouteWeights: false),
-    header: lagunaSharedSwiGLUQMVHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaRoutedDownReduceBF16RouteKernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_down_reduce_route_bf16_v2",
-    inputNames: [
-        "activated", "down_weight", "down_scales", "indices", "router_weights",
-    ],
-    outputNames: ["routed"],
-    source: lagunaRoutedDownReduceKernelSource(bf16RouteWeights: true),
+        """,
     header: lagunaSharedSwiGLUQMVHeader,
     ensureRowContiguous: true
 )
@@ -7269,13 +7246,10 @@ func lagunaRoutedDownReduce(
         ])
     precondition(indices.dtype == .uint32)
     precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
-    precondition(routerWeights.dtype == .float32 || routerWeights.dtype == .bfloat16)
+    precondition(routerWeights.dtype == .float32)
     precondition(routerWeights.shape == [1, 1, LagunaConstants.numExpertsPerTok])
 
-    let kernel =
-        routerWeights.dtype == .bfloat16
-        ? lagunaRoutedDownReduceBF16RouteKernel : lagunaRoutedDownReduceKernel
-    return kernel(
+    return lagunaRoutedDownReduceKernel(
         [activated, downWeight, downScales, indices, routerWeights],
         grid: ((LagunaConstants.hiddenSize / 4) * 256, 1, 1),
         threadGroup: (256, 1, 1),
@@ -7303,13 +7277,23 @@ func lagunaRoutedDownReduce(
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
-private func lagunaRoutedSharedDownResidualKernelSource(
-    bf16RouteWeights: Bool
-) -> String {
-    let routeWeight =
-        bf16RouteWeights
-        ? "router_weights[routed_slot]" : "bfloat(router_weights[routed_slot])"
-    return """
+private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
+    name: lagunaSharedFirstDownOrderEnabled
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf_bf4"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4_bf4",
+    inputNames: lagunaSharedFirstDownOrderEnabled
+        ? [
+            "shared_activated", "shared_down_weight", "shared_down_scales",
+            "routed_activated", "routed_down_weight", "routed_down_scales",
+            "indices", "router_weights", "residual",
+        ]
+        : [
+            "routed_activated", "routed_down_weight", "routed_down_scales",
+            "indices", "router_weights", "shared_activated",
+            "shared_down_weight", "shared_down_scales", "residual",
+        ],
+    outputNames: ["output"],
+    source: """
         constexpr uint input_width = 512;
         constexpr uint output_width = 2048;
         constexpr uint routed_experts = 8;
@@ -7379,7 +7363,8 @@ private func lagunaRoutedSharedDownResidualKernelSource(
             for (uint routed_slot = 0;
                  routed_slot < routed_experts;
                  ++routed_slot) {
-                bfloat route_weight = \(routeWeight);
+                bfloat route_weight =
+                    bfloat(router_weights[routed_slot]);
                 bfloat product = bfloat(
                     down_outputs[
                         routed_slot * outputs_per_simd + lane
@@ -7394,40 +7379,7 @@ private func lagunaRoutedSharedDownResidualKernelSource(
             output[first_row + lane] =
                 bfloat(residual[first_row + lane] + r2);
         }
-        """
-}
-
-private let lagunaRoutedSharedDownResidualInputNames =
-    lagunaSharedFirstDownOrderEnabled
-    ? [
-        "shared_activated", "shared_down_weight", "shared_down_scales",
-        "routed_activated", "routed_down_weight", "routed_down_scales",
-        "indices", "router_weights", "residual",
-    ]
-    : [
-        "routed_activated", "routed_down_weight", "routed_down_scales",
-        "indices", "router_weights", "shared_activated",
-        "shared_down_weight", "shared_down_scales", "residual",
-    ]
-
-private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
-    name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf_bf4"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4_bf4",
-    inputNames: lagunaRoutedSharedDownResidualInputNames,
-    outputNames: ["output"],
-    source: lagunaRoutedSharedDownResidualKernelSource(bf16RouteWeights: false),
-    header: lagunaSharedSwiGLUQMVHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaRoutedSharedDownResidualBF16RouteKernel = MLXFast.metalKernel(
-    name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_route_bf16_r2_v5sf_bf4"
-        : "laguna_routed_shared_nvfp4_down_residual_route_bf16_r2_v5_bf4",
-    inputNames: lagunaRoutedSharedDownResidualInputNames,
-    outputNames: ["output"],
-    source: lagunaRoutedSharedDownResidualKernelSource(bf16RouteWeights: true),
+        """,
     header: lagunaSharedSwiGLUQMVHeader,
     ensureRowContiguous: true
 )
@@ -7465,7 +7417,7 @@ func lagunaRoutedSharedDownResidual(
         ])
     precondition(indices.dtype == .uint32)
     precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
-    precondition(routerWeights.dtype == .float32 || routerWeights.dtype == .bfloat16)
+    precondition(routerWeights.dtype == .float32)
     precondition(routerWeights.shape == [1, 1, LagunaConstants.numExpertsPerTok])
     precondition(sharedActivated.dtype == .bfloat16)
     precondition(
@@ -7487,11 +7439,7 @@ func lagunaRoutedSharedDownResidual(
     precondition(residual.dtype == .bfloat16)
     precondition(residual.shape == [1, 1, LagunaConstants.hiddenSize])
 
-    let kernel =
-        routerWeights.dtype == .bfloat16
-        ? lagunaRoutedSharedDownResidualBF16RouteKernel
-        : lagunaRoutedSharedDownResidualKernel
-    return kernel(
+    return lagunaRoutedSharedDownResidualKernel(
         lagunaSharedFirstDownOrderEnabled
             ? [
                 sharedActivated, sharedDownWeight, sharedDownScales,
@@ -8176,9 +8124,7 @@ private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
 /// original expert-index tie break is exactly `laguna_router_key_before`.
 /// Only final lanes 0...7 recompute their pre-bias sigmoid score.
 private func lagunaDecodeRouterOrdinalKernelSource(
-    normalizing: Bool,
-    scoreTable: Bool = false,
-    bf16RouteWeights: Bool = false
+    normalizing: Bool, scoreTable: Bool = false
 ) -> String {
     let scoreStorage =
         scoreTable
@@ -8188,10 +8134,6 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         scoreTable
         ? "original_scores[lane] = score;"
         : ""
-    let normalizedScoreStore =
-        bf16RouteWeights
-        ? "router_scores[lane] = bfloat(my_score / total);"
-        : "router_scores[lane] = my_score / total;"
     let winnerScore =
         scoreTable
         ? """
@@ -8215,7 +8157,7 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         }
         if (lane < 8) {
             router_indices[lane] = my_index;
-            \(normalizedScoreStore)
+            router_scores[lane] = my_score / total;
         }
         """
         : """
@@ -8344,17 +8286,6 @@ private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metal
     ensureRowContiguous: true
 )
 
-private let lagunaDecodeRouterOrdinalScoreTableNormalizingBF16RouteKernel =
-    MLXFast.metalKernel(
-        name: "laguna_decode_router_top8_ordinal_table_norm_route_bf16_v2",
-        inputNames: ["logits", "correction_bias"],
-        outputNames: ["router_indices", "router_scores"],
-        source: lagunaDecodeRouterOrdinalKernelSource(
-            normalizing: true, scoreTable: true, bf16RouteWeights: true),
-        header: lagunaDecodeRouterOrdinalHeader,
-        ensureRowContiguous: true
-    )
-
 private let lagunaDecodeRouterOrdinalEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL"] != "0"
 
@@ -8406,48 +8337,36 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
 }
 
 func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
-    logits: MLXArray,
-    correctionBias: MLXArray,
-    normalizing: Bool = false,
-    bf16RouteWeights: Bool? = nil
+    logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
 ) -> (MLXArray, MLXArray) {
     precondition(logits.dtype == .bfloat16 || logits.dtype == .float32)
     precondition(correctionBias.dtype == .float32)
     precondition(logits.size == 256)
     precondition(correctionBias.size == 256)
 
-    let useBF16RouteWeights =
-        normalizing && (bf16RouteWeights ?? lagunaBF16RouteWeightsEnabled)
     let kernel =
-        useBF16RouteWeights
-        ? lagunaDecodeRouterOrdinalScoreTableNormalizingBF16RouteKernel
-        : normalizing
-            ? lagunaDecodeRouterOrdinalScoreTableNormalizingKernel
-            : lagunaDecodeRouterOrdinalScoreTableKernel
-    let routeWeightsDType: DType = useBF16RouteWeights ? .bfloat16 : .float32
+        normalizing
+        ? lagunaDecodeRouterOrdinalScoreTableNormalizingKernel
+        : lagunaDecodeRouterOrdinalScoreTableKernel
     let outputs = kernel(
         [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
-        outputDTypes: [.uint32, routeWeightsDType]
+        outputDTypes: [.uint32, .float32]
     )
     return (outputs[0], outputs[1])
 }
 
 private func lagunaDecodeRouterTop8(
-    logits: MLXArray,
-    correctionBias: MLXArray,
-    normalizing: Bool = false,
-    bf16RouteWeights: Bool = false
+    logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
 ) -> (MLXArray, MLXArray) {
     if lagunaDecodeRouterOrdinalEnabled {
         if lagunaDecodeRouterOrdinalScoreTableEnabled {
             return lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
                 logits: logits,
                 correctionBias: correctionBias,
-                normalizing: normalizing,
-                bf16RouteWeights: bf16RouteWeights
+                normalizing: normalizing
             )
         }
         return lagunaDecodeRouterTop8OrdinalForTesting(
@@ -9074,11 +8993,7 @@ final class LagunaRuntimeMoEGate: Module {
     /// the same invocation already produced it (the fused residual + RMSNorm +
     /// router dispatch). It is the identical `x @ weight.T` this method would
     /// otherwise issue.
-    func callAsFunction(
-        _ x: MLXArray,
-        logits: MLXArray? = nil,
-        bf16RouteWeights: Bool = false
-    ) -> (MLXArray, MLXArray) {
+    func callAsFunction(_ x: MLXArray, logits: MLXArray? = nil) -> (MLXArray, MLXArray) {
         let projectedLogits = logits ?? x.matmul(weight.T)
         let inds: MLXArray
         var weights: MLXArray
@@ -9128,20 +9043,14 @@ final class LagunaRuntimeMoEGate: Module {
             // Cast-sink path: consumes the BF16 router GEMV directly. The
             // norm sink is a separate flag, so name it separately.
             let sinkNormalization = normTopkProb && lagunaDecodeRouterNormSinkEnabled
-            let sinkTrace =
-                if sinkNormalization && bf16RouteWeights {
-                    "decode router top8 (cast sink + norm sink + bf16 routes)"
-                } else if sinkNormalization {
-                    "decode router top8 (cast sink + norm sink)"
-                } else {
-                    "decode router top8 (cast sink)"
-                }
-            lagunaTrace(sinkTrace)
+            lagunaTrace(
+                sinkNormalization
+                    ? "decode router top8 (cast sink + norm sink)"
+                    : "decode router top8 (cast sink)")
             (inds, weights) = lagunaDecodeRouterTop8(
                 logits: projectedLogits,
                 correctionBias: eScoreCorrectionBias.asType(.float32),
-                normalizing: sinkNormalization,
-                bf16RouteWeights: bf16RouteWeights
+                normalizing: sinkNormalization
             )
             if sinkNormalization {
                 return (inds, weights)
@@ -9641,30 +9550,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     private func forward(
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?
     ) -> MLXArray {
-        // The generic combine must retain its FP32 route weights. Enable the
-        // narrower ABI only when the routed-down fusion is available as the
-        // shared fusion's guaranteed fallback consumer.
-        let bf16RouteWeights =
-            lagunaBF16RouteWeightsEnabled
-            && lagunaFusedRoutedDownReduceEnabled
-            && lagunaDecodeRouterTop8Enabled
-            && lagunaDecodeRouterCastSinkEnabled
-            && lagunaDecodeRouterNormSinkEnabled
-            && lagunaDecodeRouterOrdinalEnabled
-            && lagunaDecodeRouterOrdinalScoreTableEnabled
-            && gate.normTopkProb
-            && gate.routerLogitSoftcapping == 0
-            && gate.topK == LagunaConstants.numExpertsPerTok
-            && x.dtype == .bfloat16
-            && x.shape == [1, 1, LagunaConstants.hiddenSize]
-            && _fusedRoutedGateUpWeight != nil
-            && _fusedRoutedGateUpScales != nil
-            && _routedDownProj != nil
-            && _routedDownWeight != nil
-            && _routedDownScales != nil
-        let routeWeightsDType: DType = bf16RouteWeights ? .bfloat16 : .float32
-        let (inds, weights) = gate(
-            x, logits: routerLogits, bf16RouteWeights: bf16RouteWeights)
+        let (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -9767,16 +9653,13 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     LagunaConstants.hiddenSize,
                     LagunaConstants.moeIntermediateSize / 16,
                 ],
-                weights.dtype == routeWeightsDType,
+                weights.dtype == .float32,
                 weights.shape == [1, 1, LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor),
                 residual.dtype == .bfloat16,
                 residual.shape == [1, 1, LagunaConstants.hiddenSize]
             {
-                lagunaTrace(
-                    weights.dtype == .bfloat16
-                        ? "routed+shared down residual (bf16 routes)"
-                        : "routed+shared down residual")
+                lagunaTrace("routed+shared down residual")
                 return lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
@@ -9808,14 +9691,11 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     LagunaConstants.hiddenSize,
                     LagunaConstants.moeIntermediateSize / 16,
                 ],
-                weights.dtype == routeWeightsDType,
+                weights.dtype == .float32,
                 weights.shape == [1, 1, LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor)
             {
-                lagunaTrace(
-                    weights.dtype == .bfloat16
-                        ? "routed down reduce (bf16 routes)"
-                        : "routed down reduce")
+                lagunaTrace("routed down reduce")
                 y = lagunaRoutedDownReduce(
                     activated,
                     downWeight: downWeight,
