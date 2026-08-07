@@ -9343,6 +9343,14 @@ final class LagunaRuntimeMoEGate: Module {
     @ParameterInfo(key: "weight") var weight: MLXArray
     @ParameterInfo(key: "e_score_correction_bias") var eScoreCorrectionBias: MLXArray
 
+    private var _correctionBiasF32: MLXArray?
+    var correctionBiasF32: MLXArray {
+        if let cached = _correctionBiasF32 { return cached }
+        let f32 = eScoreCorrectionBias.asType(.float32)
+        _correctionBiasF32 = f32
+        return f32
+    }
+
     init(_ config: LagunaConfig) {
         self.topK = config.numExpertsPerTok
         self.normTopkProb = config.normTopkProb
@@ -9372,7 +9380,7 @@ final class LagunaRuntimeMoEGate: Module {
             lagunaTrace("prefill router tournament")
             return lagunaPrefillRouterTournament(
                 logits: projectedLogits,
-                correctionBias: eScoreCorrectionBias.asType(.float32),
+                correctionBias: correctionBiasF32,
                 rows: projectedLogits.dim(1),
                 normalizing: normTopkProb
             )
@@ -9393,7 +9401,7 @@ final class LagunaRuntimeMoEGate: Module {
                     : "decode router top8 (cast sink)")
             (inds, weights) = lagunaDecodeRouterTop8(
                 logits: projectedLogits,
-                correctionBias: eScoreCorrectionBias.asType(.float32),
+                correctionBias: correctionBiasF32,
                 normalizing: sinkNormalization
             )
             if sinkNormalization {
@@ -9412,12 +9420,12 @@ final class LagunaRuntimeMoEGate: Module {
                 lagunaTrace("decode router top8 (fp32 logits)")
                 (inds, weights) = lagunaDecodeRouterTop8(
                     logits: logits,
-                    correctionBias: eScoreCorrectionBias.asType(.float32)
+                    correctionBias: correctionBiasF32
                 )
             } else {
                 let scores = sigmoid(logits)
                 let scoresForChoice =
-                    scores + eScoreCorrectionBias.asType(scores.dtype)
+                    scores + correctionBiasF32
                 inds =
                     argPartition(-scoresForChoice, kth: topK - 1, axis: -1)[
                         .ellipsis, ..<topK]
@@ -11019,6 +11027,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 if lagunaFusedRoutedGateUpEnabled {
                     fusedArrays.append(contentsOf: sparse.prepareFusedRoutedGateUp())
                 }
+                fusedArrays.append(sparse.gate.correctionBiasF32)
             } else if let dense = layer.mlp as? LagunaRuntimeMLP {
                 if lagunaFusedDenseGateUpSwiGLUEnabled,
                     let fused = dense.prepareFusedDenseGateUp()

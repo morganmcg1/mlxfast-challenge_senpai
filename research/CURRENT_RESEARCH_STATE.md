@@ -14,21 +14,39 @@
   M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
 
 ## M5 SUBMISSION STATUS
-  d417eaa: FAILED (150+ min, build succeeded, correctness gate) — frontier 6739b6a (shared halved path bug)
-  2cbf31e2: VALIDATING — frontier 36df213 (disabled shared halved path)
-  Root cause: lagunaPrefillSharedHalvedEnabled (NAX gate=true on M5) calls quantizedMM with
-  groupSize=32 and scales [N+1, K/32], but pre-PR#243 qmm_nax lacks kHalvedScales.
-  Fix: set lagunaPrefillSharedHalvedEnabled = false (falls through to standard groupSize=16).
+  400ba6c: FAILED — vendor files from 68b66c5 had darkbloom_expert_bk128 that LRM doesn't use
+  9753441c: VALIDATING — 87aff2f vendor files (organizer frontier) + 30 LRM optimizations
+  Root cause: 68b66c5 vendor files have darkbloom_expert_bk128/darkbloom_stage_wide_scale_ok
+  functions that the current LRM doesn't call. The 87aff2f vendor files (organizer frontier
+  revert of PR #243/#263) are the M5-safe base.
   Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
 
-## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=6739b6a)
-  PR #290 (thorfinn): Re-enable QKV fusion — LRM-only flag flip, 0-byte, prefill
-  PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — 39 dispatches/decode step, ~50-100B
-  PR #292 (askeladd): Extend gate-product+softplus kernel to multi-token prefill — 40 dispatches, ~200-400B
+## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=2bd3c3f)
+  PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — halve grid from 73728 to 36864 TGs (bit-exact, ~50B, decode)
+  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, needs clean rebase on 2bd3c3f
+  PR #292 (askeladd): Prefill gate-product+softplus multi-token extension — awaiting work
+  PR #294 (thorfinn): Dead code removal — awaiting work (~12KB LRM budget recovery)
 
-## PENDING REVISION
-  PR #285 (edward): Routed halved scales fix — revision requested (clean rebase on 6739b6a,
-    drop PR #243 qmm_nax + PR #263 STAGE2_GATHER changes, keep only gather_qmm_rhs_nax escape fix)
+## CLOSED
+  PR #296 (alphonse): RMSNorm→LM head fusion — CLOSED (bandwidth-negative: 25MB extra norm-weight reads across 6272 TGs)
+
+## MERGED WAVE 14
+  PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — MERGED (bit-exact, +0.676% decode, +222B)
+
+## NEXT-WAVE IDEAS (from FRESH_DECODE_IDEAS_20260807.md + research agent)
+  1. Fuse final RMSNorm into LM head coarse — CLOSED (bandwidth-negative, 25MB extra reads)
+  2. Down+residual outputs_per_simd 8→16 — ASSIGNED to alphonse (PR #297)
+  3. NVFP4 OProj results_per_simd 8→16 — UNASSIGNED (~50B, 40 layers)
+  4. Gate/up R1 9-simdgroup input sharing — LIKELY DEAD (input-vector staging already failed)
+  5. Dense down rows_per_thread 4→8 — LOW IMPACT (1 layer only)
+  6. Device-atomic two-phase norm+QKV fusion — UNASSIGNED (saves 40 dispatch boundaries/step, complex)
+  7. Device-atomic router top-8 fusion — UNASSIGNED (saves 39 dispatch boundaries/step, complex)
+  8. Decode path is extremely well-optimized: 8 dispatches per sparse layer, nearly fully fused
+  PR #292 (askeladd): Extend gate-product+softplus kernel to multi-token prefill — 40 dispatches, ~200-400B
+  PR #294 (thorfinn): Dead code removal — free ~12KB LRM budget, 4 default-OFF flags, net-negative
+
+## CLOSED (Wave 13)
+  PR #290 (thorfinn): QKV fusion re-enable — DEAD (38% decode regression from 312MB extra weight)
 
 ## M5 CRASH FIX (CRITICAL — 2026-08-07T13:20Z)
   Root cause found by _nax audit agent: PR #220 and PR #234 passed non-nil `biases`
