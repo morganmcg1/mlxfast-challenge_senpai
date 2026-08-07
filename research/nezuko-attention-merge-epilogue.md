@@ -2247,6 +2247,86 @@ never a model-name rejection, so it must not trigger the `--model` fallback.
 
 *(filled in below)*
 
+### 17.6 Ops finding: a listing that fails *empty* is a false terminal
+
+Advisor feedback #3 §6 warned that `mlxfast submit` exits 0 even when it
+refuses, so a dispatcher must parse stdout rather than trust `$?`. Dispatching
+receipt #2 turned up the same failure mode one layer out, in the *listing*
+command, and it is the more dangerous of the two.
+
+At `2026-08-07T08:27:16Z` — while my dispatcher was in its post-submit wait
+loop — `mlxfast submissions` exited **0** and printed exactly one line:
+
+```text
+The operation was aborted.
+```
+
+No header, no table, no rows. Every downstream computation in the dispatcher
+is a count or a grep over that table, and each one silently inverted:
+
+| derived quantity | intent | value on an empty listing | reading |
+|---|---|---|---|
+| `busy_count` (rows whose status matches `BUSY_RE`) | "is the shared slot occupied?" | `0` | **"slot is free"** |
+| `MY_ROW` (grep for my receipt's id8) | "is my receipt still pending?" | `""` | **"my receipt is terminal"** |
+
+Both readings are wrong, and they fail in opposite directions of severity:
+
+- The second is merely annoying. My dispatcher had already submitted, so an
+  empty `MY_ROW` made it declare victory and exit; the training terminated
+  `finished`, exit 0, `DISPATCH_RC=0`, having *not actually observed* a
+  terminal receipt. I noticed only because the reported status was blank where
+  a status should have been.
+- The first is destructive. On a dispatcher that had **not** yet submitted,
+  `busy_count == 0` reads as "the shared in-flight slot is free" and releases
+  the submit. If the slot is in fact occupied — and with the account-wide
+  in-flight limit of 1 shared with maple-birch this is the common case — the
+  API answers `conflict`, and because `mlxfast submit` exits 0 on refusal, a
+  careless dispatcher then records a spent attempt. That is a receipt burned by
+  a transport hiccup.
+
+The generalisation is one sentence, and it is broader than the original
+bulletin:
+
+> **Any control decision taken from a count over a CLI listing must first
+> assert that the listing is non-empty.** An empty result is not evidence of
+> absence; on this CLI it is the observable signature of a failed fetch.
+
+An aggregate over an empty set is well-defined and therefore never raises —
+which is exactly why it is unsafe as a gate. `sum`, `count`, `grep -c`, and
+`any` all return their identity element on no input, and the identity element
+of "is anything busy?" is "no". The failure is not detectable downstream; it
+has to be caught at the point of parse.
+
+**Mitigation, shipped as `research/nezuko_receipt_wait.sh` (commit
+`182ed9b3`).** Three changes relative to the dispatcher's inline loop:
+
+1. It polls the **per-submission** endpoint
+   `GET /api/submissions/<uuid>` rather than the list endpoint, so the answer
+   is a single object about a single receipt and there is no aggregate to
+   invert.
+2. It classifies explicitly and defaults to *waiting*: `BUSY_RE` is anchored
+   (`^(validating|queued|running|pending|building)$`), and an absent row, a
+   `null` status, `fetch_error`, or `fetch_parse_error` are all "keep
+   waiting". Nothing except a recognised terminal status ends the loop.
+3. It resolves the token from the first non-empty of `MLXFAST_API_TOKEN`,
+   `YUKON_API_TOKEN`, `SUPABASE_ACCESS_TOKEN` and exits 2 with
+   `NO_TOKEN_FOUND` if none is set, rather than silently polling unauthenticated
+   and interpreting the 401 body as "no such submission".
+
+Usage:
+
+```bash
+RECEIPT=<uuid> [OUT=/tmp/nez_wait] [MAX_WAIT_SEC=5400] [INTERVAL=60] \
+  bash research/nezuko_receipt_wait.sh
+```
+
+It logs one `status=` line per poll and writes the full raw row (with the
+multi-kilobyte `note` stripped) to `${OUT}/receipt.json`, which is the exact
+input `/tmp/nez_r2.py` decomposes. Running it is what produced §17.5.
+
+This is a research-only support file: it is not on the submitted surface and
+the candidate does not depend on it.
+
 ## 18. Reconciliation with advisor feedback #4 (comment 5214174875)
 
 `feedback_id: pr205-r1-c03dc11-rescored-vs-matched-control-2026-08-07`.
