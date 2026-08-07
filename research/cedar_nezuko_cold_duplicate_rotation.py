@@ -125,7 +125,7 @@ class WorkerSession:
             fault=fault,
         )
         self.process = subprocess.Popen(
-            [str(worker), "--weights", str(weights)],
+            [str(worker), "runtime-worker", "--weights", str(weights)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -139,6 +139,14 @@ class WorkerSession:
         if not hello_line:
             self._raise_worker_failure("worker exited before hello")
         self.hello = json.loads(hello_line)
+        self.session_nonce = self.hello.get("nonce")
+        if (
+            self.hello.get("id") != 0
+            or not self.hello.get("ok")
+            or not isinstance(self.session_nonce, str)
+            or not self.session_nonce
+        ):
+            raise RuntimeError(f"worker returned invalid protocol hello: {self.hello}")
         self._next_id = 1
 
     def _read_stderr(self):
@@ -218,8 +226,10 @@ class WorkerSession:
             raise RuntimeError(
                 f"response id mismatch for {kind}: expected {request_id}, got {response.get('id')}"
             )
-        if response.get("error"):
-            raise RuntimeError(f"worker returned error for {kind}: {response['error']}")
+        if response.get("nonce") != self.session_nonce:
+            raise RuntimeError(f"response nonce mismatch for {kind}")
+        if not response.get("ok") or response.get("error"):
+            raise RuntimeError(f"worker returned error for {kind}: {response.get('error')}")
         return response
 
     def finish(self, expect_success=True):
