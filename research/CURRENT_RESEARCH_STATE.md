@@ -31,19 +31,20 @@ Do NOT revisit this hypothesis.
   same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
-## ACTIVE ASSIGNMENTS (Wave 18-19, BASE_SHA=12eaa973)
-  PR #348 (thorfinn): Prefill unsorted gatherQuantizedMM — WIP (~2.2% total score, ★★★)
+## ACTIVE ASSIGNMENTS (Wave 18-19, BASE_SHA=388bd31e)
   PR #349 (askeladd): Prefill RMSNorm+QKV fusion via MLX.compile — WIP (~0.6% total, ★★★)
   PR #350 (alphonse): JIT kernel consolidation for M5 fix — WIP (★★★, CRITICAL M5 build fix)
-  PR #351 (edward): Prefill shared gate/up+SiLU fusion — JUST ASSIGNED (~0.5-1% prefill, ★★☆)
+  PR #351 (edward): Prefill shared gate/up+SiLU fusion — WIP (~0.5-1% prefill, ★★☆)
+  PR #352 (thorfinn): JIT kernel disable sweep for M5 fix — JUST ASSIGNED (0-byte sweep, M5 build fix)
 
 ## MERGED WAVE 18
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — MERGED (2.8% prefill improvement, 2-line change, bit-exact)
   PR #342 (edward): Prefill nax halved scales via qmm_nax kHalvedScales — MERGED (M5-only, ~0.9% total score, re-applies PR #243 + extends to gather path)
 
-## CLOSED WAVE 17
+## CLOSED WAVE 17-18
   PR #345 (thorfinn): Prefill addMM enablement — DEAD (-36.1% regression, breaks fused residual+RMSNorm+router)
   PR #346 (askeladd): Threadgroup bank conflict padding — DEAD (0.43% decode, within noise. Bank conflicts negligible vs NVFP4 compute)
+  PR #348 (thorfinn): Unsorted gatherQuantizedMM — DEAD (+39.7% prefill regression, unsorted expert weight access causes cache/bank conflicts. Sorting is essential for locality, not just dispatch overhead)
 
 ## RECENTLY CLOSED (Wave 16)
   PR #339 (askeladd): LM head TG doubling — NEGATIVE. ~0.45% decode regression. Dispatch overhead is per-kernel-LAUNCH not per-TG. Larger TGs hurt occupancy.
