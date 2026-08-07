@@ -424,7 +424,76 @@ teacher-forced greedy-token comparison run **through the real worker on the
 scored decode path**, where the fused banks exist and the kernel demonstrably
 dispatches 39×/step (§1).
 
-TBD-TRIPWIRE
+**Instrument.** `research/decode_probe.py` drives the release worker
+`.build-worker/release/mlxfast-runtime-worker` over its line-delimited JSON
+protocol using `correctness_prompts/public_longcopy_gate_english_512_256.json`
+(512 prompt tokens, 256 expected tokens). It sends one `decode_begin` with the
+512-token seed, then N `decode_step` requests. Step *i* is fed `expected[i]`
+and its returned argmax is compared against `expected[i+1]`
+(`research/decode_probe.py:136-145`). Because the *expected* token is fed
+forward rather than the model's own, a divergence cannot propagate and cannot
+mask later steps: all N comparisons are independent checks of the same
+distribution the harness checks, which is strictly stronger per-step coverage
+than a free run of the same length.
+
+**The ≥64-step requirement, at 128 steps, all three arms.** Log:
+`research/shared-qmv-logs/drift-tripwire-128step.log` (raw worker stderr in
+`/tmp/maple-shared-qmv-drift/`).
+
+| Arm | Steps compared | Divergences | Step mean | Seed forward |
+| --- | --- | --- | --- | --- |
+| `off` (base) | 128 | **0** (all match) | 8.183 ms | 547.26 ms |
+| `on` (prefetch) | 128 | **0** (all match) | 8.211 ms | 547.46 ms |
+| `pairwise` (prefetch + halved plane) | 128 | **0** (all match) | 8.179 ms | 547.30 ms |
+
+Reproduce (one arm; must be the only model-holding process on the host):
+
+```bash
+DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES=1 \
+  python3 research/decode_probe.py --steps 128 \
+  --stderr /tmp/maple-shared-qmv-drift/03-rep1-pairwise.err
+```
+
+Two properties of this particular run make it the cleanest correctness
+evidence in the round:
+
+1. It ran on the **uninstrumented** worker. `./benchmark.sh --local-iterate`
+   had rebuilt `.build-worker`, which discards the research GPUPROF hook
+   (`research/nezuko-pr158-gpuprof-hook.patch`) that Stages 1 and 2 relied on;
+   every arm's log therefore ends `profile: no GPUPROF records`. So these
+   tokens came out of exactly the binary the scored path builds, with no
+   research patch in the vendored MLX.
+2. At 39 dispatches per decode step (§1), 128 steps is **4,992
+   `laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1` dispatches per arm** with
+   every intervening greedy argmax checked. That exercises the prefetch
+   `next_block < input_width` tail guard (`:6910`) on every K-block of every
+   dispatch, and in the `pairwise` arm the even-index read of the halved
+   gate/up scale plane (`:6888-6890`) on every dispatch.
+
+**Aggregate over the whole round.** Every model-holding process launched in
+Stages 1, 2, 2b and the tripwire ran the same teacher-forced comparison, so the
+divergence count accumulates:
+
+| Source | Processes | Steps each | Comparisons | Divergences |
+| --- | --- | --- | --- | --- |
+| Stage 1 (`off`×6, `on`×6) | 12 | 33 | 396 | 0 |
+| Stage 2 (`on`×6, `pairwise`×6) | 12 | 33 | 396 | 0 |
+| Stage 2b, cancelled (`pairwise`×3, `on`×3) | 6 | 33 | 198 | 0 |
+| Drift tripwire (`off`, `on`, `pairwise`) | 3 | 128 | 384 | 0 |
+| **Total** | **33** | — | **1,374** | **0** |
+
+By arm: 326 comparisons on `off`, 623 on `on`, 425 on `pairwise`. The Stage 2b
+processes are counted here only for correctness; their timing was discarded
+because that worker had no GPUPROF records (§3.5).
+
+Two honest limits on this evidence. First, it is one prompt: the tripwire and
+both ABBA stages use the same public golden, so it covers 128 distinct
+positions and 4,992 dispatches but only one token distribution. The hidden
+512-token teacher-forced cases, hidden anchors, free runs and the semantic GPQA
+judge on the official M5 remain the real gate. Second, both mechanisms are
+argued bit-exact from the source (§2.2, §3.3) — the tripwire's job is to catch
+a mistake in that argument, not to establish tolerance, and a zero here is
+consistent with the bit-exactness claim rather than a substitute for it.
 
 ---
 
