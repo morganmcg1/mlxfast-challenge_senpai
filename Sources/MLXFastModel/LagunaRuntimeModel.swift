@@ -4760,11 +4760,15 @@ constexpr uint blocks_per_row = in_vec_size_g / 32;
 uint tile = threadgroup_position_in_grid.x;
 uint simd_gid = simdgroup_index_in_threadgroup;
 uint simd_lid = thread_index_in_simdgroup;
-// FAULT INJECTION (research only): rotate row ownership by one inside the
-// threadgroup. This is the row-mapping mistake a packing repack can actually
-// make, and unlike a bare `+ 1` it stays in bounds, so the tripwire has to
-// catch a wrong answer rather than an out-of-bounds write.
-uint out_row = tile * num_simdgroups + ((simd_gid + 1) % num_simdgroups);
+uint out_row = tile * num_simdgroups + simd_gid;
+// FAULT INJECTION (research only): rotate only the *store* index by one inside
+// the threadgroup, leaving the weight/scale reads on the true row. Permuting
+// `out_row` itself is a semantic no-op, because it gates the reads and the store
+// together and any bijection over rows still computes every row exactly once;
+// desynchronising read row from write row is the row-mapping mistake a repack
+// can actually make. It stays in bounds, so the tripwire has to catch a wrong
+// answer rather than an out-of-bounds write, and it is identity at S=1.
+uint store_row = tile * num_simdgroups + ((simd_gid + 1) % num_simdgroups);
 
 const device uint8_t* ws = (const device uint8_t*)weight_codes +
     out_row * in_vec_size_w + simd_lid * 8;
@@ -4805,7 +4809,7 @@ for (uint k = 0; k < axis_size; k += block_size) {
 
 result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
 if (simd_lid == 0) {
-    projected[out_row] = bfloat(result);
+    projected[store_row] = bfloat(result);
 }
 """
 }
