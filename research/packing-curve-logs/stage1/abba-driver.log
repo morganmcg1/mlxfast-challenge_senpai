@@ -1,0 +1,148 @@
+=== 17:34:47 b00_s01_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.188 ms median=8.180 ms p10=8.145 ms p90=8.223 ms min=8.114 ms max=9.362 ms total=1.638 s
+=== 17:35:32 b01_s02_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.201 ms median=8.191 ms p10=8.154 ms p90=8.235 ms min=8.122 ms max=9.348 ms total=1.640 s
+=== 17:36:16 b01_s03_RV S=1
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.268 ms median=8.237 ms p10=8.158 ms p90=8.385 ms min=8.113 ms max=9.298 ms total=1.654 s
+=== 17:37:01 b01_s04_V S=4
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.240 ms median=8.176 ms p10=8.132 ms p90=8.228 ms min=8.092 ms max=19.318 ms total=1.648 s
+=== 17:37:45 b01_s05_G S=8
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.117 ms median=8.082 ms p10=8.002 ms p90=8.228 ms min=7.976 ms max=9.278 ms total=1.623 s
+=== 17:38:29 b01_s06_R S=16
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.179 ms median=8.169 ms p10=8.140 ms p90=8.218 ms min=8.102 ms max=9.317 ms total=1.636 s
+=== 17:39:13 b01_s07_N S=32
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.193 ms median=8.185 ms p10=8.148 ms p90=8.224 ms min=8.121 ms max=9.224 ms total=1.639 s
+=== 17:39:58 b01_s08_N S=32
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.199 ms median=8.188 ms p10=8.152 ms p90=8.247 ms min=8.107 ms max=9.363 ms total=1.640 s
+=== 17:40:43 b01_s09_R S=16
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.136 ms median=8.124 ms p10=8.020 ms p90=8.235 ms min=7.979 ms max=9.370 ms total=1.627 s
+=== 17:41:28 b01_s10_G S=8
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.211 ms median=8.180 ms p10=8.146 ms p90=8.221 ms min=8.105 ms max=13.964 ms total=1.642 s
+=== 17:42:13 b01_s11_V S=4
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.180 ms median=8.172 ms p10=8.128 ms p90=8.223 ms min=8.098 ms max=9.324 ms total=1.636 s
+=== 17:42:58 b01_s12_RV S=1
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.191 ms median=8.180 ms p10=8.143 ms p90=8.236 ms min=8.108 ms max=9.360 ms total=1.638 s
+=== 17:43:43 b01_s13_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.205 ms median=8.188 ms p10=8.156 ms p90=8.265 ms min=8.116 ms max=9.551 ms total=1.641 s
+=== 17:44:28 b02_s14_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.191 ms median=8.183 ms p10=8.143 ms p90=8.234 ms min=8.104 ms max=9.317 ms total=1.638 s
+=== 17:45:13 b02_s15_RV S=1
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.191 ms median=8.182 ms p10=8.146 ms p90=8.235 ms min=8.097 ms max=9.361 ms total=1.638 s
+=== 17:45:58 b02_s16_V S=4
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.206 ms median=8.175 ms p10=8.131 ms p90=8.292 ms min=8.065 ms max=9.364 ms total=1.641 s
+=== 17:46:44 b02_s17_G S=8
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.205 ms median=8.173 ms p10=8.142 ms p90=8.214 ms min=8.114 ms max=13.952 ms total=1.641 s
+=== 17:47:29 b02_s18_R S=16
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.166 ms median=8.157 ms p10=8.115 ms p90=8.207 ms min=8.084 ms max=9.330 ms total=1.633 s
+=== 17:48:14 b02_s19_N S=32
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.188 ms median=8.179 ms p10=8.136 ms p90=8.229 ms min=8.095 ms max=9.476 ms total=1.638 s
+=== 17:48:59 b02_s20_N S=32
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.230 ms median=8.197 ms p10=8.145 ms p90=8.248 ms min=8.117 ms max=14.983 ms total=1.646 s
+=== 17:49:44 b02_s21_R S=16
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.250 ms median=8.162 ms p10=8.125 ms p90=8.210 ms min=8.087 ms max=24.883 ms total=1.650 s
+=== 17:50:28 b02_s22_G S=8
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.178 ms median=8.168 ms p10=8.134 ms p90=8.212 ms min=8.107 ms max=9.352 ms total=1.636 s
+=== 17:51:12 b02_s23_V S=4
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.180 ms median=8.171 ms p10=8.140 ms p90=8.220 ms min=8.083 ms max=9.357 ms total=1.636 s
+=== 17:51:57 b02_s24_RV S=1
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.195 ms median=8.186 ms p10=8.146 ms p90=8.238 ms min=8.097 ms max=9.413 ms total=1.639 s
+=== 17:52:41 b02_s25_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.200 ms median=8.181 ms p10=8.142 ms p90=8.275 ms min=8.060 ms max=9.418 ms total=1.640 s
+=== 17:53:25 b03_s26_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.179 ms median=8.181 ms p10=8.039 ms p90=8.228 ms min=7.962 ms max=9.318 ms total=1.636 s
+=== 17:54:09 b03_s27_RV S=1
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.204 ms median=8.195 ms p10=8.157 ms p90=8.245 ms min=8.113 ms max=9.343 ms total=1.641 s
+=== 17:54:54 b03_s28_V S=4
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.186 ms median=8.172 ms p10=8.138 ms p90=8.230 ms min=8.110 ms max=9.424 ms total=1.637 s
+=== 17:55:38 b03_s29_G S=8
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.133 ms median=8.129 ms p10=8.040 ms p90=8.225 ms min=7.980 ms max=9.250 ms total=1.627 s
+=== 17:56:22 b03_s30_R S=16
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.210 ms median=8.129 ms p10=8.050 ms p90=8.253 ms min=7.997 ms max=16.080 ms total=1.642 s
+=== 17:57:06 b03_s31_N S=32
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.209 ms median=8.189 ms p10=8.154 ms p90=8.229 ms min=8.116 ms max=11.707 ms total=1.642 s
+=== 17:57:51 b03_s32_N S=32
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.194 ms median=8.183 ms p10=8.149 ms p90=8.224 ms min=8.114 ms max=9.295 ms total=1.639 s
+=== 17:58:36 b03_s33_R S=16
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.187 ms median=8.153 ms p10=8.111 ms p90=8.204 ms min=8.006 ms max=14.270 ms total=1.637 s
+=== 17:59:20 b03_s34_G S=8
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.182 ms median=8.174 ms p10=8.134 ms p90=8.219 ms min=8.081 ms max=9.315 ms total=1.636 s
+=== 18:00:04 b03_s35_V S=4
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.189 ms median=8.181 ms p10=8.140 ms p90=8.224 ms min=8.048 ms max=9.402 ms total=1.638 s
+=== 18:00:49 b03_s36_RV S=1
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.221 ms median=8.199 ms p10=8.139 ms p90=8.257 ms min=8.103 ms max=10.067 ms total=1.644 s
+=== 18:01:33 b03_s37_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.191 ms median=8.179 ms p10=8.151 ms p90=8.220 ms min=8.121 ms max=9.367 ms total=1.638 s
+=== 18:02:18 b04_s38_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.269 ms median=8.242 ms p10=8.186 ms p90=8.382 ms min=8.146 ms max=9.453 ms total=1.654 s
+=== 18:03:02 b04_s39_RV S=1
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.242 ms median=8.186 ms p10=8.149 ms p90=8.240 ms min=8.116 ms max=18.537 ms total=1.648 s
+=== 18:03:47 b04_s40_V S=4
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.232 ms median=8.184 ms p10=8.042 ms p90=8.244 ms min=7.986 ms max=16.690 ms total=1.646 s
+=== 18:04:31 b04_s41_G S=8
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.180 ms median=8.169 ms p10=8.143 ms p90=8.213 ms min=8.098 ms max=9.353 ms total=1.636 s
+=== 18:05:16 b04_s42_R S=16
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.214 ms median=8.169 ms p10=8.117 ms p90=8.338 ms min=8.071 ms max=9.341 ms total=1.643 s
+=== 18:06:00 b04_s43_N S=32
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.198 ms median=8.181 ms p10=8.145 ms p90=8.242 ms min=8.100 ms max=10.319 ms total=1.640 s
+=== 18:06:45 b04_s44_N S=32
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.156 ms median=8.182 ms p10=8.027 ms p90=8.225 ms min=7.997 ms max=9.369 ms total=1.631 s
+=== 18:07:30 b04_s45_R S=16
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.180 ms median=8.170 ms p10=8.135 ms p90=8.216 ms min=8.094 ms max=9.311 ms total=1.636 s
+=== 18:08:15 b04_s46_G S=8
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.171 ms median=8.165 ms p10=8.123 ms p90=8.209 ms min=8.056 ms max=9.336 ms total=1.634 s
+=== 18:08:59 b04_s47_V S=4
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.188 ms median=8.181 ms p10=8.144 ms p90=8.220 ms min=8.114 ms max=9.358 ms total=1.638 s
+=== 18:09:44 b04_s48_RV S=1
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.170 ms median=8.132 ms p10=8.043 ms p90=8.311 ms min=8.017 ms max=9.499 ms total=1.634 s
+=== 18:10:28 b04_s49_0 S=2
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=200 mean=8.185 ms median=8.174 ms p10=8.141 ms p90=8.236 ms min=8.106 ms max=9.331 ms total=1.637 s
+=== 18:11:13 done 49 runs
