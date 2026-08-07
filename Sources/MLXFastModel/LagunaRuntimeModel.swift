@@ -8124,7 +8124,7 @@ private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
 /// original expert-index tie break is exactly `laguna_router_key_before`.
 /// Only final lanes 0...7 recompute their pre-bias sigmoid score.
 private func lagunaDecodeRouterOrdinalKernelSource(
-    normalizing: Bool, scoreTable: Bool = false
+    normalizing: Bool, scoreTable: Bool = false, simdGroupZeroEpilogue: Bool = false
 ) -> String {
     let scoreStorage =
         scoreTable
@@ -8144,9 +8144,25 @@ private func lagunaDecodeRouterOrdinalKernelSource(
             float winner_y = 1.0f / (1.0f + metal::exp(metal::abs(winner_x)));
             my_score = winner_x < 0.0f ? winner_y : 1.0f - winner_y;
         """
-    let epilogue =
-        normalizing
+    let normalizedEpilogue =
+        simdGroupZeroEpilogue
         ? """
+        if (lane < 32) {
+            float my_score = 0.0f;
+            if (lane < 8) {
+            \(winnerScore)
+            }
+            float total = 0.0f;
+            for (uint i = 0; i < 8; ++i) {
+                total = simd_shuffle(my_score, ushort(i)) + total;
+            }
+            if (lane < 8) {
+                router_indices[lane] = my_index;
+                router_scores[lane] = my_score / total;
+            }
+        }
+        """
+        : """
         float my_score = 0.0f;
         if (lane < 8) {
         \(winnerScore)
@@ -8160,6 +8176,9 @@ private func lagunaDecodeRouterOrdinalKernelSource(
             router_scores[lane] = my_score / total;
         }
         """
+    let epilogue =
+        normalizing
+        ? normalizedEpilogue
         : """
         if (lane < 8) {
             float my_score = 0.0f;
@@ -8286,6 +8305,19 @@ private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metal
     ensureRowContiguous: true
 )
 
+private let lagunaDecodeRouterOrdinalScoreTableSIMDGroupZeroNormalizingKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_top8_ordinal_table_norm_simdgroup0_v2",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaDecodeRouterOrdinalKernelSource(
+        normalizing: true,
+        scoreTable: true,
+        simdGroupZeroEpilogue: true
+    ),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
 private let lagunaDecodeRouterOrdinalEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL"] != "0"
 
@@ -8294,6 +8326,11 @@ private let lagunaDecodeRouterOrdinalEnabled =
 /// eight sigmoid scores instead.
 private let lagunaDecodeRouterOrdinalScoreTableEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE"] != "0"
+
+/// Set `DARKBLOOM_ROUTER_NORM_SIMDGROUP0=0` to restore the exact accepted
+/// normalized score-table kernel source and kernel name.
+private let lagunaDecodeRouterNormSIMDGroupZeroEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_NORM_SIMDGROUP0"] != "0"
 
 func lagunaDecodeRouterTop8AcceptedForTesting(
     logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
@@ -8337,17 +8374,22 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
 }
 
 func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
-    logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
+    logits: MLXArray,
+    correctionBias: MLXArray,
+    normalizing: Bool = false,
+    simdGroupZeroNormalizing: Bool? = nil
 ) -> (MLXArray, MLXArray) {
     precondition(logits.dtype == .bfloat16 || logits.dtype == .float32)
     precondition(correctionBias.dtype == .float32)
     precondition(logits.size == 256)
     precondition(correctionBias.size == 256)
 
+    let normalizingKernel =
+        (simdGroupZeroNormalizing ?? lagunaDecodeRouterNormSIMDGroupZeroEnabled)
+        ? lagunaDecodeRouterOrdinalScoreTableSIMDGroupZeroNormalizingKernel
+        : lagunaDecodeRouterOrdinalScoreTableNormalizingKernel
     let kernel =
-        normalizing
-        ? lagunaDecodeRouterOrdinalScoreTableNormalizingKernel
-        : lagunaDecodeRouterOrdinalScoreTableKernel
+        normalizing ? normalizingKernel : lagunaDecodeRouterOrdinalScoreTableKernel
     let outputs = kernel(
         [logits, correctionBias],
         grid: (256, 1, 1),
