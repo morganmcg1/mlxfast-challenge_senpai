@@ -24,6 +24,7 @@ import statistics
 import subprocess
 import sys
 import time
+from collections import defaultdict
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKER = os.path.join(REPO, ".build-worker/release/mlxfast-runtime-worker")
@@ -111,6 +112,32 @@ def main() -> int:
     rows = []
     divergences = []
     rid = 1000
+
+    # Alignment. Model load itself issues a seed-length warmup forward, which
+    # opens a schedule segment the probe never drove; left uncorrected that
+    # rotates every arm by one and silently mislabels the whole run. Burn
+    # throwaway segments until the worker's next segment index is a multiple of
+    # the schedule length, so real segment j really does get schedule[j].
+    rid += 1
+    send({"id": rid, "kind": "decode_begin", "seed_tokens": prompt})
+    rid += 1
+    send({"id": rid, "kind": "decode_step", "token": expected[0]})
+    last = max(parse_dupseg(err_path), default=-1)
+    if last < 0:
+        raise SystemExit(
+            "no DUPSEG line after an alignment segment: the instrument is not "
+            f"active (target={args.target!r} unknown, or worker stderr is not "
+            f"{err_path})")
+    burn = -(last + 1) % len(schedule)
+    for _ in range(burn):
+        rid += 1
+        send({"id": rid, "kind": "decode_begin", "seed_tokens": prompt})
+        rid += 1
+        send({"id": rid, "kind": "decode_step", "token": expected[0]})
+    start = last + 1 + burn
+    print(f"alignment: worker was at segment {last}, burned {burn} throwaway "
+          f"segments, real segments start at worker index {start}", flush=True)
+
     t_start = time.perf_counter()
     for seg in range(n_segments):
         k_intended = schedule[seg % len(schedule)]
@@ -139,27 +166,58 @@ def main() -> int:
     errfh.close()
 
     observed = parse_dupseg(err_path)
-    mismatch = [(s, k) for s, k in observed.items()
-                if s < n_segments and k != schedule[s % len(schedule)]]
-    if mismatch or len(observed) < n_segments:
-        print(f"FATAL phase check: worker announced {len(observed)} segments, "
-              f"probe drove {n_segments}; arm mismatches={mismatch[:8]}",
-              flush=True)
+    missing = [start + j for j in range(n_segments)
+               if start + j not in observed]
+    mismatch = [(start + j, observed[start + j], schedule[j % len(schedule)])
+                for j in range(n_segments)
+                if start + j in observed
+                and observed[start + j] != schedule[j % len(schedule)]]
+    if missing or mismatch:
+        print(f"FATAL phase check: missing worker segments={missing[:8]} "
+              f"arm mismatches (worker_seg, announced, intended)="
+              f"{mismatch[:8]}", flush=True)
         return 2
-    print(f"phase check ok: worker announced K for all {n_segments} segments "
-          "and every arm matched the probe's intent", flush=True)
+    print(f"phase check ok: the instrument announced the intended K for all "
+          f"{n_segments} real segments (worker indices {start}.."
+          f"{start+n_segments-1})", flush=True)
 
     with open(args.out, "w") as fh:
         fh.write(f"# target={args.target} schedule={args.schedule} "
                  f"blocks={args.blocks} steps_per_segment="
                  f"{args.steps_per_segment} drop={args.drop} "
-                 f"fault={int(args.fault)} divergences={len(divergences)}\n")
+                 f"fault={int(args.fault)} verbose={int(args.verbose_census)} "
+                 f"start={start} divergences={len(divergences)}\n")
         fh.write("segment\tk\tstep\tms\n")
         for seg, k, step, ms in rows:
             fh.write(f"{seg}\t{k}\t{step}\t{ms:.6f}\n")
+    if args.verbose_census:
+        report_census(err_path, args.target)
     print(f"wrote {len(rows)} timed steps -> {args.out}\n"
           f"worker stderr -> {err_path}", flush=True)
     return 1 if divergences else 0
+
+
+def report_census(err_path: str, target: str) -> None:
+    """Per-K histogram of injected calls per forward.
+
+    The dominant bucket is `n_calls_per_step`; the rare small bucket is the
+    seed prefill, which is outside every timed window.
+    """
+    hist = defaultdict(lambda: defaultdict(int))
+    with open(err_path, errors="replace") as fh:
+        for line in fh:
+            if not line.startswith("DUPCOUNT "):
+                continue
+            parts = line.split()
+            k = int(parts[1].split("=", 1)[1])
+            for field in parts[2].split(","):
+                name, count = field.split("=")
+                if name == target:
+                    hist[k][int(count)] += 1
+    for k in sorted(hist):
+        buckets = ", ".join(f"{c} calls x{n}" for c, n in
+                            sorted(hist[k].items(), key=lambda kv: -kv[1]))
+        print(f"census K={k}: {buckets}", flush=True)
 
 
 def parse_dupseg(err_path: str) -> dict:
