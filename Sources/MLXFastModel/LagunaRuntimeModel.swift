@@ -4277,21 +4277,14 @@ private let lagunaGatedAffineOProjNVFP4LaneMajorKernels: [Int: MLXFast.MLXFastKe
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
 
-private func lagunaGateSoftplusSource(heads: Int, fuse: Bool = false) -> String {
-    let prologue =
-        fuse
-        ? "constexpr uint axis_size=K;\n"
-            + lagunaFoldedNormPrologue(
-                threads: 64, simdGroups: "NS", simdGid: "sg", simdLid: "lane")
-        : ""
-    let load = fuse ? "norm_row" : "input"
-    return """
+private func lagunaGateSoftplusSource(heads: Int) -> String {
+    """
 constexpr uint K=\(LagunaConstants.hiddenSize),GS=32,V=8;
 constexpr uint BK=V*32,R=4,NS=2,KG=K/GS,SS=GS/V;
 uint tile=threadgroup_position_in_grid.x;
 uint sg=simdgroup_index_in_threadgroup;
 uint lane=thread_index_in_simdgroup;
-\(prologue)uint orow=tile*(NS*R)+sg*R;
+uint orow=tile*(NS*R)+sg*R;
 const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
 const device bfloat* sc=scales+orow*KG+lane/SS;
 const device bfloat* bs=biases+orow*KG+lane/SS;
@@ -4301,7 +4294,7 @@ uint col=lane*V;
 for(uint k=0;k<K;k+=BK){
     float sum=0.0f;
     for(uint i=0;i<V;++i){
-        x[i]=float(\(load)[col+i]);
+        x[i]=float(input[col+i]);
         sum+=x[i];
     }
     for(uint row=0;row<R;++row){
@@ -4342,31 +4335,13 @@ private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     return result
 }()
 
-/// Norm-folded twin of the gate qmv. It is the second consumer of the
-/// normalized row, so dropping the standalone RMSNorm dispatch requires it.
-private let lagunaGateSoftplusFoldedKernels: [Int: MLXFast.MLXFastKernel] = {
-    var result: [Int: MLXFast.MLXFastKernel] = [:]
-    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = MLXFast.metalKernel(
-            name: "laguna_gate_sp_h\(heads)_v1_nf1",
-            inputNames: ["residual", "norm_weight", "packed_codes", "scales", "biases"],
-            outputNames: ["gate_values"],
-            source: lagunaGateSoftplusSource(heads: heads, fuse: true),
-            ensureRowContiguous: true)
-    }
-    return result
-}()
-
 private func lagunaGateSoftplus(
-    input: MLXArray, bank: LagunaNativeAffineWeight, heads: Int,
-    residual: MLXArray? = nil, normWeight: MLXArray? = nil
+    input: MLXArray, bank: LagunaNativeAffineWeight, heads: Int
 ) -> MLXArray? {
-    let folded = residual != nil && normWeight != nil
     guard lagunaGateSoftplusEnabled,
         bank.mode == .affine, bank.bits == 8, bank.groupSize == 32,
         let biases = bank.biases,
-        let kernel = folded
-            ? lagunaGateSoftplusFoldedKernels[heads] : lagunaGateSoftplusKernels[heads],
+        let kernel = lagunaGateSoftplusKernels[heads],
         input.dtype == .bfloat16,
         input.dims(1, 1, LagunaConstants.hiddenSize),
         bank.packedCodes.dims(heads, LagunaConstants.hiddenSize / 4),
@@ -4374,9 +4349,8 @@ private func lagunaGateSoftplus(
         biases.dims(heads, LagunaConstants.hiddenSize / 32)
     else { return nil }
 
-    let head: [MLXArray] = folded ? [residual!, normWeight!] : [input]
     return kernel(
-        head + [bank.packedCodes, bank.scales, biases],
+        [input, bank.packedCodes, bank.scales, biases],
         grid: ((heads / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, heads]],
@@ -4646,115 +4620,6 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
-/// Research deconfound knob: SIMD groups per lane-major QKV threadgroup. Every
-/// statement in that kernel below `out_row` is simdgroup-local, so this is a
-/// pure row-ownership change and is bit-exact for any value here.
-private let lagunaDecodeNVFP4QKVR1Simdgroups: Int = {
-    guard
-        let raw = ProcessInfo.processInfo.environment[
-            "DARKBLOOM_DECODE_NVFP4_QKV_R1_SIMDGROUPS"],
-        let value = Int(raw), [2, 4, 8, 16].contains(value)
-    else { return 2 }
-    return value
-}()
-
-/// Research knob: fixed threadgroup count for the persistent grid-stride form
-/// of the lane-major QKV kernel. `0` keeps the stock one-row-per-simdgroup
-/// launch. A positive value launches exactly that many threadgroups and each
-/// simdgroup walks `rows / (value * simdgroups)` rows with a grid stride, which
-/// divides the folded-norm redundancy by the same factor. Only exact divisors
-/// are admissible: a tail threadgroup would give some rows a different
-/// reduction participation set and void the bit-exactness argument.
-private let lagunaDecodeNVFP4QKVTotalThreadgroups: Int = {
-    guard
-        let raw = ProcessInfo.processInfo.environment[
-            "DARKBLOOM_DECODE_NVFP4_QKV_TOTAL_THREADGROUPS"],
-        let value = Int(raw), [0, 16, 32, 64, 128, 256, 512, 1024].contains(value)
-    else { return 0 }
-    return value
-}()
-
-/// Research-only fault injection: rotates the persistent grid-stride row map by
-/// one so the correctness tripwire can be shown to actually discriminate this
-/// kernel's row indexing. The rotation is a permutation of `[0, rows)`, so it
-/// stays in bounds and fails on values rather than on a memory error.
-private let lagunaDecodeNVFP4QKVRowFaultInject =
-    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_ROW_FAULT"] == "1"
-
-/// Research deconfound knob for the input-RMSNorm fold.
-/// `0` stock, `1` fold and drop the standalone RMSNorm dispatch, `3` fold the
-/// reduction but keep the standalone dispatch so the redundant work can be
-/// priced without a dispatch delta.
-private let lagunaDecodeNVFP4NormQKVFuse: Int = {
-    guard
-        let raw = ProcessInfo.processInfo.environment[
-            "DARKBLOOM_DECODE_NVFP4_NORM_QKV_FUSE"],
-        let value = Int(raw), [0, 1, 3].contains(value)
-    else { return 0 }
-    return value
-}()
-
-/// Virtualized-thread RMSNorm prologue staging `norm_row` in threadgroup
-/// memory. `num_simdgroups * virtual_per_thread` is invariant at 16 and the
-/// lane-to-element map of every partial is independent of `real_threads`, so
-/// the reduction is bit-exact for any threadgroup width in {64,128,256,512}.
-private func lagunaFoldedNormPrologue(
-    threads: Int, simdGroups: String, simdGid: String, simdLid: String
-) -> String {
-    """
-constexpr uint n_reads = 4;
-constexpr uint norm_threads = axis_size / n_reads;
-constexpr uint real_threads = \(threads);
-constexpr uint virtual_per_thread = norm_threads / real_threads;
-constexpr uint simd_size = 32;
-constexpr float norm_eps = 1.0e-6f;
-
-uint lid = thread_position_in_threadgroup.x;
-threadgroup float local_inv_mean[1];
-threadgroup float local_sums[simd_size];
-threadgroup bfloat norm_row[axis_size];
-
-if (lid < simd_size) {
-    local_sums[lid] = 0.0f;
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-
-for (uint j = 0; j < virtual_per_thread; ++j) {
-    uint base = (lid + j * real_threads) * n_reads;
-    float acc = 0.0f;
-    for (uint i = 0; i < n_reads; ++i) {
-        float xi = float(residual[base + i]);
-        acc += xi * xi;
-    }
-    acc = simd_sum(acc);
-    if (\(simdLid) == 0) {
-        local_sums[\(simdGid) + \(simdGroups) * j] = acc;
-    }
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-
-if (\(simdGid) == 0) {
-    float total = simd_sum(local_sums[\(simdLid)]);
-    if (\(simdLid) == 0) {
-        local_inv_mean[0] =
-            metal::precise::rsqrt(total / float(axis_size) + norm_eps);
-    }
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-
-float laguna_inv_mean = local_inv_mean[0];
-for (uint j = 0; j < virtual_per_thread; ++j) {
-    uint base = (lid + j * real_threads) * n_reads;
-    for (uint i = 0; i < n_reads; ++i) {
-        norm_row[base + i] =
-            norm_weight[base + i] *
-            bfloat(float(residual[base + i]) * laguna_inv_mean);
-    }
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-"""
-}
-
 private func lagunaDecodeNVFP4QKVR1Source(narrow: Bool = false) -> String {
     // Narrow arm: three planes replace the 32-byte uint8 group. Lane `simd_lid`
     // owns group `simd_lid` of the block, so its nibble is byte `simd_lid >> 1`
@@ -4867,44 +4732,10 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 /// requests. An escaped row (`base == 0xFF`) takes the simdgroup-uniform else
 /// arm and reads the stock plane. Both arms fill the same `sb` registers, so
 /// the K loop below is the R1 loop with its scale argument already resident.
-private func lagunaDecodeNVFP4QKVLaneMajorSource(
-    pairwise: Bool, simdgroups: Int = 2, fuse: Int = 0,
-    rows: Int, totalThreadgroups: Int = 0
-) -> String {
-    let prologue =
-        fuse == 0
-        ? ""
-        : lagunaFoldedNormPrologue(
-            threads: simdgroups * 32, simdGroups: "num_simdgroups",
-            simdGid: "simd_gid", simdLid: "simd_lid")
-    let load = fuse == 0 ? "normalized" : "norm_row"
-    let persistent = totalThreadgroups > 0
-    let totalSimdgroups = totalThreadgroups * simdgroups
-    if persistent {
-        precondition(
-            rows % totalSimdgroups == 0,
-            "persistent QKV grid needs rows \(rows) divisible by "
-                + "\(totalThreadgroups) threadgroups * \(simdgroups) simdgroups")
-    }
-    // Rotating `out_row` alone is a bijection over the row set, so it only
-    // reschedules work and stays bit-exact. A sensitivity control has to break
-    // the read/store correspondence, so the fault offsets the store index only.
-    let storeRow =
-        lagunaDecodeNVFP4QKVRowFaultInject ? "(out_row + 1) % \(rows)" : "out_row"
-    let rowLoopOpen =
-        persistent
-        ? """
-        constexpr uint total_simdgroups = \(totalSimdgroups);
-        constexpr uint rows_per_simdgroup = \(rows / max(totalSimdgroups, 1));
-        uint global_sg = tile * num_simdgroups + simd_gid;
-        for (uint row_step = 0; row_step < rows_per_simdgroup; ++row_step) {
-        uint out_row = global_sg + row_step * total_simdgroups;
-        """
-        : "uint out_row = tile * num_simdgroups + simd_gid;"
-    let rowLoopClose = persistent ? "\n}" : ""
-    return """
+private func lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: Bool) -> String {
+    """
 constexpr uint axis_size = 2048;
-constexpr uint num_simdgroups = \(simdgroups);
+constexpr uint num_simdgroups = 2;
 constexpr uint values_per_thread = 16;
 constexpr uint block_size = 512;
 constexpr uint in_vec_size_w = axis_size / 2;
@@ -4914,7 +4745,7 @@ constexpr uint blocks_per_row = in_vec_size_g / 32;
 uint tile = threadgroup_position_in_grid.x;
 uint simd_gid = simdgroup_index_in_threadgroup;
 uint simd_lid = thread_index_in_simdgroup;
-\(prologue)\(rowLoopOpen)
+uint out_row = tile * num_simdgroups + simd_gid;
 
 const device uint8_t* ws = (const device uint8_t*)weight_codes +
     out_row * in_vec_size_w + simd_lid * 8;
@@ -4945,7 +4776,7 @@ thread float result = 0.0f;
 uint column = simd_lid * values_per_thread;
 for (uint k = 0; k < axis_size; k += block_size) {
     for (uint i = 0; i < values_per_thread; ++i) {
-        x_thread[i] = float(\(load)[column + i]);
+        x_thread[i] = float(normalized[column + i]);
     }
     result += laguna_tail_nvfp4_qdot(
         ws, x_thread, laguna_tail_nvfp4_scale(sb[k / block_size]));
@@ -4955,53 +4786,26 @@ for (uint k = 0; k < axis_size; k += block_size) {
 
 result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
 if (simd_lid == 0) {
-    projected[\(storeRow)] = bfloat(result);
-}\(rowLoopClose)
-"""
+    projected[out_row] = bfloat(result);
 }
-
-/// Mode 3 keeps `normalized` bound but unread so the dispatch count, buffer
-/// dependency graph and barrier placement match stock while the kernel pays
-/// the folded reduction; mode 1 drops it.
-private func lagunaDecodeNVFP4QKVLaneMajorInputNames(fuse: Int) -> [String] {
-    let tail = ["weight_codes", "scale_nibbles", "scale_bases", "weight_scales"]
-    switch fuse {
-    case 1: return ["residual", "norm_weight"] + tail
-    case 3: return ["normalized", "residual", "norm_weight"] + tail
-    default: return ["normalized"] + tail
-    }
+"""
 }
 
 private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
-    let simdgroups = lagunaDecodeNVFP4QKVR1Simdgroups
-    let fuse = lagunaDecodeNVFP4NormQKVFuse
-    let tiles = lagunaDecodeNVFP4QKVTotalThreadgroups
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
-        if ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_GEOMETRY_LOG"] == "1" {
-            let launched = tiles == 0 ? rows / simdgroups : tiles
-            let scratch = fuse == 0 ? 0 : 132 + 2 * 2048
-            FileHandle.standardError.write(Data(
-                ("qkv-geometry h\(heads) rows=\(rows) sg_per_tg=\(simdgroups) fuse=\(fuse) "
-                    + "tg_requested=\(tiles) tg_launched=\(launched) "
-                    + "threads_per_tg=\(simdgroups * 32) "
-                    + "rows_per_sg=\(rows / (launched * simdgroups)) "
-                    + "threadgroup_bytes=\(scratch)\n").utf8))
-        }
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
-                + "_sg\(simdgroups)_nf\(fuse)_tg\(tiles)"
-                + (lagunaDecodeNVFP4QKVRowFaultInject ? "_fi1" : ""),
-            inputNames: lagunaDecodeNVFP4QKVLaneMajorInputNames(fuse: fuse),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+            inputNames: [
+                "normalized", "weight_codes", "scale_nibbles", "scale_bases",
+                "weight_scales",
+            ],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVLaneMajorSource(
-                pairwise: lagunaAttnScalePairwiseQKVEnabled,
-                simdgroups: simdgroups, fuse: fuse,
-                rows: rows, totalThreadgroups: tiles),
+                pairwise: lagunaAttnScalePairwiseQKVEnabled),
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
@@ -5011,9 +4815,7 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
 private func lagunaDecodeNVFP4QKVR1(
     normalized: MLXArray,
     bank: LagunaNativeAffineWeight,
-    heads: Int,
-    residual: MLXArray? = nil,
-    normWeight: MLXArray? = nil
+    heads: Int
 ) -> MLXArray? {
     guard lagunaDecodeNVFP4QKVR1Enabled else { return nil }
     let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
@@ -5029,40 +4831,19 @@ private func lagunaDecodeNVFP4QKVR1(
         bank.scales.dims(rows, hidden / 16),
         rows % 2 == 0
     else { return nil }
-    let simdgroups = lagunaDecodeNVFP4QKVR1Simdgroups
-    let fuse = lagunaDecodeNVFP4NormQKVFuse
-    let tiles = lagunaDecodeNVFP4QKVTotalThreadgroups
     if let lane = bank.laneMajorScales,
         lane.pairwise == lagunaAttnScalePairwiseQKVEnabled,
         lane.nibbles.dtype == .uint8,
         lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
         lane.bases.dtype == .uint8, lane.bases.dims(rows),
-        rows % simdgroups == 0,
-        tiles == 0 || rows % (tiles * simdgroups) == 0,
         let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
     {
-        lagunaTrace(
-            "decode nvfp4 qkv r1 h\(heads) lane-major sg\(simdgroups) nf\(fuse) tg\(tiles)")
+        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
-        let tail = [bank.packedCodes, lane.nibbles, lane.bases, bank.scales]
-        let inputs: [MLXArray]
-        switch fuse {
-        case 0: inputs = [normalized] + tail
-        case 1:
-            guard let residual, let normWeight else {
-                preconditionFailure("folded QKV requires residual and norm weight")
-            }
-            inputs = [residual, normWeight] + tail
-        default:
-            guard let residual, let normWeight else {
-                preconditionFailure("folded QKV requires residual and norm weight")
-            }
-            inputs = [normalized, residual, normWeight] + tail
-        }
         return kernel(
-            inputs,
-            grid: ((tiles == 0 ? rows : tiles * simdgroups) * 32, 1, 1),
-            threadGroup: (simdgroups * 32, 1, 1),
+            [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
+            grid: ((rows / 2) * 64, 1, 1),
+            threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16]
         )[0]
@@ -5979,27 +5760,12 @@ final class LagunaRuntimeAttention: Module {
                 let fusedTailGateLogits: MLXArray? = nil
                 // Only materialized when the fused kernel declined; the gate
                 // branches below that read it are unreachable when it fired.
-                // Research deconfound knob. Mode 1 folds the input RMSNorm
-                // into the QKV and gate kernels and drops the standalone
-                // dispatch; mode 3 folds only the reduction and keeps the
-                // dispatch so the redundant work is priced on its own.
-                let fuseMode =
-                    (fusedQKV == nil && B == 1 && L == 1
-                        && inputNorm.eps == Float(LagunaConstants.rmsNormEpsilon))
-                    ? lagunaDecodeNVFP4NormQKVFuse : 0
-                let normalized =
-                    fusedQKV ?? (fuseMode == 1 ? input : inputNorm(input))
+                let normalized = fusedQKV ?? inputNorm(input)
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
-                        normalized: normalized, bank: fusedAffine, heads: nHeads,
-                        residual: fuseMode == 0 ? nil : input,
-                        normWeight: fuseMode == 0 ? nil : inputNorm.weight)
+                        normalized: normalized, bank: fusedAffine, heads: nHeads)
                     : nil
-                if fuseMode == 1 && decodeNVFP4QKVR1 == nil {
-                    preconditionFailure(
-                        "norm-folded QKV declined; mode 1 has no normalized row")
-                }
                 let qkv =
                     fusedQKV
                     ?? decodeNVFP4QKVR1
@@ -6039,15 +5805,10 @@ final class LagunaRuntimeAttention: Module {
                         affineWO.mode == .nvfp4, affineWO.bits == 4,
                         affineWO.groupSize == 16,
                         let activated = lagunaGateSoftplus(
-                            input: normalized, bank: affineGate, heads: nHeads,
-                            residual: fuseMode == 1 ? input : nil,
-                            normWeight: fuseMode == 1 ? inputNorm.weight : nil)
+                            input: normalized, bank: affineGate, heads: nHeads)
                     {
                         gateLogits = activated
                         gateProjectionActivated = true
-                    } else if fuseMode == 1 {
-                        preconditionFailure(
-                            "norm-folded gate declined; mode 1 has no normalized row")
                     } else {
                         gateLogits = quantizedMM(
                             normalized,
@@ -6061,10 +5822,6 @@ final class LagunaRuntimeAttention: Module {
                         )
                     }
                 } else {
-                    if fuseMode == 1 {
-                        preconditionFailure(
-                            "BF16 gate projection has no normalized row in mode 1")
-                    }
                     gateLogits = gateProjection(normalized)
                 }
                 if lagunaAttentionProjectionAsyncEnabled,
