@@ -1,10 +1,10 @@
 # SENPAI Research State
-- 2026-08-07T07:20Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 7214e8a (pushed to origin).
-  12 composed changes on current frontier (PRs #220, #225, #226 cherry-picked).
-  LRM: 514,701/524,288 = 9,587 B headroom. Total: 2,975,392/3,000,000 = 24,608 B headroom.
+- 2026-08-07T07:42Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 9ef18f7 (pushed to origin).
+  13 composed changes on current frontier (PRs #220, #225, #226 cherry-picked, #232 merged).
+  LRM: 515,021/524,288 = 9,267 B headroom. Total: 1,924,953/3,000,000 = 1,075,047 B headroom.
 
-## MERGED FRONTIER (12 changes, all bit-exact)
+## MERGED FRONTIER (13 changes, all bit-exact)
   1. MoE scale halving (PR #180): 45.5 MiB/step bandwidth savings, decode MoE kernels
   2. Packed simd_sum (PR #194): instruction reduction in cross-lane reductions
   3. O-proj NVFP4 scale halving (PR #192): bandwidth savings for O-proj
@@ -19,6 +19,8 @@
   12. Prefill MoE scale halving FIXED (PR #220): correct up-row-0 escape for
       tile-interleaved layout. M5-only _nax path. ~1% prefill gain.
   Also merged: QKV NVFP4 scale halving (PR #225), O-proj escape fix (PR #226).
+  13. Gate-softplus interleaved packing (PR #232): interleaved scale/bias metadata
+      for g_proj, halving cache line accesses. +320B in LRM. Bit-exact decode win.
 
   REVERTED: PR #198 (original prefill MoE scale halving) — M5-only correctness
   bug in up-row-0 escape indexing. Fixed and re-applied as PR #220.
@@ -53,26 +55,28 @@
   Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%).
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
 
-## ACTIVE ASSIGNMENTS (Wave 8, all 4 students assigned, BASE_SHA=7214e8a)
-  CLOSED: PR #222 (askeladd fold-shared-gateup) — DEAD: merged 9-slot kernel 0.55%
-    SLOWER. asyncEval already overlaps independent dispatches. Key learning:
-    dispatch fusion with if/else branching hurts performance.
-  ABANDONED: PR #229 (edward prefill-down-halving-v1) — duplicate assignment marker
-    bug blocks ALL typed transitions. Edward reassigned to PR #234 (clean marker).
-  PR #234 (edward): Prefill MoE down scale halving v2 — halve 64 MiB prefill down
-    scale traffic via NVFP4 pairwise constancy. ~0.46% score, bit-exact, M5-only.
-        scales via NVFP4 pairwise constancy. ~0.46% score, bit-exact, M5-only.
-  PR #230 (alphonse): Fuse g_proj INT8 matmul + softplus into NVFP4 O-proj kernel —
-    eliminate 40 dispatches/step. ~0.75% score, bit-exact, M4-testable. HIGHEST priority.
-    KEY: eliminates DEPENDENT dispatch (gate-softplus→O-proj data dependency,
-    asyncEval cannot overlap). Different from dead PR #222 (independent dispatches).
-  PR #231 (thorfinn): Shared SwiGLU QMV gate/up scale halving — wire dead halved
-    tensors into shared expert kernel. ~0.11% score, bit-exact, M4-testable.
-  PR #232 (askeladd): Gate-softplus scale/bias interleaved packing — interleave
-    scales+biases into single array for cache locality. Bit-exact, ~300B, M4-testable.
+## ACTIVE ASSIGNMENTS (Wave 8+9, BASE_SHA=9ef18f7)
+  MERGED: PR #232 (askeladd gate-softplus interleave) — bit-exact decode win, +320B.
+  CLOSED: PR #222 (askeladd fold-shared-gateup) — DEAD: asyncEval overlaps independent dispatches.
+  ABANDONED: PR #229 (edward prefill-down-halving-v1) — duplicate marker bug.
+  ABANDONED: PR #235 (askeladd invalid marker) — empty head_sha marker bug.
+  PR #234 (edward): Prefill MoE down scale halving v2 — ~0.46% score, bit-exact, M5-only.
+  PR #230 (alphonse): Fuse g_proj into O-proj kernel — ~0.75% score, bit-exact, M4-testable.
+  PR #231 (thorfinn): Shared SwiGLU gate/up scale halving — ~0.11% score, bit-exact, M4-testable.
+  PR #236 (askeladd): Prefill shared expert gate/up dispatch fusion — ~0.125-0.25% score,
+    bit-exact, M4-testable. Reuses existing fused bank for prefill quantizedMM.
+
+## NEXT-WAVE IDEAS (verified, ready to assign)
+  Idea 1: Prefill shared expert gate/up fusion — ASSIGNED to askeladd (PR #236).
+  Idea 2: Prefill O-proj gate dispatch fusion — REFUTED (documented negative in commit 8841cd9).
+  Idea 3: Prefill shared expert scale halving via qmm_nax kHalvedScales — M5-only, ~0.22% score.
+  Idea 4: callLastPrefillRow gate fusion — marginal (1 layer only).
+  Idea 5: EXPERT_GATHER_GROUPS=256 M5 measurement — 0-byte, M5-only.
+  Also: Prefill MoE gather-QMM scale halving — ~1.0-1.5% composite, M5-only, highest est. gain.
 
 ## COMPOSITION PLAN
-  If 3 main assignments succeed: ~0.46% + ~0.75% + ~0.11% = ~1.32% total.
+  If 3 in-flight assignments succeed: ~0.46% + ~0.75% + ~0.11% = ~1.32% total.
+  Plus PR #232 merge (~0.05% from M4, possibly more on M5).
   Starting from 2.5748 → ~2.609. Would BEAT 2.5888 target.
   Submit independently first, then compose winners for combined submission.
 
