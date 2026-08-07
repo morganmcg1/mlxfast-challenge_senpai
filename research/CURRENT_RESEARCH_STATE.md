@@ -1,8 +1,9 @@
 # SENPAI Research State
-- 2026-08-07T14:50Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 6739b6a (pushed to origin).
-  29 composed changes on current frontier (LRM-only, _nax vendor files reverted to pre-PR#243).
-  LRM: 505,356/524,288 = 18,932 B headroom. Total surface 2,967,227/3,000,000 = 32,773 B.
+- 2026-08-07T15:10Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 87b2dd2 (pushed to origin).
+  30+ composed changes on current frontier (87aff2f vendor files + LRM optimizations).
+  LRM: 505,776/524,288 = 18,512 B headroom (PR #294 pending rebase, will free ~9.3KB more).
+  Total surface: 2,969,335/3,000,000 = 30,665 B headroom.
 
 ## CRITICAL: _nax VENDOR REVERT (2026-08-07)
   Reverted fp_quantized_nax.cpp and quantized.cpp to pre-PR#243 state (577a9b6).
@@ -21,11 +22,11 @@
   revert of PR #243/#263) are the M5-safe base.
   Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
 
-## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=2bd3c3f)
+## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=87b2dd2)
   PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — halve grid from 73728 to 36864 TGs (bit-exact, ~50B, decode)
-  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, needs clean rebase on 2bd3c3f
-  PR #292 (askeladd): Prefill gate-product+softplus multi-token extension — awaiting work
-  PR #294 (thorfinn): Dead code removal — awaiting work (~12KB LRM budget recovery)
+  PR #285 (edward): Routed MoE halved scales escape fix — v2 revision, rebase nudge sent
+  PR #292 (askeladd): Prefill gate-product+softplus multi-token extension — rebase nudge sent
+  PR #294 (thorfinn): Dead code removal — APPROVED, revision v2 requested (rebase on 87b2dd2, conflict with PR #291)
 
 ## CLOSED
   PR #296 (alphonse): RMSNorm→LM head fusion — CLOSED (bandwidth-negative: 25MB extra norm-weight reads across 6272 TGs)
