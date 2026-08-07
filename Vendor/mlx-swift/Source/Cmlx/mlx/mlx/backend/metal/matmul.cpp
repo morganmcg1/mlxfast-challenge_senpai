@@ -518,6 +518,15 @@ void steel_matmul_regular_axpby(
     compute_encoder.set_bytes(params, 5);
   }
 
+  if (darkbloom_steel_trace()) {
+    fprintf(
+        stderr,
+        "[darkbloom][steel-reg] %s M=%d N=%d K=%d grid=(%lu,%lu,%lu) "
+        "group=(%lu,%lu,%lu)\n",
+        base_name.c_str(), M, N, K, grid_dims.width, grid_dims.height,
+        grid_dims.depth, group_dims.width, group_dims.height,
+        group_dims.depth);
+  }
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
 
   // Record copies
@@ -633,6 +642,15 @@ void steel_gemm_splitk_axpby(
   compute_encoder.set_output_array(C_split, 2);
 
   compute_encoder.set_bytes(params, 3);
+  if (darkbloom_steel_trace()) {
+    fprintf(
+        stderr,
+        "[darkbloom][steel-splitk] %s M=%d N=%d K=%d parts=%d "
+        "grid=(%lu,%lu,%lu) group=(%lu,%lu,%lu)\n",
+        kname.str().c_str(), M, N, K, split_k_partitions, grid_dims.width,
+        grid_dims.height, grid_dims.depth, group_dims.width, group_dims.height,
+        group_dims.depth);
+  }
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
 
   // Do accum kernel
