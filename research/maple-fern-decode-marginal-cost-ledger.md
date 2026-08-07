@@ -477,4 +477,44 @@ within `T2c`, not for the ledger itself, and it does not affect any pass/fail
 verdict in this report. Resolving it needs a byte-counting probe (GPUPROF
 `bytes_read` per dispatch family), which is a separate experiment.
 
+---
+
+## 7. Pre-registration scorecard
+
+The predictions were landed in `research/maple-fern-decode-ledger-prereg.md`
+at commit `d9edc28`, **before any probe was run**. Every row below compares that
+frozen prediction with the measurement.
+
+| # | site | pre-reg verdict | `E_pred` | `E_range` | census us/step | measured slope us/copy-set | measured `E` | outcome |
+| --- | --- | --- | --: | --- | --: | --- | --: | --- |
+| T0a | `router_top8` | side-branch | 0.00 | [-0.16, 0.16] | 185.7 | `-8.45 +/- 4.83` | `-0.045` | **confirmed** |
+| T0b | fused QKV | chain-link | 1.00 | [0.70, 1.30] | n/a | `1276.01 +/- 11.48` | n/a | **qualitatively confirmed** (zero slack, linear from K=1); no census row to divide by |
+| T1a | `residual_rms_router` | chain-link | 1.00 | [0.70, 1.30] | 305.1 | `106.4` chained / `39.5` unchained | `0.349` / `0.129` | **refuted** |
+| T1c | `lmhead` | chain-link | 1.00 | [0.70, 1.30] | 427.0 | `474.22 +/- 4.87` | `1.111` | **confirmed** |
+| T2a | `shared_qmv` | side-branch | 0.10 | [-0.10, 0.35] | 237.5 | `73.82 +/- 3.79` | `0.311` | **confirmed** |
+| T2c | routed QMV | chain-link | 1.00 | [0.70, 1.30] | n/a | `1183.81 +/- 8.44` | n/a | **qualitatively confirmed** (zero slack) |
+| T2d | down + residual | chain-link | 1.00 | [0.70, 1.30] | n/a | `554.89 +/- 6.09` | n/a | **qualitatively confirmed** (zero slack) |
+| T1b | `rmsbfloat16` | chain-link, `E_pred = 1.70` | 1.70 | [1.00, 2.20] | 124.6 | not wired | - | **not measured** |
+| T2b | `gate_sp` | side-branch | 0.10 | [-0.10, 0.35] | 262.3 | wired, live (40 calls), not timed | - | **not measured** |
+| T3a/b/c | attention, o-proj | chain-link | 0.95 | [0.70, 1.30] | n/a | not wired | - | **not measured** |
+
+Four of five computable predictions landed inside their pre-registered bands.
+
+**The one refutation is `T1a`, and it is the informative one.** It was
+pre-registered as a chain-link because `lagunaResidualRMSNormRouter` sits
+structurally between the residual stream and the router, and every downstream
+consumer needs it. That is true, and it is still shadowed: measured `E = 0.349`
+chained and `E = 0.129` unchained, both far below the `[0.70, 1.30]` band, with
+15.16 copy-sets of absorbed slack. Being *topologically* on the path is not the
+same as being *temporally* on the critical path - the routed-expert arm issued
+alongside it is long enough to hide almost all of it. This is precisely the
+failure mode that a static dependency analysis cannot catch and that this
+instrument exists to catch.
+
+`T2a` is the mirror image and worth stating explicitly: pre-registered as a
+side branch at `E_pred = 0.10`, measured `E = 0.311` - inside the band, but at
+its top edge, and with **zero absorbed slack**. It is a *small* chain-link, not
+a side branch. The `E` band accepted it for the wrong reason; the slack column
+is the diagnostic that separates them.
+
 
