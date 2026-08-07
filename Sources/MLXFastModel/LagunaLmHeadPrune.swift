@@ -316,23 +316,23 @@ private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
 
 /// Decode-only fused RMSNorm + level-one coarse kernel. Identical to
 /// `lagunaLmHeadInt5BaseCoarseKernel` but takes the RAW (unnormalized) hidden
-/// state plus the final-norm weight, computes the RMSNorm in a 512-thread
-/// prologue, stores the normalized+weighted values in threadgroup memory, and
-/// emits them to a device buffer for the downstream threshold/exact kernels.
+/// state plus the final-norm weight, computes the RMSNorm inv_mean in a
+/// 512-thread prologue (132 bytes of threadgroup memory, 3 barriers), then
+/// normalizes each element on-the-fly during the dot product. Emits the
+/// normalized+weighted hidden to a device buffer for downstream kernels.
 /// Eliminates the separate `MLXFast.rmsNorm` dispatch (1 per decode step).
 ///
 /// Bit-exactness: the prologue replicates the stock `rms_single_row` reduction
 /// order exactly — 512 threads, 4 elements each, `simd_sum` per simdgroup,
 /// 16 partials in threadgroup memory, `simd_sum` again in simdgroup 0,
-/// `precise::rsqrt(sum / 2048 + 1e-6)`. The normalize step produces
-/// `bfloat(float(x) * inv_mean) * weight` → `bfloat(...)`, matching
+/// `precise::rsqrt(sum / 2048 + 1e-6)`. The per-element normalization produces
+/// `bfloat(float(w) * float(bfloat(float(x) * inv_mean)))`, matching
 /// `w[i] * static_cast<T>(xcache[i] * inv_mean)` with T=bfloat16_t.
 ///
 /// Only threadgroup 0 writes `norm_x`; all threadgroups compute the same
-/// normalization independently (the x read is already replicated), so this
-/// is a single 4 KB write with no cross-threadgroup dependency.
+/// inv_mean independently (the x read is already replicated).
 private let lagunaLmHeadInt5BaseCoarseFusedNormKernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_base_coarse_fused_norm_v1",
+    name: "laguna_lmhead_int5_base_coarse_fused_norm_v2",
     inputNames: ["x_raw", "norm_weight", "codes_base", "scales"],
     outputNames: ["coarse", "delta", "norm_x"],
     source: """
@@ -347,17 +347,13 @@ private let lagunaLmHeadInt5BaseCoarseFusedNormKernel = MLXFast.metalKernel(
 
         threadgroup float local_inv_mean[1];
         threadgroup float local_sums[32];
-        threadgroup bfloat normalized[HIDDEN];
 
         // --- RMSNorm prologue (all 512 threads cooperate) ---
-        uint base = lid * N_READS;
+        uint nbase = lid * N_READS;
         float acc = 0.0f;
-        bfloat xcache[N_READS];
         for (uint i = 0; i < N_READS; ++i) {
-            bfloat xi = bfloat(x_raw[base + i]);
-            xcache[i] = xi;
-            float fv = float(xi);
-            acc += fv * fv;
+            float xi = float(x_raw[nbase + i]);
+            acc += xi * xi;
         }
         acc = simd_sum(acc);
 
@@ -379,16 +375,15 @@ private let lagunaLmHeadInt5BaseCoarseFusedNormKernel = MLXFast.metalKernel(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         float inv_mean = local_inv_mean[0];
 
-        for (uint i = 0; i < N_READS; ++i) {
-            bfloat normed =
-                bfloat(float(xcache[i]) * inv_mean);
-            bfloat weighted = bfloat(float(norm_weight[base + i]) * float(normed));
-            normalized[base + i] = weighted;
-            if (tgid == 0) {
-                norm_x[base + i] = weighted;
+        // Threadgroup 0 writes the normalized+weighted hidden for downstream
+        // kernels. Each thread normalizes its 4 elements.
+        if (tgid == 0) {
+            for (uint i = 0; i < N_READS; ++i) {
+                bfloat normed = bfloat(float(x_raw[nbase + i]) * inv_mean);
+                norm_x[nbase + i] =
+                    bfloat(float(norm_weight[nbase + i]) * float(normed));
             }
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
 
         // --- coarse int5 dot product (per simdgroup, same as base kernel) ---
         uint row = tgid * 16 + simd_group;
@@ -402,8 +397,10 @@ private let lagunaLmHeadInt5BaseCoarseFusedNormKernel = MLXFast.metalKernel(
             uint g = 2 * simd_lane + gg;
             float sd = laguna_e8m0_decode(srow[g]);
             uint4 c4 = ((const device uint4*)(crow + g * 16))[0];
-            const threadgroup ushort4* xrow =
-                (const threadgroup ushort4*)(normalized + g * 32);
+            const device ushort4* xrow =
+                (const device ushort4*)(x_raw + g * 32);
+            const device ushort4* wrow =
+                (const device ushort4*)(norm_weight + g * 32);
             float cg = 0.0f;
             float ag = 0.0f;
             #pragma clang loop unroll(full)
@@ -415,8 +412,24 @@ private let lagunaLmHeadInt5BaseCoarseFusedNormKernel = MLXFast.metalKernel(
                 float4 vo = float4(no << 1u) - 15.5f;
                 float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
                 float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
-                float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
-                float4 xo = float4(xa.y, xa.w, xb.y, xb.w);
+                float4 wa = as_type<float4>(uint4(wrow[2 * w]) << 16);
+                float4 wb = as_type<float4>(uint4(wrow[2 * w + 1]) << 16);
+                // Deinterleave even/odd and normalize on-the-fly:
+                // bfloat(float(w) * float(bfloat(float(x) * inv_mean)))
+                float4 xe_raw = float4(xa.x, xa.z, xb.x, xb.z);
+                float4 xo_raw = float4(xa.y, xa.w, xb.y, xb.w);
+                float4 we = float4(wa.x, wa.z, wb.x, wb.z);
+                float4 wo = float4(wa.y, wa.w, wb.y, wb.w);
+                float4 xe = float4(
+                    float(bfloat(float(we.x) * float(bfloat(xe_raw.x * inv_mean)))),
+                    float(bfloat(float(we.y) * float(bfloat(xe_raw.y * inv_mean)))),
+                    float(bfloat(float(we.z) * float(bfloat(xe_raw.z * inv_mean)))),
+                    float(bfloat(float(we.w) * float(bfloat(xe_raw.w * inv_mean)))));
+                float4 xo = float4(
+                    float(bfloat(float(wo.x) * float(bfloat(xo_raw.x * inv_mean)))),
+                    float(bfloat(float(wo.y) * float(bfloat(xo_raw.y * inv_mean)))),
+                    float(bfloat(float(wo.z) * float(bfloat(xo_raw.z * inv_mean)))),
+                    float(bfloat(float(wo.w) * float(bfloat(xo_raw.w * inv_mean)))));
                 float4 axe = metal::abs(xe);
                 float4 axo = metal::abs(xo);
                 #pragma clang loop unroll(full)
