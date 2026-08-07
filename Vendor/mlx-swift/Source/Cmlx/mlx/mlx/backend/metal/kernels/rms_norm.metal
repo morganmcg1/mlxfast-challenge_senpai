@@ -19,7 +19,7 @@ template <typename T, int N_READS = RMS_N_READS>
     constant uint& w_stride,
     uint gid [[threadgroup_position_in_grid]],
     uint lid [[thread_position_in_threadgroup]],
-    uint grid_size [[threads_per_grid]],
+    uint lsize [[threads_per_threadgroup]],
     uint simd_lane_id [[thread_index_in_simdgroup]],
     uint simd_group_id [[simdgroup_index_in_threadgroup]]) {
   constexpr int SIMD_SIZE = 32;
@@ -27,10 +27,9 @@ template <typename T, int N_READS = RMS_N_READS>
   threadgroup float local_inv_mean[1];
   threadgroup float local_sums[SIMD_SIZE];
 
-  // Laguna BF16 single-row 2048 specialization. The grid-width guard keeps
-  // the 512-row prefill launch on the generic path: one 2048-wide row is
-  // exactly 512 threads at RMS_N_READS=4, while prefill dispatches 512 of
-  // those threadgroups as a 262144-thread grid. The fixed row has sixteen
+  // Laguna BF16 2048-wide specialization. Each row uses
+  // exactly 512 threads at RMS_N_READS=4, independent of the number of
+  // threadgroups in the dispatch. The fixed row has sixteen
   // simdgroup partials. Write those to slots 0...15 while lanes 16...31 of
   // simdgroup zero initialize the disjoint unused slots, then rendezvous once.
   // This produces the exact 32-lane second-reduction input of the generic
@@ -38,7 +37,7 @@ template <typename T, int N_READS = RMS_N_READS>
   // simd reductions, precise rsqrt, BF16 cast point, and weight multiply are
   // unchanged.
   if constexpr (metal::is_same_v<T, bfloat16_t> && N_READS == 4) {
-    if (axis_size == 2048 && grid_size == 512 && w_stride == 1) {
+    if (axis_size == 2048 && lsize == 512 && w_stride == 1) {
       constexpr uint laguna_simdgroups = 16;
       const device T* row_x =
           x + gid * size_t(axis_size) + lid * N_READS;
