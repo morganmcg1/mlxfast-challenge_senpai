@@ -845,7 +845,7 @@ METAL_FUNC void fp_qmm_t_impl(
   const int kernel_K = fixed_K > 0 ? fixed_K : K;
   const int kernel_N = fixed_N > 0 ? fixed_N : N;
 
-  constexpr int BK_padded = (BK + 16 / sizeof(Wtype));
+  constexpr int BK_padded = (BK + 4);
 
   // Instantiate Loader
   using loader_w_t = QuantizedBlockLoader<
@@ -1226,7 +1226,7 @@ template <
     uint simd_lid [[thread_index_in_simdgroup]]) {
   (void)lid;
 
-  constexpr int BK_padded = (BK + 16 / sizeof(Wtype));
+  constexpr int BK_padded = (BK + 4);
 
   threadgroup Wtype Ws[BN * BK_padded];
 
@@ -1313,7 +1313,7 @@ template <
   (void)s_strides;
   static_assert(fixed_K > 0 && fixed_N > 0);
 
-  constexpr int BK_padded = BK + 16 / sizeof(Wtype);
+  constexpr int BK_padded = BK + 4;
   threadgroup Wtype Ws[BN * BK_padded];
 
   fp_qmm_t_impl<
@@ -1431,7 +1431,7 @@ template <
     uint simd_lid [[thread_index_in_simdgroup]]) {
   (void)lid;
 
-  constexpr int BK_padded = (BK + 16 / sizeof(Wtype));
+  constexpr int BK_padded = (BK + 4);
 
   threadgroup Wtype Ws[BN * BK_padded];
 
@@ -1557,7 +1557,7 @@ template <
     uint simd_lane_id [[thread_index_in_simdgroup]]) {
   constexpr int pack_factor = get_pack_factor<8, bits>();
   constexpr int bytes_per_pack = get_bytes_per_pack();
-  constexpr int BK_padded = (BK + 16 / sizeof(Wtype));
+  constexpr int BK_padded = (BK + 4);
   constexpr int BN_padded = (BN + 16 / sizeof(Wtype));
 
   using loader_w_t = QuantizedBlockLoader<
@@ -1573,8 +1573,8 @@ template <
   // 16B-aligned backing store for Ws: identical element count, identical
   // contents, identical relative addresses. DARKBLOOM_STAGE_WIDEST needs Ws
   // itself 16B-aligned so that every thread's dst = Ws + bi*BK_padded +
-  // bj*pack_factor is too (BK_padded*sizeof == 144 and bj*pack_factor*sizeof
-  // in {0, 64} are all multiples of 16).
+  // bj*pack_factor is too (BK_padded*sizeof == 136 and bj*pack_factor*sizeof
+  // in {0, 64} — note: 136 is 8B-aligned, wide 16B store falls back to scalar when bi is odd).
   constexpr int kWsElems = transpose ? BN * BK_padded : BK * BN_padded;
   constexpr int kWsPerChunk = 16 / sizeof(Wtype);
   threadgroup NAXWsChunk16<Wtype>
@@ -1918,7 +1918,7 @@ template <
 
   constexpr int pack_factor = get_pack_factor<8, bits>();
   constexpr int bytes_per_pack = get_bytes_per_pack();
-  constexpr int BK_padded = BK + 16 / sizeof(Wtype);
+  constexpr int BK_padded = BK + 4;
   constexpr int BN_padded = BN + 16 / sizeof(Wtype);
   // expert_groups comes from the template (grid y); the host certifies
   // experts % expert_groups == 0 and sizes the grid to match, so each
@@ -1944,10 +1944,10 @@ template <
   constexpr int kWsPerChunk = 16 / sizeof(Wtype);
 #if defined(DARKBLOOM_STAGE2_GATHER) && DARKBLOOM_STAGE2_GATHER == 1
   // Variant 1 only: two Ws buffers so tile k+1 can be staged while tile k is
-  // still being consumed. kWsElems * sizeof(Wtype) is a multiple of 16 (BN and
-  // BK_padded are both multiples of 8 at every instantiation that reaches
-  // here), so the second buffer keeps the 16B alignment the wide staging
-  // stores require. gate_up_stage still aliases buffer 0: it holds BM * BN
+  // still being consumed. kWsElems * sizeof(Wtype) is a multiple of 16 (BN is
+  // a multiple of 8 at every instantiation that reaches here), so the second
+  // buffer keeps the 16B alignment the wide staging stores require.
+  // gate_up_stage still aliases buffer 0: it holds BM * BN
   // bfloats, which fits inside one Ws buffer, and it is only touched after the
   // k loop has drained. Doubling the allocation costs co-residency, which is
   // why variant 2 is the default.
@@ -2273,7 +2273,7 @@ template <
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
             NAXTile<Wtype, TN, TK> Btile;
 
-            // Ws is 16B-aligned (NAXWsChunk16), BK_padded*2B = 144B row
+            // Ws is 16B-aligned (NAXWsChunk16), BK_padded*2B = 136B row
             // stride, runs at multiples of 8B: same bytes, same slots.
             Btile.template load_contig_tg<Wtype, BK_padded>(
                 Ws + tn * BK_padded + kk1);
