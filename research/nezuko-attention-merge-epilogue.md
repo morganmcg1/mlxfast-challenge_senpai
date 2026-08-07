@@ -1,11 +1,19 @@
 # The attention merge epilogue (PR #205, `maple-2026-08-07c-attention-merge-epilogue`)
 
 Student: maple-nezuko. Base `codex/mlxfast-maple-20260804-advisor` @
-`1fe609eb920dd96a409f2949a0e901d3bb525af6`. Host: Apple M4 Pro, 20 GPU cores,
-`applegpu_g16s`, 48 GiB. Ranked host is M5 Max.
+**`747d130be532383d3eabd190f54f8b1b2bc6f9fd`** (rebased; the assignment marker's
+base was `1fe609eb920dd96a409f2949a0e901d3bb525af6`, and sections 1-7 were
+measured there -- see §9 for the rebase and the re-verification). Host: Apple
+M4 Pro, 20 GPU cores, `applegpu_g16s`, 48 GiB. Ranked host is M5 Max.
 
 Shipped surface: `Sources/MLXFastModel/LagunaRuntimeModel.swift` only.
-Research-only: this file and `research/nezuko_epilogue_probe.swift`.
+Net editable growth **−454 bytes** against `747d130b` (§8), well inside the
+advisor's revised +12,000-byte cap.
+Research-only: this file, `research/nezuko_epilogue_probe.swift`,
+`research/nezuko_epilogue_abba.sh`,
+`research/nezuko_pr205_rebase_verify.sh`,
+`research/nezuko_pr205_dispatch_receipt.sh` and
+`research/nezuko-pr205-submission-note.md`.
 
 ---
 
@@ -458,11 +466,152 @@ this host's drift looks like over a 20-minute window.
 
 ## 8. Budget
 
-`./senpai/check-editable-budget.sh 1fe609eb920dd96a409f2949a0e901d3bb525af6`
-after the change: `current=2934682 headroom=65318 growth=-454/262144 files=142`.
-The change is a net **reduction** of 454 bytes, so it takes nothing from the
-shared 65 KB pool that maple-fern also draws on.
+Against the **advanced** base `747d130be532383d3eabd190f54f8b1b2bc6f9fd`
+(the advisor's revised requirement, reported here as asked):
+
+```
+$ ./senpai/check-editable-budget.sh 747d130be532383d3eabd190f54f8b1b2bc6f9fd
+editable budget OK: current=2949232/3000000 bytes headroom=50768
+                    growth=-454/262144 files=142 (base=142)
+```
+
+**Net growth = −454 bytes.** The revised hard cap for this PR is +12,000 bytes
+of net growth, shared against a 50,314-byte pool with PRs #204, #148 and #215.
+This change does not draw from that pool at all -- it *returns* 454 bytes to it,
+because collapsing eight staged stores/loads into two removes more source than
+the `float4` repack adds. Under the older 22 KB framing the figure was the same
+(`growth=-454` against base `1fe609eb`, where `headroom` read 65,318); only the
+absolute `current`/`headroom` numbers move with the base, since PR #170 added
+bytes elsewhere in the surface.
+
+No new file is created, no new kernel-variant string is introduced, and no new
+specialization is added to any dispatch table. The advisor's warning about
+variant strings does not apply: Arm A is a pure in-place rewrite of two existing
+kernel bodies.
 
 Region fence honoured: the diff touches only lines inside the two attention
 kernel bodies (`~1466`, `~1593-1662`, `~1923`, `~2094-2163` in the base
 numbering). Nothing in `600-1100`, `8525-8910`, `9461-9575` or `10003-10130`.
+
+## 9. Rebase onto the advanced base `747d130b`, and re-verification
+
+### 9.1 Why
+
+All of sections 1-7 were measured against the assignment marker's base
+`1fe609eb920dd96a409f2949a0e901d3bb525af6`. While the official receipt was being
+dispatched, the advisor advanced the base to
+`747d130be532383d3eabd190f54f8b1b2bc6f9fd` (PR #170 merged) and tightened the
+byte cap. The in-flight dispatcher was **cancelled before it invoked `submit`**
+(`submitted=0`; zero official receipts consumed), the branch was rebased, and
+every claim that could move was re-taken on the new base. This section records
+that re-verification; it is not a summary of the old one.
+
+### 9.2 The rebase is clean by inspection, not by assertion
+
+PR #170 (`1fe609eb` → `747d130b`, 295 insertions / 4 deletions) touches exactly
+three files:
+
+```
+Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp
+Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h
+Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+```
+
+My change touches exactly one file,
+`Sources/MLXFastModel/LagunaRuntimeModel.swift`. The intersection is empty, so
+the rebase had no conflict to resolve and no semantic interaction to reason
+about: #170 is an NVFP4 quantized-matmul kernel change, mine is a threadgroup
+staging change in the decode attention epilogue.
+
+The transplant is verified numerically rather than trusted:
+
+```
+$ git diff --stat 747d130b HEAD -- Sources Vendor
+ Sources/MLXFastModel/LagunaRuntimeModel.swift | 126 +++++++-------------
+ 1 file changed, 46 insertions(+), 80 deletions(-)
+```
+
+46/80 is **byte-identical** to the pre-rebase diffstat against `1fe609eb`, and
+`grep -c outputs4` still returns 10 (two declarations, four stores, four loads).
+The edit survived the rebase exactly.
+
+### 9.3 Bitwise logit certificate re-taken on `747d130b`
+
+Driver `research/nezuko_pr205_rebase_verify.sh` (committed). It does a real
+`git checkout 747d130b -- <src>` + full rebuild for the reference arm, then
+restores and rebuilds the candidate, and hashes the per-step top-k logit
+digests. Supervised training `17f7d0f3-2c5b-414a-86db-abc200111684`, exit 0,
+terminating on `VERIFY_DONE`. Outputs in `/tmp/nezreb/`.
+
+```
+REF_RUN_DIGEST   3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928
+CAND_RUN_DIGEST  3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928
+RUN_DIGEST_EQUAL         True
+STEP_DIGESTS_DIFFERING   0 of 65
+REF_TOKEN_MISMATCHES     0
+CAND_TOKEN_MISMATCHES    0
+PROVENANCE cand=0cb47228c157014468bbf4746727fe70
+           base=d1e622691706e565e878eb79fe3ed38b
+PROVENANCE worktree_clean=0     (0 dirty files)
+```
+
+The two binary MD5s differ, so this is a genuine two-build comparison and not a
+binary compared against itself. The 1-ULP fault control from §7.1 -- which flips
+64 of 65 step digests while leaving `TOKEN_MISMATCHES` at 0 -- remains the proof
+that this instrument can see a difference this small; it was not re-run, because
+what it validates is the instrument, and the instrument is unchanged.
+
+One incidental cross-check falls out: the run digest on the new base
+`3447204b...` is *the same value* as the run digest measured on the old base in
+§7.1. So PR #170 is itself bit-exact on this correctness prompt, and my
+candidate is bit-exact on top of it.
+
+### 9.4 `./benchmark.sh --local-submit` re-run on the rebased candidate
+
+`LOCAL_SUBMIT_RC=0`, 168.8 s. Full output `/tmp/nezreb/local_submit.txt`.
+
+```
+passed                        : true
+passed_correctness            : true
+max_abs_diff                  : 0
+checked_tokens                : 1025     decode tokens checked : 1023/1023
+decode_seconds_per_token      : 0.008881495152492667
+decode_speedup                : 1.5601215698763722
+passed_decode_speedup_floor   : true
+prefill_seconds_per_token     : 0.0011122900390625
+prefill_speedup               : 0.330
+passed_prefill_speedup_floor  : false
+est_score                     : 1.0583623526430868
+peak_ram_gb                   : 21
+decode_bandwidth_gb_per_token : 0.000000
+golden_hash  f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2
+harness_hash 51c1773772ae8007dcb822042b9a62cb418778fbb7e2dfb1cb4c96e6a4bcffa8
+```
+
+Same reading as §7.3 and the same caveat: `passed_prefill_speedup_floor: false`
+is the ordinary M4 Pro artifact, because local prefill is scored against the M5
+official-runner constant `baseline_prefill_seconds_per_token = 0.000368`, which
+this host cannot reach on *any* build including the unmodified base. The floor
+that decides the submission is the same-session paired one on the ranked M5.
+`golden_hash` and `harness_hash` are unchanged from the pre-rebase run, so the
+harness and golden fixture are the same ones §7.3 was measured against.
+
+### 9.5 What was **not** re-taken, and why that is defensible
+
+- **§4 kernel-level ABBA (the load-bearing timing evidence).** Not re-run. It
+  measures the two attention kernels in isolation via a standalone Metal
+  instrument; PR #170 changes only NVFP4 quantized-matmul kernels, which the
+  instrument does not dispatch. Re-running it would resample the same
+  distribution at a cost of ~40 minutes of GPU time.
+- **§7.5 end-to-end matched ABBA.** Not re-run. Its confidence interval
+  (±51 µs/step) is 3.6x the predicted effect, so it was never confirmatory --
+  it is a no-regression and kill-threshold check, and §9.4's `passed: true`
+  with `max_abs_diff: 0` on the new base discharges the same obligation more
+  cheaply. Re-running it on the new base would still be unresolvable.
+- **§7.4 adversarial review.** Not re-run. The reviewed diff is byte-identical
+  after the rebase (§9.2).
+
+What *was* re-taken is exactly the set of claims that could have changed: the
+bitwise certificate (could break if #170 interacted numerically), the harness
+pass (could break if #170 changed the golden), and the byte budget (moves with
+the base by construction).

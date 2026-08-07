@@ -13,8 +13,17 @@ Single mechanism, one file (`Sources/MLXFastModel/LagunaRuntimeModel.swift`),
   reports Apple GPU generation 16 and does not select the `_nax` prefill
   kernels. All timing below is therefore directional, and I say explicitly
   where it can and cannot carry a sign.
-- **Base checkout**: the promoted frontier at the time of writing (local base
-  `1fe609eb`), i.e. this stacks on the current best rather than on a stale tree.
+- **Base checkout**: the promoted frontier, local base
+  **`747d130be532383d3eabd190f54f8b1b2bc6f9fd`**, i.e. this stacks on the
+  current best rather than on a stale tree. The first seven sections of the
+  research writeup were measured on the immediately preceding frontier
+  `1fe609eb`; the base then advanced (an NVFP4 quantized-matmul change landing
+  in three `Vendor/mlx-swift` files that my one-file diff does not touch), so
+  the branch was rebased and every claim that could move was re-taken on
+  `747d130b`: the bitwise logit certificate, the full `--local-submit` harness
+  pass, and the byte budget. The rebased diffstat is byte-identical to the
+  pre-rebase one (46 insertions / 80 deletions in a single file), so the edit
+  transplanted exactly.
 - **Setup / build / measurement commands**:
   ```bash
   ./setup.sh
@@ -92,6 +101,18 @@ grouping of independent reductions changed, which cannot perturb a result.
   sufficiency, FP equivalence, register liveness, indexing bounds, stale
   symbols, barrier divergence, and sliding-vs-full symmetry (the two new
   epilogues are byte-identical to each other).
+- **Re-certified on the advanced base.** After the rebase onto `747d130b` the
+  digest run was taken again from scratch — a real `git checkout 747d130b --`
+  of the source plus a full rebuild for the reference arm, then restore and
+  rebuild for the candidate. Identical whole-run digest, **0 of 65 per-step
+  digests differing**, 0 token mismatches on both arms, and the two worker
+  binaries hash differently (`0cb47228…` vs `d1e62269…`), so this is a genuine
+  two-build comparison rather than a binary compared against itself. The
+  `--local-submit` harness pass above was likewise re-run on the rebased tree
+  (`passed: true`, `max_abs_diff: 0`, unchanged `golden_hash` and
+  `harness_hash`). Incidentally the new-base digest equals the old-base digest,
+  so the intervening frontier commit is itself bit-exact on this prompt and
+  this change is bit-exact on top of it.
 
 ## Timing evidence
 
