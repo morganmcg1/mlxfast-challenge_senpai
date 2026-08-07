@@ -12,26 +12,52 @@
 # Both control arms must report 0 divergences and every fault arm must report
 # more than 0 for the tripwire to have demonstrated power over that mechanism.
 #
+# MODE=freerun swaps the teacher-forced tripwire for a self-feeding free run.
+# Teacher forcing resets the trajectory every step, so it only ever compares
+# single-step argmaxes against the golden; a free run compounds any difference,
+# so two builds share a token hash only if every step agreed. That makes the
+# guards-off/on/pairwise hashes a measurement of bit-exactness rather than an
+# argument for it.
+#
 #   OUT=/tmp/maple-shared-qmv-fault bash research/maple_shared_qmv_fault_injection.sh
 set -uo pipefail
 
 OUT="${OUT:-/tmp/maple-shared-qmv-fault}"
-STEPS="${STEPS:-128}"
+MODE="${MODE:-tripwire}"
+if [ "${MODE}" = "freerun" ]; then
+  STEPS="${STEPS:-256}"
+  MODE_LABEL="self-fed free run"
+else
+  STEPS="${STEPS:-128}"
+  MODE_LABEL="teacher-forced tripwire"
+fi
 
 mkdir -p "${OUT}"
 SUMMARY="${OUT}/summary.txt"
 : >"${SUMMARY}"
 
 # label:prefetch_env:pairwise_env:fault_mode
-ARMS=(
-  "on-control:1::"
-  "on-fault-prefetch_stale:1::prefetch_stale"
-  "on-fault-prefetch_zero:1::prefetch_zero"
-  "on-fault-activation_zero:1::activation_zero"
-  "pairwise-control::1:"
-  "pairwise-fault-plane_byte::1:plane_byte"
-  "pairwise-fault-plane_shift::1:plane_shift"
-)
+if [ "${MODE}" = "freerun" ]; then
+  # With FAULT unset every fault branch expands to a no-op, so the three
+  # unfaulted arms measure the shipped guards on this one faulted-source build.
+  ARMS=(
+    "off:::"
+    "on:1::"
+    "pairwise::1:"
+    "on-fault-prefetch_stale:1::prefetch_stale"
+    "pairwise-fault-plane_byte::1:plane_byte"
+  )
+else
+  ARMS=(
+    "on-control:1::"
+    "on-fault-prefetch_stale:1::prefetch_stale"
+    "on-fault-prefetch_zero:1::prefetch_zero"
+    "on-fault-activation_zero:1::activation_zero"
+    "pairwise-control::1:"
+    "pairwise-fault-plane_byte::1:plane_byte"
+    "pairwise-fault-plane_shift::1:plane_shift"
+  )
+fi
 
 build_worker() {
   echo "### building worker ($1)"
@@ -75,22 +101,32 @@ for spec in "${ARMS[@]}"; do
   log="${OUT}/${tag}.log"
 
   {
-    echo "########## ${label} (${STEPS}-step teacher-forced tripwire) ##########"
+    echo "########## ${label} (${STEPS}-step ${MODE_LABEL}) ##########"
     echo "env: PREFETCH='${prefetch}' PAIRWISE_SCALES='${pairwise}' FAULT='${fault}'"
   } | tee "${log}"
+
+  probe_extra=""
+  if [ "${MODE}" = "freerun" ]; then
+    probe_extra="--free-run --dump-tokens ${OUT}/${tag}.tokens"
+  fi
 
   env DARKBLOOM_SHARED_QMV_PREFETCH="${prefetch}" \
       DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES="${pairwise}" \
       DARKBLOOM_SHARED_QMV_FAULT="${fault}" \
       python3 research/decode_probe.py --steps "${STEPS}" \
-        --stderr "${OUT}/${tag}.err" 2>&1 | tee -a "${log}"
+        ${probe_extra} --stderr "${OUT}/${tag}.err" 2>&1 | tee -a "${log}"
   rc="${PIPESTATUS[0]}"
 
-  diverg="$(grep -o 'teacher-forced greedy tokens: [0-9]* divergences' "${log}" \
-    | tail -1 | awk '{print $4}')"
-  diverg="${diverg:-NA}"
-  first="$(grep -o 'first=([^)]*)' "${log}" | tail -1)"
-  echo "${tag} rc=${rc} divergences=${diverg} ${first}" | tee -a "${SUMMARY}"
+  if [ "${MODE}" = "freerun" ]; then
+    hash="$(grep -o 'hash=[0-9a-f]*' "${log}" | tail -1 | cut -d= -f2)"
+    echo "${tag} rc=${rc} hash=${hash:-NA}" | tee -a "${SUMMARY}"
+  else
+    diverg="$(grep -o 'teacher-forced greedy tokens: [0-9]* divergences' "${log}" \
+      | tail -1 | awk '{print $4}')"
+    diverg="${diverg:-NA}"
+    first="$(grep -o 'first=([^)]*)' "${log}" | tail -1)"
+    echo "${tag} rc=${rc} divergences=${diverg} ${first}" | tee -a "${SUMMARY}"
+  fi
 done
 
 echo

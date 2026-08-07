@@ -20,18 +20,42 @@ round (see the assignment). This is a banked, correctness-verified patch.
 | Mechanism | Flag (opt-in, default OFF) | Verdict |
 | --- | --- | --- |
 | (a) K-block prefetch in the shared gate/up QMV | `DARKBLOOM_SHARED_QMV_PREFETCH` | **Kernel-level win, bit-exact.** −0.363 µs/call, 95 % CI [−0.495, −0.232], −4.80 %, = **−14.2 µs/step** |
-| (b) Pairwise (halved) gate/up scale plane | `DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES` (implies (a)) | **Refuted at kernel level, bit-exact.** +0.139 µs/call, 95 % CI [+0.057, +0.221], +1.93 %, = **+5.4 µs/step**; the invariant control also moved, so the accompanying −1.40 % whole-step delta is *not* attributable to this mechanism |
+| (b) Pairwise (halved) gate/up scale plane | `DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES` (implies (a)) | **No benefit; regression of at least +1.93 %.** +0.139 µs/call, 95 % CI [+0.057, +0.221], = **+5.4 µs/step**; the invariant control also moved, so the accompanying −1.40 % whole-step delta is *not* attributable to this mechanism |
 
-Mechanism (a) is a clean, reproducible, bit-exact kernel win and is the part of
-this patch worth banking. Mechanism (b) makes its own kernel measurably slower
-and its ABBA violated the invariant-control precondition, so I do not claim it.
+Mechanism (a) is the part of this patch worth banking. Mechanism (b) makes its
+own kernel measurably slower, so I do not claim it.
 
-Both effects are far below this host's end-to-end resolution. −14.2 µs/step is
-**0.166 % of GPU busy time and 0.145 % of decode wall time**, against a
-±0.73 % local-iterate MDE at 5 reps per arm. The end-to-end ABBA in §5 lost half
-its slots to the 40 C cool gate and finished at **n = 1 per arm**, so it is
-reported as three unreplicated point estimates with **no CI** and is explicitly
-**not** treated as a refutation.
+**One caveat belongs in the headline, not only in §3.5.** In both ABBAs the arm
+is perfectly confounded with slot *kind*: `ORDER="off on on off"` puts `on` in
+the two middle slots and `off` in the two edge slots, and Stage 2 later
+demonstrated that this host does move an *untouched* control kernel by
+−0.449 µs (−1.16 %) between edge and middle slots. That demonstrated slot shift
+has the same sign as, and is larger than, the −0.363 µs mechanism-(a) effect.
+The Stage 1 invariant control (+0.056 µs, CI ±0.62 µs) is too wide to exclude
+it: it excludes a *proportional* whole-process rescaling, not an *additive*
+per-dispatch one. Perfect 6-versus-6 process separation is no defence, because
+every `on` process sits in a middle slot. **The single most valuable missing
+measurement is a reversed-`ORDER` Stage 1 separator** (`on off off on`); it was
+not run (§7.3). Until it is, mechanism (a)'s −0.363 µs/call should be read as
+"mechanism effect plus a slot term of unknown size and the same sign".
+
+Mechanism (b)'s verdict is safer because it survives *a fortiori*: the
+session/slot effect in Stage 2 made the untouched control **faster** by 1.16 %,
+so the mechanism's own kernel getting 1.93 % slower puts the mechanism cost at
+that or more (≈+3.1 % once the common shift is subtracted). What the argument
+cannot exclude is an *opposite*-sign slot effect specific to the small kernel,
+so the exact claim is "no evidence of benefit; the point estimate is a
+regression of at least +1.93 %", not "proved harmful".
+
+Both effects are far below this host's end-to-end resolution. Using one
+denominator throughout — the `--local-iterate` decode wall of 12.78 ms/token
+(§5), the same axis the ±0.73 % MDE is defined on — −14.2 µs/step is
+**0.111 %**, i.e. **≈6.6× below** resolution. (On the split-instrumented probe's
+9.825 ms step wall it is 0.145 %, and 0.166 % of that probe's GPU-busy time;
+those are different axes and are not comparable with the MDE.) The end-to-end
+ABBA in §5 lost half its slots to the 40 C cool gate and finished at **n = 1 per
+arm**, so it is reported as three unreplicated point estimates with **no CI**
+and is explicitly **not** treated as a refutation.
 
 ### 0.1 Framing: bit-exactness plus in-situ per-dispatch cost
 
@@ -42,11 +66,12 @@ detection floor. **I take that framing.** The arithmetic is not close:
 
 | Quantity | Value |
 | --- | --- |
-| Predicted mechanism-(a) benefit | −14.2 µs/step |
-| Decode step wall on this host (§1) | 9.825 ms |
-| Predicted benefit as fraction of decode wall | **0.145 %** |
+| Predicted mechanism-(a) benefit (upper bound, see below) | −14.2 µs/step |
+| `--local-iterate` decode wall on this host (§5) | 12.78 ms/token |
+| Predicted benefit as fraction of that wall | **0.111 %** |
 | `--local-iterate` MDE at the reps this host can afford | **±0.73 %** |
-| Ratio | effect is **≈5× below** resolution |
+| Ratio (matched denominators) | effect is **≈6.6× below** resolution |
+| Same benefit on the split-probe step wall (9.825 ms, §1) — *different axis* | 0.145 % |
 
 So the load-bearing evidence in this report is, in order:
 
@@ -75,11 +100,16 @@ count from the same trace, not an assumption.
 The one place rule 25 still bites is the ×39 conversion to µs/step. Splitting
 command buffers removes the overlap that the uninstrumented worker gets, so
 `39 × delta` is an **upper bound** on the wall-clock benefit per step, not a
-prediction of it. #298 vs #300 puts the overlap discount at roughly half for a
-different kernel; if a similar discount applied here the real benefit would be
-nearer −7 µs/step, i.e. ~0.07 % of decode wall — further below resolution, and
-still in the same direction. Every µs/step number in this report should be read
-with that upper-bound caveat.
+prediction of it. The floor of that bound is **~0**, not "a bit less than
+−14.2 µs": the prefetch works by hiding scale-load latency inside the current
+block's dot products, and in the unsplit regime some or all of that latency may
+already be hidden by concurrency between this dispatch and its neighbours. #298
+vs #300 puts the overlap discount at roughly half — but that is a *different*
+kernel with a different occupancy, so borrowing the factor here gives an
+illustration (≈−7 µs/step, ~0.05 % of the 12.78 ms wall), not an estimate.
+Sign preservation under overlap is **untested**: this report measured the
+regime it could resolve, not the scored regime. Every µs/step number below
+should be read with that upper-bound caveat.
 
 ---
 
@@ -199,14 +229,21 @@ identical `uint2`, loaded one iteration earlier into a register. Concretely:
   or skipped (`cur_*` snapshots are taken before the next-block issue).
 
 Empirically, all 12 Stage 1 processes (6 OFF, 6 ON) produced **0 teacher-forced
-greedy-token divergences** against the public golden, and the recorded GPUPSO is
-identical between arms.
+greedy-token divergences** against the public golden, and the recorded launch
+geometry (the GPUPSO fields in §1: tiles, threads, simdgroups/threadgroup) is
+identical between arms. The kernel *source* is of course not identical, so this
+subsection is a source-level argument, and it has a real gap: it shows the
+value stream and reduction order are unchanged, but it cannot exclude the
+Metal compiler re-associating or re-scheduling FP32 work differently after the
+loop is restructured. Only §4.3's demonstrated-power check speaks to that, and
+what it can and cannot certify is stated there.
 
 ### 2.3 Per-kernel A/B result
 
 Driver: `research/maple_shared_qmv_prefetch_abba.sh`, ABBA order
 (`off on on off`), `REPS=3 STEPS=33`, one worker process per arm, 12 processes,
-1248 steady calls per arm. Digest:
+1,248 steady calls per *process* (32 steady steps × 39 dispatches), so 7,488 per
+arm. Digest:
 `research/shared-qmv-logs/stage1.prefetch-abba.log`.
 
 | Arm | µs/call (mean of 6 processes) | sd across processes |
@@ -224,16 +261,20 @@ whole-process speed shift mislabelled as a kernel effect.
 
 **Achieved precision, honestly.** The standard error of the OFF→ON delta is
 **0.0567 µs/call** (t ≈ 6.4 on df 8.1). The advisor's nudge asked for the
-per-dispatch SE to be under ~5 % of the predicted per-call delta, i.e. ≲0.028
-µs; I am **2.0× short of that target**. What I have is a delta that is 6.4
-standard errors from zero with perfect 6-versus-6 separation and a passing
-invariant control, which is enough to call the sign and roughly size the effect,
-but the ±0.13 µs CI width means the *magnitude* is only pinned to about ±36 %.
-Reaching 0.028 µs would need roughly 4× the process count (24 processes/arm,
-≈33 min of instrumented GPU time per arm) on a host whose 40 C idle already
-costs a cool-gate failure every few runs; I judged that a poor use of the
-remaining round given the sign and the invariant control both being clean, and
-I am flagging it rather than quietly rounding the CI.
+per-dispatch SE to be under ~5 % of the *predicted* per-call delta. Against the
+delta I actually measured (0.363 µs) that target is **0.018 µs and I am 3.1×
+short**; the 0.028 µs figure I quoted earlier corresponds to 5 % of a ≈0.56
+µs/call prediction, which the measurement did not support. Take the stricter
+reading: **3.1× short**. What I have is a delta 6.4 standard errors from zero
+with perfect 6-versus-6 process separation, but the ±0.13 µs CI width pins the
+*magnitude* only to about ±36 %, and the separation is confounded with slot kind
+(§0, §3.5), so it is not independent corroboration.
+Reaching 0.018 µs would need roughly 10× the process count on a host whose
+40 C idle already costs a cool-gate failure every few runs; even the 4× needed
+for 0.028 µs is ≈33 min of instrumented GPU time per arm. I judged more
+precision on a confounded contrast to be worth less than the reversed-`ORDER`
+separator (§7.3), and I am flagging the shortfall rather than quietly rounding
+the CI.
 
 `DARKBLOOM_GPU_PROFILE_SPLIT=1` puts one dispatch per command buffer; that is
 what makes a 0.36 µs/call effect measurable at all. It also means these
@@ -274,8 +315,8 @@ allowedFlatPairs: [0, gate.scales.size / 2]   // = [0, 32768]
 The helper indexes **pairs**, not bytes. The fused plane is 131,072 bytes =
 65,536 pairs; up-row 0 group 0 sits at flat byte 65,536, i.e. pair 32,768. Both
 indices are therefore correct, and the resulting plane is
-`lagunaSharedGateUpHalvedScaleBytes =
-lagunaScalePatchHeaderBytes + 2 * 2048 * (32768 / 32) = 128 + 65,536 = 65,664` B,
+`lagunaSharedGateUpHalvedScaleBytes = lagunaScalePatchHeaderBytes + 131,072 / 2
+= 128 + 65,536 = 65,664` B (equivalently 2 streams × 512 rows × 64 B + 128),
 i.e. the 128-byte patch header (`LagunaRuntimeWeights.swift:953`) plus one kept
 byte per pair. The header is what the kernel prologue re-patches for the two
 allow-listed pairs, so its size is load-bearing for the in-bounds argument
@@ -351,8 +392,9 @@ full-density plane which is kept for the fallback.
 ### 3.5 Result — the mechanism is refuted, and its whole-step delta is not attributable
 
 Driver: `research/maple_shared_qmv_prefetch_abba.sh`, `REPS=3 STEPS=33
-ORDER="on pairwise pairwise on"`, 12 worker processes, 1248 steady calls per
-arm. Supervised launch `fc455230-07e8-485b-b5d0-f4e1370723b7`, exit 0, 491 s.
+ORDER="on pairwise pairwise on"`, 12 worker processes (6 per arm), 1248 steady
+calls per **process** and therefore 7,488 per arm.
+Supervised launch `fc455230-07e8-485b-b5d0-f4e1370723b7`, exit 0, 491 s.
 Digest: `research/shared-qmv-logs/stage2.pairwise-abba.log`.
 
 `on` here is Stage 1's winning prefetch arm, so this A/B isolates only the
@@ -362,6 +404,10 @@ scale-plane density change.
 | --- | --- | --- | --- | --- | --- |
 | `laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1` (changed) | 7.210 (0.078) | 7.350 (0.026) | **+0.139** | [+0.057, +0.221] | **+1.93 %** |
 | `routed_shared_nvfp4_…_qmv_…` (invariant control) | 38.817 (0.250) | 38.368 (0.075) | **−0.449** | — | **−1.16 %** |
+
+(Δ is computed from the unrounded per-process means, so it does not equal the
+difference of the three-decimal means printed here: 7.350 − 7.210 = 0.140 by
+display, +0.139 in full precision. The same applies to Stage 1's −0.363.)
 
 Two facts to read together:
 
@@ -388,8 +434,11 @@ established; I did not run the separating experiment.
    has the same **mean** slot (2.5) — but not the same **kind** of slot: `on`
    always occupies the two edge slots and `pairwise` always the two middle
    slots. The variance pattern is consistent with a slot effect in both stages:
-   the edge arm has 3× the process-level sd of the middle arm (Stage 1 `off`
-   0.120 vs `on` 0.070; Stage 2 `on` 0.078 vs `pairwise` 0.026). It is *not*
+   the edge arm has the larger process-level sd in both, by **1.7×** in Stage 1
+   (`off` 0.120 vs `on` 0.070) and **3.0×** in Stage 2 (`on` 0.078 vs
+   `pairwise` 0.026). Only the Stage 2 ratio is large; treat Stage 1's as
+   suggestive at best, since an sd ratio from n=6 vs n=6 has a wide sampling
+   distribution and 1.7× is well inside it. It is *not*
    consistent in sign — the edge arm is the slower one in Stage 1 and the
    faster one in Stage 2 — so a monotone edge penalty cannot be the whole
    story, but a slot-linked variance/level effect is not excluded. The driver's
@@ -546,9 +595,16 @@ divergence count accumulates:
 | Drift tripwire (`off`, `on`, `pairwise`) | 3 | 128 | 384 | 0 |
 | **Total** | **33** | — | **1,374** | **0** |
 
-By arm: 326 comparisons on `off`, 623 on `on`, 425 on `pairwise`. The Stage 2b
-processes are counted here only for correctness; their timing was discarded
-because that worker had no GPUPROF records (§3.5).
+By arm: 326 comparisons on `off`, 623 on `on`, 425 on `pairwise`.
+
+"Stage 2b" is a first, cancelled attempt at the §3.5 pairwise ABBA: the worker
+it launched had been rebuilt without the research GPUPROF hook, so it emitted no
+per-kernel records and its **timing is discarded and appears nowhere in this
+report**. I did not archive a digest for it, so the only thing it contributes is
+the 198 teacher-forced comparisons above, which each process prints
+independently of GPUPROF. If you would rather not count an unarchived run at
+all, subtract it: the round total becomes 27 processes and **1,176 comparisons,
+0 divergences**, and nothing else in the report changes.
 
 Two honest limits on this evidence. First, it is one prompt: the tripwire and
 both ABBA stages use the same public golden, so it covers 128 distinct
@@ -675,13 +731,32 @@ rather than a fabricated interval.
 independent reasons, in decreasing order of force:
 
 1. **The predicted effect is smaller than the tool's resolution even at full
-   reps.** §0.1: −14.2 µs/step is 0.145 % of decode wall, and that 14.2 is
-   itself an upper bound (standing rule 25). The ±0.73 % MDE is ~5× larger.
+   reps.** §0.1: −14.2 µs/step is **0.111 %** of this table's own 12.78 ms
+   decode step, and that 14.2 is itself an upper bound (standing rule 25). The
+   ±0.73 % MDE is **≈6.6×** larger.
 2. **At n = 1 the observation is consistent with pure noise.** Back-solving the
    established ±0.73 % MDE at n=5 (`MDE ≈ 2.8·sd·√(2/n)`) implies a per-run sd
    of ≈0.41 %, so a single `off`/`on` pair has sd ≈ 0.58 %. The observed
    +0.541 % is ≈0.9 sd from zero. A coin-flip-magnitude deviation is not
    evidence in either direction.
+
+   *Provenance and assumptions for that back-solve, since it does real work
+   here.* The ±0.73 % figure is **not** measured in this round: it is the
+   advisor-supplied MDE for `--local-iterate` on this host class at 5 reps per
+   arm, and I use it only as an order-of-magnitude yardstick. The constant 2.8 is
+   the usual two-sided 80 %-power, α = 0.05 approximation (`z_{0.975} +
+   z_{0.80} ≈ 1.96 + 0.84`); a stricter reading that treats ±0.73 % as a bare
+   95 % half-width (constant 1.96) gives sd ≈ 0.59 % per run and 0.83 % per pair,
+   which makes +0.541 % only **0.65 sd** — i.e. every plausible convention lands
+   in "indistinguishable from noise", so the conclusion does not depend on the
+   choice. The load-bearing assumption is **variance stationarity across
+   sessions**: that the run-to-run sd behind the advisor's 5-rep MDE also
+   describes this Stage 3 session, which ran a longer pre-cool (210 s) and then
+   failed its cool gate twice. If this session was in fact noisier than the
+   reference session — which the two cool-gate failures make more likely than
+   less — the true per-pair sd is *larger*, +0.541 % is *fewer* sd from zero, and
+   the "consistent with noise" reading only strengthens. I checked the direction
+   of that sensitivity precisely because it could have cut the other way.
 3. **The two axes disagree in sign** (`off`→`on` is −0.725 % on prefill and
    +0.541 % on decode) with no mechanism that predicts a prefill-only benefit —
    the shared gate/up QMV rows-1 kernel is a *decode* kernel and prefill takes
@@ -735,9 +810,12 @@ submitted surface.
 
 It is one bit-exact kernel improvement (mechanism (a)) with a clean per-call A/B,
 a passing invariant control, and 39 dispatches per decode step of leverage, worth
-**−14.2 µs/step ≈ −0.145 % of decode wall** on this host (an upper bound, §0.1).
-It is not a demonstrated end-to-end win: the effect is ~5× below this host's
-end-to-end resolution even at full reps, exactly as the assignment predicted,
+**−14.2 µs/step** on this host — **−0.111 %** of the 12.78 ms `--local-iterate`
+decode step, or −0.145 % of the 9.825 ms split-instrumented probe step. Both are
+upper bounds (§0.1).
+It is not a demonstrated end-to-end win: on matched denominators the effect is
+**≈6.6× below** this host's end-to-end resolution even at full reps (§0.1),
+exactly as the assignment predicted,
 and the cool gate left §5 at n = 1 per arm — so §5 is three unreplicated point
 estimates, not a verdict in either direction.
 
@@ -794,8 +872,15 @@ opt-in — or be deleted — because it is a measured regression.
    per-kernel regression, so it is only worth doing as part of follow-up 1.
 3. **Prefetch the routed twin.** The prefetch idea is not specific to the shared
    expert; the routed QMV runs 39×/step at 38.5 µs/call, 5× the shared kernel's
-   cost. If the same −4.8 % held there it would be −75 µs/step, which is inside
-   local resolution. The blocked items in this assignment (rows/simdgroup,
+   cost. If the same −4.8 % held there it would be 38.5 × 0.048 × 39 =
+   **−72 µs/step**, i.e. −0.56 % of the 12.78 ms `--local-iterate` decode step
+   against a ±0.73 % MDE. That is *not* comfortably inside local resolution: it
+   is a knife-edge case even before standing rule 25 discounts the isolated →
+   in-situ conversion, and a rule-25 halving (~−36 µs, −0.28 %) puts it clearly
+   below. So the honest claim is that the routed twin is the only place on this
+   host where a −4.8 % kernel win could plausibly *approach* end-to-end
+   detectability — it would still want either more reps or a quieter host, or an
+   M5. The blocked items in this assignment (rows/simdgroup,
    `uint4` widening, split-K) do not apply to the prefetch change.
 4. **Re-measure mechanism (a) on the M5**, where `_nax` kernels are selected and
    the memory system differs. This host cannot rank it.

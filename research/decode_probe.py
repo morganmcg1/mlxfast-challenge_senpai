@@ -9,6 +9,7 @@ a pure decode phase can be profiled without the full benchmark harness.
 Every model-holding run must be the only one on the host.
 """
 import argparse
+import hashlib
 import json
 import os
 import statistics
@@ -70,6 +71,13 @@ def main() -> int:
     ap.add_argument("--profile-top", type=int, default=40)
     ap.add_argument("--dump-steps", default=None,
                     help="write one per-step millisecond value per line")
+    ap.add_argument("--free-run", action="store_true",
+                    help="feed the model its own argmax back instead of "
+                         "teacher forcing, and report a hash of the generated "
+                         "token sequence. Errors then accumulate, so two builds "
+                         "agree only if every step's argmax agreed.")
+    ap.add_argument("--dump-tokens", default=None,
+                    help="write the generated token ids, one per line")
     args = ap.parse_args()
 
     with open(GOLDEN) as fh:
@@ -133,23 +141,39 @@ def main() -> int:
 
     step_spans = []
     mismatches = []
+    generated = []
     token = expected[0]
     print("DECODE_PHASE_START", flush=True)
     for i in range(args.steps):
         t0 = mach_now()
         resp = send({"id": 100 + i, "kind": "decode_step", "token": token})
         step_spans.append((t0, mach_now()))
+        generated.append(resp["token"])
         if i + 1 < len(expected) and resp["token"] != expected[i + 1]:
             mismatches.append((i, expected[i + 1], resp["token"]))
-        token = expected[i + 1] if i + 1 < len(expected) else resp["token"]
+        if args.free_run:
+            token = resp["token"]
+        else:
+            token = expected[i + 1] if i + 1 < len(expected) else resp["token"]
     print("DECODE_PHASE_END", flush=True)
-    print(f"teacher-forced greedy tokens: {len(mismatches)} divergences"
-          + (f" first={mismatches[0]}" if mismatches else " (all match)"),
-          flush=True)
+    if args.free_run:
+        # The golden comparison is meaningless once the trajectory is self-fed,
+        # so print only the sequence identity a cross-build diff can use.
+        digest = hashlib.sha256(
+            ",".join(str(t) for t in generated).encode()).hexdigest()[:16]
+        print(f"free-run tokens: n={len(generated)} hash={digest} "
+              f"first16={generated[:16]}", flush=True)
+    else:
+        print(f"teacher-forced greedy tokens: {len(mismatches)} divergences"
+              + (f" first={mismatches[0]}" if mismatches else " (all match)"),
+              flush=True)
     step_times = [b - a for a, b in step_spans]
     if args.dump_steps:
         with open(args.dump_steps, "w") as fh:
             fh.write("".join(f"{t*1e3:.6f}\n" for t in step_times))
+    if args.dump_tokens:
+        with open(args.dump_tokens, "w") as fh:
+            fh.write("".join(f"{t}\n" for t in generated))
 
     print("first 8 steps (ms): "
           + " ".join(f"{t*1e3:.3f}" for t in step_times[:8]), flush=True)
