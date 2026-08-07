@@ -221,10 +221,8 @@ let lagunaExpertAlignedGatherEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
 
-// Disabled 2026-08-07: qmm_nax reverted to pre-PR#243 state (no kHalvedScales).
-// The halved path calls quantizedMM with groupSize=32 and scales [N+1, K/32],
-// which the pre-PR#243 qmm_nax doesn't support. Falls through to standard path.
-let lagunaPrefillSharedHalvedEnabled = false
+let lagunaPrefillSharedHalvedEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_HALVED"] != "0"
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
