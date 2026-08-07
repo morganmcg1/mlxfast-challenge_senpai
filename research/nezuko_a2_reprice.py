@@ -64,15 +64,21 @@ SCORE_PER_US = 0.01464   # % score per us/step removed from decode
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--exposure", help="JSON map kernel -> E")
+    ap.add_argument("--exposure", help="JSON map kernel -> E, literal or @file")
+    ap.add_argument("--c", type=float, default=C_A0,
+                    help="measured per-command-buffer cost, us/CB")
     ap.add_argument("--top", type=int, default=20)
     args = ap.parse_args()
 
+    c = args.c
     exposure = {}
     if args.exposure:
-        exposure = json.load(open(args.exposure))
+        if args.exposure.startswith("@"):
+            exposure = json.load(open(args.exposure[1:]))
+        else:
+            exposure = json.loads(args.exposure)
 
-    deinflate_a0 = C_A0 * (1 - CBS_SHIP / DISPATCHES)
+    deinflate_a0 = c * (1 - CBS_SHIP / DISPATCHES)
     correction = DEINFLATE_PR158 - deinflate_a0
 
     work = []
@@ -81,29 +87,39 @@ def main() -> int:
         work.append((w, n, name, exposed))
     total_work = sum(w for w, _, _, _ in work)
 
-    # Step-wide mean exposure implied by the measured overlap.
-    overlap = total_work + CBS_SHIP * C_A0 - BUSY_SHIP
-    mean_E = (total_work - overlap) / total_work
+    overlap = total_work + CBS_SHIP * c - BUSY_SHIP
+
+    # Kernels named in the exposure map keep their measured E. The remaining
+    # work absorbs whatever overlap those kernels do not account for, so E_rest
+    # is a real closure test: if the named hiders explain the whole 448 us,
+    # E_rest lands on 1.0 rather than being forced there.
+    listed_eff = sum(w * exposure[name] for w, _, name, _ in work
+                     if name in exposure)
+    rest_work = sum(w for w, _, name, _ in work if name not in exposure)
+    E_rest = ((BUSY_SHIP - CBS_SHIP * c - listed_eff) / rest_work
+              if rest_work else float("nan"))
 
     rows = []
     for w, n, name, exposed in work:
-        E = exposure.get(name, mean_E)
+        E = exposure.get(name, E_rest)
         rows.append((w * E, w, E, n, name, exposed))
 
     old_rank = {name: i for i, (_, _, _, _, name, _) in
                 enumerate(sorted(rows, key=lambda r: -r[5]), 1)}
     rows.sort(key=lambda r: -r[0])
 
-    print(f"per-CB cost:        PR158 {C_PR158:.3f} -> A0 {C_A0:.3f} us/CB "
-          f"({C_PR158 / C_A0:.1f}x)")
+    print(f"per-CB cost:        PR158 {C_PR158:.3f} -> A0 {c:.3f} us/CB "
+          f"({C_PR158 / c:.1f}x)")
     print(f"de-inflation:       PR158 {DEINFLATE_PR158:.3f} -> A0 "
           f"{deinflate_a0:.3f} us/dispatch (correction {correction:+.3f})")
     print(f"isolated work sum:  {total_work:.1f} us/step "
           f"(PR158 census total {sum(r[5] for r in rows):.1f})")
-    print(f"measured overlap:   {overlap:.1f} us/step, "
-          f"step-wide mean E = {mean_E:.3f}")
+    print(f"implied overlap:    {overlap:.1f} us/step "
+          f"(A0 measured 448 +- 31)")
+    print(f"closure test:       named hiders absorb {total_work - listed_eff - rest_work:.1f} "
+          f"us -> E_rest = {E_rest:.3f} (1.000 == fully explained)")
     print(f"identity check:     work*E + 45c = "
-          f"{sum(r[0] for r in rows) + CBS_SHIP * C_A0:.1f} vs busy "
+          f"{sum(r[0] for r in rows) + CBS_SHIP * c:.1f} vs busy "
           f"{BUSY_SHIP:.1f} us/step\n")
 
     hdr = (f"  {'rank':>4} {'d':>4} {'effective':>10} {'isolated':>9} "
