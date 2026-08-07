@@ -1612,7 +1612,10 @@ int darkbloom_stage2_gather_variant() {
   static const int v = [] {
     const std::string s = env::get_var("DARKBLOOM_STAGE2_GATHER", "");
     if (s.empty()) {
-      return 1;
+      // Default 0 (stock): the STAGE2_GATHER code in fp_quantized_nax.{cpp,h}
+      // compiles fine on M4 but causes M5 build failures. Keep stock staging
+      // until the M5 issue is diagnosed and fixed.
+      return 0;
     }
     if (s == "0") {
       return 0;
