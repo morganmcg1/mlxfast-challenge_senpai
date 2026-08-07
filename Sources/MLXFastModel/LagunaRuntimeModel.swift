@@ -244,7 +244,10 @@ func lagunaNAXGate(_ envKey: String) -> Bool {
 
 let lagunaExpertAlignedGatherEnabled = lagunaExpertAlignedStageEnabled(ProcessInfo.processInfo.environment["DARKBLOOM_STAGE_BM128"]) && lagunaNAXGate("DARKBLOOM_EXPERT_ALIGNED_GATHER")
 
-let lagunaPrefillSharedHalvedEnabled = lagunaNAXGate("DARKBLOOM_PREFILL_SHARED_HALVED")
+// Disabled 2026-08-07: qmm_nax reverted to pre-PR#243 state (no kHalvedScales).
+// The halved path calls quantizedMM with groupSize=32 and scales [N+1, K/32],
+// which the pre-PR#243 qmm_nax doesn't support. Falls through to standard path.
+let lagunaPrefillSharedHalvedEnabled = false
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
