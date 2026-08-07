@@ -1784,7 +1784,7 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
 private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_v1",
+    name: "laguna_full_fused_attn_grow_v2",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
@@ -1833,18 +1833,18 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 sg == 0 ? tg_q0 : sg == 1 ? tg_q1 : tg_k;
 
             uint base = lane * 4;
+            thread float raw[4];
             thread bfloat normalized[4];
             float sum = 0.0f;
             for (uint i = 0; i < 4; ++i) {
-                float value = float(input[base + i]);
-                sum += value * value;
+                raw[i] = float(input[base + i]);
+                sum += raw[i] * raw[i];
             }
             sum = simd_sum(sum);
             float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
             for (uint i = 0; i < 4; ++i) {
                 normalized[i] =
-                    weight[base + i] *
-                    bfloat(float(input[base + i]) * inverse_rms);
+                    weight[base + i] * bfloat(raw[i] * inverse_rms);
             }
             thread float paired[4];
             for (uint i = 0; i < 4; ++i) {
