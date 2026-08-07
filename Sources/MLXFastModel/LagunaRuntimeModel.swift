@@ -7010,49 +7010,20 @@ func lagunaRoutedSwiGLUQMV(
 /// the identical one-byte scale and uint2 code loads and runs the textually
 /// identical dequant/accumulate/SwiGLU chain — only scale address computation
 /// differs.
-private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_indices_r1_bf16_v1",
-    inputNames: ["input", "fused_weight", "packed_scales", "indices"],
-    outputNames: ["activated"],
-    source: """
-        constexpr uint input_width = 2048;
-        constexpr uint output_width = 512;
-        constexpr uint block_width = 512;
-        constexpr uint values_per_lane = 16;
-        constexpr uint routed_experts = 8;
-        constexpr uint fused_row_bytes = 1024;
-        constexpr uint fused_expert_bytes = 1024 * fused_row_bytes;
-        constexpr uint scale_row_bytes = 32;
-        constexpr uint scale_sub_bytes = 8 * scale_row_bytes;
-        constexpr uint scale_kblock_bytes = scale_sub_bytes;
-        constexpr uint scale_tile_bytes = 4 * scale_kblock_bytes;
-        constexpr uint packed_expert_bytes = 128 * scale_tile_bytes;
-
-        uint group = threadgroup_position_in_grid.x;
-        uint expert_slot = group % routed_experts;
-        uint tile = group / routed_experts;
-        uint simd_group = simdgroup_index_in_threadgroup;
-        uint lane = thread_index_in_simdgroup;
-        uint logical_row = tile * 2 + simd_group;
-        uint expert = uint(indices[expert_slot]);
-
-        const device uint8_t* expert_weight =
-            (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
-        const device uint8_t* row_scales =
-            packed_scales + expert * packed_expert_bytes
-            + (logical_row / 4) * scale_tile_bytes;
-        uint sub = logical_row % 4;
-        uint gate_row = (logical_row / 32) * 64 + logical_row % 32;
-        uint up_row = gate_row + 32;
-
-        thread float gate_result = 0.0f;
-        thread float up_result = 0.0f;
-        thread float input_values[values_per_lane];
-
-        for (uint block = 0; block < input_width; block += block_width) {
-            const device vec<bfloat, 4>* input_vectors =
-                (const device vec<bfloat, 4>*) (
-                    input + block + lane * values_per_lane);
+private func makeLagunaRoutedSwiGLUQMVPackedTop8Kernel(
+    packedBF16: Bool
+) -> MLXFast.MLXFastKernel {
+    let variant = packedBF16 ? "packed_bf16x4" : "scalar_f32"
+    let storage = packedBF16
+        ? "thread vec<bfloat, 4> input_values[values_per_lane / 4];"
+        : "thread float input_values[values_per_lane];"
+    let load = packedBF16
+        ? """
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                input_values[i] = input_vectors[i];
+            }
+            """
+        : """
             for (uint i = 0; i < values_per_lane / 4; ++i) {
                 const vec<bfloat, 4> values = input_vectors[i];
                 input_values[4 * i] = values[0];
@@ -7060,44 +7031,175 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
                 input_values[4 * i + 2] = values[2];
                 input_values[4 * i + 3] = values[3];
             }
+            """
+    let qdot = packedBF16 ? "laguna_nvfp4_qdot_bf16_16" : "laguna_nvfp4_qdot_16"
+    return MLXFast.metalKernel(
+        name: "laguna_routed_nvfp4_swiglu_qmv_packed_indices_r1_\(variant)_v2",
+        inputNames: ["input", "fused_weight", "packed_scales", "indices"],
+        outputNames: ["activated"],
+        source: """
+            constexpr uint input_width = 2048;
+            constexpr uint output_width = 512;
+            constexpr uint block_width = 512;
+            constexpr uint values_per_lane = 16;
+            constexpr uint routed_experts = 8;
+            constexpr uint fused_row_bytes = 1024;
+            constexpr uint fused_expert_bytes = 1024 * fused_row_bytes;
+            constexpr uint scale_row_bytes = 32;
+            constexpr uint scale_sub_bytes = 8 * scale_row_bytes;
+            constexpr uint scale_kblock_bytes = scale_sub_bytes;
+            constexpr uint scale_tile_bytes = 4 * scale_kblock_bytes;
+            constexpr uint packed_expert_bytes = 128 * scale_tile_bytes;
 
-            const device uint8_t* block_scales =
-                row_scales + (block / block_width) * scale_kblock_bytes;
-            const device uint8_t* gate_scale =
-                block_scales + sub * 2 * scale_row_bytes + lane;
-            const device uint8_t* up_scale = gate_scale + scale_row_bytes;
-            const device uint8_t* gate_weight =
-                expert_weight + gate_row * fused_row_bytes
-                + block / 2 + lane * 8;
-            const device uint8_t* up_weight =
-                expert_weight + up_row * fused_row_bytes
-                + block / 2 + lane * 8;
+            uint group = threadgroup_position_in_grid.x;
+            uint expert_slot = group % routed_experts;
+            uint tile = group / routed_experts;
+            uint simd_group = simdgroup_index_in_threadgroup;
+            uint lane = thread_index_in_simdgroup;
+            uint logical_row = tile * 2 + simd_group;
+            uint expert = uint(indices[expert_slot]);
 
-            gate_result += laguna_nvfp4_qdot_16(
-                gate_weight, input_values,
-                laguna_nvfp4_scale(gate_scale[0]));
-            up_result += laguna_nvfp4_qdot_16(
-                up_weight, input_values,
-                laguna_nvfp4_scale(up_scale[0]));
+            const device uint8_t* expert_weight =
+                (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
+            const device uint8_t* row_scales =
+                packed_scales + expert * packed_expert_bytes
+                + (logical_row / 4) * scale_tile_bytes;
+            uint sub = logical_row % 4;
+            uint gate_row = (logical_row / 32) * 64 + logical_row % 32;
+            uint up_row = gate_row + 32;
+
+            thread float gate_result = 0.0f;
+            thread float up_result = 0.0f;
+            \(storage)
+
+            for (uint block = 0; block < input_width; block += block_width) {
+                const device vec<bfloat, 4>* input_vectors =
+                    (const device vec<bfloat, 4>*) (
+                        input + block + lane * values_per_lane);
+                \(load)
+
+                const device uint8_t* block_scales =
+                    row_scales + (block / block_width) * scale_kblock_bytes;
+                const device uint8_t* gate_scale =
+                    block_scales + sub * 2 * scale_row_bytes + lane;
+                const device uint8_t* up_scale = gate_scale + scale_row_bytes;
+                const device uint8_t* gate_weight =
+                    expert_weight + gate_row * fused_row_bytes
+                    + block / 2 + lane * 8;
+                const device uint8_t* up_weight =
+                    expert_weight + up_row * fused_row_bytes
+                    + block / 2 + lane * 8;
+
+                gate_result += \(qdot)(
+                    gate_weight, input_values,
+                    laguna_nvfp4_scale(gate_scale[0]));
+                up_result += \(qdot)(
+                    up_weight, input_values,
+                    laguna_nvfp4_scale(up_scale[0]));
+            }
+
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
+            if (lane == 0) {
+                bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
+                bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
+                bfloat exp_abs = metal::exp(metal::abs(gate));
+                bfloat denominator = bfloat(1) + exp_abs;
+                bfloat y = bfloat(1) / denominator;
+                bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+                bfloat silu = bfloat(gate * sigmoid);
+                activated[expert_slot * output_width + logical_row] =
+                    bfloat(silu * up);
+            }
+            """,
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8ControlKernel =
+    makeLagunaRoutedSwiGLUQMVPackedTop8Kernel(packedBF16: false)
+private let lagunaRoutedSwiGLUQMVPackedTop8CandidateKernel =
+    makeLagunaRoutedSwiGLUQMVPackedTop8Kernel(packedBF16: true)
+private let lagunaPackedBF16CandidateEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_TANJIRO_PACKED_BF16"] != "0"
+private let lagunaPackedBF16BenchmarkEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_TANJIRO_PACKED_BF16_BENCH"] == "1"
+
+private func callLagunaRoutedSwiGLUQMVPackedTop8(
+    kernel: MLXFast.MLXFastKernel,
+    input: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    indices: MLXArray
+) -> MLXArray {
+    kernel(
+        [input, fusedWeight, packedScales, indices],
+        grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[
+            1, 1, LagunaConstants.numExpertsPerTok, 1,
+            LagunaConstants.moeIntermediateSize,
+        ]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+private func runLagunaPackedBF16Benchmark(
+    input: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    indices: MLXArray
+) {
+    let control = lagunaRoutedSwiGLUQMVPackedTop8ControlKernel
+    let candidate = lagunaRoutedSwiGLUQMVPackedTop8CandidateKernel
+    func launch(_ kernel: MLXFast.MLXFastKernel, _ x: MLXArray) -> MLXArray {
+        callLagunaRoutedSwiGLUQMVPackedTop8(
+            kernel: kernel, input: x, fusedWeight: fusedWeight,
+            packedScales: packedScales, indices: indices)
+    }
+    func bits(_ kernel: MLXFast.MLXFastKernel, _ x: MLXArray) -> [UInt16] {
+        let y = launch(kernel, x)
+        eval(y)
+        Stream.gpu.synchronize()
+        return y.view(dtype: .uint16).asArray(UInt16.self)
+    }
+    precondition(bits(control, input) == bits(candidate, input), "packed BF16 mismatch")
+    for _ in 0..<20 {
+        eval(launch(control, input))
+        eval(launch(candidate, input))
+    }
+    Stream.gpu.synchronize()
+    func sample(_ kernel: MLXFast.MLXFastKernel) -> (Double, Int) {
+        let start = Date()
+        var count = 0
+        repeat {
+            eval(launch(kernel, input))
+            Stream.gpu.synchronize()
+            count += 1
+        } while count < 20 || Date().timeIntervalSince(start) < 0.5
+        return (Date().timeIntervalSince(start), count)
+    }
+    func report(_ message: String) {
+        FileHandle.standardError.write(Data("\(message)\n".utf8))
+    }
+    report("TANJIRO reachability=packed_top8 oracle=bit_exact")
+    for order in 0..<2 {
+        for block in 0..<6 {
+            let c: (Double, Int)
+            let p: (Double, Int)
+            if order == 0 {
+                c = sample(control)
+                p = sample(candidate)
+            } else {
+                p = sample(candidate)
+                c = sample(control)
+            }
+            report("TANJIRO order=\(order == 0 ? "AB" : "BA") block=\(block) control_s=\(c.0) control_n=\(c.1) candidate_s=\(p.0) candidate_n=\(p.1)")
         }
-
-        gate_result = simd_sum(gate_result);
-        up_result = simd_sum(up_result);
-        if (lane == 0) {
-            bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
-            bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
-            bfloat exp_abs = metal::exp(metal::abs(gate));
-            bfloat denominator = bfloat(1) + exp_abs;
-            bfloat y = bfloat(1) / denominator;
-            bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
-            bfloat silu = bfloat(gate * sigmoid);
-            activated[expert_slot * output_width + logical_row] =
-                bfloat(silu * up);
-        }
-        """,
-    header: lagunaSharedSwiGLUQMVHeader,
-    ensureRowContiguous: true
-)
+    }
+    exit(0)
+}
 
 func lagunaRoutedSwiGLUQMVPackedTop8(
     _ input: MLXArray,
@@ -7112,16 +7214,17 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     precondition(indices.dtype == .uint32)
     precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
 
-    return lagunaRoutedSwiGLUQMVPackedTop8Kernel(
-        [input, fusedWeight, packedScales, indices],
-        grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
-        threadGroup: (64, 1, 1),
-        outputShapes: [[
-            1, 1, LagunaConstants.numExpertsPerTok, 1,
-            LagunaConstants.moeIntermediateSize,
-        ]],
-        outputDTypes: [.bfloat16]
-    )[0]
+    if lagunaPackedBF16BenchmarkEnabled {
+        runLagunaPackedBF16Benchmark(
+            input: input, fusedWeight: fusedWeight,
+            packedScales: packedScales, indices: indices)
+    }
+    let kernel = lagunaPackedBF16CandidateEnabled
+        ? lagunaRoutedSwiGLUQMVPackedTop8CandidateKernel
+        : lagunaRoutedSwiGLUQMVPackedTop8ControlKernel
+    return callLagunaRoutedSwiGLUQMVPackedTop8(
+        kernel: kernel, input: input, fusedWeight: fusedWeight,
+        packedScales: packedScales, indices: indices)
 }
 
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
