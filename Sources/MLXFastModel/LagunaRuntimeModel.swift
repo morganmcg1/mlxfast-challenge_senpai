@@ -241,6 +241,15 @@ let lagunaFusedResidualRMSNormEnabled =
 let lagunaPrefillFusedResidualRMSNormEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_RESIDUAL_RMS"] != "0"
 
+/// Fuses the MoE router GEMV into the prefill residual+RMSNorm kernel, producing
+/// all L rows' router logits in one dispatch instead of a separate
+/// `x.matmul(weight.T)` per sparse layer.  Bit-exact: the residual add, RMSNorm,
+/// and router GEMV are per-row independent with the same FP32 accumulation order
+/// as the decode `lagunaResidualRMSNormRouter`.  Set
+/// `DARKBLOOM_PREFILL_ROUTER_FUSION=0` to ablate.
+let lagunaPrefillRouterFusionEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_ROUTER_FUSION"] != "0"
+
 
 /// One output row per simdgroup for the default split routed gate/up decode
 /// QMV. Official submission `b56a6d9` passed all 1,344 exact-token checks:
@@ -888,6 +897,193 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
                 )
             )
         })
+
+/// Multi-token (prefill) variant of `lagunaResidualRMSNormRouterSource`:
+/// the same per-row residual add + RMSNorm + router GEMV, but dispatching one
+/// threadgroup per (token, router-tile) pair so all L rows are processed in a
+/// single kernel.  Each threadgroup redundantly computes its row's RMSNorm
+/// (the normalized_row lives in threadgroup memory, same as decode) and only
+/// `tile == 0` writes the `summed` and `normalized` outputs for that row.  All
+/// tiles emit their share of `router_logits[row, :]`.  Bit-exact for the same
+/// reasons as the decode kernel: the residual add, RMSNorm, and router GEMV
+/// are all per-row independent with the same FP32 accumulation order.
+private func lagunaResidualRMSNormRouterMultiTokenSource(rowsPerGroup: Int) -> String {
+    let simdGroups = 512 / 32
+    let rowsPerThread = rowsPerGroup >= simdGroups ? rowsPerGroup / simdGroups : 1
+    let activeSimdGroups = rowsPerGroup / rowsPerThread
+    let zeros = Array(repeating: "0.0f", count: rowsPerThread).joined(separator: ", ")
+    let guardOpen = activeSimdGroups < simdGroups
+        ? "        if (simd_group < active_simd_groups) {\n" : ""
+    let guardClose = activeSimdGroups < simdGroups ? "        }\n" : ""
+    let routerStore =
+        "router_logits[row * experts + router_row + r] = bfloat(router_result[r]);"
+
+    let accumulate: String
+    if rowsPerThread == 1 {
+        accumulate = """
+                    uint column = simd_lane * n_reads;
+                    for (uint block = 0; block < router_blocks; block += 4) {
+                        vec<bfloat, 4> rw[4];
+                        for (uint u = 0; u < 4; ++u) {
+                            const device vec<bfloat, 4>* row_values =
+                                (const device vec<bfloat, 4>*)(
+                                    router_weight + router_row * axis_size +
+                                        column + u * block_width);
+                            rw[u] = row_values[0];
+                        }
+                        for (uint u = 0; u < 4; ++u) {
+                            uint column_u = column + u * block_width;
+                            for (uint i = 0; i < n_reads; ++i) {
+                                router_result[0] += float(rw[u][i]) *
+                                    float(normalized_row[column_u + i]);
+                            }
+                        }
+                        column += 4 * block_width;
+                    }
+            """
+    } else {
+        accumulate = """
+                    thread float router_input[n_reads];
+
+                    uint column = simd_lane * n_reads;
+                    for (uint block = 0; block < router_blocks; ++block) {
+                        for (uint i = 0; i < n_reads; ++i) {
+                            router_input[i] = float(normalized_row[column + i]);
+                        }
+                        for (uint r = 0; r < rows_per_thread; ++r) {
+                            const device vec<bfloat, 4>* row_values =
+                                (const device vec<bfloat, 4>*)(
+                                    router_weight + (router_row + r) * axis_size +
+                                        column);
+                            const vec<bfloat, 4> rw = row_values[0];
+                            for (uint i = 0; i < n_reads; ++i) {
+                                router_result[r] += float(rw[i]) * router_input[i];
+                            }
+                        }
+                        column += block_width;
+                    }
+            """
+    }
+
+    return """
+        constexpr uint axis_size = 2048;
+        constexpr uint n_reads = 4;
+        constexpr uint simd_size = 32;
+        constexpr uint rows_per_group = \(rowsPerGroup);
+        constexpr uint rows_per_thread = \(rowsPerThread);
+        constexpr uint active_simd_groups = \(activeSimdGroups);
+        constexpr uint block_width = 128;
+        constexpr uint router_blocks = axis_size / block_width;
+        constexpr uint experts = 256;
+
+        uint tile = threadgroup_position_in_grid.x;
+        uint row = threadgroup_position_in_grid.y;
+        uint lid = thread_position_in_threadgroup.x;
+        uint simd_lane = thread_index_in_simdgroup;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint base = lid * n_reads;
+        uint row_base = row * axis_size + base;
+
+        \(lagunaNormInvMeanScratch)
+        threadgroup float local_sums[simd_size];
+        threadgroup bfloat normalized_row[axis_size];
+
+        thread bfloat values[n_reads];
+        float acc = 0.0f;
+        for (uint i = 0; i < n_reads; ++i) {
+            bfloat value = bfloat(residual[row_base + i] + branch[row_base + i]);
+            values[i] = value;
+            if (tile == 0) {
+                summed[row_base + i] = value;
+            }
+            float fv = float(value);
+            acc += fv * fv;
+        }
+
+        acc = simd_sum(acc);
+        \(lagunaNormReductionTail2048)
+
+        for (uint i = 0; i < n_reads; ++i) {
+            bfloat value =
+                weight[base + i] *
+                bfloat(float(values[i]) * laguna_inv_mean);
+            normalized_row[base + i] = value;
+            if (tile == 0) {
+                normalized[row_base + i] = value;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // --- router projection ---
+        \(guardOpen)\
+        uint router_row = tile * rows_per_group + simd_group * rows_per_thread;
+        thread float router_result[rows_per_thread] = {\(zeros)};
+        \(accumulate)
+
+        for (uint r = 0; r < rows_per_thread; ++r) {
+            for (ushort delta = 16; delta >= 1; delta >>= 1) {
+                router_result[r] +=
+                    metal::simd_shuffle_down(router_result[r], delta);
+            }
+        }
+        if (simd_lane == 0) {
+            for (uint r = 0; r < rows_per_thread; ++r) {
+                \(routerStore)
+            }
+        }
+        \(guardClose)
+        """
+}
+
+/// One kernel per supported `rows_per_group`, all built eagerly so that every
+/// arm of an ablation is served by the same binary.
+private let lagunaResidualRMSNormRouterMultiTokenKernels: [Int: MLXFast.MLXFastKernel] =
+    Dictionary(
+        uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
+            (
+                rowsPerGroup,
+                MLXFast.metalKernel(
+                    name: "laguna_residual_rms_router_multi_bf16_2048_rpg\(rowsPerGroup)_v1",
+                    inputNames: ["residual", "branch", "weight", "router_weight"],
+                    outputNames: ["summed", "normalized", "router_logits"],
+                    source: lagunaResidualRMSNormRouterMultiTokenSource(rowsPerGroup: rowsPerGroup),
+                    header: "",
+                    ensureRowContiguous: true
+                )
+            )
+        })
+
+/// Prefill (multi-token) counterpart of `lagunaResidualRMSNormRouter`: fuses the
+/// router GEMV into the residual+RMSNorm kernel so all L rows' router logits are
+/// produced in one dispatch instead of a separate `x.matmul(weight.T)`.
+func lagunaResidualRMSNormRouterMultiToken(
+    residual: MLXArray, branch: MLXArray, weight: MLXArray,
+    routerWeight: MLXArray, rows: Int
+) -> (summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray) {
+    let hidden = LagunaConstants.hiddenSize
+    let experts = LagunaConstants.numExperts
+    precondition(residual.dtype == .bfloat16)
+    precondition(branch.dtype == .bfloat16)
+    precondition(weight.dtype == .bfloat16)
+    precondition(routerWeight.dtype == .bfloat16)
+    precondition(residual.dims(1, rows, hidden))
+    precondition(branch.sameDims(residual))
+    precondition(weight.dims(hidden))
+    precondition(routerWeight.dims(experts, hidden))
+
+    let rowsPerGroup = lagunaRouterRowsPerGroup
+    let tiles = experts / rowsPerGroup
+    lagunaTrace("prefill residual+rmsnorm+router multi rpg\(rowsPerGroup)")
+    let inputs = [residual, branch, weight, routerWeight]
+    let outputs = lagunaResidualRMSNormRouterMultiTokenKernels[rowsPerGroup]!(
+        inputs,
+        grid: (tiles * 512, rows, 1),
+        threadGroup: (512, 1, 1),
+        outputShapes: [[1, rows, hidden], [1, rows, hidden], [1, rows, experts]],
+        outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
+    )
+    return (outputs[0], outputs[1], outputs[2])
+}
 
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
 /// (layer 0) and for any shape the router fusion above declines.
@@ -10561,6 +10757,26 @@ final class LagunaRuntimeDecoderLayer: Module {
             lagunaTrace("residual+rmsnorm")
             (h, normalized) = lagunaResidualRMSNorm(
                 residual: x, branch: r, weight: postAttentionLayerNorm.weight)
+        } else if lagunaPrefillRouterFusionEnabled,
+            x.dtype == .bfloat16, r.dtype == .bfloat16,
+            postAttentionLayerNorm.weight.dtype == .bfloat16,
+            x.sameDims(r), x.ndim == 3, x.dim(0) == 1,
+            x.dim(-1) == LagunaConstants.hiddenSize,
+            x.dim(1) > 1,
+            let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
+            sparse.gate.weight.dtype == .bfloat16,
+            sparse.gate.weight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize)
+        {
+            let rows = x.dim(1)
+            let fused = lagunaResidualRMSNormRouterMultiToken(
+                residual: x,
+                branch: r,
+                weight: postAttentionLayerNorm.weight,
+                routerWeight: sparse.gate.weight,
+                rows: rows)
+            h = fused.summed
+            normalized = fused.normalized
+            routerLogits = fused.routerLogits
         } else if lagunaPrefillFusedResidualRMSNormEnabled,
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
