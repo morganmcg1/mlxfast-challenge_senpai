@@ -1,17 +1,5 @@
-diff --git a/Sources/MLXFastHarness/LagunaRuntimeWorker.swift b/Sources/MLXFastHarness/LagunaRuntimeWorker.swift
-index 2d48e0e..40d17fe 100644
---- a/Sources/MLXFastHarness/LagunaRuntimeWorker.swift
-+++ b/Sources/MLXFastHarness/LagunaRuntimeWorker.swift
-@@ -41,6 +41,7 @@ extension LagunaRuntime {
-         // protocol hello -- outside every scored window.
-         let weightCache = LagunaRuntimeWeightCache(loader: loader, config: config)
-         _ = try weightCache.requireLibraryModel()
-+        armLagunaColdDuplicateProbeAfterConstructorWarmup()
-         let decoder = JSONDecoder()
-         let encoder = JSONEncoder()
-         encoder.outputFormatting = [.withoutEscapingSlashes]
 diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
-index 8a3184a..a0cf0b5 100644
+index 8a3184a..72eebe6 100644
 --- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
 +++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
 @@ -1,3 +1,4 @@
@@ -19,7 +7,7 @@ index 8a3184a..a0cf0b5 100644
  import Foundation
  import MLX
  import MLXFast
-@@ -66,6 +67,395 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
+@@ -66,6 +67,397 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
      lagunaTracedFusions.note(site())
  }
  
@@ -42,6 +30,7 @@ index 8a3184a..a0cf0b5 100644
 +    private let emitDigest: Bool
 +    private let injectFault: Bool
 +    private var measurementArmed = false
++    private var constructorWarmupDecodeObserved = false
 +    private var armIndex = 0
 +    private var stepInArm = 0
 +    private var activeArm: LagunaColdDuplicateArm?
@@ -204,9 +193,13 @@ index 8a3184a..a0cf0b5 100644
 +                + "\tchecksum=\(String(format: "%016llx", storagePretouchChecksum))")
 +    }
 +
-+    func armAfterConstructorWarmup() {
-+        guard isEnabled else { return }
-+        precondition(!measurementArmed, "cold duplicate probe armed twice")
++    func observeInvocation(_ inputs: MLXArray) {
++        guard isEnabled, !measurementArmed else { return }
++        if inputs.shape == [1, 1] {
++            constructorWarmupDecodeObserved = true
++            return
++        }
++        guard inputs.shape == [1, 512], constructorWarmupDecodeObserved else { return }
 +        precondition(
 +            preparedLayerCount == LagunaConstants.numHiddenLayers - 1,
 +            "cold duplicate probe armed before storage preparation")
@@ -254,9 +247,10 @@ index 8a3184a..a0cf0b5 100644
 +        guard let arm = activeArm else { return }
 +        packedLayerCount += 1
 +        guard arm.duplicateCount > 0 else { return }
-+        let rotated = MLX.remainder(
-+            indices + MLXArray(UInt32(8)), MLXArray(UInt32(LagunaConstants.numExperts)))
-+        let selected = arm.mode == "warm" ? indices : rotated
++        let offset = arm.mode == "warm" ? LagunaConstants.numExperts : 8
++        let selected = MLX.remainder(
++            indices + MLXArray(UInt32(offset)),
++            MLXArray(UInt32(LagunaConstants.numExperts)))
 +        var roots: [MLXArray] = []
 +        roots.reserveCapacity(arm.duplicateCount)
 +        for _ in 0..<arm.duplicateCount {
@@ -408,14 +402,10 @@ index 8a3184a..a0cf0b5 100644
 +
 +private let lagunaColdDuplicateProbe = LagunaColdDuplicateProbe.shared
 +
-+public func armLagunaColdDuplicateProbeAfterConstructorWarmup() {
-+    lagunaColdDuplicateProbe.armAfterConstructorWarmup()
-+}
-+
  // MARK: - Runtime fusion feature flags
  
  // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
-@@ -9579,6 +9969,12 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
+@@ -9579,6 +9971,12 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                          packedScales: packedBank,
                          indices: inds
                      )
@@ -428,10 +418,11 @@ index 8a3184a..a0cf0b5 100644
                  } else {
                      if lagunaPackedScalesEnabled {
                          lagunaPackedScalesLog.note(
-@@ -10469,7 +10865,10 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10469,7 +10867,11 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
      }
  
      public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
++        lagunaColdDuplicateProbe.observeInvocation(inputs)
 +        lagunaColdDuplicateProbe.begin(inputs: inputs, cache: cache)
          let fullHidden = model(inputs, cache: cache)
 +        let coldDuplicateMeasurement = lagunaColdDuplicateProbe.finish(
@@ -439,7 +430,7 @@ index 8a3184a..a0cf0b5 100644
          // Every consumer of multi-token logits reads only the LAST
          // position's row. Slice before the row-independent final RMSNorm and
          // vocabulary head so prefill neither normalizes nor projects the
-@@ -10498,6 +10897,14 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10498,6 +10900,14 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
          if case .logits = lagunaDecodeAsyncStage, inputs.shape == [1, 1] {
              asyncEval(result)
          }
@@ -454,7 +445,7 @@ index 8a3184a..a0cf0b5 100644
          return result
      }
  
-@@ -10561,6 +10968,19 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10561,6 +10971,19 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
          if !fusedArrays.isEmpty {
              eval(fusedArrays)
          }
