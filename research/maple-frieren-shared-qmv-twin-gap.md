@@ -20,7 +20,11 @@ round (see the assignment). This is a banked, correctness-verified patch.
 | Mechanism | Flag (opt-in, default OFF) | Verdict |
 | --- | --- | --- |
 | (a) K-block prefetch in the shared gate/up QMV | `DARKBLOOM_SHARED_QMV_PREFETCH` | **Kernel-level win, bit-exact.** −0.363 µs/call, 95 % CI [−0.495, −0.232], −4.80 %, = **−14.2 µs/step** |
-| (b) Pairwise (halved) gate/up scale plane | `DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES` (implies (a)) | TBD-STAGE2 |
+| (b) Pairwise (halved) gate/up scale plane | `DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES` (implies (a)) | **Refuted at kernel level, bit-exact.** +0.140 µs/call, 95 % CI [+0.058, +0.222], +1.94 %, = **+5.5 µs/step**; the invariant control also moved, so the accompanying −1.40 % whole-step delta is *not* attributable to this mechanism |
+
+Mechanism (a) is a clean, reproducible, bit-exact kernel win and is the part of
+this patch worth banking. Mechanism (b) makes its own kernel measurably slower
+and its ABBA violated the invariant-control precondition, so I do not claim it.
 
 Both effects are far below this host's end-to-end resolution. −14.2 µs/step is
 **0.166 % of GPU busy time and 0.145 % of decode wall time**, against a
@@ -277,9 +281,57 @@ number of scalar byte loads is issued, they just hit half as many cache lines.
 Extra resident memory is 65,664 B × 39 layers ≈ **2.6 MB**, on top of the
 full-density plane which is kept for the fallback.
 
-### 3.5 Result
+### 3.5 Result — the mechanism is refuted, and its whole-step delta is not attributable
 
-TBD-STAGE2-NUMBERS
+Driver: `research/maple_shared_qmv_prefetch_abba.sh`, `REPS=3 STEPS=33
+ORDER="on pairwise pairwise on"`, 12 worker processes, 1248 steady calls per
+arm. Supervised launch `fc455230-07e8-485b-b5d0-f4e1370723b7`, exit 0, 491 s.
+Digest: `research/shared-qmv-logs/stage2.pairwise-abba.log`.
+
+`on` here is Stage 1's winning prefetch arm, so this A/B isolates only the
+scale-plane density change.
+
+| Kernel | `on` µs/call (sd) | `pairwise` µs/call (sd) | Δ | 95 % CI | Δ % |
+| --- | --- | --- | --- | --- | --- |
+| `laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1` (changed) | 7.210 (0.078) | 7.350 (0.026) | **+0.140** | [+0.058, +0.222] | **+1.94 %** |
+| `routed_shared_nvfp4_…_qmv_…` (invariant control) | 38.817 (0.250) | 38.368 (0.075) | **−0.449** | — | **−1.16 %** |
+
+Two facts to read together:
+
+1. **The mechanism failed on its own kernel.** Halving the scale plane made the
+   kernel it changes *slower* by +1.94 % (df 6.1, perfect 6-v-6 separation).
+   `on`'s mean reproduced Stage 1's `on` mean to three decimals (7.210), so the
+   harness was stable across the two stages. The likely cause is that the kernel
+   was never scale-fetch-bound: the same number of scalar byte loads is still
+   issued (§3.4), the pair-index arithmetic adds work, and the halved plane's
+   lower spatial locality per lane costs more than the saved cache lines.
+2. **The invariant control moved, so per-kernel attribution is invalid for this
+   stage.** The routed twin is untouched by this patch and it got 1.16 % faster
+   with perfect separation. Every memory-heavy *decode* kernel moved the same
+   way (`down_residual` −2.65 %, routed qmv −1.15 %, `oproj` −0.75 %, `qkv`
+   −0.58 %), while the prefill-dominated `nvfp4_gather_qmm` did not
+   (−0.03 %). Whole-step wall fell 9.8973 (sd 0.1349) → 9.7587 ms (sd 0.0254),
+   −1.40 %; GPU busy 8.5923 → 8.5243 ms, −0.79 %; 406 command buffers in both
+   arms.
+
+I can offer two unseparated explanations for (2) and I did not run the
+experiment that would separate them:
+
+- *Real bandwidth relief.* The pairwise arm removes 39 × 65,408 B ≈ 2.55 MB of
+  scale traffic per decode step, which could free cache/bandwidth for the
+  neighbouring decode kernels. But 2.55 MB at this host's achieved decode
+  bandwidth accounts for only ~6–7 µs/step, whereas the neighbours together
+  gained ~59 µs/step. The magnitudes do not match.
+- *Allocation/layout artifact.* The pairwise arm allocates one extra buffer per
+  layer and builds a second pipeline-state object, which changes heap layout and
+  page placement for everything else.
+
+Verdict: mechanism (b) is **refuted** as a kernel-level optimisation, and its
+whole-step delta is **not claimed**, because the stage does not satisfy its own
+invariant-control precondition. The honest residue is a *new* observation worth
+its own experiment (§7): on this host, reducing decode-phase scale traffic
+appears to speed up unrelated decode kernels far more than it speeds up the
+kernel whose traffic was reduced.
 
 ---
 

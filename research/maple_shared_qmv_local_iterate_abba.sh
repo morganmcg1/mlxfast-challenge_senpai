@@ -30,19 +30,22 @@ for rep in $(seq 1 "${REPS}"); do
   for arm in ${ORDER}; do
     idx=$((idx + 1))
     tag=$(printf '%02d-rep%s-%s' "${idx}" "${rep}" "${arm}")
-    arm_env=()
+    # The fan-prompt suppression keeps this array non-empty, which matters for
+    # the bash 3.2 that ships with macOS: under `set -u` an empty "${a[@]}" is
+    # an unbound-variable error there.
+    arm_env=(MLXFAST_LOCAL_FAN_PROMPT=0)
     case "${arm}" in
       off) ;;
-      on) arm_env=(DARKBLOOM_SHARED_QMV_PREFETCH=1) ;;
+      on) arm_env+=(DARKBLOOM_SHARED_QMV_PREFETCH=1) ;;
       pairwise)
-        arm_env=(DARKBLOOM_SHARED_QMV_PREFETCH=1
-                 DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES=1) ;;
+        arm_env+=(DARKBLOOM_SHARED_QMV_PREFETCH=1
+                  DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES=1) ;;
       *) echo "unknown arm ${arm}" >&2; exit 2 ;;
     esac
     rm -f score.local-iterate.json
     echo "=== ${tag} starting $(date -u +%H:%M:%SZ) ==="
     start=${SECONDS}
-    env MLXFAST_LOCAL_FAN_PROMPT=0 "${arm_env[@]}" \
+    env "${arm_env[@]}" \
       ./benchmark.sh --local-iterate > "${OUT}/${tag}.log" 2>&1
     rc=$?
     dur=$((SECONDS - start))
