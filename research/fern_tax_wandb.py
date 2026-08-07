@@ -59,7 +59,9 @@ def pooled(paths, x_kind, y_kind="ms"):
     for fi, p in enumerate(paths):
         r = S.fit(p, x_kind, y_kind)
         if r is None:
-            return None
+            raise RuntimeError(
+                f"no {x_kind} axis for {p}; expected counters at "
+                f"{p}.ctr.tsv")
         base.append(r["baseline_ms"])
         meta, rows_ = S.read_timing(p)
         ctr = S.read_counters(p + ".ctr.tsv")
@@ -92,14 +94,15 @@ def joint_pooled(paths):
         for b, d, x, y in S.joint_points(p):
             pts.append(((fi, b), d, x, y))
     nb = len({p[0] for p in pts})
-    (bd, sd), (bb, sb), df, n = S.fe_ols2(pts, nb)
+    (bd, sd), (bb, sb), df, n, ss = S.fe_ols2(pts, nb)
     t = S.t95(df)
     return {"dispatch_slope_us": bd, "dispatch_se_us": sd,
             "dispatch_ci95_half_us": t * sd,
             "barrier_slope_us": bb, "barrier_se_us": sb,
             "barrier_ci95_half_us": t * sb,
-            "fusion_refund_us": bd + bb, "df": df, "n_points": n,
-            "blocks": nb}
+            "fusion_refund_us": bd + bb, "fusion_refund_se_us": ss,
+            "fusion_refund_ci95_half_us": t * ss,
+            "df": df, "n_points": n, "blocks": nb}
 
 
 def main():
@@ -153,8 +156,6 @@ def main():
     if len(family) > 1:
         for x_kind in ("dispatch", "barrier"):
             r = pooled(family, x_kind)
-            if r is None:
-                continue
             summary[f"pooled_inchain/{x_kind}/slope_us"] = r["slope_us"]
             summary[f"pooled_inchain/{x_kind}/ci95_half_us"] = \
                 r["ci95_half_us"]
@@ -172,6 +173,13 @@ def main():
         j = joint_pooled(sel)
         summary.update({f"{tag}/{k}": v for k, v in j.items()})
         summary[f"{tag}/n_arms"] = len(sel)
+
+    # A missing .ctr.tsv silently strips every dispatch/barrier axis and would
+    # otherwise publish a run containing only the uninformative k slopes.
+    for key in ("joint_all_sites/fusion_refund_us",
+                "pooled_inchain/barrier/slope_us"):
+        if key not in summary:
+            raise RuntimeError(f"headline {key} missing; refusing to publish")
 
     run.log({"arms": table})
     run.summary.update(summary)

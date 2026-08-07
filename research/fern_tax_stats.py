@@ -141,11 +141,16 @@ def fe_ols(points, n_blocks):
 
 
 def fe_ols2(points, n_blocks):
-    """points: (block, x1, x2, y).  Returns (b1,se1), (b2,se2), df, n.
+    """points: (block, x1, x2, y).  Returns (b1,se1), (b2,se2), df, n, se_sum.
 
     Dispatch count and barrier count are collinear in any single arm, so the
     only way to price them apart is to pool arms whose barrier-per-dispatch
     ratio differs (chain40=1, fat40=1, fan40 falls to 0 between K=2 and K=4).
+
+    That same collinearity makes the two slopes strongly negatively
+    correlated, so se_sum -- the standard error of b1+b2, the refund for
+    fusing a dependent pair -- is much smaller than sqrt(se1^2+se2^2) and is
+    the only defensible error bar for the decision number.
     """
     by_block = defaultdict(list)
     for b, x1, x2, y in points:
@@ -167,16 +172,18 @@ def fe_ols2(points, n_blocks):
     nan, n = float("nan"), len(points)
     det = s11 * s22 - s12 * s12
     if det == 0:
-        return (nan, nan), (nan, nan), 0, n
+        return (nan, nan), (nan, nan), 0, n, nan
     b1 = (s22 * s1y - s12 * s2y) / det
     b2 = (s11 * s2y - s12 * s1y) / det
     df = n - n_blocks - 2
     if df <= 0:
-        return (b1, nan), (b2, nan), 0, n
+        return (b1, nan), (b2, nan), 0, n, nan
     ssr = sum((cy - b1 * c1 - b2 * c2) ** 2 for c1, c2, cy in centred)
     s2 = ssr / df
+    var_sum = s2 * (s22 + s11 - 2.0 * s12) / det
     return ((b1, math.sqrt(s2 * s22 / det)),
-            (b2, math.sqrt(s2 * s11 / det)), df, n)
+            (b2, math.sqrt(s2 * s11 / det)), df, n,
+            math.sqrt(var_sum) if var_sum > 0 else nan)
 
 
 def joint_points(path):
@@ -388,7 +395,7 @@ def joint(paths):
         for b, d, x, y in joint_points(p):
             pooled.append(((fi, b), d, x, y))
     nb = len({p[0] for p in pooled})
-    (bd, sd), (bb, sb), df, n = fe_ols2(pooled, nb)
+    (bd, sd), (bb, sb), df, n, ss = fe_ols2(pooled, nb)
     t = t95(df)
     names = ", ".join(p.rsplit("/", 1)[-1].replace(".tsv", "") for p in paths)
     print(f"\n== JOINT ({names}) wall_us ~ dispatch + barrier ==")
@@ -396,10 +403,13 @@ def joint(paths):
           f"95% CI [{bd-t*sd:+.4f}, {bd+t*sd:+.4f}]  t={bd/sd:+.1f}")
     print(f"  barrier   {bb:+.4f} +/- {sb:.4f}  "
           f"95% CI [{bb-t*sb:+.4f}, {bb+t*sb:+.4f}]  t={bb/sb:+.1f}")
+    print(f"  SUM       {bd+bb:+.4f} +/- {ss:.4f}  "
+          f"95% CI [{bd+bb-t*ss:+.4f}, {bd+bb+t*ss:+.4f}]   <- fusing a "
+          f"dependent pair")
     print(f"  df={df}, n={n}, blocks={nb}")
     print("  a barrier-free dispatch costs the 'dispatch' row; removing a "
           "dependent\n  edge as well refunds dispatch+barrier")
-    return bd, sd, bb, sb, df, n
+    return bd, sd, bb, sb, df, n, ss
 
 
 def main():

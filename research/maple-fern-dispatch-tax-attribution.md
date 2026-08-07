@@ -4,10 +4,20 @@
 cost**. It is a per-*barrier* cost: MLX charges ~1.30 µs each time it has to
 close an intra-encoder wave with a `memoryBarrier`, and only ~0.12 µs for the
 dispatch itself. Fusing two *dependent* kernels refunds
-**+1.42 µs/step (95 % CI [1.35, 1.50], n = 288 segments, 6 arms)**; removing a
-dispatch that does not delete a dependency edge refunds **+0.12 µs**, 12× less.
+**+1.4234 µs/step (95 % CI [1.3732, 1.4736], n = 288 segments, 6 arms,
+df = 250)**; removing a dispatch that does not delete a dependency edge refunds
+**+0.123 µs (CI [0.029, 0.217])**, 12× less.
 This reconciles PR #241's "1.4 µs/dispatch" and PR #269's removal-measured
 1.233 µs/dispatch, and it predicts #269's headline number to within 0.95 σ.
+
+A footprint sweep over four orders of magnitude gives a second, independent and
+tighter estimate of the same constant — **1.3489 ± 0.0181 µs** at zero bytes —
+with a byte slope that lands on this host's real DRAM bandwidth (§4.6). And the
+cost is charged per unit of *serial depth*, not per dependency edge: 80 real RAW
+edges arranged in parallel cost 4 barriers and nothing measurable (§4.9). That
+last result also closes the tempting cheap exploit — you cannot refund barriers
+by reordering graph construction, because MLX's scheduler already extracts the
+available parallelism.
 
 **Host:** Apple M4 Pro, 20 GPU cores, 48 GiB, macOS 26.5.2, Metal 4, Apple GPU
 generation 16. **This is not the ranked host.** It never selects the `_nax`
@@ -379,24 +389,44 @@ only thing that changes is how many bytes each added wave dirties.
 | 8 192 | 1.3469 ± 0.0593 | [1.228, 1.466] |
 | 65 536 | 1.6574 ± 0.0333 | [1.591, 1.724] |
 | 262 144 | 2.4179 ± 0.0366 | [2.345, 2.491] |
+| 4 194 304 | 18.8484 ± 0.9134 | [16.90, 20.79] |
 
 A 32× increase in dirty footprint from 256 B to 8 KiB moves the price by
 **−0.028 ± 0.065 µs (2 %, indistinguishable from zero)**. Above 8 KiB the price
 does rise, but linearly in bytes and at an ordinary rate, not as the step
-function a cache flush/invalidate would produce. OLS on the four points gives
+function a cache flush/invalidate would produce. OLS over the full five points —
+a **16384× range of footprint** — gives
 
 ```
-cost(bytes) = 1.357 us + 4.07e-6 us/byte
+cost(bytes) = 1.3489 +/- 0.0181 us  +  4.172e-6 +/- 9.6e-9 us/byte
+residuals: +0.025  -0.036  +0.035  -0.025  +0.001 us
 ```
 
-The marginal term is 4.07 µs per MiB of operand, i.e. ~490 GB/s for the
-read+write traffic of an elementwise kernel — cache-resident bandwidth on this
-part, which is what it should be. It is ordinary memory work, priced as memory
-work.
+Two things are worth stating plainly.
+
+First, the fit is linear to within ±0.036 µs across four orders of magnitude,
+and the marginal term is **4.172 µs per MiB of operand = 240 GB/s of footprint
+moved per second**. This host's LPDDR5X peak is 273 GB/s, and an elementwise
+`t = t + z` moves roughly one footprint of reads plus one of writes, so the
+byte term is *exactly* ordinary DRAM traffic running at ~88 % of peak. That is a
+free calibration of the whole instrument against a known physical constant: the
+probe is measuring real work correctly, and whatever is left at zero bytes is
+therefore genuinely overhead rather than mispriced traffic.
+
+Second, extrapolating that line to zero footprint isolates the pure barrier cost
+at **1.3489 ± 0.0181 µs**, which is the tightest of the three independent
+estimates in this report and sits inside the joint fit's
+[+1.3732, +1.4736] and PR #269's removal-measured [0.920, 1.545].
 
 **E3 is refuted as an explanation of the tax.** The footprint-independent floor
-is 1.357 µs and that floor is the whole tax at realistic sizes: a 3072-wide
+is 1.349 µs and that floor is the whole tax at realistic sizes: a 3072-wide
 bfloat16 decode activation is 6 KiB, contributing 0.025 µs to the bytes term.
+
+The 4 MiB arm is also the one place in the battery where the injected work
+perturbs the command-buffer partition (commits 68 → 78, gpu/wall 0.970 → 0.979,
+barriers 367 → 363 at K = 1 because MLX splits the encoder earlier). It is
+retained because it anchors the bytes slope over three extra octaves and its
+residual is +0.001 µs, but it is not used for any barrier-price claim.
 
 ### 4.7 E4 — resource/heap-pool sweep
 
@@ -411,12 +441,14 @@ only thing that varies is how many distinct allocations the step touches.
 | 1 (`fat40_8k`) | 8 KiB | 1.3469 ± 0.0593 | [1.228, 1.466] |
 | 4 (`dist40_p4`) | 32 KiB | 1.5201 ± 0.0320 | [1.456, 1.584] |
 | 16 (`dist40_p16`) | 128 KiB | 1.5507 ± 0.0315 | [1.488, 1.614] |
+| 64 (`dist40_p64`) | 512 KiB | 1.5472 ± 0.0290 | [1.489, 1.605] |
 | 256 (`dist40_8k`) | 2 MiB | 1.4871 ± 0.0488 | [1.390, 1.585] |
 
 Across the `dist40` family the price is flat over a **64× range of distinct
-resources and a 64× range of working set**: 4 → 16 is +0.031 ± 0.045 µs and
-4 → 256 is **−0.033 ± 0.058 µs**, both zero. A residency or argument-encoding
-cost would have to grow somewhere in there.
+resources and a 64× range of working set**: 4 → 16 is +0.031 ± 0.045 µs,
+4 → 64 is +0.027 ± 0.043 µs and 4 → 256 is **−0.033 ± 0.058 µs**, all zero, and
+the sequence 1.520 / 1.551 / 1.547 / 1.487 is not monotone. A residency or
+argument-encoding cost would have to grow somewhere in there.
 
 The 1 → 4 step looks like +0.17 µs but is **confounded and should not be read
 as an E4 signal**: `fat40` chains `t = t + z` against one hot buffer while
@@ -482,6 +514,60 @@ synchronization-only buffers). Neither result depends on the absolute number —
 both are stable across every arm and every K — but nobody should quote "45" and
 "68" as if they measured the same thing.
 
+### 4.9 Graph *shape*, not edge count: the currency is serial depth
+
+Two further off-step arms separate "has a dependency edge" from "forces a wave
+boundary", which the in-chain arms deliberately conflate.
+
+`distinct` is `indep` with the 256-buffer pool: K independent
+`bases[i % 256] * one` products. `diamond1` builds K independent two-op
+*diamonds*, `d = b * one` then `y = d + d`, so every unit contains a genuine RAW
+edge from its multiply to its add, and the units are independent of each other.
+
+| arm | K | dispatches | RAW edges added | barriers | wall (ms) |
+|---|---|---|---|---|---|
+| baseline | 0 | 406 | 0 | 247 | 8.186 |
+| `indep` | 160 | 566 | 0 | 247 | 8.1821 |
+| `distinct` | 160 | 566 | 0 | 247 | 8.1829 |
+| **`diamond1`** | **80** | **566** | **80** | **251** | **8.1760** |
+| `chain` | 80 | 486 | 80 | 325 | 8.1662 |
+
+`distinct` fits at **+0.0298 ± 0.0227 µs per dispatch** (CI [−0.016, +0.075],
+n = 48) — a third independent replication that barrier-free dispatches are free,
+and this one cannot be dismissed as MLX collapsing repeated work on one hot
+buffer, because every product reads a different allocation.
+
+`diamond1` fits at **−0.0070 ± 0.0212 µs per dispatch** (CI [−0.049, +0.035]).
+Read the table row instead of the slope: **at exactly 566 dispatches, 80 real
+RAW dependency edges cost 4 barriers and nothing measurable**, while the *same*
+80 edges arranged as a serial chain cost 78 barriers.
+
+The reason is visible in `device.cpp`. `set_input_array` (`:315-328`) trips
+`needs_barrier_` when an op reads a buffer in `prev_outputs_`, and
+`maybeInsertBarrier` (`:363-375`) *moves* `next_*` into `prev_*` when it fires,
+discarding everything accumulated before. MLX's `eval` tape orders 40
+independent diamonds breadth-first — all 40 multiplies, then all 40 adds — so the
+first add trips one barrier, that barrier clears the producer set, and the
+remaining 39 adds find nothing of theirs in `prev_outputs_`. Forty dependency
+edges, one barrier.
+
+**So the currency is neither dispatches nor dependency edges. It is serial
+depth: the number of points at which MLX has no independent work left to put
+between a producer and its consumer.**
+
+That reframing has a consequence the programme should absorb before spending a
+slot on it. The obvious cheap exploit — "don't write fused kernels, just
+reorder graph construction so dependent pairs are separated by independent
+work" — **is already done by MLX and is not available**. The tape order is chosen
+by MLX's own breadth-first `eval`, not by Swift call order, and `diamond1` shows
+that scheduler is good: given 40 parallel edges it finds the one-barrier
+schedule. The corollary is that the 247 barriers in a real decode step are close
+to the *true* serial depth of the decode graph rather than a scheduling failure,
+which is independently consistent with §6's per-layer accounting (6.2 measured
+waves against a ~7-wave structural budget). The only lever left is to shorten
+serial depth by fusing — which is exactly what PR #269 did, and why it worked.
+
+
 ## 5. Verdict on E1–E5
 
 **None of E1–E5 survives as stated, because all five were framed as
@@ -491,11 +577,11 @@ mechanism is a sixth one the brief did not list.
 | id | mechanism | verdict | decisive evidence |
 |----|-----------|---------|-------------------|
 | E1 | CPU-side per-op encode starving the GPU | **refuted** | §4.1: 224 µs of real CPU busy-wait injected at the same 40 encode positions moves wall by +0.050 ± 0.029 µs per injected µs, 32 SE below the 1.0 a CPU-paced step requires. §4.2: 99–100 % of the injected cost lands inside GPU-busy, gap slope −0.024 ± 0.013 and +0.007 ± 0.018. #269 by removal: Δgap = 1 µs vs ΔGPU-busy = 139 µs. |
-| E2 | GPU command-processor fixed launch cost | **refuted as the dominant term; survives as a 0.12 µs residue** | §4.3 `fan40`: +80 dispatches with +0 barriers cost +17.3 µs (0.216 µs each) where the same 80 in-chain cost 110 µs. §4.4 ×2: +40 barrier-free dispatches cost −3.0 and −13.7 µs. §4.5 `indep`: **+160 barrier-free dispatches cost −5.6 µs**, against +224 µs if the tax were per-dispatch. Pooled joint fit: **+0.123 ± 0.048 µs/dispatch**, 8.6 % of the total. |
-| E3 | cache flush/invalidate scaling with dirty footprint | **refuted** | §4.6: 32× footprint (256 B → 8 KiB) changes the price by −0.028 ± 0.065 µs. Above 8 KiB the cost rises *linearly in bytes* at ~490 GB/s, i.e. it is ordinary memory traffic. Footprint-independent floor 1.357 µs. |
-| E4 | residency/bookkeeping scaling with distinct resources | **refuted** | §4.7: 1 → 256 distinct scratch buffers changes nothing beyond noise. |
+| E2 | GPU command-processor fixed launch cost | **refuted as the dominant term; survives as a 0.12 µs residue** | §4.3 `fan40`: +80 dispatches with +0 barriers cost +17.3 µs (0.216 µs each) where the same 80 in-chain cost 110 µs. §4.4 ×2: +40 barrier-free dispatches cost −3.0 and −13.7 µs. §4.5 `indep`: **+160 barrier-free dispatches cost −5.6 µs**, against +224 µs if the tax were per-dispatch; §4.9 `distinct` replicates that on 256 distinct allocations at +0.030 ± 0.023 µs/dispatch. Pooled joint fit: **+0.123 ± 0.048 µs/dispatch**, 8.6 % of the total. |
+| E3 | cache flush/invalidate scaling with dirty footprint | **refuted** | §4.6: 32× footprint (256 B → 8 KiB) changes the price by −0.028 ± 0.065 µs. Over a 16384× sweep to 4 MiB the cost rises *linearly in bytes* at 4.172 µs/MiB = 240 GB/s of footprint, i.e. ordinary DRAM traffic at 88 % of this host's peak. Footprint-independent intercept **1.3489 ± 0.0181 µs**. |
+| E4 | residency/bookkeeping scaling with distinct resources | **refuted** | §4.7: a 5-point sweep from 1 to 256 distinct scratch buffers (8 KiB → 2 MiB working set) is flat and non-monotone. |
 | E5 | command-buffer commit overhead | **refuted (confirmed)** | §3 and every arm: commits 65–68 and encoder creations 75–76 per step, flat across all 17 arms and all K, while the tax moves by 580 µs. #269 independently reports a constant 45 command buffers/step. |
-| **E6** | **loss of intra-encoder overlap at a `memoryBarrier`** | **SURVIVES** | The whole of §4.3–§4.5. Pooled joint fit **+1.300 ± 0.060 µs per barrier**, t = 21.8, n = 288, and no arm off the line at t = 50.6 in the single-regressor pooled fit against x = barrier while x = dispatch throws `dist40_8k` and `fan40` off. Cross-validated against #269's independent removal at 0.95σ (§4.8). |
+| **E6** | **loss of intra-encoder overlap at a `memoryBarrier`** | **SURVIVES** | The whole of §4.3–§4.5 and §4.9. Pooled joint fit **+1.300 ± 0.060 µs per barrier**, t = 21.8, n = 288, and no arm off the line at t = 50.6 in the single-regressor pooled fit against x = barrier while x = dispatch throws `dist40_8k` and `fan40` off. Independently pinned at 1.3489 ± 0.0181 µs by the zero-footprint intercept of §4.6. Cross-validated against #269's independent removal at 0.95σ (§4.8). |
 
 ### E6 stated precisely
 
@@ -509,7 +595,7 @@ overlap it destroys: the machine must drain every threadgroup encoded before it
 before starting anything after it, and the price is the ragged tail of that
 drain.
 
-Three properties follow, and all three are observed:
+Four properties follow, and all four are observed:
 
 1. **It is charged per barrier, not per dispatch.** Adding dispatches into an
    already-open wave is free (0.12 µs); adding a dependency edge costs 1.30 µs.
@@ -521,12 +607,19 @@ Three properties follow, and all three are observed:
    the next step. The 1.30 µs figure is the price of a barrier placed
    one-per-layer *between real decode work*, which is exactly the fusion case.
 
+4. **It is charged per unit of serial depth, not per dependency edge.** §4.9's
+   `diamond1` adds 80 real RAW edges for 4 barriers and no measurable time,
+   because MLX schedules independent edges breadth-first and one barrier clears
+   all of them at once.
+
 Note that inserting a barrier resets MLX's `prev_*` hazard sets
 (`device.cpp:363-375`), so the counter measures **barrier-free waves**, not
 dependency edges: several independent edges that resolve at the same point
 cost one barrier between them. That is why `fan40` — K independent producers
 joined by one concatenate — adds dispatches without adding barriers past K = 2,
-and why it is the arm that breaks the per-dispatch model.
+and why it is the arm that breaks the per-dispatch model. It is also why the
+barrier counter, not the dispatch counter, is the right thing to budget against:
+it already reports the quantity that costs money.
 
 ### Answering the two hypotheses
 
@@ -550,11 +643,18 @@ that are joined by a data dependency removes one dispatch *and* one barrier,
 so it refunds
 
 ```
-0.123 (dispatch) + 1.300 (barrier) = 1.42 us/step  [6-arm pooled joint fit, n=288]
-0.173 (dispatch) + 1.241 (barrier) = 1.41 us/step  [4-arm in-chain joint fit]
+0.1231 (dispatch) + 1.3003 (barrier) = 1.4234 +/- 0.0256 us/step   [6 arms, n=288, df=250]
+0.1727 (dispatch) + 1.2407 (barrier) = 1.4134 +/- 0.0287 us/step   [4 in-chain arms, n=192]
 ```
 
-on this host, comfortably above the 1.0 µs bar the assignment set. But the
+95 % CI **[1.3732, 1.4736]** for the 6-arm fit. Note that the *sum* is pinned
+far tighter (SE 0.026) than either part (SE 0.048 and 0.060): dispatch and
+barrier counts are near-collinear, so the fit is confident about the total and
+much less confident about the split. The error bar on the sum must therefore be
+computed from the full covariance, not as `sqrt(se_d² + se_b²) = 0.077`, which
+would overstate it by 3×. `fe_ols2` returns it directly.
+
+This is comfortably above the 1.0 µs bar the assignment set. But the
 refund is *not* proportional to dispatches removed. Three different fusions
 that all remove "one dispatch per layer" refund three very different amounts:
 
@@ -640,6 +740,15 @@ So the operational rule for the decode programme is:
    `matmul.cpp`, `jit_kernels.cpp`, `kernels.h`, `quantized.cpp` and their
    `mlx-generated/*.cpp` twins are editable. This is why the answer is
    **(A) fuse dependent kernels**, not (B) restructure dispatch.
+6. **Do not spend a slot on graph reordering.** The cheapest-looking exploit of
+   rule 1 is to leave every kernel alone and merely separate dependent pairs
+   with independent work so MLX stops inserting the barrier. §4.9 closes this:
+   the tape order is chosen by MLX's own breadth-first `eval`, not by Swift call
+   order, and given 40 parallel dependency edges that scheduler already finds
+   the one-barrier schedule. The 247 barriers are close to the decode graph's
+   true serial depth, which is why the 6.2 measured waves per layer sit just
+   under the ~7-wave structural budget of rule 4. Reordering has no slack to
+   recover; only fusion shortens serial depth.
 
 ## 7. Scope
 
@@ -658,6 +767,27 @@ Note that editing anything under `Vendor/mlx-swift/Source/Cmlx/{mlx,mlx-generate
 changes the tree hash that `Sources/MLXFastTrustedHarness/VendoredMetalFingerprint.swift`
 computes, so the trusted harness must not be run against a patched tree without
 first re-running `tools/build-mlx-metallib.sh`.
+
+### Reproduction
+
+```bash
+git apply research/fern_tax_device_counters.patch research/fern_tax_inject.patch
+mkdir -p .build-worker/clang-module-cache
+CLANG_MODULE_CACHE_PATH="${PWD}/.build-worker/clang-module-cache" \
+  swift build -c release --force-resolved-versions \
+  --scratch-path .build-worker --product mlxfast-runtime-worker
+git checkout -- Sources Vendor            # instruments now live only in the binary
+research/fern_tax_campaign.sh             # 17 arms, ~47 min, writes /tmp/fern268
+python3 research/fern_tax_stats.py /tmp/fern268/{chain40,fat40_8k,dist40_8k,fan40,fat40_8k_free,dist40_8k_free}.tsv --joint
+python3 research/fern_tax_wandb.py /tmp/fern268 --run-name fern-268-dispatch-tax-battery
+```
+
+W&B run for this campaign (all 17 arms, 315 summary scalars, one `arms` table
+with every arm × regressor × response slope):
+[`rcj6tohw`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/rcj6tohw).
+The headline is `joint_all_sites/fusion_refund_us = 1.4234`
+(`fusion_refund_ci95_half_us = 0.0502`).
+
 
 ## 8. Caveats
 
@@ -730,3 +860,15 @@ Ordered by how much they could change the verdict.
     overlap into the next step. The correct statement is "a barrier costs what
     it drains"; 1.30 µs is what one drains in the scored decode step on this
     host, not a property of `memoryBarrier` alone.
+11. **§4.9's "MLX already schedules optimally" conclusion is inferred, not
+    directly re-counted on the real graph.** The breadth-first tape claim is
+    established two ways — reading `eval`'s ordering together with
+    `maybeInsertBarrier`'s `prev_*` reset, and the `diamond1` arm where 80 real
+    RAW edges arranged in parallel cost 4 barriers instead of 78 — but
+    `diamond1` is a *synthetic* graph of identical two-op diamonds, and the
+    supporting "6.2 measured waves vs ~7 structural waves per layer" figure is
+    the same trace reading flagged in caveat 3. The safe reading of rule 6 is
+    therefore "reordering graph construction is very unlikely to pay, and must
+    be `TAXCTR`-verified before a slot is spent on it", not "it is proven
+    impossible".
+
