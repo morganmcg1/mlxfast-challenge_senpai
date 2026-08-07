@@ -72,11 +72,11 @@
     frees LRM headroom from 604B to 17,252B. Enables future kernel work.
   PR #280 (thorfinn): Double down kernel outputs_per_simd 4→8 — bit-exact, 0-byte, M4 +0.4% decode
 
-## CLOSED THIS SESSION (Wave 15)
+## CLOSED THIS SESSION (Wave 15-16)
+  PR #276 (edward): RMSNorm→LM head fusion — DEAD (RMSNorm replicated across 6272 TGs costs >1 dispatch saved; +0.1% to +1.8% slower)
   PR #277 (thorfinn): 4-way scale constancy — DEAD (invariant holds only 20-37%, need 95%. 2-way holds 100%)
 
 ## ACTIVE ASSIGNMENTS (Wave 16, BASE_SHA=4bea532)
-  PR #276 (edward): RMSNorm→LM head fusion — CLOSED (negative: RMSNorm replicated across 6272 TGs > 1 dispatch saved)
   PR #281 (alphonse): Fuse router GEMV + top-8 tournament into single kernel — eliminate 39 decode dispatches (bit-exact, ~0.2-0.5% decode)
   PR #283 (thorfinn): Double O-proj results_per_simdgroup 4→8 (bit-exact, 0-byte, decode, precedent: PR #280 down kernel)
   PR #285 (edward): Fix routed MoE halved scales — embed escape in scales tensor, pass biases:nil (recover ~0.5% prefill, M5-only, bit-exact)
