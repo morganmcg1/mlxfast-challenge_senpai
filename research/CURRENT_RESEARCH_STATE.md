@@ -31,6 +31,14 @@
     NO instruction-count reductions. NO prefill changes. NO scheduling changes.
     Next submission: compose winning decode bandwidth optimizations from clean base (12a712d).
     Submit from CLEAN base + decode optimizations only. NO prefill changes.
+    FALLBACK: If Wave 5 fails, re-test instruction-count reductions PURE on clean base
+      (no ops-800, no QHOIST, no prefill). Start with packed simd_sum (lowest risk).
+      Research finding: no pure instruction-reduction submission was EVER tested on M5.
+      ALL rejections included ops-800 or QHOIST. ops-800 alone (no instruction changes)
+      was rejected at -7.23%, proving ops-800 was the cause, not instruction reductions.
+    KEY INSIGHT: M5 is bandwidth-bound, NOT instruction-bound. The "89% ALU" includes
+      stall cycles (ALU active but waiting for memory). NVFP4 decode is ~2 FLOP/byte
+      vs 27 FLOP/byte ridge point — 13x below arithmetic intensity ridge.
   CRITICAL: QHOIST+BM128-v4 REVERTED from advisor branch. Prefill changes are TOXIC on M5.
   BANDWIDTH AUDIT KEY FINDINGS:
     1. Shared SwiGLU QMV halving: ~2.43 MiB/step, bit-exact, primary decode path (PR #180 dead code).
