@@ -5213,52 +5213,6 @@ final class LagunaRuntimeAttention: Module {
     /// output at `queryDim + 2 * kvDim`.
     var _nativeAffineQKVGateRows = 0
 
-    private enum FusedQKVProjectionPlan {
-        case unprepared
-        case unavailable
-        case ready(
-            gateProjection: Linear,
-            nativeQKV: LagunaNativeAffineWeight?,
-            fusedNormAffine: Bool)
-    }
-    private var _fusedQKVProjectionPlan = FusedQKVProjectionPlan.unprepared
-
-    private func makeFusedQKVProjectionPlan() -> FusedQKVProjectionPlan {
-        guard lagunaFusedQKVProjectionEnabled, _fusedQKVWeight == nil,
-            headDim == LagunaConstants.headDim,
-            nKVHeads == LagunaConstants.numKeyValueHeads,
-            wq.bias == nil, wk.bias == nil, wv.bias == nil,
-            type(of: wq) == Linear.self, type(of: wk) == Linear.self,
-            type(of: wv) == Linear.self,
-            wq.weight.dtype == .bfloat16, wk.weight.dtype == .bfloat16,
-            wv.weight.dtype == .bfloat16,
-            gatingEnabled, gatePerHead,
-            let gateProjection = gProj,
-            gateProjection.bias == nil,
-            type(of: gateProjection) == Linear.self,
-            gateProjection.weight.dtype == .bfloat16,
-            gateProjection.weight.shape == [nHeads, LagunaConstants.hiddenSize]
-        else {
-            return .unavailable
-        }
-        let nativeQKV =
-            lagunaUseNativeAffineQKV(layer: layerIdx) ? _nativeAffineQKV : nil
-        let fusedNormAffine =
-            lagunaFusedNormAffineQKVEnabled
-            && nativeQKV?.mode == .affine && nativeQKV?.bits == 8
-            && nativeQKV?.groupSize == 32
-            && _nativeAffineQKVGateRows == nHeads
-            && nativeQKV?.biases != nil
-        return .ready(
-            gateProjection: gateProjection,
-            nativeQKV: nativeQKV,
-            fusedNormAffine: fusedNormAffine)
-    }
-
-    func certifyFusedQKVProjectionPlan() {
-        _fusedQKVProjectionPlan = makeFusedQKVProjectionPlan()
-    }
-
     func prepareNativeAffineOProjWeight() -> [MLXArray] {
         guard _nativeAffineOProj == nil,
             type(of: wo) == Linear.self,
@@ -5475,22 +5429,29 @@ final class LagunaRuntimeAttention: Module {
                 queries: MLXArray, keys: MLXArray, values: MLXArray,
                 gateValues: MLXArray, gateActivated: Bool
             )?
-        let fusedQKVProjectionPlan: FusedQKVProjectionPlan
-        switch _fusedQKVProjectionPlan {
-        case .unprepared:
-            fusedQKVProjectionPlan = makeFusedQKVProjectionPlan()
-        default:
-            fusedQKVProjectionPlan = _fusedQKVProjectionPlan
-        }
-        if B == 1, L == 1,
+        if lagunaFusedQKVProjectionEnabled, _fusedQKVWeight == nil,
+            B == 1, L == 1,
+            headDim == LagunaConstants.headDim,
+            nKVHeads == LagunaConstants.numKeyValueHeads,
             input.dtype == .bfloat16,
             input.shape == [1, 1, LagunaConstants.hiddenSize],
             inputNorm.weight.dtype == .bfloat16,
             inputNorm.weight.shape == [LagunaConstants.hiddenSize],
-            case let .ready(gateProjection, fusedAffine, fusedNormAffine) =
-                fusedQKVProjectionPlan
+            wq.bias == nil, wk.bias == nil, wv.bias == nil,
+            type(of: wq) == Linear.self, type(of: wk) == Linear.self,
+            type(of: wv) == Linear.self,
+            wq.weight.dtype == .bfloat16, wk.weight.dtype == .bfloat16,
+            wv.weight.dtype == .bfloat16,
+            gatingEnabled, gatePerHead,
+            let gateProjection = gProj,
+            gateProjection.bias == nil,
+            type(of: gateProjection) == Linear.self,
+            gateProjection.weight.dtype == .bfloat16,
+            gateProjection.weight.shape == [nHeads, LagunaConstants.hiddenSize]
         {
-            if let fusedAffine {
+            if lagunaUseNativeAffineQKV(layer: layerIdx),
+                let fusedAffine = _nativeAffineQKV
+            {
                 // One dispatch for the input RMSNorm AND the INT8 projection
                 // (see `lagunaNormAffineQKVSource`). Requires the group-32
                 // affine INT8 wire format AND the gate rows folded into the
@@ -5498,7 +5459,10 @@ final class LagunaRuntimeAttention: Module {
                 // device-visible normalized row; the NVFP4 tail layers and
                 // any guard decline keep the separate norm.
                 var fusedQKV: MLXArray?
-                if fusedNormAffine,
+                if lagunaFusedNormAffineQKVEnabled,
+                    fusedAffine.mode == .affine, fusedAffine.bits == 8,
+                    fusedAffine.groupSize == 32,
+                    _nativeAffineQKVGateRows == nHeads,
                     inputNorm.eps == Float(LagunaConstants.rmsNormEpsilon),
                     let affineBiases = fusedAffine.biases
                 {
@@ -10616,9 +10580,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
-        }
-        for layer in model.layers {
-            layer.selfAttn.certifyFusedQKVProjectionPlan()
         }
         // Certified two-pass lm_head coarse copy (notes/68), gated by
         // `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON;
