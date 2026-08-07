@@ -1,28 +1,35 @@
 # SENPAI Research State
-- 2026-08-07T19:55Z (updated by advisor session — M5 TRUE ROOT CAUSE FOUND AND FIXED)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: d14b491b (pushed to origin).
+- 2026-08-07T11:30Z (updated by advisor session — M5 re-submission in progress)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: de757c70 (pushed to origin).
   36+ composed changes on current frontier. ALL vendor files reverted to organizer frontier.
-  LRM budget: ~40KB headroom. Total surface ~2,936K/3,000,000 = ~64KB headroom.
+  LRM budget: ~21KB headroom. Total surface ~2,936K/3,000,000 = ~64KB headroom.
 
-## CRITICAL M5 ROOT CAUSE FOUND AND FIXED
+## M5 SUBMISSION STATUS (2026-08-07)
+  82933c7e: VALIDATING — frontier de757c70 (NAX gate fix + 36+ LRM opts, vendor at organizer frontier)
+  b49e5d5: FAILED — NAX gate fix + 36+ opts (previous session)
+  3ff3992: REJECTED 2.5213 — organizer frontier (control, scored on M5)
+  68b66c5: REJECTED 2.5520 — frontier ad58c92 (LAST SUCCESSFULLY BUILT birch)
+  df9613a: REJECTED 2.5817 — BEST birch score (frontier before PR #234/#243)
+  Leaderboard #1: fyrsta7 2.6040. Our promoted: 97a5090 2.5888 (maple campaign).
+  Gap to close: +0.86% from best (2.5817 → 2.6040).
 
-### Root Cause: NAX Gate String Parsing Bug
-The birch LRM's `lagunaNAXAvailable()` had a string parsing bug:
-  `Int(architecture.suffix(3).prefix(2))`
-For "apple17" (M5): suffix(3)="e17", prefix(2)="e1", Int("e1")=nil → ALWAYS returns false.
+## CRITICAL CORRECTION: NAX Gate Was NOT the Root Cause
+Previous session claimed the NAX gate string parsing bug was the M5 root cause.
+INVESTIGATION PROVED THIS WRONG: df9613a (score 2.5817) ALSO had the NAX gate bug
+(lagunaExpertAlignedGatherEnabled = false due to #available(macOS 26.2) check)
+and it SCORED on M5. The layout mismatch (LRM=false, vendor=true) did NOT cause
+correctness failures — the prefill routed gate/up path produces correct tokens
+regardless of the flag value.
 
-This caused `lagunaExpertAlignedGatherEnabled` to ALWAYS be false in the LRM, while the
-vendor code (quantized.cpp:1328) reads `DARKBLOOM_EXPERT_ALIGNED_GATHER` env var directly
-(always ON by default). On M5, the vendor uses expert-aligned _nax kernels (writes rows
-with physical stride of `split`), but the LRM used the fallback `lagunaInterleavedSwiGLU`
-interpretation (expects standard layout). The output layout mismatch produced WRONG TOKENS
-on M5, causing every M5 submission to fail the correctness gate.
+The NAX gate fix (d14b491b) is correct (matches organizer frontier) but was NOT
+the root cause of M5 failures.
 
-On M4, this was masked because `is_nax_available()` returns false for gen 14, so the vendor
-uses the standard kernel layout which matches the fallback interpretation.
-
-### Fix: Replace buggy NAX gate with organizer frontier's simple env var check (d14b491b)
-M4 build PASSES (32.67s). M5 submission b49e5d50 VALIDATING.
+## M5 INFRASTRUCTURE EVIDENCE
+  70929a5 (code IDENTICAL to ad58c92 which scored 2.5520) ALSO FAILED.
+  Diff between ad58c92 and cdefbb98 (70929a5): ONLY research docs (not editablePaths).
+  This proves the M5 had intermittent infrastructure issues on 8/7.
+  20+ consecutive failures from 8:50 AM to 6:00 PM, then 3ff3992 scored at 6:51 PM
+  (brief recovery), then 3 more failures.
 
 ## M5 BUILD FIX — ROOT CAUSE FOUND (2026-08-07 session 3)
   ROOT CAUSE: DARKBLOOM_STAGE2_GATHER defaults to variant 1 (double-buffer staging).
