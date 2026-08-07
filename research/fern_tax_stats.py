@@ -37,6 +37,7 @@ from collections import defaultdict
 PERCENT_PER_US_DECODE = 0.015280   # % of score per us/step on M5
 M5_STEP_MS = 4.143569
 M5_DECODE_SIGMA_US = 15.34         # cross-session decode sigma, us/step
+N_LAYERS = 40                      # weights/config.json num_hidden_layers
 
 
 def t95(df):
@@ -201,10 +202,10 @@ def main():
         m5_us = slope
         print(f"  -> refund of removing ONE dispatch/step: {m5_us:.3f} us "
               f"[{m5_us-half:.3f}, {m5_us+half:.3f}]")
-        for n_disp, tag in ((1, "1 per-layer dispatch (x28 layers)"),
+        for n_disp, tag in ((1, f"1 per-layer dispatch (x{N_LAYERS} layers)"),
                             (3, "3 per-layer dispatches"),
                             (10, "10 per-layer dispatches")):
-            tot = m5_us * n_disp * 28
+            tot = m5_us * n_disp * N_LAYERS
             print(f"     {tag:34s}: {tot:8.1f} us/step  "
                   f"{tot*PERCENT_PER_US_DECODE:6.3f}% score  "
                   f"{tot/M5_DECODE_SIGMA_US:5.2f} sigma")

@@ -94,6 +94,8 @@ def main() -> int:
     ap.add_argument("--steps-per-segment", type=int, default=216)
     ap.add_argument("--drop", type=int, default=16)
     ap.add_argument("--bytes", type=int, default=8192)
+    ap.add_argument("--pool", type=int, default=256)
+    ap.add_argument("--anchor", type=int, default=1, choices=(0, 1))
     ap.add_argument("--spin-ns", type=int, default=1400)
     ap.add_argument("--out", required=True)
     ap.add_argument("--stderr", default=None)
@@ -119,6 +121,8 @@ def main() -> int:
     env["DARKBLOOM_TAX_MODE"] = args.mode
     env["DARKBLOOM_TAX_SCHEDULE"] = ",".join(str(k) for k in schedule)
     env["DARKBLOOM_TAX_BYTES"] = str(args.bytes)
+    env["DARKBLOOM_TAX_POOL"] = str(args.pool)
+    env["DARKBLOOM_TAX_ANCHOR"] = str(args.anchor)
     env["DARKBLOOM_TAX_SPIN_NS"] = str(args.spin_ns)
 
     errfh = open(err_path, "wb")
@@ -225,7 +229,8 @@ def main() -> int:
         fh.write(f"# mode={args.mode} schedule={args.schedule} "
                  f"blocks={args.blocks} steps_per_segment="
                  f"{args.steps_per_segment} drop={args.drop} "
-                 f"bytes={args.bytes} spin_ns={args.spin_ns} "
+                 f"bytes={args.bytes} pool={args.pool} anchor={args.anchor} "
+                 f"spin_ns={args.spin_ns} "
                  f"start={start} divergences={len(divergences)}\n")
         fh.write("segment\tk\tstep\tms\n")
         for seg, k, step, ms in rows:
