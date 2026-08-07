@@ -1,95 +1,63 @@
-start	end	bytes	pointer	fences	symbol
-104	106	227	0	-	line106
-127	127	43	0	-	lagunaFusedSharedSwiGLUQMVEnabled
-132	135	241	0	-	lagunaFusedSharedDownResidualEnabled
-170	170	67	0	-	lagunaRouterPrecomputedKeysEnabled
-177	177	64	0	-	LagunaPackedScalesLog
-252	255	264	0	-	lagunaFusedResidualRMSNormEnabled
-276	276	72	0	-	lagunaSharedSwiGLUQMVRows1Enabled
-294	298	353	0	-	lagunaNativeAffineQKVLayerCount
-324	324	78	0	-	lagunaNativeAffineOnlyLayer
-434	434	67	0	-	lagunaNativeAffineGProjWeight
-657	676	1178	1	-	lagunaDecodeAsyncStage
-692	693	143	0	-	line693
-761	762	121	0	-	lagunaNormReductionTail
-989	990	133	0	#309	lagunaResidualRMSNormRouterKernels
-1076	1079	270	0	#309	rowsPerGroup
-1229	1246	1182	1	-	lagunaSlidingQKNormRoPEKernel
-1700	1701	136	0	-	lagunaSlidingFusedAttention
-1754	1757	277	0	-	LagunaRingIdxAtlasStore
-2186	2189	284	0	-	LagunaFullParamsMemoStore
-2278	2278	77	0	-	lagunaWarmFullFusedAttentionKernel
-2315	2336	1458	1	-	lagunaPrefillSlidingQKNormRoPEKernel
-2416	2421	458	0	-	lagunaPrefillSlidingQKNormRoPEH1Kernel
-2499	2510	740	1	-	lagunaPrefillFullQKNormYaRNKernel
-2599	2601	219	0	-	lagunaPrefillFullQKNormYaRNH1Kernel
-2858	2860	199	0	-	lagunaNativeAffineNVFP4From
-3398	3428	2079	1	-	lagunaGatedOutputProjectionSource
-3684	3699	1056	1	-	lagunaGateProductSoftplusSource
-3743	3743	56	0	-	lagunaGateProductSoftplus
-4034	4034	62	0	-	lagunaGatedAffineOProjNVFP4Source
-4119	4122	277	0	#308	nibDiv
-4462	4471	749	1	-	lagunaTailNVFP4ScaleFoldEnabled
-4506	4508	231	0	-	lagunaTailNVFP4ScaleDecodeSource
-4529	4532	318	0	-	lagunaTailNVFP4QDotFirstGroupSource
-4618	4619	157	0	#309	lagunaDecodeNVFP4QKVR1Enabled
-4627	4627	65	0	#309	scaleSetup
-4731	4734	312	0	#309	lagunaDecodeNVFP4QKVLaneMajorSource
-5047	5050	283	0	-	lagunaNormAffineQKVPrefetchSource
-5372	5373	146	0	-	makeLagunaAttentionGateProjection
-5404	5404	60	0	-	LagunaRuntimeAttention
-5442	5442	41	0	-	_lastPrefillQGateWeight
-5454	5454	49	0	-	_nativeAffineOProj
-5460	5463	312	0	-	_nativeAffineGProj
-5469	5469	42	0	-	_nativeAffineQKVGateRows
-5510	5513	307	0	-	gate
-5586	5589	260	0	-	prepareFusedQKVWeight
-5615	5616	125	0	-	prepareLastPrefillProjectionWeights
-5735	5737	204	0	-	fusedQKV
-5759	5759	67	0	-	fusedTailGateLogits
-5836	5837	141	0	-	deferGateActivation
-5869	5870	131	0	-	normalizedInput
-5888	5890	197	0	-	qkv
-5936	5939	239	0	-	prefillQKNormShapesMatch
-5976	5976	77	0	-	line5976
-6072	6074	225	0	-	line6074
-6100	6100	62	0	-	output
-6125	6142	1220	1	-	line6142
-6154	6155	156	0	-	line6155
-6220	6221	147	0	-	gated
-6297	6299	196	0	-	callLastPrefillRow
-6643	6643	61	0	#301	lowScaleFastPath
-6655	6657	172	0	#301	packedWordBody
-6800	6800	75	0	-	lagunaSharedSwiGLUQMVRows1Kernel
-8250	8252	221	0	-	prepareFusedSharedGateUp
-8286	8290	373	0	-	prepareFusedDenseGateUp
-8328	8329	96	0	-	fusedSharedDownInputs
-8491	8493	227	0	-	line8493
-8518	8529	764	1	-	lagunaDecodeRouterTop8KernelSource
-8955	8956	106	0	-	lagunaPrefillSortedMoETailEnabled
-8961	8979	1287	1	-	lagunaPrefillRouterTop8KernelSource
-9582	9599	1178	1	-	lagunaPrefillMoETailKernel
-9640	9642	182	0	-	lagunaPrefillSortedMoETailKernel
-9768	9772	376	0	-	lagunaFusedSortedRoutedGateUp
-9787	9787	57	0	-	doSort
-9800	9807	617	1	-	gateUp
-9868	9869	130	0	-	_routedDownScales
-9882	9885	276	0	-	prepareFusedRoutedGateUp
-9934	9936	223	0	-	experts
-10020	10029	689	1	-	activated
-10034	10034	67	0	-	mergedSharedActivated
-10170	10179	688	1	-	line10179
-10393	10393	73	0	-	line10393
-10418	10419	95	0	-	line10419
-10523	10523	42	0	-	lagunaDecodeEmbeddingRoPEAtlasKernel
-10654	10655	148	0	-	line10655
-10679	10679	68	0	-	prepareRoPEAngleAtlases
-10717	10718	153	0	-	decodeRoPEAtlasPosition
-10794	10797	286	0	-	line10797
-10823	10826	290	0	-	line10826
-10860	10861	136	0	-	line10861
-10907	10913	403	0	-	LagunaRuntimeModel
-10937	10937	56	0	-	line10937
-10957	10957	73	0	-	hidden
-10971	10973	224	0	-	line10973
-11011	11015	331	0	-	prepareFusedRuntimeWeights
+start	end	bytes	ptr_bytes	net	pointer	rule	fences	fences_strict	symbol
+324	324	78	0	78	0	0	-	-	lagunaNativeAffineOnlyLayer
+434	434	67	0	67	0	0	-	-	lagunaNativeAffineGProjWeight
+692	693	143	53	90	1	0	-	-	raw
+761	762	121	66	55	1	0	#309	-	lagunaNormReductionTail
+1700	1701	136	70	66	1	0	-	-	lagunaSlidingFusedAttention
+1754	1757	277	66	211	1	0	-	-	LagunaRingIdxAtlasStore
+2186	2189	284	68	216	1	0	-	-	LagunaFullParamsMemoStore
+2278	2278	77	0	77	0	0	-	-	lagunaWarmFullFusedAttentionKernel
+4034	4034	62	0	62	0	0	#308	-	lagunaGatedAffineOProjNVFP4Source
+4119	4122	277	52	225	1	0	#308	#308	nibDiv
+4506	4508	231	75	156	1	0	-	-	lagunaTailNVFP4ScaleDecodeSource
+4529	4532	318	78	240	1	0	-	-	lagunaTailNVFP4QDotFirstGroupSource
+4627	4627	65	0	65	0	0	#309	#309	scaleSetup
+4731	4734	312	78	234	1	0	#309	#309	lagunaDecodeNVFP4QKVLaneMajorSource
+5372	5373	146	76	70	1	0	-	-	makeLagunaAttentionGateProjection
+5404	5404	60	0	60	0	0	-	-	LagunaRuntimeAttention
+5442	5442	41	0	41	0	0	-	-	_lastPrefillQGateWeight
+5454	5454	49	0	49	0	0	-	-	_nativeAffineOProj
+5460	5463	312	64	248	1	0	-	-	_nativeAffineGProj
+5469	5469	42	0	42	0	0	-	-	_nativeAffineQKVGateRows
+5510	5513	307	54	253	1	0	-	-	gate
+5586	5589	260	68	192	1	0	-	-	prepareFusedQKVWeight
+5615	5616	125	82	43	1	0	-	-	prepareLastPrefillProjectionWeights
+5735	5737	204	66	138	1	0	-	-	fusedQKV
+5759	5759	67	0	67	0	0	-	-	fusedTailGateLogits
+5836	5837	141	77	64	1	0	-	-	deferGateActivation
+5869	5870	131	71	60	1	0	-	-	normalizedInput
+5936	5939	239	74	165	1	0	-	-	prefillQKNormShapesMatch
+5976	5976	77	0	77	0	0	-	-	ring
+6072	6074	225	56	169	1	0	-	-	angles
+6100	6100	62	0	62	0	0	-	-	output
+6125	6142	1220	75	1145	1	0	-	-	normalizedInput
+6154	6155	156	66	90	1	0	-	-	affineWO
+6297	6299	196	65	131	1	0	-	-	callLastPrefillRow
+6643	6643	61	0	61	0	0	#301	#301	lowScaleFastPath
+6655	6657	172	60	112	1	0	#301	#301	packedWordBody
+6800	6800	75	0	75	0	0	#301,#308	-	lagunaSharedSwiGLUQMVRows1Kernel
+8250	8252	221	71	150	1	0	-	-	prepareFusedSharedGateUp
+8286	8290	373	70	303	1	0	-	-	prepareFusedDenseGateUp
+8328	8329	96	0	96	0	0	-	-	fusedSharedDownInputs
+8518	8529	764	77	687	1	0	-	-	lagunaDecodeRouterTop8KernelSource
+9640	9642	182	75	107	1	0	-	-	lagunaPrefillSortedMoETailKernel
+9768	9772	376	72	304	1	0	-	-	lagunaFusedSortedRoutedGateUp
+9787	9787	57	0	57	0	0	-	-	doSort
+9800	9807	617	52	565	1	0	-	-	gateUp
+9882	9885	276	71	205	1	0	-	-	prepareFusedRoutedGateUp
+9934	9936	223	57	166	1	0	-	-	experts
+10034	10034	67	0	67	0	0	-	-	mergedSharedActivated
+10170	10179	688	64	624	1	0	-	-	downScales
+10393	10393	73	0	73	0	0	-	-	fused
+10418	10419	95	0	95	0	0	-	-	sparse
+10523	10523	42	0	42	0	0	-	-	lagunaDecodeEmbeddingRoPEAtlasKernel
+10654	10655	148	64	84	1	0	-	-	decodeFireMask
+10679	10679	68	0	68	0	0	-	-	prepareRoPEAngleAtlases
+10717	10718	153	70	83	1	0	-	-	decodeRoPEAtlasPosition
+10794	10797	286	66	220	1	0	-	-	slidingAtlas
+10823	10826	290	80	210	1	0	-	-	isSingleTokenDecode
+10860	10861	136	76	60	1	0	-	-	isSingleTokenDecode
+10907	10913	403	61	342	1	0	-	-	LagunaRuntimeModel
+10937	10937	56	0	56	0	0	-	-	lmHeadPruner
+10957	10957	73	0	73	0	0	-	-	hidden
+11011	11015	331	73	258	1	0	-	-	prepareFusedRuntimeWeights

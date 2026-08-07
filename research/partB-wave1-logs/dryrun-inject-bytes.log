@@ -1,0 +1,221 @@
+=== fern_partB_dry_run.sh ===
+spec      = research/fern_partB_lagunaruntimemodel_spec_wave1.json
+scratch   = /var/folders/hg/g1_843ts0sv67jyk1mhhc83c0000gn/T/tmp.f7wn7jSplR
+repo copy  before  56d16941d61c5f1217faad6ef86dcc766b1632ac7078015702bc7f42a9434fcf  468336 B
+Sources/MLXFastModel/LagunaRuntimeModel.swift: 54 blocks, moved 11765 B, added 2403 B of pointers, net 9362 B -> notes/LagunaRuntimeModel.notes.md
+repo copy  after   56d16941d61c5f1217faad6ef86dcc766b1632ac7078015702bc7f42a9434fcf
+ok    repository copy of Sources/MLXFastModel/LagunaRuntimeModel.swift is byte-identical
+
+--- phase 1: comment-looking lines inside """ literals ---
+base literal-interior comment lines = 5 (372 B)
+head literal-interior comment lines = 5
+4587	            // Split-nibble decode: the same eight `half` bit patterns per
+4588	            // code word as the original shift+mask sequence, in fewer
+4589	            // integer ops with three mask constants instead of eight — the
+4590	            // form the current stock `fp_qmv_fast` compiles (every form is
+4591	            // an OR of masked shifts, so the decode is bit-identical).
+ok    literal-interior comment TEXT byte-identical
+ok    line-number shift is uniform: -16 (one value = no insertion inside the literal)
+ok    no planned block covers a literal-interior line
+
+--- phase 2: code residue equality (literal-aware) ---
+ok    Sources/MLXFastModel/LagunaRuntimeModel.swift  base=468336  head=458974  saved=9362    residue=348063 IDENTICAL
+
+--- phase 3: rule-29 containment and arithmetic agreement ---
+--- 3a: relocated lines carrying a rule-29 idiom ---
+relocated lines            172
+rule-bearing among them    0 (all behind a pointer)
+
+--- 3b: every relocated line lands in the note, in order ---
+INJECT bytes: dropped every section provenance line from the note
+FAIL  324-324 diverges at note line 11
+        want '_relocated from lines 324-324 at base 63ab67c8_'
+        got  ''
+FAIL  434-434 diverges at note line 16
+        want '_relocated from lines 434-434 at base 63ab67c8_'
+        got  ''
+FAIL  692-693 diverges at note line 21
+        want '_relocated from lines 692-693 at base 63ab67c8_'
+        got  ''
+FAIL  1700-1701 diverges at note line 27
+        want '_relocated from lines 1700-1701 at base 63ab67c8_'
+        got  ''
+FAIL  1754-1757 diverges at note line 33
+        want '_relocated from lines 1754-1757 at base 63ab67c8_'
+        got  ''
+FAIL  2186-2189 diverges at note line 41
+        want '_relocated from lines 2186-2189 at base 63ab67c8_'
+        got  ''
+FAIL  2278-2278 diverges at note line 49
+        want '_relocated from lines 2278-2278 at base 63ab67c8_'
+        got  ''
+FAIL  4506-4508 diverges at note line 54
+        want '_relocated from lines 4506-4508 at base 63ab67c8_'
+        got  ''
+FAIL  4529-4532 diverges at note line 61
+        want '_relocated from lines 4529-4532 at base 63ab67c8_'
+        got  ''
+FAIL  5372-5373 diverges at note line 69
+        want '_relocated from lines 5372-5373 at base 63ab67c8_'
+        got  ''
+FAIL  5404-5404 diverges at note line 75
+        want '_relocated from lines 5404-5404 at base 63ab67c8_'
+        got  ''
+FAIL  5442-5442 diverges at note line 80
+        want '_relocated from lines 5442-5442 at base 63ab67c8_'
+        got  ''
+FAIL  5454-5454 diverges at note line 85
+        want '_relocated from lines 5454-5454 at base 63ab67c8_'
+        got  ''
+FAIL  5460-5463 diverges at note line 90
+        want '_relocated from lines 5460-5463 at base 63ab67c8_'
+        got  ''
+FAIL  5469-5469 diverges at note line 98
+        want '_relocated from lines 5469-5469 at base 63ab67c8_'
+        got  ''
+FAIL  5510-5513 diverges at note line 103
+        want '_relocated from lines 5510-5513 at base 63ab67c8_'
+        got  ''
+FAIL  5586-5589 diverges at note line 111
+        want '_relocated from lines 5586-5589 at base 63ab67c8_'
+        got  ''
+FAIL  5615-5616 diverges at note line 119
+        want '_relocated from lines 5615-5616 at base 63ab67c8_'
+        got  ''
+FAIL  5735-5737 diverges at note line 125
+        want '_relocated from lines 5735-5737 at base 63ab67c8_'
+        got  ''
+FAIL  5759-5759 diverges at note line 132
+        want '_relocated from lines 5759-5759 at base 63ab67c8_'
+        got  ''
+FAIL  5836-5837 diverges at note line 137
+        want '_relocated from lines 5836-5837 at base 63ab67c8_'
+        got  ''
+FAIL  5869-5870 diverges at note line 143
+        want '_relocated from lines 5869-5870 at base 63ab67c8_'
+        got  ''
+FAIL  5936-5939 diverges at note line 149
+        want '_relocated from lines 5936-5939 at base 63ab67c8_'
+        got  ''
+FAIL  5976-5976 diverges at note line 157
+        want '_relocated from lines 5976-5976 at base 63ab67c8_'
+        got  ''
+FAIL  6072-6074 diverges at note line 162
+        want '_relocated from lines 6072-6074 at base 63ab67c8_'
+        got  ''
+FAIL  6100-6100 diverges at note line 169
+        want '_relocated from lines 6100-6100 at base 63ab67c8_'
+        got  ''
+FAIL  6125-6142 diverges at note line 174
+        want '_relocated from lines 6125-6142 at base 63ab67c8_'
+        got  ''
+FAIL  6154-6155 diverges at note line 196
+        want '_relocated from lines 6154-6155 at base 63ab67c8_'
+        got  ''
+FAIL  6297-6299 diverges at note line 202
+        want '_relocated from lines 6297-6299 at base 63ab67c8_'
+        got  ''
+FAIL  8250-8252 diverges at note line 209
+        want '_relocated from lines 8250-8252 at base 63ab67c8_'
+        got  ''
+FAIL  8286-8290 diverges at note line 216
+        want '_relocated from lines 8286-8290 at base 63ab67c8_'
+        got  ''
+FAIL  8328-8329 diverges at note line 225
+        want '_relocated from lines 8328-8329 at base 63ab67c8_'
+        got  ''
+FAIL  8518-8529 diverges at note line 231
+        want '_relocated from lines 8518-8529 at base 63ab67c8_'
+        got  ''
+FAIL  9640-9642 diverges at note line 247
+        want '_relocated from lines 9640-9642 at base 63ab67c8_'
+        got  ''
+FAIL  9768-9772 diverges at note line 254
+        want '_relocated from lines 9768-9772 at base 63ab67c8_'
+        got  ''
+FAIL  9787-9787 diverges at note line 263
+        want '_relocated from lines 9787-9787 at base 63ab67c8_'
+        got  ''
+FAIL  9800-9807 diverges at note line 268
+        want '_relocated from lines 9800-9807 at base 63ab67c8_'
+        got  ''
+FAIL  9882-9885 diverges at note line 280
+        want '_relocated from lines 9882-9885 at base 63ab67c8_'
+        got  ''
+FAIL  9934-9936 diverges at note line 288
+        want '_relocated from lines 9934-9936 at base 63ab67c8_'
+        got  ''
+FAIL  10034-10034 diverges at note line 295
+        want '_relocated from lines 10034-10034 at base 63ab67c8_'
+        got  ''
+FAIL  10170-10179 diverges at note line 300
+        want '_relocated from lines 10170-10179 at base 63ab67c8_'
+        got  ''
+FAIL  10393-10393 diverges at note line 314
+        want '_relocated from lines 10393-10393 at base 63ab67c8_'
+        got  ''
+FAIL  10418-10419 diverges at note line 319
+        want '_relocated from lines 10418-10419 at base 63ab67c8_'
+        got  ''
+FAIL  10523-10523 diverges at note line 325
+        want '_relocated from lines 10523-10523 at base 63ab67c8_'
+        got  ''
+FAIL  10654-10655 diverges at note line 330
+        want '_relocated from lines 10654-10655 at base 63ab67c8_'
+        got  ''
+FAIL  10679-10679 diverges at note line 336
+        want '_relocated from lines 10679-10679 at base 63ab67c8_'
+        got  ''
+FAIL  10717-10718 diverges at note line 341
+        want '_relocated from lines 10717-10718 at base 63ab67c8_'
+        got  ''
+FAIL  10794-10797 diverges at note line 347
+        want '_relocated from lines 10794-10797 at base 63ab67c8_'
+        got  ''
+FAIL  10823-10826 diverges at note line 355
+        want '_relocated from lines 10823-10826 at base 63ab67c8_'
+        got  ''
+FAIL  10860-10861 diverges at note line 363
+        want '_relocated from lines 10860-10861 at base 63ab67c8_'
+        got  ''
+FAIL  10907-10913 diverges at note line 369
+        want '_relocated from lines 10907-10913 at base 63ab67c8_'
+        got  ''
+FAIL  10937-10937 diverges at note line 380
+        want '_relocated from lines 10937-10937 at base 63ab67c8_'
+        got  ''
+FAIL  10957-10957 diverges at note line 385
+        want '_relocated from lines 10957-10957 at base 63ab67c8_'
+        got  ''
+FAIL  11011-11015 diverges at note line 390
+        want '_relocated from lines 11011-11015 at base 63ab67c8_'
+        got  ''
+blocks in spec             54
+moved bytes (with markers) 11765
+landed bytes (stripped)    0
+blocks that did not land   54
+
+--- 3c: planner projection == applier actual ---
+planner size_before        468336
+actual  size_before        468336
+planner size_after         458974
+actual  size_after         458974
+planner net_bytes          9362
+actual  net_bytes          9362
+
+phase 3 failures: 1
+
+--- phase 4: DocC abstract detachment on the relocated copy ---
+
+mixed-style runs preceding a declaration: 0
+pristine copy exit=0  mixed-style runs preceding a declaration: 0
+relocated copy exit=0
+
+--- projection ---
+projected size      458974 B
+per-file cap        524288 B
+headroom before     55952 B
+headroom after      65314 B
+note file written   notes/LagunaRuntimeModel.notes.md (14838 B, scratch only)
+
+RESULT: FAIL (phase 3/4 assertion fired under injected fault bytes)

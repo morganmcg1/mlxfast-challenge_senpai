@@ -1,0 +1,48 @@
+=== frieren_comment_strip_check.sh ===
+BASE_SHA = 5c491cf0634699e9969c8909cb4403c3f465cfe3
+HEAD     = 49924dc4b80edca1b7a9aed003ac9c1330029b3d
+
+--- precondition: zero comment bytes inside """ regions ---
+FAIL  Sources/MLXFastModel/LagunaRuntimeModel.swift              base tripleQuotes=212 comment_lines_inside_literal=5 bytes=372
+      PRECONDITION VIOLATED: this file embeds commented kernel source.
+      The strip-equivalence result below is NOT VALID for this file.
+FAIL  Sources/MLXFastModel/LagunaRuntimeModel.swift              head tripleQuotes=212 comment_lines_inside_literal=5 bytes=372
+      PRECONDITION VIOLATED: this file embeds commented kernel source.
+      The strip-equivalence result below is NOT VALID for this file.
+ok    Sources/MLXFastModel/LagunaRuntimeWeights.swift            base tripleQuotes=0    comment_lines_inside_literal=0
+ok    Sources/MLXFastModel/LagunaRuntimeWeights.swift            head tripleQuotes=0    comment_lines_inside_literal=0
+ok    Sources/MLXFastModel/LagunaConfig.swift                    base tripleQuotes=0    comment_lines_inside_literal=0
+ok    Sources/MLXFastModel/LagunaConfig.swift                    head tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift    base tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift    head tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift   base tripleQuotes=4    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift   head tripleQuotes=4    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift base tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift head tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift base tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift head tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift base tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift head tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift base tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift head tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift base tripleQuotes=0    comment_lines_inside_literal=0
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift head tripleQuotes=0    comment_lines_inside_literal=0
+
+--- code residue equality (base vs head, comments normalised away) ---
+ok    Sources/MLXFastModel/LagunaRuntimeModel.swift              base=468336  head=468336  saved=0       residue=347691 IDENTICAL
+ok    Sources/MLXFastModel/LagunaRuntimeWeights.swift            base=51943   head=51943   saved=0       residue=30869 IDENTICAL
+ok    Sources/MLXFastModel/LagunaConfig.swift                    base=44418   head=44418   saved=0       residue=39973 IDENTICAL
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift    base=68533   head=68533   saved=0       residue=56988 IDENTICAL
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift   base=48319   head=48319   saved=0       residue=47938 IDENTICAL
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift base=37146   head=37146   saved=0       residue=29813 IDENTICAL
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift base=8418    head=8418    saved=0       residue=4770 IDENTICAL
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift base=11686   head=11686   saved=0       residue=9276 IDENTICAL
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift base=9170    head=9170    saved=0       residue=6667 IDENTICAL
+ok    Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift base=6859    head=6859    saved=0       residue=4786 IDENTICAL
+
+--- totals ---
+base bytes = 754828
+head bytes = 754828
+recovered  = 0
+
+RESULT: FAIL
