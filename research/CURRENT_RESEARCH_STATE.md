@@ -1,6 +1,6 @@
 # SENPAI Research State
-- 2026-08-07T11:35Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 1919be9 (pushed to origin).
+- 2026-08-07T11:45Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: ffdcf46 (pushed to origin).
   22 composed changes on current frontier (21 previous + PR #258 full-attn atlas).
   LRM: 523,729/524,288 = 559 B headroom. Total surface ~2,988K/3,000,000.
 
@@ -28,32 +28,37 @@
   REVERTED: PR #251 (simd_dot) — M5 build failure (cdefbb9)
 
 ## M5 SUBMISSION STATUS
-  d565be6: VALIDATING (since 11:29 UTC) — frontier 7727d20 (includes variant 3 BUG)
-    → Expected to fail or score poorly due to disabled expert path
+  6f9ca88: VALIDATING (since 11:41 UTC) — frontier 1919be9 (variant 5 restored, 22 changes)
+  d565be6: FAILED — frontier 7727d20 (included variant 3 BUG, disabled expert path)
   8b5b01d: FAILED — frontier e0623cf (20 changes)
   70929a5: FAILED — frontier cdefbb9 (revert of #251, code-identical to ad58c92)
   68b66c5: REJECTED, score 2.5520 — frontier ad58c92 (18 changes, LAST SCORED)
   df9613a: REJECTED, score 2.5817 — frontier before #234/#243 (BEST SCORE)
   Leaderboard: fyrsta7 2.6040 (current #1). Our promoted: 97a5090 2.5888 (maple campaign).
   Gap to close: +0.86% from best (2.5817 → 2.6040).
-  NEED TO SUBMIT: corrected frontier 1919be9 (variant 5 restored) after d565be6 completes.
 
-## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=1919be9)
+## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=ffdcf46)
+  PR #261 (thorfinn): Prefill QKV fusion enable — DARKBLOOM_FUSED_QKV OFF→ON
+    (0-byte LRM, bit-exact, prefill, 78 dispatches eliminated)
+    Rebase feedback sent to ffdcf46
   PR #263 (edward): STAGE2_GATHER variant 2 — zero-occupancy weight staging overlap
     in _nax prefill kernel (0-byte vendor file, bit-exact, prefill-only, M5-only)
   PR #264 (alphonse): eScoreCorrectionBias F32 hoist — eliminate 39 per-prefill
     BF16→FP32 allocations (~+100-200B LRM, bit-exact, prefill)
-  PR #265 (askeladd): Non-expert stage flags (WIDEST/WIDELD/RUNBAR/NOVOL) — enable
-    wide stores/loads + dead barrier removal for non-expert _nax path
-    (0-byte vendor file, bit-exact, prefill, may not be on scored path)
-
-  PR #261 (thorfinn): Prefill QKV fusion enable — DARKBLOOM_FUSED_QKV OFF→ON
-    (0-byte LRM, bit-exact, prefill, 78 dispatches eliminated)
-    BASE moved from 34c9d20 → 1919be9, sent rebase feedback
+  PR #267 (askeladd): Merge shared QMV into routed dispatch — extend routed kernel
+    to 9th expert slot, eliminate 39 decode dispatches (~-6.5KB LRM, bit-exact, decode)
 
 ## CLOSED THIS SESSION
+  PR #265 (askeladd): Non-expert stage flags — DEAD ARM (no scored operation uses non-expert path)
   PR #259 (alphonse): Prefill values transpose fold — DEAD (no gain, asyncEval overlap, budget)
   PR #260 (askeladd): _nax BK padding — DEAD (no gain, bank conflicts)
+
+## NEXT-WAVE IDEAS (from NOVEL_OPTIMIZATION_IDEAS.md)
+  1. Fuse RMSNorm+router into O-proj (decode 75%, -2KB, M4-testable, medium risk) — UNASSIGNED
+  2. ~~Merge shared QMV into routed dispatch~~ — ASSIGNED to askeladd (PR #267)
+  3. Revive XMAJOR fold (prefill 25%, 0B, M5-only, med-high risk) — UNASSIGNED
+  4. BK=32 tile reduction (prefill 25%, 0B, M5-only, low-med risk) — UNASSIGNED
+  5. asyncEval ladder tuning (decode 75%, 0B, quick A/B test) — UNASSIGNED
 
 ## CLOSED PRIOR
   PR #248 (alphonse): Scalar RMSNorm fusion — DEAD (FP reduction order mismatch)
@@ -71,8 +76,9 @@
   - Prefill path is relatively unoptimized vs decode — prefill dispatch elimination is the main opportunity.
   - ALL expert-path vendor knobs are at optimal values (SWIGLU_REGLOCAL, BSEARCH_HOIST,
     EXPERT_STAGE_WIDEST/WIDELD, EXPERT_GATHER_GROUPS=256, GATHER_RUNSKIP=100%).
-  - Non-expert stage flags (WIDEST/WIDELD/RUNBAR/NOVOL) default OFF — being tested by askeladd.
-  - Need bigger ideas to close 0.86% gap. Frontier research agent spawned for fresh ideas.
+  - Non-expert stage flags (WIDEST/WIDELD/RUNBAR/NOVOL) — DEAD ARM, no scored operation uses non-expert path.
+  - Need bigger ideas to close 0.86% gap. Novel ideas documented in NOVEL_OPTIMIZATION_IDEAS.md.
+  - PR #267 (merge shared QMV) is highest-value: eliminates 39 decode dispatches AND frees ~6.5KB LRM.
 
 ## BUDGET STATUS
   LRM: 523,729/524,288 = 559 B headroom
