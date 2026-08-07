@@ -23,12 +23,25 @@ set -uo pipefail
 ORDER="${ORDER:-off on pairwise pairwise on off}"
 REPS="${REPS:-1}"
 OUT="${OUT:-/tmp/maple-shared-qmv-stage3}"
+# This host idles at 39.9-40.1C, i.e. right on the gate threshold, so a run
+# started immediately after the previous one aborts in the gate's stall
+# detector (no new minimum for 90s) rather than ever reaching 40C. Soaking the
+# chassis idle between runs is what makes the enabled gate satisfiable here.
+PRECOOL_SECONDS="${PRECOOL_SECONDS:-240}"
+MAX_CONSECUTIVE_FAILURES="${MAX_CONSECUTIVE_FAILURES:-2}"
 mkdir -p "${OUT}"
 
 idx=0
+consecutive_failures=0
 for rep in $(seq 1 "${REPS}"); do
   for arm in ${ORDER}; do
     idx=$((idx + 1))
+    if [[ "${idx}" -gt 1 && "${PRECOOL_SECONDS}" -gt 0 ]]; then
+      echo "--- idling ${PRECOOL_SECONDS}s to soak-cool the chassis ---"
+      sleep "${PRECOOL_SECONDS}"
+    fi
+    MLXFAST_LOCAL_FAN_PROMPT=0 ./benchmark.sh --local-cool-gate-only \
+      >> "${OUT}/precool.log" 2>&1 || true
     tag=$(printf '%02d-rep%s-%s' "${idx}" "${rep}" "${arm}")
     # The fan-prompt suppression keeps this array non-empty, which matters for
     # the bash 3.2 that ships with macOS: under `set -u` an empty "${a[@]}" is
@@ -53,5 +66,15 @@ for rep in $(seq 1 "${REPS}"); do
       cp score.local-iterate.json "${OUT}/${tag}.score.json"
     fi
     printf '%s rc=%s seconds=%s\n' "${tag}" "${rc}" "${dur}" | tee -a "${OUT}/summary.txt"
+    if [[ "${rc}" -eq 0 ]]; then
+      consecutive_failures=0
+    else
+      consecutive_failures=$((consecutive_failures + 1))
+      if [[ "${consecutive_failures}" -ge "${MAX_CONSECUTIVE_FAILURES}" ]]; then
+        echo "aborting: ${consecutive_failures} consecutive failed runs" \
+          | tee -a "${OUT}/summary.txt"
+        exit 3
+      fi
+    fi
   done
 done
