@@ -24,11 +24,11 @@
 ## M5 SUBMISSION STATUS
   0781a45: FAILED (9-change frontier at 215e45f — included buggy PR #198)
   94a8526: FAILED (10-change frontier at b5a8bd0 — included buggy PR #198)
-  c03dc11: VALIDATING (student submission, attention epilogue float4, single mechanism)
+  c03dc11: REJECTED 2.5491 (-4.86%) (attention epilogue float4, single mechanism, commit be504bb)
   Root cause of both failures: PR #198 M5-only correctness bug. Now reverted.
-  Next submission: 9-change frontier at 2f5d630 (PR #198 removed, PR #216 added).
-  Submission note ready: research/SUBMISSION_NOTE_8change.md (7.6 KiB).
-  Blocked by c03dc11 in-flight submission limit (1 concurrent).
+  2d4160d7: VALIDATING (9-change frontier at 2f5d630 — PR #198 removed, PR #216 added)
+  Submission note: research/SUBMISSION_NOTE_8change.md (7.5 KiB).
+  c03dc11 score (2.5491) confirms single instruction-count reductions regress on bandwidth-bound M5.
 
   Previous rejections (all included ops-800/QHOIST, now reverted):
   27b9c7c (2.4972), a3e3800 (2.4073), f2160f8 (2.5582),
