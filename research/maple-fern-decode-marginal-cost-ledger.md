@@ -239,4 +239,55 @@ far larger than cache, so partial re-fetch is unavoidable and its measured
 `30.35 us/call` is *still* a lower bound. That a lower bound already accounts
 for `1.18 ms` of an `8.20 ms` step is the strongest single finding here.
 
+---
+
+## 5. The ledger
+
+Every row is a wired site, measured on the same host in the same session with
+the same palindromic-schedule / block-paired protocol, and every run reported
+`divergences=0` against the public golden. `us/step` is `slope x calls`, the
+family's total marginal weight in the decode step.
+
+| site | what it is | calls/step | us per call | **us/step** | share of 8.20 ms step | absorbed slack | run |
+| --- | --- | --: | --: | --: | --: | --: | --- |
+| `T2c_routed_qmv` | routed top-8 SwiGLU QMV | 39 | 30.35 | **1184** | 14.4 % | 0.0 copy-sets | `f5edeba0` |
+| `T2d_down_residual` | routed+shared down proj & residual | 39 | 14.23 | **555** | 6.8 % | 0.0 copy-sets | `aca5a48b` |
+| `T1a_residual_rms_router` | residual + RMSNorm + router glue | 39 | 2.73 (chained) | **106** | 1.3 % | 15.2 copy-sets | `ee407682` |
+| `T0a_router_top8` | top-8 selection from router logits | 39 | 0.00 +/- 0.12 | **0** | 0.0 % | 15.3 copy-sets | `d7b8f9cf` |
+
+Note on `us/step`: this is the cost of one *duplicate* pass over the family, so
+it is the marginal price of that family's work as the runtime currently issues
+it. It is not a promise that deleting the family returns exactly that much -
+see the cache-warm caveat in §4, which makes these numbers lower bounds for the
+two routed rows.
+
+### 5.1 The routed-expert path is the whole story
+
+`T2c` and `T2d` together are **1739 us/step, 21 % of the decode step**, and
+both are at ~100 % pass-through with **zero** absorbed slack. Everything else
+measured is between 0 % and 1.3 %.
+
+The two rows behave qualitatively differently from the two glue rows and the
+difference is not subtle:
+
+| | `T2c` / `T2d` | `T0a` / `T1a` |
+| --- | --- | --- |
+| first duplicate (K=2) | already resolved, `t = 1272` / `t = 103` | invisible until K=17 / K=11 |
+| absorbed slack | `-0.26` / `0.00` copy-sets | `15.3` / `15.2` copy-sets |
+| scaling | linear from K=1 | flat, then convex, then linear |
+
+A family with zero absorbed slack is, by construction, *not* running in the
+shadow of some other serial dependency - it **is** the serial dependency.
+
+### 5.2 Why this contradicts the intuitive reading of a GPU census
+
+A GPU census orders these families as `T1c (427 us) > T2c > T1a (305) > T0a
+(186)`. The marginal ledger orders them `T2c (1184) > T2d (555) > T1a (106) >
+T0a (0)`. `T0a` and `T1a` have census costs within 1.6x of each other and
+marginal costs that differ by more than an order of magnitude.
+
+Census answers "how many GPU microseconds does this kernel occupy". The decode
+step is not asking that question. It is asking "does this kernel sit on the
+chain that the next token has to wait for", and only the ledger answers it.
+
 

@@ -17,6 +17,8 @@ from collections import defaultdict
 # Scored decode price at the promoted receipt: 1 us removed from the steady
 # per-step time is worth this much of the official score (see the PR body).
 PERCENT_PER_US = 0.015280
+HOST_STEP_MS = 8.20   # measured M4 Pro steady one-token decode step
+M5_STEP_MS = 4.143569  # promoted M5 receipt 97a5090
 
 
 def student_t95(df: int) -> float:
@@ -111,10 +113,15 @@ def main() -> int:
     print(f"\nOLS slope (block-centred, df={df}): "
           f"{slope:.2f} +/- {se_slope:.2f} us per extra copy-set per step, "
           f"95% CI [{slope-h:.2f}, {slope+h:.2f}], t={slope/se_slope:.2f}")
-    print("score value if this family were fully deleted: "
-          f"{slope*PERCENT_PER_US:+.4f} % of score "
-          f"(CI [{(slope-h)*PERCENT_PER_US:+.4f}, "
-          f"{(slope+h)*PERCENT_PER_US:+.4f}])")
+    frac = slope / (HOST_STEP_MS * 1000.0)
+    print(f"share of the {HOST_STEP_MS:.2f} ms host decode step: "
+          f"{frac*100:.2f} % (CI [{(slope-h)/(HOST_STEP_MS*10.0):.2f}, "
+          f"{(slope+h)/(HOST_STEP_MS*10.0):.2f}] %)")
+    # Cross-machine: hold the *fraction* of the step, not the microseconds,
+    # then price the equivalent M5 microseconds. Directional only.
+    print("  if that share transferred to the M5 ranked step: "
+          f"{frac*M5_STEP_MS*1000.0*PERCENT_PER_US:+.3f} % of score "
+          "(directional, not a ranked claim)")
 
     # Two-regime hinge: injected independent work is absorbed free until the
     # step's idle-GPU slack is exhausted, then passes through at a fixed rate.
