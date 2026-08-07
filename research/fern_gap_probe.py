@@ -81,14 +81,16 @@ def report_census(path: str, site: str) -> bool:
         print("census: NO GAPCOUNT lines -- no wired site was reached; every "
               "timing below is uninterpretable", flush=True)
         return False
+    targets = [t.strip() for t in site.split(",") if t.strip()]
     print(f"census: {lines} instrumented decode steps", flush=True)
     for name in sorted(buckets):
         hist = dict(sorted(buckets[name].items()))
-        mark = "  <== TARGET" if name == site else ""
+        mark = "  <== TARGET" if name in targets else ""
         print(f"census {name}: calls/step {hist}{mark}", flush=True)
-    if site not in buckets:
-        print(f"census: SITE {site} WAS NEVER REACHED -- the timing below "
-              "cannot be read as a boundary price", flush=True)
+    missing = [t for t in targets if t not in buckets]
+    if missing:
+        print(f"census: SITE(S) {','.join(missing)} NEVER REACHED -- the timing "
+              "below cannot be read as a boundary price", flush=True)
         return False
     return True
 
