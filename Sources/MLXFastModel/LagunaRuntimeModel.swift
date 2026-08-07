@@ -5055,14 +5055,9 @@ private func lagunaNormAffineQKVPrefetchSource(
         column += block_size;
     }
 
-    {
-        const vec<float, 4> packed = simd_sum(
-            vec<float, 4>(result[0], result[1], result[2], result[3]));
-        result[0] = packed.x; result[1] = packed.y;
-        result[2] = packed.z; result[3] = packed.w;
-    }
-    if (simd_lid == 0) {
-        for (uint row = 0; row < results_per_simdgroup; ++row) {
+    for (uint row = 0; row < results_per_simdgroup; ++row) {
+        result[row] = simd_sum(result[row]);
+        if (simd_lid == 0) {
             projected[out_row + row] = bfloat(result[row]);
         }
     }
