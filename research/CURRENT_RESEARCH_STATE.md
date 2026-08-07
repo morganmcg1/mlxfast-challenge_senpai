@@ -1,213 +1,69 @@
 # SENPAI Research State
-- 2026-08-07T16:49Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 2358c577 (pushed to origin).
-  33 composed changes (30 LRM optimizations + M5 build fix v2 + PR #292 + PR #294).
-  LRM: ~499,464/524,288 = ~24,824 B headroom (after PR #294 freed 9,288B).
-  Total surface: ~2,962,000/3,000,000 = ~38,000 B headroom.
+- 2026-08-07T17:45Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 3c8a0db2 (pushed to origin).
+  33 composed changes on current frontier (30 LRM opts + vendor fix + PR #306 + PR #307).
+  LRM budget: 42,519B headroom. Total surface ~2,958K/3,000,000.
 
-## CRITICAL: M5 BUILD FIX (2026-08-07T15:35Z)
-  ROOT CAUSE of ALL birch M5 build failures: M5 Metal compiler (GPU gen 17+) rejects
-  vectorized simd_sum(vec<float,N>) and dot(float4(...)) in JIT kernel strings.
-  M4 (GPU gen 16) accepts these patterns. Same class as PR #251 simd_dot failure.
+## CRITICAL M5 BUILD FIX (d9b2df37, 2026-08-07)
+  ROOT CAUSE of ALL birch M5 build failures since 8/5: PR #243 added kHalvedScales
+  template parameter to three vendor files. The 87aff2fa revert restored
+  fp_quantized_nax.cpp and quantized.cpp but MISSED fp_quantized_nax.h (137 lines
+  of kHalvedScales code remained). Header/source mismatch compiled on M4 but
+  M5 Metal compiler rejected inconsistent template signatures.
+  FIX: Restored ALL 3 vendor files to 0bf6aeac (last birch M5 score 4058d0b at 2.5459).
+  LRM halved paths disabled (lagunaPrefillSharedHalvedEnabled=false, useHalved=false).
+  M5 submissions: 935c6831 (vendor fix only) VALIDATING. Composed frontier (with #306+#307) queued.
 
-  FIX: Replaced 14 simd_sum(vec<float,N>) + 2 dot(float4) with scalar equivalents (d6420f3d).
-  Bit-exact, net -11 bytes. Build verified on M4 (10.72s). M5 submission 55e16401 validating.
+## FOURTH M5-INCOMPATIBLE PATTERN CLASS IDENTIFIED
+  Previously found 3 pattern classes in Metal JIT kernel strings:
+  1. simd_sum(vec<float,N>) — fixed in d6420f3d
+  2. dot(float4(...)) — fixed in d6420f3d
+  3. *(thread float4*) pointer casts — fixed in 2358c577
+  4. Vendor header/source template mismatch (fp_quantized_nax.h) — fixed in d9b2df37
+  LESSON: when reverting multi-file vendor changes, verify ALL files were reverted.
 
-  INVESTIGATION AGENT ALSO FLAGGED: *(thread float4*) pointer casts (4 occurrences,
-  0 in last good build). May need separate fix if simd_sum fix alone doesn't resolve M5.
-
-  INVESTIGATION AGENT ALSO FLAGGED: 7 unused constexpr declarations. These existed in
-  the last good build (4058d0b), so they're NOT the cause.
-
-## CRITICAL: _nax VENDOR REVERT (2026-08-07)
-  Reverted fp_quantized_nax.cpp and quantized.cpp to pre-PR#243 state (577a9b6).
-  Reason: PR #243 (kHalvedScales), PR #263 (STAGE2_GATHER v2), PR #261 (QKV fusion)
-  caused 8 consecutive M5 build failures. df9613a (2.5817) was last successful build
-  with these pre-PR#243 vendor files.
-  Also disabled DARKBLOOM_FUSED_QKV (PR #261 flag set to OFF).
-  All 29 LRM-only optimizations retained. useHalved=false crash fix retained.
-  M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
-
-## M5 SUBMISSION STATUS
-  1e867c87: VALIDATING — M5 build fix v2 (simd_sum/dot4 scalar + *(thread float4*) scalar). All 3 pattern classes fixed.
-  55e16401: FAILED — simd_sum/dot4 fix only, *(thread float4*) casts still present
-  9753441: FAILED — pre-fix (all vectorized patterns present)
-  Last confirmed birch M5 score: 4058d0b at 2.5459 (8/5 10:53 AM)
-  Leaderboard #1: 2.5888 (maple, 97a5090 promoted). Gap: +1.69%.
-
-## MERGED WAVE 15
-  PR #292 (askeladd): Prefill gate-product+softplus multi-token — MERGED (6.0% prefill, bit-exact, +2954B)
-  PR #294 (thorfinn): Dead code removal — MERGED (3 flags removed, -9,288B LRM, bit-exact)
-
-## CLOSED WAVE 15
-  PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — CLOSED (dead: ~1% decode regression, register pressure)
-
-## ACTIVE ASSIGNMENTS (base 2358c577)
-  PR #285 (edward): Routed MoE halved scales escape fix — wip v3 rebase needed (float4 fix)
-    - Edward's branch has 4 *(thread float4*) casts from pre-fix base. Must rebase onto 2358c577.
-    - quantized.cpp gather_qmm_rhs_nax changes are M5-safe (C++ host-side, not Metal JIT)
-    - M4 can't validate (_nax path not exercised). M5 is authoritative.
-    - Expected: ~0.5% prefill gain (M5-only, bit-exact)
-
-## CLOSED
-  PR #296 (alphonse): RMSNorm→LM head fusion — CLOSED (bandwidth-negative: 25MB extra norm-weight reads across 6272 TGs)
-
-## MERGED WAVE 14
-  PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — MERGED (bit-exact, +0.676% decode, +222B)
-
-## NEXT-WAVE IDEAS (from FRESH_DECODE_IDEAS_20260807.md + research agent)
-  1. Fuse final RMSNorm into LM head coarse — CLOSED (bandwidth-negative, 25MB extra reads)
-  2. Down+residual outputs_per_simd 8→16 — ASSIGNED to alphonse (PR #297)
-  3. NVFP4 OProj results_per_simd 8→16 — UNASSIGNED (~50B, 40 layers)
-  4. Gate/up R1 9-simdgroup input sharing — LIKELY DEAD (input-vector staging already failed)
-  5. Dense down rows_per_thread 4→8 — LOW IMPACT (1 layer only)
-  6. Device-atomic two-phase norm+QKV fusion — UNASSIGNED (saves 40 dispatch boundaries/step, complex)
-  7. Device-atomic router top-8 fusion — UNASSIGNED (saves 39 dispatch boundaries/step, complex)
-  8. Decode path is extremely well-optimized: 8 dispatches per sparse layer, nearly fully fused
-  PR #292 (askeladd): Extend gate-product+softplus kernel to multi-token prefill — 40 dispatches, ~200-400B
-  PR #294 (thorfinn): Dead code removal — free ~12KB LRM budget, 4 default-OFF flags, net-negative
-
-## CLOSED (Wave 13)
-  PR #290 (thorfinn): QKV fusion re-enable — DEAD (38% decode regression from 312MB extra weight)
-
-## M5 CRASH FIX (CRITICAL — 2026-08-07T13:20Z)
-  Root cause found by _nax audit agent: PR #220 and PR #234 passed non-nil `biases`
-  to `MLX.gatherQuantizedMM` with `mode: .nvfp4`. Stock MLX `ops.cpp:4508-4513`
-  (NON-EDITABLE) throws exception for non-nil biases with nvfp4 mode, crashing the
-  process on M5 where `lagunaExpertAlignedGatherEnabled=true` → `useHalved=true` →
-  biases non-nil. On M4, `lagunaExpertAlignedGatherEnabled=false` → no crash.
-  Fix: set `useHalved=false` and `useHalvedDown=false` (disables ~0.5% prefill gain).
-  M5 submission efb6316 VALIDATING (frontier 4bea532).
-  PR #285 (edward): Proper fix — embed escape in scales tensor, pass biases:nil.
-
-## CRITICAL FIX THIS SESSION: Variant 3 Revert
-  Variant 3 (BM128/WM8/WN1, commit 3c30a3b) SILENTLY DISABLED the expert_aligned
-  guard at quantized.cpp:1718 (requires bm==64 && wm==4). This fell back to the
-  non-expert kernel, losing SWIGLU_REGLOCAL, STAGE2_GATHER, BSEARCH_HOIST,
-  EXPERT_GATHER_GROUPS=256, and ALL expert-aligned optimizations on the prefill
-  path. Reverted to variant 5 (BM64/WM4/WN1) in commit 1919be9. Also removed
-  "3" from LRM allowed values to prevent the trap.
-  Found by vendor kernel audit subagent.
-
-## MERGED FRONTIER (25 changes, all bit-exact)
-  1-14. Previous frontier (PR #180, #194, #192, #107, #114, #116, #119, #231, #232, etc.)
-  15. PR #230: Fuse g_proj+QKV into NVFP4 QKV R1 kernel (decode, ~2.0% decode, bit-exact)
-  16. PR #245: INT8 O-proj dot4 vectorization (decode, ~0.8-1.1% on M5, bit-exact)
-  17. PR #243: Prefill shared expert scale halving via qmm_nax kHalvedScales (prefill, ~0.22%, M5-only)
-  18. PR #234: Prefill MoE down projection scale halving v2 (prefill, ~0.46%, M5-only)
-  19. PR #253: Prefill shared expert scale array precomputation (prefill, bit-exact, +140B)
-  20. PR #254: Router keys dead output elimination (decode, bit-exact, net-negative ~-300-500B)
-  21. PR #258: Full-attention params atlas (decode, bit-exact, +1914B)
-  22. REVERTED: Variant 3 (3c30a3b) → variant 5 (1919be9) — critical fix
-  23. PR #261: Prefill QKV bank fusion (prefill, 0-byte, eliminate 78 dispatches)
-  24. PR #263: STAGE2_GATHER variant 2 (prefill, 0-byte, M5-only)
-  25. PR #267: Merge shared gate/up QMV into routed dispatch (decode, byte-negative -2,094B, eliminate 39 dispatches)
-  BK=32 (PR #271) REVERTED → not on frontier (escape handling bug, commit 1bc2a53)
-
-  M5 FIX: ad58c92 — removed unused constexpr gate_heads from PR #230 kernel
-  REVERTED: PR #251 (simd_dot) — M5 build failure (cdefbb9)
-
-## CRITICAL BUG FIX: BK=32 Escape Handling (2026-08-07)
-  BK=32 (PR #271) broke escape handling in gather_qmm_rhs_nax. When BK=32,
-  n_steps_per_read=1 (vs 2 for BK=64), making the i==1 escape branch at
-  fp_quantized_nax.h:275 dead code. The escape bytes that correct the k=0
-  scale pair (NVFP4 pairwise constancy) were never applied → wrong
-  dequantization → token mismatches on M5 with expert path enabled (variant 5).
-  REVERTED in commit 1bc2a53 (bk=32 → bk=64). f5dac24 failed because of this bug.
-  KEY LESSON: _nax kernel tile parameter changes (BK) interact with escape handling.
-  M4 cannot validate _nax changes (GPU gen 16 < 17). Variant 3 masked this bug
-  by disabling the expert path. All _nax changes validated only under variant 3 are suspect.
+## MERGED FRONTIER (33 changes, all bit-exact)
+  Previous frontier (PR #180, #194, #192, #107, #114, #116, #119, #231, #232, etc.)
+  PR #230: Fuse g_proj+QKV into NVFP4 QKV R1 kernel (decode, ~2.0% decode)
+  PR #245: INT8 O-proj dot4 vectorization (decode, ~0.8-1.1% on M5)
+  PR #280: Down kernel outputs_per_simd 4→8 (decode)
+  PR #283: O-proj tiling doublesimd (decode)
+  PR #286: QKV results_per_simdgroup 4→8 (decode)
+  PR #291: Precompute eScoreCorrectionBias FP32 (decode+prefill)
+  PR #292: Prefill gate-softplus multi-token kernel (prefill)
+  PR #294: Dead code removal (-9,288B LRM budget)
+  PR #306: Prefill shared gate+up GEMM fusion (prefill, ~0.12% prefill)
+  PR #307: Prefill attention O-proj+residual addMM fusion (prefill, ~0.9% prefill)
+  Vendor file fix (d9b2df37): restored to pre-PR#243 state (M5 build fix)
 
 ## M5 SUBMISSION STATUS
-  90d0841: VALIDATING — frontier e73f710 (26 changes, includes PR #267 + PR #278)
-  29fb82a: FAILED — frontier 1bc2a53 (24 changes, BK=32 reverted) — BUILD FAILURE
-  f5dac24: FAILED — frontier 3b24586 (25 changes, BK=32 BUG)
-  b72eef8: FAILED — frontier dd9ab65 (24 changes, cause TBD)
-  6f9ca88: FAILED — frontier 1919be9 (variant 5, 22 changes, cause TBD)
-  68b66c5: REJECTED, score 2.5520 — frontier ad58c92 (variant 3, expert DISABLED)
-  df9613a: REJECTED, score 2.5817 — BEST SCORE
-  Leaderboard: fyrsta7 2.6040 (current #1). Gap: +0.86% from best (2.5817 → 2.6040).
-  CRITICAL: 29fb82a FAILED even after BK=32 revert. Root cause is in _nax changes
-  (PR #234/#243/#263) that only manifest with expert path enabled (variant 5).
-  If 90d0841 also fails: revert PR #234, #243, #263 and resubmit.
+  935c6831: VALIDATING — frontier d9b2df37 (vendor fix only, 31 changes)
+  Composed frontier (3c8a0db2, 33 changes): QUEUED, waiting for capacity
+  Birch best M5: 2.5459 (4058d0b, 8/5). Leaderboard #1: 2.5888 (maple, 97a5090).
+  Gap to close: +1.69% from 2.5459 to 2.5888.
 
-## MERGED THIS SESSION (Wave 15-17, +5 changes)
-  PR #267 (askeladd): Merge shared gate/up QMV into routed dispatch — bit-exact, byte-negative -2,094B,
-    eliminates 39 decode dispatches, M4 timing +0.50% (noise, M5 may be better with 40 cores)
-  PR #278 (alphonse): Compress LRM doc comments — comment-only, bit-exact, byte-negative -16,572B,
-    frees LRM headroom from 604B to 17,252B. Enables future kernel work.
-  PR #280 (thorfinn): Double down kernel outputs_per_simd 4→8 — bit-exact, 0-byte, M4 +0.4% decode
-  PR #283 (thorfinn): Double NVFP4 O-proj results_per_simdgroup 4→8 — bit-exact, 0-byte, M4 +0.74% (ambiguous, M5 needed)
-  M5 FIX: 4bea532 — disable halved scales path (non-nil biases crash on M5 with nvfp4 mode)
-
-## CLOSED THIS SESSION (Wave 15-16)
-  PR #276 (edward): RMSNorm→LM head fusion — DEAD (RMSNorm replicated across 6272 TGs costs >1 dispatch saved; +0.1% to +1.8% slower)
-  PR #277 (thorfinn): 4-way scale constancy — DEAD (invariant holds only 20-37%, need 95%. 2-way holds 100%)
-
-## ACTIVE ASSIGNMENTS (Wave 16-17, BASE_SHA=e4534e4)
-  PR #281 (alphonse): Fuse router GEMV + top-8 tournament into single kernel — eliminate 39 decode dispatches (bit-exact, ~0.2-0.5% decode)
-  PR #285 (edward): Fix routed MoE halved scales — embed escape in scales tensor, pass biases:nil (recover ~0.5% prefill, M5-only, bit-exact)
-  PR #286 (thorfinn): Double norm+affine QKV kernel results_per_simdgroup 4→8 (bit-exact, 0-byte, decode)
-  PR #287 (askeladd): Double INT8 affine O-proj kernel results_per_simdgroup 4→8 (bit-exact, 0-byte, decode)
-
-## DECODE DISPATCH AUDIT (Wave 17, 2026-08-07T13:29Z)
-  Full audit by explore agent. ~325 dispatches/decode step (7 for layer 0, 8×39=312 for MoE, 6 global).
-  Decode is NEARLY FULLY FUSED under default NVFP4 config. 8 dispatches per MoE layer:
-  A-1: Input RMSNorm (stock, separate — norm+NVFP4-QKV fusion tried, +2.7% slower, DEAD)
-  A-2: NVFP4 QKV + g_proj gate (fused, PR #230) — LRM JIT, not _nax
-  A-3: Fused QK-norm + YaRN RoPE + cache + SDPA — LRM JIT
-  A-4: Gated NVFP4 O-proj (PR #230 gate fuse, PR #283 tiling doubled) — LRM JIT
-  M-5: Residual + RMSNorm + router GEMV (fused) — LRM JIT
-  M-6: Router top-8 selection — LRM JIT (PR #281 IN-FLIGHT to fuse into M-5)
-  M-7: Routed SwiGLU QMV + shared merged 9-slot (PR #267) — LRM JIT
-  M-8: Routed+shared down + residual (PR #280 tiling doubled) — LRM JIT
-
-  REMAINING OPPORTUNITIES:
-  - PR #281: Fuse router top-8 into M-5 (IN-FLIGHT, -39 dispatches)
-  - PR #286: QKV tiling 4→8 (IN-FLIGHT)
-  - PR #287: INT8 O-proj tiling 4→8 (IN-FLIGHT)
-  - PR #285: Halved scales fix (IN-FLIGHT, prefill bandwidth)
-  DEAD: RMSNorm→NVFP4-QKV fusion (+2.7% slower), RMSNorm→LM head fusion (PR #276, 6272 TGs)
-  UNTRIED BUT HIGH RISK: QMV→down fusion (different parallelism), mega-kernel attention fusion
-
-## NEXT-WAVE IDEAS (from NOVEL_OPTIMIZATION_IDEAS.md)
-  1. Fuse RMSNorm+router into O-proj — DEAD (incompatible parallelism structures: 16384 TGs vs 1 TG)
-  2. ~~Merge shared QMV into routed dispatch~~ — ASSIGNED to askeladd (PR #267)
-  3. Revive XMAJOR fold — NOT ASSIGNED (too complex: requires re-implementing removed kernel arms, M5-only)
-  4. ~~BK=32 tile reduction~~ — ASSIGNED to alphonse (PR #271)
-  5. asyncEval ladder tuning — EXHAUSTED (already swept in notes/52, 66 runs)
-  NEW: Extend RMSNorm+router to multi-token prefill — ASSIGNED to edward (PR #272)
-
-## CLOSED PRIOR
-  PR #248 (alphonse): Scalar RMSNorm fusion — DEAD (FP reduction order mismatch)
-  PR #247 (askeladd): qdot shared header dot4 — DEAD (compiler auto-vectorizes)
-  PR #251 (thorfinn): Q·K simd_dot — MERGED then REVERTED (M5 build failure)
+## ACTIVE ASSIGNMENTS
+  PR #285 (edward): Revision v3 requested — rebase on 3c8a0db2, ensure no
+    fp_quantized_nax.h/.cpp changes, only quantized.cpp gather_qmm_rhs_nax + LRM.
+  PR #305 (alphonse): CLOSED — dead hypothesis (per-row GEMV slower than batched GEMM).
+  alphonse: IDLE — needs new assignment.
+  askeladd: IDLE — needs new assignment.
 
 ## RESEARCH THEMES
-  - CRITICAL: Variant 3 (BM128/WM8/WN1) silently disabled expert path. ALWAYS verify
-    that bm/wm changes satisfy the expert_aligned guard (bm==64 && wm==4).
   - M5 is bandwidth-bound (~89% GPU util). Only bandwidth reduction or dispatch elimination helps.
-  - Instruction-count reduction (dot4) shows gains on M5 but NOT M4 (M4 is bandwidth-bound).
-  - Unused constexpr in Metal JIT kernel strings may cause M5 build failure even when M4 compiles fine.
-  - RMSNorm fusion is a dead end: stock dispatch is optimal, FP reduction order changes flip near-tie tokens.
-  - LRM budget freed by PR #267: now 14,260B total headroom (was 559B). Enables new kernel work.
-  - Prefill dispatch elimination is a DEAD ARM — asyncEval overlap hides dispatch savings on M5.
-  - 4-way scale constancy is DEAD — NVFP4 only has 2-way pairwise constancy (100% verified).
-  - Need bigger ideas to close 0.86% gap. Novel ideas documented in NOVEL_OPTIMIZATION_IDEAS.md.
+  - Prefill path is relatively unoptimized vs decode — prefill dispatch elimination is main opportunity.
+  - All 4 M5-incompatible pattern classes fixed. M5 should build now.
+  - LRM budget: 42,519B headroom. Byte-negative changes are valuable.
+  - Halved scales optimization (~0.5% prefill) removed for M5 safety. Can re-derive with M5-safe approach.
+  - Vendor file changes are HIGH RISK for M5 — the header/source mismatch was invisible on M4.
+  - Exhausted: simd_sum vec, dot4, float4 stores, scale halving (decode), argmax fuse,
+    RMSNorm fusion, attention epilogue 1-pass, input-vector staging, dense MLP simd_sum,
+    per-row GEMV prefill fusion.
 
-## BUDGET STATUS
-  LRM: 521,590/524,288 = 2,698 B headroom (freed 2,139B by PR #267)
-  Total surface: 2,985,740/3,000,000 = 14,260 B headroom
-  Growth limit per submission: 262,144 bytes
-  Growth: 136/262,144 bytes
-  Vendor quantized.cpp: ~84K/524,288 = ~440K B headroom
-  Vendor fp_quantized_nax.h: ~78K/524,288 = ~446K B headroom
-
-## EXHAUSTED DIRECTIONS
-  Scale halving (all paths), dot4 (done/dead), float4 stores (done),
-  RMSNorm fusion (dead), attention epilogue 1-pass (dead), simd_dot (dead),
-  KV cache quant (blocked), decode dispatch elimination (fully fused),
-  prefill values transpose fold (dead), BK padding (dead), variant 3/4 (dead),
-  dense MLP quant (blocked), INT8 dedup (complete), argmax fuse (done),
-  prefill O-proj gate fusion via compile() (refuted), asyncEval (near-optimal),
-  input-vector staging (dead, barrier overhead), FP reduction order changes (toxic).
+## POTENTIAL NEXT EXPERIMENTS
+  1. Decode attention QK-norm + RoPE fusion (bit-exact, M4-testable, LRM-only)
+  2. Prefill attention Q-proj+K-proj+V-proj GEMM fusion (like QKV bank fusion but for prefill L>1)
+  3. Prefill down-proj + residual fusion (addMM pattern, like PR #307)
+  4. Decode attention output write fusion (combine output store with attention computation)
+  5. Re-derive halved scales with M5-safe approach (no kHalvedScales in vendor files)
+  6. Prefill RMSNorm + QKV dispatch fusion (batched, not per-row GEMV)
