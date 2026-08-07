@@ -1,8 +1,69 @@
 # SENPAI Research State
-- 2026-08-07T13:20Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 4bea532 (pushed to origin).
-  27 composed changes on current frontier (26 + M5 crash fix).
-  LRM: 504,942/524,288 = 19,346 B headroom. Total surface ~2,969K/3,000,000 = 30,908B headroom.
+- 2026-08-07T15:36Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 1ee80e40 (pushed to origin).
+  31 composed changes (30 LRM optimizations + M5 build fix + PR #292 prefill gate-softplus).
+  LRM: ~508,740/524,288 = ~15,548 B headroom.
+  Total surface: ~2,972,000/3,000,000 = ~28,000 B headroom.
+
+## CRITICAL: M5 BUILD FIX (2026-08-07T15:35Z)
+  ROOT CAUSE of ALL birch M5 build failures: M5 Metal compiler (GPU gen 17+) rejects
+  vectorized simd_sum(vec<float,N>) and dot(float4(...)) in JIT kernel strings.
+  M4 (GPU gen 16) accepts these patterns. Same class as PR #251 simd_dot failure.
+
+  FIX: Replaced 14 simd_sum(vec<float,N>) + 2 dot(float4) with scalar equivalents (d6420f3d).
+  Bit-exact, net -11 bytes. Build verified on M4 (10.72s). M5 submission 55e16401 validating.
+
+  INVESTIGATION AGENT ALSO FLAGGED: *(thread float4*) pointer casts (4 occurrences,
+  0 in last good build). May need separate fix if simd_sum fix alone doesn't resolve M5.
+
+  INVESTIGATION AGENT ALSO FLAGGED: 7 unused constexpr declarations. These existed in
+  the last good build (4058d0b), so they're NOT the cause.
+
+## CRITICAL: _nax VENDOR REVERT (2026-08-07)
+  Reverted fp_quantized_nax.cpp and quantized.cpp to pre-PR#243 state (577a9b6).
+  Reason: PR #243 (kHalvedScales), PR #263 (STAGE2_GATHER v2), PR #261 (QKV fusion)
+  caused 8 consecutive M5 build failures. df9613a (2.5817) was last successful build
+  with these pre-PR#243 vendor files.
+  Also disabled DARKBLOOM_FUSED_QKV (PR #261 flag set to OFF).
+  All 29 LRM-only optimizations retained. useHalved=false crash fix retained.
+  M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
+
+## M5 SUBMISSION STATUS
+  55e16401: VALIDATING — M5 build fix (simd_sum/dot4 scalar) + PR #292 prefill gate-softplus
+  9753441: FAILED — 87aff2f vendor files + 30 LRM opts (simd_sum vec still present)
+  Root cause confirmed: M5 rejects simd_sum(vec<float,N>) and dot(float4) in JIT kernels
+  Last confirmed birch M5 score: 4058d0b at 2.5459 (8/5 10:53 AM)
+  NOTE: df9613a (2.5817) and 68b66c5 (2.5520) were MAPLE campaign, not birch
+  Leaderboard #1: 2.5888 (maple, 97a5090 promoted).
+
+## MERGED WAVE 15
+  PR #292 (askeladd): Prefill gate-product+softplus multi-token — MERGED (6.0% prefill, bit-exact, +2954B)
+
+## ACTIVE ASSIGNMENTS (base 1ee80e40, all need rebase)
+  PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — wip, rebase nudge sent (M5 fix warning)
+  PR #285 (edward): Routed MoE halved scales escape fix — wip v2, rebase nudge sent (M5 fix warning)
+  PR #294 (thorfinn): Dead code removal — APPROVED, revision v2 requested (rebase on current base, conflict with PR #291)
+
+## CLOSED
+  PR #296 (alphonse): RMSNorm→LM head fusion — CLOSED (bandwidth-negative: 25MB extra norm-weight reads across 6272 TGs)
+
+## MERGED WAVE 14
+  PR #291 (alphonse): Precompute eScoreCorrectionBias FP32 — MERGED (bit-exact, +0.676% decode, +222B)
+
+## NEXT-WAVE IDEAS (from FRESH_DECODE_IDEAS_20260807.md + research agent)
+  1. Fuse final RMSNorm into LM head coarse — CLOSED (bandwidth-negative, 25MB extra reads)
+  2. Down+residual outputs_per_simd 8→16 — ASSIGNED to alphonse (PR #297)
+  3. NVFP4 OProj results_per_simd 8→16 — UNASSIGNED (~50B, 40 layers)
+  4. Gate/up R1 9-simdgroup input sharing — LIKELY DEAD (input-vector staging already failed)
+  5. Dense down rows_per_thread 4→8 — LOW IMPACT (1 layer only)
+  6. Device-atomic two-phase norm+QKV fusion — UNASSIGNED (saves 40 dispatch boundaries/step, complex)
+  7. Device-atomic router top-8 fusion — UNASSIGNED (saves 39 dispatch boundaries/step, complex)
+  8. Decode path is extremely well-optimized: 8 dispatches per sparse layer, nearly fully fused
+  PR #292 (askeladd): Extend gate-product+softplus kernel to multi-token prefill — 40 dispatches, ~200-400B
+  PR #294 (thorfinn): Dead code removal — free ~12KB LRM budget, 4 default-OFF flags, net-negative
+
+## CLOSED (Wave 13)
+  PR #290 (thorfinn): QKV fusion re-enable — DEAD (38% decode regression from 312MB extra weight)
 
 ## M5 CRASH FIX (CRITICAL — 2026-08-07T13:20Z)
   Root cause found by _nax audit agent: PR #220 and PR #234 passed non-nil `biases`

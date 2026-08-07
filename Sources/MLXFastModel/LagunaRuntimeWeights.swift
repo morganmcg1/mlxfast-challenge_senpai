@@ -476,21 +476,8 @@ public final class LagunaRuntimeWeightCache {
         )
         eval(model(prefillTokens, cache: warmupCache))
         let decodeToken = MLXArray([bosToken], [1, 1])
-        var warmDecodeLogits = model(decodeToken, cache: warmupCache)
+        let warmDecodeLogits = model(decodeToken, cache: warmupCache)
         eval(warmDecodeLogits)
-        // The historical full-attention bundle coupled this second whole-model
-        // decode to the fusion selector and regressed ranked prefill 11.3%.
-        // Reproducing that retired rewarm now requires its own explicit
-        // diagnostic selector; the default-on fused kernel must not silently
-        // execute all 40 layers again. The first decode still preserves the
-        // promoted constructor-warmup contract, and the kernel-only call below
-        // creates the full-attention PSO without model/cache state.
-        if lagunaFusedFullAttentionEnabled,
-            lagunaFusedFullAttentionWholeModelWarmupEnabled
-        {
-            warmDecodeLogits = model(decodeToken, cache: warmupCache)
-            eval(warmDecodeLogits)
-        }
         if lagunaFusedFullAttentionEnabled,
             lagunaFusedFullAttentionKernelWarmupEnabled
         {
