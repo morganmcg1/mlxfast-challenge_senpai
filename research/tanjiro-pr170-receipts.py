@@ -8,7 +8,11 @@ full metric set comes from the submissions endpoint:
       "https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions" \
       -o /tmp/subs.json
 
-Usage: tanjiro-pr170-receipts.py <subs.json> [arm=id-prefix ...]
+A cheaper source for a single known submission is the unauthenticated
+`https://api.mlx.fast/api/submissions/<uuid>` (~21 KB), which is what the
+receipt waiter archives per arm under research/artifacts/.
+
+Usage: tanjiro-pr170-receipts.py <source.json> [more.json ...] [arm=id-prefix ...]
 """
 
 import json
@@ -121,13 +125,26 @@ def ns_of(decode_s_per_tok, prefill_s_per_tok):
 
 
 def load(path):
+    """Accept either the bulk feed or one per-submission record.
+
+    The bulk feed is a list (or a list under a container key). The single
+    endpoint `/api/submissions/{uuid}`, which is what the receipt waiter
+    archives, nests the row under a `submission` key -- returning that wrapper
+    rather than the row is the same mistake that once made the waiter report a
+    fabricated receipt, so it is unwrapped here too.
+    """
     d = json.load(open(path))
     if isinstance(d, list):
         return d
     for key in ("submissions", "items", "data", "results"):
         if isinstance(d.get(key), list):
             return d[key]
-    raise SystemExit(f"no submission list in {path}: keys={list(d)}")
+    inner = d.get("submission")
+    if isinstance(inner, dict):
+        return [inner]
+    if "id" in d and "status" in d:
+        return [d]
+    raise SystemExit(f"no submission record in {path}: keys={list(d)}")
 
 
 def verdict(dM2, dS2, dB2):
@@ -281,13 +298,20 @@ def verdict(dM2, dS2, dB2):
 
 
 def main():
-    feed = sys.argv[1]
-    arms = {}
-    for a in sys.argv[2:]:
-        name, _, pref = a.partition("=")
-        arms[name] = pref
+    # Anything with an `=` is an arm selector; everything else is a source
+    # file. Several sources concatenate, so the three arms can be read from
+    # three per-arm waiter artifacts without refetching the 17.8 MB feed.
+    arms, sources = {}, []
+    for a in sys.argv[1:]:
+        if "=" in a:
+            name, _, pref = a.partition("=")
+            arms[name] = pref
+        else:
+            sources.append(a)
+    if not sources:
+        raise SystemExit(__doc__)
 
-    rows = load(feed)
+    rows = [r for path in sources for r in load(path)]
     ctrl_S = S_ms(CTRL["prefill_s_per_tok"])
     ctrl_T = T_ms(CTRL["decode_s_per_tok"], CTRL["prefill_s_per_tok"])
     print(f"control 97a5090  S={ctrl_S:8.3f} ms  T={ctrl_T:7.5f} ms  "
@@ -311,10 +335,10 @@ def main():
             continue
         m = hit.get("officialMetrics") or {}
         print(f"=== {name}  {hit.get('id')}  status={hit.get('status')} "
-              f"score={hit.get('score')}")
+              f"score={hit.get('officialScore')}")
         if not m:
             print("     officialMetrics: (none published)")
-            print(f"     error: {hit.get('failureReason') or hit.get('error')}")
+            print(f"     reason: {hit.get('rejectionReason')}")
             print("     R0c INSTRUMENT FAILURE: the harness published no "
                   "metrics, so this arm measured nothing. In the audited feed "
                   "all 489 `failed` submissions have officialMetrics=null and "
