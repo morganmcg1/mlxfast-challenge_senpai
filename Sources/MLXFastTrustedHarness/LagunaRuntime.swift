@@ -303,7 +303,7 @@ public struct RuntimeWorkerOptions: Equatable {
     public init(
         executablePath: String,
         sandboxProfilePath: String? = nil,
-        forwardsWorkerStderr: Bool = false,
+        forwardsWorkerStderr: Bool = true,
         helloTimeoutSeconds: Double = RuntimeWorkerOptions.defaultHelloTimeoutSeconds,
         requestTimeoutSeconds: Double = RuntimeWorkerOptions.defaultRequestTimeoutSeconds,
         shutdownTimeoutSeconds: Double = RuntimeWorkerOptions.defaultShutdownTimeoutSeconds,
