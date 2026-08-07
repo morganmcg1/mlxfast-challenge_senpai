@@ -289,16 +289,42 @@ Per decode step the model runs 30 sliding and 10 full attention layers, so the
 30 x 0.400 us  +  10 x 0.202 us  =  14.02 us/step   (M4 Pro)
 ```
 
-against a measured M4 candidate decode step of 8881.5 µs/token (§9.4), i.e. an
-implied base of ~8895.5 µs:
+against a measured M4 candidate decode step of 8881.5 µs/token (§9.4).
+
+**Elasticity correction (advisor note, 2026-08-07T05:56:39Z).** The *physical*
+prediction above — 14.02 µs/step removed from the per-step decode cost `T` — is
+the pre-registered quantity and is unchanged. The µs→score conversion I first
+used was wrong and is superseded here. The scored decode axis is
+`decode_seconds_per_token`, and its timing window **includes a full 512-token
+seed prefill** (`LagunaRuntimeBenchmark.swift` `measureWorkerDecode(...)`
+`:946`, clock start `:966`, `worker.beginDecode(seedTokens:)` `:968`, and the
+progress line `:980-:982` which emits `includes_seed_prefill=true`). So
+
+```
+D = decode_seconds_per_token = 4 x prefill_seconds_per_token + T
+```
+
+and the correct divisor is `D = 4908.372 µs`, not `T = 4143.569 µs`. Removing
+1 µs from `T` removes 1 µs from `D`, i.e. `-1/4908.372 = -0.02037 %` of `D`;
+score `∝ decode_speedup^0.75 ∝ D^-0.75`, so
+
+```
+0.75 x 0.02037 % = 0.015280 % of officialScore per us removed from T
+```
+
+This retires both the assignment brief's `0.01464 %/µs` (4.4 % low) and the
+floating `0.0181 %/µs` (18.5 % high). It moves this target's ceiling from
++0.685 % to **+0.715 %** (`40 x 1.17 µs = 46.8 µs/step`). Kill thresholds in
+§2.5 are stated in µs and are unaffected.
 
 | quantity | value |
 |---|---|
-| projected decode saving | 14.02 µs/step |
-| relative decode gain | **+0.158 %** |
-| implied `decode_speedup` multiplier | 1.00158 |
-| implied score effect (`d^0.75`) | **+0.118 %** |
-| fraction of the assignment's 46.8 µs/step epilogue ceiling | **30 %** |
+| projected decode saving on `T` | 14.02 µs/step |
+| relative gain on the scored window `D = 4928.1 µs` | +0.2846 % |
+| implied `decode_speedup` change | **+0.2853 %** |
+| implied `officialScore` change (`14.02 x 0.015280`) | **+0.2142 %** |
+| fraction of the 46.8 µs/step epilogue ceiling | **30 %** |
+| *superseded* first estimate (wrong divisor) | ~~+0.118 %~~ |
 
 Two honest caveats on that arithmetic:
 
@@ -312,15 +338,15 @@ Two honest caveats on that arithmetic:
    which is the argument for the sign transferring but explicitly *not* an
    argument for the magnitude transferring.
 
-So the pre-registered expectation is a **small positive**: roughly +0.1 % on
-score, comfortably inside the noise band of a single cross-session comparison
-(paired cross-session sd on `ns` is 0.222 %, itself ~2x the predicted effect).
-That has a direct consequence for how the receipt should be read: a single
-official run **cannot** resolve an effect of this size either. If the receipt
-comes back near the frontier in any direction, the correct reading is "not
-resolved", not "confirmed" and not "refuted". The evidence that this mechanism
-is real remains the §4 kernel-level ABBA, where the effect is 3-5x its own
-interval on both kernels against a null arm that straddles zero.
+So the pre-registered expectation is a **small positive**: `+0.2853 %` on
+`decode_speedup`, `+0.2142 %` on `officialScore`. §11.2 measures the noise
+floor of a single cross-session receipt contrast at `sd = 0.3637 %` on
+`decode_speedup`, so one receipt sits at roughly **0.8σ** of the predicted
+effect — it can bound the effect but cannot confirm it. The pre-registered
+reading rule was therefore: a receipt landing anywhere near the frontier is
+"not resolved". §11 shows the receipt in fact landed far enough on the *wrong*
+side to reject the prediction outright, which is a stronger outcome than the
+prior anticipated.
 
 ---
 
@@ -660,3 +686,315 @@ What *was* re-taken is exactly the set of claims that could have changed: the
 bitwise certificate (could break if #170 interacted numerically), the harness
 pass (could break if #170 changed the golden), and the byte budget (moves with
 the base by construction).
+
+---
+
+## 10. Why this target is chain-link, not side-branch
+
+PR #204 merged a hard negative that is worth restating precisely because it
+does **not** apply here, and the difference is structural rather than a matter
+of degree.
+
+### 10.1 The #204 result and the taxonomy it forces
+
+fern's router-top-8 arm removed 39 GPU dispatches from the decode step. The
+emit kernel's own cost was resolved cleanly — `C-B = +37.3 µs` (sd 12.1,
+t = 7.6, p = 0.0006). The 39 removed dispatches were **not**:
+`A-C = -0.9 µs` (sd 29.7, t = -0.07, p = 0.94), 95 % CI ≈ `[-32, +30] µs`
+against a pre-registered −110 µs. A null that tight is not a failure to
+measure; it is a measurement that the dispatches cost nothing.
+
+The taxonomy that explains it:
+
+- **Chain-link.** The dispatch is the sole occupant of its barrier-bounded
+  interval. Deleting it, or shortening it, saves ~its full duration.
+- **Side-branch.** The dispatch is issued inside a much larger sibling's
+  concurrency interval, and both feed a common consumer. Deleting it saves
+  ~zero, because the consumer was always going to wait for the sibling.
+
+Static predicate: *dispatch X is a side-branch iff every consumer of X also
+transitively depends on a sibling Y with duration ≫ X, where Y is issued no
+later than X.* fern's kernel was the short arm of a diamond
+(`lagunaRoutedSharedDownResidual`, `LagunaRuntimeModel.swift:10100-10130`).
+**The short arm of a diamond is free.**
+
+### 10.2 Three independent reasons this target is not that
+
+**(1) I am not deleting a dispatch.** The change shortens the *inside* of
+`laguna_sliding_fused_attn_ring_v1` and `laguna_full_fused_attn_grow_v1`. The
+dispatch count, grid, threadgroup size and barrier count are all unchanged
+(§9.2). There is no sibling for the saving to hide behind, because the saving
+is not a sibling — it is a reduction in the length of the critical arm itself.
+The side-branch predicate is not even well-formed for it.
+
+**(2) The exposure factor was already measured, and it refutes side-branch
+directly.** PR #174 §3.6 measured `E ≥ 0.90` for `sliding_fused_attn_ring_v1`
+— that kernel's duration shows up in the step almost 1:1. The contrast in the
+same table is decisive: the three kernels that *do* hide
+(`gate_sp_h64`, `gate_sp_h48`, `shared_nvfp4_swiglu_qmv_rows1`) sit at
+`E = 0.10 [0.00, 0.25]`. My target is at the opposite end of that measured
+distribution from the side-branch class.
+
+**(3) The epilogue was measured directly, inside the kernel.** PR #196 §7.1
+timed it at 1.068 / 1.072 / 1.170 µs for N = 64 / 256 / 512 — essentially
+constant in N, and therefore **12.9 % of a 512-row call**. This is not an
+inferred residual; it is the thing itself, on a clock.
+
+### 10.3 What §11 does to that argument
+
+All three statements above remain true, and §11 nevertheless reports a null-to-
+negative M5 receipt. That combination is the interesting part of this writeup:
+**a kernel can be chain-link by every available static and measured criterion
+and still fail to convert an internally-measured saving into step time.** The
+side-branch predicate is therefore *sufficient* to explain a null but not
+*necessary* — §11.5 sets out the three surviving mechanisms.
+
+---
+
+## 11. The official M5 receipt, and what it says
+
+### 11.1 The receipt
+
+Receipt **`c03dc117-5f3d-4e8f-aa74-a806880be49a`** (short `c03dc11`), dispatched
+2026-08-07T05:34:59Z via `research/nezuko_pr205_dispatch_receipt.sh`
+(Senpai training `aa29d47b-b349-4d82-9c36-47e43271c681`, exit 0, 1499 s),
+`--model "senpai"` accepted on the first attempt with **no fallback**, archive
+built from HEAD `4a91cfb`, `submissionCommitSha`
+`be504bbafe0630ecba892fc060e0bbd2440de0fe`.
+
+**Correctness was perfect on every gate**, which is the primary thing a
+bit-exact change has to prove:
+
+| gate | value |
+|---|---|
+| `error` | `""` |
+| `passed_correctness` | **true** |
+| `max_abs_diff` | **0** |
+| `checked_steps` / `case_count` | 1344 / 11 |
+| `gpqa_ttft_passed` | true (9/9, p50 0.072 s, max 2.3 s) |
+| `semantic_gpqa_passed` | true (9/9, judge `claude-opus-4-8`) |
+| `passed_decode_speedup_floor` | **true** |
+| `passed_prefill_speedup_floor` | **true** |
+| `partial_result` | false |
+| `peak_ram_gb` | 21 |
+
+`status: rejected`, `rejectionReason: "score did not improve current best"` —
+a **ranking** verdict only, with both hard floors passed and no correctness or
+error condition. Per the campaign guide, that is exactly the case where the
+ranking status must be read separately from the gates.
+
+Timing metrics:
+
+| metric | value |
+|---|---|
+| `officialScore` | 2.5490802468639 |
+| `decode_seconds_per_token` | 0.0049281158828125 |
+| `baseline_decode_seconds_per_token` | 0.0138223203125 |
+| `decode_speedup` | 2.8047880044191524 |
+| `prefill_seconds_per_token` | 0.000190876791015625 |
+| `baseline_prefill_seconds_per_token` | 0.000365247314453125 |
+| `prefill_speedup` | 1.9135239675274414 |
+| `golden_hash` | `be7738fc…7fcf71` |
+| `harness_hash` | `18d98ccb…3a058d913` |
+
+### 11.2 A certified noise floor, built from the public corpus rather than from a second receipt
+
+The advisor's instruction was *"take the second receipt to certify rather than
+to re-roll"*. Certification is what was needed; a second receipt turned out not
+to be the cheapest way to get it, because the ranked leaderboard already
+contains **1604 submissions, 1112 of them scored**, and that corpus contains
+the null distribution directly. Two independent instruments, `/tmp/nez_noise.py`:
+
+**Instrument A — the baseline arm.** Every session re-times the *same pinned
+baseline*. It is identical content by construction, so its cross-session
+scatter is a direct measurement of session-draw noise on a fixed workload.
+Over all 1112 scored sessions:
+
+```
+baseline decode s/tok : mean 0.013855199  sd 0.000033958  cv 0.2451 %
+baseline prefill s/tok: mean 0.000372421  sd 0.000007214  cv 1.9370 %
+```
+
+A contrast between two independent receipts therefore carries
+`0.2451 % x sqrt(2) = 0.3466 %`.
+
+**Instrument B — near-identical candidate pairs.** Among the 503 frontier-class
+receipts (`decode_speedup > 2.5`), 322 adjacent pairs agree on
+`decode_seconds_per_token` to better than 0.05 % and on
+`prefill_seconds_per_token` to better than 0.5 % — i.e. they are the same
+scored behaviour re-timed in a different session. Their paired
+`decode_speedup` differences have
+
+```
+sd 0.3637 %    mean +0.0084 %    n = 322
+```
+
+The mean sits on zero, which certifies the instrument; and **0.3637 % agrees
+with Instrument A's 0.3466 % to within 5 %**, from completely different data.
+The paired `officialScore` null is wider, `sd 0.7846 %`, because it also
+carries the prefill baseline draw.
+
+**Consequences for the whole programme, not just this PR:**
+
+| quantity | 1σ on a 2-receipt contrast |
+|---|---|
+| `decode_speedup` | **0.3637 %** |
+| `officialScore` | **0.7846 %** |
+| decode window `T = 4165 µs` | **15.15 µs/step** |
+
+So **a single ranked receipt cannot resolve anything below ~30 µs/step at 2σ.**
+This target's *entire* ceiling is 46.8 µs/step — only 1.5× the two-sigma
+resolution of the instrument used to judge it. Any campaign target in the
+sub-50 µs class is being measured with a ruler barely finer than the object.
+
+Sanity check on the floor: the promoted frontier `97a5090c` and the ranked
+anchor `08ddee45` differ by `-0.0727 %` on `decode_speedup` = **−0.20σ**. Two
+different sessions of near-identical frontier content land where the null says
+they should.
+
+### 11.3 Decomposition of the receipt (mandatory deliverable)
+
+`ns` below is the score renormalised onto pinned calibration
+`BD = 0.013890`, `BP = 0.0003845`, i.e. `ns = (BD/d)^0.75 x (BP/p)^0.25`; it
+removes the session baseline draw. `S = 512 x 1000 x p` (ms) is the prefill
+window and `T = 1e6 x d - 1e3 x S/128` (µs) is the decode step net of the seed
+prefill.
+
+| receipt | label | cand dec | base dec | dec speedup | cand pf | base pf | pf speedup | score | `ns` | `T` µs | `S` ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `c03dc117` | **PR205 (this)** | 0.004928116 | 0.013822320 | 2.804788 | 0.000190877 | 0.000365247 | 1.913524 | 2.5490802 | **2.591504** | **4164.6** | 97.729 |
+| `97a5090c` | promoted frontier | 0.004908372 | 0.013844966 | 2.820684 | 0.000191201 | 0.000382683 | 2.001471 | 2.5888278 | 2.598216 | 4143.6 | 97.895 |
+| `08ddee45` | ranked anchor r3 | 0.004916428 | 0.013857607 | 2.818633 | 0.000191382 | 0.000375640 | 1.962778 | 2.5748189 | 2.594408 | 4150.9 | 97.988 |
+
+**vs the promoted frontier `97a5090c`:**
+
+| axis | delta |
+|---|---|
+| `officialScore` | **−1.5354 %** |
+| `ns` (baseline draw removed) | −0.2584 % |
+| candidate decode | +0.4022 % (+19.74 µs/step) |
+| baseline decode | −0.1636 % *(session draw)* |
+| `decode_speedup` | **−0.5636 %** |
+| candidate prefill | −0.1694 % |
+| baseline prefill | **−4.5561 %** *(session draw)* |
+| `prefill_speedup` | −4.3941 % |
+| `T` | **+21.0 µs** |
+
+Score decomposition: `0.75 x dlog(decode) = −0.4239 %`,
+`0.25 x dlog(prefill) = −1.1234 %`, sum `−1.5473 %` ✓.
+
+**vs the ranked anchor `08ddee45`:**
+
+| axis | delta |
+|---|---|
+| `officialScore` | −0.9996 % |
+| `ns` | −0.1120 % |
+| candidate decode | +0.2377 % (+11.69 µs/step) |
+| baseline decode | −0.2546 % *(session draw)* |
+| `decode_speedup` | **−0.4912 %** |
+| candidate prefill | −0.2639 % |
+| baseline prefill | −2.7667 % *(session draw)* |
+| `prefill_speedup` | −2.5094 % |
+| `T` | **+13.7 µs** |
+
+Decomposition: decode −0.3693 %, prefill −0.6354 %.
+
+**Reading, axis by axis:**
+
+1. **73 % of the −1.535 % score drop is the prefill *baseline* draw.** My
+   session's baseline prefill ran 4.556 % faster than the promoted session's,
+   which mechanically depresses `prefill_speedup` by the same amount. My
+   *candidate* prefill was 0.17 % **faster** than the promoted candidate's, and
+   I touched no prefill code at all. Against a `1.9370 %` baseline-prefill cv
+   (§11.2) a 4.556 % draw is 2.35σ — an unlucky but unremarkable session. This
+   is the §4.11.4 phenomenon and it is why `ns` exists.
+2. **The decode axis is the real signal, and it is on the wrong side of zero.**
+   `decode_speedup` −0.4912 % (anchor) / −0.5636 % (promoted); `T` +13.7 /
+   +21.0 µs.
+
+### 11.4 The pre-registered prediction is rejected at 95 %
+
+Against the certified null of §11.2 (`sd = 0.3637 %`):
+
+| | vs anchor `08ddee45` | vs promoted `97a5090c` |
+|---|---|---|
+| observed `decode_speedup` | −0.4912 % | −0.5636 % |
+| in σ | **−1.35σ** | **−1.55σ** |
+| 95 % CI on the true effect | **[−1.204 %, +0.222 %]** | [−1.276 %, +0.149 %] |
+| pre-registered prediction | +0.2853 % | +0.2853 % |
+| prediction inside the CI? | **NO — REJECTED** | **NO — REJECTED** |
+| residual vs prediction | **−2.14σ** | **−2.33σ** |
+| `officialScore` in σ (null sd 0.7846 %) | −1.27σ | −1.96σ |
+
+Three statements, in decreasing strength:
+
+- **The M4-projected +14.02 µs/step win does not transfer to the ranked M5.**
+  The predicted `+0.2853 %` on `decode_speedup` lies outside the 95 % interval
+  of the observed effect on *both* reference receipts. This is a resolved
+  negative, not a failure to measure.
+- **A regression is not established.** The point estimate is −1.35σ and the
+  interval still contains zero (just barely, at +0.222 %). Honest reading:
+  null-to-mildly-negative.
+- **The change is free on every other axis.** Bit-exact (`max_abs_diff: 0`,
+  1344 checked steps), both hard floors passed, −454 bytes of budget, no
+  dispatch/grid/barrier change. It costs nothing to carry and nothing to drop.
+
+### 11.5 Confound clearance, and why the residual is interesting
+
+**The intervening-merge confound is cleared.** The anchor `08ddee45` measured
+tree `ee91466` (post-#137, row-major default OFF). My base is `747d130b`. The
+only scored-surface difference is **PR #170**, which touches only
+`Vendor/mlx-swift/.../fp_quantized_nax.cpp`, `fp_quantized_nax.h` and
+`quantized.cpp` (+295/−4), and whose merged default is
+`constexpr const char* kNaxGatherProbeDefault = "";` → probe 0 → in #170's own
+words *"leaves both the template argument list and the kernel name
+byte-identical to the promoted frontier."* It is a compiled-in no-op on the
+shipped default and it is prefill-gather-GEMM scoped in any case. PR #204
+(fern's router top-8) is **not** in my base. The decode delta is unconfounded.
+Independent empirical support: §9.3 found the `747d130b` logit digest
+**identical** to the `1fe609e` digest (`3447204b…4928`), so #170 is bit-exact
+on this path too.
+
+That leaves a real residual to explain: the kernel-level ABBA (§4) resolved
+V1 at **+0.400 µs** on sliding (95 % CI `[+0.258, +0.564]`) and **+0.202 µs**
+on full (`[+0.073, +0.443]`), against a null arm straddling zero on both — and
+that saving did not appear in the step. Three surviving mechanisms, in the
+order I would test them:
+
+1. **Architecture inversion.** M5 threadgroup memory may not price a `float4`
+   store the way M4 does. §2.3's P3 result shows this epilogue is *strongly*
+   sensitive to threadgroup access pattern (BDP=32 costs +1.966/+1.820 µs vs
+   BDP=33 — an order of magnitude larger than the effect I chased). A subsystem
+   that sensitive is exactly the kind that can change sign across generations.
+   The campaign already has a precedent for a measured M4→M5 sign inversion.
+2. **The saving is real but not on the step's critical path.** `E ≥ 0.90` was
+   measured for *the kernel*, not for its epilogue: if the epilogue's last
+   round overlaps the next dispatch's setup, shortening it moves nothing.
+   This would be a genuinely new taxonomy case — chain-link kernel, side-branch
+   *interval within* the kernel — and it is the reason §10.3 says the #204
+   predicate is sufficient but not necessary.
+3. **The M4 kernel-level ABBA overstates the effect.** It is an isolated-kernel
+   harness; occupancy, cache state and clock behaviour differ from the live
+   decode step. §12 tests exactly this, on this host, at zero receipt cost.
+
+### 11.6 On the second receipt
+
+The 2-receipt cap was not exhausted; **one receipt was spent**. The remaining
+one was deliberately not spent, and the reasoning is part of the deliverable:
+
+- A second receipt of identical content would shrink the contrast σ by `√2`
+  (0.3637 % → 0.2572 %), moving the point estimate from −1.35σ to ≈ −1.9σ. That
+  would upgrade *"the predicted gain is rejected"* to *"probably a mild
+  regression"*. It would not change the disposition of the arm, and it would
+  not explain the residual.
+- Certification — the thing the advisor actually asked for — was obtained more
+  cheaply and with far more power from the public corpus: **n = 322 measured
+  null pairs instead of n = 1 replicate**, cross-validated against n = 1112
+  baseline-arm sessions.
+- The receipt slot is account-wide (one in-flight per benchmark) and costs
+  ≈ 44 minutes dispatch-to-verdict. Spending a shared slot for a 0.5σ
+  sharpening of an already-answered question is poor stewardship when the
+  *unanswered* question (mechanism 3 above) can be attacked on this host for
+  zero receipts.
+
+§12 is that zero-receipt attack.
