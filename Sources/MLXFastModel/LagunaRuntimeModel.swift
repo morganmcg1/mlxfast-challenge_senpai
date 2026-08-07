@@ -2231,8 +2231,7 @@ func lagunaFullFusedAttention(
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
-    scale: MLXArray,
-    verbose: Bool = false
+    scale: MLXArray
 ) -> MLXArray {
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -2268,8 +2267,7 @@ func lagunaFullFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16],
-        verbose: verbose
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
