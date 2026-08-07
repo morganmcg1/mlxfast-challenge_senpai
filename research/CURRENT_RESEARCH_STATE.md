@@ -1,11 +1,11 @@
 # SENPAI Research State
-- 2026-08-07T00:55Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 7b8191e (origin/mlxfast-birch-20260805-advisor).
-  Clean scored code frontier: 12a712d (top-8 elimination, FMA dequant, STAGE2_GATHER, LM_HEAD_PRUNE).
-  Advisor branch scored code NOW MATCHES promoted frontier exactly (0 diff vs 12a712d).
-  All 17+ dot4/simd_sum/float4/weight-staging PRs reverted (counterproductive on M5, -5.68% confirmed).
-  PR #179 (MB per buffer) CLOSED: DEAD — MB change inert with ops=200 (ops limit fires first in needs_commit OR).
+- 2026-08-07T01:06Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at a21c218 (origin/mlxfast-birch-20260805-advisor).
+  Clean scored code frontier: 12a712d + QHOIST (PR #183 merged, bit-exact prefill bandwidth).
+  QHOIST submission note written (15KB), blocked by in-flight submission 4f546a8 (validating).
+  PR #179 (MB per buffer) CLOSED: DEAD — MB change inert with ops=200.
   PR #185 (BM128 variant 4) ASSIGNED to thorfinn: +17.47% prefill kernel gain, bit-exact, M4-measurable.
+  PR #186 (MLX_METAL_FAST_SYNCH) ASSIGNED to edward: fence overhead reduction, bit-exact, M4-measurable.
 
 ## M5 SUBMISSION STATUS
   Submission 2278bd85 (ops-800): REJECTED at -7.23% on M5.
