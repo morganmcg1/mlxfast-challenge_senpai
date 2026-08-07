@@ -430,6 +430,80 @@ command-buffer/launch overhead. §9 carries those forward rather than letting th
 null overclaim.
 
 
+#### 4.0.3 The shadow MMA is on the unconditional path, verified in the IR
+
+A static instruction census proves the shadow `mma` was *emitted*. It does not
+prove it *executes*. The M2 sink is
+
+```c++
+if constexpr (kProbeM2) {
+  if (run_skip_pct > 1000) {          // host-clamped to [1,100]
+    y[0] = static_cast<T>(Dshadow.frag_at(0, 0)[0]);
+  }
+}
+```
+
+and that guarded store is the shadow accumulator's only consumer. A compiler is
+free to sink the whole chain into the guard, in which case the arm would add a
+never-taken branch and nothing else, and a null would be an instrument failure
+rather than a result. The convergence argument in the source comment is a claim
+about what the optimiser *should* do, not evidence about what it *did*.
+
+So I checked the emitted IR before reading any receipt.
+`EMIT_IR=1 research/nax_msl_compile_check.sh` was run at probes 0–3 and the
+per-function control-flow graph of `..._2048x1024_bk64[_pbN]` inspected
+(`/tmp/naxpb{0,1}/unit.ll`):
+
+| what | probe 0 | probe 1 (M2) |
+|---|---|---|
+| `run_skip_pct > 1000` compare | absent | line 190, function prologue |
+| store guarded by it | absent | line 660, block `448` |
+| `matmul2d_op_run_cooperative` | line 445, block `304` | lines 468 (`323`) and 594 (`404`) |
+
+Both MMA sites sit in **loop-exit blocks of the accumulate nest**, reached from
+loop latches (`br i1 %339, label %323, label %327`) on the ordinary fall-through
+path. The guard block `448` is reached only after *both* nests have completed,
+and contains only the store. Neither MMA is dominated by the guard, so the
+shadow chain runs on every pass. **D1 discharged: the shadow MMA executes.**
+
+The same IR pass re-derives the perturbation table from a second, independent
+representation and reproduces §4.0.2 exactly, which is worth more than either
+count alone:
+
+| axis | pb0 | pb1 M2 | pb2 S2 | pb3 B2 | ΔM2 | ΔS2 | ΔB2 |
+|---|---|---|---|---|---|---|---|
+| device loads | 6 | 6 | 8 | 6 | +0 | **+2** | +0 |
+| threadgroup loads | 4 | 4 | 4 | 4 | +0 | +0 | +0 |
+| threadgroup stores | 5 | 5 | 6 | 5 | +0 | **+1** | +0 |
+| `air.wg.barrier` | 7 | 7 | 8 | 9 | +0 | **+1** | **+2** |
+| `mma` | 1 | 2 | 1 | 1 | **+1** | +0 | +0 |
+| integer ALU | 147 | 176 | 153 | 147 | **+29** | +6 | +0 |
+| float ALU | 10 | 11 | 10 | 10 | +1 | +0 | +0 |
+
+The `512x2048` projection gives an identical delta column on every axis
+(`dev_load +0/+2/+0`, `barrier +0/+1/+2`, `mma +1/+0/+0`, `int_alu +29/+6/+0`),
+so neither GEMM shape is a special case.
+
+Three things follow. **M2 perturbs no memory or barrier axis at all** — its only
+companion to the extra MMA is integer ALU. **B2 is exactly `barrier +2` and
+nothing else**, `int_alu` included: at this representation it is a perfectly
+clean single-axis arm, cleaner than the AIR census could show. **S2 moves four
+axes**, which is why its reading is an interval rather than a point.
+
+Two caveats, recorded rather than hidden. First, the integer-ALU deltas are
+larger here than the AIR counts in §4.0.2 (`+29` vs `+15` for M2, `+6` vs `+4`
+for S2). The two representations count at different lowering stages, so the
+magnitudes are not comparable; the sign, the ordering, and the set of
+*untouched* axes agree exactly, and that is what the argument rests on. Second,
+probe 1's kernel body is 585 IR instructions against probe 0's 457, and the
+accumulate region appears as two sequential nests rather than one. The table
+shows this is *addressing* growth — the extra `..._get_element_pointer` calls
+and index arithmetic a second cooperative destination tensor needs — not a
+duplicated load nest, since every memory and barrier axis is unchanged. It is
+the one-sided integer-ALU confound §4.0.2 already flagged, seen from the other
+side.
+
+
 ### 4.1 Instrument-failure floor (peaks used only as upper bounds)
 
 This is the one place theoretical peaks appear, and only in the direction they
@@ -1118,6 +1192,13 @@ if a future run has M5 access for a correctness check before submission.
 ```bash
 # offline census (both threadgroup shapes, all four arms)
 for p in 0 1 2 3; do PROBE=$p research/nax_msl_compile_check.sh; done
+
+# §4.0.3: LLVM IR control-flow check that the shadow MMA is not sunk into the
+# runtime-false guard, plus the independent op-class delta table
+for p in 0 1 2 3; do
+  PROBE=$p BK=64 EMIT_IR=1 OUT_DIR=/tmp/naxpb$p research/nax_msl_compile_check.sh
+done
+python3 research/tanjiro_ir_cfg_check.py /tmp/naxpb0 /tmp/naxpb1 /tmp/naxpb2 /tmp/naxpb3
 
 # twin consistency + inertness rig
 python3 research/nax_twin_check.py
