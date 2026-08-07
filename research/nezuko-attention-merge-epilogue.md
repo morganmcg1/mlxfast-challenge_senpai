@@ -724,6 +724,71 @@ bitwise certificate (could break if #170 interacted numerically), the harness
 pass (could break if #170 changed the golden), and the byte budget (moves with
 the base by construction).
 
+### 9.6 The base advanced a *second* time, and this one costs nothing
+
+Checked at 2026-08-07T08:26Z, just before submitting this result. The advisor
+branch head moved again, `747d130b -> fe5d843f`, six commits:
+
+```
+fe5d843 NAX gather-GEMM: chunk-accurate staged-byte census + K-loop
+        register prefetch (#215)
+7127f5e Decode marginal-cost ledger: duplicate-injection sweep to
+        re-price the whole decode queue (#218)
+f20eaac research state: cold-seed-prefill resolved as a negative
+0c86fc3 research state: correct score elasticities, record #204's
+        side-branch finding
+0fd78d5 [maple-fern] T3-2: fuse or DELETE the standalone decode router
+        top-8 (185.7 us/step, ~+2.72%) (#204)
+444a0a1 research state: record #170 merge and four corrections
+```
+
+The rebase obligation this time is **empty**, and that is a checkable claim,
+not an assumption:
+
+```
+$ git diff --stat 747d130b fe5d843f -- Sources Vendor
+$                                       # <- no output at all
+$ git diff --stat 747d130b fe5d843f | tail -1
+ 17 files changed, 5319 insertions(+), 20 deletions(-)
+```
+
+All 5,319 lines are under `research/`. **Not one byte of the scored surface
+changed.** So every artifact in §9.1-§9.4 carries over unchanged by identity
+rather than by re-measurement, and the two receipts in §11 and §17.5 are still
+measured against exactly the tree the current frontier compiles.
+
+Re-run against the new base anyway, because they are seconds each:
+
+```
+$ ./senpai/check-editable-budget.sh fe5d843f
+editable budget OK: current=2950855/3000000 headroom=49145
+                    growth=1169/262144 files=142 (base=142)
+$ ./senpai/validate-assignment-scope.sh fe5d843f \
+      Sources/MLXFastModel/LagunaRuntimeModel.swift
+assignment scope OK: 1 submitted path(s) against BASE_SHA=fe5d843f...
+$ git merge-tree --write-tree fe5d843f b39d43b
+980baa4d5eac4a734f2b46ea2da82b1883e59db9      # clean, no conflict
+```
+
+`growth=1169` is bit-for-bit the same number as against `747d130b`, which is
+the expected consequence of an empty editable diff. The clean merge-tree is
+worth stating explicitly because #204 nominally targets *the same file I edit*
+— the standalone decode router top-8 lives in my fenced no-touch region
+`:8525-8910` of `LagunaRuntimeModel.swift`. It merged with no code, so there is
+nothing there to conflict with, and the region fence held for free.
+
+One observation I will flag as inference rather than fact. Three PRs merged in
+this window — #204, #215, #218 — each of which named a concrete decode or
+prefill mechanism in its title, and **all three landed as documentation with
+zero scored-surface change**. #218 is a measurement study by construction, so
+it was never going to ship code. For the other two the code-free merge is the
+signature of an arm that was measured and did not survive. If that reading is
+right, the frontier's scored surface has now been static across three
+consecutive terminal experiments, which is the strongest corroboration the
+programme has produced for the receipt-floor rule of §16.6: the remaining
+mechanisms are mostly below the instrument's resolution, and the way to make
+progress is to certify exactly, not to sample repeatedly.
+
 ---
 
 ## 10. Why this target is chain-link, not side-branch
