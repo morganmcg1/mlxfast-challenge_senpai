@@ -1,0 +1,118 @@
+setup.sh: macmon found at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/bin/macmon (GPU cool-down gate enabled for local benchmark modes)
+setup.sh: building trusted Swift harness and participant runtime worker
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-swift' complete! (10.16s)
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[1/3] Compiling allocator.cpp
+[2/36] Compiling event.cpp
+[3/36] Compiling device_info.cpp
+[4/36] Compiling fence.cpp
+[5/36] Compiling utils.cpp
+[6/36] Compiling distributed.cpp
+[7/36] Compiling eval.cpp
+[8/36] Compiling unary.cpp
+[9/36] Compiling copy.cpp
+[10/36] Compiling binary.cpp
+[11/36] Compiling hadamard.cpp
+[12/36] Compiling custom_kernel.cpp
+[13/36] Compiling compiled.cpp
+[14/36] Compiling conv.cpp
+[15/36] Compiling resident.cpp
+[16/36] Compiling softmax.cpp
+[16/36] Compiling ternary.cpp
+[18/36] Compiling slicing.cpp
+[19/36] Compiling sort.cpp
+[20/36] Compiling scan.cpp
+[21/36] Compiling rope.cpp
+[22/36] Compiling scaled_dot_product_attention.cpp
+[23/36] Compiling primitives.cpp
+[24/36] Compiling reduce.cpp
+[25/36] Compiling normalization.cpp
+[26/36] Compiling metal.cpp
+[27/36] Compiling logsumexp.cpp
+[28/36] Compiling quantized.cpp
+[29/36] Compiling indexing.cpp
+[30/36] Compiling fft.cpp
+[31/36] Compiling device.cpp
+[32/36] Compiling jit_kernels.cpp
+[33/36] Compiling matmul.cpp
+[35/37] Compiling MLX ArrayAt.swift
+[36/38] Compiling MLXFast MLXFast.swift
+[37/39] Compiling MLXLMCommon DoRA+Layers.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[37/39] Write Objects.LinkFileList
+[38/39] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (51.92s)
+setup.sh: mlx.metallib build running in background pid=49624
+setup.sh: acquired reference cache mutation lock /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25.mlxfast-setup.lock
+setup.sh: building mlx.metallib for MLX Swift runtime
+-- Building MLX for arm64 processor on Darwin
+-- Metal found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework
+-- Building on macOS 26.5.2
+-- Building with macOS 26.5 SDK
+-- Metal version: 400
+-- Accelerate found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Accelerate.framework
+-- Downloading json
+-- Using the multi-header code from /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift/Source/Cmlx/json/include/
+-- Downloading json for JACCL
+-- {fmt} version: 12.1.0
+-- Build type: Release
+-- Configuring done (1.0s)
+-- Generating done (0.7s)
+-- Build files have been written to: /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/mlx-metal
+[100%] Built target mlx-metallib
+build-mlx-metallib.sh: wrote /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/release/mlx.metallib
+setup.sh: verified 13 reference file hash(es)
+setup.sh: wrote reference cache lock /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25/.mlxfast-reference-cache.lock
+setup.sh: verified reference checkpoint at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25 (5 safetensors shard(s))
+setup.sh: reference weights became ready while waiting at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25
+setup.sh: linked reference_weights/laguna-xs-2.1-nvfp4-mlx -> /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25
+setup.sh: released reference cache mutation lock /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25.mlxfast-setup.lock
+setup.sh: waiting for mlx.metallib build
+setup.sh: mlxfast (Yukon submission CLI) found at /usr/local/bin/mlxfast
+setup.sh: setup complete elapsed=00:01:56
+setup.sh: summary
+  trusted CLI: .build/release/mlxfast-swift
+  participant worker: .build-worker/release/mlxfast-runtime-worker
+  mlx.metallib: .build-worker/release/mlx.metallib
+  reference checkpoint: /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25 (20.1 GiB)
+  next:
+    MLXFAST_OFFLINE_WRITABLE_PATHS="/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/weights" .github/scripts/run-offline.sh .build/release/mlxfast-swift transform --reference "/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25" --output weights
+    .build/release/mlxfast-swift correctness --weights weights
+    ./benchmark.sh  # defaults to --local-iterate against the public fixtures (--official needs the organizer-provisioned oracle)

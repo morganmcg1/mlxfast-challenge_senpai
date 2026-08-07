@@ -1,0 +1,34 @@
+M5 Max: 40 GPU cores. swizzle_log=2 => swizzle tile=4.
+
+class                          M     N     K route             tiles    TG  TG/core  guard    TG_new TG/core_new
+----------------------------------------------------------------------------------------------------------------
+wq slide + dense gate/up     512  8192  2048 regular-NAX     8x64      512    12.80  exclude       -           -
+wq full                      512  6144  2048 regular-NAX     8x48      384     9.60  exclude       -           -
+wk + wv  <-- TARGET          512  1024  2048 regular-NAX     8x8        64     1.60  ADMIT       128        3.20
+L39 [K;V] bank               512  2048  2048 regular-NAX     8x16      128     3.20  exclude       -           -
+wo slide / dense down        512  2048  8192 split-K         8x16      128     3.20  exclude       -           -
+wo full                      512  2048  6144 split-K         8x16      128     3.20  exclude       -           -
+router                       512   256  2048 split-K         8x2        16     0.40  exclude       -           -
+g_proj                       512   128  2048 split-K         8x1         8     0.20  exclude       -           -
+decode wq/gate/up (M=1)        1  8192  2048 regular-NAX     1x64      256     6.40  exclude       -           -
+decode wk+wv (M=1)             1  1024  2048 regular-NAX     1x8        32     0.80  exclude       -           -
+decode L39 bank (M=1)          1  2048  2048 regular-NAX     1x16       64     1.60  exclude       -           -
+
+DRAM re-read for the admitted wk/wv class (512x1024x2048, 78 GEMMs):
+tile                          elems   MB/GEMM    GB x78  vs base
+incumbent 64/128         25,165,824      50.3      3.93       0%
+A 64/64                  33,554,432      67.1      5.23      33%
+B 32/64                  50,331,648     100.7      7.85     100%
+
+wk/wv arithmetic intensity, 2.15 GFLOP per GEMM:
+  compulsory traffic only :   7.34 MB ->    293 FLOP/byte  (the brief's 293 figure)
+  achieved, incumbent 64/128:  50.33 MB ->     43 FLOP/byte
+  achieved, A 64/64         :  67.11 MB ->     32 FLOP/byte
+
+Re-read penalty if it were served from DRAM (~550 GB/s on M5 Max):
+  incumbent 64/128  3.93 GB over 78 GEMMs ->  7.14 ms
+  A 64/64           5.23 GB over 78 GEMMs ->  9.52 ms
+  BUT the per-GEMM working set is only 7.3 MB (A 2.1 + B 4.2 + C 1.0),
+  well inside an M-series Max system-level cache, so the extra
+  re-reads should be SLC hits rather than DRAM traffic. This is the
+  main quantitative risk to H2 and only the ranked M5 run resolves it.

@@ -1,0 +1,127 @@
+setup.sh: macmon found at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/bin/macmon (GPU cool-down gate enabled for local benchmark modes)
+setup.sh: building trusted Swift harness and participant runtime worker
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/4] Write sources
+[1/4] Write swift-version--58304C5D6DBC2206.txt
+[3/5] Compiling MLXFastTransform CheckpointIndex.swift
+[4/6] Compiling MLXFastHarness BenchmarkSupport.swift
+[5/7] Compiling MLXFastCLI main.swift
+[5/7] Write Objects.LinkFileList
+[6/7] Linking mlxfast-swift
+Build of product 'mlxfast-swift' complete! (20.12s)
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/7] Write sources
+[3/7] Write swift-version--58304C5D6DBC2206.txt
+[4/8] Compiling matmul.cpp
+[6/9] Compiling MLXFastTransform CheckpointIndex.swift
+[7/9] Compiling MLX ArrayAt.swift
+[8/10] Compiling MLXFast MLXFast.swift
+[9/11] Compiling MLXLMCommon DoRA+Layers.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1178:52: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1176 |                 stream?.reserveEmission()
+1177 |                 detokQueue.async {
+1178 |                     let text = isStopToken ? "" : (detokenizer?.push([token]) ?? "")
+     |                                                    `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1179 |                     stream?.emit(
+1180 |                         .delta(text: text, tokens: [token], logprobs: logprobs),
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLMCommon/ContinuousBatchingV2/EngineLoopV2.swift:1279:32: warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+ 128 | /// Incremental per-request detokenizer with UTF-8 + stop-string holdback.
+ 129 | /// See CONTRACT-ISSUES-B-scheduler.md §3.
+ 130 | public protocol CBv2IncrementalDetokenizer: AnyObject {
+     |                 `- note: protocol 'CBv2IncrementalDetokenizer' does not conform to the 'Sendable' protocol
+ 131 |     /// Append confirmed tokens; returns text now safe to emit.
+ 132 |     func push(_ tokens: [Int]) -> String
+     :
+1277 |         if rec.request.stopStrings.isEmpty {
+1278 |             detokQueue.async {
+1279 |                 let trailing = detokenizer?.flush() ?? ""
+     |                                `- warning: capture of 'detokenizer' with non-Sendable type '(any CBv2IncrementalDetokenizer)?' in a '@Sendable' closure [#SendableClosureCaptures]
+1280 |                 if !trailing.isEmpty {
+1281 |                     stream?.emit(.delta(text: trailing, tokens: [], logprobs: nil))
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[10/12] Compiling MLXLLM LLMModel.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:758:27: warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 756 | 
+ 757 |     func callAsFunction(_ x: MLXArray, poolCache: PoolingCache?, offset: Int) -> MLXArray {
+ 758 |         let B = x.dim(0), D = x.dim(2)
+     |                           `- warning: immutable value 'D' was never used; consider replacing with '_' or removing it [#no-usage]
+ 759 |         let kv = wkv(x)    // [B, S, out_dim]
+ 760 |         let gate = wgate(x) // [B, S, out_dim]
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1401:9: warning: switch must be exhaustive
+1399 |         // Local scores: [B, H, L, localLen]
+1400 |         let localScores: MLXArray
+1401 |         switch localMask {
+     |         |- warning: switch must be exhaustive
+     |         `- note: add missing case: '.arrays(_)'
+1402 |         case .none, .causal:
+1403 |             localScores = qScaled.matmul(localKV.transposed(0, 1, 3, 2))
+
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift-lm/Libraries/MLXLLM/Models/DeepseekV4.swift:1513:13: warning: variable 'h' was never mutated; consider changing to 'let' constant
+1511 |         }
+1512 | 
+1513 |         var h = hcPost(x: attnOut, residual: residual, post: postAttn, comb: combAttn)
+     |             `- warning: variable 'h' was never mutated; consider changing to 'let' constant
+1514 | 
+1515 |         // FFN sub-block
+[11/13] Compiling MLXFastModel DenseTensorStore.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Sources/MLXFastModel/LagunaRuntimeModel.swift:10035:17: warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10033 |             // handed to the down projection instead of being issued again.
+10034 |             // Purely within this invocation; nothing survives it.
+10035 |             var mergedSharedActivated: MLXArray?
+      |                 `- warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10036 |             if lagunaFusedRoutedSwiGLUQMVEnabled,
+10037 |                 x.dtype == .bfloat16,
+[12/14] Compiling MLXFastRuntimeWorkerSupport BenchmarkSupport.swift
+[13/15] Compiling MLXFastRuntimeWorkerCLI main.swift
+[13/15] Write Objects.LinkFileList
+[14/15] Linking mlxfast-runtime-worker
+Build of product 'mlxfast-runtime-worker' complete! (75.33s)
+setup.sh: mlx.metallib build running in background pid=58587
+setup.sh: acquired reference cache mutation lock /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25.mlxfast-setup.lock
+setup.sh: trusted reference cache lock at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25/.mlxfast-reference-cache.lock; skipping full SHA256 verification
+setup.sh: verified reference checkpoint at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25 (5 safetensors shard(s))
+setup.sh: reference weights became ready while waiting at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25
+setup.sh: released reference cache mutation lock /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25.mlxfast-setup.lock
+setup.sh: waiting for mlx.metallib build
+setup.sh: building mlx.metallib for MLX Swift runtime
+-- Building MLX for arm64 processor on Darwin
+-- Metal found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework
+-- Building on macOS 26.5.2
+-- Building with macOS 26.5 SDK
+-- Metal version: 400
+-- Accelerate found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Accelerate.framework
+-- Downloading json
+-- Using the multi-header code from /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/Vendor/mlx-swift/Source/Cmlx/json/include/
+-- Downloading json for JACCL
+-- {fmt} version: 12.1.0
+-- Build type: Release
+-- Configuring done (0.3s)
+-- Generating done (0.2s)
+-- Build files have been written to: /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/mlx-metal
+[100%] Built target mlx-metallib
+build-mlx-metallib.sh: wrote /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/.build-worker/release/mlx.metallib
+setup.sh: mlxfast (Yukon submission CLI) found at /usr/local/bin/mlxfast
+setup.sh: setup complete elapsed=00:01:42
+setup.sh: summary
+  trusted CLI: .build/release/mlxfast-swift
+  participant worker: .build-worker/release/mlxfast-runtime-worker
+  mlx.metallib: .build-worker/release/mlx.metallib
+  reference checkpoint: /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25 (20.1 GiB)
+  next:
+    MLXFAST_OFFLINE_WRITABLE_PATHS="/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/workspace/target/weights" .github/scripts/run-offline.sh .build/release/mlxfast-swift transform --reference "/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-tanjiro/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25" --output weights
+    .build/release/mlxfast-swift correctness --weights weights
+    ./benchmark.sh  # defaults to --local-iterate against the public fixtures (--official needs the organizer-provisioned oracle)

@@ -1,0 +1,97 @@
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+[1/1] Compiling plugin CudaBuild
+[2/2] Compiling plugin GenerateManual
+[3/3] Compiling plugin GenerateDoccReference
+Building for debugging...
+[3/9] Write swift-version--58304C5D6DBC2206.txt
+[4/8] Compiling matmul.cpp
+[5/10] Write Objects.LinkFileList
+[7/10] Linking mlxfast-runtime-worker
+[8/10] Applying mlxfast-runtime-worker
+[9/10] Linking mlxfast-challenge-devPackageTests
+Build complete! (14.78s)
+Test Suite 'Selected tests' started at 2026-08-07 14:34:52.682.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' started at 2026-08-07 14:34:52.683.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' passed at 2026-08-07 14:34:52.683.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-08-07 14:34:52.683.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() started.
+{
+  "decodeTokenCount" : 8,
+  "promptTokenCount" : 512,
+  "steps" : [
+    {
+      "label" : "prefill",
+      "maximumAbsoluteLogitError" : 0.125,
+      "meanAbsoluteLogitError" : 0.011933609,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-0",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-1",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    },
+    {
+      "label" : "decode-2",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-3",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-4",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    },
+    {
+      "label" : "decode-5",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-6",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-7",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    }
+  ]
+}
+✘ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() recorded an issue at LagunaCorrectnessTests.swift:249:5: Expectation failed: (report → LagunaUpstreamEquivalenceReport(promptTokenCount: 512, decodeTokenCount: 8, steps: [MLXFastModel.LagunaUpstreamEquivalenceStep(label: "prefill", maximumAbsoluteLogitError: 0.125, meanAbsoluteLogitError: 0.011933609, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-0", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-1", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-2", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-3", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-4", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-5", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-6", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-7", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902)])).passes(maximumAbsoluteLogitError: tolerance → 0.0)
+✘ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() failed after 28.386 seconds with 1 issue.
+✘ Test run with 1 test in 0 suites failed after 28.386 seconds with 1 issue.
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1

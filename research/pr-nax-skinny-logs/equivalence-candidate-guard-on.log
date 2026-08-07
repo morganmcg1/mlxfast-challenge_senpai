@@ -1,0 +1,129 @@
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+[1/1] Compiling plugin CudaBuild
+[2/2] Compiling plugin GenerateManual
+[3/3] Compiling plugin GenerateDoccReference
+Building for debugging...
+[3/9] Write swift-version--58304C5D6DBC2206.txt
+[4/8] Compiling resident.cpp
+[5/42] Compiling event.cpp
+[6/42] Compiling device_info.cpp
+[7/42] Compiling fence.cpp
+[8/42] Compiling utils.cpp
+[9/42] Compiling distributed.cpp
+[10/42] Compiling eval.cpp
+[11/42] Compiling copy.cpp
+[12/42] Compiling sort.cpp
+[13/42] Compiling primitives.cpp
+[14/42] Compiling unary.cpp
+[15/42] Compiling ternary.cpp
+[16/42] Compiling custom_kernel.cpp
+[16/42] Compiling hadamard.cpp
+[18/42] Compiling fft.cpp
+[19/42] Compiling softmax.cpp
+[20/42] Compiling scan.cpp
+[21/42] Compiling slicing.cpp
+[22/42] Compiling metal.cpp
+[23/42] Compiling rope.cpp
+[24/42] Compiling reduce.cpp
+[25/42] Compiling normalization.cpp
+[26/42] Compiling logsumexp.cpp
+[27/42] Compiling scaled_dot_product_attention.cpp
+[28/42] Compiling jit_kernels.cpp
+[29/42] Compiling quantized.cpp
+[29/42] Compiling indexing.cpp
+[31/42] Compiling matmul.cpp
+[32/42] Compiling allocator.cpp
+[33/42] Compiling binary.cpp
+[34/42] Compiling conv.cpp
+[35/42] Compiling compiled.cpp
+[36/42] Compiling device.cpp
+[37/42] Write Objects.LinkFileList
+[39/42] Linking mlxfast-runtime-worker
+[40/42] Linking mlxfast-challenge-devPackageTests
+[41/42] Applying mlxfast-runtime-worker
+Build complete! (20.16s)
+Test Suite 'Selected tests' started at 2026-08-07 14:30:22.461.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' started at 2026-08-07 14:30:22.461.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' passed at 2026-08-07 14:30:22.461.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-08-07 14:30:22.461.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() started.
+{
+  "decodeTokenCount" : 8,
+  "promptTokenCount" : 512,
+  "steps" : [
+    {
+      "label" : "prefill",
+      "maximumAbsoluteLogitError" : 0.125,
+      "meanAbsoluteLogitError" : 0.011933609,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-0",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-1",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    },
+    {
+      "label" : "decode-2",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-3",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-4",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    },
+    {
+      "label" : "decode-5",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-6",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-7",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    }
+  ]
+}
+✘ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() recorded an issue at LagunaCorrectnessTests.swift:249:5: Expectation failed: (report → LagunaUpstreamEquivalenceReport(promptTokenCount: 512, decodeTokenCount: 8, steps: [MLXFastModel.LagunaUpstreamEquivalenceStep(label: "prefill", maximumAbsoluteLogitError: 0.125, meanAbsoluteLogitError: 0.011933609, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-0", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-1", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-2", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-3", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-4", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-5", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-6", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-7", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902)])).passes(maximumAbsoluteLogitError: tolerance → 0.0)
+✘ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() failed after 43.222 seconds with 1 issue.
+✘ Test run with 1 test in 0 suites failed after 43.222 seconds with 1 issue.
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1

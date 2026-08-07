@@ -1,0 +1,9 @@
+geometry bm64 bn128 bk256 wm2 wn4 nt: SM=32 SN=32 SK=32 TM=2 TN=2 threads/TG=256 simdgroups=8
+generated     2904 lines -> /tmp/steel_nax_check_64x128x256_w2x4_nt/unit.metal
+COMPILE OK (std=metal4.0) -> /tmp/steel_nax_check_64x128x256_w2x4_nt/unit.air
+METALLIB OK -> /tmp/steel_nax_check_64x128x256_w2x4_nt/unit.metallib (   75090 bytes)
+STATS device=Apple M4 Pro
+STATS ok name=steel_gemm_fused_nax_nt_bfloat16_bfloat16_bm64_bn128_bk256_wm2_wn4
+STATS maxTotalThreadsPerThreadgroup=256
+STATS staticThreadgroupMemoryLength=0
+STATS threadExecutionWidth=32

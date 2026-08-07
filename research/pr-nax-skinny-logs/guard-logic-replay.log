@@ -1,0 +1,11 @@
+wq slide + dense gate/up   M=512  N=8192  K=2048  regular-NAX  bm64 bn128 bk256 wm2 wn4  SM=32 SN=32  exclude
+wq full                    M=512  N=6144  K=2048  regular-NAX  bm64 bn128 bk256 wm2 wn4  SM=32 SN=32  exclude
+wk + wv  <-- TARGET        M=512  N=1024  K=2048  regular-NAX  bm64 bn64  bk256 wm2 wn2  SM=32 SN=32  ADMIT
+L39 [K;V] bank             M=512  N=2048  K=2048  regular-NAX  bm64 bn128 bk256 wm2 wn4  SM=32 SN=32  exclude
+wo slide / dense down      M=512  N=2048  K=8192  split-K      bm64 bn128 bk64 wm2 wn4  SM=32 SN=32  exclude
+wo full                    M=512  N=2048  K=6144  split-K      bm64 bn128 bk256 wm2 wn4  SM=32 SN=32  exclude
+router                     M=512  N=256   K=2048  split-K      bm64 bn64  bk256 wm2 wn2  SM=32 SN=32  ADMIT
+g_proj                     M=512  N=128   K=2048  split-K      bm64 bn64  bk256 wm2 wn2  SM=32 SN=32  ADMIT
+decode wq/gate/up (M=1)    M=1    N=8192  K=2048  regular-NAX  bm64 bn128 bk256 wm2 wn4  SM=32 SN=32  exclude
+decode wk+wv (M=1)         M=1    N=1024  K=2048  regular-NAX  bm64 bn128 bk256 wm2 wn4  SM=32 SN=32  exclude
+decode L39 bank (M=1)      M=1    N=2048  K=2048  regular-NAX  bm64 bn128 bk256 wm2 wn4  SM=32 SN=32  exclude
