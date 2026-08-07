@@ -18,45 +18,6 @@ func lagunaLastTokenHidden(_ hidden: MLXArray) -> MLXArray {
     return hidden[0..., range, 0...]
 }
 
-@inline(__always)
-func lagunaUsesOrdinaryCachePrefill(sequenceLength: Int, cache: KVCache?) -> Bool {
-    guard sequenceLength > 1, let cache else { return false }
-    return type(of: cache) == KVCacheSimple.self
-        || type(of: cache) == RotatingKVCache.self
-}
-
-@inline(__always)
-func lagunaAttentionWithOrdinaryCachePrefill(
-    queries: MLXArray,
-    keys: MLXArray,
-    values: MLXArray,
-    cache: KVCache?,
-    scale: Float,
-    mask: MLXFast.ScaledDotProductAttentionMaskMode
-) -> MLXArray {
-    guard lagunaUsesOrdinaryCachePrefill(sequenceLength: keys.dim(2), cache: cache),
-        let cache
-    else {
-        return attentionWithCacheUpdate(
-            queries: queries,
-            keys: keys,
-            values: values,
-            cache: cache,
-            scale: scale,
-            mask: mask
-        )
-    }
-
-    let (cachedKeys, cachedValues) = cache.update(keys: keys, values: values)
-    return MLXFast.scaledDotProductAttention(
-        queries: queries,
-        keys: cachedKeys,
-        values: cachedValues,
-        scale: scale,
-        mask: mask
-    )
-}
-
 /// Builds the `initializeRope` scaling dictionary for a per-type Laguna RoPE
 /// spec. For `default` RoPE only the type is consulted; for YaRN the factory
 /// reads factor / original context / betas. The XS config also serializes
@@ -5822,7 +5783,7 @@ final class LagunaRuntimeAttention: Module {
 
         let attended =
             fusedAttended
-            ?? lagunaAttentionWithOrdinaryCachePrefill(
+            ?? attentionWithCacheUpdate(
                 queries: queries,
                 keys: keys,
                 values: values,
@@ -6103,7 +6064,7 @@ final class LagunaRuntimeAttention: Module {
             keys = applyRotaryPosition(rope, to: keys, cache: cache)
         }
 
-        let attended = lagunaAttentionWithOrdinaryCachePrefill(
+        let attended = attentionWithCacheUpdate(
             queries: queries,
             keys: keys,
             values: values,
