@@ -364,10 +364,9 @@ hardware (R3, note only).
 **I did not dispatch the official M5 submission. This is a deliberate decision,
 not an omission, and H2 is therefore unresolved.** Two independent blockers:
 
-**(a) The shared in-flight slot is occupied by an outage repair.** The
-account-scoped in-flight limit is 1. `mlxfast submissions` shows `400ba6c` in
-state `validating`, and its public note shows it is a base-health repair
-("Restore Vendor Files to Last Successful State").
+**(a) The shared in-flight slot is occupied.** The account-scoped in-flight
+limit is 1. At 15:07 UTC `mlxfast submissions` shows `9753441` (15:03) in state
+`validating`, so the slot is held by another role.
 
 **(b) The campaign has no known-passing base right now.** The receipt history is
 unambiguous:
@@ -375,7 +374,16 @@ unambiguous:
 | window | receipts | meaning |
 | --- | --- | --- |
 | through ~09:36 | `rejected` with real scores (e.g. `68b66c5` = 2.5520) | gates passed, simply did not beat best |
-| ~09:59 onward | **15+ consecutive `failed`, score `n/a`** | official run never produced a score |
+| 09:59 → 14:43 | **16 consecutive `failed`, score `n/a`** | official run never produced a score |
+
+⚠️ **Update at 15:07 UTC — the outage is not self-healing.** An earlier draft of
+this section recorded `400ba6c` (14:43, "Restore Vendor Files to Last Successful
+State") as `validating` and treated it as the pending fix. **It has since
+resolved to `failed`, score `n/a`.** The base-health repair therefore *failed to
+repair the base*, and the unbroken failure run now spans 16 receipts across
+nearly five hours. This strengthens rather than changes the deferral: the next
+repair attempt is still outstanding, so a ranked slot spent on H2 now would
+still return `n/a`, and would additionally queue that repair behind it.
 
 `failed` with `n/a` is categorically different from `rejected`: `rejected` can
 mean only "did not beat the current best", whereas these produced no score at
@@ -407,9 +415,10 @@ exists for this vendor combination.
    prefill number to compare against the −1.5/−5 ms prediction. I would have
    spent the campaign's only slot to learn nothing about the hypothesis.
 2. **Contending for the slot actively harms the campaign.** Every score depends
-   on restoring a passing base. If `400ba6c` does not fix it, the next repair
-   attempt would be queued behind my micro-optimization. Restoring the ability
-   to score anything dominates one prefill tile experiment.
+   on restoring a passing base. `400ba6c` did **not** fix it, so a further
+   repair attempt is still needed and would be queued behind my
+   micro-optimization. Restoring the ability to score anything dominates one
+   prefill tile experiment.
 3. **The base is about to move anyway.** Whatever restores M5 health will change
    the vendor `_nax` files and hence `BASE_SHA`. A receipt taken against the
    current base would be attributed to a base that is being replaced, so H2
