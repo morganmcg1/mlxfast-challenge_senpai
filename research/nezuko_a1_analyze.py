@@ -25,6 +25,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nezuko_a0_analyze import load_run  # noqa: E402
 
+# Campaign doctrine: arm-level between-session scatter on decode step wall time.
+SCATTER_US = 70.0
+# Pre-registered design floor: an arm whose isolated-work delta is smaller than
+# this cannot resolve E against that scatter.
+MIN_DI_US = 150.0
+
 
 def perm_p(a, b):
     """Two-sided exact permutation p on the difference of medians."""
@@ -80,11 +86,12 @@ def main() -> int:
         wall = groups.get((knob, "wall"), {})
         on = [r["wall_median_ms"] for r in wall.get("on", []) if "wall_median_ms" in r]
         off = [r["wall_median_ms"] for r in wall.get("off", []) if "wall_median_ms" in r]
-        dS = float("nan")
+        dS = hS = float("nan")
         if on and off:
             mon, hon = summarize(on)
             moff, hoff = summarize(off)
             dS = (moff - mon) * 1000.0
+            hS = (hon + hoff) * 1000.0
             line = (f"  dS  wall  on={mon:.4f}+-{hon:.4f} ms (n={len(on)})  "
                     f"off={moff:.4f}+-{hoff:.4f} ms (n={len(off)})  "
                     f"dS={dS:+.1f} us/step")
@@ -97,23 +104,26 @@ def main() -> int:
         cens = groups.get((knob, "cens"), {})
         con = [r for r in cens.get("on", [])]
         cof = [r for r in cens.get("off", [])]
-        dI = float("nan")
+        dI = hI = float("nan")
         if con and cof:
-            son = statistics.median([sum(r["kernels"].values()) for r in con])
-            sof = statistics.median([sum(r["kernels"].values()) for r in cof])
-            dI = sof - son
+            ion = [sum(v[0] for v in r["kernels"].values()) for r in con]
+            iof = [sum(v[0] for v in r["kernels"].values()) for r in cof]
+            son, h_on = summarize(ion)
+            sof, h_of = summarize(iof)
+            dI, hI = sof - son, h_on + h_of
             bon = statistics.median([r["busy_sum_ms"] for r in con]) * 1000
             bof = statistics.median([r["busy_sum_ms"] for r in cof]) * 1000
-            print(f"  dI  census sum on={son:.1f} off={sof:.1f} us/step  "
-                  f"dI={dI:+.1f} us/step   (busy_sum check {bof - bon:+.1f} us)")
+            print(f"  dI  census sum on={son:.1f}+-{h_on:.1f} "
+                  f"off={sof:.1f}+-{h_of:.1f} us/step  dI={dI:+.1f}+-{hI:.1f} "
+                  f"us/step   (busy_sum check {bof - bon:+.1f} us)")
 
             per = defaultdict(lambda: [0.0, 0.0])
             for r in con:
                 for k, v in r["kernels"].items():
-                    per[k][0] += v / len(con)
+                    per[k][0] += v[0] / len(con)
             for r in cof:
                 for k, v in r["kernels"].items():
-                    per[k][1] += v / len(cof)
+                    per[k][1] += v[0] / len(cof)
             movers = sorted(per.items(), key=lambda kv: -abs(kv[1][1] - kv[1][0]))
             print(f"  {'on us/step':>11} {'off us/step':>11} {'delta':>9}  kernel")
             for k, (a, b) in movers[:args.top]:
@@ -123,14 +133,42 @@ def main() -> int:
 
         if dS == dS and dI == dI and abs(dI) > 1e-9:
             E = dS / dI
+            # Doctrine: arm-level between-session scatter is ~+-70 us/step, and
+            # within-session palindromic half-ranges understate it 2-5x.  Take
+            # the larger of the inflated within-session half-range and the
+            # between-session floor as the uncertainty on dS.
+            hS_eff = max(SCATTER_US, 3.0 * hS)
+            hI_eff = 3.0 * hI
             print(f"\n  EXPOSURE  E = dS/dI = {dS:+.1f} / {dI:+.1f} = {E:.3f}")
-            results[knob] = (dS, dI, E)
+            if dI - hI_eff <= 0.0 <= dI + hI_eff:
+                # The denominator interval straddles zero, so the ratio is
+                # unbounded: no finite exposure interval exists for this arm.
+                lo, hi = float("-inf"), float("inf")
+                print(f"            interval UNBOUNDED: dI = {dI:+.1f} "
+                      f"+-{hI_eff:.0f} us/step straddles zero")
+            else:
+                lo = (dS - hS_eff) / (dI + hI_eff)
+                hi = (dS + hS_eff) / (dI - hI_eff)
+                lo, hi = min(lo, hi), max(lo, hi)
+                print(f"            interval [{lo:.2f}, {hi:.2f}] "
+                      f"from dS +-{hS_eff:.0f} us, dI +-{hI_eff:.0f} us")
+            if abs(dI) < MIN_DI_US:
+                print(f"            *** UNDERPOWERED: |dI| = {abs(dI):.0f} "
+                      f"us/step < the {MIN_DI_US:.0f} us/step design floor. "
+                      f"E is not resolvable from this arm; report the bound, "
+                      f"not the point estimate. ***")
+            results[knob] = (dS, dI, E, min(lo, hi), max(lo, hi),
+                             abs(dI) < MIN_DI_US)
 
     if results:
         print(f"\n{'=' * 74}\nSUMMARY\n{'=' * 74}")
-        print(f"  {'knob':<28} {'dI us':>9} {'dS us':>9} {'E':>7}")
-        for k, (dS, dI, E) in sorted(results.items(), key=lambda kv: -kv[1][2]):
-            print(f"  {k:<28} {dI:9.1f} {dS:9.1f} {E:7.3f}")
+        print(f"  {'knob':<28} {'dI us':>9} {'dS us':>9} {'E':>7} "
+              f"{'interval':>16}  power")
+        for k, v in sorted(results.items(), key=lambda kv: -kv[1][2]):
+            dS, dI, E, lo, hi, weak = v
+            print(f"  {k:<28} {dI:9.1f} {dS:9.1f} {E:7.3f} "
+                  f"[{lo:6.2f},{hi:7.2f}]  "
+                  f"{'UNDERPOWERED' if weak else 'ok'}")
     return 0
 
 
