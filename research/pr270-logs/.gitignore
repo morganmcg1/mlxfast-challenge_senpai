@@ -1,0 +1,5 @@
+# Benchmark run artifacts land here while a run is in flight, and a dirty
+# worktree blocks the next supervised launch. Ignore them by default; final
+# evidence files are added explicitly with `git add -f`.
+*
+!.gitignore
