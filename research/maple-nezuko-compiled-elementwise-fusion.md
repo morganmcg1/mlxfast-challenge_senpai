@@ -98,6 +98,36 @@ segments (`LagunaRuntimeModel.swift:9467-9491`, call sites `9592-9611`):
 
 The default scored path is untouched: it early-returns before this tail.
 
+### 2a. Rules-legality of the compile cache under the serial non-speculative track
+
+The compile cache is an input-independent *kernel* cache, not a memo keyed on
+input tokens, so it is explicitly permitted ("input-independent weight, kernel,
+mask, dequantization, or RoPE caches are allowed"). This is verifiable in the
+vendored source rather than inferred:
+
+* `CompilerCache::find` (`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/compile.cpp:318-368`)
+  keys a lookup on exactly five things: the traced closure identity `fun_id`
+  (`:319,324`), the default stream/device (`:349-353`), the `shapeless` flag
+  (`:355-357`), the per-input `ndim`/`shape`/`dtype` (`has_same_shape_and_dtype`,
+  `:327-345`), and a caller-supplied `constants` vector (`:361`).
+* `has_same_shape_and_dtype` compares only `ndim()`, `shape()` and `dtype()`.
+  **No array contents are ever read**, so no cached entry can be selected by a
+  token value.
+* The `constants` escape hatch is not even reachable from Swift:
+  `Transforms+Compile.swift:91` calls
+  `mlx_detail_compile(&compiled, innerClosure, id, shapeless, [], 0)` — an
+  **empty** constants array with count `0`. The key therefore reduces to
+  (closure, stream/device, shapeless, input shapes, input dtypes).
+
+Decode is 1 token/step, so those shapes are static across steps and the entry is
+built once. Consistent with that, the measured refund is flat across all 247
+timed steps of every run, and the census shows the same per-step dispatch count
+on step 8 and step 60 — a per-step recompile would be plainly visible in both.
+
+The cache also cannot carry state between requests: it stores a compiled kernel
+keyed on shape/dtype, never logits, KV rows, or emitted tokens, so it advances
+no KV position and leaves no pending future token.
+
 ## Step 3 — Measured refund
 
 ### Design
