@@ -189,10 +189,13 @@ private func measuredSeconds(
     inputs: LmHeadInputs,
     vocab: Int
 ) -> Double {
-    let start = Date()
+    Stream.gpu.synchronize()
+    let start = DispatchTime.now().uptimeNanoseconds
     let output = launchLmHead(variant, inputs: inputs, vocab: vocab)
     eval(output[0], output[1])
-    return Date().timeIntervalSince(start)
+    Stream.gpu.synchronize()
+    let end = DispatchTime.now().uptimeNanoseconds
+    return Double(end - start) / 1_000_000_000
 }
 
 private func median(_ values: [Double]) -> Double {
@@ -310,14 +313,20 @@ struct LagunaLmHeadTwoRowExperimentTests {
 
     @Test
     func lmHeadTwoRowIsolatedTimingBothOrders() {
-        guard ProcessInfo.processInfo.environment["MLXFAST_LMHEAD_TWO_ROW_GATE"] == "timing"
+        let processInfo = ProcessInfo.processInfo
+        guard processInfo.environment["MLXFAST_LMHEAD_TWO_ROW_GATE"] == "timing"
         else { return }
 
         let vocab = 100_352
         let inputs = timingInputs(vocab: vocab)
+        let thermalStart = processInfo.thermalState.rawValue
+        let deviceName = MTLCreateSystemDefaultDevice()?.name ?? "unavailable"
+        let gpuGeneration = processInfo.environment["MLXFAST_APPLE_GPU_GENERATION"] ?? "unknown"
         for _ in 0..<4 {
             _ = measuredSeconds(.control, inputs: inputs, vocab: vocab)
             _ = measuredSeconds(.twoRow, inputs: inputs, vocab: vocab)
+            _ = measuredSeconds(.twoRow, inputs: inputs, vocab: vocab)
+            _ = measuredSeconds(.control, inputs: inputs, vocab: vocab)
         }
 
         var abControl: [Double] = []
@@ -327,8 +336,6 @@ struct LagunaLmHeadTwoRowExperimentTests {
         for _ in 0..<24 {
             abControl.append(measuredSeconds(.control, inputs: inputs, vocab: vocab))
             abCandidate.append(measuredSeconds(.twoRow, inputs: inputs, vocab: vocab))
-        }
-        for _ in 0..<24 {
             baCandidate.append(measuredSeconds(.twoRow, inputs: inputs, vocab: vocab))
             baControl.append(measuredSeconds(.control, inputs: inputs, vocab: vocab))
         }
@@ -339,9 +346,16 @@ struct LagunaLmHeadTwoRowExperimentTests {
         let baCandidateMedian = median(baCandidate)
         let abSpeedup = abControlMedian / abCandidateMedian
         let baSpeedup = baControlMedian / baCandidateMedian
+        let thermalEnd = processInfo.thermalState.rawValue
         print(
             "LMHEAD_TIMING {\"samples_per_order\":24,"
-                + "\"warmups_per_variant\":4,\"vocab\":\(vocab),"
+                + "\"schedule\":\"ABBA_interleaved\",\"fresh_graph_per_sample\":true,"
+                + "\"explicit_gpu_sync\":true,\"clock\":\"DispatchTime.uptimeNanoseconds\","
+                + "\"warmup_rounds\":4,\"warmups_per_variant\":8,\"vocab\":\(vocab),"
+                + "\"device\":\"\(deviceName)\",\"apple_gpu_generation\":\"\(gpuGeneration)\","
+                + "\"thermal_start\":\(thermalStart),\"thermal_end\":\(thermalEnd),"
+                + "\"control_threadgroup\":512,\"candidate_threadgroup\":256,"
+                + "\"rows_per_threadgroup\":16,"
                 + "\"ab_control_raw_s\":[\(timingJSON(abControl))],"
                 + "\"ab_candidate_raw_s\":[\(timingJSON(abCandidate))],"
                 + "\"ba_control_raw_s\":[\(timingJSON(baControl))],"
