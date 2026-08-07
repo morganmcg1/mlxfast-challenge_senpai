@@ -1495,11 +1495,13 @@ int darkbloom_stage_bm128_variant() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_STAGE_BM128", "");
     if (s.empty()) {
-      // Default 3 (2026-08-07): BM128/WM8/WN1 = SM16 with reglocal epilogue.
-      // Variant 5 (BM64/WM4/WN1) was the prior default; variant 3 keeps WN=1
-      // (preserves kSwigluRegLocal) while doubling the M-tile to 128.
+      // Default 5 (restored 2026-08-07): BM64/WM4/WN1 = SM16 with reglocal
+      // epilogue. Variant 3 (BM128/WM8/WN1) was tested but SILENTLY DISABLES
+      // the expert_aligned guard (requires bm==64 && wm==4), falling back
+      // to the non-expert kernel and losing SWIGLU_REGLOCAL, STAGE2,
+      // BSEARCH_HOIST, and all expert optimizations. Reverted to 5.
       // DARKBLOOM_STAGE_BM128=4 restores the WN2 tiling.
-      return 3;
+      return 5;
     }
     if (s == "1") {
       return 1;

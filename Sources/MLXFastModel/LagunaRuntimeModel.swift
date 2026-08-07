@@ -233,7 +233,7 @@ func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
 }
 
 func lagunaExpertAlignedStageEnabled(_ value: String?) -> Bool {
-    ["", "3", "4", "5"].contains(value ?? "")
+    ["", "4", "5"].contains(value ?? "")
 }
 
 func lagunaNAXGate(_ envKey: String) -> Bool {
