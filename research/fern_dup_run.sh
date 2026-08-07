@@ -14,8 +14,8 @@ outdir="$1"; tag="$2"; target="$3"; k="$4"; steps="$5"
 fault="$6"; verbose="$7"; profile="$8"; shift 8
 mkdir -p "$outdir"
 
-extra=()
-[ "$profile" = "1" ] && extra+=(--profile --profile-top 60)
+extra=""
+[ "$profile" = "1" ] && extra="--profile --profile-top 60"
 
 /usr/bin/env MLXFAST_WEIGHTS_PATH=weights \
   DARKBLOOM_DECODE_DUP_TARGET="$target" \
@@ -27,5 +27,5 @@ extra=()
     --steps "$steps" \
     --stderr "$outdir/$tag.worker.err" \
     --dump-steps "$outdir/$tag.steps.txt" \
-    "${extra[@]}" "$@" 2>&1 | tee "$outdir/$tag.log" | sed "s/^/[$tag] /"
+    $extra "$@" 2>&1 | tee "$outdir/$tag.log" | sed "s/^/[$tag] /"
 exit "${PIPESTATUS[0]}"
