@@ -1,0 +1,18 @@
+{
+  "actual_token" : 13,
+  "case_count" : 1,
+  "checked_steps" : 2,
+  "error" : "teacher-forced token mismatch",
+  "expected_token" : 509,
+  "expert_bytes_read" : 0,
+  "expert_cache_evictions" : 0,
+  "expert_cache_hits" : 0,
+  "expert_cache_misses" : 0,
+  "expert_hit_rate" : 0,
+  "expert_peak_cached_tensors" : 0,
+  "expert_read_seconds" : 0,
+  "first_failing_case" : "longcopy-gate-english-512",
+  "first_failing_step" : 1,
+  "golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63",
+  "passed" : false
+}
