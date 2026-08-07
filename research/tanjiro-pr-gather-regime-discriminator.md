@@ -683,15 +683,59 @@ The budget is four receipts for three arms. The fourth is **not** a replicate
 and **not** a free choice made after seeing results; committing to it in advance
 is the only thing that keeps it from becoming a fishing licence.
 
-**A2 — address-generation and bitfield pressure.** Shadow the NVFP4 unpack:
-recompute each block's index arithmetic, scale lookup and 4-bit field extraction
-into a second set of registers that no consumer reads, without adding a device
-load (the values are already resident) and without adding an MMA. This isolates
-the **scalar-ALU / address axis**, which is the one first-order resource none of
-M2, S2 or B2 perturbs — the exact gap the H0 scoping paragraph in §4.2 admits.
-It is also where two independent lines of criticism converged: the advisor
-proposed it as an optional fourth arm, and a separate review arrived at the same
-place from a dequantisation-cost argument.
+**A2 — scalar-integer decode pressure.** Shadow the NVFP4 unpack: recompute the
+4-bit field extraction into a second set of registers that no consumer reads,
+without adding a device load (the values are already resident) and without
+adding an MMA. This isolates the **scalar-integer ALU axis**, the one
+first-order resource none of M2, S2 or B2 perturbs — the exact gap the H0
+scoping paragraph in §4.2 admits. Two independent lines of criticism converged
+here: the advisor proposed it as an optional fourth arm, and a separate review
+arrived at the same place from a dequantisation-cost argument.
+
+**A correction to the arm's stated motivation, which I want on the record
+because it weakens the case I was handed.** The advisor motivated A2 from the
+AGX ISA notes: dynamic `BITEXTRACT`/`BITINSERT` cost 8–12 cycles against ~1 for
+the constant-operand form, so NVFP4 unpack should be expensive. I read the
+actual decode before building anything. `fp4nv_decode8`
+(`fp_quantized_nax.h:165-188`) is
+`xe = c & 0x0F0F0F0F; ge = xe | (xe << 3); yo = c & 0xF0F0F0F0; go = yo | (yo >> 3);`
+plus four `(shift) & 0x8E008E00` — **13 integer ops, every shift and mask a
+compile-time constant**. There is no dynamic-shift bitfield extract anywhere on
+this path, so the 8–12-cycle class the argument rests on does not occur. The
+per-k-iteration pointer math is one 64-bit and one 32-bit add (`next()`,
+`:505-512`), and the alignment predicates (`:378-404`) are loop-invariant and
+hoist. So A2's expected effect is smaller than the motivating argument implies,
+and I am recording that *before* the receipt rather than discovering it in the
+post-mortem.
+
+That does not make the arm worthless — it makes it a cleaner instrument. The
+integer decode is real work on a real pipe; it is simply the ~1-cycle form.
+
+**Design chosen: "integer skeleton", not full re-decode.** The obvious
+implementation — re-run all of `fp4nv_decode8` — is impure, because it also
+doubles the floating-point tail (~24 cvt/fmul lanes per uint32), so a positive
+could not separate integer-pipe from FP-scalar-pipe pressure. A purely
+synthetic dynamic-BITEXTRACT chain is worse: wrong cost class, uncalibratable
+against the real chain, and loop-invariant so LICM hoists it out. The chosen
+arm re-runs only the **13-op integer skeleton** on the register-resident code
+bytes, XOR-perturbed by a seed derived from the runtime scalar `run_skip_pct`
+so CSE cannot prove it equals the real chain, XOR-folded into four independent
+accumulators that mirror the real chain's ILP width of 4 (adding *issue*
+pressure, not a serial latency chain), and escaping through the same
+never-true guarded sink arm M2 uses. Injected/real ≈ **1.38×** of the integer
+decode term, and because the injected ops are the same classes on the same
+pipe, the cycle ratio tracks the op ratio to roughly ±15% — far tighter than
+any synthetic chain could be calibrated.
+
+The injection point is forced: `QuantizedBlockLoader::load_unsafe_wide`
+(`:406-479`), the only place the codes are live in registers (`uint8_t
+sb[kSrcBytes]`) with no reload. Anywhere in the kernel body would require
+re-reading device or threadgroup memory and would pollute the axis.
+
+**A2 also subtracts a term from S2.** S2 bundles bytes + integer decode + FP
+decode + stores + one barrier. If S2 comes back as the dominant positive, A2 is
+the only instrument in this set that can say how much of that was the integer
+term. The firing condition below is widened accordingly.
 
 **Firing condition, registered now.** A2 is dispatched **only** when all three
 of the following hold:
@@ -708,17 +752,55 @@ on an axis it does not touch, and A2 is the cheapest probe of the most likely
 candidate. Note this is *not* the same as "R4 fired" — R5 is evaluated before R4
 and overrides it, so an R4/H0 verdict means the measured axes **did** account
 for the wall. That is a clean, scoped null and the spare is not spent on it.
-Equally, if R6, R1 or R2/R3 fires the question is answered and a fourth receipt
+Equally, if R6, R1 or R2 fires the question is answered and a fourth receipt
 buys nothing.
 
-**Why three arms and not four.** A2 is a materially harder arm to make
+**One widening, registered before any receipt.** A2 also fires on **R3**
+(`ΔM2` small, `ΔS2p_hi` large ⇒ H2 load-bound). The reason is attribution, not
+curiosity: S2 is the least pure arm in the set, because doubling the staging
+bundles *five* things — device bytes, integer decode, FP decode, threadgroup
+stores, and one barrier (§4 already subtracts the barrier via B2). If R3 fires,
+"load-bound" is still four mechanisms wide, and A2 is the only instrument here
+that can remove the integer-decode term from that bundle. An R3 verdict with A2
+is a mechanism; an R3 verdict without it is a direction. Since the whole point
+of this experiment is to name the *next* thing to optimise, I would rather
+spend the spare narrowing a positive than leave it unspent.
+
+So the spare is spent on exactly two reachable states — the R5 null and the R3
+positive — and on nothing else.
+
+**Why A2 is built but not queued.** A2 is a materially harder arm to make
 bit-exact and confound-free than the other three: the unpack chain feeds the
 real accumulator, so a shadow copy has to be provably unread while surviving CSE
 against the real chain it duplicates — much more delicate than M2's separate
-accumulator or B2's pure barriers. Building and censusing a fourth arm to the
-same standard before any receipt was spent would have delayed all three clean
-arms. I chose three arms verified to the confound standard in §2 over four arms
-verified to a weaker one. That is a deliberate trade, not an omission.
+accumulator or B2's pure barriers. Building and censusing it to the §2 standard
+*before* the first receipt would have delayed all three clean arms behind a
+harder fourth.
+
+It turned out not to be a trade at all. The binding constraint on this
+experiment is not my time, it is the **submission queue**: one in-flight
+submission per account, shared with three other students, at roughly one
+receipt per hour (§5.1). Each arm therefore leaves ~45–70 minutes of dead time
+in which no dispatch is possible. A2 is built in that dead time, *after* M2 is
+already queued, so it costs the three-arm campaign nothing.
+
+Two safeguards make that safe rather than merely convenient:
+
+1. **The three submitted paths stay frozen while a dispatch is possible.** A2
+   is developed against a `/tmp` copy of `mlx-generated/` using the `GEN_DIR`
+   override that `research/nax_msl_compile_check.sh` already supports, so the
+   working tree stays byte-identical to the validated state and can be
+   dispatched the instant the queue opens. Only `research/` files — which are
+   not in `editablePaths` and are not packaged by `mlxfast submit` — are edited
+   in the interim.
+2. **A2 is merged into the tree only if its firing condition is met.** If M2,
+   S2 or B2 answers the question, the patch is reported and discarded, not
+   submitted. Arms 1–3 are therefore never carried to the M5 with a fourth
+   arm's dead code compiled alongside them.
+
+So the honest statement of the choice the advisor asked for is: **I took the
+optional fourth arm, on the condition that it never delays or contaminates the
+three that were already clean.**
 
 ### 4.6 Instrument noise, measured — and which estimator to use
 
@@ -794,6 +876,7 @@ dispatch below records its own attempt history.
 | 2026-08-07T01:00:43Z | — | queue check: `4f546a8` still `validating`. No dispatch attempted. |
 | 2026-08-07T01:04:06Z | — | queue check: `4f546a8` still `validating` (~35 min). No dispatch attempted. |
 | 2026-08-07T01:06:17Z | — | queue check: `4f546a8` still `validating` (~37 min). Window used to correct the register column in `research/tanjiro_metallib_stats.swift` (advisor §7) and to design arm A2 (advisor §2). |
+| 2026-08-07T01:13:50Z | — | `4f546a8` cleared (`rejected`, `2.46709`) after ~44 min — but a different campaign submission `89521f6` had already entered the queue at 01:10Z, ~3 min after the slot opened. Still occupied, no dispatch possible. |
 
 **Observed queue latency.** Two campaign submissions have now been timed end to
 end from this account: `99b7125` took ~69 min and the one before it ~53 min,
