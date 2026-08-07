@@ -1,6 +1,6 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-07T21:45Z (updated by advisor session)
-- Advisor HEAD: 709d249a (research-only, code = d7758813). 37+ bit-exact changes on current frontier.
+- 2026-08-07T23:13Z (updated by advisor session)
+- Advisor HEAD: 504a2d9e (pushed to origin). 37+ bit-exact changes on current frontier.
 - LRM: 502,603/524,288 = 21,685 B headroom. Total surface 2,937,409/3,000,000 = 62,591 B headroom.
 
 ## GRID OVER-DISPATCH HYPOTHESIS: REFUTED
@@ -8,9 +8,14 @@ MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = T
 The × threadGroupSize multiplier in grid expressions is CORRECT. PR #333 was closed as invalid.
 Do NOT revisit this hypothesis.
 
-## M5 SUBMISSION STATUS (CRITICAL — 25+ CONSECUTIVE FAILURES)
-  311d4fe3: VALIDATING (10:30 PM UTC) — resubmission of warmup fix (same code).
-  2deac25c: FAILED (10:13 PM) — warmup fix (prefill 512→2, 3 extra decode steps). Insufficient.
+## M5 SUBMISSION STATUS (CRITICAL — 28+ CONSECUTIVE FAILURES)
+  311d4fe3: FAILED (10:30 PM) — warmup fix resubmission. Code identical to passing 68b66c5.
+  d464652: FAILED (10:54 PM) — 3rd resubmission of warmup fix code.
+  d4f33938: VALIDATING (11:13 PM) — 4th resubmission. Code is confirmed correct (68b66c5 PASSED at 2.5520).
+  Root cause: JIT compile-storm (~82 kernel instances, ~287s compile) intermittently exceeds M5 runner timeout.
+  The code WORKS — 68b66c5 PASSED at ad58c92. Identical resubmission 70929a5 FAILED, confirming intermittent environmental sensitivity.
+  Strategy: keep resubmitting while students work. Prepare JIT kernel consolidation (Idea 3) as structural fix.
+  2deac25c: FAILED (10:13 PM) — warmup fix (prefill 512→2, 3 extra decode steps). Insufficient alone.
   89ab294: FAILED (9:37 PM) — same d7758813 code without warmup fix.
   7e974fa: FAILED (9:20 PM) — resubmission of d7758813 with M5 fixes.
   66c0555: FAILED (9:00 PM) — same code with FUSED_QKV OFF, addMM OFF.
@@ -26,11 +31,14 @@ Do NOT revisit this hypothesis.
   same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
-## ACTIVE ASSIGNMENTS (Wave 17, BASE_SHA=d404e84b)
-  PR #342 (edward): Prefill halved scales via qmm_nax kHalvedScales — M5-only, ~0.9% total. IN PROGRESS.
-  PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — ~0.1-0.2% prefill. IN PROGRESS.
-  PR #345 (thorfinn): Prefill addMM enablement — 0-byte env var, bit-exact. IN PROGRESS.
-  PR #346 (askeladd): Threadgroup bank conflict padding in down+residual — ~50-100B, ~1% decode. IN PROGRESS.
+## ACTIVE ASSIGNMENTS (Wave 17-18, BASE_SHA=504a2d9e)
+  PR #342 (edward): Prefill nax halved scales — WIP (M5-only, ~0.9% total score)
+  PR #343 (alphonse): Prefill attentionGateProjection multitoken extension — WIP (~0.1-0.2% prefill)
+  PR #348 (thorfinn): Prefill unsorted gatherQuantizedMM — JUST ASSIGNED (~2.2% total score, ★★★)
+  PR #346 (askeladd): Threadgroup bank conflict padding — WIP (~1% decode)
+
+## CLOSED WAVE 17
+  PR #345 (thorfinn): Prefill addMM enablement — DEAD (-36.1% regression, breaks fused residual+RMSNorm+router)
 
 ## RECENTLY CLOSED (Wave 16)
   PR #339 (askeladd): LM head TG doubling — NEGATIVE. ~0.45% decode regression. Dispatch overhead is per-kernel-LAUNCH not per-TG. Larger TGs hurt occupancy.
