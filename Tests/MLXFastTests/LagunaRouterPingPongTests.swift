@@ -65,14 +65,14 @@ private func routerPingPongCases() -> [RouterInputCase] {
             name: "infinities",
             logits: (0..<256).map { infinityPattern[$0 % infinityPattern.count] },
             correctionBias: (0..<256).map {
-                infinityPattern[(infinityPattern.count - 1 - $0) % infinityPattern.count]
+                infinityPattern[infinityPattern.count - 1 - ($0 % infinityPattern.count)]
             }
         ),
         RouterInputCase(
             name: "nan-payloads",
             logits: (0..<256).map { nanPatterns[$0 % nanPatterns.count] },
             correctionBias: (0..<256).map {
-                nanPatterns[(nanPatterns.count - 1 - $0) % nanPatterns.count]
+                nanPatterns[nanPatterns.count - 1 - ($0 % nanPatterns.count)]
             }
         ),
         RouterInputCase(
@@ -90,7 +90,7 @@ private func routerPingPongCases() -> [RouterInputCase] {
             name: "extremes",
             logits: (0..<256).map { extremePattern[$0 % extremePattern.count] },
             correctionBias: (0..<256).map {
-                extremePattern[(extremePattern.count - 1 - $0) % extremePattern.count]
+                extremePattern[extremePattern.count - 1 - ($0 % extremePattern.count)]
             }
         ),
     ]
