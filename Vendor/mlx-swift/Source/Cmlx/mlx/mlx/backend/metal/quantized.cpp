@@ -1693,7 +1693,7 @@ void gather_qmm_rhs_nax(
   array scales = ensure_row_contiguous(scales_, d, s);
 
   // TODO: Tune the block sizes
-  int bm = 64, bn = 64, bk = 32;
+  int bm = 64, bn = 64, bk = 64;
   int wm = 2, wn = 2;
   const int bm128 = darkbloom_stage_bm128_variant();
   switch (bm128) {
