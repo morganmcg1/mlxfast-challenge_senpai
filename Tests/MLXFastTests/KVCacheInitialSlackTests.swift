@@ -120,3 +120,33 @@ func nonMultipleInitialUpdateKeepsFusedAppendFallback() throws {
     expectEqual(cache.state[0], keys)
     expectEqual(cache.state[1], values)
 }
+
+@Test
+func replacingStateInvalidatesFusedAppendPreparation() throws {
+    let keys = kvTensor(tokens: 512, width: 4)
+    let values = kvTensor(tokens: 512, width: 3, offset: 10)
+    let cache = KVCacheSimple(initialSlack: true)
+
+    _ = cache.update(keys: keys, values: values)
+    _ = try #require(cache.fusedAppendPrepare())
+
+    let replacementState = cache.state
+    #expect(replacementState[0].shape == [1, 2, 512, 4])
+    #expect(replacementState[1].shape == [1, 2, 512, 3])
+    cache.state = replacementState
+    #expect(cache.offset == 512)
+
+    #expect(cache.trim(1) == 1)
+    let restoredBacking = cache.innerState()
+    #expect(restoredBacking[0] === replacementState[0])
+    #expect(restoredBacking[1] === replacementState[1])
+
+    let prepared = try #require(cache.fusedAppendPrepare())
+    #expect(prepared.writeIdx == 511)
+    #expect(prepared.keys !== restoredBacking[0])
+    #expect(prepared.values !== restoredBacking[1])
+    #expect(prepared.keys.asData(access: .noCopy).strides == [4096, 2048, 4, 1])
+    #expect(prepared.values.asData(access: .noCopy).strides == [3072, 1536, 3, 1])
+    expectEqual(cache.state[0], keys[.ellipsis, ..<511, 0...])
+    expectEqual(cache.state[1], values[.ellipsis, ..<511, 0...])
+}
