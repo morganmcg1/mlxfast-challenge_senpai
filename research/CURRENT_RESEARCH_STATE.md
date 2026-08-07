@@ -1,8 +1,9 @@
 # SENPAI Research State
-- 2026-08-07T00:20Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at 4f824e5 (origin/mlxfast-birch-20260805-advisor).
+- 2026-08-07T00:35Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at fc6f78d (origin/mlxfast-birch-20260805-advisor).
   Clean scored code frontier: 12a712d (top-8 elimination, FMA dequant, STAGE2_GATHER, LM_HEAD_PRUNE).
-  Composed base 13fdaf6 includes all dot4/simd_sum/float4 changes (CONFIRMED COUNTERPRODUCTIVE on M5).
+  Advisor branch scored code: includes dot4/simd_sum/float4 changes (CONFIRMED COUNTERPRODUCTIVE on M5).
+  PR #181 merged: ops reverted 800→200 (restoring promoted value, eliminating -7.23% handicap).
 
 ## M5 SUBMISSION STATUS
   Submission 2278bd85 (ops-800): REJECTED at -7.23% on M5.
@@ -60,32 +61,42 @@
   STRATEGY PIVOT: Focus on scheduling (ops-per-buffer, BFS width, fast synch) and
   bandwidth reduction (scale halving). Test each ISOLATED on clean promoted code (12a712d).
 
-## CURRENT WAVE (Wave 14 — Bandwidth + Scheduling, 2026-08-07T00:20Z)
+## CURRENT WAVE (Wave 15 — Bandwidth + Scheduling + Prefill, 2026-08-07T00:35Z)
 
-  PR #169 (Askeladd) — Scale-plane halving for QKV+O-proj. DRAFT, in progress.
+  PR #169 (Askeladd) — Scale-plane halving for QKV+O-proj. IN PROGRESS.
     Bandwidth reduction: halve NVFP4 scale traffic for attention kernels.
     Bit-exact. Targets ~39 MiB/step savings. RIGHT direction for bandwidth-bound M5.
 
-  PR #179 (Thorfinn) — MLX_MAX_MB_PER_BUFFER 200→800. ASSIGNED, in progress.
+  PR #179 (Thorfinn) — MLX_MAX_MB_PER_BUFFER 200→800. IN PROGRESS.
     Allow asyncEval segments to fit in one command buffer (weight buffers count
     toward buffer_sizes_, so 200 MB limit may cause premature commits within
     segments). Bit-exact scheduling change. Tests if byte limit is binding.
+    NOTE: ops=800 was rejected at -7.23% on M5. MB per buffer is a DIFFERENT
+    parameter (byte limit vs op count limit) — still worth testing.
 
-  PR #180 (Alphonse) — MoE scale-plane halving. ASSIGNED, in progress.
+  PR #180 (Alphonse) — MoE scale-plane halving. IN PROGRESS.
     Extend pairwise-constancy scale packing to MoE gate/up+down kernels.
     Bandwidth reduction: halve MoE scale traffic (~10 MiB/step).
     Bit-exact. Targets the DOMINANT decode cost center.
     Independent of PR #169 (different kernels), composable if both win.
 
-  PR #181 (Edward) — Revert MLX_MAX_OPS_PER_BUFFER 800→200. JUST ASSIGNED.
+  PR #181 (Edward) — Revert MLX_MAX_OPS_PER_BUFFER 800→200. MERGED (fc6f78d).
     CORRECTIVE: ops-800 (PR #165) was rejected at -7.23% on M5. Restoring
     promoted ops=200 value eliminates the handicap for future M5 submissions.
-    Bit-exact scheduling change. Should be MERGED quickly to fix the advisor base.
+    Bit-exact. This was a corrective merge, not an optimization.
+
+  PR #183 (Edward) — Enable DARKBLOOM_ATTN_QHOIST. JUST ASSIGNED.
+    Hoist loop-invariant Q fragments in M5 prefill attention (steel_attention_nax).
+    Saves ~17.8% of prefill attention loader traffic. Bit-exact (pure hoist).
+    M5-SPECIFIC: M4 doesn't select _nax kernels, so M4 shows NO timing signal.
+    Risk: +28 registers/thread could cross occupancy threshold.
+    Independent of decode experiments (targets prefill 25%, not decode 75%).
 
   Closed in this session:
     PR #167 (Alphonse, tail dot4) — CLOSED: instruction-count reduction, counterproductive on M5.
     PR #124 (Askeladd, gate-scale fold) — CLOSED: no speedup + non-bit-exact prefill.
     PR #175 (Edward, BFS width 50→100) — CLOSED: dead hypothesis, M4 noise, BFS only affects MLX primitive op fusion (custom kernels opaque).
+    PR #181 (Edward, ops revert) — MERGED: corrective, restored ops=200.
     PRs #128, #129, #130 — already merged (counterproductive changes in composed submission).
 
   DEAD EXPERIMENTS (do NOT reassign):
@@ -128,11 +139,11 @@
      algebraic identities). Low-Medium impact.
 
 ## Potential Next Research Directions
-  1. Compose scheduling winners (ops-800 + BFS-100 + fast-synch + asyncEval=off) for cumulative M5 gain
-  2. Zero asyncEval fires (DARKBLOOM_DECODE_ASYNC_STAGE=off) — trivial, assign to Alphonse
-  3. Whole-step compiled decode (CompilableKVCache + compile) — highest structural impact
-  4. MLX_MAX_MB_PER_BUFFER tuning — check if byte-count or op-count triggers commit first
-  5. Bandwidth: scale-byte halving (Askeladd in progress), packed down-scales
+  1. Compose bandwidth winners (scale halving decode + QHOIST prefill) for cumulative M5 gain
+  2. Revert dot4/simd_sum/float4 changes before M5 submission to eliminate counterproductive handicap
+  3. Explore further prefill _nax kernel optimizations (steel_attention_nax.cpp is editable)
+  4. Test asyncEval=off with ops=200 (previous test was with ops=800 — different regime)
+  5. Investigate MLX_METAL_FAST_SYNCH=1 for fence overhead reduction
 
 ## READY-TO-ASSIGN EXPERIMENTS
   1. MLX_METAL_FAST_SYNCH=1: One-line setenv, fast fence sync. Bit-exact. M5-specific.
