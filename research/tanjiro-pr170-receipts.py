@@ -44,26 +44,64 @@ GFLOP = 1005.02
 GBYTE = 17.66641       # GB of expert weights read per prefill window
 AI = GFLOP / GBYTE     # 56.89 FLOP/B -- equals the 34700/610 ridge exactly
 
-TFLOPS_PEAK = 34.7     # M5 Max GPU fp16/bf16 matmul peak
+# 34.7 TFLOP/s is a RIDGE ARTIFACT, not an independent number: 34700/610 =
+# 56.89 = AI exactly, so it was back-derived to place this kernel on the
+# roofline knee. Reported M5 Max bf16 matmul throughput is 52-60 TFLOP/s
+# (MLX PR #3211), which puts M_PEAK at 16.8-19.3 ms. It is kept only to print
+# the ridge; no gate may depend on it. See report section 4.1.
+TFLOPS_RIDGE = 34.7
 GBPS = {"546.2": 546.2, "610": 610.0, "651.8": 651.8}
 
-# Peak-rate lower bounds on the marginal cost of one added stream. A peak rate
-# can only OVERSTATE the machine, so these are floors on an honest measurement:
-# an arm below its floor means the injected work did not execute as intended.
-M_PEAK = GFLOP / TFLOPS_PEAK                        # 28.96 ms at 34.7 TFLOP/s
+M_RIDGE = GFLOP / TFLOPS_RIDGE                      # 28.96 ms at the knee
 D_PEAK = {k: GBYTE / v * 1000.0 for k, v in GBPS.items()}  # 32.3 / 29.0 / 27.1
 
-# Instrument-failure gates (see report section 4.1). Half the peak-derived
-# floor is the void threshold; a 2.3x-of-floor cap flags a runaway arm.
-FLOOR_M2 = 13.0        # dM2 below this -> R0a, arm void
+# Instrument-failure gates (see report section 4.1). Only the LOAD arm has an
+# honest floor: bytes must cross DRAM at some finite rate, and half the fastest
+# peak (651.8 GB/s -> 27.10 ms) is a conservative half-of-floor threshold.
+# There is deliberately NO dM2 floor: at a realistic 52-60 TFLOP/s the
+# peak-derived compute floor is negative, so a small dM2 is a DATUM (the
+# kernel absorbed the stream), not instrument failure. The caps stay: they
+# flag an arm that cost far more than any peak rate can explain, which points
+# at occupancy loss rather than the axis under test.
 FLOOR_S2 = 9.5         # dS2 below this -> R0a, arm void
 CAP_M2 = 33.3          # dM2 above this -> R0b, flag
 CAP_S2 = 37.2          # dS2 above this -> R0b, flag
 
+# Measured instrument noise (report section 4.6), from the 1583-submission
+# feed. Selection is non-circular: pick the n=16 receipts whose CANDIDATE
+# decode is within 1% of the control's, then read their CANDIDATE PREFILL
+# spread. Nothing in the selection touches prefill.
+#   candidate prefill wall S        sample sd = 0.318 ms  (0.33%)
+#   paired baseline prefill wall    sample sd = 3.997 ms  (2.1%)  -> 12.6x
+#   paired estimator 188.5/prefill_speedup  sd = 2.139 ms  -> 6.7x worse
+# Two consequences, both load-bearing:
+#   1. The RAW candidate prefill wall is the right estimator. The harness's
+#      pinned-baseline arm carries essentially all the session noise, so
+#      "pairing" through prefill_speedup would inject it and cost 6.7x power.
+#   2. sigma of a two-receipt difference is 0.318*sqrt(2) = 0.449 ms, so the
+#      directional threshold mu=4.326 ms sits at 9.6 sigma. The arms are
+#      hugely over-powered for the effects they are designed to resolve; a
+#      NULL result is therefore informative rather than merely underpowered.
+SIGMA_S = 0.318        # ms, per-receipt sd of the candidate prefill wall
+SIGMA_D = SIGMA_S * 2 ** 0.5   # 0.449 ms, sd of a two-receipt difference
+
+# R7 decode negative control. The probes are inside the prefill-only gather
+# GEMM (M>=64 tiles; decode takes the M==1 route), so candidate decode must be
+# unmoved. Baseline decode is the stable axis in the feed (sd 0.25%), so 2% on
+# the raw candidate decode is ~8x instrument noise: generous, and any breach
+# means the arm leaked out of prefill or the session misbehaved.
+DECODE_TOL = 0.02
+BASE_DECODE_MED = 13.86539   # ms/step, feed median of the pinned baseline
+BASE_DECODE_TOL = 0.01       # session-health band on the receipt's own baseline
+
 MU = 0.10 * W          # 4.326 ms, minimum separation for a directional claim
 R1_WIN = 0.25 * W      # 10.82 ms, dB2 at or above this makes H3 the headline
 R1_MAT = 0.10 * W      # 4.326 ms, dB2 at or above this is material
-R5_SUM = W - MU        # 38.94 ms, both streams fitting under this implies H3
+# Corroboration only, never a decision. Under H0 the two arms should each
+# cost about W (doubling either axis makes that axis the bottleneck at 2x), so
+# their sum lands near 2W. Under H1, H2, or H3 the sum is at most about W.
+H0_SUM = 2.0 * W - MU  # 82.19 ms
+ONE_W = W + MU         # 47.59 ms
 
 
 def S_ms(prefill_s_per_tok):
@@ -93,7 +131,7 @@ def load(path):
 
 
 def verdict(dM2, dS2, dB2):
-    """Pre-registered decision rules R0-R5 from report section 4.2.
+    """Pre-registered decision rules R0-R7 from report section 4.2.
 
     Deltas are ms of added prefill wall. dS2 is the RAW S2 delta; the pure
     load cost dS2p is only bracketed, not known, because S2 also adds one
@@ -102,18 +140,16 @@ def verdict(dM2, dS2, dB2):
     """
     out = []
 
-    # R0: instrument-failure gates. An arm below its peak-derived floor did
-    # not execute the work it claims to have added, so it measures nothing.
-    void = []
-    if dM2 is not None and dM2 < FLOOR_M2:
-        void.append(f"dM2={dM2:+.3f} < {FLOOR_M2}")
+    # R0a: the one honest instrument-failure gate. Bytes must cross DRAM at
+    # some finite rate, so an S2 arm below half the fastest peak did not run
+    # the load it claims to have added. dM2 has no such floor (see above).
     if dS2 is not None and dS2 < FLOOR_S2:
-        void.append(f"dS2={dS2:+.3f} < {FLOOR_S2}")
-    if void:
-        out.append("R0a ARM VOID: " + "; ".join(void) + ". Below the peak-rate "
-                   "floor, so the injected stream did not run as intended "
-                   "(dead-code elimination, wrong probe compiled in, or the "
-                   "kernel was not selected). Do not interpret as a regime.")
+        out.append(f"R0a ARM VOID: dS2={dS2:+.3f} < {FLOOR_S2}. Below half the "
+                   "fastest DRAM peak, so the injected load did not run as "
+                   "intended (dead-code elimination, wrong probe compiled in, "
+                   "or the kernel was not selected). Do not interpret as a "
+                   "regime; re-derive the probe, do not spend another receipt "
+                   "on the same arm.")
         return out
     if dM2 is not None and dM2 > CAP_M2:
         out.append(f"R0b FLAG: dM2={dM2:+.3f} > {CAP_M2}; the arm cost far more "
@@ -122,6 +158,23 @@ def verdict(dM2, dS2, dB2):
     if dS2 is not None and dS2 > CAP_S2:
         out.append(f"R0b FLAG: dS2={dS2:+.3f} > {CAP_S2}; suspect threadgroup-"
                    "memory or occupancy loss rather than pure load bandwidth.")
+
+    # R6 outranks everything below it. A NEGATIVE dM2 beyond mu is not noise
+    # and not absorption: adding independent MMA work made the kernel FASTER,
+    # which only happens when the extra instructions fill issue slots that
+    # were previously stalling on NAX result latency (~256 cycles for a
+    # 32x32x32 tile). That is a strictly stronger H3 finding than R1 or R5,
+    # and it names a different fix (more ILP per thread, deeper software
+    # pipelining) than "remove barriers".
+    if dM2 is not None and dM2 <= -MU:
+        out.append(f"R6 H3 WINS (LATENCY VARIANT): dM2={dM2:+.3f} <= -mu="
+                   f"{-MU:.2f}. Adding a bit-exact second MMA stream made "
+                   "prefill FASTER, so the kernel is latency-bound with idle "
+                   "issue slots, not throughput-bound. The next mechanism is "
+                   "more independent work in flight per thread (deeper "
+                   "pipelining / more accumulator tiles), NOT fewer FLOPs, "
+                   "fewer bytes, or fewer barriers. R1-R5 are superseded and "
+                   "reported below for the record only.")
 
     # R1: barriers first, because a large dB2 contaminates dS2's bracket.
     if dB2 is not None:
@@ -144,16 +197,33 @@ def verdict(dM2, dS2, dB2):
         out.append("R2-R5 need all three arms; not all receipts are in.")
         return out
 
-    lo, hi = dS2 - dB2, dS2 - dB2 / 2.0
+    # Order the bracket explicitly: a negative dB2 (barriers coalescing, or
+    # noise around zero) flips dS2-dB2 above dS2-dB2/2.
+    lo, hi = sorted((dS2 - dB2, dS2 - dB2 / 2.0))
 
-    # R5 is checked before R2/R3: if both injected streams are largely
-    # absorbed, neither is the constraint regardless of which is larger.
-    if dM2 + hi <= R5_SUM:
-        out.append(f"R5 H3 BY ELIMINATION: dM2+dS2p_hi={dM2 + hi:.3f} <= "
-                   f"{R5_SUM:.2f} (W-mu). The kernel absorbed a full extra "
-                   "compute stream AND a full extra load stream without "
-                   "paying for them, so neither arithmetic nor bandwidth is "
-                   "binding. The remaining cost is latency/schedule.")
+    # R2-R5 are a 2x2 on (is dM2 large?, is dS2p large?), "large" meaning it
+    # exceeds mu. The four cells are the four hypotheses:
+    #
+    #                 dS2p small        dS2p large
+    #   dM2 small     R5  H3 latency    R3  H2 load-bound
+    #   dM2 large     R2  H1 compute    R4  H0 jointly saturated
+    #
+    # This replaces an earlier sum rule (dM2 + dS2p <= W - mu => H3), which
+    # was wrong: under H1 the pair is (W, 0) and under H2 it is (0, W), so
+    # both sum to ~W and would have been misread as H3. The sum only
+    # separates H0 (~2W, because doubling either axis makes that axis the
+    # bottleneck at 2x) from everything else. Individual magnitudes are what
+    # name the constraint. R5 is evaluated first so the boundary is
+    # deterministic when a delta sits near zero.
+    m_big = dM2 > MU
+    s_big = hi > MU
+    if not m_big and not s_big:
+        out.append(f"R5 H3 BY ELIMINATION: dM2={dM2:+.3f} and dS2p_hi="
+                   f"{hi:+.3f} are both <= mu={MU:.2f}. The kernel absorbed a "
+                   "full extra compute stream AND a full extra load stream "
+                   "without paying for either, so neither arithmetic nor "
+                   "bandwidth is binding. The remaining cost is "
+                   "latency/schedule.")
     elif dM2 - hi >= MU:
         out.append(f"R2 H1 WINS: dM2={dM2:+.3f} exceeds dS2p_hi={hi:+.3f} by "
                    f">= mu={MU:.2f}. MMA-limited: reduce arithmetic.")
@@ -163,10 +233,50 @@ def verdict(dM2, dS2, dB2):
                    "make dequant cheaper.")
     else:
         out.append(f"R4 H0 JOINTLY SATURATED: dM2={dM2:+.3f} and dS2p in "
-                   f"[{lo:+.3f}, {hi:+.3f}] are within mu={MU:.2f} of each "
-                   "other and neither is absorbed. Both streams are already "
+                   f"[{lo:+.3f}, {hi:+.3f}] both exceed mu={MU:.2f} and are "
+                   "within mu of each other. Both streams are already "
                    "overlapped about as well as the hardware allows; only a "
                    "change that shrinks both helps.")
+
+    # Corroboration line. H0 predicts a sum near 2W; H1/H2/H3 predict at most
+    # about W. A cell verdict that contradicts this is not fatal but must be
+    # reported as such rather than quietly asserted.
+    tot = dM2 + hi
+    if tot >= H0_SUM:
+        shape = f"consistent with H0 (>= 2W-mu = {H0_SUM:.2f})"
+    elif tot <= ONE_W:
+        shape = f"consistent with H1/H2/H3 (<= W+mu = {ONE_W:.2f})"
+    else:
+        shape = (f"AMBIGUOUS: between W+mu={ONE_W:.2f} and 2W-mu="
+                 f"{H0_SUM:.2f}; the cell verdict above is weakly supported")
+    out.append(f"SUM CHECK: dM2+dS2p_hi = {tot:.3f} ms, {shape}.")
+
+    # Spare-receipt rule (report section 4.5). A2 shadows the NVFP4 unpack --
+    # index arithmetic, scale lookup, 4-bit extraction -- into unread
+    # registers: no extra device load, no extra MMA, so it isolates the
+    # scalar-ALU/address axis that M2/S2/B2 all leave untouched. It is worth
+    # the fourth receipt only when the three arms agree that the constraint
+    # is neither arithmetic, nor bandwidth, nor synchronisation, AND the
+    # stronger R6 latency reading did not already name the fix.
+    r5 = (not m_big) and (not s_big)
+    a2 = r5 and (dB2 < R1_MAT) and (dM2 > -MU)
+    if a2:
+        out.append("A2 SPARE: FIRE. R5 holds (both streams absorbed), R1'' "
+                   f"holds (dB2={dB2:+.3f} < {R1_MAT:.2f}), and R6 does not "
+                   f"(dM2={dM2:+.3f} > -mu). Nothing measured is binding, so "
+                   "spend the spare receipt on A2 to test the one axis the "
+                   "three arms never loaded: scalar-ALU / address generation "
+                   "in the NVFP4 unpack.")
+    else:
+        why = []
+        if not r5:
+            why.append("R5 did not fire (a stream was paid for)")
+        if not (dB2 < R1_MAT):
+            why.append(f"dB2={dB2:+.3f} >= {R1_MAT:.2f} (R1'' fails)")
+        if not (dM2 > -MU):
+            why.append("R6 fired and already names the fix")
+        out.append("A2 SPARE: HOLD. " + "; ".join(why) + ". The spare receipt "
+                   "stays unspent; the three arms already point somewhere.")
     return out
 
 
@@ -185,10 +295,12 @@ def main():
     print(f"gather GEMM W={W:.4f}+-{W_SD:.3f} ms   {GFLOP:.2f} GFLOP  "
           f"{GBYTE:.4f} GB (weights only)  AI={AI:.2f} FLOP/B")
     dp = "  ".join(f"{k}GB/s:{v:.1f}" for k, v in sorted(D_PEAK.items()))
-    print(f"peak-rate stream cost   compute {M_PEAK:.1f} ms   dram {dp}  (ms)")
-    print(f"gates  dM2 void<{FLOOR_M2}  flag>{CAP_M2}   dS2 void<{FLOOR_S2}  "
-          f"flag>{CAP_S2}   mu={MU:.3f}  R1_win={R1_WIN:.2f}  "
-          f"R5_sum={R5_SUM:.2f}")
+    print(f"peak-rate stream cost   dram {dp}  (ms)   ridge-artifact compute "
+          f"{M_RIDGE:.1f} ms (NOT a gate)")
+    print(f"gates  dS2 void<{FLOOR_S2}  flag>{CAP_S2}   dM2 no floor  "
+          f"flag>{CAP_M2}   mu={MU:.3f}  R1_win={R1_WIN:.2f}  "
+          f"H0_sum={H0_SUM:.2f}   sigma_delta={SIGMA_D:.3f} ms "
+          f"({MU / SIGMA_D:.1f} sigma)   decode_tol={DECODE_TOL}")
     print()
 
     got = {}
@@ -203,13 +315,22 @@ def main():
         if not m:
             print("     officialMetrics: (none published)")
             print(f"     error: {hit.get('failureReason') or hit.get('error')}")
+            print("     R0c INSTRUMENT FAILURE: the harness published no "
+                  "metrics, so this arm measured nothing. In the audited feed "
+                  "all 489 `failed` submissions have officialMetrics=null and "
+                  "the modal step is the timed paired benchmark itself. Read "
+                  "the failing step, fix it, and only then re-fire; do NOT "
+                  "count this against the receipt budget's evidence, and do "
+                  "NOT treat a missing delta as a small delta.")
             continue
         p = m.get("prefill_seconds_per_token")
         dsec = m.get("decode_seconds_per_token")
         S = S_ms(p)
         T = T_ms(dsec, p)
         got[name] = {"S": S, "T": T, "dS": S - ctrl_S, "dT": T - ctrl_T,
-                     "ns": ns_of(dsec, p), "id": hit.get("id")}
+                     "ns": ns_of(dsec, p), "id": hit.get("id"),
+                     "dec": dsec,
+                     "dec_base": m.get("baseline_decode_seconds_per_token")}
         for k in ("passed_correctness", "max_abs_diff",
                   "passed_prefill_speedup_floor", "passed_decode_speedup_floor",
                   "prefill_speedup", "decode_speedup", "gpqa_ttft_passed",
@@ -226,7 +347,8 @@ def main():
     dM2 = got.get("m2", {}).get("dS")
     dS2 = got.get("s2", {}).get("dS")
     dB2 = got.get("b2", {}).get("dS")
-    span = None if (dS2 is None or dB2 is None) else (dS2 - dB2, dS2 - dB2 / 2.0)
+    span = (None if (dS2 is None or dB2 is None)
+            else tuple(sorted((dS2 - dB2, dS2 - dB2 / 2.0))))
     print("--- decomposition ---")
     print(f"  dM2  (pure MMA doubling)        = "
           f"{'n/a' if dM2 is None else f'{dM2:+.3f} ms'}")
@@ -241,10 +363,34 @@ def main():
     for line in verdict(dM2, dS2, dB2):
         print(f"  {line}")
     print()
-    print("--- decode control (must be unchanged) ---")
+    print("--- R7 decode negative control + session health ---")
+    ctrl_dec = 1000.0 * CTRL["decode_s_per_tok"]
     for name, g in got.items():
-        flag = "OK" if abs(g["dT"]) < 0.05 else "LEAK?"
-        print(f"  {name}: dT = {g['dT']:+.5f} ms  {flag}")
+        dec = 1000.0 * g["dec"]
+        rel = abs(dec - ctrl_dec) / ctrl_dec
+        flag = "OK" if rel <= DECODE_TOL else "LEAK/SUSPECT"
+        print(f"  {name}: decode {dec:.5f} ms/step vs control {ctrl_dec:.5f} "
+              f"({rel * 100:+.2f}%)  {flag}")
+        if g["dec_base"] is None:
+            print("        session health: baseline decode not published")
+            continue
+        bd = 1000.0 * g["dec_base"]
+        brel = abs(bd - BASE_DECODE_MED) / BASE_DECODE_MED
+        bflag = "OK" if brel <= BASE_DECODE_TOL else "SESSION DRIFT"
+        print(f"        paired baseline decode {bd:.5f} vs feed median "
+              f"{BASE_DECODE_MED:.5f} ({brel * 100:+.2f}%)  {bflag}")
+        if bflag != "OK":
+            print("        R7: this session's pinned baseline is off its own "
+                  "feed median, so down-weight this receipt's dS and re-fire "
+                  "before drawing a directional conclusion from it.")
+
+    if got:
+        print()
+        print(f"--- power ---  sigma(S) = {SIGMA_S:.3f} ms/receipt, "
+              f"sigma(delta) = {SIGMA_D:.3f} ms, so mu = {MU:.3f} ms is "
+              f"{MU / SIGMA_D:.1f} sigma. Any |delta| >= {3 * SIGMA_D:.2f} ms "
+              "is already 3 sigma; a delta inside that band is a real null, "
+              "not an underpowered one.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,82 @@
+
+==============================================================================
+0. FEED SHAPE
+==============================================================================
+source                 /tmp/subs.json
+submissions            1583
+with officialMetrics   1091
+  status=rejected     hasMetrics=True  n=948
+  status=failed       hasMetrics=False n=489
+  status=accepted     hasMetrics=True  n=143
+  status=validating   hasMetrics=False n=3
+
+==============================================================================
+1. DO BELOW-FLOOR RUNS PUBLISH MAGNITUDES?
+==============================================================================
+metric-bearing receipts with passed_prefill_speedup_floor == false: 0 / 1091
+metric-bearing receipts with passed_decode_speedup_floor  == false: 0 / 1091
+
+floor constants observed (prefill, decode):
+  (0.95, 0.95)  n=1091
+
+status=failed n=489, of which officialMetrics is not null: 0
+
+failed-step histogram (numbers/SHAs normalised):
+  n=209   workflow run concluded failure at step "Timed paired benchmark (measure-job)": https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=75    workflow run concluded failure at step "Review submitted code for benchmark bypasses": https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=53    workflow run concluded failure at step "Correctness and gates (full base case + hidden gates, no timing)": https://github.com/Layr-Labs/mlxfast-challe
+  n=44    workflow run timed out after 3600000ms and was cancelled: https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=29    workflow run concluded failure at step "Public behavior gate": https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=17    workflow run concluded failure at step "Overlay paired timing into final score": https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=15    workflow run concluded failure at step "Semantic GPQA gate": https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=13    workflow run concluded failure at step "Verify submitted commit and modifiable surface": https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/S
+  n=5     workflow run timed out after 7200000ms and was cancelled: https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=4     workflow run concluded failure at step "Build participant worker in bench sandbox": https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=4     workflow run concluded failure at step "Prepare hidden correctness golden": https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+  n=3     workflow run concluded cancelled: https://github.com/Layr-Labs/mlxfast-challenge/actions/runs/SHA
+
+CONCLUSION: a run that misses a floor is recorded as status=failed with
+officialMetrics=null. It publishes NO magnitudes at all -- not a partial
+record. So a below-floor arm costs a receipt and returns zero information.
+
+==============================================================================
+2. HOW CLOSE TO THE FLOOR DOES THE FEED ACTUALLY GET?
+==============================================================================
+n=1091  min=0.95236  p01=0.96369  p50=1.86175
+count < 0.96 = 6   count < 0.99 = 44
+
+lowest published prefill_speedup receipts (these are the existence proof
+that a slower-than-baseline candidate still publishes full magnitudes):
+  id=6447b89c status=rejected  ps=0.95236  cand=0.000398266 s/tok  base=0.000379292 s/tok  reason='score did not improve current best'
+  id=2fa32f01 status=accepted  ps=0.95626  cand=0.000382311 s/tok  base=0.000365589 s/tok  reason=''
+  id=323f3987 status=rejected  ps=0.95780  cand=0.000382455 s/tok  base=0.000366316 s/tok  reason='score did not improve current best'
+  id=41abe827 status=accepted  ps=0.95884  cand=0.000379858 s/tok  base=0.000364225 s/tok  reason=''
+  id=53f19ef5 status=accepted  ps=0.95889  cand=0.000382209 s/tok  base=0.000366498 s/tok  reason=''
+
+==============================================================================
+3. PAIRED-BASELINE PREFILL DISTRIBUTION (LAST 200 METRIC-BEARING)
+==============================================================================
+n=200  min=186.08  p05=186.67  p50=191.18  p95=196.84  max=201.31  (ms per 512 tokens)
+
+==============================================================================
+4. ARM HEADROOM ARITHMETIC (THE R1 CORRECTION)
+==============================================================================
+frontier candidate prefill      97.895 ms / 512 tok
+worst (fastest) paired baseline 186.081 ms / 512 tok
+max admissible candidate        195.874 ms  (= baseline / 0.95)
+injection headroom              97.980 ms
+largest arm delta R0b permits   33.300 ms
+worst-case arm prefill_speedup  1.4184
+safety margin                   2.94x
+
+The review that demanded arms be shrunk to <=4.5% divided the arm cost by
+the frontier CANDIDATE (97.9 ms) instead of the paired BASELINE (186.1 ms).
+Because the frontier is ~2x faster than its own baseline, the floor binds on
+the baseline, not on the candidate: the arms have ~98 ms of room, not ~5 ms.
+
+==============================================================================
+5. WALL-CLOCK / TIMEOUT RISK
+==============================================================================
+benchmark_wall_seconds     n=1091  p50=46 p95=49 max=54 s
+timed_benchmark_seconds    n=1091  p50=39 p95=42 max=47 s
+Arms add tens of milliseconds to one 512-token prefill. Timeout is a non-issue.

@@ -1760,6 +1760,17 @@ void gather_qmm_rhs_nax(
   // Only the expert-aligned kernel carries the probe template parameter; the
   // shared non-expert builder keeps its stock signature.
   const int probe_requested = darkbloom_nax_gather_probe();
+  // Interlock, not a safety net: a requested probe that quietly degraded to 0
+  // would inject nothing and still publish a healthy receipt, which reads as a
+  // true null rather than as an instrument that never armed. Failing loudly
+  // makes "the receipt carries timings at all" sufficient evidence that the
+  // probe landed, since the kernel builder throws rather than substituting a
+  // non-probe kernel. Probe 0 -- the shipped default -- never reaches this.
+  if (probe_requested != 0 && !expert_aligned) {
+    throw std::runtime_error(
+        "[gather_qmm_rhs_nax] gather probe requested off the expert-aligned "
+        "path; it would measure an unarmed control");
+  }
   const int gather_probe = expert_aligned ? probe_requested : 0;
 
   // DARKBLOOM_STAGE2_GATHER ground truth at the DISPATCH site. The define

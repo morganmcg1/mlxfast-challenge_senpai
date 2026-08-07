@@ -158,9 +158,31 @@ core. **Occupancy is unchanged by every arm.**
 *Honest caveat.* `maxTotalThreadsPerThreadgroup` is saturated at 1024 and so
 cannot report register pressure; M2 does add 5 allocas. This does not weaken a
 *falsification* (a `ΔM2 ≈ 0` would be confound-free), but a *large* `ΔM2` admits
-a register-pressure alternative that this instrument cannot exclude. Also,
-these are M4 static counts; the M5 compiles the same MSL but its scheduler is
-not identical.
+a register-pressure alternative that this instrument cannot exclude. That gap is
+what R0b exists to flag rather than to resolve, and no register-count figure
+appears anywhere in this document — the census reports occupancy, which the
+reflection API does give, and stops there.
+
+*Second caveat, on where these numbers come from.* These are M4 static counts
+from an `applegpu_g16s` host (Apple GPU generation 16). The ranked M5 compiles
+the same MSL, but it is a different generation with a different scheduler, and
+it is the only machine on which these kernels can actually execute
+(`is_nax_available()` requires generation >= 17). Every count above is therefore
+a statement about the *emitted instruction stream*, which is what the arms are
+designed to control, and not a prediction of cycles.
+
+### 2.1 Upstream-equivalence control
+
+Run through `research/run_upstream_equivalence.sh` on the committed default
+(probe 0), against the unchanged base revision. The two produce a **byte-identical
+report**: prefill `maximumAbsoluteLogitError = 0.125`,
+`meanAbsoluteLogitError = 0.011933609`, all eight decode steps exactly `0.0`, and
+`runtimeToken == upstreamToken` at every checked position.
+
+The non-zero prefill logit error is a **pre-existing near-tie divergence of this
+M4 host**, not something the change introduces — which is exactly what "byte
+-identical to the unchanged base" establishes. Reporting it as a clean pass
+without that comparison would have been the misleading version.
 
 ## 3. Bit-exactness
 
@@ -188,6 +210,15 @@ default-arm machine code is identical, not merely equivalent.
 `research/nax_safety_rig.sh` reports checks 1, 3, 4, 5, 6 PASS and check 2 FAIL
 — check 2 uses `cmp -s`, which cannot see through mangling. The rig was left
 strict on purpose rather than weakened to make the check pass.
+
+*The landing interlock is inert at probe 0 too.* The throw added at
+`quantized.cpp:1769-1773` (witness 2 in §4.4.1) is guarded by
+`probe_requested != 0`, so on the shipped default it is dead code on a branch
+that is never taken and cannot alter dispatch, kernel naming, or any value. It
+is host-side C++ and does not appear in the kernel source at all, so it is
+outside the IR diff above by construction; it was re-validated separately
+(twin check, four-arm MSL compile, safety rig, host C++ syntax) after being
+added.
 
 Twin consistency (`python3 research/nax_twin_check.py`):
 `TWIN CHECK: generated copy matches the header`, exit 0.
@@ -307,13 +338,55 @@ S2:  W' >= (1+w)·d_peak   = 2 × 27.10  = 54.21  ->  ΔS2 >= 10.95   @651.8 GB/
                           = 2 × 32.34  = 64.69  ->  ΔS2 >= 21.43   @546.2 GB/s
 ```
 
-Taking the weakest (smallest) floor in each row — `651.8 GB/s` for S2 — and
-allowing ~12% for receipt noise and any optimism in the pinned peaks:
+**The S2 triple does reconcile to one byte quantity; an earlier objection that
+it did not was arithmetic error on my side.** The check is not `Δ × BW`, it is
+`((Δ + W) / 2) × BW`, because `Δ` is the *increment* over the measured wall `W`
+and the bound is on the *doubled* stream:
+
+```
+(10.95 + 43.26)/2 × 651.8 = 17.667 GB
+(14.66 + 43.26)/2 × 610   = 17.666 GB
+(21.43 + 43.26)/2 × 546.2 = 17.667 GB      <- all one 17.666 GB traffic model
+```
+
+So the three S2 rows are one physical claim evaluated at three candidate DRAM
+bandwidths, and the honest form of the S2 floor is an **interval**,
+`ΔS2 ∈ [10.95, 21.43]`, whose weakest end is what a gate may use.
+
+**The M2 floor does not survive the same scrutiny, and I am withdrawing it.**
+The `34.7 TFLOP/s` figure was back-derived to place this kernel's arithmetic
+intensity exactly on the roofline ridge (`AI = 56.89 = 34700/610`). That is a
+suspiciously tidy coincidence, and it is one: it is an artifact of choosing the
+peak to make the ridge story work. Published M5-class NAX measurements (MLX
+PR #3211 reports 52–60 TFLOP/s for fp16 GEMM) put the real peak well above it,
+and the floor is extremely sensitive to that choice:
+
+```
+m_peak = 1005.02 GFLOP / peak            ΔM2 floor = 2·m_peak − 43.26
+  @34.7 TFLOP/s ->  28.96 ms   ->  +14.66      (the back-derived figure)
+  @52   TFLOP/s ->  19.33 ms   ->   −4.60      (no floor at all)
+  @60   TFLOP/s ->  16.75 ms   ->   −9.76      (no floor at all)
+```
+
+At any realistic NAX peak the MMA stream is only ~17–19 ms of a 43.26 ms wall,
+so **doubling it can hide entirely underneath the memory stream and cost
+nothing**. A small `ΔM2` is therefore a *result* — MMA is not the binding
+stream — and not evidence that the arm failed to land. Landing is established
+structurally instead (§4.4.1), which is what makes it safe to drop this gate.
+
+Note also what the memory side already tells us without any arm: `W = 43.26 ms`
+against `d_peak ∈ [27.10, 32.34]` means the unmodified kernel is already
+sustaining **63–75% of peak DRAM bandwidth**. That is a high figure, and it is
+the strongest prior in this document that H2 rather than H1 is the live
+hypothesis.
+
+Applying ~12% for receipt noise and residual optimism in the surviving peak:
 
 | gate | condition | meaning |
 |------|-----------|---------|
-| **R0a** | `ΔM2 < 13.0` or `ΔS2 < 9.5` | **instrument failure** — the arm did not reach the kernel (or a pinned peak is wrong). Verdict void; debug before spending more receipts. |
+| **R0a** | `ΔS2 < 9.5` | **instrument failure on the S2 axis only** — 17.7 GB of extra traffic cannot cost less than this at any plausible bandwidth, so a smaller delta means the staging pass did not land. Void the S2 receipt and debug before spending more. **There is deliberately no `ΔM2` half to this gate** (see the withdrawal above); a small `ΔM2` is read as a datum by R2/R6, not as instrument failure. |
 | **R0b** | `ΔM2 > 33.3` or `ΔS2 > 37.2` | **flag** — delta exceeds the arm's own peak-bound isolated cost (`28.96`, `32.34` @546.2) by >15%; the arm perturbed something beyond its axis (register pressure / occupancy). Report, do not silently accept. |
+| **R0c** | receipt returns `status=failed` with `officialMetrics = null` | **instrument failure, not a datum** — see §4.3. Do not re-fire the same arm; stop and diagnose. |
 
 ### 4.2 Decision rules
 
@@ -323,13 +396,103 @@ are evaluated in order and are exhaustive.
 
 | rule | condition | verdict |
 |------|-----------|---------|
+| **R6** | `ΔM2 <= -μ  (-4.33)` | **H3 wins, latency variant** — doubling independent MMA work made the kernel *faster*. The only mechanism that does this is instruction-level parallelism filling issue stalls, so the MMA pipe is **latency-bound, not throughput-bound**. Evaluated first; overrides R1–R5. |
 | **R1** | `ΔB2 >= 0.25·W  (10.82)` | **H3 wins** — schedule latency is the dominant cost; next mechanism is barrier removal / deeper pipelining / occupancy |
 | R1' | `0.10·W <= ΔB2 < 0.25·W` | H3 **material** — real, first-order, but not dominant; reported alongside the R2–R5 verdict |
 | R1'' | `ΔB2 < 0.10·W` | H3 minor on the barrier axis |
-| **R5** | `ΔM2 + ΔS2p_hi <= W - μ  (38.94)` | **H3 by elimination** — even summing the two axes *serially* falls short of the measured wall, so a third cost (dispatch, occupancy, latency) dominates. Overrides R2–R4. |
-| **R2** | `ΔM2 - ΔS2p_hi >= μ` | **H1** — MMA-limited |
-| **R3** | `ΔS2p_lo - ΔM2 >= μ` | **H2** — load+dequant-limited |
-| **R4** | otherwise | **H0** — jointly balanced; the two axes are within `μ`, so a single-axis reduction is Amdahl-capped by the other |
+| **R5** | `ΔM2 < μ` **and** `ΔS2p_hi < μ` | **H3 by elimination** — *neither* axis is paid for, so a third cost (dispatch, occupancy, latency) dominates. Evaluated first among R2–R5 so the boundary is deterministic. |
+| **R2** | `ΔM2 >= μ` **and** `ΔS2p_hi < μ` | **H1** — MMA-limited |
+| **R3** | `ΔS2p_lo >= μ` **and** `ΔM2 < μ` | **H2** — load+dequant-limited |
+| **R4** | `ΔM2 >= μ` **and** `ΔS2p_lo >= μ` | **H0** — jointly balanced; both axes cost real time, so a single-axis reduction is Amdahl-capped by the other |
+
+R2–R5 are one **2×2 on the individual magnitudes**, with "large" meaning
+"exceeds `μ`":
+
+|            | `ΔS2p` small | `ΔS2p` large |
+|------------|--------------|--------------|
+| `ΔM2` small | **R5** — H3, latency | **R3** — H2, load-bound |
+| `ΔM2` large | **R2** — H1, compute | **R4** — H0, jointly saturated |
+
+**A rule I had to fix before spending a receipt.** The draft I registered first
+made R5 a *sum* test, `ΔM2 + ΔS2p_hi <= W - μ ⇒ H3`. That rule is wrong, and
+wrong in a way that would have silently produced a confident false verdict.
+Under H1 the delta pair is approximately `(W, 0)`; under H2 it is approximately
+`(0, W)`. **Both sum to about `W`**, which is below the `W - μ` threshold only
+by the margin itself — so a textbook H1 or H2 result would have been read as
+"neither axis accounts for the wall, therefore H3". The sum separates exactly
+one thing: H0 (where doubling *either* axis makes that axis the sole bottleneck
+at `2×`, so each delta is ≈`W` and the sum is ≈`2W`) from everything else. It
+cannot distinguish H1 from H2 from H3, which is the entire question. I verified
+the failure concretely: with `(ΔM2, ΔS2p, ΔB2) = (2, 30, 1)` — a load stream
+costing 68% of the kernel wall, about as unambiguous an H2 as this instrument
+can produce — the old rule returns **R5/H3**. The 2×2 above returns R3/H2.
+
+The sum survives as a **corroboration line only**, never as a verdict: the
+script prints whether `ΔM2 + ΔS2p_hi` is consistent with H0 (`>= 2W - μ =
+82.20`), with a single saturated stream (`<= W + μ = 47.59`), or with neither
+(reported as ambiguous). It is printed after the verdict and cannot change it.
+
+**Why R6 exists, and why it is not a curiosity.** NAX matrix instructions have
+long issue-to-result latency — order 256 cycles for a `32x32x32` tile on A19-class
+hardware. A pipe with that latency and only one dependent MMA in flight per
+accumulator is **latency-bound long before it is throughput-bound**: the
+measured cost is dominated by waiting, not by issue slots. The M2 arm adds a
+*second, independent* accumulator chain, which is precisely the input a
+latency-bound pipe needs to fill its stalls. So the naive reading — "M2 was
+flat, therefore MMA is not the constraint, therefore H0/H2" — is wrong in the
+one case that matters most, and `ΔM2 < 0` is close to a proof of latency-bound
+operation rather than a null result. Without this row the experiment would
+systematically misclassify its most informative outcome.
+
+**Scoping the H0 verdict (R4).** If R4 fires I will not write "the kernel is
+balanced" without qualification, because that claim is broader than the
+instrument. A clean null here means exactly: *along the two axes these arms
+perturb* — MMA issue and threadgroup staging traffic — neither is separately
+dominant at margin `μ`. It says nothing about axes the arms do not touch:
+address generation and bitfield extraction, scalar-ALU dequantisation, the
+routing gather itself, occupancy, or command-buffer overhead. It is also worth
+stating in advance that the `67%/67%` two-stream signature which R4 would report
+is **algebraically forced** whenever the two streams sit near the ridge and
+overlap by about half; it is what the model predicts, not independent
+confirmation of it. A2 (§4.5) is the arm that would extend the scope.
+
+**R7 — decode negative control (applies to every receipt).** All three probes
+are inside `gather_qmm_rhs_nax`, which the decode path does not reach: decode is
+`M == 1` and takes the `qmm_rhs` route, and in any case the probe suffix is only
+appended on the prefill-shaped dispatch. Decode is therefore a **within-receipt
+placebo channel**, and it carries two independent checks.
+
+*Leak check.* The arm's **raw candidate** decode must match the control's:
+
+```
+|decode_ms_per_step(arm) − 4.90837| / 4.90837  <  0.02
+```
+
+A shift larger than 2% means the probe did *not* stay inside the prefill-shaped
+dispatch — the arm leaked into a kernel the decode path reaches — and the
+prefill delta is no longer attributable to the axis I named.
+
+*Session-health check.* Separately, that receipt's **own paired baseline**
+decode must match the feed-wide median:
+
+```
+|baseline_decode_ms_per_step(arm) − 13.86539| / 13.86539  <  0.01
+```
+
+The 1% tolerance is not arbitrary: across the audited feed the harness baseline
+decode has a coefficient of variation of **0.22%**, so 1% is roughly `4.5σ`.
+A receipt whose baseline decode sits outside that band was measured in a session
+that does not resemble the rest of the feed (thermal, scheduler, or a
+non-comparable baseline), which contaminates its prefill number too.
+
+An earlier draft folded these into one test,
+`|decode_spt − baseline_decode_spt| / baseline < 0.03`. That comparison is
+nearly meaningless here: candidate and baseline decode differ by a factor of
+`2.82` *by design*, so the quantity is always ≈`0.65` and the test can never
+fire. Splitting it into a leak check against a known-good candidate value and a
+health check against the feed median makes both halves live. A receipt failing
+either is **reported as suspect** and is not used to settle H1 vs H2 on its own.
+Both checks cost nothing: the numbers are already in every receipt.
 
 **Deleted rule.** An earlier draft carried an R5 reading "both deltas high ⇒ the
 streams do not overlap; fix overlap, not either axis". It was self-contradictory
@@ -338,32 +501,253 @@ wall, but the measured wall is `43.26 ms`, so the streams demonstrably *do*
 overlap by about half. Worse, the model algebra in §4.0 shows that doubling an
 equal stream yields `Δ = min stream` **for every value of `f`**, so
 "both deltas high" is exactly what H0 predicts and carries no information about
-overlap at all. The replacement R5 above tests something different and
-well-posed: whether the two measured axes can account for the wall *at all*.
+overlap at all. That cell is now **R4/H0**, which is the correct reading.
 
-### 4.3 Floor safety
+R5 has therefore been through two withdrawals, both caught before any receipt
+was spent: the overlap rule above, then the sum rule in §4.2. Both failed the
+same way — they were stated in terms of a *composite* of the two deltas (their
+sum, or "both high") when the hypotheses are distinguished by the deltas
+*individually*. The 2×2 is the honest form of the test, and I record the two
+dead ends rather than presenting it as the original design.
 
-`S_candidate <= S_baseline / 0.95 ≈ 200 ms` against `S_control = 97.9 ms`
-leaves **~102 ms of injection headroom** versus a maximum predicted arm delta
-of ~29 ms. No arm can trip the prefill floor, and no arm touches decode.
+### 4.3 Floor safety, and what a below-floor run would actually publish
+
+This section was rewritten at **2026-08-07T00:20Z**, before any receipt was
+spent, after auditing the full public submissions feed
+(`n = 1583`; `curl -H "Authorization: Bearer $MLXFAST_API_TOKEN"
+https://api.mlx.fast/api/benchmarks/eigenlabs%2Fmlxfast-challenge/submissions`).
+The audit was prompted by a reviewer challenge that the arms would fall below
+the prefill floor and publish nothing. **The challenge was arithmetically
+wrong but its underlying worry is real**, and both halves are now on the record.
+
+**The floor is measured against the paired baseline, not against the frontier.**
+The reviewer divided arm cost into the *frontier candidate* wall (97.9 ms) and
+concluded every arm lands at `prefill_speedup ≈ 0.72–0.89`. The published
+metric is `baseline_prefill / candidate_prefill`, and the last 200 metric-bearing
+receipts draw a baseline of `186.08 / 191.18 / 201.31 ms`
+(min / p50 / max, per 512-token prefill). Our frontier sits at
+`97.895 ms`, i.e. `prefill_speedup ≈ 2.0`. Against the **smallest baseline draw
+ever seen** in that window the largest admissible candidate is
+`186.08 / 0.95 = 195.87 ms`, so the injection headroom is **97.98 ms**. The
+largest arm delta the over-cost flag R0b even permits is `33.3 ms`, giving a
+worst-case `prefill_speedup = 186.08 / (97.895 + 33.3) = 1.418` and a margin of
+**2.94×** on the `0.95` floor. No arm can trip either floor, and no arm touches
+decode.
+
+Acting on the challenge as filed would have required shrinking every arm to
+`≤ 4.5%` prefill cost — below the `μ = 4.33 ms` decision margin and comparable
+to the `± 0.402 ms` control noise — destroying the experiment for no reason.
+Verification, not deference, was the correct response.
+
+**But the failure mode the challenge feared is real, and is now measured.**
+A run that misses a floor does not publish degraded metrics; it publishes
+*none*:
+
+- `0 / 1091` metric-bearing receipts carry `passed_prefill_speedup_floor` or
+  `passed_decode_speedup_floor` equal to `false`;
+- all `489` `status = failed` records have `officialMetrics = null` — null, not
+  partial — and `17` of them failed precisely at the step
+  *"Overlay paired timing into final score"*, which `AGENTS.md` names as the
+  floor-enforcing step;
+- the minimum published `prefill_speedup` over all 1091 is `0.95236`, a hard
+  edge sitting on the `0.95` floor.
+
+**The arms' expected outcome class is confirmed to publish full magnitudes.**
+Receipt `6447b89c` is a candidate that ran **4.8% slower than its own paired
+baseline** (`prefill_speedup = 0.95236`) and still published
+`prefill_seconds_per_token = 0.000398266357421875` alongside
+`baseline_prefill_seconds_per_token = 0.000379291912109375`, with
+`status = rejected`, reason *"score did not improve current best"*. That reason
+accounts for **948 of 948** rejections: `rejected` means *passed every gate,
+did not beat best*, which is exactly what each arm should return. `rejected` is
+**not** the below-floor outcome; `failed` is.
+
+Wall clock is not a constraint either: `benchmark_wall_seconds` runs
+p50 = 46 s, p95 = 49 s, max = 54 s across all 1091, and `timed_benchmark_seconds`
+p50 = 39 s. A ~33 ms per-prefill-pass increase is invisible against that, and
+the 1-hour-timeout failure bucket is unrelated infrastructure failure.
+
+**New abort gate R0c (pre-registered).** If any arm returns `status = failed`
+with `officialMetrics = null`, that is an **instrument failure, not a datum**.
+It must not be read as a null result, must not be re-fired on the same arm, and
+the campaign stops to diagnose. Raw evidence for this subsection is archived at
+`research/artifacts/tanjiro-pr170-feed-audit.txt`.
 
 ### 4.4 Arm ordering, and what it buys
 
-Arms are dispatched **M2, then S2, then B2**. This is not arbitrary. M2 and S2
-have a hard peak-derived floor (R0a), so a near-zero delta on either is
-*proof the instrument did not reach the kernel*, and the campaign stops to
-debug rather than spending the remaining arms. `ΔB2 ≈ 0`, by contrast, is a
-legitimate scientific outcome (H3 dead) that is **confounded** with "the arm did
-not apply" — running it last means the large M2/S2 deltas have already
-demonstrated that the identical plumbing (same `expert_aligned` path, same
-`_pb_<n>` naming mechanism) reaches the kernel, which disambiguates it.
+Arms are dispatched **M2, then S2, then B2**. The ordering is chosen so that
+the arm carrying the surviving peak-derived floor (S2, gate R0a) runs before the
+arm with no floor at all (B2), and so that M2 — the arm whose result is most
+diagnostic under R6 — is not left until the budget is nearly gone.
+
+What the ordering does **not** do any more is establish landing. An earlier
+draft argued that a large M2 or S2 delta demonstrates the plumbing works and so
+disambiguates a later `ΔB2 ≈ 0`. That argument is now redundant at best and
+circular at worst, and §4.4.1 replaces it with three structural witnesses that
+hold for every arm independently of effect size.
 
 *Caveat on direct verification.* The dispatch-site trace fires whenever a probe
 is requested and prints `active`/`inactive` with the kname handed to the JIT,
 but the M5 receipt does not surface stderr, and the kernel cannot run locally
 (this host is `applegpu_g16s`, Apple GPU generation 16; `is_nax_available()`
-requires >= 17). The ordering argument above is therefore the operative
-verification, and it is stated as such rather than dressed up as a direct one.
+requires >= 17, enforced at
+`Vendor/mlx-swift/.../backend/metal/device.cpp:927`).
+
+#### 4.4.1 Landing is witnessed structurally, not inferred from the ordering
+
+Added **2026-08-07T00:22Z**, before any receipt. A reviewer pointed out that
+the R0a void gate as originally written — *"`ΔM2 < 13.0` ⇒ the probe did not
+land"* — is a logic error: under H2 or H3 a **small `ΔM2` is the informative
+outcome**, and a rule that voids it can only ever confirm H1. That is
+corrected here, which requires landing to be established by something other
+than the size of the effect. Three independent structural witnesses now do
+that, and none depends on any delta being large.
+
+1. **The kernel builder cannot silently substitute a non-probe kernel.**
+   `get_qmm_nax_kernel` (`.../metal/jit_kernels.cpp:1225-1255`) has no
+   `try`/`catch` and ends in a bare `d.get_kernel(kernel_name, lib)`. A JIT
+   compile failure, a missing symbol, or a pipeline failure throws at
+   `.../metal/device.cpp:641-648`, `:692-699`, `:716-724` respectively; the
+   `nojit` path (`nojit_kernels.cpp:417-423`) throws identically. There is no
+   edge that falls back to a non-`_nax` or non-`_pb_<n>` kernel. So if the
+   arm's `_pb_<n>` kernel had not built, the run would be
+   `status = failed` with null metrics (gate R0c), never a healthy null.
+
+2. **The one remaining silent-degradation path has been closed by an
+   interlock.** `gather_probe = expert_aligned ? probe_requested : 0` meant
+   that if `expert_aligned` were false on the ranked M5, every arm would
+   quietly inject nothing and publish a healthy receipt reading `Δ ≈ 0` —
+   indistinguishable from a true H3 null, and the single failure mode capable
+   of consuming the entire receipt budget without producing a datum.
+   `quantized.cpp:1769-1773` now throws instead, in the same idiom as the
+   pre-existing kernel-selection assert at `:1736`. Probe 0 — the shipped
+   default and the only state the frontier would ever carry — cannot reach it.
+
+3. **Only one dispatch is selectable, and it is the one analysed.** With the
+   official runner's stripped environment the defaults are
+   `EXPERT_ALIGNED_GATHER` on (`quantized.cpp:1328-1331`), `STAGE_BM128 = 5` ⇒
+   `bm=64, wm=4, wn=1` (`:1491-1502`, `:1692-1700`), `egroups = 256`
+   (`:1402-1412`), `BK128` off (`:1383`) ⇒ `bk = 64`. The sole reachable name
+   is
+   `nvfp4_gather_qmm_rhs_expert_static_nax_nt_bfloat16_t_gs_16_b_4_bm_64_bn_64_bk_64_wm_4_wn_1_k_<K>_n_<N>_eg_256_ws_1_wl_{0|1}`
+   for both Laguna shapes, which matches the pipeline set the assignment names
+   as the stop-and-report criterion — **no stop-and-report trigger**. Escaping
+   to the non-expert builder needs an env override or `M < 64`, and `M < 64` is
+   impossible: `GatherQMM::eval_gpu` enters only when
+   `M==1 && B>=16 && right_sorted_ && B/E>=4` (`:2325`), which with `E=256`
+   forces `B >= 1024`. `_wl_` may still flip 0/1 on the runtime `w.offset()`
+   certification (`:1757-1759`); both values are the same kernel function.
+
+**Taken together: any arm that returns a receipt with metrics at all has
+provably armed.** A null is therefore a real null, which is what makes a clean
+H3 reading merge-worthy rather than ambiguous.
+
+*Also confirmed while checking (3):* **no split-K, atomic-accumulate or
+partial-reduction variant is reachable** on this path. `gather_qmm_rhs_nax` has
+exactly one `dispatch_threadgroups` (`quantized.cpp:2053`); all split-K in the
+file belongs to `qvm_split_k` (`:302`) and `qmm_splitk` (`:812`), reached only
+from the non-gather `QuantizedMatmul` route. `matmul.cpp:2056 gather_mm_rhs_nax`
+is unreachable for us — it is called only from the *unquantized*
+`GatherMM::eval_gpu` (`matmul.cpp:2484-2487`), while the runtime calls
+`MLX.gatherQuantizedMM` ⇒ `GatherQMM::eval_gpu` (`quantized.cpp:2297`). MLX
+issue #3584 (split-K firing wrongly), raised in the assignment as a risk,
+therefore cannot touch this measurement.
+
+### 4.5 The spare receipt: A2, pre-registered but conditional
+
+The budget is four receipts for three arms. The fourth is **not** a replicate
+and **not** a free choice made after seeing results; committing to it in advance
+is the only thing that keeps it from becoming a fishing licence.
+
+**A2 — address-generation and bitfield pressure.** Shadow the NVFP4 unpack:
+recompute each block's index arithmetic, scale lookup and 4-bit field extraction
+into a second set of registers that no consumer reads, without adding a device
+load (the values are already resident) and without adding an MMA. This isolates
+the **scalar-ALU / address axis**, which is the one first-order resource none of
+M2, S2 or B2 perturbs — the exact gap the H0 scoping paragraph in §4.2 admits.
+It is also where two independent lines of criticism converged: the advisor
+proposed it as an optional fourth arm, and a separate review arrived at the same
+place from a dequantisation-cost argument.
+
+**Firing condition, registered now.** A2 is dispatched **only** when all three
+of the following hold:
+
+```
+R5 fires      ΔM2 + ΔS2p_hi <= W − μ   (the measured axes cannot account for W)
+R1'' holds    ΔB2 < 0.10·W             (and it is not the barrier axis either)
+R6 does not   ΔM2 > −μ                 (and it is not the ILP-latency signature)
+```
+
+That conjunction is the one genuinely unresolved state this instrument can
+reach: every axis it perturbs came back small, so the constraint provably lies
+on an axis it does not touch, and A2 is the cheapest probe of the most likely
+candidate. Note this is *not* the same as "R4 fired" — R5 is evaluated before R4
+and overrides it, so an R4/H0 verdict means the measured axes **did** account
+for the wall. That is a clean, scoped null and the spare is not spent on it.
+Equally, if R6, R1 or R2/R3 fires the question is answered and a fourth receipt
+buys nothing.
+
+**Why three arms and not four.** A2 is a materially harder arm to make
+bit-exact and confound-free than the other three: the unpack chain feeds the
+real accumulator, so a shadow copy has to be provably unread while surviving CSE
+against the real chain it duplicates — much more delicate than M2's separate
+accumulator or B2's pure barriers. Building and censusing a fourth arm to the
+same standard before any receipt was spent would have delayed all three clean
+arms. I chose three arms verified to the confound standard in §2 over four arms
+verified to a weaker one. That is a deliberate trade, not an omission.
+
+### 4.6 Instrument noise, measured — and which estimator to use
+
+Every threshold above is stated in milliseconds of prefill wall, so the whole
+design rests on a number I had not measured: **how much does the official
+prefill wall move between two receipts that should be identical?** Guessing it
+would have been the weakest link in the experiment, so I estimated it from the
+1583-submission feed.
+
+**The selection has to be non-circular.** I cannot select receipts by their
+prefill wall and then measure the spread of the prefill wall. Instead I selected
+on a *different* axis: the `n = 16` receipts whose **candidate decode** lies
+within 1% of the control's `4.90837 ms/step`. Decode and prefill are separately
+timed phases; agreeing on decode does not force agreement on prefill. Those 16
+are effectively repeat measurements of a near-identical candidate, so their
+prefill spread is instrument noise rather than signal.
+
+| quantity | sample sd | relative |
+|---|---|---|
+| **candidate prefill wall `S`** | **0.318 ms** | **0.33%** |
+| paired *baseline* prefill wall | 3.997 ms | 2.1% |
+| paired estimator `188.5 / prefill_speedup` | 2.139 ms | — |
+
+**This changes which number I read off a receipt.** The obvious choice was the
+paired `prefill_speedup`, since that is what the harness ranks on and pairing
+normally cancels session drift. It is the wrong choice here. The harness
+baseline prefill wall is **12.6× noisier** than the candidate's, so dividing by
+it *injects* that noise: the paired estimator is **6.7× worse** than simply
+reading the raw candidate wall. Pairing helps when the two members share a
+noise source; here the baseline is the dominant noise source. So every delta in
+§4.2 is computed from **raw candidate prefill seconds/token**, and
+`prefill_speedup` is used only for the floor check it exists to serve.
+
+This asymmetry is specific to prefill. Baseline *decode* is stable — coefficient
+of variation **0.22%**, feed median `13.86539 ms/step` — which is exactly why R7
+can use it as a session-health tripwire at a 1% tolerance while the prefill
+baseline cannot be trusted the same way.
+
+**The arms are hugely over-powered, which makes a null informative.** A delta is
+a difference of two receipts, so its noise is `σ_Δ = 0.318·√2 = 0.449 ms`. The
+decision margin is `μ = 4.326 ms`, which is therefore **9.6σ**. Anything beyond
+`±1.35 ms` is already `3σ`. This is the property that lets me report a clean
+H0/H3 null as a *result* rather than as a failure to detect: if both axes come
+back inside `μ`, the instrument had roughly ten sigma of headroom to see them
+and did not, so "neither axis is separately dominant" is a measurement, not an
+absence of one. It also means replicating any arm would be a waste of a receipt
+— at `9.6σ` a second sample cannot change a verdict — which is why the fourth
+receipt is reserved for a *different* axis (A2, §4.5) rather than a repeat.
+
+**Caveat.** `n = 16` gives the sd itself about `±18%` relative uncertainty, and
+those 16 receipts are not my arms — they are other candidates that happen to
+decode like the control. If an arm's own session is unusually noisy, R7's
+baseline-decode health check is the tripwire that should catch it.
 
 ## 5. Receipts
 
@@ -378,6 +762,8 @@ dispatch below records its own attempt history.
 | --- | --- | --- |
 | 2026-08-06T23:47:16Z | m2 | client-side reject: note 3251 B < 5120 B minimum. No receipt consumed. |
 | 2026-08-06T23:52:34Z | m2 | server reject: `conflict` — account already has 1 submission in flight (limit 1). No receipt consumed. |
+| 2026-08-06T23:54:11Z | m2 | server reject: `conflict` — same in-flight submission. No receipt consumed. |
+| 2026-08-07T00:22:36Z | — | queue still occupied: submission `99b7125` has been `validating` since 2026-08-06T23:29Z (~53 min, against a p95 benchmark wall of 49 s). Dispatch deferred; window used to land the §4.1/§4.2/§4.5 pre-registration corrections instead. |
 
 <!-- RECEIPTS -->
 
@@ -396,6 +782,44 @@ dispatch below records its own attempt history.
 ## 9. Follow-ups
 
 <!-- FOLLOWUPS -->
+
+**Registered before any receipt, so they cannot be mistaken for post-hoc
+excuses.**
+
+**Layer multiplexing is not identifiable, and I am not going to attempt it.**
+An obvious-looking extension is to arm the probe on only a subset of the 39 MoE
+layers and read the dose-response. It does not work: one receipt yields one
+number, so arming `k` of 39 layers gives a single equation in two unknowns
+(per-layer cost and the number of layers actually armed) and cannot separate
+them. Nothing short of one receipt per dose makes it identifiable, and the
+budget is four. Recording this so that a future reader does not spend receipts
+rediscovering it.
+
+**Dose-response is not 2×, and the arms do not assume it is.** The arms double
+one axis, but `Δ` is a *marginal wall* increment against an overlapped
+two-stream schedule, so `Δ = min(stream)` rather than `Δ = stream` across most
+of the parameter space (the algebra is in §4.0). Any reading that treats
+`Δ` as "the cost of that axis" is wrong; the decision rules deliberately compare
+`ΔM2` against `ΔS2` rather than against an absolute prediction.
+
+**Two M2-specific caveats worth checking before over-reading `ΔM2`.**
+(a) The census shows `mma 1 -> 2` in post-optimisation AIR on M4, but the M5
+compiles independently and a sufficiently aggressive scheduler could still sink
+or interleave the shadow MMA differently; the count is evidence, not a
+guarantee. (b) It is worth confirming whether `tile_matmad_nax`
+(`steel/gemm/nax.h`, around `:994-1031`, descriptor at `:503`) takes threadgroup
+operands — if it does, the shadow MMA is not purely an issue-slot perturbation
+and shares a resource with S2, which would weaken the axis separation that R2
+and R3 depend on. Neither affects a `ΔM2 <= 0` reading under R6.
+
+**Whether to keep the arms as a permanent instrument.** The probes are
+default-off and provably inert at probe 0 (§3), so merging them costs the
+frontier nothing and gives every future kernel change a ready-made way to ask
+the same question. Against that: they are ~200 lines of research scaffolding on
+a hot path and they consume editable-surface budget, which is at
+`61,995 B` headroom. My recommendation is to merge them only if this experiment
+returns a usable verdict; if it does not, delete them rather than leave a
+half-trusted instrument in the tree.
 
 **Standing follow-up: the S2 sham-barrier arm.** S2 is bit-exact only because
 the neighbouring expert's tile is written into `Ws` *before* the real load
