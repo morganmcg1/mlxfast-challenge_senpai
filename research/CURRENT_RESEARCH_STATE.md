@@ -1,8 +1,8 @@
 # SENPAI Research State
-- 2026-08-07T07:42Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 9ef18f7 (pushed to origin).
-  13 composed changes on current frontier (PRs #220, #225, #226 cherry-picked, #232 merged).
-  LRM: 515,021/524,288 = 9,267 B headroom. Total: 1,924,953/3,000,000 = 1,075,047 B headroom.
+- 2026-08-07T08:01Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 577a9b6 (pushed to origin).
+  14 composed changes on current frontier (PR #231 merged: prefill shared gate/up fusion).
+  LRM: 515,893/524,288 = 8,395 B headroom. Total: 1,924,953/3,000,000 = 1,075,047 B headroom.
 
 ## MERGED FRONTIER (13 changes, all bit-exact)
   1. MoE scale halving (PR #180): 45.5 MiB/step bandwidth savings, decode MoE kernels
@@ -21,6 +21,8 @@
   Also merged: QKV NVFP4 scale halving (PR #225), O-proj escape fix (PR #226).
   13. Gate-softplus interleaved packing (PR #232): interleaved scale/bias metadata
       for g_proj, halving cache line accesses. +320B in LRM. Bit-exact decode win.
+  14. Prefill shared expert gate/up dispatch fusion (PR #231): extends fused bank to
+      prefill (L>1), eliminates 1 dispatch per sparse layer × 39 layers. +872B. Bit-exact.
 
   REVERTED: PR #198 (original prefill MoE scale halving) — M5-only correctness
   bug in up-row-0 escape indexing. Fixed and re-applied as PR #220.
@@ -55,29 +57,33 @@
   Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%).
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
 
-## ACTIVE ASSIGNMENTS (Wave 8+9, BASE_SHA=9ef18f7)
+## ACTIVE ASSIGNMENTS (Wave 9-10, BASE_SHA=577a9b6)
   MERGED: PR #232 (askeladd gate-softplus interleave) — bit-exact decode win, +320B.
-  CLOSED: PR #222 (askeladd fold-shared-gateup) — DEAD: asyncEval overlaps independent dispatches.
-  ABANDONED: PR #229 (edward prefill-down-halving-v1) — duplicate marker bug.
-  ABANDONED: PR #235 (askeladd invalid marker) — empty head_sha marker bug.
-  PR #234 (edward): Prefill MoE down scale halving v2 — ~0.46% score, bit-exact, M5-only.
-  PR #230 (alphonse): Fuse g_proj into O-proj kernel — ~0.75% score, bit-exact, M4-testable.
-  PR #231 (thorfinn): Shared SwiGLU gate/up scale halving — ~0.11% score, bit-exact, M4-testable.
-  PR #236 (askeladd): Prefill shared expert gate/up dispatch fusion — ~0.125-0.25% score,
-    bit-exact, M4-testable. Reuses existing fused bank for prefill quantizedMM.
+  MERGED: PR #231 (thorfinn prefill shared gate/up fusion) — bit-exact, +872B. NOTE: thorfinn implemented dispatch fusion instead of assigned scale halving.
+  CLOSED: PR #236 (askeladd duplicate) — same experiment as PR #231, already merged.
+  PR #230 (alphonse): Fuse g_proj into O-proj kernel — ~0.75% decode, bit-exact, M4-testable.
+  PR #234 (edward): Prefill MoE down scale halving v2 — ~0.46% prefill, bit-exact, M5-only.
+  PR #238 (askeladd): Full-attention params atlas — ~0.05-0.1% decode, bit-exact, M4-testable.
+  PR #239 (thorfinn): Shared SwiGLU gate/up scale halving v2 (original assignment) — ~0.11% decode, bit-exact, M4-testable.
 
 ## NEXT-WAVE IDEAS (verified, ready to assign)
-  Idea 1: Prefill shared expert gate/up fusion — ASSIGNED to askeladd (PR #236).
+  Idea 1: Prefill shared expert gate/up fusion — DONE (PR #231, merged).
   Idea 2: Prefill O-proj gate dispatch fusion — REFUTED (documented negative in commit 8841cd9).
   Idea 3: Prefill shared expert scale halving via qmm_nax kHalvedScales — M5-only, ~0.22% score.
   Idea 4: callLastPrefillRow gate fusion — marginal (1 layer only).
   Idea 5: EXPERT_GATHER_GROUPS=256 M5 measurement — 0-byte, M5-only.
-  Also: Prefill MoE gather-QMM scale halving — ~1.0-1.5% composite, M5-only, highest est. gain.
+  NEW from wave-10 research:
+  6. Prefill fused gate+output-projection for L>1 — ~0.06-0.12% score, ~800-1500B.
+  7. Prefill fused norm+QKV for L>1 — ~0.12-0.25% score, ~1500-3000B, MEDIUM RISK.
+  8. Values transpose folded into prefill QK-norm+RoPE — ~0.025-0.04% score, ~300-500B.
+  9. Full-attention params atlas — ASSIGNED to askeladd (PR #238).
+  10. Prefill MoE gather-QMM scale halving — ALREADY IMPLEMENTED (PR #220).
 
 ## COMPOSITION PLAN
-  If 3 in-flight assignments succeed: ~0.46% + ~0.75% + ~0.11% = ~1.32% total.
-  Plus PR #232 merge (~0.05% from M4, possibly more on M5).
-  Starting from 2.5748 → ~2.609. Would BEAT 2.5888 target.
+  Current merged: 14 bit-exact changes. Next best: 2.5748.
+  In-flight: PR #230 (~0.75%), PR #234 (~0.46%), PR #238 (~0.05%), PR #239 (~0.11%).
+  If all succeed: ~0.75% + ~0.46% + ~0.05% + ~0.11% = ~1.37% total.
+  Starting from 2.5748 → ~2.612. Would BEAT 2.5888 target.
   Submit independently first, then compose winners for combined submission.
 
 ## RESEARCH THEMES
