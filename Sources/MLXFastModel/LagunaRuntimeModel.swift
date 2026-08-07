@@ -8092,9 +8092,17 @@ private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-/// Default-on exact decode top-8 hierarchy. Each retained local top-8 contains
-/// every possible global top-8 member under the ordinal/index total order, so
-/// the 32 -> 32 -> 16 network returns the same ranks as the full 256 sort.
+/// Default-on decode-router payload optimization. Set
+/// `DARKBLOOM_ROUTER_ORDINAL=0` for the accepted float-payload fallback. The
+/// accepted bitonic
+/// network carries `(float key, uint index, float score)` through all 36
+/// compare/exchange stages. The ordinal arm preserves that network's exact
+/// stage, shuffle, barrier, and pair-role geometry, but replaces the live
+/// payload with `(uint ordinal, uint index)`. `laguna_router_key_ordinal`
+/// canonicalizes both signed zeros and every NaN before applying the usual
+/// monotone IEEE-754 bit transform, so unsigned ordinal comparison plus the
+/// original expert-index tie break is exactly `laguna_router_key_before`.
+/// Only final lanes 0...7 recompute their pre-bias sigmoid score.
 private func lagunaDecodeRouterOrdinalKernelSource(
     normalizing: Bool, scoreTable: Bool = false
 ) -> String {
@@ -8143,10 +8151,8 @@ private func lagunaDecodeRouterOrdinalKernelSource(
     return """
         uint lane = thread_position_in_threadgroup.x;
 
-        threadgroup uint candidate_ordinals[64];
-        threadgroup uint candidate_indices[64];
-        threadgroup uint semifinal_ordinals[16];
-        threadgroup uint semifinal_indices[16];
+        threadgroup uint xchg_ordinals[256];
+        threadgroup uint xchg_indices[256];
         \(scoreStorage)
 
         float x = float(logits[lane]);
@@ -8157,77 +8163,34 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         uint my_ordinal = laguna_router_key_ordinal(key);
         uint my_index = lane;
 
-        for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
+        // Byte-for-byte the accepted 256-element Batcher schedule and pair
+        // roles: 30 intra-simdgroup stages and six cross-simdgroup stages.
+        // Only the exact sortable payload representation differs.
+        for (uint sequence = 2; sequence <= 256; sequence <<= 1) {
             for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
-                uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                uint other_index = simd_shuffle_xor(my_index, ushort(stride));
+                uint other_ordinal;
+                uint other_index;
+                if (stride < 32) {
+                    other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+                    other_index = simd_shuffle_xor(my_index, ushort(stride));
+                } else {
+                    xchg_ordinals[lane] = my_ordinal;
+                    xchg_indices[lane] = my_index;
+                    threadgroup_barrier(mem_flags::mem_threadgroup);
+                    uint partner = lane ^ stride;
+                    other_ordinal = xchg_ordinals[partner];
+                    other_index = xchg_indices[partner];
+                    threadgroup_barrier(mem_flags::mem_threadgroup);
+                }
+
                 bool is_lower = (lane & stride) == 0;
                 bool lower_wants_better = (lane & sequence) == 0;
                 bool want_better = lower_wants_better == is_lower;
                 bool other_before_my = laguna_router_ordinal_before(
                     other_ordinal, other_index, my_ordinal, my_index);
-                bool take_other = want_better ? other_before_my : !other_before_my;
-                if (take_other) {
-                    my_ordinal = other_ordinal;
-                    my_index = other_index;
-                }
-            }
-        }
-
-        uint block = lane >> 5;
-        uint within_block = lane & 31;
-        bool block_ascending = (block & 1) == 0;
-        uint rank_in_block = block_ascending ? within_block : (31 - within_block);
-        bool is_local_top8 = block_ascending ? (within_block < 8) : (within_block >= 24);
-        if (is_local_top8) {
-            candidate_ordinals[block * 8 + rank_in_block] = my_ordinal;
-            candidate_indices[block * 8 + rank_in_block] = my_index;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        if (lane < 64) {
-            my_ordinal = candidate_ordinals[lane];
-            my_index = candidate_indices[lane];
-            for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
-                for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
-                    uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                    uint other_index = simd_shuffle_xor(my_index, ushort(stride));
-                    bool is_lower = (lane & stride) == 0;
-                    bool lower_wants_better = (lane & sequence) == 0;
-                    bool want_better = lower_wants_better == is_lower;
-                    bool other_before_my = laguna_router_ordinal_before(
-                        other_ordinal, other_index, my_ordinal, my_index);
-                    bool take_other = want_better ? other_before_my : !other_before_my;
-                    if (take_other) {
-                        my_ordinal = other_ordinal;
-                        my_index = other_index;
-                    }
-                }
-            }
-
-            uint segment = lane >> 5;
-            uint within_half = lane & 31;
-            bool half_ascending = segment == 0;
-            uint rank_in_half = half_ascending ? within_half : (31 - within_half);
-            bool is_half_top8 = half_ascending ? (within_half < 8) : (within_half >= 24);
-            if (is_half_top8) {
-                uint semifinal_slot = half_ascending ? rank_in_half : (15 - rank_in_half);
-                semifinal_ordinals[semifinal_slot] = my_ordinal;
-                semifinal_indices[semifinal_slot] = my_index;
-            }
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        if (lane < 32) {
-            uint within_final = lane & 15;
-            my_ordinal = semifinal_ordinals[within_final];
-            my_index = semifinal_indices[within_final];
-            for (uint stride = 8; stride > 0; stride >>= 1) {
-                uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                uint other_index = simd_shuffle_xor(my_index, ushort(stride));
-                bool want_better = (within_final & stride) == 0;
-                bool other_before_my = laguna_router_ordinal_before(
-                    other_ordinal, other_index, my_ordinal, my_index);
+                // Expert indices are globally unique, so `my` and `other`
+                // can never compare equal. This is the accepted a/b pair-role
+                // rule reduced algebraically to a direct take-other decision.
                 bool take_other = want_better ? other_before_my : !other_before_my;
                 if (take_other) {
                     my_ordinal = other_ordinal;
@@ -8268,7 +8231,7 @@ private let lagunaDecodeRouterOrdinalHeader = """
     """
 
 private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_v2",
+    name: "laguna_decode_router_top8_ordinal_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false),
@@ -8277,7 +8240,7 @@ private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_norm_v2",
+    name: "laguna_decode_router_top8_ordinal_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true),
@@ -8286,7 +8249,7 @@ private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_table_v2",
+    name: "laguna_decode_router_top8_ordinal_table_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false, scoreTable: true),
@@ -8295,7 +8258,7 @@ private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_table_norm_v2",
+    name: "laguna_decode_router_top8_ordinal_table_norm_v1",
     inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true, scoreTable: true),
