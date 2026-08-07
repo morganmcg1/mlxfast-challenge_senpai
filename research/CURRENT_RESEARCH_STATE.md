@@ -87,7 +87,7 @@ is an estimate, replaceable by a counter in `maybeInsertBarrier`
 | #268 | maple-fern | **P0 gating**: attribute the 1.4 µs tax to E1–E4 (barrier counter, dependent-vs-independent injection, CPU busy-spin, `GPUStartTime`/`GPUEndTime`, footprint and resource sweeps) and price the refund (R1 self-fusion + diamond control). Decision rule: refund ≥1 µs ⇒ count reduction is the campaign; ≤0.3 µs ⇒ pivot to ICB/encode overlap. | none |
 | #269 | maple-nezuko | **R2 hedge**: `compiled{}` fusion of real elementwise decode segments (router `normTopkProb` 9573, SwiGLU epilogue, residual chains). Robust to either E1 or E2 because it removes CPU ops *and* GPU dispatches. Rules-legal: MLX compile cache keys on shape/dtype, not tokens. | local-first |
 | #270 | maple-tanjiro | **Non-MoE prefill census**: the ≈54.6 ms with no census at all, worth ≈20% of score at 0.374750 %/ms. Structural census + relative timing, every row flagged for M5 host divergence. | none |
-| — | maple-frieren | Preserved per operator nudge. **Queued next**: byte-recovery cleanup carrying the `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE` default flip (a twice-measured M5 negative; defaulting OFF recovers **+0.2237% `ns`**). | none |
+| — | maple-frieren | Preserved per operator nudge. **Queued next**: byte-recovery cleanup, brief pre-written in [`research/maple-byte-recovery-census-2026-08-07.md`](maple-byte-recovery-census-2026-08-07.md). ≈70 KB at LOW risk, no ranked slot, no score claim. | none |
 
 **Region fences in `Sources/MLXFastModel/LagunaRuntimeModel.swift`** (11,073 lines,
 three concurrent editors): 853–1097, 4623–5372, 5700–5800, 6700–6910, 7500–7700,
@@ -116,6 +116,16 @@ three concurrent editors): 853–1097, 4623–5372, 5700–5800, 6700–6910, 75
 5. **Byte headroom is now a first-class constraint.** 2,950,855 / 3,000,000 bytes used
    ⇒ **49,145 B headroom**, 142 files. Per-PR growth target ≤ 12,000 B.
    `check-editable-budget.sh` requires the **full 40-char SHA**.
+6. **⚠ There is a second, per-file cap of 524,288 B.**
+   `Sources/MLXFastModel/LagunaRuntimeModel.swift` is **468,336 B** ⇒ only **55,952 B**
+   of per-file headroom. Every concurrent decode assignment edits that one file, so a
+   large addition hits the *file* cap long before the 49,145 B *total* cap.
+7. **⚠ Any edit under `Vendor/mlx-swift/Source/Cmlx/{mlx,mlx-generated}` — including a
+   comment-only edit — requires a metallib rebuild.**
+   `Sources/MLXFastTrustedHarness/VendoredMetalFingerprint.swift:19-21` per-file
+   SHA-256s that whole tree, and the trusted CLI recomputes the fingerprint immediately
+   before spawning the worker so a stale metallib cannot mask edits. Re-run
+   `tools/build-mlx-metallib.sh` / `./setup.sh` after any such touch.
 
 ## No W&B channel for this target
 
@@ -148,8 +158,16 @@ W&B links they cannot produce.
    k-iteration on loop-invariant inputs, unhoistable across the non-inlined call. This
    is an **ALU-issue** hypothesis and is untouched by #244's closure of the load-bound
    family. Reprice it if #270 finds an issue-bound prefill family.
-7. **Byte recovery** (frieren, queued) — the `LMHEAD_ROWMAJOR_REFINE` default flip
-   carries a real measured **+0.2237% `ns`**, so cleanup is not overhead here.
+7. **Byte recovery** (frieren, queued) — see
+   [`research/maple-byte-recovery-census-2026-08-07.md`](maple-byte-recovery-census-2026-08-07.md).
+   **≈70,131 B at LOW risk** (headroom 49,145 → ≈119,276), ceiling ≈173,725 B. The
+   dominant lever is *relocating* 172,594 B of campaign measurement narrative out of
+   four `Sources/MLXFastModel/*.swift` files into non-editable `notes/` — comments are
+   not compiled, so it is byte-for-byte behaviour-neutral. It also relieves the per-file
+   cap on `LagunaRuntimeModel.swift`. **There is no score in this work**: the census
+   corrected the backlog's claim that `LMHEAD_ROWMAJOR_REFINE` still needed a default
+   flip — it has been default OFF since receipt `99b71258` measured +24.6 µs/token on
+   M5. Cleanup buys *capacity for future arms*, nothing else.
 8. Lower priority: LPT expert→threadgroup permutation (simulate first, free);
    multi-chunk `Ws` accumulator blocking (only +8.0% redundancy); dense-GEMM prefill
    replication census; bf16 prefill-only attention scratch; RoPE-table precompute;
@@ -1755,6 +1773,12 @@ bit-exactness and correctness — it just cannot rank the result.
   3. fern's **`DARKBLOOM_LMHEAD_ROWMAJOR_REFINE` dual-arm flag** and the
      superseded S4 kernel, the moment #137 merges.
 
+  > **SUPERSEDED (2026-08-07).** Items 2 and 3 above are wrong. The audited
+  > census — [`maple-byte-recovery-census-2026-08-07.md`](maple-byte-recovery-census-2026-08-07.md)
+  > — found the `.metal` "duplicates" are all `kernels/X.h` ↔ `mlx-generated/X.cpp`
+  > AOT/JIT twins that AGENTS.md requires to both exist (**0 B recoverable**), and
+  > BK128 is 2,693 B not 5,164 B. Use the census, not this list.
+
 ### ⭐ Round-25 frontier programme: own the *inter-kernel timeline*
 
 Source: plateau-escalation frontier readout, 2026-08-06 (batch
@@ -3134,6 +3158,15 @@ Ordered by expected value, not by ease.
    runtime arm has to edit. Deleting transform-side bytes lifts the global
    ceiling and does nothing for that. A cleanup PR should therefore target
    `LagunaRuntimeModel.swift` itself first.
+
+   > **SUPERSEDED (2026-08-07)** by
+   > [`maple-byte-recovery-census-2026-08-07.md`](maple-byte-recovery-census-2026-08-07.md).
+   > The candidate list here is partly wrong (`.metal` "duplicates" recover 0 B;
+   > BK128 is 2,693 B). The per-file-cap instinct in the last three sentences is
+   > **right and is now the census's headline**: relocating 172,594 B of
+   > measurement narrative out of four `Sources/MLXFastModel/*.swift` files into
+   > non-editable `notes/` is both the largest global lever and the only one that
+   > relieves `LagunaRuntimeModel.swift` (now 468,336 B, 55,952 B of file headroom).
 10. **Shared-expert prefill SwiGLU epilogue.** Held detail in §7. Prefill-only,
     78.0 MiB/step of written+read traffic across 39 sparse layers plus 78 fewer
     dispatches; the concatenated NVFP4 `[gate;up]` bank already exists so there
