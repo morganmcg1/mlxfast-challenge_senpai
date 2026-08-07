@@ -1,7 +1,7 @@
 # SENPAI Research State
-- 2026-08-07T11:45Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: ffdcf46 (pushed to origin).
-  22 composed changes on current frontier (21 previous + PR #258 full-attn atlas).
+- 2026-08-07T11:56Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: dd9ab65 (pushed to origin).
+  24 composed changes on current frontier (22 previous + PR #263 + PR #261).
   LRM: 523,729/524,288 = 559 B headroom. Total surface ~2,988K/3,000,000.
 
 ## CRITICAL FIX THIS SESSION: Variant 3 Revert
@@ -28,37 +28,35 @@
   REVERTED: PR #251 (simd_dot) — M5 build failure (cdefbb9)
 
 ## M5 SUBMISSION STATUS
-  6f9ca88: VALIDATING (since 11:41 UTC) — frontier 1919be9 (variant 5 restored, 22 changes)
-  d565be6: FAILED — frontier 7727d20 (included variant 3 BUG, disabled expert path)
+  b72eef88: VALIDATING (since 11:56 UTC) — frontier dd9ab65 (24 changes, includes PR #263 + PR #261)
+  6f9ca88: FAILED — frontier 1919be9 (variant 5 restored, 22 changes, infrastructure failure)
+  d565be6: FAILED — frontier 7727d20 (variant 3 BUG)
   8b5b01d: FAILED — frontier e0623cf (20 changes)
-  70929a5: FAILED — frontier cdefbb9 (revert of #251, code-identical to ad58c92)
   68b66c5: REJECTED, score 2.5520 — frontier ad58c92 (18 changes, LAST SCORED)
-  df9613a: REJECTED, score 2.5817 — frontier before #234/#243 (BEST SCORE)
-  Leaderboard: fyrsta7 2.6040 (current #1). Our promoted: 97a5090 2.5888 (maple campaign).
-  Gap to close: +0.86% from best (2.5817 → 2.6040).
+  df9613a: REJECTED, score 2.5817 — BEST SCORE
+  Leaderboard: fyrsta7 2.6040 (current #1). Gap to close: +0.86% from best (2.5817 → 2.6040).
+  NOTE: Multiple failures appear infrastructure-related (70929a5 with identical code to scored 68b66c5 also failed).
 
-## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=ffdcf46)
-  PR #261 (thorfinn): Prefill QKV fusion enable — DARKBLOOM_FUSED_QKV OFF→ON
-    (0-byte LRM, bit-exact, prefill, 78 dispatches eliminated)
-    Rebase feedback sent to ffdcf46
-  PR #263 (edward): STAGE2_GATHER variant 2 — zero-occupancy weight staging overlap
-    in _nax prefill kernel (0-byte vendor file, bit-exact, prefill-only, M5-only)
-  PR #264 (alphonse): eScoreCorrectionBias F32 hoist — eliminate 39 per-prefill
-    BF16→FP32 allocations (~+100-200B LRM, bit-exact, prefill)
-  PR #267 (askeladd): Merge shared QMV into routed dispatch — extend routed kernel
-    to 9th expert slot, eliminate 39 decode dispatches (~-6.5KB LRM, bit-exact, decode)
+## MERGED THIS SESSION (Wave 13, +2 changes)
+  PR #263 (edward): STAGE2_GATHER variant 2 — 0-byte, bit-exact, prefill-only, M5-only effect
+  PR #261 (thorfinn): QKV bank fusion — 0-byte, bit-exact, prefill-only, 78 dispatches eliminated
 
-## CLOSED THIS SESSION
+## CLOSED THIS SESSION (Wave 13)
   PR #265 (askeladd): Non-expert stage flags — DEAD ARM (no scored operation uses non-expert path)
-  PR #259 (alphonse): Prefill values transpose fold — DEAD (no gain, asyncEval overlap, budget)
-  PR #260 (askeladd): _nax BK padding — DEAD (no gain, bank conflicts)
+  PR #264 (alphonse): eScoreCorrectionBias F32 hoist — DEAD (bias already F32, .asType is no-op)
+
+## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=dd9ab65)
+  PR #267 (askeladd): Merge shared QMV into routed dispatch — ~-6.5KB LRM, eliminate 39 decode dispatches (DECODE)
+  PR #271 (alphonse): BK=32 tile reduction — 0-byte, 1-line, prefill-only, M5-only effect (PREFILL)
+  PR #272 (edward): Extend RMSNorm+router to multi-token prefill — eliminate 39 router matmul dispatches (PREFILL)
 
 ## NEXT-WAVE IDEAS (from NOVEL_OPTIMIZATION_IDEAS.md)
-  1. Fuse RMSNorm+router into O-proj (decode 75%, -2KB, M4-testable, medium risk) — UNASSIGNED
+  1. Fuse RMSNorm+router into O-proj — DEAD (incompatible parallelism structures: 16384 TGs vs 1 TG)
   2. ~~Merge shared QMV into routed dispatch~~ — ASSIGNED to askeladd (PR #267)
-  3. Revive XMAJOR fold (prefill 25%, 0B, M5-only, med-high risk) — UNASSIGNED
-  4. BK=32 tile reduction (prefill 25%, 0B, M5-only, low-med risk) — UNASSIGNED
-  5. asyncEval ladder tuning (decode 75%, 0B, quick A/B test) — UNASSIGNED
+  3. Revive XMAJOR fold — NOT ASSIGNED (too complex: requires re-implementing removed kernel arms, M5-only)
+  4. ~~BK=32 tile reduction~~ — ASSIGNED to alphonse (PR #271)
+  5. asyncEval ladder tuning — EXHAUSTED (already swept in notes/52, 66 runs)
+  NEW: Extend RMSNorm+router to multi-token prefill — ASSIGNED to edward (PR #272)
 
 ## CLOSED PRIOR
   PR #248 (alphonse): Scalar RMSNorm fusion — DEAD (FP reduction order mismatch)
