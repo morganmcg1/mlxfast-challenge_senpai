@@ -11,11 +11,11 @@
       5
     ],
     "kernel_routine": "lagunaRoutedSwiGLUQMVPackedTop8",
-    "measurement_activation": "explicitly armed after constructor warmup and before protocol hello",
+    "measurement_activation": "model-observed on the first runtime 512-token seed after constructor warmup decode",
     "mode_dependent_control": {
       "cold_selected_experts": "(indices + 8) % 256",
-      "only_difference": "selected expert row addresses",
-      "warm_selected_experts": "indices"
+      "only_difference": "addend selecting expert row addresses",
+      "warm_selected_experts": "(indices + 256) % 256"
     },
     "per_sparse_layer_async_eval_roots": "[indices, duplicate[0...K-1], ordinary]",
     "scratch_root_retention_order": "layer-major, slot 0 through K-1",
@@ -23,7 +23,7 @@
     "warm_cold_command_graph_identical": true
   },
   "discard_steps_per_arm": 16,
-  "elapsed_wall_seconds": 408.24820494651794,
+  "elapsed_wall_seconds": 409.4872512817383,
   "fixture_case": "longcopy-gate-english-512",
   "logical_kv_advancement_exact": true,
   "matrix_block_orders": [
@@ -34,7 +34,7 @@
   "pending_future_state": false,
   "physical_kv_advancement_exact": true,
   "physical_kv_position_directly_observable": true,
-  "pre_touch_protocol": "Blocking eval of every fused array, then a page-stride CPU read across each complete 256-expert routed weight bank and packed-scale bank in all 39 sparse layers before constructor warmup. Measurement activates explicitly after constructor warmup and before protocol hello; the first 16 identical forced-token steps of every arm are discarded before retained timing.",
+  "pre_touch_protocol": "Blocking eval of every fused array, then a page-stride CPU read across each complete 256-expert routed weight bank and packed-scale bank in all 39 sparse layers before constructor warmup. Measurement activates on the first runtime seed after constructor warmup; the first 16 identical forced-token steps of every arm are discarded before retained timing.",
   "raw_output": "research/cedar-nezuko-cold-duplicate-matrix.csv",
   "reference_seed_token": 5991,
   "residual_confound": "Cache-set mapping and physical page placement remain uncontrolled; DRAM traffic and cache residency are not directly measured.",
@@ -217,7 +217,7 @@
     "mlxfast: lm_head prune active (coarse copy resident)",
     "mlxfast: packed-scales active: routed swiglu qmv packed dispatch"
   ],
-  "storage_independence_scope": "All 78 complete routed-bank backing ranges are pairwise non-overlapping; each bank is expert-first contiguous, making distinct expert rows disjoint. Dynamic warm/cold top-8 row overlap is recorded for every sparse layer and decode step.",
+  "storage_independence_scope": "All 78 complete routed-bank virtual backing ranges are pairwise non-overlapping; each bank is expert-first contiguous, making distinct expert rows virtually disjoint. Dynamic warm/cold top-8 row overlap is recorded for every sparse layer and decode step. This proves virtual-range separation only.",
   "storage_proof": {
     "bank_ranges_nonoverlap": "1",
     "checksum": "47e8a018fe07ce34",
@@ -233,7 +233,7 @@
     "weight_row_bytes": "1048576"
   },
   "system": {
-    "git_head": "67873f1b85882f8d706e6d569119cafd59bb1ff2",
+    "git_head": "ad3ae61deeba8a93d24ee0c3b5821812ffeacdb0",
     "logical_cpu_count": "14",
     "mac_model": "Mac16,11",
     "machine": "arm64",
@@ -256,7 +256,7 @@
       "expert_read_seconds": 0
     },
     "id": 0,
-    "nonce": "024b9e4c01cb2bbafdd4aeec041d7ad0",
+    "nonce": "09af571a817afb220ec5cfe1332053db",
     "ok": true
   },
   "worker_return_code": 0
