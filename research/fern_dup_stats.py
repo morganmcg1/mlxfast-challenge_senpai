@@ -157,18 +157,18 @@ def main() -> int:
         print(f"\nsaturation: K=1->2 costs {early:.2f} us/copy-set, "
               f"K=2->5 costs {late:.2f} us/copy-set (ratio {late/early:.2f})")
 
-    shadow = None
+    resolution_k = None
     for k in arms:
         if k == 1 or k not in contrasts:
             continue
         m, se, _ = contrasts[k]
         if abs(m) > 2 * se:
-            shadow = k
+            resolution_k = k
             break
-    label = (f"first resolved at K={shadow}" if shadow
+    label = (f"first resolved at K={resolution_k}" if resolution_k
              else "never surfaced within the sweep")
-    flag = "  [THIN MARGIN: M5 flip risk]" if shadow == 2 else ""
-    print(f"\nshadow ratio: {shadow if shadow else '>' + str(arms[-1])} "
+    flag = "  [THIN MARGIN: M5 flip risk]" if resolution_k == 2 else ""
+    print(f"\nresolution K: {resolution_k if resolution_k else '>' + str(arms[-1])} "
           f"-- {label}{flag}")
 
     if args.calls:

@@ -345,7 +345,6 @@ cost (185.7 vs 305.1 us/step) differ by more than an order of magnitude in
 marginal cost. **Census time is not marginal cost, and the ledger can tell
 them apart.**
 
-
 ---
 
 ## 4. What the instrument cannot see: the cache-warm floor
@@ -773,4 +772,185 @@ its top edge, and with **zero absorbed slack**. It is a *small* chain-link, not
 a side branch. The `E` band accepted it for the wrong reason; the slack column
 is the diagnostic that separates them.
 
+---
 
+## 8. Appendix
+
+### 8.1 Deviations from the pre-registration
+
+The plan was frozen at `d9edc28` before any probe ran. Five things were done
+differently, and all five are listed here rather than quietly absorbed.
+
+1. **The fault is applied to the real dispatch, not to a duplicate.** The plan
+   said the sensitivity arm would perturb an injected copy. `faultInput` instead
+   adds one bf16 ULP to the input of the *real* dispatch, and is deliberately
+   not gated on `enabled`. Perturbing a duplicate would only prove the duplicate
+   is discarded; perturbing the real input proves the digest can see a minimum
+   numerical change on the exact code path that the invariance arms declare
+   clean. This is a strictly stronger test than the one registered.
+2. **Segments are scheduled in-process, palindromically.** The plan implied one
+   worker invocation per `K`. Instead one invocation walks a palindromic
+   schedule twice. Between-session arm-level scatter is +/- 70 us against a
+   +/- 40 us within-session segment-median noise floor, so per-`K` invocations
+   would have buried several of the smaller rows in session noise. The
+   palindrome also cancels monotone thermal drift to first order.
+3. **An alignment correction for warm-up segments.** The worker emits some
+   segments before the schedule is engaged. The probe consumes
+   `-(last + 1) % len(schedule)` leading segments. This is verifiable rather
+   than assumed, because `DUPSEG` is emitted even when the instrument is
+   disabled: `beginForward` guards on `!schedule.isEmpty && !target.isEmpty`,
+   not on `enabled`.
+4. **An all-site reachability census was added mid-experiment.** It was not in
+   the plan. It was added after A2 produced a clean, tight null on a site that
+   turned out to be dead code, and it is the origin of the standing
+   "void, not zero" rule stated in section 2.
+5. **A2 was re-targeted and then restored.** When the pre-registered `T0b` site
+   proved unreachable, A2 was temporarily re-pointed at `T1c_lmhead` to keep the
+   gate moving. Once the live QKV dispatch was located, the instrument was
+   re-wired and A2 was re-run **on its original pre-registered target**, where
+   it passed at `E = 0.741`. The `T1c` run is retained as a supplementary
+   control rather than presented as the A2 gate, and the scorecard in section 7
+   reports `T0b` against its original prediction.
+
+### 8.2 Why the pre-registered site was dead, and how that was established
+
+`lagunaNormAffineQKV` was the pre-registered `T0b` site. Its guard at
+`LagunaRuntimeModel.swift:5852-5858` declines on this checkpoint: the weight
+bank is NVFP4 group-16 with no affine biases, and `_nativeAffineQKVGateRows`
+is `0` where `nHeads` is required, because `lagunaNativeAffineNVFP4From`
+defaults to `0`. Two probe runs against it (`51a82e1f`, `e9b53c64`) reported
+zero `DUPCOUNT` copies while returning a convincingly clean null. The live
+decode QKV dispatch is `lagunaDecodeNVFP4QKVR1`, wired at `:5883` behind a
+`decodeNVFP4QKVR1 != nil` guard, firing 40 times per decode step and not at all
+in prefill.
+
+### 8.3 Reachability census
+
+Run `545b0c42-442e-4ee1-bbbc-9815e613ebe7`, exit 0, 44 s. All eight wired sites
+are live in decode. Emitted once per forward, 13 decode occurrences:
+
+```
+DUPCOUNT k=3 copies=80 T0a_router_top8=39,T0b_qkv=40,T1a_residual_rms_router=39,
+  T1c_lmhead=1,T2a_shared_qmv=39,T2b_gate_sp=40,T2c_routed_qmv=39,T2d_down_residual=39
+DUPCOUNT k=1 copies=0
+```
+
+Prefill (2 occurrences) fires only `T0a=1, T1c=1, T2a=1, T2c=1, T2d=1`. `T0b`,
+`T1a` and `T2b` are decode-only.
+
+### 8.4 Segment medians and block-paired contrasts
+
+Every timing run in this report uses 216 steps per segment with the first 16
+dropped, and every one reported `divergences=0`. The segment medians below are
+the reduction that every fit in this report is computed from.
+
+`T0b_qkv`, schedule `1,2,3,5,9,9,5,3,2,1` x 2 blocks, run
+`ab7e4b94-c948-446b-b0b8-55cf1a3e4595`:
+
+| K | 1 | 2 | 3 | 5 | 9 |
+| --- | --: | --: | --: | --: | --: |
+| median step (ms) | 8.205 | 9.90 | 11.05 | 13.51 | 18.6 |
+
+Block-paired contrasts, in us added per step against the `K=1` segment in the
+same block. The saturation ratio is the `K=5,9` hinge slope divided by the
+`K=1,2` slope; a value below 1 means the later copies are cheaper than the
+first, which is the cache-warm discount quantified in section 4.1.
+
+| site | K=2 | K=3 | K=5 | K=9 | sat. ratio |
+| --- | --- | --- | --- | --- | --: |
+| `T0b_qkv` | `1629.74 +/- 25.29` | `2837.35 +/- 3.23` | `5289.58 +/- 13.14` | `10369.54 +/- 30.82` | 0.75 |
+| `T2c_routed_qmv` | `1377.67 +/- 1.08` | `2619.39 +/- 17.81` | `4930.17 +/- 6.29` | `9559.42 +/- 0.98` | 0.86 |
+| `T2d_down_residual` | `719.60 +/- 6.98` | `1153.13 +/- 15.89` | `2253.24 +/- 32.64` | `4506.92 +/- 10.05` | 0.71 |
+
+`T1c_lmhead` is linear to within 2 %: `K1->2 = 499.86 us`,
+`K2->5 = 508.44 us` per copy-set, ratio 1.02. It is the only priced site with
+no measurable warm discount, which is consistent with a single 134.9 MB
+dispatch that cannot fit in cache under any `K`.
+
+`T1a_residual_rms_router`, schedule `1,5,11,21,41,41,21,11,5,1` x 2, unchained
+run `dfa6b483-4cf6-4116-bfcd-97ede925963d` against chained run
+`ee407682-2304-4f3b-a065-bdc55d5e2291`:
+
+| K | copy-sets | unchained (us/step) | chained (us/step) | ratio |
+| --: | --: | --- | --- | --: |
+| 5 | 4 | `157.9 +/- 5.9` | `425.7 +/- 14.2` | 2.70 |
+| 11 | 10 | `468.5 +/- 9.4` | `1053.4 +/- 14.2` | 2.25 |
+| 21 | 20 | `1526.8 +/- 89.9` | `2422.0 +/- 24.8` | 1.59 |
+| 41 | 40 | `7842.2 +/- 78.7` | `7973.5 +/- 200.7` | 1.02 |
+
+The `T0a_router_top8` saturation control (run
+`cabf0bf5-462b-468f-8c55-a93b9c736766`, schedule `1,5,17,65,65,17,5,1` x 2)
+gives `K=5: +30.5 +/- 19.0` (t = 1.6), `K=17: +70.5 +/- 6.3`, and
+`K=65: +5091.8 +/- 152.6`. The saturated marginal is 104.61 us per copy-set and
+the absorbed slack is 15.33 copy-sets, or 2846 us per step. The naive all-arm
+OLS over that schedule is `83.75 +/- 5.77`, and it must **not** be quoted as a
+linear slope: it averages a free regime and a saturated regime that differ by
+more than two orders of magnitude.
+
+### 8.5 Reproduction
+
+The instrument is shipped as `research/maple-fern-decode-dup-injection.patch`
+and is **not** part of the submitted surface. To reproduce, apply it, build the
+worker exactly the way the scored path builds it, and restore `Package.resolved`:
+
+```
+git apply research/maple-fern-decode-dup-injection.patch
+swift build -c release --force-resolved-versions \
+  --scratch-path .build-worker --product mlxfast-runtime-worker
+git checkout -- Package.resolved
+```
+
+A bare `swift build -c release` writes a different build directory and is not
+the worker the probe drives.
+
+One priced row, about 110 s on this host:
+
+```
+python3 research/fern_dup_probe.py --target T0b_qkv \
+  --schedule 1,2,3,5,9,9,5,3,2,1 --blocks 2 \
+  --steps-per-segment 216 --drop 16 \
+  --out /tmp/fern_t0b.tsv --stderr /tmp/fern_t0b.err
+python3 research/fern_dup_stats.py /tmp/fern_t0b.tsv --census 1722.3 --calls 40
+```
+
+The four correctness gates of section 2, run
+`e511ec3a-0189-4dad-bce8-174af89b1a06`:
+
+```
+python3 research/fern_dup_digest.py --target T1c_lmhead     --schedule 1       --steps 24 --top-k 1024
+python3 research/fern_dup_digest.py --target T1c_lmhead     --schedule 1       --steps 24 --top-k 1024 --fault
+python3 research/fern_dup_digest.py --target T0b_qkv        --schedule 1,2,3,5 --steps 24 --top-k 1024
+python3 research/fern_dup_digest.py --target T2c_routed_qmv --schedule 1,2,3,5 --steps 24 --top-k 1024
+```
+
+The digest tool keys its results dict by `K`, so a schedule that repeats a `K`
+value silently collides. Palindromic timing schedules must not be passed to it;
+use strictly increasing schedules for digest gates, as above.
+
+Reachability census for any site:
+
+```
+python3 research/fern_dup_probe.py --target T0a_router_top8 --schedule 1,3 \
+  --blocks 1 --steps-per-segment 24 --verbose-census --stderr /tmp/census.err
+```
+
+`--verbose-census` is required: `endStep` guards on `verbose`, so `DUPCOUNT` is
+never emitted on a timing run.
+
+### 8.6 Host
+
+Apple M4 Pro, 48 GiB unified memory, 20 GPU cores, `applegpu_g16s`, Apple GPU
+generation 16, 273 GB/s theoretical peak against a 260.6 GB/s roofline-measured
+ceiling. Swift 6.3.3. Low-memory startup profile (allocator cache 6 GiB); worker
+RSS ~20.7 GB, MLX peak ~36.1 GB, worker load ~41-43 s per invocation. Steady
+one-token decode step 8.20 ms.
+
+**This is not the ranked host.** The M5 Max is generation 17, 40 cores,
+614 GB/s, and is estimated ~89 % instruction-bound where this host is
+bandwidth-bound. It also selects `_nax` kernel variants that generation 16 never
+reaches. Every ratio in this report is an M4 Pro ratio. The ledger's *ordering*
+of the spine should survive the port because it is set by bytes per token, which
+is a property of the checkpoint rather than of the host; the *magnitudes* and in
+particular the shadow-family slack should not be assumed to. Porting the ledger
+to the M5 is item 2 of the ranked list in section 6.3, and it is the work that
+would turn these into ranked-host statements.

@@ -7,124 +7,6 @@ import MLXNN
 // Correctness-first Laguna XS 2.1 runtime, behavior-checked against the
 // vendored reference implementation and specialized by guarded fast paths.
 
-/// RESEARCH-ONLY duplicate-injection instrument (PR #218). Never shipped:
-/// this whole enum is inert unless `DARKBLOOM_DECODE_DUP_TARGET` is set to a
-/// non-empty name AND `DARKBLOOM_DECODE_DUP_K > 1`, and it is reverted before
-/// submission. It re-issues one named decode dispatch family `K-1` extra
-/// times per call, each copy writing its own freshly allocated output, and
-/// registers those outputs as extra eval roots ahead of the real root so MLX
-/// cannot eliminate them. Measuring d(step time)/dK prices that family's
-/// marginal cost without deleting anything.
-enum LagunaDecodeDup {
-    static let target = ProcessInfo.processInfo.environment[
-        "DARKBLOOM_DECODE_DUP_TARGET"] ?? ""
-    static let k = Int(
-        ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_K"] ?? "1") ?? 1
-    static let chained =
-        ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_CHAIN"] == "1"
-    /// Sensitivity control (see `faultInput`): perturbs the *real* dispatch,
-    /// not a duplicate, because duplicates write scratch that nothing reads.
-    static let fault =
-        ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_FAULT"] == "1"
-    static let verbose =
-        ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_VERBOSE"] == "1"
-    /// Comma-separated per-segment copy counts, e.g. `1,2,3,5,5,3,2,1`. A
-    /// segment starts at every multi-token forward (the probe's `decode_begin`),
-    /// so all arms live in one process with one model load and one thermal
-    /// state, and the palindrome cancels linear drift inside each block.
-    static let schedule: [Int] = (ProcessInfo.processInfo.environment[
-        "DARKBLOOM_DECODE_DUP_SCHEDULE"] ?? "")
-        .split(separator: ",").compactMap { Int($0) }
-    static let enabled =
-        !target.isEmpty && (k > 1 || schedule.contains { $0 > 1 })
-
-    nonisolated(unsafe) private static var roots: [MLXArray] = []
-    nonisolated(unsafe) private static var callCounts: [String: Int] = [:]
-    nonisolated(unsafe) private static var copyCount = 0
-    nonisolated(unsafe) private static var segment = -1
-    nonisolated(unsafe) private static var stepInSegment = 0
-    nonisolated(unsafe) private static var currentK = k
-
-    /// Called at the top of every model forward. A seed prefill opens the next
-    /// schedule segment; the first single-token step of a segment announces its
-    /// arm on stderr so the analysis never has to *assume* the probe and the
-    /// instrument stayed in phase. The 64-token floor keeps short warmup
-    /// forwards issued during model load from consuming schedule slots.
-    @inline(__always)
-    static func beginForward(tokens: Int) {
-        guard !schedule.isEmpty, !target.isEmpty else { return }
-        if tokens >= 64 {
-            segment += 1
-            stepInSegment = 0
-            currentK = schedule[segment % schedule.count]
-            return
-        }
-        guard tokens == 1, segment >= 0 else { return }
-        if stepInSegment == 0 {
-            FileHandle.standardError.write(
-                Data("DUPSEG \(segment) target=\(target) k=\(currentK)\n".utf8))
-        }
-        stepInSegment += 1
-    }
-
-    /// Emit `k-1` duplicates of the dispatch named `name`. `body` receives the
-    /// copy index (1-based) and the previous copy's output when chaining, and
-    /// must issue exactly the same kernel with a fresh output.
-    @inline(__always)
-    static func inject(
-        _ name: String, _ body: (Int, MLXArray?) -> MLXArray?
-    ) {
-        // Census every wired site, not just the selected one: a site that the
-        // promoted guards never reach in decode silently measures nothing, and
-        // that failure is indistinguishable from a true zero marginal cost.
-        if verbose { callCounts[name, default: 0] += 1 }
-        guard enabled, name == target else { return }
-        var previous: MLXArray?
-        for copy in 1..<currentK {
-            guard let produced = body(copy, chained ? previous : nil) else { return }
-            roots.append(produced)
-            copyCount += 1
-            previous = produced
-        }
-    }
-
-    /// Extra eval roots accumulated since the last drain, ordered oldest
-    /// first so the graph walk reaches each copy next to its own layer.
-    @inline(__always)
-    static func drain() -> [MLXArray] {
-        guard enabled, !roots.isEmpty else { return [] }
-        let drained = roots
-        roots.removeAll(keepingCapacity: true)
-        return drained
-    }
-
-    /// Called once per model invocation. Under `DARKBLOOM_DECODE_DUP_VERBOSE=1`
-    /// the per-invocation injected-call census goes to stderr, which is how the
-    /// probe learns `n_calls_per_step` and asserts
-    /// `n_dispatch(K) - n_dispatch(1) == n_calls_per_step * (K-1)`.
-    /// Timed runs leave it off so no I/O lands in the measured window.
-    @inline(__always)
-    static func endStep() {
-        guard enabled, verbose, !callCounts.isEmpty else { return }
-        let census = callCounts.sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }.joined(separator: ",")
-        FileHandle.standardError.write(
-            Data("DUPCOUNT k=\(currentK) copies=\(copyCount) \(census)\n".utf8))
-        callCounts.removeAll(keepingCapacity: true)
-        copyCount = 0
-    }
-
-    /// Sensitivity control. Under `DARKBLOOM_DECODE_DUP_FAULT=1` the *real*
-    /// dispatch named `name` reads an input whose bf16 bit pattern is one ULP
-    /// higher. If the logit digest does not move under this, the digest is not
-    /// sensitive at this site and "digests match at K>1" would be a tautology.
-    @inline(__always)
-    static func faultInput(_ name: String, _ x: MLXArray) -> MLXArray {
-        guard fault, name == target, x.dtype == .bfloat16 else { return x }
-        return (x.view(dtype: .uint16) + MLXArray(UInt16(1))).view(dtype: .bfloat16)
-    }
-}
-
 func lagunaLastTokenRange(sequenceLength: Int) -> Range<Int>? {
     sequenceLength > 1 ? (sequenceLength - 1)..<sequenceLength : nil
 }
@@ -5879,12 +5761,6 @@ final class LagunaRuntimeAttention: Module {
                     ? lagunaDecodeNVFP4QKVR1(
                         normalized: normalized, bank: fusedAffine, heads: nHeads)
                     : nil
-                if decodeNVFP4QKVR1 != nil {
-                    LagunaDecodeDup.inject("T0b_qkv") { _, _ in
-                        lagunaDecodeNVFP4QKVR1(
-                            normalized: normalized, bank: fusedAffine, heads: nHeads)
-                    }
-                }
                 let qkv =
                     fusedQKV
                     ?? decodeNVFP4QKVR1
@@ -5926,10 +5802,6 @@ final class LagunaRuntimeAttention: Module {
                         let activated = lagunaGateSoftplus(
                             input: normalized, bank: affineGate, heads: nHeads)
                     {
-                        LagunaDecodeDup.inject("T2b_gate_sp") { _, _ in
-                            lagunaGateSoftplus(
-                                input: normalized, bank: affineGate, heads: nHeads)
-                        }
                         gateLogits = activated
                         gateProjectionActivated = true
                     } else {
@@ -9660,22 +9532,11 @@ final class LagunaRuntimeMoEGate: Module {
                 sinkNormalization
                     ? "decode router top8 (cast sink + norm sink)"
                     : "decode router top8 (cast sink)")
-            // One shared correction node: re-issuing `.asType` inside each
-            // duplicate would add an extra dispatch per copy and break the
-            // `n_dispatch(K) - n_dispatch(1) == calls * (K-1)` identity.
-            let correction = eScoreCorrectionBias.asType(.float32)
             (inds, weights) = lagunaDecodeRouterTop8(
-                logits: LagunaDecodeDup.faultInput("T0a_router_top8", projectedLogits),
-                correctionBias: correction,
+                logits: projectedLogits,
+                correctionBias: eScoreCorrectionBias.asType(.float32),
                 normalizing: sinkNormalization
             )
-            LagunaDecodeDup.inject("T0a_router_top8") { _, _ in
-                lagunaDecodeRouterTop8(
-                    logits: projectedLogits,
-                    correctionBias: correction,
-                    normalizing: sinkNormalization
-                ).1
-            }
             if sinkNormalization {
                 return (inds, weights)
             }
@@ -10196,14 +10057,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                             packedScales: packedBank,
                             routerKeys: routerKeys
                         )
-                        LagunaDecodeDup.inject("T2c_routed_qmv") { _, _ in
-                            lagunaRoutedSwiGLUQMVPackedTop8(
-                                x,
-                                fusedWeight: fusedWeight,
-                                packedScales: packedBank,
-                                routerKeys: routerKeys
-                            )
-                        }
                     } else {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed scales)")
                         activated = lagunaRoutedSwiGLUQMVPacked(
@@ -10265,7 +10118,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dims(1, 1, LagunaConstants.hiddenSize)
             {
                 lagunaTrace("routed+shared down residual")
-                let fusedTail = lagunaRoutedSharedDownResidual(
+                return lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
                     routedDownScales: downScales,
@@ -10276,24 +10129,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     sharedDownScales: sharedInputs.downScales,
                     residual: residual
                 )
-                LagunaDecodeDup.inject("T2a_shared_qmv") { _, _ in
-                    sharedExpert.fusedSharedDownInputs(
-                        x, sharedActivation: nil)?.activated
-                }
-                LagunaDecodeDup.inject("T2d_down_residual") { _, _ in
-                    lagunaRoutedSharedDownResidual(
-                        routedActivated: activated,
-                        routedDownWeight: downWeight,
-                        routedDownScales: downScales,
-                        indices: inds,
-                        routerWeights: weights,
-                        sharedActivated: sharedInputs.activated,
-                        sharedDownWeight: sharedInputs.downWeight,
-                        sharedDownScales: sharedInputs.downScales,
-                        residual: residual
-                    )
-                }
-                return fusedTail
             } else if lagunaFusedRoutedDownReduceEnabled,
                 let downWeight = _routedDownWeight,
                 let downScales = _routedDownScales,
@@ -10522,19 +10357,11 @@ final class LagunaRuntimeDecoderLayer: Module {
             sparse.gate.weight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize)
         {
             let fused = lagunaResidualRMSNormRouter(
-                residual: LagunaDecodeDup.faultInput("T1a_residual_rms_router", x),
+                residual: x,
                 branch: r,
                 weight: postAttentionLayerNorm.weight,
                 routerWeight: sparse.gate.weight,
                 correctionBias: sparse.gate.eScoreCorrectionBias)
-            LagunaDecodeDup.inject("T1a_residual_rms_router") { _, chained in
-                lagunaResidualRMSNormRouter(
-                    residual: chained ?? x,
-                    branch: r,
-                    weight: postAttentionLayerNorm.weight,
-                    routerWeight: sparse.gate.weight,
-                    correctionBias: sparse.gate.eScoreCorrectionBias).summed
-            }
             h = fused.summed
             normalized = fused.normalized
             routerLogits = fused.routerLogits
@@ -11056,12 +10883,7 @@ final class LagunaRuntimeModelInner: Module {
                     qkRoPEOffsets: qkRoPEOffsets
                 )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
-                    let dupRoots = LagunaDecodeDup.drain()
-                    if dupRoots.isEmpty {
-                        asyncEval(h)
-                    } else {
-                        asyncEval(dupRoots + [h])
-                    }
+                    asyncEval(h)
                 }
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
@@ -11123,7 +10945,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        LagunaDecodeDup.beginForward(tokens: inputs.dim(1))
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
@@ -11146,28 +10967,18 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 // single-token decode takes the three-level screen, whose
                 // level-one pass reads 25.7 MB/step less of the int5 planes.
                 result = pruner.logits(
-                    hidden: LagunaDecodeDup.faultInput("T1c_lmhead", hidden),
+                    hidden: hidden,
                     lmHeadWeight: lmHead.weight,
                     useFusedRefinement: inputs.dims(1, 1))
-                LagunaDecodeDup.inject("T1c_lmhead") { _, _ in
-                    pruner.logits(
-                        hidden: hidden,
-                        lmHeadWeight: lmHead.weight,
-                        useFusedRefinement: inputs.dims(1, 1))
-                }
             } else {
                 result = lmHead(hidden)
             }
         } else {
             result = model.embedTokens.asLinear(hidden)
         }
-        let pendingDupRoots = LagunaDecodeDup.drain()
-        if !pendingDupRoots.isEmpty {
-            asyncEval(pendingDupRoots + [result])
-        } else if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
+        if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
-        LagunaDecodeDup.endStep()
         return result
     }
 
