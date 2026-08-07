@@ -1,0 +1,711 @@
+{
+  "arm_summaries": [
+    {
+      "block": 1,
+      "k": 1,
+      "label": "b1w1",
+      "mad_elapsed_us": 95.79150000000027,
+      "median_elapsed_us": 9431.104,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 9267.1146,
+      "p95_elapsed_us": 9594.43365,
+      "position": 1
+    },
+    {
+      "block": 1,
+      "k": 1,
+      "label": "b1c1",
+      "mad_elapsed_us": 68.5630000000001,
+      "median_elapsed_us": 10212.146,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 9993.12645,
+      "p95_elapsed_us": 10329.692,
+      "position": 2
+    },
+    {
+      "block": 1,
+      "k": 2,
+      "label": "b1w2",
+      "mad_elapsed_us": 74.31300000000101,
+      "median_elapsed_us": 10218.7715,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 10072.60865,
+      "p95_elapsed_us": 10470.24825,
+      "position": 3
+    },
+    {
+      "block": 1,
+      "k": 2,
+      "label": "b1c2",
+      "mad_elapsed_us": 77.54200000000037,
+      "median_elapsed_us": 10897.1875,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 10745.61665,
+      "p95_elapsed_us": 11059.0271,
+      "position": 4
+    },
+    {
+      "block": 1,
+      "k": 3,
+      "label": "b1w3",
+      "mad_elapsed_us": 76.875,
+      "median_elapsed_us": 10983.979,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 10826.07775,
+      "p95_elapsed_us": 11130.044049999999,
+      "position": 5
+    },
+    {
+      "block": 1,
+      "k": 3,
+      "label": "b1c3",
+      "mad_elapsed_us": 89.08349999999973,
+      "median_elapsed_us": 11726.979,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 11540.328850000002,
+      "p95_elapsed_us": 11865.22565,
+      "position": 6
+    },
+    {
+      "block": 1,
+      "k": 5,
+      "label": "b1w5",
+      "mad_elapsed_us": 78.5625,
+      "median_elapsed_us": 12554.125,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 12376.11045,
+      "p95_elapsed_us": 12700.7101,
+      "position": 7
+    },
+    {
+      "block": 1,
+      "k": 5,
+      "label": "b1c5",
+      "mad_elapsed_us": 76.52049999999963,
+      "median_elapsed_us": 13259.375,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 13060.522600000002,
+      "p95_elapsed_us": 13377.520849999999,
+      "position": 8
+    },
+    {
+      "block": 2,
+      "k": 5,
+      "label": "b2c5",
+      "mad_elapsed_us": 89.97899999999936,
+      "median_elapsed_us": 13246.645499999999,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 12948.1119,
+      "p95_elapsed_us": 13505.0292,
+      "position": 1
+    },
+    {
+      "block": 2,
+      "k": 5,
+      "label": "b2w5",
+      "mad_elapsed_us": 95.91650000000027,
+      "median_elapsed_us": 12538.0415,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 12331.9351,
+      "p95_elapsed_us": 12705.070800000001,
+      "position": 2
+    },
+    {
+      "block": 2,
+      "k": 3,
+      "label": "b2c3",
+      "mad_elapsed_us": 84.41650000000027,
+      "median_elapsed_us": 11680.604,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 11528.9277,
+      "p95_elapsed_us": 11853.804499999998,
+      "position": 3
+    },
+    {
+      "block": 2,
+      "k": 3,
+      "label": "b2w3",
+      "mad_elapsed_us": 70.85400000000027,
+      "median_elapsed_us": 10979.292000000001,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 10835.0316,
+      "p95_elapsed_us": 11132.2625,
+      "position": 4
+    },
+    {
+      "block": 2,
+      "k": 2,
+      "label": "b2c2",
+      "mad_elapsed_us": 82.54150000000027,
+      "median_elapsed_us": 10908.854,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 10651.316350000001,
+      "p95_elapsed_us": 11123.0566,
+      "position": 5
+    },
+    {
+      "block": 2,
+      "k": 2,
+      "label": "b2w2",
+      "mad_elapsed_us": 75.0,
+      "median_elapsed_us": 10236.729,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 10076.727399999998,
+      "p95_elapsed_us": 10366.9125,
+      "position": 6
+    },
+    {
+      "block": 2,
+      "k": 1,
+      "label": "b2c1",
+      "mad_elapsed_us": 78.5,
+      "median_elapsed_us": 10166.646,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 10022.0253,
+      "p95_elapsed_us": 10328.29165,
+      "position": 7
+    },
+    {
+      "block": 2,
+      "k": 1,
+      "label": "b2w1",
+      "mad_elapsed_us": 71.41700000000037,
+      "median_elapsed_us": 9437.3745,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 9300.298550000001,
+      "p95_elapsed_us": 9599.239300000001,
+      "position": 8
+    },
+    {
+      "block": 3,
+      "k": 1,
+      "label": "b3w1",
+      "mad_elapsed_us": 81.35399999999936,
+      "median_elapsed_us": 9455.521,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 9309.028549999999,
+      "p95_elapsed_us": 9597.1723,
+      "position": 1
+    },
+    {
+      "block": 3,
+      "k": 1,
+      "label": "b3c1",
+      "mad_elapsed_us": 57.41599999999926,
+      "median_elapsed_us": 10185.354,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 10049.0729,
+      "p95_elapsed_us": 10318.0375,
+      "position": 2
+    },
+    {
+      "block": 3,
+      "k": 2,
+      "label": "b3w2",
+      "mad_elapsed_us": 83.875,
+      "median_elapsed_us": 10230.208,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 9986.008000000002,
+      "p95_elapsed_us": 10382.462200000002,
+      "position": 3
+    },
+    {
+      "block": 3,
+      "k": 2,
+      "label": "b3c2",
+      "mad_elapsed_us": 74.72899999999936,
+      "median_elapsed_us": 10917.3335,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 10755.510699999999,
+      "p95_elapsed_us": 11055.6521,
+      "position": 4
+    },
+    {
+      "block": 3,
+      "k": 3,
+      "label": "b3w3",
+      "mad_elapsed_us": 71.35450000000037,
+      "median_elapsed_us": 10980.229,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 10836.147299999999,
+      "p95_elapsed_us": 11139.1354,
+      "position": 5
+    },
+    {
+      "block": 3,
+      "k": 3,
+      "label": "b3c3",
+      "mad_elapsed_us": 66.93800000000192,
+      "median_elapsed_us": 11724.979500000001,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 11538.62295,
+      "p95_elapsed_us": 11850.795199999999,
+      "position": 6
+    },
+    {
+      "block": 3,
+      "k": 5,
+      "label": "b3w5",
+      "mad_elapsed_us": 75.22950000000037,
+      "median_elapsed_us": 12538.542,
+      "mode": "warm",
+      "observations": 1200,
+      "p05_elapsed_us": 12385.59585,
+      "p95_elapsed_us": 12697.21845,
+      "position": 7
+    },
+    {
+      "block": 3,
+      "k": 5,
+      "label": "b3c5",
+      "mad_elapsed_us": 68.08350000000064,
+      "median_elapsed_us": 13258.375,
+      "mode": "cold",
+      "observations": 1200,
+      "p05_elapsed_us": 13093.272249999998,
+      "p95_elapsed_us": 13393.8896,
+      "position": 8
+    }
+  ],
+  "block_fits": [
+    {
+      "block": 1,
+      "intercept_us_per_step": 8653.804875,
+      "mode": "warm",
+      "residual_mad_us": 4.032145833334653,
+      "residual_median_us": 0.0,
+      "residual_p95_absolute_us": 8.204206250000516,
+      "slope_us_per_step_per_duplicate": 779.6032083333332
+    },
+    {
+      "block": 1,
+      "intercept_us_per_step": 9437.1665,
+      "mode": "cold",
+      "residual_mad_us": 6.586124999999811,
+      "residual_median_us": 0.0,
+      "residual_p95_absolute_us": 59.433143749999616,
+      "slope_us_per_step_per_duplicate": 764.0026250000001
+    },
+    {
+      "block": 2,
+      "intercept_us_per_step": 8668.51975,
+      "mode": "warm",
+      "residual_mad_us": 6.311999999998989,
+      "residual_median_us": -9.094947017729282e-13,
+      "residual_p95_absolute_us": 20.0335874999997,
+      "slope_us_per_step_per_duplicate": 773.0627500000003
+    },
+    {
+      "block": 2,
+      "intercept_us_per_step": 9380.125,
+      "mode": "cold",
+      "residual_mad_us": 12.583343749999585,
+      "residual_median_us": 0.0,
+      "residual_p95_absolute_us": 15.252284374999999,
+      "slope_us_per_step_per_duplicate": 770.8749374999998
+    },
+    {
+      "block": 3,
+      "intercept_us_per_step": 8686.731625,
+      "mode": "warm",
+      "residual_mad_us": 2.2935208333328774,
+      "residual_median_us": 9.094947017729282e-13,
+      "residual_p95_absolute_us": 14.773593749999868,
+      "slope_us_per_step_per_duplicate": 770.099958333333
+    },
+    {
+      "block": 3,
+      "intercept_us_per_step": 9414.762499999999,
+      "mode": "cold",
+      "residual_mad_us": 2.33625000000211,
+      "residual_median_us": -1.8189894035458565e-12,
+      "residual_p95_absolute_us": 30.63969999999971,
+      "slope_us_per_step_per_duplicate": 769.0340000000006
+    }
+  ],
+  "cold_to_warm_slope_ratio": 0.9947885860494511,
+  "cold_to_warm_slope_ratio_95ci": [
+    0.9791274204662832,
+    1.002483671655337
+  ],
+  "command_graph_proof": {
+    "duplicate_root_construction_order": "slot 0 through K-1",
+    "evaluator_dispatch_order": "ordinary, duplicate[K-1...0], indices dependencies",
+    "final_blocking_eval_roots": "[fullHidden, indices layer-major, duplicates layer-major slot-ascending]",
+    "k0_control": "host sparse-layer reachability accounting only; no rotated tensor, duplicate root, asyncEval, retained MLX root, or blocking probe eval",
+    "k_values": [
+      1,
+      2,
+      3,
+      5
+    ],
+    "kernel_routine": "lagunaRoutedSwiGLUQMVPackedTop8",
+    "measurement_activation": "explicitly armed after constructor warmup and before protocol hello",
+    "mode_dependent_control": {
+      "cold_selected_experts": "(indices + 8) % 256",
+      "only_difference": "selected expert row addresses",
+      "warm_selected_experts": "indices"
+    },
+    "per_sparse_layer_async_eval_roots": "[indices, duplicate[0...K-1], ordinary]",
+    "scratch_root_retention_order": "layer-major, slot 0 through K-1",
+    "synchronization": "for K=1,2,3,5: one asyncEval per sparse layer and one blocking eval after layer 39",
+    "warm_cold_command_graph_identical": true
+  },
+  "confidence_interval": {
+    "method": "paired non-overlapping 30-step block bootstrap of arm medians",
+    "replicates_requested": 10000,
+    "replicates_retained": 10000,
+    "seed": 252
+  },
+  "estimator": "per-arm median; per-block four-point Theil-Sen; median of three block slopes",
+  "input_metadata": {
+    "command_graph_proof": {
+      "duplicate_root_construction_order": "slot 0 through K-1",
+      "evaluator_dispatch_order": "ordinary, duplicate[K-1...0], indices dependencies",
+      "final_blocking_eval_roots": "[fullHidden, indices layer-major, duplicates layer-major slot-ascending]",
+      "k0_control": "host sparse-layer reachability accounting only; no rotated tensor, duplicate root, asyncEval, retained MLX root, or blocking probe eval",
+      "k_values": [
+        1,
+        2,
+        3,
+        5
+      ],
+      "kernel_routine": "lagunaRoutedSwiGLUQMVPackedTop8",
+      "measurement_activation": "explicitly armed after constructor warmup and before protocol hello",
+      "mode_dependent_control": {
+        "cold_selected_experts": "(indices + 8) % 256",
+        "only_difference": "selected expert row addresses",
+        "warm_selected_experts": "indices"
+      },
+      "per_sparse_layer_async_eval_roots": "[indices, duplicate[0...K-1], ordinary]",
+      "scratch_root_retention_order": "layer-major, slot 0 through K-1",
+      "synchronization": "for K=1,2,3,5: one asyncEval per sparse layer and one blocking eval after layer 39",
+      "warm_cold_command_graph_identical": true
+    },
+    "discard_steps_per_arm": 16,
+    "elapsed_wall_seconds": 408.24820494651794,
+    "fixture_case": "longcopy-gate-english-512",
+    "logical_kv_advancement_exact": true,
+    "matrix_block_orders": [
+      "block 1: warm/cold interleaved K=1,2,3,5",
+      "block 2: exact reverse of block 1",
+      "block 3: repeat block 1"
+    ],
+    "pending_future_state": false,
+    "physical_kv_advancement_exact": true,
+    "physical_kv_position_directly_observable": true,
+    "pre_touch_protocol": "Blocking eval of every fused array, then a page-stride CPU read across each complete 256-expert routed weight bank and packed-scale bank in all 39 sparse layers before constructor warmup. Measurement activates explicitly after constructor warmup and before protocol hello; the first 16 identical forced-token steps of every arm are discarded before retained timing.",
+    "raw_output": "research/cedar-nezuko-cold-duplicate-matrix.csv",
+    "reference_seed_token": 5991,
+    "residual_confound": "Cache-set mapping and physical page placement remain uncontrolled; DRAM traffic and cache residency are not directly measured.",
+    "schedule": [
+      {
+        "block": 1,
+        "k": 1,
+        "label": "b1w1",
+        "mode": "warm",
+        "position": 1
+      },
+      {
+        "block": 1,
+        "k": 1,
+        "label": "b1c1",
+        "mode": "cold",
+        "position": 2
+      },
+      {
+        "block": 1,
+        "k": 2,
+        "label": "b1w2",
+        "mode": "warm",
+        "position": 3
+      },
+      {
+        "block": 1,
+        "k": 2,
+        "label": "b1c2",
+        "mode": "cold",
+        "position": 4
+      },
+      {
+        "block": 1,
+        "k": 3,
+        "label": "b1w3",
+        "mode": "warm",
+        "position": 5
+      },
+      {
+        "block": 1,
+        "k": 3,
+        "label": "b1c3",
+        "mode": "cold",
+        "position": 6
+      },
+      {
+        "block": 1,
+        "k": 5,
+        "label": "b1w5",
+        "mode": "warm",
+        "position": 7
+      },
+      {
+        "block": 1,
+        "k": 5,
+        "label": "b1c5",
+        "mode": "cold",
+        "position": 8
+      },
+      {
+        "block": 2,
+        "k": 5,
+        "label": "b2c5",
+        "mode": "cold",
+        "position": 1
+      },
+      {
+        "block": 2,
+        "k": 5,
+        "label": "b2w5",
+        "mode": "warm",
+        "position": 2
+      },
+      {
+        "block": 2,
+        "k": 3,
+        "label": "b2c3",
+        "mode": "cold",
+        "position": 3
+      },
+      {
+        "block": 2,
+        "k": 3,
+        "label": "b2w3",
+        "mode": "warm",
+        "position": 4
+      },
+      {
+        "block": 2,
+        "k": 2,
+        "label": "b2c2",
+        "mode": "cold",
+        "position": 5
+      },
+      {
+        "block": 2,
+        "k": 2,
+        "label": "b2w2",
+        "mode": "warm",
+        "position": 6
+      },
+      {
+        "block": 2,
+        "k": 1,
+        "label": "b2c1",
+        "mode": "cold",
+        "position": 7
+      },
+      {
+        "block": 2,
+        "k": 1,
+        "label": "b2w1",
+        "mode": "warm",
+        "position": 8
+      },
+      {
+        "block": 3,
+        "k": 1,
+        "label": "b3w1",
+        "mode": "warm",
+        "position": 1
+      },
+      {
+        "block": 3,
+        "k": 1,
+        "label": "b3c1",
+        "mode": "cold",
+        "position": 2
+      },
+      {
+        "block": 3,
+        "k": 2,
+        "label": "b3w2",
+        "mode": "warm",
+        "position": 3
+      },
+      {
+        "block": 3,
+        "k": 2,
+        "label": "b3c2",
+        "mode": "cold",
+        "position": 4
+      },
+      {
+        "block": 3,
+        "k": 3,
+        "label": "b3w3",
+        "mode": "warm",
+        "position": 5
+      },
+      {
+        "block": 3,
+        "k": 3,
+        "label": "b3c3",
+        "mode": "cold",
+        "position": 6
+      },
+      {
+        "block": 3,
+        "k": 5,
+        "label": "b3w5",
+        "mode": "warm",
+        "position": 7
+      },
+      {
+        "block": 3,
+        "k": 5,
+        "label": "b3c5",
+        "mode": "cold",
+        "position": 8
+      }
+    ],
+    "schedule_encoding": "b1w1:warm:1,b1c1:cold:1,b1w2:warm:2,b1c2:cold:2,b1w3:warm:3,b1c3:cold:3,b1w5:warm:5,b1c5:cold:5,b2c5:cold:5,b2w5:warm:5,b2c3:cold:3,b2w3:warm:3,b2c2:cold:2,b2w2:warm:2,b2c1:cold:1,b2w1:warm:1,b3w1:warm:1,b3c1:cold:1,b3w2:warm:2,b3c2:cold:2,b3w3:warm:3,b3c3:cold:3,b3w5:warm:5,b3c5:cold:5",
+    "status": "passed",
+    "stderr_diagnostics": [
+      "mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out",
+      "mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run",
+      "mlxfast: packed-scales active: packed routed gate/up bank prepared",
+      "mlxfast: lm_head prune active (coarse copy resident)",
+      "mlxfast: packed-scales active: routed swiglu qmv packed dispatch"
+    ],
+    "storage_independence_scope": "All 78 complete routed-bank backing ranges are pairwise non-overlapping; each bank is expert-first contiguous, making distinct expert rows disjoint. Dynamic warm/cold top-8 row overlap is recorded for every sparse layer and decode step.",
+    "storage_proof": {
+      "bank_ranges_nonoverlap": "1",
+      "checksum": "47e8a018fe07ce34",
+      "contiguous": "1",
+      "eager_eval": "1",
+      "expert_row_bytes": "1179648",
+      "expert_rows_nonoverlap": "1",
+      "experts": "256",
+      "full_bank_pretouch": "1",
+      "layers": "39",
+      "packed_scale_row_bytes": "131072",
+      "page_bytes": "16384",
+      "weight_row_bytes": "1048576"
+    },
+    "system": {
+      "git_head": "67873f1b85882f8d706e6d569119cafd59bb1ff2",
+      "logical_cpu_count": "14",
+      "mac_model": "Mac16,11",
+      "machine": "arm64",
+      "memory_bytes": "51539607552",
+      "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+      "processor": "arm",
+      "python": "3.13.14 (main, Jul 23 2026, 14:48:16) [Clang 22.1.3 ]"
+    },
+    "timed_steps_per_arm": 1200,
+    "token_divergence_count": 0,
+    "total_decode_steps": 29184,
+    "total_steps_per_arm": 1216,
+    "worker_hello": {
+      "expert_stats": {
+        "expert_bytes_read": 0,
+        "expert_cache_evictions": 0,
+        "expert_cache_hits": 0,
+        "expert_cache_misses": 0,
+        "expert_peak_cached_tensors": 0,
+        "expert_read_seconds": 0
+      },
+      "id": 0,
+      "nonce": "024b9e4c01cb2bbafdd4aeec041d7ad0",
+      "ok": true
+    },
+    "worker_return_code": 0
+  },
+  "measurement_scope": "K>=1 slopes estimate repeated selected-row marginal cost after blocking full-bank evaluation, symmetric page-stride pretouch, and 16 discarded identical forced-token steps per arm; retained observations exclude those initialization steps.",
+  "overall_slope_95ci_us_per_step_per_duplicate": {
+    "cold": [
+      760.0154999999995,
+      773.0387812499989
+    ],
+    "warm": [
+      768.88021875,
+      779.4220140625
+    ]
+  },
+  "overall_slope_us_per_step_per_duplicate": {
+    "cold": 769.0340000000006,
+    "warm": 773.0627500000003
+  },
+  "pre_touch_protocol": "Blocking eval of every fused array, then a page-stride CPU read across each complete 256-expert routed weight bank and packed-scale bank in all 39 sparse layers before constructor warmup. Measurement activates explicitly after constructor warmup and before protocol hello; the first 16 identical forced-token steps of every arm are discarded before retained timing.",
+  "preregistered_decision": "stop_after_t2c",
+  "preregistered_t2d_eligible": false,
+  "ratio_ci_includes_one": true,
+  "residual_confound": "Cache-set mapping and physical page placement remain uncontrolled; DRAM traffic and cache residency are not directly measured.",
+  "rotated_top8_overlap": {
+    "cold": {
+      "maximum": 3,
+      "mean": 0.19632478632478634,
+      "median": 0.0,
+      "observations": 561600,
+      "p95": 1.0,
+      "zero_fraction": 0.8135897435897436
+    },
+    "warm": {
+      "maximum": 3,
+      "mean": 0.19632478632478634,
+      "median": 0.0,
+      "observations": 561600,
+      "p95": 1.0,
+      "zero_fraction": 0.8135897435897436
+    }
+  },
+  "status": "passed",
+  "storage_independence_scope": "All 78 complete routed-bank backing ranges are pairwise non-overlapping; each bank is expert-first contiguous, making distinct expert rows disjoint. Dynamic warm/cold top-8 row overlap is recorded for every sparse layer and decode step.",
+  "storage_proof": {
+    "bank_ranges_nonoverlap": "1",
+    "checksum": "47e8a018fe07ce34",
+    "contiguous": "1",
+    "eager_eval": "1",
+    "expert_row_bytes": "1179648",
+    "expert_rows_nonoverlap": "1",
+    "experts": "256",
+    "full_bank_pretouch": "1",
+    "layers": "39",
+    "packed_scale_row_bytes": "131072",
+    "page_bytes": "16384",
+    "weight_row_bytes": "1048576"
+  },
+  "traffic_model": {
+    "bytes_per_selected_expert_gate_up": 1179648,
+    "caveat": "Model-implied weight bytes only. Cache-set mapping and physical page placement remain uncontrolled; DRAM traffic and cache residency are not directly measured.",
+    "modeled_bytes_per_duplicate_per_decode_step": 368050176,
+    "modeled_effective_bandwidth_gb_s": {
+      "cold": 478.5876515212588,
+      "warm": 476.09353315756044
+    },
+    "selected_experts_per_sparse_layer": 8,
+    "sparse_layers": 39
+  }
+}
