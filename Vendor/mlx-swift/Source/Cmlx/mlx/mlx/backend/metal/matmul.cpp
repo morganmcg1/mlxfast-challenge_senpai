@@ -97,12 +97,14 @@ static bool darkbloom_steel_prefill_tile() {
 // SM, SN, SK, TM and TN are unchanged and gemm_loop() sees the identical
 // template instantiation; it uses no threadgroup memory and exchanges no data
 // between simdgroups, so each output keeps the same k-ascending in-register MMA
-// chain and only threadgroup ownership and the grid change. Set
-// DARKBLOOM_STEEL_REGULAR_SKINNY_TILE=0 for the accepted geometry.
+// chain and only threadgroup ownership and the grid change. Opt-in: the
+// regrouping trades +33% A re-reads for occupancy and has not been timed on a
+// NAX host yet, so the accepted geometry stays the default. Set
+// DARKBLOOM_STEEL_REGULAR_SKINNY_TILE=1 to enable.
 static bool darkbloom_steel_regular_skinny_tile() {
   static bool enabled = []() {
     const char* value = getenv("DARKBLOOM_STEEL_REGULAR_SKINNY_TILE");
-    return value == nullptr || atoi(value) != 0;
+    return value != nullptr && atoi(value) != 0;
   }();
   return enabled;
 }
