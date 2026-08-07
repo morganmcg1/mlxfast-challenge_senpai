@@ -1,0 +1,270 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+index 2a8e15a..ac2c575 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+@@ -1,5 +1,7 @@
+ // Copyright © 2023-2024 Apple Inc.
+ 
++#include <algorithm>
++#include <cstdio>
+ #include <cstdlib>
+ #include <sstream>
+ 
+@@ -28,6 +30,156 @@ struct hash<NS::SharedPtr<T>> {
+ 
+ } // namespace std
+ 
++// ---------------------------------------------------------------------------
++// Research-only barrier-SITE trace (maple-fern PR #268 r2). NEVER SUBMITTED.
++// device.cpp is outside editablePaths; this block exists only so a local
++// worker can dump, in encode order, every compute dispatch of a decode step
++// together with the command-buffer index, whether MLX inserted a
++// memoryBarrier in front of it, and which earlier dispatch produced the
++// resource that forced that barrier. r1 priced a barrier at 1.3003 us; this
++// says where the barriers actually are.
++//
++// Enable with DBTAX_SITE_TRACE=<path>. One line per dispatch:
++//   DBSITE ep=<epoch> cb=<n> ord=<n> bar=<0|1> gap=<n> raw=<ords> war=<ords>
++//          grid=<x>x<y>x<z> tg=<x>x<y>x<z> k=<kernel>
++// plus DBEPOCH at every CommandEncoder::synchronize() (one full host sync,
++// i.e. one worker decode step boundary) and DBCB at every commit().
++// ---------------------------------------------------------------------------
++namespace {
++class DbSiteTrace {
++ public:
++  static DbSiteTrace& instance() {
++    static DbSiteTrace t;
++    return t;
++  }
++
++  bool on() const {
++    return fh_ != nullptr;
++  }
++
++  void register_pso(const void* pso, const std::string& name) {
++    if (!fh_) {
++      return;
++    }
++    names_[pso] = name;
++  }
++
++  void note_raw(const void* buf) {
++    if (fh_) {
++      raw_.push_back(buf);
++    }
++  }
++  void note_war(const void* buf) {
++    if (fh_) {
++      war_.push_back(buf);
++    }
++  }
++  void note_output(const void* buf) {
++    if (fh_) {
++      pending_out_.push_back(buf);
++    }
++  }
++  void note_barrier() {
++    if (fh_) {
++      barrier_ = true;
++    }
++  }
++  void note_commit() {
++    if (fh_) {
++      fprintf(fh_, "DBCB ep=%llu cb=%llu ord=%llu\n", ep_, cb_, ord_);
++      cb_++;
++    }
++  }
++  void note_sync() {
++    if (fh_) {
++      fprintf(fh_, "DBEPOCH ep=%llu ord=%llu cb=%llu\n", ep_, ord_, cb_);
++      ep_++;
++      fflush(fh_);
++    }
++  }
++
++  void emit(const void* pso, MTL::Size grid, MTL::Size tg) {
++    if (!fh_) {
++      return;
++    }
++    auto it = names_.find(pso);
++    const char* kname = (it == names_.end()) ? "<unnamed>" : it->second.c_str();
++    fprintf(
++        fh_,
++        "DBSITE ep=%llu cb=%llu ord=%llu bar=%d gap=%llu raw=%s war=%s "
++        "grid=%llux%llux%llu tg=%llux%llux%llu k=%s\n",
++        ep_,
++        cb_,
++        ord_,
++        barrier_ ? 1 : 0,
++        gap_,
++        resolve(raw_).c_str(),
++        resolve(war_).c_str(),
++        (unsigned long long)grid.width,
++        (unsigned long long)grid.height,
++        (unsigned long long)grid.depth,
++        (unsigned long long)tg.width,
++        (unsigned long long)tg.height,
++        (unsigned long long)tg.depth,
++        kname);
++    // The producer map must only ever answer with STRICTLY earlier
++    // dispatches, so this dispatch's own outputs land after its record.
++    for (const void* b : pending_out_) {
++      producer_[b] = ord_;
++    }
++    gap_ = barrier_ ? 0 : gap_ + 1;
++    barrier_ = false;
++    raw_.clear();
++    war_.clear();
++    pending_out_.clear();
++    ord_++;
++  }
++
++ private:
++  DbSiteTrace() {
++    const char* p = std::getenv("DBTAX_SITE_TRACE");
++    if (p && *p) {
++      fh_ = fopen(p, "w");
++    }
++  }
++
++  std::string resolve(const std::vector<const void*>& bufs) {
++    std::vector<unsigned long long> ords;
++    for (const void* b : bufs) {
++      auto it = producer_.find(b);
++      unsigned long long o = (it == producer_.end())
++          ? (unsigned long long)-1
++          : (unsigned long long)it->second;
++      if (std::find(ords.begin(), ords.end(), o) == ords.end()) {
++        ords.push_back(o);
++      }
++    }
++    if (ords.empty()) {
++      return "-";
++    }
++    std::string s;
++    for (size_t i = 0; i < ords.size(); ++i) {
++      if (i) {
++        s += ",";
++      }
++      if (ords[i] == (unsigned long long)-1) {
++        s += "x";
++      } else {
++        s += std::to_string(ords[i]);
++      }
++    }
++    return s;
++  }
++
++  FILE* fh_{nullptr};
++  unsigned long long ord_{0}, cb_{0}, ep_{0}, gap_{0};
++  bool barrier_{false};
++  std::vector<const void*> raw_, war_, pending_out_;
++  std::unordered_map<const void*, unsigned long long> producer_;
++  std::unordered_map<const void*, std::string> names_;
++};
++} // namespace
++
+ namespace mlx::core::metal {
+ 
+ namespace {
+@@ -321,8 +473,11 @@ void CommandEncoder::set_input_array(
+   }
+   auto r_buf = static_cast<MTL::Resource*>(const_cast<void*>(a.buffer().ptr()));
+   next_inputs_.insert(r_buf);
+-  needs_barrier_ =
+-      needs_barrier_ | (prev_outputs_.find(r_buf) != prev_outputs_.end());
++  bool dbtax_raw = prev_outputs_.find(r_buf) != prev_outputs_.end();
++  if (dbtax_raw) {
++    DbSiteTrace::instance().note_raw(r_buf);
++  }
++  needs_barrier_ = needs_barrier_ | dbtax_raw;
+   auto a_buf = static_cast<const MTL::Buffer*>(a.buffer().ptr());
+   get_command_encoder()->setBuffer(a_buf, a.offset() + offset, idx);
+ }
+@@ -344,9 +499,13 @@ void CommandEncoder::register_output_array(const array& a) {
+     concurrent_outputs_.insert(buf);
+   } else {
+     next_outputs_.insert(buf);
+-    needs_barrier_ =
+-        needs_barrier_ | (prev_inputs_.find(buf) != prev_inputs_.end());
++    bool dbtax_war = prev_inputs_.find(buf) != prev_inputs_.end();
++    if (dbtax_war) {
++      DbSiteTrace::instance().note_war(buf);
++    }
++    needs_barrier_ = needs_barrier_ | dbtax_war;
+   }
++  DbSiteTrace::instance().note_output(buf);
+ }
+ 
+ void CommandEncoder::add_temporary(array arr) {
+@@ -362,6 +521,7 @@ void CommandEncoder::add_temporaries(std::vector<array> arrays) {
+ 
+ void CommandEncoder::maybeInsertBarrier() {
+   if (needs_barrier_) {
++    DbSiteTrace::instance().note_barrier();
+     get_command_encoder()->memoryBarrier(MTL::BarrierScopeBuffers);
+     needs_barrier_ = false;
+     prev_inputs_ = std::move(next_inputs_);
+@@ -379,6 +539,7 @@ void CommandEncoder::dispatch_threadgroups(
+     MTL::Size group_dims) {
+   maybeInsertBarrier();
+   buffer_ops_++;
++  DbSiteTrace::instance().emit(dbtax_pso_, grid_dims, group_dims);
+   get_command_encoder()->dispatchThreadgroups(grid_dims, group_dims);
+ }
+ 
+@@ -387,6 +548,7 @@ void CommandEncoder::dispatch_threads(
+     MTL::Size group_dims) {
+   maybeInsertBarrier();
+   buffer_ops_++;
++  DbSiteTrace::instance().emit(dbtax_pso_, grid_dims, group_dims);
+   get_command_encoder()->dispatchThreads(grid_dims, group_dims);
+ }
+ 
+@@ -487,6 +649,7 @@ bool CommandEncoder::needs_commit() const {
+ }
+ 
+ void CommandEncoder::commit(std::function<void()> completion) {
++  DbSiteTrace::instance().note_commit();
+   buffer_->addCompletedHandler(
+       [&error_ = error_,
+        wait_events = std::move(wait_events_),
+@@ -530,6 +693,7 @@ void CommandEncoder::commit(std::function<void()> completion) {
+ }
+ 
+ void CommandEncoder::synchronize() {
++  DbSiteTrace::instance().note_sync();
+   auto pool = new_scoped_memory_pool();
+   auto cbuf = buffer_; // retained
+   end_encoding();
+@@ -836,6 +1000,7 @@ MTL::ComputePipelineState* Device::get_kernel_(
+ 
+   // Add kernel to cache
+   kernel_map_.insert({hash_name, kernel});
++  DbSiteTrace::instance().register_pso(kernel.get(), hash_name);
+ 
+   return kernel.get();
+ }
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
+index bed0cd6..d1cfc61 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
+@@ -58,6 +58,7 @@ class MLX_API CommandEncoder {
+   void maybeInsertBarrier();
+ 
+   void set_compute_pipeline_state(MTL::ComputePipelineState* kernel) {
++    dbtax_pso_ = kernel;
+     get_command_encoder()->setComputePipelineState(kernel);
+   }
+ 
+@@ -139,6 +140,10 @@ class MLX_API CommandEncoder {
+   // A map of prior command encoder outputs to their corresponding fence.
+   std::unordered_map<const void*, NS::SharedPtr<MTL::Fence>> prev_ce_outputs_;
+   std::mutex outputs_mtx_;
++
++  // Research-only barrier-site trace state (maple-fern PR #268). Reverted
++  // before any commit; see research/fern_tax_sitetrace.patch.
++  MTL::ComputePipelineState* dbtax_pso_{nullptr};
+ };
+ 
+ class MLX_API Device {
