@@ -11,11 +11,11 @@
       5
     ],
     "kernel_routine": "lagunaRoutedSwiGLUQMVPackedTop8",
-    "measurement_activation": "explicitly armed after constructor warmup and before protocol hello",
+    "measurement_activation": "model-observed on the first runtime 512-token seed after constructor warmup decode",
     "mode_dependent_control": {
       "cold_selected_experts": "(indices + 8) % 256",
-      "only_difference": "selected expert row addresses",
-      "warm_selected_experts": "indices"
+      "only_difference": "addend selecting expert row addresses",
+      "warm_selected_experts": "(indices + 256) % 256"
     },
     "per_sparse_layer_async_eval_roots": "[indices, duplicate[0...K-1], ordinary]",
     "scratch_root_retention_order": "layer-major, slot 0 through K-1",
@@ -142,7 +142,7 @@
     {
       "dispatch_count": 0,
       "duplicate_count": 0,
-      "elapsed_ns": 6648792,
+      "elapsed_ns": 6538542,
       "label": "c0",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -156,7 +156,7 @@
     {
       "dispatch_count": 39,
       "duplicate_count": 1,
-      "elapsed_ns": 9758375,
+      "elapsed_ns": 10174666,
       "label": "w1",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -170,7 +170,7 @@
     {
       "dispatch_count": 39,
       "duplicate_count": 1,
-      "elapsed_ns": 367575667,
+      "elapsed_ns": 10447041,
       "label": "c1",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -184,7 +184,7 @@
     {
       "dispatch_count": 78,
       "duplicate_count": 2,
-      "elapsed_ns": 10670709,
+      "elapsed_ns": 10567541,
       "label": "w2",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -198,7 +198,7 @@
     {
       "dispatch_count": 78,
       "duplicate_count": 2,
-      "elapsed_ns": 11280708,
+      "elapsed_ns": 11195333,
       "label": "c2",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -212,7 +212,7 @@
     {
       "dispatch_count": 117,
       "duplicate_count": 3,
-      "elapsed_ns": 11283084,
+      "elapsed_ns": 11335541,
       "label": "w3",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -226,7 +226,7 @@
     {
       "dispatch_count": 117,
       "duplicate_count": 3,
-      "elapsed_ns": 12028875,
+      "elapsed_ns": 11973708,
       "label": "c3",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -240,7 +240,7 @@
     {
       "dispatch_count": 195,
       "duplicate_count": 5,
-      "elapsed_ns": 12889208,
+      "elapsed_ns": 12849959,
       "label": "w5",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -254,7 +254,7 @@
     {
       "dispatch_count": 195,
       "duplicate_count": 5,
-      "elapsed_ns": 13499541,
+      "elapsed_ns": 13502583,
       "label": "c5",
       "logical_cache_delta_max": 1,
       "logical_cache_delta_min": 1,
@@ -269,7 +269,7 @@
   "pending_future_state": false,
   "physical_kv_advancement_exact": true,
   "physical_kv_position_directly_observable": true,
-  "pre_touch_protocol": "Blocking eval of every fused array, then a page-stride CPU read across each complete 256-expert routed weight bank and packed-scale bank in all 39 sparse layers before constructor warmup. Measurement activates explicitly after constructor warmup and before protocol hello; the first 16 identical forced-token steps of every arm are discarded before retained timing.",
+  "pre_touch_protocol": "Blocking eval of every fused array, then a page-stride CPU read across each complete 256-expert routed weight bank and packed-scale bank in all 39 sparse layers before constructor warmup. Measurement activates on the first runtime seed after constructor warmup; the first 16 identical forced-token steps of every arm are discarded before retained timing.",
   "residual_confound": "Cache-set mapping and physical page placement remain uncontrolled; DRAM traffic and cache residency are not directly measured.",
   "schedule": [
     {
@@ -326,7 +326,7 @@
     "mlxfast: lm_head prune active (coarse copy resident)",
     "mlxfast: packed-scales active: routed swiglu qmv packed dispatch"
   ],
-  "storage_independence_scope": "All 78 complete routed-bank backing ranges are pairwise non-overlapping; each bank is expert-first contiguous, making distinct expert rows disjoint. Dynamic warm/cold top-8 row overlap is recorded for every sparse layer and decode step.",
+  "storage_independence_scope": "All 78 complete routed-bank virtual backing ranges are pairwise non-overlapping; each bank is expert-first contiguous, making distinct expert rows virtually disjoint. Dynamic warm/cold top-8 row overlap is recorded for every sparse layer and decode step. This proves virtual-range separation only.",
   "storage_proof": {
     "bank_ranges_nonoverlap": "1",
     "checksum": "47e8a018fe07ce34",
@@ -342,7 +342,7 @@
     "weight_row_bytes": "1048576"
   },
   "system": {
-    "git_head": "2f9d304d7f78063cba88fcbd2aac9b981fea72b0",
+    "git_head": "cabf8fe6fd327977db308c75a5cde9d69a1338ff",
     "logical_cpu_count": "14",
     "mac_model": "Mac16,11",
     "machine": "arm64",
@@ -362,7 +362,7 @@
       "expert_read_seconds": 0
     },
     "id": 0,
-    "nonce": "a699e76fc68a9013f2e9ed3e1c9acce6",
+    "nonce": "34659edf7a22471b7e534712de6bd6fa",
     "ok": true
   },
   "worker_return_code": 0
