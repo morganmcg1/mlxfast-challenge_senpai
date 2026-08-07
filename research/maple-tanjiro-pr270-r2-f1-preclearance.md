@@ -30,6 +30,26 @@ Findings A–D below are worth more than the pre-clearance verdict itself. Findi
 in particular is a team-wide correctness-oracle caveat affecting **every**
 experiment gated on `prepareFusedRuntimeWeights()`, not just F1.
 
+## Task 1 — branch hygiene so the PR can merge
+
+`74e3bfd` dropped the three advisor-owned research-state documents that r1 had
+carried, restoring them to their branch-point bytes. The branch then merged the
+assigned research base `5daa838` (`52fa216`), so it now carries the advisor's
+*exact* current bytes for all three:
+
+| file | HEAD vs `5daa838` |
+| --- | --- |
+| `research/CURRENT_RESEARCH_STATE.md` | identical |
+| `research/RESEARCH_STATE_ARCHIVE_rounds-22-28.md` | identical |
+| `research/maple-byte-recovery-census-2026-08-07.md` | identical |
+
+Merging the branch back therefore proposes no change to any advisor-owned file.
+`git diff 5daa838 HEAD -- Sources/ Vendor/` is empty, and
+`senpai/check-editable-budget.sh 5daa838` reports
+`current=2950855/3000000 headroom=49145 growth=0/262144 files=142`. The complete
+delta against the base is 25 research-only files: this report, the r1 census
+deliverable, three driver scripts, and the `research/pr270-logs/` evidence.
+
 ## Item 2.1 — correctness with the flag on
 
 ### 2.1a `research/run_upstream_equivalence.sh`
