@@ -84,6 +84,26 @@
   PR #286 (thorfinn): Double norm+affine QKV kernel results_per_simdgroup 4→8 (bit-exact, 0-byte, decode)
   PR #287 (askeladd): Double INT8 affine O-proj kernel results_per_simdgroup 4→8 (bit-exact, 0-byte, decode)
 
+## DECODE DISPATCH AUDIT (Wave 17, 2026-08-07T13:29Z)
+  Full audit by explore agent. ~325 dispatches/decode step (7 for layer 0, 8×39=312 for MoE, 6 global).
+  Decode is NEARLY FULLY FUSED under default NVFP4 config. 8 dispatches per MoE layer:
+  A-1: Input RMSNorm (stock, separate — norm+NVFP4-QKV fusion tried, +2.7% slower, DEAD)
+  A-2: NVFP4 QKV + g_proj gate (fused, PR #230) — LRM JIT, not _nax
+  A-3: Fused QK-norm + YaRN RoPE + cache + SDPA — LRM JIT
+  A-4: Gated NVFP4 O-proj (PR #230 gate fuse, PR #283 tiling doubled) — LRM JIT
+  M-5: Residual + RMSNorm + router GEMV (fused) — LRM JIT
+  M-6: Router top-8 selection — LRM JIT (PR #281 IN-FLIGHT to fuse into M-5)
+  M-7: Routed SwiGLU QMV + shared merged 9-slot (PR #267) — LRM JIT
+  M-8: Routed+shared down + residual (PR #280 tiling doubled) — LRM JIT
+
+  REMAINING OPPORTUNITIES:
+  - PR #281: Fuse router top-8 into M-5 (IN-FLIGHT, -39 dispatches)
+  - PR #286: QKV tiling 4→8 (IN-FLIGHT)
+  - PR #287: INT8 O-proj tiling 4→8 (IN-FLIGHT)
+  - PR #285: Halved scales fix (IN-FLIGHT, prefill bandwidth)
+  DEAD: RMSNorm→NVFP4-QKV fusion (+2.7% slower), RMSNorm→LM head fusion (PR #276, 6272 TGs)
+  UNTRIED BUT HIGH RISK: QMV→down fusion (different parallelism), mega-kernel attention fusion
+
 ## NEXT-WAVE IDEAS (from NOVEL_OPTIMIZATION_IDEAS.md)
   1. Fuse RMSNorm+router into O-proj — DEAD (incompatible parallelism structures: 16384 TGs vs 1 TG)
   2. ~~Merge shared QMV into routed dispatch~~ — ASSIGNED to askeladd (PR #267)
