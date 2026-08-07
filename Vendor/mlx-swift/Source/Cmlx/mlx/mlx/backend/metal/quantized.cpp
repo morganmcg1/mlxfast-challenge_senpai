@@ -1710,6 +1710,15 @@ void gather_qmm_rhs_nax(
   const bool align_K = (K % bk) == 0;
   const bool laguna_moe_shape =
       (K == 2048 && N == 1024) || (K == 512 && N == 2048);
+  // Detect halved NVFP4 scales (like qmm_nax): the caller passes group_size=32
+  // so ops.cpp validation accepts half-resolution scales [E, N, K/32] (since
+  // K/32 * 32 == K). The extra row per expert (row N) holds the escape bytes.
+  // Override group_size back to 16 before the expert_aligned gate so it passes.
+  const bool halved_scales_candidate =
+      mode == "nvfp4" && group_size == 32 && bits == 4 && transpose;
+  if (halved_scales_candidate) {
+    group_size = 16;
+  }
   // wn == 1 admitted 2026-07-31 (GatherX): DARKBLOOM_STAGE_BM128=5's
   // BM64/WM4/WN1 tiling (128 thr/TG, SN=64/TN=4) previously fell off the
   // expert path here and silently measured the NON-expert kernel. On the
@@ -1738,13 +1747,12 @@ void gather_qmm_rhs_nax(
       darkbloom_expert_stage_wideld() &&
       darkbloom_stage_wide_load_ok(w, transpose, bits, N, K, bn);
 
-  // Detect scale-plane-halved NVFP4 scales: when the last scale dimension is
-  // half of K/group_size, the caller packed one scale per pair (scale[2k] at
-  // position k) exploiting the NVFP4 pairwise-constancy invariant. The escape
-  // bytes for the sole exception pair (row 0 byte 1, and up-row-0 byte 1 for
-  // fused gate/up) arrive via the biases_ array.
-  const bool halved_scales = expert_aligned &&
-      scales.shape(-1) == K / (group_size * 2);
+  // Detect scale-plane-halved NVFP4 scales: the caller passes group_size=32
+  // (overridden to 16 above). The scales tensor [E, N+1, K/32] has an extra row
+  // per expert holding the escape bytes. When halved, the escape buffer is
+  // extracted from the scales tensor (not via biases_, which must be nil for
+  // nvfp4 ops.cpp validation).
+  const bool halved_scales = expert_aligned && halved_scales_candidate;
 
   const bool static_expert_shape =
       expert_aligned && static_laguna_shapes && mode == "nvfp4" &&
@@ -1999,10 +2007,24 @@ void gather_qmm_rhs_nax(
   compute_encoder.set_input_array(scales, c++);
   if (expert_aligned) {
     // The expert kernel takes an escape buffer at input 3 (between scales and
-    // indices). When halved, the escape arrives via biases_; otherwise pass a
-    // dummy (the kernel ignores it when kHalvedScales is false).
-    if (halved_scales && biases_.has_value()) {
-      array escape = ensure_row_contiguous(*biases_, d, s);
+    // indices). When halved, extract the escape from the scales tensor's extra
+    // row (row N per expert) via a strided view, then make it contiguous.
+    // Otherwise pass scales as a dummy (the kernel ignores it when
+    // kHalvedScales is false).
+    if (halved_scales) {
+      int num_experts = scales.shape(0);
+      int N_rows = scales.shape(1) - 1;
+      int K_g = scales.shape(-1);
+      array escape_view(
+          {num_experts, 2}, scales.dtype(), nullptr, {});
+      Strides escape_strides = {
+          static_cast<int64_t>((N_rows + 1) * K_g), 1};
+      array::Flags escape_flags = {false, false, false};
+      escape_view.copy_shared_buffer(
+          scales, escape_strides, escape_flags,
+          static_cast<size_t>(num_experts * 2),
+          static_cast<int64_t>(N_rows * K_g));
+      array escape = ensure_row_contiguous(escape_view, d, s);
       compute_encoder.set_input_array(escape, c++);
     } else {
       compute_encoder.set_input_array(scales, c++);

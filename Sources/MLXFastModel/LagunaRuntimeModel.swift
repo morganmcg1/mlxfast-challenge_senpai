@@ -9837,16 +9837,17 @@ private func lagunaFusedSortedRoutedGateUp(
     // the separate banks is the fusion; every other argument matches the
     // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
     let gateUp: MLXArray
-    // Halved scales disabled: gatherQuantizedMM rejects non-nil biases with
-    // .nvfp4 mode (ops.cpp validation throws, crashing M5). Escape bytes must
-    // be embedded in the scales tensor (like PR #243's shared expert path)
-    // rather than passed via the biases parameter.
-    let useHalved = false
+    // Halved scales: embed escape bytes in the scales tensor's extra row (like
+    // PR #243's shared expert qmm_nax path), pass biases: nil with groupSize: 32
+    // so ops.cpp validation accepts half-resolution scales. quantized.cpp
+    // detects group_size==32, overrides to 16, and extracts the escape buffer.
+    let useHalved = lagunaExpertAlignedGatherEnabled && halvedScales != nil
     gateUp = MLX.gatherQuantizedMM(
         sortedX, fusedWeight,
-        scales: fusedScales,
+        scales: useHalved ? halvedScales! : fusedScales,
         biases: nil,
-        rhsIndices: idx, transpose: true, groupSize: 16,
+        rhsIndices: idx, transpose: true,
+        groupSize: useHalved ? 32 : 16,
         bits: 4, mode: .nvfp4, sortedIndices: doSort)
     let activated: MLXArray
     if lagunaExpertAlignedGatherEnabled {
@@ -9861,9 +9862,9 @@ private func lagunaFusedSortedRoutedGateUp(
         activated = lagunaInterleavedSwiGLU(gateUp, split: split)
     }
     // SwitchGLU: `x = downProj(activated, idx, sortedIndices: doSort)`.
-    // With NAX + halved scales, use gatherQuantizedMM with halved scales +
-    // escape biases (bit-exact via NVFP4 pairwise constancy).
-    // Halved down scales disabled: same biases crash as gate/up halved path.
+    // Down halved remains disabled: the expert kernel reads escape at a
+    // fixed stride of 2 (gate+up layout), incompatible with the down path's
+    // 1-byte-per-expert escape.
     let useHalvedDown = false
     var result: MLXArray
     if useHalvedDown {
@@ -10008,13 +10009,18 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         _routedDownProj = downModule
         _routedDownWeight = downWeight
         _routedDownScales = downScales
-        _halvedFusedRoutedGateUpScales = contiguous(
+        let halvedFuse = contiguous(
             fusedScales[0..., 0..., .stride(from: 0, by: 2)])
-        // In the tile-interleaved layout [gate32, up32, gate32, ...], up-row-0
-        // is at fused row 32 (tile 0's upper half), not at fused row `split`.
+        let gateEsc = fusedScales[0..., 0, 1].reshaped([experts, 1])
+        let upEsc = fusedScales[0..., 32, 1].reshaped([experts, 1])
         _fusedRoutedGateUpScalesEscape = contiguous(stacked([
-            fusedScales[0..., 0, 1].reshaped([experts, 1]),
-            fusedScales[0..., 32, 1].reshaped([experts, 1])], axis: 1))
+            gateEsc, upEsc], axis: 1))
+        let hg = halvedFuse.dim(2)
+        let escapeRow = concatenated([
+            concatenated([gateEsc, upEsc], axis: 1).reshaped([experts, 1, 2]),
+            MLXArray.zeros([experts, 1, hg - 2], dtype: .uint8)], axis: 2)
+        _halvedFusedRoutedGateUpScales = contiguous(
+            concatenated([halvedFuse, escapeRow], axis: 1))
         var prepared = [fusedWeight, fusedScales,
             _halvedFusedRoutedGateUpScales!, _fusedRoutedGateUpScalesEscape!]
         // Halve routed down scales: [experts, 2048, 32] -> [experts, 2048, 16]
