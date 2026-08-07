@@ -4760,7 +4760,11 @@ constexpr uint blocks_per_row = in_vec_size_g / 32;
 uint tile = threadgroup_position_in_grid.x;
 uint simd_gid = simdgroup_index_in_threadgroup;
 uint simd_lid = thread_index_in_simdgroup;
-uint out_row = tile * num_simdgroups + simd_gid;
+// FAULT INJECTION (research only): rotate row ownership by one inside the
+// threadgroup. This is the row-mapping mistake a packing repack can actually
+// make, and unlike a bare `+ 1` it stays in bounds, so the tripwire has to
+// catch a wrong answer rather than an out-of-bounds write.
+uint out_row = tile * num_simdgroups + ((simd_gid + 1) % num_simdgroups);
 
 const device uint8_t* ws = (const device uint8_t*)weight_codes +
     out_row * in_vec_size_w + simd_lid * 8;
@@ -4814,7 +4818,7 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
-                + "_sg\(lagunaDecodeNVFP4QKVR1Simdgroups)",
+                + "_sg\(lagunaDecodeNVFP4QKVR1Simdgroups)_fault",
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
