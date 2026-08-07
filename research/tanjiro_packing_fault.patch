@@ -1,0 +1,17 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+index 0119ee9..bff5349 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -4798,7 +4798,11 @@ constexpr uint blocks_per_row = in_vec_size_g / 32;
+ uint tile = threadgroup_position_in_grid.x;
+ uint simd_gid = simdgroup_index_in_threadgroup;
+ uint simd_lid = thread_index_in_simdgroup;
+-uint out_row = tile * num_simdgroups + simd_gid;
++// FAULT INJECTION (research only): rotate row ownership by one inside the
++// threadgroup. This is the row-mapping mistake a packing repack can actually
++// make, and unlike a bare `+ 1` it stays in bounds, so the tripwire has to
++// catch a wrong answer rather than an out-of-bounds write.
++uint out_row = tile * num_simdgroups + ((simd_gid + 1) % num_simdgroups);
+ 
+ const device uint8_t* ws = (const device uint8_t*)weight_codes +
+     out_row * in_vec_size_w + simd_lid * 8;
