@@ -1,0 +1,10 @@
+worker up in 39.6s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717361450195312 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 548.38 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.399 8.258 8.203 8.137 8.260 8.131 8.184 8.130
+decode steps=400 mean=8.215 ms median=8.203 ms p10=8.140 ms p90=8.298 ms min=8.096 ms max=9.399 ms total=3.286 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.723892211914062 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/nezuko-a1-exposure/routed_gateup_r1_wall_s05_on.worker.err
