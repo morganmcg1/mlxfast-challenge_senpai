@@ -8561,6 +8561,28 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             let act = compiledSiluProduct(g, u)
             return MLX.quantizedMM(act, down.weight, scales: cds, biases: nil, transpose: true, groupSize: 32, bits: down.bits, mode: down.mode)
         }
+        if x.dim(1) > 1,
+            let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales,
+            x.dtype == .bfloat16,
+            fusedWeight.dtype == .uint32,
+            fusedScales.dtype == .uint8,
+            _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
+        {
+            lagunaTrace("shared fused [gate; up] bank QMM (prefill)")
+            let gateUp = MLX.quantizedMM(
+                x,
+                fusedWeight,
+                scales: fusedScales,
+                biases: nil,
+                transpose: true,
+                groupSize: 16,
+                bits: 4,
+                mode: .nvfp4
+            )
+            let gate = gateUp[.ellipsis, 0 ..< _fusedGateUpSplit]
+            let up = gateUp[.ellipsis, _fusedGateUpSplit...]
+            return downProj(compiledSiluProduct(gate, up))
+        }
         return downProj(compiledSiluProduct(gateProj(x), upProj(x)))
     }
 }
