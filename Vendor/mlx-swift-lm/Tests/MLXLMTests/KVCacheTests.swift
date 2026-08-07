@@ -344,3 +344,47 @@ func testCacheListCopyIsIndependent() async throws {
         #expect(allClose(orig, saved).item(Bool.self))
     }
 }
+
+private func attentionMaskKind(_ mask: MLXFast.ScaledDotProductAttentionMaskMode) -> String {
+    switch mask {
+    case .none: "none"
+    case .causal: "causal"
+    case .array: "array"
+    }
+}
+
+@Test func testSingleTokenAttentionMaskFastPath() {
+    let oneToken = MLXArray.zeros([1, 1, 1])
+    let twoTokens = MLXArray.zeros([1, 2, 1])
+    let simple = KVCacheSimple(initialSlack: true)
+
+    #expect(attentionMaskKind(createAttentionMask(h: oneToken, cache: simple)) == "none")
+    #expect(
+        attentionMaskKind(createAttentionMask(h: oneToken, cache: simple, returnArray: true))
+            == "none")
+    #expect(attentionMaskKind(createAttentionMask(h: twoTokens, cache: simple)) == "causal")
+    #expect(
+        attentionMaskKind(createAttentionMask(h: twoTokens, cache: simple, returnArray: true))
+            == "array")
+
+    let rotating = RotatingKVCache(maxSize: 4, keep: 0, step: 4)
+    #expect(
+        attentionMaskKind(createAttentionMask(h: oneToken, cache: rotating, windowSize: 4))
+            == "none")
+
+    let row = MLXArray.ones([1, 1, 1, 1])
+    for _ in 0 ..< 5 {
+        _ = rotating.update(keys: row, values: row)
+    }
+    #expect(rotating.offset == 5)
+    #expect(
+        attentionMaskKind(createAttentionMask(h: oneToken, cache: rotating, windowSize: 4))
+            == "none")
+    #expect(
+        attentionMaskKind(createAttentionMask(h: oneToken, cache: rotating, windowSize: 2))
+            == "array")
+    #expect(
+        attentionMaskKind(
+            createAttentionMask(h: oneToken, cache: rotating, windowSize: 4, returnArray: true))
+            == "none")
+}

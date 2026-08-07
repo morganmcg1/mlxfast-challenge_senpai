@@ -272,8 +272,13 @@ public func createAttentionMask(
 ) -> MLXFast.ScaledDotProductAttentionMaskMode {
     let n = h.dim(1)
 
-    // Delegate to cache's makeMask if available
     if let cache = cache {
+        if n == 1 && !returnArray,
+            (type(of: cache) == KVCacheSimple.self && windowSize == nil
+                || type(of: cache) == RotatingKVCache.self && windowSize == cache.maxSize)
+        {
+            return .none
+        }
         return cache.makeMask(n: n, windowSize: windowSize, returnArray: returnArray)
     }
 
