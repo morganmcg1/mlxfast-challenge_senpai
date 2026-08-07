@@ -2892,7 +2892,7 @@ private func lagunaIndexedAffineMetadata(
 
 struct LagunaNativeAffineWeight {
     let packedCodes: MLXArray
-    let scales: MLXArray
+    var scales: MLXArray
     let biases: MLXArray?
     let originalShape: [Int]
     /// Shipped group-32 affine INT8 or the inherited group-16 NVFP4 tail.
@@ -4130,7 +4130,8 @@ func lagunaGatedAffineOProjNVFP4Source(
     heads: Int,
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
-    preActivatedGate: Bool = false
+    preActivatedGate: Bool = false,
+    halvedScales: Bool = false
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -4205,6 +4206,11 @@ func lagunaGatedAffineOProjNVFP4Source(
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
         """
+    // Scale-halving: when enabled, scales are stored as [outVec, inVec/32]
+    // (every other byte). The kernel reads simd_lid/2 with half stride.
+    let scaleStride = halvedScales ? "in_vec_size_g / 2" : "in_vec_size_g"
+    let scaleLane = halvedScales ? "simd_lid / 2" : "simd_lid"
+    let scaleStep = halvedScales ? "block_size / (group_size * 2)" : "block_size / group_size"
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -4231,7 +4237,7 @@ func lagunaGatedAffineOProjNVFP4Source(
         (const device uint32_t*)weight_codes +
         out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
     const device uint8_t* sc = weight_scales +
-        out_row * in_vec_size_g + simd_lid;
+        out_row * (\(scaleStride)) + (\(scaleLane));
     const device bfloat* xp = attention_output + simd_lid * values_per_thread;
 
     thread float x_thread[values_per_thread];
@@ -4246,7 +4252,7 @@ func lagunaGatedAffineOProjNVFP4Source(
             // Defer the exact E4M3 2^22 renormalization to the per-row
             // epilogue. Every partial remains the exact 2^-22 rescaling of
             // the control until the multiply before the existing BF16 round.
-            uint8_t sbits = sc[row * in_vec_size_g];
+            uint8_t sbits = sc[row * (\(scaleStride))];
             \(scaleDecode)
             \(accumDecl)
             #pragma unroll
@@ -4268,7 +4274,7 @@ func lagunaGatedAffineOProjNVFP4Source(
         }
 
         ws += block_size / 8;
-        sc += block_size / group_size;
+        sc += \(scaleStep);
         xp += block_size;
         column += block_size;
     }
@@ -4281,6 +4287,14 @@ func lagunaGatedAffineOProjNVFP4Source(
     }
     """
 }
+
+/// O-proj NVFP4 scale-plane halving. NVFP4 quantization produces pairwise-
+/// constant scale bytes (scale[2k] == scale[2k+1]) for most groups, so one
+/// byte per 32 elements suffices instead of one per 16. The kernel reads
+/// `simd_lid / 2` from the halved scale row, halving ~40 MiB/step of O-proj
+/// scale traffic. Default ON; set "0" to restore full scales.
+private let lagunaOProjScaleHalvingEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_SCALE_HALVING"] != "0"
 
 private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
@@ -4295,6 +4309,26 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(heads: heads),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
+
+private let lagunaGatedAffineOProjNVFP4HalvedKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
+                + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + "_hs1",
+            inputNames: [
+                "attention_output", "gate_logits", "weight_codes",
+                "weight_scales",
+            ],
+            outputNames: ["projected"],
+            source: lagunaGatedAffineOProjNVFP4Source(heads: heads, halvedScales: true),
             ensureRowContiguous: true
         )
     }
@@ -4402,6 +4436,25 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     return result
 }()
 
+private let lagunaActivatedOProjHalvedKernels: [Int: MLXFast.MLXFastKernel] = {
+    var result: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        result[heads] = MLXFast.metalKernel(
+            name: "laguna_oproj_act_h\(heads)_v1"
+                + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + "_hs1",
+            inputNames: [
+                "attention_output", "gate_values", "weight_codes",
+                "weight_scales",
+            ],
+            outputNames: ["projected"],
+            source: lagunaGatedAffineOProjNVFP4Source(heads: heads, preActivatedGate: true, halvedScales: true),
+            ensureRowContiguous: true)
+    }
+    return result
+}()
+
 func lagunaGatedAffineOProjNVFP4(
     attentionOutput: MLXArray,
     gateLogits: MLXArray,
@@ -4410,9 +4463,18 @@ func lagunaGatedAffineOProjNVFP4(
     heads: Int,
     gateIsActivated: Bool = false
 ) -> MLXArray? {
-    let selected = gateIsActivated
-        ? (lagunaGateSoftplusEnabled ? lagunaActivatedOProjKernels[heads] : nil)
-        : lagunaGatedAffineOProjNVFP4Kernels[heads]
+    let halved = lagunaOProjScaleHalvingEnabled
+    let selected: MLXFast.MLXFastKernel?
+    if gateIsActivated {
+        guard lagunaGateSoftplusEnabled else { return nil }
+        selected = halved
+            ? lagunaActivatedOProjHalvedKernels[heads]
+            : lagunaActivatedOProjKernels[heads]
+    } else {
+        selected = halved
+            ? lagunaGatedAffineOProjNVFP4HalvedKernels[heads]
+            : lagunaGatedAffineOProjNVFP4Kernels[heads]
+    }
     guard let kernel = selected else { return nil }
     let inVec = heads * LagunaConstants.headDim
     let outVec = LagunaConstants.hiddenSize
@@ -4423,7 +4485,7 @@ func lagunaGatedAffineOProjNVFP4(
         codes.dtype == .uint32,
         codes.dims(outVec, inVec / 8),
         scales.dtype == .uint8,
-        scales.dims(outVec, inVec / 16)
+        scales.dims(outVec, halved ? inVec / 32 : inVec / 16)
     else {
         return nil
     }
@@ -5303,6 +5365,15 @@ final class LagunaRuntimeAttention: Module {
         {
             preparedWO.indexedMetadata = lagunaIndexedAffineMetadata(
                 scales: preparedWO.scales, biases: biases)
+        }
+        if preparedWO.mode == .nvfp4, preparedWO.bits == 4,
+            preparedWO.groupSize == 16,
+            lagunaOProjScaleHalvingEnabled
+        {
+            // Halve the scale plane: [outVec, inVec/16] -> [outVec, inVec/32].
+            // Take even-indexed bytes; the kernel reads simd_lid/2.
+            let halved = contiguous(preparedWO.scales[0..., .stride(from: 0, by: 2)])
+            preparedWO.scales = halved
         }
         _nativeAffineOProj = preparedWO
         return preparedWO.arrays
