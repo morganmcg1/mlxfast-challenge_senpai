@@ -206,6 +206,160 @@
     H4, H7 and H9 exactly and costs about a day. Read §11 with the four
     advisor caveats recorded there before assigning any of it.
 
+- **2026-08-07 05:30 UTC — #170 merged as `747d130b`; the prefill constraint is
+  now NAMED; four carried constants are corrected; round 26 is fully staffed.**
+  Board after this entry: **#215** (tanjiro, `maple-2026-08-07d-nax-kloop-pipeline`,
+  head `e49d7a99`, base `747d130b`) is newly assigned at r1; **#204** (fern),
+  **#205** (nezuko) and **#148** (frieren) remain `status:wip` at r1 and each
+  received a byte-budget feedback item. All four students are busy; the
+  post-merge cleanup PR is unassigned and is **top priority for the next idle
+  student**.
+  - **(a) #170's result — the prefill gather-GEMM constraint, stated.** Four M5
+    receipts, all `passed_correctness true`, `max_abs_diff 0`, both floors true,
+    each rejected on ranking only. Control `S = 97.895 ms`; marginal prefill
+    wall `W = 43.2619 ms`. Arms, as ΔS against control: **M2** (double MMA+ALU)
+    `+2.046 ms` (4.7% of W, 4.5σ, receipt `d786ad5c`); **S2** (stage +5.89 GB)
+    `+15.961 ms` (36.9%, 35σ, `a3e38005`); **B2** (two extra barriers)
+    `+0.841 ms` (1.9%, 1.9σ, `f2160f8f`); **S3** (stage-issue with zero extra
+    bytes) `+7.853 ms` (18.2%, 17.5σ, `ec2b0a57`). `ΔS3 / ΔS2 = 49.2%` ⇒ the
+    staging cost splits **≈49% load-issue/occupancy, ≈51% DRAM bytes**, with 49%
+    an upper bound on the issue share. The pure-issue term is **6.887 ms =
+    15.9% of W** and no bandwidth improvement can touch it; the implied
+    *marginal* bandwidth of the byte term is **726 GB/s**, above the 614 GB/s
+    peak, so the byte term is also not a clean roofline story. **Consequence:
+    no single-branch plan works. H1 (MMA/compute-limited) and H0 (jointly
+    saturated at the ridge) are both ELIMINATED; barriers are only 1.9%; the
+    31% tile-quantization padding is not worth chasing.** The mandated Step 0
+    passed for control and every arm on both ranked shapes — tgMem 9,232 B,
+    `maxTotalThreadsPerThreadgroup` 1024, `threadExecutionWidth` 32,
+    byte-identical across all ten rows
+    (`research/artifacts/tanjiro-pr170-pipeline-stats.txt`) — so rule (i) above
+    is now a *validated* instrument, not just a caution, and the S2 residency
+    confound provably does not apply because tanjiro shipped the preferred
+    fix: `loader_w2` reads the **same** `Ws`. `σ(S) = 0.318 ms` from n=16 feed
+    receipts ⇒ **3σ = 1.35 ms** is the standing prefill kill threshold.
+  - **(b) CORRECTION — the receipt price is ~20–22 minutes with slot
+    discipline, not ~44. This supersedes (iii) in the 04:35 bullet.** #170 §9.1
+    measured S3 end to end at **20.3 min**, with `benchmark_wall_seconds = 53`
+    on all four receipts ⇒ ~98% of elapsed time is queue, and queue time
+    collapses when a dispatcher holds its slot rather than re-entering. The
+    ~44 min figure was a no-slot-discipline draw. Four receipts is therefore
+    ~1.5 h, not ~3 h. **The retired constants are now "~35 min" AND "~44 min".**
+  - **(c) CORRECTION — prefill score elasticity is `0.2554 % per ms` removed
+    from S. The carried pair "−0.3669 / +0.362 %/ms" is RETIRED.** From #170
+    §8.6, control `S = 97.895 ms` against baseline `195.93 ms`: −8.26 ms ⇒
+    score 2.646512 (**+2.23%**); −10.26 ms ⇒ 2.661484 (**+2.81%**); −16.26 ms ⇒
+    2.709095 (+4.65%). Every prefill proposal must be priced with 0.2554 %/ms
+    from here on. The decode elasticity `0.01464 %/µs` still **needs
+    reconciliation** (0.75/4143.57 µs = 0.0181 %/µs; 0.75/4908.4 µs =
+    0.01528 %/µs) — treat it as ±20% until someone closes it.
+  - **(d) CORRECTION — the `_nax` twin IS editable, and I was wrong.** I
+    previously recorded that `mlx-generated/fp_quantized_nax.cpp` does not
+    exist or is not submittable. **It exists** at
+    `Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp`
+    (74,693 B) and **is listed in `benchmark.json` `editablePaths` (line 94)**;
+    `python3 research/nax_twin_check.py` PASSES at `747d130b`. Other editable
+    generated `*nax*.cpp` twins sit at lines 91, 94, 96, 98, 100, 102, 104
+    (note `steel_gemm_segmented_nax.cpp` exists on disk but is **not** listed).
+    **Binding consequence for every `_nax` assignment: a header edit must be
+    mirrored into the twin, so byte growth roughly DOUBLES.** This is why the
+    round-26 per-PR growth cap was tightened.
+  - **(e) The byte budget is now the binding constraint on round 26.** At base
+    `747d130b`: `current = 2,949,686 / 3,000,000 B`, **headroom 50,314 B**,
+    growth `0 / 262,144`, 142 files. With four PRs in flight I tightened every
+    cap to **12,000 B net growth per PR** (#204 `pr204-r1-tighten-byte-budget-to-12kb-2026-08-07`,
+    #205 `pr205-r1-tighten-byte-budget-to-12kb-2026-08-07`, #148
+    `pr148-r1-injection-byte-budget-2026-08-07`, and #215 in its brief).
+    Worst case 4 × 12,000 = 48,000 B < 50,314 B — **zero slack**. #148 was
+    additionally told to port only the `PREFILL_ROUTED` knob (dropping the
+    other three) and to default it OFF via
+    `lagunaInjectEnvInt("DARKBLOOM_INJECT_PREFILL_ROUTED", 0)`, following
+    #170's `kNaxGatherProbeDefault` discipline. #205 was told to edit an
+    attention kernel in place behind a switch rather than duplicate a kernel
+    string (`LagunaRuntimeModel.swift` is already ≈467,167 B of the 524,288
+    per-file cap). **The cleanup PR is now a byte-recovery instrument as much
+    as a hygiene one**: dead BK128 machinery (5,164 B), tanjiro's nine
+    near-duplicate `.metal` variants, fern's twice-measured-negative
+    `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE` dual-arm flag and its row-major kernel
+    in `LagunaLmHeadPrune.swift`, #170's now-inert `kNaxGatherProbeDefault`
+    probe machinery, #148's injection machinery once its ledger entry is
+    answered, and optionally ~32 KB of Laguna-dead transform sidecar coders.
+    **⚠️ Do NOT delete the dead `foldGateIntoBank` / `lagunaFusedNormAffineQKV`
+    INT8 paths (`LagunaRuntimeModel.swift:5510-5533`, `:5733-5738`)** — they are
+    the only shipped precedent for the accepted attention quantization
+    envelope.
+  - **(f) H1 is substantially de-risked DOWNWARD; its largest sub-hypothesis is
+    dead.** A step-boundary audit of the scored decode loop found that
+    **exactly 4 bytes cross GPU→host per decode step**. Sampling
+    (`Sources/MLXFastHarness/LagunaCorrectness.swift:102-109`) does
+    `logits.reshaped([-1,vocab])` → `rows[-1]` → `Int(last.argMax().item(Int32.self))`;
+    `argMax` runs on the **GPU** and the ~100,352-wide bf16 row is never
+    copied, so **the "big logits copy per step" sub-hypothesis is DEAD**.
+    `item(_:)` is the single blocking device sync per step. No host sync fires
+    per step anywhere in `Sources/MLXFastModel/`; KV advance is pure host `Int`
+    arithmetic; masks return `nil` at `t == 1`; RoPE tables are zero-copy
+    views; kernels are never rebuilt (all `MLXFast.metalKernel(` sites are
+    `private let` globals or dict-cached); all 82 environment reads feed
+    one-time file-scope globals. **The one concrete hoistable target left** is
+    `LagunaRuntimeModel.swift:2254` — a fresh 12-byte uniform `MLXArray`
+    minted per full-attention layer, **10×/step, with no atlas**, where the
+    sliding path already uses `lagunaRingIdxAtlas` (`:1753-1754`, store
+    `:1776-1785`, ablation `DARKBLOOM_PARAMS_ATLAS`). It is cheap and
+    precedented but predicted **small**, because **PR #158 already measured the
+    step-boundary gap at ~265 ± 20 µs (≈3.01%) and showed it scales WITH busy
+    time** (slope +0.059 ± 0.019, rejecting the absolute-cost model at 3.1σ;
+    per-dispatch coefficient NULL at −0.12 ± 0.22 µs). **H1's headline
+    "+1.8–4.8%" must be revised down.** Feasibility: per-kernel *exposed*
+    durations are **not** obtainable from either existing GPUPROF patch (both
+    are per-command-buffer, and spans average ~9 dispatches, so `sum == union`
+    is vacuous); getting them needs `sampleBufferAttachments` counter sampling
+    or `kernelStartTime`/`kernelEndTime`, neither of which appears anywhere in
+    the tree. Gap and bubble measurement *is* feasible with one new
+    research-only patch to the non-editable `backend/metal/device.cpp`.
+  - **(g) The §8.1 staged-byte census, done here — and it puts §4.10's
+    "roofline-ridge identity" in question.** From the stored NVFP4 shapes, one
+    expert stages `gate_proj` 589,824 B + `up_proj` 589,824 B + `down_proj`
+    589,824 B = **1,769,472 B**. Then `1,769,472 × 256 × 39 = 17.66641 GB`
+    reproduces the historical `GBYTE` constant **exactly**, proving that
+    constant assumed *every one of 256 slots staged once, in 39 layers*. The
+    route histogram (`research/artifacts/route-histogram-prefill512.csv`,
+    9,728 rows = 38 × 256, sum 155,648, mean 16.00) gives
+    `chunks_bm64 = 8,379` and `nonzero_experts = 7,757`. Chunk-accurate over 38
+    layers that is **14.8264 GB ⇒ 342.7 GB/s ⇒ 55.8% of 614 GB/s**, against
+    the analytic all-slots 17.2134 GB ⇒ 397.9 GB/s ⇒ 64.8%; the ratio
+    `0.8613` says the analytic figure **overstates by ~13.9%**. Subtracting
+    #170's 6.887 ms pure-issue term gives an implied byte-limited rate of
+    **407.6 GB/s**. **Three consequences.** (1) The carried "408.4 GB/s = 67%
+    of peak" headline likely **overstates** achievement; the true achieved rate
+    is nearer 343 GB/s (55.8%), which means the floor is lower and the headroom
+    is **larger** than we have been assuming. Sensitivity, issue term held
+    fixed: reaching 450 GB/s = −3.43 ms = **+0.88%**; 500 GB/s = −6.72 ms =
+    **+1.72%**; 614 GB/s = −12.23 ms = **+3.12%**. (2) The "dead bytes" branch
+    is largely **refuted by construction** — zero-row experts stage nothing, so
+    the ~20.3% of threadgroups that launch, binary-search and exit are an
+    **issue/occupancy** cost, not a byte cost, which is exactly the term #170
+    priced at 6.887 ms. (3) ⭐ **§4.10's roofline-ridge identity (67% of bytes
+    AND 67% of FLOPs = one efficiency scalar θ) may be an artifact of using
+    the analytic byte count on one axis only.** Both axes must be redone
+    chunk-accurately before that identity is quoted again. Two reconciliations
+    must close before anyone divides by `dS_1` again: (a) 38 vs 39 MoE layers,
+    and (b) what layer set `dS_1 = 43.2619 ms` actually covers, since PR-91's
+    injection binds layer `i` to bank `i+20` and "scaled to 40 layers" implies
+    partial coverage. **Part A of #215 is exactly this census, pre-registered
+    against the table above.** **H6 stays demoted until it lands.**
+  - **(h) #215's Part B — the one surviving mechanism from #170.** The k-loop
+    already hoists the **A** operand into registers (`NAXTile Atile[BK/SK]`),
+    so §8.3's "stop staging the A operand frees ~8 KB" is **VOID**: all 9,232 B
+    of threadgroup memory is `Ws`, the **B** operand. What #170 reopened is
+    **register-staged prefetch of `Ws`** — issue iteration `k+1`'s weight load
+    into registers before consuming iteration `k`'s staged tile, so the
+    ~6.9 ms pure-issue term overlaps MMA instead of serialising with it. This
+    is the only branch that attacks the 49% side, and it is byte-neutral, so it
+    is not blocked by (g). Double-buffering `Ws` in threadgroup memory remains
+    presumptively self-defeating (6 → 3 TG/core). #215 is capped at 3 receipts
+    with a 3σ = 1.35 ms kill and a 12,000 B growth cap covering **both** the
+    header and its twin.
+
 - **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
   precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
   softening commits after `eae07f01` (21:55:23 UTC). Both are recorded in §0a;
