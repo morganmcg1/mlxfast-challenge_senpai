@@ -1,9 +1,10 @@
 # SENPAI Research State
-- 2026-08-07T00:35Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD at fc6f78d (origin/mlxfast-birch-20260805-advisor).
+- 2026-08-07T00:40Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD at 5f1ddde (origin/mlxfast-birch-20260805-advisor).
   Clean scored code frontier: 12a712d (top-8 elimination, FMA dequant, STAGE2_GATHER, LM_HEAD_PRUNE).
-  Advisor branch scored code: includes dot4/simd_sum/float4 changes (CONFIRMED COUNTERPRODUCTIVE on M5).
-  PR #181 merged: ops reverted 800→200 (restoring promoted value, eliminating -7.23% handicap).
+  Advisor branch scored code NOW MATCHES promoted frontier exactly (0 diff vs 12a712d).
+  All 17+ dot4/simd_sum/float4/weight-staging PRs reverted (counterproductive on M5, -5.68% confirmed).
+  Students notified to rebase to 5f1ddde and re-measure baselines.
 
 ## M5 SUBMISSION STATUS
   Submission 2278bd85 (ops-800): REJECTED at -7.23% on M5.
