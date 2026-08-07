@@ -226,6 +226,21 @@ let lagunaExpertAlignedGatherEnabled =
 // which the pre-PR#243 qmm_nax doesn't support. Falls through to standard path.
 let lagunaPrefillSharedHalvedEnabled = false
 
+/// Prefill shared-expert SwiGLU + down QMM fusion. Fuses the
+/// `compiledSiluProduct` elementwise dispatch into the down NVFP4 QMM by
+/// computing SiLU(gate)*up in threadgroup shared memory and accumulating the
+/// dot product in the same kernel dispatch. Eliminates 1 dispatch per sparse
+/// layer (39 per prefill pass). Bit-exact with the stock 3-dispatch path.
+let lagunaPrefillSharedSwiGLUDownEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_SWIGLU_DOWN"] != "0"
+
+/// Controls whether the custom Metal GEMM kernel or the MLX compile-fused
+/// path is used for the prefill shared SwiGLU+down QMM fusion. The custom
+/// kernel is disabled by default (set DARKBLOOM_PREFILL_SHARED_SWIGLU_DOWN_KERNEL=1
+/// to enable it for ablation).
+let lagunaPrefillSharedSwiGLUDownKernelEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_SWIGLU_DOWN_KERNEL"] == "1"
+
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
 /// and the normalized row (consumed immediately by the MLP), eliminating a
@@ -6949,6 +6964,145 @@ func lagunaSharedDownResidual(
     )[0]
 }
 
+/// Prefill shared-expert SwiGLU + down NVFP4 QMM fusion kernel. Reads the
+/// concatenated gate/up QMM output [L, 1024], computes SiLU(gate)*up on-the-fly
+/// in threadgroup shared memory, then does the down NVFP4 QMM [L, 512] x
+/// [512, 2048] -> [L, 2048] in the same dispatch. Eliminates the separate
+/// `compiledSiluProduct` dispatch (39 per prefill pass). Bit-exact: uses the
+/// same stable-sigmoid BF16 arithmetic as `compiledSiluProduct` and the same
+/// `laguna_nvfp4_qdot_16` accumulation as the decode down kernel.
+private let lagunaPrefillSharedSwiGLUDownKernel = MLXFast.metalKernel(
+    name: "laguna_prefill_shared_swiglu_down_bf16_v1",
+    inputNames: ["gate_up", "down_weight", "down_scales"],
+    outputNames: ["output"],
+    source: """
+        constexpr uint intermediate = 512;
+        constexpr uint output_size = 2048;
+        constexpr uint groups_per_row = 32;
+        constexpr uint packed_per_row = 64;
+        constexpr uint outputs_per_simd = 4;
+        constexpr uint simds_per_tg = 8;
+        constexpr uint outputs_per_tg = simds_per_tg * outputs_per_simd;
+
+        uint tg_x = threadgroup_position_in_grid.x;
+        uint t = threadgroup_position_in_grid.y;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+
+        uint output_base = tg_x * outputs_per_tg + simd_group * outputs_per_simd;
+
+        // Phase 1: cooperatively compute SwiGLU into threadgroup memory.
+        threadgroup float swiglu_values[intermediate];
+        {
+            uint tid = simd_group * 32 + lane;
+            for (uint i = 0; i < 2; ++i) {
+                uint idx = tid * 2 + i;
+                if (idx < intermediate) {
+                    bfloat gate_bf = gate_up[t * (2 * intermediate) + idx];
+                    bfloat up_bf = gate_up[t * (2 * intermediate) + intermediate + idx];
+                    bfloat exp_abs = metal::exp(metal::abs(gate_bf));
+                    bfloat denominator = bfloat(1) + exp_abs;
+                    bfloat y = bfloat(1) / denominator;
+                    bfloat sigmoid = gate_bf < bfloat(0) ? y : bfloat(1) - y;
+                    bfloat silu = bfloat(gate_bf * sigmoid);
+                    swiglu_values[idx] = float(bfloat(silu * up_bf));
+                }
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Phase 2: each SIMD group computes outputs_per_simd output elements.
+        thread float input_values[16];
+
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            uint output_row = output_base + row;
+            float result = 0.0f;
+            // Load 16 SwiGLU values for this lane's group from shared memory.
+            uint k_base = lane * 16;
+            for (uint e = 0; e < 16; ++e) {
+                input_values[e] = swiglu_values[k_base + e];
+            }
+            const device uint8_t* weight =
+                (const device uint8_t*)down_weight +
+                output_row * packed_per_row * 4 + lane * 8;
+            uint8_t sb = down_scales[output_row * groups_per_row + lane];
+            result = laguna_nvfp4_qdot_16(
+                weight,
+                input_values,
+                laguna_nvfp4_scale(sb));
+            result = simd_sum(result);
+            if (lane == 0) {
+                output[t * output_size + output_row] =
+                    bfloat(result\(lagunaNvfp4RowScaleSuffix));
+            }
+        }
+        """,
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+/// Wrapper for frozen MLXArray to satisfy @Sendable capture in compiled
+/// closures. The weights are read-only after model loading, so unchecked
+/// conformance is safe.
+private struct FrozenArray: @unchecked Sendable {
+    let array: MLXArray
+}
+
+/// Compiled SwiGLU + down QMM for prefill. Lets MLX's compiler fuse the
+/// elementwise `silu(gate) * up` with the `quantizedMM` input, potentially
+/// eliminating the separate SwiGLU dispatch without a custom GEMM kernel.
+private func makeCompiledSwiGLUDown(
+    weight: MLXArray, scales: MLXArray,
+    groupSize: Int, bits: Int, mode: QuantizationMode
+) -> @Sendable (MLXArray, MLXArray) -> MLXArray {
+    let w = FrozenArray(array: weight)
+    let s = FrozenArray(array: scales)
+    let body: @Sendable (MLXArray, MLXArray) -> MLXArray = { gate, up in
+        let act = MLXNN.silu(gate) * up
+        return MLX.quantizedMM(
+            act, w.array, scales: s.array, biases: nil,
+            transpose: true, groupSize: groupSize,
+            bits: bits, mode: mode
+        )
+    }
+    if MLXHardwareInfo.isCompiledDecodeSupported {
+        return compile(shapeless: true, body)
+    }
+    return body
+}
+
+/// Returns the fused SwiGLU+down QMM result for the prefill shared expert, or
+/// nil when the preconditions do not hold (caller falls back to the 3-dispatch
+/// stock path). `gateUp` is the [L, 1024] fused gate/up QMM output.
+func lagunaPrefillSharedSwiGLUDown(
+    _ gateUp: MLXArray,
+    downWeight: MLXArray,
+    downScales: MLXArray
+) -> MLXArray? {
+    guard lagunaPrefillSharedSwiGLUDownKernelEnabled else { return nil }
+    precondition(gateUp.dtype == .bfloat16)
+    precondition(gateUp.dim(0) == 1)
+    let L = gateUp.dim(1)
+    precondition(gateUp.dim(2) == 2 * LagunaConstants.sharedExpertIntermediateSize)
+    precondition(downWeight.dtype == .uint32)
+    precondition(
+        downWeight.dims(LagunaConstants.hiddenSize,
+            LagunaConstants.sharedExpertIntermediateSize / 8))
+    precondition(downScales.dtype == .uint8)
+    precondition(
+        downScales.dims(LagunaConstants.hiddenSize,
+            LagunaConstants.sharedExpertIntermediateSize / 16))
+
+    lagunaTrace("shared SwiGLU+down QMM fused (prefill) L\(L)")
+    return lagunaPrefillSharedSwiGLUDownKernel(
+        [gateUp, downWeight, downScales],
+        grid: (LagunaConstants.hiddenSize / 32, L, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [[1, L, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
 private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_bf16_v2",
     inputNames: ["input", "fused_weight", "fused_scales", "indices"],
@@ -8245,6 +8399,9 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     /// reconstruction dispatches.
     var _prefillGateUpFullScales: MLXArray?
     var _prefillDownFullScales: MLXArray?
+    /// Cached compiled SwiGLU+down QMM closure for the prefill path, built
+    /// once on first prefill to avoid per-call recompilation.
+    var _compiledSwiGLUDownCache: (@Sendable (MLXArray, MLXArray) -> MLXArray)?
 
     init(dimensions: Int, hiddenDimensions: Int) {
         self._gateProj.wrappedValue = Linear(dimensions, hiddenDimensions, bias: false)
@@ -8587,6 +8744,52 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             let g = gu[.ellipsis, 0 ..< _fusedGateUpSplit], u = gu[.ellipsis, _fusedGateUpSplit...]
             let act = compiledSiluProduct(g, u)
             return MLX.quantizedMM(act, down.weight, scales: cds, biases: nil, transpose: true, groupSize: 32, bits: down.bits, mode: down.mode)
+        }
+        if x.dim(1) > 1,
+            lagunaPrefillSharedSwiGLUDownEnabled,
+            let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales,
+            let down = downProj as? QuantizedLinear,
+            type(of: down) == QuantizedLinear.self,
+            down.mode == .nvfp4, down.groupSize == 16, down.bits == 4,
+            down.bias == nil, down.biases == nil,
+            x.dtype == .bfloat16,
+            fusedWeight.dtype == .uint32,
+            fusedScales.dtype == .uint8,
+            _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize,
+            down.weight.dtype == .uint32,
+            down.scales.dtype == .uint8,
+            down.scales.ndim == 2
+        {
+            lagunaTrace("shared SwiGLU+down QMM fused (prefill)")
+            let gateUp = MLX.quantizedMM(
+                x,
+                fusedWeight,
+                scales: fusedScales,
+                biases: nil,
+                transpose: true,
+                groupSize: 16,
+                bits: 4,
+                mode: .nvfp4
+            )
+            if let fused = lagunaPrefillSharedSwiGLUDown(
+                gateUp,
+                downWeight: down.weight,
+                downScales: down.scales
+            ) {
+                return fused
+            }
+            // Fallback: compile-fused SwiGLU + down QMM (cached per module)
+            let gate = gateUp[.ellipsis, 0 ..< _fusedGateUpSplit]
+            let up = gateUp[.ellipsis, _fusedGateUpSplit...]
+            if let cached = _compiledSwiGLUDownCache {
+                return cached(gate, up)
+            }
+            let compiled = makeCompiledSwiGLUDown(
+                weight: down.weight, scales: down.scales,
+                groupSize: down.groupSize, bits: down.bits, mode: down.mode
+            )
+            _compiledSwiGLUDownCache = compiled
+            return compiled(gate, up)
         }
         if x.dim(1) > 1,
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales,
