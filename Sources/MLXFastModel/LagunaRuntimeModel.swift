@@ -28,10 +28,43 @@ enum LagunaDecodeDup {
         ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_FAULT"] == "1"
     static let verbose =
         ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_VERBOSE"] == "1"
-    static let enabled = !target.isEmpty && k > 1
+    /// Comma-separated per-segment copy counts, e.g. `1,2,3,5,5,3,2,1`. A
+    /// segment starts at every multi-token forward (the probe's `decode_begin`),
+    /// so all arms live in one process with one model load and one thermal
+    /// state, and the palindrome cancels linear drift inside each block.
+    static let schedule: [Int] = (ProcessInfo.processInfo.environment[
+        "DARKBLOOM_DECODE_DUP_SCHEDULE"] ?? "")
+        .split(separator: ",").compactMap { Int($0) }
+    static let enabled =
+        !target.isEmpty && (k > 1 || schedule.contains { $0 > 1 })
 
     nonisolated(unsafe) private static var roots: [MLXArray] = []
     nonisolated(unsafe) private static var callCounts: [String: Int] = [:]
+    nonisolated(unsafe) private static var segment = -1
+    nonisolated(unsafe) private static var stepInSegment = 0
+    nonisolated(unsafe) private static var currentK = k
+
+    /// Called at the top of every model forward. A seed prefill opens the next
+    /// schedule segment; the first single-token step of a segment announces its
+    /// arm on stderr so the analysis never has to *assume* the probe and the
+    /// instrument stayed in phase. The 64-token floor keeps short warmup
+    /// forwards issued during model load from consuming schedule slots.
+    @inline(__always)
+    static func beginForward(tokens: Int) {
+        guard !schedule.isEmpty, !target.isEmpty else { return }
+        if tokens >= 64 {
+            segment += 1
+            stepInSegment = 0
+            currentK = schedule[segment % schedule.count]
+            return
+        }
+        guard tokens == 1, segment >= 0 else { return }
+        if stepInSegment == 0 {
+            FileHandle.standardError.write(
+                Data("DUPSEG \(segment) target=\(target) k=\(currentK)\n".utf8))
+        }
+        stepInSegment += 1
+    }
 
     /// Emit `k-1` duplicates of the dispatch named `name`. `body` receives the
     /// copy index (1-based) and the previous copy's output when chaining, and
@@ -43,7 +76,7 @@ enum LagunaDecodeDup {
         guard enabled, name == target else { return }
         callCounts[name, default: 0] += 1
         var previous: MLXArray?
-        for copy in 1..<k {
+        for copy in 1..<currentK {
             guard let produced = body(copy, chained ? previous : nil) else { return }
             roots.append(produced)
             previous = produced
@@ -70,7 +103,8 @@ enum LagunaDecodeDup {
         guard enabled, verbose, !callCounts.isEmpty else { return }
         let census = callCounts.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }.joined(separator: ",")
-        FileHandle.standardError.write(Data("DUPCOUNT k=\(k) \(census)\n".utf8))
+        FileHandle.standardError.write(
+            Data("DUPCOUNT k=\(currentK) \(census)\n".utf8))
         callCounts.removeAll(keepingCapacity: true)
     }
 
@@ -10982,7 +11016,12 @@ final class LagunaRuntimeModelInner: Module {
                     qkRoPEOffsets: qkRoPEOffsets
                 )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
-                    asyncEval(LagunaDecodeDup.drain() + [h])
+                    let dupRoots = LagunaDecodeDup.drain()
+                    if dupRoots.isEmpty {
+                        asyncEval(h)
+                    } else {
+                        asyncEval(dupRoots + [h])
+                    }
                 }
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
@@ -11044,6 +11083,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        LagunaDecodeDup.beginForward(tokens: inputs.dim(1))
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
