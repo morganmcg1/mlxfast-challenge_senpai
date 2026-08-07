@@ -27,6 +27,8 @@ struct LagunaFullFusedAttentionHarnessTests {
             try checkOracle(at: root)
         case "codegen":
             try printCodegen()
+        case "capture":
+            try captureKernel(at: root, environment: environment)
         case "time":
             try timeKernel(at: root, environment: environment)
         default:
@@ -91,6 +93,36 @@ struct LagunaFullFusedAttentionHarnessTests {
         Stream.gpu.synchronize()
         try require(output.shape == [1, 48, 1, 128], "unexpected codegen output shape")
         print("FULL_ATTN_CODEGEN_PRINTED N=\(length) owner=\((length - 1) & 31)")
+    }
+
+    private func captureKernel(at root: URL, environment: [String: String]) throws {
+        let length = Int(environment["MLXFAST_FULL_ATTN_CAPTURE_LENGTH"] ?? "513") ?? 513
+        let label = environment["MLXFAST_FULL_ATTN_CAPTURE_LABEL"] ?? "unknown"
+        try require(lengths.contains(length), "unsupported capture length: \(length)")
+
+        let traceURL = root.appendingPathComponent("capture-\(label)-N\(length).gputrace")
+        try require(
+            !FileManager.default.fileExists(atPath: traceURL.path),
+            "capture path already exists: \(traceURL.path)"
+        )
+
+        let fixture = makeFixture()
+        evaluateInputs(fixture)
+        let warmup = invoke(fixture, length: length)
+        eval(warmup)
+        Stream.gpu.synchronize()
+
+        GPU.startCapture(url: traceURL)
+        let output = invoke(fixture, length: length)
+        eval(output)
+        Stream.gpu.synchronize()
+        GPU.stopCapture(url: traceURL)
+
+        try require(output.shape == [1, 48, 1, 128], "unexpected capture output shape")
+        print(
+            "FULL_ATTN_CAPTURED label=\(label) N=\(length) owner=\((length - 1) & 31) "
+                + "path=\(traceURL.path)"
+        )
     }
 
     private func timeKernel(at root: URL, environment: [String: String]) throws {
