@@ -4951,7 +4951,7 @@ private func lagunaNormAffineQKVBody(
     constexpr float norm_eps = 1.0e-6f;
     constexpr uint values_per_thread = 8;       // pack_factor 4 * packs_per_thread 2
     constexpr uint block_size = 256;            // values_per_thread * SIMD_SIZE
-    constexpr uint results_per_simdgroup = 4;
+    constexpr uint results_per_simdgroup = 8;
     constexpr uint num_simdgroups = 2;
     constexpr uint group_size = 32;
     constexpr uint scale_step_per_thread = group_size / values_per_thread;
@@ -5009,7 +5009,7 @@ private func lagunaNormAffineQKVBody(
         simd_lid / scale_step_per_thread;
 
     thread float x_thread[values_per_thread];
-    thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
+    thread float result[results_per_simdgroup] = {0.0f};
 
     uint column = simd_lid * values_per_thread;
     for (uint k = 0; k < axis_size; k += block_size) {
@@ -5044,10 +5044,14 @@ private func lagunaNormAffineQKVBody(
     }
 
     {
-        const vec<float, 4> packed = simd_sum(
+        const vec<float, 4> packed0 = simd_sum(
             vec<float, 4>(result[0], result[1], result[2], result[3]));
-        result[0] = packed.x; result[1] = packed.y;
-        result[2] = packed.z; result[3] = packed.w;
+        result[0] = packed0.x; result[1] = packed0.y;
+        result[2] = packed0.z; result[3] = packed0.w;
+        const vec<float, 4> packed1 = simd_sum(
+            vec<float, 4>(result[4], result[5], result[6], result[7]));
+        result[4] = packed1.x; result[5] = packed1.y;
+        result[6] = packed1.z; result[7] = packed1.w;
     }
     if (simd_lid == 0) {
         for (uint row = 0; row < results_per_simdgroup; ++row) {
@@ -5156,7 +5160,7 @@ private func lagunaNormAffineQKVPrefetchSource(
     constexpr float norm_eps = 1.0e-6f;
     constexpr uint values_per_thread = 8;       // pack_factor 4 * packs_per_thread 2
     constexpr uint block_size = 256;            // values_per_thread * SIMD_SIZE
-    constexpr uint results_per_simdgroup = 4;
+    constexpr uint results_per_simdgroup = 8;
     constexpr uint num_simdgroups = 2;
     constexpr uint group_size = 32;
     constexpr uint scale_step_per_thread = group_size / values_per_thread;
@@ -5229,7 +5233,7 @@ private func lagunaNormAffineQKVPrefetchSource(
     // --- affine_qmv_fast replica; first pf_depth blocks consume the
     // prefetched registers with the identical accumulation order ---
     thread float x_thread[values_per_thread];
-    thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
+    thread float result[results_per_simdgroup] = {0.0f};
 
     uint column = simd_lid * values_per_thread;
     for (uint d = 0; d < pf_depth; ++d) {
@@ -5397,7 +5401,7 @@ func lagunaNormAffineQKV(
                 + "pf\(lagunaNormAffineQKVPrefetchDepth) indexed")
         return indexedKernel(
             [residual, normWeight, codes, metadata.indices, metadata.lut],
-            grid: ((rows / 8) * 64, 1, 1),
+            grid: ((rows / 16) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16]
@@ -5410,7 +5414,7 @@ func lagunaNormAffineQKV(
             : "norm+affine qkv qmv r\(rows)")
     return kernel(
         [residual, normWeight, codes, scales, biases],
-        grid: ((rows / 8) * 64, 1, 1),
+        grid: ((rows / 16) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16]
