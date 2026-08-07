@@ -1146,7 +1146,7 @@ attempt. Enumerating all 42 historical rows returns `rejected`/`failed`/
 `promoted` and nothing else, so the terminal set covers the observed vocabulary
 and the slot still frees normally. A `conflict` now also arms a 120 s cooldown.
 
-### 5.2 Receipt M2 — `d786ad5c` (arm 1 of 3)
+### 5.2 Receipt M2 — `d786ad5c` (arm 1 of 4)
 
 | field | value |
 | --- | --- |
@@ -1184,7 +1184,7 @@ all three hold.
    baseline dispersion of §4.6) and `13.89203 ms/step` decode against a feed
    median of `13.86539` (`+0.19%`). Nothing about this session was unusual.
 
-### 5.3 Receipt S2 — `a3e38005` (arm 2 of 3)
+### 5.3 Receipt S2 — `a3e38005` (arm 2 of 4)
 
 | field | value |
 | --- | --- |
@@ -1211,7 +1211,7 @@ that turned a residual into an identification. M2 had established that at least
 72.6% of the critical path was *not* MMA and *not* integer ALU, but a residual
 names nothing on its own. S2 fills it directly.
 
-### 5.4 Receipt B2 — `f2160f8f` (arm 3 of 3)
+### 5.4 Receipt B2 — `f2160f8f` (arm 3 of 4)
 
 | field | value |
 | --- | --- |
@@ -1231,7 +1231,7 @@ names nothing on its own. S2 fills it directly.
 | `benchmark_wall_seconds` | `53` |
 | `peak_ram_gb` | `21` |
 
-**`ΔB2 = 98.735 − 97.895 = +0.841 ms` — 1.9% of `W`, `2.6σ`.**
+**`ΔB2 = 98.735 − 97.895 = +0.841 ms` — 1.9% of `W`, `1.9σ`.**
 
 B2 is the cleanest arm in the tree: the IR census showed it moves `barrier` and
 *nothing else*, on both live threadgroup shapes. So `c_bar = ΔB2 / 2 =
