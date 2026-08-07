@@ -590,11 +590,22 @@ Stated plainly, because none of them is resolvable on this host.
 
 ## 5. Receipts
 
-Budget 3, with slot discipline:
+Budget 3, with slot discipline. The assignment listed these as a budget
+allocation; I reordered them temporally:
 
-1. fresh control at `747d130b`
-2. PF=1 (depth 1)
-3. optional third — depth 2 or a variant, **only if arm 1 shows signal**
+1. **R1 = PF=1 (depth 1)** — the candidate
+2. **R2 = fresh control at `747d130b`**
+3. optional third — depth 2 or a variant, **only if R1 vs R2 shows signal**
+
+**Why candidate first.** 5 of the last 22 receipts on this benchmark returned
+`failed` (no score, no metrics). A `failed` candidate is the cheapest
+high-information outcome available, and discovering a JIT or build failure
+*after* spending the control would waste two of three receipts rather than one.
+Submitting the candidate first also banks a promotion sooner if the win is real.
+The pairing is unaffected: both rows are read off raw candidate
+`officialMetrics` in the same way regardless of order, and the control is a
+byte-exact checkout of the three submitted paths at `747d130b`, not a
+same-session paired draw.
 
 Every ledger row is read off **raw candidate `officialMetrics`**, never off
 speedup ratios: the baseline prefill draw swings ±1.93 % while candidate
