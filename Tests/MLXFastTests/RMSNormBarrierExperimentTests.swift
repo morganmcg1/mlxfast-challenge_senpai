@@ -34,7 +34,10 @@ struct RMSNormBarrierExperimentTests {
             atPath: outputDirectory,
             withIntermediateDirectories: true
         )
-        for (rows, axis) in [(1, 2048), (2, 2048), (511, 2048), (512, 2048), (513, 2048), (2, 1024)] {
+        for (rows, axis) in [
+            (1, 2048), (2, 2048), (511, 2048), (512, 2048), (513, 2048),
+            (512, 2044), (2, 1024),
+        ] {
             let output = rmsNorm(rows: rows, axis: axis)
             let data = output.asData(access: .copy).data
             let name = "rms_bf16_rows\(rows)_axis\(axis).bin"
@@ -65,15 +68,19 @@ struct RMSNormBarrierExperimentTests {
         eval(x, weight)
         Stream.gpu.synchronize()
 
-        for _ in 0..<5 {
-            evaluateBatch(x: x, weight: weight, batchSize: batchSize)
+        for _ in 0..<6 {
+            let outputs = makeBatch(x: x, weight: weight, batchSize: batchSize)
+            eval(outputs)
+            Stream.gpu.synchronize()
         }
 
         var samples = [Double]()
         samples.reserveCapacity(21)
         for _ in 0..<21 {
+            let outputs = makeBatch(x: x, weight: weight, batchSize: batchSize)
             let start = DispatchTime.now().uptimeNanoseconds
-            evaluateBatch(x: x, weight: weight, batchSize: batchSize)
+            eval(outputs)
+            Stream.gpu.synchronize()
             let end = DispatchTime.now().uptimeNanoseconds
             samples.append(Double(end - start) / Double(batchSize))
         }
@@ -89,12 +96,10 @@ struct RMSNormBarrierExperimentTests {
         )
     }
 
-    private func evaluateBatch(x: MLXArray, weight: MLXArray, batchSize: Int) {
-        let outputs = (0..<batchSize).map { _ in
+    private func makeBatch(x: MLXArray, weight: MLXArray, batchSize: Int) -> [MLXArray] {
+        (0..<batchSize).map { _ in
             MLXFast.rmsNorm(x, weight: weight, eps: 1e-6)
         }
-        eval(outputs)
-        Stream.gpu.synchronize()
     }
 
     private func rmsNorm(rows: Int, axis: Int) -> MLXArray {
