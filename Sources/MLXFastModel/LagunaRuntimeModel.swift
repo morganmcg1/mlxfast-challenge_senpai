@@ -6765,18 +6765,13 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         thread float up_result = 0.0f;
         thread float input_values[values_per_lane];
 
-        threadgroup float input_shared[input_width];
-        uint tid = simd_group * 32 + lane;
-        for (uint i = tid; i < input_width; i += 64) {
-            input_shared[i] = float(input[i]);
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
         for (uint block = 0; block < input_width; block += block_width) {
+            const device vec<bfloat, 4>* input_vectors =
+                (const device vec<bfloat, 4>*) (
+                    input + block + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
                 *(thread float4*)(input_values + 4 * i) =
-                    *(threadgroup float4*)(
-                        input_shared + block + lane * values_per_lane + 4 * i);
+                    float4(input_vectors[i]);
             }
 
             uint8_t gate_sb = gate_row_scale[block / 16];
