@@ -7479,11 +7479,11 @@ private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
     source: """
         constexpr uint in_vec_size = 2048;
         constexpr uint output_width = 8192;
-        constexpr uint rows_per_thread = 4;
+        constexpr uint rows_per_thread = 2;
         constexpr uint values_per_thread = 4;
         constexpr uint block_width = 128;
         constexpr uint blocks = in_vec_size / block_width;
-        constexpr uint rows_per_group = 64;
+        constexpr uint rows_per_group = 32;
 
         uint tile = threadgroup_position_in_grid.x;
         uint simd_group = simdgroup_index_in_threadgroup;
@@ -7491,8 +7491,8 @@ private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
 
         uint row_base = tile * rows_per_group + simd_group * rows_per_thread;
 
-        thread float gate_result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
-        thread float up_result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
+        thread float gate_result[rows_per_thread] = {0.0f, 0.0f};
+        thread float up_result[rows_per_thread] = {0.0f, 0.0f};
         thread float coefficients[values_per_thread];
 
         uint column = lane * values_per_thread;
@@ -7564,7 +7564,7 @@ func lagunaDenseGateUpSwiGLU(
 
     return lagunaDenseGateUpSwiGLUKernel(
         [input, fusedWeight],
-        grid: ((LagunaConstants.denseIntermediateSize / 64) * 512, 1, 1),
+        grid: ((LagunaConstants.denseIntermediateSize / 32) * 512, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
         outputDTypes: [.bfloat16]
