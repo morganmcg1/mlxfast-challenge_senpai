@@ -58,10 +58,16 @@ SUBMITTED_PATHS = (SELECTOR, HEADER, GENERATED)
 DISARMED = 'kNaxGatherProbeDefault = ""'
 ARMED = 'kNaxGatherProbeDefault = "%s"'
 
-# One submission per account may be in flight; any of these means the slot is
-# taken and a submit attempt would only return a conflict.
-IN_FLIGHT = {"validating", "running", "queued", "pending", "benchmarking", "submitted"}
+# One submission per account may be in flight. The slot is free only when every
+# row has reached a status known to be terminal; anything else -- including a
+# status token this script has never seen -- counts as in flight. Guessing
+# "free" wrongly costs a conflict and an account-wide rate-limit attempt shared
+# with three other students, while guessing "busy" wrongly only costs waiting.
+TERMINAL = {"promoted", "rejected", "failed", "accepted", "error", "cancelled"}
 ROW = re.compile(r"^([0-9a-f]{7})\s+(\S+)\s+(\S+)\s")
+# `mlxfast submissions` colours the status column, so the raw third field looks
+# like "\x1b[36mvalidating\x1b[39m" and never compares equal to a bare token.
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 POLL_SECONDS = 3.0  # on top of the ~9 s each `mlxfast submissions` call costs
 
@@ -113,13 +119,14 @@ def slot_state():
     )
     if proc.returncode != 0:
         return None, f"mlxfast submissions exited {proc.returncode}"
-    rows = [m.groups() for m in map(ROW.match, proc.stdout.splitlines()) if m]
+    lines = ANSI.sub("", proc.stdout).splitlines()
+    rows = [(m.group(1), m.group(3)) for m in map(ROW.match, lines) if m]
     if not rows:
         return None, "no submission rows parsed"
-    busy = [r for r in rows if r[2] in IN_FLIGHT]
+    busy = [r for r in rows if r[1] not in TERMINAL]
     if busy:
-        return False, f"{busy[-1][0]} {busy[-1][2]}"
-    return True, f"newest {rows[-1][0]} {rows[-1][2]}"
+        return False, f"{busy[-1][0]} {busy[-1][1]}"
+    return True, f"newest {rows[-1][0]} {rows[-1][1]}"
 
 
 def attempt_submit(arm_name, note):
@@ -196,7 +203,13 @@ def main():
                 if outcome == "submitted":
                     log(f"DISPATCHED arm {args.arm}")
                     return 0
-                if outcome == "rate-limited":
+                if outcome == "conflict":
+                    # The status source said free and the server disagreed. Back
+                    # off rather than retrying every poll, because each attempt
+                    # spends from an hourly budget shared across the account.
+                    cooldown_until = time.monotonic() + 120
+                    log("slot was not actually free; backing off 120 s")
+                elif outcome == "rate-limited":
                     m = re.search(r"in (\d+) seconds", out)
                     wait = int(m.group(1)) if m else 300
                     cooldown_until = time.monotonic() + wait
