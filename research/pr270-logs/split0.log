@@ -1,0 +1,35 @@
+prompt tokens: 512
+load: 38.5 s
+prefill 0:   564.08 ms  (1101.71 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 1:   545.47 ms  (1065.38 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 2:   545.81 ms  (1066.04 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 3:   545.86 ms  (1066.12 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 4:   545.81 ms  (1066.04 us/token)  cbs=   81 dispatches= 1222  token=5991
+prefill 5:   545.63 ms  (1065.68 us/token)  cbs=   81 dispatches= 1222  token=5991
+peak_ram_gb: 20.706512451171875
+
+prefill warm median: 545.814 ms/forward (1066.04 us/token) over 5 reps
+
+profile [prefill warm] over 5 request(s)
+  per-request dispatches [1222, 1222, 1222, 1222, 1222]
+  wall               545.718 ms/request
+  gpu busy (sum)     540.396 ms ( 99.0% of wall)
+  gpu busy (union)   540.396 ms ( 99.0% of wall)
+  command buffers       81.0 /request
+  dispatches          1222.0 /request
+  bound bytes         24.717 GiB/request
+
+  dispatch                                                    n/req  us/call   ms/req  %wall  MB/call    GB/s   %bw             family
+  MIXED:CV2ISigmoidADV2IBroadcastACEV2IBroadcastCAFV2IMultiplyDEGV2IBroadcas 1156.0    463.2  535.443   98.1   19.944    45.1    17        elementwise
+  laguna_prefill_sorted_moe_tail_bf16_v1                       38.0     77.6    2.950    0.5   22.031   297.6   114           moe_tail
+  MIXED:Cf4IAsTypeADf4IBroadcastCBEf4IBroadcastBCFf4ILogAddExpDEGV2OAsTypeF_   19.0     79.9    1.517    0.3   32.643   428.7   165        elementwise
+  MIXED:gather_frontbfloat16_int32_int_2+rmsbfloat16+steel_gemm_splitk_accum    4.0     97.6    0.390    0.1  101.251  1088.3   418    steel_gemm_bf16
+  MIXED:laguna_lmhead_coarse_argmax_stage1_v5_float_float_uint32_t+laguna_lm    3.0     28.0    0.084    0.0  130.924  4903.0  1884            lm_head
+  MIXED:argmax_bfloat16+gather_frontbfloat16_int32_int_2        2.0      5.8    0.012    0.0    0.191    34.6    13       sort_scatter
+
+  family                 n/req   ms/req  %wall    GB/s   %bw
+  elementwise           1175.0  536.960   98.4    46.2    18
+  moe_tail                38.0    2.950    0.5   297.6   114
+  steel_gemm_bf16          4.0    0.390    0.1  1088.3   418
+  lm_head                  3.0    0.084    0.0  4903.0  1884
+  sort_scatter             2.0    0.012    0.0    34.6    13
