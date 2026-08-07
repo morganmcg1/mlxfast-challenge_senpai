@@ -300,8 +300,8 @@ All LOW + MED at the conservative comment target ≈ 113,414 B → headroom ≈ 
 
 ## 8. Suggested sequencing for the cleanup assignment
 
-1. **Lever 1 alone, first PR.** Zero build risk, no metallib rebuild, no test exposure,
-   and it fixes the per-file-cap pressure. Instruct *relocate to `notes/`*, not delete.
+1. **Lever 1 alone, first PR — but restricted to three files, see §9.** Zero build risk,
+   no metallib rebuild, no test exposure. Instruct *relocate to `notes/`*, not delete.
 2. **Levers 5+6+7** in the same PR or immediately after —
    `swift build -c release --force-resolved-versions` is sufficient proof; Lever 6 also
    clears a live compiler warning.
@@ -315,3 +315,37 @@ All LOW + MED at the conservative comment target ≈ 113,414 B → headroom ≈ 
 `Vendor/mlx-swift-lm/Libraries/MLXLMCommon/{KVCache,Evaluate}.swift` hold
 24,235 + 27,465 comment bytes; if Lever 1 under-delivers that is the next ≈50 KB, and
 being outside the fingerprinted tree it stays LOW risk.
+
+## 9. File-ownership constraint — defer `LagunaRuntimeModel.swift` until the decode round lands
+
+Byte recovery is a *capacity* result, not a score result, so it must never cost the
+campaign a rebase on a live timing arm. `Sources/MLXFastModel/LagunaRuntimeModel.swift`
+is currently the shared working file of the whole decode programme: every in-flight
+decode assignment edits it, and a cleanup PR that relocates 120,960 B of interleaved
+comments would rewrite line numbers across all 11,073 lines. Three concurrent editors of
+that file would face a brutal, error-prone rebase, and the region fences that keep those
+arms from colliding are expressed as line ranges.
+
+**Decision.** The first byte-recovery PR applies Lever 1 to the three files that no
+in-flight assignment touches:
+
+| file | comment bytes |
+|---|---|
+| `LagunaLmHeadPrune.swift` | 23,687 |
+| `LagunaRuntimeWeights.swift` | 23,194 |
+| `LagunaConfig.swift` | 4,753 |
+| **total** | **51,634** |
+
+That alone takes surface headroom 49,145 → **≈100,779 B**, which is more than enough to
+unblock the near-term queue, and it touches nothing any student holds.
+
+**Deferred:** the 120,960 B of comment relocation inside `LagunaRuntimeModel.swift`, and
+Levers 5/6/7 (which also live in that file), wait until the decode round lands and the
+file has a single owner. Note the ordering cost of the deferral: the per-file cap
+(55,952 B of headroom on that file) is *not* relieved by this first PR, so any decode arm
+that needs to add substantial code to `LagunaRuntimeModel.swift` remains constrained
+until the deferred half runs. If a decode arm actually hits the per-file cap, that
+inverts the priority — schedule the deferred half immediately and accept the rebase.
+
+Levers 2/3/4 are unaffected by this constraint: they live in
+`Sources/MLXFastTransform/`, `LagunaLmHeadPrune.swift`, and `quantized.cpp`.

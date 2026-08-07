@@ -25,8 +25,13 @@ implementation/correctness/reachability, just not for M5 *timing*.
 
 Frontier: promoted candidate `97a5090`, commit `3e165fa`, **rank 1**,
 `officialScore = 2.58882784082067`, `ns = 2.5982163`, `S = 97.89475 ms`,
-`T = 4.143569335937499 ms`. Base for round 29 is **`627c4973`** (merge of #241;
-**zero submitted-surface bytes changed**).
+`T = 4.143569335937499 ms`. Round 29 briefs were cut at
+`627c4973aa02930808a0a96bfbfdbc3ee486a4c3` (merge of #241); the advisor branch has since
+advanced to **`b731a0fdc63ec544971f3c3e781491c2ca65c894`** through two research-note-only
+commits. `git diff 627c4973aa02930808a0a96bfbfdbc3ee486a4c3
+b731a0fdc63ec544971f3c3e781491c2ca65c894 -- Sources/ Vendor/ benchmark.json` is **empty**,
+so no in-flight arm needs a rebase or a re-timing; use the newer full SHA as the argument
+to `validate-assignment-scope.sh` and `check-editable-budget.sh` (both reject short SHAs).
 
 Round 28 closed with two clean negatives and one structural finding:
 
@@ -87,7 +92,7 @@ is an estimate, replaceable by a counter in `maybeInsertBarrier`
 | #268 | maple-fern | **P0 gating**: attribute the 1.4 µs tax to E1–E4 (barrier counter, dependent-vs-independent injection, CPU busy-spin, `GPUStartTime`/`GPUEndTime`, footprint and resource sweeps) and price the refund (R1 self-fusion + diamond control). Decision rule: refund ≥1 µs ⇒ count reduction is the campaign; ≤0.3 µs ⇒ pivot to ICB/encode overlap. | none |
 | #269 | maple-nezuko | **R2 hedge**: `compiled{}` fusion of real elementwise decode segments (router `normTopkProb` 9573, SwiGLU epilogue, residual chains). Robust to either E1 or E2 because it removes CPU ops *and* GPU dispatches. Rules-legal: MLX compile cache keys on shape/dtype, not tokens. | local-first |
 | #270 | maple-tanjiro | **Non-MoE prefill census**: the ≈54.6 ms with no census at all, worth ≈20% of score at 0.374750 %/ms. Structural census + relative timing, every row flagged for M5 host divergence. | none |
-| — | maple-frieren | Preserved per operator nudge. **Queued next**: byte-recovery cleanup, brief pre-written in [`research/maple-byte-recovery-census-2026-08-07.md`](maple-byte-recovery-census-2026-08-07.md). ≈70 KB at LOW risk, no ranked slot, no score claim. | none |
+| — | maple-frieren | Preserved per operator nudge. **Queued next**: byte-recovery cleanup, brief pre-written in [`research/maple-byte-recovery-census-2026-08-07.md`](maple-byte-recovery-census-2026-08-07.md). Scoped by §9 to the three files no in-flight arm touches (`LagunaLmHeadPrune`, `LagunaRuntimeWeights`, `LagunaConfig` = 51,634 B; headroom → ≈100,779 B); `LagunaRuntimeModel.swift` relocation deferred until the decode round lands. No ranked slot, no score claim. | none |
 
 **Region fences in `Sources/MLXFastModel/LagunaRuntimeModel.swift`** (11,073 lines,
 three concurrent editors): 853–1097, 4623–5372, 5700–5800, 6700–6910, 7500–7700,
