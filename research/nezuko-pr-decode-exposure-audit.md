@@ -497,6 +497,63 @@ with the profiler hook off, and report `E = dS/dI` directly, in the currency the
 score is paid in. The design floor was `|dI| >= 150 us/step`, from the +-70
 us/step arm-level between-session scatter doctrine.
 
+### 3.4 Estimator C, attempt 1: both pre-registered knobs missed the design floor
+
+24 runs, `research/nezuko-a1-exposure`, analysis in
+`research/nezuko-a1-exposure.txt`. **0 token divergences in all 24 runs.**
+
+| knob | `dI` (isolated) | `dS` (wall) | perm p on `dS` | verdict |
+|---|---|---|---|---|
+| `DARKBLOOM_ROUTED_GATEUP_R1` | +18.2 +- 23.8 us/step | +65.0 us/step | 0.17 | underpowered |
+| `DARKBLOOM_SHARED_QMV_R1` | +24.4 +- 18.8 us/step | -47.9 us/step | 0.20 | underpowered |
+
+Both arms are an order of magnitude below the 150 us/step floor, so per the
+pre-registration I report the bound and not the point estimate. `E = 3.56` and
+`E = -1.97` are noise divided by noise; the confidence intervals are unbounded
+in both directions and I am not going to launder them into a number.
+
+**Why the design failed, stated plainly.** I selected the knobs on "is it
+default-ON and does it name a large census row", when the criterion that
+actually mattered was "does turning it off change isolated GPU work by at least
+150 us/step". Both knobs turn out to be *variant swaps*, not slowdowns. Turning
+them off does not make a kernel slower; it substitutes a different kernel that
+does the same work at nearly the same price:
+
+```text
+ROUTED_GATEUP_R1  on -> routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2  1497.3 us/step
+                 off -> routed_nvfp4_swiglu_qmv_packed_top8keys_bf16_v1     1517.8 us/step
+SHARED_QMV_R1     on -> shared_nvfp4_swiglu_qmv_rows1_bf16_v1                293.1 us/step
+                 off -> shared_nvfp4_swiglu_qmv_bf16_v1                      317.4 us/step
+```
+
+That is what an `_r1` layout knob is *for*: it is the previous generation's
+kernel kept as an ablation, and it was promoted precisely because it was only
+slightly better. In hindsight this was predictable from the knob names alone
+without spending a GPU hour, and a future exposure sweep should read the isolated
+census delta from a single cheap 50-step census pair before committing to eight
+wall runs.
+
+Both knobs are otherwise clean: apart from the swapped pair, no kernel moved by
+more than 6 us/step in either ablation, so the knobs are well localized and the
+`dI` measurement itself is trustworthy. It is simply too small.
+
+**One thing worth salvaging.** `SHARED_QMV_R1` adds +24.4 us/step of isolated
+work to `shared_nvfp4_swiglu_qmv_rows1` -- one of the three kernels Estimator A
+says is shadowed at `E = 0.10`. The prediction is therefore
+`dS = 0.10 x 24.4 = +2.4 us/step`, i.e. nothing. Measured `dS = -47.9 us/step`,
+`p = 0.20`: statistically indistinguishable from zero, consistent with the
+prediction. But it does not *discriminate*, because `E = 1` predicts +24 us and
+that is also inside the scatter. Consistency is not confirmation and I am not
+claiming it as one.
+
+**And one thing worth keeping as doctrine.** The two arms produced wall deltas
+of +65.0 and -47.9 us/step -- 113 us apart -- while changing isolated GPU work by
+under 25 us in both cases. That is an independent, in-session reproduction of the
++-70 us/step arm-level scatter doctrine, obtained by accident, and it is exactly
+why the 150 us/step design floor exists. Anyone who had run one of these two arms
+alone, without the census, would have published either "+65 us regression" or
+"-48 us win" with equal confidence.
+
 ---
 
 ## 4. The re-priced census
