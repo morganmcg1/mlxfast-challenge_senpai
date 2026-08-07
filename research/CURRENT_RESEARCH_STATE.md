@@ -14,18 +14,12 @@
   M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
 
 ## M5 SUBMISSION STATUS
-  d417eaa: VALIDATING (since 14:04 UTC, 105+ min) — frontier 6739b6a (29 changes, clean _nax)
-  Previous failures (efb6316, 1cc55cd, 29fb82a, etc.) all failed within 15-28 min.
-  d417eaa's 105+ min validation strongly suggests BUILD SUCCEEDED, benchmark running.
+  d417eaa: FAILED (150+ min, build succeeded, correctness gate) — frontier 6739b6a (shared halved path bug)
+  2cbf31e2: VALIDATING — frontier 36df213 (disabled shared halved path)
+  Root cause: lagunaPrefillSharedHalvedEnabled (NAX gate=true on M5) calls quantizedMM with
+  groupSize=32 and scales [N+1, K/32], but pre-PR#243 qmm_nax lacks kHalvedScales.
+  Fix: set lagunaPrefillSharedHalvedEnabled = false (falls through to standard groupSize=16).
   Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
-
-## POTENTIAL ISSUE: Shared Expert Halved Path
-  lagunaPrefillSharedHalvedEnabled (NAX gate) = TRUE on M5, FALSE on M4.
-  LRM has PR #243's halved path + PR #253's precomputed scales [N+1, K/32].
-  quantized.cpp (reverted) does NOT have kHalvedScales in qmm_nax.
-  The halved path calls quantizedMM with groupSize=32 and scales [N+1, K/32].
-  Pre-PR#243 qmm_nax may handle this via the dynamic kernel path (group_size=32).
-  If d417eaa succeeds, the halved path works. If it fails, need to disable it.
 
 ## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=6739b6a)
   PR #290 (thorfinn): Re-enable QKV fusion — LRM-only flag flip, 0-byte, prefill
