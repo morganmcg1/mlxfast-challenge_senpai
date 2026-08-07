@@ -1,15 +1,19 @@
 # SENPAI Research State
-- 2026-08-07T01:33Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD reverting QHOIST+BM128-v4 (M5 regression).
-  Clean scored code frontier: 12a712d (pre-QHOIST, pre-BM128-v4).
+- 2026-08-07T02:00Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 7b0f3a9 (pushed to origin).
+  Clean scored code frontier: 12a712d (pre-QHOIST, pre-BM128-v4, pre-dot4/simd_sum/float4).
   QHOIST (#183) + BM128-v4 (#185) REVERTED — M5 submission 89521f6 REJECTED at -11.48% (score 2.4822).
   PR #186 (edward, MLX_METAL_FAST_SYNCH): CLOSED. DEAD — no decode/prefill gain. Fence overhead ~0.5%.
-  PR #180 (alphonse, MoE scale halving): Revision v2 requested. GREEN v1 result.
-    DEAD CODE FOUND: _halvedFusedGateUpScales built but never wired to shared SwiGLU QMV kernel.
-    Feedback sent: fix shared SwiGLU QMV halving in v2 (~2.43 MiB/step additional savings).
-  PR #169 (askeladd, QKV+O-proj scale halving): IN PROGRESS (status:wip).
-  Thorfinn: ASSIGNING packed down-scales bank (Novel Target 2, decode bandwidth/coalescing).
+  PR #169 (askeladd, QKV+O-proj scale halving): CLOSED. DEAD — attention scale traffic too small (~0.2-0.5%).
+  PR #180 (alphonse, MoE scale halving): Revision v2 requested (baseline advanced to 7b0f3a9).
+    GREEN v1 result (~0.6-1.4% M4 decode gain, bit-exact).
+    DEAD CODE: _halvedFusedGateUpScales built but never wired to shared SwiGLU QMV kernel.
+    v2: fix shared SwiGLU QMV halving + rebase to 7b0f3a9.
+  PR #188 (thorfinn, packed down-scales): ASSIGNED. Pack down-projection scales into walk-order side bank.
+  PR #191 (edward, QKV packed-scales): ASSIGNED. Extend DARKBLOOM_PACKED_SCALES to QKV decode kernel.
+  PR #192 (askeladd, O-proj packed-scales): ASSIGNED. Extend DARKBLOOM_PACKED_SCALES to O-proj NVFP4 decode kernel.
   Bandwidth audit complete: see research/BANDWIDTH_AUDIT_20260807.md.
+  PR #187 (thorfinn, duplicate marker): IGNORE — PR #188 replaces it.
 
 ## M5 SUBMISSION STATUS
   QHOIST+BM128-v4 (89521f6): REJECTED at -11.48% (score 2.4822). Prefill-only changes regressed on M5.
@@ -18,9 +22,15 @@
   Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%), committed 8/6 05:04 UTC.
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
   STRATEGY: DECODE bandwidth reductions only. Prefill M4 gains do NOT transfer to M5.
-    Next submission: compose decode scale halving (PR #169 + PR #180 v2) + packed down-scales.
-    Target: ~2-3% decode improvement → ~1.5-2.3% composite gain.
-    Submit from CLEAN base (12a712d) + decode optimizations only. NO prefill changes.
+    Wave 5 (current): 4 decode bandwidth/coalescing experiments, all bit-exact.
+      PR #180 v2 (alphonse): MoE scale halving + shared SwiGLU fix (~1% M4 decode gain).
+      PR #188 (thorfinn): Packed down-scales walk-order bank (~0.5-1.5% decode).
+      PR #191 (edward): QKV packed-scales coalescing (~1-3% decode, ~50 MiB/step scale traffic).
+      PR #192 (askeladd): O-proj packed-scales coalescing (~1-3% decode, ~40 MiB/step scale traffic).
+    All 4 target PURE BANDWIDTH/COALESCING: same bytes, different layout order, bit-exact.
+    NO instruction-count reductions. NO prefill changes. NO scheduling changes.
+    Next submission: compose winning decode bandwidth optimizations from clean base (12a712d).
+    Submit from CLEAN base + decode optimizations only. NO prefill changes.
   CRITICAL: QHOIST+BM128-v4 REVERTED from advisor branch. Prefill changes are TOXIC on M5.
   BANDWIDTH AUDIT KEY FINDINGS:
     1. Shared SwiGLU QMV halving: ~2.43 MiB/step, bit-exact, primary decode path (PR #180 dead code).
