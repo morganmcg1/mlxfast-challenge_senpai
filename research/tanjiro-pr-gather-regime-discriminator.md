@@ -137,7 +137,7 @@ pb  kernel                      mma  barr  dev_ld  tg_ld  tg_st  ir_lines
 3   512x2048_bk64   (B2)          1     7       6      2      4       585
 ```
 
-**Confound verdict: all three arms CLEAN.**
+**Confound verdict on the memory and barrier axes: all three arms CLEAN.**
 
 - **M2** — `mma 1 -> 2`; barriers, device loads, threadgroup loads and
   threadgroup stores **all unchanged**. CSE and DCE both defeated, and the arm
@@ -146,6 +146,14 @@ pb  kernel                      mma  barr  dev_ld  tg_ld  tg_st  ir_lines
   carries one extra barrier *by construction*; §4 subtracts it.
 - **B2** — `barr +2`, every other counter unchanged. The compiler did not merge
   or hoist the added barriers.
+
+> **Superseded in part by §4.0.2.** These counters cover memory traffic, MMA and
+> barriers but **not ALU**. Adding an ALU column later showed M2 also carries
+> `int_alu +15` (+17%) and S2 `int_alu +4`, so "M2 is a single-axis arm" was too
+> strong a claim. B2 survives the stronger test — it moves barriers and nothing
+> else at all. §4.0.2 gives the full per-axis table and the consequences for the
+> decision rules; it is left here rather than silently rewritten because the
+> weaker census is what the arms were originally justified on.
 
 Every added call site sits inside the same loop nest as the original it
 shadows, so the **static ratio equals the dynamic ratio**.
@@ -346,6 +354,81 @@ that writes the staging tile cannot be correctness-tested on this host at all
 (the `_nax` kernel needs Apple GPU gen >= 17, this box is gen 16), and a
 bit-inexact arm burns an irreplaceable receipt and publishes no metrics. Listed
 in §9 as the follow-up if the interval ever turns out to matter.)*
+
+#### 4.0.2 Which resources each arm perturbs, and which it provably does not
+
+A null result is only publishable if it says *what was ruled out*, and that
+requires naming the axes the arms actually moved. The table below is measured,
+not asserted: it is a per-function static census of the post-optimisation LLVM
+IR for both shipped threadgroup shapes, over the same four metallibs used in §2
+(`research/nax_msl_compile_check.sh` with `EMIT_IR=1`, then
+`research/tanjiro_probe_alu_census.py`). Counts are for the kernel body, so a static delta inside
+the k-loop is also the dynamic delta per iteration.
+
+| arm | shape | mma | barrier | dev_load | tg_load | tg_store | int_alu | float_alu |
+|---|---|---|---|---|---|---|---|---|
+| pb0 control | 2048x1024 | 1 | 7 | 6 | 4 | 5 | 87 | 5 |
+| pb0 control | 512x2048 | 1 | 5 | 6 | 2 | 4 | 82 | 0 |
+| pb1 M2 | 2048x1024 | 2 | 7 | 6 | 4 | 5 | 102 | 5 |
+| pb1 M2 | 512x2048 | 2 | 5 | 6 | 2 | 4 | 97 | 0 |
+| pb2 S2 | 2048x1024 | 1 | 8 | 8 | 4 | 6 | 91 | 5 |
+| pb2 S2 | 512x2048 | 1 | 6 | 8 | 2 | 5 | 86 | 0 |
+| pb3 B2 | 2048x1024 | 1 | 9 | 6 | 4 | 5 | 87 | 5 |
+| pb3 B2 | 512x2048 | 1 | 7 | 6 | 2 | 4 | 82 | 0 |
+
+Both shapes agree on every delta, so:
+
+| arm | perturbed | provably unperturbed |
+|---|---|---|
+| **M2** | `mma +1`, `int_alu +15` | barrier, dev_load, tg_load, tg_store, float_alu |
+| **S2** | `dev_load +2`, `tg_store +1`, `barrier +1`, `int_alu +4` | mma, tg_load, float_alu |
+| **B2** | `barrier +2` | mma, dev_load, tg_load, tg_store, int_alu, float_alu |
+
+**B2 is a perfectly clean single-axis arm** — barriers move and literally
+nothing else does. That is stronger than §2 could show, because §2 never counted
+ALU.
+
+**M2 is not as clean as §2 implied, and this is a correction.** It carries
+`+15` scalar integer ops against a control body of 87, a **+17%** increase in
+integer ALU, from the address arithmetic for `Dshadow` and the extra
+cooperative-tensor operand buffers. §2's confound table called M2 "CLEAN" on the
+strength of memory and barrier counters alone; with ALU counted, that claim was
+too strong. The honest statement is that M2 perturbs *two* axes.
+
+This matters only in one branch of the decision table, and the asymmetry is
+favourable. If `ΔM2 ≈ 0`, H1 dies and the integer confound is irrelevant — a
+perturbation that cost nothing cannot have hidden a cost. The confound can only
+bite if `ΔM2` is **large**, where "the MMA pipe is saturated" and "the scalar
+integer pipe is saturated" both explain the result. Note that this is a second,
+independent reason the same branch needs care: §2 already flagged that a large
+`ΔM2` also admits a register-pressure/occupancy explanation that M4 reflection
+cannot exclude.
+
+**This is exactly what A2 discriminates, and it is why A2 is now worth more than
+when the advisor proposed it.** A2 (`probe==4`) moves `int_alu` and *only*
+`int_alu` — its own census shows mma, barrier, dev_load, tg_load, tg_store and
+float_alu all unchanged — at roughly twice M2's integer amplitude. So:
+
+- large `ΔM2` **and** `ΔA2 ≈ 0` ⇒ the integer confound is excluded, and `ΔM2` is
+  MMA (or occupancy), not address arithmetic;
+- large `ΔM2` **and** large `ΔA2` ⇒ `ΔM2` is not safely attributable to MMA at
+  all, and H1 must not be claimed.
+
+A2's pre-registered firing condition in §4.5 was "R5 null or R3 positive". That
+condition is **widened here, before any receipt is spent**: A2 also fires if M2
+comes back large, because in that branch A2 is no longer an optional extra axis
+but the control that makes M2 interpretable. The receipt budget already reserves
+a fourth receipt for exactly this.
+
+**Axes no arm perturbs.** Threadgroup memory footprint (9232 B), maximum
+threads per threadgroup (1024), threadgroup residency (3 per core), execution
+width (32), kernel launch count, grid shape, `tg_load` traffic, floating-point
+ALU, and output bytes written are identical across all four arms. A null across
+M2/S2/B2 therefore does **not** exclude a constraint living in occupancy,
+instruction fetch, threadgroup-memory bank conflicts on the *read* side, or
+command-buffer/launch overhead. §9 carries those forward rather than letting the
+null overclaim.
+
 
 ### 4.1 Instrument-failure floor (peaks used only as upper bounds)
 
@@ -891,10 +974,14 @@ dispatch below records its own attempt history.
 
 From 01:17Z I made every queue check a real dispatch attempt, on the reasoning
 that a `conflict` is free and a passive check can never win a three-minute race.
-That reasoning was incomplete. The submit endpoint is **rate limited to five
-attempts per clock hour, resetting on the hour**, and a `conflict` reply still
-consumes one of those five. I spent the 01:00Z hour's budget on five losing
-attempts between 01:17Z and 01:32Z, hit the limit at 01:32:28Z, and the slot
+That reasoning was incomplete. The submit endpoint is **rate limited to roughly
+five or six attempts per clock hour, resetting on the hour**, and a `conflict`
+reply still consumes one. (The exact ceiling is not directly observable because
+the counter is shared — see below. What is observable is that six calls reached
+the endpoint in the 01:00Z hour before it refused: the `89521f6` submission
+another student filed at 01:10Z, plus my five.) I spent the rest of that hour's
+budget on five losing attempts between 01:17Z and 01:32Z, hit the limit at
+01:32:28Z, and the slot
 then opened at ~01:37Z with nothing left to spend. The slot was still free two
 minutes later. A correctly paced agent would have taken that receipt.
 
@@ -911,6 +998,25 @@ is 6, 25, 29, 38 and 45 s. Run durations are 20–59 min and highly variable, so
 the opening time is not predictable to better than tens of minutes. The
 consequence is that the slot must be *watched*, not *checked*: any strategy whose
 reaction time exceeds ~30 s loses essentially every cycle.
+
+**The rate limit is account-wide, not per-student.** This was not obvious and it
+changes the tactical picture, so it is worth the evidence. The slot opened at
+~01:37Z and my watcher then observed it **continuously free from 01:38:50Z to
+01:45:13Z and beyond** — more than eight minutes. Against the measured handoff
+distribution above (6, 25, 29, 38, 45 s), a slot sitting empty for eight minutes
+is not something the three other students would allow if they were each holding
+their own submit budget. The parsimonious reading is that the ~5–6 attempts per
+clock hour are counted against `solverAccountId b6799236-…`, so when I exhausted
+the 01:00Z hour I exhausted it for the whole campaign. Two consequences follow.
+First, the cost of my 01:17–01:32Z polling mistake was borne by four students,
+not one. Second, at each reset boundary all four students are released
+simultaneously into a race for one slot, which is why the watcher is built to
+attempt within ~12 s of the reset rather than on a leisurely cadence.
+
+I could not surface this to the other students mid-flight: `push_branch` is an
+advisor-owned transition and a student's only publishing route is the terminal
+result. It is recorded here instead, prominently, because it is a campaign-level
+operational finding rather than a fact about this kernel.
 
 **Corrected tactic (`research/tanjiro-pr170-dispatch.py`).** Poll a free status
 source frequently and spend a rate-limited submit attempt only when the slot is
