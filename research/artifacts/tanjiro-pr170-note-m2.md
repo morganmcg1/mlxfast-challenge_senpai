@@ -317,6 +317,35 @@ git checkout -- Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
 - The ridge coincidence is specific to this model and this machine; the
   conclusion should not be transported to other shapes without redoing §3.
 
+## 12b. Late correction: this arm is not single-axis
+
+Added after the arm was built, before this receipt was spent. The offline
+census originally counted MMA, barriers and memory traffic but not ALU. With an
+ALU column added (`research/tanjiro_probe_alu_census.py`), both shipped
+threadgroup shapes agree that this arm perturbs **two** axes, not one:
+
+    M2 vs control:  mma +1,  int_alu +15   (control body = 87 integer ops)
+                    barrier, dev_load, tg_load, tg_store, float_alu unchanged
+
+The `+15` is address arithmetic for `Dshadow` and the extra cooperative-tensor
+operand buffers — a +17% increase in scalar integer work. For comparison, the
+S2 arm carries `int_alu +4` and the B2 arm carries none at all.
+
+The confound is one-sided, which is why the arm is still worth running as-is.
+If this receipt returns a marginal cost near zero, the compute-bound hypothesis
+is dead regardless of the integer ops: a perturbation that cost nothing cannot
+have concealed a cost. Only a *large* marginal cost is ambiguous, because there
+"the MMA pipe is saturated" and "the scalar integer pipe is saturated" both fit,
+as does the register-pressure alternative that M4-host reflection cannot
+exclude.
+
+That ambiguous branch has a pre-registered resolution, fixed before this
+receipt: a fourth arm that moves `int_alu` and only `int_alu`, at roughly twice
+this arm's integer amplitude. Its firing condition was widened to include
+"large marginal cost on this arm", and a receipt is reserved for it. So a large
+result here does not get reported as evidence for a compute bound; it triggers
+the control instead.
+
 ## 13. Next steps
 
 Dispatch S2 (`probe = 2`) and B2 (`probe = 3`) as separate single-cause
