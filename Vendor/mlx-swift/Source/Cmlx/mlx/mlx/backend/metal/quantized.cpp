@@ -505,22 +505,12 @@ void qmm_nax(
   bool aligned_M = M % 64 == 0;
   bool batched = B > 1;
   std::string type_string = get_type_string(x.dtype());
-  // Detect halved NVFP4 scales: the caller passes group_size=32 so the
-  // ops.cpp validation accepts half-resolution scales [N+1, K/32] (since
-  // K/32 * 32 == K). The extra row at index N holds the escape bytes in
-  // its first columns. We override group_size back to 16 for the kernel.
-  const bool halved_scales =
-      transpose && mode == "nvfp4" && group_size == 32 && bits == 4;
-  if (halved_scales) {
-    group_size = 16;
-  }
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
   const bool use_static_laguna_shape =
       static_laguna_shapes && transpose && aligned && !batched &&
       mode == "nvfp4" && type_string == "bfloat16_t" &&
-      group_size == 16 && bits == 4 &&
-      (!biases.has_value() || halved_scales) &&
+      group_size == 16 && bits == 4 && !biases.has_value() &&
       ((K == 2048 && N == 1024) || (K == 512 && N == 2048));
   concatenate(
       kname,
@@ -548,8 +538,7 @@ void qmm_nax(
              "_alM_" + (aligned_M ? "true" : "false"))
           : "",
       transpose ? (aligned ? "_alN_true" : "_alN_false") : "",
-      batched ? "_batch_1" : "_batch_0",
-      halved_scales ? "_hs_1" : "");
+      batched ? "_batch_1" : "_batch_0");
   std::string template_def;
   MTL::ComputePipelineState* kernel;
   if (use_static_laguna_shape) {
@@ -568,9 +557,7 @@ void qmm_nax(
         bk,
         bn,
         wm,
-        wn,
-        "bfloat",
-        halved_scales);
+        wn);
   } else if (transpose) {
     kernel = get_qmm_nax_kernel_wrapped(
         d,
@@ -586,9 +573,7 @@ void qmm_nax(
         bk,
         bn,
         wm,
-        wn,
-        "bfloat",
-        halved_scales);
+        wn);
   } else {
     kernel = get_qmm_nax_kernel_wrapped(
         d,
@@ -611,18 +596,7 @@ void qmm_nax(
   int c = 0;
   compute_encoder.set_input_array(w, c++);
   compute_encoder.set_input_array(scales, c++);
-  if (transpose) {
-    // The qmm_t_nax kernel always has an escape slot at index 2. When
-    // halved, the escape bytes are in the extra row of the scales tensor
-    // (row N); bind that row via a buffer offset. Otherwise pass scales
-    // as a dummy (the kernel ignores it when kHalvedScales is false).
-    if (halved_scales) {
-      int escape_offset = N * scales.shape(-1);
-      compute_encoder.set_input_array(scales, c++, escape_offset);
-    } else {
-      compute_encoder.set_input_array(scales, c++);
-    }
-  } else if (biases) {
+  if (biases) {
     compute_encoder.set_input_array(*biases, c++);
   }
   compute_encoder.set_input_array(x, c++);
@@ -1495,11 +1469,11 @@ int darkbloom_stage_bm128_variant() {
   static const int v = [] {
     auto s = env::get_var("DARKBLOOM_STAGE_BM128", "");
     if (s.empty()) {
-      // Default 5 (restored 2026-08-07): BM64/WM4/WN1 = SM16 with reglocal
-      // epilogue. Variant 3 (BM128/WM8/WN1) was tested but SILENTLY DISABLES
-      // the expert_aligned guard (requires bm==64 && wm==4), falling back
-      // to the non-expert kernel and losing SWIGLU_REGLOCAL, STAGE2,
-      // BSEARCH_HOIST, and all expert optimizations. Reverted to 5.
+      // Default 5 (2026-08-01, final): API absolutes across our four scored
+      // sessions prove the mechanism — candidate prefill 204.90 (base) →
+      // 201.64 (wn1) → 201.42 (steel) → 198.00 µs (both; fastest on record).
+      // Earlier rejections were session-baseline draw fog (bpre 364-371 vs
+      // the 375-386 every recent promotion drew), not mechanism failures.
       // DARKBLOOM_STAGE_BM128=4 restores the WN2 tiling.
       return 5;
     }
@@ -1638,7 +1612,7 @@ int darkbloom_stage2_gather_variant() {
   static const int v = [] {
     const std::string s = env::get_var("DARKBLOOM_STAGE2_GATHER", "");
     if (s.empty()) {
-      return 2;
+      return 1;
     }
     if (s == "0") {
       return 0;
@@ -1699,7 +1673,7 @@ void gather_qmm_rhs_nax(
   switch (bm128) {
     case 1: bm = 128; wm = 4; break;         // SM=32, less re-staging
     case 2: bm = 128; wm = 2; break;         // SM=64, predicted regression
-    case 3: bm = 128; wm = 8; wn = 1; break; // SM=16, reglocal (WN=1), 256 thr/TG
+    case 3: bm = 128; wm = 8; break;         // SM=16, both mechanisms
     case 4: bm = 64;  wm = 4; break;         // SM=16, 256 thr/TG, SHIPPED DEFAULT
     case 5: bm = 64;  wm = 4; wn = 1; break; // SM=16, 128 thr/TG, TN 2 -> 4
     default: break;                          // upstream: bm=64, wm=2, wn=2
