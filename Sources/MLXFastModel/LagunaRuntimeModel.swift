@@ -1690,51 +1690,83 @@ private let lagunaSlidingDenominatorDiagnosticsEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DENOMINATOR_DIAGNOSTICS"] == "1"
 
 private enum LagunaSlidingDenominatorDiagnostics {
-    static let expectedCallsPerPosition: Int = {
-        let value = Int(
-            ProcessInfo.processInfo.environment[
-                "DARKBLOOM_DENOMINATOR_EXPECTED_CALLS_PER_POSITION"] ?? "30"
-        ) ?? 30
-        precondition(value > 0)
-        return value
-    }()
-    nonisolated(unsafe) static var currentWriteIdx: Int?
+    nonisolated(unsafe) static var activeTokenCount: Int?
+    nonisolated(unsafe) static var invocation = 0
     nonisolated(unsafe) static var calls = 0
     nonisolated(unsafe) static var totalCalls = 0
+    nonisolated(unsafe) static var observationCount = 0
+    nonisolated(unsafe) static var invalidCount = 0
     nonisolated(unsafe) static var minimum = Float.infinity
     nonisolated(unsafe) static var maximum = -Float.infinity
-    nonisolated(unsafe) static var lastCompletedWriteIdx: Int?
+    nonisolated(unsafe) static var minimumWriteIdx = Int.max
+    nonisolated(unsafe) static var maximumWriteIdx = Int.min
+
+    static func begin(tokenCount: Int) {
+        precondition(activeTokenCount == nil)
+        activeTokenCount = tokenCount
+        invocation += 1
+        calls = 0
+        observationCount = 0
+        invalidCount = 0
+        minimum = .infinity
+        maximum = -.infinity
+        minimumWriteIdx = .max
+        maximumWriteIdx = .min
+    }
 
     static func record(writeIdx: Int, denominators: MLXArray) {
         let values = denominators.asArray(Float.self)
         precondition(values.count == LagunaConstants.slidingAttentionHeads)
-        precondition(values.allSatisfy { $0.isFinite && $0 > 0 })
+        let validValues = values.filter { $0.isFinite && $0 > 0 }
+        let invalidValues = values.count - validValues.count
 
-        if let currentWriteIdx {
-            precondition(currentWriteIdx == writeIdx)
-        } else {
-            precondition(lastCompletedWriteIdx != writeIdx)
-            currentWriteIdx = writeIdx
-            calls = 0
-            minimum = .infinity
-            maximum = -.infinity
+        if activeTokenCount == nil {
+            let localMinimum = validValues.min() ?? .nan
+            let localMaximum = validValues.max() ?? .nan
+            emit(
+                "SLIDING_DENOMINATOR_SYNTHETIC write_idx=\(writeIdx) calls=1 "
+                    + "observations=\(values.count) invalid=\(invalidValues) "
+                    + "min=\(localMinimum) max=\(localMaximum) "
+                    + "finite_positive=\(invalidValues == 0)")
+            precondition(invalidValues == 0)
+            return
         }
 
         calls += 1
         totalCalls += 1
-        precondition(calls <= expectedCallsPerPosition)
-        minimum = min(minimum, values.min()!)
-        maximum = max(maximum, values.max()!)
-
-        if calls == expectedCallsPerPosition {
-            print(
-                "SLIDING_DENOMINATOR write_idx=\(writeIdx) calls=\(calls) "
-                    + "total_calls=\(totalCalls) "
-                    + "observations=\(calls * values.count) "
-                    + "min=\(minimum) max=\(maximum) finite_positive=true")
-            lastCompletedWriteIdx = writeIdx
-            currentWriteIdx = nil
+        observationCount += values.count
+        invalidCount += invalidValues
+        minimumWriteIdx = min(minimumWriteIdx, writeIdx)
+        maximumWriteIdx = max(maximumWriteIdx, writeIdx)
+        if let localMinimum = validValues.min() {
+            minimum = min(minimum, localMinimum)
         }
+        if let localMaximum = validValues.max() {
+            maximum = max(maximum, localMaximum)
+        }
+    }
+
+    static func end(tokenCount: Int) {
+        precondition(activeTokenCount == tokenCount)
+        let expectedCalls = tokenCount == 1 ? 30 : 0
+        let minimumValue = observationCount == 0 ? "none" : "\(minimum)"
+        let maximumValue = observationCount == 0 ? "none" : "\(maximum)"
+        let writeIdxRange = calls == 0
+            ? "none" : "\(minimumWriteIdx)...\(maximumWriteIdx)"
+        emit(
+            "SLIDING_DENOMINATOR_INVOCATION invocation=\(invocation) "
+                + "tokens=\(tokenCount) calls=\(calls) expected_calls=\(expectedCalls) "
+                + "total_calls=\(totalCalls) observations=\(observationCount) "
+                + "invalid=\(invalidCount) min=\(minimumValue) max=\(maximumValue) "
+                + "write_idx_range=\(writeIdxRange) "
+                + "finite_positive=\(invalidCount == 0)")
+        activeTokenCount = nil
+        precondition(calls == expectedCalls)
+        precondition(invalidCount == 0)
+    }
+
+    private static func emit(_ line: String) {
+        FileHandle.standardError.write(Data("\(line)\n".utf8))
     }
 }
 
@@ -10557,7 +10589,14 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        let tokenCount = inputs.dim(1)
+        if lagunaSlidingDenominatorDiagnosticsEnabled {
+            LagunaSlidingDenominatorDiagnostics.begin(tokenCount: tokenCount)
+        }
         let fullHidden = model(inputs, cache: cache)
+        if lagunaSlidingDenominatorDiagnosticsEnabled {
+            LagunaSlidingDenominatorDiagnostics.end(tokenCount: tokenCount)
+        }
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
         // vocabulary head so prefill neither normalizes nor projects the
