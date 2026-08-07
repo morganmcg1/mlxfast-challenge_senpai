@@ -301,6 +301,74 @@ function                                        tgMem_B  maxThreads  width
 This is the single largest risk to the pre-registered band, and it is exactly
 the kind of thing only the M5 receipt can answer.
 
+### 6.1 Post-inline `-O3` evidence: no scratch demotion, and the real ALU delta
+
+A reviewer raised a specific failure mode I had not tested: if the compiler
+demotes the 16 B window to **thread scratch** (via a dynamic index or a failed
+promotion), every "select" becomes a private-memory load and the change is
+strictly worse than the two byte loads it replaces. That is invisible in the
+no-SROA census I used for §2, because that census deliberately keeps `alloca`
+traffic on the page.
+
+I ran the full pipeline (`air-opt -passes='default<O3>'`) on both trees and
+compared the emitted kernels and the loader:
+
+```
+kernel                                   lines  allocas  thread_ld  thread_st
+..._2048x1024_bk64      (base)            2438        5        129        327
+..._2048x1024_bk64_sl1  (cand)            2444        5        130        329
+..._512x2048_bk64       (base)            2934       24        385        469
+..._512x2048_bk64_sl1   (cand)            2940       24        386        471
+```
+
+- The **`alloca` type lists are identical**, element for element, in both
+  shapes. The candidate introduces **no new stack object**; `ScaleWindow` folds
+  into the `QuantizedBlockLoader` object that already existed in the base.
+- The loader function itself has **zero `alloca` at `-O3` in both arms**, so the
+  window is held in SSA values, not scratch. The "demoted to scratch"
+  failure mode is **not present at the IR level**. (The AGX backend is still
+  downstream of this, so it is evidence, not proof.)
+- Kernel-level delta is only **+6 IR lines, +1 load, +2 stores, +1 GEP** —
+  the loader stays an out-of-line `call` in both arms and the `call` counts are
+  identical (589 / 626), so no new call was introduced.
+
+The loader body at `-O3`, which is where the cost actually lives:
+
+```
+                    base   cand   delta
+total instructions   457    508     +51  (+11.2 %)
+  getelementptr       81     90      +9
+  and                 30     36      +6
+  icmp                 8     14      +6
+  br                  26     33      +7
+  load                24     29      +5
+  select               5      9      +4
+  lshr / phi / sext    -      -    +2 each
+  sdiv                 1      2      +1
+  alloca               0      0       0
+```
+
++51 at `-O3` corroborates the +76 no-SROA figure in §2 as a real cost, not an
+artifact of the reduced pass pipeline. Note this counts the **whole function**,
+including the never-taken scalar fallback arms.
+
+**A concrete inefficiency this exposes.** The `+1 sdiv`, part of the `+6 and`
+and `+6 icmp` come from re-deriving `win_ok` on *every* call:
+
+```cpp
+const bool win_ok = load_ok && ((src_ld % (group_size * 16)) == 0) &&
+    (((src_ld / BCOLS) % kScaleWinPhases) == 0) &&
+    (group_id <= kScaleWinPhases - 2);
+```
+
+`src_ld` and `group_id` are loader members fixed at construction. Everything
+except `load_ok` is loop-invariant, but the compiler cannot hoist it out of a
+function it did not inline, so a division and two modulo tests are paid per
+k-iteration. Caching that predicate as a `bool` member set in the constructor is
+a strictly-cheaper formulation of the *same* mechanism and removes the `sdiv`
+entirely. **I have not made that change**, because it would invalidate the
+already-dispatched receipt pair; it is recorded as the first follow-up in §10.
+
 ---
 
 ## 7. Kill-rule adjudication
@@ -383,13 +451,91 @@ Both open questions are decidable only by the ranked receipt.
 
 ## 10. Suggested follow-ups (not implemented)
 
-- **Cheaper fallback formulations** if the M5 shows register pressure: merge only
-  the two adjacent 1 B scale loads into a single 2 B `ushort` load — 2 loads/iter
-  (−33 %), **no cross-iteration state, no extra live registers, no `mutable`, no
-  template plumbing**. Or an 8 B window over 2 iterations — 1.5 loads/iter with
-  2 extra registers. Given the unresolved register confound, the `ushort` variant
-  is the best risk-adjusted alternative and is a much smaller diff.
+Ordered by what I would actually spend the next receipt on. Items 1–3 were
+sharpened by an independent adversarial review of the mechanism (§10.1).
+
+1. **Price the lever before spending another receipt on it — the dummy-load
+   slope test.** Take the *unmodified* base kernel and add {0, +2, +4, +8} extra
+   live (DCE-proofed) cache-hitting scale byte loads per k-iteration, then fit
+   `d(wall)/d(loads·iter⁻¹)`. The pre-registered −1.2 ms band implicitly prices a
+   removed byte load at ≈ 1 ms; a "one issue slot among ~190" model prices it at
+   ≈ 0.03–0.04 ms. **Those differ by ~25×**, so a single 4-point sweep decides
+   whether *any* member of this family — including every fallback in the table
+   below — can pay for itself. Crucially the
+   dummy loads add **no live state**, so the slope is measured free of the
+   register confound of §6. If the arm comes back NULL, this is the one
+   experiment I would run next; it is also cheap enough to run *first* next time.
+2. **Hoist the invariant part of `win_ok` into a constructor-set member.** §6.1
+   shows an `sdiv` and two modulo tests are re-derived every k-iteration purely
+   because the loader is not inlined. This is a strict improvement to the shipped
+   mechanism — same loads removed, less ALU added — and is the obvious repair if
+   the receipt lands slightly negative for ALU reasons rather than register
+   reasons.
+3. **Move the problem offline into `Sources/MLXFastTransform`.** The deeper fix
+   is that the two scale bytes a thread consumes are *not* laid out so that its
+   4-iteration consumption is contiguous — which is also why the compiler emitted
+   two separate 1 B loads in the first place. Repacking the scale plane at
+   transform time so each thread's 4-iteration window is one aligned 8 B record
+   gets the same 0.25 scale-loads/iter as the shipped variant with roughly one
+   ALU op per iteration, ~2 live registers, and **no phase counter and no lane
+   select at all**. All the complexity moves off the hot path. This is outside
+   the assigned surface, so it is a proposal, not a change.
+
+**Cheaper fallback formulations**, if the M5 shows register pressure. Under a
+"cost ∝ removed loads" model these capture, of the 1.75 removable
+loads/iteration:
+
+| variant | loads/iter | share of max gain | extra live regs | cross-iter state |
+|---|---|---|---|---|
+| (a) `ushort` merge of the adjacent pair | 2.0 | 57 % | 0 | none |
+| (b) 8 B window over 2 iterations | 1.5 | 86 % | ~2 | 1-bit phase |
+| (c) 16 B window over 4 iterations *(shipped)* | 1.25 | 100 % | ~4–5 | 2-bit phase |
+
+(a) remains the best risk-adjusted alternative: no `mutable`, no template
+plumbing, no phase, and a far smaller diff. (b) is already **proven bit-exact**
+— it is exactly mutant M2 in §4, which passed. The last 14 % that (c) buys over
+(b) is what carries all of the register and ALU risk, so if the receipt is
+negative, retreating to (b) is a one-line change with an existing correctness
+receipt behind it.
+
+Two further ideas were considered and rejected: cooperatively staging scales
+through threadgroup memory (threadgroup reads still cost issue slots and add
+barrier pressure) and `simd_shuffle` broadcast of a shared scale line (replaces
+loads 1:1 with shuffles, so no issue-count win).
+
 - The execution-equivalence harness generalizes. Any future `_nax` change can now
   get a real bitwise correctness receipt on a non-M5 host instead of relying on
   an argument, and the mutant driver is the template for keeping such a receipt
   honest.
+
+### 10.1 What the adversarial review changed in my own expectation
+
+I had an independent frontier-model review attack the mechanism before reading
+the receipt, and it moved my prior. Recording that here so the advisor can hold
+me to it rather than letting me re-interpret after the fact.
+
+- Its headline prediction is **a wash, not the pre-registered −1.2 ms**: on the
+  best public model of an Apple shader core (four schedulers per core, each
+  issuing one instruction per cycle from one resident simdgroup, with memory and
+  ALU competing for that slot) the change removes ≈ 1.75 memory issues per
+  iteration and adds ≈ 5–8 real ALU issues. Priced at the shared-issue rate,
+  net ≈ **+0.05 to +0.25 ms** — i.e. **inside my ±0.954 ms null band**.
+- The specific flaw it identified in my pre-registration is that the −1.2 ms
+  band prices the residual timing term as proportional to **memory-instruction
+  count alone**. That is the weakest link in my reasoning and I did not flag it
+  as an assumption when I registered the band. It is ~25× the shared-issue price.
+- It also flagged that whether memory and ALU share one issue slot on Apple GPUs
+  is **inferred, not documented**, and that no public measurement of LSU-vs-ALU
+  per-issue cost exists. That unmeasured quantity is precisely what this
+  experiment turns on, which is the argument for follow-up 1.
+- On the §6 register confound it partly *reduced* my concern: M5 is family-9+
+  with Dynamic Caching, where occupancy is hardware-modulated against actual
+  usage rather than hitting a hard static cliff. It expects a marginal
+  occupancy trim, not a −14 % step. It nonetheless ranks that trim as the
+  **most likely cause if the receipt is a regression**, with a net ALU-issue
+  increase second and scratch demotion third — and §6.1 was run specifically to
+  test that third one, which came back clean.
+
+I am **not** revising the pre-registered read-out rule after the fact. The band
+and the null rule stay exactly as written; this section records that I now
+expect the NULL branch to be the likely one, and why.
