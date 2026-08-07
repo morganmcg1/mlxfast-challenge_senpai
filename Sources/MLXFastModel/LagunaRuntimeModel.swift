@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import MLX
 import MLXFast
@@ -65,6 +66,176 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     guard lagunaTraceFusion else { return }
     lagunaTracedFusions.note(site())
 }
+
+private struct LagunaColdDuplicateArm {
+    let label: String
+    let mode: String
+    let duplicateCount: Int
+}
+
+private struct LagunaColdDuplicateMeasurement {
+    let arm: LagunaColdDuplicateArm
+    let step: Int
+}
+
+private final class LagunaColdDuplicateProbe: @unchecked Sendable {
+    static let shared = LagunaColdDuplicateProbe()
+
+    private let arms: [LagunaColdDuplicateArm]
+    private let stepsPerArm: Int
+    private let emitDigest: Bool
+    private let injectFault: Bool
+    private var armIndex = 0
+    private var stepInArm = 0
+    private var activeArm: LagunaColdDuplicateArm?
+    private var activeStep = 0
+    private var startNanoseconds: UInt64 = 0
+    private var cacheOffsets: [Int] = []
+    private var scratchRoots: [MLXArray] = []
+    private var overlapRoots: [MLXArray] = []
+
+    private init() {
+        let environment = ProcessInfo.processInfo.environment
+        if let schedule = environment["DARKBLOOM_COLD_DUPLICATE_SCHEDULE"],
+            !schedule.isEmpty
+        {
+            arms = schedule.split(separator: ",").map { encoded in
+                let fields = encoded.split(separator: ":", omittingEmptySubsequences: false)
+                precondition(fields.count == 3, "invalid cold duplicate schedule arm: \(encoded)")
+                let mode = String(fields[1])
+                precondition(mode == "warm" || mode == "cold", "invalid duplicate mode: \(mode)")
+                guard let duplicateCount = Int(fields[2]), duplicateCount >= 0 else {
+                    preconditionFailure("invalid duplicate count: \(fields[2])")
+                }
+                return LagunaColdDuplicateArm(
+                    label: String(fields[0]), mode: mode, duplicateCount: duplicateCount)
+            }
+        } else {
+            arms = []
+        }
+        guard
+            let configuredSteps = Int(
+                environment["DARKBLOOM_COLD_DUPLICATE_STEPS_PER_ARM"] ?? "1"),
+            configuredSteps > 0
+        else {
+            preconditionFailure("invalid steps per arm")
+        }
+        stepsPerArm = configuredSteps
+        emitDigest = environment["DARKBLOOM_COLD_DUPLICATE_DIGEST"] == "1"
+        injectFault = environment["DARKBLOOM_COLD_DUPLICATE_FAULT"] == "1"
+    }
+
+    @inline(__always)
+    private func uptimeNanoseconds() -> UInt64 {
+        var value = timespec()
+        precondition(clock_gettime(CLOCK_UPTIME_RAW, &value) == 0, "clock_gettime failed")
+        return UInt64(value.tv_sec) * 1_000_000_000 + UInt64(value.tv_nsec)
+    }
+
+    private func write(_ line: String) {
+        FileHandle.standardError.write(Data((line + "\n").utf8))
+    }
+
+    func begin(inputs: MLXArray, cache: [KVCache]?) {
+        guard !arms.isEmpty, inputs.shape == [1, 1] else { return }
+        precondition(activeArm == nil, "cold duplicate roots survived a request boundary")
+        precondition(scratchRoots.isEmpty && overlapRoots.isEmpty, "pending cold duplicate roots")
+        precondition(armIndex < arms.count, "cold duplicate schedule exhausted")
+        guard let cache else {
+            preconditionFailure("cold duplicate measurement requires a cache")
+        }
+        precondition(cache.count == LagunaConstants.numHiddenLayers, "unexpected cache layer count")
+        activeArm = arms[armIndex]
+        activeStep = stepInArm
+        cacheOffsets = cache.map(\.offset)
+        startNanoseconds = uptimeNanoseconds()
+    }
+
+    func recordPacked(
+        input: MLXArray,
+        fusedWeight: MLXArray,
+        packedScales: MLXArray,
+        indices: MLXArray
+    ) {
+        guard let arm = activeArm else { return }
+        let rotated = MLX.remainder(
+            indices + MLXArray(UInt32(8)), MLXArray(UInt32(LagunaConstants.numExperts)))
+        let originalRows = MLX.expandedDimensions(indices, axes: [-1])
+        let rotatedRows = MLX.expandedDimensions(rotated, axes: [-2])
+        overlapRoots.append(MLX.sum(MLX.equal(originalRows, rotatedRows)))
+        let selected = arm.mode == "warm" ? indices : rotated
+        for _ in 0..<arm.duplicateCount {
+            scratchRoots.append(
+                lagunaRoutedSwiGLUQMVPackedTop8(
+                    input,
+                    fusedWeight: fusedWeight,
+                    packedScales: packedScales,
+                    indices: selected
+                ))
+        }
+    }
+
+    func finish(fullHidden: MLXArray, cache: [KVCache]?) -> LagunaColdDuplicateMeasurement? {
+        guard let arm = activeArm else { return nil }
+        let expectedLayers = LagunaConstants.numHiddenLayers - 1
+        precondition(overlapRoots.count == expectedLayers, "packed routed path did not reach every sparse layer")
+        precondition(
+            scratchRoots.count == expectedLayers * arm.duplicateCount,
+            "cold duplicate dispatch count mismatch")
+        let firstScratchRoot = scratchRoots.first
+        eval([fullHidden] + scratchRoots + overlapRoots)
+        let elapsed = uptimeNanoseconds() - startNanoseconds
+        let overlaps = overlapRoots.map { Int($0.asArray(Int32.self)[0]) }
+        guard let cache else {
+            preconditionFailure("cold duplicate measurement lost its cache")
+        }
+        let deltas = zip(cacheOffsets, cache.map(\.offset)).map { $1 - $0 }
+        precondition(deltas.count == LagunaConstants.numHiddenLayers, "unexpected cache delta count")
+        precondition(deltas.allSatisfy { $0 == 1 }, "decode did not advance every cache exactly once")
+        let measurement = LagunaColdDuplicateMeasurement(arm: arm, step: activeStep)
+        let dispatchCount = scratchRoots.count
+        scratchRoots.removeAll(keepingCapacity: true)
+        overlapRoots.removeAll(keepingCapacity: true)
+        cacheOffsets.removeAll(keepingCapacity: true)
+        activeArm = nil
+        stepInArm += 1
+        if stepInArm == stepsPerArm {
+            stepInArm = 0
+            armIndex += 1
+        }
+        let overlapText = overlaps.map(String.init).joined(separator: ",")
+        write(
+            "DARKBLOOM_COLD_DUPLICATE\t\(arm.label)\t\(arm.mode)\t\(arm.duplicateCount)"
+                + "\t\(measurement.step)\t\(elapsed)\t\(dispatchCount)\t1\t1\t0\t\(overlapText)")
+        if injectFault {
+            precondition(firstScratchRoot != nil, "fault injection requires at least one duplicate")
+            _ = firstScratchRoot!.asData(access: .copy).data.count
+            write(
+                "DARKBLOOM_COLD_DUPLICATE_FAULT\t\(arm.label)\t\(arm.mode)"
+                    + "\t\(arm.duplicateCount)\t\(measurement.step)\troot_materialized")
+            fatalError("intentional cold duplicate root fault")
+        }
+        return measurement
+    }
+
+    func noteDigest(_ result: MLXArray, measurement: LagunaColdDuplicateMeasurement?) {
+        guard emitDigest, let measurement else { return }
+        let bytes = result.asData(access: .copy).data
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in bytes {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        let shape = result.shape.map(String.init).joined(separator: ",")
+        write(
+            "DARKBLOOM_COLD_DUPLICATE_DIGEST\t\(measurement.arm.label)"
+                + "\t\(measurement.arm.mode)\t\(measurement.arm.duplicateCount)"
+                + "\t\(measurement.step)\t\(shape)\t\(result.dtype)\t\(bytes.count)"
+                + "\t\(String(format: "%016llx", hash))")
+    }
+}
+
+private let lagunaColdDuplicateProbe = LagunaColdDuplicateProbe.shared
 
 // MARK: - Runtime fusion feature flags
 
@@ -9579,6 +9750,11 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         packedScales: packedBank,
                         indices: inds
                     )
+                    lagunaColdDuplicateProbe.recordPacked(
+                        input: x,
+                        fusedWeight: fusedWeight,
+                        packedScales: packedBank,
+                        indices: inds)
                 } else {
                     if lagunaPackedScalesEnabled {
                         lagunaPackedScalesLog.note(
@@ -10469,7 +10645,10 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
+        lagunaColdDuplicateProbe.begin(inputs: inputs, cache: cache)
         let fullHidden = model(inputs, cache: cache)
+        let coldDuplicateMeasurement = lagunaColdDuplicateProbe.finish(
+            fullHidden: fullHidden, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
         // vocabulary head so prefill neither normalizes nor projects the
@@ -10498,6 +10677,8 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         if case .logits = lagunaDecodeAsyncStage, inputs.shape == [1, 1] {
             asyncEval(result)
         }
+        lagunaColdDuplicateProbe.noteDigest(
+            result, measurement: coldDuplicateMeasurement)
         return result
     }
 
