@@ -1,0 +1,527 @@
+{
+  "base_sha": "63ab67c888e1892086b7b5b623de4dd0ebe68c90",
+  "files": [
+    {
+      "file": "Sources/MLXFastModel/LagunaRuntimeModel.swift",
+      "note": "LagunaRuntimeModel.notes.md",
+      "blocks": [
+        {
+          "start": 104,
+          "end": 106,
+          "symbol": "line106",
+          "pointer": false
+        },
+        {
+          "start": 127,
+          "end": 127,
+          "symbol": "lagunaFusedSharedSwiGLUQMVEnabled",
+          "pointer": false
+        },
+        {
+          "start": 132,
+          "end": 135,
+          "symbol": "lagunaFusedSharedDownResidualEnabled",
+          "pointer": false
+        },
+        {
+          "start": 170,
+          "end": 170,
+          "symbol": "lagunaRouterPrecomputedKeysEnabled",
+          "pointer": false
+        },
+        {
+          "start": 177,
+          "end": 177,
+          "symbol": "LagunaPackedScalesLog",
+          "pointer": false
+        },
+        {
+          "start": 252,
+          "end": 255,
+          "symbol": "lagunaFusedResidualRMSNormEnabled",
+          "pointer": false
+        },
+        {
+          "start": 276,
+          "end": 276,
+          "symbol": "lagunaSharedSwiGLUQMVRows1Enabled",
+          "pointer": false
+        },
+        {
+          "start": 294,
+          "end": 298,
+          "symbol": "lagunaNativeAffineQKVLayerCount",
+          "pointer": false
+        },
+        {
+          "start": 324,
+          "end": 324,
+          "symbol": "lagunaNativeAffineOnlyLayer",
+          "pointer": false
+        },
+        {
+          "start": 434,
+          "end": 434,
+          "symbol": "lagunaNativeAffineGProjWeight",
+          "pointer": false
+        },
+        {
+          "start": 657,
+          "end": 676,
+          "symbol": "lagunaDecodeAsyncStage",
+          "pointer": true
+        },
+        {
+          "start": 692,
+          "end": 693,
+          "symbol": "line693",
+          "pointer": false
+        },
+        {
+          "start": 761,
+          "end": 762,
+          "symbol": "lagunaNormReductionTail",
+          "pointer": false
+        },
+        {
+          "start": 1229,
+          "end": 1246,
+          "symbol": "lagunaSlidingQKNormRoPEKernel",
+          "pointer": true
+        },
+        {
+          "start": 1700,
+          "end": 1701,
+          "symbol": "lagunaSlidingFusedAttention",
+          "pointer": false
+        },
+        {
+          "start": 1754,
+          "end": 1757,
+          "symbol": "LagunaRingIdxAtlasStore",
+          "pointer": false
+        },
+        {
+          "start": 2186,
+          "end": 2189,
+          "symbol": "LagunaFullParamsMemoStore",
+          "pointer": false
+        },
+        {
+          "start": 2278,
+          "end": 2278,
+          "symbol": "lagunaWarmFullFusedAttentionKernel",
+          "pointer": false
+        },
+        {
+          "start": 2315,
+          "end": 2336,
+          "symbol": "lagunaPrefillSlidingQKNormRoPEKernel",
+          "pointer": true
+        },
+        {
+          "start": 2416,
+          "end": 2421,
+          "symbol": "lagunaPrefillSlidingQKNormRoPEH1Kernel",
+          "pointer": false
+        },
+        {
+          "start": 2499,
+          "end": 2510,
+          "symbol": "lagunaPrefillFullQKNormYaRNKernel",
+          "pointer": true
+        },
+        {
+          "start": 2599,
+          "end": 2601,
+          "symbol": "lagunaPrefillFullQKNormYaRNH1Kernel",
+          "pointer": false
+        },
+        {
+          "start": 2858,
+          "end": 2860,
+          "symbol": "lagunaNativeAffineNVFP4From",
+          "pointer": false
+        },
+        {
+          "start": 3398,
+          "end": 3428,
+          "symbol": "lagunaGatedOutputProjectionSource",
+          "pointer": true
+        },
+        {
+          "start": 3684,
+          "end": 3699,
+          "symbol": "lagunaGateProductSoftplusSource",
+          "pointer": true
+        },
+        {
+          "start": 3743,
+          "end": 3743,
+          "symbol": "lagunaGateProductSoftplus",
+          "pointer": false
+        },
+        {
+          "start": 4034,
+          "end": 4034,
+          "symbol": "lagunaGatedAffineOProjNVFP4Source",
+          "pointer": false
+        },
+        {
+          "start": 4462,
+          "end": 4471,
+          "symbol": "lagunaTailNVFP4ScaleFoldEnabled",
+          "pointer": true
+        },
+        {
+          "start": 4506,
+          "end": 4508,
+          "symbol": "lagunaTailNVFP4ScaleDecodeSource",
+          "pointer": false
+        },
+        {
+          "start": 4529,
+          "end": 4532,
+          "symbol": "lagunaTailNVFP4QDotFirstGroupSource",
+          "pointer": false
+        },
+        {
+          "start": 5047,
+          "end": 5050,
+          "symbol": "lagunaNormAffineQKVPrefetchSource",
+          "pointer": false
+        },
+        {
+          "start": 5372,
+          "end": 5373,
+          "symbol": "makeLagunaAttentionGateProjection",
+          "pointer": false
+        },
+        {
+          "start": 5404,
+          "end": 5404,
+          "symbol": "LagunaRuntimeAttention",
+          "pointer": false
+        },
+        {
+          "start": 5442,
+          "end": 5442,
+          "symbol": "_lastPrefillQGateWeight",
+          "pointer": false
+        },
+        {
+          "start": 5454,
+          "end": 5454,
+          "symbol": "_nativeAffineOProj",
+          "pointer": false
+        },
+        {
+          "start": 5460,
+          "end": 5463,
+          "symbol": "_nativeAffineGProj",
+          "pointer": false
+        },
+        {
+          "start": 5469,
+          "end": 5469,
+          "symbol": "_nativeAffineQKVGateRows",
+          "pointer": false
+        },
+        {
+          "start": 5510,
+          "end": 5513,
+          "symbol": "gate",
+          "pointer": false
+        },
+        {
+          "start": 5586,
+          "end": 5589,
+          "symbol": "prepareFusedQKVWeight",
+          "pointer": false
+        },
+        {
+          "start": 5615,
+          "end": 5616,
+          "symbol": "prepareLastPrefillProjectionWeights",
+          "pointer": false
+        },
+        {
+          "start": 5735,
+          "end": 5737,
+          "symbol": "fusedQKV",
+          "pointer": false
+        },
+        {
+          "start": 5759,
+          "end": 5759,
+          "symbol": "fusedTailGateLogits",
+          "pointer": false
+        },
+        {
+          "start": 5836,
+          "end": 5837,
+          "symbol": "deferGateActivation",
+          "pointer": false
+        },
+        {
+          "start": 5869,
+          "end": 5870,
+          "symbol": "normalizedInput",
+          "pointer": false
+        },
+        {
+          "start": 5888,
+          "end": 5890,
+          "symbol": "qkv",
+          "pointer": false
+        },
+        {
+          "start": 5936,
+          "end": 5939,
+          "symbol": "prefillQKNormShapesMatch",
+          "pointer": false
+        },
+        {
+          "start": 5976,
+          "end": 5976,
+          "symbol": "line5976",
+          "pointer": false
+        },
+        {
+          "start": 6072,
+          "end": 6074,
+          "symbol": "line6074",
+          "pointer": false
+        },
+        {
+          "start": 6100,
+          "end": 6100,
+          "symbol": "output",
+          "pointer": false
+        },
+        {
+          "start": 6125,
+          "end": 6142,
+          "symbol": "line6142",
+          "pointer": true
+        },
+        {
+          "start": 6154,
+          "end": 6155,
+          "symbol": "line6155",
+          "pointer": false
+        },
+        {
+          "start": 6220,
+          "end": 6221,
+          "symbol": "gated",
+          "pointer": false
+        },
+        {
+          "start": 6297,
+          "end": 6299,
+          "symbol": "callLastPrefillRow",
+          "pointer": false
+        },
+        {
+          "start": 6800,
+          "end": 6800,
+          "symbol": "lagunaSharedSwiGLUQMVRows1Kernel",
+          "pointer": false
+        },
+        {
+          "start": 8250,
+          "end": 8252,
+          "symbol": "prepareFusedSharedGateUp",
+          "pointer": false
+        },
+        {
+          "start": 8286,
+          "end": 8290,
+          "symbol": "prepareFusedDenseGateUp",
+          "pointer": false
+        },
+        {
+          "start": 8328,
+          "end": 8329,
+          "symbol": "fusedSharedDownInputs",
+          "pointer": false
+        },
+        {
+          "start": 8491,
+          "end": 8493,
+          "symbol": "line8493",
+          "pointer": false
+        },
+        {
+          "start": 8518,
+          "end": 8529,
+          "symbol": "lagunaDecodeRouterTop8KernelSource",
+          "pointer": true
+        },
+        {
+          "start": 8955,
+          "end": 8956,
+          "symbol": "lagunaPrefillSortedMoETailEnabled",
+          "pointer": false
+        },
+        {
+          "start": 8961,
+          "end": 8979,
+          "symbol": "lagunaPrefillRouterTop8KernelSource",
+          "pointer": true
+        },
+        {
+          "start": 9582,
+          "end": 9599,
+          "symbol": "lagunaPrefillMoETailKernel",
+          "pointer": true
+        },
+        {
+          "start": 9640,
+          "end": 9642,
+          "symbol": "lagunaPrefillSortedMoETailKernel",
+          "pointer": false
+        },
+        {
+          "start": 9768,
+          "end": 9772,
+          "symbol": "lagunaFusedSortedRoutedGateUp",
+          "pointer": false
+        },
+        {
+          "start": 9787,
+          "end": 9787,
+          "symbol": "doSort",
+          "pointer": false
+        },
+        {
+          "start": 9800,
+          "end": 9807,
+          "symbol": "gateUp",
+          "pointer": true
+        },
+        {
+          "start": 9868,
+          "end": 9869,
+          "symbol": "_routedDownScales",
+          "pointer": false
+        },
+        {
+          "start": 9882,
+          "end": 9885,
+          "symbol": "prepareFusedRoutedGateUp",
+          "pointer": false
+        },
+        {
+          "start": 9934,
+          "end": 9936,
+          "symbol": "experts",
+          "pointer": false
+        },
+        {
+          "start": 10020,
+          "end": 10029,
+          "symbol": "activated",
+          "pointer": true
+        },
+        {
+          "start": 10034,
+          "end": 10034,
+          "symbol": "mergedSharedActivated",
+          "pointer": false
+        },
+        {
+          "start": 10170,
+          "end": 10179,
+          "symbol": "line10179",
+          "pointer": true
+        },
+        {
+          "start": 10393,
+          "end": 10393,
+          "symbol": "line10393",
+          "pointer": false
+        },
+        {
+          "start": 10418,
+          "end": 10419,
+          "symbol": "line10419",
+          "pointer": false
+        },
+        {
+          "start": 10523,
+          "end": 10523,
+          "symbol": "lagunaDecodeEmbeddingRoPEAtlasKernel",
+          "pointer": false
+        },
+        {
+          "start": 10654,
+          "end": 10655,
+          "symbol": "line10655",
+          "pointer": false
+        },
+        {
+          "start": 10679,
+          "end": 10679,
+          "symbol": "prepareRoPEAngleAtlases",
+          "pointer": false
+        },
+        {
+          "start": 10717,
+          "end": 10718,
+          "symbol": "decodeRoPEAtlasPosition",
+          "pointer": false
+        },
+        {
+          "start": 10794,
+          "end": 10797,
+          "symbol": "line10797",
+          "pointer": false
+        },
+        {
+          "start": 10823,
+          "end": 10826,
+          "symbol": "line10826",
+          "pointer": false
+        },
+        {
+          "start": 10860,
+          "end": 10861,
+          "symbol": "line10861",
+          "pointer": false
+        },
+        {
+          "start": 10907,
+          "end": 10913,
+          "symbol": "LagunaRuntimeModel",
+          "pointer": false
+        },
+        {
+          "start": 10937,
+          "end": 10937,
+          "symbol": "line10937",
+          "pointer": false
+        },
+        {
+          "start": 10957,
+          "end": 10957,
+          "symbol": "hidden",
+          "pointer": false
+        },
+        {
+          "start": 10971,
+          "end": 10973,
+          "symbol": "line10973",
+          "pointer": false
+        },
+        {
+          "start": 11011,
+          "end": 11015,
+          "symbol": "prepareFusedRuntimeWeights",
+          "pointer": false
+        }
+      ]
+    }
+  ]
+}
