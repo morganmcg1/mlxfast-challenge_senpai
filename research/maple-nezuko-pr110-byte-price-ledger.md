@@ -269,6 +269,12 @@ DERIVED by exact arithmetic.
 | **R3** | #72 + #81 | routed MoE g32 scale | 5.0119323 | 4.9681367 | 43.796 | 30.670000 | **700.3** | 546.2 | **0.780** |
 | **R4** | #80 frieren | attention scale pairwise | 4.9681367 | 4.9083721 | 59.765 | 27.698336 | **463.5** | 651.8 | **1.406** |
 
+> ⚠ **Every `R_marg` in this table is n=1.** R1 and R3 have no replication at
+> all, and their published intervals are propagated rather than empirical.
+> R2 and R4 are the two arms of the single replicated plane. Do not quote
+> **968.4**, **700.3** or the `R_avg` column as point estimates — read the
+> health warning under **S7.1** first for the correct form of each.
+
 **Receipts.** R1 `t_before` = mean of the four #20 control receipts `5d522d6a`,
 `5e0e9cd1`, `c210d200`, `1feeabc8` (`CURRENT_RESEARCH_STATE.md:5539`, `:5540`,
 `:5541`, `:5545`), reconstructed as `D = S/128 + T`; that identity is validated
@@ -665,6 +671,33 @@ on; it is exact and free.
 The attention plane is the only one measured twice, and its two independent
 estimates agree to **±6.1 %**. That is the corpus's best evidence that `R_marg`
 is a stable plane property at all, and it is *one* replication.
+
+> ### ⚠ HEALTH WARNING — do not quote 700.3, 968.4 or 546.2 as point estimates
+>
+> Added 2026-08-06 after an advisor CI audit (PR #158). Every row in the table
+> above except the attention plane rests on **a single unreplicated arm**, and
+> two of the three published intervals are **not empirical confidence
+> intervals**.
+>
+> | row | what the interval actually is | how to quote it |
+> |---|---|---|
+> | routed MoE scale **700.3** | `[493.1, 1207.9]` is **propagated from an imported ±0.278 % timing MDE**, not from replicates. The underlying `Δt = 43.796 µs` is tagged `n1_no_replication` in `research/maple-nezuko-byte-price.csv:37`. | "700.3 GB/s, n=1, plausible range 493–1208 GB/s" — a **2.45×** span. Never bare. |
+> | lm-head cascade **968.4** | `[773.6, 1294.6]` is **±1 SEM (~68 %)** over 6 receipts of **one arm**, per `:663`. A 95 % band is wider still, and 6 receipts of one arm do not replicate the *arm*. | "968.4 GB/s, 1 arm, ±1 sem [774, 1295]" — state that it is 1 sem, not 95 %. |
+> | attention NVFP4 scale **493.8** | genuine, but it is a **half-range of n=2**, not a CI. | "493.8 ± 30.3 GB/s (n=2, half-range)". |
+> | `R_avg` **546.2** / **651.8** | point estimates from `research/tanjiro-pr34-result.md:602` / `:598`; the ± there decorates the *ms* delta, not the rate. Propagating ±0.034 ms on 1.01067 ms gives **546.2 ± 18.4** `[528.5, 565.3]`; ±0.028 ms on 1.23070 ms gives **651.8 ± 14.8** `[637.3, 666.9]`. Both n=1. | always carry the propagated ±. |
+>
+> **Consequence for the `R_marg` > `R_avg` story.** The lm-head band
+> `[773.6, 1294.6]` and the routed band `[493.1, 1207.9]` overlap on
+> `[773.6, 1207.9]` — 83.4 % of the former and 60.8 % of the latter. The two
+> planes are therefore **not distinguishable** on present evidence, and the
+> apparent 27.7 % deficit between them is neither established nor excluded.
+> Any claim that a *particular* plane is fast or slow needs a second arm first.
+>
+> The one comparison that *is* safe: `R_avg` for attention q/k/v/o (651.8, no
+> gather) is **below** the routed marginal 700.3, so gather-specific
+> explanations for the routed rate are ruled out regardless of the widths.
+>
+> Full audit: `research/nezuko-pr158-decode-dead-time.md` §3.
 
 ### S7.2 Residual dispersion — an interval, as required
 

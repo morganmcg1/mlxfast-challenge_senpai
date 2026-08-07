@@ -1,0 +1,10 @@
+worker up in 39.6s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717437744140625 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 547.17 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.325 8.308 8.209 8.181 8.161 8.150 8.156 8.152
+decode steps=400 mean=8.240 ms median=8.236 ms p10=8.169 ms p90=8.300 ms min=8.118 ms max=9.325 ms total=3.296 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.723953247070312 mlx_active_gb=33.11 mlx_cache_gb=1.07 mlx_peak_gb=36.10
+worker stderr -> research/nezuko-a1-exposure/shared_qmv_r1_wall_s06_off.worker.err

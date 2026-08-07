@@ -1,0 +1,67 @@
+
+==============================================================================
+phase h0k0  (4 concurrent, 4 serial runs, hook=OFF)
+==============================================================================
+  divergences: ALL ZERO
+  step wall        concurrent=    8.201 serial=    8.781 delta=  +0.580 ms ( +7.07%)
+                   conc runs: 8.192 8.206 8.196 8.215
+                   ser  runs: 8.723 8.796 8.765 8.796
+                   permutation p = 4/70 = 0.0571   separation=complete
+  step wall(mean)  concurrent=    8.201 serial=    8.773 delta=  +0.572 ms ( +6.97%)
+                   conc runs: 8.194 8.208 8.182 8.214
+                   ser  runs: 8.694 8.792 8.754 8.801
+                   permutation p = 4/70 = 0.0571   separation=complete
+
+==============================================================================
+phase h1k0  (4 concurrent, 4 serial runs, hook=ON)
+==============================================================================
+  divergences: ALL ZERO
+  step wall        concurrent=    8.299 serial=    8.720 delta=  +0.421 ms ( +5.07%)
+                   conc runs: 8.296 8.303 8.192 8.306
+                   ser  runs: 8.667 8.747 8.693 8.805
+                   permutation p = 4/70 = 0.0571   separation=complete
+  step wall(mean)  concurrent=    8.284 serial=    8.712 delta=  +0.428 ms ( +5.17%)
+                   conc runs: 8.262 8.336 8.205 8.305
+                   ser  runs: 8.673 8.748 8.675 8.837
+                   permutation p = 4/70 = 0.0571   separation=complete
+  gpu_busy_sum     concurrent=    8.022 serial=    8.470 delta=  +0.448 ms ( +5.58%)
+                   conc runs: 8.018 8.035 7.976 8.026
+                   ser  runs: 8.444 8.496 8.444 8.560
+                   permutation p = 6/70 = 0.0857   separation=complete
+  gpu_busy_union   concurrent=    8.022 serial=    8.470 delta=  +0.448 ms ( +5.58%)
+                   conc runs: 8.018 8.035 7.976 8.026
+                   ser  runs: 8.444 8.496 8.444 8.560
+                   permutation p = 6/70 = 0.0857   separation=complete
+  gap (wall-union) concurrent=    0.262 serial=    0.241 delta=  -0.021 ms ( -7.82%)
+                   conc runs: 0.245 0.300 0.229 0.279
+                   ser  runs: 0.229 0.252 0.231 0.277
+                   permutation p = 44/70 = 0.6286   separation=overlap
+  cbs/step         concurrent=   45.000 serial=   45.000 delta=  +0.000 cb ( +0.00%)
+                   conc runs: 45.000 45.000 45.000 45.000
+                   ser  runs: 45.000 45.000 45.000 45.000
+                   permutation p = 70/70 = 1.0000   separation=overlap
+  dispatches/step  concurrent=  406.200 serial=  406.200 delta=  +0.000 disp ( +0.00%)
+                   conc runs: 406.200 406.200 406.200 406.200
+                   ser  runs: 406.200 406.200 406.200 406.200
+                   permutation p = 70/70 = 1.0000   separation=overlap
+
+  DISCRIMINATOR: wall delta +420.9 us/step, busy_sum delta +448.0 us/step, busy/wall = 1.064
+
+  per-kernel gpu_busy_sum delta (serial - concurrent), total +451.5 us/step over 45 calls/step = +10.034 us/call
+   d_us/step      conc    serial  n/step  d_us/call  share_d      E  kernel
+       128.5    1791.7    1920.2    9.97     12.884    28.4%  0.933  [10] sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+       100.5    1440.0    1540.5    7.98     12.588    22.2%  0.935  [10] residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1
+        47.9     808.7     856.6    3.99     12.018    10.6%  0.944  [11] sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1
+        45.4    1115.5    1160.9    4.99      9.108    10.1%  0.961  [12] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_fused_attn_grow_v1|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+        42.0     542.2     584.2    3.07     13.681     9.3%  0.928  [10] rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5
+        41.0     873.0     914.0    3.99     10.263     9.1%  0.955  [12] gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5|rmsbfloat16|decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1|sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1
+        27.2     291.2     318.4    3.99      6.817     6.0%  0.915  [5] residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5
+        13.8     129.9     143.7    1.00     13.750     3.0%  0.904  [8] sliding_fused_attn_ring_v1|gate_sp_h64_v1|oproj_act_h64_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5
+         6.6      39.8      46.4    1.00      6.650     1.5%  0.857  [3] rmsbfloat16|gate_sp_h48_v1|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+         0.9     458.0     458.9    1.00      0.900     0.2%  0.998  [5] full_fused_attn_grow_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|dense_gate_up_swiglu_bf16_v1|dense_down_residual_bf16_v1
+         0.3       5.0       5.3    0.02     15.000     0.1%  0.943  [19] rmsbfloat16|decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1|full_qk_norm_yarn_bf16_128_v4|sn_copybfloat16bfloat16|sn_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|gate_sp_h48_v1|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_router_bf16_2048_rpg8_keys_v1|shared_nvfp4_swiglu_qmv_rows1_bf16_v1|decode_router_top8_ordinal_table_norm_v1|routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2|routed_shared_nvfp4_down_residual_bf16_r1_v5
+         0.2       3.5       3.8    1.00      0.200     0.0%  0.947  decode_embedding_rope_atlas_bf16_2048_v2
+         0.0       1.3       1.3    0.00        nan     0.0%  1.000  [14] full_qk_norm_yarn_bf16_128_v4|sn_copybfloat16bfloat16|sn_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|gg2_copybfloat16bfloat16|sdpa_vector|oproj_act_h48_v1_lm1_pw1_sc1_se1|residual_rms_bf16_2048_v1|dense_gate_up_swiglu_bf16_v1|dense_down_residual_bf16_v1
+        -0.0      75.7      75.7    1.00     -0.050    -0.0%  1.001  lmhead_exact_fused_int5_sparse_refine_v1
+        -0.7      13.0      12.3    1.00     -0.700    -0.2%  1.057  [2] gather_frontbfloat16_int32_int_2|argmax_bfloat16
+        -1.9     433.5     431.6    1.00     -1.950    -0.4%  1.005  [4] rmsbfloat16|lmhead_int5_base_coarse_delta_bf16_v1|lmhead_coarse_argmax_stage1_v5|lmhead_exact_winner_bf16_midpoint_threshold_v1

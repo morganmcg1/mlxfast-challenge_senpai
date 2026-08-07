@@ -495,8 +495,11 @@ struct QuantizedBlockLoader {
       // covers it exactly as the scalar loop's `i` would.
       ((n_reads_per_scale % kSrcBytesPerChunk) == 0) &&
       (BCOLS_PACKED * BROWS >= tgp_size);
-  // A single 16B device load covers this thread's whole source run.
-  MLX_MTL_CONST bool kWideLoadShapeOk = kWidenShapeOk && (kSrcBytes == 16);
+  // A whole number of 16B device loads covers this thread's source run. 16B is
+  // the one-load case; 32B (BK 128) is the same bytes into the same sb[] slots
+  // as two contiguous 16B loads, which the alignas(16) WideSrc copy emits.
+  MLX_MTL_CONST bool kWideLoadShapeOk =
+      kWidenShapeOk && ((kSrcBytes == 16) || (kSrcBytes == 32));
   // A single 8B device load covers it instead (the 256-thread expert-aligned
   // geometry: n_reads 8, one packed byte each). Same exactness class as the
   // 16B form -- the same bytes reach the same sb[] slots -- and the host
@@ -508,8 +511,8 @@ struct QuantizedBlockLoader {
     T v[kWideElems];
   };
   // Sized by kSrcBytes rather than a literal 16 so the copy loop below stays
-  // in bounds for every instantiation, including the 8-bit ones where
-  // kSrcBytes is 32 and the wide-load path is statically disabled.
+  // in bounds for every instantiation. kWidenShapeOk already restricts the
+  // wide path to 4-bit staging, so 8-bit instantiations never reach it.
   struct alignas(16) WideSrc {
     uint8_t b[kSrcBytes];
   };
@@ -1749,6 +1752,21 @@ template <
       WM * WN * SIMD_SIZE,
       group_size,
       bits>;
+  // The loader's widening is decided by shape constants derived from BN, BK
+  // and tgp_size. When one of them goes false the loader does not fail -- it
+  // silently runs the per-byte scalar chain, which still compiles, still links
+  // and still returns correct values, just with kSrcBytes device loads per
+  // thread per k-iteration instead of one. Asking for widening and not getting
+  // it is a build error rather than a timing mystery.
+  static_assert(
+      !wide_store || loader_w_t::kWidenShapeOk,
+      "expert staging requested a widened threadgroup store but the loader "
+      "shape check disabled it");
+  static_assert(
+      !wide_load ||
+          (loader_w_t::kWideLoadShapeOk || loader_w_t::kWideLoad8ShapeOk),
+      "expert staging requested a widened device load but the loader shape "
+      "check disabled it; the k-loop would fall back to per-byte loads");
 
   constexpr int kWsElems = BN * BK_padded;
   constexpr int kWsPerChunk = 16 / sizeof(Wtype);
@@ -1905,8 +1923,9 @@ template <
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
             NAXTile<Wtype, TN, TK> Btile;
 
-            // Ws is 16B-aligned (NAXWsChunk16), BK_padded*2B = 144B row
-            // stride, runs at multiples of 8B: same bytes, same slots.
+            // Ws is 16B-aligned (NAXWsChunk16); BK_padded*2B row stride is
+            // 144B at BK=64 and 272B at BK=128, both multiples of 16, and
+            // kk1*2B steps by 64B: same bytes, same slots.
             Btile.template load_contig_tg<Wtype, BK_padded>(
                 Ws + tn * BK_padded + kk1);
 

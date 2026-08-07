@@ -1,0 +1,108 @@
+=== arm=base pass=1 env='' hook=0 tag=base-p1-215431 t=21:54:31 thermal={"cpu_temp":39.74480056762695,"gpu_pw":0.006635813973844051,"ram_pw":0.04444628953933716}
+[base-p1-215431] worker up in 39.3s
+[base-p1-215431] ipc_floor before_decode: n=5 mean=78.8 us median=70.7 us p10=59.4 us p90=99.8 us min=59.4 us max=99.8 us
+[base-p1-215431] decode_begin seed forward: 548.46 ms
+[base-p1-215431] teacher-forced: 0 divergences (all match)
+[base-p1-215431] decode_step wall: n=199 mean=8275.2 us median=8274.0 us p10=8233.7 us p90=8311.4 us min=8185.4 us max=8454.8 us
+[base-p1-215431] ipc_floor after_decode: n=5 mean=18.9 us median=18.0 us p10=17.8 us p90=22.7 us min=17.8 us max=22.7 us
+[base-p1-215431] SUMMARY wall_median=8.274 ms ipc_floor_median=18.0 us ipc_share_of_wall=0.22%
+=== arm=base pass=1 done t=21:55:15 thermal={"cpu_temp":40.72091293334961,"gpu_pw":0.00649780360981822,"ram_pw":0.21104615926742554}
+=== arm=rrr pass=1 env='DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER=0' hook=0 tag=rrr-p1-215518 t=21:55:18 thermal={"cpu_temp":40.52424621582031,"gpu_pw":0.006047575734555721,"ram_pw":0.27653932571411133}
+[rrr-p1-215518] worker up in 39.2s
+[rrr-p1-215518] ipc_floor before_decode: n=5 mean=76.5 us median=78.7 us p10=57.3 us p90=104.4 us min=57.3 us max=104.4 us
+[rrr-p1-215518] decode_begin seed forward: 551.39 ms
+[rrr-p1-215518] teacher-forced: 0 divergences (all match)
+[rrr-p1-215518] decode_step wall: n=199 mean=8473.9 us median=8457.2 us p10=8406.2 us p90=8550.5 us min=8367.9 us max=8736.5 us
+[rrr-p1-215518] ipc_floor after_decode: n=5 mean=18.7 us median=18.3 us p10=17.9 us p90=21.1 us min=17.9 us max=21.1 us
+[rrr-p1-215518] SUMMARY wall_median=8.457 ms ipc_floor_median=18.3 us ipc_share_of_wall=0.22%
+=== arm=rrr pass=1 done t=21:56:02 thermal={"cpu_temp":40.64213943481445,"gpu_pw":0.007989306002855301,"ram_pw":0.06093042343854904}
+=== arm=rsdr pass=1 env='DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL=0' hook=0 tag=rsdr-p1-215605 t=21:56:05 thermal={"cpu_temp":40.539405822753906,"gpu_pw":0.008315586484968662,"ram_pw":0.05159146338701248}
+[rsdr-p1-215605] worker up in 39.1s
+[rsdr-p1-215605] ipc_floor before_decode: n=5 mean=80.6 us median=74.3 us p10=60.4 us p90=104.2 us min=60.4 us max=104.2 us
+[rsdr-p1-215605] decode_begin seed forward: 548.80 ms
+[rsdr-p1-215605] teacher-forced: 0 divergences (all match)
+[rsdr-p1-215605] decode_step wall: n=199 mean=8423.9 us median=8423.5 us p10=8383.7 us p90=8460.9 us min=8332.0 us max=8684.8 us
+[rsdr-p1-215605] ipc_floor after_decode: n=5 mean=18.4 us median=18.5 us p10=17.2 us p90=19.9 us min=17.2 us max=19.9 us
+[rsdr-p1-215605] SUMMARY wall_median=8.424 ms ipc_floor_median=18.5 us ipc_share_of_wall=0.22%
+=== arm=rsdr pass=1 done t=21:56:49 thermal={"cpu_temp":43.401336669921875,"gpu_pw":0.0073504019528627396,"ram_pw":0.19509175419807434}
+=== arm=ssq pass=1 env='DARKBLOOM_FUSED_SHARED_SWIGLU_QMV=0' hook=0 tag=ssq-p1-215652 t=21:56:52 thermal={"cpu_temp":40.649654388427734,"gpu_pw":0.005880790762603283,"ram_pw":0.29622459411621094}
+[ssq-p1-215652] worker up in 39.1s
+[ssq-p1-215652] ipc_floor before_decode: n=5 mean=71.0 us median=72.8 us p10=53.4 us p90=92.5 us min=53.4 us max=92.5 us
+[ssq-p1-215652] decode_begin seed forward: 548.11 ms
+[ssq-p1-215652] teacher-forced: 0 divergences (all match)
+[ssq-p1-215652] decode_step wall: n=199 mean=8507.3 us median=8490.5 us p10=8451.5 us p90=8546.2 us min=8410.1 us max=11143.1 us
+[ssq-p1-215652] ipc_floor after_decode: n=5 mean=18.8 us median=18.7 us p10=17.5 us p90=20.2 us min=17.5 us max=20.2 us
+[ssq-p1-215652] SUMMARY wall_median=8.490 ms ipc_floor_median=18.7 us ipc_share_of_wall=0.22%
+=== arm=ssq pass=1 done t=21:57:36 thermal={"cpu_temp":40.75983810424805,"gpu_pw":0.006947719492018223,"ram_pw":0.16557705402374268}
+=== arm=rsq pass=1 env='DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV=0' hook=0 tag=rsq-p1-215739 t=21:57:39 thermal={"cpu_temp":40.572113037109375,"gpu_pw":0.008120846934616566,"ram_pw":0.05211625620722771}
+[rsq-p1-215739] worker up in 39.1s
+[rsq-p1-215739] ipc_floor before_decode: n=5 mean=83.1 us median=75.6 us p10=62.3 us p90=102.0 us min=62.3 us max=102.0 us
+[rsq-p1-215739] decode_begin seed forward: 548.36 ms
+[rsq-p1-215739] teacher-forced: 0 divergences (all match)
+[rsq-p1-215739] decode_step wall: n=199 mean=8713.2 us median=8713.5 us p10=8674.0 us p90=8752.0 us min=8612.8 us max=8827.1 us
+[rsq-p1-215739] ipc_floor after_decode: n=5 mean=18.9 us median=18.2 us p10=17.7 us p90=21.3 us min=17.7 us max=21.3 us
+[rsq-p1-215739] SUMMARY wall_median=8.713 ms ipc_floor_median=18.2 us ipc_share_of_wall=0.21%
+=== arm=rsq pass=1 done t=21:58:23 thermal={"cpu_temp":24.551836013793945,"gpu_pw":0.006904790177941322,"ram_pw":0.16731131076812744}
+=== arm=base2 pass=1 env='' hook=0 tag=base2-p1-215826 t=21:58:26 thermal={"cpu_temp":40.70301818847656,"gpu_pw":0.005763472989201546,"ram_pw":0.27963513135910034}
+[base2-p1-215826] worker up in 39.2s
+[base2-p1-215826] ipc_floor before_decode: n=5 mean=52.6 us median=51.4 us p10=38.1 us p90=71.9 us min=38.1 us max=71.9 us
+[base2-p1-215826] decode_begin seed forward: 547.14 ms
+[base2-p1-215826] teacher-forced: 0 divergences (all match)
+[base2-p1-215826] decode_step wall: n=199 mean=8308.2 us median=8163.4 us p10=8036.4 us p90=8222.3 us min=7992.1 us max=31415.5 us
+[base2-p1-215826] ipc_floor after_decode: n=5 mean=20.4 us median=19.0 us p10=18.0 us p90=27.0 us min=18.0 us max=27.0 us
+[base2-p1-215826] SUMMARY wall_median=8.163 ms ipc_floor_median=19.0 us ipc_share_of_wall=0.23%
+=== arm=base2 pass=1 done t=21:59:10 thermal={"cpu_temp":43.612186431884766,"gpu_pw":0.006471123080700636,"ram_pw":0.2945186495780945}
+=== arm=base2 pass=2 env='' hook=0 tag=base2-p2-215913 t=21:59:13 thermal={"cpu_temp":40.605369567871094,"gpu_pw":0.008002171292901039,"ram_pw":0.06154927611351013}
+[base2-p2-215913] worker up in 39.2s
+[base2-p2-215913] ipc_floor before_decode: n=5 mean=73.7 us median=63.8 us p10=52.8 us p90=109.4 us min=52.8 us max=109.4 us
+[base2-p2-215913] decode_begin seed forward: 548.10 ms
+[base2-p2-215913] teacher-forced: 0 divergences (all match)
+[base2-p2-215913] decode_step wall: n=199 mean=8286.4 us median=8281.6 us p10=8245.7 us p90=8333.1 us min=8189.5 us max=8431.4 us
+[base2-p2-215913] ipc_floor after_decode: n=5 mean=23.1 us median=20.0 us p10=16.9 us p90=35.8 us min=16.9 us max=35.8 us
+[base2-p2-215913] SUMMARY wall_median=8.282 ms ipc_floor_median=20.0 us ipc_share_of_wall=0.24%
+=== arm=base2 pass=2 done t=21:59:57 thermal={"cpu_temp":43.638694763183594,"gpu_pw":0.02207430638372898,"ram_pw":0.08846428990364075}
+=== arm=rsq pass=2 env='DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV=0' hook=0 tag=rsq-p2-220000 t=22:00:00 thermal={"cpu_temp":42.939090728759766,"gpu_pw":0.01678118109703064,"ram_pw":0.20321698486804962}
+[rsq-p2-220000] worker up in 38.9s
+[rsq-p2-220000] ipc_floor before_decode: n=5 mean=93.3 us median=85.9 us p10=69.5 us p90=120.5 us min=69.5 us max=120.5 us
+[rsq-p2-220000] decode_begin seed forward: 550.67 ms
+[rsq-p2-220000] teacher-forced: 0 divergences (all match)
+[rsq-p2-220000] decode_step wall: n=199 mean=8668.4 us median=8664.6 us p10=8614.4 us p90=8725.4 us min=8546.7 us max=8820.8 us
+[rsq-p2-220000] ipc_floor after_decode: n=5 mean=20.1 us median=18.5 us p10=17.8 us p90=26.8 us min=17.8 us max=26.8 us
+[rsq-p2-220000] SUMMARY wall_median=8.665 ms ipc_floor_median=18.5 us ipc_share_of_wall=0.21%
+=== arm=rsq pass=2 done t=22:00:44 thermal={"cpu_temp":40.86075210571289,"gpu_pw":0.00606874655932188,"ram_pw":0.28052225708961487}
+=== arm=ssq pass=2 env='DARKBLOOM_FUSED_SHARED_SWIGLU_QMV=0' hook=0 tag=ssq-p2-220047 t=22:00:47 thermal={"cpu_temp":40.62678527832031,"gpu_pw":0.006276797968894243,"ram_pw":0.2819172739982605}
+[ssq-p2-220047] worker up in 39.0s
+[ssq-p2-220047] ipc_floor before_decode: n=5 mean=69.8 us median=61.2 us p10=51.0 us p90=94.3 us min=51.0 us max=94.3 us
+[ssq-p2-220047] decode_begin seed forward: 548.16 ms
+[ssq-p2-220047] teacher-forced: 0 divergences (all match)
+[ssq-p2-220047] decode_step wall: n=199 mean=8631.6 us median=8639.6 us p10=8583.0 us p90=8684.8 us min=8451.1 us max=8749.1 us
+[ssq-p2-220047] ipc_floor after_decode: n=5 mean=19.0 us median=18.2 us p10=18.0 us p90=22.3 us min=18.0 us max=22.3 us
+[ssq-p2-220047] SUMMARY wall_median=8.640 ms ipc_floor_median=18.2 us ipc_share_of_wall=0.21%
+=== arm=ssq pass=2 done t=22:01:31 thermal={"cpu_temp":40.792320251464844,"gpu_pw":0.006691517308354378,"ram_pw":0.06748420000076294}
+=== arm=rsdr pass=2 env='DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL=0' hook=0 tag=rsdr-p2-220133 t=22:01:33 thermal={"cpu_temp":24.29683494567871,"gpu_pw":0.00773156713694334,"ram_pw":0.18137642741203308}
+[rsdr-p2-220133] worker up in 38.9s
+[rsdr-p2-220133] ipc_floor before_decode: n=5 mean=76.4 us median=71.1 us p10=54.7 us p90=96.1 us min=54.7 us max=96.1 us
+[rsdr-p2-220133] decode_begin seed forward: 547.59 ms
+[rsdr-p2-220133] teacher-forced: 0 divergences (all match)
+[rsdr-p2-220133] decode_step wall: n=199 mean=8416.2 us median=8417.5 us p10=8367.8 us p90=8459.0 us min=8292.5 us max=8580.3 us
+[rsdr-p2-220133] ipc_floor after_decode: n=5 mean=19.0 us median=18.2 us p10=17.8 us p90=21.9 us min=17.8 us max=21.9 us
+[rsdr-p2-220133] SUMMARY wall_median=8.418 ms ipc_floor_median=18.2 us ipc_share_of_wall=0.22%
+=== arm=rsdr pass=2 done t=22:02:17 thermal={"cpu_temp":40.94020080566406,"gpu_pw":0.006400185637176037,"ram_pw":0.2919102907180786}
+=== arm=rrr pass=2 env='DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER=0' hook=0 tag=rrr-p2-220220 t=22:02:20 thermal={"cpu_temp":40.71469497680664,"gpu_pw":0.006201921030879021,"ram_pw":0.26665163040161133}
+[rrr-p2-220220] worker up in 39.0s
+[rrr-p2-220220] ipc_floor before_decode: n=5 mean=76.6 us median=74.6 us p10=54.1 us p90=95.8 us min=54.1 us max=95.8 us
+[rrr-p2-220220] decode_begin seed forward: 547.31 ms
+[rrr-p2-220220] teacher-forced: 0 divergences (all match)
+[rrr-p2-220220] decode_step wall: n=199 mean=8426.3 us median=8423.0 us p10=8385.7 us p90=8472.5 us min=8286.4 us max=8602.5 us
+[rrr-p2-220220] ipc_floor after_decode: n=5 mean=19.4 us median=18.5 us p10=17.7 us p90=24.1 us min=17.7 us max=24.1 us
+[rrr-p2-220220] SUMMARY wall_median=8.423 ms ipc_floor_median=18.5 us ipc_share_of_wall=0.22%
+=== arm=rrr pass=2 done t=22:03:04 thermal={"cpu_temp":43.74956512451172,"gpu_pw":0.006534551735967398,"ram_pw":0.2737889885902405}
+=== arm=base pass=2 env='' hook=0 tag=base-p2-220307 t=22:03:07 thermal={"cpu_temp":40.570228576660156,"gpu_pw":0.007647005841135979,"ram_pw":0.04805964231491089}
+[base-p2-220307] worker up in 39.1s
+[base-p2-220307] ipc_floor before_decode: n=5 mean=83.1 us median=89.7 us p10=53.3 us p90=103.1 us min=53.3 us max=103.1 us
+[base-p2-220307] decode_begin seed forward: 548.18 ms
+[base-p2-220307] teacher-forced: 0 divergences (all match)
+[base-p2-220307] decode_step wall: n=199 mean=8300.4 us median=8277.3 us p10=8221.9 us p90=8314.8 us min=8164.0 us max=10360.8 us
+[base-p2-220307] ipc_floor after_decode: n=5 mean=20.4 us median=18.4 us p10=17.8 us p90=26.8 us min=17.8 us max=26.8 us
+[base-p2-220307] SUMMARY wall_median=8.277 ms ipc_floor_median=18.4 us ipc_share_of_wall=0.22%
+=== arm=base pass=2 done t=22:03:51 thermal={"cpu_temp":43.732147216796875,"gpu_pw":0.007026979699730873,"ram_pw":0.21968229115009308}

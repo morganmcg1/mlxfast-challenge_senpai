@@ -1362,6 +1362,29 @@ bool darkbloom_expert_stage_wideld() {
   return v;
 }
 
+// DARKBLOOM_EXPERT_BK128 (default OFF; "1" enables): doubles the
+// expert-aligned gather QMM's k-block for the down projection only
+// (K 512, N 2048), halving its k-loop trip count from 8 to 4 and with it the
+// per-threadgroup barrier count, at the cost of 17408B rather than 9216B of
+// staged weights. Bit-identical: BK only changes how many 32-wide k-chunks
+// one iteration stages, and every chunk still reaches the same accumulator in
+// the same globally ascending k order. Baked into the kernel name and
+// template, so each setting compiles exactly one pipeline for the process
+// lifetime.
+//
+// Left OFF because the mechanism is unmeasurable on any host we have: MLX
+// only selects the _nax kernels on GPU generation >= 17, so no local
+// benchmark exercises this code, and the modelled effect (~0.1-0.3% prefill,
+// ~0.03-0.08% score) is an order of magnitude under the +/-0.73% local MDE.
+// It is also mutually exclusive with double-buffering the weight tile:
+// 2 * 17408B = 34816B exceeds the 32768B threadgroup limit, whereas
+// 2 * 9216B = 18432B fits, so BK=64 remains the only variant that can stage
+// and multiply concurrently.
+bool darkbloom_expert_bk128() {
+  static const bool v = env::get_var("DARKBLOOM_EXPERT_BK128", "") == "1";
+  return v;
+}
+
 // DARKBLOOM_EXPERT_GATHER_GROUPS (default 128; "64" restores the promoted
 // four-experts-per-threadgroup schedule and "256" selects one expert per
 // threadgroup, both kept as A/B controls): how many threadgroups the
@@ -1644,11 +1667,23 @@ void gather_qmm_rhs_nax(
     default: break;                          // upstream: bm=64, wm=2, wn=2
   }
 
+  const bool laguna_moe_shape =
+      (K == 2048 && N == 1024) || (K == 512 && N == 2048);
+  // bk is shared with every non-Laguna shape reaching this dispatch, so the
+  // doubled k-block is applied only under the full expert-aligned predicate
+  // for the down projection. align_K below then re-checks 512 % 128.
+  // down-only is the assigned scope, not a structural limit: BK is orthogonal
+  // to BN, so gate_up (K 2048 % 128 == 0) admits the same change with
+  // kSwigluRegLocal's BN == 64 intact, and carries 2x the tile-iterations.
+  if (darkbloom_expert_bk128() && darkbloom_expert_aligned_gather() &&
+      mode != "affine" && transpose && group_size == 16 && bits == 4 &&
+      K == 512 && N == 2048 && M >= 64 && bm == 64 && wm == 4 && wn == 1) {
+    bk = 128;
+  }
+
   const bool align_M = (M % bm) == 0;
   const bool align_N = (N % bn) == 0;
   const bool align_K = (K % bk) == 0;
-  const bool laguna_moe_shape =
-      (K == 2048 && N == 1024) || (K == 512 && N == 2048);
   // wn == 1 admitted 2026-07-31 (GatherX): DARKBLOOM_STAGE_BM128=5's
   // BM64/WM4/WN1 tiling (128 thr/TG, SN=64/TN=4) previously fell off the
   // expert path here and silently measured the NON-expert kernel. On the
@@ -1660,6 +1695,17 @@ void gather_qmm_rhs_nax(
       darkbloom_expert_aligned_gather() && mode != "affine" && transpose &&
       group_size == 16 && bits == 4 && laguna_moe_shape && M >= 64 &&
       align_N && align_K && bm == 64 && wm == 4 && (wn == 2 || wn == 1);
+  // Positive kernel-selection assert. Falling off expert_aligned dispatches
+  // the non-expert kernel silently, so a bk that only the expert kernel was
+  // reasoned about would be measured on code nobody analysed. bk != 64 is
+  // reachable only from the gate above, whose predicate is a strict superset
+  // of expert_aligned's; this turns that argument into an enforced invariant
+  // rather than a comment that a later edit can invalidate.
+  if (bk != 64 && !expert_aligned) {
+    throw std::runtime_error(
+        "[gather_qmm_rhs_nax] widened k-block escaped the expert-aligned "
+        "path; it would silently dispatch the non-expert kernel");
+  }
   std::string type_string = get_type_string(x.dtype());
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
