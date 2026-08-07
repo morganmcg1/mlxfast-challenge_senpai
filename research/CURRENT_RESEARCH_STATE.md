@@ -33,13 +33,10 @@
       PR #180 v2 (alphonse): MERGED. MoE scale halving. ~1% M4 decode, 45.5 MiB/step savings. ✓
       PR #191 (edward): QKV packed-scales → REDIRECTED to QKV scale halving (coalescing already optimal).
       PR #192 (askeladd): O-proj packed-scales → REDIRECTED to O-proj scale halving (coalescing already optimal).
-      PR #193 (thorfinn): Attention QKV+O-proj scale halving (~0.76% decode, re-test of PR #169).
-    PROMOTED FRONTIER: 9807f56 (clean 12a712d + MoE scale halving).
-    Next: wait for PR #193 results, compose with MoE halving for M5 submission.
-    KEY FINDING: Scale COALESCING is exhausted — QKV, O-proj, and down paths are ALL already coalesced.
-    Scale HALVING is the remaining bandwidth opportunity: MoE (~1% decode, MERGED) + attention (~0.76% decode).
-    Next submission: compose MoE scale halving (merged) + attention scale halving (if PR #193 wins) from 9807f56.
-    Submit from PROMOTED FRONTIER + decode scale halving only. NO prefill changes.
+      PR #193 (thorfinn): DEAD. Attention QKV+O-proj scale halving -2.7% decode regression.
+      Escape mechanism overhead exceeds ~0.62% bandwidth savings. Attention scale halving exhausted.
+      Key insight: MoE halving works because 256 experts amortize per-kernel overhead; attention (40x/step) doesn't.
+    PR #191 (edward): REDIRECTED. QKV scale halving refuted by PR #193. Awaiting fresh research for new assignment.
     PR #194 (alphonse): MERGED. PURE packed simd_sum. Bit-exact, M4 inconclusive (expected, bandwidth-bound).
       12 sites packed across 5 kernel families. M5 is the decisive test (instruction-bound at ~89%).
       Strategic: if M5 accepts, pure instruction reductions are NOT counterproductive.
