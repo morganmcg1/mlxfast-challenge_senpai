@@ -26,7 +26,23 @@ The regressor is chosen with --x:
 Preferring x=dispatch over x=k is the whole point of the counter
 instrument: it prices a real dispatch, not an intended one.
 
-  python3 research/fern_tax_stats.py /tmp/fern268/chain.tsv --x dispatch
+The response is chosen with --y (all reported in us/step):
+  ms         wall clock per decode step (the thing that scores)
+  gpu_ms     GPUStartTime->GPUEndTime summed over the step's command buffers
+  span_ms    commit->completion span
+  gap_ms     span_ms - gpu_ms, time inside the span with the GPU not busy
+  kernel_ms  kernelStartTime->kernelEndTime, the CPU driver's own work
+
+y=gpu_ms against y=gap_ms is the E1-vs-E2 decomposition: injected work that
+shows up in gpu_ms is GPU-paced, work that shows up in gap_ms is CPU-paced.
+
+Passing several TSVs pools them with a (file, block) fixed effect and prints
+each arm's own slope beside the pooled line.  An arm that sits off the pooled
+line falsifies that regressor for that family of arms.
+
+  python3 research/fern_tax_stats.py /tmp/fern268/chain40.tsv --x dispatch
+  python3 research/fern_tax_stats.py /tmp/fern268/{chain40,fat40_8k,fan40}.tsv \\
+      --x barrier
 """
 import argparse
 import math
@@ -38,6 +54,9 @@ PERCENT_PER_US_DECODE = 0.015280   # % of score per us/step on M5
 M5_STEP_MS = 4.143569
 M5_DECODE_SIGMA_US = 15.34         # cross-session decode sigma, us/step
 N_LAYERS = 40                      # weights/config.json num_hidden_layers
+
+UNIT = {"k": "per K", "dispatch": "per dispatch", "barrier": "per barrier",
+        "spin_us": "per injected CPU us"}
 
 
 def t95(df):
@@ -121,19 +140,103 @@ def fe_ols(points, n_blocks):
     return slope, se, df, len(points)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("tsv")
-    ap.add_argument("--x", default="dispatch",
-                    choices=["k", "dispatch", "barrier", "spin_us"])
-    ap.add_argument("--label", default=None)
-    ap.add_argument("--tsv-out", default=None,
-                    help="append one summary row to this file")
-    args = ap.parse_args()
+def project_m5(slope, half, baseline_ms):
+    """Print the M5 transfer band for removing dispatches from the live path.
 
-    meta, rows = read_timing(args.tsv)
-    ctr = read_counters(args.tsv + ".ctr.tsv")
+    This host is not the ranked host, so report both ends of the transfer
+    assumption instead of pretending one of them is the answer: 1:1 (the
+    cost is fixed overhead, upper bound) and step-time scaled (the cost
+    shrinks with the machine, lower bound).
+    """
+    print(f"  -> measured refund of removing ONE from the live chain on THIS "
+          f"host: {slope:.3f} us [{slope-half:.3f}, {slope+half:.3f}]")
+    ratio = M5_STEP_MS / (baseline_ms or M5_STEP_MS)
+    print(f"     M5 transfer band: 1.000x (fixed overhead) to "
+          f"{ratio:.3f}x (scales with step time)")
+    print(f"     {'removed per step':34s} {'us/step':>18} "
+          f"{'% score':>15} {'sigma':>13}")
+    for n_unit, tag in ((1, f"1 per layer (x{N_LAYERS})"),
+                        (3, f"3 per layer (x{N_LAYERS})"),
+                        (10, f"10 per layer (x{N_LAYERS})")):
+        hi = slope * n_unit * N_LAYERS
+        lo = hi * ratio
+        print(f"     {tag:34s} {lo:8.1f}..{hi:-8.1f} "
+              f"{lo*PERCENT_PER_US_DECODE:6.3f}..{hi*PERCENT_PER_US_DECODE:-6.3f} "
+              f"{lo/M5_DECODE_SIGMA_US:5.2f}..{hi/M5_DECODE_SIGMA_US:-5.2f}")
+
+
+def axes(meta, seg_k, med, ctr, x_kind, y_kind):
+    """Return (xval, yval) segment accessors.  Both are in microseconds/step
+    where they are times, so every slope reads as us/step per unit of x."""
     spin_ns = float(meta.get("spin_ns", 0))
+
+    def xval(s):
+        if x_kind == "k":
+            return float(seg_k[s])
+        if x_kind == "spin_us":
+            return seg_k[s] * 40 * spin_ns / 1e3
+        c = ctr.get(s)
+        if c is None:
+            raise SystemExit(f"segment {s} has no counters; use --x k")
+        return c[x_kind]
+
+    def yval(s):
+        if y_kind == "ms":
+            return med[s] * 1e3
+        c = ctr.get(s)
+        if c is None:
+            raise SystemExit(f"segment {s} has no counters; use --y ms")
+        if y_kind == "gap_ms":
+            return (c["span_ns"] - c["gpu_ns"]) / 1e3
+        return c[y_kind.replace("_ms", "_ns")] / 1e3
+
+    return xval, yval
+
+
+def fit(path, x_kind, y_kind="ms"):
+    """Non-printing single-arm reduction, for the W&B logger.
+
+    Uses exactly the same accessors, blocking and estimator as analyze(),
+    so the logged numbers cannot drift from the deliverable's numbers.
+    """
+    meta, rows = read_timing(path)
+    ctr = read_counters(path + ".ctr.tsv")
+    seg_k, per_seg = {}, defaultdict(list)
+    for seg, k, ms in rows:
+        seg_k[seg] = k
+        per_seg[seg].append(ms)
+    segs = sorted(per_seg)
+    if not segs or (x_kind not in ("k", "spin_us") and not ctr):
+        return None
+    med = {s: statistics.median(per_seg[s]) for s in segs}
+    blen = block_length(seg_k, segs)
+    n_blocks = len(segs) // blen
+    xval, yval = axes(meta, seg_k, med, ctr, x_kind, y_kind)
+    pts = [(i // blen, xval(s), yval(s)) for i, s in enumerate(segs)]
+    slope, se, df, n = fe_ols(pts, n_blocks)
+    half = t95(df) * se if se == se else float("nan")
+    kmin = min(seg_k.values())
+    base = [s for s in segs if seg_k[s] == kmin]
+    out = {"meta": meta, "x": x_kind, "y": y_kind, "slope_us": slope,
+           "se_us": se, "ci95_half_us": half, "df": df, "n_points": n,
+           "blocks": n_blocks, "block_len": blen,
+           "baseline_ms": statistics.mean(med[s] for s in base)}
+    bc = [ctr[s] for s in base if s in ctr]
+    if bc:
+        for key in ("dispatch", "barrier", "commit", "encode"):
+            out["baseline_" + key] = statistics.mean(c[key] for c in bc)
+        for key in ("gpu", "kernel", "span"):
+            out["baseline_" + key + "_ms"] = statistics.mean(
+                c[key + "_ns"] for c in bc) / 1e6
+        out["baseline_gpu_busy_frac"] = (out["baseline_gpu_ms"]
+                                         / out["baseline_ms"])
+    return out
+
+
+def analyze(path, args):
+    """Reduce one arm.  Returns (label, baseline_ms, points) for pooling."""
+    meta, rows = read_timing(path)
+    ctr = read_counters(path + ".ctr.tsv")
 
     seg_k, per_seg = {}, defaultdict(list)
     for seg, k, ms in rows:
@@ -144,26 +247,18 @@ def main():
     blen = block_length(seg_k, segs)
     n_blocks = len(segs) // blen
     arms = sorted({seg_k[s] for s in segs})
+    xval, yval = axes(meta, seg_k, med, ctr, args.x, args.y)
 
-    label = args.label or args.tsv.rsplit("/", 1)[-1]
+    label = args.label or path.rsplit("/", 1)[-1].replace(".tsv", "")
     print(f"== {label}  mode={meta.get('mode')} bytes={meta.get('bytes')} "
-          f"x={args.x} ==")
+          f"pool={meta.get('pool')} anchor={meta.get('anchor')} "
+          f"x={args.x} y={args.y} ==")
     print(f"   {len(segs)} segments, block={blen}, blocks={n_blocks}, "
           f"arms={arms}, timed steps/seg={len(per_seg[segs[0]])}, "
           f"divergences={meta.get('divergences')}")
 
     if not ctr:
         print("   WARNING: no counter file; only x=k / x=spin_us are usable")
-
-    def xval(s):
-        if args.x == "k":
-            return float(seg_k[s])
-        if args.x == "spin_us":
-            return seg_k[s] * 40 * spin_ns / 1e3
-        c = ctr.get(s)
-        if c is None:
-            raise SystemExit(f"segment {s} has no counters; use --x k")
-        return c[args.x]
 
     # ---- per-arm table (means over segments sharing the same K) -----------
     print(f"\n{'K':>5} {'x':>10} {'ms':>9} {'d_us_vs_min':>12} "
@@ -189,44 +284,82 @@ def main():
               f"{g:8.3f} {kn:8.3f} {sp:8.3f} {g/arm_ms[k]:9.3f}")
 
     # ---- the single estimator --------------------------------------------
-    pts = [(i // blen, xval(s), med[s] * 1e3) for i, s in enumerate(segs)]
+    pts = [(i // blen, xval(s), yval(s)) for i, s in enumerate(segs)]
     slope, se, df, n = fe_ols(pts, n_blocks)
     half = t95(df) * se if se == se else float("nan")
-    unit = {"k": "per K", "dispatch": "per dispatch", "barrier": "per barrier",
-            "spin_us": "per injected CPU us"}[args.x]
+    unit = UNIT[args.x]
     print(f"\nFE-OLS within block: {slope:+.4f} +/- {se:.4f} us/step {unit}"
           f"   (t={slope/se:+.1f}, df={df}, n={n})")
     print(f"  95% CI [{slope-half:+.4f}, {slope+half:+.4f}] us {unit}")
 
-    if args.x == "dispatch":
-        print(f"  -> measured refund of removing ONE dispatch/step on THIS "
-              f"host: {slope:.3f} us [{slope-half:.3f}, {slope+half:.3f}]")
-        # This host is not the ranked host. Report both ends of the transfer
-        # assumption instead of pretending one of them is the answer: 1:1
-        # (per-dispatch cost is fixed overhead, upper bound) and step-time
-        # scaled (per-dispatch cost shrinks with the machine, lower bound).
-        ratio = M5_STEP_MS / (arm_ms[min(arms)] or M5_STEP_MS)
-        print(f"     M5 transfer band: 1.000x (fixed overhead) to "
-              f"{ratio:.3f}x (scales with step time)")
-        print(f"     {'removed dispatches':34s} {'us/step':>18} "
-              f"{'% score':>15} {'sigma':>13}")
-        for n_disp, tag in ((1, f"1 per layer (x{N_LAYERS})"),
-                            (3, f"3 per layer (x{N_LAYERS})"),
-                            (10, f"10 per layer (x{N_LAYERS})")):
-            hi = slope * n_disp * N_LAYERS
-            lo = hi * ratio
-            print(f"     {tag:34s} {lo:8.1f}..{hi:-8.1f} "
-                  f"{lo*PERCENT_PER_US_DECODE:6.3f}..{hi*PERCENT_PER_US_DECODE:-6.3f} "
-                  f"{lo/M5_DECODE_SIGMA_US:5.2f}..{hi/M5_DECODE_SIGMA_US:-5.2f}")
+    baseline_ms = arm_ms[min(arms)]
+    if args.x in ("dispatch", "barrier") and args.y == "ms":
+        project_m5(slope, half, baseline_ms)
     if args.x == "spin_us":
-        print(f"  slope ~1 => CPU-paced (E1 encode starvation); "
-              f"slope ~0 => GPU-paced")
+        print("  slope ~1 => CPU-paced (E1 encode starvation); "
+              "slope ~0 => GPU-paced")
 
     if args.tsv_out:
         with open(args.tsv_out, "a") as fh:
             fh.write(f"{label}\t{meta.get('mode')}\t{meta.get('bytes')}\t"
-                     f"{args.x}\t{slope:.5f}\t{se:.5f}\t{half:.5f}\t{df}\t"
+                     f"{meta.get('pool')}\t{meta.get('anchor')}\t{args.x}\t"
+                     f"{args.y}\t{slope:.5f}\t{se:.5f}\t{half:.5f}\t{df}\t"
                      f"{n}\t{meta.get('divergences')}\n")
+    return label, baseline_ms, pts
+
+
+def build_parser():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("tsv", nargs="+", help="probe TSV(s); >1 pools them")
+    ap.add_argument("--x", default="dispatch",
+                    choices=["k", "dispatch", "barrier", "spin_us"])
+    ap.add_argument("--y", default="ms",
+                    choices=["ms", "gpu_ms", "kernel_ms", "span_ms", "gap_ms"],
+                    help="response: wall (ms), GPU busy, CPU driver (kernel), "
+                         "commit->complete span, or span-minus-busy gap")
+    ap.add_argument("--label", default=None,
+                    help="override arm label (single-file use only)")
+    ap.add_argument("--tsv-out", default=None,
+                    help="append one summary row per arm to this TSV")
+    return ap
+
+
+def main():
+    args = build_parser().parse_args()
+    if len(args.tsv) > 1 and args.label:
+        raise SystemExit("--label is only meaningful with a single TSV")
+    results = [analyze(p, args) for p in args.tsv]
+    if len(results) < 2:
+        return 0
+
+    # ---- pooled estimate across arms -------------------------------------
+    # The fixed effect is (file, block): pooling asks whether ONE slope in x
+    # explains all arms at once.  If x=barrier fits several arms with one
+    # slope while x=dispatch does not, the tax is a barrier cost, not a
+    # dispatch cost.
+    pooled, base = [], []
+    for fi, (label, baseline_ms, pts) in enumerate(results):
+        base.append(baseline_ms)
+        for b, x, y in pts:
+            pooled.append(((fi, b), x, y))
+    nb = len({p[0] for p in pooled})
+    slope, se, df, n = fe_ols(pooled, nb)
+    half = t95(df) * se if se == se else float("nan")
+    labels = ", ".join(r[0] for r in results)
+    print(f"\n== POOLED ({labels}) x={args.x} y={args.y} ==")
+    print(f"FE-OLS within (file,block): {slope:+.4f} +/- {se:.4f} us/step "
+          f"{UNIT[args.x]}   (t={slope/se:+.1f}, df={df}, n={n}, blocks={nb})")
+    print(f"  95% CI [{slope-half:+.4f}, {slope+half:+.4f}]")
+    # Residual scatter of the pooled fit vs the per-arm fits is the
+    # discrimination: a good regressor leaves the arms on one line.
+    for label, _, pts in results:
+        s2, se2, df2, _ = fe_ols(pts, len({p[0] for p in pts}))
+        h2 = t95(df2) * se2 if se2 == se2 else float("nan")
+        flag = "" if abs(s2 - slope) <= h2 + half else "   <-- OFF THE LINE"
+        print(f"    {label:18s} {s2:+.4f} +/- {h2:.4f}{flag}")
+    if args.x in ("dispatch", "barrier") and args.y == "ms":
+        project_m5(slope, half, statistics.mean(base))
     return 0
 
 

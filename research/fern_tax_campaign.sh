@@ -69,25 +69,30 @@ run chain      chain    "$BATCH_SCHED" 8192      1   1 "$BLOCKS" 1400
 # A1/E2: identical dispatch counts, independent (no barriers), off-path.
 run indep      indep    "$BATCH_SCHED" 8192      1   1 "$BLOCKS" 1400
 
-# --- tier 2: separate footprint from resource count ------------------------
-# A4/E3 in-chain dirty-footprint sweep at matched dispatch count and pool=1.
-run fat40_256  fat40    "$SITE_SCHED"  256       1   1 "$BLOCKS" 1400
-run fat40_64k  fat40    "$SITE_SCHED"  65536     1   1 "$BLOCKS" 1400
-run fat40_256k fat40    "$SITE_SCHED"  262144    1   1 "$BLOCKS" 1400
-# A5/E4 at 32x smaller footprint: if the dist40-vs-fat40 gap survives here it
-# is resource bookkeeping, not cache traffic.
-run dist40_256 dist40   "$SITE_SCHED"  256     256   1 "$BLOCKS" 1400
-
-# --- tier 3: anchor controls and the diamond -------------------------------
+# --- tier 2: anchoring controls --------------------------------------------
 # Same site, same dispatches, but depending on nothing live: prices how much
 # of the in-chain cost is serialization rather than launch.
 run fat40_8k_free  fat40  "$SITE_SCHED" 8192    1   0 "$BLOCKS" 1400
 run dist40_8k_free dist40 "$SITE_SCHED" 8192  256   0 "$BLOCKS" 1400
+
+# --- tier 3: E3 dirty-footprint sweep (matched dispatches, pool=1) ---------
+run fat40_256  fat40    "$SITE_SCHED"  256       1   1 "$BLOCKS" 1400
+run fat40_64k  fat40    "$SITE_SCHED"  65536     1   1 "$BLOCKS" 1400
+run fat40_256k fat40    "$SITE_SCHED"  262144    1   1 "$BLOCKS" 1400
+
+# --- tier 4: E4 distinct-resource sweep (matched dispatches AND bytes) -----
+# Pool size is the only thing that moves; the cursor walks the whole pool
+# across sites and steps, so P really is the number of live 8 KiB resources.
+# E4 predicts a rising, saturating slope in P; E2 predicts a flat one.
+run dist40_p4  dist40   "$SITE_SCHED"  8192      4   1 "$BLOCKS" 1400
+run dist40_p16 dist40   "$SITE_SCHED"  8192     16   1 "$BLOCKS" 1400
+run dist40_p64 dist40   "$SITE_SCHED"  8192     64   1 "$BLOCKS" 1400
+
+# --- tier 5: off-path comparators and the diamond --------------------------
 # A5/E4 off-path distinct sources.
 run distinct   distinct "$BATCH_SCHED" 8192    256   1 "$BLOCKS" 1400
 # B2 diamond control: same join count, one extra parallel producer per join.
 run diamond1   diamond1 "$BATCH_SCHED" 8192      1   1 "$BLOCKS" 1400
-run diamond2   diamond2 "$BATCH_SCHED" 8192      1   1 "$BLOCKS" 1400
 # A4 tail of the footprint sweep. Bandwidth-dominated and slow per step, so
 # it runs last and with fewer blocks.
 run fat40_4m   fat40    "$SITE_SCHED"  4194304   1   1 2        1400

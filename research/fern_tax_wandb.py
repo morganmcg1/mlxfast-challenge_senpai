@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Log the PR #268 dispatch-tax battery to W&B.
+"""Log the PR #268 dispatch-tax attribution battery to W&B.
 
 PR #241 shipped two reducers that disagreed by ~6% because they centred
-contrasts differently.  This file does NOT reimplement the estimator: it
-imports the one in research/fern_tax_stats.py, so the W&B numbers and the
-deliverable's numbers are the same numbers by construction.
+contrasts differently.  This file does NOT reimplement the estimator: every
+number comes from research/fern_tax_stats.py's fit(), so the W&B numbers and
+the deliverable's numbers are the same numbers by construction.
 
   python3 research/fern_tax_wandb.py /tmp/fern268 --run-name tax-battery
 """
@@ -20,57 +20,59 @@ import fern_tax_stats as S  # noqa: E402
 PROJECT = "mlxfast-maple"
 ENTITY = "wandb-applied-ai-team"
 
+# (x, y) pairs worth a slope.  x=barrier vs x=dispatch decides whether the
+# tax is a serialization cost or a launch cost; y=gpu_ms vs y=gap_ms decides
+# whether it is GPU-paced (E2/E3/E4) or CPU-paced (E1).
+GRID = [("dispatch", "ms"), ("barrier", "ms"), ("k", "ms"),
+        ("dispatch", "gpu_ms"), ("dispatch", "gap_ms"),
+        ("dispatch", "kernel_ms")]
 
-def reduce_arm(path, x_kind):
-    meta, rows = S.read_timing(path)
-    ctr = S.read_counters(path + ".ctr.tsv")
-    spin_ns = float(meta.get("spin_ns", 0))
-    seg_k, per_seg = {}, {}
-    for seg, k, ms in rows:
-        seg_k[seg] = k
-        per_seg.setdefault(seg, []).append(ms)
-    segs = sorted(per_seg)
-    med = {s: statistics.median(per_seg[s]) for s in segs}
-    blen = S.block_length(seg_k, segs)
-    n_blocks = len(segs) // blen
+TABLE_COLS = ["arm", "mode", "bytes", "pool", "anchor", "x", "y", "slope_us",
+              "se_us", "ci95_half_us", "df", "n_points", "blocks",
+              "divergences", "baseline_ms", "baseline_dispatch",
+              "baseline_barrier", "baseline_commit", "baseline_encode",
+              "baseline_gpu_ms", "baseline_kernel_ms", "baseline_span_ms",
+              "baseline_gpu_busy_frac"]
 
-    def xval(s):
-        if x_kind == "k":
-            return float(seg_k[s])
-        if x_kind == "spin_us":
-            return seg_k[s] * 40 * spin_ns / 1e3
-        if s not in ctr:
+
+def row(arm, r):
+    m = r["meta"]
+    return [arm, m.get("mode"), int(m.get("bytes", 0)), int(m.get("pool", 0)),
+            int(m.get("anchor", 0)), r["x"], r["y"], r["slope_us"],
+            r["se_us"], r["ci95_half_us"], r["df"], r["n_points"],
+            r["blocks"], int(m.get("divergences", 0)), r["baseline_ms"]] + [
+        r.get(k) for k in ("baseline_dispatch", "baseline_barrier",
+                           "baseline_commit", "baseline_encode",
+                           "baseline_gpu_ms", "baseline_kernel_ms",
+                           "baseline_span_ms", "baseline_gpu_busy_frac")]
+
+
+def pooled(paths, x_kind, y_kind="ms"):
+    """One slope across several arms, fixed effect = (file, block)."""
+    pts, base = [], []
+    for fi, p in enumerate(paths):
+        r = S.fit(p, x_kind, y_kind)
+        if r is None:
             return None
-        return ctr[s][x_kind]
-
-    pts = []
-    for i, s in enumerate(segs):
-        v = xval(s)
-        if v is None:
-            return None
-        pts.append((i // blen, v, med[s] * 1e3))
-    slope, se, df, n = S.fe_ols(pts, n_blocks)
+        base.append(r["baseline_ms"])
+        meta, rows_ = S.read_timing(p)
+        ctr = S.read_counters(p + ".ctr.tsv")
+        seg_k, per_seg = {}, {}
+        for seg, k, ms in rows_:
+            seg_k[seg] = k
+            per_seg.setdefault(seg, []).append(ms)
+        segs = sorted(per_seg)
+        med = {s: statistics.median(per_seg[s]) for s in segs}
+        blen = S.block_length(seg_k, segs)
+        xv, yv = S.axes(meta, seg_k, med, ctr, x_kind, y_kind)
+        for i, s in enumerate(segs):
+            pts.append(((fi, i // blen), xv(s), yv(s)))
+    nb = len({p[0] for p in pts})
+    slope, se, df, n = S.fe_ols(pts, nb)
     half = S.t95(df) * se if se == se else float("nan")
-    base = [s for s in segs if seg_k[s] == min(seg_k.values())]
-    bc = [ctr[s] for s in base if s in ctr]
-    out = {
-        "mode": meta.get("mode"), "bytes": int(meta.get("bytes", 0)),
-        "x": x_kind, "slope_us": slope, "se_us": se, "ci95_half_us": half,
-        "df": df, "n_points": n, "blocks": n_blocks, "block_len": blen,
-        "divergences": int(meta.get("divergences", 0)),
-        "baseline_ms": statistics.mean(med[s] for s in base),
-    }
-    if bc:
-        for key in ("dispatch", "barrier", "commit", "encode"):
-            out["baseline_" + key] = statistics.mean(c[key] for c in bc)
-        out["baseline_gpu_ms"] = statistics.mean(c["gpu_ns"] for c in bc) / 1e6
-        out["baseline_kernel_ms"] = statistics.mean(
-            c["kernel_ns"] for c in bc) / 1e6
-        out["baseline_span_ms"] = statistics.mean(
-            c["span_ns"] for c in bc) / 1e6
-        out["baseline_gpu_busy_frac"] = (out["baseline_gpu_ms"]
-                                         / out["baseline_ms"])
-    return out
+    return {"slope_us": slope, "se_us": se, "ci95_half_us": half, "df": df,
+            "n_points": n, "blocks": nb,
+            "baseline_ms": statistics.mean(base)}
 
 
 def main():
@@ -90,41 +92,52 @@ def main():
                              "maple-2026-08-07g-dispatch-tax-attribution",
                              "reducer": "within-block FE-OLS on segment "
                                         "medians (research/fern_tax_stats.py)",
-                             "n_layers": S.N_LAYERS})
-    table = wandb.Table(columns=[
-        "arm", "mode", "bytes", "x", "slope_us", "se_us", "ci95_half_us",
-        "df", "blocks", "divergences", "baseline_ms", "baseline_dispatch",
-        "baseline_barrier", "baseline_commit", "baseline_gpu_ms",
-        "baseline_kernel_ms", "baseline_gpu_busy_frac"])
-    summary = {}
+                             "n_layers": S.N_LAYERS,
+                             "percent_per_us_decode":
+                             S.PERCENT_PER_US_DECODE})
+
+    table = wandb.Table(columns=TABLE_COLS)
+    summary, arms = {}, {}
     for path in sorted(glob.glob(os.path.join(args.outdir, "*.tsv"))):
         if path.endswith(".ctr.tsv"):
             continue
         arm = os.path.basename(path)[:-4]
-        kinds = ("k", "dispatch", "barrier")
-        if "spin" in arm:
-            kinds = kinds + ("spin_us",)
-        for x_kind in kinds:
-            r = reduce_arm(path, x_kind)
+        arms[arm] = path
+        for x_kind, y_kind in GRID + ([("spin_us", "ms")]
+                                      if "spin" in arm else []):
+            r = S.fit(path, x_kind, y_kind)
             if r is None:
                 continue
-            summary[f"{arm}/{x_kind}/slope_us"] = r["slope_us"]
-            summary[f"{arm}/{x_kind}/ci95_half_us"] = r["ci95_half_us"]
-            if x_kind == "dispatch":
-                table.add_data(
-                    arm, r["mode"], r["bytes"], x_kind, r["slope_us"],
-                    r["se_us"], r["ci95_half_us"], r["df"], r["blocks"],
-                    r["divergences"], r["baseline_ms"],
-                    r.get("baseline_dispatch"), r.get("baseline_barrier"),
-                    r.get("baseline_commit"), r.get("baseline_gpu_ms"),
-                    r.get("baseline_kernel_ms"),
-                    r.get("baseline_gpu_busy_frac"))
+            table.add_data(*row(arm, r))
+            tag = f"{arm}/{x_kind}" + ("" if y_kind == "ms" else f"/{y_kind}")
+            summary[f"{tag}/slope_us"] = r["slope_us"]
+            summary[f"{tag}/ci95_half_us"] = r["ci95_half_us"]
+            if (x_kind, y_kind) == ("dispatch", "ms"):
                 summary[f"{arm}/baseline_ms"] = r["baseline_ms"]
+                summary[f"{arm}/baseline_dispatch"] = r.get("baseline_dispatch")
+                summary[f"{arm}/baseline_barrier"] = r.get("baseline_barrier")
                 summary[f"{arm}/baseline_gpu_busy_frac"] = r.get(
                     "baseline_gpu_busy_frac")
+
+    # Headline: the in-chain family under both candidate regressors.  The
+    # regressor that pools without scatter is the one that names the tax.
+    family = [arms[a] for a in ("chain40", "fat40_8k", "fan40") if a in arms]
+    if len(family) > 1:
+        for x_kind in ("dispatch", "barrier"):
+            r = pooled(family, x_kind)
+            if r is None:
+                continue
+            summary[f"pooled_inchain/{x_kind}/slope_us"] = r["slope_us"]
+            summary[f"pooled_inchain/{x_kind}/ci95_half_us"] = \
+                r["ci95_half_us"]
+            summary[f"pooled_inchain/{x_kind}/us_per_step_if_1_per_layer"] = \
+                r["slope_us"] * S.N_LAYERS
+            summary[f"pooled_inchain/{x_kind}/percent_score_if_1_per_layer"] \
+                = r["slope_us"] * S.N_LAYERS * S.PERCENT_PER_US_DECODE
+
     run.log({"arms": table})
     run.summary.update(summary)
-    print(f"logged {len(summary)} scalars -> {run.url}")
+    print(f"logged {len(summary)} scalars, {len(arms)} arms -> {run.url}")
     run.finish()
     return 0
 
