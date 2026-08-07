@@ -1,10 +1,10 @@
 # SENPAI Research State
-- 2026-08-07T07:15Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: d5e85a6 (pushed to origin).
+- 2026-08-07T07:20Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 7214e8a (pushed to origin).
   12 composed changes on current frontier (PRs #220, #225, #226 cherry-picked).
   LRM: 514,701/524,288 = 9,587 B headroom. Total: 2,975,392/3,000,000 = 24,608 B headroom.
 
-## MERGED FRONTIER (11 changes, all bit-exact)
+## MERGED FRONTIER (12 changes, all bit-exact)
   1. MoE scale halving (PR #180): 45.5 MiB/step bandwidth savings, decode MoE kernels
   2. Packed simd_sum (PR #194): instruction reduction in cross-lane reductions
   3. O-proj NVFP4 scale halving (PR #192): bandwidth savings for O-proj
@@ -16,11 +16,12 @@
   9. LM Head argmax+threshold fuse (PR #211): atomic argmax eliminates 1 dispatch
   10. INT8 indexed QKV dedup (PR #214): simd_shuffle broadcast
   11. Standalone shared down halving (PR #216): fallback path, completes halving family
+  12. Prefill MoE scale halving FIXED (PR #220): correct up-row-0 escape for
+      tile-interleaved layout. M5-only _nax path. ~1% prefill gain.
+  Also merged: QKV NVFP4 scale halving (PR #225), O-proj escape fix (PR #226).
 
-  REVERTED: PR #198 (prefill MoE scale halving) — M5-only correctness bug in
-  up-row-0 escape indexing. Fused gate/up bank is tile-interleaved, not
-  [gate-half|up-half]. Escape sourced from wrong position. M4 passes (non-halved
-  fallback); M5 fails correctness gate. Reverted as 6c81505.
+  REVERTED: PR #198 (original prefill MoE scale halving) — M5-only correctness
+  bug in up-row-0 escape indexing. Fixed and re-applied as PR #220.
 
 ## M5 SUBMISSION STATUS
   Best recent: 08ddee4 at 2.5748 (-2.25% vs 2.5888 target). All submissions rejected.
@@ -52,19 +53,25 @@
   Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%).
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
 
-## ACTIVE ASSIGNMENTS (Wave 8, all 4 students assigned)
-  PR #222 (askeladd): Fold shared expert gate/up QMV into routed dispatch — eliminate
-    39 extra dispatches/step. Budget-tight (~1200-2000B). M4-testable. IN PROGRESS.
+## ACTIVE ASSIGNMENTS (Wave 8, all 4 students assigned, BASE_SHA=7214e8a)
+  CLOSED: PR #222 (askeladd fold-shared-gateup) — DEAD: merged 9-slot kernel 0.55%
+    SLOWER. asyncEval already overlaps independent dispatches. Key learning:
+    dispatch fusion with if/else branching hurts performance.
   PR #229 (edward): Prefill MoE down projection scale halving — halve prefill down
     scales via NVFP4 pairwise constancy. ~0.46% score, bit-exact, M5-only.
+    NOTE: PR #229 has duplicate marker bug; Edward can still work on it.
   PR #230 (alphonse): Fuse g_proj INT8 matmul + softplus into NVFP4 O-proj kernel —
     eliminate 40 dispatches/step. ~0.75% score, bit-exact, M4-testable. HIGHEST priority.
+    KEY: eliminates DEPENDENT dispatch (gate-softplus→O-proj data dependency,
+    asyncEval cannot overlap). Different from dead PR #222 (independent dispatches).
   PR #231 (thorfinn): Shared SwiGLU QMV gate/up scale halving — wire dead halved
     tensors into shared expert kernel. ~0.11% score, bit-exact, M4-testable.
+  PR #232 (askeladd): Gate-softplus scale/bias interleaved packing — interleave
+    scales+biases into single array for cache locality. Bit-exact, ~300B, M4-testable.
 
 ## COMPOSITION PLAN
-  If all 4 assignments succeed: ~0.46% + ~0.75% + ~0.11% + ~1-2% (dispatch elim) =
-  ~2.3-3.3% total. Starting from 2.5748 → ~2.59-2.62. Would BEAT 2.5888 target.
+  If 3 main assignments succeed: ~0.46% + ~0.75% + ~0.11% = ~1.32% total.
+  Starting from 2.5748 → ~2.609. Would BEAT 2.5888 target.
   Submit independently first, then compose winners for combined submission.
 
 ## RESEARCH THEMES
