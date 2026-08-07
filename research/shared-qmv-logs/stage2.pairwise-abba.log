@@ -1,0 +1,107 @@
+Stage 2 (PR #301): halved gate/up scale plane vs prefetch-only, per-kernel ABBA
+==============================================================================
+host   Mac16,11 (M4 Pro, 20-core GPU, 48 GiB, macOS 26.5.2, Apple GPU gen 16)
+driver ORDER="on pairwise pairwise on" REPS=3 STEPS=33
+       OUT=/tmp/maple-shared-qmv-stage2
+       bash research/maple_shared_qmv_prefetch_abba.sh
+worker .build-worker/release/mlxfast-runtime-worker @ a15af48 with
+       research/nezuko-pr158-gpuprof-hook.patch applied to the Cmlx device
+       (device.cpp/.h reverted before the commit; instrumentation is present in
+       both arms, so it cancels in the comparison)
+run    run_training fc455230-07e8-485b-b5d0-f4e1370723b7, exit 0, 491 s
+       12 cold processes, 1248 steady calls of the changed kernel per process
+
+correctness
+-----------
+12/12 processes: "teacher-forced greedy tokens: 0 divergences (all match)"
+    against correctness_prompts/public_longcopy_gate_english_512_256.json
+one-time certificate observed in every pairwise process:
+    mlxfast: packed-scales active: shared gate/up halved scale plane
+
+changed kernel  laguna_shared_nvfp4_swiglu_qmv_rows1[_ps]_bf16_v1
+--------------------------------------------------------------------
+file                        arm      n   us/call   median      se   us/step
+01-rep1-on.err               on   1248     7.305    7.250   0.008     284.9
+02-rep1-pairwise.err   pairwise   1248     7.335    7.292   0.005     286.1
+03-rep1-pairwise.err   pairwise   1248     7.321    7.292   0.005     285.5
+04-rep1-on.err               on   1248     7.269    7.250   0.007     283.5
+05-rep2-on.err               on   1248     7.267    7.250   0.006     283.4
+06-rep2-pairwise.err   pairwise   1248     7.381    7.375   0.005     287.9
+07-rep2-pairwise.err   pairwise   1248     7.360    7.333   0.005     287.0
+08-rep2-on.err               on   1248     7.146    7.125   0.006     278.7
+09-rep3-on.err               on   1248     7.147    7.125   0.005     278.7
+10-rep3-pairwise.err   pairwise   1248     7.327    7.292   0.005     285.8
+11-rep3-pairwise.err   pairwise   1248     7.374    7.375   0.006     287.6
+12-rep3-on.err               on   1248     7.129    7.125   0.005     278.0
+
+process-level arm means (us/call)
+        on n=6 mean=7.210 sd=0.078   (Stage 1 reproduced exactly: 7.210/0.070)
+  pairwise n=6 mean=7.350 sd=0.026
+  delta = +0.140 us/call  Welch 95% CI [+0.058, +0.222]  +1.94%  df 6.1
+  per step (39 dispatches): +5.5 us/step
+
+GPUPSO for both variants: maxThreads=1024 execWidth=32 tgMem=0 (unchanged)
+
+invariant control  laguna_routed_nvfp4_swiglu_qmv_packed_top8keys (NOT MODIFIED)
+--------------------------------------------------------------------------------
+file                        arm      n   us/call   median      se   us/step
+01-rep1-on.err               on   1248    39.071   38.833   0.026    1523.8
+02-rep1-pairwise.err   pairwise   1248    38.319   38.250   0.011    1494.4
+03-rep1-pairwise.err   pairwise   1248    38.305   38.250   0.012    1493.9
+04-rep1-on.err               on   1248    38.999   38.875   0.020    1521.0
+05-rep2-on.err               on   1248    39.060   39.000   0.016    1523.3
+06-rep2-pairwise.err   pairwise   1248    38.488   38.417   0.013    1501.0
+07-rep2-pairwise.err   pairwise   1248    38.436   38.375   0.014    1499.0
+08-rep2-on.err               on   1248    38.584   38.500   0.012    1504.8
+09-rep3-on.err               on   1248    38.627   38.583   0.012    1506.5
+10-rep3-pairwise.err   pairwise   1248    38.319   38.292   0.011    1494.4
+11-rep3-pairwise.err   pairwise   1248    38.343   38.292   0.012    1495.4
+12-rep3-on.err               on   1248    38.562   38.500   0.012    1503.9
+
+        on n=6 mean=38.817 sd=0.250
+  pairwise n=6 mean=38.368 sd=0.075
+  delta = -0.449 us/call (-1.16%), perfect 6-v-6 separation
+
+*** THE INVARIANT CONTROL MOVED. Stage 1 held it null ([-0.563, +0.674]); here
+*** an unmodified kernel is 1.16% faster in the pairwise arm, so the Stage 2
+*** per-kernel A/B does not isolate the mechanism. The comparison is still
+*** valid as a statement about the two whole configurations, and in the changed
+*** kernel the direction is unambiguous: pairwise is slower than prefetch-only
+*** in all 6 v 6 processes and at every matched ABBA position.
+
+whole-step (same processes)
+---------------------------
+                 on n=6                pairwise n=6
+step wall     9.8973 ms sd 0.1349    9.7587 ms sd 0.0254   -1.40%
+gpu_busy_sum  8.5923 ms sd 0.0517    8.5243 ms sd 0.0147   -0.79%
+cbs/dispatches      406.0                  406.0          unchanged
+
+all-kernel breakdown, us/step (coarse: per-kernel record count / 33 steps)
+-------------------------------------------------------------------------
+routed_shared_nvfp4_down_residual...r1_v5     915.0 ->  890.7   -2.65%
+routed_nvfp4_swiglu_qmv_packed_top8keys      1555.2 -> 1537.3   -1.15%
+oproj_act_h64...                             1158.7 -> 1150.0   -0.75%
+decode_nvfp4_qkv_h64_r1_v1...                1387.4 -> 1379.3   -0.58%
+nvfp4_gather_qmm_rhs_nt (prefill-dominated) 13024.3 ->13020.3   -0.03%
+shared_nvfp4_swiglu_qmv_rows1 (CHANGED)       281.2 ->  286.7   +1.94%
+
+Every memory-heavy DECODE kernel is slightly faster in the pairwise arm while
+the prefill-dominated gather-GEMM is unchanged and the changed kernel is
+slower. That is not a global clock/thermal offset and it is not the intended
+per-kernel effect. Two candidate explanations, which this experiment cannot
+separate:
+  (a) real decode-phase cache/bandwidth relief: the halved plane removes
+      39 x 65,408 B = 2.55 MB of scale reads per decode step, which stops
+      evicting the neighbours' working set; but 2.55 MB is only ~6-7 us of
+      bandwidth time, far less than the ~59 us the neighbours gain, so the
+      effect would have to be an amplified cache-residency effect; or
+  (b) an allocation/layout artifact: the pairwise arm installs an extra
+      65,664 B x 39 = 2.6 MB of resident planes at load, shifting every later
+      buffer address, and it compiles and binds a second PSO
+      (..._rows1_ps_bf16_v1).
+
+Verdict: NOT a validated win. The mechanism as designed (fewer scale bytes in
+the changed kernel) is refuted on this host at the kernel level (+1.94%,
+CI excludes 0). The whole-step improvement is real in these 12 processes but is
+not attributable to the mechanism, and (b) would not transfer to another host.
+Stage 3 (uninstrumented, trusted harness) is the deciding measurement.
