@@ -56,12 +56,12 @@
   PR #220 (thorfinn): Fix and re-apply PR #198 prefill MoE scale halving — correct
     up-row-0 escape indexing for tile-interleaved layout. M5-only (can't test on M4).
     Key fix: up_escape at fused row 32 (not 512).
-  PR #221 (alphonse): Input-vector staging to threadgroup shared memory — reduce LSU
-    pressure in decode MoE kernels. ~300-400B per kernel. M4-testable.
   PR #222 (askeladd): Fold shared expert gate/up QMV into routed dispatch — eliminate
     39 extra dispatches/step. Budget-tight (~1200-2000B). M4-testable.
-  Edward: FREE (PR #219 closed). Next assignment: QKV NVFP4 scale halving
-    (23.75 MiB savings, ~0.72% decode gain, ~500-600B budget, bit-exact with escape).
+  PR #225 (edward): QKV NVFP4 scale halving with escape — 23.75 MiB savings,
+    ~0.72% decode, ~600B budget. Bit-exact with escape bytes.
+  PR #226 (alphonse): O-proj escape byte fix — defensive correctness, ~230B.
+    Confirmed safe but not robust. M4-testable.
 
 ## RESEARCH THEMES
   - CRITICAL DISCOVERY: PR #198 prefill MoE halving had M5-only correctness bug.
@@ -83,7 +83,9 @@
   - Exhausted: INT8 dedup family (complete), dot4 (done/dead), float4 stores (done),
     scale halving (decode done, prefill needs fix), argmax fuse (done),
     RMSNorm fusion (dead), attention epilogue 1-pass (dead), asyncEval (near-optimal),
-    KV cache quant (not bit-exact), ops-800/QHOIST (toxic, reverted)
+    KV cache quant (not bit-exact), ops-800/QHOIST (toxic, reverted),
+    dense MLP simd_sum (not bit-exact, wrong hypothesis), input-vector staging (dead,
+    barrier overhead > LSU relief)
 
 ## BUDGET STATUS
   LRM: 521,648/524,288 = 2,640 B headroom
