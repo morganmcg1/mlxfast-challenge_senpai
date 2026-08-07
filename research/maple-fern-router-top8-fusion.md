@@ -232,3 +232,117 @@ Teacher-forced greedy tokens: **0 divergences in every one of the 8 runs**, so
 the regression is a genuine timing result and not a correctness artefact.
 
 <!-- ATTRIBUTION SECTION PENDING -->
+
+## 6. Why the census figure was not a marginal cost
+
+This is the part worth keeping. Four independent analyses of the *same* kernel
+in the *same* build produced 105.6, 139.6, 185.7 and 205.3 µs/step. A ±50 %
+method-dependent spread is not measurement slop; it is the signature of a
+quantity that is not causal in the first place.
+
+Per-kernel Apple GPU timings are an **attribution of wall-clock residency**, not
+an additive decomposition. Under a concurrent encoder with hazard-tracked
+barriers, independent kernels genuinely overlap, and interval attribution
+double-counts the overlap. The census sums intervals; the step is a **makespan**.
+
+There is a direct falsification of the additive model already present in the
+census data that was available before this experiment: `rmsbfloat16` is listed
+at **1.82 µs/call**, which is *below* the fitted single-threadgroup dispatch
+floor `a + φ = 3.13 µs`. No dispatch can be cheaper than the floor if the floor
+is real and the costs are additive. It can only be below the floor if the
+reported number is a fraction of an overlapped interval. That datum alone
+refutes "sum of per-kernel times = step time", and it was in the table the whole
+time.
+
+The correct model is:
+
+> Step time = makespan of the pipelined encode / dispatch / execute streams.
+> Within a barrier-bounded interval, elapsed time ≈ **max** over concurrent
+> kernels, not **sum**.
+
+Under that model the marginal cost of a kernel is its **effect on the critical
+path**, and kernels fall into two classes:
+
+- **chain-link** — sole occupant of its barrier-bounded interval (typically an
+  elementwise op on the residual stream sitting between two matmuls). Deleting
+  it saves close to its full serialized duration.
+- **side-branch** — issued inside the concurrency interval of a much larger
+  sibling. Deleting it saves ≈ 0.
+
+The decode router top-8 is a **side-branch** kernel. It is a 39-per-step,
+single-wave, latency-bound dispatch running alongside the routed gate/up QMV,
+which moves ~9 MB of weights per layer and occupies ~45–80 µs/call. The router
+fits entirely inside that shadow. Its 4.70 µs/call of attributed residency was
+real residency and phantom cost.
+
+The dispatch cost model `T = a + W·φ` is therefore best read as a **throughput
+slot cost**: an *upper bound* on marginal cost, attained only when the encode
+front-end is saturated, and collapsing toward zero when the streams have slack.
+The pre-registered 90 % interval `[−55, −175]` should have included 0. It did
+not, because "latency-bound, launch-dominated" was treated as evidence of
+removable cost. It is not: latency-bound describes the kernel *in isolation* and
+says nothing about whether it is on the critical path.
+
+## 7. A reusable marginal-cost probe (proposed, not run)
+
+The expensive part of this experiment was not the measurement — it was building
+a bit-exact fused kernel *before* knowing whether the cost existed. The
+generalisable fix is to measure marginal cost **without a correctness burden**,
+by *adding* work instead of removing it.
+
+**Design.** For a target dispatch, add `K − 1` redundant copies per layer under
+an env knob `DUP=K ∈ {1, 2, 3, 5}` and measure `d(step)/dK`.
+
+- each duplicate reads the same live inputs and writes its **own scratch
+  output**, so there is no write-after-write chain and no forced serialization;
+- the duplicate outputs must be made **additional eval roots** so MLX's lazy
+  graph cannot dead-code-eliminate them. Defeat DCE by *reachability*, never by
+  injecting fake arithmetic into the live result — fake arithmetic changes the
+  thing being measured;
+- list the duplicate roots **before** the logits in the eval list, so the DFS
+  encodes each duplicate adjacent to its own layer rather than clustering all of
+  them at the end of the command buffer;
+- verify in a trace that `39·(K−1)` extra dispatches actually encode, and that
+  they land where intended.
+
+**Read-out.**
+
+| observed slope per extra set of 39 | conclusion |
+|---|---|
+| ≈ 0–10 µs/step | phantom cost; the kernel is a side-branch. Do not fuse. |
+| ≈ census (≈ 185 µs/step) | real cost; fusion is worth the correctness work. |
+
+Internal consistency checks: linearity from `K = 1` to `K = 5`, and `K = 1`
+reproducing the unmodified base within noise.
+
+**Second variant.** Run the same sweep with the duplicates *chained* (duplicate
+`k` reads duplicate `k − 1`'s output), which forces hazard serialization. That
+slope is the serialized upper bound. The **ratio of the overlapped slope to the
+serialized slope is an overlap discount** that can be measured once and then
+applied to every census-derived estimate in the queue.
+
+Cost: well under an hour, no bit-exactness proof required, no kernel authoring.
+
+## 8. Recommendations for the campaign queue
+
+1. **Re-price every "delete a small kernel worth 70–200 µs/step" target.** The
+   revised prior for this class is that realized saving is **10–20 % of the
+   census figure**, with substantial probability mass at ~0 and real probability
+   of a **net loss** whenever the fusion has to touch a large kernel. This
+   experiment is one draw from that prior and it came out negative.
+2. **Triage the whole queue with one trace, not one fusion each.** A single
+   ~2 s Metal System Trace of the base binary answers, for every candidate at
+   once, the only question that matters: is the target's interval *nested under
+   a bigger sibling*, or is it *alone between two barriers*? Chain-link targets
+   stay promising; side-branch targets should be dropped without further work.
+3. **Run the §7 probe before authoring any further fusion kernel.** It converts
+   a multi-day bit-exact kernel project into a sub-hour measurement.
+4. **Stop quoting census µs/step as a saving.** Quote it as an upper bound and
+   say so. Where a number is used to justify an assignment, state which of the
+   two classes the kernel is in.
+5. **Keep the correctness methodology.** The bitwise logit certificate plus the
+   fault-injection sensitivity control (§2.4–2.5) did their job perfectly: they
+   proved the fused kernel was bit-exact *and* proved the certificate was not
+   vacuous. That pattern should be standard for every numerics-touching change,
+   and it is cheap. The lesson of this PR is about *which* changes are worth
+   proving correct, not about how to prove them.
