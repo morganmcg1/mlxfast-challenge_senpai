@@ -165,11 +165,12 @@ let lagunaFusedRoutedSwiGLUQMVEnabled =
 let lagunaPackedScalesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES"] != "0"
 
-/// Publish exact corrected router ordinals from the existing fused producer
-/// so routed QMV consumers avoid repeating the nonlinear key construction.
-/// The OFF arm restores the promoted selector dependency exactly.
-private let lagunaRouterPrecomputedKeysEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_PRECOMPUTED_KEYS"] != "0"
+/// The fused residual+RMSNorm+router producer kernel formerly emitted a 4th
+/// output buffer (`router_keys`, 256-uint32 = 1KB per sparse layer per decode
+/// step). No kernel ever consumed `router_keys` as input — it was only used as
+/// a nil-check guard to select the R1-halved gate/up dispatch branch. The keys
+/// output is now eliminated: the v2 kernel variant (no keys) is always used,
+/// saving ~5MB of write traffic and 5,120 allocations per decode window.
 
 /// One-shot stderr visibility for the packed-scales arm: with the flag set,
 /// the arm MUST announce either "active" (bank built / packed dispatch taken)
@@ -861,17 +862,7 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     let guardOpen = activeSimdGroups < simdGroups
         ? "        if (simd_group < active_simd_groups) {\n" : ""
     let guardClose = activeSimdGroups < simdGroups ? "        }\n" : ""
-    let routerStore = lagunaRouterPrecomputedKeysEnabled
-        ? """
-                bfloat logit = bfloat(router_result[r]);
-                router_logits[router_row + r] = logit;
-                float x = float(logit);
-                float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
-                float score = x < 0.0f ? y : 1.0f - y;
-                router_keys[router_row + r] = laguna_router_key_ordinal(
-                    -(score + float(correction_bias[router_row + r])));
-        """
-        : "router_logits[router_row + r] = bfloat(router_result[r]);"
+    let routerStore = "router_logits[router_row + r] = bfloat(router_result[r]);"
 
     let accumulate: String
     if rowsPerThread == 1 {
@@ -998,17 +989,11 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
             (
                 rowsPerGroup,
                 MLXFast.metalKernel(
-                    name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_"
-                        + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2"),
-                    inputNames: lagunaRouterPrecomputedKeysEnabled
-                        ? ["residual", "branch", "weight", "router_weight", "correction_bias"]
-                        : ["residual", "branch", "weight", "router_weight"],
-                    outputNames: lagunaRouterPrecomputedKeysEnabled
-                        ? ["summed", "normalized", "router_logits", "router_keys"]
-                        : ["summed", "normalized", "router_logits"],
+                    name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_v2",
+                    inputNames: ["residual", "branch", "weight", "router_weight"],
+                    outputNames: ["summed", "normalized", "router_logits"],
                     source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
-                    header: lagunaRouterPrecomputedKeysEnabled
-                        ? lagunaDecodeRouterOrdinalHeader : "",
+                    header: "",
                     ensureRowContiguous: true
                 )
             )
@@ -1059,8 +1044,7 @@ private let lagunaResidualRMSNormKernel = MLXFast.metalKernel(
 func lagunaResidualRMSNormRouter(
     residual: MLXArray, branch: MLXArray, weight: MLXArray,
     routerWeight: MLXArray, correctionBias: MLXArray
-) -> (summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray,
-    routerKeys: MLXArray?) {
+) -> (summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray) {
     let hidden = LagunaConstants.hiddenSize
     let experts = LagunaConstants.numExperts
     precondition(residual.dtype == .bfloat16)
@@ -1084,19 +1068,15 @@ func lagunaResidualRMSNormRouter(
     let rowsPerGroup = lagunaRouterRowsPerGroup
     let tiles = experts / rowsPerGroup
     lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
-    let inputs = lagunaRouterPrecomputedKeysEnabled
-        ? [residual, branch, weight, routerWeight, correctionBias]
-        : [residual, branch, weight, routerWeight]
+    let inputs = [residual, branch, weight, routerWeight]
     let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
         inputs,
         grid: (tiles * 512, 1, 1),
         threadGroup: (512, 1, 1),
-        outputShapes: [[1, 1, hidden], [1, 1, hidden], [1, 1, experts]]
-            + (lagunaRouterPrecomputedKeysEnabled ? [[1, 1, experts]] : []),
+        outputShapes: [[1, 1, hidden], [1, 1, hidden], [1, 1, experts]],
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
-            + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : [])
     )
-    return (outputs[0], outputs[1], outputs[2], outputs.count > 3 ? outputs[3] : nil)
+    return (outputs[0], outputs[1], outputs[2])
 }
 
 func lagunaResidualRMSNorm(
@@ -10437,15 +10417,13 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     }
 
     func callAsFunction(
-        _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil,
-        routerKeys: MLXArray? = nil
+        _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil
     ) -> MLXArray {
-        forward(x, residual: residual, routerLogits: routerLogits, routerKeys: routerKeys)
+        forward(x, residual: residual, routerLogits: routerLogits)
     }
 
     private func forward(
-        _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?,
-        routerKeys: MLXArray? = nil
+        _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
@@ -10489,11 +10467,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 {
                     lagunaPackedScalesLog.note(
                         "active", "routed swiglu qmv packed dispatch")
-                    if lagunaRouterPrecomputedKeysEnabled,
-                        let routerKeys,
-                        routerKeys.dtype == .uint32,
-                        routerKeys.size == LagunaConstants.numExperts,
-                        gate.topK == LagunaConstants.numExpertsPerTok,
+                    if gate.topK == LagunaConstants.numExpertsPerTok,
                         gate.routerLogitSoftcapping == 0,
                         gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
                     {
@@ -10501,7 +10475,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                             let halvedBank = _halvedPackedRoutedGateUpBank,
                             let gateUpEscape = _packedRoutedGateUpEscape
                         {
-                            lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys, halved)")
+                            lagunaTrace("routed gate/up QMV + SwiGLU (packed, halved)")
                             activated = lagunaRoutedSwiGLUQMVPackedTop8(
                                 x,
                                 fusedWeight: fusedWeight,
@@ -10510,7 +10484,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                                 indices: inds
                             )
                         } else {
-                            lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys)")
+                            lagunaTrace("routed gate/up QMV + SwiGLU (packed, top8)")
                             activated = lagunaRoutedSwiGLUQMVPackedTop8(
                                 x,
                                 fusedWeight: fusedWeight,
@@ -10823,7 +10797,6 @@ final class LagunaRuntimeDecoderLayer: Module {
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
-        var routerKeys: MLXArray?
         if lagunaFusedResidualRMSNormRouterEnabled,
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -10841,7 +10814,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             h = fused.summed
             normalized = fused.normalized
             routerLogits = fused.routerLogits
-            routerKeys = fused.routerKeys
         } else if lagunaFusedResidualRMSNormEnabled,
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -10880,8 +10852,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
             return sparse(
-                normalized, residual: h, routerLogits: routerLogits,
-                routerKeys: routerKeys)
+                normalized, residual: h, routerLogits: routerLogits)
         }
         // Multi-token prefill: hand the residual to the sparse block so the
         // prefill MoE tail kernel can fold the final residual add. When any
@@ -10893,8 +10864,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
             return sparse(
-                normalized, residual: h, routerLogits: routerLogits,
-                routerKeys: routerKeys)
+                normalized, residual: h, routerLogits: routerLogits)
         }
         // Layer-0-only decode fusion: `fusedDenseDownResidual` returns nil off
         // layer 0's decode shape (or if a guard declines); stock path then runs.
@@ -10919,7 +10889,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             let h: MLXArray
             let normalizedAfterAttention: MLXArray
             var routerLogits: MLXArray?
-            var routerKeys: MLXArray?
             if lagunaFusedResidualRMSNormRouterEnabled,
                 lastResidual.dtype == .bfloat16, r.dtype == .bfloat16,
                 postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -10938,7 +10907,6 @@ final class LagunaRuntimeDecoderLayer: Module {
                 h = fused.summed
                 normalizedAfterAttention = fused.normalized
                 routerLogits = fused.routerLogits
-                routerKeys = fused.routerKeys
             } else if lagunaFusedResidualRMSNormEnabled,
                 lastResidual.dtype == .bfloat16, r.dtype == .bfloat16,
                 postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -10966,7 +10934,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             {
                 return sparse(
                     normalizedAfterAttention, residual: h,
-                    routerLogits: routerLogits, routerKeys: routerKeys)
+                    routerLogits: routerLogits)
             }
             if let dense = mlp as? LagunaRuntimeMLP,
                 let fused = dense.fusedDenseDownResidual(
