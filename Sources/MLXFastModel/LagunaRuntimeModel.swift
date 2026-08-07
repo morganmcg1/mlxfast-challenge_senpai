@@ -3960,9 +3960,14 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
         column += block_size;
     }
 
-    for (uint row = 0; row < results_per_simdgroup; ++row) {
-        result[row] = simd_sum(result[row]);
-        if (simd_lid == 0) {
+    {
+        const vec<float, 4> packed = simd_sum(
+            vec<float, 4>(result[0], result[1], result[2], result[3]));
+        result[0] = packed.x; result[1] = packed.y;
+        result[2] = packed.z; result[3] = packed.w;
+    }
+    if (simd_lid == 0) {
+        for (uint row = 0; row < results_per_simdgroup; ++row) {
             projected[out_row + row] = bfloat(result[row]);
         }
     }
@@ -4273,9 +4278,14 @@ func lagunaGatedAffineOProjNVFP4Source(
         column += block_size;
     }
 
-    for (uint row = 0; row < results_per_simdgroup; ++row) {
-        result[row] = simd_sum(result[row] * 4194304.0f);
-        if (simd_lid == 0) {
+    {
+        const vec<float, 4> packed = simd_sum(
+            vec<float, 4>(result[0], result[1], result[2], result[3]) * 4194304.0f);
+        result[0] = packed.x; result[1] = packed.y;
+        result[2] = packed.z; result[3] = packed.w;
+    }
+    if (simd_lid == 0) {
+        for (uint row = 0; row < results_per_simdgroup; ++row) {
             projected[out_row + row] = bfloat(result[row]);
         }
     }
@@ -4332,8 +4342,13 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
         }
         ws+=BK; sc+=BK/GS; bs+=BK/GS; col+=BK;
     }
+    {
+        const vec<float, 4> packed = simd_sum(
+            vec<float, 4>(r[0], r[1], r[2], r[3]));
+        r[0] = packed.x; r[1] = packed.y;
+        r[2] = packed.z; r[3] = packed.w;
+    }
     for(uint row=0;row<R;++row){
-        r[row]=simd_sum(r[row]);
         if(lane==0){
             float l=float(bfloat(r[row]));
             float g;
@@ -4817,9 +4832,14 @@ private func lagunaNormAffineQKVBody(
         column += block_size;
     }
 
-    for (uint row = 0; row < results_per_simdgroup; ++row) {
-        result[row] = simd_sum(result[row]);
-        if (simd_lid == 0) {
+    {
+        const vec<float, 4> packed = simd_sum(
+            vec<float, 4>(result[0], result[1], result[2], result[3]));
+        result[0] = packed.x; result[1] = packed.y;
+        result[2] = packed.z; result[3] = packed.w;
+    }
+    if (simd_lid == 0) {
+        for (uint row = 0; row < results_per_simdgroup; ++row) {
             projected[out_row + row] = bfloat(result[row]);
         }
     }
@@ -6581,9 +6601,14 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
             }
         }
 
+        {
+            const vec<float, 4> packed = simd_sum(
+                vec<float, 4>(gate_result[0], gate_result[1],
+                              up_result[0], up_result[1]));
+            gate_result[0] = packed.x; gate_result[1] = packed.y;
+            up_result[0] = packed.z; up_result[1] = packed.w;
+        }
         for (uint row = 0; row < 2; ++row) {
-            gate_result[row] = simd_sum(gate_result[row]);
-            up_result[row] = simd_sum(up_result[row]);
             if (lane == 0) {
                 bfloat gate = bfloat(gate_result[row]\(lagunaNvfp4RowScaleSuffix));
                 bfloat up = bfloat(up_result[row]\(lagunaNvfp4RowScaleSuffix));
@@ -6667,8 +6692,12 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
                 laguna_nvfp4_scale(up_sb));
         }
 
-        gate_result = simd_sum(gate_result);
-        up_result = simd_sum(up_result);
+        {
+            const vec<float, 2> packed = simd_sum(
+                vec<float, 2>(gate_result, up_result));
+            gate_result = packed.x;
+            up_result = packed.y;
+        }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
             bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
@@ -6893,9 +6922,14 @@ private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
             }
         }
 
+        {
+            const vec<float, 4> packed = simd_sum(
+                vec<float, 4>(gate_result[0], gate_result[1],
+                              up_result[0], up_result[1]));
+            gate_result[0] = packed.x; gate_result[1] = packed.y;
+            up_result[0] = packed.z; up_result[1] = packed.w;
+        }
         for (uint row = 0; row < 2; ++row) {
-            gate_result[row] = simd_sum(gate_result[row]);
-            up_result[row] = simd_sum(up_result[row]);
             if (lane == 0) {
                 bfloat gate = bfloat(gate_result[row]\(lagunaNvfp4RowScaleSuffix));
                 bfloat up = bfloat(up_result[row]\(lagunaNvfp4RowScaleSuffix));
@@ -6995,8 +7029,12 @@ private let lagunaRoutedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
                 laguna_nvfp4_scale(up_scale[0]));
         }
 
-        gate_result = simd_sum(gate_result);
-        up_result = simd_sum(up_result);
+        {
+            const vec<float, 2> packed = simd_sum(
+                vec<float, 2>(gate_result, up_result));
+            gate_result = packed.x;
+            up_result = packed.y;
+        }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
             bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
@@ -7137,9 +7175,14 @@ private let lagunaRoutedSwiGLUQMVPackedKernel = MLXFast.metalKernel(
             }
         }
 
+        {
+            const vec<float, 4> packed = simd_sum(
+                vec<float, 4>(gate_result[0], gate_result[1],
+                              up_result[0], up_result[1]));
+            gate_result[0] = packed.x; gate_result[1] = packed.y;
+            up_result[0] = packed.z; up_result[1] = packed.w;
+        }
         for (uint row = 0; row < 2; ++row) {
-            gate_result[row] = simd_sum(gate_result[row]);
-            up_result[row] = simd_sum(up_result[row]);
             if (lane == 0) {
                 bfloat gate = bfloat(gate_result[row]\(lagunaNvfp4RowScaleSuffix));
                 bfloat up = bfloat(up_result[row]\(lagunaNvfp4RowScaleSuffix));
@@ -7266,9 +7309,14 @@ func lagunaRoutedSwiGLUQMVPackedSelectedSource(
             }
         }
 
+        {
+            const vec<float, 4> packed = simd_sum(
+                vec<float, 4>(gate_result[0], gate_result[1],
+                              up_result[0], up_result[1]));
+            gate_result[0] = packed.x; gate_result[1] = packed.y;
+            up_result[0] = packed.z; up_result[1] = packed.w;
+        }
         for (uint row = 0; row < 2; ++row) {
-            gate_result[row] = simd_sum(gate_result[row]);
-            up_result[row] = simd_sum(up_result[row]);
             if (lane == 0) {
                 bfloat gate = bfloat(gate_result[row]\(lagunaNvfp4RowScaleSuffix));
                 bfloat up = bfloat(up_result[row]\(lagunaNvfp4RowScaleSuffix));
@@ -7411,8 +7459,12 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
                 laguna_nvfp4_scale(cur_up_sb));
         }
 
-        gate_result = simd_sum(gate_result);
-        up_result = simd_sum(up_result);
+        {
+            const vec<float, 2> packed = simd_sum(
+                vec<float, 2>(gate_result, up_result));
+            gate_result = packed.x;
+            up_result = packed.y;
+        }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
             bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
