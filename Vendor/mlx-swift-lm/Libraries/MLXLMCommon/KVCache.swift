@@ -437,6 +437,7 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
             guard newValue.count == 2 else {
                 fatalError("KVCacheSimple state must have exactly 2 arrays (keys, values)")
             }
+            self.fusedAppendContiguized = false
             self.keys = newValue[0]
             self.values = newValue[1]
             self.offset = self.keys!.dim(2)
