@@ -13,7 +13,10 @@
 #   OUT_DIR=<dir>  override the scratch output directory
 #   BK=<n>         k-tile depth template arg (default 64)
 #   PROBE=<n>      regime-discriminator template arg (default 0 = shipped)
-#   PF=<n>         k-loop prefetch depth template arg (default 0 = shipped)
+#   PF=<n>         k-loop prefetch depth template arg (default 0 = shipped).
+#                  PF>0 needs the PR #215 arm header, which was reverted after
+#                  the arm was measured and closed; it will not compile on the
+#                  frontier. Kept so the Step-0 table stays reproducible.
 #   EMIT_LIB=1     also link a .metallib so pipeline stats can be read back
 set -uo pipefail
 

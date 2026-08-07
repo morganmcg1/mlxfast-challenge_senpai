@@ -1650,35 +1650,6 @@ int darkbloom_nax_gather_probe() {
   return v;
 }
 
-// K-loop software pipeline depth for the expert-aligned NAX gather GEMM.
-// PR #170 priced the staging axis of this kernel's k loop at 18.2% of its
-// marginal wall time with zero extra DRAM bytes (arm S3), i.e. a pure
-// load-issue/latency term. Depth 1 moves each iteration's weight device reads
-// one iteration earlier, into registers, so their latency is covered by the
-// preceding MMA chain instead of standing exposed between the two Ws
-// barriers. Ws stays single-buffered and the staged bytes, addresses, decode
-// and accumulation order are untouched, so the arm is bit-exact.
-//
-// Default ON, and "0" is the kill switch: the official runner strips the
-// environment (benchmark.sh's timed path runs under `sudo env_reset` +
-// `env -i`), so for a ranked measurement the compiled-in default IS the arm.
-constexpr const char* kNaxKloopPrefetchDefault = "1";
-
-int darkbloom_nax_kloop_prefetch() {
-  static const int v = [] {
-    auto s =
-        env::get_var("DARKBLOOM_NAX_KLOOP_PREFETCH", kNaxKloopPrefetchDefault);
-    if (s == "0") {
-      return 0;
-    }
-    if (s == "2") {
-      return 2;
-    }
-    return 1;
-  }();
-  return v;
-}
-
 void gather_qmm_rhs_nax(
     const array& x_,
     const array& w_,
@@ -1816,11 +1787,6 @@ void gather_qmm_rhs_nax(
         "path; it would measure an unarmed control");
   }
   const int gather_probe = expert_aligned ? probe_requested : 0;
-  // Same scoping rule as the probe: the k-loop pipeline is a parameter of the
-  // expert-aligned kernel only. Resolved once per process, so the
-  // specialization key is fixed for the process lifetime.
-  const int kloop_prefetch =
-      expert_aligned ? darkbloom_nax_kloop_prefetch() : 0;
 
   // DARKBLOOM_STAGE2_GATHER ground truth at the DISPATCH site. The define
   // itself is injected at JIT assembly (jit_kernels.cpp, expert kernels
@@ -1917,8 +1883,7 @@ void gather_qmm_rhs_nax(
       // The JIT library cache is keyed on the kernel name alone, so a probe
       // arm MUST change it. Suffix omitted at probe 0 to keep the shipped
       // name byte-identical.
-      gather_probe ? ("_pb_" + std::to_string(gather_probe)) : "",
-      kloop_prefetch ? ("_pf_" + std::to_string(kloop_prefetch)) : "");
+      gather_probe ? ("_pb_" + std::to_string(gather_probe)) : "");
 
   // Probe ground truth at the DISPATCH site, same contract as the stage2 and
   // xmajor lines above: "active" requires BOTH a requested probe and the
@@ -2064,8 +2029,7 @@ void gather_qmm_rhs_nax(
         egroups,
         expert_widest,
         expert_wideld,
-        gather_probe,
-        kloop_prefetch);
+        gather_probe);
     kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
   } else {
     kernel = get_gather_qmm_nax_kernel(

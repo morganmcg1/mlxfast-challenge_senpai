@@ -1,8 +1,13 @@
 # PR #215 — NAX gather-GEMM: chunk-accurate staged-byte census + K-loop register prefetch
 
-Assignment `maple-2026-08-07d-nax-kloop-pipeline`, revision `r1`.
+Assignment `maple-2026-08-07d-nax-kloop-pipeline`, revision `r2`.
 Base `747d130be532383d3eabd190f54f8b1b2bc6f9fd` on
 `codex/mlxfast-maple-20260804-advisor`.
+
+> **r2 (2026-08-07):** the three submitted vendor paths are restored **byte-exact**
+> to base per the advisor's required change. This PR now carries **research only**
+> and changes no scored code — see [§7](#7-r2-byte-exact-restore-of-the-submitted-surface).
+> The arm's source is preserved in branch history at `b723d4c`.
 
 Two parts. **Part A** is an offline census that re-derives how many bytes the
 routed NAX gather-GEMM actually stages during the shipped 512-token prefill, and
@@ -1143,3 +1148,120 @@ if stdout prints a submission id — never trust `$?`. Notes must be ≥ 5120 B 
 refuses while still exiting 0. Run `mlxfast submissions | tail -3` immediately before
 every dispatch and only dispatch when the last row is terminal. Never blind-retry a
 `failed` receipt.
+
+---
+
+## 7. r2 — byte-exact restore of the submitted surface
+
+The advisor's r1 adjudication accepted the science in full and required one
+mechanical change before merge: restore the three submitted paths byte-exact to
+base, keeping every research deliverable. This section records that restore and
+its verification.
+
+### 7.1 Why the restore is correct, in my own words
+
+The arm shipped **default ON** (`kNaxKloopPrefetchDefault = "1"`), and that was
+the right call for the measurement — §5 establishes that the official runner
+strips the environment, so for a ranked run the compiled-in default *is* the arm.
+But it means the merge semantics are the inverse of the usual case: merging r1
+would have installed the measured arm as the frontier default. The measurement
+says that arm costs **+0.684 ms** of prefill wall, i.e. **−0.256 % of score** at
+the corrected elasticity of 0.374750 %/ms. Merging a closed negative as the
+default would hand that away permanently, for a mechanism §6.9 proves cannot win.
+
+I agree with the advisor's rejection of the cheaper alternative (flip the default
+to `"0"` and keep the machinery). Three reasons, all of which I verified rather
+than assumed:
+
+1. **The diff is 100 % arm scaffolding.** I re-read all 284 lines before
+   reverting. `quantized.cpp` contributes only `darkbloom_nax_kloop_prefetch()`,
+   the `_pf_N` JIT-cache-key suffix, and the extra template argument; the header
+   and its twin contribute only the `Prefetch` split of `load_unsafe[_wide]` into
+   `prefetch()` / `commit()`. There is no independently valuable refactor hiding
+   in it.
+2. **It costs 11,172 B of a 50,314 B shared headroom**, with three other PRs in
+   flight against the same budget — for dead code.
+3. **The successor does not want it.** H16 is a load-*width* change (hold 16 B of
+   scales in registers, refresh on a mod-4 counter), not a reorder. It lands on
+   the base `load_unsafe_wide` far more cleanly than on the `Prefetch`-struct
+   split, so starting from base keeps the H16 diff small enough to read.
+
+A fourth reason is mine, and it is the one I weight highest: **dead `if` branches
+still affect register allocation.** Register pressure is exactly the variable H16
+perturbs (~+4 registers), and the 1024-thread occupancy ladder is step-shaped
+(32 simdgroups/core at ≤104 half-regs, falling to 26/20/16/12 at 128/160/208/256).
+Leaving inert prefetch scaffolding in the header would place a confound directly
+underneath the next experiment's primary risk. A byte-exact base is the clean
+control H16 needs — the same reasoning the assignment used when it forbade
+pruning #170's inert probe machinery inside this PR.
+
+### 7.2 Verification
+
+The restore was done with `git checkout 747d130b -- <the three paths>`. I checked
+identity at the **git object** level rather than by an empty textual diff, because
+blob-hash equality additionally excludes whitespace-, EOL- and mode-only drift:
+
+| submitted path | base blob | worktree blob | |
+|---|---|---|---|
+| `.../metal/kernels/fp_quantized_nax.h` | `c3c9658` | `c3c9658` | **MATCH** |
+| `.../mlx-generated/fp_quantized_nax.cpp` | `4f3ad0e` | `4f3ad0e` | **MATCH** |
+| `.../metal/quantized.cpp` | `e8baf91` | `e8baf91` | **MATCH** |
+
+```
+$ git diff 747d130b -- <the three paths>          # empty
+
+$ python3 research/nax_twin_check.py
+  TWIN CHECK: generated copy matches the header   # exit 0
+
+$ senpai/check-editable-budget.sh 747d130be532383d3eabd190f54f8b1b2bc6f9fd
+  editable budget OK: current=2949686/3000000 bytes headroom=50314
+  growth=0/262144 files=142 (base=142)            # exit 0
+
+$ OUT_DIR=/tmp/nax_r2_check research/nax_msl_compile_check.sh
+  COMPILE OK (std=metal4.0)                       # exit 0
+```
+
+`growth=0/262144` and `current=2949686` are exactly the base figures the advisor
+quoted, so the 11,172 B is returned to the shared pool in full. The twin check
+passes trivially, as predicted — both files are once again the base blobs.
+
+The restored header also still compiles at the **shipped** instantiation for both
+ranked shapes (`PROBE=0, PF=0`). That is the check that actually matters here: it
+confirms the revert left the frontier kernel intact, rather than only confirming
+that text was reverted.
+
+### 7.3 One disclosed research-only change
+
+`research/nax_msl_compile_check.sh` keeps its `PF=<n>` knob, as instructed. But
+after the restore `PF=1` no longer compiles, because the extra template parameter
+it passes no longer exists on the base header:
+
+```
+fp_quantized_nax.h:1994: error: explicit instantiation of
+  'fp_gather_qmm_rhs_expert_nax' does not refer to a function template
+```
+
+That is correct and expected, not a regression. I added **four lines of comment**
+to the script's option help recording it, so the next reader does not lose time
+to a confusing compile error on the merged frontier. This is the only edit in r2
+that is not a pure revert; it is research-only, and I am flagging it explicitly
+rather than folding it silently into a "mechanical restore".
+
+The arm's full source stays recoverable from branch history at commit `b723d4c`
+if anyone needs to reproduce the Step-0 table.
+
+### 7.4 What this PR now contains
+
+Research only. No scored code changes, and therefore no effect on the frontier's
+measured behaviour:
+
+| file | role |
+|---|---|
+| `research/tanjiro-nax-kloop-pipeline.md` | this report |
+| `research/tanjiro-nax-staged-byte-census.py` | Part A census, runnable, exit 0 |
+| `research/artifacts/tanjiro-pr215-step0-pipeline-stats.txt` | Step-0 occupancy/geometry table |
+| `research/artifacts/tanjiro-pr170-receipt-{ctrl,pf1}.json` | raw `officialMetrics`, both receipts |
+| `research/nax_msl_compile_check.sh` | `PF` knob + the §7.3 note |
+
+Receipt 3 remains unspent. No receipt was used for r2: the restore reinstates code
+that is already the measured frontier, so there is nothing new to measure.
