@@ -426,6 +426,9 @@ serialization penalty by 6.93 us -- almost exactly the isolated cost of
 `gate_sp_h64` alone. So `gate_sp_h64` was fully shadowed, **and** the other two
 were not shadowed at all: if `sliding_fused_attn_ring_v1` or `oproj_act_h64` had
 been even 20% hidden, that step would have cost at least 11 us more than it did.
+The residual after subtracting `gate_sp_h64` is 6.93 - 6.64 = 0.29 us; charging
+the whole +-2 us group-delta noise to hidden work still gives
+`E >= 1 - 2/55.54 = 0.96` for the `sliding_attn` + `oproj_h64` pair jointly.
 That is direct, kernel-specific evidence for `E ~ 1` on the two largest
 attention-side kernels, from the same experiment that proves `E ~ 0` for the
 small ones.
@@ -742,9 +745,12 @@ is negligible.
 **shadowed at E ~ 0.10**, i.e. a kernel whose GPU time is almost entirely
 hidden behind a sibling. Re-geometrizing a hidden kernel cannot move the step
 even when the kernel itself gets faster, which is exactly the -0.04 % PR #101
-measured. `sliding_fused_attn_ring_v1` is the opposite case: **E = 1.013**,
-628.7 us/step fully exposed, census rank 5. This is the single largest
-non-bytes-bound exposed cost in the decode step.
+measured. `sliding_fused_attn_ring_v1` is the opposite case, and it is one of
+only two kernels for which §3.1 has a *direct* per-kernel reading rather than a
+closure fit: admitting it to the serialized group cost nothing, so `E >= 0.96`
+from Estimator A and `E = 1.013` from Estimator B. 628.7 us/step fully exposed,
+census rank 5. This is the single largest non-bytes-bound exposed cost in the
+decode step.
 
 **Risks to state up front.** (a) The merge changes the floating-point reduction
 order, so this needs `LagunaUpstreamEquivalence.swift` via
