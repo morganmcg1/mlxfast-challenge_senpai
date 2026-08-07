@@ -25,6 +25,7 @@ _spec.loader.exec_module(nz)
 # label -> simdgroups per threadgroup. "0" is the reference arm in nz's OLS.
 S_OF = {"0": 2, "RV": 1, "V": 4, "G": 8, "R": 16, "N": 32}
 ORDER = ["RV", "0", "V", "G", "R", "N"]  # ascending S
+PIVOT = "R"  # S=16, the PR #298 winner: fixed before any data was collected
 
 nz.ARM_DESC = {
     lab: f"S={S_OF[lab]:<2d} simdgroups/threadgroup"
@@ -90,6 +91,26 @@ def curve_verdict(runs, blocks):
         se, _ = se_diff(lab, best[1])
         if lab == best[1] or abs(e - best[2]) <= nz.t95(df) * se:
             tied.append(s)
+
+    # An adjacent-step scan alone cannot see a shallow wide-bottomed U: every
+    # individual step can sit inside the noise floor while the cumulative
+    # descent and the far-end rise both clear theirs.  So the interior-optimum
+    # question is asked directly, against both sweep endpoints.
+    def endpoints(lab):
+        out = []
+        for other in (pts[0][1], pts[-1][1]):
+            if other == lab:
+                out.append(None)
+                continue
+            se, _ = se_diff(lab, other)
+            d = effect(lab) - effect(other)
+            out.append((S_OF[other], d, nz.t95(df) * se))
+        return out
+
+    def interior(lab):
+        lo, hi = endpoints(lab)
+        return (lo and lo[1] < -lo[2]) and (hi and hi[1] < -hi[2])
+
     if downs and not ups:
         verdict = "MONOTONE-DECREASING (larger S never significantly worse)"
     elif ups and not downs:
@@ -98,9 +119,27 @@ def curve_verdict(runs, blocks):
         verdict = "NON-MONOTONE (U-shaped / interior optimum)"
     else:
         verdict = "FLAT (no adjacent step clears its own 95% half-width)"
-    print(f"\nmonotonicity verdict: {verdict}")
+    print(f"\nadjacent-step monotonicity verdict: {verdict}")
     print(f"  {downs} faster step(s), {ups} slower step(s), {flats} flat step(s)")
-    print(f"argmax S={best[0]} at {best[2]:+.1f} us/step vs default; "
+
+    print("\ninterior-optimum test (arm vs BOTH sweep endpoints)")
+    rows = [(PIVOT, "pre-registered pivot")]
+    if best[1] == PIVOT:
+        rows = [(PIVOT, "pre-registered pivot == observed argmax")]
+    else:
+        rows.append((best[1], "observed argmax, selection-biased"))
+    for lab, tag in rows:
+        if not any(p[1] == lab for p in pts):
+            continue
+        cells = []
+        for pair in endpoints(lab):
+            cells.append("(self)" if pair is None else
+                         f"vs S={pair[0]}: {pair[1]:+.1f} +/- {pair[2]:.1f}")
+        flag = "INTERIOR OPTIMUM" if interior(lab) else "not established"
+        print(f"  S={S_OF[lab]:<2d} ({tag:<34s}) "
+              f"{cells[0]:<26s} {cells[1]:<26s} -> {flag}")
+
+    print(f"\nargmax S={best[0]} at {best[2]:+.1f} us/step vs default; "
           f"statistically tied set = {sorted(tied)}")
 
 

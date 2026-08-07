@@ -84,7 +84,7 @@ def main() -> int:
     for lab in present:
         s = tj.S_OF[lab]
         vals = [r[3] for r in runs if r[2] == lab]
-        e = effect(lab)
+        e = effect(lab) - effect("0")
         se, _ = se_diff(lab, "0")
         half = nz.t95(df) * se
         pts.append((s, lab, e, se))

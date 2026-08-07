@@ -1,0 +1,38 @@
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift	2026-08-07 18:04:00
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift	2026-08-07 18:04:00
+@@ -4735,7 +4735,7 @@
+ private func lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: Bool) -> String {
+     """
+ constexpr uint axis_size = 2048;
+-constexpr uint num_simdgroups = 2;
++constexpr uint num_simdgroups = 8;
+ constexpr uint values_per_thread = 16;
+ constexpr uint block_size = 512;
+ constexpr uint in_vec_size_w = axis_size / 2;
+@@ -4795,7 +4795,7 @@
+     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+         kernels[heads] = MLXFast.metalKernel(
+-            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
++            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1_sg8"
+                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
+                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+@@ -4836,14 +4836,15 @@
+         lane.nibbles.dtype == .uint8,
+         lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
+         lane.bases.dtype == .uint8, lane.bases.dims(rows),
++        rows % 8 == 0,
+         let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
+     {
+         lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
+         lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
+         return kernel(
+             [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
+-            grid: ((rows / 2) * 64, 1, 1),
+-            threadGroup: (64, 1, 1),
++            grid: ((rows / 8) * 256, 1, 1),
++            threadGroup: (256, 1, 1),
+             outputShapes: [[1, 1, rows]],
+             outputDTypes: [.bfloat16]
+         )[0]
