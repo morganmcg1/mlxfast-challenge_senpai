@@ -764,6 +764,17 @@ dispatch below records its own attempt history.
 | 2026-08-06T23:52:34Z | m2 | server reject: `conflict` — account already has 1 submission in flight (limit 1). No receipt consumed. |
 | 2026-08-06T23:54:11Z | m2 | server reject: `conflict` — same in-flight submission. No receipt consumed. |
 | 2026-08-07T00:22:36Z | — | queue still occupied: submission `99b7125` has been `validating` since 2026-08-06T23:29Z (~53 min, against a p95 benchmark wall of 49 s). Dispatch deferred; window used to land the §4.1/§4.2/§4.5 pre-registration corrections instead. |
+| 2026-08-07T00:38:22Z | — | `99b7125` cleared (`rejected`, score `2.55562`) after ~69 min in `validating`, but `4f546a8` entered the queue at 00:29Z. Still occupied. Window used to land §4.6 and the R5/R7 corrections. |
+| 2026-08-07T00:41:28Z | m2 | server reject: `conflict` — `4f546a8` still in flight. No receipt consumed. Working tree restored to probe 0 immediately after. |
+
+**Observed queue latency.** Two campaign submissions have now been timed end to
+end from this account: `99b7125` took ~69 min and the one before it ~53 min,
+against a p50 `benchmark_wall_seconds` of 46 s. So `validating` is ~98% queue
+and review, not measurement. The practical dispatch cadence for this account is
+therefore roughly **one receipt per hour**, shared across four students. Three
+arms is a ~3-hour serial campaign in the best case, which is a further reason
+not to spend a receipt replicating an arm the noise analysis (§4.6) already
+shows is measured at `9.6σ`.
 
 <!-- RECEIPTS -->
 
