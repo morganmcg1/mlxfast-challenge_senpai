@@ -1991,3 +1991,283 @@ honestly is: a mechanism check. Our change touches the decode path alone, so
 built, not a session artefact. It is not a second, quieter measurement of the
 same thing. The advisor's single-axis prescription stands unmodified, and every
 GO/KILL call belongs to `ns`.
+
+## 14. The M5 receipt: KILL, and a measured M4 → M5 sign inversion
+
+Submission `99b71258-abdd-4cce-bbe8-3e75161032e0` went terminal at
+2026-08-07T00:28:50Z, 59 minutes after acceptance at 23:29:27.545Z.
+Status `rejected`, `rejectionReason` `score did not improve current best`,
+`error` empty. That is a **ranking-only** rejection, so the full
+`officialMetrics` block is published and every gate verdict is readable.
+
+Server snapshot commit `9b77e61145df7b575d75287e9d860361284148d5`;
+`golden_hash be7738fc…`, `weights_hash aff99430…`, `harness_hash e3cb6a0c…`.
+
+### 14.1 Correctness: unanimous pass
+
+| gate | value |
+| --- | --- |
+| `passed_correctness` | True |
+| `max_abs_diff` | **0** |
+| `checked_steps` | 1344 (11 cases, 40 layers) |
+| `semantic_gpqa_passed` | True (9/9, judge `claude-opus-4-8`) |
+| `gpqa_ttft_passed` | True (9/9, p50 71 ms, max 2.4 s, observed 0.41 s) |
+| `passed_decode_speedup_floor` | True (2.8079 vs 0.95) |
+| `passed_prefill_speedup_floor` | True (1.9267 vs 0.95) |
+| `peak_ram_gb` | 21 |
+| `partial_result` | False |
+
+The bit-identity argument of §3 and the term-by-term row-major proof in the
+kernel header survive the hidden suite on the ranked machine: `max_abs_diff`
+is exactly 0 over 1344 teacher-forced steps. Whatever else this receipt says,
+the transformation is **exact on M5**, not merely on M4. That is worth
+keeping: the rewrite is safe, it is simply not fast.
+
+### 14.2 Primary axis `ns`: KILL
+
+| | value |
+| --- | --- |
+| `ns` (fixed normalisers) | **2.58861777** |
+| advisor GO | ≥ 2.6045 |
+| advisor KILL | < 2.5919 |
+| reference `97a5090c` | 2.59821630 |
+
+`ns` is −0.369 % against the reference, −0.610 % against GO, and −0.127 %
+below the KILL edge. In units of the §13.12 cross-session paired sigma
+(0.222 % on `ns`): −1.66σ vs the reference, −2.75σ vs GO, −0.57σ past KILL.
+
+**The arm is killed by its own pre-registered rule.** It is killed on the
+near side rather than catastrophically; the honest phrasing is "clearly not a
+win", not "catastrophic regression". Per the advisor's r2 authorisation this
+result is reported and **not** resubmitted.
+
+### 14.3 The measured M4 → M5 transfer factor
+
+This is the number the experiment existed to produce.
+
+```
+candidate decode   4.933019 ms/token
+97a5090c decode    4.908372 ms/token
+delta             +24.6 us/token   (SLOWER on M5)
+M4 census          -63.7 us/token  (FASTER on M4; §6 ABBA, GPU-busy, not host gap)
+transfer          -0.40 +- 0.24
+```
+
+Distances from every hypothesis that was on the table before the receipt:
+
+| hypothesis | transfer | distance |
+| --- | --- | --- |
+| full transfer | +1.00 | −5.87σ |
+| §9 honest band, top | +0.75 | −4.82σ |
+| §9 honest band, bottom / §11.4 pre-registration | +0.50 | **−3.76σ** |
+| no transfer at all | 0.00 | −1.66σ |
+
+So the receipt **excludes the entire pre-registered honest band at ≥3.8σ**.
+It does *not* establish the sign: "transfer is negative" is only 1.66σ
+(two-sided p ≈ 0.10). The defensible claim is the one that matters anyway:
+
+> A 63.7 µs/token GPU-busy work removal, measured on M4 Pro with a balanced
+> profiler-crossed ABBA design and confirmed bit-exact, delivers **none** of
+> that saving on the ranked M5 Max, and most likely costs time there.
+
+`nsd` (2.17366255, −0.375 %) moves with `ns` while candidate prefill does
+not, which is the mechanism check §13.12 reserved it for: the effect sits on
+the decode path we changed and nowhere else.
+
+**Confound, stated plainly.** The M5 reference `97a5090c` is six promoted
+maple merges behind this candidate, none of which has its own M5 receipt.
+The +24.6 µs is therefore (our arm) + (unmeasured M5 effect of six merges).
+§14.7 gives the one-receipt experiment that removes this confound exactly.
+
+### 14.4 The receipt is a live confirmation of §13.12
+
+`officialScore` came in at 2.55562102, **−1.283 %** against the reference —
+3.5× worse than the `ns` reading of −0.369 %. The decomposition:
+
+| term | contribution |
+| --- | --- |
+| 0.75 × log `decode_speedup` | −0.340 % |
+| 0.25 × log `prefill_speedup` | **−0.951 %** |
+| sum | −1.291 % (observed −1.283 %) |
+
+and the prefill term splits cleanly by arm:
+
+| arm | ours | `97a5090c` | delta |
+| --- | --- | --- | --- |
+| candidate prefill s/tok | 0.000191158 | 0.000191201 | **−0.022 %** |
+| baseline prefill s/tok | 0.000368313 | 0.000382683 | **−3.755 %** |
+
+Our candidate prefill is flat to 0.02 %, exactly as designed — the change
+touches decode only. The **entire** −0.951 % prefill penalty in
+`officialScore` is the *baseline* arm drawing 3.755 % faster than the
+reference session's baseline draw, and 4.210 % faster than the pinned
+normaliser 0.0003845.
+
+This is §13.12 caught in the act on a single receipt. Judged on
+`officialScore` this arm reads as a −1.28 % disaster and the inevitable
+conclusion would have been "the kernel is badly broken on M5". The truth is
+a −0.37 % single-arm signal plus a −0.95 % baseline-prefill lottery ticket.
+**On this receipt the advisor's instruction to judge on `ns` and never on
+`officialScore` does not refine the conclusion, it changes it.**
+
+For completeness the baseline *decode* arm behaved: 0.013851607 vs the
+reference's 0.013844966, +0.048 %, which is 0.20σ of its 0.243 % replicate
+sd. The uncancellable noise lives in baseline prefill, precisely as §13.12
+predicted.
+
+### 14.5 Ancillary numbers and queue telemetry
+
+```
+S (512-token prefill wall)   97.87304 ms   (promoted 97.89475)   -0.02 %
+T (marginal decode)           4.168385 ms  (promoted 4.143569)   +24.8 us
+decode_speedup                2.807937     (promoted 2.820684)   -0.452 %
+prefill_speedup               1.926742     (promoted 2.001471)   -3.734 %
+paired baseline decode        0.013851607  (reference 0.01384497)
+benchmark_wall_seconds        53           (correctness 39, timed 46)
+```
+
+Queue telemetry, as requested: the dispatcher held the slot-race for 313 s
+and won it by a measured 38.0 s over a competing solver on the shared
+`morganmcg1` account; validation then took 59 min against a last-24 h
+distribution of median 20 min, p90 88 min, max 181 min; 49 of 1399 historical
+submissions died on the validation timeout. Receipt budget 3, one consumed.
+
+### 14.6 Mechanism: a bandwidth win bought with occupancy, on a machine that is not bandwidth-bound
+
+The two arms are bit-identical and algorithmically identical. They differ
+only in thread mapping.
+
+| | control (fixed-four-row) | shipped (row-major) |
+| --- | --- | --- |
+| rows per simdgroup | 4 | 32 |
+| threads for 100352 outputs | 802816 | 100352 |
+| threadgroups | 3136 | 392 |
+| **concurrent simdgroups** | **25088** | **3136** |
+| screen loads | 25088 × 16 B gathers, ≤8× line amplification | 3136 × 128 B full lines |
+| refine per simdgroup | 0 or 1 GEMV (block-uniform) | **n_survivors sequential GEMVs** |
+| expected survivors / simdgroup | 0.08 | 0.64 |
+
+A first-principles traffic model (INT4 ≈ 0.5 B/weight → ~1 KB per K=2048 row;
+~2007 survivors; control refine fires on 1−0.98⁴ = 7.8 % of 25088 blocks →
+~1947 four-row GEMVs, a 3.9× row overfetch) gives **~9–13 MB** of control
+traffic against **~3 MB** for the row-major arm. At M4 Pro's ~273 GB/s that
+predicts ~50–70 µs vs ~11–13 µs. The measured isolated kernel times were
+**77.4 µs → 13.7 µs**. The M4 win is, to within the model's slack, *plain
+bandwidth arithmetic* — which is exactly why it did not survive the move.
+
+The row-major arm buys that coalescing with two things it gives up:
+
+1. **8× fewer concurrent simdgroups** (3136 vs 25088). On 40 M5 cores that is
+   78 resident simdgroups per core against the control's 627 — 8× less
+   independent work available to hide the refine GEMV's dependent
+   stride-128 load chain.
+2. **A serial critical path.** The `while (live_mask)` walk means a
+   simdgroup's refine latency is its *own* survivor count, and the kernel's
+   latency is the **maximum** over 3136 simdgroups, not the mean. With mean
+   0.64 the max over 3136 Poisson draws is 5–6 (P(≥5) = 5.4e−4 → ~1.7
+   simdgroups). The control has no such loop: its cost is 0 or 1 GEMV per
+   simdgroup regardless.
+
+So the change is a **bandwidth-for-occupancy trade**. It wins on a
+bandwidth-bound machine and loses on a latency- or instruction-bound one.
+An independent Senpai campaign's M5 submission note (`4b06e931`,
+2026-08-06T21:30) states the regime difference outright:
+
+> "The M5 Max is instruction-bound at ~89% GPU utilization during decode,
+> making instruction-count reduction the primary optimization lever. M4 Pro
+> hosts are bandwidth-bound and cannot measure instruction-reduction gains,
+> so M4 results are directional only."
+
+That is a third party, on the same ranked hardware, independently reporting
+that **M4 Pro and M5 Max sit in different bottleneck regimes**. Our result is
+the dual of theirs: they warn that M4 cannot *see* instruction wins; we have
+now measured that M4 can *manufacture* bandwidth wins that do not exist on
+M5. Same root cause, opposite direction.
+
+**Honest limits of this mechanism story.** The traffic model above also says
+the row-major arm's M5 throughput bound is ~6–8 µs and that a fully exposed
+serial tail caps it near 15–20 µs, still under the control's ~25–40 µs. In
+other words a *purely* smooth occupancy/tail argument does not by itself
+generate +24.6 µs; it would need the arm to run 8–10× its throughput bound.
+The remaining candidates are (a) the six-merge confound, (b) a discrete M5
+effect on the divergent-walk kernel, and (c) the control benefiting
+disproportionately from a larger M5 system-level cache absorbing its 8×
+duplicate fetches. This receipt cannot separate them. §14.7 can.
+
+**The retained lesson**, independent of which of (a)–(c) dominates: a
+threadgroup-count or traffic-count argument is not a performance argument
+when the change also lengthens a per-simdgroup serial chain and cuts
+occupancy 8×. The §9 wave model predicted the wrong sign because it counted
+threadgroups and assumed refine cost was per-simdgroup-uniform in both arms.
+It is not — the serial walk *was* the price of the coalescing, and the wave
+model had no term for it.
+
+### 14.7 Recommended next step: the flipped-default A/B
+
+**One receipt, 3.8σ, zero confound.** Resubmit the *identical tree* with the
+compiled default of `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE` flipped to the
+column-major control arm. Both arms live in the same binary and the switch is
+read once at `LagunaLmHeadPrune.swift:107`, so the two receipts differ in
+exactly one thing: the thread mapping of the lm-head refine. The six
+confounding merges are present in both and difference away exactly.
+
+Pre-registered bands, using the §13.12 paired cross-session sigma of 0.222 %:
+
+| flipped-default `ns` | vs this receipt | reading |
+| --- | --- | --- |
+| ≈ 2.59836 | +0.376 % | the arm costs the full +24.6 µs; the six merges are net-zero on M5; inversion confirmed |
+| ≈ 2.58862 | flat | the +24.6 µs was the merges; our arm is neutral on M5 and the frontier has a separate problem |
+| ≈ 2.57654 | −0.467 % | the pre-registered +0.50 transfer was right and something else ate it |
+
+The observed hypothesis (−0.369 %) and the pre-registered one (+0.467 %) are
+separated by 0.836 % = **3.77σ on a single receipt**. Nothing else available
+to this PR has that information density.
+
+This is worth running **even though the arm is dead**, because it is the
+campaign's first direct measurement of M4→M5 transfer with the tree held
+fixed, and every future M4-guided promotion depends on that number.
+
+### 14.8 The campaign-level implication
+
+I audited the submission feed for the window between `97a5090c`
+(2026-08-06T05:04) and this receipt (23:29). Every `Model: senpai` row in
+that window belongs to another Senpai campaign or failed outright:
+
+| id | time | status | decode s/tok | note |
+| --- | --- | --- | --- | --- |
+| `c95b4e49` | 14:35 | rejected | 0.005102498 | birch campaign |
+| `57d8f082` | 18:26 | **failed** | — | build/runtime error on M5 |
+| `4b06e931` | 21:30 | rejected | 0.005142124 | 15-PR composition, another campaign |
+| `0e430857` | 22:09 | rejected | 0.005186333 | cedar campaign |
+| `2278bd85` | 23:08 | rejected | — | third party |
+
+**No maple merge promoted after `97a5090c` has ever been M5-validated.** The
+six merges sitting in our base were promoted on M4-local evidence only, by
+the same process that just produced a −0.40 transfer factor on this arm.
+
+That is not a hypothetical worry. `4b06e931` composed 15 individually
+validated bit-exact decode optimizations and landed at 0.005142124 s/token
+against `97a5090c`'s 0.004908372 — **+233.8 µs/token slower on M5** while
+passing correctness. Together with this receipt that is two independent
+measurements, from two campaigns, of M4-validated decode work failing to
+transfer to the ranked machine.
+
+Combined with §13.12's finding that our frontier has **only six receipts in
+the entire 1579-row feed within 0.4 % of its own decode speed**, the picture
+is that the maple frontier has been advancing for six merges on M4 evidence
+with no M5 anchor and no replicate population at its own operating point.
+I would rate re-anchoring the frontier on M5 as higher value than any single
+new optimization, and the flipped-default A/B in §14.7 is the cheapest first
+step toward it.
+
+### 14.9 Disposition of this PR
+
+- The assigned fusion hypothesis was refuted in §8 and remains closed.
+- The row-major pivot is now **killed on the ranked machine** by its
+  pre-registered rule. It should not be merged.
+- Both arms and the `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE` switch are retained in
+  `LagunaLmHeadPrune.swift` precisely so the §14.7 A/B costs one flag flip
+  and no re-derivation.
+- The +0.060 % fusion remainder stays parked. It is an M4-measured effect of
+  the same family as the one that just inverted, and a quarter the size; it
+  should wait behind a validated transfer factor.
