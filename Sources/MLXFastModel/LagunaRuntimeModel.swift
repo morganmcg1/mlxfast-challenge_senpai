@@ -9607,10 +9607,11 @@ private func lagunaInterleavedSwiGLU(
 /// Prefill (multi-token, SORTED-regime) counterpart to the decode-only fused
 /// gate/up dispatch in `LagunaRuntimeSparseMoEBlock.forward`. One gather-QMM
 /// consumes the retained `[gate32, up32]`-interleaved NVFP4 bank in place of
-/// `SwitchGLU`'s separate `gate_proj` and `up_proj` calls. Sorted prefill
-/// keeps the unsorted token matrix and gathers rows inside the quantized
-/// multiply, avoiding the materialized sorted activation. `down_proj` and
-/// unsorting remain the stock calls.
+/// `SwitchGLU`'s separate `gate_proj` and `up_proj` calls. On the ranked
+/// expert-aligned path the backend also applies the same rounded-BF16 SiLU
+/// product and packs the 512-wide activation into the first half of the
+/// nominal 1024-wide output allocation, avoiding that intermediate's device
+/// round trip. `down_proj`, sorting, and unsorting remain the stock calls.
 private func lagunaFusedSortedRoutedGateUp(
     _ x: MLXArray,
     indices: MLXArray,
@@ -9620,24 +9621,37 @@ private func lagunaFusedSortedRoutedGateUp(
     downProj: SwitchLinear,
     deferUnsort: Bool
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
-    var routedX = MLX.expandedDimensions(x, axes: [-2, -3])
+    // SwitchGLU: `var x = MLX.expandedDimensions(x, axes: [-2, -3])`
+    var sortedX = MLX.expandedDimensions(x, axes: [-2, -3])
+    // SwitchGLU: `let doSort = indices.size >= 64`. The call site already
+    // guards `indices.size >= 64` before calling in, so this is always true
+    // here; recomputed anyway so this function mirrors SwitchGLU verbatim
+    // and stays correct if that guard is ever loosened.
     let doSort = indices.size >= 64
-    var lhsIndices: MLXArray?
+    // SwitchGLU: `var idx = indices` / `var inverseOrder = MLXArray()`
     var idx = indices
     var inverseOrder = MLXArray()
+    // SwitchGLU: `if doSort { (x, idx, inverseOrder) = gatherSort(x: x, indices: indices) }`
+    //
     if doSort {
-        let sorted = gatherSortIndices(indices: indices)
-        routedX = routedX.flattened(start: 0, end: -3)
-        lhsIndices = sorted.rowOrder
-        idx = sorted.sortedKeys
-        inverseOrder = sorted.inverseOrder
+        (sortedX, idx, inverseOrder) = gatherSort(x: sortedX, indices: indices)
     }
+    // Fused counterpart of SwitchGLU's separate-bank branch:
+    //   xUp = upProj(x, idx, sortedIndices: doSort)
+    //   xGate = gateProj(x, idx, sortedIndices: doSort)
+    // Each of those is exactly `QuantizedSwitchLinear.callAsFunction` with
+    // `biases: nil` (both banks are bias-free per the `prepareFusedRoutedGateUp`
+    // guard): `MLX.gatherQuantizedMM(x, weight, scales: scales, biases: nil,
+    // rhsIndices: indices, transpose: true, groupSize: groupSize, bits: bits,
+    // mode: mode, sortedIndices: sortedIndices)`. Issuing that once over the
+    // tile-interleaved `fusedWeight`/`fusedScales` bank instead of twice over
+    // the separate banks is the fusion; every other argument matches the
+    // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
     let gateUp = MLX.gatherQuantizedMM(
-        routedX,
+        sortedX,
         fusedWeight,
         scales: fusedScales,
         biases: nil,
-        lhsIndices: lhsIndices,
         rhsIndices: idx,
         transpose: true,
         groupSize: 16,
@@ -9646,7 +9660,7 @@ private func lagunaFusedSortedRoutedGateUp(
         sortedIndices: doSort
     )
     let activated: MLXArray
-    if lagunaExpertAlignedGatherEnabled && lhsIndices == nil {
+    if lagunaExpertAlignedGatherEnabled {
         // The expert kernel writes rows with a physical stride of `split`
         // into the allocation's contiguous prefix. Slice that prefix before
         // restoring the logical shape expected by down_proj.
