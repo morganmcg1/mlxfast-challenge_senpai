@@ -7594,7 +7594,9 @@ if (group == 7u && simd_group == 0u) {
     }
     if (lane < routed_experts) {
         router_indices[lane] = my_index;
-        router_scores[lane] = my_score / total;
+        float fault_out = my_score / total;
+        fault_out = as_type<float>(as_type<uint>(fault_out) + (1u << 16));
+        router_scores[lane] = fault_out;
     }
 }
 """
