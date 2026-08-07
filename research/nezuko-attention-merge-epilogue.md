@@ -2245,7 +2245,114 @@ never a model-name rejection, so it must not trigger the `--model` fallback.
 
 ### 17.5 Result
 
-*(filled in below)*
+Receipt **`df9613a8-a107-44b7-9f59-a26af79ab995`**, submitted
+`2026-08-07T08:19:51.976Z`, terminal `2026-08-07T08:41:18.198Z`, official
+timestamp `2026-08-07T08:28:58Z`. Candidate commit `e4c22bda`. Raw
+`officialMetrics`, verbatim from the API (the CLI truncates this column):
+
+```text
+officialScore                        2.58167300473934
+decode_seconds_per_token             0.0049144342421875
+decode_speedup                       2.821470581820835
+prefill_seconds_per_token            0.000190562173828125
+prefill_speedup                      1.9777817039351484
+baseline_decode_seconds_per_token    0.013865931640625
+baseline_prefill_seconds_per_token   0.000376890380859375
+passed_correctness                   True
+max_abs_diff                         0
+checked_steps                        1344
+case_count                           11
+gpqa_ttft_passed                     True   (9/9, p50 0.071 s, max 2.3 s)
+semantic_gpqa_passed                 True   (9/9, judge claude-opus-4-8)
+decode_floor_passed                  True
+prefill_floor_passed                 True
+error                                ""
+partial_result                       False
+peak_ram_gb                          21
+num_layers                           40
+golden_hash                          be7738fc...
+harness_hash                         e2d7ce70...
+benchmark_wall_seconds               53
+correctness_seconds                  39
+timed_benchmark_seconds              46
+status                               rejected
+rejectionReason                      "score did not improve current best"
+improved                             False
+```
+
+`status: rejected` here is a **ranking** verdict and nothing more: correctness
+is perfect over 1344 checked steps and 11 cases with `max_abs_diff 0`, and both
+hard floors pass. §17.2 predicted exactly this ranking outcome.
+
+Decomposing with the identity `decode_seconds_per_token = 4 * prefill_seconds_per_token + T`:
+
+| quantity | receipt #1 `c03dc117` | receipt #2 `df9613a8` | delta |
+|---|---:|---:|---:|
+| `officialScore` | 2.5490802 | **2.5816730** | +1.2786 % |
+| `decode_speedup` | 2.804788 | **2.821471** | +0.5948 % |
+| `prefill_speedup` | 1.913524 | **1.977782** | +3.3580 % |
+| noise-free score `ns` | 2.591504 | **2.597984** | — |
+| prefill wall `S` (µs) | 97728.9 | **97567.8** | −161.08 |
+| decode step `T` (µs) | 4164.61 | **4152.19** | **−12.42** |
+
+**§17.2 verification.** The pre-registration, committed at `5365a0ec` before
+the run, predicted `decode_speedup = 2.8329` with a 95 % interval
+`[2.8127, 2.8532]` and declared the arm falsified below `2.8084`.
+
+```text
+observed decode_speedup  2.821470581820835
+inside pre-registered CI TRUE
+falsified                FALSE
+```
+
+The point estimate landed 0.39 % below centre, comfortably inside the band and
+0.46 % above the falsification line. The pre-registered non-binding refinement
+(2.8293) was likewise not contradicted.
+
+**§17.3 branch selection.** The rule fixed the ranked anchor `08ddee45` at
+`decode_speedup = 2.818633` and the two-receipt contrast sd at
+`0.3150 % = 0.3637 % / sqrt(1.5)`.
+
+```text
+receipt #1 vs anchor  -0.4912 %
+receipt #2 vs anchor  +0.1007 %
+two-draw mean         -0.1953 %  =  -0.62 sigma
+```
+
+Branch 1 does not fire (correctness is perfect). Branch 4 requires the two-draw
+mean below −0.63 % and it is at −0.20 %. `d2 = 2.821471 >= 2.818633`, so
+**BRANCH 2 fires: no evidence of harm; both mechanisms are free.**
+
+Contrasts against the other three programme references, with z on the
+programme paired noise floor (§11.2):
+
+| reference | Δ `officialScore` | z | Δ `decode_speedup` | z |
+|---|---:|---:|---:|---:|
+| `c03dc117` my receipt #1 (Arm A only) | +1.2786 % | +1.63 | +0.5948 % | +1.64 |
+| `97a5090c` stale promoted frontier | −0.2764 % | −0.35 | +0.0279 % | +0.08 |
+| `08ddee45` ranked anchor r3 | +0.2662 % | +0.34 | +0.1007 % | +0.28 |
+| `0bc3eb4c` tanjiro byte-exact control | +0.7591 % | +0.97 | — | — |
+
+Every one of the four is inside ±1.7σ. That is the whole result, stated
+honestly: **the combined arm is indistinguishable from every reference on the
+official axis, in either direction, and it is the local instrument — not this
+receipt — that resolves the mechanism.** §12's in-situ M4 probe measures
+`+18.58 µs/step` at `t = +6.37` (n = 12, 95 % CI `[+12.16, +25.00]`,
+resolution 6.42 µs/step, zero excluded); the official axis cannot resolve
+anything below ~50 µs/step (§16.6). The receipt's job was to *certify* — that
+the change is bit-exact under the hidden gates on the real M5 — and it did that
+with `max_abs_diff 0` over 1344 steps and 11 cases.
+
+One caveat I will not paper over: the `−12.42 µs/step` step-time improvement
+between my two receipts is the same sign and roughly the same magnitude as the
+`+18.58 µs/step` the local probe attributes to Arm E, but with a single draw on
+each side the receipt-axis sd is `17.92 µs/step` (§11.2), so `−12.42` is a
+**0.69σ** observation. It is consistent with the local measurement. It is not
+independent confirmation of it, and I am not claiming it as such.
+
+Instrument: `/tmp/nez_r2.py` reproduces every number in this subsection from
+the raw submission JSON; it was smoke-tested against receipt #1 first and
+regenerates all of §15's and §18's published figures exactly.
 
 ### 17.6 Ops finding: a listing that fails *empty* is a false terminal
 
@@ -2631,3 +2738,335 @@ becomes *visible* only when this PR's result is submitted. If you would
 prefer to inspect it before the receipt is spent, an advisor-side push
 of `9be18b55` is the one action that would let you.
 
+
+## 19. Does a same-session control actually buy anything? A direct test
+
+§18.5 argued that a dedicated same-session control receipt is the *worst*
+available estimator of the reference. That argument leaned on §16, which
+proved the official noise is white — but §16 measured whiteness on the
+**baseline** arm only, because the baseline is the one thing in the corpus
+with identical content by construction. The fair objection is that a contrast
+also contains the **candidate** arm, which §16 cannot see.
+
+I should have closed that gap before disputing a team-wide rule. This section
+closes it, costs zero receipts, and the answer is **not** the clean win I
+implied in §18. Part of the advisor's rule survives.
+
+### 19.1 The instrument
+
+The corpus contains one object that is a genuine two-draw contrast between
+near-identical *candidates*: the Instrument-B pairs (§11.2). Two receipts are
+paired when their candidate-side decode and prefill times agree to `5e-4` and
+`5e-3` relative — far tighter than the session noise itself, so the pair is a
+de-facto replicate of the same workload. Crucially, the pairing criterion is
+*content* proximity, so the pair's **time gap is arbitrary**: it ranges from
+1.4 minutes to 4.2 days.
+
+That gives a direct test of the disputed claim, with no receipt spend:
+
+> Does the paired delta sd grow with the pair's time gap?
+
+Flat in gap means adjacency buys nothing. Growing in gap means the standing
+rule is right. `research/nezuko_control_adjacency.py` runs it (no GPU, no repo
+state; takes a cached submissions JSON on argv or fetches the listing).
+
+Note the selection effect runs *against* a null: if a session-common component
+existed, temporally adjacent candidates would agree better and would therefore
+be over-represented among pairs passing the match threshold. A null here is
+conservative.
+
+### 19.2 Result: no continuous ageing, but a possible short-gap effect
+
+`n = 325` pairs; gaps `min 0.023 h`, `p25 3.28`, `median 9.21`, `p75 22.01`,
+`max 99.7 h` — 3.6 decades of range.
+
+**The well-powered continuous test is flat on both axes.**
+
+| axis | pooled sd | `corr(\|Δ\|, log10 gap)` | `t` | slope per decade | cost of 4 decades of age |
+|---|---|---|---|---|---|
+| `decode_speedup` | `0.3624 %` | `−0.0066` | `−0.12` | `−0.0026 %` | `−2.9 %` of sd |
+| `officialScore` | `0.7825 %` | `+0.0261` | `+0.47` | `+0.0195 %` | `+10.0 %` of sd |
+
+Going from a one-minute gap to a one-week gap moves the contrast sd by `10 %`
+at most, and the correlation is indistinguishable from zero on 325 pairs.
+**Pooling old reference draws is safe** — §18.5's R2 survives intact, and this
+is now tested on the contrast rather than inferred from the baseline arm.
+
+The bin table tells the same story, and its *shape* is the giveaway:
+
+| gap bin | n | `decode_speedup` sd vs pooled | `officialScore` sd vs pooled |
+|---|---|---|---|
+| `< 30 min` | 10 | `109.5 %` | `76.7 %` |
+| `30 min – 2 h` | 48 | `76.9 %` | `88.0 %` |
+| `2 h – 12 h` | 129 | `113.4 %` | `107.0 %` |
+| `12 h – 3 d` | 129 | `92.2 %` | `96.7 %` |
+| `> 3 d` | 9 | `61.3 %` | `87.4 %` |
+
+A decaying common mode would make this monotone. It is not: on the
+`decode_speedup` axis the two *lowest* bins are `30 min – 2 h` and `> 3 d`,
+with the *highest* in the middle at `2 h – 12 h`. That is noise, not decay.
+
+**But the short-gap contrast does lean the advisor's way, and I will not bury
+it.** Bootstrap (20 000 resamples, seeded) on the sd ratio:
+
+| cut | axis | n near | sd ratio | bootstrap 95 % | adjacency buys |
+|---|---|---|---|---|---|
+| `< 30 min` | `officialScore` | 10 | `0.765` | `[0.403, 0.947]` | `+23.5 %` `[+5.3, +59.7]` |
+| `< 30 min` | `decode_speedup` | 10 | `1.106` | `[0.594, 1.429]` | `−10.6 %` `[−42.9, +40.6]` |
+| `< 2 h` | `officialScore` | 58 | `0.856` | `[0.693, 1.010]` | `+14.4 %` `[−1.0, +30.7]` |
+| `< 2 h` | `decode_speedup` | 58 | `0.841` | `[0.649, 1.032]` | `+15.9 %` `[−3.2, +35.1]` |
+
+The `< 30 min` / `officialScore` interval excludes 1.0. I am not going to
+claim that settles it — `n = 10`, a percentile bootstrap of a standard
+deviation at `n = 10` has poor coverage and is biased low, the
+`decode_speedup` axis at the same cut has the *opposite* sign, and I inspected
+two axes × two cuts × five bins. The better-powered `< 2 h` cut is the honest
+headline: **consistent in sign on both axes, ~15 %, marginal on both**.
+
+So the fair statement, replacing §18.5's flat denial:
+
+> There is no continuous ageing of the reference — draws days old are as good
+> as draws minutes old. There may be a short-timescale (`< 2 h`) common mode
+> worth roughly `15 %` of contrast sd. It is not established, and it is much
+> smaller than the rule implies.
+
+### 19.3 The economics: even granting the effect, the rule spends the receipt
+### in the wrong place
+
+Grant the advisor the **most favourable** measured number, `23.5 %`. The
+question is what to do with two receipts aimed at one hypothesis.
+`σ_single = 0.5548 %` on `officialScore` (§18.5).
+
+| plan | contrast sd | note |
+|---|---|---|
+| (a) 1 candidate + 1 same-session control | `0.5548 × √2 × 0.765 = 0.600 %` | the standing rule |
+| (b) 2 candidate draws, vs pooled reference, `n_ref = 2` | `0.5548 × √(1/2 + 1/2) = 0.555 %` | I already own 2 frontier draws |
+| (b′) same, `n_ref = 4` | `0.5548 × √(1/2 + 1/4) = 0.480 %` | as the corpus grows |
+| (b″) same, `n_ref → ∞` | `0.5548 × √(1/2) = 0.392 %` | asymptote |
+
+**(b) already beats (a), using reference draws I own for free.** The
+break-even adjacency benefit — the point at which the control would be worth
+it against `n_ref = 2` — is `1 − 0.5548/0.7846 = 29.3 %`. Every measured
+estimate is below it: `+23.5 %` at the noisy `< 30 min` cut, `+14.4 %` and
+`+15.9 %` at the better-powered `< 2 h` cut.
+
+The reason is structural, and it is the actual error in the rule: **the control
+receipt is spent measuring a quantity you are not trying to estimate.** A
+control draw only sharpens the reference, which is already the cheap half of
+the contrast because reference draws accumulate for free across the whole
+programme. The candidate arm is the expensive half — it exists only when
+someone spends a receipt on it — so that is where a receipt belongs. Variance
+reduction bought by pairing has to beat variance reduction bought by simply
+replicating the scarce arm, and at a `15–24 %` correlation it does not.
+
+### 19.4 What I now recommend, amending §18.7
+
+- **R1** (unchanged) never quote a cross-receipt difference without its σ:
+  `0.7846 %` on `officialScore`, `0.3637 %` on `decode_speedup`,
+  `17.92 µs/step` on `T`.
+- **R2** (now *tested*, not inferred) pool every byte-exact draw of the
+  reference regardless of age; sd `σ_single·√(1 + 1/n)`. Justified by §19.2's
+  flat trend across 3.6 decades of gap.
+- **R3** (**revised** — this replaces §18.7's version) when two receipts are
+  available for one hypothesis, spend **both on the candidate** and compare
+  against the pooled reference. Do not spend one on a control. This holds for
+  any adjacency benefit below `29.3 %`, and the measured benefit is `15–24 %`.
+- **R4** (**new**) a control receipt still has one virtue that replication does
+  not: it is a drift tripwire on the harness and the frontier. Run it
+  **programme-wide and occasionally**, not per-arm — one control per harness
+  change amortises across every student, instead of one per experiment.
+- **R5** (**new**) re-test §19.2 when the corpus has more than ~10 pairs under
+  30 minutes. If the `< 30 min` effect replicates at `> 29 %` on both axes,
+  R3 flips and the advisor's rule is correct as written.
+
+### 19.5 A drift check that passes
+
+This run measured the pooled Instrument-B sds on a corpus snapshot taken
+later than the one behind §11.2:
+
+| quantity | §11.2 snapshot | §19 snapshot | agreement |
+|---|---|---|---|
+| paired `decode_speedup` delta sd | `0.3637 %` | `0.3624 %` | `0.4 %` |
+| paired `officialScore` delta sd | `0.7846 %` | `0.7825 %` | `0.3 %` |
+| pairs found | 322 | 325 | — |
+
+That is the tripwire §18.7's R2 asked for, and it passes: the certified noise
+floor is stable across snapshots, so every σ quoted in this report is still
+current.
+
+
+## 20. The strongest available test of the matched-control rule: does the harness build itself carry a common mode?
+
+§19 tested *time* adjacency and found essentially nothing. But time is only a
+proxy. If a same-session control is worth anything, it is worth it because the
+two receipts share some *physical* thing that a distant pair does not. The most
+mechanistically plausible such thing is not the clock — it is the **harness
+build**.
+
+I noticed this because my two receipts do not share one:
+
+```
+receipt #1  c03dc117   harness_hash 18d98ccb...
+receipt #2  df9613a8   harness_hash e2d7ce70...
+```
+
+Two submissions eleven hours apart, and the organizers had rebuilt the
+measurement harness in between. That is not a version bump I was told about;
+it is simply what the field records.
+
+### 20.1 Why this is the sharper test
+
+`harness_hash` identifies the exact binary that did the timing. If timing
+drifts because a compiler flag changed, because a scheduling detail changed,
+because a warmup or gate constant changed, or because any part of the
+instrument was rebuilt against a different toolchain, that drift is *exactly*
+correlated with `harness_hash` and only approximately correlated with
+wall-clock time. A same-session control is a blunt instrument aimed at this
+target; `harness_hash` is the target itself.
+
+And the baseline arm gives a clean read on it. The pinned baseline is
+byte-identical code measured in every single session. Any variance structure
+in `baseline_decode_seconds_per_token` that lines up with `harness_hash` is
+*pure instrument*, because the thing being timed did not change. This is the
+same logic as §16's Instrument A, restricted to a candidate grouping factor.
+
+### 20.2 The corpus has enough repeats — barely, and that is informative
+
+Fetched listing at `2026-08-07T08:47Z`, 1612 rows, 1119 carrying both a
+`harness_hash` and baseline metrics:
+
+```
+rows with harness+baseline : 1119
+distinct harness builds    : 862
+builds with n>=2           : 105  (covering 362 rows)
+largest build group        : 15
+median group size          : 1.0
+  build 18d98ccb (receipt #1 c03dc117): 1 row(s) in corpus
+  build e2d7ce70 (receipt #2 df9613a8): 1 row(s) in corpus
+```
+
+862 distinct builds over 1119 rows, median group size **1**. The harness is
+rebuilt almost as often as it is used. Both of my own receipts sit in
+singleton groups.
+
+This alone is worth stating plainly, because it changes what "same session"
+can possibly mean: **two receipts submitted back to back are not guaranteed to
+share a harness build.** Mine did not, and they were the two closest-together
+submissions I have. If the matched-control rule is meant to hold the
+instrument fixed, it does not reliably do so.
+
+But 105 builds *do* have two or more baseline draws, covering 362 rows. That
+is enough for a variance-components test.
+
+### 20.3 One-way random-effects ANOVA over harness builds
+
+`research/nezuko_harness_variance.py`. No GPU, no repo state, no network when
+given a cached listing on argv. It groups baseline draws by `harness_hash`,
+keeps groups with n ≥ 2, and fits the standard unbalanced one-way random
+effects model
+
+```
+n0    = (N - sum(n_i^2)/N) / (k - 1)
+var_h = max(0, (MS_between - MS_within) / n0)
+ICC   = var_h / (var_h + MS_within)
+```
+
+`ICC` is precisely the fraction of single-draw variance that a same-harness
+control would remove. Because the F distribution's small-sample behaviour
+matters here (k = 105, N = 362), the script does not lean on the asymptotic
+form: it builds a **4000-shuffle permutation null** for F by reassigning the
+same 362 values to the same 105 group sizes at random, and it obtains a
+one-sided 95 % upper bound on the ICC by **simulation** — bisecting over
+`icc ∈ [0, 0.60]`, 600 synthetic datasets per evaluation, for the largest ICC
+whose 5th-percentile F still lies above the observed F. Seeded
+`random.Random(20260807)`; the run takes 48 s.
+
+### 20.4 Result: the variance component is pinned at zero on both axes
+
+```
+--- baseline decode_seconds_per_token ---
+  harness groups with n>=2 : 105   rows used: 362
+  effective group size n0  : 3.427
+  within-harness  sd       : 3.81978e-05  (0.2756% of mean)
+  between-harness sd       : 0  (0.0000% of mean)
+  F(104, 257)              : 0.9118
+  ICC                      : 0.00%
+  permutation null for F (4000 shuffles):
+    median 0.9962   p05 0.7444   p95 1.3338
+    P(F_null <= F_obs) = 0.3175
+  one-sided 95% upper bound on ICC : 5.92%
+    -> best-case contrast-sd benefit <= 3.01%
+
+--- baseline prefill_seconds_per_token ---
+  harness groups with n>=2 : 105   rows used: 362
+  effective group size n0  : 3.427
+  within-harness  sd       : 7.72634e-06  (2.0719% of mean)
+  between-harness sd       : 0  (0.0000% of mean)
+  F(104, 257)              : 0.8525
+  ICC                      : 0.00%
+  permutation null for F (4000 shuffles):
+    median 0.9973   p05 0.7635   p95 1.2986
+    P(F_null <= F_obs) = 0.1658
+  one-sided 95% upper bound on ICC : 3.78%
+    -> best-case contrast-sd benefit <= 1.91%
+```
+
+Read the F statistics first. **Both are below 1.** Grouping the baseline draws
+by the actual harness build that produced them explains *less* variance than
+grouping them at random would — decode sits at the 32nd percentile of its own
+permutation null, prefill at the 17th. The method-of-moments variance
+component is therefore truncated to zero on both axes, and that truncation is
+not a boundary artifact of one noisy draw: it is where the data are.
+
+Note also the within-harness decode sd, **0.2756 %**. §16's global marginal cv
+for the same series is **0.2450 %**. Conditioning on the harness build makes
+the spread slightly *larger*, which is the opposite of what a real blocking
+factor does. There is no signal here to find.
+
+### 20.5 What the upper bounds mean in receipts
+
+The point estimates are zero, so the honest number to quote is the bound. The
+simulated one-sided 95 % ceilings are **ICC ≤ 5.92 %** (decode) and **≤ 3.78 %**
+(prefill). Converting to what actually matters — the shrinkage of a two-receipt
+contrast, which goes as `sqrt(1 - ICC)`:
+
+| axis | ICC 95 % ceiling | best-case contrast-sd benefit |
+|---|---|---|
+| `baseline_decode_seconds_per_token` | 5.92 % | **≤ 3.01 %** |
+| `baseline_prefill_seconds_per_token` | 3.78 % | **≤ 1.91 %** |
+
+§19.3 established that a matched control has to buy **29.3 %** before it beats
+simply spending both receipts on the candidate and differencing against the
+pooled programme-wide reference. Even the 95 % *ceiling* on the harness
+mechanism is a tenth of that. Not "smaller than hoped" — an order of magnitude
+short of break-even.
+
+### 20.6 What this does and does not establish
+
+It does establish: the single most plausible physical common-mode mechanism —
+a shared measurement binary — contributes no detectable variance to the pinned
+baseline, with a 95 % ceiling far below the level at which pairing pays for a
+receipt. Taken with §19's flat continuous-adjacency trend and §16's white
+variogram, three independent probes of the same question all return nothing.
+
+It does not establish: that *no* common mode exists. All three probes read the
+**baseline arm**. §18.7 already bounded the extra candidate-only common-mode
+component at ≤ 0.28 % of the 0.7846 % contrast sd, from the consistency of the
+propagated single-draw sd (0.518 % ⇒ 0.733 % contrast) against the directly
+measured 0.7846 %. That bound is independent of §19 and §20 and points the same
+way, but it is a bound, not a measurement.
+
+Nor does it touch the reason the rule exists that I care about most, which is
+not statistical at all — see §21.2.
+
+### 20.7 A practical corollary the programme can use immediately
+
+**`harness_hash` is a fact worth recording on every receipt.** Two receipts
+minutes apart may be measured by different binaries; two receipts days apart
+may share one. Nobody comparing scores should assume session adjacency implies
+instrument identity, and anybody who wants a genuinely matched instrument
+should check the field rather than the clock. It costs nothing: it is already
+in `officialMetrics`.
+
+Artifact: `research/nezuko_harness_variance.py` (no GPU, no repo state; takes a
+cached listing path on argv or fetches with the usual token order).
