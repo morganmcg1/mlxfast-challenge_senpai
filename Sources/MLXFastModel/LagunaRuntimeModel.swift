@@ -85,6 +85,7 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
     private let stepsPerArm: Int
     private let emitDigest: Bool
     private let injectFault: Bool
+    private var measurementArmed = false
     private var armIndex = 0
     private var stepInArm = 0
     private var activeArm: LagunaColdDuplicateArm?
@@ -94,9 +95,18 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
     private var cachePhysicalPositions: [Int] = []
     private var overlapIndices: [MLXArray] = []
     private var scratchRoots: [MLXArray] = []
+    private var packedLayerCount = 0
     private var scratchDispatchCount = 0
     private var faultRootsMaterialized = 0
     private var referenceDigestBytes: Data?
+    private var preparedBankRanges: [Range<UInt>] = []
+    private var preparedLayerCount = 0
+    private var preparedWeightRowBytes = 0
+    private var preparedPackedScaleRowBytes = 0
+    private var storagePretouchChecksum: UInt64 = 14_695_981_039_346_656_037
+
+    var isEnabled: Bool { !arms.isEmpty }
+    var requiresDenseLogitDigest: Bool { emitDigest && measurementArmed }
 
     private init() {
         let environment = ProcessInfo.processInfo.environment
@@ -147,13 +157,123 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         FileHandle.standardError.write(Data((line + "\n").utf8))
     }
 
+    private func backingRangeAndPretouch(_ data: Data) -> Range<UInt> {
+        let pageBytes = Int(getpagesize())
+        precondition(pageBytes > 0 && !data.isEmpty, "invalid storage proof buffer")
+        var checksum = storagePretouchChecksum
+        let range = data.withUnsafeBytes { bytes -> Range<UInt> in
+            guard let baseAddress = bytes.baseAddress else {
+                preconditionFailure("storage proof buffer has no address")
+            }
+            var offset = 0
+            while offset < bytes.count {
+                checksum ^= UInt64(bytes[offset])
+                checksum &*= 1_099_511_628_211
+                offset += pageBytes
+            }
+            if (bytes.count - 1) % pageBytes != 0 {
+                checksum ^= UInt64(bytes[bytes.count - 1])
+                checksum &*= 1_099_511_628_211
+            }
+            let start = UInt(bitPattern: baseAddress)
+            return start..<(start + UInt(bytes.count))
+        }
+        storagePretouchChecksum = checksum
+        return range
+    }
+
+    func notePreparedStorage(weight: MLXArray, packedScales: MLXArray) {
+        guard isEnabled else { return }
+        let experts = LagunaConstants.numExperts
+        let weightData = weight.asData(access: .noCopy)
+        let packedScaleData = packedScales.asData(access: .noCopy)
+        precondition(weightData.dType == .uint32, "unexpected fused weight dtype")
+        precondition(packedScaleData.dType == .uint8, "unexpected packed scale dtype")
+        precondition(
+            weightData.shape == [experts, 2 * LagunaConstants.moeIntermediateSize, 256],
+            "unexpected fused weight shape")
+        precondition(
+            packedScaleData.shape == [experts, 4096, 32],
+            "unexpected packed scale shape")
+        precondition(
+            weightData.strides == [2 * LagunaConstants.moeIntermediateSize * 256, 256, 1],
+            "fused weight bank is not expert-row contiguous")
+        precondition(
+            packedScaleData.strides == [4096 * 32, 32, 1],
+            "packed scale bank is not expert-row contiguous")
+        precondition(weightData.data.count % experts == 0, "invalid fused weight byte count")
+        precondition(
+            packedScaleData.data.count % experts == 0,
+            "invalid packed scale byte count")
+        let weightRowBytes = weightData.data.count / experts
+        let packedScaleRowBytes = packedScaleData.data.count / experts
+        precondition(weightRowBytes == 1_048_576, "unexpected fused weight expert bytes")
+        precondition(packedScaleRowBytes == 131_072, "unexpected packed scale expert bytes")
+        if preparedLayerCount == 0 {
+            preparedWeightRowBytes = weightRowBytes
+            preparedPackedScaleRowBytes = packedScaleRowBytes
+        } else {
+            precondition(
+                preparedWeightRowBytes == weightRowBytes
+                    && preparedPackedScaleRowBytes == packedScaleRowBytes,
+                "sparse layer storage geometry changed")
+        }
+        for data in [weightData.data, packedScaleData.data] {
+            let range = backingRangeAndPretouch(data)
+            precondition(
+                preparedBankRanges.allSatisfy { !$0.overlaps(range) },
+                "prepared routed banks alias")
+            preparedBankRanges.append(range)
+        }
+        preparedLayerCount += 1
+    }
+
+    func finishPreparedStorageProof() {
+        guard isEnabled else { return }
+        let expectedLayers = LagunaConstants.numHiddenLayers - 1
+        precondition(preparedLayerCount == expectedLayers, "sparse storage proof layer mismatch")
+        precondition(
+            preparedBankRanges.count == expectedLayers * 2,
+            "sparse storage proof range mismatch")
+        write(
+            "DARKBLOOM_COLD_DUPLICATE_STORAGE"
+                + "\tlayers=\(preparedLayerCount)"
+                + "\texperts=\(LagunaConstants.numExperts)"
+                + "\tweight_row_bytes=\(preparedWeightRowBytes)"
+                + "\tpacked_scale_row_bytes=\(preparedPackedScaleRowBytes)"
+                + "\texpert_row_bytes=\(preparedWeightRowBytes + preparedPackedScaleRowBytes)"
+                + "\tpage_bytes=\(getpagesize())"
+                + "\tcontiguous=1\tbank_ranges_nonoverlap=1"
+                + "\texpert_rows_nonoverlap=1\teager_eval=1\tfull_bank_pretouch=1"
+                + "\tchecksum=\(String(format: "%016llx", storagePretouchChecksum))")
+    }
+
+    func armAfterConstructorWarmup() {
+        guard isEnabled else { return }
+        precondition(!measurementArmed, "cold duplicate probe armed twice")
+        precondition(
+            preparedLayerCount == LagunaConstants.numHiddenLayers - 1,
+            "cold duplicate probe armed before storage preparation")
+        precondition(activeArm == nil && armIndex == 0 && stepInArm == 0, "probe already advanced")
+        precondition(
+            cacheOffsets.isEmpty && cachePhysicalPositions.isEmpty
+                && overlapIndices.isEmpty && scratchRoots.isEmpty,
+            "probe retained constructor warmup state")
+        precondition(
+            packedLayerCount == 0 && scratchDispatchCount == 0 && faultRootsMaterialized == 0,
+            "probe counted constructor warmup work")
+        precondition(referenceDigestBytes == nil, "probe digested constructor warmup logits")
+        measurementArmed = true
+    }
+
     func begin(inputs: MLXArray, cache: [KVCache]?) {
-        guard !arms.isEmpty, inputs.shape == [1, 1] else { return }
+        guard measurementArmed, inputs.shape == [1, 1] else { return }
         precondition(activeArm == nil, "cold duplicate state survived a request boundary")
         precondition(
             cacheOffsets.isEmpty && cachePhysicalPositions.isEmpty
                 && overlapIndices.isEmpty && scratchRoots.isEmpty,
             "pending cold duplicate state")
+        precondition(packedLayerCount == 0, "pending cold duplicate packed layer count")
         precondition(scratchDispatchCount == 0, "pending cold duplicate dispatch count")
         precondition(faultRootsMaterialized == 0, "pending cold duplicate fault state")
         precondition(armIndex < arms.count, "cold duplicate schedule exhausted")
@@ -176,6 +296,8 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         indices: MLXArray
     ) {
         guard let arm = activeArm else { return }
+        packedLayerCount += 1
+        guard arm.duplicateCount > 0 else { return }
         let rotated = MLX.remainder(
             indices + MLXArray(UInt32(8)), MLXArray(UInt32(LagunaConstants.numExperts)))
         let selected = arm.mode == "warm" ? indices : rotated
@@ -205,20 +327,25 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         guard let arm = activeArm else { return nil }
         let expectedLayers = LagunaConstants.numHiddenLayers - 1
         precondition(
-            overlapIndices.count == expectedLayers,
+            packedLayerCount == expectedLayers,
             "packed routed path did not reach every sparse layer")
+        let expectedOverlapLayers = arm.duplicateCount == 0 ? 0 : expectedLayers
+        precondition(
+            overlapIndices.count == expectedOverlapLayers,
+            "cold duplicate overlap root count mismatch")
         precondition(
             scratchRoots.count == expectedLayers * arm.duplicateCount,
             "cold duplicate root count mismatch")
         precondition(
             scratchDispatchCount == expectedLayers * arm.duplicateCount,
             "cold duplicate dispatch count mismatch")
-        var completionRoots = [fullHidden]
-        completionRoots.append(contentsOf: overlapIndices)
-        completionRoots.append(contentsOf: scratchRoots)
-        eval(completionRoots)
+        if arm.duplicateCount > 0 {
+            var completionRoots = [fullHidden]
+            completionRoots.append(contentsOf: overlapIndices)
+            completionRoots.append(contentsOf: scratchRoots)
+            eval(completionRoots)
+        }
         let elapsed = uptimeNanoseconds() - startNanoseconds
-        completionRoots.removeAll()
 
         let overlaps = overlapIndices.map { indices in
             let originalIDs = indices.asArray(UInt32.self)
@@ -274,6 +401,7 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
         cachePhysicalPositions.removeAll(keepingCapacity: true)
         overlapIndices.removeAll(keepingCapacity: true)
         scratchRoots.removeAll(keepingCapacity: true)
+        packedLayerCount = 0
         scratchDispatchCount = 0
         faultRootsMaterialized = 0
         activeArm = nil
@@ -323,6 +451,10 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
 }
 
 private let lagunaColdDuplicateProbe = LagunaColdDuplicateProbe.shared
+
+public func armLagunaColdDuplicateProbeAfterConstructorWarmup() {
+    lagunaColdDuplicateProbe.armAfterConstructorWarmup()
+}
 
 // MARK: - Runtime fusion feature flags
 
@@ -10765,8 +10897,14 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         if case .logits = lagunaDecodeAsyncStage, inputs.shape == [1, 1] {
             asyncEval(result)
         }
+        let digestResult: MLXArray
+        if lagunaColdDuplicateProbe.requiresDenseLogitDigest, let lmHead {
+            digestResult = lmHead(hidden)
+        } else {
+            digestResult = result
+        }
         lagunaColdDuplicateProbe.noteDigest(
-            result, measurement: coldDuplicateMeasurement)
+            digestResult, measurement: coldDuplicateMeasurement)
         return result
     }
 
@@ -10829,6 +10967,19 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
+        }
+        if lagunaColdDuplicateProbe.isEnabled {
+            for layer in model.layers {
+                guard let sparse = layer.mlp as? LagunaRuntimeSparseMoEBlock else { continue }
+                guard let weight = sparse._fusedRoutedGateUpWeight,
+                    let packedScales = sparse._packedRoutedGateUpBank
+                else {
+                    preconditionFailure("cold duplicate storage proof requires packed routed banks")
+                }
+                lagunaColdDuplicateProbe.notePreparedStorage(
+                    weight: weight, packedScales: packedScales)
+            }
+            lagunaColdDuplicateProbe.finishPreparedStorageProof()
         }
         // Certified two-pass lm_head coarse copy (notes/68), gated by
         // `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON;

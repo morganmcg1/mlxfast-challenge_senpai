@@ -41,6 +41,7 @@ extension LagunaRuntime {
         // protocol hello -- outside every scored window.
         let weightCache = LagunaRuntimeWeightCache(loader: loader, config: config)
         _ = try weightCache.requireLibraryModel()
+        armLagunaColdDuplicateProbeAfterConstructorWarmup()
         let decoder = JSONDecoder()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]

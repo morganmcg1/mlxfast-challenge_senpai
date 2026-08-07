@@ -16,12 +16,73 @@ from pathlib import Path
 MARKER = "DARKBLOOM_COLD_DUPLICATE"
 DIGEST_MARKER = "DARKBLOOM_COLD_DUPLICATE_DIGEST"
 FAULT_MARKER = "DARKBLOOM_COLD_DUPLICATE_FAULT"
+STORAGE_MARKER = "DARKBLOOM_COLD_DUPLICATE_STORAGE"
 SPARSE_LAYER_COUNT = 39
 EXPERT_BYTES_PER_SELECTED_ROW = 1_179_648
 SELECTED_EXPERTS_PER_LAYER = 8
 TRAFFIC_BYTES_PER_DUPLICATE = (
     EXPERT_BYTES_PER_SELECTED_ROW * SELECTED_EXPERTS_PER_LAYER * SPARSE_LAYER_COUNT
 )
+EXPECTED_STORAGE_PROOF = {
+    "layers": str(SPARSE_LAYER_COUNT),
+    "experts": "256",
+    "weight_row_bytes": "1048576",
+    "packed_scale_row_bytes": "131072",
+    "expert_row_bytes": str(EXPERT_BYTES_PER_SELECTED_ROW),
+    "contiguous": "1",
+    "bank_ranges_nonoverlap": "1",
+    "expert_rows_nonoverlap": "1",
+    "eager_eval": "1",
+    "full_bank_pretouch": "1",
+}
+COMMAND_GRAPH_PROOF = {
+    "measurement_activation": (
+        "explicitly armed after constructor warmup and before protocol hello"
+    ),
+    "kernel_routine": "lagunaRoutedSwiGLUQMVPackedTop8",
+    "mode_dependent_control": {
+        "warm_selected_experts": "indices",
+        "cold_selected_experts": "(indices + 8) % 256",
+        "only_difference": "selected expert row addresses",
+    },
+    "k0_control": (
+        "host sparse-layer reachability accounting only; no rotated tensor, duplicate root, "
+        "asyncEval, retained MLX root, or blocking probe eval"
+    ),
+    "duplicate_root_construction_order": "slot 0 through K-1",
+    "per_sparse_layer_async_eval_roots": "[indices, duplicate[0...K-1], ordinary]",
+    "evaluator_dispatch_order": "ordinary, duplicate[K-1...0], indices dependencies",
+    "scratch_root_retention_order": "layer-major, slot 0 through K-1",
+    "final_blocking_eval_roots": (
+        "[fullHidden, indices layer-major, duplicates layer-major slot-ascending]"
+    ),
+    "synchronization": (
+        "for K=1,2,3,5: one asyncEval per sparse layer and one blocking eval after layer 39"
+    ),
+    "k_values": [1, 2, 3, 5],
+    "warm_cold_command_graph_identical": True,
+}
+PRETOUCH_PROTOCOL = (
+    "Blocking eval of every fused array, then a page-stride CPU read across each complete "
+    "256-expert routed weight bank and packed-scale bank in all 39 sparse layers before "
+    "constructor warmup. Measurement activates explicitly after constructor warmup and before "
+    "protocol hello; the first 16 identical forced-token steps of every arm are discarded "
+    "before retained timing."
+)
+STORAGE_INDEPENDENCE_SCOPE = (
+    "All 78 complete routed-bank backing ranges are pairwise non-overlapping; each bank is "
+    "expert-first contiguous, making distinct expert rows disjoint. Dynamic warm/cold top-8 "
+    "row overlap is recorded for every sparse layer and decode step."
+)
+RESIDUAL_CONFOUND = (
+    "Cache-set mapping and physical page placement remain uncontrolled; DRAM traffic and "
+    "cache residency are not directly measured."
+)
+MATRIX_BLOCK_ORDERS = [
+    "block 1: warm/cold interleaved K=1,2,3,5",
+    "block 2: exact reverse of block 1",
+    "block 3: repeat block 1",
+]
 
 
 def write_json(path, value):
@@ -94,6 +155,7 @@ class WorkerSession:
         self.measurements = []
         self.digests = []
         self.faults = []
+        self.storage_proofs = []
         self.diagnostics = []
         self._measurement_file = None
         self._measurement_writer = None
@@ -159,7 +221,13 @@ class WorkerSession:
             except Exception as error:
                 self.diagnostics.append(f"marker parse failure: {error}: {line[:500]}")
             else:
-                if not line.startswith((MARKER + "\t", DIGEST_MARKER + "\t", FAULT_MARKER + "\t")):
+                markers = (
+                    MARKER + "\t",
+                    DIGEST_MARKER + "\t",
+                    FAULT_MARKER + "\t",
+                    STORAGE_MARKER + "\t",
+                )
+                if not line.startswith(markers):
                     if len(self.diagnostics) < 200:
                         self.diagnostics.append(line)
 
@@ -208,6 +276,14 @@ class WorkerSession:
                     "proof": fields[5],
                 }
             )
+        elif fields[0] == STORAGE_MARKER:
+            proof = {}
+            for field in fields[1:]:
+                key, separator, value = field.partition("=")
+                if separator != "=" or not key or key in proof:
+                    raise ValueError(f"invalid storage proof field: {field}")
+                proof[key] = value
+            self.storage_proofs.append(proof)
 
     def _raise_worker_failure(self, message):
         return_code = self.process.poll()
@@ -319,13 +395,40 @@ def validate_measurements(rows, arms, steps_per_arm):
             raise RuntimeError(f"physical cache advancement mismatch: {row}")
         if row["pending_root_count"] != 0:
             raise RuntimeError(f"pending roots survived request: {row}")
-        overlaps = [int(value) for value in row["top8_rotated_overlap_by_layer"].split(",")]
-        if len(overlaps) != SPARSE_LAYER_COUNT:
-            raise RuntimeError(f"expected {SPARSE_LAYER_COUNT} overlaps: {row}")
+        overlap_text = row["top8_rotated_overlap_by_layer"]
+        if arm["k"] == 0:
+            if overlap_text:
+                raise RuntimeError(f"K=0 unexpectedly emitted overlap roots: {row}")
+        else:
+            overlaps = [int(value) for value in overlap_text.split(",")]
+            if len(overlaps) != SPARSE_LAYER_COUNT:
+                raise RuntimeError(f"expected {SPARSE_LAYER_COUNT} overlaps: {row}")
     for label, label_rows in by_label.items():
         steps = sorted(row["step"] for row in label_rows)
         if steps != list(range(steps_per_arm)):
             raise RuntimeError(f"non-contiguous steps for {label}")
+
+
+def validate_storage_proofs(proofs):
+    if len(proofs) != 1:
+        raise RuntimeError(f"expected one storage proof, observed {len(proofs)}")
+    proof = proofs[0]
+    expected_keys = set(EXPECTED_STORAGE_PROOF) | {"page_bytes", "checksum"}
+    if set(proof) != expected_keys:
+        raise RuntimeError(f"storage proof keys mismatch: {sorted(proof)}")
+    for key, expected in EXPECTED_STORAGE_PROOF.items():
+        if proof[key] != expected:
+            raise RuntimeError(
+                f"storage proof mismatch for {key}: expected {expected}, got {proof[key]}"
+            )
+    page_bytes = int(proof["page_bytes"])
+    if page_bytes <= 0 or page_bytes & (page_bytes - 1):
+        raise RuntimeError(f"invalid storage proof page size: {page_bytes}")
+    checksum = proof["checksum"]
+    if len(checksum) != 16:
+        raise RuntimeError(f"invalid storage proof checksum width: {checksum}")
+    int(checksum, 16)
+    return proof
 
 
 def correctness_command(args):
@@ -359,6 +462,7 @@ def correctness_command(args):
         session.abort()
         raise
     validate_measurements(session.measurements, arms, 1)
+    storage_proof = validate_storage_proofs(session.storage_proofs)
     if len(set(seed_tokens)) != 1:
         raise RuntimeError(f"decode_begin token divergence: {seed_tokens}")
     if len(set(result_tokens)) != 1:
@@ -370,7 +474,7 @@ def correctness_command(args):
         for row in session.digests
     }
     if len(digest_keys) != 1:
-        raise RuntimeError(f"returned-logit digest divergence: {session.digests}")
+        raise RuntimeError(f"dense full-logit digest divergence: {session.digests}")
     result = {
         "status": "passed",
         "fixture_case": case_name,
@@ -380,8 +484,13 @@ def correctness_command(args):
         "decode_begin_tokens": seed_tokens,
         "decode_step_tokens": result_tokens,
         "token_divergence_count": 0,
-        "returned_logit_digests": session.digests,
+        "dense_full_logit_digests": session.digests,
         "measurements": session.measurements,
+        "storage_proof": storage_proof,
+        "storage_independence_scope": STORAGE_INDEPENDENCE_SCOPE,
+        "pre_touch_protocol": PRETOUCH_PROTOCOL,
+        "command_graph_proof": COMMAND_GRAPH_PROOF,
+        "residual_confound": RESIDUAL_CONFOUND,
         "logical_kv_advancement_exact": True,
         "physical_kv_advancement_exact": True,
         "physical_kv_position_directly_observable": True,
@@ -421,6 +530,7 @@ def fault_command(args):
     if len(session.faults) != 1 or session.faults[0]["proof"] != expected_proof:
         raise RuntimeError(f"fault marker missing or invalid: {session.faults}")
     validate_measurements(session.measurements, arms, 1)
+    storage_proof = validate_storage_proofs(session.storage_proofs)
     result = {
         "status": "passed",
         "fixture_case": case_name,
@@ -428,6 +538,11 @@ def fault_command(args):
         "expected_worker_failure": observed_failure,
         "fault_markers": session.faults,
         "measurements": session.measurements,
+        "storage_proof": storage_proof,
+        "storage_independence_scope": STORAGE_INDEPENDENCE_SCOPE,
+        "pre_touch_protocol": PRETOUCH_PROTOCOL,
+        "command_graph_proof": COMMAND_GRAPH_PROOF,
+        "residual_confound": RESIDUAL_CONFOUND,
         "stderr_diagnostics": session.diagnostics,
         "system": system_metadata(),
     }
@@ -496,6 +611,7 @@ def matrix_command(args):
         session.abort()
         raise
     validate_measurements(session.measurements, arms, steps_per_arm)
+    storage_proof = validate_storage_proofs(session.storage_proofs)
     if token_divergence_count:
         raise RuntimeError(f"observed {token_divergence_count} token divergences")
     metadata = {
@@ -503,6 +619,7 @@ def matrix_command(args):
         "fixture_case": case_name,
         "schedule": arms,
         "schedule_encoding": schedule,
+        "matrix_block_orders": MATRIX_BLOCK_ORDERS,
         "timed_steps_per_arm": args.timed_steps,
         "discard_steps_per_arm": args.discard_steps,
         "total_steps_per_arm": steps_per_arm,
@@ -512,6 +629,11 @@ def matrix_command(args):
         "worker_return_code": return_code,
         "reference_seed_token": reference_seed_token,
         "token_divergence_count": token_divergence_count,
+        "storage_proof": storage_proof,
+        "storage_independence_scope": STORAGE_INDEPENDENCE_SCOPE,
+        "pre_touch_protocol": PRETOUCH_PROTOCOL,
+        "command_graph_proof": COMMAND_GRAPH_PROOF,
+        "residual_confound": RESIDUAL_CONFOUND,
         "logical_kv_advancement_exact": True,
         "physical_kv_advancement_exact": True,
         "physical_kv_position_directly_observable": True,
@@ -553,6 +675,16 @@ def theil_sen(points):
 
 def analyze_command(args):
     metadata = json.loads(Path(args.metadata).read_text())
+    storage_proof = validate_storage_proofs([metadata["storage_proof"]])
+    expected_metadata = {
+        "storage_independence_scope": STORAGE_INDEPENDENCE_SCOPE,
+        "pre_touch_protocol": PRETOUCH_PROTOCOL,
+        "command_graph_proof": COMMAND_GRAPH_PROOF,
+        "residual_confound": RESIDUAL_CONFOUND,
+    }
+    for key, expected in expected_metadata.items():
+        if metadata.get(key) != expected:
+            raise RuntimeError(f"metadata proof mismatch for {key}")
     with Path(args.raw).open(newline="") as source:
         rows = list(csv.DictReader(source, delimiter="\t"))
     for row in rows:
@@ -702,9 +834,15 @@ def analyze_command(args):
             "seed": args.bootstrap_seed,
         },
         "measurement_scope": (
-            "K>=1 slopes estimate repeated selected-bank marginal cost; one-time bank "
-            "first-touch costs contribute to the fitted intercept rather than the slope."
+            "K>=1 slopes estimate repeated selected-row marginal cost after blocking full-bank "
+            "evaluation, symmetric page-stride pretouch, and 16 discarded identical forced-token "
+            "steps per arm; retained observations exclude those initialization steps."
         ),
+        "storage_proof": storage_proof,
+        "storage_independence_scope": metadata["storage_independence_scope"],
+        "pre_touch_protocol": metadata["pre_touch_protocol"],
+        "command_graph_proof": metadata["command_graph_proof"],
+        "residual_confound": metadata["residual_confound"],
         "arm_summaries": arm_summaries,
         "block_fits": block_fits,
         "overall_slope_us_per_step_per_duplicate": slopes,
@@ -721,7 +859,7 @@ def analyze_command(args):
             "sparse_layers": SPARSE_LAYER_COUNT,
             "modeled_bytes_per_duplicate_per_decode_step": TRAFFIC_BYTES_PER_DUPLICATE,
             "modeled_effective_bandwidth_gb_s": modeled_bandwidth,
-            "caveat": "Model-implied weight bytes only; DRAM traffic was not measured and cache residency is unknown.",
+            "caveat": "Model-implied weight bytes only. " + RESIDUAL_CONFOUND,
         },
         "input_metadata": metadata,
     }
