@@ -775,6 +775,55 @@ compounding argument in my own driver header was wrong for this fixture until I
 measured the trajectory instead of assuming it; the probe now prints `distinct=`
 and `cycle=` so the assumption is always checked.
 
+**Result.** Two batteries, 256 self-fed steps per arm, one shared faulted build
+per battery. Run 1 (`run_training` `799e3785-69a2-45d3-8545-15b819751402`,
+exit 0, 277 s, `/tmp/maple-shared-qmv-freerun`) covered five arms; run 2
+(`2bc2ac36-df13-4a4e-9b57-abda08d5295e`, exit 0, 370 s,
+`/tmp/maple-shared-qmv-freerun2`) added the two faults §4.3 detects.
+
+| arm | guards | injected fault | rc | 256-token hash | equals `off`? |
+| --- | --- | --- | --- | --- | --- |
+| `off` | none | — | 0 | `aed94d1679d31318` | reference |
+| `on` | prefetch | — | 0 | `aed94d1679d31318` | yes |
+| `pairwise` | prefetch + pairwise | — | 0 | `aed94d1679d31318` | yes |
+| `on-fault-prefetch_stale` | prefetch | `prefetch_stale` | 0 | `aed94d1679d31318` | yes — **null** |
+| `on-fault-prefetch_zero` | prefetch | `prefetch_zero` | 0 | `b1f82d576695e859` | **no — detected** |
+| `pairwise-fault-plane_byte` | prefetch + pairwise | `plane_byte` | 0 | `aed94d1679d31318` | yes — **null** |
+| `pairwise-fault-plane_shift` | prefetch + pairwise | `plane_shift` | 0 | `7e9b0d71c132ea48` | **no — detected** |
+
+Both guard arms are bit-identical to `off` over 256 self-fed steps, and the two
+positive controls move the hash, so the table is not a silent detector failure.
+The divergence structure is informative: `prefetch_zero` leaves the cycle at
+step 2 (`509, 902, 947, 290, 86, …`) and `plane_shift` survives eleven steps
+before breaking at step 12 (`… 509, 902, 5991, 81, 902, 5991, 81, …`), after
+which it reports `distinct=5, cycle=0` — once an argmax moves, the trajectory
+really does leave the attractor and never re-enters a short cycle. That is the
+compounding property I wanted; it just cannot be exercised by an arm that never
+diverges in the first place.
+
+So §4.4's honest contribution is narrow. It upgrades the two guards from "128
+independent single-step argmaxes match" to "the entire 256-step self-fed
+trajectory is byte-identical", which is a stronger *statement* but, on this
+fixture, rests on the same evidence. It does **not** un-bracket
+`prefetch_stale`: a fault that survives 128 teacher-forced steps also survives
+256 steps of a trajectory it never perturbs.
+
+**One operational error worth recording.** In run 2 I edited
+`research/decode_probe.py` while the battery was still executing it. Arm 6
+started between two writes and died with `NameError: name '_cycle_len' is not
+defined` (`rc=1`), which is why its hash above is taken from run 1; arms 1–5 ran
+the pre-edit code and arm 7 the post-edit code, visible as the missing
+`distinct=`/`cycle=` fields in the early logs. No scored source was involved and
+the `trap … EXIT` still reverted every hook, but a supervised run owns the
+scripts it reads: edit them before launch or after it terminates, never during.
+
+```bash
+OUT=/tmp/maple-shared-qmv-freerun2 MODE=freerun STEPS=256 \
+  bash research/maple_shared_qmv_fault_injection.sh
+cat /tmp/maple-shared-qmv-freerun2/summary.txt
+```
+
+
 ---
 
 ## 5. Stage 3 — end-to-end matched timing (partial: n = 1 per arm)
