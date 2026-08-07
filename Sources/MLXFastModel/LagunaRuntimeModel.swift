@@ -66,83 +66,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
-private let lagunaRouterUnfusionProbeMode =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_UNFUSION_PROBE"] ?? ""
-private let lagunaRouterUnfusionProbeEnabled =
-    lagunaRouterUnfusionProbeMode == "exact" || lagunaRouterUnfusionProbeMode == "timing"
-private let lagunaRouterUnfusionProbe = LagunaRouterUnfusionProbe()
-
-final class LagunaRouterUnfusionProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var phase = "idle"
-    private var ordinal = 0
-    private var decodeOrdinal = 0
-    private var timingClaimed = false
-    private var hits: [String: Int] = [:]
-    private var layers: [String: Set<Int>] = [:]
-
-    func begin(isDecode: Bool) {
-        guard lagunaRouterUnfusionProbeEnabled else { return }
-        lock.lock()
-        phase = isDecode ? "decode" : "prefill"
-        if isDecode {
-            decodeOrdinal += 1
-            ordinal = decodeOrdinal
-        } else {
-            ordinal = 1
-        }
-        hits = [:]
-        layers = [:]
-        lock.unlock()
-    }
-
-    func note(_ route: String, layer: Int) {
-        guard lagunaRouterUnfusionProbeEnabled else { return }
-        lock.lock()
-        hits[route, default: 0] += 1
-        layers[route, default: []].insert(layer)
-        lock.unlock()
-    }
-
-    func shouldCompare(layer: Int) -> Bool {
-        guard lagunaRouterUnfusionProbeMode == "exact" else { return false }
-        lock.lock()
-        let selected = phase == "decode" && ordinal <= 2 && [1, 20, 39].contains(layer)
-        lock.unlock()
-        return selected
-    }
-
-    func claimTiming(layer: Int) -> Bool {
-        guard lagunaRouterUnfusionProbeMode == "timing" else { return false }
-        lock.lock()
-        let selected = phase == "decode" && ordinal == 1 && layer == 20 && !timingClaimed
-        timingClaimed = timingClaimed || selected
-        lock.unlock()
-        return selected
-    }
-
-    func end() {
-        guard lagunaRouterUnfusionProbeEnabled else { return }
-        lock.lock()
-        let currentPhase = phase
-        let currentOrdinal = ordinal
-        let summary = hits.keys.sorted().map { route in
-            let routeLayers = layers[route, default: []].sorted()
-            return "\(route)=\(hits[route, default: 0]) layers=\(routeLayers)"
-        }.joined(separator: "; ")
-        phase = "idle"
-        lock.unlock()
-        emit(
-            "reachability phase=\(currentPhase) ordinal=\(currentOrdinal) "
-                + (summary.isEmpty ? "none" : summary))
-    }
-
-    func emit(_ message: String) {
-        guard lagunaRouterUnfusionProbeEnabled else { return }
-        FileHandle.standardError.write(Data("mlxfast: router-unfusion-probe: \(message)\n".utf8))
-    }
-}
-
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -9929,174 +9852,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     }
 }
 
-private func lagunaProbeHex(_ value: UInt16) -> String {
-    String(format: "0x%04x", value)
-}
-
-private func lagunaProbeHex(_ value: UInt32) -> String {
-    String(format: "0x%08x", value)
-}
-
-private func lagunaProbeRawComparison<T: FixedWidthInteger>(
-    _ lhs: [T],
-    _ rhs: [T],
-    render: (T) -> String
-) -> String {
-    var mismatchCount = abs(lhs.count - rhs.count)
-    var firstMismatch: (Int, T, T)?
-    for index in 0..<min(lhs.count, rhs.count) where lhs[index] != rhs[index] {
-        mismatchCount += 1
-        if firstMismatch == nil {
-            firstMismatch = (index, lhs[index], rhs[index])
-        }
-    }
-    let first = firstMismatch.map {
-        "index=\($0.0) lhs=\(render($0.1)) rhs=\(render($0.2))"
-    } ?? "none"
-    return "elements=\(lhs.count)/\(rhs.count) mismatches=\(mismatchCount) first=\(first)"
-}
-
-private func lagunaProbeRouterExactness(
-    layer: Int,
-    residual: MLXArray,
-    branch: MLXArray,
-    normWeight: MLXArray,
-    sparse: LagunaRuntimeSparseMoEBlock
-) {
-    let fused = lagunaResidualRMSNormRouter(
-        residual: residual,
-        branch: branch,
-        weight: normWeight,
-        routerWeight: sparse.gate.weight)
-    let (separateSummed, separateNormalized) = lagunaResidualRMSNorm(
-        residual: residual, branch: branch, weight: normWeight)
-    let separateLogits = separateNormalized.matmul(sparse.gate.weight.T)
-    let fusedRoute = sparse.gate(fused.normalized, logits: fused.routerLogits)
-    let separateRoute = sparse.gate(separateNormalized, logits: separateLogits)
-    eval(
-        fused.summed, fused.normalized, fused.routerLogits,
-        separateSummed, separateNormalized, separateLogits,
-        fusedRoute.0, fusedRoute.1, separateRoute.0, separateRoute.1)
-
-    let fusedH = fused.summed.view(dtype: .uint16).asArray(UInt16.self)
-    let separateH = separateSummed.view(dtype: .uint16).asArray(UInt16.self)
-    let fusedNorm = fused.normalized.view(dtype: .uint16).asArray(UInt16.self)
-    let separateNorm = separateNormalized.view(dtype: .uint16).asArray(UInt16.self)
-    let fusedLogits = fused.routerLogits.view(dtype: .uint16).asArray(UInt16.self)
-    let separateLogitsBits = separateLogits.view(dtype: .uint16).asArray(UInt16.self)
-    let fusedIndices = fusedRoute.0.asArray(UInt32.self)
-    let separateIndices = separateRoute.0.asArray(UInt32.self)
-    let fusedWeights = fusedRoute.1.view(dtype: .uint32).asArray(UInt32.self)
-    let separateWeights = separateRoute.1.view(dtype: .uint32).asArray(UInt32.self)
-
-    lagunaRouterUnfusionProbe.emit(
-        "exactness layer=\(layer) tensor=h "
-            + lagunaProbeRawComparison(fusedH, separateH, render: lagunaProbeHex))
-    lagunaRouterUnfusionProbe.emit(
-        "exactness layer=\(layer) tensor=norm "
-            + lagunaProbeRawComparison(fusedNorm, separateNorm, render: lagunaProbeHex))
-    lagunaRouterUnfusionProbe.emit(
-        "exactness layer=\(layer) tensor=logits "
-            + lagunaProbeRawComparison(
-                fusedLogits, separateLogitsBits, render: lagunaProbeHex))
-    lagunaRouterUnfusionProbe.emit(
-        "exactness layer=\(layer) tensor=indices "
-            + lagunaProbeRawComparison(
-                fusedIndices, separateIndices, render: lagunaProbeHex)
-            + " lhs=\(fusedIndices) rhs=\(separateIndices)")
-    lagunaRouterUnfusionProbe.emit(
-        "exactness layer=\(layer) tensor=weights "
-            + lagunaProbeRawComparison(
-                fusedWeights, separateWeights, render: lagunaProbeHex)
-            + " lhs=\(fusedWeights.map(lagunaProbeHex)) "
-            + "rhs=\(separateWeights.map(lagunaProbeHex))")
-}
-
-private func lagunaProbeTimeFusedRouter(
-    residual: MLXArray,
-    branch: MLXArray,
-    normWeight: MLXArray,
-    routerWeight: MLXArray
-) -> UInt64 {
-    let start = DispatchTime.now().uptimeNanoseconds
-    let fused = lagunaResidualRMSNormRouter(
-        residual: residual,
-        branch: branch,
-        weight: normWeight,
-        routerWeight: routerWeight)
-    eval(fused.summed, fused.normalized, fused.routerLogits)
-    return DispatchTime.now().uptimeNanoseconds - start
-}
-
-private func lagunaProbeTimeSeparateRouter(
-    residual: MLXArray,
-    branch: MLXArray,
-    normWeight: MLXArray,
-    routerWeight: MLXArray
-) -> UInt64 {
-    let start = DispatchTime.now().uptimeNanoseconds
-    let (summed, normalized) = lagunaResidualRMSNorm(
-        residual: residual, branch: branch, weight: normWeight)
-    let logits = normalized.matmul(routerWeight.T)
-    eval(summed, normalized, logits)
-    return DispatchTime.now().uptimeNanoseconds - start
-}
-
-private func lagunaProbeRouterTiming(
-    layer: Int,
-    residual: MLXArray,
-    branch: MLXArray,
-    normWeight: MLXArray,
-    sparse: LagunaRuntimeSparseMoEBlock
-) {
-    let routerWeight = sparse.gate.weight
-    eval(residual, branch, normWeight, routerWeight)
-    for _ in 0..<10 {
-        _ = lagunaProbeTimeFusedRouter(
-            residual: residual, branch: branch,
-            normWeight: normWeight, routerWeight: routerWeight)
-        _ = lagunaProbeTimeSeparateRouter(
-            residual: residual, branch: branch,
-            normWeight: normWeight, routerWeight: routerWeight)
-    }
-
-    var records: [(order: String, pair: Int, arm: String, nanoseconds: UInt64)] = []
-    records.reserveCapacity(404)
-    for pair in 0..<101 {
-        records.append((
-            "AB", pair, "fused",
-            lagunaProbeTimeFusedRouter(
-                residual: residual, branch: branch,
-                normWeight: normWeight, routerWeight: routerWeight)))
-        records.append((
-            "AB", pair, "separate",
-            lagunaProbeTimeSeparateRouter(
-                residual: residual, branch: branch,
-                normWeight: normWeight, routerWeight: routerWeight)))
-    }
-    for pair in 0..<101 {
-        records.append((
-            "BA", pair, "separate",
-            lagunaProbeTimeSeparateRouter(
-                residual: residual, branch: branch,
-                normWeight: normWeight, routerWeight: routerWeight)))
-        records.append((
-            "BA", pair, "fused",
-            lagunaProbeTimeFusedRouter(
-                residual: residual, branch: branch,
-                normWeight: normWeight, routerWeight: routerWeight)))
-    }
-
-    lagunaRouterUnfusionProbe.emit(
-        "timing metadata layer=\(layer) warmups=10 pairs_per_order=101 "
-            + "endpoint=residual_add+rmsnorm+router_projection")
-    for record in records {
-        lagunaRouterUnfusionProbe.emit(
-            "timing order=\(record.order) pair=\(record.pair) "
-                + "arm=\(record.arm) nanoseconds=\(record.nanoseconds)")
-    }
-}
-
 // MARK: - Decoder Layer
 
 final class LagunaRuntimeDecoderLayer: Module {
@@ -10105,11 +9860,9 @@ final class LagunaRuntimeDecoderLayer: Module {
     @ModuleInfo(key: "input_layernorm") var inputLayerNorm: RMSNorm
     @ModuleInfo(key: "post_attention_layernorm") var postAttentionLayerNorm: RMSNorm
 
-    let layerIdx: Int
     let attentionType: LagunaLayerType
 
     init(_ config: LagunaConfig, layerIdx: Int) {
-        self.layerIdx = layerIdx
         self._selfAttn.wrappedValue = LagunaRuntimeAttention(config, layerIdx: layerIdx)
 
         if config.isSparse(layer: layerIdx) {
@@ -10145,40 +9898,6 @@ final class LagunaRuntimeDecoderLayer: Module {
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
-        if x.dtype == .bfloat16, r.dtype == .bfloat16,
-            postAttentionLayerNorm.weight.dtype == .bfloat16,
-            x.shape == [1, 1, LagunaConstants.hiddenSize], x.shape == r.shape,
-            let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
-            sparse.gate.weight.dtype == .bfloat16,
-            sparse.gate.weight.shape == [
-                LagunaConstants.numExperts, LagunaConstants.hiddenSize,
-            ],
-            lagunaRouterUnfusionProbe.shouldCompare(layer: layerIdx)
-        {
-            lagunaProbeRouterExactness(
-                layer: layerIdx,
-                residual: x,
-                branch: r,
-                normWeight: postAttentionLayerNorm.weight,
-                sparse: sparse)
-        }
-        if x.dtype == .bfloat16, r.dtype == .bfloat16,
-            postAttentionLayerNorm.weight.dtype == .bfloat16,
-            x.shape == [1, 1, LagunaConstants.hiddenSize], x.shape == r.shape,
-            let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
-            sparse.gate.weight.dtype == .bfloat16,
-            sparse.gate.weight.shape == [
-                LagunaConstants.numExperts, LagunaConstants.hiddenSize,
-            ],
-            lagunaRouterUnfusionProbe.claimTiming(layer: layerIdx)
-        {
-            lagunaProbeRouterTiming(
-                layer: layerIdx,
-                residual: x,
-                branch: r,
-                normWeight: postAttentionLayerNorm.weight,
-                sparse: sparse)
-        }
         if lagunaFusedResidualRMSNormRouterEnabled,
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -10189,7 +9908,6 @@ final class LagunaRuntimeDecoderLayer: Module {
                 LagunaConstants.numExperts, LagunaConstants.hiddenSize,
             ]
         {
-            lagunaRouterUnfusionProbe.note("fused-decode", layer: layerIdx)
             let fused = lagunaResidualRMSNormRouter(
                 residual: x,
                 branch: r,
@@ -10204,11 +9922,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             x.shape == r.shape, x.dim(-1) == LagunaConstants.hiddenSize,
             x.size == LagunaConstants.hiddenSize
         {
-            if x.shape == [1, 1, LagunaConstants.hiddenSize],
-                mlp is LagunaRuntimeSparseMoEBlock
-            {
-                lagunaRouterUnfusionProbe.note("separate-decode", layer: layerIdx)
-            }
             lagunaTrace("residual+rmsnorm")
             (h, normalized) = lagunaResidualRMSNorm(
                 residual: x, branch: r, weight: postAttentionLayerNorm.weight)
@@ -10288,7 +10001,6 @@ final class LagunaRuntimeDecoderLayer: Module {
                     LagunaConstants.numExperts, LagunaConstants.hiddenSize,
                 ]
             {
-                lagunaRouterUnfusionProbe.note("fused-terminal-prefill", layer: layerIdx)
                 let fused = lagunaResidualRMSNormRouter(
                     residual: lastResidual,
                     branch: r,
@@ -10304,10 +10016,6 @@ final class LagunaRuntimeDecoderLayer: Module {
                 lastResidual.dim(-1) == LagunaConstants.hiddenSize,
                 lastResidual.size == LagunaConstants.hiddenSize
             {
-                if mlp is LagunaRuntimeSparseMoEBlock {
-                    lagunaRouterUnfusionProbe.note(
-                        "separate-terminal-prefill", layer: layerIdx)
-                }
                 lagunaTrace("terminal prefill residual+rmsnorm")
                 (h, normalizedAfterAttention) = lagunaResidualRMSNorm(
                     residual: lastResidual, branch: r,
@@ -10591,7 +10299,6 @@ final class LagunaRuntimeModelInner: Module {
     }
 
     func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
-        lagunaRouterUnfusionProbe.begin(isDecode: inputs.shape == [1, 1])
         var h: MLXArray
         var fullRoPEAngles: MLXArray?
         var slidingRoPEAngles: MLXArray?
@@ -10739,7 +10446,6 @@ final class LagunaRuntimeModelInner: Module {
             }
         }
 
-        lagunaRouterUnfusionProbe.end()
         return h
     }
 }
