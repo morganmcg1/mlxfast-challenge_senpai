@@ -1525,3 +1525,129 @@ step to measure the attention dispatches' actual exposure — the direct test of
 the bound-match hypothesis, and the one measurement that would let #204's
 taxonomy and this PR's `bound-match` axis be checked against each other rather
 than argued.
+
+---
+
+## 14. Arm E — the full-attention uniform-buffer memo (advisor's §4 target)
+
+Advisor feedback #3 (comment `5213730869`, `feedback_id
+pr205-r1-receipt-c03dc11-adjudication-2026-08-07`) §4 proposed a second target
+inside the same fence and asked for it in preference to a fourth epilogue
+variant. This section verifies the premise, states the mechanism, records the
+pre-registration **before** any measurement, and then reports the result.
+
+### 14.1 Premise verification
+
+The advisor located a per-call `MLXArray` construction in
+`lagunaFullFusedAttention`. My first grep for it returned nothing, because the
+literal is split across three source lines and `MLXArray(\[UInt32` does not
+match it:
+
+```swift
+// Sources/MLXFastModel/LagunaRuntimeModel.swift, before this arm
+lagunaTrace("full fused attention")
+let params = MLXArray([
+    UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+])
+```
+
+**Premise confirmed.** The sliding twin at the same position already avoids its
+own allocation through `lagunaRingIdxAtlas` (a 512-entry pre-materialised
+store, ablation flag `DARKBLOOM_PARAMS_ATLAS`); the full-attention path was
+never given the same treatment. Two independent readings of the file — the
+advisor's and, earlier and separately, mine — found the same asymmetry, which
+is the only reason I did not simply drop it as a plausible-sounding target.
+
+### 14.2 Why an atlas is the wrong shape here, and a memo is the right one
+
+The advisor's suggestion was a 128-entry atlas covering `writeIdx ∈ [512, 640)`
+at `capacity = 768`. I did not implement that, and the reason is arithmetic
+rather than taste.
+
+The sliding atlas works because the sliding ring has a fixed modulus
+(`slidingWindow = 512`), so 512 entries cover *every* reachable index for the
+lifetime of the process, and the store can be built once on first touch during
+untimed warmup and never rebuilt. The full-attention cache has no fixed
+modulus: `capacity = cacheKeys.dim(2)` is whatever the growth policy last
+allocated. An atlas therefore has to be keyed on `capacity` as well, and a
+per-`capacity` atlas can only be built lazily — which puts its build *inside*
+the scored window, because the decode timing window begins at the 512-token
+seed prefill (§5.1). Building `capacity` entries to save `10 × 127` lookups is
+close to a wash at `capacity = 768`, and a strict loss if the cache grows
+twice.
+
+The structure that actually pays is different. All ten full-attention layers
+share one cache clock, so **within a single decode step they request the same
+`(writeIdx, capacity)` pair ten times**. A single-entry memo keyed on that pair
+therefore converts 10 constructions per step into 1 — a 90 % cut — with no
+build cost, no capacity assumption, and no dependence on the window being
+`[512, 640)`:
+
+```swift
+private enum LagunaFullParamsMemoStore {
+    nonisolated(unsafe) static var writeIdx = -1
+    nonisolated(unsafe) static var capacity = -1
+    nonisolated(unsafe) static var entry: MLXArray?
+}
+
+let lagunaFullParamsMemoEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FULL_PARAMS_MEMO"] != "0"
+
+private func lagunaFullFusedAttentionParams(
+    writeIdx: Int, capacity: Int
+) -> MLXArray { /* hit -> cached; miss -> build, eval, store */ }
+```
+
+A 128-entry atlas would have removed at most the same 1 270 constructions and
+would have paid ≥ 768 of them back at build time. The memo removes 1 143 of
+1 270 and pays back nothing. It also degrades gracefully: if a future change
+makes the ten layers fall out of lockstep, the memo silently becomes a no-op
+instead of becoming wrong.
+
+**Correctness argument.** The memo is keyed on exactly the two integers that
+determine the buffer's contents, so a hit returns byte-for-byte the array the
+miss path would have built. It is keyed on cache geometry, never on token
+values or request identity, which is the same contract the already-merged
+`lagunaRingIdxAtlas` operates under and squarely inside the "input-independent
+… mask, dequantization, or RoPE caches are allowed" clause of the serial
+non-speculative rules. It advances no cache clock, retains no logits and no KV
+rows, and survives no request boundary in any observable way. `DARKBLOOM_FULL_PARAMS_MEMO=0`
+restores the per-call construction as an ablation control.
+
+### 14.3 Pre-registration (written and committed before any measurement)
+
+**Mechanism priced honestly.** 10 full-attention layers × 127 scored decode
+steps = 1 270 constructions; the memo removes 1 143 of them, i.e. **9 per
+step**. Each removed construction is one `mlx_array_new_data` allocation of 12
+bytes plus its ARC traffic and one fewer leaf node handed to the graph. The
+advisor's price was 1–3 µs per allocation (⇒ 10–30 µs/step, +0.15 % to
++0.46 %). I think that is generous for a 12-byte data array on an already-warm
+allocator and pre-register a wider, lower band:
+
+> **Pre-registered prediction: the memo removes 4–20 µs/step, point estimate
+> 11 µs/step.** On the corrected §5.1 elasticity (0.015280 % of `officialScore`
+> per µs/step) that is **+0.06 % to +0.31 %, point estimate +0.17 %**.
+
+**Pre-registered power statement, stated before the measurement so it cannot be
+retrofitted.** From §11's certified noise floor, a two-receipt contrast on the
+`T` axis has σ = 17.92 µs/step, so 11 µs/step is **0.61σ** — an official
+receipt *cannot* resolve this arm, exactly as it could not resolve the
+epilogue. The zero-receipt in-situ M4 probe of §12 has se ≈ 8.7 µs at 18 pairs
+and ≈ 12.5 µs at 12 pairs, so 11 µs/step is 0.9–1.3σ there too. **I am
+therefore pre-registering that neither available instrument is expected to
+resolve this arm on its own, and that the arm will be reported on the combined
+mechanism** (epilogue + memo, predicted 14.02 + 11 = **25 µs/step**), which is
+1.4σ on the receipt axis and 2.0σ on a 12-pair M4 probe.
+
+**Pre-registered kill.** If the in-situ probe's combined estimate is negative
+with an upper CI bound below +5 µs/step, I report the memo as a null and do not
+dispatch a receipt.
+
+**What is *not* conditional on any of this.** The memo is bit-exact by
+construction, costs 1 169 bytes of the 12 000-byte cap, strictly removes work,
+and carries its own ablation flag. Its value does not depend on the timing
+verdict, and neither does the §14.2 correction to the advisor's proposed shape.
+
+### 14.4 Result
+
+*(filled in below, after the pre-registered measurements)*

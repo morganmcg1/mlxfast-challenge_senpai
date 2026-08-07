@@ -2180,6 +2180,46 @@ if (lane == 0) {
     ensureRowContiguous: true
 )
 
+/// Single-entry memo for the full-attention uniform buffer. The ten
+/// full-attention layers advance their caches in lockstep, so within one
+/// decode step they all request the same `(writeIdx, capacity)` pair; only
+/// the first of the ten has to build the 3-word array. Keyed on cache
+/// geometry, never on token values or request identity, so a hit reproduces
+/// exactly the bytes the fresh construction would have produced. Worker
+/// decode is single-threaded, so the unsafe opt-out is sound.
+private enum LagunaFullParamsMemoStore {
+    nonisolated(unsafe) static var writeIdx = -1
+    nonisolated(unsafe) static var capacity = -1
+    nonisolated(unsafe) static var entry: MLXArray?
+}
+
+/// `DARKBLOOM_FULL_PARAMS_MEMO=0` restores the per-call fresh 3-element
+/// array (ablation control for the memo above; identical bytes either way).
+let lagunaFullParamsMemoEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FULL_PARAMS_MEMO"] != "0"
+
+private func lagunaFullFusedAttentionParams(
+    writeIdx: Int, capacity: Int
+) -> MLXArray {
+    if lagunaFullParamsMemoEnabled,
+        LagunaFullParamsMemoStore.writeIdx == writeIdx,
+        LagunaFullParamsMemoStore.capacity == capacity,
+        let cached = LagunaFullParamsMemoStore.entry
+    {
+        return cached
+    }
+    let fresh = MLXArray([
+        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+    ])
+    if lagunaFullParamsMemoEnabled {
+        eval(fresh)
+        LagunaFullParamsMemoStore.writeIdx = writeIdx
+        LagunaFullParamsMemoStore.capacity = capacity
+        LagunaFullParamsMemoStore.entry = fresh
+    }
+    return fresh
+}
+
 /// Fused decode attention for a full-attention layer with spare backing
 /// capacity. Returns `[1, heads, 1, headDim]`; the caller advances the
 /// cache clock via `KVCacheSimple.fusedAppendAdvance()`.
@@ -2217,9 +2257,8 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
-    let params = MLXArray([
-        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
-    ])
+    let params = lagunaFullFusedAttentionParams(
+        writeIdx: writeIdx, capacity: capacity)
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
