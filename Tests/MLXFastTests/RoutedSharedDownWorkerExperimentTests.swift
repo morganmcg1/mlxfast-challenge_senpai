@@ -10,6 +10,18 @@ func routedSharedDownWorkerExperimentMatchesSavedReference() throws {
         return
     }
 
+    var coveredSlots: [Int] = []
+    for worker in 0..<5 {
+        if worker == 4 {
+            coveredSlots.append(8)
+        } else {
+            coveredSlots.append(worker * 2)
+            coveredSlots.append(worker * 2 + 1)
+        }
+    }
+    #expect(coveredSlots == Array(0...8))
+    #expect(Set(coveredSlots).count == 9)
+
     let routedValues = (0..<(8 * LagunaConstants.moeIntermediateSize)).map { index -> Float in
         let slot = index / LagunaConstants.moeIntermediateSize
         return Float(((index * 13 + slot * 7) % 29) - 14) / 16

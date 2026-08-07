@@ -106,7 +106,7 @@ void CustomKernel::eval_gpu(
   auto max_tg_size = kernel->maxTotalThreadsPerThreadgroup();
   if (name_.find("laguna_routed_shared_nvfp4_down_residual") == 0) {
     std::fprintf(
-        stderr,
+        stdout,
         "MLXFAST_RESOURCE_REPORT name=%s requested_threads=%zu "
         "thread_execution_width=%zu max_threads_per_threadgroup=%zu "
         "static_threadgroup_memory_bytes=%zu\n",
@@ -115,6 +115,7 @@ void CustomKernel::eval_gpu(
         static_cast<size_t>(kernel->threadExecutionWidth()),
         static_cast<size_t>(max_tg_size),
         static_cast<size_t>(kernel->staticThreadgroupMemoryLength()));
+    std::fflush(stdout);
   }
   if (tg_size > max_tg_size) {
     std::ostringstream msg;
