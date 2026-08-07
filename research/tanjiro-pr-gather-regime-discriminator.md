@@ -1043,6 +1043,11 @@ dispatch below records its own attempt history.
 | ~2026-08-07T01:37:00Z | — | `89521f6` cleared (`rejected`, `2.48216`). The slot opened while my own hourly submit budget was exhausted. |
 | 2026-08-07T01:37:15Z | m2 | rate limited, 1362 s (→ 01:59:57Z). Retry-after did not move out, so a blocked attempt carries no extra penalty. |
 | 2026-08-07T01:38:50Z | m2 | rate limited, 1271 s (→ 02:00:01Z), from the first pass of the new watcher. Slot observed **free** and still free at 01:39:29Z. |
+| 2026-08-07T02:00:09.608Z | m2 | **DISPATCHED** as `d786ad5c` on the watcher's first attempt after the hourly reset, into a slot it had held under observation. Armed window ≈ 9 s; tree restored to probe 0 in the same command. |
+| 2026-08-07T02:20:05.683Z | m2 | **RECEIPT** — terminal `rejected` (ranking only), all gates passed. 19 min 56 s in queue against `benchmark_wall_seconds = 53`. Waiter exit 0 after 486.8 s of polling. |
+| 2026-08-07T02:23:14Z | s2 | watcher started for arm 2 (deadline 03:18Z). Slot observed busy at 02:23:23Z: `08ddee4 validating`, a submission from another student that entered after M2 cleared. |
+| 2026-08-07T02:41:19Z | — | `08ddee4` cleared (`rejected`). Slot free. The watcher had been silent for 18 minutes; that silence was the design (it logs only on status *change*), not a hang. |
+| 2026-08-07T02:41:26Z | s2 | **DISPATCHED** as `a3e38005-5510-4529-93c5-da236eff0950`, 7 s after the slot opened, on the watcher's first attempt. Armed window ≈ 7 s; tree restored to probe 0 in the same command. Watcher exit 0 after 1091.8 s. |
 
 **Two dispatch tactics were tried. The first was wrong, and it cost a cycle.**
 
@@ -1386,6 +1391,75 @@ the register-sink S2 redesign in §9 is the fix.
 The general lesson I am taking from both: a decision ladder whose last rung is
 an unguarded `else` will always produce a verdict, including for the cases the
 designer never enumerated. The catch-all should be the one that refuses.
+
+### 6.7 Pre-registering the joint reading, before `dS2` and `dB2` exist
+
+§6.4 read one arm as one equation. Three arms are three equations over the same
+five unknown marginal per-op costs `c_r ≥ 0`:
+
+```
+  M2:  1·c_mma + 15·c_alu                                    = dM2
+  S2:  4·c_alu + 2·c_dev + 1·c_tgs + 1·c_bar                 = dS2
+  B2:  2·c_bar                                               = dB2
+```
+
+Maximising the whole-body cost `Σ_r body_r · c_r` over that system is again an
+LP. With every coefficient and every `delta` nonnegative the feasible set is a
+bounded polytope, so the optimum sits at a vertex and enumerating all
+`C(5,3) = 10` bases is exact — no solver, no tolerance to tune. That is
+`joint_ceiling()` in `research/tanjiro-pr170-receipts.py`. It reproduces §6.4's
+27.4% exactly when fed M2 alone, which is the check that the two derivations
+agree.
+
+Because B2 pins `c_bar = dB2/2` outright and M2 caps `c_alu ≤ dM2/15`, the
+three-arm optimum has a closed form (when `dM2/15` is the binding ratio, which
+it is for any `dS2 ≳ 0.8 ms`):
+
+```
+ceiling  =  dM2  +  5·dS2  +  dB2  +  (52/15)·dM2
+```
+
+The `5·dS2` term is `tg_store` leverage: S2 adds one threadgroup store against a
+body of five, so a single millisecond of `dS2` can be charged five milliseconds
+of whole-body cost. Three consequences I want on the record before the numbers
+land.
+
+**The bound is informative on a knowable condition.** A residual statement needs
+`ceiling < W = 43.26 ms`. With `dM2 = 2.046` that is `5·dS2 + dB2 < 34.1 ms`,
+i.e. roughly **`dS2 < 6.8 ms`**. Above that, `joint_ceiling()` prints
+`NO RESIDUAL BOUND` rather than a negative residual — the same class of defect
+as §6.6's R4, caught the same way and guarded before use.
+
+**That condition is not a limitation, it is the right shape.** If `dS2` lands in
+the 35–45 ms range the brief predicts for H2, the residual argument is not
+needed: the arm has named the constraint directly. The residual argument is
+required exactly when every arm comes back null, and it is informative exactly
+then. The two regimes do not overlap and neither is left uncovered.
+
+**Precision.** Propagating the instrument's `σ_Δ = 0.45 ms` (§4.6) through the
+coefficients `(1 + 52/15, 5, 1) = (4.47, 5, 1)` gives `σ(ceiling) ≈ 3.0 ms`,
+about 7% of `W`. So a residual claim is worth stating to the nearest ~10% of
+`W` and no finer, and — worth knowing before I read anything — the bound is
+**five times more sensitive to S2's measurement than to M2's**. If any arm
+deserved a replication receipt it would be S2, not M2.
+
+Two caveats that belong to the method, not to the data.
+
+*Marginal is not share.* Every `c_r` is measured by **adding** work, so
+`body_r · c_r` is the local sensitivity of wall time to resource `r` — how much
+a proportional reduction of `r` could save — not `r`'s share of some serial
+execution. Local sensitivity is the quantity an optimisation programme actually
+wants, so this is the useful reading, but it is not the intuitive one and I do
+not want it read as "resource `r` occupies X% of the runtime". The model also
+assumes each `c_r` is constant across the perturbation range; a port that is
+already saturated can charge more for added work than it would refund for
+removed work.
+
+*A negative delta falsifies the model, it does not just look odd.* With
+nonnegative op counts and `c_r ≥ 0`, no cost vector can produce a negative
+delta. If any arm returns one, occupancy or scheduling changed rather than work
+being added, and every ceiling derived from that arm is void. `joint_ceiling()`
+refuses to compute in that case rather than returning a number.
 
 <!-- READING -->
 

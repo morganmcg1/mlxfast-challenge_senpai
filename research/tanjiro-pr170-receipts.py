@@ -17,6 +17,7 @@ Usage: tanjiro-pr170-receipts.py <source.json> [more.json ...] [arm=id-prefix ..
 
 import json
 import sys
+from itertools import combinations
 
 # Renormalisation constants (advisor's frozen §9.1 contract).
 ND_NUM = 0.013890
@@ -382,8 +383,97 @@ def shares(arm, delta):
     out.append(f"  joint ceiling for all {len(adds)} perturbed axes together: "
                f"<= {joint:.2f} ms = {100 * joint / W:.1f}% of W "
                f"(they trade off; the sum peaks on '{best}' alone)")
-    out.append(f"  => RESIDUAL >= {100 - 100 * joint / W:.1f}% of the critical "
-               f"path is none of: {', '.join(sorted(adds))}")
+    if joint >= W:
+        out.append("  => no residual bound from this arm alone; the ceiling "
+                   "exceeds W and G is known only to be >= W.")
+    else:
+        out.append(f"  => RESIDUAL >= {100 - 100 * joint / W:.1f}% of the "
+                   f"critical path is none of: {', '.join(sorted(adds))}")
+    return out
+
+
+def _gauss(mat, rhs):
+    """Exact-ish square solve; returns None when the basis is singular."""
+    n = len(rhs)
+    m = [list(mat[i]) + [rhs[i]] for i in range(n)]
+    for c in range(n):
+        p = max(range(c, n), key=lambda r: abs(m[r][c]))
+        if abs(m[p][c]) < 1e-12:
+            return None
+        m[c], m[p] = m[p], m[c]
+        pv = m[c][c]
+        m[c] = [v / pv for v in m[c]]
+        for r in range(n):
+            if r != c and m[r][c]:
+                f = m[r][c]
+                m[r] = [a - f * b for a, b in zip(m[r], m[c])]
+    return [m[i][n] for i in range(n)]
+
+
+def joint_ceiling(deltas):
+    """Ceiling on the joint body cost of every axis any arm perturbed.
+
+    Each arm contributes one equality sum_r add_r * c_r = delta over unknown
+    marginal per-op costs c_r >= 0. Maximising sum_r body_r * c_r over that
+    system is a small LP; with all coefficients and all deltas nonnegative the
+    feasible set is a bounded polytope, so the optimum sits at a vertex and
+    plain enumeration of bases is exact. Reported as a fraction of W, and since
+    the true runtime G >= W every fraction is overstated.
+
+    What the number means, stated carefully. The c_r are MARGINAL costs
+    measured by adding work, so `body_r * c_r` is the local sensitivity of the
+    kernel's wall time to resource r -- how much a proportional reduction of r
+    could save -- not r's share of some hypothetical serial execution. Local
+    sensitivity is the quantity an optimisation programme actually wants. The
+    model assumes each c_r is constant over the perturbation range, which is
+    the one substantive assumption here: a port that is already saturated can
+    charge more for added work than it refunds for removed work.
+    """
+    arms = [a for a in ("m2", "s2", "b2") if deltas.get(a) is not None]
+    if not arms:
+        return ["  joint ceiling: no arms in yet."]
+    neg = [a for a in arms if deltas[a] < 0]
+    if neg:
+        return ["  joint ceiling: NOT COMPUTED. "
+                + ", ".join(f"d{a.upper()}={deltas[a]:+.3f}" for a in neg)
+                + " is negative, and with nonnegative op counts and c_r >= 0 no "
+                "assignment can produce a negative delta. A negative arm "
+                "falsifies the nonnegative-linear cost model itself (occupancy "
+                "or scheduling changed), so no ceiling derived from it holds."]
+    axes = sorted({r for a in arms for r in ADDS[a]})
+    A = [[float(ADDS[a].get(r, 0.0)) for r in axes] for a in arms]
+    b = [float(deltas[a]) for a in arms]
+    k = len(arms)
+    best = None
+    for basis in combinations(range(len(axes)), k):
+        sol = _gauss([[A[i][j] for j in basis] for i in range(k)], b)
+        if sol is None or any(v < -1e-9 for v in sol):
+            continue
+        val = sum(BODY[axes[j]] * v for j, v in zip(basis, sol))
+        if best is None or val > best[0]:
+            best = (val, {axes[j]: v for j, v in zip(basis, sol)})
+    if best is None:
+        return ["  joint ceiling: LP infeasible; the arms cannot be reconciled "
+                "with any nonnegative per-op cost vector."]
+    val, wit = best
+    where = ", ".join(f"{r} at {c:.4f} ms/op" for r, c in sorted(wit.items())
+                      if c > 1e-9)
+    out = [f"  joint ceiling over arms {'+'.join(a.upper() for a in arms)} "
+           f"({len(axes)} axes: {', '.join(axes)}):",
+           f"    <= {val:.2f} ms = {100 * val / W:.1f}% of W, attained by "
+           f"putting all cost on {where}"]
+    if val >= W:
+        # A ceiling above W carries no information about the residual: G is
+        # only known to be >= W, so "the perturbed axes could own more than W"
+        # is consistent with everything. Report that instead of a negative
+        # residual, which would look like a finding and be one.
+        out.append("    => NO RESIDUAL BOUND. The ceiling exceeds W, and G is "
+                   "known only to be >= W, so this is vacuous. It would become "
+                   "informative only against a measured G, which no arm in this "
+                   "tree provides (that is host-side work -- see PR #148).")
+    else:
+        out.append(f"    => RESIDUAL >= {100 - 100 * val / W:.1f}% of the "
+                   "critical path is none of the perturbed axes")
     return out
 
 
@@ -479,6 +569,8 @@ def main():
             continue
         for line in shares(name, delta):
             print(line)
+    for line in joint_ceiling({"m2": dM2, "s2": dS2, "b2": dB2}):
+        print(line)
     print()
     print("--- verdict ---")
     for line in verdict(dM2, dS2, dB2):
