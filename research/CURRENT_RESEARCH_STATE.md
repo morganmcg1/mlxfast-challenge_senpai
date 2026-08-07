@@ -14,11 +14,11 @@
   M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
 
 ## M5 SUBMISSION STATUS
-  d417eaa: FAILED (150+ min, build succeeded, correctness gate) — frontier 6739b6a (shared halved path bug)
-  2cbf31e2: VALIDATING — frontier 36df213 (disabled shared halved path)
-  Root cause: lagunaPrefillSharedHalvedEnabled (NAX gate=true on M5) calls quantizedMM with
-  groupSize=32 and scales [N+1, K/32], but pre-PR#243 qmm_nax lacks kHalvedScales.
-  Fix: set lagunaPrefillSharedHalvedEnabled = false (falls through to standard groupSize=16).
+  d417eaa: FAILED (150+ min) — frontier 6739b6a (wrong vendor files from incomplete _nax revert)
+  2cbf31e2: FAILED (~17 min) — frontier 36df213 (halved disable, still wrong vendor files)
+  400ba6c: VALIDATING — vendor files restored to 68b66c5 state + current LRM (29+ opt)
+  Root cause: _nax revert (87aff2f) reverted to WRONG pre-PR#243 state, creating vendor-LRM mismatch.
+  Fix: restored vendor files to exact 68b66c5 state (last successful M5 submission, scored 2.5520).
   Best scored: df9613a at 2.5817. Leaderboard #1: 2.6040. Gap: +0.86%.
 
 ## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=74fead1)
