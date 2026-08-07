@@ -1,0 +1,10 @@
+worker up in 39.6s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718063354492188 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 547.42 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 15.964 12.426 11.815 8.779 8.494 8.375 8.213 8.294
+decode steps=200 mean=8.318 ms median=8.232 ms p10=8.191 ms p90=8.297 ms min=8.147 ms max=15.964 ms total=1.664 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.72149658203125 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/nez298/abba/b03_s33_R.err
