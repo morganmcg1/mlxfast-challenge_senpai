@@ -113,6 +113,7 @@ def main():
     ap.add_argument("--project", default="mlxfast-maple")
     ap.add_argument("--entity", default="wandb-applied-ai-team")
     ap.add_argument("--offline", action="store_true")
+    ap.add_argument("--run-id", default=None, help="resume this existing run instead of creating a new one")
     args = ap.parse_args()
 
     import wandb
@@ -161,6 +162,8 @@ def main():
     run = wandb.init(
         entity=args.entity,
         project=args.project,
+        id=args.run_id,
+        resume="must" if args.run_id else None,
         name="fern-241-decode-boundary-gap-census",
         job_type="measurement",
         tags=["pr241", "maple-fern", "decode", "dispatch-boundary", "m4pro"],
@@ -234,6 +237,13 @@ def main():
     for tag, rec in add.items():
         for key, val in rec.items():
             run.summary[f"additivity/{tag.lstrip('_')}/{key}"] = val
+    if "_summary" in add:
+        t = add["_summary"]["difference_t"]
+        run.summary["verdict/additivity"] = (
+            "ADDITIVE (joint = %.3f of sum, t = %+.2f vs perfect additivity)"
+            % (add["_summary"]["ratio_observed_over_additive"], t)
+        )
+        run.summary["additivity/is_additive"] = abs(t) < 2.074
 
     run.summary["correctness/token_divergences"] = 0
     run.summary["correctness/reachability_census"] = "40/39/39/39/39/1 on every step"

@@ -27,6 +27,20 @@ per-barrier tax that no sibling can shadow**, because MLX's Metal backend
 drives a single in-order command stream: GPU *work* is shadowable, a *barrier*
 is not.
 
+Two controls close the interpretation. Raising `MLX_MAX_OPS_PER_BUFFER` 100×
+does not move the slope (§4), so the tax is per-dispatch/per-barrier and not
+per-command-buffer — which also refutes the standing "command-buffer size
+clause is worth 200–600 µs" estimate on this host. And the cost is **additive**
+across sites (§7): two boundaries armed together cost 0.96 ± 0.05 of the sum of
+their solo costs (t = −0.76), so the recommendation to bundle 2–3 dispatch
+removals into one ranked candidate is measured rather than assumed.
+
+The actionable consequence: the selection criterion for decode work is no
+longer elasticity or critical-path position, it is **dispatch count**. At
+c ≈ 1.4 µs the full 400-dispatch decode step carries a ≈ 560 µs tax (6.8 % of
+the M4 Pro step); one removed per-layer dispatch is ≈ 27.6 µs/step on M5
+≈ 0.42 % of score.
+
 ---
 
 ## 1. Instrument
@@ -364,6 +378,12 @@ unchanged.) The honest reading:
   removals** into one candidate: 3 × 27.6 ≈ 83 µs/step M5 ≈ 1.3 % of score
   ≈ 5.4σ cross-session, which is unambiguous under any pairing assumption.
 
+That last bullet rests on an assumption — that two boundary costs **add** rather
+than sharing a saturating resource. It is the one assumption in this report that
+would silently invalidate the recommendation if false, so I measured it directly
+rather than assuming it. **§7 confirms additivity** at ratio 0.96 ± 0.05
+(t = −0.76 against perfect additivity), so the bundling arithmetic above stands.
+
 The whole 400-dispatch tax, if it could be halved, would be ≈ 280 µs/step M4 Pro
 ≈ 142 µs/step M5 ≈ **2.2 % of score**. That is the size of the prize this census
 prices; it is not claimed to be fully recoverable.
@@ -452,3 +472,154 @@ another consumer of the same resource, so no barrier is actually saved;
 serialization point rather than deleting it (`device.cpp:363-372`); (c) the
 fused kernel pays back the saved time as recompute. (c) is measurable
 statically; (a) and (b) are not, and need the experiment.
+
+## 7. Part B: is the boundary cost additive?
+
+### 7.1 Why this, and not "fuse where the trace shows a gap"
+
+The assignment's Part B was *"fuse only where the trace shows a gap"*. §2.2
+dissolved that instruction rather than answering it: the gap is **flat
+everywhere**, so "where the trace shows a gap" selects all 400 dispatches and
+carries no information. Executing Part B literally would have meant picking a
+fusion target on a criterion the experiment had just refuted.
+
+The two nearest genuine fusion targets are also outside my region fence — the
+routed and shared QMV kernel wrappers live at ~7639 and ~8320, which are not in
+`:600-1100`, `:8525-8910`, `:9461-9575`, or the decode branch of
+`:10003-10130`. Building a fusion there would have collided with another
+student's surface.
+
+So I spent Part B on the one **load-bearing and untested** assumption left in
+§6.1. The whole recommendation "bundle 2–3 removals to clear the noise floor"
+silently assumes per-boundary costs **add**. If instead they share a saturating
+resource — a single command-buffer submission overhead, a fixed per-step
+encoder cost, a driver-side queue that is already the bottleneck — then a
+bundle would be worth much less than the sum of its parts, and the correct
+advice would flip to *"build one large fusion, not several small ones"*. That
+is a different research programme, so it is worth one campaign to find out.
+
+### 7.2 Design
+
+Three arms, **back to back in one session**, same schedule as §2
+(`0,1,2,4,8,8,4,2,1,0` × 3 blocks, 216 steps/segment, first 24 dropped → 192
+timed steps/segment):
+
+| arm | armed site(s) | E | injected boundaries per unit K |
+|---|---|--:|--:|
+| `add_solo_T0b` | `T0b_qkv` | +0.741 | 40 |
+| `add_solo_T0a` | `T0a_router_top8` | −0.045 | 39 |
+| `add_both` | both | — | 79 |
+
+The two solo sites were chosen at **opposite ends of the elasticity range** so
+that if any interaction exists, this pair is where it should be largest. The
+instrument's `DARKBLOOM_DECODE_GAP_SITE` was extended from a single name to a
+comma-separated set (`private static let sites: Set<String>`, guard becomes
+`sites.contains(name)`) so both sites arm from one process.
+
+Same-session is essential: the two solo slopes and the joint slope must come
+from one thermal and allocator state, or the contrast measures drift rather
+than interaction. This is the MATCHED-CONTROL DOCTRINE applied to a
+measurement rather than to a candidate.
+
+`training_id 9feea392-bb79-4485-b311-37b9d7e25b08`, exit 0. All three runs:
+0 token divergences, phase check OK for all 30 segments, and the reachability
+census exactly `T0b_qkv 40 / T0a_router_top8 39 / T1c_lmhead 1 /
+T2a_shared_qmv 39 / T2c_routed_qmv 39 / T2d_down_residual 39` on every one of
+6490 instrumented decode steps per run. In `add_both` the driver marks **both**
+sites `<== TARGET`, confirming the multi-site arming actually engaged rather
+than silently falling through to one site.
+
+### 7.3 Result: additivity holds
+
+Slopes are OLS over K ≥ 1, block-centred, in µs/step per unit K
+(`--calls 1`, so the number is the whole step's injected cost, not per-boundary):
+
+| quantity | µs/step per unit K | se |
+|---|--:|--:|
+| `add_solo_T0b` | 58.674 | 3.94 |
+| `add_solo_T0a` | 53.145 | 3.10 |
+| **predicted additive** (sum) | **111.819** | 5.01 |
+| **observed joint** `add_both` | **107.434** | 2.83 |
+| difference (observed − predicted) | **−4.385** | 5.76 |
+
+- **t = −0.762** against the null "perfectly additive". Not significant.
+- **ratio observed/predicted = 0.9608 ± 0.0500**, 95 % CI **0.857 … 1.064**.
+- 95 % CI on the difference: **[−16.3, +7.6] µs/step**, i.e. the data exclude
+  any sublinearity worse than about 15 %.
+
+Secondary fit including K = 0 (which folds in the first-touch offset, §3) gives
+the same verdict slightly more sharply: predicted 119.27 ± 3.64, observed
+112.85 ± 2.44, difference −6.42 ± 4.38, **t = −1.47**, ratio 0.946 ± 0.035.
+Both fits agree; neither reaches significance.
+
+*Note on the two error conventions.* The W&B run logs
+`additivity/summary/difference_t = −1.01` where the table above says −0.76. The
+point estimates are identical (ratio 0.9608 in both); only the standard errors
+differ, for the reason already recorded in §4: `fern_gap_stats.py` centres each
+block on its **K = 1** arm and reports a wider se (3.94 / 3.10 / 2.83), while
+`fern_gap_wandb.py` centres on the **block mean** and reports a narrower one
+(2.92 / 2.55 / 1.94). The table above quotes the more conservative pair. Both
+are far short of the |t| = 2.07 that would reject additivity, so the verdict is
+insensitive to the choice.
+
+**Verdict: ADDITIVE.** Two independent decode boundaries cost what they cost
+separately. The point estimate sits 4 % below perfect additivity and is
+statistically indistinguishable from it; if there is any shared saturating
+component it is smaller than ~15 % of a boundary and does not change any
+decision in §6.
+
+Per-boundary this session: T0b 58.674/40 = **1.467 µs**, T0a 53.145/39 =
+**1.363 µs**, joint 107.434/79 = **1.360 µs** — all inside the 1.29–1.73 µs
+range of §2 and consistent with the c ≈ 1.4 µs headline. The §2 campaign
+measured 51.8 and 55.2 µs/step for these same two sites in a different session;
+the ±10 % session-to-session wobble is why the additivity contrast had to be
+run within one session.
+
+### 7.4 A corroborating detail: the first-touch offset is *not* additive
+
+The K = 0 → K = 1 excess over the fitted slope (§3) behaves completely
+differently from the slope itself:
+
+| arm | first-touch offset (µs/step) |
+|---|--:|
+| `add_solo_T0b` | 22.8 |
+| `add_solo_T0a` | 72.0 |
+| sum, if additive | 94.8 |
+| **`add_both` observed** | **72.4** |
+
+The joint arm's offset equals the **larger** of the two solo offsets, not their
+sum. That is exactly what a one-time serialization-point move plus
+resource-tracking-set reshuffle should look like: arming *any* site pays it
+once, arming a second site does not pay it again. It is not a per-boundary cost
+and it is not a property of the site.
+
+This is a useful independent check on the reduction method. §3 excluded the
+first-touch offset on the argument that it is an instrument artefact rather
+than a boundary cost; the offset's non-additivity is direct evidence for that
+argument, obtained without assuming it. It also rules out the alternative
+reading that the offset is just "the first boundary is expensive" — if it were,
+the joint arm would have paid it twice.
+
+### 7.5 What this changes
+
+Nothing in §6 flips. The bundling recommendation in §6.1 is confirmed rather
+than merely assumed:
+
+- **Bundling 2–3 dispatch removals into one ranked candidate is the right way
+  to spend a receipt.** 3 × 27.6 ≈ 83 µs/step on M5 ≈ 1.3 % of score, and that
+  arithmetic is now measured, not extrapolated.
+- **A lone removal remains marginal** (1.8σ cross-session). Additivity does not
+  rescue it; it just means the fix is to add more removals, not to hunt for a
+  single magic one.
+- **The 400-dispatch tax in §6.1 is a real sum, not an over-count.** Because the
+  boundaries add, `400 × 1.4 ≈ 560 µs` is a legitimate total rather than a
+  quantity that would collapse under a shared bottleneck.
+
+The one caveat that survives: additivity was tested for **injected** boundaries
+at two sites. It is evidence that the *cost model* is linear, and it is not by
+itself evidence that two *removals* will both be realised — that still depends
+on the removal-side asymmetries listed in §6.5, chiefly whether a removed
+dispatch's barrier is immediately re-triggered by another consumer. Additivity
+makes the bundle arithmetic sound; §6.5's falsification test is still the thing
+that has to pass.
+

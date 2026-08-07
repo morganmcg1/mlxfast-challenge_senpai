@@ -1,8 +1,8 @@
 diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
-index e79b134..57dccb6 100644
+index e79b134..3761d80 100644
 --- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
 +++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
-@@ -7,6 +7,79 @@ import MLXNN
+@@ -7,6 +7,85 @@ import MLXNN
  // Correctness-first Laguna XS 2.1 runtime, behavior-checked against the
  // vendored reference implementation and specialized by guarded fast paths.
  
@@ -15,6 +15,12 @@ index e79b134..57dccb6 100644
 +enum LagunaDecodeGap {
 +    private static let env = ProcessInfo.processInfo.environment
 +    private static let site = env["DARKBLOOM_DECODE_GAP_SITE"] ?? ""
++    /// A comma-separated site list arms every named site in the same step, which
++    /// is how the additivity arm is driven.
++    private static let sites: Set<String> = Set(
++        site.split(separator: ",")
++            .map { $0.trimmingCharacters(in: .whitespaces) }
++            .filter { !$0.isEmpty })
 +    private static let fixedK = Int(env["DARKBLOOM_DECODE_GAP_K"] ?? "") ?? 0
 +    private static let stepsPerSegment = Int(env["DARKBLOOM_DECODE_GAP_STEPS"] ?? "") ?? 1
 +    private static let verbose = (env["DARKBLOOM_DECODE_GAP_VERBOSE"] ?? "") == "1"
@@ -49,7 +55,7 @@ index e79b134..57dccb6 100644
 +
 +    static func pad(_ name: String, _ x: MLXArray) -> MLXArray {
 +        counts[name, default: 0] += 1
-+        guard isDecode, currentK > 0, name == site else { return x }
++        guard isDecode, currentK > 0, sites.contains(name) else { return x }
 +        if unit == nil || unitDType != x.dtype {
 +            unit = MLXArray(Float(1)).asType(x.dtype)
 +            unitDType = x.dtype
@@ -82,7 +88,7 @@ index e79b134..57dccb6 100644
  func lagunaLastTokenRange(sequenceLength: Int) -> Range<Int>? {
      sequenceLength > 1 ? (sequenceLength - 1)..<sequenceLength : nil
  }
-@@ -5759,7 +5832,8 @@ final class LagunaRuntimeAttention: Module {
+@@ -5759,7 +5838,8 @@ final class LagunaRuntimeAttention: Module {
                  let decodeNVFP4QKVR1 =
                      fusedQKV == nil
                      ? lagunaDecodeNVFP4QKVR1(
@@ -92,7 +98,7 @@ index e79b134..57dccb6 100644
                      : nil
                  let qkv =
                      fusedQKV
-@@ -9533,7 +9607,7 @@ final class LagunaRuntimeMoEGate: Module {
+@@ -9533,7 +9613,7 @@ final class LagunaRuntimeMoEGate: Module {
                      ? "decode router top8 (cast sink + norm sink)"
                      : "decode router top8 (cast sink)")
              (inds, weights) = lagunaDecodeRouterTop8(
@@ -101,7 +107,7 @@ index e79b134..57dccb6 100644
                  correctionBias: eScoreCorrectionBias.asType(.float32),
                  normalizing: sinkNormalization
              )
-@@ -10052,7 +10126,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
+@@ -10052,7 +10132,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                      {
                          lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys)")
                          activated = lagunaRoutedSwiGLUQMVPackedTop8(
@@ -110,7 +116,7 @@ index e79b134..57dccb6 100644
                              fusedWeight: fusedWeight,
                              packedScales: packedBank,
                              routerKeys: routerKeys
-@@ -10102,7 +10176,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
+@@ -10102,7 +10182,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                  let downWeight = _routedDownWeight,
                  let downScales = _routedDownScales,
                  let sharedInputs = sharedExpert.fusedSharedDownInputs(
@@ -120,7 +126,7 @@ index e79b134..57dccb6 100644
                  activated.dtype == .bfloat16,
                  activated.dims(1, 1, LagunaConstants.numExpertsPerTok, 1,
                      LagunaConstants.moeIntermediateSize),
-@@ -10119,7 +10194,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
+@@ -10119,7 +10200,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
              {
                  lagunaTrace("routed+shared down residual")
                  return lagunaRoutedSharedDownResidual(
@@ -129,7 +135,7 @@ index e79b134..57dccb6 100644
                      routedDownWeight: downWeight,
                      routedDownScales: downScales,
                      indices: inds,
-@@ -10945,6 +11020,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10945,6 +11026,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
      }
  
      public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
@@ -137,7 +143,7 @@ index e79b134..57dccb6 100644
          let fullHidden = model(inputs, cache: cache)
          // Every consumer of multi-token logits reads only the LAST
          // position's row. Slice before the row-independent final RMSNorm and
-@@ -10967,7 +11043,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10967,7 +11049,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                  // single-token decode takes the three-level screen, whose
                  // level-one pass reads 25.7 MB/step less of the int5 planes.
                  result = pruner.logits(
@@ -146,7 +152,7 @@ index e79b134..57dccb6 100644
                      lmHeadWeight: lmHead.weight,
                      useFusedRefinement: inputs.dims(1, 1))
              } else {
-@@ -10979,6 +11055,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10979,6 +11061,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
          if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
              asyncEval(result)
          }
