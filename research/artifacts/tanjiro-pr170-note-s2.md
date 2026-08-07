@@ -195,6 +195,43 @@ safety check to make a dashboard green.
 `./benchmark.sh --local-iterate` (probe 0, M4): exit 0 in 354 s,
 `"passed": true`, score 0.798, prefill 0.001126 s/tok, decode 0.012878 s/tok.
 
+## 7b. Independent LLVM-IR cross-check of the same census
+
+The §7 numbers are counted from post-optimisation AIR. Counting again at the
+LLVM IR level, from a different pass and a different tool
+(`research/tanjiro_ir_cfg_check.py`), reproduces the delta column on every axis
+and on **both** live GEMM shapes:
+
+| axis | pb0 | pb1 M2 | pb2 S2 | pb3 B2 | ΔS2 |
+|---|---|---|---|---|---|
+| device loads | 6 | 6 | 8 | 6 | **+2** |
+| threadgroup loads | 4 | 4 | 4 | 4 | +0 |
+| threadgroup stores | 5 | 5 | 6 | 5 | **+1** |
+| `air.wg.barrier` | 7 | 7 | 8 | 9 | **+1** |
+| `mma` | 1 | 2 | 1 | 1 | +0 |
+| integer ALU | 147 | 176 | 153 | 147 | +6 |
+| float ALU | 10 | 11 | 10 | 10 | +0 |
+
+The `512x2048` projection gives the identical delta column, so neither shape is
+a special case.
+
+This says plainly that **S2 is the least clean of the three arms**: it moves
+four axes, not one. The `+2 / +1` load-and-store pair is the intended
+mechanism, the `barrier +1` is the impurity §8 already corrects for with the
+B2-derived interval, and `int_alu +6` is a small additional confound in the
+same direction as the mechanism. That is exactly why this arm's reading is
+published as an interval rather than a point estimate, and why the companion
+B2 arm — `barrier +2` and, at this representation, `int_alu +0`, nothing else —
+is the instrument that prices the barrier term.
+
+The same pass also confirms, in probe 1, that the shadow-MMA sink used by the
+M2 arm is not dominated by its runtime-false guard, so the arm family as a
+whole is measuring work that actually executes rather than work the backend
+deleted. The integer-ALU magnitudes are larger at this representation than in
+§7 (`+6` here vs `+4` in AIR) because the two stages count differently; the
+sign, the ordering and the set of untouched axes agree exactly, and only those
+are load-bearing here.
+
 ## 8. How to read this receipt
 
 Let `ΔS2 = S_S2 − S_control` and `ΔB2 = S_B2 − S_control`, in milliseconds of

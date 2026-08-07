@@ -198,6 +198,41 @@ safety check to make a dashboard green.
 `./benchmark.sh --local-iterate` (probe 0, M4): exit 0 in 354 s,
 `"passed": true`, score 0.798, prefill 0.001126 s/tok, decode 0.012878 s/tok.
 
+## 7b. Independent LLVM-IR cross-check: B2 is the clean arm
+
+The §7 numbers are counted from post-optimisation AIR. Counting again at the
+LLVM IR level, from a different pass and a different tool
+(`research/tanjiro_ir_cfg_check.py`), reproduces the delta column on every axis
+and on **both** live GEMM shapes:
+
+| axis | pb0 | pb1 M2 | pb2 S2 | pb3 B2 | ΔB2 |
+|---|---|---|---|---|---|
+| device loads | 6 | 6 | 8 | 6 | +0 |
+| threadgroup loads | 4 | 4 | 4 | 4 | +0 |
+| threadgroup stores | 5 | 5 | 6 | 5 | +0 |
+| `air.wg.barrier` | 7 | 7 | 8 | 9 | **+2** |
+| `mma` | 1 | 2 | 1 | 1 | +0 |
+| integer ALU | 147 | 176 | 153 | 147 | +0 |
+| float ALU | 10 | 11 | 10 | 10 | +0 |
+
+The `512x2048` projection gives the identical delta column, so neither shape is
+a special case.
+
+**B2 is `barrier +2` and nothing else.** Every other axis, integer ALU
+included, is bit-identical to the control — the whole-body IR instruction count
+moves by 2 (457 → 459). This is stronger than §7's AIR census could show, where
+the arm was clean on the memory axes but integer ALU was not separately
+resolved. Of the three arms this is the only one that is genuinely single-axis,
+which is what qualifies it to price the barrier term that the S2 arm carries as
+an impurity. Read against the sibling arms it is also the cheapest possible
+null: if `ΔB2 ≈ 0` while `ΔS2` is large, no barrier-accounting artefact can
+explain the S2 reading.
+
+The same pass also confirms, in probe 1, that the shadow-MMA sink used by the
+M2 arm is not dominated by its runtime-false guard, so the arm family as a
+whole is measuring work that actually executes rather than work the backend
+deleted.
+
 ## 8. How to read this receipt
 
 Let `ΔB2 = S_B2 − S_control`, in milliseconds of prefill wall. B2 serves two

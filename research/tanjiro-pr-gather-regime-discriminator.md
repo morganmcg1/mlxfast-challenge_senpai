@@ -1152,10 +1152,14 @@ of the parameter space (the algebra is in §4.0). Any reading that treats
 `ΔM2` against `ΔS2` rather than against an absolute prediction.
 
 **Two M2-specific caveats worth checking before over-reading `ΔM2`.**
-(a) The census shows `mma 1 -> 2` in post-optimisation AIR on M4, but the M5
-compiles independently and a sufficiently aggressive scheduler could still sink
-or interleave the shadow MMA differently; the count is evidence, not a
-guarantee. (b) It is worth confirming whether `tile_matmad_nax`
+(a) The census shows `mma 1 -> 2` in post-optimisation AIR on M4, and §4.0.3
+goes further by showing in the LLVM IR that neither MMA is dominated by the
+runtime-false guard, so on *this* toolchain the shadow chain provably executes.
+What that does not cover is the M5, which compiles independently: a different
+scheduler could still sink or interleave the shadow MMA. The residue is now
+narrow — it is a claim about one specific compiler on unavailable hardware
+rather than about the source — but it is evidence, not a guarantee.
+(b) It is worth confirming whether `tile_matmad_nax`
 (`steel/gemm/nax.h`, around `:994-1031`, descriptor at `:503`) takes threadgroup
 operands — if it does, the shadow MMA is not purely an issue-slot perturbation
 and shares a resource with S2, which would weaken the axis separation that R2
@@ -1186,6 +1190,86 @@ adequacy proof in §4.0 shows the interval can only flip a verdict when
 `ΔB2 > 0.20·W = 8.65 ms`, which already trips R1 and makes H3 the headline —
 i.e. exactly in the regime where the interval no longer matters. Revisit only
 if a future run has M5 access for a correctness check before submission.
+
+**Known limitation: register pressure per arm is unmeasured.** The pipeline
+reports `staticThreadgroupMemoryLength = 9232 B`,
+`maxTotalThreadsPerThreadgroup = 1024` and `threadExecutionWidth = 32`,
+byte-identical across all four probes and both shapes, which is what lets §7 of
+each note claim occupancy is unperturbed *on the threadgroup-memory axis*. It
+does not settle the register axis. The census tool prints a `regs_est` column,
+but that value is a hardcoded `32` rather than a real estimate — I checked, and
+I am flagging it here because a reader could easily mistake it for a
+measurement. With a ~208 KB/core register file, an arm that pushed register
+demand over an occupancy step would change resident threadgroups per core and
+confound its own reading. M2 is the plausible offender: it adds a second
+accumulator tile. Nothing in the evidence rules this out, so a large `ΔM2`
+must be read as "MMA-axis pressure *or* an occupancy step", not as pure issue
+cost. Resolving it needs either a real register count from an M5 toolchain or
+the occupancy probe below.
+
+**The cleanest unbuilt instrument is an explicit occupancy probe.** Rather than
+inferring occupancy effects, pad `Ws_storage` by enough bytes to drop the
+kernel from 3 resident threadgroups per core to 2, changing nothing else. That
+is a single-axis occupancy arm, it is trivially bit-exact (the padding is never
+read), and it prices the occupancy step directly — which both calibrates the
+register caveat above and tests H3 from a different direction than B2 does. If
+I had a fifth receipt this is what I would spend it on.
+
+**Unprobed hypothesis H1b: scalar/dequant ALU boundness.** The three arms
+partition the resource space into MMA, staging and barriers, and treat "none of
+the above" as H3 (latency). That is too coarse. On a generation where the NAX
+unit co-issues with the FP and integer pipes, a kernel bottlenecked on the
+NVFP4 dequant chain — `fp4nv_decode8` alone is 13 integer ops, and the routed
+gather does that per 8 values — would show `ΔM2 ≈ ΔS2 ≈ ΔB2 ≈ 0` and be filed
+as H3, because no arm perturbs the scalar integer pipe as its *primary* axis.
+The A2 arm built for this PR (`research/artifacts/tanjiro-pr170-a2-probe4.patch`,
+`int_alu 606 → 635`, every other axis unchanged) is exactly that instrument and
+is held out of tree pending a firing condition. Registered before any receipt:
+A2 fires if the reading is a flat null, if S2 reads positive, or if `ΔM2` is
+large. A flat null across M2/S2/B2 should be reported as "H3 *or* H1b", not as
+H3, unless A2 has been run.
+
+**Two redesigns for a second-generation S2.** (i) The current S2 stages through
+threadgroup memory and therefore drags a barrier along, which is the whole
+reason its reading is an interval. A register-sink variant — load
+device → registers and OR-accumulate into one dead vector register — perturbs
+the load axis with no extra barrier and no extra threadgroup store, collapsing
+the interval to a point and retiring the B2 correction entirely. (ii) It would
+also drop S2's `int_alu +6` confound. This is strictly better than what shipped
+and is the first thing to build if this line continues.
+
+**Get a generation-17 device and most of this becomes local.** Every hard
+constraint in this experiment — four receipts, no bit-exactness check for
+staging arms, no register numbers, M5-only compilation — traces to
+`is_nax_available()` being false on the gen-16 host, so the kernel under study
+never executes here. A single gen-17 machine converts the entire programme from
+receipt-metered to iterative. Short of that, adding an offline `metal` compile
+targeting apple-17 to the preflight rig would at least catch JIT errors that
+currently can only surface as a wasted official run.
+
+**Why M2 went first, against review advice.** The frontier review argued for
+S2 → M2 and for demoting B2, on the grounds that S2 has the strongest prior
+(feeding one core's NAX needs ~93 GB/s/core). I kept M2 → S2 → B2 for two
+reasons and record them so the ordering can be judged rather than assumed.
+First, the ALU census makes the M2 confound **one-sided**: the arm adds MMA
+*and* integer ALU, so a large `ΔM2` is ambiguous but a small `ΔM2` kills H1
+outright regardless of the confound. Ordering a test so that its cheap outcome
+is its decisive one is worth more than ordering by prior probability. Second,
+M2's dispatch path was already structurally witnessed end to end when the slot
+opened, and re-verifying a different arm would have cost a queue cycle against
+a hard four-receipt budget. If the reading comes back ambiguous, the review's
+ordering was the better one and I will say so.
+
+**The strategic ceiling here is modest, and worth stating plainly.** Perfectly
+fixing whichever axis this experiment names is worth at most `43.26 → ~29 ms`
+of the routed gather, about 14.6% of prefill and — at 25% score weight — a
+low-single-digit score move. This experiment's value is that it tells the next
+person *which* axis to attack, not that it wins on its own. A related honest
+limit: a `(large, large)` reading on both stream arms cannot distinguish a
+perfectly overlapped co-bound kernel from two serially exposed phases, since
+the observed `43.26 ms` sits between the `~29 ms` perfect-overlap and `~58 ms`
+fully-serial predictions. A latency probe, not another throughput arm, is the
+discriminator for that fork.
 
 ## 10. Reproduction
 
