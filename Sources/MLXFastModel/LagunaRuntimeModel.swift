@@ -7,6 +7,84 @@ import MLXNN
 // Correctness-first Laguna XS 2.1 runtime, behavior-checked against the
 // vendored reference implementation and specialized by guarded fast paths.
 
+/// RESEARCH-ONLY duplicate-injection instrument (PR #218). Never shipped:
+/// this whole enum is inert unless `DARKBLOOM_DECODE_DUP_TARGET` is set to a
+/// non-empty name AND `DARKBLOOM_DECODE_DUP_K > 1`, and it is reverted before
+/// submission. It re-issues one named decode dispatch family `K-1` extra
+/// times per call, each copy writing its own freshly allocated output, and
+/// registers those outputs as extra eval roots ahead of the real root so MLX
+/// cannot eliminate them. Measuring d(step time)/dK prices that family's
+/// marginal cost without deleting anything.
+enum LagunaDecodeDup {
+    static let target = ProcessInfo.processInfo.environment[
+        "DARKBLOOM_DECODE_DUP_TARGET"] ?? ""
+    static let k = Int(
+        ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_K"] ?? "1") ?? 1
+    static let chained =
+        ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_CHAIN"] == "1"
+    /// Sensitivity control (see `faultInput`): perturbs the *real* dispatch,
+    /// not a duplicate, because duplicates write scratch that nothing reads.
+    static let fault =
+        ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_FAULT"] == "1"
+    static let verbose =
+        ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_DUP_VERBOSE"] == "1"
+    static let enabled = !target.isEmpty && k > 1
+
+    nonisolated(unsafe) private static var roots: [MLXArray] = []
+    nonisolated(unsafe) private static var callCounts: [String: Int] = [:]
+
+    /// Emit `k-1` duplicates of the dispatch named `name`. `body` receives the
+    /// copy index (1-based) and the previous copy's output when chaining, and
+    /// must issue exactly the same kernel with a fresh output.
+    @inline(__always)
+    static func inject(
+        _ name: String, _ body: (Int, MLXArray?) -> MLXArray?
+    ) {
+        guard enabled, name == target else { return }
+        callCounts[name, default: 0] += 1
+        var previous: MLXArray?
+        for copy in 1..<k {
+            guard let produced = body(copy, chained ? previous : nil) else { return }
+            roots.append(produced)
+            previous = produced
+        }
+    }
+
+    /// Extra eval roots accumulated since the last drain, ordered oldest
+    /// first so the graph walk reaches each copy next to its own layer.
+    @inline(__always)
+    static func drain() -> [MLXArray] {
+        guard enabled, !roots.isEmpty else { return [] }
+        let drained = roots
+        roots.removeAll(keepingCapacity: true)
+        return drained
+    }
+
+    /// Called once per model invocation. Under `DARKBLOOM_DECODE_DUP_VERBOSE=1`
+    /// the per-invocation injected-call census goes to stderr, which is how the
+    /// probe learns `n_calls_per_step` and asserts
+    /// `n_dispatch(K) - n_dispatch(1) == n_calls_per_step * (K-1)`.
+    /// Timed runs leave it off so no I/O lands in the measured window.
+    @inline(__always)
+    static func endStep() {
+        guard enabled, verbose, !callCounts.isEmpty else { return }
+        let census = callCounts.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }.joined(separator: ",")
+        FileHandle.standardError.write(Data("DUPCOUNT k=\(k) \(census)\n".utf8))
+        callCounts.removeAll(keepingCapacity: true)
+    }
+
+    /// Sensitivity control. Under `DARKBLOOM_DECODE_DUP_FAULT=1` the *real*
+    /// dispatch named `name` reads an input whose bf16 bit pattern is one ULP
+    /// higher. If the logit digest does not move under this, the digest is not
+    /// sensitive at this site and "digests match at K>1" would be a tautology.
+    @inline(__always)
+    static func faultInput(_ name: String, _ x: MLXArray) -> MLXArray {
+        guard fault, name == target, x.dtype == .bfloat16 else { return x }
+        return (x.view(dtype: .uint16) + MLXArray(UInt16(1))).view(dtype: .bfloat16)
+    }
+}
+
 func lagunaLastTokenRange(sequenceLength: Int) -> Range<Int>? {
     sequenceLength > 1 ? (sequenceLength - 1)..<sequenceLength : nil
 }
@@ -5739,13 +5817,23 @@ final class LagunaRuntimeAttention: Module {
                     let affineBiases = fusedAffine.biases
                 {
                     fusedQKV = lagunaNormAffineQKV(
-                        residual: input,
+                        residual: LagunaDecodeDup.faultInput("T0b_qkv", input),
                         normWeight: inputNorm.weight,
                         codes: fusedAffine.packedCodes,
                         scales: fusedAffine.scales,
                         biases: affineBiases,
                         indexedMetadata: fusedAffine.indexedMetadata,
                         rows: fusedAffine.originalShape[0])
+                    LagunaDecodeDup.inject("T0b_qkv") { _, _ in
+                        lagunaNormAffineQKV(
+                            residual: input,
+                            normWeight: inputNorm.weight,
+                            codes: fusedAffine.packedCodes,
+                            scales: fusedAffine.scales,
+                            biases: affineBiases,
+                            indexedMetadata: fusedAffine.indexedMetadata,
+                            rows: fusedAffine.originalShape[0])
+                    }
                 }
 
                 // The fused tail norm+QKV+gate kernel was removed after the
@@ -9532,11 +9620,22 @@ final class LagunaRuntimeMoEGate: Module {
                 sinkNormalization
                     ? "decode router top8 (cast sink + norm sink)"
                     : "decode router top8 (cast sink)")
+            // One shared correction node: re-issuing `.asType` inside each
+            // duplicate would add an extra dispatch per copy and break the
+            // `n_dispatch(K) - n_dispatch(1) == calls * (K-1)` identity.
+            let correction = eScoreCorrectionBias.asType(.float32)
             (inds, weights) = lagunaDecodeRouterTop8(
-                logits: projectedLogits,
-                correctionBias: eScoreCorrectionBias.asType(.float32),
+                logits: LagunaDecodeDup.faultInput("T0a_router_top8", projectedLogits),
+                correctionBias: correction,
                 normalizing: sinkNormalization
             )
+            LagunaDecodeDup.inject("T0a_router_top8") { _, _ in
+                lagunaDecodeRouterTop8(
+                    logits: projectedLogits,
+                    correctionBias: correction,
+                    normalizing: sinkNormalization
+                ).1
+            }
             if sinkNormalization {
                 return (inds, weights)
             }
@@ -10883,7 +10982,7 @@ final class LagunaRuntimeModelInner: Module {
                     qkRoPEOffsets: qkRoPEOffsets
                 )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
-                    asyncEval(h)
+                    asyncEval(LagunaDecodeDup.drain() + [h])
                 }
                 if lagunaPrefillAsyncLadderStride > 0, h.dim(1) > 1,
                     (i + 1) % lagunaPrefillAsyncLadderStride == 0
@@ -10976,9 +11075,13 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         } else {
             result = model.embedTokens.asLinear(hidden)
         }
-        if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
+        let pendingDupRoots = LagunaDecodeDup.drain()
+        if !pendingDupRoots.isEmpty {
+            asyncEval(pendingDupRoots + [result])
+        } else if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
+        LagunaDecodeDup.endStep()
         return result
     }
 
