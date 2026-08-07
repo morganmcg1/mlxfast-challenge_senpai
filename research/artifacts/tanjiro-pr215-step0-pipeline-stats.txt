@@ -1,0 +1,89 @@
+# PR #215 Step-0 diagnostic: control (PF=0) vs arm 1 (PF=1), both ranked shapes.
+# Requested by advisor feedback comment 5213645316 (2026-08-07T07:00:47Z) section 2,
+# as a zero-receipt discriminator between the two candidate explanations of the null.
+#
+# Regenerate:
+#   BK=64 PROBE=0 PF=0 EMIT_LIB=1 OUT_DIR=/tmp/naxpf0 bash research/nax_msl_compile_check.sh
+#   BK=64 PROBE=0 PF=1 EMIT_LIB=1 OUT_DIR=/tmp/naxpf1 bash research/nax_msl_compile_check.sh
+#   FILTER=expert swift research/tanjiro_metallib_stats.swift /tmp/naxpf0/unit.metallib /tmp/naxpf1/unit.metallib
+#
+# Naming: no suffix = control (kloop_prefetch=0, the shipped structure);
+#         _pf1      = arm 1 (kloop_prefetch=1, depth-1 register-staged K-loop prefetch).
+# Host: Apple M4 Pro (applegpu_g16s). Offline compile + reflection only; _nax is never
+# dispatched on this host (is_nax_available() requires GPU generation >= 17).
+
+device: Apple M4 Pro
+  maxThreadgroupMemoryLength = 32768 B
+
+function  tgMem_B  maxThreads  width  regs_bound
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_2048x1024_bk64_pf1       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64       9232         1024     32  <=32*
+fp_gather_qmm_rhs_expert_nax_check_512x2048_bk64_pf1       9232         1024     32  <=32*
+
+* maxThreads is at the 1024 Metal API ceiling, so the register bound is saturated:
+  it cannot distinguish 8 from 32 registers/thread and cannot resolve the 104/128/160
+  half-register occupancy cliffs. Threadgroup-memory residency IS settled by tgMem_B.
+  Register-driven residency on the ranked GPU generation is NOT establishable from this
+  host's offline pipeline build; treat it as an open confound.
+
+
+================================================================================
+IMPLIED THREADGROUPS PER SHADER CORE
+================================================================================
+
+Ranked geometry (quantized.cpp variant 5): bm=64 bn=64 wm=4 wn=1
+  -> 128 threads per threadgroup, threadExecutionWidth 32
+  -> 4 simdgroups per threadgroup.
+
+Two independent residency constraints bound threadgroups per core:
+
+  (1) threadgroup-memory pool.  With a per-core threadgroup-memory pool of P bytes,
+      TGs/core = floor(P / tgMem_B).  For the standard 64 KiB Apple per-core pool:
+        control : floor(65536 / 9232) = 7
+        arm 1   : floor(65536 / 9232) = 7
+      This bound is INVARIANT under P: tgMem_B is bit-identical between the two
+      variants, so whatever the true pool size, the two variants get the same number.
+
+  (2) simdgroup slots.  The M5 occupancy ladder for this core is 32 simdgroups/core at
+      <= 104 half-registers, falling to 26 / 20 / 16 / 12 at 128 / 160 / 208 / 256.
+        at <=104 half-regs: floor(32 / 4) = 8 TGs/core
+        at   128 half-regs: floor(26 / 4) = 6 TGs/core
+        at   160 half-regs: floor(20 / 4) = 5 TGs/core
+
+  Binding constraint = min of the two.
+
+  variant   tgMem_B   TGs/core (tgmem, P=64KiB)   TGs/core (simd, <=104 half-reg)   binding
+  control      9232                           7                                 8         7
+  arm 1        9232                           7                                 8         7
+
+  => 7 threadgroups/core = 28 resident simdgroups/core, IDENTICAL for both variants,
+     unless the arm crossed a register step. maxTotalThreadsPerThreadgroup would have
+     dropped below 1024 only at >= 64 half-registers/thread; it did not drop, but that
+     test saturates well below the 104 cliff, so it does not by itself exclude a step.
+
+
+================================================================================
+READING (per the advisor's pre-registered discriminator)
+================================================================================
+
+Predicted discriminator:
+  "maxTotalThreadsPerThreadgroup dropped => occupancy/register pressure is the mechanism.
+   Still 1024 and tgmem still 9232 B => register pressure is NOT the story, and the
+   explanation is added instruction count in a K-loop #170 already showed is issue-limited."
+
+Observed: maxThreads 1024 -> 1024 (no drop), tgMem_B 9232 -> 9232 (no change),
+          threadExecutionWidth 32 -> 32, on BOTH ranked shapes.
+
+=> The SECOND branch. No threadgroup-memory cost, no geometry change, no evidence of a
+   register step at the resolution this host can reach. The null is therefore NOT
+   explained by lost occupancy; it is explained by the arm adding instructions
+   (front-end IR: instrs 3520 -> 3784, dev_load 76 -> 80, int_alu 614 -> 655, with
+   barrier 12 -> 12 and mma 2 -> 2 unchanged) to a loop whose residual cost PR #170
+   measured as a PURE-ISSUE term of 6.887 ms = 15.9 % of the 43.2619 ms marginal window.
+
+Caveat retained: the register-step question is only partly closed. maxThreads saturates
+at the 1024 API ceiling, so this host cannot resolve the 104/128/160 half-register
+cliffs. What IS closed is that arm 1 costs zero additional threadgroup memory and does
+not change the launch geometry, so the tgmem-limited residency bound is provably equal
+between control and arm.
