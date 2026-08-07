@@ -249,6 +249,22 @@ let lagunaExpertAlignedGatherEnabled = {
     )
 }()
 
+/// Prefill shared expert halved-scales via qmm_nax kHalvedScales. The
+/// qmm_nax kernel path and its kHalvedScales template are M5 (NAX) only;
+/// on non-NAX hardware the non-nax fallback would misread group_size=32
+/// scales, so this gate prevents activation on M4.
+let lagunaPrefillSharedHalvedEnabled: Bool = {
+    guard ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_HALVED"] != "0",
+        #available(macOS 26.2, *)
+    else { return false }
+    let configured = ProcessInfo.processInfo.environment["MLX_METAL_GPU_ARCH"]
+    return lagunaNAXAvailable(
+        architecture: configured.flatMap { $0.isEmpty ? nil : $0 }
+            ?? GPU.deviceInfo().architecture,
+        osSupportsNAX: true
+    )
+}()
+
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
 /// and the normalized row (consumed immediately by the MLP), eliminating a
@@ -8605,6 +8621,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             return downProj(compiledSiluProduct(gate, up))
         }
         if x.dim(1) > 1,
+            lagunaPrefillSharedHalvedEnabled,
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales,
             let halvedFusedGateUpScales = _halvedFusedGateUpScales,
             let gateUpEscape = _fusedGateUpScalesEscape,
