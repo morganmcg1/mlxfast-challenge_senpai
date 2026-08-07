@@ -1979,3 +1979,112 @@ mechanism.
 Reproduce with `python3 research/nezuko_receipt_noise_structure.py`, which
 takes no arguments, needs no GPU, and reads the corpus snapshot committed
 alongside it.
+
+---
+
+## 17. Pre-registration for the second and last receipt
+
+Written and committed **before** the §14 in-situ probe finished, so nothing
+below is fitted to its result. The probe was already running when this was
+written; the only probe output I had seen at that point was the median of four
+individual `A` runs, which carries no A-versus-B contrast at all.
+
+### 17.1 What a second receipt can and cannot buy
+
+§16 removes the last hope of cheap resolution: the ranked instrument resolves
+**17.92 µs/step at 1σ**, pairing does not help, and that number is now
+certified rather than assumed. So I want to be explicit about what I am and am
+not buying, because the advisor's §7 correctly warned that "a third epilogue
+arm is not a good outcome".
+
+**Cannot buy: resolution of Arm E.** Arm E alone is predicted at 11 µs/step
+(§14.3). Receipt #2 minus receipt #1 differs by exactly Arm E, which is
+`11 / 17.92 = 0.61σ`. That contrast is undecidable and I am not going to
+pretend otherwise.
+
+**Cannot buy: resolution of the combined mechanism either.** Arm A + Arm E is
+predicted at 25 µs/step = `1.4σ` against the anchor. A 1.4σ result is not a
+finding in either direction.
+
+**Can buy, and this is the real reason: official correctness certification of
+Arm E.** Arm E introduces the only stateful object I have added anywhere in
+this PR — a process-lifetime memo keyed on `(writeIdx, capacity)`. Its one
+credible failure mode is a **stale hit**: the memo returning a buffer built for
+a different cache geometry. My local instrument is a single 64-step
+teacher-forced case on one prompt, in which `capacity` very likely never
+changes at all, so it is close to blind to precisely this bug. The official
+stack runs **1 344 checked steps across 11 cases** of differing lengths, plus
+hidden anchors, free runs, GPQA behaviour and a semantic judge. That is the
+instrument that actually exercises cache-capacity growth. §16.6's own rule
+says receipts are excellent at correctness and floors and bad at small timing
+deltas; this is the correctness case.
+
+**Can buy, secondarily: a second draw on the score axis.** Receipt #1 landed
+at `−0.4912 %` on `decode_speedup` against the ranked anchor, `−1.35σ`, with a
+CI containing zero. One more draw does not settle it, but it does discriminate
+the two hypotheses the advisor separated in their §2, and it does so
+asymmetrically — see §17.3.
+
+### 17.2 Point predictions
+
+Elasticity from §5.1: removing `X` µs/step from the per-step decode cost raises
+`decode_speedup` by the fraction `X / D` with `D = 4928.12 µs`. The ranked
+anchor `08ddee45` contains my base tree and neither of my arms, so it is the
+correct reference for the combined mechanism.
+
+| quantity | prediction |
+| --- | --- |
+| `passed_correctness` | `true`; `max_abs_diff` exactly `0`; both floors `true`. I put **P(correctness failure) < 2 %**; if it fails, Arm E is broken and the finding is the bug. |
+| combined mechanism | `25 µs/step` ⇒ `+0.507 %` on `decode_speedup` vs anchor |
+| `decode_speedup` | **2.8329**, 1σ = 0.3637 % ⇒ 95 % CI **[2.8127, 2.8532]** |
+| `officialScore` | it will **not** beat the corpus best of 2.597875 (§16.7); the receipt will come back `rejected` for ranking and that is expected, not a failure |
+| what would falsify the mechanism | `decode_speedup` below 2.8084, i.e. a second draw as low as the first |
+
+### 17.3 The decision rule, fixed in advance
+
+Let `d2` be receipt #2's `decode_speedup` and let the anchor be 2.818633.
+
+1. **Correctness fails** (`passed_correctness: false`, `max_abs_diff > 0`, a
+   floor breached, or a non-empty `error`) → report **Arm E is broken**,
+   recommend reverting Arm E only, and keep Arm A on the strength of receipt
+   #1's perfect correctness record. This outcome dominates all the others.
+2. **`d2 ≥ 2.818633`** (at or above the anchor) → receipt #1's low draw is not
+   reproduced. The two-draw candidate mean against the anchor has contrast sd
+   `sqrt((0.3637/sqrt(2)/sqrt(2))^2 + (0.3637/sqrt(2))^2) = 0.315 %`, and the
+   mean would sit at about `−0.25 %` = `−0.78σ`. Report **no evidence of harm;
+   both mechanisms are free on the ranked instrument**, which is the advisor's
+   hypothesis (a).
+3. **`2.8084 ≤ d2 < 2.818633`** → a second mildly low draw. Two-draw mean near
+   `−0.4 %` = `−1.3σ`. Report **still inconclusive, leaning free**; do not
+   claim harm; recommend the advisor treat both arms as byte-cheap and
+   correctness-clean but timing-unproven.
+4. **`d2 < 2.8084`** → two independent low draws. If the two-draw mean against
+   the anchor is below `−0.63 %` (2σ on the 0.315 % contrast sd), report a
+   **real regression** and recommend reverting **Arm A**, which is the only arm
+   large enough to produce it. This is the outcome in which I tell the advisor
+   my own shipped change is harmful, and I am writing the threshold down now so
+   that I cannot move it later.
+
+### 17.4 Gate conditions before dispatch
+
+Dispatch happens only if **all** of these hold, and is skipped entirely
+otherwise:
+
+- the §14.3 pre-registered kill has **not** fired (probe's combined estimate
+  negative with an upper CI bound below +5 µs/step);
+- Arm E is bit-exact locally — `REF_RUN_DIGEST == CAND_RUN_DIGEST` and
+  `STEP_DIGESTS_DIFFERING 0 of 65`;
+- `./benchmark.sh --local-submit` returns `passed: true` with `max_abs_diff 0`;
+- the shared in-flight slot is free: `mlxfast submissions | tail -3` shows a
+  **terminal** last row immediately before dispatch (§6(a) of advisor feedback
+  #3, in-flight limit 1, shared with maple-birch);
+- the submission note is ≥ 5 KiB and describes Arm E as well as Arm A.
+
+Per advisor feedback #3 §6, `mlxfast submit` exits 0 even when it refuses, so
+the dispatcher parses stdout for a submission id and treats its absence as a
+refusal rather than a success. A `conflict` refusal is a **queue** condition,
+never a model-name rejection, so it must not trigger the `--model` fallback.
+
+### 17.5 Result
+
+*(filled in below)*
