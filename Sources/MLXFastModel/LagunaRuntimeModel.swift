@@ -4729,7 +4729,6 @@ private func lagunaDecodeNVFP4QKVR1Source(
     }
     let qkvRows = "(\(heads) + 2 * \(LagunaConstants.numKeyValueHeads)) * \(LagunaConstants.headDim)"
     let gProjDecl = withGProj ? """
-    constexpr uint gate_heads = \(heads);
     constexpr uint gk = axis_size, ggs = 32, gv = 8, gkg = gk / ggs, gss = ggs / gv;
     constexpr uint g_bk = gv * 32;
 """ : ""
