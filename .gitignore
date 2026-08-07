@@ -65,3 +65,4 @@ local-docs/
 __pycache__/
 **/__pycache__/
 sweep_async.sh
+sweep_results.csv
