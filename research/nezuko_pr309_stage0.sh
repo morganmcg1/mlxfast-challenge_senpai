@@ -33,18 +33,23 @@ probe() {
   grep -E "^(teacher-forced|decode steps=)" "${OUTDIR}/${tag}.log" 2>/dev/null
 }
 
-for spec in "a0:2:0:0" "G640:16:0:0" "R640:16:3:0" "N640:16:1:0" \
-            "G128:16:0:128" "R128:16:3:128" "N128:16:1:128"; do
+# SPECS overrides the arm list as "tag:simdgroups:fuse:total_threadgroups".
+# NEGATIVES=0 skips the negative controls, e.g. for the threadgroup-count
+# ladder that falsifies the straggler-wave explanation of the T=128 penalty.
+SPECS="${SPECS:-a0:2:0:0 G640:16:0:0 R640:16:3:0 N640:16:1:0 G128:16:0:128 R128:16:3:128 N128:16:1:128}"
+for spec in ${SPECS}; do
   IFS=: read -r tag sg nf tg <<<"${spec}"
   probe "${tag}" "${sg}" "${nf}" "${tg}"
 done
 
-echo "=== negative control: T=256 is not an exact divisor of h64 rows (10240)"
-probe "neg_tg256" 16 1 256
+if [[ "${NEGATIVES:-1}" == "1" ]]; then
+  echo "=== negative control: T=256 is not an exact divisor of h64 rows (10240)"
+  probe "neg_tg256" 16 1 256
 
-echo "=== negative control: injected store-row fault at the persistent geometry"
-probe "neg_fault" 16 1 128 1
+  echo "=== negative control: injected store-row fault at the persistent geometry"
+  probe "neg_fault" 16 1 128 1
 
-echo "=== negative control: injected store-row fault at the reference geometry"
-probe "neg_fault_a0" 2 0 0 1
+  echo "=== negative control: injected store-row fault at the reference geometry"
+  probe "neg_fault_a0" 2 0 0 1
+fi
 echo "=== $(date -u +%H:%M:%S) stage0 done"
