@@ -2900,11 +2900,15 @@ struct LagunaNativeAffineWeight {
     var bits: Int = 8
     var mode: QuantizationMode = .affine
     var indexedMetadata: LagunaIndexedAffineMetadata? = nil
+    /// Scale-plane-halving escape byte [1] uint8 for NVFP4 O-proj: original
+    /// scale[0, 1] retained for the k=0 pair where pairwise constancy may fail.
+    var scalesEscape: MLXArray? = nil
 
     var arrays: [MLXArray] {
         [packedCodes, scales]
             + (biases.map { [$0] } ?? [])
             + (indexedMetadata?.arrays ?? [])
+            + (scalesEscape.map { [$0] } ?? [])
     }
 }
 
@@ -4225,9 +4229,18 @@ func lagunaGatedAffineOProjNVFP4Source(
         """
     // Scale-halving: when enabled, scales are stored as [outVec, inVec/32]
     // (every other byte). The kernel reads simd_lid/2 with half stride.
+    // The escape byte corrects the k=0 pair read for row 0, lane 1, where
+    // the quantizer may break pairwise constancy (scale[0] != scale[1]).
     let scaleStride = halvedScales ? "in_vec_size_g / 2" : "in_vec_size_g"
     let scaleLane = halvedScales ? "simd_lid / 2" : "simd_lid"
     let scaleStep = halvedScales ? "block_size / (group_size * 2)" : "block_size / group_size"
+    let escapeDecl = halvedScales
+        ? "    uint8_t oproj_escape_val = oproj_escape_buf[0];\n    "
+        : ""
+    let escapeCheck = halvedScales
+        ? "            if (out_row + row == 0 && simd_lid == 1 && k == 0)\n"
+            + "                sbits = oproj_escape_val;\n"
+        : ""
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -4256,8 +4269,7 @@ func lagunaGatedAffineOProjNVFP4Source(
     const device uint8_t* sc = weight_scales +
         out_row * (\(scaleStride)) + (\(scaleLane));
     const device bfloat* xp = attention_output + simd_lid * values_per_thread;
-
-    thread float x_thread[values_per_thread];
+    \(escapeDecl)thread float x_thread[values_per_thread];
     thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
 
     uint column = simd_lid * values_per_thread;
@@ -4270,7 +4282,7 @@ func lagunaGatedAffineOProjNVFP4Source(
             // epilogue. Every partial remains the exact 2^-22 rescaling of
             // the control until the multiply before the existing BF16 round.
             uint8_t sbits = sc[row * (\(scaleStride))];
-            \(scaleDecode)
+            \(escapeCheck)\(scaleDecode)
             \(accumDecl)
             #pragma unroll
             for (uint j = 0; j < codes_per_thread; ++j) {
@@ -4347,7 +4359,7 @@ private let lagunaGatedAffineOProjNVFP4HalvedKernels: [Int: MLXFast.MLXFastKerne
                 + "_hs1",
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
-                "weight_scales",
+                "weight_scales", "oproj_escape_buf",
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(heads: heads, halvedScales: true),
@@ -4477,7 +4489,7 @@ private let lagunaActivatedOProjHalvedKernels: [Int: MLXFast.MLXFastKernel] = {
                 + "_hs1",
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
-                "weight_scales",
+                "weight_scales", "oproj_escape_buf",
             ],
             outputNames: ["projected"],
             source: lagunaGatedAffineOProjNVFP4Source(heads: heads, preActivatedGate: true, halvedScales: true),
@@ -4492,7 +4504,8 @@ func lagunaGatedAffineOProjNVFP4(
     codes: MLXArray,
     scales: MLXArray,
     heads: Int,
-    gateIsActivated: Bool = false
+    gateIsActivated: Bool = false,
+    scalesEscape: MLXArray? = nil
 ) -> MLXArray? {
     let halved = lagunaOProjScaleHalvingEnabled
     let selected: MLXFast.MLXFastKernel?
@@ -4520,6 +4533,19 @@ func lagunaGatedAffineOProjNVFP4(
     else {
         return nil
     }
+
+    if halved, let escape = scalesEscape {
+        guard escape.dtype == .uint8, escape.size == 1 else { return nil }
+        lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
+        return kernel(
+            [attentionOutput, gateLogits, codes, scales, escape],
+            grid: ((outVec / 8) * 64, 1, 1),
+            threadGroup: (64, 1, 1),
+            outputShapes: [[1, 1, outVec]],
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
+    if halved { return nil }
 
     lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
     return kernel(
@@ -5425,8 +5451,12 @@ final class LagunaRuntimeAttention: Module {
         {
             // Halve the scale plane: [outVec, inVec/16] -> [outVec, inVec/32].
             // Take even-indexed bytes; the kernel reads simd_lid/2.
+            // Retain the original scale[0, 1] as the escape byte for the k=0
+            // pair where the quantizer may break pairwise constancy.
+            let oprojEscape = contiguous(preparedWO.scales[0, 1].reshaped([1]))
             let halved = contiguous(preparedWO.scales[0..., .stride(from: 0, by: 2)])
             preparedWO.scales = halved
+            preparedWO.scalesEscape = oprojEscape
         }
         _nativeAffineOProj = preparedWO
         return preparedWO.arrays
@@ -6116,7 +6146,8 @@ final class LagunaRuntimeAttention: Module {
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
                         heads: nHeads,
-                        gateIsActivated: true)
+                        gateIsActivated: true,
+                        scalesEscape: affineWO.scalesEscape)
                 {
                     return fusedProjection
                 }
@@ -6130,7 +6161,8 @@ final class LagunaRuntimeAttention: Module {
                         gateLogits: projectedGate,
                         codes: affineWO.packedCodes,
                         scales: affineWO.scales,
-                        heads: nHeads)
+                        heads: nHeads,
+                        scalesEscape: affineWO.scalesEscape)
                 {
                     return fusedProjection
                 }
