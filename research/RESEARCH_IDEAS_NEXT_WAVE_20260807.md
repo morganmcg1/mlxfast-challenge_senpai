@@ -479,6 +479,52 @@ optimal. `RESEARCH_IDEAS_FRESH_20260807_v2.md` (Idea 5) noted this as
 ### Idea 4: Low priority (marginal gain, 1 layer only)
 ### Idea 5: Low priority (env var sweep, M5-only)
 
+### Update (2026-08-07T07:55Z):
+- Prefill MoE gather-QMM gate/up scale halving: ALREADY IMPLEMENTED (PR #220, active by default). Do NOT assign.
+- Prefill routed DOWN projection halving: ALREADY ASSIGNED (PR #234, edward).
+- Idea 3 (shared expert prefill scale halving via qmm_nax kHalvedScales): Still UNASSIGNED. M5-only, ~0.22% score, medium risk (vendor kernel mod for non-gather qmm_nax path).
+- INT8 affine 4x scale/bias dedup: Budget-constrained (~3 KB in LRM, only 9,267 B headroom). Can do 1 kernel at a time.
+
+### New research findings (2026-08-07T07:55Z):
+
+#### Prefill attention dispatch fusion gaps (3 high-value targets):
+Prefill has ~12-14 dispatches/layer, much less fused than decode. Decode already has all these fused.
+
+1. **Prefill fused gate+output-projection for L>1** — removes 3 dispatches → 1 per layer × 39 layers.
+   - Decode has `lagunaGatedAffineOProj` (L6174, requires B==1,L==1) fusing softplus→multiply→wo.
+   - Prefill runs 3 separate stock dispatches: softplus (L6294), multiply (L6297-6298), wo matmul (L6304).
+   - Creating a prefill L>1 variant would collapse 3 → 1 dispatch per layer.
+   - Est: ~0.25-0.5% prefill → ~0.06-0.12% score. M4-testable, bit-exact (same math as decode).
+   - LRM budget: ~800-1500 B (new kernel string for L>1 variant).
+
+2. **Prefill fused norm+QKV(+gate) kernel for L>1** — removes 3-4 dispatches per layer × 39 layers.
+   - Decode has `lagunaFusedNormQKVProjection` (L5868) fusing RMSNorm + Q/K/V.
+   - Prefill runs 4 separate dispatches: RMSNorm (L5885) + Q (L5918) + K (L5919) + V (L5920).
+   - g_proj (L6132) also uses same normalizedInput, could be folded in.
+   - DARKBLOOM_FUSED_QKV exists (L114) but is OFF (mild prefill cost, no decode gain).
+   - Est: ~0.5-1.0% prefill → ~0.12-0.25% score. M4-testable.
+   - LRM budget: ~1500-3000 B (new kernel string). MEDIUM RISK.
+
+3. **Values transpose folded into prefill QK-norm+RoPE kernel** — removes 1 dispatch.
+   - Values transpose at L6092 is a real axis swap for L>1.
+   - The prefill QK-norm+RoPE kernel (L2758/2803) already transposes Q and K.
+   - Could also emit V in head-major layout in the same dispatch.
+   - Est: ~0.1-0.15% prefill → ~0.025-0.04% score. Very small.
+   - LRM budget: ~300-500 B.
+
+#### KV cache movement — already optimized:
+- Both attention families fuse QK-norm+RoPE + in-place KV write + SDPA into single dispatch.
+- Each KV slot read exactly once per step. Sliding cache capped at 512.
+- KV cache quantization NOT in accepted envelope (projection weights only).
+
+#### Full-attention per-step params atlas (Candidate A, decode, quick win):
+- `lagunaFullFusedAttention` allocates fresh `MLXArray([UInt32(writeIdx), UInt32(writeIdx+1), UInt32(capacity)])` per call (L2313-2315).
+- 10 layers × 128 steps = 1280 fresh 12-byte allocations per decode window.
+- Sliding twin uses pre-built atlas (`lagunaRingIdxAtlas`, L1819-1834).
+- Fix: matching atlas for full-attention, or retained constant for capacity + per-writeIdx atlas.
+- Est: ~0.05-0.1% decode. Bit-exact, M4-testable, ~200-400 B.
+- LOW RISK, QUICK WIN. Good candidate for next student assignment.
+
 ## Summary
 
 | # | Idea | Component | Mechanism | Est. Score | Budget (LRM) | M4? | Priority |
