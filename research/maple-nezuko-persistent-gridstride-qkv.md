@@ -237,10 +237,19 @@ dominates.
 ## 8. Decision: KILL
 
 The mechanism the assignment proposed is real — the reduction *is* redundantly
-paid, and `T=128` *does* cut it 5x — but capturing it requires a grid coarse
+paid, and `T=128` *does* amortise it — but capturing it requires a grid coarse
 enough that tail imbalance costs more than the saving. The `G128 − G640`
-contrast prices that trade with the fold switched off and shows the penalty
-alone exceeds the entire #298 refund.
+contrast prices that trade with the fold switched off on both sides:
+**+174.9 ± 11.0 µs/step**, versus a redundant-reduction saving of only
+**34.6 µs** (`R640−G640 = +56.5` falling to `R128−G128 = +21.9`). The grid
+penalty is 5x the saving it enables.
+
+Headline: the candidate `N128` is **+63.2 ± 11.0 µs/step (t = 5.76, 95% CI
+[+41.3, +85.2])** *slower* than the stock `a0` anchor — 0.77% of decode — and
+**+96.9 µs/step slower than the already-merged PR #48 arm it was meant to
+extend**. There is no configuration of this idea worth submitting: the sign is
+wrong by ~6 standard errors and the effect is ~1.2x the ranked M5's ~80 µs/step
+resolution floor, so it is not a measurement artefact either.
 
 This is unlikely to reverse on the ranked M5 Max, and the M5 geometry is
 *worse*, not better (§9).
@@ -293,8 +302,11 @@ The prefill axis is unreachable by construction: the caller gates `fuseMode` on
    the 640/512-TG full-coverage grid. This removes the redundant reduction
    *without* coarsening the grid — the opposite trade to this stage. It changes
    rounding order, so it needs `research/run_upstream_equivalence.sh`, the
-   64-step tripwire and goldens. Estimated −60…−80 µs/step; this is the strand
-   worth funding next.
+   64-step tripwire and goldens. This campaign prices its ceiling directly:
+   `R640 − G640 = +56.5 µs/step` [95% CI +34.5, +78.4] is the whole redundant
+   reduction at full coverage, so a perfect algebraic removal is worth up to
+   ~56 µs/step *on top of* the −83.3 µs fold refund. That is the strand worth
+   funding next, and unlike this stage it does not trade grid geometry away.
 2. **Bit-identical prefetch.** Load the first weight tile before the norm
    barrier to hide reduction latency at full coverage. No numerical change.
 3. **S=8 / T=256 on M5.** `S=8` requires `T | 256`, so `T=256` gives
