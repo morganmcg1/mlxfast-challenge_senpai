@@ -2000,7 +2000,6 @@ template <
     const constant int& M,
     const constant int& N,
     const constant int& K,
-    const constant int& output_major_experts,
     uint3 tid [[threadgroup_position_in_grid]],
     uint simd_group_id [[simdgroup_index_in_threadgroup]],
     uint simd_lane_id [[thread_index_in_simdgroup]]) {
@@ -2042,17 +2041,12 @@ template <
   const int N_w = N * bytes_per_pack / pack_factor;
   const int N_g = N / group_size;
   const int K_it = K / BK;
-  const size_t stride_w = output_major_experts
-      ? size_t(64) * K_w
-      : transpose ? N * K_w : K * N_w;
+  const size_t stride_w = transpose ? N * K_w : K * N_w;
   const size_t stride_s = transpose ? N * K_g : K * N_g;
   const int y_row = tid.y * BM;
   const int y_col = tid.x * BN;
   const size_t y_row_long = size_t(y_row);
   const size_t y_col_long = size_t(y_col);
-  const size_t output_col = output_major_experts
-      ? size_t(y_col / 64) * output_major_experts * 64 + y_col % 64
-      : y_col_long;
 
   // Prepare threadgroup bounds
   const short tgp_bm = align_M ? BM : short(min(BM, M - y_row));
@@ -2068,7 +2062,7 @@ template <
   auto wl = (const device uint8_t*)w;
   x += y_row_long * K;
   y += y_row_long * N + y_col_long;
-  wl += transpose ? output_col * K_w : y_col * bytes_per_pack / pack_factor;
+  wl += transpose ? y_col_long * K_w : y_col * bytes_per_pack / pack_factor;
   scales += transpose ? y_col_long * K_g : y_col / group_size;
 
   // Do as many matmuls as necessary

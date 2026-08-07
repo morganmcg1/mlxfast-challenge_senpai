@@ -25,15 +25,6 @@ public enum LagunaWeightNames {
     public static func mlp(_ layerIndex: Int, _ suffix: String) -> String {
         layer(layerIndex, "mlp.\(suffix)")
     }
-
-    public static let outputMajorRoutedDownShard =
-        "mlxfast-routed-down-output-major.safetensors"
-    public static let outputMajorRoutedDownFormat =
-        "mlxfast-routed-down-output-major-v1"
-
-    public static func outputMajorRoutedDownWeight(_ layerIndex: Int) -> String {
-        mlp(layerIndex, "switch_mlp.down_proj.output_major.weight")
-    }
 }
 
 /// Metadata-level access and validation for the transformed Laguna weights
@@ -54,31 +45,7 @@ public struct LagunaWeightLoader {
     }
 
     public func validateRequiredMetadata(config: LagunaConfig) throws {
-        let allTensorNames = denseStore.tensorNames
-        let expectedOutputMajorNames: Set<String> = Set(
-            (0..<config.numHiddenLayers).compactMap { layerIndex in
-                guard config.isSparse(layer: layerIndex) else { return nil }
-                return LagunaWeightNames.outputMajorRoutedDownWeight(layerIndex)
-            }
-        )
-        let outputMajorNames = Set(allTensorNames.filter {
-            $0.contains(".mlp.switch_mlp.down_proj.output_major.")
-        })
-        guard outputMajorNames.isEmpty || outputMajorNames == expectedOutputMajorNames else {
-            let missing = expectedOutputMajorNames.subtracting(outputMajorNames).sorted()
-            let unexpected = outputMajorNames.subtracting(expectedOutputMajorNames).sorted()
-            throw MLXFastError.invalidInput(
-                "Poolside Laguna output-major sidecar inventory is incomplete or invalid; "
-                    + "missing \(missing), unexpected \(unexpected)"
-            )
-        }
-        if !outputMajorNames.isEmpty {
-            try validateOutputMajorMetadata(
-                config: config,
-                expectedNames: expectedOutputMajorNames
-            )
-        }
-        let tensorNames = allTensorNames.filter { !outputMajorNames.contains($0) }
+        let tensorNames = denseStore.tensorNames
         let forbiddenSuffixes = [
             ".weight_packed",
             ".input_global_scale",
@@ -269,65 +236,6 @@ public struct LagunaWeightLoader {
             throw MLXFastError.invalidInput(
                 "tensor \(name) dtype/shape \(record.dtype) \(record.shape) does not match expected \(expectedDType) \(expectedShape)"
             )
-        }
-    }
-
-    private func validateOutputMajorMetadata(
-        config: LagunaConfig,
-        expectedNames: Set<String>
-    ) throws {
-        let shard = LagunaWeightNames.outputMajorRoutedDownShard
-        guard denseStore.tensorNames(inShard: shard) == expectedNames else {
-            throw MLXFastError.invalidInput(
-                "Poolside Laguna output-major sidecars must be isolated in \(shard)"
-            )
-        }
-
-        let shardURL = URL(fileURLWithPath: denseStore.weightsPath)
-            .appendingPathComponent(shard)
-        let header = try Safetensors.readHeader(shardURL)
-        guard header.metadata == ["format": LagunaWeightNames.outputMajorRoutedDownFormat],
-              Set(header.tensors.keys) == expectedNames
-        else {
-            throw MLXFastError.invalidInput(
-                "Poolside Laguna output-major sidecar shard has invalid format or tensor inventory"
-            )
-        }
-
-        let (groupSize, bits) = config.quantization.expected(
-            forTensorStem: "model.layers.1.mlp.switch_mlp.down_proj"
-        )
-        guard config.quantization.mode == LagunaConstants.quantizationMode,
-              groupSize == LagunaConstants.quantizationGroupSize,
-              bits == LagunaConstants.quantizationBits,
-              config.hiddenSize.isMultiple(of: 64),
-              (config.moeIntermediateSize * bits).isMultiple(of: 32),
-              config.moeIntermediateSize.isMultiple(of: groupSize)
-        else {
-            throw MLXFastError.invalidInput(
-                "Poolside Laguna output-major sidecars require the fixed NVFP4 layout"
-            )
-        }
-        let weightShape = [
-            config.hiddenSize / 64,
-            config.numExperts,
-            64,
-            config.moeIntermediateSize * bits / 32,
-        ]
-
-        for layerIndex in 0..<config.numHiddenLayers where config.isSparse(layer: layerIndex) {
-            let name = LagunaWeightNames.outputMajorRoutedDownWeight(layerIndex)
-            guard let record = denseStore.record(named: name),
-                  record.shard == shard,
-                  record.dtype == "U32",
-                  record.shape == weightShape,
-                  header.tensors[name]?.dtype == "U32",
-                  header.tensors[name]?.shape == weightShape
-            else {
-                throw MLXFastError.invalidInput(
-                    "Poolside Laguna output-major sidecar \(name) has invalid shard, dtype, shape, or layout"
-                )
-            }
         }
     }
 

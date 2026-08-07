@@ -9281,8 +9281,7 @@ private func lagunaInterleavedSwiGLU(
 /// expert-aligned path the backend also applies the same rounded-BF16 SiLU
 /// product and packs the 512-wide activation into the first half of the
 /// nominal 1024-wide output allocation, avoiding that intermediate's device
-/// round trip. Routing, sorting, scales, accumulation, and unsorting remain
-/// stock.
+/// round trip. `down_proj`, sorting, and unsorting remain the stock calls.
 private func lagunaFusedSortedRoutedGateUp(
     _ x: MLXArray,
     indices: MLXArray,
@@ -9290,8 +9289,6 @@ private func lagunaFusedSortedRoutedGateUp(
     fusedScales: MLXArray,
     split: Int,
     downProj: SwitchLinear,
-    outputMajorDownWeight: MLXArray?,
-    stockDownScales: MLXArray?,
     deferUnsort: Bool
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
     // SwitchGLU: `var x = MLX.expandedDimensions(x, axes: [-2, -3])`
@@ -9344,28 +9341,8 @@ private func lagunaFusedSortedRoutedGateUp(
     } else {
         activated = lagunaInterleavedSwiGLU(gateUp, split: split)
     }
-    // The sidecar only changes physical storage order; the gathered rows,
-    // accumulation, quantization parameters, and sorted route table are unchanged.
-    var result: MLXArray
-    if let outputMajorDownWeight, let stockDownScales {
-        let stockDownScaleView = stockDownScales.reshaped([
-            1, stockDownScales.dim(0), stockDownScales.dim(1), stockDownScales.dim(2),
-        ])
-        result = MLX.gatherQuantizedMM(
-            activated,
-            outputMajorDownWeight,
-            scales: stockDownScaleView,
-            biases: nil,
-            rhsIndices: idx,
-            transpose: true,
-            groupSize: 16,
-            bits: 4,
-            mode: .nvfp4,
-            sortedIndices: doSort
-        )
-    } else {
-        result = downProj(activated, idx, sortedIndices: doSort)
-    }
+    // SwitchGLU: `x = downProj(activated, idx, sortedIndices: doSort)`
+    var result = downProj(activated, idx, sortedIndices: doSort)
     // SwitchGLU: `if doSort { x = scatterUnsort(x: x, invOrder: inverseOrder, shape: indices.shape) }`
     if doSort && !deferUnsort {
         result = scatterUnsort(x: result, invOrder: inverseOrder, shape: indices.shape)
@@ -9398,7 +9375,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     var _routedDownProj: SwitchLinear?
     var _routedDownWeight: MLXArray?
     var _routedDownScales: MLXArray?
-    var _outputMajorRoutedDownWeight: MLXArray?
     /// `DARKBLOOM_PACKED_SCALES` walk-order scale-interleaved copy of the
     /// fused routed gate/up scales ([experts, 4096, 32] uint8); see
     /// `lagunaRoutedSwiGLUQMVPackedTop8Kernel` for the layout contract. Nil
@@ -9765,8 +9741,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     fusedScales: fusedScales,
                     split: _fusedRoutedGateUpSplit,
                     downProj: downProj,
-                    outputMajorDownWeight: _outputMajorRoutedDownWeight,
-                    stockDownScales: _routedDownScales,
                     deferUnsort:
                         lagunaPrefillSortedMoETailEnabled
                         && lagunaPrefillMoETailEnabled
@@ -10624,36 +10598,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
 
     public func sanitize(weights: [String: MLXArray]) -> [String: MLXArray] {
         var weights = weights
-        let sparseLayers = model.layers.indices.filter {
-            configuration.isSparse(layer: $0)
-        }
-        let sidecarKeys = sparseLayers.map {
-            LagunaWeightNames.outputMajorRoutedDownWeight($0)
-        }
-        if sidecarKeys.contains(where: { weights[$0] != nil }) {
-            let attachments: [(LagunaRuntimeSparseMoEBlock, MLXArray)] =
-                sparseLayers.compactMap { layerIndex in
-                    guard let sparse = model.layers[layerIndex].mlp
-                        as? LagunaRuntimeSparseMoEBlock,
-                        let weight = weights[
-                            LagunaWeightNames.outputMajorRoutedDownWeight(layerIndex)]
-                    else {
-                        return nil
-                    }
-                    return (sparse, weight)
-                }
-            if attachments.count == sparseLayers.count {
-                for (sparse, weight) in attachments {
-                    sparse._outputMajorRoutedDownWeight = weight.reshaped([
-                        1, configuration.numExperts, configuration.hiddenSize,
-                        configuration.moeIntermediateSize / 8,
-                    ])
-                }
-                for key in sidecarKeys {
-                    weights[key] = nil
-                }
-            }
-        }
         if configuration.tieWordEmbeddings {
             weights["lm_head.weight"] = nil
         }
