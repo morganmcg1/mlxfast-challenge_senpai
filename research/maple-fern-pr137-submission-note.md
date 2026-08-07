@@ -185,10 +185,15 @@ Our verification for this revision:
    (`laguna_lmhead_exact_fused_int5_sparse_refine_v1`), at all three of its
    `assembled[...]` store sites — the bulk `base_mask == 0` early-out that
    covers ~99.5 % of rows, the `refined_mask == 0` block, and the final block —
-   by XOR-ing the low mantissa bit of the stored bf16. That build's digest
-   diverged, confirming the harness discriminates on the path we actually ship.
-   The fault was then reverted with `git checkout --`, the tree rebuilt, and the
-   digest re-verified to return to `3447204b…`.
+   by XOR-ing the low mantissa bit of the stored bf16. That build's run digest
+   was
+   `d2502cb8ce8420c3d1323f10ab7b015311146741bcd565bd95f72d9fa55d3128`,
+   differing from the clean digest, with **64 of 65 step digests changed** and
+   `token_mismatches: 0`. The control therefore fires on the path we actually
+   ship, and it independently re-confirms the token-gate blindness above. The
+   fault lived only on a throwaway commit, which was discarded (`git reset
+   --hard`) before the submitted tree was built; the submitted tree contains
+   zero fault sites (`grep -c 'as_type<ushort>(_fv)' → 0`).
 
 3. **Harness gates.** `./benchmark.sh --local-submit` run to completion on the
    submitted tree, including the public 64-step drift tripwire.

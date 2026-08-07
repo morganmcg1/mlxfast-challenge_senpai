@@ -19,8 +19,11 @@ NORM_PREFILL = 0.0003845
 # benchmark endpoint's currentBestScore.
 BEST_NS = 2.59018571539341
 BEST_DSPD = 2.818908868713026
-GO_NS = 2.6045
-KILL_NS = 2.5919
+
+# r3 anchor-receipt bands.  The candidate is a deliberate null change, so these
+# read the health of the merged frontier, not the health of an arm.
+HEALTHY_NS = 2.5924
+REGRESSED_NS = 2.5867
 
 # Promoted maple reference: 97a5090c / 3e165fa5 (2026-08-06T05:14Z receipt).
 PROMOTED_NS = 2.58882784082067
@@ -124,19 +127,26 @@ def main():
 
     print("--- PRIMARY: ns, fixed normalisers (advisor's pre-registered band) ---")
     print(f"ns                {ns:.8f}   [1 sigma = {SD_NS_PCT} %]")
-    print(f"  vs 97a5090c {PROMOTED_NS_FIXED:.8f}"
-          f"   {(ns / PROMOTED_NS_FIXED - 1) * 100:+.3f} %")
-    print(f"  GO   >= {GO_NS}   -> {'GO' if ns >= GO_NS else 'no'}")
-    print(f"  KILL <  {KILL_NS}   -> {'KILL' if ns < KILL_NS else 'no'}")
-    if KILL_NS <= ns < GO_NS:
-        print("  -> inside the pre-registered adjudication window;"
-              " advisor adjudicates on the transfer factor")
+    delta_pct = (ns / PROMOTED_NS_FIXED - 1) * 100
+    print(f"  vs 97a5090c {PROMOTED_NS_FIXED:.8f}   {delta_pct:+.3f} %")
+    if ns >= HEALTHY_NS:
+        row = ("A  HEALTHY -- frontier is intact; the r2 +24.6 us was the arm."
+               "  merge, arm default-OFF")
+    elif ns >= REGRESSED_NS:
+        row = ("B  AMBIGUOUS -- cannot separate frontier drift from noise."
+               "  merge for the anchor, open a bisect")
+    else:
+        row = ("C  REGRESSED -- the merged frontier itself lost ground."
+               "  programme emergency, bisect the six unanchored merges")
+    print(f"  row {row}")
+    print(f"  edges:  HEALTHY >= {HEALTHY_NS}   REGRESSED < {REGRESSED_NS}")
     pair = SD_NS_PCT * 2 ** 0.5
-    print(f"  band edges sit at {(GO_NS / PROMOTED_NS_FIXED - 1) * 100 / pair:+.2f}"
-          f" / {(KILL_NS / PROMOTED_NS_FIXED - 1) * 100 / pair:+.2f} sigma"
+    print(f"  band edges sit at"
+          f" {(HEALTHY_NS / PROMOTED_NS_FIXED - 1) * 100 / pair:+.2f}"
+          f" / {(REGRESSED_NS / PROMOTED_NS_FIXED - 1) * 100 / pair:+.2f} sigma"
           f" of a cross-session paired difference")
-    t, sdt = transfer((ns / PROMOTED_NS_FIXED - 1) * 100, EFFECT_SCORE_PCT, SD_NS_PCT)
-    print(f"  implied transfer  {t:+.2f} +- {sdt:.2f}")
+    print(f"  observed deviation is {delta_pct / pair:+.2f} sigma"
+          f"  (H0 for a null change is 0.00)")
     print(f"  vs bar   {BEST_NS_FIXED:.8f}   {(ns / BEST_NS_FIXED - 1) * 100:+.3f} %")
     print()
 
