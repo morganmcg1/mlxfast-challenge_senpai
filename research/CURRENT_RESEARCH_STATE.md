@@ -141,7 +141,26 @@ W&B links they cannot produce.
 
 ## Next directions, ranked
 
-1. **Resolve the tax mechanism (#268).** Everything below reorders on its answer.
+> **Re-ranked 2026-08-07 by §4.10a (decode re-priced against an 85% ceiling, not
+> 100%) and §4.10b (decode GEMV geometry census).** Two items below changed
+> position and one long-standing claim was retracted; read those two sections
+> before using this list.
+
+0. **⭐ H5 — make lm-head screening prune payload bytes (§11.5).** Promoted to the
+   top of the queue: §4.10b **answered H5's "free first experiment" and the answer
+   is that the pruner does NOT prune payload bytes today.** Decode dispatch 5a
+   (`laguna_lmhead_int5_base_coarse_delta_bf16_v1`) streams the *entire* 100,352-row
+   coarse plane every step — 100,352 × 1024 B codes + 100,352 × 64 B e8m0 scales =
+   **109,182,976 B = 104.1 MiB**, the single largest weight read in the step. All
+   pruning happens downstream (5b argmax, 5c one exact 4 KB row, 5d "single digits"
+   of survivor blocks). This is the **one place in decode where the byte total is not
+   pinned**: greedy argmax permits provably sound row pruning, so it **moves B, not θ,
+   and is therefore not capped by the 0.85 ceiling** that bounds every other decode
+   idea. At 1–5 % survivors ≈ −71 MB ≈ **163 µs/step ≈ +2.5 % score**, comfortably
+   over the ~80 µs single-arm bar.
+1. **Resolve the tax mechanism (#268).** Everything in 2–3 reorders on its answer.
+   Now priced at **283 µs = 41 % of the honest 682 µs decode pool** (§4.10a), not the
+   24 % implied by the retired 1.20 ms figure — so it is correctly P0-gating.
 2. **If GPU-paced**: structural dispatch-count reduction — the three verified fusion
    targets A (shared-expert gate/up QMV merged into the routed packed top-8 QMV),
    B (top-8 selection folded into the router kernel, which already computes the
@@ -157,8 +176,30 @@ W&B links they cannot produce.
    constraint: staging ≈49% load-issue / ≈51% DRAM bytes, pure-issue term 6.887 ms =
    15.9% of W = 43.2619 ms, streaming floor 24.15 ms ⇒ **19.11 ms headroom = 7.16% of
    score**.
-5. **Kernel time remains the ~13× larger budget than the dispatch tax.** Keep a
-   parallel track on it regardless of #268's verdict.
+5. **⚠️ RETRACTED: "kernel time is the ~13× larger budget than the dispatch tax."**
+   That ratio compared *total* kernel time against *recoverable* dispatch time. The
+   decision-relevant comparison is recoverable against recoverable: **399 µs of kernel
+   time vs 283 µs of dispatch time = 1.4×** (§4.10a). These are comparably sized bets,
+   so kernel work does not automatically outrank dispatch work — and a kernel-time arm
+   no longer gets to claim an order-of-magnitude head start in a prioritisation
+   argument. Keep a parallel track, but rank it on measured evidence.
+5a. **⭐ Per-kernel decode θ calibration (the enabler).** Every remaining kernel-time
+   idea is currently unassignable because **no per-kernel θ exists**. §4.10b records
+   why the §4.12 marginal-cost ledger cannot supply one: those costs are deflated by
+   E ∈ 0.62–0.75, and naive division attributes 84 % of step time to 56 % of bytes,
+   forcing the residual above peak bandwidth. Real per-kernel θ needs isolation with
+   `MTLCommandBuffer.kernelStartTime`/`kernelEndTime` (per-dispatch
+   `MTLCounterSampleBuffer` is closed), plus one pure streaming-read kernel to fix the
+   machine's sustainable GB/s — which §4.10a identifies as **the single largest
+   unknown in the whole decode budget** (it swings the pool between ~280 and ~940 µs).
+   The same command-buffer split censuses the 54.6 ms non-MoE prefill. No direct
+   score; converts every later estimate from a guess into a budget. **Binding rule:
+   until this is measured, no arm may claim a per-kernel θ number.**
+5b. **Two cheap structural asymmetries in the shared expert** (§4.10b), worth one
+   combined arm: the shared gate/up kernel (`:6844`) has **no software pipelining**
+   while its routed twin (`:7620-7630`) prefetches one K-block ahead; and shared still
+   pays non-pairwise **128 B/row** scales (`:6825-6828`) where the QKV lane-major path
+   already banked a 4× reduction to 32 B/row.
 6. **tanjiro's surviving `win_ok` ctor-hoist** — an `sdiv` plus two modulo tests per
    k-iteration on loop-invariant inputs, unhoistable across the non-inlined call. This
    is an **ALU-issue** hypothesis and is untouched by #244's closure of the load-bound
@@ -1141,6 +1182,186 @@ matmul. That gap, not the 67%, is the prize.
 **What this does *not* change:** the withdrawn "15.4 ms recoverable overlap
 pool" stays withdrawn; the row-tile axis stays closed (§8); the excess
 +14.30 ms over the derived floor is still a residual, not a measured pool.
+
+---
+
+### 4.10a ⭐⭐⭐ CORRECTION (2026-08-07, advisor): the "1.20 ms decode pool" is priced against a ceiling nothing reaches
+
+§0c.5 records that our **decode** aggregate runs at **~71% of 614 GB/s**. Every
+downstream document has since quoted a "1.20 ms/step decode pool". Reconstruct
+where that number comes from:
+
+```
+bytes/step = 0.71 × 614 GB/s × 4.1436 ms = 1.8064 GB
+floor @100% of peak = 1.8064 / 614 = 2.942 ms
+pool = 4.1436 − 2.942 = 1.202 ms   ← this is the quoted number
+```
+
+The 1.20 ms is therefore the gap to **100% of theoretical peak bandwidth**. No
+kernel on any GPU reaches that. Quoting it as a pool overstates the prize by
+roughly a factor of two, and it has been silently inflating every decode
+priority calculation we have made.
+
+Re-price it against the ceilings §0c.5 actually establishes:
+
+| assumed achievable ceiling | floor | recoverable | score |
+|---|---|---|---|
+| 100% of peak (fictional) | 2.942 ms | 1202 µs | +18.36% |
+| **85% — GPU STREAM on M1–M4 (arXiv 2502.05317)** | **3.461 ms** | **682 µs** | **+10.43%** |
+| 80% | 3.677 ms | 466 µs | +7.12% |
+| 75% | 3.923 ms | 221 µs | +3.38% |
+| 54% — llama.cpp Q4 decode, M4 Max | *already surpassed* | — | — |
+
+**The honest number is ≈682 µs/step ≈ +10.4% score**, using 85% as the ceiling
+a perfect streaming kernel reaches. That is still the largest single prize in
+the programme — but it is half of what we have been quoting.
+
+**Four consequences, all binding:**
+
+1. **The dispatch tax is 41% of the achievable pool, not 24%.** 283 µs/step
+   (+4.32% score) against a 682 µs pool. PR #268 is correctly the P0 gate; this
+   raises its priority rather than lowering it.
+2. **"Kernel time is 13× the dispatch budget" is the wrong comparison and I
+   should not have used it.** Total kernel time is indeed ~13× the dispatch
+   tax, but almost all of it is irreducible bandwidth-bound streaming that no
+   optimization can remove. The decision-relevant comparison is *recoverable*
+   kernel time versus *recoverable* dispatch time: **399 µs versus 283 µs, i.e.
+   1.4×**. Kernel-time work and dispatch-tax work are comparably sized bets,
+   not a 13:1 mismatch. Any framing that says otherwise is retracted.
+3. **§4.10's discipline now applies to decode verbatim.** The byte total is
+   pinned by the model and the NVFP4 format; the FLOP total at batch 1 is
+   trivial. **Only θ moves.** Every decode kernel proposal must be stated as
+   "this raises achieved bandwidth utilisation θ from 0.71 to X, by mechanism
+   Y", with X ≤ 0.85, or it is not a proposal. A proposal that cannot name its
+   θ mechanism is asking for time it cannot spend.
+4. **The whole decode programme lives inside a 14-point band of θ**, from our
+   0.71 to the 0.85 ceiling. Each point of θ is worth ≈49 µs/step ≈ **+0.75%
+   score** — about 3× the 3σ detection floor, so a one-point θ gain is
+   measurable but only just. Arms should target ≥2 points.
+
+**Why would a batch-1 GEMV miss the streaming ceiling at all?** At batch 1 the
+arithmetic intensity is `2 × 1 / 0.5625 = 3.56 FLOP/B`, which is far to the
+*left* of the 56.9 FLOP/B ridge point — decode is deeply bandwidth-bound in
+theory and the FLOP pipe is nearly idle. So the 14-point deficit is **not**
+FLOPs. Three candidate mechanisms, in cost order to falsify:
+
+- **(a) Threadgroup occupancy.** All three dominant decode GEMVs dispatch with
+  **threadgroup = 64 threads = 2 simdgroups** (QKV `((rows/2)*64,1,1)`/tg 64;
+  routed packed top-8 `8*256*64`/tg 64; shared `256*64`/tg 64). Two simdgroups
+  per threadgroup is a thin latency-hiding budget for a pure streaming load.
+  **This is potentially bit-exact by construction**: if each output element's
+  reduction lives entirely inside its own simdgroup, enlarging the threadgroup
+  changes only scheduling, never accumulation order. That combination — cheap,
+  bit-exact, and aimed straight at θ — makes it the first thing to test.
+  ⚠️ AGENTS.md warns threadgroup geometry can change sign across core counts,
+  so an M4 Pro result here is **not** M5 evidence.
+- **(b) NVFP4 unpack issue pressure.** §4.10's "third resource" applies
+  unchanged: dynamic `BITEXTRACT`/`BITINSERT` costs 8–12 cycles and 64-bit
+  address arithmetic is emulated in 4 ops. None of this appears on *either*
+  roofline axis, so it is exactly the kind of work that caps θ below the
+  streaming ceiling while leaving both roofs unsaturated.
+- **(c) Scale-plane locality.** The quantization scale plane is a second
+  concurrent stream with its own row stride; if its access granularity is
+  below a cache line, real DRAM traffic exceeds the 1.8064 GB accounting and
+  the true θ is *better* than 0.71 while the recoverable pool is *smaller*.
+  This one can invalidate the table above rather than exploit it, so it is a
+  measurement prerequisite, not an optimization.
+
+**Falsifier for the whole section:** the 1.8064 GB/step figure is derived from
+§0c.5's 71%, not measured. An independent bottom-up byte census (sum the actual
+per-step read set: all non-expert weights, 8/256 of routed expert bytes, shared
+expert, lm-head, KV at 512 positions) that disagrees materially with 1.8064 GB
+invalidates this pricing. **Commission that census before spending a ranked
+slot on any θ arm.**
+
+---
+
+### 4.10b ⭐⭐⭐ Decode GEMV geometry census (2026-08-07) — occupancy is NOT the problem, and lm-head is the one place bytes are not pinned
+
+Full census with line numbers: read directly from the live decode path. Two
+framing errors of mine are corrected, and one large target is de-risked.
+
+**Reading correction that invalidates the occupancy hypothesis.** MLX
+`metalKernel` `grid:` is a **total-thread** count (`dispatch_threads`), not a
+threadgroup count — `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/custom_kernel.cpp:116-117`.
+So `tg = 64` does **not** mean 2 simdgroups in flight; it means 2 simdgroups
+*per threadgroup* across thousands of threadgroups:
+
+| kernel | threads | TGs | simdgroups/TG | rows/simdgroup | weight B/step | B/thread |
+|---|---|---|---|---|---|---|
+| QKV lane-major `..._lm1_pw1_se1_sd1` (:4799) | 327,680 sl / 262,144 full | 5120 / 4096 | 2 | 1 | 10.0 / 8.0 MiB | 32 |
+| routed packed top-8 (:7546) | 131,072 | 2048 | 2 | 1 (gate+up) | 8.0 MiB | 64 |
+| shared gate/up (:6802) | 16,384 | 256 | 2 | 1 (gate+up) | 1.0 MiB | 64 |
+| fused down+residual `..._r1_v5` (:7847) | 147,456 | 512 | **9** | 4 | 4.5 MiB | 32 |
+| lm-head coarse (:266, `LagunaLmHeadPrune.swift`) | 3,211,264 | 6272 | **16** | 1 | **104.1 MiB** | 32 |
+| o_proj (:4237) — *the outlier* | 16,384 | 256 | 2 | **4** | 8.0 / 6.0 MiB | **512 / 384** |
+
+5120 threadgroups over ~40 cores is 128 TGs per core. **There is no occupancy
+starvation.** §4.10a mechanism (a) is withdrawn as stated; do not assign it.
+
+**Load width is already near-optimal, and widening it is NOT bit-exact.** Every
+NVFP4 kernel loads one **8-byte `uint2`** per 16-value group, and 32 adjacent
+lanes cover a contiguous 256 B burst — perfectly coalesced. Widening to
+`uint4` would require each lane to own 32 values instead of 16, which
+repartitions the per-lane serial float accumulation before `simd_sum` and
+therefore **changes the summation tree**. Not bit-exact; the hard greedy-token
+gate kills it. Record this so nobody re-proposes it.
+
+**What the census did find in the kernels themselves** (all small, all real):
+- The shared gate/up kernel (:6844) has **no software pipelining**, while its
+  routed twin (:7620-7630) prefetches one K-block ahead. Same NVFP4 format,
+  same reduction. Porting the prefetch is a like-for-like change on 39 MiB/step
+  of traffic. Small, but it is the cheapest structural asymmetry on the board.
+- Scale-plane traffic is already heavily optimised and **wildly non-uniform**:
+  QKV lane-major uses a pairwise 2-byte nibble read (32 B/row) where the stock
+  plane would cost 128 B/row — a 4× reduction already banked; the shared kernel
+  still pays the full non-pairwise 128 B/row (:6825-6828). Extending pairwise
+  scales to the shared expert is the same class of change as the prefetch.
+- o_proj is the geometric outlier at 4 rows/simdgroup and 512 B/thread, 8–16×
+  every other kernel. Whether that is good or bad is untested; it is the
+  natural control for any rows-per-simdgroup arm.
+
+**⭐ THE STRATEGIC FINDING: lm-head is the one place where the byte total is
+not pinned, which makes it categorically different from every other decode
+idea.**
+
+§4.10a states that the per-step byte total is fixed by the model and the NVFP4
+format, so **only θ moves** — capped at 0.85. That is true for attention and
+MoE. It is **false for the lm-head**, because the greedy-argmax identity
+permits any *provably sound* pruning. Moving B has no 0.85 cap.
+
+The census settles H5's "free first experiment" (§11.5), which asked whether
+the existing screening already prunes payload bytes. **It does not.** The live
+decode path takes the fused-refinement arm and dispatch 5a
+(`laguna_lmhead_int5_base_coarse_delta_bf16_v1`, :266) streams the **entire**
+100,352-row coarse plane every single step: 100,352 × 1024 B codes + 100,352 ×
+64 B e8m0 scales = **109,182,976 B = 104.1 MiB**. Pruning happens only
+*downstream* of that read — 5b argmaxes the coarse scores, 5c exactly verifies
+one winner row (4 KB), 5d refines "single digits" of survivor blocks. So today
+the pruner avoids the 411 MB full-BF16 pass but pays the full coarse plane.
+
+**H5 is alive and is now the best-characterised large decode target we have.**
+At H5's own 1–5% survivor estimate the coarse read drops ~71 MB, worth
+**≈163 µs/step ≈ +2.5% score** at current θ — and unlike a θ arm it is not
+competing for the same 14-point band.
+
+**Honest caveat on per-kernel pricing — do not skip this.** It is tempting to
+divide 104.1 MiB by the ledger's 474 µs lm-head figure and conclude θ = 37.5%,
+i.e. half the 71% aggregate. **That arithmetic is invalid.** The §4.12 decode
+ledger reports *marginal* costs, deflated by the exposure factor E ∈ 0.62–0.75;
+the same division applied to all four big families yields 84% of the step from
+56% of the bytes, and the residual families then exceed peak bandwidth — which
+is impossible. Marginal costs cannot produce per-kernel θ. Establishing a real
+per-kernel θ needs isolated timing via `MTLCommandBuffer.kernelStartTime` /
+`kernelEndTime` (the per-dispatch `MTLCounterSampleBuffer` route is closed,
+§8). **Until someone measures that, no arm may claim a per-kernel θ number.**
+
+**Ranking consequence.** For the next decode round the order is: (1) H5
+lm-head sound pruning — moves B, uncapped, 104.1 MiB confirmed unpruned;
+(2) #268's dispatch-tax attribution — 283 µs, 41% of the θ pool, already in
+flight; (3) the two shared-expert asymmetries (prefetch, pairwise scales) as a
+cheap combined arm; (4) any θ mechanism, but only after per-kernel θ is
+actually measured.
 
 ---
 
@@ -3522,8 +3743,49 @@ prune rate and the bytes actually read over real decode steps. If it already
 prunes payload reads, H5 is dead. Then run a CPU-side bound-tightness
 simulation on recorded hidden states before touching Metal.
 
+**✅ ANSWERED 2026-08-07 (§4.10b census) — H5 IS ALIVE.** The free experiment is
+done and the pruner does **not** prune payload bytes. Decode takes the `refine`
+arm (`useFusedRefinement: inputs.dims(1,1)`, `LagunaRuntimeModel.swift:10977`;
+`lagunaLmHeadFusedRefinementEnabled` default ON,
+`LagunaLmHeadPrune.swift:95-98`), which issues four dispatches in
+`LagunaLmHeadPruner.logits` (`:1090-1168`):
+
+| # | kernel | grid / tg | weight bytes read |
+|---|---|---|---|
+| 5a | `laguna_lmhead_int5_base_coarse_delta_bf16_v1` (`:266`, src `:269-323`, dispatch `:1107-1113`) | 3,211,264 / 512 → 6272 TGs × 16 simdgroups, 1 row/simdgroup | **109,182,976 B = 104.1 MiB** — the entire coarse plane, unconditionally |
+| 5b | `laguna_lmhead_coarse_argmax_stage1_v5` (`:350`, dispatch `:1123-1129`) | (224,128,1) / 224 → 28,672 threads | none (reads 401,408 B of `coarse`) |
+| 5c | `laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1` (`:436`, dispatch `:1130-1136`) | (32,1,1) / 32 | exactly one BF16 row = 4096 B (`:479`) |
+| 5d | `laguna_lmhead_exact_fused_int5_sparse_refine_v1` (`:662`, src `:667-818`, dispatch `:1153-1159`) | 802,816 / 256 → 3136 TGs × 8 simdgroups, fixed 4-row block | data-dependent; file comment `:63-67` says live blocks are "single digits per step" ⇒ O(10 KB) |
+
+So **all** pruning is downstream of the payload read: 5a streams every row's
+1024 B of codes and 64 B of e8m0 scales *before* anything is screened. The
+100,352-row coarse plane is the single largest weight read in the decode step,
+larger than attention QKV (10.0 MiB) or the routed top-8 gate/up (8.0 MiB) by
+an order of magnitude.
+
+**Why this now outranks everything else in the decode queue.** §4.10a showed
+that decode is bandwidth-bound at θ ≈ 0.71 with a hard practical ceiling near
+0.85, so every other decode idea competes for a 14-point θ band and is capped
+by it. H5 does not touch θ at all — it **reduces B**, and B has no ceiling.
+It is the one place in the decode step where the byte total is not pinned,
+because greedy argmax makes provably sound row pruning legal. Re-priced against
+the measured 104.1 MiB rather than the old 134.9 MB estimate: at 1–5 %
+survivors ≈ **−71 MB ≈ 163 µs/step ≈ +2.5 % score**, roughly 2× the ~80 µs
+single-arm bar and ~3.3× the 3σ floor.
+
 Risk: the soundness proof must be against the kernel's *float* arithmetic; flat
 logit tails gut the prune rate; the two-phase structure adds ~3 µs.
+Additional risk now visible from the census: 5a's screen is what makes 5d cheap,
+so any scheme that prunes 5a's own reads must keep 5d's survivor set provably
+correct — the two are coupled, and a naive "skip rows in 5a" breaks the
+certificate that lets 5c/5d touch only a handful of exact rows. The correct
+shape is a *cheaper first screen* (coarser plane, hierarchical block norms)
+that still certifies the same survivor set, not a truncation of 5a.
+
+**Scope note:** `LagunaLmHeadPrune.swift` is one of the three files no
+in-flight assignment touches (§9 of the byte-recovery census), so an H5 arm and
+frieren's queued Lever-1 cleanup would collide. Sequence them, or fold the
+23,687 B of that file's cleanup into the H5 arm.
 
 ### 11.6 H6 — prefill gather-GEMM instruction diet via offline plane separation
 
@@ -3643,3 +3905,67 @@ it is nearly free and probes the same pool H1 maps.
    (order-preserving fusion, ×1.0 skips, layout-only changes, provable bounds).
    Route every candidate through `research/run_upstream_equivalence.sh` and the
    64-step drift tripwire before any timing.
+
+---
+
+## 12. Arithmetic-killed hypotheses from the 2026-08-07 frontier consult
+
+These were priced and rejected on arithmetic alone, before any code was written.
+**Do not assign them.** Recorded so the same ideas are not re-derived.
+
+- **Quantize the dense layer-0 MLP (101 MB/step, ~184 µs floor) or the routers
+  (41 MB/step).** Both are outside the permitted precision envelope, and router
+  quantization perturbs top-8 selection catastrophically. Dead despite being the
+  largest BF16 streams remaining in the step.
+- **KV-cache compression (87 MB/step, ~160 µs floor).** Outside the envelope;
+  changes numerics.
+- **INT8 g32 attention.** 9 bits/weight against the shipped NVFP4 g16's 4.5
+  ⇒ **+805 MB/step ≈ +1.5 ms**. Independently re-derives the already-closed
+  "2× worse than shipped" result.
+- **`uint2` → `uint4` load widening in the decode GEMVs.** Two independent
+  reasons: it is **not bit-exact** (it repartitions the per-lane serial float
+  accumulation that feeds `simd_sum` — §4.10b), and it saves zero bytes. The
+  32 lanes already cover a contiguous 256 B burst, so coalescing is already
+  optimal. Superseded by order-preserving multi-row scheduling if that is ever
+  wanted.
+- **Cross-layer megakernel.** The decode chain is serial; fusing beyond the
+  per-layer targets buys the same barrier count at severe register-pressure and
+  occupancy risk.
+- **Skipping unrouted experts in prefill.** With 512 tokens × top-8 over 256
+  experts, `E[unique] = 256·(1 − e^−16) ≈ 256`. **Zero skippable bytes.**
+- **Shared-expert conditional skip on a small router weight.** Not bit-exact.
+- **Embedding / norm / glue micro-ops.** Under 10 MB and under 20 µs/step
+  combined — below the noise floor.
+- **Sliding-attention occupancy.** 32 threadgroups looks starved (~4 µs
+  floor/layer), but splitting is closed by a prior experiment; and §4.10b shows
+  the main GEMVs are not occupancy-starved either (5120 TGs over ~40 cores).
+
+## 13. Advisor operating lessons (process, not physics)
+
+- **⚠️ Every advisor note commit fires one `research_base_changed` event per
+  in-flight PR.** With three arms open, one `publish_advisor_branch` generates
+  three events. **Batch research-state edits into a single commit** rather than
+  publishing incrementally. When the moved base is byte-identical on the scored
+  surface — verify with
+  `git diff <old> <new> -- Sources/ Vendor/ benchmark.json` returning empty —
+  the correct response is **not to re-notify students**: the SHA in their brief
+  is still reachable and the scope/budget scripts return identical answers, so a
+  fresh SHA costs student attention and buys nothing.
+  `accept_result_on_current_base` does **not** apply to these, because `wip`
+  assignments have no terminal result to accept. Only re-notify when the scored
+  surface actually moved.
+- **Give frontier subagents an explicit internal time budget.** The first
+  kernel-time consult (`b1dda824`, batch
+  `maple-2026-08-07-kerneltime-frontier-consult`) died with
+  `TimeoutError: inherited subagent deadline expired` and returned **nothing** —
+  a full frontier budget spent for zero output. The retry
+  (`bcf59bf9`, batch `maple-2026-08-07-kerneltime-consult-retry`) succeeded only
+  because the brief told it to reserve time for writing the report. State the
+  deadline in the task text and require an interim conclusion before deep dives.
+- **Prefer a corroborating second estimate to a blocking one.** The §4.10a
+  1.8064 GB/step figure was derived top-down from θ; the frontier consult
+  independently produced ≈1.80 GB bottom-up from the layer inventory. Two
+  independent derivations agreeing to three significant figures is stronger
+  evidence than one measurement, and it arrived without waiting on a slower
+  child.
+
