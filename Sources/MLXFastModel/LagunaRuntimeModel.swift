@@ -4373,7 +4373,11 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
         }
         for(uint row=0;row<R;++row){
             const device uint8_t* wl=ws+row*K;
-            float s=float(sc[row*KG]),b=float(bs[row*KG]),a=0.0f;
+            float s,b;
+            uint gl=(lane/SS)*SS;
+            if(lane==gl){ s=float(sc[row*KG]); b=float(bs[row*KG]); }
+            s=simd_shuffle(s,gl); b=simd_shuffle(b,gl);
+            float a=0.0f;
             for(uint i=0;i<V;++i) a+=x[i]*wl[i];
             r[row]+=s*a+sum*b;
         }
@@ -4405,7 +4409,7 @@ private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_gate_sp_h\(heads)_v1",
+            name: "laguna_gate_sp_h\(heads)_v2",
             inputNames: ["input", "packed_codes", "scales", "biases"],
             outputNames: ["gate_values"],
             source: lagunaGateSoftplusSource(heads: heads),
