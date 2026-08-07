@@ -3,8 +3,6 @@ import MLXLMCommon
 @testable import MLXFastModel
 import Testing
 
-private final class DerivedKVCacheSimple: KVCacheSimple {}
-
 private func ordinaryCacheTensor(length: Int, phase: Float = 0) -> MLXArray {
     let values = (0 ..< (2 * length * 4)).map { Float($0) * 0.01 + phase }
     return MLXArray(values).reshaped(1, 2, length, 4)
@@ -34,7 +32,7 @@ func lagunaOrdinaryCachePrefillRequiresExactMultiTokenCache() {
     )
     #expect(!lagunaUsesOrdinaryCachePrefill(sequenceLength: 1, cache: KVCacheSimple()))
     #expect(!lagunaUsesOrdinaryCachePrefill(sequenceLength: 2, cache: nil))
-    #expect(!lagunaUsesOrdinaryCachePrefill(sequenceLength: 2, cache: DerivedKVCacheSimple()))
+    #expect(!lagunaUsesOrdinaryCachePrefill(sequenceLength: 2, cache: ChunkedKVCache()))
     #expect(!lagunaUsesOrdinaryCachePrefill(sequenceLength: 2, cache: QuantizedKVCache()))
 }
 
