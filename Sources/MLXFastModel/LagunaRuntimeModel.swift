@@ -167,8 +167,6 @@ let lagunaFusedRoutedDownReduceEnabled =
 /// `DARKBLOOM_BF16_ROUTE_WEIGHTS=0` for the accepted FP32 route-weight ABI.
 private let lagunaBF16RouteWeightsEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_BF16_ROUTE_WEIGHTS"] != "0"
-private let lagunaDecodeRouteWeightsDType: DType =
-    lagunaBF16RouteWeightsEnabled ? .bfloat16 : .float32
 
 /// `DARKBLOOM_FUSED_ROUTED_GATE_UP` (default on; set "0" to disable): after
 /// checkpoint load, retain one row-concatenated NVFP4 `[gate; up]` bank per
@@ -8438,14 +8436,18 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
 }
 
 private func lagunaDecodeRouterTop8(
-    logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
+    logits: MLXArray,
+    correctionBias: MLXArray,
+    normalizing: Bool = false,
+    bf16RouteWeights: Bool = false
 ) -> (MLXArray, MLXArray) {
     if lagunaDecodeRouterOrdinalEnabled {
         if lagunaDecodeRouterOrdinalScoreTableEnabled {
             return lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
                 logits: logits,
                 correctionBias: correctionBias,
-                normalizing: normalizing
+                normalizing: normalizing,
+                bf16RouteWeights: bf16RouteWeights
             )
         }
         return lagunaDecodeRouterTop8OrdinalForTesting(
@@ -9072,7 +9074,11 @@ final class LagunaRuntimeMoEGate: Module {
     /// the same invocation already produced it (the fused residual + RMSNorm +
     /// router dispatch). It is the identical `x @ weight.T` this method would
     /// otherwise issue.
-    func callAsFunction(_ x: MLXArray, logits: MLXArray? = nil) -> (MLXArray, MLXArray) {
+    func callAsFunction(
+        _ x: MLXArray,
+        logits: MLXArray? = nil,
+        bf16RouteWeights: Bool = false
+    ) -> (MLXArray, MLXArray) {
         let projectedLogits = logits ?? x.matmul(weight.T)
         let inds: MLXArray
         var weights: MLXArray
@@ -9123,7 +9129,7 @@ final class LagunaRuntimeMoEGate: Module {
             // norm sink is a separate flag, so name it separately.
             let sinkNormalization = normTopkProb && lagunaDecodeRouterNormSinkEnabled
             let sinkTrace =
-                if sinkNormalization && lagunaBF16RouteWeightsEnabled {
+                if sinkNormalization && bf16RouteWeights {
                     "decode router top8 (cast sink + norm sink + bf16 routes)"
                 } else if sinkNormalization {
                     "decode router top8 (cast sink + norm sink)"
@@ -9134,7 +9140,8 @@ final class LagunaRuntimeMoEGate: Module {
             (inds, weights) = lagunaDecodeRouterTop8(
                 logits: projectedLogits,
                 correctionBias: eScoreCorrectionBias.asType(.float32),
-                normalizing: sinkNormalization
+                normalizing: sinkNormalization,
+                bf16RouteWeights: bf16RouteWeights
             )
             if sinkNormalization {
                 return (inds, weights)
@@ -9634,7 +9641,30 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     private func forward(
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?
     ) -> MLXArray {
-        let (inds, weights) = gate(x, logits: routerLogits)
+        // The generic combine must retain its FP32 route weights. Enable the
+        // narrower ABI only when the routed-down fusion is available as the
+        // shared fusion's guaranteed fallback consumer.
+        let bf16RouteWeights =
+            lagunaBF16RouteWeightsEnabled
+            && lagunaFusedRoutedDownReduceEnabled
+            && lagunaDecodeRouterTop8Enabled
+            && lagunaDecodeRouterCastSinkEnabled
+            && lagunaDecodeRouterNormSinkEnabled
+            && lagunaDecodeRouterOrdinalEnabled
+            && lagunaDecodeRouterOrdinalScoreTableEnabled
+            && gate.normTopkProb
+            && gate.routerLogitSoftcapping == 0
+            && gate.topK == LagunaConstants.numExpertsPerTok
+            && x.dtype == .bfloat16
+            && x.shape == [1, 1, LagunaConstants.hiddenSize]
+            && _fusedRoutedGateUpWeight != nil
+            && _fusedRoutedGateUpScales != nil
+            && _routedDownProj != nil
+            && _routedDownWeight != nil
+            && _routedDownScales != nil
+        let routeWeightsDType: DType = bf16RouteWeights ? .bfloat16 : .float32
+        let (inds, weights) = gate(
+            x, logits: routerLogits, bf16RouteWeights: bf16RouteWeights)
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -9737,7 +9767,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     LagunaConstants.hiddenSize,
                     LagunaConstants.moeIntermediateSize / 16,
                 ],
-                weights.dtype == lagunaDecodeRouteWeightsDType,
+                weights.dtype == routeWeightsDType,
                 weights.shape == [1, 1, LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor),
                 residual.dtype == .bfloat16,
@@ -9778,7 +9808,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     LagunaConstants.hiddenSize,
                     LagunaConstants.moeIntermediateSize / 16,
                 ],
-                weights.dtype == lagunaDecodeRouteWeightsDType,
+                weights.dtype == routeWeightsDType,
                 weights.shape == [1, 1, LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor)
             {
