@@ -44,28 +44,31 @@
   by disabling the expert path. All _nax changes validated only under variant 3 are suspect.
 
 ## M5 SUBMISSION STATUS
-  29fb82a: VALIDATING — frontier 1bc2a53 (24 changes, BK=32 reverted)
+  90d0841: VALIDATING — frontier e73f710 (26 changes, includes PR #267 + PR #278)
+  29fb82a: FAILED — frontier 1bc2a53 (24 changes, BK=32 reverted) — BUILD FAILURE
   f5dac24: FAILED — frontier 3b24586 (25 changes, BK=32 BUG)
   b72eef8: FAILED — frontier dd9ab65 (24 changes, cause TBD)
   6f9ca88: FAILED — frontier 1919be9 (variant 5, 22 changes, cause TBD)
   68b66c5: REJECTED, score 2.5520 — frontier ad58c92 (variant 3, expert DISABLED)
   df9613a: REJECTED, score 2.5817 — BEST SCORE
   Leaderboard: fyrsta7 2.6040 (current #1). Gap: +0.86% from best (2.5817 → 2.6040).
-  NOTE: Other solvers (a-github-name, yudduy) scored on M5 during our failures.
-  This is NOT global infrastructure. BK=32 bug explains f5dac24. Earlier failures
-  (6f9ca88, b72eef8) may have other causes (unused constexpr, PR #234/#243 interaction).
+  CRITICAL: 29fb82a FAILED even after BK=32 revert. Root cause is in _nax changes
+  (PR #234/#243/#263) that only manifest with expert path enabled (variant 5).
+  If 90d0841 also fails: revert PR #234, #243, #263 and resubmit.
 
-## MERGED THIS SESSION (Wave 15, +1 change)
+## MERGED THIS SESSION (Wave 15, +2 changes)
   PR #267 (askeladd): Merge shared gate/up QMV into routed dispatch — bit-exact, byte-negative -2,094B,
     eliminates 39 decode dispatches, M4 timing +0.50% (noise, M5 may be better with 40 cores)
+  PR #278 (alphonse): Compress LRM doc comments — comment-only, bit-exact, byte-negative -16,572B,
+    frees LRM headroom from 604B to 17,252B. Enables future kernel work.
 
 ## CLOSED THIS SESSION (Wave 15)
   PR #277 (thorfinn): 4-way scale constancy — DEAD (invariant holds only 20-37%, need 95%. 2-way holds 100%)
 
-## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=d99519c)
+## ACTIVE ASSIGNMENTS (Wave 15-16, BASE_SHA=e73f710)
   PR #276 (edward): Fuse final RMSNorm into LM head coarse kernel — eliminate 1 dispatch/step (bit-exact, final norm no ULP accumulation)
-  PR #278 (alphonse): Compress LRM doc comments to free budget headroom (comment-only, bit-exact, meta-optimization)
   PR #280 (thorfinn): Double down kernel outputs_per_simd 4→8 (bit-exact, 0-byte, decode, precedent: PR #83 o_proj)
+  PR #281 (alphonse): Fuse router GEMV + top-8 tournament into single kernel — eliminate 39 decode dispatches (bit-exact, ~0.2-0.5% decode)
 
 ## NEXT-WAVE IDEAS (from NOVEL_OPTIMIZATION_IDEAS.md)
   1. Fuse RMSNorm+router into O-proj — DEAD (incompatible parallelism structures: 16384 TGs vs 1 TG)
