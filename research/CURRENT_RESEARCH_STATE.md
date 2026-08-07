@@ -95,6 +95,26 @@
   head-axis repartition twice over. Everything downstream is gated by one
   unmeasured number — **32 vs 96 co-resident simdgroups per core** — so #196
   opens with a residency staircase that is merge-worthy on its own.
+- **2026-08-07 03:05 UTC** — **#137 r3 returned the anchoring receipt and
+  §4.11.5 is RESOLVED.** Receipt `08ddee45` reads `ns = 2.59440830`, −0.147%
+  = **−0.66σ** of the paired cross-session sd, and clears the HEALTHY edge at
+  −1.01σ: **ROW A, the frontier is intact — the six promoted maple merges after
+  `97a5090c` did not regress the M5 frontier.** Correctness was unanimous
+  (`max_abs_diff 0` over 1344 checked steps, GPQA 9/9, both floors True). The
+  receipt also convicted the **row-major sparse-refine arm** — r3 is r2's tree
+  with one default flipped, and defaulting the arm OFF recovers **+0.2237% of
+  `ns` (+1.01σ) and −16.59 µs/token** — so `DARKBLOOM_LMHEAD_ROWMAJOR_REFINE`
+  is now a **twice-measured M5 negative** headed for the cleanup list, not
+  another arm. Three constants fell out of it and are recorded in the new
+  **§4.11.6**: the M5 host's own baseline drifts **monotonically +0.091% over
+  ~3 h (≈0.03%/hour)**; `officialScore` again failed to attribute a small
+  mechanism (−0.593% on a 3.7×-looser σ, almost all of it the prefill baseline
+  draw); and one receipt now costs **43 min 55 s** dispatch→verdict, not ~35.
+  ⚠️ The merge itself **failed on a conflict in `research/decode_probe.py`
+  only** — fern and nezuko independently fixed the same GPUPROF parser bug, and
+  nezuko's merged version is a strict superset — so #137 went to **r4** with a
+  purely mechanical resolution instruction and no re-measurement. fern is
+  effectively idle pending that resubmit.
 - **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
   precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
   softening commits after `eae07f01` (21:55:23 UTC). Both are recorded in §0a;
@@ -1181,7 +1201,19 @@ This is consistent with §0a row 5: `officialScore` **is** authoritative for
 ranking (it is what the leaderboard uses), and it is **still** the wrong
 instrument for attributing a small mechanism across sessions.
 
-#### 4.11.5 ⚠️ THE FRONTIER HAS BEEN UNANCHORED FOR SIX MERGES
+#### 4.11.5 ✅ RESOLVED — the frontier was unanchored for six merges; receipt `08ddee45` anchored it
+
+> **Outcome (2026-08-07, PR #137 r3).** Receipt
+> `08ddee45-3403-4a6f-aa75-bb9967d62763`, commit `456a92e5`, landed
+> **`ns = 2.59440830`** against the promoted `2.5982163`: **−0.147% = −0.66σ**,
+> clearing the pre-registered HEALTHY edge 2.5924 at −1.01σ. **ROW A.**
+> **The six promoted maple merges after `97a5090c` did not regress the M5
+> frontier.** One receipt anchored six previously unvalidated merges, and the
+> +24.6 µs/token seen in r2 is convicted as the row-major arm, not the merges.
+> Correctness unanimous (`max_abs_diff 0`, 1344 steps, GPQA 9/9 both, both
+> floors True). The pre-registered table below is retained as the record of how
+> the decision was made *before* the number arrived. Three consequences are
+> carried forward in §4.11.6.
 
 The free-feed audit prompted by this PR found that **every `Model: senpai` row
 after our promoted receipt `97a5090c` belongs to another campaign or failed.**
@@ -1210,6 +1242,48 @@ promoted `ns = 2.5982163`; paired cross-session sd on `ns` = 0.222%):
 **Standing rule from this:** the advisor may not let more than ~2 merges
 accumulate without a ranked anchor. An anchoring receipt is cheap (one default
 flip, no new code) and is now a scheduled programme cost, not an optional one.
+The anchor is a *scheduling* obligation, not a hypothesis — it buys attribution
+for every merge behind it at the price of one receipt.
+
+#### 4.11.6 ⭐ Three constants the anchoring receipt bought
+
+**(a) M5 host drift is measurable, monotone, and now correctable.** The two
+instruments reconcile exactly, and their difference *is* the drift. `ns` uses
+fixed normalisers and does not cancel host drift; `decode_speedup` uses the
+same-session paired baseline and does. Across the three receipts the paired
+baseline decode ran
+
+| receipt | paired baseline decode (s/tok) | vs promoted |
+|---|---|---|
+| `97a5090c` (promoted) | 0.01384496646875 | — |
+| #137 r2 | 0.013851607421875 | +0.048% |
+| #137 r3 (`08ddee45`) | 0.01385760709375 | **+0.091%** |
+
+i.e. **monotone +0.091% over roughly three hours of M5 wall time**. The r3
+candidate reads −0.147% on `ns` and −0.073% on `decode_speedup`; −0.147% +
+0.091% = −0.056%, matching the paired figure inside noise. This is the first
+*direct* measurement of M5 baseline drift rather than an inference from it.
+**Practical rule:** when comparing an `ns` value to a promoted `ns` taken hours
+earlier, the baseline may legitimately have drifted ~0.03%/hour in the
+pessimistic direction; prefer the same-session paired `decode_speedup` for
+attribution and reserve `ns` for cross-session bookkeeping where the paired
+figure is unavailable.
+
+**(b) A second live confirmation that `officialScore` cannot attribute a small
+mechanism.** r3's `officialScore` 2.57481890 sits −0.593% below the 2.59018572
+bar against a 0.587% σ — 3.7× looser than `ns`. Almost all of it is the prefill
+baseline draw (prefill_speedup 1.9628 vs 2.0015, −1.93%, on a σ that is
+*entirely* baseline) while candidate prefill barely moved (0.00019138 vs
+0.00019120; S = 97.99 vs 97.89 ms). **Reading this receipt on `officialScore`
+would have manufactured a −0.59% regression out of a tree provably
+byte-identical in behaviour to base.** Consistent with §0a row 5:
+`officialScore` is authoritative for *ranking* and wrong for *attribution*.
+
+**(c) The receipt price is 43 min 55 s, not ~35 min.** Measured end to end on
+r3: dispatch 01:57:14Z → slot blocked by another campaign 02:00:09–02:20:10
+(**19.6 min queue**) → accepted 02:20:19 → terminal 02:41:08 (**20.8 min
+validating**). Plan receipt-bearing assignments against ~45 min per receipt,
+with the queue half of that outside our control.
 
 ---
 
@@ -2185,8 +2259,12 @@ promotes a target nobody was working on.
    experiments**, not one bundle.
 3. **#170 reports** → if H3 (schedule+latency-limited) wins, idea 6 (dequant
    instruction diet, θ 0.67 → 0.78, ~+3%) becomes the constructive follow-on.
-4. **#137 r3 (the anchoring receipt)** → re-anchors the frontier after six
-   unvalidated merges (§4.11.5) and gates idea 5.
+4. ✅ **#137 r3 (the anchoring receipt) — LANDED.** Receipt `08ddee45` read
+   ROW A at −0.66σ: the frontier survived the six unvalidated merges, so
+   §4.11.5 is resolved and the standing "no more than ~2 merges without an
+   anchor" rule is now a *scheduling* obligation rather than an open risk. It
+   also convicted the row-major refine arm, which removes idea 5's second arm.
+   The PR itself is in r4 for a mechanical conflict fix only.
 5. **#148 reports** → is idea 4, in its only available form. T2 (routed-MoE
    matvec bandwidth, 188 µs/step, +2.75%, a *soft* ceiling) is fenced to it.
 6. **(L2) Encode-site barrier pruning / `start_concurrent()`** in the editable
@@ -2222,6 +2300,19 @@ The full evidence table lives in the archive
 
 **Closed this session:**
 
+- **⭐⭐ The lm-head row-major sparse-refine arm
+  (`DARKBLOOM_LMHEAD_ROWMAJOR_REFINE`) — CLOSED as a twice-measured M5
+  negative (§4.11.5, §4.11.6).** r2 shipped it ON and cost −0.369%; r3 is the
+  *identical tree* with the default flipped OFF and recovers **+0.2237% of
+  `ns` (+1.01σ) and −16.59 µs/token**. Two independent ranked receipts, one
+  controlled comparison, same sign. The flag and its kernel move to the
+  cleanup list; do not propose a third geometry of it without a new
+  mechanism (§0a row 7).
+- **⭐ The "~35 minutes per ranked receipt" planning constant — RETIRED.**
+  #137 r3's fully instrumented dispatch→verdict cycle was **43 min 55 s**
+  (19.6 min blocked behind another campaign, 20.8 min validating). Budget
+  ~45 min per receipt, and treat queue contention as a first-class cost when
+  sequencing anchors (§4.11.6c).
 - **⭐⭐ Attention head-axis repartition (one query head per threadgroup) —
   CLOSED by integer-wave arithmetic *and* by a byte argument (§4.12.8 D).**
   Splitting the head pair doubles the grid (32 → 64 sliding, 24 → 48 full) but
