@@ -390,10 +390,111 @@ TBD-STAGE3
 
 ## 6. Byte budget
 
-TBD-BUDGET
+Checked against the recorded base with the trusted scripts, before any edit and
+again at the end of the round.
+
+```
+# before (BASE_SHA, clean worktree)
+assignment scope OK: 1 submitted path(s) against BASE_SHA=69178729b154cbb648ea0ce6152e92dbfdb17cc6
+editable budget OK: current=2866420/3000000 bytes headroom=133580 growth=0/262144
+
+# after
+assignment scope OK: 1 submitted path(s) against BASE_SHA=69178729b154cbb648ea0ce6152e92dbfdb17cc6
+editable budget OK: current=2873731/3000000 bytes headroom=126269 growth=7311/262144 files=140 (file count is diagnostic only; base=140)
+```
+
+| Limit | Value | Used | Headroom |
+| --- | --- | --- | --- |
+| Total submitted surface | 3,000,000 B | 2,873,731 B | 126,269 B |
+| Growth per submission review | 262,144 B | **7,311 B** | 254,833 B |
+| Assignment's own growth cap | 12,000 B | **7,311 B** | 4,689 B |
+| Per file (`LagunaRuntimeModel.swift`) | 524,288 B | 475,647 B (base 468,336 B) | 48,641 B |
+
+Only `Sources/MLXFastModel/LagunaRuntimeModel.swift` changed; the file count is
+unchanged at 140. All research artifacts (`research/…`) are outside the
+submitted surface.
 
 ---
 
 ## 7. Honest assessment and follow-ups
 
-TBD-ASSESSMENT
+### 7.1 What this patch is, and what it is not
+
+It is one bit-exact kernel improvement (mechanism (a)) with a clean per-call A/B,
+a passing invariant control, and 39 dispatches per decode step of leverage, worth
+**−14.2 µs/step ≈ −0.145 % of decode wall** on this host. It is not a
+demonstrated end-to-end win: the effect is 5× below this host's end-to-end
+resolution (§5), exactly as the assignment predicted, so §5 is a point estimate
+and not a verdict.
+
+Mechanism (b) is a clean *negative*: halving the scale plane is lossless and
+bit-exact, it is certified live, and it makes its own kernel 1.94 % slower. The
+useful conclusion is that this kernel is not scale-fetch-bound, which also
+predicts that widening the scale read further would not help.
+
+### 7.2 Promotion requires one deliberate line change
+
+Both mechanisms are strict opt-ins (`== "1"`), which is what the assignment
+asked for so that a single binary could serve every ABBA arm. The ranked
+workflow sets **no** `DARKBLOOM_*` variable, so as committed this patch is inert
+in an official run. `DARKBLOOM_` *is* on the worker environment allowlist
+(`sanitizedRuntimeWorkerEnvironment`,
+`Sources/MLXFastTrustedHarness/LagunaRuntimeWorker.swift:1936-2025`), which is
+why the local ABBA works at all.
+
+Promoting mechanism (a) is exactly one comparison at
+`Sources/MLXFastModel/LagunaRuntimeModel.swift:6810-6812`:
+
+```swift
+// research form (as committed): inert unless explicitly enabled
+private let lagunaSharedSwiGLUQMVPrefetchEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_PREFETCH"] == "1"
+    || lagunaSharedSwiGLUQMVPairwiseScalesEnabled
+
+// promotion form: on by default, with a kill switch
+private let lagunaSharedSwiGLUQMVPrefetchEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_PREFETCH"] != "0"
+```
+
+I did not make that flip myself: it changes what a ranked run executes, and the
+whole point of the opt-in was that the measured evidence and the shipped default
+are separable decisions for the advisor. Mechanism (b)'s flag should stay
+opt-in — or be deleted — because it is a measured regression.
+
+### 7.3 Follow-ups I did not implement
+
+1. **The decode-neighbour effect is the biggest lead here, and it is not this
+   experiment.** In Stage 2, removing 2.55 MB/step of scale traffic left the
+   changed kernel slower but made every memory-heavy decode neighbour faster,
+   for a −1.40 % whole-step delta that is ~10× larger than the traffic
+   removed can explain (§3.5). That deserves its own assignment with the
+   invariant control chosen so it *cannot* move: e.g. hold the kernel binary
+   fixed and vary only allocation order/padding, to separate "decode is
+   globally scale-traffic-sensitive" from "heap layout artifact". If the former
+   is real, it is a much larger prize than either mechanism here.
+2. **Apply the same lossless halving to the shared *down* plane**, and to the
+   `routed_shared_nvfp4_down_residual…r1_v5` kernel, which Stage 0 measured at
+   ~881–915 µs/step — 3× the shared gate/up kernel's whole budget.
+   `lagunaHalvedGroup32ScalePlane` already exists and already declines when the
+   halving would be lossy, so the risk is bounded; but Stage 2 says to expect a
+   per-kernel regression, so it is only worth doing as part of follow-up 1.
+3. **Prefetch the routed twin.** The prefetch idea is not specific to the shared
+   expert; the routed QMV runs 39×/step at 38.5 µs/call, 5× the shared kernel's
+   cost. If the same −4.8 % held there it would be −75 µs/step, which is inside
+   local resolution. The blocked items in this assignment (rows/simdgroup,
+   `uint4` widening, split-K) do not apply to the prefetch change.
+4. **Re-measure mechanism (a) on the M5**, where `_nax` kernels are selected and
+   the memory system differs. This host cannot rank it.
+
+### 7.4 Facts worth carrying forward
+
+- The live shared-QMV call site on the scored path is `fusedSharedDownInputs`
+  (`LagunaRuntimeModel.swift:8490`), **not** `callAsFunction` (`:8638`). A
+  change routed only through the latter is unmeasurable, which is a trap I hit
+  in Stage 2 and had to fix in commit `a15af48`.
+- `LagunaUpstreamEquivalence.swift` **cannot see any fused shared-expert
+  kernel**, because it builds the model directly and never calls
+  `LagunaRuntimeWeights.loadLibraryModel`, which is the only installer of the
+  fused banks (§4.1). Any future shared-expert fusion work must get its
+  correctness evidence from the scored worker path, and a byte-identical
+  equivalence report is *expected* rather than reassuring.
