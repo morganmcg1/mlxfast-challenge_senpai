@@ -1,8 +1,9 @@
 # SENPAI Research State
-- 2026-08-07T12:33Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 3b24586 (pushed to origin).
-  25 composed changes on current frontier (24 previous + PR #271 BK=32).
-  LRM: 523,729/524,288 = 559 B headroom. Total surface ~2,988K/3,000,000.
+- 2026-08-07T12:49Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: d99519c (pushed to origin).
+  25 composed changes on current frontier (24 previous + PR #267 merge shared QMV).
+  LRM: 521,590/524,288 = 2,698 B headroom. Total surface ~2,986K/3,000,000 = 14,260B headroom.
+  PR #267 freed 2,094B in LRM (merged shared gate/up into routed dispatch).
 
 ## CRITICAL FIX THIS SESSION: Variant 3 Revert
   Variant 3 (BM128/WM8/WN1, commit 3c30a3b) SILENTLY DISABLED the expert_aligned
@@ -25,7 +26,8 @@
   22. REVERTED: Variant 3 (3c30a3b) → variant 5 (1919be9) — critical fix
   23. PR #261: Prefill QKV bank fusion (prefill, 0-byte, eliminate 78 dispatches)
   24. PR #263: STAGE2_GATHER variant 2 (prefill, 0-byte, M5-only)
-  25. PR #271: BK=32 tile reduction (prefill, 0-byte, M5-only, halve Ws threadgroup memory)
+  25. PR #267: Merge shared gate/up QMV into routed dispatch (decode, byte-negative -2,094B, eliminate 39 dispatches)
+  BK=32 (PR #271) REVERTED → not on frontier (escape handling bug, commit 1bc2a53)
 
   M5 FIX: ad58c92 — removed unused constexpr gate_heads from PR #230 kernel
   REVERTED: PR #251 (simd_dot) — M5 build failure (cdefbb9)
@@ -53,18 +55,17 @@
   This is NOT global infrastructure. BK=32 bug explains f5dac24. Earlier failures
   (6f9ca88, b72eef8) may have other causes (unused constexpr, PR #234/#243 interaction).
 
-## MERGED THIS SESSION (Wave 13, +2 changes)
-  PR #263 (edward): STAGE2_GATHER variant 2 — 0-byte, bit-exact, prefill-only, M5-only effect
-  PR #261 (thorfinn): QKV bank fusion — 0-byte, bit-exact, prefill-only, 78 dispatches eliminated
+## MERGED THIS SESSION (Wave 15, +1 change)
+  PR #267 (askeladd): Merge shared gate/up QMV into routed dispatch — bit-exact, byte-negative -2,094B,
+    eliminates 39 decode dispatches, M4 timing +0.50% (noise, M5 may be better with 40 cores)
 
-## CLOSED THIS SESSION (Wave 13)
-  PR #265 (askeladd): Non-expert stage flags — DEAD ARM (no scored operation uses non-expert path)
-  PR #264 (alphonse): eScoreCorrectionBias F32 hoist — DEAD (bias already F32, .asType is no-op)
+## CLOSED THIS SESSION (Wave 15)
+  PR #277 (thorfinn): 4-way scale constancy — DEAD (invariant holds only 20-37%, need 95%. 2-way holds 100%)
 
-## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=dd9ab65)
-  PR #267 (askeladd): Merge shared QMV into routed dispatch — ~-6.5KB LRM, eliminate 39 decode dispatches (DECODE)
-  PR #271 (alphonse): BK=32 tile reduction — 0-byte, 1-line, prefill-only, M5-only effect (PREFILL)
-  PR #272 (edward): Extend RMSNorm+router to multi-token prefill — eliminate 39 router matmul dispatches (PREFILL)
+## ACTIVE ASSIGNMENTS (Wave 15, BASE_SHA=d99519c)
+  PR #276 (edward): Fuse final RMSNorm into LM head coarse kernel — eliminate 1 dispatch/step (bit-exact, final norm no ULP accumulation)
+  PR #278 (alphonse): Compress LRM doc comments to free budget headroom (comment-only, bit-exact, meta-optimization)
+  PR #280 (thorfinn): Double down kernel outputs_per_simd 4→8 (bit-exact, 0-byte, decode, precedent: PR #83 o_proj)
 
 ## NEXT-WAVE IDEAS (from NOVEL_OPTIMIZATION_IDEAS.md)
   1. Fuse RMSNorm+router into O-proj — DEAD (incompatible parallelism structures: 16384 TGs vs 1 TG)
@@ -86,17 +87,15 @@
   - Instruction-count reduction (dot4) shows gains on M5 but NOT M4 (M4 is bandwidth-bound).
   - Unused constexpr in Metal JIT kernel strings may cause M5 build failure even when M4 compiles fine.
   - RMSNorm fusion is a dead end: stock dispatch is optimal, FP reduction order changes flip near-tie tokens.
-  - LRM budget is the binding constraint: 559 B headroom. Byte-negative changes are valuable.
-  - Prefill path is relatively unoptimized vs decode — prefill dispatch elimination is the main opportunity.
-  - ALL expert-path vendor knobs are at optimal values (SWIGLU_REGLOCAL, BSEARCH_HOIST,
-    EXPERT_STAGE_WIDEST/WIDELD, EXPERT_GATHER_GROUPS=256, GATHER_RUNSKIP=100%).
-  - Non-expert stage flags (WIDEST/WIDELD/RUNBAR/NOVOL) — DEAD ARM, no scored operation uses non-expert path.
+  - LRM budget freed by PR #267: now 14,260B total headroom (was 559B). Enables new kernel work.
+  - Prefill dispatch elimination is a DEAD ARM — asyncEval overlap hides dispatch savings on M5.
+  - 4-way scale constancy is DEAD — NVFP4 only has 2-way pairwise constancy (100% verified).
   - Need bigger ideas to close 0.86% gap. Novel ideas documented in NOVEL_OPTIMIZATION_IDEAS.md.
-  - PR #267 (merge shared QMV) is highest-value: eliminates 39 decode dispatches AND frees ~6.5KB LRM.
 
 ## BUDGET STATUS
-  LRM: 523,729/524,288 = 559 B headroom
-  Total surface: 2,987,879/3,000,000 = 12,121 B headroom
+  LRM: 521,590/524,288 = 2,698 B headroom (freed 2,139B by PR #267)
+  Total surface: 2,985,740/3,000,000 = 14,260 B headroom
+  Growth limit per submission: 262,144 bytes
   Growth: 136/262,144 bytes
   Vendor quantized.cpp: ~84K/524,288 = ~440K B headroom
   Vendor fp_quantized_nax.h: ~78K/524,288 = ~446K B headroom
