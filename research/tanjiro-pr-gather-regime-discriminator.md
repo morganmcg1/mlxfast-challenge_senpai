@@ -878,16 +878,52 @@ dispatch below records its own attempt history.
 | 2026-08-07T01:06:17Z | — | queue check: `4f546a8` still `validating` (~37 min). Window used to correct the register column in `research/tanjiro_metallib_stats.swift` (advisor §7) and to design arm A2 (advisor §2). |
 | 2026-08-07T01:13:50Z | — | `4f546a8` cleared (`rejected`, `2.46709`) after ~44 min — but a different campaign submission `89521f6` had already entered the queue at 01:10Z, ~3 min after the slot opened. Still occupied, no dispatch possible. |
 | 2026-08-07T01:17:26Z | m2 | server reject: `conflict` — `89521f6` in flight. No receipt consumed. Tree auto-restored to probe 0 in the same command. |
+| 2026-08-07T01:22:55Z | m2 | server reject: `conflict`. No receipt consumed. |
+| 2026-08-07T01:25:22Z | m2 | server reject: `conflict`. No receipt consumed. |
+| 2026-08-07T01:31:05Z | m2 | server reject: `conflict`. No receipt consumed. |
+| 2026-08-07T01:32:23Z | m2 | server reject: `conflict`. Fifth submit attempt inside the 01:00Z hour. |
+| 2026-08-07T01:32:28Z | m2 | **rate limit**: `Rate limit reached. Try again in 1651 seconds` (→ 01:59:59Z). Sixth attempt of the hour. No receipt consumed. |
+| ~2026-08-07T01:37:00Z | — | `89521f6` cleared (`rejected`, `2.48216`). The slot opened while my own hourly submit budget was exhausted. |
+| 2026-08-07T01:37:15Z | m2 | rate limited, 1362 s (→ 01:59:57Z). Retry-after did not move out, so a blocked attempt carries no extra penalty. |
+| 2026-08-07T01:38:50Z | m2 | rate limited, 1271 s (→ 02:00:01Z), from the first pass of the new watcher. Slot observed **free** and still free at 01:39:29Z. |
 
-**Change of dispatch tactic, recorded because it changes how the log reads
-below.** The slot that opened at ~01:13Z was taken by another student within
-about three minutes. Passively checking the queue and *then* deciding to
-dispatch cannot win that race. From 01:17Z onward every check **is** a real
-dispatch attempt: a single command flips the probe constant, submits, and
-restores the constant unconditionally, so a `conflict` is free (no receipt, no
-tree change) and a free slot is taken immediately. The `conflict` rows below are
-therefore not hesitation; they are the cost-free losing half of a race I have to
-keep entering.
+**Two dispatch tactics were tried. The first was wrong, and it cost a cycle.**
+
+From 01:17Z I made every queue check a real dispatch attempt, on the reasoning
+that a `conflict` is free and a passive check can never win a three-minute race.
+That reasoning was incomplete. The submit endpoint is **rate limited to five
+attempts per clock hour, resetting on the hour**, and a `conflict` reply still
+consumes one of those five. I spent the 01:00Z hour's budget on five losing
+attempts between 01:17Z and 01:32Z, hit the limit at 01:32:28Z, and the slot
+then opened at ~01:37Z with nothing left to spend. The slot was still free two
+minutes later. A correctly paced agent would have taken that receipt.
+
+This is worth stating plainly because the failure mode is general: when a shared
+resource is guarded by *both* an occupancy lock and a rate limit, polling the
+lock through the rate-limited endpoint converts a queueing problem into a
+starvation problem.
+
+**Measured contention model.** The account is `morganmcg1`
+(`solverAccountId b6799236-…`), shared by four students, and the benchmark
+allows one in-flight submission per account. From this account's own 41-receipt
+history, the gap between one receipt completing and the next claim being filed
+is 6, 25, 29, 38 and 45 s. Run durations are 20–59 min and highly variable, so
+the opening time is not predictable to better than tens of minutes. The
+consequence is that the slot must be *watched*, not *checked*: any strategy whose
+reaction time exceeds ~30 s loses essentially every cycle.
+
+**Corrected tactic (`research/tanjiro-pr170-dispatch.py`).** Poll a free status
+source frequently and spend a rate-limited submit attempt only when the slot is
+actually free. `mlxfast submissions` is that source — scoped to this account,
+independently authenticated, ~9 s per call, and not subject to the submit limit.
+Two cheaper alternatives were rejected: the public feed endpoint returns all 1588
+submissions as 17.8 MB and rejects `limit`/`status`/`page` with 502, and
+`GET /api/submissions/{id}` is only 18 KB but requires knowing the current
+in-flight id, which is exactly what is unknown after a lost race. The watcher
+verifies the three submitted paths are byte-identical to `HEAD`, arms the probe
+constant only for the seconds spanning one `mlxfast submit` call, restores on
+every exit path including `finally` and `KeyboardInterrupt`, and stops on the
+first non-conflict response so a receipt is never spent twice.
 
 **Observed queue latency.** Two campaign submissions have now been timed end to
 end from this account: `99b7125` took ~69 min and the one before it ~53 min,
