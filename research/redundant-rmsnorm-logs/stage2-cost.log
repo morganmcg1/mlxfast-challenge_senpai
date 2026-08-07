@@ -1,0 +1,101 @@
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/research/fern_redundant_rmsnorm_cost.swift:232:9: warning: 'fastMathEnabled' was deprecated in macOS 15.0: Use mathMode instead [#DeprecatedDeclaration]
+230 | 
+231 | let options = MTLCompileOptions()
+232 | options.fastMathEnabled = false
+    |         `- warning: 'fastMathEnabled' was deprecated in macOS 15.0: Use mathMode instead [#DeprecatedDeclaration]
+233 | let library: MTLLibrary
+234 | do {
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+host reps/buffer=800 streamReps=100 fastMath=disabled
+rows sliding=10304 full=8240
+  sliding_current_1288: 1288 threadgroups x 64 threads
+  sliding_native_5152: 5152 threadgroups x 64 threads
+  full_current_1030: 1030 threadgroups x 64 threads
+  full_native_4120: 4120 threadgroups x 64 threads
+
+=== per-dispatch GPU microseconds (n=12 buffers of 800 dispatches) ===
+  sliding_current_1288            8.920 us  +/- 0.021
+  sliding_native_5152            31.567 us  +/- 0.165
+  full_current_1030               7.446 us  +/- 0.024
+  full_native_4120               25.635 us  +/- 0.167
+  empty_sliding_current_1288      4.600 us  +/- 0.006
+  empty_sliding_native_5152      16.404 us  +/- 0.199
+  empty_full_current_1030         3.853 us  +/- 0.005
+  empty_full_native_4120         13.438 us  +/- 0.215
+  stream_r8_nonorm               85.484 us  +/- 0.502
+  stream_r8_norm                 87.507 us  +/- 0.441
+  stream_r2_nonorm               82.112 us  +/- 0.322
+  stream_r2_norm                 83.954 us  +/- 0.405
+
+=== reduction-only cost (norm kernel - empty kernel at same grid) ===
+  sliding current (1288 tg):   4.320 us +/- 0.022
+  sliding native  (5152 tg):  15.163 us +/- 0.258
+  full    current (1030 tg):   3.593 us +/- 0.025
+  full    native  (4120 tg):  12.197 us +/- 0.272
+
+=== per decode step (30 sliding + 10 full fused QKV dispatches) ===
+  redundant reduction already paid today:  165.522 us +/- 0.704
+  EXTRA cost of 2-rows/TG native geometry:  411.335 us +/- 8.244
+
+=== in-situ probe: 21 MB INT8 code stream at sliding geometry ===
+  stream_r8_nonorm        85.484 us +/- 0.502
+  stream_r8_norm          87.507 us +/- 0.441
+  stream_r2_nonorm        82.112 us +/- 0.322
+  stream_r2_norm          83.954 us +/- 0.405
+  reduction not hidden @8 rows/tg:    2.024 us +/- 0.668
+  reduction not hidden @2 rows/tg:    1.842 us +/- 0.517
+  extra unhidden reduction:          -0.182 us +/- 0.845
+  extra threadgroup/stream cost:     -3.372 us +/- 0.597
+  total in-situ 2-vs-8 rows/tg:      -3.553 us +/- 0.598
+
+  in-situ per decode step (30 sliding + 10 full): -135.014 us +/- 22.736
+
+DECISION (< 25.0 us/step => pursue): KILL
+  isolated reduction delta: 411.335 us/step
+  in-situ geometry delta:   -135.014 us/step
+wrote /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/research/redundant-rmsnorm-logs/stage2-cost.json
+
+wandb: [wandb.login()] Loaded credentials for https://api.wandb.ai from WANDB_API_KEY.
+wandb: W&B API key is configured. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.28.1
+wandb: Run data is saved locally in /tmp/fern-pr300-wandb/wandb/run-20260807_162414-s97y6fdp
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run fern-pr300-stage2-redundant-rmsnorm-cost
+wandb: ⭐️ View project at https://wandb.ai/wandb-applied-ai-team/mlxfast-maple
+wandb: 🚀 View run at https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/s97y6fdp
+WANDB_RUN_ID=s97y6fdp
+WANDB_RUN_URL=https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/s97y6fdp
+wandb: updating run metadata; uploading artifact pr300-stage2-redundant-rmsnorm-cost
+wandb: uploading artifact pr300-stage2-redundant-rmsnorm-cost
+wandb: 
+wandb: Run history:
+wandb:                decision_pursue ▁
+wandb:          decision_threshold_us ▁
+wandb:                      full_rows ▁
+wandb:                full_tg_current ▁
+wandb:                 full_tg_native ▁
+wandb:    insitu_extra_threadgroup_us ▁
+wandb: insitu_extra_threadgroup_us_se ▁
+wandb:       insitu_extra_unhidden_us ▁
+wandb:    insitu_extra_unhidden_us_se ▁
+wandb:             insitu_per_step_us ▁
+wandb:                            +48 ...
+wandb: 
+wandb: Run summary:
+wandb:                       decision KILL
+wandb:                decision_pursue 0
+wandb:          decision_threshold_us 25
+wandb:                      full_rows 8240
+wandb:                full_tg_current 1030
+wandb:                 full_tg_native 4120
+wandb:    insitu_extra_threadgroup_us -3.37153
+wandb: insitu_extra_threadgroup_us_se 0.59668
+wandb:       insitu_extra_unhidden_us -0.18177
+wandb:    insitu_extra_unhidden_us_se 0.84502
+wandb:                            +49 ...
+wandb: 
+wandb: 🚀 View run fern-pr300-stage2-redundant-rmsnorm-cost at: https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/s97y6fdp
+wandb: ⭐️ View project at: https://wandb.ai/wandb-applied-ai-team/mlxfast-maple
+wandb: Synced 7 W&B file(s), 0 media file(s), 3 artifact file(s) and 0 other file(s)
+wandb: Find logs at: /tmp/fern-pr300-wandb/wandb/run-20260807_162414-s97y6fdp/logs
