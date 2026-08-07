@@ -155,13 +155,37 @@ Pipeline reflection is identical across all four arms and both shapes:
 `threadExecutionWidth = 32`, giving `floor(32768 / 9232) = 3` threadgroups per
 core. **Occupancy is unchanged by every arm.**
 
-*Honest caveat.* `maxTotalThreadsPerThreadgroup` is saturated at 1024 and so
-cannot report register pressure; M2 does add 5 allocas. This does not weaken a
-*falsification* (a `ΔM2 ≈ 0` would be confound-free), but a *large* `ΔM2` admits
-a register-pressure alternative that this instrument cannot exclude. That gap is
-what R0b exists to flag rather than to resolve, and no register-count figure
-appears anywhere in this document — the census reports occupancy, which the
-reflection API does give, and stops there.
+*Honest caveat — register residency is not measurable offline here, and this is
+the one confound I cannot close.* The advisor asked for register/occupancy
+stats per arm. Occupancy I can give and did: `tgMem_B = 9232` on a 32768 B
+core budget pins **3 threadgroups/core, identical across all four arms and both
+shapes**, so *threadgroup-memory* residency is settled and no arm moves it.
+Registers I cannot give, and I would rather say so than publish a number that
+looks like a measurement.
+
+The only offline handle is `maxTotalThreadsPerThreadgroup`, which inverts to a
+register *bound*, not a count. It reads 1024 for every arm — but 1024 is also
+the Metal API's hard ceiling for a threadgroup, so the value is **saturated**:
+it is consistent with 8 registers/thread and with 32, and it cannot resolve any
+of the half-register cliffs the advisor flagged (104/128/160/208/256), where
+gen-17 occupancy steps 1024 → 832 → 640 → 512 → 384 threads/core against a
+~208 KB/core register file. A saturated bound reports the ceiling, not the
+kernel.
+
+`research/tanjiro_metallib_stats.swift` therefore prints this column as
+`regs_bound = <=32*` with the asterisk explained in a footer, rather than the
+bare `regs_est = 32` an earlier revision printed. That earlier column was
+misleading in exactly the direction that matters — it read as a point estimate
+of a quantity the instrument never measured.
+
+**What this costs the experiment.** M2 adds 5 allocas. A `ΔM2 ≈ 0` is still
+confound-free, so the *falsification* direction is safe. But a *large* `ΔM2`
+admits a register-pressure alternative — M2 spilling and paying occupancy
+rather than MMA issue — that this host cannot exclude. R0b exists to flag that
+case rather than to resolve it, and if R0b fires the honest reading is
+"M2 perturbed something beyond its axis", not "H1 confirmed". Closing this gap
+needs on-M5 pipeline reflection, which the receipt protocol does not return; it
+is recorded in §9 as a follow-up, not silently absorbed.
 
 *Second caveat, on where these numbers come from.* These are M4 static counts
 from an `applegpu_g16s` host (Apple GPU generation 16). The ranked M5 compiles
@@ -766,6 +790,10 @@ dispatch below records its own attempt history.
 | 2026-08-07T00:22:36Z | — | queue still occupied: submission `99b7125` has been `validating` since 2026-08-06T23:29Z (~53 min, against a p95 benchmark wall of 49 s). Dispatch deferred; window used to land the §4.1/§4.2/§4.5 pre-registration corrections instead. |
 | 2026-08-07T00:38:22Z | — | `99b7125` cleared (`rejected`, score `2.55562`) after ~69 min in `validating`, but `4f546a8` entered the queue at 00:29Z. Still occupied. Window used to land §4.6 and the R5/R7 corrections. |
 | 2026-08-07T00:41:28Z | m2 | server reject: `conflict` — `4f546a8` still in flight. No receipt consumed. Working tree restored to probe 0 immediately after. |
+| 2026-08-07T00:47:11Z | — | queue check: `4f546a8` still `validating`. No dispatch attempted. |
+| 2026-08-07T01:00:43Z | — | queue check: `4f546a8` still `validating`. No dispatch attempted. |
+| 2026-08-07T01:04:06Z | — | queue check: `4f546a8` still `validating` (~35 min). No dispatch attempted. |
+| 2026-08-07T01:06:17Z | — | queue check: `4f546a8` still `validating` (~37 min). Window used to correct the register column in `research/tanjiro_metallib_stats.swift` (advisor §7) and to design arm A2 (advisor §2). |
 
 **Observed queue latency.** Two campaign submissions have now been timed end to
 end from this account: `99b7125` took ~69 min and the one before it ~53 min,
