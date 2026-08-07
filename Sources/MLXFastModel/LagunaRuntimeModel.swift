@@ -1052,6 +1052,53 @@ for (uint i = 0; i < n_reads; ++i) {
     ensureRowContiguous: true
 )
 
+/// PR #300 research-only hook. Appends the real decode residual-stream rows
+/// that feed the 2048-wide RMS reduction to `$DARKBLOOM_FERN_HIDDEN_DUMP` as raw bf16
+/// bit patterns. Never applied to a submitted candidate: it is carried as
+/// `research/fern_hidden_dump.patch` and reverted before any timing.
+enum FernHiddenDump {
+    nonisolated(unsafe) static var handle: FileHandle?
+    nonisolated(unsafe) static var rowsWritten = 0
+    nonisolated(unsafe) static var opened = false
+    static let limit = 512
+    static let lock = NSLock()
+
+    static func append(_ summed: MLXArray) {
+        // Decode shape only: a 512-row prefill call would fill the whole
+        // buffer with prefill rows in one shot.
+        guard summed.size == LagunaConstants.hiddenSize else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        if !opened {
+            opened = true
+            guard let path = ProcessInfo.processInfo.environment["DARKBLOOM_FERN_HIDDEN_DUMP"]
+            else { return }
+            FileManager.default.createFile(atPath: path, contents: nil)
+            handle = FileHandle(forWritingAtPath: path)
+        }
+        guard let handle, rowsWritten < limit else { return }
+        let hidden = LagunaConstants.hiddenSize
+        let rows = summed.size / hidden
+        // bf16 -> Float32 is exact (zero-extended mantissa), so the top 16 bits
+        // of each Float32 pattern round-trip the original bf16 pattern.
+        let values = summed.asArray(Float.self)
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(values.count * 2)
+        for v in values {
+            let bits = UInt16(truncatingIfNeeded: v.bitPattern >> 16)
+            bytes.append(UInt8(truncatingIfNeeded: bits))
+            bytes.append(UInt8(truncatingIfNeeded: bits >> 8))
+        }
+        handle.write(Data(bytes))
+        rowsWritten += rows
+        if rowsWritten >= limit {
+            try? handle.synchronize()
+            FileHandle.standardError.write(
+                Data("fern-hidden-dump: wrote \(rowsWritten) rows\n".utf8))
+        }
+    }
+}
+
 func lagunaResidualRMSNormRouter(
     residual: MLXArray, branch: MLXArray, weight: MLXArray,
     routerWeight: MLXArray, correctionBias: MLXArray
@@ -1092,6 +1139,7 @@ func lagunaResidualRMSNormRouter(
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
             + (lagunaRouterPrecomputedKeysEnabled ? [.uint32] : [])
     )
+    FernHiddenDump.append(outputs[0])
     return (outputs[0], outputs[1], outputs[2], outputs.count > 3 ? outputs[3] : nil)
 }
 
@@ -1113,6 +1161,7 @@ func lagunaResidualRMSNorm(
         outputShapes: [residual.shape, residual.shape],
         outputDTypes: [.bfloat16, .bfloat16]
     )
+    FernHiddenDump.append(outputs[0])
     return (outputs[0], outputs[1])
 }
 
