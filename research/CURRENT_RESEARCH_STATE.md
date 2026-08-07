@@ -55,6 +55,21 @@ Do NOT revisit this hypothesis.
   - Vendor files were reverted to organizer frontier (d9b2df37, 658e1439) to fix M5 build issues.
     qmm_nax kHalvedScales support was removed. Re-adding is risky until M5 issue is resolved.
 
+## M5 ROOT CAUSE ANALYSIS (JIT compilation investigation, 2026-08-07)
+  ROOT CAUSE (hypothesis, high confidence): COMPILE-STORM TIMEOUT.
+  - 57 MLXFast.metalKernel call sites expand to 80-110+ distinct Metal compiles
+    (loop expansion: heads 64/48, rowsPerGroup 1..64, depth 1/2/4/8)
+  - Compilation is LAZY and SYNCHRONOUS: each kernel compiles on first dispatch
+    via blocking device newLibrary()
+  - Existing warmup (LagunaRuntimeWeights.warmLibraryModel L470-502) runs one
+    prefill+decode but may NOT compile every variant the timed path uses
+  - The compile-storm collides with runner 900s hard ceiling + 40C thermal gate
+  - Organizer frontier (0 JIT kernels) has zero compile overhead, always passes
+  - Our code passed at 9:36 AM (M5 fresh, compiled fast) but fails under load
+  FIX NEEDED: comprehensive warmup that dispatches EVERY kernel variant before
+  the timed phase. Consolidate per-head/per-rpg/per-depth variants. Gate
+  registration to match dispatch (early-return when env flag is off).
+
 ## NEXT-WAVE IDEAS (from RESEARCH_IDEAS_FRESH_20260807_v7.md)
   1. Prefill Expert Halved Scales via qmm_nax — ★★★★ ~0.9% total, needs vendor kernel work. RISKY (M5).
   2. Decode AsyncEval=off — ★★★ 0 bytes, ~1.3% total. ASSIGNED to alphonse (PR #337).
