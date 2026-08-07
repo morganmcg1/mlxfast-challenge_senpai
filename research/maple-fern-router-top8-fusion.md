@@ -326,7 +326,31 @@ output only, and the per-step logit digests are recompiled and re-run.
 | A | emit scores | **changes** vs clean reference |
 | C | standalone scores | **identical** to clean reference |
 
-<!-- ARM-C VALIDITY WITNESS PENDING -->
+All three arms were digested inside a **single binary and a single driver run**
+(66 teacher-forced steps each, `run_training a91006ff-7578-457f-880c-8825fdf365b8`,
+exit 0, 145 s), so the comparison is self-contained and needs no cross-session
+reference.
+
+| arm | `run_digest` |
+|---|---|
+| `faultA` | `6322afdf84bf889859c0a8cdc3660c8bf48d55bc85fd219685e4f875bead1f60` |
+| `faultB` | `751491141b61506c39c530600db01b986a3524d1c1de0d1fc35b205b240e3ddf` |
+| `faultC` | `751491141b61506c39c530600db01b986a3524d1c1de0d1fc35b205b240e3ddf` |
+
+| pair | steps differing | first divergence |
+|---|---|---|
+| `faultA` vs `faultB` | **66 / 66** | step 0 |
+| `faultC` vs `faultB` | **0 / 66** | — |
+| `faultA` vs `faultC` | **66 / 66** | step 0 |
+
+The fault is live (A moves), arm C is bit-for-bit the base (C ≡ B), and A ≠ C.
+Arm C therefore really does run the emit kernel and really does discard its
+scores in favour of the standalone dispatch. `ΔD ≈ 0` is a measurement of
+deleting 39 dispatches per step, not an artifact of two identical arms.
+
+(These digests use 66 steps; the §2.4 certificate used 65, so the numbers are
+not comparable *across* runs. The three-way comparison above is entirely
+within one run and does not depend on that.)
 
 
 ## 6. Why the census figure was not a marginal cost
@@ -442,3 +466,38 @@ Cost: well under an hour, no bit-exactness proof required, no kernel authoring.
    vacuous. That pattern should be standard for every numerics-touching change,
    and it is cheap. The lesson of this PR is about *which* changes are worth
    proving correct, not about how to prove them.
+
+## 9. Response to the 2026-08-07 byte-budget feedback
+
+The advisor tightened this PR's net-growth cap from 22 KB to **12,000 bytes**
+against base `747d130be532383d3eabd190f54f8b1b2bc6f9fd`, and asked to be told
+before the bytes are spent if no winning arm fits.
+
+**The cap is moot: the submitted diff is empty.** Arm 1 as built cost 8,993
+bytes and *lost* 36 µs/step, so it is reverted rather than shipped. All 50,314
+bytes of headroom go back to the pool for #205, #148 and #215.
+
+**Arm 3 should not be run, and neither should Arm 2.** The advisor's plan was
+Arm 3 first — delete the standalone top-8 sort outright, have the producer emit
+`router_scores_all[256]` in fp32, and recompute the top-8 inside down+residual —
+on the reasoning that it is a *net deletion* and therefore cheap in bytes. Bytes
+were never the binding constraint. Every arm in this family, Arm 1, 2 and 3
+alike, buys exactly one thing: **the standalone router dispatch stops running.**
+§5 measures that specific quantity in isolation, with a validity witness (§5.3),
+at
+
+```
+ΔD = −0.9 ± 12.1 µs/step   (sem 12.1, t = −0.07, df = 5, p ≈ 0.94)
+```
+
+95 % CI ≈ [−32, +30] µs/step against a predicted −105 to −185. The upside of the
+whole family is measured, and it is zero. Arm 3 does not merely inherit that
+zero — it is strictly worse positioned than Arm 1, because it *adds* work on top
+of it: the producer must write 256 fp32 scores per token instead of 8, and
+down+residual must redo the tournament. Arm 1 added no work at all and still
+cost +37 µs. Arm 3's expected value is negative before a line is written.
+
+Recommendation: **close this PR and reprioritise the queue with §7 and §8**
+rather than spend a third student-week on Arms 2 and 3. The kill rule the
+advisor set ("worse than −60 µs/step on M4") has fired on the mechanism the
+whole family depends on.
