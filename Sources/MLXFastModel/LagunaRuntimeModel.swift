@@ -9459,6 +9459,33 @@ private func lagunaPrefillRouterTournament(
 private let lagunaPrefillRouterTournamentEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_ROUTER_TOURNAMENT"] != "0"
 
+/// Prices an MLX `compiled{}` fusion of a genuinely elementwise decode segment.
+/// The default router path emits one fused Metal dispatch and no plain
+/// elementwise ops, so the only real elementwise chain left in this gate is the
+/// stock tail that `DARKBLOOM_FUSED_ROUTER=0` restores. Set
+/// `DARKBLOOM_COMPILED_ROUTER_TAIL=0` to run that same tail unfused.
+private let lagunaCompiledRouterTailEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_COMPILED_ROUTER_TAIL"] != "0"
+    && MLXHardwareInfo.isCompiledDecodeSupported
+
+/// `(scores, -(scores + bias))` where `scores = sigmoid(logits.f32)`: the cast,
+/// sigmoid, bias add, and negate of the stock router tail as one graph.
+private let lagunaCompiledRouterScores: @Sendable ([MLXArray]) -> [MLXArray] = {
+    let body: @Sendable ([MLXArray]) -> [MLXArray] = { args in
+        let scores = sigmoid(args[0].asType(.float32))
+        return [scores, -(scores + args[1])]
+    }
+    return lagunaCompiledRouterTailEnabled ? compile(shapeless: true, body) : body
+}()
+
+/// Top-k renormalization of the stock router tail as one graph.
+private let lagunaCompiledRouterNormalize: @Sendable (MLXArray) -> MLXArray = {
+    let body: @Sendable (MLXArray) -> MLXArray = { w in
+        w / w.sum(axis: -1, keepDims: true)
+    }
+    return lagunaCompiledRouterTailEnabled ? compile(shapeless: true, body) : body
+}()
+
 /// Sigmoid top-k router. The routing math mirrors the vendored
 /// `LagunaMoEGate` exactly (sigmoid scores, correction bias added only for
 /// expert CHOICE, mixture weights taken from the pre-bias scores, optional
@@ -9561,17 +9588,25 @@ final class LagunaRuntimeMoEGate: Module {
                     correctionBias: eScoreCorrectionBias.asType(.float32)
                 )
             } else {
-                let scores = sigmoid(logits)
-                let scoresForChoice =
-                    scores + eScoreCorrectionBias.asType(scores.dtype)
+                let scores: MLXArray
+                let negScoresForChoice: MLXArray
+                if routerLogitSoftcapping == 0 {
+                    let fused = lagunaCompiledRouterScores([
+                        projectedLogits, eScoreCorrectionBias.asType(.float32),
+                    ])
+                    (scores, negScoresForChoice) = (fused[0], fused[1])
+                } else {
+                    scores = sigmoid(logits)
+                    negScoresForChoice = -(scores + eScoreCorrectionBias.asType(scores.dtype))
+                }
                 inds =
-                    argPartition(-scoresForChoice, kth: topK - 1, axis: -1)[
+                    argPartition(negScoresForChoice, kth: topK - 1, axis: -1)[
                         .ellipsis, ..<topK]
                 weights = takeAlong(scores, inds, axis: -1)
             }
         }
         if normTopkProb {
-            weights = weights / weights.sum(axis: -1, keepDims: true)
+            weights = lagunaCompiledRouterNormalize(weights)
         }
         return (inds, weights)
     }
