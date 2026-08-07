@@ -1,9 +1,12 @@
 # SENPAI Research State
 
-**Updated 2026-08-07 14:05 UTC — round 30 opened: #288 (maple-frieren, editable-byte
+**Updated 2026-08-07 14:20 UTC — round 30 opened: #288 (maple-frieren, editable-byte
 recovery) launched, closing the last idle student. Round 29 state unchanged: #268
 running, #269 closed (structural negative), #270 accepted pending a merge unblock,
-#284 running.**
+#284 running. New §4.15 banks the frontier `steel_gemm` consult: the M5 prefill GEMM
+tail is occupancy-starved at 1.6 TGs/core, F1/H1 is double-confirmed at central
+−3 ms, H2 is the pre-cleared offline-falsifiable fallback, and the 12.30 ms and
+11.40 ms headroom figures are shown to OVERLAP by ≈9.33 ms.**
 
 **This is a living document, not a log.** The round 22–28 chronology now lives in
 [`RESEARCH_STATE_ARCHIVE_rounds-22-28.md`](RESEARCH_STATE_ARCHIVE_rounds-22-28.md);
@@ -258,18 +261,42 @@ W&B links they cannot produce.
 4. **⭐ Prefill (25 % weight) — now fully censused, with two named live targets.**
    §4.13 attributes **100 %** of the 54.633 ms non-MoE residual and closes the glue
    class at ~99 % of its bandwidth floor. What remains:
-   - **F1, fuse the attention input projections** — the cheapest large win on the
-     board. Step 0 is a *one-line default flip* of `DARKBLOOM_FUSED_QKV`
-     (`LagunaRuntimeModel.swift:108-114`), removing 78 prefill dispatches for a central
-     **−1.6 ms = +0.60 %, ≈3.6σ**; Step 1's 4-way bank adds up to −1.5 ms more, total
-     central **−2.2 ms = +0.82 %**. The M4 ablation that turned it off does not apply
-     on M5 (wk/wv are already regular there). **Unfalsifiable on M4 ⇒ needs a ranked
-     M5 receipt.** Pre-clearing in #270 r2.
-   - **`steel_gemm_bf16`, 12.30 ms = 4.61 % of score above its analytic floor** — the
-     single largest named, *unassigned* headroom in the whole programme. Plus the
-     11.40 ms (11.6 % of S) of M5-specific loss that Projection B localises to the
-     tiny-N GEMM tail. No hypothesis attached yet; this is the obvious place to spend
-     the next frontier consult.
+   - **⭐⭐ F1 / H1, fuse the attention input projections — NOW THE #1 ARM ON THE
+     BOARD, independently confirmed twice.** Step 0 is a *one-line default flip* of
+     `DARKBLOOM_FUSED_QKV` (`LagunaRuntimeModel.swift:108-114`), removing 78 prefill
+     dispatches. §4.13 (tanjiro, bottom-up from the dispatch census) put it at central
+     **−1.6 ms**; §4.15 (frontier, top-down from the GEMM route table) independently
+     puts it at central **−3 ms, range −1..−7**, and supplies the *mechanism* §4.13
+     lacked — see below. Step 1's 4-way `[Wq;Wk;Wv;Wg]` bank adds ~−1 ms
+     (`:5590-5610`, `:5881-5896`). **Bit-exact on M5** (same regular-NAX kernel,
+     bk stays 256, only threadgroup ownership regroups; precedent `matmul.cpp:87-94`).
+     Byte cost ~0–3 KB. **Unfalsifiable on M4 ⇒ needs a ranked M5 receipt.**
+     Pre-clearing in #270 r2. Kill criterion: Δprefill < +0.3 %.
+   - **`steel_gemm_bf16` — frontier consult delivered, see §4.15.** ⚠️ **The 12.30 ms
+     projection headroom and the 11.40 ms M5 residual OVERLAP (≈9.33 ms shared inside
+     steel) and must NOT be budgeted additively.** Realistic recoverable ceiling
+     **≈9–10 ms**, central expectation **3–6 ms**; ~2.5–3.0 ms of the 12.30 is
+     peak-margin against a 100 %-of-60-TFLOP/s floor and is definitionally
+     unrecoverable. Root cause is **M5-specific tail occupancy starvation**, not tile
+     quality in the head classes: wq/wo/dense carry 87 % of the 1502.7 GFLOP at
+     AI ≈ 390 and 384–512 TGs/dispatch and are healthy, while wk/wv `(512,1024,2048)`
+     miss the NAX split-K tie `K > 2*max` **exactly** (2048 vs 2·1024,
+     `matmul.cpp:988-991`) and fall to regular-NAX at a **64-TG grid = 1.6 TGs/core on
+     40 cores**. On M4 those same shapes take non-NAX split-K at 1024/256/128 TGs —
+     **which is precisely why the M4 census measured the tail as healthy and why this
+     deficit is invisible off-M5.** Second-order: wo/dense-down (K ≥ 3·max) migrate
+     *into* NAX split-K on M5, paying a ~654 MB FP32-partial round trip ≈ 1.2 ms.
+   - **H2, skinny-N regular-NAX tile downsize** (`matmul.cpp:227-238`) — the only
+     *other* bit-exact steel arm, and the one with a **fully offline falsifier**
+     (`research/nax_msl_compile_check.sh`, MSL compile + pipeline stats proving
+     non-empty MMA). Legal tiles verified against `gemm_nax.h:35-37` (SM = BM/WM ≥ 16;
+     TN = SN/16 even or 1): bm64/bn64/wm2/wn2 → 128 TGs, or bm32/bn64 → 256 TGs.
+     ~0.2–0.4 KB, host-side params only (no new template source), but **requires a
+     metallib rebuild** (binding constraint 7). **Sequencing: H1 and H2 are
+     SUBSTITUTES, not complements** — they target the same wk/wv set, so H2 is worth
+     −1.5..−5 ms only if H1 is absent and just −0.5..−1 ms (sub-MDE) once H1 ships.
+     **Run H1 first; hold H2 as the pre-cleared fallback if H1 dies.** Its offline
+     falsifier costs no ranked slot and can be run at any time.
    - Banked #170 constraint on the MoE half: staging ≈49 % load-issue / ≈51 % DRAM
      bytes, pure-issue term 6.887 ms = 15.9 % of W = 43.2619 ms, streaming floor
      24.15 ms ⇒ **19.11 ms headroom = 7.16 % of score**. Frontier re-derivation puts
@@ -2101,6 +2128,99 @@ a byte-identical control on the *unmodified base file* agreeing to 9 significant
 `LagunaRuntimeModel.swift:9459`, rewiring the stock fallback `else` at ~9588-9612;
 +40/−5 lines, growth 1,766 B, per-file 470,102 B. It was dead by default and carried an
 untested `projectedLogits` vs `logits` asymmetry.
+
+### 4.15 ⭐⭐⭐ Frontier steel_gemm consult (2026-08-07) — the prefill GEMM tail is occupancy-starved on M5, and the two headroom numbers overlap
+
+Full report: [`research/RESEARCH_IDEAS_steel-gemm-prefill.md`](RESEARCH_IDEAS_steel-gemm-prefill.md)
+(268 lines). Top-down from the §4.13 route table; no new measurement. Section index
+inside that file: `:32` GEMM inventory, `:71` root causes, `:98` hypotheses (H1 `:100`,
+H2 `:139`, H3 `:170`, H4 `:187`, H5 `:200`), `:217` the 11.40 ms residual, `:238` what
+could not be determined.
+
+**Inventory.** The 512-token prefill issues 237 steel dispatches for 1502.7 GFLOP. At
+60 TFLOP/s that is a 25.05–25.63 ms floor against 37.93 ms actual. The head classes
+(wq / wo / dense) carry 87 % of the FLOP at arithmetic intensity ≈ 390 with 384–512
+threadgroups per dispatch — **they are healthy**. Fitting the 37.93 ms total with the
+M4-measured head efficiencies held fixed forces the tail to ≈ **24 % of peak**
+(13.2 ms against a 3.2 ms floor). The deficit is concentrated, not diffuse.
+
+**Root causes, ranked.**
+
+1. **Tail occupancy starvation on 40 cores — 6.5–10.3 ms (≈55–85 % of the excess).**
+   wk/wv at `(512, 1024, 2048)` fails the NAX split-K predicate `K > 2*max(M,N)` on the
+   *exact tie* (2048 vs 2·1024) at `matmul.cpp:988-991`, so it takes regular-NAX, whose
+   devc-`s` tile choice (`matmul.cpp:227-238`: bm=64, wm=2, bk=256) yields an 8×8 =
+   **64-threadgroup grid = 1.6 TGs/core**. The router adds 64 TGs, g_proj 16 TGs (worse
+   per dispatch, small in GFLOP). ⭐ **On M4's 10 cores the same shapes route to
+   *non*-NAX split-K at 1024/256/128 TGs — which is exactly why §4.13's M4 census
+   measured the tail as healthy, and why this deficit is M5-specific and invisible
+   locally.**
+2. **wo-class NAX split-K migration — 1.5–5.1 ms (≈12–40 %).** wo and dense-down
+   (K ≥ 3·max) migrate *into* split-K on M5 while staying regular on M4. Cost: an extra
+   FP32-partial write+read ≈ 654 MB ≈ 1.2 ms, plus split-K's efficiency loss (M4
+   measured split-K at 67.7 % vs regular 89.5 %). The already-merged
+   `darkbloom_steel_prefill_tile` regroup (`matmul.cpp:87-94`, applied at `:718`) raised
+   that grid 128 → 512 TGs; **whether §4.13's projection A already includes its benefit
+   is undetermined.**
+3. **Peak margin ≈ 2.5–3.0 ms (≈20–25 %) — definitionally UNRECOVERABLE.** The floor
+   assumes 100 % of 60 TFLOP/s; the best kernels anywhere in this family reach
+   87.5–89.5 %.
+4. **Dispatch/launch boundaries — 1.5–4.6 ms — an ALTERNATIVE attribution of cause 1,
+   not an additive one.** 155 tail dispatches at O(10–30 µs) each. The measured M5
+   command-buffer marginal (27.2 µs/CB × 81 CBs ≈ 2.2 ms) is already booked separately
+   under glue. H1 collapses both attributions at once, which is part of why it is the
+   top pick.
+
+⚠️ **KEY RECONCILIATION — do not budget additively.** §4.13's 12.30 ms steel projection
+headroom and its 11.40 ms M5-specific residual **overlap by ≈9.33 ms inside steel**.
+The realistic recoverable ceiling is **≈9–10 ms**, with a central expectation of
+**3–6 ms**. Every earlier note that added those two numbers is wrong.
+
+**H1 = census F1, and it is the top pick.** Ship `DARKBLOOM_FUSED_QKV` Step 0 (flag
+default flip at `LagunaRuntimeModel.swift:112-114`), then extend to a 4-way
+`[Wq;Wk;Wv;Wg]` bank (`:5590-5610`, `:5881-5896`). Folding the 78 wk/wv dispatches into
+the wq GEMM takes that grid to **640 TGs**. Central **−3 ms (range −1..−7)** for Step 0
+plus ≈ −1 ms for Step 1 — roughly double §4.13's bottom-up −1.6 ms, and it supplies the
+mechanism §4.13 could only infer. **Bit-exact on M5**: same regular-NAX kernel, bk stays
+256, only threadgroup ownership regroups, with `matmul.cpp:87-94` as precedent. M4 may
+show LSB drift because the *route* changes there, so use the near-tie control template
+from §4.14. Bytes ≈ 0–3 KB. Falsifier chain: static predicate replay (done) → M4
+equivalence + dispatch census with the flag on, predicting exactly **−78** dispatches
+(in flight as #270 r2) → one ranked Step-0 run that doubles as the tail-share
+measurement. **Kill at Δprefill < +0.3 %.**
+
+**H2 = skinny-N regular-NAX tile downsize — the pre-cleared fallback.** When the grid
+would fall below ≈2 TGs/core (N ≤ 1024 at M = 512), pick a smaller tile at
+`matmul.cpp:227-238`. Legal per `gemm_nax.h:35-37` (SM = BM/WM ≥ 16; TN = SN/16 even
+or 1): bm64/bn64/wm2/wn2 → 128 TGs, bm32/bn128/wm2/wn4 → 128 TGs, bm32/bn64 → 256 TGs.
+**Host-side parameters only — no kernel source or JIT-twin change**, though it does
+require a metallib rebuild. Bit-exact (bk stays 256; no FP32-partial pass is
+introduced). ⭐ **H1 and H2 are SUBSTITUTES, not complements** — same wk/wv target set.
+H2 is worth −1.5..−5 ms *if H1 is absent* but only −0.5..−1 ms incremental once H1
+ships, which is below MDE. Run H1 first; hold H2. **H2's falsifier is FULLY OFFLINE**
+(`research/nax_msl_compile_check.sh`: MSL compile + pipeline stats proving non-empty
+MMA; the known NAX failure modes — odd TN>1 and SM<16 — are statically excluded), so it
+costs no ranked slot and can be handed to any free student at any time. There is no
+local dynamic test: M4 never selects `_nax` and `MLX_METAL_NO_NAX` is unreachable
+through SwiftPM.
+
+**H3/H4/H5 are dominated and none is bit-exact.** H3 flips the split-K tie to
+`K >= 2*max` (one byte, −3..+1 ms); H4 forces wo-class regular for K ≥ 3·max (−2..+2 ms,
+mainly a *diagnostic* for the 11.40 ms residual); H5 raises the router split-K partition
+count (≈1 ms). Run them only if H1 and H2 both die.
+
+**The 11.40 ms residual.** The primary discriminator is the H1 Step-0 receipt itself;
+the H4 A/B gives a ±2 ms wo-class attribution. **No on-box M5 profiling channel exists**
+— `device.cpp` is not editable and every route above is predicate-derived. The frontier
+recommends requesting **one Metal System Trace session on any M5 dev host** before
+spending multiple ranked slots on this residual.
+
+**Explicitly undetermined:** there is no M5 timing ground truth anywhere in this
+analysis (60 TFLOP/s and 40 cores are assumed, and the devc arch branch on M5 is
+inferred); whether projection A already includes the merged wo regroup; the JIT
+pipeline-cache cost of introducing new tiles; and near-tie argmax stability for the
+non-bit-exact options, which is provable only on M5.
+
 
 
 ## 5. `_nax` safety rig (mandatory for any `_nax` arm)
