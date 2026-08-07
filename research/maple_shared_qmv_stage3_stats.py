@@ -86,6 +86,7 @@ def load(paths):
                 metrics = doc.get("metrics", {})
                 rows.append({
                     "path": path,
+                    "src": os.path.basename(os.path.dirname(os.path.abspath(path))),
                     "idx": int(m.group(1)),
                     "rep": int(m.group(2)),
                     "arm": m.group(3),
@@ -96,7 +97,7 @@ def load(paths):
                     "score": doc.get("score"),
                     "passed": doc.get("passed"),
                 })
-    return sorted(rows, key=lambda r: (r["rep"], r["idx"]))
+    return sorted(rows, key=lambda r: (r["src"], r["rep"], r["idx"]))
 
 
 def main(argv):
@@ -113,7 +114,9 @@ def main(argv):
         if r["arm"] not in arms:
             arms.append(r["arm"])
 
-    print(f"runs: {len(rows)}  reps: {len(set(r['rep'] for r in rows))}  arms: {arms}")
+    blocks = sorted(set((r["src"], r["rep"]) for r in rows))
+    print(f"runs: {len(rows)}  reps: {len(blocks)}  arms: {arms}")
+    print(f"rep blocks (launch dir, rep): {blocks}")
     bad = [r for r in rows if not r["passed_correctness"]]
     steps = sorted(set(r["checked_steps"] for r in rows))
     print(f"passed_correctness: {len(rows) - len(bad)}/{len(rows)}  checked_steps: {steps}")
@@ -121,10 +124,10 @@ def main(argv):
         print(f"  CORRECTNESS FAIL: {r['path']}")
 
     print("\nper-run values")
-    print(f"{'run':<22} {'arm':<9} {'prefill s/tok':>14} {'decode s/tok':>14} {'corr':>5}")
+    print(f"{'run':<46} {'arm':<9} {'prefill s/tok':>14} {'decode s/tok':>14} {'corr':>5}")
     for r in rows:
-        tag = os.path.basename(r["path"]).replace(".score.json", "")
-        print(f"{tag:<22} {r['arm']:<9} {r['prefill_seconds_per_token']:>14.8f} "
+        tag = f"{r['src']}/{os.path.basename(r['path']).replace('.score.json', '')}"
+        print(f"{tag:<46} {r['arm']:<9} {r['prefill_seconds_per_token']:>14.8f} "
               f"{r['decode_seconds_per_token']:>14.8f} {str(r['passed_correctness']):>5}")
 
     for key, label in AXES:

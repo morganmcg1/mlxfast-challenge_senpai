@@ -99,7 +99,8 @@ def main():
             "harness": "./benchmark.sh --local-iterate",
             "arms": arms,
             "order": "off on pairwise pairwise on off (palindromic ABBA)",
-            "reps": len(set(r["rep"] for r in rows)),
+            "reps": len(set((r["src"], r["rep"]) for r in rows)),
+            "launch_dirs": sorted(set(r["src"] for r in rows)),
             "runs": len(rows),
             "shared_qmv_calls_per_decode_step": CALLS_PER_STEP,
             "local_iterate_mde_percent": 0.73,
@@ -114,7 +115,7 @@ def main():
     for r in rows:
         slot = ((r["idx"] - 1) % (2 * len(arms))) + 1
         run_table.add_data(
-            os.path.basename(r["path"]).replace(".score.json", ""),
+            f"{r['src']}/{os.path.basename(r['path']).replace('.score.json', '')}",
             r["rep"], slot, r["arm"], r["prefill_seconds_per_token"],
             r["decode_seconds_per_token"], bool(r["passed_correctness"]),
             r["checked_steps"], r["score"], bool(r["passed"]))
