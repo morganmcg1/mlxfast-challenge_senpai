@@ -1495,7 +1495,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         // replica of the sdpa_vector pair path at fixed kL = 512 (steady
         // ring: the 8-trip two-deep pipeline covers all 16 slots per
         // simdgroup with no tail).
-        threadgroup U outputs[4 * BN * BDP];
+        threadgroup U outputs[8 * BN * BDP];
         threadgroup U max_scores[2 * BN];
         threadgroup U sum_exp_scores[2 * BN];
 
@@ -1622,9 +1622,11 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             pair_values += 2 * inner_v_stride;
         }
 
-        // Combine: promoted two-plane exchange, textual replica of the
-        // sdpa_vector pair path epilogue.
-        constexpr int pair_planes = 2;
+        // Combine: single-round four-plane exchange (pair_planes=4),
+        // collapsing 3 barriers to 1. Each of the 4 output elements per
+        // pair writes to its own dedicated plane; no RAW/WAR hazard
+        // within a round, so a single barrier suffices.
+        constexpr int pair_planes = 4;
         constexpr int pair_plane_size = BN * BDP;
         if (lane == 0) {
             max_scores[sg] = pair_max0;
@@ -1659,29 +1661,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 pair_global_factor1);
             pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
             pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
-        }
-
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        for (int p = 0; p < pair_planes; ++p) {
-            outputs[p * pair_plane_size + lane * BDP + sg] =
-                pair_o0[pair_planes + p];
-            outputs[
-                (pair_planes + p) * pair_plane_size + lane * BDP + sg] =
-                pair_o1[pair_planes + p];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        for (int p = 0; p < pair_planes; ++p) {
-            U acc0 = simd_sum(
-                outputs[p * pair_plane_size + sg * BDP + lane] *
-                pair_global_factor0);
-            U acc1 = simd_sum(
-                outputs[
-                    (pair_planes + p) * pair_plane_size + sg * BDP + lane] *
-                pair_global_factor1);
-            pair_o0[pair_planes + p] =
-                pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
-            pair_o1[pair_planes + p] =
-                pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
         }
 
         if (lane == 0) {
@@ -1972,7 +1951,7 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         // Phase 3: GQA-pair attention over the first N rows in slot order,
         // textual replica of the sdpa_vector pair path (runtime N, tail
         // row included).
-        threadgroup U outputs[4 * BN * BDP];
+        threadgroup U outputs[8 * BN * BDP];
         threadgroup U max_scores[2 * BN];
         threadgroup U sum_exp_scores[2 * BN];
 
@@ -2143,9 +2122,11 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
         }
 
-        // Combine: promoted two-plane exchange, textual replica of the
-        // sdpa_vector pair path epilogue.
-        constexpr int pair_planes = 2;
+        // Combine: single-round four-plane exchange (pair_planes=4),
+        // collapsing 3 barriers to 1. Each of the 4 output elements per
+        // pair writes to its own dedicated plane; no RAW/WAR hazard
+        // within a round, so a single barrier suffices.
+        constexpr int pair_planes = 4;
         constexpr int pair_plane_size = BN * BDP;
         if (lane == 0) {
             max_scores[sg] = pair_max0;
@@ -2180,29 +2161,6 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 pair_global_factor1);
             pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
             pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
-        }
-
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        for (int p = 0; p < pair_planes; ++p) {
-            outputs[p * pair_plane_size + lane * BDP + sg] =
-                pair_o0[pair_planes + p];
-            outputs[
-                (pair_planes + p) * pair_plane_size + lane * BDP + sg] =
-                pair_o1[pair_planes + p];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        for (int p = 0; p < pair_planes; ++p) {
-            U acc0 = simd_sum(
-                outputs[p * pair_plane_size + sg * BDP + lane] *
-                pair_global_factor0);
-            U acc1 = simd_sum(
-                outputs[
-                    (pair_planes + p) * pair_plane_size + sg * BDP + lane] *
-                pair_global_factor1);
-            pair_o0[pair_planes + p] =
-                pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
-            pair_o1[pair_planes + p] =
-                pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
         }
 
         if (lane == 0) {
