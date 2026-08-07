@@ -1564,10 +1564,10 @@ int darkbloom_gather_xmajor_ct() {
   static const int v = [] {
     const std::string s = env::get_var("DARKBLOOM_GATHER_XMAJOR", "");
     if (s.empty() || s == "0") {
-      return 0;
+      return s == "0" ? 0 : 2;
     }
     if (s == "1") {
-      return 4; // tuned default fold
+      return 4;
     }
     const int ct = atoi(s.c_str());
     return (ct == 2 || ct == 4 || ct == 8 || ct == 16) ? ct : 0;
