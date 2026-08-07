@@ -1052,6 +1052,7 @@ dispatch below records its own attempt history.
 | 2026-08-07T03:03:12Z | b2 | **DISPATCHED** as `f2160f8f-7166-4c64-a92f-5efcc46f576a`, 7 s after S2's slot released — the same first-attempt-into-an-observed-slot tactic, now three for three. |
 | 2026-08-07T03:23:54Z | b2 | **RECEIPT** — terminal `rejected` (ranking only), all gates passed, `max_abs_diff = 0`. 20 min 42 s in queue. Waiter exit 0 after 1056.1 s. |
 | 2026-08-07T03:26Z | s3 | S3 built, validated and committed (`aa05cee`) while B2 was still in the queue, so the fourth arm was ready to dispatch the moment the slot freed. Dispatcher started against a clean tree. |
+| 2026-08-07T03:27:41.125Z | s3 | **DISPATCHED** as `ec2b0a57-813d-4bf0-8338-6c55d5231741`, 6 s after B2's slot released. Four for four on the first-attempt-into-an-observed-slot tactic. Armed window ≈ 6 s; tree restored to probe 0 in the same command. |
 
 
 **Two dispatch tactics were tried. The first was wrong, and it cost a cycle.**
