@@ -299,7 +299,10 @@ func staircase(
     bind: (MTLComputeCommandEncoder) -> Void
 ) -> [Int: Double] {
     print("\n--- \(label): us/call vs K, K = 1 ... \(upTo) ---")
-    _ = perCallMicros(pipe, k: 32, reps: 20, bind: bind)
+    // The GPU ramps its clock over the first few hundred dispatches; without a
+    // long enough warm-up the K=1 and K=2 points read several times high and
+    // fake a descending "staircase" that does not exist.
+    for _ in 0..<5 { _ = perCallMicros(pipe, k: 32, reps: 200, bind: bind) }
     var out: [Int: Double] = [:]
     var prev = 0.0
     print("     K     us/call     delta   K/cores")
@@ -407,7 +410,10 @@ print("Shipped is S=1: 32 threadgroups x 512 rows. An S-way split is 32*S")
 print("threadgroups x 512/S rows. Only S that divide 512 into a multiple of 64")
 print("are exactly representable; the rest are reported at the ceiling length")
 print("(the shard that decides the makespan), which favours the split.")
-let splitS = [1, 3, 4, 5, 8, 10]
+// S=2 is included as a cost-model point only. It is not a candidate arm: at
+// both C=20 and C=40 it has exactly the same 80% wave efficiency as the
+// shipped S=1, so it can win nothing by wave quantisation.
+let splitS = [1, 2, 3, 4, 5, 8, 10]
 print("    S     TGs   rows/TG   waves@C   us/call   vs S=1   verdict")
 var baseUs = 0.0
 for s in splitS {
@@ -419,9 +425,73 @@ for s in splitS {
     let waves = (k + max(cores, 1) - 1) / max(cores, 1)
     let ratio = baseUs > 0 ? us / baseUs : .nan
     print(String(
-        format: "  %3d   %5d   %7d   %7d   %8.3f   %6.3f   %@",
+        format: "  %3d   %5d   %7d   %7d   %8.3f   %6.3f   %@%@",
         s, k, rows, waves, us, ratio,
-        ratio < 0.999 ? "faster" : (ratio > 1.001 ? "SLOWER" : "tie")))
+        ratio < 0.999 ? "faster" : (ratio > 1.001 ? "SLOWER" : "tie"),
+        s == 2 ? "  (model point, not a candidate)" : ""))
+}
+
+// MARK: - P4b: M5 wave-count emulation
+
+/// P4 runs the split at this host's own core count, where the shipped dispatch
+/// already needs two waves. The ranked M5 has C=40, where the shipped 32
+/// threadgroups fit in ONE wave and the split's disadvantage is larger. The
+/// staircase (P1/P2) shows duration depends on K only through `ceil(K/C)`, so
+/// the M5 makespan of a geometry with W waves and R rows per threadgroup can
+/// be reproduced here by dispatching W * C_local threadgroups of R rows. That
+/// keeps both the wave count and the per-threadgroup work identical and only
+/// assumes the staircase law itself, which this probe measures directly.
+print("\n=== P4b: M5 (C=40) emulation via matched wave count on C=\(cores) ===")
+print("A geometry that runs W waves of R-row threadgroups on the M5 is emulated")
+print("here as W*\(cores) threadgroups of R rows. Shipped sliding is 32 TGs = 1 wave")
+print("at C=40; an S-way split is ceil(32S/40) waves.")
+print("    S     M5 TGs   M5 waves   rows/TG   emulated K   us/call   vs S=1")
+var base40 = 0.0
+for s in splitS {
+    let rows = max(64, ((512 / s) + 63) / 64 * 64)
+    guard let pipe = compile(sliding, body: slidingBody(n: rows)) else { continue }
+    let tgs = 32 * s
+    let waves = (tgs + 39) / 40
+    let k = waves * max(cores, 1)
+    let us = perCallMicros(pipe, k: k, reps: 100, bind: binder(dParams1))
+    if s == 1 { base40 = us }
+    print(String(
+        format: "  %3d   %8d   %8d   %7d   %10d   %8.3f   %6.3f",
+        s, tgs, waves, rows, k, us, base40 > 0 ? us / base40 : .nan))
+}
+
+// MARK: - P4c: what the KV-independent fixed cost is made of
+
+/// The fit's `f` is whatever a threadgroup pays before and after its KV loop.
+/// Removing the 32-way intra-threadgroup flash-decoding merge is not a correct
+/// kernel -- it drops the cross-simdgroup reduction entirely -- but it prices
+/// that merge, which is the largest identifiable component of `f` and therefore
+/// the thing to attack if the fixed cost is what dominates.
+print("\n=== P4c: cost of the 32-way intra-threadgroup merge epilogue ===")
+let mergeStart = "pair_max0 = max_scores[lane];"
+let mergeEnd = "if (lane == 0) {"
+if let a = sliding.body.range(of: mergeStart),
+    let b = sliding.body.range(of: mergeEnd, range: a.upperBound..<sliding.body.endIndex)
+{
+    var stripped = sliding.body
+    stripped.removeSubrange(a.lowerBound..<b.lowerBound)
+    print("  removed \(sliding.body.distance(from: a.lowerBound, to: b.lowerBound)) "
+        + "chars of epilogue (3 barriers, 4 threadgroup passes over `outputs`)")
+    print("     N    L   full us@K=20   no-merge us@K=20   merge us   merge %% of call")
+    for n in [64, 256, 512] {
+        guard let pFull = compile(sliding, body: slidingBody(n: n)),
+            let pStrip = compile(
+                sliding, body: stripped.replacingOccurrences(
+                    of: "constexpr int N = 512;", with: "constexpr int N = \(n);"))
+        else { continue }
+        let a1 = perCallMicros(pFull, k: max(cores, 1), reps: 200, bind: binder(dParams1))
+        let b1 = perCallMicros(pStrip, k: max(cores, 1), reps: 200, bind: binder(dParams1))
+        print(String(
+            format: "  %4d  %3d   %12.3f   %16.3f   %8.3f   %13.1f%%",
+            n, n / 64, a1, b1, a1 - b1, 100 * (a1 - b1) / a1))
+    }
+} else {
+    print("  epilogue anchors not found; skipped")
 }
 
 // MARK: - P5: projection to the ranked 40-core host
