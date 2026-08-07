@@ -198,27 +198,46 @@ def main() -> int:
 
 
 def report_census(err_path: str, target: str) -> None:
-    """Per-K histogram of injected calls per forward.
+    """Reachability and copy census for every wired site.
 
-    The dominant bucket is `n_calls_per_step`; the rare small bucket is the
-    seed prefill, which is outside every timed window.
+    `calls` is how often a site ran per forward; the dominant bucket is
+    `n_calls_per_step` and the rare small bucket is the seed prefill, which is
+    outside every timed window. `copies` counts duplicates actually produced,
+    so `copies == calls * (K-1)` is the proof the injection reached the GPU.
+    A wired site missing from this table is unreachable under the promoted
+    guards and cannot be priced.
     """
     hist = defaultdict(lambda: defaultdict(int))
+    copies_seen = defaultdict(int)
+    lines = 0
     with open(err_path, errors="replace") as fh:
         for line in fh:
             if not line.startswith("DUPCOUNT "):
                 continue
+            lines += 1
             parts = line.split()
             k = int(parts[1].split("=", 1)[1])
-            copies = int(parts[2].split("=", 1)[1])
+            copies_seen[k] = max(copies_seen[k],
+                                 int(parts[2].split("=", 1)[1]))
             for field in parts[3].split(","):
                 name, count = field.split("=")
-                if name == target:
-                    hist[k][(int(count), copies)] += 1
-    for k in sorted(hist):
-        buckets = ", ".join(f"{c} calls/{cp} copies x{n}" for (c, cp), n in
-                            sorted(hist[k].items(), key=lambda kv: -kv[1]))
-        print(f"census K={k}: {buckets}", flush=True)
+                hist[(k, name)][int(count)] += 1
+    if not lines:
+        print("census: NO DUPCOUNT lines -- no wired site was reached",
+              flush=True)
+        return
+    for k, name in sorted(hist):
+        buckets = ", ".join(f"{c}x{n}" for c, n in
+                            sorted(hist[(k, name)].items(),
+                                   key=lambda kv: -kv[1]))
+        mark = " <-- TARGET" if name == target else ""
+        print(f"census K={k} {name}: calls/forward {buckets}{mark}", flush=True)
+    for k in sorted(copies_seen):
+        print(f"census K={k}: max duplicate copies produced per forward "
+              f"= {copies_seen[k]}", flush=True)
+    if target not in {name for _, name in hist}:
+        print(f"census: TARGET {target} WAS NEVER REACHED -- any timing "
+              "measured for it is void", flush=True)
 
 
 def parse_dupseg(err_path: str) -> dict:

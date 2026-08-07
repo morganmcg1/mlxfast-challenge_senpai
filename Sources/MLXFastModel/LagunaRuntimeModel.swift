@@ -74,8 +74,11 @@ enum LagunaDecodeDup {
     static func inject(
         _ name: String, _ body: (Int, MLXArray?) -> MLXArray?
     ) {
+        // Census every wired site, not just the selected one: a site that the
+        // promoted guards never reach in decode silently measures nothing, and
+        // that failure is indistinguishable from a true zero marginal cost.
+        if verbose { callCounts[name, default: 0] += 1 }
         guard enabled, name == target else { return }
-        callCounts[name, default: 0] += 1
         var previous: MLXArray?
         for copy in 1..<currentK {
             guard let produced = body(copy, chained ? previous : nil) else { return }
