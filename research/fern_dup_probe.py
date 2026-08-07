@@ -210,12 +210,13 @@ def report_census(err_path: str, target: str) -> None:
                 continue
             parts = line.split()
             k = int(parts[1].split("=", 1)[1])
-            for field in parts[2].split(","):
+            copies = int(parts[2].split("=", 1)[1])
+            for field in parts[3].split(","):
                 name, count = field.split("=")
                 if name == target:
-                    hist[k][int(count)] += 1
+                    hist[k][(int(count), copies)] += 1
     for k in sorted(hist):
-        buckets = ", ".join(f"{c} calls x{n}" for c, n in
+        buckets = ", ".join(f"{c} calls/{cp} copies x{n}" for (c, cp), n in
                             sorted(hist[k].items(), key=lambda kv: -kv[1]))
         print(f"census K={k}: {buckets}", flush=True)
 

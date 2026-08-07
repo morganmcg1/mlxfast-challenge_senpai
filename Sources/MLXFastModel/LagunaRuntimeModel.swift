@@ -40,6 +40,7 @@ enum LagunaDecodeDup {
 
     nonisolated(unsafe) private static var roots: [MLXArray] = []
     nonisolated(unsafe) private static var callCounts: [String: Int] = [:]
+    nonisolated(unsafe) private static var copyCount = 0
     nonisolated(unsafe) private static var segment = -1
     nonisolated(unsafe) private static var stepInSegment = 0
     nonisolated(unsafe) private static var currentK = k
@@ -79,6 +80,7 @@ enum LagunaDecodeDup {
         for copy in 1..<currentK {
             guard let produced = body(copy, chained ? previous : nil) else { return }
             roots.append(produced)
+            copyCount += 1
             previous = produced
         }
     }
@@ -104,8 +106,9 @@ enum LagunaDecodeDup {
         let census = callCounts.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }.joined(separator: ",")
         FileHandle.standardError.write(
-            Data("DUPCOUNT k=\(currentK) \(census)\n".utf8))
+            Data("DUPCOUNT k=\(currentK) copies=\(copyCount) \(census)\n".utf8))
         callCounts.removeAll(keepingCapacity: true)
+        copyCount = 0
     }
 
     /// Sensitivity control. Under `DARKBLOOM_DECODE_DUP_FAULT=1` the *real*
