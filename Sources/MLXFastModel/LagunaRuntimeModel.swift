@@ -5924,6 +5924,10 @@ final class LagunaRuntimeAttention: Module {
                         let activated = lagunaGateSoftplus(
                             input: normalized, bank: affineGate, heads: nHeads)
                     {
+                        LagunaDecodeDup.inject("T2b_gate_sp") { _, _ in
+                            lagunaGateSoftplus(
+                                input: normalized, bank: affineGate, heads: nHeads)
+                        }
                         gateLogits = activated
                         gateProjectionActivated = true
                     } else {
@@ -10190,6 +10194,14 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                             packedScales: packedBank,
                             routerKeys: routerKeys
                         )
+                        LagunaDecodeDup.inject("T2c_routed_qmv") { _, _ in
+                            lagunaRoutedSwiGLUQMVPackedTop8(
+                                x,
+                                fusedWeight: fusedWeight,
+                                packedScales: packedBank,
+                                routerKeys: routerKeys
+                            )
+                        }
                     } else {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed scales)")
                         activated = lagunaRoutedSwiGLUQMVPacked(
@@ -10251,7 +10263,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dims(1, 1, LagunaConstants.hiddenSize)
             {
                 lagunaTrace("routed+shared down residual")
-                return lagunaRoutedSharedDownResidual(
+                let fusedTail = lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
                     routedDownScales: downScales,
@@ -10262,6 +10274,24 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     sharedDownScales: sharedInputs.downScales,
                     residual: residual
                 )
+                LagunaDecodeDup.inject("T2a_shared_qmv") { _, _ in
+                    sharedExpert.fusedSharedDownInputs(
+                        x, sharedActivation: nil)?.activated
+                }
+                LagunaDecodeDup.inject("T2d_down_residual") { _, _ in
+                    lagunaRoutedSharedDownResidual(
+                        routedActivated: activated,
+                        routedDownWeight: downWeight,
+                        routedDownScales: downScales,
+                        indices: inds,
+                        routerWeights: weights,
+                        sharedActivated: sharedInputs.activated,
+                        sharedDownWeight: sharedInputs.downWeight,
+                        sharedDownScales: sharedInputs.downScales,
+                        residual: residual
+                    )
+                }
+                return fusedTail
             } else if lagunaFusedRoutedDownReduceEnabled,
                 let downWeight = _routedDownWeight,
                 let downScales = _routedDownScales,
@@ -10490,11 +10520,19 @@ final class LagunaRuntimeDecoderLayer: Module {
             sparse.gate.weight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize)
         {
             let fused = lagunaResidualRMSNormRouter(
-                residual: x,
+                residual: LagunaDecodeDup.faultInput("T1a_residual_rms_router", x),
                 branch: r,
                 weight: postAttentionLayerNorm.weight,
                 routerWeight: sparse.gate.weight,
                 correctionBias: sparse.gate.eScoreCorrectionBias)
+            LagunaDecodeDup.inject("T1a_residual_rms_router") { _, chained in
+                lagunaResidualRMSNormRouter(
+                    residual: chained ?? x,
+                    branch: r,
+                    weight: postAttentionLayerNorm.weight,
+                    routerWeight: sparse.gate.weight,
+                    correctionBias: sparse.gate.eScoreCorrectionBias).summed
+            }
             h = fused.summed
             normalized = fused.normalized
             routerLogits = fused.routerLogits
@@ -11106,9 +11144,15 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 // single-token decode takes the three-level screen, whose
                 // level-one pass reads 25.7 MB/step less of the int5 planes.
                 result = pruner.logits(
-                    hidden: hidden,
+                    hidden: LagunaDecodeDup.faultInput("T1c_lmhead", hidden),
                     lmHeadWeight: lmHead.weight,
                     useFusedRefinement: inputs.dims(1, 1))
+                LagunaDecodeDup.inject("T1c_lmhead") { _, _ in
+                    pruner.logits(
+                        hidden: hidden,
+                        lmHeadWeight: lmHead.weight,
+                        useFusedRefinement: inputs.dims(1, 1))
+                }
             } else {
                 result = lmHead(hidden)
             }
