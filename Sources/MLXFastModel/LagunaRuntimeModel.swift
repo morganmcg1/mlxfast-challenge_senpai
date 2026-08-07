@@ -444,12 +444,15 @@ private func lagunaNativeAffineGProjWeight(_ weight: MLXArray) -> LagunaNativeAf
     let (packedCodes, scales, biases) = quantized(
         weight, groupSize: 32, bits: 8, mode: .affine)
     guard biases != nil else { return nil }
-    return LagunaNativeAffineWeight(
+    var w = LagunaNativeAffineWeight(
         packedCodes: packedCodes,
         scales: scales,
         biases: biases,
         originalShape: weight.shape
     )
+    w.interleavedMetadata = contiguous(
+        stacked([scales, biases!], axis: -1).reshaped(scales.shape[0], -1))
+    return w
 }
 
 /// Sliding-layer per-head RMSNorm + plain RoPE fusion (see
@@ -2907,6 +2910,8 @@ struct LagunaNativeAffineWeight {
     /// scale[0, 1] retained for the k=0 pair where pairwise constancy may fail.
     var scalesEscape: MLXArray? = nil
     var qkvEscape: MLXArray? = nil
+    /// Interleaved [scale, bias] per group for g_proj gate-softplus cache locality.
+    var interleavedMetadata: MLXArray? = nil
 
     var arrays: [MLXArray] {
         [packedCodes, scales]
@@ -2914,6 +2919,7 @@ struct LagunaNativeAffineWeight {
             + (indexedMetadata?.arrays ?? [])
             + (scalesEscape.map { [$0] } ?? [])
             + (qkvEscape.map { [$0] } ?? [])
+            + (interleavedMetadata.map { [$0] } ?? [])
     }
 }
 
@@ -4386,8 +4392,7 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
     uint lane=thread_index_in_simdgroup;
     uint orow=tile*(NS*R)+sg*R;
     const device uint8_t* ws=(const device uint8_t*)packed_codes+orow*K+lane*V;
-    const device bfloat* sc=scales+orow*KG+lane/SS;
-    const device bfloat* bs=biases+orow*KG+lane/SS;
+    const device bfloat* pm=packed_metadata+orow*KG*2+(lane/SS)*2;
     thread float x[V];
     thread float r[R]={0.0f,0.0f,0.0f,0.0f};
     uint col=lane*V;
@@ -4401,13 +4406,13 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
             const device uint8_t* wl=ws+row*K;
             float s,b;
             uint gl=(lane/SS)*SS;
-            if(lane==gl){ s=float(sc[row*KG]); b=float(bs[row*KG]); }
+            if(lane==gl){ s=float(pm[row*KG*2]); b=float(pm[row*KG*2+1]); }
             s=simd_shuffle(s,gl); b=simd_shuffle(b,gl);
             float a=0.0f;
             for(uint i=0;i<V;++i) a+=x[i]*wl[i];
             r[row]+=s*a+sum*b;
         }
-        ws+=BK; sc+=BK/GS; bs+=BK/GS; col+=BK;
+        ws+=BK; pm+=(BK/GS)*2; col+=BK;
     }
     {
         const vec<float, 4> packed = simd_sum(
@@ -4435,8 +4440,8 @@ private let lagunaGateSoftplusKernels: [Int: MLXFast.MLXFastKernel] = {
     var result: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         result[heads] = MLXFast.metalKernel(
-            name: "laguna_gate_sp_h\(heads)_v2",
-            inputNames: ["input", "packed_codes", "scales", "biases"],
+            name: "laguna_gate_sp_h\(heads)_v3",
+            inputNames: ["input", "packed_codes", "packed_metadata"],
             outputNames: ["gate_values"],
             source: lagunaGateSoftplusSource(heads: heads),
             ensureRowContiguous: true)
@@ -4450,16 +4455,17 @@ private func lagunaGateSoftplus(
     guard lagunaGateSoftplusEnabled,
         bank.mode == .affine, bank.bits == 8, bank.groupSize == 32,
         let biases = bank.biases,
+        let interleaved = bank.interleavedMetadata,
         let kernel = lagunaGateSoftplusKernels[heads],
         input.dtype == .bfloat16,
         input.dims(1, 1, LagunaConstants.hiddenSize),
         bank.packedCodes.dims(heads, LagunaConstants.hiddenSize / 4),
-        bank.scales.dims(heads, LagunaConstants.hiddenSize / 32),
+        interleaved.dims(heads, LagunaConstants.hiddenSize / 16),
         biases.dims(heads, LagunaConstants.hiddenSize / 32)
     else { return nil }
 
     return kernel(
-        [input, bank.packedCodes, bank.scales, biases],
+        [input, bank.packedCodes, interleaved],
         grid: ((heads / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, heads]],
