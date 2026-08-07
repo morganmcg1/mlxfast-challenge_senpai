@@ -28,8 +28,10 @@ and its ABBA violated the invariant-control precondition, so I do not claim it.
 
 Both effects are far below this host's end-to-end resolution. −14.2 µs/step is
 **0.166 % of GPU busy time and 0.145 % of decode wall time**, against a
-±0.73 % local-iterate MDE. The end-to-end ABBA in §5 is reported as a point
-estimate with a CI and is **not** treated as a refutation.
+±0.73 % local-iterate MDE at 5 reps per arm. The end-to-end ABBA in §5 lost half
+its slots to the 40 C cool gate and finished at **n = 1 per arm**, so it is
+reported as three unreplicated point estimates with **no CI** and is explicitly
+**not** treated as a refutation.
 
 ### 0.1 Framing: bit-exactness plus in-situ per-dispatch cost
 
@@ -56,7 +58,8 @@ So the load-bearing evidence in this report is, in order:
    deliberately broken variant.
 2. **In-situ per-dispatch cost** of the kernel with each guard on and off
    (§2.1, §3.2), measured by ABBA with an invariant control.
-3. The end-to-end ABBA (§5), reported as a point estimate with a CI and
+3. The end-to-end ABBA (§5), which the 40 C cool gate cut to n = 1 per arm and
+   which is therefore reported as unreplicated point estimates with no CI, and
    explicitly **not** as a refutation.
 
 **On standing rule 25 (isolated vs in-situ).** The per-dispatch numbers in §2.1
@@ -603,9 +606,98 @@ python3 research/maple_pr301_fault_injection.py check   # must print clean x5 af
 
 ---
 
-## 5. Stage 3 — end-to-end matched timing
+## 5. Stage 3 — end-to-end matched timing (partial: n = 1 per arm)
 
-TBD-STAGE3
+**Design.** `research/maple_shared_qmv_local_iterate_abba.sh` runs
+`./benchmark.sh --local-iterate` once per slot with the cool gate **enabled and
+untouched**, copies each `score.local-iterate.json` to
+`${OUT}/<idx>-rep<N>-<arm>.score.json`, and soaks between slots.
+
+```bash
+REPS=1 PRECOOL_SECONDS=210 ORDER="off on pairwise pairwise on off" \
+  OUT=/tmp/maple-shared-qmv-stage3-r2 \
+  bash research/maple_shared_qmv_local_iterate_abba.sh
+python3 research/maple_shared_qmv_stage3_stats.py /tmp/maple-shared-qmv-stage3-r2
+```
+
+**What actually happened.** The driver completed slots 01–03 and then lost slots
+04 and 05 to the trusted cool-down gate, which is its
+`MAX_CONSECUTIVE_FAILURES=2` bail condition, so it exited 3 with the ABBA
+half-finished (supervised launch `16347d55-bd91-45e7-b872-a5951dc1b51a`,
+~2,900 s). An earlier attempt (`1e2efe4f-…`) died the same way.
+
+```text
+01-rep1-off      rc=0 seconds=242
+02-rep1-on       rc=0 seconds=451
+03-rep1-pairwise rc=0 seconds=293
+04-rep1-pairwise rc=1 seconds=351   error="local GPU cool-down gate failed for prefill with status 1"
+05-rep1-on       rc=1 seconds=492   error="local GPU cool-down gate failed for decode with status 1"
+aborting: 2 consecutive failed runs
+```
+
+This is a host property, not a code fault. This Mac16,11 **idles at
+39.9–40.1 C**, and `benchmark.sh`'s gate is a `readonly COOL_GATE_TEMP_C=40`
+with `MAX_WAIT=900`; `tools/fan-control.sh` cannot help because there is no
+`smc` CLI here. Once the machine has absorbed the heat of three consecutive
+512+128 benchmark passes, a 900 s wait for <40 C is a coin flip. I did not lower
+`PRECOOL_SECONDS` below 210 and did not touch the gate: a comparable-timing rule
+is worth more than a completed table.
+
+**Correctness.** All three completed slots report
+`passed_correctness=true, checked_steps=130, error=""`. The two failed slots
+never ran a timed phase; their score files carry zeroed timings and are excluded
+from every arm mean by `arm_values()` in the stats script.
+
+**Result — three single observations, both axes.**
+
+| Slot | Arm | prefill s/tok | decode s/tok | tok/s (decode) | correct |
+| --- | --- | --- | --- | --- | --- |
+| 01 | `off` | 0.001125312 | 0.012781521 | 78.24 | yes |
+| 02 | `on` (prefetch) | 0.001117158 | 0.012850674 | 77.82 | yes |
+| 03 | `pairwise` | 0.001138764 | 0.012881249 | 77.63 | yes |
+| 04 | `pairwise` | — | — | — | cool gate |
+| 05 | `on` | — | — | — | cool gate |
+
+| Contrast | prefill Δ | decode Δ |
+| --- | --- | --- |
+| `off` → `on` | −0.725 % | **+0.541 %** |
+| `off` → `pairwise` | +1.195 % | +0.780 % |
+| `on` → `pairwise` | +1.934 % | +0.238 % |
+
+**Achieved precision, stated honestly.** n = 1 per arm. There is no within-arm
+variance estimate, so **no SE and no confidence interval exist** for any of
+these contrasts and the achieved MDE is undefined — strictly worse than the
+±0.73 % this host reaches at 5 reps per arm. The stats script prints
+`95% CI undefined: n=1 vs 1, replication insufficient - point estimate only`
+rather than a fabricated interval.
+
+**This is not a refutation of mechanism (a), and it cannot be one.** Three
+independent reasons, in decreasing order of force:
+
+1. **The predicted effect is smaller than the tool's resolution even at full
+   reps.** §0.1: −14.2 µs/step is 0.145 % of decode wall, and that 14.2 is
+   itself an upper bound (standing rule 25). The ±0.73 % MDE is ~5× larger.
+2. **At n = 1 the observation is consistent with pure noise.** Back-solving the
+   established ±0.73 % MDE at n=5 (`MDE ≈ 2.8·sd·√(2/n)`) implies a per-run sd
+   of ≈0.41 %, so a single `off`/`on` pair has sd ≈ 0.58 %. The observed
+   +0.541 % is ≈0.9 sd from zero. A coin-flip-magnitude deviation is not
+   evidence in either direction.
+3. **The two axes disagree in sign** (`off`→`on` is −0.725 % on prefill and
+   +0.541 % on decode) with no mechanism that predicts a prefill-only benefit —
+   the shared gate/up QMV rows-1 kernel is a *decode* kernel and prefill takes
+   the QMM path entirely. Two axes moving oppositely by comparable amounts is
+   the signature of between-run drift, not of the guard.
+
+The load-bearing evidence for mechanism (a) therefore remains §2.1's in-situ
+per-dispatch ABBA (−0.363 µs/call, CI [−0.495, −0.232], invariant control null)
+plus the bit-exactness chain in §2.2/§4.3, exactly as §0.1 sets out. Confirming
+or refuting a 0.145 % end-to-end effect needs the ranked M5 with its paired
+same-session baseline; it is not obtainable on this host at any rep count I can
+afford.
+
+**W&B.** Stage 3 timings, the Stage 1/2 kernel A/B, the 128-step tripwire, the
+round-wide correctness aggregate and the fault-injection table are logged to one
+run by `research/maple_shared_qmv_wandb.py` (see §0 for the URL).
 
 ---
 
@@ -643,10 +735,11 @@ submitted surface.
 
 It is one bit-exact kernel improvement (mechanism (a)) with a clean per-call A/B,
 a passing invariant control, and 39 dispatches per decode step of leverage, worth
-**−14.2 µs/step ≈ −0.145 % of decode wall** on this host. It is not a
-demonstrated end-to-end win: the effect is 5× below this host's end-to-end
-resolution (§5), exactly as the assignment predicted, so §5 is a point estimate
-and not a verdict.
+**−14.2 µs/step ≈ −0.145 % of decode wall** on this host (an upper bound, §0.1).
+It is not a demonstrated end-to-end win: the effect is ~5× below this host's
+end-to-end resolution even at full reps, exactly as the assignment predicted,
+and the cool gate left §5 at n = 1 per arm — so §5 is three unreplicated point
+estimates, not a verdict in either direction.
 
 Mechanism (b) is a clean *negative*: halving the scale plane is lossless and
 bit-exact, it is certified live, and it makes its own kernel 1.93 % slower. The

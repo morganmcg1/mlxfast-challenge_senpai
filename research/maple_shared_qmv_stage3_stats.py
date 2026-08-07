@@ -67,6 +67,14 @@ def welch(a, b):
     return mean(b) - mean(a), t95(df) * se, df
 
 
+def arm_values(rows, arms, key):
+    """Per-arm value lists. Runs that failed correctness carry zeroed timings
+    and must never enter an arm mean."""
+    return {a: [r[key] for r in rows
+                if r["arm"] == a and r[key] is not None and r["passed_correctness"]]
+            for a in arms}
+
+
 def load(paths):
     rows = []
     for pattern in paths:
@@ -130,29 +138,43 @@ def main(argv):
         print(f"{tag:<46} {r['arm']:<9} {r['prefill_seconds_per_token']:>14.8f} "
               f"{r['decode_seconds_per_token']:>14.8f} {str(r['passed_correctness']):>5}")
 
+    good = [r for r in rows if r["passed_correctness"]]
     for key, label in AXES:
-        by_arm = {a: [r[key] for r in rows if r["arm"] == a and r[key] is not None]
-                  for a in arms}
+        by_arm = arm_values(good, arms, key)
         print(f"\n=== {label} ===")
         print(f"{'arm':<9} {'n':>3} {'mean':>13} {'sd':>12} {'se':>12} {'cv%':>7}")
         for a in arms:
             xs = by_arm[a]
+            if not xs:
+                print(f"{a:<9} {0:>3} {'-':>13} {'-':>12} {'-':>12} {'-':>7}")
+                continue
             m, s = mean(xs), sd(xs)
-            se = s / math.sqrt(len(xs)) if xs else float("nan")
+            se = s / math.sqrt(len(xs))
             print(f"{a:<9} {len(xs):>3} {m:>13.8f} {s:>12.8f} {se:>12.8f} "
                   f"{100.0 * s / m:>7.3f}")
         for i, a in enumerate(arms):
             for b in arms[i + 1:]:
-                d, hw, df = welch(by_arm[a], by_arm[b])
-                base = mean(by_arm[a])
-                print(f"{a} -> {b}: delta {d:+.8f} ({100.0 * d / base:+.3f} %) "
-                      f"95% CI [{d - hw:+.8f}, {d + hw:+.8f}] "
+                xa, xb = by_arm[a], by_arm[b]
+                if not xa or not xb:
+                    print(f"{a} -> {b}: no comparison (n={len(xa)} vs {len(xb)})")
+                    continue
+                d, hw, df = welch(xa, xb)
+                base = mean(xa)
+                head = (f"{a} -> {b}: delta {d:+.8f} ({100.0 * d / base:+.3f} %)")
+                if math.isnan(hw):
+                    print(f"{head} 95% CI undefined: n={len(xa)} vs {len(xb)}, "
+                          f"replication insufficient - point estimate only")
+                    continue
+                print(f"{head} 95% CI [{d - hw:+.8f}, {d + hw:+.8f}] "
                       f"([{100.0 * (d - hw) / base:+.3f} %, "
                       f"{100.0 * (d + hw) / base:+.3f} %]) df {df:.1f}")
 
-        print("position balance (mean index within a rep):")
+        print("position balance (mean index within a rep, correct runs only):")
         for a in arms:
-            idxs = [r["idx"] for r in rows if r["arm"] == a]
+            idxs = [r["idx"] for r in good if r["arm"] == a]
+            if not idxs:
+                print(f"  {a:<9} no correct runs")
+                continue
             per_rep = [((i - 1) % max(1, len(arms) * 2)) + 1 for i in idxs]
             print(f"  {a:<9} raw idx mean {mean(idxs):.2f} "
                   f"in-rep slot mean {mean(per_rep):.2f}")

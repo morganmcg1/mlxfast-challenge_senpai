@@ -162,25 +162,30 @@ def main():
         r["checked_steps"] or 0 for r in rows)
 
     for key, label in S.AXES:
-        by_arm = {a: [r[key] for r in rows if r["arm"] == a and r[key] is not None]
-                  for a in arms}
+        by_arm = S.arm_values(rows, arms, key)
         for a in arms:
             xs = by_arm[a]
+            summary[f"{key}/{a}/n"] = len(xs)
+            if not xs:
+                continue
             m, s = S.mean(xs), S.sd(xs)
             summary[f"{key}/{a}/mean"] = m
             summary[f"{key}/{a}/sd"] = s
             summary[f"{key}/{a}/se"] = s / math.sqrt(len(xs))
-            summary[f"{key}/{a}/n"] = len(xs)
         for i, a in enumerate(arms):
             for b in arms[i + 1:]:
-                d, hw, df = S.welch(by_arm[a], by_arm[b])
-                base = S.mean(by_arm[a])
+                xa, xb = by_arm[a], by_arm[b]
+                if not xa or not xb:
+                    continue
+                d, hw, df = S.welch(xa, xb)
+                base = S.mean(xa)
                 tag = f"{key}/{a}_to_{b}"
                 summary[f"{tag}/delta"] = d
                 summary[f"{tag}/delta_percent"] = 100.0 * d / base
-                summary[f"{tag}/ci95_lo_percent"] = 100.0 * (d - hw) / base
-                summary[f"{tag}/ci95_hi_percent"] = 100.0 * (d + hw) / base
                 summary[f"{tag}/df"] = df
+                if not math.isnan(hw):
+                    summary[f"{tag}/ci95_lo_percent"] = 100.0 * (d - hw) / base
+                    summary[f"{tag}/ci95_hi_percent"] = 100.0 * (d + hw) / base
 
     tripwire_table = wandb.Table(columns=TRIPWIRE_COLS)
     for rec in TRIPWIRE:
