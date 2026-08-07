@@ -47,3 +47,25 @@
 - **Premise**: Use MTLTexture for weight storage to improve cache behavior
 - **Finding**: MLX has zero texture support. All kernels use device buffers. No texture injection point in dispatch API (MLXFastKernel only accepts buffers). Binding layer (metal_kernel.cpp, device.cpp) is NOT editable. Performance rationale is weak anyway — NVFP4 weights are read sequentially (buffer-optimal), textures help 2D spatial locality which doesn't match GEMV decode.
 - **Verdict**: DEAD — no editable texture binding path + weak performance rationale
+
+## Wave 16 Negative Results (2026-08-07T13:14Z)
+
+### PR #276 (edward): RMSNorm to LM head fusion - DEAD
+Hypothesis: Fuse final RMSNorm into LM head coarse kernel to eliminate 1 dispatch/step.
+Result: Performance WORSE. v1 +0.1
+## Wave 16 Negative Results (2026-08-07T13:14Z)
+
+### PR 276 - edward - RMSNorm to LM head fusion - DEAD
+- Hypothesis: Fuse final RMSNorm into LM head coarse kernel to eliminate 1 dispatch/step
+- Result: Performance WORSE. v1 +0.1 percent noise, v2 +1.8 percent slower
+- Root cause: RMSNorm replicated across 6272 TGs costs 3 barriers each >> 5.8us saved
+- Key insight: Metal has no cross-TG sharing within a single dispatch
+- Bit-exact: Confirmed 0.0 logit error on all decode steps
+
+### M5 Crash Root Cause 2026-08-07T13:19Z - FOUND AND FIXED
+- Problem: 6 consecutive M5 failures 8b5b01d through 90d0841
+- Root cause: PR 220 and 234 passed non-nil biases to gatherQuantizedMM with nvfp4 mode
+- ops.cpp 4508-4513 NON-EDITABLE throws exception for non-nil biases with nvfp4
+- Fix: Set useHalved false and useHalvedDown false commit 4bea532
+- Proper fix: PR 285 - embed escape in scales tensor pass biases nil with groupSize 32
+- Lesson: biases must be nil for nvfp4 mode. Escape bytes go in scales tensor.
