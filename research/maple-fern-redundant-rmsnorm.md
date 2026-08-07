@@ -377,7 +377,14 @@ CLANG_MODULE_CACHE_PATH="${PWD}/.build-worker/clang-module-cache" \
   swift build -c release --force-resolved-versions \
   --scratch-path .build-worker --product mlxfast-runtime-worker
 git checkout -- Package.resolved
-FERN_HIDDEN_DUMP=/tmp/fern_real_rows.bin .build/release/mlxfast-swift correctness \
+# MLXFAST_NO_SANDBOX=1 is required: the worker Seatbelt profile is
+# `(deny file-write*)` with only /dev/null allowed, so the hook cannot
+# create its dump file under the default local profile. This is a
+# diagnostic run only -- no timing or rankability claim is made from it.
+MLXFAST_NO_SANDBOX=1 \
+MLXFAST_RUNTIME_WORKER_EXECUTABLE="$PWD/.build-worker/release/mlxfast-runtime-worker" \
+DARKBLOOM_FERN_HIDDEN_DUMP=/tmp/fern_real_rows.bin \
+  .build/release/mlxfast-swift correctness \
   --weights ./weights --golden correctness_prompts/public_longcopy_gate_english_512_256.json
 git checkout -- Sources/MLXFastModel/LagunaRuntimeModel.swift
 /tmp/fern_rmsnorm_bitwise /tmp/fern_real_rows.bin
