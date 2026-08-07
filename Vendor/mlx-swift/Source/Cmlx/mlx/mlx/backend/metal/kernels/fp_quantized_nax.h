@@ -221,6 +221,15 @@ struct QuantizedBlockLoader {
 
   MLX_MTL_CONST short n_groups = BCOLS / group_size;
 
+  // One aligned 16B block of the scale plane, covering four k-iterations of
+  // this thread's scale reads. See the kScaleWideShapeOk note below.
+  struct alignas(16) ScaleWindow {
+    uint32_t w0;
+    uint32_t w1;
+    uint32_t w2;
+    uint32_t w3;
+  };
+
   const int src_ld;
   const int tile_stride;
   const int group_stride;
@@ -234,6 +243,13 @@ struct QuantizedBlockLoader {
   threadgroup T* dst;
   const device uint8_t* src;
   const device uint8_t* scales;
+
+  // Which of the four k-iterations covered by `scale_win` is current. Advanced
+  // by next(); the window is (re)filled lazily on phase 0 by the widened load
+  // path, so no window is ever fetched for an iteration that does not run and
+  // the final next() of a chunk cannot read past the scale row.
+  short scale_phase;
+  mutable ScaleWindow scale_win;
 
   QuantizedBlockLoader(
       const device uint8_t* src_,
@@ -254,7 +270,8 @@ struct QuantizedBlockLoader {
         dst(dst_ + bi * dst_ld + bj * pack_factor),
         src(src_ + bi * src_ld * bytes_per_pack / pack_factor +
             bj * bytes_per_pack),
-        scales(scales_ + bi * src_ld / group_size + group_id) {}
+        scales(scales_ + bi * src_ld / group_size + group_id),
+        scale_phase(0) {}
 
   // The NVFP4 staging fast path applies when the packing is one byte per two
   // values, the scale is e4m3, and the byte run governed by ONE scale splits
@@ -358,6 +375,29 @@ struct QuantizedBlockLoader {
   // is reused unchanged; only the per-thread offset check relaxes to 8B.
   MLX_MTL_CONST bool kWideLoad8ShapeOk = kWidenShapeOk && (kSrcBytes == 8);
 
+  // ---- NVFP4 scale-plane load amortization ------------------------------
+  // On the 16B wide-load geometry a thread reads exactly n_steps_per_read == 2
+  // scale bytes per k-iteration -- scales[0] and scales[1] -- while next()
+  // advances `scales` by n_groups == 4 bytes. Four consecutive k-iterations
+  // therefore touch bytes {0,1,4,5,8,9,12,13} of the ONE 16B block based at
+  // `scales - group_id`: the constructor set `scales = row_base + group_id`,
+  // so subtracting the member recovers the aligned-down base without a
+  // pointer-to-integer cast (which MSL does not provide). group_id <= 2 keeps
+  // both bytes of a pair inside a single uint32 lane of that block, and the
+  // pair for phase p lives in lane p. One aligned 16B load per four
+  // iterations replaces eight scalar byte loads: the wide path's 3 device
+  // loads per thread per k-iteration become 1.25.
+  //
+  // The window is exactly in bounds, never over-read. `scales`'s row is
+  // src_ld / group_size = kScaleWinPhases * (src_ld / BCOLS) bytes long, the
+  // phase-0 window for iteration k starts at row byte 4k, and phase 0 recurs
+  // at k = 0, 4, ... so the last window starts at 4 * (K_it - 4) and ends on
+  // the row's final byte whenever K_it = src_ld / BCOLS is a multiple of 4.
+  MLX_MTL_CONST short kScaleWinPhases = 4;
+  MLX_MTL_CONST bool kScaleWideShapeOk = kWideLoadShapeOk &&
+      (reduction_dim == 1) && (bits == 4) && (group_size == 16) &&
+      (n_steps_per_read == 2) && (n_groups == kScaleWinPhases);
+
   struct alignas(16) WideChunk {
     T v[kWideElems];
   };
@@ -391,7 +431,7 @@ struct QuantizedBlockLoader {
     out[1] = scale * Dequantize<4, T>{}(w >> 4);
   }
 
-  template <bool wide_store, bool wide_load>
+  template <bool wide_store, bool wide_load, bool wide_scale = false>
   void load_unsafe_wide() const {
     if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
       return;
@@ -441,6 +481,41 @@ struct QuantizedBlockLoader {
       }
     }
 
+    // This thread's scale bytes for this k-iteration. sc[i] governs source
+    // bytes [i*n_reads_per_scale, (i+1)*n_reads_per_scale) -- exactly the
+    // `scales[i]` the chunk loop below used to read inline, same addresses
+    // and same values, just fetched once per iteration instead of once per
+    // chunk and, on the certified path, once per FOUR iterations.
+    uint8_t sc[n_steps_per_read];
+    bool took_wide_scale = false;
+    if constexpr (wide_scale && kScaleWideShapeOk) {
+      // The host certified the plane base; these are the two facts only the
+      // shape knows (both masks, since group_size and BCOLS are compile-time
+      // powers of two here) plus this thread's own lane offset.
+      const bool win_ok = load_ok && ((src_ld % (group_size * 16)) == 0) &&
+          (((src_ld / BCOLS) % kScaleWinPhases) == 0) &&
+          (group_id <= kScaleWinPhases - 2);
+      if (win_ok) {
+        if (scale_phase == 0) {
+          scale_win = *((const device ScaleWindow*)(scales - group_id));
+        }
+        const bool odd = (scale_phase & 1) != 0;
+        const uint32_t lo = odd ? scale_win.w1 : scale_win.w0;
+        const uint32_t hi = odd ? scale_win.w3 : scale_win.w2;
+        const uint32_t lane = (scale_phase & 2) != 0 ? hi : lo;
+        const uint32_t sh = uint32_t(group_id) * 8;
+        sc[0] = uint8_t(lane >> sh);
+        sc[1] = uint8_t(lane >> (sh + 8));
+        took_wide_scale = true;
+      }
+    }
+    if (!took_wide_scale) {
+      STEEL_PRAGMA_UNROLL
+      for (short i = 0; i < n_steps_per_read; i++) {
+        sc[i] = scales[i];
+      }
+    }
+
     STEEL_PRAGMA_UNROLL
     for (short c = 0; c < kWideChunks; c++) {
       const short e0 = c * kWideElems;
@@ -453,15 +528,13 @@ struct QuantizedBlockLoader {
       // when a 16B chunk covers a whole multiple of them (kSrcBytesPerChunk
       // is 4 for bfloat/half staging, 2 for float). Same values either way.
       if constexpr (fp4nv_fast && (kSrcBytesPerChunk % 4) == 0) {
-        const float scale =
-            fp4nv_scale_x16384(scales[k0 / n_reads_per_scale]);
+        const float scale = fp4nv_scale_x16384(sc[k0 / n_reads_per_scale]);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk / 4; b++) {
           fp4nv_decode8<T>(fp4nv_pack4(sb + k0 + b * 4), scale, &out.v[b * 8]);
         }
       } else {
-        T scale =
-            dequantize_scale<T, group_size>(scales[k0 / n_reads_per_scale]);
+        T scale = dequantize_scale<T, group_size>(sc[k0 / n_reads_per_scale]);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk; b++) {
           dequantize_pair(sb[k0 + b], scale, &out.v[b * pack_factor]);
@@ -508,6 +581,9 @@ struct QuantizedBlockLoader {
       scales += n_groups;
     } else {
       scales += n_groups * group_stride;
+    }
+    if constexpr (kScaleWideShapeOk) {
+      scale_phase = (scale_phase + 1) & (kScaleWinPhases - 1);
     }
   }
 };
@@ -1568,6 +1644,10 @@ template <
     int tg_expert_groups = 64,
     bool wide_store = false,
     bool wide_load = false,
+    // Host-certified NVFP4 scale-plane base alignment. Enables the loader's
+    // 16B scale window (one device load per four k-iterations in place of two
+    // per iteration); see kScaleWideShapeOk.
+    bool wide_scale = false,
     // Regime discriminator (research instrument, 0 = shipped kernel).
     // 1 = M2: double the MMA chain only. 2 = S2: double weight load+dequant
     // +threadgroup staging only. 3 = B2: double the k-loop barrier count
@@ -1641,6 +1721,11 @@ template <
           (loader_w_t::kWideLoadShapeOk || loader_w_t::kWideLoad8ShapeOk),
       "expert staging requested a widened device load but the loader shape "
       "check disabled it; the k-loop would fall back to per-byte loads");
+  static_assert(
+      !wide_scale || loader_w_t::kScaleWideShapeOk,
+      "expert staging requested the widened scale window but the loader shape "
+      "check disabled it; the k-loop would fall back to per-iteration scale "
+      "byte loads");
 
   constexpr int kWsElems = BN * BK_padded;
   constexpr int kWsPerChunk = 16 / sizeof(Wtype);
@@ -1822,7 +1907,8 @@ template <
         // store set from being dead-store eliminated.
         if constexpr (kProbeStage) {
           if constexpr (wide_store || wide_load) {
-            loader_w2.template load_unsafe_wide<wide_store, wide_load>();
+            loader_w2
+                .template load_unsafe_wide<wide_store, wide_load, wide_scale>();
           } else {
             loader_w2.load_unsafe();
           }
@@ -1837,7 +1923,8 @@ template <
         // is host-certified via darkbloom_stage_wide_load_ok and per-thread
         // self-guarded, falling back to the scalar path on any misalignment.
         if constexpr (wide_store || wide_load) {
-          loader_w.template load_unsafe_wide<wide_store, wide_load>();
+          loader_w
+              .template load_unsafe_wide<wide_store, wide_load, wide_scale>();
         } else {
           loader_w.load_unsafe();
         }

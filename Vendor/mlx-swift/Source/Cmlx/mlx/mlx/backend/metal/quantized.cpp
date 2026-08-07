@@ -1570,6 +1570,49 @@ bool darkbloom_stage_wide_load_ok(
   return true;
 }
 
+// Certifies that the NVFP4 SCALE plane -- a separate buffer from the packed
+// weights -- can be read 16B at a time by the loader's scale window, which
+// replaces two 1B scale loads per k-iteration with one aligned 16B load every
+// four iterations. Every address the loader forms is
+//
+//   scales.offset() + (y_col + expert*N + bi) * K_g + 4*iter + group_id
+//
+// with K_g = K/group_size, y_col a multiple of bn, bi in [0, bn), and the
+// window base taken at `- group_id`. So a single divisibility fact,
+// K_g % 16 == 0, aligns the per-expert stride, the tile column base AND the
+// per-row base simultaneously; only the buffer offset needs a separate check.
+// K_g % 16 == 0 also implies the device-side src_ld % (group_size*16) == 0
+// guard, so host and kernel agree by construction rather than by coincidence.
+//
+// The tail is exact, not merely in bounds: phase-0 windows start at
+// 4*iter for iter in {0, 4, ..., K/bk - 4}, each spans 16B, and the scale row
+// is 4*(K/bk) bytes long, so (K/bk) % 4 == 0 makes the last window end on the
+// row's final byte. Nothing outside the row is ever touched.
+bool darkbloom_stage_wide_scale_ok(
+    const array& scales,
+    bool transpose,
+    int bits,
+    int group_size,
+    int K,
+    int bk) {
+  if (bits != 4 || group_size != 16 || !transpose) {
+    return false;
+  }
+  if ((K % group_size) != 0 || (K % bk) != 0) {
+    return false;
+  }
+  if (((K / group_size) % 16) != 0) {
+    return false;
+  }
+  if (((K / bk) % 4) != 0) {
+    return false;
+  }
+  if ((scales.offset() % 16) != 0) {
+    return false;
+  }
+  return true;
+}
+
 } // namespace
 
 // DARKBLOOM_GATHER_XMAJOR: fold this many ADJACENT BN-wide column tiles of
@@ -1762,6 +1805,11 @@ void gather_qmm_rhs_nax(
   const bool expert_wideld = expert_aligned &&
       darkbloom_expert_stage_wideld() &&
       darkbloom_stage_wide_load_ok(w, transpose, bits, N, K, bn);
+  // The scale window rides on the wide weight load: it reuses that path's
+  // per-chunk structure, so it is only offered where the wide load already
+  // certified. Same per-bank stability argument as expert_wideld.
+  const bool expert_widescale = expert_wideld &&
+      darkbloom_stage_wide_scale_ok(scales, transpose, bits, group_size, K, bk);
   // Only the expert-aligned kernel carries the probe template parameter; the
   // shared non-expert builder keeps its stock signature.
   const int probe_requested = darkbloom_nax_gather_probe();
@@ -1878,7 +1926,8 @@ void gather_qmm_rhs_nax(
           : "",
       expert_aligned
           ? ("_eg_" + std::to_string(egroups) + (expert_widest ? "_ws_1" : "_ws_0") +
-             (expert_wideld ? "_wl_1" : "_wl_0"))
+             (expert_wideld ? "_wl_1" : "_wl_0") +
+             (expert_widescale ? "_sl_1" : "_sl_0"))
           : "",
       // The JIT library cache is keyed on the kernel name alone, so a probe
       // arm MUST change it. Suffix omitted at probe 0 to keep the shipped
@@ -1945,7 +1994,8 @@ void gather_qmm_rhs_nax(
       fprintf(
           stderr,
           "mlxfast: stage active: widest=%d wideld=%d(req=%d wide_ok=%d) "
-          "runbar=%d novol=%d expert=%d expert_ws=%d expert_wl=%d bm128=%d "
+          "runbar=%d novol=%d expert=%d expert_ws=%d expert_wl=%d "
+          "expert_sl=%d(s.offset=%zu) bm128=%d "
           "bm=%d wm=%d wn=%d w.offset=%zu transpose=%d bits=%d N=%d K=%d "
           "bn=%d\n",
           int(stage_widest),
@@ -1957,6 +2007,8 @@ void gather_qmm_rhs_nax(
           int(expert_aligned),
           int(expert_widest),
           int(expert_wideld),
+          int(expert_widescale),
+          size_t(scales.offset()),
           bm128,
           bm,
           wm,
@@ -2029,6 +2081,7 @@ void gather_qmm_rhs_nax(
         egroups,
         expert_widest,
         expert_wideld,
+        expert_widescale,
         gather_probe);
     kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
   } else {

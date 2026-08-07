@@ -13,6 +13,8 @@
 #   OUT_DIR=<dir>  override the scratch output directory
 #   BK=<n>         k-tile depth template arg (default 64)
 #   PROBE=<n>      regime-discriminator template arg (default 0 = shipped)
+#   WS=<0|1>       wide_scale template arg (default 0 = shipped). 1 selects the
+#                  16B NVFP4 scale-window path in QuantizedBlockLoader.
 #   PF=<n>         k-loop prefetch depth template arg (default 0 = shipped).
 #                  PF>0 needs the PR #215 arm header, which was reverted after
 #                  the arm was measured and closed; it will not compile on the
@@ -25,6 +27,7 @@ GEN="${GEN_DIR:-${REPO_ROOT}/Vendor/mlx-swift/Source/Cmlx/mlx-generated}"
 BK="${BK:-64}"
 PROBE="${PROBE:-0}"
 PF="${PF:-0}"
+WS="${WS:-0}"
 OUT="${OUT_DIR:-/tmp/nax_msl_check}"
 mkdir -p "${OUT}"
 
@@ -65,6 +68,17 @@ SRC="${OUT}/unit.metal"
   for shape in "2048, 1024" "512, 2048"; do
     targs="bfloat16_t, 16, 4, 64, 64, ${BK}, 4, 1, true, ${shape}, bfloat, 256, true, true"
     name="fp_gather_qmm_rhs_expert_nax_check_${shape//, /x}_bk${BK}"
+    # wide_scale sits between wide_load and probe, so a non-default PROBE/PF
+    # has to name it explicitly. WS=0 with PROBE=0 and PF=0 emits the shipped
+    # argument list unchanged, keeping safety-rig inertness check 2 valid.
+    if [ "${WS}" != "0" ] || [ "${PROBE}" != "0" ] || [ "${PF}" != "0" ]; then
+      if [ "${WS}" != "0" ]; then
+        targs="${targs}, true"
+        name="${name}_sl1"
+      else
+        targs="${targs}, false"
+      fi
+    fi
     if [ "${PROBE}" != "0" ] || [ "${PF}" != "0" ]; then
       targs="${targs}, ${PROBE}"
       [ "${PROBE}" != "0" ] && name="${name}_pb${PROBE}"
