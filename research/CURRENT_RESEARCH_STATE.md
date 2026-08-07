@@ -40,9 +40,10 @@
     Scale HALVING is the remaining bandwidth opportunity: MoE (~1% decode, MERGED) + attention (~0.76% decode).
     Next submission: compose MoE scale halving (merged) + attention scale halving (if PR #193 wins) from 9807f56.
     Submit from PROMOTED FRONTIER + decode scale halving only. NO prefill changes.
-    PR #194 (alphonse): PURE packed simd_sum test — strategic test of instruction-count reduction on M5.
-      If pure simd_sum wins on M5, instruction reductions are NOT counterproductive (all prior rejections
-      included ops-800/QHOIST). Opens door for dot4/float4 re-testing.
+    PR #194 (alphonse): MERGED. PURE packed simd_sum. Bit-exact, M4 inconclusive (expected, bandwidth-bound).
+      12 sites packed across 5 kernel families. M5 is the decisive test (instruction-bound at ~89%).
+      Strategic: if M5 accepts, pure instruction reductions are NOT counterproductive.
+    PROMOTED FRONTIER: a117214 (clean 12a712d + MoE scale halving + packed simd_sum).
     FALLBACK: If Wave 5 fails, re-test instruction-count reductions PURE on clean base
       (no ops-800, no QHOIST, no prefill). Start with packed simd_sum (lowest risk).
       Research finding: no pure instruction-reduction submission was EVER tested on M5.
