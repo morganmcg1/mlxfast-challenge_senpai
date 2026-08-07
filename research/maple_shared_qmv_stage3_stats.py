@@ -102,6 +102,7 @@ def load(paths):
                     "decode_seconds_per_token": metrics.get("decode_seconds_per_token"),
                     "passed_correctness": metrics.get("passed_correctness"),
                     "checked_steps": metrics.get("checked_steps"),
+                    "error": metrics.get("error"),
                     "score": doc.get("score"),
                     "passed": doc.get("passed"),
                 })

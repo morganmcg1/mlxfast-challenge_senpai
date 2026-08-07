@@ -53,6 +53,15 @@ def parse_gpuprof_line(line: str):
     return float(parts[1]), float(parts[2]), int(parts[3]), parts[4].strip()
 
 
+def _cycle_len(tokens, tail: int = 64) -> int:
+    """Shortest period the last `tail` tokens repeat with, or 0 if none."""
+    window = tokens[-tail:]
+    for period in range(1, len(window) // 2 + 1):
+        if all(window[i] == window[i - period] for i in range(period, len(window))):
+            return period
+    return 0
+
+
 def rss_gb(pid: int) -> float:
     out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)],
                          capture_output=True, text=True).stdout.strip()
@@ -78,6 +87,11 @@ def main() -> int:
                          "agree only if every step's argmax agreed.")
     ap.add_argument("--dump-tokens", default=None,
                     help="write the generated token ids, one per line")
+    ap.add_argument("--free-run-bootstrap", type=int, default=None,
+                    help="token fed at step 0 instead of the golden's, to move "
+                         "the self-fed trajectory off the public long-copy "
+                         "gate's period-3 attractor. Its identity is arbitrary "
+                         "and shared by every compared arm.")
     args = ap.parse_args()
 
     with open(GOLDEN) as fh:
@@ -143,6 +157,8 @@ def main() -> int:
     mismatches = []
     generated = []
     token = expected[0]
+    if args.free_run and args.free_run_bootstrap is not None:
+        token = args.free_run_bootstrap
     print("DECODE_PHASE_START", flush=True)
     for i in range(args.steps):
         t0 = mach_now()
@@ -161,7 +177,11 @@ def main() -> int:
         # so print only the sequence identity a cross-build diff can use.
         digest = hashlib.sha256(
             ",".join(str(t) for t in generated).encode()).hexdigest()[:16]
+        # A self-fed run only amplifies a numeric difference if the trajectory
+        # is not sitting in a short attractor, so report that directly instead
+        # of assuming it.
         print(f"free-run tokens: n={len(generated)} hash={digest} "
+              f"distinct={len(set(generated))} cycle={_cycle_len(generated)} "
               f"first16={generated[:16]}", flush=True)
     else:
         print(f"teacher-forced greedy tokens: {len(mismatches)} divergences"

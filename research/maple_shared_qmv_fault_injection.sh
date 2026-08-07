@@ -15,15 +15,21 @@
 # MODE=freerun swaps the teacher-forced tripwire for a self-feeding free run.
 # Teacher forcing resets the trajectory every step, so it only ever compares
 # single-step argmaxes against the golden; a free run compounds any difference,
-# so two builds share a token hash only if every step agreed. That makes the
-# guards-off/on/pairwise hashes a measurement of bit-exactness rather than an
-# argument for it.
+# so two builds share a token hash only if every step agreed.
+#
+# Compounding only buys sensitivity if the trajectory is not in a short
+# attractor, and this fixture's own continuation is the period-3 cycle
+# 509/902/5991 -- self-feeding it is then identical to teacher forcing. Set
+# BOOTSTRAP=<token id> to feed a different token at step 0 and get an
+# open-ended 256-step trajectory instead. The probe prints the observed
+# distinct-token count and cycle period so this is checked, not assumed.
 #
 #   OUT=/tmp/maple-shared-qmv-fault bash research/maple_shared_qmv_fault_injection.sh
 set -uo pipefail
 
 OUT="${OUT:-/tmp/maple-shared-qmv-fault}"
 MODE="${MODE:-tripwire}"
+BOOTSTRAP="${BOOTSTRAP:-}"
 if [ "${MODE}" = "freerun" ]; then
   STEPS="${STEPS:-256}"
   MODE_LABEL="self-fed free run"
@@ -113,6 +119,7 @@ for spec in "${ARMS[@]}"; do
   probe_extra=""
   if [ "${MODE}" = "freerun" ]; then
     probe_extra="--free-run --dump-tokens ${OUT}/${tag}.tokens"
+    [ -n "${BOOTSTRAP}" ] && probe_extra="${probe_extra} --free-run-bootstrap ${BOOTSTRAP}"
   fi
 
   env DARKBLOOM_SHARED_QMV_PREFETCH="${prefetch}" \

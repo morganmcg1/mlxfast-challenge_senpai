@@ -45,7 +45,7 @@ KERNEL_COLS = ["stage", "arm_a", "arm_b", "kernel", "mean_a_us", "sd_a_us",
 
 RUN_COLS = ["run", "rep", "slot", "arm", "prefill_seconds_per_token",
             "decode_seconds_per_token", "passed_correctness", "checked_steps",
-            "score", "passed"]
+            "score", "passed", "error"]
 
 # 128-step teacher-forced greedy-token tripwire on the uninstrumented worker,
 # from research/shared-qmv-logs/drift-tripwire-128step.log.
@@ -177,12 +177,22 @@ def main():
             f"{r['src']}/{os.path.basename(r['path']).replace('.score.json', '')}",
             r["rep"], slot, r["arm"], r["prefill_seconds_per_token"],
             r["decode_seconds_per_token"], bool(r["passed_correctness"]),
-            r["checked_steps"], r["score"], bool(r["passed"]))
+            r["checked_steps"], r["score"], bool(r["passed"]),
+            r["error"] or "")
 
     n_pass = sum(1 for r in rows if r["passed_correctness"])
+    # A cool-gate abort produces the same passed_correctness=False as a token
+    # mismatch, so split them: only the second kind is a correctness result.
+    cool_gate = [r for r in rows if not r["passed_correctness"]
+                 and "cool-down gate" in (r["error"] or "")]
+    mismatch = [r for r in rows if not r["passed_correctness"]
+                and "cool-down gate" not in (r["error"] or "")]
     summary["correctness/runs"] = len(rows)
     summary["correctness/passed"] = n_pass
     summary["correctness/all_passed"] = n_pass == len(rows)
+    summary["correctness/cool_gate_aborts"] = len(cool_gate)
+    summary["correctness/token_mismatches"] = len(mismatch)
+    summary["correctness/no_mismatch_in_completed_runs"] = not mismatch
     summary["correctness/checked_steps"] = max(
         r["checked_steps"] or 0 for r in rows)
 

@@ -77,10 +77,16 @@ So the load-bearing evidence in this report is, in order:
 
 1. **Bit-exactness of each mechanism independently**, argued from source
    (§2.2, §3.3) and demonstrated by teacher-forced greedy comparison with a
-   **fault-injection power check** (§4.3). Standing rule 16 applies: the
-   equivalence oracle never dispatches this kernel (§4.1), so a zero-divergence
-   result only means something once the same check is shown to catch a
-   deliberately broken variant.
+   **fault-injection power check** (§4.3) plus a compounding self-fed free-run
+   trajectory hash (§4.4). Standing rule 16 applies: the equivalence oracle
+   never dispatches this kernel (§4.1), so a zero-divergence result only means
+   something once the same check is shown to catch a deliberately broken
+   variant. The honest verdict from that check is *asymmetric*: mechanism (b)'s
+   check has demonstrated power on exactly the branch it needs to cover, while
+   mechanism (a)'s power is **bracketed** — the check catches zeroing the
+   prefetched scales but not mis-indexing them, so for (a) rule 16's letter is
+   met and its spirit only partly. §4.3 and §4.4 state that limitation rather
+   than round it away.
 2. **In-situ per-dispatch cost** of the kernel with each guard on and off
    (§2.1, §3.2), measured by ABBA with an invariant control.
 3. The end-to-end ABBA (§5), which the 40 C cool gate cut to n = 1 per arm and
@@ -743,6 +749,31 @@ git status --porcelain                                  # must show no Sources/ 
 Both post-run checks were run and passed: `clean … x1` for all six hook sites
 and no `Sources/` entry in `git status`. The `trap … EXIT` also rebuilt a clean
 worker, so no faulted binary survived into any timing arm.
+
+### 4.4 A self-fed trajectory hash, and why it bought less than I expected
+
+**The design.** §4.2's tripwire is teacher-forced: after each step it discards
+the model's own argmax and feeds the golden token back, so it compares 128
+*independent* single-step argmaxes and never lets a numeric difference
+accumulate. A self-fed free run feeds the model its own argmax, so any single
+disagreement changes every later step. Two builds sharing a hash of 256 self-fed
+tokens is therefore a *measurement* of trajectory identity, where the tripwire's
+zero is a conjunction of 128 weak comparisons. I added `--free-run` and
+`--dump-tokens` to `research/decode_probe.py` and a `MODE=freerun` arm list to
+the fault driver, with the two faults §4.3 already detects included as positive
+controls so that an all-arms-match table could not be a silent detector failure.
+
+**What actually happened, and it is worth stating before the table.** The public
+long-copy gate's own continuation is the period-3 cycle `509, 902, 5991`
+repeating — `expected_tokens` is that cycle for all 256 positions, and the
+unperturbed free run reproduces it exactly (`distinct=3`, `cycle=3` over the
+last 64 tokens). A self-fed run whose argmax always equals the golden token *is*
+the teacher-forced run, step for step. So on this fixture the free-run mode
+**does not compound anything** for an arm that never diverges: it is a 256-step
+version of the same weak check, not a qualitatively stronger one. The
+compounding argument in my own driver header was wrong for this fixture until I
+measured the trajectory instead of assuming it; the probe now prints `distinct=`
+and `cycle=` so the assumption is always checked.
 
 ---
 
