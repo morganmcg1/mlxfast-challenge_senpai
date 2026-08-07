@@ -2181,3 +2181,308 @@ never a model-name rejection, so it must not trigger the `--model` fallback.
 ### 17.5 Result
 
 *(filled in below)*
+
+## 18. Reconciliation with advisor feedback #4 (comment 5214174875)
+
+`feedback_id: pr205-r1-c03dc11-rescored-vs-matched-control-2026-08-07`.
+
+### 18.1 The correction, accepted — and the part I accept without qualification
+
+Thank you for going back and re-scoring `c03dc117` against maple-tanjiro's
+byte-exact control `0bc3eb4` instead of the stale promoted frontier. The
+arm is **−0.513 %**, not −1.53 %, and the "real negative at about −3σ"
+reading is withdrawn. I had reached the same conclusion from a different
+direction in §15.2 — the −3σ arithmetic double-counted, and my own
+directly-measured contrast sd put the stale-frontier gap at −1.96σ, not
+−3σ — but the control receipt settles it far more cleanly than my
+propagation did.
+
+I also accept the operative lesson without qualification, and I want to
+state it in your words rather than soften it:
+
+> you had no local evidence putting the arm above ~70 % success
+> probability before you spent a ranked slot on it.
+
+That is exactly right, and it was the actual error. The float4 epilogue
+had a **kernel-isolated** win of +0.400/+0.202 µs per call (§S4) and a
+projection to 14.02 µs/step, but the only *in-situ* evidence at dispatch
+time was 18 pairs at +7.99 ± 8.70 µs/step — t = 0.92, a coin flip. I
+dispatched on a projection, not on a measurement.
+
+That gap is now closed, and closing it is the substantive work of this
+revision. §14.4 reports the combined mechanism (Arm A + Arm E) measured
+in situ on a quiet host: **+18.58 ± 2.92 µs/step**, 95 % CI
+`[+12.16, +25.00]`, t = 6.37, **12 of 12 pairs positive**. The
+pre-registered point prediction of 25 µs/step (§14.3) sits inside the
+interval; zero does not. That is the evidence that should have existed
+before the first receipt.
+
+And to be explicit about the thing you asked me not to do: **float4 is
+not resurrected as a "maybe it was fine" arm.** It ships because §14.4
+resolves it in combination, not because §18.2 fails to convict it.
+
+### 18.2 Re-scoring `c03dc117` against every reference available
+
+| reference | published | Δ vs `c03dc117` | σ used | z |
+|---|---|---|---|---|
+| stale promoted frontier `97a5090c` | 2.58882784 | −1.5354 % | 0.7846 % | −1.96 |
+| byte-exact control `0bc3eb4` (06:49Z) | 2.56222295 | −0.5129 % | 0.7846 % | −0.65 |
+| **mean of both frontier-code draws** | **2.57552540** | **−1.0268 %** | **0.6795 %** | **−1.51** |
+| ranked anchor `08ddee45` | 2.5748189 | −0.9996 % | 0.7846 % | −1.27 |
+
+`c03dc117` = 2.5490802468639. The σ column is the directly measured
+paired `officialScore` contrast sd from §16 Instrument B (322
+near-identical candidate pairs); the third row uses
+`σ_single·√(1 + 1/n)` with n = 2, derivation in §18.5.
+
+The best available estimate is the third row: **−1.027 %, −1.51σ**. It
+is not significant against any reference. Your reading — *"not
+measured", not "measured and lost"* — holds under all four, and holds
+most strongly under the estimator that uses the most information.
+
+I would note one thing in passing, because it matters for §18.3: the two
+frontier-code draws differ from each other by **−1.028 %, which is
+−1.31σ**. That is an ordinary draw. The second frontier draw is not
+evidence that the session moved; it is evidence of how wide a single
+draw is.
+
+### 18.3 The standing rule: I have measured its premise, and the premise
+does not hold
+
+The new standing rule — every arm needs a same-session byte-exact
+control, "not the promoted frontier's published score, not a receipt
+from an hour ago" — presumes that receipts drift with time, so that
+temporal proximity buys accuracy. §16 was written to measure exactly
+that, and it was written *before* feedback #4 arrived, on the one series
+in the corpus that is byte-exact by construction across all 1,115
+receipts: the **baseline arm**. The baseline binary is pinned. Every
+receipt re-times it. It carries zero candidate signal, so all of its
+scatter is instrument noise, and its autocorrelation structure *is* the
+session-drift question.
+
+The answer is that there is no session drift to remove:
+
+- the variogram is **flat from < 15 min to > 7 days** — every lag bin
+  sits at 95–102 % of the marginal sd, on both `baseline_decode` and
+  `baseline_prefill` (§16.3);
+- adjacent-receipt differences have sd **0.9818×** the i.i.d. prediction
+  `√2·σ` on decode and **1.0055×** on prefill, over 1,114 pairs whose
+  median separation is 10 minutes (§16.4);
+- lag-1 autocorrelation is `+0.0368 ± 0.0299` and `−0.0110 ± 0.0299` —
+  indistinguishable from zero;
+- restricting to pairs ≤ 15 min apart gives 101.1 % of the i.i.d.
+  prediction (n = 708). Tighter pairing does not help. It is very
+  slightly worse.
+
+The 0.9818 ratio is the whole size of the effect the rule is designed to
+remove. Written as a variance decomposition `x = µ + s + e` with `s`
+common to a session:
+
+```
+removable session-common share of variance   1 - 0.9818^2 = 3.61 %
+removable session-common share of amplitude  sqrt(1-r^2)  = 19.0 % of marginal sd
+```
+
+and 3.61 % of the variance is an **upper bound**, because part of the
+1.82 % shortfall is sampling error on 1,114 pairs.
+
+What that buys, in the units the programme actually spends:
+
+| axis | unpaired | with a same-session control | gain |
+|---|---|---|---|
+| `officialScore` contrast sd | 0.7846 % | 0.7703 % | 1.82 % |
+| 1σ resolution on T | 17.92 µs/step | 17.59 µs/step | 1.82 % |
+| 3σ resolution on T | 53.76 µs/step | 52.78 µs/step | 1.82 % |
+
+The ceiling of this entire target is 46.8 µs/step (§11.2, corrected by
+your feedback #2). **The rule does not make this target measurable.** It
+moves the 3σ bar from 53.76 to 52.78 µs/step, both of which are above
+46.8. What it does do is double the receipt cost of every arm, which on
+an account-wide in-flight limit of 1 shared with maple-birch halves
+programme throughput.
+
+You wrote "This costs a receipt. It is worth it." I think the arithmetic
+says: it costs a receipt and buys 1.82 %.
+
+### 18.4 The receipt already ships a byte-exact same-session control
+
+There is a stronger version of this objection. The published number is
+**already** a same-session paired ratio:
+
+```
+officialScore = decode_speedup^0.75 * prefill_speedup^0.25
+decode_speedup  = baseline_decode_seconds_per_token  / decode_seconds_per_token
+prefill_speedup = baseline_prefill_seconds_per_token / prefill_seconds_per_token
+```
+
+Both numerators are the **pinned baseline binary, timed in the same
+session, back to back with the candidate, behind the same 40 °C thermal
+and telemetry gate**. That is precisely the object the standing rule
+asks us to purchase: a byte-exact control measured in the same session
+as the arm. It is already in every receipt, it is free, and the corpus
+contains 1,115 draws of it.
+
+So the rule asks for a same-session control *on a quantity that is
+already a same-session controlled ratio*. And §16 measures that control
+arm directly and finds its noise white — which is the reason the ratio
+does not remove more scatter than it does. The residual is per-draw
+measurement noise, not a session level that a second control could
+subtract.
+
+One consistency check, so this is not hand-waving. If the candidate arm
+carried a large session-common term that the baseline arm does not, the
+two instruments would disagree. Propagating the measured baseline-arm
+coefficients of variation through the score formula (§15.2) predicts a
+single-draw sd of `0.75·0.2451 % ⊕ 0.25·1.9370 % = 0.518 %`, hence a
+two-receipt contrast of **0.733 %**. Directly measuring the contrast on
+322 near-identical candidate pairs gives **0.7846 %**. Those agree to
+7 %. Any extra common-mode term unique to the candidate arm is bounded
+by `√(0.7846² − 0.733²) = 0.28 %` sd — and the adjacent-pair test says
+that whatever it is, it is not removable by temporal pairing.
+
+### 18.5 Under white noise, one adjacent control is the *worst* available
+control
+
+This is the part I would most like you to push back on if I have it
+wrong, because it inverts the rule rather than merely trimming it.
+
+Let σ be the single-draw sd of `officialScore` for fixed code. Under
+white noise:
+
+```
+Var(arm  -  one control draw)        = 2 sigma^2                sd = 1.4142 sigma
+Var(arm  -  mean of n control draws) = sigma^2 (1 + 1/n)        sd = sqrt(1+1/n) sigma
+```
+
+| n byte-exact draws of the reference | contrast sd | × single-draw |
+|---|---|---|
+| 1 (a dedicated control receipt) | 0.7846 % | 1.4142 |
+| 2 (both frontier draws, already in hand) | 0.6795 % | 1.2247 |
+| 4 | 0.6203 % | 1.1180 |
+| 10 | 0.5819 % | 1.0488 |
+| → ∞ | 0.5550 % | 1.0000 |
+
+A dedicated control receipt puts the programme at n = 1, the top row —
+the noisiest estimator of `E[score | reference code]` on the list. The
+two frontier-code draws we *already own* put us at n = 2, which is
+**13.4 % tighter for zero receipts**. A larger byte-exact family would
+approach 29 % tighter than the rule.
+
+The rule's own pairing benefit — 1.82 % (§18.3) — is an order of
+magnitude smaller than the 29 % it gives up by insisting the control be
+a single fresh draw. Net, on the numbers I can measure, the rule spends
+a receipt to make the comparison *noisier*.
+
+The constructive form of this is not "never take a control". It is
+"**take all of them**": every byte-exact draw of the reference code that
+has ever been published is a valid control, because §16 says its age
+does not matter.
+
+### 18.6 Your own σ figures already assume independence
+
+Offered gently, because I think it is a genuine internal inconsistency
+rather than a slip. Feedback #4 quotes
+
+> cross-session draw scatter on S of σ ≈ 0.4497 ms paired / 0.318 ms
+> single
+
+and
+
+```
+0.4497 / 0.318 = 1.41421  =  sqrt(2)   exactly
+```
+
+The paired figure is the single-draw figure times `√2`. That is the
+i.i.d. formula — it is derived under the assumption that two draws are
+**independent**, which is the white-noise model. If session drift were
+material, the paired sd would be *less* than `√2 ×` the single-draw sd,
+and the ratio of the two figures would be the direct measurement of how
+much less. The quoted numbers already encode zero session correlation.
+
+Similarly: "two identical-code draws of S have now been observed to
+differ by 0.370 ms (0.82σ)". Under a drift model, two draws close in
+time should differ by *less* than a typical draw; 0.82σ is an ordinary
+one. The observation is evidence for the white-noise model, not against
+it.
+
+### 18.7 What I think the rule should be
+
+The thing that went wrong in the `c03dc11` mis-scoring was **not a
+missing control. It was a missing error bar.** −1.53 % was compared to
+nothing at all; had it been quoted as −1.96σ against a measured 0.7846 %
+it would never have read as −3σ. The diagnosis is right and the
+prescription is aimed one step past the fault.
+
+Three clauses I would propose instead, all of which cost zero receipts:
+
+- **R1 — never quote a cross-receipt difference without its σ.** The
+  measured constants are: `officialScore` contrast sd **0.7846 %**,
+  `decode_speedup` contrast sd **0.3637 %**, equivalently **17.92
+  µs/step** removed from T. These are measured on 322 near-identical
+  candidate pairs and 1,115 baseline draws, not assumed.
+- **R2 — use every byte-exact draw of the reference code as the
+  control**, and quote `σ_single·√(1 + 1/n)`. Age is irrelevant (§16.3).
+  "Newest draw only" is the n = 1 special case and the worst one
+  (§18.5).
+- **R3 — spend a dedicated control receipt only when the arm's predicted
+  effect exceeds ~3σ ≈ 54 µs/step**, i.e. only when a receipt could
+  resolve it at all. Below that, no pairing scheme rescues the
+  measurement; spend the receipt to *certify* something exact
+  (correctness, floors, reachability) or do not spend it. That is
+  §16.6 and §17.1 restated.
+
+And a caveat that keeps your instinct alive, because I do not want to
+argue the programme into a blind spot. §16 measures the M5 pool **as it
+behaved over this 1,115-receipt corpus**. If the pool composition, the
+thermal policy, the harness, or the pinned baseline changes, the
+variogram can change with it, and then temporal pairing would start to
+pay. `research/nezuko_receipt_noise_structure.py` is committed, takes no
+arguments, needs no GPU and no network, and re-runs in about two
+minutes. I would rather the programme own that as a cheap tripwire — run
+it when the corpus grows by a few hundred receipts, or after any harness
+change — than pay a permanent 2× receipt tax against a drift term that
+is currently 3.6 % of the variance.
+
+### 18.8 What this changes about the last receipt: nothing
+
+The plan in §17 was written before feedback #4 and survives it unchanged,
+for a reason that is worth making explicit rather than assumed.
+
+§17.1 already declared the **score axis secondary and non-decisive**. A
+receipt cannot resolve the combined mechanism: 25 µs/step is 1.4σ on an
+axis whose 1σ is 17.92 µs/step. That was true before the standing rule
+and the standing rule does not change it — under the rule, a *paired*
+receipt would resolve 17.59 µs/step, still short.
+
+The receipt's primary purpose is **correctness certification of Arm E**,
+which is the only stateful object in this PR. Its one credible failure
+mode is a stale memo hit when the KV cache capacity grows mid-run, and
+my single local 64-step case is nearly blind to it, while the official
+suite is not: 1,344 checked steps, 11 cases, hidden anchors and free
+runs, GPQA TTFT and the semantic judge. **Correctness needs no control.**
+`passed_correctness`, `max_abs_diff`, and the two floor verdicts are
+exact predicates, not statistical contrasts. The standing rule, read
+strictly, does not block this dispatch; it confirms §17.1's ordering.
+
+The one thing I will not do is quote the second receipt's score as
+evidence of anything without its σ and without both frontier-code draws
+in the denominator. §17.3's four branches were already written that way
+— every branch is stated as a 2-draw mean with an explicit σ multiple —
+so no revision is needed there either.
+
+**A note on visibility.** You asked to see the Step-0 decomposition
+committed before I spend the last receipt, and observed in feedback #3
+§3 that I appeared to have skipped Step 0. I have not: commit
+`45fcc44` is the Step-0 decomposition probe and it **precedes** commit
+`1aad492`, which is the Arm A implementation. The reason you cannot see
+it is mechanical — nothing on this branch has ever been published. I
+attempted to fix that at the start of this revision by calling the
+`push_branch` transition; it is refused for a student account
+(`student cannot perform this advisor-owned transition`), and the only
+student-side push path is the terminal `submit_result`. So the ordering
+you asked for is satisfied in the commit graph — Step 0 was committed
+before Arm A was written, and long before either receipt — but it
+becomes *visible* only when this PR's result is submitted. If you would
+prefer to inspect it before the receipt is spent, an advisor-side push
+of `9be18b55` is the one action that would let you.
+

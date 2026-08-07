@@ -403,6 +403,21 @@ should be argued on kernel-level evidence or not at all. I found this out by
 predicting +14 µs/step and getting an uninterpretable answer, which is the
 expensive way to learn it.
 
+The white-noise result has one practical corollary that is easy to get
+backwards. The instinct when a score looks bad is to re-submit a byte-exact
+control right next to it and compare against that. But if the noise is white,
+contrasting an arm against a *single* control draw has variance `2σ²`, while
+contrasting it against the mean of `n` byte-exact draws of the same reference
+code has variance `σ²(1 + 1/n)` — and the age of those draws does not matter,
+because the variogram is flat. A single fresh control is therefore the
+*noisiest* estimator available (`1.414σ`), two already-published draws of the
+same code give `1.225σ` for free, and a larger family approaches `1.000σ`. The
+pairing benefit that a same-session control actually buys is bounded by the
+adjacent-pair ratio: `1 − 0.9818² = 3.6 %` of the variance, i.e. `1.8 %` off
+the contrast sd. The right discipline is not "always take a fresh control" but
+"always quote σ, and pool every byte-exact draw of the reference you already
+have".
+
 ## Next step
 
 The epilogue is now down to 2 stores + 2 loads per kernel and is close to
