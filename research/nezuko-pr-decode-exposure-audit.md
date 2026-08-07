@@ -283,16 +283,129 @@ TBD-5.
 
 ## 6. What to stop targeting
 
-TBD-6.
+### 6.1 Per-command-buffer overhead
+
+With `c ~ 0.35 us/CB` and 45 command buffers per step, the **entire** per-CB
+budget is `45 c ~ 16 us/step = 0.23 %` of score. Eliminating every command
+buffer boundary on the decode path is worth less than a 2 % improvement on one
+of the big NVFP4 matvecs. PR #158's `c = 1.596` made this look like a 72 us/step
+prize; it is not. Encoder batching, command-buffer merging, and dispatch-count
+reduction as ends in themselves are all below the +-70 us measurement floor.
+
+### 6.2 The three shadowed kernels
+
+`gate_sp_h64`, `gate_sp_h48` and `shared_nvfp4_swiglu_qmv_rows1` carry ~500
+us/step of GPU work at `E ~ 0.10`, so only ~50 us/step of it reaches the step
+wall. Making `gate_sp` twice as fast buys roughly `199.2 / 2 x 0.10 = 10 us/step`
+(0.15 % score), not the 100 us/step the raw census implies.
+
+This retro-explains an existing NO-GO rather than proposing anything new: PR
+#101's `gate_sp` R x NS occupancy re-geometrization returned **-0.04 %**. It was
+optimizing a kernel that is already free. The exposure model predicts exactly
+that outcome, which is a useful post-hoc validation of the model.
+
+### 6.3 Further overlap, granularity, or dispatch-type engineering
+
+The shipped configuration already captures the available overlap: `E ~ 1.0` for
+everything except three small kernels, and those are ~90 % hidden. There is at
+most ~50 us/step of un-captured shadowing left, and capturing it requires giving
+a shadowed kernel a *longer* hazard-free neighbour -- which the big matvecs
+already are. The 12-dispatch layer-pair groups under-delivering at 0.54-0.73 of
+prediction is the signature of that ceiling.
+
+### 6.4 Census-ranked targeting with a constant per-dispatch correction
+
+Both inputs to the §2.b ranking are wrong: the constant (1.419 vs ~0.31) and the
+omission of `E` entirely. Rank against §4, not §2.b.
 
 ---
 
 ## 7. Does `gpu_busy_sum` survive as an instrument?
 
-TBD-7.
+**Partly. Its positive uses survive; its one negative claim must be withdrawn.**
+
+| use | verdict |
+| --- | --- |
+| total GPU work per step at the shipped split | **survives**. `busy/wall = 1.064`, `gap` is stable across a large scheduling perturbation (p = 0.63). |
+| per-kernel isolated cost, measured at SPLIT=1 | **survives**. At one dispatch per command buffer nothing overlaps, so the per-kernel census is a genuine isolated-work measurement. This is what makes the §2.b kernel times reusable at all. |
+| detecting command-buffer-level concurrency | **survives, and correctly reported zero.** `gpu_busy_union` equals `gpu_busy_sum` in both arms, so no command buffers overlap. That is a true fact about this runtime. |
+| detecting *intra*-command-buffer concurrency | **does not survive.** Both `sum` and `union` are built from command-buffer start/end timestamps. Concurrency between two dispatches inside one buffer is invisible: it shows up as a buffer that finished sooner, i.e. as *work that is not there*, never as overlap. |
+| PR #158's claim "hidden concurrent work <= 0.06 ms/step" | **withdrawn.** The instrument is structurally incapable of supporting it. The true value is 448 +- 31 us/step. |
+
+Two concrete rules for future use:
+
+1. **Never form a per-command-buffer cost by differencing two SPLIT levels
+   without a `D` term.** The correct identity is
+   `busy(k) = W + N(k) c - D(k)`, with `D(1) = 0` by construction. `c` must be
+   derived from two levels that both have `D = 0`, or from a level pair where
+   `D` is independently known.
+2. **`gpu_busy_sum` at the shipped split is not the sum of isolated kernel
+   costs.** It is `W + 45 c - D`. Anyone summing the §2.b column and comparing
+   it to 7999.4 us is comparing two different quantities and will conclude the
+   census "over-accounts" by ~500 us. That gap is `D`, not census error.
+
+The GPUPROF window correlation itself is sound and was verified in both
+directions: a run under `CLOCK_UPTIME_RAW` produces a non-empty window, and a
+deliberately broken clock control (`research/nezuko_clockfix_control.py`,
+substituting a process-relative `perf_counter` for `mach_absolute_time`) fires
+`WINDOW CORRELATION FAILED` rather than silently reporting plausible garbage.
 
 ---
 
 ## 8. Reproduction
 
-TBD-8.
+All timings on the M4 Pro host described in the header, single model-holding
+process, 40 C thermal gate, GPU idle 38-39 C at every launch.
+
+```bash
+# 1. Build the instrumented worker. Neither patch is ever committed to the
+#    submitted surface; both are applied to a throwaway scratch tree.
+git apply research/nezuko-serial-dispatch-probe.patch
+git apply research/nezuko-pr158-gpuprof-hook.patch
+CLANG_MODULE_CACHE_PATH="${PWD}/.build-worker/clang-module-cache" \
+  swift build -c release --force-resolved-versions \
+  --scratch-path .build-worker --product mlxfast-runtime-worker
+git checkout -- \
+  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp \
+  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
+
+# 2. A0 discriminator: shipped split, GPUPROF hook on (h1) and off (h0).
+PHASES='1:0 0:0' OUT=research/nezuko-a0-dispatch-type \
+  bash research/nezuko_a0_dispatch_type_abba.sh
+python research/nezuko_a0_analyze.py research/nezuko-a0-dispatch-type --top 30
+
+# 3. A0 SPLIT localization: 2 and 1 dispatches per command buffer.
+#    k=1 is the probe-validity control; k=2 separates R-A from R-B.
+PHASES='1:2 1:1' OUT=research/nezuko-a0-split \
+  bash research/nezuko_a0_dispatch_type_abba.sh
+python research/nezuko_a0_split_derive.py
+
+# 4. A1 exposure factors E = dS/dI for the default-ON fusion knobs.
+bash research/nezuko_a1_exposure.sh
+python research/nezuko_a1_analyze.py research/nezuko-a1-exposure
+
+# 5. A2 re-priced census.
+python research/nezuko_a2_reprice.py --top 25 \
+  --exposure '{"gate_sp_h64":0.10,"gate_sp_h48":0.10,"shared_nvfp4_swiglu_qmv_rows1":0.10}'
+
+# 6. Clock-correlation negative control (must print WINDOW CORRELATION FAILED).
+DARKBLOOM_GPU_PROFILE=1 /usr/bin/python3 research/nezuko_clockfix_control.py \
+  --steps 40 --profile
+```
+
+Every ABBA driver writes one `*.txt` summary per point plus a large
+`*.worker.err` GPUPROF dump. Only the `.txt` summaries are committed; the raw
+dumps are 19 MB/point at SPLIT=0 and considerably larger at SPLIT=1, and are
+excluded via `.git/info/exclude`.
+
+**Scope.** `git diff --stat` against the assignment base
+`268fb087980cc6ee9a60479f74f37d1ed258ec8f` touches `research/` only. No file
+under `Sources/`, `Vendor/`, or `benchmark.json` is modified, so this PR
+consumes **zero submitted-surface bytes** and zero of the 262,144-byte
+per-review growth budget. Region fences respected: no edits to
+`LagunaRuntimeModel.swift` (maple-frieren #148), `LagunaLmHeadPrune.swift`
+(maple-fern #137), or `fp_quantized_nax.h` / `mlx-generated/fp_quantized_nax.cpp`
+/ `quantized.cpp` (maple-tanjiro #170). No `mlxfast submit` was issued.
+
+*This report was written by an AI agent (OpenHands) on behalf of the Senpai
+research campaign.*
