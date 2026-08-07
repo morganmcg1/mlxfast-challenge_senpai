@@ -1,0 +1,207 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+index e8ea295..8f8abc0 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -7,6 +7,176 @@ import MLXNN
+ // Correctness-first Laguna XS 2.1 runtime, behavior-checked against the
+ // vendored reference implementation and specialized by guarded fast paths.
+ 
++/// Research-only dispatch-tax attribution instrument (PR #268, maple-fern).
++/// NEVER SUBMITTED -- reverted before commit, kept only as a research patch.
++///
++/// PR #241 priced one decode chain link at ~1.4 us but did not say what the
++/// 1.4 us buys. This instrument injects controlled dispatch work with known
++/// dependency structure, known dirty footprint, and known distinct-resource
++/// count, and reads back the real dispatch/barrier/command-buffer counters
++/// plus GPU-busy time from the Metal backend, so the cost can be attributed.
++@_silgen_name("darkbloom_probe_read")
++func darkbloomProbeRead(_ out: UnsafeMutablePointer<UInt64>)
++
++enum LagunaTaxProbe {
++    private static let env = ProcessInfo.processInfo.environment
++    /// chain | indep | distinct | chain40 | spin40 | diamond1 | diamond2 | none
++    private static let mode = env["DARKBLOOM_TAX_MODE"] ?? "none"
++    private static let fixedK = Int(env["DARKBLOOM_TAX_K"] ?? "") ?? 0
++    private static let bytes = Int(env["DARKBLOOM_TAX_BYTES"] ?? "") ?? 8192
++    private static let spinNs = Double(env["DARKBLOOM_TAX_SPIN_NS"] ?? "") ?? 1400
++    private static let schedule: [Int] = {
++        guard let raw = env["DARKBLOOM_TAX_SCHEDULE"], !raw.isEmpty else { return [] }
++        return raw.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
++    }()
++
++    private nonisolated(unsafe) static var currentK = 0
++    private nonisolated(unsafe) static var segment = -1
++    private nonisolated(unsafe) static var announced = false
++    private nonisolated(unsafe) static var isDecode = false
++    private nonisolated(unsafe) static var siteCalls = 0
++    private nonisolated(unsafe) static var decodeSteps = 0
++    private nonisolated(unsafe) static var unit: MLXArray?
++    private nonisolated(unsafe) static var unitDType: DType?
++    /// Off-chain sources. `base` is a single constant every independent dummy
++    /// reads; `bases` is a pool of distinct constants for the E4 arm.
++    private nonisolated(unsafe) static var base: MLXArray?
++    private nonisolated(unsafe) static var bases: [MLXArray] = []
++    private nonisolated(unsafe) static var baseBytes = -1
++    private nonisolated(unsafe) static var counters = [UInt64](repeating: 0, count: 8)
++
++    private static let usesSite = ["chain40", "spin40"].contains(mode)
++    private static let usesBatch =
++        ["chain", "indep", "distinct", "diamond1", "diamond2"].contains(mode)
++
++    static func beginForward(tokens: Int) {
++        isDecode = tokens == 1
++        guard isDecode else {
++            // A multi-token forward is the driver's seed prefill, i.e. the
++            // start of the next schedule segment.
++            segment += 1
++            currentK = schedule.isEmpty ? fixedK : schedule[segment % schedule.count]
++            announced = false
++            darkbloomProbeRead(&counters)
++            return
++        }
++        // Completion handlers for step n-1 have all run (the worker fully
++        // synchronizes to read its token), so the counters read here describe
++        // the step that just finished.
++        emitCounters()
++        siteCalls = 0
++        if schedule.isEmpty { currentK = fixedK }
++    }
++
++    private static func emitCounters() {
++        guard decodeSteps > 0 else {
++            darkbloomProbeRead(&counters)
++            return
++        }
++        darkbloomProbeRead(&counters)
++        let line = "TAXCTR seg=\(segment) step=\(decodeSteps - 1) k=\(currentK)"
++            + " mode=\(mode) dispatch=\(counters[0]) barrier=\(counters[1])"
++            + " commit=\(counters[2]) gpu_ns=\(counters[3])"
++            + " kernel_ns=\(counters[4]) span_ns=\(counters[5])"
++            + " encode=\(counters[6]) sitecalls=\(siteCalls)\n"
++        FileHandle.standardError.write(Data(line.utf8))
++    }
++
++    private static func ensureSources(_ dtype: DType) {
++        if unit == nil || unitDType != dtype {
++            unit = MLXArray(Float(1)).asType(dtype)
++            unitDType = dtype
++        }
++        let n = max(1, bytes / 2)
++        if base == nil || baseBytes != bytes {
++            base = MLXArray.zeros([n], dtype: .bfloat16)
++            let pool = mode == "distinct" ? 256 : 0
++            bases = (0..<pool).map { _ in MLXArray.zeros([n], dtype: .bfloat16) }
++            baseBytes = bytes
++            eval([base!] + bases)
++        }
++    }
++
++    /// In-chain injection immediately in front of a named consumer (the PR
++    /// #241 wiring). `chain40` reproduces the published boundary price on the
++    /// same host and session; `spin40` replaces the GPU work with an equal
++    /// budget of pure CPU delay at the same encode position.
++    static func site(_ x: MLXArray) -> MLXArray {
++        guard isDecode else { return x }
++        siteCalls += 1
++        guard currentK > 0, usesSite else { return x }
++        if mode == "spin40" {
++            busySpin(nanoseconds: spinNs * Double(currentK))
++            return x
++        }
++        ensureSources(x.dtype)
++        guard let one = unit else { return x }
++        var y = x
++        for _ in 0..<currentK { y = y * one }
++        return y
++    }
++
++    private static func busySpin(nanoseconds: Double) {
++        let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(nanoseconds)
++        var sink: UInt64 = 0
++        while DispatchTime.now().uptimeNanoseconds < deadline {
++            sink = sink &+ 1
++        }
++        if sink == UInt64.max { FileHandle.standardError.write(Data("spin\n".utf8)) }
++    }
++
++    /// Off-chain batch injection at the end of the decode step. Every arm here
++    /// issues exactly K extra dispatches from the same encode position; only
++    /// the dependency structure or the resource set differs, so the slope
++    /// difference between arms isolates barrier cost and residency cost from
++    /// raw launch cost.
++    static func endStep() {
++        guard isDecode else { return }
++        if !announced {
++            announced = true
++            FileHandle.standardError.write(
++                Data("TAXSEG \(segment) mode=\(mode) k=\(currentK) bytes=\(bytes)\n".utf8))
++        }
++        if currentK > 0, usesBatch {
++            ensureSources(.bfloat16)
++            if let b = base, let one = unit {
++                switch mode {
++                case "chain":
++                    var y = b
++                    for _ in 0..<currentK { y = y * one }
++                    asyncEval(y)
++                case "indep":
++                    let ys = (0..<currentK).map { _ in b * one }
++                    asyncEval(ys)
++                case "distinct":
++                    let ys = (0..<currentK).map { bases[$0 % bases.count] * one }
++                    asyncEval(ys)
++                case "diamond1":
++                    // K joins, each fed by ONE producer read twice.
++                    let ys = (0..<currentK).map { _ -> MLXArray in
++                        let d = b * one
++                        return d + d
++                    }
++                    asyncEval(ys)
++                case "diamond2":
++                    // K joins, each fed by TWO independent producers: one
++                    // extra dispatch per join on a parallel arm.
++                    let ys = (0..<currentK).map { _ -> MLXArray in
++                        let d1 = b * one
++                        let d2 = b * one
++                        return d1 + d2
++                    }
++                    asyncEval(ys)
++                default:
++                    break
++                }
++            }
++        }
++        decodeSteps += 1
++        isDecode = false
++    }
++}
++
+ func lagunaLastTokenRange(sequenceLength: Int) -> Range<Int>? {
+     sequenceLength > 1 ? (sequenceLength - 1)..<sequenceLength : nil
+ }
+@@ -5764,7 +5934,8 @@ final class LagunaRuntimeAttention: Module {
+                 let decodeNVFP4QKVR1 =
+                     fusedQKV == nil
+                     ? lagunaDecodeNVFP4QKVR1(
+-                        normalized: normalized, bank: fusedAffine, heads: nHeads)
++                        normalized: LagunaTaxProbe.site(normalized),
++                        bank: fusedAffine, heads: nHeads)
+                     : nil
+                 let qkv =
+                     fusedQKV
+@@ -10950,6 +11121,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+     }
+ 
+     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
++        LagunaTaxProbe.beginForward(tokens: inputs.dim(1))
+         let fullHidden = model(inputs, cache: cache)
+         // Every consumer of multi-token logits reads only the LAST
+         // position's row. Slice before the row-independent final RMSNorm and
+@@ -10984,6 +11156,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
+             asyncEval(result)
+         }
++        LagunaTaxProbe.endStep()
+         return result
+     }
+ 

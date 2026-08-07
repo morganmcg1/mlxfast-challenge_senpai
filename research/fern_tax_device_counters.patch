@@ -1,0 +1,115 @@
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+index 2a8e15a..f028562 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+@@ -28,6 +28,50 @@ struct hash<NS::SharedPtr<T>> {
+ 
+ } // namespace std
+ 
++// ---------------------------------------------------------------------------
++// Research-only dispatch-tax counters (maple-fern PR #268). NEVER SUBMITTED.
++// device.cpp is outside editablePaths; this block exists only so a local
++// worker can report how many dispatches, barriers, and command buffers a
++// decode step actually emitted, and how much of the step the GPU was busy.
++// ---------------------------------------------------------------------------
++namespace {
++std::atomic<uint64_t> dbp_dispatches{0};
++std::atomic<uint64_t> dbp_barriers{0};
++std::atomic<uint64_t> dbp_commits{0};
++std::atomic<uint64_t> dbp_encodings{0};
++std::atomic<uint64_t> dbp_gpu_busy_ns{0};
++std::atomic<uint64_t> dbp_kernel_busy_ns{0};
++std::atomic<uint64_t> dbp_first_start_ns{0};
++std::atomic<uint64_t> dbp_last_end_ns{0};
++
++inline void dbp_note_max(std::atomic<uint64_t>& slot, uint64_t v) {
++  uint64_t cur = slot.load(std::memory_order_relaxed);
++  while (v > cur &&
++         !slot.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {
++  }
++}
++
++inline void dbp_note_min_nonzero(std::atomic<uint64_t>& slot, uint64_t v) {
++  uint64_t cur = slot.load(std::memory_order_relaxed);
++  while ((cur == 0 || v < cur) &&
++         !slot.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {
++  }
++}
++} // namespace
++
++extern "C" void darkbloom_probe_read(uint64_t* out) {
++  uint64_t first = dbp_first_start_ns.exchange(0, std::memory_order_relaxed);
++  uint64_t last = dbp_last_end_ns.exchange(0, std::memory_order_relaxed);
++  out[0] = dbp_dispatches.exchange(0, std::memory_order_relaxed);
++  out[1] = dbp_barriers.exchange(0, std::memory_order_relaxed);
++  out[2] = dbp_commits.exchange(0, std::memory_order_relaxed);
++  out[3] = dbp_gpu_busy_ns.exchange(0, std::memory_order_relaxed);
++  out[4] = dbp_kernel_busy_ns.exchange(0, std::memory_order_relaxed);
++  out[5] = (last > first) ? (last - first) : 0;
++  out[6] = dbp_encodings.exchange(0, std::memory_order_relaxed);
++  out[7] = 0;
++}
++
+ namespace mlx::core::metal {
+ 
+ namespace {
+@@ -362,6 +406,7 @@ void CommandEncoder::add_temporaries(std::vector<array> arrays) {
+ 
+ void CommandEncoder::maybeInsertBarrier() {
+   if (needs_barrier_) {
++    dbp_barriers.fetch_add(1, std::memory_order_relaxed);
+     get_command_encoder()->memoryBarrier(MTL::BarrierScopeBuffers);
+     needs_barrier_ = false;
+     prev_inputs_ = std::move(next_inputs_);
+@@ -378,6 +423,7 @@ void CommandEncoder::dispatch_threadgroups(
+     MTL::Size grid_dims,
+     MTL::Size group_dims) {
+   maybeInsertBarrier();
++  dbp_dispatches.fetch_add(1, std::memory_order_relaxed);
+   buffer_ops_++;
+   get_command_encoder()->dispatchThreadgroups(grid_dims, group_dims);
+ }
+@@ -386,6 +432,7 @@ void CommandEncoder::dispatch_threads(
+     MTL::Size grid_dims,
+     MTL::Size group_dims) {
+   maybeInsertBarrier();
++  dbp_dispatches.fetch_add(1, std::memory_order_relaxed);
+   buffer_ops_++;
+   get_command_encoder()->dispatchThreads(grid_dims, group_dims);
+ }
+@@ -395,6 +442,7 @@ void CommandEncoder::barrier() {
+ }
+ 
+ void CommandEncoder::end_encoding() {
++  dbp_encodings.fetch_add(1, std::memory_order_relaxed);
+   // Each command encoder has a unique fence. We also store a map of
+   // all previous outputs of command encoders to their corresponding fence.
+   // - The command encoder records its inputs and outputs.
+@@ -487,11 +535,27 @@ bool CommandEncoder::needs_commit() const {
+ }
+ 
+ void CommandEncoder::commit(std::function<void()> completion) {
++  dbp_commits.fetch_add(1, std::memory_order_relaxed);
+   buffer_->addCompletedHandler(
+       [&error_ = error_,
+        wait_events = std::move(wait_events_),
+        signal_events = std::move(signal_events_),
+        completion = std::move(completion)](MTL::CommandBuffer* cbuf) {
++        {
++          // Research-only dispatch-tax accounting (maple-fern PR #268).
++          double gs = cbuf->GPUStartTime(), ge = cbuf->GPUEndTime();
++          double ks = cbuf->kernelStartTime(), ke = cbuf->kernelEndTime();
++          if (ge > gs) {
++            dbp_gpu_busy_ns.fetch_add(
++                (uint64_t)((ge - gs) * 1e9), std::memory_order_relaxed);
++            dbp_note_min_nonzero(dbp_first_start_ns, (uint64_t)(gs * 1e9));
++            dbp_note_max(dbp_last_end_ns, (uint64_t)(ge * 1e9));
++          }
++          if (ke > ks) {
++            dbp_kernel_busy_ns.fetch_add(
++                (uint64_t)((ke - ks) * 1e9), std::memory_order_relaxed);
++          }
++        }
+         if (completion) {
+           completion();
+         }
