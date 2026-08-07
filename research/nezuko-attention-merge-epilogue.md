@@ -32,20 +32,25 @@ Research-only: this file, `research/nezuko_epilogue_probe.swift`,
 
 | axis | outcome |
 |---|---|
-| correctness | **perfect.** Bit-exact by construction; `max_abs_diff = 0` on 1344 checked steps, 11 cases, GPQA TTFT 9/9, semantic judge 9/9, both official floors passed (§6, §7, §9, §11) |
-| budget | **−454 bytes** net editable growth, one file (§8) |
+| what shipped | **two** bit-exact mechanisms in `LagunaRuntimeModel.swift`: **Arm A**, a `float4` merge epilogue in both decode attention kernels (§2); **Arm E**, a uniform-buffer memo that removes ~1,143 of the 1,270 per-call `MLXArray` parameter constructions in the scored window (§14) |
+| correctness | **perfect.** Bit-exact by construction; `max_abs_diff = 0` on 1344 checked steps, 11 cases, GPQA TTFT 9/9, semantic judge 9/9, both official floors passed (§6, §7, §9, §11). Arm A + E re-certified from scratch: identical run digest, `0 of 65` step digests differing (§14.4) |
+| budget | **+1,169 bytes** net editable growth against base `747d130b`, one submitted file — `9.7 %` of the advisor's 12,000-byte cap (§8) |
 | isolated kernel (M4, ABBA, `0.1 µs` resolution) | **wins**: sliding `+0.400 µs/call (+2.51 %)`, full `+0.202 µs/call (+1.11 %)`; residency-robust (§4, §13.6) |
-| projected step effect | `30 × 0.400 + 10 × 0.202 ≈ 14.02 µs/step` — pre-registered before any receipt (§5) |
-| official M5 receipt (1 of 2 spent) | `c03dc117`, `officialScore 2.5490802`, `decode_speedup 2.804788`. Point prediction **rejected at 95 %** (`−1.35σ` vs ranked anchor), but the CI contains zero: **a regression is not established** (§11) |
-| in-situ M4 decode, 18 palindromic pairs, 52k bit-exact steps | `+7.99 ± 8.70 µs/step` — **underpowered null** (§12) |
-| combined M4 + M5 | `+1.86 ± 7.82 µs/step`, CI `[−13.48, +17.19]` — contains **both** zero and full transfer (§12.4) |
+| projected step effect | Arm A `30 × 0.400 + 10 × 0.202 ≈ 14.02 µs/step`, pre-registered before any receipt (§5); Arm E `+11 µs/step` point, `4–20` range, pre-registered before any measurement (§14.3) |
+| official M5 receipt (1 of 2 spent, **Arm A only**) | `c03dc117`, `officialScore 2.5490802`, `decode_speedup 2.804788`. Point prediction **rejected at 95 %** (`−1.35σ` vs ranked anchor), but the CI contains zero: **a regression is not established**. `83.2 %` of the score drop sits in the two *baseline* arms (§11, §15.1) |
+| in-situ M4 decode, Arm A only, 18 palindromic pairs | `+7.99 ± 8.70 µs/step` — **underpowered null**; combined with the receipt, `+1.86 ± 7.82` (§12) |
+| **in-situ M4 decode, Arm A + E, 12 palindromic pairs, quiet host** | **`+18.58 ± 2.92 µs/step`, CI `[+12.16, +25.00]`, `t = 6.37`, 12/12 pairs positive — a resolved effect.** The §14.3 pre-registered kill did **not** fire; the pre-registered `25 µs/step` projection is inside the interval (§14.4) |
 | my own explanatory mechanism (§13.1, "the harness was cache-resident") | **pre-registered a discriminator against myself (§13.5) and it refuted me (§13.6)**. Retracted. |
-| **status** | **inconclusive on timing**, not negative. The effect is real per call and smaller than every instrument available; the honest ceiling (`46.8 µs/step`) is below this programme's 3σ receipt-confirmable floor (`53.8 µs/step`, §11.2) |
+| **status** | **positive on the instrument that can see it, invisible to the instrument that ranks it.** `+18.58 µs/step` projects to `+0.377 %` `decode_speedup` / `+0.283 %` `officialScore`, but §16 certifies the official two-receipt `1σ` at `17.92 µs/step`, so this is a `1.04σ` effect on the ranked axis. **Not a negative result — an unrankable positive one.** |
 
 The reusable outputs are §11.2's **certified programme-wide receipt noise
 floor** (1112 baselines, 322 near-identical candidate pairs, two independent
-instruments agreeing to 5 %), §13.2's **decode traffic model**, and §13.4's
-**bound-match axis**, which is orthogonal to PR #204's exposure axis.
+instruments agreeing to 5 %), §16's **proof that the official noise is white**
+so same-session pairing buys nothing, §13.2's **decode traffic model**, and
+§13.4's **bound-match axis**, which is orthogonal to PR #204's exposure axis.
+The programme consequence is in §16.6 and §14.4: single mechanisms in this
+size class must be **stacked** until their sum clears `~36 µs/step` before a
+receipt is spent on them.
 
 ---
 
@@ -1654,9 +1659,97 @@ construction, costs 1 169 bytes of the 12 000-byte cap, strictly removes work,
 and carries its own ablation flag. Its value does not depend on the timing
 verdict, and neither does the §14.2 correction to the advisor's proposed shape.
 
-### 14.4 Result
+### 14.4 Result — the combined mechanism is resolved on the M4 in-situ axis
 
-*(filled in below, after the pre-registered measurements)*
+Correctness first. Arm A + Arm E were re-certified from scratch against the
+`ref-base` reference digest (training `8de1ecad-e10b-48d9-ae2c-fc27092aa4c8`,
+`finished`, 336.9 s):
+
+```text
+REF_RUN_DIGEST  3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928
+CAND_RUN_DIGEST 3447204b58f5192f772df1a064f0fc87dd59fe41f4720b51f7e6f103403b4928
+RUN_DIGEST_EQUAL True ; STEP_DIGESTS_DIFFERING 0 of 65 ; TOKEN_MISMATCHES 0 / 0
+LOCAL_SUBMIT_RC=0   VERIFY_RC=0
+```
+
+The same 1-ULP control that flips 64 of 65 step digests (§6) still fires, so
+the instrument was live for this certification, not merely silent.
+
+Then timing. Session 3 of the in-situ decode probe ran the combined `A + E`
+candidate against the unchanged `747d130b` base, 24 runs, 1200 steps each,
+`SEQ = A B B A A B B A A B B A A B B A A B B A A B B A` (12 palindromic
+pairs), training `14549334-92b6-4cf0-aab6-49f46b9cc8d7`, `PROBE_RC=0`.
+Provenance emitted by the script itself:
+
+```text
+SRC_MD5_HEAD 192a0d29066f202c67fb4354e20e3a97   SRC_MD5_BASE 917039f5a7afd0bd7eb099b222176fb4
+BUILD_A_RC 0  BIN_MD5_A 1cddf80ef71846e2c93df80e382e3f1a
+BUILD_B_RC 0  BIN_MD5_B 1e8f9699ef112d7169fd669b91c2a083
+BINARIES_DIFFER 1   WORKTREE_DIRTY_AFTER_BUILD 0
+```
+
+All 24 runs reported `0 divergences (all match)` against the golden.
+
+```text
+arm A (candidate) n=12 median-of-medians 8278.57 us  sd 12.32
+arm B (base)      n=12 median-of-medians 8296.31 us  sd 12.61
+pairs: +24.23 +22.79 +16.38 +43.98 +1.23 +9.60 +15.65 +22.42 +16.67 +17.63 +14.90 +17.50
+PAIRED n=12  saved mean +18.58 us/step  sd 10.11  se 2.92  t +6.37
+PAIRED 95% CI [+12.16, +25.00] us/step   (+0.1465 % .. +0.3014 % of 8296 us)
+resolution of this probe (CI half-width) 6.42 us/step
+```
+
+Twelve of twelve pairs are positive (sign test `p = 2^-12 = 0.000244`); the
+paired `t = 6.37` on 11 df gives `p ~ 5e-5`. The per-run scatter (`sd 10.11`)
+is four times tighter than session 2's `43.34`, so the host was quiet; that
+is why this session resolves what the earlier eighteen pairs could not. The
+median-of-medians difference (`17.74 µs`) agrees with the paired mean
+(`18.58 µs`), so no single run is carrying the result.
+
+Three things follow.
+
+1. **The §14.3 pre-registered kill did not fire.** It required the combined
+   estimate to be negative with an upper CI bound below `+5 µs/step`. The
+   observed interval is `[+12.16, +25.00]`, entirely above zero.
+2. **The pre-registered projection is inside the interval.** §14.3 predicted
+   `14.02` (Arm A) `+ 11` (Arm E) `= 25 µs/step`; the Arm A-only projection
+   alone was `14.02`. Both sit inside `[+12.16, +25.00]`, with `25` at the
+   upper edge.
+3. **Advisor hypothesis (b) is disfavoured.** Feedback #3 §2 asked me to
+   separate "(a) the receipt was dominated by something else" from "(b)
+   `float4` is actively harmful". For (b) to survive, Arm E would have to be
+   carrying the whole `+18.58` while Arm A contributes nothing or less — that
+   demands `E >= 18.58 µs/step`, above my pre-registered point (`11`) and at
+   the extreme of the pre-registered `4-20` range. Combined with the Arm
+   A-only pooled estimate of `+7.99 ± 8.70` from sessions 1-2 (§12.4), which
+   is positive, and with §15.1's finding that `83.2 %` of the receipt's score
+   drop sits in the two *baseline* arms, (a) is the better-supported reading.
+
+The cross-session contrast that would isolate Arm E is
+`18.58 − 7.99 = +10.6 ± 9.2 µs/step` (`z = 1.15`) — numerically right on the
+pre-registered `11 µs/step` point, but underpowered and confounded by the
+session-to-session quiet-host difference, so I do not claim it. Arm E is
+reported as *bundled and not separately attributable*, exactly as §14.3 said
+it would be.
+
+Score projection from the resolved combined number, using the §15 elasticity
+with divisor `D = decode_seconds_per_token = 4928.12 µs`:
+
+```text
+dD/D = 18.58 / 4928.12         = +0.3770 %  on decode_speedup
+x 0.75                          = +0.2827 %  on officialScore
+```
+
+which is `0.01522 %` of `officialScore` per µs/step, matching the advisor's
+independently derived `0.015280 %`. Against the ranked anchor `08ddee45`
+(`decode_speedup 2.818633`) the refined point prediction is
+`2.818633 x 1.003770 = 2.82926`, inside the §17.2 pre-registered interval
+`[2.8127, 2.8532]`. I am *not* revising §17.2; that prediction was fixed
+before this measurement and stands as written.
+
+The honest limit remains §16: `18.58 µs/step` is `1.04σ` on the two-receipt
+official axis (`σ = 17.92 µs/step`). This mechanism is now resolved on the
+instrument that can see it and invisible to the instrument that ranks it.
 
 ---
 

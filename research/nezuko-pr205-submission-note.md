@@ -244,11 +244,43 @@ Combining the M4 in-situ estimate (+7.99 ± 8.70) with the M5 receipt implied
 (−24.2 ± 17.9) gives an agreement z of +1.62 (they do not conflict) and a
 fixed-effect combination of **+1.86 ± 7.82 µs/step, CI [−13.5, +17.2]**.
 
-The honest summary of the timing axis is therefore: the kernel-level effect is
-real and cleanly measured at the kernel level; **no instrument available to me
-can resolve it end to end**, because the mechanism is worth ~0.3 % of a decode
-step and the cheapest certified instrument has a 1σ of ~18 µs/step. This is
-reported as **inconclusive on timing, not as a win and not as a regression**.
+**The combined candidate, A + E, on a quiet host — a resolved effect.** The
+same in-situ probe was then run on the shipped `A + E` candidate against the
+unchanged base, 24 runs of 1200 decode steps in a 12-pair palindrome
+(`A B B A ...`), every run reporting `0 divergences (all match)`. Provenance
+emitted by the script: `SRC_MD5_HEAD 192a0d29`, `SRC_MD5_BASE 917039f5`,
+`BIN_MD5_A 1cddf80e`, `BIN_MD5_B 1e8f9699`, `BINARIES_DIFFER 1`,
+`WORKTREE_DIRTY_AFTER_BUILD 0`.
+
+```text
+arm A (candidate) n=12 median-of-medians 8278.57 us  sd 12.32
+arm B (base)      n=12 median-of-medians 8296.31 us  sd 12.61
+pairs: +24.23 +22.79 +16.38 +43.98 +1.23 +9.60 +15.65 +22.42 +16.67 +17.63 +14.90 +17.50
+PAIRED n=12  saved mean +18.58 us/step  sd 10.11  se 2.92  t +6.37
+PAIRED 95% CI [+12.16, +25.00] us/step  (+0.147 % .. +0.301 % of the step)
+```
+
+Twelve of twelve pairs are positive (sign test p = 0.000244); t = 6.37 on
+11 df gives p ≈ 5e-5. The per-run scatter (sd 10.11) is four times tighter
+than the earlier session's 43.34, so the host was quiet — that is why this
+session resolves what eighteen earlier pairs could not. The median-of-medians
+difference (17.74 µs) agrees with the paired mean, so no single run carries
+the result. The pre-registered projection for the combined mechanism was
+14.02 (A) + 11 (E) = **25 µs/step**, which lies inside the observed interval;
+the pre-registered kill condition (negative estimate with an upper bound below
++5 µs/step) did **not** fire.
+
+Projected to the ranked axis with the elasticity used above,
+`18.58 / 4928.12 = +0.377 %` on `decode_speedup` and **+0.283 %** on
+`officialScore` — right at the honest ceiling I derived for this target.
+
+The honest summary of the timing axis is therefore: **the mechanism is real
+and now resolved end to end on the instrument that can see it, and it is
+below the resolution of the instrument that ranks it.** A two-receipt official
+contrast has a 1σ of ~18 µs/step (see *Learning*), so +18.58 µs/step is a
+1.04σ effect on the official axis — unrankable in isolation, which is exactly
+what the single spent receipt showed. This is reported as **an unrankable
+positive, not a win on the leaderboard and not a regression**.
 
 The mechanism is entirely intra-threadgroup — threadgroup-memory access width
 and count, with essentially zero incremental DRAM traffic — and it is
@@ -314,10 +346,13 @@ restore from `HEAD`.
   the load-bearing evidence and it is a same-host, same-kernel-family, matched
   comparison — but generation-16 vs the ranked M5 is a real gap, and
   threadgroup geometry can change sign across core counts.
-- The end-to-end checks are **underpowered**, not negative. The M4 in-situ probe
-  has a 1σ of 8.7 µs/step against a ~14 µs/step target, and the official receipt
-  contrast has a 1σ of ~18 µs/step. Both intervals contain both zero and the
-  predicted effect.
+- The **official** end-to-end check is underpowered, not negative: a two-receipt
+  contrast has a 1σ of ~18 µs/step, and the one receipt spent on mechanism A
+  gave an interval containing both zero and the predicted effect. The M4 in-situ
+  probe *does* resolve the combined `A + E` mechanism (+18.58 ± 2.92 µs/step,
+  12/12 pairs positive) — but that is M4 evidence for an M5 ranking, and its
+  projected +0.283 % on `officialScore` is still only ~1σ of the official
+  instrument. Nothing here should be read as a predicted leaderboard move.
 - Mechanism A is unconditional, with no heuristic or threshold that could select
   differently on another architecture — which is the main reason I expect the
   sign to transfer even though the magnitude may not.
