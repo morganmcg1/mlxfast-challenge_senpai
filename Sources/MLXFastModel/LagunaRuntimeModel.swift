@@ -342,6 +342,8 @@ private let lagunaNativeAffineOProjLayerCount: Int = {
     return min(max(requested, 0), LagunaConstants.numHiddenLayers)
 }()
 let lagunaNativeAffineOProjEnabled = lagunaNativeAffineOProjLayerCount > 0
+private let lagunaNativeAffineOProjPrefillEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_NATIVE_AFFINE_OPROJ_PREFILL"] == "1"
 
 private func lagunaUseNativeAffineOProj(layer: Int) -> Bool {
     lagunaNativeAffineCovers(
@@ -6008,6 +6010,30 @@ final class LagunaRuntimeAttention: Module {
             } else {
                 output = output * gate
             }
+        }
+
+        if lagunaNativeAffineOProjPrefillEnabled,
+            lagunaUseNativeAffineOProj(layer: layerIdx),
+            let affineWO = _nativeAffineOProj,
+            let affineBiases = affineWO.biases,
+            B == 1, L > 1, wo.bias == nil,
+            headDim == LagunaConstants.headDim,
+            output.dtype == .bfloat16,
+            output.shape == [1, L, nHeads * headDim],
+            affineWO.originalShape == [LagunaConstants.hiddenSize, nHeads * headDim],
+            affineWO.mode == .affine, affineWO.bits == 8, affineWO.groupSize == 32
+        {
+            lagunaTrace("native affine prefill output projection h\(nHeads) l\(L)")
+            return quantizedMM(
+                output,
+                affineWO.packedCodes,
+                scales: affineWO.scales,
+                biases: affineBiases,
+                transpose: true,
+                groupSize: affineWO.groupSize,
+                bits: affineWO.bits,
+                mode: affineWO.mode
+            )
         }
 
         return wo(output)
