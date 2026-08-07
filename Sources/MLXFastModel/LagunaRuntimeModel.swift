@@ -9235,9 +9235,11 @@ private let lagunaDecodeRouterNormSinkEnabled =
 /// Lanes 256..511 carry `+inf` sentinel keys that sort to the bottom and never
 /// contaminate the real lanes 0..255 (strides ≤128 never cross the 256
 /// boundary). Eliminates one dispatch per sparse layer × 39 layers. Set
-/// `DARKBLOOM_FUSED_ROUTER_TOP8=0` to ablate.
+/// `DARKBLOOM_FUSED_ROUTER_TOP8=1` to enable.
+/// DEFAULT OFF: collapses 32 router threadgroups into 1, causing 34.8% decode
+/// regression and a correctness mismatch (actual_token=0 at step 2).
 private let lagunaFusedRouterTop8Enabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTER_TOP8"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTER_TOP8"] == "1"
 
 /// Prefill counterpart of the fused decode router: one dispatch per sparse
 /// layer replaces the stock multi-token routing chain (FP32 cast, sigmoid,
