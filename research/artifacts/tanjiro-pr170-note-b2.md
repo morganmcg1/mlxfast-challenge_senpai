@@ -105,8 +105,13 @@ traffic sit on top.
 - **H3 (latency/sync-bound):** neither stream is saturated and the kernel is
   limited by barrier/occupancy serialisation. Both stream doublings are
   partially hidden and **this** arm costs disproportionately.
-- **H0 (probe void):** the added work was eliminated, hidden behind an
-  unrelated stall, or never reached the scored path.
+- **H0 (jointly saturated):** both streams are already overlapped as well as
+  the schedule allows, so doubling *either* one costs real time and neither is
+  *the* single constraint.
+- **HV (probe void):** the added work was eliminated, hidden behind an
+  unrelated stall, or never reached the scored path. As set out below this arm
+  carries no peak-derived floor, so a void B2 is caught by the arm-identity and
+  session-health gates (`R0b`, `R6`, `R7`), not by a magnitude test.
 
 ## 5. Approach selection and tradeoffs
 
@@ -201,7 +206,12 @@ purposes:
 1. **H3 test.** If `ΔB2` is large relative to `ΔM2` and `ΔS2`, the kernel is
    synchronisation-limited and neither stream doubling should have cost much.
    The pre-registered threshold is `ΔB2 > 0.25·W = 10.82 ms` with both stream
-   deltas materially below their peak-derived floors.
+   deltas materially below the decision margin `μ = 4.33 ms`. (An earlier
+   version said "below their peak-derived floors". Only S2 still has one; the
+   M2 floor was withdrawn as circular — it was derived from a `34.7 TFLOP/s`
+   peak that I had back-solved out of this kernel's own arithmetic intensity
+   via `56.89 = 34700/610`, and at realistic sustained NAX rates the same
+   formula returns a negative floor.)
 2. **S2 correction term.** S2 adds one barrier as an unavoidable side effect;
    B2 adds two. The barrier-corrected S2 interval is
    `[ΔS2 − ΔB2, ΔS2 − ΔB2/2]` — the conservative end assumes S2's single
@@ -212,10 +222,34 @@ B2 carries **no R0a void gate and no R0b over-cost gate**, for the reason given
 in §5: there is no peak-derived expectation for barrier cost. A small `ΔB2` is
 a real and informative result (barriers are cheap here), not a void probe.
 
-The joint verdict follows the pre-registered rules R1–R5 in §4.2 of
+The joint verdict follows the pre-registered rules R0–R7 in §4.2 of
 `research/tanjiro-pr-gather-regime-discriminator.md`, evaluated mechanically by
 `research/tanjiro-pr170-receipts.py`, in the order
-R0a → R0b → R1/R1'/R1'' → R5 → R2 → R3 → R4.
+R0a → R0b → R6 → R1/R1'/R1'' → R5 → R2 → R3 → R4, with R7 applied to every
+receipt. R2–R5 form a 2×2 on whether each of `ΔM2` and `ΔS2p` individually
+exceeds `μ = 4.33 ms`.
+
+**Measured instrument noise, and which number I read.** I estimated the
+harness's own repeatability from the public submissions feed (`n = 1583`) with a
+non-circular selection: the `n = 16` receipts whose *candidate decode* is within
+1% of this control, read for their *prefill* spread.
+
+| quantity | sample sd | relative |
+|---|---|---|
+| candidate prefill wall `S` | **0.318 ms** | **0.33%** |
+| paired baseline prefill wall | 3.997 ms | 2.1% |
+| paired estimator `188.5 / prefill_speedup` | 2.139 ms | — |
+
+The paired baseline is **12.6× noisier** than the candidate, so reading the
+delta through `prefill_speedup` would be **6.7× worse** than reading the raw
+candidate wall. Every delta here is therefore computed from **raw candidate
+prefill seconds/token**; `prefill_speedup` is used only for the floor check it
+exists to serve. A two-receipt difference carries `σ_Δ = 0.449 ms`, so the
+decision margin `μ = 4.33 ms` sits at **9.6σ** and anything beyond `±1.35 ms` is
+already `3σ`. This matters most for B2, which carries no void floor: a small
+`ΔB2` is the one arm whose null reading was always going to be load-bearing,
+and now it is a null with about ten sigma of headroom behind it rather than an
+absence of evidence.
 
 ## 9. Floor safety
 
@@ -228,10 +262,37 @@ untouched by this kernel path.
 ## 10. Failures and course corrections in this experiment
 
 - Withdrew the "67% of both rooflines / +14.30 ms excess" framing and replaced
-  it with the ridge-point derivation above, plus peak-derived floors for M2 and
-  S2 and an explicit no-floor declaration for B2.
-- Withdrew a self-contradictory version of decision rule R5 and re-derived the
-  rule ordering as R0a → R0b → R1/R1'/R1'' → R5 → R2 → R3 → R4.
+  it with the ridge-point derivation above, plus a peak-derived floor for S2 only
+  (the M2 floor was later withdrawn as circular) and an explicit no-floor
+  declaration for B2.
+- Withdrew decision rule R5 **twice**, both times before any receipt was spent.
+  The first version ("both deltas high ⇒ the streams do not overlap") was
+  self-contradictory. The second was a sum test,
+  `ΔM2 + ΔS2p ≤ W − μ ⇒ H3`, which cannot separate the hypotheses at all:
+  under H1 the delta pair is ≈`(W, 0)` and under H2 ≈`(0, W)`, so both sum to
+  ≈`W` and a textbook H1 or H2 would have been reported as H3. I confirmed the
+  failure concretely — `(ΔM2, ΔS2p, ΔB2) = (2, 30, 1)`, an unambiguous H2,
+  returned R5/H3. Both versions failed the same way: they were stated over a
+  *composite* of the two deltas when the hypotheses are distinguished by the
+  deltas *individually*. R2–R5 is now a 2×2 on the individual magnitudes, and
+  the sum survives only as a printed corroboration line that cannot change a
+  verdict. Rule ordering is
+  R0a → R0b → R6 → R1/R1'/R1'' → R5 → R2 → R3 → R4, with R7 on every receipt.
+- Withdrew the peak-derived lower floor on `ΔM2` as circular: it rested on a
+  `34.7 TFLOP/s` peak back-solved from this kernel's own arithmetic intensity
+  (`56.89 = 34700/610`), and at realistic sustained NAX rates the same formula
+  returns a negative floor. Keeping it would have voided exactly the H2 and H3
+  outcomes it was supposed to help detect.
+- Restated the R7 decode control. The original form compared candidate decode to
+  its paired baseline, but those differ by `2.82×` by design, so the ratio was
+  always ≈`0.65` and the test could never fire. It is now a leak check
+  (candidate vs the control's `4.90837 ms/step`, 2%) plus a session-health check
+  (paired baseline vs the feed median `13.86539 ms/step`, 1%, which is ≈`4.5σ`
+  given the measured `0.22%` CV).
+- Added a dispatch interlock: a probe requested off the expert-aligned path now
+  throws rather than silently degrading to probe 0. Without it an arm that
+  failed to arm would publish a healthy receipt indistinguishable from a true
+  null, which is the single most dangerous failure mode for this design.
 - Deferred a fourth "S2 sham" arm (identical barrier and traffic shape but no
   real staging) that would have collapsed the S2 interval to a point. I cannot
   demonstrate such an arm bit-exact on a gen-16 host, and the interval only
