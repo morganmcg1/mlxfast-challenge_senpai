@@ -237,7 +237,6 @@ public enum SwiftTransform {
         try beforeSidecarGeneration?()
         let generatedProjectionMetadata: GeneratedAffineMetadataReport
         let generatedTiedHeadMetadata: GeneratedAffineMetadataReport
-        let generatedOutputMajorMetadata: GeneratedAffineMetadataReport
         switch modelFamily {
         case .gemma4:
             generatedProjectionMetadata = try AffineMetadataCoding.writeProjectionSidecar(
@@ -254,11 +253,12 @@ public enum SwiftTransform {
                 selectedKeys: textKeys,
                 destinationDirectory: stagingDirectory
             )
-            generatedOutputMajorMetadata = GeneratedAffineMetadataReport(
-                weightMap: [:],
-                tensorByteCount: 0
-            )
         case .laguna:
+            // docs/laguna-weight-contract.md forbids derived layouts and
+            // metadata sidecars in the Poolside v2 contract, and the runtime loads exactly the
+            // indexed checkpoint tensors (its untied lm_head makes the
+            // Gemma tied-head packed13 sidecar meaningless anyway). Emit
+            // nothing beyond the pass-through tensor set.
             generatedProjectionMetadata = GeneratedAffineMetadataReport(
                 weightMap: [:],
                 tensorByteCount: 0
@@ -267,38 +267,22 @@ public enum SwiftTransform {
                 weightMap: [:],
                 tensorByteCount: 0
             )
-            generatedOutputMajorMetadata = try RoutedDownOutputMajorCoding.writeSidecar(
-                sourceDirectory: stagingDirectory,
-                index: index,
-                sourceHeaders: stagedHeaders,
-                selectedKeys: textKeys,
-                destinationDirectory: stagingDirectory
-            )
         }
         let (projectionOutputByteCount, projectionSizeOverflow) =
             totalTensorByteCount.addingReportingOverflow(
                 generatedProjectionMetadata.tensorByteCount
             )
-        let (tiedHeadOutputByteCount, tiedHeadSizeOverflow) =
+        let (outputTensorByteCount, tiedHeadSizeOverflow) =
             projectionOutputByteCount.addingReportingOverflow(
                 generatedTiedHeadMetadata.tensorByteCount
             )
-        let (outputTensorByteCount, outputMajorSizeOverflow) =
-            tiedHeadOutputByteCount.addingReportingOverflow(
-                generatedOutputMajorMetadata.tensorByteCount
-            )
-        guard !projectionSizeOverflow, !tiedHeadSizeOverflow, !outputMajorSizeOverflow else {
+        guard !projectionSizeOverflow, !tiedHeadSizeOverflow else {
             throw MLXFastError.invalidInput("transformed tensor byte count overflows Int")
         }
-        let generatedMetadataWeightMap = generatedProjectionMetadata.weightMap.merging(
+        let generatedWeightMap = generatedProjectionMetadata.weightMap.merging(
             generatedTiedHeadMetadata.weightMap
         ) { _, _ in
             preconditionFailure("generated metadata tensor names collide")
-        }
-        let generatedWeightMap = generatedMetadataWeightMap.merging(
-            generatedOutputMajorMetadata.weightMap
-        ) { _, _ in
-            preconditionFailure("generated output-major tensor names collide")
         }
 
         try writeMetadataFiles(metadataSnapshot, to: stagingDirectory)
@@ -353,12 +337,10 @@ public enum SwiftTransform {
             outputPath: outputDirectory.path,
             denseTensorCount: copiedTensors
                 + generatedProjectionMetadata.tensorCount
-                + generatedTiedHeadMetadata.tensorCount
-                + generatedOutputMajorMetadata.tensorCount,
+                + generatedTiedHeadMetadata.tensorCount,
             denseShardCount: textKeysByShard.count
                 + generatedProjectionMetadata.shardCount
-                + generatedTiedHeadMetadata.shardCount
-                + generatedOutputMajorMetadata.shardCount,
+                + generatedTiedHeadMetadata.shardCount,
             configPath: configPath.path,
             indexPath: indexPath.path
         )
@@ -694,195 +676,6 @@ public enum SwiftTransform {
             throw MLXFastError.invalidInput(
                 "reference tokenizer metadata changed while transform was running"
             )
-        }
-    }
-}
-
-
-private enum RoutedDownOutputMajorCoding {
-    static let shardName = "mlxfast-routed-down-output-major.safetensors"
-    static let format = "mlxfast-routed-down-output-major-v1"
-
-    private struct Tensor {
-        let sourceName: String
-        let name: String
-        let dtype: TensorDType
-        let shape: [Int]
-        let rowBytes: Int
-        let byteCount: Int
-    }
-
-    static func writeSidecar(
-        sourceDirectory: URL,
-        index: CheckpointIndex,
-        sourceHeaders: [String: SafetensorsHeader],
-        selectedKeys: Set<String>,
-        destinationDirectory: URL
-    ) throws -> GeneratedAffineMetadataReport {
-        guard !index.weightMap.values.contains(shardName) else {
-            throw MLXFastError.invalidInput("checkpoint uses reserved shard name \(shardName)")
-        }
-        let suffix = ".mlp.switch_mlp.down_proj.weight"
-        let weights = selectedKeys.filter { $0.hasSuffix(suffix) }.sorted()
-        guard weights.count == 39 else {
-            throw MLXFastError.invalidInput(
-                "expected 39 sparse routed-down weights, found \(weights.count)"
-            )
-        }
-
-        var tensors: [Tensor] = []
-        for weightName in weights {
-            let stem = String(weightName.dropLast(".weight".count))
-            let scalesName = stem + ".scales"
-            guard selectedKeys.contains(scalesName) else {
-                throw MLXFastError.invalidInput("missing routed-down scales \(scalesName)")
-            }
-            tensors.append(try tensor(
-                sourceName: weightName,
-                name: stem + ".output_major.weight",
-                dtype: .u32,
-                sourceShape: [256, 2048, 64],
-                shape: [32, 256, 64, 64],
-                rowBytes: 256,
-                index: index,
-                sourceHeaders: sourceHeaders
-            ))
-            tensors.append(try tensor(
-                sourceName: scalesName,
-                name: stem + ".output_major.scales",
-                dtype: .u8,
-                sourceShape: [256, 2048, 32],
-                shape: [32, 256, 64, 32],
-                rowBytes: 32,
-                index: index,
-                sourceHeaders: sourceHeaders
-            ))
-        }
-        tensors.sort { $0.name < $1.name }
-
-        let destination = destinationDirectory.appendingPathComponent(shardName)
-        let totalBytes = try write(
-            destination,
-            tensors: tensors,
-            sourceDirectory: sourceDirectory,
-            index: index,
-            sourceHeaders: sourceHeaders
-        )
-        return GeneratedAffineMetadataReport(
-            weightMap: Dictionary(uniqueKeysWithValues: tensors.map { ($0.name, shardName) }),
-            tensorByteCount: totalBytes
-        )
-    }
-
-    private static func tensor(
-        sourceName: String,
-        name: String,
-        dtype: TensorDType,
-        sourceShape: [Int],
-        shape: [Int],
-        rowBytes: Int,
-        index: CheckpointIndex,
-        sourceHeaders: [String: SafetensorsHeader]
-    ) throws -> Tensor {
-        guard let shard = index.weightMap[sourceName],
-              let info = sourceHeaders[shard]?.tensors[sourceName],
-              info.dtype == dtype.rawValue,
-              info.shape == sourceShape
-        else {
-            throw MLXFastError.invalidInput(
-                "routed-down tensor \(sourceName) has unexpected dtype or shape"
-            )
-        }
-        return Tensor(
-            sourceName: sourceName,
-            name: name,
-            dtype: dtype,
-            shape: shape,
-            rowBytes: rowBytes,
-            byteCount: info.byteCount
-        )
-    }
-
-    private static func write(
-        _ destination: URL,
-        tensors: [Tensor],
-        sourceDirectory: URL,
-        index: CheckpointIndex,
-        sourceHeaders: [String: SafetensorsHeader]
-    ) throws -> Int {
-        var headerObject: [String: Any] = ["__metadata__": ["format": format]]
-        var cursor = 0
-        for tensor in tensors {
-            let (end, overflow) = cursor.addingReportingOverflow(tensor.byteCount)
-            guard !overflow else {
-                throw MLXFastError.invalidInput("output-major shard size overflows Int")
-            }
-            headerObject[tensor.name] = [
-                "dtype": tensor.dtype.rawValue,
-                "shape": tensor.shape,
-                "data_offsets": [cursor, end],
-            ]
-            cursor = end
-        }
-        var header = try JSONSerialization.data(
-            withJSONObject: headerObject,
-            options: [.sortedKeys]
-        )
-        while !header.count.isMultiple(of: 8) {
-            header.append(0x20)
-        }
-
-        try Data().write(to: destination, options: [.withoutOverwriting])
-        let output = try FileHandle(forWritingTo: destination)
-        defer { try? output.close() }
-        var headerLength = UInt64(header.count).littleEndian
-        try output.write(contentsOf: Data(bytes: &headerLength, count: 8))
-        try output.write(contentsOf: header)
-        for tensor in tensors {
-            try copy(
-                tensor,
-                to: output,
-                sourceDirectory: sourceDirectory,
-                index: index,
-                sourceHeaders: sourceHeaders
-            )
-        }
-        try output.synchronize()
-        return cursor
-    }
-
-    private static func copy(
-        _ tensor: Tensor,
-        to output: FileHandle,
-        sourceDirectory: URL,
-        index: CheckpointIndex,
-        sourceHeaders: [String: SafetensorsHeader]
-    ) throws {
-        guard let shard = index.weightMap[tensor.sourceName],
-              let header = sourceHeaders[shard],
-              let info = header.tensors[tensor.sourceName]
-        else {
-            throw MLXFastError.invalidInput("missing routed-down source \(tensor.sourceName)")
-        }
-        let input = try FileHandle(
-            forReadingFrom: sourceDirectory.appendingPathComponent(shard)
-        )
-        defer { try? input.close() }
-        let tileBytes = 64 * tensor.rowBytes
-        for tile in 0..<32 {
-            for expert in 0..<256 {
-                let row = expert * 2048 + tile * 64
-                let offset = header.dataBaseOffset
-                    + UInt64(info.dataStart + row * tensor.rowBytes)
-                try input.seek(toOffset: offset)
-                let bytes = try input.read(upToCount: tileBytes) ?? Data()
-                guard bytes.count == tileBytes else {
-                    throw MLXFastError.invalidInput(
-                        "short read while tiling \(tensor.sourceName)"
-                    )
-                }
-                try output.write(contentsOf: bytes)
-            }
         }
     }
 }
