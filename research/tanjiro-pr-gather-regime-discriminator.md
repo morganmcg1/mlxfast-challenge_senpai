@@ -1238,6 +1238,39 @@ B2 is the cleanest arm in the tree: the IR census showed it moves `barrier` and
 0.4203 ms` per barrier is a direct price rather than an interval, and that is
 what makes it worth a receipt despite being the smallest effect.
 
+### 5.5 Receipt S3 — `ec2b0a57` (arm 4 of 4)
+
+| field | value |
+| --- | --- |
+| submission | `ec2b0a57-813d-4bf0-8338-6c55d5231741` |
+| harness commit | `389b149cb2ed690c27137325756413095073eb96` |
+| dispatched / receipt | `2026-08-07T03:27:41Z` / `2026-08-07T03:47:59Z` (~20.3 min) |
+| status | `rejected` — `rejectionReason: score did not improve current best` |
+| `officialScore` | `2.48390641906103` |
+| `passed_correctness` | **`True`**, `max_abs_diff = 0` |
+| `passed_prefill_speedup_floor` | **`True`** (`prefill_speedup = 1.7633985773918082`) |
+| `passed_decode_speedup_floor` | **`True`** (`decode_speedup = 2.784390506731284`) |
+| `gpqa_ttft_passed` / `semantic_gpqa_passed` | `True` / `True` |
+| `prefill_seconds_per_token` | `0.00020653800390625` ⇒ **`S = 105.747 ms`** |
+| `baseline_prefill_seconds_per_token` | `0.000364208822265625` ⇒ `186.475 ms` |
+| `decode_seconds_per_token` | `0.0049797662734375` ⇒ `4.97977 ms/step` raw |
+| `baseline_decode_seconds_per_token` | `0.0138656139375` ⇒ `13.86561 ms/step` |
+| `benchmark_wall_seconds` | `53` |
+| `peak_ram_gb` | `21` |
+
+**`ΔS3 = 105.747 − 97.895 = +7.853 ms` — 18.2% of `W`, `17.5σ`.**
+
+S3 is S2's twin on every priced axis. The IR census confirms it: against S2 the
+only census entry that moves is `const_load 1 → 2`; `dev_load`, `tg_store`,
+`barrier`, `mma` and `int_alu` are byte-identical. The one thing that changes is
+*which address* the shadow loader reads — S2 reads the neighbouring expert's
+slab, S3 reads **this expert's own tile**, the exact lines `loader_w` reads one
+barrier later. Those lines are therefore guaranteed resident, so S3 pays the
+identical staging instruction stream while moving **zero new bytes** through
+DRAM. `ΔS2 − ΔS3` is the byte term, and it is the only quantity in this tree
+that is a *difference of two receipts on the same axis* rather than a price
+read off one.
+
 <!-- RECEIPTS -->
 
 ## 6. Reading
