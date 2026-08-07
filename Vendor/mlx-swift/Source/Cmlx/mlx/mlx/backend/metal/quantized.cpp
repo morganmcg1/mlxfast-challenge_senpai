@@ -1698,9 +1698,6 @@ void gather_qmm_rhs_nax(
   std::string type_string = get_type_string(x.dtype());
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
-  const bool static_expert_shape =
-      expert_aligned && static_laguna_shapes && mode == "nvfp4" &&
-      type_string == "bfloat16_t" && !biases_.has_value();
   // How many threadgroups the expert path spreads the 256 experts over; the
   // value is baked into the kernel name and template (see
   // darkbloom_expert_gather_groups), so each setting compiles exactly one
@@ -1714,6 +1711,19 @@ void gather_qmm_rhs_nax(
   const bool expert_wideld = expert_aligned &&
       darkbloom_expert_stage_wideld() &&
       darkbloom_stage_wide_load_ok(w, transpose, bits, N, K, bn);
+
+  // Detect scale-plane-halved NVFP4 scales: when the last scale dimension is
+  // half of K/group_size, the caller packed one scale per pair (scale[2k] at
+  // position k) exploiting the NVFP4 pairwise-constancy invariant. The escape
+  // bytes for the sole exception pair (row 0 byte 1, and up-row-0 byte 1 for
+  // fused gate/up) arrive via the biases_ array.
+  const bool halved_scales = expert_aligned &&
+      scales.shape(-1) == K / (group_size * 2);
+
+  const bool static_expert_shape =
+      expert_aligned && static_laguna_shapes && mode == "nvfp4" &&
+      type_string == "bfloat16_t" &&
+      (!biases_.has_value() || halved_scales);
 
   // DARKBLOOM_STAGE2_GATHER ground truth at the DISPATCH site. The define
   // itself is injected at JIT assembly (jit_kernels.cpp, expert kernels
@@ -1803,7 +1813,8 @@ void gather_qmm_rhs_nax(
           : "",
       expert_aligned
           ? ("_eg_" + std::to_string(egroups) + (expert_widest ? "_ws_1" : "_ws_0") +
-             (expert_wideld ? "_wl_1" : "_wl_0"))
+             (expert_wideld ? "_wl_1" : "_wl_0") +
+             (halved_scales ? "_hs_1" : "_hs_0"))
           : "");
 
   // Skipping dead runs is a pure work elision (see function constant 203 in
@@ -1923,7 +1934,8 @@ void gather_qmm_rhs_nax(
         "bfloat",
         egroups,
         expert_widest,
-        expert_wideld);
+        expert_wideld,
+        halved_scales);
     kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
   } else {
     kernel = get_gather_qmm_nax_kernel(
@@ -1959,7 +1971,17 @@ void gather_qmm_rhs_nax(
   compute_encoder.set_input_array(x, c++);
   compute_encoder.set_input_array(w, c++);
   compute_encoder.set_input_array(scales, c++);
-  if (biases_) {
+  if (expert_aligned) {
+    // The expert kernel takes an escape buffer at input 3 (between scales and
+    // indices). When halved, the escape arrives via biases_; otherwise pass a
+    // dummy (the kernel ignores it when kHalvedScales is false).
+    if (halved_scales && biases_.has_value()) {
+      array escape = ensure_row_contiguous(*biases_, d, s);
+      compute_encoder.set_input_array(escape, c++);
+    } else {
+      compute_encoder.set_input_array(scales, c++);
+    }
+  } else if (biases_) {
     array biases = ensure_row_contiguous(*biases_, d, s);
     compute_encoder.set_input_array(biases, c++);
   }
