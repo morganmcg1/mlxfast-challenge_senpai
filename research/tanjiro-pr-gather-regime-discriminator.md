@@ -1114,13 +1114,156 @@ arms is a ~3-hour serial campaign in the best case, which is a further reason
 not to spend a receipt replicating an arm the noise analysis (§4.6) already
 shows is measured at `9.6σ`.
 
+**A second parsing defect, found before it cost anything.** The dispatcher's
+slot detector carried the same bug that had already fabricated one receipt in
+the waiter: `mlxfast submissions` colours the status column, so the third field
+is `"\x1b[36mvalidating\x1b[39m"` and never compared equal to any member of the
+in-flight set. Verified against live state rather than argued — with M2
+genuinely `validating`, the old predicate returned `free=True`. In the waiter
+that meant a wrong answer; here it would have armed the tree, submitted into an
+occupied slot, taken a `conflict`, and retried on the next 12 s poll, roughly
+five attempts a minute against an hourly budget that is **account-wide and
+shared with three other students**. The failure would have been mine and the
+cost would have been theirs.
+
+The predicate was inverted while being fixed. It no longer asks whether a status
+is one of the in-flight tokens I thought of; it asks whether every row has
+reached a status known to be terminal, and treats anything else — including a
+token never seen before — as in flight. The two errors are not symmetric: a
+wrong "busy" costs bounded waiting, a wrong "free" costs a shared rate-limit
+attempt. Enumerating all 42 historical rows returns `rejected`/`failed`/
+`promoted` and nothing else, so the terminal set covers the observed vocabulary
+and the slot still frees normally. A `conflict` now also arms a 120 s cooldown.
+
+### 5.2 Receipt M2 — `d786ad5c` (arm 1 of 3)
+
+| field | value |
+| --- | --- |
+| submission | `d786ad5c-cdd5-4383-b246-d9a7f3775a69` |
+| harness commit | `409ba5c83f52bc91ebf23c9b5b44934e9b8b5379` |
+| dispatched / receipt | `2026-08-07T02:00:09.608Z` / `2026-08-07T02:20:05.683Z` (~20 min) |
+| status | `rejected` — `rejectionReason: score did not improve current best` |
+| `officialScore` | `2.56432760787264` (frontier `2.58882784082067`) |
+| `passed_correctness` | **`True`**, `max_abs_diff = 0` |
+| `passed_prefill_speedup_floor` | **`True`** (`prefill_speedup = 1.965943317395163`) |
+| `passed_decode_speedup_floor` | **`True`** (`decode_speedup = 2.8018250473613273`) |
+| `gpqa_ttft_passed` / `semantic_gpqa_passed` | `True` / `True` (8 of 9) |
+| `prefill_seconds_per_token` | `0.000195197671875` ⇒ **`S = 99.941 ms`** |
+| `baseline_prefill_seconds_per_token` | `0.00038374755859375` ⇒ `196.479 ms` |
+| `decode_seconds_per_token` | `0.00495820865625` ⇒ `4.95821 ms/step` |
+| `baseline_decode_seconds_per_token` | `0.013892033203125` ⇒ `13.89203 ms/step` |
+| `benchmark_wall_seconds` / `timed_benchmark_seconds` | `53` / `46` |
+| `peak_ram_gb` | `21` |
+
+**`ΔM2 = 99.941 − 97.895 = +2.046 ms`.**
+
+Three validity conditions had to hold before that number means anything, and
+all three hold.
+
+1. **Bit-exact.** `max_abs_diff = 0`. The shadow accumulator never reached `y`;
+   the sink held on the real device, not just in the IR.
+2. **The arm actually ran.** This is the condition most easily overlooked. A
+   probe that silently failed to compile in, or a kernel that was never
+   selected, reads as *zero* — and zero sits inside the `±1.35 ms` three-sigma
+   null band (§4.6). `+2.046 ms` is `4.5σ` outside it. So the M5 really did
+   execute a second bit-exact MMA stream, and the measurement is of that stream
+   rather than of nothing. The `R0a`-style void reading is excluded on evidence.
+3. **Session health.** The paired baseline came in at `196.479 ms` prefill
+   against the frontier session's `195.93 ms` (`+0.28%`, well inside the 12.6%
+   baseline dispersion of §4.6) and `13.89203 ms/step` decode against a feed
+   median of `13.86539` (`+0.19%`). Nothing about this session was unusual.
+
 <!-- RECEIPTS -->
 
 ## 6. Reading
 
+### 6.1 What M2 settles on its own: H1 is out
+
+The pre-registered boundary is `dM2 > μ = 4.326 ms` for "large" (§4.2).
+`ΔM2 = +2.046 ms` is **47.3% of μ**, so this is unambiguously the *small* cell —
+and it is small by a wide margin, not by a hair: it would have to nearly double
+to reach the boundary, and the boundary is `9.6σ` away from zero while the
+measurement sits `4.5σ` above zero and `5.1σ` below `μ`. There is no reading of
+the noise model under which this lands in the large cell.
+
+The inference is direct. The M2 arm issues a *complete second MMA stream* over
+the same tiles, matched in shape and count to the real one (§2, `mma 1→2` in
+both the AIR and LLVM-IR censuses, on both live GEMM shapes, with **no** memory
+or barrier axis perturbed — §4.0.3). If MMA issue were the binding constraint,
+that work could not be hidden: doubling the bottleneck resource costs
+approximately the whole of it. Instead the kernel absorbed it at **less than
+half price**, which is only possible if the MMA pipe has slack — i.e. if
+something *else* is holding the kernel up.
+
+> **H1 (MMA-issue-bound) is eliminated.**
+
+This is the outcome that retrospectively justifies having spent the first
+receipt on M2 against review advice to start elsewhere (§9). M2's confound is
+one-sided: a *large* `ΔM2` would have been ambiguous between MMA pressure and an
+occupancy step (§9, register pressure is unmeasured), but a *small* `ΔM2` kills
+H1 regardless of which mechanism a large value would have indicated. The cheap
+outcome was the decisive one, and it is the one that occurred.
+
+### 6.2 What remains, and what S2 has to do
+
+Eliminating H1 collapses the `2×2` of §4.2 to its top row:
+
+| | `dS2p` small | `dS2p` large |
+| --- | --- | --- |
+| **`dM2` small ✅** | **R5 → H3 latency/sync** | **R3 → H2 load-bound** |
+| ~~`dM2` large~~ | ~~R2 → H1 compute~~ | ~~R4 → H0 jointly saturated~~ |
+
+H0 (jointly saturated) goes with H1: R4 requires *both* deltas large, and it
+additionally predicts a sum near `2W ≈ 86 ms`, which `ΔM2` alone has already
+made unreachable. So S2 is now a **binary** discriminator between H3 and H2,
+which is the strongest position two remaining receipts could be in.
+
+### 6.3 B2 is now conditionally droppable, on a knowable condition
+
+This is a budget result worth stating precisely, because it may save the third
+receipt. The pure-load cost is bracketed rather than known, because S2 also adds
+one barrier (§4.0.3: `dev_load +2`, `tg_store +1`, `barrier +1`):
+
+```
+dS2p ∈ [dS2 − dB2, dS2 − dB2/2]
+```
+
+Barriers cannot cost negative time, so `dB2 ≥ 0` and therefore `dS2p ≤ dS2`
+unconditionally. Hence:
+
+- **If `dS2 ≤ μ`**, then `dS2p ≤ μ` whatever `dB2` turns out to be. R5 fires,
+  **H3 is the answer, and B2 need not be dispatched at all** — the third receipt
+  is returned unspent.
+- **If `dS2 > μ`**, the excess could be genuine load cost (→ H2) or the barrier
+  impurity (→ still H3). Only then is B2 required, and §4.0.3 shows B2 is the
+  clean instrument for exactly that correction: `barrier +2` and *nothing else*,
+  integer ALU included.
+
+So the decision to spend receipt 3 is deferred to a threshold test on receipt 2,
+rather than taken now on taste.
+
 <!-- READING -->
 
 ## 7. Decode control
+
+The decode axis is a **negative control**, not a target. Every arm perturbs only
+the prefill-selected `_nax` gather GEMM; at decode the routed path takes a
+different kernel entirely (`M==1` fails the `B/E>=4` prefill gate, §2), so a
+correctly-scoped arm must leave decode alone. A decode movement tracking the
+prefill movement would mean the probe had escaped its intended scope and would
+invalidate the prefill reading.
+
+| arm | decode ms/step | vs control `4.90837` | paired baseline decode | vs feed median `13.86539` | verdict |
+| --- | --- | --- | --- | --- | --- |
+| M2 | `4.95821` | `+1.02%` | `13.89203` | `+0.19%` | **OK** (tol `2%`) |
+
+M2 passes. The `+1.02%` is within the pre-registered `2%` tolerance and is not
+attributable to the arm: the paired baseline drifted `+0.19%` in the same
+session, and decode wall is the noisier of the two axes in the feed. Critically,
+the decode movement is **not proportional** to the prefill movement — prefill
+moved `+2.09%` while the *ratio* of the two arms' decode to their baselines is
+essentially flat — which is the signature of session drift rather than of a
+probe leaking into the decode path.
 
 <!-- DECODE -->
 
