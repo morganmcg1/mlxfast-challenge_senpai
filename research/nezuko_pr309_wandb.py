@@ -127,7 +127,18 @@ def main() -> int:
         diverge[log.stem] = int(m.group(1)) if m else -1
     for tag, n in diverge.items():
         summary[f"stage0/divergences/{tag}"] = n
-    summary["stage0/fault_control_diverged"] = diverge.get("neg_fault", -1) > 0
+    # The stage is only interpretable if the injected store-row fault is caught
+    # at both the persistent and the reference geometry, and if the
+    # non-divisible grid is refused outright.
+    faults_caught = all(
+        diverge.get(t, -1) > 0 for t in ("neg_fault", "neg_fault_a0"))
+    tg256_refused = diverge.get("neg_tg256", -1) < 0
+    summary["stage0/fault_control_diverged"] = faults_caught
+    summary["stage0/tg256_refused"] = tg256_refused
+    summary["stage0/valid"] = faults_caught and tg256_refused
+    timed = [t for t in diverge if not t.startswith("neg_")]
+    summary["stage0/timed_arms_all_clean"] = bool(timed) and all(
+        diverge[t] == 0 for t in timed)
     summary["decision"] = args.decision
 
     run.log({k: v for k, v in summary.items() if isinstance(v, (int, float, bool))})
