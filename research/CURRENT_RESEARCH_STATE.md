@@ -146,11 +146,22 @@
   4. Test asyncEval=off with ops=200 (previous test was with ops=800 — different regime)
   5. Investigate MLX_METAL_FAST_SYNCH=1 for fence overhead reduction
 
-## READY-TO-ASSIGN EXPERIMENTS
-  1. MLX_METAL_FAST_SYNCH=1: One-line setenv, fast fence sync. Bit-exact. M5-specific.
-  2. MoE scale-plane halving: Extend attention scale halving to MoE experts (~33 MB/step).
+## READY-TO-ASSIGN EXPERIMENTS (Next Wave)
+  1. **DARKBLOOM_STAGE_BM128 variant 5→4** (PREFILL MoE tiling, bit-exact, HIGH priority)
+     - One-line change in quantized.cpp: `return 5` → `return 4`
+     - Variant 4: WM=4, WN=2, SM=16, SN=32, 256 thr/TG, Dtile=16
+     - Variant 5: WM=4, WN=1, SM=16, SN=64, 128 thr/TG, Dtile=32
+     - Variant 4 measured +17.47% vs variant 5 at kernel level (ABBA, 4/4 pairs, 342-371 vs 414-434 µs)
+     - Decode flat (-0.18%). Gain is prefill (MoE gather-GEMM staging latency 39.5% of prefill)
+     - Works on BOTH M4 and M5 (not _nax-specific). M4 can measure timing!
+     - Bit-exact: same SN=32, TN=2, TK=2, same per-row K partition, same accumulation order
+     - Reverted with the clean frontier restore. Needs to be re-enabled and tested in isolation.
+     - Expected: ~8.7% prefill improvement × 25% score weight = ~2.2% overall
+     - INDEPENDENT of QHOIST (different kernels: MoE gather-GEMM vs attention)
+     - Composes with QHOIST if both win (both prefill, different kernels)
+
+  2. MLX_METAL_FAST_SYNCH=1: One-line setenv, fast fence sync. Bit-exact. M5-specific.
   3. Packed walk-order down-scales: Add DARKBLOOM_PACKED_SCALES to 3 down kernels.
-  4. QHOIST prefill isolated: ~17.8% prefill LSU reduction, needs isolated M5 testing.
 
 ## CRITICAL FINDING: Command Buffer Ops-Per-Buffer (metaspartan public note)
   The highest-value non-kernel optimization is raising MLX_MAX_OPS_PER_BUFFER from 200 to 800.
