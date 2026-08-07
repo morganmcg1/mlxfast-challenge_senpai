@@ -2271,3 +2271,119 @@ step toward it.
 - The +0.060 % fusion remainder stays parked. It is an M4-measured effect of
   the same family as the one that just inverted, and a quarter the size; it
   should wait behind a validated transfer factor.
+
+---
+
+## 15. r3: the anchor receipt
+
+§14 closed the row-major arm on an M5 KILL. This section covers the revision
+the advisor asked for next, which is not an optimisation at all. It is a
+measurement of the frontier itself.
+
+### 15.1 Why a null change is worth a receipt
+
+The free-feed audit in §14.6 established a fact that is uncomfortable and, as
+far as we can tell, was not previously visible to the programme: **no maple
+merge after `97a5090c` has ever been validated on the ranked M5.** Every
+`Model: senpai` row published after that commit belongs to a different campaign
+or is a failed row. Six merges have been promoted into the integration base on
+local M4 evidence alone.
+
+That matters because §14 measured an M4 → M5 transfer factor of
+**−0.40 ± 0.24** for our own arm: on the ranked machine our change moved in the
+*opposite direction* from its M4 measurement, and did so by more than half the
+M4 magnitude. If that sign inversion is a property of this kernel family rather
+than of our particular kernel, then some of the six unanchored merges may also
+have inverted, and the integration base could be slower than `97a5090c` while
+every local M4 log says it is faster.
+
+There is exactly one instrument that can tell us: an official M5 receipt on a
+tree whose submitted bytes are the integration base plus a change we can prove
+does nothing. That is this submission.
+
+Two hypotheses are separable by the same receipt:
+
+- **A — the frontier is intact.** The +24.6 µs/token that receipt
+  `99b71258` charged us was our arm, and the six unanchored merges are fine.
+  Then a base-equivalent tree should score at the promoted `ns` of `2.5982163`
+  within noise.
+- **B — the frontier has drifted.** Some of the unanchored merges cost real
+  M5 time. Then a base-equivalent tree scores materially below `2.5982163`,
+  and the deficit is attributable to the merges, not to us.
+
+The two hypotheses predict different numbers on the same axis, so one receipt
+discriminates them. That is the entire value of spending it.
+
+### 15.2 What actually changed
+
+One line of shipped code:
+
+```swift
+// before (r2)
+env["DARKBLOOM_LMHEAD_ROWMAJOR_REFINE"] != "0"
+// after (r3)
+env["DARKBLOOM_LMHEAD_ROWMAJOR_REFINE"] == "1"
+```
+
+The row-major kernel, its dispatch, and the environment switch are all retained
+verbatim. The only difference is which arm the ternary selects when the
+variable is unset, which is the state the official runner is in. The row-major
+path is now reachable only by explicit opt-in, so the §14.7 geometry A/B still
+costs one flag flip and no re-derivation.
+
+Against `BASE_SHA = 2443984f`, `git diff --stat -- Sources Vendor` reports a
+single file, `Sources/MLXFastModel/LagunaLmHeadPrune.swift`. That diff is the
+flag block plus the (now unreachable-by-default) row-major kernel text. The
+selected default arm re-executes the base tree's
+`lagunaLmHeadRefinedExactKernel` with identical arguments and identical grid
+`(vocab/32 * 256, 1, 1)` and threadgroup `(256, 1, 1)`.
+
+The submitted surface stays inside budget: `current = 2929972 / 3000000`,
+`headroom = 70028`, `growth = 8225 / 262144`, `files = 142 (base = 142)`.
+
+### 15.3 Proving the null change is null
+
+A claim of "this does nothing" is only as good as the instrument that would
+catch it if it did something. We used the same bitwise digest harness as §5,
+retargeted:
+
+| build | run digest | steps differing | `token_mismatches` |
+|---|---|---|---|
+| base tree | `3447204b…3b4928` | — | 0 |
+| r3 default path | `3447204b…3b4928` | 0 / 65 | 0 |
+| r3 + 1-ULP fault in the **control** kernel | `d2502cb8…5d3128` | **64 / 65** | **0** |
+
+The digest is SHA-256 over the full 100,352-wide bf16 logit vector at each of
+64 teacher-forced decode steps (`top_k = 100352`), so it is sensitive to a
+single mantissa bit anywhere in the vocabulary.
+
+Two things follow. First, the shipped default is bit-identical to base, at a
+resolution far beyond the official greedy-token gate. Second — and this is the
+part worth carrying out of this PR — the fault build changed 64 of 65 step
+digests and **still reported zero token mismatches**. The token gate does not
+see 1-ULP logit drift. Any argument of the form "the correctness gate passed,
+so the numerics are unchanged" is unsound at this resolution. We had already
+seen this in §5 with the fault injected into the row-major kernel; seeing it
+again with the fault in the *control* kernel shows it is a property of the gate,
+not of one kernel.
+
+The fault lived on a throwaway commit that was discarded with `git reset --hard`
+before the submitted tree was built. The submitted tree has zero fault sites.
+
+### 15.4 Local gates on the submitted tree
+
+`./benchmark.sh --local-submit` on the submitted tree: `passed: true`,
+`passed_correctness: true`, `max_abs_diff: 0`, `checked_steps: 1025`,
+`partial_result: false`, `peak_ram_gb: 21`,
+`weights_hash aff99430…`, `harness_hash 33a5c881…`.
+The `passed_prefill_speedup_floor: false` line is the usual local
+pinned-calibration artifact on this M4 host and does not gate the overall
+`passed: true`.
+
+**No local timing claim is made in this section.** The
+`score.local-iterate.baseline.json` on this host is commit `ede561b` from a
+different session (2026-08-06T02:29:13Z), so any candidate-vs-baseline delta it
+produces is unmatched, and in any case the local `--local-iterate` MDE on this
+host is ±0.73 %, far above the ~0 % effect a byte-identical tree should show.
+The only decision-grade number for this revision comes from the official M5.
+
