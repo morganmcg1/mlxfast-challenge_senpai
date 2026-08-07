@@ -26,23 +26,32 @@ Do NOT revisit this hypothesis.
   same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
-## ACTIVE ASSIGNMENTS (Wave 17, BASE_SHA=e1559206)
+## ACTIVE ASSIGNMENTS (Wave 17, BASE_SHA=d404e84b)
   PR #342 (edward): Prefill halved scales via qmm_nax kHalvedScales — M5-only, ~0.9% total. IN PROGRESS.
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — ~0.1-0.2% prefill. IN PROGRESS.
-  PR #335 (thorfinn): asyncEval stride sweep v2 — 0-byte env-var sweep. IN PROGRESS.
+  PR #345 (thorfinn): Prefill addMM enablement — 0-byte env var, bit-exact. IN PROGRESS.
+  PR #346 (askeladd): Threadgroup bank conflict padding in down+residual — ~50-100B, ~1% decode. IN PROGRESS.
 
 ## RECENTLY CLOSED (Wave 16)
   PR #339 (askeladd): LM head TG doubling — NEGATIVE. ~0.45% decode regression. Dispatch overhead is per-kernel-LAUNCH not per-TG. Larger TGs hurt occupancy.
   PR #337 (alphonse): Decode asyncEval=off — NEGATIVE. Current 7-fire schedule is optimal.
   PR #338 (edward): Down outputs_per_simd 8→4 — INCONCLUSIVE. Marginal degrading signal.
+  PR #335 (thorfinn): asyncEval stride sweep v2 — DEAD. Current schedule already optimal on 37+ frontier.
 
-## NEXT PRIORITY: M5 Build Fix
+## NEXT PRIORITY: M5 Build Fix + v8 Ideas
   Warmup fix insufficient (2deac25c FAILED). Resubmitted (311d4fe3 VALIDATING).
   Root cause: ~30-50 JIT kernel compilations (~100-250s) intermittently exceed M5 runner timeout.
   Vendor files are CLEAN (0 diff from organizer frontier). All changes are LRM-only.
-  If 311d4fe3 fails: need to reduce JIT kernel count (consolidate per-head variants) or
-  submit at off-peak hours. The code WORKS (68b66c5 proved it) — issue is intermittent M5 state.
-  Alphonse and edward have optimization assignments (PR #342, #343).
+  v8 research ideas generated (RESEARCH_IDEAS_FRESH_20260807_v8.md, 8 ideas):
+  1. Prefill RMSNorm+QKV fusion (★★★, ~0.6% total, 0-byte MLX.compile)
+  2. Unsorted gatherQuantizedMM to eliminate gatherSort (★★★, ~2.2% total, ~200B)
+  3. JIT kernel variant consolidation via function constants (★★★, M5 FIX, net-negative bytes)
+  4. Threadgroup bank conflict padding (★★☆, ~1% decode, ~50-100B) — ASSIGNED to askeladd (PR #346)
+  5. MLX.compile shared expert gate/up+SiLU fusion (★★☆, ~1.1% prefill, MEDIUM risk)
+  6. Indexed metadata LUT for standalone g_proj (★★☆, ~0.01% decode, LOW risk)
+  7. Custom flash-attention SDPA for full-attention layers (★★☆, ~0.6% prefill, MEDIUM risk)
+  8. Fuse shared expert down GEMV into MoE tail kernel (★★☆, ~2.2% prefill, HIGH risk)
+  Ideas 3 (M5 fix) and 1+2 (prefill) are highest priority for next wave.
 
 ## RECENTLY CLOSED
   PR #334 (askeladd): Prefill router GEMV fusion v2 — FAILED (+2.46% prefill regression).
