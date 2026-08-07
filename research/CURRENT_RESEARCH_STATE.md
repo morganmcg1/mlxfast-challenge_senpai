@@ -5,10 +5,10 @@
   QHOIST (#183) + BM128-v4 (#185) REVERTED — M5 submission 89521f6 REJECTED at -11.48% (score 2.4822).
   PR #186 (edward, MLX_METAL_FAST_SYNCH): CLOSED. DEAD — no decode/prefill gain. Fence overhead ~0.5%.
   PR #169 (askeladd, QKV+O-proj scale halving): CLOSED. DEAD — attention scale traffic too small (~0.2-0.5%).
-  PR #180 (alphonse, MoE scale halving): Revision v2 requested (baseline advanced to 7b0f3a9).
-    GREEN v1 result (~0.6-1.4% M4 decode gain, bit-exact).
-    DEAD CODE: _halvedFusedGateUpScales built but never wired to shared SwiGLU QMV kernel.
-    v2: fix shared SwiGLU QMV halving + rebase to 7b0f3a9.
+  PR #180 (alphonse, MoE scale halving): MERGED v2. Squash-merged into advisor as 9807f56.
+    Bit-exact (max_abs_diff=0). ~1% M4 decode gain (4 of 5 runs faster). 45.5 MiB/step bandwidth savings.
+    All 3 MoE kernel paths halved: routed gate/up R1, routed+shared down, shared SwiGLU QMV gate/up.
+    FIRST WAVE 5 WINNER. M5 submission candidate.
   PR #188 (thorfinn, packed down-scales): CLOSED. DEAD — 1.2-1.6% slower. Down scales already coalesced.
     KEY FINDING: Down path's per-expert scale access is ALREADY coalesced (32 contiguous bytes/row).
     Gate/up packed bank works because it fixes a within-expert ROW REMAP; down path has no remap to fix.
@@ -29,17 +29,17 @@
   Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%), committed 8/6 05:04 UTC.
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
   STRATEGY: DECODE bandwidth reductions only. Prefill M4 gains do NOT transfer to M5.
-    Wave 5 (current): 4 decode bandwidth experiments, all bit-exact.
-      PR #180 v2 (alphonse): MoE scale halving + shared SwiGLU fix (~1% M4 decode gain).
+    Wave 5 (current): scale halving experiments, all bit-exact.
+      PR #180 v2 (alphonse): MERGED. MoE scale halving. ~1% M4 decode, 45.5 MiB/step savings. ✓
       PR #191 (edward): QKV packed-scales → REDIRECTED to QKV scale halving (coalescing already optimal).
       PR #192 (askeladd): O-proj packed-scales → REDIRECTED to O-proj scale halving (coalescing already optimal).
       PR #193 (thorfinn): Attention QKV+O-proj scale halving (~0.76% decode, re-test of PR #169).
-    All 4 target PURE BANDWIDTH REDUCTION (halving scale bytes, not coalescing).
-    NO instruction-count reductions. NO prefill changes. NO scheduling changes.
+    PROMOTED FRONTIER: 9807f56 (clean 12a712d + MoE scale halving).
+    Next: wait for PR #193 results, compose with MoE halving for M5 submission.
     KEY FINDING: Scale COALESCING is exhausted — QKV, O-proj, and down paths are ALL already coalesced.
-    Scale HALVING is the remaining bandwidth opportunity: MoE (~1% decode) + attention (~0.76% decode).
-    Next submission: compose winning scale-halving experiments from clean base (12a712d).
-    Submit from CLEAN base + decode scale halving only. NO prefill changes.
+    Scale HALVING is the remaining bandwidth opportunity: MoE (~1% decode, MERGED) + attention (~0.76% decode).
+    Next submission: compose MoE scale halving (merged) + attention scale halving (if PR #193 wins) from 9807f56.
+    Submit from PROMOTED FRONTIER + decode scale halving only. NO prefill changes.
     FALLBACK: If Wave 5 fails, re-test instruction-count reductions PURE on clean base
       (no ops-800, no QHOIST, no prefill). Start with packed simd_sum (lowest risk).
       Research finding: no pure instruction-reduction submission was EVER tested on M5.
