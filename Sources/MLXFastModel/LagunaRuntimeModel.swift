@@ -279,6 +279,14 @@ let lagunaFusedGatedOutputProjectionEnabled =
 let lagunaFusedQKVProjectionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV_PROJECTION"] != "0"
 
+/// After checkpoint load, retain one row-concatenated `[Wq; Wk; Wv]` BF16
+/// weight per attention layer and serve Q/K/V from a single projection
+/// dispatch during prefill (L > 1). Bit-exact for bias-free `Linear`
+/// projections; decode keeps its existing fused norm+QKV kernel. Set
+/// `DARKBLOOM_FUSED_QKV=0` to ablate.
+let lagunaFusedQKVEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_QKV"] != "0"
+
 /// TensorFold-derived within-token batching for the serial decode stream.
 /// A native group-32 affine INT8 side layout packs Q/K/V into one batched
 /// quantized matmul, cutting their weight traffic without speculating future
@@ -5545,6 +5553,32 @@ final class LagunaRuntimeAttention: Module {
     /// arrays for parameter integrity.
     var _fusedQKVWeight: MLXArray?
 
+    /// Build the row-concatenated `[Wq; Wk; Wv]` BF16 bank for prefill (L > 1).
+    /// Bit-exact for bias-free `Linear` projections: each output row's K-loop
+    /// is independent of which rows share the dispatch. Decode (L == 1) never
+    /// reads this bank; it keeps the existing fused norm+QKV kernel.
+    func prepareFusedQKVWeight() -> MLXArray? {
+        guard _fusedQKVWeight == nil,
+            type(of: wq) == Linear.self,
+            type(of: wk) == Linear.self,
+            type(of: wv) == Linear.self,
+            wq.bias == nil, wk.bias == nil, wv.bias == nil,
+            wq.weight.ndim == 2, wk.weight.ndim == 2, wv.weight.ndim == 2,
+            wq.weight.dtype == wk.weight.dtype,
+            wk.weight.dtype == wv.weight.dtype,
+            wq.weight.dim(1) == wk.weight.dim(1),
+            wk.weight.dim(1) == wv.weight.dim(1),
+            wq.weight.dim(0) == nHeads * headDim,
+            wk.weight.dim(0) == nKVHeads * headDim,
+            wv.weight.dim(0) == nKVHeads * headDim
+        else {
+            return nil
+        }
+        let fused = concatenated([wq.weight, wk.weight, wv.weight], axis: 0)
+        _fusedQKVWeight = fused
+        return fused
+    }
+
     /// Terminal-prefill-only BF16 side banks. Q and the per-head gate share
     /// the singleton final normalized row; K and V share every normalized
     /// supplied row. The authoritative modules remain intact for checkpoint
@@ -5788,7 +5822,7 @@ final class LagunaRuntimeAttention: Module {
                 queries: MLXArray, keys: MLXArray, values: MLXArray,
                 gateValues: MLXArray, gateActivated: Bool
             )?
-        if lagunaFusedQKVProjectionEnabled, _fusedQKVWeight == nil,
+        if lagunaFusedQKVProjectionEnabled,
             B == 1, L == 1,
             headDim == LagunaConstants.headDim,
             nKVHeads == LagunaConstants.numKeyValueHeads,
@@ -5972,10 +6006,9 @@ final class LagunaRuntimeAttention: Module {
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
-        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY: at decode it
-        // would override the INT8 fused norm+QKV path (measured +1.4 ms/step
-        // when force-enabled), while at L > 1 it collapses three steel GEMMs
-        // into one.
+        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY (L > 1): it
+        // collapses three steel GEMMs into one. Decode (L == 1) never reads
+        // this bank; the fused norm+QKV kernel above handles it instead.
         if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
             guard let normalizedInput else {
                 preconditionFailure("retained fused QKV requires normalized input")
@@ -11130,6 +11163,11 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
             if lagunaUseNativeAffineOProj(layer: layer.selfAttn.layerIdx) {
                 fusedArrays.append(
                     contentsOf: layer.selfAttn.prepareNativeAffineOProjWeight())
+            }
+            if lagunaFusedQKVEnabled,
+                let fused = layer.selfAttn.prepareFusedQKVWeight()
+            {
+                fusedArrays.append(fused)
             }
             fusedArrays.append(
                 contentsOf: layer.selfAttn.prepareLastPrefillProjectionWeights())
