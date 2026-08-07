@@ -36,7 +36,7 @@ consecutive_failures=0
 for rep in $(seq 1 "${REPS}"); do
   for arm in ${ORDER}; do
     idx=$((idx + 1))
-    if [[ "${idx}" -gt 1 && "${PRECOOL_SECONDS}" -gt 0 ]]; then
+    if [[ "${PRECOOL_SECONDS}" -gt 0 ]]; then
       echo "--- idling ${PRECOOL_SECONDS}s to soak-cool the chassis ---"
       sleep "${PRECOOL_SECONDS}"
     fi
