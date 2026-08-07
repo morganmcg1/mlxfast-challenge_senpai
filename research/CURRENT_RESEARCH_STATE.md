@@ -1,7 +1,8 @@
 # SENPAI Research State
-- 2026-08-07T05:50Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 2f5d630 (pushed to origin).
-  9 composed changes on current frontier (PR #198 reverted). LRM: 521,648/524,288 = 2,640 B headroom.
+- 2026-08-07T07:15Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: d5e85a6 (pushed to origin).
+  12 composed changes on current frontier (PRs #220, #225, #226 cherry-picked).
+  LRM: 514,701/524,288 = 9,587 B headroom. Total: 2,975,392/3,000,000 = 24,608 B headroom.
 
 ## MERGED FRONTIER (11 changes, all bit-exact)
   1. MoE scale halving (PR #180): 45.5 MiB/step bandwidth savings, decode MoE kernels
@@ -22,13 +23,12 @@
   fallback); M5 fails correctness gate. Reverted as 6c81505.
 
 ## M5 SUBMISSION STATUS
-  0781a45: FAILED (9-change frontier at 215e45f — included buggy PR #198)
-  94a8526: FAILED (10-change frontier at b5a8bd0 — included buggy PR #198)
-  c03dc11: REJECTED 2.5491 (-4.86%) (attention epilogue float4, single mechanism, commit be504bb)
-  Root cause of both failures: PR #198 M5-only correctness bug. Now reverted.
-  2d4160d7: VALIDATING (9-change frontier at 2f5d630 — PR #198 removed, PR #216 added)
-  Submission note: research/SUBMISSION_NOTE_8change.md (7.5 KiB).
-  c03dc11 score (2.5491) confirms single instruction-count reductions regress on bandwidth-bound M5.
+  Best recent: 08ddee4 at 2.5748 (-2.25% vs 2.5888 target). All submissions rejected.
+  Last rejected: 0bc3eb4 at 2.5622 (-3.55%). Submission slot is FREE.
+  Target: beat 2.5888 (maple campaign, submission 97a5090, +3.64%).
+  Gap to close: +0.55% from best (2.5748 → 2.5888).
+  Key: instruction-count reductions REJECTED on M5 (bandwidth-bound). Strategy:
+  bandwidth reduction + dispatch elimination only.
 
 ## O-PROJ ESCAPE BYTE INVESTIGATION (2026-08-07)
   Subagent confirmed: O-proj kernel is the SAME custom JIT on M4 and M5 (not _nax).
@@ -52,16 +52,20 @@
   Promoted: 97a5090 (maple campaign), score 2.5888 (+3.64%).
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
 
-## NEW ASSIGNMENTS (Wave 7, created this session)
-  PR #220 (thorfinn): Fix and re-apply PR #198 prefill MoE scale halving — correct
-    up-row-0 escape indexing for tile-interleaved layout. M5-only (can't test on M4).
-    Key fix: up_escape at fused row 32 (not 512).
+## ACTIVE ASSIGNMENTS (Wave 8, all 4 students assigned)
   PR #222 (askeladd): Fold shared expert gate/up QMV into routed dispatch — eliminate
-    39 extra dispatches/step. Budget-tight (~1200-2000B). M4-testable.
-  PR #225 (edward): QKV NVFP4 scale halving with escape — 23.75 MiB savings,
-    ~0.72% decode, ~600B budget. Bit-exact with escape bytes.
-  PR #226 (alphonse): O-proj escape byte fix — defensive correctness, ~230B.
-    Confirmed safe but not robust. M4-testable.
+    39 extra dispatches/step. Budget-tight (~1200-2000B). M4-testable. IN PROGRESS.
+  PR #229 (edward): Prefill MoE down projection scale halving — halve prefill down
+    scales via NVFP4 pairwise constancy. ~0.46% score, bit-exact, M5-only.
+  PR #230 (alphonse): Fuse g_proj INT8 matmul + softplus into NVFP4 O-proj kernel —
+    eliminate 40 dispatches/step. ~0.75% score, bit-exact, M4-testable. HIGHEST priority.
+  PR #231 (thorfinn): Shared SwiGLU QMV gate/up scale halving — wire dead halved
+    tensors into shared expert kernel. ~0.11% score, bit-exact, M4-testable.
+
+## COMPOSITION PLAN
+  If all 4 assignments succeed: ~0.46% + ~0.75% + ~0.11% + ~1-2% (dispatch elim) =
+  ~2.3-3.3% total. Starting from 2.5748 → ~2.59-2.62. Would BEAT 2.5888 target.
+  Submit independently first, then compose winners for combined submission.
 
 ## RESEARCH THEMES
   - CRITICAL DISCOVERY: PR #198 prefill MoE halving had M5-only correctness bug.
@@ -88,8 +92,9 @@
     barrier overhead > LSU relief)
 
 ## BUDGET STATUS
-  LRM: 521,648/524,288 = 2,640 B headroom
-  Total surface: ~2,972K/3,000,000 = ~28K B headroom
-  LagunaLmHeadPrune.swift: ~43K/524,288 = ~481K B headroom
-  fp_quantized_nax.h: ~77K/524,288 = ~447K B headroom
-  quantized.cpp: ~83K/524,288 = ~441K B headroom
+  LRM: 514,701/524,288 = 9,587 B headroom
+  Total surface: 2,975,392/3,000,000 = 24,608 B headroom
+  LagunaLmHeadPrune.swift: ~47K/524,288 = ~477K B headroom
+  fp_quantized_nax.h: ~78K/524,288 = ~446K B headroom
+  quantized.cpp: ~84K/524,288 = ~440K B headroom
+  Growth limit per submission: 262,144 bytes
