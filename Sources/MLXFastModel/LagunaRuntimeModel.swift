@@ -1828,6 +1828,28 @@ private enum LagunaRingIdxAtlasStore {
 
 private var lagunaRingIdxAtlas: [MLXArray] { LagunaRingIdxAtlasStore.entries }
 
+/// Pre-materialized 12-byte uniform buffers for every possible full-attention
+/// write index (3-element [writeIdx, writeIdx+1, capacity]). Built lazily on
+/// first call with the runtime capacity; replaces a fresh 3-element MLXArray
+/// allocation per full-attention call (10/step). Worker decode is
+/// single-threaded, so the write-once unsafe opt-out is sound.
+private enum LagunaFullIdxAtlasStore {
+    nonisolated(unsafe) static var entries: [MLXArray] = []
+    nonisolated(unsafe) static var cachedCapacity = 0
+
+    static func get(capacity: Int) -> [MLXArray] {
+        if entries.count >= capacity, cachedCapacity == capacity {
+            return entries
+        }
+        cachedCapacity = capacity
+        entries = (0..<capacity).map {
+            MLXArray([UInt32($0), UInt32($0 + 1), UInt32(capacity)])
+        }
+        for entry in entries { eval(entry) }
+        return entries
+    }
+}
+
 /// `DARKBLOOM_PARAMS_ATLAS=0` restores the per-call fresh 1-element array
 /// (ablation control for the atlas above; identical bytes either way).
 let lagunaParamsAtlasEnabled =
@@ -2310,9 +2332,11 @@ func lagunaFullFusedAttention(
     precondition(scale.dtype == .float32 && scale.size == 1)
 
     lagunaTrace("full fused attention")
-    let params = MLXArray([
-        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
-    ])
+    let params = lagunaParamsAtlasEnabled
+        ? LagunaFullIdxAtlasStore.get(capacity: capacity)[writeIdx]
+        : MLXArray([
+            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+        ])
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
