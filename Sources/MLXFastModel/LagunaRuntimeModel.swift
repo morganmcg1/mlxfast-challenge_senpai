@@ -5775,7 +5775,8 @@ final class LagunaRuntimeAttention: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         qkRoPEAngles: MLXArray? = nil,
-        qkRoPEOffsets: MLXArray? = nil
+        qkRoPEOffsets: MLXArray? = nil,
+        prefillResidual: MLXArray? = nil
     ) -> MLXArray {
         let (B, L) = (input.dim(0), input.dim(1))
 
@@ -6398,6 +6399,15 @@ final class LagunaRuntimeAttention: Module {
             }
         }
 
+        if let residual = prefillResidual,
+            L > 1, B == 1, wo.bias == nil,
+            output.dtype == .bfloat16,
+            residual.dtype == .bfloat16,
+            wo.weight.dtype == .bfloat16,
+            residual.dims(1, L, LagunaConstants.hiddenSize)
+        {
+            return addMM(residual, output, wo.weight.T)
+        }
         return wo(output)
     }
 
@@ -10432,18 +10442,30 @@ final class LagunaRuntimeDecoderLayer: Module {
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
+        let (B, L) = (x.dim(0), x.dim(1))
+        let prefillAddMMEnabled =
+            L > 1 && B == 1
+            && x.dtype == .bfloat16
+            && selfAttn.wo.bias == nil
+            && selfAttn.wo.weight.dtype == .bfloat16
+            && postAttentionLayerNorm.weight.dtype == .bfloat16
+            && x.dims(1, L, LagunaConstants.hiddenSize)
         let r = selfAttn(
             x,
             inputNorm: inputLayerNorm,
             mask: mask,
             cache: cache,
             qkRoPEAngles: qkRoPEAngles,
-            qkRoPEOffsets: qkRoPEOffsets
+            qkRoPEOffsets: qkRoPEOffsets,
+            prefillResidual: prefillAddMMEnabled ? x : nil
         )
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
-        if lagunaFusedResidualRMSNormRouterEnabled,
+        if prefillAddMMEnabled {
+            h = r
+            normalized = postAttentionLayerNorm(h)
+        } else if lagunaFusedResidualRMSNormRouterEnabled,
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
             x.dims(1, 1, LagunaConstants.hiddenSize), x.sameDims(r),
