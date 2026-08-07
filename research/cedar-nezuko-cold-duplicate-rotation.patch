@@ -1,5 +1,5 @@
 diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
-index 8a3184a..16a7a4a 100644
+index 8a3184a..316ee18 100644
 --- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
 +++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
 @@ -1,3 +1,4 @@
@@ -7,7 +7,7 @@ index 8a3184a..16a7a4a 100644
  import Foundation
  import MLX
  import MLXFast
-@@ -66,6 +67,176 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
+@@ -66,6 +67,182 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
      lagunaTracedFusions.note(site())
  }
  
@@ -37,6 +37,7 @@ index 8a3184a..16a7a4a 100644
 +    private var cacheOffsets: [Int] = []
 +    private var scratchRoots: [MLXArray] = []
 +    private var overlapRoots: [MLXArray] = []
++    private var referenceDigestBytes: Data?
 +
 +    private init() {
 +        let environment = ProcessInfo.processInfo.environment
@@ -165,6 +166,11 @@ index 8a3184a..16a7a4a 100644
 +    func noteDigest(_ result: MLXArray, measurement: LagunaColdDuplicateMeasurement?) {
 +        guard emitDigest, let measurement else { return }
 +        let bytes = result.asData(access: .copy).data
++        if let referenceDigestBytes {
++            precondition(referenceDigestBytes == bytes, "cold duplicate logits changed")
++        } else {
++            referenceDigestBytes = bytes
++        }
 +        var hash: UInt64 = 14_695_981_039_346_656_037
 +        for byte in bytes {
 +            hash ^= UInt64(byte)
@@ -184,7 +190,7 @@ index 8a3184a..16a7a4a 100644
  // MARK: - Runtime fusion feature flags
  
  // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
-@@ -9579,6 +9750,11 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
+@@ -9579,6 +9756,11 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                          packedScales: packedBank,
                          indices: inds
                      )
@@ -196,7 +202,7 @@ index 8a3184a..16a7a4a 100644
                  } else {
                      if lagunaPackedScalesEnabled {
                          lagunaPackedScalesLog.note(
-@@ -10469,7 +10645,10 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10469,7 +10651,10 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
      }
  
      public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
@@ -207,7 +213,7 @@ index 8a3184a..16a7a4a 100644
          // Every consumer of multi-token logits reads only the LAST
          // position's row. Slice before the row-independent final RMSNorm and
          // vocabulary head so prefill neither normalizes nor projects the
-@@ -10498,6 +10677,8 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
+@@ -10498,6 +10683,8 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
          if case .logits = lagunaDecodeAsyncStage, inputs.shape == [1, 1] {
              asyncEval(result)
          }

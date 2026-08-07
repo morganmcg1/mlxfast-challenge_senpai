@@ -93,6 +93,7 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
     private var cacheOffsets: [Int] = []
     private var scratchRoots: [MLXArray] = []
     private var overlapRoots: [MLXArray] = []
+    private var referenceDigestBytes: Data?
 
     private init() {
         let environment = ProcessInfo.processInfo.environment
@@ -221,6 +222,11 @@ private final class LagunaColdDuplicateProbe: @unchecked Sendable {
     func noteDigest(_ result: MLXArray, measurement: LagunaColdDuplicateMeasurement?) {
         guard emitDigest, let measurement else { return }
         let bytes = result.asData(access: .copy).data
+        if let referenceDigestBytes {
+            precondition(referenceDigestBytes == bytes, "cold duplicate logits changed")
+        } else {
+            referenceDigestBytes = bytes
+        }
         var hash: UInt64 = 14_695_981_039_346_656_037
         for byte in bytes {
             hash ^= UInt64(byte)
