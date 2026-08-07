@@ -503,10 +503,8 @@ def correctness_command(args):
     print(json.dumps(result, indent=2, sort_keys=True))
 
 
-def fault_command(args):
-    arms = [{"label": "fault", "mode": "warm", "k": 1}]
-    schedule = "fault:warm:1"
-    seed, forced, case_name = load_fixture(args.fixture, 1)
+def run_fault_arm(args, seed, token, arm):
+    schedule = f"{arm['label']}:{arm['mode']}:{arm['k']}"
     session = WorkerSession(
         args.worker,
         args.weights,
@@ -518,7 +516,7 @@ def fault_command(args):
     try:
         session.request("decode_begin", seed_tokens=seed)
         try:
-            session.request("decode_step", token=forced[0])
+            session.request("decode_step", token=token)
         except RuntimeError as error:
             observed_failure = str(error)
         return_code = session.finish(expect_success=False)
@@ -526,25 +524,41 @@ def fault_command(args):
         session.abort()
         raise
     if observed_failure is None:
-        raise RuntimeError("fault injection did not interrupt decode_step")
+        raise RuntimeError(f"{arm['mode']} fault injection did not interrupt decode_step")
     expected_proof = f"roots_materialized={SPARSE_LAYER_COUNT}"
     if len(session.faults) != 1 or session.faults[0]["proof"] != expected_proof:
-        raise RuntimeError(f"fault marker missing or invalid: {session.faults}")
-    validate_measurements(session.measurements, arms, 1)
-    storage_proof = validate_storage_proofs(session.storage_proofs)
+        raise RuntimeError(f"{arm['mode']} fault marker missing or invalid: {session.faults}")
+    validate_measurements(session.measurements, [arm], 1)
+    return {
+        "mode": arm["mode"],
+        "worker_hello": session.hello,
+        "worker_return_code": return_code,
+        "expected_worker_failure": observed_failure,
+        "fault_marker": session.faults[0],
+        "measurement": session.measurements[0],
+        "storage_proof": validate_storage_proofs(session.storage_proofs),
+        "stderr_diagnostics": session.diagnostics,
+    }
+
+
+def fault_command(args):
+    arms = [
+        {"label": "fault-warm", "mode": "warm", "k": 1},
+        {"label": "fault-cold", "mode": "cold", "k": 1},
+    ]
+    seed, forced, case_name = load_fixture(args.fixture, 1)
+    sessions = [run_fault_arm(args, seed, forced[0], arm) for arm in arms]
     result = {
         "status": "passed",
         "fixture_case": case_name,
-        "worker_return_code": return_code,
-        "expected_worker_failure": observed_failure,
-        "fault_markers": session.faults,
-        "measurements": session.measurements,
-        "storage_proof": storage_proof,
+        "schedule": arms,
+        "sessions": sessions,
+        "fault_markers": [session["fault_marker"] for session in sessions],
+        "measurements": [session["measurement"] for session in sessions],
         "storage_independence_scope": STORAGE_INDEPENDENCE_SCOPE,
         "pre_touch_protocol": PRETOUCH_PROTOCOL,
         "command_graph_proof": COMMAND_GRAPH_PROOF,
         "residual_confound": RESIDUAL_CONFOUND,
-        "stderr_diagnostics": session.diagnostics,
         "system": system_metadata(),
     }
     write_json(args.output, result)
