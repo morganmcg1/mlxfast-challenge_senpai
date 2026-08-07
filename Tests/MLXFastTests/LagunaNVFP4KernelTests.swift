@@ -3,6 +3,7 @@ import MLX
 import MLXLMCommon
 import MLXNN
 import Testing
+@testable import MLXFastModel
 
 @Test
 func nvfp4Group16SplitKMatmulMatchesDequantizedReferenceWhenRuntimeTestsAreEnabled() {
@@ -328,3 +329,126 @@ private func expectFiniteClose(
         Comment(rawValue: "\(label) max error \(maximumError) > \(tolerance)")
     )
 }
+
+@Test
+func routerNormSIMDGroupZeroEvidenceWhenEnabled() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_ROUTER_NORM_SIMDGROUP0_EVIDENCE"] == "1" else {
+        return
+    }
+
+    typealias Inputs = (logits: [Float], bias: [Float])
+    let zeros = Array(repeating: Float(0), count: 256)
+    var corpus = [Inputs]()
+    corpus.append((Array(repeating: 1, count: 256), zeros))
+    corpus.append(((0..<256).map { Float($0 / 4) }, (0..<256).map { Float(($0 % 7) - 3) * 0.125 }))
+    corpus.append(((0..<256).map { $0.isMultiple(of: 2) ? Float.greatestFiniteMagnitude / 4 : -Float.greatestFiniteMagnitude / 4 }, zeros))
+    corpus.append(((0..<256).map { $0.isMultiple(of: 2) ? Float(bitPattern: 0) : Float(bitPattern: 0x8000_0000) }, zeros))
+
+    var special = (0..<256).map { Float($0 - 128) }
+    let specialBits: [UInt32] = [
+        0x7f80_0000, 0xff80_0000, 0x7fc0_0001, 0x7fa0_0001,
+        0xffc0_0001, 0xffa0_0001, 0x0000_0000, 0x8000_0000,
+    ]
+    for (index, bits) in specialBits.enumerated() {
+        special[index] = Float(bitPattern: bits)
+    }
+    corpus.append((special, zeros))
+
+    var state: UInt64 = 0x6a09_e667_f3bc_c909
+    func shuffledOrdinals() -> [Float] {
+        var values = Array(0..<256)
+        for upper in stride(from: 255, through: 1, by: -1) {
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            let lower = Int(state % UInt64(upper + 1))
+            values.swapAt(upper, lower)
+        }
+        return values.map(Float.init)
+    }
+    for sample in 0..<64 {
+        let logits = shuffledOrdinals()
+        let bias = (0..<256).map { Float((($0 &* 17 &+ sample &* 13) % 19) - 9) * 0.03125 }
+        corpus.append((logits, bias))
+    }
+
+    var exact = true
+    for (caseIndex, inputs) in corpus.enumerated() {
+        let logits = MLXArray(inputs.logits, [1, 1, 256])
+        let bias = MLXArray(inputs.bias, [1, 1, 256])
+        let control = lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
+            logits: logits,
+            correctionBias: bias,
+            normalizing: true,
+            simdGroupZeroNormalizing: false
+        )
+        let candidate = lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
+            logits: logits,
+            correctionBias: bias,
+            normalizing: true,
+            simdGroupZeroNormalizing: true
+        )
+        eval([control.0, control.1, candidate.0, candidate.1])
+        let controlIndices = control.0.asArray(UInt32.self)
+        let candidateIndices = candidate.0.asArray(UInt32.self)
+        let controlScores = control.1.asArray(Float.self).map { $0.bitPattern }
+        let candidateScores = candidate.1.asArray(Float.self).map { $0.bitPattern }
+        let indicesMatch = controlIndices == candidateIndices
+        let scoresMatch = controlScores == candidateScores
+        exact = exact && indicesMatch && scoresMatch
+        #expect(indicesMatch, Comment(rawValue: "case \(caseIndex) indices differ"))
+        #expect(scoresMatch, Comment(rawValue: "case \(caseIndex) score bits differ"))
+    }
+    print("ROUTER_EXACTNESS cases=\(corpus.count) passed=\(exact)")
+
+    let timingInputs: [(MLXArray, MLXArray)] = (0..<16).map { sample in
+        let logits = shuffledOrdinals().map { $0 * 0.015625 - Float(sample) * 0.0001 }
+        let bias = (0..<256).map { Float((($0 &* 29 &+ sample &* 7) % 23) - 11) * 0.015625 }
+        return (MLXArray(logits, [1, 1, 256]), MLXArray(bias, [1, 1, 256]))
+    }
+
+    func evaluate(candidate: Bool, repetitions: Int) -> UInt64 {
+        var outputs = [MLXArray]()
+        outputs.reserveCapacity(repetitions * 2)
+        for repetition in 0..<repetitions {
+            let input = timingInputs[repetition % timingInputs.count]
+            let routed = lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
+                logits: input.0,
+                correctionBias: input.1,
+                normalizing: true,
+                simdGroupZeroNormalizing: candidate
+            )
+            outputs.append(routed.0)
+            outputs.append(routed.1)
+        }
+        let start = DispatchTime.now().uptimeNanoseconds
+        eval(outputs)
+        return DispatchTime.now().uptimeNanoseconds - start
+    }
+
+    _ = evaluate(candidate: false, repetitions: 8)
+    _ = evaluate(candidate: true, repetitions: 8)
+
+    let pairs = 31
+    let repetitions = 1_024
+    var abRatios = [Double]()
+    var baRatios = [Double]()
+    for pair in 0..<pairs {
+        let control = evaluate(candidate: false, repetitions: repetitions)
+        let candidate = evaluate(candidate: true, repetitions: repetitions)
+        let speedup = Double(control) / Double(candidate)
+        abRatios.append(speedup)
+        print("ROUTER_TIMING order=AB pair=\(pair) control_ns=\(control) candidate_ns=\(candidate) speedup=\(String(format: "%.9f", speedup))")
+    }
+    for pair in 0..<pairs {
+        let candidate = evaluate(candidate: true, repetitions: repetitions)
+        let control = evaluate(candidate: false, repetitions: repetitions)
+        let speedup = Double(control) / Double(candidate)
+        baRatios.append(speedup)
+        print("ROUTER_TIMING order=BA pair=\(pair) control_ns=\(control) candidate_ns=\(candidate) speedup=\(String(format: "%.9f", speedup))")
+    }
+
+    let abMedian = abRatios.sorted()[pairs / 2]
+    let baMedian = baRatios.sorted()[pairs / 2]
+    print("ROUTER_SUMMARY order=AB pairs=\(pairs) repetitions=\(repetitions) median_speedup=\(String(format: "%.9f", abMedian))")
+    print("ROUTER_SUMMARY order=BA pairs=\(pairs) repetitions=\(repetitions) median_speedup=\(String(format: "%.9f", baMedian))")
+}
+
