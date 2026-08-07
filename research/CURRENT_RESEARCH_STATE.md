@@ -30,6 +30,22 @@
   Submission note: research/SUBMISSION_NOTE_8change.md (7.5 KiB).
   c03dc11 score (2.5491) confirms single instruction-count reductions regress on bandwidth-bound M5.
 
+## O-PROJ ESCAPE BYTE INVESTIGATION (2026-08-07)
+  Subagent confirmed: O-proj kernel is the SAME custom JIT on M4 and M5 (not _nax).
+  Quantizer (fp_quantize) is also same on both platforms. If M4 passed with
+  halving ON (default, max_abs_diff=0 on 130 steps), M5 also passes.
+  PR #192 is SAFE on M5. Research note alarm was a false positive — incorrectly
+  applied the PR #198 pattern (_nax, M5-only) to PR #192 (custom JIT, both platforms).
+  The escape byte SHOULD still be added for robustness but is NOT blocking.
+
+## WAVE 5 RESULTS
+  PR #219 (Edward dense-mlp-simd-sum): CLOSED — INVALID. Not bit-exact (simd_sum
+  uses different FP reduction tree than shuffle_down ladder; ULP errors accumulate
+  over 124 decode steps, flip near-tie token). Wasted bandwidth hypothesis was
+  WRONG: shuffle_down delta 16→1 is a butterfly tree that sums ALL 32 lanes.
+  Key lesson: any change to FP reduction order in a logits-contributing kernel
+  will accumulate ULP errors over 128 decode steps and may flip near-tie tokens.
+
   Previous rejections (all included ops-800/QHOIST, now reverted):
   27b9c7c (2.4972), a3e3800 (2.4073), f2160f8 (2.5582),
   ec2b0a5 (2.4839), 0fe73ec (2.4629), 259c265 (2.4522)
@@ -37,15 +53,15 @@
   Birch clean base (12a712d): score 2.5459 on M5. Gap to beat: +1.69%.
 
 ## NEW ASSIGNMENTS (Wave 7, created this session)
-  PR #219 (edward): Dense MLP simd_shuffle_down→simd_sum — bandwidth optimization
-    targeting wasted 50% weight load in layer-0 dense MLP. ~1.5-2% decode gain estimate.
-    ~0 bytes. M4-testable. HIGHEST PRIORITY.
   PR #220 (thorfinn): Fix and re-apply PR #198 prefill MoE scale halving — correct
     up-row-0 escape indexing for tile-interleaved layout. M5-only (can't test on M4).
+    Key fix: up_escape at fused row 32 (not 512).
   PR #221 (alphonse): Input-vector staging to threadgroup shared memory — reduce LSU
     pressure in decode MoE kernels. ~300-400B per kernel. M4-testable.
   PR #222 (askeladd): Fold shared expert gate/up QMV into routed dispatch — eliminate
     39 extra dispatches/step. Budget-tight (~1200-2000B). M4-testable.
+  Edward: FREE (PR #219 closed). Next assignment: QKV NVFP4 scale halving
+    (23.75 MiB savings, ~0.72% decode gain, ~500-600B budget, bit-exact with escape).
 
 ## RESEARCH THEMES
   - CRITICAL DISCOVERY: PR #198 prefill MoE halving had M5-only correctness bug.
@@ -54,11 +70,16 @@
   - M5 is bandwidth-bound, NOT instruction-bound. NVFP4 decode ~2 FLOP/byte vs
     27 FLOP/byte ridge point — 13x below arithmetic intensity.
   - Fresh ideas (research/RESEARCH_IDEAS_FRESH_20260807_v2.md):
-    1. Dense MLP simd_sum: simd_shuffle_down wastes 50% weight bandwidth (96→48 MiB)
-    2. Input-vector staging: reduce LSU pressure from cache-hit input reloads
-    3. Fold shared gate/up into routed dispatch: eliminate 39 dispatches/step
-    4. EXPERT_GATHER_GROUPS sweep: 0-byte prefill threadgroup sweep
-    5. _hs_0 path fix: prerequisite for safe prefill MoE halving resubmission
+    1. QKV NVFP4 scale halving: 23.75 MiB savings, ~0.72% decode, ~500-600B (NEXT for Edward)
+    2. O-proj escape byte fix: defensive (confirmed safe but not robust)
+    3. Prefill MoE halving fix: correct escape for tile-interleaved (PR #220)
+    4. Prefill down scale halving: 8 MiB savings, ~0.46% prefill (M5-only)
+    5. EXPERT_GATHER_GROUPS sweep: 0-byte prefill threadgroup sweep
+  - KEY LESSON: simd_sum ≠ simd_shuffle_down bit-exactness — different FP
+    reduction trees accumulate ULP errors over 128 decode steps. Any change
+    to FP reduction order in a logits-contributing kernel risks token flips.
+  - O-PROJ HALVING SAFE: custom JIT kernel (not _nax), same on M4/M5.
+    Quantizer also same on both platforms. M4 max_abs_diff=0 confirms safe.
   - Exhausted: INT8 dedup family (complete), dot4 (done/dead), float4 stores (done),
     scale halving (decode done, prefill needs fix), argmax fuse (done),
     RMSNorm fusion (dead), attention epilogue 1-pass (dead), asyncEval (near-optimal),
