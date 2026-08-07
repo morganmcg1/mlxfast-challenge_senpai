@@ -1,7 +1,7 @@
 # SENPAI Research State
-- 2026-08-07T11:56Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: dd9ab65 (pushed to origin).
-  24 composed changes on current frontier (22 previous + PR #263 + PR #261).
+- 2026-08-07T12:33Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 3b24586 (pushed to origin).
+  25 composed changes on current frontier (24 previous + PR #271 BK=32).
   LRM: 523,729/524,288 = 559 B headroom. Total surface ~2,988K/3,000,000.
 
 ## CRITICAL FIX THIS SESSION: Variant 3 Revert
@@ -13,7 +13,7 @@
   "3" from LRM allowed values to prevent the trap.
   Found by vendor kernel audit subagent.
 
-## MERGED FRONTIER (22 changes, all bit-exact)
+## MERGED FRONTIER (25 changes, all bit-exact)
   1-14. Previous frontier (PR #180, #194, #192, #107, #114, #116, #119, #231, #232, etc.)
   15. PR #230: Fuse g_proj+QKV into NVFP4 QKV R1 kernel (decode, ~2.0% decode, bit-exact)
   16. PR #245: INT8 O-proj dot4 vectorization (decode, ~0.8-1.1% on M5, bit-exact)
@@ -23,19 +23,35 @@
   20. PR #254: Router keys dead output elimination (decode, bit-exact, net-negative ~-300-500B)
   21. PR #258: Full-attention params atlas (decode, bit-exact, +1914B)
   22. REVERTED: Variant 3 (3c30a3b) → variant 5 (1919be9) — critical fix
+  23. PR #261: Prefill QKV bank fusion (prefill, 0-byte, eliminate 78 dispatches)
+  24. PR #263: STAGE2_GATHER variant 2 (prefill, 0-byte, M5-only)
+  25. PR #271: BK=32 tile reduction (prefill, 0-byte, M5-only, halve Ws threadgroup memory)
 
   M5 FIX: ad58c92 — removed unused constexpr gate_heads from PR #230 kernel
   REVERTED: PR #251 (simd_dot) — M5 build failure (cdefbb9)
 
+## CRITICAL BUG FIX: BK=32 Escape Handling (2026-08-07)
+  BK=32 (PR #271) broke escape handling in gather_qmm_rhs_nax. When BK=32,
+  n_steps_per_read=1 (vs 2 for BK=64), making the i==1 escape branch at
+  fp_quantized_nax.h:275 dead code. The escape bytes that correct the k=0
+  scale pair (NVFP4 pairwise constancy) were never applied → wrong
+  dequantization → token mismatches on M5 with expert path enabled (variant 5).
+  REVERTED in commit 1bc2a53 (bk=32 → bk=64). f5dac24 failed because of this bug.
+  KEY LESSON: _nax kernel tile parameter changes (BK) interact with escape handling.
+  M4 cannot validate _nax changes (GPU gen 16 < 17). Variant 3 masked this bug
+  by disabling the expert path. All _nax changes validated only under variant 3 are suspect.
+
 ## M5 SUBMISSION STATUS
-  b72eef88: VALIDATING (since 11:56 UTC) — frontier dd9ab65 (24 changes, includes PR #263 + PR #261)
-  6f9ca88: FAILED — frontier 1919be9 (variant 5 restored, 22 changes, infrastructure failure)
-  d565be6: FAILED — frontier 7727d20 (variant 3 BUG)
-  8b5b01d: FAILED — frontier e0623cf (20 changes)
-  68b66c5: REJECTED, score 2.5520 — frontier ad58c92 (18 changes, LAST SCORED)
+  29fb82a: VALIDATING — frontier 1bc2a53 (24 changes, BK=32 reverted)
+  f5dac24: FAILED — frontier 3b24586 (25 changes, BK=32 BUG)
+  b72eef8: FAILED — frontier dd9ab65 (24 changes, cause TBD)
+  6f9ca88: FAILED — frontier 1919be9 (variant 5, 22 changes, cause TBD)
+  68b66c5: REJECTED, score 2.5520 — frontier ad58c92 (variant 3, expert DISABLED)
   df9613a: REJECTED, score 2.5817 — BEST SCORE
-  Leaderboard: fyrsta7 2.6040 (current #1). Gap to close: +0.86% from best (2.5817 → 2.6040).
-  NOTE: Multiple failures appear infrastructure-related (70929a5 with identical code to scored 68b66c5 also failed).
+  Leaderboard: fyrsta7 2.6040 (current #1). Gap: +0.86% from best (2.5817 → 2.6040).
+  NOTE: Other solvers (a-github-name, yudduy) scored on M5 during our failures.
+  This is NOT global infrastructure. BK=32 bug explains f5dac24. Earlier failures
+  (6f9ca88, b72eef8) may have other causes (unused constexpr, PR #234/#243 interaction).
 
 ## MERGED THIS SESSION (Wave 13, +2 changes)
   PR #263 (edward): STAGE2_GATHER variant 2 — 0-byte, bit-exact, prefill-only, M5-only effect
