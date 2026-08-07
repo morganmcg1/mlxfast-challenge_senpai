@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.." || exit 1
 
 BASE_SHA=747d130be532383d3eabd190f54f8b1b2bc6f9fd
 SRC=Sources/MLXFastModel/LagunaRuntimeModel.swift
-OUT=/tmp/nezreb
+OUT=${OUT:-/tmp/nezreb}
 BIN=.build-worker/release/mlxfast-runtime-worker
 
 # `git checkout <sha> -- <path>` writes the index too, so restore from HEAD to
