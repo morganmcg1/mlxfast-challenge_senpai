@@ -7886,6 +7886,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         constexpr uint routed_experts = 8;
         constexpr uint shared_slot = 8;
         constexpr uint outputs_per_simd = 8;
+        constexpr uint down_stride = 10;
         constexpr uint values_per_lane = 16;
         constexpr uint packed_row_bytes = 256;
         constexpr uint scale_row_bytes = 16;
@@ -7948,11 +7949,11 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         }
 
         threadgroup bfloat down_outputs[
-            (routed_experts + 1) * outputs_per_simd
+            (routed_experts + 1) * down_stride
         ];
         if (lane == 0) {
             for (uint row = 0; row < outputs_per_simd; ++row) {
-                down_outputs[slot * outputs_per_simd + row] =
+                down_outputs[slot * down_stride + row] =
                     bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
             }
         }
@@ -7967,14 +7968,14 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                     bfloat(router_weights[routed_slot]);
                 bfloat product = bfloat(
                     down_outputs[
-                        routed_slot * outputs_per_simd + lane
+                        routed_slot * down_stride + lane
                     ] * route_weight);
                 routed_total = bfloat(product + routed_total);
             }
             bfloat routed = bfloat(
                 routed_total * bfloat(2.5f));
             bfloat shared =
-                down_outputs[shared_slot * outputs_per_simd + lane];
+                down_outputs[shared_slot * down_stride + lane];
             bfloat r2 = bfloat(routed + shared);
             output[first_row + lane] =
                 bfloat(residual[first_row + lane] + r2);
