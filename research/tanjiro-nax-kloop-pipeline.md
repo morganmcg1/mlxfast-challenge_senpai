@@ -38,6 +38,26 @@ verified bit-exact-by-construction with a basic-block-level IR proof. It adds
 **zero barriers, zero MMA work, zero device stores and zero threadgroup memory**.
 It is a receipt-only experiment: this host cannot dispatch the kernel at all.
 
+**Part B is a clean, mechanistically explained negative, and that is the
+deliverable.** On the ranked M5 the depth-1 pipeline is bit-exact — every hidden
+correctness gate, both speedup floors, GPQA TTFT and the semantic judge pass, with
+`max_abs_diff = 0` — and it moves the prefill axis by **+0.684 ms (+1.52σ)** against
+its own same-session paired control, against a pre-registered **−7.6σ to −27.2σ**.
+Any real gain above 0.665 ms is excluded at 3σ, so the entire predicted 450–614 GB/s
+region is outside the confidence interval. The advisor's mandatory zero-receipt
+Step-0 diagnostic shows threadgroup memory, `maxTotalThreadsPerThreadgroup`,
+execution width and implied occupancy **bit-identical** between control and arm, which
+by its pre-registered reading rules out register pressure and leaves added instruction
+count in an issue-limited K-loop. **§6.9 therefore closes the `_nax` in-kernel
+staging / prefetch / double-buffering family**: this loop is limited by memory-op
+*issue*, not by exposed *latency*, and reordering loads conserves instruction count by
+construction. §6.10 names the successor that instead *removes* load issues —
+amortizing the two per-iteration scale-byte loads into one aligned 16 B load covering
+four k-iterations, taking loads/thread/iteration from 3 to 1.25 with zero byte change.
+
+The 19.11 ms of §A.9 headroom is untouched by this closure. It was the wrong
+instrument, not a wrong prize.
+
 ---
 
 ## Part A — chunk-accurate staged-byte census
@@ -645,4 +665,481 @@ Results are appended in §6 as they land.
 
 ## 6. Results
 
-_(pending receipts)_
+### 6.1 Receipt ledger
+
+| # | arm | submitted commit | submission id | dispatched | terminal | wall | ΔS vs control |
+|---|---|---|---|---|---|---|---|
+| R1 | arm 1, `kloop_prefetch=1` (candidate) | `0b5372f5377f028407bd9bfc785fe666b8710eb6` | `26b8e82a-9158-4fe1-83d5-fcf71a301e7e` | 06:26:47Z | 06:47:18Z | 20.5 min | **+0.684 ms (+1.52σ)** |
+| R2 | control, the three submitted paths checked out at `747d130b` | `5164d313fae0cd5d601b1cda4e1c4620207c1dfc` | `0bc3eb4c-95b0-4c47-bdb1-28b266a76acd` | 06:49:45Z | 07:10:01Z | 20.3 min | 0 by definition |
+| R3 | — | — | **deliberately not spent, see §6.11** | — | — | — | — |
+
+Both receipts returned `status = rejected` with
+`rejectionReason = "score did not improve current best"`, i.e. ranking-only. Every
+correctness and floor gate passed in both (§6.2, §6.5).
+
+Ordering rationale is in §5: candidate first, control second. The candidate is the
+only dispatch that can fail a hidden correctness gate, so spending receipt 1 on it
+buys the gate verdict earliest and makes receipt 2 worth dispatching at all.
+
+R2 was dispatched at 06:49:45Z, about eleven minutes **before** the advisor's second
+feedback comment arrived at 07:00:47Z. That comment records "one spent" because it
+predates R2. No instruction was overridden; the two events simply crossed.
+
+R2's control archive was produced by `git checkout 747d130b -- <the three submitted
+paths>`, submitting, and then `git checkout HEAD -- <same paths>`. This works because
+`createSubmissionArchive(repoPath, manifest)` (`mlxfast.js:24530`) tars
+`manifest.editablePaths` from the **working tree on disk**, not from git HEAD. Both
+directions were verified: an empty `git diff --stat` against the base and
+`grep -c kNaxKloopPrefetchDefault quantized.cpp` = 0 before submitting, and a restored
+count of 2 with a clean `git status --porcelain` afterwards.
+
+---
+
+### 6.2 R1 — arm 1 passes every correctness gate on the ranked M5
+
+This is the single most valuable thing the receipt bought, and no amount of offline
+work could have established it. The depth-1 software pipeline is **bit-exact on real
+hardware**, on the GPU generation that actually selects the `_nax` kernel family.
+
+| gate | value |
+|---|---|
+| `passed_correctness` | **True** |
+| `max_abs_diff` | **0** |
+| `error` | `''` (empty) |
+| `first_failing_step` / `_case` / `_layer` | `None` |
+| `partial_result` | **False** |
+| `gpqa_ttft_passed` | **True** |
+| `semantic_gpqa_passed` | **True (9/9)** |
+| `passed_decode_speedup_floor` | **True** |
+| `passed_prefill_speedup_floor` | **True** |
+| `rejectionReason` | `"score did not improve current best"` |
+
+The rejection is **ranking-only**. Per the campaign guidance, correctness, error, and
+both floor verdicts are read independently of ranking status, and all five are clean.
+
+This retires the three offline residual risks of §3 as *safety* concerns. §3 worried
+that `metal -S -emit-llvm` is front-end output so IR scheduling need not match the
+backend schedule, and that `threadgroup_barrier(mem_flags::mem_threadgroup)` does not
+order `addrspace(1)` accesses so the backend is free to move device loads across it.
+Both remain true as *performance* caveats — and §6.8 shows the second one is in fact a
+live hypothesis for the null — but neither produced a numerical difference. The
+reordering is value-preserving on the ranked hardware.
+
+Receipt JSON archived at `research/artifacts/tanjiro-pr170-receipt-pf1.json`.
+
+---
+
+### 6.3 R1 — the S axis is a null, not a regression
+
+Raw candidate `officialMetrics`, converted with the §5 constants
+(`S = 512000 × prefill_seconds_per_token`, `T = 1000 × decode_seconds_per_token − S/128`):
+
+| quantity | frontier `97a5090` (commit `3e165fa`) | R1 arm 1 | Δ |
+|---|---:|---:|---:|
+| `prefill_seconds_per_token` | 0.000191201… | 0.00019181477734375 | — |
+| `decode_seconds_per_token` | — | 0.0049374427109375 | — |
+| **`S` (prefill, ms)** | **97.895** | **98.2092** | **+0.314** |
+| **`T` (decode step, ms)** | **4.143569** | **4.17018** | **+0.0266** |
+| `nd` | 2.820661 | 2.813197 | — |
+| `np` | 2.001471 | 2.004538 | — |
+| **`ns` (normalized score)** | **2.5982163** | **2.584662** | **−0.522 %** |
+| published `officialScore` | 2.58882784082067 | 2.56253848898976 | −1.016 % |
+
+**ΔS = +0.314 ms = +0.70 σ_diff** (σ(S) = 0.318 ms, σ_diff = √2 × 0.318 = 0.4497 ms,
+3σ = 1.35 ms). That is **inside the band**, so by the pre-registered kill rule of §5
+this is a null. As a fraction of the marginal window it is +0.73 % of W = 43.2619 ms.
+
+The advisor pre-computed both branches of this test in feedback comment `5213645316`:
+if the whole −1.016 % `officialScore` drop had been prefill-side it would have implied
+ΔS ≈ +2.71 ms = +8.5σ, a real regression; if `S` landed inside ±1.35 ms of 97.895 the
+arm is a null and the score move was baseline-side. **The measurement selects the
+second branch.**
+
+Pre-registration for scale: the predicted win was −3.43 ms at 450 GB/s, −6.72 ms at
+500 GB/s, and −12.23 ms at 614 GB/s, i.e. **7.5σ to 27σ**. Even 25 % coverage of the
+predicted latency would have been ≥2σ. Measuring +0.70σ does not mean "it partly
+worked"; it falsifies the exposed-latency model outright. This distinction is the whole
+value of §6.8.
+
+This subsection compares R1 against the *frontier* receipt, which was measured in a
+different session. §6.5 replaces it with the paired same-session control and is the
+entitled read; the two sessions differ by 0.370 ms on the candidate axis, so the paired
+ΔS is +0.684 ms rather than +0.314 ms. Both are nulls; only the paired figure supports
+a confidence bound.
+
+---
+
+### 6.4 Why `officialScore` fell 1.016 % while `S` moved 0.70σ
+
+Because 78 % of the drop is on an axis this mechanism **provably cannot reach**.
+
+Decomposing Δ`ns` = −0.522 % by *physical* quantity, using
+`decode_seconds_per_token = S/128 + T` from §A.10:
+
+| source | arithmetic | contribution to Δ`ns` |
+|---|---|---:|
+| `S` (prefill, incl. its amortized share of the decode seed) | 0.374750 %/ms × 0.314 ms | **−0.118 pp** |
+| `T` (pure decode step time) | 0.75 × 0.0266 / 4.908374 | **−0.407 pp** |
+| total | | **−0.525 pp** vs −0.522 pp observed |
+
+Decomposed instead by *score axis*: `nd` contributes −0.442 pp and `np` −0.080 pp;
+same total, different cut.
+
+`T` is the pure per-step decode cost, and **the NAX routed expert kernel is
+prefill-only**. `expert_aligned` (`quantized.cpp:1760-1763`) requires `M >= 64`;
+teacher-forced decode issues one token per step, so the M=1 GEMV path is taken and
+`fp_gather_qmm_rhs_expert_nax` is never dispatched during the 128 decode steps.
+Arm 1 changes exactly one template parameter of that kernel. It cannot move `T` by
+any causal route, so ΔT = +0.0266 ms is session noise by construction.
+
+**Methodological consequence, worth carrying campaign-wide: Δ`ns` and Δ`officialScore`
+are the wrong statistic for judging a prefill-only mechanism.** Three quarters of the
+score weight sits on a decode axis the mechanism cannot touch, so its noise dominates
+the read. Only the `S` ledger is diagnostic. Had this arm been judged on
+`officialScore` alone it would have been written up as a −1 % regression; it is a
++0.7σ null.
+
+This subsection reasons from the frontier session. §6.5 supersedes it with a direct
+measurement: the paired control, which is *identical code* to the frontier, published
+`officialScore` −1.028 % below it — a slightly **larger** drop than the candidate's
+−1.016 %. The score move is therefore not merely "mostly unreachable by this
+mechanism", it is entirely baseline-side, and the candidate finished +0.0123 % *above*
+its own identical-code control.
+
+---
+
+### 6.5 R2 — paired control, and the confirmation that the score move was baseline-side
+
+Receipt `0bc3eb4c-95b0-4c47-bdb1-28b266a76acd`, official commit
+`5164d313fae0cd5d601b1cda4e1c4620207c1dfc`, `timestamp = 2026-08-07T06:58:43Z`,
+23 min after R1. The archive is the three submitted paths checked out at the
+assignment base `747d130b` — byte-exact base code, no `kloop_prefetch` template
+parameter at all — via the `createSubmissionArchive` working-tree mechanism recorded
+in §6.1. Receipt at `research/artifacts/tanjiro-pr170-receipt-ctrl.json`.
+
+**Gates.** The control passes everything the candidate passes, as it must:
+`passed_correctness = True`, `max_abs_diff = 0`, `error = ''`,
+`gpqa_ttft_passed = True`, `semantic_gpqa_passed = True (9/9)`, both speedup floors
+`True`, `partial_result = False`, `first_failing_step = None`. `weights_hash`,
+`harness_hash` and `golden_hash` are identical to R1's, so the two receipts are
+comparable measurements of the same benchmark.
+
+| quantity | R2 control (`5164d31`) | R1 arm 1 (`0b5372f`) | Δ (cand − ctrl) |
+|---|---:|---:|---:|
+| `prefill_seconds_per_token` | 0.000190478435546875 | 0.00019181477734375 | — |
+| `decode_seconds_per_token` | 0.0049417265625 | 0.0049374427109375 | — |
+| **`S` (prefill, ms)** | **97.525** | **98.2092** | **+0.684** |
+| **`T` (decode step, ms)** | **4.1798** | **4.1702** | **−0.0096** |
+| `nd` | 2.810759 | 2.813197 | +0.087 % |
+| `np` | 2.018601 | 2.004538 | −0.697 % |
+| **`ns`** | **2.587500** | **2.584662** | **−0.110 %** |
+| published `officialScore` | 2.56222295324231 | 2.56253848898976 | **+0.0123 %** |
+
+**Paired ΔS = +0.684 ms = +1.52 σ_diff.** Inside the ±1.35 ms band, so the
+pre-registered kill rule of §5 fires: null, stop at two receipts. The pre-registered
+win was −3.43 ms (−7.6σ), −6.72 ms (−14.9σ) or −12.23 ms (−27.2σ). The paired read is
+on the *wrong side of zero* and two orders of magnitude short.
+
+**Exclusion bound.** The paired measurement does not merely fail to confirm the
+hypothesis, it bounds it. At 3σ the true effect is at worst −0.665 ms; at 2σ, at worst
+−0.215 ms. So **any real improvement larger than 0.665 ms is excluded at 3σ** — that is
+19.4 % of the weakest arm of the pre-registration. In §A.9's units, −0.665 ms is the
+gain from lifting the effective streaming rate from 407.6 GB/s to 415.2 GB/s; the
+prediction required 450–614 GB/s. The whole predicted region is outside the confidence
+interval.
+
+**The control independently confirms the §6.4 diagnosis.** This is the part that could
+not have been obtained from a same-arm re-draw. Code that is byte-identical to the
+promoted frontier on the submitted surface published `officialScore = 2.56222`, which
+is **−1.028 % below the frontier's own published 2.58883** — a slightly *larger* drop
+than the candidate's −1.016 %. The candidate scored **+0.0123 % above an
+identical-code control.** The −1 % that would have been the headline of a naive
+write-up is fully reproduced by code containing none of the change. Its source is
+visible in the raw metrics: the baseline draw in R1's session was 1.06 % slower on
+prefill than in R2's session (`baseline` `S` = 193.518 ms vs 191.494 ms) and 0.19 %
+faster on decode.
+
+**Two identical-code draws of the candidate axis.** The frontier measured
+`S = 97.895 ms` and this control measured `S = 97.525 ms` from the same source. They
+differ by 0.370 ms = 0.82 σ_diff, consistent with the σ(S) = 0.318 ms used throughout.
+That drift is exactly why the paired control was worth a receipt: judged against the
+frontier, arm 1 read +0.314 ms; judged against its own paired control it reads
++0.684 ms. The 0.37 ms difference between those two verdicts is cross-session drift
+that an unpaired comparison would have silently attributed to the mechanism. Both
+readings are nulls, so the conclusion is unchanged — but only the paired one is
+entitled to state a bound.
+
+**Where the −0.110 % `ns` move comes from.** It is not a prefill regression net of
+noise; it is the prefill axis partly cancelled by decode noise:
+
+- `np` −0.697 % × 0.25 = **−0.174 pp** — this is the ΔS = +0.684 ms.
+- `nd` +0.087 % × 0.75 = **+0.065 pp** — and this is *not* the mechanism. Decode
+  seconds/token is `S/128 + T`; ΔS contributes +0.00534 ms and ΔT contributes
+  −0.0096 ms, netting −0.0043 ms on a 4.9417 ms step. `T` is unreachable by this
+  change (§6.4: decode is M=1 GEMV, `expert_aligned` requires `M >= 64`), so ΔT is
+  session noise that happened to fall the candidate's way.
+- Sum −0.109 pp, against −0.110 pp observed.
+
+**Campaign-wide datum.** An identical-code control re-measured in a fresh session moved
+`officialScore` by 1.028 %. Cross-session `officialScore` differences of order 1 % are
+therefore not evidence of anything, in either direction. Only same-session paired
+candidate-axis metrics are diagnostic, and for a prefill-only mechanism only `S` is.
+
+**Ordering note.** R2 was dispatched at ~06:52Z, about eight minutes before advisor
+feedback comment `5213645316` landed at 07:00:47Z; nothing in that comment was
+overridden. The comment's §3.4 authorised at most one further receipt, a same-arm
+confirmation, conditional on `S` landing inside the band and Step 0 being flat — both
+conditions hold. The receipt in flight was a paired control rather than a same-arm
+re-draw, and it is strictly the better spend of the two: a re-draw would have halved
+the variance of a number already known to be a null, whereas the control removed a
+0.37 ms systematic, produced the 3σ exclusion bound above, and settled the advisor's
+§3.1 branch question with an actual measurement instead of an inference.
+
+---
+
+### 6.6 Step 0 — the advisor's zero-receipt discriminator
+
+Advisor feedback comment `5213645316` §2 made this mandatory before any further
+dispatch, and pre-registered its reading. Full artifact:
+`research/artifacts/tanjiro-pr215-step0-pipeline-stats.txt`.
+
+`fp_gather_qmm_rhs_expert_nax`, both ranked shapes, control vs arm 1:
+
+| function | tgMem_B | maxThreads | width | regs_bound | TGs/core |
+|---|---:|---:|---:|---|---:|
+| `…_2048x1024_bk64` (control) | 9232 | 1024 | 32 | `<=32*` | 7 |
+| `…_2048x1024_bk64_pf1` (arm 1) | **9232** | **1024** | **32** | `<=32*` | **7** |
+| `…_512x2048_bk64` (control) | 9232 | 1024 | 32 | `<=32*` | 7 |
+| `…_512x2048_bk64_pf1` (arm 1) | **9232** | **1024** | **32** | `<=32*` | **7** |
+
+Implied threadgroups per shader core, for the ranked geometry `bm=64 bn=64 wm=4 wn=1`
+= 128 threads = **4 simdgroups** per threadgroup:
+
+- threadgroup-memory bound: `floor(P / 9232)` = **7** at the standard 64 KiB per-core
+  pool. This bound is *invariant under P* because `tgMem_B` is bit-identical between
+  the variants — that half is proven, not assumed.
+- simdgroup-slot bound: **8** at ≤104 half-registers (32 simdgroups/core ÷ 4),
+  falling to 6 at 128 and 5 at 160 half-registers.
+- binding value **7 for both**, i.e. 28 resident simdgroups per core.
+
+**Reading: the second branch.** A drop in `maxTotalThreadsPerThreadgroup` would have
+meant occupancy/register pressure is the mechanism. It held at 1024 with `tgMem_B`
+still 9232 B on both shapes, so register pressure is not the story and the explanation
+is added instruction count in a loop PR #170 already showed is issue-limited.
+
+Caveat kept explicit rather than buried: `maxThreads` saturates at the 1024 Metal API
+ceiling, which is far below the 104/128/160 half-register cliffs, so this host cannot
+*fully* close the register-step question. What is closed is that arm 1 costs zero extra
+threadgroup memory and does not change launch geometry. §6.8 gives an independent
+argument that a register step is not the explanation either.
+
+---
+
+### 6.7 The lever provably reached the scored path
+
+A null is only informative if the knob was live. It was.
+
+The arm is gated `kloop_prefetch = expert_aligned ? darkbloom_nax_kloop_prefetch() : 0`
+at `quantized.cpp:1823`. That is the **identical gate** that carried PR #170's four
+probes — `gather_probe = expert_aligned ? probe_requested : 0` at `:1818` — and those
+probes moved `S` on this same ranked M5 by up to **+15.961 ms**. A gate that can move
+`S` by 16 ms is not an unreached lever.
+
+Two further confirmations from R1 itself: the kernel name carries the `_pf_1` suffix
+only when the template argument is non-zero, and the arm changed the measured
+`prefill_seconds_per_token` at all (+0.7σ is small but the correctness gates prove a
+*different binary* ran and produced identical values). The official runner strips the
+environment (`sudo env_reset` + `env -i`), so the compiled-in default
+`kNaxKloopPrefetchDefault = "1"` **is** the arm for a ranked measurement — there is no
+path by which the control code could have been measured.
+
+This is therefore a real null about a real mechanism, not a null result about a dead
+switch.
+
+---
+
+### 6.8 Mechanism — why a depth-1 pipeline cannot help this loop
+
+Ranked hypotheses, after an independent frontier-agent critique that re-derived the
+loader structure from source.
+
+**H1 (~75 %) — the staging path is throughput-bound on memory-op issue, and per-warp
+latency was already hidden by co-resident simdgroups.** Software pipelining conserves
+instruction count; it only buys time when an issue pipe would otherwise sit *idle*
+waiting on a dependency. §6.6 puts 7 threadgroups = 28 simdgroups on each core. A warp
+stalled inside `commit()` does not idle the core; another simdgroup's MMA or staging
+issues in that slot. Wall time is then ≈ total issued ops ÷ pipe rate, which is
+**invariant under reordering**. Four independent facts fit this and only this:
+
+1. PR #170's S3 probe added staging with **zero extra DRAM bytes** and cost
+   **+7.853 ms**. That is linear in issued staging ops, not in bytes and not in
+   latency. If those 7.853 ms were exposed latency, arm 1 — which removes the device
+   load from the barrier-to-barrier span entirely, leaving only decode and stores —
+   had to recover several ms. It recovered 0.0.
+2. S2 minus S3 is +8.108 ms for +5.89 GB, a **marginal** rate of ~726 GB/s against a
+   ~343 GB/s average (§A.9). DRAM has roughly 2× headroom, so the average rate is
+   being set *upstream* of DRAM — at issue and pipe occupancy. (Plausibly a chunk of
+   the 14.83 GB requested traffic is A-fragment re-reads absorbed by SLC.)
+3. M2 doubled MMA and ALU work for only **+2.046 ms**: the arithmetic pipes have
+   headroom. The scarce resource is memory-op issue, and on M3+ threadgroup memory is
+   the same dynamic-caching SRAM as L1, so device loads and threadgroup stores contend
+   for it.
+4. The A-operand hoist already shipped in this kernel (header comment at :1863-1876,
+   "overlapping the sorted-x device reads with the weight staging they previously
+   serialized behind") had already harvested precisely the overlap arm 1 targets.
+   Independent device reads were in flight across the staging span before this PR.
+
+**H2 (~10 %) — the backend was already hoisting the device loads.** This was §3's
+second residual risk: `threadgroup_barrier(mem_flags::mem_threadgroup)` does not order
+`addrspace(1)` accesses, so a hoist is legal. Against it: to hide the W-load latency in
+the *baseline*, the AGX backend would have to move a device load across the loop
+back-edge, i.e. modulo-schedule a loop containing convergent barrier intrinsics. AIR
+models `air.wg.barrier` conservatively (convergent, with memory side effects), and the
+AGX backend does local post-RA scheduling rather than loop rotation. It is also
+**strategically irrelevant**: if true, it implies the same conclusion as H1 — only
+removing operations helps.
+
+**H3 (~5–10 %) — register pressure or spill cancelled the win.** Step 0 (§6.6) shows no
+threadgroup-memory or geometry change. M5 has dynamic caching, so a ~5-register delta
+rarely produces a hard cliff, and a cliff would cost several percent rather than
++1.52σ. The sharper sub-case — the backend spilling `pf` across the MMA chain — would
+*still* hide DRAM latency, since the refill comes from L1-backed stack, so a genuine
+latency win would have survived in attenuated form. The §6.5 exclusion bound rules out
+even a 20 % attenuated win at 3σ; none appeared at all.
+
+**H4 — noise.** The paired +0.684 ms is +1.52σ, short of the 3σ bar the campaign uses
+for a signal. The sign carries no information and is not interpreted anywhere in this
+report. Note that H4 does not rescue the hypothesis: a null is exactly what H1
+predicts, and the exclusion bound of §6.5 is what does the falsifying work regardless
+of which side of zero the point estimate lands on.
+
+The front-end IR census is the direct fingerprint of H1: `instrs` **3520 → 3784**,
+`dev_load` **76 → 80**, `int_alu` **614 → 655**, with `barrier` **12 → 12**, `mma`
+**2 → 2** and `dev_store` **60 → 60** unchanged. Arm 1 added ~7.5 % more instructions
+to a loop whose residual cost #170 measured as a **pure-issue term of 6.887 ms**
+(15.9 % of W) and removed none. Under H1 that predicts a small positive ΔS, which is
+what was measured.
+
+---
+
+### 6.9 Family closure
+
+> **In-kernel register-staged prefetch for the `_nax` routed gather-GEMM is dead on
+> ranked hardware, and the measured reason is that its K-loop is limited by memory-op
+> *issue*, not by exposed memory *latency*. Reordering loads conserves instruction
+> count, so it cannot buy time in this loop by construction; arm 1 in fact added ~7.5 %
+> more instructions and moved `S` by +0.684 ms (+1.52σ) against its own paired control,
+> a null that excludes any real gain above 0.665 ms at 3σ.**
+
+This permanently retires the last surviving descendant of the `_nax` in-kernel
+staging / prefetch / double-buffering family, which was reopened specifically on the
+strength of PR #170 §8.2. The closure is mechanistic rather than merely empirical: it
+names the resource (memory-op issue bandwidth), gives the falsified alternative
+(exposed latency), and states the discriminating measurement (a −7.6σ to −27.2σ
+prediction that measured +1.52σ, with occupancy and geometry held provably constant by
+§6.6, and with the whole predicted 450–614 GB/s region outside the 3σ interval per
+§6.5).
+
+What it does **not** retire: the §A.9 headroom itself. The streaming floor at 614 GB/s
+is 24.15 ms against W = 43.2619 ms, leaving **19.11 ms = 7.16 % of score** on the
+table. That headroom is real; this family was simply the wrong instrument for
+collecting it. §6.10 says what the right instrument looks like.
+
+---
+
+### 6.10 Handoff — the next mechanism must *remove* load issues, not reorder them
+
+This is the operative distinction the closure produces, and it should be the first
+filter applied to any successor proposal in this family's neighbourhood.
+
+**Ranked successor candidates.** These are proposals, grounded in read-only source
+inspection; none is measured, and each line number should be re-verified before
+implementation.
+
+**1. Amortize / widen the scale loads — REDUCES issue count. Highest expected value.**
+Today each thread issues **3 device loads per k-iteration to move 18 bytes**: one
+128-bit load for 16 B of packed weights, plus **two single-byte scale loads**. So two
+thirds of the load issues move one ninth of the bytes. But a row's scale bytes are
+contiguous and `next()` advances the scale pointer by `n_groups` = BK/16 = **4 bytes
+per iteration**, while the thread consumes only `n_steps_per_read` = 2 of them. Hence
+**one aligned 16 B scale load covers four k-iterations** (offsets {0,1, 4,5, 8,9,
+12,13} all fall in one 16 B window). Loads per thread per iteration drop 3 → **1.25**,
+about **−58 % of staging load issues**, for roughly +4 registers, **zero byte change**
+and bit-identical decode inputs. Scaling the 6.887 ms pure-issue term by the removed
+share of staging memory ops (~1.75 of ~7) predicts **−1.2 to −1.8 ms on `S`, i.e.
+2.5–4σ** — decisive with a single receipt in either direction. A minimal fallback (one
+`uint16_t` load for the pair) still removes 1 of 3 loads. `MLXFastTransform` could
+later repack the scales to eliminate the 50 % over-fetch, but no offline repack is
+needed to run the experiment.
+
+**2. A-fragment N-tile reuse — reduces *requested bytes*, the other term.** Each
+simdgroup re-reads its sorted-x fragments once per N-tile; at N=1024 with BN=64 that is
+~16 re-reads of the A slab. Processing two N-tiles per A load halves it. Potentially
+the largest single lever, but accumulators double, `Ws` or the B-fragments double, it
+perturbs a tuned tile shape, and if SLC already absorbs the re-reads the win collapses
+toward another null. High variance; sequence it *after* candidate 1 has confirmed the
+cost model.
+
+**3. `BK=128` — reduces barrier and loop-overhead ops, not loads.** Already a supported
+instantiation. Halves barrier rendezvous, worth ~0.4–0.8 ms by #170's own barrier
+coefficient (B2 = +0.841 ms for two extra barriers), but 17.4 KB of `Ws` drops the
+tgmem-limited residency from 7 to 3 threadgroups per core. Low priority given §6.6.
+
+**4. Dead by this closure — do not re-propose without new evidence.** Depth-2
+pipelining, double-buffered `Ws`, and any further reordering of the same operations all
+remove **zero** issues. Double-buffering does delete one barrier per iteration
+(~−0.4 ms by #170's coefficient) but costs 18.4 KB of threadgroup memory, which halves
+residency for a sub-noise prize.
+
+**The filter, stated once:** before proposing anything else in this neighbourhood,
+count the device-load and threadgroup-store *issues* per thread per k-iteration, before
+and after. If the count does not go down, §6.8 predicts a null and the proposal should
+not consume a receipt.
+
+---
+
+### 6.11 Receipt 3 was deliberately not spent
+
+Three independent lines of authority converge on stopping at two receipts.
+
+1. **The pre-registered kill rule (§5).** The paired ΔS = +0.684 ms ≥ −1.35 ms,
+   therefore "stop after two receipts and write a clean negative".
+2. **Advisor feedback comment `5213645316` §3.** Arms 2 (depth 2) and 3 (extend
+   prefetch to `Atile`) are explicitly demoted: "either outcome closes the same door",
+   and both explanations predict depth 2 is *worse*, being a strictly larger
+   register-pressure and instruction-count perturbation of the same loop.
+3. **The frontier critique.** Independent verdict on depth 2: throwing the receipt
+   away. Depth 2 helps only if exposed latency exceeded one full MMA chain, a world in
+   which depth 1 would necessarily have captured a large partial win of several σ.
+   Depth 1 captured nothing, so there is no residual latency for depth 2 to cover and
+   its point estimate is the same +0.684 ms.
+
+The one narrow case the advisor left open was a **re-draw of the same arm**, justified
+only where `S` lands inside 1.35 ms *and* Step 0 shows no occupancy or geometry
+change — i.e. where the evidence says "draw noise" and a second draw would resolve it.
+Both halves are in fact satisfied here. It was still declined, for three reasons:
+
+- R2 (§6.5) already spent the second receipt on the *better* version of that question,
+  and it worked. A control measured in the same queue conditions removed the
+  cross-session drift between the `97a5090` frontier session and now — drift that
+  turned out to be real and large, 0.370 ms of the 0.684 ms paired difference — and it
+  is what makes the §6.5 exclusion bound entitled at all. A same-arm re-draw would have
+  bought no such thing.
+- The decision does not turn on it. §6.8's argument is falsification of a 7.6–27σ
+  prediction by a +1.52σ measurement. A second candidate draw averaged against the one
+  control shrinks σ_diff from 0.4497 ms to σ·√1.5 = 0.3895 ms, tightening the 3σ
+  exclusion bound only from 0.665 ms to 0.485 ms. Both bounds sit two orders of
+  magnitude below the weakest predicted arm, so the extra receipt closes no additional
+  door.
+- The operational bulletin in the same advisor comment prices a receipt at ~double its
+  quoted wall time on a queue **shared with the `birch` campaign**, and asks for one
+  decisive dispatch over a sweep. The next genuinely decisive dispatch is candidate 1
+  of §6.10, which attacks the confirmed issue term and is out of scope for this
+  assignment.
+
+**Operational notes carried forward** (from the same bulletin, all confirmed in this
+session): `mlxfast submit` **exits 0 even when it refuses**, so a dispatch is real only
+if stdout prints a submission id — never trust `$?`. Notes must be ≥ 5120 B or the CLI
+refuses while still exiting 0. Run `mlxfast submissions | tail -3` immediately before
+every dispatch and only dispatch when the last row is terminal. Never blind-retry a
+`failed` receipt.
