@@ -1,18 +1,31 @@
 # SENPAI Research State
-- 2026-08-07T18:10Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: 1eac38a5 (pushed to origin).
-  35 composed changes on current frontier (33 previous + PR #306 + PR #307).
-  LRM budget: 22,652B headroom. Total surface ~2,958K/3,000,000 = 42,519B headroom.
+- 2026-08-07T18:35Z (updated by advisor session — CRITICAL M5 FINDINGS)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: b8c23f45 (pushed to origin).
+  34 composed changes on current frontier (33 previous + PR #315 QKV fusion).
+  LRM budget: ~42,519B headroom. Total surface ~2,958K/3,000,000.
 
-## CRITICAL M5 BUILD FIX (d9b2df37, 2026-08-07)
-  ROOT CAUSE of ALL birch M5 build failures since 8/5: PR #243 added kHalvedScales
-  template parameter to three vendor files. The 87aff2fa revert restored
-  fp_quantized_nax.cpp and quantized.cpp but MISSED fp_quantized_nax.h (137 lines
-  of kHalvedScales code remained). Header/source mismatch compiled on M4 but
-  M5 Metal compiler rejected inconsistent template signatures.
-  FIX: Restored ALL 3 vendor files to 0bf6aeac (last birch M5 score 4058d0b at 2.5459).
-  LRM halved paths disabled (lagunaPrefillSharedHalvedEnabled=false, useHalved=false).
-  M5 submissions: 935c6831 (vendor fix only) VALIDATING. Composed frontier (with #306+#307) queued.
+## CRITICAL M5 BUILD FINDINGS (2026-08-07 session 2)
+  The birch campaign has NEVER had a successful M5 build. ALL previous "successful"
+  M5 submissions (df9613a 2.5817, 68b66c5 2.5520, etc.) were from the MAPLE campaign,
+  NOT birch. The previous advisor session misattributed maple submissions to birch.
+  ALL 20+ birch submissions since 8/5 FAILED (n/a score, build/runtime failure).
+  Previous session's "fixes" (simd_sum vec, dot float4, thread float4, simd_dot,
+  kHalvedScales removal) were based on a FALSE PREMISE — none addressed the actual issue.
+  
+  ROOT CAUSE INVESTIGATION: Submitted organizer frontier code (bca94c5, known to work
+  on M5 via maple) as submission 3ff39923. If it builds, the issue is in birch changes.
+  If it fails, the issue is environmental.
+  
+  PRIMARY SUSPECT: Vendor file changes. Birch modified 5 vendor files:
+  fp_quantized_nax.cpp (+365 lines DARKBLOOM_STAGE2_GATHER), fp_quantized_nax.h (+369),
+  quantized.cpp (+107 barrier/escape changes), jit_kernels.cpp (+44), SwitchLayers.swift
+  (v3 to v4 kernel name). The _nax kernels ONLY compile on M5 (GPU gen 17+). M4 never
+  tests them. Any Metal compilation error in these files would only appear on M5.
+  
+  SECONDARY SUSPECT: Birch base (bb523807) adds NAX gate (#available(macOS 26.2, *) +
+  GPU arch string parsing) that organizer frontier doesn't have. If M5 runs macOS < 26.2
+  or arch string doesn't parse, the expert-aligned gather path is disabled. But the
+  fallback path (lagunaInterleavedSwiGLU) is a working standard MLX path.
 
 ## FOURTH M5-INCOMPATIBLE PATTERN CLASS IDENTIFIED
   Previously found 3 pattern classes in Metal JIT kernel strings:
