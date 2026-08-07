@@ -6796,6 +6796,80 @@ for (uint row = 0; row < 2; ++row) {
     ensureRowContiguous: true
 )
 
+private let lagunaSharedSwiGLUQMVPrefetchEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_PREFETCH"] == "1"
+
+/// K-block loop of `lagunaSharedSwiGLUQMVRows1Kernel`.
+///
+/// `DARKBLOOM_SHARED_QMV_PREFETCH=1` issues the next block's weight codes and
+/// scale bytes before the current block's dot products, the schedule the routed
+/// twin `laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` already
+/// uses. Both arms feed the same values to the same accumulator in the same
+/// order and keep two `laguna_nvfp4_scale` sites, so results are bit-identical.
+private let lagunaSharedSwiGLUQMVRows1KBlockLoop: String = {
+    let inputBlockLoad = """
+        const device vec<bfloat, 4>* input_vectors =
+            (const device vec<bfloat, 4>*) (
+                input + block + lane * values_per_lane);
+        for (uint i = 0; i < values_per_lane / 4; ++i) {
+            const vec<bfloat, 4> values = input_vectors[i];
+            input_values[4 * i] = values[0];
+            input_values[4 * i + 1] = values[1];
+            input_values[4 * i + 2] = values[2];
+            input_values[4 * i + 3] = values[3];
+        }
+    """
+    guard lagunaSharedSwiGLUQMVPrefetchEnabled else {
+        return """
+        for (uint block = 0; block < input_width; block += block_width) {
+        \(inputBlockLoad)
+
+            gate_result += laguna_nvfp4_qdot_16(
+                gate_row_weight + block / 2,
+                input_values,
+                laguna_nvfp4_scale(gate_row_scale[block / 16]));
+            up_result += laguna_nvfp4_qdot_16(
+                up_row_weight + block / 2,
+                input_values,
+                laguna_nvfp4_scale(up_row_scale[block / 16]));
+        }
+        """
+    }
+    return """
+    uint2 gate_codes = *(const device uint2*)gate_row_weight;
+    uint2 up_codes = *(const device uint2*)up_row_weight;
+    uint8_t gate_sb = gate_row_scale[0];
+    uint8_t up_sb = up_row_scale[0];
+
+    for (uint block = 0; block < input_width; block += block_width) {
+    \(inputBlockLoad)
+
+        const uint2 cur_gate_codes = gate_codes;
+        const uint2 cur_up_codes = up_codes;
+        const uint8_t cur_gate_sb = gate_sb;
+        const uint8_t cur_up_sb = up_sb;
+        const uint next_block = block + block_width;
+        if (next_block < input_width) {
+            gate_codes = *(const device uint2*)(
+                gate_row_weight + next_block / 2);
+            up_codes = *(const device uint2*)(
+                up_row_weight + next_block / 2);
+            gate_sb = gate_row_scale[next_block / 16];
+            up_sb = up_row_scale[next_block / 16];
+        }
+
+        gate_result += laguna_nvfp4_qdot_codes_16(
+            cur_gate_codes,
+            input_values,
+            laguna_nvfp4_scale(cur_gate_sb));
+        up_result += laguna_nvfp4_qdot_codes_16(
+            cur_up_codes,
+            input_values,
+            laguna_nvfp4_scale(cur_up_sb));
+    }
+    """
+}()
+
 /// One-output-row scheduling twin of `lagunaSharedSwiGLUQMVKernel`.
 /// Arithmetic is textually identical per row; only row ownership changes.
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
@@ -6830,27 +6904,7 @@ thread float gate_result = 0.0f;
 thread float up_result = 0.0f;
 thread float input_values[values_per_lane];
 
-for (uint block = 0; block < input_width; block += block_width) {
-    const device vec<bfloat, 4>* input_vectors =
-        (const device vec<bfloat, 4>*) (
-            input + block + lane * values_per_lane);
-    for (uint i = 0; i < values_per_lane / 4; ++i) {
-        const vec<bfloat, 4> values = input_vectors[i];
-        input_values[4 * i] = values[0];
-        input_values[4 * i + 1] = values[1];
-        input_values[4 * i + 2] = values[2];
-        input_values[4 * i + 3] = values[3];
-    }
-
-    gate_result += laguna_nvfp4_qdot_16(
-        gate_row_weight + block / 2,
-        input_values,
-        laguna_nvfp4_scale(gate_row_scale[block / 16]));
-    up_result += laguna_nvfp4_qdot_16(
-        up_row_weight + block / 2,
-        input_values,
-        laguna_nvfp4_scale(up_row_scale[block / 16]));
-}
+\(lagunaSharedSwiGLUQMVRows1KBlockLoop)
 
 gate_result = simd_sum(gate_result);
 up_result = simd_sum(up_result);
