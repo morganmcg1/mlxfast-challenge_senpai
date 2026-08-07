@@ -1,207 +1,174 @@
 #!/usr/bin/env python3
-"""PR #218 duplicate-injection ledger statistics (research-only).
+"""Research-only analysis for research/fern_dup_probe.py output (PR #218).
 
-Reads the per-step millisecond dumps produced by `research/fern_dup_run.sh`
-and prices one decode dispatch family's marginal cost.
+Unit of replication is the SEGMENT MEDIAN, never the individual step: steps
+inside a segment share one cache, one allocator state and one thermal state, so
+they are not independent draws. Each palindromic block contributes two segments
+per arm, and every contrast is formed inside a block so linear drift cancels.
 
-File naming contract (produced by `research/fern_dup_ab.sh`):
-
-    <OUTDIR>/b<block>_p<pos>_k<K>.steps.txt
-
-`block` is a palindromic replication block, `pos` the arm's position inside it,
-and `K` the number of copies of the target dispatch issued per call.
-
-Reduction (pre-registered):
-  * drop the first `--warmup` steps of every run (default 16);
-  * the run MEDIAN is the unit of replication -- never an individual step;
-  * arms are contrasted only within a block, so a linear session drift cancels;
-  * the reported slope is OLS of block-paired run medians on K.
-
-Definitions:
-  marginal cost  us/step per copy-set = d(step time)/dK
-  exposure E     = marginal cost / census cost (census supplied by --census)
-  shadow ratio   = smallest K whose paired contrast against K=1 is significant
-                   (>1 means the family is hidden behind a longer concurrent
-                   path and only surfaces once duplicated that many times;
-                   1 means it is on the critical path already)
+  python3 research/fern_dup_stats.py /tmp/t0a.tsv [--census 185.7] [--calls 39]
 """
 import argparse
 import math
-import os
-import re
 import statistics
 import sys
 from collections import defaultdict
 
-NAME = re.compile(r"^b(\d+)_p(\d+)_k(\d+)\.steps\.txt$")
+# Scored decode price at the promoted receipt: 1 us removed from the steady
+# per-step time is worth this much of the official score (see the PR body).
+PERCENT_PER_US = 0.015280
 
 
-def load(path, warmup):
-    with open(path) as fh:
-        vals = [float(x) for x in fh.read().split()]
-    return vals[warmup:]
-
-
-def welch(a, b):
-    """Return (mean diff b-a, se, t, df) for two independent samples."""
-    na, nb = len(a), len(b)
-    if na < 2 or nb < 2:
-        return statistics.mean(b) - statistics.mean(a), float("nan"), float("nan"), 0
-    va, vb = statistics.variance(a), statistics.variance(b)
-    se = math.sqrt(va / na + vb / nb)
-    diff = statistics.mean(b) - statistics.mean(a)
-    if se == 0:
-        return diff, 0.0, float("inf"), na + nb - 2
-    df = (va / na + vb / nb) ** 2 / (
-        (va / na) ** 2 / (na - 1) + (vb / nb) ** 2 / (nb - 1))
-    return diff, se, diff / se, df
-
-
-def ols(xs, ys):
-    """Slope, intercept, slope standard error."""
-    n = len(xs)
-    mx, my = statistics.mean(xs), statistics.mean(ys)
-    sxx = sum((x - mx) ** 2 for x in xs)
-    if sxx == 0 or n < 3:
-        return float("nan"), float("nan"), float("nan")
-    slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
-    intercept = my - slope * mx
-    resid = [y - (intercept + slope * x) for x, y in zip(xs, ys)]
-    s2 = sum(r * r for r in resid) / (n - 2)
-    return slope, intercept, math.sqrt(s2 / sxx)
+def student_t95(df: int) -> float:
+    table = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447,
+             7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228, 12: 2.179, 15: 2.131,
+             20: 2.086, 25: 2.060, 30: 2.042, 40: 2.021, 60: 2.000}
+    for k in sorted(table):
+        if df <= k:
+            return table[k]
+    return 1.96
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("outdir")
-    ap.add_argument("--warmup", type=int, default=16)
+    ap.add_argument("tsv")
     ap.add_argument("--census", type=float, default=None,
-                    help="isolated GPU us/step for this family, for exposure E")
-    ap.add_argument("--label", default="")
+                    help="GPUPROF us/step attributed to this family")
+    ap.add_argument("--calls", type=int, default=None,
+                    help="injected calls per step (DUPCOUNT census)")
     args = ap.parse_args()
 
-    runs = []  # (block, pos, K, median_ms, n_steps)
-    for fn in sorted(os.listdir(args.outdir)):
-        m = NAME.match(fn)
-        if not m:
-            continue
-        block, pos, k = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        vals = load(os.path.join(args.outdir, fn), args.warmup)
-        if len(vals) < 32:
-            print(f"WARNING: {fn} has only {len(vals)} timed steps", file=sys.stderr)
-        runs.append((block, pos, k, statistics.median(vals), len(vals)))
-    if not runs:
-        print("no matching b<block>_p<pos>_k<K>.steps.txt files", file=sys.stderr)
-        return 2
+    header, rows, drop = read_tsv(args.tsv)
+    print(header.strip())
 
-    ks = sorted({r[2] for r in runs})
-    blocks = sorted({r[0] for r in runs})
-    print(f"== {args.label or args.outdir} ==")
-    print(f"K arms: {ks}   blocks: {blocks}   runs: {len(runs)}   "
-          f"warmup dropped: {args.warmup}")
-    print(f"\n{'K':>3} {'runs':>5} {'median of run-medians (ms)':>28} "
-          f"{'spread p100-p0 (us)':>20}")
-    by_k = defaultdict(list)
-    for b, p, k, med, n in runs:
-        by_k[k].append(med)
-    for k in ks:
-        v = sorted(by_k[k])
-        print(f"{k:>3} {len(v):>5} {statistics.median(v):>28.6f} "
-              f"{(v[-1]-v[0])*1e3:>20.1f}")
+    seg_k, seg_med = {}, {}
+    per_seg = defaultdict(list)
+    for seg, k, step, ms in rows:
+        seg_k[seg] = k
+        if step >= drop:
+            per_seg[seg].append(ms)
+    for seg, vals in per_seg.items():
+        seg_med[seg] = statistics.median(vals)
 
-    # Block-paired contrasts against K=1.
-    if 1 not in by_k:
-        print("\nno K=1 arm; cannot form paired contrasts", file=sys.stderr)
-        return 2
-    print(f"\nblock-paired contrast vs K=1 "
-          f"(per block: median(K) - median(K=1), us/step)")
-    print(f"{'K':>3} " + " ".join(f"{'b'+str(b):>9}" for b in blocks)
-          + f" {'mean':>9} {'se':>8} {'t':>7} {'us/copy':>9}")
-    paired = defaultdict(list)  # K -> [per-block delta us]
-    for k in ks:
+    segments = sorted(seg_med)
+    arms = sorted({seg_k[s] for s in segments})
+    block_len = detect_block_len([seg_k[s] for s in segments])
+    print(f"\nsegments={len(segments)} arms={arms} block_len={block_len} "
+          f"blocks={len(segments)//block_len} timed_steps_per_segment="
+          f"{len(per_seg[segments[0]])}")
+
+    per_block = defaultdict(dict)
+    print(f"\n{'seg':>4} {'K':>3} {'block':>5} {'median_ms':>10}")
+    for s in segments:
+        print(f"{s:4d} {seg_k[s]:3d} {s//block_len:5d} {seg_med[s]:10.4f}")
+        per_block[s // block_len].setdefault(seg_k[s], []).append(seg_med[s])
+
+    blocks = sorted(per_block)
+    print("\nblock-paired contrasts vs K=1 (us per copy-set per step)")
+    print(f"{'K':>3} {'mean_us':>10} {'se':>8} {'t':>7} {'ci95_lo':>9} "
+          f"{'ci95_hi':>9}  per-block")
+    contrasts = {}
+    for k in arms:
         if k == 1:
             continue
-        cells = []
+        deltas = []
         for b in blocks:
-            base = [r[3] for r in runs if r[0] == b and r[2] == 1]
-            arm = [r[3] for r in runs if r[0] == b and r[2] == k]
-            if not base or not arm:
-                cells.append(float("nan"))
+            if 1 not in per_block[b] or k not in per_block[b]:
                 continue
-            d = (statistics.median(arm) - statistics.median(base)) * 1e3
-            cells.append(d)
-            paired[k].append(d)
-        good = [c for c in cells if not math.isnan(c)]
-        mean = statistics.mean(good) if good else float("nan")
-        se = (statistics.stdev(good) / math.sqrt(len(good))
-              if len(good) > 1 else float("nan"))
-        t = mean / se if se and not math.isnan(se) and se > 0 else float("nan")
-        print(f"{k:>3} " + " ".join(f"{c:>9.1f}" for c in cells)
-              + f" {mean:>9.1f} {se:>8.1f} {t:>7.2f} {mean/(k-1):>9.1f}")
+            deltas.append(
+                (statistics.mean(per_block[b][k])
+                 - statistics.mean(per_block[b][1])) * 1e3)
+        if len(deltas) < 2:
+            continue
+        m = statistics.mean(deltas)
+        se = statistics.stdev(deltas) / math.sqrt(len(deltas))
+        t = m / se if se else float("inf")
+        h = student_t95(len(deltas) - 1) * se
+        contrasts[k] = (m, se, t)
+        print(f"{k:3d} {m:10.2f} {se:8.2f} {t:7.2f} {m-h:9.2f} {m+h:9.2f}  "
+              + " ".join(f"{d:.1f}" for d in deltas))
 
-    # OLS on every run median (K as regressor), plus block-mean-centred version.
-    xs = [r[2] for r in runs]
-    ys = [r[3] * 1e3 for r in runs]
-    slope, _, se = ols(xs, ys)
-    print(f"\nOLS slope over raw run medians: {slope:.1f} +- {se:.1f} us/step "
-          f"per copy-set   95% CI [{slope-1.96*se:.1f}, {slope+1.96*se:.1f}]")
-
-    centred_x, centred_y = [], []
+    # Within-block-centred OLS slope of segment median on K.
+    xs, ys = [], []
     for b in blocks:
-        rows = [r for r in runs if r[0] == b]
-        if len(rows) < 2:
+        if 1 not in per_block[b]:
             continue
-        my = statistics.mean(r[3] * 1e3 for r in rows)
-        mx = statistics.mean(r[2] for r in rows)
-        for r in rows:
-            centred_x.append(r[2] - mx)
-            centred_y.append(r[3] * 1e3 - my)
-    cslope, _, cse = ols(centred_x, centred_y)
-    print(f"OLS slope, block-centred (drift-cancelling): "
-          f"{cslope:.1f} +- {cse:.1f} us/step per copy-set   "
-          f"95% CI [{cslope-1.96*cse:.1f}, {cslope+1.96*cse:.1f}]")
+        base = statistics.mean(per_block[b][1])
+        for k, vals in per_block[b].items():
+            for v in vals:
+                xs.append(float(k))
+                ys.append((v - base) * 1e3)
+    xbar = statistics.mean(xs)
+    sxx = sum((x - xbar) ** 2 for x in xs)
+    ybar = statistics.mean(ys)
+    slope = sum((x - xbar) * (y - ybar) for x, y in zip(xs, ys)) / sxx
+    intercept = ybar - slope * xbar
+    df = len(xs) - len(blocks) - 1
+    resid = [y - (intercept + slope * x) for x, y in zip(xs, ys)]
+    s2 = sum(r * r for r in resid) / df
+    se_slope = math.sqrt(s2 / sxx)
+    h = student_t95(df) * se_slope
+    print(f"\nOLS slope (block-centred, df={df}): "
+          f"{slope:.2f} +/- {se_slope:.2f} us per extra copy-set per step, "
+          f"95% CI [{slope-h:.2f}, {slope+h:.2f}], t={slope/se_slope:.2f}")
+    print("score value if this family were fully deleted: "
+          f"{slope*PERCENT_PER_US:+.4f} % of score "
+          f"(CI [{(slope-h)*PERCENT_PER_US:+.4f}, "
+          f"{(slope+h)*PERCENT_PER_US:+.4f}])")
 
-    # Saturation: per-copy increment in the low-K and high-K regimes.
-    if len(ks) >= 3:
-        lo, hi = ks[1], ks[-1]
-        mid = ks[len(ks) // 2]
-        def per_copy(a, b):
-            if a not in by_k or b not in by_k:
-                return float("nan")
-            return ((statistics.median(by_k[b]) - statistics.median(by_k[a]))
-                    * 1e3 / (b - a))
-        print(f"\nsaturation check: K=1->{lo} costs {per_copy(1, lo):.1f} us/copy, "
-              f"K={mid}->{hi} costs {per_copy(mid, hi):.1f} us/copy "
-              f"(equal => linear, no saturation)")
+    if 2 in contrasts and 5 in contrasts and contrasts[2][0]:
+        early = contrasts[2][0]
+        late = (contrasts[5][0] - contrasts[2][0]) / 3.0
+        print(f"\nsaturation: K=1->2 costs {early:.2f} us/copy-set, "
+              f"K=2->5 costs {late:.2f} us/copy-set (ratio {late/early:.2f})")
 
-    # Shadow ratio: first K whose paired contrast clears 2 sigma.
     shadow = None
-    for k in ks:
-        if k == 1:
+    for k in arms:
+        if k == 1 or k not in contrasts:
             continue
-        d = paired.get(k, [])
-        if len(d) > 1:
-            m = statistics.mean(d)
-            s = statistics.stdev(d) / math.sqrt(len(d))
-            if s > 0 and m / s > 2:
-                shadow = k
-                break
-    print(f"shadow ratio (first K with a >2 sigma paired increase): "
-          + (f"{shadow}" if shadow else f">{ks[-1]} (never surfaced)")
-          + ("   FLAG: <3, thin margin, M5 could flip this row"
-             if shadow is not None and shadow < 3 and shadow > 1 else ""))
+        m, se, _ = contrasts[k]
+        if abs(m) > 2 * se:
+            shadow = k
+            break
+    label = (f"first resolved at K={shadow}" if shadow
+             else "never surfaced within the sweep")
+    flag = "  [THIN MARGIN: M5 flip risk]" if shadow == 2 else ""
+    print(f"\nshadow ratio: {shadow if shadow else '>' + str(arms[-1])} "
+          f"-- {label}{flag}")
 
+    if args.calls:
+        print(f"per-call marginal cost: {slope/args.calls:.3f} us "
+              f"({args.calls} injected calls/step)")
     if args.census:
-        e = cslope / args.census
-        elo = (cslope - 1.96 * cse) / args.census
-        ehi = (cslope + 1.96 * cse) / args.census
-        print(f"\nexposure E = marginal/census = {cslope:.1f}/{args.census:.1f} "
-              f"= {e:.3f}   95% CI [{elo:.3f}, {ehi:.3f}]")
-        print(f"verdict: " + ("chain-link (E > 0.5)" if e > 0.5
-                              else "side-branch (E < 0.5)"))
-        print(f"score value of deleting it outright: "
-              f"{cslope * 0.015280:.3f}% (at 0.015280 %/us)")
+        print(f"E = slope/census = {slope:.2f}/{args.census:.1f} = "
+              f"{slope/args.census:.3f}")
     return 0
+
+
+def detect_block_len(seq):
+    for n in range(2, len(seq) + 1):
+        if len(seq) % n:
+            continue
+        if all(seq[i] == seq[i % n] for i in range(len(seq))):
+            return n
+    return len(seq)
+
+
+def read_tsv(path):
+    header, rows, drop = "", [], 0
+    with open(path) as fh:
+        for line in fh:
+            if line.startswith("#"):
+                header = line
+                for tok in line.split():
+                    if tok.startswith("drop="):
+                        drop = int(tok.split("=", 1)[1])
+                continue
+            if line.startswith("segment\t"):
+                continue
+            seg, k, step, ms = line.split("\t")
+            rows.append((int(seg), int(k), int(step), float(ms)))
+    return header, rows, drop
 
 
 if __name__ == "__main__":
