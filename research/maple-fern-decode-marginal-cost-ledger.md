@@ -232,6 +232,71 @@ K=5/K=17 nulls are genuine absorption, not dead injection.
 *Standing rule adopted from the T0b failure:* a ledger row without a positive
 `DUPCOUNT` census and `copies == calls x (K-1)` is **void**, not zero.
 
+### A3 (correctness): the injected step is bit-identical, and the check that says so is sharp
+
+Every number above is only meaningful if duplicate injection changes *timing*
+and nothing else. Two things must be shown, and showing only the first is the
+classic way to fool yourself:
+
+1. **Invariance** - the decoded output is identical at every `K`.
+2. **Sensitivity** - the check used in (1) is capable of failing.
+
+A digest that always matches because it is too coarse proves nothing. So both
+were run, on the same host, in one 228-second chained job
+(`e511ec3a-0189-4dad-bce8-174af89b1a06`, exit 0).
+
+The instrument for this is `research/fern_dup_digest.py`. It drives the trusted
+worker's `correctness_begin` / `correctness_step` protocol
+(`Sources/MLXFastTrustedHarness/LagunaRuntimeWorker.swift:291,325`) on the
+public golden case `public_longcopy_gate_english_512_256.json`, teacher-forced,
+and MD5-digests the **full top-`k` logit list** returned at every step - not the
+greedy token. Top-1024 over 24 steps is a far tighter check than the scored
+gate, which only compares the argmax.
+
+| # | target | schedule (`K`) | steps | top-`k` | fault | digest | verdict |
+| --- | --- | --- | --: | --: | --- | --- | --- |
+| 0 | `T1c_lmhead` | 1,2 | 2 | 8 | no | `cbc51a5a...` (both) | smoke OK |
+| 1 | `T1c_lmhead` | 1 | 24 | 1024 | no | `d8a7d2d1...` | **baseline** |
+| 2 | `T1c_lmhead` | 1 | 24 | 1024 | **yes** | `09445f78...` | **differs - check is sharp** |
+| 3 | `T0b_qkv` | 1,2,3,5 | 24 | 1024 | no | `d8a7d2d1...` x4 | ALL MATCH |
+| 4 | `T2c_routed_qmv` | 1,2,3,5 | 24 | 1024 | no | `d8a7d2d1...` x4 | ALL MATCH |
+
+Three separate facts come out of this table.
+
+**Invariance holds on both priced spine sites.** Runs 3 and 4 duplicate the two
+largest rows in the ledger - the fused QKV projection and the routed gate/up
+QMV - at `K = 1, 2, 3, 5`, and all eight digests are the same 128-bit value.
+Duplicating a dispatch two, three or five times does not perturb a single one
+of the 1024 top logits at any of 24 decode steps.
+
+**The check is sharp.** Run 2 is the sensitivity arm. `faultInput` adds
+**one bf16 ULP** to the real lm_head input - the smallest representable
+perturbation at that dtype - and the digest changes completely
+(`d8a7d2d1` -> `09445f78`). So the digest is sensitive to the minimum possible
+numerical disturbance on the injected path. A matching digest in runs 3 and 4
+is therefore evidence, not an artefact of a blunt instrument. Note also that
+the fault is applied to the **real** dispatch rather than to a duplicate,
+precisely so that this arm tests the same code path that the invariance arms
+declare clean.
+
+**The instrument-off and instrument-on baselines agree.** Run 1 has
+`schedule = [1]`, so `LagunaDecodeDup.enabled` is `false` and no injection code
+executes at all; runs 3 and 4 have the instrument armed. All three produce
+`d8a7d2d1...`. That closes the remaining loophole - that arming the instrument
+might shift every arm by the same amount and hide inside a self-consistent
+comparison. It does not: an armed `K=1` equals an unarmed `K=1`, on two
+different targets.
+
+`K = 1` is bit-identical by construction (`enabled` is false and no duplicate
+root is ever created), and this measures that construction rather than assuming
+it.
+
+*Known limitation of the digest tool, stated so nobody trips over it:*
+`fern_dup_digest.py` keys its results dict by `K`, so a schedule with a repeated
+`K` silently collapses those arms. The schedules above (`1,2` and `1,2,3,5`) are
+strictly increasing, so no arm was lost here, but the palindromic schedules used
+for *timing* must never be passed to the digest tool as-is.
+
 ---
 
 ## 3. Part B/C - what duplicate injection actually measures
@@ -576,25 +641,77 @@ the *first* step of any decode optimisation proposal. It costs one 110-second
 run, it needs no kernel to be written, and it would have pre-empted at least
 three of the last several negatives.
 
-### 6.2 One unresolved arithmetic puzzle
+### 6.2 The 466 GB/s arithmetic, and why it resolves in favour of cache reuse
 
-`T2c`'s marginal is `1184 us` per duplicate pass over 39 layers. If the routed
-top-8 weights read per decode step were ~552 MB, the implied rate would be
-`552 MB / 1.184 ms = 466 GB/s`, which **exceeds this host's 273 GB/s peak**.
-The measurement is internally consistent and highly significant (`t = 140`), so
-one of the following must hold:
+`T2c`'s marginal is `1184 us` per duplicate pass over 39 layers. The routed
+top-8 weights read per decode step are ~552 MB, so the implied rate is
+`552 MB / 1.184 ms = 466 GB/s`, which **exceeds this host's 273 GB/s peak**. The
+measurement is internally consistent and highly significant (`t = 140`), so one
+of three things had to be true. All three are now decidable.
 
-1. the 552 MB routed-weight figure is wrong for this checkpoint's decode path;
-2. the duplicate enjoys real cache reuse and therefore moves substantially
-   fewer bytes than the original (which would make the `1184 us` an even
-   *stronger* lower bound on the original's cost);
-3. the marginal is not bandwidth-bound at all but launch/occupancy-bound, in
-   which case the lever is dispatch count and tile shape rather than bytes.
+**(1) The 552 MB figure is wrong - refuted.** It was re-derived independently
+from the checkpoint's own safetensors headers rather than from any prior
+research note. Per routed expert: `gate` and `up` each carry a `[512, 256]`
+`uint32` code block plus a `[512, 128]` `uint8` scale block; `down` carries
+`[2048, 64]` `uint32` codes plus `[2048, 32]` `uint8` scales. That is
+`1,769,472 B` per expert. Eight experts over 39 routed layers gives
+`8 * 39 * 1,769,472 B = 552.1 MB/step`. The figure is right to three digits.
 
-This is flagged rather than resolved. It matters for §6.1's ordering of levers
-within `T2c`, not for the ledger itself, and it does not affect any pass/fail
-verdict in this report. Resolving it needs a byte-counting probe (GPUPROF
-`bytes_read` per dispatch family), which is a separate experiment.
+**(2) The duplicate enjoys real cache reuse - confirmed, and this is the
+answer.** A rate above the DRAM peak is only possible if the duplicate's reads
+are not DRAM-served. They are not: the duplicate re-reads the same eight expert
+banks the original just touched, and the per-layer routed working set is
+`8 * 1.769 MB = 14.2 MB`, which plausibly fits this part's system-level cache.
+§4.1 measures the size of that effect from the other direction and gets a
+consistent answer: `E = 0.741` on `T0b`, `0.754` on `T2c`, `0.617` on `T2d` -
+all three weight-streaming families discounted by a similar factor, against
+`E = 1.111` for `T1c`, whose 411 MB lm_head weight cannot be resident and shows
+no discount at all. One mechanism, four sites, consistent sign.
+
+**(3) The marginal is launch- or occupancy-bound - refuted.** `T2c`'s per-call
+marginal is `30.35 us`, four orders of magnitude above the `1.661 us` fixed
+dispatch cost measured in #196, and the genuinely launch-bound families in this
+ledger (`T0a`, `T1a`) are exactly the ones that *absorbed* rather than adding
+wall time. A launch-bound duplicate would have been swallowed by the same slack.
+
+Three consequences follow, and they change how §5's numbers should be read.
+
+**The streaming rows are lower bounds by a knowable factor.** If the duplicate
+is served from cache and the original from DRAM, `1184 us` understates the
+original's cost. Dividing by the observed `E` and re-pricing at an achievable
+`~220 GB/s`, the true cold cost of the routed family is nearer
+`552 MB / 220 GB/s = 2.5 ms`, i.e. **27-31 % of the 8.2 ms step rather than the
+14.4 % the ledger row states**. The ledger's *ordering* is unaffected - all
+three streaming families are discounted together - but its *absolute* shares
+understate the streaming families and correspondingly overstate everything else.
+
+**The routed QMV kernel has no compute headroom worth chasing.** Sustaining
+466 GB/s-equivalent warm means the kernel's dequant and ALU path can already
+feed 466 GB/s. On cold DRAM traffic at ~220-260 GB/s it is therefore purely
+memory-bound with roughly 70 % compute headroom to spare. Any proposal to
+optimise the arithmetic, dequant sequence, or tile shape of this kernel is
+provably optimising a resource that is not the constraint. The only lever that
+can move it is fewer bytes.
+
+**The step's traffic total in §4 is itself an undercount.** The `1794 MB/step`
+figure carried in from earlier research omits the shared expert (~69 MB), the
+BF16 dense layer 0 (~101 MB), the routers (~41 MB) and the KV traffic (~87 MB);
+a full tally is closer to `2.08 GB/step`. At `2.08 GB` the non-DRAM residual of
+the 8.2 ms step is only about `0.6-0.75 ms` on this host. There is materially
+less "kernel inefficiency" headroom in the step than a `71-80 % of roofline`
+framing suggests, which is a further argument that byte reduction, not kernel
+tuning, is the remaining lever.
+
+**The probe that would close this properly** is cheap and the instrument already
+supports the hard part: rotate the duplicate's expert indices (e.g. `+8 mod
+256`) so the duplicate is forced to stream *different* banks and is therefore
+DRAM-served. The difference between the rotated and unrotated marginals is a
+direct measurement of the warm discount, and the rotated marginal divided by
+552 MB is the routed family's true achieved bandwidth. If that lands at 85-90 %
+of achievable, the kernel is finished and only byte cuts remain; if it lands
+below ~75 %, kernel-level work is back on the table. This is one probe of the
+same shape as the ones already run and is the single highest
+information-per-hour follow-up in this report.
 
 ---
 
@@ -607,19 +724,39 @@ frozen prediction with the measurement.
 | # | site | pre-reg verdict | `E_pred` | `E_range` | census us/step | measured slope us/copy-set | measured `E` | outcome |
 | --- | --- | --- | --: | --- | --: | --- | --: | --- |
 | T0a | `router_top8` | side-branch | 0.00 | [-0.16, 0.16] | 185.7 | `-8.45 +/- 4.83` | `-0.045` | **confirmed** |
-| T0b | fused QKV | chain-link | 1.00 | [0.70, 1.30] | n/a | `1276.01 +/- 11.48` | n/a | **qualitatively confirmed** (zero slack, linear from K=1); no census row to divide by |
+| T0b | fused QKV | chain-link | 1.00 | [0.70, 1.30] | 1722.3 | `1276.01 +/- 11.48` | `0.741` | **confirmed** |
 | T1a | `residual_rms_router` | chain-link | 1.00 | [0.70, 1.30] | 305.1 | `106.4` chained / `39.5` unchained | `0.349` / `0.129` | **refuted** |
 | T1c | `lmhead` | chain-link | 1.00 | [0.70, 1.30] | 427.0 | `474.22 +/- 4.87` | `1.111` | **confirmed** |
 | T2a | `shared_qmv` | side-branch | 0.10 | [-0.10, 0.35] | 237.5 | `73.82 +/- 3.79` | `0.311` | **confirmed** |
-| T2c | routed QMV | chain-link | 1.00 | [0.70, 1.30] | n/a | `1183.81 +/- 8.44` | n/a | **qualitatively confirmed** (zero slack) |
-| T2d | down + residual | chain-link | 1.00 | [0.70, 1.30] | n/a | `554.89 +/- 6.09` | n/a | **qualitatively confirmed** (zero slack) |
+| T2c | routed QMV | chain-link | 1.00 | [0.70, 1.30] | 1569.8 | `1183.81 +/- 8.44` | `0.754` | **confirmed** |
+| T2d | down + residual | chain-link | 1.00 | [0.70, 1.30] | 898.8 | `554.89 +/- 6.09` | `0.617` | **refuted at the low edge** (0.617 vs 0.700) |
 | T1b | `rmsbfloat16` | chain-link, `E_pred = 1.70` | 1.70 | [1.00, 2.20] | 124.6 | not wired | - | **not measured** |
 | T2b | `gate_sp` | side-branch | 0.10 | [-0.10, 0.35] | 262.3 | wired, live (40 calls), not timed | - | **not measured** |
 | T3a/b/c | attention, o-proj | chain-link | 0.95 | [0.70, 1.30] | n/a | not wired | - | **not measured** |
 
-Four of five computable predictions landed inside their pre-registered bands.
+Five of seven computable predictions landed inside their pre-registered bands.
 
-**The one refutation is `T1a`, and it is the informative one.** It was
+Two caveats on the census column, stated plainly. For `T0a`, `T1a`, `T1c` and
+`T2a` the pre-registration named the census row before the probe ran, so those
+`E` values are genuine out-of-sample tests. For `T0b`, `T2c` and `T2d` the
+pre-registration left the census cell blank (`(from A2 census)` / `-`), and the
+attribution to specific census kernels was made *after* measurement. Those three
+`E` values are therefore post-hoc, and I am not claiming them as blind
+predictions. What is *not* post-hoc for those three rows is the qualitative
+verdict - chain-link, zero absorbed slack, linear from `K=1` - and that verdict
+held in all three cases.
+
+**The second refutation is `T2d` at `0.617`, 12 % below the band floor**, and it
+is a near miss rather than a structural surprise: it is the same warm-discount
+direction as `T0b` (`0.741`) and `T2c` (`0.754`), just a little larger. All
+three streaming families cluster in `E = 0.62-0.75` while the one
+non-streaming chain-link, `T1c`, sits at `1.111`. A pre-registered band of
+`[0.70, 1.30]` centred on `1.00` was simply the wrong band for a cache-warm
+duplicate of a bandwidth-bound kernel; §4.1 gives the mechanism. The honest
+reading is that the band was mis-specified for the streaming families, not that
+`T2d` behaved unexpectedly relative to its siblings.
+
+**The most informative refutation is `T1a`.** It was
 pre-registered as a chain-link because `lagunaResidualRMSNormRouter` sits
 structurally between the residual stream and the router, and every downstream
 consumer needs it. That is true, and it is still shadowed: measured `E = 0.349`
