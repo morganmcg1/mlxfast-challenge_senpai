@@ -66,30 +66,34 @@
     Bandwidth reduction: halve NVFP4 scale traffic for attention kernels.
     Bit-exact. Targets ~39 MiB/step savings. RIGHT direction for bandwidth-bound M5.
 
-  PR #175 (Edward) — MLX_BFS_MAX_WIDTH 50→100. DRAFT, in progress.
-    More aggressive graph optimization to reduce Metal dispatch count.
-    Bit-exact scheduling change. Independent of MB tuning.
-
-  PR #179 (Thorfinn) — MLX_MAX_MB_PER_BUFFER 200→800. JUST ASSIGNED.
+  PR #179 (Thorfinn) — MLX_MAX_MB_PER_BUFFER 200→800. ASSIGNED, in progress.
     Allow asyncEval segments to fit in one command buffer (weight buffers count
     toward buffer_sizes_, so 200 MB limit may cause premature commits within
     segments). Bit-exact scheduling change. Tests if byte limit is binding.
 
-  PR #180 (Alphonse) — MoE scale-plane halving. JUST ASSIGNED.
+  PR #180 (Alphonse) — MoE scale-plane halving. ASSIGNED, in progress.
     Extend pairwise-constancy scale packing to MoE gate/up+down kernels.
     Bandwidth reduction: halve MoE scale traffic (~10 MiB/step).
     Bit-exact. Targets the DOMINANT decode cost center.
     Independent of PR #169 (different kernels), composable if both win.
 
+  PR #181 (Edward) — Revert MLX_MAX_OPS_PER_BUFFER 800→200. JUST ASSIGNED.
+    CORRECTIVE: ops-800 (PR #165) was rejected at -7.23% on M5. Restoring
+    promoted ops=200 value eliminates the handicap for future M5 submissions.
+    Bit-exact scheduling change. Should be MERGED quickly to fix the advisor base.
+
   Closed in this session:
     PR #167 (Alphonse, tail dot4) — CLOSED: instruction-count reduction, counterproductive on M5.
     PR #124 (Askeladd, gate-scale fold) — CLOSED: no speedup + non-bit-exact prefill.
+    PR #175 (Edward, BFS width 50→100) — CLOSED: dead hypothesis, M4 noise, BFS only affects MLX primitive op fusion (custom kernels opaque).
     PRs #128, #129, #130 — already merged (counterproductive changes in composed submission).
 
   DEAD EXPERIMENTS (do NOT reassign):
     - Compiled decode: research confirms regression (disables fused kernels, 6.4× traffic).
     - asyncEval=off: measured -10.5% regression (overlap is worth +9.7%).
+    - BFS width 50→100: M4 noise, BFS only affects MLX primitive op fusion (custom kernels opaque).
     - All instruction-count reductions (dot4, simd_sum, float4): counterproductive on M5.
+    - INT8 KV cache: NOT in accepted quantization envelope (KV cache is BF16, not a "projection").
 
 ## NEW: Research Agent Scheduling Findings (2026-08-06T23:22)
   Research agent identified 5 NEW scheduling/bandwidth opportunities:
