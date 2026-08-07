@@ -1419,6 +1419,7 @@ template <
     const constant int& M,
     const constant int& N,
     const constant int& K,
+    const constant int& output_major_experts,
     // Magnitude dial for DARKBLOOM_PREFILL_GATHER_RUNSKIP, 1..100. A RUNTIME
     // scalar, deliberately NOT a function constant: it must never participate
     // in the pipeline specialization key, so one variant is compiled per
@@ -1459,12 +1460,17 @@ template <
   const int N_w = N * bytes_per_pack / pack_factor;
   const int N_g = N / group_size;
   const int K_it = K / BK;
-  const size_t stride_w = transpose ? N * K_w : K * N_w;
+  const size_t stride_w = output_major_experts
+      ? size_t(64) * K_w
+      : transpose ? N * K_w : K * N_w;
   const size_t stride_s = transpose ? N * K_g : K * N_g;
   const int y_row = tid.y * BM;
   const int y_col = tid.x * BN;
   const size_t y_row_long = size_t(y_row);
   const size_t y_col_long = size_t(y_col);
+  const size_t output_col = output_major_experts
+      ? size_t(y_col / 64) * output_major_experts * 64 + y_col % 64
+      : y_col_long;
 
   // Prepare threadgroup bounds
   const short tgp_bm = align_M ? BM : short(min(BM, M - y_row));
@@ -1479,7 +1485,7 @@ template <
   auto wl = (const device uint8_t*)w;
   x += y_row_long * K;
   y += y_row_long * N + y_col_long;
-  wl += transpose ? y_col_long * K_w : y_col * bytes_per_pack / pack_factor;
+  wl += transpose ? output_col * K_w : y_col * bytes_per_pack / pack_factor;
   scales += transpose ? y_col_long * K_g : y_col / group_size;
 
   constexpr short SM = BM / WM;
@@ -1776,6 +1782,7 @@ template <
     const constant int& M,
     const constant int& N,
     const constant int& K,
+    const constant int& output_major_experts,
     const constant int& run_skip_pct,
     uint3 tid [[threadgroup_position_in_grid]],
     uint lid [[thread_index_in_threadgroup]],
@@ -1835,7 +1842,9 @@ template <
   const int K_w = kernel_K * bytes_per_pack / pack_factor;
   const int K_g = kernel_K / group_size;
   const int K_it = kernel_K / BK;
-  const size_t stride_w = size_t(kernel_N) * K_w;
+  const size_t stride_w = output_major_experts
+      ? size_t(64) * K_w
+      : size_t(kernel_N) * K_w;
   const size_t stride_s = size_t(kernel_N) * K_g;
 #ifdef DARKBLOOM_GATHER_XMAJOR
   // DARKBLOOM_GATHER_XMAJOR: one threadgroup owns kFoldCT ADJACENT column
@@ -1852,9 +1861,14 @@ template <
   const int y_col = tid.x * BN;
 #endif
 
-  auto wl = (const device uint8_t*)w + size_t(y_col) * K_w;
-  const device uint8_t* scale_base =
-      scales + size_t(y_col) * K_g;
+  const size_t output_col = output_major_experts
+      ? size_t(y_col / 64) * output_major_experts * 64 + y_col % 64
+      : size_t(y_col);
+  const size_t column_tile_stride_w =
+      size_t(BN) * (output_major_experts ? output_major_experts : 1) * K_w;
+  const size_t column_tile_stride_s = size_t(BN) * K_g;
+  auto wl = (const device uint8_t*)w + output_col * K_w;
+  const device uint8_t* scale_base = scales + size_t(y_col) * K_g;
 
   constexpr short SM = BM / WM;
   constexpr short SN = BN / WN;
@@ -1984,10 +1998,10 @@ template <
           // k next() calls.
           thread loader_w_t loader_w(
               wl + size_t(expert) * stride_w +
-                  size_t(ct) * size_t(BN) * K_w +
+                  size_t(ct) * column_tile_stride_w +
                   size_t(k) * kWTileBytes,
               scale_base + size_t(expert) * stride_s +
-                  size_t(ct) * size_t(BN) * K_g +
+                  size_t(ct) * column_tile_stride_s +
                   size_t(k) * kSTileBytes,
               kernel_K,
               Ws,

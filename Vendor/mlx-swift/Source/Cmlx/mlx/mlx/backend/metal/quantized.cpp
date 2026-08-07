@@ -1639,6 +1639,8 @@ void gather_qmm_rhs_nax(
   array x = broadcast_with_indices(x_);
   array w = ensure_row_contiguous(w_, d, s);
   array scales = ensure_row_contiguous(scales_, d, s);
+  const int output_major_experts =
+      w_.ndim() == 4 && w_.shape(0) == 1 ? w_.shape(1) : 0;
 
   // TODO: Tune the block sizes
   int bm = 64, bn = 64, bk = 64;
@@ -1944,6 +1946,7 @@ void gather_qmm_rhs_nax(
   compute_encoder.set_bytes(M, c++);
   compute_encoder.set_bytes(N, c++);
   compute_encoder.set_bytes(K, c++);
+  compute_encoder.set_bytes(output_major_experts, c++);
   compute_encoder.set_bytes(run_skip_pct, c++);
 
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
@@ -2009,6 +2012,8 @@ void gather_qmm_rhs(
   array x = broadcast_with_indices(x_);
   array w = ensure_row_contiguous(w_, d, s);
   array scales = ensure_row_contiguous(scales_, d, s);
+  const int output_major_experts =
+      w_.ndim() == 4 && w_.shape(0) == 1 ? w_.shape(1) : 0;
 
   // TODO: Tune the block sizes
   int bm = 16, bn = 32, bk = 32;
@@ -2095,6 +2100,7 @@ void gather_qmm_rhs(
   compute_encoder.set_bytes(M, c++);
   compute_encoder.set_bytes(N, c++);
   compute_encoder.set_bytes(K, c++);
+  compute_encoder.set_bytes(output_major_experts, c++);
 
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
 }
