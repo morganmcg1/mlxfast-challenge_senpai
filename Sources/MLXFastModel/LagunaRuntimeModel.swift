@@ -899,6 +899,214 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
             )
         })
 
+/// Fused residual + RMSNorm + router GEMV (all 256 experts in one 512-thread
+/// threadgroup) + top-8 bitonic tournament. Combines
+/// `lagunaResidualRMSNormRouterSource(rowsPerGroup: 256)` with the
+/// `lagunaDecodeRouterTop8KernelSource` tournament. The router GEMV uses
+/// `rowsPerThread = 16` (16 experts per simdgroup, 16 simdgroups), the same
+/// non-unrolled accumulate path as any `rowsPerGroup > 16` variant — the
+/// per-expert dot product accumulation order (block 0..15, 4 elements each,
+/// `simd_sum` across 32 lanes) is identical to the `rpg8` path, so the router
+/// logits are bit-exact. After the GEMV, each simdgroup's lane 0 stores 16
+/// BF16 logits to threadgroup memory; a barrier makes all 256 visible; then
+/// lanes 0..255 read one logit each and run the identical sigmoid, correction
+/// bias, and 256-element bitonic sort network. Lanes 256..511 carry `+inf`
+/// sentinel keys that sort to the bottom — the 256-element network's strides
+/// (≤128) never pair a lane < 256 with one ≥ 256, so inert lanes cannot
+/// contaminate the real sort.
+private func lagunaResidualRMSNormRouterTop8Source(normalizing: Bool) -> String {
+    let rowsPerGroup = 256
+    let simdGroups = 512 / 32
+    let rowsPerThread = rowsPerGroup / simdGroups  // 16
+    let activeSimdGroups = rowsPerGroup / rowsPerThread  // 16
+    let zeros = Array(repeating: "0.0f", count: rowsPerThread).joined(separator: ", ")
+
+    let epilogue =
+        normalizing
+        ? """
+        float total = 0.0f;
+        for (uint i = 0; i < 8; ++i) {
+            total = simd_shuffle(my_score, ushort(i)) + total;
+        }
+        if (lane < 8) {
+            router_indices[lane] = my_index;
+            router_scores[lane] = my_score / total;
+        }
+        """
+        : """
+        if (lane < 8) {
+            router_indices[lane] = my_index;
+            router_scores[lane] = my_score;
+        }
+        """
+
+    return """
+        constexpr uint axis_size = 2048;
+        constexpr uint n_reads = 4;
+        constexpr uint simd_size = 32;
+        constexpr uint rows_per_group = \(rowsPerGroup);
+        constexpr uint rows_per_thread = \(rowsPerThread);
+        constexpr uint active_simd_groups = \(activeSimdGroups);
+        constexpr uint block_width = 128;
+        constexpr uint router_blocks = axis_size / block_width;
+
+        uint tile = threadgroup_position_in_grid.x;
+        uint lid = thread_position_in_threadgroup.x;
+        uint simd_lane = thread_index_in_simdgroup;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint base = lid * n_reads;
+
+        \(lagunaNormInvMeanScratch)
+        threadgroup float local_sums[simd_size];
+        threadgroup bfloat normalized_row[axis_size];
+        threadgroup bfloat router_logit_values[256];
+        threadgroup float xchg_keys[512];
+        threadgroup uint xchg_indices[512];
+        threadgroup float xchg_scores[512];
+
+        thread bfloat values[n_reads];
+        float acc = 0.0f;
+        for (uint i = 0; i < n_reads; ++i) {
+            bfloat value = bfloat(residual[base + i] + branch[base + i]);
+            values[i] = value;
+            summed[base + i] = value;
+            float fv = float(value);
+            acc += fv * fv;
+        }
+
+        acc = simd_sum(acc);
+        \(lagunaNormReductionTail2048)
+
+        for (uint i = 0; i < n_reads; ++i) {
+            bfloat value =
+                weight[base + i] *
+                bfloat(float(values[i]) * laguna_inv_mean);
+            normalized_row[base + i] = value;
+            normalized[base + i] = value;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // --- router projection (all 256 experts in this threadgroup) ---
+        uint router_row = simd_group * rows_per_thread;
+        thread float router_result[rows_per_thread] = {\(zeros)};
+
+        {
+            thread float router_input[n_reads];
+            uint column = simd_lane * n_reads;
+            for (uint block = 0; block < router_blocks; ++block) {
+                for (uint i = 0; i < n_reads; ++i) {
+                    router_input[i] = float(normalized_row[column + i]);
+                }
+                for (uint r = 0; r < rows_per_thread; ++r) {
+                    const device vec<bfloat, 4>* row_values =
+                        (const device vec<bfloat, 4>*)(
+                            router_weight + (router_row + r) * axis_size +
+                                column);
+                    const vec<bfloat, 4> rw = row_values[0];
+                    for (uint i = 0; i < n_reads; ++i) {
+                        router_result[r] += float(rw[i]) * router_input[i];
+                    }
+                }
+                column += block_width;
+            }
+        }
+
+        for (uint r = 0; r < rows_per_thread; ++r) {
+            for (ushort delta = 16; delta >= 1; delta >>= 1) {
+                router_result[r] +=
+                    metal::simd_shuffle_down(router_result[r], delta);
+            }
+        }
+        if (simd_lane == 0) {
+            for (uint r = 0; r < rows_per_thread; ++r) {
+                router_logit_values[router_row + r] = bfloat(router_result[r]);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // --- top-8 bitonic tournament (lanes 0..255 active, 256..511 inert) ---
+        uint lane = lid;
+        float my_key;
+        float my_score;
+        uint my_index;
+
+        if (lane < 256) {
+            float x = float(router_logit_values[lane]);
+            float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
+            my_score = x < 0.0f ? y : 1.0f - y;
+            my_key = -(my_score + float(correction_bias[lane]));
+            my_index = lane;
+        } else {
+            my_key = metal::numeric_limits<float>::infinity();
+            my_score = 0.0f;
+            my_index = 256;
+        }
+
+        for (uint sequence = 2; sequence <= 256; sequence <<= 1) {
+            for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
+                float other_key;
+                uint other_index;
+                float other_score;
+                if (stride < 32) {
+                    other_key = simd_shuffle_xor(my_key, ushort(stride));
+                    other_index = simd_shuffle_xor(my_index, ushort(stride));
+                    other_score = simd_shuffle_xor(my_score, ushort(stride));
+                } else {
+                    xchg_keys[lane] = my_key;
+                    xchg_indices[lane] = my_index;
+                    xchg_scores[lane] = my_score;
+                    threadgroup_barrier(mem_flags::mem_threadgroup);
+                    uint partner = lane ^ stride;
+                    other_key = xchg_keys[partner];
+                    other_index = xchg_indices[partner];
+                    other_score = xchg_scores[partner];
+                    threadgroup_barrier(mem_flags::mem_threadgroup);
+                }
+
+                bool is_lower = (lane & stride) == 0;
+                float a_key = is_lower ? my_key : other_key;
+                uint a_index = is_lower ? my_index : other_index;
+                float a_score = is_lower ? my_score : other_score;
+                float b_key = is_lower ? other_key : my_key;
+                uint b_index = is_lower ? other_index : my_index;
+                float b_score = is_lower ? other_score : my_score;
+
+                bool lower_wants_better = (lane & sequence) == 0;
+                bool b_before_a = laguna_router_key_before(
+                    b_key, b_index, a_key, a_index);
+                bool a_before_b = laguna_router_key_before(
+                    a_key, a_index, b_key, b_index);
+                bool swap = lower_wants_better ? b_before_a : a_before_b;
+                if (swap) {
+                    my_key = is_lower ? b_key : a_key;
+                    my_index = is_lower ? b_index : a_index;
+                    my_score = is_lower ? b_score : a_score;
+                }
+            }
+        }
+
+        \(epilogue)
+        """
+}
+
+private let lagunaResidualRMSNormRouterTop8Kernel = MLXFast.metalKernel(
+    name: "laguna_residual_rms_router_top8_v1",
+    inputNames: ["residual", "branch", "weight", "router_weight", "correction_bias"],
+    outputNames: ["summed", "normalized", "router_indices", "router_scores"],
+    source: lagunaResidualRMSNormRouterTop8Source(normalizing: false),
+    header: lagunaDecodeRouterTop8Header,
+    ensureRowContiguous: true
+)
+
+private let lagunaResidualRMSNormRouterTop8NormalizingKernel = MLXFast.metalKernel(
+    name: "laguna_residual_rms_router_top8_norm_v1",
+    inputNames: ["residual", "branch", "weight", "router_weight", "correction_bias"],
+    outputNames: ["summed", "normalized", "router_indices", "router_scores"],
+    source: lagunaResidualRMSNormRouterTop8Source(normalizing: true),
+    header: lagunaDecodeRouterTop8Header,
+    ensureRowContiguous: true
+)
+
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
 /// (layer 0) and for any shape the router fusion above declines.
 private let lagunaResidualRMSNormKernel = MLXFast.metalKernel(
@@ -977,6 +1185,51 @@ func lagunaResidualRMSNormRouter(
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1], outputs[2])
+}
+
+/// Fused residual + RMSNorm + router GEMV + top-8 tournament in one dispatch.
+/// Replaces the two-dispatch path (`lagunaResidualRMSNormRouter` then
+/// `lagunaDecodeRouterTop8`). The kernel uses one 512-thread threadgroup with
+/// all 256 router experts in-threadgroup, then runs the bitonic sort in-place.
+func lagunaResidualRMSNormRouterTop8(
+    residual: MLXArray, branch: MLXArray, weight: MLXArray,
+    routerWeight: MLXArray, correctionBias: MLXArray,
+    normalizing: Bool
+) -> (summed: MLXArray, normalized: MLXArray, indices: MLXArray, weights: MLXArray) {
+    let hidden = LagunaConstants.hiddenSize
+    let experts = LagunaConstants.numExperts
+    let topK = LagunaConstants.numExpertsPerTok
+    precondition(residual.dtype == .bfloat16)
+    precondition(branch.dtype == .bfloat16)
+    precondition(weight.dtype == .bfloat16)
+    precondition(routerWeight.dtype == .bfloat16)
+    precondition(correctionBias.dtype == .float32)
+    precondition(residual.dims(1, 1, hidden))
+    precondition(branch.dims(1, 1, hidden))
+    precondition(weight.dims(hidden))
+    precondition(routerWeight.dims(experts, hidden))
+    precondition(correctionBias.dims(experts))
+
+    lagunaTrace(
+        normalizing
+            ? "residual+rmsnorm+router+top8 (norm sink)"
+            : "residual+rmsnorm+router+top8")
+    let kernel =
+        normalizing
+        ? lagunaResidualRMSNormRouterTop8NormalizingKernel
+        : lagunaResidualRMSNormRouterTop8Kernel
+    let inputs = [residual, branch, weight, routerWeight, correctionBias]
+    let outputs = kernel(
+        inputs,
+        grid: (1, 1, 1),
+        threadGroup: (512, 1, 1),
+        outputShapes: [
+            [1, 1, hidden], [1, 1, hidden],
+            [1, 1, topK], [1, 1, topK]
+        ],
+        outputDTypes: [.bfloat16, .bfloat16, .uint32, .float32]
+    )
+    return (outputs[0], outputs[1], outputs[2], outputs[3])
 }
 
 func lagunaResidualRMSNorm(
@@ -8972,6 +9225,20 @@ private let lagunaDecodeRouterCastSinkEnabled =
 private let lagunaDecodeRouterNormSinkEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTER_NORM"] != "0"
 
+/// Decode-only fusion of the router GEMV and top-8 tournament into a single
+/// dispatch. The existing path uses two kernels: `lagunaResidualRMSNormRouter`
+/// (residual+RMSNorm+router GEMV, 32 threadgroups at rpg8) then
+/// `lagunaDecodeRouterTop8` (bitonic tournament, 1 threadgroup of 256).
+/// This fusion widens the router kernel to `rowsPerGroup=256` so all 256
+/// expert logits live in one 512-thread threadgroup, stores them to threadgroup
+/// memory, then runs the identical 256-element bitonic sort network in-place.
+/// Lanes 256..511 carry `+inf` sentinel keys that sort to the bottom and never
+/// contaminate the real lanes 0..255 (strides ≤128 never cross the 256
+/// boundary). Eliminates one dispatch per sparse layer × 39 layers. Set
+/// `DARKBLOOM_FUSED_ROUTER_TOP8=0` to ablate.
+private let lagunaFusedRouterTop8Enabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTER_TOP8"] != "0"
+
 /// Prefill counterpart of the fused decode router: one dispatch per sparse
 /// layer replaces the stock multi-token routing chain (FP32 cast, sigmoid,
 /// correction-bias add, negate, `argPartition`'s full 256-wide merge argsort,
@@ -10124,19 +10391,35 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        forward(x, residual: nil, routerLogits: nil)
+        forward(x, residual: nil, routerLogits: nil, precomputedRouting: nil)
     }
 
     func callAsFunction(
         _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil
     ) -> MLXArray {
-        forward(x, residual: residual, routerLogits: routerLogits)
+        forward(x, residual: residual, routerLogits: routerLogits,
+                precomputedRouting: nil)
+    }
+
+    func callAsFunction(
+        _ x: MLXArray, residual: MLXArray,
+        precomputedRouting: (MLXArray, MLXArray)
+    ) -> MLXArray {
+        forward(x, residual: residual, routerLogits: nil,
+                precomputedRouting: precomputedRouting)
     }
 
     private func forward(
-        _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?
+        _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?,
+        precomputedRouting: (MLXArray, MLXArray)?
     ) -> MLXArray {
-        let (inds, weights) = gate(x, logits: routerLogits)
+        let inds: MLXArray
+        let weights: MLXArray
+        if let precomputed = precomputedRouting {
+            (inds, weights) = precomputed
+        } else {
+            (inds, weights) = gate(x, logits: routerLogits)
+        }
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -10519,7 +10802,42 @@ final class LagunaRuntimeDecoderLayer: Module {
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
+        var precomputedRouting: (MLXArray, MLXArray)?
         if lagunaFusedResidualRMSNormRouterEnabled,
+            lagunaFusedRouterTop8Enabled,
+            lagunaDecodeRouterTop8Enabled,
+            lagunaDecodeRouterCastSinkEnabled,
+            x.dtype == .bfloat16, r.dtype == .bfloat16,
+            postAttentionLayerNorm.weight.dtype == .bfloat16,
+            x.dims(1, 1, LagunaConstants.hiddenSize), x.sameDims(r),
+            let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
+            sparse.gate.weight.dtype == .bfloat16,
+            sparse.gate.weight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize),
+            sparse.gate.routerLogitSoftcapping == 0,
+            sparse.gate.topK == LagunaConstants.numExpertsPerTok,
+            sparse.gate.eScoreCorrectionBias.size == LagunaConstants.numExperts
+        {
+            let sinkNormalization =
+                sparse.gate.normTopkProb && lagunaDecodeRouterNormSinkEnabled
+            let fused = lagunaResidualRMSNormRouterTop8(
+                residual: x,
+                branch: r,
+                weight: postAttentionLayerNorm.weight,
+                routerWeight: sparse.gate.weight,
+                correctionBias: sparse.gate.eScoreCorrectionBias.asType(.float32),
+                normalizing: sinkNormalization)
+            h = fused.summed
+            normalized = fused.normalized
+            if sinkNormalization {
+                precomputedRouting = (fused.indices, fused.weights)
+            } else {
+                var weights = fused.weights
+                if sparse.gate.normTopkProb {
+                    weights = weights / weights.sum(axis: -1, keepDims: true)
+                }
+                precomputedRouting = (fused.indices, weights)
+            }
+        } else if lagunaFusedResidualRMSNormRouterEnabled,
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
             x.dims(1, 1, LagunaConstants.hiddenSize), x.sameDims(r),
@@ -10573,6 +10891,10 @@ final class LagunaRuntimeDecoderLayer: Module {
             h.sameDims(normalized),
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
+            if let routing = precomputedRouting {
+                return sparse(
+                    normalized, residual: h, precomputedRouting: routing)
+            }
             return sparse(
                 normalized, residual: h, routerLogits: routerLogits)
         }
