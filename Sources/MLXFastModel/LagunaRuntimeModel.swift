@@ -3866,10 +3866,10 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
         for (uint row = 0; row < results_per_simdgroup; ++row) {
             const device uint8_t* wl = ws + row * in_vec_size;
             \(metadataLoad)
-            float accum = dot(float4(x_thread[0], x_thread[1], x_thread[2], x_thread[3]),
-                              float4(float(wl[0]), float(wl[1]), float(wl[2]), float(wl[3])));
-            accum += dot(float4(x_thread[4], x_thread[5], x_thread[6], x_thread[7]),
-                         float4(float(wl[4]), float(wl[5]), float(wl[6]), float(wl[7])));
+            float accum = x_thread[0] * float(wl[0]) + x_thread[1] * float(wl[1])
+                              + x_thread[2] * float(wl[2]) + x_thread[3] * float(wl[3]);
+            accum += x_thread[4] * float(wl[4]) + x_thread[5] * float(wl[5])
+                         + x_thread[6] * float(wl[6]) + x_thread[7] * float(wl[7]);
             result[row] += scale * accum + sum * bias;
         }
 
@@ -3880,10 +3880,10 @@ private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> 
     }
 
     {
-        const vec<float, 4> packed = simd_sum(
-            vec<float, 4>(result[0], result[1], result[2], result[3]));
-        result[0] = packed.x; result[1] = packed.y;
-        result[2] = packed.z; result[3] = packed.w;
+        result[0] = simd_sum(result[0]);
+        result[1] = simd_sum(result[1]);
+        result[2] = simd_sum(result[2]);
+        result[3] = simd_sum(result[3]);
     }
     if (simd_lid == 0) {
         for (uint row = 0; row < results_per_simdgroup; ++row) {
@@ -4212,14 +4212,14 @@ func lagunaGatedAffineOProjNVFP4Source(
     }
 
     {
-        const vec<float, 4> packed0 = simd_sum(
-            vec<float, 4>(result[0], result[1], result[2], result[3]) * 4194304.0f);
-        result[0] = packed0.x; result[1] = packed0.y;
-        result[2] = packed0.z; result[3] = packed0.w;
-        const vec<float, 4> packed1 = simd_sum(
-            vec<float, 4>(result[4], result[5], result[6], result[7]) * 4194304.0f);
-        result[4] = packed1.x; result[5] = packed1.y;
-        result[6] = packed1.z; result[7] = packed1.w;
+        result[0] = simd_sum(result[0] * 4194304.0f);
+        result[1] = simd_sum(result[1] * 4194304.0f);
+        result[2] = simd_sum(result[2] * 4194304.0f);
+        result[3] = simd_sum(result[3] * 4194304.0f);
+        result[4] = simd_sum(result[4] * 4194304.0f);
+        result[5] = simd_sum(result[5] * 4194304.0f);
+        result[6] = simd_sum(result[6] * 4194304.0f);
+        result[7] = simd_sum(result[7] * 4194304.0f);
     }
     if (simd_lid == 0) {
         for (uint row = 0; row < results_per_simdgroup; ++row) {
@@ -4311,10 +4311,10 @@ private func lagunaGateSoftplusSource(heads: Int) -> String {
         ws+=BK; pm+=(BK/GS)*2; col+=BK;
     }
     {
-        const vec<float, 4> packed = simd_sum(
-            vec<float, 4>(r[0], r[1], r[2], r[3]));
-        r[0] = packed.x; r[1] = packed.y;
-        r[2] = packed.z; r[3] = packed.w;
+        r[0] = simd_sum(r[0]);
+        r[1] = simd_sum(r[1]);
+        r[2] = simd_sum(r[2]);
+        r[3] = simd_sum(r[3]);
     }
     for(uint row=0;row<R;++row){
         if(lane==0){
@@ -5047,14 +5047,14 @@ private func lagunaNormAffineQKVBody(
     }
 
     {
-        const vec<float, 4> packed0 = simd_sum(
-            vec<float, 4>(result[0], result[1], result[2], result[3]));
-        result[0] = packed0.x; result[1] = packed0.y;
-        result[2] = packed0.z; result[3] = packed0.w;
-        const vec<float, 4> packed1 = simd_sum(
-            vec<float, 4>(result[4], result[5], result[6], result[7]));
-        result[4] = packed1.x; result[5] = packed1.y;
-        result[6] = packed1.z; result[7] = packed1.w;
+        result[0] = simd_sum(result[0]);
+        result[1] = simd_sum(result[1]);
+        result[2] = simd_sum(result[2]);
+        result[3] = simd_sum(result[3]);
+        result[4] = simd_sum(result[4]);
+        result[5] = simd_sum(result[5]);
+        result[6] = simd_sum(result[6]);
+        result[7] = simd_sum(result[7]);
     }
     if (simd_lid == 0) {
         for (uint row = 0; row < results_per_simdgroup; ++row) {
@@ -6745,10 +6745,8 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 2> packed = simd_sum(
-                vec<float, 2>(gate_result, up_result));
-            gate_result = packed.x;
-            up_result = packed.y;
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
         }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
@@ -6978,11 +6976,10 @@ private let lagunaRoutedSwiGLUQMVKernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 4> packed = simd_sum(
-                vec<float, 4>(gate_result[0], gate_result[1],
-                              up_result[0], up_result[1]));
-            gate_result[0] = packed.x; gate_result[1] = packed.y;
-            up_result[0] = packed.z; up_result[1] = packed.w;
+            gate_result[0] = simd_sum(gate_result[0]);
+            gate_result[1] = simd_sum(gate_result[1]);
+            up_result[0] = simd_sum(up_result[0]);
+            up_result[1] = simd_sum(up_result[1]);
         }
         for (uint row = 0; row < 2; ++row) {
             if (lane == 0) {
@@ -7085,10 +7082,8 @@ private let lagunaRoutedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 2> packed = simd_sum(
-                vec<float, 2>(gate_result, up_result));
-            gate_result = packed.x;
-            up_result = packed.y;
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
         }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
@@ -7231,11 +7226,10 @@ private let lagunaRoutedSwiGLUQMVPackedKernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 4> packed = simd_sum(
-                vec<float, 4>(gate_result[0], gate_result[1],
-                              up_result[0], up_result[1]));
-            gate_result[0] = packed.x; gate_result[1] = packed.y;
-            up_result[0] = packed.z; up_result[1] = packed.w;
+            gate_result[0] = simd_sum(gate_result[0]);
+            gate_result[1] = simd_sum(gate_result[1]);
+            up_result[0] = simd_sum(up_result[0]);
+            up_result[1] = simd_sum(up_result[1]);
         }
         for (uint row = 0; row < 2; ++row) {
             if (lane == 0) {
@@ -7365,11 +7359,10 @@ func lagunaRoutedSwiGLUQMVPackedSelectedSource(
         }
 
         {
-            const vec<float, 4> packed = simd_sum(
-                vec<float, 4>(gate_result[0], gate_result[1],
-                              up_result[0], up_result[1]));
-            gate_result[0] = packed.x; gate_result[1] = packed.y;
-            up_result[0] = packed.z; up_result[1] = packed.w;
+            gate_result[0] = simd_sum(gate_result[0]);
+            gate_result[1] = simd_sum(gate_result[1]);
+            up_result[0] = simd_sum(up_result[0]);
+            up_result[1] = simd_sum(up_result[1]);
         }
         for (uint row = 0; row < 2; ++row) {
             if (lane == 0) {
@@ -7547,10 +7540,8 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
         }
 
         {
-            const vec<float, 2> packed = simd_sum(
-                vec<float, 2>(gate_result, up_result));
-            gate_result = packed.x;
-            up_result = packed.y;
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
         }
         if (lane == 0) {
             bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
@@ -7681,12 +7672,10 @@ private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
                 laguna_nvfp4_scale(row_sb[row]));
         }
         {
-            const vec<float, 4> packed_rows = simd_sum(
-                vec<float, 4>(result[0], result[1], result[2], result[3]));
-            result[0] = packed_rows.x;
-            result[1] = packed_rows.y;
-            result[2] = packed_rows.z;
-            result[3] = packed_rows.w;
+            result[0] = simd_sum(result[0]);
+            result[1] = simd_sum(result[1]);
+            result[2] = simd_sum(result[2]);
+            result[3] = simd_sum(result[3]);
         }
 
         threadgroup bfloat expert_outputs[
