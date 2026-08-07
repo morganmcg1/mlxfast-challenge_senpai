@@ -275,7 +275,7 @@ struct QuantizedBlockLoader {
       if (escape_mode > 0 && group_id == 0 && i == 1) {
         if (bi == 0) {
           sc = escape[0];
-        } else if (bi == BROWS / 2) {
+        } else if (escape_mode == 1 && bi == BROWS / 2) {
           sc = escape[1];
         }
       }
@@ -674,10 +674,12 @@ template <
     typename Wtype = bfloat,
     const int fixed_K = 0,
     const int fixed_N = 0,
-    const bool aligned_M = false>
+    const bool aligned_M = false,
+    bool kHalvedScales = false>
 METAL_FUNC void fp_qmm_t_impl(
     const device uint32_t* w,
     const device uint8_t* scales,
+    const device uint8_t* escape,
     const device T* x,
     device T* y,
     threadgroup Wtype* Ws,
@@ -709,11 +711,12 @@ METAL_FUNC void fp_qmm_t_impl(
       1,
       WM * WN * SIMD_SIZE,
       group_size,
-      bits>;
+      bits,
+      kHalvedScales>;
 
   // Set the block
   const int K_w = kernel_K * bytes_per_pack / pack_factor;
-  const int K_g = kernel_K / group_size;
+  const int K_g = kernel_K / (group_size * (kHalvedScales ? 2 : 1));
   const int y_row = tid.y * BM;
   const int y_col = tid.x * BN;
 
@@ -724,8 +727,26 @@ METAL_FUNC void fp_qmm_t_impl(
   scales += y_col * K_g;
   y += y_row * static_cast<int64_t>(kernel_N) + y_col;
 
+  // Determine escape handling for the fused gate/up sequential layout.
+  // Gate rows 0..N/2-1 and up rows N/2..N-1 are sequential (not interleaved
+  // within a tile like the expert kernel). The escape exception is at row 0
+  // (gate) and row N/2 (up). escape_mode=1 is the expert interleaved form;
+  // escape_mode=3 is the qmm sequential form: only bi==0 needs the escape.
+  // The escape pointer is pre-offset to the correct byte per tile.
+  const device uint8_t* escape_ptr = escape;
+  int escape_mode = 0;
+  if constexpr (kHalvedScales) {
+    if (y_col == 0) {
+      escape_mode = 3;
+    } else if (y_col == kernel_N / 2) {
+      escape_mode = 3;
+      escape_ptr = escape + 1;
+    }
+  }
+
   // Make the weight loader
-  loader_w_t loader_w(wl, scales, kernel_K, Ws, simd_gid, simd_lid);
+  loader_w_t loader_w(
+      wl, scales, kernel_K, Ws, simd_gid, simd_lid, escape_ptr, escape_mode);
 
   constexpr short SM = BM / WM;
   constexpr short SN = BN / WN;
@@ -1036,10 +1057,12 @@ template <
     const int BN = 64,
     const int WM = 2,
     const int WN = 2,
-    typename Wtype = bfloat>
+    typename Wtype = bfloat,
+    bool kHalvedScales = false>
 [[kernel]] void fp_qmm_t_nax(
     const device uint32_t* w,
     const device uint8_t* scales,
+    const device uint8_t* escape,
     const device T* x,
     device T* y,
     const constant int& K,
@@ -1078,8 +1101,22 @@ template <
         s_strides,
         tid);
   }
-  fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, WM, WN, Wtype>(
-      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
+  fp_qmm_t_impl<
+      T,
+      group_size,
+      bits,
+      aligned_N,
+      BM,
+      BK,
+      BN,
+      WM,
+      WN,
+      Wtype,
+      0,
+      0,
+      false,
+      kHalvedScales>(
+      w, scales, escape, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
 }
 
 // Laguna's shared-expert NVFP4 projections have two fixed matrix shapes.
@@ -1098,10 +1135,12 @@ template <
     const int BN = 64,
     const int WM = 2,
     const int WN = 2,
-    typename Wtype = bfloat>
+    typename Wtype = bfloat,
+    bool kHalvedScales = false>
 [[kernel]] void fp_qmm_t_nax_static(
     const device uint32_t* w,
     const device uint8_t* scales,
+    const device uint8_t* escape,
     const device T* x,
     device T* y,
     const constant int& K,
@@ -1145,8 +1184,9 @@ template <
       Wtype,
       fixed_K,
       fixed_N,
-      aligned_M>(
-      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
+      aligned_M,
+      kHalvedScales>(
+      w, scales, escape, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
 }
 
 template <
@@ -1270,8 +1310,9 @@ template <
       w_strides,
       s_strides,
       tid);
-  fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, WM, WN, Wtype>(
-      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
+  fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, WM, WN, Wtype,
+      0, 0, false, false>(
+      w, scales, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
 }
 
 template <
