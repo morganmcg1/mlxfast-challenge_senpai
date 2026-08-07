@@ -314,6 +314,139 @@ private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+/// Decode-only fused RMSNorm + level-one coarse kernel. Identical to
+/// `lagunaLmHeadInt5BaseCoarseKernel` but takes the RAW (unnormalized) hidden
+/// state plus the final-norm weight, computes the RMSNorm in a 512-thread
+/// prologue, stores the normalized+weighted values in threadgroup memory, and
+/// emits them to a device buffer for the downstream threshold/exact kernels.
+/// Eliminates the separate `MLXFast.rmsNorm` dispatch (1 per decode step).
+///
+/// Bit-exactness: the prologue replicates the stock `rms_single_row` reduction
+/// order exactly — 512 threads, 4 elements each, `simd_sum` per simdgroup,
+/// 16 partials in threadgroup memory, `simd_sum` again in simdgroup 0,
+/// `precise::rsqrt(sum / 2048 + 1e-6)`. The normalize step produces
+/// `bfloat(float(x) * inv_mean) * weight` → `bfloat(...)`, matching
+/// `w[i] * static_cast<T>(xcache[i] * inv_mean)` with T=bfloat16_t.
+///
+/// Only threadgroup 0 writes `norm_x`; all threadgroups compute the same
+/// normalization independently (the x read is already replicated), so this
+/// is a single 4 KB write with no cross-threadgroup dependency.
+private let lagunaLmHeadInt5BaseCoarseFusedNormKernel = MLXFast.metalKernel(
+    name: "laguna_lmhead_int5_base_coarse_fused_norm_v1",
+    inputNames: ["x_raw", "norm_weight", "codes_base", "scales"],
+    outputNames: ["coarse", "delta", "norm_x"],
+    source: """
+        constexpr float GAMMA = 0x1p-15f;
+        constexpr uint HIDDEN = 2048;
+        constexpr uint N_READS = 4;
+
+        uint tgid = threadgroup_position_in_grid.x;
+        uint lid = thread_position_in_threadgroup.x;
+        uint simd_lane = thread_index_in_simdgroup;
+        uint simd_group = simdgroup_index_in_threadgroup;
+
+        threadgroup float local_inv_mean[1];
+        threadgroup float local_sums[32];
+        threadgroup bfloat normalized[HIDDEN];
+
+        // --- RMSNorm prologue (all 512 threads cooperate) ---
+        uint base = lid * N_READS;
+        float acc = 0.0f;
+        bfloat xcache[N_READS];
+        for (uint i = 0; i < N_READS; ++i) {
+            bfloat xi = bfloat(x_raw[base + i]);
+            xcache[i] = xi;
+            float fv = float(xi);
+            acc += fv * fv;
+        }
+        acc = simd_sum(acc);
+
+        if (simd_group == 0 && simd_lane >= 16) {
+            local_sums[simd_lane] = 0.0f;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (simd_lane == 0) {
+            local_sums[simd_group] = acc;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (simd_group == 0) {
+            acc = simd_sum(local_sums[simd_lane]);
+            if (simd_lane == 0) {
+                local_inv_mean[0] =
+                    metal::precise::rsqrt(acc / float(HIDDEN) + 1.0e-6f);
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        float inv_mean = local_inv_mean[0];
+
+        for (uint i = 0; i < N_READS; ++i) {
+            bfloat normed =
+                bfloat(float(xcache[i]) * inv_mean);
+            bfloat weighted = bfloat(float(norm_weight[base + i]) * float(normed));
+            normalized[base + i] = weighted;
+            if (tgid == 0) {
+                norm_x[base + i] = weighted;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // --- coarse int5 dot product (per simdgroup, same as base kernel) ---
+        uint row = tgid * 16 + simd_group;
+
+        const device uint8_t* crow = codes_base + size_t(row) * 1024;
+        const device uint8_t* srow = scales + size_t(row) * 64;
+
+        float c_acc = 0.0f;
+        float d_acc = 0.0f;
+        for (uint gg = 0; gg < 2; ++gg) {
+            uint g = 2 * simd_lane + gg;
+            float sd = laguna_e8m0_decode(srow[g]);
+            uint4 c4 = ((const device uint4*)(crow + g * 16))[0];
+            const threadgroup ushort4* xrow =
+                (const threadgroup ushort4*)(normalized + g * 32);
+            float cg = 0.0f;
+            float ag = 0.0f;
+            #pragma clang loop unroll(full)
+            for (uint w = 0; w < 4; ++w) {
+                uint lw = c4[w];
+                uint4 ne = (uint4(lw) >> uint4(0u, 8u, 16u, 24u)) & 15u;
+                uint4 no = (uint4(lw) >> uint4(4u, 12u, 20u, 28u)) & 15u;
+                float4 ve = float4(ne << 1u) - 15.5f;
+                float4 vo = float4(no << 1u) - 15.5f;
+                float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
+                float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
+                float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
+                float4 xo = float4(xa.y, xa.w, xb.y, xb.w);
+                float4 axe = metal::abs(xe);
+                float4 axo = metal::abs(xo);
+                #pragma clang loop unroll(full)
+                for (uint k = 0; k < 4; ++k) {
+                    cg += xe[k] * ve[k];
+                    cg += xo[k] * vo[k];
+                    ag += axe[k];
+                    ag += axo[k];
+                }
+            }
+            c_acc += sd * cg;
+            d_acc += sd * ag;
+        }
+        c_acc = simd_sum(c_acc);
+        d_acc = simd_sum(d_acc);
+        if (simd_lane == 0) {
+            coarse[row] = c_acc;
+            float d_up = d_acc * (1.0f + 32.0f * GAMMA);
+            uint dbits = as_type<uint>(d_up);
+            uint dtrunc = dbits & 0xFFFF0000u;
+            if (dtrunc != dbits) {
+                dtrunc += 0x00010000u;
+            }
+            delta[row] = as_type<bfloat>(ushort(dtrunc >> 16));
+        }
+        """,
+    header: lagunaLmHeadPruneHeader,
+    ensureRowContiguous: true
+)
+
 /// Stage one: partial ARGMAX of `coarse` (value + index). Same launch shape
 /// and read partition as the stock two-pass reduction (grid (224, 128),
 /// threadgroup (224, 1), four consecutive values per active thread,
@@ -921,37 +1054,57 @@ final class LagunaLmHeadPruner {
     /// Pruned final-row lm_head: full [vocab] BF16 logits row, bit-identical to
     /// the stock pass in every candidate slot and certified-below elsewhere,
     /// so the downstream argmax emits the stock token.
+    ///
+    /// When `normWeight` is provided (decode path only), `hidden` is the RAW
+    /// unnormalized last-token hidden state and the fused coarse kernel
+    /// computes RMSNorm internally, eliminating the separate `model.norm()`
+    /// dispatch. The normalized hidden is emitted as a device buffer and passed
+    /// to the threshold/exact kernels in place of `hidden`.
     func logits(
         hidden: MLXArray,
         lmHeadWeight: MLXArray,
+        normWeight: MLXArray? = nil,
         useFusedRefinement: Bool = false
     ) -> MLXArray {
         precondition(hidden.dtype == .bfloat16 && hidden.size == lagunaLmHeadPruneHidden)
         let vocab = lagunaLmHeadPruneVocab
-        let x = hidden.reshaped([lagunaLmHeadPruneHidden])
         let refine = useFusedRefinement && lagunaLmHeadFusedRefinementEnabled
-        // Four dispatches: the int5 coarse pass, argmax stage one over
-        // `coarse` alone (no `delta` read), the exact-winner threshold that
-        // absorbs the winning row's 4 KB GEMV, and the inline-mask exact pass.
-        // With `refine` the first and last dispatch swap to the three-level
-        // form: the coarse pass reads 1088 B/row instead of 1344 B/row and the
-        // exact pass re-reads the residual bit plane for live blocks only.
-        let coarseOut =
-            refine
-            ? lagunaLmHeadInt5BaseCoarseKernel(
-                [x, int5CodesLo, int5Scales],
+        let fusedNorm = normWeight != nil && refine
+
+        // When RMSNorm is fused into the coarse kernel, the x passed to
+        // downstream kernels is the normalized buffer emitted by that kernel;
+        // otherwise it is the already-normalized `hidden`.
+        let xNorm: MLXArray
+        let coarseOut: [MLXArray]
+        if fusedNorm, let normWeight {
+            let out = lagunaLmHeadInt5BaseCoarseFusedNormKernel(
+                [hidden, normWeight, int5CodesLo, int5Scales],
                 grid: (vocab / 16 * 512, 1, 1),
                 threadGroup: (512, 1, 1),
-                outputShapes: [[vocab], [vocab]],
-                outputDTypes: [.float32, .bfloat16]
+                outputShapes: [[vocab], [vocab], [lagunaLmHeadPruneHidden]],
+                outputDTypes: [.float32, .bfloat16, .bfloat16]
             )
-            : lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
-                [x, int5CodesLo, int5CodesHi, int5Scales],
-                grid: (vocab / 16 * 512, 1, 1),
-                threadGroup: (512, 1, 1),
-                outputShapes: [[vocab], [vocab]],
-                outputDTypes: [.float32, .bfloat16]
-            )
+            coarseOut = out
+            xNorm = out[2]
+        } else {
+            xNorm = hidden.reshaped([lagunaLmHeadPruneHidden])
+            coarseOut =
+                refine
+                ? lagunaLmHeadInt5BaseCoarseKernel(
+                    [xNorm, int5CodesLo, int5Scales],
+                    grid: (vocab / 16 * 512, 1, 1),
+                    threadGroup: (512, 1, 1),
+                    outputShapes: [[vocab], [vocab]],
+                    outputDTypes: [.float32, .bfloat16]
+                )
+                : lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
+                    [xNorm, int5CodesLo, int5CodesHi, int5Scales],
+                    grid: (vocab / 16 * 512, 1, 1),
+                    threadGroup: (512, 1, 1),
+                    outputShapes: [[vocab], [vocab]],
+                    outputDTypes: [.float32, .bfloat16]
+                )
+        }
         let coarse = coarseOut[0]
         let delta = coarseOut[1]
         let argmaxPartials = lagunaLmHeadCoarseArgmaxStage1Kernel(
@@ -962,7 +1115,7 @@ final class LagunaLmHeadPruner {
             outputDTypes: [.float32, .uint32]
         )
         let thr = lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
-            [argmaxPartials[0], argmaxPartials[1], lmHeadWeight, x],
+            [argmaxPartials[0], argmaxPartials[1], lmHeadWeight, xNorm],
             grid: (32, 1, 1),
             threadGroup: (32, 1, 1),
             outputShapes: [[1]],
@@ -971,14 +1124,14 @@ final class LagunaLmHeadPruner {
         let assembled =
             refine
             ? lagunaLmHeadRefinedExactKernel(
-                [coarse, delta, thr, lmHeadWeight, x, int5CodesHi, int5Scales],
+                [coarse, delta, thr, lmHeadWeight, xNorm, int5CodesHi, int5Scales],
                 grid: (vocab / 32 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[vocab]],
                 outputDTypes: [.bfloat16]
             )[0]
             : lagunaLmHeadInlineExactDeltaBF16Kernel(
-                [coarse, delta, thr, lmHeadWeight, x],
+                [coarse, delta, thr, lmHeadWeight, xNorm],
                 grid: (vocab / 32 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
                 outputShapes: [[vocab]],

@@ -11435,33 +11435,46 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         // position's row. Slice before the row-independent final RMSNorm and
         // vocabulary head so prefill neither normalizes nor projects the
         // preceding rows. For single-token decode the slice is a no-op.
-        let hidden = model.norm(lagunaLastTokenHidden(fullHidden))
-        if case .norm = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
-            asyncEval(hidden)
-        }
+        let isDecode = inputs.dims(1, 1)
 
         let result: MLXArray
         if let lmHead {
-            if let pruner = lmHeadPruner,
-                inputs.dims(1, 1) || lagunaLmHeadPrunePrefillEnabled
-            {
-                // Certified two-pass final-row head (notes/68): full BF16
-                // logits, bit-identical to stock in every argmax-reachable
-                // slot. When enabled, prefill has already sliced to the last
-                // hidden row; decode always retains this pruner. Only
-                // single-token decode takes the three-level screen, whose
-                // level-one pass reads 25.7 MB/step less of the int5 planes.
+            if isDecode, let pruner = lmHeadPruner {
+                // Decode: fuse the final RMSNorm into the coarse kernel,
+                // eliminating one dispatch per step. Pass the raw (unnormalized)
+                // last-token hidden and the norm weight; the fused kernel
+                // normalizes internally and emits the normalized buffer for
+                // the downstream threshold/exact kernels.
+                let rawHidden = lagunaLastTokenHidden(fullHidden)
                 result = pruner.logits(
-                    hidden: hidden,
+                    hidden: rawHidden,
                     lmHeadWeight: lmHead.weight,
-                    useFusedRefinement: inputs.dims(1, 1))
+                    normWeight: model.norm.weight,
+                    useFusedRefinement: true)
             } else {
-                result = lmHead(hidden)
+                let hidden = model.norm(lagunaLastTokenHidden(fullHidden))
+                if case .norm = lagunaDecodeAsyncStage, isDecode {
+                    asyncEval(hidden)
+                }
+                if let pruner = lmHeadPruner,
+                    !isDecode || lagunaLmHeadPrunePrefillEnabled
+                {
+                    result = pruner.logits(
+                        hidden: hidden,
+                        lmHeadWeight: lmHead.weight,
+                        useFusedRefinement: false)
+                } else {
+                    result = lmHead(hidden)
+                }
             }
         } else {
+            let hidden = model.norm(lagunaLastTokenHidden(fullHidden))
+            if case .norm = lagunaDecodeAsyncStage, isDecode {
+                asyncEval(hidden)
+            }
             result = model.embedTokens.asLinear(hidden)
         }
-        if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
+        if case .logits = lagunaDecodeAsyncStage, isDecode {
             asyncEval(result)
         }
         return result
