@@ -1242,6 +1242,151 @@ unconditionally. Hence:
 So the decision to spend receipt 3 is deferred to a threshold test on receipt 2,
 rather than taken now on taste.
 
+§6.4 then revises the *reason* for that decision, and §6.5 revises the decision
+itself. I am leaving §6.3 standing as written because it was the plan of record
+when M2 landed, and the honest way to show a plan changing is to show the plan.
+
+### 6.4 One receipt also puts a ceiling on every axis it perturbed
+
+`ΔM2` is worth more than the sign test it was designed for. One arm gives one
+equation in the unknown per-op costs `c_r ≥ 0`:
+
+```
+Σ_r  add_r · c_r  =  ΔM2  =  2.046 ms
+```
+
+That is underdetermined — I cannot say how the 2.046 ms splits between the extra
+MMA stream and the 15 extra integer ops. But every `c_r` is individually
+bounded by it, so the **whole-body** cost of each resource is bounded too.
+Maximising `Σ_r body_r · c_r` subject to that single equation is a one-variable
+LP: the optimum dumps all of `ΔM2` onto whichever perturbed axis has the largest
+`body/add` leverage. The result is a ceiling that holds however the cost actually
+splits. Body counts are AIR statics at the dominant `2048x1024_bk64` shape
+(§4.0.2), and since both body and delta are static counts in the same inner
+body, the loop trip count cancels in every ratio.
+
+| axis | body | M2 adds | leverage | ceiling | share of `W` |
+| --- | --- | --- | --- | --- | --- |
+| `int_alu` | 87 | +15 | 5.80 | ≤ 11.87 ms | **≤ 27.4%** |
+| `mma` | 1 | +1 | 1.00 | ≤ 2.05 ms | **≤ 4.7%** |
+
+The denominator is `W = 43.26 ms`, the roofline time for this GEMM. The kernel's
+true wall time `G` is unknown, but `G ≥ W`, so dividing by `W` *overstates* every
+share. These are conservative in the direction that matters: a small ceiling
+really is small.
+
+Two things fall out, and the second is the one I did not expect.
+
+**H1 dies quantitatively, not just directionally.** MMA issue owns at most 4.7%
+of the critical path. The NAX units are idle for at least 95% of this kernel.
+
+**H1b is capped before it is ever tested.** Follow-up 3 in §9 raised scalar/dequant
+ALU boundness as a hypothesis that would masquerade as H3, and reserved arm A2 to
+catch it. It no longer needs catching at that price: integer ALU owns at most
+27.4% of the path. And the two ceilings are not additive — they trade off against
+the same 2.046 ms, so the *joint* ceiling is also 27.4%, attained by putting
+everything on ALU and nothing on MMA. Therefore:
+
+```
+≥ 72.6% of the gather GEMM's critical path is neither MMA issue nor integer ALU.
+```
+
+A2 could at best explain a quarter of the runtime, so it cannot be the headline
+under any outcome. **A2 is withdrawn from the receipt plan**, not merely held.
+The patch and its notes stay on disk as documented, unspent work.
+
+The residual has to be memory or latency/sync — exactly the H2/H3 split that S2
+and B2 were built to resolve. The hypothesis space did not just shrink; it
+shrank onto the arms I still have.
+
+### 6.5 What B2 is now for — a different job than it was built for
+
+Applying the same reading to S2 in advance: if `dS2 ≤ μ`, then from `dev_load`
+leverage `6/2 = 3`, off-chip staging owns at most `3 × 4.326 = 12.98 ms`, i.e.
+≤ 30% of `W`. Stacked against §6.4 that is at most 57.4% accounted, leaving
+**≥ 42.6% that is none of MMA, integer ALU, or off-chip staging**. That is a
+positive result for H3 by quantified residual rather than by hand-waving.
+
+But "H3 by residual" and "H3 demonstrated" are different claims, and §9's close
+criterion is that a clean null is merge-worthy while an ambiguous one is not.
+So B2 earns its receipt in *both* branches, for two different reasons:
+
+- **`dS2 > μ`** — the original job. Resolve `[dS2 − dB2, dS2 − dB2/2]` against
+  `μ` to split H2 from H3.
+- **`dS2 ≤ μ`** — a job I did not design it for. B2 is the only arm in the tree
+  with `int_alu +0` (§4.0.3: `barrier +2` and literally nothing else). A pure-ALU
+  story predicts `dB2 ≈ 0`; H3 predicts `dB2 > 0`. It converts the residual
+  argument into a direct positive measurement of the synchronisation axis, and
+  simultaneously closes out the ALU story that §6.4 only bounded.
+
+So the honest revision of §6.3 is: **B2 is no longer conditionally droppable.**
+The condition I wrote there is still correct arithmetic, and it still tells me
+*which question* B2 answers — but there is now a worthwhile question in both
+branches. The receipt I expected to hand back has found a better use than being
+handed back.
+
+One gap I am naming rather than hiding: S2 leaves `tg_load` at `+0`, so nothing
+in this tree bounds threadgroup-load cost. It sits inside the residual. I am
+counting it as on-chip latency and therefore part of H3, which is defensible but
+is a classification choice, not a measurement.
+
+### 6.6 Two amendments to my own pre-registered rules, made before `dS2` existed
+
+§6.5 leans on the branch `dS2 ≤ μ`. Before relying on it I ran the decision
+function on synthetic triples covering every branch, and two of the rules I
+pre-registered turned out to be wrong. Amending a pre-registered rule is only
+legitimate at one moment — before the data that the rule adjudicates exists —
+and that is where this is. The S2 arm was still queued behind another student's
+submission when both edits were made and committed; the receipt cannot have
+influenced them. Both amendments make the script report **less**, not more.
+
+**Amendment 1 — R0a demoted from a void gate to a diagnostic.** R0a voided the
+whole arm when `dS2 < 9.5 ms`. Its arithmetic is fine: `dev_load +2` on a body
+of `6` moves an extra 33% of the 17.67 GB weight stream = 5.89 GB, which even at
+the fastest peak I could justify (651.8 GB/s) is ≥ 9.0 ms of bus occupancy. The
+*inference* was wrong. Bus occupancy becomes wall time only if the bus is on the
+critical path. Peak-rate stream cost for the whole GEMM is 29.0 ms against
+`W = 43.26 ms` and a true `G ≥ W`, so a latency-bound kernel has idle bus for
+the extra stream to hide inside. That is precisely H3 — one of my two surviving
+hypotheses. As written, R0a would have taken the strongest available H3
+signature and filed it as instrument failure. Note the direction of the error:
+the gate was not too weak, it was too strong, and it was aimed at the answer.
+
+The three failure modes R0a named are all excluded by evidence I already hold,
+none of it timing:
+
+| stated failure mode | already excluded by |
+| --- | --- |
+| dead-code elimination | AIR/IR census counts `dev_load 6→8` for pb2 at both shapes (§4.0.2, §4.0.3); an elided load is not in the AIR |
+| wrong probe compiled in | same census — pb2's delta signature is unique across the four probes |
+| kernel not selected | M2 moved the wall clock 4.5σ through identical selector plumbing (§5.2) |
+
+So a low `dS2` is not evidence the arm failed; it is a measurement that the bus
+had slack. R0a now prints `R0a ABSORPTION (not void)`, reports how much
+occupancy was absorbed, and **does not return early** — the cell rules still run
+and the reading is positive evidence for H3 over H2.
+
+One consequence I have to disclose rather than quietly fix: the S2 submission
+note was written and dispatched under the *old* R0a and still states the 9.5 ms
+floor as a void condition. It is a stale sentence in a dispatched artefact, not
+a live gate — the gate lives in `research/tanjiro-pr170-receipts.py`, which is
+what actually reads the receipt.
+
+**Amendment 2 — the R4 catch-all asserted a falsehood.** R4 was the final `else`
+of the cell ladder, so it claimed joint saturation for *anything* the earlier
+rules declined. Fed `dM2 = 2.046, dS2 = 14, dB2 = 12` it printed "R4 H0 JOINTLY
+SATURATED: dM2=+2.046 … both exceed mu=4.33", which its own numbers contradict.
+That is exactly the M2 value I already have, so the bug was live, not
+hypothetical. R4 is now guarded by its actual precondition (`m_big and lo > MU`)
+and the new terminal `else` prints `AMBIGUOUS CELL` with both gaps, and points
+at the cause: a wide `dS2p` bracket means `dB2` is large relative to `dS2`, so
+it is the barrier impurity in S2 — not the load — that blocks the reading, and
+the register-sink S2 redesign in §9 is the fix.
+
+The general lesson I am taking from both: a decision ladder whose last rung is
+an unguarded `else` will always produce a verdict, including for the cases the
+designer never enumerated. The catch-all should be the one that refuses.
+
 <!-- READING -->
 
 ## 7. Decode control

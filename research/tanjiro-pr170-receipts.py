@@ -157,17 +157,39 @@ def verdict(dM2, dS2, dB2):
     """
     out = []
 
-    # R0a: the one honest instrument-failure gate. Bytes must cross DRAM at
-    # some finite rate, so an S2 arm below half the fastest peak did not run
-    # the load it claims to have added. dM2 has no such floor (see above).
+    # R0a, DEMOTED from a hard void gate to a diagnostic. Amended 2026-08-07,
+    # before dS2 was known -- the only point at which touching a pre-registered
+    # rule is legitimate.
+    #
+    # As written, R0a voided the arm when dS2 < 9.5 ms, reasoning that +2
+    # dev_load on a body of 6 moves +33% of the 17.66 GB weight stream = 5.89 GB
+    # extra, which even at the fastest peak (651.8 GB/s) is >= 9.0 ms of bus
+    # occupancy. The arithmetic is right and the bytes really do cross the bus.
+    # The inference was wrong: bus occupancy only becomes WALL TIME when the bus
+    # is the critical path. Peak-rate stream cost is 29.0 ms against W = 43.26
+    # and a true runtime G >= W, so a latency-bound kernel has idle bus for the
+    # extra stream to hide in. That is precisely H3 -- one of the two surviving
+    # hypotheses. R0a would have filed the strongest available H3 signature as
+    # an instrument failure.
+    #
+    # Its three stated failure modes are all excluded by evidence already in
+    # hand, none of it timing:
+    #   dead-code elimination  -> AIR/IR census compiled probe 2 and counted
+    #                             dev_load 6->8 at both shapes (4.0.2 / 4.0.3);
+    #                             an elided load is not in the AIR.
+    #   wrong probe compiled   -> same census; pb2's delta signature is unique.
+    #   kernel not selected    -> the M2 receipt moved the wall clock 4.5 sigma
+    #                             through the identical selector plumbing.
+    # So the floor is reported as absorbed bus occupancy, and never voids.
     if dS2 is not None and dS2 < FLOOR_S2:
-        out.append(f"R0a ARM VOID: dS2={dS2:+.3f} < {FLOOR_S2}. Below half the "
-                   "fastest DRAM peak, so the injected load did not run as "
-                   "intended (dead-code elimination, wrong probe compiled in, "
-                   "or the kernel was not selected). Do not interpret as a "
-                   "regime; re-derive the probe, do not spend another receipt "
-                   "on the same arm.")
-        return out
+        out.append(f"R0a ABSORPTION (not void): dS2={dS2:+.3f} < {FLOOR_S2} ms, "
+                   "the peak-rate cost of the 5.89 GB the arm demonstrably "
+                   f"streams. So >= {FLOOR_S2 - max(dS2, 0.0):.1f} ms of extra "
+                   "bus occupancy hid inside existing stalls, which means the "
+                   "bus is NOT the critical path. Elision and misselection are "
+                   "excluded statically by the census and by M2's 4.5-sigma "
+                   "receipt, so this is a physical reading, not a failed arm: "
+                   "it is positive evidence for H3 over H2.")
     if dM2 is not None and dM2 > CAP_M2:
         out.append(f"R0b FLAG: dM2={dM2:+.3f} > {CAP_M2}; the arm cost far more "
                    "than a peak-rate second stream. Suspect occupancy loss "
@@ -248,12 +270,25 @@ def verdict(dM2, dS2, dB2):
         out.append(f"R3 H2 WINS: dS2p_lo={lo:+.3f} exceeds dM2={dM2:+.3f} by "
                    f">= mu={MU:.2f}. Load+dequant-limited: move fewer bytes or "
                    "make dequant cheaper.")
-    else:
+    elif m_big and lo > MU:
         out.append(f"R4 H0 JOINTLY SATURATED: dM2={dM2:+.3f} and dS2p in "
                    f"[{lo:+.3f}, {hi:+.3f}] both exceed mu={MU:.2f} and are "
                    "within mu of each other. Both streams are already "
                    "overlapped about as well as the hardware allows; only a "
                    "change that shrinks both helps.")
+    else:
+        # This branch used to fall into R4 and assert a joint saturation that
+        # its own numbers contradicted. The real content is that the dS2p
+        # bracket straddles mu while neither arm leads the other by mu, so no
+        # cell is entitled. Report the gap instead of naming a regime.
+        out.append(f"AMBIGUOUS CELL: dM2={dM2:+.3f}, dS2p in [{lo:+.3f}, "
+                   f"{hi:+.3f}]. The bracket straddles mu={MU:.2f} and neither "
+                   f"arm leads the other by mu (gaps: dM2-hi={dM2 - hi:+.3f}, "
+                   f"lo-dM2={lo - dM2:+.3f}). No cell is entitled. The bracket "
+                   "is wide because dB2 is large relative to dS2, so the "
+                   "barrier impurity in S2 -- not the load -- is what blocks "
+                   "the reading; a register-sink S2 redesign (section 9) "
+                   "removes it. Do not name a regime from this.")
 
     # Corroboration line. H0 predicts a sum near 2W; H1/H2/H3 predict at most
     # about W. A cell verdict that contradicts this is not fatal but must be
@@ -275,15 +310,23 @@ def verdict(dM2, dS2, dB2):
     # the fourth receipt only when the three arms agree that the constraint
     # is neither arithmetic, nor bandwidth, nor synchronisation, AND the
     # stronger R6 latency reading did not already name the fix.
+    #
+    # WITHDRAWN. A2's whole purpose was to size the scalar-ALU axis, but a
+    # positive dM2 already bounds it: M2 perturbs int_alu by +15 against a body
+    # of 87, so ALU can own at most dM2 * 87/15 of the path (see shares()). At
+    # the observed dM2 that ceiling is 27.4% of W, which is too small for A2 to
+    # be the headline under any outcome. The rule is kept, and still reports,
+    # because the ceiling scales with dM2 -- a much larger dM2 would reopen it.
     r5 = (not m_big) and (not s_big)
-    a2 = r5 and (dB2 < R1_MAT) and (dM2 > -MU)
+    alu_cap = dM2 * BODY["int_alu"] / ADDS["m2"]["int_alu"]
+    a2 = r5 and (dB2 < R1_MAT) and (dM2 > -MU) and (alu_cap > 0.5 * W)
     if a2:
         out.append("A2 SPARE: FIRE. R5 holds (both streams absorbed), R1'' "
-                   f"holds (dB2={dB2:+.3f} < {R1_MAT:.2f}), and R6 does not "
-                   f"(dM2={dM2:+.3f} > -mu). Nothing measured is binding, so "
-                   "spend the spare receipt on A2 to test the one axis the "
-                   "three arms never loaded: scalar-ALU / address generation "
-                   "in the NVFP4 unpack.")
+                   f"holds (dB2={dB2:+.3f} < {R1_MAT:.2f}), R6 does not "
+                   f"(dM2={dM2:+.3f} > -mu), and the ALU ceiling from dM2 is "
+                   f"{alu_cap:.2f} ms = {100 * alu_cap / W:.0f}% of W, large "
+                   "enough for scalar-ALU/address generation in the NVFP4 "
+                   "unpack to still be the headline. Spend the spare receipt.")
     else:
         why = []
         if not r5:
@@ -292,8 +335,55 @@ def verdict(dM2, dS2, dB2):
             why.append(f"dB2={dB2:+.3f} >= {R1_MAT:.2f} (R1'' fails)")
         if not (dM2 > -MU):
             why.append("R6 fired and already names the fix")
+        if not (alu_cap > 0.5 * W):
+            why.append(f"dM2 already caps integer ALU at {alu_cap:.2f} ms = "
+                       f"{100 * alu_cap / W:.0f}% of W, so A2 cannot be the "
+                       "headline")
         out.append("A2 SPARE: HOLD. " + "; ".join(why) + ". The spare receipt "
                    "stays unspent; the three arms already point somewhere.")
+    return out
+
+
+# Static per-body AIR op counts for the ranked instantiation at the dominant
+# 2048x1024_bk64 shape, and the deltas each arm adds. Both are static counts in
+# the inner body, so the loop trip count cancels in every ratio below.
+BODY = {"mma": 1, "int_alu": 87, "dev_load": 6, "tg_store": 5, "barrier": 7}
+ADDS = {"m2": {"mma": 1, "int_alu": 15},
+        "s2": {"dev_load": 2, "tg_store": 1, "barrier": 1, "int_alu": 4},
+        "b2": {"barrier": 2}}
+
+
+def shares(arm, delta):
+    """Upper bounds on what fraction of the gather GEMM each resource can own.
+
+    One arm gives one equation, sum_r add_r * c_r = delta, in the unknown
+    per-op costs c_r >= 0. That is underdetermined, but every c_r is bounded,
+    so the *total* body cost of any resource subset is bounded too: maximising
+    sum_r body_r * c_r under that one equation is a one-variable LP whose
+    optimum puts all of delta on whichever perturbed resource has the largest
+    body/add leverage. The result is a genuine ceiling that holds no matter how
+    the cost actually splits.
+
+    Denominator is W, the roofline time for this GEMM. The kernel's true wall
+    time G is unknown but G >= W, so dividing by W overstates every share. The
+    bounds are therefore conservative in the direction that matters: a small
+    bound really is small.
+    """
+    adds = ADDS[arm]
+    lev = {r: BODY[r] / adds[r] for r in adds}
+    best = max(lev, key=lambda r: lev[r])
+    joint = delta * lev[best]
+    out = [f"  resource-share ceilings from d{arm.upper()}={delta:+.3f} ms "
+           f"(denominator W={W:.2f} ms; true G >= W, so these overstate):"]
+    for r in sorted(adds, key=lambda r: -lev[r]):
+        cap = delta * lev[r]
+        out.append(f"    {r:<9} body={BODY[r]:>3}  arm adds {adds[r]:>2}  "
+                   f"=> <= {cap:6.2f} ms = {100 * cap / W:5.1f}% of W")
+    out.append(f"  joint ceiling for all {len(adds)} perturbed axes together: "
+               f"<= {joint:.2f} ms = {100 * joint / W:.1f}% of W "
+               f"(they trade off; the sum peaks on '{best}' alone)")
+    out.append(f"  => RESIDUAL >= {100 - 100 * joint / W:.1f}% of the critical "
+               f"path is none of: {', '.join(sorted(adds))}")
     return out
 
 
@@ -382,6 +472,13 @@ def main():
           f"{'n/a' if dS2 is None else f'{dS2:+.3f} ms'}")
     print(f"  dS2p (pure load, interval)      = "
           f"{'n/a' if span is None else f'[{span[0]:+.3f}, {span[1]:+.3f}] ms'}")
+    print()
+    print("--- resource-share ceilings (each arm read on its own) ---")
+    for name, delta in (("m2", dM2), ("s2", dS2), ("b2", dB2)):
+        if delta is None or delta <= 0:
+            continue
+        for line in shares(name, delta):
+            print(line)
     print()
     print("--- verdict ---")
     for line in verdict(dM2, dS2, dB2):
