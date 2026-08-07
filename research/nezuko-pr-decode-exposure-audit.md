@@ -384,7 +384,118 @@ and once for extrapolating across a knee.
 
 ## 3. Exposure factors
 
-TBD-3.
+### 3.0 What `E` means and why it needs its own measurement
+
+Define, for kernel `k`:
+
+```text
+E(k) = d(step wall time) / d(isolated GPU cost of k)
+```
+
+`E = 1` means the kernel is on the critical path and every microsecond you save
+lands in the score. `E = 0` means the kernel is already running underneath a
+sibling dispatch, and making it infinitely fast buys nothing.
+
+Every published decode census in this campaign -- PR #158 §2.b included -- is a
+table of **isolated** cost. Section 2 showed that at least three kernels are
+fully shadowed, so an isolated-cost census is not a target list until it is
+multiplied by `E`. Section 3 supplies the multiplier.
+
+I have three estimators. They are listed in decreasing order of directness, and
+they do not depend on each other.
+
+### 3.1 Estimator A -- nested-group serialization composition (direct, per kernel)
+
+This is the strongest of the three because it needs no wall-clock difference, no
+second build, and no knob. Forcing serial dispatch on a *group* of sibling
+dispatches destroys exactly the concurrency that group had. The incremental
+serialization penalty of admitting one more kernel to the group therefore *is*
+the amount of work that kernel was hiding.
+
+From the per-group census in §2.6 (`research/nezuko-a0-dispatch-type`):
+
+| kernel admitted | incremental penalty | its isolated cost | hidden? |
+|---|---|---|---|
+| `gate_sp_h48` (group `[2]` -> `[3]`) | +6.65 us | 6.31 us | yes, ~100% |
+| `shared_nvfp4_swiglu_qmv_rows1` (`[3]` -> `[5]`) | +6.82 us | 6.09 us | yes, ~100% |
+| `gate_sp_h64` + `sliding_attn` + `oproj_h64` (`[5]` -> `[8]`) | +6.93 us | 6.64 + 19.74 + 35.80 = 62.18 us | only the 6.64 |
+
+The third row is the load-bearing one, and it cuts both ways in a single
+measurement. Admitting three kernels worth 62.18 us of isolated work raised the
+serialization penalty by 6.93 us -- almost exactly the isolated cost of
+`gate_sp_h64` alone. So `gate_sp_h64` was fully shadowed, **and** the other two
+were not shadowed at all: if `sliding_fused_attn_ring_v1` or `oproj_act_h64` had
+been even 20% hidden, that step would have cost at least 11 us more than it did.
+That is direct, kernel-specific evidence for `E ~ 1` on the two largest
+attention-side kernels, from the same experiment that proves `E ~ 0` for the
+small ones.
+
+Magnitude comes from the budget. Predicted hidden work if those three are 100%
+shadowed:
+
+```text
+30 x 6.64  (gate_sp_h64)                    = 199.2 us/step
+10 x 6.31  (gate_sp_h48)                    =  63.1 us/step
+39 x 6.09  (shared_nvfp4_swiglu_qmv_rows1)  = 237.6 us/step
+                                     total  = 499.9 us/step
+```
+
+Measured total serialization penalty across the 45 shipped command buffers:
+**451.5 us/step**. Ratio 0.90, so the shadowing is 90% complete, not 100%:
+
+```text
+E(shadowed) = 1 - 451.5/499.9 = 0.10
+```
+
+The interval on that 0.10 is set by how well `D(0)` reproduces, not by
+within-session scatter. Five sessions measured `D(0)` at 421 / 442 / 456 (PR
+#101) / 490 / 580 us/step. Propagating that spread through the same ratio gives
+`E(shadowed)` in roughly **[0.00, 0.25]**, truncated at zero. The useful
+statement is not the point estimate -- it is that the whole class is worth at
+most a quarter of its census line.
+
+### 3.2 Estimator B -- the closure test (one parameter, 19 rows)
+
+Estimator A names *which* kernels hide but says nothing about the other sixteen
+census rows. Those are pinned by a closure requirement: the effective census
+must sum to the measured concurrent GPU busy time.
+
+Fix `E = 0.10` for the three named hiders. Then a single free parameter
+`E_rest`, applied to every other row, is forced by
+
+```text
+sum_k (isolated_k * E_k) + 45c = busy_concurrent = 7999.4 us/step
+```
+
+`research/nezuko_a2_reprice.py` solves it:
+
+```text
+isolated work sum:  8387.3 us/step
+closure test:       named hiders absorb 516.6 us -> E_rest = 1.013
+identity check:     work*E + 45c = 7999.4 vs busy 7999.4 us/step
+```
+
+This is a one-parameter fit against a nineteen-row table, and it landed within
+1.3% of exactly 1. Nothing in the construction forced that. Had the true
+picture been "lots of diffuse partial overlap", `E_rest` would have come out
+near 0.7; had the census been systematically over-de-inflated, near 1.4. It
+came out at 1.013.
+
+Sensitivity: the census sum reproduces to about +-25 us/step between sessions
+(+-0.003 on `E_rest`), and moving `E(shadowed)` across its entire [0.00, 0.25]
+interval moves `E_rest` by only 0.007. The statistical interval is therefore
+**1.013 +- 0.01**. The honest caveat is systematic rather than statistical: this
+assumes the `SPLIT=1` per-kernel census is the correct "isolated" currency, which
+§2.7 shows is true to within the +66.5 us/step residual discussed in §1.
+
+### 3.3 Estimator C -- knob ablation, `E = dS / dI`
+
+The pre-registered design (`research/nezuko-a1-prereg.md`) was to take a
+default-ON runtime knob, measure the change in isolated cost `dI` from the
+`SPLIT=1` census with the knob off, measure the change in step wall time `dS`
+with the profiler hook off, and report `E = dS/dI` directly, in the currency the
+score is paid in. The design floor was `|dI| >= 150 us/step`, from the +-70
+us/step arm-level between-session scatter doctrine.
 
 ---
 
