@@ -34,6 +34,11 @@ FILES=(
   "Sources/MLXFastModel/LagunaConfig.swift"
   "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift"
   "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift"
+  "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift"
+  "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift"
+  "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift"
+  "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift"
+  "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift"
 )
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
