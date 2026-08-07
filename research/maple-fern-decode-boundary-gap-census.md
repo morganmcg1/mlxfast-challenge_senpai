@@ -125,6 +125,16 @@ inside a block so linear thermal/frequency drift cancels. Driver:
 `research/fern_gap_probe.py`; campaign `research/fern_gap_campaign.sh`;
 reducer `research/fern_gap_stats.py`. Raw TSVs kept in `/tmp/fern241/`.
 
+**The instrument is not submitted.** It lives in
+`research/maple-fern-boundary-gap-injection.patch` and is applied with
+`git apply` to reproduce. `Sources/` at the submitted head is byte-identical to
+the base `fe5d843`; `senpai/check-editable-budget.sh fe5d843` reports
+`growth=0/262144`, `current=2949686`. This matters beyond bookkeeping: the
+instrument's census counter writes a Swift dictionary entry on every one of the
+158 dispatches per step even when disarmed, which is exactly the kind of hot-path
+cost this experiment exists to measure. Shipping it would have poisoned any
+later timing on this branch.
+
 ---
 
 ## 2. Result: the gap census
@@ -237,7 +247,43 @@ degenerate in §2's data. `T1c_lmhead` does not break the degeneracy either
 as 1/max_ops; a per-dispatch cost must not move. Script:
 `research/fern_gap_cbcontrol.sh`.
 
-*(results pending — filled in below)*
+**Result** (`fern_gap_cbcontrol.sh`, schedule `0,1,2,4,8,8,4,2,1,0`, 2 blocks,
+216 steps/segment, drop 24; 3 runs, 349 s wall):
+
+| run | `MLX_MAX_OPS_PER_BUFFER` | `MLX_MAX_MB_PER_BUFFER` | µs/boundary (K≥1) | K=0 step (ms) |
+|---|--:|--:|--:|--:|
+| `T0b_qkv` | 40 (default) | 40 (default) | 1.295 ± 0.128 | 8.20 |
+| `T0b_qkv` | 4000 | 40 | 1.421 ± 0.118 | 8.19 |
+| `T0b_qkv` | 4000 | 100000 | 1.431 ± 0.056 | 8.21 |
+| `T0a_router_top8` | 40 (default) | 40 (default) | 1.416 ± 0.109 | 8.20 |
+| `T0a_router_top8` | 4000 | 100000 | 1.394 ± 0.121 | 8.20 |
+
+Raising `max_ops_per_buffer` by 100× and `max_mb_per_buffer` by 2500× **did not
+move the slope** (1.295 → 1.431 µs, i.e. if anything slightly *up*, and well
+inside 1σ of the pooled value). A per-command-buffer cost would have fallen by
+~100×. The confound is therefore ruled out: the tax is genuinely
+**per-dispatch + per-barrier**, not per-command-buffer. Pooled estimate across
+all five runs ≈ **1.42 µs per injected boundary** on this M4 Pro.
+
+Two corollaries fall out of the same three runs:
+
+1. **Raising `MLX_MAX_OPS_PER_BUFFER` is not a free win.** The K = 0 column is
+   flat at 8.19–8.21 ms across every setting (σ(step) ≈ 0.01 ms here). Whatever
+   command-buffer commit overhead exists on this host, the default 40/40 policy
+   is not leaving measurable decode time on the table. This is a clean null and
+   it should stop anyone else from spending a receipt on the env knob.
+2. It also constrains a candidate raised in review — "lift the CB **size**
+   clause, since `buffer_sizes_` counts ~540 MB of resident expert weights per
+   layer against a 40 MB threshold, implying ~40 forced splits/step, worth
+   200–600 µs". `MLX_MAX_MB_PER_BUFFER=100000` removes that clause entirely and
+   bought **0.00 ± 0.02 ms**. Either the splits are not happening (the size
+   accumulator only counts *unique* inputs per buffer, `device.cpp:320`, and a
+   resident weight already tracked is not re-counted) or they are free. Either
+   way the 200–600 µs estimate is refuted on this host and (c′) is dead.
+
+All three runs: 0 token divergences, phase check OK, reachability census exactly
+40/39/39/39/39/1 on every step. TSVs: `/tmp/fern241/ops4000_T0b_qkv.tsv`,
+`/tmp/fern241/opsmb_T0b_qkv.tsv`, `/tmp/fern241/opsmb_T0a_router_top8.tsv`.
 
 ---
 
@@ -254,4 +300,127 @@ as 1/max_ops; a per-dispatch cost must not move. Script:
 
 ## 6. What this licenses next
 
-*(to be completed after §4)*
+### 6.1 The selection rule changes
+
+The assignment's Part B rule was "fuse the single largest **E-weighted**
+boundary". §2.2 refutes the premise that rule rests on. The replacement rule is
+simpler and strictly broader:
+
+> **Every removable decode dispatch is worth ≈ 1.4 µs on this host, regardless
+> of its consumer's elasticity, its position in the chain, or whether it sits on
+> the critical path.**
+
+So the target list is no longer "chain-link boundaries in front of
+zero-absorbed-slack consumers". It is "dispatch count per decode step", full
+stop. That is a much easier quantity to attack and a much easier one to verify:
+you can count dispatches statically before you build anything.
+
+Concretely, per decode step this model issues **10 dispatches per sparse layer**
+(9 for dense-only), enumerated below with the source line of the issuing call in
+the unmodified `LagunaRuntimeModel.swift`:
+
+| # | dispatch | issued at |
+|---|---|---|
+| 1 | `inputNorm(input)` (plain MLX RMSNorm, AOT) | ~5741 |
+| 2 | `lagunaDecodeNVFP4QKVR1` | ~5742-5746 |
+| 3 | `lagunaGateSoftplus` | ~5786-5788 |
+| 4 | `lagunaSlidingFusedAttention` / `lagunaFullFusedAttention` | ~5956 / ~5982 |
+| 5 | `lagunaGatedAffineOProjNVFP4` | ~6165-6179 |
+| 6 | `lagunaResidualRMSNormRouter` | ~10344-10349 |
+| 7 | `lagunaDecodeRouterTop8` | ~9519-9523 |
+| 8 | `lagunaRoutedSwiGLUQMVPackedTop8` | ~10038-10043 |
+| 9 | `lagunaSharedSwiGLUQMV` (via `fusedSharedDownInputs`) | ~10088-10090 |
+| 10 | `lagunaRoutedSharedDownResidual` | ~10105-10116 |
+
+At 1.42 µs each, the whole decode step's dispatch tax is
+`(10 × 39 + 9 × 1 + 1) × 1.42 ≈ 568 µs` of the 8.20 ms M4 Pro step — **6.9 %**.
+Removing *one* per-layer dispatch is 39 × 1.42 ≈ **55 µs/step here**. Scaling by
+the step-time ratio (4.1436 / 8.20) that is ≈ **28 µs/step on the ranked M5**,
+i.e. ≈ **0.42 % of score** at the measured prize slope of 0.015280 %/µs — about
+14σ of the cross-session decode-difference noise (σ = 15.34 µs). That is a
+receipt-sized effect from a single dispatch.
+
+### 6.2 Why the two published nulls do not block this
+
+The obvious objection is PR #204: it deleted 39 side-branch dispatches per step
+and measured −0.9 ± 29.7 µs. Under the model above the expected effect was
++55 µs, so #204 had roughly 46 % power — it is a **1.9σ non-detection, not a
+refutation**. There is also a mechanistic escape: MLX's `memoryBarrier` is
+emitted when a *tracked* resource is re-read (`device.cpp:363-390`); a
+side-branch output that nothing re-reads before the next barrier may never have
+forced a barrier at all, so deleting it removed a dispatch's encode cost but not
+its barrier cost. Both explanations point the same way — **remove dispatches
+whose outputs are actually consumed**, which is exactly what a fusion does and
+exactly what a dead-side-branch deletion does not.
+
+PR #158's observational null (−0.12 ± 0.22 µs/dispatch) is a different kind of
+estimate: it regressed step time on naturally-varying dispatch counts, where
+dispatch count is confounded with which kernels ran and how much data they
+touched. The present design holds the kernel mix fixed and varies only the
+boundary count, and its standard errors (0.05–0.20 µs) are small against the
+1.4 µs effect.
+
+### 6.3 Ranked targets, in the order I would spend receipts on them
+
+**(1) Remove dispatch #9 — fold the shared-expert gate/up QMV into the routed
+packed top-8 QMV.** The code already anticipates this: there is a declared
+`var mergedSharedActivated: MLXArray?` with a doc comment describing exactly this
+batching, and the variable is **never assigned**, so dispatch #9 fires on every
+one of the 39 sparse layers. Worth 39 × 1.42 ≈ 55 µs/step (M4 Pro), ≈ 28 µs/step
+(M5), ≈ 0.42 % of score. Both the routed and the shared expert use the same
+NVFP4 weight format, so the shared expert is representable as one more row of
+the packed batch. Bit-exactness is the risk: the two kernels must accumulate in
+the same order and precision. This is the highest value-per-byte item on the
+list and it is inside the maple-fern region fence.
+
+**(2) Remove dispatch #7 — fold the top-8 selection into
+`lagunaResidualRMSNormRouter`.** That kernel already materialises the packed
+router keys that `lagunaDecodeRouterTop8` then re-derives. Same 55 µs/step. Note
+that `T0a_router_top8` has E = −0.045 — it is *fully shadowed*, so under the old
+E-weighted rule this target scored zero. Under the corrected rule it is worth
+exactly as much as any other. **This is the single sharpest test of §2.2's
+claim**: if removing a fully-shadowed dispatch buys 55 µs, the elasticity model
+is dead and the dispatch-count model is right. I would run this as the
+discriminator even before the bigger fusions.
+
+**(3) Remove dispatch #1 — fuse the input RMSNorm into the QKV GEMV prologue.**
+The fused path already exists (`lagunaNormAffineQKV`) but declines on this
+checkpoint because it requires affine 8-bit group-32 weights and all 40 layers
+are NVFP4. Extending it to NVFP4 is the original H13 proposal. Worth 40 × 1.42 ≈
+57 µs/step. Highest bitwise risk of the three (RMSNorm reduction order inside a
+GEMV prologue), and the QKV wrapper is outside the maple-fern fence.
+
+**(4) Audit-and-delete genuinely redundant ops.** Found while enumerating: a
+never-assigned `mergedSharedActivated` (above); `let fusedTailGateLogits:
+MLXArray? = nil` with an unreachable consumer; a `deferGateActivation` branch
+that is never load-bearing; a decode-unreachable `softplus`; four dead fallback
+blocks; and four `eScoreCorrectionBias.asType(.float32)` calls on an array that
+is already F32 (`MLXArray.asType` returns `self` on a dtype match, so these are
+0 dispatches — dead code, not dead work). These are worth **0 µs** individually
+— they are listed so nobody re-discovers them and mistakes them for a win.
+
+### 6.4 Things this experiment took off the table
+
+- **`MLX_MAX_OPS_PER_BUFFER` / `MLX_MAX_MB_PER_BUFFER` tuning.** Clean null,
+  §4. Do not spend a receipt here.
+- **The command-buffer *size*-clause hypothesis** (~40 forced splits/step from
+  resident expert weights, estimated 200–600 µs). Refuted on this host, §4
+  corollary 2.
+- **Elasticity as a fusion-selection criterion.** §2.2. E still correctly
+  predicts whether extra *arithmetic* in a kernel is free; it does not predict
+  the value of removing a *dispatch*.
+- **Per-dispatch GPU timestamps via `MTLCounterSampleBuffer`.** Unsupported on
+  this device (§1.1); do not plan an experiment that needs them.
+
+### 6.5 What would falsify the model in §2.2
+
+If target (2) — removing the fully-shadowed router top-8 dispatch — buys
+substantially less than 39 × 1.42 µs, then the injected-boundary cost is not
+symmetric with removal, and the 1.4 µs figure is an upper bound on the prize
+rather than an estimate of it. The asymmetries to look for, in order of prior
+likelihood: (a) the removed dispatch's barrier is immediately re-triggered by
+another consumer of the same resource, so no barrier is actually saved;
+(b) MLX's resource-tracking set is reshuffled by the removal, moving the
+serialization point rather than deleting it (`device.cpp:363-372`); (c) the
+fused kernel pays back the saved time as recompute. (c) is measurable
+statically; (a) and (b) are not, and need the experiment.

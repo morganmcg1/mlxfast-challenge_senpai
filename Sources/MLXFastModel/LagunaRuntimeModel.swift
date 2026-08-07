@@ -7,79 +7,6 @@ import MLXNN
 // Correctness-first Laguna XS 2.1 runtime, behavior-checked against the
 // vendored reference implementation and specialized by guarded fast paths.
 
-/// Research-only decode boundary-gap instrument (PR #241, maple-fern).
-/// Inserts K chained bit-exact identity multiplies inside the real dependency
-/// chain immediately in front of a named consumer, so MLX must emit K extra
-/// dispatches and K extra RAW barriers that cannot be shadowed by a sibling.
-/// The marginal step cost per chained copy is the serial dispatch+boundary
-/// price that producer/consumer fusion would remove. Never submitted.
-enum LagunaDecodeGap {
-    private static let env = ProcessInfo.processInfo.environment
-    private static let site = env["DARKBLOOM_DECODE_GAP_SITE"] ?? ""
-    private static let fixedK = Int(env["DARKBLOOM_DECODE_GAP_K"] ?? "") ?? 0
-    private static let stepsPerSegment = Int(env["DARKBLOOM_DECODE_GAP_STEPS"] ?? "") ?? 1
-    private static let verbose = (env["DARKBLOOM_DECODE_GAP_VERBOSE"] ?? "") == "1"
-    private static let schedule: [Int] = {
-        guard let raw = env["DARKBLOOM_DECODE_GAP_SCHEDULE"], !raw.isEmpty else { return [] }
-        return raw.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-    }()
-
-    private nonisolated(unsafe) static var counts: [String: Int] = [:]
-    private nonisolated(unsafe) static var decodeSteps = 0
-    private nonisolated(unsafe) static var currentK = 0
-    private nonisolated(unsafe) static var segment = -1
-    private nonisolated(unsafe) static var announced = false
-    private nonisolated(unsafe) static var isDecode = false
-    private nonisolated(unsafe) static var unit: MLXArray?
-    private nonisolated(unsafe) static var unitDType: DType?
-
-    /// A multi-token forward is a seed prefill, which opens the next schedule
-    /// segment. Segments are therefore aligned to the driver's `decode_begin`
-    /// calls, and the announced index lets the driver verify the arm it drove.
-    static func beginForward(tokens: Int) {
-        isDecode = tokens == 1
-        guard isDecode else {
-            segment += 1
-            currentK = schedule.isEmpty ? fixedK : schedule[segment % schedule.count]
-            announced = false
-            return
-        }
-        counts.removeAll(keepingCapacity: true)
-        if schedule.isEmpty { currentK = fixedK }
-    }
-
-    static func pad(_ name: String, _ x: MLXArray) -> MLXArray {
-        counts[name, default: 0] += 1
-        guard isDecode, currentK > 0, name == site else { return x }
-        if unit == nil || unitDType != x.dtype {
-            unit = MLXArray(Float(1)).asType(x.dtype)
-            unitDType = x.dtype
-        }
-        guard let one = unit else { return x }
-        var y = x
-        for _ in 0..<currentK { y = y * one }
-        return y
-    }
-
-    static func endStep() {
-        guard isDecode else { return }
-        if !announced {
-            announced = true
-            FileHandle.standardError.write(
-                Data("GAPSEG \(segment) site=\(site) k=\(currentK)\n".utf8))
-        }
-        if verbose {
-            let census = counts.keys.sorted().map { "\($0)=\(counts[$0]!)" }
-                .joined(separator: ",")
-            let line = "GAPCOUNT seg=\(segment) step=\(decodeSteps) k=\(currentK)"
-                + " site=\(site) \(census)\n"
-            FileHandle.standardError.write(Data(line.utf8))
-        }
-        decodeSteps += 1
-        isDecode = false
-    }
-}
-
 func lagunaLastTokenRange(sequenceLength: Int) -> Range<Int>? {
     sequenceLength > 1 ? (sequenceLength - 1)..<sequenceLength : nil
 }
@@ -5832,8 +5759,7 @@ final class LagunaRuntimeAttention: Module {
                 let decodeNVFP4QKVR1 =
                     fusedQKV == nil
                     ? lagunaDecodeNVFP4QKVR1(
-                        normalized: LagunaDecodeGap.pad("T0b_qkv", normalized),
-                        bank: fusedAffine, heads: nHeads)
+                        normalized: normalized, bank: fusedAffine, heads: nHeads)
                     : nil
                 let qkv =
                     fusedQKV
@@ -9607,7 +9533,7 @@ final class LagunaRuntimeMoEGate: Module {
                     ? "decode router top8 (cast sink + norm sink)"
                     : "decode router top8 (cast sink)")
             (inds, weights) = lagunaDecodeRouterTop8(
-                logits: LagunaDecodeGap.pad("T0a_router_top8", projectedLogits),
+                logits: projectedLogits,
                 correctionBias: eScoreCorrectionBias.asType(.float32),
                 normalizing: sinkNormalization
             )
@@ -10126,7 +10052,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     {
                         lagunaTrace("routed gate/up QMV + SwiGLU (packed, producer keys)")
                         activated = lagunaRoutedSwiGLUQMVPackedTop8(
-                            LagunaDecodeGap.pad("T2c_routed_qmv", x),
+                            x,
                             fusedWeight: fusedWeight,
                             packedScales: packedBank,
                             routerKeys: routerKeys
@@ -10176,8 +10102,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 let downWeight = _routedDownWeight,
                 let downScales = _routedDownScales,
                 let sharedInputs = sharedExpert.fusedSharedDownInputs(
-                    LagunaDecodeGap.pad("T2a_shared_qmv", x),
-                    sharedActivation: mergedSharedActivated),
+                    x, sharedActivation: mergedSharedActivated),
                 activated.dtype == .bfloat16,
                 activated.dims(1, 1, LagunaConstants.numExpertsPerTok, 1,
                     LagunaConstants.moeIntermediateSize),
@@ -10194,7 +10119,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             {
                 lagunaTrace("routed+shared down residual")
                 return lagunaRoutedSharedDownResidual(
-                    routedActivated: LagunaDecodeGap.pad("T2d_down_residual", activated),
+                    routedActivated: activated,
                     routedDownWeight: downWeight,
                     routedDownScales: downScales,
                     indices: inds,
@@ -11020,7 +10945,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        LagunaDecodeGap.beginForward(tokens: inputs.dim(1))
         let fullHidden = model(inputs, cache: cache)
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
@@ -11043,7 +10967,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 // single-token decode takes the three-level screen, whose
                 // level-one pass reads 25.7 MB/step less of the int5 planes.
                 result = pruner.logits(
-                    hidden: LagunaDecodeGap.pad("T1c_lmhead", hidden),
+                    hidden: hidden,
                     lmHeadWeight: lmHead.weight,
                     useFusedRefinement: inputs.dims(1, 1))
             } else {
@@ -11055,7 +10979,6 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         if case .logits = lagunaDecodeAsyncStage, inputs.dims(1, 1) {
             asyncEval(result)
         }
-        LagunaDecodeGap.endStep()
         return result
     }
 
