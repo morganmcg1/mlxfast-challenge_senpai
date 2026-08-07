@@ -1,8 +1,8 @@
 # SENPAI Research State
-- 2026-08-07T15:45Z (updated by advisor session)
-- Campaign mlxfast-birch-20260805. Advisor HEAD: c3645b48 (pushed to origin).
-  32 composed changes (30 LRM optimizations + M5 build fix + PR #292 prefill gate-softplus + PR #294 dead code removal).
-  LRM: ~499,452/524,288 = ~24,836 B headroom (after PR #294 freed 9,288B).
+- 2026-08-07T16:49Z (updated by advisor session)
+- Campaign mlxfast-birch-20260805. Advisor HEAD: 2358c577 (pushed to origin).
+  33 composed changes (30 LRM optimizations + M5 build fix v2 + PR #292 + PR #294).
+  LRM: ~499,464/524,288 = ~24,824 B headroom (after PR #294 freed 9,288B).
   Total surface: ~2,962,000/3,000,000 = ~38,000 B headroom.
 
 ## CRITICAL: M5 BUILD FIX (2026-08-07T15:35Z)
@@ -29,20 +29,25 @@
   M5 submission d417eaa (6739b6a) VALIDATING 105+ min — build likely succeeded.
 
 ## M5 SUBMISSION STATUS
-  55e16401: VALIDATING — M5 build fix (simd_sum/dot4 scalar) + PR #292 prefill gate-softplus
-  9753441: FAILED — 87aff2f vendor files + 30 LRM opts (simd_sum vec still present)
-  Root cause confirmed: M5 rejects simd_sum(vec<float,N>) and dot(float4) in JIT kernels
+  1e867c87: VALIDATING — M5 build fix v2 (simd_sum/dot4 scalar + *(thread float4*) scalar). All 3 pattern classes fixed.
+  55e16401: FAILED — simd_sum/dot4 fix only, *(thread float4*) casts still present
+  9753441: FAILED — pre-fix (all vectorized patterns present)
   Last confirmed birch M5 score: 4058d0b at 2.5459 (8/5 10:53 AM)
-  NOTE: df9613a (2.5817) and 68b66c5 (2.5520) were MAPLE campaign, not birch
-  Leaderboard #1: 2.5888 (maple, 97a5090 promoted).
+  Leaderboard #1: 2.5888 (maple, 97a5090 promoted). Gap: +1.69%.
 
 ## MERGED WAVE 15
   PR #292 (askeladd): Prefill gate-product+softplus multi-token — MERGED (6.0% prefill, bit-exact, +2954B)
   PR #294 (thorfinn): Dead code removal — MERGED (3 flags removed, -9,288B LRM, bit-exact)
 
-## ACTIVE ASSIGNMENTS (base c3645b48, all need rebase)
-  PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — wip, rebase nudge sent (M5 fix warning)
-  PR #285 (edward): Routed MoE halved scales escape fix — wip v2, rebase nudge sent (M5 fix warning)
+## CLOSED WAVE 15
+  PR #297 (alphonse): Down+residual outputs_per_simd 8→16 — CLOSED (dead: ~1% decode regression, register pressure)
+
+## ACTIVE ASSIGNMENTS (base 2358c577)
+  PR #285 (edward): Routed MoE halved scales escape fix — wip v3 rebase needed (float4 fix)
+    - Edward's branch has 4 *(thread float4*) casts from pre-fix base. Must rebase onto 2358c577.
+    - quantized.cpp gather_qmm_rhs_nax changes are M5-safe (C++ host-side, not Metal JIT)
+    - M4 can't validate (_nax path not exercised). M5 is authoritative.
+    - Expected: ~0.5% prefill gain (M5-only, bit-exact)
 
 ## CLOSED
   PR #296 (alphonse): RMSNorm→LM head fusion — CLOSED (bandwidth-negative: 25MB extra norm-weight reads across 6272 TGs)
