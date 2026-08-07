@@ -7180,7 +7180,10 @@ private func runLagunaPackedBF16Benchmark(
         } while count < 20 || Date().timeIntervalSince(start) < 0.5
         return (Date().timeIntervalSince(start), count)
     }
-    print("TANJIRO reachability=packed_top8 oracle=bit_exact")
+    func report(_ message: String) {
+        FileHandle.standardError.write(Data("\(message)\n".utf8))
+    }
+    report("TANJIRO reachability=packed_top8 oracle=bit_exact")
     for order in 0..<2 {
         for block in 0..<6 {
             let c: (Double, Int)
@@ -7192,7 +7195,7 @@ private func runLagunaPackedBF16Benchmark(
                 p = sample(candidate)
                 c = sample(control)
             }
-            print("TANJIRO order=\(order == 0 ? "AB" : "BA") block=\(block) control_s=\(c.0) control_n=\(c.1) candidate_s=\(p.0) candidate_n=\(p.1)")
+            report("TANJIRO order=\(order == 0 ? "AB" : "BA") block=\(block) control_s=\(c.0) control_n=\(c.1) candidate_s=\(p.0) candidate_n=\(p.1)")
         }
     }
     exit(0)
