@@ -539,3 +539,92 @@ me to it rather than letting me re-interpret after the fact.
 I am **not** revising the pre-registered read-out rule after the fact. The band
 and the null rule stay exactly as written; this section records that I now
 expect the NULL branch to be the likely one, and why.
+
+---
+
+## 11. Read-out in `officialScore` units, and a power audit
+
+*Written and committed while the control receipt was still in the queue, i.e.
+before its number was known. The commit that introduces this section predates
+the control receipt so the ordering is checkable.*
+
+### 11.1 Why the currency had to change
+
+The pre-registered rule is stated in **ms of prefill wall time `S`**. I cannot
+read `S` back off a receipt: `mlxfast submissions` hard-truncates the metrics
+column (`{"error":"","commit":"...","runtime":"sw...`), `COLUMNS`/`stty` do not
+widen it, and the CLI exposes no per-submission detail command — `mlxfast
+--help` offers only `submission-note <submission>`. **`officialScore` is the
+only per-receipt number I can actually retrieve.**
+
+So the read-out becomes `Δ = officialScore(arm) − officialScore(control)`. This
+is legitimate rather than a convenience: each `officialScore` is *already*
+normalized by its own same-session paired baseline, so the difference of two
+scores is a paired-normalized comparison, which is exactly what the rule wanted.
+It is a change of units forced by tooling, not a change of hypothesis.
+
+Conversion, from the campaign elasticity `0.374750 % of officialScore per ms of
+S`, at the arm's score `2.5520699745752`:
+
+```
+1 ms of S  =  0.374750 % × 2.55207  =  0.009564 officialScore points
+```
+
+### 11.2 The pre-registered bands, translated
+
+Sign convention: `Δ > 0` means the arm scored higher, i.e. the change helped.
+
+| Δ officialScore | ms-equivalent | verdict (pre-registered) |
+|---|---|---|
+| `≥ +0.01148` | `≥ +1.200 ms` | H16 confirmed; promote |
+| `+0.00912 … +0.01148` | `+0.954 … +1.200 ms` | weak positive; do **not** promote on this alone |
+| `−0.00912 … +0.00912` | `±0.954 ms` | **NULL**; spend no third receipt |
+| `≤ −0.00912` | `≤ −0.954 ms` | regression; register pressure is hypothesis 1 |
+
+### 11.3 The power audit — this pair cannot confirm H16 at 3σ
+
+The pre-registered null half-width of `0.954 ms` is `3 × σ(S)` where
+`σ(S) = 0.318 ms` is the spread of `S` across `n = 16` official receipts. That
+is 3σ of a **single** measurement. The quantity I am actually reading is a
+**difference of two** receipts, whose standard deviation is
+
+```
+σ_paired = 0.318 × √2 = 0.4497 ms  =  0.004301 officialScore points
+```
+
+so the honest 3σ band for a paired difference is `±1.349 ms`
+(`±0.01290 points`), not `±0.954 ms`. I under-stated the noise floor when I
+registered the rule, and I am flagging it rather than quietly using whichever
+threshold flatters the result.
+
+The consequence is uncomfortable and worth stating plainly:
+
+```
+pre-registered effect  1.200 ms  =  2.67 σ_paired
+3σ_paired detection needs         ≥ 1.349 ms
+```
+
+**Even a textbook-perfect confirmation of H16 lands at 2.67σ, inside the
+corrected 3σ noise band.** A two-receipt design was never able to resolve the
+effect I registered. That is a design flaw in my own experiment, not a property
+of the result, and it holds no matter which way the number comes back.
+
+How I will adjudicate given that:
+
+- I report `Δ` against the **pre-registered** bands in §11.2, because those are
+  what I committed to.
+- I additionally report where `Δ` sits relative to `σ_paired = 0.004301`, and I
+  will **not** describe any outcome with `|Δ| < 0.01290` as statistically
+  resolved by this pair alone.
+- A positive result in the "confirmed" band is therefore reported as
+  *consistent with H16 but unreplicated*, and the correct next step is
+  replication, not promotion. Promotion on a 2.67σ single pair would be exactly
+  the "trusting hot, unmatched, cross-machine timing" failure the guide warns
+  against, in a slower disguise.
+- A NULL, by contrast, **is** informative here, because the pre-registered
+  effect is large relative to the band: `Δ ≈ 0` excludes the −1.2 ms mechanism
+  with reasonable confidence even if it cannot pin the true value.
+
+This asymmetry — the design can credibly *refute* H16 but not credibly
+*confirm* it — is the single most important thing to know before reading the
+number, which is why it is recorded before the number exists.
