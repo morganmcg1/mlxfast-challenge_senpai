@@ -500,6 +500,100 @@
     14,314 B of slack. The post-merge cleanup PR is therefore **less urgent**
     than the 05:30 bullet recorded, though the dead-surface list stands.
 
+- **2026-08-07 06:30 UTC — the cold-seed-prefill thread is RESOLVED as a
+  negative, and in resolving it the score identity became exact by
+  construction. Three corrected-elasticity feedback items dispatched.**
+
+  - **(A) Three feedback comments sent, all accepted.** #215 (tanjiro)
+    `pr215-r1-corrected-prefill-elasticity-2026-08-07` → comment `5213028704`:
+    re-priced his three bandwidth arms at 0.374750 %/ms to **+1.29% / +2.52% /
+    +4.58%**, §8.6 to +3.25%; Part A remains a prerequisite; warned that
+    #204's side-branch null does not touch his target. #148 (frieren)
+    `pr148-r1-corrected-prefill-elasticity-2026-08-07` → comment `5213036368`:
+    corrected elasticity plus a recomputed reference table (`dS_1` +16.21%,
+    `dS_2` +8.32%, unattributed +12.14%, 40-layer-scaled +11.72%, one injected
+    copy +0.4156%), and **two mandated hardening details** — every duplicate
+    writes its own scratch output and becomes an additional eval root (defeat
+    DCE by *reachability*, never by perturbing arithmetic), and the duplicate
+    roots must be listed BEFORE the logits with `n_calls·(K−1)` extra
+    dispatches verified to encode at each dose. #205 (nezuko)
+    `pr205-r1-corrected-decode-elasticity-and-sidebranch-2026-08-07` → comment
+    `5213048534`: decode price corrected to 0.015280 %/µs (ceiling **+0.715%**)
+    and an explicit argument for why her target survives #204 — it is not a
+    dispatch deletion, #174 §3.6 measured `E ≥ 0.90` for
+    `sliding_fused_attn_ring_v1`, and #196 §7.1 measured the epilogue directly
+    at 1.068/1.072/1.170 µs, constant in N. Her **Step 0 is now doubly
+    load-bearing**: if she cannot decompose the 1.07 µs across the 3 barriers
+    and 4 threadgroup passes, she reports and stops.
+
+  - **(B) ⛔⛔⛔ THE "COLD SEED PREFILL" IS NOT A LEVER. Source-verified;
+    add it to §8 closed families.** `Sources/MLXFastCore/Constants.swift:129`
+    sets `benchmarkPrefillWarmupRuns = 0` and `:130` sets
+    `benchmarkPrefillTimedRuns = 1`. **RETRACT my earlier claim that the
+    scored prefill number is a warm mean — it is ONE single cold run.** The
+    allocator reset is therefore *symmetric*:
+    `resetRuntimeWorkerAllocatorForPhaseStart()` runs at the head of
+    `case "prefill":` (`Sources/MLXFastHarness/LagunaRuntimeWorker.swift:360`)
+    exactly as it does at the head of `case "decode_begin":` (`:382`). Both
+    the scored prefill and the in-window seed forward are the *same operation*
+    modulo token values: same reset, same fresh cache, same
+    `model(inputIDs, cache:)` (`:201-209`), in a process whose constructor has
+    already run a full 512-token prefill warmup
+    (`LagunaRuntimeWeights.swift:404-420` → `warmLibraryModel` `:466-520`,
+    itself preceded by `prepareFusedRuntimeWeights()` at `:620-639` "so the
+    fused kernels warm with their production shapes").
+    `materializeLagunaCacheState(cache)` is literally `eval(cache)`
+    (`LagunaRuntimeWorker.swift:236-238`) and is free, because `greedyToken`'s
+    `item()` already materialized the logits. There is no asymmetry to
+    harvest.
+
+  - **(C) ⭐⭐⭐ CONSEQUENCE: `D = 4P + T` IS EXACT BY CONSTRUCTION.** Because
+    the seed forward and the scored prefill run are the same cold operation,
+    `d(seed)/d(prefill) = 1` identically, hence `d(cand_D)/d(cand_P) = 4`.
+    The circularity caveat I attached to the 05:55 identity check is
+    **DISCHARGED**, and **0.374750 %/ms is now airtight** rather than
+    numerically coincidental. Independent empirical confirmation from the
+    shipped wired-limit dose table (doc comment on
+    `wireResidentWeightsIfEnabled`, `LagunaRuntimeWeights.swift`): the 1.0×
+    wire measured **−28.3% prefill and −4.2% decode composite**, annotated
+    "seed-prefill share; steady step null". The identity predicts
+    `4 × (191.2/4908.4) × 28.3% = 4.41%`. Measured 4.2%. ✓ That table also
+    corrects an earlier note here: the **shipped** dose is
+    `wiredZHDefaultFraction = 1.0` with `wiredZHDefaultSlackMB = 64`, i.e. the
+    **full ~31.4 GiB wire**, not the 42 MiB the stale comment above it
+    describes.
+
+  - **(D) ⛔ OUT OF BOUNDS, not merely closed.** Holding warmup scratch
+    buffers *live* across `Memory.clearCache()` and releasing them inside the
+    scored window so the emptied buffer cache refills is **protocol bypass**.
+    The trusted comment at `LagunaRuntimeWorker.swift:169-171` states the
+    intent in terms: *"The substantive defense is `Memory.clearCache()`, which
+    removes every free buffer accumulated during unscored initialization so it
+    cannot subsidize the first charged forward."* Do not assign it, and refuse
+    it if a student proposes it.
+
+  - **(E) ⭐ ONE LEGITIMATE SURVIVOR FRAMING.** Because the scored prefill is
+    a *single cold run*, the **coverage** of the constructor warmup is priced
+    at the full 0.374750 %/ms: anything the scored forward needs that
+    `warmLibraryModel` does not build is paid inside the window, and
+    `warmLibraryModel` is editable. I checked the obvious hole and it is
+    mostly closed — the warmup feeds **512 identical BOS tokens**, so routing
+    is degenerate (all 512 rows hit the same 8 experts, ~64 chunks/layer
+    against the real 220.5), but the dispatch grid is `(N/bn, egroups=256)`
+    regardless, the sorted-row count is M=4096 either way, and attention is
+    still 512×512 causal, so **shape and pipeline coverage look complete**.
+    The one thing I cannot settle offline: whether any M5-only `_nax` variant
+    (`steel_gemm_fused_nax`, `steel_attention_nax`, the NAX split-K branch,
+    `fp_qmm_t_nax_static`) is reachable only under a *non-degenerate* route
+    and therefore misses the warmup entirely. That is not observable on a
+    gen-16 M4 host; it has to be read out of the selection code in
+    `quantized.cpp` / `matmul.cpp`. Worth one bounded assignment if a slot
+    frees up. Prior art in the same file already shows the shape of a win: the
+    greedy-argmax warm (`DARKBLOOM_WARM_GREEDY_ARGMAX`) exists precisely
+    because a timestamped PSO-miss log caught `argmax_bfloat16` compiling
+    ~0.23 s *inside* the scored prefill.
+
+
 
 - **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
   precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
@@ -3112,7 +3206,12 @@ general tactic (three independent arms died at their own analytic ceiling) ·
 ceiling, ~90% of its issue floor) · offline codes/scales interleave (closed
 twice) · attention byte de-amplification / head packing · `MLX_MAX_OPS_PER_BUFFER`
 (inert ≥40) · `MLX_METAL_FAST_SYNCH` (inert) · decode graph repartitioning ·
-in-loop host CPU · decode head latency · first-touch prewarm · *naive* attention
+in-loop host CPU · decode head latency · first-touch prewarm (now closed for the
+prefill/seed path too — see the 06:30 bullet) · **the cold-seed-prefill lever**
+(`benchmarkPrefillWarmupRuns = 0`; the scored prefill and the in-window seed
+forward are the same single cold operation, so there is no asymmetry to
+harvest) · ⛔ **holding warmup buffers live across `Memory.clearCache()` —
+OUT OF BOUNDS, protocol bypass, not merely closed** · *naive* attention
 INT8 envelope adoption (backwards — adds ~802 MB/step; the **family** is only
 low-priority now, reopenable by a net byte/math advantage inside the envelope,
 §0a row 9) · certified lm-head screening ·
