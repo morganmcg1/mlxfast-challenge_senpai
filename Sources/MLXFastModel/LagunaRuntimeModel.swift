@@ -653,6 +653,20 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
     }
 }()
 
+private let decodeFireMask: UInt64 =
+    switch lagunaDecodeAsyncStage {
+    case .off, .norm, .logits:
+        0
+    case .layer(let idx):
+        UInt64(1) << UInt64(idx)
+    case .ladder(let n):
+        (0..<UInt64(LagunaConstants.numHiddenLayers)).reduce(UInt64(0)) { acc, i in
+            (Int(i) + 1) % n == 0 ? acc | (UInt64(1) << i) : acc
+        }
+    case .explicit(let mask):
+        mask
+    }
+
 /// Diagnostic front-edge rung: enqueue layer 0's already-constructed QKV and
 /// gate projections before the rest of that layer's graph is built.
 private let lagunaAttentionProjectionAsyncEnabled =
@@ -10744,19 +10758,6 @@ final class LagunaRuntimeModelInner: Module {
             h: h, cache: cache?[slidingAttentionIdx], windowSize: slidingWindow)
 
         let isSingleTokenDecode = inputs.shape == [1, 1]
-        let decodeFireMask: UInt64 =
-            switch lagunaDecodeAsyncStage {
-            case .off, .norm, .logits:
-                0
-            case .layer(let idx):
-                UInt64(1) << UInt64(idx)
-            case .ladder(let n):
-                (0..<UInt64(layers.count)).reduce(UInt64(0)) { acc, i in
-                    (Int(i) + 1) % n == 0 ? acc | (UInt64(1) << i) : acc
-                }
-            case .explicit(let mask):
-                mask
-            }
 
         // One cos/sin table per attention family per decode step, shared by
         // every layer of that family (their caches advance in lockstep). Each
