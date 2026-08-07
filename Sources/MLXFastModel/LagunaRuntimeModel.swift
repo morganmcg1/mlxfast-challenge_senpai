@@ -10468,11 +10468,10 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                                 sharedScales: sharedS,
                                 sharedEscape: sharedE
                             )
-                            activated = merged[.ellipsis, 0..<8, .ellipsis]
+                            activated = merged[0..<1, 0..<1, 0..<8]
                             if sharedW != nil {
                                 mergedSharedActivated =
-                                    merged[.ellipsis, 8, .ellipsis]
-                                    .squeezed(axis: -2)
+                                    merged[0, 0, 8..<9, .ellipsis]
                             }
                         } else {
                             lagunaTrace("routed gate/up QMV + SwiGLU (packed, top8)")
