@@ -557,6 +557,28 @@ why the 150 us/step design floor exists. Anyone who had run one of these two arm
 alone, without the census, would have published either "+65 us regression" or
 "-48 us win" with equal confidence.
 
+### 3.6 The exposure table
+
+| kernel / class | n/step | isolated us/step | `E` | interval | from |
+|---|---|---|---|---|---|
+| `oproj_act_h64` | 30 | 1102.2 | 1.01 | [0.96, 1.03] | A direct + B |
+| `sliding_fused_attn_ring_v1` | 30 | 620.4 | 1.01 | [0.96, 1.03] | A direct + B |
+| `shared_nvfp4_swiglu_qmv_rows1` | 39 | 274.1 | **0.10** | [0.00, 0.25] | A direct |
+| `gate_sp_h64` | 30 | 227.4 | **0.10** | [0.00, 0.25] | A direct |
+| `gate_sp_h48` | 10 | 72.5 | **0.10** | [0.00, 0.25] | A direct |
+| every other census row (16 rows) | -- | 7813.3 | 1.013 | [1.00, 1.03] | B closure |
+
+Five kernels have a direct, per-kernel exposure reading; the remaining sixteen
+rows share one closure-fitted value that came out at 1.013 against a
+requirement it was in no way forced to meet.
+
+The operational summary is short. **Three named kernels are shadowed and worth a
+tenth of their census line. Everything else is fully exposed and worth exactly
+its census line.** There is no broad middle band of half-hidden work -- I looked
+for one and the data does not support it. That is a more useful world than the
+alternative, because it means the re-priced census in section 4 can be read as a
+target list directly, with three deletions.
+
 ---
 
 ## 4. The re-priced census
