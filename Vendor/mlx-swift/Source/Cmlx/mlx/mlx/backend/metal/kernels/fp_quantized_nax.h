@@ -1571,7 +1571,9 @@ template <
     // Regime discriminator (research instrument, 0 = shipped kernel).
     // 1 = M2: double the MMA chain only. 2 = S2: double weight load+dequant
     // +threadgroup staging only. 3 = B2: double the k-loop barrier count
-    // only. Every arm is bit-exact; each adds work to exactly one resource
+    // only. 4 = S3: S2's staging work byte for byte, but restaging this
+    // expert's own tile instead of the neighbour's, so it adds no DRAM
+    // traffic. Every arm is bit-exact; each adds work to exactly one resource
     // axis so its marginal wall cost names the binding constraint.
     int probe = 0>
 [[kernel]] void fp_gather_qmm_rhs_expert_nax(
@@ -1596,6 +1598,11 @@ template <
   constexpr bool kProbeM2 = (probe == 1);
   constexpr bool kProbeS2 = (probe == 2);
   constexpr bool kProbeB2 = (probe == 3);
+  constexpr bool kProbeS3 = (probe == 4);
+  // S2 and S3 run the identical staging body and differ only in which slab
+  // the shadow loader addresses, so every site that adds staging work keys
+  // off this and not off either arm on its own.
+  constexpr bool kProbeStage = kProbeS2 || kProbeS3;
 
   constexpr int pack_factor = get_pack_factor<8, bits>();
   constexpr int bytes_per_pack = get_bytes_per_pack();
@@ -1747,15 +1754,27 @@ template <
           Ws,
           simd_group_id,
           simd_lane_id);
-      // S2 shadow loader: the neighbouring expert's weight region, which is
-      // always in bounds (the w/scales buffers hold all `experts` slabs) and
-      // lands on different cache lines, so the arm really doubles the NVFP4
-      // code+scale device reads, the nibble decode and the threadgroup
-      // stores. Its constructor is pure pointer arithmetic, so at probe != 2
-      // it is dead on declaration.
+      // Shadow loader for the staging arms. S2 points it at the neighbouring
+      // expert's weight region, which is always in bounds (the w/scales
+      // buffers hold all `experts` slabs) and lands on different cache lines,
+      // so S2 doubles the NVFP4 code+scale device reads, the nibble decode
+      // and the threadgroup stores AND pulls a second cold slab through DRAM.
+      // S3 points it at this expert's own tile -- the very lines loader_w
+      // reads one barrier later -- so it issues the identical staging
+      // instructions while moving no bytes the kernel was not already going
+      // to move. S3 - S2 is therefore the DRAM-bytes term with every other
+      // axis held fixed. The S3 offset is hidden behind run_skip_pct, a
+      // constant-buffer scalar the compiler cannot fold and that the host
+      // clamps to [1,100]: the two loaders' base addresses stay provably
+      // distinct expressions, so the duplicate device reads survive CSE while
+      // being the same addresses at runtime. Its constructor is pure pointer
+      // arithmetic, so at probe 0 the whole loader is dead on declaration.
+      const int shadow_expert = kProbeS3
+          ? int((expert + int(run_skip_pct > 1000)) % experts)
+          : int((expert + 1) % experts);
       thread loader_w_t loader_w2(
-          wl + size_t((expert + 1) % experts) * stride_w,
-          scale_base + size_t((expert + 1) % experts) * stride_s,
+          wl + size_t(shadow_expert) * stride_w,
+          scale_base + size_t(shadow_expert) * stride_s,
           kernel_K,
           Ws,
           simd_group_id,
@@ -1793,15 +1812,15 @@ template <
           }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        // S2: stage the neighbouring expert's tile into Ws first, then let
-        // the real staging below overwrite it. Every thread writes exactly
+        // S2/S3: stage the shadow tile into Ws first, then let the real
+        // staging below overwrite it. Every thread writes exactly
         // the same destination address set in both calls (loader addressing
         // depends only on lid/simd ids), the sets are disjoint across
         // threads, and no thread reads Ws in between, so Ws holds precisely
         // the stock bytes when the MMA loop starts. The intervening barrier
         // is a threadgroup memory clobber, which is what stops the first
         // store set from being dead-store eliminated.
-        if constexpr (kProbeS2) {
+        if constexpr (kProbeStage) {
           if constexpr (wide_store || wide_load) {
             loader_w2.template load_unsafe_wide<wide_store, wide_load>();
           } else {
@@ -1872,7 +1891,7 @@ template <
 
         xn += BK;
         loader_w.next();
-        if constexpr (kProbeS2) {
+        if constexpr (kProbeStage) {
           loader_w2.next();
         }
         if constexpr (kProbeB2) {

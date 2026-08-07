@@ -1622,6 +1622,8 @@ bool darkbloom_bsearch_hoist() {
 //   m2 -> 1  double the MMA chain, no extra memory traffic
 //   s2 -> 2  double the weight load+dequant staging (+1 barrier)
 //   b2 -> 3  two extra threadgroup barriers per k-iteration
+//   s3 -> 4  s2's staging work restaged from this expert's own tile, so the
+//            extra reads hit cache instead of DRAM; s3 - s2 is the byte term
 // The official runner strips the environment (benchmark.sh's timed path runs
 // under `sudo env_reset` + `env -i`), so for a ranked measurement arm the
 // compiled-in default IS the arm. Each official receipt flips this one token
@@ -1639,6 +1641,9 @@ int darkbloom_nax_gather_probe() {
     }
     if (s == "b2") {
       return 3;
+    }
+    if (s == "s3") {
+      return 4;
     }
     return 0;
   }();

@@ -160,7 +160,7 @@ def attempt_submit(arm_name, note):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("arm", choices=["m2", "s2", "b2"])
+    parser.add_argument("arm", choices=["m2", "s2", "b2", "s3"])
     parser.add_argument("--max-runtime-seconds", type=int, default=3480)
     args = parser.parse_args()
 
