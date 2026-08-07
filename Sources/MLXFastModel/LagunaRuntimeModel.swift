@@ -7122,9 +7122,9 @@ private let lagunaRoutedSwiGLUQMVPackedTop8ControlKernel =
 private let lagunaRoutedSwiGLUQMVPackedTop8CandidateKernel =
     makeLagunaRoutedSwiGLUQMVPackedTop8Kernel(packedBF16: true)
 private let lagunaPackedBF16CandidateEnabled =
-    ProcessInfo.processInfo.environment["TANJIRO_PACKED_BF16"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_TANJIRO_PACKED_BF16"] != "0"
 private let lagunaPackedBF16BenchmarkEnabled =
-    ProcessInfo.processInfo.environment["TANJIRO_PACKED_BF16_BENCH"] == "1"
+    ProcessInfo.processInfo.environment["DARKBLOOM_TANJIRO_PACKED_BF16_BENCH"] == "1"
 
 private func callLagunaRoutedSwiGLUQMVPackedTop8(
     kernel: MLXFast.MLXFastKernel,
