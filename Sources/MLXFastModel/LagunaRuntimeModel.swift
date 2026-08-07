@@ -861,7 +861,7 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     let guardOpen = activeSimdGroups < simdGroups
         ? "        if (simd_group < active_simd_groups) {\n" : ""
     let guardClose = activeSimdGroups < simdGroups ? "        }\n" : ""
-    let routerStore = "router_logits[router_row + r] = bfloat(router_result[r]);"
+    let routerStore = "router_logits[token * 256 + router_row + r] = bfloat(router_result[r]);"
 
     let accumulate: String
     if rowsPerThread == 1 {
@@ -924,7 +924,10 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
         uint lid = thread_position_in_threadgroup.x;
         uint simd_lane = thread_index_in_simdgroup;
         uint simd_group = simdgroup_index_in_threadgroup;
+        uint rpg_tile = tile % (256 / rows_per_group);
+        uint token = tile / (256 / rows_per_group);
         uint base = lid * n_reads;
+        uint tbase = token * axis_size;
 
         \(lagunaNormInvMeanScratch)
         threadgroup float local_sums[simd_size];
@@ -933,10 +936,10 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
         thread bfloat values[n_reads];
         float acc = 0.0f;
         for (uint i = 0; i < n_reads; ++i) {
-            bfloat value = bfloat(residual[base + i] + branch[base + i]);
+            bfloat value = bfloat(residual[tbase + base + i] + branch[tbase + base + i]);
             values[i] = value;
-            if (tile == 0) {
-                summed[base + i] = value;
+            if (rpg_tile == 0) {
+                summed[tbase + base + i] = value;
             }
             float fv = float(value);
             acc += fv * fv;
@@ -950,15 +953,15 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
                 weight[base + i] *
                 bfloat(float(values[i]) * laguna_inv_mean);
             normalized_row[base + i] = value;
-            if (tile == 0) {
-                normalized[base + i] = value;
+            if (rpg_tile == 0) {
+                normalized[tbase + base + i] = value;
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         // --- router projection ---
         \(guardOpen)\
-        uint router_row = tile * rows_per_group + simd_group * rows_per_thread;
+        uint router_row = rpg_tile * rows_per_group + simd_group * rows_per_thread;
         thread float router_result[rows_per_thread] = {\(zeros)};
         \(accumulate)
 
@@ -1042,7 +1045,8 @@ private let lagunaResidualRMSNormKernel = MLXFast.metalKernel(
 
 func lagunaResidualRMSNormRouter(
     residual: MLXArray, branch: MLXArray, weight: MLXArray,
-    routerWeight: MLXArray, correctionBias: MLXArray
+    routerWeight: MLXArray, correctionBias: MLXArray,
+    rowsPerGroup: Int = lagunaRouterRowsPerGroup
 ) -> (summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray) {
     let hidden = LagunaConstants.hiddenSize
     let experts = LagunaConstants.numExperts
@@ -1051,28 +1055,21 @@ func lagunaResidualRMSNormRouter(
     precondition(weight.dtype == .bfloat16)
     precondition(routerWeight.dtype == .bfloat16)
     precondition(correctionBias.dtype == .float32 || correctionBias.dtype == .bfloat16)
-    precondition(residual.dims(1, 1, hidden))
-    precondition(branch.dims(1, 1, hidden))
+    precondition(residual.ndim == 3 && residual.dim(0) == 1 && residual.dim(-1) == hidden)
+    precondition(branch.sameDims(residual))
     precondition(weight.dims(hidden))
     precondition(routerWeight.dims(experts, hidden))
     precondition(correctionBias.dims(experts))
 
-    // `rows_per_group` router rows per threadgroup, so 256 / rows_per_group
-    // tiles. Divides exactly for 64/32/16/8/4/2/1 (4..256 tiles), so no partial
-    // tile is dispatched and no row is computed twice or missed. The 512-thread
-    // threadgroup and `n_reads == 4` are NOT knobs: they are load-bearing for
-    // the `rms_single_row` correspondence (each thread squares its own
-    // contiguous four elements), and moving either regroups the FP32 RMS
-    // summation and forfeits bit-exactness.
-    let rowsPerGroup = lagunaRouterRowsPerGroup
+    let rows = residual.size / hidden
     let tiles = experts / rowsPerGroup
     lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
     let inputs = [residual, branch, weight, routerWeight]
     let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
         inputs,
-        grid: (tiles * 512, 1, 1),
+        grid: (rows * tiles * 512, 1, 1),
         threadGroup: (512, 1, 1),
-        outputShapes: [[1, 1, hidden], [1, 1, hidden], [1, 1, experts]],
+        outputShapes: [residual.shape, residual.shape, [1, rows, experts]],
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1], outputs[2])
@@ -10871,13 +10868,25 @@ final class LagunaRuntimeDecoderLayer: Module {
             x.dim(-1) == LagunaConstants.hiddenSize,
             x.dim(1) > 1
         {
-            // Prefill (multi-token) counterpart of the fused decode branch
-            // above: same row-count-general `lagunaResidualRMSNorm` kernel,
-            // only the call-site guard differs. Full exactness argument in
-            // `lagunaPrefillFusedResidualRMSNormEnabled`'s doc comment.
-            lagunaTrace("prefill residual+rmsnorm")
-            (h, normalized) = lagunaResidualRMSNorm(
-                residual: x, branch: r, weight: postAttentionLayerNorm.weight)
+            if lagunaFusedResidualRMSNormRouterEnabled,
+               let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
+               sparse.gate.weight.dtype == .bfloat16,
+               sparse.gate.weight.dims(LagunaConstants.numExperts, LagunaConstants.hiddenSize)
+            {
+                lagunaTrace("prefill residual+rmsnorm+router")
+                let fused = lagunaResidualRMSNormRouter(
+                    residual: x, branch: r, weight: postAttentionLayerNorm.weight,
+                    routerWeight: sparse.gate.weight,
+                    correctionBias: sparse.gate.eScoreCorrectionBias,
+                    rowsPerGroup: 64)
+                h = fused.summed
+                normalized = fused.normalized
+                routerLogits = fused.routerLogits
+            } else {
+                lagunaTrace("prefill residual+rmsnorm")
+                (h, normalized) = lagunaResidualRMSNorm(
+                    residual: x, branch: r, weight: postAttentionLayerNorm.weight)
+            }
         } else {
             h = x + r
             normalized = postAttentionLayerNorm(h)
