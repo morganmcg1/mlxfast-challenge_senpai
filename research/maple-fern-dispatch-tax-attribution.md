@@ -1,7 +1,13 @@
 # Attributing the decode "dispatch tax" (PR #268, maple-fern)
 
-**Status:** DRAFT — numbers below marked `TBD` are filled from the full
-battery in `/tmp/fern268`. Smoke-run numbers are labelled as such.
+**Headline.** The tax is real and refundable, but it is **not a per-dispatch
+cost**. It is a per-*barrier* cost: MLX charges ~1.30 µs each time it has to
+close an intra-encoder wave with a `memoryBarrier`, and only ~0.12 µs for the
+dispatch itself. Fusing two *dependent* kernels refunds
+**+1.42 µs/step (95 % CI [1.35, 1.50], n = 288 segments, 6 arms)**; removing a
+dispatch that does not delete a dependency edge refunds **+0.12 µs**, 12× less.
+This reconciles PR #241's "1.4 µs/dispatch" and PR #269's removal-measured
+1.233 µs/dispatch, and it predicts #269's headline number to within 0.95 σ.
 
 **Host:** Apple M4 Pro, 20 GPU cores, 48 GiB, macOS 26.5.2, Metal 4, Apple GPU
 generation 16. **This is not the ranked host.** It never selects the `_nax`
@@ -35,6 +41,13 @@ Candidate mechanisms:
 | E3 | cache flush/invalidate scaling with dirty footprint | cost scales with **bytes** touched per dispatch |
 | E4 | residency/bookkeeping scaling with distinct resources | cost scales with the number of **distinct buffers** live |
 | E5 | command-buffer commit overhead | already refuted in PR #241 |
+
+A sixth mechanism was not on the pre-registered list and emerged from the data
+(§4.3, §4.4, §4.5). It is the one that survives:
+
+| id | mechanism | signature if true |
+|----|-----------|-------------------|
+| E6 | loss of intra-encoder overlap at a `memoryBarrier` | cost tracks **barriers**, not dispatches; appears in GPU-busy; charged even when the dependency is dead |
 
 ## 1. Instrument
 
@@ -271,22 +284,264 @@ Single-regressor fits: +0.478 ± 0.075 µs per dispatch (arms disagree),
 dispatch **−0.074 ± 0.101** (indistinguishable from zero) and barrier
 **+1.903 ± 0.296**.
 
+`dist40_8k_free` is the same control run against the 256-buffer pool instead of
+a single scratch buffer, and it reproduces the counter pattern exactly
+(406/446/486/566 dispatches against 247/287/287/301 barriers; wall 8.1808,
+8.2561, 8.2424, 8.2815 ms). Its K=1→K=2 contrast is a *third* model-free
+reading of a barrier-free dispatch: **+40 dispatches, +0 barriers, −13.7 µs**.
+Its joint fit is dispatch **+0.013 ± 0.066** (t = 0.2, dead zero) and barrier
+**+1.782 ± 0.193**.
+
 Two things follow. First, the per-barrier price does **not** fall when the
 injected work leaves the critical path — if anything it is higher here than
-in-chain (1.90 vs 1.24 µs). A barrier is an intra-encoder
+in-chain (1.78–1.90 vs 1.24 µs). A barrier is an intra-encoder
 `memoryBarrier(BarrierScopeBuffers)`; it serializes *everything already
 encoded in that command encoder*, so it is charged against the whole step
-regardless of whether the tensor that caused it is live. Second, adding
-`fat40_8k_free` to the pooled joint fit sharpens rather than moves it:
+regardless of whether the tensor that caused it is live. Second, adding both
+anchor-0 arms to the pooled joint fit sharpens rather than moves it:
 
-| joint fit, 5 arms (n=240, blocks=30, df=208) | µs/step | 95% CI | t |
+| joint fit, 6 site arms (n=288, blocks=36, df=250) | µs/step | 95% CI | t |
 |---|---|---|---|
-| dispatch (barrier-free) | **+0.120** ± 0.061 | [+0.001, +0.240] | 2.0 |
-| barrier | **+1.299** ± 0.073 | [+1.157, +1.442] | 17.9 |
+| dispatch (barrier-free) | **+0.123** ± 0.048 | [+0.029, +0.217] | 2.6 |
+| barrier | **+1.300** ± 0.060 | [+1.183, +1.417] | 21.8 |
 
-## 5. Verdict on E1–E4
+Every pooling I tried lands on the same pair of numbers: the 4-arm in-chain fit
+gives 0.173/1.241, the 5-arm fit 0.120/1.299, the 6-arm fit 0.123/1.300, and a
+5-arm fit that swaps in the 256-byte footprint arm gives 0.180/1.223. The sum —
+the refund for fusing a *dependent* pair — is 1.41–1.42 µs in all four.
 
-TBD
+### 4.5 Off-step asynchronous comparators — a barrier costs what it drains
+
+The `chain` / `indep` / `distinct` / `diamond1` arms inject their whole batch in
+`LagunaTaxProbe.endStep()` through `asyncEval`, i.e. *after* the token's logits
+exist, in their own encoders, free to overlap with the next step. They price the
+same dispatches and barriers in the opposite dependency regime.
+
+| `indep` K | dispatch | barrier | wall ms | span ms |
+|---|---|---|---|---|
+| 0 | 406 | 247 | 8.1877 | 8.038 |
+| 40 | 446 | 247 | 8.1852 | 8.032 |
+| 80 | 486 | 247 | 8.1808 | 8.029 |
+| 160 | 566 | **247** | 8.1821 | 8.029 |
+
+| `chain` K | dispatch | barrier | wall ms | span ms |
+|---|---|---|---|---|
+| 0 | 406 | 247 | 8.1896 | 8.039 |
+| 40 | 446 | 286 | 8.1717 | 8.022 |
+| 80 | 486 | 325 | 8.1662 | 8.018 |
+| 160 | 566 | **404** | 8.1467 | 7.998 |
+
+`indep` is the fourth and cleanest model-free reading of a barrier-free
+dispatch: **+160 dispatches, +0 barriers, wall −5.6 µs**. A 1.4 µs/dispatch tax
+would have cost +224 µs here, roughly 40σ away from what happened. Whatever the
+"1.4 µs per dispatch" is, it is not a per-dispatch charge.
+
+`chain` is the interesting one. It adds **157 barriers** — more than the 160 the
+K=4 site arms add across 40 layers — and wall goes **down** 42.8 µs
+(FE-OLS −0.259 ± 0.033 µs per barrier, t = −7.8). So a barrier is not a fixed
+charge either.
+
+The reconciliation is that **a barrier costs what it drains**. MLX emits
+`memoryBarrier(MTL::BarrierScopeBuffers)` into the *current* encoder
+(`device.cpp:363-375`) and every encoder is `DispatchTypeConcurrent`
+(`device.cpp:546-548`). The barrier's price is the overlap it destroys between
+everything already encoded and everything after it — the ragged tail of the
+preceding wave. Between the real per-layer NVFP4 GEMVs that tail is ~1.3 µs.
+Among tiny 8 KiB kernels alone in a tail encoder that can slide into the next
+step, it is zero.
+
+Two consequences, one reassuring and one limiting:
+
+* The number that matters for fusion is the in-step one. Fusing two dependent
+  per-layer kernels removes exactly a barrier of the expensive kind, sitting
+  between real work, which is what the 40-site arms measure.
+* **1.30 µs/barrier is not a universal constant.** It is the price of a barrier
+  placed one-per-layer inside the live decode chain. Do not apply it to
+  barriers in prologue/epilogue code, in warmup, or anywhere the surrounding
+  wave is small.
+
+Caveat on this arm: `chain`'s `gpu_ms` counter rises by 717 µs while wall falls,
+giving gpu/wall = 1.064. Summed `GPUStartTime→GPUEndTime` double-counts when
+consecutive command buffers overlap, so `gpu_ms` is only trustworthy when
+gpu/wall stays below 1 — it does in every site arm (0.970–0.972) including the
+§4.2 decomposition, and it does not here.
+
+### 4.6 E3 — dirty-footprint sweep
+
+`fat40_<bytes>` holds mode, sites, anchoring and pool fixed and varies only the
+operand size of each injected kernel, so the counter deltas are identical
+(406/526/566/646 dispatches, 247/367/407/487 barriers at K = 0/1/2/4) and the
+only thing that changes is how many bytes each added wave dirties.
+
+| operand bytes | µs/step per added dependent pair | 95% CI |
+|---|---|---|
+| 256 | 1.3746 ± 0.0257 | [1.323, 1.426] |
+| 8 192 | 1.3469 ± 0.0593 | [1.228, 1.466] |
+| 65 536 | 1.6574 ± 0.0333 | [1.591, 1.724] |
+| 262 144 | 2.4179 ± 0.0366 | [2.345, 2.491] |
+
+A 32× increase in dirty footprint from 256 B to 8 KiB moves the price by
+**−0.028 ± 0.065 µs (2 %, indistinguishable from zero)**. Above 8 KiB the price
+does rise, but linearly in bytes and at an ordinary rate, not as the step
+function a cache flush/invalidate would produce. OLS on the four points gives
+
+```
+cost(bytes) = 1.357 us + 4.07e-6 us/byte
+```
+
+The marginal term is 4.07 µs per MiB of operand, i.e. ~490 GB/s for the
+read+write traffic of an elementwise kernel — cache-resident bandwidth on this
+part, which is what it should be. It is ordinary memory work, priced as memory
+work.
+
+**E3 is refuted as an explanation of the tax.** The footprint-independent floor
+is 1.357 µs and that floor is the whole tax at realistic sizes: a 3072-wide
+bfloat16 decode activation is 6 KiB, contributing 0.025 µs to the bytes term.
+
+### 4.7 E4 — resource/heap-pool sweep
+
+E4 said the tax is residency or argument-table work that grows with the number
+of *distinct* buffers the encoder has to bind and keep resident. `dist40_pN`
+holds bytes at 8 KiB and cycles the injected adds over a pool of `N` distinct
+pre-allocated buffers, so the counters are identical across the sweep and the
+only thing that varies is how many distinct allocations the step touches.
+
+| distinct buffers | working set | µs/step per added dependent pair | 95% CI |
+|---|---|---|---|
+| 1 (`fat40_8k`) | 8 KiB | 1.3469 ± 0.0593 | [1.228, 1.466] |
+| 4 (`dist40_p4`) | 32 KiB | 1.5201 ± 0.0320 | [1.456, 1.584] |
+| 16 (`dist40_p16`) | 128 KiB | 1.5507 ± 0.0315 | [1.488, 1.614] |
+| 256 (`dist40_8k`) | 2 MiB | 1.4871 ± 0.0488 | [1.390, 1.585] |
+
+Across the `dist40` family the price is flat over a **64× range of distinct
+resources and a 64× range of working set**: 4 → 16 is +0.031 ± 0.045 µs and
+4 → 256 is **−0.033 ± 0.058 µs**, both zero. A residency or argument-encoding
+cost would have to grow somewhere in there.
+
+The 1 → 4 step looks like +0.17 µs but is **confounded and should not be read
+as an E4 signal**: `fat40` chains `t = t + z` against one hot buffer while
+`dist40` chains `t = t + bases[cursor]`, pulling a fresh 8 KiB operand into
+each add. That is more real memory traffic per wave, not more residency work,
+and it is the same effect §4.6 already prices at 4.07 µs/MiB. The clean
+within-mode contrast is the 4 → 256 row, and it is zero.
+
+**E4 is refuted.** The tax does not scale with distinct buffers, allocations, or
+working-set size.
+
+### 4.8 Cross-validation against PR #269's removal experiment
+
+PR #269 attacked the same question from the opposite direction: instead of
+*injecting* dispatches it *removed* 117 real ones per step by turning
+`v_copy | v_Sigmoid | vv_Add | v_Negative` into one fused kernel
+(`DARKBLOOM_FUSED_ROUTER`, 39 gates/step × 3 removed dispatches). Their ABBA
+design measured **+144.23 µs/step, sd 23.00, t = +12.54, CI [+107.6, +180.8]**
+for putting those 117 dispatches back, which they published as
+**+1.233 µs/dispatch, 95% CI [+0.920, +1.545]**.
+
+That chain is a *dependent* chain: each of the 117 removed dispatches also
+removed a dependency edge, hence a barrier. So this study's model predicts
+
+```
+barrier-free-dispatch-only model:  117 x 0.123 =  14 us   (refuted, 5.6 sigma low)
+dependent-pair model:              117 x 1.423 = 166 us   (0.95 sigma high)
+```
+
+against their measured 144 µs. The two-parameter model built here from
+injection on an M4 Pro predicts an M5 removal result it never saw, to within
+one standard deviation; the one-parameter "dispatches cost 1.4 µs" model misses
+it by an order of magnitude in the other direction. #269 and #268 are
+independent confirmations of the same mechanism, and #269's 1.233 µs/dispatch
+is best read as **1.233 µs per removed *dependent pair***, whose CI
+[0.920, 1.545] brackets this study's 1.423 µs.
+
+Their two other results also line up:
+
+* Their negative control — a Divide-compiled kernel fused beside an *unchanged*
+  `row_reduce_small_1_reduce_sum`, which MLX's `is_fusable` predicate refuses to
+  absorb — removed **zero** dispatches and produced **zero** speedup. A fusion
+  that does not delete a dependency edge refunds nothing, which is §6's rule 2.
+* Their E1 refutation by removal is stronger than the injection version here:
+  Δ(commit→complete gap) = 1 µs against Δ(GPU-busy) = 139 µs, and total gap is
+  *anti*-correlated with dispatch count (406 dispatches → 355 µs gap;
+  679 → 233 µs). §4.1 and §4.2 say the same thing with the opposite sign of
+  perturbation.
+
+The dispatch counter itself cross-validates: #269's independent kernel-family
+census on an M5 finds **exactly 406 dispatches per decode step** for the default
+scored path, which is the number this study's `device.cpp` atomic reports on an
+M4 Pro. Two different instruments on two different machines agree exactly, so
+the K = 0 baseline row here is not an artefact of my patch.
+
+One instrument discrepancy is unresolved and worth stating: #269 counts
+**45 command buffers per step**, this study's `device.cpp` counter reports
+**67–68 commits and 75–76 encoder creations** per step on the same nominal
+workload. These are different quantities measured with different methods on
+different hardware (M5 vs M4 Pro, and their count is of dispatched command
+buffers while mine counts `commit()` calls including empty and
+synchronization-only buffers). Neither result depends on the absolute number —
+both are stable across every arm and every K — but nobody should quote "45" and
+"68" as if they measured the same thing.
+
+## 5. Verdict on E1–E5
+
+**None of E1–E5 survives as stated, because all five were framed as
+*per-dispatch* mechanisms and the tax is not per-dispatch.** The surviving
+mechanism is a sixth one the brief did not list.
+
+| id | mechanism | verdict | decisive evidence |
+|----|-----------|---------|-------------------|
+| E1 | CPU-side per-op encode starving the GPU | **refuted** | §4.1: 224 µs of real CPU busy-wait injected at the same 40 encode positions moves wall by +0.050 ± 0.029 µs per injected µs, 32 SE below the 1.0 a CPU-paced step requires. §4.2: 99–100 % of the injected cost lands inside GPU-busy, gap slope −0.024 ± 0.013 and +0.007 ± 0.018. #269 by removal: Δgap = 1 µs vs ΔGPU-busy = 139 µs. |
+| E2 | GPU command-processor fixed launch cost | **refuted as the dominant term; survives as a 0.12 µs residue** | §4.3 `fan40`: +80 dispatches with +0 barriers cost +17.3 µs (0.216 µs each) where the same 80 in-chain cost 110 µs. §4.4 ×2: +40 barrier-free dispatches cost −3.0 and −13.7 µs. §4.5 `indep`: **+160 barrier-free dispatches cost −5.6 µs**, against +224 µs if the tax were per-dispatch. Pooled joint fit: **+0.123 ± 0.048 µs/dispatch**, 8.6 % of the total. |
+| E3 | cache flush/invalidate scaling with dirty footprint | **refuted** | §4.6: 32× footprint (256 B → 8 KiB) changes the price by −0.028 ± 0.065 µs. Above 8 KiB the cost rises *linearly in bytes* at ~490 GB/s, i.e. it is ordinary memory traffic. Footprint-independent floor 1.357 µs. |
+| E4 | residency/bookkeeping scaling with distinct resources | **refuted** | §4.7: 1 → 256 distinct scratch buffers changes nothing beyond noise. |
+| E5 | command-buffer commit overhead | **refuted (confirmed)** | §3 and every arm: commits 65–68 and encoder creations 75–76 per step, flat across all 17 arms and all K, while the tax moves by 580 µs. #269 independently reports a constant 45 command buffers/step. |
+| **E6** | **loss of intra-encoder overlap at a `memoryBarrier`** | **SURVIVES** | The whole of §4.3–§4.5. Pooled joint fit **+1.300 ± 0.060 µs per barrier**, t = 21.8, n = 288, and no arm off the line at t = 50.6 in the single-regressor pooled fit against x = barrier while x = dispatch throws `dist40_8k` and `fan40` off. Cross-validated against #269's independent removal at 0.95σ (§4.8). |
+
+### E6 stated precisely
+
+MLX's `Device::maybe_insert_barrier` (`device.cpp:363-375`) emits a single
+`memoryBarrier(MTL::BarrierScopeBuffers)` into the *current* compute encoder
+whenever the next op has a RAW (`:323-325`) or WAR (`:346-348`) hazard against
+anything already encoded there. Every encoder is created
+`DispatchTypeConcurrent` (`device.cpp:546-548`), so between barriers the GPU is
+free to overlap threadgroups from different dispatches. A barrier costs the
+overlap it destroys: the machine must drain every threadgroup encoded before it
+before starting anything after it, and the price is the ragged tail of that
+drain.
+
+Three properties follow, and all three are observed:
+
+1. **It is charged per barrier, not per dispatch.** Adding dispatches into an
+   already-open wave is free (0.12 µs); adding a dependency edge costs 1.30 µs.
+2. **It is charged whether or not the dependency is live.** §4.4's two anchor-0
+   arms pay 1.78–1.90 µs per barrier for work that never reaches the logits,
+   because the barrier serializes the encoder, not the tensor.
+3. **It costs what it drains.** §4.5's off-step async arms absorb 157 extra
+   barriers for free because the wave being drained is tiny and can slide into
+   the next step. The 1.30 µs figure is the price of a barrier placed
+   one-per-layer *between real decode work*, which is exactly the fusion case.
+
+Note that inserting a barrier resets MLX's `prev_*` hazard sets
+(`device.cpp:363-375`), so the counter measures **barrier-free waves**, not
+dependency edges: several independent edges that resolve at the same point
+cost one barrier between them. That is why `fan40` — K independent producers
+joined by one concatenate — adds dispatches without adding barriers past K = 2,
+and why it is the arm that breaks the per-dispatch model.
+
+### Answering the two hypotheses
+
+**H-MECH holds**, with the mechanism restated: the tax is dominated by one
+identifiable mechanism, E6, which accounts for 1.300 of the 1.423 µs
+(**91 %**). The remaining 0.123 µs is a genuine but small per-dispatch launch
+residue (E2), significant at t = 2.6 and not worth optimizing on its own.
+
+**H-REFUND holds, conditionally.** Removing one dispatch from the live decode
+chain refunds ≥ 1.0 µs **if and only if it also removes a dependency edge**. A
+fusion that merges two dependent kernels refunds 1.42 µs on this host. A change
+that merely reduces dispatch count without deleting an edge — batching
+independent work, wider grids over the same wave, anything that lands in the
+`fan40` / `indep` regime — refunds 0.12 µs per dispatch, 12× less, and will not
+clear the ~80 µs/step decode significance floor at any realistic count.
 
 ## 6. Decision rule
 
@@ -295,7 +550,7 @@ that are joined by a data dependency removes one dispatch *and* one barrier,
 so it refunds
 
 ```
-0.120 (dispatch) + 1.299 (barrier) = 1.42 us/step  [conservative pooled joint fit]
+0.123 (dispatch) + 1.300 (barrier) = 1.42 us/step  [6-arm pooled joint fit, n=288]
 0.173 (dispatch) + 1.241 (barrier) = 1.41 us/step  [4-arm in-chain joint fit]
 ```
 
@@ -318,6 +573,31 @@ overhead) to 0.506× (scales with step time) transfer band and
 | 1 per layer (×40) | 28.9 .. 57.1 | 0.441 .. 0.872 | 1.9 .. 3.7 |
 | 3 per layer (×40) | 86.6 .. 171.2 | 1.323 .. 2.616 | 5.6 .. 11.2 |
 | 10 per layer (×40) | 288.6 .. 570.7 | 4.410 .. 8.720 | 18.8 .. 37.2 |
+
+**Total size of the prize, and a bundling rule.** Applying the decomposition to
+the whole step, the attributable overhead is
+`247 barriers × 1.300 + 406 dispatches × 0.123 = 371 µs/step` on this host,
+4.5 % of the 8.18 ms step. Transferred to M5 that is **188 .. 371 µs/step**,
+which brackets the advisor's independent 283 µs/step estimate from the #269
+removal, and it is **28–54 % of the ~682 µs/step honest decode pool** — again
+consistent with the advisor's 41 %. The two methods agree on the size of the
+target.
+
+But that pool is not addressable one fusion at a time. Against the ~80 µs/step
+decode significance floor:
+
+| fusions landed | µs/step on M5 | clears 80 µs floor? |
+|---|---|---|
+| 1 barrier/layer | 28.9 .. 57.1 | **no**, at either end of the band |
+| 2 barriers/layer | 57.8 .. 114.2 | only at the optimistic end |
+| 3 barriers/layer | 86.6 .. 171.2 | **yes** |
+
+So a single dependent fusion is a real win that is *individually unmeasurable*
+on the ranked harness. The programme should develop fusions independently but
+**bundle at least three barrier-removing fusions into one ranked submission**,
+or accept that intermediate submissions will read as noise. §4.5's mechanism
+also warns that the bundle is not guaranteed additive: once a wave is deleted
+the next barrier drains a different amount of work.
 
 So the operational rule for the decode programme is:
 
@@ -436,3 +716,17 @@ Ordered by how much they could change the verdict.
    per-encode figure. All of those are command-buffer-scale costs, consistent
    with this step's 67 commits being the expensive part of the *fixed*
    overhead and the barrier being the marginal one.
+9. **`gpu_ms` double-counts when command buffers overlap.** The probe sums
+   `GPUEndTime − GPUStartTime` per completed command buffer. When two buffers
+   are in flight at once that sum exceeds wall time: the `chain` arm reaches
+   `gpu/wall = 1.064`. In every in-chain site arm — the ones §4.2 and the
+   verdict rest on — `gpu/wall` is 0.970–0.972, so the decomposition is safe
+   there, but `gpu_ms` must not be read as an occupancy figure whenever the
+   ratio approaches or exceeds 1.
+10. **1.30 µs is not a universal per-barrier constant.** It is the price of a
+    barrier inserted *between real dependent decode work*, once per layer,
+    which is exactly the fusion case. §4.5 shows the same barrier costs
+    *negative* time when the work it drains is off the critical path and can
+    overlap into the next step. The correct statement is "a barrier costs what
+    it drains"; 1.30 µs is what one drains in the scored decode step on this
+    host, not a property of `memoryBarrier` alone.

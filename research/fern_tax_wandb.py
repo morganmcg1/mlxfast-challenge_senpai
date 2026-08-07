@@ -27,6 +27,12 @@ GRID = [("dispatch", "ms"), ("barrier", "ms"), ("k", "ms"),
         ("dispatch", "gpu_ms"), ("dispatch", "gap_ms"),
         ("dispatch", "kernel_ms")]
 
+# Arms that inject inside a decode layer at 8 KiB, i.e. the ones the verdict
+# rests on.  The footprint (fat40_<bytes>) and pool (dist40_p<N>) sweeps vary
+# a nuisance parameter on purpose and must not be pooled into the joint fit.
+SITE_ARMS = ("chain40", "fat40_8k", "dist40_8k", "fan40",
+             "fat40_8k_free", "dist40_8k_free")
+
 TABLE_COLS = ["arm", "mode", "bytes", "pool", "anchor", "x", "y", "slope_us",
               "se_us", "ci95_half_us", "df", "n_points", "blocks",
               "divergences", "baseline_ms", "baseline_dispatch",
@@ -160,9 +166,7 @@ def main():
     # The decision number: what one fused dependent pair actually refunds.
     for tag, sel in (("joint_inchain", family),
                      ("joint_all_sites",
-                      [arms[a] for a in sorted(arms)
-                       if a.startswith(("chain40", "fat40", "dist40",
-                                        "fan40"))])):
+                      [arms[a] for a in SITE_ARMS if a in arms])):
         if len(sel) < 2:
             continue
         j = joint_pooled(sel)
