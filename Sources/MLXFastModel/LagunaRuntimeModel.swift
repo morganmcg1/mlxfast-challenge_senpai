@@ -4886,8 +4886,14 @@ private func lagunaNormAffineQKVBody(
 
         for (uint row = 0; row < results_per_simdgroup; ++row) {
             const device uint8_t* wl = ws + row * axis_size;
-            float scale = float(sc[row * in_vec_size_g]);
-            float bias = float(bs[row * in_vec_size_g]);
+            float scale, bias;
+            uint gl = (simd_lid / scale_step_per_thread) * scale_step_per_thread;
+            if (simd_lid == gl) {
+                scale = float(sc[row * in_vec_size_g]);
+                bias = float(bs[row * in_vec_size_g]);
+            }
+            scale = simd_shuffle(scale, gl);
+            bias = simd_shuffle(bias, gl);
             float accum = 0.0f;
             for (uint i = 0; i < values_per_thread; ++i) {
                 accum += x_thread[i] * wl[i];
@@ -4971,10 +4977,16 @@ private func lagunaNormAffineQKVPrefetchSource(
             pf_b[d][row] = float(as_type<bfloat>(ushort(pair >> 16)));
         """
         : """
-            pf_s[d][row] =
-                float(sc[d * (block_size / group_size) + row * in_vec_size_g]);
-            pf_b[d][row] =
-                float(bs[d * (block_size / group_size) + row * in_vec_size_g]);
+            float ps, pb;
+            uint gl_pf = (simd_lid / scale_step_per_thread) * scale_step_per_thread;
+            if (simd_lid == gl_pf) {
+                ps = float(sc[d * (block_size / group_size) + row * in_vec_size_g]);
+                pb = float(bs[d * (block_size / group_size) + row * in_vec_size_g]);
+            }
+            ps = simd_shuffle(ps, gl_pf);
+            pb = simd_shuffle(pb, gl_pf);
+            pf_s[d][row] = ps;
+            pf_b[d][row] = pb;
         """
     let metadataLoad = indexed
         ? """
@@ -4983,8 +4995,14 @@ private func lagunaNormAffineQKVPrefetchSource(
             float bias = float(as_type<bfloat>(ushort(pair >> 16)));
         """
         : """
-            float scale = float(sc[row * in_vec_size_g]);
-            float bias = float(bs[row * in_vec_size_g]);
+            float scale, bias;
+            uint gl = (simd_lid / scale_step_per_thread) * scale_step_per_thread;
+            if (simd_lid == gl) {
+                scale = float(sc[row * in_vec_size_g]);
+                bias = float(bs[row * in_vec_size_g]);
+            }
+            scale = simd_shuffle(scale, gl);
+            bias = simd_shuffle(bias, gl);
         """
     let metadataAdvance = indexed
         ? "mi += block_size / group_size;"
@@ -5147,9 +5165,9 @@ private let lagunaNormAffineQKVKernels: [Int: MLXFast.MLXFastKernel] = {
             let pf = staged ? 0 : lagunaNormAffineQKVPrefetchDepth
             kernels[rows] = MLXFast.metalKernel(
                 name: pf > 0
-                    ? "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_pf\(pf)_v1"
+                    ? "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_pf\(pf)_v2"
                     : "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
-                        + (staged ? "tg" : "inl") + "_v1",
+                        + (staged ? "tg" : "inl") + "_v2",
                 inputNames: [
                     "residual", "norm_weight", "weight_codes", "weight_scales",
                     "weight_biases",
