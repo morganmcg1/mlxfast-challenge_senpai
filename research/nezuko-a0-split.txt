@@ -1,0 +1,78 @@
+
+==============================================================================
+phase h1k1  (4 concurrent, 4 serial runs, hook=ON)
+==============================================================================
+  divergences: ALL ZERO
+  step wall        concurrent=    9.897 serial=    9.841 delta=  -0.056 ms ( -0.57%)
+                   conc runs: 9.973 9.808 9.912 9.883
+                   ser  runs: 9.914 9.793 9.884 9.798
+                   permutation p = 28/70 = 0.4000   separation=overlap
+  step wall(mean)  concurrent=    9.940 serial=    9.854 delta=  -0.087 ms ( -0.87%)
+                   conc runs: 10.084 9.828 9.928 9.952
+                   ser  runs: 9.927 9.830 9.877 9.826
+                   permutation p = 18/70 = 0.2571   separation=overlap
+  gpu_busy_sum     concurrent=    8.598 serial=    8.665 delta=  +0.066 ms ( +0.77%)
+                   conc runs: 8.648 8.593 8.583 8.604
+                   ser  runs: 8.653 8.669 8.661 8.681
+                   permutation p = 4/70 = 0.0571   separation=complete
+  gpu_busy_union   concurrent=    8.596 serial=    8.663 delta=  +0.067 ms ( +0.78%)
+                   conc runs: 8.645 8.591 8.580 8.601
+                   ser  runs: 8.651 8.667 8.659 8.679
+                   permutation p = 4/70 = 0.0571   separation=complete
+  gap (wall-union) concurrent=    1.349 serial=    1.191 delta=  -0.159 ms (-11.78%)
+                   conc runs: 1.439 1.236 1.348 1.351
+                   ser  runs: 1.276 1.163 1.218 1.147
+                   permutation p = 4/70 = 0.0571   separation=overlap
+  cbs/step         concurrent=  406.200 serial=  406.200 delta=  +0.000 cb ( +0.00%)
+                   conc runs: 406.200 406.200 406.200 406.200
+                   ser  runs: 406.200 406.200 406.200 406.200
+                   permutation p = 70/70 = 1.0000   separation=overlap
+  dispatches/step  concurrent=  406.200 serial=  406.200 delta=  +0.000 disp ( +0.00%)
+                   conc runs: 406.200 406.200 406.200 406.200
+                   ser  runs: 406.200 406.200 406.200 406.200
+                   permutation p = 70/70 = 1.0000   separation=overlap
+
+  DISCRIMINATOR: wall delta -56.4 us/step, busy_sum delta +66.5 us/step, busy/wall = -1.178
+
+  per-kernel gpu_busy_sum delta (serial - concurrent), total +64.1 us/step over 406 calls/step = +0.158 us/call
+   d_us/step      conc    serial  n/step  d_us/call  share_d      E  kernel
+        64.1                      406.18              100.0%  ... 29 more
+
+==============================================================================
+phase h1k2  (4 concurrent, 4 serial runs, hook=ON)
+==============================================================================
+  divergences: ALL ZERO
+  step wall        concurrent=    8.420 serial=    8.716 delta=  +0.296 ms ( +3.52%)
+                   conc runs: 8.423 8.418 8.423 8.382
+                   ser  runs: 8.722 8.707 8.732 8.711
+                   permutation p = 4/70 = 0.0571   separation=complete
+  step wall(mean)  concurrent=    8.456 serial=    8.728 delta=  +0.272 ms ( +3.21%)
+                   conc runs: 8.526 8.472 8.440 8.402
+                   ser  runs: 8.750 8.715 8.734 8.721
+                   permutation p = 4/70 = 0.0571   separation=complete
+  gpu_busy_sum     concurrent=    8.087 serial=    8.473 delta=  +0.387 ms ( +4.79%)
+                   conc runs: 8.086 8.096 8.085 8.087
+                   ser  runs: 8.472 8.475 8.477 8.468
+                   permutation p = 4/70 = 0.0571   separation=complete
+  gpu_busy_union   concurrent=    8.087 serial=    8.473 delta=  +0.387 ms ( +4.79%)
+                   conc runs: 8.086 8.096 8.085 8.087
+                   ser  runs: 8.472 8.475 8.477 8.468
+                   permutation p = 4/70 = 0.0571   separation=complete
+  gap (wall-union) concurrent=    0.365 serial=    0.255 delta=  -0.111 ms (-30.37%)
+                   conc runs: 0.439 0.376 0.355 0.315
+                   ser  runs: 0.278 0.240 0.256 0.253
+                   permutation p = 4/70 = 0.0571   separation=complete
+  cbs/step         concurrent=  204.100 serial=  204.100 delta=  +0.000 cb ( +0.00%)
+                   conc runs: 204.100 204.100 204.100 204.100
+                   ser  runs: 204.100 204.100 204.100 204.100
+                   permutation p = 70/70 = 1.0000   separation=overlap
+  dispatches/step  concurrent=  406.200 serial=  406.200 delta=  +0.000 disp ( +0.00%)
+                   conc runs: 406.200 406.200 406.200 406.200
+                   ser  runs: 406.200 406.200 406.200 406.200
+                   permutation p = 70/70 = 1.0000   separation=overlap
+
+  DISCRIMINATOR: wall delta +296.1 us/step, busy_sum delta +387.0 us/step, busy/wall = 1.307
+
+  per-kernel gpu_busy_sum delta (serial - concurrent), total +387.8 us/step over 204 calls/step = +1.900 us/call
+   d_us/step      conc    serial  n/step  d_us/call  share_d      E  kernel
+       387.8                      204.11              100.0%  ... 22 more

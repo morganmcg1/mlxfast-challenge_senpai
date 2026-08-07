@@ -1,0 +1,27 @@
+per-CB cost:        PR158 1.596 -> A0 0.540 us/CB (3.0x)
+de-inflation:       PR158 1.419 -> A0 0.480 us/dispatch (correction +0.939)
+isolated work sum:  8387.3 us/step (PR158 census total 8006.5)
+implied overlap:    412.2 us/step (A0 measured 448 +- 31)
+closure test:       named hiders absorb 516.6 us -> E_rest = 1.013 (1.000 == fully explained)
+identity check:     work*E + 45c = 7999.4 vs busy 7999.4 us/step
+
+  rank    d  effective  isolated      E    n     PR158   score%  kernel
+     1   +0     1501.7    1482.0  1.013   39    1445.4    21.99  routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+     2   +0     1337.3    1319.7  1.013   30    1291.5    19.58  decode_nvfp4_qkv_h64
+     3   +0     1116.9    1102.2  1.013   30    1074.0    16.35  oproj_act_h64
+     4   +0      860.7     849.4  1.013   39     812.8    12.60  routed_shared_nvfp4_down_residual_bf16_r1_v5
+     5   +0      628.7     620.4  1.013   30     592.2     9.20  sliding_fused_attn_ring_v1
+     6   +0      427.0     421.4  1.013    1     420.4     6.25  lmhead_int5_base_coarse_delta
+     7   +0      364.0     359.2  1.013   10     349.8     5.33  decode_nvfp4_qkv_h48
+     8   +2      305.1     301.0  1.013   39     264.5     4.47  residual_rms_router_rpg8_keys_v1
+     9   -1      302.3     298.3  1.013   10     288.9     4.43  oproj_act_h48
+    10   -1      273.1     269.5  1.013    1     268.6     4.00  dense_gate_up_swiglu
+    11   +0      252.6     249.3  1.013   10     239.9     3.70  full_fused_attn_grow_v1
+    12   +2      185.7     183.3  1.013   39     146.7     2.72  decode_router_top8_ordinal_table_norm
+    13   +2      136.3     134.5  1.013    1     133.6     2.00  dense_down_residual
+    14   +2      124.6     123.0  1.013   41      84.5     1.82  rmsbfloat16
+    15   +2       76.3      75.2  1.013    1      74.3     1.12  lmhead_exact_fused_int5_sparse_refine
+    16   -4       27.4     274.1  0.100   39     237.6     0.40  shared_nvfp4_swiglu_qmv_rows1
+    17   +2       25.5      25.1  1.013    6      19.5     0.37  six kernels below 8 us/step
+    18   -5       22.7     227.4  0.100   30     199.2     0.33  gate_sp_h64
+    19   -1        7.2      72.5  0.100   10      63.1     0.11  gate_sp_h48
