@@ -5541,6 +5541,15 @@ final class LagunaRuntimeAttention: Module {
     /// arrays for parameter integrity.
     var _fusedQKVWeight: MLXArray?
 
+    /// Retained fused `[Wq; Wk; Wv; Wgate]` weight for prefill (L > 1):
+    /// row-concatenating the per-head gate into the QKV bank lets a single
+    /// matmul dispatch produce Q, K, V, and the gate logits, eliminating the
+    /// separate `gProj(normalizedInput)` dispatch per layer. Bit-exact for
+    /// bias-free `Linear`: each output row's K-loop is independent of which
+    /// rows share the dispatch. Stored separately from `_fusedQKVWeight` so
+    /// the opt-in decode guard (`_fusedQKVWeight == nil`) is unaffected.
+    var _fusedQKVGateWeight: MLXArray?
+
     /// Terminal-prefill-only BF16 side banks. Q and the per-head gate share
     /// the singleton final normalized row; K and V share every normalized
     /// supplied row. The authoritative modules remain intact for checkpoint
@@ -5712,6 +5721,41 @@ final class LagunaRuntimeAttention: Module {
         }
         let fused = concatenated([wq.weight, wk.weight, wv.weight], axis: 0)
         _fusedQKVWeight = fused
+        return fused
+    }
+
+    /// Builds and retains the fused `[Wq; Wk; Wv; Wgate]` weight for prefill.
+    /// Called once after weights are installed; returns the new array so the
+    /// caller can batch a single eval. The gate rows ride the same matmul
+    /// dispatch as Q/K/V — each output row's K-loop is independent, so the
+    /// result is bit-exact with the four separate bias-free `Linear` calls.
+    /// Stored separately from `_fusedQKVWeight` to keep the decode guard intact.
+    func prepareFusedQKVGateWeight() -> MLXArray? {
+        guard _fusedQKVGateWeight == nil,
+            type(of: wq) == Linear.self,
+            type(of: wk) == Linear.self,
+            type(of: wv) == Linear.self,
+            wq.bias == nil, wk.bias == nil, wv.bias == nil,
+            wq.weight.ndim == 2, wk.weight.ndim == 2, wv.weight.ndim == 2,
+            wq.weight.dtype == wk.weight.dtype,
+            wk.weight.dtype == wv.weight.dtype,
+            wq.weight.dim(1) == wk.weight.dim(1),
+            wk.weight.dim(1) == wv.weight.dim(1),
+            wq.weight.dim(0) == nHeads * headDim,
+            wk.weight.dim(0) == nKVHeads * headDim,
+            wv.weight.dim(0) == nKVHeads * headDim,
+            gatingEnabled, gatePerHead, let gProj,
+            type(of: gProj) == Linear.self, gProj.bias == nil,
+            gProj.weight.dtype == wq.weight.dtype,
+            gProj.weight.ndim == 2,
+            gProj.weight.dim(1) == wq.weight.dim(1),
+            gProj.weight.dim(0) == nHeads
+        else {
+            return nil
+        }
+        let fused = concatenated(
+            [wq.weight, wk.weight, wv.weight, gProj.weight], axis: 0)
+        _fusedQKVGateWeight = fused
         return fused
     }
 
@@ -5999,20 +6043,27 @@ final class LagunaRuntimeAttention: Module {
         var queries: MLXArray
         var keys: MLXArray
         var values: MLXArray
-        // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY: at decode it
-        // would override the INT8 fused norm+QKV path (measured +1.4 ms/step
-        // when force-enabled), while at L > 1 it collapses three steel GEMMs
-        // into one.
-        if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
+        var bankedGate: MLXArray? = nil
+        // The fused [Wq; Wk; Wv; Wgate] bank collapses four prefill dispatches
+        // (Q, K, V, gate) into one matmul. PREFILL-ONLY: the `L > 1` guard
+        // keeps decode on its INT8 path, and the bank is stored separately
+        // from `_fusedQKVWeight` so the decode guard is unaffected.
+        if let fusedWeight = _fusedQKVGateWeight, L > 1 {
+            guard let normalizedInput else {
+                preconditionFailure("fused QKV+gate requires normalized input")
+            }
+            let qkv = matmul(normalizedInput, fusedWeight.T)
+            let queryDim = nHeads * headDim
+            let kvDim = nKVHeads * headDim
+            queries = qkv[.ellipsis, 0 ..< queryDim]
+            keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
+            values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
+            let gateStart = queryDim + 2 * kvDim
+            bankedGate = qkv[.ellipsis, gateStart ..< (gateStart + nHeads)]
+        } else if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
             guard let normalizedInput else {
                 preconditionFailure("retained fused QKV requires normalized input")
             }
-            // One dispatch over the row-concatenated [Wq; Wk; Wv] weight,
-            // identical math to the three bias-free `Linear` calls
-            // (`matmul(x, w.T)`). Each output row's K-loop is independent of
-            // which rows share the dispatch, so every Q/K/V element is
-            // bit-exact; the slices are views and the reshapes below may
-            // copy, which does not change values.
             let qkv = matmul(normalizedInput, fusedQKVWeight.T)
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
@@ -6237,6 +6288,12 @@ final class LagunaRuntimeAttention: Module {
             if let fusedNormQKV {
                 projectedGate = fusedNormQKV.gateValues
                 gateIsActivated = fusedNormQKV.gateActivated
+            } else if let bankedGate {
+                // Gate logits were produced by the fused QKV+gate bank in the
+                // prefill path — same matmul dispatch, same per-row K-loop, so
+                // bit-exact with the standalone `gProj(normalizedInput)`.
+                projectedGate = bankedGate
+                gateIsActivated = false
             } else {
                 guard let normalizedInput else {
                     preconditionFailure("attention gate requires normalized input")
@@ -11459,6 +11516,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                     contentsOf: layer.selfAttn.prepareNativeAffineOProjWeight())
             }
             if lagunaFusedQKVEnabled, let fused = layer.selfAttn.prepareFusedQKVWeight() {
+                fusedArrays.append(fused)
+            }
+            if let fused = layer.selfAttn.prepareFusedQKVGateWeight() {
                 fusedArrays.append(fused)
             }
             fusedArrays.append(
