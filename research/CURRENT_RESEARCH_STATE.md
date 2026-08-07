@@ -254,16 +254,33 @@ M5 Max SLC is rumour-grade. Our working assumption remains "≥48 MB, unknown"
   the FMAs. **This is the main support for §4.10's third-resource
   hypothesis.**
 
-⚠️ **UNRECONCILED DISCREPANCY — 32 vs 96 simdgroups/core.** The public
-reverse-engineered maximum is **32 simdgroups/core**. Our own #57 + #138 work
-concluded the binding occupancy term is **96 simdgroups/core**, and #157's
-residency ceiling of ~24 TG/core × 4 simdgroups per 128-thread TG also gives
-96. These are **3× apart**. Possible resolutions: (a) the public figure is
-Apple7/8 and M4/M5 tripled it; (b) our 96 is really "96 simdgroups' worth of
-*work* queued per core", i.e. a scheduling depth, not a residency limit;
-(c) one of the two is simply wrong. **Do not use either number as a hard
-constraint in an assignment until this is resolved.** Both of our derivations
-came from the same measurement family, so they are not independent.
+✅ **RESOLVED (PR #196, M4 Pro / 20 cores) — 32 vs 96 simdgroups/core: both
+are correct and measure different things.**
+
+- **96 simdgroups/core is the *residency* ceiling.** Proved by a cooperative
+  rendezvous kernel that cannot complete unless all launched threadgroups make
+  simultaneous forward progress (run `935bcdcb`). It holds at 1024 / 512 / 256 /
+  128 threads per threadgroup (3 / 6 / 12 / 24 TG per core = 96 simdgroups every
+  time) and is flat in threadgroup memory from 16 B to 32768 B. That invariance
+  is what a hardware slot limit looks like, and it reconciles #57, #138 and
+  #157 — the last of which reported the same 96 as 24 TG/core × 4 simdgroups
+  for a 128-thread threadgroup.
+- **32 simdgroups/core is the *throughput* width** — one 1024-thread
+  threadgroup per core per wave. This is what the duration staircase measures
+  and it is the number that governs performance. Both scored attention kernels
+  show a flat duration from K=1 to K=C and a **+6.5 µs riser at exactly
+  K = C+1 and K = 2C+1** (run `dc05d40d`, unit resolution, K = 1…3C).
+
+**For all performance modelling use 32.** Fitting `T(K) = a + b·⌈K/C⌉` to the
+wave plateaus gives a marginal wave cost `b = 7.408 µs` against a lone-threadgroup
+latency of 8.891 µs, i.e. **co-residency recovers only ~17% of a wave**: these
+kernels are issue/ALU-bound, not latency-bound, so the extra residency has
+almost nothing to hide. This is consistent with the "ALU saturates at ~24
+simdgroups/core" line above — with 3 co-resident 32-simdgroup threadgroups the
+core is far past saturation, which is *why* the extra residency buys so little.
+
+Caveat: measured on M4 Pro (gen 16). The 96-slot ceiling is not verified on the
+ranked M5. See `research/nezuko-decode-attention-occupancy.md` §3 and §6.
 
 ### 0c.2 The Neural Accelerator (NAX)
 
