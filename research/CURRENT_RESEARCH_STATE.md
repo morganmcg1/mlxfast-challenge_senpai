@@ -1560,18 +1560,191 @@ experiment maple-frieren is already running in PR #148. **Do not assign a
 second student to idea 4.** The advisor sequencing note above ("idea 4 first")
 is superseded.
 
-##### Revised round-25 sequencing
+#### ⭐⭐ Second de-risking pass (2026-08-07): idea 2 and idea 3 are both DEAD
 
-1. **QKV + `g_proj` single-dispatch merge** (re-specified idea 3) — first
-   assignment when a slot frees; ≈ +2.0%, ≈ +4.0% with the stranded norm
-   fusion; zero bytes; measured on the M5 receipt channel.
-2. **#174 reports** → decides whether idea 1's 39-seam residue (≈ +1.9%) is
-   real, and simultaneously re-prices the seam term inside idea 3.
-3. **#170 reports** → if H3 (schedule+latency-limited) wins, idea 6 (dequant
+Two more source-reading agents were sent in before any round-25 assignment was
+written — one auditing idea 2's reachability, one auditing the re-specified
+idea 3's design. **Both ideas died.** More importantly, the second audit
+falsified the *pricing model* that generated ideas 1, 2 and 3 alike. Read (e),
+(f) and especially (g) before proposing anything priced in dispatches.
+
+##### (e) Idea 2 is DEAD as written — decode pre-encoding is structurally unreachable
+
+The editable surface has been enumerated exactly. `benchmark.json`'s 97
+entries expand to: `Sources/MLXFastModel` (whole dir), `Sources/MLXFastTransform`
+(whole dir), 15 × `Vendor/mlx-swift-lm/`, 80 × `Vendor/mlx-swift/`. Of those
+80, **76 are kernel sources and only 4 are dispatch/host machinery**:
+
+| bytes | path | role |
+|---|---|---|
+| 88,309 | `Vendor/…/backend/metal/matmul.cpp` | encode site (GEMM/GEMV) |
+| 83,954 | `Vendor/…/backend/metal/quantized.cpp` | encode site (NVFP4 QMM, MoE gather-GEMM) |
+| 50,368 | `Vendor/…/backend/metal/jit_kernels.cpp` | pipeline/JIT build |
+| 9,697 | `Vendor/…/backend/metal/kernels.h` | kernel decls |
+
+**Not editable:** `metal/device.cpp`, `metal/device.h`, `metal/eval.cpp`,
+`mlx/transforms.cpp`, `mlx/utils.h`, and ⭐ **all of
+`Vendor/mlx-swift/Source/MLX/*.swift`**.
+
+- **The hard blocker is `device.h:104-105`.** `MTL::ComputeCommandEncoder*
+  get_command_encoder()` is **private**, and `device.h`/`device.cpp` are not
+  editable. So `memoryBarrier(scope:)`, `useResource`, ICB encoding and custom
+  fences are all **structurally out of reach**. There is no
+  `MTLIndirectCommandBuffer` use anywhere reachable (only unused non-editable
+  metal-cpp bindings), and `Sources/MLXFastModel/` contains no `import Metal`.
+- **Command-buffer lifetime is decided entirely in non-editable code.**
+  `needs_commit()` = `buffer_ops_ > max_ops || (buffer_sizes_>>20) > max_mb`
+  (`device.cpp:484-487`); family defaults 40/50 (`:576-593`); env override
+  (`:596-597` → `mlx/utils.h:178-188`); the actual end/commit is
+  `eval.cpp:59-63` and `:73-77` (`gpu::finalize`), called from
+  `transforms.cpp:276` and `:315`. One encoder per CB, opened
+  `MTL::DispatchTypeConcurrent` (`device.cpp:548`).
+- ⭐ **"Fewer CBs" is already measured and has the WRONG SIGN.** The 66-run
+  two-Latin-square decode-ladder sweep (`LagunaRuntimeModel.swift:660-676`,
+  §7's placement table): `off` (one flush/step) **10.3735 ms**; `ladder8`
+  **9.4533 ms**; `at:1,7,15,23,31,39` ≈ **9.29 ms**. Collapsing toward one
+  command buffer is **~10–11% slower** — MLX's graph build runs on the CPU and
+  the GPU idles until a flush. **The prize is *more, earlier* flushes, not
+  fewer.** Idea 2's whole framing was backwards.
+- ⭐ **Multi-stream is completely unexploited and IS reachable.** MLX creates
+  one `MTLCommandQueue` per stream (`device.cpp:284`), keys encoders per stream
+  index (`eval.cpp:22-27`) and holds per-stream fences
+  (`transforms.cpp:285-292`). We cannot edit that machinery, but the `stream:`
+  *argument* is fully ours — and `Sources/MLXFastModel/*.swift` currently
+  passes **no explicit `stream:` anywhere**.
+
+**Replacement leads (these inherit idea 2's slot, at much lower stated
+magnitude and much higher confidence):**
+
+- **(L1) Multi-stream decode.** #157 §4c at production width (`alu/mem`,
+  tg=9792) measured `two_queue` **0.1268** vs `two_cb` **0.0546** vs
+  `concurrent_1cb` **0.0120** — multi-queue overlaps ~2.3× better than two CBs
+  and ~10× better than one concurrent CB. Now confirmed reachable. Natural
+  first movers off the main stream: the **1-threadgroup top-8 selector**
+  (§(b)), `gate_sp`, or lm-head screening.
+- **(L2) Encode-site `start_concurrent()` / `barrier()` and barrier pruning.**
+  `CommandEncoder::start_concurrent()`/`barrier()` are public
+  (`device.h:88-90, :93, :97`) and callable from the editable `quantized.cpp`
+  (`get_command_encoder(s)` at `:221, :284, :316`) and `matmul.cpp`, overriding
+  the auto-barrier logic at `device.cpp:324-325, 347-348, 363-371`. In-tree
+  precedent: `DARKBLOOM_STAGE_RUNBAR` at `quantized.cpp:1290` already dropped
+  two provably dead per-run barriers.
+- **(L3) "More, earlier flushes."** A finer search around earlier first-flush
+  placement in the decode async ladder (`LagunaRuntimeModel.swift:678-708`, env
+  `DARKBLOOM_DECODE_ASYNC_STAGE`, default `at:0,1,7,15,23,31,39`; prefill twin
+  `:730-740`). Note the lone-fire-at-layer-1 row scores **0.9476** (worse), so
+  this is a placement-and-density surface, not a monotone dial.
+
+##### (f) Idea 3 is DEAD — the QKV + `g_proj` merge was already built and measured on the ranked M5
+
+**PR #48 (`research/maple-fern-pr48-fused-norm-qkv-gate.md`, 65,364 B,
+`assignment_id maple-2026-08-05d-fused-norm-qkv-gate`) built exactly this
+kernel and measured it on the ranked M5 at −0.1488% on `ns`.**
+
+- Its **mode 2** = RMSNorm fold + **gate ride-along**, −80 decode dispatches
+  (406 → 326, exactly as the merge predicts). Its **mode 1** = norm fold only,
+  −40. Dispatch census confirms the per-layer NVFP4 tail anatomy: **1 norm +
+  1 QKV + 1 gate = 3, collapsing to 1**.
+- The ride-along map already exists **in the "gate tiles first" form** —
+  `if (tile < gate_tiles && simd_group < 2) { … }`, `gate_tiles = heads/8`,
+  Swift-side guard `heads/8 <= rows/16`; zero extra threadgroups, zero extra
+  norm recomputation. The *trailing*-tile form was measured **+1.6% slower on
+  M4** (one threadgroup streams the whole 128 KB INT8 gate bank on a single
+  core while the other 640 retire ⇒ the gate becomes the kernel's tail).
+- ⭐ **The receipt.** Ticket **`285f79fa-089f-4184-b1ec-0647cb51e61b`**, created
+  2026-08-05T19:00:49Z, commit `3234ece1e2f2c43cf25bfa981f9c75a702564917`,
+  submitted `--model senpai`, `status rejected`, `officialScore
+  2.50450520378964`.
+  **Correctness fully green**: `passed_correctness True`, `max_abs_diff 0`,
+  `checked_steps 1344`, `case_count 11`, all `first_failing_*` null,
+  `gpqa_ttft_passed True` 9/9, `semantic_gpqa_passed True` 9/9,
+  `peak_ram_gb 21`.
+  **Timing**: `nd` 2.745476 vs control 2.754322; `npf` 2.013145 (shared);
+  **`ns` 2.540575 vs control `c3ce66ec` 2.544360 ⇒ Δ = −0.1488%.**
+- ⭐ **The pre-registration is what matters.** PR #48 registered *Reading A*
+  (dispatch-count × µs/dispatch: 80 × 2.1828 µs ⇒ **+2.595%**) against
+  *Reading B* (**+0.44%**) with a **10.2 σ** separation. The M5 came in at
+  **−0.15%**, below even Reading B. **Reading A was refuted outright.**
+- The mechanical merge is *trivial* and that is precisely the point: both
+  kernels are TG `(64,1,1)` = 2 simdgroups × 32 lanes, all-register, `simd_sum`
+  reduction, reading the same `normalized` buffer; merged buffer count is
+  8 in + 2 out = 10, far under the 31 limit; TG memory stays 0 B. There is
+  in-file precedent (`laguna_fused_norm_qkv_projection_bf16_h{48,64}_v3`,
+  `LagunaRuntimeModel.swift:3239-3308`, dispatch `:3372-3387`). **Ease of
+  implementation was never the constraint; the mechanism simply is not worth
+  anything.**
+- **The one genuinely untested cell** is a *dispatch-only* gate merge (no norm
+  fold) at the shipped `num_simdgroups=2` geometry with gate tiles scheduled
+  first — PR #48's mode 2 bundled the norm fold and its
+  `QKV_R1_SIMDGROUPS=16` re-tiling, so the gate fold was never isolated on M5.
+  Expect **sub-0.5%**, and the barrier census says the deleted dispatches are
+  the cheap ones (the norm fold removes 39 barriers; **the gate fold deletes
+  exactly 1 of 40**). Frame it only as a narrow pre-registered discriminator,
+  never as an unexplored win.
+- If it is ever revisited, the three bit-exactness risks are: (1) `R`/`NS` are
+  free work-assignment but **`V=8` and `BK=256` are NOT** — they fix which 8
+  products enter each lane and the `simd_sum` tree; (2) FP re-association /
+  FMA contraction ⇒ the gate body must be emitted as **byte-identical MSL**
+  (PR #48's `lagunaGateSoftplusBody(orow:input:)` extraction is the safe
+  pattern); (3) keep the device-side bf16 `normalized` input boundary and the
+  softplus `float(bfloat(r))` round-trip and NaN branch verbatim.
+- ⚠️ **Oracle caveat, recorded from PR #48 §9.4/§9.7:** forcing `FUSE=0` gave a
+  **byte-identical** fusion-site list and per-step errors to `FUSE=2`, i.e. the
+  upstream-equivalence oracle **cannot distinguish the modes at all**. The
+  defensible claim from it is "no gross always-on corruption", never
+  "bit-exact". Demand a **positive reachability trace** for any custom kernel.
+
+##### (g) ⭐⭐ The synthesis: dispatch COUNT is not the currency; dispatch OVERLAP is
+
+Three independent results are jointly consistent under exactly one reading:
+
+| result | observation |
+|---|---|
+| **PR #48, ranked M5** | −80 decode dispatches ⇒ **−0.15%** (nothing) |
+| **PR #101, M4** | forcing `DispatchTypeSerial` ⇒ **+0.456 ms/step, +5.49%** |
+| **PR #158, M4** | `gpu_busy_sum` **flat at 7.99 ± 0.06 ms** across 45 → 204 CBs |
+
+**The machine already overlaps well.** *Removing* a dispatch removes something
+that was already hidden; *breaking* the overlap is expensive. This also
+retroactively explains the §4.1a busy-vs-wall divergence (`rsdr`: busy −71.5 µs
+but wall **+20.5 µs**).
+
+**Consequences, and they are programme-wide:**
+
+1. **Headroom lies in increasing overlap beyond MLX's conservative
+   auto-barriers ((L2)) or adding a second queue ((L1)) — not in fusing or
+   merging kernels.** Every remaining "fuse N dispatches" proposal is now
+   presumed worthless until it clears the PR #48 refutation.
+2. **Idea 1's residue (≈ +1.9%) is priced by the same refuted model** and is
+   now suspect on the same evidence. **#174 arm A1's exposure factors are the
+   decisive test, and its importance rises sharply.**
+3. **The surviving ideas are the non-dispatch-count ones:** idea 5 (lm-head
+   cascade — *byte*-based), idea 6 (dequant instruction diet / raise θ —
+   *work*-based, prefill), idea 8 (entropy recode of the bf16 planes —
+   *byte*-based), plus (L1)/(L2)/(L3) above.
+4. **Doctrine change (added to §3):** *do not price a decode fusion by removed
+   dispatch count at all.* Price it by traffic delta, by exposure factor
+   E = ΔS/ΔI measured on the actual kernel, or not at all.
+
+##### Revised round-25 sequencing (v2, supersedes v1)
+
+1. **(L1) Multi-stream decode** — the strongest untried mechanism, now
+   confirmed reachable, and the only one of the three replacement levers with a
+   large measured overlap ratio behind it (#157 §4c). First assignment when a
+   slot frees. First movers: the 1-TG top-8 selector, `gate_sp`, lm-head
+   screening.
+2. **#174 reports** → arm A1's exposure factors adjudicate the dispatch-count
+   question directly, and decide whether idea 1's 39-seam residue survives (g).
+3. **(L2) Encode-site barrier pruning / `start_concurrent()`** in the editable
+   `quantized.cpp` / `matmul.cpp`, sequenced after #174 so it is designed
+   against measured exposure rather than counts.
+4. **#170 reports** → if H3 (schedule+latency-limited) wins, idea 6 (dequant
    instruction diet, θ 0.67 → 0.78, ~+3%) becomes the constructive follow-on.
-4. **#137 reports** → gates idea 5 (two-level lm-head screening cascade).
-5. **#148 reports** → is idea 4, in its only available form.
-6. Ideas 2 and 7 stay held; idea 8 remains filler.
+5. **#137 reports** → gates idea 5 (two-level lm-head screening cascade).
+6. **#148 reports** → is idea 4, in its only available form.
+7. **(L3) flush-placement refinement** and idea 8 remain filler; idea 7 has
+   lost its prerequisite and must be re-motivated or dropped; **ideas 2 and 3
+   are closed (§8).**
 
 
 ---
@@ -1590,6 +1763,53 @@ The full evidence table lives in the archive
 
 **Closed this session:**
 
+- **⭐⭐ The QKV + `g_proj` single-dispatch merge — CLOSED, because it was
+  already built and measured on the ranked M5.** PR #48
+  (`research/maple-fern-pr48-fused-norm-qkv-gate.md`) shipped a three-mode
+  kernel whose mode 2 folds the input RMSNorm *and* the per-head `g_proj` +
+  softplus into the fused QKV dispatch, removing **exactly 80 decode
+  dispatches** (406 → 326). Receipt
+  **`285f79fa-089f-4184-b1ec-0647cb51e61b`** (commit `3234ece1`, measured
+  2026-08-05T19:12:03Z) came back **fully correct** — `max_abs_diff 0`,
+  `checked_steps 1344`, `case_count 11`, GPQA TTFT 9/9, semantic GPQA 9/9,
+  both floors clear — and **`ns` 2.540575 against a same-session control
+  `c3ce66ec` at 2.544360 ⇒ Δ = −0.1488%**. Both component speedups were
+  marginally *worse*. The PR pre-registered Reading A (80 × 2.1828 µs ⇒
+  **+2.595%**) against Reading B (+0.44%) with a **10.2 σ** separation; the
+  measurement landed below both. **Reading A is refuted outright.** The one
+  cell never tested is a *dispatch-only* gate merge (no norm fold) at
+  `num_simdgroups=2`; expect sub-0.5%, because the barrier census shows the
+  gate fold deletes only **1 of 40** barriers — the 40 dispatches it buys are
+  the cheap ones. Reopen only as a narrow pre-registered discriminator, never
+  as a headline win.
+- **⭐⭐ Pricing a decode fusion by (dispatches removed) × (µs/dispatch) —
+  CLOSED as a predictive model.** The same receipt is a direct falsification:
+  −80 dispatches bought −0.15%. The µs/dispatch constants in §4.1a were
+  measured in **`gpu_busy_sum` currency on M4** and do **not** convert to M5
+  wall time. Do not price a decode fusion by removed dispatch count at all
+  without new evidence. See §7's second de-risking subsection (g) for the
+  replacement doctrine: **dispatch COUNT is not the currency; dispatch OVERLAP
+  is.**
+- **Decode-step pre-encoding (ICB, or one hand-fenced encoder for the whole
+  step) — CLOSED, structurally unreachable.** Command-buffer lifetime is
+  decided entirely in non-editable code (`metal/device.cpp:484-487`,
+  `:576-593`; `metal/eval.cpp:59-63`, `:73-77`), and
+  **`metal/device.h:104-105` makes `get_command_encoder()` private** inside a
+  non-editable header, so `memoryBarrier(scope:)`, `useResource`, ICB
+  encoding and custom fences are all out of reach. Only 4 of the 80 editable
+  `Vendor/mlx-swift/` entries are dispatch/host files (`matmul.cpp`,
+  `quantized.cpp`, `jit_kernels.cpp`, `kernels.h`); every
+  `Vendor/mlx-swift/Source/MLX/*.swift` is **not** editable. See §7
+  subsection (e) for the three replacement leads (multi-stream decode,
+  encode-site `start_concurrent()`/barrier pruning, more-and-earlier flushes).
+- **Reducing the decode command-buffer count — CLOSED, measured ~10% WORSE.**
+  The 66-run two-Latin-square asyncEval-ladder sweep in
+  `LagunaRuntimeModel.swift:660-676` puts `off` (fewest flushes) at **10.3735
+  ms**, `ladder8` at **9.4533 ms**, and `at:1,7,15,23,31,39` at ≈**9.29 ms**.
+  Collapsing toward one command buffer is **~10–11% slower**. The prize, if
+  any, is in *more, earlier* flushes — and even that is a
+  placement-and-density surface, not a monotone dial (a lone fire at layer 1
+  scores 0.9476, i.e. worse).
 - **`mx::set_wired_limit()` — CLOSED, already shipped.** The Open-TQ-Metal
   lead (§0c.7, 10× throughput recovery) is already in the runtime:
   `LagunaRuntimeWeights.swift:546-598`, invoked at `:460-462`, gated on
