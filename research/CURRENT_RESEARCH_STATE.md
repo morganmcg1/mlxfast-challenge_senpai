@@ -142,6 +142,70 @@
   **Standing lesson for me: a geometry argument expressed as a ratio hid a fixed
   additive cost. Price decode geometry additively or not at all.**
 
+- **2026-08-07 04:35 UTC — round 26 is open on four PRs, and three new
+  programme-level rules came out of writing the briefs.** Board: **#204**
+  (fern, `maple-2026-08-07b-router-top8-fusion`, head `c5a3172c`) and **#205**
+  (nezuko, `maple-2026-08-07c-attention-merge-epilogue`, head `31ffc91f`) are
+  freshly assigned at r1 off base `1fe609eb`; **#170** (tanjiro, gather-regime
+  discriminator, head `0a90df98`) and **#148** (frieren, prefill ledger, head
+  `8f5bdba4`) were both silent under `stale_wip` and each received one
+  content-bearing `send_assignment_feedback` nudge rather than a revision
+  request. Region fences are declared in both new briefs so #204, #205 and
+  #148 cannot collide inside `LagunaRuntimeModel.swift`.
+  - **(i) The threadgroup-memory residency confound — now a binding design
+    rule for every arm that adds threadgroup memory.** Reverse-engineered
+    Apple7/8 numbers put *physical* threadgroup memory at **≈60 KB per shader
+    core** against a 32 KB per-threadgroup API limit, so threadgroup memory is
+    a genuine co-residency limiter independent of registers. The shipped
+    `fp_gather_qmm_rhs_expert_nax` stages **9,232 B** ⇒ ≈6 TG/core on that
+    axis; tanjiro's S2 arm adds a second ~9 KB buffer ⇒ ≈3 TG/core. Production
+    dispatches 4,096 TGs (gate/up) and 8,192 (down) per layer — ~102/~205 per
+    core on 40 cores — a deep many-wave regime in which **halving residency
+    roughly doubles wave count**. As written, S2 therefore conflates "load and
+    dequant are on the critical path" with "we halved occupancy". **Prescribed
+    fix (preferred): make the extra work non-additive in threadgroup memory by
+    reusing the existing staging buffer twice per k-iteration** — double the
+    device traffic and dequant instructions at a constant 9,232 B footprint.
+    Fallback: a fourth control arm that allocates ~9 KB and never reads it, at
+    the cost of one receipt. **Every arm must now report, as Step 0,
+    threadgroup bytes, compiled `maxTotalThreadsPerThreadgroup`, and implied
+    TGs/core.** Caveat carried forward: #196's "residency flat in tgmem
+    16 B→32768 B" was measured at **1024 threads/TG**, where thread count was
+    the binding limiter; tanjiro's kernel is 128 threads / 4 simdgroups, a
+    different regime, so #196 does not exempt it.
+  - **(ii) Ledger measurement doctrine — read dose-response ledgers off raw
+    candidate metrics, never off a speedup.** The paired *baseline* decode
+    draw drifts monotonically **+0.091% over ~3 h** (~0.03%/h), and the paired
+    *baseline* prefill draw swings far harder: `prefill_speedup` fell 2.0015 →
+    1.9628 across three sessions, **−1.93% entirely baseline-side**. The
+    *candidate* `prefill_seconds_per_token` has a run-to-run sd of **0.260%**,
+    so the denominator is 7–8× noisier than the numerator. **Rule: every
+    ledger row comes from `officialMetrics` raw `prefill_seconds_per_token` /
+    `decode_seconds_per_token`, candidate arm only; paired baselines are
+    recorded solely as a host-health check.** #148's design survives this
+    unchanged (26 copies × 1.109 ms = ~28.8 ms on ~97.9 ms S = **+29%, about
+    110× the 0.260% noise**). **Corollary now binding on every decode ledger:
+    candidate decode cv ≈ 0.235% ⇒ the ranked channel resolves ~10 µs/step, so
+    any decode ledger entry below ~10 µs/step must be reported as "below
+    resolution", not as a number.**
+  - **(iii) The receipt price is ~44 minutes, not ~35.** #137 r3 measured
+    **43 min 55 s** dispatch → terminal (01:57:14Z → 02:41:08Z; 19.6 min
+    queued + 20.8 min validating), receipt `08ddee45`. Four receipts is ~3 h of
+    pure queue time, which is why #170 is now sequenced **M2 → S2 → B2 with
+    explicit permission to stop at three**. Offsetting this: the queue is
+    currently almost free, because #204 and #205 are M4-local with zero
+    receipts and only #148 and #170 can dispatch.
+  - **(iv) A fresh frontier slate (H1–H9) now exists in §11.** It was produced
+    by a context-free frontier agent from the budget framing alone, and its
+    organising claim is that the **~1.0 ms of decode time not claimed by any
+    in-flight experiment is per-dispatch fixed cost**, because 1.0 ms over 406
+    dispatches ≈ 2.5 µs ≈ the measured attention per-call fixed cost (1.661 µs)
+    plus one wave (1.469 µs). **H1 — one Metal System Trace of 3–5 consecutive
+    decode steps, split into inter-dispatch gaps, step-boundary bubble, and
+    exposed small-kernel duration — is the decision node**: it prices H2, H3,
+    H4, H7 and H9 exactly and costs about a day. Read §11 with the four
+    advisor caveats recorded there before assigning any of it.
+
 - **Most recent human research direction:** `3fbbd2d3`, "Soften Maple attention
   precision guidance" (2026-08-06 22:04:20 UTC), the second of two consecutive
   softening commits after `eae07f01` (21:55:23 UTC). Both are recorded in §0a;
@@ -3365,3 +3429,255 @@ Ordered by expected value, not by ease.
   recorded above; the shadow-execution re-audit (§4) is open; the D5
   golden/harness-hash receipt is satisfiable by a no-op because `harnessHash()`
   excludes `research/`; the MDE floor is now explicitly ±0.73%.
+
+---
+
+## 11. Round-26 frontier hypothesis slate (H1–H9)
+
+Produced 2026-08-07 by a context-free frontier agent given only the budget
+framing (decode/prefill split, byte inventory, score elasticities) and the
+public repository. It had **no** campaign history, so read §11.10 before
+assigning any item: four of its premises are wrong or already cashed.
+
+### 11.0 The organising claim
+
+Decode measures 4.144 ms/step against a 2.94 ms byte floor (1794 MB / 614 GB/s
+on M5). That leaves **1.204 ms of non-byte time**. The three in-flight PRs
+(#204, #205, #148) between them claim only ~230 µs of it. The remaining ~1.0 ms
+spread over 406 decode dispatches is ≈2.5 µs/dispatch — which is almost exactly
+the attention per-call fixed cost measured in #196 (`a = 1.661 µs`) plus one
+wave (`φ = 1.469 µs`).
+
+Theory: **the residual is per-dispatch fixed cost, and the unpulled lever is
+fewer/fatter dispatches achieved by restructuring *what* is computed, not how
+it is packaged.** Every closed item in this family (CB-count reduction, ICB
+pre-encoding, "N dispatches × µs/dispatch" pricing) attacked packaging and left
+the op graph alone.
+
+Conversion constants: 1% of decode = 41.4 µs = +0.75% score; 1% of prefill =
++0.25% score.
+
+### 11.1 H1 — decode-step gap taxonomy ⭐ DECISION NODE
+
+Three distinct sinks are currently conflated: (a) inter-dispatch gaps inside a
+command buffer, (b) the step-boundary bubble, (c) exposed small-kernel
+duration. Everything we have closed only killed remedies for (a).
+
+If (b) is large — 89% GPU utilisation implies ≈456 µs idle per step, and
+teacher-forced stepping forces a CPU round trip per token while MLX rebuilds
+and re-encodes a ~406-node lazy graph in Swift — then the fix is host-side, in
+editable Swift: GPU-side argmax with a 4-byte copy (first check it is not
+already a 200–400 KB logits copy plus a dtype convert), precomputed masks and
+position tensors instead of per-step `MLXArray` slicing churn, and node-count
+reduction.
+
+Magnitude: a boundary bubble of 150–400 µs; recovering two thirds is
+**+1.8–4.8% score**.
+
+First experiment: one timeline capture over 3–5 consecutive decode steps
+reporting (1) last-kernel-end → first-kernel-start gap per step, (2) the sum of
+inter-dispatch gaps, (3) per-kernel exposed durations sorted descending.
+Kill criterion: boundary gap < 30 µs **and** gap sum < 300 µs.
+
+This prices H2, H3, H4, H7 and H9 exactly, and is the cheapest thing on the
+slate.
+
+### 11.2 H2 — merge the shared expert into the routed gather as a 257th expert
+
+The shared expert is 2048→512→2048: identical geometry to a routed expert. Yet
+it is read every layer as ~1.77 MB through 2 small GEMV dispatches (~69 MB per
+step). At load time — input-independent, therefore allowed — append its
+up/gate/down slabs to the expert bank and extend the routing key array with a
+forced 9th entry of weight 1.0. The MoE block then goes from 4 to 2
+weight-streaming dispatches per layer.
+
+Magnitude: ~6.9 → ~2.9 µs/layer ⇒ ~4 µs × 39 = ~155 µs; realistic 120–200 µs =
+**+2.2–3.7% score, byte-neutral**.
+
+First experiment: runtime-only prototype (repack at load, force the 9th key)
+plus tripwire plus upstream equivalence plus timing; 1–2 days.
+
+Risk: summation order. The reference computes the shared and routed sums
+separately and then adds them; a fused epilogue must accumulate the routed
+experts in reference order and add the shared row exactly where the reference
+adds it. Confirm the shared expert uses the same SwiGLU epilogue, else carry a
+per-row flag.
+
+This is **not** expert reordering, **not** up/down fusion, and a different and
+larger idea than §7 R2 (the prefill-only shared-expert SwiGLU epilogue worth
++0.040%).
+
+### 11.3 H3 — fold `g_proj` + sigmoid gate into the O-projection prologue
+
+`g_proj` is a 2048×64 GEMV, ~74–170 KB, so ~95% of its cost is fixed, and it
+runs 40× per step. The closed experiment merged it into **QKV** and lost (it
+serialised two concurrent big streams). This folds it into the **other** side.
+
+O-proj already consumes `sigmoid(g) ⊙ attn_out`. In the O-proj prologue one
+simdgroup computes the 48–64 gates from the normed hidden (64×2048 MACs, noise
+inside a 9–17 MB stream), barriers once, and gates the input vector in
+threadgroup memory.
+
+Magnitude: (2.3 + 1.8 − 1.0) × 40 ≈ **90–120 µs = +1.6–2.2% score**, halved if
+the gate-apply is already fused.
+
+Risk: sigmoid bit-match (copy the reference exp/divide verbatim); the prologue
+dot product must replicate the standalone quantized-GEMV accumulation order.
+
+### 11.4 H4 — systematic absorption of the remaining elementwise dispatches
+
+There are 3–5 pure-elementwise launches per layer (norm1, norm2, RoPE if it is
+not already an epilogue, residual adds), each ~1.8–2.5 µs and fully exposed.
+Epilogue fusions — RoPE on Q/K, residual add on O and on the down output — are
+bitwise-trivial. Norm-*prologue* fusion is bitwise-achievable only by
+dedicating one simdgroup to reproduce the reference reduction tree exactly and
+then broadcasting, so **do the norms last**.
+
+Magnitude: 3 × 2 µs × 39 ≈ 230 µs gross; realistic 120–200 µs =
+**+2.2–3.7% score**. It also shrinks host encode time, which compounds with H1.
+
+First experiment: census-driven; fuse the single largest candidate (likely RoPE
+or a residual add); stop when the marginal gain falls below 20 µs.
+
+### 11.5 H5 — make lm-head screening prune payload bytes
+
+The lm-head costs 134.9 MB per step (full NVFP4 is 115.6 MB plus ~19 MB of
+structure), so on its face every row still streams. The argmax identity permits
+any *provably sound* pruning.
+
+Offline transform emits per-row column-block norms (for Cauchy–Schwarz tail
+bounds) plus a contiguous hot list of ~4K high-prior tokens. Online: (1) score
+the hot list exactly (4.7 MB) to seed a high running max; (2) take partial dots
+over the first k = 512 columns (28.9 MB) with the tail bound
+‖w_i[k:]‖·‖h[k:]‖ inflated by a rigorous float-error term; (3) fully rescore
+the survivors.
+
+Magnitude: at 1–5% survivors ≈ 38 MB, so ~97 MB saved ≈ 158 µs =
+**+2.9% score**, all of it on the serial step tail.
+
+First experiment (free): read the existing screening code and log the achieved
+prune rate and the bytes actually read over real decode steps. If it already
+prunes payload reads, H5 is dead. Then run a CPU-side bound-tightness
+simulation on recorded hidden states before touching Metal.
+
+Risk: the soundness proof must be against the kernel's *float* arithmetic; flat
+logit tails gut the prune rate; the two-phase structure adds ~3 µs.
+
+### 11.6 H6 — prefill gather-GEMM instruction diet via offline plane separation
+
+If the gather GEMM is issue/schedule-limited (θ = 0.67 with both rooflines at
+67% hints at exactly this), attack instruction count where Apple GPUs pay:
+64-bit adds (4 ops) and dynamic bitfield extracts (8–12 cycles).
+
+De-interleave NVFP4 offline into a payload plane and a scale plane so that
+payload rows are exactly 1024 B and expert payload slabs exactly 512 KiB —
+power-of-two everything — collapsing inner-loop addressing to one 64-bit
+per-threadgroup base plus 32-bit shifted offsets. De-interleave the nibbles
+into low/high planes so per-element dynamic extracts become two static
+mask/shift ops per 8 weights. Decode the fp8-e4m3 scales with the 3-op
+bit-shift-to-fp16 identity (the offline transform validates that no denormal or
+NaN scales occur and records it in metadata) instead of a memory LUT. Bake trip
+counts and strides as compile-time constants in editable `jit_kernels.cpp` and
+unroll 4 groups.
+
+Magnitude: the routed gather is ≈1.0 TFLOP / 23.2 TFLOP/s ≈ 43.3 ms; θ from
+0.67 → 0.75–0.78 gives 37–39 ms, so prefill 91.8–93.5 ms = **+1.1–1.6% score**
+(up to +3% at the top of the range).
+
+**Do NOT adopt fp16 scale planes**: +11% expert bytes ≈ +100 µs decode, and a
+dual plane is 3.92 GB against 3.65 GB of inventory headroom.
+
+First experiment: await #170's instruments; in parallel pull the compiled inner
+loop's instruction mix from an Xcode GPU capture. If unpack + address ops are
+under 25% of issue slots, or issue utilisation is already above 85%, it dies.
+
+Risk: the layout change also touches decode's 89–98%-efficient GEMVs.
+
+This is the same idea as surviving round-25 frontier item 6 (raise θ), now with
+a concrete mechanism.
+
+### 11.7 H7 — attention-kernel issue diet: skip the softmax rescale when the max is unchanged
+
+The decode attention kernels are issue-bound (~350–450 µs/step from 40 calls ×
+[1.661 + waves×1.469 + N×0.748 µs] against only ~138 µs of KV bytes). In online
+softmax the accumulator rescale factor is exactly 1.0 whenever the running max
+does not update — which is almost always after the first few KV blocks.
+`x·1.0` is bitwise `x` for all finite values, so a **simdgroup-uniform** branch
+that skips the rescale multiplies (and the exp of 0) is bit-exact and
+divergence-free. Add compile-time specialisation of KV strides and window
+sizes.
+
+Magnitude: ~0.10–0.15 µs × ~9 iterations × 40 calls ≈ 40–55 µs plus 20–40 µs
+from specialisation ⇒ **60–95 µs = +1.1–1.7% score**, compounding with #205.
+
+First experiment: instrument one kernel with a counter of max-update frequency
+per simdgroup; half a day. Kill: updates in more than 30% of iterations, or the
+rescale is under 10% of loop instructions.
+
+### 11.8 H8 — prefill dense-projection NAX efficiency audit
+
+Dense attention projections are ≈1.46 TFLOP of prefill — *more FLOPs than the
+routed gather* — yet only the **gather** tile geometry has ever been swept. If
+the `_nax` dense path runs at 40–45 TFLOP/s on tall-skinny shapes (M = 512,
+N up to 10240) rather than 52–60, several ms sit in tile/stage tuning of
+editable `matmul.cpp` plus the kernel sources.
+
+Magnitude: 1.46 TFLOP at 45 → 55 TFLOP/s is 32.4 → 26.5 ms ⇒ ~6 ms of prefill ≈
+**+1.6% score**. Dead if it is already ≥52 TFLOP/s.
+
+First experiment: compute achieved TFLOP/s per dense matmul family from the
+existing prefill timeline instruments.
+
+Risk: M5-only, so all tuning must happen on the M5 box.
+
+### 11.9 H9 — commit-granularity sweep in the *increasing* direction
+
+"Fewer CBs is 10% worse" is a one-sided result: CB boundaries currently *help*
+pipelining. The untested direction is *more* and *earlier* commits at strategic
+points (for example after each layer's attention) from editable Swift eval
+boundaries.
+
+Magnitude: 30–80 µs = +0.5–1.4%.
+
+First experiment: sweep 3–4 split placements in an afternoon on M5 against a
+fresh paired baseline. High chance of flat or negative; worth it only because
+it is nearly free and probes the same pool H1 maps.
+
+### 11.10 ⚠️ Advisor caveats — apply these before assigning any of the above
+
+1. **`mx::set_wired_limit()` is already shipped** (`LagunaRuntimeWeights.swift`
+   `:546-598`, M5-only, gated at ≥96 GiB). Any proposal that assumes it is an
+   available lever is already cashed.
+2. **H5's "lm-head still streams every row" is in doubt.** §5.4 records
+   `lmhead_int5_base_coarse_delta` at 427.0 µs/step and a certified screening
+   cascade already exists ("certified lm-head screening" is on the closed
+   list). H5 must **first** re-verify the achieved prune rate and the bytes
+   actually read.
+3. **H3 carries a real hazard the agent could not know.** PR #48 measured the
+   QKV-side variant at −0.1488% on the ranked M5 (receipt `285f79fa`), and #174
+   §2.6 shows `gate_sp_h64` / `gate_sp_h48` are among the **only three kernels
+   that hide** (E = 0.10). Folding them may *expose* work that is presently
+   free. H3 must open with an exposure measurement, not a fusion.
+4. **H7's per-call constants come from #196 and are M4 Pro measurements at 1024
+   threads/TG.** The model form (`T = a + W·φ + work`) is right; the numbers are
+   host- and geometry-specific.
+
+### 11.11 Sequencing
+
+1. Run **H1 first**. It is the decision node, costs about a day, and prices H2,
+   H3, H4, H7 and H9. Students have no M5 shell, so the realistic form is an
+   M4-side timeline capture — the `kernelStartTime()` / `kernelEndTime()` plus
+   `CLOCK_UPTIME_RAW` instrument upgrade sketched in §9a, living as a `.patch`
+   under `research/` — together with a receipt-side check.
+2. H2 + H3 + H4 together plausibly claim 300–450 µs of the ~1.0 ms gap. Expect
+   sub-additivity: measure each alone, one mechanism per submission.
+3. The offline transform is the quiet enabler in three places (H2's bank
+   append, H5's sketches and hot list, H6's plane split), all
+   additive-inventory-compatible and inside the 3.4 GiB headroom **except the
+   rejected fp16 scale plane**. §9 item 12 (output re-layout) was downgraded for
+   lack of a mechanism; H2 and H6 supply new mechanisms, which is a legitimate
+   revival under §0a row 7.
+4. Everything here preserves bitwise activations by construction
+   (order-preserving fusion, ×1.0 skips, layout-only changes, provable bounds).
+   Route every candidate through `research/run_upstream_equivalence.sh` and the
+   64-step drift tripwire before any timing.
