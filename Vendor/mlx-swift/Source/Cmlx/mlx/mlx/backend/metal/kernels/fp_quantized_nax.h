@@ -391,45 +391,66 @@ struct QuantizedBlockLoader {
     out[1] = scale * Dequantize<4, T>{}(w >> 4);
   }
 
+  // Register-resident device payload for ONE k-iteration, held in exactly the
+  // form device memory holds it: packed nibbles plus the scale bytes, with no
+  // decode applied. This is the smallest representation that carries a whole
+  // staging step, which is what lets the k-loop software pipeline (see the
+  // kernel's kloop_prefetch arm) hide the device latency for ~5 registers per
+  // thread instead of the 16 a decoded 64x64 tile slice would cost.
+  struct WidePrefetch {
+    uint8_t sb[kSrcBytes];
+    uint8_t sc[n_steps_per_read];
+  };
+
+  // Whether this thread runs the widened chain at all. Depends only on the
+  // instantiation and on bi/bj, both fixed at construction, so it is
+  // k-loop-invariant and prefetch()/commit() agree on it by construction.
   template <bool wide_store, bool wide_load>
-  void load_unsafe_wide() const {
+  bool wide_store_ok() const {
+    return wide_store && kWidenShapeOk && ((dst_byte_off() & 15) == 0);
+  }
+  template <bool wide_store, bool wide_load>
+  bool wide_load_ok() const {
+    return wide_load &&
+        ((kWideLoadShapeOk && ((src_byte_off() & 15) == 0)) ||
+         (kWideLoad8ShapeOk && ((src_byte_off() & 7) == 0)));
+  }
+
+  // Device half of the staging step: issue this thread's reads for the
+  // current k-iteration into registers. Touches no threadgroup memory, so it
+  // is legal on either side of the Ws WAR barrier.
+  template <bool wide_store, bool wide_load>
+  __attribute__((always_inline)) void prefetch(thread WidePrefetch& pf) const {
     if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
       return;
     }
-
-    const bool store_ok =
-        wide_store && kWidenShapeOk && ((dst_byte_off() & 15) == 0);
-    const bool load_ok = wide_load &&
-        ((kWideLoadShapeOk && ((src_byte_off() & 15) == 0)) ||
-         (kWideLoad8ShapeOk && ((src_byte_off() & 7) == 0)));
-
-    // Nothing widened for this thread: run the untouched scalar path.
-    if (!store_ok && !load_ok) {
-      load_unsafe();
+    // Nothing widened for this thread: commit() runs the untouched scalar
+    // path, which reads device memory itself, so read nothing here.
+    if (!wide_store_ok<wide_store, wide_load>() &&
+        !wide_load_ok<wide_store, wide_load>()) {
       return;
     }
 
-    uint8_t sb[kSrcBytes];
     // if constexpr: on instantiations where a single 16B load cannot cover
     // this thread's source run the wide-load branch is not just unreachable,
     // it is not emitted at all.
     bool took_wide_load = false;
     if constexpr (kWideLoadShapeOk) {
-      if (load_ok) {
+      if (wide_load_ok<wide_store, wide_load>()) {
         WideSrc packed = *((const device WideSrc*)src);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytes; b++) {
-          sb[b] = packed.b[b];
+          pf.sb[b] = packed.b[b];
         }
         took_wide_load = true;
       }
     }
     if constexpr (kWideLoad8ShapeOk) {
-      if (load_ok) {
+      if (wide_load_ok<wide_store, wide_load>()) {
         WideSrc8 packed = *((const device WideSrc8*)src);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytes; b++) {
-          sb[b] = packed.b[b];
+          pf.sb[b] = packed.b[b];
         }
         took_wide_load = true;
       }
@@ -437,8 +458,29 @@ struct QuantizedBlockLoader {
     if (!took_wide_load) {
       STEEL_PRAGMA_UNROLL
       for (short b = 0; b < kSrcBytes; b++) {
-        sb[b] = src[b * bytes_per_pack];
+        pf.sb[b] = src[b * bytes_per_pack];
       }
+    }
+    STEEL_PRAGMA_UNROLL
+    for (short i = 0; i < n_steps_per_read; i++) {
+      pf.sc[i] = scales[i];
+    }
+  }
+
+  // Threadgroup half of the staging step: decode the prefetched payload and
+  // store it into `dst`. Reads no device memory on the widened chain, so the
+  // only latency between the two Ws barriers is the decode and the store.
+  template <bool wide_store, bool wide_load>
+  __attribute__((always_inline)) void commit(const thread WidePrefetch& pf)
+      const {
+    if (BCOLS_PACKED * BROWS < tgp_size && bi >= BROWS) {
+      return;
+    }
+
+    const bool store_ok = wide_store_ok<wide_store, wide_load>();
+    if (!store_ok && !wide_load_ok<wide_store, wide_load>()) {
+      stage();
+      return;
     }
 
     STEEL_PRAGMA_UNROLL
@@ -454,17 +496,18 @@ struct QuantizedBlockLoader {
       // is 4 for bfloat/half staging, 2 for float). Same values either way.
       if constexpr (fp4nv_fast && (kSrcBytesPerChunk % 4) == 0) {
         const float scale =
-            fp4nv_scale_x16384(scales[k0 / n_reads_per_scale]);
+            fp4nv_scale_x16384(pf.sc[k0 / n_reads_per_scale]);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk / 4; b++) {
-          fp4nv_decode8<T>(fp4nv_pack4(sb + k0 + b * 4), scale, &out.v[b * 8]);
+          fp4nv_decode8<T>(
+              fp4nv_pack4(pf.sb + k0 + b * 4), scale, &out.v[b * 8]);
         }
       } else {
-        T scale =
-            dequantize_scale<T, group_size>(scales[k0 / n_reads_per_scale]);
+        T scale = dequantize_scale<T, group_size>(
+            pf.sc[k0 / n_reads_per_scale]);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk; b++) {
-          dequantize_pair(sb[k0 + b], scale, &out.v[b * pack_factor]);
+          dequantize_pair(pf.sb[k0 + b], scale, &out.v[b * pack_factor]);
         }
       }
 
@@ -477,6 +520,15 @@ struct QuantizedBlockLoader {
         }
       }
     }
+  }
+
+  // Unpipelined staging: the two halves back to back. Same device reads, same
+  // decode, same threadgroup stores, in the same order, as before the split.
+  template <bool wide_store, bool wide_load>
+  void load_unsafe_wide() const {
+    WidePrefetch pf;
+    prefetch<wide_store, wide_load>(pf);
+    commit<wide_store, wide_load>(pf);
   }
 
 
@@ -1575,7 +1627,13 @@ template <
     // expert's own tile instead of the neighbour's, so it adds no DRAM
     // traffic. Every arm is bit-exact; each adds work to exactly one resource
     // axis so its marginal wall cost names the binding constraint.
-    int probe = 0>
+    int probe = 0,
+    // K-loop software pipeline depth (0 = shipped load->barrier->MMA order).
+    // 1 = hold iteration k+1's device payload in registers across the MMA
+    // chain for k, so the weight reads' device latency overlaps the MMA
+    // instead of standing exposed between the two Ws barriers. Ws stays
+    // single-buffered; only the issue point of the device reads moves.
+    int kloop_prefetch = 0>
 [[kernel]] void fp_gather_qmm_rhs_expert_nax(
     const device T* x,
     const device uint32_t* w,
@@ -1594,6 +1652,15 @@ template <
   static_assert(transpose, "expert-aligned Laguna QMM requires NT weights");
   static_assert(group_size == 16, "expert-aligned Laguna QMM requires gs16");
   static_assert(bits == 4, "expert-aligned Laguna QMM requires NVFP4");
+  static_assert(
+      kloop_prefetch <= 1,
+      "only depth-1 k-loop prefetch is implemented; depth 2 needs an explicit "
+      "register ping-pong, not a dynamically indexed buffer");
+
+  // Only the widened staging chain splits into a device half and a
+  // threadgroup half, so the scalar-fallback instantiation keeps the shipped
+  // load->barrier->MMA order regardless of the requested depth.
+  constexpr bool kPrefetch = (kloop_prefetch > 0) && (wide_store || wide_load);
 
   constexpr bool kProbeM2 = (probe == 1);
   constexpr bool kProbeS2 = (probe == 2);
@@ -1780,6 +1847,15 @@ template <
           simd_group_id,
           simd_lane_id);
 
+      // Depth-1 pipeline prologue: k == 0's device reads issue here, ahead of
+      // the loop, so the first commit() already has its payload in registers.
+      // At kPrefetch == false nothing ever reads or writes this, so it is
+      // dead on declaration and emits no code.
+      typename loader_w_t::WidePrefetch wpf;
+      if constexpr (kPrefetch) {
+        loader_w.template prefetch<wide_store, wide_load>(wpf);
+      }
+
       for (int k = 0; k < K_it; ++k) {
         if constexpr (kProbeB2) {
           threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1836,12 +1912,32 @@ template <
         // certification (Ws is 16B aligned by construction); the load side
         // is host-certified via darkbloom_stage_wide_load_ok and per-thread
         // self-guarded, falling back to the scalar path on any misalignment.
-        if constexpr (wide_store || wide_load) {
+        if constexpr (kPrefetch) {
+          // Threadgroup half only. This iteration's device reads issued one
+          // iteration earlier (or in the prologue for k == 0), so the span
+          // between the two Ws barriers now holds just the nibble decode and
+          // the threadgroup stores -- same bytes, same addresses, same
+          // decode, same values.
+          loader_w.template commit<wide_store, wide_load>(wpf);
+        } else if constexpr (wide_store || wide_load) {
           loader_w.template load_unsafe_wide<wide_store, wide_load>();
         } else {
           loader_w.load_unsafe();
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Issue k+1's device reads before the MMA chain so the chain covers
+        // their latency. next() must precede prefetch() (it selects k+1's
+        // addresses) and must follow commit(), whose non-widened fallback
+        // still reads device memory at the current pointer. The final
+        // iteration skips both: loader_w is rebuilt for the next chunk, and
+        // reading one tile stride past the last k is out of bounds.
+        if constexpr (kPrefetch) {
+          if (k + 1 < K_it) {
+            loader_w.next();
+            loader_w.template prefetch<wide_store, wide_load>(wpf);
+          }
+        }
 
         if (sg_active) {
           // PRAGMA-VARIANT 01: SK-step staging+MMA loop, BK/SK iterations
@@ -1890,7 +1986,9 @@ template <
         }
 
         xn += BK;
-        loader_w.next();
+        if constexpr (!kPrefetch) {
+          loader_w.next();
+        }
         if constexpr (kProbeStage) {
           loader_w2.next();
         }

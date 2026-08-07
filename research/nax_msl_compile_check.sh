@@ -13,6 +13,7 @@
 #   OUT_DIR=<dir>  override the scratch output directory
 #   BK=<n>         k-tile depth template arg (default 64)
 #   PROBE=<n>      regime-discriminator template arg (default 0 = shipped)
+#   PF=<n>         k-loop prefetch depth template arg (default 0 = shipped)
 #   EMIT_LIB=1     also link a .metallib so pipeline stats can be read back
 set -uo pipefail
 
@@ -20,6 +21,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEN="${GEN_DIR:-${REPO_ROOT}/Vendor/mlx-swift/Source/Cmlx/mlx-generated}"
 BK="${BK:-64}"
 PROBE="${PROBE:-0}"
+PF="${PF:-0}"
 OUT="${OUT_DIR:-/tmp/nax_msl_check}"
 mkdir -p "${OUT}"
 
@@ -60,9 +62,13 @@ SRC="${OUT}/unit.metal"
   for shape in "2048, 1024" "512, 2048"; do
     targs="bfloat16_t, 16, 4, 64, 64, ${BK}, 4, 1, true, ${shape}, bfloat, 256, true, true"
     name="fp_gather_qmm_rhs_expert_nax_check_${shape//, /x}_bk${BK}"
-    if [ "${PROBE}" != "0" ]; then
+    if [ "${PROBE}" != "0" ] || [ "${PF}" != "0" ]; then
       targs="${targs}, ${PROBE}"
-      name="${name}_pb${PROBE}"
+      [ "${PROBE}" != "0" ] && name="${name}_pb${PROBE}"
+    fi
+    if [ "${PF}" != "0" ]; then
+      targs="${targs}, ${PF}"
+      name="${name}_pf${PF}"
     fi
     cat <<EOF
 template [[host_name("${name}")]] [[kernel]] decltype(
