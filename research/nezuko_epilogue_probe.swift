@@ -196,33 +196,76 @@ func compile(_ k: ExtractedKernel, body: String) -> MTLComputePipelineState? {
     return pipe
 }
 
-/// The 20-core M4 Pro shows about +-0.5 us of run-to-run spread on an
-/// unmodified kernel at 5 x 200; the epilogue effects under test are smaller
-/// than that, so both counts are raised until the spread resolves them.
-let kReps = 600
-let kTries = 15
+/// An earlier revision timed each variant once as best-of-15 x 600 reps and
+/// compared across sections. That is unusable here: the *unmodified* sliding
+/// kernel read 15.90, 15.98, 17.99, 18.36 and 18.50 us in five different
+/// sections of one 10 s process, a 16% swing that dwarfs every effect under
+/// test. Absolute numbers on this host drift on a timescale of seconds, so
+/// every comparison below is instead an ABBA-interleaved paired difference:
+/// within one round the two pipelines are measured A, B, B, A about 15 ms
+/// apart and the round's estimate is (A1+A2)/2 - (B1+B2)/2, which cancels any
+/// drift that is linear over the round. The reported statistic is the median
+/// over rounds; `spread` is the min..max of the per-round estimates and is the
+/// honest resolution limit. `null` rows pair a pipeline against a second,
+/// independently compiled copy of the same source and must straddle zero.
+let kReps = 400
+let kRounds = 11
 
-func perCallMicros(
-    _ pipe: MTLComputePipelineState, k: Int, threads: Int = 1024, reps: Int = kReps,
-    tries: Int = kTries, bind: (MTLComputeCommandEncoder) -> Void
+func timeOnce(
+    _ pipe: MTLComputePipelineState, k: Int, threads: Int, reps: Int,
+    bind: (MTLComputeCommandEncoder) -> Void
 ) -> Double {
-    var best = Double.greatestFiniteMagnitude
-    for _ in 0..<tries {
-        let cb = queue.makeCommandBuffer()!
-        let enc = cb.makeComputeCommandEncoder()!
-        enc.setComputePipelineState(pipe)
-        bind(enc)
-        for _ in 0..<reps {
-            enc.dispatchThreadgroups(
-                MTLSize(width: k, height: 1, depth: 1),
-                threadsPerThreadgroup: MTLSize(width: threads, height: 1, depth: 1))
-        }
-        enc.endEncoding()
-        cb.commit()
-        cb.waitUntilCompleted()
-        best = min(best, (cb.gpuEndTime - cb.gpuStartTime) * 1e6 / Double(reps))
+    let cb = queue.makeCommandBuffer()!
+    let enc = cb.makeComputeCommandEncoder()!
+    enc.setComputePipelineState(pipe)
+    bind(enc)
+    for _ in 0..<reps {
+        enc.dispatchThreadgroups(
+            MTLSize(width: k, height: 1, depth: 1),
+            threadsPerThreadgroup: MTLSize(width: threads, height: 1, depth: 1))
     }
-    return best
+    enc.endEncoding()
+    cb.commit()
+    cb.waitUntilCompleted()
+    return (cb.gpuEndTime - cb.gpuStartTime) * 1e6 / Double(reps)
+}
+
+struct Paired {
+    let a: Double  // median us/call of A
+    let b: Double  // median us/call of B
+    let delta: Double  // median of (A - B); > 0 means B is faster
+    let lo: Double
+    let hi: Double
+    var spread: String { String(format: "[%+.3f %+.3f]", lo, hi) }
+}
+
+func median(_ xs: [Double]) -> Double {
+    let s = xs.sorted()
+    return s.count % 2 == 1 ? s[s.count / 2] : 0.5 * (s[s.count / 2 - 1] + s[s.count / 2])
+}
+
+func paired(
+    _ a: MTLComputePipelineState, _ b: MTLComputePipelineState, k: Int,
+    threads: Int = 1024, reps: Int = kReps, rounds: Int = kRounds,
+    bind: (MTLComputeCommandEncoder) -> Void
+) -> Paired {
+    var das: [Double] = []
+    var abs_: [Double] = []
+    var bbs: [Double] = []
+    for _ in 0..<rounds {
+        let a1 = timeOnce(a, k: k, threads: threads, reps: reps, bind: bind)
+        let b1 = timeOnce(b, k: k, threads: threads, reps: reps, bind: bind)
+        let b2 = timeOnce(b, k: k, threads: threads, reps: reps, bind: bind)
+        let a2 = timeOnce(a, k: k, threads: threads, reps: reps, bind: bind)
+        let am = 0.5 * (a1 + a2)
+        let bm = 0.5 * (b1 + b2)
+        abs_.append(am)
+        bbs.append(bm)
+        das.append(am - bm)
+    }
+    return Paired(
+        a: median(abs_), b: median(bbs), delta: median(das),
+        lo: das.min()!, hi: das.max()!)
 }
 
 // MARK: - epilogue line map
@@ -272,53 +315,8 @@ func mapEpilogue(_ body: String) -> EpilogueMap {
         b3: b3, r2: r2, f0: f0, end: ls.count)
 }
 
-/// Anti-DCE tail. Every threadgroup array and every live register the truncated
-/// epilogue produced is folded into one value *outside* the `lane == 0` branch,
-/// so the compiler can neither drop the threadgroup stores nor sink the loads
-/// into the branch. Its cost is a constant shared by every rung, so it cancels
-/// in the rung-to-rung deltas.
-let sink = """
-
-    U dbsink = pair_o0[0] + pair_o0[1] + pair_o0[2] + pair_o0[3]
-        + pair_o1[0] + pair_o1[1] + pair_o1[2] + pair_o1[3]
-        + pair_max0 + pair_max1 + pair_sum0 + pair_sum1
-        + outputs[lane * BDP + sg] + max_scores[sg] + sum_exp_scores[sg];
-    if (lane == 0) {
-        attended[head0 * head_dim + sg * v_per_thread] = static_cast<bfloat>(dbsink);
-    }
-    """
-
 func pad(_ s: String, _ n: Int) -> String {
     s.count >= n ? s : s + String(repeating: " ", count: n - s.count)
-}
-
-func prefix(_ m: EpilogueMap, _ cut: Int) -> String {
-    let head = m.lines[0..<cut].joined(separator: "\n")
-    return cut == m.end ? head : head + "\n" + sink
-}
-
-struct Rung {
-    let name: String
-    let cut: (EpilogueMap) -> Int
-    let adds: String
-}
-
-let ladder: [Rung] = [
-    Rung(name: "L0 pre-epilogue", cut: { $0.e0 }, adds: "KV loop only (baseline)"),
-    Rung(name: "L1 +bcast+wr1", cut: { $0.b1 }, adds: "max/sum store + round-1 outputs[] writes"),
-    Rung(name: "L2 +barrier1", cut: { $0.b1 + 1 }, adds: "barrier #1 (RAW)"),
-    Rung(name: "L3 +scorered", cut: { $0.r1 }, adds: "4 tg reads, 2 simd_max, 2 exp, 2 simd_sum"),
-    Rung(name: "L4 +rd1", cut: { $0.b2 }, adds: "round-1: 4 tg reads, 4 simd_sum, 4 div"),
-    Rung(name: "L5 +barrier2", cut: { $0.b2 + 1 }, adds: "barrier #2 (WAR)"),
-    Rung(name: "L6 +wr2", cut: { $0.b3 }, adds: "round-2: 4 tg writes"),
-    Rung(name: "L7 +barrier3", cut: { $0.b3 + 1 }, adds: "barrier #3 (RAW)"),
-    Rung(name: "L8 +rd2", cut: { $0.f0 }, adds: "round-2: 4 tg reads, 4 simd_sum, 4 div"),
-    Rung(name: "L9 +store", cut: { $0.end }, adds: "final 8-element device store (== shipped)"),
-]
-
-func nSub(_ body: String, _ n: Int) -> String {
-    body.replacingOccurrences(
-        of: "constexpr int N = 512;", with: "constexpr int N = \(n);")
 }
 
 struct Kernel {
@@ -337,7 +335,9 @@ let targets = [
 // MARK: - S0: warm the GPU, the shader cache and the residency set
 
 if let p = compile(sliding, body: sliding.body) {
-    for _ in 0..<4 { _ = perCallMicros(p, k: 32, bind: binder(dParams1)) }
+    for _ in 0..<16 {
+        _ = timeOnce(p, k: 32, threads: 1024, reps: kReps, bind: binder(dParams1))
+    }
 }
 
 // MARK: - S1: duplication pricing of the merge epilogue
@@ -464,11 +464,12 @@ let dupScore = DupProbe(
 }
 
 print("\n=== S1: duplication pricing (semantics-preserving, no truncation) ===")
-print("Each row inserts ONE extra copy of a single epilogue component and")
-print("reports its marginal cost. Unlike a truncation ladder this keeps the KV")
-print("loop, the register pressure and the occupancy fixed, so no stage can be")
-print("dead-coded and no rung can come out cheaper than its predecessor.")
-print("Best of \(kTries) x \(kReps) reps at the shipped threadgroup count.")
+print("Each row inserts ONE extra copy of a single epilogue component and is")
+print("ABBA-paired against the reference. Unlike a truncation ladder this keeps")
+print("the KV loop, the register pressure and the occupancy fixed, so no stage")
+print("can be dead-coded and no row can come out cheaper than the reference")
+print("except through measurement noise, which `spread` bounds.")
+print("\(kRounds) ABBA rounds x \(kReps) reps at the shipped threadgroup count.")
 
 let dupProbes = [dupStore, dupRead, dupReduce, dupScore, dupDevStore]
 var dupResult: [String: [String: Double]] = [:]
@@ -476,23 +477,26 @@ var dupResult: [String: [String: Double]] = [:]
 for t in targets {
     let m = mapEpilogue(t.k.body)
     let ref = withProbeSink(m.lines, m)
+    let refSrc = ref.joined(separator: "\n")
     print("\n--- \(t.name) (\(t.shippedTGs) threadgroups x 1024 threads) ---")
     print("  epilogue spans body lines \(m.decl + 1)..\(m.end) of \(m.end)")
-    guard let pRef = compile(t.k, body: ref.joined(separator: "\n")) else {
-        print("  reference build FAILED"); continue
-    }
-    let base = perCallMicros(pRef, k: t.shippedTGs, bind: binder(t.params))
-    print("  " + pad("shipped", 11)
-        + String(format: "%8.3f us  (reference, one copy of everything)", base))
-    var row: [String: Double] = ["shipped": base]
+    guard let pRef = compile(t.k, body: refSrc),
+        let pNull = compile(t.k, body: refSrc + "\n")
+    else { print("  reference build FAILED"); continue }
+    var row: [String: Double] = [:]
+    let nul = paired(pNull, pRef, k: t.shippedTGs, bind: binder(t.params))
+    print("  " + pad("null", 11)
+        + String(format: "%8.3f us  %+8.3f us marginal  %s  ", nul.a, -nul.delta,
+            nul.spread as NSString) + "second build of the same source")
     for d in dupProbes {
         guard let p = compile(t.k, body: d.make(ref, m).joined(separator: "\n")) else {
             print("  \(d.name): COMPILE FAILED"); continue
         }
-        let us = perCallMicros(p, k: t.shippedTGs, bind: binder(t.params))
-        row[d.name] = us - base
+        let r = paired(p, pRef, k: t.shippedTGs, bind: binder(t.params))
+        row[d.name] = r.delta
         print("  " + pad(d.name, 11)
-            + String(format: "%8.3f us  %+8.3f us marginal   ", us, us - base) + d.prices)
+            + String(format: "%8.3f us  %+8.3f us marginal  %s  ", r.a, r.delta,
+                r.spread as NSString) + d.prices)
     }
     dupResult[t.name] = row
     if let st = row["wr x2"], let rd = row["rd x2"], let red = row["red x2"],
@@ -512,7 +516,7 @@ for t in targets {
         }
         print("     " + pad("TOTAL (excl. barriers)", 34)
             + String(format: "%8.3f us  %5.1f%% of the %.3f us call",
-                total, 100 * total / base, base))
+                total, 100 * total / nul.b, nul.b))
     }
 }
 
@@ -524,19 +528,19 @@ print("latency with no DCE or correctness confound. A flat or noisy row means")
 print("barriers are too cheap to resolve at this rep count.")
 for t in targets {
     let m = mapEpilogue(t.k.body)
+    guard let pBase = compile(t.k, body: t.k.body) else { continue }
     print("  --- \(t.name) ---")
-    print("    extra   us/call   delta vs +0   us per extra barrier")
-    var base = 0.0
+    print("    extra   us/call   delta vs +0    us/barrier   spread of delta")
     for extra in [0, 1, 2, 4, 8] {
         var ls = m.lines
-        if extra > 0 {
-            ls.insert(contentsOf: Array(repeating: kBarrier, count: extra), at: m.b3 + 1)
-        }
-        guard let p = compile(t.k, body: ls.joined(separator: "\n")) else { continue }
-        let us = perCallMicros(p, k: t.shippedTGs, bind: binder(t.params))
-        if extra == 0 { base = us }
-        print(String(format: "    %5d  %8.3f   %+11.3f   %19.4f",
-            extra, us, us - base, extra == 0 ? 0 : (us - base) / Double(extra)))
+        ls.insert(contentsOf: Array(repeating: kBarrier, count: max(extra, 1)), at: m.b3 + 1)
+        // `extra == 0` re-times a second build of the unmodified source: a null row.
+        let src = extra == 0 ? t.k.body + "\n" : ls.joined(separator: "\n")
+        guard let p = compile(t.k, body: src) else { continue }
+        let r = paired(p, pBase, k: t.shippedTGs, bind: binder(t.params))
+        print(String(format: "    %5d  %8.3f   %+11.3f   %10.4f   %@",
+            extra, r.a, r.delta, extra == 0 ? 0 : r.delta / Double(extra),
+            r.spread as NSString))
     }
 }
 
@@ -549,9 +553,9 @@ print("write a 32-way bank conflict while staying a bijection, hence still")
 print("bit-identical. If BDP=32 costs ~the same, the epilogue is not")
 print("threadgroup-throughput bound and traffic reduction cannot pay.")
 for t in targets {
+    guard let pBase = compile(t.k, body: t.k.body) else { continue }
     print("  --- \(t.name) ---")
-    print("    BDP   tgmem(B)   us/call   vs BDP=33")
-    var base = 0.0
+    print("    BDP   tgmem(B)   us/call   vs BDP=33   spread of delta")
     for bdp in [32, 33, 34, 36, 40] {
         let body = t.k.body.replacingOccurrences(
             of: "constexpr int BDP = BD + 1;", with: "constexpr int BDP = \(bdp);")
@@ -560,12 +564,10 @@ for t in targets {
             print(String(format: "    %3d   COMPILE/PIPELINE FAILED", bdp))
             continue
         }
-        let us = perCallMicros(p, k: t.shippedTGs, bind: binder(t.params))
-        if bdp == 33 { base = us }
-        print(String(format: "    %3d   %8d  %8.3f   %+8.3f",
-            bdp, 4 * 32 * bdp * 4 + 4 * 64 * 4, us, us - base))
+        let r = paired(p, pBase, k: t.shippedTGs, bind: binder(t.params))
+        print(String(format: "    %3d   %8d  %8.3f   %+9.3f   %@",
+            bdp, 4 * 32 * bdp * 4 + 4 * 64 * 4, r.a, r.delta, r.spread as NSString))
     }
-    _ = base
 }
 
 // MARK: - P4: how much do the 8 divides cost?
@@ -591,10 +593,10 @@ for t in targets {
         print("  \(t.name): rewrite did not apply cleanly (changed=\(changed)); skipped")
         continue
     }
-    let a = perCallMicros(p0, k: t.shippedTGs, bind: binder(t.params))
-    let b = perCallMicros(p, k: t.shippedTGs, bind: binder(t.params))
+    let r = paired(p0, p, k: t.shippedTGs, bind: binder(t.params))
     print("  " + pad(t.name, 9)
-        + String(format: "shipped %8.3f   rcp-hoisted %8.3f   saved %+7.3f us", a, b, a - b))
+        + String(format: "shipped %8.3f   rcp-hoisted %8.3f   saved %+7.3f us  %@",
+            r.a, r.b, r.delta, r.spread as NSString))
 }
 
 // MARK: - S4: candidate merge-epilogue rewrites
@@ -729,38 +731,37 @@ func applyV3(_ base: String) -> String? {
     return b
 }
 
-print("\n=== S4: candidate merge-epilogue rewrites (paired A/B) ===")
-print("Each variant is timed against a freshly compiled shipped kernel in the")
-print("same warm session. `saved` > 0 means the variant is faster.")
+print("\n=== S4: candidate merge-epilogue rewrites (ABBA-paired vs shipped) ===")
+print("`saved` > 0 means the variant is faster than the shipped kernel it was")
+print("interleaved with. `null` is a second build of the shipped source and")
+print("bounds what this design can resolve.")
 print("V1  outputs[] as float4     : 8 tg stores + 8 tg loads -> 2 + 2")
 print("V2  vec<bfloat,4> dev store : 8 scalar device stores -> 2 vector stores")
 print("V3  packed float4 stats     : 4 broadcast st + 4 ld -> 1 + 1")
-print("V12/V123 stack the above.")
+print("V12/V123 stack the above. Each is reported as a separate arm.")
 
 for t in targets {
     print("\n--- \(t.name) ---")
     guard let pShip = compile(t.k, body: t.k.body) else {
         print("  shipped build FAILED"); continue
     }
-    let ship = perCallMicros(pShip, k: t.shippedTGs, bind: binder(t.params))
-    print("  " + pad("shipped", 9) + String(format: "%8.3f us", ship))
     let v1 = variantV1(t.k)
-    var cases: [(String, String?)] = [
+    let cases: [(String, String?)] = [
+        ("null", t.k.body + "\n"),
         ("V1", v1),
         ("V2", applyV2(t.k.body)),
         ("V3", applyV3(t.k.body)),
         ("V12", v1.flatMap(applyV2)),
         ("V123", v1.flatMap(applyV2).flatMap(applyV3)),
     ]
-    cases.append(("shipped'", t.k.body))  // repeat measurement: noise floor
     for (name, src) in cases {
         guard let s = src else { print("  " + pad(name, 9) + "rewrite did not apply"); continue }
         guard let p = compile(t.k, body: s) else {
             print("  " + pad(name, 9) + "COMPILE FAILED"); continue
         }
-        let us = perCallMicros(p, k: t.shippedTGs, bind: binder(t.params))
+        let r = paired(pShip, p, k: t.shippedTGs, bind: binder(t.params))
         print("  " + pad(name, 9)
-            + String(format: "%8.3f us   saved %+7.3f us  (%+5.2f%% of call)",
-                us, ship - us, 100 * (ship - us) / ship))
+            + String(format: "%8.3f us   saved %+7.3f us  (%+5.2f%% of call)  %@",
+                r.b, r.delta, 100 * r.delta / r.a, r.spread as NSString))
     }
 }
