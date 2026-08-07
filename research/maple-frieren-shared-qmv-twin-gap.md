@@ -556,6 +556,51 @@ argued bit-exact from the source (§2.2, §3.3) — the tripwire's job is to cat
 a mistake in that argument, not to establish tolerance, and a zero here is
 consistent with the bit-exactness claim rather than a substitute for it.
 
+### 4.3 Fault injection — does that zero have any power?
+
+§4.2's 1,374 comparisons at 0 divergences are worthless on their own. A check
+that cannot fail reports zero regardless, and §4.1 has just established that
+the one automated oracle in the tree is structurally blind to this kernel. So
+standing rule 16 applies: before the zero counts as evidence, the same check
+must be shown to catch a deliberately wrong build **of each mechanism
+separately**.
+
+**Design.** `research/maple_pr301_fault_injection.py` injects three env-gated
+faults into the working tree — never committed to the submitted surface, so
+`LagunaRuntimeModel.swift` byte growth is unaffected — and
+`research/maple_shared_qmv_fault_injection.sh` builds **one** worker that serves
+every mode, runs each arm through the identical 128-step teacher-forced probe
+used in §4.2, and then reverts the hooks and rebuilds a clean worker from a
+`trap … EXIT` so no faulted binary can survive the run. Each fault mode also
+gets its own pipeline-state name (`…_fault_<mode>`), so a stale PSO cannot
+silently serve a fault arm.
+
+| Fault mode | Mechanism | What it breaks | Why this fault |
+| --- | --- | --- | --- |
+| `prefetch_stale` | (a) | The prefetch loads `block / weightsPerScaleByte` instead of `next_block / …`, so K-blocks 1–3 of every row use the previous block's scale byte | This is *the* bug the prefetch rewrite could plausibly contain: issuing the load but forgetting to advance the index. If the tripwire cannot see this, it cannot vouch for §2.2 |
+| `plane_byte` | (b) | One data byte of the halved group-32 scale plane is bit-flipped (`faultBytes[1] ^= 1`), corrupting the scale of exactly 16 gate weights of one row | The **smallest possible** "halved plane is wrong" fault — a deliberately hard test of sensitivity, not a softball |
+| `plane_shift` | (b) | The plane's whole data region is shifted one byte left, so every lane of every row reads its neighbour's scale | A gross version of the same class, to separate "the check is insensitive" from "this particular fault is subthreshold" |
+
+**Arms.** Two controls and three faults, all on the same faulted binary, so a
+control that passes rules out "the injected build is broken everywhere":
+
+```text
+on-control                 PREFETCH=1                    FAULT=          -> expect 0
+on-fault-prefetch_stale    PREFETCH=1                    FAULT=prefetch_stale -> expect >0
+pairwise-control           PAIRWISE_SCALES=1             FAULT=          -> expect 0
+pairwise-fault-plane_byte  PAIRWISE_SCALES=1             FAULT=plane_byte     -> expect >0
+pairwise-fault-plane_shift PAIRWISE_SCALES=1             FAULT=plane_shift    -> expect >0
+```
+
+**Result.** TBD-FAULT
+
+Reproduce (must be the only model-holding process on the host):
+
+```bash
+OUT=/tmp/maple-shared-qmv-fault bash research/maple_shared_qmv_fault_injection.sh
+python3 research/maple_pr301_fault_injection.py check   # must print clean x5 afterwards
+```
+
 ---
 
 ## 5. Stage 3 — end-to-end matched timing
