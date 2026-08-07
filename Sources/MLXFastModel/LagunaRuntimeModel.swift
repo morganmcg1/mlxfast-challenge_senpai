@@ -4620,6 +4620,57 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
+/// Research packing knob: SIMD groups per lane-major QKV threadgroup. Every
+/// statement below `out_row` is simdgroup-local and each simdgroup still owns
+/// exactly one row, so this is a pure row-ownership repack and bit-exact for
+/// any value that divides `rows`.
+private let lagunaDecodeNVFP4QKVR1Simdgroups: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment[
+            "DARKBLOOM_DECODE_NVFP4_QKV_R1_SIMDGROUPS"],
+        let value = Int(raw), [1, 2, 4, 8, 16, 32].contains(value)
+    else { return 2 }
+    return value
+}()
+
+/// Research-only Stage 0 instrumentation: report the geometry actually encoded
+/// for the lane-major QKV dispatch, once per distinct tuple, plus any silent
+/// fallback to another QKV branch.
+private final class LagunaPackingProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen: Set<String> = []
+    func note(
+        heads: Int, rows: Int, simdgroups: Int, gridThreads: Int,
+        threadsPerGroup: Int
+    ) {
+        let key = "h\(heads)_sg\(simdgroups)"
+        lock.lock()
+        let fresh = seen.insert(key).inserted
+        lock.unlock()
+        guard fresh else { return }
+        FileHandle.standardError.write(
+            """
+            PACKPROBE lane-major heads=\(heads) rows=\(rows) \
+            sg_per_tg=\(simdgroups) threadgroups=\(rows / simdgroups) \
+            rows_per_sg=1 threads_per_tg=\(threadsPerGroup) \
+            grid_threads=\(gridThreads) total_sg=\(rows)
+
+            """.data(using: .utf8)!)
+    }
+    func noteFallback(label: String, heads: Int) {
+        let key = "fb_\(label)_h\(heads)"
+        lock.lock()
+        let fresh = seen.insert(key).inserted
+        lock.unlock()
+        guard fresh else { return }
+        FileHandle.standardError.write(
+            "PACKPROBE FALLBACK branch=\(label) heads=\(heads)\n"
+                .data(using: .utf8)!)
+    }
+}
+
+private let lagunaPackingProbe = LagunaPackingProbe()
+
 private func lagunaDecodeNVFP4QKVR1Source(narrow: Bool = false) -> String {
     // Narrow arm: three planes replace the 32-byte uint8 group. Lane `simd_lid`
     // owns group `simd_lid` of the block, so its nibble is byte `simd_lid >> 1`
@@ -4732,10 +4783,12 @@ private let lagunaDecodeNVFP4QKVR1NarrowKernels: [Int: MLXFast.MLXFastKernel] = 
 /// requests. An escaped row (`base == 0xFF`) takes the simdgroup-uniform else
 /// arm and reads the stock plane. Both arms fill the same `sb` registers, so
 /// the K loop below is the R1 loop with its scale argument already resident.
-private func lagunaDecodeNVFP4QKVLaneMajorSource(pairwise: Bool) -> String {
+private func lagunaDecodeNVFP4QKVLaneMajorSource(
+    pairwise: Bool, simdgroups: Int = 2
+) -> String {
     """
 constexpr uint axis_size = 2048;
-constexpr uint num_simdgroups = 2;
+constexpr uint num_simdgroups = \(simdgroups);
 constexpr uint values_per_thread = 16;
 constexpr uint block_size = 512;
 constexpr uint in_vec_size_w = axis_size / 2;
@@ -4798,14 +4851,16 @@ private let lagunaDecodeNVFP4QKVLaneMajorKernels: [Int: MLXFast.MLXFastKernel] =
             name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1_lm1"
                 + (lagunaAttnScalePairwiseQKVEnabled ? "_pw1" : "")
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+                + "_sg\(lagunaDecodeNVFP4QKVR1Simdgroups)",
             inputNames: [
                 "normalized", "weight_codes", "scale_nibbles", "scale_bases",
                 "weight_scales",
             ],
             outputNames: ["projected"],
             source: lagunaDecodeNVFP4QKVLaneMajorSource(
-                pairwise: lagunaAttnScalePairwiseQKVEnabled),
+                pairwise: lagunaAttnScalePairwiseQKVEnabled,
+                simdgroups: lagunaDecodeNVFP4QKVR1Simdgroups),
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
@@ -4836,14 +4891,19 @@ private func lagunaDecodeNVFP4QKVR1(
         lane.nibbles.dtype == .uint8,
         lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32)),
         lane.bases.dtype == .uint8, lane.bases.dims(rows),
+        rows % lagunaDecodeNVFP4QKVR1Simdgroups == 0,
         let kernel = lagunaDecodeNVFP4QKVLaneMajorKernels[heads]
     {
-        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major")
+        let simdgroups = lagunaDecodeNVFP4QKVR1Simdgroups
+        lagunaPackingProbe.note(
+            heads: heads, rows: rows, simdgroups: simdgroups,
+            gridThreads: rows * 32, threadsPerGroup: simdgroups * 32)
+        lagunaTrace("decode nvfp4 qkv r1 h\(heads) lane-major sg\(simdgroups)")
         lagunaNarrowScaleLog.noteDispatch("lane-major", "qkv h\(heads)")
         return kernel(
             [normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales],
-            grid: ((rows / 2) * 64, 1, 1),
-            threadGroup: (64, 1, 1),
+            grid: (rows * 32, 1, 1),
+            threadGroup: (simdgroups * 32, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16]
         )[0]
@@ -4854,6 +4914,7 @@ private func lagunaDecodeNVFP4QKVR1(
         narrow.bases.dtype == .uint8, narrow.bases.dims(rows, hidden / 512),
         let kernel = lagunaDecodeNVFP4QKVR1NarrowKernels[heads]
     {
+        lagunaPackingProbe.noteFallback(label: "narrow", heads: heads)
         lagunaTrace("decode nvfp4 qkv r1 h\(heads) narrow")
         lagunaNarrowScaleLog.noteDispatch("active", "qkv h\(heads)")
         return kernel(
@@ -4865,6 +4926,7 @@ private func lagunaDecodeNVFP4QKVR1(
         )[0]
     }
     guard let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads] else { return nil }
+    lagunaPackingProbe.noteFallback(label: "plain-r1", heads: heads)
     lagunaTrace("decode nvfp4 qkv r1 h\(heads)")
     lagunaNarrowScaleLog.noteDispatch("inactive", "qkv h\(heads)")
     return kernel(
