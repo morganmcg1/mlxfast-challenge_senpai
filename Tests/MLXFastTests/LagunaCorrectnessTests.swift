@@ -215,6 +215,52 @@ func lagunaRuntimeCorrectnessReportsGoldenMetadataWhenWeightsAreMissing() throws
 }
 
 @Test
+func lagunaSlidingFusedAttentionDenominatorsArePositiveAtRingBoundaries() {
+    let environment = ProcessInfo.processInfo.environment
+    guard environment["MLXFAST_RUN_SLIDING_DENOMINATOR_PROBE"] == "1",
+        environment["DARKBLOOM_DENOMINATOR_DIAGNOSTICS"] == "1"
+    else {
+        return
+    }
+
+    let headDim = LagunaConstants.headDim
+    let heads = LagunaConstants.slidingAttentionHeads
+    let kvHeads = LagunaConstants.numKeyValueHeads
+    let window = LagunaConstants.slidingWindow
+    let rawQueries = MLXArray.zeros(
+        [1, 1, heads * headDim], dtype: .bfloat16)
+    let rawKeys = MLXArray.zeros(
+        [1, 1, kvHeads * headDim], dtype: .bfloat16)
+    let rawValues = MLXArray.zeros(
+        [1, 1, kvHeads * headDim], dtype: .bfloat16)
+    let queryWeight = MLXArray.ones([headDim], dtype: .bfloat16)
+    let keyWeight = MLXArray.ones([headDim], dtype: .bfloat16)
+    let angles = MLXArray.zeros([1, 1, 1, headDim], dtype: .float32)
+    let cacheKeys = MLXArray.zeros(
+        [1, kvHeads, window, headDim], dtype: .bfloat16)
+    let cacheValues = MLXArray.zeros(
+        [1, kvHeads, window, headDim], dtype: .bfloat16)
+    let scale = MLXArray([1 / Float(headDim).squareRoot()])
+
+    for writeIdx in [0, 31, 511] {
+        let output = lagunaSlidingFusedAttention(
+            rawQueries: rawQueries,
+            rawKeys: rawKeys,
+            rawValues: rawValues,
+            queryWeight: queryWeight,
+            keyWeight: keyWeight,
+            angles: angles,
+            cacheKeys: cacheKeys,
+            cacheValues: cacheValues,
+            writeIdx: writeIdx,
+            scale: scale
+        )
+        eval(output)
+        #expect(output.shape == [1, heads, 1, headDim])
+    }
+}
+
+@Test
 func lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() throws {
     let environment = ProcessInfo.processInfo.environment
     guard environment["MLXFAST_RUN_LAGUNA_UPSTREAM_EQUIVALENCE"] == "1" else {

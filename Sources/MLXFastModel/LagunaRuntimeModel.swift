@@ -1300,7 +1300,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         "query_weight", "key_weight", "angles",
         "k_cache", "v_cache", "params", "scale_arr",
     ],
-    outputNames: ["attended"],
+    outputNames: ["attended", "denominators"],
     source: """
         constexpr uint head_dim = 128;
         constexpr uint window = 512;
@@ -1601,6 +1601,11 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
         }
 
+        if (sg == 0 && lane == 0) {
+            denominators[head0] = pair_sum0;
+            denominators[head1] = pair_sum1;
+        }
+
         if (lane == 0) {
             device bfloat* pair_out0 =
                 attended + head0 * head_dim + sg * v_per_thread;
@@ -1681,6 +1686,58 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private let lagunaSlidingDenominatorDiagnosticsEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DENOMINATOR_DIAGNOSTICS"] == "1"
+
+private enum LagunaSlidingDenominatorDiagnostics {
+    static let expectedCallsPerPosition: Int = {
+        let value = Int(
+            ProcessInfo.processInfo.environment[
+                "DARKBLOOM_DENOMINATOR_EXPECTED_CALLS_PER_POSITION"] ?? "30"
+        ) ?? 30
+        precondition(value > 0)
+        return value
+    }()
+    nonisolated(unsafe) static var currentWriteIdx: Int?
+    nonisolated(unsafe) static var calls = 0
+    nonisolated(unsafe) static var totalCalls = 0
+    nonisolated(unsafe) static var minimum = Float.infinity
+    nonisolated(unsafe) static var maximum = -Float.infinity
+    nonisolated(unsafe) static var lastCompletedWriteIdx: Int?
+
+    static func record(writeIdx: Int, denominators: MLXArray) {
+        let values = denominators.asArray(Float.self)
+        precondition(values.count == LagunaConstants.slidingAttentionHeads)
+        precondition(values.allSatisfy { $0.isFinite && $0 > 0 })
+
+        if let currentWriteIdx {
+            precondition(currentWriteIdx == writeIdx)
+        } else {
+            precondition(lastCompletedWriteIdx != writeIdx)
+            currentWriteIdx = writeIdx
+            calls = 0
+            minimum = .infinity
+            maximum = -.infinity
+        }
+
+        calls += 1
+        totalCalls += 1
+        precondition(calls <= expectedCallsPerPosition)
+        minimum = min(minimum, values.min()!)
+        maximum = max(maximum, values.max()!)
+
+        if calls == expectedCallsPerPosition {
+            print(
+                "SLIDING_DENOMINATOR write_idx=\(writeIdx) calls=\(calls) "
+                    + "total_calls=\(totalCalls) "
+                    + "observations=\(calls * values.count) "
+                    + "min=\(minimum) max=\(maximum) finite_positive=true")
+            lastCompletedWriteIdx = writeIdx
+            currentWriteIdx = nil
+        }
+    }
+}
+
 /// Fused decode attention for a sliding layer in the steady ring regime.
 /// Returns `[1, heads, 1, headDim]` attended output; the caller advances the
 /// cache clock via `RotatingKVCache.fusedRingAdvance()`.
@@ -1720,7 +1777,7 @@ func lagunaSlidingFusedAttention(
     lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
-    return lagunaSlidingFusedAttentionKernel(
+    let outputs = lagunaSlidingFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
@@ -1728,9 +1785,20 @@ func lagunaSlidingFusedAttention(
         ],
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
-        outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16]
-    )[0]
+        outputShapes: [
+            [1, heads, 1, LagunaConstants.headDim],
+            [heads],
+        ],
+        outputDTypes: [.bfloat16, .float32]
+    )
+    if lagunaSlidingDenominatorDiagnosticsEnabled {
+        eval(outputs[1])
+        LagunaSlidingDenominatorDiagnostics.record(
+            writeIdx: writeIdx,
+            denominators: outputs[1]
+        )
+    }
+    return outputs[0]
 }
 
 /// Pre-materialized 4-byte uniform buffers for every possible sliding ring
