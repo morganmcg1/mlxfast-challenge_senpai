@@ -1328,7 +1328,7 @@ int darkbloom_gather_run_skip_pct() {
 
 bool darkbloom_stage_flag(const char* name) {
   auto v = env::get_var(name, "");
-  return v == "1";
+  return v != "0";
 }
 
 bool darkbloom_stage_widest() {
