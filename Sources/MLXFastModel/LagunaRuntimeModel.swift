@@ -8205,9 +8205,9 @@ private func lagunaDecodeRouterOrdinalKernelSource(
                 }
             }
 
-            uint half = lane >> 5;
+            uint segment = lane >> 5;
             uint within_half = lane & 31;
-            bool half_ascending = half == 0;
+            bool half_ascending = segment == 0;
             uint rank_in_half = half_ascending ? within_half : (31 - within_half);
             bool is_half_top8 = half_ascending ? (within_half < 8) : (within_half >= 24);
             if (is_half_top8) {
