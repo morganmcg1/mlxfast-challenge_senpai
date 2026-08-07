@@ -1,0 +1,57 @@
+--- Sources/MLXFastModel/LagunaRuntimeWeights.swift	2026-08-07 14:36:57
++++ /tmp/lrw_final.swift	2026-08-07 14:36:57
+@@ -417,7 +417,12 @@
+                 Memory.clearCache()
+             }
+         }
+-        // See notes/LagunaRuntimeWeights.notes.md#wiredresidencymeasurementhistory
++        // Zero-headroom wired residency (history:
++        // notes/LagunaRuntimeWeights.notes.md#wiredresidencymeasurementhistory).
++        // MLX's `MTLResidencySet` defaults to `capacity_ == 0`, so the driver
++        // re-establishes residency for the whole resident text tower on every
++        // command buffer; an oversized wired limit removes that work but then
++        // commits on every scored-window allocation and eviction.
+         //
+         // This variant closes that hole with capacity discipline instead of
+         // new API: wire ONCE at construction time (outside every scored
+@@ -436,8 +441,8 @@
+         // Ships DEFAULT-ON at a dosed 42 MiB capacity (the ranked runner
+         // sets no environment variables): `DARKBLOOM_WIRED_ZH=0` is the
+         // kill switch, `DARKBLOOM_WIRED_ZH_FRACTION` /
+-        // `DARKBLOOM_WIRED_ZH_SLACK_MB` override the dose for local A/B
+-        // See notes/LagunaRuntimeWeights.notes.md#wiredresidencyhostheadroom
++        // `DARKBLOOM_WIRED_ZH_SLACK_MB` override the dose for local A/B.
++        // Host headroom: notes/LagunaRuntimeWeights.notes.md#wiredresidencyhostheadroom
+         if libraryModel != nil, config.numHiddenLayers >= 16 {
+             Self.wireResidentWeightsIfEnabled()
+         }
+@@ -481,7 +486,9 @@
+         // in `LagunaCorrectness.greedyToken` (reshape -> last row -> argMax),
+         // and the forwards above never run an argmax, so its first use
+         // otherwise creates the `argmax_bfloat16` compute pipeline state
+-        // See notes/LagunaRuntimeWeights.notes.md#greedyargmaxpsomisstrace
++        // INSIDE the measured window (trace:
++        // notes/LagunaRuntimeWeights.notes.md#greedyargmaxpsomisstrace).
++        // Replicating the same ops here moves that compile to untimed init.
+         // Input-independent kernel-cache warmup only (TASK.md explicitly
+         // allows caches for kernels); constant BOS input, output discarded.
+         // `DARKBLOOM_WARM_GREEDY_ARGMAX=0` restores the stock warmup.
+@@ -500,7 +507,8 @@
+     /// bytes + 64 MiB ~= 31.4 GiB -- the entire live footprint (weights +
+     /// fused banks + lm_head coarse copy) wired in one resize commit, the
+     /// full mechanism from notes/47 §4-§7 with the zero-headroom fit-test
+-    /// See notes/LagunaRuntimeWeights.notes.md#wiredresidencydosecurve
++    /// discipline. Measured dose curve and ranked receipt:
++    /// notes/LagunaRuntimeWeights.notes.md#wiredresidencydosecurve
+     ///
+     /// Engagement guards: `DARKBLOOM_WIRED_ZH=0` kills it; machines under
+     /// 96 GiB physical memory keep stock behavior (the ranked box is an
+@@ -964,7 +972,7 @@
+ /// The shipped Laguna checkpoint stores one scale byte per 16 weights, but its
+ /// expert planes were produced by MLX's Metal `fp_quantize`, whose
+ /// per-simdgroup absmax makes both halves of every 32-weight span carry the
+-/// See notes/LagunaRuntimeWeights.notes.md#group16scalepaircensus
++/// same byte. Census: notes/LagunaRuntimeWeights.notes.md#group16scalepaircensus
+ ///
+ /// `allowedFlatPairs` lists the flat pair indices allowed to break the rule.
+ /// Their odd byte is copied into a `lagunaScalePatchHeaderBytes` header placed

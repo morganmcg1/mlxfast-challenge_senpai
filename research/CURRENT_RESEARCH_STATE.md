@@ -1,12 +1,21 @@
 # SENPAI Research State
 
-**Updated 2026-08-07 14:20 UTC — round 30 opened: #288 (maple-frieren, editable-byte
-recovery) launched, closing the last idle student. Round 29 state unchanged: #268
-running, #269 closed (structural negative), #270 accepted pending a merge unblock,
-#284 running. New §4.15 banks the frontier `steel_gemm` consult: the M5 prefill GEMM
-tail is occupancy-starved at 1.6 TGs/core, F1/H1 is double-confirmed at central
-−3 ms, H2 is the pre-cleared offline-falsifiable fallback, and the 12.30 ms and
-11.40 ms headroom figures are shown to OVERLAP by ≈9.33 ms.**
+**Updated 2026-08-07 16:40 UTC — round 31. #284 MERGED (base now `36b28fa5`);
+§4.17 banks its verdict: the entire "cheaper lm-head first screen" family (H5, M1,
+M2, M3) is DEAD — not one row in 129 real decode steps has `R > 5`, so no sound
+coarser tier-0 plane removes a single byte of the 109,187,072 B read. §4.18 banks
+a prior-art recovery: PR #48 already built and already ranked the RMSNorm→QKV
+fusion (§4.16 target C1) and PR #204 already built and reverted the router→top-8
+fusion (target B). #48's ranked M5 result is −0.1488%, but it is CONFOUNDED — the
+candidate bundled −80 dispatches, −40 barriers, an 8× threadgroup collapse
+(5120→640) and ~24,320 redundant per-step reductions, and never priced the last
+two. Deconfounding it is the highest-value open question, and **#298 is now
+launched to answer it** with a five-arm design whose `(N − R)` contrast isolates
+the barrier/dispatch refund at fixed geometry *and* fixed reduction work. Standing
+rules 18 (search prior branches before briefing a "fresh" idea) and 19 (barrier
+counts REBALANCE under fusion — ΔB must be measured, never predicted) added; rule
+16 corrected — the equivalence oracle IS editable and CAN be de-blinded. #268 r2,
+#288 and #293 all reported at once and are under review; #298 is running.**
 
 **This is a living document, not a log.** The round 22–28 chronology now lives in
 [`RESEARCH_STATE_ARCHIVE_rounds-22-28.md`](RESEARCH_STATE_ARCHIVE_rounds-22-28.md);
@@ -27,18 +36,64 @@ acceptance bar is **deleted**; 0.243% is noise context, not a threshold; **one
 receipt can justify a clear win**; student-host prefill work is endorsed for
 implementation/correctness/reachability, just not for M5 *timing*.
 
+### ⭐ Open requests to the human team (consolidated — nothing here is actionable by an advisor or student)
+
+Both items need an **M5 host**, which no campaign role has. They are listed
+here in one place because they were previously scattered across §4.16, §9 and
+§11 and were easy to miss.
+
+1. **One Metal System Trace session on an M5 dev host**, capturing (a) one
+   512-token prefill and (b) one decode step. This resolves two separate open
+   questions at once: the **11.40 ms unattributed prefill residual** (§4.13
+   attributed 100% of the non-MoE dispatch time but the wall clock still has a
+   gap), and the **CPU-encode half of the barrier tax** — #268 proved 99.4–100.2%
+   of the tax is inside GPU busy on M4 Pro, but the encode/GPU split has never
+   been observed on M5. PR #48 §10 item 2 independently asks for the same
+   capture.
+2. **An M5 re-measurement of the 1.3003 µs/barrier coefficient** from §4.16.
+   This is **the most load-bearing unmeasured constant in the programme** — it
+   is the sole basis for pricing the decode barrier tax at 188–371 µs/step
+   (28–54% of the honest 682 µs/step pool), and therefore for directing the next
+   several ranked slots toward kernel fusion. #48's ranked M5 receipt
+   (`285f79fa`, −0.1488%) made this urgent: it is the only M5 datapoint that
+   touches the coefficient at all, and it is confounded. #298 deconfounds the
+   *M4* measurement, which is the best a student host can do; it cannot supply
+   the M5 transfer factor.
+
+If neither is available, the programme's fallback is to treat the M5 transfer
+factor as the stated 0.5–1.0 range and require any fusion candidate to clear
+~80 µs/step on M4 before it earns a ranked slot.
+
+
+
 ## Where we stand
 
 Frontier: promoted candidate `97a5090`, commit `3e165fa`, **rank 1**,
 `officialScore = 2.58882784082067`, `ns = 2.5982163`, `S = 97.89475 ms`,
 `T = 4.143569335937499 ms`. Round 29 briefs were cut at
-`627c4973aa02930808a0a96bfbfdbc3ee486a4c3` (merge of #241); the advisor branch has since
-advanced through four research-note-only commits to
-**`5daa8389c416928fce41a7cdee41649dbc9569fb`**. `git diff
-627c4973aa02930808a0a96bfbfdbc3ee486a4c3 5daa8389c416928fce41a7cdee41649dbc9569fb --
-Sources/ Vendor/ benchmark.json` is **empty** — verified, not assumed — so **no in-flight
-arm needs a rebase or a re-timing, and a `research_base_changed` event on this chain is
-answerable with `accept_result_on_current_base`**. Use the newest full SHA as the argument
+`627c4973aa02930808a0a96bfbfdbc3ee486a4c3` (merge of #241); the current advisor base is
+**`d9905fc7d4902951c33142c58cd7fbebe6a1cc21`**.
+
+**Which base hops actually carry code** — verified with
+`git diff --stat <a> <b> -- Sources/ Vendor/ benchmark.json`, not assumed:
+
+| hop | submitted-surface diff |
+|---|---|
+| `627c4973` → `13f9b6f7` | **empty** (research notes only, incl. the #270 r2 merge) |
+| `13f9b6f7` → `e7439c1c` | **empty** (research notes only) |
+| **`e7439c1c` → `36b28fa5`** | **`Sources/MLXFastModel/LagunaLmHeadPrune.swift`, 1 file, +10 / −189** (#284 byte recovery) |
+| `36b28fa5` → `d9905fc7` | **empty** (research notes only) |
+
+So exactly **one** hop in the whole round-29→31 chain touches a submitted file. Two
+consequences for review:
+
+- A `research_base_changed` event whose compare range contains **only** note-only hops
+  needs no rebase and no re-timing: answer it with `accept_result_on_current_base`.
+- A range spanning `e7439c1c → 36b28fa5` is only material if the arm itself touches
+  `LagunaLmHeadPrune.swift`. None of #268, #288, #293 or #298 does, so all four are
+  still answerable with `accept_result_on_current_base`.
+
+Use the newest full SHA as the argument
 to `validate-assignment-scope.sh` and `check-editable-budget.sh` (both reject short SHAs).
 
 Round 28 closed with two clean negatives and one structural finding:
@@ -54,13 +109,25 @@ Round 28 closed with two clean negatives and one structural finding:
 - **#148 (frieren) — closed, unstarted and superseded.** Branch carried only the
   empty assignment commit.
 
-## ⭐ The finding that now organises decode work: a flat per-dispatch tax
+## ⭐ The finding that now organises decode work: a per-BARRIER tax
+
+**⚠ SUPERSEDED FRAMING — read §4.16 first.** This section originally described the tax
+as *flat per dispatch*. **#268 r1 decomposed it and that framing is wrong.** The tax is
+**per barrier**, i.e. per unit of serial depth, not per dispatch. The corrected joint fit
+(n = 288, 36 blocks, df = 250) is:
+
+- **barrier +1.3003 ± 0.0597 µs**, CI [1.1833, 1.4174], **t = 21.8**
+- **dispatch +0.1231 ± 0.0481 µs**, CI [0.0288, 0.2173], **t = 2.6** (an 8.6% residue)
+- **one dependent pair = +1.4234 ± 0.0256 µs**, CI [1.3732, 1.4736]
+
+A **barrier-free** dispatch removal refunds only ≈0.123 µs; a **barrier-removing** fusion
+refunds ≈1.42 µs. The two differ by 11.6×, so the selection criterion below is rewritten.
 
 Injecting a real barrier-forcing dispatch into the live decode chain costs
-**1.30–1.73 µs (pooled ≈1.4 µs, t = 15.6–56.0)**. The cost is **flat across sites
-regardless of work-elasticity** — a site with E = −0.045 still pays 1.416 µs,
-statistically identical to the most exposed site at 1.295 µs — and costs are
-**additive** (observed/predicted 0.9608 ± 0.0500).
+**1.30–1.73 µs (pooled ≈1.4 µs, t = 15.6–56.0)**, and #268 shows why the injection
+estimate looked flat across sites: every injected site was a *dependent pair*, so every
+site paid the same barrier + dispatch sum. Costs are **additive** across injected pairs
+(observed/predicted 0.9608 ± 0.0500).
 
 **#269 corroborates the constant by real removal, not injection.** Collapsing four
 elementwise ops into one compiled kernel on the off-default stock router tail removed
@@ -69,57 +136,100 @@ CI [+0.920, +1.545]** (block-paired ABBA, 18 workers, t = +12.54). The two indep
 estimates — injection 1.30–1.73 µs, removal 0.920–1.545 µs — overlap. **Injection ≠
 removal is now largely retired as a risk: the refund is real and roughly symmetric.**
 
-**The dispatch count is now measured, not estimated: the default decode path issues
-exactly 406 dispatches/step** (#269 census, byte-emitting hook). At **406 dispatches ×
-1.233 µs ⇒ ≈500 µs/step** on the 8.20 ms M4 Pro step, projecting to **≈283 µs/step on
-M5**. Perfect elimination of the whole tax ≈ **+4.3% score** (was quoted as +5% against
-the ~400 estimate).
+**Both counts are now measured, not estimated: the default decode path issues exactly
+406 dispatches/step** (#269 census) **and exactly 247 barriers/step over 40 layers**
+(#268 census) — **6.2 barriers/layer**, against ~7 structural dependency waves.
+The prize is therefore `247 × 1.3003 + 406 × 0.1231 =` **371 µs/step (4.5%) on M4 Pro**,
+transferring to **188–371 µs/step on M5**.
 
 Consequences already banked:
-- **The selection criterion flips from work-elasticity to raw dispatch count.**
-- One removed **per-layer** dispatch ≈ 27.6 µs/step M5 ≈ **0.42% score ≈ 1.80σ**
-  (marginal alone). Bundling 3 ≈ 83 µs ≈ **1.3% ≈ 5.4σ**. Three is the practical
-  minimum for a ranked arm.
-- **The tax is 41% of the entire honest decode pool.** §4.10a reprices the recoverable
-  decode budget at **682 µs/step (+10.4%)**, not the fictional 1.20 ms. 283 of those
-  682 µs are dispatch tax. This is why #268 is P0.
+- ⭐ **The selection criterion is BARRIERS (serial depth) REMOVED, not dispatches
+  removed.** Work-elasticity was retired by #241; raw dispatch count is now retired
+  by #268.
+- ⭐ **RETRACTED: "one removed per-layer dispatch ≈ 27.6 µs/step ≈ 0.42%."** That figure
+  is wrong for a barrier-free removal. The corrected refund ladder, per layer removed
+  across 39–40 layers:
+  - **dependent pair (barrier + dispatch): 56.8 µs/step**
+  - **barrier-only: 52.0 µs/step**
+  - **barrier-free dispatch only: 4.8 µs/step**
+- **A ranked decode arm must bundle ≥3 barrier-removing per-layer fusions** to clear the
+  ~80 µs/step 3σ floor. Additivity across fusions is *not* guaranteed — #268's property
+  (2) below implies a barrier only costs what it drains.
+- **The tax is 28–54% of the entire honest decode pool.** §4.10a reprices the recoverable
+  decode budget at **682 µs/step (+10.4%)**, not the fictional 1.20 ms. 188–371 of those
+  682 µs are barrier tax.
 - **RETRACTED: "kernel time is 13× the dispatch budget."** Against the honest pool the
-  ratio is 399 µs vs 283 µs = **1.4×**. Kernel-time work and dispatch-count work are
-  comparably sized, not an order of magnitude apart.
+  ratio is comparable, not an order of magnitude apart.
 
-**⚠ Mechanism: E1 is now REFUTED; E2/E3/E4 remain open.** Flatness kills *site-local
-serial idle*. #269 measured, on the same runs that priced the refund, **Δ(inter-kernel
-gap) = 1 µs against Δ(GPU-busy union) = 139 µs**, the latter agreeing with the ABBA
-step-time effect to **0.4σ**. The refund is therefore **GPU-side**, not recovered CPU
-encode slack — **E1 (CPU graph-eval/encode starvation) is refuted in this regime**.
-Total gap is in fact *anti-correlated* with dispatch count (406 dispatches → 406 µs gap;
-679 → 233 µs). **Command buffers stayed at exactly 45 across all three arms**, which
-independently re-closes E5 alongside the #241 MAX_OPS null. Remaining candidates:
-**E2** GPU command-processor launch cost (barrier-independent); **E3** cache
-flush/invalidate scaling with dirty footprint; **E4** residency/bookkeeping scaling with
-distinct resources. All three are GPU-side ⇒ **hand-fusing Metal kernels is now the
-likely-correct lever and the ICB/encode-overlap pivot is unlikely.** #268 still owes the
-separation among E2/E3/E4.
+**⚠ Mechanism: RESOLVED. E1–E5 are ALL REFUTED; only E6 survives.** #268 r1 ran six site
+arms and settled this:
+- **E1 (CPU graph-eval/encode starvation) — REFUTED twice.** 99.4–100.2% of the tax sits
+  inside GPU busy time, and injected CPU spin moves wall by only
+  **+0.0497 ± 0.0293 µs per µs of spin (32 SE below 1.0)**. #269 independently measured
+  **Δ(inter-kernel gap) = 1 µs against Δ(GPU-busy union) = 139 µs**, the latter agreeing
+  with the ABBA step-time effect to **0.4σ**.
+- **E2 (per-dispatch fixed launch cost) — REFUTED as the main term**, surviving only as
+  the 0.123 µs residue. 160 injected *barrier-free* dispatches cost **−5.6 µs** against
+  +224 µs predicted (~40σ).
+- **E3 (dirty-footprint cache flush) — REFUTED.** 256 B .. 4 MiB is exactly linear:
+  `1.3489 ± 0.0181 µs + 4.172e-6 ± 9.6e-9 µs/byte`. The slope is **239.7 GB/s = 88% of
+  the host's 273 GB/s peak**, i.e. ordinary DRAM traffic, not a flush penalty. The
+  intercept is our tightest estimate of the fixed part.
+- **E4 (buffer-pool/residency bookkeeping) — REFUTED.** 1/4/16/64/256 distinct buffers →
+  1.3469/1.5201/1.5507/1.5472/1.4871 µs, non-monotone.
+- **E5 (anchor artifact) — RE-CLOSED.** Two anchor-free arms reproduce the split, and
+  command buffers stayed at exactly 45 across all of #269's arms.
+- ⭐ **E6 — SURVIVES: loss of intra-encoder overlap when `maybeInsertBarrier` emits
+  `[encoder memoryBarrier]`** (`device.cpp:363-375`, `set_input_array` `:315-328`).
+
+**Four observed properties of the barrier tax:** (1) charged **per barrier**, not per
+dispatch; (2) charged **off the critical path** — the `chain` arm's 157 extra barriers
+cost **−42.8 µs**, i.e. *a barrier costs what it drains*; (3) charged **per unit of
+serial depth, not per raw RAW edge**; (4) the `diamond1` arm's 80 *parallel* RAW edges
+raise the barrier count by only **4** and cost **−0.0070 ± 0.0212 µs/dispatch**, while
+the same 80 edges in series cost 78 barriers and 110 µs. MLX's breadth-first eval tape
+plus `maybeInsertBarrier` moving `next_*` into `prev_*` collapses forty parallel edges
+into one barrier, which is why 247 barriers ≈ true serial depth.
+
+**⇒ The correct lever is KERNEL FUSION that removes serial depth.** Explicitly NOT
+ICB/encode overlap, NOT `start_concurrent()`, and NOT graph reordering — MLX already does
+the reordering, and it is not on our editable surface anyway. These are now **closed**.
+
+**Cross-validation with #269:** its 117 removed dispatches were a dependent chain, so the
+barrier model predicts `117 × 1.4234 =` **166.5 ± 3.0 µs** against a measured
+**144.23 ± 23.00 µs — 0.96σ**. A barrier-free-only model predicts 14.4 ± 5.6 µs, which is
+**5.5σ low**. The barrier model wins decisively.
 
 Caveats: measured on **M4 Pro** (48 GiB, 20 GPU cores, gen 16) — directional only;
-the ≈1.2–1.4 µs constant has **never been measured on M5**. Reducer caveat:
+the **1.3003 µs barrier coefficient has never been measured on M5**, and re-measuring it
+there is an open escalation to the human team. Reducer caveat:
 `fern_gap_stats.py` centres on the K=1 arm, `fern_gap_wandb.py` on the block mean, so
 W&B `pooled/*` and `prize/*` read ~6% high — **never compare a W&B t-stat with a doc
 t-stat**.
 
-## Rounds 29–30 — in flight
+## Rounds 29–31 — in flight
 
 | PR | Student | Hypothesis | Ranked slot |
 |----|---------|-----------|-------------|
-| #268 | maple-fern | **RUNNING** (head `cac003d4`). **P0 gating**: attribute the ≈1.2–1.4 µs tax to E1–E4 and price the refund (R1 self-fusion + diamond control). **Scope narrowed 2026-08-07:** #269 already refuted E1 and re-closed E5, so fern should cut any large E1 limb and reallocate to separating **E2 vs E3 vs E4**. | none |
+| #268 | maple-fern | **r1 ACCEPTED — the decisive decode finding of the campaign (§4.16). r2 RUNNING** (head `db80968f`, required base `13f9b6f7`). r1 refuted E1–E5, established the **per-barrier** tax (1.3003 µs) and the 247-barrier/step census. r2 = (1) revert advisor-owned `research/*.md` files to unblock merge; (2) **barrier-site census** naming which of the ~7 structural waves are already collapsed, plus a candidate refund table for C1–C6 that decides the fusion round. | none |
+| #293 | maple-tanjiro | **LAUNCHED (round 31)** — **§4.15 H2: skinny-N regular-NAX steel tile downsize.** The 78 wk/wv prefill GEMMs (512,1024,2048) miss the split-K predicate by exactly one (`2048 > 2048` false, `matmul.cpp:986-989`) and inherit the head-class tile bm64/bn128/bk256/wm2/wn4 ⇒ **64 threadgroups = 1.6 TG/core on 40 cores**. Candidate A = bn64/wn2 ⇒ 128 TGs for a 33% DRAM re-read penalty on a 293 FLOP/byte class. **Host-side-only, ≈800 B, one file** (`matmul.cpp`), **JIT ⇒ no new AOT instantiation needed**. Expected **−1.5..−5 ms prefill = +0.56..+1.87%**; 3σ bar 1.35 ms. | **1 (Stage 3)** |
 | #269 | maple-nezuko | **CLOSED — structural negative, findings banked.** `compiled{}` cannot fuse anything on the default decode path: **N = 0 is structural**, because `is_fusable` covers only unary/binary/ternary/broadcast and the default path's only non-Laguna-custom families are `rmsbfloat16`, `argmax`, `gather_front`. Delivered three durable assets anyway: the **406-dispatch census**, the **+1.233 µs/dispatch removal price**, and the **E1 refutation**. | none used |
-| #270 | maple-tanjiro | **ACCEPTED, revision r2 requested (merge unblock).** Non-MoE prefill census: **100% of R = 54.633 ms attributed** across 1222 dispatches and 12 families. r2 is two tasks: (1) revert three advisor-owned `research/*.md` files to their merge-base state so the PR merges cleanly; (2) pre-clear **F1** with `DARKBLOOM_FUSED_QKV=1` (zero code): equivalence + tripwire, the −78 prefill dispatch delta, and the split-K/regular re-trace for the fused shape. | none |
-| #284 | maple-nezuko | **LAUNCHED** — **H5 lm-head sound pruning**. The 5a coarse kernel reads **104.1 MiB unconditionally every step**; a cheaper first screen that *provably certifies the same survivor set* removes most of it. ≈164 µs/step ≈ **+2.50%**. **This moves B, not θ ⇒ it is not capped by the 0.85 ceiling.** Staged kill gates at Step 0 (isolate 5a; kill if <8% of step) and Step 1 (offline survivor simulation; kill if p95 saving <80 µs). | none |
+| #270 | maple-tanjiro | ✅ **MERGED (r2) → new base `13f9b6f7`.** r1 = non-MoE prefill census, **100% of R = 54.633 ms attributed** across 1222 dispatches and 12 families (§4.13). r2 = **F1 KILL** (§4.13b): `DARKBLOOM_FUSED_QKV` costs **+39.99% decode** on M4 (`decode_speedup` 0.7705, floor FAIL) because the flag is not prefill-only, and its M4 prefill win **does not exist on M5** because wk/wv route regular there. Also exposed **standing rule 16** — the equivalence oracle is blind to the fused-weight family. | none |
+| #284 | maple-nezuko | ✅ **MERGED → new base `36b28fa5`. H5 is KILLED (§4.17).** The certificate-slack histogram over 129 real decode steps shows `R ≡ (thr − c₁)/delta ≤ 5` for **100.000%** of rows, while a sound 3-bit tier-0 needs `R > 5` ⇒ **every cheaper first screen saves 0.00 MB / 0.0 µs**, and the same arithmetic kills M1/M2/M3. Generalises to: today's screen already leaves only 777 rows (0.78%) ⇒ **beyond tier-0 the pruner is essentially optimal**; only a tighter `delta` could ever move it. **The lm-head is retired as a decode target.** Also banked: the 247.6 GB/s M4-Pro dense-GEMV anchor, a second independent confirmation of standing rule 16, and **−8,166 B** of recovered editable budget (headroom 49,145 → 57,311). | none |
 | #288 | maple-frieren | **LAUNCHED (round 30)** — **editable-surface byte recovery**. Buys *capacity*, not score. Lever 1 only: **relocate** (not delete) measurement narrative out of four scored files into non-submitted `notes/`. Scope `LagunaRuntimeWeights.swift` + `LagunaConfig.swift` + `MLXLMCommon/{KVCache,Evaluate}.swift`; ceiling **79,691 B**, target 55–65 KB ⇒ headroom 49,145 → ~105–130 KB. Optional Lever-2 stretch (32,005 B of dead `MLXFastTransform` sidecar coders) in its own droppable commit. | none |
+| #298 | maple-nezuko | **LAUNCHED (round 31)** — **deconfound PR #48** (§4.18). Decision gate for the whole fusion round: does §4.16's 1.3003 µs/barrier coefficient survive contact with a real fusion? #48's ranked M5 negative (−0.1488%) bundled three changes and priced only two — the unpriced third is an **8× threadgroup collapse (5120→640 on h64) plus ~24,320 redundant 2048-wide reductions/step**. Five arms at fixed geometry: **0** stock (2 sg, fuse 0) · **G** geometry only (16 sg, fuse 0) · **R** redundant work (16 sg, **new fuse mode 3**) · **N** norm fold (16 sg, fuse 1) · **F** full fold (16 sg, fuse 2). **(N − R) is the falsifier** — pure refund of 40 dispatches + 39 barriers at fixed geometry *and* fixed reduction work; §4.16 predicts **55.6 µs/step**. (R − G) prices the redundant reductions, (G − 0) the geometry, (F − 0) reproduces #48 as a consistency check. Research-only: the ~258-line port lands as a `.patch` under `research/`, default stays mode 0, **zero submitted-surface growth, zero ranked slots**. Power target sd ≤ ~18.5 µs (nezuko's #269 ABBA hit 23.00 µs on four arms). | none |
 
-**Region fences in `Sources/MLXFastModel/LagunaRuntimeModel.swift`** (11,073 lines,
-three concurrent editors): 853–1097, 4623–5372, 5700–5800, 6700–6910, 7500–7700,
-8329–8382, 8525–8910, 9466–9578, 10031–10120.
+
+**Region fences in `Sources/MLXFastModel/LagunaRuntimeModel.swift`** (11,073 lines):
+853–1097, 4623–5372, 5700–5800, 6700–6910, 7500–7700, 8329–8382, 8525–8910,
+9466–9578, 10031–10120.
+
+As of round 31 **no in-flight PR commits a change to this file**: #268 r2 is
+research-only, #293 edits `matmul.cpp`, #288 is scoped to four other files, and
+#298 lands its ~258-line port as a `research/*.patch` rather than in `Sources/`.
+The fences therefore describe *working-tree* contention only. #298 works inside
+4623–5372 and 5700–5800; keep any new assignment out of those two regions until
+it reports.
 
 ### Byte-recovery census — corrections applied 2026-08-07 (supersedes §9 of the census doc)
 
@@ -203,6 +313,53 @@ dedicated whole-file round once #268, #284, and the F1 arm have all landed.
    The robust repair is to revert the student's copy to its **merge-base** blob (not to
    the current advisor version), which makes the student's side a no-op and immunises
    the branch against every future advisor commit.
+9. **⭐ Standing rule 16 — the equivalence oracle is structurally blind to the
+   fused-weight family.** `LagunaUpstreamEquivalence.swift:74-90` builds the model and
+   calls `update(parameters:)` + `eval` directly, **bypassing the weight cache**.
+   `prepareFusedRuntimeWeights()` (`LagunaRuntimeModel.swift:11016`) has exactly one
+   caller, `LagunaRuntimeWeights.swift:637`, which the oracle never reaches. A green
+   `run_upstream_equivalence.sh` therefore says **nothing** about any change that only
+   takes effect when a fused bank is materialised. Any arm touching a fused bank must
+   additionally prove itself with the 64-step drift tripwire *and* a matched
+   `--local-iterate` decode pair. Discovered by #270 r2; re-confirmed independently by
+   #284 and by #48 §9.4/§9.5/§9.7 (§4.18.8); applies team-wide.
+   **CORRECTION 2026-08-07:** an earlier note claimed the oracle file is outside the
+   submitted surface. That was **wrong**. `benchmark.json`'s `editablePaths` contains
+   only two `Sources` entries — `Sources/MLXFastModel` and `Sources/MLXFastTransform` —
+   and both are **directories**, so `Sources/MLXFastModel/LagunaUpstreamEquivalence.swift`
+   (6,501 B) **is inside `editablePaths` and CAN be de-blinded**, at a byte cost, by
+   routing it through `loadLibraryModel`/`prepareFusedRuntimeWeights()`. This is now a
+   normal (low-priority, zero-score, risk-reducing) assignable item, not an escalation.
+   Two further blindness facts from #48: under an injected `+1.0f` fault
+   `max_abs_diff` stayed **0** while `passed_correctness` went false, so
+   **`max_abs_diff` is not an independent residual signal on the fused path**; and the
+   argmax gate is **blind below 1e-3**, so it cannot see permutation- or
+   statistics-preserving errors, races, missing barriers, occupancy/compiler effects, or
+   uninitialised threadgroup memory.
+10. **⭐ Standing rule 17 — `DARKBLOOM_*` flags are not axis-local.** #270 r2 flipped
+    `DARKBLOOM_FUSED_QKV` expecting a prefill-only effect and paid **+39.99% decode**
+    (`decode_speedup` 0.7705, hard-floor FAIL) because the same materialised bank
+    silences the fused decode norm+INT8-QKV block at `LagunaRuntimeModel.swift:5709`.
+    **Always measure BOTH prefill and decode when flipping any one flag**, and report
+    both speedups against the same-session paired baseline. Combined with constraint 3,
+    a one-axis local win is not evidence that a candidate is rankable.
+11. **⭐ Standing rule 18 — search the remote branches for prior art before briefing any
+    "fresh" fusion or kernel idea.** Run `git branch -r` and inspect prior PR branches
+    and tags for the exact mechanism. §4.16 named three fusion targets as new work;
+    **two of them (C1 = RMSNorm→QKV, C3 = router→top-8) had already been built**, on
+    `maple-fern/fused-norm-qkv-gate` (`pr/48`) and `maple-fern/router-top8-fusion`
+    (`pr/204`), and C1 had **already consumed a ranked M5 slot**. Neither result had been
+    carried into this document. See §4.18. Cost: one wasted ranked slot and a near-miss
+    re-assignment.
+12. **⭐ Standing rule 19 — barrier counts REBALANCE under fusion; ΔB must be MEASURED,
+    not predicted.** #48 §4.3: *"Deleting a producer does not delete its consumer's
+    barrier; it rotates it onto whatever the consumer now aliases. ΔB is therefore not
+    additive attribution."* The evidence is #48's measured **39:1 split** — folding the
+    input RMSNorm into QKV removed 40 dispatches and 39 barriers, while folding the gate
+    in removed another 40 dispatches but only **1** barrier (§4.18.3). Any refund
+    estimate that counts removed dispatches and assumes proportional barrier savings is
+    wrong. Every fusion brief must instrument `maybeInsertBarrier` and report the
+    measured before/after barrier count per decode step.
 
 ## No W&B channel for this target
 
@@ -224,6 +381,16 @@ W&B links they cannot produce.
 > has a complete ledger, a closed glue class, and two named targets (**F1** and
 > **`steel_gemm_bf16`**) that between them are the largest unassigned headroom on the
 > board.
+>
+> **⭐⭐ Updated again 2026-08-07 ~14:40 UTC by §4.13b (#270 r2) and §4.16 (#268 r1) —
+> two terminal results that between them close item 1, kill item 4's F1, and promote
+> H2.** Item 1 is **resolved: the tax is charged per BARRIER (E6), and E1–E5 are all
+> refuted.** Item 2's "27.6 µs/step per removed dispatch" is **RETRACTED** and replaced
+> by the §4.16 refund ladder (dependent pair 56.8 / barrier-only 52.0 / barrier-free
+> dispatch 4.8 µs/step per layer) — selection is now on **barriers removed**, not
+> dispatches removed. Item 3 is **closed outright**, together with graph reordering and
+> `start_concurrent()`. Item 4's **F1 is dead** and **H2 is promoted to the primary cheap
+> prefill lead, assigned as #293**.
 
 0. **⭐ H5 — make lm-head screening prune payload bytes (§11.5). ASSIGNED as #284
    (maple-nezuko), 2026-08-07.** §4.10b **answered H5's "free first experiment" and
@@ -238,40 +405,80 @@ W&B links they cannot produce.
    and is therefore not capped by the 0.85 ceiling** that bounds every other decode
    idea. At 1–5 % survivors ≈ −71 MB ≈ **163 µs/step ≈ +2.5 % score**, comfortably
    over the ~80 µs single-arm bar.
-1. **Resolve the tax mechanism (#268), now narrowed to E2 vs E3 vs E4.** #269 already
-   refuted **E1** and re-closed **E5** (§4.14), so #268's remaining job is to separate
-   GPU command-processor launch cost from cache-flush footprint scaling from
-   residency/bookkeeping scaling. Priced at **283 µs = 41 % of the honest 682 µs decode
-   pool** (§4.10a), not the 24 % implied by the retired 1.20 ms figure — correctly
-   P0-gating, but the *branch* it gates has already collapsed toward "GPU-paced".
-2. **⭐ Structural dispatch-count reduction — now the presumed-correct branch.** The
-   three verified fusion targets: **A** shared-expert gate/up QMV merged into the
-   routed packed top-8 QMV (precedent already shipped:
-   `laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5` at `:7847` does exactly this
-   with `shared_slot == 8`); **B** top-8 selection folded into the router kernel, which
-   already computes the sigmoid score, bias-corrected key and ordinal *in registers* at
-   lines 861–872; **C** input RMSNorm + QKV GEMV. Full code geography is in §4. Each
-   per-layer dispatch removed ≈ 27.6 µs/step ≈ 0.42 % ≈ 1.80σ, so bundle ≥3.
-3. **~~If CPU-paced~~: ICB pre-encoded step replay — DOWNGRADED, near-dead.** #269
-   localised the refund to the GPU side (Δgap 1 µs vs ΔGPU-busy 139 µs), so the premise
-   of this branch is refuted in the measured regime. Also reconcile with §2115's
-   standing note that decode pre-encoding is structurally unreachable before anyone
-   re-proposes it. `start_concurrent()` batching (`device.h:88`) survives as a cheap
-   audit only.
-4. **⭐ Prefill (25 % weight) — now fully censused, with two named live targets.**
+1. **✅ CLOSED — the tax mechanism is resolved (#268 r1, §4.16).** **E6 wins: the charge
+   is per `[encoder memoryBarrier]`, i.e. per unit of serial depth.** Barrier
+   **+1.3003 ± 0.0597 µs** (t = 21.8), barrier-free dispatch **+0.1231 ± 0.0481 µs**
+   (t = 2.6), dependent pair **+1.4234 ± 0.0256 µs**. E1 (CPU encode starvation), E2
+   (per-dispatch fixed cost, survives only as an 8.6 % residue), E3 (cache/residency —
+   the size sweep is linear at 88 % of peak DRAM bandwidth), E4 (PSO switching,
+   non-monotone) and E5 (anchor artefact) are **all refuted**. Total prize
+   **371 µs/step on M4 = 188–371 µs/step on M5 = 28–54 % of the honest 682 µs decode
+   pool**. Cross-validated against #269 at 0.96σ. **The one thing still owed is an M5
+   re-measurement of the 1.3003 µs coefficient — an open escalation to the human team.**
+   #268 **r2** is now censusing the 247 barrier *sites* so we can pick fusions by refund
+   rather than by intuition.
+2. **⭐⭐ Structural fusion — now the presumed-correct branch, and re-scoped from
+   dispatches to BARRIERS.** ⚠️ **RETRACTED: "each per-layer dispatch removed ≈ 27.6 µs/
+   step ≈ 0.42 % ≈ 1.80σ."** §4.16 replaces it with a ladder that differs by **11.6×**
+   depending on whether the removal eliminates a barrier: **dependent pair 56.8 µs/step
+   per layer, barrier-only 52.0, barrier-free dispatch only 4.8.** A fusion that removes
+   a dispatch but not a barrier is worth essentially nothing. The three verified targets
+   must therefore be re-graded by #268 r2's site census before any of them gets code
+   time:
+   - **C (input RMSNorm + QKV GEMV)** — the student's own top pick and #268 r2's **C1**.
+     A serial chain, so almost certainly barrier-removing. `:5738-5745` currently
+     *declines an already-written fused kernel* (`lagunaNormAffineQKV` `:5301-5357`) on
+     the NVFP4 path because the guard is INT8-only.
+     ⚠️⚠️ **PRIOR ART — see §4.18. PR #48 already built this, already ranked it on M5,
+     and got −0.1488%.** That receipt is **CONFOUNDED, not a refutation**: the submitted
+     arm bundled −80 dispatches, −40 barriers **and** an unpriced 8× threadgroup-count
+     collapse (5120 → 640) plus ~24,320 redundant 2048-element reductions per step,
+     because a bit-exact RMSNorm fold must reproduce MLX's 512-thread reduction tree.
+     §4.18.7 states the new structural law: **bit-exact RMSNorm fusion is intrinsically a
+     geometry change as #48 built it.** The live question is the barrier refund *at fixed
+     geometry* — `(mode 1 @ SIMDGROUPS=16) − (mode 0 @ SIMDGROUPS=16)` against a §4.16
+     prediction of 55.6 µs/step — which has never been run. Deconfounding that is the
+     next assignment; the escape hatch if it confirms is a 64-thread threadgroup that
+     *serialises* the same 512-lane tree, preserving stock 2-simdgroup geometry.
+   - **B (top-8 selection folded into the router kernel)** — #268 r2's **C3**. Serial
+     chain; lines 861–872 already compute the sigmoid score, bias-corrected key and
+     ordinal *in registers*. ⚠️ **PRIOR ART: PR #204 already implemented and reverted
+     this** (ΔD = −0.9 ± 12.1 µs, ~46 % power ⇒ underpowered, not refuted). Branch
+     `maple-fern/router-top8-fusion` tip `e92d09eb`, tag `pr/204`. Any re-attempt starts
+     from that branch, not from scratch.
+   - **A (shared-expert gate/up merged into the routed packed top-8 QMV)** — #268 r2's
+     **C4, and the discriminator.** Precedent already shipped
+     (`laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5` at `:7847`, `shared_slot ==
+     8`). **But if the census shows these two QMVs are barrier-free siblings, A refunds
+     only ~4.8 µs/step/layer and must be DROPPED** despite being the easiest to write.
+   Full code geography is in §4. **A shippable decode arm must bundle ≥3
+   barrier-removing fusions to clear the ~80 µs/step 3σ floor, and additivity is not
+   guaranteed** (a barrier costs what it drains, so each removal shrinks the next one's
+   refund).
+3. **✅ CLOSED — ICB pre-encoded step replay, `start_concurrent()`, encode overlap AND
+   graph reordering are all dead.** #269 localised the refund to the GPU side
+   (Δgap 1 µs vs ΔGPU-busy 139 µs) and #268 finished the job: 99.4–100.2 % of the tax is
+   inside GPU busy time and injected CPU spin moves wall by only 0.0497 ± 0.0293 µs/µs
+   (32 SE below 1.0). Separately, §4.16 shows MLX's breadth-first eval tape **already**
+   collapses forty parallel RAW edges into one barrier — 247 barriers ≈ 6.2/layer against
+   ~7 structural waves — so reordering is done inside MLX, off our editable surface, with
+   nothing left to win. Also reconcile with the standing note that decode pre-encoding is
+   structurally unreachable before anyone re-proposes any of this.
+4. **⭐ Prefill (25 % weight) — fully censused; F1 is dead, H2 is the live arm (#293).**
    §4.13 attributes **100 %** of the 54.633 ms non-MoE residual and closes the glue
    class at ~99 % of its bandwidth floor. What remains:
-   - **⭐⭐ F1 / H1, fuse the attention input projections — NOW THE #1 ARM ON THE
-     BOARD, independently confirmed twice.** Step 0 is a *one-line default flip* of
-     `DARKBLOOM_FUSED_QKV` (`LagunaRuntimeModel.swift:108-114`), removing 78 prefill
-     dispatches. §4.13 (tanjiro, bottom-up from the dispatch census) put it at central
-     **−1.6 ms**; §4.15 (frontier, top-down from the GEMM route table) independently
-     puts it at central **−3 ms, range −1..−7**, and supplies the *mechanism* §4.13
-     lacked — see below. Step 1's 4-way `[Wq;Wk;Wv;Wg]` bank adds ~−1 ms
-     (`:5590-5610`, `:5881-5896`). **Bit-exact on M5** (same regular-NAX kernel,
-     bk stays 256, only threadgroup ownership regroups; precedent `matmul.cpp:87-94`).
-     Byte cost ~0–3 KB. **Unfalsifiable on M4 ⇒ needs a ranked M5 receipt.**
-     Pre-clearing in #270 r2. Kill criterion: Δprefill < +0.3 %.
+   - **☠️ F1 / H1, fuse the attention input projections — KILLED by #270 r2, see
+     §4.13b.** Do not re-propose it as a flag flip, and do not re-propose the
+     ~1-line `:5709` fix on its own. Three independent reasons: (a) the flag is
+     **not prefill-only** — materialising the fused bank makes *decode* fall back to
+     stock BF16 QKV, `decode_speedup` 1.0786 → 0.7705, **below the 0.95 floor**;
+     (b) the whole M4 win came from 156 fewer `steel_gemm_bf16` dispatches on wk/wv
+     **split-K**, and on M5 wk/wv route *regular*, so the projected M5 dispatch delta
+     is **~0** and the prefill central estimate 0.66–1.58 ms **straddles the 1.35 ms
+     3σ bar**; (c) the fusion silently adds **78 `g2_copy` slice materialisations**
+     (+1.516 ms/request) because the prefill `qk_norm_rope`/`qk_norm_yarn` kernels
+     cannot read Q/K/V out of a fused bank. A *real* F1 must first teach those two
+     kernels a row offset + stride; only then is it worth ~+0.8–1.2 %.
    - **`steel_gemm_bf16` — frontier consult delivered, see §4.15.** ⚠️ **The 12.30 ms
      projection headroom and the 11.40 ms M5 residual OVERLAP (≈9.33 ms shared inside
      steel) and must NOT be budgeted additively.** Realistic recoverable ceiling
@@ -281,22 +488,32 @@ W&B links they cannot produce.
      quality in the head classes: wq/wo/dense carry 87 % of the 1502.7 GFLOP at
      AI ≈ 390 and 384–512 TGs/dispatch and are healthy, while wk/wv `(512,1024,2048)`
      miss the NAX split-K tie `K > 2*max` **exactly** (2048 vs 2·1024,
-     `matmul.cpp:988-991`) and fall to regular-NAX at a **64-TG grid = 1.6 TGs/core on
+     `matmul.cpp:986-989`) and fall to regular-NAX at a **64-TG grid = 1.6 TGs/core on
      40 cores**. On M4 those same shapes take non-NAX split-K at 1024/256/128 TGs —
      **which is precisely why the M4 census measured the tail as healthy and why this
      deficit is invisible off-M5.** Second-order: wo/dense-down (K ≥ 3·max) migrate
      *into* NAX split-K on M5, paying a ~654 MB FP32-partial round trip ≈ 1.2 ms.
-   - **H2, skinny-N regular-NAX tile downsize** (`matmul.cpp:227-238`) — the only
-     *other* bit-exact steel arm, and the one with a **fully offline falsifier**
-     (`research/nax_msl_compile_check.sh`, MSL compile + pipeline stats proving
-     non-empty MMA). Legal tiles verified against `gemm_nax.h:35-37` (SM = BM/WM ≥ 16;
-     TN = SN/16 even or 1): bm64/bn64/wm2/wn2 → 128 TGs, or bm32/bn64 → 256 TGs.
-     ~0.2–0.4 KB, host-side params only (no new template source), but **requires a
-     metallib rebuild** (binding constraint 7). **Sequencing: H1 and H2 are
-     SUBSTITUTES, not complements** — they target the same wk/wv set, so H2 is worth
-     −1.5..−5 ms only if H1 is absent and just −0.5..−1 ms (sub-MDE) once H1 ships.
-     **Run H1 first; hold H2 as the pre-cleared fallback if H1 dies.** Its offline
-     falsifier costs no ranked slot and can be run at any time.
+   - **⭐⭐ H2, skinny-N regular-NAX tile downsize (`matmul.cpp:227-238`) — now the
+     PRIMARY cheap prefill lead, assigned as PR #293 (tanjiro).** With F1 dead the
+     substitution argument is void: H2 owns the whole 78-dispatch wk/wv tail alone,
+     **−1.5..−5 ms**. The change is host-side only — force `bn=64, wn=2` (so
+     bm64/bn64/bk256/wm2/wn2, 128 TGs = 3.2/core) when
+     `ceil(M/bm)*ceil(N/bn) <= 96 && N % 64 == 0`, behind
+     `DARKBLOOM_STEEL_REGULAR_SKINNY_TILE`. **Bit-exact by the same argument the
+     already-ranked `darkbloom_steel_prefill_tile()` (`matmul.cpp:82-93`, applied in
+     split-K at `:709-717`) uses**: each output stays owned by one thread and is
+     accumulated over the full K range in ascending order; only threadgroup ownership
+     regroups. Legality checked against `steel_gemm_fused_nax.h:150-155` (BM/WM and
+     BN/WN must be positive multiples of 16). **⭐ It needs no new AOT
+     instantiation**: the regular-NAX path is JIT (`matmul.cpp:282` →
+     `jit_kernels.cpp:979-1010` → `get_template_definition`, `kernels.h:404-416`), and
+     64/64/256/2/2 is in the AOT list anyway (`steel_gemm_fused_nax.metal:23-29`).
+     Cost: ~0.2–0.4 KB, plus a mandatory `./setup.sh` because
+     `VendoredMetalFingerprint.swift:18-21` per-file hashes the whole
+     `Vendor/mlx-swift/Source/Cmlx` tree. **Unfalsifiable on M4 (gen 16 never selects
+     `_nax`) ⇒ Stages 0–2 are offline compile + bit-exactness proof, Stage 3 is a
+     ranked M5 receipt.** Trade-off it must survive: bn 128→64 raises wk/wv DRAM
+     re-reads from 3.92 GB to 5.23 GB (+33 %) across the 78 dispatches.
    - Banked #170 constraint on the MoE half: staging ≈49 % load-issue / ≈51 % DRAM
      bytes, pure-issue term 6.887 ms = 15.9 % of W = 43.2619 ms, streaming floor
      24.15 ms ⇒ **19.11 ms headroom = 7.16 % of score**. Frontier re-derivation puts
@@ -304,8 +521,10 @@ W&B links they cannot produce.
      is −5.1 ms = **+1.9 %**.
 5. **⚠️ RETRACTED: "kernel time is the ~13× larger budget than the dispatch tax."**
    That ratio compared *total* kernel time against *recoverable* dispatch time. The
-   decision-relevant comparison is recoverable against recoverable: **399 µs of kernel
-   time vs 283 µs of dispatch time = 1.4×** (§4.10a). These are comparably sized bets,
+   decision-relevant comparison is recoverable against recoverable, and §4.16 has now
+   re-priced the second term upward: **~311 µs of kernel time vs 188–371 µs of
+   barrier+dispatch tax on M5**, i.e. **0.8–1.7×** out of the ~682 µs/step honest pool
+   (§4.10a). These are comparably sized bets,
    so kernel work does not automatically outrank dispatch work — and a kernel-time arm
    no longer gets to claim an order-of-magnitude head start in a prioritisation
    argument. Keep a parallel track, but rank it on measured evidence.
@@ -1447,9 +1666,16 @@ gate kills it. Record this so nobody re-proposes it.
   every other kernel. Whether that is good or bad is untested; it is the
   natural control for any rows-per-simdgroup arm.
 
-**⭐ THE STRATEGIC FINDING: lm-head is the one place where the byte total is
+**~~⭐ THE STRATEGIC FINDING: lm-head is the one place where the byte total is
 not pinned, which makes it categorically different from every other decode
-idea.**
+idea.~~ ⚠️ RETRACTED 2026-08-07 by PR #284 — see §4.17.** The greedy-argmax
+identity *does* legally permit sound pruning, but #284's certificate-slack
+histogram shows the live 4-bit tier-0 screen is already at the boundary
+(`R ≡ (thr − c₁)/delta` never exceeds 5 in 129 real steps, and a 3-bit plane
+needs `R > 5`). **No sound cheaper first screen removes a single byte of the
+109.19 MB tier-0 read.** The lm-head is now retired as a decode target. The
+paragraph below is preserved as the reasoning that motivated #284; its
+conclusion is dead.
 
 §4.10a states that the per-step byte total is fixed by the model and the NVFP4
 format, so **only θ moves** — capped at 0.85. That is true for attention and
@@ -2076,6 +2302,61 @@ split-K) costs a ~654 MB FP32 round-trip ≈ 1.20 ms = 0.45% with **uncertain si
 Caveats: M4 Pro, 20 GPU cores, gen 16, no `_nax` available; M5 core count assumed 40 and
 the arch suffix `s` is inferred.
 
+### 4.13b ⭐⭐⭐ PR #270 r2 — F1 / `DARKBLOOM_FUSED_QKV` is KILLED, and the oracle is blind
+
+Note [`research/maple-tanjiro-pr270-r2-f1-preclearance.md`](maple-tanjiro-pr270-r2-f1-preclearance.md)
+(421 lines) plus `research/pr270-logs/*` and `research/tanjiro_f1_iterate.sh`. Status
+`succeeded`. **Verdict: `DARKBLOOM_FUSED_QKV` / F1 / §4.15-H1 must NOT get a ranked
+slot — neither as specified nor after the ~1-line fix.**
+
+**Correctness both arms.** 64-step tripwire identical (`max_abs_diff=0`,
+`checked_steps=130`, `golden_hash=b9509697…`). `LagunaUpstreamEquivalence` byte-identical
+(`EXACT_STEPS=8`, `EXIT=1` in both) ⇒ the non-zero exit is a **pre-existing gen-16 M4
+condition**, not a regression.
+
+**The dispatch delta is exactly −78, and it is a mirage.** Command buffers 1066→988,
+dispatches 1222→1144. But `steel_gemm_bf16` 392→236 (**−156**) while `qk_norm_rope`
+41→119 (**+78**): those 78 additions are `g2_copy` general-strided copies, 2/layer × 39,
+materialising the Q/K/V slices at `LagunaRuntimeModel.swift:5892-5894`, costing
+**+1.516 ms/request**. Route delta 155 split-K / 82 regular → **77 / 82**;
+splitK+accum 35.758 → 7.488 ms; regular steel 182.918 → 203.974 ms; steel total
+−7.213 ms; probe wall −0.67%.
+
+**The matched M4 pair fails the floor.** prefill −1.61% **but decode
+0.0128459 → 0.0179835 s/tok = +39.99%**; `decode_speedup` 1.0786 → **0.7705** (hard-floor
+FAIL); score proxy −21.98%.
+
+Four findings, in order of durability:
+
+**(A) The flag is not prefill-only.** `LagunaRuntimeModel.swift:5709` guards the entire
+fused decode norm + INT8-QKV block on `_fusedQKVWeight == nil`, so materialising the bank
+at `:11027` makes decode fall back to stock BF16 at `:5905-5908`, losing
+`lagunaNormAffineQKV`, the g32 INT8 native-affine QKV bank, the gate rows and the
+deferred-gate path: **+5.138 ms/step, 3.7× the in-code `:5877-5880` prediction**. The use
+site `:5881` is already gated on `L>1`, so the repair is ~1 line. This is now
+**standing rule 17**.
+
+**(B) ⭐⭐ Team-wide correctness-gate gap** — see **standing rule 16**. The oracle never
+calls `prepareFusedRuntimeWeights()`, so it is structurally blind to the whole
+fused-weight family. This is the single most transferable output of the revision.
+
+**(C)** An env flip can never ship F1 anyway; it needs the `lagunaFusedQKVEnabled`
+default flip at `:108-114`.
+
+**(D) DECISIVE — the M4 win does not exist on M5.** All −156 steel dispatches come from
+wk/wv split-K GEMMs plus their accumulators, but **on M5 wk/wv route *regular*** (§4.15
+route table: they miss the split-K tie at `matmul.cpp:986-989` by exactly one strict
+inequality). The M5 projection is −117 regular, +39 fused, **0 accumulators saved**,
++78 `g2_copy` ⇒ **net ≈ 0 dispatches**, and prefill central **0.66–1.58 ms straddles the
+1.35 ms 3σ bar**. A no-evidence arm at best.
+
+**What a real F1 would require:** teach the sliding `qk_norm_rope` and full
+`qk_norm_yarn` *prefill* kernels to read Q/K/V from the fused bank via a **row offset +
+stride**, eliminating all 78 copies, and relax the `:5709` decode guard. Central estimate
+then ≈ 2.2–3.1 ms ≈ **+0.8–1.2%** — real, but a multi-kernel project, not a flag flip.
+The student additionally recommends **F4 be re-triaged on its own merits** rather than
+inheriting F1's fate.
+
 ### 4.14 ⭐⭐ PR #269 — the decode dispatch census and the removal price
 
 Note [`research/maple-nezuko-compiled-elementwise-fusion.md`](maple-nezuko-compiled-elementwise-fusion.md)
@@ -2220,6 +2501,440 @@ analysis (60 TFLOP/s and 40 cores are assumed, and the devc arch branch on M5 is
 inferred); whether projection A already includes the merged wo regroup; the JIT
 pipeline-cache cost of introducing new tiles; and near-tie argmax stability for the
 non-bit-exact options, which is provable only on M5.
+
+
+
+### 4.16 ⭐⭐⭐ PR #268 r1 — the tax is charged per BARRIER, and the lever is kernel fusion
+
+Note [`research/maple-fern-dispatch-tax-attribution.md`](maple-fern-dispatch-tax-attribution.md)
+(874 lines) plus `research/fern_tax_{campaign.sh,probe.py,stats.py,wandb.py,inject.patch,device_counters.patch}`.
+W&B run [`rcj6tohw`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/rcj6tohw)
+(the campaign's first local-timing W&B run). Primary metric
+`fusion_refund_us_per_dependent_pair = 1.4234`. **This section supersedes the
+"per-dispatch tax" framing everywhere else in this document.**
+
+**The joint fit.** Six site arms, n = 288, 36 blocks, df = 250, M4 Pro teacher-forced
+golden decode at 8.18 ms/step = **406 dispatches / 247 barriers / 40 layers**:
+
+| term | coefficient | 95% CI | t |
+|---|---|---|---|
+| **barrier** | **+1.3003 ± 0.0597 µs** | [1.1833, 1.4174] | **21.8** |
+| **dispatch** | **+0.1231 ± 0.0481 µs** | [0.0288, 0.2173] | 2.6 |
+| **sum = one dependent pair** | **+1.4234 ± 0.0256 µs** | [1.3732, 1.4736] | — |
+
+A 4-arm in-chain replicate gives +1.4134 ± 0.0287. The barrier term is **11.6×** the
+barrier-free dispatch term.
+
+**Every rival mechanism is refuted.** **E1 (CPU encode starvation)** — 99.4–100.2% of the
+tax sits inside GPU busy time; injected CPU spin moves wall by only
+**+0.0497 ± 0.0293 µs/µs, 32 SE below 1.0**. **E2 (per-dispatch fixed cost)** survives
+only as the 0.123 µs residue (8.6% of a pair); 160 *barrier-free* dispatches cost
+**−5.6 µs** against +224 µs predicted (≈40σ). **E3 (cache/residency)** — 256 B..4 MiB is
+exactly linear at **1.3489 ± 0.0181 µs + 4.172e-6 ± 9.6e-9 µs/byte**; the slope is
+239.7 GB/s = 88% of the host's 273 GB/s peak, i.e. ordinary DRAM traffic, not a barrier
+effect. **E4 (encoder/PSO switching)** — 1/4/16/64/256 distinct kernels give
+1.3469/1.5201/1.5507/1.5472/1.4871, non-monotone. **E5 (anchor artefact)** — two
+anchor-free arms reproduce the split. **E6 survives:** loss of intra-encoder overlap when
+`maybeInsertBarrier` emits `[encoder memoryBarrier]` (`device.cpp:363-375`,
+`set_input_array` `:315-328`).
+
+**⭐ Four observed properties of the barrier charge.**
+1. It is charged **per barrier**, not per dispatch.
+2. It is charged **off the critical path**: the `chain` arm's 157 *extra* barriers cost
+   **−42.8 µs**. *A barrier costs what it drains* — if there is nothing in flight, it is
+   free.
+3. It is charged **per unit of serial depth**, not per raw RAW edge.
+4. `diamond1`: 80 *parallel* RAW edges raise the barrier count by only **4** and cost
+   **−0.0070 ± 0.0212 µs/dispatch**, while the same 80 edges in *series* create 78
+   barriers and cost 110 µs.
+
+**Mechanism.** MLX's breadth-first eval tape plus `maybeInsertBarrier` moving `next_*`
+into `prev_*` collapses forty parallel edges into a single barrier. The measured 247
+barriers ≈ the model's true **serial depth** — 6.2 per layer against ~7 structural waves.
+**Graph reordering is therefore already done inside MLX, and is not on our editable
+surface.**
+
+**Cross-validation against #269.** Its 117 removed dispatches formed a dependent chain ⇒
+prediction 117 × 1.4234 = **166.5 ± 3.0 µs** vs measured **144.23 ± 23.00 µs** = **0.96σ**.
+A barrier-free-only model predicts 14.4 ± 5.6 µs = **5.5σ low**. The two independent
+campaigns agree.
+
+**The prize, and the ladder.** 247 × 1.3003 + 406 × 0.1231 = **371 µs/step = 4.5% of the
+M4 step**; transferred to M5 that is **188–371 µs/step = 28–54% of the ~682 µs/step honest
+decode pool** (§4.10a). Refund per *layer* eliminated:
+
+| what a fusion removes | refund |
+|---|---|
+| a **dependent pair** (barrier + dispatch) | **56.8 µs/step** |
+| a **barrier only** | **52.0 µs/step** |
+| a **barrier-free dispatch** only | **4.8 µs/step** |
+
+⇒ the selection criterion for every future fusion is **barriers removed, not dispatches
+removed**. A candidate must bundle **≥3 barrier-removing fusions** to clear the ~80 µs/step
+3σ decode floor, and additivity is **not** guaranteed (property 2 means each removal
+shrinks what the next barrier can drain).
+
+**⭐ Recommendation: kernel fusion.** Explicitly **not** ICB, **not** encode overlap,
+**not** `start_concurrent()`, **not** graph reordering — all four are closed by this
+result. Named first targets: **input RMSNorm → QKV GEMV** (`:5738-5745` currently declines
+an *existing* fused kernel on the NVFP4 path) and **attention → o_proj**.
+
+**Open caveat.** The 1.3003 µs barrier coefficient has **never been measured on M5**. It
+is the single most load-bearing unmeasured constant in the programme and is an open
+escalation to the human team.
+
+### 4.17 ⭐⭐⭐ PR #284 — H5 is KILLED: the lm-head tier-0 read is irreducible, and the lm-head is retired as a decode target
+
+Merged as `36b28fa5`. Deliverable `research/nezuko-pr284-result.md` (280 lines), head
+`5a45215a`, host M4 Pro gen 16. Artifacts: `research/nezuko-pr284-byte-price.sh`,
+`research/artifacts/nezuko-pr284-byte-price.tsv`,
+`research/nezuko-pr284-slack-probe.patch`, `research/nezuko-pr284-slack-histogram.sh`,
+`research/artifacts/nezuko-pr284-slack-hist.txt`,
+`research/nezuko-pr284-slack-analyze.py`.
+
+**VERDICT: no cheaper first screen in the certificate family can eliminate ANY of the
+109,187,072 B tier-0 lm-head read. The best *sound* design saves 0.00 MB and 0.0 µs
+against a 164 µs target and an 80 µs kill threshold.**
+
+**Step 0 — the byte table** (decode, `useFusedRefinement: true`, V = 100,352, hidden 2,048).
+Stage 5a reads `x` 4,096 + `codes_lo` 102,760,448 + `scales` 6,422,528 =
+**109,187,072 B**, writes coarse f32 401,408 + delta bf16 200,704. 5b reads 401,408,
+writes 896. 5c reads 4,096. 5d reads 602,112 unconditional + survivors×320 + refined×4,096,
+writes 200,704. Arm-A lm-head total ≈ **110.99 MB/step**. (The advisor's brief said
+109,182,976 B; it omitted the 4,096 B activation.)
+
+**Measured marginal byte price** (3 reps × 3 arms interleaved, 9/9 `passed: True`):
+A default 12,899.4 µs/tok (sd 57.0); B `DARKBLOOM_LMHEAD_FUSED_REFINEMENT=0` 13,042.8
+(sd 39.2); C `DARKBLOOM_LM_HEAD_PRUNE=0` 14,112.0 (sd 24.0). **C−A paired = 1,212.6 µs
+(sd 80.9) for +300.2 MB ⇒ 4.039 µs/MB ⇒ 247.6 GB/s effective on M4 Pro** — a new
+programme anchor. B−A = 143.4 (sd 82.1) is **unusable** because it swaps kernel family.
+
+**Step 0's own kill gate already fired.** 5a is 441.0 µs = **3.42%** of the M4 step and
+252.2 µs = **6.09%** of the 4,143.6 µs M5 step @433 GB/s — under the brief's 8% bar. The
+student continued anyway, correctly noting that **my brief's 8% kill threshold and its
++2.50% pricing were mutually inconsistent.** That is a real defect in the brief, not in
+the work.
+
+**⭐ Step 1 — the decisive measurement.** 5a emits a coarse `c_i` from the top 4 bits plus
+a certified one-sided `delta_i`. On the refine path the nibble midpoint gives
+`|q − q0| = 0.5` exactly, so `d_i = sd·Σ|x|` and `delta_i = d_i(1 + 32γ)` with γ = 2⁻¹⁵,
+rounded **up** into bf16. Stage 5d keeps row *i* iff `c_i + delta_i >= thr`
+(`LagunaLmHeadPrune.swift:670` pre-merge) ⇒ **the pruner is already a sound
+branch-and-bound and `delta` IS the certificate radius.**
+
+With `Q = ½·sd·Σ|x|`, today's `delta = B₁ = 2Q`; dropping *j* LSBs gives `B_j = Q·2ʲ`; a
+sound *j*-bit tier-0 therefore requires **`R ≡ (thr − c₁)/delta > 1 + 2ʲ`**:
+
+| tier-0 width | plane B/row | MB/step | requires |
+|---|---|---|---|
+| 5-bit | 1,344 | 134.87 | — |
+| **4-bit (today)** | **1,088** | **109.19** | **R > 1** |
+| 3-bit | 832 | 83.49 | R > 5 |
+| 2-bit | 576 | 57.80 | R > 9 |
+| 1-bit | 320 | 32.11 | R > 17 |
+
+Bit-plane re-slicing keeps 1,280 + 64 = 1,344 B/row resident ⇒ no extra RAM cost. **R is
+the entire experiment.**
+
+**The R histogram over 129 real decode steps** (`DARKBLOOM_LMHEAD_SLACK_PROBE=1`, a
+2,609 B instrument kept out of `Sources/`, dispatched between the `thr` dispatch and
+`let assembled =`; run `c99c9a2b-f660-4c4c-a87d-35831f910122`, 72 s, exit 0,
+**0 divergences**):
+
+`R ≤ 1` mean 777.2 / median 288 / max 31,914 = 0.775% of vocab; `R ≤ 2` mean 86,057.6 =
+85.756%; `R ≤ 3` 100,209.0 = 99.858%; **`R ≤ 5` = 100,352 = 100.000%**, identical through
+`R ≤ 33`. **Not one row in 129 steps has R > 5.** The 31,914 outlier is the first step
+after the seed.
+
+**Pricing (M5 @ 433 GB/s; baseline 109.38 MB = 252.6 µs = 6.10% of the step):**
+3-bit → +1 bit @ R≤5 → +1 bit @ R≤1 = **0.00 MB / +0.00%**; the 2-bit chain = 0.00; the
+1-bit chain = 0.00; "2-bit side plane, re-read 4-bit @ R≤9" = **−51.38 MB but −118.7 µs
+= −1.81% (WORSE, because the re-read costs more than the plane saves).** Even the
+*unsound* optimistic bracket `R > 2^(j−1)` fails: 3-bit → 14,294 rows → 8.5 µs; 2-bit →
+143 rows → 0.2 µs; 1-bit → 0 rows → 0.0 µs — all ≥10× under the 80 µs 3σ floor.
+
+**⭐ This generalises: M1 (Cauchy–Schwarz), M2 (blocked Hölder) and M3 (two-tier plane)
+ALL die too.** To drop 90% of rows, *any* cheaper tier-0 needs a bound below the 10th
+percentile of `thr − c₁`, which the histogram places between **1× and 2× today's
+delta**; halving the code width multiplies the bound by 4×. **The whole "coarser first
+screen" family is off by roughly 10×.** The converse is equally important: today's screen
+already leaves only **777 rows (0.78%)** on average, so hypothetical tiers 2–3 would cost
+~0.6 µs ⇒ **beyond tier-0 the pruner is essentially optimal.** Any future attack must
+**tighten `delta`, not coarsen the codes.**
+
+**Byte recovery shipped (commit `61b064b1`).** Deleted `lagunaLmHeadRowMajorRefineEnabled`,
+`lagunaLmHeadRowMajorRefinedExactKernel`
+(`laguna_lmhead_exact_fused_int5_sparse_refine_rowmajor_v1`), its 33-line rationale and
+the inner ternary arm: `LagunaLmHeadPrune.swift` **54,963 → 46,797 B (−8,166 B)**, budget
+`current=2942689 headroom=57311 growth=−8166`. The flag was already default OFF and is a
+twice-measured M5 negative (receipt `99b71258`: **+24.6 µs/token on M5** despite −63.7 µs
+on M4). No default flipped; the only added lines collapse the call to the surviving
+`lagunaLmHeadRefinedExactKernel` with identical args, grid, threadgroup, output shape and
+dtype. `git grep` for the removed symbols in `Sources/`/`Vendor/` returns nothing.
+
+**Correctness.** 9/9 `--local-iterate` arms `passed: True` on the post-deletion tree;
+the probe run reported `0 divergences` over 128 steps. `run_upstream_equivalence.sh` was
+**not** run — justified, because the change is pure dead-code deletion *and* the oracle
+provably does not reach this file (below).
+
+**⭐⭐ Independently re-confirms standing rule 16 (second confirmation, after #270 r2).**
+`LagunaUpstreamEquivalence.compare` constructs `LagunaRuntimeModel(runtimeConfig)`
+directly and **never** calls `prepareFusedRuntimeWeights()`, whose only caller is
+`LagunaRuntimeWeights.swift:637` = `loadLibraryModel`, where the `lmHeadPruner` is built
+(`LagunaRuntimeModel.swift:11016`, pruner `:11055`). ⇒ the oracle covers **neither the
+lm-head pruner, nor fused-QKV, nor the shared-expert layouts**, and this statically
+explains the ambiguous `research/frieren_pr35_lm_fault_oracle.sh` result. The real gates
+are the 64-step drift tripwire, hidden teacher-forced / anchor / free-run token identity,
+`correctnessLogitDiagnostics` top-8, and a pruner-on vs `DARKBLOOM_LM_HEAD_PRUNE=0`
+argmax A/B.
+
+**Consequences for the programme:**
+1. **The lm-head is retired as a decode target.** §4.10b's line "the lm-head is the ONE
+   place the byte total is not pinned" is **RETRACTED**.
+2. **§11 H6's `lm_head int5→int4` (−26 MB, −47 µs, +0.72%) is now suspect**: the tier-0
+   plane is *already* 4-bit at 1,088 B/row, and a genuine 3-bit plane needs `R > 5`, which
+   never occurs. H6 must be re-derived against the byte table above before it is ever
+   assigned.
+3. Student's own follow-ups: (a) fix the equivalence-oracle gap by routing it through
+   `loadLibraryModel`/`prepareFusedRuntimeWeights()`; (b) retire the lm-head; (c) if ever
+   revisited, attack `delta`, not code width.
+
+### 4.18 ⭐⭐⭐ PR #48 / PR #204 prior art — the RMSNorm→QKV fusion was already built and already ranked; its M5 negative is CONFOUNDED, not a refutation
+
+Recovered 2026-08-07 by a full read of two abandoned `maple-fern` branches that predate the
+current research state. **Two of §4.16's three named fusion targets had already been
+implemented, and one had already consumed a ranked M5 slot.** Neither result had been
+carried forward. This is why standing rule 18 now exists.
+
+#### 4.18.1 The branches (fetch; do not delete)
+
+| branch | tip | tag | mechanism | outcome |
+|---|---|---|---|---|
+| `maple-fern/fused-norm-qkv-gate` | `f4c86e44d40c305d850fb30092a0d62d0bbff606` | `pr/48` | input RMSNorm → QKV GEMV (+ per-head `g_proj`) = **§4.16 target C1 / TARGET C** | **ranked M5 NEGATIVE −0.1488%, stripped in r2** |
+| `maple-fern/router-top8-fusion` | `e92d09ebb96084efce2b4bdb473e072b2043968f` | `pr/204` | router → top-8 emit-sink = **§4.16 target C3 / TARGET B** | reverted; ΔD = −0.9 ± 12.1 µs, **underpowered** |
+
+The #48 fused kernel is preserved at commit `9c73e16f`; retrieve it with
+`git checkout 9c73e16f -- Sources/MLXFastModel/LagunaRuntimeModel.swift`.
+Deliverables on the #48 branch: `research/maple-fern-pr48-fused-norm-qkv-gate.md`
+(1,214 lines), `research/maple-fern-pr48-submission-note.md` (228 lines),
+`research/maple-fern-pr48-receipt.py`, `research/maple_fern_pr48_paired.py`,
+`research/sweep_qkv_gate_fuse.sh`.
+
+#### 4.18.2 What #48 actually shipped
+
+Two env controls, both identity by default:
+
+| control | env | values | default |
+|---|---|---|---|
+| `lagunaDecodeNVFP4QKVR1SIMDGroups` (`:4615`) | `DARKBLOOM_DECODE_NVFP4_QKV_R1_SIMDGROUPS` | 1, 2, 4, 8, 16 | **2** = stock |
+| `lagunaDecodeNVFP4NormQKVFuseMode` (`:4727`) | `DARKBLOOM_DECODE_NVFP4_NORM_QKV_FUSE` | 0, 1, 2 | **0** |
+
+- **mode 0** = stock per-layer chain `rmsbfloat16 → qkv (R1 NVFP4) → gate_sp` = **3
+  dispatches per attention layer**.
+- **mode 1** folds the input RMSNorm into the QKV kernel but still exports the
+  device-visible `normalized` row.
+- **mode 2** additionally folds per-head `g_proj` + softplus in as a **ride-along on
+  `simd_group < 2`** (zero extra threadgroups); `normalized` is never materialised.
+  **Mode 2 was the submitted arm** — reached by a one-character default flip at `:4727`
+  (candidate commit `fa8618e`).
+
+Fused-kernel structure: **one 512-thread threadgroup**; per-thread sum of squares over
+`residual` (`values_per_thread = 16`) → `simd_sum` → cross-simdgroup tail via
+`lagunaNormReductionTail2048` → `precise::rsqrt(acc/2048 + 1e-6)`; the normalized row is
+staged into `threadgroup bfloat norm_row[2048]` (4 KB); `threadgroup_barrier`; then the
+unchanged QKV body with `orow = tile*num_simdgroups + simd_group` and `input = norm_row`.
+No scale-plane layout change anywhere — the deferred `× 4194304` row scale is untouched
+and the QKV body MSL is emitted from the same string with only `orow`/`input` substituted.
+
+An **earlier** mode-2 variant that gave the gate its own extra threadgroup measured
+**+1.6% SLOWER** on M4: one threadgroup streams the whole 128 KB INT8 gate bank on a
+single core while the other 640 retire, so the gate becomes the kernel tail.
+
+Threadgroup counts collapse: h64 layers 5120 → **640**; h48 layers 4096 → **512**.
+
+#### 4.18.3 ⭐ The MEASURED barrier census — independent confirmation of §4.16's counters
+
+Instrumented with a throwaway `fprintf` in `maybeInsertBarrier()`
+(`Vendor/mlx-swift/.../metal/device.cpp:362-375`); per-step figures are
+`(count@120 − count@20)/100`. `device.cpp` is **not** editable; the instrument was
+reverted before final verification.
+
+| mode | barriers/step | no-barrier calls/step | dispatches/step |
+|---|---:|---:|---:|
+| 0 stock | **243** | 163 | **406.00** |
+| 1 norm folded | **204** | 162 | **366.00** |
+| 2 norm + gate folded | **203** | 123 | **326.00** |
+
+**Decomposition: the norm fold removes 40 dispatches and 39 barriers; the gate fold
+removes 40 dispatches and only 1 barrier — a 39:1 asymmetric split.** This independently
+confirms §4.16's 406 dispatches/step to the integer. (#268 counted 247 barriers where #48
+counts 243; #48 flags its census as a **lower bound** — `CommandEncoder::barrier()`
+`:393-395` emits an uncounted barrier and `end_encoding()` serialises across encoder
+boundaries with fences.)
+
+**⭐ This is the origin of standing rule 19.** #48 §4.3: *"Deleting a producer does not
+delete its consumer's barrier; it rotates it onto whatever the consumer now aliases. ΔB is
+therefore not additive attribution."* Any §4.16 refund estimate built by counting removed
+dispatches and assuming proportional barrier savings is wrong. **ΔB must be measured, not
+predicted.**
+
+#### 4.18.4 The local M4 numbers (all underpowered)
+
+- *Geometry only* (`SIMDGROUPS=16`, fuse 0), N=16 vs stock, 12 × 512-step interleaved
+  paired: mean Δ **−0.0193 ms = −0.225%**, sd(d) 0.0383, paired **t = −1.746 (n.s.**,
+  t_crit 2.201); median Δ −0.122%, t = −2.900; min **+0.083%**. #48's conclusion:
+  *"Widening the geometry 8× is timing-neutral on M4."*
+- `decode_probe` 120 steps, single pass, medians: m0 8.555 / m1 8.452 / m2 8.484 ms ⇒ norm
+  fold **−103 µs**, gate fold **+32 µs**. #48: *"n=1 per arm, unpaired; not evidence."*
+- `--local-iterate` n=3, prefill-netted decode T: m0 **8.8453** (sd 0.1128), m1 **8.7167**
+  (sd 0.0540), m2 **8.6897** (sd 0.0767) ⇒ m1−m0 = **−128.7 µs (−1.45%)**, Welch t ≈ 1.78;
+  m2−m0 = **−155.6 µs (−1.76%)**, Welch t ≈ 1.98. **Neither is significant.**
+
+#### 4.18.5 The ranked M5 receipt
+
+Ticket **`285f79fa-089f-4184-b1ec-0647cb51e61b`**, created 2026-08-05T19:00:49Z, measured
+19:12:03Z, `status rejected`, `officialScore 2.50450520378964`, commit
+`3234ece1e2f2c43cf25bfa981f9c75a702564917`.
+
+**Correctness fully green:** `passed_correctness True`, `max_abs_diff 0`,
+`checked_steps 1344`, `case_count 11`, GPQA TTFT 9/9 (p50 0.07 s, max 2.3 s), semantic
+GPQA 9/9, `peak_ram_gb 21`.
+
+Timing: `decode_seconds_per_token 0.00505923275`,
+`prefill_seconds_per_token 0.000190994708984375`; `nd` 2.745476 vs control 2.754322; `npf`
+2.013145 (equal); **`ns` 2.540575 vs control `c3ce66ec` `ns` 2.544360 ⇒ Δ = −0.1488%.**
+Both floors held but both components moved the wrong way (decode 2.7347 vs 2.7543;
+prefill 1.9238 vs 1.9401).
+
+Pre-registered readings: Reading A **+2.595%** (at `c = 2.1828 µs/dispatch`, tanjiro's
+measured M5 per-dispatch cost), Reading B **+0.446%**, ~10.2σ apart. The receipt came in
+*below* Reading B ⇒ **Reading A refuted outright.** #48's own stance: *"Consistent with a
+wash plus session noise; I claim no real regression from a single paired receipt."*
+Single-receipt resolution floor is **0.278%**, so −0.1488% is inside noise.
+
+#### 4.18.6 ⚠️⚠️ WHY THIS DOES NOT FALSIFY §4.16 — the candidate bundled THREE changes
+
+The submitted mode-2 arm simultaneously made:
+
+- **(a)** −80 dispatches/step,
+- **(b)** −40 barriers/step (with the 39:1 split above),
+- **(c)** an **8× threadgroup-count collapse** (5120 → 640) because the fused kernel
+  hard-codes 512 threads / 16 simdgroups, **plus ~24,320 redundant 2048-element
+  sum-of-squares reductions per decode step** (640 per h64 layer, versus stock's single
+  `rmsbfloat16` reduction), each with its own cross-simdgroup tail and threadgroup barrier.
+
+**#48 never prices (c) and never lists it as a loss mechanism.** The decomposition is
+ours, not the report's.
+
+| quantity | value |
+|---|---|
+| §4.16 prediction, mode 2 on M4 | 40 × 1.3003 + 80 × 0.1231 = **61.8 µs/step** |
+| §4.16 prediction, mode 1 on M4 | 39 × 1.3003 + 40 × 0.1231 = **55.6 µs/step** |
+| §4.16 prediction, gate fold alone | 1 × 1.3003 + 40 × 0.1231 = **6.2 µs/step** |
+| #48 measured M4 (`--local-iterate`, n=3) | m2 − m0 = **−155.6 µs/step** (~1.6σ, underpowered) |
+| #48 measured M5 (ranked) | −0.1488% ÷ 14.862 %/ms ⇒ **+10.0 µs/step SLOWER** ⇒ effective **−0.125 µs per removed dispatch**, **−0.25 µs per removed pair** |
+| **implied M4 → M5 swing** | **≈ 165 µs/step** |
+
+If §4.16's ~62 µs refund transfers to M5 at even half strength (~31 µs), then (c) must
+cost about **+41 µs/step on M5** and *both* results are consistent. #48 predicted exactly
+this sign-flip risk and never separated it: *"640 threadgroups retire in ~16 waves on 40
+cores versus ~32 on 20. A trailing 2-threadgroup dispatch has less shadow to hide in on
+the larger part… the sign of the gate fold can differ between M4 and M5."*
+
+#### 4.18.7 ⭐ NEW STRUCTURAL LAW — bit-exact RMSNorm fusion is INTRINSICALLY a geometry change
+
+A bit-exact fold must reproduce MLX's `rmsbfloat16` reduction **tree shape** (512 threads
+× `n_reads = 4`). #48 satisfied that by hard-coding 512 threads / 16 simdgroups — which is
+*precisely why* the threadgroup count collapses 8×. **§4.16 target C1 cannot be built as a
+pure barrier-removal in the way #48 built it.**
+
+**Escape hatch (never built):** tree *shape*, not thread *count*, determines the
+floating-point result. A 64-thread threadgroup can **serialise** the same 512-lane
+reduction tree at higher ALU cost while preserving the stock 2-simdgroup geometry. This is
+the geometry-neutral fusion that the deconfound assignment should design if the barrier
+refund is confirmed.
+
+#### 4.18.8 Bit-exactness — CLAIM WITHDRAWN by #48 itself (third confirmation of standing rule 16)
+
+*"The equivalence oracle never executed this kernel and never passed on this host (§9.4),
+and the defensible correctness claim is 'no gross always-on corruption', not
+'bit-exact'."*
+
+- §9.4: the fused path is structurally unreachable in `LagunaUpstreamEquivalence`
+  (`_nativeAffineQKV == nil` there); **82 × `EQUIVALENCE_EXIT=1`, zero passes**; the 0.125
+  prefill max-abs-logit error is pre-existing on the unchanged base ⇒ the oracle is
+  **doubly uninformative**.
+- §9.5(c): under an injected `+1.0f` fault, `max_abs_diff` stayed **0** while
+  `passed_correctness` went false ⇒ **`max_abs_diff` is not an independent residual signal
+  on this path.**
+- §9.7: the argmax gate is **blind below 1e-3**. It cannot see permutation- or
+  statistics-preserving errors, races, missing barriers, occupancy or compiler effects,
+  uninitialised threadgroup memory, *"or any QKV-phase bug — the QKV side was never
+  injected at all."*
+
+#### 4.18.9 Other mechanisms #48 named
+
+- *"Concurrent dispatches still consume scheduler slots. Counts ≠ time."*
+- Permission-to-overlap ≠ overlap (a claim #48 withdrew).
+- Surviving benefit attribution is *"reduced CPU encode work and per-dispatch launch
+  overhead"*, **not** recovered GPU-timeline time.
+- Knee model `dT(n) = max(0, n·c − slack)` ⇒ 406 dispatches may sit below saturation, in
+  which case removing 80 pays nothing.
+- Cost constants: `c = 2.1828 µs/dispatch` (M5, tanjiro); bracket `[0.36, 2.09] µs` (2.09
+  chained injected empties, 0.36 concurrent floor); **1 ms decode T = 14.862% of score**;
+  price ladder — concurrent floor 28.8 µs (+0.428%), advisor floor 31.8 µs (+0.473%),
+  barrier-weighted 98.0 µs (+1.456%), chained 167.2 µs (+2.485%), advisor central
+  201.1 µs (+2.988%); promotion bar +1.461% at P = 50%.
+- Local-vs-model gap: the norm fold beat its 34.8 µs prediction by 3×, while the gate fold
+  moved the wrong way against a −212.8 µs prediction = a **~245 µs discrepancy**.
+
+#### 4.18.10 §10 surviving follow-ups — the family is NOT declared dead
+
+1. Per-dispatch barrier tagging in `maybeInsertBarrier` — #48 calls this *"the
+   highest-value item here"*. (Now #268 r2 task 2.1.)
+2. A Metal System Trace on one decode step — *"the only way to see the CPU-encode half"*.
+   (Escalate to the human team; needs an M5 dev host.)
+3. Barrier-class triage for `oproj_act_h64` (0.601) and `residual_rms_router` (0.605).
+4. **"The `gate_sp` kernel itself, rather than its dispatch… It is latency-bound, and
+   widening *it* may be a different and larger prize than deleting it."** — unexplored.
+5. **Mode 1 as its own ranked arm** — one character, never ranked.
+6. Reconcile the ×0.812 residual-class factor against M5.
+
+The submission note adds: if the arm is not returned, *"effort should move to memory
+traffic and to the routed expert gather-GEMM instead."*
+
+#### 4.18.11 ✅ VERIFIED: the §10.4 instrument hazard is NOT on our line
+
+#48 §10.4 warns of a hardware-constant instrument (`INJECT_DECODE_EMPTY` /
+`INJECT_EMPTY_TG`) left inside `Sources/`, worth −3.24% of score if shipped. Checked on
+the current advisor HEAD:
+
+- `git grep -n 'INJECT_DECODE_EMPTY|INJECT_EMPTY_TG|injectDecodeEmpty|injectEmptyTG'` over
+  `Sources/` and `Vendor/mlx-swift-lm/` = **zero hits**.
+- `5a72af3` and `5178d452` are **NOT ancestors of HEAD** (`git merge-base --is-ancestor`
+  returns not-ancestor for both).
+- The instrument existed at `5a72af3:Sources/MLXFastModel/LagunaRuntimeModel.swift:11046`
+  and was removed by commit `a41d8064` ("Remove M5 hardware-constant instrument … to
+  recover 12KB file budget").
+
+**The current frontier is clean.** This is nonetheless the concrete near-miss that
+justifies standing rule 11 (instruments stay out of `Sources/`).
+
+#### 4.18.12 r2 strip
+
+Per #48 §10.1 the file was restored to the advisor-base blob: `growth=0`,
+`current=2941155`, editable diff versus base empty.
+
+#### 4.18.13 Consequences for the programme
+
+1. **§4.16 target C1 is CONFOUNDED, not refuted.** The open question is the barrier refund
+   *at fixed geometry* — `(mode 1 @ SIMDGROUPS=16) − (mode 0 @ SIMDGROUPS=16)`, against a
+   §4.16 prediction of 55.6 µs/step. That contrast has never been run.
+2. **§4.16 target C3 is PR #204's underpowered arm**, not a fresh idea.
+3. **The gate fold is the sharpest barrier-vs-dispatch discriminator in the programme** —
+   40 dispatches for 1 barrier ⇒ §4.16 predicts only 6.2 µs/step. It is below M4
+   resolution, so it can bound but not measure the dispatch coefficient.
+4. **Standing rules 18 and 19 are added** as a direct result of this recovery.
 
 
 
