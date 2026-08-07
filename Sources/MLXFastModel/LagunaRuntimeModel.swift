@@ -217,25 +217,9 @@ let lagunaPrefillFusedRoutedGateUpEnabled =
 let lagunaPrefillFusedRoutedGateUpHalvedEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_GATE_UP_HALVED"] != "0"
 
-func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
-    guard osSupportsNAX,
-        let generation = Int(architecture.suffix(3).prefix(2))
-    else { return false }
-    return generation >= (architecture.hasSuffix("p") ? 18 : 17)
-}
-
-func lagunaExpertAlignedStageEnabled(_ value: String?) -> Bool {
-    ["", "4", "5"].contains(value ?? "")
-}
-
-func lagunaNAXGate(_ envKey: String) -> Bool {
-    let e = ProcessInfo.processInfo.environment
-    guard e[envKey] != "0", #available(macOS 26.2, *) else { return false }
-    let a = e["MLX_METAL_GPU_ARCH"]
-    return lagunaNAXAvailable(architecture: a.flatMap { $0.isEmpty ? nil : $0 } ?? GPU.deviceInfo().architecture, osSupportsNAX: true)
-}
-
-let lagunaExpertAlignedGatherEnabled = lagunaExpertAlignedStageEnabled(ProcessInfo.processInfo.environment["DARKBLOOM_STAGE_BM128"]) && lagunaNAXGate("DARKBLOOM_EXPERT_ALIGNED_GATHER")
+let lagunaExpertAlignedGatherEnabled =
+    ProcessInfo.processInfo.environment[
+        "DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
 
 // Disabled 2026-08-07: qmm_nax reverted to pre-PR#243 state (no kHalvedScales).
 // The halved path calls quantizedMM with groupSize=32 and scales [N+1, K/32],
