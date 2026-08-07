@@ -114,7 +114,7 @@ private let lagunaLmHeadPruneHeader = """
     """
 
 /// The one-pass coarse kernel, used for prefill's already-sliced final row and
-/// as the same-binary decode control arm: 16 rows/threadgroup, one simdgroup
+/// as the same-binary decode control arm: 32 rows/threadgroup, one simdgroup
 /// per row, lane = 2 consecutive 32-element groups, fused coarse+delta
 /// outputs, 1344 B/row (nibble plane 1024 B + 1-bit plane 256 B + 64 scale
 /// bytes; 2048 elements x 5 bits = 1280 B of codes). All loads stay
@@ -159,7 +159,7 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
     source: """
         constexpr float GAMMA = 0x1p-15f;
 
-        uint row = threadgroup_position_in_grid.x * 16 +
+        uint row = threadgroup_position_in_grid.x * 32 +
             simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
@@ -229,7 +229,7 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
     ensureRowContiguous: true
 )
 
-/// Level one of the three-level decode screen: the same 16-rows/threadgroup
+/// Level one of the three-level decode screen: the same 32-rows/threadgroup
 /// launch and lane partition as the one-pass kernel, but reading ONLY the
 /// nibble plane and the scale bytes -- 1088 B/row instead of 1344 B/row, i.e.
 /// 25.7 MB less per decode step across the 100352-row vocabulary.
@@ -257,7 +257,7 @@ private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
     source: """
         constexpr float GAMMA = 0x1p-15f;
 
-        uint row = threadgroup_position_in_grid.x * 16 +
+        uint row = threadgroup_position_in_grid.x * 32 +
             simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
@@ -536,9 +536,9 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
         uint sgid = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
-        // This simdgroup's fixed four output rows. VOCAB is 3136 * 32, so the
+        // This simdgroup's fixed four output rows. VOCAB is 1568 * 64, so the
         // grid tiles it exactly; the bounds test is belt-and-braces.
-        uint base = tgid * 32 + sgid * 4;
+        uint base = tgid * 64 + sgid * 4;
 
         // The predicate is simdgroup-uniform, so lane 0 forms it once and
         // broadcasts the four row decisions. Reusing the mask below removes
@@ -660,7 +660,7 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
         uint sgid = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
-        uint base = tgid * 32 + sgid * 4;
+        uint base = tgid * 64 + sgid * 4;
 
         uint base_mask = 0;
         if (lane == 0) {
@@ -940,15 +940,15 @@ final class LagunaLmHeadPruner {
             refine
             ? lagunaLmHeadInt5BaseCoarseKernel(
                 [x, int5CodesLo, int5Scales],
-                grid: (vocab / 16 * 512, 1, 1),
-                threadGroup: (512, 1, 1),
+                grid: (vocab / 32 * 1024, 1, 1),
+                threadGroup: (1024, 1, 1),
                 outputShapes: [[vocab], [vocab]],
                 outputDTypes: [.float32, .bfloat16]
             )
             : lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
                 [x, int5CodesLo, int5CodesHi, int5Scales],
-                grid: (vocab / 16 * 512, 1, 1),
-                threadGroup: (512, 1, 1),
+                grid: (vocab / 32 * 1024, 1, 1),
+                threadGroup: (1024, 1, 1),
                 outputShapes: [[vocab], [vocab]],
                 outputDTypes: [.float32, .bfloat16]
             )
@@ -972,15 +972,15 @@ final class LagunaLmHeadPruner {
             refine
             ? lagunaLmHeadRefinedExactKernel(
                 [coarse, delta, thr, lmHeadWeight, x, int5CodesHi, int5Scales],
-                grid: (vocab / 32 * 256, 1, 1),
-                threadGroup: (256, 1, 1),
+                grid: (vocab / 64 * 512, 1, 1),
+                threadGroup: (512, 1, 1),
                 outputShapes: [[vocab]],
                 outputDTypes: [.bfloat16]
             )[0]
             : lagunaLmHeadInlineExactDeltaBF16Kernel(
                 [coarse, delta, thr, lmHeadWeight, x],
-                grid: (vocab / 32 * 256, 1, 1),
-                threadGroup: (256, 1, 1),
+                grid: (vocab / 64 * 512, 1, 1),
+                threadGroup: (512, 1, 1),
                 outputShapes: [[vocab]],
                 outputDTypes: [.bfloat16]
             )[0]
