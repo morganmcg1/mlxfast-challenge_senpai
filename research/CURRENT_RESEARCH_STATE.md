@@ -8,16 +8,15 @@ MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = T
 The × threadGroupSize multiplier in grid expressions is CORRECT. PR #333 was closed as invalid.
 Do NOT revisit this hypothesis.
 
-## M5 SUBMISSION STATUS (CRITICAL — 35+ CONSECUTIVE FAILURES)
-  aeff1a40: VALIDATING (1:54 AM UTC) — frontier 1e2d5288 (PR #357 TACTICALLY DISABLED for -2 JIT compiles)
-  853ccbde: FAILED — frontier a25f2146 (PR #357 enabled, +2 JIT compiles)
-  891582e2: FAILED — frontier f688a03f (warmup fix only)
+## M5 SUBMISSION STATUS (CRITICAL — 36+ CONSECUTIVE FAILURES)
+  47d9bc08: VALIDATING (2:49 AM UTC) — frontier b41681c9 (SDPA Phase 1+2 + dead code cleanup, -3 JIT, PR #357 disabled)
+  aeff1a40: FAILED — frontier 1e2d5288 (PR #357 disabled, -2 JIT compiles)
   Last SUCCESSFUL build: 68b66c5 (score 2.5520)
   Best score: df9613a (2.5817)
   Leaderboard #1: yudduy 2.6063. Our promoted: 97a5090 2.5888 (maple campaign).
   Gap to close: +0.67% from 2.5888 → 2.6063.
-  Root cause: JIT compile-storm (~19 custom JIT + ~15-25 M5-only _nax compiles) intermittently exceeds M5 runner timeout.
-  TACTICAL: PR #357 (prefill QK-norm+RoPE) DISABLED to reduce 2 JIT compiles. Re-enable once PR #363 (-2 JIT) merges.
+  NEW: SDPA Phase 2 makes benchmark faster (39.4% K/V reduction), leaving more compile headroom.
+  TACTICAL: PR #357 (prefill QK-norm+RoPE) DISABLED. Re-enable once PR #380 (-2 JIT) merges.
 
 ## M5 COMPILE AUDIT (from subagent report, research/M5_COMPILE_AUDIT_20260808_0104.md)
   Default-run custom JIT compiles: 19 (not 55)
@@ -39,15 +38,15 @@ Do NOT revisit this hypothesis.
   PR #371 (edward): Dead QKV/SwiGLU variant deletion — MERGED (-27,718B, 6 kernels + 2 functions + 3 env flags, 0-JIT, bit-exact)
   PR #373 (alphonse): Prefill MoE tail unification — MERGED (-1,073B, -1 default JIT compile, bit-exact) ★ LAST JIT LEVER
 
-  Total session: 8 PRs merged, all bit-exact. Net bytes: -1,578 -1,350 -27,718 -1,073 -525 +0 +76 = -32,168B.
+  Total session: 13 PRs merged, all bit-exact. Net bytes: -121,006B.
   JIT compile reduction: -1 (warmup) + -1 (gate) + -1 (MoE tail) = -3 default compiles.
+  SDPA: Phase 1 (GQA6 3-head, 10/40 layers) + Phase 2 (GQA8 4-head, 30/40 layers) = 39.4% K/V reduction.
 
-## ACTIVE ASSIGNMENTS (BASE_SHA=a0d91349)
-  PR #366 (thorfinn): SDPA GQA pair_heads 3/4 — halve K/V traffic for GQA6/GQA8 attention (AOT metallib, ~0.6-1.0% score)
-    ★ HIGHEST IMPACT: directly addresses bandwidth-bound decode. yudduy #1 uses pair_heads=3/4.
-  edward: PENDING — needs new assignment (MLX_MAX_OPS_PER_BUFFER sweep)
-  askeladd: PENDING — needs new assignment (shared-first-down deletion)
-  alphonse: PENDING — needs new assignment
+## ACTIVE ASSIGNMENTS (BASE_SHA=b41681c9)
+  PR #380 (askeladd): LM-head pruner kernel consolidation — -2 JIT compiles (6→4), M5 build fix
+  PR #381 (edward): DARKBLOOM_STAGE_BM128 variant sweep — prefill GEMM tiling, 0-byte, bit-exact
+  alphonse: IDLE — needs new assignment (completed PR #376 dead kernel audit)
+  thorfinn: IDLE — completed SDPA Phase 2 (PR #377 merged)
   ROOT CAUSE (high confidence): JIT compile-storm timeout. 19 custom JIT + ~15-25 M5-only _nax
   compiles during warmup + prefill + decode intermittently collide with M5 runner ~900s timeout + 40C thermal gate.
   Organizer frontier (0 custom JIT kernels) always passes.
