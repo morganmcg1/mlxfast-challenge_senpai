@@ -4087,19 +4087,6 @@ func lagunaGatedAffineOProjNVFP4Source(
 private let lagunaOProjScaleHalvingEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_SCALE_HALVING"] != "0"
 
-private let lagunaGatedAffineOProjNVFP4Kernel = MLXFast.metalKernel(
-    name: "laguna_gated_affine_oproj_nvfp4_qmv_v1"
-        + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-        + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
-    inputNames: [
-        "attention_output", "gate_logits", "weight_codes",
-        "weight_scales",
-    ],
-    outputNames: ["projected"],
-    source: lagunaGatedAffineOProjNVFP4Source(),
-    ensureRowContiguous: true
-)
-
 private let lagunaGatedAffineOProjNVFP4HalvedKernel = MLXFast.metalKernel(
     name: "laguna_gated_affine_oproj_nvfp4_qmv_v1"
         + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
@@ -4199,18 +4186,6 @@ private func lagunaGateSoftplus(
         outputDTypes: [.bfloat16])[0]
 }
 
-private let lagunaActivatedOProjKernel = MLXFast.metalKernel(
-    name: "laguna_oproj_act_v1"
-        + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-        + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
-    inputNames: [
-        "attention_output", "gate_values", "weight_codes",
-        "weight_scales",
-    ],
-    outputNames: ["projected"],
-    source: lagunaGatedAffineOProjNVFP4Source(preActivatedGate: true),
-    ensureRowContiguous: true)
-
 private let lagunaActivatedOProjHalvedKernel = MLXFast.metalKernel(
     name: "laguna_oproj_act_v1"
         + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
@@ -4237,13 +4212,9 @@ func lagunaGatedAffineOProjNVFP4(
     let kernel: MLXFast.MLXFastKernel
     if gateIsActivated {
         guard lagunaGateSoftplusEnabled else { return nil }
-        kernel = halved
-            ? lagunaActivatedOProjHalvedKernel
-            : lagunaActivatedOProjKernel
+        kernel = lagunaActivatedOProjHalvedKernel
     } else {
-        kernel = halved
-            ? lagunaGatedAffineOProjNVFP4HalvedKernel
-            : lagunaGatedAffineOProjNVFP4Kernel
+        kernel = lagunaGatedAffineOProjNVFP4HalvedKernel
     }
     let inVec = heads * LagunaConstants.headDim
     let outVec = LagunaConstants.hiddenSize
@@ -4270,16 +4241,7 @@ func lagunaGatedAffineOProjNVFP4(
             outputDTypes: [.bfloat16]
         )[0]
     }
-    if halved { return nil }
-
-    lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
-    return kernel(
-        [attentionOutput, gateLogits, codes, scales],
-        grid: ((outVec / 16) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
-        outputShapes: [[1, 1, outVec]],
-        outputDTypes: [.bfloat16]
-    )[0]
+    return nil
 }
 
 
