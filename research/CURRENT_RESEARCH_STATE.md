@@ -61,27 +61,41 @@ MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1. DO NOT REVISIT.
   - Dispatch infrastructure intact: quantized.cpp:1918 grid division by xmajor_ct
   - M5-only (uses _nax kernels, M4 can't test), ~5KB vendor budget, bit-exact
 
-## M5 SUBMISSION STATUS (2026-08-08T06:36Z)
-  db536735: VALIDATING — XMAJOR fold reverted (e010e2eb, nuclear fallback + dead code + SDPA revert + full-attn fused, NO XMAJOR)
-  5ef630e0: FAILED — sdpa_vector.h revert + XMAJOR fold + dead code (b8c843aa) — XMAJOR fold suspected
+## M5 BUILD BREAKTHROUGH (2026-08-08T06:55Z)
+  Root cause identified by subagent code review: LagunaRuntimeWeights.swift changes.
+
+  **Warmup prefill shape 512→2 tokens**: Standard MLX kernels (SDPA, matmul, quantizedMM)
+  specialize by shape. A 2-token warmup does NOT pre-compile 512-token scored PSOs.
+  M5 JIT-compiles them during the scored run → ~900s timeout. LIKELY PRIMARY CAUSE.
+
+  **MLX_MAX_OPS_PER_BUFFER 400→200**: Halves command-buffer limit, changes MLX fusion
+  granularity. SECONDARY CAUSE.
+
+  **New heavy lagunaFusedGProjQKVHalvedKernels**: 2 large fused-g_proj QKV compiles
+  (~4x larger source) that f790e33f never had. TERTIARY CAUSE.
+
+  Fix applied (27fb31c0): warmup 2→512 tokens, MLX_MAX_OPS 200→400.
+  Waiting for d85aeb0d (bare minimum) to finish before submitting warmup fix.
+
+  ALL vendor files (sdpa_vector.h, fp_quantized_nax.h, quantized.cpp) are IDENTICAL
+  to f790e33f. The M5 failure is entirely in LRM/LmHeadPrune/Weights changes.
+
+## M5 SUBMISSION STATUS
+  d85aeb0d: VALIDATING (~7 min — longer than usual, may be building)
+  db536735: FAILED — nuclear fallback + dead code + SDPA revert + full-attn fused, NO XMAJOR
+  5ef630e0: FAILED — sdpa_vector.h revert + XMAJOR fold + dead code (b8c843aa)
   07634617: FAILED — nuclear fallback + SDPA Phase 1 (a2cb0a0a)
-  All submissions since f790e33f FAILED (43 consecutive)
-  Root cause analysis:
-  - f790e33f (511KB LRM, 48 metalKernel) was last M5 success
-  - Current code (320KB LRM, 19 metalKernel) is SMALLER yet still fails
-  - Only vendor file changes from f790e33f: XMAJOR fold (+216 lines fp_quantized_nax.h, now reverted)
-  - Full-attn fused kernel (PR #410) adds 2 JIT compiles (still in current code)
-  - If db536735 builds: XMAJOR was the culprit
-  - If db536735 fails: full-attn fused or LRM refactoring is the culprit
+  All submissions since f790e33f FAILED (44 consecutive)
+  Warmup fix (27fb31c0) READY but blocked by d85aeb0d in flight.
   Leaderboard #1: yudduy 2.6063. Our promoted: 2.5888. Gap: ~0.67%.
 
-## CURRENT FRONTIER (e010e2eb)
-  Nuclear fallback (f790e33f base) + dead code removal + SDPA revert + full-attn fused decode kernel
-  NO XMAJOR fold (reverted to test M5 build)
-  19 metalKernel calls (17 live including 2 from full-attn fused)
-  SDPA: f790e33f PAIR_HEADS=2 (SDPA Phase 1 reverted)
-  Full-attn fused: lagunaFullFusedAttentionKernel + lagunaFullQKNormYaRNKernel recovered (PR #410)
-  Missing: XMAJOR fold (reverted), kHalvedScales, prefill QK-norm+RoPE fusion, SDPA Phase 1
+## CURRENT FRONTIER (27fb31c0)
+  Nuclear fallback + dead code removal + SDPA revert + warmup fix (512 tokens, MLX_MAX_OPS=400)
+  NO XMAJOR fold (reverted), NO full-attn fused (reverted to cafa2e47 LRM)
+  17 metalKernel calls, 293KB LRM
+  SDPA: f790e33f PAIR_HEADS=2
+  ALL vendor files identical to f790e33f
+  Missing: XMAJOR fold, full-attn fused, kHalvedScales, prefill QK-norm+RoPE
 
 ## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=987c21c5)
   PR #407 v2 (edward): Prefill QK-norm+RoPE fusion — REBASE REQUESTED onto 987c21c5. v1 succeeded: +0.7% decode, +3.4% prefill, +1.3% est score on M4.
