@@ -9281,54 +9281,18 @@ final class LagunaRuntimeMoEGate: Module {
 ///    result dtype (2.5 is exactly representable), one rounding.
 ///  * `r2 = scaled + shared` and `residual + r2` keep the stock operand
 ///    order and one BF16 rounding each.
+/// Unified prefill MoE tail kernel. Folds weighted-expert-combine +
+/// shared-add + residual into one elementwise kernel. When `sorted_flag[0]`
+/// is 0, expert rows are read in natural `[row, slot]` order. When 1,
+/// `inverse_order[row * experts + e]` gathers each slot from the
+/// expert-sorted down-projection output, preserving the stock
+/// slot-0-through-slot-7 BF16 multiply/add sequence while deleting the
+/// intervening 16 MiB copy at the ranked 512-token window.
 private let lagunaPrefillMoETailKernel = MLXFast.metalKernel(
     name: "laguna_prefill_moe_tail_bf16_v1",
-    inputNames: ["expert_outputs", "router_weights", "shared_output", "residual"],
-    outputNames: ["output"],
-    source: """
-        constexpr uint hidden = 2048;
-        constexpr uint experts = 8;
-        constexpr uint n_cols = 4;
-
-        uint row = thread_position_in_grid.y;
-        uint col = thread_position_in_grid.x * n_cols;
-
-        const device bfloat* expert_row =
-            expert_outputs + (row * experts) * hidden + col;
-        const device float* weight_row = router_weights + row * experts;
-
-        bfloat expert_weights[experts];
-        for (uint e = 0; e < experts; ++e) {
-            expert_weights[e] = bfloat(weight_row[e]);
-        }
-
-        for (uint i = 0; i < n_cols; ++i) {
-            bfloat total = bfloat(0);
-            for (uint e = 0; e < experts; ++e) {
-                bfloat product =
-                    bfloat(expert_row[e * hidden + i] * expert_weights[e]);
-                total = bfloat(product + total);
-            }
-            bfloat scaled = bfloat(total * bfloat(2.5f));
-            bfloat r2 = bfloat(scaled + shared_output[row * hidden + col + i]);
-            output[row * hidden + col + i] =
-                bfloat(residual[row * hidden + col + i] + r2);
-        }
-        """,
-    ensureRowContiguous: true
-)
-
-/// Sorted-input twin of `lagunaPrefillMoETailKernel`. `inverse_order[p]` is
-/// the row in the expert-sorted down-projection output that
-/// `scatterUnsort(...)[p]` would copy to original flattened slot `p`.
-/// Reading that row directly preserves the stock slot-0-through-slot-7 BF16
-/// multiply/add sequence while deleting the intervening 16 MiB copy at the
-/// ranked 512-token window.
-private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_sorted_moe_tail_bf16_v1",
     inputNames: [
-        "sorted_expert_outputs", "inverse_order", "router_weights",
-        "shared_output", "residual",
+        "expert_outputs", "inverse_order", "router_weights",
+        "shared_output", "residual", "sorted_flag",
     ],
     outputNames: ["output"],
     source: """
@@ -9341,17 +9305,19 @@ private let lagunaPrefillSortedMoETailKernel = MLXFast.metalKernel(
         const device float* weight_row = router_weights + row * experts;
 
         bfloat expert_weights[experts];
-        uint sorted_rows[experts];
+        uint source_rows[experts];
         for (uint e = 0; e < experts; ++e) {
             expert_weights[e] = bfloat(weight_row[e]);
-            sorted_rows[e] = inverse_order[row * experts + e];
+            source_rows[e] = sorted_flag[0] > 0
+                ? inverse_order[row * experts + e]
+                : row * experts + e;
         }
 
         for (uint i = 0; i < n_cols; ++i) {
             bfloat total = bfloat(0);
             for (uint e = 0; e < experts; ++e) {
                 bfloat product = bfloat(
-                    sorted_expert_outputs[sorted_rows[e] * hidden + col + i] *
+                    expert_outputs[source_rows[e] * hidden + col + i] *
                     expert_weights[e]);
                 total = bfloat(product + total);
             }
@@ -9381,8 +9347,10 @@ private func lagunaPrefillMoETail(
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, rows, LagunaConstants.hiddenSize))
 
+    let dummyOrder = MLXArray([UInt32(0)])
+    let sortedFlag = MLXArray([UInt32(0)])
     return lagunaPrefillMoETailKernel(
-        [expertOutputs, routerWeights, sharedOutput, residual],
+        [expertOutputs, dummyOrder, routerWeights, sharedOutput, residual, sortedFlag],
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
@@ -9411,10 +9379,11 @@ private func lagunaPrefillSortedMoETail(
     precondition(residual.dtype == .bfloat16)
     precondition(residual.dims(1, rows, LagunaConstants.hiddenSize))
 
-    return lagunaPrefillSortedMoETailKernel(
+    let sortedFlag = MLXArray([UInt32(1)])
+    return lagunaPrefillMoETailKernel(
         [
             sortedExpertOutputs, inverseOrder, routerWeights, sharedOutput,
-            residual,
+            residual, sortedFlag,
         ],
         grid: (LagunaConstants.hiddenSize / 4, rows, 1),
         threadGroup: (256, 1, 1),
