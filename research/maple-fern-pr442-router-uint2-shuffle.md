@@ -262,6 +262,35 @@ run 2:  scalar +0.000%  uint2 +0.020%  faultC +0.106%  cf_half -0.255%  cf_none 
 `v2i32` shuffle really were a single hardware op) and `cf_none` (no shuffles at
 all) are deliberately wrong counterfactuals used only to bound the mechanism.
 
+### Prefill arm (end-to-end, unprofiled)
+
+Both consumers of `lagunaRouterTop8PrologueHeader` are decode QMV kernels
+(`..._top8keys_bf16_v1` at `:7688` and `..._top8keys_r1_bf16_v2` at `:7814`),
+so the prefill arm is a *no-regression* check, not a place a gain can appear.
+12 slots, ABBA order `off on on off` × 3 reps, `--steps 12 --prefill`, no
+profiler hook (so the numbers are clean wall time):
+
+```
+off  547.15  546.68  546.68  547.51  547.70  548.01   mean 547.288  sd 0.547  median 547.33
+on   547.19  548.38  551.58  544.95  547.25  549.99   mean 548.223  sd 2.330  median 547.82
+```
+
+| arm | n | mean 512-tok prefill (ms) | sd | Δ vs off | 95 % CI |
+|---|---|---|---|---|---|
+| off | 6 | 547.288 | 0.547 | — | — |
+| on  | 6 | 548.223 | 2.330 | **+0.935 ms** | [−0.980, +2.850] ms |
+
+Converted with the 0.374750 %/ms prefill calibration: **−0.35 % prefill score**
+(point estimate), 95 % CI **[−1.07 %, +0.37 %]**. The interval straddles zero,
+the point estimate is a non-significant *regression* driven by one 551.58 ms
+outlier slot, and even the optimistic CI edge (+0.37 %) is below the ≈1.35 ms /
++0.51 % prefill bar. All 12 slots reported `teacher-forced greedy tokens: 0
+divergences`.
+
+Verdict for this axis: **null, as predicted from the consumer list**. The
+prefill floor (0.95) is not threatened — the observed spread is far inside the
+`--local-iterate` ±0.73 % MDE — but there is no prefill win either.
+
 ### Interpretation
 
 * Removing **all** butterfly shuffle traffic buys **−1.10 %** of the isolated
@@ -282,6 +311,30 @@ issue-bound** — the two scalar shuffles are independent and already dual-issue
 Rule 25 applies in our favour for the *negative* conclusion: a stripped-down
 proxy overstates the isolated share of a mechanism, so the in-situ effect can
 only be smaller than the numbers above.
+
+## Verdict — KILL on this host
+
+**KILL.** The mechanism is real in the IR (two `air.simd_shuffle_xor.u.i32`
+become one `air.simd_shuffle_xor.u.v2i32` per butterfly stage, verified by
+census) and it is bit-exact (16 384 winners, `mismatch = 0`, plus a clean
+64-step drift tripwire and an unchanged upstream-equivalence report on all
+arms), but it does not pay on Apple GPU generation 16. The decisive in-situ
+per-kernel ABBA measurement over 36 slots / 44 928 profiled dispatches gives
+**−0.010 µs/call = −0.4 µs/step, 95 % CI [−5.3, +4.5] µs/step**, i.e. +0.006 %
+decode score with an optimistic CI edge of +0.081 % against an ≈80 µs/step /
++1.22 % promotion bar — the interval excludes the bar by roughly 15×. The
+invariant control moves −0.1 µs/step, the same size as the candidate, so the
+candidate signal is indistinguishable from build-identity noise. The prefill arm
+is a null (+0.935 ms, CI [−0.98, +2.85] ms) as predicted, since both header
+consumers are decode QMV kernels. Two counterfactuals bound why: even a *perfect*
+one-hardware-op packing is worth only −0.255 % of the isolated prologue, and
+deleting every butterfly shuffle is worth −1.10 %, while `faultA` (one stage
+deleted) moves −6.8 % and proves the probe is sensitive. The most likely causes
+are that `v2i32` lowers to two hardware shuffles on gen 16 and/or the butterfly
+is latency-bound rather than issue-bound. **Caveat:** the ranked M5 is a
+different GPU generation on which `b9ccb0b` reported +0.24…0.31 %, so this is a
+KILL *for M4-Pro-class hardware*; the shipped code is default-OFF, bit-exact and
+costs nothing, so it could be re-measured on an M5 if one becomes available.
 
 ## Reproduction
 

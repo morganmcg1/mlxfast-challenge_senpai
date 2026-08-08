@@ -18,6 +18,18 @@ BASE_SHA = "730e9c2be89a4ed8cf860e52f930f7ff222d4c95"
 PCT_PER_US_STEP = 0.015280
 CALLS_PER_STEP = 39
 PROMOTION_BAR_US_STEP = 80.0
+PCT_PER_MS_PREFILL = 0.374750
+PROMOTION_BAR_PREFILL_MS = 1.35
+
+# 512-token prefill wall time in ms, ABBA order `off on on off` x 3 reps.
+PREFILL_SLOTS = [
+    (1, 1, "off", 547.15), (2, 1, "on", 547.19),
+    (3, 1, "on", 548.38), (4, 1, "off", 546.68),
+    (5, 2, "off", 546.68), (6, 2, "on", 551.58),
+    (7, 2, "on", 544.95), (8, 2, "off", 547.51),
+    (9, 3, "off", 547.70), (10, 3, "on", 547.25),
+    (11, 3, "on", 549.99), (12, 3, "off", 548.01),
+]
 
 # (order, slot, rep, arm, us_per_call)
 SLOTS = [
@@ -146,6 +158,17 @@ for order, slot, rep, arm, us in SLOTS:
     slot_table.add_data(order, slot, rep, arm, us, us * CALLS_PER_STEP)
 run.log({"abba_slots": slot_table})
 
+prefill_table = wandb.Table(columns=["slot", "rep", "arm", "prefill_512_ms"])
+for slot, rep, arm, ms in PREFILL_SLOTS:
+    prefill_table.add_data(slot, rep, arm, ms)
+run.log({"prefill_slots": prefill_table})
+
+prefill_by_arm = {}
+for _, _, arm, ms in PREFILL_SLOTS:
+    prefill_by_arm.setdefault(arm, []).append(ms)
+prefill_off = statistics.fmean(prefill_by_arm["off"])
+prefill_on = statistics.fmean(prefill_by_arm["on"])
+
 by_arm = {}
 for _, _, _, arm, us in SLOTS:
     by_arm.setdefault(arm, []).append(us)
@@ -167,7 +190,8 @@ run.summary.update({
     "verdict_reason": (
         "pooled n=12/arm, both ABBA orders agree; candidate -0.4 us/step with 95% CI "
         "[-5.3, +4.5] us/step, invariant control -0.1 us/step. The CI excludes the "
-        "80 us/step promotion bar by ~15x."
+        "80 us/step promotion bar by ~15x. Prefill arm is a null "
+        "(+0.935 ms, CI [-0.98, +2.85] ms) as predicted."
     ),
     "primary/decode_delta_us_per_step": delta_us_step,
     "primary/decode_delta_score_pct": -delta_us_step * PCT_PER_US_STEP,
@@ -175,6 +199,14 @@ run.summary.update({
     "primary/decode_ci_high_us_per_step": 4.5,
     "control/decode_delta_us_per_step":
         (statistics.fmean(by_arm["ctl"]) - baseline) * CALLS_PER_STEP,
+    "prefill/off_512_tok_ms": prefill_off,
+    "prefill/on_512_tok_ms": prefill_on,
+    "prefill/delta_ms": prefill_on - prefill_off,
+    "prefill/delta_score_pct": -(prefill_on - prefill_off) * PCT_PER_MS_PREFILL,
+    "prefill/ci_low_ms": -0.980,
+    "prefill/ci_high_ms": 2.850,
+    "prefill/bar_ms": PROMOTION_BAR_PREFILL_MS,
+    "prefill/verdict": "null (both header consumers are decode QMV kernels)",
     "correctness/drift_tripwire_checked_steps": 64,
     "correctness/drift_tripwire_passed_all_arms": True,
     "correctness/golden_hash":
@@ -183,7 +215,7 @@ run.summary.update({
     "correctness/equivalence_prefill_max_abs_err": 0.125,
     "correctness/equivalence_prefill_preexisting_on_base": True,
     "correctness/timed_phase_token_divergences": 0,
-    "correctness/timed_phase_slots_checked": 36,
+    "correctness/timed_phase_slots_checked": 48,
     "fault_injection/arms": 3,
     "fault_injection/non_detections": 0,
     "mechanism/ideal_ceiling_pct_of_prologue": -0.255,
