@@ -7403,21 +7403,18 @@ func lagunaRoutedSharedDownResidual(
 // 8192) minus its gate multiply, with `lagunaSharedDownResidualKernel`'s
 // round-then-add-then-round epilogue reproducing stock `h + r2`
 // bit-for-bit.
-private func makeLagunaDenseGateUpSwiGLUKernel(
-    rowsPerSIMDGroup: Int
-) -> MLXFast.MLXFastKernel {
-    MLXFast.metalKernel(
-        name: "laguna_dense_gate_up_swiglu_bf16_rpsg\(rowsPerSIMDGroup)_v1",
-        inputNames: ["input", "fused_weight"],
-        outputNames: ["activated"],
-        source: """
+private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
+    name: "laguna_dense_gate_up_swiglu_bf16_v1",
+    inputNames: ["input", "fused_weight"],
+    outputNames: ["activated"],
+    source: """
         constexpr uint in_vec_size = 2048;
         constexpr uint output_width = 8192;
-        constexpr uint rows_per_thread = ROWS_PER_SIMDGROUP;
+        constexpr uint rows_per_thread = 4;
         constexpr uint values_per_thread = 4;
         constexpr uint block_width = 128;
         constexpr uint blocks = in_vec_size / block_width;
-        constexpr uint rows_per_group = 16 * rows_per_thread;
+        constexpr uint rows_per_group = 64;
 
         uint tile = threadgroup_position_in_grid.x;
         uint simd_group = simdgroup_index_in_threadgroup;
@@ -7425,8 +7422,8 @@ private func makeLagunaDenseGateUpSwiGLUKernel(
 
         uint row_base = tile * rows_per_group + simd_group * rows_per_thread;
 
-        thread float gate_result[rows_per_thread] = {0.0f};
-        thread float up_result[rows_per_thread] = {0.0f};
+        thread float gate_result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
+        thread float up_result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
         thread float coefficients[values_per_thread];
 
         uint column = lane * values_per_thread;
@@ -7479,36 +7476,14 @@ private func makeLagunaDenseGateUpSwiGLUKernel(
             }
         }
         """,
-        ensureRowContiguous: true
-    )
-}
-
-private let lagunaDenseGateUpSwiGLUKernels: [Int: MLXFast.MLXFastKernel] =
-    Dictionary(
-        uniqueKeysWithValues: [2, 4].map { rowsPerSIMDGroup in
-            (
-                rowsPerSIMDGroup,
-                makeLagunaDenseGateUpSwiGLUKernel(rowsPerSIMDGroup: rowsPerSIMDGroup)
-            )
-        })
-
-private let lagunaDenseGateUpRowsPerSIMDGroup: Int = {
-    switch ProcessInfo.processInfo.environment["DARKBLOOM_DENSE_GATEUP_ROWS_PER_SIMDGROUP"] {
-    case nil, "2":
-        return 2
-    case "4":
-        return 4
-    default:
-        fatalError("DARKBLOOM_DENSE_GATEUP_ROWS_PER_SIMDGROUP must be 2 or 4")
-    }
-}()
+    ensureRowContiguous: true
+)
 
 /// `fusedWeight` is `concatenated([gateProj.weight, upProj.weight], axis: 0)`
 /// -- gate rows first -- built once by `LagunaRuntimeMLP.prepareFusedDenseGateUp()`.
 func lagunaDenseGateUpSwiGLU(
     _ input: MLXArray,
-    fusedWeight: MLXArray,
-    rowsPerSIMDGroup: Int = lagunaDenseGateUpRowsPerSIMDGroup
+    fusedWeight: MLXArray
 ) -> MLXArray {
     precondition(input.dtype == .bfloat16)
     precondition(input.shape == [1, 1, LagunaConstants.hiddenSize])
@@ -7517,18 +7492,10 @@ func lagunaDenseGateUpSwiGLU(
         fusedWeight.shape == [
             2 * LagunaConstants.denseIntermediateSize, LagunaConstants.hiddenSize,
         ])
-    precondition(rowsPerSIMDGroup == 2 || rowsPerSIMDGroup == 4)
-    let rowsPerThreadgroup = 16 * rowsPerSIMDGroup
-    guard let kernel = lagunaDenseGateUpSwiGLUKernels[rowsPerSIMDGroup] else {
-        preconditionFailure("unsupported dense gate/up rows per SIMDgroup")
-    }
 
-    return kernel(
+    return lagunaDenseGateUpSwiGLUKernel(
         [input, fusedWeight],
-        template: [("ROWS_PER_SIMDGROUP", rowsPerSIMDGroup)],
-        grid: (
-            (LagunaConstants.denseIntermediateSize / rowsPerThreadgroup) * 512, 1, 1
-        ),
+        grid: ((LagunaConstants.denseIntermediateSize / 64) * 512, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
         outputDTypes: [.bfloat16]
