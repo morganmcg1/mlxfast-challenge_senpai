@@ -8,10 +8,18 @@ Research-only note. Nothing here is on the submitted surface.
 ## Verdict
 
 The assignment's central premise — *"the base itself fails the M5 public
-behavior gate, and every candidate inherits it"* — is **refuted** by
-organizer-side evidence that is reachable without any privileged access.
+behavior gate, and every candidate inherits it"* — is **refuted**, finally by
+receipt (Evidence 10) and beforehand by organizer-side evidence reachable
+without any privileged access.
 
-Four independent exonerations:
+**The receipt.** A ranked control built on this exact base
+(`25b0b722-…`) cleared M5 workflow step 36 "Public behavior gate", every hidden
+correctness gate (`max_abs_diff=0`, 1344 checked steps, semantic GPQA 9/9,
+TTFT 9/9) and both 0.95 floors, and was scored at
+`officialScore = 2.55158458026643`. Its `rejectionReason` is
+`score did not improve current best`, not a gate failure.
+
+Four independent exonerations preceded it:
 
 1. **The base/frontier is exonerated.** Failing and scoring submissions from the
    same account were built on *pairwise identical* organizer frontier parents.
@@ -30,6 +38,16 @@ discriminator, and they all belong to the *other* campaign sharing this account.
 **Headline: there is nothing to repair.** Maple's ranked channel is healthy and
 can resume immediately. The outage was an artifact of reading the shared-account
 aggregate instead of Maple's own rows.
+
+**Second headline, from the same receipt: the real blocker is that the current
+integration base is not ahead of the promoted frontier.** The base had never
+been ranked (Evidence 9); measured now it publishes `2.5516` against the
+frontier's `2.58883`, and `2.5783` after normalising away an unusually fast
+paired prefill baseline. The residual gap is on **decode** (−0.58% with a
+matched decode baseline), which carries 75% of the weight. Evidence 8's noise
+analysis says only differences above roughly 0.5% are decidable, so the campaign
+should stop treating the base as the champion and treat `2.58883` as the number
+to beat.
 
 ## Evidence 1 — identical parents, opposite outcomes
 
@@ -507,3 +525,141 @@ most likely way for the base to have drifted below the frontier without anyone
 noticing. Evidence 9 does not prove that happened; it proves nobody has checked,
 and it identifies the 11-file set to check first.
 
+## Evidence 10 — the ranked receipt: channel open, base not ahead
+
+The control submission `25b0b722-7878-486b-b6ba-6d905c8737d0` completed on the
+official M5. It settles both open questions at once.
+
+### 10a — the "Public behavior gate" premise is dead, by receipt
+
+`rejectionReason` is **`score did not improve current best`**, not
+`Public behavior gate`. Every hidden gate passed:
+
+| field | value |
+| --- | --- |
+| `passed_correctness` | `true` |
+| `max_abs_diff` | `0` |
+| `checked_steps` | `1344` |
+| `case_count` | `11` |
+| `golden_hash` | `be7738fccd6a28807ae7d18c038cbbc9e1b05dab26b99b2f247358fdc67fcf71` |
+| semantic GPQA judge | 9 / 9 |
+| TTFT check | 9 / 9 |
+| decode floor (`>= 0.95`) | passed |
+| prefill floor (`>= 0.95`) | passed |
+
+`submissionCommitSha = f9fb8f129cb3cabf37d7069b502cd44eabd77120`,
+metrics stamped `2026-08-08T19:48:12Z`, row updated `2026-08-08T20:00:00Z`.
+
+The credential-free watcher (`research/watch-public-benchmark-run.py`) read the
+organizer Actions run for `submissions/25b0b722-…` and confirms the same thing
+step by step. Selected steps, all `success`:
+
+| step | name | conclusion |
+| --- | --- | --- |
+| 36 | **Public behavior gate** | **success** |
+| 45 | Correctness and hidden gates | success |
+| 47 | Semantic GPQA judge | success |
+| 53 | Timed paired benchmark | success |
+| 54 | Overlay paired timing | success |
+| 64 | Janitor | success |
+| 129 | Complete job | success |
+| 61 | Surface redacted benchmark failure | **skipped** |
+| 62 | Upload redacted benchmark failure | **skipped** |
+
+Watcher job terminal conclusion: `success`, exit 0. Steps 61/62 are the ones
+that produce the redacted artifact of Evidence 5; they never ran, so there was
+no failure to redact.
+
+Evidence 1–4 and 7 argued statistically that Maple's channel was open. Evidence
+10 shows it directly: a Maple submission built on the current base walked the
+whole M5 pipeline, cleared step 36 and every hidden gate, and was scored.
+**There is nothing to repair. Maple can resume ranked work immediately.**
+
+### 10b — but the base does not beat the frontier
+
+The same receipt is the first ranked measurement of the current integration
+base (Evidence 9). As published it lands in that three-way test's third branch;
+after baseline normalisation it lands between the second and third.
+
+| metric | frontier `97a5090c` | base control `25b0b722` | ratio |
+| --- | --- | --- | --- |
+| `officialScore` | 2.58882784082067 | **2.55158458026643** | **0.98561** |
+| `decode_speedup` | 2.820684 | 2.804381476645093 | 0.99422 |
+| `prefill_speedup` | 2.001471 | 1.921890350333331 | **0.96024** |
+| `decode_seconds_per_token` | — | 0.0049335732421875 | — |
+| `prefill_seconds_per_token` | — | 0.000190980224609375 | — |
+| `baseline_decode_seconds_per_token` | 0.01384496646875 | 0.0138356214140625 | 0.99932 |
+| `baseline_prefill_seconds_per_token` | 0.000382682697265625 | 0.00036704305078125 | 0.95913 |
+
+`improved = False`. The base scores **−1.44%** against the promoted frontier and
+**−1.17%** against Maple's own best post-frontier row `df9613a8` (2.58167).
+
+The paired baseline is the control here, and it behaved: `baseline_decode` is
+within 0.07% of the frontier session, well inside the 0.23% CV of Evidence 8.
+`baseline_prefill` drew 4.1% *faster* than the frontier session — inside the
+6.99% observed spread, but on the fast side, which makes the candidate's
+prefill ratio *harder*, not softer. So part of the −3.98% prefill_speedup gap is
+that baseline draw. Correcting for it by rescoring the candidate's absolute
+prefill seconds against the frontier's baseline:
+
+```
+prefill_speedup_adj = 0.000382682697265625 / 0.000190980224609375 = 2.003782
+score_adj           = 2.804381476645093^0.75 * 2.003782^0.25     = 2.578341
+```
+
+(sanity check: the same formula on the published `prefill_speedup` reproduces
+`2.551585`, matching the receipt exactly, so the reconstruction is sound.)
+
+So the honest reading is narrower than "the base is 1.4% worse":
+
+- **prefill is mostly baseline draw.** Normalised to the frontier's baseline,
+  the base's prefill is `2.0038` against the frontier's `2.0015` — a 0.12% *win*,
+  i.e. the four `_nax` prefill files did not regress anything measurable. The
+  published −3.98% is measurement, not content.
+- **decode is genuinely down** (0.99422, i.e. −0.58%). `baseline_decode` matched
+  the frontier session to 0.07%, well inside the 0.23% CV of Evidence 8, so this
+  axis is not explained away by the draw. At roughly 2.5 sigma it is small but
+  probably real.
+- **Net, baseline-normalised: `2.5783` vs `2.5888` = −0.40%.** That is inside
+  Evidence 8's ~0.5% "call it a tie" band, but it sits on the losing side and is
+  driven entirely by the 3×-weighted axis.
+
+Combined, the base is between "dead tie with the frontier" and "about 0.4–0.6%
+worse", with the published 2.5516 being an unlucky-but-legal prefill draw on top
+of that. It is *not* an improvement over the frontier, which is the thing the
+campaign has been assuming since 8/6.
+
+### 10c — what to bisect, and what not to bother bisecting
+
+Evidence 9 named 11 differing editable files. Evidence 10b says the surviving
+signal is on **decode**, not prefill, so the bisection order should be:
+
+1. `Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift`
+2. `.../CompilableKVCache.swift`, `.../CompilableRotatingKVCache.swift`
+3. `.../KVCache.swift`, `.../BatchKVCache.swift`, `.../Evaluate.swift`
+4. `.../BaseConfiguration.swift`
+
+and *deprioritise* the four prefill `_nax` files
+(`metal/matmul.cpp`, `metal/quantized.cpp`, `metal/kernels/fp_quantized_nax.h`,
+`mlx-generated/fp_quantized_nax.cpp`, from PRs #138/#170). Baseline-normalised
+prefill is `2.0038` vs the frontier's `2.0015`, so those merges look neutral to
+very slightly positive; and they are unreachable on the M4 Pro research host
+anyway, so no local bisection of them would be worth anything.
+
+The cheapest decisive next step is **one ranked submission of the frontier
+content itself** (`3e165fa52be994d9a162951405273a007b9aa3c1` editable surface,
+plus an inert comment so it is a distinct commit). That draws a fresh paired
+baseline for the *known-good* content and turns the frontier-vs-base comparison
+into a same-regime pair instead of a two-day-apart one. Two ranked slots total —
+this receipt plus that one — buy the campaign a trustworthy anchor. That is an
+advisor decision because the channel is shared and serialized.
+
+### 10d — updated guidance
+
+- The 0.95 floors are not the risk. Both passed comfortably (2.80 and 1.92).
+- Prefer decode-axis experiments. Evidence 8 gives decode an 8× better
+  signal-to-noise ratio and 3× the score weight; Evidence 10 shows prefill
+  ratios swinging 4% on baseline draw alone.
+- Stop treating the integration base as ≥ frontier. Until a same-regime pair
+  exists, the frontier `2.58883` is still the number to beat, and the base is
+  the challenger, not the champion.
