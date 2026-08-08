@@ -5382,37 +5382,25 @@ private let lagunaCompiledSoftplusGate: @Sendable (MLXArray) -> MLXArray = {
     return MLXHardwareInfo.isCompiledDecodeSupported ? compile(shapeless: true, body) : body
 }()
 
-/// Decode-only outer compilation of the same gate product with the following
-/// bias-free BF16 output projection. MLX keeps the matmul primitive intact but
-/// schedules the elementwise producer and projection as one compiled graph,
-/// avoiding a separate frontend boundary and shortening the gated vector's
-/// lifetime. Prefill deliberately uses the smaller gate-only fusion.
-private func makeLagunaAttentionGateProjection(
-    heads: Int, headDim: Int
-) -> @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray {
+/// Gated output projection: softplus gate activation, per-head broadcast
+/// multiply, and bias-free BF16 output matmul. A single compiled function
+/// serves both 48-head (full) and 64-head (sliding) attention layers by
+/// inferring head count from the output shape via `-1`, reducing from two
+/// separate `compile()` instances to one.
+private let lagunaAttentionGateProjection: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = {
     let body: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = {
         output, projectedGate, weight in
         let batch = output.dim(0)
         let length = output.dim(1)
         let gate = softplus(projectedGate.asType(.float32)).asType(output.dtype)
         let gated = (
-            output.reshaped(batch, length, heads, headDim)
+            output.reshaped(batch, length, -1, LagunaConstants.headDim)
                 * gate[.ellipsis, .newAxis]
-        ).reshaped(batch, length, heads * headDim)
+        ).reshaped(batch, length, -1)
         return matmul(gated, weight.T)
     }
     return MLXHardwareInfo.isCompiledDecodeSupported ? compile(body) : body
-}
-
-private let lagunaFullAttentionGateProjection = makeLagunaAttentionGateProjection(
-    heads: LagunaConstants.fullAttentionHeads,
-    headDim: LagunaConstants.headDim
-)
-
-private let lagunaSlidingAttentionGateProjection = makeLagunaAttentionGateProjection(
-    heads: LagunaConstants.slidingAttentionHeads,
-    headDim: LagunaConstants.headDim
-)
+}()
 
 /// Laguna attention: GQA with per-head QK-norm, per-layer-type RoPE (YaRN on
 /// full-attention layers over the first half of the head, plain RoPE on
@@ -5694,10 +5682,7 @@ final class LagunaRuntimeAttention: Module {
 
         let layerType = config.layerType(forLayer: layerIdx)
         self.isSliding = layerType == .sliding
-        self.attentionGateProjection =
-            layerType == .sliding
-            ? lagunaSlidingAttentionGateProjection
-            : lagunaFullAttentionGateProjection
+        self.attentionGateProjection = lagunaAttentionGateProjection
 
         self._wq.wrappedValue = Linear(dim, nHeads * headDim, bias: config.qkvBias)
         self._wk.wrappedValue = Linear(dim, nKVHeads * headDim, bias: config.qkvBias)
