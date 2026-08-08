@@ -890,110 +890,188 @@ private let lagunaLmHeadAbsGroupSumsKernel = MLXFast.metalKernel(
 /// exact; sd*q multiplies a power of two by a <=4-bit-magnitude integer
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
+let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source = """
+    constexpr float GAMMA = 0x1p-15f;
+
+    uint row0 = threadgroup_position_in_grid.x * 16 +
+        4 * simdgroup_index_in_threadgroup;
+    uint row1 = row0 + 1;
+    uint row2 = row0 + 2;
+    uint row3 = row0 + 3;
+    uint lane = thread_index_in_simdgroup;
+
+    const device uint8_t* lorow0 = codes_lo + size_t(row0) * 1024;
+    const device uint8_t* lorow1 = lorow0 + 1024;
+    const device uint8_t* lorow2 = lorow1 + 1024;
+    const device uint8_t* lorow3 = lorow2 + 1024;
+    const device uint8_t* hirow0 = codes_hi + size_t(row0) * 256;
+    const device uint8_t* hirow1 = hirow0 + 256;
+    const device uint8_t* hirow2 = hirow1 + 256;
+    const device uint8_t* hirow3 = hirow2 + 256;
+    const device uint8_t* srow0 = scales + size_t(row0) * 64;
+    const device uint8_t* srow1 = srow0 + 64;
+    const device uint8_t* srow2 = srow1 + 64;
+    const device uint8_t* srow3 = srow2 + 64;
+
+    float c_acc0 = 0.0f;
+    float d_acc0 = 0.0f;
+    float c_acc1 = 0.0f;
+    float d_acc1 = 0.0f;
+    float c_acc2 = 0.0f;
+    float d_acc2 = 0.0f;
+    float c_acc3 = 0.0f;
+    float d_acc3 = 0.0f;
+    for (uint gg = 0; gg < 2; ++gg) {
+        uint g = 2 * lane + gg;
+        float sd0 = laguna_e8m0_decode(srow0[g]);
+        float sd1 = laguna_e8m0_decode(srow1[g]);
+        float sd2 = laguna_e8m0_decode(srow2[g]);
+        float sd3 = laguna_e8m0_decode(srow3[g]);
+        uint4 lo40 = ((const device uint4*)(lorow0 + g * 16))[0];
+        uint4 lo41 = ((const device uint4*)(lorow1 + g * 16))[0];
+        uint4 lo42 = ((const device uint4*)(lorow2 + g * 16))[0];
+        uint4 lo43 = ((const device uint4*)(lorow3 + g * 16))[0];
+        uint hb0 = ((const device uint*)(hirow0 + g * 4))[0];
+        uint hb1 = ((const device uint*)(hirow1 + g * 4))[0];
+        uint hb2 = ((const device uint*)(hirow2 + g * 4))[0];
+        uint hb3 = ((const device uint*)(hirow3 + g * 4))[0];
+        const device ushort4* xrow = (const device ushort4*)(x + g * 32);
+        float cg0 = 0.0f;
+        float cg1 = 0.0f;
+        float cg2 = 0.0f;
+        float cg3 = 0.0f;
+        float ag = 0.0f;
+        #pragma clang loop unroll(full)
+        for (uint w = 0; w < 4; ++w) {
+            uint lw0 = lo40[w];
+            uint hw0 = hb0 >> (8u * w);
+            uint4 ne0 = (uint4(lw0) >> uint4(0u, 8u, 16u, 24u)) & 15u;
+            uint4 no0 = (uint4(lw0) >> uint4(4u, 12u, 20u, 28u)) & 15u;
+            uint4 he0 = (uint4(hw0) >> uint4(0u, 2u, 4u, 6u)) & 1u;
+            uint4 ho0 = (uint4(hw0) >> uint4(1u, 3u, 5u, 7u)) & 1u;
+            float4 ve0 = float4(ne0 | (he0 << 4u)) - 16.0f;
+            float4 vo0 = float4(no0 | (ho0 << 4u)) - 16.0f;
+
+            float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
+            float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
+            float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
+            float4 xo = float4(xa.y, xa.w, xb.y, xb.w);
+            float4 axe = metal::abs(xe);
+            float4 axo = metal::abs(xo);
+            #pragma clang loop unroll(full)
+            for (uint k = 0; k < 4; ++k) {
+                cg0 += xe[k] * ve0[k];
+                cg0 += xo[k] * vo0[k];
+                ag += axe[k];
+                ag += axo[k];
+            }
+
+            uint lw1 = lo41[w];
+            uint hw1 = hb1 >> (8u * w);
+            uint4 ne1 = (uint4(lw1) >> uint4(0u, 8u, 16u, 24u)) & 15u;
+            uint4 no1 = (uint4(lw1) >> uint4(4u, 12u, 20u, 28u)) & 15u;
+            uint4 he1 = (uint4(hw1) >> uint4(0u, 2u, 4u, 6u)) & 1u;
+            uint4 ho1 = (uint4(hw1) >> uint4(1u, 3u, 5u, 7u)) & 1u;
+            float4 ve1 = float4(ne1 | (he1 << 4u)) - 16.0f;
+            float4 vo1 = float4(no1 | (ho1 << 4u)) - 16.0f;
+            #pragma clang loop unroll(full)
+            for (uint k = 0; k < 4; ++k) {
+                cg1 += xe[k] * ve1[k];
+                cg1 += xo[k] * vo1[k];
+            }
+
+            uint lw2 = lo42[w];
+            uint hw2 = hb2 >> (8u * w);
+            uint4 ne2 = (uint4(lw2) >> uint4(0u, 8u, 16u, 24u)) & 15u;
+            uint4 no2 = (uint4(lw2) >> uint4(4u, 12u, 20u, 28u)) & 15u;
+            uint4 he2 = (uint4(hw2) >> uint4(0u, 2u, 4u, 6u)) & 1u;
+            uint4 ho2 = (uint4(hw2) >> uint4(1u, 3u, 5u, 7u)) & 1u;
+            float4 ve2 = float4(ne2 | (he2 << 4u)) - 16.0f;
+            float4 vo2 = float4(no2 | (ho2 << 4u)) - 16.0f;
+            #pragma clang loop unroll(full)
+            for (uint k = 0; k < 4; ++k) {
+                cg2 += xe[k] * ve2[k];
+                cg2 += xo[k] * vo2[k];
+            }
+
+            uint lw3 = lo43[w];
+            uint hw3 = hb3 >> (8u * w);
+            uint4 ne3 = (uint4(lw3) >> uint4(0u, 8u, 16u, 24u)) & 15u;
+            uint4 no3 = (uint4(lw3) >> uint4(4u, 12u, 20u, 28u)) & 15u;
+            uint4 he3 = (uint4(hw3) >> uint4(0u, 2u, 4u, 6u)) & 1u;
+            uint4 ho3 = (uint4(hw3) >> uint4(1u, 3u, 5u, 7u)) & 1u;
+            float4 ve3 = float4(ne3 | (he3 << 4u)) - 16.0f;
+            float4 vo3 = float4(no3 | (ho3 << 4u)) - 16.0f;
+            #pragma clang loop unroll(full)
+            for (uint k = 0; k < 4; ++k) {
+                cg3 += xe[k] * ve3[k];
+                cg3 += xo[k] * vo3[k];
+            }
+        }
+        c_acc0 += sd0 * cg0;
+        d_acc0 += (0.5f * sd0) * ag;
+        c_acc1 += sd1 * cg1;
+        d_acc1 += (0.5f * sd1) * ag;
+        c_acc2 += sd2 * cg2;
+        d_acc2 += (0.5f * sd2) * ag;
+        c_acc3 += sd3 * cg3;
+        d_acc3 += (0.5f * sd3) * ag;
+    }
+    c_acc0 = simd_sum(c_acc0);
+    d_acc0 = simd_sum(d_acc0);
+    if (lane == 0) {
+        coarse[row0] = c_acc0;
+        float d_up0 = d_acc0 * (1.0f + 61.0f * GAMMA);
+        uint dbits0 = as_type<uint>(d_up0);
+        uint dtrunc0 = dbits0 & 0xFFFF0000u;
+        if (dtrunc0 != dbits0) {
+            dtrunc0 += 0x00010000u;
+        }
+        delta[row0] = as_type<bfloat>(ushort(dtrunc0 >> 16));
+    }
+    c_acc1 = simd_sum(c_acc1);
+    d_acc1 = simd_sum(d_acc1);
+    if (lane == 0) {
+        coarse[row1] = c_acc1;
+        float d_up1 = d_acc1 * (1.0f + 61.0f * GAMMA);
+        uint dbits1 = as_type<uint>(d_up1);
+        uint dtrunc1 = dbits1 & 0xFFFF0000u;
+        if (dtrunc1 != dbits1) {
+            dtrunc1 += 0x00010000u;
+        }
+        delta[row1] = as_type<bfloat>(ushort(dtrunc1 >> 16));
+    }
+    c_acc2 = simd_sum(c_acc2);
+    d_acc2 = simd_sum(d_acc2);
+    if (lane == 0) {
+        coarse[row2] = c_acc2;
+        float d_up2 = d_acc2 * (1.0f + 61.0f * GAMMA);
+        uint dbits2 = as_type<uint>(d_up2);
+        uint dtrunc2 = dbits2 & 0xFFFF0000u;
+        if (dtrunc2 != dbits2) {
+            dtrunc2 += 0x00010000u;
+        }
+        delta[row2] = as_type<bfloat>(ushort(dtrunc2 >> 16));
+    }
+    c_acc3 = simd_sum(c_acc3);
+    d_acc3 = simd_sum(d_acc3);
+    if (lane == 0) {
+        coarse[row3] = c_acc3;
+        float d_up3 = d_acc3 * (1.0f + 61.0f * GAMMA);
+        uint dbits3 = as_type<uint>(d_up3);
+        uint dtrunc3 = dbits3 & 0xFFFF0000u;
+        if (dtrunc3 != dbits3) {
+            dtrunc3 += 0x00010000u;
+        }
+        delta[row3] = as_type<bfloat>(ushort(dtrunc3 >> 16));
+    }
+    """
+
 let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
+    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_four_row",
     inputNames: ["x", "codes_lo", "codes_hi", "scales"],
     outputNames: ["coarse", "delta"],
-    source: """
-        constexpr float GAMMA = 0x1p-15f;
-
-        uint row0 = threadgroup_position_in_grid.x * 16 +
-            2 * simdgroup_index_in_threadgroup;
-        uint row1 = row0 + 1;
-        uint lane = thread_index_in_simdgroup;
-
-        const device uint8_t* lorow0 = codes_lo + size_t(row0) * 1024;
-        const device uint8_t* lorow1 = lorow0 + 1024;
-        const device uint8_t* hirow0 = codes_hi + size_t(row0) * 256;
-        const device uint8_t* hirow1 = hirow0 + 256;
-        const device uint8_t* srow0 = scales + size_t(row0) * 64;
-        const device uint8_t* srow1 = srow0 + 64;
-
-        float c_acc0 = 0.0f;
-        float d_acc0 = 0.0f;
-        float c_acc1 = 0.0f;
-        float d_acc1 = 0.0f;
-        for (uint gg = 0; gg < 2; ++gg) {
-            uint g = 2 * lane + gg;
-            float sd0 = laguna_e8m0_decode(srow0[g]);
-            float sd1 = laguna_e8m0_decode(srow1[g]);
-            uint4 lo40 = ((const device uint4*)(lorow0 + g * 16))[0];
-            uint4 lo41 = ((const device uint4*)(lorow1 + g * 16))[0];
-            uint hb0 = ((const device uint*)(hirow0 + g * 4))[0];
-            uint hb1 = ((const device uint*)(hirow1 + g * 4))[0];
-            const device ushort4* xrow = (const device ushort4*)(x + g * 32);
-            float cg0 = 0.0f;
-            float cg1 = 0.0f;
-            float ag = 0.0f;
-            #pragma clang loop unroll(full)
-            for (uint w = 0; w < 4; ++w) {
-                uint lw0 = lo40[w];
-                uint hw0 = hb0 >> (8u * w);
-                uint4 ne0 = (uint4(lw0) >> uint4(0u, 8u, 16u, 24u)) & 15u;
-                uint4 no0 = (uint4(lw0) >> uint4(4u, 12u, 20u, 28u)) & 15u;
-                uint4 he0 = (uint4(hw0) >> uint4(0u, 2u, 4u, 6u)) & 1u;
-                uint4 ho0 = (uint4(hw0) >> uint4(1u, 3u, 5u, 7u)) & 1u;
-                float4 ve0 = float4(ne0 | (he0 << 4u)) - 16.0f;
-                float4 vo0 = float4(no0 | (ho0 << 4u)) - 16.0f;
-
-                float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
-                float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
-                float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
-                float4 xo = float4(xa.y, xa.w, xb.y, xb.w);
-                float4 axe = metal::abs(xe);
-                float4 axo = metal::abs(xo);
-                #pragma clang loop unroll(full)
-                for (uint k = 0; k < 4; ++k) {
-                    cg0 += xe[k] * ve0[k];
-                    cg0 += xo[k] * vo0[k];
-                    ag += axe[k];
-                    ag += axo[k];
-                }
-
-                uint lw1 = lo41[w];
-                uint hw1 = hb1 >> (8u * w);
-                uint4 ne1 = (uint4(lw1) >> uint4(0u, 8u, 16u, 24u)) & 15u;
-                uint4 no1 = (uint4(lw1) >> uint4(4u, 12u, 20u, 28u)) & 15u;
-                uint4 he1 = (uint4(hw1) >> uint4(0u, 2u, 4u, 6u)) & 1u;
-                uint4 ho1 = (uint4(hw1) >> uint4(1u, 3u, 5u, 7u)) & 1u;
-                float4 ve1 = float4(ne1 | (he1 << 4u)) - 16.0f;
-                float4 vo1 = float4(no1 | (ho1 << 4u)) - 16.0f;
-                #pragma clang loop unroll(full)
-                for (uint k = 0; k < 4; ++k) {
-                    cg1 += xe[k] * ve1[k];
-                    cg1 += xo[k] * vo1[k];
-                }
-            }
-            c_acc0 += sd0 * cg0;
-            d_acc0 += (0.5f * sd0) * ag;
-            c_acc1 += sd1 * cg1;
-            d_acc1 += (0.5f * sd1) * ag;
-        }
-        c_acc0 = simd_sum(c_acc0);
-        d_acc0 = simd_sum(d_acc0);
-        if (lane == 0) {
-            coarse[row0] = c_acc0;
-            float d_up0 = d_acc0 * (1.0f + 61.0f * GAMMA);
-            uint dbits0 = as_type<uint>(d_up0);
-            uint dtrunc0 = dbits0 & 0xFFFF0000u;
-            if (dtrunc0 != dbits0) {
-                dtrunc0 += 0x00010000u;
-            }
-            delta[row0] = as_type<bfloat>(ushort(dtrunc0 >> 16));
-        }
-        c_acc1 = simd_sum(c_acc1);
-        d_acc1 = simd_sum(d_acc1);
-        if (lane == 0) {
-            coarse[row1] = c_acc1;
-            float d_up1 = d_acc1 * (1.0f + 61.0f * GAMMA);
-            uint dbits1 = as_type<uint>(d_up1);
-            uint dtrunc1 = dbits1 & 0xFFFF0000u;
-            if (dtrunc1 != dbits1) {
-                dtrunc1 += 0x00010000u;
-            }
-            delta[row1] = as_type<bfloat>(ushort(dtrunc1 >> 16));
-        }
-        """,
+    source: lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Source,
     header: lagunaLmHeadPruneHeader,
     ensureRowContiguous: true
 )
@@ -1949,8 +2027,8 @@ final class LagunaLmHeadPruner {
             // measured +40 us/step on this arm; notes/exp-v5preabs.md.)
             let coarseOut5 = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
                 [x, lo5, hi5, s5],
-                grid: (vocab / 16 * 256, 1, 1),
-                threadGroup: (256, 1, 1),
+                grid: (vocab / 16 * 128, 1, 1),
+                threadGroup: (128, 1, 1),
                 outputShapes: [[vocab], [vocab]],
                 outputDTypes: [.float32, .bfloat16]
             )
