@@ -6,15 +6,19 @@ One run per dispatch regime (`s1` = DARKBLOOM_GPU_PROFILE_SPLIT=1, 406 CBs/step;
 pre-registered conversion factors in both summaries. Every number is read back
 out of the analyser JSON so the W&B run and the research report cannot drift.
 
+Each `--*-null` flag takes the base/base and cand/cand same-arm JSONs in that
+order; those offset-1 duplexes are the estimator's own zero check.
+
   python3 research/maple_r88a_wandb.py \
       --s1-kern  /tmp/maple-r88a/s1-kern.json  \
-      --s1-kern-null /tmp/maple-r88a/s1-kern-null.json \
+      --s1-kern-null /tmp/maple-r88a/s1-kern-null-{base,cand}.json \
       --s1-add   /tmp/maple-r88a/s1-add.json   \
-      --s1-add-null  /tmp/maple-r88a/s1-add-null.json \
+      --s1-add-null  /tmp/maple-r88a/s1-add-null-{base,cand}.json \
       --nat-kern /tmp/maple-r88a/nat-kern.json \
-      --nat-kern-null /tmp/maple-r88a/nat-kern-null.json \
+      --nat-kern-null /tmp/maple-r88a/nat-kern-null-{base,cand}.json \
       --nat-add  /tmp/maple-r88a/nat-add.json  \
-      --nat-add-null /tmp/maple-r88a/nat-add-null.json \
+      --nat-add-null /tmp/maple-r88a/nat-add-null-{base,cand}.json \
+      --nat-model-adj /tmp/maple-r88a/nat-model-adj_us_step.json \
       --base-sha 417f42c4 --cand-sha <head>
 """
 import argparse
@@ -86,8 +90,12 @@ def ratio(num, num_hw, den, den_hw):
 def main() -> int:
     ap = argparse.ArgumentParser()
     for regime in ("s1", "nat"):
-        for part in ("kern", "kern-null", "add", "add-null"):
+        for part in ("kern", "add"):
             ap.add_argument(f"--{regime}-{part}", required=True)
+            # same-arm nulls come as a pair: base/base and cand/cand duplexes
+            ap.add_argument(f"--{regime}-{part}-null", nargs=2, required=True,
+                            metavar=("BASE_BASE", "CAND_CAND"))
+        ap.add_argument(f"--{regime}-model-adj", default=None)
         ap.add_argument(f"--{regime}-logdir", default=None)
     ap.add_argument("--logroot", default="/tmp/maple-r88a")
     ap.add_argument("--base-sha", required=True)
@@ -103,10 +111,14 @@ def main() -> int:
     for regime in ("s1", "nat"):
         logdir = cfg[f"{regime}_logdir"] or os.path.join(args.logroot, regime)
         d = {"kern": load(cfg[f"{regime}_kern"]),
-             "kern_null": load(cfg[f"{regime}_kern_null"]),
              "add": load(cfg[f"{regime}_add"]),
-             "add_null": load(cfg[f"{regime}_add_null"]),
              "facts": slot_facts(logdir), "logdir": logdir}
+        for arm, path in zip(("base", "cand"), cfg[f"{regime}_kern_null"]):
+            d[f"kern_null_{arm}"] = load(path)
+        for arm, path in zip(("base", "cand"), cfg[f"{regime}_add_null"]):
+            d[f"add_null_{arm}"] = load(path)
+        if cfg[f"{regime}_model_adj"]:
+            d["model"] = load(cfg[f"{regime}_model_adj"])
         d["touched"] = touched_sum(d["kern"])
         data[regime] = d
 
@@ -119,10 +131,30 @@ def main() -> int:
     nat_total_hw = (nat["kern"]["busy_adj"]["ci"][1]
                     - nat["kern"]["busy_adj"]["ci"][0]) / 2
 
+    # absolute-busy view: wall == busy_abs + gap holds exactly, so the abs
+    # census is the clock-consistent estimator and the adjusted one is only
+    # the control-matched quantity. Report c under every pairing.
+    s1_touched_abs = sum(row["abs_us_step"]
+                         for key, row in s1["kern"]["labels"].items()
+                         if any(t in key for t in TOUCHED))
+    nat_abs = nat["kern"]["busy_abs"]["us_step"]
+    nat_wall = nat["add"]["metrics"]["wall"]["us_step"]
+    nat_wall_hw = (nat["add"]["metrics"]["wall"]["ci"][1]
+                   - nat["add"]["metrics"]["wall"]["ci"][0]) / 2
+
     c_touched, c_touched_hw = ratio(nat_total, nat_total_hw,
                                     s1_touched, s1_touched_hw)
     c_total, c_total_hw = ratio(nat_total, nat_total_hw, s1_total, s1_total_hw)
+    c_wall, c_wall_hw = ratio(nat_wall, nat_wall_hw, s1_touched, s1_touched_hw)
     shared = {
+        "s1_touched_abs_us_step": s1_touched_abs,
+        "nat_total_abs_us_step": nat_abs,
+        "nat_wall_us_step": nat_wall,
+        "nat_wall_ci95_halfwidth": nat_wall_hw,
+        "conversion_c_touched_wall_over_adj": c_wall,
+        "conversion_c_touched_wall_over_adj_halfwidth": c_wall_hw,
+        "conversion_c_touched_abs_over_abs":
+            (nat_abs / s1_touched_abs) if s1_touched_abs else None,
         "s1_touched_us_step": s1_touched,
         "s1_touched_ci95_halfwidth": s1_touched_hw,
         "s1_total_us_step": s1_total,
@@ -186,12 +218,15 @@ def main() -> int:
                               any(t in key for t in TOUCHED))
         step_tbl = wandb.Table(columns=[
             "metric", "base_us_step", "delta_us_step", "ci_lo", "ci_hi", "sd",
-            "null_delta_us_step", "null_sd"])
+            "null_base_delta", "null_base_sd", "null_cand_delta",
+            "null_cand_sd"])
         for metric, row in d["add"]["metrics"].items():
-            nrow = d["add_null"]["metrics"].get(metric, {})
+            nb = d["add_null_base"]["metrics"].get(metric, {})
+            nc = d["add_null_cand"]["metrics"].get(metric, {})
             step_tbl.add_data(metric, row["base_us_step"], row["us_step"],
                               row["ci"][0], row["ci"][1], row["sd_us_step"],
-                              nrow.get("us_step"), nrow.get("sd_us_step"))
+                              nb.get("us_step"), nb.get("sd_us_step"),
+                              nc.get("us_step"), nc.get("sd_us_step"))
 
         add = d["add"]["metrics"]
         summary = {
@@ -202,7 +237,14 @@ def main() -> int:
             "busy_adj_score_pct": (d["kern"]["busy_adj"]["us_step"]
                                    * PCT_PER_US_STEP),
             "busy_abs_us_step": d["kern"]["busy_abs"]["us_step"],
-            "busy_null_adj_us_step": d["kern_null"]["busy_adj"]["us_step"],
+            "busy_null_base_adj_us_step":
+                d["kern_null_base"]["busy_adj"]["us_step"],
+            "busy_null_cand_adj_us_step":
+                d["kern_null_cand"]["busy_adj"]["us_step"],
+            "wall_null_base_us_step":
+                d["add_null_base"]["metrics"]["wall"]["us_step"],
+            "wall_null_cand_us_step":
+                d["add_null_cand"]["metrics"]["wall"]["us_step"],
             "touched_sum_us_step": d["touched"][0],
             "base_busy_us_step": d["kern"]["base_busy_us_step"],
             "wall_delta_us_step": add["wall"]["us_step"],
@@ -219,9 +261,23 @@ def main() -> int:
                                  and d["facts"]["max_divergences"] == 0),
             **shared,
         }
+        if "model" in d:
+            summary.update({f"model_{k}": v for k, v in d["model"].items()
+                            if not isinstance(v, list)})
         run.summary.update(summary)
-        run.log({"per_label": kern_tbl, "per_step_metrics": step_tbl,
-                 **summary})
+        payload = {"per_label": kern_tbl, "per_step_metrics": step_tbl,
+                   **summary}
+        if "model" in d:
+            model_tbl = wandb.Table(columns=[
+                "cb_signature", "cbs_per_step", "base_us_step", "obs_delta",
+                "obs_ci_halfwidth", "pred_giveback_real",
+                "pred_giveback_is_s1_artefact"])
+            for row in d["model"]["signatures"]:
+                model_tbl.add_data(row["sig"], row["cbs"], row["base_us"],
+                                   row["obs"], row["obs_hw"], row["pred_a"],
+                                   row["pred_b"])
+            payload["nat_model_comparison"] = model_tbl
+        run.log(payload)
         urls[regime] = run.url
         run.finish()
 
