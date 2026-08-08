@@ -92,6 +92,15 @@ private let compiledGeGLU: @Sendable (MLXArray, MLXArray) -> MLXArray = {
     return body
 }()
 
+private let routeSortTraceEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_ROUTE_SORT"] == "1"
+
+@inline(__always)
+private func routeSortTrace(_ message: @autoclosure () -> String) {
+    guard routeSortTraceEnabled else { return }
+    FileHandle.standardError.write(Data("mlxfast: route sort: \(message())\n".utf8))
+}
+
 /// Linear inverse-permutation scatter for the sorted MoE route table.
 /// `argSort` returns `order` as a uint32 permutation, so
 /// `inverse[order[i]] = i` has exactly one writer per output and produces the
@@ -210,12 +219,14 @@ public func gatherSort(x: MLXArray, indices: MLXArray) -> (MLXArray, MLXArray, M
     let m = indices.dim(-1)
     let indices = indices.flattened()
     if let fused = routeCountingSortFused(indices, m: m) {
+        routeSortTrace("fused n=\(indices.size) m=\(m) dtype=\(indices.dtype)")
         return (
             x.flattened(start: 0, end: -3)[fused.rowOrder],
             fused.sortedKeys,
             fused.inverseOrder
         )
     }
+    routeSortTrace("generic n=\(indices.size) m=\(m) dtype=\(indices.dtype)")
     let order = argSort(indices)
     let inverseOrder: MLXArray
     if inversePermutationScatterEnabled && order.size > 0 {
