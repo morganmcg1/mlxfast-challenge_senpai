@@ -18,7 +18,9 @@ import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WORKER = os.path.join(REPO, ".build-worker/release/mlxfast-runtime-worker")
+WORKER = os.environ.get("DECODE_PROBE_WORKER") or os.path.join(
+    REPO, ".build-worker/release/mlxfast-runtime-worker"
+)
 GOLDEN = os.path.join(
     REPO, "correctness_prompts/public_longcopy_gate_english_512_256.json"
 )
