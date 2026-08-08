@@ -4414,6 +4414,42 @@ private let lagunaTailNVFP4QMVHeader = """
         \(lagunaTailNVFP4ScaleDecodeSource(scaleFold: lagunaTailNVFP4ScaleFoldEnabled, scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled))
     }
 
+    static inline float laguna_tail_nvfp4_qdot_codes(
+        const uint2 codes,
+        const thread float* x_thread,
+        float scale
+    ) {
+        \(lagunaTailNVFP4QDotAccumDeclSource(seedElide: lagunaTailNVFP4QKVSeedElisionEnabled))
+    #pragma unroll
+        for (int j = 0; j < 2; j++) {
+            const uint32_t c = (j == 0) ? codes.x : codes.y;
+            // Split-nibble decode: the same eight `half` bit patterns per
+            // code word as the original shift+mask sequence, in fewer
+            // integer ops with three mask constants instead of eight — the
+            // form the current stock `fp_qmv_fast` compiles (every form is
+            // an OR of masked shifts, so the decode is bit-identical).
+            const uint32_t xe = c & 0x0F0F0F0Fu;
+            const uint32_t ge = xe | (xe << 3);
+            const uint32_t yo = c & 0xF0F0F0F0u;
+            const uint32_t go = yo | (yo >> 3);
+            const uint32_t p0 = (ge << 9) & 0x8E008E00u;
+            const uint32_t p1 = (go << 8) & 0x8E008E00u;
+            const uint32_t p2 = (ge << 1) & 0x8E008E00u;
+            const uint32_t p3 = go & 0x8E008E00u;
+            const float2 v04 = float2(as_type<half2>(p0));
+            const float2 v15 = float2(as_type<half2>(p1));
+            const float2 v26 = float2(as_type<half2>(p2));
+            const float2 v37 = float2(as_type<half2>(p3));
+            \(lagunaTailNVFP4QDotFirstGroupSource(seedElide: lagunaTailNVFP4QKVSeedElisionEnabled))
+            accum +=
+                (x_thread[8 * j + 4] * v04.y +
+                 x_thread[8 * j + 5] * v15.y +
+                 x_thread[8 * j + 6] * v26.y +
+                 x_thread[8 * j + 7] * v37.y);
+        }
+        \(lagunaTailNVFP4QDotReturn)
+    }
+
     static inline float laguna_tail_nvfp4_qdot(
         const device uint8_t* w,
         const thread float* x_thread,
@@ -4479,20 +4515,38 @@ private let lagunaDecodeNVFP4QKVR1Source = """
     const device uint8_t* sc = weight_scales +
         out_row * in_vec_size_g + simd_lid;
 
-    thread float x_thread[values_per_thread];
+    thread float x_thread0[values_per_thread];
+    thread float x_thread1[values_per_thread];
     thread float result = 0.0f;
 
-    uint column = simd_lid * values_per_thread;
-    for (uint k = 0; k < axis_size; k += block_size) {
-        for (uint i = 0; i < values_per_thread; ++i) {
-            x_thread[i] = float(normalized[column + i]);
-        }
-        result += laguna_tail_nvfp4_qdot(
-            ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
-        ws += block_size / 2;
-        sc += block_size / 16;
-        column += block_size;
+    const uint column = simd_lid * values_per_thread;
+    for (uint i = 0; i < values_per_thread; ++i) {
+        x_thread0[i] = float(normalized[column + i]);
     }
+    uint2 codes0 = ((const device uint2*)ws)[0];
+    float scale0 = laguna_tail_nvfp4_scale(sc[0]);
+
+    for (uint i = 0; i < values_per_thread; ++i) {
+        x_thread1[i] = float(normalized[column + block_size + i]);
+    }
+    uint2 codes1 = ((const device uint2*)(ws + block_size / 2))[0];
+    float scale1 = laguna_tail_nvfp4_scale(sc[block_size / 16]);
+    result += laguna_tail_nvfp4_qdot_codes(codes0, x_thread0, scale0);
+
+    for (uint i = 0; i < values_per_thread; ++i) {
+        x_thread0[i] = float(normalized[column + 2 * block_size + i]);
+    }
+    codes0 = ((const device uint2*)(ws + block_size))[0];
+    scale0 = laguna_tail_nvfp4_scale(sc[block_size / 8]);
+    result += laguna_tail_nvfp4_qdot_codes(codes1, x_thread1, scale1);
+
+    for (uint i = 0; i < values_per_thread; ++i) {
+        x_thread1[i] = float(normalized[column + 3 * block_size + i]);
+    }
+    codes1 = ((const device uint2*)(ws + 3 * block_size / 2))[0];
+    scale1 = laguna_tail_nvfp4_scale(sc[3 * block_size / 16]);
+    result += laguna_tail_nvfp4_qdot_codes(codes0, x_thread0, scale0);
+    result += laguna_tail_nvfp4_qdot_codes(codes1, x_thread1, scale1);
 
     result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
     if (simd_lid == 0) {
