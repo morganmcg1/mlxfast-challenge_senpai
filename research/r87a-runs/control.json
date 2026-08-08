@@ -1,0 +1,532 @@
+{
+  "dirs": [
+    "research/r87a-runs/control"
+  ],
+  "ref": "A0",
+  "n_runs": 18,
+  "arms": {
+    "A0": {
+      "n": 6,
+      "wall_us": {
+        "mean": 9814.666666666666,
+        "sd": 75.75662787285788,
+        "values": [
+          9965.0,
+          9784.0,
+          9755.0,
+          9796.0,
+          9780.0,
+          9808.0
+        ]
+      },
+      "busy_sum_us": {
+        "mean": 8568.166666666666,
+        "sd": 24.375534182180843,
+        "values": [
+          8613.0,
+          8546.0,
+          8549.0,
+          8564.0,
+          8562.0,
+          8575.0
+        ]
+      },
+      "busy_union_us": {
+        "mean": 8567.333333333334,
+        "sd": 23.888630489558555,
+        "values": [
+          8611.0,
+          8546.0,
+          8548.0,
+          8563.0,
+          8561.0,
+          8575.0
+        ]
+      },
+      "gap_us": {
+        "mean": 1247.3333333333333,
+        "sd": 53.58980002450715,
+        "values": [
+          1354.0,
+          1238.0,
+          1206.0,
+          1233.0,
+          1219.0,
+          1234.0
+        ]
+      },
+      "cbs": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      },
+      "dispatches": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      }
+    },
+    "B2": {
+      "n": 6,
+      "wall_us": {
+        "mean": 9801.833333333334,
+        "sd": 50.913325040372946,
+        "values": [
+          9758.0,
+          9764.0,
+          9802.0,
+          9822.0,
+          9772.0,
+          9893.0
+        ]
+      },
+      "busy_sum_us": {
+        "mean": 8569.833333333334,
+        "sd": 15.038838607640773,
+        "values": [
+          8560.0,
+          8557.0,
+          8578.0,
+          8569.0,
+          8559.0,
+          8596.0
+        ]
+      },
+      "busy_union_us": {
+        "mean": 8569.333333333334,
+        "sd": 14.596803303006679,
+        "values": [
+          8560.0,
+          8557.0,
+          8577.0,
+          8568.0,
+          8559.0,
+          8595.0
+        ]
+      },
+      "gap_us": {
+        "mean": 1232.6666666666667,
+        "sd": 37.361299049506655,
+        "values": [
+          1198.0,
+          1208.0,
+          1225.0,
+          1254.0,
+          1213.0,
+          1298.0
+        ]
+      },
+      "cbs": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      },
+      "dispatches": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      }
+    },
+    "B4": {
+      "n": 6,
+      "wall_us": {
+        "mean": 9782.166666666666,
+        "sd": 14.246637030073682,
+        "values": [
+          9799.0,
+          9770.0,
+          9766.0,
+          9776.0,
+          9799.0,
+          9783.0
+        ]
+      },
+      "busy_sum_us": {
+        "mean": 8562.666666666666,
+        "sd": 7.633260552782583,
+        "values": [
+          8577.0,
+          8560.0,
+          8558.0,
+          8560.0,
+          8565.0,
+          8556.0
+        ]
+      },
+      "busy_union_us": {
+        "mean": 8562.166666666666,
+        "sd": 7.833687935236294,
+        "values": [
+          8577.0,
+          8560.0,
+          8558.0,
+          8559.0,
+          8564.0,
+          8555.0
+        ]
+      },
+      "gap_us": {
+        "mean": 1220.1666666666667,
+        "sd": 10.609743949156675,
+        "values": [
+          1222.0,
+          1210.0,
+          1208.0,
+          1217.0,
+          1235.0,
+          1229.0
+        ]
+      },
+      "cbs": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      },
+      "dispatches": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      }
+    }
+  },
+  "deltas": {
+    "B2": {
+      "per_kernel": [
+        {
+          "kernel": "routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+          "delta_us": 9.133333333333212,
+          "ci95_us": 4.650838288533558,
+          "ref_us": 1502.4,
+          "share_pct": 17.53467291719349,
+          "touched": true
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": -2.533333333333303,
+          "ci95_us": 5.383061585565284,
+          "ref_us": 1342.45,
+          "share_pct": 15.667879165126731,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h64_v1_lm1_pw1_sc1_se1",
+          "delta_us": 0.0,
+          "ci95_us": 4.656529868534717,
+          "ref_us": 1120.25,
+          "share_pct": 13.074558929370344,
+          "touched": false
+        },
+        {
+          "kernel": "routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+          "delta_us": -0.783333333333303,
+          "ci95_us": 3.532348391398668,
+          "ref_us": 861.6,
+          "share_pct": 10.055826800754733,
+          "touched": false
+        },
+        {
+          "kernel": "sliding_fused_attn_ring_v1",
+          "delta_us": -0.4666666666665833,
+          "ci95_us": 1.9721041173027092,
+          "ref_us": 627.6666666666666,
+          "share_pct": 7.325565562450155,
+          "touched": false
+        },
+        {
+          "kernel": "lmhead_int5_base_coarse_delta_bf16_v1",
+          "delta_us": -0.39999999999997726,
+          "ci95_us": 0.9727593861283181,
+          "ref_us": 422.2833333333333,
+          "share_pct": 4.928514462448209,
+          "touched": false
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": -0.4499999999999318,
+          "ci95_us": 1.4045856912215227,
+          "ref_us": 363.91666666666663,
+          "share_pct": 4.247310782158766,
+          "touched": false
+        },
+        {
+          "kernel": "residual_rms_router_bf16_2048_rpg8_keys_v1",
+          "delta_us": -0.8000000000000114,
+          "ci95_us": 1.655801602504015,
+          "ref_us": 320.5,
+          "share_pct": 3.7405901690365506,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h48_v1_lm1_pw1_sc1_se1",
+          "delta_us": -0.7333333333333485,
+          "ci95_us": 1.6441125211290288,
+          "ref_us": 303.2166666666667,
+          "share_pct": 3.5388745161353077,
+          "touched": false
+        },
+        {
+          "kernel": "shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
+          "delta_us": 0.533333333333303,
+          "ci95_us": 1.8211618938599123,
+          "ref_us": 286.05,
+          "share_pct": 3.3385204925207654,
+          "touched": false
+        },
+        {
+          "kernel": "dense_gate_up_swiglu_bf16_v1",
+          "delta_us": -0.03333333333330302,
+          "ci95_us": 1.2480002906045173,
+          "ref_us": 269.81666666666666,
+          "share_pct": 3.1490595031998287,
+          "touched": false
+        },
+        {
+          "kernel": "gate_sp_h64_v1",
+          "delta_us": -0.9000000000000057,
+          "ci95_us": 1.1788883941013157,
+          "ref_us": 251.36666666666667,
+          "share_pct": 2.9337275574315784,
+          "touched": false
+        },
+        {
+          "kernel": "full_fused_attn_grow_v1",
+          "delta_us": 0.09999999999999432,
+          "ci95_us": 0.766635039452282,
+          "ref_us": 249.28333333333333,
+          "share_pct": 2.909412748740493,
+          "touched": false
+        },
+        {
+          "kernel": "prefill_router_tournament_ordinal_norm_active64_v2",
+          "delta_us": -0.5666666666666629,
+          "ci95_us": 0.5742418836240802,
+          "ref_us": 186.83333333333334,
+          "share_pct": 2.1805520434165224,
+          "touched": false
+        },
+        {
+          "kernel": "rmsbfloat16",
+          "delta_us": -0.3166666666666629,
+          "ci95_us": 0.49450178791049276,
+          "ref_us": 142.33333333333331,
+          "share_pct": 1.661187729774942,
+          "touched": false
+        },
+        {
+          "kernel": "dense_down_residual_bf16_v1",
+          "delta_us": -0.28333333333333144,
+          "ci95_us": 1.2718905248434524,
+          "ref_us": 135.03333333333333,
+          "share_pct": 1.5759886401213796,
+          "touched": false
+        }
+      ],
+      "totals": {
+        "busy_sum_us": {
+          "delta_us": 1.6666666666678793,
+          "ci95_us": 26.28895749928024
+        },
+        "busy_union_us": {
+          "delta_us": 2.0,
+          "ci95_us": 25.714872732310496
+        },
+        "wall_us": {
+          "delta_us": -12.83333333333212,
+          "ci95_us": 83.2547893429211
+        }
+      },
+      "subtotal_touched_us": 9.133333333333212,
+      "subtotal_untouched_us": -7.633333333333127
+    },
+    "B4": {
+      "per_kernel": [
+        {
+          "kernel": "routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+          "delta_us": 8.516666666666652,
+          "ci95_us": 4.202238728024462,
+          "ref_us": 1502.4,
+          "share_pct": 17.53467291719349,
+          "touched": true
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": -2.8500000000001364,
+          "ci95_us": 5.096471923425559,
+          "ref_us": 1342.45,
+          "share_pct": 15.667879165126731,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h64_v1_lm1_pw1_sc1_se1",
+          "delta_us": -2.283333333333303,
+          "ci95_us": 4.567306367397223,
+          "ref_us": 1120.25,
+          "share_pct": 13.074558929370344,
+          "touched": false
+        },
+        {
+          "kernel": "routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+          "delta_us": -1.5833333333333712,
+          "ci95_us": 3.061872656569837,
+          "ref_us": 861.6,
+          "share_pct": 10.055826800754733,
+          "touched": false
+        },
+        {
+          "kernel": "sliding_fused_attn_ring_v1",
+          "delta_us": -1.0,
+          "ci95_us": 1.9707691736954949,
+          "ref_us": 627.6666666666666,
+          "share_pct": 7.325565562450155,
+          "touched": false
+        },
+        {
+          "kernel": "lmhead_int5_base_coarse_delta_bf16_v1",
+          "delta_us": -0.41666666666662877,
+          "ci95_us": 0.800978311445399,
+          "ref_us": 422.2833333333333,
+          "share_pct": 4.928514462448209,
+          "touched": false
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": -0.8666666666666174,
+          "ci95_us": 1.3347468050372764,
+          "ref_us": 363.91666666666663,
+          "share_pct": 4.247310782158766,
+          "touched": false
+        },
+        {
+          "kernel": "residual_rms_router_bf16_2048_rpg8_keys_v1",
+          "delta_us": -0.8999999999999773,
+          "ci95_us": 1.5340423043897857,
+          "ref_us": 320.5,
+          "share_pct": 3.7405901690365506,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h48_v1_lm1_pw1_sc1_se1",
+          "delta_us": -0.9333333333333371,
+          "ci95_us": 1.4550315163656398,
+          "ref_us": 303.2166666666667,
+          "share_pct": 3.5388745161353077,
+          "touched": false
+        },
+        {
+          "kernel": "shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
+          "delta_us": -0.16666666666668561,
+          "ci95_us": 1.7211033463389884,
+          "ref_us": 286.05,
+          "share_pct": 3.3385204925207654,
+          "touched": false
+        },
+        {
+          "kernel": "dense_gate_up_swiglu_bf16_v1",
+          "delta_us": -0.2666666666666515,
+          "ci95_us": 1.0968533973593972,
+          "ref_us": 269.81666666666666,
+          "share_pct": 3.1490595031998287,
+          "touched": false
+        },
+        {
+          "kernel": "gate_sp_h64_v1",
+          "delta_us": -0.5333333333333314,
+          "ci95_us": 1.0952396871677406,
+          "ref_us": 251.36666666666667,
+          "share_pct": 2.9337275574315784,
+          "touched": false
+        },
+        {
+          "kernel": "full_fused_attn_grow_v1",
+          "delta_us": -0.5166666666666799,
+          "ci95_us": 0.5606347672080417,
+          "ref_us": 249.28333333333333,
+          "share_pct": 2.909412748740493,
+          "touched": false
+        },
+        {
+          "kernel": "prefill_router_tournament_ordinal_norm_active64_v2",
+          "delta_us": -0.46666666666666856,
+          "ci95_us": 0.5712093955064756,
+          "ref_us": 186.83333333333334,
+          "share_pct": 2.1805520434165224,
+          "touched": false
+        },
+        {
+          "kernel": "rmsbfloat16",
+          "delta_us": -0.2666666666666515,
+          "ci95_us": 0.39270833177369885,
+          "ref_us": 142.33333333333331,
+          "share_pct": 1.661187729774942,
+          "touched": false
+        },
+        {
+          "kernel": "dense_down_residual_bf16_v1",
+          "delta_us": -0.9499999999999886,
+          "ci95_us": 1.3322173831099657,
+          "ref_us": 135.03333333333333,
+          "share_pct": 1.5759886401213796,
+          "touched": false
+        }
+      ],
+      "totals": {
+        "busy_sum_us": {
+          "delta_us": -5.5,
+          "ci95_us": 24.629638579585283
+        },
+        "busy_union_us": {
+          "delta_us": -5.166666666667879,
+          "ci95_us": 24.179100328688826
+        },
+        "wall_us": {
+          "delta_us": -32.5,
+          "ci95_us": 75.78925928138365
+        }
+      },
+      "subtotal_touched_us": 8.516666666666652,
+      "subtotal_untouched_us": -14.000000000000028
+    }
+  }
+}

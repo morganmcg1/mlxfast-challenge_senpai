@@ -18,6 +18,7 @@ strictly dominates within-run step noise.
   python3 research/tanjiro-r87a-stats.py research/r87a-runs/ladder --ref A0
 """
 import argparse
+import json
 import math
 import os
 import re
@@ -80,6 +81,8 @@ def main() -> int:
                     help="report every kernel at or above this %% of reference "
                          "arm busy time (advisor 5228464233 mandates ~1%%)")
     ap.add_argument("--drop-warmup", action="store_true", default=True)
+    ap.add_argument("--json", default=None,
+                    help="also write the full structured report to this path")
     ap.add_argument("--touched", default="top8keys_r1",
                     help="substring identifying kernels this diff edits")
     args = ap.parse_args()
@@ -108,15 +111,21 @@ def main() -> int:
         print(f"reference arm {args.ref} absent; have {arms}", file=sys.stderr)
         return 1
 
+    report = {"dirs": args.dirs, "ref": args.ref, "n_runs": len(runs),
+              "arms": {}, "deltas": {}}
+
     print(f"runs={len(runs)} arms={arms} ref={args.ref}\n")
     print(f"{'arm':>5} {'n':>2} " + " ".join(f"{k:>14}" for k in TOTALS))
     for arm in arms:
         sel = [r for r in runs if r[0] == arm]
         cells = []
+        entry = {"n": len(sel)}
         for k in TOTALS:
             v = [r[2][k] for r in sel]
             sd = statistics.stdev(v) if len(v) > 1 else 0.0
+            entry[k] = {"mean": statistics.mean(v), "sd": sd, "values": v}
             cells.append(f"{statistics.mean(v):9.1f}±{sd:4.1f}")
+        report["arms"][arm] = entry
         print(f"{arm:>5} {len(sel):>2} " + " ".join(cells))
 
     ref_runs = [r for r in runs if r[0] == args.ref]
@@ -138,6 +147,7 @@ def main() -> int:
         print(f"\n=== {arm} vs {args.ref}  (us/step, 95% CI, + is slower) ===")
         print(f"{'delta':>9} {'ci95':>9} {'ref':>9} {'share':>7}  kernel")
         touched = untouched = 0.0
+        per_kernel = []
         for k in reported:
             a = ref_k[k]
             b = [r[3][k] for r in sel if k in r[3]]
@@ -160,16 +170,30 @@ def main() -> int:
             else:
                 untouched += d
             flag = "*" if args.touched in k else " "
+            per_kernel.append({"kernel": k, "delta_us": d, "ci95_us": ci,
+                               "ref_us": statistics.mean(a),
+                               "share_pct": statistics.mean(a)/ref_busy*100,
+                               "touched": args.touched in k})
             print(f"{d:9.2f} {ci:9.2f} {statistics.mean(a):9.1f} "
                   f"{statistics.mean(a)/ref_busy*100:6.2f}% {flag} {k}")
+        totals = {}
         for key in ("busy_sum_us", "busy_union_us", "wall_us"):
             d, ci = welch([r[2][key] for r in ref_runs],
                           [r[2][key] for r in sel])
+            totals[key] = {"delta_us": d, "ci95_us": ci}
             print(f"{d:9.2f} {ci:9.2f} {'':>9} {'':>7}    TOTAL {key}")
         print(f"{touched:9.2f} {'':>9} {'':>9} {'':>7}    subtotal touched "
               f"({args.touched})")
         print(f"{untouched:9.2f} {'':>9} {'':>9} {'':>7}    subtotal untouched "
               "(give-back)")
+        report["deltas"][arm] = {"per_kernel": per_kernel, "totals": totals,
+                                 "subtotal_touched_us": touched,
+                                 "subtotal_untouched_us": untouched}
+
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(report, fh, indent=2)
+        print(f"\nwrote {args.json}")
     return 0
 
 
