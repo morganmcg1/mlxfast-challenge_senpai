@@ -5919,6 +5919,19 @@ final class LagunaRuntimeAttention: Module {
                 : gatePerHead && projectedGate.dtype == output.dtype
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
+            if L == 512,
+                ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_TAIL_BASELINE_TRACE"] == "1"
+            {
+                let message =
+                    "prefill_tail_baseline layer=\(layerIdx) B=\(B) L=\(L) H=\(nHeads) "
+                    + "D=\(headDim) attended_shape=\(attended.shape) "
+                    + "attended_dtype=\(attended.dtype) flatten_shape=\(output.shape) "
+                    + "flatten_dtype=\(output.dtype) projected_gate_shape=\(projectedGate.shape) "
+                    + "projected_gate_dtype=\(projectedGate.dtype) gate_shape=\(gate.shape) "
+                    + "gate_dtype=\(gate.dtype) gate_activated=\(gateIsActivated) "
+                    + "gate_per_head=\(gatePerHead)\n"
+                FileHandle.standardError.write(Data(message.utf8))
+            }
             if gatePerHead {
                 output =
                     (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
