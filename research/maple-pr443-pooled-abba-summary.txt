@@ -1,0 +1,48 @@
+########## POOLED BOTH ORDERS (24 duplexes) ##########
+  (23, 24)      off->halved   -0.05720   -0.05207   +0.00512
+
+estimators (baseline off K = 7.525 us/call)
+  ratio-adjusted (primary)           -0.05978 [-0.06125, -0.05830]  (n=24, df=23)
+  unadjusted K (sensitivity)         -0.05916 [-0.06227, -0.05605]  (n=24, df=23)
+  control C only (G3 gate)           +0.00062 [-0.00152, +0.00276]  (n=24, df=23)
+
+primary effect: -0.437 us/call [-0.447, -0.426]  (-5.80%)
+  per decode step (x39): -17.0 us [-17.4, -16.6]
+  score:                -0.2602% [-0.2664, -0.2540]
+  sensitivity (unadjusted): -0.432 us/call [-0.454, -0.410]
+
+pre-registered gates
+  G2 dispatch parity      : PASS
+  G3 control invariance   : PASS (|+0.06%| <= 0.50%, CI covers 0)
+  G4 precision (hw<=0.12) : PASS (half-width 0.010 us/call)
+
+verdict: (i) real speedup   (MDE = CI half-width = 0.010 us/call)
+
+  us/step    delta%   CI low%  CI high%  us/step d  sig  kernel
+   1497.8    +0.000    +0.000    +0.000      +0.00       routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+   1333.1    -0.023    -0.093    +0.048      -0.30       decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1112.9    +0.125    +0.072    +0.177      +1.39  ***  oproj_act_h64_v1_lm1_pw1_sc1_se1
+    866.8    +0.919    +0.850    +0.989      +7.97  ***  routed_shared_nvfp4_down_residual_bf16_r1_v5
+    626.0    +0.471    +0.358    +0.585      +2.95  ***  sliding_fused_attn_ring_v1
+    420.9    -0.008    -0.135    +0.119      -0.03       lmhead_int5_base_coarse_delta_bf16_v1
+    363.1    -0.037    -0.107    +0.034      -0.13       decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+    320.5    -0.071    -0.187    +0.045      -0.23       residual_rms_router_bf16_2048_rpg8_keys_v1
+    305.0    -0.195    -0.433    +0.043      -0.60       oproj_act_h48_v1_lm1_pw1_sc1_se1
+    269.2    -0.154    -0.340    +0.033      -0.41       dense_gate_up_swiglu_bf16_v1
+    241.6    -0.247    -0.450    -0.044      -0.60  ***  gate_sp_h64_v1
+    225.0    +0.935    +0.775    +1.096      +2.10  ***  full_fused_attn_grow_v1
+    202.8    -0.116    -0.346    +0.115      -0.24       decode_router_top8_ordinal_table_norm_v1
+    142.8    -0.132    -0.392    +0.128      -0.19       rmsbfloat16
+    133.7    +0.463    +0.064    +0.864      +0.62  ***  dense_down_residual_bf16_v1
+     77.8    -0.456    -0.848    -0.062      -0.35  ***  lmhead_exact_fused_int5_sparse_refine_v1
+     77.2    +2.005    +1.765    +2.246      +1.55  ***  gate_sp_h48_v1
+      9.4    +0.231    -0.709    +1.180      +0.02       argmax_bfloat16
+
+labels shown cover 8226 of 8538 us/step (96.3%)
+sum of shown per-label deltas: +13.5 us/step [+5.5, +21.6] (CI sum is indicative, not exact)
+
+total steady GPU busy, ratio-adjusted vs control: -3.5 us/step [-7.6, +0.5]  (-0.041%)
+  score: -0.0537% [-0.1155, +0.0082]
+
+total steady GPU busy, unadjusted (absolute): +0.7 us/step [-16.0, +17.5]  (+0.009%)
+  score: +0.0114% [-0.2449, +0.2682]

@@ -1,0 +1,25 @@
+01-rep1-off.log              off       551.37 ms
+02-rep1-halved.log           halved    547.82 ms
+03-rep1-halved.log           halved    552.55 ms
+04-rep1-off.log              off       547.83 ms
+05-rep2-off.log              off       547.69 ms
+06-rep2-halved.log           halved    547.85 ms
+07-rep2-halved.log           halved    547.90 ms
+08-rep2-off.log              off       547.56 ms
+09-rep3-off.log              off       547.56 ms
+10-rep3-halved.log           halved    551.98 ms
+11-rep3-halved.log           halved    547.64 ms
+12-rep3-off.log              off       552.13 ms
+13-rep4-off.log              off       548.31 ms
+14-rep4-halved.log           halved    548.55 ms
+15-rep4-halved.log           halved    548.29 ms
+16-rep4-off.log              off       548.12 ms
+
+off     n=8 mean=548.82 ms median=547.98 ms sd=1.72
+
+halved  n=8 mean=549.07 ms median=548.10 ms sd=1.87
+
+duplexes n=8  mean log-ratio=+0.00046 [-0.00450, +0.00541]
+  = +0.046% [-0.449%, +0.543%] on a 548.82 ms baseline
+  = +0.251 ms [-2.463, +2.978] => score -0.0940% [-1.1159%, +0.9229%]
+  prefill hard floor 0.95: needs the candidate within 5.3% of baseline (577.71 ms); CI upper 551.80 ms
