@@ -15,6 +15,7 @@ Usage: maple_r89_insitu.py OUTDIR [REPS] [STEPS] [SPLIT]
   it is only ever used for arm-vs-arm relative comparison, never as a headline.
 """
 import json
+import math
 import os
 import re
 import statistics
@@ -22,16 +23,28 @@ import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARMS = [0, 1, 2, 3, 4, 5]
+# (slot, env value). Slot "0b" repeats the baseline so every rep carries its own
+# null control; the null half-width is the resolvable floor for this rig.
+SLOTS = [("0", 0), ("0b", 0), ("1", 1), ("2", 2), ("3", 3), ("4", 4), ("5", 5)]
 ARM_LABEL = {
-    0: "A0 depth0 (baseline)",
-    1: "A1 depth1 hoisted",
-    2: "A2 depth2 hoisted",
-    3: "A5 depth3 hoisted",
-    4: "A3 depth4 hoisted (full)",
-    5: "A4 depth1 control (below barriers)",
+    "0": "A0 depth0 (baseline)",
+    "0b": "A0' depth0 (null control)",
+    "1": "A1 depth1 hoisted",
+    "2": "A2 depth2 hoisted",
+    "3": "A5 depth3 hoisted",
+    "4": "A3 depth4 hoisted (full)",
+    "5": "A4 depth1 control (below barriers)",
 }
 ROUTER_RE = re.compile(r"(?:laguna_)?residual_rms_router\S*")
+# two-sided 95% t quantiles indexed by degrees of freedom
+T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365,
+       8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179, 13: 2.160,
+       14: 2.145, 15: 2.131, 16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093,
+       20: 2.086}
+
+
+def t95(df):
+    return T95.get(df, 1.96 if df > 20 else float("nan"))
 
 
 def run(arm, steps, split, out, tag):
@@ -54,7 +67,7 @@ def run(arm, steps, split, out, tag):
         print(p.stderr[-2000:], flush=True)
         return None
 
-    rec = {"arm": arm, "tag": tag, "rc": p.returncode}
+    rec = {"env": arm, "tag": tag, "rc": p.returncode}
     m = re.search(r"decode steps=\d+ mean=([\d.]+) ms median=([\d.]+) ms", txt)
     if m:
         rec["mean_ms"] = float(m.group(1))
@@ -82,27 +95,40 @@ def run(arm, steps, split, out, tag):
     return rec
 
 
-def summarise(recs, key, label, out):
+def summarise(recs, key, label, scale=1.0, unit=""):
+    """Paired within-rep contrast against slot 0.
+
+    Every arm is differenced against the slot-0 baseline measured in the SAME
+    rep, so rep-level drift (thermal, process placement, page mapping) cancels
+    instead of entering the variance.
+    """
     print(f"\n=== {label} ===", flush=True)
-    print(f"{'arm':>4}  {'n':>2}  {'mean':>10}  {'sd':>8}  "
-          f"{'vs A0':>9}  kernel / label", flush=True)
-    by_arm = {}
+    by_rep = {}
     for r in recs:
         if key in r:
-            by_arm.setdefault(r["arm"], []).append(r[key])
-    if 0 not in by_arm:
-        return
-    base = statistics.mean(by_arm[0])
-    for arm in ARMS:
-        xs = by_arm.get(arm)
-        if not xs:
+            by_rep.setdefault(r["rep"], {})[r["slot"]] = r[key]
+    print(f"{'slot':>5}  {'n':>2}  {'level':>10}  {'paired d':>10}  "
+          f"{'95% CI':>22}  {'per-step ' + unit:>16}  label", flush=True)
+    for slot, _env in SLOTS:
+        levels, diffs = [], []
+        for _rep, byslot in sorted(by_rep.items()):
+            if slot in byslot:
+                levels.append(byslot[slot])
+            if slot in byslot and "0" in byslot:
+                diffs.append(byslot[slot] - byslot["0"])
+        if not levels:
             continue
-        m = statistics.mean(xs)
-        sd = statistics.stdev(xs) if len(xs) > 1 else float("nan")
-        kern = next((r.get("router_kernel", "") for r in recs
-                     if r["arm"] == arm and r.get("router_kernel")), "")
-        print(f"{arm:>4}  {len(xs):>2}  {m:10.4f}  {sd:8.4f}  "
-              f"{m - base:+9.4f}  {kern or ARM_LABEL[arm]}", flush=True)
+        lvl = statistics.mean(levels)
+        if len(diffs) > 1:
+            d = statistics.mean(diffs)
+            sd = statistics.stdev(diffs)
+            hw = t95(len(diffs) - 1) * sd / math.sqrt(len(diffs))
+            ci = f"[{d - hw:+.4f},{d + hw:+.4f}]"
+            step = f"{d * scale:+.2f} [{(d - hw) * scale:+.2f},{(d + hw) * scale:+.2f}]" if scale != 1.0 else ""
+        else:
+            d, ci, step = float("nan"), "", ""
+        print(f"{slot:>5}  {len(levels):>2}  {lvl:10.4f}  {d:+10.4f}  "
+              f"{ci:>22}  {step:>16}  {ARM_LABEL[slot]}", flush=True)
 
 
 def main():
@@ -116,28 +142,34 @@ def main():
 
     recs = []
     for rep in range(reps):
-        order = ARMS if rep % 2 == 0 else list(reversed(ARMS))
-        for arm in order:
-            tag = f"rep{rep}_arm{arm}"
-            print(f"[{tag}] {ARM_LABEL[arm]}", flush=True)
-            r = run(arm, steps, split, out, tag)
+        order = SLOTS if rep % 2 == 0 else list(reversed(SLOTS))
+        for slot, env in order:
+            tag = f"rep{rep}_slot{slot}"
+            print(f"[{tag}] {ARM_LABEL[slot]}", flush=True)
+            r = run(env, steps, split, out, tag)
             if r:
+                r["rep"], r["slot"] = rep, slot
                 recs.append(r)
                 print(f"  median={r.get('median_ms')} ms  "
                       f"busy_sum={r.get('busy_sum_ms')} "
                       f"union={r.get('busy_union_ms')}  "
                       f"router={r.get('router_us_call')} us/call "
                       f"x{r.get('router_n_step')}  "
-                      f"div={r.get('divergences')}", flush=True)
+                      f"div={r.get('divergences')}  "
+                      f"{r.get('router_kernel','')}", flush=True)
             with open(os.path.join(out, "records.json"), "w") as fh:
                 json.dump(recs, fh, indent=1)
 
-    summarise(recs, "router_us_call", "router kernel us/call (SPLIT-inflated, "
-              "relative only)", out)
-    summarise(recs, "router_us_step", "router kernel us/step", out)
-    summarise(recs, "busy_sum_ms", "gpu_busy_sum ms/step", out)
-    summarise(recs, "busy_union_ms", "gpu_busy_union ms/step", out)
-    summarise(recs, "median_ms", "end-to-end median ms/step", out)
+    n = max((r.get("router_n_step") or 0) for r in recs) or 39.0
+    summarise(recs, "router_us_call",
+              "router kernel us/call (SPLIT-inflated, relative only)",
+              scale=n, unit="us")
+    summarise(recs, "router_us_step", "router kernel us/step")
+    summarise(recs, "busy_sum_ms", "gpu_busy_sum ms/step")
+    summarise(recs, "busy_union_ms", "gpu_busy_union ms/step")
+    summarise(recs, "median_ms", "end-to-end median ms/step")
+    divs = sorted({(r["slot"], r.get("divergences")) for r in recs})
+    print(f"\ndivergences by slot: {divs}", flush=True)
     return 0
 
 
