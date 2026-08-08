@@ -90,6 +90,38 @@ let lagunaFusedRoutedSharedDownResidualEnabled =
 let lagunaFusedRoutedSwiGLUQMVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV"] != "0"
 
+/// Batches the packed routed top-8 and shared-expert gate/up QMV + SwiGLU
+/// producers into one decode dispatch while retaining separate BF16 outputs.
+let lagunaFusedRoutedSharedSwiGLUQMVEnabled =
+    ProcessInfo.processInfo.environment[
+        "DARKBLOOM_FUSED_ROUTED_SHARED_SWIGLU_QMV"] != "0"
+
+private let lagunaRoutedSharedSwiGLUOracleEnabled =
+    ProcessInfo.processInfo.environment[
+        "MLXFAST_ROUTED_SHARED_SWIGLU_ORACLE"] == "1"
+
+private func lagunaAssertRawBF16Equal(
+    _ control: MLXArray,
+    _ candidate: MLXArray,
+    label: String
+) {
+    precondition(control.dtype == .bfloat16)
+    precondition(candidate.dtype == .bfloat16)
+    precondition(control.shape == candidate.shape)
+    eval(control, candidate)
+    let controlBits = control.view(dtype: .uint16).asArray(UInt16.self)
+    let candidateBits = candidate.view(dtype: .uint16).asArray(UInt16.self)
+    guard controlBits == candidateBits else {
+        let mismatch = zip(controlBits, candidateBits).enumerated().first {
+            $0.element.0 != $0.element.1
+        }!
+        fatalError(
+            "routed+shared SwiGLU oracle mismatch in \(label) at \(mismatch.offset): "
+                + "\(mismatch.element.0) != \(mismatch.element.1)")
+    }
+    print("routed+shared SwiGLU oracle pass: \(label) (\(controlBits.count) BF16 values)")
+}
+
 /// `DARKBLOOM_PACKED_SCALES` (default ON; set "0" to disable): decode-only
 /// scale-interleaved side copy of the fused routed gate/up NVFP4 bank. The
 /// stock `lagunaRoutedSwiGLUQMV` reads codes and E4M3 scales from two separate
@@ -7048,6 +7080,170 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     )[0]
 }
 
+private let lagunaRoutedSharedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_shared_nvfp4_swiglu_qmv_packed_indices_r1_bf16_v1",
+    inputNames: [
+        "input", "routed_weight", "routed_scales", "indices",
+        "shared_weight", "shared_scales",
+    ],
+    outputNames: ["routed_activated", "shared_activated"],
+    source: """
+        constexpr uint input_width = 2048;
+        constexpr uint output_width = 512;
+        constexpr uint block_width = 512;
+        constexpr uint values_per_lane = 16;
+        constexpr uint routed_experts = 8;
+        constexpr uint total_slots = 9;
+        constexpr uint fused_row_bytes = 1024;
+        constexpr uint fused_expert_bytes = 1024 * fused_row_bytes;
+        constexpr uint routed_scale_row_bytes = 32;
+        constexpr uint routed_scale_kblock_bytes = 8 * routed_scale_row_bytes;
+        constexpr uint routed_scale_tile_bytes =
+            4 * routed_scale_kblock_bytes;
+        constexpr uint packed_expert_bytes =
+            128 * routed_scale_tile_bytes;
+        constexpr uint shared_scale_row_bytes = 128;
+
+        uint group = threadgroup_position_in_grid.x;
+        uint slot = group % total_slots;
+        uint tile = group / total_slots;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+        uint logical_row = tile * 2 + simd_group;
+
+        const device uint8_t* gate_row_weight =
+            (const device uint8_t*)shared_weight
+            + logical_row * fused_row_bytes + lane * 8;
+        const device uint8_t* up_row_weight =
+            (const device uint8_t*)shared_weight
+            + (logical_row + output_width) * fused_row_bytes + lane * 8;
+        const device uint8_t* gate_row_scale =
+            shared_scales + logical_row * shared_scale_row_bytes + lane;
+        const device uint8_t* up_row_scale =
+            shared_scales
+            + (logical_row + output_width) * shared_scale_row_bytes + lane;
+        uint scale_block_stride = 32;
+
+        if (slot < routed_experts) {
+            uint expert = uint(indices[slot]);
+            const device uint8_t* expert_weight =
+                (const device uint8_t*)routed_weight
+                + expert * fused_expert_bytes;
+            const device uint8_t* row_scales =
+                routed_scales + expert * packed_expert_bytes
+                + (logical_row / 4) * routed_scale_tile_bytes;
+            uint sub = logical_row % 4;
+            uint gate_row =
+                (logical_row / 32) * 64 + logical_row % 32;
+            gate_row_weight =
+                expert_weight + gate_row * fused_row_bytes + lane * 8;
+            up_row_weight =
+                expert_weight + (gate_row + 32) * fused_row_bytes + lane * 8;
+            gate_row_scale =
+                row_scales + sub * 2 * routed_scale_row_bytes + lane;
+            up_row_scale = gate_row_scale + routed_scale_row_bytes;
+            scale_block_stride = routed_scale_kblock_bytes;
+        }
+
+        thread float gate_result = 0.0f;
+        thread float up_result = 0.0f;
+        thread float input_values[values_per_lane];
+
+        for (uint block = 0; block < input_width; block += block_width) {
+            const device vec<bfloat, 4>* input_vectors =
+                (const device vec<bfloat, 4>*) (
+                    input + block + lane * values_per_lane);
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                const vec<bfloat, 4> values = input_vectors[i];
+                input_values[4 * i] = values[0];
+                input_values[4 * i + 1] = values[1];
+                input_values[4 * i + 2] = values[2];
+                input_values[4 * i + 3] = values[3];
+            }
+
+            uint scale_block = (block / block_width) * scale_block_stride;
+            gate_result += laguna_nvfp4_qdot_16(
+                gate_row_weight + block / 2,
+                input_values,
+                laguna_nvfp4_scale(gate_row_scale[scale_block]));
+            up_result += laguna_nvfp4_qdot_16(
+                up_row_weight + block / 2,
+                input_values,
+                laguna_nvfp4_scale(up_row_scale[scale_block]));
+        }
+
+        gate_result = simd_sum(gate_result);
+        up_result = simd_sum(up_result);
+        if (lane == 0) {
+            bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
+            bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
+            bfloat exp_abs = metal::exp(metal::abs(gate));
+            bfloat denominator = bfloat(1) + exp_abs;
+            bfloat y = bfloat(1) / denominator;
+            bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+            bfloat silu = bfloat(gate * sigmoid);
+            bfloat value = bfloat(silu * up);
+            if (slot < routed_experts) {
+                routed_activated[slot * output_width + logical_row] = value;
+            } else {
+                shared_activated[logical_row] = value;
+            }
+        }
+        """,
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+func lagunaRoutedSharedSwiGLUQMVPackedTop8(
+    _ input: MLXArray,
+    routedWeight: MLXArray,
+    routedScales: MLXArray,
+    indices: MLXArray,
+    sharedWeight: MLXArray,
+    sharedScales: MLXArray
+) -> (routed: MLXArray, shared: MLXArray) {
+    precondition(input.dtype == .bfloat16)
+    precondition(input.shape == [1, 1, LagunaConstants.hiddenSize])
+    precondition(routedWeight.dtype == .uint32)
+    precondition(routedScales.dtype == .uint8)
+    precondition(indices.dtype == .uint32)
+    precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
+    precondition(sharedWeight.dtype == .uint32)
+    precondition(
+        sharedWeight.shape == [
+            2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 8,
+        ])
+    precondition(sharedScales.dtype == .uint8)
+    precondition(
+        sharedScales.shape == [
+            2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 16,
+        ])
+
+    let outputs = lagunaRoutedSharedSwiGLUQMVPackedTop8Kernel(
+        [
+            input, routedWeight, routedScales, indices,
+            sharedWeight, sharedScales,
+        ],
+        grid: (
+            (LagunaConstants.numExpertsPerTok + 1) * 256 * 64,
+            1,
+            1
+        ),
+        threadGroup: (64, 1, 1),
+        outputShapes: [
+            [
+                1, 1, LagunaConstants.numExpertsPerTok, 1,
+                LagunaConstants.moeIntermediateSize,
+            ],
+            [1, 1, LagunaConstants.sharedExpertIntermediateSize],
+        ],
+        outputDTypes: [.bfloat16, .bfloat16]
+    )
+    return (outputs[0], outputs[1])
+}
+
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_down_reduce_bf16_v1",
     inputNames: [
@@ -9299,6 +9495,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// `lagunaRoutedSwiGLUQMVPackedTop8Kernel` for the layout contract. Nil
     /// when the flag is set to zero (default ON).
     var _packedRoutedGateUpBank: MLXArray?
+    var _didRunRoutedSharedSwiGLUOracle = false
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -9501,6 +9698,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // handed to the down projection instead of being issued again.
             // Purely within this invocation; nothing survives it.
             var mergedSharedActivated: MLXArray?
+            var oracleControlRouted: MLXArray?
+            var oracleControlShared: MLXArray?
             if lagunaFusedRoutedSwiGLUQMVEnabled,
                 x.dtype == .bfloat16,
                 x.shape == [1, 1, LagunaConstants.hiddenSize],
@@ -9513,14 +9712,58 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 if lagunaPackedScalesEnabled,
                     let packedBank = _packedRoutedGateUpBank
                 {
-                    lagunaPackedScalesLog.note(
-                        "active", "routed swiglu qmv packed dispatch")
-                    activated = lagunaRoutedSwiGLUQMVPackedTop8(
-                        x,
-                        fusedWeight: fusedWeight,
-                        packedScales: packedBank,
-                        indices: inds
-                    )
+                    if lagunaFusedRoutedSharedSwiGLUQMVEnabled,
+                        let sharedBanks = sharedExpert.fusedSharedBanks(x)
+                    {
+                        lagunaPackedScalesLog.note(
+                            "active", "routed+shared swiglu qmv packed dispatch")
+                        let merged = lagunaRoutedSharedSwiGLUQMVPackedTop8(
+                            x,
+                            routedWeight: fusedWeight,
+                            routedScales: packedBank,
+                            indices: inds,
+                            sharedWeight: sharedBanks.gateUpWeight,
+                            sharedScales: sharedBanks.gateUpScales
+                        )
+                        activated = merged.routed
+                        mergedSharedActivated = merged.shared
+                        if lagunaRoutedSharedSwiGLUOracleEnabled,
+                            !_didRunRoutedSharedSwiGLUOracle
+                        {
+                            let controlRouted = lagunaRoutedSwiGLUQMVPackedTop8(
+                                x,
+                                fusedWeight: fusedWeight,
+                                packedScales: packedBank,
+                                indices: inds
+                            )
+                            let controlShared = lagunaSharedSwiGLUQMV(
+                                x,
+                                fusedWeight: sharedBanks.gateUpWeight,
+                                fusedScales: sharedBanks.gateUpScales
+                            )
+                            lagunaAssertRawBF16Equal(
+                                controlRouted,
+                                merged.routed,
+                                label: "routed producer"
+                            )
+                            lagunaAssertRawBF16Equal(
+                                controlShared,
+                                merged.shared,
+                                label: "shared producer"
+                            )
+                            oracleControlRouted = controlRouted
+                            oracleControlShared = controlShared
+                        }
+                    } else {
+                        lagunaPackedScalesLog.note(
+                            "active", "routed swiglu qmv packed dispatch")
+                        activated = lagunaRoutedSwiGLUQMVPackedTop8(
+                            x,
+                            fusedWeight: fusedWeight,
+                            packedScales: packedBank,
+                            indices: inds
+                        )
+                    }
                 } else {
                     if lagunaPackedScalesEnabled {
                         lagunaPackedScalesLog.note(
@@ -9580,7 +9823,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dtype == .bfloat16,
                 residual.shape == [1, 1, LagunaConstants.hiddenSize]
             {
-                return lagunaRoutedSharedDownResidual(
+                let output = lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
                     routedDownScales: downScales,
@@ -9591,6 +9834,26 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     sharedDownScales: sharedInputs.downScales,
                     residual: residual
                 )
+                if let oracleControlRouted, let oracleControlShared {
+                    let controlOutput = lagunaRoutedSharedDownResidual(
+                        routedActivated: oracleControlRouted,
+                        routedDownWeight: downWeight,
+                        routedDownScales: downScales,
+                        indices: inds,
+                        routerWeights: weights,
+                        sharedActivated: oracleControlShared,
+                        sharedDownWeight: sharedInputs.downWeight,
+                        sharedDownScales: sharedInputs.downScales,
+                        residual: residual
+                    )
+                    lagunaAssertRawBF16Equal(
+                        controlOutput,
+                        output,
+                        label: "final sparse block output"
+                    )
+                    _didRunRoutedSharedSwiGLUOracle = true
+                }
+                return output
             } else if lagunaFusedRoutedDownReduceEnabled,
                 let downWeight = _routedDownWeight,
                 let downScales = _routedDownScales,
