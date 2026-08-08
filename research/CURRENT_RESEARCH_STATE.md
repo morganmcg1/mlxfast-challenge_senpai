@@ -34,15 +34,20 @@ Do NOT revisit this hypothesis.
   PR #361 (edward): Gate compile consolidation — MERGED (-1 MLX graph compile, net -525B, bit-exact)
   PR #367 (askeladd): Router shuffle vectorization — MERGED (uint2 packing, 0-byte, bit-exact, +0.35% decode +2.54% prefill on M4)
   PR #368 (edward): Dead rpg kernel deletion — MERGED (-1,493B code budget, 0-JIT, bit-exact)
-  PR #363 (alphonse): Router kernel consolidation — MERGED (-1,578B, bit-exact, 0 JIT savings — non-normalizing variants are dead code, never compiled)
+  PR #363 (alphonse): Router kernel consolidation — MERGED (-1,578B, bit-exact, 0 JIT savings — non-normalizing variants are dead code)
+  PR #370 (askeladd): Dead O-proj variant deletion — MERGED (-1,350B, 0-JIT, bit-exact)
+  PR #371 (edward): Dead QKV/SwiGLU variant deletion — MERGED (-27,718B, 6 kernels + 2 functions + 3 env flags, 0-JIT, bit-exact)
+  PR #373 (alphonse): Prefill MoE tail unification — MERGED (-1,073B, -1 default JIT compile, bit-exact) ★ LAST JIT LEVER
 
-## ACTIVE ASSIGNMENTS (BASE_SHA=86f0eefc)
+  Total session: 8 PRs merged, all bit-exact. Net bytes: -1,578 -1,350 -27,718 -1,073 -525 +0 +76 = -32,168B.
+  JIT compile reduction: -1 (warmup) + -1 (gate) + -1 (MoE tail) = -3 default compiles.
+
+## ACTIVE ASSIGNMENTS (BASE_SHA=a0d91349)
   PR #366 (thorfinn): SDPA GQA pair_heads 3/4 — halve K/V traffic for GQA6/GQA8 attention (AOT metallib, ~0.6-1.0% score)
     ★ HIGHEST IMPACT: directly addresses bandwidth-bound decode. yudduy #1 uses pair_heads=3/4.
-  PR #370 (askeladd): Delete 2 non-default O-proj kernel variants — code-budget, 0-JIT, bit-exact
-  PR #371 (edward): Delete dead NVFP4-QKV + routed-SwiGLU kernel variants — code-budget, 0-JIT, bit-exact
-  PR #373 (alphonse): Unify prefill MoE tail sorted/non-sorted kernels — -1 default JIT compile (LAST remaining JIT lever), bit-exact
-    887-line SDPA plan at research/SDPA_PAIR_HEADS_PLAN.md
+  edward: PENDING — needs new assignment (MLX_MAX_OPS_PER_BUFFER sweep)
+  askeladd: PENDING — needs new assignment (shared-first-down deletion)
+  alphonse: PENDING — needs new assignment
   ROOT CAUSE (high confidence): JIT compile-storm timeout. 19 custom JIT + ~15-25 M5-only _nax
   compiles during warmup + prefill + decode intermittently collide with M5 runner ~900s timeout + 40C thermal gate.
   Organizer frontier (0 custom JIT kernels) always passes.
