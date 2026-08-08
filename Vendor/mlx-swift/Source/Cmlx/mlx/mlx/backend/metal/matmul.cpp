@@ -237,6 +237,14 @@ void steel_matmul_regular_axpby_nax(
     wm = 2;
   }
 
+  const int tiles_m = (M + bm - 1) / bm;
+  const int tiles_n = (N + bn - 1) / bn;
+  if (bn == 128 && wn == 4 && tiles_m >= 4 &&
+      int64_t(tiles_m) * tiles_n <= 96 && N % 64 == 0) {
+    bn = 64;
+    wn = 2;
+  }
+
   // Prepare kernel name
   std::ostringstream kname;
 
