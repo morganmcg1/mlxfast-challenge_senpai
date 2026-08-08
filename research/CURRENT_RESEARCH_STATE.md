@@ -8,15 +8,16 @@ MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = T
 The × threadGroupSize multiplier in grid expressions is CORRECT. PR #333 was closed as invalid.
 Do NOT revisit this hypothesis.
 
-## M5 SUBMISSION STATUS (CRITICAL — 33+ CONSECUTIVE FAILURES)
-  891582e2: VALIDATING (1:18 AM UTC) — frontier f688a03f (warmup disabled + MLX_MAX_OPS_PER_BUFFER=400)
-  f17cf7f6: FAILED — validating ~70 min then failed
-  Previous failures: c8a7016, e1a2c89, 3ce7145 (all failed, compile-storm timeouts)
+## M5 SUBMISSION STATUS (CRITICAL — 35+ CONSECUTIVE FAILURES)
+  aeff1a40: VALIDATING (1:54 AM UTC) — frontier 1e2d5288 (PR #357 TACTICALLY DISABLED for -2 JIT compiles)
+  853ccbde: FAILED — frontier a25f2146 (PR #357 enabled, +2 JIT compiles)
+  891582e2: FAILED — frontier f688a03f (warmup fix only)
   Last SUCCESSFUL build: 68b66c5 (score 2.5520)
   Best score: df9613a (2.5817)
   Leaderboard #1: yudduy 2.6063. Our promoted: 97a5090 2.5888 (maple campaign).
   Gap to close: +0.67% from 2.5888 → 2.6063.
   Root cause: JIT compile-storm (~19 custom JIT + ~15-25 M5-only _nax compiles) intermittently exceeds M5 runner timeout.
+  TACTICAL: PR #357 (prefill QK-norm+RoPE) DISABLED to reduce 2 JIT compiles. Re-enable once PR #363 (-2 JIT) merges.
 
 ## M5 COMPILE AUDIT (from subagent report, research/M5_COMPILE_AUDIT_20260808_0104.md)
   Default-run custom JIT compiles: 19 (not 55)
@@ -29,9 +30,10 @@ Do NOT revisit this hypothesis.
   KEY: The ~15-25 M5-only _nax compiles are INHERENT (M5 GEMM speed path, cannot disable).
 
 ## MERGED THIS SESSION
-  PR #357 (askeladd): Re-enable PREFILL_QK_NORM_ROPE — MERGED (prefill ~1.5% improvement, bit-exact, +76B)
+  PR #357 (askeladd): Re-enable PREFILL_QK_NORM_ROPE — MERGED then TACTICALLY DISABLED (prefill ~1.5%, +76B, +2 JIT compiles — disabled for M5 build)
   PR #361 (edward): Gate compile consolidation — MERGED (-1 MLX graph compile, net -525B, bit-exact)
   PR #367 (askeladd): Router shuffle vectorization — MERGED (uint2 packing, 0-byte, bit-exact, +0.35% decode +2.54% prefill on M4)
+  PR #368 (edward): Dead rpg kernel deletion — MERGED (-1,493B code budget, 0-JIT, bit-exact)
 
 ## ACTIVE ASSIGNMENTS (BASE_SHA=54edee18)
   PR #366 (thorfinn): SDPA GQA pair_heads 3/4 — halve K/V traffic for GQA6/GQA8 attention (AOT metallib, ~0.6-1.0% score)
