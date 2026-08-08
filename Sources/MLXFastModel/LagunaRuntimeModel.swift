@@ -9118,72 +9118,56 @@ for (uint sequence = 2; sequence <= 64; sequence <<= 1) {
 """
 }
 
-private let lagunaDecodeRouterTournamentOrdinalKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_tournament_ordinal_v1",
-    inputNames: ["logits", "correction_bias"],
-    outputNames: ["router_indices", "router_scores"],
-    source: lagunaDecodeRouterTournamentOrdinalKernelSource(normalizing: false),
-    header: lagunaDecodeRouterOrdinalHeader,
-    ensureRowContiguous: true
-)
+/// Indexed by `(inert ? 4 : 0) | (scoreTable ? 2 : 0) | (normalizing ? 1 : 0)`.
+/// The `inert` half is the incumbent full-256 network under a distinct kernel
+/// name plus a no-op MSL suffix, so the content-addressed pipeline cache cannot
+/// serve the incumbent object to the control arm.
+private let lagunaDecodeRouterTournamentKernels: [MLXFast.MLXFastKernel] = {
+    var kernels: [MLXFast.MLXFastKernel] = []
+    for inert in [false, true] {
+        for scoreTable in [false, true] {
+            for normalizing in [false, true] {
+                let source =
+                    inert
+                    ? lagunaDecodeRouterOrdinalKernelSource(
+                        normalizing: normalizing, scoreTable: scoreTable)
+                        + "\n// inert control twin\n"
+                    : lagunaDecodeRouterTournamentOrdinalKernelSource(
+                        normalizing: normalizing, scoreTable: scoreTable)
+                let name = "laguna_decode_router_top8_\(inert ? "inert" : "tournament")_ordinal"
+                    + (scoreTable ? "_table" : "") + (normalizing ? "_norm" : "") + "_v1"
+                kernels.append(
+                    MLXFast.metalKernel(
+                        name: name,
+                        inputNames: ["logits", "correction_bias"],
+                        outputNames: ["router_indices", "router_scores"],
+                        source: source,
+                        header: lagunaDecodeRouterOrdinalHeader,
+                        ensureRowContiguous: true
+                    ))
+            }
+        }
+    }
+    return kernels
+}()
 
-private let lagunaDecodeRouterTournamentOrdinalNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_tournament_ordinal_norm_v1",
-    inputNames: ["logits", "correction_bias"],
-    outputNames: ["router_indices", "router_scores"],
-    source: lagunaDecodeRouterTournamentOrdinalKernelSource(normalizing: true),
-    header: lagunaDecodeRouterOrdinalHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaDecodeRouterTournamentOrdinalScoreTableKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_tournament_ordinal_table_v1",
-    inputNames: ["logits", "correction_bias"],
-    outputNames: ["router_indices", "router_scores"],
-    source: lagunaDecodeRouterTournamentOrdinalKernelSource(
-        normalizing: false, scoreTable: true),
-    header: lagunaDecodeRouterOrdinalHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaDecodeRouterTournamentOrdinalScoreTableNormalizingKernel =
-    MLXFast.metalKernel(
-        name: "laguna_decode_router_top8_tournament_ordinal_table_norm_v1",
-        inputNames: ["logits", "correction_bias"],
-        outputNames: ["router_indices", "router_scores"],
-        source: lagunaDecodeRouterTournamentOrdinalKernelSource(
-            normalizing: true, scoreTable: true),
-        header: lagunaDecodeRouterOrdinalHeader,
-        ensureRowContiguous: true
-    )
-
-/// Default off pending paired in-situ decode timing. Set
-/// `DARKBLOOM_DECODE_ROUTER_TOURNAMENT=1` to route the decode router through
-/// the two-phase block tournament instead of the full 256-lane network.
-private let lagunaDecodeRouterTournamentEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_ROUTER_TOURNAMENT"] == "1"
+/// Default off pending paired in-situ decode timing. `=1` routes the decode
+/// router through the two-phase block tournament instead of the full 256-lane
+/// network; `=inert` selects the invariant control twin described above.
+private let lagunaDecodeRouterTournamentArm =
+    ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_ROUTER_TOURNAMENT"] ?? "0"
 
 func lagunaDecodeRouterTop8TournamentOrdinalForTesting(
     logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false,
-    scoreTable: Bool = true
+    scoreTable: Bool = true, inert: Bool = false
 ) -> (MLXArray, MLXArray) {
     precondition(logits.dtype == .bfloat16 || logits.dtype == .float32)
     precondition(correctionBias.dtype == .float32)
     precondition(logits.size == 256)
     precondition(correctionBias.size == 256)
 
-    let kernel: MLXFast.MLXFastKernel
-    if scoreTable {
-        kernel =
-            normalizing
-            ? lagunaDecodeRouterTournamentOrdinalScoreTableNormalizingKernel
-            : lagunaDecodeRouterTournamentOrdinalScoreTableKernel
-    } else {
-        kernel =
-            normalizing
-            ? lagunaDecodeRouterTournamentOrdinalNormalizingKernel
-            : lagunaDecodeRouterTournamentOrdinalKernel
-    }
+    let kernel = lagunaDecodeRouterTournamentKernels[
+        (inert ? 4 : 0) | (scoreTable ? 2 : 0) | (normalizing ? 1 : 0)]
     let outputs = kernel(
         [logits, correctionBias],
         grid: (256, 1, 1),
@@ -9261,12 +9245,13 @@ private func lagunaDecodeRouterTop8(
     logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
 ) -> (MLXArray, MLXArray) {
     if lagunaDecodeRouterOrdinalEnabled {
-        if lagunaDecodeRouterTournamentEnabled {
+        if lagunaDecodeRouterTournamentArm != "0" {
             return lagunaDecodeRouterTop8TournamentOrdinalForTesting(
                 logits: logits,
                 correctionBias: correctionBias,
                 normalizing: normalizing,
-                scoreTable: lagunaDecodeRouterOrdinalScoreTableEnabled
+                scoreTable: lagunaDecodeRouterOrdinalScoreTableEnabled,
+                inert: lagunaDecodeRouterTournamentArm == "inert"
             )
         }
         if lagunaDecodeRouterOrdinalScoreTableEnabled {
