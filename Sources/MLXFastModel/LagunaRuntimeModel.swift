@@ -524,7 +524,7 @@ let lagunaFusedResidualRMSNormRouterEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER"] != "0"
 
 let lagunaFusedFullQKNormYaRNEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_QK_NORM_YARN"] == "1"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_QK_NORM_YARN"] != "0"
 
 /// Decode-only carrier for the two authoritative RoPE angle rows consumed by
 /// the fused Q/K kernels. At load time each attention family's own stock RoPE
