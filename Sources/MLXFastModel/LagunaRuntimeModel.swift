@@ -7279,8 +7279,8 @@ let lagunaSharedFirstDownOrderEnabled =
 
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf_bf4"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4_bf4",
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v5pwsf_bf4"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v5pw_bf4",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7351,9 +7351,19 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             (routed_experts + 1) * outputs_per_simd
         ];
         if (lane == 0) {
-            for (uint row = 0; row < outputs_per_simd; ++row) {
-                down_outputs[slot * outputs_per_simd + row] =
-                    bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
+            if (is_shared) {
+                for (uint row = 0; row < outputs_per_simd; ++row) {
+                    down_outputs[slot * outputs_per_simd + row] =
+                        bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
+                }
+            } else {
+                bfloat route_weight = bfloat(router_weights[slot]);
+                for (uint row = 0; row < outputs_per_simd; ++row) {
+                    bfloat down =
+                        bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
+                    down_outputs[slot * outputs_per_simd + row] =
+                        bfloat(down * route_weight);
+                }
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -7363,12 +7373,9 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
             for (uint routed_slot = 0;
                  routed_slot < routed_experts;
                  ++routed_slot) {
-                bfloat route_weight =
-                    bfloat(router_weights[routed_slot]);
-                bfloat product = bfloat(
-                    down_outputs[
-                        routed_slot * outputs_per_simd + lane
-                    ] * route_weight);
+                bfloat product = down_outputs[
+                    routed_slot * outputs_per_simd + lane
+                ];
                 routed_total = bfloat(product + routed_total);
             }
             bfloat routed = bfloat(
