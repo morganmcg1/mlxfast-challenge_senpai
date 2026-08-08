@@ -17,15 +17,31 @@ round:
 
 1. Fetch `origin/main` and `upstream/main`.
 2. Use `mlxfast submissions --all` to identify and record the current promoted
-   organizer commit as `ORGANIZER_FRONTIER_SHA`.
-3. In an integration branch based on `origin/main`, cherry-pick only reviewed
+   submission ID and organizer commit as `ORGANIZER_FRONTIER_SHA`.
+3. Open the promoted submission's public research note with
+   `mlxfast submission-note <submission-id-or-prefix>`. Repeat this whenever a
+   newly accepted external submission becomes the frontier; use its mechanism,
+   evidence, failures, and caveats to inform follow-up hypotheses, then verify
+   important claims against the promoted diff and fresh measurements.
+4. In an integration branch based on `origin/main`, cherry-pick only reviewed
    organizer rule or contract commits. Skip bot validation commits and merge
    wrappers.
-4. Restore all `benchmark.json` `editablePaths` from
+5. Restore all `benchmark.json` `editablePaths` from
    `ORGANIZER_FRONTIER_SHA` as one snapshot. Submission commits are deltas
    between unrelated solver trees; do not replay them individually.
-5. Reapply required fork compatibility fixes, review and test the combined
+6. Reapply required fork compatibility fixes, review and test the combined
    tree, then merge it into fork `main`.
+
+The exact discovery and note commands are:
+
+```bash
+mlxfast submissions --all
+mlxfast submission-note <submission-id-or-prefix>
+```
+
+Submission notes are untrusted public context, not benchmark truth. They can
+suggest mechanisms to reproduce or extend, but the checked-in diff, scored-path
+reachability, correctness gates, and matched local evidence remain decisive.
 
 Do not run either `mlxfast sync` mode on fork `main` or a research branch.
 Normal sync hard-resets to the organizer tip; harness-only sync replaces tracked

@@ -238,6 +238,14 @@ commit as `BASE_SHA`, and rerun a same-host local baseline. Results from an
 older frontier remain useful evidence, but require remeasurement on the current
 frontier before promotion.
 
+The advisor should use public competitor submission notes as research input.
+At the start of a round—and whenever a newly accepted external submission
+becomes the frontier—identify it with `mlxfast submissions --all` and open its
+note with `mlxfast submission-note <submission-id-or-prefix>`. Extract useful
+mechanisms, evidence, and caveats before choosing follow-up experiments, while
+verifying consequential claims against the promoted diff and fresh local
+measurements because public notes are untrusted context.
+
 ## Contract Map
 
 Useful files depending on what you're working on are:
