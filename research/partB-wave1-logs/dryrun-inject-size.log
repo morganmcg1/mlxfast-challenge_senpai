@@ -1,0 +1,61 @@
+=== fern_partB_dry_run.sh ===
+spec      = research/fern_partB_lagunaruntimemodel_spec_wave1.json
+scratch   = /var/folders/hg/g1_843ts0sv67jyk1mhhc83c0000gn/T/tmp.XtzKd6DvqQ
+repo copy  before  56d16941d61c5f1217faad6ef86dcc766b1632ac7078015702bc7f42a9434fcf  468336 B
+Sources/MLXFastModel/LagunaRuntimeModel.swift: 54 blocks, moved 11765 B, added 2403 B of pointers, net 9362 B -> notes/LagunaRuntimeModel.notes.md
+repo copy  after   56d16941d61c5f1217faad6ef86dcc766b1632ac7078015702bc7f42a9434fcf
+ok    repository copy of Sources/MLXFastModel/LagunaRuntimeModel.swift is byte-identical
+
+--- phase 1: comment-looking lines inside """ literals ---
+base literal-interior comment lines = 5 (372 B)
+head literal-interior comment lines = 5
+4587	            // Split-nibble decode: the same eight `half` bit patterns per
+4588	            // code word as the original shift+mask sequence, in fewer
+4589	            // integer ops with three mask constants instead of eight — the
+4590	            // form the current stock `fp_qmv_fast` compiles (every form is
+4591	            // an OR of masked shifts, so the decode is bit-identical).
+ok    literal-interior comment TEXT byte-identical
+ok    line-number shift is uniform: -16 (one value = no insertion inside the literal)
+ok    no planned block covers a literal-interior line
+
+--- phase 2: code residue equality (literal-aware) ---
+ok    Sources/MLXFastModel/LagunaRuntimeModel.swift  base=468336  head=458974  saved=9362    residue=348063 IDENTICAL
+
+--- phase 3: rule-29 containment and arithmetic agreement ---
+--- 3a: relocated lines carrying a rule-29 idiom ---
+relocated lines            172
+rule-bearing among them    0 (all behind a pointer)
+
+--- 3b: every relocated line lands in the note, in order ---
+blocks in spec             54
+moved bytes (with markers) 11765
+landed bytes (stripped)    10163
+blocks that did not land   0
+ok    all relocated prose is reachable in the note, in order
+
+--- 3c: planner projection == applier actual ---
+INJECT size: planner projection shifted by -50 B
+planner size_before        468336
+actual  size_before        468336
+planner size_after         458924
+actual  size_after         458974
+planner net_bytes          9362
+actual  net_bytes          9362
+FAIL  size_after planner 458924 != actual 458974 (delta 50)
+
+phase 3 failures: 1
+
+--- phase 4: DocC abstract detachment on the relocated copy ---
+
+mixed-style runs preceding a declaration: 0
+pristine copy exit=0  mixed-style runs preceding a declaration: 0
+relocated copy exit=0
+
+--- projection ---
+projected size      458974 B
+per-file cap        524288 B
+headroom before     55952 B
+headroom after      65314 B
+note file written   notes/LagunaRuntimeModel.notes.md (14838 B, scratch only)
+
+RESULT: FAIL (phase 3/4 assertion fired under injected fault size)

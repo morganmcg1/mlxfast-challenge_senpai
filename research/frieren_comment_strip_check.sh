@@ -23,6 +23,17 @@
 #   This check is necessary but NOT sufficient: it cannot see a comment edit that
 #   split a token. The build and upstream-equivalence gates remain mandatory.
 #
+#   LagunaRuntimeModel.swift is listed and CANNOT satisfy the precondition: it
+#   embeds 212 """ kernel-source literals, 5 of whose lines start with `//` and are
+#   Metal code, not comments. That is a property of the file, not of any candidate,
+#   so this script can never validate it and reports FAIL for it unconditionally.
+#   research/fern_partB_dry_run.sh phases 1-2 are the literal-aware equivalent:
+#   phase 1 asserts the literal-interior comment text is byte-identical and that no
+#   planned block covers it, phase 2 compares code residue with the literals held
+#   out. Whether this script should distinguish "not covered" from "failed" is a
+#   design question left to the advisor; suppressing the file here would overstate
+#   coverage, so the loud failure stands.
+#
 # Usage: research/frieren_comment_strip_check.sh [BASE_SHA]
 
 set -uo pipefail
@@ -30,6 +41,7 @@ set -uo pipefail
 BASE_SHA="${1:-e1d070f256a1f5cef5a62a1d001dfbfe8b81bd0c}"
 
 FILES=(
+  "Sources/MLXFastModel/LagunaRuntimeModel.swift"
   "Sources/MLXFastModel/LagunaRuntimeWeights.swift"
   "Sources/MLXFastModel/LagunaConfig.swift"
   "Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift"

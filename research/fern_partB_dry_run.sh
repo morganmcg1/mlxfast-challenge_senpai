@@ -14,8 +14,16 @@
 #            replacement, not a relaxation.
 #   phase 2  code residue equality with comments normalised away, computed with a
 #            literal-aware normaliser so kernel source is compared, not stripped.
+#   phase 3  rule-29 containment and arithmetic agreement: every relocated line is
+#            extracted; a line carrying a bit-exactness idiom is a hard failure
+#            unless its block emits a pointer; moved bytes must equal the note's
+#            relocated-line bytes; and the planner's projected final size must equal
+#            the applier's actual final size to the byte.
+#   phase 4  DocC abstract detachment, run on the relocated scratch copy.
 #
 # Usage: research/fern_partB_dry_run.sh [SPEC_JSON]
+#        MLXFAST_DRY_RUN_INJECT=rule|bytes|size  inject one fault to prove phase 3
+#        actually fails. Any injected run that reports PASS is itself a failure.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -141,6 +149,26 @@ else
   exit 1
 fi
 
+# ---- phase 3: rule-29 containment and arithmetic agreement ----
+printf -- '\n--- phase 3: rule-29 containment and arithmetic agreement ---\n'
+note="$work/notes/LagunaRuntimeModel.notes.md"
+python3 "$repo_root/research/fern_partB_phase3_check.py" \
+  "$SPEC" "$pristine" "$relocated" "$note"
+phase3_rc=$?
+
+printf -- '\n--- phase 4: DocC abstract detachment on the relocated copy ---\n'
+python3 "$repo_root/research/fern_vendor_docc_detach_check.py" "$relocated"
+docc_head=$?
+python3 "$repo_root/research/fern_vendor_docc_detach_check.py" "$pristine" \
+  >"$work/docc.base" 2>&1
+docc_base=$?
+printf 'pristine copy exit=%d  %s\n' "$docc_base" "$(tail -1 "$work/docc.base")"
+printf 'relocated copy exit=%d\n' "$docc_head"
+if [ "$docc_head" -ne "$docc_base" ]; then
+  printf 'FAIL relocation changed the DocC detachment verdict\n'
+  phase3_rc=1
+fi
+
 printf -- '\n--- projection ---\n'
 cap=524288
 printf 'projected size      %s B\n' "$hb"
@@ -148,7 +176,11 @@ printf 'per-file cap        %s B\n' "$cap"
 printf 'headroom before     %s B\n' "$((cap - pb))"
 printf 'headroom after      %s B\n' "$((cap - hb))"
 printf 'note file written   notes/%s (%s B, scratch only)\n' \
-  "LagunaRuntimeModel.notes.md" \
-  "$(wc -c <"$work/notes/LagunaRuntimeModel.notes.md" | tr -d ' ')"
+  "LagunaRuntimeModel.notes.md" "$(wc -c <"$note" | tr -d ' ')"
 
+if [ "$phase3_rc" -ne 0 ]; then
+  printf '\nRESULT: FAIL (phase 3/4 assertion fired%s)\n' \
+    "${MLXFAST_DRY_RUN_INJECT:+ under injected fault $MLXFAST_DRY_RUN_INJECT}"
+  exit 1
+fi
 printf '\nRESULT: PASS (dry run only; %s untouched in this checkout)\n' "$REL"

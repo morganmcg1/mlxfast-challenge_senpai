@@ -1,0 +1,29 @@
+file                    Sources/MLXFastModel/LagunaRuntimeModel.swift
+size now                468336 B
+comment blocks          254
+  comment pool          120254 B (25.7% of the file)
+  literal-interior      5 line(s), 372 B at 4587,4588,4589,4590,4591  (never a block; 0 in any plan)
+  hard-keep             82899 B
+planned blocks          62  (54 immediate, 8 fenced)
+  pointer below floor   0 rule-bearing blocks under 120 B, pointed anyway
+  dropped, pointer>=mv  0 blocks
+moved bytes             12910
+pointer bytes added     2659
+NET recovery            10251
+projected size          458085 B  (87.4% of the 524288 B cap)
+headroom now            55952 B
+headroom projected      66203 B
+
+wave 1 (apply immediately): 54 blocks, 11765 B moved, 2403 B pointers, net 9362 B
+wave 1 projected size   458974 B  (headroom 65314 B)
+wave 2 (apply after fence): 8 blocks, 1145 B
+    overlaps #301: 3 blocks, 308 B
+    overlaps #308: 3 blocks, 414 B
+    overlaps #309: 3 blocks, 498 B
+    of which gutter-only (>=1 fence within 3 lines, none overlapping): 3 blocks, 258 B
+      761-762    121 B  #309  lagunaNormReductionTail
+      4034-4034     62 B  #308  lagunaGatedAffineOProjNVFP4Source
+      6800-6800     75 B  #301,#308  lagunaSharedSwiGLUQMVRows1Kernel
+wrote research/fern_partB_lagunaruntimemodel_spec.json
+wrote research/fern_partB_lagunaruntimemodel_spec_wave1.json
+wrote research/fern_partB_lagunaruntimemodel_blocks.tsv

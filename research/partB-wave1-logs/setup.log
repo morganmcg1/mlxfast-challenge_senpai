@@ -1,0 +1,47 @@
+setup.sh: macmon found at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/home/bin/macmon (GPU cool-down gate enabled for local benchmark modes)
+setup.sh: building trusted Swift harness and participant runtime worker
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-swift' complete! (9.56s)
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+Building for production...
+[0/2] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'mlxfast-runtime-worker' complete! (9.39s)
+setup.sh: mlx.metallib build running in background pid=69775
+setup.sh: acquired reference cache mutation lock /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25.mlxfast-setup.lock
+setup.sh: trusted reference cache lock at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25/.mlxfast-reference-cache.lock; skipping full SHA256 verification
+setup.sh: verified reference checkpoint at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25 (5 safetensors shard(s))
+setup.sh: reference weights became ready while waiting at /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25
+setup.sh: released reference cache mutation lock /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25.mlxfast-setup.lock
+setup.sh: waiting for mlx.metallib build
+setup.sh: building mlx.metallib for MLX Swift runtime
+-- Building MLX for arm64 processor on Darwin
+-- Metal found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Metal.framework
+-- Building on macOS 26.5.2
+-- Building with macOS 26.5 SDK
+-- Metal version: 400
+-- Accelerate found /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/Accelerate.framework
+-- Downloading json
+-- Using the multi-header code from /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/Vendor/mlx-swift/Source/Cmlx/json/include/
+-- Downloading json for JACCL
+-- {fmt} version: 12.1.0
+-- Build type: Release
+-- Configuring done (0.4s)
+-- Generating done (0.2s)
+-- Build files have been written to: /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/.build-worker/mlx-metal
+[100%] Built target mlx-metallib
+build-mlx-metallib.sh: wrote /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/.build-worker/release/mlx.metallib
+setup.sh: mlxfast (Yukon submission CLI) found at /usr/local/bin/mlxfast
+setup.sh: setup complete elapsed=00:00:26
+setup.sh: summary
+  trusted CLI: .build/release/mlxfast-swift
+  participant worker: .build-worker/release/mlxfast-runtime-worker
+  mlx.metallib: .build-worker/release/mlx.metallib
+  reference checkpoint: /Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25 (20.1 GiB)
+  next:
+    MLXFAST_OFFLINE_WRITABLE_PATHS="/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/workspace/target/weights" .github/scripts/run-offline.sh .build/release/mlxfast-swift transform --reference "/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-fern/home/.cache/huggingface/hub/models--poolside--Laguna-XS-2.1-NVFP4-mlx/snapshots/841778bda563a36104dd521e37d99218e46f4f25" --output weights
+    .build/release/mlxfast-swift correctness --weights weights
+    ./benchmark.sh  # defaults to --local-iterate against the public fixtures (--official needs the organizer-provisioned oracle)

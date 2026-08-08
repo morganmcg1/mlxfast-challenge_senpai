@@ -1,0 +1,8 @@
+ok    L1240  block 1226-1246  hard_keep=True  rule_bearing=True  relocated=False
+ok    L2502  block 2497-2510  hard_keep=True  rule_bearing=True  relocated=False
+ok    L3696  block 3681-3699  hard_keep=True  rule_bearing=True  relocated=False
+ok    L4469  block 4461-4471  hard_keep=True  rule_bearing=True  relocated=False
+ok    L8491  block 8488-8493  hard_keep=True  rule_bearing=True  relocated=False
+ok    L10023  block 10017-10029  hard_keep=True  rule_bearing=True  relocated=False
+
+pins released by the plan: 0

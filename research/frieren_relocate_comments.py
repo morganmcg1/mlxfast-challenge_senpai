@@ -16,11 +16,38 @@ Verify the result with research/frieren_comment_strip_check.sh.
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 
 def slug(text):
     return re.sub(r'[^a-z0-9]+', '', text.lower())
+
+
+def anchors(blocks):
+    """Per-block (heading, anchor) pairs, disambiguated within one file.
+
+    Two comment blocks can document the same declaration. A bare duplicate
+    heading gives both the same slug, so every pointer to it would silently
+    resolve to the first section; the `(L<start>)` suffix keeps the markdown
+    anchor GitHub generates and the slug this tool writes in agreement.
+    """
+    dup = {s for s, n in Counter(b['symbol'] for b in blocks).items() if n > 1}
+    return [(f"## `{b['symbol']}` (L{b['start']})", f"{slug(b['symbol'])}-l{b['start']}")
+            if b['symbol'] in dup else (f"## `{b['symbol']}`", slug(b['symbol']))
+            for b in blocks]
+
+
+def pointer_text(first_line, note_rel, anchor):
+    """The `// See notes/...` line left behind in place of a relocated block.
+
+    Shared with the planners so a projected byte count cannot drift from the
+    applied one. A `//` pointer dropped into a `///` run would detach the kept
+    abstract from its declaration, so the block's own marker is mirrored.
+    """
+    indent = first_line[:len(first_line) - len(first_line.lstrip())]
+    marker = '///' if first_line.lstrip().startswith('///') else '//'
+    return f"{indent}{marker} See {note_rel}#{anchor}"
 
 
 def strip_marker(line):
@@ -79,25 +106,22 @@ def main():
         lines = path.read_text(encoding='utf-8').split('\n')
         blocks = sorted(entry['blocks'], key=lambda b: b['start'])
         validate(entry['file'], lines, blocks)
+        heads = anchors(blocks)
 
         sections = []
-        for b in blocks:
+        for b, (heading, _) in zip(blocks, heads):
             body = lines[b['start'] - 1:b['end']]
-            sections.append((b, [strip_marker(l) for l in body]))
+            sections.append((b, heading, [strip_marker(l) for l in body]))
 
         moved = 0
         added = 0
-        for b in reversed(blocks):
+        for b, (_, anchor) in reversed(list(zip(blocks, heads))):
             start, end = b['start'] - 1, b['end']
             block = lines[start:end]
             moved += sum(len(l.encode('utf-8')) + 1 for l in block)
             replacement = []
             if b.get('pointer'):
-                indent = block[0][:len(block[0]) - len(block[0].lstrip())]
-                # A `//` pointer dropped into a `///` run would detach the kept
-                # abstract from its declaration, so mirror the block's marker.
-                marker = '///' if block[0].lstrip().startswith('///') else '//'
-                ptr = f"{indent}{marker} See {note_path.as_posix()}#{slug(b['symbol'])}"
+                ptr = pointer_text(block[0], note_path.as_posix(), anchor)
                 replacement = [ptr]
                 added += len(ptr.encode('utf-8')) + 1
             lines[start:end] = replacement
@@ -114,8 +138,8 @@ def main():
             "`research/frieren_comment_strip_check.sh`).",
             "",
         ]
-        for b, body in sections:
-            out.append(f"## `{b['symbol']}`")
+        for b, heading, body in sections:
+            out.append(heading)
             out.append("")
             out.append(f"_relocated from lines {b['start']}-{b['end']} at base {base_sha[:8]}_")
             out.append("")
