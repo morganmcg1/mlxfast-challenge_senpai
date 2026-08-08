@@ -8136,7 +8136,7 @@ private func lagunaDecodeRouterOrdinalKernelSource(
     let crossSIMDExchange =
         packedPayload
         ? """
-        xchg_payload[lane] = uint2(my_ordinal, my_index);
+        xchg_payload[lane] = uint2(my_ordinal,my_index);
         threadgroup_barrier(mem_flags::mem_threadgroup);
         uint partner = lane ^ stride;
         uint2 other_payload = xchg_payload[partner];
