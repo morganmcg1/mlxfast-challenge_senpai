@@ -1,6 +1,6 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-07T23:13Z (updated by advisor session)
-- Advisor HEAD: 504a2d9e (pushed to origin). 37+ bit-exact changes on current frontier.
+- 2026-08-08T01:20Z (updated by advisor session)
+- Advisor HEAD: f688a03f (pushed to origin). 37+ bit-exact changes on current frontier.
 - LRM: 502,603/524,288 = 21,685 B headroom. Total surface 2,937,409/3,000,000 = 62,591 B headroom.
 
 ## GRID OVER-DISPATCH HYPOTHESIS: REFUTED
@@ -8,28 +8,38 @@ MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = T
 The × threadGroupSize multiplier in grid expressions is CORRECT. PR #333 was closed as invalid.
 Do NOT revisit this hypothesis.
 
-## M5 SUBMISSION STATUS (CRITICAL — 28+ CONSECUTIVE FAILURES)
-  311d4fe3: FAILED (10:30 PM) — warmup fix resubmission. Code identical to passing 68b66c5.
-  d464652: FAILED (10:54 PM) — 3rd resubmission of warmup fix code.
-  d4f33938: VALIDATING (11:13 PM) — 4th resubmission. Code is confirmed correct (68b66c5 PASSED at 2.5520).
-  Root cause: JIT compile-storm (~82 kernel instances, ~287s compile) intermittently exceeds M5 runner timeout.
-  The code WORKS — 68b66c5 PASSED at ad58c92. Identical resubmission 70929a5 FAILED, confirming intermittent environmental sensitivity.
-  Strategy: keep resubmitting while students work. Prepare JIT kernel consolidation (Idea 3) as structural fix.
-  2deac25c: FAILED (10:13 PM) — warmup fix (prefill 512→2, 3 extra decode steps). Insufficient alone.
-  89ab294: FAILED (9:37 PM) — same d7758813 code without warmup fix.
-  7e974fa: FAILED (9:20 PM) — resubmission of d7758813 with M5 fixes.
-  66c0555: FAILED (9:00 PM) — same code with FUSED_QKV OFF, addMM OFF.
-  CRITICAL: 25+ consecutive M5 build failures since 68b66c5 PASSED at 9:36 AM (score 2.5520).
-  Organizer frontier (3ff3992) PASSED at 6:51 PM (score 2.5213) — confirms M5 works intermittently.
-  ad58c92 (=68b66c5) and cdefbb9 have 0 lines diff in Sources/ — identical code passed then failed.
-  Best birch score: 2.5817 (df9613a). All prior birch submissions failed or rejected.
-  Leaderboard #1: fyrsta7 2.6040 (yudduy). Gap: ~0.94%.
-  ROOT CAUSE (high confidence): JIT compile-storm timeout. 57 JIT kernel definitions compiled
-  lazily on first dispatch create 80-110+ Metal compilations during inference, colliding with
-  runner ~900s timeout + 40C thermal gate. Organizer frontier (0 JIT kernels) always passes.
-  WARMUP FIX APPLIED: Reduced warmup prefill from 512 to 2 tokens (256x less attention compute,
-  same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
-  If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
+## M5 SUBMISSION STATUS (CRITICAL — 33+ CONSECUTIVE FAILURES)
+  891582e2: VALIDATING (1:18 AM UTC) — frontier f688a03f (warmup disabled + MLX_MAX_OPS_PER_BUFFER=400)
+  f17cf7f6: FAILED — validating ~70 min then failed
+  Previous failures: c8a7016, e1a2c89, 3ce7145 (all failed, compile-storm timeouts)
+  Last SUCCESSFUL build: 68b66c5 (score 2.5520)
+  Best score: df9613a (2.5817)
+  Leaderboard #1: yudduy 2.6063. Our promoted: 97a5090 2.5888 (maple campaign).
+  Gap to close: +0.67% from 2.5888 → 2.6063.
+  Root cause: JIT compile-storm (~19 custom JIT + ~15-25 M5-only _nax compiles) intermittently exceeds M5 runner timeout.
+
+## M5 COMPILE AUDIT (from subagent report, research/M5_COMPILE_AUDIT_20260808_0104.md)
+  Default-run custom JIT compiles: 19 (not 55)
+  - Decode steady-state: 9 (embedding+RoPE atlas, sliding fused attention, sliding standalone QKNorm [warmup-only],
+    fused GProj QKV halved, activated O-proj halved, residual+RMSNorm router rpg8, residual+RMSNorm,
+    routed SwiGLU packed top8 R1, routed+shared down residual)
+  - LM-head pruner: 6 (both refine + non-refine variants compile — prefill uses non-refine, decode uses refine)
+  - Prefill-only: 3 (shared SwiGLU, prefill MoE tail, sorted MoE tail)
+  - Warmup waste: 1 — lagunaFullFusedAttentionKernel warmed but NEVER scored-dispatched (FIXED: warmup disabled)
+  KEY: The ~15-25 M5-only _nax compiles are INHERENT (M5 GEMM speed path, cannot disable).
+
+## ACTIVE ASSIGNMENTS (BASE_SHA=f688a03f, all WIP with initial commits only)
+  PR #366 (thorfinn): SDPA GQA pair_heads 3/4 — halve K/V traffic for GQA6/GQA8 attention (AOT metallib, ~0.6-1.0% score)
+    ★ HIGHEST IMPACT: directly addresses bandwidth-bound decode. yudduy #1 uses pair_heads=3/4.
+    887-line plan at research/SDPA_PAIR_HEADS_PLAN.md
+  PR #363 (alphonse): Router kernel consolidation — -2 JIT compiles (M5 build fix, net-negative bytes)
+  PR #361 (edward): Consolidate compiled gate functions — -1 MLX graph compile (M5 build fix, 0-200B)
+  PR #357 (askeladd): Re-enable PREFILL_QK_NORM_ROPE — recover 200 prefill dispatch eliminations (0-byte flag flip)
+  ROOT CAUSE (high confidence): JIT compile-storm timeout. 19 custom JIT + ~15-25 M5-only _nax
+  compiles during warmup + prefill + decode intermittently collide with M5 runner ~900s timeout + 40C thermal gate.
+  Organizer frontier (0 custom JIT kernels) always passes.
+  WARMUP FIX APPLIED: Disabled full-attention kernel warmup (lagunaWarmFullFusedAttentionKernel, never scored).
+  Raised MLX_MAX_OPS_PER_BUFFER 200→400 for M5 graph compile headroom.
 
 ## MERGED WAVE 19-21
   PR #352 (thorfinn): JIT kernel disable sweep — MERGED (5 flags disabled, 345B)
