@@ -112,9 +112,10 @@ def main() -> int:
         k = steady(k_all, args.per_step, args.steps, args.drop_steps)
         c = steady(c_all, args.per_step, args.steps, args.drop_steps)
         runs.append(dict(slot=slot, arm=arm, path=os.path.basename(path),
+                         set=os.path.basename(os.path.dirname(path)),
                          n_k=len(k_all), n_c=len(c_all),
                          tk=trimmed_mean(k), tc=trimmed_mean(c)))
-    runs.sort(key=lambda r: r["slot"])
+    runs.sort(key=lambda r: (r["set"], r["slot"]))
 
     print(f"{'run':>22} {'arm':>8} {'nK':>6} {'nC':>6} {'K us':>8} "
           f"{'C us':>8} {'M=logK-logC':>12}")

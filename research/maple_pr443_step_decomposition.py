@@ -86,8 +86,9 @@ def main() -> int:
         totals, busy = label_totals(path, args.cbs_per_step, steady_steps)
         runs.append(dict(slot=int(m.group(1)), arm=m.group(3),
                          path=os.path.basename(path),
+                         set=os.path.basename(os.path.dirname(path)),
                          totals=totals, busy=busy))
-    runs.sort(key=lambda r: r["slot"])
+    runs.sort(key=lambda r: (r["set"], r["slot"]))
 
     control = None
     for key in runs[0]["totals"]:
