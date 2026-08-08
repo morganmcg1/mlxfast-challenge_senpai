@@ -35,6 +35,13 @@
   FIX PLAN: PR #407 (prefill QK-norm+RoPE, already complete, needs rebase) + PR #420 (full-attn, thorfinn WIP)
   These 2 PRs eliminate the 3 extra JIT compiles. Edward/alphonse redirected to verify and rebasing.
 
+## M5 SUBMISSION STATUS (2026-08-08T07:51 UTC)
+  7f9cce1b: VALIDATING — frontier fc66737f (composition of PR #407 + #402 + #411)
+  Partial fix: 2 of 3 JIT compile deltas fixed (rope.metal + rms_norm.metal)
+  Missing: steel_attention (1,160 lines) for decode full-attn — PR #420 (thorfinn WIP)
+  If build passes: great, add PR #420 for further optimization
+  If build fails: add PR #420 and resubmit
+
 ## M5 BUILD FIX ASSIGNMENTS (Wave 13, BASE_SHA=b9394914)
   PR #407 (edward, v2): Prefill QK-norm+RoPE fusion — ACCEPTED, needs rebase onto 3df94c4c (merge conflicts)
   PR #418 (edward): Restore prefill MoE kernels — LIKELY NOT NEEDED (f790e33f used standard gatherQuantizedMM)
