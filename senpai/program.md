@@ -298,14 +298,14 @@ python3 senpai/watch-submission.py --submission <submission-id-or-prefix>
 Start one watcher after a submission returns a queued or validating receipt,
 then continue useful research while it runs. Its default checks are separated
 by three minutes plus a fresh independent 0-20 second jitter, and it honors
-longer server retry guidance. A student can launch it through the current
-supervised-process tools and be resumed when the process ends; an advisor must
-still check sparsely until those tools are generalized. The watcher does not
-submit, retry, monitor capacity before a receipt exists, claim queue ownership,
-or comment on a PR automatically.
+longer server retry guidance. An advisor or student can launch it with
+`run_job`, declaring `workspace_access` as `read_only`, and be resumed by the
+automatic terminal monitor when it ends. The watcher does not submit, retry,
+monitor capacity before a receipt exists, claim queue ownership, or comment on
+a PR automatically.
 If it exits on an unknown or new API state, inspect that exact receipt; do not
 infer permission to resubmit.
-When using `run_training`, copy the paired inner/outer timeout example from
+When using `run_job`, copy the paired inner/outer timeout example from
 [`infra.md`](infra.md#official-ranked-queue); the watcher's six-hour standalone
 default must not exceed the supervisor's process deadline.
 
