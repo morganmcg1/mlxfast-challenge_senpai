@@ -54,8 +54,8 @@ compare_pair() {
 }
 
 for pat in \
-  'private func lagunaDecodeRouterOrdinalKernelSource\(' \
-  'private func lagunaDecodeRouterTournamentOrdinalKernelSource\('
+  'private func lagunaDecodeRouterOrdinalKernelSource[(]' \
+  'private func lagunaDecodeRouterTournamentOrdinalKernelSource[(]'
 do
   extract_decl "$SRC" "$pat" > "$TMP/src.txt"
   extract_decl "$HARNESS" "$pat" > "$TMP/harness.txt"
