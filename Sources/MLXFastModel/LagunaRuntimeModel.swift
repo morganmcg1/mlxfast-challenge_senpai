@@ -7503,72 +7503,7 @@ func lagunaDenseGateUpSwiGLU(
 }
 
 private let lagunaDenseDownResidualKernel = MLXFast.metalKernel(
-    name: "laguna_dense_down_residual_bf16_staged_v1",
-    inputNames: ["activated", "down_weight", "residual"],
-    outputNames: ["output"],
-    source: """
-        constexpr uint in_vec_size = 8192;
-        constexpr uint rows_per_thread = 4;
-        constexpr uint values_per_thread = 4;
-        constexpr uint block_width = 128;
-        constexpr uint blocks = in_vec_size / block_width;
-        constexpr uint rows_per_group = 16;
-        constexpr uint activation_vecs = in_vec_size / values_per_thread;
-
-        uint tile = threadgroup_position_in_grid.x;
-        uint simd_group = simdgroup_index_in_threadgroup;
-        uint lane = thread_index_in_simdgroup;
-        uint local_id = thread_position_in_threadgroup.x;
-
-        threadgroup vec<bfloat, 4> staged[activation_vecs];
-        const device vec<bfloat, 4>* activated4 =
-            (const device vec<bfloat, 4>*)activated;
-        for (uint i = local_id; i < activation_vecs; i += block_width) {
-            staged[i] = activated4[i];
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        uint row_base = tile * rows_per_group + simd_group * rows_per_thread;
-
-        thread float result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
-        thread float coefficients[values_per_thread];
-
-        uint column = lane * values_per_thread;
-        for (uint block = 0; block < blocks; ++block) {
-            const vec<bfloat, 4> c4 = staged[column / values_per_thread];
-            for (uint i = 0; i < values_per_thread; ++i) {
-                coefficients[i] = float(c4[i]);
-            }
-            for (uint row = 0; row < rows_per_thread; ++row) {
-                const device vec<bfloat, 4>* row_values =
-                    (const device vec<bfloat, 4>*)(
-                        down_weight + (row_base + row) * in_vec_size + column);
-                const vec<bfloat, 4> w = row_values[0];
-                for (uint i = 0; i < values_per_thread; ++i) {
-                    result[row] += float(w[i]) * coefficients[i];
-                }
-            }
-            column += block_width;
-        }
-
-        for (uint row = 0; row < rows_per_thread; ++row) {
-            for (ushort delta = 16; delta >= 1; delta >>= 1) {
-                result[row] += metal::simd_shuffle_down(result[row], delta);
-            }
-        }
-        if (lane == 0) {
-            for (uint row = 0; row < rows_per_thread; ++row) {
-                bfloat down = bfloat(result[row]);
-                output[row_base + row] =
-                    bfloat(residual[row_base + row] + down);
-            }
-        }
-        """,
-    ensureRowContiguous: true
-)
-
-private let lagunaDenseDownResidualControlKernel = MLXFast.metalKernel(
-    name: "laguna_dense_down_residual_bf16_control_v1",
+    name: "laguna_dense_down_residual_bf16_v1",
     inputNames: ["activated", "down_weight", "residual"],
     outputNames: ["output"],
     source: """
@@ -7623,30 +7558,6 @@ private let lagunaDenseDownResidualControlKernel = MLXFast.metalKernel(
         """,
     ensureRowContiguous: true
 )
-
-func lagunaDenseDownResidualControlForTesting(
-    _ activated: MLXArray,
-    downWeight: MLXArray,
-    residual: MLXArray
-) -> MLXArray {
-    precondition(activated.dtype == .bfloat16)
-    precondition(activated.shape == [1, 1, LagunaConstants.denseIntermediateSize])
-    precondition(downWeight.dtype == .bfloat16)
-    precondition(
-        downWeight.shape == [
-            LagunaConstants.hiddenSize, LagunaConstants.denseIntermediateSize,
-        ])
-    precondition(residual.dtype == .bfloat16)
-    precondition(residual.shape == [1, 1, LagunaConstants.hiddenSize])
-
-    return lagunaDenseDownResidualControlKernel(
-        [activated, downWeight, residual],
-        grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
-        threadGroup: (128, 1, 1),
-        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
-    )[0]
-}
 
 func lagunaDenseDownResidual(
     _ activated: MLXArray,
