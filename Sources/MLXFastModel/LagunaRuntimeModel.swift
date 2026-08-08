@@ -6811,6 +6811,21 @@ private let lagunaSharedSwiGLUQMVPrefetchEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_PREFETCH"] == "1"
     || lagunaSharedSwiGLUQMVPairwiseScalesEnabled
 
+/// Same halved scale plane as `lagunaSharedSwiGLUQMVPairwiseScalesEnabled` but
+/// on the default (non-prefetch) K-block schedule, isolating the plane's
+/// traffic reduction from the prefetch schedule it was first measured with.
+/// Halved-plus-prefetch is exactly the pairwise arm, so this flag is inert
+/// whenever the prefetch schedule is already selected.
+private let lagunaSharedSwiGLUQMVHalvedScalesEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_SCALE_HALVED"] == "1"
+    && lagunaSharedSwiGLUQMVRows1Enabled
+    && !lagunaSharedSwiGLUQMVPrefetchEnabled
+
+/// True when the kernel reads the halved plane, on either schedule.
+private let lagunaSharedSwiGLUQMVHalvedPlaneInUse =
+    lagunaSharedSwiGLUQMVPairwiseScalesEnabled
+    || lagunaSharedSwiGLUQMVHalvedScalesEnabled
+
 /// Byte length of the halved shared gate/up scale plane, header included.
 let lagunaSharedGateUpHalvedScaleBytes =
     lagunaScalePatchHeaderBytes
@@ -6818,17 +6833,17 @@ let lagunaSharedGateUpHalvedScaleBytes =
     * (LagunaConstants.hiddenSize / 32)
 
 private let lagunaSharedSwiGLUQMVRows1ScaleRowBytes =
-    lagunaSharedSwiGLUQMVPairwiseScalesEnabled ? 64 : 128
+    lagunaSharedSwiGLUQMVHalvedPlaneInUse ? 64 : 128
 
 /// Weights covered by one scale byte in the plane the kernel actually reads.
 private let lagunaSharedSwiGLUQMVRows1WeightsPerScaleByte =
-    lagunaSharedSwiGLUQMVPairwiseScalesEnabled ? 32 : 16
+    lagunaSharedSwiGLUQMVHalvedPlaneInUse ? 32 : 16
 
 /// Row-scale pointer setup of `lagunaSharedSwiGLUQMVRows1Kernel`. A K-block is
 /// 512 weights, so the group index a lane needs is `block / 16 + lane` and its
 /// halved-plane byte index is `block / 32 + (lane >> 1)`.
 private let lagunaSharedSwiGLUQMVRows1ScalePointers: String = {
-    guard lagunaSharedSwiGLUQMVPairwiseScalesEnabled else {
+    guard lagunaSharedSwiGLUQMVHalvedPlaneInUse else {
         return """
         const device uint8_t* gate_row_scale =
             fused_scales + row * scale_row_bytes + lane;
@@ -6867,18 +6882,40 @@ private let lagunaSharedSwiGLUQMVRows1KBlockLoop: String = {
         }
     """
     guard lagunaSharedSwiGLUQMVPrefetchEnabled else {
+        guard lagunaSharedSwiGLUQMVHalvedScalesEnabled else {
+            return """
+            for (uint block = 0; block < input_width; block += block_width) {
+            \(inputBlockLoad)
+
+                gate_result += laguna_nvfp4_qdot_16(
+                    gate_row_weight + block / 2,
+                    input_values,
+                    laguna_nvfp4_scale(gate_row_scale[block / 16]));
+                up_result += laguna_nvfp4_qdot_16(
+                    up_row_weight + block / 2,
+                    input_values,
+                    laguna_nvfp4_scale(up_row_scale[block / 16]));
+            }
+            """
+        }
         return """
+        const bool patch_lane = row == 0 && lane == 1;
         for (uint block = 0; block < input_width; block += block_width) {
         \(inputBlockLoad)
 
+            const bool patch = patch_lane && block == 0;
+            const uint8_t gate_sb =
+                patch ? fused_scales[0] : gate_row_scale[block / 32];
+            const uint8_t up_sb =
+                patch ? fused_scales[1] : up_row_scale[block / 32];
             gate_result += laguna_nvfp4_qdot_16(
                 gate_row_weight + block / 2,
                 input_values,
-                laguna_nvfp4_scale(gate_row_scale[block / 16]));
+                laguna_nvfp4_scale(gate_sb));
             up_result += laguna_nvfp4_qdot_16(
                 up_row_weight + block / 2,
                 input_values,
-                laguna_nvfp4_scale(up_row_scale[block / 16]));
+                laguna_nvfp4_scale(up_sb));
         }
         """
     }
@@ -6933,7 +6970,9 @@ private let lagunaSharedSwiGLUQMVRows1KBlockLoop: String = {
 private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
     name: lagunaSharedSwiGLUQMVPairwiseScalesEnabled
         ? "laguna_shared_nvfp4_swiglu_qmv_rows1_ps_bf16_v1"
-        : "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1",
+        : lagunaSharedSwiGLUQMVHalvedScalesEnabled
+            ? "laguna_shared_nvfp4_swiglu_qmv_rows1_hs_bf16_v1"
+            : "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
     outputNames: ["activated"],
     source: """
@@ -6992,7 +7031,7 @@ func lagunaSharedSwiGLUQMV(
         fusedWeight.dims(2 * LagunaConstants.sharedExpertIntermediateSize,
             LagunaConstants.hiddenSize / 8))
     precondition(fusedScales.dtype == .uint8)
-    if lagunaSharedSwiGLUQMVPairwiseScalesEnabled {
+    if lagunaSharedSwiGLUQMVHalvedPlaneInUse {
         precondition(fusedScales.dims(lagunaSharedGateUpHalvedScaleBytes))
     } else {
         precondition(
@@ -8403,7 +8442,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         // Gate and up are concatenated along output rows, so only each source
         // tensor's very first group pair can be left unequal by the quantizer:
         // flat pair 0 and flat pair `gate.scales.size / 2`.
-        if lagunaSharedSwiGLUQMVPairwiseScalesEnabled {
+        if lagunaSharedSwiGLUQMVHalvedPlaneInUse {
             if let halved = lagunaHalvedGroup32ScalePlane(
                 fusedScales, allowedFlatPairs: [0, gate.scales.size / 2])
             {
@@ -8479,11 +8518,11 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         if let sharedActivation {
             activated = sharedActivation
         } else {
-            // The pairwise arm reads the halved plane; an uncertified (nil)
+            // The halved arms read the halved plane; an uncertified (nil)
             // plane declines this fusion rather than feeding the kernel a
             // plane of the wrong density.
             let qmvScales: MLXArray? =
-                lagunaSharedSwiGLUQMVPairwiseScalesEnabled
+                lagunaSharedSwiGLUQMVHalvedPlaneInUse
                 ? _fusedGateUpHalvedScales
                 : banks.gateUpScales
             guard let scales = qmvScales else { return nil }
@@ -8618,11 +8657,11 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         if x.dim(1) == 1,
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales
         {
-            // The pairwise arm reads the halved plane instead; an uncertified
+            // The halved arms read the halved plane instead; an uncertified
             // (nil) plane falls through to the QMM path below rather than
             // feeding the kernel a plane of the wrong density.
             let qmvScales: MLXArray? =
-                lagunaSharedSwiGLUQMVPairwiseScalesEnabled
+                lagunaSharedSwiGLUQMVHalvedPlaneInUse
                 ? _fusedGateUpHalvedScales
                 : fusedScales
             if lagunaFusedSharedSwiGLUQMVEnabled,
