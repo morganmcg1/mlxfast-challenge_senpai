@@ -117,7 +117,12 @@ private func lagunaAssertRawBF16Equal(
             "routed+shared SwiGLU oracle mismatch in \(label) at \(mismatch.offset): "
                 + "\(mismatch.element.0) != \(mismatch.element.1)")
     }
-    print("routed+shared SwiGLU oracle pass: \(label) (\(controlBits.count) BF16 values)")
+    FileHandle.standardError.write(
+        Data(
+            (
+                "mlxfast: routed+shared SwiGLU oracle pass: \(label) "
+                    + "(\(controlBits.count) BF16 values)\n"
+            ).utf8))
 }
 
 /// `DARKBLOOM_PACKED_SCALES` (default ON; set "0" to disable): decode-only
