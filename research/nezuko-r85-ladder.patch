@@ -1,0 +1,232 @@
+diff --git a/Sources/MLXFastModel/LagunaRuntimeModel.swift b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+index 9c48472..db3706a 100644
+--- a/Sources/MLXFastModel/LagunaRuntimeModel.swift
++++ b/Sources/MLXFastModel/LagunaRuntimeModel.swift
+@@ -96,6 +96,46 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
+     lagunaTracedFusions.note(site())
+ }
+ 
++// MARK: - R85-D dispatch-cost ladder instrument (research-only, never shipped)
++
++/// `DARKBLOOM_R85_LADDER_MODE` arms the injected-null-dispatch ladder used by
++/// the R85-D per-dispatch cost measurement. Unset leaves the decode path stock.
++///   `wide` — K chained BF16 multiplies on the live `[1,1,2048]` hidden stream
++///            (4 KiB read + 4 KiB write per injected dispatch).
++///   `tiny` — K chained BF16 multiplies on a `[1]` scalar, folded back with one
++///            broadcast add that is present for every K including 0, so the
++///            fold lands in the intercept rather than the slope.
++let lagunaR85LadderMode = ProcessInfo.processInfo.environment["DARKBLOOM_R85_LADDER_MODE"]
++
++/// `DARKBLOOM_R85_LADDER_K`: injected ops per decoder layer. Laguna has 40
++/// decoder layers, so K adds 40*K dispatches per decode step.
++let lagunaR85LadderK =
++    Int(ProcessInfo.processInfo.environment["DARKBLOOM_R85_LADDER_K"] ?? "") ?? 0
++
++/// Stored BF16 operands. A Swift `Float` literal would promote the injected
++/// chain to FP32 and change both the dtype and the traffic under test.
++nonisolated(unsafe) let lagunaR85One = MLXArray([Float(1)]).asType(.bfloat16)
++nonisolated(unsafe) let lagunaR85Zero = MLXArray([Float(0)]).asType(.bfloat16)
++
++/// Bit-exact null work injected at the top of each single-token decoder layer.
++/// `x * 1` and `x + 0` are identities in BF16, so every checked token is
++/// unchanged; only the dispatch count and the bytes per dispatch move.
++@inline(never)
++func lagunaR85InjectNullDispatches(_ x: MLXArray) -> MLXArray {
++    guard let mode = lagunaR85LadderMode,
++        x.dtype == .bfloat16,
++        x.dims(1, 1, LagunaConstants.hiddenSize)
++    else { return x }
++    if mode == "tiny" {
++        var t = lagunaR85Zero
++        for _ in 0..<lagunaR85LadderK { t = t * lagunaR85One }
++        return x + t
++    }
++    var y = x
++    for _ in 0..<lagunaR85LadderK { y = y * lagunaR85One }
++    return y
++}
++
+ // MARK: - Runtime fusion feature flags
+ 
+ // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
+@@ -10499,6 +10539,7 @@ final class LagunaRuntimeDecoderLayer: Module {
+         qkRoPEAngles: MLXArray? = nil,
+         qkRoPEOffsets: MLXArray? = nil
+     ) -> MLXArray {
++        let x = lagunaR85InjectNullDispatches(x)
+         let r = selfAttn(
+             x,
+             inputNorm: inputLayerNorm,
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+index 2a8e15a..25b1489 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.cpp
+@@ -32,6 +32,74 @@ namespace mlx::core::metal {
+ 
+ namespace {
+ 
++// LOCAL-ONLY GPU dispatch profiler (revert before any timing run).
++// Emits one line per command buffer on stderr:
++//   GPUPROF <gpu_start_s> <gpu_end_s> <nops> <name>|<name>|...
++// gpu_start/gpu_end share the mach-absolute epoch with CACurrentMediaTime and
++// with Python's time.perf_counter on macOS, so a driver can window the records
++// to a single phase.
++class GpuDispatchProfiler {
++ public:
++  static GpuDispatchProfiler& instance() {
++    static GpuDispatchProfiler p;
++    return p;
++  }
++
++  bool enabled() const {
++    return enabled_;
++  }
++
++  // Cap dispatches per command buffer so each GPUPROF record times a small,
++  // known group. 1 gives single-dispatch attribution; larger values sweep
++  // co-residency. Inflates absolute time by per-command-buffer GPU overhead,
++  // so use it for attribution only. 0 keeps the shipped batching policy.
++  int split() const {
++    return split_;
++  }
++
++  void register_pso(const void* pso, const std::string& name) {
++    if (!enabled_) {
++      return;
++    }
++    std::lock_guard<std::mutex> lock(mtx_);
++    pso_names_.emplace(pso, name);
++  }
++
++  void record(
++      const std::vector<const void*>& psos,
++      double gpu_start,
++      double gpu_end) {
++    if (!enabled_ || psos.empty()) {
++      return;
++    }
++    std::lock_guard<std::mutex> lock(mtx_);
++    std::string line = fmt::format(
++        "GPUPROF {:.9f} {:.9f} {} ", gpu_start, gpu_end, psos.size());
++    for (size_t i = 0; i < psos.size(); ++i) {
++      if (i) {
++        line += "|";
++      }
++      auto it = pso_names_.find(psos[i]);
++      line += (it == pso_names_.end()) ? "<unnamed>" : it->second;
++    }
++    line += "\n";
++    fputs(line.c_str(), stderr);
++  }
++
++ private:
++  GpuDispatchProfiler() {
++    const char* e = std::getenv("DARKBLOOM_GPU_PROFILE");
++    enabled_ = e != nullptr && std::string(e) != "0";
++    const char* s = std::getenv("DARKBLOOM_GPU_PROFILE_SPLIT");
++    split_ = (enabled_ && s != nullptr) ? std::atoi(s) : 0;
++  }
++
++  bool enabled_{false};
++  int split_{0};
++  std::mutex mtx_;
++  std::unordered_map<const void*, std::string> pso_names_;
++};
++
+ constexpr const char* default_mtllib_path = METAL_PATH;
+ 
+ auto get_metal_version() {
+@@ -379,6 +447,9 @@ void CommandEncoder::dispatch_threadgroups(
+     MTL::Size group_dims) {
+   maybeInsertBarrier();
+   buffer_ops_++;
++  if (GpuDispatchProfiler::instance().enabled()) {
++    profile_psos_.push_back(current_pso_);
++  }
+   get_command_encoder()->dispatchThreadgroups(grid_dims, group_dims);
+ }
+ 
+@@ -387,6 +458,9 @@ void CommandEncoder::dispatch_threads(
+     MTL::Size group_dims) {
+   maybeInsertBarrier();
+   buffer_ops_++;
++  if (GpuDispatchProfiler::instance().enabled()) {
++    profile_psos_.push_back(current_pso_);
++  }
+   get_command_encoder()->dispatchThreads(grid_dims, group_dims);
+ }
+ 
+@@ -482,6 +556,9 @@ void CommandEncoder::wait_event(
+ }
+ 
+ bool CommandEncoder::needs_commit() const {
++  if (int n = GpuDispatchProfiler::instance().split(); n > 0) {
++    return buffer_ops_ >= n;
++  }
+   auto [max_ops, max_mb] = device_.get_max_ops_mb_per_buffer();
+   return (buffer_ops_ > max_ops) || ((buffer_sizes_ >> 20) > max_mb);
+ }
+@@ -491,10 +568,13 @@ void CommandEncoder::commit(std::function<void()> completion) {
+       [&error_ = error_,
+        wait_events = std::move(wait_events_),
+        signal_events = std::move(signal_events_),
++       profile_psos = std::move(profile_psos_),
+        completion = std::move(completion)](MTL::CommandBuffer* cbuf) {
+         if (completion) {
+           completion();
+         }
++        GpuDispatchProfiler::instance().record(
++            profile_psos, cbuf->GPUStartTime(), cbuf->GPUEndTime());
+         // If any of the waited event has error in it, poison the encoder.
+         for (auto& event : wait_events) {
+           if (event->error()) {
+@@ -527,6 +607,7 @@ void CommandEncoder::commit(std::function<void()> completion) {
+   buffer_ = NS::RetainPtr(queue_->commandBufferWithUnretainedReferences());
+   buffer_ops_ = 0;
+   buffer_sizes_ = 0;
++  profile_psos_.clear();
+ }
+ 
+ void CommandEncoder::synchronize() {
+@@ -836,6 +917,18 @@ MTL::ComputePipelineState* Device::get_kernel_(
+ 
+   // Add kernel to cache
+   kernel_map_.insert({hash_name, kernel});
++  GpuDispatchProfiler::instance().register_pso(kernel.get(), hash_name);
++  if (GpuDispatchProfiler::instance().enabled()) {
++    // Occupancy proxy: maxTotalThreadsPerThreadgroup falls when a kernel's
++    // register footprint grows, so a staging change that spills is visible.
++    fprintf(
++        stderr,
++        "GPUPSO %s maxThreads=%zu execWidth=%zu tgMem=%zu\n",
++        hash_name.c_str(),
++        kernel->maxTotalThreadsPerThreadgroup(),
++        kernel->threadExecutionWidth(),
++        kernel->staticThreadgroupMemoryLength());
++  }
+ 
+   return kernel.get();
+ }
+diff --git a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
+index bed0cd6..f6940cd 100644
+--- a/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
++++ b/Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.h
+@@ -58,6 +58,7 @@ class MLX_API CommandEncoder {
+   void maybeInsertBarrier();
+ 
+   void set_compute_pipeline_state(MTL::ComputePipelineState* kernel) {
++    current_pso_ = kernel;
+     get_command_encoder()->setComputePipelineState(kernel);
+   }
+ 
+@@ -139,6 +140,10 @@ class MLX_API CommandEncoder {
+   // A map of prior command encoder outputs to their corresponding fence.
+   std::unordered_map<const void*, NS::SharedPtr<MTL::Fence>> prev_ce_outputs_;
+   std::mutex outputs_mtx_;
++
++  // LOCAL-ONLY GPU dispatch profiler state (revert before timing).
++  MTL::ComputePipelineState* current_pso_{nullptr};
++  std::vector<const void*> profile_psos_;
+ };
+ 
+ class MLX_API Device {
