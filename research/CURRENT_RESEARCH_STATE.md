@@ -1,6 +1,6 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-08T01:20Z (updated by advisor session)
-- Advisor HEAD: f688a03f (pushed to origin). 37+ bit-exact changes on current frontier.
+- 2026-08-08T01:25Z (updated by advisor session)
+- Advisor HEAD: f59f25b8 (pushed to origin). 38+ bit-exact changes on current frontier. PR #357 merged (prefill QK-norm+RoPE re-enable).
 - LRM: 502,603/524,288 = 21,685 B headroom. Total surface 2,937,409/3,000,000 = 62,591 B headroom.
 
 ## GRID OVER-DISPATCH HYPOTHESIS: REFUTED
@@ -28,13 +28,16 @@ Do NOT revisit this hypothesis.
   - Warmup waste: 1 — lagunaFullFusedAttentionKernel warmed but NEVER scored-dispatched (FIXED: warmup disabled)
   KEY: The ~15-25 M5-only _nax compiles are INHERENT (M5 GEMM speed path, cannot disable).
 
-## ACTIVE ASSIGNMENTS (BASE_SHA=f688a03f, all WIP with initial commits only)
+## MERGED THIS SESSION
+  PR #357 (askeladd): Re-enable PREFILL_QK_NORM_ROPE — MERGED (prefill ~1.5% improvement, bit-exact, +76B)
+
+## ACTIVE ASSIGNMENTS (BASE_SHA=f59f25b8)
   PR #366 (thorfinn): SDPA GQA pair_heads 3/4 — halve K/V traffic for GQA6/GQA8 attention (AOT metallib, ~0.6-1.0% score)
     ★ HIGHEST IMPACT: directly addresses bandwidth-bound decode. yudduy #1 uses pair_heads=3/4.
     887-line plan at research/SDPA_PAIR_HEADS_PLAN.md
   PR #363 (alphonse): Router kernel consolidation — -2 JIT compiles (M5 build fix, net-negative bytes)
   PR #361 (edward): Consolidate compiled gate functions — -1 MLX graph compile (M5 build fix, 0-200B)
-  PR #357 (askeladd): Re-enable PREFILL_QK_NORM_ROPE — recover 200 prefill dispatch eliminations (0-byte flag flip)
+  PR #367 (askeladd): Router Top-8 shuffle vectorization — pack 2 scalar shuffles into 1 uint2 vector (0-byte, bit-exact, fyrsta7 #2 approach)
   ROOT CAUSE (high confidence): JIT compile-storm timeout. 19 custom JIT + ~15-25 M5-only _nax
   compiles during warmup + prefill + decode intermittently collide with M5 runner ~900s timeout + 40C thermal gate.
   Organizer frontier (0 custom JIT kernels) always passes.
