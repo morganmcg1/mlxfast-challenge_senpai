@@ -98,10 +98,44 @@ offsets and why the replication prediction was strong.
   `research/maple_r85_arm_stats.py --steps 200 --cbs-per-step 406 --arms base cand --offset 0`
   and the same-arm null `--arms cand cand --offset 1`.
 - Tests and risk-based checks run, including selected-test count:
-  `research/run_upstream_equivalence.sh` — `<EQUIV>`.
+  `research/run_upstream_equivalence.sh`, **selected-test count 1** (the bare
+  `lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled` filter; the wrapper
+  refuses to call a zero-test invocation a pass) →
+  `EQUIVALENCE_EXACT_STEPS=8`, `EQUIVALENCE_EXIT=1`. **I then ran the unchanged
+  base as a control in the same session and got a byte-identical report**, so the
+  non-zero exit is a pre-existing base property, not a regression — see below.
   64-step drift tripwire:
   `mlxfast-swift correctness --weights weights --golden correctness_prompts/public_longcopy_gate_english_512_256.json`
-  — `<TRIPWIRE>`. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **unset** for that run.
+  — `<TRIPWIRE>`. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **unset** for that run
+  (the runner `unset`s it explicitly rather than assuming an empty environment).
+
+#### The oracle's non-zero exit is pre-existing, and the decode path is exact
+
+| Step | candidate max abs logit err | base control | runtime vs upstream token |
+| --- | ---: | ---: | ---: |
+| prefill | 0.125 (mean 0.011933609) | 0.125 (mean 0.011933609) | 5991 == 5991 |
+| decode-0 … decode-7 | **0** (all 8) | **0** (all 8) | all equal |
+
+The oracle applies **zero** tolerance and the batched NVFP4 prefill path cannot
+meet that against the BF16 upstream reference on this host, so it reports
+`EQUIVALENCE_EXIT=1` even on untouched code. Three points make this a pass for
+this arm:
+
+1. The failing step is **prefill**; the eight **decode** steps — the only path
+   this arm changes — are exactly `0`.
+2. I ran the oracle against the pinned `BASE_SHA` source for the edited file in
+   the same session (`/tmp/r85c-equiv-base.sh`, which restores HEAD on exit) and
+   got the identical report and identical `EQUIVALENCE_EXACT_STEPS=8` /
+   `EQUIVALENCE_EXIT=1`. Candidate minus base is therefore exactly zero.
+3. These are the same figures several siblings already documented as a
+   pre-existing M4 Pro artifact (`research/CURRENT_RESEARCH_STATE.md:3011`,
+   `research/frieren-host-cpu-budget.md:471`,
+   `research/maple-fern-pr40-result.md:381`,
+   `research/maple-fern-pr48-fused-norm-qkv-gate.md:462`).
+
+Honest scope limit: this oracle exercises 512 prompt tokens and 8 decode steps.
+The far stronger bit-exactness evidence for this arm is the 16-slot token-stream
+identity over 3,200 decode steps reported below.
 - Correctness and serial-protocol verdict: **pass, bit-exact.** `cksum` over all
   16 slots' `.tokens` dumps collapses to **exactly one** distinct stream, so base
   and candidate produce identical argmax token sequences; all 16 slots report
