@@ -7324,10 +7324,11 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 // hidden row; decode always retains this pruner. Only
                 // single-token decode takes the three-level screen, whose
                 // level-one pass reads 25.7 MB/step less of the int5 planes.
+                // Fused refinement disabled for M5 safety (organizer uses mode 0).
                 result = pruner.logits(
                     hidden: hidden,
                     lmHeadWeight: lmHead.weight,
-                    useFusedRefinement: inputs.dims(1, 1))
+                    useFusedRefinement: false)
             } else {
                 result = lmHead(hidden)
             }
