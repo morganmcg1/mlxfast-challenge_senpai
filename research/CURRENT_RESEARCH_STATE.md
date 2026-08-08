@@ -35,15 +35,21 @@ Do NOT revisit this hypothesis.
   PR #352 (thorfinn): JIT kernel disable sweep — MERGED (5 flags disabled: FUSED_GATED_OUTPUT, FUSED_GATE_PRODUCT, PREFILL_QK_NORM_ROPE, TERMINAL_FUSION, FUSED_FULL_QK_NORM_YARN. ~6-10 fewer JIT compilations. M4 timing neutral. 345B. M5 build fix)
   PR #350 (alphonse): JIT kernel variant consolidation — MERGED (14 per-head kernel groups consolidated via runtime parameterization. Compile count ~82→~57. Build time 88s→21s. Net -6,402B. CRITICAL M5 build fix)
 
-## ACTIVE ASSIGNMENTS (Wave 20, BASE_SHA=f520f3c6)
+## ACTIVE ASSIGNMENTS (Wave 20, BASE_SHA=bff2e3ba)
   PR #349 (askeladd): Prefill RMSNorm+QKV fusion via MLX.compile — WIP (~0.6% total, ★★★)
   PR #351 (edward): Prefill shared gate/up+SiLU fusion — WIP (~0.5-1% prefill, ★★☆)
   PR #355 (thorfinn): Prefill eScoreCorrectionBias Float32 hoist — WIP (~0.05-0.1% score, ~+100-200B, bit-exact, quick win)
+  PR #356 (alphonse): Re-enable FUSED_FULL_QK_NORM_YARN — JUST ASSIGNED (0-byte flag flip, ~0.4-0.9% decode, CASCADE: unblocks full fused attn + RoPE atlas for ALL 40 layers)
 
 ## M5 BUILD FIX STATUS
-  PR #352 + PR #350 combined: compile count ~82 → ~47-51 (both fixes apply)
-  Build time: 88s → 21s (M4 measurement)
-  M5 submission slot occupied (ab7f5833 validating). Next submission will include both fixes.
+  PR #352 + PR #350 combined: compile count ~82 → ~57 (build time 88s → 21s on M4)
+  M5 submission 3ce71457 VALIDATING (first submission with both build fixes)
+  PR #356 adds 2 compiles (~59 total) — still well within capacity
+
+## RESEARCH AGENT FINDINGS (2026-08-08)
+  PR #352 incorrectly disabled DARKBLOOM_FUSED_FULL_QK_NORM_YARN — cascade effect:
+  10 full-attn layers run stock 6-dispatch path, full fused attn kernel blocked, RoPE atlas not built.
+  Fix: PR #356 assigned to alphonse (1-line flag flip, 0 bytes).
 
 ## MERGED WAVE 18
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — MERGED (2.8% prefill improvement, 2-line change, bit-exact)
