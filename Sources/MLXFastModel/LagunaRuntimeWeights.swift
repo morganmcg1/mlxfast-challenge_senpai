@@ -384,6 +384,7 @@ public final class LagunaRuntimeWeightCache {
                 setenv("MLX_BFS_MAX_WIDTH", "50", 0)
                 if env["DARKBLOOM_POST_WIRE_COMMAND_BUFFER"] != "0" {
                     setenv("MLX_MAX_MB_PER_BUFFER", "200", 0)
+                    // 200 -> 400 ops: halve CB boundaries; see note.
                     setenv("MLX_MAX_OPS_PER_BUFFER", "400", 0)
                 }
                 startupMemoryPolicy = nil
@@ -470,30 +471,33 @@ public final class LagunaRuntimeWeightCache {
     private static func warmLibraryModel(_ model: LagunaRuntimeModel) {
         let bosToken = Int32(LagunaConstants.bosTokenID)
         let warmupCache = model.newCache(parameters: nil)
-        // 512-token prefill warmup: standard MLX kernels (SDPA, matmul,
-        // quantizedMM) specialize by shape. A 2-token warmup does not
-        // pre-compile the 512-token scored specializations, causing M5
-        // JIT compile timeout during the scored run.
         let prefillTokens = MLXArray(
             Array(repeating: bosToken, count: 512),
             [1, 512]
         )
         eval(model(prefillTokens, cache: warmupCache))
-        // Three decode steps ensure all state-dependent kernel variants
-        // (asyncEval stages, cache-dependent paths) are compiled.
-        var warmDecodeLogits: MLXArray
-        for _ in 0..<3 {
-            let decodeToken = MLXArray([bosToken], [1, 1])
+        let decodeToken = MLXArray([bosToken], [1, 1])
+        var warmDecodeLogits = model(decodeToken, cache: warmupCache)
+        eval(warmDecodeLogits)
+        // The historical full-attention bundle coupled this second whole-model
+        // decode to the fusion selector and regressed ranked prefill 11.3%.
+        // Reproducing that retired rewarm now requires its own explicit
+        // diagnostic selector; the default-on fused kernel must not silently
+        // execute all 40 layers again. The first decode still preserves the
+        // promoted constructor-warmup contract, and the kernel-only call below
+        // creates the full-attention PSO without model/cache state.
+        if lagunaFusedFullAttentionEnabled,
+            lagunaFusedFullAttentionWholeModelWarmupEnabled
+        {
             warmDecodeLogits = model(decodeToken, cache: warmupCache)
             eval(warmDecodeLogits)
         }
-        let lastDecodeToken = MLXArray([bosToken], [1, 1])
-        warmDecodeLogits = model(lastDecodeToken, cache: warmupCache)
-        eval(warmDecodeLogits)
         if lagunaFusedFullAttentionEnabled,
             lagunaFusedFullAttentionKernelWarmupEnabled
         {
             lagunaWarmFullFusedAttentionKernel()
+            lagunaWarmSlidingFusedAttentionKernel()
+            lagunaWarmDecodeQKVR1Kernels()
         }
         // Warm the greedy-token pipeline too. Every scored worker request ends
         // in `LagunaCorrectness.greedyToken` (reshape -> last row -> argMax),
