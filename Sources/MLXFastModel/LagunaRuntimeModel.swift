@@ -683,6 +683,26 @@ let lagunaRouterRowsPerGroup: Int = {
     return value
 }()
 
+/// `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (default `0`): R89-A ablation knob for
+/// hoisting the router GEMV's `router_weight` device loads above the RMS
+/// reduction tail. Those loads depend only on `tile`/`simd_group`/`simd_lane`,
+/// never on the norm, yet today they are issued after four
+/// `threadgroup_barrier`s. `1`/`2`/`4` hoist that many four-load block groups;
+/// `5` is the PLACEMENT CONTROL that emits the character-identical one-group
+/// peel immediately below the normalize barrier instead, so `1` minus `5`
+/// isolates cross-barrier overlap from the peel itself. Loads only: the
+/// accumulation order into `router_result[0]` is untouched, so every arm is
+/// bit-exact with arm `0`.
+let lagunaRouterWeightPrefetch: Int = {
+    guard
+        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_WEIGHT_PREFETCH"],
+        let value = Int(raw), [0, 1, 2, 4, 5].contains(value)
+    else {
+        return 0
+    }
+    return value
+}()
+
 /// `DARKBLOOM_DECODE_ASYNC_STAGE` (default `at:1,7,15,23,31,39`): process-once
 /// boundary schedule for decode-step async scheduling. Active only when the
 /// invocation input shape is exactly `[1, 1]`; prefill and multi-token shapes
@@ -849,6 +869,15 @@ private let lagunaNormReductionTailQKV = lagunaNormReductionTail(
     lane: "lane", simdGroup: "simd_group",
     denominator: "float(in_vec_size)", epsilon: "norm_eps")
 
+/// Four-load block groups actually hoisted. Only the `rows_per_thread == 1`
+/// accumulate shape (`rows_per_group` 1/2/4/8, so including the default 8) has
+/// a prefetchable peel, so every other shape collapses to arm 0's source and
+/// arm 0's kernel name.
+private func lagunaRouterPrefetchGroups(rowsPerThread: Int, prefetch: Int) -> Int {
+    guard rowsPerThread == 1 else { return 0 }
+    return prefetch == 5 ? 1 : prefetch
+}
+
 /// Post-attention residual add + RMSNorm with the MoE router's projection
 /// folded in.
 ///
@@ -897,10 +926,31 @@ private let lagunaNormReductionTailQKV = lagunaNormReductionTail(
 /// is no tail. The `normalized_row` coefficients are read inline rather than
 /// staged: at one row per thread both cost `n_reads` threadgroup reads per
 /// block, so staging would buy nothing and cost 16 registers per unroll step.
-private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
+private func lagunaResidualRMSNormRouterSource(
+    rowsPerGroup: Int, prefetch: Int = 0
+) -> String {
     let simdGroups = 512 / 32
     let rowsPerThread = rowsPerGroup >= simdGroups ? rowsPerGroup / simdGroups : 1
     let activeSimdGroups = rowsPerGroup / rowsPerThread
+    let prefetchGroups = lagunaRouterPrefetchGroups(
+        rowsPerThread: rowsPerThread, prefetch: prefetch)
+    let prefetchBlock = prefetchGroups == 0 ? "" : """
+thread vec<bfloat, 4> laguna_pf[\(prefetchGroups * 4)];
+if (simd_group < active_simd_groups) {
+    uint laguna_pf_row = tile * rows_per_group + simd_group * rows_per_thread;
+    uint laguna_pf_column = simd_lane * n_reads;
+    for (uint k = 0; k < \(prefetchGroups * 4); ++k) {
+        const device vec<bfloat, 4>* pf_values =
+            (const device vec<bfloat, 4>*)(
+                router_weight + laguna_pf_row * axis_size +
+                    laguna_pf_column + k * block_width);
+        laguna_pf[k] = pf_values[0];
+    }
+}
+
+"""
+    let prefetchEarly = prefetch == 5 ? "" : prefetchBlock
+    let prefetchLate = prefetch == 5 ? prefetchBlock : ""
     let zeros = Array(repeating: "0.0f", count: rowsPerThread).joined(separator: ", ")
     let guardOpen = activeSimdGroups < simdGroups
         ? "        if (simd_group < active_simd_groups) {\n" : ""
@@ -918,7 +968,39 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
         : "router_logits[router_row + r] = bfloat(router_result[r]);"
 
     let accumulate: String
-    if rowsPerThread == 1 {
+    if prefetchGroups > 0 {
+        accumulate = """
+        uint column = simd_lane * n_reads;
+        for (uint g = 0; g < \(prefetchGroups); ++g) {
+            for (uint u = 0; u < 4; ++u) {
+                uint column_u = column + u * block_width;
+                for (uint i = 0; i < n_reads; ++i) {
+                    router_result[0] += float(laguna_pf[g * 4 + u][i]) *
+                        float(normalized_row[column_u + i]);
+                }
+            }
+            column += 4 * block_width;
+        }
+        for (uint block = \(prefetchGroups * 4); block < router_blocks; block += 4) {
+            vec<bfloat, 4> rw[4];
+            for (uint u = 0; u < 4; ++u) {
+                const device vec<bfloat, 4>* row_values =
+                    (const device vec<bfloat, 4>*)(
+                        router_weight + router_row * axis_size +
+                            column + u * block_width);
+                rw[u] = row_values[0];
+            }
+            for (uint u = 0; u < 4; ++u) {
+                uint column_u = column + u * block_width;
+                for (uint i = 0; i < n_reads; ++i) {
+                    router_result[0] += float(rw[u][i]) *
+                        float(normalized_row[column_u + i]);
+                }
+            }
+            column += 4 * block_width;
+        }
+"""
+    } else if rowsPerThread == 1 {
         accumulate = """
         uint column = simd_lane * n_reads;
         for (uint block = 0; block < router_blocks; block += 4) {
@@ -997,7 +1079,7 @@ for (uint i = 0; i < n_reads; ++i) {
 }
 
 acc = simd_sum(acc);
-\(lagunaNormReductionTail2048)
+\(prefetchEarly)\(lagunaNormReductionTail2048)
 
 for (uint i = 0; i < n_reads; ++i) {
     bfloat value =
@@ -1010,7 +1092,7 @@ for (uint i = 0; i < n_reads; ++i) {
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-\(guardOpen)\
+\(prefetchLate)\(guardOpen)\
 uint router_row = tile * rows_per_group + simd_group * rows_per_thread;
 thread float router_result[rows_per_thread] = {\(zeros)};
 \(accumulate)
@@ -1037,24 +1119,32 @@ if (simd_lane == 0) {
 /// name or four sources would thrash one cache entry.
 private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
     Dictionary(
-        uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
-            (
-                rowsPerGroup,
+        uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].flatMap { rowsPerGroup in
+            [0, 1, 2, 4, 5].map { prefetch -> (Int, MLXFast.MLXFastKernel) in
+            let groups = lagunaRouterPrefetchGroups(
+                rowsPerThread: rowsPerGroup >= 16 ? rowsPerGroup / 16 : 1,
+                prefetch: prefetch)
+            let armSuffix = groups == 0 ? "" : (prefetch == 5 ? "_pf1c" : "_pf\(groups)")
+            return (
+                rowsPerGroup * 8 + prefetch,
                 MLXFast.metalKernel(
                     name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_"
-                        + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2"),
+                        + (lagunaRouterPrecomputedKeysEnabled ? "keys_v1" : "v2")
+                        + armSuffix,
                     inputNames: lagunaRouterPrecomputedKeysEnabled
                         ? ["residual", "branch", "weight", "router_weight", "correction_bias"]
                         : ["residual", "branch", "weight", "router_weight"],
                     outputNames: lagunaRouterPrecomputedKeysEnabled
                         ? ["summed", "normalized", "router_logits", "router_keys"]
                         : ["summed", "normalized", "router_logits"],
-                    source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
+                    source: lagunaResidualRMSNormRouterSource(
+                        rowsPerGroup: rowsPerGroup, prefetch: prefetch),
                     header: lagunaRouterPrecomputedKeysEnabled
                         ? lagunaDecodeRouterOrdinalHeader : "",
                     ensureRowContiguous: true
                 )
             )
+            }
         })
 
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
@@ -1126,11 +1216,12 @@ func lagunaResidualRMSNormRouter(
     // summation and forfeits bit-exactness.
     let rowsPerGroup = lagunaRouterRowsPerGroup
     let tiles = experts / rowsPerGroup
-    lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
+    lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup) pf\(lagunaRouterWeightPrefetch)")
     let inputs = lagunaRouterPrecomputedKeysEnabled
         ? [residual, branch, weight, routerWeight, correctionBias]
         : [residual, branch, weight, routerWeight]
-    let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
+    let outputs = lagunaResidualRMSNormRouterKernels[
+        rowsPerGroup * 8 + lagunaRouterWeightPrefetch]!(
         inputs,
         grid: (tiles * 512, 1, 1),
         threadGroup: (512, 1, 1),
