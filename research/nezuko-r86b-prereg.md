@@ -7,6 +7,15 @@
 - **Committed before the first timing run.** Every number below is a prediction
   written with no R86-B measurement in hand.
 
+**Base of record (appended after the ladder completed; predictions above are
+untouched).** The whole ladder was measured on `7687c2e4` and only on
+`7687c2e4`. The advisor base later moved to
+`3217f111142346e004f41fae611a8bede172a659`, a scored-surface change (PR #457,
+float4 attention merge epilogue, −15.43 µs/step on base decode). The ladder was
+deliberately **not** rebased or spliced: it measures a rung-to-rung slope, and
+an attention-epilogue change that is common to every rung cancels in that
+difference, moving only the intercept.
+
 Local host (all local numbers are M4, ranked hardware is M5 Max):
 Apple M4 Pro, 48 GiB unified memory, macOS 26.5.2 (25F84), Apple GPU
 generation 16. `_nax` prefill kernels are **unreachable** here; the decode path

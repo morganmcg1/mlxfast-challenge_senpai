@@ -1,0 +1,17 @@
+signature                                                   share      off       w0       w2      w16       t0       t2      t16   w16-w0   t16-t0
+full_fused_attn_grow_v1 … dense_down_residual_bf16_v1 (5 k)  5.72%    455.4    455.5    460.7    454.8    458.9    454.3    456.4    -0.70    -2.50
+rmsbfloat16 … lmhead_exact_winner_bf16_midpoint_threshold_v1 (4 k)  5.43%    432.8    431.7    431.4    432.1    433.2    432.3    433.2     0.40     0.00
+residual_rms_router_bf16_2048_rpg8_keys_v1 … routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6 (5 k)  3.64%    290.4    291.2    289.1    290.3    289.6    292.2    289.8    -0.90     0.20
+sliding_fused_attn_ring_v1 … routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6 (8 k)  1.64%    130.9    130.9    131.3    130.2    130.3    130.6    129.6    -0.70    -0.70
+lmhead_exact_fused_int5_sparse_refine_v1                    0.96%     76.8     76.7     77.2     76.8     76.8     76.8     77.1     0.10     0.30
+gather_frontbfloat16_int32_int_2 … argmax_bfloat16 (2 k)    0.16%     12.6     12.5     12.3     12.1     12.2     12.2     12.2    -0.40     0.00
+TOTAL untouched pool                                       17.55%   1398.9   1398.5   1402.0   1396.3   1401.0   1398.4   1398.3    -2.20    -2.70
+
+untouched pool k=0   (w0)  : 1398.5 us/step
+untouched pool k=640 (w16) : 1396.3 us/step  delta -2.20 us/step (-0.157%)
+untouched pool k=0   (t0)  : 1401.0 us/step
+untouched pool k=640 (t16) : 1398.3 us/step  delta -2.70 us/step (-0.193%)
+off arm reference          : 1398.9 us/step
+
+share of the 640-boundary WIDE gross cost that lands outside the insert-bearing command buffers:
+  gross WIDE at k=640 = 900.1 us/step; untouched movement = -2.20 us/step = -0.24% of it

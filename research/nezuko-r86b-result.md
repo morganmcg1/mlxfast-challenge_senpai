@@ -10,6 +10,11 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
   inside the pre-registered PARTIAL band `0.35 ≤ d < 1.00`. No threshold was moved.
 - **The directly applicable constant is `WIDE` = 1.4064 µs/boundary, CI [1.3163, 1.4964]** — the
   full in-situ price. Use this, not `d`, to price a real un-fusion. See §1.6.
+- **Second finding (§2.5): #457's 42 % untouched-kernel give-back does not appear here.** At
+  k = 640 the insert-free 17.55 % of decode moves −0.24 % of the gross inserted cost (null bound
+  ±0.9 %). My arms share one binary and one pipeline set by construction; #457's did not. That
+  favours the JIT-pipeline-ordering hypothesis over power/clock, and means the give-back tracks
+  *recompilation*, not workload change.
 - W&B run: [`o3ogyevp`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/o3ogyevp)
   (`wandb-applied-ai-team/mlxfast-maple`, state `finished`, 42 runs logged).
 - `BASE_SHA` / candidate commit: `7687c2e44e6975c181444ca8d3d151ee30480a72` / tip of `maple-nezuko/r86-insitu-boundary-price` (see the `commit_sha` in the submitted result)
@@ -21,17 +26,33 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
 - Official submission `--model` value: n/a — no official submission from this PR.
 - Explicit API model-value rejection: n/a.
 - Assignment-scope preflight: passed on `7687c2e4`.
-- Editable bytes / headroom / growth: `current=2894029 headroom=105971 growth=2686/262144`.
+- Editable bytes / headroom / growth, re-checked against the current base
+  `3217f111142346e004f41fae611a8bede172a659` as required because this report quotes byte
+  figures: `current=2894029/3000000 headroom=105971 growth=3140/262144 files=141 (base=140)`.
+  Growth reads 3140 rather than the 2686 measured against `7687c2e4` only because the new
+  base's scored file shrank by 454 B; this branch's own added bytes are unchanged.
 - Scored-path reachability evidence: the hook sits on the scored decode step; the gate-1
   dispatch census shows the arms change the dispatch count of the real step
   (406 → 1046 dispatches at k = 640), so the control provably reaches the scored path.
 
 ## Base-bump handling
 
-`codex/mlxfast-maple-20260804-advisor` moved three times during this round
-(`7687c2e4 → c15740be → b6800f30 → 417f42c4`). All three diffs are research Markdown only, zero
-editable-surface bytes. Per advisor instruction the branch was **not** rebased; the
-pre-registration, the instrument, and every timing number in this report are on `7687c2e4`.
+**Every timing number in this report was measured on `7687c2e44e6975c181444ca8d3d151ee30480a72`,
+and only on that base.** No rung was spliced across bases and the branch was not rebased.
+
+`codex/mlxfast-maple-20260804-advisor` moved four times during this round:
+`7687c2e4 → c15740be → b6800f30 → 417f42c4 → 3217f111`. The first three diffs are research
+Markdown only, zero editable-surface bytes. The fourth, `3217f111`, **is** a scored-surface
+change: merged PR #457 (frieren R85-C) replaced the `threadgroup U outputs[4*BN*BDP]` merge
+epilogue with `threadgroup float4 outputs4[BN*BDP]` in `laguna_sliding_fused_attn_ring_v1` and
+`laguna_full_fused_attn_grow_v1`, worth −15.43 µs/step [−22.04, −8.82] on base decode.
+
+This does not affect the result. The ladder measures a **slope** — the difference in
+step time between rungs that differ only in how many boundaries were inserted — and the
+attention epilogue is common to every rung, so it cancels in the rung-to-rung difference.
+It shifts the intercept (the 8245.2 µs/step floor), not `d` or `WIDE`. Because the advisor's
+mid-ladder rule requires a self-paired ladder rather than a spliced one, finishing on
+`7687c2e4` is the correct and more conservative choice.
 
 ## 1. The measurement
 
@@ -234,9 +255,35 @@ gate/up kernel:
 is wide enough that it survives the whole `WIDE` CI (at the pessimistic 1.4964 the cost is
 58.3 µs and the net is still −121 to −125 µs/step).
 
+### The honest end-to-end number, with #457's give-back applied
+
+The table above is a *kernel-level* net. #457 showed that a pipeline-changing intervention
+delivers only ≈58 % of its kernel-level saving end to end, giving 42 % back on untouched
+kernels. An un-fusion recompiles kernels, so §2.5's clean untouched pool does **not** exempt
+it. Applying the 40 % discount to the gain while charging the boundary cost in full — the
+conservative direction, since the boundary cost is measured in the same end-to-end wall clock
+that the discount describes:
+
+| Term | kernel-level µs/step | end-to-end, 40 % discounted |
+| --- | ---: | ---: |
+| prefetch gain | −179 to −183 | **−107 to −110** |
+| boundary cost, 39 × `WIDE` | +54.8 | +54.8 (undiscounted) |
+| **net** | −124 to −128 (−1.90 % to −1.96 %) | **−52 to −55 µs/step (−0.80 % to −0.84 %)** |
+
+**The discounted break-even rises from 3.65 % to 6.08 % kernel-level gain**, and the 11.9–12.2 %
+precedent clears it by ≈2.0× rather than 3.3×. So the recommendation does not change, but the
+expected prize is roughly **half** the naive figure, and the margin is thin enough that the
+implementing arm should treat *measured* prefetch transfer on the routed kernel as the
+go/no-go, not the QKV precedent. Every downstream NET selection using my constants should
+inherit this discounted form.
+
+For the same reason, `d`'s end-to-end form is quoted discounted too: `d = 0.6806 µs/boundary`
+= 0.010399 %/boundary kernel-level, **≈0.006240 %/boundary end to end** after the 40 % discount.
+
 The load-bearing assumption is *transfer of the prefetch gain*, not the boundary price. The
 boundary price is now measured five ways; the 11.9 % prefetch gain is measured on a different
-kernel with a different access pattern. If the realized gain is below **3.65 %** the un-fusion
+kernel with a different access pattern. If the realized gain is below **6.08 %** (or **3.65 %**
+if the give-back turns out not to apply) the un-fusion
 loses. That is the one number the implementing arm must measure first.
 
 ### Programme correction: in-situ boundaries have been under-priced ≈8×
@@ -310,7 +357,16 @@ well as by measurement.
 
 **Gate 4 — the disarmed instrument is neutral (PASS).** With `DARKBLOOM_R86_MODE` unset,
 `./benchmark.sh --local-iterate` gives decode 0.012933 s/tok against a baseline 0.012953 s/tok
-(−0.1 %, i.e. inside noise and slightly favourable), est score 0.798 vs 0.795. The census `off`
+(−0.1 %, i.e. inside noise and slightly favourable), est score 0.798 vs 0.795.
+
+> **These `--local-iterate` numbers are a neutrality check, never a primary measurement.**
+> A single `--local-iterate` pair on this host carries ±133 µs/step at n = 1 and resolves
+> nothing below ≈130 µs/step. The observed −0.1 % (≈−20 µs/step) is far inside that and is
+> quoted only to show the disarmed instrument does not *obviously* perturb the build. No
+> conclusion in this report rests on it; every primary number comes from the ladder slope,
+> whose floor is ±3.6 µs/step (§7).
+
+The census `off`
 and `w0` cells differ by 5 µs on an 8,211 µs step (0.06 %).
 
 **Gate 5 — linearity in k (WIDE PASS, TINY FAIL).** The gate asks whether the price per boundary
@@ -336,6 +392,79 @@ moves TINY from 0.7258 to 0.7676 and WIDE from 1.4064 to 1.4072, which would pus
 0.640 — still inside the PARTIAL band and still excluding GO. The gate-5 failure therefore cannot
 rescue a GO verdict; it can only make the PARTIAL verdict more pronounced. This is reported as a
 FAIL rather than reframed, and no threshold was moved to accommodate it.
+
+## 2.5 Untouched-kernel spillover (advisor's #457 give-back question)
+
+Merged PR #457 saved 26.53 µs/step on the two kernels it edited but netted only 15.43, giving
+**11.1 µs/step (42 %) back on kernels whose source never changed** — `gate_sp_h64_v1` alone
++8.14 µs/step. The advisor asked whether my ladder shows the same effect, because if the
+untouched pool moves systematically with `k` then the NET rule needs a third term.
+
+**It does not.** Here is the untouched pool at the extreme rungs.
+
+### What "untouched" means here, precisely
+
+The GPUPROF census aggregates by command-buffer signature, so a per-kernel delta is not
+recoverable inside command buffers that received inserts. But six command buffers contain
+**zero** inserted ops in every arm. Their signature, kernel set, and work are identical across
+all seven arms, so any movement in them is spillover, not inserted cost. They are 17.55 % of
+decode and include every insert-free group above 0.1 %. Reproduce with
+`python3 research/nezuko_r86b_untouched.py`; raw output in
+[`research/nezuko-r86b-artifacts/untouched-pool.txt`](nezuko-r86b-artifacts/untouched-pool.txt).
+
+| insert-free command buffer | share | off | w0 | w16 | t0 | t16 | w16−w0 | t16−t0 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `full_fused_attn_grow_v1 … dense_down_residual_bf16_v1` (dense layer, 5 k) | 5.72 % | 455.4 | 455.5 | 454.8 | 458.9 | 456.4 | −0.70 | −2.50 |
+| `rmsbfloat16 … lmhead_exact_winner_bf16_midpoint_threshold_v1` (lm-head, 4 k) | 5.43 % | 432.8 | 431.7 | 432.1 | 433.2 | 433.2 | +0.40 | 0.00 |
+| `residual_rms_router … routed_shared_nvfp4_down_residual_…_v6` (5 k) | 3.64 % | 290.4 | 291.2 | 290.3 | 289.6 | 289.8 | −0.90 | +0.20 |
+| `sliding_fused_attn_ring_v1 … routed_shared_nvfp4_down_residual_…_v6` (8 k) | 1.64 % | 130.9 | 130.9 | 130.2 | 130.3 | 129.6 | −0.70 | −0.70 |
+| `lmhead_exact_fused_int5_sparse_refine_v1` | 0.96 % | 76.8 | 76.7 | 76.8 | 76.8 | 77.1 | +0.10 | +0.30 |
+| `gather_frontbfloat16_int32_int_2 … argmax_bfloat16` (2 k) | 0.16 % | 12.6 | 12.5 | 12.1 | 12.2 | 12.2 | −0.40 | 0.00 |
+| **TOTAL untouched pool** | **17.55 %** | **1398.9** | **1398.5** | **1396.3** | **1401.0** | **1398.3** | **−2.20** | **−2.70** |
+
+All figures µs/step, M4 Pro, base `7687c2e4`. `w16`/`t16` are k = 640 boundaries.
+
+### Is −2.2 µs/step real?
+
+No. Three arms are independent null replicates (`off`, `w0`, `t0` all insert nothing): their
+untouched-pool totals are 1398.9, 1398.5, 1401.0, giving a null SD of **1.34 µs/step**. A
+difference of two single runs then has SD 1.90 and a 95 % interval of **±8.2 µs/step**. Both
+observed deltas sit well inside it, and both have the *wrong sign* for a give-back — the
+untouched pool gets marginally **faster** as boundaries are added, so it cannot be inflating
+my price.
+
+Bounding it the way the advisor wants it bounded: at k = 640 the gross inserted WIDE cost is
+900.1 µs/step, and the untouched pool moves by −2.2 µs/step, i.e. **−0.24 % of the inserted
+cost, with a 95 % bound of ±0.9 %**. Against #457's 42 %, that is a two-orders-of-magnitude
+difference, so **no third NET term is needed for added-work interventions.**
+
+### Why my instrument and #457 differ, and which one the NET rule should fear
+
+This is the useful part, and it sharpens the advisor's two live hypotheses rather than just
+clearing my own result.
+
+My seven arms run **one compiled binary**, selected at runtime by `DARKBLOOM_R86_MODE` and
+`DARKBLOOM_R86_INSERTS` (`LagunaR86BoundaryLadder.swift:26–32`). The executable is therefore
+byte-identical across arms **by construction**, not merely verified after the fact as #457 had
+to do. Identical binary, identical pipeline set, identical compilation order — and no
+give-back appears.
+
+#457 changed kernel *source*, so its arms had different Metal pipelines even though the host
+executable's bytes matched. That is exactly the input to the advisor's JIT-pipeline-ordering
+hypothesis, and it is the one thing my ladder holds fixed. My null result is therefore
+**evidence for the pipeline-ordering hypothesis and against the power/clock hypothesis**: my
+arms add 640 extra dispatches and ~900 µs/step of extra GPU work — a far larger thermal and
+power perturbation than #457's 26 µs — yet move the untouched pool by −0.2 %. If redistributed
+power or clock throttling were the mechanism, my ladder is the arm that should have shown it
+most strongly, and it shows nothing.
+
+**Practical consequence for the NET rule.** The give-back term is not a function of how much
+work an intervention adds or removes; it appears to be a function of whether the intervention
+*recompiles a kernel*. A fusion or un-fusion, which by definition changes pipelines, should
+carry the 42 % risk. A pure scheduling or dispatch-count change should not. §1.6's un-fusion
+pricing is a pipeline-changing intervention, so I apply the discount there rather than
+claiming my clean untouched pool exempts it.
+
 
 ## 3. Boundary census
 
@@ -493,6 +622,27 @@ pooled SD = sqrt( Σ_cells Σ_reps (x − x̄_cell)² / Σ_cells (n_cell − 1) 
 µs/step** against tanjiro's **± 111 µs/step** — **2.5× tighter**. The difference is the pooled SD
 (19.5 vs 49.0 µs/step), not the statistics.
 
+**Why the SD differs, and what it does *not* license.** frieren independently reports a
+per-run decode σ of **48.0 µs/step** on M4 Pro, matching tanjiro's 49.0 and disagreeing with my
+19.5 by 2.5×. That gap is not a contradiction: my 19.5 is the SD of the **per-run median** of
+200 timed steps inside one worker process, whereas 48–49 is the SD **across worker processes**,
+which additionally absorbs load placement, allocator state, and per-process pipeline
+compilation. My ladder cells are within-process replicates, so 19.5 is the right SD for the
+slope fit — but **only** because every rung is measured the same way. It would be wrong to use
+19.5 to plan a cross-process A/B, and this report does not: the frieren numbers below govern
+any end-to-end comparison.
+
+| design (end-to-end, cross-process, σ = 48.0) | half-width µs/step |
+| --- | ---: |
+| n = 1 | ± 133 |
+| n = 3 | ± 109 |
+| counterbalanced ABBA, ratio-adjusted, n = 8 | ± 5.1 … 6.6 |
+| per-kernel attribution | ± 0.3 … 2.0 |
+
+Required replication end to end is `n ≥ 2·(1.96·48/E)²`: **52 runs/arm** to resolve 18.6 µs/step,
+**13** for 38 µs, **3** for 80 µs. The 54.8 µs/step un-fusion cost therefore needs 6 runs/arm
+end to end, or one in-process ladder — which is the whole argument for the ladder.
+
 **The ladder is much better still.** A two-arm A/B spends all its replication on two cells; the
 ladder spends the same budget on five rungs spanning 0…640 boundaries and reads the *slope*. The
 fitted slope half-width is **0.0901 µs/boundary**, so an intervention that changes the boundary
@@ -521,6 +671,7 @@ either n ≥ 4 or a ladder in the number of un-fused layers. The latter is stron
   - sweeps: `bash research/nezuko_r86b_run_all.sh /tmp/r86b 1 1 200`
   - fit: `python3 research/nezuko_r86b_fit.py --csv research/nezuko-r86b-ladder.csv /tmp/r86b/ladder /tmp/r86b/size`
   - publish: `python3 research/nezuko_r86b_wandb.py /tmp/r86b/ladder /tmp/r86b/size`
+  - untouched pool (§2.5): `python3 research/nezuko_r86b_untouched.py /tmp/r86b/census`
 - Correctness and serial-protocol verdict: **PASS**. All **44/44** sweep logs and all 7 census
   arms print `teacher-forced greedy tokens: 0 divergences (all match)`; zero exceptions;
   `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` unset on every build in this round. The instrument inserts
@@ -571,6 +722,23 @@ behaviour for this harness and is not a property of this change.
   gain on the 1,501.7 µs/step kernel is **3.65 %**; the QKV precedent realizes 11.9–12.2 %, giving
   a projected net of **−124 to −128 µs/step (−1.90 % to −1.96 %)** at a **3.3× margin**. The
   boundary price is not the risk; transfer of the prefetch gain is.
+  **Applying #457's 40 % give-back discount to the gain** (an un-fusion recompiles kernels, so it
+  is exposed to that effect) the honest end-to-end figure is **−52 to −55 µs/step (−0.80 % to
+  −0.84 %)**, break-even rises to **6.08 %**, and the margin falls to ≈2.0×. Still proceed, but
+  the prize is about half the naive number and the go/no-go must be *measured* prefetch transfer
+  on the routed kernel.
+- **New finding — the #457 give-back does not generalize to added-work interventions (§2.5).**
+  Across k = 0 → 640 inserted boundaries, the 17.55 %-of-decode pool of command buffers that
+  received **zero** inserts moves by **−2.2 µs/step (WIDE) and −2.7 (TINY)** against a null-replicate
+  95 % bound of ±8.2 — i.e. **−0.24 % of the 900 µs/step gross inserted cost**, versus #457's
+  **+42 %**, and with the wrong sign for a give-back. Because my seven arms are one binary
+  selected by environment variable, the executable and the Metal pipeline set are identical by
+  construction. #457's arms differed in kernel *source*. This is direct evidence **for** the
+  advisor's JIT-pipeline-ordering hypothesis and **against** the power/clock hypothesis: my ladder
+  adds far more GPU work and thermal load than #457 removed, yet shows no spillover. The
+  practical rule is that the give-back term tracks *whether an intervention recompiles a kernel*,
+  not how much work it moves — so the NET rule needs a third term only for pipeline-changing
+  interventions.
 - Smallest useful next action: rerun PR #298's `{0, G, R, N}` deconfound ladder **on M5**
   (`research/nezuko_pr48_deconfound.patch` + `research/nezuko_pr48_abba.sh`). Decision rule:
   `R − G ≳ +60 µs` ⇒ redundancy dominates, fix it algebraically; `N − R ≲ −50 µs` with small
@@ -589,3 +757,12 @@ behaviour for this harness and is not a property of this change.
    row whose sign flips between the linear and `R^0.64` NET rules.
 3. **Adopt `net = gross − producer × (R^0.64 − 1)`** as the programme's NET rule, and re-rank the
    existing queue under it.
+4. **Decide the give-back mechanism with a null recompile.** §2.5 narrows it to pipeline
+   ordering vs power/clock but does not close it. The cheap discriminator is a *semantically
+   null* source edit to `laguna_sliding_fused_attn_ring_v1` — e.g. reordering two independent
+   statements, or renaming a local — that changes the compiled pipeline while provably not
+   changing the work. If `gate_sp_h64_v1` still moves by several µs/step, the mechanism is
+   compilation/pipeline ordering and is **independent of the intervention's merit**, which would
+   mean #457-style give-back is partly recoverable by tuning pipeline creation order rather than
+   being an intrinsic tax. If it does not move, power/clock redistribution survives and the 40 %
+   discount is real work. One arm, two runs, and it changes how every future fusion is priced.
