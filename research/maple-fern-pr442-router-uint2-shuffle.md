@@ -312,6 +312,13 @@ Rule 25 applies in our favour for the *negative* conclusion: a stripped-down
 proxy overstates the isolated share of a mechanism, so the in-situ effect can
 only be smaller than the numbers above.
 
+## W&B record
+
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/wxundmv9> — logs the
+IR census, the exactness/fault-injection table, the offline isolated probe, all
+36 in-situ ABBA slots, all 12 prefill slots, and the summary verdict keys.
+Regenerate with `python3 research/maple_fern_pr442_wandb.py`.
+
 ## Verdict — KILL on this host
 
 **KILL.** The mechanism is real in the IR (two `air.simd_shuffle_xor.u.i32`
