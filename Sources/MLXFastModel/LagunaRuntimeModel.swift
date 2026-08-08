@@ -4097,44 +4097,22 @@ func lagunaGatedAffineOProjNVFP4Source(
 
     thread float x_thread[values_per_thread];
     thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
-    thread uint2 current_codes[results_per_simdgroup];
-    thread uint8_t current_scales[results_per_simdgroup];
-    thread uint2 next_codes[results_per_simdgroup];
-    thread uint8_t next_scales[results_per_simdgroup];
-
-    #pragma unroll
-    for (uint row = 0; row < results_per_simdgroup; ++row) {
-        const device uint32_t* wl = ws + row * (in_vec_size / 8);
-        current_codes[row] = uint2(wl[0], wl[1]);
-        current_scales[row] = sc[row * in_vec_size_g];
-    }
 
     uint column = simd_lid * values_per_thread;
     for (uint k = 0; k < in_vec_size; k += block_size) {
         \(loadInput)
 
-        const bool has_next = k + block_size < in_vec_size;
-        if (has_next) {
-            #pragma unroll
-            for (uint row = 0; row < results_per_simdgroup; ++row) {
-                const device uint32_t* wl =
-                    ws + block_size / 8 + row * (in_vec_size / 8);
-                next_codes[row] = uint2(wl[0], wl[1]);
-                next_scales[row] =
-                    sc[block_size / group_size + row * in_vec_size_g];
-            }
-        }
-
         for (uint row = 0; row < results_per_simdgroup; ++row) {
+            const device uint32_t* wl = ws + row * (in_vec_size / 8);
             // Defer the exact E4M3 2^22 renormalization to the per-row
             // epilogue. Every partial remains the exact 2^-22 rescaling of
             // the control until the multiply before the existing BF16 round.
-            uint8_t sbits = current_scales[row];
+            uint8_t sbits = sc[row * in_vec_size_g];
             \(scaleDecode)
             \(accumDecl)
             #pragma unroll
             for (uint j = 0; j < codes_per_thread; ++j) {
-                const uint c = current_codes[row][j];
+                const uint c = wl[j];
                 \(extract)
                 const float2 v04 = float2(as_type<half2>(p0))\(weightScale);
                 const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
@@ -4150,13 +4128,6 @@ func lagunaGatedAffineOProjNVFP4Source(
             result[row] += scale * accum;
         }
 
-        if (has_next) {
-            #pragma unroll
-            for (uint row = 0; row < results_per_simdgroup; ++row) {
-                current_codes[row] = next_codes[row];
-                current_scales[row] = next_scales[row];
-            }
-        }
         ws += block_size / 8;
         sc += block_size / group_size;
         xp += block_size;
