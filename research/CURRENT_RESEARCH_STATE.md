@@ -4,14 +4,16 @@
 - LRM: ~233K/524,288 = ~291KB headroom. Total surface ~2,733K/3,000,000 = ~267KB headroom.
 
 ## M5 BUILD FIX STATUS
-  ROOT CAUSE IDENTIFIED: PR #342 (kHalvedScales via qmm_nax) — added _nax template instantiations
-  to fp_quantized_nax.h, fp_quantized_nax.cpp, quantized.cpp that cause M5 JIT compile timeout.
-  Timeline: f790e33f (6:51 PM, success) → PR #342 merged → 0fb4541 (7:13 PM, FIRST failure) → 40+ failures.
-  FIX: PR #398 reverts all 3 files to pre-PR #342 state (-7,452B, bit-exact). MERGED.
-  SDPA Phase 1 (GROUP_FULL=3, GROUP_SLIDING=2) re-applied via PR #397 v2. MERGED.
-  M5 submission a46cfdaa VALIDATING (commit 126dc82e).
-  Previous bisect failures explained: d5a296c5 reverted sdpa_vector.h but NOT fp_quantized_nax.h.
-  PR #391 disabled kHalvedScales dispatch but left template definitions in fp_quantized_nax.h.
+  ROOT CAUSE: CUMULATIVE COMPILE-STORM TIMEOUT (not a single PR).
+  M5 has ~900s compile timeout. Total compile time (16 JIT metalKernel() + 15-25 _nax + 2 graph) is at boundary.
+  Same code sometimes passes/fails (intermittent). No single PR is sole cause.
+  Between f790e33f (last success) and current frontier: ONLY sdpa_vector.h changed in vendor files.
+  All other vendor files identical to f790e33f (PR #398 reverted kHalvedScales).
+  d5a296c5 (SDPA reverted, LRM changes): FAILED
+  a46cfdaa (kHalvedScales reverted + SDPA Phase 1): FAILED
+  PR #350 (function constants) REDUCED compile count ~82→~40 but may increase per-compile complexity.
+  STRATEGY: Nuclear fallback (PR #405, alphonse) — rebuild from f790e33f with only dead kernel deletions.
+  This should be below the timeout boundary since f790e33f succeeded and dead kernel deletions reduce compile count.
 
 ## GRID OVER-DISPATCH HYPOTHESIS: REFUTED
 MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = TOTAL THREADS.
