@@ -1,0 +1,755 @@
+{
+  "dirs": [
+    "research/r87a-runs/ladder"
+  ],
+  "ref": "A0",
+  "n_runs": 24,
+  "arms": {
+    "A0": {
+      "n": 6,
+      "wall_us": {
+        "mean": 9817.166666666666,
+        "sd": 72.61519583852038,
+        "values": [
+          9786.0,
+          9824.0,
+          9766.0,
+          9778.0,
+          9960.0,
+          9789.0
+        ]
+      },
+      "busy_sum_us": {
+        "mean": 8555.666666666666,
+        "sd": 9.77070451229934,
+        "values": [
+          8543.0,
+          8572.0,
+          8556.0,
+          8549.0,
+          8556.0,
+          8558.0
+        ]
+      },
+      "busy_union_us": {
+        "mean": 8555.166666666666,
+        "sd": 9.43221430347438,
+        "values": [
+          8543.0,
+          8571.0,
+          8555.0,
+          8549.0,
+          8555.0,
+          8558.0
+        ]
+      },
+      "gap_us": {
+        "mean": 1262.0,
+        "sd": 71.47307185227174,
+        "values": [
+          1243.0,
+          1253.0,
+          1211.0,
+          1229.0,
+          1405.0,
+          1231.0
+        ]
+      },
+      "cbs": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      },
+      "dispatches": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      }
+    },
+    "PF1": {
+      "n": 6,
+      "wall_us": {
+        "mean": 9891.5,
+        "sd": 49.30212977144091,
+        "values": [
+          9880.0,
+          9867.0,
+          9973.0,
+          9857.0,
+          9844.0,
+          9928.0
+        ]
+      },
+      "busy_sum_us": {
+        "mean": 8664.166666666666,
+        "sd": 35.86874219521318,
+        "values": [
+          8654.0,
+          8660.0,
+          8736.0,
+          8650.0,
+          8640.0,
+          8645.0
+        ]
+      },
+      "busy_union_us": {
+        "mean": 8663.5,
+        "sd": 35.6805269019391,
+        "values": [
+          8654.0,
+          8659.0,
+          8735.0,
+          8649.0,
+          8640.0,
+          8644.0
+        ]
+      },
+      "gap_us": {
+        "mean": 1227.6666666666667,
+        "sd": 30.454337403178986,
+        "values": [
+          1226.0,
+          1207.0,
+          1237.0,
+          1208.0,
+          1204.0,
+          1284.0
+        ]
+      },
+      "cbs": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      },
+      "dispatches": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      }
+    },
+    "PF2": {
+      "n": 6,
+      "wall_us": {
+        "mean": 9843.166666666666,
+        "sd": 90.8766563352034,
+        "values": [
+          9802.0,
+          9827.0,
+          9788.0,
+          10026.0,
+          9822.0,
+          9794.0
+        ]
+      },
+      "busy_sum_us": {
+        "mean": 8595.833333333334,
+        "sd": 15.380723866797254,
+        "values": [
+          8599.0,
+          8603.0,
+          8582.0,
+          8619.0,
+          8596.0,
+          8576.0
+        ]
+      },
+      "busy_union_us": {
+        "mean": 8595.333333333334,
+        "sd": 15.552063100009164,
+        "values": [
+          8599.0,
+          8602.0,
+          8582.0,
+          8619.0,
+          8595.0,
+          8575.0
+        ]
+      },
+      "gap_us": {
+        "mean": 1248.0,
+        "sd": 78.99367063252599,
+        "values": [
+          1203.0,
+          1225.0,
+          1206.0,
+          1408.0,
+          1227.0,
+          1219.0
+        ]
+      },
+      "cbs": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      },
+      "dispatches": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      }
+    },
+    "PF3": {
+      "n": 6,
+      "wall_us": {
+        "mean": 9908.666666666666,
+        "sd": 87.97423865352098,
+        "values": [
+          9850.0,
+          9849.0,
+          9867.0,
+          10065.0,
+          9963.0,
+          9858.0
+        ]
+      },
+      "busy_sum_us": {
+        "mean": 8663.0,
+        "sd": 22.144976857066254,
+        "values": [
+          8659.0,
+          8644.0,
+          8651.0,
+          8706.0,
+          8664.0,
+          8654.0
+        ]
+      },
+      "busy_union_us": {
+        "mean": 8662.0,
+        "sd": 21.118712081942874,
+        "values": [
+          8658.0,
+          8644.0,
+          8650.0,
+          8703.0,
+          8663.0,
+          8654.0
+        ]
+      },
+      "gap_us": {
+        "mean": 1246.3333333333333,
+        "sd": 68.59348851506728,
+        "values": [
+          1192.0,
+          1205.0,
+          1216.0,
+          1362.0,
+          1299.0,
+          1204.0
+        ]
+      },
+      "cbs": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      },
+      "dispatches": {
+        "mean": 406.0,
+        "sd": 0.0,
+        "values": [
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0,
+          406.0
+        ]
+      }
+    }
+  },
+  "deltas": {
+    "PF1": {
+      "per_kernel": [
+        {
+          "kernel": "routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+          "delta_us": 98.61666666666679,
+          "ci95_us": 3.3285605534310263,
+          "ref_us": 1499.5666666666666,
+          "share_pct": 17.527174971753613,
+          "touched": true
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": 3.516666666666879,
+          "ci95_us": 9.050097140795156,
+          "ref_us": 1339.3166666666666,
+          "share_pct": 15.65414734873573,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h64_v1_lm1_pw1_sc1_se1",
+          "delta_us": 3.8833333333334394,
+          "ci95_us": 4.348115795966883,
+          "ref_us": 1118.6333333333332,
+          "share_pct": 13.074765262788796,
+          "touched": false
+        },
+        {
+          "kernel": "routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+          "delta_us": 1.9166666666666288,
+          "ci95_us": 3.9696221686444644,
+          "ref_us": 860.6833333333334,
+          "share_pct": 10.059804418124441,
+          "touched": false
+        },
+        {
+          "kernel": "sliding_fused_attn_ring_v1",
+          "delta_us": 3.25,
+          "ci95_us": 2.3953147801995462,
+          "ref_us": 627.7,
+          "share_pct": 7.33665796548097,
+          "touched": false
+        },
+        {
+          "kernel": "lmhead_int5_base_coarse_delta_bf16_v1",
+          "delta_us": 1.4166666666666288,
+          "ci95_us": 2.762740438131232,
+          "ref_us": 421.73333333333335,
+          "share_pct": 4.929286632641135,
+          "touched": false
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": 1.2999999999999545,
+          "ci95_us": 2.363331036905507,
+          "ref_us": 363.1,
+          "share_pct": 4.243970857521331,
+          "touched": false
+        },
+        {
+          "kernel": "residual_rms_router_bf16_2048_rpg8_keys_v1",
+          "delta_us": 1.099999999999966,
+          "ci95_us": 1.8450603508849608,
+          "ref_us": 319.4666666666667,
+          "share_pct": 3.733977480811938,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h48_v1_lm1_pw1_sc1_se1",
+          "delta_us": -0.3166666666666629,
+          "ci95_us": 1.4760480145867736,
+          "ref_us": 302.93333333333334,
+          "share_pct": 3.5407332372306857,
+          "touched": false
+        },
+        {
+          "kernel": "shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
+          "delta_us": -1.3666666666666742,
+          "ci95_us": 2.4341504591030345,
+          "ref_us": 287.2,
+          "share_pct": 3.356839521564655,
+          "touched": false
+        },
+        {
+          "kernel": "dense_gate_up_swiglu_bf16_v1",
+          "delta_us": 0.5833333333333144,
+          "ci95_us": 0.9678928155549512,
+          "ref_us": 269.75,
+          "share_pct": 3.1528811314138783,
+          "touched": false
+        },
+        {
+          "kernel": "gate_sp_h64_v1",
+          "delta_us": -7.833333333333343,
+          "ci95_us": 0.8410700167597602,
+          "ref_us": 250.65,
+          "share_pct": 2.9296372774379553,
+          "touched": false
+        },
+        {
+          "kernel": "full_fused_attn_grow_v1",
+          "delta_us": -1.3499999999999943,
+          "ci95_us": 0.7445848743906661,
+          "ref_us": 249.26666666666665,
+          "share_pct": 2.9134686562512178,
+          "touched": false
+        },
+        {
+          "kernel": "prefill_router_tournament_ordinal_norm_active64_v2",
+          "delta_us": 0.5666666666666629,
+          "ci95_us": 0.9150424303036349,
+          "ref_us": 186.31666666666666,
+          "share_pct": 2.1776989909221958,
+          "touched": false
+        },
+        {
+          "kernel": "rmsbfloat16",
+          "delta_us": 0.4166666666666572,
+          "ci95_us": 0.9095474593497153,
+          "ref_us": 141.91666666666669,
+          "share_pct": 1.658744691627382,
+          "touched": false
+        },
+        {
+          "kernel": "dense_down_residual_bf16_v1",
+          "delta_us": 0.1666666666666572,
+          "ci95_us": 0.6677789670964844,
+          "ref_us": 134.35,
+          "share_pct": 1.5703042817625745,
+          "touched": false
+        }
+      ],
+      "totals": {
+        "busy_sum_us": {
+          "delta_us": 108.5,
+          "ci95_us": 36.094765199319745
+        },
+        "busy_union_us": {
+          "delta_us": 108.33333333333394,
+          "ci95_us": 35.88015119286325
+        },
+        "wall_us": {
+          "delta_us": 74.33333333333394,
+          "ci95_us": 80.0014034977651
+        }
+      },
+      "subtotal_touched_us": 98.61666666666679,
+      "subtotal_untouched_us": 7.250000000000114
+    },
+    "PF2": {
+      "per_kernel": [
+        {
+          "kernel": "routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+          "delta_us": 26.466666666666697,
+          "ci95_us": 4.024573237180322,
+          "ref_us": 1499.5666666666666,
+          "share_pct": 17.527174971753613,
+          "touched": true
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": -1.1499999999998636,
+          "ci95_us": 2.9871186381957826,
+          "ref_us": 1339.3166666666666,
+          "share_pct": 15.65414734873573,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h64_v1_lm1_pw1_sc1_se1",
+          "delta_us": 2.083333333333485,
+          "ci95_us": 2.202877185910507,
+          "ref_us": 1118.6333333333332,
+          "share_pct": 13.074765262788796,
+          "touched": false
+        },
+        {
+          "kernel": "routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+          "delta_us": 2.1333333333333258,
+          "ci95_us": 1.948070314714148,
+          "ref_us": 860.6833333333334,
+          "share_pct": 10.059804418124441,
+          "touched": false
+        },
+        {
+          "kernel": "sliding_fused_attn_ring_v1",
+          "delta_us": 8.799999999999955,
+          "ci95_us": 1.2427581693077894,
+          "ref_us": 627.7,
+          "share_pct": 7.33665796548097,
+          "touched": false
+        },
+        {
+          "kernel": "lmhead_int5_base_coarse_delta_bf16_v1",
+          "delta_us": 0.36666666666667425,
+          "ci95_us": 0.6468880183590726,
+          "ref_us": 421.73333333333335,
+          "share_pct": 4.929286632641135,
+          "touched": false
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": 0.5833333333333144,
+          "ci95_us": 1.0811699336002099,
+          "ref_us": 363.1,
+          "share_pct": 4.243970857521331,
+          "touched": false
+        },
+        {
+          "kernel": "residual_rms_router_bf16_2048_rpg8_keys_v1",
+          "delta_us": 0.6333333333333258,
+          "ci95_us": 1.1218355145545766,
+          "ref_us": 319.4666666666667,
+          "share_pct": 3.733977480811938,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h48_v1_lm1_pw1_sc1_se1",
+          "delta_us": 0.16666666666668561,
+          "ci95_us": 1.6611459931944021,
+          "ref_us": 302.93333333333334,
+          "share_pct": 3.5407332372306857,
+          "touched": false
+        },
+        {
+          "kernel": "shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
+          "delta_us": -1.1666666666666856,
+          "ci95_us": 1.9638064200342267,
+          "ref_us": 287.2,
+          "share_pct": 3.356839521564655,
+          "touched": false
+        },
+        {
+          "kernel": "dense_gate_up_swiglu_bf16_v1",
+          "delta_us": 0.2666666666666515,
+          "ci95_us": 1.1137521053761368,
+          "ref_us": 269.75,
+          "share_pct": 3.1528811314138783,
+          "touched": false
+        },
+        {
+          "kernel": "gate_sp_h64_v1",
+          "delta_us": 0.21666666666666856,
+          "ci95_us": 0.9035247504525408,
+          "ref_us": 250.65,
+          "share_pct": 2.9296372774379553,
+          "touched": false
+        },
+        {
+          "kernel": "full_fused_attn_grow_v1",
+          "delta_us": -0.29999999999998295,
+          "ci95_us": 0.7753673346968121,
+          "ref_us": 249.26666666666665,
+          "share_pct": 2.9134686562512178,
+          "touched": false
+        },
+        {
+          "kernel": "prefill_router_tournament_ordinal_norm_active64_v2",
+          "delta_us": 0.28333333333333144,
+          "ci95_us": 0.8265499918106838,
+          "ref_us": 186.31666666666666,
+          "share_pct": 2.1776989909221958,
+          "touched": false
+        },
+        {
+          "kernel": "rmsbfloat16",
+          "delta_us": 0.0999999999999659,
+          "ci95_us": 0.6092435403658853,
+          "ref_us": 141.91666666666669,
+          "share_pct": 1.658744691627382,
+          "touched": false
+        },
+        {
+          "kernel": "dense_down_residual_bf16_v1",
+          "delta_us": -0.13333333333332575,
+          "ci95_us": 0.7042706321321116,
+          "ref_us": 134.35,
+          "share_pct": 1.5703042817625745,
+          "touched": false
+        }
+      ],
+      "totals": {
+        "busy_sum_us": {
+          "delta_us": 40.16666666666788,
+          "ci95_us": 16.688241219279227
+        },
+        "busy_union_us": {
+          "delta_us": 40.16666666666788,
+          "ci95_us": 16.716883754518467
+        },
+        "wall_us": {
+          "delta_us": 26.0,
+          "ci95_us": 105.03182173898625
+        }
+      },
+      "subtotal_touched_us": 26.466666666666697,
+      "subtotal_untouched_us": 12.883333333333525
+    },
+    "PF3": {
+      "per_kernel": [
+        {
+          "kernel": "routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+          "delta_us": 105.80000000000018,
+          "ci95_us": 2.8535187470526675,
+          "ref_us": 1499.5666666666666,
+          "share_pct": 17.527174971753613,
+          "touched": true
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": -0.08333333333325754,
+          "ci95_us": 4.724203631661162,
+          "ref_us": 1339.3166666666666,
+          "share_pct": 15.65414734873573,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h64_v1_lm1_pw1_sc1_se1",
+          "delta_us": 2.616666666666788,
+          "ci95_us": 3.9685734586550065,
+          "ref_us": 1118.6333333333332,
+          "share_pct": 13.074765262788796,
+          "touched": false
+        },
+        {
+          "kernel": "routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+          "delta_us": 1.5166666666666515,
+          "ci95_us": 3.0829286349378497,
+          "ref_us": 860.6833333333334,
+          "share_pct": 10.059804418124441,
+          "touched": false
+        },
+        {
+          "kernel": "sliding_fused_attn_ring_v1",
+          "delta_us": 2.4166666666666288,
+          "ci95_us": 1.899111381233703,
+          "ref_us": 627.7,
+          "share_pct": 7.33665796548097,
+          "touched": false
+        },
+        {
+          "kernel": "lmhead_int5_base_coarse_delta_bf16_v1",
+          "delta_us": 0.36666666666667425,
+          "ci95_us": 0.8278220806792876,
+          "ref_us": 421.73333333333335,
+          "share_pct": 4.929286632641135,
+          "touched": false
+        },
+        {
+          "kernel": "decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1",
+          "delta_us": 0.5999999999999659,
+          "ci95_us": 1.4952476371011372,
+          "ref_us": 363.1,
+          "share_pct": 4.243970857521331,
+          "touched": false
+        },
+        {
+          "kernel": "residual_rms_router_bf16_2048_rpg8_keys_v1",
+          "delta_us": 0.6666666666666288,
+          "ci95_us": 1.6892591864811746,
+          "ref_us": 319.4666666666667,
+          "share_pct": 3.733977480811938,
+          "touched": false
+        },
+        {
+          "kernel": "oproj_act_h48_v1_lm1_pw1_sc1_se1",
+          "delta_us": 0.01666666666665151,
+          "ci95_us": 1.2452585538792402,
+          "ref_us": 302.93333333333334,
+          "share_pct": 3.5407332372306857,
+          "touched": false
+        },
+        {
+          "kernel": "shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
+          "delta_us": -0.9666666666666401,
+          "ci95_us": 2.3091183786669007,
+          "ref_us": 287.2,
+          "share_pct": 3.356839521564655,
+          "touched": false
+        },
+        {
+          "kernel": "dense_gate_up_swiglu_bf16_v1",
+          "delta_us": 0.06666666666666288,
+          "ci95_us": 0.7728025247060489,
+          "ref_us": 269.75,
+          "share_pct": 3.1528811314138783,
+          "touched": false
+        },
+        {
+          "kernel": "gate_sp_h64_v1",
+          "delta_us": -6.98333333333332,
+          "ci95_us": 1.0924598841324236,
+          "ref_us": 250.65,
+          "share_pct": 2.9296372774379553,
+          "touched": false
+        },
+        {
+          "kernel": "full_fused_attn_grow_v1",
+          "delta_us": -1.4166666666666572,
+          "ci95_us": 0.8936021366471407,
+          "ref_us": 249.26666666666665,
+          "share_pct": 2.9134686562512178,
+          "touched": false
+        },
+        {
+          "kernel": "prefill_router_tournament_ordinal_norm_active64_v2",
+          "delta_us": -0.09999999999999432,
+          "ci95_us": 0.8006986521960956,
+          "ref_us": 186.31666666666666,
+          "share_pct": 2.1776989909221958,
+          "touched": false
+        },
+        {
+          "kernel": "rmsbfloat16",
+          "delta_us": 0.38333333333332575,
+          "ci95_us": 0.6755276956563327,
+          "ref_us": 141.91666666666669,
+          "share_pct": 1.658744691627382,
+          "touched": false
+        },
+        {
+          "kernel": "dense_down_residual_bf16_v1",
+          "delta_us": -0.04999999999998295,
+          "ci95_us": 0.6692083827701382,
+          "ref_us": 134.35,
+          "share_pct": 1.5703042817625745,
+          "touched": false
+        }
+      ],
+      "totals": {
+        "busy_sum_us": {
+          "delta_us": 107.33333333333394,
+          "ci95_us": 22.817012839134538
+        },
+        "busy_union_us": {
+          "delta_us": 106.83333333333394,
+          "ci95_us": 21.78293496101729
+        },
+        "wall_us": {
+          "delta_us": 91.5,
+          "ci95_us": 102.85495451466934
+        }
+      },
+      "subtotal_touched_us": 105.80000000000018,
+      "subtotal_untouched_us": -0.9499999999998749
+    }
+  }
+}
