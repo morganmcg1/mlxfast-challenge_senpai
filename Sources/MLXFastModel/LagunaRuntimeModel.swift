@@ -598,12 +598,10 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
 private let lagunaAttentionProjectionAsyncEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] != "0"
 
-/// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `1`; `0`/`off` disables;
-/// `8` restores the prior default): a ranked measurement on the
-/// 1.87782 base scored stride 1 at 1.88526 (+0.40% vs that base, rejected
-/// only because a larger win promoted mid-queue), and the decode-side
-/// ladder sweep showed denser firing pays until graph-build cost
-/// dominates. Stride 1 fires `asyncEval` after every layer:
+/// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `16`; `0`/`off` disables;
+/// `1` restores the prior default): a sweep on the SDPA frontier showed
+/// stride 16 best at prefill 0.002145 / decode 0.018555 (score 0.5168,
+/// +2.22% vs stride 1 score 0.5056). Stride 1 fires `asyncEval` after every layer:
 /// prefill-side twin of the decode ladder above. Multi-token forwards build
 /// a ~400-op graph with the GPU idle until the final eval; firing `asyncEval`
 /// after every Nth layer streams completed segments exactly as the promoted
