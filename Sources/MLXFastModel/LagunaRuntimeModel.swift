@@ -884,7 +884,7 @@ func lagunaResidualRMSNormRouter(
     let inputs = [residual, branch, weight, routerWeight]
     let outputs = lagunaResidualRMSNormRouterKernel(
         inputs,
-        grid: (tiles * 512, 1, 1),
+        grid: (tiles, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, hidden], [1, 1, hidden], [1, 1, experts]],
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
@@ -905,7 +905,7 @@ func lagunaResidualRMSNorm(
     let rows = residual.size / LagunaConstants.hiddenSize
     let outputs = lagunaResidualRMSNormKernel(
         [residual, branch, weight],
-        grid: (rows * 512, 1, 1),
+        grid: (rows, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [residual.shape, residual.shape],
         outputDTypes: [.bfloat16, .bfloat16]
@@ -1013,7 +1013,7 @@ func lagunaFullQKNormYaRN(
     lagunaTrace("full qk norm+yarn")
     let outputs = lagunaFullQKNormYaRNKernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles],
-        grid: (56 * 32, 1, 1),
+        grid: (56, 1, 1),
         threadGroup: (32, 1, 1),
         outputShapes: [
             [1, 48, 1, LagunaConstants.headDim],
@@ -1139,7 +1139,7 @@ func lagunaSlidingQKNormRoPE(
     lagunaTrace("sliding qk norm+rope")
     let outputs = lagunaSlidingQKNormRoPEKernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles],
-        grid: ((heads + kvHeads) * 32, 1, 1),
+        grid: (heads + kvHeads, 1, 1),
         threadGroup: (32, 1, 1),
         outputShapes: [
             [1, heads, 1, LagunaConstants.headDim],
@@ -1592,7 +1592,7 @@ func lagunaSlidingFusedAttention(
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        grid: ((heads / 2) * 1024, 1, 1),
+        grid: (heads / 2, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
         outputDTypes: [.bfloat16]
@@ -2148,7 +2148,7 @@ func lagunaFullFusedAttention(
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        grid: ((heads / 2) * 1024, 1, 1),
+        grid: (heads / 2, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
         outputDTypes: [.bfloat16]
@@ -2437,6 +2437,7 @@ private func lagunaGatedAffineOProjSource(indexed: Bool = false) -> String {
 
     uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
         simd_gid * results_per_simdgroup;
+    if (out_row >= out_vec_size) return;
 
     const device uint8_t* ws = (const device uint8_t*)weight_codes +
         out_row * in_vec_size + simd_lid * values_per_thread;
@@ -2608,7 +2609,7 @@ func lagunaGatedAffineOProj(
         lagunaTrace("gated affine oproj qmv h\(heads) indexed")
         return lagunaGatedAffineOProjIndexedKernel(
             [attentionOutput, gateLogits, codes, metadata.indices, metadata.lut],
-            grid: ((outVec / 8) * 64, 1, 1),
+            grid: (outVec / 8, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16]
         )[0]
@@ -2616,7 +2617,7 @@ func lagunaGatedAffineOProj(
     lagunaTrace("gated affine oproj qmv h\(heads)")
     return lagunaGatedAffineOProjKernel(
         [attentionOutput, gateLogits, codes, scales, biases],
-        grid: ((outVec / 8) * 64, 1, 1),
+        grid: (outVec / 8, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, outVec]],
         outputDTypes: [.bfloat16]
@@ -2745,6 +2746,7 @@ func lagunaGatedAffineOProjNVFP4Source(
 
     uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
         simd_gid * results_per_simdgroup;
+    if (out_row >= out_vec_size) return;
     const device uint32_t* ws =
         (const device uint32_t*)weight_codes +
         out_row * (in_vec_size / 8) + simd_lid * codes_per_thread;
@@ -2882,7 +2884,7 @@ func lagunaGatedAffineOProjNVFP4(
         lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
         return kernel(
             [attentionOutput, gateLogits, codes, scales, escape],
-            grid: ((outVec / 16) * 64, 1, 1),
+            grid: (outVec / 16, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]],
             outputDTypes: [.bfloat16]
@@ -3161,6 +3163,7 @@ private func lagunaDecodeNVFP4QKVR1Source(
     uint simd_gid = simdgroup_index_in_threadgroup;
     uint simd_lid = thread_index_in_simdgroup;
     uint out_row = tile * num_simdgroups + simd_gid;
+    if (out_row >= weight_codes_shape[0]) return;
     \(gateRowDecl)
 
     thread float result = 0.0f;
@@ -3220,7 +3223,7 @@ private func lagunaDecodeNVFP4QKVR1(
     guard let esc = bank.qkvEscape, esc.dims(3) else { return nil }
     return lagunaDecodeNVFP4QKVR1HalvedKernel(
         [normalized, bank.packedCodes, bank.scales, esc],
-        grid: ((rows / 2) * 64, 1, 1), threadGroup: (64, 1, 1),
+        grid: (rows / 2, 1, 1), threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]], outputDTypes: [.bfloat16])[0]
 }
 
@@ -3273,7 +3276,7 @@ private func lagunaFusedGProjQKV(
     let outputs = lagunaFusedGProjQKVHalvedKernel(
         [normalized, bank.packedCodes, bank.scales, esc,
          gproj.packedCodes, gprojMeta],
-        grid: ((totalRows / 2) * 64, 1, 1),
+        grid: (totalRows / 2, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows], [1, 1, heads]],
         outputDTypes: [.bfloat16, .bfloat16])
@@ -4404,6 +4407,7 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         uint simd_group = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
         uint row = tile * 2 + simd_group;
+        if (row >= output_width) return;
 
         const device uint8_t* gate_row_weight =
             (const device uint8_t*)fused_weight +
@@ -4489,7 +4493,7 @@ func lagunaSharedSwiGLUQMV(
 
     return lagunaSharedSwiGLUQMVRows1Kernel(
         [input, fusedWeight, packedScales, gateUpEscape],
-        grid: (256 * 64, 1, 1),
+        grid: (256, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
         outputDTypes: [.bfloat16]
@@ -4517,6 +4521,7 @@ private let lagunaSharedDownResidualKernel = MLXFast.metalKernel(
         uint first_row =
             group * 2 * outputs_per_simd +
             simd_group * outputs_per_simd;
+        if (first_row >= output_width) return;
 
         thread float input_values[values_per_lane];
         const device vec<bfloat, 4>* input_vectors =
@@ -4593,7 +4598,7 @@ func lagunaSharedDownResidual(
 
     return lagunaSharedDownResidualKernel(
         [activated, downWeight, downScales, downScalesEscape, routed, residual],
-        grid: ((LagunaConstants.hiddenSize / 8) * 64, 1, 1),
+        grid: (LagunaConstants.hiddenSize / 8, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
@@ -4626,6 +4631,8 @@ private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
         uint simd_group = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
         uint logical_row = tile * 2 + simd_group;
+
+        if (logical_row >= output_width) return;
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
@@ -4786,7 +4793,7 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     return lagunaRoutedSwiGLUQMVPackedTop8R1Kernel(
         [input, fusedWeight, packedScales, gateUpEscape, indices,
          sharedWeight, sharedScales, sharedEscape],
-        grid: (9 * 256 * 64, 1, 1),
+        grid: (9 * 256, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[
             1, 1, 9, 1,
@@ -4819,6 +4826,7 @@ private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
         uint expert_slot = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
         uint first_row = tile * outputs_per_simd;
+        if (first_row >= output_width) return;
         uint expert = uint(indices[expert_slot]);
 
         const device bfloat* expert_input =
@@ -4926,7 +4934,7 @@ func lagunaRoutedDownReduce(
 
     return lagunaRoutedDownReduceKernel(
         [activated, downWeight, downScales, indices, routerWeights],
-        grid: ((LagunaConstants.hiddenSize / 4) * 256, 1, 1),
+        grid: (LagunaConstants.hiddenSize / 4, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
@@ -4962,6 +4970,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         uint slot = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
         uint first_row = tile * outputs_per_simd;
+        if (first_row >= output_width) return;
         bool is_shared = slot == shared_slot;
         uint expert = is_shared ? 0 : uint(indices[slot]);
 
@@ -5102,7 +5111,7 @@ func lagunaRoutedSharedDownResidual(
             sharedDownScalesEscape,
             residual,
         ],
-        grid: (LagunaConstants.hiddenSize / 8 * 288, 1, 1),
+        grid: (LagunaConstants.hiddenSize / 8, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
@@ -5141,6 +5150,7 @@ private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
         uint lane = thread_index_in_simdgroup;
 
         uint row_base = tile * rows_per_group + simd_group * rows_per_thread;
+        if (row_base >= output_width) return;
 
         thread float gate_result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
         thread float up_result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -5213,7 +5223,7 @@ func lagunaDenseGateUpSwiGLU(
 
     return lagunaDenseGateUpSwiGLUKernel(
         [input, fusedWeight],
-        grid: ((LagunaConstants.denseIntermediateSize / 64) * 512, 1, 1),
+        grid: (LagunaConstants.denseIntermediateSize / 64, 1, 1),
         threadGroup: (512, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
         outputDTypes: [.bfloat16]
@@ -5226,6 +5236,7 @@ private let lagunaDenseDownResidualKernel = MLXFast.metalKernel(
     outputNames: ["output"],
     source: """
         constexpr uint in_vec_size = 8192;
+        constexpr uint output_width = 2048;
         constexpr uint rows_per_thread = 4;
         constexpr uint values_per_thread = 4;
         constexpr uint block_width = 128;
@@ -5237,6 +5248,7 @@ private let lagunaDenseDownResidualKernel = MLXFast.metalKernel(
         uint lane = thread_index_in_simdgroup;
 
         uint row_base = tile * rows_per_group + simd_group * rows_per_thread;
+        if (row_base >= output_width) return;
 
         thread float result[rows_per_thread] = {0.0f, 0.0f, 0.0f, 0.0f};
         thread float coefficients[values_per_thread];
@@ -5292,7 +5304,7 @@ func lagunaDenseDownResidual(
 
     return lagunaDenseDownResidualKernel(
         [activated, downWeight, residual],
-        grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
+        grid: (LagunaConstants.hiddenSize / 16, 1, 1),
         threadGroup: (128, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
