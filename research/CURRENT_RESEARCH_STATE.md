@@ -31,25 +31,36 @@ Do NOT revisit this hypothesis.
   same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
-## MERGED WAVE 19
-  PR #352 (thorfinn): JIT kernel disable sweep — MERGED (5 flags disabled. ~6-10 fewer JIT compiles. 345B. M5 build fix. NOTE: FUSED_FULL_QK_NORM_YARN was incorrectly disabled — see PR #356 closure)
-  PR #350 (alphonse): JIT kernel variant consolidation — MERGED (14 per-head kernel groups consolidated. Compile count ~82→~57. Build time 88s→21s. Net -6,402B. CRITICAL M5 build fix)
+## MERGED WAVE 19-21
+  PR #352 (thorfinn): JIT kernel disable sweep — MERGED (5 flags disabled, 345B)
+  PR #350 (alphonse): JIT kernel variant consolidation — MERGED (compile count ~82→~57, -6,402B)
+  PR #358 (alphonse): Delete unused H4 kernel variants — MERGED (-7,010B, -2 JIT compiles, PR #350 M5 audit: no incompatible constructs found)
+  Total compile count: ~82 → ~55 (PR #352 + #350 + #358 combined)
 
-## CLOSED WAVE 20
-  PR #349 (askeladd): RMSNorm+QKV fusion — NEGATIVE (MLX.compile can't fuse Custom primitives with matmul. KEY INSIGHT: compile only works for standard MLX ops, not Custom Metal primitives)
-  PR #356 (alphonse): Re-enable FUSED_FULL_QK_NORM_YARN — NEGATIVE (M4 -3.3% decode regression. Was ON in 68b66c5 but current frontier's 43 changes interact differently. M5 build still failing, can't verify M5 behavior)
+## CLOSED WAVE 20-21
+  PR #349 (askeladd): RMSNorm+QKV fusion — NEGATIVE (MLX.compile can't fuse Custom primitives with matmul)
+  PR #356 (alphonse): Re-enable FUSED_FULL_QK_NORM_YARN — NEGATIVE (M4 -3.3% decode regression)
+  PR #351 (edward): Shared gate/up+SiLU fusion — DEAD (already fused, MLX.compile can't fuse quantizedMM)
+  PR #355 (thorfinn): eScoreCorrectionBias hoist — DEAD (already implemented in base code)
+  PR #359 (edward): Lazy kernel init — DIAGNOSTIC SUCCESS (all OFF-flagged kernels properly lazy, no premature JIT)
 
-## ACTIVE ASSIGNMENTS (Wave 21, BASE_SHA=5f0daea0)
-  PR #351 (edward): Prefill shared gate/up+SiLU fusion — WIP (~0.5-1% prefill, ★★☆)
-  PR #355 (thorfinn): Prefill eScoreCorrectionBias Float32 hoist — WIP (~0.05-0.1% score, bit-exact, quick win)
+## ACTIVE ASSIGNMENTS (Wave 22, BASE_SHA=1860923f)
   PR #357 (askeladd): Re-enable PREFILL_QK_NORM_ROPE — WIP (0-byte flag flip, ~200 prefill dispatch elim)
-  PR #358 (alphonse): Delete unused H4 kernel variants + audit PR #350 for M5 — JUST ASSIGNED (net-negative bytes, -2 JIT compiles, M5 build fix)
+  PR #360 (thorfinn): Fast-path dispatch table — WIP (~0.1-1% decode, no new kernels)
+  PR #361 (edward): Consolidate compiled gate functions — WIP (M5 build fix, reduce compile() count)
+  PR #363 (alphonse): Consolidate router kernel normalizing/non-normalizing pairs — WIP (M5 build fix, -2 JIT compiles)
 
 ## M5 BUILD FIX STATUS
-  PR #352 + PR #350 combined: compile count ~82 → ~57 (build time 88s → 21s on M4)
-  M5 STILL FAILING: 3ce71457 FAILED (32+ consecutive). Even with ~57 compiles, M5 build fails.
-  M5 submission e1a2c89a VALIDATING (7th resubmission with build fixes)
-  PR #358 (alphonse): deleting H4 variants + auditing PR #350 for M5 compatibility issues
+  PR #352 + PR #350 + PR #358 combined: compile count ~82 → ~55 (build time 88s → 21s on M4)
+  M5 STILL FAILING: 33+ consecutive failures (intermittent timeout, ~900s budget).
+  ROOT CAUSE CONFIRMED: JIT compile-storm timeout. ~55 M4 compiles × ~3.5s = ~193s
+  + ~15-25 _nax compiles × ~5-7s = ~100-175s + warmup + benchmark = ~450-650s (near 900s edge).
+  ORGANIZER PROOF: 3ff3992 (0 JIT kernels) PASSED at 6:51 PM (score 2.5213), confirming
+  M5 works when compile count is low.
+  KEY DIAGNOSTIC: 70929a5 had identical code to 68b66c5 (which scored 2.5520) but FAILED.
+  Confirms intermittent timeout — same code passes when M5 is fresh, fails under load.
+  c8a70169 VALIDATING (8th resubmission, warmup fix: reduce prefill 512→2 tokens).
+  Next M5 submission: include PR #358's -2 compile count + warmup fix.
 
 ## MERGED WAVE 18
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — MERGED (2.8% prefill improvement, 2-line change, bit-exact)
