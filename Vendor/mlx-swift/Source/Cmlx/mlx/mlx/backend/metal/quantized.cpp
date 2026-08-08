@@ -1868,48 +1868,40 @@ void gather_qmm_rhs_nax(
     });
   }
 
-  metal::MTLFCList func_consts;
+  // Function constants eliminated: alignment and stage values are now
+  // template parameters baked into the kernel name, not runtime
+  // specializations.
+
+  // Encode alignment and stage values in kname for the non-expert path so
+  // each unique combination gets its own cached JIT library.
   if (!expert_aligned) {
-    func_consts = {
-        {&align_M, MTL::DataType::DataTypeBool, 200},
-        {&align_N, MTL::DataType::DataTypeBool, 201},
-        {&align_K, MTL::DataType::DataTypeBool, 202},
-        {&run_skip, MTL::DataType::DataTypeBool, 203},
-        {&stage_widest, MTL::DataType::DataTypeBool, 204},
-        {&stage_wideld, MTL::DataType::DataTypeBool, 205},
-        {&stage_runbar, MTL::DataType::DataTypeBool, 206},
-        {&stage_novol, MTL::DataType::DataTypeBool, 207},
-    };
+    concatenate(
+        kname,
+        "_aM_",
+        align_M ? 't' : 'n',
+        "_aN_",
+        align_N ? 't' : 'n',
+        "_aK_",
+        align_K ? 't' : 'n',
+        "_rs_",
+        run_skip ? 't' : 'n',
+        "_stg_",
+        stage_widest ? 'W' : 'n',
+        stage_wideld ? 'L' : 'n',
+        stage_runbar ? 'B' : 'n',
+        stage_novol ? 'V' : 'n');
   }
 
-  // And the kernel hash that includes the function constants
-  std::string hash_name;
-  hash_name.reserve(128);
-  concatenate(
-      hash_name,
-      kname,
-      "_align_M_",
-      align_M ? 't' : 'n',
-      "_align_N_",
-      align_N ? 't' : 'n',
-      "_align_K_",
-      align_K ? 't' : 'n',
-      "_rs_",
-      run_skip ? 't' : 'n',
-      "_stg_",
-      stage_widest ? 'W' : 'n',
-      stage_wideld ? 'L' : 'n',
-      stage_runbar ? 'B' : 'n',
-      stage_novol ? 'V' : 'n');
-
-  // Get and set the kernel. Every expert-aligned instantiation (static and
-  // runtime-shaped alike) is built from a template definition here, because
-  // the expert kernel's expert-group count is a template parameter; the
-  // shared gather builder keeps its stock signature for the non-expert path.
+  // Build the template definition with alignment and stage values as
+  // template parameters instead of function constants, eliminating pipeline
+  // specialization overhead. Each value is resolved once per process and
+  // baked into the kernel name.
+  // For affine mode, the kernel (quantized_nax.h) still uses function
+  // constants, so keep the old get_gather_qmm_nax_kernel path.
   auto& compute_encoder = metal::get_command_encoder(s);
   MTL::ComputePipelineState* kernel;
   if (expert_aligned) {
-    auto template_def = get_template_definition(
+    auto expert_template_def = get_template_definition(
         kname,
         "fp_gather_qmm_rhs_expert_nax",
         get_type_string(x.dtype()),
@@ -1927,13 +1919,33 @@ void gather_qmm_rhs_nax(
         egroups,
         expert_widest,
         expert_wideld);
-    kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
-  } else {
+    kernel = get_qmm_nax_kernel(d, kname, expert_template_def, mode);
+  } else if (mode == "affine") {
+    // Affine path: quantized_nax.h still uses function constants
+    std::string hash_name;
+    hash_name.reserve(128);
+    concatenate(
+        hash_name,
+        kname,
+        "_aM_",
+        align_M ? 't' : 'n',
+        "_aN_",
+        align_N ? 't' : 'n',
+        "_aK_",
+        align_K ? 't' : 'n',
+        "_rs_",
+        run_skip ? 't' : 'n');
+    metal::MTLFCList affine_func_consts = {
+        {&align_M, MTL::DataType::DataTypeBool, 200},
+        {&align_N, MTL::DataType::DataTypeBool, 201},
+        {&align_K, MTL::DataType::DataTypeBool, 202},
+        {&run_skip, MTL::DataType::DataTypeBool, 203},
+    };
     kernel = get_gather_qmm_nax_kernel(
         d,
         kname,
         hash_name,
-        func_consts,
+        affine_func_consts,
         x,
         group_size,
         bits,
@@ -1944,6 +1956,28 @@ void gather_qmm_rhs_nax(
         wm,
         wn,
         transpose);
+  } else {
+    auto template_def = get_template_definition(
+        kname,
+        "fp_gather_qmm_rhs_nax",
+        get_type_string(x.dtype()),
+        group_size,
+        bits,
+        bm,
+        bn,
+        bk,
+        wm,
+        wn,
+        transpose,
+        align_M,
+        align_N,
+        align_K,
+        run_skip,
+        stage_widest,
+        stage_wideld,
+        stage_runbar,
+        stage_novol);
+    kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
   }
   compute_encoder.set_compute_pipeline_state(kernel);
 

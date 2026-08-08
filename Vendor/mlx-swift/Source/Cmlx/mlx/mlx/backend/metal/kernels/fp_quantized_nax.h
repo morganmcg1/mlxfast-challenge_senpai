@@ -6,22 +6,9 @@
 #include "mlx/backend/metal/kernels/fp4.h"
 #include "mlx/backend/metal/kernels/fp8.h"
 
-constant bool align_M [[function_constant(200)]];
-constant bool align_N [[function_constant(201)]];
-constant bool align_K [[function_constant(202)]];
-// Set by gather_qmm_rhs_nax when DARKBLOOM_PREFILL_GATHER_RUNSKIP selects this
-// dispatch. Default OFF: the host always supplies it, and when false the kernel
-// is byte-for-byte the upstream algorithm.
-constant bool gather_run_skip [[function_constant(203)]];
-
-// DARKBLOOM staging levers for fp_gather_qmm_rhs_nax. All default OFF: an
-// undefined bool function constant reads as false, exactly as the kernel
-// behaves today. Each is resolved once per process on the host side, so no
-// tunable magnitude ever enters the pipeline specialization key.
-constant bool stage_widest [[function_constant(204)]];
-constant bool stage_wideld [[function_constant(205)]];
-constant bool stage_runbar [[function_constant(206)]];
-constant bool stage_novol [[function_constant(207)]];
+// Former function constants (fc 200-207) for fp_gather_qmm_rhs_nax, now
+// template parameters: each is resolved once per process on the host and
+// baked into the kernel name, eliminating pipeline specialization overhead.
 
 using namespace metal;
 
@@ -1283,6 +1270,14 @@ template <
     int WM,
     int WN,
     bool transpose,
+    bool kAlignM = false,
+    bool kAlignN = false,
+    bool kAlignK = false,
+    bool kRunSkip = false,
+    bool kStageWidest = false,
+    bool kStageWideld = false,
+    bool kStageRunbar = false,
+    bool kStageNovol = false,
     typename Wtype = bfloat>
 [[kernel]] void fp_gather_qmm_rhs_nax(
     const device T* x,
@@ -1341,8 +1336,8 @@ template <
   const size_t y_col_long = size_t(y_col);
 
   // Prepare threadgroup bounds
-  const short tgp_bm = align_M ? BM : short(min(BM, M - y_row));
-  const short tgp_bn = align_N ? BN : short(min(BN, N - y_col));
+  const short tgp_bm = kAlignM ? BM : short(min(BM, M - y_row));
+  const short tgp_bn = kAlignN ? BN : short(min(BN, N - y_col));
 
   // Calculate the final tiles in the case that K is not aligned
   const int k_remain = K - K_it * BK;
@@ -1367,11 +1362,11 @@ template <
   const short tm = SM * (simd_group_id / WN);
   const short tn = SN * (simd_group_id % WN);
 
-  const short sgp_sm = align_M ? SM : min(int(SM), max(0, (M - (y_row + tm))));
-  const short sgp_sn = align_N ? SN : min(int(SN), max(0, (N - (y_col + tn))));
+  const short sgp_sm = kAlignM ? SM : min(int(SM), max(0, (M - (y_row + tm))));
+  const short sgp_sn = kAlignN ? SN : min(int(SN), max(0, (N - (y_col + tn))));
 
-  const bool is_unaligned_sm = align_M ? false : (sgp_sm != SM);
-  const bool is_unaligned_bn = align_N ? false : (tgp_bn != BN);
+  const bool is_unaligned_sm = kAlignM ? false : (sgp_sm != SM);
+  const bool is_unaligned_bn = kAlignN ? false : (tgp_bn != BN);
 
   constexpr short BR = transpose ? TN : TK;
   constexpr short BC = transpose ? TK : TN;
@@ -1400,7 +1395,7 @@ template <
     // between it and the next mem_threadgroup barrier (Dtile.clear and the
     // loader constructor) is register work, so that later barrier already
     // orders every threadgroup access on both sides of this point.
-    if (!stage_runbar) {
+    if (!kStageRunbar) {
       threadgroup_barrier(mem_flags::mem_none);
     }
 
@@ -1437,7 +1432,7 @@ template <
         (run_skip_pct >= 100) ||
         (int((tid.y * 61u) % 100u) < run_skip_pct);
     const bool sg_active =
-        !gather_run_skip || !tile_enabled || (m_lo_lim < m_hi_lim);
+        !kRunSkip || !tile_enabled || (m_lo_lim < m_hi_lim);
 
     // Prepare threadgroup mma operation
     NAXTile<AccumType, TM, TN> Dtile;
@@ -1454,20 +1449,20 @@ template <
         simd_group_id,
         simd_lane_id);
 
-    dispatch_bool(align_M || !is_unaligned_sm, [&](auto kAlignedM) {
-      dispatch_bool(align_N || !is_unaligned_bn, [&](auto kAlignedN) {
+    dispatch_bool(kAlignM || !is_unaligned_sm, [&](auto kAlignedM) {
+      dispatch_bool(kAlignN || !is_unaligned_bn, [&](auto kAlignedN) {
         for (int k = 0; k < K_it; k++) {
           threadgroup_barrier(mem_flags::mem_threadgroup);
           if constexpr (kAlignedN.value) {
             // Same bytes, same addresses, same nibble decode, same scale
             // mapping -- only the access width changes. See load_unsafe_wide.
-            if (stage_widest) {
-              if (stage_wideld) {
+            if (kStageWidest) {
+              if (kStageWideld) {
                 loader_w.template load_unsafe_wide<true, true>();
               } else {
                 loader_w.template load_unsafe_wide<true, false>();
               }
-            } else if (stage_wideld) {
+            } else if (kStageWideld) {
               loader_w.template load_unsafe_wide<false, true>();
             } else {
               loader_w.load_unsafe();
@@ -1484,7 +1479,7 @@ template <
             // (BK=64/SK=32). Full unroll lets the second step's 6 fragment
             // loads issue during the first step's MMA chain. Scheduling
             // only: tile_matmad_nax order and Dtile accumulation sequence
-            // are unchanged. Volatile stays, gated by stage_novol (fc 207).
+            // are unchanged. Volatile stays, gated by kStageNovol (fc 207).
             STEEL_PRAGMA_UNROLL
             for (int kk1 = 0; kk1 < BK; kk1 += SK) {
               NAXTile<T, TM, TK> Atile;
@@ -1518,7 +1513,7 @@ template <
               // software-pipelining the Atile load against the MMA. Dropping
               // it touches no arithmetic and no memory the kernel reads or
               // writes.
-              if (!stage_novol) {
+              if (!kStageNovol) {
                 (void)compiler_barrier;
               }
             }
@@ -1528,7 +1523,7 @@ template <
           loader_w.next();
         }
 
-        if (!align_K) {
+        if (!kAlignK) {
           threadgroup_barrier(mem_flags::mem_threadgroup);
           loader_w.load_safe(tile_w);
           threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1560,7 +1555,7 @@ template <
                   Btile,
                   metal::bool_constant<transpose>{});
 
-              if (!stage_novol) {
+              if (!kStageNovol) {
                 (void)compiler_barrier;
               }
             }
@@ -1573,7 +1568,7 @@ template <
         // writes device memory. The write-after-read hazard against the next
         // run's Ws stores is already covered by the mem_threadgroup barrier
         // that immediately precedes those stores.
-        if (!stage_runbar) {
+        if (!kStageRunbar) {
           threadgroup_barrier(mem_flags::mem_threadgroup);
         }
 
@@ -1846,7 +1841,7 @@ template <
           // Full unroll + volatile removal let the second step's 6 fragment
           // loads hoist ahead of the first step's MMAs. This kernel is built
           // WITHOUT function constants (static expert shape path), so the
-          // stage_novol lever never reaches it -- the volatile must go here.
+          // kStageNovol lever never reaches it -- the volatile must go here.
           // Scheduling only: no arithmetic, order, or rounding change.
           STEEL_PRAGMA_UNROLL
           for (int kk1 = 0; kk1 < BK; kk1 += SK) {
