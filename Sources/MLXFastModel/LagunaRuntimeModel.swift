@@ -9536,12 +9536,15 @@ final class LagunaRuntimeMoEGate: Module {
     @ParameterInfo(key: "weight") var weight: MLXArray
     @ParameterInfo(key: "e_score_correction_bias") var eScoreCorrectionBias: MLXArray
 
-    private var _correctionBiasF32: MLXArray?
-    var correctionBiasF32: MLXArray {
-        if let cached = _correctionBiasF32 { return cached }
-        let f32 = eScoreCorrectionBias.asType(.float32)
-        _correctionBiasF32 = f32
-        return f32
+    // Precomputed BF16→FP32 cast of the correction bias, set once during
+    // `prepareFusedRuntimeWeights` after checkpoint weights are loaded. The
+    // lossless upcast is bit-identical to a per-call `.asType(.float32)` but
+    // avoids 39 fresh allocations per prefill (one per sparse layer).
+    private var _correctionBiasF32: MLXArray = zeros([0])
+    var correctionBiasF32: MLXArray { _correctionBiasF32 }
+
+    func precomputeCorrectionBiasF32() {
+        _correctionBiasF32 = eScoreCorrectionBias.asType(.float32)
     }
 
     init(_ config: LagunaConfig) {
@@ -11282,6 +11285,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 if lagunaFusedRoutedGateUpEnabled {
                     fusedArrays.append(contentsOf: sparse.prepareFusedRoutedGateUp())
                 }
+                sparse.gate.precomputeCorrectionBiasF32()
                 fusedArrays.append(sparse.gate.correctionBiasF32)
             } else if let dense = layer.mlp as? LagunaRuntimeMLP {
                 if lagunaFusedDenseGateUpSwiGLUEnabled,
