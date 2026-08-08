@@ -148,12 +148,93 @@ def parse_prefill(dirpath):
     return out
 
 
+def _equivalence_report(path):
+    """Pull the oracle's per-step JSON report out of an interleaved build log."""
+    raw = Path(path).read_text(errors="replace")
+    dec = json.JSONDecoder()
+    for i, ch in enumerate(raw):
+        if ch != "{":
+            continue
+        try:
+            obj, _ = dec.raw_decode(raw[i:])
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and "steps" in obj:
+            return obj
+    return None
+
+
+def parse_gates(gates_dir, base_dir):
+    """Correctness-gate verdicts: 3-arm golden tripwire + the oracle pair."""
+    out = {}
+    if gates_dir and Path(gates_dir).exists():
+        hashes = []
+        for arm in ("off", "on", "inert"):
+            p = Path(gates_dir) / f"golden_{arm}.json"
+            if not p.exists():
+                continue
+            raw = p.read_text(errors="replace")
+            i = raw.find("{")
+            if i < 0:
+                continue
+            try:
+                row, _ = json.JSONDecoder().raw_decode(raw[i:])
+            except ValueError:
+                continue
+            out[f"gates/golden/{arm}/passed"] = bool(row.get("passed"))
+            out[f"gates/golden/{arm}/checked_steps"] = row.get("checked_steps")
+            out[f"gates/golden/{arm}/golden_hash"] = str(row.get("golden_hash"))
+            hashes.append(str(row.get("golden_hash")))
+        out["gates/golden/arms_gated"] = len(hashes)
+        out["gates/golden/identical_hash_across_arms"] = (
+            len(hashes) > 1 and len(set(hashes)) == 1
+        )
+        out["gates/golden/all_passed"] = all(
+            v for k, v in out.items() if k.endswith("/passed")
+        )
+    for label, d in (("candidate", gates_dir), ("base", base_dir)):
+        if not d:
+            continue
+        log = next((p for p in (Path(d) / n for n in
+                                ("equivalence.log", "equivalence_base.log"))
+                    if p.exists()), None)
+        rep = _equivalence_report(log) if log else None
+        if rep is None:
+            continue
+        steps = {s["label"]: s for s in rep["steps"]}
+        pre = steps.get("prefill", {})
+        dec_steps = [s for k, s in steps.items() if k.startswith("decode-")]
+        out[f"gates/equivalence/{label}/prefill_max_abs_logit_err"] = \
+            pre.get("maximumAbsoluteLogitError")
+        out[f"gates/equivalence/{label}/prefill_mean_abs_logit_err"] = \
+            pre.get("meanAbsoluteLogitError")
+        out[f"gates/equivalence/{label}/prefill_token_matches"] = \
+            pre.get("runtimeToken") == pre.get("upstreamToken")
+        out[f"gates/equivalence/{label}/decode_steps"] = len(dec_steps)
+        out[f"gates/equivalence/{label}/decode_steps_bit_exact"] = sum(
+            1 for s in dec_steps if s["maximumAbsoluteLogitError"] == 0
+        )
+        out[f"gates/equivalence/{label}/all_tokens_match"] = all(
+            s["runtimeToken"] == s["upstreamToken"] for s in rep["steps"]
+        )
+    ck = "gates/equivalence/candidate/prefill_max_abs_logit_err"
+    bk = "gates/equivalence/base/prefill_max_abs_logit_err"
+    if ck in out and bk in out:
+        out["gates/equivalence/candidate_minus_base_prefill_max_abs_err"] = \
+            out[ck] - out[bk]
+        out["gates/equivalence/prefill_delta_is_preexisting"] = out[ck] == out[bk]
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--abba", action="append", default=[])
     ap.add_argument("--bitwise", default=None)
     ap.add_argument("--smoke", default=None)
     ap.add_argument("--prefill", default=None)
+    ap.add_argument("--gates", default=None)
+    ap.add_argument("--gates-base", default=None)
+    ap.add_argument("--resume-id", default=None)
     ap.add_argument("--warmup", type=int, default=8)
     ap.add_argument("--trim", type=float, default=0.05)
     ap.add_argument("--decision", default="UNSET")
@@ -178,6 +259,8 @@ def main() -> int:
     os.makedirs(os.environ["WANDB_DIR"], exist_ok=True)
 
     run = wandb.init(
+        id=args.resume_id,
+        resume="allow" if args.resume_id else None,
         project="mlxfast-maple",
         entity="wandb-applied-ai-team",
         name="nezuko-q12-decode-router-block-tournament",
@@ -255,6 +338,7 @@ def main() -> int:
     summary.update(parse_bitwise(args.bitwise))
     summary.update(parse_smoke(args.smoke))
     summary.update(parse_prefill(args.prefill))
+    summary.update(parse_gates(args.gates, args.gates_base))
 
     run.log({k: v for k, v in summary.items() if isinstance(v, (int, float, bool))})
     run.summary.update(summary)
@@ -265,6 +349,11 @@ def main() -> int:
             art.add_file(str(p), name=f"abba/{Path(outdir).name}/{p.name}")
     if args.bitwise and Path(args.bitwise).exists():
         art.add_file(args.bitwise, name="stage2/bitwise.log")
+    for sub in (args.gates, args.gates_base):
+        if sub and Path(sub).exists():
+            for q in sorted(Path(sub).iterdir()):
+                if q.is_file():
+                    art.add_file(str(q), name=f"gates/{Path(sub).name}/{q.name}")
     for sub, pat in ((args.smoke, "*"), (args.prefill, "*.log")):
         if sub and Path(sub).exists():
             for p in sorted(Path(sub).glob(pat)):
