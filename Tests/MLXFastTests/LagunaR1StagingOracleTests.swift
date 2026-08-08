@@ -45,9 +45,10 @@ func routedR1StagedActivationMatchesStockBitsWhenRuntimeTestsAreEnabled() {
         ("special-values", Array(repeating: specialBits, count: 128).flatMap { $0 }),
     ]
     let permutations: [[UInt32]] = [
-        [3, 0, 2, 1, 3, 1, 0, 2],
         [0, 1, 2, 3, 0, 1, 2, 3],
-        [2, 3, 1, 0, 1, 3, 0, 2],
+        [3, 2, 1, 0, 3, 2, 1, 0],
+        [1, 2, 3, 0, 1, 2, 3, 0],
+        [3, 0, 2, 1, 3, 1, 0, 2],
     ]
 
     for (inputLabel, inputBits) in inputCases {

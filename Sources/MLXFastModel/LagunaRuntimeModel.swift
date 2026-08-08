@@ -7055,7 +7055,7 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
         const device vec<bfloat, 4>* input_vectors =
             (const device vec<bfloat, 4>*)input;
         for (uint i = 0; i < input_width / (64 * 4); ++i) {
-            uint vector_index = thread_index * input_width / (64 * 4) + i;
+            uint vector_index = thread_index + i * 64;
             staged_input[vector_index] = input_vectors[vector_index];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
