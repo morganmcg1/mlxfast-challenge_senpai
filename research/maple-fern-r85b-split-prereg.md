@@ -99,3 +99,24 @@ stays `private`.
 Report a neutrality verdict with an interval. A measured decode cost outside the
 predicted interval, reproduced, ends the arm as a failure and the split is
 reverted rather than argued down.
+
+## Outcome vs. this pre-registration (filled in after measurement)
+
+Scored against what was written above, honestly:
+
+| pre-registered | outcome |
+|---|---|
+| point prediction 0 µs/step decode | **held.** Every function on the timed path is instruction-identical; see `maple-fern-r85b-emitted-code-evidence.md`. |
+| interval \|Δ decode\| < 25 µs/token | **not achievable as written, and I was wrong to register it.** Observed paired sd is 93.5 µs/step over 7 pairs, so a ±25 µs 95 % interval needs ~55 pairs and a ±5 µs one needs ~1,344 (~127 h). The achieved order-balanced interval is [−106, +137] µs/step. |
+| prefill 0, \|Δ\| < 0.3 % | **point estimate held, interval did not.** Baseline prefill is 1,121.3 µs/token, so the −3.26 µs/token point estimate is −0.29 %, just inside; but the 95 % CI [−18.3, +11.8] is ±1.63 %, five times wider than registered. Same under-read of noise as the decode row. |
+| 85 % prior that WMO makes `private` -> `internal` an optimizer no-op | **confirmed mechanistically, not just statistically.** 917/926 MLXFastModel text symbols byte-identical; the 3 body-different symbols are two `init`s (model-load only) and one outlined destroy that got *shorter*. |
+| stop rule: a reproduced decode cost outside the interval reverts the split | **not triggered.** No reproduced cost; the point estimate is inside noise and the mechanism check is clean. |
+
+The honest correction to record: the pre-registered interval was set from four
+paired differences of an unrelated arm (−5.5, +16.6, +30.5, +75 µs/token) whose
+spread I under-read. Seven purpose-built pairs put the sd at 93.5 µs/step, and
+the *arm-order* nuisance effect alone is +52 µs/step — larger than the effect
+the interval was supposed to bound. This is why the arm was decided on emitted
+code rather than on wall clock, and why the timing section is reported as a
+gross-regression exclusion (> ~0.74 % decode) rather than as the verdict.
+
