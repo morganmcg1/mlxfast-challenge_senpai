@@ -225,8 +225,8 @@ func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
 // scales, so this gate prevents activation on M4.
 // Re-enabled: kHalvedScales is now a runtime set_bytes constant (not a
 // template parameter), so zero new JIT compilations are created.
-// Disabled for now — will be enabled when the M5 build is confirmed working.
-let lagunaPrefillSharedHalvedEnabled = false
+let lagunaPrefillSharedHalvedEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_HALVED"] != "0"
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
