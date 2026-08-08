@@ -35,6 +35,61 @@ verdict against the pre-registered thresholds (GO `d ≥ 1.00`; PARTIAL `0.35 �
 `d < 0.35`). Thresholds are as pre-registered in `research/nezuko-r86b-prereg.md` and are not
 softened.
 
+## 1.5 Instrument-validity re-audit
+
+The advisor required this section if `d` lands materially below the pre-registered 1.19 central
+estimate. It does. **TBD-FIT** gives the final number; the audit below is the reason it is a
+physical result rather than an instrument defect, and it is written from evidence that does not
+depend on the final fit.
+
+**The primary evidence that the instrument is sound is cross-method agreement.** Two unrelated
+measurement paths were run: a Metal-level dispatch census (GPU counters, `gpu_busy` deltas,
+40 steps) and a wall-clock ladder (A-B-B-A blocks, 200 steps/run). They agree on the WIDE price
+to **1.2 %** (census 1.398 µs/boundary vs ladder 1.415 µs/boundary). A broken instrument does
+not reproduce itself to 1.2 % across a GPU-counter method and a wall-clock method. A third,
+completely independent check is in §4: the synthetic WIDE price reproduces the *real* chain
+refund measured by the C1 fusion (100.0 µs over 80 boundaries = 1.25 µs/boundary) to **12 %**.
+
+Four candidate explanations for a small `d` were considered:
+
+**A — TINY is not free, and the pre-registration assumed it was.** The blind prediction put
+`slope(TINY)` at 0.17 µs. The measured TINY price is ≈0.62–0.71 µs. A 2-byte dependent operation
+still pays a full kernel dispatch, a full grid launch and a full barrier; only the data movement
+is removed. So ≈44 % of a boundary's in-situ price is **irreducible dispatch/launch cost that
+`d` deliberately subtracts out**. This is not an error in the instrument; it is the instrument
+correctly reporting that the round-trip component is smaller than the launch component.
+
+**B — the WIDE intermediate never reaches DRAM (leading explanation).** The WIDE arm moves
+8,192 B per insert in ≈1.4 µs, an implied **5.85 GB/s** — roughly 1/50 of this machine's
+achievable DRAM bandwidth. A 4 KiB working set is trivially SLC-resident, so WIDE is timing a
+*cache* round trip, not a DRAM round trip. Critically, **this is the right thing to measure**:
+the boundary census (§3) shows every real decode intermediate is 512 B – 401 KB, i.e. in exactly
+the same cache-resident class, and all intermediates together are <0.5 % of the ~550 MB/step of
+weight traffic. `d` is therefore the correct *in-situ* price for the boundaries the programme
+actually wants to remove, and the pre-registered 1.19 µs prior — which was calibrated on
+*whole-op removal* experiments (#268, #269, R85-D) that also removed dispatch and grid cost —
+was priced against a different quantity. The **size sweep is the decisive test**: if
+`price(4 MiB) ≫ price(4 KiB)` (4 MiB exceeds SLC and must go to DRAM), the instrument is
+demonstrably capable of seeing a real DRAM round trip and the small `d` at realistic sizes is a
+physical fact about the workload, not an instrument ceiling. **TBD-FIT** scores this.
+
+**C — the inserted work overlaps other work (ruled out).** The census shows
+`gpu_busy_sum == gpu_busy_union` in every arm: the decode step is fully serialized. There is no
+concurrency for an inserted boundary to hide behind, so `d` is not being suppressed by overlap.
+
+**D — M4 regime effects, sign unresolved, stated in both directions.** This host is
+bandwidth-bound; the ranked M5 Max is instruction-bound at ~89 % GPU utilisation. On a
+bandwidth-bound host an inserted round trip can partially hide behind weight streaming, which
+would make `d` a **lower bound** for M5. Pushing the other way, M5's wider dispatch engine makes
+the fixed launch component cheaper, which raises the TINY floor's share and would make `d`
+larger on M4 than on M5. Both effects are real and neither is measured here; the honest
+statement is that `d` is an M4 number with unresolved transfer sign, which is exactly why §5
+attaches the byte-class transfer caveat (−0.40 ± 0.24).
+
+**What the audit does not excuse.** The pre-registered thresholds are applied to the measured
+`d` as-is. No threshold is moved, and the ratio prediction (8.0× predicted) is scored as a miss
+if the measured ratio is smaller.
+
 ## 2. Validity gates
 
 **TBD-FIT** for gates 2, 3 and 5. Gates 1 and 4 are already settled:
