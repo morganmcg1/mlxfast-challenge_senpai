@@ -6508,10 +6508,10 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         thread float up_result = 0.0f;
         thread float input_values[values_per_lane];
 
-        for (uint block = 0; block < input_width; block += block_width) {
+        {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
-                    input + block + lane * values_per_lane);
+                    input + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
                 const vec<bfloat, 4> values = input_vectors[i];
                 input_values[4 * i] = values[0];
@@ -6521,13 +6521,76 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
             }
 
             gate_result += laguna_nvfp4_qdot_16(
-                gate_row_weight + block / 2,
+                gate_row_weight,
                 input_values,
-                laguna_nvfp4_scale(gate_row_scale[block / 16]));
+                laguna_nvfp4_scale(gate_row_scale[0]));
             up_result += laguna_nvfp4_qdot_16(
-                up_row_weight + block / 2,
+                up_row_weight,
                 input_values,
-                laguna_nvfp4_scale(up_row_scale[block / 16]));
+                laguna_nvfp4_scale(up_row_scale[0]));
+        }
+        {
+            const device vec<bfloat, 4>* input_vectors =
+                (const device vec<bfloat, 4>*) (
+                    input + 512 + lane * values_per_lane);
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                const vec<bfloat, 4> values = input_vectors[i];
+                input_values[4 * i] = values[0];
+                input_values[4 * i + 1] = values[1];
+                input_values[4 * i + 2] = values[2];
+                input_values[4 * i + 3] = values[3];
+            }
+
+            gate_result += laguna_nvfp4_qdot_16(
+                gate_row_weight + 256,
+                input_values,
+                laguna_nvfp4_scale(gate_row_scale[32]));
+            up_result += laguna_nvfp4_qdot_16(
+                up_row_weight + 256,
+                input_values,
+                laguna_nvfp4_scale(up_row_scale[32]));
+        }
+        {
+            const device vec<bfloat, 4>* input_vectors =
+                (const device vec<bfloat, 4>*) (
+                    input + 1024 + lane * values_per_lane);
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                const vec<bfloat, 4> values = input_vectors[i];
+                input_values[4 * i] = values[0];
+                input_values[4 * i + 1] = values[1];
+                input_values[4 * i + 2] = values[2];
+                input_values[4 * i + 3] = values[3];
+            }
+
+            gate_result += laguna_nvfp4_qdot_16(
+                gate_row_weight + 512,
+                input_values,
+                laguna_nvfp4_scale(gate_row_scale[64]));
+            up_result += laguna_nvfp4_qdot_16(
+                up_row_weight + 512,
+                input_values,
+                laguna_nvfp4_scale(up_row_scale[64]));
+        }
+        {
+            const device vec<bfloat, 4>* input_vectors =
+                (const device vec<bfloat, 4>*) (
+                    input + 1536 + lane * values_per_lane);
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                const vec<bfloat, 4> values = input_vectors[i];
+                input_values[4 * i] = values[0];
+                input_values[4 * i + 1] = values[1];
+                input_values[4 * i + 2] = values[2];
+                input_values[4 * i + 3] = values[3];
+            }
+
+            gate_result += laguna_nvfp4_qdot_16(
+                gate_row_weight + 768,
+                input_values,
+                laguna_nvfp4_scale(gate_row_scale[96]));
+            up_result += laguna_nvfp4_qdot_16(
+                up_row_weight + 768,
+                input_values,
+                laguna_nvfp4_scale(up_row_scale[96]));
         }
 
         gate_result = simd_sum(gate_result);
