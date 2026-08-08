@@ -96,35 +96,6 @@ let lagunaFusedRoutedSharedSwiGLUQMVEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_ROUTED_SHARED_SWIGLU_QMV"] != "0"
 
-private let lagunaRoutedSharedSwiGLUOracleEnabled = true
-
-private func lagunaAssertRawBF16Equal(
-    _ control: MLXArray,
-    _ candidate: MLXArray,
-    label: String
-) {
-    precondition(control.dtype == .bfloat16)
-    precondition(candidate.dtype == .bfloat16)
-    precondition(control.shape == candidate.shape)
-    eval(control, candidate)
-    let controlBits = control.view(dtype: .uint16).asArray(UInt16.self)
-    let candidateBits = candidate.view(dtype: .uint16).asArray(UInt16.self)
-    guard controlBits == candidateBits else {
-        let mismatch = zip(controlBits, candidateBits).enumerated().first {
-            $0.element.0 != $0.element.1
-        }!
-        fatalError(
-            "routed+shared SwiGLU oracle mismatch in \(label) at \(mismatch.offset): "
-                + "\(mismatch.element.0) != \(mismatch.element.1)")
-    }
-    FileHandle.standardError.write(
-        Data(
-            (
-                "mlxfast: routed+shared SwiGLU oracle pass: \(label) "
-                    + "(\(controlBits.count) BF16 values)\n"
-            ).utf8))
-}
-
 /// `DARKBLOOM_PACKED_SCALES` (default ON; set "0" to disable): decode-only
 /// scale-interleaved side copy of the fused routed gate/up NVFP4 bank. The
 /// stock `lagunaRoutedSwiGLUQMV` reads codes and E4M3 scales from two separate
@@ -9498,7 +9469,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// `lagunaRoutedSwiGLUQMVPackedTop8Kernel` for the layout contract. Nil
     /// when the flag is set to zero (default ON).
     var _packedRoutedGateUpBank: MLXArray?
-    var _didRunRoutedSharedSwiGLUOracle = false
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -9701,8 +9671,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // handed to the down projection instead of being issued again.
             // Purely within this invocation; nothing survives it.
             var mergedSharedActivated: MLXArray?
-            var oracleControlRouted: MLXArray?
-            var oracleControlShared: MLXArray?
             if lagunaFusedRoutedSwiGLUQMVEnabled,
                 x.dtype == .bfloat16,
                 x.shape == [1, 1, LagunaConstants.hiddenSize],
@@ -9730,33 +9698,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         )
                         activated = merged.routed
                         mergedSharedActivated = merged.shared
-                        if lagunaRoutedSharedSwiGLUOracleEnabled,
-                            !_didRunRoutedSharedSwiGLUOracle
-                        {
-                            let controlRouted = lagunaRoutedSwiGLUQMVPackedTop8(
-                                x,
-                                fusedWeight: fusedWeight,
-                                packedScales: packedBank,
-                                indices: inds
-                            )
-                            let controlShared = lagunaSharedSwiGLUQMV(
-                                x,
-                                fusedWeight: sharedBanks.gateUpWeight,
-                                fusedScales: sharedBanks.gateUpScales
-                            )
-                            lagunaAssertRawBF16Equal(
-                                controlRouted,
-                                merged.routed,
-                                label: "routed producer"
-                            )
-                            lagunaAssertRawBF16Equal(
-                                controlShared,
-                                merged.shared,
-                                label: "shared producer"
-                            )
-                            oracleControlRouted = controlRouted
-                            oracleControlShared = controlShared
-                        }
                     } else {
                         lagunaPackedScalesLog.note(
                             "active", "routed swiglu qmv packed dispatch")
@@ -9826,7 +9767,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dtype == .bfloat16,
                 residual.shape == [1, 1, LagunaConstants.hiddenSize]
             {
-                let output = lagunaRoutedSharedDownResidual(
+                return lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
                     routedDownScales: downScales,
@@ -9837,26 +9778,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     sharedDownScales: sharedInputs.downScales,
                     residual: residual
                 )
-                if let oracleControlRouted, let oracleControlShared {
-                    let controlOutput = lagunaRoutedSharedDownResidual(
-                        routedActivated: oracleControlRouted,
-                        routedDownWeight: downWeight,
-                        routedDownScales: downScales,
-                        indices: inds,
-                        routerWeights: weights,
-                        sharedActivated: oracleControlShared,
-                        sharedDownWeight: sharedInputs.downWeight,
-                        sharedDownScales: sharedInputs.downScales,
-                        residual: residual
-                    )
-                    lagunaAssertRawBF16Equal(
-                        controlOutput,
-                        output,
-                        label: "final sparse block output"
-                    )
-                    _didRunRoutedSharedSwiGLUOracle = true
-                }
-                return output
             } else if lagunaFusedRoutedDownReduceEnabled,
                 let downWeight = _routedDownWeight,
                 let downScales = _routedDownScales,
