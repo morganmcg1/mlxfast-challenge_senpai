@@ -384,7 +384,7 @@ public final class LagunaRuntimeWeightCache {
                 setenv("MLX_BFS_MAX_WIDTH", "50", 0)
                 if env["DARKBLOOM_POST_WIRE_COMMAND_BUFFER"] != "0" {
                     setenv("MLX_MAX_MB_PER_BUFFER", "200", 0)
-                    setenv("MLX_MAX_OPS_PER_BUFFER", "200", 0)
+                    setenv("MLX_MAX_OPS_PER_BUFFER", "400", 0)
                 }
                 startupMemoryPolicy = nil
             }
@@ -470,13 +470,13 @@ public final class LagunaRuntimeWeightCache {
     private static func warmLibraryModel(_ model: LagunaRuntimeModel) {
         let bosToken = Int32(LagunaConstants.bosTokenID)
         let warmupCache = model.newCache(parameters: nil)
-        // Minimal 2-token prefill: dispatches all prefill kernel variants
-        // (same kernels as 512 tokens, but 256x less attention compute).
-        // The warmup only needs to trigger Metal pipeline compilation,
-        // not produce production-shaped outputs.
+        // 512-token prefill warmup: standard MLX kernels (SDPA, matmul,
+        // quantizedMM) specialize by shape. A 2-token warmup does not
+        // pre-compile the 512-token scored specializations, causing M5
+        // JIT compile timeout during the scored run.
         let prefillTokens = MLXArray(
-            Array(repeating: bosToken, count: 2),
-            [1, 2]
+            Array(repeating: bosToken, count: 512),
+            [1, 512]
         )
         eval(model(prefillTokens, cache: warmupCache))
         // Three decode steps ensure all state-dependent kernel variants
