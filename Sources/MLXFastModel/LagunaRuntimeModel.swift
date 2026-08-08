@@ -7403,11 +7403,14 @@ func lagunaRoutedSharedDownResidual(
 // 8192) minus its gate multiply, with `lagunaSharedDownResidualKernel`'s
 // round-then-add-then-round epilogue reproducing stock `h + r2`
 // bit-for-bit.
-private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
-    name: "laguna_dense_gate_up_swiglu_bf16_v1",
-    inputNames: ["input", "fused_weight"],
-    outputNames: ["activated"],
-    source: """
+private func makeLagunaDenseGateUpSwiGLUKernel(
+    rowsPerSIMDGroup: Int
+) -> MLXFast.MLXFastKernel {
+    MLXFast.metalKernel(
+        name: "laguna_dense_gate_up_swiglu_bf16_rpsg\(rowsPerSIMDGroup)_v1",
+        inputNames: ["input", "fused_weight"],
+        outputNames: ["activated"],
+        source: """
         constexpr uint in_vec_size = 2048;
         constexpr uint output_width = 8192;
         constexpr uint rows_per_thread = ROWS_PER_SIMDGROUP;
@@ -7476,17 +7479,27 @@ private let lagunaDenseGateUpSwiGLUKernel = MLXFast.metalKernel(
             }
         }
         """,
-    ensureRowContiguous: true
-)
+        ensureRowContiguous: true
+    )
+}
+
+private let lagunaDenseGateUpSwiGLUKernels: [Int: MLXFast.MLXFastKernel] =
+    Dictionary(
+        uniqueKeysWithValues: [2, 4].map { rowsPerSIMDGroup in
+            (
+                rowsPerSIMDGroup,
+                makeLagunaDenseGateUpSwiGLUKernel(rowsPerSIMDGroup: rowsPerSIMDGroup)
+            )
+        })
 
 private let lagunaDenseGateUpRowsPerSIMDGroup: Int = {
-    switch ProcessInfo.processInfo.environment["MLXFAST_DENSE_GATEUP_ROWS_PER_SIMDGROUP"] {
+    switch ProcessInfo.processInfo.environment["DARKBLOOM_DENSE_GATEUP_ROWS_PER_SIMDGROUP"] {
     case nil, "2":
         return 2
     case "4":
         return 4
     default:
-        fatalError("MLXFAST_DENSE_GATEUP_ROWS_PER_SIMDGROUP must be 2 or 4")
+        fatalError("DARKBLOOM_DENSE_GATEUP_ROWS_PER_SIMDGROUP must be 2 or 4")
     }
 }()
 
@@ -7506,8 +7519,11 @@ func lagunaDenseGateUpSwiGLU(
         ])
     precondition(rowsPerSIMDGroup == 2 || rowsPerSIMDGroup == 4)
     let rowsPerThreadgroup = 16 * rowsPerSIMDGroup
+    guard let kernel = lagunaDenseGateUpSwiGLUKernels[rowsPerSIMDGroup] else {
+        preconditionFailure("unsupported dense gate/up rows per SIMDgroup")
+    }
 
-    return lagunaDenseGateUpSwiGLUKernel(
+    return kernel(
         [input, fusedWeight],
         template: [("ROWS_PER_SIMDGROUP", rowsPerSIMDGroup)],
         grid: (
