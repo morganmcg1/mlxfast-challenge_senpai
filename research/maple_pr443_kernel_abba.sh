@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Research-only (PR #443): per-kernel ABBA timing for the halved shared gate/up
-# scale plane (`DARKBLOOM_SHARED_SCALE_HALVED`) against the shipped default.
+# Research-only (PR #443): counterbalanced per-kernel timing for the halved
+# shared gate/up scale plane (`DARKBLOOM_SHARED_SCALE_HALVED`) against the
+# shipped default.
 #
 # The predicted effect is ~-0.39 us on a 7.03 us/call kernel, far below what
 # end-to-end decode wall time can resolve, so this uses the GPU-profile hook
@@ -8,19 +9,26 @@
 # DARKBLOOM_GPU_PROFILE_SPLIT=1 to time the dispatch itself.
 #
 # Standing rule 36: PR #301's ABBA showed a slot effect large enough to flip the
-# sign of a sub-1% per-call difference, so both ABBA orders are run here and the
-# invariant routed twin is read out of the same profiles as a control. A result
-# is only reported when both orders agree in sign.
+# sign of a sub-1% per-call difference. `ORDER="off halved halved off"` with
+# REPS=6 lays the 24 runs out as 12 adjacent duplexes that alternate
+# [off,halved][halved,off]..., i.e. exactly counterbalanced, so a monotone slot
+# trend cancels in the duplex contrast and the analysis keeps df=11 instead of
+# the df=5 that two separate 3-rep orders would give.
+# `research/maple_pr443_duplex_stats.py` also divides out the invariant routed
+# twin per run, which is what makes the nuisance additive in logs.
 #
-#   OUT=/tmp/maple-pr443-abba REPS=3 STEPS=33 \
+# The first run of a session is systematically slow (cold page cache, cold
+# pipeline cache), so one unscored warm-up run is issued before slot 01.
+#
+#   OUT=/tmp/maple-pr443-abba REPS=6 STEPS=33 \
 #     bash research/maple_pr443_kernel_abba.sh
 set -uo pipefail
 
 OUT="${OUT:-/tmp/maple-pr443-abba}"
-REPS="${REPS:-3}"
+REPS="${REPS:-6}"
 STEPS="${STEPS:-33}"
 PATCH="research/nezuko-pr158-gpuprof-hook.patch"
-ORDERS=("off halved halved off" "halved off off halved")
+ORDER="off halved halved off"
 
 mkdir -p "${OUT}"
 
@@ -49,19 +57,17 @@ git apply "${PATCH}" || exit 3
 trap cleanup EXIT
 build_worker "gpu-profile hook" || exit 4
 
-for order_index in 0 1; do
-  order="${ORDERS[${order_index}]}"
-  dir="${OUT}/order$((order_index + 1))"
-  mkdir -p "${dir}"
-  echo "########## ABBA order $((order_index + 1)): ${order} ##########"
-  OUT="${dir}" REPS="${REPS}" STEPS="${STEPS}" ORDER="${order}" \
-    bash research/maple_shared_qmv_prefetch_abba.sh || exit 5
-done
+echo "########## unscored warm-up run ##########"
+DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1 \
+  python3 research/decode_probe.py --steps "${STEPS}" --profile \
+    --profile-top 6 --stderr "${OUT}/warmup.err" >"${OUT}/warmup.log" 2>&1
+echo "warm-up exit=$?"
+
+echo "########## ${REPS} reps of [${ORDER}] = $((REPS * 2)) duplexes ##########"
+OUT="${OUT}" REPS="${REPS}" STEPS="${STEPS}" ORDER="${ORDER}" \
+  bash research/maple_shared_qmv_prefetch_abba.sh || exit 5
 
 echo
-echo "===== PR #443 kernel ABBA collected; analyse with ====="
-for order_index in 0 1; do
-  echo "python3 research/maple_shared_qmv_kernel_stats.py --steps ${STEPS} \\"
-  echo "  --kernel shared_nvfp4_swiglu_qmv_rows1 --per-step 39 \\"
-  echo "  ${OUT}/order$((order_index + 1))/*.err"
-done
+echo "===== PR #443 kernel timing collected; analyse with ====="
+echo "python3 research/maple_pr443_duplex_stats.py --steps ${STEPS} \\"
+echo "  --arms off halved ${OUT}/[0-9]*.err"
