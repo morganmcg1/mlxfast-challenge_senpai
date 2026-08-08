@@ -1438,6 +1438,16 @@ private func lagunaPrefillFullQKNormYaRN(
 let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
+/// `DARKBLOOM_TWO_GROUP_SLIDING_ATTN` (default ON; set "0" to disable):
+/// Extends the sliding fused attention from 2-head pair grouping to 4-head
+/// two-group grouping (gqa_factor/2 = 4 for GQA8). Only 2 * nkv_heads
+/// threadgroups execute instead of 4 * nkv_heads, halving K/V cache traffic.
+/// Each head's score, online-softmax update, and 32-simdgroup reduction are
+/// character-identical to the pair path; only K/V load placement moves.
+/// Bit-exact: the per-head reduction tree and exchange are identical.
+let lagunaTwoGroupSlidingAttentionEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_TWO_GROUP_SLIDING_ATTN"] != "0"
+
 private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     name: "laguna_sliding_fused_attn_ring_v1",
     inputNames: [
@@ -1811,6 +1821,494 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private let lagunaTwoGroupSlidingFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_fused_attn_twogroup_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: """
+        constexpr uint head_dim = 128;
+        constexpr uint window = 512;
+        constexpr uint gqa = 8;
+        constexpr uint group_size = 4;
+        constexpr int BN = 32;
+        constexpr int BD = 32;
+        constexpr int BDP = BD + 1;
+        constexpr int qk_per_thread = 4;
+        constexpr int v_per_thread = 4;
+        constexpr uint rotary_pairs = 64;
+        constexpr int N = 512;
+
+        typedef float U;
+
+        uint group_tg = threadgroup_position_in_grid.x;
+        uint head0 = group_tg * group_size;
+        uint head1 = head0 + 1;
+        uint head2 = head0 + 2;
+        uint head3 = head0 + 3;
+        uint kv_head = head0 / gqa;
+        uint sg = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+        uint widx = params[0];
+        float scale = scale_arr[0];
+
+        threadgroup bfloat tg_q0[head_dim];
+        threadgroup bfloat tg_q1[head_dim];
+        threadgroup bfloat tg_q2[head_dim];
+        threadgroup bfloat tg_q3[head_dim];
+        threadgroup bfloat tg_k[head_dim];
+        threadgroup bfloat tg_v[head_dim];
+
+        // Phase 1: per-head RMSNorm + plain RoPE. simdgroups 0-3 own q0-q3;
+        // simdgroup 4 owns k; simdgroup 5 copies the raw V row.
+        if (sg < 5) {
+            const device bfloat* input;
+            const device bfloat* weight;
+            threadgroup bfloat* outrow;
+            if (sg == 0) {
+                input = raw_queries + head0 * head_dim;
+                weight = query_weight;
+                outrow = tg_q0;
+            } else if (sg == 1) {
+                input = raw_queries + head1 * head_dim;
+                weight = query_weight;
+                outrow = tg_q1;
+            } else if (sg == 2) {
+                input = raw_queries + head2 * head_dim;
+                weight = query_weight;
+                outrow = tg_q2;
+            } else if (sg == 3) {
+                input = raw_queries + head3 * head_dim;
+                weight = query_weight;
+                outrow = tg_q3;
+            } else {
+                input = raw_keys + kv_head * head_dim;
+                weight = key_weight;
+                outrow = tg_k;
+            }
+
+            uint base = lane * 4;
+            thread bfloat normalized[4];
+            float sum = 0.0f;
+            for (uint i = 0; i < 4; ++i) {
+                float value = float(input[base + i]);
+                sum += value * value;
+            }
+            sum = simd_sum(sum);
+            float inverse_rms = metal::precise::rsqrt(sum / 128.0f + 1.0e-6f);
+            for (uint i = 0; i < 4; ++i) {
+                normalized[i] =
+                    weight[base + i] *
+                    bfloat(float(input[base + i]) * inverse_rms);
+            }
+            thread float paired[4];
+            for (uint i = 0; i < 4; ++i) {
+                paired[i] = simd_shuffle(float(normalized[i]), lane ^ 16);
+            }
+            if (lane < 16) {
+                for (uint i = 0; i < 4; ++i) {
+                    uint pair = base + i;
+                    float first = float(normalized[i]);
+                    float second = paired[i];
+                    float cosine = angles[pair];
+                    float sine = angles[pair + rotary_pairs];
+                    outrow[pair] = bfloat(first * cosine - second * sine);
+                    outrow[pair + rotary_pairs] =
+                        bfloat(first * sine + second * cosine);
+                }
+            }
+        } else if (sg == 5) {
+            const device bfloat* vin = raw_values + kv_head * head_dim;
+            for (uint i = lane; i < head_dim; i += 32) {
+                tg_v[i] = vin[i];
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Phase 2: one writer threadgroup per KV head persists the new row.
+        if ((head0 % gqa) == 0 && sg == 0) {
+            device bfloat* kc = (device bfloat*)k_cache +
+                (size_t)kv_head * (window * head_dim) +
+                (size_t)widx * head_dim;
+            device bfloat* vc = (device bfloat*)v_cache +
+                (size_t)kv_head * (window * head_dim) +
+                (size_t)widx * head_dim;
+            for (uint i = lane; i < head_dim; i += 32) {
+                kc[i] = tg_k[i];
+                vc[i] = tg_v[i];
+            }
+        }
+
+        // Phase 3: four-head two-group attention over the ring in slot order.
+        // Each K/V load is shared across 4 query heads, halving K/V cache
+        // traffic vs the 2-head pair path. The per-head score, online-softmax
+        // update, and 32-simdgroup reduction are character-identical to the
+        // pair path; only K/V load placement moves.
+        threadgroup U outputs[4 * BN * BDP];
+        threadgroup U max_scores[4 * BN];
+        threadgroup U sum_exp_scores[4 * BN];
+
+        const device bfloat* group_keys = k_cache +
+            (size_t)kv_head * (window * head_dim) +
+            (size_t)sg * head_dim + lane * qk_per_thread;
+        const device bfloat* group_values = v_cache +
+            (size_t)kv_head * (window * head_dim) +
+            (size_t)sg * head_dim + lane * v_per_thread;
+        const int inner_k_stride = BN * int(head_dim);
+        const int inner_v_stride = BN * int(head_dim);
+
+        thread U group_q0[qk_per_thread];
+        thread U group_q1[qk_per_thread];
+        thread U group_q2[qk_per_thread];
+        thread U group_q3[qk_per_thread];
+        thread U group_o0[v_per_thread];
+        thread U group_o1[v_per_thread];
+        thread U group_o2[v_per_thread];
+        thread U group_o3[v_per_thread];
+
+        for (int j = 0; j < qk_per_thread; ++j) {
+            group_q0[j] =
+                static_cast<U>(scale) * tg_q0[lane * qk_per_thread + j];
+            group_q1[j] =
+                static_cast<U>(scale) * tg_q1[lane * qk_per_thread + j];
+            group_q2[j] =
+                static_cast<U>(scale) * tg_q2[lane * qk_per_thread + j];
+            group_q3[j] =
+                static_cast<U>(scale) * tg_q3[lane * qk_per_thread + j];
+        }
+        for (int j = 0; j < v_per_thread; ++j) {
+            group_o0[j] = 0;
+            group_o1[j] = 0;
+            group_o2[j] = 0;
+            group_o3[j] = 0;
+        }
+
+        U group_max0 = metal::numeric_limits<U>::lowest();
+        U group_max1 = metal::numeric_limits<U>::lowest();
+        U group_max2 = metal::numeric_limits<U>::lowest();
+        U group_max3 = metal::numeric_limits<U>::lowest();
+        U group_sum0 = 0;
+        U group_sum1 = 0;
+        U group_sum2 = 0;
+        U group_sum3 = 0;
+
+        int i = sg;
+        for (; i + BN < N; i += 2 * BN) {
+            const device bfloat* pipe_keys_b = group_keys + inner_k_stride;
+            const device bfloat* pipe_values_b = group_values + inner_v_stride;
+            const bool sub_a = uint(i) == widx;
+            const bool sub_b = uint(i + BN) == widx;
+            U pipe_ka[4];
+            U pipe_kb[4];
+            T_LOAD_K(pipe_ka, sub_a, group_keys);
+            T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
+            bfloat pipe_va0, pipe_va1, pipe_va2, pipe_va3;
+            bfloat pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3;
+            T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
+                group_values);
+            T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
+                pipe_values_b);
+
+            U s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+            s0 += group_q0[0] * pipe_ka[0];
+            s1 += group_q1[0] * pipe_ka[0];
+            s2 += group_q2[0] * pipe_ka[0];
+            s3 += group_q3[0] * pipe_ka[0];
+            s0 += group_q0[1] * pipe_ka[1];
+            s1 += group_q1[1] * pipe_ka[1];
+            s2 += group_q2[1] * pipe_ka[1];
+            s3 += group_q3[1] * pipe_ka[1];
+            s0 += group_q0[2] * pipe_ka[2];
+            s1 += group_q1[2] * pipe_ka[2];
+            s2 += group_q2[2] * pipe_ka[2];
+            s3 += group_q3[2] * pipe_ka[2];
+            s0 += group_q0[3] * pipe_ka[3];
+            s1 += group_q1[3] * pipe_ka[3];
+            s2 += group_q2[3] * pipe_ka[3];
+            s3 += group_q3[3] * pipe_ka[3];
+            s0 = simd_sum(s0);
+            s1 = simd_sum(s1);
+            s2 = simd_sum(s2);
+            s3 = simd_sum(s3);
+
+            U nm0 = metal::max(group_max0, s0);
+            U nm1 = metal::max(group_max1, s1);
+            U nm2 = metal::max(group_max2, s2);
+            U nm3 = metal::max(group_max3, s3);
+            U f0, f1, f2, f3;
+            LAGUNA_RESCALE(f0, group_max0 - nm0);
+            LAGUNA_RESCALE(f1, group_max1 - nm1);
+            LAGUNA_RESCALE(f2, group_max2 - nm2);
+            LAGUNA_RESCALE(f3, group_max3 - nm3);
+            U e0 = metal::fast::exp(s0 - nm0);
+            U e1 = metal::fast::exp(s1 - nm1);
+            U e2 = metal::fast::exp(s2 - nm2);
+            U e3 = metal::fast::exp(s3 - nm3);
+
+            group_max0 = nm0; group_max1 = nm1; group_max2 = nm2; group_max3 = nm3;
+            group_sum0 = group_sum0 * f0 + e0;
+            group_sum1 = group_sum1 * f1 + e1;
+            group_sum2 = group_sum2 * f2 + e2;
+            group_sum3 = group_sum3 * f3 + e3;
+
+            group_o0[0] = group_o0[0] * f0 + e0 * pipe_va0;
+            group_o1[0] = group_o1[0] * f1 + e1 * pipe_va0;
+            group_o2[0] = group_o2[0] * f2 + e2 * pipe_va0;
+            group_o3[0] = group_o3[0] * f3 + e3 * pipe_va0;
+            group_o0[1] = group_o0[1] * f0 + e0 * pipe_va1;
+            group_o1[1] = group_o1[1] * f1 + e1 * pipe_va1;
+            group_o2[1] = group_o2[1] * f2 + e2 * pipe_va1;
+            group_o3[1] = group_o3[1] * f3 + e3 * pipe_va1;
+            group_o0[2] = group_o0[2] * f0 + e0 * pipe_va2;
+            group_o1[2] = group_o1[2] * f1 + e1 * pipe_va2;
+            group_o2[2] = group_o2[2] * f2 + e2 * pipe_va2;
+            group_o3[2] = group_o3[2] * f3 + e3 * pipe_va2;
+            group_o0[3] = group_o0[3] * f0 + e0 * pipe_va3;
+            group_o1[3] = group_o1[3] * f1 + e1 * pipe_va3;
+            group_o2[3] = group_o2[3] * f2 + e2 * pipe_va3;
+            group_o3[3] = group_o3[3] * f3 + e3 * pipe_va3;
+
+            U sb0 = 0, sb1 = 0, sb2 = 0, sb3 = 0;
+            sb0 += group_q0[0] * pipe_kb[0];
+            sb1 += group_q1[0] * pipe_kb[0];
+            sb2 += group_q2[0] * pipe_kb[0];
+            sb3 += group_q3[0] * pipe_kb[0];
+            sb0 += group_q0[1] * pipe_kb[1];
+            sb1 += group_q1[1] * pipe_kb[1];
+            sb2 += group_q2[1] * pipe_kb[1];
+            sb3 += group_q3[1] * pipe_kb[1];
+            sb0 += group_q0[2] * pipe_kb[2];
+            sb1 += group_q1[2] * pipe_kb[2];
+            sb2 += group_q2[2] * pipe_kb[2];
+            sb3 += group_q3[2] * pipe_kb[2];
+            sb0 += group_q0[3] * pipe_kb[3];
+            sb1 += group_q1[3] * pipe_kb[3];
+            sb2 += group_q2[3] * pipe_kb[3];
+            sb3 += group_q3[3] * pipe_kb[3];
+            sb0 = simd_sum(sb0);
+            sb1 = simd_sum(sb1);
+            sb2 = simd_sum(sb2);
+            sb3 = simd_sum(sb3);
+
+            U nbm0 = metal::max(group_max0, sb0);
+            U nbm1 = metal::max(group_max1, sb1);
+            U nbm2 = metal::max(group_max2, sb2);
+            U nbm3 = metal::max(group_max3, sb3);
+            U bf0, bf1, bf2, bf3;
+            LAGUNA_RESCALE(bf0, group_max0 - nbm0);
+            LAGUNA_RESCALE(bf1, group_max1 - nbm1);
+            LAGUNA_RESCALE(bf2, group_max2 - nbm2);
+            LAGUNA_RESCALE(bf3, group_max3 - nbm3);
+            U be0 = metal::fast::exp(sb0 - nbm0);
+            U be1 = metal::fast::exp(sb1 - nbm1);
+            U be2 = metal::fast::exp(sb2 - nbm2);
+            U be3 = metal::fast::exp(sb3 - nbm3);
+
+            group_max0 = nbm0; group_max1 = nbm1; group_max2 = nbm2; group_max3 = nbm3;
+            group_sum0 = group_sum0 * bf0 + be0;
+            group_sum1 = group_sum1 * bf1 + be1;
+            group_sum2 = group_sum2 * bf2 + be2;
+            group_sum3 = group_sum3 * bf3 + be3;
+
+            group_o0[0] = group_o0[0] * bf0 + be0 * pipe_vb0;
+            group_o1[0] = group_o1[0] * bf1 + be1 * pipe_vb0;
+            group_o2[0] = group_o2[0] * bf2 + be2 * pipe_vb0;
+            group_o3[0] = group_o3[0] * bf3 + be3 * pipe_vb0;
+            group_o0[1] = group_o0[1] * bf0 + be0 * pipe_vb1;
+            group_o1[1] = group_o1[1] * bf1 + be1 * pipe_vb1;
+            group_o2[1] = group_o2[1] * bf2 + be2 * pipe_vb1;
+            group_o3[1] = group_o3[1] * bf3 + be3 * pipe_vb1;
+            group_o0[2] = group_o0[2] * bf0 + be0 * pipe_vb2;
+            group_o1[2] = group_o1[2] * bf1 + be1 * pipe_vb2;
+            group_o2[2] = group_o2[2] * bf2 + be2 * pipe_vb2;
+            group_o3[2] = group_o3[2] * bf3 + be3 * pipe_vb2;
+            group_o0[3] = group_o0[3] * bf0 + be0 * pipe_vb3;
+            group_o1[3] = group_o1[3] * bf1 + be1 * pipe_vb3;
+            group_o2[3] = group_o2[3] * bf2 + be2 * pipe_vb3;
+            group_o3[3] = group_o3[3] * bf3 + be3 * pipe_vb3;
+
+            group_keys += 2 * inner_k_stride;
+            group_values += 2 * inner_v_stride;
+        }
+
+        // Combine: sequential per-head two-plane exchange, reusing the same
+        // 4-plane buffer for each head to fit within the 32KB threadgroup
+        // memory limit. Each head's reduction is character-identical to the
+        // pair path; only the buffer is reused across heads with barriers.
+        constexpr int group_planes = 2;
+        constexpr int group_plane_size = BN * BDP;
+
+        // Max and sum reduction (shared across all heads, written once).
+        if (lane == 0) {
+            max_scores[sg] = group_max0;
+            max_scores[BN + sg] = group_max1;
+            max_scores[2 * BN + sg] = group_max2;
+            max_scores[3 * BN + sg] = group_max3;
+            sum_exp_scores[sg] = group_sum0;
+            sum_exp_scores[BN + sg] = group_sum1;
+            sum_exp_scores[2 * BN + sg] = group_sum2;
+            sum_exp_scores[3 * BN + sg] = group_sum3;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        group_max0 = max_scores[lane];
+        group_max1 = max_scores[BN + lane];
+        group_max2 = max_scores[2 * BN + lane];
+        group_max3 = max_scores[3 * BN + lane];
+        U gm0 = simd_max(group_max0);
+        U gm1 = simd_max(group_max1);
+        U gm2 = simd_max(group_max2);
+        U gm3 = simd_max(group_max3);
+        U gf0 = metal::fast::exp(group_max0 - gm0);
+        U gf1 = metal::fast::exp(group_max1 - gm1);
+        U gf2 = metal::fast::exp(group_max2 - gm2);
+        U gf3 = metal::fast::exp(group_max3 - gm3);
+        group_sum0 = simd_sum(sum_exp_scores[lane] * gf0);
+        group_sum1 = simd_sum(sum_exp_scores[BN + lane] * gf1);
+        group_sum2 = simd_sum(sum_exp_scores[2 * BN + lane] * gf2);
+        group_sum3 = simd_sum(sum_exp_scores[3 * BN + lane] * gf3);
+
+        // Head 0: first half of v_per_thread (planes 0-1).
+        for (int p = 0; p < group_planes; ++p) {
+            outputs[p * group_plane_size + lane * BDP + sg] = group_o0[p];
+            outputs[(group_planes + p) * group_plane_size + lane * BDP + sg] =
+                group_o0[group_planes + p];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (int p = 0; p < group_planes; ++p) {
+            U acc0a = simd_sum(
+                outputs[p * group_plane_size + sg * BDP + lane] * gf0);
+            U acc0b = simd_sum(
+                outputs[(group_planes + p) * group_plane_size + sg * BDP + lane] * gf0);
+            group_o0[p] = group_sum0 == 0 ? acc0a : (acc0a / group_sum0);
+            group_o0[group_planes + p] =
+                group_sum0 == 0 ? acc0b : (acc0b / group_sum0);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Head 1: first half of v_per_thread (planes 0-1).
+        for (int p = 0; p < group_planes; ++p) {
+            outputs[p * group_plane_size + lane * BDP + sg] = group_o1[p];
+            outputs[(group_planes + p) * group_plane_size + lane * BDP + sg] =
+                group_o1[group_planes + p];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (int p = 0; p < group_planes; ++p) {
+            U acc1a = simd_sum(
+                outputs[p * group_plane_size + sg * BDP + lane] * gf1);
+            U acc1b = simd_sum(
+                outputs[(group_planes + p) * group_plane_size + sg * BDP + lane] * gf1);
+            group_o1[p] = group_sum1 == 0 ? acc1a : (acc1a / group_sum1);
+            group_o1[group_planes + p] =
+                group_sum1 == 0 ? acc1b : (acc1b / group_sum1);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Head 2: first half of v_per_thread (planes 0-1).
+        for (int p = 0; p < group_planes; ++p) {
+            outputs[p * group_plane_size + lane * BDP + sg] = group_o2[p];
+            outputs[(group_planes + p) * group_plane_size + lane * BDP + sg] =
+                group_o2[group_planes + p];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (int p = 0; p < group_planes; ++p) {
+            U acc2a = simd_sum(
+                outputs[p * group_plane_size + sg * BDP + lane] * gf2);
+            U acc2b = simd_sum(
+                outputs[(group_planes + p) * group_plane_size + sg * BDP + lane] * gf2);
+            group_o2[p] = group_sum2 == 0 ? acc2a : (acc2a / group_sum2);
+            group_o2[group_planes + p] =
+                group_sum2 == 0 ? acc2b : (acc2b / group_sum2);
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Head 3: first half of v_per_thread (planes 0-1).
+        for (int p = 0; p < group_planes; ++p) {
+            outputs[p * group_plane_size + lane * BDP + sg] = group_o3[p];
+            outputs[(group_planes + p) * group_plane_size + lane * BDP + sg] =
+                group_o3[group_planes + p];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (int p = 0; p < group_planes; ++p) {
+            U acc3a = simd_sum(
+                outputs[p * group_plane_size + sg * BDP + lane] * gf3);
+            U acc3b = simd_sum(
+                outputs[(group_planes + p) * group_plane_size + sg * BDP + lane] * gf3);
+            group_o3[p] = group_sum3 == 0 ? acc3a : (acc3a / group_sum3);
+            group_o3[group_planes + p] =
+                group_sum3 == 0 ? acc3b : (acc3b / group_sum3);
+        }
+
+        if (lane == 0) {
+            device bfloat* out0 = attended + head0 * head_dim + sg * v_per_thread;
+            device bfloat* out1 = attended + head1 * head_dim + sg * v_per_thread;
+            device bfloat* out2 = attended + head2 * head_dim + sg * v_per_thread;
+            device bfloat* out3 = attended + head3 * head_dim + sg * v_per_thread;
+            for (int p = 0; p < v_per_thread; ++p) {
+                out0[p] = static_cast<bfloat>(group_o0[p]);
+                out1[p] = static_cast<bfloat>(group_o1[p]);
+                out2[p] = static_cast<bfloat>(group_o2[p]);
+                out3[p] = static_cast<bfloat>(group_o3[p]);
+            }
+        }
+        """,
+    header: """
+        #define LAGUNA_RESCALE(dst, delta_expr)         \\
+          do {                                          \\
+            const float db_delta_ = (delta_expr);       \\
+            if (as_type<uint>(db_delta_) == 0u) {       \\
+              dst = float(1.0f);                        \\
+            } else {                                    \\
+              dst = metal::fast::exp(db_delta_);        \\
+            }                                           \\
+          } while (false)
+
+        #define T_LOAD_K(dst, substitute, ptr)                     \\
+          do {                                                     \\
+            if (substitute) {                                      \\
+              dst[0] = tg_k[lane * qk_per_thread + 0];             \\
+              dst[1] = tg_k[lane * qk_per_thread + 1];             \\
+              dst[2] = tg_k[lane * qk_per_thread + 2];             \\
+              dst[3] = tg_k[lane * qk_per_thread + 3];             \\
+            } else {                                               \\
+              const vec<bfloat, 4> v_ =                            \\
+                  *reinterpret_cast<const device vec<bfloat, 4>*>( \\
+                      ptr);                                        \\
+              dst[0] = v_.x;                                       \\
+              dst[1] = v_.y;                                       \\
+              dst[2] = v_.z;                                       \\
+              dst[3] = v_.w;                                       \\
+            }                                                      \\
+          } while (false)
+
+        #define T_LOAD_V(d0, d1, d2, d3, substitute, ptr)          \\
+          do {                                                     \\
+            if (substitute) {                                      \\
+              d0 = tg_v[lane * v_per_thread + 0];                  \\
+              d1 = tg_v[lane * v_per_thread + 1];                  \\
+              d2 = tg_v[lane * v_per_thread + 2];                  \\
+              d3 = tg_v[lane * v_per_thread + 3];                  \\
+            } else {                                               \\
+              const vec<bfloat, 4> v_ =                            \\
+                  *reinterpret_cast<const device vec<bfloat, 4>*>( \\
+                      ptr);                                        \\
+              d0 = v_.x;                                           \\
+              d1 = v_.y;                                           \\
+              d2 = v_.z;                                           \\
+              d3 = v_.w;                                           \\
+            }                                                      \\
+          } while (false)
+
+        // (trailing newline required: the JIT concatenates the generated
+        // [[kernel]] signature directly after this header string)
+
+        """,
+    ensureRowContiguous: true
+)
+
 /// Fused decode attention for a sliding layer in the steady ring regime.
 /// Returns `[1, heads, 1, headDim]` attended output; the caller advances the
 /// cache clock via `RotatingKVCache.fusedRingAdvance()`.
@@ -1850,13 +2348,18 @@ func lagunaSlidingFusedAttention(
     lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
-    return lagunaSlidingFusedAttentionKernel(
+    let useTwoGroup = lagunaTwoGroupSlidingAttentionEnabled
+    let kernel = useTwoGroup
+        ? lagunaTwoGroupSlidingFusedAttentionKernel
+        : lagunaSlidingFusedAttentionKernel
+    let groupSize = useTwoGroup ? 4 : 2
+    return kernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        grid: ((heads / 2) * 1024, 1, 1),
+        grid: ((heads / groupSize) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
         outputDTypes: [.bfloat16]
