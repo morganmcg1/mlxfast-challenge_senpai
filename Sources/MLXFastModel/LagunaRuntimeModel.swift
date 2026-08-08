@@ -475,13 +475,14 @@ let lagunaFusedSlidingQKNormRoPEEnabled =
 /// consume, so every rotary factor is a float the stock RoPE kernel itself
 /// produced.
 ///
-/// **DEFAULT OFF** (`== "1"`; set `DARKBLOOM_PREFILL_QK_NORM_ROPE=1` to
-/// enable). Disabled to reduce M5 JIT compile count; M4 sweep showed neutral
-/// timing. Guarded on shape/dtype/family and a host-known cache offset
+/// **DEFAULT ON** (`!= "0"`; set `DARKBLOOM_PREFILL_QK_NORM_ROPE=0` to
+/// disable). Re-enabled: PR #350's kernel consolidation freed compile slots.
+/// Fuses qNorm+kNorm+transpose+applyRotaryPosition (6 dispatches) into 1
+/// per layer. Guarded on shape/dtype/family and a host-known cache offset
 /// with `offset + L <= lagunaRoPEAngleAtlasLength`; every other case takes
 /// the verbatim stock path.
 private let lagunaPrefillQKNormRoPEEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_NORM_ROPE"] == "1"
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_NORM_ROPE"] != "0"
 
 /// Heads-per-threadgroup repartition for the prefill QK-norm+RoPE kernels.
 /// The H4 variant was removed; only H1 (one head per threadgroup) survives,
