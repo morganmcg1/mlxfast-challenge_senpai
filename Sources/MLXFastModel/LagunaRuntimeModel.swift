@@ -469,29 +469,6 @@ let lagunaFusedFullQKNormYaRNEnabled =
 let lagunaRoPEAngleAtlasEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROPE_ANGLE_ATLAS"] != "0"
 
-/// Zero-dispatch decode angle carrier: serve the two per-step RoPE angle rows
-/// as contiguous row VIEWS of the load-time FP32 position atlases instead of
-/// running the two probe RoPE dispatches every token. Unlike the fused
-/// embedding+atlas kernel above (default OFF; its fixed kernel cost measured
-/// −0.23%), this path adds no kernel at all: the atlas row for position `p`
-/// is bit-identical to the probe output at `p` by construction (the atlas IS
-/// the family's own stock RoPE run over the broadcast probe seed), and a
-/// row slice of the contiguous `[1, 1, 4096, D]` atlas is a zero-copy
-/// row-contiguous view, so the two probe dispatches vanish from the front of
-/// every decode step with no replacement work. The stock `embedTokens`
-/// gather is unchanged.
-///
-/// MEASURED (2026-08-01, M5 Max 128 GB, driver rig, 150-step cool-floor
-/// ABBA): views are +0.01..+0.07 ms/step vs the probe dispatches — the two
-/// probes are off the critical path (they overlap the embedding gather and
-/// layer-0 front), so removing them buys nothing, and aliasing the ~3 MB
-/// atlas buffers as per-step kernel inputs appears to add slight
-/// resource-tracking cost. Default OFF, same promoted-era conclusion as the
-/// fused embedding+atlas kernel above. Set `DARKBLOOM_ROPE_ATLAS_VIEWS=1`
-/// to re-measure.
-let lagunaRoPEAtlasViewsEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ROPE_ATLAS_VIEWS"] == "1"
-
 /// `DARKBLOOM_FUSED_DENSE_GATE_UP_SWIGLU` (default on; set "0" to disable):
 /// after checkpoint load, retain one row-concatenated BF16 `[gate; up]` bank
 /// for layer 0's dense (non-quantized) MLP and serve single-token decode's
@@ -10177,7 +10154,7 @@ final class LagunaRuntimeModelInner: Module {
     private func decodeRoPEAtlasPosition(
         inputs: MLXArray, cache: [KVCache]?
     ) -> Int? {
-        guard lagunaRoPEAngleAtlasEnabled || lagunaRoPEAtlasViewsEnabled,
+        guard lagunaRoPEAngleAtlasEnabled,
             lagunaFusedFullQKNormYaRNEnabled,
             lagunaFusedSlidingQKNormRoPEEnabled,
             inputs.dtype == .int32,
@@ -10241,21 +10218,6 @@ final class LagunaRuntimeModelInner: Module {
             h = atlasOutputs.hidden
             fullRoPEAngles = atlasOutputs.fullAngles
             slidingRoPEAngles = atlasOutputs.slidingAngles
-        } else if lagunaRoPEAtlasViewsEnabled,
-            let position = decodeRoPEAtlasPosition(inputs: inputs, cache: cache),
-            let fullAtlas = _fullRoPEAngleAtlas,
-            let slidingAtlas = _slidingRoPEAngleAtlas
-        {
-            // Zero-dispatch angle carrier: stock embedding gather plus two
-            // zero-copy row views of the load-time atlases. The atlas row at
-            // `position` carries the same FP32 floats the probe dispatch
-            // would have produced (the atlas is that probe, broadcast over
-            // positions at load time), and the row slice of the contiguous
-            // atlas is row-contiguous, so the fused QK-norm+RoPE kernels
-            // consume it without any copy or added kernel.
-            h = embedTokens(inputs)
-            fullRoPEAngles = fullAtlas[0..., 0..., position..<(position + 1), 0...]
-            slidingRoPEAngles = slidingAtlas[0..., 0..., position..<(position + 1), 0...]
         } else {
             // Verbatim stock fallback for prefill, unsupported caches and
             // positions outside the precomputed atlas.
