@@ -369,6 +369,7 @@ struct QuantizedBlockLoader {
   MLX_MTL_CONST short n_steps_per_read = n_reads / n_reads_per_scale;
 
   MLX_MTL_CONST short n_groups = BCOLS / group_size;
+  MLX_MTL_CONST short n_groups_halved = BCOLS / (group_size * 2);
 
   const int src_ld;
   const int tile_stride;
@@ -383,6 +384,9 @@ struct QuantizedBlockLoader {
   threadgroup T* dst;
   const device uint8_t* src;
   const device uint8_t* scales;
+  const device uint8_t* escape;
+  const int escape_mode; // 0=none, 1=gate row0, 2=up row0
+  const bool halved_scales;
 
   QuantizedBlockLoader(
       const device uint8_t* src_,
@@ -390,7 +394,10 @@ struct QuantizedBlockLoader {
       const int src_ld_,
       threadgroup T* dst_,
       ushort simd_group_id [[simdgroup_index_in_threadgroup]],
-      ushort simd_lane_id [[thread_index_in_simdgroup]])
+      ushort simd_lane_id [[thread_index_in_simdgroup]],
+      const device uint8_t* escape_ = nullptr,
+      const int escape_mode_ = 0,
+      const bool halved_scales_ = false)
       : src_ld(src_ld_),
         tile_stride(
             reduction_dim ? BCOLS_PACKED * bytes_per_pack
@@ -403,7 +410,31 @@ struct QuantizedBlockLoader {
         dst(dst_ + bi * dst_ld + bj * pack_factor),
         src(src_ + bi * src_ld * bytes_per_pack / pack_factor +
             bj * bytes_per_pack),
-        scales(scales_ + bi * src_ld / group_size + group_id) {}
+        scales(halved_scales_
+               ? scales_ + bi * src_ld / (group_size * 2) + group_id / 2
+               : scales_ + bi * src_ld / group_size + group_id),
+        escape(escape_),
+        escape_mode(escape_mode_),
+        halved_scales(halved_scales_) {}
+
+  // Read scale byte i with halved indexing and escape handling.
+  // In the tile-interleaved fused gate/up layout, gate-row-0 is at bi==0 and
+  // up-row-0 is at bi==BROWS/2, both within tile 0 (tid.x==0).
+  inline uint8_t read_scale(short i) const {
+    if (halved_scales) {
+      uint8_t sc = scales[i / 2];
+      if (escape_mode > 0 && group_id == 0 && i == 1) {
+        if (bi == 0) {
+          sc = escape[0];
+        } else if (escape_mode == 1 && bi == BROWS / 2) {
+          sc = escape[1];
+        }
+      }
+      return sc;
+    } else {
+      return scales[i];
+    }
+  }
 
   // The NVFP4 staging fast path applies when the packing is one byte per two
   // values, the scale is e4m3, and the byte run governed by ONE scale splits
@@ -420,7 +451,7 @@ struct QuantizedBlockLoader {
     if constexpr (fp4nv_fast) {
       int k = 0;
       for (int i = 0; i < n_steps_per_read; i++) {
-        const float scale = fp4nv_scale_x16384(scales[i]);
+        const float scale = fp4nv_scale_x16384(read_scale(i));
         for (int j = 0; j < n_reads_per_scale / 4; j++) {
           T vals[8];
           fp4nv_decode8<T>(fp4nv_pack4(src + k), scale, vals);
@@ -433,7 +464,7 @@ struct QuantizedBlockLoader {
     } else {
       int k = 0;
       for (int i = 0; i < n_steps_per_read; i++) {
-        T scale = dequantize_scale<T, group_size>(scales[i]);
+        T scale = dequantize_scale<T, group_size>(read_scale(i));
         for (int j = 0; j < n_reads_per_scale; j++) {
           dequantize<T, bits>(
               src[k * bytes_per_pack], scale, dst + k * pack_factor);
@@ -600,14 +631,14 @@ struct QuantizedBlockLoader {
       // is 4 for bfloat/half staging, 2 for float). Same values either way.
       if constexpr (fp4nv_fast && (kSrcBytesPerChunk % 4) == 0) {
         const float scale =
-            fp4nv_scale_x16384(scales[k0 / n_reads_per_scale]);
+            fp4nv_scale_x16384(read_scale(k0 / n_reads_per_scale));
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk / 4; b++) {
           fp4nv_decode8<T>(fp4nv_pack4(sb + k0 + b * 4), scale, &out.v[b * 8]);
         }
       } else {
         T scale =
-            dequantize_scale<T, group_size>(scales[k0 / n_reads_per_scale]);
+            dequantize_scale<T, group_size>(read_scale(k0 / n_reads_per_scale));
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk; b++) {
           dequantize_pair(sb[k0 + b], scale, &out.v[b * pack_factor]);
@@ -651,9 +682,11 @@ struct QuantizedBlockLoader {
   void next() {
     src += tile_stride;
     if (reduction_dim == 1) {
-      scales += n_groups;
+      scales += halved_scales ? n_groups_halved : n_groups;
     } else {
-      scales += n_groups * group_stride;
+      scales += halved_scales
+          ? n_groups_halved * group_stride
+          : n_groups * group_stride;
     }
   }
 };
@@ -677,12 +710,15 @@ template <
 METAL_FUNC void fp_qmm_t_impl(
     const device uint32_t* w,
     const device uint8_t* scales,
+    const device uint8_t* escape,
     const device T* x,
     device T* y,
     threadgroup Wtype* Ws,
     const constant int& K,
     const constant int& N,
     const constant int& M,
+    const constant bool& kHalvedScales,
+    bool kGatherEscape,
     uint3 tid [[threadgroup_position_in_grid]],
     uint lid [[thread_index_in_threadgroup]],
     uint simd_gid [[simdgroup_index_in_threadgroup]],
@@ -712,7 +748,7 @@ METAL_FUNC void fp_qmm_t_impl(
 
   // Set the block
   const int K_w = kernel_K * bytes_per_pack / pack_factor;
-  const int K_g = kernel_K / group_size;
+  const int K_g = kernel_K / (group_size * (kHalvedScales ? 2 : 1));
   const int y_row = tid.y * BM;
   const int y_col = tid.x * BN;
 
@@ -723,8 +759,34 @@ METAL_FUNC void fp_qmm_t_impl(
   scales += y_col * K_g;
   y += y_row * static_cast<int64_t>(kernel_N) + y_col;
 
+  // Determine escape handling for the fused gate/up layout.
+  // escape_mode=0: no escape. escape_mode=1: tile-interleaved (gather),
+  //   bi==0 gets escape[0] (gate row 0), bi==BROWS/2 gets escape[1] (up row 0).
+  // escape_mode=3: sequential (shared expert qmm), only bi==0 gets escape,
+  //   caller pre-offsets escape_ptr to the correct byte per tile.
+  const device uint8_t* escape_ptr = escape;
+  int escape_mode = 0;
+  if (kHalvedScales) {
+    if (kGatherEscape) {
+      // Tile-interleaved: gate32+up32 in every 64-row tile. Only tile 0
+      // (y_col==0) has the escape exception (row 0 and row 32).
+      if (y_col == 0) {
+        escape_mode = 1;
+      }
+    } else {
+      // Sequential: gate rows 0..N/2-1, up rows N/2..N-1.
+      if (y_col == 0) {
+        escape_mode = 3;
+      } else if (y_col == kernel_N / 2) {
+        escape_mode = 3;
+        escape_ptr = escape + 1;
+      }
+    }
+  }
+
   // Make the weight loader
-  loader_w_t loader_w(wl, scales, kernel_K, Ws, simd_gid, simd_lid);
+  loader_w_t loader_w(
+      wl, scales, kernel_K, Ws, simd_gid, simd_lid, escape_ptr, escape_mode, kHalvedScales);
 
   constexpr short SM = BM / WM;
   constexpr short SN = BN / WN;
@@ -1044,11 +1106,13 @@ template <
 [[kernel]] void fp_qmm_t_nax(
     const device uint32_t* w,
     const device uint8_t* scales,
+    const device uint8_t* escape,
     const device T* x,
     device T* y,
     const constant int& K,
     const constant int& N,
     const constant int& M,
+    const constant bool& kHalvedScales,
     const constant int& x_batch_ndims,
     const constant int* x_shape,
     const constant int64_t* x_strides,
@@ -1083,7 +1147,7 @@ template <
         tid);
   }
   fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, WM, WN, Wtype>(
-      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
+      w, scales, escape, x, y, Ws, K, N, M, kHalvedScales, false, tid, lid, simd_gid, simd_lid);
 }
 
 // Laguna's shared-expert NVFP4 projections have two fixed matrix shapes.
@@ -1106,11 +1170,13 @@ template <
 [[kernel]] void fp_qmm_t_nax_static(
     const device uint32_t* w,
     const device uint8_t* scales,
+    const device uint8_t* escape,
     const device T* x,
     device T* y,
     const constant int& K,
     const constant int& N,
     const constant int& M,
+    const constant bool& kHalvedScales,
     const constant int& x_batch_ndims,
     const constant int* x_shape,
     const constant int64_t* x_strides,
@@ -1150,7 +1216,7 @@ template <
       fixed_K,
       fixed_N,
       aligned_M>(
-      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
+      w, scales, escape, x, y, Ws, K, N, M, kHalvedScales, false, tid, lid, simd_gid, simd_lid);
 }
 
 template <
@@ -1233,6 +1299,7 @@ template <
     const constant int& K,
     const constant int& N,
     const constant int& M,
+    const constant bool& kHalvedScales,
     const constant int& x_batch_ndims,
     const constant int* x_shape,
     const constant int64_t* x_strides,
@@ -1274,8 +1341,18 @@ template <
       w_strides,
       s_strides,
       tid);
+
+  // For halved scales [experts, N+1, K/32], after adjust_matrix_offsets
+  // adjusts `scales` to the selected expert's block, the escape bytes are
+  // at row N (offset N * K_g where K_g = K/32 for halved).
+  const int kernel_K = K;
+  const int kernel_N = N;
+  const int K_g_halved = kernel_K / (group_size * 2);
+  const device uint8_t* escape_ptr =
+      kHalvedScales ? (scales + kernel_N * K_g_halved) : scales;
+
   fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, WM, WN, Wtype>(
-      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
+      w, scales, escape_ptr, x, y, Ws, K, N, M, kHalvedScales, true, tid, lid, simd_gid, simd_lid);
 }
 
 template <

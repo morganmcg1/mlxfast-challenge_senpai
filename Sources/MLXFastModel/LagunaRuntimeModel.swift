@@ -212,9 +212,20 @@ let lagunaExpertAlignedGatherEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
 
-// Disabled 2026-08-07: qmm_nax reverted to pre-PR#243 state (no kHalvedScales).
-// The halved path calls quantizedMM with groupSize=32 and scales [N+1, K/32],
-// which the pre-PR#243 qmm_nax doesn't support. Falls through to standard path.
+func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
+    guard osSupportsNAX,
+        let generation = Int(architecture.suffix(3).prefix(2))
+    else { return false }
+    return generation >= (architecture.hasSuffix("p") ? 18 : 17)
+}
+
+// Prefill shared expert halved-scales via qmm_nax kHalvedScales. The
+// qmm_nax kernel path and its kHalvedScales runtime constant are M5 (NAX) only;
+// on non-NAX hardware the non-nax fallback would misread group_size=32
+// scales, so this gate prevents activation on M4.
+// Re-enabled: kHalvedScales is now a runtime set_bytes constant (not a
+// template parameter), so zero new JIT compilations are created.
+// Disabled for now — will be enabled when the M5 build is confirmed working.
 let lagunaPrefillSharedHalvedEnabled = false
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
