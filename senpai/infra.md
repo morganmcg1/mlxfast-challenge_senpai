@@ -95,6 +95,25 @@ advisor submitter must still make sparse deliberate status checks until the
 generic monitor surface is available to advisors. The role that submitted owns
 any retry and decides whether its PR needs an update.
 
+For a deployment with Senpai's 1,800-second supervised-process cap, use a
+1,680-second watcher deadline and leave one minute for clean outer supervision:
+
+```text
+run_training({
+  "spec": {
+    "argv": ["python3", "senpai/watch-submission.py",
+             "--submission", "<submission-id-or-prefix>",
+             "--interval-seconds", "180", "--timeout-seconds", "1680"],
+    "cwd": ".",
+    "timeout_seconds": 1740
+  }
+})
+```
+
+If the deployed process cap is lower, shorten both deadlines while preserving
+the cleanup margin. Do not put the watcher's six-hour standalone default inside
+a shorter supervised process.
+
 If a capacity rejection produced no receipt, first inspect `mlxfast
 submissions` for an explicitly reported blocking receipt or wait the
 server-provided retry interval. Do not infer a global one-submission limit.

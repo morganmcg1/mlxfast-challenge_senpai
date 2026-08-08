@@ -24,9 +24,12 @@ DEFAULT_API_URL = "https://api.mlx.fast"
 DEFAULT_BENCHMARK = "eigenlabs/mlxfast-challenge"
 DEFAULT_POLL_INTERVAL_SECONDS = 180
 POLL_JITTER_SECONDS = 20
-MIN_POLL_INTERVAL_SECONDS = 60
+MIN_POLL_INTERVAL_SECONDS = 180
+REQUEST_TIMEOUT_SECONDS = 20
 ACTIVE_SUBMISSION_STATUSES = frozenset({"queued", "validating"})
+TERMINAL_SUBMISSION_STATUSES = frozenset({"failed", "rejected"})
 ACTIVE_PROMOTION_STATUSES = frozenset({"queued", "promoting"})
+TERMINAL_PROMOTION_STATUSES = frozenset({"failed", "promoted", "rejected"})
 RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504, 529})
 T = TypeVar("T")
 
@@ -48,13 +51,25 @@ class ApiClient:
     def __init__(self, config: ApiConfig):
         self.config = config
 
-    def get(self, path: str) -> dict[str, Any]:
+    def get(
+        self,
+        path: str,
+        *,
+        deadline: Optional[float] = None,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> dict[str, Any]:
+        timeout = REQUEST_TIMEOUT_SECONDS
+        if deadline is not None:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError("MLXFast API request deadline expired")
+            timeout = min(timeout, remaining)
         request = urllib.request.Request(
             f"{self.config.base_url.rstrip('/')}{path}",
             headers={"Authorization": f"Bearer {self.config.token}"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.load(response)
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", errors="replace")[:500]
@@ -86,27 +101,43 @@ def load_api_config() -> ApiConfig:
     )
     if not isinstance(token, str) or not token.strip():
         raise RuntimeError("mlxfast login or MLXFAST_API_TOKEN is required")
-    return ApiConfig(base_url=str(base_url), token=token)
+    return ApiConfig(base_url=str(base_url), token=token.strip())
 
 
 def resolve_scope(
     client: ApiClient,
     benchmark_ref: str,
+    *,
+    deadline: Optional[float] = None,
+    monotonic: Callable[[], float] = time.monotonic,
 ) -> tuple[str, str]:
-    account_id = client.get("/api/me")["account"]["id"]
+    account_id = client.get(
+        "/api/me",
+        deadline=deadline,
+        monotonic=monotonic,
+    )["account"]["id"]
     encoded_ref = urllib.parse.quote(benchmark_ref, safe="")
-    benchmark = client.get(f"/api/benchmarks/{encoded_ref}")["benchmark"]
+    benchmark = client.get(
+        f"/api/benchmarks/{encoded_ref}",
+        deadline=deadline,
+        monotonic=monotonic,
+    )["benchmark"]
     return account_id, benchmark["id"]
 
 
 def account_submissions(
     client: ApiClient,
     scope: tuple[str, str],
+    *,
+    deadline: Optional[float] = None,
+    monotonic: Callable[[], float] = time.monotonic,
 ) -> list[dict[str, Any]]:
     account_id, benchmark_id = scope
-    submissions = client.get(f"/api/benchmarks/{benchmark_id}/submissions")[
-        "submissions"
-    ]
+    submissions = client.get(
+        f"/api/benchmarks/{benchmark_id}/submissions",
+        deadline=deadline,
+        monotonic=monotonic,
+    )["submissions"]
     return [row for row in submissions if row.get("solverAccountId") == account_id]
 
 
@@ -170,6 +201,7 @@ def read_with_retry(
     *,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    uniform: Callable[[float, float], float] = random.uniform,
 ) -> T:
     while monotonic() < deadline:
         try:
@@ -177,26 +209,44 @@ def read_with_retry(
         except (ApiError, OSError) as error:
             if not retryable(error):
                 raise
-            sleep(min(retry_delay(interval, error), max(0, deadline - monotonic())))
+            delay = retry_delay(interval, error) + uniform(0, POLL_JITTER_SECONDS)
+            sleep(min(delay, max(0, deadline - monotonic())))
     raise TimeoutError("MLXFast API remained unavailable before timeout")
 
 
 def submission_is_active(row: dict[str, Any]) -> bool:
-    status = str(row.get("status", "unknown")).lower()
-    promotion = str(row.get("promotionStatus", "")).lower()
-    return status in ACTIVE_SUBMISSION_STATUSES or (
-        status == "accepted" and promotion in ACTIVE_PROMOTION_STATUSES
-    )
+    status = str(row.get("status") or "").lower()
+    promotion = str(row.get("promotionStatus") or "").lower()
+    if status in ACTIVE_SUBMISSION_STATUSES:
+        return True
+    if status in TERMINAL_SUBMISSION_STATUSES:
+        return False
+    if status == "accepted":
+        if promotion in ACTIVE_PROMOTION_STATUSES:
+            return True
+        if promotion in TERMINAL_PROMOTION_STATUSES:
+            return False
+        raise RuntimeError(
+            f"accepted submission has unknown promotion status {promotion!r}"
+        )
+    raise RuntimeError(f"unknown submission status {status!r}")
 
 
 def exact_submission(
     client: ApiClient,
     submission_id: str,
     scope: tuple[str, str],
+    *,
+    deadline: Optional[float] = None,
+    monotonic: Callable[[], float] = time.monotonic,
 ) -> dict[str, Any]:
     account_id, benchmark_id = scope
     encoded_id = urllib.parse.quote(submission_id, safe="")
-    row = client.get(f"/api/submissions/{encoded_id}")["submission"]
+    row = client.get(
+        f"/api/submissions/{encoded_id}",
+        deadline=deadline,
+        monotonic=monotonic,
+    )["submission"]
     if row.get("solverAccountId") != account_id:
         raise RuntimeError(f"submission {submission_id!r} does not belong to this account")
     if row.get("benchmarkId") != benchmark_id:
@@ -219,14 +269,29 @@ def wait_for_submission(
     while monotonic() < deadline:
         row = read_with_retry(
             lambda: (
-                resolve_submission(account_submissions(client, scope), reference)
+                resolve_submission(
+                    account_submissions(
+                        client,
+                        scope,
+                        deadline=deadline,
+                        monotonic=monotonic,
+                    ),
+                    reference,
+                )
                 if submission_id is None
-                else exact_submission(client, submission_id, scope)
+                else exact_submission(
+                    client,
+                    submission_id,
+                    scope,
+                    deadline=deadline,
+                    monotonic=monotonic,
+                )
             ),
             interval,
             deadline,
             monotonic=monotonic,
             sleep=sleep,
+            uniform=uniform,
         )
         submission_id = str(row["id"])
         if not submission_is_active(row):
@@ -289,7 +354,11 @@ def main() -> int:
     client = ApiClient(load_api_config())
     deadline = time.monotonic() + args.timeout_seconds
     scope = read_with_retry(
-        lambda: resolve_scope(client, args.benchmark),
+        lambda: resolve_scope(
+            client,
+            args.benchmark,
+            deadline=deadline,
+        ),
         args.interval_seconds,
         deadline,
     )

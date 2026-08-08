@@ -306,6 +306,11 @@ supervised-process tools and be resumed when the process ends; an advisor must
 still check sparsely until those tools are generalized. The watcher does not
 submit, retry, monitor capacity before a receipt exists, claim queue ownership,
 or comment on a PR automatically.
+If it exits on an unknown or new API state, inspect that exact receipt; do not
+infer permission to resubmit.
+When using `run_training`, copy the paired inner/outer timeout example from
+[`infra.md`](infra.md#official-ranked-queue); the watcher's six-hour standalone
+default must not exceed the supervisor's process deadline.
 
 ## Correctness And Validity
 

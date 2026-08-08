@@ -54,7 +54,7 @@ class FakeClient:
         self.responses = list(responses)
         self.paths = []
 
-    def get(self, path):
+    def get(self, path, **_request):
         self.paths.append(path)
         response = self.responses.pop(0)
         if isinstance(response, Exception):
@@ -130,6 +130,7 @@ class SubmissionWatcherTests(unittest.TestCase):
             [transient, {"submissions": [submission(status="rejected")]}]
         )
         clock = Clock()
+        uniform = mock.Mock(return_value=7)
 
         with redirect_stdout(io.StringIO()):
             watcher.wait_for_submission(
@@ -140,9 +141,11 @@ class SubmissionWatcherTests(unittest.TestCase):
                 deadline=60,
                 monotonic=clock.monotonic,
                 sleep=clock.sleep,
+                uniform=uniform,
             )
 
-        self.assertEqual(clock.now, 20)
+        self.assertEqual(clock.now, 27)
+        uniform.assert_called_once_with(0, watcher.POLL_JITTER_SECONDS)
 
         with self.assertRaises(watcher.ApiError):
             watcher.wait_for_submission(
@@ -153,6 +156,7 @@ class SubmissionWatcherTests(unittest.TestCase):
                 deadline=60,
                 monotonic=Clock().monotonic,
                 sleep=lambda _seconds: None,
+                uniform=lambda _low, _high: 0,
             )
 
     def test_timeout_does_not_sleep_past_its_deadline(self):
@@ -179,6 +183,7 @@ class SubmissionWatcherTests(unittest.TestCase):
             args = watcher.parse_args()
 
         self.assertEqual(args.interval_seconds, 180)
+        self.assertEqual(watcher.MIN_POLL_INTERVAL_SECONDS, 180)
         self.assertEqual(watcher.POLL_JITTER_SECONDS, 20)
 
         with mock.patch.object(
@@ -189,11 +194,67 @@ class SubmissionWatcherTests(unittest.TestCase):
                 "--submission",
                 "abc",
                 "--interval-seconds",
-                "59",
+                "179",
             ],
         ):
             with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 watcher.parse_args()
+
+    def test_status_and_promotion_states_fail_closed_when_unknown(self):
+        active = [
+            submission(status="queued"),
+            submission(status="validating"),
+            submission(status="accepted", promotion_status="queued"),
+            submission(status="accepted", promotion_status="promoting"),
+        ]
+        terminal = [
+            submission(status="failed"),
+            submission(status="rejected"),
+            submission(status="accepted", promotion_status="failed"),
+            submission(status="accepted", promotion_status="promoted"),
+            submission(status="accepted", promotion_status="rejected"),
+        ]
+
+        self.assertTrue(all(watcher.submission_is_active(row) for row in active))
+        self.assertTrue(
+            all(not watcher.submission_is_active(row) for row in terminal)
+        )
+        with self.assertRaisesRegex(RuntimeError, "unknown submission status"):
+            watcher.submission_is_active(submission(status="processing"))
+        with self.assertRaisesRegex(RuntimeError, "unknown promotion status"):
+            watcher.submission_is_active(submission(status="accepted"))
+
+    def test_exact_receipt_must_match_account_and_benchmark_scope(self):
+        with self.assertRaisesRegex(RuntimeError, "does not belong to this account"):
+            watcher.exact_submission(
+                FakeClient(
+                    [
+                        {
+                            "submission": {
+                                **submission(),
+                                "solverAccountId": "other-account",
+                            }
+                        }
+                    ]
+                ),
+                "abc123",
+                self.scope,
+            )
+        with self.assertRaisesRegex(RuntimeError, "another benchmark"):
+            watcher.exact_submission(
+                FakeClient(
+                    [
+                        {
+                            "submission": {
+                                **submission(),
+                                "benchmarkId": "other-benchmark",
+                            }
+                        }
+                    ]
+                ),
+                "abc123",
+                self.scope,
+            )
 
     def test_retry_after_accepts_seconds_and_http_dates(self):
         self.assertEqual(watcher.parse_retry_after("1.2"), 2)
@@ -215,6 +276,28 @@ class SubmissionWatcherTests(unittest.TestCase):
         self.assertEqual(request.full_url, "https://example.test/api/me")
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
         self.assertNotIn("secret", request.full_url)
+        self.assertEqual(
+            call.call_args.kwargs["timeout"], watcher.REQUEST_TIMEOUT_SECONDS
+        )
+
+    def test_api_request_timeout_is_bounded_by_remaining_deadline(self):
+        response = FakeResponse(b'{"ok":true}')
+        client = watcher.ApiClient(watcher.ApiConfig("https://example.test", "secret"))
+        clock = Clock()
+        clock.now = 97
+
+        with mock.patch.object(urllib.request, "urlopen", return_value=response) as call:
+            self.assertEqual(
+                client.get("/api/me", deadline=100, monotonic=clock.monotonic),
+                {"ok": True},
+            )
+
+        self.assertEqual(call.call_args.kwargs["timeout"], 3)
+        clock.now = 100
+        with mock.patch.object(urllib.request, "urlopen") as expired:
+            with self.assertRaisesRegex(TimeoutError, "deadline expired"):
+                client.get("/api/me", deadline=100, monotonic=clock.monotonic)
+        expired.assert_not_called()
 
     def test_api_errors_redact_an_echoed_token(self):
         headers = Message()
