@@ -427,3 +427,83 @@ python3 -c "import sys; sys.path.insert(0,'/tmp'); import ws_mod as ws; \
 Each row carries `officialScore`, `status`, `promotionStatus`, `note`, and the
 full `officialMetrics` dictionary including both paired baseline seconds.
 
+## Evidence 9 — the current integration base has never been ranked
+
+The promoted frontier row `97a5090c` records `officialMetrics.commit =
+3e165fa52be994d9a162951405273a007b9aa3c1`, and that commit is public in the
+organizer repo (`Validate submission 97a5090c-a408-4222-b6d6-dd85c4bce09e`,
+authored by `yukon-autoresearch[bot]` at 2026-08-06T05:04:38Z). Because
+`mlxfast submit` uploads the whole `editablePaths` surface verbatim, the
+organizer tree for a validated submission *is* the exact scored source, so
+Git blob SHAs can be compared directly against our base.
+
+### Our base is not the promoted frontier
+
+Comparing all 97 `editablePaths` between base `cc5688d0` and frontier
+`3e165fa5`: **82 identical, 11 differing, 0 present on only one side.**
+
+```text
+Vendor/mlx-swift-lm/Libraries/MLXLMCommon/KVCache.swift
+Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Evaluate.swift
+Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableKVCache.swift
+Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompilableRotatingKVCache.swift
+Vendor/mlx-swift-lm/Libraries/MLXLMCommon/CompiledDecode.swift
+Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BatchKVCache.swift
+Vendor/mlx-swift-lm/Libraries/MLXLMCommon/BaseConfiguration.swift
+Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
+Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
+Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/fp_quantized_nax.h
+Vendor/mlx-swift/Source/Cmlx/mlx-generated/fp_quantized_nax.cpp
+```
+
+Fork history attributes those to post-frontier merges — PR #138 (prefill `_nax`
+gather-GEMM `BK 64->128`), PR #170 (prefill routed gather-GEMM work
+multipliers), and the `Lever 1` comment-relocation commit `8237f43`.
+
+### Our base matches no ranked submission at all
+
+Comparing the same 97 paths against the six most recent scored submissions:
+
+| created | submission | officialScore | editable paths matching our base |
+| --- | --- | --- | --- |
+| 2026-08-07T18:51:54 | `3ff39923` | 2.52126 | 80/97 |
+| 2026-08-07T09:36:32 | `68b66c5d` | 2.55207 | 82/97 |
+| 2026-08-07T08:19:51 | `df9613a8` | **2.58167** | **85/97** |
+| 2026-08-07T07:57:07 | `75a7490a` | 2.39698 | 80/97 |
+| 2026-08-07T06:49:45 | `0bc3eb4c` | 2.56222 | 85/97 |
+| 2026-08-07T06:26:46 | `26b8e82a` | 2.56254 | 82/97 |
+| 2026-08-06T05:04:23 | `97a5090c` | 2.58883 (promoted) | 82/97 |
+
+No exact match; the best overlap is 85/97. **The exact editable content that
+every current Maple student branches from has never been measured on the ranked
+M5.** Its true ranked score is unknown, and it is not knowable locally, because
+Evidence 8 shows the decidable band is about 0.5% while the whole distance to
+the record is 0.276%.
+
+### This upgrades what the R85-A control submission is worth
+
+The control `25b0b722` is exactly this base plus one inert comment in
+`RoPEApplication.swift`. It was dispatched to test whether the ranked channel
+was open. It also happens to be **the first ranked measurement of the current
+integration base**, which makes its `officialScore` the missing anchor for the
+whole campaign:
+
+- if it lands at or above `2.58883`, the post-frontier merges are real and the
+  campaign simply needs to resubmit;
+- if it lands near `2.5817`, the base is inside the noise band and the merges
+  since 8/6 have bought nothing measurable;
+- if it lands materially below, one of the 11 post-frontier files is a ranked
+  regression that local M4 evidence could not see, and the differing list above
+  is the bisection set.
+
+### The process risk worth naming
+
+Post-frontier work was merged into the integration base on local M4 Pro
+evidence, in a regime where Evidence 8 shows sub-0.5% ranked differences are
+undecidable and where the `_nax` prefill kernels touched by #138 and #170 are
+**not reachable on the M4 Pro research host at all**. That combination — merging
+prefill `_nax` changes on evidence from a host that cannot execute them — is the
+most likely way for the base to have drifted below the frontier without anyone
+noticing. Evidence 9 does not prove that happened; it proves nobody has checked,
+and it identifies the 11-file set to check first.
+
