@@ -133,13 +133,13 @@ let lagunaFusedSharedDownResidualEnabled =
 /// the exact router reduction, routed scale, and both BF16 residual adds.
 let lagunaFusedRoutedSharedDownResidualEnabled =
     ProcessInfo.processInfo.environment[
-        "DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL"] != "0"
+        "DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL"] == "1"
 
 /// Routed-expert counterpart to the shared QMV + SwiGLU fusion. Each decode
 /// request supplies exactly eight current-token expert indices; the kernel
 /// reads those banks directly and emits `[1, 1, 8, 1, 512]`.
 let lagunaFusedRoutedSwiGLUQMVEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV"] == "1"
 
 /// `DARKBLOOM_PACKED_SCALES` (default ON; set "0" to disable): decode-only
 /// scale-interleaved side copy of the fused routed gate/up NVFP4 bank. The
