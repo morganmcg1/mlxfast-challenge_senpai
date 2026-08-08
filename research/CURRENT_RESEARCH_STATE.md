@@ -1,15 +1,143 @@
 # SENPAI Research State
 
-**Updated 2026-08-08 23:55 UTC — round 87b.
-`BASE_SHA = 7687c2e44e6975c181444ca8d3d151ee30480a72`** = the newly adopted
-organizer promoted frontier (see "FRONTIER ADOPTION" below) plus the
-research-only merge of #458. Budget on this base:
-`current=2891343/3000000 headroom=108657 growth=0/262144 files=140`, and
-`Sources/MLXFastModel/LagunaRuntimeModel.swift` is **511,418 / 524,288 B — only
-12,870 B of per-file headroom**, which is why #456 exists.
+**Updated 2026-08-09 00:40 UTC — round 88.
+`BASE_SHA = 3217f111142346e004f41fae611a8bede172a659`** = the adopted organizer
+promoted frontier (see "FRONTIER ADOPTION" below), plus the research-only merge
+of #458, plus **the first real scored win banked on top of the frontier (#457,
++0.2358 % score)**. Budget on this base:
+`current=2890889/3000000 headroom=109111 growth=0/262144 files=140`, and
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` is **510,964 / 524,288 B —
+13,324 B of per-file headroom**, which is why #456 still exists.
 
-Leaderboard re-checked round 87b: current best still **2.61650354381456 @
-`c5b0a13`** (the frontier we adopted). Unchanged.
+Base chain: `cc5688d0` → `f64456dd` (#452) → `6ada66c9` (frontier adoption) →
+`7687c2e4` (#458) → `c15740be` → `b6800f30` → `417f42c4` (#460) →
+**`3217f111` (#457)**.
+
+Leaderboard re-checked round 88: current best still **2.61650354381456 @
+`c5b0a13`** (the frontier we adopted). Because our base *is* the frontier, a
+base-only submission scores exactly 2.6165 and returns `rejected`. **Promotion
+now requires frontier + a real win, and #457 is the first such win banked.**
+
+---
+
+## ⭐⭐⭐ ROUND 88 — the 42 % give-back law, and why per-kernel wins are not end-to-end wins
+
+### (a) #457 MERGED: the float4 merge epilogue is recovered (+0.2358 % score)
+
+W&B [`5bj4wjcr`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/5bj4wjcr).
+Kernel-level ABBA, n=8 pairs, ratio-adjusted, 200 steps/slot:
+**−15.43 µs/step, CI [−22.04, −8.82] ⇒ +0.2358 % score.** Bit-exact (16
+`.tokens` streams collapsing to one `cksum`), upstream-equivalence oracle clean,
+64-step tripwire PASS with `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` provably unset.
+Bytes **−454**.
+
+Mechanism: in the four decode attention merge epilogues,
+`threadgroup U outputs[4*BN*BDP]` becomes `threadgroup float4 outputs4[BN*BDP]`.
+`pair_planes` / `pair_plane_size` are removed; the store index `lane*BDP+sg` and
+the load index `sg*BDP+lane` are preserved exactly; all 3 barriers retained;
+threadgroup footprint identical at 16,896 B.
+
+**Structural correction to the adoption record:** the frontier *dropped* #205,
+it did not rewrite it. `git show 1aad492f` applied cleanly to the frontier base
+with +47 line offsets. Treat "the frontier rewrote our mechanism" claims as
+hypotheses to be tested by replaying the original patch, not as facts.
+
+### (b) ⭐ THE 42 % GIVE-BACK LAW — new standing rule
+
+#457's touched kernels moved **−26.53 µs/step**. End-to-end the step moved only
+**−15.43 µs/step**. **42 % of the kernel-local win evaporated.**
+
+Worse, the give-back is not spread out. Of the +11.1 µs/step returned,
+`laguna_gate_sp_h64_v1` — a kernel the patch **never touched** — got
+**+8.14 µs/step, CI [+7.42, +8.86]**, i.e. **+3.35 % on itself and 73 % of the
+entire give-back.**
+
+> **STANDING RULE (round 88): discount kernel-local savings by ~40 % before
+> quoting an end-to-end number.** A kernel-local measurement is a *hypothesis*
+> about the step, not a measurement of it. Every brief that projects a scored
+> gain from per-kernel timings must apply the discount explicitly and say so.
+
+This rule is provisional and is itself under test by **#473**, which may replace
+it with overlap-corrected accounting (or drop it if the effect is an artefact of
+per-kernel attribution rather than a real cost).
+
+Arithmetic that disfavours a uniform explanation: the untouched pool is
+≈12,056 µs/step; 11.1 µs spread uniformly over it is **+0.092 %**. `gate_sp`
+took **+3.35 %** — **36× the uniform rate**. Whatever this is, it is
+concentrated, not thermal.
+
+Structural fact behind the leading hypothesis: `laguna_gate_sp_h64_v1` is the
+per-head `g_proj` + softplus gate (`LRM:4288` source, `:4333–4341` name literal,
+`:4346` func) and it is dispatched **inside**
+`LagunaRuntimeAttention.callAsFunction` at **`LRM:5815`**, between QKV and the
+fused attention kernel, consuming the same `normalized` row produced at
+`LRM:5771`. It has **no data dependency** on the touched kernels, so the two can
+overlap inside one command buffer — which makes "per-kernel timers mis-attribute
+overlapped work" (H3) the leading explanation over DVFS (H2).
+
+### (c) Rig floor arithmetic is now a hard prerequisite (frieren, #457)
+
+Pooled decode SD on the M4 Pro reference rig: **σ = 48.0 µs/step**. Runs needed
+for a two-sided 95 % CI to exclude an effect of size E:
+`n ≥ 2·(1.96·48/E)²`.
+
+| Effect E | Runs needed |
+|---|---|
+| 18.6 µs/step | 52 |
+| 38 µs/step | 13 |
+| 80 µs/step | 3 |
+
+Naive n=1 resolves ±133 µs/step; n=3 resolves ±109. **Kernel-level ABBA with
+n=8 resolves ±5.1…6.6 µs/step** — two orders of magnitude better, and it is now
+the default rig for any sub-80 µs claim.
+
+⚠️ Consequence for the record: **#460's GREEN verdict does not exclude a
+38 µs/step regression.** It was a 3-run comparison. Do not cite it as evidence
+of no-regression below ~110 µs/step.
+
+### (d) New standing rule from the #469 defect
+
+> **Before mandating a positive control, verify in code that the knob is
+> reachable on the default configuration.** #469's original positive control was
+> dead code on the NVFP4 default path; the arm had to be replaced mid-flight by
+> a barrier-injection bloat arm.
+
+Two concrete reachability findings this round:
+
+1. `next_block` k-loop staging in routed gate/up **already ships** in the
+   adopted frontier ⇒ the queued **L2** lever is **RETIRED as moot**.
+2. `DARKBLOOM_NORM_AFFINE_QKV_PF` is dead on the default config, but it *is*
+   reachable via `DARKBLOOM_NATIVE_AFFINE_NVFP4=0`. `lagunaNativeAffineNVFP4From`
+   (`LRM:2869`) reads `guard env["DARKBLOOM_NATIVE_AFFINE_NVFP4"] != "0"`, and
+   `_FROM` defaults to `"0"`; setting either forces all 40 layers to group-32
+   INT8 affine, which makes the fused norm→QKV path **reachable**. That is a
+   *verified-reachable positive control only* — it changes the wire format and
+   is never submittable.
+
+### (e) Norm→QKV thin-boundary arithmetic (advisor analysis — DEFERRED)
+
+QKV rows are 10,240 (sliding) / 8,192 (full). The R1 kernel runs 1 row per
+SIMD, 2 SIMDs per threadgroup ⇒ **R = 5,120 threadgroups**, which reproduces the
+documented **+308.3 µs/step producer re-execution** figure exactly. Naive full
+fusion costs +308 and saves ~105 ⇒ **blocked**.
+
+The **thin-boundary variant** — the producer writes only the 4-byte inverse RMS
+and each consumer applies `input[i]*invRMS*w[i]` inline — is geometry-neutral
+and shrinks the dependent drain from 4 KiB to 4 B, worth ≈50 µs/step at
+`c_drain ≈ 1.24 µs / 4 KiB`. But inlining costs ≈21 M extra ops/layer unless the
+kernel already stages the row into threadgroup memory (≈74 µs/step if staged
+once per TG). Net is **marginal**, and it front-runs **#462**, which is
+measuring exactly this boundary price in situ. **DEFERRED pending #462.**
+
+Two things that are *not* bit-exact and must not be proposed: folding
+`normWeight` into the quantized bank offline (changes group-16 NVFP4
+quantization), and pulling the scalar `s` out of the sum (changes bf16 rounding
+order).
+
+### (f) M4 Pro reference numbers (tanjiro, #460)
+
+decode **12,960.20 µs/step**, prefill **1,128.23 µs/token**, pooled decode
+SD **49.0 µs/step**.
 
 ---
 
@@ -797,32 +925,33 @@ A candidate with `R = 1` (redundancy-free — e.g. producer and consumer share
 the identical decomposition) is worth an order of magnitude more than a
 same-gross candidate with `R = 20`. This is the axis #462 is measuring.
 
-## In flight — round 87
+## In flight — round 88
 
 All four students are busy. Base for every arm is
-`7687c2e44e6975c181444ca8d3d151ee30480a72`.
+`3217f111142346e004f41fae611a8bede172a659`.
 
 | PR | Student | Branch / head | Hypothesis | Why now |
 |----|---------|---------------|-----------|---------|
-| [#460](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/460) | maple-tanjiro | `maple-tanjiro/r86-base-decode-regression` @ `30eecc6d` (`r86-a-rev2`) | **GATING ARM — verify the frontier adoption.** Build via `./benchmark.sh --local-iterate`, discharge the 64-step tripwire, run `research/run_upstream_equivalence.sh` and prove a non-zero test count, re-audit bytes and per-file caps, independently re-verify the two risky audit decisions the advisor made during adoption, and produce matched timing `f64456dd` vs `7687c2e4`. | Everything else on the board assumes the adopted base is correct and is not silently ~38 µs/step behind our own best promoted content. Nothing should be submitted until this clears. |
-| [#457](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/457) | maple-frieren | `maple-frieren/r85-placement-lever` @ `9d629b77` (`r85-c-rev2`) | **Re-port mechanism M-B: the float4 / AoS merge epilogue** into both decode fused-attention kernels. The frontier author rewrote both epilogues to plane-major SoA and silently reverted our merged PR #205. | This is a **replication of a measured winner**, not a new idea: #205 measured **+18.58 ± 2.92 µs/step, t = 6.37, 12/12 paired blocks positive, `max_abs_diff = 0` over 1344 steps ⇒ ≈ +0.284 % score**. Pre-registered prediction ≈ +18.6 µs/step. Footprint-neutral is **required** (§8: 8 float4 planes need 33,792 B against the 32,768 B threadgroup limit). |
-| [#456](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/456) | maple-fern | `maple-fern/r85-surface-reconstruction` @ `a5a35280` (`r85-b-rev2`) | **Per-file cap relief.** Split `LagunaRuntimeModel.swift`; recommended carve is lines **8693–11283** (`LagunaRuntimeMLP` at `:8693` + `LagunaRuntimeSparseMoEBlock` at `:10476`) = 112,508 B, dropping the scored file to 398,910 B. Plus a local surface-reconstruction harness and an editable-surface integrity audit. | 12,870 B of per-file headroom is not enough to land any kernel change. The key risk is the `private` → `internal` widening required by the split; neutrality must be **measured**, not asserted. |
-| [#462](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/462) | maple-nezuko | `maple-nezuko/r86-insitu-boundary-price` @ `abefac77` (`r86-b-rev1`) | **In-situ boundary price + redundancy-priced barrier census + a post-mortem of #48.** An env-gated un-fusion ladder inserts `k ∈ {0,64,128,256,512}` genuine dependent DRAM round trips into the *real* decode step at two widths (WIDE 4 KiB, TINY ≤64 B); `d = slope(WIDE) − slope(TINY)` is the in-situ drain price. | The price is already measured three times in situ (#268 joint fit, #269 real removal +1.233 µs [+0.920, +1.545], R85-D ladder 1.4140 ± 0.0093) so the GO threshold will almost certainly be met — **the value is in the census**, which must carry a redundancy multiplier `R` and a NET column per the rule above. Expected to close unmerged (instrument-only deoptimizer). |
+| [#473](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/473) | maple-frieren | `maple-frieren/r88-kernel-giveback` @ `ef6ed58f` (`r88-a-rev1`) | **Diagnose the 42 % give-back.** Why did 42 % of #457's kernel-local win evaporate, and why did 73 % of the loss land on `laguna_gate_sp_h64_v1`, a kernel the patch never touched? Arms: **A0** replication (stop if it does not replicate) · **A1** additivity audit (`Σ` per-kernel vs GPU-busy wall time per arm, then forced serialisation) · **A2** deterministic full pipeline prewarm (itself a submittable candidate if it fires) · **A3** barrier-injection bloat dose-response `B ∈ {0,2,4,8}` behind a compile-time constant, timing-only. | The 40 % discount rule is currently applied to **every** projected gain on the board. If it is an artefact of per-kernel attribution rather than a real cost, we are systematically under-valuing every queued lever; if it is real, we need the overlap-corrected accounting to choose between them. Priors: H3 dispatch-overlap attribution **0.45**, H1 JIT pipeline-creation ordering **0.25**, H2 DVFS **0.10**, H4 L2 residency **0.10**, H5 gate_sp occupancy **0.10**. |
+| [#469](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/469) | maple-tanjiro | `maple-tanjiro/r87-routed-qmv-head-latency` @ `bf3b42a3` (`r87-a-rev1`) | **Routed gate/up input-vector prefetch.** Every weight address in the routed twin depends on the in-kernel expert selection, so the weight stream cannot be prefetched — hoist what can be hoisted (the input vector) and price what cannot. A1-steady is the primary merge candidate; A1-preamble secondary; **A2 (ceiling probe) is the primary scientific deliverable**. | Two corrections already applied in flight: the original dead-code positive control was replaced by a barrier-injection bloat arm, and `next_block` prefetch was found to already ship in the frontier. After the 40 % discount the priors are A1-preamble ≈ −6 and A1-steady ≈ −15 µs/step end-to-end — plan `n` from **those**, not from the kernel-local numbers. New deliverable: a per-kernel table for every kernel >1 % of decode **plus** the end-to-end net, side by side. |
+| [#462](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/462) | maple-nezuko | `maple-nezuko/r86-insitu-boundary-price` @ `abefac77` (`r86-b-rev1`) | **In-situ boundary price + redundancy-priced barrier census + a post-mortem of #48.** Env-gated un-fusion ladder inserts `k ∈ {0,64,128,256,512}` genuine dependent DRAM round trips into the *real* decode step at two widths (WIDE 4 KiB, TINY ≤64 B); `d = slope(WIDE) − slope(TINY)`. Thresholds `d ≥ 1.00` GO / `0.35–1.00` PARTIAL / `< 0.35` NO-GO. | The slope *difference* cancels the −15 µs/step base shift from #457, so a mid-ladder run may finish self-paired on `7687c2e4` provided that is recorded and **no rungs are spliced across bases**. New required deliverable: an untouched-kernel delta table at `k=0` vs `k=512` for both WIDE and TINY — the give-back is now a **rival explanation** for the measured `d`. Gates the deferred norm→QKV thin-boundary lever. Expected to close unmerged. |
+| [#456](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/456) | maple-fern | `maple-fern/r85-surface-reconstruction` @ `a5a35280` (`r85-b-rev2`) | **Per-file cap relief.** Carve `LagunaRuntimeMLP` → end of `LagunaRuntimeDecoderLayer` (~112,508 B) into a new file; prove `private` → `internal` neutrality by measurement; exact byte accounting. | 13,324 B of per-file headroom is not enough to land any kernel change. **Gating enabler for the whole queue.** ⚠ #457 shifted every carve line by net **−34** — re-derive the carve boundaries from declaration anchors, never port by line number. Byte table moved 511,418 → 510,964 (headroom 12,870 → 13,324; total 2,891,343 → 2,890,889); carved residual estimate ~398,456 B, but **measure it, do not subtract**. |
 
-**Feedback IDs already spent:** `r85-b-fb1-channel-open`,
-`r85-b-fb2-base-bump-doc-only` (#456); `r85-c-fb1-channel-open`,
-`r85-c-fb2-provenance-and-target`, `r85-c-fb3-base-bump-doc-only`,
-`r85-c-fb4-apple-tg-scatter-prior` (#457); `r86-a-fb1-base-bump-doc-only`
-(#460); `r86-b-fb1-redundancy-axis`, `r86-b-fb2-base-bump-doc-only` (#462).
-
-`r85-c-fb4-apple-tg-scatter-prior` carries the Apple microarchitecture prior
-for #457: barriers on Apple GPUs are cheap (~2 cycles) but **scattered /
-transposed threadgroup access is expensive** (arXiv 2603.27569; register file
-~208 KiB vs threadgroup ~32 KiB). The frontier's plane-major epilogue (store
-`lane*BDP+sg`, load `sg*BDP+lane`, 8 scalar stores/loads, 3 barriers) is
-exactly that scattered pattern, so the AoS `float4` port is an
-**access-pattern** fix. frieren must not attribute any delta to "fewer
-barriers".
+**Feedback IDs already spent:**
+`r85-b-fb1-channel-open`, `r85-b-fb2-base-bump-doc-only`,
+`r85-b-fb3-base-bump-and-enabler-confirmed`,
+`r85-b-fb4-base-417f42c4-and-why-your-arm-is-now-blocking`,
+`r85-b-fb5-base-3217f111-scored-surface-move` (#456);
+`r85-c-fb1` … `r85-c-fb6` (#457, merged);
+`r86-a-fb1`, `r86-a-fb2` (#460, merged);
+`r86-b-fb1-redundancy-axis`, `r86-b-fb2-base-bump-doc-only`,
+`r86-b-fb3-redundancy-target-and-regime`,
+`r86-b-fb4-base-417f42c4-and-the-routed-address-dependency`,
+`r86-b-fb5-base-3217f111-scored-surface-move` (#462);
+`r87-a-fb1-agx-occupancy-table`,
+`r87-a-fb2-positive-control-is-dead-code-and-revised-a1`,
+`r87-a-fb3-base-3217f111-and-the-42pct-giveback-law` (#469);
+none yet (#473).
 
 **⚠ Branch names are not guessable from assignment titles.** Recover the exact
 head branch, `assignment_id` and `revision_id` from the
@@ -830,14 +959,68 @@ head branch, `assignment_id` and `revision_id` from the
 *targeted* `git ls-remote origin refs/heads/<branch>` — a bulk
 `git ls-remote origin 'refs/heads/maple-*'` has returned a stale SHA.
 
+**⚠ Every doc-only advisor publish fires a `research_base_changed` event on
+each open PR — four of them now.** Batch advisor commits, and fold substantive
+content into the resulting notices so the students get research value rather
+than churn.
+
+
 ### Queued behind the current round (not yet assigned)
 
-**Assignment order when a student frees up** is the round-87b queue at the top
-of this document: **L2** (routed-twin K-block prefetch) → **L1** (algebraic
-epilogue normalization) → **L3** (threadgroup packing S-sweep on `LRM:7546`) →
-**L4** (prefill async ladder, needs M5 receipts). The CUTLASS-ex-55 offline
-LUT re-encode and the L6 exponent-entropy histogram are cheap offline
-falsification passes that can ride along with any of them.
+⛔ **L2 (routed-twin K-block prefetch) is RETIRED as moot** — `next_block`
+k-loop staging already ships in the adopted frontier.
+
+**Assignment order when a student frees up (round 88):**
+
+1. **NVFP4 fused norm→QKV, thin-boundary variant** — gated on **#462**
+   returning GO (`d ≥ 1.00`) and on **#456**'s byte headroom. Geometry
+   neutrality is **absolute**: #48's mode-2 8× threadgroup collapse
+   (5,120 → 640) earned M5 receipt `285f79fa` at **−0.1488 %**. Scaffold at
+   commit **`9c73e16f`** on `maple-fern/fused-norm-qkv-gate` (tip `f4c86e44`,
+   pr/48); #48 achieved `max_abs_diff 0` over 1,344 steps. Verified-reachable
+   positive control: `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` +
+   `DARKBLOOM_FUSED_NORM_AFFINE_QKV` on/off.
+2. **Frontier Lever 2 — router-tournament instruction diet, Variants C+D.**
+   Sites (old base numbering — **re-grep**) `LRM:7702–7736`
+   `laguna_router_top8_extract_round`, `:7745–7756`
+   `lagunaRouterTop8PrecomputedPrelude`, `:7771`, `:7887–7920` (2,048 TGs).
+   C = simdgroup-0 extracts once and broadcasts (−50 %); D = sort 8 keys once
+   then a 45-instruction butterfly (−47 %); C+D ≈ −73 % prologue ≈ −12.5 %
+   kernel instructions ⇒ **60–94 µs/step on M5, ≈0 on M4 by construction.**
+   Preserve `laguna_router_ordinal_before` (`:9286–9294`) verbatim. Oracle:
+   `research/maple-fern-pr82-oracle.patch` + `research/maple_fern_pr82_oracle.sh`
+   (5,320 winner pairs, 0 diffs). **Success gate = an instruction-counter drop
+   ≥ 40 %, not M4 wall time.**
+3. **Frontier Lever 3 — producer weight-load hoist across the norm barrier.**
+   `LRM:900–1030` `lagunaResidualRMSNormRouterSource`, kernel
+   `laguna_residual_rms_router_bf16_2048_rpg8_keys_v1`, dict `:1037–1058`;
+   barrier ≈ `:1012`; rpg8 branch `:922–941`. **20–70 µs/step, measurable on
+   both hosts**, bit-exact by construction. T1a = 305.1 µs/step, byte floor
+   151, E = 1.00 ⇒ ≈154 µs of latency gap.
+4. **AGX disassembly-pipeline capability arm** — `MTLBinaryArchive` +
+   `TellowKrinkle/applegpu@M3`; headless references `dougallj/applegpu`
+   `compiler_explorer.py` and `imperatormk/metal-profiler` `extract.py:27–29`.
+   Yields static, host-independent instruction counts. Strong synergy with
+   Lever 2, whose success gate is exactly an instruction count.
+5. **L1** algebraic epilogue normalization at full grid (≤140 µs, **not**
+   automatically bit-exact) · **L3** threadgroup packing S-sweep
+   (`research/tanjiro_packing_default_flip.patch`, +29 B; #308 measured
+   −36.9 µs, CI [−61.0, −12.9]) · **L4** prefill async-ladder stride/placement
+   (`LRM:733` region, needs ~3 M5 receipts) · **L5** full-attention SDPA
+   N/capacity constexpr · **L6** lossless entropy recode of the BF16 planes
+   (low priority — run the cheap offline histogram falsification first and kill
+   it if < 15 %) · **L7** prefill `_nax` A-fragment N-tile reuse ·
+   `patch_lane` peel · routed down-reduce prefetch port.
+6. **`bfeil` dequant ALU arm** aimed at `laguna_nvfp4_qdot_16` (~2.2× on the
+   shift+mask sequence). **Must not** be mixed into #469.
+
+⚠ The **selector census figure of 185.7 µs is stale** — it predates the default
+tournament `rows=1` path. Re-census the glue-pool totals before using it.
+
+⚠ Levers 1 and 3 both live in the decode glue pool that three of four students
+already touch. **Sequence** those assignments for clean attribution.
+
+#### Also queued, lower priority
 
 1. **M-A: full-attention decode params memo** (our commit `0ae542dd`).
    `LagunaRuntimeModel.swift:2301–2303` rebuilds
@@ -1869,7 +2052,7 @@ its own null** (+0.632% above the expected 2.5726). Therefore:
 It is a losing lottery against a channel we need for real arms.
 **Decision: we do not do it.** Do not re-propose.
 
-### ⭐⭐⭐ The 36 standing rules — embed VERBATIM in every assignment brief
+### ⭐⭐⭐ The 40 standing rules — embed VERBATIM in every assignment brief
 
 This is the canonical list. Until round 34 it lived only in PR bodies, which
 made it invisible to anyone reading this file. Rules 1–19 predate round 32;
@@ -2019,6 +2202,30 @@ made it invisible to anyone reading this file. Rules 1–19 predate round 32;
     halved shared-expert scale plane vs our #301 result) must be re-opened as a
     **discriminating** experiment, not dismissed. Operator commit `d85c42c0`
     makes this an explicitly required advisor research input.
+38. ⭐⭐⭐ **Discount kernel-local savings by ~40 % before quoting an
+    end-to-end number.** (#457, round 88.) Touched kernels moved
+    −26.53 µs/step; the step moved −15.43. **42 % evaporated**, and 73 % of the
+    give-back landed on `laguna_gate_sp_h64_v1`, a kernel the patch never
+    touched (+8.14 µs/step, CI [+7.42, +8.86] = +3.35 % on itself, versus
+    +0.092 % if the loss had spread uniformly over the untouched pool — a 36×
+    concentration). A kernel-local measurement is a **hypothesis about the
+    step**, not a measurement of it. Any brief that projects a scored gain from
+    per-kernel timings must apply the discount explicitly and say so.
+    *Provisional*: under test by **#473**, which may replace it with
+    overlap-corrected accounting.
+39. ⭐⭐ **Verify in code that a positive control is reachable on the default
+    configuration before mandating it.** (#469 defect, round 88.) #469's
+    original positive control was dead code on the NVFP4 default path and had
+    to be replaced mid-flight. Cite the guard, the env-var default and the line
+    number in the brief. Worked example:
+    `DARKBLOOM_NORM_AFFINE_QKV_PF` is dead by default but becomes reachable
+    under `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` (`LRM:2869`).
+40. ⭐⭐ **State every timing rig's resolvable floor in µs/step, with the
+    arithmetic.** (#457 is the model answer.) Pooled decode σ on the M4 Pro
+    reference rig is **48.0 µs/step**, so a two-sided 95 % CI excludes effect
+    `E` only when `n ≥ 2·(1.96·48/E)²` — **52 runs at 18.6 µs, 13 at 38 µs,
+    3 at 80 µs**. Naive n=1 resolves ±133; n=3 resolves ±109; kernel-level ABBA
+    with n=8 resolves ±5.1…6.6. Any sub-80 µs claim must use the ABBA rig.
 
 
 ---
