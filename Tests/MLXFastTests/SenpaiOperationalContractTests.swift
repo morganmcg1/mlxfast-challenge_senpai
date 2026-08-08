@@ -174,3 +174,30 @@ func senpaiOperationalGuidanceMatchesTheDeployedRankedPath() throws {
         #expect(guidance.contains("timeout"), Comment(rawValue: path))
     }
 }
+
+@Test
+func senpaiSubmissionWatcherIsReadOnlyAndTested() throws {
+    let checkout = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    let result = try runOperationalCommand(
+        "/usr/bin/python3",
+        ["senpai/test_watch_submission.py"],
+        in: checkout
+    )
+    #expect(result.status == 0, Comment(rawValue: result.output))
+
+    let watcher = try String(
+        contentsOfFile: "senpai/watch-submission.py",
+        encoding: .utf8
+    )
+    for method in ["POST", "PUT", "PATCH", "DELETE"] {
+        #expect(watcher.contains("method=\"\(method)\"") == false)
+    }
+    #expect(watcher.contains("mlxfast submit") == false)
+
+    for path in ["senpai/infra.md", "senpai/program.md"] {
+        let guidance = try String(contentsOfFile: path, encoding: .utf8)
+        #expect(guidance.contains("senpai/watch-submission.py"), Comment(rawValue: path))
+        #expect(guidance.contains("student"), Comment(rawValue: path))
+        #expect(guidance.contains("advisor"), Comment(rawValue: path))
+    }
+}
