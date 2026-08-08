@@ -402,12 +402,12 @@ here was chosen after seeing data.
 | C1 | \|steady\| ≥ \|preamble\| | — | 98.62 vs 26.47 | **HIT** on magnitude, sign wrong |
 | C2 | both ≈ steady + preamble within floor_95 | ±4 | 105.80 vs 125.09 (Δ 19.3) | **MISS** |
 | C3 | `maxThreads` unchanged across all variants (75% conf.) | — | 1024 everywhere | **HIT** (see §6 truncation caveat) |
-| C4 | A1 arms bit-exact, `max_abs_diff = 0` | — | see §7 | see §7 |
-| C5 | M4 prefill artefact digit-identical to base | — | see §7 | see §7 |
+| C4 | A1 arms bit-exact, `max_abs_diff = 0` | — | all 25 ladder runs `0 divergences`; decode-0..7 exactly 0 (§7a) | **HIT** |
+| C5 | M4 prefill artefact digit-identical to base | — | `max 0.125 / mean 0.011933609 / token 5991==5991`, identical to base control (§7a) | **HIT** |
 | C6 | A2 recovery ≥ 4× the best A1 recovery | — | no A1 arm produced *any* recovery | **HIT** (unbounded) |
 
-Excluding the two rows that §7 resolves, ten rows are scored: **five MISS
-(1, 2, 3, 6, C2), four HIT (4, 5, C3, C6), one partial (C1)** — and the three
+All twelve rows are now scored: **five MISS (1, 2, 3, 6, C2), six HIT
+(4, 5, C3, C4, C5, C6), one partial (C1)** — and the three
 headline predictions are all MISSes with the wrong sign. That is the honest
 shape of this result. The two prior-elicitation questions the advisor asked
 are answered as follows:
