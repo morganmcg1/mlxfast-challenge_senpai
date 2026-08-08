@@ -740,9 +740,7 @@ private let lagunaNormReductionTailQKV = lagunaNormReductionTail(
 /// is no tail. The `normalized_row` coefficients are read inline rather than
 /// staged: at one row per thread both cost `n_reads` threadgroup reads per
 /// block, so staging would buy nothing and cost 16 registers per unroll step.
-private func lagunaResidualRMSNormRouterSource(
-    rowsPerGroup: Int, presummed: Bool = false
-) -> String {
+private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
     let simdGroups = 512 / 32
     let rowsPerThread = rowsPerGroup >= simdGroups ? rowsPerGroup / simdGroups : 1
     let activeSimdGroups = rowsPerGroup / rowsPerThread
@@ -750,12 +748,6 @@ private func lagunaResidualRMSNormRouterSource(
     let guardOpen = activeSimdGroups < simdGroups
         ? "        if (simd_group < active_simd_groups) {\n" : ""
     let guardClose = activeSimdGroups < simdGroups ? "        }\n" : ""
-    let valuesLoad = presummed
-        ? "bfloat value = summed[base + i];"
-        : "bfloat value = bfloat(residual[base + i] + branch[base + i]);\n"
-            + "            if (tile == 0) {\n"
-            + "                summed[base + i] = value;\n"
-            + "            }"
     let accumulate: String
     if rowsPerThread == 1 {
         accumulate = """
@@ -826,8 +818,11 @@ private func lagunaResidualRMSNormRouterSource(
         thread bfloat values[n_reads];
         float acc = 0.0f;
         for (uint i = 0; i < n_reads; ++i) {
-            \(valuesLoad)
+            bfloat value = bfloat(residual[base + i] + branch[base + i]);
             values[i] = value;
+            if (tile == 0) {
+                summed[base + i] = value;
+            }
             float fv = float(value);
             acc += fv * fv;
         }
@@ -882,22 +877,6 @@ private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
                     inputNames: ["residual", "branch", "weight", "router_weight"],
                     outputNames: ["summed", "normalized", "router_logits"],
                     source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
-                    ensureRowContiguous: true
-                )
-            )
-        })
-
-private let lagunaPresummedRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
-    Dictionary(
-        uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
-            (
-                rowsPerGroup,
-                MLXFast.metalKernel(
-                    name: "laguna_presummed_rms_router_bf16_2048_rpg\(rowsPerGroup)_v1",
-                    inputNames: ["summed", "weight", "router_weight"],
-                    outputNames: ["normalized", "router_logits"],
-                    source: lagunaResidualRMSNormRouterSource(
-                        rowsPerGroup: rowsPerGroup, presummed: true),
                     ensureRowContiguous: true
                 )
             )
@@ -977,30 +956,6 @@ func lagunaResidualRMSNormRouter(
         outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
     )
     return (outputs[0], outputs[1], outputs[2])
-}
-
-func lagunaPresummedRMSNormRouter(
-    summed: MLXArray, weight: MLXArray, routerWeight: MLXArray
-) -> (normalized: MLXArray, routerLogits: MLXArray) {
-    let hidden = LagunaConstants.hiddenSize
-    let experts = LagunaConstants.numExperts
-    precondition(summed.dtype == .bfloat16)
-    precondition(weight.dtype == .bfloat16)
-    precondition(routerWeight.dtype == .bfloat16)
-    precondition(summed.shape == [1, 1, hidden])
-    precondition(weight.shape == [hidden])
-    precondition(routerWeight.shape == [experts, hidden])
-
-    let rowsPerGroup = lagunaRouterRowsPerGroup
-    let tiles = experts / rowsPerGroup
-    let outputs = lagunaPresummedRMSNormRouterKernels[rowsPerGroup]!(
-        [summed, weight, routerWeight],
-        grid: (tiles * 512, 1, 1),
-        threadGroup: (512, 1, 1),
-        outputShapes: [[1, 1, hidden], [1, 1, experts]],
-        outputDTypes: [.bfloat16, .bfloat16]
-    )
-    return (outputs[0], outputs[1])
 }
 
 func lagunaResidualRMSNorm(
@@ -4036,8 +3991,7 @@ func lagunaGatedAffineOProjNVFP4Source(
     heads: Int,
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
-    preActivatedGate: Bool = false,
-    addResidual: Bool = false
+    preActivatedGate: Bool = false
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
     let weightScale = scaleFold ? "" : " * 16384.0f"
@@ -4112,13 +4066,6 @@ func lagunaGatedAffineOProjNVFP4Source(
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
         """
-    let outputStore = addResidual
-        ? """
-            bfloat branch = bfloat(result[row]);
-            projected[out_row + row] =
-                bfloat(float(residual[out_row + row]) + float(branch));
-        """
-        : "projected[out_row + row] = bfloat(result[row]);"
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -4190,7 +4137,7 @@ func lagunaGatedAffineOProjNVFP4Source(
     for (uint row = 0; row < results_per_simdgroup; ++row) {
         result[row] = simd_sum(result[row] * 4194304.0f);
         if (simd_lid == 0) {
-            \(outputStore)
+            projected[out_row + row] = bfloat(result[row]);
         }
     }
     """
@@ -4316,28 +4263,6 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
     return result
 }()
 
-private let lagunaActiveOProjResidualFoldEnabled = ProcessInfo.processInfo.environment[
-    "DARKBLOOM_ACTIVE_OPROJ_RESIDUAL_FOLD"] != "0"
-
-private let lagunaActivatedOProjResidualKernels: [Int: MLXFast.MLXFastKernel] = {
-    var result: [Int: MLXFast.MLXFastKernel] = [:]
-    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
-        result[heads] = MLXFast.metalKernel(
-            name: "laguna_oproj_act_residual_h\(heads)_v1"
-                + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
-            inputNames: [
-                "attention_output", "gate_values", "weight_codes",
-                "weight_scales", "residual",
-            ],
-            outputNames: ["projected"],
-            source: lagunaGatedAffineOProjNVFP4Source(
-                heads: heads, preActivatedGate: true, addResidual: true),
-            ensureRowContiguous: true)
-    }
-    return result
-}()
-
 func lagunaGatedAffineOProjNVFP4(
     attentionOutput: MLXArray,
     gateLogits: MLXArray,
@@ -4373,39 +4298,6 @@ func lagunaGatedAffineOProjNVFP4(
     )[0]
 }
 
-func lagunaGatedAffineOProjNVFP4Residual(
-    attentionOutput: MLXArray,
-    gateValues: MLXArray,
-    codes: MLXArray,
-    scales: MLXArray,
-    residual: MLXArray,
-    heads: Int
-) -> MLXArray? {
-    let inVec = heads * LagunaConstants.headDim
-    let outVec = LagunaConstants.hiddenSize
-    guard lagunaActiveOProjResidualFoldEnabled,
-        lagunaGateSoftplusEnabled,
-        let kernel = lagunaActivatedOProjResidualKernels[heads],
-        attentionOutput.dtype == .bfloat16,
-        attentionOutput.shape == [1, 1, inVec],
-        gateValues.dtype == .bfloat16,
-        gateValues.shape == [1, 1, heads],
-        codes.dtype == .uint32,
-        codes.shape == [outVec, inVec / 8],
-        scales.dtype == .uint8,
-        scales.shape == [outVec, inVec / 16],
-        residual.dtype == .bfloat16,
-        residual.shape == [1, 1, outVec]
-    else { return nil }
-
-    return kernel(
-        [attentionOutput, gateValues, codes, scales, residual],
-        grid: ((outVec / 8) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
-        outputShapes: [[1, 1, outVec]],
-        outputDTypes: [.bfloat16]
-    )[0]
-}
 
 /// Exact E4M3 scale decode and stock-order 16-value qdot for the fused tail.
 /// The stock path shifts the 7-bit magnitude into a half (thereby dividing by
@@ -5177,11 +5069,6 @@ private let lagunaSlidingAttentionGateProjection = makeLagunaAttentionGateProjec
     headDim: LagunaConstants.headDim
 )
 
-enum LagunaAttentionOutput {
-    case branch(MLXArray)
-    case summed(MLXArray)
-}
-
 /// Laguna attention: GQA with per-head QK-norm, per-layer-type RoPE (YaRN on
 /// full-attention layers over the first half of the head, plain RoPE on
 /// sliding layers over the whole head), and per-head softplus output gating.
@@ -5457,9 +5344,8 @@ final class LagunaRuntimeAttention: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         qkRoPEAngles: MLXArray? = nil,
-        qkRoPEOffsets: MLXArray? = nil,
-        residualForActivatedOProj: MLXArray? = nil
-    ) -> LagunaAttentionOutput {
+        qkRoPEOffsets: MLXArray? = nil
+    ) -> MLXArray {
         let (B, L) = (input.dim(0), input.dim(1))
 
         // One dispatch for the input RMSNorm and all three projections when
@@ -5924,7 +5810,7 @@ final class LagunaRuntimeAttention: Module {
                         indexedMetadata: affineWO.indexedMetadata,
                         heads: nHeads)
                 {
-                    return .branch(fusedProjection)
+                    return fusedProjection
                 }
                 if lagunaFusedGatedAffineOProjEnabled, !gateIsActivated,
                     affineWO.mode == .affine, affineWO.bits == 8,
@@ -5938,23 +5824,7 @@ final class LagunaRuntimeAttention: Module {
                         biases: affineBiases,
                         heads: nHeads)
                 {
-                    return .branch(fusedProjection)
-                }
-                if lagunaFusedGatedAffineOProjEnabled,
-                    lagunaGatedAffineOProjNVFP4Enabled,
-                    gateIsActivated,
-                    affineWO.mode == .nvfp4, affineWO.bits == 4,
-                    affineWO.groupSize == 16,
-                    let residual = residualForActivatedOProj,
-                    let summed = lagunaGatedAffineOProjNVFP4Residual(
-                        attentionOutput: output,
-                        gateValues: projectedGate,
-                        codes: affineWO.packedCodes,
-                        scales: affineWO.scales,
-                        residual: residual,
-                        heads: nHeads)
-                {
-                    return .summed(summed)
+                    return fusedProjection
                 }
                 if lagunaFusedGatedAffineOProjEnabled,
                     lagunaGatedAffineOProjNVFP4Enabled,
@@ -5969,7 +5839,7 @@ final class LagunaRuntimeAttention: Module {
                         heads: nHeads,
                         gateIsActivated: true)
                 {
-                    return .branch(fusedProjection)
+                    return fusedProjection
                 }
                 if lagunaFusedGatedAffineOProjEnabled,
                     lagunaGatedAffineOProjNVFP4Enabled,
@@ -5983,7 +5853,7 @@ final class LagunaRuntimeAttention: Module {
                         scales: affineWO.scales,
                         heads: nHeads)
                 {
-                    return .branch(fusedProjection)
+                    return fusedProjection
                 }
                 // Raw logits + fused kernel: one dispatch reproduces the
                 // softplus chain AND the broadcast product bit-exactly (see
@@ -6007,17 +5877,16 @@ final class LagunaRuntimeAttention: Module {
                             * gate[.ellipsis, .newAxis])
                         .reshaped(B, L, -1)
                 }
-                return .branch(
-                    quantizedMM(
-                        gated,
-                        affineWO.packedCodes,
-                        scales: affineWO.scales,
-                        biases: affineWO.biases,
-                        transpose: true,
-                        groupSize: affineWO.groupSize,
-                        bits: affineWO.bits,
-                        mode: affineWO.mode
-                    ))
+                return quantizedMM(
+                    gated,
+                    affineWO.packedCodes,
+                    scales: affineWO.scales,
+                    biases: affineWO.biases,
+                    transpose: true,
+                    groupSize: affineWO.groupSize,
+                    bits: affineWO.bits,
+                    mode: affineWO.mode
+                )
             }
             if lagunaFusedGatedOutputProjectionEnabled,
                 gateIsActivated, gatePerHead, L == 1, B == 1, wo.bias == nil,
@@ -6035,14 +5904,14 @@ final class LagunaRuntimeAttention: Module {
                     heads: nHeads
                 )
                 if let projection {
-                    return .branch(projection)
+                    return projection
                 }
             }
             if !gateIsActivated,
                 gatePerHead && projectedGate.dtype == output.dtype,
                 L == 1, wo.bias == nil, MLXHardwareInfo.isCompiledDecodeSupported
             {
-                return .branch(attentionGateProjection(output, projectedGate, wo.weight))
+                return attentionGateProjection(output, projectedGate, wo.weight)
             }
             let gate =
                 gateIsActivated
@@ -6059,7 +5928,7 @@ final class LagunaRuntimeAttention: Module {
             }
         }
 
-        return .branch(wo(output))
+        return wo(output)
     }
 
     func callLastPrefillRow(
@@ -9934,90 +9803,59 @@ final class LagunaRuntimeDecoderLayer: Module {
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
-        let sparse = mlp as? LagunaRuntimeSparseMoEBlock
-        let canFoldAttentionResidual: Bool
-        if let sparse {
-            canFoldAttentionResidual =
-                lagunaActiveOProjResidualFoldEnabled &&
-                lagunaFusedResidualRMSNormRouterEnabled &&
-                x.dtype == .bfloat16 &&
-                postAttentionLayerNorm.weight.dtype == .bfloat16 &&
-                x.shape == [1, 1, LagunaConstants.hiddenSize] &&
-                sparse.gate.weight.dtype == .bfloat16 &&
-                sparse.gate.weight.shape == [
-                    LagunaConstants.numExperts, LagunaConstants.hiddenSize,
-                ]
-        } else {
-            canFoldAttentionResidual = false
-        }
-        let attentionOutput = selfAttn(
+        let r = selfAttn(
             x,
             inputNorm: inputLayerNorm,
             mask: mask,
             cache: cache,
             qkRoPEAngles: qkRoPEAngles,
-            qkRoPEOffsets: qkRoPEOffsets,
-            residualForActivatedOProj: canFoldAttentionResidual ? x : nil
+            qkRoPEOffsets: qkRoPEOffsets
         )
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
-        switch attentionOutput {
-        case .summed(let summed):
-            guard let sparse else {
-                preconditionFailure("summed attention output requires sparse router")
-            }
-            let fused = lagunaPresummedRMSNormRouter(
-                summed: summed,
+        if lagunaFusedResidualRMSNormRouterEnabled,
+            x.dtype == .bfloat16, r.dtype == .bfloat16,
+            postAttentionLayerNorm.weight.dtype == .bfloat16,
+            x.shape == [1, 1, LagunaConstants.hiddenSize], x.shape == r.shape,
+            let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
+            sparse.gate.weight.dtype == .bfloat16,
+            sparse.gate.weight.shape == [
+                LagunaConstants.numExperts, LagunaConstants.hiddenSize,
+            ]
+        {
+            let fused = lagunaResidualRMSNormRouter(
+                residual: x,
+                branch: r,
                 weight: postAttentionLayerNorm.weight,
                 routerWeight: sparse.gate.weight)
-            h = summed
+            h = fused.summed
             normalized = fused.normalized
             routerLogits = fused.routerLogits
-        case .branch(let r):
-            if lagunaFusedResidualRMSNormRouterEnabled,
-                x.dtype == .bfloat16, r.dtype == .bfloat16,
-                postAttentionLayerNorm.weight.dtype == .bfloat16,
-                x.shape == [1, 1, LagunaConstants.hiddenSize], x.shape == r.shape,
-                let sparse = mlp as? LagunaRuntimeSparseMoEBlock,
-                sparse.gate.weight.dtype == .bfloat16,
-                sparse.gate.weight.shape == [
-                    LagunaConstants.numExperts, LagunaConstants.hiddenSize,
-                ]
-            {
-                let fused = lagunaResidualRMSNormRouter(
-                    residual: x,
-                    branch: r,
-                    weight: postAttentionLayerNorm.weight,
-                    routerWeight: sparse.gate.weight)
-                h = fused.summed
-                normalized = fused.normalized
-                routerLogits = fused.routerLogits
-            } else if lagunaFusedResidualRMSNormEnabled,
-                x.dtype == .bfloat16, r.dtype == .bfloat16,
-                postAttentionLayerNorm.weight.dtype == .bfloat16,
-                x.shape == r.shape, x.dim(-1) == LagunaConstants.hiddenSize,
-                x.size == LagunaConstants.hiddenSize
-            {
-                (h, normalized) = lagunaResidualRMSNorm(
-                    residual: x, branch: r, weight: postAttentionLayerNorm.weight)
-            } else if lagunaPrefillFusedResidualRMSNormEnabled,
-                x.dtype == .bfloat16, r.dtype == .bfloat16,
-                postAttentionLayerNorm.weight.dtype == .bfloat16,
-                x.shape == r.shape, x.ndim == 3, x.dim(0) == 1,
-                x.dim(-1) == LagunaConstants.hiddenSize,
-                x.dim(1) > 1
-            {
-                // Prefill (multi-token) counterpart of the fused decode branch
-                // above: same row-count-general `lagunaResidualRMSNorm` kernel,
-                // only the call-site guard differs. Full exactness argument in
-                // `lagunaPrefillFusedResidualRMSNormEnabled`'s doc comment.
-                (h, normalized) = lagunaResidualRMSNorm(
-                    residual: x, branch: r, weight: postAttentionLayerNorm.weight)
-            } else {
-                h = x + r
-                normalized = postAttentionLayerNorm(h)
-            }
+        } else if lagunaFusedResidualRMSNormEnabled,
+            x.dtype == .bfloat16, r.dtype == .bfloat16,
+            postAttentionLayerNorm.weight.dtype == .bfloat16,
+            x.shape == r.shape, x.dim(-1) == LagunaConstants.hiddenSize,
+            x.size == LagunaConstants.hiddenSize
+        {
+            (h, normalized) = lagunaResidualRMSNorm(
+                residual: x, branch: r, weight: postAttentionLayerNorm.weight)
+        } else if lagunaPrefillFusedResidualRMSNormEnabled,
+            x.dtype == .bfloat16, r.dtype == .bfloat16,
+            postAttentionLayerNorm.weight.dtype == .bfloat16,
+            x.shape == r.shape, x.ndim == 3, x.dim(0) == 1,
+            x.dim(-1) == LagunaConstants.hiddenSize,
+            x.dim(1) > 1
+        {
+            // Prefill (multi-token) counterpart of the fused decode branch
+            // above: same row-count-general `lagunaResidualRMSNorm` kernel,
+            // only the call-site guard differs. Full exactness argument in
+            // `lagunaPrefillFusedResidualRMSNormEnabled`'s doc comment.
+            (h, normalized) = lagunaResidualRMSNorm(
+                residual: x, branch: r, weight: postAttentionLayerNorm.weight)
+        } else {
+            h = x + r
+            normalized = postAttentionLayerNorm(h)
         }
         if (
             lagunaFusedSharedDownResidualEnabled ||
