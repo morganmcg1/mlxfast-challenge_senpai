@@ -1924,6 +1924,16 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+struct LagunaLmHeadArgmaxFusionProbeKernels {
+    static let controlProducer = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel
+    static let candidateProducer = lagunaLmHeadInt5CoarseArgmaxKernel
+    static let controlStage1 = lagunaLmHeadCoarseArgmaxStage1Kernel
+    static let controlThreshold = lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
+    static let candidateThreshold = lagunaLmHeadFusedArgmaxThresholdKernel
+    static let assembly = lagunaLmHeadInlineExactDeltaBF16Kernel
+}
+
+
 /// Retained init-time MXFP8 coarse copy of lm_head plus the pruned final-row
 /// forward. Built once (untimed init) by
 /// `LagunaRuntimeModel.prepareFusedRuntimeWeights` when
