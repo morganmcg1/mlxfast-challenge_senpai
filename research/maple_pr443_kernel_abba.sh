@@ -28,7 +28,8 @@ OUT="${OUT:-/tmp/maple-pr443-abba}"
 REPS="${REPS:-6}"
 STEPS="${STEPS:-33}"
 PATCH="research/nezuko-pr158-gpuprof-hook.patch"
-ORDER="off halved halved off"
+ORDER="${ORDER:-off halved halved off}"
+HOOK_PREAPPLIED=0
 
 mkdir -p "${OUT}"
 
@@ -43,17 +44,24 @@ build_worker() {
 }
 
 cleanup() {
+  if [ "${HOOK_PREAPPLIED}" = "1" ]; then
+    echo "### GPU-profile hook was already applied on entry; leaving it in place"
+    return
+  fi
   echo "### reverting GPU-profile hook"
   git apply -R "${PATCH}" || echo "WARNING: hook revert failed; check Vendor tree"
   build_worker "clean" || echo "WARNING: clean rebuild failed; rebuild before submission"
 }
 
-if ! git diff --quiet -- Vendor; then
+if git apply --reverse --check "${PATCH}" 2>/dev/null; then
+  HOOK_PREAPPLIED=1
+  echo "### GPU-profile hook already present; reusing it"
+elif git diff --quiet -- Vendor; then
+  git apply "${PATCH}" || exit 3
+else
   echo "refusing: Vendor tree is dirty; revert before applying the hook" >&2
   exit 2
 fi
-
-git apply "${PATCH}" || exit 3
 trap cleanup EXIT
 build_worker "gpu-profile hook" || exit 4
 
