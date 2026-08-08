@@ -66,15 +66,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
-private let lagunaRouteSortTrace =
-    ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_ROUTE_SORT"] == "1"
-
-@inline(__always)
-private func lagunaTraceRouteSort(_ message: @autoclosure () -> String) {
-    guard lagunaRouteSortTrace else { return }
-    FileHandle.standardError.write(Data("mlxfast: route shape: \(message())\n".utf8))
-}
-
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -9560,9 +9551,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
-        lagunaTraceRouteSort(
-            "seq=\(x.dim(1)) n=\(inds.size) m=\(inds.dim(-1)) "
-                + "dtype=\(inds.dtype) shape=\(inds.shape) sort=\(inds.size >= 64)")
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
