@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from maple_pr443_duplex_stats import CONTROL, PCT_PER_US_STEP, t95  # noqa: E402
 from maple_pr443_step_decomposition import label_totals  # noqa: E402
 
-SLOT_RE = re.compile(r"^(\d+)-rep(\d+)-([a-z_]+)\.err$")
+SLOT_RE = re.compile(r"^(\d+)-rep(\d+)-([a-z_0-9]+)\.err$")
 
 # Six kernels PR #443 never touched that nonetheless moved in its ON arm.
 GIVEBACK_KERNELS = (
