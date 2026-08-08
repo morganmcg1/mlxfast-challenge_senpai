@@ -8124,8 +8124,35 @@ private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
 /// original expert-index tie break is exactly `laguna_router_key_before`.
 /// Only final lanes 0...7 recompute their pre-bias sigmoid score.
 private func lagunaDecodeRouterOrdinalKernelSource(
-    normalizing: Bool, scoreTable: Bool = false
+    normalizing: Bool, scoreTable: Bool = false, packedPayload: Bool = false
 ) -> String {
+    let exchangeStorage =
+        packedPayload
+        ? "threadgroup uint2 xchg_payload[256];"
+        : """
+        threadgroup uint xchg_ordinals[256];
+        threadgroup uint xchg_indices[256];
+        """
+    let crossSIMDExchange =
+        packedPayload
+        ? """
+        xchg_payload[lane] = uint2(my_ordinal, my_index);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        uint partner = lane ^ stride;
+        uint2 other_payload = xchg_payload[partner];
+        other_ordinal = other_payload.x;
+        other_index = other_payload.y;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        """
+        : """
+        xchg_ordinals[lane] = my_ordinal;
+        xchg_indices[lane] = my_index;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        uint partner = lane ^ stride;
+        other_ordinal = xchg_ordinals[partner];
+        other_index = xchg_indices[partner];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        """
     let scoreStorage =
         scoreTable
         ? "threadgroup float original_scores[256];"
@@ -8171,8 +8198,7 @@ private func lagunaDecodeRouterOrdinalKernelSource(
     return """
         uint lane = thread_position_in_threadgroup.x;
 
-        threadgroup uint xchg_ordinals[256];
-        threadgroup uint xchg_indices[256];
+        \(exchangeStorage)
         \(scoreStorage)
 
         float x = float(logits[lane]);
@@ -8194,13 +8220,7 @@ private func lagunaDecodeRouterOrdinalKernelSource(
                     other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
                     other_index = simd_shuffle_xor(my_index, ushort(stride));
                 } else {
-                    xchg_ordinals[lane] = my_ordinal;
-                    xchg_indices[lane] = my_index;
-                    threadgroup_barrier(mem_flags::mem_threadgroup);
-                    uint partner = lane ^ stride;
-                    other_ordinal = xchg_ordinals[partner];
-                    other_index = xchg_indices[partner];
-                    threadgroup_barrier(mem_flags::mem_threadgroup);
+        \(crossSIMDExchange)
                 }
 
                 bool is_lower = (lane & stride) == 0;
@@ -8286,6 +8306,44 @@ private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metal
     ensureRowContiguous: true
 )
 
+private let lagunaDecodeRouterOrdinalPackedKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_top8_ordinal_packed_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false, packedPayload: true),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaDecodeRouterOrdinalPackedNormalizingKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_top8_ordinal_packed_norm_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true, packedPayload: true),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaDecodeRouterOrdinalScoreTablePackedKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_top8_ordinal_table_packed_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaDecodeRouterOrdinalKernelSource(
+        normalizing: false, scoreTable: true, packedPayload: true),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaDecodeRouterOrdinalScoreTablePackedNormalizingKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_top8_ordinal_table_packed_norm_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaDecodeRouterOrdinalKernelSource(
+        normalizing: true, scoreTable: true, packedPayload: true),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
 private let lagunaDecodeRouterOrdinalEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL"] != "0"
 
@@ -8294,6 +8352,9 @@ private let lagunaDecodeRouterOrdinalEnabled =
 /// eight sigmoid scores instead.
 private let lagunaDecodeRouterOrdinalScoreTableEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE"] != "0"
+
+private let lagunaDecodeRouterOrdinalPackedPayloadEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL_PACKED_PAYLOAD"] != "0"
 
 func lagunaDecodeRouterTop8AcceptedForTesting(
     logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
@@ -8358,16 +8419,71 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
     return (outputs[0], outputs[1])
 }
 
+func lagunaDecodeRouterTop8OrdinalPackedForTesting(
+    logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
+) -> (MLXArray, MLXArray) {
+    precondition(logits.dtype == .bfloat16 || logits.dtype == .float32)
+    precondition(correctionBias.dtype == .float32)
+    precondition(logits.size == 256)
+    precondition(correctionBias.size == 256)
+
+    let kernel =
+        normalizing
+        ? lagunaDecodeRouterOrdinalPackedNormalizingKernel
+        : lagunaDecodeRouterOrdinalPackedKernel
+    let outputs = kernel(
+        [logits, correctionBias],
+        grid: (256, 1, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [[1, 1, 8], [1, 1, 8]],
+        outputDTypes: [.uint32, .float32]
+    )
+    return (outputs[0], outputs[1])
+}
+
+func lagunaDecodeRouterTop8OrdinalScoreTablePackedForTesting(
+    logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
+) -> (MLXArray, MLXArray) {
+    precondition(logits.dtype == .bfloat16 || logits.dtype == .float32)
+    precondition(correctionBias.dtype == .float32)
+    precondition(logits.size == 256)
+    precondition(correctionBias.size == 256)
+
+    let kernel =
+        normalizing
+        ? lagunaDecodeRouterOrdinalScoreTablePackedNormalizingKernel
+        : lagunaDecodeRouterOrdinalScoreTablePackedKernel
+    let outputs = kernel(
+        [logits, correctionBias],
+        grid: (256, 1, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [[1, 1, 8], [1, 1, 8]],
+        outputDTypes: [.uint32, .float32]
+    )
+    return (outputs[0], outputs[1])
+}
+
 private func lagunaDecodeRouterTop8(
     logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
 ) -> (MLXArray, MLXArray) {
     if lagunaDecodeRouterOrdinalEnabled {
         if lagunaDecodeRouterOrdinalScoreTableEnabled {
+            if lagunaDecodeRouterOrdinalPackedPayloadEnabled {
+                return lagunaDecodeRouterTop8OrdinalScoreTablePackedForTesting(
+                    logits: logits,
+                    correctionBias: correctionBias,
+                    normalizing: normalizing
+                )
+            }
             return lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
                 logits: logits,
                 correctionBias: correctionBias,
                 normalizing: normalizing
             )
+        }
+        if lagunaDecodeRouterOrdinalPackedPayloadEnabled {
+            return lagunaDecodeRouterTop8OrdinalPackedForTesting(
+                logits: logits, correctionBias: correctionBias, normalizing: normalizing)
         }
         return lagunaDecodeRouterTop8OrdinalForTesting(
             logits: logits, correctionBias: correctionBias, normalizing: normalizing)
