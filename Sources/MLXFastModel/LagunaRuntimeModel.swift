@@ -1716,160 +1716,7 @@ func lagunaNativeAffineWeight(
     )
 }
 
-// MARK: - Gated native-affine INT8 output projection (one dispatch)
-
-/// Exact per-head softplus gate plus group-32 affine INT8 output GEMV.
-private func lagunaGatedAffineOProjSource(indexed: Bool = false) -> String {
-    let metadataPointers = indexed
-        ? """
-        const device ushort* mi = metadata_indices + out_row * in_vec_size_g +
-            simd_lid / scale_step_per_thread;
-        """
-        : """
-        const device bfloat* sc = weight_scales + out_row * in_vec_size_g +
-            simd_lid / scale_step_per_thread;
-        const device bfloat* bs = weight_biases + out_row * in_vec_size_g +
-            simd_lid / scale_step_per_thread;
-        """
-    let metadataLoad = indexed
-        ? """
-            float scale, bias;
-            uint gl = (simd_lid / scale_step_per_thread) * scale_step_per_thread;
-            if (simd_lid == gl) {
-                uint pair = metadata_lut[mi[row * in_vec_size_g]];
-                scale = float(as_type<bfloat>(ushort(pair)));
-                bias = float(as_type<bfloat>(ushort(pair >> 16)));
-            }
-            scale = simd_shuffle(scale, gl);
-            bias = simd_shuffle(bias, gl);
-        """
-        : """
-            float scale, bias;
-            uint gl = (simd_lid / scale_step_per_thread) * scale_step_per_thread;
-            if (simd_lid == gl) {
-                scale = float(sc[row * in_vec_size_g]);
-                bias = float(bs[row * in_vec_size_g]);
-            }
-            scale = simd_shuffle(scale, gl);
-            bias = simd_shuffle(bias, gl);
-        """
-    let metadataAdvance = indexed
-        ? "mi += block_size / group_size;"
-        : """
-        sc += block_size / group_size;
-        bs += block_size / group_size;
-        """
-    return """
-    constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
-    constexpr uint head_shift = 7;              // head_dim == 128
-    constexpr uint values_per_thread = 8;       // pack_factor 4 * packs_per_thread 2
-    constexpr uint block_size = 256;            // values_per_thread * SIMD_SIZE
-    constexpr uint results_per_simdgroup = 4;
-    constexpr uint num_simdgroups = 2;
-    constexpr uint group_size = 32;
-    constexpr uint scale_step_per_thread = group_size / values_per_thread;
-
-    uint in_vec_size = attention_output_shape[2];
-    uint gate_heads = in_vec_size >> head_shift;
-    uint in_vec_size_g = in_vec_size / group_size;
-
-    uint tile = threadgroup_position_in_grid.x;
-    uint lid = thread_position_in_threadgroup.x;
-    uint simd_gid = simdgroup_index_in_threadgroup;
-    uint simd_lid = thread_index_in_simdgroup;
-
-    threadgroup float gate_table[\(LagunaConstants.slidingAttentionHeads)];
-    if (lid < gate_heads) {
-        float logit = float(gate_logits[lid]);
-        float gate;
-        if (metal::isnan(logit)) {
-            gate = NAN;
-        } else {
-            float maxval = metal::max(logit, 0.0f);
-            float minval = metal::min(logit, 0.0f);
-            gate = (metal::isinf(minval) || metal::isinf(maxval))
-                ? maxval
-                : maxval + log1p(metal::exp(minval - maxval));
-        }
-        gate_table[lid] = float(bfloat(gate));
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
-        simd_gid * results_per_simdgroup;
-
-    const device uint8_t* ws = (const device uint8_t*)weight_codes +
-        out_row * in_vec_size + simd_lid * values_per_thread;
-    \(metadataPointers)
-    const device bfloat* xp = attention_output + simd_lid * values_per_thread;
-
-    thread float x_thread[values_per_thread];
-    thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
-
-    uint column = simd_lid * values_per_thread;
-    for (uint k = 0; k < in_vec_size; k += block_size) {
-        float gate = gate_table[column >> head_shift];
-        float sum = 0.0f;
-        for (uint i = 0; i < values_per_thread; ++i) {
-            float value = float(bfloat(float(xp[i]) * gate));
-            sum += value;
-            x_thread[i] = value;
-        }
-
-        for (uint row = 0; row < results_per_simdgroup; ++row) {
-            const device uint8_t* wl = ws + row * in_vec_size;
-            \(metadataLoad)
-            float accum = x_thread[0] * float(wl[0]) + x_thread[1] * float(wl[1])
-                              + x_thread[2] * float(wl[2]) + x_thread[3] * float(wl[3]);
-            accum += x_thread[4] * float(wl[4]) + x_thread[5] * float(wl[5])
-                         + x_thread[6] * float(wl[6]) + x_thread[7] * float(wl[7]);
-            result[row] += scale * accum + sum * bias;
-        }
-
-        ws += block_size;
-        \(metadataAdvance)
-        xp += block_size;
-        column += block_size;
-    }
-
-    {
-        result[0] = simd_sum(result[0]);
-        result[1] = simd_sum(result[1]);
-        result[2] = simd_sum(result[2]);
-        result[3] = simd_sum(result[3]);
-    }
-    if (simd_lid == 0) {
-        for (uint row = 0; row < results_per_simdgroup; ++row) {
-            projected[out_row + row] = bfloat(result[row]);
-        }
-    }
-    """
-}
-
-/// One kernel per attention head count, built eagerly so one binary serves
-/// every arm of an ablation and MLX's name-keyed JIT cache never sees two
-/// sources under one name.
-private let lagunaGatedAffineOProjKernel = MLXFast.metalKernel(
-    name: "laguna_gated_affine_oproj_qmv_i8g32_v2",
-    inputNames: [
-        "attention_output", "gate_logits", "weight_codes",
-        "weight_scales", "weight_biases",
-    ],
-    outputNames: ["projected"],
-    source: lagunaGatedAffineOProjSource(),
-    ensureRowContiguous: true
-)
-
-private let lagunaGatedAffineOProjIndexedKernel = MLXFast.metalKernel(
-    name: "laguna_gated_affine_oproj_qmv_i8g32_idx_v2",
-    inputNames: [
-        "attention_output", "gate_logits", "weight_codes",
-        "metadata_indices", "metadata_lut",
-    ],
-    outputNames: ["projected"],
-    source: lagunaGatedAffineOProjSource(indexed: true),
-    ensureRowContiguous: true
-)
+// MARK: - Gated native-affine output projection (one dispatch)
 
 /// `DARKBLOOM_FUSED_GATED_AFFINE_OPROJ` (default ON; set "0" to disable).
 /// Fuses the per-head softplus gate product into the native group-32 affine
@@ -1930,63 +1777,9 @@ let lagunaE4M3SignDomainCertified =
 let lagunaNvfp4QmvSeedElisionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_QMV_SEED_ELIDE"] != "0"
 
-/// Gate product + native-affine INT8 output projection in one dispatch, or
-/// `nil` when any shape, dtype or wire-format guard declines (caller then runs
-/// the exact two-dispatch chain).
-func lagunaGatedAffineOProj(
-    attentionOutput: MLXArray,
-    gateLogits: MLXArray,
-    codes: MLXArray,
-    scales: MLXArray,
-    biases: MLXArray,
-    indexedMetadata: LagunaIndexedAffineMetadata? = nil,
-    heads: Int
-) -> MLXArray? {
-    let inVec = heads * LagunaConstants.headDim
-    let outVec = LagunaConstants.hiddenSize
-    guard attentionOutput.dtype == .bfloat16,
-        attentionOutput.dims(1, 1, inVec),
-        gateLogits.dtype == .bfloat16,
-        gateLogits.dims(1, 1, heads),
-        codes.dtype == .uint32,
-        codes.dims(outVec, inVec / 4),
-        scales.dtype == .bfloat16,
-        scales.dims(outVec, inVec / 32),
-        biases.dtype == .bfloat16,
-        biases.dims(outVec, inVec / 32)
-    else {
-        return nil
-    }
-
-    if let metadata = indexedMetadata,
-        metadata.indices.dtype == .uint16,
-        metadata.indices.dims(outVec, inVec / 32),
-        metadata.lut.dtype == .uint32,
-        metadata.lut.ndim == 1,
-        metadata.lut.size <= 65_536
-    {
-        lagunaTrace("gated affine oproj qmv h\(heads) indexed")
-        return lagunaGatedAffineOProjIndexedKernel(
-            [attentionOutput, gateLogits, codes, metadata.indices, metadata.lut],
-            grid: ((outVec / 8) * 64, 1, 1),
-            threadGroup: (64, 1, 1),
-            outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16]
-        )[0]
-    }
-    lagunaTrace("gated affine oproj qmv h\(heads)")
-    return lagunaGatedAffineOProjKernel(
-        [attentionOutput, gateLogits, codes, scales, biases],
-        grid: ((outVec / 8) * 64, 1, 1),
-        threadGroup: (64, 1, 1),
-        outputShapes: [[1, 1, outVec]],
-        outputDTypes: [.bfloat16]
-    )[0]
-}
-
 // MARK: - Gated NVFP4 output projection for the affine tail layers
 
-/// NVFP4 twin of `lagunaGatedAffineOProjSource` for layers using the native
-/// group-16 NVFP4 output projection. It folds the softplus gate, broadcast
+/// NVFP4 gated output projection: folds the softplus gate, broadcast
 /// product, and contraction into one dispatch while preserving the BF16 gate
 /// rounding point and the stock NVFP4 accumulation geometry.
 func lagunaGatedAffineOProjNVFP4Source(
@@ -3217,41 +3010,11 @@ final class LagunaRuntimeAttention: Module {
                 output.dims(1, 1, nHeads * headDim),
                 projectedGate.dims(1, 1, nHeads)
             {
-                // Raw logits + gated affine GEMV: ONE dispatch for the softplus
-                // chain, the broadcast product AND the INT8 contraction (see
-                // `lagunaGatedAffineOProjSource`). Only the group-32 affine
-                // INT8 wire format is served; the NVFP4 tail layers and any
-                // guard decline fall through to the two-dispatch chain below.
-                if lagunaFusedGatedAffineOProjEnabled, !gateIsActivated,
-                    affineWO.mode == .affine, affineWO.bits == 8,
-                    affineWO.groupSize == 32,
-                    affineWO.indexedMetadata != nil,
-                    let affineBiases = affineWO.biases,
-                    let fusedProjection = lagunaGatedAffineOProj(
-                        attentionOutput: output,
-                        gateLogits: projectedGate,
-                        codes: affineWO.packedCodes,
-                        scales: affineWO.scales,
-                        biases: affineBiases,
-                        indexedMetadata: affineWO.indexedMetadata,
-                        heads: nHeads)
-                {
-                    return fusedProjection
-                }
-                if lagunaFusedGatedAffineOProjEnabled, !gateIsActivated,
-                    affineWO.mode == .affine, affineWO.bits == 8,
-                    affineWO.groupSize == 32,
-                    let affineBiases = affineWO.biases,
-                    let fusedProjection = lagunaGatedAffineOProj(
-                        attentionOutput: output,
-                        gateLogits: projectedGate,
-                        codes: affineWO.packedCodes,
-                        scales: affineWO.scales,
-                        biases: affineBiases,
-                        heads: nHeads)
-                {
-                    return fusedProjection
-                }
+                // Fused NVFP4 gated output projection: ONE dispatch for the
+                // softplus chain, the broadcast product AND the NVFP4 contraction.
+                // All OProj layers use NVFP4 by default (mode == .nvfp4), so the
+                // INT8 affine path was removed as dead code. Any guard decline
+                // falls through to the two-dispatch chain below.
                 if lagunaFusedGatedAffineOProjEnabled,
                     lagunaGatedAffineOProjNVFP4Enabled,
                     gateIsActivated,
@@ -3264,21 +3027,6 @@ final class LagunaRuntimeAttention: Module {
                         scales: affineWO.scales,
                         heads: nHeads,
                         gateIsActivated: true,
-                        scalesEscape: affineWO.scalesEscape)
-                {
-                    return fusedProjection
-                }
-                if lagunaFusedGatedAffineOProjEnabled,
-                    lagunaGatedAffineOProjNVFP4Enabled,
-                    !gateIsActivated,
-                    affineWO.mode == .nvfp4, affineWO.bits == 4,
-                    affineWO.groupSize == 16,
-                    let fusedProjection = lagunaGatedAffineOProjNVFP4(
-                        attentionOutput: output,
-                        gateLogits: projectedGate,
-                        codes: affineWO.packedCodes,
-                        scales: affineWO.scales,
-                        heads: nHeads,
                         scalesEscape: affineWO.scalesEscape)
                 {
                     return fusedProjection
