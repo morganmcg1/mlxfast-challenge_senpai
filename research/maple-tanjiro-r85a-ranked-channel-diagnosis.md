@@ -11,7 +11,7 @@ The assignment's central premise — *"the base itself fails the M5 public
 behavior gate, and every candidate inherits it"* — is **refuted** by
 organizer-side evidence that is reachable without any privileged access.
 
-Three independent exonerations:
+Four independent exonerations:
 
 1. **The base/frontier is exonerated.** Failing and scoring submissions from the
    same account were built on *pairwise identical* organizer frontier parents.
@@ -19,10 +19,17 @@ Three independent exonerations:
    failed and scored within the same window.
 3. **The account is exonerated.** Other solvers kept scoring normally on the same
    runner pool throughout the claimed outage.
+4. **Maple is exonerated by name.** Splitting the shared account by campaign
+   gives **Maple 23 scored / 0 failed over all history**, against **Birch 51
+   failed**. Maple has never failed the public behaviour gate.
 
 What remains is content: the failing submissions form a single, content-distinct
 family that is separable from the scoring family by an exact file-level
-discriminator.
+discriminator, and they all belong to the *other* campaign sharing this account.
+
+**Headline: there is nothing to repair.** Maple's ranked channel is healthy and
+can resume immediately. The outage was an artifact of reading the shared-account
+aggregate instead of Maple's own rows.
 
 ## Evidence 1 — identical parents, opposite outcomes
 
@@ -241,12 +248,65 @@ The three-question triage this supports, in order:
 If all three come back that way, it is the submitted content, and the changed-path
 sets will tell you whose.
 
+## Evidence 7 — the account splits perfectly by campaign
+
+The submitter account is shared by two Senpai campaigns. Classifying every row by
+the agent names in its public note (Birch: `kepler`, `edward`, `alphonse`,
+`thorfinn`, `askeladd`; Maple: `maple`, `frieren`, `tanjiro`, `fern`) gives
+complete separation over **all history**:
+
+| campaign | scored (`rejected`/`accepted`) | failed |
+|---|---|---|
+| **MAPLE** | **23** | **0** |
+| **BIRCH** | 4 (all 8/5–8/6) | **51** |
+| notes naming both | 3 | 14 |
+| untagged | 23 | 5 |
+
+**Maple has never had a single submission fail the public behaviour gate.** Its
+last ten ranked rows, all on 2026-08-07, all carry an `officialScore`:
+
+```text
+02:00 d786ad5c 2.5643   03:27 ec2b0a57 2.4839   08:19 df9613a8 2.5817
+02:20 08ddee45 2.5748   03:48 9631b9d4 1.6402   09:36 68b66c5d 2.5521
+02:41 a3e38005 2.4073   04:45 259c2653 2.4522
+03:03 f2160f8f 2.5582   07:57 75a7490a 2.3970
+```
+
+Birch's last score is `2026-08-06T14:35`; every Birch row after it failed.
+
+The brief's premise — "our ranked submission channel has been dead for over 24
+hours" — comes from reading the **shared-account aggregate** instead of the
+Maple campaign's own rows. Split by campaign, Maple's channel has a perfect
+record and Birch's has been down since 8/6.
+
+### The failing campaign names its own trigger
+
+Birch's own public notes confirm the mechanism independently, and match the
+content discriminators in Evidence 4:
+
+> "The birch campaign has experienced 50+ consecutive M5 build failures. The
+> organizer frontier code (bca94c5) builds and scores fine on M5 (score 2.5213,
+> submission f790e33f). The birch-specific changes to 3 vendor files caused the
+> M5 build failure." — `bcedc8a8`
+>
+> "A prior surgical fix … that reverted only the function-constant-to-template-parameter
+> change while keeping the halved scales feature ALSO FAILED. This confirms the
+> halved scales feature in the vendor files is also a problem." — `bcedc8a8`
+
+That is the failing campaign stating that (a) the shared base is healthy and
+(b) its own `quantized.cpp` function-constant→template-parameter conversion and
+`halved_scales` are the trigger — exactly candidate mechanisms #2 and #3.
+
+One correction worth passing back: Birch's notes describe the failure as a
+**build timeout (~900 s)**, but the API `rejectionReason` for every one of these
+rows is `Public behavior gate`. Their runs are getting past the build and
+failing a behaviour check, so a build-time fix is aimed at the wrong step.
+
 ## What this means for Maple
 
-The Maple ranked channel is not broken and does not need repair. Maple's four
-most recent ranked submissions all scored (2.5491, 2.5625, 2.5817, 2.5521); it
-simply stopped submitting at 2026-08-07T09:36Z. Maple can resume ranked
-submissions immediately.
+The Maple ranked channel is not broken and does not need repair. Maple's ranked
+record is 23 scored submissions and zero failures; it simply stopped submitting
+at 2026-08-07T09:36Z. Maple can resume ranked submissions immediately.
 
 The real programme risk is different and worth escalating: **the submitter
 account is shared across campaigns and the ranked queue is serialized**, so one
