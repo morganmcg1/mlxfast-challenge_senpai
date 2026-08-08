@@ -61,24 +61,33 @@ MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1. DO NOT REVISIT.
   - Dispatch infrastructure intact: quantized.cpp:1918 grid division by xmajor_ct
   - M5-only (uses _nax kernels, M4 can't test), ~5KB vendor budget, bit-exact
 
-## M5 SUBMISSION STATUS (2026-08-08T05:42Z)
+## M5 SUBMISSION STATUS (2026-08-08T05:56Z)
   07634617: VALIDATING — nuclear fallback (a2cb0a0a, 19 kernels, f790e33f base + dead deletions)
-  Last submission: a46cfdaa (36e2ba1) FAILED at 5:01 AM UTC
   All submissions since f790e33f FAILED (40+ consecutive)
   Nuclear fallback is M5 build verification, NOT score improvement (-3.5% expected)
   If M5 builds: re-apply optimizations incrementally
   If M5 fails: also revert sdpa_vector.h to f790e33f state
   Leaderboard #1: yudduy 2.6063. Our promoted: 2.5888. Gap: ~0.67%.
 
-## NUCLEAR FALLBACK MERGED (a2cb0a0a)
-  New frontier: f790e33f LRM/LRW state + 7 dead kernel deletion cherry-picks
-  19 metalKernel calls (down from 48 in f790e33f)
-  All optimizations reverted (SDPA, kHalvedScales, dot4, dispatch fusion, etc.)
-  Purpose: verify M5 build, then re-apply optimizations incrementally
-  Same code sometimes passes/fails (intermittent). No single PR is sole cause.
-  Between f790e33f (last success) and current frontier: ONLY sdpa_vector.h changed in vendor files.
-  All other vendor files identical to f790e33f (PR #398 reverted kHalvedScales).
-  d5a296c5 (SDPA reverted, LRM changes): FAILED
+## CURRENT FRONTIER (e55ea75d)
+  Nuclear fallback (a2cb0a0a) + XMAJOR fold (PR #408, merged)
+  19 metalKernel calls (13 live per thorfinn's audit)
+  SDPA Phase 1 (GQA K/V sharing) active in AOT sdpa_vector.h (GROUP_FULL=3, GROUP_SLIDING=2)
+  XMAJOR fold=2 active in quantized.cpp (#define injection, no new JIT compiles)
+  Missing: kHalvedScales, dot4, prefill QK-norm+RoPE fusion, full-attention fused decode kernel
+
+## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=e55ea75d)
+  PR #410 (alphonse): Full-attention fused decode kernel recovery — recover deleted lagunaFullFusedAttentionKernel + lagunaFullQKNormYaRNKernel from git history (96645c09~1). ~60 dispatches/step saved, ~0.3-0.7% decode.
+  PR #407 (edward): Compile budget engineering — free 2 JIT slots, re-enable prefill QK-norm+RoPE fusion. Student working.
+  PR #402 (askeladd): kHalvedScales runtime constant reimpl — recover ~0.9% score without _nax template instantiations. Student working.
+  PR #406 (thorfinn, v2): JIT compile reduction — rebase dead code removal onto nuclear fallback. Requested revision.
+
+## KEY FINDINGS (thorfinn audit, PR #406)
+  MLX JIT is lazy — dead kernels never compile. Actual JIT compile count is ~13 (not 19).
+  Compile-storm is caused by 15-25 _nax compiles + 2 graph compiles, not metalKernel declarations.
+  INT8 affine OProj kernels (lagunaGatedAffineOProjKernel, lagunaGatedAffineOProjIndexedKernel) are dead code.
+  NVFP4 !gateIsActivated branch is dead (always returns nil).
+  lagunaSlidingQKNormRoPEKernel is NOT dead (used during early prefill for sliding layers).
   a46cfdaa (kHalvedScales reverted + SDPA Phase 1): FAILED
   PR #350 (function constants) REDUCED compile count ~82→~40 but may increase per-compile complexity.
   STRATEGY: Nuclear fallback (PR #405, alphonse) — rebuild from f790e33f with only dead kernel deletions.
