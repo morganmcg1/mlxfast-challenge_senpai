@@ -1774,9 +1774,13 @@ let lagunaFusedFullAttentionEnabled =
 /// Compile only the full-attention custom kernel during untimed construction,
 /// using tiny throwaway arrays. Unlike the retired whole-model rewarm, this
 /// does not execute another Laguna layer or retain request/cache state.
+/// DEFAULT OFF: the full-attention kernel is gated behind
+/// DARKBLOOM_FUSED_FULL_QK_NORM_YARN (default OFF), so it is never
+/// scored-dispatched. Warming it wastes 1 JIT compile. Enable only when
+/// re-enabling the full-attention fusion path.
 let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
-        "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
+        "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] == "1"
 
 private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
     name: "laguna_full_fused_attn_grow_v1",
