@@ -3457,6 +3457,217 @@ let lagunaSharedSwiGLUQMVHeader: String = {
 
 
 
+private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_halved",
+    inputNames: ["input", "fused_weight", "packed_scales", "gate_up_escape"],
+    outputNames: ["activated"],
+    source: """
+        constexpr uint input_width = 2048;
+        constexpr uint output_width = 512;
+        constexpr uint packed_row_bytes = 1024;
+        constexpr uint scale_row_bytes = 64;
+        constexpr uint block_width = 512;
+        constexpr uint values_per_lane = 16;
+
+        uint tile = threadgroup_position_in_grid.x;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+        uint row = tile * 2 + simd_group;
+
+        const device uint8_t* gate_row_weight =
+            (const device uint8_t*)fused_weight +
+            row * packed_row_bytes + lane * 8;
+        const device uint8_t* up_row_weight =
+            (const device uint8_t*)fused_weight +
+            (row + output_width) * packed_row_bytes + lane * 8;
+        const device uint8_t* gate_row_scale =
+            packed_scales + row * scale_row_bytes + lane / 2;
+        const device uint8_t* up_row_scale =
+            packed_scales + (row + output_width) * scale_row_bytes + lane / 2;
+        uint8_t gate_escape = gate_up_escape[0];
+        uint8_t up_escape = gate_up_escape[1];
+
+        thread float gate_result = 0.0f;
+        thread float up_result = 0.0f;
+        thread float input_values[values_per_lane];
+
+        for (uint block = 0; block < input_width; block += block_width) {
+            const device vec<bfloat, 4>* input_vectors =
+                (const device vec<bfloat, 4>*) (
+                    input + block + lane * values_per_lane);
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                *(thread float4*)(input_values + 4 * i) =
+                    float4(input_vectors[i]);
+            }
+
+            uint8_t gate_sb = gate_row_scale[block / 16];
+            uint8_t up_sb = up_row_scale[block / 16];
+            if (row == 0 && lane == 1) {
+                gate_sb = gate_escape;
+                up_sb = up_escape;
+            }
+            gate_result += laguna_nvfp4_qdot_16(
+                gate_row_weight + block / 2,
+                input_values,
+                laguna_nvfp4_scale(gate_sb));
+            up_result += laguna_nvfp4_qdot_16(
+                up_row_weight + block / 2,
+                input_values,
+                laguna_nvfp4_scale(up_sb));
+        }
+
+        {
+            const vec<float, 2> packed = simd_sum(
+                vec<float, 2>(gate_result, up_result));
+            gate_result = packed.x;
+            up_result = packed.y;
+        }
+        if (lane == 0) {
+            bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
+            bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
+            bfloat exp_abs = metal::exp(metal::abs(gate));
+            bfloat denominator = bfloat(1) + exp_abs;
+            bfloat y = bfloat(1) / denominator;
+            bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+            bfloat silu = bfloat(gate * sigmoid);
+            activated[row] = bfloat(silu * up);
+        }
+        """,
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+func lagunaSharedSwiGLUQMV(
+    _ input: MLXArray,
+    fusedWeight: MLXArray,
+    packedScales: MLXArray,
+    gateUpEscape: MLXArray
+) -> MLXArray {
+    precondition(input.dtype == .bfloat16)
+    precondition(input.dims(1, 1, LagunaConstants.hiddenSize))
+    precondition(fusedWeight.dtype == .uint32)
+    precondition(
+        fusedWeight.dims(2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 8))
+    precondition(packedScales.dtype == .uint8)
+    precondition(
+        packedScales.dims(2 * LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.hiddenSize / 32))
+    precondition(gateUpEscape.dtype == .uint8)
+
+    return lagunaSharedSwiGLUQMVRows1Kernel(
+        [input, fusedWeight, packedScales, gateUpEscape],
+        grid: (256 * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+private let lagunaSharedDownResidualKernel = MLXFast.metalKernel(
+    name: "laguna_shared_nvfp4_down_residual_bf16_v1_halved",
+    inputNames: [
+        "activated", "down_weight", "down_scales", "down_scales_escape",
+        "routed", "residual",
+    ],
+    outputNames: ["output"],
+    source: """
+        constexpr uint input_width = 512;
+        constexpr uint output_width = 2048;
+        constexpr uint outputs_per_simd = 4;
+        constexpr uint values_per_lane = 16;
+        constexpr uint packed_row_bytes = 256;
+        constexpr uint scale_row_bytes = 16;
+
+        uint group = threadgroup_position_in_grid.x;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+        uint first_row =
+            group * 2 * outputs_per_simd +
+            simd_group * outputs_per_simd;
+
+        thread float input_values[values_per_lane];
+        const device vec<bfloat, 4>* input_vectors =
+            (const device vec<bfloat, 4>*)(
+                activated + lane * values_per_lane);
+        for (uint i = 0; i < values_per_lane / 4; ++i) {
+            const vec<bfloat, 4> values = input_vectors[i];
+            input_values[4 * i] = values[0];
+            input_values[4 * i + 1] = values[1];
+            input_values[4 * i + 2] = values[2];
+            input_values[4 * i + 3] = values[3];
+        }
+
+        uint8_t escape_val = down_scales_escape[0];
+
+        thread float result[outputs_per_simd] = {
+            0.0f, 0.0f, 0.0f, 0.0f
+        };
+        for (uint row = 0; row < outputs_per_simd; ++row) {
+            uint output_row = first_row + row;
+            const device uint8_t* weight =
+                (const device uint8_t*)down_weight +
+                output_row * packed_row_bytes + lane * 8;
+            const device uint8_t* scale =
+                down_scales + output_row * scale_row_bytes + lane / 2;
+            uint8_t sb = scale[0];
+            if (output_row == 0 && lane == 1)
+                sb = escape_val;
+            result[row] = laguna_nvfp4_qdot_16(
+                weight,
+                input_values,
+                laguna_nvfp4_scale(sb));
+            result[row] = simd_sum(result[row]);
+        }
+
+        if (lane == 0) {
+            for (uint row = 0; row < outputs_per_simd; ++row) {
+                uint output_row = first_row + row;
+                bfloat shared = bfloat(result[row]\(lagunaNvfp4RowScaleSuffix));
+                bfloat r2 = bfloat(routed[output_row] + shared);
+                output[output_row] =
+                    bfloat(residual[output_row] + r2);
+            }
+        }
+        """,
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+func lagunaSharedDownResidual(
+    _ activated: MLXArray,
+    downWeight: MLXArray,
+    downScales: MLXArray,
+    downScalesEscape: MLXArray,
+    routed: MLXArray,
+    residual: MLXArray
+) -> MLXArray {
+    precondition(activated.dtype == .bfloat16)
+    precondition(
+        activated.dims(1, 1, LagunaConstants.sharedExpertIntermediateSize))
+    precondition(downWeight.dtype == .uint32)
+    precondition(
+        downWeight.dims(LagunaConstants.hiddenSize,
+            LagunaConstants.sharedExpertIntermediateSize / 8))
+    precondition(downScales.dtype == .uint8)
+    precondition(
+        downScales.dims(LagunaConstants.hiddenSize,
+            LagunaConstants.sharedExpertIntermediateSize / 32))
+    precondition(downScalesEscape.dtype == .uint8)
+    precondition(routed.dtype == .bfloat16)
+    precondition(routed.dims(1, 1, LagunaConstants.hiddenSize))
+    precondition(residual.dtype == .bfloat16)
+    precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
+
+    return lagunaSharedDownResidualKernel(
+        [activated, downWeight, downScales, downScalesEscape, routed, residual],
+        grid: ((LagunaConstants.hiddenSize / 8) * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
 private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2_halved",
     inputNames: ["input", "fused_weight", "packed_scales", "gate_up_escape", "indices",
@@ -4205,9 +4416,16 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
     )? {
         guard let banks = fusedSharedBankGuard(x),
             let halvedScales = _halvedFusedGateUpScales,
-            let gateUpEscape = _fusedGateUpScalesEscape,
-            let activated = sharedActivation
+            let gateUpEscape = _fusedGateUpScalesEscape
         else { return nil }
+        let activated =
+            sharedActivation
+            ?? lagunaSharedSwiGLUQMV(
+                x,
+                fusedWeight: banks.gateUpWeight,
+                packedScales: halvedScales,
+                gateUpEscape: gateUpEscape
+            )
         return (activated, banks.downWeight, banks.downScales)
     }
 
@@ -4252,7 +4470,27 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         routed: MLXArray,
         residual: MLXArray
     ) -> MLXArray? {
-        return nil
+        guard lagunaFusedSharedDownResidualEnabled,
+            let inputs = fusedSharedDownInputs(x),
+            let halvedDownScales = _halvedSharedDownScales,
+            let downScalesEscape = _sharedDownScalesEscape,
+            routed.dtype == .bfloat16,
+            routed.dims(1, 1, LagunaConstants.hiddenSize),
+            residual.dtype == .bfloat16,
+            residual.dims(1, 1, LagunaConstants.hiddenSize)
+        else {
+            return nil
+        }
+
+        lagunaTrace("shared down residual")
+        return lagunaSharedDownResidual(
+            inputs.activated,
+            downWeight: inputs.downWeight,
+            downScales: halvedDownScales,
+            downScalesEscape: downScalesEscape,
+            routed: routed,
+            residual: residual
+        )
     }
 
     /// Layer-0-only decode fusion: the dense gate/up GEMV + SiLU product and
@@ -4316,6 +4554,26 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         if x.dim(1) == 1,
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales
         {
+            if lagunaFusedSharedSwiGLUQMVEnabled,
+                let halvedScales = _halvedFusedGateUpScales,
+                let gateUpEscape = _fusedGateUpScalesEscape,
+                x.dtype == .bfloat16,
+                x.dims(1, 1, LagunaConstants.hiddenSize),
+                fusedWeight.dtype == .uint32,
+                fusedScales.dtype == .uint8,
+                _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
+            {
+                lagunaTrace("shared gate/up QMV + SwiGLU")
+                return downProj(
+                    lagunaSharedSwiGLUQMV(
+                        x,
+                        fusedWeight: fusedWeight,
+                        packedScales: halvedScales,
+                        gateUpEscape: gateUpEscape
+                    )
+                )
+            }
+
             // One NVFP4 dispatch over the row-concatenated [gate; up] bank,
             // mirroring `QuantizedLinear.callAsFunction` exactly (transpose,
             // group 16, 4-bit, .nvfp4, no affine biases, no bias add; the
