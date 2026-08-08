@@ -1,7 +1,7 @@
 # SENPAI Research State
 
-**Updated 2026-08-09 ~01:20 UTC — round 89.
-`BASE_SHA = 098cfe0b935b87912e537ae29e21fd6339bafca8`** (doc-only, on top of
+**Updated 2026-08-09 ~03:40 UTC — round 89b.
+`BASE_SHA = d60677c4cc8a019db3f4b576d5fdfce56f15951c`** (doc-only, on top of
 the scored-surface base `3217f111142346e004f41fae611a8bede172a659`) = the
 adopted organizer promoted frontier (see "FRONTIER ADOPTION" below), plus the
 research-only merge of #458, plus **the first real scored win banked on top of
@@ -169,6 +169,160 @@ booked.** Still gated on #456's byte headroom.
    ordering, then hoisting an independent load across a barrier attacks the
    dominant term without removing a kernel. This is why **Lever 3 was assigned
    immediately** as #475.
+
+
+## ⭐⭐⭐ ROUND 89b — RULE 42: we can now count real M5 instructions offline, from an M4
+
+Advisor-side work, executed and verified on the advisor M4 Pro this round. Full
+write-up with every command and table:
+**`research/advisor-r89-agx-native-instruction-census.md`**.
+
+### (a) The capability
+
+`xcrun applegpu-nt` — shipped in the Xcode 26.5 Metal toolchain, never used in
+this repo before — translates a `.metallib` into a **native AGX binary for an
+arbitrary target architecture**, including `applegpu_g17s`, from an M4 host.
+`xcrun metal-size -m` then reports the `__compute` section size, which is the
+machine-code payload.
+
+```bash
+xcrun metal -c k.metal -o k.air && xcrun metallib k.air -o k.metallib
+printf '{ "pipelines": { "compute_pipelines": [ { "compute_function": "%s" } ] } }\n' "$FN" > s_$FN.mtlp-json
+xcrun applegpu-nt -arch applegpu_g17s -platform_version macos 26.0 26.5 \
+    -N s_$FN.mtlp-json k.metallib -o out_g17s.bin
+xcrun metal-size -m out_g17s.bin | grep __compute
+```
+
+Three gotchas, each cost a failed run: `-platform_version macos 26.0 26.5` is
+**mandatory** (otherwise "image AIR version (2.8) is bigger than the one of the
+target"); the pipeline script filename must end **`.mtlp-json`** (a `.json`
+extension routes to a flatbuffer parser and fails); the script is a JSON
+**object**, not an array; and one script **per function**, else `__compute`
+sums all of them.
+
+Target identification is by `xcrun metal-readobj --file-headers`: `Arch` is
+`agx3` for every modern target, and the real discriminator is `CpuSubtype` —
+**g16s `0x1D3`, g17s `0x163`, g17p `0x143`, g18p `0x173`**. The advisor M4 Pro
+is `g16s`, so the `s` suffix is the Pro/Max die class and **`applegpu_g17s` is
+the best M5 Max candidate. That is an inference, not a verified fact — always
+report both `g16s` and `g17s` numbers.**
+
+### (b) Calibration: exactly 8 bytes per instruction
+
+An FMA ladder (`c_fma1`…`c_fma32`) gives 240 B per 30 added instructions,
+**8.000 B/instruction, exact over a 16× range, identical on g16s and g17s**.
+Empty-kernel floor is 1520 B on g16s and 1504 B on g17s. Sections are 16 B
+aligned, so resolution is **±1 instruction**.
+
+```text
+instructions ≈ (__compute bytes − floor) / 8      floor: 1520 g16s, 1504 g17s
+```
+
+⚠️ **Folding hazard.** A control (`s += w + i`, ×N) reported the bare floor for
+every N — the compiler collapsed it algebraically. Design probes so the work
+cannot be folded, and always include a null arm.
+
+### (c) ⭐ RULE 42 — instruction-count *deltas* are architecture-invariant
+
+Per-operation slopes are identical on g16s and g17s: 8 B per FMA on both, 24 B
+per nibble extraction on both. The g16s↔g17s difference is a **fixed per-kernel
+offset** that cancels in any A/B difference.
+
+> **Rule 42.** An instruction-count *delta* measured offline on M4 transfers
+> 1:1 to the ranked M5, even though *time* does not (PR #137 transfer factor
+> −0.40 ± 0.24). This is our first ranked-host-valid instrument that does not
+> need an M5.
+
+**The one measured exception is memory-touching code.** For 8 codes → float:
+
+| kernel | g16s (instr above floor) | g17s | Δ |
+|---|---|---|---|
+| ALU reconstruct | 24 | 28 | +4 |
+| `constant float *lut` LUT | 40 | 38 | **−2** |
+| NVFP4 sign/magnitude | 38 | 44 | +6 |
+
+The ALU-vs-LUT gap narrows from 16 instructions on g16s to 10 on g17s. LUT
+still loses on both, so this is not yet a lever — but **any probe that indexes
+`constant` or threadgroup memory must be run for `g17s`, not just `g16s`.**
+
+### (d) Result A — the `bfeil` dequant lever is DEAD (queue item 5 retired)
+
+Two independent measurements, both on g16s and g17s:
+
+1. All three MSL spellings of 8 nibble extractions — `(w>>s)&0xF`,
+   `extract_bits(w,s,4)`, `(w&mask)>>s` — produce **byte-identical native
+   code** (1696 g16s / 1712 g17s). There is no alternative spelling to reach
+   for.
+2. The mask is nearly free: 8 shifts + 7 adds = 18 instructions above floor;
+   8 shift+mask + 7 adds = 20. **+2 instructions for 8 masks, not +8.** The
+   compiler already emits a fused extract. `insert_bits` is no better.
+
+⇒ **Queue item 5 (`bfeil` dequant ALU arm) is RETIRED.** It was predicated on
+Apple's compiler *failing* to fuse; it does not fail. This also answers the
+open AGX microbenchmark #2. Residual caveat: this counts instructions, not
+cycles — but with all spellings identical there is no action available either
+way.
+
+### (e) Result C — register allocation is NOT in the object metadata
+
+A five-kernel register-pressure ladder (2→64 simultaneously-live values) leaves
+`__descriptor` (96 B) and `__reflection` (368 B) **byte-identical except the
+two ASCII digits of the kernel name**. Occupancy must still come from
+live-device `MTLComputePipelineState.maxTotalThreadsPerThreadgroup` against the
+`agx_performance.c` table — which is exactly why #469 and #475 both mandate
+recording it. Weak side-signal: instructions per live value run
+`1.00 → 1.00 → 1.13 → 1.25 → 1.25`, so spills do show up in `__compute`, but
+gradually. Not an occupancy oracle.
+
+### (f) Honest limits — read these before quoting a census number
+
+1. **Count, not cycles.** The AGX cycle table is wildly non-uniform (`RSHIFT32`
+   7.89, `bitop` 1.06, `FFMA32` 1.0). A −40 % count is *necessary but not
+   sufficient*. It is a cheap pre-GPU gate that can kill a lever before it
+   costs a benchmark slot; it can never promote one on its own.
+2. **Blind to scheduling.** Instruction *order* — the entire subject of rule 41
+   and of #475's A4 barrier-hoist control — does not change the count.
+3. **±1 instruction** from 16 B alignment.
+4. No register counts (§e). 5. `g17s = M5 Max` is an inference.
+6. Folding hazard (§b).
+
+### (g) What is NOT available
+
+There is **no AGX disassembler**. `metal-dis` does not exist;
+`metal-objdump -d` on a metallib yields AIR/LLVM IR only, and on a native
+binary yields `no instruction printer for target agx3---macho`. Apple ships the
+targets and strips the printer. `metal-binary-perf` is a section *load-timing*
+tool, not a performance model — dead end. `MTLBinaryArchive` also produces a
+native slice but only ever for the **host** architecture; keep it only for
+live-device pipeline properties.
+
+### (h) Consequences for the queue
+
+- Queue item 5 is retired (§d).
+- **Lever 2's success gate — "instruction-counter drop ≥ 40 %" — is now
+  statically measurable, for `g17s`, before any GPU time is spent.**
+- The capability arm (queue item 1) shrinks: stages S1 (native binary out) and
+  S2 (per-kernel `__compute` metric plus calibration) are **already proven**.
+  The remaining work is the MLX `metalKernel` wrapper extractor and the census
+  of real Laguna kernels.
+
+### (i) The bridge to real Laguna kernels
+
+`research/nax_msl_compile_check.sh` already reproduces MLX's JIT concatenation
+from `Vendor/mlx-swift/.../mlx-generated/*.cpp`, writes a standalone
+`unit.metal`, and with `EMIT_LIB=1` links a `.metallib` — **precisely
+`applegpu-nt`'s input**. For the `_nax` family the chain is three added
+commands.
+
+For kernels whose MSL comes from Swift string functions in
+`LagunaRuntimeModel.swift` (router tournament, residual-RMSNorm-router fusion,
+fused QKV), a second extractor is needed:
+`MLXFast.metalKernel(name:inputNames:outputNames:source:header:)` wraps the body
+in a generated `[[kernel]]` signature derived from `inputNames`/`outputNames`
+(assembly site `LRM:1037–1058`). **Reproducing that wrapper is the one
+genuinely new piece of engineering and the bounded core of the capability
+assignment.**
+
 
 
 ## ⭐⭐⭐ ROUND 88 — the 42 % give-back law, and why per-kernel wins are not end-to-end wins
@@ -1145,18 +1299,29 @@ k-loop staging already ships in the adopted frontier.
 
 **Assignment order when a student frees up (round 89):**
 
-1. **AGX disassembly-pipeline capability arm** — `MTLBinaryArchive` +
-   `TellowKrinkle/applegpu@M3`; headless references `dougallj/applegpu`
-   `compiler_explorer.py` and `imperatormk/metal-profiler` `extract.py:27–29`.
-   Yields static, host-independent instruction counts. **Promoted to the head
-   of the queue**: our M4→M5 transfer factor is **−0.40 ± 0.24**, so M4 wall
-   time cannot screen an instruction-bound lever at all, and both of the next
-   two items (Lever 2, `bfeil`) have an instruction count as their literal
-   success gate. This arm converts two blocked levers into measurable ones for
-   the price of one capability build, and it is the cheapest way to answer AGX
-   microbenchmark #2 ("does Apple's compiler emit `bfeil` from MSL?"). It also
-   independently checks #475's A4 result — whether the compiler already hoists
-   the router weight loads — from the disassembly rather than from wall time.
+1. **AGX instruction-census capability arm — SCOPE REDUCED by round 89b.**
+   The original plan had four stages; **S1 (get a native binary for the ranked
+   architecture) and S2 (a per-kernel instruction metric with calibration) are
+   now PROVEN by the advisor** — see ROUND 89b above and
+   `research/advisor-r89-agx-native-instruction-census.md`. `MTLBinaryArchive`
+   and the `TellowKrinkle`/`dougallj` disassembler route are **superseded**:
+   `applegpu-nt` + `metal-size -m` is simpler, targets `g17s` directly, and no
+   AGX instruction printer exists in the toolchain anyway.
+   Remaining student scope, research-only, **zero editable-surface bytes**,
+   convention `senpai/tools/<name>-probe/` (do **not** add a `Package.swift`
+   target), **needs no GPU and takes no benchmark lock** so it can run
+   concurrently with timing work:
+   **S3 — reproduce the `MLXFast.metalKernel(name:inputNames:outputNames:source:header:)`
+   wrapper** (assembly site `LRM:1037–1058`) so a Swift-generated kernel body
+   becomes a compilable standalone `.metal`. This is the one genuinely new
+   piece of engineering.
+   **S4 payloads:** (i) census the Lever 2 router tournament for g16s *and*
+   g17s and test the ≥ 40 % gate statically before spending a GPU slot;
+   (ii) re-run the NVFP4 dequant ALU-vs-LUT comparison on `g17s` at real kernel
+   scale, since §c shows memory-touching code is where architecture-invariance
+   breaks.
+   ⚠ It **cannot** check #475's A4 barrier-hoist question — the instrument is
+   blind to scheduling (§f.2). Do not scope it that way.
 2. **Frontier Lever 2 — router-tournament instruction diet, Variants C+D.**
    Sites (old base numbering — **re-grep**) `LRM:7702–7736`
    `laguna_router_top8_extract_round`, `:7745–7756`
@@ -1167,8 +1332,10 @@ k-loop staging already ships in the adopted frontier.
    Preserve `laguna_router_ordinal_before` (`:9286–9294`) verbatim. Oracle:
    `research/maple-fern-pr82-oracle.patch` + `research/maple_fern_pr82_oracle.sh`
    (5,320 winner pairs, 0 diffs). **Success gate = an instruction-counter drop
-   ≥ 40 %, not M4 wall time.** ⚠ Touches the same router kernel family as
-   #475 — do not start it until #475 is terminal, or attribution is lost.
+   ≥ 40 %, not M4 wall time — and as of round 89b that gate is measurable
+   offline for `g17s` before any GPU time is spent** (rule 42). ⚠ Touches the
+   same router kernel family as #475 — do not start it until #475 is terminal,
+   or attribution is lost.
 3. **NVFP4 fused norm→QKV, thin-boundary variant** — 🟡 **gate MET at
    PARTIAL.** #462 returned `d = 0.6806 [0.4628, 0.8984]`, inside the PARTIAL
    band `0.35 ≤ d < 1.00`, and round 89 (f) reprices the lever end-to-end at
@@ -1192,9 +1359,12 @@ k-loop staging already ships in the adopted frontier.
    (low priority — run the cheap offline histogram falsification first and kill
    it if < 15 %) · **L7** prefill `_nax` A-fragment N-tile reuse ·
    `patch_lane` peel · routed down-reduce prefetch port.
-5. **`bfeil` dequant ALU arm** aimed at `laguna_nvfp4_qdot_16` (~2.2× on the
-   shift+mask sequence). **Must not** be mixed into #469. Blocked on the
-   disassembly capability arm above for its success gate.
+5. ⛔ **`bfeil` dequant ALU arm — RETIRED round 89b, do not reassign.** It was
+   predicated on Apple's compiler failing to fuse shift+mask into a bitfield
+   extract. Measured natively for g16s and g17s: all three MSL spellings emit
+   **byte-identical** code, and adding 8 masks costs **+2 instructions, not
+   +8**. The compiler already fuses. See ROUND 89b (d). The ~2.2× figure was an
+   ISA-table extrapolation with no compiler-behaviour check behind it.
 
 ⚠ The **selector census figure of 185.7 µs is stale** — it predates the default
 tournament `rows=1` path. Re-census the glue-pool totals before using it.
