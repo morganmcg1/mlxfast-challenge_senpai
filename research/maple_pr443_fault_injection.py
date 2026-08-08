@@ -78,6 +78,53 @@ private let lagunaSharedQMVFaultActivationSuffix =
     lagunaSharedQMVFaultMode == "activation_zero" ? " * bfloat(0)" : ""
 private let lagunaSharedQMVFaultHeaderDrop =
     lagunaSharedQMVFaultMode == "header_drop" ? " && false" : ""
+
+// Reconstructs every group-16 scale byte the halved kernel would read -- the
+// group-32 plane byte for the lane pair, overridden by the patch header at the
+// two allow-listed first pairs -- and compares it against the group-16 plane
+// the default kernel reads. This is the detector the token-level tripwire is
+// not sensitive enough to be: one flipped plane byte is one mismatch.
+func lagunaSharedPlaneVerify(original: MLXArray, halved: MLXArray) {
+    let orig = original.asArray(UInt8.self)
+    let plane = halved.asArray(UInt8.self)
+    let rows = 1024
+    let g16 = 128
+    let g32 = 64
+    let headerBytes = 128
+    var mismatch = 0
+    var firstBad = -1
+    for r in 0..<rows {
+        for g in 0..<g16 {
+            var got = plane[headerBytes + r * g32 + g / 2]
+            if g == 1 && r == 0 { got = plane[0] }
+            if g == 1 && r == 512 { got = plane[1] }
+            if got != orig[r * g16 + g] {
+                mismatch += 1
+                if firstBad < 0 { firstBad = r * g16 + g }
+            }
+        }
+    }
+    FileHandle.standardError.write(Data(
+        "mlxfast: plane-verify bytes=\\(rows * g16) mismatches=\\(mismatch) "
+        + "first=\\(firstBad)"
+        + " hdr=\\(plane[0]),\\(plane[1])"
+        + " even=\\(plane[headerBytes]),\\(plane[headerBytes + 512 * g32])"
+        + " orig=\\(orig[1]),\\(orig[512 * g16 + 1])\\n".utf8))
+}
+'''
+
+VERIFY_ANCHOR = '''                _fusedGateUpHalvedScales = halved
+                prepared.append(halved)
+'''
+
+VERIFY_PATCH = '''                _fusedGateUpHalvedScales = halved
+                prepared.append(halved)
+                // RESEARCH-ONLY fault injection (PR #443, standing rule 16).
+                if ProcessInfo.processInfo.environment[
+                    "DARKBLOOM_SHARED_PLANE_VERIFY"] == "1"
+                {
+                    lagunaSharedPlaneVerify(original: fusedScales, halved: halved)
+                }
 '''
 
 PATCH_ANCHOR = "            const bool patch = patch_lane && block == 0;\n"
@@ -142,6 +189,7 @@ EDITS = [
     (MODEL, PATCH_ANCHOR, PATCH_PATCH),
     (MODEL, ACT_ANCHOR, ACT_PATCH),
     (MODEL, NAME_ANCHOR, NAME_PATCH),
+    (MODEL, VERIFY_ANCHOR, VERIFY_PATCH),
     (WEIGHTS, PLANE_ANCHOR, PLANE_PATCH),
 ]
 
