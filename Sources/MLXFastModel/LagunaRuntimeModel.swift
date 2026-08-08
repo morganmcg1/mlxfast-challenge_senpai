@@ -1728,7 +1728,7 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
 private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_v1",
+    name: "laguna_full_fused_attn_packet_v2",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
@@ -1747,9 +1747,10 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
         typedef float U;
 
-        uint pair_tg = threadgroup_position_in_grid.x;
-        uint head0 = pair_tg * 2;
+        uint packet_tg = threadgroup_position_in_grid.x;
+        uint head0 = packet_tg * packet_heads;
         uint head1 = head0 + 1;
+        uint head2 = head0 + 2;
         uint kv_head = head0 / gqa;
         uint sg = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
@@ -1758,23 +1759,20 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         uint capacity = params[2];
         float scale = scale_arr[0];
 
-        threadgroup bfloat tg_q0[head_dim];
-        threadgroup bfloat tg_q1[head_dim];
+        threadgroup bfloat tg_q[packet_heads][head_dim];
         threadgroup bfloat tg_k[head_dim];
         threadgroup bfloat tg_v[head_dim];
 
         // Phase 1: per-head RMSNorm + partial YaRN RoPE, textual replica of
         // laguna_full_qk_norm_yarn_bf16_128_v4 with the device row writes
         // retargeted at threadgroup memory.
-        if (sg < 3) {
-            const device bfloat* input =
-                sg == 0 ? raw_queries + head0 * head_dim
-                : sg == 1 ? raw_queries + head1 * head_dim
-                          : raw_keys + kv_head * head_dim;
-            const device bfloat* weight =
-                sg == 2 ? key_weight : query_weight;
-            threadgroup bfloat* outrow =
-                sg == 0 ? tg_q0 : sg == 1 ? tg_q1 : tg_k;
+        if (sg <= packet_heads) {
+            const bool query_sg = sg < packet_heads;
+            const device bfloat* input = query_sg
+                ? raw_queries + (head0 + sg) * head_dim
+                : raw_keys + kv_head * head_dim;
+            const device bfloat* weight = query_sg ? query_weight : key_weight;
+            threadgroup bfloat* outrow = query_sg ? tg_q[sg] : tg_k;
 
             uint base = lane * 4;
             thread bfloat normalized[4];
@@ -1813,7 +1811,7 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                     outrow[base + i] = normalized[i];
                 }
             }
-        } else if (sg == 3) {
+        } else if (sg == packet_heads + 1) {
             const device bfloat* vin = raw_values + kv_head * head_dim;
             for (uint i = lane; i < head_dim; i += 32) {
                 tg_v[i] = vin[i];
@@ -1835,9 +1833,8 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             }
         }
 
-        // Phase 3: GQA-pair attention over the first N rows in slot order,
-        // textual replica of the sdpa_vector pair path (runtime N, tail
-        // row included).
+        // Phase 3: packet attention over the first N rows in slot order,
+        // preserving each head's sdpa_vector arithmetic chain.
         threadgroup U outputs[4 * BN * BD];
         threadgroup U max_scores[2 * BN];
         threadgroup U sum_exp_scores[2 * BN];
@@ -1853,25 +1850,34 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
         thread U pair_q0[qk_per_thread];
         thread U pair_q1[qk_per_thread];
+        thread U pair_q2[qk_per_thread];
         thread U pair_k[qk_per_thread];
         thread U pair_o0[v_per_thread];
         thread U pair_o1[v_per_thread];
+        thread U pair_o2[v_per_thread];
 
         for (int j = 0; j < qk_per_thread; ++j) {
             pair_q0[j] =
-                static_cast<U>(scale) * tg_q0[lane * qk_per_thread + j];
+                static_cast<U>(scale) * tg_q[0][lane * qk_per_thread + j];
             pair_q1[j] =
-                static_cast<U>(scale) * tg_q1[lane * qk_per_thread + j];
+                static_cast<U>(scale) * tg_q[1][lane * qk_per_thread + j];
+            if (packet_heads == 3) {
+                pair_q2[j] =
+                    static_cast<U>(scale) * tg_q[2][lane * qk_per_thread + j];
+            }
         }
         for (int j = 0; j < v_per_thread; ++j) {
             pair_o0[j] = 0;
             pair_o1[j] = 0;
+            pair_o2[j] = 0;
         }
 
         U pair_max0 = metal::numeric_limits<U>::lowest();
         U pair_max1 = metal::numeric_limits<U>::lowest();
+        U pair_max2 = metal::numeric_limits<U>::lowest();
         U pair_sum0 = 0;
         U pair_sum1 = 0;
+        U pair_sum2 = 0;
 
         int i = sg;
         for (; i + BN < N; i += 2 * BN) {
@@ -1926,6 +1932,27 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
 
+            if (packet_heads == 3) {
+                U pair_score2 = 0;
+                pair_score2 += pair_q2[0] * pipe_ka[0];
+                pair_score2 += pair_q2[1] * pipe_ka[1];
+                pair_score2 += pair_q2[2] * pipe_ka[2];
+                pair_score2 += pair_q2[3] * pipe_ka[3];
+                pair_score2 = simd_sum(pair_score2);
+
+                U pair_new_max2 = metal::max(pair_max2, pair_score2);
+                U pair_factor2;
+                LAGUNA_RESCALE(pair_factor2, pair_max2 - pair_new_max2);
+                U pair_exp2 = metal::fast::exp(pair_score2 - pair_new_max2);
+
+                pair_max2 = pair_new_max2;
+                pair_sum2 = pair_sum2 * pair_factor2 + pair_exp2;
+                pair_o2[0] = pair_o2[0] * pair_factor2 + pair_exp2 * pipe_va0;
+                pair_o2[1] = pair_o2[1] * pair_factor2 + pair_exp2 * pipe_va1;
+                pair_o2[2] = pair_o2[2] * pair_factor2 + pair_exp2 * pipe_va2;
+                pair_o2[3] = pair_o2[3] * pair_factor2 + pair_exp2 * pipe_va3;
+            }
+
             U pipeb_score0 = 0;
             U pipeb_score1 = 0;
             pipeb_score0 += pair_q0[0] * pipe_kb[0];
@@ -1961,6 +1988,27 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * pipe_vb2;
             pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
             pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
+
+            if (packet_heads == 3) {
+                U pipeb_score2 = 0;
+                pipeb_score2 += pair_q2[0] * pipe_kb[0];
+                pipeb_score2 += pair_q2[1] * pipe_kb[1];
+                pipeb_score2 += pair_q2[2] * pipe_kb[2];
+                pipeb_score2 += pair_q2[3] * pipe_kb[3];
+                pipeb_score2 = simd_sum(pipeb_score2);
+
+                U pipeb_new_max2 = metal::max(pair_max2, pipeb_score2);
+                U pipeb_factor2;
+                LAGUNA_RESCALE(pipeb_factor2, pair_max2 - pipeb_new_max2);
+                U pipeb_exp2 = metal::fast::exp(pipeb_score2 - pipeb_new_max2);
+
+                pair_max2 = pipeb_new_max2;
+                pair_sum2 = pair_sum2 * pipeb_factor2 + pipeb_exp2;
+                pair_o2[0] = pair_o2[0] * pipeb_factor2 + pipeb_exp2 * pipe_vb0;
+                pair_o2[1] = pair_o2[1] * pipeb_factor2 + pipeb_exp2 * pipe_vb1;
+                pair_o2[2] = pair_o2[2] * pipeb_factor2 + pipeb_exp2 * pipe_vb2;
+                pair_o2[3] = pair_o2[3] * pipeb_factor2 + pipeb_exp2 * pipe_vb3;
+            }
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
@@ -2007,6 +2055,27 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
+
+            if (packet_heads == 3) {
+                U pair_score2 = 0;
+                pair_score2 += pair_q2[0] * pair_k[0];
+                pair_score2 += pair_q2[1] * pair_k[1];
+                pair_score2 += pair_q2[2] * pair_k[2];
+                pair_score2 += pair_q2[3] * pair_k[3];
+                pair_score2 = simd_sum(pair_score2);
+
+                U pair_new_max2 = metal::max(pair_max2, pair_score2);
+                U pair_factor2;
+                LAGUNA_RESCALE(pair_factor2, pair_max2 - pair_new_max2);
+                U pair_exp2 = metal::fast::exp(pair_score2 - pair_new_max2);
+
+                pair_max2 = pair_new_max2;
+                pair_sum2 = pair_sum2 * pair_factor2 + pair_exp2;
+                pair_o2[0] = pair_o2[0] * pair_factor2 + pair_exp2 * pipe_va0;
+                pair_o2[1] = pair_o2[1] * pair_factor2 + pair_exp2 * pipe_va1;
+                pair_o2[2] = pair_o2[2] * pair_factor2 + pair_exp2 * pipe_va2;
+                pair_o2[3] = pair_o2[3] * pair_factor2 + pair_exp2 * pipe_va3;
+            }
         }
 
         // Combine: promoted two-plane exchange, textual replica of the
@@ -2081,6 +2150,52 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
             }
         }
+
+        if (packet_heads == 3) {
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (lane == 0) {
+                max_scores[sg] = pair_max2;
+                sum_exp_scores[sg] = pair_sum2;
+            }
+            for (int p = 0; p < pair_planes; ++p) {
+                outputs[p * pair_plane_size + lane * BD + sg] = pair_o2[p];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
+            pair_max2 = max_scores[lane];
+            U pair_global_max2 = simd_max(pair_max2);
+            U pair_global_factor2 =
+                metal::fast::exp(pair_max2 - pair_global_max2);
+            pair_sum2 = simd_sum(sum_exp_scores[lane] * pair_global_factor2);
+            for (int p = 0; p < pair_planes; ++p) {
+                U acc2 = simd_sum(
+                    outputs[p * pair_plane_size + sg * BD + lane] *
+                    pair_global_factor2);
+                pair_o2[p] = pair_sum2 == 0 ? acc2 : (acc2 / pair_sum2);
+            }
+
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            for (int p = 0; p < pair_planes; ++p) {
+                outputs[p * pair_plane_size + lane * BD + sg] =
+                    pair_o2[pair_planes + p];
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            for (int p = 0; p < pair_planes; ++p) {
+                U acc2 = simd_sum(
+                    outputs[p * pair_plane_size + sg * BD + lane] *
+                    pair_global_factor2);
+                pair_o2[pair_planes + p] =
+                    pair_sum2 == 0 ? acc2 : (acc2 / pair_sum2);
+            }
+
+            if (lane == 0) {
+                device bfloat* pair_out2 =
+                    attended + head2 * head_dim + sg * v_per_thread;
+                for (int p = 0; p < v_per_thread; ++p) {
+                    pair_out2[p] = static_cast<bfloat>(pair_o2[p]);
+                }
+            }
+        }
         """,
     header: """
         #define LAGUNA_RESCALE(dst, delta_expr)         \\
@@ -2149,11 +2264,14 @@ func lagunaFullFusedAttention(
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
-    scale: MLXArray
+    scale: MLXArray,
+    packetHeads: Int = 3
 ) -> MLXArray {
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
     let capacity = cacheKeys.dim(2)
+    precondition(packetHeads == 2 || packetHeads == 3)
+    precondition(heads.isMultiple(of: packetHeads))
     precondition(rawQueries.dtype == .bfloat16)
     precondition(rawKeys.dtype == .bfloat16)
     precondition(rawValues.dtype == .bfloat16)
@@ -2181,7 +2299,8 @@ func lagunaFullFusedAttention(
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        grid: ((heads / 2) * 1024, 1, 1),
+        template: [("packet_heads", packetHeads)],
+        grid: ((heads / packetHeads) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
         outputDTypes: [.bfloat16]

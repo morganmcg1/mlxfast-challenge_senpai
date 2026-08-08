@@ -17,6 +17,129 @@ func lagunaExpertAlignedGatherRequiresNAXHardwareAndOS() {
 }
 
 @Test
+func lagunaFullAttentionTriplePacketMatchesPairPacketBitExactlyWhenRuntimeTestsAreEnabled() {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
+        return
+    }
+
+    let headDim = LagunaConstants.headDim
+    let heads = LagunaConstants.fullAttentionHeads
+    let kvHeads = LagunaConstants.numKeyValueHeads
+    let capacity = 640
+    let queryValues = (0..<(heads * headDim)).map {
+        Float(($0 * 17) % 127 - 63) / 64
+    }
+    let rawQueries = MLXArray(
+        queryValues, [1, 1, heads * headDim]
+    ).asType(.bfloat16)
+    let rawKeys = MLXArray.full(
+        [1, 1, kvHeads * headDim],
+        values: MLXArray(Float(1)),
+        dtype: .bfloat16
+    )
+    let rawValues = MLXArray.full(
+        [1, 1, kvHeads * headDim],
+        values: MLXArray(Float(0.125)),
+        dtype: .bfloat16
+    )
+    let queryWeight = MLXArray.ones([headDim], dtype: .bfloat16)
+    let keyWeight = MLXArray.ones([headDim], dtype: .bfloat16)
+    let angles = MLXArray(
+        Array(repeating: Float(1), count: headDim / 4)
+            + Array(repeating: Float(0), count: headDim / 4),
+        [1, 1, 1, headDim / 2]
+    )
+    let scale = MLXArray([pow(Float(headDim), -0.5)])
+    let keySentinel = MLXArray(Float(-0.25)).asType(.bfloat16)
+        .view(dtype: .uint16).item(UInt16.self)
+    let valueSentinel = MLXArray(Float(-0.375)).asType(.bfloat16)
+        .view(dtype: .uint16).item(UInt16.self)
+
+    for writeIdx in [1, 31, 32, 511, 512, 639] {
+        let pairKeys = MLXArray.full(
+            [1, kvHeads, capacity, headDim],
+            values: MLXArray(Float(-0.25)),
+            dtype: .bfloat16
+        )
+        let pairValues = MLXArray.full(
+            [1, kvHeads, capacity, headDim],
+            values: MLXArray(Float(-0.375)),
+            dtype: .bfloat16
+        )
+        let tripleKeys = MLXArray.full(
+            [1, kvHeads, capacity, headDim],
+            values: MLXArray(Float(-0.25)),
+            dtype: .bfloat16
+        )
+        let tripleValues = MLXArray.full(
+            [1, kvHeads, capacity, headDim],
+            values: MLXArray(Float(-0.375)),
+            dtype: .bfloat16
+        )
+        eval(pairKeys, pairValues, tripleKeys, tripleValues)
+
+        let pairOutput = lagunaFullFusedAttention(
+            rawQueries: rawQueries,
+            rawKeys: rawKeys,
+            rawValues: rawValues,
+            queryWeight: queryWeight,
+            keyWeight: keyWeight,
+            angles: angles,
+            cacheKeys: pairKeys,
+            cacheValues: pairValues,
+            writeIdx: writeIdx,
+            scale: scale,
+            packetHeads: 2
+        )
+        eval(pairOutput)
+        let tripleOutput = lagunaFullFusedAttention(
+            rawQueries: rawQueries,
+            rawKeys: rawKeys,
+            rawValues: rawValues,
+            queryWeight: queryWeight,
+            keyWeight: keyWeight,
+            angles: angles,
+            cacheKeys: tripleKeys,
+            cacheValues: tripleValues,
+            writeIdx: writeIdx,
+            scale: scale,
+            packetHeads: 3
+        )
+        eval(tripleOutput)
+
+        let pairOutputBits = pairOutput.view(dtype: .uint16).asArray(UInt16.self)
+        let tripleOutputBits = tripleOutput.view(dtype: .uint16).asArray(UInt16.self)
+        let pairKeyBits = pairKeys.view(dtype: .uint16).asArray(UInt16.self)
+        let tripleKeyBits = tripleKeys.view(dtype: .uint16).asArray(UInt16.self)
+        let pairValueBits = pairValues.view(dtype: .uint16).asArray(UInt16.self)
+        let tripleValueBits = tripleValues.view(dtype: .uint16).asArray(UInt16.self)
+
+        #expect(pairOutputBits == tripleOutputBits)
+        #expect(pairKeyBits == tripleKeyBits)
+        #expect(pairValueBits == tripleValueBits)
+
+        let changedKeyIndices = pairKeyBits.indices.filter {
+            pairKeyBits[$0] != keySentinel
+        }
+        let changedValueIndices = pairValueBits.indices.filter {
+            pairValueBits[$0] != valueSentinel
+        }
+        #expect(changedKeyIndices.count == kvHeads * headDim)
+        #expect(changedValueIndices.count == kvHeads * headDim)
+        #expect(changedKeyIndices.allSatisfy {
+            ($0 % (capacity * headDim)) / headDim == writeIdx
+        })
+        #expect(changedValueIndices.allSatisfy {
+            ($0 % (capacity * headDim)) / headDim == writeIdx
+        })
+
+        var corruptedOutputBits = tripleOutputBits
+        corruptedOutputBits[corruptedOutputBits.count / 2] ^= 1
+        #expect(pairOutputBits != corruptedOutputBits)
+    }
+}
+
+@Test
 func lagunaExpertAlignedGatherRequiresPackedStageVariant() {
     #expect(lagunaExpertAlignedStageEnabled(nil))
     #expect(lagunaExpertAlignedStageEnabled(""))
