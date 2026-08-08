@@ -373,8 +373,9 @@ func lagunaRouterSharedFusionMeasuresCriticalPathWhenEnabled() throws {
             fusedFirstControl += controlSeconds
             fusedFirstFused += fusedSeconds
         }
+        let order = controlFirst ? "AB" : "BA"
         print(
-            "ROUTER_SHARED_CRITICAL pair=\(pair + 1) order=\(controlFirst ? \"AB\" : \"BA\") "
+            "ROUTER_SHARED_CRITICAL pair=\(pair + 1) order=\(order) "
                 + "repetitions=\(repetitions) control_s=\(controlSeconds) "
                 + "fused_s=\(fusedSeconds) speedup=\(controlSeconds / fusedSeconds)"
         )
