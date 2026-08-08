@@ -228,6 +228,13 @@ func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
 // Disabled for now — will be enabled when the M5 build is confirmed working.
 let lagunaPrefillSharedHalvedEnabled = false
 
+/// Prefill shared-expert fusion into the routed gather-QMM: builds a combined
+/// 257-expert bank (256 routed tile-interleaved + 1 shared tile-interleaved)
+/// and dispatches one gather-QMM for gate/up and one for down, eliminating the
+/// shared expert's 3 separate prefill dispatches. Default OFF; set "1" to enable.
+let lagunaPrefillFusedRoutedSharedEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_FUSED_ROUTED_SHARED"] == "1"
+
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
 /// and the normalized row (consumed immediately by the MLP), eliminating a
@@ -6009,6 +6016,73 @@ private func lagunaPrefillSortedMoETail(
     )[0]
 }
 
+/// Fused routed+shared tail kernel: weighted expert combine for 8 routed
+/// experts (scaled by routedScalingFactor) + unweighted shared expert add +
+/// residual add, all in one elementwise dispatch. The shared expert (slot 8)
+/// is added without a router weight or scale, matching the stock
+/// `residual + (routedScalingFactor * sum(w[i] * routedOuts[i]) + sharedOut)`.
+private let lagunaPrefillFusedRoutedSharedTailKernel = MLXFast.metalKernel(
+    name: "laguna_prefill_fused_routed_shared_tail_bf16_v1",
+    inputNames: ["expert_outputs", "router_weights", "residual"],
+    outputNames: ["output"],
+    source: """
+        constexpr uint hidden = 2048;
+        constexpr uint routed_experts = 8;
+        constexpr uint n_cols = 4;
+
+        uint row = thread_position_in_grid.y;
+        uint col = thread_position_in_grid.x * n_cols;
+        const device float* weight_row = router_weights + row * (routed_experts + 1);
+
+        bfloat expert_weights[routed_experts];
+        for (uint e = 0; e < routed_experts; ++e) {
+            expert_weights[e] = bfloat(weight_row[e]);
+        }
+
+        for (uint i = 0; i < n_cols; ++i) {
+            bfloat total = bfloat(0);
+            for (uint e = 0; e < routed_experts; ++e) {
+                bfloat product = bfloat(
+                    expert_outputs[row * (routed_experts + 1) * hidden
+                                   + e * hidden + col + i] *
+                    expert_weights[e]);
+                total = bfloat(product + total);
+            }
+            bfloat scaled = bfloat(total * bfloat(2.5f));
+            bfloat shared_val = expert_outputs[row * (routed_experts + 1) * hidden
+                                               + routed_experts * hidden + col + i];
+            bfloat r2 = bfloat(scaled + shared_val);
+            output[row * hidden + col + i] =
+                bfloat(residual[row * hidden + col + i] + r2);
+        }
+        """,
+    ensureRowContiguous: true
+)
+
+private func lagunaPrefillFusedRoutedSharedTail(
+    expertOutputs: MLXArray,
+    routerWeights: MLXArray,
+    residual: MLXArray
+) -> MLXArray {
+    let rows = expertOutputs.dim(1)
+    let totalSlots = LagunaConstants.numExpertsPerTok + 1
+    precondition(expertOutputs.dtype == .bfloat16)
+    precondition(
+        expertOutputs.dims(1, rows, totalSlots, LagunaConstants.hiddenSize))
+    precondition(routerWeights.dtype == .float32)
+    precondition(routerWeights.dims(1, rows, totalSlots))
+    precondition(residual.dtype == .bfloat16)
+    precondition(residual.dims(1, rows, LagunaConstants.hiddenSize))
+
+    return lagunaPrefillFusedRoutedSharedTailKernel(
+        [expertOutputs, routerWeights, residual],
+        grid: (LagunaConstants.hiddenSize / 4, rows, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [[1, rows, LagunaConstants.hiddenSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
 /// Reconstructs the stock SwiGLU result from the retained bank's physical
 /// `[gate32, up32]` tile order. This is the correctness-preserving fallback
 /// when the expert-aligned backend is disabled.
@@ -6165,6 +6239,13 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// Halved fused gate/up scales [experts, 2*split, K/32] + escape [experts, 2].
     var _halvedFusedRoutedGateUpScales: MLXArray?
     var _fusedRoutedGateUpScalesEscape: MLXArray?
+    /// Combined 257-expert banks for the fused routed+shared prefill dispatch.
+    /// Built by `prepareFusedRoutedSharedBanks` when
+    /// `DARKBLOOM_PREFILL_FUSED_ROUTED_SHARED=1`.
+    var _fusedRoutedSharedGateUpWeight: MLXArray?
+    var _fusedRoutedSharedGateUpScales: MLXArray?
+    var _fusedRoutedSharedDownWeight: MLXArray?
+    var _fusedRoutedSharedDownScales: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -6281,6 +6362,76 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 split: split))
         prepared.append(contentsOf: [halvedDown, downEscape])
         return prepared
+    }
+
+    /// Builds a combined 257-expert bank (256 routed + 1 shared) for the
+    /// prefill fused routed+shared dispatch. The shared expert's row-concatenated
+    /// [gate; up] bank is converted to the same tile-interleaved [gate32, up32]
+    /// layout as the routed experts, then concatenated along the expert axis.
+    /// CAUTION: `concatenated()` along axis 0 copies the entire 256-expert
+    /// routed bank (~256 MB/layer). This is the known memory cost of this
+    /// approach. Default OFF; only called when
+    /// `DARKBLOOM_PREFILL_FUSED_ROUTED_SHARED=1`.
+    func prepareFusedRoutedSharedBanks() -> [MLXArray] {
+        guard _fusedRoutedSharedGateUpWeight == nil,
+            let routedWeight = _fusedRoutedGateUpWeight,
+            let routedScales = _fusedRoutedGateUpScales,
+            let routedDownWeight = _routedDownWeight,
+            let routedDownScales = _routedDownScales,
+            let sharedGateUpWeight = sharedExpert._fusedGateUpWeight,
+            let sharedGateUpScales = sharedExpert._fusedGateUpScales,
+            let sharedDown = sharedExpert.downProj as? QuantizedLinear,
+            sharedGateUpWeight.dtype == .uint32,
+            sharedGateUpScales.dtype == .uint8,
+            sharedDown.weight.dtype == .uint32,
+            sharedDown.scales.dtype == .uint8,
+            _fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize,
+            sharedExpert._fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize,
+            LagunaConstants.moeIntermediateSize == LagunaConstants.sharedExpertIntermediateSize
+        else {
+            return []
+        }
+        let split = LagunaConstants.moeIntermediateSize
+        let pairRows = 32
+        let weightDepth = routedWeight.dim(2)
+        let scaleDepth = routedScales.dim(2)
+        let sharedGateWeight = sharedGateUpWeight[0..<split]
+        let sharedUpWeight = sharedGateUpWeight[split..<2*split]
+        let sharedGateScales = sharedGateUpScales[0..<split]
+        let sharedUpScales = sharedGateUpScales[split..<2*split]
+        let sharedGateWeightTiles = sharedGateWeight.reshaped(
+            [split / pairRows, pairRows, weightDepth])
+        let sharedUpWeightTiles = sharedUpWeight.reshaped(
+            [split / pairRows, pairRows, weightDepth])
+        let sharedGateScaleTiles = sharedGateScales.reshaped(
+            [split / pairRows, pairRows, scaleDepth])
+        let sharedUpScaleTiles = sharedUpScales.reshaped(
+            [split / pairRows, pairRows, scaleDepth])
+        let sharedFusedWeight = concatenated(
+            [sharedGateWeightTiles, sharedUpWeightTiles], axis: 1
+        ).reshaped([2 * split, weightDepth]).reshaped(
+            [1, 2 * split, weightDepth])
+        let sharedFusedScales = concatenated(
+            [sharedGateScaleTiles, sharedUpScaleTiles], axis: 1
+        ).reshaped([2 * split, scaleDepth]).reshaped(
+            [1, 2 * split, scaleDepth])
+        let combinedWeight = concatenated(
+            [routedWeight, sharedFusedWeight], axis: 0)
+        let combinedScales = concatenated(
+            [routedScales, sharedFusedScales], axis: 0)
+        _fusedRoutedSharedGateUpWeight = combinedWeight
+        _fusedRoutedSharedGateUpScales = combinedScales
+        let sharedDownWeight3D = sharedDown.weight.reshaped(
+            [1, sharedDown.weight.dim(0), sharedDown.weight.dim(1)])
+        let sharedDownScales3D = sharedDown.scales.reshaped(
+            [1, sharedDown.scales.dim(0), sharedDown.scales.dim(1)])
+        let combinedDownWeight = concatenated(
+            [routedDownWeight, sharedDownWeight3D], axis: 0)
+        let combinedDownScales = concatenated(
+            [routedDownScales, sharedDownScales3D], axis: 0)
+        _fusedRoutedSharedDownWeight = combinedDownWeight
+        _fusedRoutedSharedDownScales = combinedDownScales
+        return [combinedWeight, combinedScales, combinedDownWeight, combinedDownScales]
     }
 
     /// Builds the `DARKBLOOM_PACKED_SCALES` side bank from the (lazy) fused
@@ -6511,7 +6662,97 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // produced, so every consumer below (including the
             // `lagunaPrefillMoETailEnabled` tail fusion) is unaffected by
             // which branch ran.
-            if lagunaPrefillFusedRoutedGateUpEnabled,
+            if lagunaPrefillFusedRoutedSharedEnabled,
+                let combinedWeight = _fusedRoutedSharedGateUpWeight,
+                let combinedScales = _fusedRoutedSharedGateUpScales,
+                let combinedDownWeight = _fusedRoutedSharedDownWeight,
+                let combinedDownScales = _fusedRoutedSharedDownScales,
+                x.dim(1) > 1,
+                inds.size >= 64
+            {
+                lagunaTrace("prefill fused routed+shared gate/up")
+                let numRouted = LagunaConstants.numExpertsPerTok
+                let totalSlots = numRouted + 1
+                // Append shared expert index (256) to every token's routed
+                // indices, so the gather-QMM produces 9 expert outputs per token.
+                let sharedIdx = MLXArray(
+                    [Int32](repeating: 256, count: x.dim(1)))
+                    .reshaped([x.dim(1), 1])
+                let expandedInds = inds.ndim == 3
+                    ? inds : MLX.expandedDimensions(inds, axes: [-2])
+                let routedFlat = expandedInds.reshaped(
+                    [x.dim(1), numRouted])
+                let combinedInds = concatenated(
+                    [routedFlat, sharedIdx], axis: 1)
+                    .reshaped([1, x.dim(1), totalSlots])
+                let expanded = MLX.expandedDimensions(x, axes: [-2, -3])
+                let gateUp = MLX.gatherQuantizedMM(
+                    expanded,
+                    combinedWeight,
+                    scales: combinedScales,
+                    biases: nil,
+                    rhsIndices: combinedInds,
+                    transpose: true,
+                    groupSize: 16,
+                    bits: 4,
+                    mode: .nvfp4,
+                    sortedIndices: false
+                )
+                let activated = lagunaInterleavedSwiGLU(
+                    gateUp, split: LagunaConstants.moeIntermediateSize)
+                let downOut = MLX.gatherQuantizedMM(
+                    activated,
+                    combinedDownWeight,
+                    scales: combinedDownScales,
+                    biases: nil,
+                    rhsIndices: combinedInds,
+                    transpose: true,
+                    groupSize: 16,
+                    bits: 4,
+                    mode: .nvfp4,
+                    sortedIndices: false
+                )
+                y = MLX.squeezed(downOut, axis: -2)
+                // Use the fused tail kernel: routed (weighted) + shared
+                // (unweighted) + residual, all in one dispatch.
+                if let residual,
+                    y.dtype == .bfloat16,
+                    y.ndim == 4,
+                    y.dim(0) == 1,
+                    y.dim(1) == x.dim(1),
+                    y.dim(2) == totalSlots,
+                    y.dim(3) == LagunaConstants.hiddenSize,
+                    weights.dtype == .float32,
+                    weights.dims(1, x.dim(1), numRouted)
+                {
+                    let sharedOnes = MLXArray.ones(
+                        [1, x.dim(1), 1], dtype: .float32)
+                    let combinedWeights = concatenated(
+                        [weights.reshaped([1, x.dim(1), numRouted]),
+                         sharedOnes],
+                        axis: 2)
+                    lagunaTrace("prefill fused routed+shared tail")
+                    return lagunaPrefillFusedRoutedSharedTail(
+                        expertOutputs: y,
+                        routerWeights: combinedWeights,
+                        residual: residual
+                    )
+                }
+                // Fallback: unsorted path, reduce manually
+                var routedOut = y[0..., 0..., 0..<numRouted, 0...]
+                routedOut = MLX.squeezed(routedOut, axis: -2)
+                var reduced = weightedExpertSum(
+                    routedOut, weights.asType(routedOut.dtype))
+                if routedScalingFactor != 1 {
+                    reduced = reduced * routedScalingFactor
+                }
+                let sharedOut = MLX.squeezed(
+                    y[0..., 0..., numRouted..<totalSlots, 0...], axis: -2)
+                if let residual {
+                    return residual + (reduced + sharedOut)
+                }
+                return reduced + sharedOut
+            } else if lagunaPrefillFusedRoutedGateUpEnabled,
                 let fusedWeight = _fusedRoutedGateUpWeight,
                 let fusedScales = _fusedRoutedGateUpScales,
                 let downProj = _routedDownProj,
@@ -7376,6 +7617,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 }
                 if lagunaFusedRoutedGateUpEnabled {
                     fusedArrays.append(contentsOf: sparse.prepareFusedRoutedGateUp())
+                }
+                if lagunaPrefillFusedRoutedSharedEnabled {
+                    fusedArrays.append(contentsOf: sparse.prepareFusedRoutedSharedBanks())
                 }
                 fusedArrays.append(sparse.gate.correctionBiasF32)
             } else if let dense = layer.mlp as? LagunaRuntimeMLP {
