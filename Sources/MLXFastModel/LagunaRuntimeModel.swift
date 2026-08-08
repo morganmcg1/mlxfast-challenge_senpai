@@ -590,24 +590,6 @@ let lagunaFusedDenseGateUpSwiGLUEnabled =
 let lagunaFusedDenseDownResidualEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_DENSE_DOWN_RESIDUAL"] != "0"
 
-/// `DARKBLOOM_ROUTER_ROWS_PER_GROUP` (default `8`; set `64` to restore the
-/// pre-widening shape, `32`/`16` for intermediate points, `4`/`2`/`1` for the
-/// sub-8 shapes): router output rows owned by one threadgroup in
-/// `laguna_residual_rms_router_bf16_2048`.
-///
-/// At `64` only 4 threadgroups (140 GB/s, 24% of box). Halving doubles tiles: 8->32.
-/// Bit-exact: only changes which threadgroup owns which row; no add regrouped.
-/// Sub-8 is measured null (redundant norm cancels extra-tile overlap).
-let lagunaRouterRowsPerGroup: Int = {
-    guard
-        let raw = ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ROWS_PER_GROUP"],
-        let value = Int(raw), [1, 2, 4, 8, 16, 32, 64].contains(value)
-    else {
-        return 8
-    }
-    return value
-}()
-
 /// `DARKBLOOM_DECODE_ASYNC_STAGE` (default `at:1,7,15,23,31,39`): process-once
 /// boundary schedule for decode-step async scheduling. Active only when the
 /// invocation input shape is exactly `[1, 1]`; prefill and multi-token shapes
@@ -887,26 +869,18 @@ private func lagunaResidualRMSNormRouterSource(rowsPerGroup: Int) -> String {
         """
 }
 
-/// One kernel per supported `rows_per_group`, all built eagerly so that every
-/// arm of an ablation is served by the same binary (`notes/00`'s one-binary
-/// rule). MLX keys its JIT library cache by name and clears it when a name's
-/// source changes (`custom_kernel.cpp:58-68`), so the variant MUST be in the
-/// name or four sources would thrash one cache entry.
-private let lagunaResidualRMSNormRouterKernels: [Int: MLXFast.MLXFastKernel] =
-    Dictionary(
-        uniqueKeysWithValues: [1, 2, 4, 8, 16, 32, 64].map { rowsPerGroup in
-            (
-                rowsPerGroup,
-                MLXFast.metalKernel(
-                    name: "laguna_residual_rms_router_bf16_2048_rpg\(rowsPerGroup)_v2",
-                    inputNames: ["residual", "branch", "weight", "router_weight"],
-                    outputNames: ["summed", "normalized", "router_logits"],
-                    source: lagunaResidualRMSNormRouterSource(rowsPerGroup: rowsPerGroup),
-                    header: "",
-                    ensureRowContiguous: true
-                )
-            )
-        })
+/// Single router kernel: only `rows_per_group == 8` is ever dispatched (the
+/// default). The rpg1/2/4/16/32/64 ablation variants were deleted as dead code;
+/// MLX JIT is lazy so they never compiled, but their source strings consumed
+/// submission-surface bytes.
+private let lagunaResidualRMSNormRouterKernel = MLXFast.metalKernel(
+    name: "laguna_residual_rms_router_bf16_2048_rpg8_v2",
+    inputNames: ["residual", "branch", "weight", "router_weight"],
+    outputNames: ["summed", "normalized", "router_logits"],
+    source: lagunaResidualRMSNormRouterSource(rowsPerGroup: 8),
+    header: "",
+    ensureRowContiguous: true
+)
 
 /// Residual add + RMSNorm for the layers whose MLP is not a sparse block
 /// (layer 0) and for any shape the router fusion above declines.
@@ -967,18 +941,15 @@ func lagunaResidualRMSNormRouter(
     precondition(routerWeight.dims(experts, hidden))
     precondition(correctionBias.dims(experts))
 
-    // `rows_per_group` router rows per threadgroup, so 256 / rows_per_group
-    // tiles. Divides exactly for 64/32/16/8/4/2/1 (4..256 tiles), so no partial
-    // tile is dispatched and no row is computed twice or missed. The 512-thread
-    // threadgroup and `n_reads == 4` are NOT knobs: they are load-bearing for
-    // the `rms_single_row` correspondence (each thread squares its own
+    // 8 router rows per threadgroup → 256/8 = 32 tiles. The 512-thread
+    // threadgroup and `n_reads == 4` are load-bearing for the
+    // `rms_single_row` correspondence (each thread squares its own
     // contiguous four elements), and moving either regroups the FP32 RMS
     // summation and forfeits bit-exactness.
-    let rowsPerGroup = lagunaRouterRowsPerGroup
-    let tiles = experts / rowsPerGroup
-    lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
+    let tiles = experts / 8
+    lagunaTrace("residual+rmsnorm+router rpg8")
     let inputs = [residual, branch, weight, routerWeight]
-    let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
+    let outputs = lagunaResidualRMSNormRouterKernel(
         inputs,
         grid: (tiles * 512, 1, 1),
         threadGroup: (512, 1, 1),
