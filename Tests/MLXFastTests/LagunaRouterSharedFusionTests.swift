@@ -1,5 +1,6 @@
 import Foundation
 import MLX
+import MLXNN
 import Testing
 @testable import MLXFastModel
 
@@ -195,6 +196,195 @@ func lagunaRouterSharedFusionMatchesControlAndMeasuresProducerWhenEnabled() thro
     )
     print(
         "ROUTER_SHARED_PRODUCER_SUMMARY order=BA speedup="
+            + "\(fusedFirstControl / fusedFirstFused)"
+    )
+}
+
+private func loadSparseMoEBlock() throws -> LagunaRuntimeSparseMoEBlock {
+    let weightsPath = ProcessInfo.processInfo.environment[
+        "MLXFAST_LAGUNA_FUSION_WEIGHTS_PATH"
+    ] ?? "weights"
+    let config = try LagunaConfig.load(from: weightsPath)
+    let block = LagunaRuntimeSparseMoEBlock(config)
+    quantize(model: block) { path, _ in
+        if path.contains("switch_mlp") || path.contains("shared_expert") {
+            return (
+                groupSize: config.quantization.groupSize,
+                bits: config.quantization.bits,
+                mode: .nvfp4
+            )
+        }
+        return nil
+    }
+
+    let store = try DenseTensorStore(weightsPath: weightsPath)
+    let bridge = MLXArrayTensorBridge()
+    let keys = [
+        "gate.weight",
+        "gate.e_score_correction_bias",
+        "switch_mlp.gate_proj.weight",
+        "switch_mlp.gate_proj.scales",
+        "switch_mlp.up_proj.weight",
+        "switch_mlp.up_proj.scales",
+        "switch_mlp.down_proj.weight",
+        "switch_mlp.down_proj.scales",
+        "shared_expert.gate_proj.weight",
+        "shared_expert.gate_proj.scales",
+        "shared_expert.up_proj.weight",
+        "shared_expert.up_proj.scales",
+        "shared_expert.down_proj.weight",
+        "shared_expert.down_proj.scales",
+    ]
+    var parameters = [String: MLXArray]()
+    for key in keys {
+        parameters[key] = try bridge.makeArray(
+            from: store.materializedTensor(named: LagunaWeightNames.mlp(1, key)))
+    }
+    try block.update(
+        parameters: ModuleParameters.unflattened(parameters), verify: [.all])
+    eval(block)
+
+    var prepared = block.sharedExpert.prepareFusedSharedGateUp()
+    prepared.append(contentsOf: block.prepareFusedRoutedGateUp())
+    eval(prepared)
+    #expect(prepared.count == 5)
+    #expect(block._packedRoutedGateUpBank != nil)
+    #expect(
+        block.fusedSharedBanks(
+            MLXArray.zeros([1, 1, LagunaConstants.hiddenSize]).asType(.bfloat16)
+        ) != nil
+    )
+    return block
+}
+
+private func criticalOutputs(
+    residual: MLXArray,
+    branch: MLXArray,
+    fixture: RouterSharedFixture,
+    block: LagunaRuntimeSparseMoEBlock,
+    fusedProducer: Bool
+) -> [MLXArray] {
+    let producer = fusedProducer
+        ? fusedOutputs(residual: residual, branch: branch, fixture: fixture)
+        : controlOutputs(residual: residual, branch: branch, fixture: fixture)
+    return [block(
+        producer[1],
+        residual: producer[0],
+        routerLogits: producer[2],
+        sharedActivation: producer[3]
+    )]
+}
+
+@Test
+func lagunaRouterSharedFusionMeasuresCriticalPathWhenEnabled() throws {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_ROUTER_SHARED_CRITICAL_TEST"] == "1"
+    else {
+        return
+    }
+
+    let fixture = try loadRouterSharedFixture()
+    let block = try loadSparseMoEBlock()
+    let control = criticalOutputs(
+        residual: fixture.residual,
+        branch: fixture.branch,
+        fixture: fixture,
+        block: block,
+        fusedProducer: false
+    )
+    let fused = criticalOutputs(
+        residual: fixture.residual,
+        branch: fixture.branch,
+        fixture: fixture,
+        block: block,
+        fusedProducer: true
+    )
+    eval(control)
+    eval(fused)
+    let differences = differingElements(control[0], fused[0])
+    print("ROUTER_SHARED_CRITICAL_CORRECTNESS diffs=\(differences)")
+    #expect(differences == 0)
+
+    for _ in 0..<12 {
+        eval(criticalOutputs(
+            residual: fixture.residual,
+            branch: fixture.branch,
+            fixture: fixture,
+            block: block,
+            fusedProducer: false
+        ))
+        eval(criticalOutputs(
+            residual: fixture.residual,
+            branch: fixture.branch,
+            fixture: fixture,
+            block: block,
+            fusedProducer: true
+        ))
+    }
+
+    let repetitions = 100
+    var controlFirstControl = 0.0
+    var controlFirstFused = 0.0
+    var fusedFirstControl = 0.0
+    var fusedFirstFused = 0.0
+    for pair in 0..<6 {
+        let controlFirst = pair.isMultiple(of: 2)
+        let controlSeconds: Double
+        let fusedSeconds: Double
+        if controlFirst {
+            controlSeconds = elapsedSeconds(repetitions: repetitions) {
+                criticalOutputs(
+                    residual: fixture.residual,
+                    branch: fixture.branch,
+                    fixture: fixture,
+                    block: block,
+                    fusedProducer: false
+                )
+            }
+            fusedSeconds = elapsedSeconds(repetitions: repetitions) {
+                criticalOutputs(
+                    residual: fixture.residual,
+                    branch: fixture.branch,
+                    fixture: fixture,
+                    block: block,
+                    fusedProducer: true
+                )
+            }
+            controlFirstControl += controlSeconds
+            controlFirstFused += fusedSeconds
+        } else {
+            fusedSeconds = elapsedSeconds(repetitions: repetitions) {
+                criticalOutputs(
+                    residual: fixture.residual,
+                    branch: fixture.branch,
+                    fixture: fixture,
+                    block: block,
+                    fusedProducer: true
+                )
+            }
+            controlSeconds = elapsedSeconds(repetitions: repetitions) {
+                criticalOutputs(
+                    residual: fixture.residual,
+                    branch: fixture.branch,
+                    fixture: fixture,
+                    block: block,
+                    fusedProducer: false
+                )
+            }
+            fusedFirstControl += controlSeconds
+            fusedFirstFused += fusedSeconds
+        }
+        print(
+            "ROUTER_SHARED_CRITICAL pair=\(pair + 1) order=\(controlFirst ? \"AB\" : \"BA\") "
+                + "repetitions=\(repetitions) control_s=\(controlSeconds) "
+                + "fused_s=\(fusedSeconds) speedup=\(controlSeconds / fusedSeconds)"
+        )
+    }
+    print(
+        "ROUTER_SHARED_CRITICAL_SUMMARY order=AB speedup="
+            + "\(controlFirstControl / controlFirstFused)"
+    )
+    print(
+        "ROUTER_SHARED_CRITICAL_SUMMARY order=BA speedup="
             + "\(fusedFirstControl / fusedFirstFused)"
     )
 }
