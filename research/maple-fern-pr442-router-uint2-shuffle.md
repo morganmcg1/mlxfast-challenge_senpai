@@ -124,8 +124,50 @@ on:     mismatch = 0
 ctl:    mismatch = 0
 ```
 
-In-runtime gates: see the PR body for the upstream-equivalence oracle and
-64-step drift-tripwire transcripts.
+### In-runtime gates
+
+**64-step drift tripwire**
+(`correctness --golden correctness_prompts/public_longcopy_gate_english_512_256.json`),
+all three arms, on the freshly built worker:
+
+```
+off:  "checked_steps" : 64, "passed" : true, "error" : "",
+      "golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+on:   "checked_steps" : 64, "passed" : true, "error" : "",
+      "golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+ctl:  "checked_steps" : 64, "passed" : true, "error" : "",
+      "golden_hash" : "b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63"
+```
+
+`first_failing_case` / `first_failing_step` / `actual_token` / `expected_token`
+are `null` in all three, and the golden hash is identical, so the fused
+packed-Top-8 family really did run and really did agree.
+
+**Upstream-equivalence oracle** (`research/run_upstream_equivalence.sh`),
+both arms, non-zero selected test count (`EQUIVALENCE_EXACT_STEPS=8` proves the
+report marker was reached — the wrapper forces status 3 on a zero-test run):
+
+```
+off:  EQUIVALENCE_EXACT_STEPS=8   EQUIVALENCE_EXIT=1
+on:   EQUIVALENCE_EXACT_STEPS=8   EQUIVALENCE_EXIT=1
+```
+
+Both arms emit a **byte-identical** report:
+
+| step | maxAbsLogitErr | meanAbsLogitErr | runtime tok | upstream tok |
+| --- | --- | --- | --- | --- |
+| prefill | 0.125 | 0.011933609 | 5991 | 5991 |
+| decode-0..7 | 0.0 | 0.0 | 509/902/5991… | identical |
+
+`EQUIVALENCE_EXIT=1` is the **pre-existing, documented M4-Pro-host limitation**,
+not a regression: the oracle applies zero tolerance to prefill and the batched
+NVFP4 prefill path cannot meet it against the BF16 upstream reference. The exact
+same `0.125` / `0.011933609` / token `5991 == 5991` triple is recorded for the
+unchanged base in `research/frieren-host-cpu-budget.md:471`,
+`research/maple-fern-pr40-result.md:381`,
+`research/maple-fern-pr48-fused-norm-qkv-gate.md:462-467` and
+`research/CURRENT_RESEARCH_STATE.md:2579`. All eight decode steps are exactly 0
+in both arms.
 
 **Rule 35 caveat.** `LagunaUpstreamEquivalence.swift` compares against the
 vendored `Laguna.swift` oracle, which does not build the fused packed-Top-8
