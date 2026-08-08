@@ -8038,6 +8038,29 @@ private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private enum LagunaRouterSigmoidBF16Table {
+    nonisolated(unsafe) static let generator = MLXFast.metalKernel(
+        name: "laguna_router_sigmoid_bf16_table_v1",
+        inputNames: [],
+        outputNames: ["sigmoid_lut"],
+        source: """
+            uint bits = thread_position_in_grid.x;
+            float x = float(as_type<bfloat>(ushort(bits)));
+            float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
+            sigmoid_lut[bits] = x < 0.0f ? y : 1.0f - y;
+            """,
+        ensureRowContiguous: false
+    )
+
+    nonisolated(unsafe) static let values = generator(
+        [],
+        grid: (65_536, 1, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [[65_536]],
+        outputDTypes: [.float32]
+    )[0]
+}
+
 /// Default-on decode-router payload optimization. Set
 /// `DARKBLOOM_ROUTER_ORDINAL=0` for the accepted float-payload fallback. The
 /// accepted bitonic
@@ -8048,10 +8071,17 @@ private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
 /// canonicalizes both signed zeros and every NaN before applying the usual
 /// monotone IEEE-754 bit transform, so unsigned ordinal comparison plus the
 /// original expert-index tie break is exactly `laguna_router_key_before`.
-/// Only final lanes 0...7 recompute their pre-bias sigmoid score.
 private func lagunaDecodeRouterOrdinalKernelSource(
     normalizing: Bool, scoreTable: Bool = false
 ) -> String {
+    let scoreInitialization =
+        scoreTable
+        ? "float score = sigmoid_lut[uint(as_type<ushort>(logits[lane]))];"
+        : """
+            float x = float(logits[lane]);
+            float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
+            float score = x < 0.0f ? y : 1.0f - y;
+            """
     let scoreStorage =
         scoreTable
         ? "threadgroup float original_scores[256];"
@@ -8101,9 +8131,7 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         threadgroup uint xchg_indices[256];
         \(scoreStorage)
 
-        float x = float(logits[lane]);
-        float y = 1.0f / (1.0f + metal::exp(metal::abs(x)));
-        float score = x < 0.0f ? y : 1.0f - y;
+        \(scoreInitialization)
         \(scoreStore)
         float key = -(score + float(correction_bias[lane]));
         uint my_ordinal = laguna_router_key_ordinal(key);
@@ -8195,8 +8223,8 @@ private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_table_v1",
-    inputNames: ["logits", "correction_bias"],
+    name: "laguna_decode_router_top8_ordinal_lut_v1",
+    inputNames: ["logits", "correction_bias", "sigmoid_lut"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false, scoreTable: true),
     header: lagunaDecodeRouterOrdinalHeader,
@@ -8204,8 +8232,8 @@ private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
 )
 
 private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_table_norm_v1",
-    inputNames: ["logits", "correction_bias"],
+    name: "laguna_decode_router_top8_ordinal_lut_norm_v1",
+    inputNames: ["logits", "correction_bias", "sigmoid_lut"],
     outputNames: ["router_indices", "router_scores"],
     source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true, scoreTable: true),
     header: lagunaDecodeRouterOrdinalHeader,
@@ -8215,9 +8243,9 @@ private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metal
 private let lagunaDecodeRouterOrdinalEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL"] != "0"
 
-/// The default ordinal arm preserves each original score once in TG memory;
-/// set `DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE=0` to recompute only the final
-/// eight sigmoid scores instead.
+/// The default ordinal arm loads exact BF16 sigmoid values from a retained
+/// device table; set `DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE=0` to recompute the
+/// sigmoid scores directly instead.
 private let lagunaDecodeRouterOrdinalScoreTableEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_ORDINAL_SCORE_TABLE"] != "0"
 
@@ -8265,7 +8293,7 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
 func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
     logits: MLXArray, correctionBias: MLXArray, normalizing: Bool = false
 ) -> (MLXArray, MLXArray) {
-    precondition(logits.dtype == .bfloat16 || logits.dtype == .float32)
+    precondition(logits.dtype == .bfloat16)
     precondition(correctionBias.dtype == .float32)
     precondition(logits.size == 256)
     precondition(correctionBias.size == 256)
@@ -8275,7 +8303,7 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
         ? lagunaDecodeRouterOrdinalScoreTableNormalizingKernel
         : lagunaDecodeRouterOrdinalScoreTableKernel
     let outputs = kernel(
-        [logits, correctionBias],
+        [logits, correctionBias, LagunaRouterSigmoidBF16Table.values],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
@@ -10446,6 +10474,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     /// derived side copy.
     func prepareFusedRuntimeWeights() {
         var fusedArrays = model.prepareRoPEAngleAtlases()
+        if lagunaDecodeRouterOrdinalEnabled, lagunaDecodeRouterOrdinalScoreTableEnabled {
+            fusedArrays.append(LagunaRouterSigmoidBF16Table.values)
+        }
         for layer in model.layers {
             if lagunaUseNativeAffineQKV(layer: layer.selfAttn.layerIdx) {
                 fusedArrays.append(
