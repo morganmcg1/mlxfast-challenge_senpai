@@ -505,17 +505,12 @@ void qmm_nax(
   bool aligned_M = M % 64 == 0;
   bool batched = B > 1;
   std::string type_string = get_type_string(x.dtype());
-  // Disabled: kHalvedScales _nax template instantiations push the M5
-  // build past its timeout. Caller now sends group_size=16 with full
-  // scales (bit-exact via NVFP4 pairwise constancy).
-  const bool halved_scales = false;
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
   const bool use_static_laguna_shape =
       static_laguna_shapes && transpose && aligned && !batched &&
       mode == "nvfp4" && type_string == "bfloat16_t" &&
-      group_size == 16 && bits == 4 &&
-      (!biases.has_value() || halved_scales) &&
+      group_size == 16 && bits == 4 && !biases.has_value() &&
       ((K == 2048 && N == 1024) || (K == 512 && N == 2048));
   concatenate(
       kname,
@@ -543,8 +538,7 @@ void qmm_nax(
              "_alM_" + (aligned_M ? "true" : "false"))
           : "",
       transpose ? (aligned ? "_alN_true" : "_alN_false") : "",
-      batched ? "_batch_1" : "_batch_0",
-      halved_scales ? "_hs_1" : "");
+      batched ? "_batch_1" : "_batch_0");
   std::string template_def;
   MTL::ComputePipelineState* kernel;
   if (use_static_laguna_shape) {
@@ -563,9 +557,7 @@ void qmm_nax(
         bk,
         bn,
         wm,
-        wn,
-        "bfloat",
-        halved_scales);
+        wn);
   } else if (transpose) {
     kernel = get_qmm_nax_kernel_wrapped(
         d,
@@ -581,9 +573,7 @@ void qmm_nax(
         bk,
         bn,
         wm,
-        wn,
-        "bfloat",
-        halved_scales);
+        wn);
   } else {
     kernel = get_qmm_nax_kernel_wrapped(
         d,
@@ -606,18 +596,7 @@ void qmm_nax(
   int c = 0;
   compute_encoder.set_input_array(w, c++);
   compute_encoder.set_input_array(scales, c++);
-  if (transpose) {
-    // The qmm_t_nax kernel always has an escape slot at index 2. When
-    // halved, the escape bytes are in the extra row of the scales tensor
-    // (row N); bind that row via a buffer offset. Otherwise pass scales
-    // as a dummy (the kernel ignores it when kHalvedScales is false).
-    if (halved_scales) {
-      int escape_offset = N * scales.shape(-1);
-      compute_encoder.set_input_array(scales, c++, escape_offset);
-    } else {
-      compute_encoder.set_input_array(scales, c++);
-    }
-  } else if (biases) {
+  if (biases) {
     compute_encoder.set_input_array(*biases, c++);
   }
   compute_encoder.set_input_array(x, c++);
@@ -663,10 +642,6 @@ void gather_qmm_nax(
   kname.reserve(64);
   bool aligned = N % 64 == 0;
   std::string type_string = get_type_string(x.dtype());
-  // Disabled: kHalvedScales _nax template instantiations push the M5
-  // build past its timeout. Caller now sends group_size=16 with full
-  // scales (bit-exact via NVFP4 pairwise constancy).
-  const bool halved_scales = false;
   concatenate(
       kname,
       mode + (transpose ? "_gather_qmm_t_nax_" : "_gather_qmm_n_nax_"),
@@ -685,8 +660,7 @@ void gather_qmm_nax(
       wm,
       "_wn",
       wn,
-      transpose ? (aligned ? "_alN_true" : "_alN_false") : "",
-      halved_scales ? "_hs_1" : "");
+      transpose ? (aligned ? "_alN_true" : "_alN_false") : "");
   MTL::ComputePipelineState* kernel;
   if (transpose) {
     kernel = get_qmm_nax_kernel_wrapped(
@@ -702,9 +676,7 @@ void gather_qmm_nax(
         bk,
         bn,
         wm,
-        wn,
-        "bfloat",
-        halved_scales);
+        wn);
   } else {
     kernel = get_qmm_nax_kernel_wrapped(
         d,
