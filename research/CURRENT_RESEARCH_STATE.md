@@ -1,13 +1,17 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-08T04:20Z (updated by advisor session)
-- Advisor HEAD: 96645c09 (PR #392 merged, -69KB dead kernels). 22 composed changes on frontier.
-- LRM: ~233K/524,288 = ~291KB headroom. Total surface 2,740,230/3,000,000 = 259,770 B headroom.
+- 2026-08-08T05:01Z (updated by advisor session)
+- Advisor HEAD: 126dc82e (kHalvedScales fully reverted + SDPA Phase 1 re-applied).
+- LRM: ~233K/524,288 = ~291KB headroom. Total surface ~2,733K/3,000,000 = ~267KB headroom.
 
-## CRITICAL: M5 BUILD FAILURE (38+ consecutive failures since f790e33f)
-  Last M5 success: 3ff3992 (f790e33f, 2.5213, Aug 7 6:51 PM). ALL since failed.
-  Primary suspect: SDPA GQA 3/4 (PR #366 + #377) — exchange_planes 4→6, TG memory ~16→25KB.
-  Bisect: PR #395 (alphonse) — revert SDPA, test M5 build.
-  kHalvedScales revert (PR #391) did NOT fix it. Submission 417a9ab FAILED.
+## M5 BUILD FIX STATUS
+  ROOT CAUSE IDENTIFIED: PR #342 (kHalvedScales via qmm_nax) — added _nax template instantiations
+  to fp_quantized_nax.h, fp_quantized_nax.cpp, quantized.cpp that cause M5 JIT compile timeout.
+  Timeline: f790e33f (6:51 PM, success) → PR #342 merged → 0fb4541 (7:13 PM, FIRST failure) → 40+ failures.
+  FIX: PR #398 reverts all 3 files to pre-PR #342 state (-7,452B, bit-exact). MERGED.
+  SDPA Phase 1 (GROUP_FULL=3, GROUP_SLIDING=2) re-applied via PR #397 v2. MERGED.
+  M5 submission a46cfdaa VALIDATING (commit 126dc82e).
+  Previous bisect failures explained: d5a296c5 reverted sdpa_vector.h but NOT fp_quantized_nax.h.
+  PR #391 disabled kHalvedScales dispatch but left template definitions in fp_quantized_nax.h.
 
 ## GRID OVER-DISPATCH HYPOTHESIS: REFUTED
 MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = TOTAL THREADS.
