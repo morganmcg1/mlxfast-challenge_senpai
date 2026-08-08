@@ -104,13 +104,28 @@ func lagunaSharedPlaneVerify(original: MLXArray, halved: MLXArray) {
             }
         }
     }
-    FileHandle.standardError.write(Data(
-        "mlxfast: plane-verify bytes=\\(rows * g16) mismatches=\\(mismatch) "
-        + "first=\\(firstBad)"
-        + " hdr=\\(plane[0]),\\(plane[1])"
-        + " even=\\(plane[headerBytes]),\\(plane[headerBytes + 512 * g32])"
-        + " orig=\\(orig[1]),\\(orig[512 * g16 + 1])\\n".utf8))
+    let hdr0: UInt8 = plane[0]
+    let hdr1: UInt8 = plane[1]
+    let even0: UInt8 = plane[headerBytes]
+    let even1: UInt8 = plane[headerBytes + 512 * g32]
+    let orig0: UInt8 = orig[1]
+    let orig1: UInt8 = orig[512 * g16 + 1]
+    var line = "mlxfast: plane-verify bytes=\\(rows * g16)"
+    line += " mismatches=\\(mismatch) first=\\(firstBad)"
+    line += " hdr=\\(hdr0),\\(hdr1) even=\\(even0),\\(even1)"
+    line += " orig=\\(orig0),\\(orig1)\\n"
+    FileHandle.standardError.write(Data(line.utf8))
 }
+'''
+
+TRACE_ANCHOR = '''            guard let scales = qmvScales else { return nil }
+            activated = lagunaSharedSwiGLUQMV(
+'''
+
+TRACE_PATCH = '''            guard let scales = qmvScales else { return nil }
+            // RESEARCH-ONLY fault injection (PR #443, standing rule 16).
+            lagunaTrace("shared gate/up QMV (fused shared down input)")
+            activated = lagunaSharedSwiGLUQMV(
 '''
 
 VERIFY_ANCHOR = '''                _fusedGateUpHalvedScales = halved
@@ -190,6 +205,7 @@ EDITS = [
     (MODEL, ACT_ANCHOR, ACT_PATCH),
     (MODEL, NAME_ANCHOR, NAME_PATCH),
     (MODEL, VERIFY_ANCHOR, VERIFY_PATCH),
+    (MODEL, TRACE_ANCHOR, TRACE_PATCH),
     (WEIGHTS, PLANE_ANCHOR, PLANE_PATCH),
 ]
 
