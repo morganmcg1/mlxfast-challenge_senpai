@@ -1784,7 +1784,7 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
 private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_q3_v1",
+    name: "laguna_full_fused_attn_grow_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
@@ -1803,10 +1803,9 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
         typedef float U;
 
-        uint packet_tg = threadgroup_position_in_grid.x;
-        uint head0 = packet_tg * 3;
+        uint pair_tg = threadgroup_position_in_grid.x;
+        uint head0 = pair_tg * 2;
         uint head1 = head0 + 1;
-        uint head2 = head0 + 2;
         uint kv_head = head0 / gqa;
         uint sg = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
@@ -1817,26 +1816,21 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
         threadgroup bfloat tg_q0[head_dim];
         threadgroup bfloat tg_q1[head_dim];
-        threadgroup bfloat tg_q2[head_dim];
         threadgroup bfloat tg_k[head_dim];
         threadgroup bfloat tg_v[head_dim];
 
         // Phase 1: per-head RMSNorm + partial YaRN RoPE, textual replica of
         // laguna_full_qk_norm_yarn_bf16_128_v4 with the device row writes
         // retargeted at threadgroup memory.
-        if (sg < 4) {
+        if (sg < 3) {
             const device bfloat* input =
                 sg == 0 ? raw_queries + head0 * head_dim
                 : sg == 1 ? raw_queries + head1 * head_dim
-                : sg == 2 ? raw_queries + head2 * head_dim
                           : raw_keys + kv_head * head_dim;
             const device bfloat* weight =
-                sg == 3 ? key_weight : query_weight;
+                sg == 2 ? key_weight : query_weight;
             threadgroup bfloat* outrow =
-                sg == 0 ? tg_q0
-                : sg == 1 ? tg_q1
-                : sg == 2 ? tg_q2
-                          : tg_k;
+                sg == 0 ? tg_q0 : sg == 1 ? tg_q1 : tg_k;
 
             uint base = lane * 4;
             thread bfloat normalized[4];
@@ -1875,7 +1869,7 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                     outrow[base + i] = normalized[i];
                 }
             }
-        } else if (sg == 4) {
+        } else if (sg == 3) {
             const device bfloat* vin = raw_values + kv_head * head_dim;
             for (uint i = lane; i < head_dim; i += 32) {
                 tg_v[i] = vin[i];
@@ -1897,11 +1891,12 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             }
         }
 
-        // Phase 3: three-query GQA attention over the first N rows in slot
-        // order, preserving each head's pair-path arithmetic sequence.
-        threadgroup U outputs[6 * BN * BD];
-        threadgroup U max_scores[3 * BN];
-        threadgroup U sum_exp_scores[3 * BN];
+        // Phase 3: GQA-pair attention over the first N rows in slot order,
+        // textual replica of the sdpa_vector pair path (runtime N, tail
+        // row included).
+        threadgroup U outputs[4 * BN * BD];
+        threadgroup U max_scores[2 * BN];
+        threadgroup U sum_exp_scores[2 * BN];
 
         const device bfloat* pair_keys = k_cache +
             (size_t)kv_head * (capacity * head_dim) +
@@ -1914,32 +1909,25 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
         thread U pair_q0[qk_per_thread];
         thread U pair_q1[qk_per_thread];
-        thread U pair_q2[qk_per_thread];
         thread U pair_k[qk_per_thread];
         thread U pair_o0[v_per_thread];
         thread U pair_o1[v_per_thread];
-        thread U pair_o2[v_per_thread];
 
         for (int j = 0; j < qk_per_thread; ++j) {
             pair_q0[j] =
                 static_cast<U>(scale) * tg_q0[lane * qk_per_thread + j];
             pair_q1[j] =
                 static_cast<U>(scale) * tg_q1[lane * qk_per_thread + j];
-            pair_q2[j] =
-                static_cast<U>(scale) * tg_q2[lane * qk_per_thread + j];
         }
         for (int j = 0; j < v_per_thread; ++j) {
             pair_o0[j] = 0;
             pair_o1[j] = 0;
-            pair_o2[j] = 0;
         }
 
         U pair_max0 = metal::numeric_limits<U>::lowest();
         U pair_max1 = metal::numeric_limits<U>::lowest();
-        U pair_max2 = metal::numeric_limits<U>::lowest();
         U pair_sum0 = 0;
         U pair_sum1 = 0;
-        U pair_sum2 = 0;
 
         int i = sg;
         for (; i + BN < N; i += 2 * BN) {
@@ -1960,107 +1948,75 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
             U pair_score0 = 0;
             U pair_score1 = 0;
-            U pair_score2 = 0;
             pair_score0 += pair_q0[0] * pipe_ka[0];
             pair_score1 += pair_q1[0] * pipe_ka[0];
-            pair_score2 += pair_q2[0] * pipe_ka[0];
             pair_score0 += pair_q0[1] * pipe_ka[1];
             pair_score1 += pair_q1[1] * pipe_ka[1];
-            pair_score2 += pair_q2[1] * pipe_ka[1];
             pair_score0 += pair_q0[2] * pipe_ka[2];
             pair_score1 += pair_q1[2] * pipe_ka[2];
-            pair_score2 += pair_q2[2] * pipe_ka[2];
             pair_score0 += pair_q0[3] * pipe_ka[3];
             pair_score1 += pair_q1[3] * pipe_ka[3];
-            pair_score2 += pair_q2[3] * pipe_ka[3];
             pair_score0 = simd_sum(pair_score0);
             pair_score1 = simd_sum(pair_score1);
-            pair_score2 = simd_sum(pair_score2);
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
-            U pair_new_max2 = metal::max(pair_max2, pair_score2);
             U pair_factor0;
             U pair_factor1;
-            U pair_factor2;
             LAGUNA_RESCALE(pair_factor0, pair_max0 - pair_new_max0);
             LAGUNA_RESCALE(pair_factor1, pair_max1 - pair_new_max1);
-            LAGUNA_RESCALE(pair_factor2, pair_max2 - pair_new_max2);
             U pair_exp0 = metal::fast::exp(pair_score0 - pair_new_max0);
             U pair_exp1 = metal::fast::exp(pair_score1 - pair_new_max1);
-            U pair_exp2 = metal::fast::exp(pair_score2 - pair_new_max2);
 
             pair_max0 = pair_new_max0;
             pair_max1 = pair_new_max1;
-            pair_max2 = pair_new_max2;
             pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
             pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
-            pair_sum2 = pair_sum2 * pair_factor2 + pair_exp2;
 
             pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
             pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
-            pair_o2[0] = pair_o2[0] * pair_factor2 + pair_exp2 * pipe_va0;
             pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
             pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
-            pair_o2[1] = pair_o2[1] * pair_factor2 + pair_exp2 * pipe_va1;
             pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
             pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
-            pair_o2[2] = pair_o2[2] * pair_factor2 + pair_exp2 * pipe_va2;
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
-            pair_o2[3] = pair_o2[3] * pair_factor2 + pair_exp2 * pipe_va3;
 
             U pipeb_score0 = 0;
             U pipeb_score1 = 0;
-            U pipeb_score2 = 0;
             pipeb_score0 += pair_q0[0] * pipe_kb[0];
             pipeb_score1 += pair_q1[0] * pipe_kb[0];
-            pipeb_score2 += pair_q2[0] * pipe_kb[0];
             pipeb_score0 += pair_q0[1] * pipe_kb[1];
             pipeb_score1 += pair_q1[1] * pipe_kb[1];
-            pipeb_score2 += pair_q2[1] * pipe_kb[1];
             pipeb_score0 += pair_q0[2] * pipe_kb[2];
             pipeb_score1 += pair_q1[2] * pipe_kb[2];
-            pipeb_score2 += pair_q2[2] * pipe_kb[2];
             pipeb_score0 += pair_q0[3] * pipe_kb[3];
             pipeb_score1 += pair_q1[3] * pipe_kb[3];
-            pipeb_score2 += pair_q2[3] * pipe_kb[3];
             pipeb_score0 = simd_sum(pipeb_score0);
             pipeb_score1 = simd_sum(pipeb_score1);
-            pipeb_score2 = simd_sum(pipeb_score2);
 
             U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
             U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
-            U pipeb_new_max2 = metal::max(pair_max2, pipeb_score2);
             U pipeb_factor0;
             U pipeb_factor1;
-            U pipeb_factor2;
             LAGUNA_RESCALE(pipeb_factor0, pair_max0 - pipeb_new_max0);
             LAGUNA_RESCALE(pipeb_factor1, pair_max1 - pipeb_new_max1);
-            LAGUNA_RESCALE(pipeb_factor2, pair_max2 - pipeb_new_max2);
             U pipeb_exp0 = metal::fast::exp(pipeb_score0 - pipeb_new_max0);
             U pipeb_exp1 = metal::fast::exp(pipeb_score1 - pipeb_new_max1);
-            U pipeb_exp2 = metal::fast::exp(pipeb_score2 - pipeb_new_max2);
 
             pair_max0 = pipeb_new_max0;
             pair_max1 = pipeb_new_max1;
-            pair_max2 = pipeb_new_max2;
             pair_sum0 = pair_sum0 * pipeb_factor0 + pipeb_exp0;
             pair_sum1 = pair_sum1 * pipeb_factor1 + pipeb_exp1;
-            pair_sum2 = pair_sum2 * pipeb_factor2 + pipeb_exp2;
 
             pair_o0[0] = pair_o0[0] * pipeb_factor0 + pipeb_exp0 * pipe_vb0;
             pair_o1[0] = pair_o1[0] * pipeb_factor1 + pipeb_exp1 * pipe_vb0;
-            pair_o2[0] = pair_o2[0] * pipeb_factor2 + pipeb_exp2 * pipe_vb0;
             pair_o0[1] = pair_o0[1] * pipeb_factor0 + pipeb_exp0 * pipe_vb1;
             pair_o1[1] = pair_o1[1] * pipeb_factor1 + pipeb_exp1 * pipe_vb1;
-            pair_o2[1] = pair_o2[1] * pipeb_factor2 + pipeb_exp2 * pipe_vb1;
             pair_o0[2] = pair_o0[2] * pipeb_factor0 + pipeb_exp0 * pipe_vb2;
             pair_o1[2] = pair_o1[2] * pipeb_factor1 + pipeb_exp1 * pipe_vb2;
-            pair_o2[2] = pair_o2[2] * pipeb_factor2 + pipeb_exp2 * pipe_vb2;
             pair_o0[3] = pair_o0[3] * pipeb_factor0 + pipeb_exp0 * pipe_vb3;
             pair_o1[3] = pair_o1[3] * pipeb_factor1 + pipeb_exp1 * pipe_vb3;
-            pair_o2[3] = pair_o2[3] * pipeb_factor2 + pipeb_exp2 * pipe_vb3;
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
@@ -2074,92 +2030,67 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 
             U pair_score0 = 0;
             U pair_score1 = 0;
-            U pair_score2 = 0;
             pair_score0 += pair_q0[0] * pair_k[0];
             pair_score1 += pair_q1[0] * pair_k[0];
-            pair_score2 += pair_q2[0] * pair_k[0];
             pair_score0 += pair_q0[1] * pair_k[1];
             pair_score1 += pair_q1[1] * pair_k[1];
-            pair_score2 += pair_q2[1] * pair_k[1];
             pair_score0 += pair_q0[2] * pair_k[2];
             pair_score1 += pair_q1[2] * pair_k[2];
-            pair_score2 += pair_q2[2] * pair_k[2];
             pair_score0 += pair_q0[3] * pair_k[3];
             pair_score1 += pair_q1[3] * pair_k[3];
-            pair_score2 += pair_q2[3] * pair_k[3];
             pair_score0 = simd_sum(pair_score0);
             pair_score1 = simd_sum(pair_score1);
-            pair_score2 = simd_sum(pair_score2);
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
-            U pair_new_max2 = metal::max(pair_max2, pair_score2);
             U pair_factor0;
             U pair_factor1;
-            U pair_factor2;
             LAGUNA_RESCALE(pair_factor0, pair_max0 - pair_new_max0);
             LAGUNA_RESCALE(pair_factor1, pair_max1 - pair_new_max1);
-            LAGUNA_RESCALE(pair_factor2, pair_max2 - pair_new_max2);
             U pair_exp0 = metal::fast::exp(pair_score0 - pair_new_max0);
             U pair_exp1 = metal::fast::exp(pair_score1 - pair_new_max1);
-            U pair_exp2 = metal::fast::exp(pair_score2 - pair_new_max2);
 
             pair_max0 = pair_new_max0;
             pair_max1 = pair_new_max1;
-            pair_max2 = pair_new_max2;
             pair_sum0 = pair_sum0 * pair_factor0 + pair_exp0;
             pair_sum1 = pair_sum1 * pair_factor1 + pair_exp1;
-            pair_sum2 = pair_sum2 * pair_factor2 + pair_exp2;
 
             pair_o0[0] = pair_o0[0] * pair_factor0 + pair_exp0 * pipe_va0;
             pair_o1[0] = pair_o1[0] * pair_factor1 + pair_exp1 * pipe_va0;
-            pair_o2[0] = pair_o2[0] * pair_factor2 + pair_exp2 * pipe_va0;
             pair_o0[1] = pair_o0[1] * pair_factor0 + pair_exp0 * pipe_va1;
             pair_o1[1] = pair_o1[1] * pair_factor1 + pair_exp1 * pipe_va1;
-            pair_o2[1] = pair_o2[1] * pair_factor2 + pair_exp2 * pipe_va1;
             pair_o0[2] = pair_o0[2] * pair_factor0 + pair_exp0 * pipe_va2;
             pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
-            pair_o2[2] = pair_o2[2] * pair_factor2 + pair_exp2 * pipe_va2;
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
-            pair_o2[3] = pair_o2[3] * pair_factor2 + pair_exp2 * pipe_va3;
         }
 
-        // Combine each query with the same two-plane exchange order.
+        // Combine: promoted two-plane exchange, textual replica of the
+        // sdpa_vector pair path epilogue.
         constexpr int pair_planes = 2;
         constexpr int pair_plane_size = BN * BD;
         if (lane == 0) {
             max_scores[sg] = pair_max0;
             max_scores[BN + sg] = pair_max1;
-            max_scores[2 * BN + sg] = pair_max2;
             sum_exp_scores[sg] = pair_sum0;
             sum_exp_scores[BN + sg] = pair_sum1;
-            sum_exp_scores[2 * BN + sg] = pair_sum2;
         }
         for (int p = 0; p < pair_planes; ++p) {
             outputs[p * pair_plane_size + lane * BD + sg] = pair_o0[p];
             outputs[
                 (pair_planes + p) * pair_plane_size + lane * BD + sg] =
                 pair_o1[p];
-            outputs[
-                (2 * pair_planes + p) * pair_plane_size + lane * BD + sg] =
-                pair_o2[p];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         pair_max0 = max_scores[lane];
         pair_max1 = max_scores[BN + lane];
-        pair_max2 = max_scores[2 * BN + lane];
         U pair_global_max0 = simd_max(pair_max0);
         U pair_global_max1 = simd_max(pair_max1);
-        U pair_global_max2 = simd_max(pair_max2);
         U pair_global_factor0 = metal::fast::exp(pair_max0 - pair_global_max0);
         U pair_global_factor1 = metal::fast::exp(pair_max1 - pair_global_max1);
-        U pair_global_factor2 = metal::fast::exp(pair_max2 - pair_global_max2);
         pair_sum0 = simd_sum(sum_exp_scores[lane] * pair_global_factor0);
         pair_sum1 = simd_sum(sum_exp_scores[BN + lane] * pair_global_factor1);
-        pair_sum2 = simd_sum(
-            sum_exp_scores[2 * BN + lane] * pair_global_factor2);
 
         for (int p = 0; p < pair_planes; ++p) {
             U acc0 = simd_sum(
@@ -2169,13 +2100,8 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 outputs[
                     (pair_planes + p) * pair_plane_size + sg * BD + lane] *
                 pair_global_factor1);
-            U acc2 = simd_sum(
-                outputs[
-                    (2 * pair_planes + p) * pair_plane_size + sg * BD + lane] *
-                pair_global_factor2);
             pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
             pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
-            pair_o2[p] = pair_sum2 == 0 ? acc2 : (acc2 / pair_sum2);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -2185,9 +2111,6 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             outputs[
                 (pair_planes + p) * pair_plane_size + lane * BD + sg] =
                 pair_o1[pair_planes + p];
-            outputs[
-                (2 * pair_planes + p) * pair_plane_size + lane * BD + sg] =
-                pair_o2[pair_planes + p];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         for (int p = 0; p < pair_planes; ++p) {
@@ -2198,16 +2121,10 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 outputs[
                     (pair_planes + p) * pair_plane_size + sg * BD + lane] *
                 pair_global_factor1);
-            U acc2 = simd_sum(
-                outputs[
-                    (2 * pair_planes + p) * pair_plane_size + sg * BD + lane] *
-                pair_global_factor2);
             pair_o0[pair_planes + p] =
                 pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
             pair_o1[pair_planes + p] =
                 pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
-            pair_o2[pair_planes + p] =
-                pair_sum2 == 0 ? acc2 : (acc2 / pair_sum2);
         }
 
         if (lane == 0) {
@@ -2215,12 +2132,9 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 attended + head0 * head_dim + sg * v_per_thread;
             device bfloat* pair_out1 =
                 attended + head1 * head_dim + sg * v_per_thread;
-            device bfloat* pair_out2 =
-                attended + head2 * head_dim + sg * v_per_thread;
             for (int p = 0; p < v_per_thread; ++p) {
                 pair_out0[p] = static_cast<bfloat>(pair_o0[p]);
                 pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
-                pair_out2[p] = static_cast<bfloat>(pair_o2[p]);
             }
         }
         """,
@@ -2324,7 +2238,7 @@ func lagunaFullFusedAttention(
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        grid: ((heads / 3) * 1024, 1, 1),
+        grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
         outputDTypes: [.bfloat16]
