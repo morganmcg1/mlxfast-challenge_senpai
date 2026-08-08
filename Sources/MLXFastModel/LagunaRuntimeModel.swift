@@ -422,6 +422,9 @@ let lagunaPrefillQKHeadsPerGroup: Int = {
     return raw == "4" ? 4 : 1
 }()
 
+private let lagunaPrefillQKTraceEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_TRACE"] == "1"
+
 /// Terminal-prefill projection banking. The last decoder layer consumes Q and
 /// the per-head gate for only the final supplied row, while K/V must still be
 /// produced for every row so the cache advances normally. Retained `[Q; G]`
@@ -2251,12 +2254,12 @@ func lagunaWarmFullFusedAttentionKernel() {
 ///    re-derivation. The decode twin (`laguna_sliding_qk_norm_rope_bf16_128_v1`)
 ///    consumes the same table with the same expression.
 private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v3",
+    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2",
     inputNames: [
-        "raw_queries", "raw_keys", "raw_values", "query_weight", "key_weight",
-        "angles", "offsets",
+        "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
+        "offsets",
     ],
-    outputNames: ["queries", "keys", "values"],
+    outputNames: ["queries", "keys"],
     source: """
         constexpr uint head_dim = 128;
         constexpr uint rotary_pairs = 64;
@@ -2284,17 +2287,6 @@ private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
         }
 
         uint base = lane * 4;
-        if (head >= query_heads) {
-            uint khead = head - query_heads;
-            const device bfloat* value_input =
-                raw_values + t * VSTRIDE + khead * head_dim;
-            device bfloat* value_output =
-                values + (khead * length + t) * head_dim;
-            #pragma clang loop unroll(full)
-            for (uint i = 0; i < 4; ++i) {
-                value_output[base + i] = value_input[base + i];
-            }
-        }
         thread bfloat normalized[4];
         float sum = 0.0f;
         #pragma clang loop unroll(full)
@@ -2348,12 +2340,12 @@ private let lagunaPrefillSlidingQKNormRoPEKernel = MLXFast.metalKernel(
 )
 
 private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
-    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v3",
+    name: "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2",
     inputNames: [
-        "raw_queries", "raw_keys", "raw_values", "query_weight", "key_weight",
-        "angles", "offsets",
+        "raw_queries", "raw_keys", "query_weight", "key_weight", "angles",
+        "offsets",
     ],
-    outputNames: ["queries", "keys", "values"],
+    outputNames: ["queries", "keys"],
     source: """
         constexpr uint head_dim = 128;
         constexpr uint rotary_pairs = 64;
@@ -2389,17 +2381,6 @@ private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
         }
 
         uint base = lane * 4;
-        if (head >= query_heads) {
-            uint khead = head - query_heads;
-            const device bfloat* value_input =
-                raw_values + t * VSTRIDE + khead * head_dim;
-            device bfloat* value_output =
-                values + (khead * length + t) * head_dim;
-            #pragma clang loop unroll(full)
-            for (uint i = 0; i < 4; ++i) {
-                value_output[base + i] = value_input[base + i];
-            }
-        }
         thread bfloat normalized[4];
         float sum = 0.0f;
         #pragma clang loop unroll(full)
@@ -2439,7 +2420,7 @@ private let lagunaPrefillSlidingQKNormRoPEH1Kernel = MLXFast.metalKernel(
             }
         }
         """,
-    ensureRowContiguous: false
+    ensureRowContiguous: true
 )
 
 /// Multi-token full-attention twin: per-head Q/K RMSNorm + partial YaRN
@@ -2636,28 +2617,24 @@ private let lagunaPrefillFullQKNormYaRNH1Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-func lagunaPrefillSlidingQKNormRoPE(
+private func lagunaPrefillSlidingQKNormRoPE(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
-    rawValues: MLXArray,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
     offsets: MLXArray,
     length: Int
-) -> (MLXArray, MLXArray, MLXArray) {
+) -> (MLXArray, MLXArray) {
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
     let queryLength = rawQueries.dim(1)
     let terminal = queryLength == 1 && length > 1
-    precondition(
-        rawQueries.dtype == .bfloat16 && rawKeys.dtype == .bfloat16 &&
-            rawValues.dtype == .bfloat16)
+    precondition(rawQueries.dtype == .bfloat16 && rawKeys.dtype == .bfloat16)
     precondition(queryWeight.dtype == .bfloat16 && keyWeight.dtype == .bfloat16)
     precondition(queryLength == length || terminal)
     precondition(rawQueries.shape == [1, queryLength, heads * LagunaConstants.headDim])
     precondition(rawKeys.shape == [1, length, kvHeads * LagunaConstants.headDim])
-    precondition(rawValues.shape == [1, length, kvHeads * LagunaConstants.headDim])
     precondition(queryWeight.shape == [LagunaConstants.headDim])
     precondition(keyWeight.shape == [LagunaConstants.headDim])
     precondition(angles.dtype == .float32)
@@ -2673,23 +2650,31 @@ func lagunaPrefillSlidingQKNormRoPE(
     let kernel = useH1
         ? lagunaPrefillSlidingQKNormRoPEH1Kernel
         : lagunaPrefillSlidingQKNormRoPEKernel
-    let kernelRawKeys = terminal ? contiguous(rawKeys) : rawKeys
-    let valueStride =
-        (terminal ? 2 : 1) * kvHeads * LagunaConstants.headDim
+    if lagunaPrefillQKTraceEnabled {
+        let kernelName = useH1
+            ? "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2"
+            : "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2"
+        let mode = terminal ? "terminal" : "ordinary"
+        let message =
+            "MLXFAST_PREFILL_QK_TRACE kernel=\(kernelName) mode=\(mode) " +
+            "heads_per_group=\(headsPerGroup) length=\(length) query_length=\(queryLength) " +
+            "q_shape=[1,\(heads),\(queryLength),\(LagunaConstants.headDim)] " +
+            "k_shape=[1,\(kvHeads),\(length),\(LagunaConstants.headDim)] " +
+            "consumer=attentionWithCacheUpdate architecture=\(GPU.deviceInfo().architecture)\n"
+        FileHandle.standardError.write(Data(message.utf8))
+    }
     let groups = terminal ? heads + kvHeads * length : (heads + kvHeads) / headsPerGroup
     let outputs = kernel(
-        [rawQueries, kernelRawKeys, rawValues, queryWeight, keyWeight, angles, offsets],
-        template: [("VSTRIDE", valueStride)],
+        [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
         grid: (groups * threadGroupSize, terminal ? 1 : length, 1),
         threadGroup: (threadGroupSize, 1, 1),
         outputShapes: [
             [1, heads, queryLength, LagunaConstants.headDim],
             [1, kvHeads, length, LagunaConstants.headDim],
-            [1, kvHeads, length, LagunaConstants.headDim],
         ],
-        outputDTypes: [.bfloat16, .bfloat16, .bfloat16]
+        outputDTypes: [.bfloat16, .bfloat16]
     )
-    return (outputs[0], outputs[1], outputs[2])
+    return (outputs[0], outputs[1])
 }
 
 private func lagunaPrefillFullQKNormYaRN(
@@ -5622,11 +5607,9 @@ final class LagunaRuntimeAttention: Module {
             nKVHeads == LagunaConstants.numKeyValueHeads &&
             headDim == LagunaConstants.headDim &&
             queries.dtype == .bfloat16 && keys.dtype == .bfloat16 &&
-            values.dtype == .bfloat16 &&
             qNorm.weight.dtype == .bfloat16 && kNorm.weight.dtype == .bfloat16 &&
             queries.shape == [1, L, nHeads * headDim] &&
             keys.shape == [1, L, nKVHeads * headDim] &&
-            values.shape == [1, L, nKVHeads * headDim] &&
             qkRoPEAngles?.dtype == .float32 &&
             qkRoPEOffsets?.dtype == .int32 && qkRoPEOffsets?.size == 1
 
@@ -5643,7 +5626,6 @@ final class LagunaRuntimeAttention: Module {
             qkRoPEAngles?.shape == [1, 1, lagunaRoPEAngleAtlasLength, headDim / 2]
 
         var qkNormRoPEFused = false
-        var prefillSlidingVLayoutFused = false
         var fusedAttended: MLXArray?
         if lagunaFusedSlidingAttentionEnabled,
             useFusedSlidingQKNormRoPE,
@@ -5716,10 +5698,9 @@ final class LagunaRuntimeAttention: Module {
         } else if usePrefillFusedSlidingQKNormRoPE,
             let angles = qkRoPEAngles, let offsets = qkRoPEOffsets
         {
-            (queries, keys, values) = lagunaPrefillSlidingQKNormRoPE(
+            (queries, keys) = lagunaPrefillSlidingQKNormRoPE(
                 rawQueries: queries,
                 rawKeys: keys,
-                rawValues: values,
                 queryWeight: qNorm.weight,
                 keyWeight: kNorm.weight,
                 angles: angles,
@@ -5727,7 +5708,6 @@ final class LagunaRuntimeAttention: Module {
                 length: L
             )
             qkNormRoPEFused = true
-            prefillSlidingVLayoutFused = true
         } else if usePrefillFusedFullQKNormYaRN,
             let angles = qkRoPEAngles, let offsets = qkRoPEOffsets
         {
@@ -5749,16 +5729,14 @@ final class LagunaRuntimeAttention: Module {
                 kNorm(keys.reshaped(B, L, nKVHeads, headDim))
                 .transposed(0, 2, 1, 3)
         }
-        if !prefillSlidingVLayoutFused {
-            // With a singleton sequence axis, `[B, 1, H, D]` and
-            // `[B, H, 1, D]` have the same contiguous byte order. Reshape
-            // directly so decode does not carry a no-op transpose view through
-            // the lazy graph. Multi-token calls still require the real axis swap.
-            values =
-                L == 1
-                ? values.reshaped(B, nKVHeads, L, headDim)
-                : values.reshaped(B, L, nKVHeads, headDim).transposed(0, 2, 1, 3)
-        }
+        // With a singleton sequence axis, `[B, 1, H, D]` and
+        // `[B, H, 1, D]` have the same contiguous byte order. Reshape
+        // directly so decode does not carry a no-op transpose view through
+        // the lazy graph. Multi-token calls still require the real axis swap.
+        values =
+            L == 1
+            ? values.reshaped(B, nKVHeads, L, headDim)
+            : values.reshaped(B, L, nKVHeads, headDim).transposed(0, 2, 1, 3)
 
         if !qkNormRoPEFused {
             queries = applyRotaryPosition(rope, to: queries, cache: cache)
@@ -6017,19 +5995,17 @@ final class LagunaRuntimeAttention: Module {
             nKVHeads == LagunaConstants.numKeyValueHeads &&
             headDim == LagunaConstants.headDim &&
             queries.dtype == .bfloat16 && keys.dtype == .bfloat16 &&
-            values.dtype == .bfloat16 &&
             qNorm.weight.dtype == .bfloat16 && kNorm.weight.dtype == .bfloat16 &&
             queries.shape == [1, 1, nHeads * headDim] &&
             keys.shape == [1, L, nKVHeads * headDim] &&
-            values.shape == [1, L, nKVHeads * headDim] &&
             qNorm.weight.shape == [headDim] && kNorm.weight.shape == [headDim] &&
             angles?.dtype == .float32 &&
             angles?.shape == [1, 1, lagunaRoPEAngleAtlasLength, headDim] &&
             offsets?.dtype == .int32 && offsets?.size == 1
         var qkFused = false
         if useFusedQK, let angles, let offsets {
-            (queries, keys, values) = lagunaPrefillSlidingQKNormRoPE(
-                rawQueries: queries, rawKeys: keys, rawValues: values,
+            (queries, keys) = lagunaPrefillSlidingQKNormRoPE(
+                rawQueries: queries, rawKeys: keys,
                 queryWeight: qNorm.weight, keyWeight: kNorm.weight,
                 angles: angles, offsets: offsets, length: L)
             qkFused = true
@@ -6037,9 +6013,7 @@ final class LagunaRuntimeAttention: Module {
             queries = qNorm(queries.reshaped(B, 1, nHeads, headDim)).transposed(0, 2, 1, 3)
             keys = kNorm(keys.reshaped(B, L, nKVHeads, headDim)).transposed(0, 2, 1, 3)
         }
-        if !qkFused {
-            values = values.reshaped(B, L, nKVHeads, headDim).transposed(0, 2, 1, 3)
-        }
+        values = values.reshaped(B, L, nKVHeads, headDim).transposed(0, 2, 1, 3)
 
         if !qkFused {
             if let offsetArray = graphOffsetArray(for: cache) {
