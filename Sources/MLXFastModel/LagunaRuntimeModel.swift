@@ -6930,10 +6930,9 @@ func lagunaRoutedSwiGLUQMV(
 /// `[tile 128][k-block 4][sub 8][32 scale bytes]` where `sub =
 /// (simd_group*2 + row)*2 + {0 gate, 1 up}`. The stock kernel's
 /// `gate_row/up_row` remap is baked into the scale bank while its fused code
-/// bank is reused directly, so per (row, k-block, lane) this kernel issues
-/// the identical one-byte scale and uint2 code loads and runs the textually
-/// identical dequant/accumulate/SwiGLU chain — only scale address computation
-/// differs.
+/// bank is reused directly, so per (row, k-block, lane) this kernel consumes
+/// the same one-byte scales and uint2 codes and preserves the same
+/// dequant/accumulate/SwiGLU arithmetic.
 private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_swiglu_qmv_packed_indices_r1_bf16_v1",
     inputNames: ["input", "fused_weight", "packed_scales", "indices"],
@@ -6968,42 +6967,93 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
         uint sub = logical_row % 4;
         uint gate_row = (logical_row / 32) * 64 + logical_row % 32;
         uint up_row = gate_row + 32;
+        const device uint2* gate_words = (const device uint2*) (
+            expert_weight + gate_row * fused_row_bytes + lane * 8);
+        const device uint2* up_words = (const device uint2*) (
+            expert_weight + up_row * fused_row_bytes + lane * 8);
+        const device uint8_t* gate_scales =
+            row_scales + sub * 2 * scale_row_bytes + lane;
+        const device uint8_t* up_scales = gate_scales + scale_row_bytes;
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
         thread float input_values[values_per_lane];
 
-        for (uint block = 0; block < input_width; block += block_width) {
-            const device vec<bfloat, 4>* input_vectors =
-                (const device vec<bfloat, 4>*) (
-                    input + block + lane * values_per_lane);
-            for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
-            }
-
-            const device uint8_t* block_scales =
-                row_scales + (block / block_width) * scale_kblock_bytes;
-            const device uint8_t* gate_scale =
-                block_scales + sub * 2 * scale_row_bytes + lane;
-            const device uint8_t* up_scale = gate_scale + scale_row_bytes;
-            const device uint8_t* gate_weight =
-                expert_weight + gate_row * fused_row_bytes
-                + block / 2 + lane * 8;
-            const device uint8_t* up_weight =
-                expert_weight + up_row * fused_row_bytes
-                + block / 2 + lane * 8;
-
-            gate_result += laguna_nvfp4_qdot_16(
-                gate_weight, input_values,
-                laguna_nvfp4_scale(gate_scale[0]));
-            up_result += laguna_nvfp4_qdot_16(
-                up_weight, input_values,
-                laguna_nvfp4_scale(up_scale[0]));
+        const device vec<bfloat, 4>* input_vectors_0 =
+            (const device vec<bfloat, 4>*) (
+                input + lane * values_per_lane);
+        for (uint i = 0; i < values_per_lane / 4; ++i) {
+            const vec<bfloat, 4> values = input_vectors_0[i];
+            input_values[4 * i] = values[0];
+            input_values[4 * i + 1] = values[1];
+            input_values[4 * i + 2] = values[2];
+            input_values[4 * i + 3] = values[3];
         }
+        const uint2 gate_codes_0 = gate_words[0];
+        const uint2 up_codes_0 = up_words[0];
+        const uint8_t gate_scale_0 = gate_scales[0];
+        const uint8_t up_scale_0 = up_scales[0];
+        const uint2 gate_codes_1 = gate_words[32];
+        const uint2 up_codes_1 = up_words[32];
+        const uint8_t gate_scale_1 = gate_scales[scale_kblock_bytes];
+        const uint8_t up_scale_1 = up_scales[scale_kblock_bytes];
+        gate_result += laguna_nvfp4_qdot_codes_16(
+            gate_codes_0, input_values, laguna_nvfp4_scale(gate_scale_0));
+        up_result += laguna_nvfp4_qdot_codes_16(
+            up_codes_0, input_values, laguna_nvfp4_scale(up_scale_0));
+
+        const device vec<bfloat, 4>* input_vectors_1 =
+            (const device vec<bfloat, 4>*) (
+                input + block_width + lane * values_per_lane);
+        for (uint i = 0; i < values_per_lane / 4; ++i) {
+            const vec<bfloat, 4> values = input_vectors_1[i];
+            input_values[4 * i] = values[0];
+            input_values[4 * i + 1] = values[1];
+            input_values[4 * i + 2] = values[2];
+            input_values[4 * i + 3] = values[3];
+        }
+        const uint2 gate_codes_2 = gate_words[64];
+        const uint2 up_codes_2 = up_words[64];
+        const uint8_t gate_scale_2 = gate_scales[2 * scale_kblock_bytes];
+        const uint8_t up_scale_2 = up_scales[2 * scale_kblock_bytes];
+        gate_result += laguna_nvfp4_qdot_codes_16(
+            gate_codes_1, input_values, laguna_nvfp4_scale(gate_scale_1));
+        up_result += laguna_nvfp4_qdot_codes_16(
+            up_codes_1, input_values, laguna_nvfp4_scale(up_scale_1));
+
+        const device vec<bfloat, 4>* input_vectors_2 =
+            (const device vec<bfloat, 4>*) (
+                input + 2 * block_width + lane * values_per_lane);
+        for (uint i = 0; i < values_per_lane / 4; ++i) {
+            const vec<bfloat, 4> values = input_vectors_2[i];
+            input_values[4 * i] = values[0];
+            input_values[4 * i + 1] = values[1];
+            input_values[4 * i + 2] = values[2];
+            input_values[4 * i + 3] = values[3];
+        }
+        const uint2 gate_codes_3 = gate_words[96];
+        const uint2 up_codes_3 = up_words[96];
+        const uint8_t gate_scale_3 = gate_scales[3 * scale_kblock_bytes];
+        const uint8_t up_scale_3 = up_scales[3 * scale_kblock_bytes];
+        gate_result += laguna_nvfp4_qdot_codes_16(
+            gate_codes_2, input_values, laguna_nvfp4_scale(gate_scale_2));
+        up_result += laguna_nvfp4_qdot_codes_16(
+            up_codes_2, input_values, laguna_nvfp4_scale(up_scale_2));
+
+        const device vec<bfloat, 4>* input_vectors_3 =
+            (const device vec<bfloat, 4>*) (
+                input + 3 * block_width + lane * values_per_lane);
+        for (uint i = 0; i < values_per_lane / 4; ++i) {
+            const vec<bfloat, 4> values = input_vectors_3[i];
+            input_values[4 * i] = values[0];
+            input_values[4 * i + 1] = values[1];
+            input_values[4 * i + 2] = values[2];
+            input_values[4 * i + 3] = values[3];
+        }
+        gate_result += laguna_nvfp4_qdot_codes_16(
+            gate_codes_3, input_values, laguna_nvfp4_scale(gate_scale_3));
+        up_result += laguna_nvfp4_qdot_codes_16(
+            up_codes_3, input_values, laguna_nvfp4_scale(up_scale_3));
 
         gate_result = simd_sum(gate_result);
         up_result = simd_sum(up_result);
