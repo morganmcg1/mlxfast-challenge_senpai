@@ -38,6 +38,11 @@ Never throttle, stage, or split a genuine win to fit the legacy band. Split a
 mechanism only when the smaller steps are independently correct and improve
 causal attribution.
 
+Research is continuous while the campaign is active. Numbered rounds and
+terminal experiment batches are checkpoints, not stopping conditions. While
+resources are available, continue developing—and, when well-founded,
+assigning—the next experiments; end only on explicit operator instruction.
+
 ## Correctness
 
 ### M4 vs M5
