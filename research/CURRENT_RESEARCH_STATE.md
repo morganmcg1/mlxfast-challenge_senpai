@@ -39,8 +39,11 @@
   7f9cce1b: VALIDATING — frontier fc66737f (composition of PR #407 + #402 + #411)
   Partial fix: 2 of 3 JIT compile deltas fixed (rope.metal + rms_norm.metal)
   Missing: steel_attention (1,160 lines) for decode full-attn — PR #420 (thorfinn WIP)
-  If build passes: great, add PR #420 for further optimization
-  If build fails: add PR #420 and resubmit
+  If build passes: great, add PR #420 v2 (decode full-attn wiring) for further optimization
+  If build fails: add PR #420 v2 and resubmit
+
+  CRITICAL: PR #420 v1 has DEAD CODE — decode full-attn kernels defined but NOT wired into dispatch.
+  Thorfinn requested revision v2 to wire them in. Askeladd (PR #426) told to wait for v2.
 
 ## M5 BUILD FIX ASSIGNMENTS (Wave 13, BASE_SHA=b9394914)
   PR #407 (edward, v2): Prefill QK-norm+RoPE fusion — ACCEPTED, needs rebase onto 3df94c4c (merge conflicts)
