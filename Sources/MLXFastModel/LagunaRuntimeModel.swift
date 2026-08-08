@@ -4861,10 +4861,10 @@ private func lagunaDecodeRouterOrdinalKernelSource(
     let winnerScore =
         scoreTable
         ? """
-            my_score = original_scores[my_index];
+            my_score = original_scores[my_pair.y];
         """
         : """
-            float winner_x = float(logits[my_index]);
+            float winner_x = float(logits[my_pair.y]);
             float winner_y = 1.0f / (1.0f + metal::exp(metal::abs(winner_x)));
             my_score = winner_x < 0.0f ? winner_y : 1.0f - winner_y;
         """
@@ -4880,7 +4880,7 @@ private func lagunaDecodeRouterOrdinalKernelSource(
             total = simd_shuffle(my_score, ushort(i)) + total;
         }
         if (lane < 8) {
-            router_indices[lane] = my_index;
+            router_indices[lane] = my_pair.y;
             router_scores[lane] = my_score / total;
         }
         """
@@ -4888,15 +4888,14 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         if (lane < 8) {
             float my_score = 0.0f;
         \(winnerScore)
-            router_indices[lane] = my_index;
+            router_indices[lane] = my_pair.y;
             router_scores[lane] = my_score;
         }
         """
     return """
         uint lane = thread_position_in_threadgroup.x;
 
-        threadgroup uint xchg_ordinals[256];
-        threadgroup uint xchg_indices[256];
+        threadgroup uint2 xchg[256];
         \(scoreStorage)
 
         float x = float(logits[lane]);
@@ -4904,26 +4903,22 @@ private func lagunaDecodeRouterOrdinalKernelSource(
         float score = x < 0.0f ? y : 1.0f - y;
         \(scoreStore)
         float key = -(score + float(correction_bias[lane]));
-        uint my_ordinal = laguna_router_key_ordinal(key);
-        uint my_index = lane;
+        uint2 my_pair = uint2(laguna_router_key_ordinal(key), lane);
 
         // Byte-for-byte the accepted 256-element Batcher schedule and pair
         // roles: 30 intra-simdgroup stages and six cross-simdgroup stages.
-        // Only the exact sortable payload representation differs.
+        // (ordinal,index) packed into one uint2 so each compare/exchange is
+        // a single simd_shuffle_xor or threadgroup read/write.
         for (uint sequence = 2; sequence <= 256; sequence <<= 1) {
             for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
-                uint other_ordinal;
-                uint other_index;
+                uint2 other_pair;
                 if (stride < 32) {
-                    other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                    other_index = simd_shuffle_xor(my_index, ushort(stride));
+                    other_pair = simd_shuffle_xor(my_pair, ushort(stride));
                 } else {
-                    xchg_ordinals[lane] = my_ordinal;
-                    xchg_indices[lane] = my_index;
+                    xchg[lane] = my_pair;
                     threadgroup_barrier(mem_flags::mem_threadgroup);
                     uint partner = lane ^ stride;
-                    other_ordinal = xchg_ordinals[partner];
-                    other_index = xchg_indices[partner];
+                    other_pair = xchg[partner];
                     threadgroup_barrier(mem_flags::mem_threadgroup);
                 }
 
@@ -4931,14 +4926,13 @@ private func lagunaDecodeRouterOrdinalKernelSource(
                 bool lower_wants_better = (lane & sequence) == 0;
                 bool want_better = lower_wants_better == is_lower;
                 bool other_before_my = laguna_router_ordinal_before(
-                    other_ordinal, other_index, my_ordinal, my_index);
+                    other_pair, my_pair);
                 // Expert indices are globally unique, so `my` and `other`
                 // can never compare equal. This is the accepted a/b pair-role
                 // rule reduced algebraically to a direct take-other decision.
                 bool take_other = want_better ? other_before_my : !other_before_my;
                 if (take_other) {
-                    my_ordinal = other_ordinal;
-                    my_index = other_index;
+                    my_pair = other_pair;
                 }
             }
         }
@@ -4963,14 +4957,14 @@ private let lagunaDecodeRouterOrdinalHeader = """
     }
 
     METAL_FUNC bool laguna_router_ordinal_before(
-        uint a, uint a_index, uint b, uint b_index) {
-        if (a < b) {
+        uint2 a, uint2 b) {
+        if (a.x < b.x) {
             return true;
         }
-        if (b < a) {
+        if (b.x < a.x) {
             return false;
         }
-        return a_index < b_index;
+        return a.y < b.y;
     }
     """
 
@@ -5072,30 +5066,28 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
     let epilogue =
         normalizing
         ? """
-        float my_score2 = lane < 8 ? original_scores[my_index2] : 0.0f;
+        float my_score2 = lane < 8 ? original_scores[my_pair2.y] : 0.0f;
         float total = 0.0f;
         for (uint i = 0; i < 8; ++i) {
             total = simd_shuffle(my_score2, ushort(i)) + total;
         }
         if (lane < 8) {
-            router_indices[row * 8 + lane] = my_index2;
+            router_indices[row * 8 + lane] = my_pair2.y;
             router_scores[row * 8 + lane] = my_score2 / total;
         }
         """
         : """
         if (lane < 8) {
-            router_indices[row * 8 + lane] = my_index2;
-            router_scores[row * 8 + lane] = original_scores[my_index2];
+            router_indices[row * 8 + lane] = my_pair2.y;
+            router_scores[row * 8 + lane] = original_scores[my_pair2.y];
         }
         """
     return """
         uint lane = thread_position_in_threadgroup.x;
         uint row = threadgroup_position_in_grid.y;
 
-        threadgroup uint xchg_ordinals[256];
-        threadgroup uint xchg_indices[256];
-        threadgroup uint candidate_ordinals[64];
-        threadgroup uint candidate_indices[64];
+        threadgroup uint2 xchg[256];
+        threadgroup uint2 candidates[64];
         threadgroup float original_scores[256];
 
         float x = float(logits[row * 256 + lane]);
@@ -5103,24 +5095,21 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
         float score = x < 0.0f ? y : 1.0f - y;
         original_scores[lane] = score;
         float key = -(score + float(correction_bias[lane]));
-        uint my_ordinal = laguna_router_key_ordinal(key);
-        uint my_index = lane;
+        uint2 my_pair = uint2(laguna_router_key_ordinal(key), lane);
 
         // Phase 1: identical 15-stage local 32-lane Batcher sorts.
         for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
             for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
-                uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                uint other_index = simd_shuffle_xor(my_index, ushort(stride));
+                uint2 other_pair = simd_shuffle_xor(my_pair, ushort(stride));
 
                 bool is_lower = (lane & stride) == 0;
                 bool lower_wants_better = (lane & sequence) == 0;
                 bool want_better = lower_wants_better == is_lower;
                 bool other_before_my = laguna_router_ordinal_before(
-                    other_ordinal, other_index, my_ordinal, my_index);
+                    other_pair, my_pair);
                 bool take_other = want_better ? other_before_my : !other_before_my;
                 if (take_other) {
-                    my_ordinal = other_ordinal;
-                    my_index = other_index;
+                    my_pair = other_pair;
                 }
             }
         }
@@ -5132,30 +5121,24 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
         uint rank_in_block = block_ascending ? within_block : (31 - within_block);
         bool is_local_top8 = block_ascending ? (within_block < 8) : (within_block >= 24);
         if (is_local_top8) {
-            candidate_ordinals[block * 8 + rank_in_block] = my_ordinal;
-            candidate_indices[block * 8 + rank_in_block] = my_index;
+            candidates[block * 8 + rank_in_block] = my_pair;
         }
         // This accepted inter-phase barrier also makes every lane's initial
         // original_scores store visible before the final indexed reads.
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         // Phase 2: identical wrapped 64-candidate, 21-stage Batcher sort.
-        uint my_ordinal2 = candidate_ordinals[lane & 63];
-        uint my_index2 = candidate_indices[lane & 63];
+        uint2 my_pair2 = candidates[lane & 63];
         for (uint sequence = 2; sequence <= 64; sequence <<= 1) {
             for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
-                uint other_ordinal;
-                uint other_index;
+                uint2 other_pair;
                 if (stride < 32) {
-                    other_ordinal = simd_shuffle_xor(my_ordinal2, ushort(stride));
-                    other_index = simd_shuffle_xor(my_index2, ushort(stride));
+                    other_pair = simd_shuffle_xor(my_pair2, ushort(stride));
                 } else {
-                    xchg_ordinals[lane] = my_ordinal2;
-                    xchg_indices[lane] = my_index2;
+                    xchg[lane] = my_pair2;
                     threadgroup_barrier(mem_flags::mem_threadgroup);
                     uint partner = lane ^ stride;
-                    other_ordinal = xchg_ordinals[partner];
-                    other_index = xchg_indices[partner];
+                    other_pair = xchg[partner];
                     threadgroup_barrier(mem_flags::mem_threadgroup);
                 }
 
@@ -5163,11 +5146,10 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
                 bool lower_wants_better = (lane & sequence) == 0;
                 bool want_better = lower_wants_better == is_lower;
                 bool other_before_my = laguna_router_ordinal_before(
-                    other_ordinal, other_index, my_ordinal2, my_index2);
+                    other_pair, my_pair2);
                 bool take_other = want_better ? other_before_my : !other_before_my;
                 if (take_other) {
-                    my_ordinal2 = other_ordinal;
-                    my_index2 = other_index;
+                    my_pair2 = other_pair;
                 }
             }
         }
