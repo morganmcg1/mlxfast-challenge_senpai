@@ -612,7 +612,7 @@ private let lagunaAttentionProjectionAsyncEnabled =
 /// This pays into both score components: the prefill phase itself and the
 /// 512-token seed prefill charged to the decode window.
 private let lagunaPrefillAsyncLadderStride: Int = {
-    let raw = ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_ASYNC_LADDER"]?.lowercased() ?? "1"
+    let raw = ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_ASYNC_LADDER"]?.lowercased() ?? "16"
     if raw == "off" || raw == "0" || raw.isEmpty { return 0 }
     guard let n = Int(raw), (1...40).contains(n) else { return 0 }
     return n
