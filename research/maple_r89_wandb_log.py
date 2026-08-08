@@ -6,7 +6,7 @@ in-situ contrast, plus a parent summary run holding the full tables. The probe
 log is parsed rather than re-run so the numbers published are exactly the ones
 in the committed artefacts.
 
-Usage: maple_r89_wandb_log.py PROBE_LOG INSITU_RECORDS_JSON
+Usage: maple_r89_wandb_log.py PROBE_LOG SPLIT1_RECORDS_JSON [NAT_RECORDS_JSON]
 """
 import json
 import math
@@ -77,15 +77,15 @@ def parse_probe(path):
     return occ, cold, hot
 
 
-def paired(recs, key):
+def paired(recs, key, ref="0"):
     by_rep = {}
     for r in recs:
         if key in r:
             by_rep.setdefault(r["rep"], {})[r["slot"]] = r[key]
     out = {}
     for slot in ARM_LABEL:
-        diffs = [b[slot] - b["0"] for b in by_rep.values()
-                 if slot in b and "0" in b]
+        diffs = [b[slot] - b[ref] for b in by_rep.values()
+                 if slot in b and ref in b]
         levels = [b[slot] for b in by_rep.values() if slot in b]
         if not levels:
             continue
@@ -100,19 +100,26 @@ def paired(recs, key):
 
 def main():
     probe_log, insitu_json = sys.argv[1], sys.argv[2]
+    nat_json = sys.argv[3] if len(sys.argv) > 3 else None
     occ, cold, hot = parse_probe(probe_log)
     recs = json.load(open(insitu_json)) if os.path.exists(insitu_json) else []
+    nat = json.load(open(nat_json)) if nat_json and os.path.exists(nat_json) \
+        else []
 
     keys = ["router_us_call", "router_us_step", "busy_sum_ms",
             "busy_union_ms", "median_ms", "gap_ms", "wall_ms"]
     insitu = {k: paired(recs, k) for k in keys}
+    insitu.update({f"vsA4_{k}": paired(recs, k, ref="5") for k in keys})
+    insitu.update({f"nat_{k}": paired(nat, k) for k in keys})
+    insitu.update({f"nat_vsA4_{k}": paired(nat, k, ref="5") for k in keys})
     n_call = max([r.get("router_n_step") or 0 for r in recs] or [39.0])
 
     common = {
         "assignment_id": "maple-r89-a-router-weight-prefetch",
         "revision_id": "r89-a-rev1",
         "pr": 475,
-        "base_sha": "098cfe0b935b87912e537ae29e21fd6339bafca8",
+        "base_sha": "4dd8410f05605cb2730bc82c56f7529fd515ce97",
+        "brief_base_sha": "098cfe0b935b87912e537ae29e21fd6339bafca8",
         "scored_content_base": "3217f111142346e004f41fae611a8bede172a659",
         "host": "Apple M4 Pro applegpu_g16s 48GiB",
         "submitted_path": "Sources/MLXFastModel/LagunaRuntimeModel.swift",
@@ -177,10 +184,11 @@ def main():
             run.log({f"insitu_{k}_table": wandb.Table(
                 columns=["slot", "n", "level", "paired_diff", "ci_lo", "ci_hi"],
                 data=rows)})
-    if recs:
-        cols = sorted({k for r in recs for k in r})
-        run.log({"insitu_raw": wandb.Table(
-            columns=cols, data=[[r.get(c) for c in cols] for r in recs])})
+    for nm, rr in (("insitu_raw", recs), ("nat_raw", nat)):
+        if rr:
+            cols = sorted({k for r in rr for k in r})
+            run.log({nm: wandb.Table(
+                columns=cols, data=[[r.get(c) for c in cols] for r in rr])})
     run.finish()
     print("logged to", f"{ENTITY}/{PROJECT} group={GROUP}")
     return 0
