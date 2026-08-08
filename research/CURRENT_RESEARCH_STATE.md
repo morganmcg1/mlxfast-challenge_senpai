@@ -61,22 +61,27 @@ MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1. DO NOT REVISIT.
   - Dispatch infrastructure intact: quantized.cpp:1918 grid division by xmajor_ct
   - M5-only (uses _nax kernels, M4 can't test), ~5KB vendor budget, bit-exact
 
-## M5 SUBMISSION STATUS (2026-08-08T06:16Z)
-  5ef630e0: VALIDATING — sdpa_vector.h revert (b8c843aa, f790e33f PAIR_HEADS=2 + dead deletions + XMAJOR)
-  07634617: FAILED — nuclear fallback with SDPA Phase 1 (a2cb0a0a, GROUP_FULL=3 caused M5 timeout)
-  All submissions since f790e33f FAILED (42 consecutive)
-  Root cause identified: SDPA Phase 1 (GQA group sharing GROUP_FULL=3) in sdpa_vector.h increased AOT metallib compile time
-  If 5ef630e0 builds: sdpa_vector.h revert fixed M5. Submit 9c934d8e (with full-attn fused) next.
-  If 5ef630e0 fails: investigate XMAJOR fold _nax kernel changes or test file growth.
+## M5 SUBMISSION STATUS (2026-08-08T06:36Z)
+  db536735: VALIDATING — XMAJOR fold reverted (e010e2eb, nuclear fallback + dead code + SDPA revert + full-attn fused, NO XMAJOR)
+  5ef630e0: FAILED — sdpa_vector.h revert + XMAJOR fold + dead code (b8c843aa) — XMAJOR fold suspected
+  07634617: FAILED — nuclear fallback + SDPA Phase 1 (a2cb0a0a)
+  All submissions since f790e33f FAILED (43 consecutive)
+  Root cause analysis:
+  - f790e33f (511KB LRM, 48 metalKernel) was last M5 success
+  - Current code (320KB LRM, 19 metalKernel) is SMALLER yet still fails
+  - Only vendor file changes from f790e33f: XMAJOR fold (+216 lines fp_quantized_nax.h, now reverted)
+  - Full-attn fused kernel (PR #410) adds 2 JIT compiles (still in current code)
+  - If db536735 builds: XMAJOR was the culprit
+  - If db536735 fails: full-attn fused or LRM refactoring is the culprit
   Leaderboard #1: yudduy 2.6063. Our promoted: 2.5888. Gap: ~0.67%.
 
-## CURRENT FRONTIER (9c934d8e)
-  Nuclear fallback (f790e33f base) + dead code removal + XMAJOR fold + full-attn fused decode kernel
-  19 metalKernel calls (15 live per thorfinn's audit, +2 from full-attn fused = 17 live)
-  SDPA: f790e33f PAIR_HEADS=2 (SDPA Phase 1 reverted — GROUP_FULL=3 caused M5 timeout)
-  XMAJOR: fold=2 active in quantized.cpp (#define injection, no new JIT compiles)
+## CURRENT FRONTIER (e010e2eb)
+  Nuclear fallback (f790e33f base) + dead code removal + SDPA revert + full-attn fused decode kernel
+  NO XMAJOR fold (reverted to test M5 build)
+  19 metalKernel calls (17 live including 2 from full-attn fused)
+  SDPA: f790e33f PAIR_HEADS=2 (SDPA Phase 1 reverted)
   Full-attn fused: lagunaFullFusedAttentionKernel + lagunaFullQKNormYaRNKernel recovered (PR #410)
-  Missing: kHalvedScales, prefill QK-norm+RoPE fusion, SDPA Phase 1 (GROUP_FULL=3)
+  Missing: XMAJOR fold (reverted), kHalvedScales, prefill QK-norm+RoPE fusion, SDPA Phase 1
 
 ## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=987c21c5)
   PR #407 v2 (edward): Prefill QK-norm+RoPE fusion — REBASE REQUESTED onto 987c21c5. v1 succeeded: +0.7% decode, +3.4% prefill, +1.3% est score on M4.
