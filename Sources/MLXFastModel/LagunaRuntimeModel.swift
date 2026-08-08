@@ -6315,9 +6315,9 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     // Word `w` owns `input[8w .. 8w+7]`, exactly the indices the `8 * j` form
     // produced, so the multiply/add expressions and their association are
     // untouched.
-    func packedWordBody(_ word: Int, bf16: Bool = false) -> String {
+    func packedWordBody(_ word: Int, vectorInput: Bool = false) -> String {
         func value(_ index: Int) -> String {
-            bf16
+            vectorInput
                 ? "float(input[\(index / 4)][\(index % 4)])"
                 : "input[\(index)]"
         }
@@ -6379,6 +6379,19 @@ let lagunaSharedSwiGLUQMVHeader: String = {
         return laguna_nvfp4_qdot_codes_16(packed[0], input, scale);
     }
 
+    static inline float laguna_nvfp4_qdot_float4_16(
+        const device uint8_t* weight,
+        const thread float4* input,
+        float scale
+    ) {
+        const device uint2* packed = (const device uint2*)weight;
+        const uint2 codes = packed[0];
+        \(accumDeclaration)
+    \(packedWordBody(0, vectorInput: true))
+    \(packedWordBody(1, vectorInput: true))
+        return scale * accum;
+    }
+
     static inline float laguna_nvfp4_qdot_bf16_16(
         const device uint8_t* weight,
         const thread vec<bfloat, 4>* input,
@@ -6387,8 +6400,8 @@ let lagunaSharedSwiGLUQMVHeader: String = {
         const device uint2* packed = (const device uint2*)weight;
         const uint2 codes = packed[0];
         \(accumDeclaration)
-    \(packedWordBody(0, bf16: true))
-    \(packedWordBody(1, bf16: true))
+    \(packedWordBody(0, vectorInput: true))
+    \(packedWordBody(1, vectorInput: true))
         return scale * accum;
     }
     """
@@ -6506,25 +6519,21 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
-        thread float input_values[values_per_lane];
+        thread float4 input_values[values_per_lane / 4];
 
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
                     input + block + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
+                input_values[i] = float4(input_vectors[i]);
             }
 
-            gate_result += laguna_nvfp4_qdot_16(
+            gate_result += laguna_nvfp4_qdot_float4_16(
                 gate_row_weight + block / 2,
                 input_values,
                 laguna_nvfp4_scale(gate_row_scale[block / 16]));
-            up_result += laguna_nvfp4_qdot_16(
+            up_result += laguna_nvfp4_qdot_float4_16(
                 up_row_weight + block / 2,
                 input_values,
                 laguna_nvfp4_scale(up_row_scale[block / 16]));
@@ -6971,18 +6980,14 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
-        thread float input_values[values_per_lane];
+        thread float4 input_values[values_per_lane / 4];
 
         for (uint block = 0; block < input_width; block += block_width) {
             const device vec<bfloat, 4>* input_vectors =
                 (const device vec<bfloat, 4>*) (
                     input + block + lane * values_per_lane);
             for (uint i = 0; i < values_per_lane / 4; ++i) {
-                const vec<bfloat, 4> values = input_vectors[i];
-                input_values[4 * i] = values[0];
-                input_values[4 * i + 1] = values[1];
-                input_values[4 * i + 2] = values[2];
-                input_values[4 * i + 3] = values[3];
+                input_values[i] = float4(input_vectors[i]);
             }
 
             const device uint8_t* block_scales =
@@ -6997,10 +7002,10 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
                 expert_weight + up_row * fused_row_bytes
                 + block / 2 + lane * 8;
 
-            gate_result += laguna_nvfp4_qdot_16(
+            gate_result += laguna_nvfp4_qdot_float4_16(
                 gate_weight, input_values,
                 laguna_nvfp4_scale(gate_scale[0]));
-            up_result += laguna_nvfp4_qdot_16(
+            up_result += laguna_nvfp4_qdot_float4_16(
                 up_weight, input_values,
                 laguna_nvfp4_scale(up_scale[0]));
         }
