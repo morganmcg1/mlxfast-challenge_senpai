@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 SCORED = "Sources/MLXFastModel/LagunaRuntimeModel.swift"
-ARMS = [0, 1, 2, 4, 5]
+ARMS = [0, 1, 2, 3, 4, 5]
 
 # (start-line prefix, end predicate) for every declaration the generator needs.
 REGIONS = [

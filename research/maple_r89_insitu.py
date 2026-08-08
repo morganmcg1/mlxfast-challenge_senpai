@@ -22,15 +22,16 @@ import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ARMS = [0, 1, 2, 4, 5]
+ARMS = [0, 1, 2, 3, 4, 5]
 ARM_LABEL = {
     0: "A0 depth0 (baseline)",
     1: "A1 depth1 hoisted",
     2: "A2 depth2 hoisted",
+    3: "A5 depth3 hoisted",
     4: "A3 depth4 hoisted (full)",
     5: "A4 depth1 control (below barriers)",
 }
-ROUTER_RE = re.compile(r"laguna_residual_rms_router\S*")
+ROUTER_RE = re.compile(r"(?:laguna_)?residual_rms_router\S*")
 
 
 def run(arm, steps, split, out, tag):

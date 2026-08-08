@@ -27,10 +27,11 @@
 import Foundation
 import Metal
 
-let arms = [0, 1, 2, 4, 5]
+let arms = [0, 1, 2, 3, 4, 5]
 let armLabel: [Int: String] = [
     0: "A0 depth0 (shipped)", 1: "A1 depth1 hoisted", 2: "A2 depth2 hoisted",
-    4: "A3 depth4 hoisted (full)", 5: "A4 depth1 control (below barriers)",
+    3: "A5 depth3 hoisted", 4: "A3 depth4 hoisted (full)",
+    5: "A4 depth1 control (below barriers)",
 ]
 
 let srcDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "/tmp/r89src"
@@ -232,6 +233,7 @@ let comparisons: [Comparison] = [
     Comparison(label: "null  A0 vs A0' (pre)", a: 0, b: -1),
     Comparison(label: "A1 - A0", a: 1, b: 0),
     Comparison(label: "A2 - A0", a: 2, b: 0),
+    Comparison(label: "A5 - A0  (depth3)", a: 3, b: 0),
     Comparison(label: "A3 - A0", a: 4, b: 0),
     Comparison(label: "A4 - A0", a: 5, b: 0),
     Comparison(label: "A1 - A4  (overlap)", a: 1, b: 5),
