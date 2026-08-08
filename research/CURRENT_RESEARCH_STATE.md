@@ -78,11 +78,11 @@ MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1. DO NOT REVISIT.
   Full-attn fused: lagunaFullFusedAttentionKernel + lagunaFullQKNormYaRNKernel recovered (PR #410)
   Missing: kHalvedScales, prefill QK-norm+RoPE fusion, SDPA Phase 1 (GROUP_FULL=3)
 
-## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=9c934d8e)
-  PR #407 (edward): Compile budget engineering — free 2 JIT slots, re-enable prefill QK-norm+RoPE fusion. Student working.
+## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=987c21c5)
+  PR #407 v2 (edward): Prefill QK-norm+RoPE fusion — REBASE REQUESTED onto 987c21c5. v1 succeeded: +0.7% decode, +3.4% prefill, +1.3% est score on M4.
   PR #402 (askeladd): kHalvedScales runtime constant reimpl — recover ~0.9% score. Student working.
-  Thorfinn: IDLE (PR #406 v2 merged, dead code removal)
-  Alphonse: IDLE (PR #410 merged, full-attn fused kernel recovery)
+  PR #411 (thorfinn): _nax compile count reduction — audit template instantiations, eliminate dormant variants. Just assigned.
+  PR #412 (alphonse): LM-head pruner RMSNorm fusion — fuse final RMSNorm into coarse kernel, eliminate 1 dispatch/step. Just assigned.
 
 ## KEY FINDINGS (thorfinn audit, PR #406)
   MLX JIT is lazy — dead kernels never compile. Actual JIT compile count is ~13 (not 19).
