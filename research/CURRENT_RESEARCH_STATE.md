@@ -32,24 +32,24 @@ Do NOT revisit this hypothesis.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
 ## MERGED WAVE 19
-  PR #352 (thorfinn): JIT kernel disable sweep — MERGED (5 flags disabled: FUSED_GATED_OUTPUT, FUSED_GATE_PRODUCT, PREFILL_QK_NORM_ROPE, TERMINAL_FUSION, FUSED_FULL_QK_NORM_YARN. ~6-10 fewer JIT compilations. M4 timing neutral. 345B. M5 build fix)
-  PR #350 (alphonse): JIT kernel variant consolidation — MERGED (14 per-head kernel groups consolidated via runtime parameterization. Compile count ~82→~57. Build time 88s→21s. Net -6,402B. CRITICAL M5 build fix)
+  PR #352 (thorfinn): JIT kernel disable sweep — MERGED (5 flags disabled. ~6-10 fewer JIT compiles. 345B. M5 build fix. NOTE: FUSED_FULL_QK_NORM_YARN was incorrectly disabled — see PR #356 closure)
+  PR #350 (alphonse): JIT kernel variant consolidation — MERGED (14 per-head kernel groups consolidated. Compile count ~82→~57. Build time 88s→21s. Net -6,402B. CRITICAL M5 build fix)
 
-## ACTIVE ASSIGNMENTS (Wave 20, BASE_SHA=bff2e3ba)
-  PR #349 (askeladd): Prefill RMSNorm+QKV fusion via MLX.compile — WIP (~0.6% total, ★★★)
+## CLOSED WAVE 20
+  PR #349 (askeladd): RMSNorm+QKV fusion — NEGATIVE (MLX.compile can't fuse Custom primitives with matmul. KEY INSIGHT: compile only works for standard MLX ops, not Custom Metal primitives)
+  PR #356 (alphonse): Re-enable FUSED_FULL_QK_NORM_YARN — NEGATIVE (M4 -3.3% decode regression. Was ON in 68b66c5 but current frontier's 43 changes interact differently. M5 build still failing, can't verify M5 behavior)
+
+## ACTIVE ASSIGNMENTS (Wave 21, BASE_SHA=5f0daea0)
   PR #351 (edward): Prefill shared gate/up+SiLU fusion — WIP (~0.5-1% prefill, ★★☆)
-  PR #355 (thorfinn): Prefill eScoreCorrectionBias Float32 hoist — WIP (~0.05-0.1% score, ~+100-200B, bit-exact, quick win)
-  PR #356 (alphonse): Re-enable FUSED_FULL_QK_NORM_YARN — JUST ASSIGNED (0-byte flag flip, ~0.4-0.9% decode, CASCADE: unblocks full fused attn + RoPE atlas for ALL 40 layers)
+  PR #355 (thorfinn): Prefill eScoreCorrectionBias Float32 hoist — WIP (~0.05-0.1% score, bit-exact, quick win)
+  PR #357 (askeladd): Re-enable PREFILL_QK_NORM_ROPE — WIP (0-byte flag flip, ~200 prefill dispatch elim)
+  PR #358 (alphonse): Delete unused H4 kernel variants + audit PR #350 for M5 — JUST ASSIGNED (net-negative bytes, -2 JIT compiles, M5 build fix)
 
 ## M5 BUILD FIX STATUS
   PR #352 + PR #350 combined: compile count ~82 → ~57 (build time 88s → 21s on M4)
-  M5 submission 3ce71457 VALIDATING (first submission with both build fixes)
-  PR #356 adds 2 compiles (~59 total) — still well within capacity
-
-## RESEARCH AGENT FINDINGS (2026-08-08)
-  PR #352 incorrectly disabled DARKBLOOM_FUSED_FULL_QK_NORM_YARN — cascade effect:
-  10 full-attn layers run stock 6-dispatch path, full fused attn kernel blocked, RoPE atlas not built.
-  Fix: PR #356 assigned to alphonse (1-line flag flip, 0 bytes).
+  M5 STILL FAILING: 3ce71457 FAILED (32+ consecutive). Even with ~57 compiles, M5 build fails.
+  M5 submission e1a2c89a VALIDATING (7th resubmission with build fixes)
+  PR #358 (alphonse): deleting H4 variants + auditing PR #350 for M5 compatibility issues
 
 ## MERGED WAVE 18
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — MERGED (2.8% prefill improvement, 2-line change, bit-exact)
