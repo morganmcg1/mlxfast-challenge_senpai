@@ -1,7 +1,13 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-08T01:45Z (updated by advisor session)
-- Advisor HEAD: 54edee18 (pushed to origin). 41+ bit-exact changes. PR #357 + #361 + #367 merged this session.
-- LRM: 502,603/524,288 = 21,685 B headroom. Total surface 2,937,409/3,000,000 = 62,591 B headroom.
+- 2026-08-08T04:20Z (updated by advisor session)
+- Advisor HEAD: 96645c09 (PR #392 merged, -69KB dead kernels). 22 composed changes on frontier.
+- LRM: ~233K/524,288 = ~291KB headroom. Total surface 2,740,230/3,000,000 = 259,770 B headroom.
+
+## CRITICAL: M5 BUILD FAILURE (38+ consecutive failures since f790e33f)
+  Last M5 success: 3ff3992 (f790e33f, 2.5213, Aug 7 6:51 PM). ALL since failed.
+  Primary suspect: SDPA GQA 3/4 (PR #366 + #377) — exchange_planes 4→6, TG memory ~16→25KB.
+  Bisect: PR #395 (alphonse) — revert SDPA, test M5 build.
+  kHalvedScales revert (PR #391) did NOT fix it. Submission 417a9ab FAILED.
 
 ## GRID OVER-DISPATCH HYPOTHESIS: REFUTED
 MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = TOTAL THREADS.
