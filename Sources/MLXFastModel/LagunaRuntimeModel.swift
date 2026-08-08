@@ -5469,6 +5469,23 @@ private let lagunaCompiledSoftplusGate: @Sendable (MLXArray) -> MLXArray = {
     return MLXHardwareInfo.isCompiledDecodeSupported ? compile(shapeless: true, body) : body
 }()
 
+/// Compiled prefill input RMSNorm + fused QKV matmul. The constructor-time
+/// 2-token warmup prefill traces and caches this; the timed 512-token prefill
+/// reuses the cached graph. Shapeless so different sequence lengths share one
+/// compilation. MLX.compile may fuse the RMSNorm elementwise tail with the
+/// matmul's input loading, or at minimum reduce frontend dispatch overhead
+/// between the two ops. Bit-exact: same RMSNorm rounding and matmul accumulation
+/// as the uncompiled path — compile only changes scheduling, not arithmetic.
+private let lagunaCompiledPrefillNormQKV: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = {
+    let eps = Float(LagunaConstants.rmsNormEpsilon)
+    let body: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = {
+        input, normWeight, fusedQKVWeight in
+        let normalized = MLXFast.rmsNorm(input, weight: normWeight, eps: eps)
+        return matmul(normalized, fusedQKVWeight.T)
+    }
+    return MLXHardwareInfo.isCompiledDecodeSupported ? compile(shapeless: true, body) : body
+}()
+
 /// Decode-only outer compilation of the same gate product with the following
 /// bias-free BF16 output projection. MLX keeps the matmul primitive intact but
 /// schedules the elementwise producer and projection as one compiled graph,
@@ -6024,7 +6041,7 @@ final class LagunaRuntimeAttention: Module {
         // Decode (L == 1) never reads this bank; the fused norm+QKV kernel
         // above handles it instead.
         if let fusedQKVWeight = _fusedQKVWeight, L > 1 {
-            guard let normalizedInput else {
+            guard normalizedInput != nil else {
                 preconditionFailure("retained fused QKV requires normalized input")
             }
             // One dispatch over the row-concatenated weight, identical math
@@ -6032,7 +6049,10 @@ final class LagunaRuntimeAttention: Module {
             // row's K-loop is independent of which rows share the dispatch,
             // so every Q/K/V/gate element is bit-exact; the slices are views
             // and the reshapes below may copy, which does not change values.
-            let qkv = matmul(normalizedInput, fusedQKVWeight.T)
+            // The compiled graph fuses the RMSNorm + matmul into a single
+            // compiled dispatch boundary (the warmup prefill traces it).
+            let qkv = lagunaCompiledPrefillNormQKV(
+                input, inputNorm.weight, fusedQKVWeight)
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
             queries = qkv[.ellipsis, 0 ..< queryDim]
