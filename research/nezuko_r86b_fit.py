@@ -49,15 +49,22 @@ def run_median_us(path):
 
 
 def load_ladder(dirs):
-    """Return [(block, slot, mode, inserts, median_us)] for non-primer runs."""
+    """Return [(block, slot, mode, inserts, median_us)] for non-primer runs.
+
+    Mode `o` is the env-unset arm: the instrument call is present in the binary
+    but returns its argument before touching MLX.
+    """
     rows = []
     for d in dirs:
         for p in sorted(glob.glob(os.path.join(d, "b*_s*_*.steps"))):
-            m = re.search(r"b(\d+)_s(\d+)_([wt])(\d+)\.steps$", os.path.basename(p))
+            m = re.search(r"b(\d+)_s(\d+)_(off|[wt]\d+)\.steps$",
+                          os.path.basename(p))
             if not m or int(m.group(1)) == 0:
                 continue
-            rows.append((f"{d}#{m.group(1)}", int(m.group(2)), m.group(3),
-                         int(m.group(4)), run_median_us(p)))
+            arm = m.group(3)
+            mode, inserts = ("o", 0) if arm == "off" else (arm[0], int(arm[1:]))
+            rows.append((f"{d}#{m.group(1)}", int(m.group(2)), mode, inserts,
+                         run_median_us(p)))
     return rows
 
 
@@ -214,6 +221,7 @@ def main():
         print(f"loaded {len(lad)} ladder runs from {len(args)} session dir(s)")
         wide = report_mode(lad, "w", "WIDE-insitu: 4 KiB dependent round trip", csv)
         tiny = report_mode(lad, "t", "TINY-insitu: 2 B dependent op", csv)
+        report_mode(lad, "o", "OFF: instrument present but env-disarmed", csv)
         if wide and tiny:
             sw, ew, _ = wide
             st, et, _ = tiny

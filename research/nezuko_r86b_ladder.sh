@@ -17,24 +17,33 @@ set -uo pipefail
 OUTDIR="${1:?outdir}"
 BLOCKS="${2:-3}"
 STEPS="${3:-200}"
-ARM_SEQ="${ARM_SEQ:-w0 w2 w4 w8 w16 t0 t2 t4 t8 t16 t16 t8 t4 t2 t0 w16 w8 w4 w2 w0}"
+ARM_SEQ="${ARM_SEQ:-off w0 w2 w4 w8 w16 t0 t2 t4 t8 t16 t16 t8 t4 t2 t0 w16 w8 w4 w2 w0 off}"
 mkdir -p "${OUTDIR}"
 
 run_arm() {
   local arm="$1" tag="$2" mode inserts
-  case "${arm:0:1}" in
-    w) mode=wide ;;
-    t) mode=tiny ;;
-    *) echo "unknown arm ${arm}" >&2; return 1 ;;
-  esac
-  inserts="${arm:1}"
-  echo "=== $(date -u +%H:%M:%S) ${tag} mode=${mode} inserts=${inserts}"
-  DARKBLOOM_R86_MODE="${mode}" \
-  DARKBLOOM_R86_INSERTS="${inserts}" \
-  python3 research/decode_probe.py --steps "${STEPS}" \
-    --dump-steps "${OUTDIR}/${tag}.steps" \
-    --stderr "${OUTDIR}/${tag}.err" \
-    > "${OUTDIR}/${tag}.log" 2>&1
+  echo "=== $(date -u +%H:%M:%S) ${tag} arm=${arm}"
+  if [[ "${arm}" == off ]]; then
+    # Instrument disarmed at the env layer: isolates the cost of the guarded
+    # call itself from the cost of the k=0 fold.
+    python3 research/decode_probe.py --steps "${STEPS}" \
+      --dump-steps "${OUTDIR}/${tag}.steps" \
+      --stderr "${OUTDIR}/${tag}.err" \
+      > "${OUTDIR}/${tag}.log" 2>&1
+  else
+    case "${arm:0:1}" in
+      w) mode=wide ;;
+      t) mode=tiny ;;
+      *) echo "unknown arm ${arm}" >&2; return 1 ;;
+    esac
+    inserts="${arm:1}"
+    DARKBLOOM_R86_MODE="${mode}" \
+    DARKBLOOM_R86_INSERTS="${inserts}" \
+    python3 research/decode_probe.py --steps "${STEPS}" \
+      --dump-steps "${OUTDIR}/${tag}.steps" \
+      --stderr "${OUTDIR}/${tag}.err" \
+      > "${OUTDIR}/${tag}.log" 2>&1
+  fi
   grep -E "^(teacher-forced|decode steps=|prefill)" "${OUTDIR}/${tag}.log"
 }
 
