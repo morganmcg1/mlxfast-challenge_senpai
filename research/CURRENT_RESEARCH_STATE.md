@@ -1,28 +1,35 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-08T14:35Z (updated by advisor session)
-- Advisor HEAD: 7da229c3 (PR #435 merged — CRITICAL M5 build fix).
-- Research frontier: 7da229c3 (PR #424 composition + PR #435 decode full-attn kernel wiring).
-- LRM: 335KB, ~18 custom kernels. Total surface within 3MB cap.
-- M5 SUBMISSION: f135665d VALIDATING (submitted 14:32 UTC, commit 7da229c3).
-  This is the 3/3 JIT compile delta fix (steel_attention elimination). If it passes, campaign is unblocked.
-- Last M5 success: f790e33f (score 2.5213). 50+ consecutive M5 build failures before this submission.
+- 2026-08-08T15:59Z (updated by advisor session)
+- Advisor HEAD: 39fa0483 (M5 build fix: revert vendor files to organizer frontier).
+- Research frontier: 39fa0483 (full vendor revert + LRM groupSize fix).
+- LRM: ~335KB, ~18 custom kernels. Total surface within 3MB cap.
+- M5 SUBMISSION: bcedc8a8 VALIDATING (submitted 15:59 UTC, commit 39fa0483).
+  This is the full vendor file revert (removes both fc→template AND halved scales).
+  Prior surgical fix (a74d2fe, commit fa0a8c4) FAILED — keeping halved scales in vendor
+  files also breaks M5 build. Full revert is the correct approach.
+- Last M5 success: f790e33f (score 2.5213). 50+ consecutive M5 build failures.
 - Leaderboard #1: a-github-name 2.6165. Our promoted: 2.5888 (97a5090, maple campaign). Gap: ~1.06%.
 
-## CRITICAL: M5 BUILD TIMEOUT — 50+ CONSECUTIVE FAILURES — FIX IN PROGRESS
-  Root cause: LRM nuclear fallback replaced 31 custom kernels with standard MLX ops.
-  Standard MLX ops compile from 5-10x larger headers than custom kernels.
-  3 JIT compile deltas (f790e33f to current):
-  1. rope.metal (229 lines) - FIXED by PR #407 (prefill sliding QK-norm+RoPE fusion, MERGED)
-  2. rms_norm.metal (391 lines) - FIXED by PR #407 (prefill sliding QK-norm fusion, MERGED)
-  3. steel_attention (1,160 lines) - FIXED by PR #435 (MERGED 7da229c3).
-     Restored lagunaFullFusedAttentionKernel + lagunaFullFusedAttention + 2 dispatch branches from f790e33f.
+## CRITICAL: M5 BUILD TIMEOUT — ROOT CAUSE FOUND — FIX VALIDATING
+  Root cause: 3 vendor files changed from organizer frontier (bca94c5):
+  1. quantized.cpp: function constants (fc 200-207) → template parameters + halved scales
+  2. fp_quantized_nax.h: removed fc declarations + added kHalvedScales + escape bytes
+  3. fp_quantized_nax.cpp: same changes (embedded source)
 
-  Partial fix (PR #424, 2 of 3 JIT deltas): ALSO FAILED. steel_attention alone causes timeout.
-  M5 submission f135665d (commit 7da229c3) now VALIDATING — this is the full 3/3 fix.
+  Both the fc→template change AND the halved scales feature break M5 build.
+  Surgical fix (a74d2fe, reverting only fc→template, keeping halved scales) FAILED.
+  Full revert (39fa0483) removes both changes. Custom kernel halved scales (OProj, QKV R1)
+  use inline Metal source strings and bypass vendor quantizedMM entirely — unaffected.
 
-## ACTIVE ASSIGNMENTS (Wave 14, updated 2026-08-08T14:35)
-  PR #435 (thorfinn): MERGED — decode full-attn custom kernel wiring. M4: +0.88% decode, bit-exact.
-  PR #436 (edward): IN PROGRESS — Two-group SDPA schedule (AOT sdpa_vector.h). Rebased to 7da229c3 needed.
+  Fix: git checkout bca94c5 -- 3 vendor files + LRM groupSize 32→16 (dead code path).
+
+## ACTIVE ASSIGNMENTS (Wave 15, updated 2026-08-08T15:59)
+  PR #435 (thorfinn): MERGED — decode full-attn custom kernel wiring.
+  PR #436 (edward): IN PROGRESS — Two-group SDPA schedule (AOT sdpa_vector.h). Feedback sent about base change to 39fa0483.
+  thorfinn: IDLE — QKV fusion (PR #261) accepted on current base, bit-exact.
+  alphonse: IDLE — prior assignment closed.
+  askeladd: IDLE — prior assignment closed.
+  Fresh-ideas agent running to generate new experiment assignments.
   PR #437 (alphonse): CLOSED — negative result (router Top-8 already packed via lagunaRoutedSwiGLUQMVPackedTop8).
   PR #438 (askeladd): CLOSED — audit revealed PR #426 branch did NOT have the fix (false claim).
   PR #439 (alphonse): IN PROGRESS — Audit missing custom kernels from f790e33f (~28 missing). Rebased to 7da229c3 needed.
