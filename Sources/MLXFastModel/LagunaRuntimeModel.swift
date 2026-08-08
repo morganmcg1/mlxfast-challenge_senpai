@@ -133,13 +133,13 @@ let lagunaFusedSharedDownResidualEnabled =
 /// the exact router reduction, routed scale, and both BF16 residual adds.
 let lagunaFusedRoutedSharedDownResidualEnabled =
     ProcessInfo.processInfo.environment[
-        "DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL"] != "0"
+        "DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL"] == "1"
 
 /// Routed-expert counterpart to the shared QMV + SwiGLU fusion. Each decode
 /// request supplies exactly eight current-token expert indices; the kernel
 /// reads those banks directly and emits `[1, 1, 8, 1, 512]`.
 let lagunaFusedRoutedSwiGLUQMVEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV"] == "1"
 
 /// `DARKBLOOM_PACKED_SCALES` (default ON; set "0" to disable): decode-only
 /// scale-interleaved side copy of the fused routed gate/up NVFP4 bank. The
@@ -1452,11 +1452,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         constexpr uint gqa = 8;
         constexpr int BN = 32;
         constexpr int BD = 32;
-        // Pad the epilogue exchange stride off a power of two: the
-        // transposing write below is `lane * stride + sg`, which at
-        // stride 32 puts all 32 lanes of a simdgroup in one threadgroup
-        // memory bank. The odd stride keeps the read contiguous.
-        constexpr int BDP = BD + 1;
         constexpr int qk_per_thread = 4;
         constexpr int v_per_thread = 4;
         constexpr uint rotary_pairs = 64;
@@ -1552,7 +1547,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         // replica of the sdpa_vector pair path at fixed kL = 512 (steady
         // ring: the 8-trip two-deep pipeline covers all 16 slots per
         // simdgroup with no tail).
-        threadgroup U outputs[4 * BN * BDP];
+        threadgroup U outputs[4 * BN * BD];
         threadgroup U max_scores[2 * BN];
         threadgroup U sum_exp_scores[2 * BN];
 
@@ -1613,8 +1608,27 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             pair_score1 += pair_q1[2] * pipe_ka[2];
             pair_score0 += pair_q0[3] * pipe_ka[3];
             pair_score1 += pair_q1[3] * pipe_ka[3];
-            pair_score0 = simd_sum(pair_score0);
-            pair_score1 = simd_sum(pair_score1);
+            U pipeb_score0 = 0;
+            U pipeb_score1 = 0;
+            pipeb_score0 += pair_q0[0] * pipe_kb[0];
+            pipeb_score1 += pair_q1[0] * pipe_kb[0];
+            pipeb_score0 += pair_q0[1] * pipe_kb[1];
+            pipeb_score1 += pair_q1[1] * pipe_kb[1];
+            pipeb_score0 += pair_q0[2] * pipe_kb[2];
+            pipeb_score1 += pair_q1[2] * pipe_kb[2];
+            pipeb_score0 += pair_q0[3] * pipe_kb[3];
+            pipeb_score1 += pair_q1[3] * pipe_kb[3];
+            // One packed componentwise simd_sum for both planes: each
+            // component keeps its own butterfly; updates below unchanged.
+            {
+                const vec<U, 4> packed_scores = simd_sum(
+                    vec<U, 4>(pair_score0, pair_score1,
+                              pipeb_score0, pipeb_score1));
+                pair_score0 = packed_scores.x;
+                pair_score1 = packed_scores.y;
+                pipeb_score0 = packed_scores.z;
+                pipeb_score1 = packed_scores.w;
+            }
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
@@ -1638,19 +1652,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
-
-            U pipeb_score0 = 0;
-            U pipeb_score1 = 0;
-            pipeb_score0 += pair_q0[0] * pipe_kb[0];
-            pipeb_score1 += pair_q1[0] * pipe_kb[0];
-            pipeb_score0 += pair_q0[1] * pipe_kb[1];
-            pipeb_score1 += pair_q1[1] * pipe_kb[1];
-            pipeb_score0 += pair_q0[2] * pipe_kb[2];
-            pipeb_score1 += pair_q1[2] * pipe_kb[2];
-            pipeb_score0 += pair_q0[3] * pipe_kb[3];
-            pipeb_score1 += pair_q1[3] * pipe_kb[3];
-            pipeb_score0 = simd_sum(pipeb_score0);
-            pipeb_score1 = simd_sum(pipeb_score1);
 
             U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
             U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
@@ -1682,7 +1683,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         // Combine: promoted two-plane exchange, textual replica of the
         // sdpa_vector pair path epilogue.
         constexpr int pair_planes = 2;
-        constexpr int pair_plane_size = BN * BDP;
+        constexpr int pair_plane_size = BN * BD;
         if (lane == 0) {
             max_scores[sg] = pair_max0;
             max_scores[BN + sg] = pair_max1;
@@ -1690,9 +1691,9 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             sum_exp_scores[BN + sg] = pair_sum1;
         }
         for (int p = 0; p < pair_planes; ++p) {
-            outputs[p * pair_plane_size + lane * BDP + sg] = pair_o0[p];
+            outputs[p * pair_plane_size + lane * BD + sg] = pair_o0[p];
             outputs[
-                (pair_planes + p) * pair_plane_size + lane * BDP + sg] =
+                (pair_planes + p) * pair_plane_size + lane * BD + sg] =
                 pair_o1[p];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1708,11 +1709,11 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
 
         for (int p = 0; p < pair_planes; ++p) {
             U acc0 = simd_sum(
-                outputs[p * pair_plane_size + sg * BDP + lane] *
+                outputs[p * pair_plane_size + sg * BD + lane] *
                 pair_global_factor0);
             U acc1 = simd_sum(
                 outputs[
-                    (pair_planes + p) * pair_plane_size + sg * BDP + lane] *
+                    (pair_planes + p) * pair_plane_size + sg * BD + lane] *
                 pair_global_factor1);
             pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
             pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
@@ -1720,20 +1721,20 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
         for (int p = 0; p < pair_planes; ++p) {
-            outputs[p * pair_plane_size + lane * BDP + sg] =
+            outputs[p * pair_plane_size + lane * BD + sg] =
                 pair_o0[pair_planes + p];
             outputs[
-                (pair_planes + p) * pair_plane_size + lane * BDP + sg] =
+                (pair_planes + p) * pair_plane_size + lane * BD + sg] =
                 pair_o1[pair_planes + p];
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         for (int p = 0; p < pair_planes; ++p) {
             U acc0 = simd_sum(
-                outputs[p * pair_plane_size + sg * BDP + lane] *
+                outputs[p * pair_plane_size + sg * BD + lane] *
                 pair_global_factor0);
             U acc1 = simd_sum(
                 outputs[
-                    (pair_planes + p) * pair_plane_size + sg * BDP + lane] *
+                    (pair_planes + p) * pair_plane_size + sg * BD + lane] *
                 pair_global_factor1);
             pair_o0[pair_planes + p] =
                 pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
@@ -2036,8 +2037,27 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             pair_score1 += pair_q1[2] * pipe_ka[2];
             pair_score0 += pair_q0[3] * pipe_ka[3];
             pair_score1 += pair_q1[3] * pipe_ka[3];
-            pair_score0 = simd_sum(pair_score0);
-            pair_score1 = simd_sum(pair_score1);
+            U pipeb_score0 = 0;
+            U pipeb_score1 = 0;
+            pipeb_score0 += pair_q0[0] * pipe_kb[0];
+            pipeb_score1 += pair_q1[0] * pipe_kb[0];
+            pipeb_score0 += pair_q0[1] * pipe_kb[1];
+            pipeb_score1 += pair_q1[1] * pipe_kb[1];
+            pipeb_score0 += pair_q0[2] * pipe_kb[2];
+            pipeb_score1 += pair_q1[2] * pipe_kb[2];
+            pipeb_score0 += pair_q0[3] * pipe_kb[3];
+            pipeb_score1 += pair_q1[3] * pipe_kb[3];
+            // One packed componentwise simd_sum for both planes: each
+            // component keeps its own butterfly; updates below unchanged.
+            {
+                const vec<U, 4> packed_scores = simd_sum(
+                    vec<U, 4>(pair_score0, pair_score1,
+                              pipeb_score0, pipeb_score1));
+                pair_score0 = packed_scores.x;
+                pair_score1 = packed_scores.y;
+                pipeb_score0 = packed_scores.z;
+                pipeb_score1 = packed_scores.w;
+            }
 
             U pair_new_max0 = metal::max(pair_max0, pair_score0);
             U pair_new_max1 = metal::max(pair_max1, pair_score1);
@@ -2061,19 +2081,6 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
             pair_o1[2] = pair_o1[2] * pair_factor1 + pair_exp1 * pipe_va2;
             pair_o0[3] = pair_o0[3] * pair_factor0 + pair_exp0 * pipe_va3;
             pair_o1[3] = pair_o1[3] * pair_factor1 + pair_exp1 * pipe_va3;
-
-            U pipeb_score0 = 0;
-            U pipeb_score1 = 0;
-            pipeb_score0 += pair_q0[0] * pipe_kb[0];
-            pipeb_score1 += pair_q1[0] * pipe_kb[0];
-            pipeb_score0 += pair_q0[1] * pipe_kb[1];
-            pipeb_score1 += pair_q1[1] * pipe_kb[1];
-            pipeb_score0 += pair_q0[2] * pipe_kb[2];
-            pipeb_score1 += pair_q1[2] * pipe_kb[2];
-            pipeb_score0 += pair_q0[3] * pipe_kb[3];
-            pipeb_score1 += pair_q1[3] * pipe_kb[3];
-            pipeb_score0 = simd_sum(pipeb_score0);
-            pipeb_score1 = simd_sum(pipeb_score1);
 
             U pipeb_new_max0 = metal::max(pair_max0, pipeb_score0);
             U pipeb_new_max1 = metal::max(pair_max1, pipeb_score1);
@@ -2843,9 +2850,9 @@ func lagunaGatedAffineOProjNVFP4Source(
 /// constant scale bytes (scale[2k] == scale[2k+1]) for most groups, so one
 /// byte per 32 elements suffices instead of one per 16. The kernel reads
 /// `simd_lid / 2` from the halved scale row, halving ~40 MiB/step of O-proj
-/// scale traffic. Default ON; set "0" to restore full scales.
+/// scale traffic. Default OFF for M5 safety; set "1" to enable.
 private let lagunaOProjScaleHalvingEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_SCALE_HALVING"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_SCALE_HALVING"] == "1"
 
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
@@ -3518,11 +3525,13 @@ final class LagunaRuntimeAttention: Module {
         }
         if fused.mode == .nvfp4, fused.bits == 4, fused.groupSize == 16
         {
-            let qR = wq.weight.dim(0), kvR = wk.weight.dim(0)
-            fused.qkvEscape = contiguous(stacked([
-                fused.scales[0, 1], fused.scales[qR, 1], fused.scales[qR + kvR, 1]
-            ]).reshaped([3]))
-            fused.scales = contiguous(fused.scales[0..., .stride(from: 0, by: 2)])
+            if lagunaOProjScaleHalvingEnabled {
+                let qR = wq.weight.dim(0), kvR = wk.weight.dim(0)
+                fused.qkvEscape = contiguous(stacked([
+                    fused.scales[0, 1], fused.scales[qR, 1], fused.scales[qR + kvR, 1]
+                ]).reshaped([3]))
+                fused.scales = contiguous(fused.scales[0..., .stride(from: 0, by: 2)])
+            }
         }
         _nativeAffineQKV = fused
         return fused.arrays + (_nativeAffineGProj?.arrays ?? [])
@@ -4375,9 +4384,9 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     func packedWordBody(_ word: Int) -> String {
         let codeWord = word == 0 ? "codes.x" : "codes.y"
         let base = 8 * word
-        let seedStart =
+        let seedOperator =
             (word == 0 && lagunaNvfp4QdotSeedElisionEnabled)
-            ? "0.0f" : "accum"
+            ? "accum =" : "accum +="
         return """
                 {
                     const uint c = \(codeWord);
@@ -4386,16 +4395,16 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                     const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
                     const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
                     const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
-                    accum =
-                        fma(input[\(base)], v04.x,
-                        fma(input[\(base + 1)], v15.x,
-                        fma(input[\(base + 2)], v26.x,
-                        fma(input[\(base + 3)], v37.x, \(seedStart)))));
-                    accum =
-                        fma(input[\(base + 4)], v04.y,
-                        fma(input[\(base + 5)], v15.y,
-                        fma(input[\(base + 6)], v26.y,
-                        fma(input[\(base + 7)], v37.y, accum))));
+                    \(seedOperator)
+                        (input[\(base)] * v04.x +
+                         input[\(base + 1)] * v15.x +
+                         input[\(base + 2)] * v26.x +
+                         input[\(base + 3)] * v37.x);
+                    accum +=
+                        (input[\(base + 4)] * v04.y +
+                         input[\(base + 5)] * v15.y +
+                         input[\(base + 6)] * v26.y +
+                         input[\(base + 7)] * v37.y);
                 }
             """
     }
@@ -7315,10 +7324,11 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                 // hidden row; decode always retains this pruner. Only
                 // single-token decode takes the three-level screen, whose
                 // level-one pass reads 25.7 MB/step less of the int5 planes.
+                // Fused refinement disabled for M5 safety (organizer uses mode 0).
                 result = pruner.logits(
                     hidden: hidden,
                     lmHeadWeight: lmHead.weight,
-                    useFusedRefinement: inputs.dims(1, 1))
+                    useFusedRefinement: false)
             } else {
                 result = lmHead(hidden)
             }

@@ -89,11 +89,11 @@ let lagunaLmHeadPrunePrefillEnabled =
 /// Same-binary A/B switch for the three-level decode screen: read only the
 /// four-bit base plane for every row, then refine the surviving four-row
 /// blocks with the residual bit plane inside the exact dispatch. DEFAULT ON;
-/// set `DARKBLOOM_LMHEAD_FUSED_REFINEMENT=0` for the one-pass int5 control
-/// arm in the same binary.
+/// set `DARKBLOOM_LMHEAD_FUSED_REFINEMENT=1` to enable the fused refinement
+/// arm (default OFF for M5 safety; the organizer frontier uses mode 0 only).
 let lagunaLmHeadFusedRefinementEnabled =
     ProcessInfo.processInfo.environment[
-        "DARKBLOOM_LMHEAD_FUSED_REFINEMENT"] != "0"
+        "DARKBLOOM_LMHEAD_FUSED_REFINEMENT"] == "1"
 
 /// One-line stderr trace hooks (DARKBLOOM_TRACE_FUSION=1) so an active pruner
 /// is visible in run logs.
