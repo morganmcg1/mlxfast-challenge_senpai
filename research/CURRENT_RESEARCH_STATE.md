@@ -51,16 +51,22 @@ Do NOT revisit this hypothesis.
   PR #363 (alphonse): Consolidate router kernel normalizing/non-normalizing pairs — WIP (M5 build fix, -2 JIT compiles)
 
 ## M5 BUILD FIX STATUS
-  PR #352 + PR #350 + PR #358 combined: compile count ~82 → ~55 (build time 88s → 21s on M4)
-  M5 STILL FAILING: 33+ consecutive failures (intermittent timeout, ~900s budget).
-  ROOT CAUSE CONFIRMED: JIT compile-storm timeout. ~55 M4 compiles × ~3.5s = ~193s
-  + ~15-25 _nax compiles × ~5-7s = ~100-175s + warmup + benchmark = ~450-650s (near 900s edge).
-  ORGANIZER PROOF: 3ff3992 (0 JIT kernels) PASSED at 6:51 PM (score 2.5213), confirming
-  M5 works when compile count is low.
-  KEY DIAGNOSTIC: 70929a5 had identical code to 68b66c5 (which scored 2.5520) but FAILED.
-  Confirms intermittent timeout — same code passes when M5 is fresh, fails under load.
-  c8a70169 VALIDATING (8th resubmission, warmup fix: reduce prefill 512→2 tokens).
-  Next M5 submission: include PR #358's -2 compile count + warmup fix.
+  CRITICAL REVELATION: Default custom JIT compile count is only **19** (not 55).
+  The 55 figure counts metalKernel DECLARATIONS; only 19 are actually DISPATCHED.
+  Breakdown: 9 decode + 6 LM-head pruner + 3 prefill + 1 warmup waste = 19 custom.
+  Plus ~15-25 _nax (M5-only) = ~34-44 total compiles. At ~3.5s each = ~120-154s.
+  Well under ~900s timeout. M5 failure may be LOAD-RELATED (contention with other
+  solvers) or a non-compile issue (correctness/runtime).
+
+  APPLIED FIXES:
+  1. PR #350: kernel consolidation (~82→~57 declarations, but 19 actual compiles)
+  2. PR #352: 5 flags disabled (fewer lazy kernels)
+  3. PR #358: H4 variant deletion (-2 declarations, -7KB)
+  4. Warmup prefill 512→2 tokens (commit 26e84d88)
+  5. Op.1 (commit 715c1ff6): disable full-attn kernel warmup (-1 actual compile)
+  6. MLX_MAX_OPS_PER_BUFFER 200→400 (commit 715c1ff6, +0.03 score, competitor-proven)
+
+  M5 SUBMISSIONS: 34+ consecutive failures (intermittent). f17cf7f6 VALIDATING.
 
 ## MERGED WAVE 18
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — MERGED (2.8% prefill improvement, 2-line change, bit-exact)
