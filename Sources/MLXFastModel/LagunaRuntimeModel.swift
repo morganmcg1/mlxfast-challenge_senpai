@@ -7588,6 +7588,36 @@ for (uint row = 0; row < 2; ++row) {
 """
 }
 
+let lagunaRouterUint2ShuffleEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_UINT2_SHUFFLE"] == "1"
+
+/// Butterfly stage of the router Top-8 reduction. The two arms are numerically
+/// identical; the enabled arm packs the ordinal/index pair into one `uint2`
+/// shuffle. `offset >= 1` versus `offset > 0` on an unsigned counter is an
+/// inert token-level difference that keeps the disabled arm's source text
+/// distinct from the unguarded base, so a content-addressed pipeline cache
+/// cannot serve either arm from a build of the other.
+private let lagunaRouterTop8ButterflyBody = lagunaRouterUint2ShuffleEnabled ? """
+    for (ushort offset = 16; offset > 0; offset >>= 1) {
+        uint2 other = simd_shuffle_xor(uint2(best_ordinal, best_index), offset);
+        if (laguna_router_ordinal_before(
+            other.x, other.y, best_ordinal, best_index)) {
+            best_ordinal = other.x;
+            best_index = other.y;
+        }
+    }
+""" : """
+    for (ushort offset = 16; offset >= 1; offset >>= 1) {
+        uint other_ordinal = simd_shuffle_xor(best_ordinal, offset);
+        uint other_index = simd_shuffle_xor(best_index, offset);
+        if (laguna_router_ordinal_before(
+            other_ordinal, other_index, best_ordinal, best_index)) {
+            best_ordinal = other_ordinal;
+            best_index = other_index;
+        }
+    }
+"""
+
 /// Simd-shuffle-only comparator-minimum extraction; lane `l` owns experts
 /// `l + 32j`, `mask` bit `j` marks extracted. Each routed slot performs only
 /// the rounds it needs and never waits on a cross-threadgroup selector.
@@ -7605,15 +7635,7 @@ METAL_FUNC uint laguna_router_top8_extract_round(
             best_index = e;
         }
     }
-    for (ushort offset = 16; offset > 0; offset >>= 1) {
-        uint other_ordinal = simd_shuffle_xor(best_ordinal, offset);
-        uint other_index = simd_shuffle_xor(best_index, offset);
-        if (laguna_router_ordinal_before(
-            other_ordinal, other_index, best_ordinal, best_index)) {
-            best_ordinal = other_ordinal;
-            best_index = other_index;
-        }
-    }
+\(lagunaRouterTop8ButterflyBody)
     if ((best_index & 31u) == lane) {
         mask |= 1u << (best_index >> 5u);
     }
