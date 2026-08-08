@@ -34,14 +34,15 @@ Do NOT revisit this hypothesis.
   PR #361 (edward): Gate compile consolidation — MERGED (-1 MLX graph compile, net -525B, bit-exact)
   PR #367 (askeladd): Router shuffle vectorization — MERGED (uint2 packing, 0-byte, bit-exact, +0.35% decode +2.54% prefill on M4)
   PR #368 (edward): Dead rpg kernel deletion — MERGED (-1,493B code budget, 0-JIT, bit-exact)
+  PR #363 (alphonse): Router kernel consolidation — MERGED (-1,578B, bit-exact, 0 JIT savings — non-normalizing variants are dead code, never compiled)
 
-## ACTIVE ASSIGNMENTS (BASE_SHA=54edee18)
+## ACTIVE ASSIGNMENTS (BASE_SHA=86f0eefc)
   PR #366 (thorfinn): SDPA GQA pair_heads 3/4 — halve K/V traffic for GQA6/GQA8 attention (AOT metallib, ~0.6-1.0% score)
     ★ HIGHEST IMPACT: directly addresses bandwidth-bound decode. yudduy #1 uses pair_heads=3/4.
-    887-line plan at research/SDPA_PAIR_HEADS_PLAN.md
-  PR #363 (alphonse): Router kernel consolidation — -2 JIT compiles (M5 build fix, net-negative bytes)
-  PR #368 (edward): Delete 6 unused RMSNorm router rpg kernel variants — code-budget reduction, net-negative bytes, 0-JIT
-  PR #370 (askeladd): Delete 2 non-default O-proj kernel variants — code-budget reduction, net-negative bytes, 0-JIT
+  PR #370 (askeladd): Delete 2 non-default O-proj kernel variants — code-budget, 0-JIT, bit-exact
+  PR #371 (edward): Delete dead NVFP4-QKV + routed-SwiGLU kernel variants — code-budget, 0-JIT, bit-exact
+  PR #373 (alphonse): Unify prefill MoE tail sorted/non-sorted kernels — -1 default JIT compile (LAST remaining JIT lever), bit-exact
+    887-line SDPA plan at research/SDPA_PAIR_HEADS_PLAN.md
   ROOT CAUSE (high confidence): JIT compile-storm timeout. 19 custom JIT + ~15-25 M5-only _nax
   compiles during warmup + prefill + decode intermittently collide with M5 runner ~900s timeout + 40C thermal gate.
   Organizer frontier (0 custom JIT kernels) always passes.
