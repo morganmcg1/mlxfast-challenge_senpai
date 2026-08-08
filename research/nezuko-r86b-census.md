@@ -161,3 +161,91 @@ about 1 % of the head's own ~128 MB of int5 weight traffic.
 This **contradicts pre-registered cross-prediction CP-3**, which predicted the
 largest recurring intermediate would sit in the MoE path. It is `coarse`, in
 the head. Scored as a miss.
+
+## 3.5 The named target: the norm→QKV producer (advisor-requested row)
+
+This is row **D1** above, priced in full. It is the largest single instruction-class item on the
+queue and the one site where the redundancy term, not the boundary term, decides.
+
+**R, with grid/threadgroup decomposition and line numbers.** The producer is `rmsbfloat16`
+emitting **`normalized`, BF16[2048] = 4,096 B**. The consumer is `lagunaDecodeNVFP4QKVR1`,
+declared at `Sources/MLXFastModel/LagunaRuntimeModel.swift:4857`, called at `:5806`, launched with
+`grid = ((rows/2)*64, 1, 1)` and `threadGroup = (64, 1, 1)`. Threadgroups per dispatch is therefore
+`grid.x / threadGroup.x = rows/2`. With `rows = 10240` (h64) that is **R = 5120**; with
+`rows = 8192` (h48), **R = 4096**. Each of those threadgroups reads the entire 2048-element row,
+so fusing the norm in at this geometry replicates the whole sum-of-squares R times.
+
+**NET, in the requested form** `NET = (barriers removed × d) − (producer cost × (R − 1))`:
+
+| Term | Value | Source |
+| --- | ---: | --- |
+| barriers removed | 80 (2/layer × 40) | dispatch ledger §3.0 |
+| in-situ boundary price (WIDE, M4) | 1.398 µs | this PR, preliminary |
+| **barrier term** | **+111.8 µs** | |
+| redundancy at R = 5120 | **−308.3 µs** | byte-census audit |
+| **NET (stock geometry)** | **−196.5 µs** | |
+| redundancy at R = 640 (C1's coarsened geometry) | **−80.4 µs** | PR #298 deconfound `R − G`, M4 |
+| **NET (C1 geometry, M4)** | **+31.4 µs** | |
+| **NET (C1 geometry, M5)** | **−10.1 µs** | ranked receipt `285f79fa` = −0.1488 % |
+
+**The decisive sentence: at this site the redundancy term dominates the boundary term.** The
+boundary term is bounded above by `80 × price(boundary)` ≈ 112 µs on M4 and ≈44 µs on M5 (the
+refund transfers at ≈0.4×), whereas the redundancy term is unbounded in `R` and is already
+308 µs at stock geometry. No fusion at this site can win, because what it buys is capped and what
+it costs is not. **Attack the redundancy algebraically at full grid coverage** — do not re-fuse
+and do not coarsen. Coarsening is independently dead: `G128 − G640 = +174.9 ± 11.0 µs`.
+
+Full derivation, the deconfounded `{0, G, R, N}` ledger, and the M4→M5 transfer arithmetic are in
+[`nezuko-r86b-c1-decomposition.md`](nezuko-r86b-c1-decomposition.md).
+
+## 3.6 Correction to the NET rule: redundancy is sub-linear in R
+
+The programme's rule is `net = gross − producer × (R − 1)`, which is **linear** in `R`. The
+measured redundancy exponent is **0.64**, so the correct form is
+
+```text
+net = gross − producer × (R^0.64 − 1)
+```
+
+Cross-validation: my deconfounded M4 measurement at R = 640 is +80.4 µs. Scaling it to the
+audit's R = 5120 with the exponent gives `80.4 × 8^0.64 = 304.3 µs`; the audit independently
+measured **308.3 µs**. Two unrelated methods agree to **1.3 %**.
+
+Consequence for this census: the linear rule over-prices redundancy by a factor of `R^0.36`,
+which is ≈10× at R = 640 and ≈20× at R = 5120. It remains *directionally* safe for the large-R
+rows — every Tier-2 row with `R ≥ 128` stays decisively negative under either rule — but it is
+not safe for ranking, and it is not safe near the sign boundary.
+
+**The one row whose sign is not robust to the rule change is D2** (`rmsbfloat16` → `normalized`
+4,096 B → `lagunaGateSoftplus`, `:4380-4400`, call `:5849`), which has the only single-digit
+multiplier in the census: **R = 8** (h64) / 6 (h48), from `grid = ((heads/8)*64,1,1)`, TG 64. Under
+the linear rule its penalty carries a `(R−1) = 7` factor; under the exponent rule the factor is
+`8^0.64 − 1 = 2.79`, a 2.5× reduction. D2 is therefore the single census row that deserves a
+direct measurement rather than a modelled verdict.
+
+## 3.7 Class labelling: byte-class versus instruction-class (advisor-requested)
+
+The dev host is an **M4 Pro, 48 GiB, Apple GPU gen 16, bandwidth-bound**; the ranked host is an
+**M5 Max, instruction-bound at ~89 % GPU utilization**. A measured byte-class optimisation
+transferred at **−0.40 ± 0.24** — an M4 win became an M5 loss. Byte-class rows measured here are
+therefore **presumptively non-transferable**; instruction/latency-class rows are the privileged
+class.
+
+| Census content | Class | Transfer status |
+| --- | --- | --- |
+| redundancy multipliers `R` (§3.1, §3.5) | instruction (pure grid property) | **exact** — `R` is a property of the launch geometry, not of the device |
+| cost *of* redundancy at fixed `R` | instruction | privileged; **grows** M4→M5 (nothing to hide behind) |
+| in-situ boundary price `d` and the WIDE price | instruction / latency (dispatch-dominated) | privileged; refund shrinks ≈0.4× |
+| dispatch and command-buffer counts (§3.0) | instruction | exact |
+| occupancy / simdgroup geometry rows | instruction | privileged but **sign-unstable** across core counts (PR #137) |
+| §3.4 byte census and the ≈550 MB/step weight traffic | **byte-class** | **presumptively non-transferable** |
+| intermediate byte counts used to price round trips | **byte-class** | **presumptively non-transferable** |
+
+This matters for the headline. §3.4 concludes the byte axis is closed for decode — intermediates
+are <0.5 % of weight traffic — and the advisor's independent audit reaches the same place from
+the other side (amplification ≈1.0×, weight-streaming kernels at 86.9–98.2 % of achievable DRAM
+bandwidth, ≈338 µs of headroom even at 100 % of peak). Both statements are byte-class and they
+agree, so the conclusion is safe *as a negative*: there is nothing on the byte axis to transfer.
+Every surviving opportunity in this census is instruction-class — it buys dispatch count and
+latency, never bandwidth.
+
