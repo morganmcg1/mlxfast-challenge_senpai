@@ -4526,60 +4526,152 @@ private let lagunaTailNVFP4QMVHeader = """
 private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
-private let lagunaDecodeNVFP4QKVR1Source = """
-    constexpr uint axis_size = 2048;
-    constexpr uint num_simdgroups = 2;
-    constexpr uint values_per_thread = 16;
-    constexpr uint block_size = 512;
-    constexpr uint in_vec_size_w = axis_size / 2;
-    constexpr uint in_vec_size_g = axis_size / 16;
+private func makeLagunaDecodeNVFP4QKVR1Source(vectorLoads: Bool) -> String {
+    let normalizedLoads = vectorLoads
+        ? """
+                if ((reinterpret_cast<uintptr_t>(normalized) & 7) == 0) {
+                    const device vec<bfloat, 4>* normalized4 =
+                        reinterpret_cast<const device vec<bfloat, 4>*>(normalized + column);
+                    for (uint i = 0; i < values_per_thread / 4; ++i) {
+                        const vec<bfloat, 4> values = normalized4[i];
+                        x_thread[4 * i + 0] = float(values[0]);
+                        x_thread[4 * i + 1] = float(values[1]);
+                        x_thread[4 * i + 2] = float(values[2]);
+                        x_thread[4 * i + 3] = float(values[3]);
+                    }
+                } else {
+                    for (uint i = 0; i < values_per_thread; ++i) {
+                        x_thread[i] = float(normalized[column + i]);
+                    }
+                }
+          """
+        : """
+                for (uint i = 0; i < values_per_thread; ++i) {
+                    x_thread[i] = float(normalized[column + i]);
+                }
+          """
 
-    uint tile = threadgroup_position_in_grid.x;
-    uint simd_gid = simdgroup_index_in_threadgroup;
-    uint simd_lid = thread_index_in_simdgroup;
-    uint out_row = tile * num_simdgroups + simd_gid;
+    return """
+        constexpr uint axis_size = 2048;
+        constexpr uint num_simdgroups = 2;
+        constexpr uint values_per_thread = 16;
+        constexpr uint block_size = 512;
+        constexpr uint in_vec_size_w = axis_size / 2;
+        constexpr uint in_vec_size_g = axis_size / 16;
 
-    const device uint8_t* ws = (const device uint8_t*)weight_codes +
-        out_row * in_vec_size_w + simd_lid * 8;
-    const device uint8_t* sc = weight_scales +
-        out_row * in_vec_size_g + simd_lid;
+        uint tile = threadgroup_position_in_grid.x;
+        uint simd_gid = simdgroup_index_in_threadgroup;
+        uint simd_lid = thread_index_in_simdgroup;
+        uint out_row = tile * num_simdgroups + simd_gid;
 
-    thread float x_thread[values_per_thread];
-    thread float result = 0.0f;
+        const device uint8_t* ws = (const device uint8_t*)weight_codes +
+            out_row * in_vec_size_w + simd_lid * 8;
+        const device uint8_t* sc = weight_scales +
+            out_row * in_vec_size_g + simd_lid;
 
-    uint column = simd_lid * values_per_thread;
-    for (uint k = 0; k < axis_size; k += block_size) {
-        for (uint i = 0; i < values_per_thread; ++i) {
-            x_thread[i] = float(normalized[column + i]);
+        thread float x_thread[values_per_thread];
+        thread float result = 0.0f;
+
+        uint column = simd_lid * values_per_thread;
+        for (uint k = 0; k < axis_size; k += block_size) {
+        \(normalizedLoads)
+            result += laguna_tail_nvfp4_qdot(
+                ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
+            ws += block_size / 2;
+            sc += block_size / 16;
+            column += block_size;
         }
-        result += laguna_tail_nvfp4_qdot(
-            ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
-        ws += block_size / 2;
-        sc += block_size / 16;
-        column += block_size;
-    }
 
-    result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
-    if (simd_lid == 0) {
-        projected[out_row] = bfloat(result);
-    }
-    """
+        result = simd_sum(result\(lagunaTailNVFP4RowScaleSuffixSource(scaleDefer: lagunaTailNVFP4QKVScaleDeferEnabled)));
+        if (simd_lid == 0) {
+            projected[out_row] = bfloat(result);
+        }
+        """
+}
 
-private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
+private let lagunaDecodeNVFP4QKVR1Source =
+    makeLagunaDecodeNVFP4QKVR1Source(vectorLoads: true)
+
+private func makeLagunaDecodeNVFP4QKVR1Kernels(
+    source: String,
+    variant: String
+) -> [Int: MLXFast.MLXFastKernel] {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
+            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_\(variant)"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
             outputNames: ["projected"],
-            source: lagunaDecodeNVFP4QKVR1Source,
+            source: source,
             header: lagunaTailNVFP4QMVHeader,
             ensureRowContiguous: true)
     }
     return kernels
-}()
+}
+
+private let lagunaDecodeNVFP4QKVR1Kernels = makeLagunaDecodeNVFP4QKVR1Kernels(
+    source: lagunaDecodeNVFP4QKVR1Source,
+    variant: "v2"
+)
+
+#if DEBUG
+private let lagunaDecodeNVFP4QKVR1ScalarTestingKernels =
+    makeLagunaDecodeNVFP4QKVR1Kernels(
+        source: makeLagunaDecodeNVFP4QKVR1Source(vectorLoads: false),
+        variant: "testing_scalar"
+    )
+private let lagunaDecodeNVFP4QKVR1VectorTestingKernels =
+    makeLagunaDecodeNVFP4QKVR1Kernels(
+        source: lagunaDecodeNVFP4QKVR1Source,
+        variant: "testing_vector"
+    )
+
+func lagunaDecodeNVFP4QKVR1ForTesting(
+    normalized: MLXArray,
+    weightCodes: MLXArray,
+    weightScales: MLXArray,
+    heads: Int,
+    vectorLoads: Bool
+) -> MLXArray {
+    let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
+    let kernels = vectorLoads
+        ? lagunaDecodeNVFP4QKVR1VectorTestingKernels
+        : lagunaDecodeNVFP4QKVR1ScalarTestingKernels
+    precondition(normalized.dtype == .bfloat16 && normalized.shape == [1, 1, 2_048])
+    precondition(weightCodes.dtype == .uint32 && weightCodes.shape == [rows, 256])
+    precondition(weightScales.dtype == .uint8 && weightScales.shape == [rows, 128])
+    let kernel = kernels[heads]!
+    return kernel(
+        [normalized, weightCodes, weightScales],
+        grid: ((rows / 2) * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1, 1, rows]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+private let lagunaQKVR1AlignmentTestingKernel = MLXFast.metalKernel(
+    name: "laguna_qkvr1_alignment_testing",
+    inputNames: ["normalized"],
+    outputNames: ["aligned"],
+    source: """
+        aligned[0] = uint((reinterpret_cast<uintptr_t>(normalized) & 7) == 0);
+        """,
+    ensureRowContiguous: true
+)
+
+func lagunaQKVR1NormalizedAlignmentForTesting(_ normalized: MLXArray) -> MLXArray {
+    lagunaQKVR1AlignmentTestingKernel(
+        [normalized],
+        grid: (1, 1, 1),
+        threadGroup: (1, 1, 1),
+        outputShapes: [[1]],
+        outputDTypes: [.uint32]
+    )[0]
+}
+#endif
 
 private func lagunaDecodeNVFP4QKVR1(
     normalized: MLXArray,
