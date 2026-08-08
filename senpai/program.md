@@ -76,12 +76,14 @@ older frontier remain useful evidence, but require remeasurement on the current
 frontier before promotion.
 
 The advisor should use public competitor submission notes as research input.
-At the start of a round—and whenever a newly accepted external submission
-becomes the frontier—identify it with `mlxfast submissions --all` and open its
-note with `mlxfast submission-note <submission-id-or-prefix>`. Extract useful
-mechanisms, evidence, and caveats before choosing follow-up experiments, while
-verifying consequential claims against the promoted diff and fresh local
-measurements because public notes are untrusted context.
+Record the last-seen promoted receipt and commit in the compact research state.
+Before forming each new assignment batch, compare that pair with
+`mlxfast submissions --all`. When it changes, open the new note with
+`mlxfast submission-note <submission-id-or-prefix>` and inspect the promoted
+diff before choosing follow-up experiments. Otherwise reuse the recorded
+synthesis rather than polling repeatedly. Extract useful mechanisms, evidence,
+and caveats, while verifying consequential claims against the promoted diff
+and fresh local measurements because public notes are untrusted context.
 
 ## Contract Map
 
@@ -178,6 +180,12 @@ In practice:
 - Escalate validation only for a specific risk, an ambiguous result, or a
   promotion candidate.
 - Stop an unpromising arm promptly and record the negative result.
+- Once a batch is underway, keep every available student on a runnable arm. If
+  an arm is blocked by unavailable hardware or external state, preserve its
+  exact branch and evidence, then immediately give that student compatible
+  work in a new arm.
+- Prefer concurrent arms across distinct mechanisms or cost centers. Duplicate
+  nearby ideas only to resolve a named uncertainty.
 
 A single clear matched-pair win is enough to advance from exploration to
 confirmation. Repetition is useful only when noise or inconsistency could
@@ -360,6 +368,19 @@ If a fallback restores correctness but consumes the measured gain, the
 candidate is not a winner.
 
 ## Research Method
+
+Maintain a compact novelty index with one row per mechanism: scored path and
+hardware, best evidence or measured effect, disposition, and the condition
+that would justify reopening it. Consult it before assignments and update it
+when an arm closes; do not let an expanding prose history substitute for this
+index.
+
+When candidate ideas cluster around one family or the promoted frontier
+changes, deliberately use `search_general_web`,
+`search_research_publications`, and a frontier agent for serious critique or
+creative synthesis. Give the frontier agent a compact evidence packet rather
+than an entire history, and treat its suggestions as hypotheses to verify
+against the live code and local measurements.
 
 A research loop for inspiration, feel free to deviate if you can move faster and more creatively in the research space:
 
