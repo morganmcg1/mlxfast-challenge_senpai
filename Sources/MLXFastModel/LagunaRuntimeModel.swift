@@ -218,6 +218,10 @@ let lagunaSharedSwiGLUQMVRows1Enabled =
 let lagunaSharedSwiGLUSiLUTEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_SILU_LUT"] != "0"
 
+private let lagunaSharedSwiGLUSiLUTDiagnosticsEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_SILU_DIAGNOSTICS"] == "1"
+nonisolated(unsafe) private var lagunaSharedSwiGLUSiLUTDiagnosticCallCount = 0
+
 /// Folds the per-head softplus gate into the output projection's GEMV (see
 /// `lagunaGatedOutputProjectionSource`), with one kernel variant per attention
 /// family. Set `DARKBLOOM_FUSED_GATED_OUTPUT=0` to ablate.
@@ -6577,6 +6581,58 @@ nonisolated(unsafe) private let lagunaSharedSiLULUT = lagunaSharedSiLULUTKernel(
     outputDTypes: [.bfloat16]
 )[0]
 
+private let lagunaSharedSiLUDomainDiagnosticKernel = MLXFast.metalKernel(
+    name: "laguna_shared_silu_bf16_domain_diagnostic_v1",
+    inputNames: ["silu_lut"],
+    outputNames: ["clean_mismatch", "corrupt_mismatch", "epilogue_mismatch"],
+    source: """
+        uint raw = thread_position_in_grid.x;
+        bfloat gate = as_type<bfloat>(ushort(raw));
+        bfloat exp_abs = metal::exp(metal::abs(gate));
+        bfloat denominator = bfloat(1) + exp_abs;
+        bfloat y = bfloat(1) / denominator;
+        bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+        bfloat direct = bfloat(gate * sigmoid);
+        ushort expected = as_type<ushort>(direct);
+        ushort observed = as_type<ushort>(silu_lut[raw]);
+        clean_mismatch[raw] = uint(expected != observed);
+        ushort corrupted = observed ^ ushort(raw == 0x3f80 ? 1 : 0);
+        corrupt_mismatch[raw] = uint(expected != corrupted);
+
+        ushort up_raw = ushort(raw * 40503u + 17u);
+        bfloat up = as_type<bfloat>(up_raw);
+        bfloat baseline = bfloat(direct * up);
+        bfloat candidate = bfloat(silu_lut[raw] * up);
+        epilogue_mismatch[raw] = uint(
+            as_type<ushort>(baseline) != as_type<ushort>(candidate));
+        """,
+    ensureRowContiguous: false
+)
+
+private func lagunaWriteSharedSiLUDiagnostic(_ message: String) {
+    FileHandle.standardError.write(Data("SILU_DIAGNOSTIC \(message)\n".utf8))
+}
+
+private func lagunaRunSharedSiLUDomainDiagnostics() {
+    guard lagunaSharedSwiGLUSiLUTDiagnosticsEnabled else { return }
+    let outputs = lagunaSharedSiLUDomainDiagnosticKernel(
+        [lagunaSharedSiLULUT],
+        grid: (1 << 16, 1, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: Array(repeating: [1 << 16], count: 3),
+        outputDTypes: Array(repeating: .uint32, count: 3)
+    )
+    eval(outputs)
+    let counts = outputs.map {
+        $0.asArray(UInt32.self).reduce(UInt64(0)) { $0 + UInt64($1) }
+    }
+    lagunaWriteSharedSiLUDiagnostic(
+        "domain_patterns=65536 clean_mismatch=\(counts[0]) "
+            + "corruption_control_mismatch=\(counts[1]) "
+            + "adversarial_epilogue_pairs=65536 epilogue_mismatch=\(counts[2]) "
+            + "up_mapping=raw*40503+17_permutation")
+}
+
 private let lagunaSharedSwiGLUQMVRows1LUTKernel = MLXFast.metalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_lut_v1",
     inputNames: ["input", "fused_weight", "fused_scales", "silu_lut"],
@@ -6644,6 +6700,115 @@ private let lagunaSharedSwiGLUQMVRows1LUTKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private func lagunaSharedRows1BaselineOutput(
+    _ input: MLXArray,
+    fusedWeight: MLXArray,
+    fusedScales: MLXArray
+) -> MLXArray {
+    lagunaSharedSwiGLUQMVRows1Kernel(
+        [input, fusedWeight, fusedScales],
+        grid: (256 * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+private func lagunaSharedRows1CandidateOutput(
+    _ input: MLXArray,
+    fusedWeight: MLXArray,
+    fusedScales: MLXArray
+) -> MLXArray {
+    lagunaSharedSwiGLUQMVRows1LUTKernel(
+        [input, fusedWeight, fusedScales, lagunaSharedSiLULUT],
+        grid: (256 * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+private func lagunaMeasureSharedRows1(_ makeOutput: () -> MLXArray) -> Double {
+    let outputs = (0..<8).map { _ in makeOutput() }
+    let start = Date.timeIntervalSinceReferenceDate
+    eval(outputs)
+    return (Date.timeIntervalSinceReferenceDate - start) / Double(outputs.count)
+}
+
+private func lagunaReportSharedRows1Timing(
+    order: String,
+    logRatios: [Double],
+    baselineSeconds: [Double],
+    candidateSeconds: [Double]
+) {
+    let n = Double(logRatios.count)
+    let mean = logRatios.reduce(0, +) / n
+    let variance = logRatios.reduce(0) { $0 + ($1 - mean) * ($1 - mean) }
+        / Double(logRatios.count - 1)
+    let mde95 = 1.96 * sqrt(variance / n)
+    let speedup = exp(mean)
+    let effectOverMDE = mde95 == 0 ? Double.infinity : abs(mean) / mde95
+    let baselineMean = baselineSeconds.reduce(0, +) / n
+    let candidateMean = candidateSeconds.reduce(0, +) / n
+    lagunaWriteSharedSiLUDiagnostic(
+        String(
+            format:
+                "timing_order=%@ reps=%d inner=8 baseline_us=%.3f candidate_us=%.3f "
+                + "speedup=%.6f log_mde95=%.6f effect_over_mde=%.3f "
+                + "pass_speedup=%@ pass_noise=%@",
+            order, logRatios.count, baselineMean * 1e6, candidateMean * 1e6,
+            speedup, mde95, effectOverMDE,
+            speedup >= 1.005 ? "true" : "false",
+            abs(mean) > 2 * mde95 ? "true" : "false"))
+}
+
+private func lagunaRunSharedRows1Timing(
+    _ input: MLXArray,
+    fusedWeight: MLXArray,
+    fusedScales: MLXArray
+) {
+    let baseline = {
+        lagunaSharedRows1BaselineOutput(
+            input, fusedWeight: fusedWeight, fusedScales: fusedScales)
+    }
+    let candidate = {
+        lagunaSharedRows1CandidateOutput(
+            input, fusedWeight: fusedWeight, fusedScales: fusedScales)
+    }
+    for _ in 0..<4 {
+        eval([baseline(), candidate()])
+        eval([candidate(), baseline()])
+    }
+
+    var abLogRatios = [Double]()
+    var abBaseline = [Double]()
+    var abCandidate = [Double]()
+    for _ in 0..<30 {
+        let baselineSeconds = lagunaMeasureSharedRows1(baseline)
+        let candidateSeconds = lagunaMeasureSharedRows1(candidate)
+        abBaseline.append(baselineSeconds)
+        abCandidate.append(candidateSeconds)
+        abLogRatios.append(log(baselineSeconds / candidateSeconds))
+    }
+    lagunaReportSharedRows1Timing(
+        order: "AB", logRatios: abLogRatios,
+        baselineSeconds: abBaseline, candidateSeconds: abCandidate)
+
+    var baLogRatios = [Double]()
+    var baBaseline = [Double]()
+    var baCandidate = [Double]()
+    for _ in 0..<30 {
+        let candidateSeconds = lagunaMeasureSharedRows1(candidate)
+        let baselineSeconds = lagunaMeasureSharedRows1(baseline)
+        baBaseline.append(baselineSeconds)
+        baCandidate.append(candidateSeconds)
+        baLogRatios.append(log(baselineSeconds / candidateSeconds))
+    }
+    lagunaReportSharedRows1Timing(
+        order: "BA", logRatios: baLogRatios,
+        baselineSeconds: baBaseline, candidateSeconds: baCandidate)
+}
+
 func lagunaSharedSwiGLUQMV(
     _ input: MLXArray,
     fusedWeight: MLXArray,
@@ -6666,6 +6831,35 @@ func lagunaSharedSwiGLUQMV(
 
     let useRows1LUT =
         lagunaSharedSwiGLUQMVRows1Enabled && lagunaSharedSwiGLUSiLUTEnabled
+    if lagunaSharedSwiGLUSiLUTDiagnosticsEnabled,
+        lagunaSharedSwiGLUQMVRows1Enabled,
+        lagunaSharedSwiGLUSiLUTDiagnosticCallCount < 39
+    {
+        let call = lagunaSharedSwiGLUSiLUTDiagnosticCallCount
+        lagunaSharedSwiGLUSiLUTDiagnosticCallCount += 1
+        let baseline = lagunaSharedRows1BaselineOutput(
+            input, fusedWeight: fusedWeight, fusedScales: fusedScales)
+        let candidate = lagunaSharedRows1CandidateOutput(
+            input, fusedWeight: fusedWeight, fusedScales: fusedScales)
+        eval([baseline, candidate])
+        let baselineBits = baseline.view(dtype: .uint16).asArray(UInt16.self)
+        let candidateBits = candidate.view(dtype: .uint16).asArray(UInt16.self)
+        let mismatches = zip(baselineBits, candidateBits).reduce(0) {
+            $0 + ($1.0 == $1.1 ? 0 : 1)
+        }
+        lagunaWriteSharedSiLUDiagnostic(
+            "checkpoint_layer=\(call + 1) outputs=512 mismatch=\(mismatches)")
+        if call == 0 {
+            lagunaRunSharedRows1Timing(
+                input, fusedWeight: fusedWeight, fusedScales: fusedScales)
+        }
+        if call == 38 {
+            lagunaWriteSharedSiLUDiagnostic(
+                "shared_decode_layers=39 routed_calls=0 prefill_calls=0 fallback_calls=0")
+        }
+        return useRows1LUT ? candidate : baseline
+    }
+
     let kernel =
         useRows1LUT
         ? lagunaSharedSwiGLUQMVRows1LUTKernel
@@ -10583,6 +10777,11 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
+        }
+        lagunaRunSharedSiLUDomainDiagnostics()
+        if lagunaSharedSwiGLUSiLUTDiagnosticsEnabled {
+            lagunaWriteSharedSiLUDiagnostic(
+                "lut_construction_calls=1 lut_eval_calls=1 phase=prewarmup ab_modes=both")
         }
         // Certified two-pass lm_head coarse copy (notes/68), gated by
         // `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON;
