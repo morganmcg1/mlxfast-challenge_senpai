@@ -220,13 +220,22 @@ func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
 }
 
 // Prefill shared expert halved-scales via qmm_nax kHalvedScales. The
-// qmm_nax kernel path and its kHalvedScales template are M5 (NAX) only;
+// qmm_nax kernel path and its kHalvedScales runtime constant are M5 (NAX) only;
 // on non-NAX hardware the non-nax fallback would misread group_size=32
 // scales, so this gate prevents activation on M4.
-// Disabled: kHalvedScales=true adds _nax template instantiations that
-// push the M5 build past its ~900s timeout. Falls back to group_size=16
-// with full scales (bit-exact via NVFP4 pairwise constancy).
-let lagunaPrefillSharedHalvedEnabled: Bool = false
+// Re-enabled: kHalvedScales is now a runtime set_bytes constant (not a
+// template parameter), so zero new JIT compilations are created.
+let lagunaPrefillSharedHalvedEnabled: Bool = {
+    guard ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_HALVED"] != "0",
+        #available(macOS 26.2, *)
+    else { return false }
+    let configured = ProcessInfo.processInfo.environment["MLX_METAL_GPU_ARCH"]
+    return lagunaNAXAvailable(
+        architecture: configured.flatMap { $0.isEmpty ? nil : $0 }
+            ?? GPU.deviceInfo().architecture,
+        osSupportsNAX: true
+    )
+}()
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
