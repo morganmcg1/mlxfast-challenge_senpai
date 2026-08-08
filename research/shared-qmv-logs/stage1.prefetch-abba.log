@@ -1,0 +1,86 @@
+# Stage 1: shared-expert Rows1 QMV K-block prefetch, ABBA A/B (M4 Pro, 20-core GPU)
+# driver: REPS=3 STEPS=33 research/maple_shared_qmv_prefetch_abba.sh  (order: off on on off per rep)
+# arm ON = DARKBLOOM_SHARED_QMV_PREFETCH=1 ; 12 separate worker processes, 1248 steady kernel calls each
+
+=== 01-rep1-off ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.815 ms gpu_busy_sum=8.559 ms gpu_busy_union=8.559 ms gap=1.256 ms (12.8% of wall) cbs=406.0 dispatches=406.0
+=== 02-rep1-on ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.781 ms gpu_busy_sum=8.553 ms gpu_busy_union=8.551 ms gap=1.229 ms (12.6% of wall) cbs=406.0 dispatches=406.0
+=== 03-rep1-on ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.777 ms gpu_busy_sum=8.550 ms gpu_busy_union=8.550 ms gap=1.228 ms (12.6% of wall) cbs=406.0 dispatches=406.0
+=== 04-rep1-off ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.745 ms gpu_busy_sum=8.516 ms gpu_busy_union=8.516 ms gap=1.229 ms (12.6% of wall) cbs=406.0 dispatches=406.0
+=== 05-rep2-off ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.962 ms gpu_busy_sum=8.579 ms gpu_busy_union=8.575 ms gap=1.387 ms (13.9% of wall) cbs=406.0 dispatches=406.0
+=== 06-rep2-on ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=10.168 ms gpu_busy_sum=8.669 ms gpu_busy_union=8.667 ms gap=1.501 ms (14.8% of wall) cbs=406.0 dispatches=406.0
+=== 07-rep2-on ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=10.082 ms gpu_busy_sum=8.678 ms gpu_busy_union=8.673 ms gap=1.409 ms (14.0% of wall) cbs=406.0 dispatches=406.0
+=== 08-rep2-off ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.825 ms gpu_busy_sum=8.557 ms gpu_busy_union=8.556 ms gap=1.269 ms (12.9% of wall) cbs=406.0 dispatches=406.0
+=== 09-rep3-off ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.766 ms gpu_busy_sum=8.529 ms gpu_busy_union=8.528 ms gap=1.238 ms (12.7% of wall) cbs=406.0 dispatches=406.0
+=== 10-rep3-on ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.784 ms gpu_busy_sum=8.554 ms gpu_busy_union=8.553 ms gap=1.232 ms (12.6% of wall) cbs=406.0 dispatches=406.0
+=== 11-rep3-on ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=9.776 ms gpu_busy_sum=8.550 ms gpu_busy_union=8.550 ms gap=1.226 ms (12.5% of wall) cbs=406.0 dispatches=406.0
+=== 12-rep3-off ===
+teacher-forced greedy tokens: 0 divergences (all match)
+per steady step: wall=10.431 ms gpu_busy_sum=8.827 ms gpu_busy_union=8.821 ms gap=1.610 ms (15.4% of wall) cbs=406.0 dispatches=406.0
+
+## per-kernel analysis: shared_nvfp4_swiglu_qmv_rows1 (the changed kernel)
+                      file      arm      n   us/call   median      se   us/step
+           01-rep1-off.err      off   1248     7.554    7.500   0.006     294.6
+            02-rep1-on.err       on   1248     7.162    7.125   0.005     279.3
+            03-rep1-on.err       on   1248     7.152    7.125   0.005     278.9
+           04-rep1-off.err      off   1248     7.497    7.500   0.006     292.4
+           05-rep2-off.err      off   1248     7.537    7.500   0.006     293.9
+            06-rep2-on.err       on   1248     7.316    7.250   0.006     285.3
+            07-rep2-on.err       on   1248     7.282    7.250   0.011     284.0
+           08-rep2-off.err      off   1248     7.564    7.542   0.006     295.0
+           09-rep3-off.err      off   1248     7.480    7.458   0.006     291.7
+            10-rep3-on.err       on   1248     7.173    7.125   0.005     279.7
+            11-rep3-on.err       on   1248     7.175    7.125   0.006     279.8
+           12-rep3-off.err      off   1248     7.810    7.792   0.007     304.6
+
+kernel shared_nvfp4_swiglu_qmv_rows1: process-level arm means (us/call)
+       off n=6 mean=7.573 sd=0.120
+        on n=6 mean=7.210 sd=0.070
+  on - off: -0.363 us/call [-0.495, -0.232] (-4.80%, df=8.1) = -14.2 us/step
+
+## invariant control: routed_nvfp4_swiglu_qmv_packed_top8keys_r1 (unchanged kernel, same processes)
+                      file      arm      n   us/call   median      se   us/step
+           01-rep1-off.err      off   1248    38.558   38.500   0.014    1503.8
+            02-rep1-on.err       on   1248    38.575   38.500   0.012    1504.4
+            03-rep1-on.err       on   1248    38.566   38.500   0.014    1504.1
+           04-rep1-off.err      off   1248    38.350   38.333   0.012    1495.6
+           05-rep2-off.err      off   1248    38.646   38.583   0.016    1507.2
+            06-rep2-on.err       on   1248    39.224   39.083   0.022    1529.7
+            07-rep2-on.err       on   1248    39.155   38.875   0.033    1527.0
+           08-rep2-off.err      off   1248    38.534   38.417   0.016    1502.8
+           09-rep3-off.err      off   1248    38.412   38.375   0.014    1498.1
+            10-rep3-on.err       on   1248    38.604   38.542   0.013    1505.6
+            11-rep3-on.err       on   1248    38.604   38.542   0.014    1505.6
+           12-rep3-off.err      off   1248    39.892   39.750   0.023    1555.8
+
+kernel routed_nvfp4_swiglu_qmv_packed_top8keys_r1: process-level arm means (us/call)
+       off n=6 mean=38.732 sd=0.578
+        on n=6 mean=38.788 sd=0.312
+  on - off: +0.056 us/call [-0.563, +0.674] (+0.14%, df=7.7) = +2.2 us/step
+
+## pipeline-state invariant (no occupancy change)
+01-rep1-off    GPUPSO custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t maxThreads=1024 execWidth=32 tgMem=0
+02-rep1-on     GPUPSO custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t maxThreads=1024 execWidth=32 tgMem=0
+04-rep1-off    GPUPSO custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t maxThreads=1024 execWidth=32 tgMem=0
+10-rep3-on     GPUPSO custom_kernel_laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_v1_bfloat16_t_uint32_t_uint8_t_bfloat16_t maxThreads=1024 execWidth=32 tgMem=0
