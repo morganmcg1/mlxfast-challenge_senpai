@@ -35,6 +35,29 @@ MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1. DO NOT REVISIT.
   4. Intermittent — build time at the boundary, slight variance causes pass/fail
 
   STRATEGY: Nuclear fallback from f790e33f (known to build), then add changes incrementally.
+
+## ACTIVE ASSIGNMENTS (Wave 13, 2026-08-08)
+  PR #405 (alphonse): Nuclear fallback — rebuild from f790e33f with only dead kernel deletions
+  PR #406 (thorfinn): JIT compile reduction audit — all metalKernel() calls
+  PR #402 (askeladd): kHalvedScales runtime constant reimpl (~0.9% score recovery)
+  PR #407 (edward): Compile budget engineering — free 2 JIT slots, re-enable prefill QK-norm+RoPE
+
+## FRESH IDEAS (research/FRESH_IDEAS_20260808_v2.md, 8 ideas)
+  1. XMAJOR column-tile fold revival (prefill, 0.3-0.5%, M5-only, ~5KB vendor)
+  2. Compile budget → re-enable prefill QK-norm+RoPE (prefill, 0.3-0.5%, ≤0 bytes)
+  3. Full-attention fused decode kernel (decode, 0.3-0.7%, M5≠M4)
+  4. LM-head pruner RMSNorm fusion (decode, 0.05-0.15%, ~300B)
+  5. STAGE_* fc→#define conversion (build enabler, 0% direct, negative bytes)
+  6. Down-residual reduction occupancy (decode, 0.05-0.2%, ~300B)
+  7. KV cache K/V interleaving (decode, 0.1-0.3%, high risk)
+  8. Prefill gate-softplus dedup (decode, 0.05-0.1%, ~100B)
+  Combined potential: 0.7-1.5% total score, could close the 0.67% gap to 2.6063.
+
+## M5 SUBMISSION STATUS (2026-08-08T05:30Z)
+  Last submission: a46cfdaa (36e2ba1) FAILED at 5:01 AM UTC
+  All submissions since f790e33f FAILED (40+ consecutive)
+  No submissions currently validating
+  Leaderboard #1: yudduy 2.6063. Our promoted: 2.5888. Gap: ~0.67%.
   Same code sometimes passes/fails (intermittent). No single PR is sole cause.
   Between f790e33f (last success) and current frontier: ONLY sdpa_vector.h changed in vendor files.
   All other vendor files identical to f790e33f (PR #398 reverted kHalvedScales).
