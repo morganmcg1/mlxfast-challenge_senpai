@@ -7733,11 +7733,138 @@ private let lagunaRoutedSwiGLUQMVPackedTop8Kernel = MLXFast.metalKernel(
 let lagunaRoutedGateUpR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_R1"] != "0"
 
-private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
-    name: "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
-    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
-    outputNames: ["activated"],
-    source: """
+/// `DARKBLOOM_ROUTED_GATEUP_INPUT_PF` (default 0 = stock): input-vector
+/// prefetch for the routed gate/up R1 kernel, the largest kernel in decode.
+/// Bit 0 ("steady") stages the next k-block's activations alongside the
+/// weight/scale staging the kernel already software-pipelines; bit 1
+/// ("preamble") hoists block 0's activations above the in-kernel routing
+/// prologue that every weight address depends on. Both modes are pure reads
+/// of an immutable buffer consumed in stock order, so all four are bit-exact.
+let lagunaRoutedGateUpInputPF = min(max(Int(
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_GATEUP_INPUT_PF"]
+        ?? "0") ?? 0, 0), 3)
+
+/// `DARKBLOOM_PROBE_ROUTED_GATEUP_BARRIERS` (research only, default 0): extra
+/// `threadgroup_barrier(mem_flags::mem_none)` calls per k-loop trip. Known
+/// sign, magnitude roughly linear in the count, numerically inert — the
+/// positive control for a rig that must resolve the prefetch arms.
+let lagunaRoutedGateUpProbeBarriers = min(max(Int(
+    ProcessInfo.processInfo
+        .environment["DARKBLOOM_PROBE_ROUTED_GATEUP_BARRIERS"] ?? "0") ?? 0,
+    0), 4)
+
+/// `DARKBLOOM_PROBE_ROUTED_EXPERT0_PF` (research only, default off, never a
+/// submission candidate): hoists the block-0 weight and scale loads above the
+/// routing prologue with a hardcoded expert 0, breaking the address
+/// dependency that makes the loop preamble serial. Deliberately numerically
+/// wrong; it prices the ceiling of that family and nothing else.
+let lagunaRoutedGateUpProbeExpert0 =
+    ProcessInfo.processInfo
+        .environment["DARKBLOOM_PROBE_ROUTED_EXPERT0_PF"] == "1"
+
+private let lagunaRoutedGateUpR1KernelName: String = {
+    var name = "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2"
+    if lagunaRoutedGateUpInputPF != 0 {
+        name += "_pfin\(lagunaRoutedGateUpInputPF)"
+    }
+    if lagunaRoutedGateUpProbeBarriers != 0 {
+        name += "_b\(lagunaRoutedGateUpProbeBarriers)"
+    }
+    if lagunaRoutedGateUpProbeExpert0 {
+        name += "_e0"
+    }
+    return name
+}()
+
+private func lagunaRoutedGateUpR1Source() -> String {
+    let pf = lagunaRoutedGateUpInputPF
+    let steady = pf & 1 != 0
+    let preamble = pf & 2 != 0
+
+    func fill(_ pad: String, _ offset: String) -> String {
+        """
+        \(pad){
+        \(pad)    const device vec<bfloat, 4>* pf_src =
+        \(pad)        (const device vec<bfloat, 4>*) (
+        \(pad)            input + \(offset)lane * values_per_lane);
+        \(pad)    for (uint i = 0; i < values_per_lane / 4; ++i) {
+        \(pad)        pf_in[i] = pf_src[i];
+        \(pad)    }
+        \(pad)}
+        """
+    }
+
+    var hoisted = ""
+    if pf != 0 {
+        hoisted = "thread vec<bfloat, 4> pf_in[values_per_lane / 4];\n"
+        if preamble {
+            hoisted += fill("", "") + "\n"
+        }
+    }
+    let preLoop = steady && !preamble ? fill("", "") : ""
+    let stageNext = steady ? fill("        ", "next_block + ") + "\n" : ""
+    let barriers = String(
+        repeating: "    threadgroup_barrier(mem_flags::mem_none);\n",
+        count: lagunaRoutedGateUpProbeBarriers)
+
+    var probe = ""
+    var firstBlock = """
+            const device uint8_t* first_scales =
+                row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
+            bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
+            gate_sb = patch_lane ? packed_scales[0] : first_scales[0];
+            up_sb = patch_lane ? packed_scales[1] : first_scales[scale_row_bytes];
+            gate_codes = *(const device uint2*)(
+                expert_weight + gate_row * fused_row_bytes + lane * 8);
+            up_codes = *(const device uint2*)(
+                expert_weight + up_row * fused_row_bytes + lane * 8);
+        """
+    if lagunaRoutedGateUpProbeExpert0 {
+        probe = """
+        uint e0_gate_row = (logical_row / 32) * 64 + logical_row % 32;
+        const device uint8_t* e0_scales =
+            packed_scales + scale_patch_bytes
+            + (logical_row / 4) * scale_tile_bytes
+            + (logical_row % 4) * 2 * scale_row_bytes + (lane >> 1);
+        uint8_t e0_gate_sb = e0_scales[0];
+        uint8_t e0_up_sb = e0_scales[scale_row_bytes];
+        uint2 e0_gate_codes = *(const device uint2*)(
+            (const device uint8_t*)fused_weight
+            + e0_gate_row * fused_row_bytes + lane * 8);
+        uint2 e0_up_codes = *(const device uint2*)(
+            (const device uint8_t*)fused_weight
+            + (e0_gate_row + 32) * fused_row_bytes + lane * 8);
+        """ + "\n"
+        firstBlock = """
+                gate_sb = e0_gate_sb;
+                up_sb = e0_up_sb;
+                gate_codes = e0_gate_codes;
+                up_codes = e0_up_codes;
+            """
+    }
+
+    var loopInput = ""
+    if pf == 0 {
+        loopInput = """
+                const device vec<bfloat, 4>* input_vectors =
+                    (const device vec<bfloat, 4>*) (
+                        input + block + lane * values_per_lane);
+            """ + "\n"
+    } else if !steady {
+        loopInput = "    if (block != 0)\n" + fill("    ", "block + ") + "\n"
+    }
+    let valuesExpr = pf == 0 ? "input_vectors[i]" : "pf_in[i]"
+    loopInput += """
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                const vec<bfloat, 4> values = \(valuesExpr);
+                input_values[4 * i] = values[0];
+                input_values[4 * i + 1] = values[1];
+                input_values[4 * i + 2] = values[2];
+                input_values[4 * i + 3] = values[3];
+            }
+        """
+
+    return """
 constexpr uint input_width = 2048;
 constexpr uint output_width = 512;
 constexpr uint block_width = 512;
@@ -7758,7 +7885,7 @@ uint tile = group / routed_experts;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
-\(lagunaRouterTop8PrecomputedPrelude)
+\(hoisted)\(probe)\(lagunaRouterTop8PrecomputedPrelude)
 uint expert = top8_winner;
 
 const device uint8_t* expert_weight =
@@ -7779,29 +7906,12 @@ uint2 up_codes;
 uint8_t gate_sb;
 uint8_t up_sb;
 {
-    const device uint8_t* first_scales =
-        row_scales + sub * 2 * scale_row_bytes + (lane >> 1);
-    bool patch_lane = expert == 0 && logical_row == 0 && lane == 1;
-    gate_sb = patch_lane ? packed_scales[0] : first_scales[0];
-    up_sb = patch_lane ? packed_scales[1] : first_scales[scale_row_bytes];
-    gate_codes = *(const device uint2*)(
-        expert_weight + gate_row * fused_row_bytes + lane * 8);
-    up_codes = *(const device uint2*)(
-        expert_weight + up_row * fused_row_bytes + lane * 8);
+\(firstBlock)
 }
-
+\(preLoop)
 for (uint block = 0; block < input_width; block += block_width) {
-    const device vec<bfloat, 4>* input_vectors =
-        (const device vec<bfloat, 4>*) (
-            input + block + lane * values_per_lane);
-    for (uint i = 0; i < values_per_lane / 4; ++i) {
-        const vec<bfloat, 4> values = input_vectors[i];
-        input_values[4 * i] = values[0];
-        input_values[4 * i + 1] = values[1];
-        input_values[4 * i + 2] = values[2];
-        input_values[4 * i + 3] = values[3];
-    }
-
+\(loopInput)
+\(barriers)
     const uint2 cur_gate_codes = gate_codes;
     const uint2 cur_up_codes = up_codes;
     const uint8_t cur_gate_sb = gate_sb;
@@ -7819,7 +7929,7 @@ for (uint block = 0; block < input_width; block += block_width) {
         up_codes = *(const device uint2*)(
             expert_weight + up_row * fused_row_bytes
             + next_block / 2 + lane * 8);
-    }
+\(stageNext)    }
 
     gate_result += laguna_nvfp4_qdot_codes_16(
         cur_gate_codes, input_values,
@@ -7842,7 +7952,14 @@ if (lane == 0) {
     activated[expert_slot * output_width + logical_row] =
         bfloat(silu * up);
 }
-""",
+"""
+}
+
+private let lagunaRoutedSwiGLUQMVPackedTop8R1Kernel = MLXFast.metalKernel(
+    name: lagunaRoutedGateUpR1KernelName,
+    inputNames: ["input", "fused_weight", "packed_scales", "router_keys"],
+    outputNames: ["activated"],
+    source: lagunaRoutedGateUpR1Source(),
     header: lagunaSharedSwiGLUQMVHeader + "\n" + lagunaDecodeRouterOrdinalHeader
         + "\n" + lagunaRouterTop8PrologueHeader,
     ensureRowContiguous: true
