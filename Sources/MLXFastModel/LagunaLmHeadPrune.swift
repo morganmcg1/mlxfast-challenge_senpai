@@ -897,6 +897,13 @@ let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
     source: """
         constexpr float GAMMA = 0x1p-15f;
 
+        uint thread = thread_position_in_threadgroup.x;
+        const device ushort4* x_device = (const device ushort4*)x;
+        threadgroup ushort4 x_staged[512];
+        x_staged[2 * thread] = x_device[2 * thread];
+        x_staged[2 * thread + 1] = x_device[2 * thread + 1];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
         uint row0 = threadgroup_position_in_grid.x * 16 +
             2 * simdgroup_index_in_threadgroup;
         uint row1 = row0 + 1;
@@ -921,7 +928,7 @@ let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
             uint4 lo41 = ((const device uint4*)(lorow1 + g * 16))[0];
             uint hb0 = ((const device uint*)(hirow0 + g * 4))[0];
             uint hb1 = ((const device uint*)(hirow1 + g * 4))[0];
-            const device ushort4* xrow = (const device ushort4*)(x + g * 32);
+            const threadgroup ushort4* xrow = x_staged + g * 8;
             float cg0 = 0.0f;
             float cg1 = 0.0f;
             float ag = 0.0f;
