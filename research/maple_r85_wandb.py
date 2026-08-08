@@ -91,6 +91,19 @@ PCT_PER_US_STEP = 0.015280
 TARGET_US_STEP = 38.0
 
 
+def hw(ci):
+    """Half-width of a [lo, hi] interval as emitted by maple_r85_arm_stats.py."""
+    return 0.5 * (ci[1] - ci[0])
+
+
+def is_giveback(kernel):
+    return any(kernel.startswith(g) for g in GIVEBACK6)
+
+
+def giveback_rows(labels):
+    return [v for k, v in labels.items() if is_giveback(k)]
+
+
 def load_runs(dirs):
     rows = []
     for d in dirs:
@@ -215,30 +228,30 @@ def main():
     for tag, data in contrasts.items():
         arm_a, arm_b, isolates = CONTRASTS[tag]
         labels = data["labels"]
-        give = [labels[k] for k in GIVEBACK6 if k in labels]
+        give = giveback_rows(labels)
         g_sum = sum(x["adj_us_step"] for x in give)
-        g_ci = math.sqrt(sum(x["adj_ci"] ** 2 for x in give))
+        g_ci = math.sqrt(sum(hw(x["adj_ci"]) ** 2 for x in give))
         adj, abs_ = data["busy_adj"], data["busy_abs"]
         ctab.add_data(
             tag, arm_a, arm_b, isolates, data["n_duplex"], data["offset"],
-            g_sum, g_ci, adj["us_step"], adj["ci"], adj["sd_us_step"],
-            abs_["us_step"], abs_["ci"], abs_["sd_us_step"],
-            data["base_busy_us_step"], bool(adj["ci"] < TARGET_US_STEP / 2))
+            g_sum, g_ci, adj["us_step"], hw(adj["ci"]), adj["sd_us_step"],
+            abs_["us_step"], hw(abs_["ci"]), abs_["sd_us_step"],
+            data["base_busy_us_step"],
+            bool(hw(adj["ci"]) < TARGET_US_STEP / 2))
         for kernel, v in sorted(labels.items(),
                                 key=lambda kv: -abs(kv[1]["adj_us_step"])):
             ktab.add_data(
                 tag, kernel, v["base_us_step"], v["adj_us_step"],
-                v["adj_us_step"] - v["adj_ci"], v["adj_us_step"] + v["adj_ci"],
-                v["abs_us_step"], v["abs_us_step"] - v["abs_ci"],
-                v["abs_us_step"] + v["abs_ci"],
-                bool(abs(v["adj_us_step"]) > v["adj_ci"]),
-                kernel in GIVEBACK6)
+                v["adj_ci"][0], v["adj_ci"][1],
+                v["abs_us_step"], v["abs_ci"][0], v["abs_ci"][1],
+                bool(v["adj_ci"][0] > 0.0 or v["adj_ci"][1] < 0.0),
+                is_giveback(kernel))
         for field, val in (("giveback6_us_step", g_sum),
                            ("giveback6_ci95", g_ci),
                            ("total_adj_us_step", adj["us_step"]),
-                           ("total_adj_ci95", adj["ci"]),
+                           ("total_adj_ci95", hw(adj["ci"])),
                            ("total_abs_us_step", abs_["us_step"]),
-                           ("total_abs_ci95", abs_["ci"]),
+                           ("total_abs_ci95", hw(abs_["ci"])),
                            ("n_duplex", data["n_duplex"])):
             summary[f"{tag}/{field}"] = val
         summary[f"{tag}/giveback6_percent_of_score"] = g_sum * PCT_PER_US_STEP
@@ -249,9 +262,9 @@ def main():
     for name, data in anchors.items():
         tag, anchor = name.split("-anchor-", 1)
         labels = data["labels"]
-        give = [labels[k] for k in GIVEBACK6 if k in labels]
+        give = giveback_rows(labels)
         g_sum = sum(x["adj_us_step"] for x in give)
-        g_ci = math.sqrt(sum(x["adj_ci"] ** 2 for x in give))
+        g_ci = math.sqrt(sum(hw(x["adj_ci"]) ** 2 for x in give))
         atab.add_data(tag, anchor, data["n_duplex"], g_sum, g_ci,
                       bool(abs(g_sum) < g_ci))
 

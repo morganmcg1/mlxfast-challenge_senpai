@@ -40,6 +40,10 @@
   `maple_r85_pad_analyze.sh`, `maple_r85_wandb.py`,
   `research/maple-r85-noise-floor.md`, `research/maple-r85-logs/*.json`,
   `research/maple-pr443-result.md`.
+- W&B run: **`ke9k9iga`** —
+  <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ke9k9iga>
+  (tables: `contrasts`, `kernels`, `anchors`, `runs`, `noise_floor`,
+  `inertness`; 112 timed runs across both sessions, 7 inertness digests)
 - Official submission `--model` value: n/a (no candidate, no official run).
 - Explicit API model-value rejection: n/a.
 
@@ -157,7 +161,53 @@ same session as a `base → halved` positive control, so a null result is
 interpretable rather than merely quiet, plus two same-arm null floors from the
 counterbalanced pairing phase.
 
-<!-- STAGE3 -->
+Correctness gate first: all three arms emitted the same 24-token digest
+`67d6111440bce43e`, and all 40 timed runs reported `0 divergences`.
+
+| contrast | n | give-back sum (6 pre-registered) | total adj | total abs |
+| --- | ---: | ---: | ---: | ---: |
+| `halved → halved_pad` (**the test**) | 10 | **+11.0 [+3.7, +18.4]** | +17.6 [+7.4, +27.8] | +6.3 [−37.0, +49.8] |
+| `base → halved` (**positive control, same session**) | 10 | **+16.3 [+10.8, +21.9]** | −5.5 [−13.0, +2.0] | −15.7 [−46.9, +15.7] |
+| `halved_pad → halved_pad` (null floor) | 5 | — | −1.7 [−14.0, +10.6] | −7.3 [−43.3, +28.9] |
+| `halved → halved` (null floor) | 5 | — | −2.4 [−17.8, +13.1] | +9.4 [−25.5, +44.4] |
+
+The positive control reproduces #443 inside this session exactly as designed:
+target kernel **−17.24 [−18.20, −16.28]** µs/step, `routed_shared_nvfp4_down_residual`
+**+7.70**, and near-conservation overall.
+
+**The pad moves time, but not in the give-back's shape.** This is the decisive
+comparison, and a give-back sum alone would have been read wrong:
+
+| discriminator | `base → halved` (real give-back) | `halved → halved_pad` (pad) |
+| --- | ---: | ---: |
+| target `shared_nvfp4_swiglu_qmv_rows1` | **−17.24** | **+2.68** (wrong sign) |
+| labels moving positive | 8 / 18 | 13 / 18 |
+| correlation with kernel size | +0.16 | **+0.47** |
+| uniform-equivalent slowdown | — | **+0.252 %** |
+| per-kernel correlation with the give-back vector | 1.00 | **−0.088** |
+
+So the pad produces a *diffuse, roughly size-proportional* slowdown of about
++0.25 % that is statistically **orthogonal** to the give-back pattern, whereas
+the read-set switch produces a *selective* redistribution with a −17 µs/step
+winner. Address displacement cannot be the give-back mechanism: it has the wrong
+sign on the very kernel the give-back is supposed to pay for, and no selectivity.
+
+**A caveat I pre-registered and must now honour.** Because the pad moves nearly
+every kernel, validity condition 5 of §5 fires and the ratio-adjusted total is
+not trustworthy here — anchor choice swings it from +4.3 [−8.9, +17.5]
+(`residual_rms_router`) to +69.8 [−5.5, +145.9] (`dense_down_residual`), against
++17.6 for the default control. The anchor-free absolute total, **+6.3 [−37.0,
++49.8] µs/step**, is the honest whole-step number, and it contains zero. The pad
+arm is therefore a live worked example of that condition rather than an
+exception to it.
+
+**Verdict.** Both testable forms of the placement hypothesis now have
+well-powered negatives: allocation count and resident footprint (stage 2, dose
+response flat to ±5 µs/step) and address displacement / power-of-two aliasing
+(stage 3, orthogonal signature, wrong-sign winner). Real placement effects on
+this host exist but are diffuse and bounded near 0.07–0.25 %, an order of
+magnitude smaller than and structurally unlike #443's selective +16 / −17
+redistribution. **#443's give-back is not recoverable by rearranging buffers.**
 
 ## 4. A code fact that changes the mechanism ranking
 
