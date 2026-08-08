@@ -1265,7 +1265,8 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         uint kv_head = head0 / gqa;
         uint sg = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
-        uint widx = params[0];
+        bool direct_v_cache = (params[0] & 0x80000000u) != 0;
+        uint widx = params[0] & 0x7fffffffu;
         float scale = scale_arr[0];
 
         threadgroup bfloat tg_q0[head_dim];
@@ -1318,7 +1319,10 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 }
             }
         } else if (sg == 3) {
-            const device bfloat* vin = raw_values + kv_head * head_dim;
+            const device bfloat* vin = direct_v_cache
+                ? v_cache + (size_t)kv_head * (window * head_dim)
+                    + (size_t)widx * head_dim
+                : raw_values + kv_head * head_dim;
             for (uint i = lane; i < head_dim; i += 32) {
                 tg_v[i] = vin[i];
             }
@@ -1339,7 +1343,9 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 (size_t)widx * head_dim;
             for (uint i = lane; i < head_dim; i += 32) {
                 kc[i] = tg_k[i];
-                vc[i] = tg_v[i];
+                if (!direct_v_cache) {
+                    vc[i] = tg_v[i];
+                }
             }
         }
 
@@ -1632,18 +1638,20 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
 func lagunaSlidingFusedAttention(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
-    rawValues: MLXArray,
+    rawValues: MLXArray?,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
-    scale: MLXArray
+    scale: MLXArray,
+    preparedParams: MLXArray? = nil
 ) -> MLXArray {
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
     let window = LagunaConstants.slidingWindow
+    let rawValues = rawValues ?? rawKeys
     precondition(rawQueries.dtype == .bfloat16)
     precondition(rawKeys.dtype == .bfloat16)
     precondition(rawValues.dtype == .bfloat16)
@@ -1662,8 +1670,9 @@ func lagunaSlidingFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < window)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    let params = lagunaParamsAtlasEnabled
-        ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
+    let params = preparedParams ?? (lagunaParamsAtlasEnabled
+        ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)]))
+    precondition(params.dtype == .uint32 && params.size == 1)
     return lagunaSlidingFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
@@ -1753,7 +1762,8 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         uint kv_head = head0 / gqa;
         uint sg = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
-        uint widx = params[0];
+        bool direct_v_cache = (params[0] & 0x80000000u) != 0;
+        uint widx = params[0] & 0x7fffffffu;
         int N = int(params[1]);
         uint capacity = params[2];
         float scale = scale_arr[0];
@@ -1814,7 +1824,10 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 }
             }
         } else if (sg == 3) {
-            const device bfloat* vin = raw_values + kv_head * head_dim;
+            const device bfloat* vin = direct_v_cache
+                ? v_cache + (size_t)kv_head * (capacity * head_dim)
+                    + (size_t)widx * head_dim
+                : raw_values + kv_head * head_dim;
             for (uint i = lane; i < head_dim; i += 32) {
                 tg_v[i] = vin[i];
             }
@@ -1831,7 +1844,9 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 (size_t)widx * head_dim;
             for (uint i = lane; i < head_dim; i += 32) {
                 kc[i] = tg_k[i];
-                vc[i] = tg_v[i];
+                if (!direct_v_cache) {
+                    vc[i] = tg_v[i];
+                }
             }
         }
 
@@ -2142,18 +2157,20 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
 func lagunaFullFusedAttention(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
-    rawValues: MLXArray,
+    rawValues: MLXArray?,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
-    scale: MLXArray
+    scale: MLXArray,
+    preparedParams: MLXArray? = nil
 ) -> MLXArray {
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
     let capacity = cacheKeys.dim(2)
+    let rawValues = rawValues ?? rawKeys
     precondition(rawQueries.dtype == .bfloat16)
     precondition(rawKeys.dtype == .bfloat16)
     precondition(rawValues.dtype == .bfloat16)
@@ -2172,9 +2189,10 @@ func lagunaFullFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < capacity)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    let params = MLXArray([
+    let params = preparedParams ?? MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
+    precondition(params.dtype == .uint32 && params.size == 3)
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
@@ -4720,7 +4738,7 @@ let lagunaNormAffineQKVPrefetchDepth: Int = {
 /// consuming the registers with the identical per-i accumulation order.
 /// Same values, same operation order per output row -> bit-exact.
 private func lagunaNormAffineQKVPrefetchSource(
-    rows: Int, depth: Int, indexed: Bool = false
+    rows: Int, depth: Int, indexed: Bool = false, directVHeads: Int? = nil
 ) -> String {
     let metadataPointers = indexed
         ? """
@@ -4762,6 +4780,49 @@ private func lagunaNormAffineQKVPrefetchSource(
         sc += block_size / group_size;
         bs += block_size / group_size;
         """
+    let outputStore: String
+    if let heads = directVHeads {
+        let capacity = heads == LagunaConstants.slidingAttentionHeads
+            ? "\(LagunaConstants.slidingWindow)" : "params[2]"
+        let valueStart =
+            heads * LagunaConstants.headDim
+            + LagunaConstants.numKeyValueHeads * LagunaConstants.headDim
+        outputStore = """
+        for (uint row = 0; row < results_per_simdgroup; ++row) {
+            result[row] = simd_sum(result[row]);
+            if (simd_lid == 0) {
+                constexpr uint value_start = \(valueStart);
+                constexpr uint value_rows =
+                    \(LagunaConstants.numKeyValueHeads * LagunaConstants.headDim);
+                constexpr uint cache_capacity = \(capacity);
+                uint output_row = out_row + row;
+                bfloat rounded = bfloat(result[row]);
+                if (output_row >= value_start &&
+                    output_row < value_start + value_rows) {
+                    uint value_row = output_row - value_start;
+                    uint kv_head = value_row / \(LagunaConstants.headDim);
+                    uint dim = value_row % \(LagunaConstants.headDim);
+                    uint write_idx = params[0] & 0x7fffffffu;
+                    ((device bfloat*)v_cache)[
+                        (size_t)kv_head * cache_capacity * \(LagunaConstants.headDim)
+                        + (size_t)write_idx * \(LagunaConstants.headDim) + dim] = rounded;
+                } else {
+                    projected[output_row < value_start
+                        ? output_row : output_row - value_rows] = rounded;
+                }
+            }
+        }
+        """
+    } else {
+        outputStore = """
+        for (uint row = 0; row < results_per_simdgroup; ++row) {
+            result[row] = simd_sum(result[row]);
+            if (simd_lid == 0) {
+                projected[out_row + row] = bfloat(result[row]);
+            }
+        }
+        """
+    }
     return """
     constexpr uint axis_size = \(LagunaConstants.hiddenSize);
     constexpr uint out_vec_size = \(rows);
@@ -4894,12 +4955,7 @@ private func lagunaNormAffineQKVPrefetchSource(
         column += block_size;
     }
 
-    for (uint row = 0; row < results_per_simdgroup; ++row) {
-        result[row] = simd_sum(result[row]);
-        if (simd_lid == 0) {
-            projected[out_row + row] = bfloat(result[row]);
-        }
-    }
+    \(outputStore)
     """
 }
 
@@ -4963,6 +5019,40 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
     return kernels
 }()
 
+private func makeLagunaNormAffineQKVDirectVKernels(
+    indexed: Bool
+) -> [Int: MLXFast.MLXFastKernel] {
+    guard !lagunaNormAffineQKVStaged, lagunaNormAffineQKVPrefetchDepth > 0 else {
+        return [:]
+    }
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    let kvRows = 2 * LagunaConstants.numKeyValueHeads * LagunaConstants.headDim
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        let rows = heads * LagunaConstants.headDim + kvRows + heads
+        kernels[rows] = MLXFast.metalKernel(
+            name: "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
+                + "pf\(lagunaNormAffineQKVPrefetchDepth)_vdirect"
+                + (indexed ? "_idx" : "") + "_v1",
+            inputNames: indexed
+                ? ["residual", "norm_weight", "weight_codes", "metadata_indices",
+                    "metadata_lut", "v_cache", "params"]
+                : ["residual", "norm_weight", "weight_codes", "weight_scales",
+                    "weight_biases", "v_cache", "params"],
+            outputNames: ["projected"],
+            source: lagunaNormAffineQKVPrefetchSource(
+                rows: rows, depth: lagunaNormAffineQKVPrefetchDepth,
+                indexed: indexed, directVHeads: heads),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}
+
+private let lagunaNormAffineQKVDirectVKernels =
+    makeLagunaNormAffineQKVDirectVKernels(indexed: false)
+private let lagunaNormAffineQKVDirectVIndexedKernels =
+    makeLagunaNormAffineQKVDirectVKernels(indexed: true)
+
 /// `DARKBLOOM_FUSED_NORM_AFFINE_QKV` (default ON; set "0" to disable). Folds
 /// the input RMSNorm into the native group-32 affine INT8 QKV GEMV so the
 /// decode attention head is one dispatch instead of two. Bit-exact (inline
@@ -4972,6 +5062,9 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
 /// the separate norm + projection.
 let lagunaFusedNormAffineQKVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_NORM_AFFINE_QKV"] != "0"
+
+let lagunaQKVDirectVCacheEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_QKV_DIRECT_V_CACHE"] != "0"
 
 /// Input RMSNorm + native-affine INT8 `[Q; K; V; (G)]` projection in one
 /// dispatch, or `nil` when any shape, dtype or wire-format guard declines
@@ -4983,6 +5076,7 @@ func lagunaNormAffineQKV(
     scales: MLXArray,
     biases: MLXArray,
     indexedMetadata: LagunaIndexedAffineMetadata? = nil,
+    directVCache: (values: MLXArray, params: MLXArray)? = nil,
     rows: Int
 ) -> MLXArray? {
     guard let kernel = lagunaNormAffineQKVKernels[rows] else { return nil }
@@ -4999,6 +5093,43 @@ func lagunaNormAffineQKV(
         biases.shape == [rows, hidden / 32]
     else {
         return nil
+    }
+
+    if let cache = directVCache,
+        let directKernel = lagunaNormAffineQKVDirectVKernels[rows],
+        cache.values.dtype == .bfloat16,
+        cache.values.ndim == 4,
+        cache.values.dim(0) == 1,
+        cache.values.dim(1) == LagunaConstants.numKeyValueHeads,
+        cache.values.dim(3) == LagunaConstants.headDim,
+        cache.params.dtype == .uint32,
+        cache.params.size == (rows > 9_000 ? 1 : 3)
+    {
+        let outputRows = rows - LagunaConstants.numKeyValueHeads * LagunaConstants.headDim
+        if let metadata = indexedMetadata,
+            let indexedKernel = lagunaNormAffineQKVDirectVIndexedKernels[rows],
+            metadata.indices.dtype == .uint16,
+            metadata.indices.shape == [rows, hidden / 32],
+            metadata.lut.dtype == .uint32,
+            metadata.lut.ndim == 1,
+            metadata.lut.size <= 65_536
+        {
+            return indexedKernel(
+                [residual, normWeight, codes, metadata.indices, metadata.lut,
+                    cache.values, cache.params],
+                grid: ((rows / 8) * 64, 1, 1),
+                threadGroup: (64, 1, 1),
+                outputShapes: [[1, 1, outputRows]],
+                outputDTypes: [.bfloat16]
+            )[0]
+        }
+        return directKernel(
+            [residual, normWeight, codes, scales, biases, cache.values, cache.params],
+            grid: ((rows / 8) * 64, 1, 1),
+            threadGroup: (64, 1, 1),
+            outputShapes: [[1, 1, outputRows]],
+            outputDTypes: [.bfloat16]
+        )[0]
     }
 
     if let metadata = indexedMetadata,
@@ -5347,13 +5478,15 @@ final class LagunaRuntimeAttention: Module {
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
         let (B, L) = (input.dim(0), input.dim(1))
+        var directVCache:
+            (keys: MLXArray, values: MLXArray, params: MLXArray, writeIdx: Int)?
 
         // One dispatch for the input RMSNorm and all three projections when
         // the decode preconditions hold; otherwise normalize separately and
         // fall through to the stock projections below.
         var fusedNormQKV:
             (
-                queries: MLXArray, keys: MLXArray, values: MLXArray,
+                queries: MLXArray, keys: MLXArray, values: MLXArray?,
                 gateValues: MLXArray, gateActivated: Bool
             )?
         if lagunaFusedQKVProjectionEnabled, _fusedQKVWeight == nil,
@@ -5393,6 +5526,44 @@ final class LagunaRuntimeAttention: Module {
                     inputNorm.eps == Float(LagunaConstants.rmsNormEpsilon),
                     let affineBiases = fusedAffine.biases
                 {
+                    if lagunaQKVDirectVCacheEnabled,
+                        qNorm.weight.dtype == .bfloat16,
+                        kNorm.weight.dtype == .bfloat16,
+                        qNorm.weight.shape == [headDim],
+                        kNorm.weight.shape == [headDim],
+                        let angles = qkRoPEAngles, angles.dtype == .float32
+                    {
+                        if isSliding,
+                            lagunaFusedSlidingAttentionEnabled,
+                            lagunaFusedSlidingQKNormRoPEEnabled,
+                            nHeads == LagunaConstants.slidingAttentionHeads,
+                            angles.shape == [1, 1, 1, headDim],
+                            let rotating = cache as? RotatingKVCache,
+                            rotating.maxSize == LagunaConstants.slidingWindow,
+                            let ring = rotating.fusedRingPrepare()
+                        {
+                            directVCache = (
+                                ring.keys, ring.values,
+                                MLXArray([UInt32(ring.writeIdx) | 0x8000_0000]),
+                                ring.writeIdx)
+                        } else if !isSliding,
+                            lagunaFusedFullAttentionEnabled,
+                            lagunaFusedFullQKNormYaRNEnabled,
+                            nHeads == LagunaConstants.fullAttentionHeads,
+                            angles.shape == [1, 1, 1, headDim / 2],
+                            let simple = cache as? KVCacheSimple,
+                            let append = simple.fusedAppendPrepare()
+                        {
+                            directVCache = (
+                                append.keys, append.values,
+                                MLXArray([
+                                    UInt32(append.writeIdx) | 0x8000_0000,
+                                    UInt32(append.writeIdx + 1),
+                                    UInt32(append.keys.dim(2)),
+                                ]),
+                                append.writeIdx)
+                        }
+                    }
                     fusedQKV = lagunaNormAffineQKV(
                         residual: input,
                         normWeight: inputNorm.weight,
@@ -5400,7 +5571,13 @@ final class LagunaRuntimeAttention: Module {
                         scales: fusedAffine.scales,
                         biases: affineBiases,
                         indexedMetadata: fusedAffine.indexedMetadata,
+                        directVCache: directVCache.map { ($0.values, $0.params) },
                         rows: fusedAffine.originalShape[0])
+                    if fusedQKV?.size != fusedAffine.originalShape[0]
+                        - nKVHeads * headDim
+                    {
+                        directVCache = nil
+                    }
                 }
 
                 // The fused tail norm+QKV+gate kernel was removed after the
@@ -5431,7 +5608,7 @@ final class LagunaRuntimeAttention: Module {
                     )
                 let queryDim = nHeads * headDim
                 let kvDim = nKVHeads * headDim
-                let gateStart = queryDim + 2 * kvDim
+                let gateStart = queryDim + (directVCache == nil ? 2 * kvDim : kvDim)
                 let gateLogits: MLXArray
                 var gateProjectionActivated = false
                 if let fusedTailGateLogits {
@@ -5496,7 +5673,8 @@ final class LagunaRuntimeAttention: Module {
                 fusedNormQKV = (
                     qkv[.ellipsis, 0 ..< queryDim],
                     qkv[.ellipsis, queryDim ..< (queryDim + kvDim)],
-                    qkv[.ellipsis, (queryDim + kvDim) ..< gateStart],
+                    directVCache == nil
+                        ? qkv[.ellipsis, (queryDim + kvDim) ..< gateStart] : nil,
                     gateValues,
                     gateProjectionActivated || !deferGateActivation
                 )
@@ -5522,7 +5700,7 @@ final class LagunaRuntimeAttention: Module {
 
         var queries: MLXArray
         var keys: MLXArray
-        var values: MLXArray
+        var values: MLXArray?
         // The retained BF16 [Wq; Wk; Wv] bank is PREFILL-ONLY: at decode it
         // would override the INT8 fused norm+QKV path (measured +1.4 ms/step
         // when force-enabled), while at L > 1 it collapses three steel GEMMs
@@ -5611,9 +5789,52 @@ final class LagunaRuntimeAttention: Module {
 
         var qkNormRoPEFused = false
         var fusedAttended: MLXArray?
-        if lagunaFusedSlidingAttentionEnabled,
+        if let direct = directVCache,
+            isSliding,
             useFusedSlidingQKNormRoPE,
             let fusedAngles = qkRoPEAngles,
+            let rotating = cache as? RotatingKVCache
+        {
+            fusedAttended = lagunaSlidingFusedAttention(
+                rawQueries: queries,
+                rawKeys: keys,
+                rawValues: nil,
+                queryWeight: qNorm.weight,
+                keyWeight: kNorm.weight,
+                angles: fusedAngles,
+                cacheKeys: direct.keys,
+                cacheValues: direct.values,
+                writeIdx: direct.writeIdx,
+                scale: _fusedAttnScale,
+                preparedParams: direct.params
+            )
+            rotating.fusedRingAdvance()
+            qkNormRoPEFused = true
+        } else if let direct = directVCache,
+            !isSliding,
+            useFusedFullQKNormYaRN,
+            let fusedAngles = qkRoPEAngles,
+            let simple = cache as? KVCacheSimple
+        {
+            fusedAttended = lagunaFullFusedAttention(
+                rawQueries: queries,
+                rawKeys: keys,
+                rawValues: nil,
+                queryWeight: qNorm.weight,
+                keyWeight: kNorm.weight,
+                angles: fusedAngles,
+                cacheKeys: direct.keys,
+                cacheValues: direct.values,
+                writeIdx: direct.writeIdx,
+                scale: _fusedAttnScale,
+                preparedParams: direct.params
+            )
+            simple.fusedAppendAdvance()
+            qkNormRoPEFused = true
+        } else if lagunaFusedSlidingAttentionEnabled,
+            useFusedSlidingQKNormRoPE,
+            let fusedAngles = qkRoPEAngles,
+            let values,
             values.dtype == .bfloat16,
             values.shape == [1, 1, nKVHeads * headDim],
             let rotating = cache as? RotatingKVCache,
@@ -5640,6 +5861,7 @@ final class LagunaRuntimeAttention: Module {
         } else if lagunaFusedFullAttentionEnabled,
             useFusedFullQKNormYaRN,
             let fusedAngles = qkRoPEAngles,
+            let values,
             values.dtype == .bfloat16,
             values.shape == [1, 1, nKVHeads * headDim],
             let simple = cache as? KVCacheSimple,
@@ -5717,19 +5939,27 @@ final class LagunaRuntimeAttention: Module {
         // `[B, H, 1, D]` have the same contiguous byte order. Reshape
         // directly so decode does not carry a no-op transpose view through
         // the lazy graph. Multi-token calls still require the real axis swap.
-        values =
-            L == 1
-            ? values.reshaped(B, nKVHeads, L, headDim)
-            : values.reshaped(B, L, nKVHeads, headDim).transposed(0, 2, 1, 3)
+        if let projectedValues = values {
+            values =
+                L == 1
+                ? projectedValues.reshaped(B, nKVHeads, L, headDim)
+                : projectedValues.reshaped(B, L, nKVHeads, headDim)
+                    .transposed(0, 2, 1, 3)
+        }
 
         if !qkNormRoPEFused {
             queries = applyRotaryPosition(rope, to: queries, cache: cache)
             keys = applyRotaryPosition(rope, to: keys, cache: cache)
         }
 
-        let attended =
-            fusedAttended
-            ?? attentionWithCacheUpdate(
+        let attended: MLXArray
+        if let fusedAttended {
+            attended = fusedAttended
+        } else {
+            guard let values else {
+                preconditionFailure("direct V cache requires fused attention")
+            }
+            attended = attentionWithCacheUpdate(
                 queries: queries,
                 keys: keys,
                 values: values,
@@ -5737,6 +5967,7 @@ final class LagunaRuntimeAttention: Module {
                 scale: scale,
                 mask: mask
             )
+        }
         // SDPA returns `[B, H, L, D]`. When `L == 1`, flattening its
         // contiguous head-major payload directly produces the exact
         // `[B, 1, H*D]` byte order; the transpose only changes singleton-axis
