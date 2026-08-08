@@ -657,6 +657,10 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
 /// gate projections before the rest of that layer's graph is built.
 private let lagunaAttentionProjectionAsyncEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] != "0"
+private let lagunaAttentionProjectionAsyncLayer4Enabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC_LAYER4"] != "0"
+private let lagunaAttentionProjectionAsyncLayer4TraceEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_ATTN_PROJECTION_ASYNC_LAYER4"] == "1"
 
 /// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `1`; `0`/`off` disables;
 /// `8` restores the prior default): a ranked measurement on the
@@ -5551,6 +5555,16 @@ final class LagunaRuntimeAttention: Module {
                     layerIdx == 0, B == 1, L == 1
                 {
                     lagunaTrace("attention projection async rung layer 0")
+                    asyncEval(qkv, gateLogits)
+                }
+                if lagunaAttentionProjectionAsyncLayer4Enabled,
+                    layerIdx == 4, B == 1, L == 1
+                {
+                    if lagunaAttentionProjectionAsyncLayer4TraceEnabled {
+                        FileHandle.standardError.write(
+                            Data("mlxfast: attention projection async rung layer 4 B=1 L=1\n".utf8)
+                        )
+                    }
                     asyncEval(qkv, gateLogits)
                 }
                 // When the fused gate-product kernel will consume the gate at
