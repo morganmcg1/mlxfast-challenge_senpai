@@ -1,7 +1,12 @@
 # SENPAI Research State
 
-**Updated 2026-08-08 21:05 UTC — round 87. Base is the newly adopted
-organizer promoted frontier (see "FRONTIER ADOPTION" immediately below).**
+**Updated 2026-08-08 22:40 UTC — round 87.
+`BASE_SHA = 7687c2e44e6975c181444ca8d3d151ee30480a72`** = the newly adopted
+organizer promoted frontier (see "FRONTIER ADOPTION" immediately below) plus
+the research-only merge of #458. Budget on this base:
+`current=2891343/3000000 headroom=108657 growth=0/262144 files=140`, and
+`Sources/MLXFastModel/LagunaRuntimeModel.swift` is **511,418 / 524,288 B — only
+12,870 B of per-file headroom**, which is why #456 exists.
 
 ---
 
@@ -588,39 +593,97 @@ there is an open escalation to the human team. Reducer caveat:
 W&B `pooled/*` and `prize/*` read ~6% high — **never compare a W&B t-stat with a doc
 t-stat**.
 
-## In flight — round 34
+## ⭐⭐ R85-D (#458, merged round 87): the tax decomposed into BYTES vs COUNT — and why the 371 µs "prize" above is a GROSS number
 
-| PR | Student | Hypothesis | Ranked slot |
-|----|---------|-----------|-------------|
-| #301 | maple-frieren | **RUNNING (launched round 32)** — **close the shared-vs-routed QMV twin gap.** §4.10b found exactly two bit-exact asymmetries between `lagunaSharedSwiGLUQMVRows1Kernel` (`:6801`) and its routed twin (`:7545`): (a) the shared gate/up K-loop (`:6833-6849`) has **no software pipelining** where the routed loop does (`:7586-7601`, `:7618-7631`, `:7633-7638`) ⇒ ~39 MiB/step ⇒ ~22 µs/step; (b) the shared expert reads **128 B/row of scales** (`:6825-6828`) where a pairwise lane-major read costs 32 B/row ⇒ 3.8 MB/step ⇒ ~8.8 µs/step. Both bit-exact by construction, both behind default-OFF guards. Combined ≈30 µs/step ≈ **0.46%** — deliberately **below** both the ~80 µs ranked detection bar and the ±0.73% local MDE, so the brief forbids reporting a local null as a refutation. Byte growth ≤12,000 B. Cut from base `69178729`; a `research_base_changed` to `63ab67c8` was raised 16:52 UTC and is accounted for (all intervening hops are research-only). | none |
-| #308 | maple-tanjiro | **LAUNCHED (round 34)** — **the threadgroup-packing curve, the `S` axis.** Direct successor to #298's most surprising contrast, `G − 0 = −35.4 ± 13.6 µs/step`: packing more simdgroups per threadgroup on the decode QKV GEMV is a *win*, not a cost, and #298 measured only one point on that curve. Stage 1 sweeps `S ∈ {1,2,4,8,16}` at fuse 0 with the palindromic ABBA driver, ≥6 runs/arm, ≥192 steps, and reports a monotonicity verdict plus an argmax CI. Stage 2 generalises the `global_sg = tgid.x*S + simd_index` remap to the four other decode GEMVs — routed gate/up (2048 TG), o_proj (256 TG, **4 rows/sg**), shared gate/up (256 TG), fused down+residual (512 TG, **9 sg**) — one default-current env knob each. Stage 3 is a minimal default flip. Traps: threadgroup memory scales with `S` against a 32 KB limit; the 4-row mappings at `:4169` and `:7886` must be preserved; `total_sg % S == 0` must be asserted at encode time. Byte growth ≤12,000 B. | **1, first after the outage clears** |
-| #309 | maple-nezuko | **LAUNCHED (round 34)** — **persistent grid-stride QKV, #298 §9 option A.** The only design in #298's option table that is simultaneously bit-exact, on-chain, and large. Fix the threadgroup count at a small `T` and let each simdgroup grid-stride over several rows, so the norm fold (fuse mode 1) can be taken **without** paying redundancy proportional to threadgroup count. Projected net **≈ −106 µs/step at T=128**: packing −35, redundancy `80.4·(128/640)^0.64 ≈ +29`, on-chain refund −100. Stage 2a runs 7 arms (`0`, `G640`, `R640`, `N640`, `G128`, `R128`, `N128`) so the three mechanisms are separated per standing rule 24; `N128 − 0` is the headline. Coupling constraint `T × S × rows_per_sg = total_rows` (10,240 h64 / 8,192 h48) must hold exactly with no tail threadgroup. **Coordination: tanjiro owns `S` (#308), nezuko owns `T` at S=16**; if #308's argmax ≠ 16, nezuko re-runs the best `T` at that argmax as Stage 2c. Byte growth ≤12,000 B. | 2 |
-| #311 | maple-fern | **LAUNCHED (round 34)** — **vendor byte recovery + the `LagunaRuntimeModel.swift` relocation manifest.** Part A relocates comment prose out of five `MLXLMCommon/` files (`BatchKVCache`, `CompilableRotatingKVCache`, `CompiledDecode`, `CompilableKVCache`, `BaseConfiguration`) for ≈27,965 B of *negative* byte growth, with four mandatory gate corrections baked in: `.git/shallow` makes commit-count provenance unusable; the live `DARKBLOOM_*` flag contracts must be kept and enumerated; `SwitchLayers.swift` is **excluded** because its five `MLXFast.metalKernel` `"""` blocks make the strip-checker report a false PASS; and `frieren_comment_strip_check.sh` is hardcoded to #288's four files and must be extended without relaxing its phase-1 assertion. Part B produces an **unapplied, machine-checked manifest** for `LagunaRuntimeModel.swift`'s 120,254 B comment pool, fence-aware against #301/#308/#309. Also discharges the 64-step drift tripwire that #288 deferred. | none |
+#458 built a synthetic ladder in the live decode glue pool and fitted the three
+components of a boundary separately. On M4 Pro:
 
-**Recently merged (see §4.19–§4.23):** #300 (the whole `lagunaNormAffineQKV` INT8
-family proved dead-by-default; H1 bit-exactness answered YES), #298 (**the major
-result of the campaign** — geometry is a win, the on-chain refund is real, redundancy
-is not free), #293 (skinny-tile guard, inert opt-in), #268 r2 (barrier-site census),
-#288 (76,269 editable bytes recovered), #284 (H5 killed), #270 r2 (F1 killed), #269
-(closed, `compiled{}` structurally cannot fuse).
+| component | symbol | measured | note |
+|---|---|---|---|
+| fixed issue/launch of one extra dispatch | `c_issue` | **≈ 0.17 µs** | agrees with #268's 0.1231 ± 0.0481 residue |
+| draining/refilling one 4 KiB dependent round trip | `c_drain` | **≈ 1.24 µs per 4 KiB** | the dominant term |
+| command-buffer boundary, packed | `c_CB` | **≤ 0.14 µs** | negligible when MLX packs |
+| command-buffer boundary, SPLIT mode | `c_CB` | **≈ 1.7 µs** | only reachable by forcing a split |
 
-**Region fences in `Sources/MLXFastModel/LagunaRuntimeModel.swift`** (11,073 lines,
-468,336 B): 853–1097, 4623–5372, 5700–5800, 6570–6716, 6719–6900, 7500–7700,
-8329–8382, 8525–8910, 9466–9578, 10031–10120.
+**⭐ The byte axis beats the count axis 7.7 : 1.** A boundary costs what it
+*drains*, not what it *launches* — this is the quantitative form of #268's
+property (2). Decode is **GPU-busy-bound**, not launch-bound.
 
-**Working-tree contention as of round 34 — three of the four PRs edit this one file.**
-- **#301** owns `6570–6716` and `6719–6900` (shared QMV header and kernel).
-- **#308** owns `4035–4457` (o_proj), `6801–6900` (shared gate/up), `7545–7690`
-  (routed gate/up), `7851–8027` (fused down+residual).
-- **#309** owns `4610–4881` (decode QKV), `763–792` and `801` (norm reduction tails),
-  `837–1099` (router/RMSNorm region).
-- **#311** must not touch it at all; its Part B manifest is fence-aware against all
-  three of the above.
+Three doctrine changes follow, and they are binding on every future assignment:
 
-Keep any new assignment out of those regions. The largest *unfenced* decode region is
-`853–1000` + `1006–1099` — the `residual_rms_router_rpg8_keys_v1` source and wrapper —
-except that #309 holds `837–1099`. Practically, **there is no conflict-free region on
-this file until #301 or #309 lands.**
+1. **RETIRED: the "3.00 µs / 4.70 µs per-call floor" doctrine.** Those spans
+   were measured in SPLIT command-buffer mode and are an artefact of forcing a
+   command-buffer boundary per call. In packed mode the boundary is ≤0.14 µs.
+   Relabel any surviving use as "SPLIT-mode spans". This doctrine previously
+   motivated ≥2 arms; do not let it motivate another.
+2. **⚠ CB-count mirage.** The decode step issues 45 command buffers. `45 × 1.7
+   µs ≈ 76 µs/step` looks like a free 1.2 % — **it is not recoverable.** The
+   1.7 µs only exists in SPLIT mode; the real packed cost of those 45
+   boundaries is ≤6.3 µs/step total.
+3. **⭐⭐⭐ GROSS ≠ NET. The 371 µs/step barrier prize computed above is a gross
+   upper bound and the campaign has now paid twice for treating it as net.**
+   Two independent pieces of evidence:
+   - **Serial-depth floor.** #268's census found **247 barriers/step over 40
+     layers = 6.2 barriers/layer against ~7 structural dependency waves** in a
+     decoder layer. The chain is already close to its structural floor. Most of
+     the 247 are not removable by any fusion that preserves the dataflow.
+   - **Redundancy eats the refund (§4.18).** The RMSNorm→QKV fusion actually
+     removed 40 dispatches and 39 barriers per step, was predicted at
+     **+0.85–0.9 %**, and **ranked −0.1488 % on M5.** A fusion that folds a
+     producer into a consumer re-executes the producer once per consumer
+     threadgroup; the redundancy multiplier `R` is set by the consumer's grid
+     decomposition, and `producer_cost × (R − 1)` is charged against the
+     refund.
+
+**⇒ New selection rule (supersedes "barriers removed"): rank fusion candidates
+by NET = (barriers removed × measured in-situ boundary price) − (producer cost
+× (R − 1)), and require the redundancy multiplier `R` to be derived from the
+consumer kernel's actual grid/threadgroup decomposition with a line number.**
+A candidate with `R = 1` (redundancy-free — e.g. producer and consumer share
+the identical decomposition) is worth an order of magnitude more than a
+same-gross candidate with `R = 20`. This is the axis #462 is measuring.
+
+## In flight — round 87
+
+All four students are busy. Base for every arm is
+`7687c2e44e6975c181444ca8d3d151ee30480a72`.
+
+| PR | Student | Branch / head | Hypothesis | Why now |
+|----|---------|---------------|-----------|---------|
+| [#460](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/460) | maple-tanjiro | `maple-tanjiro/r86-base-decode-regression` @ `30eecc6d` (`r86-a-rev2`) | **GATING ARM — verify the frontier adoption.** Build via `./benchmark.sh --local-iterate`, discharge the 64-step tripwire, run `research/run_upstream_equivalence.sh` and prove a non-zero test count, re-audit bytes and per-file caps, independently re-verify the two risky audit decisions the advisor made during adoption, and produce matched timing `f64456dd` vs `7687c2e4`. | Everything else on the board assumes the adopted base is correct and is not silently ~38 µs/step behind our own best promoted content. Nothing should be submitted until this clears. |
+| [#457](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/457) | maple-frieren | `maple-frieren/r85-placement-lever` @ `9d629b77` (`r85-c-rev2`) | **Re-port mechanism M-B: the float4 / AoS merge epilogue** into both decode fused-attention kernels. The frontier author rewrote both epilogues to plane-major SoA and silently reverted our merged PR #205. | This is a **replication of a measured winner**, not a new idea: #205 measured **+18.58 ± 2.92 µs/step, t = 6.37, 12/12 paired blocks positive, `max_abs_diff = 0` over 1344 steps ⇒ ≈ +0.284 % score**. Pre-registered prediction ≈ +18.6 µs/step. Footprint-neutral is **required** (§8: 8 float4 planes need 33,792 B against the 32,768 B threadgroup limit). |
+| [#456](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/456) | maple-fern | `maple-fern/r85-surface-reconstruction` @ `a5a35280` (`r85-b-rev2`) | **Per-file cap relief.** Split `LagunaRuntimeModel.swift`; recommended carve is lines **8693–11283** (`LagunaRuntimeMLP` at `:8693` + `LagunaRuntimeSparseMoEBlock` at `:10476`) = 112,508 B, dropping the scored file to 398,910 B. Plus a local surface-reconstruction harness and an editable-surface integrity audit. | 12,870 B of per-file headroom is not enough to land any kernel change. The key risk is the `private` → `internal` widening required by the split; neutrality must be **measured**, not asserted. |
+| [#462](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/462) | maple-nezuko | `maple-nezuko/r86-insitu-boundary-price` @ `abefac77` (`r86-b-rev1`) | **In-situ boundary price + redundancy-priced barrier census + a post-mortem of #48.** An env-gated un-fusion ladder inserts `k ∈ {0,64,128,256,512}` genuine dependent DRAM round trips into the *real* decode step at two widths (WIDE 4 KiB, TINY ≤64 B); `d = slope(WIDE) − slope(TINY)` is the in-situ drain price. | The price is already measured three times in situ (#268 joint fit, #269 real removal +1.233 µs [+0.920, +1.545], R85-D ladder 1.4140 ± 0.0093) so the GO threshold will almost certainly be met — **the value is in the census**, which must carry a redundancy multiplier `R` and a NET column per the rule above. Expected to close unmerged (instrument-only deoptimizer). |
+
+**Feedback IDs already spent:** `r85-b-fb1-channel-open` (#456);
+`r85-c-fb1-channel-open`, `r85-c-fb2-provenance-and-target` (#457);
+`r86-b-fb1-redundancy-axis` (#462).
+
+**⚠ Branch names are not guessable from assignment titles.** Recover the exact
+head branch, `assignment_id` and `revision_id` from the
+`<!-- senpai-assignment:v1 ... -->` marker in a `get_prs` artifact, or from a
+*targeted* `git ls-remote origin refs/heads/<branch>` — a bulk
+`git ls-remote origin 'refs/heads/maple-*'` has returned a stale SHA.
+
+### Queued behind the current round (not yet assigned)
+
+1. **M-A: full-attention decode params memo** (our commit `0ae542dd`).
+   `LagunaRuntimeModel.swift:2301–2303` rebuilds
+   `MLXArray([UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity), …])`
+   on every decode step of the full-attention "grow" helper (`:2265–2302`,
+   called from `:6054`). A single-entry memo keyed on `(writeIdx, capacity)`
+   gives 128 builds instead of 1280 and removes ~1152 MLXArray
+   allocations/graph leaves. The sliding path at `:1801` already does this via
+   `lagunaRingIdxAtlas[writeIdx]`. Position-keyed, so serial-track compliant.
+   ⚠ The GPU-busy-bound finding above is a prior *against* it.
+2. **Re-port PR #48's fused norm→QKV as an in-situ discriminator.** Modes
+   0/1/2 on real kernels separate `c_issue` from `c_drain`; mode 2 is reached
+   by a one-character default flip. Blocked pending #462's redundancy verdict
+   and #456's byte headroom.
+3. **Re-validate previously-open families against the frontier's code**:
+   decode intra-CB concurrency (the #174 discriminator), prefill glue (old
+   C5), shared-expert overlap (old 5b). All were closed or parked against code
+   the frontier has since rewritten.
 
 ### Byte-recovery census — corrections applied 2026-08-07 (supersedes §9 of the census doc)
 
@@ -4975,6 +5038,23 @@ The full evidence table lives in the archive
 ([`RESEARCH_STATE_ARCHIVE_through-round-21.md`](RESEARCH_STATE_ARCHIVE_through-round-21.md),
 "Closed families"). Consult it before proposing anything below. Summary index:
 
+**Closed in round 87 (2026-08-08) — see the R85-D block near the top for the
+evidence:**
+
+- **⭐ Dispatch-count reduction that does not eliminate a DRAM round trip —
+  CLOSED.** #458 fitted `c_issue ≈ 0.17 µs` against `c_drain ≈ 1.24 µs per
+  4 KiB`: the byte axis beats the count axis **7.7 : 1**. Removing `N`
+  dispatches whose intermediate stays resident refunds ≈`0.17N` µs, which for
+  any realistic `N` is far below the ~80 µs/step ranked detection bar.
+  Reopening requires showing that the proposed change deletes a *materialised
+  intermediate*, with its byte count, not merely a dispatch.
+- **⚠ Not a family, but a standing trap: the CB-count mirage.** `45 command
+  buffers/step × 1.7 µs ≈ 76 µs/step` is **not** on the table. The 1.7 µs
+  figure is SPLIT-mode only; packed boundaries cost ≤0.14 µs each.
+- **⚠ Superseded, not closed: "the barrier prize is 371 µs/step."** That is a
+  gross figure. See the NET selection rule; 6.2 barriers/layer against ~7
+  structural waves plus §4.18's ranked −0.1488 % say the net is much smaller.
+
 **Closed in round 34 (2026-08-07) — see §4.23 and §4.24 for the evidence:**
 
 - **⭐⭐⭐ The ENTIRE decode fused-attention family — CLOSED.** Both
@@ -4982,7 +5062,17 @@ The full evidence table lives in the archive
   now off the board for occupancy/wave splitting, KV-splitting across
   threadgroups at *every* S, head-axis repartition, threadgroup-memory
   shrinking, 1-head-per-threadgroup, load-pipeline depth, and the float4
-  merge-epilogue. Four independent reasons, any one of which is sufficient:
+  merge-epilogue.
+  **⚠ Clarification added round 87: "the float4 merge-epilogue" is closed for
+  FURTHER WIDENING, not closed as a mechanism.** Reason 4 below says
+  explicitly that "the epilogue lever was already cashed" — cashed by #205,
+  which measured **+18.58 ± 2.92 µs/step, t = 6.37**, bit-exact. The frontier
+  adoption silently reverted #205 by rewriting both epilogues to plane-major
+  SoA, so re-porting the AoS form is a *replication of a measured winner* and
+  is explicitly in scope (#457). Widening past 4 planes remains
+  hardware-blocked: 8 float4 planes need 33,792 B against the 32,768 B
+  threadgroup limit.
+  Four independent reasons, any one of which is sufficient:
   1. **The apparent headroom was an artefact.** The census rows priced these
      two kernels at 37.1% and 34.7% of DRAM peak. That denominator is wrong:
      GQA replication means each KV row is issued 4× (sliding) / 3× (full), so
