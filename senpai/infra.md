@@ -76,6 +76,48 @@ archives to manufacture capacity. Poll status with `mlxfast submissions`, not
 by calling `mlxfast submit` again, and honor server retry guidance. If the
 frontier advances, reapply and rebaseline later candidates.
 
+For an existing queued or validating receipt, use the repository's read-only
+watcher instead of a terminal polling loop:
+
+```bash
+python3 senpai/watch-submission.py --submission <submission-id-or-prefix>
+```
+
+It makes authenticated GET requests only, honors API retry guidance, emits one
+start record and one compact terminal receipt, and never submits or comments.
+Normal checks use a three-minute base interval plus a newly sampled 0-20 second
+jitter so concurrent submitters do not synchronize their requests.
+The current Senpai supervised-process tools are student-only: a student
+submitter can launch the watcher with `run_training` (with the watcher's timeout
+below that deployment's process timeout), then continue useful work; terminal,
+failed, interrupted, and timed-out processes resume that same student. An
+advisor submitter must still make sparse deliberate status checks until the
+generic monitor surface is available to advisors. The role that submitted owns
+any retry and decides whether its PR needs an update.
+
+For a deployment with Senpai's 1,800-second supervised-process cap, use a
+1,680-second watcher deadline and leave one minute for clean outer supervision:
+
+```text
+run_training({
+  "spec": {
+    "argv": ["python3", "senpai/watch-submission.py",
+             "--submission", "<submission-id-or-prefix>",
+             "--interval-seconds", "180", "--timeout-seconds", "1680"],
+    "cwd": ".",
+    "timeout_seconds": 1740
+  }
+})
+```
+
+If the deployed process cap is lower, shorten both deadlines while preserving
+the cleanup margin. Do not put the watcher's six-hour standalone default inside
+a shorter supervised process.
+
+If a capacity rejection produced no receipt, first inspect `mlxfast
+submissions` for an explicitly reported blocking receipt or wait the
+server-provided retry interval. Do not infer a global one-submission limit.
+
 Use `--model "senpai"` for every official Senpai submission. Retry once with
 the exact underlying provider/model only after an explicit API rejection of
 `senpai` as the model value; never infer rejection from a timeout or generic
