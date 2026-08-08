@@ -23,16 +23,19 @@
 
   Fix: git checkout bca94c5 -- 3 vendor files + LRM groupSize 32→16 (dead code path).
 
-## ACTIVE ASSIGNMENTS (Wave 15, updated 2026-08-08T15:59)
+## ACTIVE ASSIGNMENTS (Wave 16, updated 2026-08-08T16:02)
+  PR #436 (edward, rev v2): 4-head GQA in inline fused attention kernels (decode 75%, highest impact)
+    — Redirected from sdpa_vector.h to inline fused kernels per research insight
+  PR #445 (thorfinn): Enable prefill shared expert halved scales (1-line flag flip, zero risk)
+  PR #446 (alphonse): DARKBLOOM_STAGE_* staging flags in quantized.cpp (zero risk, zero budget)
+  PR #447 (askeladd): Fuse prefill shared expert into routed gather-QMM (eliminate 2-3 dispatches/MoE-layer)
+  All based on BASE_SHA=2809d0fc. Fresh ideas from RESEARCH_IDEAS_FRESH_20260808_v2.md.
+
+## WAVE 15 RESULTS
   PR #435 (thorfinn): MERGED — decode full-attn custom kernel wiring.
-  PR #436 (edward): IN PROGRESS — Two-group SDPA schedule (AOT sdpa_vector.h). Feedback sent about base change to 39fa0483.
-  thorfinn: IDLE — QKV fusion (PR #261) accepted on current base, bit-exact.
-  alphonse: IDLE — prior assignment closed.
-  askeladd: IDLE — prior assignment closed.
-  Fresh-ideas agent running to generate new experiment assignments.
-  PR #437 (alphonse): CLOSED — negative result (router Top-8 already packed via lagunaRoutedSwiGLUQMVPackedTop8).
-  PR #438 (askeladd): CLOSED — audit revealed PR #426 branch did NOT have the fix (false claim).
-  PR #439 (alphonse): IN PROGRESS — Audit missing custom kernels from f790e33f (~28 missing). Rebased to 7da229c3 needed.
+  PR #437 (alphonse): CLOSED — negative result (router Top-8 already packed).
+  PR #438 (askeladd): CLOSED — audit revealed PR #426 branch did NOT have the fix.
+  PR #439 (alphonse): CLOSED — audit complete.
 
 ## COMPETITOR ANALYSIS
   a-github-name (2.6165): Active-64 router tournament. LRM 510KB vs our 311KB. Router Top-8 packing.
