@@ -2149,7 +2149,8 @@ func lagunaFullFusedAttention(
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
-    scale: MLXArray
+    scale: MLXArray,
+    params: MLXArray? = nil
 ) -> MLXArray {
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -2172,9 +2173,10 @@ func lagunaFullFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < capacity)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    let params = MLXArray([
+    let params = params ?? MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
+    precondition(params.dtype == .uint32 && params.shape == [3])
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
@@ -5344,7 +5346,8 @@ final class LagunaRuntimeAttention: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         qkRoPEAngles: MLXArray? = nil,
-        qkRoPEOffsets: MLXArray? = nil
+        qkRoPEOffsets: MLXArray? = nil,
+        fullAttentionParams: MLXArray? = nil
     ) -> MLXArray {
         let (B, L) = (input.dim(0), input.dim(1))
 
@@ -5657,7 +5660,8 @@ final class LagunaRuntimeAttention: Module {
                 cacheKeys: append.keys,
                 cacheValues: append.values,
                 writeIdx: append.writeIdx,
-                scale: _fusedAttnScale
+                scale: _fusedAttnScale,
+                params: fullAttentionParams
             )
             simple.fusedAppendAdvance()
             qkNormRoPEFused = true
@@ -9801,7 +9805,8 @@ final class LagunaRuntimeDecoderLayer: Module {
         mask: MLXFast.ScaledDotProductAttentionMaskMode,
         cache: KVCache?,
         qkRoPEAngles: MLXArray? = nil,
-        qkRoPEOffsets: MLXArray? = nil
+        qkRoPEOffsets: MLXArray? = nil,
+        fullAttentionParams: MLXArray? = nil
     ) -> MLXArray {
         let r = selfAttn(
             x,
@@ -9809,7 +9814,8 @@ final class LagunaRuntimeDecoderLayer: Module {
             mask: mask,
             cache: cache,
             qkRoPEAngles: qkRoPEAngles,
-            qkRoPEOffsets: qkRoPEOffsets
+            qkRoPEOffsets: qkRoPEOffsets,
+            fullAttentionParams: fullAttentionParams
         )
         let h: MLXArray
         let normalized: MLXArray
@@ -10199,6 +10205,67 @@ final class LagunaRuntimeModelInner: Module {
         return fullPosition
     }
 
+    private func sharedFullAttentionParams(
+        inputs: MLXArray, cache: [KVCache]?
+    ) -> MLXArray? {
+        guard lagunaFusedFullAttentionEnabled,
+            inputs.dtype == .int32,
+            inputs.shape == [1, 1],
+            let cache,
+            cache.count >= layers.count
+        else {
+            return nil
+        }
+
+        var sharedWriteIdx: Int?
+        var sharedCapacity: Int?
+        for i in layers.indices where layerTypes[i] == .full {
+            let fullCache = cache[i]
+            guard type(of: fullCache) == KVCacheSimple.self else {
+                return nil
+            }
+            let state = fullCache.innerState()
+            guard state.count == 2 else {
+                return nil
+            }
+            let keys = state[0]
+            let values = state[1]
+            guard keys.dtype == .bfloat16,
+                values.dtype == .bfloat16,
+                keys.shape.count == 4,
+                keys.dim(0) == 1,
+                keys.dim(1) == LagunaConstants.numKeyValueHeads,
+                keys.dim(3) == LagunaConstants.headDim,
+                values.shape == keys.shape
+            else {
+                return nil
+            }
+
+            let writeIdx = fullCache.offset
+            let capacity = keys.dim(2)
+            guard writeIdx >= 0, writeIdx < capacity else {
+                return nil
+            }
+            if let expectedWriteIdx = sharedWriteIdx,
+                let expectedCapacity = sharedCapacity
+            {
+                guard writeIdx == expectedWriteIdx, capacity == expectedCapacity else {
+                    return nil
+                }
+            } else {
+                sharedWriteIdx = writeIdx
+                sharedCapacity = capacity
+            }
+        }
+
+        guard let writeIdx = sharedWriteIdx, let capacity = sharedCapacity else {
+            return nil
+        }
+        return MLXArray([
+            UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+        ])
+    }
+
     /// Runs `attention`'s own RoPE layer over `seed` at the cache's current
     /// position, honoring a graph-valued offset when the cache carries one.
     private func ropeAngleTable(
@@ -10275,6 +10342,8 @@ final class LagunaRuntimeModelInner: Module {
             }
         }
 
+        let fullAttentionParams = sharedFullAttentionParams(inputs: inputs, cache: cache)
+
         // One mask per attention family, derived from a representative
         // layer's cache offset: all full-attention caches advance in
         // lockstep, as do all sliding caches (vendored `LagunaModelInner`
@@ -10318,7 +10387,8 @@ final class LagunaRuntimeModelInner: Module {
                         mask: mask,
                         cache: cache?[i],
                         qkRoPEAngles: qkRoPEAngles,
-                        qkRoPEOffsets: qkRoPEOffsets
+                        qkRoPEOffsets: qkRoPEOffsets,
+                        fullAttentionParams: isFull ? fullAttentionParams : nil
                     )
                     if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                         asyncEval(h)
@@ -10330,7 +10400,8 @@ final class LagunaRuntimeModelInner: Module {
                     mask: mask,
                     cache: cache?[i],
                     qkRoPEAngles: qkRoPEAngles,
-                    qkRoPEOffsets: qkRoPEOffsets
+                    qkRoPEOffsets: qkRoPEOffsets,
+                    fullAttentionParams: isFull ? fullAttentionParams : nil
                 )
                 if isSingleTokenDecode, (decodeFireMask >> UInt64(i)) & 1 == 1 {
                     asyncEval(h)
