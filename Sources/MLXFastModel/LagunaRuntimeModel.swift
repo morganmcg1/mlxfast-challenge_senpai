@@ -5103,7 +5103,7 @@ func lagunaNormAffineQKV(
         cache.values.dim(1) == LagunaConstants.numKeyValueHeads,
         cache.values.dim(3) == LagunaConstants.headDim,
         cache.params.dtype == .uint32,
-        cache.params.size == (rows > 9_000 ? 1 : 3)
+        cache.params.size == (rows > 9_000 ? 3 : 1)
     {
         let outputRows = rows - LagunaConstants.numKeyValueHeads * LagunaConstants.headDim
         if let metadata = indexedMetadata,
