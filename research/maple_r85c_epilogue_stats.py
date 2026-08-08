@@ -15,6 +15,7 @@ differenced out and the ABBA sign counterbalancing removes within-duplex drift.
       /tmp/maple-r85c-epi/[0-9]*.steps
 """
 import argparse
+import json
 import math
 import os
 import re
@@ -87,6 +88,7 @@ def main() -> int:
     ap.add_argument("--arms", nargs=2, required=True)
     ap.add_argument("--offset", type=int, default=0, choices=(0, 1))
     ap.add_argument("--drop-first", type=int, default=1)
+    ap.add_argument("--json-out")
     args = ap.parse_args()
     base_arm, cand_arm = args.arms
 
@@ -103,13 +105,25 @@ def main() -> int:
               f"{runs[i+1]['slot']:>2}({runs[i+1]['arm']})  sign {sign:+.0f}")
     print("  a negative cand-base delta means the candidate is FASTER; "
           "sign is flipped so positive = win")
+    out = {"kind": kind, "base_arm": base_arm, "cand_arm": cand_arm,
+           "offset": args.offset, "n_duplex": len(pairs),
+           "steady_steps": runs[0]["n"], "stats": {},
+           "slots": [{k: r[k] for k in ("slot", "rep", "arm", "median",
+                                        "trimmed", "mean")} for r in runs]}
     for stat, label in (("median", "median"), ("trimmed", "trim10"),
                         ("mean", "mean")):
-        report(runs, pairs, base_arm, stat, label)
+        d, lo, hi = report(runs, pairs, base_arm, stat, label)
+        out["stats"][label] = {"delta_us_step": d, "ci95_lo": lo,
+                              "ci95_hi": hi,
+                              "score_pct": d * PCT_PER_US_STEP}
     print("\n  per-slot medians (us/step):")
     for r in runs:
         print(f"    slot {r['slot']:>2} rep{r['rep']} {r['arm']:>4}  "
               f"{r['median']:9.1f}")
+    if args.json_out:
+        with open(args.json_out, "w") as fh:
+            json.dump(out, fh, indent=2)
+        print(f"\n  wrote {args.json_out}")
     return 0
 
 
