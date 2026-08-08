@@ -8573,7 +8573,7 @@ private let lagunaDecodeRouterTop8NormalizingKernel = MLXFast.metalKernel(
 /// original expert-index tie break is exactly `laguna_router_key_before`.
 /// Only final lanes 0...7 recompute their pre-bias sigmoid score.
 private func lagunaDecodeRouterOrdinalKernelSource(
-    normalizing: Bool, scoreTable: Bool = false
+    scoreTable: Bool = false
 ) -> String {
     let scoreStorage =
         scoreTable
@@ -8593,28 +8593,25 @@ private func lagunaDecodeRouterOrdinalKernelSource(
             float winner_y = 1.0f / (1.0f + metal::exp(metal::abs(winner_x)));
             my_score = winner_x < 0.0f ? winner_y : 1.0f - winner_y;
         """
-    let epilogue =
-        normalizing
-        ? """
+    let epilogue = """
         float my_score = 0.0f;
         if (lane < 8) {
         \(winnerScore)
         }
-        float total = 0.0f;
-        for (uint i = 0; i < 8; ++i) {
-            total = simd_shuffle(my_score, ushort(i)) + total;
-        }
-        if (lane < 8) {
-            router_indices[lane] = my_index;
-            router_scores[lane] = my_score / total;
-        }
-        """
-        : """
-        if (lane < 8) {
-            float my_score = 0.0f;
-        \(winnerScore)
-            router_indices[lane] = my_index;
-            router_scores[lane] = my_score;
+        if (normalizing_flag[0] > 0) {
+            float total = 0.0f;
+            for (uint i = 0; i < 8; ++i) {
+                total = simd_shuffle(my_score, ushort(i)) + total;
+            }
+            if (lane < 8) {
+                router_indices[lane] = my_index;
+                router_scores[lane] = my_score / total;
+            }
+        } else {
+            if (lane < 8) {
+                router_indices[lane] = my_index;
+                router_scores[lane] = my_score;
+            }
         }
         """
     return """
@@ -8701,36 +8698,18 @@ private let lagunaDecodeRouterOrdinalHeader = """
 
 private let lagunaDecodeRouterOrdinalKernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_ordinal_v1",
-    inputNames: ["logits", "correction_bias"],
+    inputNames: ["logits", "correction_bias", "normalizing_flag"],
     outputNames: ["router_indices", "router_scores"],
-    source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false),
-    header: lagunaDecodeRouterOrdinalHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaDecodeRouterOrdinalNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_norm_v1",
-    inputNames: ["logits", "correction_bias"],
-    outputNames: ["router_indices", "router_scores"],
-    source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true),
+    source: lagunaDecodeRouterOrdinalKernelSource(scoreTable: false),
     header: lagunaDecodeRouterOrdinalHeader,
     ensureRowContiguous: true
 )
 
 private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_ordinal_table_v1",
-    inputNames: ["logits", "correction_bias"],
+    inputNames: ["logits", "correction_bias", "normalizing_flag"],
     outputNames: ["router_indices", "router_scores"],
-    source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false, scoreTable: true),
-    header: lagunaDecodeRouterOrdinalHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_decode_router_top8_ordinal_table_norm_v1",
-    inputNames: ["logits", "correction_bias"],
-    outputNames: ["router_indices", "router_scores"],
-    source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true, scoreTable: true),
+    source: lagunaDecodeRouterOrdinalKernelSource(scoreTable: true),
     header: lagunaDecodeRouterOrdinalHeader,
     ensureRowContiguous: true
 )
@@ -8772,11 +8751,9 @@ func lagunaDecodeRouterTop8OrdinalForTesting(
     precondition(logits.size == 256)
     precondition(correctionBias.size == 256)
 
-    let kernel =
-        normalizing
-        ? lagunaDecodeRouterOrdinalNormalizingKernel : lagunaDecodeRouterOrdinalKernel
-    let outputs = kernel(
-        [logits, correctionBias],
+    let normalizingFlag = MLXArray([normalizing ? UInt32(1) : UInt32(0)])
+    let outputs = lagunaDecodeRouterOrdinalKernel(
+        [logits, correctionBias, normalizingFlag],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
@@ -8793,12 +8770,9 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
     precondition(logits.size == 256)
     precondition(correctionBias.size == 256)
 
-    let kernel =
-        normalizing
-        ? lagunaDecodeRouterOrdinalScoreTableNormalizingKernel
-        : lagunaDecodeRouterOrdinalScoreTableKernel
-    let outputs = kernel(
-        [logits, correctionBias],
+    let normalizingFlag = MLXArray([normalizing ? UInt32(1) : UInt32(0)])
+    let outputs = lagunaDecodeRouterOrdinalScoreTableKernel(
+        [logits, correctionBias, normalizingFlag],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
@@ -8869,23 +8843,22 @@ private let lagunaPrefillSortedMoETailEnabled =
 /// (2) repack 64 candidates, bitonic-sort the union, take first 8. Same comparator and
 /// total order as decode router. Local-top-8 provably contains global top-8. Normalizing
 /// epilogue via `simd_shuffle` is bit-identical to stock `weights.sum(axis: -1)`.
-private func lagunaPrefillRouterTournamentKernelSource(normalizing: Bool) -> String {
-    let epilogue =
-        normalizing
-        ? """
-        float total = 0.0f;
-        for (uint i = 0; i < 8; ++i) {
-            total = simd_shuffle(my_score2, ushort(i)) + total;
-        }
-        if (lane < 8) {
-            router_indices[row * 8 + lane] = my_index2;
-            router_scores[row * 8 + lane] = my_score2 / total;
-        }
-        """
-        : """
-        if (lane < 8) {
-            router_indices[row * 8 + lane] = my_index2;
-            router_scores[row * 8 + lane] = my_score2;
+private func lagunaPrefillRouterTournamentKernelSource() -> String {
+    let epilogue = """
+        if (normalizing_flag[0] > 0) {
+            float total = 0.0f;
+            for (uint i = 0; i < 8; ++i) {
+                total = simd_shuffle(my_score2, ushort(i)) + total;
+            }
+            if (lane < 8) {
+                router_indices[row * 8 + lane] = my_index2;
+                router_scores[row * 8 + lane] = my_score2 / total;
+            }
+        } else {
+            if (lane < 8) {
+                router_indices[row * 8 + lane] = my_index2;
+                router_scores[row * 8 + lane] = my_score2;
+            }
         }
         """
     return """
@@ -9029,24 +9002,23 @@ private func lagunaPrefillRouterTournamentKernelSource(normalizing: Bool) -> Str
 /// `(float key, uint index, float score)` to `(uint ordinal, uint index)`.
 /// One per-row score table preserves the original sigmoid bytes for the
 /// final eight indexed loads without carrying scores through either network.
-private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool) -> String {
-    let epilogue =
-        normalizing
-        ? """
-        float my_score2 = lane < 8 ? original_scores[my_index2] : 0.0f;
-        float total = 0.0f;
-        for (uint i = 0; i < 8; ++i) {
-            total = simd_shuffle(my_score2, ushort(i)) + total;
-        }
-        if (lane < 8) {
-            router_indices[row * 8 + lane] = my_index2;
-            router_scores[row * 8 + lane] = my_score2 / total;
-        }
-        """
-        : """
-        if (lane < 8) {
-            router_indices[row * 8 + lane] = my_index2;
-            router_scores[row * 8 + lane] = original_scores[my_index2];
+private func lagunaPrefillRouterTournamentOrdinalKernelSource() -> String {
+    let epilogue = """
+        if (normalizing_flag[0] > 0) {
+            float my_score2 = lane < 8 ? original_scores[my_index2] : 0.0f;
+            float total = 0.0f;
+            for (uint i = 0; i < 8; ++i) {
+                total = simd_shuffle(my_score2, ushort(i)) + total;
+            }
+            if (lane < 8) {
+                router_indices[row * 8 + lane] = my_index2;
+                router_scores[row * 8 + lane] = my_score2 / total;
+            }
+        } else {
+            if (lane < 8) {
+                router_indices[row * 8 + lane] = my_index2;
+                router_scores[row * 8 + lane] = original_scores[my_index2];
+            }
         }
         """
     return """
@@ -9139,36 +9111,18 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
 
 private let lagunaPrefillRouterTournamentKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_tournament_v1",
-    inputNames: ["logits", "correction_bias"],
+    inputNames: ["logits", "correction_bias", "normalizing_flag"],
     outputNames: ["router_indices", "router_scores"],
-    source: lagunaPrefillRouterTournamentKernelSource(normalizing: false),
-    header: lagunaDecodeRouterTop8Header,
-    ensureRowContiguous: true
-)
-
-private let lagunaPrefillRouterTournamentNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_router_tournament_norm_v1",
-    inputNames: ["logits", "correction_bias"],
-    outputNames: ["router_indices", "router_scores"],
-    source: lagunaPrefillRouterTournamentKernelSource(normalizing: true),
+    source: lagunaPrefillRouterTournamentKernelSource(),
     header: lagunaDecodeRouterTop8Header,
     ensureRowContiguous: true
 )
 
 private let lagunaPrefillRouterTournamentOrdinalKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_tournament_ordinal_v1",
-    inputNames: ["logits", "correction_bias"],
+    inputNames: ["logits", "correction_bias", "normalizing_flag"],
     outputNames: ["router_indices", "router_scores"],
-    source: lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: false),
-    header: lagunaDecodeRouterOrdinalHeader,
-    ensureRowContiguous: true
-)
-
-private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = MLXFast.metalKernel(
-    name: "laguna_prefill_router_tournament_ordinal_norm_v1",
-    inputNames: ["logits", "correction_bias"],
-    outputNames: ["router_indices", "router_scores"],
-    source: lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: true),
+    source: lagunaPrefillRouterTournamentOrdinalKernelSource(),
     header: lagunaDecodeRouterOrdinalHeader,
     ensureRowContiguous: true
 )
@@ -9181,11 +9135,9 @@ func lagunaPrefillRouterTournamentAcceptedForTesting(
     precondition(logits.size == rows * 256)
     precondition(correctionBias.size == 256)
 
-    let kernel =
-        normalizing
-        ? lagunaPrefillRouterTournamentNormalizingKernel : lagunaPrefillRouterTournamentKernel
-    let outputs = kernel(
-        [logits, correctionBias],
+    let normalizingFlag = MLXArray([normalizing ? UInt32(1) : UInt32(0)])
+    let outputs = lagunaPrefillRouterTournamentKernel(
+        [logits, correctionBias, normalizingFlag],
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
@@ -9202,12 +9154,9 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
     precondition(logits.size == rows * 256)
     precondition(correctionBias.size == 256)
 
-    let kernel =
-        normalizing
-        ? lagunaPrefillRouterTournamentOrdinalNormalizingKernel
-        : lagunaPrefillRouterTournamentOrdinalKernel
-    let outputs = kernel(
-        [logits, correctionBias],
+    let normalizingFlag = MLXArray([normalizing ? UInt32(1) : UInt32(0)])
+    let outputs = lagunaPrefillRouterTournamentOrdinalKernel(
+        [logits, correctionBias, normalizingFlag],
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
