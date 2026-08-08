@@ -422,9 +422,6 @@ let lagunaPrefillQKHeadsPerGroup: Int = {
     return raw == "4" ? 4 : 1
 }()
 
-private let lagunaPrefillQKTraceEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_TRACE"] == "1"
-
 /// Terminal-prefill projection banking. The last decoder layer consumes Q and
 /// the per-head gate for only the final supplied row, while K/V must still be
 /// produced for every row so the cache advances normally. Retained `[Q; G]`
@@ -2650,19 +2647,6 @@ private func lagunaPrefillSlidingQKNormRoPE(
     let kernel = useH1
         ? lagunaPrefillSlidingQKNormRoPEH1Kernel
         : lagunaPrefillSlidingQKNormRoPEKernel
-    if lagunaPrefillQKTraceEnabled {
-        let kernelName = useH1
-            ? "laguna_prefill_sliding_qk_norm_rope_bf16_128_h1_v2"
-            : "laguna_prefill_sliding_qk_norm_rope_bf16_128_v2"
-        let mode = terminal ? "terminal" : "ordinary"
-        let message =
-            "MLXFAST_PREFILL_QK_TRACE kernel=\(kernelName) mode=\(mode) " +
-            "heads_per_group=\(headsPerGroup) length=\(length) query_length=\(queryLength) " +
-            "q_shape=[1,\(heads),\(queryLength),\(LagunaConstants.headDim)] " +
-            "k_shape=[1,\(kvHeads),\(length),\(LagunaConstants.headDim)] " +
-            "consumer=attentionWithCacheUpdate architecture=\(GPU.deviceInfo().architecture)\n"
-        FileHandle.standardError.write(Data(message.utf8))
-    }
     let groups = terminal ? heads + kvHeads * length : (heads + kvHeads) / headsPerGroup
     let outputs = kernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles, offsets],
