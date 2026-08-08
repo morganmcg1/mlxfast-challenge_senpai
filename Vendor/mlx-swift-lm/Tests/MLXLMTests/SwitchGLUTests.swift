@@ -123,11 +123,14 @@ struct SwitchGLUTests {
 
         for (name, rows, topK) in cases {
             let count = rows * topK
-            let keys = (0 ..< count).map {
-                UInt32((($0 * 37) + (($0 / 3) * 11)) % 23)
+            let keys: [UInt32] = (0 ..< count).map { offset in
+                let mixed = (offset * 37) + ((offset / 3) * 11)
+                return UInt32(mixed % 23)
             }
-            let expectedOrder = keys.indices.sorted {
-                keys[$0] == keys[$1] ? $0 < $1 : keys[$0] < keys[$1]
+            var expectedOrder = Array(0 ..< count)
+            expectedOrder.sort { lhs, rhs in
+                if keys[lhs] == keys[rhs] { return lhs < rhs }
+                return keys[lhs] < keys[rhs]
             }
             let expectedRows = expectedOrder.map { UInt32($0 / topK) }
             let expectedKeys = expectedOrder.map { keys[$0] }
@@ -141,7 +144,7 @@ struct SwitchGLUTests {
             let (rowOrder, sortedKeys, inverseOrder) = gatherSort(x: x, indices: indices)
             eval(rowOrder, sortedKeys, inverseOrder)
 
-            let actualRows = rowOrder.flattened().asArray(Float.self).map(UInt32.init)
+            let actualRows = rowOrder.flattened().asArray(Float.self).map { UInt32($0) }
             let actualKeys = sortedKeys.asArray(UInt32.self)
             let actualInverse = inverseOrder.asArray(UInt32.self)
             let roundTrip = expectedOrder.map { actualInverse[$0] }
@@ -149,7 +152,7 @@ struct SwitchGLUTests {
             #expect(actualRows == expectedRows)
             #expect(actualKeys == expectedKeys)
             #expect(actualInverse == expectedInverse)
-            #expect(roundTrip == (0 ..< count).map(UInt32.init))
+            #expect(roundTrip == (0 ..< count).map { UInt32($0) })
             print(
                 "gather-sort-oracle \(name) rows=\(actualRows) "
                     + "keys=\(actualKeys) inverse=\(actualInverse)")
