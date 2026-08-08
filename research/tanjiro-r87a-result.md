@@ -14,21 +14,44 @@ Every prediction in §6 of that file is scored HIT/MISS in §9 below.
 | --- | --- |
 | A1 (submittable input-prefetch ladder) | **HARMFUL.** Best arm +26.47 µs/step kernel-local, worst +105.80. All three arms are regressions at 3–30× the rig floor. |
 | Shipped default | `DARKBLOOM_ROUTED_GATEUP_INPUT_PF=0`, verified byte-identical MSL to stock. **Nothing in this PR changes scored behaviour.** |
-| A2 (deliberately incorrect ceiling probe) | **−83.64 ± 2.96 µs/step** kernel-local ⇒ ≈−50 µs/step end-to-end ⇒ ≈+0.77% score after the 0.60 give-back discount. **Confounded** — the probe also cuts ~22% of DRAM bytes, so this is a *loose* upper bound, not a target. See §5a. |
+| A2 (deliberately incorrect ceiling probe) | **−83.64 ± 2.96 µs/step** kernel-local, quoted at face value per rule 43. The SPLIT=1 census total was −69.71 ± 36.21 µs/step; the two bracket **≈+1.07% to +1.28% score**. No give-back discount is applied. **Confounded** — the probe also cuts ~22% of DRAM bytes, so this is a *loose* upper bound, not a target. See §5a. |
 | Merge recommendation | **Do not merge as a speedup.** Merge or close on the value of the negative result and the A2 bound; the knob itself is dead weight unless the advisor wants it retained for follow-up work. |
 
 Three things in this PR are worth more than the failed hypothesis:
 
 1. **A `threadgroup_barrier` is not a dispatch boundary.** Measured
    0.0293 µs per barrier per dispatch versus rule 41's 1.3163–1.4964 µs
-   per *dispatch* boundary — a **~48× overcharge** if the rule is applied to
-   barriers. Barriers 9–16 cost nothing marginal. Rule 41 needs this
-   qualification. (§3a)
-2. **The head-latency ceiling is ≈+0.77% score and it is real** — the router
-   kernel absorbed only +0.71 ± 1.59 µs/step, so the recovery is latency
-   removed, not work migrated. (§5)
-3. **The give-back fraction is not a constant.** 16.9% here versus 42% in
-   PR #457. Treating 42% as a law will mis-price future candidates. (§11)
+   per *dispatch* boundary. This is a **scope limit** on rule 41, not a
+   correction to it: rule 41 prices a per-dispatch-boundary event and my
+   measurement says in-kernel barriers are not that event. Barriers 9–16
+   cost nothing marginal. (§3a)
+2. **The head-latency ceiling is ≈+1.07% to +1.28% score and it is real** —
+   the router kernel absorbed only +0.71 ± 1.59 µs/step, so the recovery is
+   latency removed, not work migrated. (§5)
+3. **My ceiling data independently fail to support the 42% give-back law.**
+   The measured total/touched ratio here is 0.833 ± 0.433 → [0.401, 1.266],
+   which contains 1.0 (no give-back) as comfortably as it contains 0.58.
+   PR #473 has since shown the give-back was an artefact of
+   `DARKBLOOM_GPU_PROFILE_SPLIT=1` itself, and rule 43 now forbids any
+   SPLIT=1 total or ratio from entering a standing rule. This section is
+   retained as corroborating evidence, not as a new law. (§11)
+
+### Rule 43 compliance
+
+Every decision in this document is carried by **per-kernel attribution under
+`DARKBLOOM_GPU_PROFILE_SPLIT=1`**, which rule 43 explicitly preserves. No
+SPLIT=1 *total* or ratio is load-bearing:
+
+- The NO-GO on A1 rests on per-kernel deltas of +26.47 to +105.80 µs/step
+  against a per-kernel σ of 3.51 — a 7–30× margin. The SPLIT=1 totals for those
+  arms are not used.
+- The A2 ceiling is quoted at face value on the touched kernel (−83.64 ± 2.96),
+  with the SPLIT=1 census total shown only as a bracket and labelled as such.
+- No `nat`-regime paired ABBA census was run, and none is claimed. A2 is a
+  deliberately incorrect probe that can never be submitted; a real candidate in
+  this family owes that census before any merge decision.
+- The end-to-end wall numbers here have σ ≈ 116 under SPLIT=1 and are marked
+  inadmissible throughout, which is the same failure mode PR #473 diagnosed.
 
 ---
 
@@ -104,6 +127,19 @@ observed per-arm half-widths reported below (±2.96 to ±4.65) agree with the
 ±3.68 to ±3.97 predicted from the pooled A0 SD. All verdicts below are quoted
 at n=6 or n=7 per arm.
 
+**Naming the estimator (rule 40, third form).** σ is a property of the
+estimator, not of the rig, so every floor above is labelled:
+
+| estimator used here | σ (µs/step) | where it applies |
+| --- | --- | --- |
+| cross-process, per-run **per-kernel** busy label, `_r1_bf16_v2` | **3.51** | §3, §4, §5 per-kernel verdicts |
+| cross-process, per-run **`busy_sum` TOTAL** under SPLIT=1 | **17.11** (18 control runs) | §5 census total only |
+
+The SPLIT=1 total is ~5× more dispersed than the per-kernel labels measured in
+the same runs. That ordering is consistent with PR #473's finding that the
+split itself is expensive and noisy, and it is why every decision in this
+document rests on the per-kernel column.
+
 ## 3. Positive control — the barrier-injection arm
 
 Block `research/r87a-runs/control`, 18 retained runs, n=6 per arm, arms
@@ -112,7 +148,7 @@ A0 / B2 / B4 (`DARKBLOOM_PROBE_ROUTED_GATEUP_BARRIERS`, `B` extra
 per threadgroup). Rule 33 confirmed from the trace: the dispatched names are
 `..._v2` / `..._v2_b2` / `..._v2_b4`.
 
-| arm | touched kernel Δ (µs/step) | untouched give-back | TOTAL busy_sum Δ |
+| arm | touched kernel Δ (µs/step) | untouched sum Δ | TOTAL busy_sum Δ (SPLIT=1) |
 | --- | --- | --- | --- |
 | B2 vs A0 | **+9.13 ± 4.65** | −7.63 | +1.67 ± 26.29 |
 | B4 vs A0 | **+8.52 ± 4.20** | −14.00 | −5.50 ± 24.63 |
@@ -151,12 +187,14 @@ cost **zero marginal time within the resolution of this rig** — the kernel is
 bandwidth-bound at ~80% of peak (prereg §2 roofline) and has ample stall time to
 absorb them.
 
-**Conclusion to carry forward: rule 41's 1.3–1.5 µs slope is a property of the
-no-op-*dispatch* variant and must not be applied to in-kernel synchronisation.**
-An intra-kernel `threadgroup_barrier` on this kernel costs ~0.03 µs per
-threadgroup-pass and saturates after ~8. I predicted +120 µs/step and measured
-+8.5; the prior was wrong by more than an order of magnitude and the correction
-belongs in the shared rule set, not just in this PR.
+**Conclusion to carry forward — a scope limit, not a refutation. Rule 41's
+1.3–1.5 µs slope is a correctly calibrated price for a *dispatch boundary*;
+this measurement only establishes that an in-kernel barrier is not one.**
+Rule 41 stands as written. An intra-kernel `threadgroup_barrier` on this kernel
+costs ~0.03 µs per threadgroup-pass and saturates after ~8. I predicted
++120 µs/step and measured +8.5; my own prior was wrong by more than an order of
+magnitude, and what belongs in the shared rule set is the boundary of rule 41's
+applicability, not a change to its slope.
 
 ## 4. A1 ladder — the submittable arm
 
@@ -223,15 +261,35 @@ submitted**.
 | quantity | value (µs/step) |
 | --- | --- |
 | touched kernel `..._v2_e0` | **−83.64 ± 2.96** (ref 1501.44, 17.54% of decode) |
-| untouched give-back | **+14.13** |
-| give-back fraction | **16.9%** — well under the 42% of PR #457 |
-| TOTAL busy_sum | **−69.71 ± 36.21** |
-| TOTAL busy_union | −69.57 ± 35.38 |
+| untouched sum, opposite sign | **+14.13** |
+| TOTAL busy_sum (SPLIT=1) | **−69.71 ± 36.21** |
+| TOTAL busy_union (SPLIT=1) | −69.57 ± 35.38 |
 | wall | −64.71 ± 116.43 (inflated by profiler `fputs`; not admissible) |
 
-Discounted per the 42% give-back law (×0.60): **≈−50 µs/step end-to-end
-≈ +0.77% score**. That is an **upper bound on the whole head-latency family**,
+**Quoted at face value, per rule 43 and the advisor's explicit instruction not
+to discount.** At 0.015280 % score per µs/step of decode:
+
+| basis | Δ µs/step | score |
+| --- | --- | --- |
+| touched kernel only (per-kernel attribution, σ=3.51) | −83.64 | **+1.278%** |
+| SPLIT=1 census total (σ=17.11, attribution-only under rule 43) | −69.71 | +1.065% |
+
+The decision-grade number is the first row: rule 43 permits per-kernel
+attribution under SPLIT=1 and forbids a SPLIT=1 *total* from carrying a rule or
+a merge. The second row is shown only to bracket the first. A `nat`-regime
+paired ABBA census (rule 43's required instrument) was **not** run for this
+arm, because A2 is a deliberately incorrect probe that is never submitted; a
+real candidate in this family would need one.
+
+Either way this is an **upper bound on the whole head-latency family**,
 obtained by breaking correctness.
+
+**Ratio check against the withdrawn give-back law.** `total/touched =
+69.71/83.64 = 0.833 ± 0.433 → [0.401, 1.266]`. The interval contains 1.0, so
+these data do **not** support a 0.58 give-back factor; they are also too wide
+to reject it on their own. PR #473's `c = 1.247 [0.90, 1.59]` settles it, and
+rule 43 supersedes the law. Recorded here as an independent, same-signed
+observation, not as a competing estimate.
 
 ### 5a. The A2 number is confounded — read it as a loose upper bound, not a target
 
@@ -260,8 +318,9 @@ bytes were *not* the binding constraint here, and most of the gain is
 plausibly latency. Second, §5's attribution check still holds: the router
 kernel absorbed only +0.71 ± 1.59 µs/step, so nothing migrated. But the
 honest statement is: **the dependency-only ceiling is somewhere below
-−83.64 µs/step kernel-local, and I have not bounded it from below.** Treat
-≈+0.77% score as optimistic.
+−83.64 µs/step kernel-local, and I have not bounded it from below.** Treat the
+≈+1.28% score as optimistic — the confound, not a give-back discount, is the
+reason to hold it loosely.
 
 **Prereg scoring: HIT for both priors.** Advisor prior −60 kernel-local
 [−15, −180] ⇒ HIT. My prediction −45 kernel-local ⇒ HIT (measured −83.64 is
@@ -406,6 +465,13 @@ here was chosen after seeing data.
 | C5 | M4 prefill artefact digit-identical to base | — | `max 0.125 / mean 0.011933609 / token 5991==5991`, identical to base control (§7a) | **HIT** |
 | C6 | A2 recovery ≥ 4× the best A1 recovery | — | no A1 arm produced *any* recovery | **HIT** (unbounded) |
 
+Rows 1–3 were pre-registered in end-to-end terms, so the "measured" column
+quotes the SPLIT=1 totals for comparability with what was written down. Under
+rule 43 those totals cannot carry a decision, and they do not: the same three
+arms are regressions of +26.47 to +105.80 µs/step on the touched kernel alone
+(§4), against a per-kernel σ of 3.51. The MISS verdicts hold on the per-kernel
+column by themselves.
+
 All twelve rows are now scored: **five MISS (1, 2, 3, 6, C2), six HIT
 (4, 5, C3, C4, C5, C6), one partial (C1)** — and the three
 headline predictions are all MISSes with the wrong sign. That is the honest
@@ -416,10 +482,10 @@ are answered as follows:
   and my priors put the steady-state variant at a modest *gain*; it is the
   single largest regression in the block. The prior rested on an assumption
   about spare issue slots that the measurement refutes.
-- **Was the magnitude of the control predictable?** No, and worse, in a way
-  that invalidates a shared rule. Prediction #6 was 14× the measured value
-  because rule 41's dispatch-boundary cost was being applied to
-  `threadgroup_barrier`. See §3a.
+- **Was the magnitude of the control predictable?** No, and the reason
+  generalises. Prediction #6 was 14× the measured value because I applied rule
+  41's dispatch-boundary cost to a `threadgroup_barrier`. Rule 41 is fine; my
+  use of it was outside its scope. See §3a.
 
 ## 10. Reproduction
 
@@ -454,18 +520,25 @@ ladder : A0 | A0 PF1 PF2 PF3 PF3 PF2 PF1 A0 A0 PF1 PF2 PF3 PF3 PF2 PF1 A0 A0 PF1
 
 (the run left of the `|` is the discarded position-0 warm-up)
 
+**W&B record.** Run `d0ufnmht` —
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/d0ufnmht>
+(entity `wandb-applied-ai-team`, project `mlxfast-maple`). It carries the arm
+tables, per-kernel delta tables, and score conversion for all three blocks.
+
 ## 11. Suggested follow-ups (not implemented)
 
-1. **Retire the barrier-cost prior in the shared rule set.** §3a measures
+1. **Record the scope boundary of rule 41 in the shared rule set.** §3a measures
    0.0293 µs per in-kernel `threadgroup_barrier` per dispatch on this kernel,
-   saturating after ~8 barriers. Rule 41's 1.3163–1.4964 µs slope is a
-   *dispatch-boundary* cost and applying it to in-kernel synchronisation
-   overestimates by ~48×. Any future arm whose cost model is "add a barrier" or
-   "remove a barrier" should be re-priced against 0.03 µs, which will kill some
-   ideas and revive others.
+   saturating after ~8 barriers. Rule 41's 1.3163–1.4964 µs slope remains
+   correct for what it prices — a *dispatch boundary* — but it is ~48× too
+   expensive as a proxy for in-kernel synchronisation. Any future arm whose cost
+   model is "add a barrier" or "remove a barrier" should be re-priced against
+   0.03 µs, which will kill some ideas and revive others. Nothing here asks for
+   rule 41's slope to change.
 
 2. **The A2 ceiling is the real prize and it is not yet claimable.** −83.6 µs/step
-   kernel-local (≈−50 end-to-end, ≈+0.77% score, and see §5a: loose) sits
+   kernel-local at face value (≈+1.28% score; SPLIT=1 census total −69.7
+   ⇒ +1.07%; and see §5a: loose) sits
    behind the router→weight-address dependency. Note §5's attribution check:
    the router kernel absorbed only +0.71 µs/step, so what was recovered was
    recovered, not migrated. Ranked correct mechanisms, cheapest first:
@@ -501,12 +574,15 @@ ladder : A0 | A0 PF1 PF2 PF3 PF3 PF2 PF1 A0 A0 PF1 PF2 PF3 PF3 PF2 PF1 A0 A0 PF1
    one-time wave-ramp. Mechanisms that only fix the *first* wave will
    underdeliver.
 
-3. **A2 leaves the give-back law looking kernel-specific.** PR #457 gave back
-   42%; this arm gave back 16.9% on a larger absolute saving. A give-back
-   fraction that varies 2.5× between arms is not a constant to multiply by. It
-   would be worth one dedicated study of whether give-back scales with the
-   *number of distinct kernels* a diff perturbs rather than with the size of the
-   saving.
+3. **A2 corroborates PR #473's retraction of the give-back law — no new study
+   needed.** My ratio `total/touched = 0.833 [0.401, 1.266]` contains 1.0, so
+   these data never supported a 0.58 factor either. PR #473 has since shown the
+   effect was an artefact of `DARKBLOOM_GPU_PROFILE_SPLIT=1`, and rule 43
+   replaces the discount with a `nat`-regime paired ABBA census. I withdraw the
+   "kernel-specific give-back" study I would otherwise have proposed here: it
+   would have been chasing profiler overhead. The residual open question is the
+   narrower and cheaper one in follow-up 2 — whether a *correct* head-latency
+   mechanism reproduces any part of −83.6 under a `nat`-regime census.
 
 4. **Port the winning A1 variant to the `:7566` `_v1` generator** only if A1 is
    promoted (prereg §7). `DARKBLOOM_ROUTED_GATEUP_R1` is default ON, so `:7566`
