@@ -162,12 +162,6 @@ private let lagunaLmHeadCoarseV5Enabled =
 private let lagunaLmHeadV5StatsEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_LMHEAD_V5_STATS"] == "1"
 
-/// Fuse one coarse argmax partial into each v5 producer threadgroup. Set to
-/// "0" to retain the standalone 128-partial argmax stage in the same binary.
-private let lagunaLmHeadCoarseArgmaxFusionEnabled =
-    ProcessInfo.processInfo.environment[
-        "DARKBLOOM_LMHEAD_COARSE_ARGMAX_FUSION"] != "0"
-
 /// Tight v5 assembly threshold: use the BF16 predecessor of the exact coarse-
 /// argmax row instead of the retained `e_r - |e_r|/64` two-ulp band. This is
 /// the highest representable threshold that still forces every skipped
@@ -896,64 +890,12 @@ private let lagunaLmHeadAbsGroupSumsKernel = MLXFast.metalKernel(
 /// exact; sd*q multiplies a power of two by a <=4-bit-magnitude integer
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
-private func makeLagunaLmHeadInt5CoarseKernel(
-    fusedArgmax: Bool
-) -> MLXFast.MLXFastKernel {
-    let argmaxDeclarations = fusedArgmax
-        ? """
-        threadgroup float argmax_values[8];
-        threadgroup uint argmax_indices[8];
-        """
-        : ""
-    let argmaxEpilogue = fusedArgmax
-        ? """
-        float best = -metal::numeric_limits<float>::infinity();
-        uint best_idx = 0xFFFFFFFFu;
-        if (lane == 0) {
-            if (c_acc0 > best || (c_acc0 == best && row0 < best_idx)) {
-                best = c_acc0;
-                best_idx = row0;
-            }
-            if (c_acc1 > best || (c_acc1 == best && row1 < best_idx)) {
-                best = c_acc1;
-                best_idx = row1;
-            }
-            argmax_values[simdgroup_index_in_threadgroup] = best;
-            argmax_indices[simdgroup_index_in_threadgroup] = best_idx;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        if (simdgroup_index_in_threadgroup == 0) {
-            best = lane < 8
-                ? argmax_values[lane]
-                : -metal::numeric_limits<float>::infinity();
-            best_idx = lane < 8 ? argmax_indices[lane] : 0xFFFFFFFFu;
-            #pragma clang loop unroll(full)
-            for (ushort sn = 16; sn >= 1; sn >>= 1) {
-                float ov = simd_shuffle_down(best, sn);
-                uint oi = simd_shuffle_down(best_idx, sn);
-                if (ov > best || (ov == best && oi < best_idx)) {
-                    best = ov;
-                    best_idx = oi;
-                }
-            }
-            if (lane == 0) {
-                partial_max[threadgroup_position_in_grid.x] = best;
-                partial_idx[threadgroup_position_in_grid.x] = best_idx;
-            }
-        }
-        """
-        : ""
-    return MLXFast.metalKernel(
-        name: fusedArgmax
-            ? "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row_argmax"
-            : "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
-        inputNames: ["x", "codes_lo", "codes_hi", "scales"],
-        outputNames: fusedArgmax
-            ? ["coarse", "delta", "partial_max", "partial_idx"]
-            : ["coarse", "delta"],
-        source: """
+let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
+    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
+    inputNames: ["x", "codes_lo", "codes_hi", "scales"],
+    outputNames: ["coarse", "delta"],
+    source: """
         constexpr float GAMMA = 0x1p-15f;
-        \(argmaxDeclarations)
 
         uint row0 = threadgroup_position_in_grid.x * 16 +
             2 * simdgroup_index_in_threadgroup;
@@ -1051,17 +993,10 @@ private func makeLagunaLmHeadInt5CoarseKernel(
             }
             delta[row1] = as_type<bfloat>(ushort(dtrunc1 >> 16));
         }
-        \(argmaxEpilogue)
         """,
-        header: lagunaLmHeadPruneHeader,
-        ensureRowContiguous: true
-    )
-}
-
-let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel =
-    makeLagunaLmHeadInt5CoarseKernel(fusedArgmax: false)
-private let lagunaLmHeadInt5CoarseArgmaxKernel =
-    makeLagunaLmHeadInt5CoarseKernel(fusedArgmax: true)
+    header: lagunaLmHeadPruneHeader,
+    ensureRowContiguous: true
+)
 
 /// Same-binary A/B selector for the coarse kernel (v2 default).
 private let lagunaLmHeadCoarseUseV1 =
@@ -1445,60 +1380,20 @@ private let lagunaLmHeadExactWinnerThresholdKernel = MLXFast.metalKernel(
 /// candidate because its certified upper bound is at least `e_winner`, while
 /// `p < e_r <= e_winner`. This proof covers either sign and exact BF16 values.
 /// Finite zero maps to negative-min-subnormal; real model logits are finite.
-private func makeLagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
-    fusedPartials: Bool
-) -> MLXFast.MLXFastKernel {
-    let reduction = fusedPartials
-        ? """
-        constexpr uint PARTIALS = 6272;
-        constexpr uint SIMD_GROUPS = 8;
-        threadgroup float shared_vals[SIMD_GROUPS];
-        threadgroup uint shared_idxs[SIMD_GROUPS];
-        float best = -metal::numeric_limits<float>::infinity();
-        uint best_idx = 0xFFFFFFFFu;
-        for (uint p = lid; p < PARTIALS; p += 256) {
-            float v = partial_max[p];
-            uint idx = partial_idx[p];
-            if (v > best || (v == best && idx < best_idx)) {
-                best = v;
-                best_idx = idx;
-            }
-        }
-        #pragma clang loop unroll(full)
-        for (ushort sn = 16; sn >= 1; sn >>= 1) {
-            float ov = simd_shuffle_down(best, sn);
-            uint oi = simd_shuffle_down(best_idx, sn);
-            if (ov > best || (ov == best && oi < best_idx)) {
-                best = ov;
-                best_idx = oi;
-            }
-        }
-        if (thread_index_in_simdgroup == 0) {
-            shared_vals[simdgroup_index_in_threadgroup] = best;
-            shared_idxs[simdgroup_index_in_threadgroup] = best_idx;
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        best = lid < SIMD_GROUPS
-            ? shared_vals[lid]
-            : -metal::numeric_limits<float>::infinity();
-        best_idx = lid < SIMD_GROUPS ? shared_idxs[lid] : 0xFFFFFFFFu;
-        #pragma clang loop unroll(full)
-        for (ushort sn = 16; sn >= 1; sn >>= 1) {
-            float ov = simd_shuffle_down(best, sn);
-            uint oi = simd_shuffle_down(best_idx, sn);
-            if (ov > best || (ov == best && oi < best_idx)) {
-                best = ov;
-                best_idx = oi;
-            }
-        }
-        if (lid == 0) {
-            winner_row[0] = metal::min(best_idx, uint(VOCAB - 1));
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        uint r = winner_row[0];
-        """
-        : """
+private let lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel = MLXFast.metalKernel(
+    name: lagunaLmHeadBF16MidpointThresholdEnabled
+        ? "laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1"
+        : "laguna_lmhead_exact_winner_bf16_predecessor_threshold_v1",
+    inputNames: ["partial_max", "partial_idx", "lm_head", "x"],
+    outputNames: ["threshold"],
+    source: """
+        constexpr uint VOCAB = 100352;
+        constexpr uint K = 2048;
         constexpr uint READS = 4;
+        uint lid = thread_position_in_threadgroup.x;
+        threadgroup uint winner_row[1];
+
+        // Verbatim final argmax over the retained 128 partials.
         float best = -metal::numeric_limits<float>::infinity();
         uint best_idx = 0xFFFFFFFFu;
         uint base = lid * READS;
@@ -1525,23 +1420,7 @@ private func makeLagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         uint r = winner_row[0];
-        """
-    let exactOpen = fusedPartials ? "if (lid < 32) {" : ""
-    let exactClose = fusedPartials ? "}" : ""
-    let baseName = lagunaLmHeadBF16MidpointThresholdEnabled
-        ? "laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1"
-        : "laguna_lmhead_exact_winner_bf16_predecessor_threshold_v1"
-    return MLXFast.metalKernel(
-        name: fusedPartials ? baseName + "_coarse_partials" : baseName,
-        inputNames: ["partial_max", "partial_idx", "lm_head", "x"],
-        outputNames: ["threshold"],
-        source: """
-        constexpr uint VOCAB = 100352;
-        constexpr uint K = 2048;
-        uint lid = thread_position_in_threadgroup.x;
-        threadgroup uint winner_row[1];
-        \(reduction)
-        \(exactOpen)
+
         // --- stock gemv_al replica begin (single row r; gemv.h:151-289) ---
         float result = 0.0f;
         thread bfloat inter[4];
@@ -1596,18 +1475,9 @@ private func makeLagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
                 threshold[0] = predecessor;
             }
         }
-        \(exactClose)
         """,
-        ensureRowContiguous: true
-    )
-}
-
-private let lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel =
-    makeLagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
-        fusedPartials: false)
-private let lagunaLmHeadFusedArgmaxThresholdKernel =
-    makeLagunaLmHeadExactWinnerBF16PredecessorThresholdKernel(
-        fusedPartials: true)
+    ensureRowContiguous: true
+)
 
 /// GPU candidate marking: one byte per vocabulary row, set when the row's
 /// certified upper bound reaches the threshold. A dense mask rather than a
@@ -1924,16 +1794,6 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-struct LagunaLmHeadArgmaxFusionProbeKernels {
-    static let controlProducer = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel
-    static let candidateProducer = lagunaLmHeadInt5CoarseArgmaxKernel
-    static let controlStage1 = lagunaLmHeadCoarseArgmaxStage1Kernel
-    static let controlThreshold = lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
-    static let candidateThreshold = lagunaLmHeadFusedArgmaxThresholdKernel
-    static let assembly = lagunaLmHeadInlineExactDeltaBF16Kernel
-}
-
-
 /// Retained init-time MXFP8 coarse copy of lm_head plus the pruned final-row
 /// forward. Built once (untimed init) by
 /// `LagunaRuntimeModel.prepareFusedRuntimeWeights` when
@@ -2087,47 +1947,30 @@ final class LagunaLmHeadPruner {
         if let lo5 = int5CodesLo, let hi5 = int5CodesHi, let s5 = int5Scales {
             // (The default-OFF preabs twin was deleted for byte budget: it
             // measured +40 us/step on this arm; notes/exp-v5preabs.md.)
-            let fuseCoarseArgmax =
-                lagunaLmHeadCoarseArgmaxFusionEnabled
-                && lagunaLmHeadBF16PredecessorThresholdEnabled
-            let coarseKernel5 = fuseCoarseArgmax
-                ? lagunaLmHeadInt5CoarseArgmaxKernel
-                : lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel
-            let coarseOut5 = coarseKernel5(
+            let coarseOut5 = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
                 [x, lo5, hi5, s5],
                 grid: (vocab / 16 * 256, 1, 1),
                 threadGroup: (256, 1, 1),
-                outputShapes: fuseCoarseArgmax
-                    ? [[vocab], [vocab], [vocab / 16], [vocab / 16]]
-                    : [[vocab], [vocab]],
-                outputDTypes: fuseCoarseArgmax
-                    ? [.float32, .bfloat16, .float32, .uint32]
-                    : [.float32, .bfloat16]
+                outputShapes: [[vocab], [vocab]],
+                outputDTypes: [.float32, .bfloat16]
             )
             let coarse5 = coarseOut5[0]
             let delta5 = coarseOut5[1]
-            let argmaxPartials: [MLXArray]
-            if fuseCoarseArgmax {
-                argmaxPartials = [coarseOut5[2], coarseOut5[3]]
-            } else {
-                argmaxPartials = lagunaLmHeadCoarseArgmaxStage1Kernel(
-                    [coarse5],
-                    grid: (224, 128, 1),
-                    threadGroup: (224, 1, 1),
-                    outputShapes: [[128], [128]],
-                    outputDTypes: [.float32, .uint32]
-                )
-            }
-            let thresholdKernel = fuseCoarseArgmax
-                ? lagunaLmHeadFusedArgmaxThresholdKernel
-                : lagunaLmHeadBF16PredecessorThresholdEnabled
-                    ? lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
-                    : lagunaLmHeadExactWinnerThresholdKernel
-            let thresholdThreads = fuseCoarseArgmax ? 256 : 32
+            let argmaxPartials = lagunaLmHeadCoarseArgmaxStage1Kernel(
+                [coarse5],
+                grid: (224, 128, 1),
+                threadGroup: (224, 1, 1),
+                outputShapes: [[128], [128]],
+                outputDTypes: [.float32, .uint32]
+            )
+            let thresholdKernel =
+                lagunaLmHeadBF16PredecessorThresholdEnabled
+                ? lagunaLmHeadExactWinnerBF16PredecessorThresholdKernel
+                : lagunaLmHeadExactWinnerThresholdKernel
             let thr5 = thresholdKernel(
                 [argmaxPartials[0], argmaxPartials[1], lmHeadWeight, x],
-                grid: (thresholdThreads, 1, 1),
-                threadGroup: (thresholdThreads, 1, 1),
+                grid: (32, 1, 1),
+                threadGroup: (32, 1, 1),
                 outputShapes: [[1]],
                 outputDTypes: [.float32]
             )[0]
