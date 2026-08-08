@@ -1311,7 +1311,7 @@ bool darkbloom_stage_widest() {
 }
 
 bool darkbloom_stage_wideld() {
-  static const bool v = darkbloom_stage_flag("DARKBLOOM_STAGE_WIDELD");
+  static const bool v = env::get_var("DARKBLOOM_STAGE_WIDELD", "") != "0";
   return v;
 }
 
