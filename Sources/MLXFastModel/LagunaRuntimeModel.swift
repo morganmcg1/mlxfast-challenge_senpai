@@ -37,35 +37,6 @@ func lagunaRopeScalingConfig(_ spec: LagunaRopeSpec) -> [String: StringOrNumber]
     return scalingConfig
 }
 
-/// `DARKBLOOM_TRACE_FUSION=1` prints one stderr line the first time each fused
-/// decode path is taken. Every fusion here is guarded on dtype, rank, exact
-/// shape and module identity and falls back silently when a guard declines, so
-/// a change that quietly stops firing looks exactly like a change that does
-/// nothing. This makes "did it actually run" observable without a debugger.
-private let lagunaTraceFusion =
-    ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_FUSION"] == "1"
-private let lagunaTracedFusions = LagunaFusionTraceLog()
-
-final class LagunaFusionTraceLog: @unchecked Sendable {
-    private var seen: Set<String> = []
-    private let lock = NSLock()
-
-    func note(_ site: String) {
-        lock.lock()
-        let isNew = seen.insert(site).inserted
-        lock.unlock()
-        if isNew {
-            FileHandle.standardError.write(Data("mlxfast: fusion active: \(site)\n".utf8))
-        }
-    }
-}
-
-@inline(__always)
-func lagunaTrace(_ site: @autoclosure () -> String) {
-    guard lagunaTraceFusion else { return }
-    lagunaTracedFusions.note(site())
-}
-
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -1000,7 +971,6 @@ func lagunaResidualRMSNormRouter(
     // summation and forfeits bit-exactness.
     let rowsPerGroup = lagunaRouterRowsPerGroup
     let tiles = experts / rowsPerGroup
-    lagunaTrace("residual+rmsnorm+router rpg\(rowsPerGroup)")
     let outputs = lagunaResidualRMSNormRouterKernels[rowsPerGroup]!(
         [residual, branch, weight, routerWeight],
         grid: (tiles * 512, 1, 1),
@@ -1129,7 +1099,6 @@ func lagunaFullQKNormYaRN(
     precondition(angles.dtype == .float32)
     precondition(angles.shape == [1, 1, 1, LagunaConstants.headDim / 2])
 
-    lagunaTrace("full qk norm+yarn")
     let outputs = lagunaFullQKNormYaRNKernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles],
         grid: (56 * 32, 1, 1),
@@ -1255,7 +1224,6 @@ func lagunaSlidingQKNormRoPE(
     precondition(angles.dtype == .float32)
     precondition(angles.shape == [1, 1, 1, LagunaConstants.headDim])
 
-    lagunaTrace("sliding qk norm+rope")
     let outputs = lagunaSlidingQKNormRoPEKernel(
         [rawQueries, rawKeys, queryWeight, keyWeight, angles],
         grid: ((heads + kvHeads) * 32, 1, 1),
@@ -1717,7 +1685,6 @@ func lagunaSlidingFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < window)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
     return lagunaSlidingFusedAttentionKernel(
@@ -2228,7 +2195,6 @@ func lagunaFullFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < capacity)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
-    lagunaTrace("full fused attention")
     let params = MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
@@ -2696,7 +2662,6 @@ private func lagunaPrefillSlidingQKNormRoPE(
         angles.shape == [1, 1, lagunaRoPEAngleAtlasLength, LagunaConstants.headDim])
     precondition(offsets.dtype == .int32 && offsets.size == 1)
 
-    lagunaTrace("prefill sliding qk norm+rope")
     let useH1 = lagunaPrefillQKHeadsPerGroup == 1
     precondition(useH1 || (heads + kvHeads) % 4 == 0)
     precondition(!terminal || useH1)
@@ -2744,7 +2709,6 @@ private func lagunaPrefillFullQKNormYaRN(
     precondition(offsets.dtype == .int32 && offsets.size == 1)
     precondition((heads + kvHeads) % 4 == 0)
 
-    lagunaTrace("prefill full qk norm+yarn")
     let useH1 = lagunaPrefillQKHeadsPerGroup == 1
     let headsPerGroup = useH1 ? 1 : 4
     let threadGroupSize = headsPerGroup * 32
@@ -3393,7 +3357,6 @@ func lagunaFusedNormQKVProjection(
     // rows as two eight-simdgroup split-K groups apiece.
     let projectionTiles = (queryRows + 2 * kvRows) / 64
     let gateTiles = heads / 8
-    lagunaTrace("norm+qkv+gate projection h\(heads)")
     let outputs = kernel(
         [residual, normWeight, queryWeight, keyWeight, valueWeight, gateWeight],
         grid: ((projectionTiles + gateTiles) * 512, 1, 1),
@@ -3685,7 +3648,6 @@ func lagunaGatedOutputProjection(
     precondition(weight.dtype == .bfloat16)
     precondition(weight.shape == [LagunaConstants.hiddenSize, inVec])
 
-    lagunaTrace("gated output projection h\(heads)")
     return kernel(
         [attentionOutput, gateValues, weight],
         grid: ((LagunaConstants.hiddenSize / 16) * 128, 1, 1),
@@ -3770,7 +3732,6 @@ func lagunaGateProductSoftplus(
     precondition(gateLogits.dtype == .bfloat16)
     precondition(gateLogits.shape == [1, 1, heads])
 
-    lagunaTrace("gate product softplus h\(heads)")
     return kernel(
         [attentionOutput, gateLogits],
         grid: (inVec, 1, 1),
@@ -4026,7 +3987,6 @@ func lagunaGatedAffineOProj(
         metadata.lut.ndim == 1,
         metadata.lut.size <= 65_536
     {
-        lagunaTrace("gated affine oproj qmv h\(heads) indexed")
         return kernel(
             [attentionOutput, gateLogits, codes, metadata.indices, metadata.lut],
             grid: ((outVec / 8) * 64, 1, 1),
@@ -4035,7 +3995,6 @@ func lagunaGatedAffineOProj(
         )[0]
     }
     guard let kernel = lagunaGatedAffineOProjKernels[heads] else { return nil }
-    lagunaTrace("gated affine oproj qmv h\(heads)")
     return kernel(
         [attentionOutput, gateLogits, codes, scales, biases],
         grid: ((outVec / 8) * 64, 1, 1),
@@ -4353,7 +4312,6 @@ func lagunaGatedAffineOProjNVFP4(
         return nil
     }
 
-    lagunaTrace("gated affine oproj nvfp4 qmv h\(heads)")
     return kernel(
         [attentionOutput, gateLogits, codes, scales],
         grid: ((outVec / 8) * 64, 1, 1),
@@ -4601,7 +4559,6 @@ private func lagunaDecodeNVFP4QKVR1(
         rows % 2 == 0,
         let kernel = lagunaDecodeNVFP4QKVR1Kernels[heads]
     else { return nil }
-    lagunaTrace("decode nvfp4 qkv r1 h\(heads)")
     return kernel(
         [normalized, bank.packedCodes, bank.scales],
         grid: ((rows / 2) * 64, 1, 1),
@@ -5075,9 +5032,6 @@ func lagunaNormAffineQKV(
         metadata.lut.ndim == 1,
         metadata.lut.size <= 65_536
     {
-        lagunaTrace(
-            "norm+affine qkv qmv r\(rows) "
-                + "pf\(lagunaNormAffineQKVPrefetchDepth) indexed")
         return indexedKernel(
             [residual, normWeight, codes, metadata.indices, metadata.lut],
             grid: ((rows / 8) * 64, 1, 1),
@@ -5087,10 +5041,6 @@ func lagunaNormAffineQKV(
         )[0]
     }
 
-    lagunaTrace(
-        lagunaNormAffineQKVPrefetchDepth > 0 && !lagunaNormAffineQKVStaged
-            ? "norm+affine qkv qmv r\(rows) pf\(lagunaNormAffineQKVPrefetchDepth)"
-            : "norm+affine qkv qmv r\(rows)")
     return kernel(
         [residual, normWeight, codes, scales, biases],
         grid: ((rows / 8) * 64, 1, 1),
@@ -5550,7 +5500,6 @@ final class LagunaRuntimeAttention: Module {
                 if lagunaAttentionProjectionAsyncEnabled,
                     layerIdx == 0, B == 1, L == 1
                 {
-                    lagunaTrace("attention projection async rung layer 0")
                     asyncEval(qkv, gateLogits)
                 }
                 // When the fused gate-product kernel will consume the gate at
@@ -5951,7 +5900,6 @@ final class LagunaRuntimeAttention: Module {
                             * gate[.ellipsis, .newAxis])
                         .reshaped(B, L, -1)
                 }
-                lagunaTrace("native affine gated output projection h\(nHeads)")
                 return quantizedMM(
                     gated,
                     affineWO.packedCodes,
@@ -6040,7 +5988,6 @@ final class LagunaRuntimeAttention: Module {
             let kvDim = nKVHeads * headDim
             keys = kv[.ellipsis, 0 ..< kvDim]
             values = kv[.ellipsis, kvDim ..< (2 * kvDim)]
-            lagunaTrace("last prefill Q+gate / K+V projection banks")
         } else {
             queries = wq(lastInput)
             keys = wk(x)
@@ -7841,7 +7788,6 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             return nil
         }
 
-        lagunaTrace("shared down residual")
         return lagunaSharedDownResidual(
             inputs.activated,
             downWeight: inputs.downWeight,
@@ -7894,14 +7840,12 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             fusedWeight.dtype == .bfloat16,
             fusedWeight.shape == [2 * intermediate, hidden]
         {
-            lagunaTrace("dense gate/up GEMV + SwiGLU")
             activated = lagunaDenseGateUpSwiGLU(x, fusedWeight: fusedWeight)
         } else {
             activated = compiledSiluProduct(gateProj(x), upProj(x))
         }
 
         if lagunaFusedDenseDownResidualEnabled {
-            lagunaTrace("dense down GEMV + residual")
             return lagunaDenseDownResidual(
                 activated, downWeight: downProj.weight, residual: residual)
         }
@@ -7919,7 +7863,6 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
                 fusedScales.dtype == .uint8,
                 _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
             {
-                lagunaTrace("shared gate/up QMV + SwiGLU")
                 return downProj(
                     lagunaSharedSwiGLUQMV(
                         x,
@@ -7935,7 +7878,6 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             // guards in `prepareFusedSharedGateUp` pin those literals). Each
             // quantized output row is computed independently, so the split
             // halves are bit-exact vs. the separate gate/up dispatches.
-            lagunaTrace("shared fused [gate; up] bank QMM")
             let gateUp = MLX.quantizedMM(
                 x,
                 fusedWeight,
@@ -9007,7 +8949,6 @@ final class LagunaRuntimeMoEGate: Module {
             projectedLogits.dim(2) == 256,
             eScoreCorrectionBias.size == 256
         {
-            lagunaTrace("prefill router tournament")
             return lagunaPrefillRouterTournament(
                 logits: projectedLogits,
                 correctionBias: eScoreCorrectionBias.asType(.float32),
@@ -9025,7 +8966,6 @@ final class LagunaRuntimeMoEGate: Module {
             projectedLogits.dim(2) == 256,
             eScoreCorrectionBias.size == 256
         {
-            lagunaTrace("prefill router top8")
             return lagunaPrefillRouterTop8(
                 logits: projectedLogits,
                 correctionBias: eScoreCorrectionBias.asType(.float32),
@@ -9043,10 +8983,6 @@ final class LagunaRuntimeMoEGate: Module {
             // Cast-sink path: consumes the BF16 router GEMV directly. The
             // norm sink is a separate flag, so name it separately.
             let sinkNormalization = normTopkProb && lagunaDecodeRouterNormSinkEnabled
-            lagunaTrace(
-                sinkNormalization
-                    ? "decode router top8 (cast sink + norm sink)"
-                    : "decode router top8 (cast sink)")
             (inds, weights) = lagunaDecodeRouterTop8(
                 logits: projectedLogits,
                 correctionBias: eScoreCorrectionBias.asType(.float32),
@@ -9065,7 +9001,6 @@ final class LagunaRuntimeMoEGate: Module {
                 eScoreCorrectionBias.size == 256
             {
                 // Stock-cast path: FP32 logits, no cast sink.
-                lagunaTrace("decode router top8 (fp32 logits)")
                 (inds, weights) = lagunaDecodeRouterTop8(
                     logits: logits,
                     correctionBias: eScoreCorrectionBias.asType(.float32)
@@ -9592,7 +9527,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 {
                     lagunaPackedScalesLog.note(
                         "active", "routed swiglu qmv packed dispatch")
-                    lagunaTrace("routed gate/up QMV + SwiGLU (packed indices R1)")
                     activated = lagunaRoutedSwiGLUQMVPackedTop8(
                         x,
                         fusedWeight: fusedWeight,
@@ -9605,7 +9539,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                             "inactive",
                             "routed swiglu qmv packed (bank missing; stock kernel dispatched)")
                     }
-                    lagunaTrace("routed gate/up QMV + SwiGLU")
                     activated = lagunaRoutedSwiGLUQMV(
                         x,
                         fusedWeight: fusedWeight,
@@ -9659,7 +9592,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dtype == .bfloat16,
                 residual.shape == [1, 1, LagunaConstants.hiddenSize]
             {
-                lagunaTrace("routed+shared down residual")
                 return lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,
@@ -9695,7 +9627,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 weights.shape == [1, 1, LagunaConstants.numExpertsPerTok],
                 routedScalingFactor == Float(LagunaConstants.moeRoutedScalingFactor)
             {
-                lagunaTrace("routed down reduce")
                 y = lagunaRoutedDownReduce(
                     activated,
                     downWeight: downWeight,
@@ -9733,7 +9664,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 fusedScales.dtype == .uint8,
                 _fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize
             {
-                lagunaTrace("prefill fused routed gate/up")
                 let routed = lagunaFusedSortedRoutedGateUp(
                     x,
                     indices: inds,
@@ -9769,7 +9699,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             {
                 let sharedOut = sharedExpert(x)
                 if sharedOut.dtype == .bfloat16, sharedOut.shape == residual.shape {
-                    lagunaTrace("prefill sorted moe tail")
                     return lagunaPrefillSortedMoETail(
                         sortedExpertOutputs: y,
                         inverseOrder: inverseOrder,
@@ -9815,7 +9744,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             {
                 let sharedOut = sharedExpert(x)
                 if sharedOut.dtype == .bfloat16, sharedOut.shape == residual.shape {
-                    lagunaTrace("prefill moe tail")
                     return lagunaPrefillMoETail(
                         expertOutputs: y,
                         routerWeights: weights,
@@ -9922,7 +9850,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             x.shape == r.shape, x.dim(-1) == LagunaConstants.hiddenSize,
             x.size == LagunaConstants.hiddenSize
         {
-            lagunaTrace("residual+rmsnorm")
             (h, normalized) = lagunaResidualRMSNorm(
                 residual: x, branch: r, weight: postAttentionLayerNorm.weight)
         } else if lagunaPrefillFusedResidualRMSNormEnabled,
@@ -9936,7 +9863,6 @@ final class LagunaRuntimeDecoderLayer: Module {
             // above: same row-count-general `lagunaResidualRMSNorm` kernel,
             // only the call-site guard differs. Full exactness argument in
             // `lagunaPrefillFusedResidualRMSNormEnabled`'s doc comment.
-            lagunaTrace("prefill residual+rmsnorm")
             (h, normalized) = lagunaResidualRMSNorm(
                 residual: x, branch: r, weight: postAttentionLayerNorm.weight)
         } else {
@@ -10016,7 +9942,6 @@ final class LagunaRuntimeDecoderLayer: Module {
                 lastResidual.dim(-1) == LagunaConstants.hiddenSize,
                 lastResidual.size == LagunaConstants.hiddenSize
             {
-                lagunaTrace("terminal prefill residual+rmsnorm")
                 (h, normalizedAfterAttention) = lagunaResidualRMSNorm(
                     residual: lastResidual, branch: r,
                     weight: postAttentionLayerNorm.weight)
@@ -10153,7 +10078,6 @@ private func lagunaDecodeEmbeddingRoPEAtlas(
         ],
         outputDTypes: [.bfloat16, .float32, .float32]
     )
-    lagunaTrace("decode embedding+rope atlas")
     return (outputs[0], outputs[1], outputs[2])
 }
 
