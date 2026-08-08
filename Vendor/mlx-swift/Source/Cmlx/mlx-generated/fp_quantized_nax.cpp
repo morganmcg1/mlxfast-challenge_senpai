@@ -1773,7 +1773,20 @@ template <
   const int K_it = kernel_K / BK;
   const size_t stride_w = size_t(kernel_N) * K_w;
   const size_t stride_s = size_t(kernel_N) * K_g;
+#ifdef DARKBLOOM_GATHER_XMAJOR
+  // DARKBLOOM_GATHER_XMAJOR: one threadgroup owns kFoldCT ADJACENT column
+  // tiles of this expert's output (the dispatch site divides grid.x by the
+  // same value this kernel was compiled with). Takes precedence over
+  // DARKBLOOM_STAGE2_GATHER if both are ever set; the arms are meant to be
+  // exclusive.
+  constexpr int kFoldCT = DARKBLOOM_GATHER_XMAJOR;
+  static_assert(
+      kFoldCT == 2 || kFoldCT == 4 || kFoldCT == 8 || kFoldCT == 16,
+      "DARKBLOOM_GATHER_XMAJOR must be 2, 4, 8, or 16");
+  const int y_col = tid.x * BN * kFoldCT;
+#else
   const int y_col = tid.x * BN;
+#endif
 
   auto wl = (const device uint8_t*)w + size_t(y_col) * K_w;
   const device uint8_t* scale_base =
@@ -1848,6 +1861,208 @@ template <
           min(int(SM), max(0, int(chunk_rows) - int(tm)));
       const bool sg_active = sgp_sm > 0;
 
+#ifdef DARKBLOOM_GATHER_XMAJOR
+      // The stock kernel computes ONE BN-wide column tile per threadgroup,
+      // so the 16 (gate/up) / 32 (down) column-tile threadgroups each
+      // re-stream this expert run's x rows from DRAM -- half the chain's
+      // DRAM bytes at ~625 GB/s (notes/exp-stage2.md section 4.3). Here the
+      // k-loop is OUTER and the column walk INNER: the A fragments for
+      // k-tile k are loaded from device once and reused across all kFoldCT
+      // weight tiles, so x device traffic divides by kFoldCT structurally.
+      // Weight traffic, staging geometry, and barrier count per staged tile
+      // are unchanged.
+      //
+      // EXACTNESS (class A, bit-exact): every output element still belongs
+      // to exactly one (threadgroup, ct) pair and is accumulated by the same
+      // simdgroup in the same order -- k ascending, kk1 ascending, the same
+      // tile_matmad_nax chain into its own dedicated Dtile accumulator --
+      // from the same Atile values (same addresses, same load/load_safe
+      // selection) and the same staged weight values (same loader geometry,
+      // based at column y_col + ct*BN and k-tile k, exactly the pointers a
+      // persistent stock loader holds after k next() calls). Only the
+      // assignment of column tiles to threadgroups and the interleaving
+      // across INDEPENDENT accumulators change; no float operation, no
+      // accumulation order, no rounding boundary moves.
+      NAXTile<float, TM, TN> Dtile[kFoldCT];
+      STEEL_PRAGMA_UNROLL
+      for (int ct = 0; ct < kFoldCT; ++ct) {
+        Dtile[ct].clear();
+      }
+
+      const device T* xn =
+          x + size_t(chunk_start + tm) * kernel_K;
+
+      // Per-k-tile advances of the loader's walk, spelled with the same
+      // expressions QuantizedBlockLoader uses (reduction_dim == 1 here):
+      // tile_stride = BCOLS_PACKED * bytes_per_pack, scales += n_groups.
+      constexpr int kWTileBytes = (BK / pack_factor) * bytes_per_pack;
+      constexpr int kSTileBytes = BK / group_size;
+
+      for (int k = 0; k < K_it; ++k) {
+        NAXTile<T, TM, TK> Atile[BK / SK];
+        if (sg_active) {
+          STEEL_PRAGMA_UNROLL
+          for (int kk1 = 0; kk1 < BK; kk1 += SK) {
+            if (sgp_sm == SM) {
+              Atile[kk1 / SK].load(xn + kk1, kernel_K);
+            } else {
+              Atile[kk1 / SK].load_safe(
+                  xn + kk1, kernel_K, short2(SK, sgp_sm));
+            }
+          }
+        }
+
+        // Unrolled so Dtile[ct] indexing stays register-resident.
+        STEEL_PRAGMA_UNROLL
+        for (int ct = 0; ct < kFoldCT; ++ct) {
+          // Fresh loader per (ct, k): the constructor's pointer math plus
+          // these offsets is identical to a persistent per-ct loader after
+          // k next() calls.
+          thread loader_w_t loader_w(
+              wl + size_t(expert) * stride_w +
+                  size_t(ct) * size_t(BN) * K_w +
+                  size_t(k) * kWTileBytes,
+              scale_base + size_t(expert) * stride_s +
+                  size_t(ct) * size_t(BN) * K_g +
+                  size_t(k) * kSTileBytes,
+              kernel_K,
+              Ws,
+              simd_group_id,
+              simd_lane_id);
+
+          // WAR: previous tile's Btile reads retire before restaging.
+          threadgroup_barrier(mem_flags::mem_threadgroup);
+          loader_w.load_unsafe();
+          // RAW: staged tile visible to every simdgroup before its MMAs.
+          threadgroup_barrier(mem_flags::mem_threadgroup);
+
+          if (sg_active) {
+            STEEL_PRAGMA_UNROLL
+            for (int kk1 = 0; kk1 < BK; kk1 += SK) {
+              NAXTile<Wtype, TN, TK> Btile;
+              Btile.template load<Wtype, BK_padded, 1>(
+                  Ws + tn * BK_padded + kk1);
+
+              tile_matmad_nax(
+                  Dtile[ct],
+                  Atile[kk1 / SK],
+                  metal::bool_constant<false>{},
+                  Btile,
+                  metal::bool_constant<true>{});
+            }
+          }
+        }
+
+        xn += BK;
+      }
+
+      threadgroup_barrier(mem_flags::mem_threadgroup);
+      const bool fuse_swiglu =
+          kernel_N == 1024 && kernel_K == 2048;
+      if (fuse_swiglu) {
+#ifdef DARKBLOOM_SWIGLU_REGLOCAL
+        // Register-local swiglu (geometry guard: kSwigluRegLocal above).
+        // EXACTNESS (class A, bit-exact): gate and up are the SAME float
+        // Dtile elements the stock path routes through gate_up_stage, cast
+        // to bfloat by the same static_cast the tile store performs; the
+        // swiglu chain replicates the stock expressions type-for-type in
+        // textual order and writes the same y address. Only the
+        // threadgroup round-trip and its two barriers per ct disappear.
+        // fp contract(off) pins the rounding boundaries: no FMA fusion may
+        // move the chain off the stock scalar sequence.
+        if constexpr (kSwigluRegLocal) {
+#pragma clang fp contract(off)
+          constexpr int activated_cols = BN / 2;
+          const short qid = short(simd_lane_id >> 2);
+          const short fm = (qid & 4) | ((short(simd_lane_id) >> 1) & 3);
+          const short fn = ((qid & 2) | (short(simd_lane_id) & 1)) * 4;
+          STEEL_PRAGMA_UNROLL
+          for (int ct = 0; ct < kFoldCT; ++ct) {
+            STEEL_PRAGMA_UNROLL
+            for (short jf = 0; jf < 2; ++jf) {
+              STEEL_PRAGMA_UNROLL
+              for (short ie = 0; ie < 2; ++ie) {
+                const short row = fm + ie * 8;
+                if (row < sgp_sm) {
+                  STEEL_PRAGMA_UNROLL
+                  for (short jj = 0; jj < 4; ++jj) {
+                    const int col = jf * 16 + fn + jj;
+                    const bfloat gate = static_cast<bfloat>(
+                        Dtile[ct].frag_at(0, jf)[ie * 4 + jj]);
+                    const bfloat up = static_cast<bfloat>(
+                        Dtile[ct].frag_at(0, jf + 2)[ie * 4 + jj]);
+                    const bfloat exp_abs = metal::exp(metal::abs(gate));
+                    const bfloat denominator = bfloat(1) + exp_abs;
+                    const bfloat z = bfloat(1) / denominator;
+                    const bfloat sigmoid =
+                        gate < bfloat(0) ? z : bfloat(1) - z;
+                    const bfloat silu = bfloat(gate * sigmoid);
+                    y[size_t(chunk_start + tm + row) * (kernel_N / 2) +
+                      size_t(tid.x * kFoldCT + ct) * activated_cols + col] =
+                        bfloat(silu * up);
+                  }
+                }
+              }
+            }
+          }
+        }
+        if constexpr (!kSwigluRegLocal) {
+#endif // DARKBLOOM_SWIGLU_REGLOCAL
+        STEEL_PRAGMA_UNROLL
+        for (int ct = 0; ct < kFoldCT; ++ct) {
+          if (sg_active) {
+            Dtile[ct].template store<bfloat, BN, 1>(
+                gate_up_stage + tm * BN + tn);
+          }
+          threadgroup_barrier(mem_flags::mem_threadgroup);
+          if (sg_active && (simd_group_id % WN) == 0) {
+            constexpr int activated_cols = BN / 2;
+            for (int linear = simd_lane_id;
+                 linear < int(sgp_sm) * activated_cols;
+                 linear += SIMD_SIZE) {
+              const int row = linear / activated_cols;
+              const int col = linear % activated_cols;
+              const bfloat gate =
+                  gate_up_stage[(tm + row) * BN + col];
+              const bfloat up =
+                  gate_up_stage[(tm + row) * BN + activated_cols + col];
+              const bfloat exp_abs = metal::exp(metal::abs(gate));
+              const bfloat denominator = bfloat(1) + exp_abs;
+              const bfloat z = bfloat(1) / denominator;
+              const bfloat sigmoid =
+                  gate < bfloat(0) ? z : bfloat(1) - z;
+              const bfloat silu = bfloat(gate * sigmoid);
+              y[size_t(chunk_start + tm + row) * (kernel_N / 2) +
+                size_t(tid.x * kFoldCT + ct) * activated_cols + col] =
+                  bfloat(silu * up);
+            }
+          }
+          // Retires this ct's swiglu reads of gate_up_stage before the next
+          // ct's Dtile store overwrites it (stock pays the same barrier at
+          // the end of its swiglu).
+          threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+#ifdef DARKBLOOM_SWIGLU_REGLOCAL
+        }
+#endif // DARKBLOOM_SWIGLU_REGLOCAL
+      } else if (sg_active) {
+        STEEL_PRAGMA_UNROLL
+        for (int ct = 0; ct < kFoldCT; ++ct) {
+          device T* yn =
+              y + size_t(chunk_start + tm) * kernel_N + y_col +
+              ct * BN + tn;
+          if (sgp_sm == SM) {
+            Dtile[ct].store(yn, kernel_N);
+          } else {
+            Dtile[ct].store_slice(
+                yn,
+                kernel_N,
+                short2(0, 0),
+                short2(SN, sgp_sm));
+          }
+        }
+      }
+#else
       NAXTile<float, TM, TN> Dtile;
       Dtile.clear();
 
@@ -2021,6 +2236,7 @@ template <
               short2(SN, sgp_sm));
         }
       }
+#endif // DARKBLOOM_GATHER_XMAJOR
     }
   }
 }
