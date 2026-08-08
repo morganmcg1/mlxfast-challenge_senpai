@@ -331,9 +331,10 @@ kernel void \(name)(
     device const float* bias_all [[buffer(1)]],
     device uint* indices_all [[buffer(2)]],
     device float* scores_all [[buffer(3)]],
-    uint row [[threadgroup_position_in_grid]],
+    uint3 threadgroup_position_in_grid [[threadgroup_position_in_grid]],
     uint3 thread_position_in_threadgroup [[thread_position_in_threadgroup]])
 {
+    uint row = threadgroup_position_in_grid.x;
     device const float* logits = logits_all + row * 256;
     device const float* correction_bias = bias_all + row * 256;
     device uint* router_indices = indices_all + row * 8;
