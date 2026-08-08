@@ -505,15 +505,10 @@ void qmm_nax(
   bool aligned_M = M % 64 == 0;
   bool batched = B > 1;
   std::string type_string = get_type_string(x.dtype());
-  // Detect halved NVFP4 scales: the caller passes group_size=32 so the
-  // ops.cpp validation accepts half-resolution scales [N+1, K/32] (since
-  // K/32 * 32 == K). The extra row at index N holds the escape bytes in
-  // its first columns. We override group_size back to 16 for the kernel.
-  const bool halved_scales =
-      transpose && mode == "nvfp4" && group_size == 32 && bits == 4;
-  if (halved_scales) {
-    group_size = 16;
-  }
+  // Disabled: kHalvedScales _nax template instantiations push the M5
+  // build past its timeout. Caller now sends group_size=16 with full
+  // scales (bit-exact via NVFP4 pairwise constancy).
+  const bool halved_scales = false;
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
   const bool use_static_laguna_shape =
@@ -668,15 +663,10 @@ void gather_qmm_nax(
   kname.reserve(64);
   bool aligned = N % 64 == 0;
   std::string type_string = get_type_string(x.dtype());
-  // Detect halved NVFP4 scales: the caller passes group_size=32 so the
-  // ops.cpp validation accepts half-resolution scales [experts, N+1, K/32].
-  // The kernel computes the escape pointer from the scales buffer after
-  // per-expert offset adjustment, so no separate escape binding is needed.
-  const bool halved_scales =
-      transpose && mode == "nvfp4" && group_size == 32 && bits == 4;
-  if (halved_scales) {
-    group_size = 16;
-  }
+  // Disabled: kHalvedScales _nax template instantiations push the M5
+  // build past its timeout. Caller now sends group_size=16 with full
+  // scales (bit-exact via NVFP4 pairwise constancy).
+  const bool halved_scales = false;
   concatenate(
       kname,
       mode + (transpose ? "_gather_qmm_t_nax_" : "_gather_qmm_n_nax_"),
