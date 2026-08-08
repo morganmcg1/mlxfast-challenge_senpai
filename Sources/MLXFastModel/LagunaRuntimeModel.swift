@@ -96,9 +96,7 @@ let lagunaFusedRoutedSharedSwiGLUQMVEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_ROUTED_SHARED_SWIGLU_QMV"] != "0"
 
-private let lagunaRoutedSharedSwiGLUOracleEnabled =
-    ProcessInfo.processInfo.environment[
-        "DARKBLOOM_ROUTED_SHARED_SWIGLU_ORACLE"] == "1"
+private let lagunaRoutedSharedSwiGLUOracleEnabled = true
 
 private func lagunaAssertRawBF16Equal(
     _ control: MLXArray,
