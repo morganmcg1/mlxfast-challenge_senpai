@@ -1300,7 +1300,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         "query_weight", "key_weight", "angles",
         "k_cache", "v_cache", "params", "scale_arr",
     ],
-    outputNames: ["attended", "denominators"],
+    outputNames: ["attended"],
     source: """
         constexpr uint head_dim = 128;
         constexpr uint window = 512;
@@ -1601,11 +1601,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
         }
 
-        if (sg == 0 && lane == 0) {
-            denominators[head0] = pair_sum0;
-            denominators[head1] = pair_sum1;
-        }
-
         if (lane == 0) {
             device bfloat* pair_out0 =
                 attended + head0 * head_dim + sg * v_per_thread;
@@ -1686,89 +1681,6 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
-private let lagunaSlidingDenominatorDiagnosticsEnabled = true
-
-private enum LagunaSlidingDenominatorDiagnostics {
-    nonisolated(unsafe) static var activeTokenCount: Int?
-    nonisolated(unsafe) static var invocation = 0
-    nonisolated(unsafe) static var calls = 0
-    nonisolated(unsafe) static var totalCalls = 0
-    nonisolated(unsafe) static var observationCount = 0
-    nonisolated(unsafe) static var invalidCount = 0
-    nonisolated(unsafe) static var minimum = Float.infinity
-    nonisolated(unsafe) static var maximum = -Float.infinity
-    nonisolated(unsafe) static var minimumWriteIdx = Int.max
-    nonisolated(unsafe) static var maximumWriteIdx = Int.min
-
-    static func begin(tokenCount: Int) {
-        precondition(activeTokenCount == nil)
-        activeTokenCount = tokenCount
-        invocation += 1
-        calls = 0
-        observationCount = 0
-        invalidCount = 0
-        minimum = .infinity
-        maximum = -.infinity
-        minimumWriteIdx = .max
-        maximumWriteIdx = .min
-    }
-
-    static func record(writeIdx: Int, denominators: MLXArray) {
-        let values = denominators.asArray(Float.self)
-        precondition(values.count == LagunaConstants.slidingAttentionHeads)
-        let validValues = values.filter { $0.isFinite && $0 > 0 }
-        let invalidValues = values.count - validValues.count
-
-        if activeTokenCount == nil {
-            let localMinimum = validValues.min() ?? .nan
-            let localMaximum = validValues.max() ?? .nan
-            emit(
-                "SLIDING_DENOMINATOR_SYNTHETIC write_idx=\(writeIdx) calls=1 "
-                    + "observations=\(values.count) invalid=\(invalidValues) "
-                    + "min=\(localMinimum) max=\(localMaximum) "
-                    + "finite_positive=\(invalidValues == 0)")
-            precondition(invalidValues == 0)
-            return
-        }
-
-        calls += 1
-        totalCalls += 1
-        observationCount += values.count
-        invalidCount += invalidValues
-        minimumWriteIdx = min(minimumWriteIdx, writeIdx)
-        maximumWriteIdx = max(maximumWriteIdx, writeIdx)
-        if let localMinimum = validValues.min() {
-            minimum = min(minimum, localMinimum)
-        }
-        if let localMaximum = validValues.max() {
-            maximum = max(maximum, localMaximum)
-        }
-    }
-
-    static func end(tokenCount: Int) {
-        precondition(activeTokenCount == tokenCount)
-        let expectedCalls = tokenCount == 1 ? 30 : 0
-        let minimumValue = observationCount == 0 ? "none" : "\(minimum)"
-        let maximumValue = observationCount == 0 ? "none" : "\(maximum)"
-        let writeIdxRange = calls == 0
-            ? "none" : "\(minimumWriteIdx)...\(maximumWriteIdx)"
-        emit(
-            "SLIDING_DENOMINATOR_INVOCATION invocation=\(invocation) "
-                + "tokens=\(tokenCount) calls=\(calls) expected_calls=\(expectedCalls) "
-                + "total_calls=\(totalCalls) observations=\(observationCount) "
-                + "invalid=\(invalidCount) min=\(minimumValue) max=\(maximumValue) "
-                + "write_idx_range=\(writeIdxRange) "
-                + "finite_positive=\(invalidCount == 0)")
-        activeTokenCount = nil
-        precondition(calls == expectedCalls)
-        precondition(invalidCount == 0)
-    }
-
-    private static func emit(_ line: String) {
-        FileHandle.standardError.write(Data("\(line)\n".utf8))
-    }
-}
-
 /// Fused decode attention for a sliding layer in the steady ring regime.
 /// Returns `[1, heads, 1, headDim]` attended output; the caller advances the
 /// cache clock via `RotatingKVCache.fusedRingAdvance()`.
@@ -1808,7 +1720,7 @@ func lagunaSlidingFusedAttention(
     lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
-    let outputs = lagunaSlidingFusedAttentionKernel(
+    return lagunaSlidingFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
@@ -1816,20 +1728,10 @@ func lagunaSlidingFusedAttention(
         ],
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
-        outputShapes: [
-            [1, heads, 1, LagunaConstants.headDim],
-            [heads],
-        ],
-        outputDTypes: [.bfloat16, .float32]
-    )
-    if lagunaSlidingDenominatorDiagnosticsEnabled {
-        eval(outputs[1])
-        LagunaSlidingDenominatorDiagnostics.record(
-            writeIdx: writeIdx,
-            denominators: outputs[1]
-        )
-    }
-    return outputs[0]
+        outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
+        outputDTypes: [.bfloat16],
+        verbose: true
+    )[0]
 }
 
 /// Pre-materialized 4-byte uniform buffers for every possible sliding ring
@@ -10588,14 +10490,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     }
 
     public func callAsFunction(_ inputs: MLXArray, cache: [KVCache]?) -> MLXArray {
-        let tokenCount = inputs.dim(1)
-        if lagunaSlidingDenominatorDiagnosticsEnabled {
-            LagunaSlidingDenominatorDiagnostics.begin(tokenCount: tokenCount)
-        }
         let fullHidden = model(inputs, cache: cache)
-        if lagunaSlidingDenominatorDiagnosticsEnabled {
-            LagunaSlidingDenominatorDiagnostics.end(tokenCount: tokenCount)
-        }
         // Every consumer of multi-token logits reads only the LAST
         // position's row. Slice before the row-independent final RMSNorm and
         // vocabulary head so prefill neither normalizes nor projects the
