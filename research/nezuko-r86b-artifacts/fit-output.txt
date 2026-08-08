@@ -1,0 +1,64 @@
+loaded 22 ladder runs from 2 session dir(s)
+
+=== WIDE-insitu: 4 KiB dependent round trip (mode=w) ===
+ inserts      k   n  median us/step      IQR       sd     vs k=0
+       0      0   2          8245.7      nan      3.7        0.0
+       2     80   2          8356.8      nan      2.9      111.1
+       4    160   2          8451.7      nan      6.5      206.0
+       8    320   2          8723.7      nan     60.7      478.0
+      16    640   2          9135.8      nan      3.4      890.1
+within-block slope = 1.4064 +- 0.0901 us/boundary (95% CI [1.3163, 1.4964], df=8, n=10)
+raw slope = 1.4064 +- 0.0901 us/boundary, intercept = 8245.2 +- 29.7 us/step
+secants (local slope between adjacent rungs):
+  inserts   0 ->   2 (+   80 bnd)     111.1 us =>  1.3885 us/boundary
+  inserts   2 ->   4 (+   80 bnd)      94.9 us =>  1.1862 us/boundary
+  inserts   4 ->   8 (+  160 bnd)     272.0 us =>  1.6999 us/boundary
+  inserts   8 ->  16 (+  320 bnd)     412.1 us =>  1.2880 us/boundary
+inserts>0 only: slope = 1.4072 +- 0.1300 us/boundary, intercept = 8244.8 +- 48.0 us/step (offset vs k=0 cell: -0.9 us)
+
+=== TINY-insitu: 2 B dependent op (mode=t) ===
+ inserts      k   n  median us/step      IQR       sd     vs k=0
+       0      0   2          8295.5      nan      8.5        0.0
+       2     80   2          8290.6      nan      3.8       -4.9
+       4    160   2          8331.7      nan      0.3       36.2
+       8    320   2          8597.4      nan      7.5      301.9
+      16    640   2          8704.9      nan     16.2      409.4
+within-block slope = 0.7258 +- 0.1983 us/boundary (95% CI [0.5275, 0.9241], df=8, n=10)
+raw slope = 0.7258 +- 0.1983 us/boundary, intercept = 8269.8 +- 65.4 us/step
+secants (local slope between adjacent rungs):
+  inserts   0 ->   2 (+   80 bnd)      -4.9 us => -0.0615 us/boundary
+  inserts   2 ->   4 (+   80 bnd)      41.1 us =>  0.5139 us/boundary
+  inserts   4 ->   8 (+  160 bnd)     265.7 us =>  1.6605 us/boundary
+  inserts   8 ->  16 (+  320 bnd)     107.5 us =>  0.3360 us/boundary
+inserts>0 only: slope = 0.7676 +- 0.2752 us/boundary, intercept = 8250.9 +- 101.5 us/step (offset vs k=0 cell: -44.7 us)
+
+=== OFF: instrument present but env-disarmed (mode=o) ===
+ inserts      k   n  median us/step      IQR       sd     vs k=0
+       0      0   2          8240.9      nan      2.3        0.0
+
+d = slope(WIDE) - slope(TINY) = 0.6806 +- 0.2178 us/boundary (95% CI [0.4628, 0.8984]); ratio = 1.94x
+d in score units: 0.010399 % of score per boundary
+  eliminating  40 boundaries/step =>     27.2 us/step =>  0.416 % of score
+  eliminating 120 boundaries/step =>     81.7 us/step =>  1.248 % of score
+  eliminating 240 boundaries/step =>    163.3 us/step =>  2.496 % of score
+
+=== RIG RESOLVABLE FLOOR ===
+pooled within-cell SD of the 200-step run median = 19.5 us/step (df=11, 11 cells)
+two-arm A/B floor, half-width = t95(2n-2) * sd * sqrt(2/n):
+  n=2 per arm: +-  83.9 us/step (1.281 % of score)
+  n=3 per arm: +-  44.2 us/step (0.675 % of score)
+  n=4 per arm: +-  33.7 us/step (0.515 % of score)
+  n=6 per arm: +-  25.1 us/step (0.383 % of score)
+
+=== SIZE SWEEP: price of one dependent round trip vs width ===
+    bytes  n0  n2     T(k=0)    T(k=80)   delta us  us/boundary  sd(price)
+        2   2   2     8293.5     8289.2       -4.3      -0.0539        nan
+       64   2   2     8289.8     8308.5       18.7       0.2336        nan
+     4096   2   2     8294.5     8298.4        3.9       0.0483        nan
+    65536   2   2     8281.6     8330.3       48.8       0.6098        nan
+  4194304   2   2     8291.8     9825.7     1533.8      19.1727        nan
+large-W limb: price = 0.315 + 4.496e-06*bytes us => c_fixed = 0.315 us, BW_eff = 444.8 GB/s (df=0)
+large-W limb in PR#110 units: 0.072036 %/MB of moved activation bytes (PR#110 realised: 0.015224 %/MB)
+small-W limb (<=64 KiB): price spans -0.0539..0.6098 us/boundary (range 0.6637)
+
+wrote research/nezuko-r86b-ladder.csv

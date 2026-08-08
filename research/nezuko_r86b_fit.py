@@ -90,7 +90,9 @@ def ols(xs, ys):
     a = my - b * mx
     resid = [y - (a + b * x) for x, y in zip(xs, ys)]
     df = n - 2
-    s2 = sum(r * r for r in resid) / df
+    # Two points determine the line exactly; report the fit with no dispersion
+    # rather than dividing by a zero residual df.
+    s2 = sum(r * r for r in resid) / df if df > 0 else 0.0
     return a, b, math.sqrt(s2 * (1.0 / n + mx * mx / sxx)), math.sqrt(s2 / sxx), df
 
 
@@ -156,6 +158,30 @@ def report_mode(rows, mode, label, csv):
               f"us/boundary, intercept = {a3:.1f} +- {t95(df3)*sea3:.1f} us/step "
               f"(offset vs k=0 cell: {a3 - statistics.median(cell[0]):+.1f} us)")
     return sl, t * seb, cell
+
+
+def report_floor(rows):
+    """Resolvable floor of this rig, from replicate spread within each cell."""
+    if not rows:
+        return
+    num, den, cells = 0.0, 0, 0
+    for key in {(r[2], r[3]) for r in rows}:
+        vals = [r[4] for r in rows if (r[2], r[3]) == key]
+        if len(vals) > 1:
+            num += (len(vals) - 1) * statistics.variance(vals)
+            den += len(vals) - 1
+            cells += 1
+    if den == 0:
+        return
+    sd = math.sqrt(num / den)
+    print(f"\n=== RIG RESOLVABLE FLOOR ===")
+    print(f"pooled within-cell SD of the 200-step run median = {sd:.1f} us/step "
+          f"(df={den}, {cells} cells)")
+    print("two-arm A/B floor, half-width = t95(2n-2) * sd * sqrt(2/n):")
+    for n in (2, 3, 4, 6):
+        half = t95(2 * n - 2) * sd * math.sqrt(2.0 / n)
+        print(f"  n={n} per arm: +-{half:>6.1f} us/step "
+              f"({half*PCT_PER_US:.3f} % of score)")
 
 
 def report_size(rows, csv):
@@ -240,6 +266,7 @@ def main():
             if csv is not None:
                 csv.append(["summary", "d_us_per_boundary", "", "", "",
                             f"{d:.4f}", f"{1.96*se:.4f}", ""])
+        report_floor(lad)
     report_size(load_size(args), csv)
     if csv_path:
         with open(csv_path, "w") as fh:
