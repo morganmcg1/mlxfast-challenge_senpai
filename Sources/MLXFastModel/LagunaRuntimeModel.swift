@@ -6312,9 +6312,7 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     // One packed 32-bit code word: eight NVFP4 values, four `half2` patterns,
     // two four-term FP groups. The first group of the FIRST word seeds the
     // accumulator when the seed elision is enabled; every other group adds.
-    // Word `w` owns `input[8w .. 8w+7]`, exactly the indices the `8 * j` form
-    // produced, so the multiply/add expressions and their association are
-    // untouched.
+    // Word `w` owns `input[8w .. 8w+7]`, exactly the prior scalar indices.
     func packedWordBody(_ word: Int, bf16: Bool = false) -> String {
         func value(_ index: Int) -> String {
             bf16
@@ -6335,15 +6333,17 @@ let lagunaSharedSwiGLUQMVHeader: String = {
                     const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
                     const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
                     \(seedOperator)
-                        (\(value(base)) * v04.x +
-                         \(value(base + 1)) * v15.x +
-                         \(value(base + 2)) * v26.x +
-                         \(value(base + 3)) * v37.x);
+                        dot(float4(\(value(base)),
+                                   \(value(base + 1)),
+                                   \(value(base + 2)),
+                                   \(value(base + 3))),
+                            float4(v04.x, v15.x, v26.x, v37.x));
                     accum +=
-                        (\(value(base + 4)) * v04.y +
-                         \(value(base + 5)) * v15.y +
-                         \(value(base + 6)) * v26.y +
-                         \(value(base + 7)) * v37.y);
+                        dot(float4(\(value(base + 4)),
+                                   \(value(base + 5)),
+                                   \(value(base + 6)),
+                                   \(value(base + 7))),
+                            float4(v04.y, v15.y, v26.y, v37.y));
                 }
             """
     }
