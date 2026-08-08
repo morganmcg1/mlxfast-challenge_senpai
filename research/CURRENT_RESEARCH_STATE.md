@@ -10,28 +10,24 @@
 - Last M5 success: f790e33f (score 2.5213). 50+ consecutive M5 build failures.
 - Leaderboard #1: a-github-name 2.6165. Our promoted: 2.5888 (97a5090, maple campaign). Gap: ~1.06%.
 
-## CRITICAL: M5 BUILD FIX — ROOT CAUSE PARTIALLY FOUND — BUILT BUT FAILED
-  Root cause: 3 vendor files changed from organizer frontier (bca94c5):
-  1. quantized.cpp: function constants (fc 200-207) → template parameters + halved scales
-  2. fp_quantized_nax.h: removed fc declarations + added kHalvedScales + escape bytes
-  3. fp_quantized_nax.cpp: same changes (embedded source)
+## CRITICAL: M5 fma() FIX — SUBMISSION f6b87dc1 VALIDATING
+  Root cause identified: `packedWordBody()` in shared SwiGLU QMV header used nested `fma()`
+  instead of flat `+`. fma(a,b,c) rounds once vs a*b+c rounds twice — NON-BIT-EXACT.
+  Affects ALL MoE decode kernels (routed SwiGLU, shared down+residual). ULP errors
+  accumulate across 128 decode steps × 39 layers and flip near-tie tokens on M5.
 
-  Both the fc→template change AND the halved scales feature break M5 build.
-  Surgical fix (a74d2fe, reverting only fc→template, keeping halved scales) FAILED quickly.
-  Full revert (bcedc8a, 39fa0483) FAILED after 12 MINUTES — much longer than previous
-  2-3 minute build failures. This suggests the BUILD SUCCEEDED but the benchmark or
-  correctness gate FAILED. The M5 may have a correctness issue with our LRM custom kernels.
+  Fix: reverted to organizer frontier's exact flat `+` form (commit 34770ebf).
+  Build verified on M4 (25.78s). Submitted as f6b87dc1 at 16:20 UTC.
 
-  NEXT: Need to determine if the failure is a build timeout, correctness failure, or
-  runtime error. The organizer frontier (bca94c5, f790e33f) scored 2.5213. Our LRM has
-  335KB of custom kernels not in the organizer frontier. The custom kernels may have
-  M5-specific correctness issues.
+  Previous bcedc8a (39fa0483) FAILED after 12 min — build succeeded, correctness gate
+  failed. The fma() change is the most likely culprit.
 
-  Fix: git checkout bca94c5 -- 3 vendor files + LRM groupSize 32→16 (dead code path).
+  If f6b87dc1 passes: campaign unblocked, merge student PRs, push for leaderboard.
+  If f6b87dc1 fails: investigate BDP=BD+1 in sliding attention, simd_sum pattern.
 
 ## ACTIVE ASSIGNMENTS (Wave 16, updated 2026-08-08T16:02)
-  PR #436 (edward, rev v2): 4-head GQA in inline fused attention kernels (decode 75%, highest impact)
-    — Redirected from sdpa_vector.h to inline fused kernels per research insight
+  PR #436 (edward, rev v2): 4-head GQA in inline fused attention kernels — CLOSED (dead hypothesis, register pressure outweighs K/V bandwidth savings)
+    — Edward is now IDLE and available for a new assignment
   PR #445 (thorfinn): Enable prefill shared expert halved scales (1-line flag flip, zero risk)
   PR #446 (alphonse): DARKBLOOM_STAGE_* staging flags in quantized.cpp (zero risk, zero budget)
   PR #447 (askeladd): Fuse prefill shared expert into routed gather-QMM (eliminate 2-3 dispatches/MoE-layer)
