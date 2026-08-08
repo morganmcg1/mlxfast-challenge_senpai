@@ -4480,13 +4480,11 @@ private let lagunaTailNVFP4QMVHeader = """
     }
 
     static inline float laguna_tail_nvfp4_qdot(
-        const device uint8_t* w,
+        uint2 codes,
         const thread float* x_thread,
         float scale
     ) {
         \(lagunaTailNVFP4QDotAccumDeclSource(seedElide: lagunaTailNVFP4QKVSeedElisionEnabled))
-        const device uint2* wq = (const device uint2*)w;
-        const uint2 codes = wq[0];
     #pragma unroll
         for (int j = 0; j < 2; j++) {
             const uint32_t c = (j == 0) ? codes.x : codes.y;
@@ -4549,11 +4547,13 @@ private let lagunaDecodeNVFP4QKVR1Source = """
 
     uint column = simd_lid * values_per_thread;
     for (uint k = 0; k < axis_size; k += block_size) {
+        const uint2 codes = ((const device uint2*)ws)[0];
+        const uint8_t scale_bits = sc[0];
         for (uint i = 0; i < values_per_thread; ++i) {
             x_thread[i] = float(normalized[column + i]);
         }
         result += laguna_tail_nvfp4_qdot(
-            ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
+            codes, x_thread, laguna_tail_nvfp4_scale(scale_bits));
         ws += block_size / 2;
         sc += block_size / 16;
         column += block_size;
@@ -4569,7 +4569,7 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
         kernels[heads] = MLXFast.metalKernel(
-            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v1"
+            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_v2"
                 + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
                 + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
             inputNames: ["normalized", "weight_codes", "weight_scales"],
@@ -4580,6 +4580,75 @@ private let lagunaDecodeNVFP4QKVR1Kernels: [Int: MLXFast.MLXFastKernel] = {
     }
     return kernels
 }()
+
+private let lagunaDecodeNVFP4QKVR1ResearchBaselineHeader = lagunaTailNVFP4QMVHeader
+    .replacingOccurrences(
+        of: "        uint2 codes,\n",
+        with: "        const device uint8_t* w,\n"
+    )
+    .replacingOccurrences(
+        of: "    #pragma unroll\n",
+        with: "        const device uint2* wq = (const device uint2*)w;\n"
+            + "        const uint2 codes = wq[0];\n"
+            + "    #pragma unroll\n"
+    )
+
+private let lagunaDecodeNVFP4QKVR1ResearchBaselineSource = lagunaDecodeNVFP4QKVR1Source
+    .replacingOccurrences(
+        of: "        const uint2 codes = ((const device uint2*)ws)[0];\n"
+            + "        const uint8_t scale_bits = sc[0];\n",
+        with: ""
+    )
+    .replacingOccurrences(
+        of: "            codes, x_thread, laguna_tail_nvfp4_scale(scale_bits));",
+        with: "            ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));"
+    )
+
+private let lagunaDecodeNVFP4QKVR1ResearchBaselineKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_decode_nvfp4_qkv_h\(heads)_r1_research_baseline_v1"
+                + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+                + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : ""),
+            inputNames: ["normalized", "weight_codes", "weight_scales"],
+            outputNames: ["projected"],
+            source: lagunaDecodeNVFP4QKVR1ResearchBaselineSource,
+            header: lagunaDecodeNVFP4QKVR1ResearchBaselineHeader,
+            ensureRowContiguous: true)
+    }
+    return kernels
+}()
+
+func lagunaDecodeNVFP4QKVR1Research(
+    normalized: MLXArray,
+    packedCodes: MLXArray,
+    scales: MLXArray,
+    heads: Int,
+    candidate: Bool
+) -> MLXArray? {
+    let rows = (heads + 2 * LagunaConstants.numKeyValueHeads) * LagunaConstants.headDim
+    let hidden = LagunaConstants.hiddenSize
+    let kernels = candidate
+        ? lagunaDecodeNVFP4QKVR1Kernels
+        : lagunaDecodeNVFP4QKVR1ResearchBaselineKernels
+    guard normalized.dtype == .bfloat16,
+        normalized.shape == [1, 1, hidden],
+        packedCodes.dtype == .uint32,
+        packedCodes.shape == [rows, hidden / 8],
+        scales.dtype == .uint8,
+        scales.shape == [rows, hidden / 16],
+        rows % 2 == 0,
+        let kernel = kernels[heads]
+    else { return nil }
+    return kernel(
+        [normalized, packedCodes, scales],
+        grid: ((rows / 2) * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[1, 1, rows]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
 
 private func lagunaDecodeNVFP4QKVR1(
     normalized: MLXArray,
