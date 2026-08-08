@@ -6933,45 +6933,16 @@ func lagunaRoutedDownReduce(
     )[0]
 }
 
-/// Encode-order lever for the 9-slot down+residual dispatch. MLX's eval
-/// traversal visits a node's inputs in declaration order, and Metal memory
-/// barriers are encoder-wide. Hypothesis was that listing the shared-expert
-/// inputs first would let the shared SwiGLU QMV overlap the router top-8
-/// latency; MEASURED (2026-08-01, M5 Max 128 GB, driver rig, 150-step
-/// cool-floor windows): shared-first REGRESSES ~+0.10 ms/step. Cause: in
-/// the shipped routed-first order the shared QMV is encoded after the
-/// routed QMV with no intervening barrier, so it already overlaps the
-/// routed QMV on the GPU; moving it before the top-8 barrier makes the
-/// barrier ahead of the routed QMV wait on the shared QMV too, LENGTHENING
-/// the critical path (barriers are encoder-wide, not per-resource). Kept as
-/// an opt-in A/B arm (`DARKBLOOM_SHARED_FIRST_DOWN=1`) for re-measurement
-/// if the surrounding dispatch anatomy changes; both orders are bit-exact
-/// (pure input permutation, kernel body addresses inputs by name; the
-/// reordered variant carries a new kernel name because the JIT cache keys
-/// signatures by name).
-let lagunaSharedFirstDownOrderEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
-
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
-    name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5sf_halved"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5_halved",
-    inputNames: lagunaSharedFirstDownOrderEnabled
-        ? [
-            "shared_activated", "shared_down_weight", "shared_down_scales",
-            "shared_down_escape",
-            "routed_activated", "routed_down_weight", "routed_down_scales",
-            "routed_down_escape",
-            "indices", "router_weights", "residual",
-        ]
-        : [
-            "routed_activated", "routed_down_weight", "routed_down_scales",
-            "routed_down_escape",
-            "indices", "router_weights", "shared_activated",
-            "shared_down_weight", "shared_down_scales",
-            "shared_down_escape",
-            "residual",
-        ],
+    name: "laguna_routed_shared_nvfp4_down_residual_bf16_r1_v5_halved",
+    inputNames: [
+        "routed_activated", "routed_down_weight", "routed_down_scales",
+        "routed_down_escape",
+        "indices", "router_weights", "shared_activated",
+        "shared_down_weight", "shared_down_scales",
+        "shared_down_escape",
+        "residual",
+    ],
     outputNames: ["output"],
     source: """
         constexpr uint input_width = 512;
@@ -7123,22 +7094,14 @@ func lagunaRoutedSharedDownResidual(
     precondition(residual.dims(1, 1, LagunaConstants.hiddenSize))
 
     return lagunaRoutedSharedDownResidualKernel(
-        lagunaSharedFirstDownOrderEnabled
-            ? [
-                sharedActivated, sharedDownWeight, sharedDownScales,
-                sharedDownScalesEscape,
-                routedActivated, routedDownWeight, routedDownScales,
-                routedDownScalesEscape,
-                indices, routerWeights, residual,
-            ]
-            : [
-                routedActivated, routedDownWeight, routedDownScales,
-                routedDownScalesEscape,
-                indices, routerWeights, sharedActivated,
-                sharedDownWeight, sharedDownScales,
-                sharedDownScalesEscape,
-                residual,
-            ],
+        [
+            routedActivated, routedDownWeight, routedDownScales,
+            routedDownScalesEscape,
+            indices, routerWeights, sharedActivated,
+            sharedDownWeight, sharedDownScales,
+            sharedDownScalesEscape,
+            residual,
+        ],
         grid: (LagunaConstants.hiddenSize / 8 * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
