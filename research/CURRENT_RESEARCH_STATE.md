@@ -1,12 +1,166 @@
 # SENPAI Research State
 
-**Updated 2026-08-08 22:40 UTC — round 87.
+**Updated 2026-08-08 23:55 UTC — round 87b.
 `BASE_SHA = 7687c2e44e6975c181444ca8d3d151ee30480a72`** = the newly adopted
-organizer promoted frontier (see "FRONTIER ADOPTION" immediately below) plus
-the research-only merge of #458. Budget on this base:
+organizer promoted frontier (see "FRONTIER ADOPTION" below) plus the
+research-only merge of #458. Budget on this base:
 `current=2891343/3000000 headroom=108657 growth=0/262144 files=140`, and
 `Sources/MLXFastModel/LagunaRuntimeModel.swift` is **511,418 / 524,288 B — only
 12,870 B of per-file headroom**, which is why #456 exists.
+
+Leaderboard re-checked round 87b: current best still **2.61650354381456 @
+`c5b0a13`** (the frontier we adopted). Unchanged.
+
+---
+
+## ⭐⭐⭐ ROUND 87b — the decode byte census is closed, and the M4/M5 regime split now governs lever selection
+
+Full write-up with the supporting tables and citations:
+[`research/RESEARCH_IDEAS_2026-08-08_21:40.md`](RESEARCH_IDEAS_2026-08-08_21:40.md).
+Summary of what changed:
+
+### (a) The byte census: ≈1.69 GB/step, amplification ≈1.0×
+
+A frontier-model audit derived the decode step's minimum DRAM traffic from the
+shipped representation rather than from a timer:
+
+| Class | Bytes/step |
+|---|---|
+| Attention (QKV + o_proj + `g_proj`) | 763.5 MB |
+| MoE (routed gate/up + down + shared) | 590.4 MB |
+| Router (BF16 256·2048 × 39) | 40.9 MB |
+| Dense L0 MLP (BF16) | 100.7 MB |
+| LM head (int5 screen, 1088 B/row) | ~111 MB |
+| KV read (sliding 62.9 + full 23.6) | 86.5 MB |
+| Embedding + norms + KV write | ~0.5 MB |
+| **TOTAL** | **≈1.69 GB** |
+
+Weights-only pool ≈1,606 MB. lm_head as BF16 would be 411.0 MB — the shipped
+int5 screen already removed ~300 MB, the largest byte win this model had.
+
+**Six candidate over-read sources were checked and all came back ≈1.0×:**
+expert gather reads only the 8 selected banks (`LRM:7546`, banks `:201–217`,
+fused down `:137–144`); scale metadata is already at ~6.25–6.3 % of payload for
+attention and routed (and halving the *shared* plane measured **+1.93 % worse**
+because those reads are cache-served, `LRM:6825–6828`); the decomposition is
+row-partitioned so no weight byte is fetched twice; KV is byte-exact (sliding
+`constexpr N=512` decl `LRM:1369–1370`; full `N = 512+t` decl `:1818–1819`);
+remaining glue operands are KB-scale latency, not bytes; NVFP4 dequant never
+spills to DRAM. The one real re-read is **instruction-side** — the fused
+RMSNorm→QKV producer re-executes the norm per consumer TG (+308.3 µs).
+
+Marginal-bandwidth probes price several planes *above* DRAM peak (lm-head
+968.4 GB/s, attention scale 524.1, pairwise 463.5) ⇒ partially SLC-served ⇒
+true DRAM traffic ≈**1.42–1.50 GB**.
+
+### (b) Reconciliation of the 8,234 µs M4 Pro step
+
+- **Weight streaming ≈5,700–5,900 µs (~70 %)**, bandwidth-bound, kernels at
+  **86.9–98.2 %** of the achievable 239.7 GB/s. Byte floor ≈5,582 µs ⇒
+  **≈338 µs of headroom even at 100 % of peak.** This pool is **finished** for
+  "run faster on the same bytes"; the only way in is fewer bytes.
+- **Fused SDPA ≈880 µs (~10.5 %)**, issue/latency-bound (KV bytes are only
+  ~360 µs at achievable bandwidth; k-loop ~90 % of its issue floor). Family
+  stays CLOSED.
+- **Glue ≈640 µs (~7.6 %)**, latency-bound, floor ≈152 µs.
+- **Boundaries/gaps ≈25–450 µs** (45 CBs × 0.54 µs ≈ 24 µs; intra-CB shadowing
+  already harvested).
+
+### (c) ⚠️ BINDING RULE: declare a mechanism class for every decode lever
+
+(b) is an **M4 Pro** statement. Our own §4.11 records say the ranked M5 is in a
+different regime: **M5 Max is instruction-bound at ~89 % GPU utilization**; PR
+#137 went **−63.7 µs/token on M4 → +24.6 µs/token on M5** (receipt
+`99b71258`, transfer factor **−0.40 ± 0.24**, excluding the pre-registered
+0.50–0.75 band); and a competitor landed **15 bit-exact byte optimisations for
++233.8 µs/token SLOWER on M5**.
+
+⇒ The byte-price law (`0.015280 × MB / R_marg` % score) is an **upper bound on
+the ranked host, not a prediction.** From round 87b every decode lever in an
+assignment must name its class:
+
+- **Instruction / latency class** — redundant-work removal, issue rate,
+  scheduling, dispatch latency, load pipelining. **Privileged for decode**,
+  because M5 is instruction-bound.
+- **Byte class** — fewer DRAM bytes at constant instruction count.
+  **Presumptively non-transferable to M5.** Spend byte levers on the
+  **prefill axis** (still scored at weight 0.25) unless a second,
+  instruction-side justification exists.
+
+### (d) CLOSED lead: "add an `_nax` M=1 qmv kernel"
+
+The premise is true — `fp_quantized_nax.h` has zero `qmv` kernels (only
+`fp_qmm_t_nax:1011`, `_static:1073`, `fp_qmm_n_nax:1134`,
+`fp_gather_qmm_t_nax:1193`, `_n_nax:1258`, `_rhs_nax:1326`,
+`_rhs_expert_nax:1690`). The conclusion is false twice over, per
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp`:
+
+- `QuantizedMatmul::eval_gpu` (`:2184–2217`) only takes the matmul branch when
+  `M >= vector_limit`, and `get_qmv_batch_limit` (`:88–129`) returns **≥10 in
+  every branch**, so M=1 already falls through to `dispatch_qmv`.
+- `GatherQMM::eval_gpu` (`:2258–2338`) needs `M==1 && B>=16 && right_sorted_
+  && B/E>=4`; decode top-8-of-256 gives B=8 ⇒ `gather_qmv`. The same
+  `sorted_rhs` gate guards `pairwise_contract` (`:2263–2268`), which
+  independently proves the adopted frontier's **P2 pairwise-scale trick is
+  prefill-only**.
+- **Doubly moot:** the scored decode routed-MoE path never calls
+  `MLX.gatherQuantizedMM`. `LRM:10700–10790` dispatches our own
+  `lagunaRoutedSwiGLUQMVPackedTop8` / `…QMVPacked` /
+  `lagunaRoutedSharedDownResidual`; the `gatherQuantizedMM` at `:10742` is a
+  fallback branch only.
+
+### (e) Confirmed shipped representation (do not re-derive)
+
+`LagunaConfig.swift:34–36` says the Poolside *checkpoint* keeps embeddings,
+attention, dense layer, routers and lm_head in BF16. That is a statement about
+the checkpoint, not about us: `LRM:2897–2908` defines
+`lagunaNativeAffineNVFP4From`, whose env var `DARKBLOOM_NATIVE_AFFINE_NVFP4`
+defaults **ON** with `_FROM` defaulting to `"0"`, so **all 40 layers run
+attention as NVFP4 g16** (0.5625 B/param vs 1.125 for the group-32 affine INT8
+alternative). `lagunaNativeAffineWeight` (`:2948–2983`) picks NVFP4 g16 when
+layer ≥ from, else INT8 g32.
+
+Model constants (`Sources/MLXFastModel/LagunaConfig.swift:10–45`): vocab
+100,352 · hidden 2,048 · denseIntermediate 8,192 (layer 0 only) · 40 layers ·
+KV heads 8 · headDim 128 · **fullAttention 48 query heads on layers 0,4,…,36
+(10 layers)**, **sliding 64 heads (other 30)** · rmsNormEps 1e-6 ·
+slidingWindow 512 · 256 experts · top-8 · moeIntermediate 512 ·
+sharedExpertIntermediate 512 · routedScalingFactor 2.5 · tensorCount 912.
+
+### (f) Ranked assignable queue as of round 87b
+
+Detail and falsification plans in the ideas file; ordered by expected value
+after the class discount:
+
+| # | Lever | Class | Est. | Site |
+|---|---|---|---|---|
+| L2 | Routed-twin K-block prefetch | instruction | −72 µs (−0.56 %) | `LRM:7546` from `:6844` |
+| L1 | Algebraic epilogue normalization at full grid | instruction | ≤140 µs (2.14 %) | `LRM:4815–4881` |
+| L3 | Threadgroup packing S-sweep on routed gate/up | instruction | ~−37 µs precedent | `LRM:7546` |
+| L4 | Prefill async-ladder stride/placement | prefill/latency | +0.34 % | `LRM:733` |
+| L5 | Full-attn SDPA N/capacity constexpr | instruction | 20–40 µs | `LRM:2201–2220` |
+| L6 | Lossless entropy recode of BF16 planes | **byte** | +0.85 % on M4 only | transform |
+| L7 | Prefill `_nax` A-fragment N-tile reuse | prefill/byte | must beat 1.35 ms | `_nax` k-loop |
+
+L2 first (bit-exact, byte-neutral, best risk/reward; but #301's ABBA was
+ORDER-confounded — run the reversed-ORDER separator first). L1 has the biggest
+ceiling but is **not automatically bit-exact**: reassociation must preserve
+reduction order, which is exactly what killed the uint2→uint4 widening. L3
+must carry a `_sgN` kernel-name suffix (rule 33). L4 cannot be ranked on M4
+(0.037 %/receipt resolution) and needs ~3 M5 receipts; the +0.40 %
+doc-comment at `LRM:719` is folklore, do not cite it. L6 is ranked low
+*because* it is byte class.
+
+**One new instruction-class idea from the literature:** CUTLASS example 55
+(`fp8_packed_scale.hpp`, `unify_quant_encoding`, `initialize_packed_scale`)
+re-encodes INT4 values *and* FP8 scales offline so the dequant product becomes
+a **table lookup instead of a multiply**, bit-exact by construction. Our
+fp4_e2m1 × e4m3 pairing is the direct analogue, and it is the one dequant-ALU
+idea not already shipped (we have `fp4nv_decode8` SWAR and the 2^14 / 2^22
+scale folds). Worth a falsification pass.
+
+**The enabler:** splitting `LagunaRuntimeModel.swift` (per-file cap is binding;
+comment-stripping is dead per #320). That is #456.
 
 ---
 
@@ -655,9 +809,20 @@ All four students are busy. Base for every arm is
 | [#456](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/456) | maple-fern | `maple-fern/r85-surface-reconstruction` @ `a5a35280` (`r85-b-rev2`) | **Per-file cap relief.** Split `LagunaRuntimeModel.swift`; recommended carve is lines **8693–11283** (`LagunaRuntimeMLP` at `:8693` + `LagunaRuntimeSparseMoEBlock` at `:10476`) = 112,508 B, dropping the scored file to 398,910 B. Plus a local surface-reconstruction harness and an editable-surface integrity audit. | 12,870 B of per-file headroom is not enough to land any kernel change. The key risk is the `private` → `internal` widening required by the split; neutrality must be **measured**, not asserted. |
 | [#462](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/462) | maple-nezuko | `maple-nezuko/r86-insitu-boundary-price` @ `abefac77` (`r86-b-rev1`) | **In-situ boundary price + redundancy-priced barrier census + a post-mortem of #48.** An env-gated un-fusion ladder inserts `k ∈ {0,64,128,256,512}` genuine dependent DRAM round trips into the *real* decode step at two widths (WIDE 4 KiB, TINY ≤64 B); `d = slope(WIDE) − slope(TINY)` is the in-situ drain price. | The price is already measured three times in situ (#268 joint fit, #269 real removal +1.233 µs [+0.920, +1.545], R85-D ladder 1.4140 ± 0.0093) so the GO threshold will almost certainly be met — **the value is in the census**, which must carry a redundancy multiplier `R` and a NET column per the rule above. Expected to close unmerged (instrument-only deoptimizer). |
 
-**Feedback IDs already spent:** `r85-b-fb1-channel-open` (#456);
-`r85-c-fb1-channel-open`, `r85-c-fb2-provenance-and-target` (#457);
-`r86-b-fb1-redundancy-axis` (#462).
+**Feedback IDs already spent:** `r85-b-fb1-channel-open`,
+`r85-b-fb2-base-bump-doc-only` (#456); `r85-c-fb1-channel-open`,
+`r85-c-fb2-provenance-and-target`, `r85-c-fb3-base-bump-doc-only`,
+`r85-c-fb4-apple-tg-scatter-prior` (#457); `r86-a-fb1-base-bump-doc-only`
+(#460); `r86-b-fb1-redundancy-axis`, `r86-b-fb2-base-bump-doc-only` (#462).
+
+`r85-c-fb4-apple-tg-scatter-prior` carries the Apple microarchitecture prior
+for #457: barriers on Apple GPUs are cheap (~2 cycles) but **scattered /
+transposed threadgroup access is expensive** (arXiv 2603.27569; register file
+~208 KiB vs threadgroup ~32 KiB). The frontier's plane-major epilogue (store
+`lane*BDP+sg`, load `sg*BDP+lane`, 8 scalar stores/loads, 3 barriers) is
+exactly that scattered pattern, so the AoS `float4` port is an
+**access-pattern** fix. frieren must not attribute any delta to "fewer
+barriers".
 
 **⚠ Branch names are not guessable from assignment titles.** Recover the exact
 head branch, `assignment_id` and `revision_id` from the
@@ -667,6 +832,13 @@ head branch, `assignment_id` and `revision_id` from the
 
 ### Queued behind the current round (not yet assigned)
 
+**Assignment order when a student frees up** is the round-87b queue at the top
+of this document: **L2** (routed-twin K-block prefetch) → **L1** (algebraic
+epilogue normalization) → **L3** (threadgroup packing S-sweep on `LRM:7546`) →
+**L4** (prefill async ladder, needs M5 receipts). The CUTLASS-ex-55 offline
+LUT re-encode and the L6 exponent-entropy histogram are cheap offline
+falsification passes that can ride along with any of them.
+
 1. **M-A: full-attention decode params memo** (our commit `0ae542dd`).
    `LagunaRuntimeModel.swift:2301–2303` rebuilds
    `MLXArray([UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity), …])`
@@ -675,7 +847,10 @@ head branch, `assignment_id` and `revision_id` from the
    gives 128 builds instead of 1280 and removes ~1152 MLXArray
    allocations/graph leaves. The sliding path at `:1801` already does this via
    `lagunaRingIdxAtlas[writeIdx]`. Position-keyed, so serial-track compliant.
-   ⚠ The GPU-busy-bound finding above is a prior *against* it.
+   ⚠ The M4 GPU-busy-bound finding is a prior *against* it, but round 87b
+   reclassifies it as **instruction class**, which is the privileged class on
+   the instruction-bound M5. It stays queued behind L1–L3 only because it is
+   small.
 2. **Re-port PR #48's fused norm→QKV as an in-situ discriminator.** Modes
    0/1/2 on real kernels separate `c_issue` from `c_drain`; mode 2 is reached
    by a one-character default flip. Blocked pending #462's redundancy verdict
