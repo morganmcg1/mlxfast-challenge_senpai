@@ -8061,6 +8061,10 @@ private enum LagunaRouterSigmoidBF16Table {
     )[0]
 }
 
+func lagunaRouterSigmoidBF16TableForTesting() -> MLXArray {
+    LagunaRouterSigmoidBF16Table.values
+}
+
 /// Default-on decode-router payload optimization. Set
 /// `DARKBLOOM_ROUTER_ORDINAL=0` for the accepted float-payload fallback. The
 /// accepted bitonic
