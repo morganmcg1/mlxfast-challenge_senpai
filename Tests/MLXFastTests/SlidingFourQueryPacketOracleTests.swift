@@ -176,7 +176,7 @@ private struct SlidingAttentionOracleFixture {
             Float(Foundation.sin(Double(index + 1) * 0.003))
         }
         angles = MLXArray(cosine + sine, [1, 1, 1, 128])
-        scale = MLXArray(Float(1) / Float(128).squareRoot())
+        scale = MLXArray([Float(1) / Float(128).squareRoot()])
 
         let cacheCount = 8 * 512 * 128
         cacheKeySeed = oracleValues(
