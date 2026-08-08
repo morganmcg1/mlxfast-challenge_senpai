@@ -335,20 +335,8 @@ template <
     if (q_head0 >= int(tpg.x)) {
       return;
     }
-    const int n_active = (q_head0 + gqa_group <= int(tpg.x)) ? gqa_group
-                          : (int(tpg.x) - q_head0);
     const int kv_head_idx = q_head0 / gqa_factor;
 
-
-    // Query pointers and output pointers for each active head.
-    const device T* group_qptrs[DARKBLOOM_GQA_GROUP_MAX];
-    device T* group_optrs[DARKBLOOM_GQA_GROUP_MAX];
-    for (int h = 0; h < n_active; ++h) {
-      group_qptrs[h] =
-          queries + (q_head0 + h) * D + simd_lid * qk_per_thread;
-      group_optrs[h] =
-          out + (q_head0 + h) * V + simd_gid * v_per_thread;
-    }
     const device T* group_keys =
         keys + kv_head_idx * k_head_stride + simd_gid * k_seq_stride +
         simd_lid * qk_per_thread;
@@ -356,18 +344,52 @@ template <
         values + kv_head_idx * v_head_stride + simd_gid * v_seq_stride +
         simd_lid * v_per_thread;
 
-    thread U gq[DARKBLOOM_GQA_GROUP_MAX][qk_per_thread];
-    thread U go[DARKBLOOM_GQA_GROUP_MAX][v_per_thread];
-    U gmax[DARKBLOOM_GQA_GROUP_MAX];
-    U gsum[DARKBLOOM_GQA_GROUP_MAX];
+    // Hand-unrolled per-head state. Two code paths: 3 heads (GQA6) and
+    // 2 heads (GQA8). Each uses explicit variables — no dynamic arrays or
+    // head loops — so the compiler sees straight-line code per head.
+    const device T* pair_query0 =
+        queries + q_head0 * D + simd_lid * qk_per_thread;
+    device T* pair_out0 =
+        out + q_head0 * V + simd_gid * v_per_thread;
 
-    for (int h = 0; h < n_active; ++h) {
+    thread U gq0[qk_per_thread];
+    thread U go0[v_per_thread];
+    U gmax0 = Limits<U>::finite_min;
+    U gsum0 = 0;
+    for (int j = 0; j < qk_per_thread; ++j)
+      gq0[j] = static_cast<U>(scale) * pair_query0[j];
+    for (int j = 0; j < v_per_thread; ++j)
+      go0[j] = 0;
+
+    const device T* pair_query1 =
+        queries + (q_head0 + 1) * D + simd_lid * qk_per_thread;
+    device T* pair_out1 =
+        out + (q_head0 + 1) * V + simd_gid * v_per_thread;
+
+    thread U gq1[qk_per_thread];
+    thread U go1[v_per_thread];
+    U gmax1 = Limits<U>::finite_min;
+    U gsum1 = 0;
+    for (int j = 0; j < qk_per_thread; ++j)
+      gq1[j] = static_cast<U>(scale) * pair_query1[j];
+    for (int j = 0; j < v_per_thread; ++j)
+      go1[j] = 0;
+
+    // Third head only used when gqa_group == 3 (GQA6).
+    const device T* pair_query2 =
+        queries + (q_head0 + 2) * D + simd_lid * qk_per_thread;
+    device T* pair_out2 =
+        out + (q_head0 + 2) * V + simd_gid * v_per_thread;
+
+    thread U gq2[qk_per_thread];
+    thread U go2[v_per_thread];
+    U gmax2 = Limits<U>::finite_min;
+    U gsum2 = 0;
+    if (gqa_group >= 3) {
       for (int j = 0; j < qk_per_thread; ++j)
-        gq[h][j] = static_cast<U>(scale) * group_qptrs[h][j];
+        gq2[j] = static_cast<U>(scale) * pair_query2[j];
       for (int j = 0; j < v_per_thread; ++j)
-        go[h][j] = 0;
-      gmax[h] = Limits<U>::finite_min;
-      gsum[h] = 0;
+        go2[j] = 0;
     }
 
     // Two-deep software pipeline, loads hoisted: both positions' K and V
@@ -409,47 +431,113 @@ template <
       // Position a: per-head score and update. Each head's FP sequence
       // is identical to stock (same q*k dot-product chain, same FMA order
       // for the output accumulate). K/V are shared reads.
-      for (int h = 0; h < n_active; ++h) {
-        U score = 0;
-        score += gq[h][0] * pipe_ka[0];
-        score += gq[h][1] * pipe_ka[1];
-        score += gq[h][2] * pipe_ka[2];
-        score += gq[h][3] * pipe_ka[3];
-        score = simd_sum(score);
+      {
+        U score0 = 0;
+        score0 += gq0[0] * pipe_ka[0];
+        score0 += gq0[1] * pipe_ka[1];
+        score0 += gq0[2] * pipe_ka[2];
+        score0 += gq0[3] * pipe_ka[3];
+        score0 = simd_sum(score0);
+        U new_max0 = max(gmax0, score0);
+        U factor0;
+        DARKBLOOM_RESCALE_FACTOR(factor0, gmax0 - new_max0);
+        U exp0 = fast::exp(score0 - new_max0);
+        gmax0 = new_max0;
+        gsum0 = gsum0 * factor0 + exp0;
+        go0[0] = go0[0] * factor0 + exp0 * pipe_va0;
+        go0[1] = go0[1] * factor0 + exp0 * pipe_va1;
+        go0[2] = go0[2] * factor0 + exp0 * pipe_va2;
+        go0[3] = go0[3] * factor0 + exp0 * pipe_va3;
 
-        U new_max = max(gmax[h], score);
-        U factor;
-        DARKBLOOM_RESCALE_FACTOR(factor, gmax[h] - new_max);
-        U exp_score = fast::exp(score - new_max);
-        gmax[h] = new_max;
-        gsum[h] = gsum[h] * factor + exp_score;
-
-        go[h][0] = go[h][0] * factor + exp_score * pipe_va0;
-        go[h][1] = go[h][1] * factor + exp_score * pipe_va1;
-        go[h][2] = go[h][2] * factor + exp_score * pipe_va2;
-        go[h][3] = go[h][3] * factor + exp_score * pipe_va3;
+        U score1 = 0;
+        score1 += gq1[0] * pipe_ka[0];
+        score1 += gq1[1] * pipe_ka[1];
+        score1 += gq1[2] * pipe_ka[2];
+        score1 += gq1[3] * pipe_ka[3];
+        score1 = simd_sum(score1);
+        U new_max1 = max(gmax1, score1);
+        U factor1;
+        DARKBLOOM_RESCALE_FACTOR(factor1, gmax1 - new_max1);
+        U exp1 = fast::exp(score1 - new_max1);
+        gmax1 = new_max1;
+        gsum1 = gsum1 * factor1 + exp1;
+        go1[0] = go1[0] * factor1 + exp1 * pipe_va0;
+        go1[1] = go1[1] * factor1 + exp1 * pipe_va1;
+        go1[2] = go1[2] * factor1 + exp1 * pipe_va2;
+        go1[3] = go1[3] * factor1 + exp1 * pipe_va3;
+      }
+      if (gqa_group >= 3) {
+        U score2 = 0;
+        score2 += gq2[0] * pipe_ka[0];
+        score2 += gq2[1] * pipe_ka[1];
+        score2 += gq2[2] * pipe_ka[2];
+        score2 += gq2[3] * pipe_ka[3];
+        score2 = simd_sum(score2);
+        U new_max2 = max(gmax2, score2);
+        U factor2;
+        DARKBLOOM_RESCALE_FACTOR(factor2, gmax2 - new_max2);
+        U exp2 = fast::exp(score2 - new_max2);
+        gmax2 = new_max2;
+        gsum2 = gsum2 * factor2 + exp2;
+        go2[0] = go2[0] * factor2 + exp2 * pipe_va0;
+        go2[1] = go2[1] * factor2 + exp2 * pipe_va1;
+        go2[2] = go2[2] * factor2 + exp2 * pipe_va2;
+        go2[3] = go2[3] * factor2 + exp2 * pipe_va3;
       }
 
       // Position b: same per-head pattern with pipe_kb/vb.
-      for (int h = 0; h < n_active; ++h) {
-        U score = 0;
-        score += gq[h][0] * pipe_kb[0];
-        score += gq[h][1] * pipe_kb[1];
-        score += gq[h][2] * pipe_kb[2];
-        score += gq[h][3] * pipe_kb[3];
-        score = simd_sum(score);
+      {
+        U score0 = 0;
+        score0 += gq0[0] * pipe_kb[0];
+        score0 += gq0[1] * pipe_kb[1];
+        score0 += gq0[2] * pipe_kb[2];
+        score0 += gq0[3] * pipe_kb[3];
+        score0 = simd_sum(score0);
+        U new_max0 = max(gmax0, score0);
+        U factor0;
+        DARKBLOOM_RESCALE_FACTOR(factor0, gmax0 - new_max0);
+        U exp0 = fast::exp(score0 - new_max0);
+        gmax0 = new_max0;
+        gsum0 = gsum0 * factor0 + exp0;
+        go0[0] = go0[0] * factor0 + exp0 * pipe_vb0;
+        go0[1] = go0[1] * factor0 + exp0 * pipe_vb1;
+        go0[2] = go0[2] * factor0 + exp0 * pipe_vb2;
+        go0[3] = go0[3] * factor0 + exp0 * pipe_vb3;
 
-        U new_max = max(gmax[h], score);
-        U factor;
-        DARKBLOOM_RESCALE_FACTOR(factor, gmax[h] - new_max);
-        U exp_score = fast::exp(score - new_max);
-        gmax[h] = new_max;
-        gsum[h] = gsum[h] * factor + exp_score;
-
-        go[h][0] = go[h][0] * factor + exp_score * pipe_vb0;
-        go[h][1] = go[h][1] * factor + exp_score * pipe_vb1;
-        go[h][2] = go[h][2] * factor + exp_score * pipe_vb2;
-        go[h][3] = go[h][3] * factor + exp_score * pipe_vb3;
+        U score1 = 0;
+        score1 += gq1[0] * pipe_kb[0];
+        score1 += gq1[1] * pipe_kb[1];
+        score1 += gq1[2] * pipe_kb[2];
+        score1 += gq1[3] * pipe_kb[3];
+        score1 = simd_sum(score1);
+        U new_max1 = max(gmax1, score1);
+        U factor1;
+        DARKBLOOM_RESCALE_FACTOR(factor1, gmax1 - new_max1);
+        U exp1 = fast::exp(score1 - new_max1);
+        gmax1 = new_max1;
+        gsum1 = gsum1 * factor1 + exp1;
+        go1[0] = go1[0] * factor1 + exp1 * pipe_vb0;
+        go1[1] = go1[1] * factor1 + exp1 * pipe_vb1;
+        go1[2] = go1[2] * factor1 + exp1 * pipe_vb2;
+        go1[3] = go1[3] * factor1 + exp1 * pipe_vb3;
+      }
+      if (gqa_group >= 3) {
+        U score2 = 0;
+        score2 += gq2[0] * pipe_kb[0];
+        score2 += gq2[1] * pipe_kb[1];
+        score2 += gq2[2] * pipe_kb[2];
+        score2 += gq2[3] * pipe_kb[3];
+        score2 = simd_sum(score2);
+        U new_max2 = max(gmax2, score2);
+        U factor2;
+        DARKBLOOM_RESCALE_FACTOR(factor2, gmax2 - new_max2);
+        U exp2 = fast::exp(score2 - new_max2);
+        gmax2 = new_max2;
+        gsum2 = gsum2 * factor2 + exp2;
+        go2[0] = go2[0] * factor2 + exp2 * pipe_vb0;
+        go2[1] = go2[1] * factor2 + exp2 * pipe_vb1;
+        go2[2] = go2[2] * factor2 + exp2 * pipe_vb2;
+        go2[3] = go2[3] * factor2 + exp2 * pipe_vb3;
       }
 
       group_keys += 2 * inner_k_stride;
@@ -470,91 +558,164 @@ template <
       const T pipe_va2 = vec_vt.z;
       const T pipe_va3 = vec_vt.w;
 
-      for (int h = 0; h < n_active; ++h) {
-        U score = 0;
-        score += gq[h][0] * kt[0];
-        score += gq[h][1] * kt[1];
-        score += gq[h][2] * kt[2];
-        score += gq[h][3] * kt[3];
-        score = simd_sum(score);
+      {
+        U score0 = 0;
+        score0 += gq0[0] * kt[0];
+        score0 += gq0[1] * kt[1];
+        score0 += gq0[2] * kt[2];
+        score0 += gq0[3] * kt[3];
+        score0 = simd_sum(score0);
+        U new_max0 = max(gmax0, score0);
+        U factor0;
+        DARKBLOOM_RESCALE_FACTOR(factor0, gmax0 - new_max0);
+        U exp0 = fast::exp(score0 - new_max0);
+        gmax0 = new_max0;
+        gsum0 = gsum0 * factor0 + exp0;
+        go0[0] = go0[0] * factor0 + exp0 * pipe_va0;
+        go0[1] = go0[1] * factor0 + exp0 * pipe_va1;
+        go0[2] = go0[2] * factor0 + exp0 * pipe_va2;
+        go0[3] = go0[3] * factor0 + exp0 * pipe_va3;
 
-        U new_max = max(gmax[h], score);
-        U factor;
-        DARKBLOOM_RESCALE_FACTOR(factor, gmax[h] - new_max);
-        U exp_score = fast::exp(score - new_max);
-        gmax[h] = new_max;
-        gsum[h] = gsum[h] * factor + exp_score;
-
-        go[h][0] = go[h][0] * factor + exp_score * pipe_va0;
-        go[h][1] = go[h][1] * factor + exp_score * pipe_va1;
-        go[h][2] = go[h][2] * factor + exp_score * pipe_va2;
-        go[h][3] = go[h][3] * factor + exp_score * pipe_va3;
+        U score1 = 0;
+        score1 += gq1[0] * kt[0];
+        score1 += gq1[1] * kt[1];
+        score1 += gq1[2] * kt[2];
+        score1 += gq1[3] * kt[3];
+        score1 = simd_sum(score1);
+        U new_max1 = max(gmax1, score1);
+        U factor1;
+        DARKBLOOM_RESCALE_FACTOR(factor1, gmax1 - new_max1);
+        U exp1 = fast::exp(score1 - new_max1);
+        gmax1 = new_max1;
+        gsum1 = gsum1 * factor1 + exp1;
+        go1[0] = go1[0] * factor1 + exp1 * pipe_va0;
+        go1[1] = go1[1] * factor1 + exp1 * pipe_va1;
+        go1[2] = go1[2] * factor1 + exp1 * pipe_va2;
+        go1[3] = go1[3] * factor1 + exp1 * pipe_va3;
+      }
+      if (gqa_group >= 3) {
+        U score2 = 0;
+        score2 += gq2[0] * kt[0];
+        score2 += gq2[1] * kt[1];
+        score2 += gq2[2] * kt[2];
+        score2 += gq2[3] * kt[3];
+        score2 = simd_sum(score2);
+        U new_max2 = max(gmax2, score2);
+        U factor2;
+        DARKBLOOM_RESCALE_FACTOR(factor2, gmax2 - new_max2);
+        U exp2 = fast::exp(score2 - new_max2);
+        gmax2 = new_max2;
+        gsum2 = gsum2 * factor2 + exp2;
+        go2[0] = go2[0] * factor2 + exp2 * pipe_va0;
+        go2[1] = go2[1] * factor2 + exp2 * pipe_va1;
+        go2[2] = go2[2] * factor2 + exp2 * pipe_va2;
+        go2[3] = go2[3] * factor2 + exp2 * pipe_va3;
       }
     }
 
     // Exchange epilogue. Each head uses 2 planes. The plane base for head h
-    // is h * 2 * pair_plane_size. Only the first n_active * 2 planes are
-    // touched. The additive head-bank offset changes no producer/consumer
-    // pairing or simd_sum tree.
+    // is h * 2 * pair_plane_size. The additive head-bank offset changes no
+    // producer/consumer pairing or simd_sum tree.
     constexpr int pair_planes = 2;
     constexpr int pair_plane_size = BN * BD;
     if (simd_lid == 0) {
-      for (int h = 0; h < n_active; ++h) {
-        max_scores[h * BN + simd_gid] = gmax[h];
-        sum_exp_scores[h * BN + simd_gid] = gsum[h];
+      max_scores[simd_gid] = gmax0;
+      sum_exp_scores[simd_gid] = gsum0;
+      max_scores[BN + simd_gid] = gmax1;
+      sum_exp_scores[BN + simd_gid] = gsum1;
+      if (gqa_group >= 3) {
+        max_scores[2 * BN + simd_gid] = gmax2;
+        sum_exp_scores[2 * BN + simd_gid] = gsum2;
       }
     }
     for (int i = 0; i < pair_planes; ++i) {
-      for (int h = 0; h < n_active; ++h) {
-        outputs[(h * pair_planes + i) * pair_plane_size +
-                simd_lid * BD + simd_gid] = go[h][i];
+      outputs[i * pair_plane_size + simd_lid * BD + simd_gid] = go0[i];
+      outputs[(pair_planes + i) * pair_plane_size +
+              simd_lid * BD + simd_gid] = go1[i];
+      if (gqa_group >= 3) {
+        outputs[(2 * pair_planes + i) * pair_plane_size +
+                simd_lid * BD + simd_gid] = go2[i];
       }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    U g_global_max[DARKBLOOM_GQA_GROUP_MAX];
-    U g_global_factor[DARKBLOOM_GQA_GROUP_MAX];
-    for (int h = 0; h < n_active; ++h) {
-      U local_max = max_scores[h * BN + simd_lid];
-      g_global_max[h] = simd_max(local_max);
-      g_global_factor[h] = fast::exp(local_max - g_global_max[h]);
-      gsum[h] =
-          simd_sum(sum_exp_scores[h * BN + simd_lid] * g_global_factor[h]);
+    U local_max0 = max_scores[simd_lid];
+    U global_max0 = simd_max(local_max0);
+    U global_factor0 = fast::exp(local_max0 - global_max0);
+    gsum0 = simd_sum(sum_exp_scores[simd_lid] * global_factor0);
+
+    U local_max1 = max_scores[BN + simd_lid];
+    U global_max1 = simd_max(local_max1);
+    U global_factor1 = fast::exp(local_max1 - global_max1);
+    gsum1 = simd_sum(sum_exp_scores[BN + simd_lid] * global_factor1);
+
+    U global_max2 = 0;
+    U global_factor2 = 0;
+    if (gqa_group >= 3) {
+      U local_max2 = max_scores[2 * BN + simd_lid];
+      global_max2 = simd_max(local_max2);
+      global_factor2 = fast::exp(local_max2 - global_max2);
+      gsum2 =
+          simd_sum(sum_exp_scores[2 * BN + simd_lid] * global_factor2);
     }
 
     for (int i = 0; i < pair_planes; ++i) {
-      for (int h = 0; h < n_active; ++h) {
-        U acc = simd_sum(
-            outputs[(h * pair_planes + i) * pair_plane_size +
+      U acc0 = simd_sum(
+          outputs[i * pair_plane_size + simd_gid * BD + simd_lid] *
+          global_factor0);
+      go0[i] = gsum0 == 0 ? acc0 : (acc0 / gsum0);
+      U acc1 = simd_sum(
+          outputs[(pair_planes + i) * pair_plane_size +
+                  simd_gid * BD + simd_lid] *
+          global_factor1);
+      go1[i] = gsum1 == 0 ? acc1 : (acc1 / gsum1);
+      if (gqa_group >= 3) {
+        U acc2 = simd_sum(
+            outputs[(2 * pair_planes + i) * pair_plane_size +
                     simd_gid * BD + simd_lid] *
-            g_global_factor[h]);
-        go[h][i] = gsum[h] == 0 ? acc : (acc / gsum[h]);
+            global_factor2);
+        go2[i] = gsum2 == 0 ? acc2 : (acc2 / gsum2);
       }
     }
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (int i = 0; i < pair_planes; ++i) {
-      for (int h = 0; h < n_active; ++h) {
-        outputs[(h * pair_planes + i) * pair_plane_size +
-                simd_lid * BD + simd_gid] = go[h][pair_planes + i];
+      outputs[i * pair_plane_size + simd_lid * BD + simd_gid] =
+          go0[pair_planes + i];
+      outputs[(pair_planes + i) * pair_plane_size +
+              simd_lid * BD + simd_gid] =
+          go1[pair_planes + i];
+      if (gqa_group >= 3) {
+        outputs[(2 * pair_planes + i) * pair_plane_size +
+                simd_lid * BD + simd_gid] = go2[pair_planes + i];
       }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (int i = 0; i < pair_planes; ++i) {
-      for (int h = 0; h < n_active; ++h) {
-        U acc = simd_sum(
-            outputs[(h * pair_planes + i) * pair_plane_size +
+      U acc0 = simd_sum(
+          outputs[i * pair_plane_size + simd_gid * BD + simd_lid] *
+          global_factor0);
+      go0[pair_planes + i] = gsum0 == 0 ? acc0 : (acc0 / gsum0);
+      U acc1 = simd_sum(
+          outputs[(pair_planes + i) * pair_plane_size +
+                  simd_gid * BD + simd_lid] *
+          global_factor1);
+      go1[pair_planes + i] = gsum1 == 0 ? acc1 : (acc1 / gsum1);
+      if (gqa_group >= 3) {
+        U acc2 = simd_sum(
+            outputs[(2 * pair_planes + i) * pair_plane_size +
                     simd_gid * BD + simd_lid] *
-            g_global_factor[h]);
-        go[h][pair_planes + i] =
-            gsum[h] == 0 ? acc : (acc / gsum[h]);
+            global_factor2);
+        go2[pair_planes + i] = gsum2 == 0 ? acc2 : (acc2 / gsum2);
       }
     }
 
     if (simd_lid == 0) {
-      for (int h = 0; h < n_active; ++h) {
-        for (int i = 0; i < v_per_thread; ++i) {
-          group_optrs[h][i] = static_cast<T>(go[h][i]);
+      for (int i = 0; i < v_per_thread; ++i) {
+        pair_out0[i] = static_cast<T>(go0[i]);
+        pair_out1[i] = static_cast<T>(go1[i]);
+        if (gqa_group >= 3) {
+          pair_out2[i] = static_cast<T>(go2[i]);
         }
       }
     }
