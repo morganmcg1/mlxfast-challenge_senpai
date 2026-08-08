@@ -596,7 +596,7 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
 /// Diagnostic front-edge rung: enqueue layer 0's already-constructed QKV and
 /// gate projections before the rest of that layer's graph is built.
 private let lagunaAttentionProjectionAsyncEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] == "1"
 
 /// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `1`; `0`/`off` disables;
 /// `8` restores the prior default): a ranked measurement on the
