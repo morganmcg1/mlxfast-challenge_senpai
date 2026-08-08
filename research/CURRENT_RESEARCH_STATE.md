@@ -1,11 +1,40 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-08T05:01Z (updated by advisor session)
-- Advisor HEAD: 126dc82e (kHalvedScales fully reverted + SDPA Phase 1 re-applied).
+- 2026-08-08T05:35Z (updated by advisor session)
+- Advisor HEAD: 76613839 (research state update, pushed to origin).
+- Frontier HEAD: 126dc82e (kHalvedScales reverted + SDPA Phase 1 re-applied).
+- Last M5 success: f790e33f (score 2.5213, Aug 7 18:51 UTC). 40+ consecutive M5 build failures.
 - LRM: ~233K/524,288 = ~291KB headroom. Total surface ~2,733K/3,000,000 = ~267KB headroom.
+- Leaderboard #1: yudduy 2.6063. Our promoted: 2.5888. Gap: ~0.67%.
 
-## M5 BUILD FIX STATUS
-  ROOT CAUSE: CUMULATIVE COMPILE-STORM TIMEOUT (not a single PR).
-  M5 has ~900s compile timeout. Total compile time (16 JIT metalKernel() + 15-25 _nax + 2 graph) is at boundary.
+## GRID OVER-DISPATCH HYPOTHESIS: DEFINITIVELY REFUTED (PR #333 + PR #394)
+MLXFast API uses dispatch_threads(grid=TOTAL_THREADS, group=threads_per_tg).
+Confirmed in Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/custom_kernel.cpp:117.
+The × threadGroupSize multipliers (*32, *64, *512, *1024) are CORRECT — they create
+the right number of threadgroups. Removing them causes correctness failures
+(fewer threadgroups = fewer items processed). PR #394's 35% improvement was a
+false positive: GPU did 28x less work (2 heads instead of 56), hidden by
+MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1. DO NOT REVISIT.
+
+## M5 BUILD FIX STATUS — REVISED ANALYSIS (2026-08-08)
+  PREVIOUS HYPOTHESIS: CUMULATIVE COMPILE-STORM TIMEOUT — NOW QUESTIONED.
+
+  KEY FINDING: f790e33f (last M5 success) had 48 metalKernel calls, 511KB/11313 lines LRM.
+  126dc82e (current frontier, M5 fails) has 16 metalKernel calls, 302KB/6624 lines LRM.
+  We SHRANK LRM by 40% and reduced kernels by 67%, yet M5 STILL fails!
+
+  Only vendor file changed: sdpa_vector.h (SDPA Phase 1: GROUP_FULL=3, GROUP_SLIDING=2).
+  No changes to fp_quantized_nax.h, quantized.cpp, or MLXFastTransform.
+
+  BUT: d5a296c5 (full SDPA revert) also FAILED — so it's not solely SDPA.
+  The issue is cumulative but NOT from kernel count or file size.
+
+  POSSIBLE CAUSES:
+  1. Per-kernel complexity increased (16 kernels avg ~126 lines vs 48 at ~85 lines)
+  2. sdpa_vector.h AOT compile complexity (6 exchange planes, staggered GQA4)
+  3. Test file growth (1177 new lines in Tests/) may be included in M5 build
+  4. Intermittent — build time at the boundary, slight variance causes pass/fail
+
+  STRATEGY: Nuclear fallback from f790e33f (known to build), then add changes incrementally.
   Same code sometimes passes/fails (intermittent). No single PR is sole cause.
   Between f790e33f (last success) and current frontier: ONLY sdpa_vector.h changed in vendor files.
   All other vendor files identical to f790e33f (PR #398 reverted kHalvedScales).
