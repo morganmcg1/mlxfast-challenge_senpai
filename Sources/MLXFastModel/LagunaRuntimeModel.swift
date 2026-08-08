@@ -270,9 +270,10 @@ let lagunaSwiGLUQMVRows1Enabled =
 
 /// Folds the per-head softplus gate into the output projection's GEMV (see
 /// `lagunaGatedOutputProjectionSource`), with one kernel variant per attention
-/// family. Set `DARKBLOOM_FUSED_GATED_OUTPUT=0` to ablate.
+/// family. Set `DARKBLOOM_FUSED_GATED_OUTPUT=1` to enable (default OFF to
+/// reduce M5 JIT compile count; M4 sweep showed neutral decode/prefill timing).
 let lagunaFusedGatedOutputProjectionEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_GATED_OUTPUT"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_GATED_OUTPUT"] == "1"
 
 /// Issues Q, K and V as one dispatch over the three stock weights (see
 /// `lagunaFusedQKVProjectionSource`). Unlike `DARKBLOOM_FUSED_QKV` this keeps
@@ -474,12 +475,13 @@ let lagunaFusedSlidingQKNormRoPEEnabled =
 /// consume, so every rotary factor is a float the stock RoPE kernel itself
 /// produced.
 ///
-/// **DEFAULT ON** (`!= "0"`; set `DARKBLOOM_PREFILL_QK_NORM_ROPE=0` to
-/// ablate). Guarded on shape/dtype/family and a host-known cache offset
+/// **DEFAULT OFF** (`== "1"`; set `DARKBLOOM_PREFILL_QK_NORM_ROPE=1` to
+/// enable). Disabled to reduce M5 JIT compile count; M4 sweep showed neutral
+/// timing. Guarded on shape/dtype/family and a host-known cache offset
 /// with `offset + L <= lagunaRoPEAngleAtlasLength`; every other case takes
 /// the verbatim stock path.
 private let lagunaPrefillQKNormRoPEEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_NORM_ROPE"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_QK_NORM_ROPE"] == "1"
 
 /// Heads-per-threadgroup repartition for the prefill QK-norm+RoPE kernels.
 /// The shipped kernels pack four heads (four SIMDs) per threadgroup; this
@@ -505,11 +507,12 @@ private let lagunaLastPrefillProjectionBanksEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_LAST_PREFILL_PROJECTION_BANKS"] != "0"
 
-/// `DARKBLOOM_TERMINAL_FUSION` (default ON; set "0" to disable): current-API
+/// `DARKBLOOM_TERMINAL_FUSION` (default OFF; set "1" to enable): current-API
 /// port of overlay-dropped `9f98995`. `callLastPrefillRow` reuses the ordinary
 /// path's accepted row-local fused residual+RMSNorm(+router)+MoE-tail helpers.
+/// Disabled to reduce M5 JIT compile count; M4 sweep showed neutral timing.
 private let lagunaTerminalPrefillFusionEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_TERMINAL_FUSION"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_TERMINAL_FUSION"] == "1"
 
 /// Full-attention counterpart: fuses per-head Q/K RMSNorm with partial YaRN
 /// RoPE. One stock FP32 probe row carries the authoritative rotary factors,
@@ -521,7 +524,7 @@ let lagunaFusedResidualRMSNormRouterEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER"] != "0"
 
 let lagunaFusedFullQKNormYaRNEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_QK_NORM_YARN"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_QK_NORM_YARN"] == "1"
 
 /// Decode-only carrier for the two authoritative RoPE angle rows consumed by
 /// the fused Q/K kernels. At load time each attention family's own stock RoPE
@@ -3754,10 +3757,11 @@ private let lagunaGateProductSoftplusMultiTokenKernels: [Int: MLXFast.MLXFastKer
     return kernels
 }()
 
-/// Set `DARKBLOOM_FUSED_GATE_PRODUCT=0` to ablate and restore the exact
-/// four-dispatch stock chain (eager softplus + donated in-place multiply).
+/// Set `DARKBLOOM_FUSED_GATE_PRODUCT=1` to enable (default OFF to reduce M5
+/// JIT compile count; M4 sweep showed neutral decode/prefill timing). Restores
+/// the exact four-dispatch stock chain (eager softplus + donated in-place multiply).
 private let lagunaFusedGateProductEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_GATE_PRODUCT"] != "0"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_GATE_PRODUCT"] == "1"
 
 /// Returns the gated attention row for one decode token, or nil when the
 /// preconditions do not hold (caller falls back to the stock chain). The
