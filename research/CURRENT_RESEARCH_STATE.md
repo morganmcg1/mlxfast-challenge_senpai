@@ -22,22 +22,22 @@
   Priority: MoE SwiGLU (quantizedMM 2,608-line header) > QKV projection (matmul 718-line header) > QK-norm+RoPE (RMSNorm)
   Keep decode optimizations (fused QKV+g_proj, halved scales, etc.) — they use small custom kernels.
 
-## SEQUENTIAL M5 TESTING PLAN (once warmup fix builds)
-  Step 1: Merge edward PR #407 v2 (prefill QK-norm+RoPE, +2.6% prefill, +2 JIT compiles) → M5 test
-  Step 2: Merge thorfinn PR #415 (full-attn fused, +0.3-0.7% decode, +2 JIT compiles) → M5 test
-  Step 3: Merge askeladd PR #402 (kHalvedScales runtime, +0.9% score, 0 new compiles) → M5 test
-  Step 4: Merge alphonse PR #414 (XMAJOR fold, +0.3-0.5% prefill, M5-only) → M5 test
-  Step 5: Compose all winners → final M5 submission
+## M5 BUILD FIX ASSIGNMENTS (Wave 13, BASE_SHA=b9394914)
+  PR #418 (edward): Restore custom prefill MoE SwiGLU + down kernels (replaces quantizedMM 2,608-line header)
+  PR #419 (alphonse): Restore custom prefill QKV projection + QK-norm+RoPE + O-proj kernels (replaces matmul 718-line + RMSNorm)
+  PR #420 (thorfinn): Restore custom full-attention prefill+decode kernels (replaces SDPA 1,160-line header)
+  PR #402 (askeladd): kHalvedScales runtime constant (0 new compiles, ready once M5 builds)
 
-## ACTIVE ASSIGNMENTS
-  PR #407 (edward, v2): Prefill QK-norm+RoPE fusion — ACCEPTED on current base, awaiting M5 warmup fix
-  PR #402 (askeladd, v1): kHalvedScales runtime constant — WIP (draft)
-  PR #414 (alphonse, v1): XMAJOR fold revival v2 — ASSIGNED (waiting for M5 warmup fix)
-  PR #415 (thorfinn, v1): Full-attn fused recovery v2 — ASSIGNED (waiting for M5 warmup fix)
+## ON HOLD (will re-apply once M5 build is fixed)
+  PR #407 (edward v2): Prefill QK-norm+RoPE fusion — ACCEPTED on current base, waiting for M5 build fix
+  PR #414 (alphonse): XMAJOR fold — CLOSED (blocked, code ready, will re-apply)
+  PR #415 (thorfinn): Full-attn fused recovery — CLOSED (blocked, code ready, will re-apply)
+  PR #411 (thorfinn): _nax compile reduction — ACCEPTED on current base (dormant path cleanup)
 
 ## CLOSED
-  PR #412 (alphonse): LM-head RMSNorm fusion — DEAD (+2.5% decode regression, redundant per-simdgroup RMSNorm)
-  PR #411 (thorfinn): _nax compile reduction — ACCEPTED on current base (dormant path cleanup, no compile benefit)
+  PR #412 (alphonse): LM-head RMSNorm fusion — DEAD (+2.5% decode regression)
+  PR #416 (edward): Compile budget audit — Complete (confirmed root cause)
+  PR #417 (edward): Composition merge — CLOSED (pivoted to M5 build fix)
 
 ## GRID OVER-DISPATCH HYPOTHESIS: DEFINITIVELY REFUTED (PR #333 + PR #394)
 MLXFast API uses dispatch_threads(grid=TOTAL_THREADS, group=threads_per_tg).
