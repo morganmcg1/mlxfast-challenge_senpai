@@ -4011,75 +4011,35 @@ func lagunaGatedAffineOProjNVFP4Source(
     // dead `+0.0f` seed. Only a signed-zero can differ, and the `+0.0f`-seeded
     // `result[row]` plus BF16 epilogue absorb it. OFF arm keeps the seed.
     let accumDecl = seedElide ? "float accum;" : "float accum = 0.0f;"
+    let firstAccum = seedElide
+        ? "if (j == 0) {\n"
+            + "                accum =\n"
+            + "                    (x_thread[8 * j] * v04.x +\n"
+            + "                     x_thread[8 * j + 1] * v15.x +\n"
+            + "                     x_thread[8 * j + 2] * v26.x +\n"
+            + "                     x_thread[8 * j + 3] * v37.x);\n"
+            + "            } else {\n"
+            + "                accum +=\n"
+            + "                    (x_thread[8 * j] * v04.x +\n"
+            + "                     x_thread[8 * j + 1] * v15.x +\n"
+            + "                     x_thread[8 * j + 2] * v26.x +\n"
+            + "                     x_thread[8 * j + 3] * v37.x);\n"
+            + "            }"
+        : "accum +=\n"
+            + "                (x_thread[8 * j] * v04.x +\n"
+            + "                 x_thread[8 * j + 1] * v15.x +\n"
+            + "                 x_thread[8 * j + 2] * v26.x +\n"
+            + "                 x_thread[8 * j + 3] * v37.x);"
     let extract = """
-                const uint xe = c & 0x0F0F0F0Fu;
-                const uint ge = xe | (xe << 3);
-                const uint yo = c & 0xF0F0F0F0u;
-                const uint go = yo | (yo >> 3);
-                const uint p0 = (ge << 9) & 0x8E008E00u;
-                const uint p1 = (go << 8) & 0x8E008E00u;
-                const uint p2 = (ge << 1) & 0x8E008E00u;
-                const uint p3 = go & 0x8E008E00u;
+                    const uint xe = c & 0x0F0F0F0Fu;
+                    const uint ge = xe | (xe << 3);
+                    const uint yo = c & 0xF0F0F0F0u;
+                    const uint go = yo | (yo >> 3);
+                    const uint p0 = (ge << 9) & 0x8E008E00u;
+                    const uint p1 = (go << 8) & 0x8E008E00u;
+                    const uint p2 = (ge << 1) & 0x8E008E00u;
+                    const uint p3 = go & 0x8E008E00u;
     """
-    func accumulation(code: String, inputOffset: Int) -> String {
-        let firstOperator = seedElide && inputOffset == 0 ? "=" : "+="
-        return """
-            {
-                const uint c = \(code);
-                \(extract)
-                const float2 v04 = float2(as_type<half2>(p0))\(weightScale);
-                const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
-                const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
-                const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
-                accum \(firstOperator)
-                    (x_thread[\(inputOffset)] * v04.x +
-                     x_thread[\(inputOffset + 1)] * v15.x +
-                     x_thread[\(inputOffset + 2)] * v26.x +
-                     x_thread[\(inputOffset + 3)] * v37.x);
-                accum +=
-                    (x_thread[\(inputOffset + 4)] * v04.y +
-                     x_thread[\(inputOffset + 5)] * v15.y +
-                     x_thread[\(inputOffset + 6)] * v26.y +
-                     x_thread[\(inputOffset + 7)] * v37.y);
-            }
-        """
-    }
-    let scalarDeclarations = (0..<4).map { row in
-        """
-        uint current_code_\(row)_0 = ws[\(row) * (in_vec_size / 8)];
-        uint current_code_\(row)_1 = ws[\(row) * (in_vec_size / 8) + 1];
-        uint8_t current_scale_\(row) = sc[\(row) * in_vec_size_g];
-        uint next_code_\(row)_0;
-        uint next_code_\(row)_1;
-        uint8_t next_scale_\(row);
-        """
-    }.joined(separator: "\n")
-    let loadNext = (0..<4).map { row in
-        """
-            next_code_\(row)_0 = ws[block_size / 8 + \(row) * (in_vec_size / 8)];
-            next_code_\(row)_1 = ws[block_size / 8 + \(row) * (in_vec_size / 8) + 1];
-            next_scale_\(row) = sc[block_size / group_size + \(row) * in_vec_size_g];
-        """
-    }.joined(separator: "\n")
-    let rollScalars = (0..<4).map { row in
-        """
-            current_code_\(row)_0 = next_code_\(row)_0;
-            current_code_\(row)_1 = next_code_\(row)_1;
-            current_scale_\(row) = next_scale_\(row);
-        """
-    }.joined(separator: "\n")
-    let rowAccumulations = (0..<4).map { row in
-        """
-        {
-            uint8_t sbits = current_scale_\(row);
-            \(scaleDecode)
-            \(accumDecl)
-            \(accumulation(code: "current_code_\(row)_0", inputOffset: 0))
-            \(accumulation(code: "current_code_\(row)_1", inputOffset: 8))
-            result[\(row)] += scale * accum;
-        }
-        """
-    }.joined(separator: "\n")
     let gateSetup = preActivatedGate ? "" : """
     threadgroup float gt[gate_heads];
     if(lid<gate_heads){
@@ -4137,24 +4097,37 @@ func lagunaGatedAffineOProjNVFP4Source(
 
     thread float x_thread[values_per_thread];
     thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
-    \(scalarDeclarations)
 
     uint column = simd_lid * values_per_thread;
     for (uint k = 0; k < in_vec_size; k += block_size) {
         \(loadInput)
 
-        if (k + block_size < in_vec_size) {
-            \(loadNext)
+        for (uint row = 0; row < results_per_simdgroup; ++row) {
+            const device uint32_t* wl = ws + row * (in_vec_size / 8);
+            // Defer the exact E4M3 2^22 renormalization to the per-row
+            // epilogue. Every partial remains the exact 2^-22 rescaling of
+            // the control until the multiply before the existing BF16 round.
+            uint8_t sbits = sc[row * in_vec_size_g];
+            \(scaleDecode)
+            \(accumDecl)
+            #pragma unroll
+            for (uint j = 0; j < codes_per_thread; ++j) {
+                const uint c = wl[j];
+                \(extract)
+                const float2 v04 = float2(as_type<half2>(p0))\(weightScale);
+                const float2 v15 = float2(as_type<half2>(p1))\(weightScale);
+                const float2 v26 = float2(as_type<half2>(p2))\(weightScale);
+                const float2 v37 = float2(as_type<half2>(p3))\(weightScale);
+                \(firstAccum)
+                accum +=
+                    (x_thread[8 * j + 4] * v04.y +
+                     x_thread[8 * j + 5] * v15.y +
+                     x_thread[8 * j + 6] * v26.y +
+                     x_thread[8 * j + 7] * v37.y);
+            }
+            result[row] += scale * accum;
         }
 
-        // Defer the exact E4M3 2^22 renormalization to the per-row epilogue.
-        // Every partial remains the exact 2^-22 rescaling of the control until
-        // the multiply before the existing BF16 round.
-        \(rowAccumulations)
-
-        if (k + block_size < in_vec_size) {
-            \(rollScalars)
-        }
         ws += block_size / 8;
         sc += block_size / group_size;
         xp += block_size;
@@ -4176,8 +4149,7 @@ private let lagunaGatedAffineOProjNVFP4Kernels: [Int: MLXFast.MLXFastKernel] = {
         kernels[heads] = MLXFast.metalKernel(
             name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
-                + "_sb1",
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
                 "attention_output", "gate_logits", "weight_codes",
                 "weight_scales",
@@ -4279,8 +4251,7 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
-                + "_sb1",
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "weight_scales",
