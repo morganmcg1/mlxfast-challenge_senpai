@@ -1,0 +1,7 @@
+# byte accounting, base 3217f111142346e004f41fae611a8bede172a659, 2026-08-08T22:36:06Z
+## senpai/check-editable-budget.sh
+editable budget OK: current=2891164/3000000 bytes headroom=108836 growth=275/262144 files=141 (file count is diagnostic only; base=140)
+## measured per-file
+  398661 Sources/MLXFastModel/LagunaRuntimeModel.swift
+  112578 Sources/MLXFastModel/LagunaRuntimeLayers.swift
+  511239 total

@@ -2,11 +2,11 @@
 contract              : benchmark.json
 editablePaths entries : 97
 distinct files        : 141
-total bytes           : 2891618/3000000 (headroom 108382)
+total bytes           : 2891164/3000000 (headroom 108836)
 per-file cap          : 524288 (files over cap: 0)
 
 === per-entry rollup (bytes, files, entry) ===
-    691911    10  Sources/MLXFastModel
+    691457    10  Sources/MLXFastModel
     187981    25  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/gemm
     104529    10  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/steel/attn
      88309     1  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
@@ -105,7 +105,7 @@ per-file cap          : 524288 (files over cap: 0)
        146     1  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/kernels/reduce_utils.h
 
 === per-file bytes, descending ===
-    399115    125173  Sources/MLXFastModel/LagunaRuntimeModel.swift
+    398661    125627  Sources/MLXFastModel/LagunaRuntimeModel.swift
     112578    411710  Sources/MLXFastModel/LagunaRuntimeLayers.swift
      88309    435979  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp
      84383    439905  Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/quantized.cpp
