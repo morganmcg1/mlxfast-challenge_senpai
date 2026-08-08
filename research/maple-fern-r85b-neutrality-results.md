@@ -257,24 +257,67 @@ Not established:
 ## 7. What it unblocks, priced against the bound
 
 fb6 §1 priced the norm→QKV thin-boundary fusion at **−52 … −55 µs/step**
-end-to-end (already after rule 38's 40 % give-back discount), i.e.
-**−0.80 … −0.84 % of decode**, 3–4× the size of #457. fb6 also states that
-lever cannot start until per-file headroom exists, because 13,324 B does not
-carry a fused kernel source plus its dispatch plumbing.
+end-to-end after rule 38's 40 % give-back discount. fb7 withdrew rule 38 (PR
+\#473 showed the give-back is an artefact of the `DARKBLOOM_GPU_PROFILE_SPLIT=1`
+instrument, which itself costs 1642 µs/step in the shipped regime), repricing
+the lever undiscounted at **≈ −87 … −128 µs/step ⇒ ≈ −1.3 … −1.9 % score**.
+fb6 also states that lever cannot start until per-file headroom exists, because
+13,324 B does not carry a fused kernel source plus its dispatch plumbing.
 
 The comparison that matters is therefore between the headroom this delivers and
 the worst case this campaign failed to exclude:
 
 | quantity | µs/step |
 |---|---|
-| lever unblocked (advisor's figure, fb6 §1) | **−52 … −55** |
+| lever unblocked, undiscounted (fb7) | **−87 … −128** |
+| same lever under the withdrawn rule-38 discount (fb6 §1) | −52 … −55 |
 | worst case still permitted by this campaign's bound | **+9.41** |
-| ratio | **5.5 … 5.8 ×** |
+| ratio, undiscounted | **9.2 … 13.6 ×** |
 
 Even if the split sat exactly on its one-sided upper bound — a value already
 argued against by zero changed command buffers, zero changed timed-path
 instruction bodies, and a same-binary null that is larger than the effect — the
-lever it unblocks is 5.5× larger in the opposite direction. Tightening the
-bound below +9.41 changes that arithmetic by at most 9 µs/step against a
-52–55 µs/step gain, which is the concrete reason §3's ≈ 50-minute follow-up
-campaign is offered as optional rather than recommended.
+lever it unblocks is an order of magnitude larger in the opposite direction.
+Tightening the bound below +9.41 changes that arithmetic by at most 9 µs/step
+against an 87–128 µs/step gain, which is the concrete reason §3's ≈ 50-minute
+follow-up campaign is offered as optional rather than recommended. Rule 38's
+withdrawal does not touch anything else in this report: no measurement here
+used the split-profile instrument, and no number was discounted.
+
+## 8. Re-check against the moved base (fb7)
+
+fb7 moved the assignment base from `7687c2e4` to
+`4dd8410f05605cb2730bc82c56f7529fd515ce97`. `Sources`, `Vendor`, and
+`benchmark.json` are byte-identical between `3217f111` (the base every
+measurement above was taken on) and `4dd8410f`:
+
+```
+git diff --stat 3217f111 4dd8410f -- Sources Vendor benchmark.json   # empty
+```
+
+So no measurement is rebased. The budget check re-run on the carved tree
+against the **new** base reproduces the old numbers exactly, covering the
+total-surface and growth-per-review limits, not only the per-file cap:
+
+```
+$ senpai/check-editable-budget.sh 4dd8410f05605cb2730bc82c56f7529fd515ce97
+editable budget OK: current=2891164/3000000 bytes headroom=108836 growth=275/262144 files=141 (file count is diagnostic only; base=140)
+```
+
+Per-file: 398,661 B and 112,578 B against the 524,288 B cap, both measured with
+`wc -c` on the built tree (§0), not subtracted from an estimate.
+
+fb7's σ table adds a third form, `paired ABBA census, nat ratio-adjusted busy
+= 10.65 µs/step`. That is the estimator this campaign used, and this session's
+own paired `sd_d = 8.97` sits just inside it — an independent corroboration of
+the published figure rather than a conflict. The reported bound uses 8.97, the
+in-session value; substituting 10.65 would widen the one-sided upper bound from
++9.41 to 3.40 + 1.895 · 10.65 / √8 = **+10.53 µs/step**, which does not change
+any conclusion in §6 or §7.
+
+fb7 also asks for a *within-process* paired design. §3 records why that
+instrument does not exist for this treatment: a source-file split is not
+runtime-toggleable, so the two arms are necessarily different executables and
+the pairing can only be cross-process. The cross-process ABBA duplex used here
+achieved ±7.50 µs/step at n = 8, still 2.5× tighter than the within-process
+reference half-width (±19.1) quoted in fb6.
