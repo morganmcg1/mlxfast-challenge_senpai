@@ -2,6 +2,14 @@
 
 Recorded **before** any timing was run. Base `7687c2e44e6975c181444ca8d3d151ee30480a72`.
 
+> **SUPERSEDED — historical.** Advisor feedback 5 moved the assignment to base
+> `3217f111142346e004f41fae611a8bede172a659`, and feedback 6 replaced the
+> equivalence-claim rules this note pre-registered. The binding pre-registration
+> for the shipped result is
+> `research/maple-fern-r85b-neutrality-prereg.md`. This note is retained
+> unedited as the record of what was committed to in advance on the old base;
+> its outcome column is not the shipped verdict.
+
 ## Hypothesis
 
 Moving a contiguous region of `Sources/MLXFastModel/LagunaRuntimeModel.swift`

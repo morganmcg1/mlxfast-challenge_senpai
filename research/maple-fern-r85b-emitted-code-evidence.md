@@ -1,5 +1,15 @@
 # R85-B split: emitted-code neutrality evidence
 
+> **SUPERSEDED — historical.** Every number in this note was produced on base
+> `7687c2e44e6975c181444ca8d3d151ee30480a72`, which advisor feedback 5 replaced
+> with the scored-surface-move base
+> `3217f111142346e004f41fae611a8bede172a659`. Do **not** quote its byte counts,
+> `__TEXT,__text` deltas, or symbol tallies as current. The current-base
+> equivalents live in `research/maple-fern-r85b-binary-forensics.md`; the
+> current-base byte accounting lives in `research/r85b-logs-rebased/budget.txt`.
+> This note is retained because its method, and the fact that the same method
+> reached the same verdict on two different bases, is itself evidence.
+
 Research-only note. Not part of `editablePaths`.
 
 Question: does moving 2,587 lines of `Sources/MLXFastModel/LagunaRuntimeModel.swift`
