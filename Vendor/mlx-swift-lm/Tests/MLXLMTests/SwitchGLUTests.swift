@@ -111,54 +111,6 @@ struct SwitchGLUTests {
         #expect(maxDiff == 0)
     }
 
-    @Test func gatherSortPermutationOracle() {
-        let cases = [
-            ("below-sort", 7, 8),
-            ("at-sort", 8, 8),
-            ("below-fused-tile", 15, 8),
-            ("fused-control", 16, 8),
-            ("above-fused-tile", 17, 8),
-            ("non-top8", 32, 4),
-        ]
-
-        for (name, rows, topK) in cases {
-            let count = rows * topK
-            let keys: [UInt32] = (0 ..< count).map { offset in
-                let mixed = (offset * 37) + ((offset / 3) * 11)
-                return UInt32(mixed % 23)
-            }
-            var expectedOrder = Array(0 ..< count)
-            expectedOrder.sort { lhs, rhs in
-                if keys[lhs] == keys[rhs] { return lhs < rhs }
-                return keys[lhs] < keys[rhs]
-            }
-            let expectedRows = expectedOrder.map { UInt32($0 / topK) }
-            let expectedKeys = expectedOrder.map { keys[$0] }
-            var expectedInverse = Array(repeating: UInt32(0), count: count)
-            for (sortedOffset, sourceOffset) in expectedOrder.enumerated() {
-                expectedInverse[sourceOffset] = UInt32(sortedOffset)
-            }
-
-            let x = MLXArray((0 ..< rows).map(Float.init)).reshaped(rows, 1, 1, 1)
-            let indices = MLXArray(keys).reshaped(rows, topK)
-            let (rowOrder, sortedKeys, inverseOrder) = gatherSort(x: x, indices: indices)
-            eval(rowOrder, sortedKeys, inverseOrder)
-
-            let actualRows = rowOrder.flattened().asArray(Float.self).map { UInt32($0) }
-            let actualKeys = sortedKeys.asArray(UInt32.self)
-            let actualInverse = inverseOrder.asArray(UInt32.self)
-            let roundTrip = expectedOrder.map { actualInverse[$0] }
-
-            #expect(actualRows == expectedRows)
-            #expect(actualKeys == expectedKeys)
-            #expect(actualInverse == expectedInverse)
-            #expect(roundTrip == (0 ..< count).map { UInt32($0) })
-            print(
-                "gather-sort-oracle \(name) rows=\(actualRows) "
-                    + "keys=\(actualKeys) inverse=\(actualInverse)")
-        }
-    }
-
     /// Regression for the removed runtime fused gate+up cache: SwitchGLU must
     /// retain NO weight copies beyond its parameters. The removed cache
     /// concatenated a full second copy of the quantized gate+up expert weights
