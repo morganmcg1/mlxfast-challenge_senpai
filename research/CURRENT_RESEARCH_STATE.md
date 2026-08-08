@@ -6,11 +6,21 @@
 - Last M5 success: f790e33f (score 2.5213). 45 consecutive M5 build failures.
 - Leaderboard #1: yudduy 2.6063. Our promoted: 2.5888. Gap: ~0.67%.
 
-## M5 BUILD CRISIS — ROOT CAUSE FOUND
-  Root cause: LagunaRuntimeWeights.swift warmup prefill shape cut 512→2 tokens + MLX_MAX_OPS_PER_BUFFER cut 400→200 during LRM refactoring.
-  2-token warmup doesn't pre-compile 512-token PSOs for standard MLX ops → M5 JIT-compiles during scored run → ~900s timeout.
-  Fix applied (27fb31c0): restore 512-token warmup + MLX_MAX_OPS=400.
-  M5 submission 6b516322: VALIDATING (submitted 07:00 UTC)
+## M5 BUILD CRISIS — ROOT CAUSE FOUND (v2)
+  46 consecutive M5 build failures since f790e33f (last M5 success, Aug 7 18:51 UTC).
+  Warmup fix (512 tokens + MLX_MAX_OPS=400) was necessary but NOT sufficient (6b51632 FAILED).
+
+  TRUE ROOT CAUSE (confirmed by subagent analysis):
+  The LRM "nuclear fallback" refactoring (a2cb0a0a) replaced 31 custom Metal kernels with standard MLX ops.
+  While JIT compile COUNT is similar (~20-30 in both), JIT compile COST per compile is 5-10x higher:
+  - Standard MLX ops compile from large shared headers: quantized.h (2,608 lines), steel_attention (1,160 lines), steel_gemm (718 lines)
+  - Custom kernels compile from small source strings (30-300 lines)
+  - Total Metal source compiled during warmup is 5-10x larger in current code vs f790e33f
+  - This exceeds the M5 ~900s compile timeout
+
+  FIX: Restore custom prefill kernels to replace standard MLX ops on the prefill path.
+  Priority: MoE SwiGLU (quantizedMM 2,608-line header) > QKV projection (matmul 718-line header) > QK-norm+RoPE (RMSNorm)
+  Keep decode optimizations (fused QKV+g_proj, halved scales, etc.) — they use small custom kernels.
 
 ## SEQUENTIAL M5 TESTING PLAN (once warmup fix builds)
   Step 1: Merge edward PR #407 v2 (prefill QK-norm+RoPE, +2.6% prefill, +2 JIT compiles) → M5 test
