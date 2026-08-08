@@ -1,0 +1,93 @@
+mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast: narrow-scales lane-major pairwise L2 escaped 34/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L2 escaped 80/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L3 escaped 55/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L3 escaped 33/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L4 escaped 51/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L4 escaped 110/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L5 escaped 175/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L5 escaped 36/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L6 escaped 43/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L6 escaped 52/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L7 escaped 29/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L7 escaped 90/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L8 escaped 163/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L8 escaped 107/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L9 escaped 16/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L9 escaped 54/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L12 escaped 52/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L12 escaped 5/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L13 escaped 79/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L13 escaped 70/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L14 escaped 126/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L14 escaped 37/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L15 escaped 23/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L15 escaped 23/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L16 escaped 98/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L16 escaped 10/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L17 escaped 95/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L17 escaped 30/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L18 escaped 18/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L18 escaped 11/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L19 escaped 29/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L19 escaped 16/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L20 escaped 17/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L20 escaped 5/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L21 escaped 55/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L21 escaped 10/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L22 escaped 25/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L22 escaped 2/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L23 escaped 25/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L23 escaped 17/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L24 escaped 211/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L24 escaped 14/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L25 escaped 149/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L25 escaped 60/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L26 escaped 45/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L26 escaped 11/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L27 escaped 56/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L27 escaped 21/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L28 escaped 65/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L28 escaped 27/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L29 escaped 49/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L29 escaped 48/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L30 escaped 51/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L30 escaped 16/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L31 escaped 85/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L31 escaped 31/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L32 escaped 20/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L32 escaped 11/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L33 escaped 61/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L33 escaped 21/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L34 escaped 46/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L34 escaped 18/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L35 escaped 37/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L35 escaped 25/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L36 escaped 30/8192: qkv
+mlxfast: narrow-scales lane-major pairwise L36 escaped 28/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L37 escaped 46/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L37 escaped 52/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L38 escaped 95/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L38 escaped 43/2048: oproj
+mlxfast: narrow-scales lane-major pairwise L39 escaped 189/10240: qkv
+mlxfast: narrow-scales lane-major pairwise L39 escaped 57/2048: oproj
+mlxfast: lm_head prune active (coarse copy resident)
+mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=0 tg_requested=64 tg_launched=64 threads_per_tg=512 rows_per_sg=10 threadgroup_bytes=0
+qkv-geometry h48 rows=8192 sg_per_tg=16 fuse=0 tg_requested=64 tg_launched=64 threads_per_tg=512 rows_per_sg=8 threadgroup_bytes=0
+mlxfast: narrow-scales lane-major: qkv h48
+mlxfast: narrow-scales lane-major: oproj h48
+mlxfast: narrow-scales lane-major: qkv h64
+mlxfast: narrow-scales lane-major: oproj h64

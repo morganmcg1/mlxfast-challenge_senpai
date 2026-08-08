@@ -1,0 +1,144 @@
+=== 17:22:14 a0 sg=2 nf=0 tg=0 fault=0
+exit=0
+qkv-geometry h48 rows=8192 sg_per_tg=2 fuse=0 tg_requested=0 tg_launched=4096 threads_per_tg=64 rows_per_sg=1 threadgroup_bytes=0
+qkv-geometry h64 rows=10240 sg_per_tg=2 fuse=0 tg_requested=0 tg_launched=5120 threads_per_tg=64 rows_per_sg=1 threadgroup_bytes=0
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=24 mean=8.206 ms median=8.152 ms p10=8.138 ms p90=8.186 ms min=8.130 ms max=9.318 ms total=0.197 s
+=== 17:22:56 G640 sg=16 nf=0 tg=0 fault=0
+exit=0
+qkv-geometry h48 rows=8192 sg_per_tg=16 fuse=0 tg_requested=0 tg_launched=512 threads_per_tg=512 rows_per_sg=1 threadgroup_bytes=0
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=0 tg_requested=0 tg_launched=640 threads_per_tg=512 rows_per_sg=1 threadgroup_bytes=0
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=24 mean=8.189 ms median=8.137 ms p10=8.104 ms p90=8.250 ms min=8.077 ms max=9.300 ms total=0.197 s
+=== 17:23:38 R640 sg=16 nf=3 tg=0 fault=0
+exit=0
+qkv-geometry h48 rows=8192 sg_per_tg=16 fuse=3 tg_requested=0 tg_launched=512 threads_per_tg=512 rows_per_sg=1 threadgroup_bytes=4228
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=3 tg_requested=0 tg_launched=640 threads_per_tg=512 rows_per_sg=1 threadgroup_bytes=4228
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=24 mean=8.251 ms median=8.198 ms p10=8.172 ms p90=8.263 ms min=8.164 ms max=9.376 ms total=0.198 s
+=== 17:24:21 N640 sg=16 nf=1 tg=0 fault=0
+exit=0
+qkv-geometry h48 rows=8192 sg_per_tg=16 fuse=1 tg_requested=0 tg_launched=512 threads_per_tg=512 rows_per_sg=1 threadgroup_bytes=4228
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=1 tg_requested=0 tg_launched=640 threads_per_tg=512 rows_per_sg=1 threadgroup_bytes=4228
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=24 mean=8.176 ms median=8.107 ms p10=8.081 ms p90=8.208 ms min=8.066 ms max=9.397 ms total=0.196 s
+=== 17:25:04 G128 sg=16 nf=0 tg=128 fault=0
+exit=0
+qkv-geometry h48 rows=8192 sg_per_tg=16 fuse=0 tg_requested=128 tg_launched=128 threads_per_tg=512 rows_per_sg=4 threadgroup_bytes=0
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=0 tg_requested=128 tg_launched=128 threads_per_tg=512 rows_per_sg=5 threadgroup_bytes=0
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=24 mean=8.382 ms median=8.330 ms p10=8.306 ms p90=8.381 ms min=8.297 ms max=9.465 ms total=0.201 s
+=== 17:25:46 R128 sg=16 nf=3 tg=128 fault=0
+exit=0
+qkv-geometry h48 rows=8192 sg_per_tg=16 fuse=3 tg_requested=128 tg_launched=128 threads_per_tg=512 rows_per_sg=4 threadgroup_bytes=4228
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=3 tg_requested=128 tg_launched=128 threads_per_tg=512 rows_per_sg=5 threadgroup_bytes=4228
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=24 mean=8.393 ms median=8.341 ms p10=8.289 ms p90=8.418 ms min=8.277 ms max=9.521 ms total=0.201 s
+=== 17:26:29 N128 sg=16 nf=1 tg=128 fault=0
+exit=0
+qkv-geometry h48 rows=8192 sg_per_tg=16 fuse=1 tg_requested=128 tg_launched=128 threads_per_tg=512 rows_per_sg=4 threadgroup_bytes=4228
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=1 tg_requested=128 tg_launched=128 threads_per_tg=512 rows_per_sg=5 threadgroup_bytes=4228
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=24 mean=8.215 ms median=8.155 ms p10=8.132 ms p90=8.256 ms min=8.057 ms max=9.442 ms total=0.197 s
+=== negative control: T=256 is not an exact divisor of h64 rows (10240)
+=== 17:27:11 neg_tg256 sg=16 nf=1 tg=256 fault=0
+exit=1
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=1 tg_requested=256 tg_launched=256 threads_per_tg=512 rows_per_sg=2 threadgroup_bytes=4228
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+=== negative control: injected row-map fault at the winning geometry
+=== 17:27:53 neg_fault sg=16 nf=1 tg=128 fault=1
+exit=0
+qkv-geometry h48 rows=8192 sg_per_tg=16 fuse=1 tg_requested=128 tg_launched=128 threads_per_tg=512 rows_per_sg=4 threadgroup_bytes=4228
+qkv-geometry h64 rows=10240 sg_per_tg=16 fuse=1 tg_requested=128 tg_launched=128 threads_per_tg=512 rows_per_sg=5 threadgroup_bytes=4228
+   1 mlxfast: narrow-scales built lane-major pairwise: oproj
+   1 mlxfast: narrow-scales built lane-major pairwise: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 113/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L0 escaped 29/8192: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 22/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L1 escaped 84/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 36/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L10 escaped 71/2048: oproj
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 13/10240: qkv
+   1 mlxfast: narrow-scales lane-major pairwise L11 escaped 14/2048: oproj
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=24 mean=8.256 ms median=8.196 ms p10=8.162 ms p90=8.258 ms min=8.161 ms max=9.443 ms total=0.198 s
+=== 17:28:36 stage0 done

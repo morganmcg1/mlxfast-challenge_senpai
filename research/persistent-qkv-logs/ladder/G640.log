@@ -1,0 +1,10 @@
+worker up in 40.9s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717819213867188 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+decode_begin seed forward: 548.60 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.285 8.237 8.158 8.129 8.173 8.156 8.157 8.156
+decode steps=192 mean=8.166 ms median=8.159 ms p10=8.115 ms p90=8.198 ms min=8.036 ms max=9.285 ms total=1.568 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.721099853515625 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/nez309/ladder/G640.err

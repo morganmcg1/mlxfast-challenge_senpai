@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""Publish the PR #309 persistent grid-stride QKV campaign to W&B.
+
+    python3 research/nezuko_pr309_wandb.py ABBA_DIR STAGE0_DIR \
+        [--warmup 8] [--trim 0.05] [--decision KILL] [--ladder-dir DIR]
+
+Re-uses `research/nezuko_pr309_stats.py` as a library so the numbers published
+to W&B are byte-identical to the ones printed in the report, then attaches the
+raw per-step traces, the Stage 0 geometry evidence, both negative controls and
+the threadgroup-count ladder as a single artifact.
+"""
+import argparse
+import importlib.util
+import math
+import os
+import platform
+import re
+import statistics
+import subprocess
+import sys
+from pathlib import Path
+
+import wandb
+
+ROOT = Path(__file__).resolve().parent.parent
+SPEC = importlib.util.spec_from_file_location(
+    "pr309_stats", ROOT / "research" / "nezuko_pr309_stats.py"
+)
+S = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(S)
+
+# us/step -> percent of decode score, calibrated in PR #298 on this host.
+PCT_PER_US = 0.015280
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("abba_dir")
+    ap.add_argument("stage0_dir")
+    ap.add_argument("--warmup", type=int, default=8)
+    ap.add_argument("--trim", type=float, default=0.05)
+    ap.add_argument("--decision", default="UNSET")
+    ap.add_argument("--ladder-dir", default=None)
+    args = ap.parse_args()
+
+    runs = [r for r in S.load(args.abba_dir, args.warmup, args.trim) if r[1] > 0]
+    if not runs:
+        print("no usable runs", file=sys.stderr)
+        return 1
+    blocks = sorted({r[1] for r in runs})
+    effect, se_diff, odf, rsd = S.ols(runs, blocks)
+    _, deltas = S.block_paired(runs, blocks)
+
+    chip = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
+                          capture_output=True, text=True).stdout.strip()
+    gpu_cores = subprocess.run(
+        ["bash", "-c",
+         "system_profiler SPDisplaysDataType 2>/dev/null | "
+         "awk -F': ' '/Total Number of Cores/{print $2; exit}'"],
+        capture_output=True, text=True).stdout.strip()
+
+    os.environ.setdefault("WANDB_DIR", "/tmp/nezuko-pr309-wandb")
+    os.makedirs(os.environ["WANDB_DIR"], exist_ok=True)
+
+    run = wandb.init(
+        project="mlxfast-maple",
+        entity="wandb-applied-ai-team",
+        name="nezuko-pr309-persistent-gridstride-qkv",
+        job_type="decode-abba",
+        tags=["pr309", "maple-nezuko", "persistent-gridstride-qkv", "stage2"],
+        config={
+            "assignment_id": "maple-2026-08-07q-persistent-gridstride-qkv",
+            "revision_id": "r1",
+            "pr": 309,
+            "base_sha": "63ab67c888e1892086b7b5b623de4dd0ebe68c90",
+            "host_chip": chip,
+            "host_gpu_cores": gpu_cores,
+            "host_os": platform.mac_ver()[0],
+            "memory_profile": "low",
+            "blocks": len(blocks),
+            "runs": len(runs),
+            "steps_per_run_kept": runs[0][5],
+            "warmup_steps_dropped": args.warmup,
+            "upper_trim_frac": args.trim,
+            "arms": S.ARMS,
+            "simdgroups_per_tg": 16,
+            "total_threadgroups_persistent": 128,
+            "rows_h64": 10240,
+            "rows_h48": 8192,
+            "rows_per_sg_h64_persistent": 5,
+            "rows_per_sg_h48_persistent": 4,
+            "pct_per_us_per_step": PCT_PER_US,
+        },
+    )
+
+    summary = {"residual_sd_us": rsd, "residual_df": odf}
+    ref_us = statistics.mean([r[3] for r in runs if r[2] == S.REF])
+    # Prefer this campaign's own anchor over the PR #298 constant: the two
+    # disagree by ~25%, and only the in-campaign value is same-session paired.
+    pct_per_us = 100.0 / ref_us
+    summary["pct_per_us_measured"] = pct_per_us
+    summary["pct_per_us_pr298"] = PCT_PER_US
+    for arm in S.ARMS:
+        ms = [r[3] for r in runs if r[2] == arm]
+        if ms:
+            summary[f"arm/{arm}/mean_us"] = statistics.mean(ms)
+            summary[f"arm/{arm}/n"] = len(ms)
+            summary[f"arm/{arm}/sd_us"] = (statistics.stdev(ms) if len(ms) > 1
+                                           else float("nan"))
+    for name, a, b, _ in S.CONTRASTS:
+        m = effect(a) - effect(b)
+        se, _df = se_diff(a, b)
+        h = S.t95(odf) * se
+        key = f"contrast/{name}"
+        summary[f"{key}/fe_mean_us"] = m
+        summary[f"{key}/fe_se_us"] = se
+        summary[f"{key}/fe_t"] = m / se if se else float("inf")
+        summary[f"{key}/fe_ci_lo_us"] = m - h
+        summary[f"{key}/fe_ci_hi_us"] = m + h
+        summary[f"{key}/fe_pct_of_decode"] = -m * pct_per_us
+        d = deltas.get(name, [])
+        if len(d) >= 2:
+            bm = statistics.mean(d)
+            bse = statistics.stdev(d) / math.sqrt(len(d))
+            bh = S.t95(len(d) - 1) * bse
+            summary[f"{key}/bp_mean_us"] = bm
+            summary[f"{key}/bp_ci_lo_us"] = bm - bh
+            summary[f"{key}/bp_ci_hi_us"] = bm + bh
+
+    stage0 = Path(args.stage0_dir)
+    diverge = {}
+    for log in sorted(stage0.glob("*.log")):
+        txt = log.read_text(errors="replace")
+        m = re.search(r"teacher-forced greedy tokens: (\d+) divergences", txt)
+        diverge[log.stem] = int(m.group(1)) if m else -1
+    for tag, n in diverge.items():
+        summary[f"stage0/divergences/{tag}"] = n
+    # The stage is only interpretable if the injected store-row fault is caught
+    # at both the persistent and the reference geometry, and if the
+    # non-divisible grid is refused outright.
+    faults_caught = all(
+        diverge.get(t, -1) > 0 for t in ("neg_fault", "neg_fault_a0"))
+    tg256_refused = diverge.get("neg_tg256", -1) < 0
+    summary["stage0/fault_control_diverged"] = faults_caught
+    summary["stage0/tg256_refused"] = tg256_refused
+    summary["stage0/valid"] = faults_caught and tg256_refused
+    timed = [t for t in diverge if not t.startswith("neg_")]
+    summary["stage0/timed_arms_all_clean"] = bool(timed) and all(
+        diverge[t] == 0 for t in timed)
+    summary["decision"] = args.decision
+
+    ladder = sorted(Path(args.ladder_dir).glob("*.log")) if args.ladder_dir else []
+    ladder_medians = {}
+    for log in ladder:
+        txt = log.read_text(errors="replace")
+        m = re.search(r"^decode steps=\S+ .*?median=([\d.]+) ms", txt, re.M)
+        if not m:
+            continue
+        us = float(m.group(1)) * 1000.0
+        summary[f"ladder/{log.stem}/median_us"] = us
+        err = log.with_suffix(".err")
+        g = re.search(r"qkv-geometry h64 .*?tg_launched=(\d+) .*?rows_per_sg=(\d+)",
+                      err.read_text(errors="replace") if err.exists() else "")
+        if g:
+            summary[f"ladder/{log.stem}/tg_launched"] = int(g.group(1))
+            summary[f"ladder/{log.stem}/rows_per_sg_h64"] = int(g.group(2))
+        d = re.search(r"greedy tokens: (\d+) divergences", txt)
+        summary[f"ladder/{log.stem}/divergences"] = int(d.group(1)) if d else -1
+        ladder_medians.setdefault(log.stem.rstrip("b"), []).append(us)
+    if ladder_medians:
+        # Palindromic order: each rung has an A and a B replicate, so the
+        # spread between them is the session-drift control.
+        for tag, vals in ladder_medians.items():
+            summary[f"ladder/{tag}/replicate_mean_us"] = statistics.mean(vals)
+            summary[f"ladder/{tag}/replicate_spread_us"] = max(vals) - min(vals)
+        full = statistics.mean(ladder_medians.get("G640", [float("nan")]))
+        for tag, vals in ladder_medians.items():
+            summary[f"ladder/{tag}/delta_vs_full_us"] = (
+                statistics.mean(vals) - full)
+        summary["ladder/all_clean"] = all(
+            summary.get(f"ladder/{p.stem}/divergences", -1) == 0 for p in ladder)
+
+    run.log({k: v for k, v in summary.items() if isinstance(v, (int, float, bool))})
+    run.summary.update(summary)
+
+    art = wandb.Artifact("pr309-persistent-gridstride-qkv", type="benchmark")
+    for p in sorted(Path(args.abba_dir).glob("*.steps")):
+        art.add_file(str(p), name=f"abba/{p.name}")
+    for p in sorted(stage0.glob("*.log")):
+        art.add_file(str(p), name=f"stage0/{p.name}")
+    for p in ladder:
+        art.add_file(str(p), name=f"ladder/{p.name}")
+        # The geometry proof (tg_launched, rows_per_sg) is on stderr.
+        if p.with_suffix(".err").exists():
+            art.add_file(str(p.with_suffix(".err")), name=f"ladder/{p.stem}.err")
+    run.log_artifact(art)
+
+    print(f"WANDB_RUN_ID={run.id}")
+    print(f"WANDB_RUN_URL={run.url}")
+    run.finish()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
