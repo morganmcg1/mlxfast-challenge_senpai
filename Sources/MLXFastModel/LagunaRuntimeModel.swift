@@ -3758,8 +3758,6 @@ private let lagunaPrefillTransposeGateMaterializerKernels: [Int: MLXFast.MLXFast
 
 private let lagunaPrefillTransposeGateMaterializerEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_TRANSPOSE_GATE_MATERIALIZER"] != "0"
-private let lagunaPrefillTransposeGateMaterializerTrace =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_TRANSPOSE_GATE_TRACE"] == "1"
 
 func lagunaPrefillTransposeGateMaterialized(
     attentionOutput: MLXArray, gateValues: MLXArray, heads: Int
@@ -3771,11 +3769,6 @@ func lagunaPrefillTransposeGateMaterialized(
         gateValues.dtype == .bfloat16,
         gateValues.shape == [1, 512, heads]
     else { return nil }
-
-    if lagunaPrefillTransposeGateMaterializerTrace {
-        let message = "prefill_transpose_gate_materializer hit H=\(heads) L=512\n"
-        FileHandle.standardError.write(Data(message.utf8))
-    }
 
     let vectorsPerHead = LagunaConstants.headDim / 4
     return kernel(
