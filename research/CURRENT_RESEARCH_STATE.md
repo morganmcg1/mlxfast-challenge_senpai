@@ -1,17 +1,18 @@
 # SENPAI Research State
 
-**Updated 2026-08-09 00:40 UTC — round 88.
-`BASE_SHA = 3217f111142346e004f41fae611a8bede172a659`** = the adopted organizer
-promoted frontier (see "FRONTIER ADOPTION" below), plus the research-only merge
-of #458, plus **the first real scored win banked on top of the frontier (#457,
-+0.2358 % score)**. Budget on this base:
+**Updated 2026-08-09 ~01:20 UTC — round 89.
+`BASE_SHA = 098cfe0b935b87912e537ae29e21fd6339bafca8`** (doc-only, on top of
+the scored-surface base `3217f111142346e004f41fae611a8bede172a659`) = the
+adopted organizer promoted frontier (see "FRONTIER ADOPTION" below), plus the
+research-only merge of #458, plus **the first real scored win banked on top of
+the frontier (#457, +0.2358 % score)**. Budget on this base:
 `current=2890889/3000000 headroom=109111 growth=0/262144 files=140`, and
 `Sources/MLXFastModel/LagunaRuntimeModel.swift` is **510,964 / 524,288 B —
 13,324 B of per-file headroom**, which is why #456 still exists.
 
 Base chain: `cc5688d0` → `f64456dd` (#452) → `6ada66c9` (frontier adoption) →
 `7687c2e4` (#458) → `c15740be` → `b6800f30` → `417f42c4` (#460) →
-**`3217f111` (#457)**.
+`3217f111` (#457) → **`098cfe0b` (doc-only)**.
 
 Leaderboard re-checked round 88: current best still **2.61650354381456 @
 `c5b0a13`** (the frontier we adopted). Because our base *is* the frontier, a
@@ -19,6 +20,156 @@ base-only submission scores exactly 2.6165 and returns `rejected`. **Promotion
 now requires frontier + a real win, and #457 is the first such win banked.**
 
 ---
+
+## ⭐⭐⭐ ROUND 89 — a kernel boundary is a SCHEDULING event, not a bandwidth event
+
+Source: **#462** (nezuko, closed unmerged as designed — it is a deliberate
+deoptimizer, not a candidate). W&B
+[`o3ogyevp`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/o3ogyevp),
+42 runs, `status: succeeded`. All timing on `7687c2e4`; accepted on the current
+base because the estimand is a slope difference and the #457 shift enters only
+as an intercept.
+
+### (a) ⭐⭐⭐ The in-situ boundary price, and its decomposition
+
+One compiled binary, env-gated `DARKBLOOM_R86_MODE` / `_INSERTS`, `k ∈
+{0,80,160,320,640}` no-op boundaries inserted into the **real** 40-layer decode
+step. WIDE = `y*one` on the live `[1,1,2048]` BF16 hidden state (4,096 B, in
+situ); TINY = `t*one` on a detached `[1]` BF16 (2 B).
+
+| quantity | value (M4 Pro) |
+|---|---|
+| **WIDE boundary** | **1.4064 µs [1.3163, 1.4964]** |
+| TINY boundary | 0.7258 µs [0.5275, 0.9241] |
+| `d = slope(WIDE) − slope(TINY)` | 0.6806 µs [0.4628, 0.8984] |
+| WIDE/TINY ratio | 1.94× (prereg predicted 8.0× — **miss**) |
+
+**Decomposition of the 1.4064 µs WIDE boundary:**
+
+| term | value | share |
+|---|---|---|
+| byte term at 4,096 B | 0.018 µs | **1.3 %** |
+| fixed per-dispatch `c_fixed` | 0.315 µs | **22.4 %** |
+| **serialization / ordering** | **1.073 µs** | **76.3 %** |
+
+Size sweep 2 B … 4 MiB gives the large-`W` limb `0.315 + 4.496e−06 × bytes`,
+i.e. `BW_eff` **444.8 GB/s** round-trip.
+
+**⇒ A boundary costs what it SERIALISES, not what it drains and not what it
+launches.** Use `1.4064 µs` as *the* boundary price in every future NET
+calculation on a live hidden state.
+
+### (b) ⭐⭐ Five independent methods converge on ≈1.41 µs/boundary
+
+| source | estimate (µs/boundary) |
+|---|---|
+| #268 | 1.4234 ± 0.0256 |
+| R85-D (#458) | 1.4140 ± 0.0093 |
+| #269 | 1.233 [0.920, 1.545] |
+| #462 per-kernel census | 1.398 |
+| #462 in-situ ladder | 1.4064 ± 0.0901 |
+
+Four different rigs, one number. This is now the most strongly triangulated
+constant in the programme.
+
+### (c) ⚠️ SUPERSEDED: `c_issue ≈ 0.17 µs` and "the byte axis beats the count axis 7.7 : 1"
+
+#458's fitted `c_issue ≈ 0.17 µs` is **8.3× too small**; the correct fixed
+per-dispatch term is `c_fixed = 0.315 µs`, and it is only 22.4 % of the story.
+#458's `c_drain ≈ 1.24 µs per 4 KiB` was numerically close to the truth **for
+the wrong reason** — at 4 KiB the genuine byte term is 0.018 µs, so #458's
+"drain" was almost entirely mis-labelled serialization. It happened to fit
+because the ladder only varied bytes at one working point.
+
+**Therefore the round-87 slogan "the byte axis beats the count axis 7.7 : 1" is
+withdrawn.** The true statement is: *both* axes are minor; the boundary is
+dominated by an ordering term that scales with neither. See the R85-D section
+below, which now carries a supersession note.
+
+Practical consequence: a fusion that removes a boundary is worth ~1.41 µs
+**regardless of how many bytes it saves**, and shaving bytes across an existing
+boundary buys almost nothing (4.496e−06 µs/B ⇒ a 4 KiB saving is 18 ns).
+
+### (d) ⭐⭐⭐ §2.5 — give-back does NOT reproduce when the binary is held fixed
+
+Zero extra GPU time; the most valuable result in the PR.
+
+Six command buffers containing **no inserted op in any arm** (17.55 % of
+decode) moved **−2.20 µs/step** (WIDE k=640 vs k=0) and **−2.70 µs/step**
+(TINY), against a **±8.2 µs/step** null built from three independent k=0 arms.
+Both inside the null; both the **wrong sign** for a give-back. As a fraction of
+the 900.1 µs/step gross intervention at k=640: **−0.24 % (±0.9 %)**, versus the
+**+42 %** measured in #457.
+
+All seven arms share **one binary and one Metal pipeline set by construction**,
+so nothing is recompiled or re-ordered between arms.
+
+- **H2 (DVFS / power / clock)** predicts give-back scales with **workload**.
+  #462 swung workload by 900 µs/step and saw nothing. **H2 takes a large hit.**
+- **H1 (JIT pipeline-creation ordering)** predicts give-back tracks
+  **recompilation**. #462 held recompilation fixed and saw nothing — exactly
+  H1's prediction. **H1 is unrefuted and is now the leading explanation.**
+
+Revised priors handed to #473: **H1 0.40 / H3 0.35 / H4 0.10 / H5 0.10 / H2
+0.05** (was H3 0.45 / H1 0.25 / H2 0.10 / H4 0.10 / H5 0.10). Frieren has been
+told to **promote A2 (deterministic full prewarm) to first arm after A0** — it
+is both the most probable mechanism and the only submittable arm in her set —
+and to **demote A3 (barrier dose-response)**, which #462 has effectively
+already run at a larger dose with a tighter null.
+
+⚠️ Open caveat: #462's untouched pool is six command buffers, while #457's
+give-back concentrated 73 % of itself into **one** kernel
+(`laguna_gate_sp_h64_v1`, dispatched `LRM:5815`). Whether that kernel sits
+inside #462's pool is unresolved and frieren must check it before treating the
+two nulls as commensurable.
+
+### (e) ⭐⭐ Two sigmas, not one — refinement of standing rule 40
+
+| design | σ (µs/step) | source |
+|---|---|---|
+| **within-process**, arms share one process | **19.5** (df=11) | #462 §7 |
+| **cross-process**, arm = fresh process | **48.0 / 49.0** | frieren #457, tanjiro #460 |
+
+`n ≥ 2·(1.96·48/E)²` reproduces all three advisor anchors; 54.8 µs needs 6
+runs/arm cross-process. But #462's ladder resolves a 40-boundary intervention
+to **±3.6 µs/step — 12.3× finer than an n=3 two-arm A/B**, because a slope over
+five rungs inside one process is a fundamentally better estimator than a
+two-arm mean difference across processes.
+
+**⇒ Binding: state which σ applies to your design, and prefer within-process
+paired/ladder designs for anything below ~80 µs/step.** Most of our historical
+"underpowered" verdicts were a design choice, not a hardware limit.
+
+### (f) The norm→QKV un-fusion is now priced — gate MET at PARTIAL
+
+`d = 0.6806` falls in the prereg PARTIAL band `0.35 ≤ d < 1.00`. The intervals
+`[0.4628, 0.8984]` and the predicted `[0.92, 1.46]` do **not** overlap, and the
+student wrote a re-audit of the prediction (§1.5) rather than widening the
+band — the correct response.
+
+| quantity | value |
+|---|---|
+| kernel-level gross | −196.5 µs/step |
+| kernel-level net | −124 … −128 µs/step |
+| **end-to-end after the 40 % give-back discount** | **−52 … −55 µs/step = −0.80 … −0.84 %** |
+| break-even | moves 3.65 % → **6.08 %** |
+| margin | 3.3× → **≈2.0×** |
+
+**Recommendation unchanged: proceed. The prize is roughly half what we
+booked.** Still gated on #456's byte headroom.
+
+### (g) What this changes about lever selection
+
+1. **Boundary-removal levers are worth ~1.41 µs each**, flat. Stop weighting
+   them by bytes moved.
+2. **Byte-shaving across an existing boundary is dead as a mechanism class on
+   this axis** — 4.5 ns/KiB. (Byte shaving still matters for the *streaming*
+   pool, which is a different mechanism; do not confuse the two.)
+3. **Latency-hiding levers get a promotion.** If 76.3 % of a boundary is
+   ordering, then hoisting an independent load across a barrier attacks the
+   dominant term without removing a kernel. This is why **Lever 3 was assigned
+   immediately** as #475.
+
 
 ## ⭐⭐⭐ ROUND 88 — the 42 % give-back law, and why per-kernel wins are not end-to-end wins
 
@@ -880,16 +1031,28 @@ t-stat**.
 #458 built a synthetic ladder in the live decode glue pool and fitted the three
 components of a boundary separately. On M4 Pro:
 
+> 🔴 **PARTIALLY SUPERSEDED BY ROUND 89 (c) — read that first.** #462's
+> two-limb in-situ ladder shows the fixed dispatch cost is **0.315 µs**, not
+> `c_issue ≈ 0.17 µs` (the old figure is **8.3× too small** once the
+> ordering/serialization term is separated out), and it withdraws the
+> "byte axis beats the count axis 7.7 : 1" slogan outright. `c_drain ≈ 1.24 µs
+> per 4 KiB` was numerically close for the wrong reason: the term it captured
+> is **ordering**, not draining, and it does **not** scale with bytes
+> (4.5 ns/KiB above the fixed cost). Items 1–3 below and the NET selection rule
+> survive intact; only the two struck rows and the 7.7 : 1 slogan are withdrawn.
+
 | component | symbol | measured | note |
 |---|---|---|---|
-| fixed issue/launch of one extra dispatch | `c_issue` | **≈ 0.17 µs** | agrees with #268's 0.1231 ± 0.0481 residue |
-| draining/refilling one 4 KiB dependent round trip | `c_drain` | **≈ 1.24 µs per 4 KiB** | the dominant term |
-| command-buffer boundary, packed | `c_CB` | **≤ 0.14 µs** | negligible when MLX packs |
-| command-buffer boundary, SPLIT mode | `c_CB` | **≈ 1.7 µs** | only reachable by forcing a split |
+| ~~fixed issue/launch of one extra dispatch~~ | ~~`c_issue`~~ | ~~**≈ 0.17 µs**~~ | 🔴 **WITHDRAWN.** Round 89 (c) measures 0.315 µs fixed |
+| ~~draining/refilling one 4 KiB dependent round trip~~ | ~~`c_drain`~~ | ~~**≈ 1.24 µs per 4 KiB**~~ | 🔴 **WITHDRAWN as a byte law.** The 1.073 µs is ordering, byte-independent |
+| command-buffer boundary, packed | `c_CB` | **≤ 0.14 µs** | negligible when MLX packs; still stands |
+| command-buffer boundary, SPLIT mode | `c_CB` | **≈ 1.7 µs** | only reachable by forcing a split; still stands |
 
-**⭐ The byte axis beats the count axis 7.7 : 1.** A boundary costs what it
-*drains*, not what it *launches* — this is the quantitative form of #268's
-property (2). Decode is **GPU-busy-bound**, not launch-bound.
+**~~⭐ The byte axis beats the count axis 7.7 : 1.~~** 🔴 **WITHDRAWN by round
+89 (c).** The correct statement is: a boundary costs **1.4064 µs flat**, of
+which only **1.3 %** is bytes. A boundary costs what it *orders*, not what it
+*drains* and not what it *launches*. Decode is still **GPU-busy-bound**, not
+launch-bound — that part of #268's property (2) survives.
 
 Three doctrine changes follow, and they are binding on every future assignment:
 
@@ -925,17 +1088,24 @@ A candidate with `R = 1` (redundancy-free — e.g. producer and consumer share
 the identical decomposition) is worth an order of magnitude more than a
 same-gross candidate with `R = 20`. This is the axis #462 is measuring.
 
-## In flight — round 88
+## In flight — round 89
 
 All four students are busy. Base for every arm is
-`3217f111142346e004f41fae611a8bede172a659`.
+`098cfe0b935b87912e537ae29e21fd6339bafca8` (scored/editable content identical
+to `3217f111142346e004f41fae611a8bede172a659`; the delta is doc-only).
 
 | PR | Student | Branch / head | Hypothesis | Why now |
 |----|---------|---------------|-----------|---------|
-| [#473](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/473) | maple-frieren | `maple-frieren/r88-kernel-giveback` @ `ef6ed58f` (`r88-a-rev1`) | **Diagnose the 42 % give-back.** Why did 42 % of #457's kernel-local win evaporate, and why did 73 % of the loss land on `laguna_gate_sp_h64_v1`, a kernel the patch never touched? Arms: **A0** replication (stop if it does not replicate) · **A1** additivity audit (`Σ` per-kernel vs GPU-busy wall time per arm, then forced serialisation) · **A2** deterministic full pipeline prewarm (itself a submittable candidate if it fires) · **A3** barrier-injection bloat dose-response `B ∈ {0,2,4,8}` behind a compile-time constant, timing-only. | The 40 % discount rule is currently applied to **every** projected gain on the board. If it is an artefact of per-kernel attribution rather than a real cost, we are systematically under-valuing every queued lever; if it is real, we need the overlap-corrected accounting to choose between them. Priors: H3 dispatch-overlap attribution **0.45**, H1 JIT pipeline-creation ordering **0.25**, H2 DVFS **0.10**, H4 L2 residency **0.10**, H5 gate_sp occupancy **0.10**. |
-| [#469](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/469) | maple-tanjiro | `maple-tanjiro/r87-routed-qmv-head-latency` @ `bf3b42a3` (`r87-a-rev1`) | **Routed gate/up input-vector prefetch.** Every weight address in the routed twin depends on the in-kernel expert selection, so the weight stream cannot be prefetched — hoist what can be hoisted (the input vector) and price what cannot. A1-steady is the primary merge candidate; A1-preamble secondary; **A2 (ceiling probe) is the primary scientific deliverable**. | Two corrections already applied in flight: the original dead-code positive control was replaced by a barrier-injection bloat arm, and `next_block` prefetch was found to already ship in the frontier. After the 40 % discount the priors are A1-preamble ≈ −6 and A1-steady ≈ −15 µs/step end-to-end — plan `n` from **those**, not from the kernel-local numbers. New deliverable: a per-kernel table for every kernel >1 % of decode **plus** the end-to-end net, side by side. |
-| [#462](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/462) | maple-nezuko | `maple-nezuko/r86-insitu-boundary-price` @ `abefac77` (`r86-b-rev1`) | **In-situ boundary price + redundancy-priced barrier census + a post-mortem of #48.** Env-gated un-fusion ladder inserts `k ∈ {0,64,128,256,512}` genuine dependent DRAM round trips into the *real* decode step at two widths (WIDE 4 KiB, TINY ≤64 B); `d = slope(WIDE) − slope(TINY)`. Thresholds `d ≥ 1.00` GO / `0.35–1.00` PARTIAL / `< 0.35` NO-GO. | The slope *difference* cancels the −15 µs/step base shift from #457, so a mid-ladder run may finish self-paired on `7687c2e4` provided that is recorded and **no rungs are spliced across bases**. New required deliverable: an untouched-kernel delta table at `k=0` vs `k=512` for both WIDE and TINY — the give-back is now a **rival explanation** for the measured `d`. Gates the deferred norm→QKV thin-boundary lever. Expected to close unmerged. |
-| [#456](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/456) | maple-fern | `maple-fern/r85-surface-reconstruction` @ `a5a35280` (`r85-b-rev2`) | **Per-file cap relief.** Carve `LagunaRuntimeMLP` → end of `LagunaRuntimeDecoderLayer` (~112,508 B) into a new file; prove `private` → `internal` neutrality by measurement; exact byte accounting. | 13,324 B of per-file headroom is not enough to land any kernel change. **Gating enabler for the whole queue.** ⚠ #457 shifted every carve line by net **−34** — re-derive the carve boundaries from declaration anchors, never port by line number. Byte table moved 511,418 → 510,964 (headroom 12,870 → 13,324; total 2,891,343 → 2,890,889); carved residual estimate ~398,456 B, but **measure it, do not subtract**. |
+| [#475](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/475) | maple-nezuko | `maple-nezuko/r89-router-weight-prefetch` @ `23569e11` (`r89-a-rev1`) | **Frontier Lever 3 — cross-barrier hoist of the router GEMV weight loads.** In `lagunaResidualRMSNormRouterSource` (`LRM:900–1030`) every `router_weight` address depends only on `tile`/`simd_group`/`simd_lane` — known at instruction 1 — yet the loads are issued *after* four `threadgroup` barriers and a full cross-simdgroup reduction. A `mem_threadgroup` barrier does not order device memory, so the hoist is legal **and bit-exact provided only the loads move** (`router_result[0]` must stay one FP32 accumulator in strict `(block, i)` order). Arms behind `DARKBLOOM_ROUTER_WEIGHT_PREFETCH`: **A0** baseline · **A1** depth 1 · **A2** depth 2 · **A3** full hoist (expected occupancy-negative) · **A4** the *identical* code motion placed **after** the `:1011` barrier. | Round 89 (c) promotes latency-hiding levers: a boundary is a **scheduling** event, so overlapping a real DRAM round trip with a reduction is now the highest-value class we can reach with a small diff. The kernel runs on all 39 sparse layers, sits at ≈305 µs/step against a ≈151 µs/step byte floor with E ≈ 1.00 ⇒ ≈154 µs/step of exposed latency. Capture prior 20–70 µs/step kernel-local, 12–42 µs/step end-to-end after the 40 % discount. **A4 is the discriminator**: if A1 ≡ A4 the compiler already hoists and the whole mechanism class is retired file-wide — a clean, cheap negative. Design is within-process paired ABBA (σ = 19.5 ⇒ n ≈ 8/arm); cross-process would need n ≈ 44. |
+| [#473](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/473) | maple-frieren | `maple-frieren/r88-kernel-giveback` @ `ef6ed58f` (`r88-a-rev1`) | **Diagnose the 42 % give-back.** Why did 42 % of #457's kernel-local win evaporate, and why did 73 % of the loss land on `laguna_gate_sp_h64_v1`, a kernel the patch never touched? Arms, **re-ordered in flight by `r88-a-fb1-pr462-h1-discriminator`**: **A0** replication, now with an added *cold-process vs warmed-process* contrast · **A2** deterministic full pipeline prewarm, **promoted to the first arm after A0** (itself a submittable candidate if it fires) · **A1** additivity audit, kept because it is the only H3 discriminator · **A3** barrier-injection dose-response, **demoted / cuttable**. | #462 §2.5 is a **null with a fixed binary**: six untouched command buffers (17.55 % of decode) moved only −2.20/−2.70 µs/step against a ±8.2 µs/step null, i.e. −0.24 % of a 900 µs/step gross intervention and the **wrong sign**, vs +42 % in #457. One binary, one pipeline set ⇒ H1 up, H2 down. Revised priors: **H1 0.40 · H3 0.35 · H4 0.10 · H5 0.10 · H2 0.05**. Open caveat she must check: whether `laguna_gate_sp_h64_v1` was inside #462's six-CB pool. ⚠ Do **not** import σ = 19.5 (within-process) into her cross-process (σ = 48) power arithmetic. |
+| [#469](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/469) | maple-tanjiro | `maple-tanjiro/r87-routed-qmv-head-latency` @ `bf3b42a3` (`r87-a-rev1`) | **Routed gate/up input-vector prefetch.** Every weight address in the routed twin depends on the in-kernel expert selection, so the weight stream cannot be prefetched — hoist what can be hoisted (the input vector) and price what cannot. A1-steady is the primary merge candidate; A1-preamble secondary; **A2 (ceiling probe) is the primary scientific deliverable**. | Two corrections already applied in flight: the original dead-code positive control was replaced by a barrier-injection bloat arm, and `next_block` prefetch was found to already ship in the frontier. After the 40 % discount the priors are A1-preamble ≈ −6 and A1-steady ≈ −15 µs/step end-to-end — plan `n` from **those**, not from the kernel-local numbers. New deliverable: a per-kernel table for every kernel >1 % of decode **plus** the end-to-end net, side by side. ⚠ Same-pool collision risk with #475 (both are routed/glue-pool latency-hiding arms) — sequence attribution carefully at review. |
+| [#456](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/456) | maple-fern | `maple-fern/r85-surface-reconstruction` @ `a5a35280` (`r85-b-rev2`) | **Per-file cap relief.** Carve `LagunaRuntimeMLP` → end of `LagunaRuntimeDecoderLayer` (~112,508 B) into a new file; prove `private` → `internal` neutrality by measurement; exact byte accounting. | 13,324 B of per-file headroom is not enough to land any kernel change. **Gating enabler for the whole queue** — and now specifically for the norm→QKV thin-boundary lever, whose gate went MET at PARTIAL in round 89 (f). ⚠ #457 shifted every carve line by net **−34** — re-derive the carve boundaries from declaration anchors, never port by line number. Byte table moved 511,418 → 510,964 (headroom 12,870 → 13,324; total 2,891,343 → 2,890,889); carved residual estimate ~398,456 B, but **measure it, do not subtract**. |
+
+**Closed this round:** [#462](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/462)
+(maple-nezuko, `maple-nezuko/r86-insitu-boundary-price` @ `8d93a229`,
+`r86-b-rev1`) — accepted on the current base and **closed unmerged as
+planned**; it was a measurement instrument, not a candidate. All six findings
+are recorded in the ROUND 89 section above.
 
 **Feedback IDs already spent:**
 `r85-b-fb1-channel-open`, `r85-b-fb2-base-bump-doc-only`,
@@ -947,11 +1117,12 @@ All four students are busy. Base for every arm is
 `r86-b-fb1-redundancy-axis`, `r86-b-fb2-base-bump-doc-only`,
 `r86-b-fb3-redundancy-target-and-regime`,
 `r86-b-fb4-base-417f42c4-and-the-routed-address-dependency`,
-`r86-b-fb5-base-3217f111-scored-surface-move` (#462);
+`r86-b-fb5-base-3217f111-scored-surface-move` (#462, closed);
 `r87-a-fb1-agx-occupancy-table`,
 `r87-a-fb2-positive-control-is-dead-code-and-revised-a1`,
 `r87-a-fb3-base-3217f111-and-the-42pct-giveback-law` (#469);
-none yet (#473).
+`r88-a-fb1-pr462-h1-discriminator` (#473);
+none yet (#475).
 
 **⚠ Branch names are not guessable from assignment titles.** Recover the exact
 head branch, `assignment_id` and `revision_id` from the
@@ -969,17 +1140,23 @@ than churn.
 
 ⛔ **L2 (routed-twin K-block prefetch) is RETIRED as moot** — `next_block`
 k-loop staging already ships in the adopted frontier.
+✅ **Lever 3 is now ASSIGNED as [#475](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/475)**
+(maple-nezuko) and has left this queue.
 
-**Assignment order when a student frees up (round 88):**
+**Assignment order when a student frees up (round 89):**
 
-1. **NVFP4 fused norm→QKV, thin-boundary variant** — gated on **#462**
-   returning GO (`d ≥ 1.00`) and on **#456**'s byte headroom. Geometry
-   neutrality is **absolute**: #48's mode-2 8× threadgroup collapse
-   (5,120 → 640) earned M5 receipt `285f79fa` at **−0.1488 %**. Scaffold at
-   commit **`9c73e16f`** on `maple-fern/fused-norm-qkv-gate` (tip `f4c86e44`,
-   pr/48); #48 achieved `max_abs_diff 0` over 1,344 steps. Verified-reachable
-   positive control: `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` +
-   `DARKBLOOM_FUSED_NORM_AFFINE_QKV` on/off.
+1. **AGX disassembly-pipeline capability arm** — `MTLBinaryArchive` +
+   `TellowKrinkle/applegpu@M3`; headless references `dougallj/applegpu`
+   `compiler_explorer.py` and `imperatormk/metal-profiler` `extract.py:27–29`.
+   Yields static, host-independent instruction counts. **Promoted to the head
+   of the queue**: our M4→M5 transfer factor is **−0.40 ± 0.24**, so M4 wall
+   time cannot screen an instruction-bound lever at all, and both of the next
+   two items (Lever 2, `bfeil`) have an instruction count as their literal
+   success gate. This arm converts two blocked levers into measurable ones for
+   the price of one capability build, and it is the cheapest way to answer AGX
+   microbenchmark #2 ("does Apple's compiler emit `bfeil` from MSL?"). It also
+   independently checks #475's A4 result — whether the compiler already hoists
+   the router weight loads — from the disassembly rather than from wall time.
 2. **Frontier Lever 2 — router-tournament instruction diet, Variants C+D.**
    Sites (old base numbering — **re-grep**) `LRM:7702–7736`
    `laguna_router_top8_extract_round`, `:7745–7756`
@@ -990,19 +1167,23 @@ k-loop staging already ships in the adopted frontier.
    Preserve `laguna_router_ordinal_before` (`:9286–9294`) verbatim. Oracle:
    `research/maple-fern-pr82-oracle.patch` + `research/maple_fern_pr82_oracle.sh`
    (5,320 winner pairs, 0 diffs). **Success gate = an instruction-counter drop
-   ≥ 40 %, not M4 wall time.**
-3. **Frontier Lever 3 — producer weight-load hoist across the norm barrier.**
-   `LRM:900–1030` `lagunaResidualRMSNormRouterSource`, kernel
-   `laguna_residual_rms_router_bf16_2048_rpg8_keys_v1`, dict `:1037–1058`;
-   barrier ≈ `:1012`; rpg8 branch `:922–941`. **20–70 µs/step, measurable on
-   both hosts**, bit-exact by construction. T1a = 305.1 µs/step, byte floor
-   151, E = 1.00 ⇒ ≈154 µs of latency gap.
-4. **AGX disassembly-pipeline capability arm** — `MTLBinaryArchive` +
-   `TellowKrinkle/applegpu@M3`; headless references `dougallj/applegpu`
-   `compiler_explorer.py` and `imperatormk/metal-profiler` `extract.py:27–29`.
-   Yields static, host-independent instruction counts. Strong synergy with
-   Lever 2, whose success gate is exactly an instruction count.
-5. **L1** algebraic epilogue normalization at full grid (≤140 µs, **not**
+   ≥ 40 %, not M4 wall time.** ⚠ Touches the same router kernel family as
+   #475 — do not start it until #475 is terminal, or attribution is lost.
+3. **NVFP4 fused norm→QKV, thin-boundary variant** — 🟡 **gate MET at
+   PARTIAL.** #462 returned `d = 0.6806 [0.4628, 0.8984]`, inside the PARTIAL
+   band `0.35 ≤ d < 1.00`, and round 89 (f) reprices the lever end-to-end at
+   **−52…−55 µs/step = −0.80…−0.84 %** (gross −196.5, net −124…−128, then the
+   40 % discount). Break-even redundancy moves 3.65 % → 6.08 %; the safety
+   margin shrinks 3.3× → ≈2.0×. **Proceed** — but it is now behind the two
+   instruction-class items because it remains gated on **#456**'s byte
+   headroom, which has not landed. Geometry neutrality is **absolute**: #48's
+   mode-2 8× threadgroup collapse (5,120 → 640) earned M5 receipt `285f79fa`
+   at **−0.1488 %**. Scaffold at commit **`9c73e16f`** on
+   `maple-fern/fused-norm-qkv-gate` (tip `f4c86e44`, pr/48); #48 achieved
+   `max_abs_diff 0` over 1,344 steps. Verified-reachable positive control:
+   `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` + `DARKBLOOM_FUSED_NORM_AFFINE_QKV`
+   on/off.
+4. **L1** algebraic epilogue normalization at full grid (≤140 µs, **not**
    automatically bit-exact) · **L3** threadgroup packing S-sweep
    (`research/tanjiro_packing_default_flip.patch`, +29 B; #308 measured
    −36.9 µs, CI [−61.0, −12.9]) · **L4** prefill async-ladder stride/placement
@@ -1011,14 +1192,16 @@ k-loop staging already ships in the adopted frontier.
    (low priority — run the cheap offline histogram falsification first and kill
    it if < 15 %) · **L7** prefill `_nax` A-fragment N-tile reuse ·
    `patch_lane` peel · routed down-reduce prefetch port.
-6. **`bfeil` dequant ALU arm** aimed at `laguna_nvfp4_qdot_16` (~2.2× on the
-   shift+mask sequence). **Must not** be mixed into #469.
+5. **`bfeil` dequant ALU arm** aimed at `laguna_nvfp4_qdot_16` (~2.2× on the
+   shift+mask sequence). **Must not** be mixed into #469. Blocked on the
+   disassembly capability arm above for its success gate.
 
 ⚠ The **selector census figure of 185.7 µs is stale** — it predates the default
 tournament `rows=1` path. Re-census the glue-pool totals before using it.
 
-⚠ Levers 1 and 3 both live in the decode glue pool that three of four students
-already touch. **Sequence** those assignments for clean attribution.
+⚠ The norm→QKV lever, Lever 2 and #475 all live in the decode glue/router pool
+that three of four students already touch. **Sequence** those assignments for
+clean attribution.
 
 #### Also queued, lower priority
 
@@ -2052,7 +2235,7 @@ its own null** (+0.632% above the expected 2.5726). Therefore:
 It is a losing lottery against a channel we need for real arms.
 **Decision: we do not do it.** Do not re-propose.
 
-### ⭐⭐⭐ The 40 standing rules — embed VERBATIM in every assignment brief
+### ⭐⭐⭐ The 41 standing rules — embed VERBATIM in every assignment brief
 
 This is the canonical list. Until round 34 it lived only in PR bodies, which
 made it invisible to anyone reading this file. Rules 1–19 predate round 32;
@@ -2221,11 +2404,41 @@ made it invisible to anyone reading this file. Rules 1–19 predate round 32;
     `DARKBLOOM_NORM_AFFINE_QKV_PF` is dead by default but becomes reachable
     under `DARKBLOOM_NATIVE_AFFINE_NVFP4=0` (`LRM:2869`).
 40. ⭐⭐ **State every timing rig's resolvable floor in µs/step, with the
-    arithmetic.** (#457 is the model answer.) Pooled decode σ on the M4 Pro
-    reference rig is **48.0 µs/step**, so a two-sided 95 % CI excludes effect
-    `E` only when `n ≥ 2·(1.96·48/E)²` — **52 runs at 18.6 µs, 13 at 38 µs,
-    3 at 80 µs**. Naive n=1 resolves ±133; n=3 resolves ±109; kernel-level ABBA
-    with n=8 resolves ±5.1…6.6. Any sub-80 µs claim must use the ABBA rig.
+    arithmetic — and say WHICH σ you are using.** (#457 is the model answer;
+    #462 §2.6 supplies the second σ.) There are **two** decode σ on the M4 Pro
+    reference rig and they differ by 2.5×:
+    - **within-process σ = 19.5 µs/step** (df = 11) — arms alternated inside
+      one process, one binary, one pipeline set;
+    - **cross-process σ = 48.0 / 49.0 µs/step** — arms in separate processes.
+
+    Cross-process power: `n ≥ 2·(1.96·48/E)²` — **52 runs at 18.6 µs, 13 at
+    38 µs, 3 at 80 µs**. Naive n=1 resolves ±133; n=3 resolves ±109.
+    Within-process power at σ = 19.5 needs **n ≈ 8/arm for E = 20 µs**, i.e.
+    ~6× fewer runs for the same resolution. Kernel-level ABBA with n=8 resolves
+    ±5.1…6.6. #462's five-rung ladder resolved a 40-boundary intervention to
+    **±3.6 µs/step, 12.3× finer than an n=3 two-arm A/B**.
+    **⇒ Below ~80 µs/step, prefer a within-process paired or ladder design.**
+    Never import the within-process σ into a cross-process power calculation,
+    or vice versa; the design determines which one applies.
+41. ⭐⭐⭐ **Price a kernel boundary at 1.4064 µs flat — a boundary is a
+    SCHEDULING event, not a bandwidth event.** (#462, round 89.) The in-situ
+    two-limb ladder decomposes the WIDE (4,096 B) boundary as **1.3 % bytes
+    (0.018 µs) / 22.4 % fixed dispatch (0.315 µs) / 76.3 % serialization and
+    ordering (1.073 µs)**. Five independent methods converge on ≈1.41 µs.
+    Three binding consequences:
+    - **Do not weight boundary-removal by bytes.** A boundary is worth ~1.41 µs
+      whether it carries 64 B or 4 KiB (TINY measured 0.7258; ratio only
+      1.94×, not the 8.0× we preregistered).
+    - **Byte-shaving *across an existing boundary* is dead on this axis** —
+      4.5 ns/KiB above the fixed cost. (Byte-shaving still matters for the
+      *streaming* pool; that is a different mechanism, do not conflate them.)
+    - **Latency-hiding levers get a promotion.** If the cost is ordering, then
+      overlapping a dependent round trip with independent work is the lever
+      that pays, not making the round trip smaller. #475 is the first arm
+      selected on this basis.
+
+    This rule **supersedes** #458's `c_issue ≈ 0.17 µs` (8.3× too small) and
+    **withdraws** the "byte axis beats the count axis 7.7 : 1" slogan.
 
 
 ---
