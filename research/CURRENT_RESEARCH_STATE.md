@@ -22,11 +22,26 @@
   Priority: MoE SwiGLU (quantizedMM 2,608-line header) > QKV projection (matmul 718-line header) > QK-norm+RoPE (RMSNorm)
   Keep decode optimizations (fused QKV+g_proj, halved scales, etc.) — they use small custom kernels.
 
+## M5 BUILD ROOT CAUSE (CONFIRMED 2026-08-08T07:30 UTC)
+  Deep analysis of f790e33f vs current HEAD: the actual JIT compile delta is only 3 standard MLX compiles:
+  1. rope.metal (229 lines) for prefill RoPE — f790e33f used custom lagunaPrefillSlidingQKNormRoPEKernel
+  2. rms_norm.metal (391 lines) for prefill QK-norm — f790e33f used same custom kernel
+  3. steel_attention (1,160 lines) for decode full-attn — f790e33f used custom lagunaFullFusedAttentionKernel
+
+  CRITICAL: f790e33f used STANDARD gatherQuantizedMM for prefill MoE and STANDARD matmul for QKV/O-proj.
+  Custom MoE/QKV kernels were decode-only (x.dim(1)==1 guard). Restoring them for prefill won't reduce JIT compile time.
+  The groupSize=32 quantizedMM calls are guarded by lagunaPrefillSharedHalvedEnabled=false — never reached, never compiled.
+
+  FIX PLAN: PR #407 (prefill QK-norm+RoPE, already complete, needs rebase) + PR #420 (full-attn, thorfinn WIP)
+  These 2 PRs eliminate the 3 extra JIT compiles. Edward/alphonse redirected to verify and rebasing.
+
 ## M5 BUILD FIX ASSIGNMENTS (Wave 13, BASE_SHA=b9394914)
-  PR #418 (edward): Restore custom prefill MoE SwiGLU + down kernels (replaces quantizedMM 2,608-line header)
-  PR #419 (alphonse): Restore custom prefill QKV projection + QK-norm+RoPE + O-proj kernels (replaces matmul 718-line + RMSNorm)
-  PR #420 (thorfinn): Restore custom full-attention prefill+decode kernels (replaces SDPA 1,160-line header)
-  PR #402 (askeladd): kHalvedScales runtime constant (0 new compiles, ready once M5 builds)
+  PR #407 (edward, v2): Prefill QK-norm+RoPE fusion — ACCEPTED, needs rebase onto 3df94c4c (merge conflicts)
+  PR #418 (edward): Restore prefill MoE kernels — LIKELY NOT NEEDED (f790e33f used standard gatherQuantizedMM)
+  PR #419 (alphonse): Restore QKV+QK-norm+O-proj — REDIRECTED to rebase PR #407 (QKV/O-proj not in f790e33f prefill)
+  PR #420 (thorfinn): Restore full-attention kernels — CRITICAL (eliminates steel_attention decode compile)
+  PR #402 (askeladd): kHalvedScales runtime constant — ACCEPTED, compose after M5 builds
+  PR #411 (thorfinn): _nax compile reduction — ACCEPTED, safe cleanup, merge opportunistically
 
 ## ON HOLD (will re-apply once M5 build is fixed)
   PR #407 (edward v2): Prefill QK-norm+RoPE fusion — ACCEPTED on current base, waiting for M5 build fix
