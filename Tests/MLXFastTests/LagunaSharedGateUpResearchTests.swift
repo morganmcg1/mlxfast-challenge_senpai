@@ -112,6 +112,7 @@ func lagunaSharedGateUpResearchHarness() throws {
         exactLayers += 1
     }
     #expect(exactLayers == 39)
+    try runLocalCoolGate()
 
     func evaluateSharedGateUp() {
         let outputs = sharedExperts.map { sharedExpert in
@@ -152,6 +153,17 @@ func lagunaSharedGateUpResearchHarness() throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
     print("SHARED_GATE_UP_RESEARCH_RESULT " + String(decoding: try encoder.encode(result), as: UTF8.self))
+}
+
+private func runLocalCoolGate() throws {
+    let process = Process()
+    process.executableURL = URL(
+        fileURLWithPath: FileManager.default.currentDirectoryPath
+    ).appendingPathComponent("benchmark.sh")
+    process.arguments = ["--local-cool-gate-only"]
+    try process.run()
+    process.waitUntilExit()
+    try #require(process.terminationStatus == 0)
 }
 
 private func sharedGateUpMappingMatches<Element: Equatable>(
