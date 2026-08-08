@@ -10,16 +10,22 @@
 - Last M5 success: f790e33f (score 2.5213). 50+ consecutive M5 build failures.
 - Leaderboard #1: a-github-name 2.6165. Our promoted: 2.5888 (97a5090, maple campaign). Gap: ~1.06%.
 
-## CRITICAL: M5 BUILD TIMEOUT — ROOT CAUSE FOUND — FIX VALIDATING
+## CRITICAL: M5 BUILD FIX — ROOT CAUSE PARTIALLY FOUND — BUILT BUT FAILED
   Root cause: 3 vendor files changed from organizer frontier (bca94c5):
   1. quantized.cpp: function constants (fc 200-207) → template parameters + halved scales
   2. fp_quantized_nax.h: removed fc declarations + added kHalvedScales + escape bytes
   3. fp_quantized_nax.cpp: same changes (embedded source)
 
   Both the fc→template change AND the halved scales feature break M5 build.
-  Surgical fix (a74d2fe, reverting only fc→template, keeping halved scales) FAILED.
-  Full revert (39fa0483) removes both changes. Custom kernel halved scales (OProj, QKV R1)
-  use inline Metal source strings and bypass vendor quantizedMM entirely — unaffected.
+  Surgical fix (a74d2fe, reverting only fc→template, keeping halved scales) FAILED quickly.
+  Full revert (bcedc8a, 39fa0483) FAILED after 12 MINUTES — much longer than previous
+  2-3 minute build failures. This suggests the BUILD SUCCEEDED but the benchmark or
+  correctness gate FAILED. The M5 may have a correctness issue with our LRM custom kernels.
+
+  NEXT: Need to determine if the failure is a build timeout, correctness failure, or
+  runtime error. The organizer frontier (bca94c5, f790e33f) scored 2.5213. Our LRM has
+  335KB of custom kernels not in the organizer frontier. The custom kernels may have
+  M5-specific correctness issues.
 
   Fix: git checkout bca94c5 -- 3 vendor files + LRM groupSize 32→16 (dead code path).
 
