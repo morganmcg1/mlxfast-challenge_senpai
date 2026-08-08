@@ -53,6 +53,14 @@ MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1. DO NOT REVISIT.
   8. Prefill gate-softplus dedup (decode, 0.05-0.1%, ~100B)
   Combined potential: 0.7-1.5% total score, could close the 0.67% gap to 2.6063.
 
+## NEXT ASSIGNMENT READY (when student becomes idle)
+  XMAJOR column-tile fold revival (Idea 1):
+  - Recover kernel arms: git show 2cad1776~1:...fp_quantized_nax.h lines 1700-1850 (151 lines)
+  - Re-enable: change darkbloom_gather_xmajor_ct() return 0→2 in quantized.cpp:1564
+  - JIT define injection still in place: jit_kernels.cpp:1169 darkbloom_gather_xmajor_define()
+  - Dispatch infrastructure intact: quantized.cpp:1918 grid division by xmajor_ct
+  - M5-only (uses _nax kernels, M4 can't test), ~5KB vendor budget, bit-exact
+
 ## M5 SUBMISSION STATUS (2026-08-08T05:30Z)
   Last submission: a46cfdaa (36e2ba1) FAILED at 5:01 AM UTC
   All submissions since f790e33f FAILED (40+ consecutive)
