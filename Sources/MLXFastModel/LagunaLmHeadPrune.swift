@@ -251,7 +251,7 @@ private let lagunaLmHeadPrecomputeAbsGroupsEnabled =
 
 /// Kernel header: bit-exact MXFP8 element decoders + the certified
 /// half-cell-width table, all inlinable and libm-free.
-let lagunaLmHeadPruneHeader = """
+private let lagunaLmHeadPruneHeader = """
     // e4m3fn decode, identical to fp8.h:32-38 (half bit pattern (b&127)<<7,
     // times 256, sign from bit 7). Exact in half/float for all 256 codes.
     static inline float laguna_e4m3_decode(uint8_t b) {
@@ -890,52 +890,46 @@ private let lagunaLmHeadAbsGroupSumsKernel = MLXFast.metalKernel(
 /// exact; sd*q multiplies a power of two by a <=4-bit-magnitude integer
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
-let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5_two_row",
+private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
+    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v5",
     inputNames: ["x", "codes_lo", "codes_hi", "scales"],
     outputNames: ["coarse", "delta"],
     source: """
         constexpr float GAMMA = 0x1p-15f;
 
-        uint row0 = threadgroup_position_in_grid.x * 16 +
-            2 * simdgroup_index_in_threadgroup;
-        uint row1 = row0 + 1;
+        uint row = threadgroup_position_in_grid.x * 16 +
+            simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
 
-        const device uint8_t* lorow0 = codes_lo + size_t(row0) * 1024;
-        const device uint8_t* lorow1 = lorow0 + 1024;
-        const device uint8_t* hirow0 = codes_hi + size_t(row0) * 256;
-        const device uint8_t* hirow1 = hirow0 + 256;
-        const device uint8_t* srow0 = scales + size_t(row0) * 64;
-        const device uint8_t* srow1 = srow0 + 64;
+        const device uint8_t* lorow = codes_lo + size_t(row) * 1024;
+        const device uint8_t* hirow = codes_hi + size_t(row) * 256;
+        const device uint8_t* srow = scales + size_t(row) * 64;
 
-        float c_acc0 = 0.0f;
-        float d_acc0 = 0.0f;
-        float c_acc1 = 0.0f;
-        float d_acc1 = 0.0f;
+        float c_acc = 0.0f;
+        float d_acc = 0.0f;
         for (uint gg = 0; gg < 2; ++gg) {
             uint g = 2 * lane + gg;
-            float sd0 = laguna_e8m0_decode(srow0[g]);
-            float sd1 = laguna_e8m0_decode(srow1[g]);
-            uint4 lo40 = ((const device uint4*)(lorow0 + g * 16))[0];
-            uint4 lo41 = ((const device uint4*)(lorow1 + g * 16))[0];
-            uint hb0 = ((const device uint*)(hirow0 + g * 4))[0];
-            uint hb1 = ((const device uint*)(hirow1 + g * 4))[0];
+            float sd = laguna_e8m0_decode(srow[g]);
+            uint4 lo4 = ((const device uint4*)(lorow + g * 16))[0];
+            uint hb = ((const device uint*)(hirow + g * 4))[0];
             const device ushort4* xrow = (const device ushort4*)(x + g * 32);
-            float cg0 = 0.0f;
-            float cg1 = 0.0f;
+            float cg = 0.0f;
             float ag = 0.0f;
             #pragma clang loop unroll(full)
             for (uint w = 0; w < 4; ++w) {
-                uint lw0 = lo40[w];
-                uint hw0 = hb0 >> (8u * w);
-                uint4 ne0 = (uint4(lw0) >> uint4(0u, 8u, 16u, 24u)) & 15u;
-                uint4 no0 = (uint4(lw0) >> uint4(4u, 12u, 20u, 28u)) & 15u;
-                uint4 he0 = (uint4(hw0) >> uint4(0u, 2u, 4u, 6u)) & 1u;
-                uint4 ho0 = (uint4(hw0) >> uint4(1u, 3u, 5u, 7u)) & 1u;
-                float4 ve0 = float4(ne0 | (he0 << 4u)) - 16.0f;
-                float4 vo0 = float4(no0 | (ho0 << 4u)) - 16.0f;
-
+                // Word w: elements 8w..8w+7 of the group. Nibble plane byte
+                // b holds elements 2b (low) / 2b+1 (high); 1-bit plane bit j
+                // of the group's word holds element j's bit 4.
+                uint lw = lo4[w];
+                uint hw = hb >> (8u * w);
+                uint4 ne = (uint4(lw) >> uint4(0u, 8u, 16u, 24u)) & 15u;
+                uint4 no = (uint4(lw) >> uint4(4u, 12u, 20u, 28u)) & 15u;
+                uint4 he = (uint4(hw) >> uint4(0u, 2u, 4u, 6u)) & 1u;
+                uint4 ho = (uint4(hw) >> uint4(1u, 3u, 5u, 7u)) & 1u;
+                // Offset-binary decode: value = u - 16 in [-15, 15], exact.
+                float4 ve = float4(ne | (he << 4u)) - 16.0f;
+                float4 vo = float4(no | (ho << 4u)) - 16.0f;
+                // bf16 -> f32 is exactly bits<<16 for every value class.
                 float4 xa = as_type<float4>(uint4(xrow[2 * w]) << 16);
                 float4 xb = as_type<float4>(uint4(xrow[2 * w + 1]) << 16);
                 float4 xe = float4(xa.x, xa.z, xb.x, xb.z);
@@ -944,54 +938,27 @@ let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
                 float4 axo = metal::abs(xo);
                 #pragma clang loop unroll(full)
                 for (uint k = 0; k < 4; ++k) {
-                    cg0 += xe[k] * ve0[k];
-                    cg0 += xo[k] * vo0[k];
+                    cg += xe[k] * ve[k];
+                    cg += xo[k] * vo[k];
                     ag += axe[k];
                     ag += axo[k];
                 }
-
-                uint lw1 = lo41[w];
-                uint hw1 = hb1 >> (8u * w);
-                uint4 ne1 = (uint4(lw1) >> uint4(0u, 8u, 16u, 24u)) & 15u;
-                uint4 no1 = (uint4(lw1) >> uint4(4u, 12u, 20u, 28u)) & 15u;
-                uint4 he1 = (uint4(hw1) >> uint4(0u, 2u, 4u, 6u)) & 1u;
-                uint4 ho1 = (uint4(hw1) >> uint4(1u, 3u, 5u, 7u)) & 1u;
-                float4 ve1 = float4(ne1 | (he1 << 4u)) - 16.0f;
-                float4 vo1 = float4(no1 | (ho1 << 4u)) - 16.0f;
-                #pragma clang loop unroll(full)
-                for (uint k = 0; k < 4; ++k) {
-                    cg1 += xe[k] * ve1[k];
-                    cg1 += xo[k] * vo1[k];
-                }
             }
-            c_acc0 += sd0 * cg0;
-            d_acc0 += (0.5f * sd0) * ag;
-            c_acc1 += sd1 * cg1;
-            d_acc1 += (0.5f * sd1) * ag;
+            c_acc += sd * cg;
+            d_acc += (0.5f * sd) * ag;
         }
-        c_acc0 = simd_sum(c_acc0);
-        d_acc0 = simd_sum(d_acc0);
+        c_acc = simd_sum(c_acc);
+        d_acc = simd_sum(d_acc);
         if (lane == 0) {
-            coarse[row0] = c_acc0;
-            float d_up0 = d_acc0 * (1.0f + 61.0f * GAMMA);
-            uint dbits0 = as_type<uint>(d_up0);
-            uint dtrunc0 = dbits0 & 0xFFFF0000u;
-            if (dtrunc0 != dbits0) {
-                dtrunc0 += 0x00010000u;
+            coarse[row] = c_acc;
+            // FP32 bound, then rounded UP to BF16 (mask-and-bump, sign clear).
+            float d_up = d_acc * (1.0f + 61.0f * GAMMA);
+            uint dbits = as_type<uint>(d_up);
+            uint dtrunc = dbits & 0xFFFF0000u;
+            if (dtrunc != dbits) {
+                dtrunc += 0x00010000u;
             }
-            delta[row0] = as_type<bfloat>(ushort(dtrunc0 >> 16));
-        }
-        c_acc1 = simd_sum(c_acc1);
-        d_acc1 = simd_sum(d_acc1);
-        if (lane == 0) {
-            coarse[row1] = c_acc1;
-            float d_up1 = d_acc1 * (1.0f + 61.0f * GAMMA);
-            uint dbits1 = as_type<uint>(d_up1);
-            uint dtrunc1 = dbits1 & 0xFFFF0000u;
-            if (dtrunc1 != dbits1) {
-                dtrunc1 += 0x00010000u;
-            }
-            delta[row1] = as_type<bfloat>(ushort(dtrunc1 >> 16));
+            delta[row] = as_type<bfloat>(ushort(dtrunc >> 16));
         }
         """,
     header: lagunaLmHeadPruneHeader,
@@ -1949,8 +1916,8 @@ final class LagunaLmHeadPruner {
             // measured +40 us/step on this arm; notes/exp-v5preabs.md.)
             let coarseOut5 = lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel(
                 [x, lo5, hi5, s5],
-                grid: (vocab / 16 * 256, 1, 1),
-                threadGroup: (256, 1, 1),
+                grid: (vocab / 16 * 512, 1, 1),
+                threadGroup: (512, 1, 1),
                 outputShapes: [[vocab], [vocab]],
                 outputDTypes: [.float32, .bfloat16]
             )
