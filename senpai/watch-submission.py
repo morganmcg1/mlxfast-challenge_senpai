@@ -72,8 +72,8 @@ class ApiClient:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.load(response)
         except urllib.error.HTTPError as error:
-            body = error.read().decode("utf-8", errors="replace")[:500]
-            body = body.replace(self.config.token, "<redacted>")
+            body = error.read().decode("utf-8", errors="replace")
+            body = body.replace(self.config.token, "<redacted>")[:500]
             retry_after = error.headers.get("Retry-After") if error.headers else None
             raise ApiError(
                 error.code,

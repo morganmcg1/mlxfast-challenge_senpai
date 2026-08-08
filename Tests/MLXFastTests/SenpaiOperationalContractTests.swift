@@ -189,7 +189,9 @@ func senpaiSubmissionWatcherIsReadOnlyAndTested() throws {
         contentsOfFile: "senpai/watch-submission.py",
         encoding: .utf8
     )
-    #expect(watcher.contains("method=\"POST\"") == false)
+    for method in ["POST", "PUT", "PATCH", "DELETE"] {
+        #expect(watcher.contains("method=\"\(method)\"") == false)
+    }
     #expect(watcher.contains("mlxfast submit") == false)
 
     for path in ["senpai/infra.md", "senpai/program.md"] {

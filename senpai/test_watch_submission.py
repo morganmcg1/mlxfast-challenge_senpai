@@ -302,21 +302,23 @@ class SubmissionWatcherTests(unittest.TestCase):
     def test_api_errors_redact_an_echoed_token(self):
         headers = Message()
         headers["Retry-After"] = "30"
+        token = "super-secret-token"
         error = urllib.error.HTTPError(
             "https://example.test/api/me",
             429,
             "busy",
             headers,
-            io.BytesIO(b'bad credential "secret"'),
+            io.BytesIO(("x" * 495 + token).encode()),
         )
-        client = watcher.ApiClient(watcher.ApiConfig("https://example.test", "secret"))
+        client = watcher.ApiClient(watcher.ApiConfig("https://example.test", token))
 
         with mock.patch.object(urllib.request, "urlopen", side_effect=error):
             with self.assertRaises(watcher.ApiError) as raised:
                 client.get("/api/me")
 
-        self.assertNotIn("secret", str(raised.exception))
-        self.assertIn("<redacted>", str(raised.exception))
+        message = str(raised.exception)
+        self.assertNotIn(token, message)
+        self.assertNotIn(token[:5], message)
         self.assertEqual(raised.exception.retry_after, 30)
 
     def test_interrupt_exits_cleanly_without_a_traceback(self):
