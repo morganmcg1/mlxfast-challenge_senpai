@@ -1,0 +1,9 @@
+=== 17:30:14 gate S=2 (expect fail)
+  S= 2 rc=1 passed=False checked_steps=2 cases=1 first_failing_case=longcopy-gate-english-512 first_failing_step=1 golden_hash=b9509697c08a2cf3 error='teacher-forced token mismatch'
+=== 17:30:57 gate S=16 (expect fail)
+  S=16 rc=1 passed=False checked_steps=2 cases=1 first_failing_case=longcopy-gate-english-512 first_failing_step=1 golden_hash=b9509697c08a2cf3 error='teacher-forced token mismatch'
+=== 17:31:41 gate S=1 (expect fail)
+  S= 1 rc=0 passed=True checked_steps=64 cases=1 first_failing_case=None first_failing_step=None golden_hash=b9509697c08a2cf3 error=''
+  S=1: UNEXPECTED gate verdict (expected fail)
+FAULT INJECTION INVALID: an injected-fault arm passed the golden gate.
+The tripwire is not load-bearing; Stage 1 is INVALID.

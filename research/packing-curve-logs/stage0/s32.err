@@ -1,0 +1,9 @@
+mlxfast: low-memory startup profile active (physical memory 48 GiB is below the 64 GiB full-profile minimum): capping the MLX allocator cache at 6 GiB and clearing free warmup buffers; compiled decode and every other ranked code path stay enabled; set DARKBLOOM_STARTUP_MEMORY_PROFILE=full to opt out
+mlxfast: a machine too small for the model plus the decode working set fails with an out-of-memory error instead of silently skipping ranked code paths; verify on a 64 GiB+ machine or rely on the ranked run
+mlxfast: narrow-scales built lane-major pairwise: qkv
+mlxfast: narrow-scales built lane-major pairwise: oproj
+mlxfast: packed-scales active: packed routed gate/up bank prepared
+mlxfast: lm_head prune active (coarse copy resident)
+mlxfast: packed-scales active: routed swiglu qmv packed dispatch
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=32 threadgroups=256 rows_per_sg=1 threads_per_tg=1024 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=32 threadgroups=320 rows_per_sg=1 threads_per_tg=1024 grid_threads=327680 total_sg=10240

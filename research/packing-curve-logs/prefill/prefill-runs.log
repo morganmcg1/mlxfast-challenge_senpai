@@ -1,0 +1,108 @@
+=== b00_s01_0.log ===
+worker up in 42.3s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717758178710938 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 548.36 ms (1071.0 us/token)
+decode_begin seed forward: 546.47 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.299 8.247 8.203 8.163 8.171 8.155 8.188 8.123
+decode steps=8 mean=8.319 ms median=8.180 ms p10=8.123 ms p90=9.299 ms min=8.123 ms max=9.299 ms total=0.067 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.718246459960938 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b00_s01_0.err
+=== b01_s02_0.log ===
+worker up in 42.1s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718048095703125 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 547.44 ms (1069.2 us/token)
+decode_begin seed forward: 545.25 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 14.269 8.271 8.084 8.089 8.074 8.066 8.061 8.025
+decode steps=8 mean=8.867 ms median=8.079 ms p10=8.025 ms p90=14.269 ms min=8.025 ms max=14.269 ms total=0.071 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.718429565429688 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b01_s02_0.err
+=== b01_s03_R.log ===
+worker up in 42.1s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717926025390625 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 547.86 ms (1070.0 us/token)
+decode_begin seed forward: 569.39 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 13.054 8.310 8.177 8.196 8.190 8.239 8.148 8.165
+decode steps=8 mean=8.810 ms median=8.193 ms p10=8.148 ms p90=13.054 ms min=8.148 ms max=13.054 ms total=0.070 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.71832275390625 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b01_s03_R.err
+=== b01_s04_R.log ===
+worker up in 42.8s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718048095703125 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 549.32 ms (1072.9 us/token)
+decode_begin seed forward: 546.49 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 12.840 8.285 8.160 8.198 8.131 8.179 8.149 8.195
+decode steps=8 mean=8.767 ms median=8.187 ms p10=8.131 ms p90=12.840 ms min=8.131 ms max=12.840 ms total=0.070 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.718521118164062 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b01_s04_R.err
+=== b01_s05_0.log ===
+worker up in 42.0s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.718063354492188 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 548.32 ms (1070.9 us/token)
+decode_begin seed forward: 563.08 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 32.332 8.589 8.360 8.354 8.162 8.173 8.129 8.140
+decode steps=8 mean=11.280 ms median=8.264 ms p10=8.129 ms p90=32.332 ms min=8.129 ms max=32.332 ms total=0.090 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.718475341796875 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b01_s05_0.err
+=== b02_s06_0.log ===
+worker up in 42.3s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717941284179688 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 548.28 ms (1070.9 us/token)
+decode_begin seed forward: 546.21 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 12.908 8.274 8.174 8.155 8.164 8.172 8.157 8.157
+decode steps=8 mean=8.770 ms median=8.168 ms p10=8.155 ms p90=12.908 ms min=8.155 ms max=12.908 ms total=0.070 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.71832275390625 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b02_s06_0.err
+=== b02_s07_R.log ===
+worker up in 42.4s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.7178955078125 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 547.28 ms (1068.9 us/token)
+decode_begin seed forward: 546.87 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.325 8.321 8.258 8.098 8.217 8.173 8.182 8.066
+decode steps=8 mean=8.330 ms median=8.199 ms p10=8.066 ms p90=9.325 ms min=8.066 ms max=9.325 ms total=0.067 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.718307495117188 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b02_s07_R.err
+=== b02_s08_R.log ===
+worker up in 42.1s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.71807861328125 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 547.13 ms (1068.6 us/token)
+decode_begin seed forward: 545.92 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.290 8.244 8.221 8.119 8.186 8.115 8.171 8.123
+decode steps=8 mean=8.309 ms median=8.179 ms p10=8.115 ms p90=9.290 ms min=8.115 ms max=9.290 ms total=0.066 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.718505859375 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b02_s08_R.err
+=== b02_s09_0.log ===
+worker up in 42.1s ok=True
+diagnostics after load: worker_rss_gb=20.72 peak_ram_gb=20.717636108398438 mlx_active_gb=33.01 mlx_cache_gb=0.00 mlx_peak_gb=36.10
+prefill 512 tokens: 547.58 ms (1069.5 us/token)
+decode_begin seed forward: 546.09 ms
+DECODE_PHASE_START
+DECODE_PHASE_END
+teacher-forced greedy tokens: 0 divergences (all match)
+first 8 steps (ms): 9.309 8.319 8.209 8.228 8.252 8.203 8.169 8.259
+decode steps=8 mean=8.368 ms median=8.240 ms p10=8.169 ms p90=9.309 ms min=8.169 ms max=9.309 ms total=0.067 s
+diagnostics after decode: worker_rss_gb=20.72 peak_ram_gb=20.718017578125 mlx_active_gb=33.10 mlx_cache_gb=1.08 mlx_peak_gb=36.10
+worker stderr -> /tmp/tanjiro/prefill/b02_s09_0.err

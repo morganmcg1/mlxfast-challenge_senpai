@@ -1,0 +1,12 @@
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=1 threadgroups=8192 rows_per_sg=1 threads_per_tg=32 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=1 threadgroups=10240 rows_per_sg=1 threads_per_tg=32 grid_threads=327680 total_sg=10240
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=16 threadgroups=512 rows_per_sg=1 threads_per_tg=512 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=16 threadgroups=640 rows_per_sg=1 threads_per_tg=512 grid_threads=327680 total_sg=10240
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=2 threadgroups=4096 rows_per_sg=1 threads_per_tg=64 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=2 threadgroups=5120 rows_per_sg=1 threads_per_tg=64 grid_threads=327680 total_sg=10240
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=32 threadgroups=256 rows_per_sg=1 threads_per_tg=1024 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=32 threadgroups=320 rows_per_sg=1 threads_per_tg=1024 grid_threads=327680 total_sg=10240
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=4 threadgroups=2048 rows_per_sg=1 threads_per_tg=128 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=4 threadgroups=2560 rows_per_sg=1 threads_per_tg=128 grid_threads=327680 total_sg=10240
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=8 threadgroups=1024 rows_per_sg=1 threads_per_tg=256 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=8 threadgroups=1280 rows_per_sg=1 threads_per_tg=256 grid_threads=327680 total_sg=10240

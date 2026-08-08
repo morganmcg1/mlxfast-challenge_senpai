@@ -1,0 +1,37 @@
+=== 17:09:49 S=1
+--- exit=0 PACKPROBE lines:
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=1 threadgroups=8192 rows_per_sg=1 threads_per_tg=32 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=1 threadgroups=10240 rows_per_sg=1 threads_per_tg=32 grid_threads=327680 total_sg=10240
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=6 mean=9.693 ms median=8.411 ms p10=8.210 ms p90=15.985 ms min=8.210 ms max=15.985 ms total=0.058 s
+=== 17:10:20 S=2
+--- exit=0 PACKPROBE lines:
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=2 threadgroups=4096 rows_per_sg=1 threads_per_tg=64 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=2 threadgroups=5120 rows_per_sg=1 threads_per_tg=64 grid_threads=327680 total_sg=10240
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=6 mean=8.395 ms median=8.224 ms p10=8.131 ms p90=9.369 ms min=8.131 ms max=9.369 ms total=0.050 s
+=== 17:10:57 S=4
+--- exit=0 PACKPROBE lines:
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=4 threadgroups=2048 rows_per_sg=1 threads_per_tg=128 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=4 threadgroups=2560 rows_per_sg=1 threads_per_tg=128 grid_threads=327680 total_sg=10240
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=6 mean=8.398 ms median=8.224 ms p10=8.149 ms p90=9.330 ms min=8.149 ms max=9.330 ms total=0.050 s
+=== 17:11:37 S=8
+--- exit=0 PACKPROBE lines:
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=8 threadgroups=1024 rows_per_sg=1 threads_per_tg=256 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=8 threadgroups=1280 rows_per_sg=1 threads_per_tg=256 grid_threads=327680 total_sg=10240
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=6 mean=8.380 ms median=8.190 ms p10=8.130 ms p90=9.360 ms min=8.130 ms max=9.360 ms total=0.050 s
+=== 17:12:18 S=16
+--- exit=0 PACKPROBE lines:
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=16 threadgroups=512 rows_per_sg=1 threads_per_tg=512 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=16 threadgroups=640 rows_per_sg=1 threads_per_tg=512 grid_threads=327680 total_sg=10240
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=6 mean=8.366 ms median=8.173 ms p10=8.121 ms p90=9.333 ms min=8.121 ms max=9.333 ms total=0.050 s
+=== 17:12:58 S=32
+--- exit=0 PACKPROBE lines:
+PACKPROBE lane-major heads=48 rows=8192 sg_per_tg=32 threadgroups=256 rows_per_sg=1 threads_per_tg=1024 grid_threads=262144 total_sg=8192
+PACKPROBE lane-major heads=64 rows=10240 sg_per_tg=32 threadgroups=320 rows_per_sg=1 threads_per_tg=1024 grid_threads=327680 total_sg=10240
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=6 mean=8.387 ms median=8.188 ms p10=8.153 ms p90=9.346 ms min=8.153 ms max=9.346 ms total=0.050 s
+=== 17:13:38 stage0 done
