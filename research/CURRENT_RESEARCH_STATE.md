@@ -31,11 +31,14 @@ Do NOT revisit this hypothesis.
   same kernel compilations). Added 3 extra decode steps for state-dependent kernel coverage.
   If warmup fix insufficient, next: consolidate per-head kernel variants or disable features.
 
-## ACTIVE ASSIGNMENTS (Wave 18-19, BASE_SHA=388bd31e)
+## MERGED WAVE 19
+  PR #352 (thorfinn): JIT kernel disable sweep — MERGED (5 flags disabled: FUSED_GATED_OUTPUT, FUSED_GATE_PRODUCT, PREFILL_QK_NORM_ROPE, TERMINAL_FUSION, FUSED_FULL_QK_NORM_YARN. ~6-10 fewer JIT compilations. M4 timing neutral. 345B. M5 build fix)
+
+## ACTIVE ASSIGNMENTS (Wave 20, BASE_SHA=99281ee3)
   PR #349 (askeladd): Prefill RMSNorm+QKV fusion via MLX.compile — WIP (~0.6% total, ★★★)
   PR #350 (alphonse): JIT kernel consolidation for M5 fix — WIP (★★★, CRITICAL M5 build fix)
   PR #351 (edward): Prefill shared gate/up+SiLU fusion — WIP (~0.5-1% prefill, ★★☆)
-  PR #352 (thorfinn): JIT kernel disable sweep for M5 fix — JUST ASSIGNED (0-byte sweep, M5 build fix)
+  PR #355 (thorfinn): Prefill eScoreCorrectionBias Float32 hoist — JUST ASSIGNED (~0.05-0.1% score, ~+100-200B, bit-exact, quick win)
 
 ## MERGED WAVE 18
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — MERGED (2.8% prefill improvement, 2-line change, bit-exact)
