@@ -9246,6 +9246,7 @@ private func lagunaDecodeRouterTop8(
 ) -> (MLXArray, MLXArray) {
     if lagunaDecodeRouterOrdinalEnabled {
         if lagunaDecodeRouterTournamentArm != "0" {
+            lagunaTrace("decode router top8 tournament arm=\(lagunaDecodeRouterTournamentArm)")
             return lagunaDecodeRouterTop8TournamentOrdinalForTesting(
                 logits: logits,
                 correctionBias: correctionBias,
