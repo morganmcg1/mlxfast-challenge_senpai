@@ -445,6 +445,9 @@ private let lagunaTerminalPrefillFusionEnabled =
 let lagunaFusedResidualRMSNormRouterEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER"] != "0"
 
+let lagunaFusedRouterSharedQMVEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTER_SHARED_QMV"] != "0"
+
 let lagunaFusedFullQKNormYaRNEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_QK_NORM_YARN"] != "0"
 
@@ -6394,6 +6397,117 @@ let lagunaSharedSwiGLUQMVHeader: String = {
     """
 }()
 
+private let lagunaResidualRMSNormRouterSharedQMVKernel = MLXFast.metalKernel(
+    name: "laguna_residual_rms_router_shared_qmv_bf16_2048_rpg4_v1",
+    inputNames: [
+        "residual", "branch", "weight", "router_weight", "fused_weight",
+        "fused_scales",
+    ],
+    outputNames: ["summed", "normalized", "router_logits", "shared_activated"],
+    source: lagunaResidualRMSNormRouterSource(rowsPerGroup: 4) + """
+
+        if (simd_group >= 4 && simd_group < 12) {
+            constexpr uint input_width = 2048;
+            constexpr uint output_width = 512;
+            constexpr uint packed_row_bytes = 1024;
+            constexpr uint scale_row_bytes = 128;
+            constexpr uint block_width = 512;
+            constexpr uint values_per_lane = 16;
+
+            uint lane = simd_lane;
+            uint row = tile * 8 + simd_group - 4;
+
+            const device uint8_t* gate_row_weight =
+                (const device uint8_t*)fused_weight +
+                row * packed_row_bytes + lane * 8;
+            const device uint8_t* up_row_weight =
+                (const device uint8_t*)fused_weight +
+                (row + output_width) * packed_row_bytes + lane * 8;
+            const device uint8_t* gate_row_scale =
+                fused_scales + row * scale_row_bytes + lane;
+            const device uint8_t* up_row_scale =
+                fused_scales + (row + output_width) * scale_row_bytes + lane;
+
+            thread float gate_result = 0.0f;
+            thread float up_result = 0.0f;
+            thread float input_values[values_per_lane];
+
+            for (uint block = 0; block < input_width; block += block_width) {
+                const threadgroup vec<bfloat, 4>* input_vectors =
+                    (const threadgroup vec<bfloat, 4>*) (
+                        normalized_row + block + lane * values_per_lane);
+                for (uint i = 0; i < values_per_lane / 4; ++i) {
+                    const vec<bfloat, 4> values = input_vectors[i];
+                    input_values[4 * i] = values[0];
+                    input_values[4 * i + 1] = values[1];
+                    input_values[4 * i + 2] = values[2];
+                    input_values[4 * i + 3] = values[3];
+                }
+
+                gate_result += laguna_nvfp4_qdot_16(
+                    gate_row_weight + block / 2,
+                    input_values,
+                    laguna_nvfp4_scale(gate_row_scale[block / 16]));
+                up_result += laguna_nvfp4_qdot_16(
+                    up_row_weight + block / 2,
+                    input_values,
+                    laguna_nvfp4_scale(up_row_scale[block / 16]));
+            }
+
+            gate_result = simd_sum(gate_result);
+            up_result = simd_sum(up_result);
+            if (lane == 0) {
+                bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
+                bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
+                bfloat exp_abs = metal::exp(metal::abs(gate));
+                bfloat denominator = bfloat(1) + exp_abs;
+                bfloat y = bfloat(1) / denominator;
+                bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+                bfloat silu = bfloat(gate * sigmoid);
+                shared_activated[row] = bfloat(silu * up);
+            }
+        }
+        """,
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+func lagunaResidualRMSNormRouterSharedQMV(
+    residual: MLXArray, branch: MLXArray, weight: MLXArray,
+    routerWeight: MLXArray, fusedWeight: MLXArray, fusedScales: MLXArray
+) -> (
+    summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray,
+    sharedActivation: MLXArray
+) {
+    let hidden = LagunaConstants.hiddenSize
+    let experts = LagunaConstants.numExperts
+    let sharedIntermediate = LagunaConstants.sharedExpertIntermediateSize
+    precondition(residual.dtype == .bfloat16)
+    precondition(branch.dtype == .bfloat16)
+    precondition(weight.dtype == .bfloat16)
+    precondition(routerWeight.dtype == .bfloat16)
+    precondition(fusedWeight.dtype == .uint32)
+    precondition(fusedScales.dtype == .uint8)
+    precondition(residual.shape == [1, 1, hidden])
+    precondition(branch.shape == [1, 1, hidden])
+    precondition(weight.shape == [hidden])
+    precondition(routerWeight.shape == [experts, hidden])
+    precondition(fusedWeight.shape == [2 * sharedIntermediate, hidden / 8])
+    precondition(fusedScales.shape == [2 * sharedIntermediate, hidden / 16])
+
+    let outputs = lagunaResidualRMSNormRouterSharedQMVKernel(
+        [residual, branch, weight, routerWeight, fusedWeight, fusedScales],
+        grid: (64 * 512, 1, 1),
+        threadGroup: (512, 1, 1),
+        outputShapes: [
+            [1, 1, hidden], [1, 1, hidden], [1, 1, experts],
+            [1, 1, sharedIntermediate],
+        ],
+        outputDTypes: [.bfloat16, .bfloat16, .bfloat16, .bfloat16]
+    )
+    return (outputs[0], outputs[1], outputs[2], outputs[3])
+}
+
 private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
     name: "laguna_shared_nvfp4_swiglu_qmv_bf16_v1",
     inputNames: ["input", "fused_weight", "fused_scales"],
@@ -7738,7 +7852,15 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             x.dtype == .bfloat16,
             x.shape == [1, 1, LagunaConstants.hiddenSize],
             fusedWeight.dtype == .uint32,
+            fusedWeight.shape == [
+                2 * LagunaConstants.sharedExpertIntermediateSize,
+                LagunaConstants.hiddenSize / 8,
+            ],
             fusedScales.dtype == .uint8,
+            fusedScales.shape == [
+                2 * LagunaConstants.sharedExpertIntermediateSize,
+                LagunaConstants.hiddenSize / 16,
+            ],
             _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize,
             down.weight.dtype == .uint32,
             down.weight.shape == [
@@ -9456,22 +9578,36 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         )
     }
 
+    func fusedSharedBanks(
+        _ x: MLXArray
+    ) -> (
+        gateUpWeight: MLXArray, gateUpScales: MLXArray,
+        downWeight: MLXArray, downScales: MLXArray
+    )? {
+        sharedExpert.fusedSharedBanks(x)
+    }
+
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        forward(x, residual: nil, routerLogits: nil)
+        forward(
+            x, residual: nil, routerLogits: nil, sharedActivation: nil)
     }
 
     func callAsFunction(
         _ x: MLXArray,
         residual: MLXArray,
-        routerLogits: MLXArray? = nil
+        routerLogits: MLXArray? = nil,
+        sharedActivation: MLXArray? = nil
     ) -> MLXArray {
-        forward(x, residual: residual, routerLogits: routerLogits)
+        forward(
+            x, residual: residual, routerLogits: routerLogits,
+            sharedActivation: sharedActivation)
     }
 
     private func forward(
         _ x: MLXArray,
         residual: MLXArray?,
-        routerLogits: MLXArray?
+        routerLogits: MLXArray?,
+        sharedActivation: MLXArray?
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
@@ -9496,11 +9632,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             // fully stock sorted gather-GEMM path and never see the fused
             // bank.
             let activated: MLXArray
-            // Set when the routed and shared gate/up QMVs were issued as one
-            // dispatch below, so the shared half of that same dispatch is
-            // handed to the down projection instead of being issued again.
-            // Purely within this invocation; nothing survives it.
-            var mergedSharedActivated: MLXArray?
             if lagunaFusedRoutedSwiGLUQMVEnabled,
                 x.dtype == .bfloat16,
                 x.shape == [1, 1, LagunaConstants.hiddenSize],
@@ -9556,7 +9687,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 let downWeight = _routedDownWeight,
                 let downScales = _routedDownScales,
                 let sharedInputs = sharedExpert.fusedSharedDownInputs(
-                    x, sharedActivation: mergedSharedActivated),
+                    x, sharedActivation: sharedActivation),
                 activated.dtype == .bfloat16,
                 activated.shape == [
                     1, 1, LagunaConstants.numExpertsPerTok, 1,
@@ -9814,6 +9945,7 @@ final class LagunaRuntimeDecoderLayer: Module {
         let h: MLXArray
         let normalized: MLXArray
         var routerLogits: MLXArray?
+        var sharedActivation: MLXArray?
         if lagunaFusedResidualRMSNormRouterEnabled,
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -9824,14 +9956,31 @@ final class LagunaRuntimeDecoderLayer: Module {
                 LagunaConstants.numExperts, LagunaConstants.hiddenSize,
             ]
         {
-            let fused = lagunaResidualRMSNormRouter(
-                residual: x,
-                branch: r,
-                weight: postAttentionLayerNorm.weight,
-                routerWeight: sparse.gate.weight)
-            h = fused.summed
-            normalized = fused.normalized
-            routerLogits = fused.routerLogits
+            if lagunaFusedRouterSharedQMVEnabled,
+                lagunaFusedRoutedSharedDownResidualEnabled,
+                let sharedBanks = sparse.fusedSharedBanks(x)
+            {
+                let fused = lagunaResidualRMSNormRouterSharedQMV(
+                    residual: x,
+                    branch: r,
+                    weight: postAttentionLayerNorm.weight,
+                    routerWeight: sparse.gate.weight,
+                    fusedWeight: sharedBanks.gateUpWeight,
+                    fusedScales: sharedBanks.gateUpScales)
+                h = fused.summed
+                normalized = fused.normalized
+                routerLogits = fused.routerLogits
+                sharedActivation = fused.sharedActivation
+            } else {
+                let fused = lagunaResidualRMSNormRouter(
+                    residual: x,
+                    branch: r,
+                    weight: postAttentionLayerNorm.weight,
+                    routerWeight: sparse.gate.weight)
+                h = fused.summed
+                normalized = fused.normalized
+                routerLogits = fused.routerLogits
+            }
         } else if lagunaFusedResidualRMSNormEnabled,
             x.dtype == .bfloat16, r.dtype == .bfloat16,
             postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -9868,7 +10017,8 @@ final class LagunaRuntimeDecoderLayer: Module {
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
             return sparse(
-                normalized, residual: h, routerLogits: routerLogits)
+                normalized, residual: h, routerLogits: routerLogits,
+                sharedActivation: sharedActivation)
         }
         // Multi-token prefill: hand the residual to the sparse block so the
         // prefill MoE tail kernel can fold the final residual add. When any
@@ -9904,6 +10054,7 @@ final class LagunaRuntimeDecoderLayer: Module {
             let h: MLXArray
             let normalizedAfterAttention: MLXArray
             var routerLogits: MLXArray?
+            var sharedActivation: MLXArray?
             if lagunaFusedResidualRMSNormRouterEnabled,
                 lastResidual.dtype == .bfloat16, r.dtype == .bfloat16,
                 postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -9915,14 +10066,31 @@ final class LagunaRuntimeDecoderLayer: Module {
                     LagunaConstants.numExperts, LagunaConstants.hiddenSize,
                 ]
             {
-                let fused = lagunaResidualRMSNormRouter(
-                    residual: lastResidual,
-                    branch: r,
-                    weight: postAttentionLayerNorm.weight,
-                    routerWeight: sparse.gate.weight)
-                h = fused.summed
-                normalizedAfterAttention = fused.normalized
-                routerLogits = fused.routerLogits
+                if lagunaFusedRouterSharedQMVEnabled,
+                    lagunaFusedRoutedSharedDownResidualEnabled,
+                    let sharedBanks = sparse.fusedSharedBanks(lastResidual)
+                {
+                    let fused = lagunaResidualRMSNormRouterSharedQMV(
+                        residual: lastResidual,
+                        branch: r,
+                        weight: postAttentionLayerNorm.weight,
+                        routerWeight: sparse.gate.weight,
+                        fusedWeight: sharedBanks.gateUpWeight,
+                        fusedScales: sharedBanks.gateUpScales)
+                    h = fused.summed
+                    normalizedAfterAttention = fused.normalized
+                    routerLogits = fused.routerLogits
+                    sharedActivation = fused.sharedActivation
+                } else {
+                    let fused = lagunaResidualRMSNormRouter(
+                        residual: lastResidual,
+                        branch: r,
+                        weight: postAttentionLayerNorm.weight,
+                        routerWeight: sparse.gate.weight)
+                    h = fused.summed
+                    normalizedAfterAttention = fused.normalized
+                    routerLogits = fused.routerLogits
+                }
             } else if lagunaFusedResidualRMSNormEnabled,
                 lastResidual.dtype == .bfloat16, r.dtype == .bfloat16,
                 postAttentionLayerNorm.weight.dtype == .bfloat16,
@@ -9951,7 +10119,8 @@ final class LagunaRuntimeDecoderLayer: Module {
             {
                 return sparse(
                     normalizedAfterAttention, residual: h,
-                    routerLogits: routerLogits)
+                    routerLogits: routerLogits,
+                    sharedActivation: sharedActivation)
             }
             if let dense = mlp as? LagunaRuntimeMLP,
                 let fused = dense.fusedDenseDownResidual(
