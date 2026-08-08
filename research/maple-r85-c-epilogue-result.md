@@ -11,7 +11,11 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
   decode saving, footprint-neutral and bit-exact.
 - Decision: **green**
 - `BASE_SHA` / candidate commit: `7687c2e44e6975c181444ca8d3d151ee30480a72` /
-  `<CANDIDATE_SHA>`
+  mechanism commit **`74e89d7`** on `maple-frieren/r85-placement-lever`. Every
+  later commit on the branch is research-only, so the submitted editable surface
+  at branch HEAD is byte-identical to `74e89d7`
+  (`Sources/MLXFastModel/LagunaRuntimeModel.swift` sha256 `22b2db96…`, the exact
+  file hash printed by both the timing and the tripwire runners).
 - Submitted candidate files: `Sources/MLXFastModel/LagunaRuntimeModel.swift`
   (the only editable-surface file touched)
 - Supporting test or documentation files: research-only —
@@ -29,7 +33,18 @@ SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_
   → `assignment scope OK: 1 submitted path(s)`
 - Editable bytes / headroom / growth: `senpai/check-editable-budget.sh 7687c2e4…`
   → `current=2890889/3000000 headroom=109111 growth=-454/262144 files=140`.
-  The file **shrinks** 511,418 → 510,964 B (−454 B).
+  Exact per-file bytes for the one submitted file, as requested:
+  `Sources/MLXFastModel/LagunaRuntimeModel.swift` **511,418 B → 510,964 B
+  (−454 B)**, so per-file headroom against the 524,288 B cap improves from
+  12,870 B to **13,324 B**. This arm consumes none of the 262,144 B growth budget
+  and does not depend on fern's carve in #456.
+- Base movement during the experiment: `codex/mlxfast-maple-20260804-advisor`
+  moved `7687c2e4 → c15740be → b6800f30 → 417f42c4` while this arm ran. All three
+  bumps are research-Markdown only (advisor comments `r85-c-fb3`, `r85-c-fb5`, and
+  `5228394265` each verify zero `Sources/`/`Vendor/` movement), so **every build
+  and every timing block in this result is on the pinned
+  `7687c2e44e6975c181444ca8d3d151ee30480a72`** and no rebase was performed
+  mid-experiment.
 - Scored-path reachability evidence: both edited kernels appear in every timed
   step's GPU profile on this host —
   `sliding_fused_attn_ring_v1` at 6,031 dispatches / 200 steps (≈30 layers/step,
@@ -106,8 +121,16 @@ offsets and why the replication prediction was strong.
   non-zero exit is a pre-existing base property, not a regression — see below.
   64-step drift tripwire:
   `mlxfast-swift correctness --weights weights --golden correctness_prompts/public_longcopy_gate_english_512_256.json`
-  — `<TRIPWIRE>`. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **unset** for that run
-  (the runner `unset`s it explicitly rather than assuming an empty environment).
+  — **PASS**: `passed: true`, `checked_steps: 64`, `case_count: 1`, `error: ""`,
+  `first_failing_step: null`, `golden_hash
+  b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`, exit 0.
+  `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was **unset** for that run — the runner
+  `unset`s it explicitly and then prints
+  `env | grep -c MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` → `0` rather than assuming an
+  empty environment. The worker was rebuilt from the candidate HEAD immediately
+  before the check (`mlxfast-runtime-worker` sha256 `f5cb755c…`,
+  `LagunaRuntimeModel.swift` sha256 `22b2db96…`) so the binary under test is
+  provably the candidate and not a leftover base build.
 
 #### The oracle's non-zero exit is pre-existing, and the decode path is exact
 
@@ -228,11 +251,55 @@ step, inflating per-step time to ≈9,795 µs, so profiled wall clock cannot res
 an 18 µs effect. It is reported for completeness only and was **not** used for
 the verdict.
 
+### End-to-end `--local-iterate` pair — corroboration only, not the verdict
+
+Matched candidate-then-base `./benchmark.sh --local-iterate` in one session
+(unprofiled build, same quiet host, same thermal gate; both arms passed the
+harness's own 130 checked steps with `error: ""`):
+
 | Metric | Baseline | Candidate | Ratio / delta |
 | --- | ---: | ---: | ---: |
-| decode seconds/token | `<DEC_BASE>` | `<DEC_CAND>` | `<DEC_RATIO>` |
-| prefill seconds/token | `<PRE_BASE>` | `<PRE_CAND>` | `<PRE_RATIO>` |
-| same-host paired estimate | — | **1.002358** [1.001347, 1.003368] | — |
+| decode seconds/token | `0.012988` | `0.012933` | `1.004255` (−55 µs/step) |
+| prefill seconds/token | `0.001112` | `0.001112` | `1.000283` |
+| `--local-iterate` paired estimate | — | `1.003261` | n = 1 per arm |
+| **primary: ABBA GPU-busy paired estimate** | — | **1.002358** [1.001347, 1.003368] | n = 8 duplexes |
+
+`passed_correctness: true` and `checked_steps: 130` on both arms; prefill
+`1.000283` clears the `0.95` floor with enormous margin, and decode does too.
+
+**This end-to-end pair is corroboration, and I am labelling it as such per the
+advisor's standing requirement.** It agrees in sign with the primary instrument
+and its prefill floor verdict is usable, but its decode point estimate is not:
+
+- **This rig's resolvable end-to-end floor, with the arithmetic.** Single-run
+  `--local-iterate` decode on this host has **σ ≈ 48 µs/step**. That is not a
+  guess: my own noise-floor doc recorded a ±133 µs/step 95 % half-width for a
+  single-run-vs-single-run contrast, and `133 / 1.96 / √2 = 48.0`. **#460
+  independently measured pooled SD 49.0 µs/step** — the two agree to 2 %, from
+  different sessions and different scripts, so treat 48–49 µs/step as this host
+  class's settled per-run decode σ.
+  - n = 1 per arm: `1.96 × 48 × √2 = ±133` µs/step.
+  - n = 3 per arm: `t₄ × 48 × √(2/3) = 2.776 × 39.2 = ±109` µs/step — which is
+    exactly #460's reported ±111.
+  Against a pre-registered **+18.6 µs/step** target those floors are **7.2×**
+  (n = 1) and **5.9×** (n = 3) too coarse. So the +55 µs/step read above sits
+  *well inside* noise: it is neither confirmation of a 55 µs win nor, crucially,
+  evidence against 18.6. **A "not significant" end-to-end number on this rig is a
+  rig limit, not a mechanism verdict.**
+- **It is also order-confounded.** The candidate ran first from a cold gate and
+  the base second, which biases in the candidate's favour; the ABBA instrument
+  exists precisely to cancel that, and it is why the primary number
+  (+15.43 µs/step) is *smaller* than this uncorrected +55.
+- An older baseline JSON from a previous session recorded decode `0.012914`,
+  *faster* than this candidate. Cross-session baselines are not admissible here
+  and I am not using it, but it is a concrete demonstration of the same point:
+  session-to-session drift on this rig exceeds the effect being measured.
+
+**Cost of doing it end-to-end anyway:** solving
+`1.96 · 48 · √(2/n) ≤ 18.6` gives **n ≥ 52 runs per arm** — ≈2.7 h per arm,
+≈5.5 h for the pair, and that only *just* touches the target. The kernel-level
+ratio-adjusted ABBA reaches a ±5.1–6.6 µs/step floor (**3× below** the target) in
+one ~40-minute session, which is why it is the primary discriminator here.
 
 The paired estimate is a same-host research metric, not an official M5 score.
 
@@ -251,6 +318,40 @@ session's confirmation:
 - **Per-kernel GPU-time attribution: ±0.3–2.0 µs/step**, depending on kernel size.
 - Profiled wall clock (`DARKBLOOM_GPU_PROFILE_SPLIT=1`) is ≈9.8 ms/step and
   carries ±65 µs/step at n = 8 — do not use it as a wall-clock proxy.
+
+### Reconciliation with #460's numbers, now that its verdict is in
+
+#460 reports pooled decode SD **49.0 µs/step** and a n = 3/arm interval of
+**±111 µs/step**. My ±133 was a *n = 1 contrast* half-width, so the two are the
+same underlying σ expressed at different n:
+
+| quantity | value | derivation |
+| --- | ---: | --- |
+| per-run decode σ | **48.0 µs/step** | `133 / 1.96 / √2` (mine) — vs #460's 49.0 |
+| n = 1 contrast, 95 % | ±133 µs/step | `1.96 × 48 × √2` |
+| n = 3 contrast, 95 % | ±109 µs/step | `t₄ × 48 × √(2/3)` — vs #460's ±111 |
+| ABBA ratio-adjusted, n = 8 | **±5.1–6.6 µs/step** | this session's per-duplex SD 7.92 |
+
+So #460's GREEN (+6.34 µs/step, CI [−104.73, +117.41]) is a *correct* conclusion
+about the absence of a **large** regression, and it should not be read as bounding
+anything smaller than ≈100 µs/step. Two consequences worth having on the record:
+
+1. **#460's rig cannot see a 38 µs/step effect either.** The advisor's original
+   worry was a 38 µs/step normalised gap; that is ~0.35× #460's own half-width.
+   #460's GREEN therefore rules out a *catastrophic* base regression, not a
+   38 µs/step one. If the 38 µs matters, it needs the ABBA/per-kernel instrument.
+2. **The ±13.5 µs/step placement lottery survives as the binding term.** It is
+   still larger than most arms' effects and it is *not* absorbed by the σ above —
+   it is a systematic re-roll on allocation-layout change, not per-run jitter.
+   Any arm that alters prep-time allocation count/order re-rolls it. This arm
+   avoided it by being footprint- and allocation-neutral, and it still saw an
+   11.1 µs/step give-back on untouched kernels (see the give-back section above).
+
+**Portable rule for the programme:** on this host class, an end-to-end
+`--local-iterate` contrast resolves ≈`±133/√n_pairs` µs/step. To claim an effect
+of size `E` µs/step end-to-end you need `n ≥ 2·(1.96·48/E)²` runs per arm — 52 for
+18.6 µs, 13 for 38 µs, 3 for 80 µs. Below ≈100 µs/step, use the ratio-adjusted
+per-kernel ABBA instrument instead.
 
 ## Conclusion
 
