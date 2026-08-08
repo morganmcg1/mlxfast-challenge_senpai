@@ -12,7 +12,12 @@ reps, so an arm is never pinned to the same position in the drift sequence
 
 Usage: maple_r89_insitu.py OUTDIR [REPS] [STEPS] [SPLIT]
   SPLIT=1 gives per-dispatch kernel attribution but inflates absolute GPU time;
-  it is only ever used for arm-vs-arm relative comparison, never as a headline.
+  it is only ever used for arm-vs-arm relative comparison, never as a headline
+  (rule 43). SPLIT=0 is the shipped `nat` regime and is the only source of an
+  end-to-end wall or absolute-busy magnitude.
+
+`R89_SLOTS` (comma-separated slot names) restricts the sweep to a subset, so a
+`nat` census can spend its duplexes on the contrasts that decide the merge.
 """
 import json
 import math
@@ -25,7 +30,11 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # (slot, env value). Slot "0b" repeats the baseline so every rep carries its own
 # null control; the null half-width is the resolvable floor for this rig.
-SLOTS = [("0", 0), ("0b", 0), ("1", 1), ("2", 2), ("3", 3), ("4", 4), ("5", 5)]
+ALL_SLOTS = [("0", 0), ("0b", 0), ("1", 1), ("2", 2), ("3", 3), ("4", 4),
+             ("5", 5)]
+_want = os.environ.get("R89_SLOTS")
+SLOTS = ([s for s in ALL_SLOTS if s[0] in _want.split(",")] if _want
+         else ALL_SLOTS)
 ARM_LABEL = {
     "0": "A0 depth0 (baseline)",
     "0b": "A0' depth0 (null control)",
@@ -86,7 +95,9 @@ def run(arm, steps, split, out, tag):
     for line in txt.splitlines():
         mm = re.match(r"\s*([\d.]+)\s+([\d.]+)%\s+([\d.]+)\s+([\d.]+)\s+(.*)$",
                       line)
-        if mm and ROUTER_RE.search(mm.group(5)):
+        # Under SPLIT=0 a command buffer holds many dispatches and is labelled
+        # "[n] a|b|c"; such a row carries no per-kernel attribution.
+        if mm and ROUTER_RE.search(mm.group(5)) and not mm.group(5).startswith("["):
             rec["router_us_step"] = float(mm.group(1))
             rec["router_n_step"] = float(mm.group(3))
             rec["router_us_call"] = float(mm.group(4))
@@ -95,14 +106,15 @@ def run(arm, steps, split, out, tag):
     return rec
 
 
-def summarise(recs, key, label, scale=1.0, unit=""):
-    """Paired within-rep contrast against slot 0.
+def summarise(recs, key, label, scale=1.0, unit="", ref="0"):
+    """Paired within-rep contrast against a reference slot.
 
-    Every arm is differenced against the slot-0 baseline measured in the SAME
-    rep, so rep-level drift (thermal, process placement, page mapping) cancels
-    instead of entering the variance.
+    Every arm is differenced against the reference measured in the SAME rep, so
+    rep-level drift (thermal, process placement, page mapping) cancels instead
+    of entering the variance. `ref="5"` gives the A4 placement control, which is
+    the contrast that isolates cross-barrier overlap from mere loop peeling.
     """
-    print(f"\n=== {label} ===", flush=True)
+    print(f"\n=== {label}  [ref=slot {ref}] ===", flush=True)
     by_rep = {}
     for r in recs:
         if key in r:
@@ -114,8 +126,8 @@ def summarise(recs, key, label, scale=1.0, unit=""):
         for _rep, byslot in sorted(by_rep.items()):
             if slot in byslot:
                 levels.append(byslot[slot])
-            if slot in byslot and "0" in byslot:
-                diffs.append(byslot[slot] - byslot["0"])
+            if slot in byslot and ref in byslot:
+                diffs.append(byslot[slot] - byslot[ref])
         if not levels:
             continue
         lvl = statistics.mean(levels)
@@ -141,6 +153,10 @@ def main():
           flush=True)
 
     recs = []
+    if os.environ.get("R89_REPORT_ONLY") == "1":
+        with open(os.path.join(out, "records.json")) as fh:
+            recs = json.load(fh)
+        return report(recs)
     for rep in range(reps):
         order = SLOTS if rep % 2 == 0 else list(reversed(SLOTS))
         for slot, env in order:
@@ -160,14 +176,31 @@ def main():
             with open(os.path.join(out, "records.json"), "w") as fh:
                 json.dump(recs, fh, indent=1)
 
+    return report(recs)
+
+
+def report(recs):
     n = max((r.get("router_n_step") or 0) for r in recs) or 39.0
     summarise(recs, "router_us_call",
               "router kernel us/call (SPLIT-inflated, relative only)",
               scale=n, unit="us")
+    summarise(recs, "router_us_call",
+              "router kernel us/call vs the A4 placement control",
+              scale=n, unit="us", ref="5")
     summarise(recs, "router_us_step", "router kernel us/step")
-    summarise(recs, "busy_sum_ms", "gpu_busy_sum ms/step")
-    summarise(recs, "busy_union_ms", "gpu_busy_union ms/step")
-    summarise(recs, "median_ms", "end-to-end median ms/step")
+    summarise(recs, "busy_sum_ms", "census absolute busy ms/step (gpu_busy_sum)",
+              scale=1000.0, unit="us")
+    summarise(recs, "busy_union_ms", "gpu_busy_union ms/step", scale=1000.0,
+              unit="us")
+    summarise(recs, "wall_ms", "census wall ms/step", scale=1000.0, unit="us")
+    summarise(recs, "median_ms", "end-to-end median ms/step", scale=1000.0,
+              unit="us")
+    ratios = [r["busy_sum_ms"] / r["busy_union_ms"] for r in recs
+              if r.get("busy_union_ms")]
+    if ratios:
+        sd = statistics.stdev(ratios) if len(ratios) > 1 else 0.0
+        print(f"\ngpu_busy_sum / gpu_busy_union: mean={statistics.mean(ratios):.4f}"
+              f" sd={sd:.4f} n={len(ratios)}", flush=True)
     divs = sorted({(r["slot"], r.get("divergences")) for r in recs})
     print(f"\ndivergences by slot: {divs}", flush=True)
     return 0
