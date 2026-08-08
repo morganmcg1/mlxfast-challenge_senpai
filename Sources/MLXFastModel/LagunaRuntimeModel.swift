@@ -7588,16 +7588,21 @@ for (uint row = 0; row < 2; ++row) {
 """
 }
 
-let lagunaRouterUint2ShuffleEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_UINT2_SHUFFLE"] == "1"
+private let lagunaRouterUint2ShuffleArm =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTER_UINT2_SHUFFLE"] ?? ""
+let lagunaRouterUint2ShuffleEnabled = lagunaRouterUint2ShuffleArm == "1"
 
-/// Butterfly stage of the router Top-8 reduction. The two arms are numerically
-/// identical; the enabled arm packs the ordinal/index pair into one `uint2`
-/// shuffle. `offset >= 1` versus `offset > 0` on an unsigned counter is an
-/// inert token-level difference that keeps the disabled arm's source text
-/// distinct from the unguarded base, so a content-addressed pipeline cache
-/// cannot serve either arm from a build of the other.
-private let lagunaRouterTop8ButterflyBody = lagunaRouterUint2ShuffleEnabled ? """
+/// Butterfly stage of the router Top-8 reduction. All three arms are
+/// numerically identical; `1` packs the ordinal/index pair into one `uint2`
+/// shuffle, and `control` is a byte-different but IR-identical copy of the
+/// default scalar butterfly that measures the slot effect of the timing
+/// design. `offset >= 1` versus `offset > 0` on an unsigned counter is an
+/// inert token-level difference, so every arm's source text — including the
+/// default one — differs from the unguarded base and a content-addressed
+/// pipeline cache cannot serve one arm from a build of another.
+private let lagunaRouterTop8ButterflyBody: String = {
+    if lagunaRouterUint2ShuffleEnabled {
+        return """
     for (ushort offset = 16; offset > 0; offset >>= 1) {
         uint2 other = simd_shuffle_xor(uint2(best_ordinal, best_index), offset);
         if (laguna_router_ordinal_before(
@@ -7606,7 +7611,22 @@ private let lagunaRouterTop8ButterflyBody = lagunaRouterUint2ShuffleEnabled ? ""
             best_index = other.y;
         }
     }
-""" : """
+"""
+    }
+    if lagunaRouterUint2ShuffleArm == "control" {
+        return """
+    for (ushort offset = 16; offset > 0u; offset >>= 1) {
+        uint other_ordinal = simd_shuffle_xor(best_ordinal, offset);
+        uint other_index = simd_shuffle_xor(best_index, offset);
+        if (laguna_router_ordinal_before(
+            other_ordinal, other_index, best_ordinal, best_index)) {
+            best_ordinal = other_ordinal;
+            best_index = other_index;
+        }
+    }
+"""
+    }
+    return """
     for (ushort offset = 16; offset >= 1; offset >>= 1) {
         uint other_ordinal = simd_shuffle_xor(best_ordinal, offset);
         uint other_index = simd_shuffle_xor(best_index, offset);
@@ -7617,6 +7637,7 @@ private let lagunaRouterTop8ButterflyBody = lagunaRouterUint2ShuffleEnabled ? ""
         }
     }
 """
+}()
 
 /// Simd-shuffle-only comparator-minimum extraction; lane `l` owns experts
 /// `l + 32j`, `mask` bit `j` marks extracted. Each routed slot performs only

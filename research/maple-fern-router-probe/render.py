@@ -137,19 +137,52 @@ def census(ll: Path) -> dict:
     return counts
 
 
+SLOT = r"\(lagunaRouterTop8ButterflyBody)"
+
+
+def shipped_arms() -> dict:
+    """The three guarded butterfly bodies, verbatim from the Swift source.
+
+    Order in the file is the order of the guard's tests: `1`, `control`, then
+    the default fall-through.
+    """
+    text = SWIFT.read_text()
+    m = re.search(
+        r"private let lagunaRouterTop8ButterflyBody: String = \{\n(.*?)\n\}\(\)",
+        text, re.S)
+    if not m:
+        raise SystemExit("guarded butterfly body not found in " + str(SWIFT))
+    bodies = re.findall(r'"""\n(.*?)\n"""', m.group(1), re.S)
+    if len(bodies) != 3:
+        raise SystemExit(f"expected 3 guarded arms, found {len(bodies)}")
+    return {"on": bodies[0], "ctl": bodies[1], "off": bodies[2]}
+
+
 def main() -> None:
     ordinal = literal("lagunaDecodeRouterOrdinalHeader")
     prologue = literal("lagunaRouterTop8PrologueHeader")
-    if SCALAR not in prologue:
-        raise SystemExit("shipped scalar butterfly not found in prologue header")
+    if SLOT not in prologue:
+        raise SystemExit("butterfly interpolation slot not found in prologue")
+    arms = shipped_arms()
+    # The two scalar arms differ from the pre-experiment base only in the loop
+    # condition token, which is the inert perturbation that keeps every arm's
+    # source text distinct for a content-addressed pipeline cache.
+    def normalise(body: str) -> str:
+        return body.replace("offset >= 1", "offset > 0").replace(
+            "offset > 0u", "offset > 0")
+    if (arms["on"] != UINT2 or normalise(arms["off"]) != SCALAR
+            or normalise(arms["ctl"]) != SCALAR):
+        raise SystemExit("shipped arms differ from the probe's variant text")
+    variants = {f"shipped_{k}": v for k, v in arms.items()}
+    variants.update(VARIANTS)
     OUT.mkdir(parents=True, exist_ok=True)
-    for tag, butterfly in VARIANTS.items():
+    for tag, butterfly in variants.items():
         src = OUT / f"router_{tag}.metal"
         src.write_text(
             "#include <metal_stdlib>\n#include <metal_simdgroup>\n"
             "using namespace metal;\n\n"
             + ordinal + "\n\n"
-            + prologue.replace(SCALAR, butterfly) + "\n"
+            + prologue.replace(SLOT, butterfly) + "\n"
             + PROBE
         )
         print(f"{tag:16s} {src}  {census(compile_ir(src))}")

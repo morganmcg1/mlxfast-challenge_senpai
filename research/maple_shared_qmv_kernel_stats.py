@@ -81,13 +81,16 @@ def main() -> int:
     ap.add_argument("--per-step", type=int, default=39)
     ap.add_argument("--steps", type=int, required=True)
     ap.add_argument("--baseline-arm", default="off")
+    ap.add_argument("--arm-regex", default=ARM_RE.pattern,
+                    help="capture group 1 names the arm in the file name")
     args = ap.parse_args()
+    arm_re = re.compile(args.arm_regex)
 
     by_arm = collections.defaultdict(list)
     print(f"{'file':>26} {'arm':>8} {'n':>6} {'us/call':>9} {'median':>8} "
           f"{'se':>7} {'us/step':>9}")
     for path in sorted(args.paths):
-        m = ARM_RE.search(os.path.basename(path))
+        m = arm_re.search(os.path.basename(path))
         if not m:
             raise SystemExit(f"cannot infer arm from {path}")
         arm = m.group(1)
