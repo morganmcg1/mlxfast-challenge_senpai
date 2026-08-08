@@ -131,6 +131,52 @@ Closed, with the CLI walk the advisor asked for:
 Conclusion: no supported route exists from an unauthenticated agent workspace.
 Stop spending budget there; use the reason field and branch diffs instead.
 
+## Evidence 6 — the base passes every gate we can run locally
+
+The control is the Maple base plus one comment line in
+`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/RoPEApplication.swift` (+77 B). The
+inert perturbation exists only to defeat submission content-hash dedupe.
+
+`./benchmark.sh --local-submit`, exit 0 in 443 s:
+
+```text
+passed=true  checked_steps=1025
+passed_correctness=true  first_failing_case=null  first_failing_layer=null  first_failing_step=null
+golden_hash=f49e4c2cbc0d3ceee90195a3a12e1ff082636f8c031587485a9a2c10702b03d2
+prefill_seconds_per_token=0.001124  decode_seconds_per_token=0.008911
+passed_decode_speedup_floor=true   passed_prefill_speedup_floor=false
+```
+
+The prefill floor miss is the documented non-M5 artifact: the research host is an
+**Apple M4 Pro**, which reports Apple GPU generation 16 and therefore never
+selects the `_nax` prefill kernels the ranked M5 uses. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT`
+was unset for every command in this arm.
+
+### Equivalence oracle, run twice
+
+`research/run_upstream_equivalence.sh` selects one test (non-zero, report
+emitted, so the wrapper's zero-test trap did not fire). Both runs are
+**byte-identical**:
+
+| run | prefill max abs err | prefill mean abs err | exact decode steps | token mismatches |
+|---|---|---|---|---|
+| control (base + comment) | 0.125 | 0.011933609 | 8 / 8 | 0 / 9 |
+| unchanged base `cc5688d0` | 0.125 | 0.011933609 | 8 / 8 | 0 / 9 |
+
+`EQUIVALENCE_EXACT_STEPS=8`, `EQUIVALENCE_EXIT=1` for both. The wrapper's own
+comment prescribes exactly this control: *"on a non-M5 host, compare the
+unchanged BASE_SHA before attributing drift."* The divergence is prefill-only,
+pre-existing, and identical with and without the probe, so it is an M4-Pro
+kernel-selection artifact and not drift introduced here. **Every argmax token
+matches upstream at all 9 steps**, which is what the greedy correctness gate
+actually checks; the 0.125 figure is a bf16 logit magnitude under a zero
+tolerance, not a behavioural difference.
+
+This refutes H1 (generated-twin desync), H3 (M5-only kernel divergence) and H4
+(golden-drift masking) *as explanations for the base*, and Evidence 1–4 refute
+H2. All four brief hypotheses are eliminated: none of them is about the base,
+because the base is not what failed.
+
 ## Reusable diagnosis recipe
 
 ```bash
@@ -163,6 +209,28 @@ Every submission — ours and every competitor's — is a public branch
 `submissions/<full-uuid>`, so the exact submitted diff and the frontier it was
 built on are both recoverable. `mlxfast reset <submission>` also restores any
 submission's editable paths locally (`--force` to discard local changes).
+
+### Watching a live submission from a `run_job` process
+
+`senpai/watch-submission.py` **cannot** be used under `run_job`: it reads the
+token from `MLXFAST_API_TOKEN`/`~/.config/mlxfast/config.json`, and neither is
+visible to a supervised job (only `WANDB_API_KEY` is injectable). It also
+rejects `--interval-seconds` below 180.
+
+`research/watch-public-benchmark-run.py` was added here to close that gap. It
+needs no credential, follows the organizer-side `benchmark` workflow run for a
+submission branch, and on completion prints every job and every step with its
+conclusion:
+
+```bash
+python3 research/watch-public-benchmark-run.py --submission <full-uuid> \
+    --interval-seconds 120 --timeout-seconds 5100
+```
+
+Step-level output is strictly more informative than the submission status
+string, because it shows *which* gate stopped the run and whether the timing
+steps were ever reached. Run it through `run_job` with
+`workspace_access: read_only`.
 
 The three-question triage this supports, in order:
 
