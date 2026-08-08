@@ -1561,9 +1561,11 @@ bool darkbloom_stage_wide_load_ok(
 // dispatch divides grid.x by exactly the value the kernel was compiled
 // with.
 int darkbloom_gather_xmajor_ct() {
-  // XMAJOR kernel arms removed with the dead staging code; keep the
-  // dispatch/JIT contract coherent by pinning the fold OFF.
-  return 0;
+  // XMAJOR column-tile fold: one threadgroup owns kFoldCT adjacent column
+  // tiles, loading x once per k-tile and reusing it across the fold (x
+  // DRAM traffic divides by kFoldCT). Bit-exact: same x fragments, same MMA
+  // chain order, disjoint output regions.
+  return 2;
 }
 
 // DARKBLOOM_SWIGLU_REGLOCAL: register-local swiglu epilogue in the
