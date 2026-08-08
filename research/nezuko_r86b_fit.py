@@ -118,6 +118,9 @@ def report_mode(rows, mode, label, csv):
             csv.append(["ladder", mode, a, LAYERS * a, len(vals), f"{med:.2f}",
                         f"{sd:.2f}", f"{med - base:.2f}"])
 
+    if len(ins) < 2:
+        return None
+
     blocks = {}
     for b, _s, _m, a, v in sub:
         blocks.setdefault(b, []).append((a, v))
