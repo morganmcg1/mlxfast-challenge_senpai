@@ -212,21 +212,10 @@ let lagunaExpertAlignedGatherEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_EXPERT_ALIGNED_GATHER"] != "0"
 
-func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
-    guard osSupportsNAX,
-        let generation = Int(architecture.suffix(3).prefix(2))
-    else { return false }
-    return generation >= (architecture.hasSuffix("p") ? 18 : 17)
-}
-
-// Prefill shared expert halved-scales via qmm_nax kHalvedScales. The
-// qmm_nax kernel path and its kHalvedScales template are M5 (NAX) only;
-// on non-NAX hardware the non-nax fallback would misread group_size=32
-// scales, so this gate prevents activation on M4.
-// Disabled: kHalvedScales=true adds _nax template instantiations that
-// push the M5 build past its ~900s timeout. Falls back to group_size=16
-// with full scales (bit-exact via NVFP4 pairwise constancy).
-let lagunaPrefillSharedHalvedEnabled: Bool = false
+// Disabled 2026-08-07: qmm_nax reverted to pre-PR#243 state (no kHalvedScales).
+// The halved path calls quantizedMM with groupSize=32 and scales [N+1, K/32],
+// which the pre-PR#243 qmm_nax doesn't support. Falls through to standard path.
+let lagunaPrefillSharedHalvedEnabled = false
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
@@ -434,12 +423,11 @@ private let lagunaLastPrefillProjectionBanksEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_LAST_PREFILL_PROJECTION_BANKS"] != "0"
 
-/// `DARKBLOOM_TERMINAL_FUSION` (default OFF; set "1" to enable): current-API
+/// `DARKBLOOM_TERMINAL_FUSION` (default ON; set "0" to disable): current-API
 /// port of overlay-dropped `9f98995`. `callLastPrefillRow` reuses the ordinary
 /// path's accepted row-local fused residual+RMSNorm(+router)+MoE-tail helpers.
-/// Disabled to reduce M5 JIT compile count; M4 sweep showed neutral timing.
 private let lagunaTerminalPrefillFusionEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_TERMINAL_FUSION"] == "1"
+    ProcessInfo.processInfo.environment["DARKBLOOM_TERMINAL_FUSION"] != "0"
 
 /// Full-attention counterpart: fuses per-head Q/K RMSNorm with partial YaRN
 /// RoPE. One stock FP32 probe row carries the authoritative rotary factors,
@@ -451,7 +439,7 @@ let lagunaFusedResidualRMSNormRouterEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_RESIDUAL_RMS_ROUTER"] != "0"
 
 let lagunaFusedFullQKNormYaRNEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_QK_NORM_YARN"] == "1"
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_QK_NORM_YARN"] != "0"
 
 /// Decode-only carrier for the two authoritative RoPE angle rows consumed by
 /// the fused Q/K kernels. At load time each attention family's own stock RoPE
@@ -585,10 +573,12 @@ private let lagunaDecodeAsyncStage: LagunaDecodeAsyncStage = {
 private let lagunaAttentionProjectionAsyncEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_ATTN_PROJECTION_ASYNC"] != "0"
 
-/// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `16`; `0`/`off` disables;
-/// `1` restores the prior default): a sweep on the SDPA frontier showed
-/// stride 16 best at prefill 0.002145 / decode 0.018555 (score 0.5168,
-/// +2.22% vs stride 1 score 0.5056). Stride 1 fires `asyncEval` after every layer:
+/// `DARKBLOOM_PREFILL_ASYNC_LADDER` (default `1`; `0`/`off` disables;
+/// `8` restores the prior default): a ranked measurement on the
+/// 1.87782 base scored stride 1 at 1.88526 (+0.40% vs that base, rejected
+/// only because a larger win promoted mid-queue), and the decode-side
+/// ladder sweep showed denser firing pays until graph-build cost
+/// dominates. Stride 1 fires `asyncEval` after every layer:
 /// prefill-side twin of the decode ladder above. Multi-token forwards build
 /// a ~400-op graph with the GPU idle until the final eval; firing `asyncEval`
 /// after every Nth layer streams completed segments exactly as the promoted
@@ -597,7 +587,7 @@ private let lagunaAttentionProjectionAsyncEnabled =
 /// This pays into both score components: the prefill phase itself and the
 /// 512-token seed prefill charged to the decode window.
 private let lagunaPrefillAsyncLadderStride: Int = {
-    let raw = ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_ASYNC_LADDER"]?.lowercased() ?? "16"
+    let raw = ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_ASYNC_LADDER"]?.lowercased() ?? "1"
     if raw == "off" || raw == "0" || raw.isEmpty { return 0 }
     guard let n = Int(raw), (1...40).contains(n) else { return 0 }
     return n
@@ -1719,7 +1709,7 @@ func lagunaNativeAffineWeight(
 // MARK: - Gated native-affine INT8 output projection (one dispatch)
 
 /// Exact per-head softplus gate plus group-32 affine INT8 output GEMV.
-private func lagunaGatedAffineOProjSource(indexed: Bool = false) -> String {
+private func lagunaGatedAffineOProjSource(heads: Int, indexed: Bool = false) -> String {
     let metadataPointers = indexed
         ? """
         const device ushort* mi = metadata_indices + out_row * in_vec_size_g +
@@ -1760,7 +1750,9 @@ private func lagunaGatedAffineOProjSource(indexed: Bool = false) -> String {
         bs += block_size / group_size;
         """
     return """
+    constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
+    constexpr uint gate_heads = \(heads);
     constexpr uint head_shift = 7;              // head_dim == 128
     constexpr uint values_per_thread = 8;       // pack_factor 4 * packs_per_thread 2
     constexpr uint block_size = 256;            // values_per_thread * SIMD_SIZE
@@ -1768,17 +1760,16 @@ private func lagunaGatedAffineOProjSource(indexed: Bool = false) -> String {
     constexpr uint num_simdgroups = 2;
     constexpr uint group_size = 32;
     constexpr uint scale_step_per_thread = group_size / values_per_thread;
-
-    uint in_vec_size = attention_output_shape[2];
-    uint gate_heads = in_vec_size >> head_shift;
-    uint in_vec_size_g = in_vec_size / group_size;
+    constexpr uint in_vec_size_g = in_vec_size / group_size;
 
     uint tile = threadgroup_position_in_grid.x;
     uint lid = thread_position_in_threadgroup.x;
     uint simd_gid = simdgroup_index_in_threadgroup;
     uint simd_lid = thread_index_in_simdgroup;
 
-    threadgroup float gate_table[\(LagunaConstants.slidingAttentionHeads)];
+    // One softplus per head, in the FP32 form and at the BF16 rounding point
+    // `lagunaGateProductSoftplusSource` uses.
+    threadgroup float gate_table[gate_heads];
     if (lid < gate_heads) {
         float logit = float(gate_logits[lid]);
         float gate;
@@ -1849,27 +1840,39 @@ private func lagunaGatedAffineOProjSource(indexed: Bool = false) -> String {
 /// One kernel per attention head count, built eagerly so one binary serves
 /// every arm of an ablation and MLX's name-keyed JIT cache never sees two
 /// sources under one name.
-private let lagunaGatedAffineOProjKernel = MLXFast.metalKernel(
-    name: "laguna_gated_affine_oproj_qmv_i8g32_v2",
-    inputNames: [
-        "attention_output", "gate_logits", "weight_codes",
-        "weight_scales", "weight_biases",
-    ],
-    outputNames: ["projected"],
-    source: lagunaGatedAffineOProjSource(),
-    ensureRowContiguous: true
-)
+private let lagunaGatedAffineOProjKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_v2",
+            inputNames: [
+                "attention_output", "gate_logits", "weight_codes",
+                "weight_scales", "weight_biases",
+            ],
+            outputNames: ["projected"],
+            source: lagunaGatedAffineOProjSource(heads: heads),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
 
-private let lagunaGatedAffineOProjIndexedKernel = MLXFast.metalKernel(
-    name: "laguna_gated_affine_oproj_qmv_i8g32_idx_v2",
-    inputNames: [
-        "attention_output", "gate_logits", "weight_codes",
-        "metadata_indices", "metadata_lut",
-    ],
-    outputNames: ["projected"],
-    source: lagunaGatedAffineOProjSource(indexed: true),
-    ensureRowContiguous: true
-)
+private let lagunaGatedAffineOProjIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_gated_affine_oproj_qmv_i8g32_h\(heads)_idx_v2",
+            inputNames: [
+                "attention_output", "gate_logits", "weight_codes",
+                "metadata_indices", "metadata_lut",
+            ],
+            outputNames: ["projected"],
+            source: lagunaGatedAffineOProjSource(heads: heads, indexed: true),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
 
 /// `DARKBLOOM_FUSED_GATED_AFFINE_OPROJ` (default ON; set "0" to disable).
 /// Fuses the per-head softplus gate product into the native group-32 affine
@@ -1959,6 +1962,7 @@ func lagunaGatedAffineOProj(
     }
 
     if let metadata = indexedMetadata,
+        let kernel = lagunaGatedAffineOProjIndexedKernels[heads],
         metadata.indices.dtype == .uint16,
         metadata.indices.dims(outVec, inVec / 32),
         metadata.lut.dtype == .uint32,
@@ -1966,15 +1970,16 @@ func lagunaGatedAffineOProj(
         metadata.lut.size <= 65_536
     {
         lagunaTrace("gated affine oproj qmv h\(heads) indexed")
-        return lagunaGatedAffineOProjIndexedKernel(
+        return kernel(
             [attentionOutput, gateLogits, codes, metadata.indices, metadata.lut],
             grid: ((outVec / 8) * 64, 1, 1),
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, outVec]], outputDTypes: [.bfloat16]
         )[0]
     }
+    guard let kernel = lagunaGatedAffineOProjKernels[heads] else { return nil }
     lagunaTrace("gated affine oproj qmv h\(heads)")
-    return lagunaGatedAffineOProjKernel(
+    return kernel(
         [attentionOutput, gateLogits, codes, scales, biases],
         grid: ((outVec / 8) * 64, 1, 1),
         threadGroup: (64, 1, 1),
@@ -1990,6 +1995,7 @@ func lagunaGatedAffineOProj(
 /// product, and contraction into one dispatch while preserving the BF16 gate
 /// rounding point and the stock NVFP4 accumulation geometry.
 func lagunaGatedAffineOProjNVFP4Source(
+    heads: Int,
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
     preActivatedGate: Bool = false,
@@ -2043,7 +2049,7 @@ func lagunaGatedAffineOProjNVFP4Source(
                     const uint p3 = go & 0x8E008E00u;
     """
     let gateSetup = preActivatedGate ? "" : """
-    threadgroup float gt[\(LagunaConstants.slidingAttentionHeads)];
+    threadgroup float gt[gate_heads];
     if(lid<gate_heads){
         float l=float(gate_logits[lid]);
         float g;
@@ -2083,7 +2089,9 @@ func lagunaGatedAffineOProjNVFP4Source(
             + "                sbits = oproj_escape_val;\n"
         : ""
     return """
+    constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
+    constexpr uint gate_heads = \(heads);
     constexpr uint head_shift = 7;
     constexpr uint group_size = 16;
     constexpr uint values_per_thread = 16;
@@ -2091,10 +2099,7 @@ func lagunaGatedAffineOProjNVFP4Source(
     constexpr uint block_size = values_per_thread * 32;
     constexpr uint results_per_simdgroup = 8;
     constexpr uint num_simdgroups = 2;
-
-    uint in_vec_size = attention_output_shape[2];
-    uint gate_heads = in_vec_size >> head_shift;
-    uint in_vec_size_g = in_vec_size / group_size;
+    constexpr uint in_vec_size_g = in_vec_size / group_size;
 
     uint tile = threadgroup_position_in_grid.x;
     uint lid = thread_position_in_threadgroup.x;
@@ -2179,18 +2184,44 @@ private let lagunaOProjScaleHalvingEnabled =
 private let lagunaGateSoftplusEnabled = ProcessInfo.processInfo.environment[
     "DARKBLOOM_AFFINE_GATE_SOFTPLUS"] != "0"
 
-private let lagunaActivatedOProjHalvedKernel = MLXFast.metalKernel(
-    name: "laguna_oproj_act_v1"
-        + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-        + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
-        + "_hs1",
-    inputNames: [
-        "attention_output", "gate_values", "weight_codes",
-        "weight_scales", "oproj_escape_buf",
-    ],
-    outputNames: ["projected"],
-    source: lagunaGatedAffineOProjNVFP4Source(preActivatedGate: true, halvedScales: true),
-    ensureRowContiguous: true)
+private let lagunaGatedAffineOProjNVFP4HalvedKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
+                + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + "_hs1",
+            inputNames: [
+                "attention_output", "gate_logits", "weight_codes",
+                "weight_scales", "oproj_escape_buf",
+            ],
+            outputNames: ["projected"],
+            source: lagunaGatedAffineOProjNVFP4Source(heads: heads, halvedScales: true),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
+
+private let lagunaActivatedOProjHalvedKernels: [Int: MLXFast.MLXFastKernel] = {
+    var result: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        result[heads] = MLXFast.metalKernel(
+            name: "laguna_oproj_act_h\(heads)_v1"
+                + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+                + "_hs1",
+            inputNames: [
+                "attention_output", "gate_values", "weight_codes",
+                "weight_scales", "oproj_escape_buf",
+            ],
+            outputNames: ["projected"],
+            source: lagunaGatedAffineOProjNVFP4Source(heads: heads, preActivatedGate: true, halvedScales: true),
+            ensureRowContiguous: true)
+    }
+    return result
+}()
 
 func lagunaGatedAffineOProjNVFP4(
     attentionOutput: MLXArray,
@@ -2201,10 +2232,15 @@ func lagunaGatedAffineOProjNVFP4(
     gateIsActivated: Bool = false,
     scalesEscape: MLXArray? = nil
 ) -> MLXArray? {
-    guard gateIsActivated else { return nil }
-    guard lagunaGateSoftplusEnabled else { return nil }
-    let kernel = lagunaActivatedOProjHalvedKernel
     let halved = lagunaOProjScaleHalvingEnabled
+    let selected: MLXFast.MLXFastKernel?
+    if gateIsActivated {
+        guard lagunaGateSoftplusEnabled else { return nil }
+        selected = lagunaActivatedOProjHalvedKernels[heads]
+    } else {
+        selected = lagunaGatedAffineOProjNVFP4HalvedKernels[heads]
+    }
+    guard let kernel = selected else { return nil }
     let inVec = heads * LagunaConstants.headDim
     let outVec = LagunaConstants.hiddenSize
     guard attentionOutput.dtype == .bfloat16,
@@ -2397,12 +2433,13 @@ private let lagunaDecodeNVFP4QKVR1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_DECODE_NVFP4_QKV_R1"] != "0"
 
 private func lagunaDecodeNVFP4QKVR1Source(
-    halvedScales: Bool = false, withGProj: Bool = false
+    heads: Int, halvedScales: Bool = false, withGProj: Bool = false
 ) -> String {
     let ss = halvedScales ? "in_vec_size_g / 2" : "in_vec_size_g"
     let sl = halvedScales ? "simd_lid / 2" : "simd_lid"
     let st = halvedScales ? "block_size / 32" : "block_size / 16"
     let d = halvedScales ? """
+        constexpr uint q_rows = \(heads * LagunaConstants.headDim);
         constexpr uint kv_rows = \(LagunaConstants.numKeyValueHeads * LagunaConstants.headDim);
 """ : ""
     let r: String
@@ -2410,7 +2447,6 @@ private func lagunaDecodeNVFP4QKVR1Source(
         r = """
         uint8_t sbits = sc[0];
         if (simd_lid == 1 && k == 0) {
-            uint q_rows = weight_codes_shape[0] - 2 * kv_rows;
             if (out_row == 0) sbits = qkv_escape[0];
             else if (out_row == q_rows) sbits = qkv_escape[1];
             else if (out_row == q_rows + kv_rows) sbits = qkv_escape[2];
@@ -2422,12 +2458,13 @@ private func lagunaDecodeNVFP4QKVR1Source(
         result += laguna_tail_nvfp4_qdot(ws, x_thread, laguna_tail_nvfp4_scale(sc[0]));
 """
     }
+    let qkvRows = "(\(heads) + 2 * \(LagunaConstants.numKeyValueHeads)) * \(LagunaConstants.headDim)"
     let gProjDecl = withGProj ? """
     constexpr uint gk = axis_size, ggs = 32, gv = 8, gkg = gk / ggs, gss = ggs / gv;
     constexpr uint g_bk = gv * 32;
 """ : ""
     let qkvRowsConst = withGProj
-        ? "    uint qkv_rows = weight_codes_shape[0];"
+        ? "    constexpr uint qkv_rows = \(qkvRows);"
         : ""
     let gateRowDecl = withGProj ? "    uint gate_row = out_row - qkv_rows;" : ""
     let qkvBranch = withGProj ? "    if (out_row < qkv_rows) {" : ""
@@ -2531,16 +2568,21 @@ private func lagunaDecodeNVFP4QKVR1Source(
 }
 
 
-private let lagunaFusedGProjQKVHalvedKernel = MLXFast.metalKernel(
-    name: "laguna_decode_nvfp4_qkv_r1_v1"
-        + (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
-        + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
-        + "_hs1_fgp",
-    inputNames: ["normalized", "weight_codes", "weight_scales",
-                 "qkv_escape", "gproj_codes", "gproj_metadata"],
-    outputNames: ["projected", "gate_values"],
-    source: lagunaDecodeNVFP4QKVR1Source(halvedScales: true, withGProj: true),
-    header: lagunaTailNVFP4QMVHeader, ensureRowContiguous: true)
+private let lagunaFusedGProjQKVHalvedKernels: [Int: MLXFast.MLXFastKernel] = {
+    var k: [Int: MLXFast.MLXFastKernel] = [:]
+    for h in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        let s = (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+            + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+        k[h] = MLXFast.metalKernel(
+            name: "laguna_decode_nvfp4_qkv_h\(h)_r1_v1\(s)_hs1_fgp",
+            inputNames: ["normalized", "weight_codes", "weight_scales",
+                         "qkv_escape", "gproj_codes", "gproj_metadata"],
+            outputNames: ["projected", "gate_values"],
+            source: lagunaDecodeNVFP4QKVR1Source(heads: h, halvedScales: true, withGProj: true),
+            header: lagunaTailNVFP4QMVHeader, ensureRowContiguous: true)
+    }
+    return k
+}()
 
 /// Fuses the g_proj INT8 affine matmul + softplus into the NVFP4 QKV R1
 /// dispatch, producing both QKV projections and activated gate values in a
@@ -2573,11 +2615,12 @@ private func lagunaFusedGProjQKV(
         gproj.mode == .affine, gproj.bits == 8, gproj.groupSize == 32,
         gproj.packedCodes.dims(heads, hidden / 4),
         gprojMeta.dims(heads, hidden / 16),
-        rows % 2 == 0, heads % 2 == 0
+        rows % 2 == 0, heads % 2 == 0,
+        let kernel = lagunaFusedGProjQKVHalvedKernels[heads]
     else { return nil }
     guard let esc = bank.qkvEscape, esc.dims(3) else { return nil }
     let totalRows = rows + heads
-    let outputs = lagunaFusedGProjQKVHalvedKernel(
+    let outputs = kernel(
         [normalized, bank.packedCodes, bank.scales, esc,
          gproj.packedCodes, gprojMeta],
         grid: ((totalRows / 2) * 64, 1, 1),
@@ -2598,25 +2641,37 @@ private let lagunaCompiledSoftplusGate: @Sendable (MLXArray) -> MLXArray = {
     return MLXHardwareInfo.isCompiledDecodeSupported ? compile(shapeless: true, body) : body
 }()
 
-/// Gated output projection: softplus gate activation, per-head broadcast
-/// multiply, and bias-free BF16 output matmul. A single compiled function
-/// serves both 48-head (full) and 64-head (sliding) attention layers by
-/// inferring head count from the output shape via `-1`, reducing from two
-/// separate `compile()` instances to one.
-private let lagunaAttentionGateProjection: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = {
+/// Decode-only outer compilation of the same gate product with the following
+/// bias-free BF16 output projection. MLX keeps the matmul primitive intact but
+/// schedules the elementwise producer and projection as one compiled graph,
+/// avoiding a separate frontend boundary and shortening the gated vector's
+/// lifetime. Prefill deliberately uses the smaller gate-only fusion.
+private func makeLagunaAttentionGateProjection(
+    heads: Int, headDim: Int
+) -> @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray {
     let body: @Sendable (MLXArray, MLXArray, MLXArray) -> MLXArray = {
         output, projectedGate, weight in
         let batch = output.dim(0)
         let length = output.dim(1)
         let gate = softplus(projectedGate.asType(.float32)).asType(output.dtype)
         let gated = (
-            output.reshaped(batch, length, -1, LagunaConstants.headDim)
+            output.reshaped(batch, length, heads, headDim)
                 * gate[.ellipsis, .newAxis]
-        ).reshaped(batch, length, -1)
+        ).reshaped(batch, length, heads * headDim)
         return matmul(gated, weight.T)
     }
     return MLXHardwareInfo.isCompiledDecodeSupported ? compile(body) : body
-}()
+}
+
+private let lagunaFullAttentionGateProjection = makeLagunaAttentionGateProjection(
+    heads: LagunaConstants.fullAttentionHeads,
+    headDim: LagunaConstants.headDim
+)
+
+private let lagunaSlidingAttentionGateProjection = makeLagunaAttentionGateProjection(
+    heads: LagunaConstants.slidingAttentionHeads,
+    headDim: LagunaConstants.headDim
+)
 
 /// Laguna attention: GQA with per-head QK-norm, per-layer-type RoPE (YaRN on
 /// full-attention layers over the first half of the head, plain RoPE on
@@ -2855,7 +2910,10 @@ final class LagunaRuntimeAttention: Module {
 
         let layerType = config.layerType(forLayer: layerIdx)
         self.isSliding = layerType == .sliding
-        self.attentionGateProjection = lagunaAttentionGateProjection
+        self.attentionGateProjection =
+            layerType == .sliding
+            ? lagunaSlidingAttentionGateProjection
+            : lagunaFullAttentionGateProjection
 
         self._wq.wrappedValue = Linear(dim, nHeads * headDim, bias: config.qkvBias)
         self._wk.wrappedValue = Linear(dim, nKVHeads * headDim, bias: config.qkvBias)
@@ -4603,7 +4661,7 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
 /// original expert-index tie break is exactly `laguna_router_key_before`.
 /// Only final lanes 0...7 recompute their pre-bias sigmoid score.
 private func lagunaDecodeRouterOrdinalKernelSource(
-    scoreTable: Bool = false
+    normalizing: Bool, scoreTable: Bool = false
 ) -> String {
     let scoreStorage =
         scoreTable
@@ -4623,25 +4681,28 @@ private func lagunaDecodeRouterOrdinalKernelSource(
             float winner_y = 1.0f / (1.0f + metal::exp(metal::abs(winner_x)));
             my_score = winner_x < 0.0f ? winner_y : 1.0f - winner_y;
         """
-    let epilogue = """
+    let epilogue =
+        normalizing
+        ? """
         float my_score = 0.0f;
         if (lane < 8) {
         \(winnerScore)
         }
-        if (normalizing_flag[0] > 0) {
-            float total = 0.0f;
-            for (uint i = 0; i < 8; ++i) {
-                total = simd_shuffle(my_score, ushort(i)) + total;
-            }
-            if (lane < 8) {
-                router_indices[lane] = my_index;
-                router_scores[lane] = my_score / total;
-            }
-        } else {
-            if (lane < 8) {
-                router_indices[lane] = my_index;
-                router_scores[lane] = my_score;
-            }
+        float total = 0.0f;
+        for (uint i = 0; i < 8; ++i) {
+            total = simd_shuffle(my_score, ushort(i)) + total;
+        }
+        if (lane < 8) {
+            router_indices[lane] = my_index;
+            router_scores[lane] = my_score / total;
+        }
+        """
+        : """
+        if (lane < 8) {
+            float my_score = 0.0f;
+        \(winnerScore)
+            router_indices[lane] = my_index;
+            router_scores[lane] = my_score;
         }
         """
     return """
@@ -4667,9 +4728,8 @@ private func lagunaDecodeRouterOrdinalKernelSource(
                 uint other_ordinal;
                 uint other_index;
                 if (stride < 32) {
-                    uint2 other_pair = simd_shuffle_xor(uint2(my_ordinal, my_index), ushort(stride));
-                    other_ordinal = other_pair.x;
-                    other_index = other_pair.y;
+                    other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+                    other_index = simd_shuffle_xor(my_index, ushort(stride));
                 } else {
                     xchg_ordinals[lane] = my_ordinal;
                     xchg_indices[lane] = my_index;
@@ -4729,9 +4789,18 @@ private let lagunaDecodeRouterOrdinalHeader = """
 
 private let lagunaDecodeRouterOrdinalScoreTableKernel = MLXFast.metalKernel(
     name: "laguna_decode_router_top8_ordinal_table_v1",
-    inputNames: ["logits", "correction_bias", "normalizing_flag"],
+    inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
-    source: lagunaDecodeRouterOrdinalKernelSource(scoreTable: true),
+    source: lagunaDecodeRouterOrdinalKernelSource(normalizing: false, scoreTable: true),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaDecodeRouterOrdinalScoreTableNormalizingKernel = MLXFast.metalKernel(
+    name: "laguna_decode_router_top8_ordinal_table_norm_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaDecodeRouterOrdinalKernelSource(normalizing: true, scoreTable: true),
     header: lagunaDecodeRouterOrdinalHeader,
     ensureRowContiguous: true
 )
@@ -4744,9 +4813,12 @@ func lagunaDecodeRouterTop8OrdinalScoreTableForTesting(
     precondition(logits.size == 256)
     precondition(correctionBias.size == 256)
 
-    let normalizingFlag = MLXArray([normalizing ? UInt32(1) : UInt32(0)])
-    let outputs = lagunaDecodeRouterOrdinalScoreTableKernel(
-        [logits, correctionBias, normalizingFlag],
+    let kernel =
+        normalizing
+        ? lagunaDecodeRouterOrdinalScoreTableNormalizingKernel
+        : lagunaDecodeRouterOrdinalScoreTableKernel
+    let outputs = kernel(
+        [logits, correctionBias],
         grid: (256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, 8], [1, 1, 8]],
@@ -4809,23 +4881,24 @@ private let lagunaPrefillSortedMoETailEnabled =
 /// `(float key, uint index, float score)` to `(uint ordinal, uint index)`.
 /// One per-row score table preserves the original sigmoid bytes for the
 /// final eight indexed loads without carrying scores through either network.
-private func lagunaPrefillRouterTournamentOrdinalKernelSource() -> String {
-    let epilogue = """
-        if (normalizing_flag[0] > 0) {
-            float my_score2 = lane < 8 ? original_scores[my_index2] : 0.0f;
-            float total = 0.0f;
-            for (uint i = 0; i < 8; ++i) {
-                total = simd_shuffle(my_score2, ushort(i)) + total;
-            }
-            if (lane < 8) {
-                router_indices[row * 8 + lane] = my_index2;
-                router_scores[row * 8 + lane] = my_score2 / total;
-            }
-        } else {
-            if (lane < 8) {
-                router_indices[row * 8 + lane] = my_index2;
-                router_scores[row * 8 + lane] = original_scores[my_index2];
-            }
+private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool) -> String {
+    let epilogue =
+        normalizing
+        ? """
+        float my_score2 = lane < 8 ? original_scores[my_index2] : 0.0f;
+        float total = 0.0f;
+        for (uint i = 0; i < 8; ++i) {
+            total = simd_shuffle(my_score2, ushort(i)) + total;
+        }
+        if (lane < 8) {
+            router_indices[row * 8 + lane] = my_index2;
+            router_scores[row * 8 + lane] = my_score2 / total;
+        }
+        """
+        : """
+        if (lane < 8) {
+            router_indices[row * 8 + lane] = my_index2;
+            router_scores[row * 8 + lane] = original_scores[my_index2];
         }
         """
     return """
@@ -4849,9 +4922,8 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource() -> String {
         // Phase 1: identical 15-stage local 32-lane Batcher sorts.
         for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
             for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
-                uint2 other_pair = simd_shuffle_xor(uint2(my_ordinal, my_index), ushort(stride));
-                uint other_ordinal = other_pair.x;
-                uint other_index = other_pair.y;
+                uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
+                uint other_index = simd_shuffle_xor(my_index, ushort(stride));
 
                 bool is_lower = (lane & stride) == 0;
                 bool lower_wants_better = (lane & sequence) == 0;
@@ -4888,9 +4960,8 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource() -> String {
                 uint other_ordinal;
                 uint other_index;
                 if (stride < 32) {
-                    uint2 other_pair = simd_shuffle_xor(uint2(my_ordinal2, my_index2), ushort(stride));
-                    other_ordinal = other_pair.x;
-                    other_index = other_pair.y;
+                    other_ordinal = simd_shuffle_xor(my_ordinal2, ushort(stride));
+                    other_index = simd_shuffle_xor(my_index2, ushort(stride));
                 } else {
                     xchg_ordinals[lane] = my_ordinal2;
                     xchg_indices[lane] = my_index2;
@@ -4920,9 +4991,18 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource() -> String {
 
 private let lagunaPrefillRouterTournamentOrdinalKernel = MLXFast.metalKernel(
     name: "laguna_prefill_router_tournament_ordinal_v1",
-    inputNames: ["logits", "correction_bias", "normalizing_flag"],
+    inputNames: ["logits", "correction_bias"],
     outputNames: ["router_indices", "router_scores"],
-    source: lagunaPrefillRouterTournamentOrdinalKernelSource(),
+    source: lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: false),
+    header: lagunaDecodeRouterOrdinalHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaPrefillRouterTournamentOrdinalNormalizingKernel = MLXFast.metalKernel(
+    name: "laguna_prefill_router_tournament_ordinal_norm_v1",
+    inputNames: ["logits", "correction_bias"],
+    outputNames: ["router_indices", "router_scores"],
+    source: lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: true),
     header: lagunaDecodeRouterOrdinalHeader,
     ensureRowContiguous: true
 )
@@ -4935,9 +5015,12 @@ func lagunaPrefillRouterTournamentOrdinalForTesting(
     precondition(logits.size == rows * 256)
     precondition(correctionBias.size == 256)
 
-    let normalizingFlag = MLXArray([normalizing ? UInt32(1) : UInt32(0)])
-    let outputs = lagunaPrefillRouterTournamentOrdinalKernel(
-        [logits, correctionBias, normalizingFlag],
+    let kernel =
+        normalizing
+        ? lagunaPrefillRouterTournamentOrdinalNormalizingKernel
+        : lagunaPrefillRouterTournamentOrdinalKernel
+    let outputs = kernel(
+        [logits, correctionBias],
         grid: (256, rows, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, rows, 8], [1, rows, 8]],
@@ -5242,9 +5325,6 @@ private func lagunaFusedSortedRoutedGateUp(
     downWeight: MLXArray?,
     halvedDownScales: MLXArray?,
     downScalesEscape: MLXArray?,
-    prefillGateUpFullScales: MLXArray?,
-    prefillDownFullScales: MLXArray?,
-    prefillHalvedEnabled: Bool,
     deferUnsort: Bool
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
     // SwitchGLU: `var x = MLX.expandedDimensions(x, axes: [-2, -3])`
@@ -5271,26 +5351,17 @@ private func lagunaFusedSortedRoutedGateUp(
     // the separate banks is the fusion; every other argument matches the
     // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
     let gateUp: MLXArray
-    // Halved scales for routed expert prefill gather path. The escape bytes
-    // are embedded in the scales tensor's extra row (like the shared expert
-    // path), not passed via biases (which ops.cpp rejects for .nvfp4 mode).
-    let useHalved = prefillHalvedEnabled
-        && prefillGateUpFullScales != nil
-    if useHalved {
-        gateUp = MLX.gatherQuantizedMM(
-            sortedX, fusedWeight,
-            scales: prefillGateUpFullScales!,
-            biases: nil,
-            rhsIndices: idx, transpose: true, groupSize: 32,
-            bits: 4, mode: .nvfp4, sortedIndices: doSort)
-    } else {
-        gateUp = MLX.gatherQuantizedMM(
-            sortedX, fusedWeight,
-            scales: fusedScales,
-            biases: nil,
-            rhsIndices: idx, transpose: true, groupSize: 16,
-            bits: 4, mode: .nvfp4, sortedIndices: doSort)
-    }
+    // Halved scales disabled: gatherQuantizedMM rejects non-nil biases with
+    // .nvfp4 mode (ops.cpp validation throws, crashing M5). Escape bytes must
+    // be embedded in the scales tensor (like PR #243's shared expert path)
+    // rather than passed via the biases parameter.
+    let useHalved = false
+    gateUp = MLX.gatherQuantizedMM(
+        sortedX, fusedWeight,
+        scales: fusedScales,
+        biases: nil,
+        rhsIndices: idx, transpose: true, groupSize: 16,
+        bits: 4, mode: .nvfp4, sortedIndices: doSort)
     let activated: MLXArray
     if lagunaExpertAlignedGatherEnabled {
         // The expert kernel writes rows with a physical stride of `split`
@@ -5304,18 +5375,16 @@ private func lagunaFusedSortedRoutedGateUp(
         activated = lagunaInterleavedSwiGLU(gateUp, split: split)
     }
     // SwitchGLU: `x = downProj(activated, idx, sortedIndices: doSort)`.
-    // With NAX + halved scales, use gatherQuantizedMM with halved scales with
-    // escape embedded in the scales tensor (bit-exact via NVFP4 pairwise
-    // constancy).
-    let useHalvedDown = useHalved
-        && prefillDownFullScales != nil
-        && downWeight != nil
+    // With NAX + halved scales, use gatherQuantizedMM with halved scales +
+    // escape biases (bit-exact via NVFP4 pairwise constancy).
+    // Halved down scales disabled: same biases crash as gate/up halved path.
+    let useHalvedDown = false
     var result: MLXArray
     if useHalvedDown {
         result = MLX.gatherQuantizedMM(
             activated, downWeight!,
-            scales: prefillDownFullScales!, biases: nil,
-            rhsIndices: idx, transpose: true, groupSize: 32,
+            scales: halvedDownScales!, biases: nil,
+            rhsIndices: idx, transpose: true, groupSize: 16,
             bits: 4, mode: .nvfp4, sortedIndices: doSort)
     } else {
         result = downProj(activated, idx, sortedIndices: doSort)
@@ -5369,12 +5438,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// Halved fused gate/up scales [experts, 2*split, K/32] + escape [experts, 2].
     var _halvedFusedRoutedGateUpScales: MLXArray?
     var _fusedRoutedGateUpScalesEscape: MLXArray?
-    /// Precomputed combined [experts, 2*split+1, K/32] scales for the prefill
-    /// halved gather path, with escape bytes embedded in the extra row.
-    var _prefillRoutedGateUpFullScales: MLXArray?
-    /// Precomputed combined [experts, 2049, K/32] down scales for the prefill
-    /// halved gather path, with escape bytes embedded in the extra row.
-    var _prefillRoutedDownFullScales: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -5484,33 +5547,12 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
             downScales[0..., 0, 1].reshaped([experts, 1]))
         _halvedRoutedDownScales = halvedDown
         _routedDownScalesEscape = downEscape
-        // Precompute combined [experts, 2*split+1, K/32] gate/up scales with
-        // escape in the extra row for the prefill halved gather path.
-        let hgGu = _halvedFusedRoutedGateUpScales!.dim(2)
-        let guEscapeRow = concatenated(
-            [_fusedRoutedGateUpScalesEscape!.reshaped([experts, 1, 2]),
-             MLXArray.zeros([experts, 1, hgGu - 2], dtype: .uint8)], axis: 2)
-        _prefillRoutedGateUpFullScales = contiguous(
-            concatenated([_halvedFusedRoutedGateUpScales!, guEscapeRow], axis: 1))
-        // Precompute combined [experts, 2049, K/32] down scales with escape
-        // in the extra row. escape[1] = halvedDown[32, 0] is a no-op for the
-        // spurious bi==BROWS/2 escape read in the gather tile-interleaved
-        // path (down is not gate/up, so row 32 has no escape exception).
-        let hgDs = halvedDown.dim(2)
-        let dsEscapeNoop = halvedDown[0..., 32, 0].reshaped([experts, 1, 1])
-        let dsEscapeRow = concatenated(
-            [downEscape.reshaped([experts, 1, 1]),
-             dsEscapeNoop,
-             MLXArray.zeros([experts, 1, hgDs - 2], dtype: .uint8)], axis: 2)
-        _prefillRoutedDownFullScales = contiguous(
-            concatenated([halvedDown, dsEscapeRow], axis: 1))
         prepared.append(
             contentsOf: preparePackedRoutedGateUpBank(
                 fusedScales: fusedScales,
                 experts: experts,
                 split: split))
-        prepared.append(contentsOf: [halvedDown, downEscape,
-            _prefillRoutedGateUpFullScales!, _prefillRoutedDownFullScales!])
+        prepared.append(contentsOf: [halvedDown, downEscape])
         return prepared
     }
 
@@ -5765,9 +5807,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     downWeight: _routedDownWeight,
                     halvedDownScales: _halvedRoutedDownScales,
                     downScalesEscape: _routedDownScalesEscape,
-                    prefillGateUpFullScales: _prefillRoutedGateUpFullScales,
-                    prefillDownFullScales: _prefillRoutedDownFullScales,
-                    prefillHalvedEnabled: lagunaPrefillSharedHalvedEnabled,
                     deferUnsort:
                         lagunaPrefillSortedMoETailEnabled
                         && lagunaPrefillMoETailEnabled
