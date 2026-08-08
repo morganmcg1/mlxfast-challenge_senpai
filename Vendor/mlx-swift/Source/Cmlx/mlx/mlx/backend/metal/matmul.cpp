@@ -303,6 +303,12 @@ void steel_matmul_regular_axpby_nax(
   int swizzle_log = tm <= 3 ? 0 : 1;
   if (devc == 's' || devc == 'c' || devc == 'd') {
     swizzle_log = 2;
+    if (a.dtype() == bfloat16 && b.dtype() == bfloat16 && M == 512 &&
+        N == 8192 && K == 2048 && batch_size_out == 1 &&
+        batch_shape.size() == 1 && !transpose_a && transpose_b && lda == K &&
+        ldb == K) {
+      swizzle_log = 3;
+    }
   }
 
   // Prepare steel matmul params
@@ -959,31 +965,6 @@ void steel_matmul_axpby(
       (env::enable_tf32() || a.dtype() != float32);
   char devc = d.get_architecture().back();
   int min_tmn_threshold = (devc == 's' || devc == 'd') ? 2048 : 1024;
-
-  if (darkbloom_steel_trace() && M == 512 && N == 8192 && K == 2048) {
-    bool use_nax_splitk = use_nax && batch_size_out == 1 &&
-        (K >= 3 * std::max(M, N) ||
-         (std::max(M, N) <= 1024 && K > 2 * std::max(M, N)));
-    fprintf(
-        stderr,
-        "steel_exact_shape arch=%s nax=%d nax_splitk=%d bf16_ab=%d "
-        "batch=%d batch_rank=%zu trans_a=%d trans_b=%d lda=%d ldb=%d "
-        "a_strides=(%lld,%lld) b_strides=(%lld,%lld)\n",
-        d.get_architecture().c_str(),
-        use_nax,
-        use_nax_splitk,
-        a.dtype() == bfloat16 && b.dtype() == bfloat16,
-        batch_size_out,
-        batch_shape.size(),
-        transpose_a,
-        transpose_b,
-        lda,
-        ldb,
-        a.strides()[a.ndim() - 2],
-        a.strides()[a.ndim() - 1],
-        b.strides()[b.ndim() - 2],
-        b.strides()[b.ndim() - 1]);
-  }
 
   // Case 1: Small M×N with large K, use SIMD split-K
   // Max and Ultra dispatch larger sizes to splitk
