@@ -8630,8 +8630,9 @@ private func lagunaDecodeRouterOrdinalKernelSource(
                 uint other_ordinal;
                 uint other_index;
                 if (stride < 32) {
-                    other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                    other_index = simd_shuffle_xor(my_index, ushort(stride));
+                    uint2 other_pair = simd_shuffle_xor(uint2(my_ordinal, my_index), ushort(stride));
+                    other_ordinal = other_pair.x;
+                    other_index = other_pair.y;
                 } else {
                     xchg_ordinals[lane] = my_ordinal;
                     xchg_indices[lane] = my_index;
@@ -9060,8 +9061,9 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
         // Phase 1: identical 15-stage local 32-lane Batcher sorts.
         for (uint sequence = 2; sequence <= 32; sequence <<= 1) {
             for (uint stride = sequence >> 1; stride > 0; stride >>= 1) {
-                uint other_ordinal = simd_shuffle_xor(my_ordinal, ushort(stride));
-                uint other_index = simd_shuffle_xor(my_index, ushort(stride));
+                uint2 other_pair = simd_shuffle_xor(uint2(my_ordinal, my_index), ushort(stride));
+                uint other_ordinal = other_pair.x;
+                uint other_index = other_pair.y;
 
                 bool is_lower = (lane & stride) == 0;
                 bool lower_wants_better = (lane & sequence) == 0;
@@ -9098,8 +9100,9 @@ private func lagunaPrefillRouterTournamentOrdinalKernelSource(normalizing: Bool)
                 uint other_ordinal;
                 uint other_index;
                 if (stride < 32) {
-                    other_ordinal = simd_shuffle_xor(my_ordinal2, ushort(stride));
-                    other_index = simd_shuffle_xor(my_index2, ushort(stride));
+                    uint2 other_pair = simd_shuffle_xor(uint2(my_ordinal2, my_index2), ushort(stride));
+                    other_ordinal = other_pair.x;
+                    other_index = other_pair.y;
                 } else {
                     xchg_ordinals[lane] = my_ordinal2;
                     xchg_indices[lane] = my_index2;
