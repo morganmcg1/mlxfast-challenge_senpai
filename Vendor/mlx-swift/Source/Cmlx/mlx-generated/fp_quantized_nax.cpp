@@ -155,9 +155,22 @@ struct fp8_e8m0 {
 #include <metal_stdlib>
 
 
-// Former function constants (fc 200-207) for fp_gather_qmm_rhs_nax, now
-// template parameters: each is resolved once per process on the host and
-// baked into the kernel name, eliminating pipeline specialization overhead.
+constant bool align_M [[function_constant(200)]];
+constant bool align_N [[function_constant(201)]];
+constant bool align_K [[function_constant(202)]];
+// Set by gather_qmm_rhs_nax when DARKBLOOM_PREFILL_GATHER_RUNSKIP selects this
+// dispatch. Default OFF: the host always supplies it, and when false the kernel
+// is byte-for-byte the upstream algorithm.
+constant bool gather_run_skip [[function_constant(203)]];
+
+// DARKBLOOM staging levers for fp_gather_qmm_rhs_nax. All default OFF: an
+// undefined bool function constant reads as false, exactly as the kernel
+// behaves today. Each is resolved once per process on the host side, so no
+// tunable magnitude ever enters the pipeline specialization key.
+constant bool stage_widest [[function_constant(204)]];
+constant bool stage_wideld [[function_constant(205)]];
+constant bool stage_runbar [[function_constant(206)]];
+constant bool stage_novol [[function_constant(207)]];
 
 using namespace metal;
 
@@ -356,7 +369,6 @@ struct QuantizedBlockLoader {
   MLX_MTL_CONST short n_steps_per_read = n_reads / n_reads_per_scale;
 
   MLX_MTL_CONST short n_groups = BCOLS / group_size;
-  MLX_MTL_CONST short n_groups_halved = BCOLS / (group_size * 2);
 
   const int src_ld;
   const int tile_stride;
@@ -371,9 +383,6 @@ struct QuantizedBlockLoader {
   threadgroup T* dst;
   const device uint8_t* src;
   const device uint8_t* scales;
-  const device uint8_t* escape;
-  const int escape_mode; // 0=none, 1=gate row0, 2=up row0
-  const bool halved_scales;
 
   QuantizedBlockLoader(
       const device uint8_t* src_,
@@ -381,10 +390,7 @@ struct QuantizedBlockLoader {
       const int src_ld_,
       threadgroup T* dst_,
       ushort simd_group_id [[simdgroup_index_in_threadgroup]],
-      ushort simd_lane_id [[thread_index_in_simdgroup]],
-      const device uint8_t* escape_ = nullptr,
-      const int escape_mode_ = 0,
-      const bool halved_scales_ = false)
+      ushort simd_lane_id [[thread_index_in_simdgroup]])
       : src_ld(src_ld_),
         tile_stride(
             reduction_dim ? BCOLS_PACKED * bytes_per_pack
@@ -397,31 +403,7 @@ struct QuantizedBlockLoader {
         dst(dst_ + bi * dst_ld + bj * pack_factor),
         src(src_ + bi * src_ld * bytes_per_pack / pack_factor +
             bj * bytes_per_pack),
-        scales(halved_scales_
-               ? scales_ + bi * src_ld / (group_size * 2) + group_id / 2
-               : scales_ + bi * src_ld / group_size + group_id),
-        escape(escape_),
-        escape_mode(escape_mode_),
-        halved_scales(halved_scales_) {}
-
-  // Read scale byte i with halved indexing and escape handling.
-  // In the tile-interleaved fused gate/up layout, gate-row-0 is at bi==0 and
-  // up-row-0 is at bi==BROWS/2, both within tile 0 (tid.x==0).
-  inline uint8_t read_scale(short i) const {
-    if (halved_scales) {
-      uint8_t sc = scales[i / 2];
-      if (escape_mode > 0 && group_id == 0 && i == 1) {
-        if (bi == 0) {
-          sc = escape[0];
-        } else if (escape_mode == 1 && bi == BROWS / 2) {
-          sc = escape[1];
-        }
-      }
-      return sc;
-    } else {
-      return scales[i];
-    }
-  }
+        scales(scales_ + bi * src_ld / group_size + group_id) {}
 
   // The NVFP4 staging fast path applies when the packing is one byte per two
   // values, the scale is e4m3, and the byte run governed by ONE scale splits
@@ -438,7 +420,7 @@ struct QuantizedBlockLoader {
     if constexpr (fp4nv_fast) {
       int k = 0;
       for (int i = 0; i < n_steps_per_read; i++) {
-        const float scale = fp4nv_scale_x16384(read_scale(i));
+        const float scale = fp4nv_scale_x16384(scales[i]);
         for (int j = 0; j < n_reads_per_scale / 4; j++) {
           T vals[8];
           fp4nv_decode8<T>(fp4nv_pack4(src + k), scale, vals);
@@ -451,7 +433,7 @@ struct QuantizedBlockLoader {
     } else {
       int k = 0;
       for (int i = 0; i < n_steps_per_read; i++) {
-        T scale = dequantize_scale<T, group_size>(read_scale(i));
+        T scale = dequantize_scale<T, group_size>(scales[i]);
         for (int j = 0; j < n_reads_per_scale; j++) {
           dequantize<T, bits>(
               src[k * bytes_per_pack], scale, dst + k * pack_factor);
@@ -618,14 +600,14 @@ struct QuantizedBlockLoader {
       // is 4 for bfloat/half staging, 2 for float). Same values either way.
       if constexpr (fp4nv_fast && (kSrcBytesPerChunk % 4) == 0) {
         const float scale =
-            fp4nv_scale_x16384(read_scale(k0 / n_reads_per_scale));
+            fp4nv_scale_x16384(scales[k0 / n_reads_per_scale]);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk / 4; b++) {
           fp4nv_decode8<T>(fp4nv_pack4(sb + k0 + b * 4), scale, &out.v[b * 8]);
         }
       } else {
         T scale =
-            dequantize_scale<T, group_size>(read_scale(k0 / n_reads_per_scale));
+            dequantize_scale<T, group_size>(scales[k0 / n_reads_per_scale]);
         STEEL_PRAGMA_UNROLL
         for (short b = 0; b < kSrcBytesPerChunk; b++) {
           dequantize_pair(sb[k0 + b], scale, &out.v[b * pack_factor]);
@@ -669,11 +651,9 @@ struct QuantizedBlockLoader {
   void next() {
     src += tile_stride;
     if (reduction_dim == 1) {
-      scales += halved_scales ? n_groups_halved : n_groups;
+      scales += n_groups;
     } else {
-      scales += halved_scales
-          ? n_groups_halved * group_stride
-          : n_groups * group_stride;
+      scales += n_groups * group_stride;
     }
   }
 };
@@ -697,15 +677,12 @@ template <
 METAL_FUNC void fp_qmm_t_impl(
     const device uint32_t* w,
     const device uint8_t* scales,
-    const device uint8_t* escape,
     const device T* x,
     device T* y,
     threadgroup Wtype* Ws,
     const constant int& K,
     const constant int& N,
     const constant int& M,
-    const constant bool& kHalvedScales,
-    bool kGatherEscape,
     uint3 tid [[threadgroup_position_in_grid]],
     uint lid [[thread_index_in_threadgroup]],
     uint simd_gid [[simdgroup_index_in_threadgroup]],
@@ -735,7 +712,7 @@ METAL_FUNC void fp_qmm_t_impl(
 
   // Set the block
   const int K_w = kernel_K * bytes_per_pack / pack_factor;
-  const int K_g = kernel_K / (group_size * (kHalvedScales ? 2 : 1));
+  const int K_g = kernel_K / group_size;
   const int y_row = tid.y * BM;
   const int y_col = tid.x * BN;
 
@@ -746,34 +723,8 @@ METAL_FUNC void fp_qmm_t_impl(
   scales += y_col * K_g;
   y += y_row * static_cast<int64_t>(kernel_N) + y_col;
 
-  // Determine escape handling for the fused gate/up layout.
-  // escape_mode=0: no escape. escape_mode=1: tile-interleaved (gather),
-  //   bi==0 gets escape[0] (gate row 0), bi==BROWS/2 gets escape[1] (up row 0).
-  // escape_mode=3: sequential (shared expert qmm), only bi==0 gets escape,
-  //   caller pre-offsets escape_ptr to the correct byte per tile.
-  const device uint8_t* escape_ptr = escape;
-  int escape_mode = 0;
-  if (kHalvedScales) {
-    if (kGatherEscape) {
-      // Tile-interleaved: gate32+up32 in every 64-row tile. Only tile 0
-      // (y_col==0) has the escape exception (row 0 and row 32).
-      if (y_col == 0) {
-        escape_mode = 1;
-      }
-    } else {
-      // Sequential: gate rows 0..N/2-1, up rows N/2..N-1.
-      if (y_col == 0) {
-        escape_mode = 3;
-      } else if (y_col == kernel_N / 2) {
-        escape_mode = 3;
-        escape_ptr = escape + 1;
-      }
-    }
-  }
-
   // Make the weight loader
-  loader_w_t loader_w(
-      wl, scales, kernel_K, Ws, simd_gid, simd_lid, escape_ptr, escape_mode, kHalvedScales);
+  loader_w_t loader_w(wl, scales, kernel_K, Ws, simd_gid, simd_lid);
 
   constexpr short SM = BM / WM;
   constexpr short SN = BN / WN;
@@ -1093,13 +1044,11 @@ template <
 [[kernel]] void fp_qmm_t_nax(
     const device uint32_t* w,
     const device uint8_t* scales,
-    const device uint8_t* escape,
     const device T* x,
     device T* y,
     const constant int& K,
     const constant int& N,
     const constant int& M,
-    const constant bool& kHalvedScales,
     const constant int& x_batch_ndims,
     const constant int* x_shape,
     const constant int64_t* x_strides,
@@ -1134,7 +1083,7 @@ template <
         tid);
   }
   fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, WM, WN, Wtype>(
-      w, scales, escape, x, y, Ws, K, N, M, kHalvedScales, false, tid, lid, simd_gid, simd_lid);
+      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
 }
 
 // Laguna's shared-expert NVFP4 projections have two fixed matrix shapes.
@@ -1157,13 +1106,11 @@ template <
 [[kernel]] void fp_qmm_t_nax_static(
     const device uint32_t* w,
     const device uint8_t* scales,
-    const device uint8_t* escape,
     const device T* x,
     device T* y,
     const constant int& K,
     const constant int& N,
     const constant int& M,
-    const constant bool& kHalvedScales,
     const constant int& x_batch_ndims,
     const constant int* x_shape,
     const constant int64_t* x_strides,
@@ -1203,7 +1150,7 @@ template <
       fixed_K,
       fixed_N,
       aligned_M>(
-      w, scales, escape, x, y, Ws, K, N, M, kHalvedScales, false, tid, lid, simd_gid, simd_lid);
+      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
 }
 
 template <
@@ -1286,7 +1233,6 @@ template <
     const constant int& K,
     const constant int& N,
     const constant int& M,
-    const constant bool& kHalvedScales,
     const constant int& x_batch_ndims,
     const constant int* x_shape,
     const constant int64_t* x_strides,
@@ -1328,18 +1274,8 @@ template <
       w_strides,
       s_strides,
       tid);
-
-  // For halved scales [experts, N+1, K/32], after adjust_matrix_offsets
-  // adjusts `scales` to the selected expert's block, the escape bytes are
-  // at row N (offset N * K_g where K_g = K/32 for halved).
-  const int kernel_K = K;
-  const int kernel_N = N;
-  const int K_g_halved = kernel_K / (group_size * 2);
-  const device uint8_t* escape_ptr =
-      kHalvedScales ? (scales + kernel_N * K_g_halved) : scales;
-
   fp_qmm_t_impl<T, group_size, bits, aligned_N, BM, BK, BN, WM, WN, Wtype>(
-      w, scales, escape_ptr, x, y, Ws, K, N, M, kHalvedScales, true, tid, lid, simd_gid, simd_lid);
+      w, scales, x, y, Ws, K, N, M, tid, lid, simd_gid, simd_lid);
 }
 
 template <
@@ -1419,14 +1355,6 @@ template <
     int WM,
     int WN,
     bool transpose,
-    bool kAlignM = false,
-    bool kAlignN = false,
-    bool kAlignK = false,
-    bool kRunSkip = false,
-    bool kStageWidest = false,
-    bool kStageWideld = false,
-    bool kStageRunbar = false,
-    bool kStageNovol = false,
     typename Wtype = bfloat>
 [[kernel]] void fp_gather_qmm_rhs_nax(
     const device T* x,
@@ -1485,8 +1413,8 @@ template <
   const size_t y_col_long = size_t(y_col);
 
   // Prepare threadgroup bounds
-  const short tgp_bm = kAlignM ? BM : short(min(BM, M - y_row));
-  const short tgp_bn = kAlignN ? BN : short(min(BN, N - y_col));
+  const short tgp_bm = align_M ? BM : short(min(BM, M - y_row));
+  const short tgp_bn = align_N ? BN : short(min(BN, N - y_col));
 
   // Calculate the final tiles in the case that K is not aligned
   const int k_remain = K - K_it * BK;
@@ -1511,11 +1439,11 @@ template <
   const short tm = SM * (simd_group_id / WN);
   const short tn = SN * (simd_group_id % WN);
 
-  const short sgp_sm = kAlignM ? SM : min(int(SM), max(0, (M - (y_row + tm))));
-  const short sgp_sn = kAlignN ? SN : min(int(SN), max(0, (N - (y_col + tn))));
+  const short sgp_sm = align_M ? SM : min(int(SM), max(0, (M - (y_row + tm))));
+  const short sgp_sn = align_N ? SN : min(int(SN), max(0, (N - (y_col + tn))));
 
-  const bool is_unaligned_sm = kAlignM ? false : (sgp_sm != SM);
-  const bool is_unaligned_bn = kAlignN ? false : (tgp_bn != BN);
+  const bool is_unaligned_sm = align_M ? false : (sgp_sm != SM);
+  const bool is_unaligned_bn = align_N ? false : (tgp_bn != BN);
 
   constexpr short BR = transpose ? TN : TK;
   constexpr short BC = transpose ? TK : TN;
@@ -1544,7 +1472,7 @@ template <
     // between it and the next mem_threadgroup barrier (Dtile.clear and the
     // loader constructor) is register work, so that later barrier already
     // orders every threadgroup access on both sides of this point.
-    if (!kStageRunbar) {
+    if (!stage_runbar) {
       threadgroup_barrier(mem_flags::mem_none);
     }
 
@@ -1581,7 +1509,7 @@ template <
         (run_skip_pct >= 100) ||
         (int((tid.y * 61u) % 100u) < run_skip_pct);
     const bool sg_active =
-        !kRunSkip || !tile_enabled || (m_lo_lim < m_hi_lim);
+        !gather_run_skip || !tile_enabled || (m_lo_lim < m_hi_lim);
 
     // Prepare threadgroup mma operation
     NAXTile<AccumType, TM, TN> Dtile;
@@ -1598,20 +1526,20 @@ template <
         simd_group_id,
         simd_lane_id);
 
-    dispatch_bool(kAlignM || !is_unaligned_sm, [&](auto kAlignedM) {
-      dispatch_bool(kAlignN || !is_unaligned_bn, [&](auto kAlignedN) {
+    dispatch_bool(align_M || !is_unaligned_sm, [&](auto kAlignedM) {
+      dispatch_bool(align_N || !is_unaligned_bn, [&](auto kAlignedN) {
         for (int k = 0; k < K_it; k++) {
           threadgroup_barrier(mem_flags::mem_threadgroup);
           if constexpr (kAlignedN.value) {
             // Same bytes, same addresses, same nibble decode, same scale
             // mapping -- only the access width changes. See load_unsafe_wide.
-            if (kStageWidest) {
-              if (kStageWideld) {
+            if (stage_widest) {
+              if (stage_wideld) {
                 loader_w.template load_unsafe_wide<true, true>();
               } else {
                 loader_w.template load_unsafe_wide<true, false>();
               }
-            } else if (kStageWideld) {
+            } else if (stage_wideld) {
               loader_w.template load_unsafe_wide<false, true>();
             } else {
               loader_w.load_unsafe();
@@ -1657,7 +1585,7 @@ template <
               // software-pipelining the Atile load against the MMA. Dropping
               // it touches no arithmetic and no memory the kernel reads or
               // writes.
-              if (!kStageNovol) {
+              if (!stage_novol) {
                 (void)compiler_barrier;
               }
             }
@@ -1667,7 +1595,7 @@ template <
           loader_w.next();
         }
 
-        if (!kAlignK) {
+        if (!align_K) {
           threadgroup_barrier(mem_flags::mem_threadgroup);
           loader_w.load_safe(tile_w);
           threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1698,7 +1626,7 @@ template <
                   Btile,
                   metal::bool_constant<transpose>{});
 
-              if (!kStageNovol) {
+              if (!stage_novol) {
                 (void)compiler_barrier;
               }
             }
@@ -1711,7 +1639,7 @@ template <
         // writes device memory. The write-after-read hazard against the next
         // run's Ws stores is already covered by the mem_threadgroup barrier
         // that immediately precedes those stores.
-        if (!kStageRunbar) {
+        if (!stage_runbar) {
           threadgroup_barrier(mem_flags::mem_threadgroup);
         }
 

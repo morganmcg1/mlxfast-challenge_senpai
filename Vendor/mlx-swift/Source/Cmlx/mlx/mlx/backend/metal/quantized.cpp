@@ -505,22 +505,12 @@ void qmm_nax(
   bool aligned_M = M % 64 == 0;
   bool batched = B > 1;
   std::string type_string = get_type_string(x.dtype());
-  // Detect halved NVFP4 scales: the caller passes group_size=32 so the
-  // ops.cpp validation accepts half-resolution scales [N+1, K/32] (since
-  // K/32 * 32 == K). The extra row at index N holds the escape bytes in
-  // its first columns. We override group_size back to 16 for the kernel.
-  const bool halved_scales =
-      transpose && mode == "nvfp4" && group_size == 32 && bits == 4;
-  if (halved_scales) {
-    group_size = 16;
-  }
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
   const bool use_static_laguna_shape =
       static_laguna_shapes && transpose && aligned && !batched &&
       mode == "nvfp4" && type_string == "bfloat16_t" &&
-      group_size == 16 && bits == 4 &&
-      (!biases.has_value() || halved_scales) &&
+      group_size == 16 && bits == 4 && !biases.has_value() &&
       ((K == 2048 && N == 1024) || (K == 512 && N == 2048));
   concatenate(
       kname,
@@ -606,18 +596,7 @@ void qmm_nax(
   int c = 0;
   compute_encoder.set_input_array(w, c++);
   compute_encoder.set_input_array(scales, c++);
-  if (transpose) {
-    // The qmm_t_nax kernel always has an escape slot at index 2. When
-    // halved, the escape bytes are in the extra row of the scales tensor
-    // (row N); bind that row via a buffer offset. Otherwise pass scales
-    // as a dummy (the kernel ignores it when kHalvedScales is false).
-    if (halved_scales) {
-      int escape_offset = N * scales.shape(-1);
-      compute_encoder.set_input_array(scales, c++, escape_offset);
-    } else {
-      compute_encoder.set_input_array(scales, c++);
-    }
-  } else if (biases) {
+  if (biases) {
     compute_encoder.set_input_array(*biases, c++);
   }
   compute_encoder.set_input_array(x, c++);
@@ -625,9 +604,6 @@ void qmm_nax(
   compute_encoder.set_bytes(K, c++);
   compute_encoder.set_bytes(N, c++);
   compute_encoder.set_bytes(M, c++);
-  if (transpose) {
-    compute_encoder.set_bytes(halved_scales, c++);
-  }
   add_strides_and_shapes(compute_encoder, B <= 1, x, w, scales, biases, c);
 
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
@@ -666,15 +642,6 @@ void gather_qmm_nax(
   kname.reserve(64);
   bool aligned = N % 64 == 0;
   std::string type_string = get_type_string(x.dtype());
-  // Detect halved NVFP4 scales: the caller passes group_size=32 so the
-  // ops.cpp validation accepts half-resolution scales [experts, N+1, K/32].
-  // The kernel computes the escape pointer from the scales buffer after
-  // per-expert offset adjustment, so no separate escape binding is needed.
-  const bool halved_scales =
-      transpose && mode == "nvfp4" && group_size == 32 && bits == 4;
-  if (halved_scales) {
-    group_size = 16;
-  }
   concatenate(
       kname,
       mode + (transpose ? "_gather_qmm_t_nax_" : "_gather_qmm_n_nax_"),
@@ -742,9 +709,6 @@ void gather_qmm_nax(
   compute_encoder.set_bytes(K, c++);
   compute_encoder.set_bytes(N, c++);
   compute_encoder.set_bytes(M, c++);
-  if (transpose) {
-    compute_encoder.set_bytes(halved_scales, c++);
-  }
   c = add_strides_and_shapes(compute_encoder, false, x, w, scales, biases, c);
   add_gather_strides_and_shapes(compute_encoder, lhs_indices, rhs_indices, c);
 
@@ -1868,40 +1832,48 @@ void gather_qmm_rhs_nax(
     });
   }
 
-  // Function constants eliminated: alignment and stage values are now
-  // template parameters baked into the kernel name, not runtime
-  // specializations.
-
-  // Encode alignment and stage values in kname for the non-expert path so
-  // each unique combination gets its own cached JIT library.
+  metal::MTLFCList func_consts;
   if (!expert_aligned) {
-    concatenate(
-        kname,
-        "_aM_",
-        align_M ? 't' : 'n',
-        "_aN_",
-        align_N ? 't' : 'n',
-        "_aK_",
-        align_K ? 't' : 'n',
-        "_rs_",
-        run_skip ? 't' : 'n',
-        "_stg_",
-        stage_widest ? 'W' : 'n',
-        stage_wideld ? 'L' : 'n',
-        stage_runbar ? 'B' : 'n',
-        stage_novol ? 'V' : 'n');
+    func_consts = {
+        {&align_M, MTL::DataType::DataTypeBool, 200},
+        {&align_N, MTL::DataType::DataTypeBool, 201},
+        {&align_K, MTL::DataType::DataTypeBool, 202},
+        {&run_skip, MTL::DataType::DataTypeBool, 203},
+        {&stage_widest, MTL::DataType::DataTypeBool, 204},
+        {&stage_wideld, MTL::DataType::DataTypeBool, 205},
+        {&stage_runbar, MTL::DataType::DataTypeBool, 206},
+        {&stage_novol, MTL::DataType::DataTypeBool, 207},
+    };
   }
 
-  // Build the template definition with alignment and stage values as
-  // template parameters instead of function constants, eliminating pipeline
-  // specialization overhead. Each value is resolved once per process and
-  // baked into the kernel name.
-  // For affine mode, the kernel (quantized_nax.h) still uses function
-  // constants, so keep the old get_gather_qmm_nax_kernel path.
+  // And the kernel hash that includes the function constants
+  std::string hash_name;
+  hash_name.reserve(128);
+  concatenate(
+      hash_name,
+      kname,
+      "_align_M_",
+      align_M ? 't' : 'n',
+      "_align_N_",
+      align_N ? 't' : 'n',
+      "_align_K_",
+      align_K ? 't' : 'n',
+      "_rs_",
+      run_skip ? 't' : 'n',
+      "_stg_",
+      stage_widest ? 'W' : 'n',
+      stage_wideld ? 'L' : 'n',
+      stage_runbar ? 'B' : 'n',
+      stage_novol ? 'V' : 'n');
+
+  // Get and set the kernel. Every expert-aligned instantiation (static and
+  // runtime-shaped alike) is built from a template definition here, because
+  // the expert kernel's expert-group count is a template parameter; the
+  // shared gather builder keeps its stock signature for the non-expert path.
   auto& compute_encoder = metal::get_command_encoder(s);
   MTL::ComputePipelineState* kernel;
   if (expert_aligned) {
-    auto expert_template_def = get_template_definition(
+    auto template_def = get_template_definition(
         kname,
         "fp_gather_qmm_rhs_expert_nax",
         get_type_string(x.dtype()),
@@ -1919,33 +1891,13 @@ void gather_qmm_rhs_nax(
         egroups,
         expert_widest,
         expert_wideld);
-    kernel = get_qmm_nax_kernel(d, kname, expert_template_def, mode);
-  } else if (mode == "affine") {
-    // Affine path: quantized_nax.h still uses function constants
-    std::string hash_name;
-    hash_name.reserve(128);
-    concatenate(
-        hash_name,
-        kname,
-        "_aM_",
-        align_M ? 't' : 'n',
-        "_aN_",
-        align_N ? 't' : 'n',
-        "_aK_",
-        align_K ? 't' : 'n',
-        "_rs_",
-        run_skip ? 't' : 'n');
-    metal::MTLFCList affine_func_consts = {
-        {&align_M, MTL::DataType::DataTypeBool, 200},
-        {&align_N, MTL::DataType::DataTypeBool, 201},
-        {&align_K, MTL::DataType::DataTypeBool, 202},
-        {&run_skip, MTL::DataType::DataTypeBool, 203},
-    };
+    kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
+  } else {
     kernel = get_gather_qmm_nax_kernel(
         d,
         kname,
         hash_name,
-        affine_func_consts,
+        func_consts,
         x,
         group_size,
         bits,
@@ -1956,28 +1908,6 @@ void gather_qmm_rhs_nax(
         wm,
         wn,
         transpose);
-  } else {
-    auto template_def = get_template_definition(
-        kname,
-        "fp_gather_qmm_rhs_nax",
-        get_type_string(x.dtype()),
-        group_size,
-        bits,
-        bm,
-        bn,
-        bk,
-        wm,
-        wn,
-        transpose,
-        align_M,
-        align_N,
-        align_K,
-        run_skip,
-        stage_widest,
-        stage_wideld,
-        stage_runbar,
-        stage_novol);
-    kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
   }
   compute_encoder.set_compute_pipeline_state(kernel);
 
