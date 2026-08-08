@@ -1,6 +1,6 @@
 # R85-C (rev2): re-port the `float4` merge epilogue onto the adopted frontier
 
-SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":[],"primary_metric":{"name":"same_host_paired_estimate","available":true,"value":1.002358},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
+SENPAI-RESULT: {"terminal":true,"status":"complete","pending_arms":false,"wandb_run_ids":["5bj4wjcr"],"primary_metric":{"name":"same_host_paired_estimate","available":true,"value":1.002358},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
 - Student / PR: `maple-frieren` / [#457](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/457)
   (`assignment_id=maple-r85-c-placement-lever`, `revision_id=r85-c-rev2`)
@@ -112,6 +112,21 @@ offsets and why the replication prediction was strong.
   Analysis:
   `research/maple_r85_arm_stats.py --steps 200 --cbs-per-step 406 --arms base cand --offset 0`
   and the same-arm null `--arms cand cand --offset 1`.
+- W&B record: run **`5bj4wjcr`**,
+  <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/5bj4wjcr>
+  (`wandb-applied-ai-team/mlxfast-maple`, name
+  `maple-r85c-float4-merge-epilogue-report`, state `finished`). Logged by
+  `research/maple_r85c_epilogue_wandb.py --wall /tmp/maple-r85c-epi/wall-off0.json --wall-null /tmp/maple-r85c-epi/wall-off1.json --kernel /tmp/maple-r85c-epi/kern-off0-full.json --kernel-null /tmp/maple-r85c-epi/kern-off1-full.json --logdir /tmp/maple-r85c-epi --base-sha 7687c2e4… --cand-sha 5ea240d`.
+  Summary carries the verdict (`gpu_busy_adj_saved_us_step 15.43137`,
+  `gpu_busy_adj_ci95_lo 8.81782`, `gpu_busy_adj_ci95_hi 22.03984`), the
+  unadjusted absolute (`gpu_busy_abs_saved_us_step 12.10741`), the same-arm null
+  (`gpu_busy_null_adj_saved_us_step 1.59933`), the design
+  (`n_duplex 8`, `n_duplex_null 4`), the correctness gate
+  (`distinct_token_streams 1`, `bit_exact_argmax True`,
+  `max_teacher_forced_divergences 0`), and the pre-registration
+  (`predicted_us_step 18.6`). Artifacts `run-5bj4wjcr-slots` (per-slot busy
+  time) and `run-5bj4wjcr-per_kernel` (the full per-kernel table, both offsets)
+  are attached so the tables below are re-derivable without the scratch JSONs.
 - Tests and risk-based checks run, including selected-test count:
   `research/run_upstream_equivalence.sh`, **selected-test count 1** (the bare
   `lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled` filter; the wrapper
