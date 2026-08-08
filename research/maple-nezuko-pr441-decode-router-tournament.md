@@ -21,6 +21,7 @@ The reason is a structural fact about the algorithm that the assignment brief
 | Guard | `DARKBLOOM_DECODE_ROUTER_TOURNAMENT`, default **OFF** (rule 21) |
 | Host | M4 Pro, 20-core GPU, Apple GPU gen 16, ~8.20 ms/decode step |
 | Gates | 64-step tripwire **green on all 3 arms**, one identical hash; oracle **red on prefill only**, but bit-identical to the unchanged `BASE_SHA` ([§7.1](#71-upstream-equivalence--the-oracle-fails-and-the-failure-is-the-host)) |
+| W&B | [`g96gyng8`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/g96gyng8) — every number below, plus the raw per-step traces, bit-exactness transcript and gate logs as artifact `pr441-decode-router-tournament` |
 
 ---
 
