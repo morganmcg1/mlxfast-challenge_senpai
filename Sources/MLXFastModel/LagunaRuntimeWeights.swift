@@ -490,6 +490,11 @@ public final class LagunaRuntimeWeightCache {
         let lastDecodeToken = MLXArray([bosToken], [1, 1])
         warmDecodeLogits = model(lastDecodeToken, cache: warmupCache)
         eval(warmDecodeLogits)
+        if lagunaFusedFullAttentionEnabled,
+            lagunaFusedFullAttentionKernelWarmupEnabled
+        {
+            lagunaWarmFullFusedAttentionKernel()
+        }
         // Warm the greedy-token pipeline too. Every scored worker request ends
         // in `LagunaCorrectness.greedyToken` (reshape -> last row -> argMax),
         // and the forwards above never run an argmax, so its first use
