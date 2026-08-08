@@ -313,3 +313,117 @@ account is shared across campaigns and the ranked queue is serialized**, so one
 campaign emitting a long run of gate-failing submissions consumes the shared
 ranked channel and makes every other campaign's channel *look* dead from the
 inside. Diagnosing that from a single campaign's view is what cost this round.
+
+## Evidence 8 — the real blocker is prefill baseline noise, not a broken channel
+
+Having established that every Maple submission is scored, the natural follow-on
+question is why none of them promoted. The answer is measurable from the same
+`officialMetrics` payloads and it changes what the campaign should do next.
+
+### The promoted frontier
+
+Exactly one row on the whole account is `accepted` / `promotionStatus=promoted`:
+
+| field | value |
+| --- | --- |
+| submission | `97a5090c` |
+| created | `2026-08-06T05:04:23Z` |
+| `officialScore` | `2.58882784082067` |
+| `promotedSourceRef` | `3e165fa52be994d9a162951405273a007b9aa3c1` |
+| `decode_speedup` | `2.82068398043601` |
+| `prefill_speedup` | `2.0014713863613727` |
+| `decode_seconds_per_token` | `0.0049083720703125` |
+| `prefill_seconds_per_token` | `0.00019120068359375` |
+| `baseline_decode_seconds_per_token` | `0.01384496646875` |
+| `baseline_prefill_seconds_per_token` | `0.000382682697265625` |
+| `golden_hash` | `be7738fc…67fcf71` |
+| gates | `passed_correctness=true`, semantic GPQA 9/9, TTFT 9/9 |
+
+That is the number every later submission had to beat, and its note is the
+"halving the NVFP4 attention scale plane with a quantizer invariant" work.
+
+### The gap is entirely prefill, and it is mostly the baseline draw
+
+Maple's best post-frontier submission is `df9613a8` (2026-08-07T08:19:51,
+score `2.58167300473934`, `-0.276%` versus the frontier). Decomposing it:
+
+| axis | frontier `97a5090c` | best `df9613a8` | ratio |
+| --- | --- | --- | --- |
+| `decode_speedup` | 2.820684 | 2.821471 | **1.000279** |
+| `prefill_speedup` | 2.001471 | 1.977782 | **0.988164** |
+
+`df9613a8` *beat* the promoted frontier on the 0.75-weighted decode axis and
+lost 1.18% on the 0.25-weighted prefill axis. Weighted, decode contributed
+`+0.021%` and prefill `-0.296%`.
+
+Now look at the raw seconds rather than the ratios:
+
+| quantity | frontier | best `df9613a8` | |
+| --- | --- | --- | --- |
+| candidate `prefill_seconds_per_token` | 0.000191201 | **0.000190562** | candidate is *faster* |
+| baseline `prefill_seconds_per_token` | 0.000382683 | **0.000376890** | baseline is *also faster* |
+
+The candidate was absolutely faster on both axes. It scored lower because the
+same-session paired baseline happened to run 1.5% faster that session.
+
+### How big is that noise? Measured over 53 paired M5 sessions
+
+| quantity | n | mean | min | max | spread | CV |
+| --- | --- | --- | --- | --- | --- | --- |
+| `baseline_decode_seconds_per_token` | 53 | 0.013858692 | 0.013807869 | 0.013925020 | 0.85% | **0.23%** |
+| `baseline_prefill_seconds_per_token` | 53 | 0.000373820 | 0.000362342 | 0.000388471 | **6.99%** | **1.96%** |
+
+The prefill baseline is an order of magnitude noisier than the decode baseline.
+At weight 0.25 a 1.96% prefill-baseline CV injects roughly **0.49% CV straight
+into the published score** — larger than the 0.276% gap Maple needs to close.
+
+### Counterfactual
+
+Rescoring `df9613a8`'s own candidate seconds against the frontier's baseline
+draw:
+
+```text
+decode_speedup  = 0.01384496646875     / 0.0049144342421875     = 2.817205
+prefill_speedup = 0.000382682697265625 / 0.000190562173828125   = 2.008178
+score           = 2.817205^0.75 * 2.008178^0.25                 = 2.588596245
+frontier                                                        = 2.588827841
+delta                                                           = -0.009%
+```
+
+A dead tie. The promoted record was set in part by a baseline draw at the slow
+end of the observed range, and the campaign has spent a day chasing a deficit
+that sits inside the harness's own measurement noise.
+
+### What follows for the advisor
+
+1. **Score differences below roughly 0.5% are not decidable** from one ranked
+   session. Treat any ranked result inside that band as a tie, not a win or a
+   regression.
+2. **Prefer decode-axis work.** The decode baseline CV is 0.23% versus 1.96%
+   for prefill, so a decode gain is about 8x more reliably measurable *and*
+   carries 3x the score weight. A 0.5% decode win is worth more, and is far
+   easier to prove, than a 1.5% prefill win.
+3. **Do not read a single prefill regression as a real regression.** Several
+   8/7 rows that look like losses sit inside the baseline band.
+4. Resubmitting an unchanged strong candidate draws a fresh paired baseline, so
+   it is a legitimate way to resolve a near-tie. It is not free: it consumes
+   the shared serialized ranked channel described in Evidence 7, so this is an
+   advisor-level decision about capacity, not something a student should do
+   unilaterally.
+
+### Reproduction
+
+All numbers above come from the authenticated submissions API, read one-shot
+from an interactive shell (the credential is not visible to `run_job`):
+
+```text
+cp senpai/watch-submission.py /tmp/ws_mod.py
+python3 -c "import sys; sys.path.insert(0,'/tmp'); import ws_mod as ws; \
+  c = ws.ApiClient(ws.load_api_config()); \
+  scope = ws.resolve_scope(c, ws.DEFAULT_BENCHMARK); \
+  rows = ws.account_submissions(c, scope)"
+```
+
+Each row carries `officialScore`, `status`, `promotionStatus`, `note`, and the
+full `officialMetrics` dictionary including both paired baseline seconds.
+
