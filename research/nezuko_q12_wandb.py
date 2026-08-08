@@ -121,18 +121,24 @@ def parse_smoke(dirpath):
 
 
 def parse_prefill(dirpath):
-    """-> per-arm prefill milliseconds, the rule-17 second axis."""
+    """-> per-arm prefill milliseconds, the rule-17 second axis.
+
+    The guard only reaches the decode top-8 dispatcher; the 512-token prefill
+    keeps using the already-shipped prefill router tournament. This axis is
+    therefore an expected null that would catch an accidental prefill regression
+    from the extra kernel-source construction, not a second win channel.
+    """
     out, per = {}, {}
     if not dirpath or not Path(dirpath).exists():
         return out
     for log in sorted(Path(dirpath).glob("*.log")):
         arm = log.stem.rsplit("_", 1)[-1]
-        m = re.search(r"^prefill .*?median=([\d.]+) ms",
+        m = re.search(r"^prefill \d+ tokens: ([\d.]+) ms",
                       log.read_text(errors="replace"), re.M)
         if m:
             per.setdefault(arm, []).append(float(m.group(1)))
     for arm, vals in per.items():
-        out[f"prefill/{arm}/median_ms"] = statistics.mean(vals)
+        out[f"prefill/{arm}/mean_ms"] = statistics.mean(vals)
         out[f"prefill/{arm}/n"] = len(vals)
         out[f"prefill/{arm}/spread_ms"] = max(vals) - min(vals)
     if "off" in per:
