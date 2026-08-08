@@ -563,7 +563,7 @@ private func makeSlidingPrefillVLayoutFixture(
         offset: 0.5,
         dtype: .float32
     )
-    let offsets = MLXArray(Int32(0))
+    let offsets = MLXArray([Int32(0)])
     eval(rawQueries, rawKeys, rawValues, queryWeight, keyWeight, angles, offsets)
     return SlidingPrefillVLayoutFixture(
         rawQueries: rawQueries,
