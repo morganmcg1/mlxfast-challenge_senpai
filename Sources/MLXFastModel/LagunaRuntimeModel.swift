@@ -96,10 +96,6 @@ let lagunaFusedRoutedSharedSwiGLUQMVEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_ROUTED_SHARED_SWIGLU_QMV"] != "0"
 
-private let lagunaRoutedSharedSwiGLUQMVBenchmarkEnabled =
-    ProcessInfo.processInfo.environment[
-        "DARKBLOOM_BENCH_ROUTED_SHARED_SWIGLU_QMV"] == "1"
-
 /// `DARKBLOOM_PACKED_SCALES` (default ON; set "0" to disable): decode-only
 /// scale-interleaved side copy of the fused routed gate/up NVFP4 bank. The
 /// stock `lagunaRoutedSwiGLUQMV` reads codes and E4M3 scales from two separate
@@ -7222,123 +7218,6 @@ func lagunaRoutedSharedSwiGLUQMVPackedTop8(
     return (outputs[0], outputs[1])
 }
 
-private final class LagunaRoutedSharedSwiGLUQMVBenchmark: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didRun = false
-
-    func runOnce(
-        _ input: MLXArray,
-        routedWeight: MLXArray,
-        routedScales: MLXArray,
-        indices: MLXArray,
-        sharedWeight: MLXArray,
-        sharedScales: MLXArray
-    ) {
-        guard lagunaRoutedSharedSwiGLUQMVBenchmarkEnabled else { return }
-
-        lock.lock()
-        guard !didRun else {
-            lock.unlock()
-            return
-        }
-        didRun = true
-        lock.unlock()
-
-        let launchesPerSample = 16
-        let sampleCount = 100
-
-        func controlBatch() -> [MLXArray] {
-            var outputs = [MLXArray]()
-            outputs.reserveCapacity(2 * launchesPerSample)
-            for _ in 0..<launchesPerSample {
-                outputs.append(
-                    lagunaRoutedSwiGLUQMVPackedTop8(
-                        input,
-                        fusedWeight: routedWeight,
-                        packedScales: routedScales,
-                        indices: indices
-                    ))
-                outputs.append(
-                    lagunaSharedSwiGLUQMV(
-                        input,
-                        fusedWeight: sharedWeight,
-                        fusedScales: sharedScales
-                    ))
-            }
-            return outputs
-        }
-
-        func candidateBatch() -> [MLXArray] {
-            var outputs = [MLXArray]()
-            outputs.reserveCapacity(2 * launchesPerSample)
-            for _ in 0..<launchesPerSample {
-                let merged = lagunaRoutedSharedSwiGLUQMVPackedTop8(
-                    input,
-                    routedWeight: routedWeight,
-                    routedScales: routedScales,
-                    indices: indices,
-                    sharedWeight: sharedWeight,
-                    sharedScales: sharedScales
-                )
-                outputs.append(merged.routed)
-                outputs.append(merged.shared)
-            }
-            return outputs
-        }
-
-        func timed(_ makeOutputs: () -> [MLXArray]) -> UInt64 {
-            let start = DispatchTime.now().uptimeNanoseconds
-            eval(makeOutputs())
-            return DispatchTime.now().uptimeNanoseconds - start
-        }
-
-        for _ in 0..<8 {
-            eval(controlBatch())
-            eval(candidateBatch())
-        }
-
-        var abControl = [UInt64]()
-        var abCandidate = [UInt64]()
-        var baControl = [UInt64]()
-        var baCandidate = [UInt64]()
-        abControl.reserveCapacity(sampleCount)
-        abCandidate.reserveCapacity(sampleCount)
-        baControl.reserveCapacity(sampleCount)
-        baCandidate.reserveCapacity(sampleCount)
-
-        for _ in 0..<sampleCount {
-            abControl.append(timed(controlBatch))
-            abCandidate.append(timed(candidateBatch))
-        }
-        for _ in 0..<sampleCount {
-            baCandidate.append(timed(candidateBatch))
-            baControl.append(timed(controlBatch))
-        }
-
-        func values(_ samples: [UInt64]) -> String {
-            samples.map { String($0) }.joined(separator: ",")
-        }
-        func emit(order: String, control: [UInt64], candidate: [UInt64]) {
-            let line =
-                "darkbloom-isolated-routed-shared-qmv order=\(order) "
-                + "launches_per_sample=\(launchesPerSample) "
-                + "control_ns=\(values(control)) "
-                + "candidate_ns=\(values(candidate))\n"
-            FileHandle.standardError.write(Data(line.utf8))
-        }
-
-        let indexValues = indices.asArray(UInt32.self).map { String($0) }
-            .joined(separator: ",")
-        FileHandle.standardError.write(
-            Data("darkbloom-isolated-routed-shared-qmv indices=\(indexValues)\n".utf8))
-        emit(order: "AB", control: abControl, candidate: abCandidate)
-        emit(order: "BA", control: baControl, candidate: baCandidate)
-    }
-}
-
-private let lagunaRoutedSharedSwiGLUQMVBenchmark =
-    LagunaRoutedSharedSwiGLUQMVBenchmark()
-
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_down_reduce_bf16_v1",
     inputNames: [
@@ -9809,14 +9688,6 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     {
                         lagunaPackedScalesLog.note(
                             "active", "routed+shared swiglu qmv packed dispatch")
-                        lagunaRoutedSharedSwiGLUQMVBenchmark.runOnce(
-                            x,
-                            routedWeight: fusedWeight,
-                            routedScales: packedBank,
-                            indices: inds,
-                            sharedWeight: sharedBanks.gateUpWeight,
-                            sharedScales: sharedBanks.gateUpScales
-                        )
                         let merged = lagunaRoutedSharedSwiGLUQMVPackedTop8(
                             x,
                             routedWeight: fusedWeight,
