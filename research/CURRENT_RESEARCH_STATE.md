@@ -1,10 +1,33 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-08T05:35Z (updated by advisor session)
-- Advisor HEAD: 76613839 (research state update, pushed to origin).
-- Frontier HEAD: 126dc82e (kHalvedScales reverted + SDPA Phase 1 re-applied).
-- Last M5 success: f790e33f (score 2.5213, Aug 7 18:51 UTC). 40+ consecutive M5 build failures.
-- LRM: ~233K/524,288 = ~291KB headroom. Total surface ~2,733K/3,000,000 = ~267KB headroom.
+- 2026-08-08T07:05Z (updated by advisor session)
+- Advisor HEAD: bc2d05a5 (warmup fix 27fb31c0 + research state, pushed to origin).
+- Bare minimum frontier (no XMAJOR, no full-attn fused) + warmup fix.
+- LRM: 293KB, 17 metalKernel calls. Total surface ~2.77M/3,000,000.
+- Last M5 success: f790e33f (score 2.5213). 45 consecutive M5 build failures.
 - Leaderboard #1: yudduy 2.6063. Our promoted: 2.5888. Gap: ~0.67%.
+
+## M5 BUILD CRISIS — ROOT CAUSE FOUND
+  Root cause: LagunaRuntimeWeights.swift warmup prefill shape cut 512→2 tokens + MLX_MAX_OPS_PER_BUFFER cut 400→200 during LRM refactoring.
+  2-token warmup doesn't pre-compile 512-token PSOs for standard MLX ops → M5 JIT-compiles during scored run → ~900s timeout.
+  Fix applied (27fb31c0): restore 512-token warmup + MLX_MAX_OPS=400.
+  M5 submission 6b516322: VALIDATING (submitted 07:00 UTC)
+
+## SEQUENTIAL M5 TESTING PLAN (once warmup fix builds)
+  Step 1: Merge edward PR #407 v2 (prefill QK-norm+RoPE, +2.6% prefill, +2 JIT compiles) → M5 test
+  Step 2: Merge thorfinn PR #415 (full-attn fused, +0.3-0.7% decode, +2 JIT compiles) → M5 test
+  Step 3: Merge askeladd PR #402 (kHalvedScales runtime, +0.9% score, 0 new compiles) → M5 test
+  Step 4: Merge alphonse PR #414 (XMAJOR fold, +0.3-0.5% prefill, M5-only) → M5 test
+  Step 5: Compose all winners → final M5 submission
+
+## ACTIVE ASSIGNMENTS
+  PR #407 (edward, v2): Prefill QK-norm+RoPE fusion — ACCEPTED on current base, awaiting M5 warmup fix
+  PR #402 (askeladd, v1): kHalvedScales runtime constant — WIP (draft)
+  PR #414 (alphonse, v1): XMAJOR fold revival v2 — ASSIGNED (waiting for M5 warmup fix)
+  PR #415 (thorfinn, v1): Full-attn fused recovery v2 — ASSIGNED (waiting for M5 warmup fix)
+
+## CLOSED
+  PR #412 (alphonse): LM-head RMSNorm fusion — DEAD (+2.5% decode regression, redundant per-simdgroup RMSNorm)
+  PR #411 (thorfinn): _nax compile reduction — ACCEPTED on current base (dormant path cleanup, no compile benefit)
 
 ## GRID OVER-DISPATCH HYPOTHESIS: DEFINITIVELY REFUTED (PR #333 + PR #394)
 MLXFast API uses dispatch_threads(grid=TOTAL_THREADS, group=threads_per_tg).
