@@ -104,18 +104,15 @@ using namespace metal;
 //
 // The group size is chosen per GQA factor so it divides evenly and no group
 // crosses a KV-head ownership boundary: 3 for GQA6 (6/3=2 groups per KV head)
-// and 4 for GQA8 (8/4=2 groups per KV head). Both yield exactly two active
-// query groups per KV head — the maximum K/V sharing. Six exchange planes
-// serve both: 3 heads × 2 planes = 6 for GQA6, and 4 heads use a 3+1 staggered
-// exchange reusing the same 6 planes. GROUP_MAX stays at 3; head 3 uses
-// explicit register variables so the 2/3-head compiled code is unchanged.
+// and 2 for GQA8 (8/2=4 groups per KV head). Six exchange planes serve GQA6
+// (3 heads × 2 planes = 6); GQA8 uses 4 of the 6. GROUP_MAX stays at 3.
 // The path is restricted to the scored D=V=128, Laguna GQA (8 or 6),
 // one-query, unmasked, sink-free vector shape.
 #ifndef DARKBLOOM_GQA_GROUP_FULL
 #define DARKBLOOM_GQA_GROUP_FULL 3
 #endif
 #ifndef DARKBLOOM_GQA_GROUP_SLIDING
-#define DARKBLOOM_GQA_GROUP_SLIDING 4
+#define DARKBLOOM_GQA_GROUP_SLIDING 2
 #endif
 #ifndef DARKBLOOM_GQA_GROUP_MAX
 #define DARKBLOOM_GQA_GROUP_MAX 3
