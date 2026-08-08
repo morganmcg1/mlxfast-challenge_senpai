@@ -104,10 +104,11 @@ using namespace metal;
 //
 // The group size is chosen per GQA factor so it divides evenly and no group
 // crosses a KV-head ownership boundary: 3 for GQA6 (6/3=2 groups per KV head)
-// and 2 for GQA8 (8/2=4 groups per KV head). Six exchange planes serve GQA6
-// (3 heads × 2 planes = 6); GQA8 uses 4 of the 6. GROUP_MAX stays at 3.
-// The path is restricted to the scored D=V=128, Laguna GQA (8 or 6),
-// one-query, unmasked, sink-free vector shape.
+// and 4 for GQA8 (8/4=2 groups per KV head). Both yield exactly two active
+// query groups per KV head — the maximum K/V sharing. Six exchange planes
+// serve both: 3 heads × 2 planes = 6 for GQA6, and 4 heads use a 3+1 staggered
+// exchange reusing the same 6 planes. The path is restricted to the scored
+// D=V=128, Laguna GQA (8 or 6), one-query, unmasked, sink-free vector shape.
 #ifndef DARKBLOOM_GQA_GROUP_FULL
 #define DARKBLOOM_GQA_GROUP_FULL 3
 #endif
@@ -338,35 +339,16 @@ template <
                           : (int(tpg.x) - q_head0);
     const int kv_head_idx = q_head0 / gqa_factor;
 
-    // When GROUP_SLIDING >= 4, n_active can be 4 but arrays are sized
-    // GROUP_MAX (3). Cap the array-loop bound and handle head 3 with
-    // explicit variables. When GROUP_SLIDING < 4, n_active <= GROUP_MAX so
-    // n_active_arr == n_active and the code is unchanged.
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-    const int n_active_arr =
-        (n_active > DARKBLOOM_GQA_GROUP_MAX) ? DARKBLOOM_GQA_GROUP_MAX
-                                             : n_active;
-#else
-    const int n_active_arr = n_active;
-#endif
 
     // Query pointers and output pointers for each active head.
     const device T* group_qptrs[DARKBLOOM_GQA_GROUP_MAX];
     device T* group_optrs[DARKBLOOM_GQA_GROUP_MAX];
-    for (int h = 0; h < n_active_arr; ++h) {
+    for (int h = 0; h < n_active; ++h) {
       group_qptrs[h] =
           queries + (q_head0 + h) * D + simd_lid * qk_per_thread;
       group_optrs[h] =
           out + (q_head0 + h) * V + simd_gid * v_per_thread;
     }
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-    const device T* qptr3 = nullptr;
-    device T* optr3 = nullptr;
-    if (n_active > DARKBLOOM_GQA_GROUP_MAX) {
-      qptr3 = queries + (q_head0 + 3) * D + simd_lid * qk_per_thread;
-      optr3 = out + (q_head0 + 3) * V + simd_gid * v_per_thread;
-    }
-#endif
     const device T* group_keys =
         keys + kv_head_idx * k_head_stride + simd_gid * k_seq_stride +
         simd_lid * qk_per_thread;
@@ -378,14 +360,8 @@ template <
     thread U go[DARKBLOOM_GQA_GROUP_MAX][v_per_thread];
     U gmax[DARKBLOOM_GQA_GROUP_MAX];
     U gsum[DARKBLOOM_GQA_GROUP_MAX];
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-    thread U gq3[qk_per_thread];
-    thread U go3[v_per_thread];
-    U gmax3;
-    U gsum3;
-#endif
 
-    for (int h = 0; h < n_active_arr; ++h) {
+    for (int h = 0; h < n_active; ++h) {
       for (int j = 0; j < qk_per_thread; ++j)
         gq[h][j] = static_cast<U>(scale) * group_qptrs[h][j];
       for (int j = 0; j < v_per_thread; ++j)
@@ -393,16 +369,6 @@ template <
       gmax[h] = Limits<U>::finite_min;
       gsum[h] = 0;
     }
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-    if (n_active > DARKBLOOM_GQA_GROUP_MAX) {
-      for (int j = 0; j < qk_per_thread; ++j)
-        gq3[j] = static_cast<U>(scale) * qptr3[j];
-      for (int j = 0; j < v_per_thread; ++j)
-        go3[j] = 0;
-      gmax3 = Limits<U>::finite_min;
-      gsum3 = 0;
-    }
-#endif
 
     // Two-deep software pipeline, loads hoisted: both positions' K and V
     // rows are read at the top of the trip, then the two positions are
@@ -443,7 +409,7 @@ template <
       // Position a: per-head score and update. Each head's FP sequence
       // is identical to stock (same q*k dot-product chain, same FMA order
       // for the output accumulate). K/V are shared reads.
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         U score = 0;
         score += gq[h][0] * pipe_ka[0];
         score += gq[h][1] * pipe_ka[1];
@@ -463,31 +429,9 @@ template <
         go[h][2] = go[h][2] * factor + exp_score * pipe_va2;
         go[h][3] = go[h][3] * factor + exp_score * pipe_va3;
       }
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-      if (n_active > DARKBLOOM_GQA_GROUP_MAX) {
-        U score = 0;
-        score += gq3[0] * pipe_ka[0];
-        score += gq3[1] * pipe_ka[1];
-        score += gq3[2] * pipe_ka[2];
-        score += gq3[3] * pipe_ka[3];
-        score = simd_sum(score);
-
-        U new_max = max(gmax3, score);
-        U factor;
-        DARKBLOOM_RESCALE_FACTOR(factor, gmax3 - new_max);
-        U exp_score = fast::exp(score - new_max);
-        gmax3 = new_max;
-        gsum3 = gsum3 * factor + exp_score;
-
-        go3[0] = go3[0] * factor + exp_score * pipe_va0;
-        go3[1] = go3[1] * factor + exp_score * pipe_va1;
-        go3[2] = go3[2] * factor + exp_score * pipe_va2;
-        go3[3] = go3[3] * factor + exp_score * pipe_va3;
-      }
-#endif
 
       // Position b: same per-head pattern with pipe_kb/vb.
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         U score = 0;
         score += gq[h][0] * pipe_kb[0];
         score += gq[h][1] * pipe_kb[1];
@@ -507,28 +451,6 @@ template <
         go[h][2] = go[h][2] * factor + exp_score * pipe_vb2;
         go[h][3] = go[h][3] * factor + exp_score * pipe_vb3;
       }
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-      if (n_active > DARKBLOOM_GQA_GROUP_MAX) {
-        U score = 0;
-        score += gq3[0] * pipe_kb[0];
-        score += gq3[1] * pipe_kb[1];
-        score += gq3[2] * pipe_kb[2];
-        score += gq3[3] * pipe_kb[3];
-        score = simd_sum(score);
-
-        U new_max = max(gmax3, score);
-        U factor;
-        DARKBLOOM_RESCALE_FACTOR(factor, gmax3 - new_max);
-        U exp_score = fast::exp(score - new_max);
-        gmax3 = new_max;
-        gsum3 = gsum3 * factor + exp_score;
-
-        go3[0] = go3[0] * factor + exp_score * pipe_vb0;
-        go3[1] = go3[1] * factor + exp_score * pipe_vb1;
-        go3[2] = go3[2] * factor + exp_score * pipe_vb2;
-        go3[3] = go3[3] * factor + exp_score * pipe_vb3;
-      }
-#endif
 
       group_keys += 2 * inner_k_stride;
       group_values += 2 * inner_v_stride;
@@ -548,7 +470,7 @@ template <
       const T pipe_va2 = vec_vt.z;
       const T pipe_va3 = vec_vt.w;
 
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         U score = 0;
         score += gq[h][0] * kt[0];
         score += gq[h][1] * kt[1];
@@ -568,44 +490,22 @@ template <
         go[h][2] = go[h][2] * factor + exp_score * pipe_va2;
         go[h][3] = go[h][3] * factor + exp_score * pipe_va3;
       }
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-      if (n_active > DARKBLOOM_GQA_GROUP_MAX) {
-        U score = 0;
-        score += gq3[0] * kt[0];
-        score += gq3[1] * kt[1];
-        score += gq3[2] * kt[2];
-        score += gq3[3] * kt[3];
-        score = simd_sum(score);
-
-        U new_max = max(gmax3, score);
-        U factor;
-        DARKBLOOM_RESCALE_FACTOR(factor, gmax3 - new_max);
-        U exp_score = fast::exp(score - new_max);
-        gmax3 = new_max;
-        gsum3 = gsum3 * factor + exp_score;
-
-        go3[0] = go3[0] * factor + exp_score * pipe_va0;
-        go3[1] = go3[1] * factor + exp_score * pipe_va1;
-        go3[2] = go3[2] * factor + exp_score * pipe_va2;
-        go3[3] = go3[3] * factor + exp_score * pipe_va3;
-      }
-#endif
     }
 
     // Exchange epilogue. Each head uses 2 planes. The plane base for head h
-    // is h * 2 * pair_plane_size. Only the first n_active_arr * 2 planes are
+    // is h * 2 * pair_plane_size. Only the first n_active * 2 planes are
     // touched. The additive head-bank offset changes no producer/consumer
     // pairing or simd_sum tree.
     constexpr int pair_planes = 2;
     constexpr int pair_plane_size = BN * BD;
     if (simd_lid == 0) {
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         max_scores[h * BN + simd_gid] = gmax[h];
         sum_exp_scores[h * BN + simd_gid] = gsum[h];
       }
     }
     for (int i = 0; i < pair_planes; ++i) {
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         outputs[(h * pair_planes + i) * pair_plane_size +
                 simd_lid * BD + simd_gid] = go[h][i];
       }
@@ -614,7 +514,7 @@ template <
 
     U g_global_max[DARKBLOOM_GQA_GROUP_MAX];
     U g_global_factor[DARKBLOOM_GQA_GROUP_MAX];
-    for (int h = 0; h < n_active_arr; ++h) {
+    for (int h = 0; h < n_active; ++h) {
       U local_max = max_scores[h * BN + simd_lid];
       g_global_max[h] = simd_max(local_max);
       g_global_factor[h] = fast::exp(local_max - g_global_max[h]);
@@ -623,7 +523,7 @@ template <
     }
 
     for (int i = 0; i < pair_planes; ++i) {
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         U acc = simd_sum(
             outputs[(h * pair_planes + i) * pair_plane_size +
                     simd_gid * BD + simd_lid] *
@@ -634,14 +534,14 @@ template <
 
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (int i = 0; i < pair_planes; ++i) {
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         outputs[(h * pair_planes + i) * pair_plane_size +
                 simd_lid * BD + simd_gid] = go[h][pair_planes + i];
       }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (int i = 0; i < pair_planes; ++i) {
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         U acc = simd_sum(
             outputs[(h * pair_planes + i) * pair_plane_size +
                     simd_gid * BD + simd_lid] *
@@ -651,65 +551,12 @@ template <
       }
     }
 
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-    // Staggered exchange for head 3: reuse planes 0,1 and max_scores/
-    // sum_exp_scores slots 0,1 (head 0's, now free). The exchange for
-    // each head is independent (separate max/sum broadcast, separate
-    // simd_sum reduction, separate factor/divide), so processing head 3
-    // after heads 0-2 is bit-exact.
-    if (n_active > DARKBLOOM_GQA_GROUP_MAX) {
-      // Ensure all reads from the 3-head exchange are complete.
-      threadgroup_barrier(mem_flags::mem_threadgroup);
-
-      if (simd_lid == 0) {
-        max_scores[0 * BN + simd_gid] = gmax3;
-        sum_exp_scores[0 * BN + simd_gid] = gsum3;
-      }
-      for (int i = 0; i < pair_planes; ++i) {
-        outputs[i * pair_plane_size + simd_lid * BD + simd_gid] = go3[i];
-      }
-      threadgroup_barrier(mem_flags::mem_threadgroup);
-
-      U local_max3 = max_scores[0 * BN + simd_lid];
-      U g_global_max3 = simd_max(local_max3);
-      U g_global_factor3 = fast::exp(local_max3 - g_global_max3);
-      gsum3 = simd_sum(sum_exp_scores[0 * BN + simd_lid] * g_global_factor3);
-
-      for (int i = 0; i < pair_planes; ++i) {
-        U acc = simd_sum(
-            outputs[i * pair_plane_size + simd_gid * BD + simd_lid] *
-            g_global_factor3);
-        go3[i] = gsum3 == 0 ? acc : (acc / gsum3);
-      }
-
-      threadgroup_barrier(mem_flags::mem_threadgroup);
-      for (int i = 0; i < pair_planes; ++i) {
-        outputs[i * pair_plane_size + simd_lid * BD + simd_gid] =
-            go3[pair_planes + i];
-      }
-      threadgroup_barrier(mem_flags::mem_threadgroup);
-      for (int i = 0; i < pair_planes; ++i) {
-        U acc = simd_sum(
-            outputs[i * pair_plane_size + simd_gid * BD + simd_lid] *
-            g_global_factor3);
-        go3[pair_planes + i] = gsum3 == 0 ? acc : (acc / gsum3);
-      }
-    }
-#endif
-
     if (simd_lid == 0) {
-      for (int h = 0; h < n_active_arr; ++h) {
+      for (int h = 0; h < n_active; ++h) {
         for (int i = 0; i < v_per_thread; ++i) {
           group_optrs[h][i] = static_cast<T>(go[h][i]);
         }
       }
-#if DARKBLOOM_GQA_GROUP_SLIDING >= 4
-      if (n_active > DARKBLOOM_GQA_GROUP_MAX) {
-        for (int i = 0; i < v_per_thread; ++i) {
-          optr3[i] = static_cast<T>(go3[i]);
-        }
-      }
-#endif
     }
     return;
   }
