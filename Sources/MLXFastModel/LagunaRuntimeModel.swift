@@ -113,6 +113,9 @@ let lagunaFusedRoutedSharedDownResidualEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_ROUTED_SHARED_DOWN_RESIDUAL"] != "0"
 
+let lagunaThreeRowRoutedSharedDownEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_ROUTED_SHARED_DOWN_R3"] == "1"
+
 /// Routed-expert counterpart to the shared QMV + SwiGLU fusion. Each decode
 /// request supplies exactly eight current-token expert indices; the kernel
 /// reads those banks directly and emits `[1, 1, 8, 1, 512]`.
@@ -7277,10 +7280,18 @@ func lagunaRoutedDownReduce(
 let lagunaSharedFirstDownOrderEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_FIRST_DOWN"] == "1"
 
-private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
-    name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf_bf4"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4_bf4",
+private let lagunaRoutedSharedDownResidualKernels = [2, 3].map { outputsPerSIMD in
+    let geometry = outputsPerSIMD == 3 ? "r3ceil_v1" : "r2_v4"
+    let rowGuard = outputsPerSIMD == 3
+        ? "if (output_row >= output_width) { continue; }\n            "
+        : ""
+    let outputGuard = outputsPerSIMD == 3
+        ? " && first_row + lane < output_width"
+        : ""
+    return MLXFast.metalKernel(
+        name: lagunaSharedFirstDownOrderEnabled
+            ? "laguna_routed_shared_nvfp4_down_residual_bf16_\(geometry)sf_bf4"
+            : "laguna_routed_shared_nvfp4_down_residual_bf16_\(geometry)_bf4",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7298,7 +7309,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         constexpr uint output_width = 2048;
         constexpr uint routed_experts = 8;
         constexpr uint shared_slot = 8;
-        constexpr uint outputs_per_simd = 2;
+        constexpr uint outputs_per_simd = \(outputsPerSIMD);
         constexpr uint values_per_lane = 16;
         constexpr uint packed_row_bytes = 256;
         constexpr uint scale_row_bytes = 32;
@@ -7336,7 +7347,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         thread float result[outputs_per_simd] = {0.0f};
         for (uint row = 0; row < outputs_per_simd; ++row) {
             uint output_row = first_row + row;
-            const device uint8_t* weight =
+            \(rowGuard)const device uint8_t* weight =
                 expert_weight + output_row * packed_row_bytes + lane * 8;
             const device uint8_t* scale =
                 expert_scales + output_row * scale_row_bytes + lane;
@@ -7358,7 +7369,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (slot == 0 && lane < outputs_per_simd) {
+        if (slot == 0 && lane < outputs_per_simd\(outputGuard)) {
             bfloat routed_total = bfloat(0);
             for (uint routed_slot = 0;
                  routed_slot < routed_experts;
@@ -7380,9 +7391,10 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
                 bfloat(residual[first_row + lane] + r2);
         }
         """,
-    header: lagunaSharedSwiGLUQMVHeader,
-    ensureRowContiguous: true
-)
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+}
 
 func lagunaRoutedSharedDownResidual(
     routedActivated: MLXArray,
@@ -7393,7 +7405,8 @@ func lagunaRoutedSharedDownResidual(
     sharedActivated: MLXArray,
     sharedDownWeight: MLXArray,
     sharedDownScales: MLXArray,
-    residual: MLXArray
+    residual: MLXArray,
+    useThreeRow: Bool = false
 ) -> MLXArray {
     precondition(routedActivated.dtype == .bfloat16)
     precondition(
@@ -7439,19 +7452,24 @@ func lagunaRoutedSharedDownResidual(
     precondition(residual.dtype == .bfloat16)
     precondition(residual.shape == [1, 1, LagunaConstants.hiddenSize])
 
-    return lagunaRoutedSharedDownResidualKernel(
-        lagunaSharedFirstDownOrderEnabled
-            ? [
-                sharedActivated, sharedDownWeight, sharedDownScales,
-                routedActivated, routedDownWeight, routedDownScales,
-                indices, routerWeights, residual,
-            ]
-            : [
-                routedActivated, routedDownWeight, routedDownScales,
-                indices, routerWeights, sharedActivated,
-                sharedDownWeight, sharedDownScales, residual,
-            ],
-        grid: ((LagunaConstants.hiddenSize / 2) * 288, 1, 1),
+    let inputs = lagunaSharedFirstDownOrderEnabled
+        ? [
+            sharedActivated, sharedDownWeight, sharedDownScales,
+            routedActivated, routedDownWeight, routedDownScales,
+            indices, routerWeights, residual,
+        ]
+        : [
+            routedActivated, routedDownWeight, routedDownScales,
+            indices, routerWeights, sharedActivated,
+            sharedDownWeight, sharedDownScales, residual,
+        ]
+
+    let outputsPerSIMD = useThreeRow ? 3 : 2
+    let groups =
+        (LagunaConstants.hiddenSize + outputsPerSIMD - 1) / outputsPerSIMD
+    return lagunaRoutedSharedDownResidualKernels[outputsPerSIMD - 2](
+        inputs,
+        grid: (groups * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
@@ -9538,17 +9556,27 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     }
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        forward(x, residual: nil, routerLogits: nil)
+        forward(x, residual: nil, routerLogits: nil, useThreeRowDown: false)
     }
 
     func callAsFunction(
-        _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil
+        _ x: MLXArray,
+        residual: MLXArray,
+        routerLogits: MLXArray? = nil,
+        useThreeRowDown: Bool = false
     ) -> MLXArray {
-        forward(x, residual: residual, routerLogits: routerLogits)
+        forward(
+            x,
+            residual: residual,
+            routerLogits: routerLogits,
+            useThreeRowDown: useThreeRowDown)
     }
 
     private func forward(
-        _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?
+        _ x: MLXArray,
+        residual: MLXArray?,
+        routerLogits: MLXArray?,
+        useThreeRowDown: Bool
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
@@ -9669,7 +9697,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                     sharedActivated: sharedInputs.activated,
                     sharedDownWeight: sharedInputs.downWeight,
                     sharedDownScales: sharedInputs.downScales,
-                    residual: residual
+                    residual: residual,
+                    useThreeRow: useThreeRowDown
                 )
             } else if lagunaFusedRoutedDownReduceEnabled,
                 let downWeight = _routedDownWeight,
@@ -9954,7 +9983,10 @@ final class LagunaRuntimeDecoderLayer: Module {
             let sparse = mlp as? LagunaRuntimeSparseMoEBlock
         {
             return sparse(
-                normalized, residual: h, routerLogits: routerLogits)
+                normalized,
+                residual: h,
+                routerLogits: routerLogits,
+                useThreeRowDown: lagunaThreeRowRoutedSharedDownEnabled)
         }
         // Multi-token prefill: hand the residual to the sparse block so the
         // prefill MoE tail kernel can fold the final residual add. When any
