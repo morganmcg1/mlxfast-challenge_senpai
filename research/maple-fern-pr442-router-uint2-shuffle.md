@@ -191,6 +191,56 @@ harness failed to catch.
 
 ## Stage 4 — timing
 
+### In-situ per-kernel ABBA (the decisive measurement)
+
+Instrumentation: `research/nezuko-pr158-gpuprof-hook.patch` (Vendor-side
+per-dispatch GPU timing) applied as a temporary commit and reverted before
+submission. `DARKBLOOM_GPU_PROFILE_SPLIT=1` puts one dispatch per command
+buffer, which is what makes a sub-microsecond per-call effect resolvable;
+end-to-end decode wall time (`--local-iterate` MDE ±0.73 % ≈ ±60 µs/step) cannot
+see it.
+
+Design: one worker process per slot, three arms, **both** ABBA orders, three
+reps each = 36 slots, 33 decode steps per slot, 1 248 profiled calls of
+`laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` per slot. All 36
+slots reported `teacher-forced greedy tokens: 0 divergences (all match)`.
+
+Profiler share table from a representative slot — this is also the runtime
+confirmation of Stage 0 reachability:
+
+```
+  us/step   share  n/step  us/call  kernel
+   1494.7  17.55%   39.00    38.33  routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+   1328.1  15.59%   30.00    44.27  decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+   1111.3  13.05%   30.00    37.04  oproj_act_h64_v1_lm1_pw1_sc1_se1
+    863.3  10.14%   39.00    22.14  routed_shared_nvfp4_down_residual_bf16_r1_v5
+```
+
+Exactly 39.00 calls/step as predicted, 17.55 % of an 8.52 ms GPU-busy step.
+
+| order | arm | n | mean µs/call | sd | Δ vs `off` (µs/call) | 95 % CI | Δ µs/step |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `off on ctl ctl on off` | `on` | 6 | 38.386 | 0.079 | −0.010 | [−0.098, +0.078] | **−0.4** |
+| `off on ctl ctl on off` | `ctl` | 6 | 38.402 | 0.127 | +0.007 | [−0.128, +0.141] | +0.3 |
+| `on ctl off off ctl on` | `on` | 6 | 38.444 | 0.198 | −0.011 | [−0.277, +0.256] | **−0.4** |
+| `on ctl off off ctl on` | `ctl` | 6 | 38.446 | 0.149 | −0.010 | [−0.247, +0.228] | −0.4 |
+| pooled | `on` | 12 | 38.415 | 0.147 | −0.010 | [−0.136, +0.115] | **−0.4** |
+| pooled | `ctl` | 12 | 38.424 | 0.134 | −0.001 | [−0.121, +0.118] | −0.1 |
+
+Both orders give the identical point estimate, so process order and thermal
+drift are not carrying the result. The **invariant control moves as much as the
+candidate** (−0.1 vs −0.4 µs/step, both inside each other's CI): whatever the
+`on` arm shows is slot noise, not mechanism.
+
+Score conversion at 0.015280 % decode per µs/step:
+
+* point estimate −0.4 µs/step → **+0.006 % decode score**;
+* the most optimistic end of the pooled 95 % CI, −5.3 µs/step → **+0.081 %**;
+* the promotion bar of ≈80 µs/step → +1.22 %.
+
+The confidence interval **excludes the bar by a factor of ~15**, so this is a
+decisive negative, not an underpowered one.
+
 ### Offline isolated probe (kernel-level, 32 repeats, 4.194 M butterfly rounds/step)
 
 ```
