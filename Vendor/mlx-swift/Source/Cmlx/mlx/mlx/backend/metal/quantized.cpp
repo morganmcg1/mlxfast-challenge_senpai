@@ -1306,22 +1306,22 @@ bool darkbloom_stage_flag(const char* name) {
 }
 
 bool darkbloom_stage_widest() {
-  static const bool v = darkbloom_stage_flag("DARKBLOOM_STAGE_WIDEST");
+  static const bool v = env::get_var("DARKBLOOM_STAGE_WIDEST", "") != "0";
   return v;
 }
 
 bool darkbloom_stage_wideld() {
-  static const bool v = darkbloom_stage_flag("DARKBLOOM_STAGE_WIDELD");
+  static const bool v = env::get_var("DARKBLOOM_STAGE_WIDELD", "") != "0";
   return v;
 }
 
 bool darkbloom_stage_runbar() {
-  static const bool v = darkbloom_stage_flag("DARKBLOOM_STAGE_RUNBAR");
+  static const bool v = env::get_var("DARKBLOOM_STAGE_RUNBAR", "") != "0";
   return v;
 }
 
 bool darkbloom_stage_novol() {
-  static const bool v = darkbloom_stage_flag("DARKBLOOM_STAGE_NOVOL");
+  static const bool v = env::get_var("DARKBLOOM_STAGE_NOVOL", "") != "0";
   return v;
 }
 
