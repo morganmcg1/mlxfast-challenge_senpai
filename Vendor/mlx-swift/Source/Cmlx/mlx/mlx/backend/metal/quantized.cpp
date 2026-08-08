@@ -1306,7 +1306,7 @@ bool darkbloom_stage_flag(const char* name) {
 }
 
 bool darkbloom_stage_widest() {
-  static const bool v = darkbloom_stage_flag("DARKBLOOM_STAGE_WIDEST");
+  static const bool v = env::get_var("DARKBLOOM_STAGE_WIDEST", "") != "0";
   return v;
 }
 
