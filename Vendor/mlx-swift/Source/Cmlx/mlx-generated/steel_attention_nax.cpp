@@ -1420,9 +1420,8 @@ template <
   // (NQ, H, B) grid. In the optional qblock-major arm, reinterpret its x-fast
   // physical linear index as (query block major, query head minor). Since
   // physical_linear ranges over exactly [0, NQ * H), quotient/remainder by H
-  // is a bijection onto the same logical coordinate set. Each threadgroup
-  // therefore retains its exact Q/K/V inputs, floating-point operation order,
-  // and disjoint output rows; only GPU presentation order changes.
+  // is a bijection onto the same logical coordinate set before adjacent GQA
+  // heads are packeted below.
 #if DARKBLOOM_ATTN_QBLOCK_MAJOR
   const ulong physical_linear =
       ulong(tid.y) * ulong(params->NQ) + ulong(tid.x);
@@ -1446,9 +1445,18 @@ template <
   ulong3 tidl{tid.x, tid.y, tid.z};
 #endif
 
+  const ulong head_in_kv = tidl.y % ulong(params->gqa_factor);
+  if ((head_in_kv & 1ul) != 0) {
+    return;
+  }
+  const bool has_pair =
+      head_in_kv + 1 < ulong(params->gqa_factor) &&
+      tidl.y + 1 < ulong(params->H);
+
   Q += tidl.z * params->Q_strides[0] + // Batch
       tidl.y * params->Q_strides[1] + // Head
       tidl.x * BQ * params->Q_strides[2]; // Sequence
+  const device T* Q_pair = has_pair ? Q + params->Q_strides[1] : Q;
 
   ulong kv_head_idx = int(tidl.y) / params->gqa_factor;
   K += tidl.z * params->K_strides[0] + // Batch
@@ -1460,10 +1468,13 @@ template <
   O += tidl.z * params->O_strides[0] + // Batch
       tidl.y * params->O_strides[1] + // Head
       tidl.x * BQ * params->O_strides[2]; // Sequence
+  device T* O_pair = has_pair ? O + params->O_strides[1] : O;
 
+  const device MaskType* mask_pair = mask;
   if (has_mask) {
     mask += tidl.z * mask_params->M_strides[0] + // Batch
         tidl.y * mask_params->M_strides[1]; // Head
+    mask_pair = has_pair ? mask + mask_params->M_strides[1] : mask;
   }
 
   const metal::uniform<float> scale2 =
@@ -1487,12 +1498,15 @@ template <
   static_assert(TQ == 1, "Check TQ");
   using otile_t = NAXTile<AccumType, TQ, TD>;
   otile_t Otile;
+  otile_t Otile_pair;
 
   Otile.clear();
+  Otile_pair.clear();
 
   // Prepare mma tile offsets
   const short tm = kU * TQ * simd_group_id;
   Q += tm * int(params->Q_strides[2]);
+  Q_pair += tm * int(params->Q_strides[2]);
 
   const short2 simd_coord = otile_t::NAXFrag_t::get_coord();
   const short sm = simd_coord.y;
@@ -1503,11 +1517,14 @@ template <
 
   metal::vec<AccumType, kRowsPT> max_score;
   metal::vec<AccumType, kRowsPT> sum_score{0};
+  metal::vec<AccumType, kRowsPT> max_score_pair;
+  metal::vec<AccumType, kRowsPT> sum_score_pair{0};
 
   // Init to -Inf
   STEEL_PRAGMA_UNROLL
   for (short i = 0; i < kRowsPT; ++i) {
     max_score[i] = Limits<AccumType>::finite_min;
+    max_score_pair[i] = Limits<AccumType>::finite_min;
   }
 
   if (has_sinks) {
@@ -1515,6 +1532,11 @@ template <
     for (short i = 0; i < kRowsPT; ++i) {
       max_score[i] = M_LOG2E_F * static_cast<AccumType>(sinks[tidl.y]);
       sum_score[i] = 1;
+      if (has_pair) {
+        max_score_pair[i] =
+            M_LOG2E_F * static_cast<AccumType>(sinks[tidl.y + 1]);
+        sum_score_pair[i] = 1;
+      }
     }
   }
 
@@ -1600,22 +1622,36 @@ template <
   // allocates ZERO threadgroup memory, and on Apple family 9+ the on-chip pool
   // is shared between registers and threadgroup memory.
   typename NAXTile<T, 1, 1>::frag_type Qhoist[TQ * TD];
+  typename NAXTile<T, 1, 1>::frag_type Qhoist_pair[TQ * TD];
 
   STEEL_PRAGMA_UNROLL
   for (short iq = 0; iq < TQ; iq++) {
     STEEL_PRAGMA_UNROLL
     for (short id = 0; id < TD; id++) {
       NAXTile<T, 1, 1> Qstage;
+      NAXTile<T, 1, 1> Qstage_pair;
       const int Q_load_off = iq * kU * int(params->Q_strides[2]) + id * kU;
 
       if (!align_Q && is_last_q) {
         Qstage.load_rows(
             Q + Q_load_off, int(params->Q_strides[2]), lim_rows_q - iq * kU);
+        if (has_pair) {
+          Qstage_pair.load_rows(
+              Q_pair + Q_load_off,
+              int(params->Q_strides[2]),
+              lim_rows_q - iq * kU);
+        }
       } else {
         Qstage.load(Q + Q_load_off, int(params->Q_strides[2]));
+        if (has_pair) {
+          Qstage_pair.load(Q_pair + Q_load_off, int(params->Q_strides[2]));
+        }
       }
 
       Qhoist[iq * TD + id] = Qstage.frag_at(0, 0);
+      if (has_pair) {
+        Qhoist_pair[iq * TD + id] = Qstage_pair.frag_at(0, 0);
+      }
     }
   }
 #endif
@@ -1627,8 +1663,10 @@ template <
     // Do S = Q @ K.T
     using stile_t = NAXTile<AccumType, TQ, TK>;
     stile_t Stile;
+    stile_t Stile_pair;
 
     Stile.clear();
+    Stile_pair.clear();
 
     // Causal elision: guard the score computation and the zero P@V work, but
     // never a barrier or the outer-loop pointer advance. See the sg_kb_lim
@@ -1646,6 +1684,7 @@ template <
 #pragma clang loop unroll_count(4)
         for (short id = 0; id < TD; id++) {
           NAXTile<T, 1, 1> Qtile;
+          NAXTile<T, 1, 1> Qtile_pair;
           NAXTile<T, 2, 1> Ktile;
 
 #if !DARKBLOOM_ATTN_QHOIST
@@ -1667,14 +1706,26 @@ template <
           // changes, no rounding boundary moves. The only difference is WHEN
           // the device read happened.
           Qtile.frag_at(0, 0) = Qhoist[iq * TD + id];
+          if (has_pair) {
+            Qtile_pair.frag_at(0, 0) = Qhoist_pair[iq * TD + id];
+          }
 #else
           if (!align_Q && is_last_q) {
             Qtile.load_rows(
                 Q + Q_load_off,
                 int(params->Q_strides[2]),
                 lim_rows_q - iq * kU);
+            if (has_pair) {
+              Qtile_pair.load_rows(
+                  Q_pair + Q_load_off,
+                  int(params->Q_strides[2]),
+                  lim_rows_q - iq * kU);
+            }
           } else {
             Qtile.load(Q + Q_load_off, int(params->Q_strides[2]));
+            if (has_pair) {
+              Qtile_pair.load(Q_pair + Q_load_off, int(params->Q_strides[2]));
+            }
           }
 #endif
 
@@ -1695,6 +1746,16 @@ template <
               Ktile.frag_at(0, 0),
               Ktile.frag_at(1, 0),
               metal::true_type{});
+          if (has_pair) {
+            stile_t::NAXFrag_t::mma(
+                Stile_pair.frag_at(iq, ik),
+                Stile_pair.frag_at(iq, ik + 1),
+                Qtile_pair.frag_at(0, 0),
+                metal::false_type{},
+                Ktile.frag_at(0, 0),
+                Ktile.frag_at(1, 0),
+                metal::true_type{});
+          }
         }
       }
     }
@@ -1703,6 +1764,9 @@ template <
     STEEL_PRAGMA_UNROLL
     for (short ii = 0; ii < stile_t::kElemsPerTile; ii++) {
       Stile.elems()[ii] *= float(scale2);
+      if (has_pair) {
+        Stile_pair.elems()[ii] *= float(scale2);
+      }
     }
 
     // Mask out length sequence
@@ -1716,6 +1780,7 @@ template <
           const short col_pos = ik * kU + sn;
 
           thread auto& fg = Stile.frag_at(iq, ik);
+          thread auto& fg_pair = Stile_pair.frag_at(iq, ik);
 
           STEEL_PRAGMA_UNROLL
           for (short ii = 0; ii < stile_t::kFragThrRows; ii++) {
@@ -1723,6 +1788,10 @@ template <
             for (short jj = 0; jj < stile_t::kFragThrCols; jj++) {
               const auto loc = ii * stile_t::kFragThrCols + jj;
               fg[loc] = ((col_pos + jj) < params->kL_rem) ? fg[loc] : neg_inf;
+              if (has_pair) {
+                fg_pair[loc] =
+                    ((col_pos + jj) < params->kL_rem) ? fg_pair[loc] : neg_inf;
+              }
             }
           }
         }
@@ -1741,6 +1810,7 @@ template <
         STEEL_PRAGMA_UNROLL
         for (short ik = 0; ik < TK; ik++) {
           thread auto& fg = Stile.frag_at(iq, ik);
+          thread auto& fg_pair = Stile_pair.frag_at(iq, ik);
 
           STEEL_PRAGMA_UNROLL
           for (short ii = 0; ii < stile_t::kFragThrRows; ii++) {
@@ -1751,6 +1821,9 @@ template <
               const auto c = base_col + ik * kU + jj + sn;
               const auto loc = ii * stile_t::kFragThrCols + jj;
               fg[loc] = (r < c) ? neg_inf : fg[loc];
+              if (has_pair) {
+                fg_pair[loc] = (r < c) ? neg_inf : fg_pair[loc];
+              }
             }
           }
         }
@@ -1777,6 +1850,7 @@ template <
             const int col_pos = base_col + ik * kU;
 
             mfrag_t mfrag;
+            mfrag_t mfrag_pair;
             mtile_t::NAXFrag_t::load(
                 mfrag,
                 mask,
@@ -1784,15 +1858,31 @@ template <
                 Int<1>{},
                 row_pos,
                 col_pos);
+            if (has_pair) {
+              mtile_t::NAXFrag_t::load(
+                  mfrag_pair,
+                  mask_pair,
+                  int64_t(mask_params->M_strides[2]),
+                  Int<1>{},
+                  row_pos,
+                  col_pos);
+            }
 
             thread auto& fg = Stile.frag_at(iq, ik);
+            thread auto& fg_pair = Stile_pair.frag_at(iq, ik);
 
             STEEL_PRAGMA_UNROLL
             for (short jj = 0; jj < mtile_t::kElemsPerFrag; jj++) {
               if constexpr (is_bool) {
                 fg[jj] = mfrag[jj] ? fg[jj] : neg_inf;
+                if (has_pair) {
+                  fg_pair[jj] = mfrag_pair[jj] ? fg_pair[jj] : neg_inf;
+                }
               } else {
                 fg[jj] += M_LOG2E_F * AccumType(mfrag[jj]);
+                if (has_pair) {
+                  fg_pair[jj] += M_LOG2E_F * AccumType(mfrag_pair[jj]);
+                }
               }
             }
           }
@@ -1806,6 +1896,7 @@ template <
             const int col_pos = base_col + ik * kU;
 
             mfrag_t mfrag;
+            mfrag_t mfrag_pair;
             mtile_t::NAXFrag_t::load_safe(
                 mfrag,
                 mask,
@@ -1815,15 +1906,33 @@ template <
                 params->kL,
                 row_pos,
                 col_pos);
+            if (has_pair) {
+              mtile_t::NAXFrag_t::load_safe(
+                  mfrag_pair,
+                  mask_pair,
+                  int64_t(mask_params->M_strides[2]),
+                  Int<1>{},
+                  params->qL,
+                  params->kL,
+                  row_pos,
+                  col_pos);
+            }
 
             thread auto& fg = Stile.frag_at(iq, ik);
+            thread auto& fg_pair = Stile_pair.frag_at(iq, ik);
 
             STEEL_PRAGMA_UNROLL
             for (short jj = 0; jj < mtile_t::kElemsPerFrag; jj++) {
               if constexpr (is_bool) {
                 fg[jj] = mfrag[jj] ? fg[jj] : neg_inf;
+                if (has_pair) {
+                  fg_pair[jj] = mfrag_pair[jj] ? fg_pair[jj] : neg_inf;
+                }
               } else {
                 fg[jj] += M_LOG2E_F * AccumType(mfrag[jj]);
+                if (has_pair) {
+                  fg_pair[jj] += M_LOG2E_F * AccumType(mfrag_pair[jj]);
+                }
               }
             }
           }
@@ -1836,6 +1945,8 @@ template <
     // Temp variables
     metal::vec<AccumType, kRowsPT> new_max;
     metal::vec<AccumType, kRowsPT> factor;
+    metal::vec<AccumType, kRowsPT> new_max_pair;
+    metal::vec<AccumType, kRowsPT> factor_pair;
     STEEL_PRAGMA_UNROLL
     for (short i = 0; i < kRowsPT; ++i) {
       new_max[i] = max_score[i];
@@ -1864,6 +1975,30 @@ template <
 
     // Update O
     Otile.template row_bin_op<MulOp>(factor);
+
+    if (has_pair) {
+      STEEL_PRAGMA_UNROLL
+      for (short i = 0; i < kRowsPT; ++i) {
+        new_max_pair[i] = max_score_pair[i];
+      }
+
+      Stile_pair.template row_reduce<MaxOp>(new_max_pair);
+      Stile_pair.template row_bin_op<ExpSubOp>(new_max_pair);
+
+      STEEL_PRAGMA_UNROLL
+      for (short i = 0; i < kRowsPT; ++i) {
+        factor_pair[i] = fast::exp2(max_score_pair[i] - new_max_pair[i]);
+        max_score_pair[i] = new_max_pair[i];
+      }
+
+      STEEL_PRAGMA_UNROLL
+      for (short i = 0; i < kRowsPT; ++i) {
+        sum_score_pair[i] = sum_score_pair[i] * factor_pair[i];
+      }
+
+      Stile_pair.template row_reduce<SumOp>(sum_score_pair);
+      Otile_pair.template row_bin_op<MulOp>(factor_pair);
+    }
     }
 
     simdgroup_barrier(mem_flags::mem_none);
@@ -1903,6 +2038,16 @@ template <
               Vtile.frag_at(0, 0),
               Vtile.frag_at(0, 1),
               metal::false_type{});
+          if (has_pair) {
+            otile_t::NAXFrag_t::mma(
+                Otile_pair.frag_at(iq, id),
+                Otile_pair.frag_at(iq, id + 1),
+                Stile_pair.frag_at(iq, ik),
+                metal::false_type{},
+                Vtile.frag_at(0, 0),
+                Vtile.frag_at(0, 1),
+                metal::false_type{});
+          }
           }
         }
       }
@@ -1918,23 +2063,37 @@ template <
   threadgroup_barrier(mem_flags::mem_none);
 
   metal::vec<AccumType, kRowsPT> rcp;
+  metal::vec<AccumType, kRowsPT> rcp_pair;
   STEEL_PRAGMA_UNROLL
   for (short i = 0; i < kRowsPT; ++i) {
     rcp[i] = 1.f / sum_score[i];
+    if (has_pair) {
+      rcp_pair[i] = 1.f / sum_score_pair[i];
+    }
   }
 
   Otile.template row_bin_op<MulOp>(rcp);
+  if (has_pair) {
+    Otile_pair.template row_bin_op<MulOp>(rcp_pair);
+  }
 
   // Store results
   O += tm * int(params->O_strides[2]);
+  O_pair += tm * int(params->O_strides[2]);
 
   if (!align_Q && is_last_q) {
     if (lim_rows_q <= 0)
       return;
 
     Otile.store_rows(O, int(params->O_strides[2]), lim_rows_q);
+    if (has_pair) {
+      Otile_pair.store_rows(O_pair, int(params->O_strides[2]), lim_rows_q);
+    }
   } else {
     Otile.store(O, int(params->O_strides[2]));
+    if (has_pair) {
+      Otile_pair.store(O_pair, int(params->O_strides[2]));
+    }
   }
 }
 
