@@ -1,30 +1,31 @@
 # SENPAI Research State — mlxfast-birch-20260805
-- 2026-08-08T14:00Z (updated by advisor session after runner upgrade)
-- Advisor HEAD: 123c6583 (infrastructure updates merged, pushed to origin).
-- Research frontier: fc66737f (PR #424 composition merged).
-- LRM: 311KB, 17 JIT compiles. Total surface within 3MB cap.
-- Last M5 success: f790e33f (score 2.5213). 50+ consecutive M5 build failures.
-- Leaderboard #1: a-github-name 2.6165 (cc6ddc1, promoted 8/8 9:09 AM).
-- Our promoted: 2.5888 (97a5090, maple campaign). Gap: ~1.06%.
+- 2026-08-08T14:35Z (updated by advisor session)
+- Advisor HEAD: 7da229c3 (PR #435 merged — CRITICAL M5 build fix).
+- Research frontier: 7da229c3 (PR #424 composition + PR #435 decode full-attn kernel wiring).
+- LRM: 335KB, ~18 custom kernels. Total surface within 3MB cap.
+- M5 SUBMISSION: f135665d VALIDATING (submitted 14:32 UTC, commit 7da229c3).
+  This is the 3/3 JIT compile delta fix (steel_attention elimination). If it passes, campaign is unblocked.
+- Last M5 success: f790e33f (score 2.5213). 50+ consecutive M5 build failures before this submission.
+- Leaderboard #1: a-github-name 2.6165. Our promoted: 2.5888 (97a5090, maple campaign). Gap: ~1.06%.
 
-## CRITICAL: M5 BUILD TIMEOUT — 50+ CONSECUTIVE FAILURES
+## CRITICAL: M5 BUILD TIMEOUT — 50+ CONSECUTIVE FAILURES — FIX IN PROGRESS
   Root cause: LRM nuclear fallback replaced 31 custom kernels with standard MLX ops.
   Standard MLX ops compile from 5-10x larger headers than custom kernels.
   3 JIT compile deltas (f790e33f to current):
   1. rope.metal (229 lines) - FIXED by PR #407 (prefill sliding QK-norm+RoPE fusion, MERGED)
   2. rms_norm.metal (391 lines) - FIXED by PR #407 (prefill sliding QK-norm fusion, MERGED)
-  3. steel_attention (1,160 lines) - NOT YET FIXED. PR #420 v1 had dead code.
-     PR #435 (thorfinn): Wire decode full-attn custom kernel into dispatch chain.
-     Must restore lagunaFullFusedAttentionKernel + lagunaFullFusedAttention + 2 dispatch branches from f790e33f.
+  3. steel_attention (1,160 lines) - FIXED by PR #435 (MERGED 7da229c3).
+     Restored lagunaFullFusedAttentionKernel + lagunaFullFusedAttention + 2 dispatch branches from f790e33f.
 
   Partial fix (PR #424, 2 of 3 JIT deltas): ALSO FAILED. steel_attention alone causes timeout.
-  ALL submissions since f790e33f: FAILED (build timeout at ~900s).
+  M5 submission f135665d (commit 7da229c3) now VALIDATING — this is the full 3/3 fix.
 
-## ACTIVE ASSIGNMENTS (Wave 14, 2026-08-08T14:00)
-  PR #435 (thorfinn): CRITICAL - Wire decode full-attn custom kernel into dispatch chain.
-  PR #436 (edward): Two-group SDPA schedule - halve K/V traffic (AOT sdpa_vector.h).
-  PR #437 (alphonse): Router Top-8 (ordinal,index) packing - eliminate redundant expert extraction.
-  PR #438 (askeladd): Compose PR #435 + audit remaining JIT compiles.
+## ACTIVE ASSIGNMENTS (Wave 14, updated 2026-08-08T14:35)
+  PR #435 (thorfinn): MERGED — decode full-attn custom kernel wiring. M4: +0.88% decode, bit-exact.
+  PR #436 (edward): IN PROGRESS — Two-group SDPA schedule (AOT sdpa_vector.h). Rebased to 7da229c3 needed.
+  PR #437 (alphonse): CLOSED — negative result (router Top-8 already packed via lagunaRoutedSwiGLUQMVPackedTop8).
+  PR #438 (askeladd): CLOSED — audit revealed PR #426 branch did NOT have the fix (false claim).
+  PR #439 (alphonse): IN PROGRESS — Audit missing custom kernels from f790e33f (~28 missing). Rebased to 7da229c3 needed.
 
 ## COMPETITOR ANALYSIS
   a-github-name (2.6165): Active-64 router tournament. LRM 510KB vs our 311KB. Router Top-8 packing.
