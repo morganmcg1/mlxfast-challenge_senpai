@@ -8,15 +8,24 @@ MLX's MLXFast API uses dispatchThreads(gridSize, threadgroupSize) where grid = T
 The × threadGroupSize multiplier in grid expressions is CORRECT. PR #333 was closed as invalid.
 Do NOT revisit this hypothesis.
 
-## M5 SUBMISSION STATUS (CRITICAL — 36+ CONSECUTIVE FAILURES)
-  47d9bc08: VALIDATING (2:49 AM UTC) — frontier b41681c9 (SDPA Phase 1+2 + dead code cleanup, -3 JIT, PR #357 disabled)
-  aeff1a40: FAILED — frontier 1e2d5288 (PR #357 disabled, -2 JIT compiles)
-  Last SUCCESSFUL build: 68b66c5 (score 2.5520)
+## M5 SUBMISSION STATUS (CRITICAL — INTERMITTENT BUILD FAILURES)
+  4d2b9f60: VALIDATING (3:32 AM UTC) — frontier 2035cd14 (SDPA Phase 1+2 + LM-head pruner consolidation, -6 JIT, PR #357 disabled)
+  47d9bc08: FAILED — frontier b41681c9 (SDPA Phase 1+2 + dead code cleanup, -4 JIT)
+  Last SUCCESSFUL builds: 3ff3992 (2.5213, 8/7 6:51 PM), 68b66c5 (2.5520, 8/7 9:36 AM), df9613a (2.5817, 8/7 8:19 AM)
   Best score: df9613a (2.5817)
   Leaderboard #1: yudduy 2.6063. Our promoted: 97a5090 2.5888 (maple campaign).
   Gap to close: +0.67% from 2.5888 → 2.6063.
-  NEW: SDPA Phase 2 makes benchmark faster (39.4% K/V reduction), leaving more compile headroom.
-  TACTICAL: PR #357 (prefill QK-norm+RoPE) DISABLED. Re-enable once PR #380 (-2 JIT) merges.
+
+  ROOT CAUSE ANALYSIS (from subagent investigation 2026-08-08):
+  - Failures are INTERMITTENT, not deterministic — same code passed then failed (68b66c5 vs 70929a5)
+  - Compile count math: ~34-44 total compiles at ~3.5s each = ~120-154s, well under ~900s timeout
+  - BUT: _nax compiles may take 10-30s each (complex GEMM templates), so total could be 366-766s
+  - kHalvedScales (PR #342) adds NEW _nax template instantiations, pushing compile time to edge of timeout
+  - kHalvedScales was previously removed for M5 issues (36df2138), then re-added (12eaa973)
+  - SDPA metallib was STALE in upstream equivalence test — SDPA changes never validated with fresh metallib
+  - Vendor files are NOT clean: 6 files differ from organizer frontier (sdpa_vector.h, fp_quantized_nax.cpp/h, quantized.cpp, jit_kernels.cpp, SwitchLayers.swift)
+  - If 4d2b9f60 fails: REVERT kHalvedScales (PR #342) to reduce _nax compile time
+  - Dead code deletions are LOW RISK (only Swift metalKernel declarations, not vendor Metal kernels)
 
 ## M5 COMPILE AUDIT (from subagent report, research/M5_COMPILE_AUDIT_20260808_0104.md)
   Default-run custom JIT compiles: 19 (not 55)
