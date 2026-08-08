@@ -127,6 +127,75 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
 
 let lagunaPackedScalesLog = LagunaPackedScalesLog()
 
+final class LagunaR1StageTrace: @unchecked Sendable {
+    private let enabled =
+        ProcessInfo.processInfo.environment["DARKBLOOM_R1_STAGE_TRACE"] == "1"
+    private let lock = NSLock()
+    private var active = false
+    private var isDecode = false
+    private var seenDecode = false
+    private var seenPrefill = false
+    private var hitCount = 0
+    private var inputShape: [Int] = []
+    private var outputShape: [Int] = []
+    private var inputDType: DType?
+    private var outputDType: DType?
+
+    func begin(sequenceLength: Int) {
+        guard enabled else { return }
+        lock.lock()
+        isDecode = sequenceLength == 1
+        active = isDecode ? !seenDecode : !seenPrefill
+        hitCount = 0
+        inputShape = []
+        outputShape = []
+        inputDType = nil
+        outputDType = nil
+        lock.unlock()
+    }
+
+    func hit(input: MLXArray, output: MLXArray) {
+        guard enabled else { return }
+        lock.lock()
+        if active {
+            hitCount += 1
+            if inputShape.isEmpty {
+                inputShape = input.shape
+                outputShape = output.shape
+                inputDType = input.dtype
+                outputDType = output.dtype
+            }
+        }
+        lock.unlock()
+    }
+
+    func end() {
+        guard enabled else { return }
+        lock.lock()
+        guard active else {
+            lock.unlock()
+            return
+        }
+        if isDecode {
+            seenDecode = true
+        } else {
+            seenPrefill = true
+        }
+        let mode = isDecode ? "decode" : "prefill"
+        let message =
+            "mlxfast: r1-stage-trace mode=\(mode) "
+            + "kernel=laguna_routed_nvfp4_swiglu_qmv_packed_indices_r1_bf16_v1 "
+            + "input_shape=\(inputShape) input_dtype=\(String(describing: inputDType)) "
+            + "output_shape=\(outputShape) output_dtype=\(String(describing: outputDType)) "
+            + "threadgroup_size=64 sparse_layer_hits=\(hitCount)\n"
+        active = false
+        lock.unlock()
+        FileHandle.standardError.write(Data(message.utf8))
+    }
+}
+
+let lagunaR1StageTrace = LagunaR1StageTrace()
+
 /// Decode-only routed NVFP4 down-QMV plus BF16 router weighting, fixed-order
 /// expert reduction, and the Laguna 2.5 routed scale. The custom kernel emits
 /// one 2048-wide branch instead of materializing eight expert rows.
@@ -9521,6 +9590,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         packedScales: packedBank,
                         indices: inds
                     )
+                    lagunaR1StageTrace.hit(input: x, output: activated)
                 } else {
                     if lagunaPackedScalesEnabled {
                         lagunaPackedScalesLog.note(
@@ -10211,6 +10281,7 @@ final class LagunaRuntimeModelInner: Module {
     }
 
     func callAsFunction(_ inputs: MLXArray, cache: [KVCache]? = nil) -> MLXArray {
+        lagunaR1StageTrace.begin(sequenceLength: inputs.dim(1))
         var h: MLXArray
         var fullRoPEAngles: MLXArray?
         var slidingRoPEAngles: MLXArray?
@@ -10343,6 +10414,7 @@ final class LagunaRuntimeModelInner: Module {
             }
         }
 
+        lagunaR1StageTrace.end()
         return h
     }
 }
