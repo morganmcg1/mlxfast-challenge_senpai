@@ -505,12 +505,22 @@ void qmm_nax(
   bool aligned_M = M % 64 == 0;
   bool batched = B > 1;
   std::string type_string = get_type_string(x.dtype());
+  // Detect halved NVFP4 scales: the caller passes group_size=32 so the
+  // ops.cpp validation accepts half-resolution scales [N+1, K/32] (since
+  // K/32 * 32 == K). The extra row at index N holds the escape bytes in
+  // its first columns. We override group_size back to 16 for the kernel.
+  const bool halved_scales =
+      transpose && mode == "nvfp4" && group_size == 32 && bits == 4;
+  if (halved_scales) {
+    group_size = 16;
+  }
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
   const bool use_static_laguna_shape =
       static_laguna_shapes && transpose && aligned && !batched &&
       mode == "nvfp4" && type_string == "bfloat16_t" &&
-      group_size == 16 && bits == 4 && !biases.has_value() &&
+      group_size == 16 && bits == 4 &&
+      (!biases.has_value() || halved_scales) &&
       ((K == 2048 && N == 1024) || (K == 512 && N == 2048));
   concatenate(
       kname,
@@ -596,7 +606,18 @@ void qmm_nax(
   int c = 0;
   compute_encoder.set_input_array(w, c++);
   compute_encoder.set_input_array(scales, c++);
-  if (biases) {
+  if (transpose) {
+    // The qmm_t_nax kernel always has an escape slot at index 2. When
+    // halved, the escape bytes are in the extra row of the scales tensor
+    // (row N); bind that row via a buffer offset. Otherwise pass scales
+    // as a dummy (the kernel ignores it when kHalvedScales is false).
+    if (halved_scales) {
+      int escape_offset = N * scales.shape(-1);
+      compute_encoder.set_input_array(scales, c++, escape_offset);
+    } else {
+      compute_encoder.set_input_array(scales, c++);
+    }
+  } else if (biases) {
     compute_encoder.set_input_array(*biases, c++);
   }
   compute_encoder.set_input_array(x, c++);
@@ -604,6 +625,9 @@ void qmm_nax(
   compute_encoder.set_bytes(K, c++);
   compute_encoder.set_bytes(N, c++);
   compute_encoder.set_bytes(M, c++);
+  if (transpose) {
+    compute_encoder.set_bytes(halved_scales, c++);
+  }
   add_strides_and_shapes(compute_encoder, B <= 1, x, w, scales, biases, c);
 
   compute_encoder.dispatch_threadgroups(grid_dims, group_dims);
@@ -642,6 +666,15 @@ void gather_qmm_nax(
   kname.reserve(64);
   bool aligned = N % 64 == 0;
   std::string type_string = get_type_string(x.dtype());
+  // Detect halved NVFP4 scales: the caller passes group_size=32 so the
+  // ops.cpp validation accepts half-resolution scales [experts, N+1, K/32].
+  // The kernel computes the escape pointer from the scales buffer after
+  // per-expert offset adjustment, so no separate escape binding is needed.
+  const bool halved_scales =
+      transpose && mode == "nvfp4" && group_size == 32 && bits == 4;
+  if (halved_scales) {
+    group_size = 16;
+  }
   concatenate(
       kname,
       mode + (transpose ? "_gather_qmm_t_nax_" : "_gather_qmm_n_nax_"),
@@ -709,6 +742,9 @@ void gather_qmm_nax(
   compute_encoder.set_bytes(K, c++);
   compute_encoder.set_bytes(N, c++);
   compute_encoder.set_bytes(M, c++);
+  if (transpose) {
+    compute_encoder.set_bytes(halved_scales, c++);
+  }
   c = add_strides_and_shapes(compute_encoder, false, x, w, scales, biases, c);
   add_gather_strides_and_shapes(compute_encoder, lhs_indices, rhs_indices, c);
 

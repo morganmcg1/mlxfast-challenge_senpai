@@ -5327,10 +5327,10 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
             _fusedGateUpSplit == LagunaConstants.sharedExpertIntermediateSize
         {
             lagunaTrace("shared fused [gate; up] bank QMM halved (prefill)")
-            let gu = MLX.quantizedMM(x, fusedWeight, scales: cs, biases: nil, transpose: true, groupSize: 16, bits: 4, mode: .nvfp4)
+            let gu = MLX.quantizedMM(x, fusedWeight, scales: cs, biases: nil, transpose: true, groupSize: 32, bits: 4, mode: .nvfp4)
             let g = gu[.ellipsis, 0 ..< _fusedGateUpSplit], u = gu[.ellipsis, _fusedGateUpSplit...]
             let act = compiledSiluProduct(g, u)
-            return MLX.quantizedMM(act, down.weight, scales: cds, biases: nil, transpose: true, groupSize: 16, bits: down.bits, mode: down.mode)
+            return MLX.quantizedMM(act, down.weight, scales: cds, biases: nil, transpose: true, groupSize: 32, bits: down.bits, mode: down.mode)
         }
         if x.dim(1) > 1,
             let fusedWeight = _fusedGateUpWeight, let fusedScales = _fusedGateUpScales,
