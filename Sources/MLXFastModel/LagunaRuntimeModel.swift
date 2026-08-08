@@ -212,6 +212,12 @@ let lagunaSwiGLUQMVRows1Enabled =
 let lagunaSharedSwiGLUQMVRows1Enabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_QMV_R1"] != "0"
 
+/// Replaces only the shared Rows1 decode epilogue's BF16 SiLU expression with
+/// an exact raw-BF16 lookup. The table is built and evaluated before warmup in
+/// both modes so ablation changes only the Rows1 kernel body.
+let lagunaSharedSwiGLUSiLUTEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SHARED_SILU_LUT"] != "0"
+
 /// Folds the per-head softplus gate into the output projection's GEMV (see
 /// `lagunaGatedOutputProjectionSource`), with one kernel variant per attention
 /// family. Set `DARKBLOOM_FUSED_GATED_OUTPUT=0` to ablate.
@@ -6547,6 +6553,97 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private let lagunaSharedSiLULUTKernel = MLXFast.metalKernel(
+    name: "laguna_shared_silu_bf16_lut_v1",
+    inputNames: [],
+    outputNames: ["silu_lut"],
+    source: """
+        uint raw = thread_position_in_grid.x;
+        bfloat gate = as_type<bfloat>(ushort(raw));
+        bfloat exp_abs = metal::exp(metal::abs(gate));
+        bfloat denominator = bfloat(1) + exp_abs;
+        bfloat y = bfloat(1) / denominator;
+        bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+        silu_lut[raw] = bfloat(gate * sigmoid);
+        """,
+    ensureRowContiguous: false
+)
+
+nonisolated(unsafe) private let lagunaSharedSiLULUT = lagunaSharedSiLULUTKernel(
+    [],
+    grid: (1 << 16, 1, 1),
+    threadGroup: (256, 1, 1),
+    outputShapes: [[1 << 16]],
+    outputDTypes: [.bfloat16]
+)[0]
+
+private let lagunaSharedSwiGLUQMVRows1LUTKernel = MLXFast.metalKernel(
+    name: "laguna_shared_nvfp4_swiglu_qmv_rows1_bf16_lut_v1",
+    inputNames: ["input", "fused_weight", "fused_scales", "silu_lut"],
+    outputNames: ["activated"],
+    source: """
+        constexpr uint input_width = 2048;
+        constexpr uint output_width = 512;
+        constexpr uint packed_row_bytes = 1024;
+        constexpr uint scale_row_bytes = 128;
+        constexpr uint block_width = 512;
+        constexpr uint values_per_lane = 16;
+
+        uint tile = threadgroup_position_in_grid.x;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+        uint row = tile * 2 + simd_group;
+
+        const device uint8_t* gate_row_weight =
+            (const device uint8_t*)fused_weight +
+            row * packed_row_bytes + lane * 8;
+        const device uint8_t* up_row_weight =
+            (const device uint8_t*)fused_weight +
+            (row + output_width) * packed_row_bytes + lane * 8;
+        const device uint8_t* gate_row_scale =
+            fused_scales + row * scale_row_bytes + lane;
+        const device uint8_t* up_row_scale =
+            fused_scales + (row + output_width) * scale_row_bytes + lane;
+
+        thread float gate_result = 0.0f;
+        thread float up_result = 0.0f;
+        thread float input_values[values_per_lane];
+
+        for (uint block = 0; block < input_width; block += block_width) {
+            const device vec<bfloat, 4>* input_vectors =
+                (const device vec<bfloat, 4>*) (
+                    input + block + lane * values_per_lane);
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                const vec<bfloat, 4> values = input_vectors[i];
+                input_values[4 * i] = values[0];
+                input_values[4 * i + 1] = values[1];
+                input_values[4 * i + 2] = values[2];
+                input_values[4 * i + 3] = values[3];
+            }
+
+            gate_result += laguna_nvfp4_qdot_16(
+                gate_row_weight + block / 2,
+                input_values,
+                laguna_nvfp4_scale(gate_row_scale[block / 16]));
+            up_result += laguna_nvfp4_qdot_16(
+                up_row_weight + block / 2,
+                input_values,
+                laguna_nvfp4_scale(up_row_scale[block / 16]));
+        }
+
+        gate_result = simd_sum(gate_result);
+        up_result = simd_sum(up_result);
+        if (lane == 0) {
+            bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
+            bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
+            bfloat silu = silu_lut[as_type<ushort>(gate)];
+            activated[row] = bfloat(silu * up);
+        }
+        """,
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
 func lagunaSharedSwiGLUQMV(
     _ input: MLXArray,
     fusedWeight: MLXArray,
@@ -6567,13 +6664,21 @@ func lagunaSharedSwiGLUQMV(
             LagunaConstants.hiddenSize / 16,
         ])
 
+    let useRows1LUT =
+        lagunaSharedSwiGLUQMVRows1Enabled && lagunaSharedSwiGLUSiLUTEnabled
     let kernel =
-        lagunaSharedSwiGLUQMVRows1Enabled
-        ? lagunaSharedSwiGLUQMVRows1Kernel
-        : lagunaSharedSwiGLUQMVKernel
+        useRows1LUT
+        ? lagunaSharedSwiGLUQMVRows1LUTKernel
+        : lagunaSharedSwiGLUQMVRows1Enabled
+            ? lagunaSharedSwiGLUQMVRows1Kernel
+            : lagunaSharedSwiGLUQMVKernel
+    let inputs =
+        useRows1LUT
+        ? [input, fusedWeight, fusedScales, lagunaSharedSiLULUT]
+        : [input, fusedWeight, fusedScales]
     let tiles = lagunaSharedSwiGLUQMVRows1Enabled ? 256 : 128
     return kernel(
-        [input, fusedWeight, fusedScales],
+        inputs,
         grid: (tiles * 64, 1, 1),
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.sharedExpertIntermediateSize]],
@@ -10446,6 +10551,7 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     /// derived side copy.
     func prepareFusedRuntimeWeights() {
         var fusedArrays = model.prepareRoPEAngleAtlases()
+        fusedArrays.append(lagunaSharedSiLULUT)
         for layer in model.layers {
             if lagunaUseNativeAffineQKV(layer: layer.selfAttn.layerIdx) {
                 fusedArrays.append(
