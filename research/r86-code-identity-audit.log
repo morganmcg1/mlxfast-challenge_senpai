@@ -1,0 +1,19 @@
+LEXER_SELFTEST=PASS cases=7
+
+file                               raw-diff        code-lines        tokens  verdict
+LagunaConfig.swift                        7      954/954        6336/6336    IDENTICAL
+BaseConfiguration.swift                  37      114/114         683/683     IDENTICAL
+BatchKVCache.swift                      109      779/779        6036/6036    IDENTICAL
+CompilableKVCache.swift                  57      170/170        1359/1359    IDENTICAL
+CompilableRotatingKVCache.swift          61      113/113         984/984     IDENTICAL
+CompiledDecode.swift                     85      217/217        1528/1528    IDENTICAL
+Evaluate.swift                          536     1299/1299       7979/7979    IDENTICAL
+KVCache.swift                           258     1497/1497      11614/11614   IDENTICAL
+
+raw_line_diffs_total=1150
+method_c_unproven_lines=4
+    KVCache.swift: }
+    KVCache.swift: }
+    KVCache.swift: }
+    KVCache.swift: }
+CODE_IDENTITY=PASS files=8 methods=code-line-diff,token-diff,per-line-classification
