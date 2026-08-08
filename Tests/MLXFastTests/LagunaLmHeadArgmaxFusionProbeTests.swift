@@ -62,7 +62,8 @@ private func makeLmHeadProbeContext() throws -> LmHeadProbeContext {
 
 private func runLmHeadProbeChain(
     fused: Bool,
-    context: LmHeadProbeContext
+    context: LmHeadProbeContext,
+    verboseProducer: Bool = false
 ) -> LmHeadProbeOutput {
     let producer = fused
         ? LagunaLmHeadArgmaxFusionProbeKernels.candidateProducer
@@ -76,7 +77,8 @@ private func runLmHeadProbeChain(
             : [[probeVocab], [probeVocab]],
         outputDTypes: fused
             ? [.float32, .bfloat16, .float32, .uint32]
-            : [.float32, .bfloat16]
+            : [.float32, .bfloat16],
+        verbose: verboseProducer
     )
     let partials: [MLXArray]
     if fused {
@@ -248,6 +250,29 @@ func lmHeadCoarseArgmaxFusionBitwiseOracle() throws {
     )
 }
 
+@Test
+func lmHeadCoarseArgmaxFusionResourceSourceCapture() throws {
+    guard ProcessInfo.processInfo.environment["MLXFAST_LMHEAD_PROBE_MODE"] == "resource"
+    else {
+        return
+    }
+    let context = try makeLmHeadProbeContext()
+    let control = runLmHeadProbeChain(
+        fused: false, context: context, verboseProducer: true)
+    eval(control.assembled)
+    let candidate = runLmHeadProbeChain(
+        fused: true, context: context, verboseProducer: true)
+    eval(candidate.assembled)
+    print(
+        "lmhead_argmax_gate2 control_threads=256 candidate_threads=256 "
+            + "control_scratch_bytes=0 candidate_scratch_bytes=64 "
+            + "control_barriers=0 candidate_barriers=1 "
+            + "control_outputs=2 candidate_outputs=4 "
+            + "register_report=unavailable spill_report=unavailable "
+            + "occupancy_report=pipeline_proxy temperature_reader=unavailable"
+    )
+}
+
 private func executeLmHeadProbeChain(
     fused: Bool,
     context: LmHeadProbeContext
@@ -258,18 +283,61 @@ private func executeLmHeadProbeChain(
     }
 }
 
+private struct LmHeadProbeTimingStats {
+    let median: Double
+    let medianAbsoluteDeviation: Double
+    let p10: Double
+    let p90: Double
+    let total: Double
+}
+
+private func median(_ sortedValues: [Double]) -> Double {
+    let middle = sortedValues.count / 2
+    if sortedValues.count.isMultiple(of: 2) {
+        return (sortedValues[middle - 1] + sortedValues[middle]) / 2
+    }
+    return sortedValues[middle]
+}
+
+private func timingStats(_ samples: [Double]) -> LmHeadProbeTimingStats {
+    let sorted = samples.sorted()
+    let center = median(sorted)
+    let deviations = samples.map { abs($0 - center) }.sorted()
+    return LmHeadProbeTimingStats(
+        median: center,
+        medianAbsoluteDeviation: median(deviations),
+        p10: sorted[(sorted.count - 1) / 10],
+        p90: sorted[(sorted.count - 1) * 9 / 10],
+        total: samples.reduce(0, +)
+    )
+}
+
 private func measureLmHeadProbeChain(
     fused: Bool,
     context: LmHeadProbeContext,
     iterations: Int
-) -> Double {
+) -> [Double] {
     Stream.gpu.synchronize()
-    let start = DispatchTime.now().uptimeNanoseconds
-    for _ in 0..<iterations {
+    return (0..<iterations).map { _ in
+        let start = DispatchTime.now().uptimeNanoseconds
         executeLmHeadProbeChain(fused: fused, context: context)
+        Stream.gpu.synchronize()
+        return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
     }
-    Stream.gpu.synchronize()
-    return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000_000
+}
+
+private func printTimingSamples(_ name: String, _ samples: [Double]) {
+    let values = samples.map { String($0) }.joined(separator: ",")
+    print("lmhead_argmax_gate3_samples name=\(name) seconds=\(values)")
+}
+
+private func describeTimingStats(
+    _ name: String,
+    _ stats: LmHeadProbeTimingStats
+) -> String {
+    "\(name)_median=\(stats.median) \(name)_mad=\(stats.medianAbsoluteDeviation) "
+        + "\(name)_p10=\(stats.p10) \(name)_p90=\(stats.p90) "
+        + "\(name)_total=\(stats.total)"
 }
 
 @Test
@@ -285,22 +353,44 @@ func lmHeadCoarseArgmaxFusionSameBinaryTiming() throws {
     }
 
     let iterations = 128
-    let controlAB = measureLmHeadProbeChain(
+    let controlABSamples = measureLmHeadProbeChain(
         fused: false, context: context, iterations: iterations)
-    let candidateAB = measureLmHeadProbeChain(
+    let candidateABSamples = measureLmHeadProbeChain(
         fused: true, context: context, iterations: iterations)
-    let candidateBA = measureLmHeadProbeChain(
+    let candidateBASamples = measureLmHeadProbeChain(
         fused: true, context: context, iterations: iterations)
-    let controlBA = measureLmHeadProbeChain(
+    let controlBASamples = measureLmHeadProbeChain(
         fused: false, context: context, iterations: iterations)
-    let speedupAB = controlAB / candidateAB
-    let speedupBA = controlBA / candidateBA
+    let controlAB = timingStats(controlABSamples)
+    let candidateAB = timingStats(candidateABSamples)
+    let candidateBA = timingStats(candidateBASamples)
+    let controlBA = timingStats(controlBASamples)
+    let speedupAB = controlAB.median / candidateAB.median
+    let speedupBA = controlBA.median / candidateBA.median
+    let robustSpeedupAB =
+        (controlAB.median - controlAB.medianAbsoluteDeviation)
+        / (candidateAB.median + candidateAB.medianAbsoluteDeviation)
+    let robustSpeedupBA =
+        (controlBA.median - controlBA.medianAbsoluteDeviation)
+        / (candidateBA.median + candidateBA.medianAbsoluteDeviation)
+
+    printTimingSamples("control_ab", controlABSamples)
+    printTimingSamples("candidate_ab", candidateABSamples)
+    printTimingSamples("candidate_ba", candidateBASamples)
+    printTimingSamples("control_ba", controlBASamples)
     print(
         "lmhead_argmax_gate3 iterations=\(iterations) "
-            + "control_ab_seconds=\(controlAB) candidate_ab_seconds=\(candidateAB) "
-            + "speedup_ab=\(speedupAB) candidate_ba_seconds=\(candidateBA) "
-            + "control_ba_seconds=\(controlBA) speedup_ba=\(speedupBA)"
+            + describeTimingStats("control_ab", controlAB) + " "
+            + describeTimingStats("candidate_ab", candidateAB) + " "
+            + describeTimingStats("candidate_ba", candidateBA) + " "
+            + describeTimingStats("control_ba", controlBA) + " "
+            + "speedup_ab=\(speedupAB) speedup_ba=\(speedupBA) "
+            + "robust_speedup_ab=\(robustSpeedupAB) "
+            + "robust_speedup_ba=\(robustSpeedupBA) "
+            + "temperature_reader=unavailable"
     )
     #expect(speedupAB >= 1.005)
     #expect(speedupBA >= 1.005)
+    #expect(robustSpeedupAB > 1)
+    #expect(robustSpeedupBA > 1)
 }
