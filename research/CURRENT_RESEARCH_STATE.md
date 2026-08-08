@@ -61,26 +61,28 @@ MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT=1. DO NOT REVISIT.
   - Dispatch infrastructure intact: quantized.cpp:1918 grid division by xmajor_ct
   - M5-only (uses _nax kernels, M4 can't test), ~5KB vendor budget, bit-exact
 
-## M5 SUBMISSION STATUS (2026-08-08T05:56Z)
-  07634617: VALIDATING — nuclear fallback (a2cb0a0a, 19 kernels, f790e33f base + dead deletions)
-  All submissions since f790e33f FAILED (40+ consecutive)
-  Nuclear fallback is M5 build verification, NOT score improvement (-3.5% expected)
-  If M5 builds: re-apply optimizations incrementally
-  If M5 fails: also revert sdpa_vector.h to f790e33f state
+## M5 SUBMISSION STATUS (2026-08-08T06:16Z)
+  5ef630e0: VALIDATING — sdpa_vector.h revert (b8c843aa, f790e33f PAIR_HEADS=2 + dead deletions + XMAJOR)
+  07634617: FAILED — nuclear fallback with SDPA Phase 1 (a2cb0a0a, GROUP_FULL=3 caused M5 timeout)
+  All submissions since f790e33f FAILED (42 consecutive)
+  Root cause identified: SDPA Phase 1 (GQA group sharing GROUP_FULL=3) in sdpa_vector.h increased AOT metallib compile time
+  If 5ef630e0 builds: sdpa_vector.h revert fixed M5. Submit 9c934d8e (with full-attn fused) next.
+  If 5ef630e0 fails: investigate XMAJOR fold _nax kernel changes or test file growth.
   Leaderboard #1: yudduy 2.6063. Our promoted: 2.5888. Gap: ~0.67%.
 
-## CURRENT FRONTIER (e55ea75d)
-  Nuclear fallback (a2cb0a0a) + XMAJOR fold (PR #408, merged)
-  19 metalKernel calls (13 live per thorfinn's audit)
-  SDPA Phase 1 (GQA K/V sharing) active in AOT sdpa_vector.h (GROUP_FULL=3, GROUP_SLIDING=2)
-  XMAJOR fold=2 active in quantized.cpp (#define injection, no new JIT compiles)
-  Missing: kHalvedScales, dot4, prefill QK-norm+RoPE fusion, full-attention fused decode kernel
+## CURRENT FRONTIER (9c934d8e)
+  Nuclear fallback (f790e33f base) + dead code removal + XMAJOR fold + full-attn fused decode kernel
+  19 metalKernel calls (15 live per thorfinn's audit, +2 from full-attn fused = 17 live)
+  SDPA: f790e33f PAIR_HEADS=2 (SDPA Phase 1 reverted — GROUP_FULL=3 caused M5 timeout)
+  XMAJOR: fold=2 active in quantized.cpp (#define injection, no new JIT compiles)
+  Full-attn fused: lagunaFullFusedAttentionKernel + lagunaFullQKNormYaRNKernel recovered (PR #410)
+  Missing: kHalvedScales, prefill QK-norm+RoPE fusion, SDPA Phase 1 (GROUP_FULL=3)
 
-## ACTIVE ASSIGNMENTS (Wave 13, BASE_SHA=e55ea75d)
-  PR #410 (alphonse): Full-attention fused decode kernel recovery — recover deleted lagunaFullFusedAttentionKernel + lagunaFullQKNormYaRNKernel from git history (96645c09~1). ~60 dispatches/step saved, ~0.3-0.7% decode.
+## ACTIVE ASSIGNMENTS (Wave 14, BASE_SHA=9c934d8e)
   PR #407 (edward): Compile budget engineering — free 2 JIT slots, re-enable prefill QK-norm+RoPE fusion. Student working.
-  PR #402 (askeladd): kHalvedScales runtime constant reimpl — recover ~0.9% score without _nax template instantiations. Student working.
-  PR #406 (thorfinn, v2): JIT compile reduction — rebase dead code removal onto nuclear fallback. Requested revision.
+  PR #402 (askeladd): kHalvedScales runtime constant reimpl — recover ~0.9% score. Student working.
+  Thorfinn: IDLE (PR #406 v2 merged, dead code removal)
+  Alphonse: IDLE (PR #410 merged, full-attn fused kernel recovery)
 
 ## KEY FINDINGS (thorfinn audit, PR #406)
   MLX JIT is lazy — dead kernels never compile. Actual JIT compile count is ~13 (not 19).
