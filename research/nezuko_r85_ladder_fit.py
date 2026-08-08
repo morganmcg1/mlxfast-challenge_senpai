@@ -134,6 +134,18 @@ def report_mode(rows, mode, label):
         dn = LAYERS * (top[-1] - top[0])
         dv = statistics.median(cell[top[-1]]) - statistics.median(cell[top[0]])
         print(f"top-half secant K {top[0]}->{top[-1]}: {dv/dn:.4f} us/dispatch")
+
+    # K=0 is a different code path (empty injected chain), so it can carry a
+    # one-time regime step that is not proportional to dispatch count. Refit
+    # without it to show the slope does not depend on that rung.
+    nz = [r for r in sub if r[3] > 0]
+    if len({r[3] for r in nz}) >= 3:
+        a3, sl3, se_a3, se_b3, df3, _ = ols([LAYERS * r[3] for r in nz],
+                                            [r[4] for r in nz])
+        print(f"K>0 only: slope = {sl3:.4f} +- {t95(df3)*se_b3:.4f} "
+              f"us/dispatch, intercept = {a3:.1f} +- {t95(df3)*se_a3:.1f} "
+              f"us/step (offset vs K=0 cell: "
+              f"{a3 - statistics.median(cell[0]):+.1f} us)")
     return sl, t * se_b, cell
 
 

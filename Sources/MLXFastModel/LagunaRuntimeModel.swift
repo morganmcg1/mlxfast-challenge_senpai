@@ -96,46 +96,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
-// MARK: - R85-D dispatch-cost ladder instrument (research-only, never shipped)
-
-/// `DARKBLOOM_R85_LADDER_MODE` arms the injected-null-dispatch ladder used by
-/// the R85-D per-dispatch cost measurement. Unset leaves the decode path stock.
-///   `wide` — K chained BF16 multiplies on the live `[1,1,2048]` hidden stream
-///            (4 KiB read + 4 KiB write per injected dispatch).
-///   `tiny` — K chained BF16 multiplies on a `[1]` scalar, folded back with one
-///            broadcast add that is present for every K including 0, so the
-///            fold lands in the intercept rather than the slope.
-let lagunaR85LadderMode = ProcessInfo.processInfo.environment["DARKBLOOM_R85_LADDER_MODE"]
-
-/// `DARKBLOOM_R85_LADDER_K`: injected ops per decoder layer. Laguna has 40
-/// decoder layers, so K adds 40*K dispatches per decode step.
-let lagunaR85LadderK =
-    Int(ProcessInfo.processInfo.environment["DARKBLOOM_R85_LADDER_K"] ?? "") ?? 0
-
-/// Stored BF16 operands. A Swift `Float` literal would promote the injected
-/// chain to FP32 and change both the dtype and the traffic under test.
-nonisolated(unsafe) let lagunaR85One = MLXArray([Float(1)]).asType(.bfloat16)
-nonisolated(unsafe) let lagunaR85Zero = MLXArray([Float(0)]).asType(.bfloat16)
-
-/// Bit-exact null work injected at the top of each single-token decoder layer.
-/// `x * 1` and `x + 0` are identities in BF16, so every checked token is
-/// unchanged; only the dispatch count and the bytes per dispatch move.
-@inline(never)
-func lagunaR85InjectNullDispatches(_ x: MLXArray) -> MLXArray {
-    guard let mode = lagunaR85LadderMode,
-        x.dtype == .bfloat16,
-        x.dims(1, 1, LagunaConstants.hiddenSize)
-    else { return x }
-    if mode == "tiny" {
-        var t = lagunaR85Zero
-        for _ in 0..<lagunaR85LadderK { t = t * lagunaR85One }
-        return x + t
-    }
-    var y = x
-    for _ in 0..<lagunaR85LadderK { y = y * lagunaR85One }
-    return y
-}
-
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -10539,7 +10499,6 @@ final class LagunaRuntimeDecoderLayer: Module {
         qkRoPEAngles: MLXArray? = nil,
         qkRoPEOffsets: MLXArray? = nil
     ) -> MLXArray {
-        let x = lagunaR85InjectNullDispatches(x)
         let r = selfAttn(
             x,
             inputNorm: inputLayerNorm,

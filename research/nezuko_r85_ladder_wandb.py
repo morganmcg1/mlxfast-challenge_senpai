@@ -10,6 +10,7 @@ slopes, intercepts and decision-table verdict.
 import math
 import os
 import platform
+import re
 import statistics
 import subprocess
 import sys
@@ -50,12 +51,42 @@ def fit(rows, mode):
     dn = LAYERS * (top[-1] - top[0])
     top_secant = (statistics.median(cell[top[-1]])
                   - statistics.median(cell[top[0]])) / dn
+
+    # K=0 runs a different code path (empty injected chain) and can carry a
+    # one-time regime step that is not proportional to dispatch count.
+    nz = [r for r in sub if r[3] > 0]
+    icpt_nz, slope_nz, se_a3, se_b3, df3, _r3 = ols(
+        [LAYERS * r[3] for r in nz], [r[4] for r in nz])
+
     return {
         "ks": ks, "cell": cell, "slope": slope, "ci_half": half, "df": df,
         "raw_slope": raw_slope, "raw_slope_ci": t95(df2) * se_b2,
         "intercept": icpt, "intercept_ci": t95(df2) * se_a2,
         "top_secant": top_secant, "n_runs": len(sub),
+        "slope_nz": slope_nz, "slope_nz_ci": t95(df3) * se_b3,
+        "step_nz": icpt_nz - statistics.median(cell[0]),
     }
+
+
+CENSUS_RE = re.compile(
+    r"wall=([\d.]+) ms gpu_busy_sum=([\d.]+) ms gpu_busy_union=([\d.]+) ms "
+    r"gap=([\d.]+) ms .*cbs=([\d.]+) dispatches=([\d.]+)")
+
+
+def census_rows(d):
+    """Parse `<arm>.log` profile dumps written by research/nezuko_r85_census.sh."""
+    out = []
+    for p in sorted(Path(d).glob("[wt]*.log")):
+        m = CENSUS_RE.search(p.read_text())
+        if not m:
+            continue
+        arm = p.stem
+        wall, bsum, bunion, gap, cbs, disp = (float(x) for x in m.groups())
+        out.append({"arm": arm, "mode": "wide" if arm[0] == "w" else "tiny",
+                    "k": int(arm[1:]), "wall_ms": wall, "busy_sum_ms": bsum,
+                    "busy_union_ms": bunion, "overlap_ms": bsum - bunion,
+                    "gap_ms": gap, "cbs": cbs, "dispatches": disp})
+    return sorted(out, key=lambda r: (r["mode"] == "tiny", r["k"]))
 
 
 def verdict(slope):
@@ -128,9 +159,27 @@ def main():
                          m - base, (m - base) / n_extra if n_extra else 0.0)
     run.log({"ladder_table": tbl})
 
+    census_dir = os.environ.get("R85_CENSUS_DIR")
+    crows = census_rows(census_dir) if census_dir else []
+    if crows:
+        cols = ["arm", "mode", "k", "dispatches", "cbs", "wall_ms",
+                "busy_sum_ms", "busy_union_ms", "overlap_ms", "gap_ms"]
+        ctbl = wandb.Table(columns=cols)
+        for r in crows:
+            ctbl.add_data(*(r[c] for c in cols))
+        run.log({"census_table": ctbl})
+
     se_w, se_t = wide["ci_half"] / 1.96, tiny["ci_half"] / 1.96
     diff = wide["slope"] - tiny["slope"]
     scalars = {
+        "slope_wide_k_gt0_us": wide["slope_nz"],
+        "slope_wide_k_gt0_ci95_half": wide["slope_nz_ci"],
+        "slope_tiny_k_gt0_us": tiny["slope_nz"],
+        "slope_tiny_k_gt0_ci95_half": tiny["slope_nz_ci"],
+        "regime_step_wide_us_per_step": wide["step_nz"],
+        "regime_step_tiny_us_per_step": tiny["step_nz"],
+        "work_independent_us_lo": min(tiny["slope_nz"], tiny["top_secant"]),
+        "work_independent_us_hi": max(tiny["slope"], tiny["top_secant"]),
         "slope_wide_us_per_dispatch": wide["slope"],
         "slope_wide_ci95_half": wide["ci_half"],
         "slope_tiny_us_per_dispatch": tiny["slope"],
@@ -150,6 +199,22 @@ def main():
         "headline_slope_us_per_dispatch": headline,
         "score_pct_per_dispatch_removed": headline * SCORE_PCT_PER_US_STEP,
     }
+    if crows:
+        c = {r["arm"]: r for r in crows}
+        for mode, pre in (("wide", "w"), ("tiny", "t")):
+            lo, hi = c[f"{pre}0"], c[f"{pre}64"]
+            dn = hi["dispatches"] - lo["dispatches"]
+            scalars[f"census_union_marginal_{mode}_us"] = (
+                1e3 * (hi["busy_union_ms"] - lo["busy_union_ms"]) / dn)
+            scalars[f"census_max_overlap_{mode}_ms"] = max(
+                r["overlap_ms"] for r in crows if r["mode"] == mode)
+        # w0..w32 hold the command-buffer count fixed while dispatches grow.
+        w0, w32 = c["w0"], c["w32"]
+        scalars["census_constant_cb_slope_wide_us"] = (
+            1e3 * (w32["wall_ms"] - w0["wall_ms"])
+            / (w32["dispatches"] - w0["dispatches"]))
+        scalars["census_constant_cb_count"] = w0["cbs"]
+
     run.log(scalars)
     run.summary.update(scalars)
     run.summary["decision_row"] = label
@@ -158,6 +223,9 @@ def main():
     for d in dirs:
         for p in sorted(Path(d).glob("*.steps")):
             art.add_file(str(p), name=f"{Path(d).name}/{p.name}")
+    if crows:
+        for p in sorted(Path(census_dir).glob("[wt]*.log")):
+            art.add_file(str(p), name=f"census/{p.name}")
     run.log_artifact(art)
     print(f"decision_row={label} headline={headline:.4f} us/dispatch")
     print(f"wandb run: {run.url}")
