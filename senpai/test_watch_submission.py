@@ -39,11 +39,13 @@ def submission(
 class Clock:
     def __init__(self):
         self.now = 0.0
+        self.sleeps = []
 
     def monotonic(self):
         return self.now
 
     def sleep(self, seconds):
+        self.sleeps.append(seconds)
         self.now += seconds
 
 
@@ -89,6 +91,7 @@ class SubmissionWatcherTests(unittest.TestCase):
             ]
         )
         clock = Clock()
+        uniform = mock.Mock(side_effect=[3, 17])
         output = io.StringIO()
 
         with redirect_stdout(output):
@@ -96,16 +99,22 @@ class SubmissionWatcherTests(unittest.TestCase):
                 client,
                 self.scope,
                 "abc",
-                interval=15,
-                deadline=60,
+                interval=180,
+                deadline=500,
                 monotonic=clock.monotonic,
                 sleep=clock.sleep,
+                uniform=uniform,
             )
 
         receipt = json.loads(output.getvalue())
         self.assertEqual(receipt["event"], "submission_terminal")
         self.assertEqual(receipt["status"], "accepted")
         self.assertEqual(receipt["promotion_status"], "promoted")
+        self.assertEqual(clock.sleeps, [183, 197])
+        self.assertEqual(
+            uniform.call_args_list,
+            [mock.call(0, watcher.POLL_JITTER_SECONDS)] * 2,
+        )
         self.assertEqual(
             client.paths,
             [
@@ -157,8 +166,34 @@ class SubmissionWatcherTests(unittest.TestCase):
                 deadline=20,
                 monotonic=clock.monotonic,
                 sleep=clock.sleep,
+                uniform=lambda _low, _high: watcher.POLL_JITTER_SECONDS,
             )
         self.assertEqual(clock.now, 20)
+
+    def test_cli_defaults_to_three_minute_polling_and_rejects_tight_loops(self):
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["watch-submission.py", "--submission", "abc"],
+        ):
+            args = watcher.parse_args()
+
+        self.assertEqual(args.interval_seconds, 180)
+        self.assertEqual(watcher.POLL_JITTER_SECONDS, 20)
+
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "watch-submission.py",
+                "--submission",
+                "abc",
+                "--interval-seconds",
+                "59",
+            ],
+        ):
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                watcher.parse_args()
 
     def test_retry_after_accepts_seconds_and_http_dates(self):
         self.assertEqual(watcher.parse_retry_after("1.2"), 2)

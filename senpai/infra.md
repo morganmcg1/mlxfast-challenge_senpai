@@ -85,6 +85,8 @@ python3 senpai/watch-submission.py --submission <submission-id-or-prefix>
 
 It makes authenticated GET requests only, honors API retry guidance, emits one
 start record and one compact terminal receipt, and never submits or comments.
+Normal checks use a three-minute base interval plus a newly sampled 0-20 second
+jitter so concurrent submitters do not synchronize their requests.
 The current Senpai supervised-process tools are student-only: a student
 submitter can launch the watcher with `run_training` (with the watcher's timeout
 below that deployment's process timeout), then continue useful work; terminal,

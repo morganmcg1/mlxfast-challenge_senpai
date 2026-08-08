@@ -8,6 +8,7 @@ import email.utils
 import json
 import math
 import os
+import random
 import sys
 import time
 import urllib.error
@@ -21,6 +22,9 @@ from typing import Any, Callable, Optional, TypeVar
 
 DEFAULT_API_URL = "https://api.mlx.fast"
 DEFAULT_BENCHMARK = "eigenlabs/mlxfast-challenge"
+DEFAULT_POLL_INTERVAL_SECONDS = 180
+POLL_JITTER_SECONDS = 20
+MIN_POLL_INTERVAL_SECONDS = 60
 ACTIVE_SUBMISSION_STATUSES = frozenset({"queued", "validating"})
 ACTIVE_PROMOTION_STATUSES = frozenset({"queued", "promoting"})
 RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504, 529})
@@ -209,6 +213,7 @@ def wait_for_submission(
     *,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
+    uniform: Callable[[float, float], float] = random.uniform,
 ) -> None:
     submission_id: Optional[str] = None
     while monotonic() < deadline:
@@ -235,7 +240,8 @@ def wait_for_submission(
                 commit=row.get("submissionCommitSha"),
             )
             return
-        sleep(min(interval, max(0, deadline - monotonic())))
+        poll_delay = interval + uniform(0, POLL_JITTER_SECONDS)
+        sleep(min(poll_delay, max(0, deadline - monotonic())))
     raise TimeoutError("submission remained active before timeout")
 
 
@@ -251,11 +257,24 @@ def parse_args() -> argparse.Namespace:
         "--benchmark",
         default=os.environ.get("MLXFAST_BENCHMARK_REF", DEFAULT_BENCHMARK),
     )
-    parser.add_argument("--interval-seconds", type=float, default=60)
+    parser.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=DEFAULT_POLL_INTERVAL_SECONDS,
+        help=(
+            "base polling interval before an independent 0-20 second jitter "
+            f"(default: {DEFAULT_POLL_INTERVAL_SECONDS})"
+        ),
+    )
     parser.add_argument("--timeout-seconds", type=float, default=21_600)
     args = parser.parse_args()
-    if not math.isfinite(args.interval_seconds) or args.interval_seconds < 15:
-        parser.error("--interval-seconds must be at least 15")
+    if (
+        not math.isfinite(args.interval_seconds)
+        or args.interval_seconds < MIN_POLL_INTERVAL_SECONDS
+    ):
+        parser.error(
+            f"--interval-seconds must be at least {MIN_POLL_INTERVAL_SECONDS}"
+        )
     if not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
         parser.error("--timeout-seconds must be positive")
     args.submission = args.submission.strip()

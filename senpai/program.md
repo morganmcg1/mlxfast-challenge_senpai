@@ -292,10 +292,20 @@ changes its frontier. Submission-capacity and host mechanics belong in
 [`infra.md`](infra.md).
 
 When a receipt is queued or validating, prefer the read-only
-`senpai/watch-submission.py` helper. A student can launch it through the current
+`senpai/watch-submission.py` helper instead of repeatedly checking by hand:
+
+```bash
+python3 senpai/watch-submission.py --submission <submission-id-or-prefix>
+```
+
+Start one watcher after a submission returns a queued or validating receipt,
+then continue useful research while it runs. Its default checks are separated
+by three minutes plus a fresh independent 0-20 second jitter, and it honors
+longer server retry guidance. A student can launch it through the current
 supervised-process tools and be resumed when the process ends; an advisor must
 still check sparsely until those tools are generalized. The watcher does not
-submit, retry, claim queue ownership, or comment on a PR automatically.
+submit, retry, monitor capacity before a receipt exists, claim queue ownership,
+or comment on a PR automatically.
 
 ## Correctness And Validity
 
