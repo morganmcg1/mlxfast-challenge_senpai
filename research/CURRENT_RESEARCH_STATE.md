@@ -66,7 +66,8 @@ Do NOT revisit this hypothesis.
   5. Op.1 (commit 715c1ff6): disable full-attn kernel warmup (-1 actual compile)
   6. MLX_MAX_OPS_PER_BUFFER 200→400 (commit 715c1ff6, +0.03 score, competitor-proven)
 
-  M5 SUBMISSIONS: 34+ consecutive failures (intermittent). f17cf7f6 VALIDATING.
+  M5 SUBMISSIONS: 35+ consecutive failures. f17cf7f6 FAILED (commit 22aaebc, build timeout).
+  NEW: 891582e2 VALIDATING (10th attempt with warmup removal + MLX_MAX_OPS_PER_BUFFER=400, from HEAD 7487b620).
 
 ## MERGED WAVE 18
   PR #343 (alphonse): Prefill compiled attentionGateProjection multi-token — MERGED (2.8% prefill improvement, 2-line change, bit-exact)
