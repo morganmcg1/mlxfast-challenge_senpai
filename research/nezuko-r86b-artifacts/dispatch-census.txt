@@ -1,0 +1,10 @@
+# R86-B gate-1 dispatch census (M4 Pro, GPUPROF-instrumented build, 40 steps, n=1)
+# Build: 3eb3ad0 + LOCAL-ONLY GPUPROF hook in Vendor/mlx-swift .../metal/device.{cpp,h} (reverted in the submitted tree).
+# arm dispatches_per_step cbs_per_step wall_ms gpu_busy_ms gap_ms divergences
+off per steady step: wall=8.211 ms gpu_busy_sum=7.967 ms gpu_busy_union=7.967 ms gap=0.244 ms (3.0% of wall) cbs=45.0 dispatches=406.0 div_ok=1
+w0 per steady step: wall=8.216 ms gpu_busy_sum=7.964 ms gpu_busy_union=7.964 ms gap=0.252 ms (3.1% of wall) cbs=45.0 dispatches=406.0 div_ok=1
+w2 per steady step: wall=8.338 ms gpu_busy_sum=8.075 ms gpu_busy_union=8.075 ms gap=0.263 ms (3.2% of wall) cbs=45.0 dispatches=486.0 div_ok=1
+w16 per steady step: wall=9.111 ms gpu_busy_sum=8.857 ms gpu_busy_union=8.857 ms gap=0.254 ms (2.8% of wall) cbs=45.0 dispatches=1046.0 div_ok=1
+t0 per steady step: wall=8.265 ms gpu_busy_sum=8.005 ms gpu_busy_union=8.005 ms gap=0.260 ms (3.1% of wall) cbs=45.0 dispatches=446.0 div_ok=1
+t2 per steady step: wall=8.268 ms gpu_busy_sum=8.028 ms gpu_busy_union=8.028 ms gap=0.241 ms (2.9% of wall) cbs=45.0 dispatches=526.0 div_ok=1
+t16 per steady step: wall=8.663 ms gpu_busy_sum=8.392 ms gpu_busy_union=8.392 ms gap=0.271 ms (3.1% of wall) cbs=45.0 dispatches=1086.0 div_ok=1

@@ -15,8 +15,8 @@ set -uo pipefail
 OUTDIR="${1:?outdir}"
 BLOCKS="${2:-2}"
 STEPS="${3:-200}"
-# 2 B, 64 B, 4 KiB, 64 KiB, 512 KiB, 4 MiB
-WIDTHS="${WIDTHS:-1 32 2048 32768 262144 2097152}"
+# 2 B, 64 B, 4 KiB, 64 KiB, 4 MiB
+WIDTHS="${WIDTHS:-1 32 2048 32768 2097152}"
 mkdir -p "${OUTDIR}"
 
 run_arm() {
