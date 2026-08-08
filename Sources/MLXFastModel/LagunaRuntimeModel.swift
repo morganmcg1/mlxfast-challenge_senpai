@@ -3928,9 +3928,6 @@ let lagunaE4M3SignDomainCertified =
 let lagunaNvfp4QmvSeedElisionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_NVFP4_QMV_SEED_ELIDE"] != "0"
 
-let lagunaActivatedOProjInputStagingEnabled =
-    ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_INPUT_STAGING"] != "0"
-
 /// Gate product + native-affine INT8 output projection in one dispatch, or
 /// `nil` when any shape, dtype or wire-format guard declines (caller then runs
 /// the exact two-dispatch chain).
@@ -3994,11 +3991,9 @@ func lagunaGatedAffineOProjNVFP4Source(
     heads: Int,
     signCarry: Bool = lagunaNvfp4QmvSignCarryEnabled,
     seedElide: Bool = lagunaNvfp4QmvSeedElisionEnabled,
-    preActivatedGate: Bool = false,
-    stagePreActivatedInput: Bool = false
+    preActivatedGate: Bool = false
 ) -> String {
     let scaleFold = lagunaNvfp4ScaleFoldEnabled
-    let stageInput = preActivatedGate && stagePreActivatedInput
     let weightScale = scaleFold ? "" : " * 16384.0f"
     // Sign-carry fold: E4M3 is sign-magnitude, so carrying the sign bit into
     // the half pattern is the exact negation over all 256 bytes (incl. -0.0h);
@@ -4060,37 +4055,17 @@ func lagunaGatedAffineOProjNVFP4Source(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     """
-    let inputTileDecl = stageInput
-        ? "\n    threadgroup bfloat input_tile[block_size];"
-        : ""
-    let loadInput: String
-    if stageInput {
-        loadInput = """
-        if (simd_gid == 0) {
-            float g = float(gate_values[column >> head_shift]);
-            for (uint i = 0; i < values_per_thread; ++i)
-                input_tile[simd_lid * values_per_thread + i] =
-                    bfloat(float(xp[i]) * g);
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        for (uint i = 0; i < values_per_thread; ++i)
-            x_thread[i] = float(input_tile[simd_lid * values_per_thread + i]);
-        if (k + block_size < in_vec_size)
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-        """
-    } else if preActivatedGate {
-        loadInput = """
+    let loadInput = preActivatedGate
+        ? """
         float g=float(gate_values[column>>head_shift]);
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
         """
-    } else {
-        loadInput = """
+        : """
         float g=gt[column>>head_shift];
         for(uint i=0;i<values_per_thread;++i)
             x_thread[i]=float(bfloat(float(xp[i])*g));
         """
-    }
     return """
     constexpr uint in_vec_size = \(heads * LagunaConstants.headDim);
     constexpr uint out_vec_size = \(LagunaConstants.hiddenSize);
@@ -4102,7 +4077,7 @@ func lagunaGatedAffineOProjNVFP4Source(
     constexpr uint block_size = values_per_thread * 32;
     constexpr uint results_per_simdgroup = 4;
     constexpr uint num_simdgroups = 2;
-    constexpr uint in_vec_size_g = in_vec_size / group_size;\(inputTileDecl)
+    constexpr uint in_vec_size_g = in_vec_size / group_size;
 
     uint tile = threadgroup_position_in_grid.x;
     uint lid = thread_position_in_threadgroup.x;
@@ -4276,17 +4251,13 @@ private let lagunaActivatedOProjKernels: [Int: MLXFast.MLXFastKernel] = {
         result[heads] = MLXFast.metalKernel(
             name: "laguna_oproj_act_h\(heads)_v1"
                 + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
-                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
-                + (lagunaActivatedOProjInputStagingEnabled ? "_is1" : ""),
+                + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : ""),
             inputNames: [
                 "attention_output", "gate_values", "weight_codes",
                 "weight_scales",
             ],
             outputNames: ["projected"],
-            source: lagunaGatedAffineOProjNVFP4Source(
-                heads: heads,
-                preActivatedGate: true,
-                stagePreActivatedInput: lagunaActivatedOProjInputStagingEnabled),
+            source: lagunaGatedAffineOProjNVFP4Source(heads: heads, preActivatedGate: true),
             ensureRowContiguous: true)
     }
     return result
