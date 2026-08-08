@@ -24,11 +24,14 @@ for rep in $(seq 1 "$REPS"); do
   for arm in $ORDER; do
     idx=$((idx + 1))
     tag=$(printf "%02d-rep%s-%s" "$idx" "$rep" "$arm")
-    unset DARKBLOOM_SHARED_QMV_PREFETCH DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES
+    unset DARKBLOOM_SHARED_QMV_PREFETCH DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES \
+      DARKBLOOM_SHARED_SCALE_HALVED
     case "$arm" in
       on) export DARKBLOOM_SHARED_QMV_PREFETCH=1 ;;
       # Implies the prefetch arm; the header fix-up lives in its prologue.
       pairwise) export DARKBLOOM_SHARED_QMV_PAIRWISE_SCALES=1 ;;
+      # PR #443: the same halved plane on the default (non-prefetch) schedule.
+      halved) export DARKBLOOM_SHARED_SCALE_HALVED=1 ;;
     esac
     echo "=== $tag ==="
     DARKBLOOM_GPU_PROFILE=1 DARKBLOOM_GPU_PROFILE_SPLIT=1 \

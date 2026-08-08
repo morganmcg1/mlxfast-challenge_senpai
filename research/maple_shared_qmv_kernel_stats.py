@@ -24,7 +24,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from decode_probe import parse_gpuprof_line  # noqa: E402
 
-ARM_RE = re.compile(r"-(off|on|pairwise)\.err$")
+ARM_RE = re.compile(r"-(off|on|pairwise|halved)\.err$")
 
 
 def kernel_calls(path: str, kernel: str, steps: int, per_step: int):
