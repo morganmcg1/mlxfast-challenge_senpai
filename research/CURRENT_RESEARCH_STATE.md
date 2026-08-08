@@ -1,7 +1,110 @@
 # SENPAI Research State
 
-**Updated 2026-08-08 16:20 UTC — round 84 in flight. Base is
-`730e9c2be89a4ed8cf860e52f930f7ff222d4c95`.**
+**Updated 2026-08-08 21:05 UTC — round 87. Base is the newly adopted
+organizer promoted frontier (see "FRONTIER ADOPTION" immediately below).**
+
+---
+
+## ⭐⭐⭐ FRONTIER ADOPTION — the dominant finding of round 86
+
+**We spent multiple rounds optimizing a base 2.55 % behind a frontier that the
+organizer hands to every competitor, and that `AGENTS.md` requires us to sit
+on.** `AGENTS.md` says the integration base "must contain the relevant
+organizer updates and the current promoted editable frontier". We had not
+re-synced since `afcb832`.
+
+Verified facts (all re-checked directly this round):
+
+- `mlxfast benchmark` → current best **2.61650354381456**, organizer source
+  `Layr-Labs/mlxfast-challenge @ c5b0a13c5cc032b485022db41bcd745792316714`.
+- The organizer repo is publicly readable with no credential, and its `main`
+  is a linear chain of **every solver's submitted editable surface**.
+- `mlxfast sync -f` resolves submission `cc6ddc12-ecbd-4c07-beec-445060a21a62`,
+  score **2.61650354381456**, base `c5b0a13c`, solver `a-github-name`.
+  ⚠️ `sync` performs a **hard checkout** — never run it on a working branch.
+- Our own last ranked measurement of the pre-adoption base was **2.55158458**
+  (receipt `25b0b722`, `rejected` only for "score did not improve current
+  best"; correctness passed, `max_abs_diff=0`, both floors passed).
+
+⇒ Adopting the promoted frontier is the *designed* game, is explicitly
+required by our contract, and is worth **+2.55 %** against the base we had.
+
+### Trusted-harness thread: CLOSED
+
+Organizer-side changes to trusted files since our merge-base `dd04efac` are
+**zero**. `benchmark.json` is byte-identical, 97 `editablePaths` both sides.
+Every trusted-file difference is our own Senpai addition (`benchmark.sh` +409,
+`tools/fan-control.sh` +220, tests +1229) plus one deliberate deletion: a local
+`AcceptanceBand` warning telling contestants to chunk wins to fit a 1.053 band,
+which `AGENTS.md` explicitly says the deployed wrapper no longer enforces.
+**No organizer cherry-pick was required.** Adoption was a pure
+editable-surface import.
+
+### What was actually adopted (8 files, not 19)
+
+The two trees share ancestor `dec0a83c` — our own earlier import of the same
+solver's snapshot. So the frontier's *true* new work is small, and most of the
+raw diff was noise. Independently verified by comment-stripped hashing:
+
+- **8 vendored `MLXLMCommon` files + `LagunaConfig.swift` are code-identical**
+  to ours, differing only in comments (we externalise to `notes/*.md`). Kept
+  **ours** → reclaimed **58,273 B**.
+- **`AffineMetadataCoding.swift` + `TiedHeadMetadataCoding.swift` (32,005 B)
+  are gemma4-only dead code.** They are referenced *only* from the offline
+  `Transform.swift`, never from the runtime, and the whole `Transform.swift`
+  delta is a `switch modelFamily` whose `.laguna` arm produces empty reports —
+  behaviour-identical to our base. Omitted → reclaimed **34,233 B**.
+- Adopted for real: `LagunaRuntimeModel.swift`, `LagunaRuntimeWeights.swift`,
+  `LagunaLmHeadPrune.swift`, `RoPEApplication.swift`, and the four vendor
+  kernel/dispatch files (`fp_quantized_nax.{h,cpp}`, `matmul.cpp`,
+  `quantized.cpp`).
+
+Budget after adoption: **2,891,343 / 3,000,000, headroom 108,657 B**, growth
+34,178 / 262,144, 140 files. Taking the frontier surface *verbatim* would have
+left only **16,151 B** — unusable. Release build passes on the advisor host.
+
+### The mechanism sets are nearly disjoint — this is why we can exceed 2.6165
+
+Frontier mechanisms we gained: halved shared-expert scale planes (`D1`,
+their receipts: −0.171 % s/token, 3/3), stage4 fused-down row staging (`D2`),
+decode router tournament at rows=1 replacing our bitonic sort (`D3`, ~0.15 %
+decode), `uint2` router shuffle (`D4`), active64 prefill tournament v2 (`P1`),
+prefill expert **pairwise scales** halving routed scale DRAM in the gather-GEMM
+(`P2` — their largest single mechanism), and `fixed_K` barrier elision in the
+dense NVFP4 GEMM (`P3`).
+
+**Two mechanisms of ours the frontier does NOT have, and which adoption
+temporarily gives up:**
+
+- **M-A — full-attention decode params memo** (our commit `0ae542dd`):
+  single-entry memo of the `(writeIdx, capacity)` uniform shared by all ten
+  full-attention layers; removes 1143/1270 allocations per scored decode
+  window. The frontier rebuilds the array every call.
+- **M-B — `float4`-packed merge epilogue** (our commit `1aad492f`) in both
+  decode fused-attention kernels: cross-simdgroup merge 8 threadgroup stores +
+  8 loads → 2+2, bit-identical, same 16,896-B footprint. The frontier keeps
+  the planar scalar form. ⚠️ The frontier **rewrote this exact region**, so the
+  port is by hand, not by cherry-pick.
+
+Re-applying two small, localised, bit-exact patches onto a ranked-verified
+2.6165 base is strictly better than hand-porting the frontier's seven
+mechanisms onto our regressed 2.5516 base. That is the round-87 slate.
+
+### Standing lessons
+
+1. **Re-check the promoted frontier every round.** It is a moving target that
+   embeds every competitor's best work, and sitting on a stale one silently
+   caps us below the bar no matter how good our own mechanisms are.
+2. Our old base carried a **−1.44 % regression** against our own best-ever
+   submission (`97a5090c`, 2.58882784). Adoption discards that regressed
+   runtime wholesale, so the round-86 regression bisect (#460) is retired.
+3. **`rejected` ≠ gate failure.** Read `rejectionReason`. Many of our rejected
+   submissions scored *above* our own base.
+4. The submission account is **shared with the other (Birch) campaign**, and
+   `--model "senpai"` is campaign-wide, so the `Model:` tag does not partition
+   it. The discriminator is the **note body**.
+
+---
 
 ⚠️ **THERE IS NO FINAL ROUND.** Operator directive of 2026-08-08 13:05 UTC:
 *"This is an ongoing competition: never declare the campaign or any round
