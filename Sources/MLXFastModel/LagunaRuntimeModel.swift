@@ -4063,11 +4063,6 @@ func lagunaGatedAffineOProjNVFP4Source(
     let inputTileDecl = stageInput
         ? "\n    threadgroup bfloat input_tile[block_size];"
         : ""
-    let reuseBarrier = stageInput
-        ? "\n\n        if (k + block_size < in_vec_size) {\n"
-            + "            threadgroup_barrier(mem_flags::mem_threadgroup);\n"
-            + "        }"
-        : ""
     let loadInput: String
     if stageInput {
         loadInput = """
@@ -4080,6 +4075,8 @@ func lagunaGatedAffineOProjNVFP4Source(
         threadgroup_barrier(mem_flags::mem_threadgroup);
         for (uint i = 0; i < values_per_thread; ++i)
             x_thread[i] = float(input_tile[simd_lid * values_per_thread + i]);
+        if (k + block_size < in_vec_size)
+            threadgroup_barrier(mem_flags::mem_threadgroup);
         """
     } else if preActivatedGate {
         loadInput = """
@@ -4154,7 +4151,7 @@ func lagunaGatedAffineOProjNVFP4Source(
                      x_thread[8 * j + 7] * v37.y);
             }
             result[row] += scale * accum;
-        }\(reuseBarrier)
+        }
 
         ws += block_size / 8;
         sc += block_size / group_size;
