@@ -4,6 +4,11 @@ Assignment: `maple-r86-a-base-decode-regression`, revision `r86-a-rev1`, PR #460
 Base `f64456dd2dc503af080dca65bddfb922164c7bc5`. Host: Apple M4 Pro, 20 cores,
 Apple GPU generation 16 (never selects `_nax`).
 
+W&B: <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/zvqcx1h8>
+(run id `zvqcx1h8`, `job_type=diagnosis`). It carries the six per-arm timings,
+the static classification of all 19 changed editable paths, and the
+four-cluster carrier decomposition as tables.
+
 ## 0. The two numbers the assignment asks to keep separate
 
 | what | submission | officialScore |
