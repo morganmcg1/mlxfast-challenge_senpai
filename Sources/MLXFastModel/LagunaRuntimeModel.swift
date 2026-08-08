@@ -7226,8 +7226,8 @@ let lagunaSharedFirstDownOrderEnabled =
 
 private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
     name: lagunaSharedFirstDownOrderEnabled
-        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4sf_bf4"
-        : "laguna_routed_shared_nvfp4_down_residual_bf16_r2_v4_bf4",
+        ? "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1sf_bf4"
+        : "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1_bf4",
     inputNames: lagunaSharedFirstDownOrderEnabled
         ? [
             "shared_activated", "shared_down_weight", "shared_down_scales",
@@ -7245,7 +7245,7 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         constexpr uint output_width = 2048;
         constexpr uint routed_experts = 8;
         constexpr uint shared_slot = 8;
-        constexpr uint outputs_per_simd = 2;
+        constexpr uint outputs_per_simd = 3;
         constexpr uint values_per_lane = 16;
         constexpr uint packed_row_bytes = 256;
         constexpr uint scale_row_bytes = 32;
@@ -7283,6 +7283,9 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         thread float result[outputs_per_simd] = {0.0f};
         for (uint row = 0; row < outputs_per_simd; ++row) {
             uint output_row = first_row + row;
+            if (output_row >= output_width) {
+                continue;
+            }
             const device uint8_t* weight =
                 expert_weight + output_row * packed_row_bytes + lane * 8;
             const device uint8_t* scale =
@@ -7305,7 +7308,8 @@ private let lagunaRoutedSharedDownResidualKernel = MLXFast.metalKernel(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (slot == 0 && lane < outputs_per_simd) {
+        if (slot == 0 && lane < outputs_per_simd &&
+            first_row + lane < output_width) {
             bfloat routed_total = bfloat(0);
             for (uint routed_slot = 0;
                  routed_slot < routed_experts;
@@ -7386,19 +7390,22 @@ func lagunaRoutedSharedDownResidual(
     precondition(residual.dtype == .bfloat16)
     precondition(residual.shape == [1, 1, LagunaConstants.hiddenSize])
 
+    let inputs = lagunaSharedFirstDownOrderEnabled
+        ? [
+            sharedActivated, sharedDownWeight, sharedDownScales,
+            routedActivated, routedDownWeight, routedDownScales,
+            indices, routerWeights, residual,
+        ]
+        : [
+            routedActivated, routedDownWeight, routedDownScales,
+            indices, routerWeights, sharedActivated,
+            sharedDownWeight, sharedDownScales, residual,
+        ]
+
+    let groups = (LagunaConstants.hiddenSize + 2) / 3
     return lagunaRoutedSharedDownResidualKernel(
-        lagunaSharedFirstDownOrderEnabled
-            ? [
-                sharedActivated, sharedDownWeight, sharedDownScales,
-                routedActivated, routedDownWeight, routedDownScales,
-                indices, routerWeights, residual,
-            ]
-            : [
-                routedActivated, routedDownWeight, routedDownScales,
-                indices, routerWeights, sharedActivated,
-                sharedDownWeight, sharedDownScales, residual,
-            ],
-        grid: ((LagunaConstants.hiddenSize / 2) * 288, 1, 1),
+        inputs,
+        grid: (groups * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
         outputDTypes: [.bfloat16]
@@ -9477,13 +9484,17 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     }
 
     func callAsFunction(
-        _ x: MLXArray, residual: MLXArray, routerLogits: MLXArray? = nil
+        _ x: MLXArray,
+        residual: MLXArray,
+        routerLogits: MLXArray? = nil
     ) -> MLXArray {
         forward(x, residual: residual, routerLogits: routerLogits)
     }
 
     private func forward(
-        _ x: MLXArray, residual: MLXArray?, routerLogits: MLXArray?
+        _ x: MLXArray,
+        residual: MLXArray?,
+        routerLogits: MLXArray?
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
         var y: MLXArray
