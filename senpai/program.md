@@ -291,6 +291,12 @@ identifiable by exact commit. Rebase and rebaseline later work only if promotion
 changes its frontier. Submission-capacity and host mechanics belong in
 [`infra.md`](infra.md).
 
+When a receipt is queued or validating, prefer the read-only
+`senpai/watch-submission.py` helper. A student can launch it through the current
+supervised-process tools and be resumed when the process ends; an advisor must
+still check sparsely until those tools are generalized. The watcher does not
+submit, retry, claim queue ownership, or comment on a PR automatically.
+
 ## Correctness And Validity
 
 Exact-token correctness and the serial protocol are non-negotiable. The full
