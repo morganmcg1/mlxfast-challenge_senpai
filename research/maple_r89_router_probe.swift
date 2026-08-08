@@ -115,7 +115,12 @@ do {
 let tiles = 32          // 256 router rows / rows_per_group 8
 let threads = 512
 let reps = 256
-let rounds = 15
+let rounds = 20         // 10 ABBA + 10 BAAB, see `paired`
+let warmupCBs = 60
+/// 40 hidden layers, `mlp_only_layers = [0]` -> 39 sparse layers, and the
+/// fused kernel is gated on `mlp as? LagunaRuntimeSparseMoEBlock`, so a decode
+/// step issues 39 of these dispatches. The second call site is prefill-only.
+let callsPerStep = 39.0
 
 /// One command buffer of `reps` serial dispatches. `rotate` advances the
 /// `router_weight` binding by one 1 MiB copy per dispatch, so the weight is
@@ -163,24 +168,35 @@ func stat(_ xs: [Double]) -> Stat {
     return Stat(mean: m, sd: sd, ci: t * sd / Double(n).squareRoot(), n: n)
 }
 
-/// ABBA within a round: A, B, B, A about a millisecond apart, estimate
-/// (A1+A2)/2 - (B1+B2)/2. Cancels drift that is linear over the round.
+/// Paired rounds of four command buffers about a millisecond apart. Even rounds
+/// run A,B,B,A and odd rounds run B,A,A,B; both estimate A - B and both cancel
+/// drift that is linear over the round. Alternating the polarity de-confounds
+/// the arm from the slot it occupies (rule 36): an effect that is really a
+/// first-slot/last-slot artifact flips sign between the two halves and cancels,
+/// while a real effect survives in each half separately.
 func paired(_ a: MTLComputePipelineState, _ b: MTLComputePipelineState, rotate: Bool)
-    -> ([Double], [Double], [Double])
+    -> (abba: [Double], baab: [Double], aAbs: [Double], bAbs: [Double])
 {
-    var diffs: [Double] = []
+    var abba: [Double] = []
+    var baab: [Double] = []
     var aAbs: [Double] = []
     var bAbs: [Double] = []
-    for _ in 0..<rounds {
-        let a1 = timeOnce(a, rotate: rotate)
-        let b1 = timeOnce(b, rotate: rotate)
-        let b2 = timeOnce(b, rotate: rotate)
-        let a2 = timeOnce(a, rotate: rotate)
-        diffs.append((a1 + a2) / 2 - (b1 + b2) / 2)
-        aAbs.append((a1 + a2) / 2)
-        bAbs.append((b1 + b2) / 2)
+    for round in 0..<rounds {
+        let outer = round % 2 == 0 ? a : b
+        let inner = round % 2 == 0 ? b : a
+        let o1 = timeOnce(outer, rotate: rotate)
+        let i1 = timeOnce(inner, rotate: rotate)
+        let i2 = timeOnce(inner, rotate: rotate)
+        let o2 = timeOnce(outer, rotate: rotate)
+        let outerMean = (o1 + o2) / 2
+        let innerMean = (i1 + i2) / 2
+        let aMean = round % 2 == 0 ? outerMean : innerMean
+        let bMean = round % 2 == 0 ? innerMean : outerMean
+        if round % 2 == 0 { abba.append(aMean - bMean) } else { baab.append(aMean - bMean) }
+        aAbs.append(aMean)
+        bAbs.append(bMean)
     }
-    return (diffs, aAbs, bAbs)
+    return (abba, baab, aAbs, bAbs)
 }
 
 // MARK: - run
@@ -213,30 +229,39 @@ let armCopy = compile(arm: 0, tag: "_copy")
 
 struct Comparison { let label: String; let a: Int; let b: Int }
 let comparisons: [Comparison] = [
-    Comparison(label: "null  A0 vs A0'", a: 0, b: -1),
+    Comparison(label: "null  A0 vs A0' (pre)", a: 0, b: -1),
     Comparison(label: "A1 - A0", a: 1, b: 0),
     Comparison(label: "A2 - A0", a: 2, b: 0),
     Comparison(label: "A3 - A0", a: 4, b: 0),
     Comparison(label: "A4 - A0", a: 5, b: 0),
     Comparison(label: "A1 - A4  (overlap)", a: 1, b: 5),
-    Comparison(label: "A2 - A4", a: 2, b: 5),
+    Comparison(label: "A2 - A4  (overlap)", a: 2, b: 5),
+    Comparison(label: "null  A0 vs A0' (post)", a: 0, b: -1),
 ]
 
 for rotate in [true, false] {
+    // The first probe run showed the A0 arm settling monotonically from 9.30 to
+    // 6.45 us/call over the first two comparisons, so anything measured before
+    // the clocks settle is a warm-up transient, not an arm effect.
+    for _ in 0..<warmupCBs { _ = timeOnce(pipes[0]!, rotate: rotate) }
+
     print("=== paired kernel time, \(rotate ? "COLD (rotating 64 MiB weight)" : "HOT (single 1 MiB weight)") ===")
-    print("comparison            A us/call   B us/call   diff us/call   95% CI            per-step us (40 calls)")
+    print("comparison              A us/call  B us/call  diff us/call  95% CI             ABBA half  BAAB half  per-step us (39 calls)")
     for c in comparisons {
         let a = pipes[c.a]!
         let b = c.b < 0 ? armCopy : pipes[c.b]!
-        let (d, aa, bb) = paired(a, b, rotate: rotate)
-        let s = stat(d)
+        let (abba, baab, aa, bb) = paired(a, b, rotate: rotate)
+        let s = stat(abba + baab)
+        let sAbba = stat(abba)
+        let sBaab = stat(baab)
         let sa = stat(aa)
         let sb = stat(bb)
         print(String(
-            format: "%-21s %-11.3f %-11.3f %-14.4f [%+.4f,%+.4f]   %+.2f [%+.2f,%+.2f]",
+            format: "%-23s %-10.3f %-10.3f %-13.4f [%+.4f,%+.4f]  %+9.4f  %+9.4f  %+.2f [%+.2f,%+.2f]",
             (c.label as NSString).utf8String!, sa.mean, sb.mean, s.mean,
-            s.mean - s.ci, s.mean + s.ci,
-            s.mean * 40, (s.mean - s.ci) * 40, (s.mean + s.ci) * 40))
+            s.mean - s.ci, s.mean + s.ci, sAbba.mean, sBaab.mean,
+            s.mean * callsPerStep, (s.mean - s.ci) * callsPerStep,
+            (s.mean + s.ci) * callsPerStep))
     }
     print("")
 }
