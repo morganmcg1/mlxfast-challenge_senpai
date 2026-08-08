@@ -1,0 +1,85 @@
+drift guard OK: private func lagunaDecodeRouterOrdinalKernelSource[(] (93 lines identical)
+drift guard OK: private func lagunaDecodeRouterTournamentOrdinalKernelSource[(] (126 lines identical)
+drift guard OK: lagunaDecodeRouterOrdinalHeader (22 lines identical)
+research/nezuko_q12_router_tournament_bitwise.swift:535:9: warning: 'fastMathEnabled' was deprecated in macOS 15.0: Use mathMode instead [#DeprecatedDeclaration]
+533 | }
+534 | let options = MTLCompileOptions()
+535 | options.fastMathEnabled = false  // matches MLX device.cpp:631
+    |         `- warning: 'fastMathEnabled' was deprecated in macOS 15.0: Use mathMode instead [#DeprecatedDeclaration]
+536 | let library: MTLLibrary
+537 | do {
+
+[#DeprecatedDeclaration]: <https://docs.swift.org/compiler/documentation/diagnostics/deprecated-declaration>
+metal device: Apple M4 Pro
+kernels: 10, classes: 5
+
+=== logits precision: bf16 ===
+  random_smooth rows=4096 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  random_smooth rows=4096 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  random_smooth rows=4096 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  random_smooth rows=4096 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  random_smooth tourn_fault_drop8 mismatch_words=0
+  random_smooth tourn_fault_flatdir mismatch_words=61501
+  all_equal rows=4 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  all_equal rows=4 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  all_equal rows=4 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  all_equal rows=4 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  all_equal tourn_fault_drop8 mismatch_words=0
+  all_equal tourn_fault_flatdir mismatch_words=0
+  heavy_ties rows=5 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  heavy_ties rows=5 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  heavy_ties rows=5 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  heavy_ties rows=5 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  heavy_ties tourn_fault_drop8 mismatch_words=0
+  heavy_ties tourn_fault_flatdir mismatch_words=18
+  nan_inf_zero rows=5 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  nan_inf_zero rows=5 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  nan_inf_zero rows=5 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  nan_inf_zero rows=5 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  nan_inf_zero tourn_fault_drop8 mismatch_words=0
+  nan_inf_zero tourn_fault_flatdir mismatch_words=56
+  block_skew rows=10 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  block_skew rows=10 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  block_skew rows=10 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  block_skew rows=10 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  block_skew tourn_fault_drop8 mismatch_words=9
+  block_skew tourn_fault_flatdir mismatch_words=80
+
+=== logits precision: fp32 ===
+  random_smooth rows=4096 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  random_smooth rows=4096 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  random_smooth rows=4096 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  random_smooth rows=4096 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  random_smooth tourn_fault_drop8 mismatch_words=0
+  random_smooth tourn_fault_flatdir mismatch_words=61505
+  all_equal rows=4 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  all_equal rows=4 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  all_equal rows=4 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  all_equal rows=4 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  all_equal tourn_fault_drop8 mismatch_words=0
+  all_equal tourn_fault_flatdir mismatch_words=0
+  heavy_ties rows=5 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  heavy_ties rows=5 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  heavy_ties rows=5 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  heavy_ties rows=5 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  heavy_ties tourn_fault_drop8 mismatch_words=0
+  heavy_ties tourn_fault_flatdir mismatch_words=18
+  nan_inf_zero rows=5 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  nan_inf_zero rows=5 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  nan_inf_zero rows=5 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  nan_inf_zero rows=5 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  nan_inf_zero tourn_fault_drop8 mismatch_words=0
+  nan_inf_zero tourn_fault_flatdir mismatch_words=57
+  block_skew rows=10 arm=plain_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  block_skew rows=10 arm=plain_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  block_skew rows=10 arm=norm_recompute mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  block_skew rows=10 arm=norm_table mismatch_words=0 mismatch_rows=0 max_abs_diff=0.0
+  block_skew tourn_fault_drop8 mismatch_words=9
+  block_skew tourn_fault_flatdir mismatch_words=80
+
+--- verdict ---
+on-control (shipped arm vs itself) mismatch_words: 0
+fault tourn_fault_drop8 mismatch_words: 18 (must be > 0)
+fault tourn_fault_flatdir mismatch_words: 123315 (must be > 0)
+candidate total mismatch_words: 0, mismatch_rows: 0
+RESULT: SUPPORTED -- tournament is bit-identical on every row and arm.

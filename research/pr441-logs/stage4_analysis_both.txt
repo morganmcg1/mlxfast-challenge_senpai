@@ -1,0 +1,37 @@
+orderA: 24 usable runs
+orderB: 24 usable runs
+
+48 runs over blocks [1, 2, 3, 4, 101, 102, 103, 104], warmup=8 dropped, 248 steps/run kept, per-run estimator = upper-5%-trimmed mean
+
+within-run sd: median     37.8 us   max     89.3 us
+  no run exceeds 4x the median within-run sd
+
+arm     n  mean_us   sd_of_run_means  within_run_sd   description
+off    16    8205.1            6.4           40.9   incumbent full-256 bitonic network (12 charged TG barriers)
+on     16    8209.3           10.6           40.8   two-phase block tournament, 8x32 then 64 (3 charged TG barriers)
+inert  16    8205.8           17.4           45.0   incumbent network, distinct kernel name + no-op MSL suffix (rule 3)
+
+per-block arm means (us/step)
+block        off        on     inert
+    1     8201.4    8207.2    8203.7
+    2     8209.6    8206.0    8214.2
+    3     8200.5    8205.6    8196.3
+    4     8207.5    8226.8    8206.2
+  101     8205.0    8205.2    8204.7
+  102     8197.7    8203.7    8206.7
+  103     8203.7    8208.4    8228.9
+  104     8215.7    8211.7    8185.9
+
+two-way fixed effects: residual sd 12.3 us over 38 df
+
+contrast      block-paired (us/step)              fixed-effects (us/step)
+                 mean      sd      t             95% CI        mean     se      t             95% CI   meaning
+on-off            4.2     7.3   1.62  [   -1.9,   10.3]         4.2    4.4   0.96  [   -4.6,   13.0]   HEADLINE: tournament vs incumbent
+inert-off         0.7    15.3   0.13  [  -12.1,   13.5]         0.7    4.4   0.16  [   -8.1,    9.5]   NULL: identical work, distinct pipeline object
+on-inert          3.5    15.1   0.66  [   -9.1,   16.1]         3.5    4.4   0.80  [   -5.3,   12.3]   tournament net of the pipeline-identity null
+
+conversion (39 dispatches/step, 0.01528 %/us of score)
+contrast       us/step               95% CI   us/call   %score             95% CI
+on-off             4.2  [    -4.6,    13.0]     0.108   -0.064  [ -0.199,  0.070]
+inert-off          0.7  [    -8.1,     9.5]     0.018   -0.011  [ -0.145,  0.124]
+on-inert           3.5  [    -5.3,    12.3]     0.090   -0.054  [ -0.188,  0.081]
