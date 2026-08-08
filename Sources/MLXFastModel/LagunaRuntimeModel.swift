@@ -6429,8 +6429,9 @@ private let lagunaSharedSwiGLUQMVKernel = MLXFast.metalKernel(
             }
 
             for (uint row = 0; row < 2; ++row) {
-                uint gate_row = first_row + row;
-                uint up_row = gate_row + output_width;
+                uint logical_row = first_row + row;
+                uint gate_row = 2 * logical_row;
+                uint up_row = gate_row + 1;
                 const device uint8_t* gate_weight =
                     (const device uint8_t*)fused_weight +
                     gate_row * packed_row_bytes + block / 2 + lane * 8;
@@ -6492,17 +6493,19 @@ private let lagunaSharedSwiGLUQMVRows1Kernel = MLXFast.metalKernel(
         uint simd_group = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
         uint row = tile * 2 + simd_group;
+        uint gate_row = 2 * row;
+        uint up_row = gate_row + 1;
 
         const device uint8_t* gate_row_weight =
             (const device uint8_t*)fused_weight +
-            row * packed_row_bytes + lane * 8;
+            gate_row * packed_row_bytes + lane * 8;
         const device uint8_t* up_row_weight =
             (const device uint8_t*)fused_weight +
-            (row + output_width) * packed_row_bytes + lane * 8;
+            up_row * packed_row_bytes + lane * 8;
         const device uint8_t* gate_row_scale =
-            fused_scales + row * scale_row_bytes + lane;
+            fused_scales + gate_row * scale_row_bytes + lane;
         const device uint8_t* up_row_scale =
-            fused_scales + (row + output_width) * scale_row_bytes + lane;
+            fused_scales + up_row * scale_row_bytes + lane;
 
         thread float gate_result = 0.0f;
         thread float up_result = 0.0f;
@@ -7643,11 +7646,24 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
         else {
             return []
         }
-        let fusedWeight = concatenated([gate.weight, up.weight], axis: 0)
-        let fusedScales = concatenated([gate.scales, up.scales], axis: 0)
+        let rows = gate.weight.dim(0)
+        let packedColumns = gate.weight.dim(1)
+        let scaleColumns = gate.scales.dim(1)
+        let fusedWeight = concatenated(
+            [
+                gate.weight.reshaped([rows, 1, packedColumns]),
+                up.weight.reshaped([rows, 1, packedColumns]),
+            ], axis: 1
+        ).reshaped([2 * rows, packedColumns])
+        let fusedScales = concatenated(
+            [
+                gate.scales.reshaped([rows, 1, scaleColumns]),
+                up.scales.reshaped([rows, 1, scaleColumns]),
+            ], axis: 1
+        ).reshaped([2 * rows, scaleColumns])
         _fusedGateUpWeight = fusedWeight
         _fusedGateUpScales = fusedScales
-        _fusedGateUpSplit = gate.weight.dim(0)
+        _fusedGateUpSplit = rows
         return [fusedWeight, fusedScales]
     }
 
@@ -7856,12 +7872,12 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
                 )
             }
 
-            // One NVFP4 dispatch over the row-concatenated [gate; up] bank,
+            // One NVFP4 dispatch over the row-interleaved [gate, up] bank,
             // mirroring `QuantizedLinear.callAsFunction` exactly (transpose,
             // group 16, 4-bit, .nvfp4, no affine biases, no bias add; the
             // guards in `prepareFusedSharedGateUp` pin those literals). Each
-            // quantized output row is computed independently, so the split
-            // halves are bit-exact vs. the separate gate/up dispatches.
+            // quantized output row is computed independently, so the paired
+            // outputs are bit-exact vs. the separate gate/up dispatches.
             let gateUp = MLX.quantizedMM(
                 x,
                 fusedWeight,
@@ -7872,8 +7888,12 @@ final class LagunaRuntimeMLP: Module, UnaryLayer {
                 bits: 4,
                 mode: .nvfp4
             )
-            let gate = gateUp[.ellipsis, 0 ..< _fusedGateUpSplit]
-            let up = gateUp[.ellipsis, _fusedGateUpSplit...]
+            var pairedShape = gateUp.shape
+            pairedShape[pairedShape.count - 1] = _fusedGateUpSplit
+            pairedShape.append(2)
+            let paired = gateUp.reshaped(pairedShape)
+            let gate = paired[.ellipsis, 0]
+            let up = paired[.ellipsis, 1]
             return downProj(compiledSiluProduct(gate, up))
         }
         return downProj(compiledSiluProduct(gateProj(x), upProj(x)))
