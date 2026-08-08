@@ -4794,7 +4794,7 @@ private func lagunaNormAffineQKVPrefetchSource(
                 constexpr uint value_start = \(valueStart);
                 constexpr uint value_rows =
                     \(LagunaConstants.numKeyValueHeads * LagunaConstants.headDim);
-                constexpr uint cache_capacity = \(capacity);
+                const uint cache_capacity = \(capacity);
                 uint output_row = out_row + row;
                 bfloat rounded = bfloat(result[row]);
                 if (output_row >= value_start &&
