@@ -14,7 +14,7 @@ Every prediction in §6 of that file is scored HIT/MISS in §9 below.
 | --- | --- |
 | A1 (submittable input-prefetch ladder) | **HARMFUL.** Best arm +26.47 µs/step kernel-local, worst +105.80. All three arms are regressions at 3–30× the rig floor. |
 | Shipped default | `DARKBLOOM_ROUTED_GATEUP_INPUT_PF=0`, verified byte-identical MSL to stock. **Nothing in this PR changes scored behaviour.** |
-| A2 (deliberately incorrect ceiling probe) | **−83.64 ± 2.96 µs/step** kernel-local ⇒ **≈−50 µs/step end-to-end ⇒ ≈+0.77% score** after the 0.60 give-back discount. This is the real deliverable: a measured upper bound on the whole head-latency family. |
+| A2 (deliberately incorrect ceiling probe) | **−83.64 ± 2.96 µs/step** kernel-local ⇒ ≈−50 µs/step end-to-end ⇒ ≈+0.77% score after the 0.60 give-back discount. **Confounded** — the probe also cuts ~22% of DRAM bytes, so this is a *loose* upper bound, not a target. See §5a. |
 | Merge recommendation | **Do not merge as a speedup.** Merge or close on the value of the negative result and the A2 bound; the knob itself is dead weight unless the advisor wants it retained for follow-up work. |
 
 Three things in this PR are worth more than the failed hypothesis:
@@ -231,8 +231,37 @@ submitted**.
 
 Discounted per the 42% give-back law (×0.60): **≈−50 µs/step end-to-end
 ≈ +0.77% score**. That is an **upper bound on the whole head-latency family**,
-obtained by breaking correctness; it is what a hypothetical mechanism that
-removed the router→weight-address dependency entirely could be worth.
+obtained by breaking correctness.
+
+### 5a. The A2 number is confounded — read it as a loose upper bound, not a target
+
+Hardcoding `expert = 0` for the block-0 addresses does not only remove the
+`router_keys → tournament → expert → address` dependency. It also makes the
+block-0 weight/scale loads **identical across all 8 expert slots**, so the
+probe silently deduplicates DRAM traffic:
+
+```
+block 0 is 1 of 4 k-blocks  ⇒  25% of weight bytes
+those bytes collapse 8-way  ⇒  0.75 + 0.25/8 = 0.781
+                            ⇒  ~22% fewer DRAM bytes per dispatch
+```
+
+So the −83.64 is the **sum** of (i) the removed address dependency and
+(ii) ~22% less DRAM traffic. A correct mechanism that removes only (i) must
+land below it. I did not separate the two, and I should have designed the
+probe to hold bytes constant (e.g. by hardcoding a *different* expert per
+slot, which preserves the 8-way distinctness while still cutting the
+dependency). **This is a design flaw in my own ceiling probe and it weakens
+the headline number.**
+
+Two things partly rescue the reading. First, ~22% fewer bytes bought only
+5.6%, which is far less than a bandwidth-bound kernel would give back — so
+bytes were *not* the binding constraint here, and most of the gain is
+plausibly latency. Second, §5's attribution check still holds: the router
+kernel absorbed only +0.71 ± 1.59 µs/step, so nothing migrated. But the
+honest statement is: **the dependency-only ceiling is somewhere below
+−83.64 µs/step kernel-local, and I have not bounded it from below.** Treat
+≈+0.77% score as optimistic.
 
 **Prereg scoring: HIT for both priors.** Advisor prior −60 kernel-local
 [−15, −180] ⇒ HIT. My prediction −45 kernel-local ⇒ HIT (measured −83.64 is
@@ -280,6 +309,54 @@ API does not provide on this host. The remaining latency/MLP reading of §4 is
 the most likely explanation, not a proven-by-elimination one.
 
 ## 7. Correctness
+
+### 7a. Upstream-equivalence oracle — three arms, one identical report
+
+Run through `research/run_upstream_equivalence.sh`, which uses the bare filter
+`lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled`, repairs the debug
+metallib from the worker build, and refuses to call a zero-test invocation a
+pass. **Every invocation below executed exactly 1 test** (`Test run with 1 test
+in 0 suites`), so none of these is a vacuous pass.
+
+| arm | `Sources/` state | `EQUIVALENCE_EXACT_STEPS` | report SHA-256 (first 16) | log |
+| --- | --- | --- | --- | --- |
+| candidate, knob unset (**what ships**) | branch | 8 / 9 | `ac16b3a2c8c60a37` | `research/r87a-runs/equivalence/candidate-default.log` |
+| candidate, `DARKBLOOM_ROUTED_GATEUP_INPUT_PF=1` | branch | 8 / 9 | `ac16b3a2c8c60a37` | `.../candidate-pf1.log` |
+| **base control**, `3217f111` | base file restored | 8 / 9 | `ac16b3a2c8c60a37` | `.../base-3217f111.log` |
+
+The base control was produced by checking out
+`3217f111:Sources/MLXFastModel/LagunaRuntimeModel.swift` into the worktree, so
+`git diff 3217f111 HEAD -- Sources/ Vendor/` was empty for that run, then
+restoring the candidate. This is a control against the *current* base, not
+against a historically recorded artefact from an older base.
+
+**All three reports are byte-identical.** The single non-exact step is the
+known M4 / Apple-GPU-generation-16 **prefill-only** artefact:
+
+```
+prefill    maximumAbsoluteLogitError 0.125   meanAbsoluteLogitError 0.011933609
+           runtimeToken 5991 == upstreamToken 5991
+decode-0..7  maximumAbsoluteLogitError 0     meanAbsoluteLogitError 0    (all 8 exact)
+```
+
+`EQUIVALENCE_EXIT=1` on all three arms, including the unchanged base. The
+oracle's tolerance is a hard `0.0` and this host cannot meet it in prefill even
+with zero edits, which is exactly the situation §1 describes: gen-16 does not
+select the `_nax` prefill kernels the M5 uses. **The exit code is a property of
+the host, not of this change** — proven by the base control sharing it
+digit-for-digit.
+
+**Prereg C4 (A1 arms bit-exact): HIT.** The PF=1 report is identical to base.
+The stronger evidence is on the scored path: all 25 ladder runs reported
+`0 divergences (all match)` from `research/decode_probe.py`, which checks
+teacher-forced greedy argmax equality against a fixed golden sequence over
+200 decode steps, and rule 33 confirmed each run dispatched the intended
+`_pfin*` kernel. Caveat: the oracle run at PF=1 was not independently
+name-verified, so the ladder probes — not the oracle — carry that claim.
+
+**Prereg C5 (M4 prefill artefact digit-identical to base): HIT.**
+
+### 7b. 64-step drift tripwire
 
 <!-- CORRECTNESS -->
 
@@ -388,15 +465,41 @@ ladder : A0 | A0 PF1 PF2 PF3 PF3 PF2 PF1 A0 A0 PF1 PF2 PF3 PF3 PF2 PF1 A0 A0 PF1
    ideas and revive others.
 
 2. **The A2 ceiling is the real prize and it is not yet claimable.** −83.6 µs/step
-   kernel-local (≈−50 end-to-end, ≈+0.77% score) sits behind the
-   router→weight-address dependency. A *correct* mechanism would need the
-   top-8 expert ids available before the QMV dispatch — e.g. computing routing
-   in the preceding `residual_rms_router_*` dispatch and passing expert ids as a
-   buffer, so the QMV kernel's block-0 weight addresses are loadable at
-   instruction 0. That is the un-fusion idea gated on #462, and this measurement
-   *raises* its expected value rather than lowering it. Note §5's attribution
-   check: the router kernel absorbed only +0.71 µs/step, so the saving is real
-   recovery, not migration.
+   kernel-local (≈−50 end-to-end, ≈+0.77% score, and see §5a: loose) sits
+   behind the router→weight-address dependency. Note §5's attribution check:
+   the router kernel absorbed only +0.71 µs/step, so what was recovered was
+   recovered, not migrated. Ranked correct mechanisms, cheapest first:
+
+   a. **Reuse the top-8 ids the selector kernel already computes.** A selector
+      already runs every layer for the down path
+      (`LagunaRuntimeModel.swift:10743`, `:9313` ff.). Passing its indices into
+      the gate/up QMV as a buffer removes the tournament from the QMV entirely
+      and makes block-0 addresses loadable at instruction 0. This is a ~5-line,
+      bit-exact experiment whose only new cost is the dispatch ordering between
+      the two kernels — and §3a says in-kernel synchronisation is nearly free.
+      **This should be the next assignment; it prices the whole design fork for
+      almost nothing.**
+   b. **Flatten the in-kernel tournament** (lane-local presort, heads-only
+      rounds, `uint4` key loads) — order 30–55 µs, bit-exact provided the
+      comparator stays a strict total order, and it needs no cross-kernel
+      change at all. Good fallback if (a) is blocked.
+   c. **Slot-major multi-slot threadgroups**, amortising one prelude over
+      several expert slots. Highest ceiling, but it changes threadgroup
+      geometry, which §1 says can flip sign between M4 and M5 core counts — so
+      it needs an M5 receipt, not an M4 result.
+
+   Two things to *stop* considering. **Guessing an expert to warm the memory
+   system is negative-EV**: at 80% of DRAM peak a wasted 8.39 MB fetch costs
+   more than the stall it hides, and there is no in-invocation predictor better
+   than 1/32. **Merging the routed and shared dispatches is already known
+   exact-but-negative** (`LagunaRuntimeModel.swift:9436–9440`).
+
+   One correction to the framing this PR started from: 83.6 µs/step over 39
+   dispatches is 2.14 µs/dispatch, which is 3–4× what a single prelude latency
+   per dispatch can explain. The stall therefore recurs at every threadgroup
+   turnover — it is a memory-level-parallelism loss across the dispatch, not a
+   one-time wave-ramp. Mechanisms that only fix the *first* wave will
+   underdeliver.
 
 3. **A2 leaves the give-back law looking kernel-specific.** PR #457 gave back
    42%; this arm gave back 16.9% on a larger absolute saving. A give-back
