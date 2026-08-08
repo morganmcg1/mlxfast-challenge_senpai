@@ -44,6 +44,10 @@ trap restore_branch EXIT
 apply_arm() {
   case "$1" in
     baseline)
+      # Always rebuild the baseline arm from the branch: consecutive baseline
+      # arms are possible under counterbalanced ordering, and a second detach
+      # from a previous temp commit would have no split file left to remove.
+      restore_branch
       git checkout -q --detach || fail "cannot detach HEAD"
       git checkout -q "${BASE_SHA}" -- "${MAIN_FILE}" || fail "cannot restore base ${MAIN_FILE}"
       git rm -q "${SPLIT_FILE}" || fail "cannot remove ${SPLIT_FILE}"
@@ -61,7 +65,7 @@ apply_arm() {
 }
 
 run_arm() {
-  local arm="$1" round="$2" stem="${OUT}/${SESSION}.$1.r$2"
+  local arm="$1" round="$2" first="$3" stem="${OUT}/${SESSION}.$1.r$2"
   apply_arm "${arm}"
   rm -f score.local-iterate.json
   echo "paired-timing-r85b: === running arm=${arm} session=${SESSION} round=${round} ==="
@@ -71,18 +75,22 @@ run_arm() {
   [[ ${rc} -eq 0 ]] || fail "benchmark.sh --local-iterate failed arm=${arm} round=${round} rc=${rc}"
   [[ -f score.local-iterate.json ]] || fail "no score.local-iterate.json arm=${arm} round=${round}"
   cp score.local-iterate.json "${stem}.score.json"
-  jq -c --arg arm "${arm}" --arg session "${SESSION}" --argjson round "${round}" \
-    '{session:$session, arm:$arm, round:$round, decode:.metrics.decode_seconds_per_token, prefill:.metrics.prefill_seconds_per_token, passed:.metrics.passed_correctness, error:.metrics.error}' \
+  jq -c --arg arm "${arm}" --arg session "${SESSION}" --arg first "${first}" --argjson round "${round}" \
+    '{session:$session, arm:$arm, round:$round, first:$first, decode:.metrics.decode_seconds_per_token, prefill:.metrics.prefill_seconds_per_token, passed:.metrics.passed_correctness, error:.metrics.error}' \
     "${stem}.score.json" > "${stem}.row.json"
   echo "paired-timing-r85b: $(cat "${stem}.row.json")"
 }
 
 # BSD seq counts DOWN when the end is below the start, so `seq 1 0` yields
 # "1 0" and would silently run two rounds. ROUNDS=0 means summary-only.
+# Counterbalanced ordering. A session warms monotonically, so whichever arm
+# runs second in a round inherits that drift. Alternating the order by round
+# parity cancels the linear component when the two orders are averaged.
 if [[ "${ROUNDS}" -ge 1 ]]; then
   for round in $(seq 1 "${ROUNDS}"); do
-    for arm in baseline candidate; do
-      run_arm "${arm}" "${round}"
+    if (( round % 2 == 1 )); then order=(baseline candidate); else order=(candidate baseline); fi
+    for arm in "${order[@]}"; do
+      run_arm "${arm}" "${round}" "${order[0]}"
     done
   done
 fi
@@ -92,30 +100,45 @@ echo "paired-timing-r85b: ===== summary over every pair in ${OUT} ====="
 # The paired within-round difference is the estimator: it cancels session-level
 # thermal drift, which dominates the between-arm gap at this effect size.
 jq -s -r '
+  def mean: add / length;
+  def sd: if length < 2 then null else (mean) as $m
+          | (map(. - $m | . * .) | add / (length - 1)) | sqrt end;
   (group_by(.session + "|" + (.round|tostring))
    | map(select(length == 2))
    | map({
-       tag: (.[0].session + " r" + (.[0].round | tostring)),
+       tag:   (.[0].session + " r" + (.[0].round | tostring)),
+       first: (.[0].first // "baseline"),
        bd:  (map(select(.arm=="baseline"))[0].decode),
        cd:  (map(select(.arm=="candidate"))[0].decode),
        bp:  (map(select(.arm=="baseline"))[0].prefill),
        cp:  (map(select(.arm=="candidate"))[0].prefill)
      })
    | map(. + {dd: (.cd - .bd), dp: (.cp - .bp)})) as $pairs |
-  ([$pairs[].dd] | add / length) as $mdd |
-  ([$pairs[].dp] | add / length) as $mdp |
-  ([$pairs[].bd] | add / length) as $mbd |
-  ([$pairs[].bp] | add / length) as $mbp |
+  ([$pairs[].dd] | mean) as $mdd |
+  ([$pairs[].dd] | sd) as $sdd |
+  ([$pairs[].dp] | mean) as $mdp |
+  ([$pairs[].bd] | mean) as $mbd |
+  ([$pairs[].bp] | mean) as $mbp |
+  ($pairs | map(select(.first=="baseline"))) as $bf |
+  ($pairs | map(select(.first=="candidate"))) as $cf |
   (($pairs | map(select(.dd > 0)) | length)) as $slower |
   "  pairs: \($pairs | length)   candidate-slower-on-decode in \($slower) of \($pairs | length)",
-  ($pairs[] | "  \(.tag): decode b=\(.bd) c=\(.cd) diff=\(.dd)   prefill b=\(.bp) c=\(.cp) diff=\(.dp)"),
+  ($pairs[] | "  \(.tag) [\(.first)-first]: decode b=\(.bd) c=\(.cd) diff=\(.dd)   prefill b=\(.bp) c=\(.cp) diff=\(.dp)"),
   "",
-  "  mean paired decode diff  : \($mdd) s/token  (\($mdd / $mbd * 100) %, \($mdd * 1000000) us/step)",
-  "  decode diff range        : \([$pairs[].dd] | min) .. \([$pairs[].dd] | max)",
+  "  mean paired decode diff  : \($mdd * 1000000) us/step  (\($mdd / $mbd * 100) %)",
+  "  paired decode sd / sem   : \(if $sdd then ($sdd * 1000000) else "n/a" end) / \(if $sdd then ($sdd * 1000000 / ($pairs | length | sqrt)) else "n/a" end) us/step",
+  "  decode diff range        : \([$pairs[].dd] | min * 1000000) .. \([$pairs[].dd] | max * 1000000) us/step",
   "  mean paired prefill diff : \($mdp) s/token  (\($mdp / $mbp * 100) %)",
   "  prefill diff range       : \([$pairs[].dp] | min) .. \([$pairs[].dp] | max)",
   "  decode_gain (mean ratio) : \($mbd / ($mbd + $mdd))   (>1 = candidate faster)",
-  "  prefill_gain             : \($mbp / ($mbp + $mdp))"
+  "  prefill_gain             : \($mbp / ($mbp + $mdp))",
+  "",
+  "  order breakdown (the second arm of a round inherits session warm-up drift):",
+  "    baseline-first  n=\($bf | length) mean decode diff \(if ($bf|length) > 0 then ([$bf[].dd] | mean * 1000000) else "n/a" end) us/step",
+  "    candidate-first n=\($cf | length) mean decode diff \(if ($cf|length) > 0 then ([$cf[].dd] | mean * 1000000) else "n/a" end) us/step",
+  (if ($bf | length) > 0 and ($cf | length) > 0
+   then "    order-balanced decode diff (linear drift cancelled): \((([$bf[].dd] | mean) + ([$cf[].dd] | mean)) / 2 * 1000000) us/step"
+   else "    order-balanced decode diff: needs at least one round of each order" end)
 ' "${OUT}"/*.row.json
 
 echo "paired-timing-r85b: done branch=$(git rev-parse --abbrev-ref HEAD) head=$(git rev-parse --short HEAD)"
