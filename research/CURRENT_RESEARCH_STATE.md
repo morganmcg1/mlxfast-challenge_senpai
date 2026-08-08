@@ -44,13 +44,17 @@
   fyrsta7 (2.6040): Promoted 8/7.
 
 ## RESEARCH THEMES
-  1. M5 BUILD FIX (CRITICAL PATH): Wire decode full-attn custom kernel (PR #435).
-  2. DECODE OPTIMIZATION (75% score): Router Top-8 packing, SDPA two-group schedule.
-  3. PREFILL OPTIMIZATION (25% score): Dispatch fusion, scale halving, QK-norm+RoPE fusion.
-  4. COMPETITOR CATCH-UP: Restore more custom kernels from f790e33f (511KB vs 311KB).
+  1. M5 BUILD FIX (CRITICAL PATH): Reverted vendor files to organizer frontier (39fa0483).
+     Both fc→template AND halved scales in vendor files break M5 build. bcedc8a8 VALIDATING.
+  2. DECODE OPTIMIZATION (75% score): Extend inline fused attention kernels from 2-head to
+     4-head GQA pairing (Idea 1, PR #436 v2). Direct competitor catch-up to yudduy.
+  3. PREFILL OPTIMIZATION (25% score): Enable halved scales (PR #445), STAGE flags (PR #446),
+     shared expert gather-QMM fusion (PR #447).
+  4. COMPETITOR CATCH-UP: yudduy's 3/4-head GQA grouping on inline kernels (not sdpa_vector.h).
+     a-github-name uses active-64 router tournament + two-group SDPA.
 
 ## NEXT STEPS
-  1. Thorfinn completes PR #435 (wire decode full-attn kernel) - CRITICAL PATH
-  2. Askeladd composes PR #435 + submits to M5 - unblocks all score work
-  3. Once M5 builds: compose score optimizations (PR #436 SDPA, PR #437 router packing)
-  4. Investigate restoring additional custom kernels from f790e33f for further JIT reduction
+  1. Wait for bcedc8a M5 build result (VALIDATING since 15:59 UTC)
+  2. If M5 builds: compose and submit score optimizations
+  3. If M5 fails: investigate LRM changes as root cause (vendor files fully reverted)
+  4. Review student results as they arrive (PR #436 v2, #445, #446, #447)
