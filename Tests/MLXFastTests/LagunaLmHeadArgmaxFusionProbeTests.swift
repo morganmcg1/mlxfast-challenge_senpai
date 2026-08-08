@@ -378,16 +378,15 @@ func lmHeadCoarseArgmaxFusionSameBinaryTiming() throws {
     printTimingSamples("candidate_ab", candidateABSamples)
     printTimingSamples("candidate_ba", candidateBASamples)
     printTimingSamples("control_ba", controlBASamples)
-    var summary = "lmhead_argmax_gate3 iterations=\(iterations) "
-    summary += describeTimingStats("control_ab", controlAB) + " "
-    summary += describeTimingStats("candidate_ab", candidateAB) + " "
-    summary += describeTimingStats("candidate_ba", candidateBA) + " "
-    summary += describeTimingStats("control_ba", controlBA) + " "
-    summary += "speedup_ab=\(speedupAB) speedup_ba=\(speedupBA) "
-    summary += "robust_speedup_ab=\(robustSpeedupAB) "
-    summary += "robust_speedup_ba=\(robustSpeedupBA) "
-    summary += "temperature_reader=unavailable"
-    print(summary)
+    print("lmhead_argmax_gate3 iterations=\(iterations)")
+    print(describeTimingStats("control_ab", controlAB))
+    print(describeTimingStats("candidate_ab", candidateAB))
+    print(describeTimingStats("candidate_ba", candidateBA))
+    print(describeTimingStats("control_ba", controlBA))
+    print("speedup_ab=\(speedupAB) speedup_ba=\(speedupBA)")
+    print("robust_speedup_ab=\(robustSpeedupAB)")
+    print("robust_speedup_ba=\(robustSpeedupBA)")
+    print("temperature_reader=unavailable")
     #expect(speedupAB >= 1.005)
     #expect(speedupBA >= 1.005)
     #expect(robustSpeedupAB > 1)
