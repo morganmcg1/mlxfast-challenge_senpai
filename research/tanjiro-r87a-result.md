@@ -8,7 +8,27 @@ Pre-registration: [`research/tanjiro-r87a-prereg.md`](tanjiro-r87a-prereg.md),
 committed at `7e93b50` / amended at `502756c`, **both before any timing run**.
 Every prediction in §6 of that file is scored HIT/MISS in §9 below.
 
-<!-- VERDICT -->
+## Verdict — **NO-GO on A1. The hypothesis is refuted, not merely unresolved.**
+
+| | |
+| --- | --- |
+| A1 (submittable input-prefetch ladder) | **HARMFUL.** Best arm +26.47 µs/step kernel-local, worst +105.80. All three arms are regressions at 3–30× the rig floor. |
+| Shipped default | `DARKBLOOM_ROUTED_GATEUP_INPUT_PF=0`, verified byte-identical MSL to stock. **Nothing in this PR changes scored behaviour.** |
+| A2 (deliberately incorrect ceiling probe) | **−83.64 ± 2.96 µs/step** kernel-local ⇒ **≈−50 µs/step end-to-end ⇒ ≈+0.77% score** after the 0.60 give-back discount. This is the real deliverable: a measured upper bound on the whole head-latency family. |
+| Merge recommendation | **Do not merge as a speedup.** Merge or close on the value of the negative result and the A2 bound; the knob itself is dead weight unless the advisor wants it retained for follow-up work. |
+
+Three things in this PR are worth more than the failed hypothesis:
+
+1. **A `threadgroup_barrier` is not a dispatch boundary.** Measured
+   0.0293 µs per barrier per dispatch versus rule 41's 1.3163–1.4964 µs
+   per *dispatch* boundary — a **~48× overcharge** if the rule is applied to
+   barriers. Barriers 9–16 cost nothing marginal. Rule 41 needs this
+   qualification. (§3a)
+2. **The head-latency ceiling is ≈+0.77% score and it is real** — the router
+   kernel absorbed only +0.71 ± 1.59 µs/step, so the recovery is latency
+   removed, not work migrated. (§5)
+3. **The give-back fraction is not a constant.** 16.9% here versus 42% in
+   PR #457. Treating 42% as a law will mis-price future candidates. (§11)
 
 ---
 
@@ -140,7 +160,56 @@ belongs in the shared rule set, not just in this PR.
 
 ## 4. A1 ladder — the submittable arm
 
-<!-- LADDER -->
+Block `research/r87a-runs/ladder` → `research/r87a-runs/ladder.json`, 25 runs,
+position 0 discarded as warm-up, 24 retained, **n=6 per arm**, interleaved
+A0/PF1/PF2/PF3 with a mirrored order inside each group of eight so that any
+monotone thermal drift cancels. `DARKBLOOM_ROUTED_GATEUP_INPUT_PF` is a
+2-bit knob: bit0 = steady-state staging of the next iteration's activation
+tile into registers inside the K loop, bit1 = preamble hoist of the first
+tile above the routing prelude.
+
+Rule 33 was verified on every run: the dispatched kernel name carried
+`_pfin1` / `_pfin2` / `_pfin3` exactly as the arm demanded, so each arm
+provably executed a *different* compiled kernel and not the stock one.
+
+| arm | bits | touched kernel Δ (µs/step) | untouched Δ | TOTAL busy_sum Δ |
+| --- | --- | --- | --- | --- |
+| PF1 steady | `1` | **+98.62 ± 3.33** | +7.25 | **+108.50 ± 36.09** |
+| PF2 preamble | `2` | **+26.47 ± 4.02** | +12.88 | **+40.17 ± 16.69** |
+| PF3 both | `3` | **+105.80 ± 2.85** | −0.95 | **+107.33 ± 22.82** |
+
+Reference: A0 touched kernel 1499.6 µs/step, 17.53% of decode busy time.
+Arm busy_sum means: A0 8555.7 ± 9.8, PF1 8664.2 ± 35.9, PF2 8595.8 ± 15.4,
+PF3 8663.0 ± 22.1 µs/step.
+
+**Every A1 variant is a regression, and by a margin 3–30× the rig floor
+(±9.73 at n=1, ±3.97 at n=6).** This is not a null result that a bigger n
+could rescue; the sign is unambiguous and the smallest effect (PF2, +26.47)
+is 6.7 floor-widths from zero. Recommended default for the shipped knob is
+therefore **`0` (off)**, which is what it is set to.
+
+### Why input prefetch hurts here
+
+The pre-registration assumed the routed gate/up QMV kernel had spare issue
+slots at the head of each K iteration that a staged activation load could
+fill. The measurement says the opposite: this kernel is already running a
+software pipeline over the **weight** stream at roughly 80% of DRAM peak, and
+inserting a second outstanding load stream for the activation tile competes
+with it. The in-loop variant (PF1, +98.62) is **3.7× worse** than the
+preamble-only variant (PF2, +26.47), exactly the ordering you expect if the
+damage is per-iteration interference with the weight prefetch rather than a
+one-off setup cost.
+
+Two independent observations support power/clock redistribution rather than
+displaced work as the source of the untouched-kernel movement:
+
+- PF3 (+105.80) is **not** PF1 + PF2 (+125.09). The deficit, 19.3 µs/step, is
+  ~5 floor-widths, so the two mechanisms are not additive — they contend for
+  the same resource.
+- `gate_sp_h64_v1`, an untouched kernel, moved **−7.83 (PF1) / −6.98 (PF3)**.
+  That is the *inverse sign* of the +8.14 the same kernel showed in PR #457,
+  which is what a shared power/clock budget predicts and what displaced work
+  does not.
 
 ## 5. A2 ceiling probe — deliberately incorrect, timing only, never a candidate
 
@@ -189,16 +258,26 @@ patch prints `GPUPSO <name> maxThreads= execWidth= tgMem=`).
 | B2 | `_b2` | 1024 | 32 | 0 |
 | B4 | `_b4` | 1024 | 32 | 0 |
 | E0 | `_e0` | 1024 | 32 | 0 |
-<!-- OCCUPANCY_PF -->
+| PF1 | `_pfin1` | 1024 | 32 | 0 |
+| PF2 | `_pfin2` | 1024 | 32 | 0 |
+| PF3 | `_pfin3` | 1024 | 32 | 0 |
 
 Read against the comment-5228399317 AGX table (52→1024, 56→896, 64→832,
 68→768, 72→704, 80→640, 92→576, 104→512, 116→448, 128→384; ALU saturates at
-768): **every variant sits in the top tier**, i.e. ≤52 registers per thread, and
-no variant drops a tier. The packed `vec<bfloat,4> pf_in[4]` staging (8 GPRs)
-did not cost an occupancy tier, and neither did the barrier or ceiling probes.
-There is therefore **no occupancy-mediated explanation available** for any
-result in this PR — the ladder must be read as pure latency/MLP, which is what
-the pre-registration wanted the measurement to isolate.
+768): **every variant sits in the top tier** and no variant drops a tier. The
+packed `vec<bfloat,4> pf_in[4]` staging (8 GPRs) did not cost an occupancy
+tier, and neither did the barrier or ceiling probes.
+
+**Explicit limitation — this metric is ceiling-truncated.** The top tier
+covers everything from 1 to 52 registers per thread, so `maxThreads=1024`
+proves only that no variant crossed 52 registers. It cannot distinguish, say,
+32 registers from 52, and Apple's dispatch may still schedule fewer resident
+simdgroups for the higher-pressure variant for reasons the pipeline object
+does not expose. So this is evidence that **no occupancy *tier* change**
+explains the ladder — it is **not** proof that no occupancy-mediated effect
+exists at all. Ruling that out would need a register-count readout the Metal
+API does not provide on this host. The remaining latency/MLP reading of §4 is
+the most likely explanation, not a proven-by-elimination one.
 
 ## 7. Correctness
 
@@ -231,7 +310,39 @@ verification anchors, and it still leaves 8.6 KB of per-file headroom.
 
 ## 9. Pre-registration scorecard
 
-<!-- SCORECARD -->
+Every row below was written down in `research/tanjiro-r87a-prereg.md` and
+committed at `7e93b50` / `502756c`, **before the first timing run**. Nothing
+here was chosen after seeing data.
+
+| # | pre-registered prediction | interval | measured | verdict |
+| --- | --- | --- | --- | --- |
+| 1 | A1 steady, end-to-end | −6 [+8, −30] | **+108.50** | **MISS** |
+| 2 | A1 preamble, end-to-end | −4 [+5, −20] | **+40.17** | **MISS** |
+| 3 | A1 both, end-to-end | −9 [+8, −38] | **+107.33** | **MISS** |
+| 4 | A2 ceiling, kernel-local (advisor prior) | −60 [−15, −180] | **−83.64** | **HIT** |
+| 5 | A2 ceiling, kernel-local (my prior) | −45 [−5, −150] | **−83.64** | **HIT** |
+| 6 | Control B0→B4, kernel-local | +120 [+30, +400] | **+8.52** | **MISS** |
+| C1 | \|steady\| ≥ \|preamble\| | — | 98.62 vs 26.47 | **HIT** on magnitude, sign wrong |
+| C2 | both ≈ steady + preamble within floor_95 | ±4 | 105.80 vs 125.09 (Δ 19.3) | **MISS** |
+| C3 | `maxThreads` unchanged across all variants (75% conf.) | — | 1024 everywhere | **HIT** (see §6 truncation caveat) |
+| C4 | A1 arms bit-exact, `max_abs_diff = 0` | — | see §7 | see §7 |
+| C5 | M4 prefill artefact digit-identical to base | — | see §7 | see §7 |
+| C6 | A2 recovery ≥ 4× the best A1 recovery | — | no A1 arm produced *any* recovery | **HIT** (unbounded) |
+
+Excluding the two rows that §7 resolves, ten rows are scored: **five MISS
+(1, 2, 3, 6, C2), four HIT (4, 5, C3, C6), one partial (C1)** — and the three
+headline predictions are all MISSes with the wrong sign. That is the honest
+shape of this result. The two prior-elicitation questions the advisor asked
+are answered as follows:
+
+- **Was the direction of the A1 effect predictable?** No. Both the advisor's
+  and my priors put the steady-state variant at a modest *gain*; it is the
+  single largest regression in the block. The prior rested on an assumption
+  about spare issue slots that the measurement refutes.
+- **Was the magnitude of the control predictable?** No, and worse, in a way
+  that invalidates a shared rule. Prediction #6 was 14× the measured value
+  because rule 41's dispatch-boundary cost was being applied to
+  `threadgroup_barrier`. See §3a.
 
 ## 10. Reproduction
 
