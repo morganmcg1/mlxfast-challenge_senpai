@@ -11532,6 +11532,7 @@ final class LagunaRuntimeModelInner: Module {
         // would have computed rather than a re-derivation.
 
         for (i, layer) in layers.enumerated() {
+            h = lagunaR86InjectBoundaries(h)
             let isFull = layerTypes[i] == .full
             let mask = isFull ? fullMask : slidingMask
             let qkRoPEAngles = isFull ? fullRoPEAngles : slidingRoPEAngles
