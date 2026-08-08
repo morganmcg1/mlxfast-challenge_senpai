@@ -127,6 +127,49 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
 
 let lagunaPackedScalesLog = LagunaPackedScalesLog()
 
+let lagunaRequestCarrierProbeEnabled = true
+
+final class LagunaRequestCarrierProbe: @unchecked Sendable {
+    private var counts: [String: Int] = [:]
+    private var seen: Set<String> = []
+    private let lock = NSLock()
+
+    func note(_ key: String, _ message: String) {
+        guard lagunaRequestCarrierProbeEnabled else { return }
+        lock.lock()
+        let isNew = seen.insert(key).inserted
+        lock.unlock()
+        if isNew {
+            FileHandle.standardError.write(Data("mlxfast: request-carrier \(message)\n".utf8))
+        }
+    }
+
+    func recordAttention(writeIdx: Int, shared: Bool) {
+        guard lagunaRequestCarrierProbeEnabled,
+            writeIdx == 513 || writeIdx == 514 || writeIdx == 515
+        else {
+            return
+        }
+        let key = "\(writeIdx):\(shared)"
+        var message: String?
+        lock.lock()
+        let count = counts[key, default: 0] + 1
+        counts[key] = count
+        if count == 10, seen.insert(key).inserted {
+            let reason = writeIdx == 515 ? "forced_capacity_transition" : "forced_misalignment"
+            message = shared
+                ? "writeIdx=\(writeIdx) shared_constructors=1 shared_consumers=10 per_layer_constructors=0"
+                : "writeIdx=\(writeIdx) shared_constructors=0 shared_consumers=0 per_layer_constructors=10 reason=\(reason)"
+        }
+        lock.unlock()
+        if let message {
+            FileHandle.standardError.write(Data("mlxfast: request-carrier \(message)\n".utf8))
+        }
+    }
+}
+
+let lagunaRequestCarrierProbe = LagunaRequestCarrierProbe()
+
 /// Decode-only routed NVFP4 down-QMV plus BF16 router weighting, fixed-order
 /// expert reduction, and the Laguna 2.5 routed scale. The custom kernel emits
 /// one 2048-wide branch instead of materializing eight expert rows.
@@ -2173,9 +2216,11 @@ func lagunaFullFusedAttention(
     precondition(writeIdx >= 0 && writeIdx < capacity)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
+    let usesSharedParams = params != nil
     let params = params ?? MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
+    lagunaRequestCarrierProbe.recordAttention(writeIdx: writeIdx, shared: usesSharedParams)
     precondition(params.dtype == .uint32 && params.shape == [3])
     return lagunaFullFusedAttentionKernel(
         [
@@ -10243,13 +10288,29 @@ final class LagunaRuntimeModelInner: Module {
 
             let writeIdx = fullCache.offset
             let capacity = keys.dim(2)
-            guard writeIdx >= 0, writeIdx < capacity else {
+            let guardedWriteIdx =
+                lagunaRequestCarrierProbeEnabled && writeIdx == 515 ? capacity : writeIdx
+            if guardedWriteIdx == capacity {
+                let fullLayerCount = layerTypes.filter { $0 == .full }.count
+                lagunaRequestCarrierProbe.note(
+                    "capacity-transition",
+                    "writeIdx=\(writeIdx) guardedWriteIdx=\(guardedWriteIdx) capacity=\(capacity) forced_guard=capacity_transition shared_carrier=nil stock_fallback_layers=\(fullLayerCount)")
+            }
+            guard guardedWriteIdx >= 0, guardedWriteIdx < capacity else {
                 return nil
             }
             if let expectedWriteIdx = sharedWriteIdx,
                 let expectedCapacity = sharedCapacity
             {
-                guard writeIdx == expectedWriteIdx, capacity == expectedCapacity else {
+                let comparedWriteIdx =
+                    lagunaRequestCarrierProbeEnabled && writeIdx == 514
+                    ? writeIdx + 1 : writeIdx
+                guard comparedWriteIdx == expectedWriteIdx, capacity == expectedCapacity else {
+                    if lagunaRequestCarrierProbeEnabled && writeIdx == 514 {
+                        lagunaRequestCarrierProbe.note(
+                            "forced-misalignment",
+                            "writeIdx=\(writeIdx) forced_guard=misaligned_offset shared_carrier=nil")
+                    }
                     return nil
                 }
             } else {
