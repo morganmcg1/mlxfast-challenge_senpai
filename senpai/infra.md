@@ -87,25 +87,25 @@ It makes authenticated GET requests only, honors API retry guidance, emits one
 start record and one compact terminal receipt, and never submits or comments.
 Normal checks use a three-minute base interval plus a newly sampled 0-20 second
 jitter so concurrent submitters do not synchronize their requests.
-The current Senpai supervised-process tools are student-only: a student
-submitter can launch the watcher with `run_training` (with the watcher's timeout
-below that deployment's process timeout), then continue useful work; terminal,
-failed, interrupted, and timed-out processes resume that same student. An
-advisor submitter must still make sparse deliberate status checks until the
-generic monitor surface is available to advisors. The role that submitted owns
-any retry and decides whether its PR needs an update.
+An advisor or student submitter can launch the watcher with `run_job`, declaring
+it `read_only` and keeping the watcher's timeout below that deployment's process
+timeout. Then continue useful work: the automatic terminal monitor resumes the
+same conversation when the watcher finishes, fails, is interrupted, or times
+out. The role that submitted owns any retry and decides whether its PR needs an
+update.
 
 For a deployment with Senpai's 1,800-second supervised-process cap, use a
 1,680-second watcher deadline and leave one minute for clean outer supervision:
 
 ```text
-run_training({
+run_job({
   "spec": {
     "argv": ["python3", "senpai/watch-submission.py",
              "--submission", "<submission-id-or-prefix>",
              "--interval-seconds", "180", "--timeout-seconds", "1680"],
     "cwd": ".",
-    "timeout_seconds": 1740
+    "timeout_seconds": 1740,
+    "workspace_access": "read_only"
   }
 })
 ```
