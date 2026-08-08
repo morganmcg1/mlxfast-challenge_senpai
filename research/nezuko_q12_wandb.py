@@ -11,6 +11,7 @@ per-step trace, the bit-exactness transcript, and the in-situ reachability
 stderr as one artifact.
 """
 import argparse
+import json
 import math
 import os
 import platform
@@ -201,6 +202,14 @@ def parse_gates(gates_dir, base_dir):
         rep = _equivalence_report(log) if log else None
         if rep is None:
             continue
+        text = log.read_text(errors="replace")
+        # The wrapper exits nonzero on this M4 host for both trees, so record
+        # its verdict verbatim rather than implying an equivalence pass.
+        for field, key in (("EQUIVALENCE_EXIT", "wrapper_exit"),
+                           ("EQUIVALENCE_EXACT_STEPS", "wrapper_exact_steps")):
+            mt = re.search(rf"^(?:BASE_)?{field}=(\d+)", text, re.M)
+            if mt:
+                out[f"gates/equivalence/{label}/{key}"] = int(mt.group(1))
         steps = {s["label"]: s for s in rep["steps"]}
         pre = steps.get("prefill", {})
         dec_steps = [s for k, s in steps.items() if k.startswith("decode-")]
