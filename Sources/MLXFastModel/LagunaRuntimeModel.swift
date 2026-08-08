@@ -1293,7 +1293,29 @@ func lagunaSlidingQKNormRoPE(
 let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
-private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
+let lagunaSlidingKVBF16x4StoreEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SLIDING_KV_BF16X4_STORE"] != "0"
+
+private let lagunaSlidingKVStoreSource = lagunaSlidingKVBF16x4StoreEnabled
+    ? """
+        uint base = 4 * lane;
+        device vec<bfloat, 4>* kc4 =
+            reinterpret_cast<device vec<bfloat, 4>*>(kc);
+        device vec<bfloat, 4>* vc4 =
+            reinterpret_cast<device vec<bfloat, 4>*>(vc);
+        kc4[lane] = vec<bfloat, 4>(
+            tg_k[base], tg_k[base + 1], tg_k[base + 2], tg_k[base + 3]);
+        vc4[lane] = vec<bfloat, 4>(
+            tg_v[base], tg_v[base + 1], tg_v[base + 2], tg_v[base + 3]);
+        """
+    : """
+        for (uint i = lane; i < head_dim; i += 32) {
+            kc[i] = tg_k[i];
+            vc[i] = tg_v[i];
+        }
+        """
+
+let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
     name: "laguna_sliding_fused_attn_ring_v1",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
@@ -1392,10 +1414,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             device bfloat* vc = (device bfloat*)v_cache +
                 (size_t)kv_head * (window * head_dim) +
                 (size_t)widx * head_dim;
-            for (uint i = lane; i < head_dim; i += 32) {
-                kc[i] = tg_k[i];
-                vc[i] = tg_v[i];
-            }
+            \(lagunaSlidingKVStoreSource)
         }
 
         // Phase 3: GQA-pair attention over the ring in slot order, textual
