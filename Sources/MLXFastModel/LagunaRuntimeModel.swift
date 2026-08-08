@@ -227,6 +227,9 @@ func lagunaNAXAvailable(architecture: String, osSupportsNAX: Bool) -> Bool {
 // template parameter), so zero new JIT compilations are created.
 let lagunaPrefillSharedHalvedEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_SHARED_HALVED"] != "0"
+    && lagunaNAXAvailable(
+        architecture: GPU.deviceInfo().architecture,
+        osSupportsNAX: true)
 
 /// Decode post-attention residual + RMSNorm fusion. The kernel emits
 /// both the rounded BF16 residual (needed by the following skip connection)
