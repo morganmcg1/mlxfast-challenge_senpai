@@ -3718,6 +3718,75 @@ func lagunaGateProductSoftplus(
     )[0]
 }
 
+private func lagunaPrefillTransposeGateMaterializerSource(heads: Int) -> String {
+    """
+    constexpr uint HEADS = \(heads);
+    constexpr uint LENGTH = 512;
+    constexpr uint VECTORS_PER_HEAD = 32;
+    uint gid = thread_position_in_grid.x;
+    uint row = gid / VECTORS_PER_HEAD;
+    uint vector = gid % VECTORS_PER_HEAD;
+    uint position = row / HEADS;
+    uint head = row % HEADS;
+    const device vec<bfloat, 4>* input4 =
+        (const device vec<bfloat, 4>*)(attention_output);
+    device vec<bfloat, 4>* output4 = (device vec<bfloat, 4>*)(gated);
+    vec<bfloat, 4> values =
+        input4[(head * LENGTH + position) * VECTORS_PER_HEAD + vector];
+    float gate = float(gate_values[position * HEADS + head]);
+    vec<bfloat, 4> result;
+    for (uint lane = 0; lane < 4; ++lane) {
+        result[lane] = bfloat(float(values[lane]) * gate);
+    }
+    output4[gid] = result;
+    """
+}
+
+private let lagunaPrefillTransposeGateMaterializerKernels: [Int: MLXFast.MLXFastKernel] = {
+    var kernels: [Int: MLXFast.MLXFastKernel] = [:]
+    for heads in [LagunaConstants.slidingAttentionHeads, LagunaConstants.fullAttentionHeads] {
+        kernels[heads] = MLXFast.metalKernel(
+            name: "laguna_prefill_transpose_gate_bf16_h\(heads)_v1",
+            inputNames: ["attention_output", "gate_values"],
+            outputNames: ["gated"],
+            source: lagunaPrefillTransposeGateMaterializerSource(heads: heads),
+            ensureRowContiguous: true
+        )
+    }
+    return kernels
+}()
+
+private let lagunaPrefillTransposeGateMaterializerEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_TRANSPOSE_GATE_MATERIALIZER"] != "0"
+private let lagunaPrefillTransposeGateMaterializerTrace =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_TRANSPOSE_GATE_TRACE"] == "1"
+
+func lagunaPrefillTransposeGateMaterialized(
+    attentionOutput: MLXArray, gateValues: MLXArray, heads: Int
+) -> MLXArray? {
+    guard lagunaPrefillTransposeGateMaterializerEnabled,
+        let kernel = lagunaPrefillTransposeGateMaterializerKernels[heads],
+        attentionOutput.dtype == .bfloat16,
+        attentionOutput.shape == [1, heads, 512, LagunaConstants.headDim],
+        gateValues.dtype == .bfloat16,
+        gateValues.shape == [1, 512, heads]
+    else { return nil }
+
+    if lagunaPrefillTransposeGateMaterializerTrace {
+        let message = "prefill_transpose_gate_materializer hit H=\(heads) L=512\n"
+        FileHandle.standardError.write(Data(message.utf8))
+    }
+
+    let vectorsPerHead = LagunaConstants.headDim / 4
+    return kernel(
+        [attentionOutput, gateValues],
+        grid: (512 * heads * vectorsPerHead, 1, 1),
+        threadGroup: (128, 1, 1),
+        outputShapes: [[1, 512, heads * LagunaConstants.headDim]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
 // MARK: - Gated native-affine INT8 output projection (one dispatch)
 
 /// Exact per-head softplus gate plus group-32 affine INT8 output GEMV.
@@ -5919,23 +5988,16 @@ final class LagunaRuntimeAttention: Module {
                 : gatePerHead && projectedGate.dtype == output.dtype
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
-            if L == 512,
-                ProcessInfo.processInfo.environment["DARKBLOOM_PREFILL_TAIL_BASELINE_TRACE"] == "1"
-            {
-                let message =
-                    "prefill_tail_baseline layer=\(layerIdx) B=\(B) L=\(L) H=\(nHeads) "
-                    + "D=\(headDim) attended_shape=\(attended.shape) "
-                    + "attended_dtype=\(attended.dtype) flatten_shape=\(output.shape) "
-                    + "flatten_dtype=\(output.dtype) projected_gate_shape=\(projectedGate.shape) "
-                    + "projected_gate_dtype=\(projectedGate.dtype) gate_shape=\(gate.shape) "
-                    + "gate_dtype=\(gate.dtype) gate_activated=\(gateIsActivated) "
-                    + "gate_per_head=\(gatePerHead)\n"
-                FileHandle.standardError.write(Data(message.utf8))
-            }
             if gatePerHead {
-                output =
-                    (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
-                    .reshaped(B, L, -1)
+                if let materialized = lagunaPrefillTransposeGateMaterialized(
+                    attentionOutput: attended, gateValues: gate, heads: nHeads
+                ) {
+                    output = materialized
+                } else {
+                    output =
+                        (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
+                        .reshaped(B, L, -1)
+                }
             } else {
                 output = output * gate
             }
