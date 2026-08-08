@@ -1574,8 +1574,8 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 outputs[
                     (pair_planes + p) * pair_plane_size + sg * BD + lane] *
                 pair_global_factor1);
-            pair_o0[p] = acc0 / pair_sum0;
-            pair_o1[p] = acc1 / pair_sum1;
+            pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
+            pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
         }
 
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -1595,8 +1595,10 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 outputs[
                     (pair_planes + p) * pair_plane_size + sg * BD + lane] *
                 pair_global_factor1);
-            pair_o0[pair_planes + p] = acc0 / pair_sum0;
-            pair_o1[pair_planes + p] = acc1 / pair_sum1;
+            pair_o0[pair_planes + p] =
+                pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
+            pair_o1[pair_planes + p] =
+                pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
         }
 
         if (lane == 0) {
@@ -1727,8 +1729,7 @@ func lagunaSlidingFusedAttention(
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
-        outputDTypes: [.bfloat16],
-        verbose: true
+        outputDTypes: [.bfloat16]
     )[0]
 }
 
