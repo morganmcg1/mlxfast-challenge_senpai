@@ -23,9 +23,16 @@ It does. Three independent lines of evidence agree:
 1. **The harness says so in its own log.** Every `--local-iterate` run prints
    `decode measured start tokens=128 includes_seed_prefill=true` and then
    `decode seed prefill complete seconds=0.6 (charged to decode)`.
-2. **The within-run arithmetic identity closes.** (§4)
+2. **The within-run arithmetic identity closes.** `implied_seed / prefill_window
+   = 0.998`, 95% CI [0.992, 1.004], n = 16. Predicted 1 under H58, 0 under H0.
+   (§4)
 3. **The decode metric causally responds to prefill-only injected work at the
-   predicted gain of 4.** (§5)
+   predicted gain of 4.** `R = 3.85`, 95% CI [3.19, 4.49] over a 4-block
+   randomised ladder — contains 4, excludes 0, excludes 16. (§5)
+
+The practical consequence: **36.6% of the published decode number on this host
+is the seed forward, not stepping** (§4), so the effective score exponent on
+512-token forward cost is not 0.25 (§7).
 
 ---
 
@@ -88,11 +95,109 @@ implied_seed = 128 * (D - T_bar)      compared against    prefill window = 512 *
 
 Under H58 the ratio is 1; under H0 it is 0.
 
-<!-- STAGE1_DECOMPOSITION -->
+Measured over all 16 stage-1 runs:
+
+```
+implied_seed / prefill_window = 0.9978   sd 0.0119   n = 16
+                               95% CI [0.9920, 1.0037]      (t on the run mean)
+                               range   [0.9763, 1.0203]
+```
+
+The interval contains 1 and misses 0 by roughly 330 standard errors. H0 is dead.
+
+| idx | rung | seed logged (ms) | seed implied (ms) | prefill window (ms) | implied/window |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 0 | 600 | 585.5 | 583.8 | 1.003 |
+| 2 | 10 | 600 | 592.1 | 606.5 | 0.976 |
+| 3 | 20 | 600 | 644.2 | 635.5 | 1.014 |
+| 4 | 40 | 700 | 673.6 | 671.4 | 1.003 |
+| 5 | 20 | 600 | 623.9 | 635.7 | 0.981 |
+| 6 | 10 | 600 | 605.2 | 606.6 | 0.998 |
+| 7 | 40 | 700 | 671.8 | 676.5 | 0.993 |
+| 8 | 0 | 600 | 586.7 | 593.4 | 0.989 |
+| 9 | 20 | 600 | 629.4 | 628.6 | 1.001 |
+| 10 | 40 | 700 | 686.6 | 672.9 | 1.020 |
+| 11 | 0 | 600 | 586.7 | 591.9 | 0.991 |
+| 12 | 10 | 600 | 607.9 | 608.3 | 0.999 |
+| 13 | 10 | 600 | 607.6 | 605.9 | 1.003 |
+| 14 | 20 | 600 | 629.9 | 635.2 | 0.992 |
+| 15 | 40 | 700 | 662.7 | 671.1 | 0.988 |
+| 16 | 0 | 600 | 593.0 | 584.7 | 1.014 |
+
+`seed implied` is recovered purely from the two published metrics,
+`128*(D - T_bar)`; `prefill window` is `512*P` from the separate prefill phase.
+The harness's own `seed prefill complete seconds=` line is printed to one
+decimal and is shown only as a coarse cross-check — the identity never uses it.
+
+The same decomposition also quantifies how much of the headline decode number
+is not stepping at all:
+
+```
+D_stepsonly = 8448.6 us/step   sd 29.1        (128 single-token steps only)
+D           = 13085 .. 13699 us/step          (what the harness publishes)
+seed share of D = 36.6%        range 35.0% .. 38.8%
+```
+
+Independently, `f = 4P/D` computed straight from the two score fields gives
+0.3665 (range 0.3477 .. 0.3865) — the same number to three digits, which is the
+identity closing a second time from a different pair of inputs.
 
 ## 5. SUPPORTING RESULT — the causal injection ladder
 
-<!-- STAGE1_LADDER -->
+§4 is an accounting identity. It shows the published `D` is *arithmetically*
+consistent with the seed forward being inside the window, but it reads only
+numbers the harness chose to print. §5 asks the causal question instead: if I
+add work that provably executes **only** in multi-token forwards, does the
+decode metric move, and by how much per unit of prefill movement?
+
+16 runs, 4 blocks of the 4 rungs {0, 10, 20, 40} injected matmuls, order
+randomised within each block (seed 93), 60 s pre-cool, one 40 C-gated
+`--local-iterate` run each. All 16 passed their correctness gate.
+
+| rung | n | mean D (us/step) | mean P (us/token) | dD | dP | dD/dP |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 4 | 13085.3 | 1149.34 | — | — | — |
+| 10 | 4 | 13135.8 | 1185.17 | 50.5 | 35.83 | 1.41 |
+| 20 | 4 | 13379.4 | 1237.81 | 294.1 | 88.48 | 3.32 |
+| 40 | 4 | 13699.4 | 1314.42 | 614.0 | 165.08 | 3.72 |
+
+Preregistered estimators, 95% intervals from a bootstrap over whole blocks:
+
+| estimator | R | CI low | CI high | half-width |
+|---|---:|---:|---:|---:|
+| **free_intercept_ols (PRIMARY)** | **3.846** | **3.186** | **4.491** | **0.653** |
+| through_origin | 3.515 | 2.777 | 4.314 | 0.769 |
+| nonzero_rungs_only | 4.386 | 3.488 | 5.396 | 0.954 |
+| step_drift_adjusted *(exploratory)* | 4.073 | 3.520 | 4.628 | 0.554 |
+
+Preregistered verdict flags on the primary estimator: contains 4 ✅, excludes
+0 ✅, excludes 16 ✅, half-width < 0.8 ✅. **PASS.**
+
+All four estimators sit in 3.5 .. 4.4. None comes within a factor of three of
+the brief's 16, and none is consistent with 0.
+
+### Why the ladder is looser than the identity
+
+Block-paired deltas, each rung against its own block's rung-0 run:
+
+| rung | block 0 | block 1 | block 2 | block 3 |
+|---:|---:|---:|---:|---:|
+| 10 | −0.96 | 3.70 | 3.79 | 0.69 |
+| 20 | 3.98 | 3.07 | 4.28 | 2.17 |
+| 40 | 3.73 | 3.73 | 4.75 | 2.72 |
+
+The dispersion is concentrated at rung 10 and shrinks monotonically with rung.
+That is the expected signature, not a defect: the ladder differences `D` across
+runs, and `D = 4P + T_bar` passes any between-run drift in `T_bar` straight into
+`ΔD` one-for-one. Across these 16 runs `T_bar` (`D_stepsonly` above) wanders over
+8421 .. 8507 us/step, an 86 us/step band. At rung 10 the injected signal is only
+about 4 × 36 = 143 us/step, so a single unlucky pairing can flip its sign — which
+is exactly what block 0's rung-10 run did. At rung 40 the signal is ~660 us/step
+and every block agrees.
+
+This is also the reason §4, not §5, is the primary result: the within-run
+identity conditions that drift term away entirely instead of differencing across
+it.
 
 ## 6. Gate 0 — the instrument is valid
 
