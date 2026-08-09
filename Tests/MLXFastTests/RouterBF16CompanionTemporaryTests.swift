@@ -17,11 +17,22 @@ func routerBF16CompanionRawDifferentialWhenRuntimeTestsAreEnabled() {
     let randomBias = (0..<256).map { index in
         Float((index * 37) % 101 - 50) / 512
     }
+    let zeros = Array(repeating: Float(0), count: 256)
+    let repeatedTiny = (0..<256).map { Float($0 % 9 - 4) * 1e-7 }
+    let repeatedTinyBias = (0..<256).map { Float($0 % 5 - 2) * 1e-8 }
+    let extremes = (0..<256).map { index -> Float in
+        if index % 4 == 0 { return 80 }
+        if index % 4 == 1 { return -80 }
+        return Float(index % 13 - 6)
+    }
+    let extremeBias = (0..<256).map { index -> Float in
+        index % 17 == 0 ? 4 : -Float(index % 7) / 16
+    }
     let cases: [(String, [Float], [Float], DType)] = [
-        ("zeros-and-ties", Array(repeating: 0, count: 256), Array(repeating: 0, count: 256), .float32),
-        ("repeated-tiny", (0..<256).map { Float($0 % 9 - 4) * 1e-7 }, (0..<256).map { Float($0 % 5 - 2) * 1e-8 }, .float32),
+        ("zeros-and-ties", zeros, zeros, .float32),
+        ("repeated-tiny", repeatedTiny, repeatedTinyBias, .float32),
         ("seeded-random-bf16", randomValues, randomBias, .bfloat16),
-        ("extremes", (0..<256).map { $0 % 4 == 0 ? 80 : ($0 % 4 == 1 ? -80 : Float($0 % 13 - 6)) }, (0..<256).map { $0 % 17 == 0 ? 4 : -Float($0 % 7) / 16 }, .float32),
+        ("extremes", extremes, extremeBias, .float32),
     ]
 
     for (label, values, biasValues, dtype) in cases {
