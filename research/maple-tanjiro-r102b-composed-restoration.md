@@ -693,4 +693,96 @@ baseline draw rather than to candidate speed.
 
 ## 11. Replacement block for `CURRENT_RESEARCH_STATE.md`
 
-_Pending._
+The round-102 headline and the submitted-surface bullet were both written
+before this round's receipt existed. Four statements in them are now wrong or
+misleading:
+
+1. **"exactly one file"** — the delta vs `origin/main` (`1bc1c895`) is **27
+   files**, not one. 1 is `Sources/MLXFastModel/LagunaRuntimeModel.swift`; the
+   other 26 are `Vendor/` files carrying merged #548 rung-1 comment reclaim
+   (`f720e9e7`, +55/−3072, semantics-free). The one-file claim is true only
+   against `3567695b^`, not against `origin/main`. §3.
+2. **"`pipe_kc`/`pipe_kd` ×20"** — the actual counts are **10 each**. §3.
+3. **`cs ≈ 2.58506`** was a prediction. The measured value is
+   **`cs = 2.582286297407117`**, −0.1073 % below it. §7.
+4. **Per-draw record probability ≈1.2 %** used the predicted merit and an
+   `L`-sigma of 0.5393 %. At the *measured* merit, with `L` re-fitted on all
+   1203 receipts, it is **0.748 %** empirical / 0.671 % lognormal. §10.
+
+A fifth, subtler correction: `2.61650354381456` is a **`score`**, not a `cs`.
+`score = cs × L`, and that record receipt's `cs` is only 2.574594 — *below*
+ours. Treating it as a candidate-speed target is a category error. §10.1.
+
+### 11.1 Drop-in replacement for lines 14–36
+
+Replace both bullets verbatim with:
+
+```markdown
+- ✅ **Round-102 headline resolved: the composed R1∘R2 tree has now been
+  built, correctness-verified, measured on M4 as a full 2×2, and spent on an
+  official M5 receipt.** #555 (float4 merge epilogue, −454 B, +0.2358 % solo)
+  and #539 (4-deep sliding ring, +4,086 B, ≈0.130 % solo) edit the same
+  sliding-attention kernel in disjoint regions; the composition had never been
+  measured. Receipt `e08d759f-8e52-46e7-8b29-2c8647cfaae8` (commit `bd33883e`,
+  2026-08-09T18:36:41Z) gives **`cs = 2.582286297407117`**, +0.2580 % over
+  control `59bd72a3` (2.575633) — against an additive prediction of +0.3658 %.
+  The receipt-implied interaction is **−0.108 % ± 0.331 %** (1σ), i.e. a single
+  receipt cannot resolve it. The M4 2×2 (4 arms × 28 slots, PR #565 §6) is
+  ~6× tighter and puts the whole-step interaction at **+0.041 % ± 0.056 %**:
+  **statistically null, so composition is additive to within measurement**, but
+  additive *by cancellation* — the sliding kernel loses +6.13 µs/step of R1's
+  benefit under R2 while `gate_sp_h64_v1` gains −8.20 µs/step and the full
+  attention kernel −1.74 µs/step. Nothing needs un-merging. **Do not quote
+  2.58506 anywhere**; the measured frontier merit is **2.582286**.
+
+- **Per-draw record probability at the measured frontier is 0.748 %**
+  (9/1203 empirical, 1 in 134; 0.671 % lognormal), not the 1.2 % predicted at
+  `cs = 2.58506`. Beware the statistic: the record `2.61650354381456` is a
+  **`score`**, and `score = cs × L` with
+  `L = (bl_dec/MB_D)^0.75 (bl_pre/MB_P)^0.25` the same-session *baseline* draw.
+  The record receipt (`c5b0a13c`) has `cs = 2.574594`, **below ours**, and won
+  on `L = 1.016278` (>p99). Our candidate is faster than the record holder's on
+  **both** scored legs (`cand_dec` −0.344 %, `cand_pre` −0.161 %); we rank
+  **31/1203 by `cs`** but 40/1203 by `score`. `sd(ln L) = 0.5359 %` over 1203
+  receipts, ~96 % of it from `bl_pre`, and no legitimate lever on `L` exists
+  (PR #565 §10, frontier consult Q2). A coin-flip draw needs `cs ≥ 2.6202`
+  (+1.47 % over the current frontier). Optimise `cs`; submit every round,
+  because each round yields a free `L` draw.
+
+- **Submitted-surface delta vs `origin/main` (`1bc1c895`) is 27 files**, not
+  one: `Sources/MLXFastModel/LagunaRuntimeModel.swift` (+137/−83, both
+  restorations) plus 26 `Vendor/` files from merged #548 rung-1 comment
+  reclaim (`f720e9e7`, +55/−3072, semantics-free). The "exactly one file"
+  claim holds only against `3567695b^`. Marker greps: `pipe_kc`/`pipe_kd`
+  **×10 each** (not ×20) with `for (; i + 3 * BN < N; i += 4 * BN)` at
+  `LRM:1548`; `outputs4` ×10. `benchmark.json` is byte-identical to
+  `origin/main`. Budget at submission: `current=2811013/3000000`,
+  `headroom=188987`, `growth=−172836/262144`, `files=142`; the LRM blob is
+  515,050 B with 9,238 B of per-file headroom.
+  `lagunaRouterWeightPrefetch` count is still **0** — that is #558's job and it
+  is the only one of the three restorations still missing.
+```
+
+### 11.2 Optional secondary amendment (lines 10–12)
+
+Lines 10–12 quote the record as a bare number. If the advisor wants the
+`score`/`cs` distinction to survive at the top of the file, append to that
+bullet:
+
+```markdown
+  That 2.61650354381456 is a **`score`** (`= cs × L`); the same receipt's
+  candidate merit is only `cs = 2.574594`. The corpus maximum *by `cs`* is a
+  different receipt entirely (`ebcd3ca3`, MyatKaung, `cs = 2.591868`).
+```
+
+### 11.3 Other documents carrying the same category error
+
+Flagged, not edited — each conflates `score` with `cs`, or quotes 2.58506 as
+measured. They are historical records of what was believed at the time, so
+overwriting them would destroy the audit trail; the advisor should decide.
+
+| file | line(s) | issue |
+|---|---|---|
+| `research/maple-r99-score-gap-and-receipt-economics.md` | §3 | record-probability ≈1.2e-4 computed against the record as a `cs`; retired by §10 |
+| `research/tanjiro-r102b-submission-note.md` | 28, 80, 180 | quotes the additive prediction `cs ≈ 2.58506` as the expected merit |
+| `research/maple-fern-r85b-neutrality-prereg.md` | 34 | same `score`-as-`cs` conflation |
