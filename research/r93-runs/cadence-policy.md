@@ -32,11 +32,15 @@ submissions".
 
 ### 2. The candidate side is quiet; the baseline side is not
 
-See `research/r93-runs/RESULTS.md` for the measured candidate-side σ. The
-campaign already records (rule 48) that the same-session baseline's prefill
-coefficient of variation is roughly eight times the candidate's. Every ranked
-score divides by that baseline. So the channel is far more precise when read as
-raw candidate timings than when read as scores.
+See `research/r93-runs/RESULTS.md` §2 for the measured candidate-side σ and §9
+for an n=1184 characterisation of the *baseline* side derived from the whole
+receipt corpus at zero submission cost. Headline numbers: baseline decode
+CV 0.2454 %, baseline prefill CV **1.9451 %**; candidate decode CV in the
+current frontier regime ≈ 0.40–0.44 %, candidate prefill CV ≈ 0.24 %. Every
+ranked score divides by that baseline, and candidate/baseline are uncorrelated
+(|ρ| < 0.08 by four independent estimators, §9.3), so
+`CV(speedup)² = CV(cand)² + CV(bl)²`. Reading raw candidate timings instead of
+published speedups sharpens decode by 1.2× and **prefill by 30×**.
 
 ## The policy
 
@@ -65,11 +69,18 @@ question. Dispatching an underpowered comparison spends real channel time to
 produce a number that cannot be distinguished from noise, and then invites
 someone to over-read it.
 
-**P4. Interleave arms; never run all of arm A then all of arm B.** Because the
-channel is serial, arm order aliases directly onto time-of-day and host drift.
-Our own schedule alternates null, rung, null, rung, … so that any monotone drift
-loads equally onto both arms. If an experiment genuinely cannot interleave,
-bracket it: run the control first and last and report the drift between them.
+**P4. Interleaving is cheap insurance, not a requirement — the channel has no
+drift.** We entered this experiment assuming arm order would alias onto
+time-of-day and host drift, and we interleaved null, rung, null, rung, …
+accordingly. The corpus disproves the premise (§9.2): over 1184 receipts
+spanning sixteen days, `mean|adjacent diff| / mean|random-pair diff|` is 1.0085
+for baseline decode and 1.0102 for baseline prefill — a pure white sequence
+would give 1.0000, and strong drift would give a number well below 1. Daily
+baseline decode means span 13839–13866 µs (0.2 %) with no trend. So two
+receipts a week apart are as comparable as two ten minutes apart, and you may
+order an experiment for scientific convenience (highest-information rung first)
+rather than for balance. Keep interleaving only when it is free; do not pay a
+slot for it, and do not delay a decision-relevant rung to preserve alternation.
 
 **P5. One difference per submission.** The surface uploaded for a receipt should
 differ from the previous receipt in exactly one intended way. Our replicates
@@ -101,6 +112,34 @@ can currently resolve, and it is cheap relative to being wrong about a 0.3 %
 "win". We suggest one null per campaign week, or immediately after any harness
 or base change.
 
+**P10. Mine the corpus before you spend a slot.** Every receipt ever produced
+carries `baseline_decode_seconds_per_token` and
+`baseline_prefill_seconds_per_token` for the *pinned* baseline — identical code
+on all 1184 receipts. That is a free n=1184 null sample of the measurement
+channel, and it is what produced §9.1–§9.5. Before dispatching a calibration
+experiment, ask whether the corpus already answers it. Concretely, the corpus
+gave us the baseline dispersion, the absence of drift, the absence of
+cand/baseline correlation, the tail shape, and the heteroscedasticity slope —
+five results that would otherwise have cost dozens of slots.
+
+**P11. With n ≥ 3, summarise receipts with a median or trimmed mean.** Both
+baseline channels are right-skewed (decode skew +0.93, excess kurtosis +1.94;
+prefill skew +0.53). A 5 % trimmed mean cuts the apparent decode dispersion by
+22 % relative to the raw mean. The tail is real host contention, not a coding
+error, so it should not be deleted from the record — but a single unlucky
+receipt should not be allowed to dominate a three-point estimate either.
+
+**P12. Expect calibration to get *harder* as the frontier gets faster.** Noise
+on this channel is multiplicative, not additive: across near-replicate groups
+the standard deviation rises with the mean while the CV stays roughly flat
+(§9.5). But the fastest candidates — the ones at the current frontier, 4912–5100
+µs decode — show CV ≈ 0.4358 %, versus 0.2454 % for the much slower pinned
+baseline. In absolute µs a frontier candidate is quieter; in the *relative* units
+that the score uses, it is ~1.7× noisier. Every additional win therefore shrinks
+the effect you are chasing *and* leaves the relative noise floor where it was.
+Re-derive the cadence table after each frontier promotion; do not reuse last
+month's `n`.
+
 ## Worked budget
 
 For a campaign day with, say, four hours of channel time (~11 slots):
@@ -117,3 +156,34 @@ only fairly large effects. That is a real constraint on the campaign, not a
 defect of the policy: it says the channel should be used to confirm effects that
 were first found somewhere cheaper, and that hunting for sub-noise decode wins
 directly on the official channel is not a viable strategy.
+
+## Receipts needed, by effect size
+
+From §6 of `RESULTS.md` (95 % two-sided, 80 % power, σ(raw candidate decode)
+= 0.4041 %, σ(published decode speedup) = 0.4728 %). "Estimated reference" means
+you already have a well-characterised control from previous receipts; "fresh
+reference" means you must also pay for the control in this experiment.
+
+| true decode Δ | est. ref, raw µs | est. ref, published | fresh ref, raw µs | fresh ref, published |
+| --- | --- | --- | --- | --- |
+| 0.5 % | 6 | 8 | 11 | 15 |
+| 1.0 % | 2 | 2 | 3 | 4 |
+| 2.0 % | 1 | 1 | 1 | 1 |
+| 4.0 % | 1 | 1 | 1 | 1 |
+
+Read this as the operational core of the policy:
+
+- A **≥ 2 % decode win confirms in a single receipt.** Do not spend three.
+- A **1 % win costs 2–4 receipts** (~45–85 minutes of exclusive channel).
+- A **0.5 % win costs 6–11 receipts** (2–4 hours). At that price, prefer to
+  bundle it with another change and confirm the pair, or find the effect on M4
+  first and use the official channel only to check that the sign transfers.
+- Anything the candidate cannot be shown to move by ≥ 0.4 % is, for practical
+  purposes, unmeasurable on this channel within a single campaign day.
+
+Prefill is the mirror image. Read as raw candidate µs its σ is ≈ 0.064 %, so
+n = 4 resolves 0.095 %; read as `prefill_speedup` the same four receipts resolve
+only 2.87 %. Never evaluate a prefill hypothesis with the published speedup.
+The same arithmetic warns about the ranked floor: because `prefill_speedup`
+carries a ~1.95 % CV, a candidate whose true prefill speedup is 0.98 will trip
+the hard 0.95 floor roughly 6 % of the time through noise alone. Leave margin.
