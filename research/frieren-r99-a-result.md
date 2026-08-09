@@ -41,6 +41,13 @@ preregistered GO bar was +0.61 % of score and the result misses it by a factor
 of three. **Receipts declined: 0 of 6 spent.** Recommendation is *merge on
 merit*, not *submit*.
 
+Independent corroboration arrived while I was writing this: tanjiro's #541
+revert census, built from M5 receipts and a different anchor, prices the same
+shipped pair at ≈ +0.248 % additively. My joint M4 probe says +0.206 %. Two
+hosts, two instruments, two methods, ~20 % apart — and both far under the bar.
+§11 works through the comparison, including why the census could not see the
+ring at all.
+
 ---
 
 ## 1. A pricing error in my own preregistration, corrected
@@ -233,6 +240,33 @@ diamond and regressed; `gen4deep.py` emits the diamond in each of its four
 slots and improves. The distinction the brief asked for — mechanism vs codegen
 quality — resolves in favour of mechanism.
 
+**How far that control actually goes.** Not as far as the paragraph above
+sounds, and I would rather say so than have it found. "Peaked versus flat"
+compares my depth axis against #540's *rewrite-style* axis; those are different
+axes, and a peaked curve is not by itself proof that codegen quality is
+constant along mine. Two of my own rows argue the opposite: `d8` is not merely
+saturated but *worse than base at four of six K values*, and `d4` flips sign to
+**+0.637 % (t = +7.9)** at K = 24. Both are in-family codegen/occupancy
+sensitivity, not mechanism. The regime story I believe for K = 24 is two-wave
+imbalance — one 18,432 B threadgroup per 32 KB core means 20 cores hold 20
+groups, so K = 24 leaves a four-group tail wave whose cost swamps an
+8.5 µs/step effect — but "I believe" is the right verb.
+
+The cheap controls that would actually separate the axes, neither of which I
+ran: (a) apply the sibling's fused predicated-load-diamond diagnostic from #540
+to `d2`/`d4`/`d8` and confirm the diamond survives at each depth; (b) a finer
+ladder at `d3`/`d5`/`d6` to show the peak is smooth rather than a two-point
+artefact. I list both in §10.
+
+The operative shipping evidence is not `d4` alone — which is regime-fragile —
+but `d4epi`, which is negative at **every** K in the ladder (−4.650, −4.647,
+−1.776, −2.848, −3.409, −3.427 for K = 16…60). Folding the regime spread and
+the M4→M5 timescale ratio into the estimate, the defensible M5 band for the
+shipped pair is **[+0.08 %, +0.21 %] × E**, not a point estimate at the top of
+it. The launch geometry on the ranked M5 (40 cores) is not the geometry I
+probed; verifying the real dispatch's K/core ratio there is the single most
+useful thing anyone could add to this section.
+
 ### 4.4 The +0.206 % is an **upper** bound: the pool is a census figure
 
 I want to be explicit about a discount I cannot measure, because it cuts
@@ -357,12 +391,18 @@ current=2987708/3000000 headroom=12292 growth=3859/262144 files=142
 | growth this review | 3,859 / 262,144 B |
 
 The binding constraint is the **whole-surface** 3,000,000 B cap, not the
-per-file cap: after rung 1c only 8,433 B of total headroom remains, which a
-≈4,000 B rung 2 would still fit. No rung was resized to fit a budget.
+per-file cap. The numbers above are measured *with* rung 1c applied: the
+surface was 2,983,849 B at `c240616a` with 16,151 B free, and rung 1c leaves
+**12,292 B**. So this rung spends **3,859 B = 31 % of the headroom that
+remains after it**, or 24 % of what was free before it. That is a real cost and
+I am not going to bury it: a ≈4,000 B rung 2 would still fit, but only just,
+and the two together would leave the surface with roughly 8 KB of slack. No
+rung was resized to fit a budget.
 
 Component byte costs, for the record: ring +4,086, sliding epilogue −227,
 net **+3,859**. The full-kernel epilogue would be a further **−227**, i.e.
-restoring mechanism 3 *buys back* bytes as well as time.
+restoring mechanism 3 *buys back* bytes as well as time — which, given how
+tight the surface now is, is an argument for taking mechanism 3 first.
 
 ---
 
@@ -381,11 +421,31 @@ restoring mechanism 3 *buys back* bytes as well as time.
 **Receipts spent: 0 of 6.** The honest expected outcome recorded in my prereg
 was "a kernel-level result with receipts declined", and that is what happened.
 
-What I am asking for instead: **merge rung 1c on merit**. It is a bit-exact
-restoration of previously shipped code, it is +0.206 % of score by the
-programme's own price list, it costs 3,859 B, and it is now the only part of
-the 4-deep lineage's advantage that has been isolated and measured rather than
-asserted.
+What I am asking for instead: **merge rung 1c on merit**, with one precondition
+stated below. It is worth at most +0.206 % of score by the programme's own
+price list, it costs 3,859 B, and it is now the only part of the 4-deep
+lineage's advantage that has been isolated and measured rather than asserted.
+
+**The precondition, and a claim I want to weaken.** I have described this rung
+as a restoration of previously shipped code. That framing is fully earned for
+the ring (mechanism 1): `nezuko_r96_gen4deep.py 4` regenerates it from the same
+rewriter that produced the shipped 2-deep body, so the arithmetic is the same
+arithmetic in a different order of *issue*, not of *reduction*. It is weaker
+for the epilogue (mechanism 2). The float4 merge epilogue re-associates the
+two-partial merge across a vector width; on the source lineage it was bit-exact
+on M5, but "bit-exact on the host that measured it" is not the same claim as
+"bit-exact on every target", because fast-math reassociation is a per-target
+codegen decision and the argmax on this model has known near-ties. I am not
+going to assert bit-exactness by construction.
+
+So: **treat a clean `research/run_upstream_equivalence.sh` plus the 64-step
+drift tripwire and the golden hash as a merge precondition, not as a
+formality**, and read §6 rather than the exit codes. Those are M4 results; a
+near-tie that survives here can still flip on M5, which is why I would rather
+mechanism 2 ride into an official receipt alongside a real record attempt than
+be merged and forgotten. And nobody should book +0.206 % against the 1.0498 %
+deficit as if it were realized: §4.4 explains why the honest interval is
+`(0, +0.206 %] × E` with E unmeasured for this family.
 
 ---
 
@@ -423,12 +483,106 @@ asserted.
    used as if it were marginal. The ledger already calls this "the single
    highest-value extension"; I agree, and it now blocks honest pricing on the
    biggest pool we have.
+7. **A ledger of unverified merged deltas, reconciled on the next record
+   receipt.** The structural problem this round exposes is not that +0.206 % is
+   small; it is that we now merge sub-σ mechanisms whose realized value is never
+   confirmed, which is exactly how three of them got silently reverted in the
+   first place. Keep a running list of every merged-but-unreceipted delta with
+   its claimed µs/step, and when the next genuine record attempt spends a paired
+   receipt — which it must anyway — check the accumulated claim against the
+   realized paired decode time. That costs zero extra receipts and turns a pile
+   of unverified point estimates into one measured aggregate.
+8. **Separate the codegen axis properly** (per §4.3): run #540's fused
+   predicated-load-diamond diagnostic on `d2`/`d4`/`d8`, then a `d3`/`d5`/`d6`
+   ladder. Both are zero-receipt probe work and would convert "peaked, therefore
+   mechanism" from an argument into a measurement.
+9. **A pairwise transitivity matrix for the super-additivity claim.** The probe
+   compares each variant against base; it has never compared `d4epi` against
+   `d4` and against `epi` directly. Three extra legs would confirm the −1.53 %
+   interaction is real rather than an artefact of composing percentages across
+   separately compiled binaries.
+10. **Verify the ranked M5 launch geometry for this dispatch.** Everything in
+    §4.3 hangs on K/core, and I inferred the M5 ratio (0.8 TG/core) rather than
+    observing it. One reflection dump from a ranked-shaped run would anchor the
+    whole regime analysis.
 
 ---
 
 ## 11. Reply
 
-Point by point against the six comments on #539, newest first.
+Point by point against the seven comments on #539, newest first.
+
+### `#541 revert census` (2026-08-09T15:43:25Z) — "did you lift the epilogue too?"
+
+Yes, deliberately, and the clean split you asked for already exists in the
+measurement. This is the ⚠️ in your note, so I will answer it with bytes first
+and then with numbers.
+
+**Bytes.** I built six independent copies of `LagunaRuntimeModel.swift` and
+measured them:
+
+| variant | size (B) | Δ vs base | region touched |
+|---|---|---|---|
+| `v_base` (frontier as shipped) | 511418 | +0 | — |
+| `v_d4` | 515504 | **+4086** | sliding main loop only |
+| `v_epi` | 511191 | **−227** | sliding merge epilogue only |
+| `v_d4epi` (**this candidate**) | 515277 | **+3859** | both |
+| `v_epiboth` | 510964 | −454 | both kernels' epilogues |
+| `v_d8` | 523668 | +12250 | sliding main loop only |
+
+These land exactly on the regions you measured independently: sliding main loop
+OLD `e510bb3d:LRM:1640-1818` (8,058 B) → NEW `LRM:1548-1638` (3,972 B) =
+**+4,086 B**, and merge epilogue OLD `LRM:1819-1872` → NEW `LRM:1639-1709` =
+**−454 B for both kernels**, i.e. −227 B each. `4086 + (−227) = 3859`, which is
+the shipped candidate byte-for-byte. Two independent constructions agreeing to
+the byte is the strongest evidence I can offer that the regions are disjoint and
+that I did not smear one mechanism into the other.
+
+**Numbers.** Because the regions are disjoint I measured them *separately* on
+the probe, so both mechanisms are individually attributable — at K = 16,
+`d4` = −1.505 % (t = −23.0) and `epi` = −1.619 % (t = −15.2) against a null
+control of −0.082 %. The shipped pair is −4.650 % (t = −60.7), which is
+**super-additive**: additivity predicts −3.124 %, so there is an extra −1.53 %
+of interaction at t ≈ −12. §4.1 and §4.3 carry the full ladder.
+
+**Your prices versus mine.** Your M5-receipt-derived prices are consistently
+about 2× my M4-probe-derived ones per mechanism:
+
+| mechanism | your census | my probe (K=16, E=1) |
+|---|---|---|
+| r96-a 4-deep ring | ≈ +0.13 % | +0.067 % |
+| r85-c epilogue, both kernels | +0.2358 % [+0.1347, +0.3368] | +0.115 % (0.072 sliding + 0.043 full) |
+
+That factor-of-two is the expected direction for an M4 → M5 extrapolation
+through a fixed 0.456 timescale ratio on a kernel that does not select the same
+codegen, and I do not claim my absolute numbers over yours. What is worth
+noting is that on the **shipped pair** the two methods nearly meet: your
+additive estimate for `d4epi` is ≈ 0.13 + ~0.118 ≈ **+0.248 %**, and my joint
+measurement — which captures the super-additivity your additive census cannot —
+is **+0.206 %**. Two instruments, two hosts, two methods, ~20 % apart. I take
+that as independent corroboration that the shipped candidate is worth roughly a
+fifth of a percent, and *not* the ~0.43 % the full three-mechanism census
+implies, because rung 3 (`_pf1`) is not in my candidate.
+
+**On your pricing instruction.** Agreed and adopted: I do **not** price the
+ring off end-to-end wall. §5 reports the paired local e2e benchmark as an
+expected null and says so explicitly — a clean 4-deep restore is ≈ 8.5 µs/step,
+against an M4 e2e detection bar around 80 µs/step. The pricing instrument in
+this report is the per-kernel probe against the matched `c6c66344` anchor
+(§3), which is the per-kernel counter census you asked for, run against a
+matched base rather than against wall time.
+
+**On the third mechanism.** Your census found the epilogue and `_pf1` but not
+the 4-deep ring, because the 636.0 µs/step anchor traces to `maple-nezuko-r92`
+at base `d549d318`, already 2-deep. That is exactly the blind spot §2 predicts:
+a census anchored after a silent revert cannot see the reverted thing. §2's
+static proof is the complement — `nezuko_r96_gen4deep.py 2` reproduces the
+shipped frontier kernel byte-for-byte from our 4-deep source, so the ring went
+from 4 to 2 by *rewriter output*, not by an M5-measured decision.
+
+**Submit-path provenance.** Noted and unchanged; it does not bind this rung
+because §9's recommendation is *merge on merit, do not submit*, and 0 of 6
+receipts are spent.
 
 ### `r99-a-fb-router-prefetch-provenance` — router prefetch
 
@@ -528,10 +682,31 @@ That fix is in `research/frieren_r99_run_probe.sh` and anyone reusing the
 probe should take it. **K = 8 is not reportable** on this host (null
 −1.365 % ± 1.209 %); K = 16 and above are.
 
-I also applied nezuko's standard on receipts: the probe says the *shipped*
-effect is +0.206 % of score, official σ(score) is 0.6172 %, so an official
-receipt resolves this at 0.33 σ. It cannot decide the question. Declining is
-the same call nezuko made and you endorsed.
+I also applied nezuko's standard on receipts, but I want to state the reason
+precisely, because the obvious phrasing is wrong. The tempting sentence is "the
+instrument cannot resolve +0.206 % against σ(score) = 0.6172 %, so a receipt is
+uninformative at 0.33 σ." That is true only on the *score* channel, and the
+score channel is the wrong channel: on that axis you would need ≈36 receipts.
+The efficient channel is candidate decode time, where σ(cand_dec) = 0.2939 %
+and the shipped effect is 0.2757 % of decode — **0.94 σ per receipt**. Five
+receipts reach t ≈ 2; all six pooled reach t ≈ 2.3. A receipt is *not*
+information-free here.
+
+The reasons I still declined are different and, I think, stronger:
+
+1. **VOI ≈ 0 at the decision that matters.** Our best common-baseline is
+   2.589321 against a record of 2.61650354381456, a deficit of 1.0498 %. A solo
+   +0.206 % candidate cannot be promoted no matter how tight its error bar, so
+   confirming it to t = 2.3 changes no action.
+2. **The preregistered bar says NO-GO.** §1 fixed the GO bar at +40 µs/step
+   ≈ +0.61 % before any data. Measured is at most +0.206 %. Spending on a
+   preregistered failure is exactly the discipline the bar exists to enforce.
+3. **Opportunity cost.** Six receipts is the whole budget, and a rung that
+   cannot win alone should not consume the budget a record attempt needs.
+
+The constructive version, which I put in §10: carry this as a *ledger of
+unverified merged deltas* and reconcile the accumulated set against the paired
+receipt of the next genuine record attempt, which we have to spend anyway.
 
 ### `r99-a-rev1` (the revision brief) — the central question
 
