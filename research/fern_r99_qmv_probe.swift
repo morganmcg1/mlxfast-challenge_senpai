@@ -142,6 +142,59 @@ for a in [reference] + variants {
             a.pipe.maxTotalThreadsPerThreadgroup, a.pipe.threadExecutionWidth))
 }
 
+// MARK: - output equivalence gate
+//
+// A restructured kernel that skips work would look fast, so timing means nothing
+// until every arm is shown to write byte-identical results from identical inputs.
+// The output buffer is poisoned before each run so regions the grid never touches
+// compare equal by construction rather than by leftover state.
+
+func runOnce(_ pipe: MTLComputePipelineState, tg: Int) -> [UInt8] {
+    memset(dActivated.contents(), 0xA5, dActivated.length)
+    let cb = queue.makeCommandBuffer()!
+    let enc = cb.makeComputeCommandEncoder()!
+    enc.setComputePipelineState(pipe)
+    bind(enc)
+    enc.dispatchThreadgroups(
+        MTLSize(width: tg, height: 1, depth: 1),
+        threadsPerThreadgroup: MTLSize(width: 64, height: 1, depth: 1))
+    enc.endEncoding()
+    cb.commit()
+    cb.waitUntilCompleted()
+    let p = dActivated.contents().bindMemory(to: UInt8.self, capacity: dActivated.length)
+    return Array(UnsafeBufferPointer(start: p, count: dActivated.length))
+}
+
+func differingBytes(_ a: [UInt8], _ b: [UInt8]) -> Int {
+    zip(a, b).reduce(0) { $0 + ($1.0 == $1.1 ? 0 : 1) }
+}
+
+print("\n=== output equivalence gate (bitwise, vs reference) ===")
+var equivalenceFailed = false
+for tg in [1024, 2048] {
+    let ref = runOnce(reference.pipe, tg: tg)
+    let written = ref.reduce(0) { $0 + ($1 == 0xA5 ? 0 : 1) }
+    let selfDiff = differingBytes(ref, runOnce(reference.pipe, tg: tg))
+    if selfDiff != 0 { equivalenceFailed = true }
+    print(
+        String(
+            format: "  TG=%4d  %-26@  diff %6d / %6d bytes   (reference wrote %6d)",
+            tg, "reference re-run" as NSString, selfDiff, ref.count, written))
+    for a in variants {
+        let diff = differingBytes(ref, runOnce(a.pipe, tg: tg))
+        if diff != 0 { equivalenceFailed = true }
+        print(
+            String(
+                format: "  TG=%4d  %-26@  diff %6d / %6d bytes",
+                tg, a.label as NSString, diff, ref.count))
+    }
+}
+print(
+    equivalenceFailed
+        ? "  VERDICT: MISMATCH — timing below is not a like-for-like comparison."
+        : "  VERDICT: all arms bitwise identical to the reference.")
+
+
 // MARK: - paired ladder
 
 /// Serial dispatch: the `reps` dispatches in one command buffer do not overlap,
