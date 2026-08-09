@@ -232,7 +232,7 @@ struct LagunaFullAttentionTripletGateTests {
                 shape: [1, kvHeads, capacity, headDim]
             ),
             writeIdx: context - 1,
-            scale: MLXArray(Float(1 / sqrt(Float(headDim))))
+            scale: MLXArray([Float(1 / sqrt(Float(headDim)))])
         )
     }
 
