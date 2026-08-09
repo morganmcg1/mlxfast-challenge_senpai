@@ -471,6 +471,58 @@ struct NVFP4QuantizedMMTests {
                 != materializedValues
         )
 
+        let thresholdRows = 128
+        let thresholdRouteValues: [UInt32] = (0..<thresholdRows).reduce(into: []) {
+            values, row in
+            values.append(
+                contentsOf: row.isMultiple(of: 2)
+                    ? routePattern
+                    : [255, 2, 1, 0, 255, 2, 1, 0]
+            )
+        }
+        let thresholdRoutes = MLXArray(thresholdRouteValues, [1, thresholdRows, topK])
+        let thresholdSorted = gatherSortIndices(thresholdRoutes)
+        let thresholdPacked = (
+            (thresholdSorted.sortedKeys.asType(.uint32) << 24)
+                | thresholdSorted.rowOrder.asType(.uint32)
+        ).reshaped(thresholdRoutes.shape)
+        let thresholdX = deterministicNVFP4Source(
+            shape: [1, thresholdRows, 1, 1, k],
+            salt: 83
+        ).asType(.bfloat16)
+        let thresholdMaterializedX = thresholdX.flattened(start: 0, end: -3)[
+            thresholdSorted.rowOrder
+        ]
+        let thresholdMaterialized = gatherQuantizedMM(
+            thresholdMaterializedX,
+            packedWeight,
+            scales: scales,
+            biases: nil,
+            rhsIndices: thresholdSorted.sortedKeys,
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4,
+            sortedIndices: true
+        )
+        let thresholdIndexed = gatherQuantizedMM(
+            thresholdX,
+            packedWeight,
+            scales: scales,
+            biases: nil,
+            rhsIndices: thresholdPacked,
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4,
+            sortedIndices: true
+        )
+        #expect(
+            thresholdIndexed.reshaped(thresholdMaterialized.shape).asArray(Float.self)
+                == thresholdMaterialized.asArray(Float.self)
+        )
+        #expect(thresholdSorted.rowOrder.asArray(UInt32.self).contains(UInt32(thresholdRows - 1)))
+
         let scoredRows = 512
         let scoredRouteValues: [UInt32] = (0..<scoredRows).reduce(into: []) { values, row in
             values.append(contentsOf: [255, 0, 2, 2, 1, 255, 0, UInt32(row % 4)])
