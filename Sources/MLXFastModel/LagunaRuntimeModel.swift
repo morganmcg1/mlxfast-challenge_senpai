@@ -112,6 +112,8 @@ let lagunaPackedScalesEnabled =
 /// silently-declining guard can never measure its own control.
 final class LagunaPackedScalesLog: @unchecked Sendable {
     private var seen: Set<String> = []
+    private var bankMaxCodes: [UInt8] = []
+    private var compactBankCount = 0
     private let lock = NSLock()
 
     func note(_ state: String, _ site: String) {
@@ -122,6 +124,34 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
             FileHandle.standardError.write(
                 Data("mlxfast: packed-scales \(state): \(site)\n".utf8))
         }
+    }
+
+    func beginBankCensus() {
+        lock.lock()
+        bankMaxCodes.removeAll(keepingCapacity: true)
+        compactBankCount = 0
+        lock.unlock()
+    }
+
+    func bankPrepared(maxCode: UInt8, compact: Bool) {
+        lock.lock()
+        bankMaxCodes.append(maxCode)
+        if compact { compactBankCount += 1 }
+        lock.unlock()
+    }
+
+    func finishBankCensus() {
+        lock.lock()
+        let maxCodes = bankMaxCodes
+        let compact = compactBankCount
+        lock.unlock()
+        let fallback = maxCodes.count - compact
+        precondition(maxCodes.count == 39 && compact >= 38)
+        let codes = maxCodes.map(String.init).joined(separator: ",")
+        FileHandle.standardError.write(
+            Data(
+                "mlxfast: packed-scales census compact=\(compact) u8=\(fallback) "
+                    + "bytes_removed_per_token=\(compact * 131_072) max_codes=[\(codes)]\n".utf8))
     }
 }
 
@@ -6960,6 +6990,139 @@ func lagunaRoutedSwiGLUQMVPackedTop8(
     )[0]
 }
 
+/// Six-bit word-packed scale twin of `lagunaRoutedSwiGLUQMVPackedTop8Kernel`.
+/// Every 32-code scale row is seven aligned UInt32 words: five codes occupy
+/// bits 0...29 of words 0...5 and two codes occupy word 6. Lanes 0...6 load
+/// the words, then each consumer lane obtains its word with one shuffle per
+/// projection before entering the unchanged E4M3 decoder and math chain.
+private let lagunaRoutedSwiGLUQMVWordPackedTop8Kernel = MLXFast.metalKernel(
+    name: "laguna_routed_nvfp4_swiglu_qmv_word_packed_indices_r1_bf16_v1",
+    inputNames: ["input", "fused_weight", "packed_scale_words", "indices"],
+    outputNames: ["activated"],
+    source: """
+        constexpr uint input_width = 2048;
+        constexpr uint output_width = 512;
+        constexpr uint block_width = 512;
+        constexpr uint values_per_lane = 16;
+        constexpr uint routed_experts = 8;
+        constexpr uint fused_row_bytes = 1024;
+        constexpr uint fused_expert_bytes = 1024 * fused_row_bytes;
+        constexpr uint scale_row_words = 7;
+        constexpr uint scale_kblock_words = 8 * scale_row_words;
+        constexpr uint scale_tile_words = 4 * scale_kblock_words;
+        constexpr uint packed_expert_words = 128 * scale_tile_words;
+
+        uint group = threadgroup_position_in_grid.x;
+        uint expert_slot = group % routed_experts;
+        uint tile = group / routed_experts;
+        uint simd_group = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+        uint logical_row = tile * 2 + simd_group;
+        uint expert = uint(indices[expert_slot]);
+
+        const device uint8_t* expert_weight =
+            (const device uint8_t*)fused_weight + expert * fused_expert_bytes;
+        const device uint* row_scales =
+            packed_scale_words + expert * packed_expert_words
+            + (logical_row / 4) * scale_tile_words;
+        uint sub = logical_row % 4;
+        uint gate_row = (logical_row / 32) * 64 + logical_row % 32;
+        uint up_row = gate_row + 32;
+
+        thread float gate_result = 0.0f;
+        thread float up_result = 0.0f;
+        thread float input_values[values_per_lane];
+
+        for (uint block = 0; block < input_width; block += block_width) {
+            const device vec<bfloat, 4>* input_vectors =
+                (const device vec<bfloat, 4>*) (
+                    input + block + lane * values_per_lane);
+            for (uint i = 0; i < values_per_lane / 4; ++i) {
+                const vec<bfloat, 4> values = input_vectors[i];
+                input_values[4 * i] = values[0];
+                input_values[4 * i + 1] = values[1];
+                input_values[4 * i + 2] = values[2];
+                input_values[4 * i + 3] = values[3];
+            }
+
+            const device uint* block_scales =
+                row_scales + (block / block_width) * scale_kblock_words;
+            const device uint* gate_scale_words =
+                block_scales + sub * 2 * scale_row_words;
+            const device uint* up_scale_words =
+                gate_scale_words + scale_row_words;
+            uint gate_word = lane < scale_row_words ? gate_scale_words[lane] : 0;
+            uint up_word = lane < scale_row_words ? up_scale_words[lane] : 0;
+            gate_word = simd_shuffle(gate_word, ushort(lane / 5));
+            up_word = simd_shuffle(up_word, ushort(lane / 5));
+            uint scale_shift = 6 * (lane % 5);
+            uint8_t gate_scale = uint8_t((gate_word >> scale_shift) & 0x3f);
+            uint8_t up_scale = uint8_t((up_word >> scale_shift) & 0x3f);
+            const device uint8_t* gate_weight =
+                expert_weight + gate_row * fused_row_bytes
+                + block / 2 + lane * 8;
+            const device uint8_t* up_weight =
+                expert_weight + up_row * fused_row_bytes
+                + block / 2 + lane * 8;
+
+            gate_result += laguna_nvfp4_qdot_16(
+                gate_weight, input_values,
+                laguna_nvfp4_scale(gate_scale));
+            up_result += laguna_nvfp4_qdot_16(
+                up_weight, input_values,
+                laguna_nvfp4_scale(up_scale));
+        }
+
+        gate_result = simd_sum(gate_result);
+        up_result = simd_sum(up_result);
+        if (lane == 0) {
+            bfloat gate = bfloat(gate_result\(lagunaNvfp4RowScaleSuffix));
+            bfloat up = bfloat(up_result\(lagunaNvfp4RowScaleSuffix));
+            bfloat exp_abs = metal::exp(metal::abs(gate));
+            bfloat denominator = bfloat(1) + exp_abs;
+            bfloat y = bfloat(1) / denominator;
+            bfloat sigmoid = gate < bfloat(0) ? y : bfloat(1) - y;
+            bfloat silu = bfloat(gate * sigmoid);
+            activated[expert_slot * output_width + logical_row] =
+                bfloat(silu * up);
+        }
+        """,
+    header: lagunaSharedSwiGLUQMVHeader,
+    ensureRowContiguous: true
+)
+
+func lagunaRoutedSwiGLUQMVWordPackedTop8(
+    _ input: MLXArray,
+    fusedWeight: MLXArray,
+    packedScaleWords: MLXArray,
+    indices: MLXArray
+) -> MLXArray {
+    precondition(input.dtype == .bfloat16)
+    precondition(input.shape == [1, 1, LagunaConstants.hiddenSize])
+    precondition(fusedWeight.dtype == .uint32)
+    precondition(packedScaleWords.dtype == .uint32)
+    precondition(
+        packedScaleWords.shape == [
+            LagunaConstants.numExperts,
+            8 * LagunaConstants.moeIntermediateSize,
+            7,
+        ])
+    precondition(indices.dtype == .uint32)
+    precondition(indices.shape == [1, 1, LagunaConstants.numExpertsPerTok])
+
+    return lagunaRoutedSwiGLUQMVWordPackedTop8Kernel(
+        [input, fusedWeight, packedScaleWords, indices],
+        grid: (LagunaConstants.numExpertsPerTok * 256 * 64, 1, 1),
+        threadGroup: (64, 1, 1),
+        outputShapes: [[
+            1, 1, LagunaConstants.numExpertsPerTok, 1,
+            LagunaConstants.moeIntermediateSize,
+        ]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+
 private let lagunaRoutedDownReduceKernel = MLXFast.metalKernel(
     name: "laguna_routed_nvfp4_down_reduce_bf16_v1",
     inputNames: [
@@ -9206,11 +9369,12 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     var _routedDownProj: SwitchLinear?
     var _routedDownWeight: MLXArray?
     var _routedDownScales: MLXArray?
-    /// `DARKBLOOM_PACKED_SCALES` walk-order scale-interleaved copy of the
-    /// fused routed gate/up scales ([experts, 4096, 32] uint8); see
-    /// `lagunaRoutedSwiGLUQMVPackedTop8Kernel` for the layout contract. Nil
-    /// when the flag is set to zero (default ON).
+    /// `DARKBLOOM_PACKED_SCALES` walk-order scale-interleaved banks. Every
+    /// original U8 bank is retained as `[experts, 4096, 32]`; banks whose
+    /// complete code census fits six bits instead use `[experts, 4096, 7]`
+    /// UInt32 words. Exactly one representation is retained per sparse layer.
     var _packedRoutedGateUpBank: MLXArray?
+    var _wordPackedRoutedGateUpBank: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -9304,15 +9468,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         return prepared
     }
 
-    /// Builds the `DARKBLOOM_PACKED_SCALES` side bank from the (lazy) fused
-    /// routed gate/up arrays: bytes are only reordered, never recomputed.
-    /// Per expert the packed layout is `[tile 128][k-block 4][sub 8][32 B]`
-    /// with `sub = (simd_group*2 + row)*2 + {0 gate, 1 up}`. The row remap
-    /// below (gateRow = (logical/32)*64 + logical%32, up = +32) is the stock
-    /// kernel's mapping over the 32-row gate/up-interleaved fused bank, baked
-    /// into scale storage order. The code bytes remain in the resident fused
-    /// weight bank, so this side copy is ~32 MB per sparse layer instead of
-    /// duplicating the ~256 MB code bank.
+    /// Builds one walk-order scale bank after exhaustively censusing the
+    /// original U8 codes. Eligible banks pack each 32-code row into seven
+    /// aligned UInt32 words; every ineligible bank retains the exact U8 layout.
     func preparePackedRoutedGateUpBank(
         fusedScales: MLXArray,
         experts: Int,
@@ -9327,10 +9485,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 "inactive", "packed routed gate/up bank (geometry guard declined)")
             return []
         }
-        let rows = 2 * split  // 1024 fused (gate/up-interleaved) rows
+        let maxCode = fusedScales.max().item(UInt8.self)
+        let rows = 2 * split
         let rowBlocks = fusedScales.reshaped([experts, rows * 4, 32])
-        // Walk-order gather over scale row-blocks: packed position (tile,
-        // kblock, sub) reads fused scale row-block (fusedRow, kblock).
         var order = [Int32]()
         order.reserveCapacity(rows * 4)
         for tile in 0..<(rows / 8) {
@@ -9343,14 +9500,31 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 }
             }
         }
-        // `take(axis: 1)` materializes with permuted strides (NOT
-        // row-contiguous), and the custom kernel's `ensureRowContiguous`
-        // would then re-copy the side bank on EVERY dispatch. Force the
-        // one-time row-contiguous materialization here, at init, so dispatches
-        // bind the bank buffer directly.
-        let packed = contiguous(take(rowBlocks, MLXArray(order), axis: 1))
-        _packedRoutedGateUpBank = packed
-        lagunaPackedScalesLog.note("active", "packed routed gate/up bank prepared")
+        let ordered = take(rowBlocks, MLXArray(order), axis: 1)
+        guard maxCode <= 63 else {
+            let packed = contiguous(ordered)
+            _packedRoutedGateUpBank = packed
+            lagunaPackedScalesLog.bankPrepared(maxCode: maxCode, compact: false)
+            return [packed]
+        }
+
+        let codes = ordered.asType(.uint32)
+        var words = [MLXArray]()
+        words.reserveCapacity(7)
+        for wordIndex in 0..<7 {
+            let codesInWord = wordIndex == 6 ? 2 : 5
+            var word = take(
+                codes, MLXArray(Int32(wordIndex * 5)), axis: 2)
+            for codeIndex in 1..<codesInWord {
+                let code = take(
+                    codes, MLXArray(Int32(wordIndex * 5 + codeIndex)), axis: 2)
+                word = word | (code << (6 * codeIndex))
+            }
+            words.append(word.reshaped([experts, rows * 4, 1]))
+        }
+        let packed = contiguous(concatenated(words, axis: 2))
+        _wordPackedRoutedGateUpBank = packed
+        lagunaPackedScalesLog.bankPrepared(maxCode: maxCode, compact: true)
         return [packed]
     }
 
@@ -9423,10 +9597,21 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 _fusedRoutedGateUpSplit == LagunaConstants.moeIntermediateSize
             {
                 if lagunaPackedScalesEnabled,
+                    let packedWords = _wordPackedRoutedGateUpBank
+                {
+                    lagunaPackedScalesLog.note(
+                        "active", "routed swiglu qmv six-bit word-packed dispatch")
+                    activated = lagunaRoutedSwiGLUQMVWordPackedTop8(
+                        x,
+                        fusedWeight: fusedWeight,
+                        packedScaleWords: packedWords,
+                        indices: inds
+                    )
+                } else if lagunaPackedScalesEnabled,
                     let packedBank = _packedRoutedGateUpBank
                 {
                     lagunaPackedScalesLog.note(
-                        "active", "routed swiglu qmv packed dispatch")
+                        "active", "routed swiglu qmv u8 packed fallback dispatch")
                     activated = lagunaRoutedSwiGLUQMVPackedTop8(
                         x,
                         fusedWeight: fusedWeight,
@@ -10358,6 +10543,10 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
     /// derived side copy.
     func prepareFusedRuntimeWeights() {
         var fusedArrays = model.prepareRoPEAngleAtlases()
+        let censusPackedBanks = lagunaPackedScalesEnabled && lagunaFusedRoutedGateUpEnabled
+        if censusPackedBanks {
+            lagunaPackedScalesLog.beginBankCensus()
+        }
         for layer in model.layers {
             if lagunaUseNativeAffineQKV(layer: layer.selfAttn.layerIdx) {
                 fusedArrays.append(
@@ -10386,6 +10575,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
                     fusedArrays.append(fused)
                 }
             }
+        }
+        if censusPackedBanks {
+            lagunaPackedScalesLog.finishBankCensus()
         }
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
