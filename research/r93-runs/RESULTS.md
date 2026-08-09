@@ -413,12 +413,15 @@ Written up in full in [`cadence-policy.md`](cadence-policy.md) as twelve rules
 (P1-P12) plus a worked budget. The quantitative core is the table below:
 how many official receipts a decode hypothesis of a given size needs, at 95 %
 two-sided confidence and 80 % power, computed by
-[`channel_noise.py`](channel_noise.py) from sigma(raw candidate decode) =
-0.3386 % and sigma(published decode speedup) = 0.4181 %.
+[`channel_noise.py`](channel_noise.py) from the **recommended planning sigma**:
+sigma(raw candidate decode) = 0.4261 % and sigma(published decode speedup) =
+0.4917 %. That sigma is the corpus near-replicate residual at our own decode
+speed, not the four-point null sd; the paragraphs after the table explain why
+that choice matters more than any other number in this section.
 
 | true decode delta | est. ref, raw us | est. ref, published | fresh ref, raw us | fresh ref, published |
 | --- | --- | --- | --- | --- |
-| 0.5 % | 6 | 8 | 11 | 15 |
+| 0.5 % | 6 | 8 | 12 | 16 |
 | 1.0 % | 2 | 2 | 3 | 4 |
 | 2.0 % | 1 | 1 | 1 | 1 |
 | 4.0 % | 1 | 1 | 1 | 1 |
@@ -431,6 +434,55 @@ a 2 % decode win is a 21-minute confirmation and a 0.5 % decode win is a
 day-to-day behaviour are P2 (read raw candidate timings, never cross-session
 scores), P4 (interleaving is optional because the channel has no drift, section
 9.2) and P10 (mine the receipt corpus before spending a slot, section 9).
+
+**These counts are point estimates and the table hides how soft they are.**
+Required `n` scales as `sigma^2`, so the chi-square uncertainty on a small-sample
+sigma maps straight onto the receipt counts. `critique_checks.py` prints the
+multipliers:
+
+| sigma from | df | 95 % CI on sigma | multiplier on required n |
+|---|---|---|---|
+| n=3 nulls | 2 | [0.52, 6.29] x s | **[0.27, 39.5]** |
+| n=4 nulls | 3 | [0.57, 3.73] x s | [0.32, 13.9] |
+| n=5 nulls | 4 | [0.60, 2.87] x s | [0.36, 8.3] |
+
+At the n=3 sigma this table originally used, "6 receipts" honestly meant
+"somewhere between 2 and 203". Even at n=5 it means "between 2 and 50". A
+five-point sd cannot pin a cadence table, and no affordable number of nulls
+will: getting the multiplier inside `[0.7, 1.5]` would take about n=30, which is
+11 hours of exclusive channel time spent measuring nothing.
+
+`channel_noise.py` therefore prints the cadence table three times, and the
+difference between them is the real finding:
+
+| sigma used | value | 0.5 % claim, fresh ref | 1.0 % | 2.0 % |
+|---|---|---|---|---|
+| n=4 null point estimate | 0.3386 % | 11 receipts | 3 | 1 |
+| n=4 null, chi-square upper 95 % | 1.3771 % (x4.07) | **123** | 31 | 8 |
+| **corpus near-replicate (recommended)** | **0.4261 %** | **16** | 4 | 1 |
+
+The middle row is what the nulls alone can guarantee, and it is useless for
+planning. The bottom row is the number to actually use, and it comes from a
+completely different place: solver-day groups in the receipt corpus with at
+least 4 points and internal CV below 0.6 %, restricted to group means at or
+below 5100 us so the estimate is taken at our own decode speed. That is
+**119 points across 8 groups**, roughly 111 degrees of freedom instead of 3, so
+its own interval is a few percent wide rather than a factor of four. It agrees
+with section 9.5's banded estimate (0.4358 %) computed by the same residual
+method in `hetero.py`.
+
+Two caveats on the recommended sigma, both pointing the safe way. It is measured
+under small code differences rather than none, so it is an **upper bound** on the
+pure channel sigma. And it is measured on other solvers' submissions, so it
+assumes the channel treats their receipts and mine alike — which section 9.1's
+pinned-baseline analysis supports, since every receipt in the corpus times the
+same baseline code and still spreads by 0.2453 %.
+
+The honest summary is that **the nulls verify the channel is well-behaved but
+cannot size it; the corpus sizes it.** Read the recommended row as "this order
+of magnitude, rounded up": a 2 % decode effect is a one-receipt question, 1 % is
+a small-handful question, and 0.5 % is a half-day question. The boundaries
+between those regimes are firm; the exact integers are not.
 
 ## 6. Re-derived #137 M4 to M5 transfer factor
 

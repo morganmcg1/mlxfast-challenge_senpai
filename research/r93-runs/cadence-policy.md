@@ -160,13 +160,13 @@ directly on the official channel is not a viable strategy.
 ## Receipts needed, by effect size
 
 From §5 of `RESULTS.md` (95 % two-sided, 80 % power, σ(raw candidate decode)
-= 0.3386 %, σ(published decode speedup) = 0.4181 %). "Estimated reference" means
+= 0.4261 %, σ(published decode speedup) = 0.4917 %). "Estimated reference" means
 you already have a well-characterised control from previous receipts; "fresh
 reference" means you must also pay for the control in this experiment.
 
 | true decode Δ | est. ref, raw µs | est. ref, published | fresh ref, raw µs | fresh ref, published |
 | --- | --- | --- | --- | --- |
-| 0.5 % | 6 | 8 | 11 | 15 |
+| 0.5 % | 6 | 8 | 12 | 16 |
 | 1.0 % | 2 | 2 | 3 | 4 |
 | 2.0 % | 1 | 1 | 1 | 1 |
 | 4.0 % | 1 | 1 | 1 | 1 |
@@ -175,15 +175,50 @@ Read this as the operational core of the policy:
 
 - A **≥ 2 % decode win confirms in a single receipt.** Do not spend three.
 - A **1 % win costs 2–4 receipts** (~45–85 minutes of exclusive channel).
-- A **0.5 % win costs 6–11 receipts** (2–4 hours). At that price, prefer to
+- A **0.5 % win costs 6–12 receipts** (2–4 hours). At that price, prefer to
   bundle it with another change and confirm the pair, or find the effect on M4
   first and use the official channel only to check that the sign transfers.
 - Anything the candidate cannot be shown to move by ≥ 0.4 % is, for practical
   purposes, unmeasurable on this channel within a single campaign day.
 
-Prefill is the mirror image. Read as raw candidate µs its σ is ≈ 0.064 %, so
-n = 4 resolves 0.095 %; read as `prefill_speedup` the same four receipts resolve
-only 2.87 %. Never evaluate a prefill hypothesis with the published speedup.
-The same arithmetic warns about the ranked floor: because `prefill_speedup`
-carries a ~1.95 % CV, a candidate whose true prefill speedup is 0.98 will trip
-the hard 0.95 floor roughly 6 % of the time through noise alone. Leave margin.
+**Where that σ comes from, and why not from the nulls.** The obvious source is
+this experiment's own machine-code-identical nulls, which give 0.3386 % at n=4.
+That number is not usable for planning: required `n` scales as σ², and a
+four-point sd carries a 95 % χ² interval of [0.57, 3.73]× the point estimate, so
+the "12 receipts" cell honestly spans 4 to 167. The number above instead comes
+from the receipt corpus — solver-day groups with ≥ 4 receipts and internal CV
+< 0.6 %, restricted to group means ≤ 5100 µs so it is measured at our own decode
+speed. That is 119 points in 8 groups, ~111 df, and its own interval is a few
+percent wide. It sits 1.26× above the null point estimate, which is the safe
+direction, because it is measured under small code differences rather than none.
+**Plan with the corpus σ; use the nulls to check the channel is well-behaved,
+not to size it.**
+
+Prefill is the mirror image. Read as raw candidate µs its σ is ≈ 0.111 %, so
+n = 4 resolves 0.164 % (≈ 0.31 µs/token); read as `prefill_speedup` the same
+four receipts resolve only 2.87 %. Never evaluate a prefill hypothesis with the
+published speedup.
+
+**The 0.95 prefill floor is a cliff, not a gradient.** It is tempting to run the
+same arithmetic on the floor — `prefill_speedup` carries a ~1.95 % CV, so a
+normal model says a truly-compliant 0.98 candidate trips the hard floor about
+6 % of the time. That normal model is wrong, and §9.3 of `RESULTS.md` tests it
+against all 1185 observed baseline prefill draws instead:
+
+| true prefill speedup | empirical trip rate | normal-theory rate |
+| --- | --- | --- |
+| 0.98 | **0 / 1185 = 0.00 %** | 5.78 % |
+| 0.97 | 7.34 % | 14.46 % |
+| 0.96 | **50.38 %** | 29.61 % |
+
+The baseline's prefill distribution is short-tailed on the left — its worst
+observed draw is only 2.7 % below the mean, where a normal tail would reach
+5.1 % — so a genuine 0.98 has never tripped the floor in the entire public
+record. But below that the risk rises *faster* than normal theory predicts. The
+usable rule is therefore not "leave margin" but a threshold:
+
+> **Ship if the true prefill speedup is ≥ 0.98. Treat 0.96 as a coin flip.**
+
+And size the trade in raw candidate microseconds (n = 2 resolves 0.48 %, n = 4
+resolves 0.16 %), never in the published ratio, which cannot see a 1 % prefill
+change at any budget this campaign can afford.

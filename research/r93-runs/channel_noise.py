@@ -159,6 +159,7 @@ def tcrit(df):
 # (research/r93-runs/receipts/null-*.json). Overridden by measure_nulls() below
 # when enough replicates have landed.
 CAND_CV = {"decode": 0.4041, "prefill": 0.0643}
+N_NULLS = 0
 try:
     import glob
     nd, npre = [], []
@@ -167,6 +168,7 @@ try:
         nd.append(m["decode_seconds_per_token"] * 1e6)
         npre.append(m["prefill_seconds_per_token"] * 1e6)
     if len(nd) >= 3:
+        N_NULLS = len(nd)
         CAND_CV = {"decode": cv(nd), "prefill": cv(npre)}
         print("  candidate-side CV from %d machine-code-identical nulls:"
               " decode %.4f%%  prefill %.4f%%" % (len(nd), CAND_CV["decode"], CAND_CV["prefill"]))
@@ -201,11 +203,67 @@ print()
 print("  %-10s %-28s %-28s" % ("true delta", "vs an ESTABLISHED reference",
                                "vs a FRESH 1-receipt reference"))
 print("  %-10s %-13s %-14s %-13s %-14s" % ("", "raw us", "published su", "raw us", "published su"))
+
+
+def need(sig, k, d):
+    return max(1, math.ceil(k * (Z_A + Z_B) ** 2 * sig * sig / (d * d)))
+
+
 for d in (0.5, 1.0, 2.0, 4.0):
-    def need(sig, k):
-        return max(1, math.ceil(k * (Z_A + Z_B) ** 2 * sig * sig / (d * d)))
     print("  %-10s %-13d %-14d %-13d %-14d"
-          % ("%.1f %%" % d, need(c, 1), need(pub_cv, 1), need(c, 2), need(pub_cv, 2)))
+          % ("%.1f %%" % d, need(c, 1, d), need(pub_cv, 1, d),
+             need(c, 2, d), need(pub_cv, 2, d)))
+print()
+
+# The candidate sigma above comes from N_NULLS points, so it carries a wide
+# chi-square interval; required n scales as sigma^2. Replan on the CI upper end.
+if N_NULLS >= 3:
+    c_hi = chi2_ci(c, N_NULLS)[1]
+    pub_hi = math.sqrt(c_hi * c_hi + b * b)
+    print("  Same table replanned on the chi-square UPPER 95% bound of the")
+    print("  candidate sigma (n=%d nulls, df=%d): sigma_hi = %.4f%% (x%.2f)"
+          % (N_NULLS, N_NULLS - 1, c_hi, c_hi / c))
+    print("  %-10s %-13s %-14s %-13s %-14s"
+          % ("", "raw us", "published su", "raw us", "published su"))
+    for d in (0.5, 1.0, 2.0, 4.0):
+        print("  %-10s %-13d %-14d %-13d %-14d"
+              % ("%.1f %%" % d, need(c_hi, 1, d), need(pub_hi, 1, d),
+                 need(c_hi, 2, d), need(pub_hi, 2, d)))
+    print()
+
+# Recommended planning sigma: the corpus near-replicate band at our own decode
+# speed (section 9.5). It has ~90 dof instead of 3, so its own interval is a few
+# percent wide, and it is measured under small code differences rather than none
+# -- an upper bound on the pure channel sigma, which is the safe direction.
+_g = {}
+for x in r:
+    _g.setdefault((x["solver"], x["ts"][:10]), []).append(x["cand_dec"] * 1e6)
+_res, _means = [], []
+for a in _g.values():
+    if len(a) < 4:
+        continue
+    m = st.mean(a)
+    if 100 * st.stdev(a) / m >= 0.6 or m > 5100.0:
+        continue
+    _res += [z - m for z in a]
+    _means += [m] * len(a)
+c_corp = 100 * st.stdev(_res) / st.mean(_means)
+pub_corp = math.sqrt(c_corp * c_corp + b * b)
+print("  RECOMMENDED planning table: sigma(raw cand) = %.4f%%,"
+      " sigma(published) = %.4f%%" % (c_corp, pub_corp))
+print("  corpus near-replicate sigma = %.4f%%"
+      " from %d points in %d groups at <=5100 us"
+      " (x%.2f vs the null point estimate, section 9.5)"
+      % (c_corp, len(_res), sum(1 for a in _g.values()
+                                if len(a) >= 4 and st.mean(a) <= 5100.0
+                                and 100 * st.stdev(a) / st.mean(a) < 0.6),
+         c_corp / c))
+print("  %-10s %-13s %-14s %-13s %-14s"
+      % ("", "raw us", "published su", "raw us", "published su"))
+for d in (0.5, 1.0, 2.0, 4.0):
+    print("  %-10s %-13d %-14d %-13d %-14d"
+          % ("%.1f %%" % d, need(c_corp, 1, d), need(pub_corp, 1, d),
+             need(c_corp, 2, d), need(pub_corp, 2, d)))
 print()
 print("  'established reference' = the frontier already has many receipts, so only")
 print("  the new candidate must be replicated. 'fresh' = both arms bought new.")
