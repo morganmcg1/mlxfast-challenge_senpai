@@ -129,6 +129,16 @@ The interval contains 1 and misses 0 by roughly 330 standard errors. H0 is dead.
 The harness's own `seed prefill complete seconds=` line is printed to one
 decimal and is shown only as a coarse cross-check — the identity never uses it.
 
+**Why this is not circular.** `T_bar` is `mean_step_seconds`, averaged over the
+128 single-token steps alone. So `128*(D - T_bar)` reduces to exactly `S` under
+H58 and to exactly `0` under H0 — the left side is a clean discriminator between
+the two hypotheses, but on its own it proves nothing, since it is built from
+decode-phase numbers only. The content is in the *comparison target*: `512*P`
+comes from the separate, earlier prefill phase, a physically distinct execution
+of the same 512-token forward that the decode timer never sees. The test is
+whether the cost the decode window is carrying matches the independently timed
+prefill window. It does, to 0.2%.
+
 The same decomposition also quantifies how much of the headline decode number
 is not stepping at all:
 
