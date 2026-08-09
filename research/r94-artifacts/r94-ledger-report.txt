@@ -1,0 +1,88 @@
+labels                     = 24  (custom 21, stock 3)
+dispatches/step            = 406   reported 406   delta 0
+ledger us/step             = 8528.3   reported busy 8528.0   residual +0.3 (+0.004 %)
+
+--- Stage 0 reconciliation: 363 vs 406 ---
+custom metalKernel dispatches (carry verbose:) = 363  [r92 vehicle saw 363]
+MLX stock/AOT dispatches (no verbose: hook)    = 43   = 41x rmsbfloat16 + 1x argmax_bfloat16 + 1x gather_frontbfloat16_int32_int_2
+363 + 43 = 406  -> both counts are steady-state; the gap is the
+stock-op blind spot of the r92 verbose-dump vehicle, not warm-up or SPLIT=1 inflation.
+
+--- the claimed residue ---
+advisor named subtotal (SPLIT=1 rows)          = 6807.0 us over 281 dispatches
+rows present in the same census but omitted    = 1721.3 us over 125 dispatches
+claimed residue 1186.1 us = 7993.1 (nat busy) - 6807.0 (SPLIT=1 subtotal)
+  -> cross-regime subtraction (rule 43) of an incomplete subtotal.
+SPLIT=1 busy - nat busy = +534.9 us/step over 406 dispatches = 1.317 us/dispatch
+SPLIT=1 wall - nat wall = +1537.7 us/step (the instrument tax)
+rule-41 boundary bracket: TINY 0.7258 .. WIDE 1.4064 us/dispatch -> per-dispatch busy inflation 1.317 us sits inside it
+
+--- nat-regime deflation of every row (subtract 1 boundary per call) ---
+us/step_s1  calls us/call_s1 us/step_nat_est score%_if_zero  label
+    1497.7     39      38.40          1446.3        22.100%  laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+    1340.1     30      44.67          1300.6        19.873%  laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+    1117.7     30      37.26          1078.2        16.475%  laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1
+     858.9     39      22.02           807.5        12.339%  laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6
+     636.0     30      21.20           596.5         9.114%  laguna_sliding_fused_attn_ring_v1
+     420.3      1     420.30           419.0         6.402%  laguna_lmhead_int5_base_coarse_delta_bf16_v1
+     362.8     10      36.28           349.6         5.342%  laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+     312.8     39       8.02           261.4         3.994%  laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+     301.8     10      30.18           288.6         4.410%  laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1
+     287.1     39       7.36           235.7         3.602%  laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1
+     269.4      1     269.40           268.1         4.096%  laguna_dense_gate_up_swiglu_bf16_v1
+     248.0     30       8.27           208.5         3.186%  laguna_gate_sp_h64_v1
+     229.7     10      22.97           216.5         3.309%  laguna_full_fused_attn_grow_v1
+     185.5     39       4.76           134.1         2.049%  laguna_prefill_router_tournament_ordinal_norm_active64_v2
+     141.9     41       3.46            87.9         1.343%  rmsbfloat16
+     133.8      1     133.80           132.5         2.024%  laguna_dense_down_residual_bf16_v1
+      80.2     10       8.02            67.0         1.024%  laguna_gate_sp_h48_v1
+      77.0      1      77.00            75.7         1.156%  laguna_lmhead_exact_fused_int5_sparse_refine_v1
+       9.0      1       9.00             7.7         0.117%  argmax_bfloat16
+       4.7      1       4.70             3.4         0.052%  laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1
+       4.1      1       4.10             2.8         0.043%  laguna_lmhead_coarse_argmax_stage1_v5
+       3.5      1       3.50             2.2         0.033%  laguna_decode_embedding_rope_atlas_bf16_2048_v2
+       3.4      1       3.40             2.1         0.032%  gather_frontbfloat16_int32_int_2
+       2.9      1       2.90             1.6         0.024%  laguna_residual_rms_bf16_2048_v1
+
+--- clusters (nat-deflated) ---
+   4105.5 us/step   160 disp   51.4% of nat busy  attention qkv+oproj+attn+gate (h48/h64)
+   2489.6 us/step   117 disp   31.1% of nat busy  routed MoE trio
+    485.0 us/step   120 disp    6.1% of nat busy  norm + router
+    508.5 us/step     5 disp    6.4% of nat busy  lm head
+    400.6 us/step     2 disp    5.0% of nat busy  layer-0 dense MLP
+      4.3 us/step     2 disp    0.1% of nat busy  embedding
+
+--- Stage 2 roofline verdicts (nat-deflated us, bytes from weights/config.json) ---
+us/step_nat   MB/step    GB/s  %ceil  verdict             label
+     1446.3     368.1   254.5    93%  bytes-bound         laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2
+     1300.6     353.9   272.1   100%  bytes-bound         laguna_decode_nvfp4_qkv_h64_r1_v1_lm1_pw1_se1_sd1
+     1078.2     283.1   262.6    96%  bytes-bound         laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1
+      807.5     207.0   256.4    94%  bytes-bound         laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6
+      596.5      62.9   105.5    39%  latency-bound       laguna_sliding_fused_attn_ring_v1
+      419.0     128.5   306.6   112%  bytes-bound         laguna_lmhead_int5_base_coarse_delta_bf16_v1
+      349.6      94.4   269.9    99%  bytes-bound         laguna_decode_nvfp4_qkv_h48_r1_v1_lm1_pw1_se1_sd1
+      261.4      40.9   156.4    57%  partly-bytes-bound  laguna_residual_rms_router_bf16_2048_rpg8_keys_v1_pf1
+      288.6      70.8   245.2    90%  bytes-bound         laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1
+      235.7      46.0   195.2    71%  partly-bytes-bound  laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1
+      268.1      67.1   250.3    92%  bytes-bound         laguna_dense_gate_up_swiglu_bf16_v1
+      208.5       4.4    21.2     8%  overhead-bound      laguna_gate_sp_h64_v1
+      216.5      23.6   109.0    40%  latency-bound       laguna_full_fused_attn_grow_v1
+      134.1       0.0     0.3     0%  overhead-bound      laguna_prefill_router_tournament_ordinal_norm_active64_v2
+       87.9       0.3     3.8     1%  overhead-bound      rmsbfloat16
+      132.5      33.6   253.3    93%  bytes-bound         laguna_dense_down_residual_bf16_v1
+       67.0       1.1    16.5     6%  overhead-bound      laguna_gate_sp_h48_v1
+       75.7       0.0     0.0     0%  overhead-bound      laguna_lmhead_exact_fused_int5_sparse_refine_v1
+        7.7       0.0     0.0     0%  overhead-bound      argmax_bfloat16
+        3.4       0.0     0.0     0%  overhead-bound      laguna_lmhead_exact_winner_bf16_midpoint_threshold_v1
+        2.8       0.0     0.0     0%  overhead-bound      laguna_lmhead_coarse_argmax_stage1_v5
+        2.2       0.0     0.0     0%  overhead-bound      laguna_decode_embedding_rope_atlas_bf16_2048_v2
+        2.1       0.0     2.0     1%  overhead-bound      gather_frontbfloat16_int32_int_2
+        1.6       0.0     5.2     2%  overhead-bound      laguna_residual_rms_bf16_2048_v1
+
+   6090.4 us/step   76.2% of nat busy   9 labels  bytes-bound
+    813.0 us/step   10.2% of nat busy   2 labels  latency-bound
+    497.1 us/step    6.2% of nat busy   2 labels  partly-bytes-bound
+    592.9 us/step    7.4% of nat busy  11 labels  overhead-bound
+   7993.4 us/step  total (nat busy 7993.1)
+
+wrote research/r94-artifacts/r94-dispatch-ledger.tsv
