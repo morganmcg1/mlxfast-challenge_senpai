@@ -390,6 +390,91 @@ xcrun swiftc -O research/nezuko_r98_ab_kernel_probe.swift -o /tmp/nezab
 
 ---
 
+## 11. Frontier-swap audit (advisor HOLD `r98-b-hold-frontier-cc6ddc1`, 13:46:12Z)
+
+The HOLD arrived after all measurement was complete. Compliance first:
+
+- **No GPU was spent after the hold.** Nothing was mid-flight; no build, no
+  benchmark, no `run_job` launch has run since.
+- **I did not rebase onto `4f3108c4`.** The branch sits on `450953e5`, the base
+  this arm was assigned and measured against. The one rebase I did do
+  (`e510bb3d` → `450953e5`) predates the hold and was the tidy-up the earlier
+  base-moved comment explicitly permitted; it changed 0 bytes of submitted
+  surface.
+- **Nothing is being proposed for merge or submission.** This arm's submitted
+  surface is empty — there is no candidate binary measured on `e510bb3d` to
+  push, because the answer was "don't make this change".
+- The hold asked: *"If you already have those numbers or any M4 measurements
+  against `e510bb3d`, commit them to a `research/*.md` file so we can compare
+  against the new frontier."* That is precisely §4 and §5 of this note.
+
+Then, because it is read-only, free, and directly answers the audit you said
+you were about to run, I diffed the two kernels at `4f3108c4` against my base
+(`git show` plus string inspection — no build, no rebase, no GPU).
+
+**The H-B premise survives the frontier swap intact.**
+
+| property | base `450953e5` | frontier `4f3108c4` | |
+|---|---|---|---|
+| `laguna_sliding_fused_attn_ring_v1` exists | yes `:1508` | yes `:1417` | ✅ survives |
+| phase-1 guard `if (sg < 3)` | `:1544` | `:1452` | ✅ same |
+| V stage `else if (sg == 3)` | `:1584` | `:1492` | ✅ same |
+| **phase-1 barrier** | `:1590` | **`:1498`** | ✅ same |
+| dispatch grid | `((heads/2)*1024,1,1)` | `((heads/2)*1024,1,1)` | ✅ **identical** |
+| threadgroup | `(1024,1,1)` | `(1024,1,1)` | ✅ **identical** |
+| ⇒ idle simdgroups pre-barrier | **28 of 32** | **28 of 32** | ✅ **premise holds** |
+| `T_LOAD_K` macro text | 1011 B | 1011 B | ✅ **byte-identical** |
+| `T_LOAD_V` / `substitute` predicate | `:1903` | `:1740` | ✅ same mechanism |
+| sliding phase-2 unroll | **4-way** (`i + 3*BN < N`) | **2-way** (`i + BN < N; i += 2*BN`) `:1548` | ⚠️ **changed** |
+| sliding kernel source bytes | 21,722 | 17,863 | −3,859 |
+| `laguna_full_fused_attn_grow_v1` | `:2028` | `:1866` | ✅ survives |
+| full phase-1 barrier | `:2118` | `:1955` | ✅ same |
+| full phase-2 unroll | 2-way | 2-way `:2006` | unchanged |
+| full kernel source bytes | — | 15,397 | — |
+
+Three consequences.
+
+1. **The negative transfers with high confidence.** The mechanism I measured is
+   a property of the compiler's handling of the `T_LOAD_K(dst, substitute, ptr)`
+   predicated-load diamond, and that macro is **byte-identical** at the new
+   frontier. The geometry that makes 28 simdgroups idle is identical. So the
+   prefetch window still exists, still has the same shape, and splitting the
+   same macro across the same barrier should still cost the same ~4 %.
+   Re-confirming it at `4f3108c4` costs ~30 minutes of local probe time and
+   **zero receipts** — the variant generator only needs its split point and
+   loop-rotation anchors retargeted from the 4-way to the 2-way loop. Say the
+   word and I will run it; otherwise I would not spend the time, because the
+   dose-response evidence in §5.3 already localises the cost to codegen rather
+   than to anything the frontier changed.
+
+2. **Rung 4 of my brief is inverted at the frontier — and that is now the more
+   interesting question.** The brief asked me to raise the *full* kernel from
+   2-way to match *sliding's* 4-way, as the cheapest test of the round-98
+   thesis. The promoted frontier went the **opposite** way: it dropped sliding
+   from 4-way to 2-way, shrinking that kernel by 3,859 bytes. Given that
+   headroom collapsed to 16,151 B at the new base, that looks like a
+   **byte-motivated** change, not a speed-motivated one. If so, the frontier may
+   have paid decode time for source bytes at exactly the site this assignment
+   cares about, and restoring sliding to 4-way is a *work-scheduling* arm that
+   §5 says nothing against — my negative closes "issue earlier across a
+   barrier", not "issue more per trip". I did not measure it (out of scope, and
+   the hold forbids GPU), but the probe already in this branch measures it
+   directly with one anchor change.
+
+3. **`DARKBLOOM_COMPILED_TIERED_ATTENTION` / `DARKBLOOM_COMPILED_DECODE` do not
+   remove the window.** Whatever those gates select, the JIT
+   `MLXFast.metalKernel` sliding path above is still present and still reached
+   from `lagunaSlidingFusedAttention` at `:1766`, called at `:6019`. I did not
+   audit which gate wins at runtime — that is your audit, and it needs the
+   scored build I am not permitted to run.
+
+Byte note: `senpai/check-editable-budget.sh 4f3108c4…` run against my
+(deliberately un-rebased) tree reports `growth=-84373`, which simply reflects
+that my tree still carries the *old* solver. It is not a budget claim for this
+arm. This arm's growth is **0 bytes** by construction.
+
+---
+
 ## Reply
 
 H-B is **falsified**, cleanly, and I spent **zero of the six allocated
@@ -428,6 +513,38 @@ revert-control-leg obligation never triggered.
 Proposed rule text is in §8. I did not port to the full-attention kernel — §8
 explains why (mechanism is compiler-level, sliding is 73 % of the attention
 budget, and the probe's buffer set is sliding-specific); say the word and it is
-a cheap add. The one adjacent idea I noticed but did **not** implement is the
-full kernel's 2-way phase-2 unroll versus sliding's 4-way, which is a
-work-scheduling question this negative says nothing about.
+a cheap add.
+
+**On the HOLD.** It landed after all measurement was finished, so nothing was
+wasted and no GPU has run since. I did not rebase onto `4f3108c4` and I am not
+asking you to merge anything — this arm's submitted surface is empty, so there
+is no `e510bb3d`-measured candidate to push. What I am publishing is exactly
+what your hold asked for: the occupancy and M4 numbers, committed to a
+`research/*.md`, so you can compare them against the new frontier.
+
+**Two things from §11 that I think change your audit**, both established
+read-only with `git show`:
+
+1. **The premise survives the swap.** At `4f3108c4` the sliding kernel still
+   dispatches `grid ((heads/2)*1024)` × `threadGroup (1024)` — identical
+   geometry, so still 28 of 32 simdgroups idle before the phase-1 barrier
+   (now `:1498`) — and the `T_LOAD_K` macro is **byte-identical**, 1011 bytes,
+   same `substitute` predicate. Since §5.3 localises the ~4 % to the compiler's
+   handling of *that macro*, the negative should transfer unchanged. I can
+   re-confirm it at the new base for ~30 min of local probe time and **zero
+   receipts** if you want it nailed down; I would otherwise not spend it.
+
+2. **The frontier moved sliding's phase-2 loop from 4-way to 2-way unrolled**
+   (`for (; i + BN < N; i += 2 * BN)` at `:1548`), shrinking that kernel by
+   3,859 bytes. With headroom collapsing to 16,151 B, that reads as a
+   **byte-motivated** trade. If it is, the promoted frontier may have paid
+   decode time for source bytes at precisely the site this arm was pointed at —
+   and rung 4 of my brief is inverted: instead of raising *full* to 4-way, the
+   live question is whether restoring *sliding* to 4-way pays. That is a
+   work-scheduling arm, which my negative explicitly does **not** close, and the
+   probe already on this branch measures it with one anchor change. It is the
+   cheapest surviving test of the round-98 thesis I can see, and it needs a byte
+   answer before a timing answer.
+
+I am holding as instructed and will take either a fresh revision bound to
+`4f3108c4` or a close.
