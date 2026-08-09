@@ -547,3 +547,159 @@ indistinguishable from noise on the M4 iteration host (section 1.2: the first
 ~480 injected dispatches are literally free there), so no local result could have
 justified the work. It is now a predicted -2.0 % on the machine that scores,
 which is well above the minimum resolvable decode difference in section 3.
+
+## 9. The channel measured from the corpus itself (n = 1184)
+
+Arms A and B buy candidate-side replicates one submission at a time. There is a
+much larger null sample already in the public corpus that costs nothing, and I
+had been walking past it.
+
+**Every receipt carries its own same-session paired baseline.** That baseline is
+the *pinned* baseline: identical code, identical prompts, on every one of the
+1184 receipts spanning 2026-07-24 to 2026-08-09. So `bl_dec` and `bl_pre` are a
+16-day, n=1184 null sample of the ranked measurement channel itself - exactly
+the quantity Arm A is chartered to estimate, at 200x the sample size and zero
+submission cost.
+
+Reproduce with `python3 research/r93-runs/channel_noise.py
+research/r93-runs/receipts-latest.json`.
+
+### 9.1 The channel's own repeatability
+
+| statistic | mean | sd | CV | 95 % CI on CV |
+|---|---|---|---|---|
+| `bl_dec` | 13854.895 us | 34.004 us | **0.2454 %** | [0.2359 %, 0.2557 %] |
+| `bl_pre` | 372.479 us | 7.245 us | **1.9451 %** | [1.8698 %, 2.0267 %] |
+
+The decode figure sits just under the 0.2924 % corpus bound the assignment gave
+me, which is reassuring: the assignment's bound was derived from *candidate*
+receipts, which are heterogeneous in code, so it should over-estimate. It does,
+by about 19 %.
+
+The prefill figure does the opposite, and it is the surprise of this section.
+The assignment's prefill bound was 0.2573 %. The channel's actual prefill
+repeatability is **1.9451 %, roughly 7.5x worse**. Section 2 already showed that
+my own machine-code-identical candidates repeat prefill to 0.0643 %. Both are
+true, and section 9.3 explains why they are not in conflict.
+
+Daily buckets show no trend: daily `bl_dec` means run 13839-13866 us across 14
+days, a total spread of 0.2 %, with daily CVs of 0.12-0.28 %.
+
+### 9.2 The channel is white - there is no drift to correct for
+
+If the host drifted, receipts close in time would resemble each other more than
+receipts far apart, and same-session pairing would cancel that drift.
+
+| series | mean abs diff, adjacent receipts | mean abs diff, random pairs | ratio |
+|---|---|---|---|
+| `bl_dec` | 37.730 us | 37.412 us | **1.0085** |
+| `bl_pre` | 8.155 us | 8.073 us | **1.0102** |
+
+A ratio of 1 means no temporal structure whatsoever. Restricting to adjacent
+pairs less than 30 minutes apart (n=1064) gives 1.0167. The 40 C thermal gate is
+doing its job completely: **two receipts taken a week apart are as comparable as
+two taken ten minutes apart.**
+
+This is a practical licence. My nulls and rungs were bought over a ~2 hour
+window and I had been treating elapsed time as a threat to the design. It is not
+one. It also means there is no reason to interleave nulls with rungs for drift
+control, which frees the remaining budget to be spent purely on whichever
+estimate is weakest.
+
+### 9.3 The paired baseline buys health checking, not precision
+
+Pairing only reduces variance if the two members of a pair are positively
+correlated. Estimated by de-meaning within solver-day groups of 5 or more
+receipts (77 groups, 942 receipts), so that code changes are absorbed into the
+group mean and what remains is measurement noise:
+
+| axis | corr(candidate, same-session baseline) | 95 % CI |
+|---|---|---|
+| decode | **-0.0485** | [-0.1121, +0.0154] |
+| prefill | **+0.0054** | [-0.0585, +0.0692] |
+
+Both are indistinguishable from zero, which is what section 9.2 predicts: with
+no shared drift there is no shared component to cancel.
+
+The consequence runs opposite to the intuition behind paired designs. With
+rho = 0 the published speedup is *noisier* than the raw candidate number,
+because it adds the baseline's noise instead of cancelling it:
+
+> CV(published speedup)^2 = CV(candidate)^2 + CV(baseline)^2
+
+So for research comparisons the correct statistic is the **raw candidate
+microseconds**, not the published speedup. Using my measured candidate-side CVs
+from section 2, the minimum resolvable difference at 95 % confidence, two-sided,
+comparing two variants with n receipts each:
+
+**Decode** (candidate CV 0.4041 %, baseline CV 0.2454 %, published-speedup CV 0.4728 %)
+
+| n per arm | raw candidate us | published speedup | sharpening |
+|---|---|---|---|
+| 2 | 1.7389 % | 2.0345 % | 1.2x |
+| 3 | 0.8074 % | 0.9447 % | 1.2x |
+| 4 | 0.5961 % | 0.6974 % | 1.2x |
+| 6 | 0.4601 % | 0.5383 % | 1.2x |
+| 8 | 0.3960 % | 0.4634 % | 1.2x |
+
+**Prefill** (candidate CV 0.0643 %, baseline CV 1.9451 %, published-speedup CV 1.9461 %)
+
+| n per arm | raw candidate us | published speedup | sharpening |
+|---|---|---|---|
+| 2 | 0.2766 % | 8.3742 % | **30.3x** |
+| 3 | 0.1284 % | 3.8883 % | **30.3x** |
+| 4 | 0.0948 % | 2.8706 % | **30.3x** |
+| 6 | 0.0732 % | 2.2157 % | **30.3x** |
+| 8 | 0.0630 % | 1.9072 % | **30.3x** |
+
+The decode gain is a modest 1.2x. The prefill gain is **30x**, and it resolves
+the apparent contradiction in section 9.1: the candidate side of a prefill
+measurement is one of the most repeatable numbers in this whole system
+(0.0643 %), while the *published prefill speedup* is nearly worthless for
+detecting anything under about 3 %, because the pinned baseline's single
+512-token prefill pass is 30x noisier than ours.
+
+Two concrete implications:
+
+1. **Never evaluate a prefill change using `prefill_speedup`.** A real +1 %
+   prefill win is invisible in the published ratio at any budget we can afford,
+   and clearly visible in `prefill_seconds_per_token` with n=2.
+2. **The 0.95 prefill floor is checked against a statistic with ~1.95 % CV.** A
+   candidate whose true prefill speedup is 1.00 is safe, but one genuinely
+   sitting at 0.98 would trip the floor by chance roughly 6 % of the time even
+   though it is compliant. Anything that spends prefill headroom to buy decode
+   should keep margin well above the floor rather than shaving it.
+
+### 9.4 The baseline decode distribution has a heavy right tail
+
+| series | skew | excess kurtosis | full CV | 5 %-trimmed CV | IQR-robust CV |
+|---|---|---|---|---|---|
+| `bl_dec` | +0.927 | +1.937 | 0.2454 % | 0.1919 % | 0.2575 % |
+| `bl_pre` | +0.525 | -1.074 | 1.9451 % | 1.7574 % | 2.5235 % |
+
+Decode is right-skewed with a fat tail: occasional slow sessions, no fast ones.
+Trimming 5 % from each end drops the CV by 22 %, from 0.2454 % to 0.1919 %.
+
+This is the expected shape for a contended machine and it has a direct
+consequence for cadence: with n >= 3 receipts per variant a **median or trimmed
+mean is materially more efficient than the plain mean**, and it protects against
+the one-slow-session failure mode in which a genuinely good candidate is
+rejected by a single unlucky receipt. It also means the section 2 candidate-side
+sigma, a plain sd over a handful of points, should be read as an upper bound.
+
+### 9.5 What this did and did not replace
+
+It did not replace Arm A. The corpus baseline measures the channel under the
+*baseline's* code, which is roughly 2.8x slower at decode and 2x slower at
+prefill than ours; noise need not scale identically. Arm A's
+machine-code-identical candidates measure the channel under the code we actually
+ship, and section 2's prefill result - 0.0643 % against the baseline's 1.9451 %
+- is exactly the sort of divergence that justifies having bought them.
+
+What it did replace is the *precision* requirement on Arm A. Section 3's
+minimum-resolvable-difference table no longer rests on a 3-to-6 point sd whose
+CI spans an order of magnitude, because the baseline-side term in every one of
+those figures is now pinned to +/- 4 % relative. The remaining budget is better
+spent on Arm B rungs, and on confirming the candidate-side decode sigma, than on
+grinding the sigma CI down with more nulls.
+
