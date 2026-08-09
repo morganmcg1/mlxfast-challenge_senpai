@@ -1009,6 +1009,27 @@ relative. §2.4's ledger price of 0.2358 % stands and needs no revision.
 /tmp/tanjiro-r100b-wall-null.json     wall null,       offset 1
 ```
 
+W&B run `p3bajkox`, state `finished`:
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/p3bajkox>
+
+`research/tanjiro-r100b-wandb.py` re-derives every published number from the
+artifacts above rather than accepting a transcribed constant, so the run and
+this document cannot drift apart. It carries three tables — `slots` (16 rows,
+per-slot wall medians), `per_kernel` (19 rows, contrast beside the
+identical-code null), and `decomposition` (the four wall/busy/gap channels) —
+plus the Part 1 lottery constants in `config` and `summary`. Reproduce with:
+
+```bash
+python3 research/tanjiro-r100b-wandb.py \
+    --wall /tmp/tanjiro-r100b-wall.json \
+    --wall-null /tmp/tanjiro-r100b-wall-null.json \
+    --kernel /tmp/tanjiro-r100b-abba.json \
+    --kernel-null /tmp/tanjiro-r100b-abba-null.json \
+    --logdir /tmp/tanjiro-r100b-census \
+    --base-sha 2aa2f79228d59a3eeba3abc05ec96daa9e0b99a1 \
+    --cand-sha 451150cd8e0104caacfe7288a90947524d585c4e
+```
+
 ## 3.5 Threadgroup geometry — unchanged, as required
 
 | property | sliding `sliding_fused_attn_ring_v1` | full `full_fused_attn_grow_v1` |
