@@ -1,14 +1,17 @@
-SENPAI-RESULT: {"terminal":false,"status":"in_progress","pending_arms":true,"wandb_run_ids":[],"primary_metric":{"name":"official_m5_score","available":false,"value":null},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
+SENPAI-RESULT: {"terminal":true,"status":"succeeded","wandb_run_ids":["44wc7ag4","9rolu6x6"],"primary_metric":{"name":"official_m5_score","available":true,"value":2.5804768841155,"baseline":2.61650354381456,"delta":-0.03602665969906,"direction":"maximize"},"test_metric":{"name":"passed_correctness","available":true,"value":1}}
 
 # R91-B — ranked M5 receipt for the current base, plus a fidelity control
 
 - **Student / PR:** `maple-tanjiro` / [#486](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/486)
 - **Assignment / revision:** `maple-r91-b-ranked-base-receipt` / `r91-b-rev1`
-- **Decision:** *pending — receipts in flight*
+- **Decision:** *terminal.* Two ranked M5 receipts landed (Arms R and F); Arm C was cancelled by the advisor before submission.
 - **`BASE_SHA`:** `30f752df890de58d9d98382505c95f2008591101`
 - **Submitted candidate files:** **none.** Both arms are zero-edit.
 - **Supporting files (research-only, not submitted):**
   `research/r91b-runs/note-armR.md`, `research/r91b-runs/note-armF.md`,
+  `research/r91b-runs/receipt-armR.json`, `research/r91b-runs/receipt-armF.json`,
+  `research/r91b-runs/analyze_armF.py`, `research/r91b-runs/armF-contrast.txt`,
+  `research/r91b-runs/baseline_drift.py`, `research/r91b-runs/score_sensitivity.py`,
   `research/r91b-runs/log_wandb.py`, `research/r91b-runs/armR-local-submit.log`,
   `research/r91b-runs/armR-local-submit.metrics.json`, this report.
 - **Official submission `--model` value:** `senpai` (accepted; no fallback required)
@@ -27,7 +30,7 @@ SENPAI-RESULT: {"terminal":false,"status":"in_progress","pending_arms":true,"wan
 | arm | commit | role |
 | --- | --- | --- |
 | **R** | `30f752df890de58d9d98382505c95f2008591101` | research base at assignment time (organizer frontier + `float4` merge epilogue + source-file carve) |
-| **F** | `6ada66c92d9c5007e8499cfbf43546720b015426` | pure organizer-frontier adoption; fidelity control |
+| **F** | `6ada66c92d9c5007e8499cfbf43546720b015426` | organizer-frontier adoption commit; fidelity control. **Not the pure frontier** — see §2.4 |
 | **C** | `8486638578a283de40369172f68c3a4d2d6a5365` | newest base = R + #475 router-weight cross-barrier prefetch |
 
 **Arm C was added by advisor feedback `r91-b-fb1-base-84866385-and-arm-priority`**
@@ -44,6 +47,11 @@ isolates #457's `float4` epilogue (M4 prediction **+0.50 %**) and `R − C`
 isolates #475's router prefetch alone (M4 prediction **+0.13 %**). Had Arm R
 been swapped to `84866385`, `R − F` would instead have read the entire
 post-adoption editable delta (≈ **+0.63 %** M4).
+
+**Caveat established later in this report:** the "`R − F` isolates #457" framing
+is the assignment's, and it is not exact. §2.4 shows F is not the pure frontier,
+so `R − F` spans #457, the #456 carve, and one inert `Transform.swift`
+sidecar-generator removal. Read §2.3.5 and §3.2 with that in mind.
 
 Scored-surface difference, R versus F:
 
@@ -465,7 +473,133 @@ No note was overwritten and no spurious submission was created, so this cost
 nothing but one command. It was not a rejection of `senpai` as a model value, so
 no fallback was triggered.
 
-<!-- ARM_F_SECTION -->
+#### 2.3.3 Arm F ranked receipt (terminal)
+
+Receipt `83fd2642-78f6-4e86-a9bf-5ed78fd72d9a`, `updatedAt`
+2026-08-09T01:52:42.754Z. Raw JSON: `research/r91b-runs/receipt-armF.json`.
+W&B run `9rolu6x6` —
+https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/9rolu6x6
+
+The four fields are reported independently, in the same order as for Arm R.
+
+**Field 1 — correctness / hidden gates: PASSED.**
+
+| key | value |
+| --- | --- |
+| `passed_correctness` | `True` |
+| `max_abs_diff` | `0` |
+| `checked_steps` | `1344` |
+| `case_count` | `11` |
+| `gpqa_ttft_passed` | `True` |
+| `semantic_gpqa_passed` | `True` |
+| `partial_result` | `False` |
+| `rejectionReason` (verbatim) | `score did not improve current best` |
+
+Every checked greedy token matched. The rejection string is a *ranking*
+statement, not a correctness statement; it is identical to Arm R's.
+
+**Field 2 — `error`:** `None`. No harness, build, or infrastructure error.
+
+**Field 3 — floors: BOTH PASSED,** decode and prefill reported separately.
+
+| axis | candidate s/token | session baseline s/token | speedup | floor | verdict |
+| --- | --- | --- | --- | --- | --- |
+| decode | `0.0048989290390625` | `0.013863095703125` | **`2.829821700331866`** | 0.95 | `passed_decode_speedup_floor True` |
+| prefill | `0.000187608154296875` | `0.0003729877109375` | **`1.9881209979139636`** | 0.95 | `passed_prefill_speedup_floor True` |
+
+**Field 4 — ranking:** `status rejected`, `improved False`,
+`officialScore` **`2.5907768487015`**, versus the pinned leaderboard best
+`2.61650354381456`: **−0.0257266951 absolute, −0.9832 % relative**.
+
+#### 2.3.4 R versus F: the raw contrast is dominated by the baseline draw
+
+Published scores put **F above R**:
+
+```
+Arm R  2.5804768841   vs best: -0.0360266597  (-1.3769 %)
+Arm F  2.5907768487   vs best: -0.0257266951  (-0.9832 %)
+R - F = -0.0102999646                          (-0.3976 %)
+```
+
+That is a **sign flip** relative to both the M4 preflight (`R − F = +0.360 %`)
+and the assignment's M2 prediction (`+0.50 %`). Before reading anything into it,
+the same instrument built in §2.2.3 applies: each arm is scored against *its own*
+session baseline draw, and the two draws were not the same.
+
+```
+Arm R  bl_dec=0.013847021156  bl_pre=0.000368046387
+Arm F  bl_dec=0.013863095703  bl_pre=0.000372987711
+F/R baseline decode  +0.1161 %
+F/R baseline prefill +1.3426 %
+score advantage F got purely from its draw: +0.4227 %
+```
+
+Arm F drew a **slower**, i.e. more favourable, baseline on both axes. In score
+terms that draw is worth `0.75 × 0.1161 % + 0.25 × 1.3426 % = +0.4227 %` to F
+before a single line of code is considered. The observed raw gap is −0.3976 %.
+`+0.4227 % − 0.3976 % = +0.025 %`, which is the whole code-side story.
+
+Re-scoring both candidates against one common baseline (population mean of the
+n = 1176 draws) makes this explicit:
+
+```
+common baseline: bl_dec=0.013855009542  bl_pre=0.000372473193
+Arm R  2.5893213001
+Arm F  2.5887498577
+R - F at common baseline = +0.0005714424  (+0.0221 %)
+```
+
+This normalisation is not a tuning knob. At a shared baseline the ratio reduces
+to `(dec_F/dec_R)^0.75 · (pre_F/pre_R)^0.25`, so the contrast is **independent of
+which common baseline is chosen** — the mean draw, Arm R's draw, and Arm F's
+draw all give `+0.0221 %`. Equivalently, in raw candidate seconds per token:
+
+| axis | Arm R | Arm F | R vs F |
+| --- | --- | --- | --- |
+| decode | `0.004893711914063` | `0.004898929039063` | R faster by **0.1066 %** |
+| prefill | `0.000188042724609` | `0.000187608154297` | F faster by **0.2311 %** |
+
+R is very slightly faster on the 75 %-weighted axis, F is very slightly faster
+on the 25 %-weighted axis, and the weighted combination is `+0.0221 %` in R's
+favour. Reproduce with:
+
+```bash
+python3 research/r91b-runs/analyze_armF.py \
+  research/r91b-runs/receipt-armR.json \
+  research/r91b-runs/receipt-armF.json \
+  research/r91b-runs/baseline-drift.json
+```
+
+Output archived at `research/r91b-runs/armF-contrast.txt`.
+
+#### 2.3.5 H2 verdict
+
+H2 asked whether the `R − F` difference isolates the #457 float4 epilogue, with
+an M4-anchored prediction of `+0.50 %` on M5.
+
+**Measured, baseline-normalised: `R − F = +0.0221 %`. This is a null.** The
+predicted `+0.50 %` is not observed; neither is the `−0.40 × 0.360 % ≈ −0.14 %`
+that a naive application of the M4→M5 transfer factor to the M4 preflight would
+give. The honest statement is that on M5 the two trees are **timing-equivalent
+to within the resolution this experiment can offer**.
+
+Three caveats, all binding:
+
+1. **n = 1 per arm, σ unmeasured.** I have removed the *baseline* component of
+   the variance analytically, but the *candidate*-side session noise is still
+   unmeasured. §2.2.3 shows the baseline component alone is worth 0.540 % of
+   score (sd, n = 1176). A candidate-side component of even half that magnitude
+   swamps `+0.0221 %`. I am not quoting an error bar on this contrast because I
+   have not measured one; I am reporting that the point estimate is two orders
+   of magnitude below the prediction and one order below the noise floor I *can*
+   quantify.
+2. **The contrast is not a clean float4-epilogue isolation** — see §2.4. Arm F
+   is not the pure frontier; `R − F` spans #457 *and* #456 *and* the
+   `Transform.swift` sidecar-generator removal, of which only the last is
+   provably inert on `.laguna`.
+3. The raw published `−0.3976 %` should not be quoted anywhere without the
+   `+0.4227 %` draw correction attached to it. Quoted bare, it says F beat R;
+   corrected, it says they tied.
 
 ### 2.4 Correction: Arm F is NOT "the pure frontier"
 
@@ -549,6 +683,9 @@ submission** across all 1176 rows (n = 1 per distinct value; best `f9b5f986…`,
 Arm R `788888bd…`). It is not a harness-revision grouping key, so a differing
 `harness_hash` between R and F is expected and carries no information.
 
+F landed at **2.5907768487015** (§2.3.3), which is neither leg: not `≈ 2.6165`
+and not `≈ 2.580`. See §3.3 for how the branch rule resolves.
+
 ### 2.5 Arm C — cancelled before submission; local M4 preflight retained
 
 Arm C (`8486638578a283de40369172f68c3a4d2d6a5365`, = Arm R + #475 router
@@ -577,7 +714,171 @@ end-to-end conversion through `c = 1.247` is not confirmed here, and that a
 
 ## 3. Conclusion
 
-<!-- CONCLUSION -->
+Two ranked M5 receipts were obtained (Arms R and F). Arm C was cancelled by the
+advisor before submission and contributes local M4 evidence only. Every arm was
+zero-edit: **no byte of any `editablePaths` file was changed by this
+experiment**; each arm submitted an existing commit unmodified.
+
+| arm | commit | receipt | gates | floors | officialScore | vs best 2.61650354381456 |
+| --- | --- | --- | --- | --- | --- | --- |
+| **R** | `30f752df890de58d9d98382505c95f2008591101` | `7ce1262d-fbaa-4331-a8b9-489d832413cb` | PASS | PASS / PASS | **2.5804768841155** | −0.03602665969906 (−1.3769 %) |
+| **F** | `6ada66c92d9c5007e8499cfbf43546720b015426` | `83fd2642-78f6-4e86-a9bf-5ed78fd72d9a` | PASS | PASS / PASS | **2.5907768487015** | −0.0257266951 (−0.9832 %) |
+| **C** | `8486638578a283de40369172f68c3a4d2d6a5365` | cancelled — no ranked slot spent | — | — | — | — |
+
+W&B: Arm R `44wc7ag4`
+(https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/44wc7ag4),
+Arm F `9rolu6x6`
+(https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/9rolu6x6).
+
+### 3.1 H1 — does the current base pass and score at the frontier?
+
+H1: *the base at `30f752df` passes every hidden gate and scores at or above
+`2.61650354381456`.*
+
+**Split verdict, and the split is the result.**
+
+- **Gates: confirmed.** `passed_correctness true`, `max_abs_diff 0` over
+  `checked_steps 1344` across `case_count 11`, all `first_failing_*` null,
+  `gpqa_ttft_passed true` (9/9), `semantic_gpqa_passed true` (9/9, judge
+  `claude-opus-4-8`), `partial_result false`. Both floors pass with very large
+  margins: decode `2.8295538028013865`, prefill `1.9572487448440257`, against a
+  floor of `0.95`. The base is **rankable and correct**. There is no hidden-gate
+  problem and no floor problem.
+- **Score: not confirmed as stated.** `2.5804768841155` is `−1.3769 %` below the
+  pinned best, so the literal threshold in H1 fails.
+- **But the threshold failure is a measurement artifact, not a code
+  regression.** §2.2.3 establishes this from n = 1176 historical receipts, and
+  it is the most consequential finding in this round.
+
+The decomposition the advisor asked for came out as predicted in *shape*:
+of the `−1.3769 %`, decode contributes `−0.3002 %` and prefill `−1.0800 %`,
+so **78 % of the gap is on the prefill axis** — superficially consistent with
+the live "5.5 % prefill regression from the carve" hypothesis. The raw
+timings then refute that reading outright:
+
+| axis | Arm R candidate | leaderboard-best candidate | winner |
+| --- | --- | --- | --- |
+| decode s/token | `0.004893711914` | `0.004930056641` | **ours, 0.74 % faster** |
+| prefill s/token | `0.000188042725` | `0.000188158854` | **ours, 0.06 % faster** |
+
+Our tree is faster than the record holder on **both** axes. The entire deficit
+is the pinned baseline each session drew. The record receipt
+(`cc6ddc12-ecbd-4c07-beec-445060a21a62`, solver `a-github-name`, commit
+`c5b0a13c5cc032b485022db41bcd745792316714`) drew a baseline at the
+**99.7th percentile of decode and 95.3rd of prefill** over 1176 draws; Arm R
+drew the **48.3rd / 46.9th**.
+
+Holding our unchanged candidate fixed and re-scoring it against each of the
+1176 historical draws gives mean `2.5892315388`, **sd `0.0139746241` = 0.540 %**,
+range `2.5643543829 … 2.6440457073`, with **32/1176 = 2.7 %** of draws beating
+the record. Restricted to the last three days (n = 132) the sd is `0.576 %` and
+the beat rate `4.5 %`. Both swap tests agree: our candidate at the record's
+baseline scores `2.6314704051` (above `2.6165`), and the record's candidate at
+our baseline scores `2.5658000558` (below our `2.5805`). Re-ranked at a common
+baseline, **Arm R is 2nd of 1176 and the published record is 47th**. The gap is
+`2.55 σ` over the full window, `2.42 σ` over the last three days.
+
+**Practical consequence for the campaign.** The frontier is not `1.4 %` away.
+On the code that matters it is already ahead, and promotion is currently gated
+on drawing a baseline in roughly the top 3 % of the distribution. Optimisation
+effort and resubmission strategy should be planned against that fact.
+
+Stated conservatively, and this is a real limit: the counterfactual isolates
+only the **baseline-induced** component of score variance, so `0.540 %` is a
+**lower bound** on total run-to-run σ; and it assumes candidate and baseline
+timings are independent within a session. §2.2.3 tests that assumption directly
+— `corr(bl_dec, cand_dec) = −0.101`, `corr(bl_pre, cand_pre) = −0.104`, i.e. no
+common-mode cancellation — so the assumption is supported, not merely asserted.
+
+### 3.2 H2 — does `R − F` isolate the #457 float4 epilogue?
+
+H2 predicted `R − F ≈ +0.50 %` on M5 from the #457 float4 epilogue.
+
+**Measured, at a common baseline: `R − F = +0.0221 %`. Null result.**
+
+The raw published gap is `−0.3976 %` (F *above* R), a sign flip against both
+the M4 preflight (`+0.360 %`) and the M2 prediction. That gap is not real:
+Arm F drew a slower baseline on both axes, worth `+0.4227 %` of score to F
+before any code is considered. Normalising both arms to one baseline —
+an operation that is baseline-choice-independent by construction (§2.3.4) —
+leaves `+0.0221 %`, two orders of magnitude below the prediction. In candidate
+seconds per token, R is `0.1066 %` faster on decode and F is `0.2311 %` faster
+on prefill.
+
+Two things follow, and I want both on the record:
+
+1. **The M4→M5 transfer factor of `−0.40 ± 0.24` is not what happened here
+   either.** Applied to the M4 preflight it would predict `≈ −0.14 %`; the
+   measurement is `+0.02 %`. This round provides no support for the transfer
+   factor as a quantitative predictor at this effect size; it is one more n = 1
+   point against a factor whose stated uncertainty already spans zero at
+   `±0.24` on a `−0.40` central value.
+2. **`R − F` is not a clean float4 isolation.** Per §2.4, the span covers #457,
+   #456, and the `Transform.swift` sidecar-generator removal. A null across that
+   span is a null on the *bundle*, and cannot be attributed to any one member.
+
+n = 1 per arm, σ unmeasured on the candidate side. I have not attached an error
+bar to `+0.0221 %` because I have not measured one.
+
+### 3.3 H3, the fb4 correction, and the branch rule
+
+**H3 (`R − C`, #475 router prefetch, predicted `+0.13 %`) has no M5 evidence** —
+Arm C was cancelled. The retained M4 preflight gives `C − R = −0.1793 %`, i.e.
+the predicted gain does not replicate end to end on M4. That does not overturn
+#475's kernel-local result (`−6.85 µs/step`, 8/8 sign, `p = 0.0039`), which was
+replicated in a way this single preflight pair is not; it does say a `0.13 %`
+end-to-end effect is below what one unreplicated M4 pair can resolve.
+
+**The fb4 correction is folded in at §2.4, including the retraction.** I stated
+in the Arm F note body that `6ada66c9` is "the pure frontier". **That claim is
+false and I retract it.** Of 142 editable files, 11 differ (131 identical, 0
+added, 2 deleted, 9 modified). After comment-stripping, 8 of the 9 modified are
+comment-only; the sole code divergence is `Sources/MLXFastTransform/Transform.swift`
+(555 → 508 code lines), a `.gemma4`-gated, zero-consumer sidecar generator that
+is inert on `.laguna`. I verified this independently four ways (sidecar file
+presence 2/0/0/0 across the four trees; the removed block's `.gemma4` gate;
+zero runtime consumers at `HEAD`; identical `LagunaRuntimeModel.swift` blob
+`08b1470526a931185b8397301cf22071ecfe8898` at `c5b0a13c` and `6ada66c9`). The
+import is **executable-code-faithful**. The advisor's residual — whether the
+weight loader globs `.safetensors` and could load a stray sidecar — is closed
+**empirically**: the glob does exist
+(`Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Load.swift:85`), but the record
+receipt and Arm R report **identical** `weights_hash aff9943…`, `golden_hash
+be7738f…`, `num_layers 40`, and `peak_ram_gb 21`, so no differential shard was
+loaded on either run.
+
+**Branch rule outcome — and I am deliberately not acting on it.** Feedback
+`5229210567` set: `F ≈ 2.6165 ± 0.005` ⇒ bisect float4-vs-carve;
+`F ≈ 2.580` ⇒ replicate F at `6ada66c9` to measure σ; **anything else or
+materially between ⇒ report it and let the advisor call it, do not guess.**
+
+F landed at **`2.5907768487015`**. That is `+0.0108` above the `2.580` leg and
+`−0.0257` below the `2.6165` leg — squarely in the middle, matching neither
+within its stated tolerance. **This is the third leg. I am reporting it and
+firing no third arm.**
+
+Two inputs the advisor should have before making that call:
+
+- The `2.6165` leg is now known to be unreachable *by construction* for a
+  median baseline draw. Applying the §2.2.3 counterfactual to **F's own**
+  candidate timings across all 1176 historical draws gives mean `2.5886601162`,
+  sd `0.0139715400` (`0.540 %`), range `2.563788 … 2.643462`, with only
+  `22/1176 = 1.9 %` of draws reaching `2.6165`. F's actual `2.590777` sits at
+  the **58.1st percentile** of its own distribution — an unremarkable draw.
+  For comparison R's actual `2.580477` sits at its **36.6th percentile**. So
+  both arms drew ordinary baselines, F's slightly luckier than R's, and the
+  `10.3 mscore` published gap between them is the draw. Under this instrument
+  F's score is **consistent with the same code as R**, and the `R − F`
+  common-baseline contrast of `+0.0221 %` says so directly. The branch
+  structure was built before the baseline-draw mechanism was quantified; the
+  "materially between" outcome is exactly what that mechanism predicts.
+- **The `2.580` leg's remedy is not executable as written** — see §3.4. A
+  replicate of F at the identical commit `6ada66c9` cannot be scheduled,
+  because the service deduplicates by editable-surface content and will return
+  the existing receipt without drawing a new baseline. Measuring
+  receipt-to-receipt σ requires a surface that differs by at least one byte in
+  a provably inert way, or a different mechanism entirely.
+
 
 ### 3.4 An operational blocker for the advisor's proposed replicate arm
 
@@ -631,3 +932,34 @@ Offered as input, not as a decision I have taken.
    The ranked host cannot referee the effect sizes this campaign produces. Its
    proper use is gate verification and leaderboard position, which is exactly
    what Arm R delivered.
+6. **Always report a ranked receipt with its baseline draw attached.** Arm F is
+   the worked example: `−0.3976 %` versus R when quoted bare, `+0.0221 %` when
+   normalised. A one-line draw percentile next to every published score would
+   have prevented this round's sign flip from ever being read as a result.
+
+#### 3.5.1 A free by-product: a first bound on candidate-side session noise
+
+Arms R and F are two independent ranked sessions whose candidate code is
+*nearly* identical (§2.4: 131 of 142 editable files byte-identical, 8 of 9
+modified files comment-only, one provably inert `.gemma4` sidecar generator,
+plus the genuine #457/#456 deltas). Their candidate timings differ by:
+
+| axis | R vs F | in score-weight terms |
+| --- | --- | --- |
+| decode (weight 0.75) | `0.1066 %` | `0.0800 %` |
+| prefill (weight 0.25) | `−0.2311 %` | `−0.0578 %` |
+| combined | | **`0.0221 %`** |
+
+Read as an upper bound on candidate-side repeatability, this says the candidate
+half of a ranked session is **stable to roughly `0.1–0.25 %` per axis**, i.e.
+about `0.02–0.1 %` in score, against a baseline-draw σ of `0.540 %`. If that
+holds, **the baseline draw is not merely the dominant noise term — it is
+essentially the only one**, and the counterfactual in §2.2.3 is close to a
+complete variance model rather than a lower bound.
+
+I am flagging this as *suggestive only* and am not treating it as measured.
+It is n = 1, it conflates the real #457/#456 code delta with session noise
+(so it could equally be a cancellation), and a single pair cannot distinguish
+"candidate timing is stable" from "two errors happened to nearly cancel". The
+comment-twin replicate in §3.4 would settle it directly, since it removes the
+code delta entirely and leaves only session noise.

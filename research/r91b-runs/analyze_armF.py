@@ -100,8 +100,8 @@ def main():
     print("===== re-scored at a COMMON baseline (the code-only contrast) =====")
     if len(sys.argv) > 3:
         rows = json.load(open(sys.argv[3]))
-        bd = statistics.fmean(x["baseline_decode_seconds_per_token"] for x in rows)
-        bp = statistics.fmean(x["baseline_prefill_seconds_per_token"] for x in rows)
+        bd = statistics.fmean(x["bl_dec"] for x in rows)
+        bp = statistics.fmean(x["bl_pre"] for x in rows)
         src = f"population mean of n={len(rows)}"
     else:
         bd = mr["baseline_decode_seconds_per_token"]
@@ -116,6 +116,8 @@ def main():
     d = out["Arm R"] / out["Arm F"] - 1
     print(f"  R - F at common baseline = {out['Arm R'] - out['Arm F']:+.10f} ({d * 100:+.4f} %)")
     print("  (M4 preflight predicted R - F = +0.360 %; assignment M2 predicted +0.50 %)")
+    print("  at a shared baseline R/F reduces to (dec_F/dec_R)^.75 * (pre_F/pre_R)^.25,")
+    print("  so this contrast does not depend on which common baseline is chosen.")
 
     print()
     print("===== candidate timings, the unconfounded quantity =====")

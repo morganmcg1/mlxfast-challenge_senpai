@@ -1,0 +1,32 @@
+    prefill_seconds_per_token            0.000187608154296875
+    baseline_decode_seconds_per_token    0.013863095703125
+    baseline_prefill_seconds_per_token   0.0003729877109375
+  --- field 4: ranking ---
+    status                   'rejected'
+    improved                 False
+    officialScore            2.5907768487015
+
+===== as published (confounded by the baseline draw) =====
+  Arm R  2.5804768841   vs best 2.61650354381456: -0.0360266597 (-1.3769 %)
+  Arm F  2.5907768487   vs best 2.61650354381456: -0.0257266951 (-0.9832 %)
+  R - F = -0.0102999646 (-0.3976 %)
+
+===== baseline draws actually seen =====
+  Arm R  bl_dec=0.013847021156 bl_pre=0.000368046387
+  Arm F  bl_dec=0.013863095703 bl_pre=0.000372987711
+  F/R baseline decode  +0.1161 %
+  F/R baseline prefill +1.3426 %
+  score advantage F got purely from its draw: +0.4227 %
+
+===== re-scored at a COMMON baseline (the code-only contrast) =====
+  common baseline (population mean of n=1176): bl_dec=0.013855009542 bl_pre=0.000372473193
+  Arm R  2.5893213001
+  Arm F  2.5887498577
+  R - F at common baseline = +0.0005714424 (+0.0221 %)
+  (M4 preflight predicted R - F = +0.360 %; assignment M2 predicted +0.50 %)
+  at a shared baseline R/F reduces to (dec_F/dec_R)^.75 * (pre_F/pre_R)^.25,
+  so this contrast does not depend on which common baseline is chosen.
+
+===== candidate timings, the unconfounded quantity =====
+  decode_seconds_per_token       R=0.004893711914063 F=0.004898929039063  R vs F +0.1066 % (positive = R faster)
+  prefill_seconds_per_token      R=0.000188042724609 F=0.000187608154297  R vs F -0.2311 % (positive = R faster)
