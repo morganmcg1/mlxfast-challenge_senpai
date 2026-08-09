@@ -6321,6 +6321,14 @@ final class LagunaRuntimeAttention: Module {
                 : gatePerHead && projectedGate.dtype == output.dtype
                 ? lagunaCompiledSoftplusGate(projectedGate)
                 : softplus(projectedGate.asType(.float32)).asType(output.dtype)
+            if fusedAttended == nil, B == 1, L > 1, gatePerHead,
+                headDim == LagunaConstants.headDim, nHeads == 48 || nHeads == 64
+            {
+                lagunaTrace(
+                    "ordinary prefill gate tail h\(nHeads) l\(L) attended=\(attended.dtype) "
+                        + "projected=\(projectedGate.dtype) gate=\(gate.dtype) activated=\(gateIsActivated)"
+                )
+            }
             if gatePerHead {
                 output =
                     (output.reshaped(B, L, nHeads, headDim) * gate[.ellipsis, .newAxis])
