@@ -13,5 +13,20 @@
     "passed_dec_floor": true,
     "passed_pre_floor": true,
     "timestamp": "2026-08-09T03:05:07Z"
+  },
+  {
+    "marker": "null-2",
+    "id": "d11026c9",
+    "status": "rejected",
+    "cand_dec": 0.0049312262421875,
+    "cand_pre": 0.00018773396875,
+    "bl_dec": 0.0138451077421875,
+    "bl_pre": 0.000383583658203125,
+    "dec_su": 2.807639938265292,
+    "pre_su": 2.0432299000397336,
+    "passed_correctness": true,
+    "passed_dec_floor": true,
+    "passed_pre_floor": true,
+    "timestamp": "2026-08-09T03:27:22Z"
   }
 ]
