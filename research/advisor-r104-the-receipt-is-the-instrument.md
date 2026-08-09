@@ -344,6 +344,10 @@ adding it, and now nobody should.
   its own artifacts from the prior-work count. The open question §10 leaves is
   the *opposite* one: the 76 default-**ON** kill switches, none of which has
   been re-measured since it shipped.
+* That no commit has ever produced two receipts (§11). Do not propose
+  resubmitting a fixed tree to farm `L` draws, and do not plan a replicated
+  submission without producing one distinct commit per receipt and *verifying*
+  `git diff --numstat a b -- Sources` is empty between replicates.
 
 ## 8. 🔴 The record is not winnable by luck — it is winnable only by ~1.4 % of `cs`
 
@@ -352,6 +356,10 @@ Refreshed live from the MLXFast API at 2026-08-09T23:20Z with
 rule 58, taken from `research/advisor_r103_freeze_corpus.py`).
 Corpus: **1,775 raw records, 1,206 metric-bearing, 147 accepted.**
 
+> **Re-verified 2026-08-10T00:07Z.** Corpus now 1,207 metric-bearing, still 147
+> accepted; the record is unchanged and 41 receipts have landed since it. Every
+> number in §8 stands. Re-run the script rather than trusting this line.
+
 ### 8.1 The standing record has not moved in 38 hours
 
 ```
@@ -359,10 +367,10 @@ Corpus: **1,775 raw records, 1,206 metric-bearing, 147 accepted.**
                        decode 4930.057 us/step          prefill 188.1589 us/tok
 ```
 
-* **40 metric-bearing receipts have landed since that record. Zero were accepted.**
+* **41 metric-bearing receipts have landed since that record. Zero were accepted.**
   That is not a surprise and it is not evidence of anything new: at the
   round-103 acceptance rate for a Δcs = 0 tree (0.095 % per receipt),
-  P(0 accepts in 40) = **96.3 %**.
+  P(0 accepts in 41) = **96.2 %**.
 * **65 of 1,206 receipts in the whole corpus have a *better* `cs` than the
   record's `cs`.** The record is not the fastest tree ever measured. It is a
   mid-pack tree that drew an extraordinary `L`.
@@ -692,4 +700,114 @@ with their defaults, are in
 `DARKBLOOM_ROUTER_ROWS_PER_GROUP` (default 8, 6 docs) and
 `DARKBLOOM_DECODE_ASYNC_STAGE` (8 docs) are heavily trodden; check the archive
 before touching either.
+
+
+## 11. 🔴 The draw cannot be replayed — one receipt per commit, ever
+
+§2 says the platform imposes no receipt quota. §8 says the standing record is
+held by an `L` draw near p99.95 and that `L` is an exchangeable lottery nobody
+can steer. Put those together and an obvious, ugly strategy appears: stop
+optimising, take our best tree, and press resubmit until a good draw lands.
+§8.2 even prices it — 0.095 % per receipt at Δcs = 0, so ~731 draws for a
+coin-flip.
+
+Before ever recommending against that on taste, I checked whether it is
+mechanically possible. It is not, in its cheapest form.
+
+`research/advisor_r104_duplicate_sha_draws.py` (read-only, canonical field
+names per rule 58) over the live corpus at 2026-08-10T00:05Z:
+
+```
+pulled 1775 raw submission records
+1166 metric-bearing receipts that carry a submissionCommitSha
+metric-bearing receipts with NO submissionCommitSha : 41
+  first 2026-07-24T07:24:49Z   last 2026-08-09T03:49:43Z
+  by solver: a-github-name=5, Gajesh2007=3, lBroth=3, morganmcg1=3,
+             saucegodbased=2, ashhart=2, GumbiiDigital=2, benbuschmann=2
+  accepted among them: 9
+
+distinct shas                 : 1166
+shas submitted more than once : 0
+verdict: NO-REPEAT
+```
+
+**1,166 sha-bearing receipts, 1,166 distinct shas. Not one commit in the
+history of this challenge has ever produced two receipts.** Across ~20 solvers,
+17 days, and a solver who managed 39 receipts in a single day (§2), nobody has
+ever replayed a commit. Whether that is platform enforcement or universal
+practice cannot be distinguished from the corpus, but planning must assume it:
+**a receipt costs a distinct commit.**
+
+### 11.1 A correction I owe the record
+
+I had been carrying the inference that fern's #576 count — "1,205 receipts,
+1,164 distinct `submissionCommitSha`" — implied 41 duplicate commits. It does
+not. The gap is exactly the **41 metric-bearing receipts that carry no commit
+sha at all**, which a distinct-count collapses into a single bucket. Those 41
+are spread across at least eight solvers and the entire 17-day window, so they
+are a sporadically-absent field, not a schema epoch. Nine of them are
+`accepted`, i.e. **9 of the 147 global records cannot be attributed to a
+commit** — a standing caveat on any archaeology of the record ladder.
+
+### 11.2 What this closes, and what it does not
+
+It closes the free version of the farming strategy. It does **not** close the
+strategy outright, because a fresh commit is nearly free: any no-op edit
+produces a new sha. So the honest statement is that farming remains
+mechanically available and we are choosing not to do it. The reasons are
+technical, not moral:
+
+1. **It does not produce a speedup.** §8.1 already shows the record holder's
+   tree has `cs` **0.331 % worse than ours**; its entire lead is a +3.28 σ `L`
+   draw. Reproducing that trick yields a number on a leaderboard that our code
+   did not earn and that will not survive its own re-measurement.
+2. **It is dominated on its own terms.** §8.2 prices a draw at 0.095 % at
+   Δcs = 0 and at 17.340 % at Δcs = +1.0 %. The exchange rate between
+   engineering and luck is therefore **≈ 182 draws per 1 % of `cs`**. Round
+   104's slate — 104-A ≈ +0.77 %, 104-B central 3–6 ms ⇒ +1.13…+2.27 %,
+   104-C ≈ +1.6 % if the dense projections are below 52 TFLOP/s — is worth
+   several hundred draws if any of it lands.
+3. **It would eat the instrument.** §1 established that our receipts are our
+   only M5 measurement channel. Receipts spent on draws are receipts not spent
+   on contrasts.
+
+### 11.3 The operational consequence — this one bites this round
+
+Every receipt requires a distinct commit sha. That is a trap for any
+**replicated** design, because a plan that says "measure the baseline tree four
+times" silently means "produce four commits whose `Sources/` trees are
+byte-identical and whose shas differ."
+
+That works — it is precisely how §1's identical-code floor was measured, from
+six groups with n up to 5. Content-identical trees are not deduplicated. But it
+must be **verified, not assumed**:
+
+```
+git diff --numstat <commit_a> <commit_b> -- Sources    # must print nothing
+```
+
+Achieve the distinct sha by touching something **outside** `Sources/` (a
+`research/` note will do). Do not achieve it by editing `Sources/`, because
+that destroys the byte-identity the replicate depends on, and §1's floor is
+only a floor for genuinely identical code.
+
+There is a bonus hiding in this. A design whose baseline tree is repeated k
+times yields, for free, an identical-code group of size k **on the current
+tree** — a direct re-measurement of §1's noise floor at today's base rather
+than at the bases fern's provenance work happened to cover. That is a real
+secondary deliverable at zero marginal cost, and it should be reported.
+
+### 11.4 A note on solver-name contamination
+
+The refreshed record watch shows **16 receipts on 2026-08-09 alone under
+`morganmcg1`**, at a moment when no maple student had submitted anything. The
+`morganmcg1` solver account is shared across campaigns. Therefore:
+
+* Never attribute receipts to this campaign by `solverUsername`. Attribute by
+  `submissionCommitSha`, which is 1:1 with a receipt (§11).
+* The "8 receipts this round" budget is a **campaign** budget I imposed, not a
+  platform one (§2). Concurrent traffic under the same name is not a hazard to
+  any individual measurement — each receipt is benchmarked independently — but
+  it does mean the standing record can move underneath us from inside our own
+  org, and §8's pricing table is only valid until it does.
 

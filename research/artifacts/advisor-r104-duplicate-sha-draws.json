@@ -1,0 +1,11 @@
+{
+  "differing_groups": 0,
+  "distinct_sha": 1166,
+  "groups": [],
+  "identical_groups": 0,
+  "metric_bearing_with_sha": 1166,
+  "raw_records": 1775,
+  "receipts_in_repeat_shas": 0,
+  "repeat_shas": 0,
+  "verdict": "MIXED"
+}
