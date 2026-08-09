@@ -10,11 +10,20 @@ before the receipt they could have been fitted to).
 
 ## 1. Three-state summary
 
-| mechanism | state | evidence |
+| mechanism | final state | evidence |
 |---|---|---|
-| **P2** — `DARKBLOOM_FUSED_QKV` row-concatenated `[Wq;Wk;Wv]` BF16 prefill bank | implemented, correctness-verified, **submitted (R1)** | §3, §4, §5 |
-| **P2b** — `int32[4]` layout descriptor removing the 78 strided copies P2 introduces | implemented, correctness-verified, census-confirmed, **submitted (R1)** | §3, §4, §5 |
-| **P3** — skinny-N NAX retile (`bn` 128→64, `wn` 4→2) | implemented then reverted; **dead by construction, not submitted** | §6 |
+| **P2** — `DARKBLOOM_FUSED_QKV` row-concatenated `[Wq;Wk;Wv]` BF16 prefill bank | submitted (R1), **measured M5 regression `+0.639 ms`, REVERTED** | §3, §4, §5, §7.0 |
+| **P2b** — `int32[4]` layout descriptor removing the 78 strided copies P2 introduces | submitted (R1) inside the same binary, **reverted with P2** | §3, §4, §5, §7.0 |
+| **P3** — skinny-N NAX retile (`bn` 128→64, `wn` 4→2) | **dead by construction, never submitted** (no receipt spent) | §6 |
+| **P4** — swizzle depth 2→3 for `tiles_m % 8 == 0` in `steel_matmul_regular_axpby_nax` | sole surviving code change; **submitted (R2)** | §3, §7 |
+
+**Headline: the arm's primary hypothesis is refuted on M5.** Reducing the BF16
+GEMM dispatch count by 20 % (392 → 236 `steel_gemm_bf16` dispatches, and 1222 →
+1066 total) at bit-identical output made M5 prefill **slower by 0.639 ms**
+(prediction-`t` 4.43, distribution-free p ≤ 0.07), worth **−0.242 %** of score.
+The M5 prefill `steel_gemm_bf16` pool is **not** dispatch-count-bound. The same
+change is worth **−11.2 ms** on M4 Pro, which is why cross-machine directional
+evidence was not sufficient here.
 
 ## 2. Hypothesis
 
@@ -72,6 +81,35 @@ kernel reads the bank in place. `lagunaPrecheckQKLayout` / `lagunaQKLayout`
 (`:2977-3009`) are shape-only by design. The descriptor is cached keyed on bank
 presence (`c32c537`).
 
+### P4 — swizzle depth for `tiles_m % 8 == 0` (`f0ed1d7`)
+
+After P2/P2b were reverted, P4 is the **entire** code delta of this branch
+against the base. `git diff --stat b78e7cdb -- Sources Vendor Package.swift`
+reports exactly `matmul.cpp | 7 ++++++-`.
+`Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/matmul.cpp:302-311`, inside
+`steel_matmul_regular_axpby_nax`:
+
+```cpp
+int swizzle_log = tm <= 3 ? 0 : 1;
+if (devc == 's' || devc == 'c' || devc == 'd') {
+  swizzle_log = (tm >= 8 && (tm % 8) == 0) ? 3 : 2;
+}
+```
+
+Every regular-`_nax` prefill class on M5 has `tiles_m = 8`, so this raises the
+launch swizzle from depth 2 to depth 3 for all of them. It changes only grid
+mapping (`matmul.cpp:325-330`: `tile = 1<<sl; tm = ceil(tm/tile); tn *= tile`),
+never accumulation order, so it is bit-exact by construction. `matmul.cpp` is
+in `editablePaths` (`benchmark.json:26`). `./setup.sh` was re-run after the
+edit, as required for a changed AOT/JIT kernel source.
+
+**P4 is unmeasurable on this host** (gen 16 never reaches `_nax`), so its only
+evidence is the R2 receipt. Its registered most-likely outcome is null: the
+Wq-class GEMM is compute-bound (arithmetic intensity ≈ 221 FLOP/B against a
+machine balance of 55–125), so halving B-side traffic mostly hides under
+compute.
+
+
 ## 4. Correctness
 
 | check | result |
@@ -80,6 +118,7 @@ presence (`c32c537`).
 | 4-rep paired ABBA, 8 arms | correctness green in all 8, `max_abs_diff = 0`, single golden hash `b9509697c08a` |
 | adversarial review of all four `_v3` kernels (frontier agent `a7285910`) | no blocker: all four equivalent to `_v2` under both layouts; `uint32` addressing safe at these magnitudes; outputs always freshly allocated; layer 39 causal prefill routes through `callLastPrefillRow`; the slices P2b removes were confirmed dead |
 | `research/run_upstream_equivalence.sh` | `EQUIVALENCE_EXIT=1` from **pre-existing** non-M5 prefill near-tie drift (max 0.125, mean 0.0119) that reproduces on the unmodified base. Also note `LagunaUpstreamEquivalence.swift:74-90` bypasses `prepareFusedRuntimeWeights()`, so the oracle is structurally blind to `DARKBLOOM_FUSED_QKV` and is not an instrument for this arm. |
+| `./benchmark.sh --local-submit` at `f0ed1d7` (base + P4 only, job `c3616fe4`, exit 0, 203.7 s) | `passed: true`, `passed_correctness: true`, `max_abs_diff: 0`, `checked_steps: 1025`, `peak_ram_gb: 20.729`; decode floor **pass** (0.008943 s/tok, 1.549×); prefill floor `false` — the same host artifact documented in §7.2 |
 
 ## 5. Local evidence (M4 Pro — directional only)
 
@@ -159,13 +198,77 @@ Registered as Amendment 3 (`084bfb4`) **before** the R1 receipt returned.
 
 ## 7. Official M5 receipts
 
-Receipt budget: 6. Spent: **1**.
+Receipt budget: 6. Spent: **2**.
 
-| # | submission id | commit | correctness | decode floor | prefill floor | baseline decode s/tok | baseline prefill s/tok | candidate decode s/tok | candidate prefill s/tok | ranked score | status |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| R1 | `b3b6457f-25b6-40f8-8ebf-a417ba11b1a0` | `723e628` | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+Floor verdicts and correctness are read **separately from ranking status**, as
+the target contract requires: a `rejected` receipt can mean only that the score
+did not beat the current best.
 
-Note file: `research/tanjiro-r97-r1-note.md`.
+| # | submission id | commit | arms | correctness | decode floor | prefill floor | `bl_dec` ms/step | `bl_pre` ms | `cand_dec` ms/step | `cand_pre` ms | decode speedup | prefill speedup | ranked score | ranking status |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| R1 | `b3b6457f-25b6-40f8-8ebf-a417ba11b1a0` | `723e628` | base + P2 + P2b | **pass** (`max_abs_diff 0`, 1344 checked steps, GPQA 9/9, TTFT 9/9) | **pass** | **pass** | 13.8089 | 187.976 | 4.92433 | **96.797** | 2.804213 | 1.941974 | 2.55810946477023 | rejected — *"score did not improve current best"* (ranking only; `error: ""`) |
+| R2 | `048674e9-cff4-449f-90e2-97811149cf97` | `2dddec8` | base + P4 (P2/P2b reverted) | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+
+Note files: `research/tanjiro-r97-r1-note.md`, `research/tanjiro-r97-r2-note.md`.
+`peak_ram_gb` was 21 on R1 — no memory pressure.
+
+### 7.0 R1 verdict: P2 + P2b are a measured M5 regression
+
+The published score is **not** the observable to read. The same-session
+*baseline* prefill wanders 186.821–196.395 ms (≈5 %) across contemporaneous
+receipts, so score-to-score comparison is dominated by baseline draw. The
+low-noise observable is the **candidate** prefill wall.
+
+Control population: the 13 contemporaneous scored receipts on this account
+between the promoted frontier and R1 give candidate prefill
+**96.158 ± 0.139 ms (n = 13)**. R1 sits at **96.797 ms**.
+
+| statistic | value |
+|---|---|
+| effect | **+0.639 ms** |
+| 95 % CI | **[+0.325, +0.953] ms** |
+| prediction-`t` (12 dof, se `s·√(1+1/n)` = 0.1441) | **4.43** |
+| 95 % prediction interval for a healthy new receipt | [95.844, 96.472] — R1 is outside |
+| distribution-free bound (max of 14 exchangeable draws) | p ≤ 0.071 |
+| chronological drift (OLS on time) | −0.0059 ms/h, `t = −0.27` — excluded; drift-adjusted `t = +3.18` |
+
+The preregistered `> +0.3 ms` row means *unmodelled regression ⇒ revert, report
+negative*, and the advisor's own registered NO-GO for this arm was "if the
+receipt shows prefill regressed". Both fire. **P2 and P2b are reverted**
+(`4b3af0b`); `git diff` against the base now shows only the six lines of P4.
+
+An earlier "+4.6 σ" headline was withdrawn as arithmetically wrong (it divided
+by the population sd rather than the prediction sd). See Amendment 6 (§15) of
+the preregistration for the full audit — drift, prefill-code homogeneity across
+the control subgroups, and receipt bookkeeping.
+
+### 7.1a What the regression cost, correctly priced
+
+Prefill is charged **twice**: the 512-token seed forward runs inside the decode
+timer (`Sources/MLXFastTrustedHarness/LagunaRuntimeBenchmark.swift` — timer
+opens at line 966, `beginDecode(seedTokens:)` at 968, closes at 1010, and the
+harness prints `includes_seed_prefill=true` at 967). With
+`CD = 4·CP + T̄` and `f = 4·CP/CD` recomputed from **R1's own JSON**
+(`CP = 189.057 µs/tok`, `CD = 4924.33 µs/step` ⇒ `f = 0.153570`), the forward
+exponent is `0.25 + 0.75f = 0.365178` and one millisecond of prefill is worth
+**0.3773 %**.
+
+Exact counterfactual at the control-mean prefill, propagating the mandatory
+`4·ΔCP = +4.99 µs/step` back out of decode: `2.564298` vs the observed
+`2.558109` ⇒ the regression cost **−0.242 %**. The remaining gap to our promoted
+best `2.58883` is baseline-draw noise, not candidate regression.
+
+### 7.1b The `_nax` trap did not fire
+
+The advisor's registered static trap for this arm was that a fused `N = 10240`
+shape might fall off the `_nax` kernel family on Apple GPU generation ≥ 17.
+It did not: the selection proof committed at `1628e9c` shows the fused shape
+still selects the regular `_nax` path (split-K admission
+`K ≥ 3·max(M,N) || (max(M,N) ≤ 1024 && K > 2·max(M,N))` fails for it on M5, as
+it does for the unfused `wq`). The regression is therefore **not** the trap, and
+that is itself the reportable finding: identical kernel family, identical tile
+geometry (`bm=64 bn=128 bk=256 wm=2 wn=4 swizzle_log=2`), identical total
+threadgroup count (640 either way) — and still 0.64 ms slower.
 
 ### 7.1 Read-out thresholds registered before R1 (Amendment 2, §11.3)
 
@@ -220,10 +323,64 @@ Editable-surface budget at `723e628`:
 
 ## 9. Conclusion
 
-_pending R1 receipt._
+**The arm is a negative result, and the negative is well measured.**
+
+1. **P2 (fused QKV bank) + P2b (layout descriptor) regress M5 prefill by
+   +0.639 ms**, 95 % CI [+0.325, +0.953], prediction-`t` = 4.43 against a 13-receipt
+   contemporaneous control population. Correctly priced (prefill charged twice),
+   that cost **−0.242 %** of score. Reverted at `4b3af0b`. This crosses both the
+   preregistered `> +0.3 ms` revert row and the advisor's own registered NO-GO.
+2. **The regression is not the `_nax` trap.** The fused `N = 10240` shape stays
+   on the regular `_nax` kernel with the identical tile geometry and the
+   identical 640 total threadgroups. Removing 78 dispatches and 156 GEMM launches
+   made prefill *slower* while changing nothing the dispatch-count model can see.
+   The dispatch-count premise for this arm is therefore **falsified on M5**, and
+   the M4 win (−11.2 ms) is fully explained by split-K elimination on `Wk`/`Wv`,
+   a transition that does not exist on M5.
+3. **The residual is a memory-system effect, not a launch-overhead effect.** Two
+   surviving hypotheses, neither of which this arm can separate without another
+   receipt: (a) an SLC capacity crossing — the fused 41.94 MB weight bank versus
+   the 33.55 MB `Wq` bank forces a band-2 DRAM refetch worth ≈16 µs/layer ≈ 0.6 ms
+   over 40 layers, which matches the observed effect almost exactly; (b) loss of
+   inter-dispatch overlap, since read-after-read is never hazard-tracked
+   (`device.cpp:547-548`) and three independent GEMMs on the same input could
+   previously overlap where one large GEMM cannot.
+4. **P3 (skinny-N NAX retile) is dead by construction**, registered as
+   Amendment 3 *before* R1 returned: the `_nax` kernel's `bn = 128` is already the
+   minimum instantiated tile width, so there is no skinnier N to retile to. It was
+   never submitted and consumed no receipt.
+5. **P4 (swizzle depth 2 → 3 for `tiles_m % 8 == 0`) is the only surviving code
+   change** and is unmeasurable on this M4 Pro host, which reports Apple GPU
+   generation 16 and never selects `_nax` at all. It was submitted as R2 purely to
+   buy an M5 read-out; its outcome is recorded in §7.
+6. **A methodological result worth carrying forward:** the published ranked score
+   is a poor observable for a prefill arm because the same-session *baseline*
+   prefill wanders ≈5 % while the candidate prefill wall has sd 0.139 ms
+   (0.14 %). Reading the candidate wall against a contemporaneous control
+   population turned an apparently ambiguous `rejected` receipt into a
+   4.4-sigma-equivalent regression call. Any future prefill arm should be read
+   this way.
+7. **The pricing correction is accepted and fully propagated.** Prefill is
+   charged twice, `f` must be recomputed from each candidate's own JSON, and the
+   score conversion for this arm is 0.3773 %/ms rather than the stored 0.330
+   exponent. Every figure in this document has been restated; no GO/NO-GO bar
+   moved because all bars are expressed in milliseconds.
+
+**Recommendation to the advisor: stop spending receipts on the prefill
+dispatch-count family and move the next arm to the decode axis.** The remaining
+gap to the leader is 1.05 %, which needs ≈ −2.8 ms of prefill — more than four
+times the entire measured effect of the most aggressive fusion available — or
+≈ −0.069 ms/token of decode. Decode also carries 75 % of the weight directly
+*and* the 15 % of it that is seed prefill, and `f` rises as decode improves, so
+decode work appreciates both terms at once.
 
 ## 10. Suggested follow-ups (not implemented)
 
+- **Move the next arm to the decode axis (highest value).** See §9. The
+  prefill dispatch-count family is closed by this arm; the SLC-capacity story in
+  §9.3 predicts that *any* weight-bank enlargement on M5 prefill will cost
+  roughly this much, which also argues against the naive `[K;V]` fusion below
+  unless it is paired with a tiling change that shrinks the streamed footprint.
 - **Tall-M retile (P3′).** For the large-N prefill shapes on M5, move
   `bm 64 → 128`, `wm 2 → 4`. This holds `SM = bm/wm = 32` and `SN = bn/wn = 32`,
   so it reuses the same `gemm_loop` instantiation and should be bit-exact by the
@@ -239,4 +396,19 @@ _pending R1 receipt._
   final layer also takes one GEMM instead of two.
 - **Extend the layout-descriptor trick to any other custom kernel** that
   currently forces `ensure_row_contiguous_`; the census shows the general-copy
-  path is expensive enough to be worth auditing globally.
+  path is expensive enough to be worth auditing globally. Note P2b was reverted
+  only because it was bundled with P2 in a single receipt — it removes 78 strided
+  copies and 156 dispatches and was never independently measured on M5. If the
+  advisor wants one more prefill receipt, **P2b alone** is the cheapest way to
+  split P2's regression from P2b's benefit, and it is the only unmeasured
+  mechanism left in this arm.
+- **Discriminate the two §9.3 hypotheses with one cheap receipt.** Submit P2
+  fused as `[Wk;Wv]` only (bank 8.39 MB, *smaller* than `Wq`, dispatch count
+  still reduced). SLC-capacity predicts no regression; loss-of-overlap predicts
+  the same per-dispatch penalty. That is a clean one-bit experiment and it costs
+  one receipt.
+- **Adopt the control-population read-out as standard practice** for every
+  prefill arm: publish `cand_pre` against the contemporaneous scored-receipt
+  population rather than reading the ranked score, and recompute `f` from the
+  candidate's own JSON. `research/tanjiro_r97_control_audit.py` and
+  `research/tanjiro_r97_wandb.py --receipt LABEL=PATH` already do this end to end.

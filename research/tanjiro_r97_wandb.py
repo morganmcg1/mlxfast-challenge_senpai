@@ -16,6 +16,7 @@ Usage:
 """
 import argparse
 import json
+import math
 import os
 import re
 import statistics
@@ -26,11 +27,71 @@ ENTITY = "wandb-applied-ai-team"
 PROJECT = "mlxfast-maple"
 BASE_SHA = "b78e7cdb80b5ae5f1cb1fdd39803322fb283ae5e"
 
-# Rule-58 score conversion for this campaign: one millisecond off the 512-token
-# prefill is worth this much normalised score, at the pinned calibration.
+# Registered (pre-receipt) prefill->score sensitivity. Amendment 7 confirms it:
+# recomputed from R1's own JSON the true price is 0.3773 %/ms. Kept only to label
+# the local M4 arms with the constant that was actually registered.
 SCORE_PCT_PER_MS_PREFILL = 0.373
 NORM_DECODE_NUM = 0.013890
 NORM_PREFILL_NUM = 0.0003845
+
+# Candidate prefill wall (ms) of every scored receipt on this account between the
+# promoted frontier 3e165fa and R1. This is the control population against which
+# the R1 candidate prefill is read; see Amendment 6 and
+# research/tanjiro_r97_control_audit.py.
+CONTROL_PREFILL_MS = [
+    96.278, 96.055, 96.070, 96.120, 96.198, 96.193, 96.328,
+    96.316, 95.870, 96.253, 96.184, 95.953, 96.236,
+]
+# Same receipts, decode ms/step, restricted to the decode-healthy subgroup.
+CONTROL_DECODE_MS_HEALTHY = [
+    4.8937, 4.8989, 4.8941, 4.9312, 4.9005, 4.9161, 4.9126, 4.9436, 4.9157,
+]
+SEED_TOKENS = 512
+DECODE_STEPS = 128
+
+
+def price_from_receipt(prefill_ms, decode_ms_per_step):
+    """Rule-58 exchange rate, always recomputed from the candidate's own JSON.
+
+    The 512-token seed forward runs inside the decode timer, so prefill is paid
+    twice: once on its own axis and again as 4*CP inside every decode step.
+    """
+    cp = prefill_ms / SEED_TOKENS
+    f = (SEED_TOKENS / DECODE_STEPS) * cp / decode_ms_per_step
+    exponent = 0.25 + 0.75 * f
+    return {
+        "cp_us_per_token": 1000.0 * cp,
+        "cd_us_per_step": 1000.0 * decode_ms_per_step,
+        "tbar_us_per_step": 1000.0 * (decode_ms_per_step
+                                      - (SEED_TOKENS / DECODE_STEPS) * cp),
+        "f_prefill_share_of_decode": f,
+        "forward_exponent": exponent,
+        "score_pct_per_ms_prefill": 100.0 * exponent / prefill_ms,
+    }
+
+
+def read_official(path):
+    """Read a receipt dumped by research/tanjiro_r97_fetch_submission.py.
+
+    The dump is `key = value` header lines followed by the officialMetrics
+    object, so take everything from the first line that starts with '{'.
+    """
+    header, body = {}, []
+    with open(path) as fh:
+        lines = fh.read().splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("{"):
+            body = lines[i:]
+            break
+        if " = " in line:
+            k, v = line.split(" = ", 1)
+            header[k.strip()] = v.strip()
+    doc = json.loads("\n".join(body))
+    doc["_status"] = header.get("status")
+    doc["_rejection_reason"] = header.get("rejectionReason")
+    doc["_created_at"] = header.get("createdAt")
+    doc["_official_score"] = float(header["officialScore"])
+    return doc
 
 
 def read_score(path):
@@ -97,6 +158,9 @@ def main() -> int:
     ap.add_argument("--gate-off")
     ap.add_argument("--gate-on")
     ap.add_argument("--verdict", required=True)
+    ap.add_argument("--receipt", action="append", default=[],
+                    metavar="LABEL=PATH",
+                    help="official M5 receipt dump, repeatable, e.g. R1=path")
     ap.add_argument("--name", default="maple-tanjiro-r97b-prefill-tg-count")
     ap.add_argument("--notes", default="")
     args = ap.parse_args()
@@ -225,6 +289,99 @@ def main() -> int:
                 run.summary[f"gate/{tag}/{k}"] = g[k]
         run.summary[f"gate/{tag}/passed"] = receipt["passed"]
         run.summary[f"gate/{tag}/golden_drift_override"] = "unset"
+
+    # ---- official M5 receipts: the only ranked evidence in this arm ----------
+    cmean = statistics.fmean(CONTROL_PREFILL_MS)
+    csd = statistics.stdev(CONTROL_PREFILL_MS)
+    cn = len(CONTROL_PREFILL_MS)
+    pred_se = csd * math.sqrt(1.0 + 1.0 / cn)
+    run.summary["control/prefill_ms_mean"] = cmean
+    run.summary["control/prefill_ms_sd"] = csd
+    run.summary["control/n"] = cn
+    run.summary["control/prediction_se"] = pred_se
+    run.summary["control/prediction_interval_lo"] = cmean - 2.179 * pred_se
+    run.summary["control/prediction_interval_hi"] = cmean + 2.179 * pred_se
+    run.summary["control/decode_ms_mean_healthy"] = statistics.fmean(
+        CONTROL_DECODE_MS_HEALTHY)
+    run.summary["control/decode_ms_sd_healthy"] = statistics.stdev(
+        CONTROL_DECODE_MS_HEALTHY)
+
+    receipts = {}
+    for spec in args.receipt:
+        label, _, path = spec.partition("=")
+        receipts[label] = read_official(path)
+
+    if receipts:
+        rtbl = wandb.Table(columns=[
+            "receipt", "submission_commit", "status", "rejection_reason",
+            "official_score", "passed_correctness", "max_abs_diff",
+            "checked_steps", "decode_floor", "prefill_floor",
+            "baseline_decode_ms", "baseline_prefill_ms",
+            "candidate_decode_ms", "candidate_prefill_ms",
+            "decode_speedup", "prefill_speedup", "peak_ram_gb", "error"])
+        for label in sorted(receipts):
+            d = receipts[label]
+            cand_pre = 1000.0 * SEED_TOKENS * d["prefill_seconds_per_token"]
+            cand_dec = 1000.0 * d["decode_seconds_per_token"]
+            bl_pre = 1000.0 * SEED_TOKENS * d["baseline_prefill_seconds_per_token"]
+            bl_dec = 1000.0 * d["baseline_decode_seconds_per_token"]
+            rtbl.add_data(
+                label, d.get("commit"), d["_status"], d["_rejection_reason"],
+                d["_official_score"], d.get("passed_correctness"),
+                d.get("max_abs_diff"), d.get("checked_steps"),
+                d.get("passed_decode_speedup_floor"),
+                d.get("passed_prefill_speedup_floor"),
+                bl_dec, bl_pre, cand_dec, cand_pre,
+                d.get("decode_speedup"), d.get("prefill_speedup"),
+                d.get("peak_ram_gb"), d.get("error"))
+
+            p = f"official/{label}"
+            run.summary[f"{p}/candidate_prefill_ms"] = cand_pre
+            run.summary[f"{p}/candidate_decode_ms_per_step"] = cand_dec
+            run.summary[f"{p}/baseline_prefill_ms"] = bl_pre
+            run.summary[f"{p}/baseline_decode_ms_per_step"] = bl_dec
+            run.summary[f"{p}/decode_speedup"] = d.get("decode_speedup")
+            run.summary[f"{p}/prefill_speedup"] = d.get("prefill_speedup")
+            run.summary[f"{p}/official_score"] = d["_official_score"]
+            run.summary[f"{p}/passed_correctness"] = d.get("passed_correctness")
+            run.summary[f"{p}/max_abs_diff"] = d.get("max_abs_diff")
+            run.summary[f"{p}/checked_steps"] = d.get("checked_steps")
+            run.summary[f"{p}/passed_decode_floor"] = d.get(
+                "passed_decode_speedup_floor")
+            run.summary[f"{p}/passed_prefill_floor"] = d.get(
+                "passed_prefill_speedup_floor")
+            run.summary[f"{p}/ranking_status"] = d["_status"]
+            run.summary[f"{p}/rejection_reason"] = d["_rejection_reason"]
+            run.summary[f"{p}/peak_ram_gb"] = d.get("peak_ram_gb")
+
+            # Rule-58 pricing, recomputed from this receipt's own numbers.
+            for k, v in price_from_receipt(cand_pre, cand_dec).items():
+                run.summary[f"{p}/price/{k}"] = v
+
+            # Read against the control population, not against the score.
+            delta = cand_pre - cmean
+            run.summary[f"{p}/vs_control/delta_ms"] = delta
+            run.summary[f"{p}/vs_control/prediction_t"] = delta / pred_se
+            run.summary[f"{p}/vs_control/score_pct"] = -delta * (
+                price_from_receipt(cand_pre, cand_dec)["score_pct_per_ms_prefill"])
+        run.log({"official/receipts": rtbl})
+
+    # ---- assignment primary metrics ----------------------------------------
+    # prefill_ms_fused_qkv: the M5 official reading is authoritative. The M4
+    # paired delta above is directional only and has the opposite sign.
+    if "R1" in receipts:
+        d = receipts["R1"]
+        r1_pre = 1000.0 * SEED_TOKENS * d["prefill_seconds_per_token"]
+        run.summary["prefill_ms_fused_qkv"] = r1_pre - cmean
+        run.summary["prefill_ms_fused_qkv/source"] = "M5 official R1 vs control"
+        run.summary["prefill_ms_fused_qkv/absolute_ms"] = r1_pre
+    # prefill_ms_skinny_tile: P3 was shown dead by construction (Amendment 3,
+    # registered before the R1 receipt) and no receipt was ever spent on it.
+    run.summary["prefill_ms_skinny_tile"] = None
+    run.summary["prefill_ms_skinny_tile/measured"] = False
+    run.summary["prefill_ms_skinny_tile/reason"] = (
+        "P3 dead by construction: the skinny-N retile cannot reach the scored "
+        "M5 prefill shapes; closed in Amendment 3 (084bfb4) before any receipt")
 
     run.summary["verdict"] = args.verdict
     print(run.url)
