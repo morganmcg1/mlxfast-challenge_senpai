@@ -7,7 +7,9 @@ PR #572. Research-only: **zero submitted-surface bytes changed**.
 
 Between arm-R's receipt commit `30f752df` (`cs` 2.589321, 4893.712 us/step) and
 the current advisor base `0f6862d0` (`cs` 2.582286, 4913.117 us/step) the
-scored decode path gained **+19.405 us/step (+0.397 %)**. Over that range the
+reported decode metric gained +19.405 us/step, and the **true steady-state
+per-step regression is `T` = +20.149 us/step** once the frontier's better
+prefill is removed from the `D = 4P + T` identity (section 7.0). Over that range the
 runtime compiles and dispatches **exactly the same 103 Metal libraries in the
 same order with the same grids, threadgroups and buffer shapes**; the
 per-decode-step dispatch count is **408 at both revisions** and the two traces
@@ -300,6 +302,28 @@ Across the whole trace, the only kernel-count differences are the router rename
 
 ## 7. Rung 3 - ranking and pricing the two survivors
 
+### 7.0 The target is `T` = 20.149 us/step, not 19.405
+
+Per the advisor's 2026-08-09T21:47Z correction, rule 58's `D = 4P + T` is exact
+harness arithmetic, not a fit: `decode_seconds_per_token = (S + 128*T)/128` with
+seed prefill `S = 512*P`, so `D = 512P/128 + T = 4P + T`. Both `D` and `P` are on
+every receipt, so the kernel-resident part separates cleanly:
+
+| | `D` = `cand_dec` | `P` (us/tok) | `4P` | **`T = D - 4P`** |
+|---|---:|---:|---:|---:|
+| arm R `7ce1262d` | 4893.712 | 188.043 | 752.172 | **4141.540** |
+| frontier `e08d759f` | 4913.117 | 187.857 | 751.428 | **4161.689** |
+| **delta** | **+19.405** | **-0.186** | **-0.744** | **+20.149** |
+
+The frontier's prefill is 0.186 us/tok *better*, which enters `D` as -0.744 and
+masks 3.7 % of the decode regression. Kernel time lives entirely in `T`, so
+**everything below is priced against 20.149**, and the dispatch-overhead product
+is compared to 20.149 as well. `research/advisor_r103_T_decomposition.py` is not
+present at this base sha (`0f6862d0`); the arithmetic above is reproduced
+independently from the two receipt pairs.
+
+### 7.1 Pool-table budgets
+
 From `research/artifacts/fern-r101/m5-pool-table.csv`:
 
 | id | family | calls | bytes/call | M5 us/step | us/call | M5 GB/s | % M5 peak | headroom us | regime |
@@ -308,12 +332,18 @@ From `research/artifacts/fern-r101/m5-pool-table.csv`:
 | **T3a** | sliding fused attn (**B**) | 30 | 2 MiB | **318.0** | 10.60 | 197.8 | 32.4 | 215.0 | latency |
 | | combined | | | **474.4** | | | | | |
 
-Budget arithmetic against the +19.405 us/step regression:
+Budget arithmetic against the **+20.149 us/step** `T` regression:
 
-- combined T1a+T3a = 474.4 us = **9.7 %** of the 4,893.7 us OLD step;
-- +19.405 us = **+4.09 %** of that combined budget - comfortably inside it;
-- if **A alone**: +12.41 % on T1a (156.4 -> 175.8 us);
-- if **B alone**: +6.10 % on T3a (318.0 -> 337.4 us).
+- combined T1a+T3a = 474.4 us = **11.45 %** of arm R's `T` = 4,141.5 us/step;
+- +20.149 us = **+4.25 %** of that combined budget - comfortably inside it;
+- if **A alone**: **+12.88 %** on T1a (156.4 -> 176.5 us);
+- if **B alone**: **+6.34 %** on T3a (318.0 -> 338.1 us);
+- **dispatch overhead**: measured per-step dispatch delta is 0, so rule 53's
+  +0.3 us/dispatch gives `0 x 0.3` = **0.00 us = 0.00 % of 20.149**.
+
+The 19.405 -> 20.149 correction moves each of these by about +3.8 % relative;
+it does not change any qualitative conclusion, because both survivors have an
+order of magnitude more budget than the hole.
 
 Both families are **latency-regime** at 32-43 % of M5 peak bandwidth, which is
 precisely the regime where kernel-text changes that alter occupancy or ILP move
@@ -360,15 +390,17 @@ warm-up, arms alternating so thermal drift is first-order cancelled
 
 Expected effect size sets the power ceiling in advance. The pool table's
 `m4_us_split1` column is exactly 2x `m5_us` for both families, so if A carried
-the entire +19.4 us M5 regression it would show as roughly **+39 us out of
-~12,957 us/token on this host - 0.30 %**. This is a genuinely underpowered test
+the entire +20.15 us M5 `T` regression it would show as roughly **+40.3 us out
+of ~12,957 us/token on this host - 0.31 %**. This is a genuinely underpowered test
 on an M4 Pro and is reported as directional evidence only. Kernel *reachability*
 is not in doubt: this host does compile and dispatch both
 `..._rpg8_keys_v1_pf1_...` and the 4-way sliding kernel, so unlike an `_nax`
 prefill question the M4 is at least executing the same kernel family as the
 ranked M5.
 
-## 9. Rider - QKV `_idx_v1` / `_ns1` dormancy, RESOLVED
+## 9. Riders
+
+### 9.1 QKV `_idx_v1` / `_ns1` dormancy - RESOLVED
 
 Scanning `library_index.tsv` and `dispatch.tsv` across all three arms:
 **zero `_idx_v1` and zero `_ns1` kernels are ever compiled or dispatched** at
@@ -382,6 +414,63 @@ custom_kernel_laguna_oproj_act_h{48,64}_v1_lm1_pw1_sc1_se1
 Both variants are therefore dormant, on JIT-reachability evidence rather than
 source reading. `_idx_v1` is additionally gated on affine-INT8-g32 QKV, which
 the NVFP4 checkpoint never selects. Cost: well under the 1 h drop threshold.
+
+### 9.2 `f720e9e7` rule-74 JIT neutrality - ANSWERED, no third tree needed
+
+The advisor's 2026-08-09T21:28Z comment asked for an *optional third tree*:
+this base with `f720e9e7`'s `Vendor/` comment deletions reverted, corpus-dumped
+and diffed against the base corpus, to close the rule-74 doubt that
+`sdpa_vector.h`, `quantized.cpp`, `jit_kernels.cpp` and `matmul.cpp` embed
+Metal source verbatim into JIT text.
+
+**That tree already exists - it is my OLD arm.** `f720e9e7` is an ancestor of
+NEW (`0f6862d0`) and **not** of OLD (`30f752df`), and for all four files the
+OLD->NEW range delta is *exactly* `f720e9e7`'s own delta, i.e. no other commit in
+the range touches them:
+
+| file | OLD->NEW range | `f720e9e7` alone |
+|------|---------------:|-----------------:|
+| `sdpa_vector.h` | +0 / -294 | +0 / -294 |
+| `quantized.cpp` | +10 / -405 | +10 / -405 |
+| `jit_kernels.cpp` | +6 / -94 | +6 / -94 |
+| `matmul.cpp` | +19 / -227 | +19 / -227 |
+
+So OLD is "comments present" and NEW is "comments deleted", and rung 1 is
+already the requested experiment - over the *entire* 103-library corpus rather
+than only the kernels those four files feed.
+
+**Reachability first** (the advisor's 5-minute check), from
+`library_index.tsv` + `dispatch.tsv`:
+
+| source file | JIT libraries in corpus | prefill dispatches | steady-state decode dispatches |
+|---|---:|---:|---:|
+| `quantized.cpp` + `jit_kernels.cpp` (nvfp4 / affine quant) | 5 | 274 | **0** |
+| `matmul.cpp` + `jit_kernels.cpp` (steel gemm / gemv) | 6 | 312 | **0** |
+| `jit_kernels.cpp` (steel attention) | 1 | 0 | **0** |
+| `sdpa_vector.h` | **0** | - | - |
+
+`sdpa_vector.h` compiles **no** JIT library in the scored window at all - its
+SDPA path is AOT, and #548 already proved the metallib bit-identical, so for
+that file the answer is *not applicable*. The other three **are** rule-74 live:
+12 of the 103 libraries carry their embedded text. They are dispatched heavily
+in prefill and in decode step 0, and **zero times in every steady-state decode
+step** (per-step rule-74 dispatch count is 0 for steps 1-5; step 0 has 415).
+
+**Verdict: byte-identical.** All 12 of those libraries have identical sha256 of
+final MSL text between OLD and NEW - 0 differing, 0 one-sided. The only two
+libraries that differ anywhere in the 103-library corpus are mechanisms A and B,
+both emitted from `LagunaRuntimeModel.swift`, neither touched by `f720e9e7`.
+
+This is the advisor's first branch: **`f720e9e7` is emitted-code-neutral on the
+JIT path too.** The last rule-74 doubt about it is closed, for prefill as well as
+decode, and the only channel it could still act through is host binary layout
+(`#line`/`__LINE__`/`__FILE__` literals and code placement in the Swift/C++
+binary), which #548 explicitly declined to claim. Cost: ~10 minutes, no third
+build, reusing `research/nezuko-r99b/restore-comments.sh` was unnecessary.
+
+Coverage caveat: this closes the question for every kernel the scored window
+actually compiles. A JIT kernel that no scored workload reaches is not covered
+and also cannot cost scored time.
 
 ## 10. Null verdicts
 
@@ -467,8 +556,12 @@ python3 research/r103b/scripts/comment_strip_diff.py 30f752df 0f6862d0
 # 4. working-set digests
 research/r103b/scripts/working_set_manifest.sh 30f752df 0f6862d0
 
-# 5. optional M4 A/B of mechanism A
+# 5. rule-74 rider: is f720e9e7 emitted-code-neutral on the JIT path?
+python3 research/r103b/scripts/rule74_check.py "$PWD"
+
+# 6. optional M4 A/B of mechanism A
 LEGS=20 research/r103b/scripts/ab_router_prefetch.sh
+python3 research/r103b/scripts/ab_summarize.py /tmp/r103b/ab/summary.tsv
 ```
 
 ---
@@ -500,18 +593,38 @@ per-decode-step dispatch delta is exactly zero.**
   canonicalising the `_pf1` rename the blocks are equal. Whole-trace alignment
   has exactly one non-equal opcode, a 4-row tail lost to an unflushed trace write
   at worker exit (confirmed with `od -c`). **Priced at +0.3 us/dispatch this is
-  +0.00 us/step - dispatch contributes 0 % of the +19.405 us regression, so N-C
-  is dead.** N-A, N-B and N-D are dead too.
-- **Rung 3.** Both survivors are latency-regime with room to hide the delta:
-  T3a sliding attn 318.0 us/step (30 calls, 32.4 % of M5 peak) and T1a router
-  156.4 us/step (39 calls, 42.8 % of peak); +19.4 us is +4.1 % of their combined
-  474.4 us. **Mechanism A is bit-exactly restorable with no code change**:
-  `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` reproduces the OLD router kernel's name
-  and MSL text exactly, and its dispatch trace is identical to OLD in all 11,247
-  rows. Mechanism B has no flag and has never been re-measured since it landed.
-- **Rider resolved.** Neither `_idx_v1` nor `_ns1` QKV kernels are compiled or
+  `0 x 0.3` = +0.00 us/step - dispatch contributes 0.00 % of the 20.149 us hole,
+  so N-C is dead.** N-A, N-B and N-D are dead too.
+- **Rung 3, repriced against `T` = 20.149 per your 21:47Z note.** Both survivors
+  are latency-regime with room to hide the delta: T3a sliding attn 318.0 us/step
+  (30 calls, 32.4 % of M5 peak) and T1a router 156.4 us/step (39 calls, 42.8 % of
+  peak); +20.149 us is **+4.25 %** of their combined 474.4 us, which is **11.45 %**
+  of arm R's `T` = 4141.540. A-alone would be **+12.88 %** on T1a, B-alone
+  **+6.34 %** on T3a. **Mechanism A is bit-exactly restorable with no code
+  change**: `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0` reproduces the OLD router
+  kernel's name and MSL text exactly, and its dispatch trace is identical to OLD
+  in all 11,247 rows. Mechanism B has no flag and has never been re-measured
+  since it landed.
+- **Rider 1 resolved.** Neither `_idx_v1` nor `_ns1` QKV kernels are compiled or
   dispatched at either revision - dormant on reachability evidence, not just on
   reading the source.
+- **Rider 2 (`f720e9e7`, your 21:28Z note): answered without a third tree, and
+  the answer is your first branch - byte-identical.** I did not need to build
+  one, because `f720e9e7` is an ancestor of NEW and *not* of OLD, and for all
+  four rule-74 files the OLD->NEW range delta equals `f720e9e7`'s delta exactly
+  (`sdpa_vector.h` -294, `quantized.cpp` +10/-405, `jit_kernels.cpp` +6/-94,
+  `matmul.cpp` +19/-227). My OLD arm *is* the comments-restored tree, and rung 1
+  already diffs it over all 103 libraries rather than just those four files.
+  Taking your 5-minute reachability check first: `sdpa_vector.h` compiles **zero**
+  JIT libraries in the scored window (AOT only, so *not applicable*), while
+  `quantized.cpp`, `matmul.cpp` and `jit_kernels.cpp` feed **12** of the 103
+  (5 nvfp4/affine-quant, 6 steel-gemm/gemv, 1 steel-attention). **All 12 have
+  identical MSL sha256 between OLD and NEW.** Those 12 are dispatched 586 times
+  in prefill and 415 times in decode step 0, and **zero times in every
+  steady-state decode step**. So `f720e9e7` is emitted-code-neutral on the JIT
+  path for prefill as well as decode; the only channel it can still act through
+  is host binary layout, which #548 explicitly declined to claim. Artifact:
+  `research/r103b/artifacts/rule74_f720e9e7_jit_neutrality.txt`.
 
 **My recommendation, which is one measurement and zero code:** run a paired M5
 leg with `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0`. It convicts or exonerates A
