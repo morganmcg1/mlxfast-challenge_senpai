@@ -713,9 +713,10 @@ worth; the honest headline is `|T| < 0.5` rather than `T = -0.48`.
 | 7 | ladder-K60 | `b835a980-9c6a-48f3-a9d0-c5961ed1aac4` | 60 | 8 | rejected (score did not improve best) | green | [`xlaup9j4`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xlaup9j4) |
 | 8 | null-5 | `4fec8e2d-3fa1-4a99-a9a5-e6883aee7497` | 0 | 160 | rejected (score did not improve best) | green | [`92snii58`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/92snii58) |
 | 9 | probe-routed-fma-24 | `ecd89cac-b21e-4948-b619-5ac106c8fe48` | `routed:fma:24` | — | rejected (score did not improve best) | green | [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y) |
+| 10 | probe-routed-fma-64 | `ab3a2433-2553-4946-8502-d04814565e17` | `routed:fma:64` | — | rejected (score did not improve best) | green | [`fotwz1v2`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fotwz1v2) |
 
 Per-receipt metrics for rows 1-8 are in section 2.3 (nulls) and section 4
-(ladder rungs); row 9 is in section 10.5.
+(ladder rungs); row 9 is in section 10.5 and row 10 in section 10.8.
 
 "all gates green" means `passed_correctness`, both speedup floor verdicts,
 GPQA TTFT 9/9 and semantic GPQA 9/9, with `max_abs_diff = 0` over 1344 checked
@@ -1548,6 +1549,13 @@ result is *near zero* rather than whether it matches a specific M4 number.
 
 ### 10.5 M5 result at n = 24
 
+> **Superseded in part by section 10.8.** The n = 64 receipt fired the
+> pre-registered "M4 price after all" branch: the placement-free marginal price
+> on M5 is **8.07 us per injected op**, which contains the M4 anchor of 8.54.
+> The measurement below is unchanged and correct; the *interpretation* — "M5
+> absorbs free ALU" — does not survive as a general statement. Read section
+> 10.8 before using anything in this subsection.
+
 Receipt `ecd89cac-b21e-4948-b619-5ac106c8fe48`, marker `senpai-r93-probe-routed-fma-24`,
 spec `routed:fma:24`, W&B [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y),
 official timestamp 2026-08-09T06:24:07Z.
@@ -1610,12 +1618,18 @@ same stalls. That distinction matters for how #512 and #513 should be read, and
 section 10.6 states it as a caveat rather than a result, because this arm was
 not designed to measure it.
 
-### 10.6 What this does and does not license
+### 10.6 What one receipt could and could not license (superseded by 10.8)
 
-**Licensed.** Spending ALU to avoid DRAM traffic is not charged on M5 at the
-scale these experiments contemplate. #512's top-8 router screen and #513's
-layer-0 block-exponent compaction both trade arithmetic for bytes; neither is
-exposed to the regime change this arm was built to detect.
+> This subsection is kept as written before the n = 64 receipt, because its
+> first paragraph is exactly the claim that receipt overturned and the record
+> should show that. **Section 10.8 carries the operative licensing statement.**
+
+**Provisionally licensed, on n = 24 alone.** Spending ALU to avoid DRAM traffic
+is not charged on M5 at the scale these experiments contemplate. #512's top-8
+router screen and #513's layer-0 block-exponent compaction both trade
+arithmetic for bytes; neither is exposed to the regime change this arm was
+built to detect. *(Section 10.8 withdraws this as a general statement: above a
+threshold below n = 64, M5 charges 8.07 us per injected op.)*
 
 **Not licensed.** This arm shows that *adding* arithmetic is nearly free. It
 says nothing about whether *removing* bytes pays back proportionally. If the
@@ -1625,7 +1639,8 @@ byte-count suggests. That is exactly the asymmetry section 8.0 found on the
 dispatch axis, where addition cost 2.34 us/dispatch but rule 53 showed removal
 recovering approximately nothing. **The symmetric mistake would be to read this
 receipt as a prediction that #512 and #513 will win.** It is a statement that
-they will not *lose* on the ALU they spend.
+they will not *lose* on the ALU they spend. *(This paragraph survives 10.8
+intact, and its caution is now the main finding rather than a hedge.)*
 
 **The open question this arm leaves.** One receipt at one load cannot separate
 "M5 absorbs free ALU" from "the probe did not execute on M5", because both
@@ -1664,6 +1679,143 @@ replaces it:
 
 Arm C therefore spends 2 of its 6 permitted receipts, not 3.
 
+*(Written before the receipt. It came back on the `~+6.7 %` branch, which
+reinstated C0' for a reason section 10.7 did not anticipate — see 10.8. Arm C
+spends 3.)*
+
+### 10.8 M5 result at n = 64: the pre-registered reversal
+
+Receipt `ab3a2433-2553-4946-8502-d04814565e17`, marker
+`senpai-r93-probe-routed-fma-64`, spec `routed:fma:64`, official commit
+`68ab5ce2`, W&B [`fotwz1v2`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fotwz1v2),
+official timestamp 2026-08-09T06:58:58Z.
+
+Gates: `passed_correctness = true`, `max_abs_diff = 0` over 1344 checked steps
+in 11 cases, `error = ""`, both floors passed, GPQA TTFT 9/9, semantic GPQA 9/9.
+Baseline health is inside the section 2.3 null envelope on both axes
+(13831.36 us decode against a null range of 13819.4-13870.7; 371.09 us prefill
+against 364.9-383.6), so this is not a bad-baseline draw.
+
+| quantity | n = 24 | n = 64 |
+|---|---|---|
+| candidate decode | 4943.6468 us | **5266.4297 us** |
+| delta vs the n = 5 null mean | +32.72 us = +0.6663 % | **+355.50 us = +7.2391 %** |
+| t against the null (4 df, crit 2.776) | +2.070 | **+22.489** |
+| 95 % CI on the delta | [-0.2273 %, +1.5599 %] | **[+6.3455 %, +8.1326 %]** |
+| prefill control | -0.0061 % | -0.2462 % (t = -2.19, ns) |
+
+**Estimator 2, the placement-free slope.** n = 24 and n = 64 carry the identical
+pipeline object and the identical 128 MiB pool binding, so their difference
+prices injected ALU with the placement term algebraically removed:
+
+```
+(5266.4297 - 4943.6468) / (64 - 24) = +8.0696 us per injected op
+                        95 % CI      [ +6.6532, +9.4859 ]
+    shift +322.78 us = +6.5292 % of the n = 24 step,  t = +15.816 (4 df)
+```
+
+**The pre-registered read-out fires the second branch.** Section 10.7, written
+before this receipt was requested, named +1.8 % for "live and linear at the
+n = 24 price", ~0 % for "inert", and **~+6.7 % for "M5 charges at the M4 per-fma
+price after all"**. The observed rung-to-rung shift is **+6.53 %**. The M4
+anchor of 8.54 us/op (section 10.4) lies inside the [6.65, 9.49] CI.
+
+Two things follow immediately, and the second one is the arm's real result.
+
+1. **The probe is live on the ranked M5.** +355 us is 24.6 null standard
+   deviations. Every "the probe silently did nothing on M5" reading of section
+   10.5 is dead, which is exactly what this receipt was bought for.
+2. **Section 10.5's headline does not survive.** "M5 absorbs free ALU" is not
+   true as a general statement. There is a load — below n = 64 — beyond which
+   M5 charges the full M4 price per injected op.
+
+#### Why n = 24 and n = 64 disagree, and what is still open
+
+The two M5 points are mutually consistent only if the response is not a straight
+line through the null. Extrapolating the placement-free slope back to n = 0
+gives 4749.98 us, which is **160.95 us (3.28 %) below** the null mean. A
+positive-cost injection cannot make the kernel faster, so one of two things is
+true:
+
+| reading | mechanism | implication |
+|---|---|---|
+| **(A) knee** | placement term ~0; the response is convex, with the first ~24 ops absorbed at 1.36 us/op and the next 40 charged at 8.07 us/op (5.9x) | M5 has a *higher* ALU absorption threshold than M4, whose knee is already below n = 24; small ALU additions really are free on M5 |
+| **(B) placement** | the response is linear at ~8.07 us/op from n = 0, and the probe-instrumented kernel is 3.28 % *faster* than base at n = 0 | ALU is charged from the first op on M5; every byte-for-ALU trade must be costed at 8.07 us/op |
+
+Reading (B) is not a stretch: **section 10.4 measured a placement term of the
+same sign directly on M4**, where `routed:fma:0` ran 0.88 % faster than
+probe-off. It only has to be 3.7x larger in relative terms on M5.
+
+A useful intermediate: if M5's placement term merely *equalled* M4's -0.88 %
+(-43.2 us), the implied 0 -> 24 segment slope would be (32.72 + 43.2) / 24 =
+**3.16 us/op**, still 2.6x below the 24 -> 64 slope. **A knee therefore survives
+unless M5's placement term is roughly four times M4's.**
+
+**This is what reinstates C0'.** Section 10.7 was right that n = 64 replaces
+C0' for *liveness* and for the *marginal slope*, and wrong that it replaces it
+entirely: it cannot decompose the n = 24 point. C0' now measures the placement
+term directly, and it is a well-powered test rather than the marginal one
+section 10.7 declined:
+
+- reading (A) predicts C0' ~ **4910.9 us** (the null);
+- reading (B) predicts C0' ~ **4750.0 us**;
+- the separation is 160.9 us = **11.2 null sd**, which is 3.7x the 0.89 %
+  single-receipt resolution floor of section 3.
+
+Submitted as `a000a397-68cc-4514-8cfe-b2a9837d49e7`, spec `routed:fma:0`,
+commit `c5471a71`; read out in section 10.9.
+
+#### The comparison that should worry the programme most
+
+Expressed as a fraction of each machine's decode step:
+
+| machine | slope | step | cost per op, as % of step |
+|---|---|---|---|
+| M4 Pro (section 10.4, segment 0 -> 24) | 8.5417 us/op | 8151 us | 0.1048 % |
+| M5 Max (this receipt, segment 24 -> 64) | 8.0696 us/op | 4910.9 us | **0.1643 %** |
+
+Injected ALU costs the **same absolute microseconds** on both machines, so on
+the 1.66x shorter M5 step it costs **1.57x more as a fraction**. Two caveats,
+both real:
+
+- **The segments do not match.** M4 was measured over 0 -> 24 and M5 over
+  24 -> 64. If M4 is also convex, its 24 -> 64 slope is larger and the ratio
+  shrinks. The fix costs no submission slot: `bash
+  research/r93-runs/armc_local_sweep.sh 200 routed:fma:0 routed:fma:24
+  routed:fma:64` on this host. It is listed as a follow-up rather than run
+  because the local benchmark lock was held by the C0' receipt watcher.
+- **The ladder is built to be throughput-limited, not latency-limited.**
+  `nezukoR93LoopBody` emits four independent accumulator chains precisely so
+  that it prices issue throughput. A throughput-limited addition costing the
+  same wall time on 40 cores as on 20 is not what a core-count model predicts;
+  it should be roughly halved. Candidate explanations — none tested here — are
+  that the batch-1 routed gather-GEMM does not fill M5's extra cores, so the
+  added work serializes on the same occupied subset, or that the added issue
+  rate is clock- rather than core-limited. **This is flagged, not claimed.**
+
+#### Operative licensing statement (replaces 10.6)
+
+**Validated, and this is the useful half.** ALU cost transfers from M4 to M5 *in
+absolute microseconds* at the margin: 8.07 us/op [6.65, 9.49] against M4's 8.54.
+Rule 55's M4-only provenance is no longer a reason to distrust ALU-side pricing
+for the ranked host. That was the "single largest unpriced risk in the
+programme", and the answer is that the M4 evidence base is usable.
+
+**Withdrawn.** "Spending ALU to avoid DRAM traffic is not charged on M5." It is
+charged, at 8.07 us per unit of `n` — where one unit of `n` is 4 fma per K
+iteration per thread — which is **0.164 % of the M5 decode step per unit**.
+
+**Actionable for #512 and #513.** Both trade arithmetic for bytes. Neither is
+refuted by this arm, but both should now be quoted with their added fma per K
+iteration so the ALU side can be priced at 8.07 us per `n`-equivalent and set
+against the bytes removed. Whether the absorption threshold of reading (A)
+covers their addition is precisely what C0' decides.
+
+**Still not licensed, and unchanged from 10.6.** This arm prices *adding* ALU.
+Section 8.0 and rule 53 showed on the dispatch axis that addition and removal
+are wildly asymmetric — 2.34 us/dispatch to add, approximately nothing recovered
+on removal. Nothing here predicts that removing bytes pays back proportionally.
+
 ---
 
 ## 11. Wrap-up
@@ -1695,7 +1847,8 @@ section 10. Its stopping rule did not fire (section 10.1), so it ran.
 | **M5 price of one extra decode dispatch** | **2.3403 us** (95 % CI [2.277, 2.404], n = 8, R^2 > 0.999) | section 4 |
 | Whole-token dispatch census priced at that slope | 945.5 us = **19.2 %** of decode | section 8.1 |
 | PR #137 M4 -> M5 transfer factor | **\|T\| < 0.5**, sign not resolved | section 6 |
-| **M5 price of one injected fma in the routed gather-GEMM** | **1.36 us** (95 % CI [-0.46, +3.19]) | section 10.5 |
+| **M5 price of one injected fma in the routed gather-GEMM, n = 24 -> 64** | **8.07 us** (95 % CI [6.65, 9.49]) - placement-free, matches the M4 price of 8.54 us | section 10.8 |
+| Same price read as a single point at n = 24 against the null | 1.36 us (95 % CI [-0.46, +3.19]) - **superseded**, confounded with placement | section 10.5, 10.8 |
 
 ### 11.3 W&B runs
 
@@ -1715,7 +1868,7 @@ delta against the n = 5 null reference.
 | 7 | ladder-K60 | [`xlaup9j4`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xlaup9j4) | `b835a980-9c6a-48f3-a9d0-c5961ed1aac4` |
 | 8 | null-5 | [`92snii58`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/92snii58) | `4fec8e2d-3fa1-4a99-a9a5-e6883aee7497` |
 | 9 | probe-routed-fma-24 | [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y) | `ecd89cac-b21e-4948-b619-5ac106c8fe48` |
-| 10 | probe-routed-fma-64 | *(see section 10.8)* | `ab3a2433-2553-4946-8502-d04814565e17` |
+| 10 | probe-routed-fma-64 | [`fotwz1v2`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/fotwz1v2) | `ab3a2433-2553-4946-8502-d04814565e17` |
 
 All ten receipts passed every correctness gate: `passed_correctness = true`,
 `max_abs_diff = 0`, 1344 checked steps over 11 cases, both 0.95 floors true,
@@ -1731,9 +1884,11 @@ the student role pushes only through `submit_experiment_result`. Ten official
 receipts had already been collected when that comment was written. Nothing was
 blocked; only the advisor's view was stale.
 
-**Budget raised to 14-18, Arm C <= 6.** 10 slots used: 5 Arm A, 3 Arm B, 2
-Arm C. Arm C stopped at 2 of its 6 because section 10.7's n = 64 point does the
-job the third receipt (the C0' placement control) was going to do, for free.
+**Budget raised to 14-18, Arm C <= 6.** 11 slots used: 5 Arm A, 3 Arm B, 3
+Arm C. Section 10.7 pre-registered the n = 64 point as a saving of the third
+receipt; the result reversed the n = 24 reading instead, which reinstated the
+C0' placement control as the arm's decisive point. Arm C therefore spends 3 of
+its 6, not 2.
 
 **Rule 53 (#502): no decode dispatch residue.** Reconciled in section 8.0. The
 2.3403 us/dispatch slope is the price of *adding* a dispatch; #502 shows
@@ -1743,14 +1898,19 @@ on dispatch-count reduction and keeps only the two that rest on bytes.
 
 **Rule 55 (#498): three dominant decode kernels bandwidth-bound on M4 Pro.**
 Section 10 tests whether that transfers to M5, which is the question the rule's
-M4-only provenance leaves open. It does, in the direction that matters for
-#512/#513: injected ALU is nearly free on M5 too. Section 10.5 also records the
-uncomfortable detail that M5 absorbs *more* free ALU than M4 despite having
-more spare bandwidth, which points at a latency bound rather than a throughput
-bound, and section 10.6 keeps that as a caveat rather than a claim.
+M4-only provenance leaves open. The answer changed once the second rung landed.
+At n = 24 the injected ALU looked nearly free on M5 (+0.67 %, not significant);
+at n = 64 it is not free at all (+7.24 %, t = +22.5). The placement-free
+segment price is 8.07 us per injected fma, which is statistically
+indistinguishable from the M4 Pro price of 8.54 us. Section 10.8 replaces the
+provisional licence issued in section 10.6: **M5 does not have a wider
+free-ALU allowance than M4 Pro over the range this arm can see.** The remaining
+open question is whether the free region below n = 24 is a genuine knee or an
+artefact of the probe's placement cost, which is exactly what the C0' control
+in section 10.9 answers.
 
 **Arm C as "the single largest unpriced risk in the programme".** Priced, at
-2 receipts. See section 10.8 for the verdict.
+3 receipts. See sections 10.8 and 10.9 for the verdict.
 
 ### 11.5 Reproduction
 
