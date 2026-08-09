@@ -58,14 +58,8 @@ class MLX_API CommandEncoder {
   void maybeInsertBarrier();
 
   void set_compute_pipeline_state(MTL::ComputePipelineState* kernel) {
-    prof_note_kernel(kernel);
     get_command_encoder()->setComputePipelineState(kernel);
   }
-
-  // LOCAL-ONLY research instrumentation (DARKBLOOM_GPU_PROFILE). No-op unless
-  // the env var is set. device.h/.cpp are outside benchmark.json editablePaths,
-  // so this never reaches a submitted candidate.
-  void prof_note_kernel(MTL::ComputePipelineState* kernel);
 
   template <typename Vec, typename = std::enable_if_t<is_vector_v<Vec>>>
   void set_vector_bytes(const Vec& vec, size_t nelems, int idx) {
@@ -118,7 +112,6 @@ class MLX_API CommandEncoder {
   NS::SharedPtr<MTL::CommandBuffer> buffer_;
   int buffer_ops_{0};
   size_t buffer_sizes_{0};
-  std::vector<std::string> prof_names_;
 
   // The events hooked to current command buffer.
   std::vector<std::shared_ptr<EventImpl>> wait_events_;
