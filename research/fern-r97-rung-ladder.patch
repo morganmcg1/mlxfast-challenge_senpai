@@ -30,7 +30,7 @@
 # that emits more than one hash is a failed session, not a finding.
 #
 # Base SHA: 55edbc7 (maple-fern/r97-dense-mlp-stage2)
-# Re-apply:  git checkout 617dc965c68214f07167406fa2fdc65223079214 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
+# Re-apply:  git checkout 55edbc77b2441c6fa84d6930503c9cc7518b8ec8 -- Sources/MLXFastModel/LagunaRuntimeModel.swift \
 #              && git apply research/fern-r97-rung-ladder.patch
 #
 # RELOCATION WARNING: the single hunk is anchored on the
