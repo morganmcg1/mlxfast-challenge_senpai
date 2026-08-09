@@ -83,6 +83,19 @@ Total editable headroom rises 184,801 → 319,792 B (+73%), and the per-review g
 allowance goes *negative*, i.e. this arm hands 134,991 B of review budget back to
 whatever merges alongside it.
 
+Context the assignment asked for — where the rest of the prose lives:
+
+| scope | pool at base | pool after |
+|---|---:|---:|
+| submitted `Sources/` (`MLXFastModel` + `MLXFastTransform`, 14 files) | 191,082 | 59,917 |
+| all of `Sources/` (54 files, incl. unsubmitted harness) | 282,029 | 150,864 |
+
+`LagunaRuntimeModel.swift` alone held **68.6%** of the entire submitted-`Sources/`
+comment pool. The 59,917 B that remain are spread over 13 files whose largest is
+56,802 B — a ninth of the per-file cap. **No other submitted `Sources/` file is
+anywhere near its cap**, which is why this arm was the only one worth running and
+why repeating it elsewhere is not (see follow-up 2).
+
 ## 3. The acceptance oracle, and how the first one failed
 
 Rule 74's hazard is specific: this file carries Metal kernel source inside Swift
@@ -356,9 +369,12 @@ research/nezuko_r103c_object_identity.sh /tmp/lrm_orig.swift /tmp/lrm_cand.swift
    it is only worth something if a later arm uses it. The negative growth figure
    (−134,991 B) also means an arm that merges alongside this one gets its full
    262,144 B review allowance back.
-2. **Run the same rung on the other near-cap submitted files.** The tooling is now
-   proven on the hardest case — a file with Metal source in string literals. Anything
-   else on the surface is easier.
+2. **Do *not* reflexively repeat this on other files.** I checked: the largest
+   remaining submitted `Sources/` file is 56,802 B against a 524,288 B cap, so the
+   per-file cap binds nowhere else. The 59,917 B of pool left across 13 files is only
+   worth harvesting if the *total* 3,000,000 B budget becomes binding, and it now has
+   319,792 B free. The tooling is proven on the hardest case if that day comes; until
+   then this is churn on the scored path for no capacity anyone needs.
 3. **Retire `research/frieren_comment_strip_check.sh` or give it a third verdict.**
    It currently returns PASS/FAIL where the honest answer on literal-bearing files is
    "not covered". PR #320's follow-up #3 asked for the same thing. Until then it is a
