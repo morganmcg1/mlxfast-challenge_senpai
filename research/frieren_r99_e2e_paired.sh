@@ -33,10 +33,14 @@ run_arm() {
     ./benchmark.sh --local-iterate >/tmp/r99_e2e_run.log 2>&1
     local status=$?
     echo "@@RUN sweep=${sweep} slot=${slot} arm=${arm} exit=${status}"
-    jq -c '{decode_spt: .metrics.decode_seconds_per_token,
+    jq -c '{score: .score,
+            decode_spt: .metrics.decode_seconds_per_token,
             prefill_spt: .metrics.prefill_seconds_per_token,
+            base_decode_spt: .metrics.baseline_decode_seconds_per_token,
+            base_prefill_spt: .metrics.baseline_prefill_seconds_per_token,
             decode_speedup: .metrics.decode_speedup,
             prefill_speedup: .metrics.prefill_speedup,
+            passed_correctness: .metrics.passed_correctness,
             golden_hash: .metrics.golden_hash,
             first_failing_case: .metrics.first_failing_case,
             first_failing_step: .metrics.first_failing_step}' \

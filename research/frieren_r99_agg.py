@@ -17,7 +17,13 @@ import re
 import sys
 
 # PROVISIONAL, inherited from the advisor's price list and r98 pool estimate.
-POOL_US = 636.0
+# CURRENT_RESEARCH_STATE.md:996 gives the sliding-attention pool on both hosts:
+# 636.0 us/step measured on this M4 Pro, ~290 us/step projected on the ranked
+# M5. The 0.015280 %/us decode price is defined against M5 us/step (4893.7
+# us/step decode, 1 % = 48.94 us/step), so the score column must use the M5
+# pool; using the M4 pool overstates every conversion by 636/290.
+POOL_US_M4 = 636.0
+POOL_US_M5 = 290.0
 SCORE_PER_US = 0.015280
 
 ROW = re.compile(
@@ -61,11 +67,13 @@ def main():
 
     print("estimate = (FWD - REV) / 2, percent of base kernel time, "
           "negative = candidate faster")
-    print("us/step and score use the PROVISIONAL %.1f us/step sliding pool "
-          "and %.6f %%/us." % (POOL_US, SCORE_PER_US))
+    print("us_m4 uses the measured %.1f us/step M4 sliding pool; us_m5 and "
+          "score use the" % POOL_US_M4)
+    print("projected %.1f us/step M5 pool with the %.6f %%/us M5 decode price."
+          % (POOL_US_M5, SCORE_PER_US))
     print()
     hdr = ("  leg      K   fwd_mean  fwd_sd   rev_mean  rev_sd    est%"
-           "    sem     t     us/step   score%")
+           "    sem      t     us_m4   us_m5   score%")
     print(hdr)
     print("  " + "-" * (len(hdr) - 2))
     for leg in legs:
@@ -79,14 +87,14 @@ def main():
             est = (fm - rm) / 2
             sem = math.sqrt(fse ** 2 + rse ** 2) / 2
             t = est / sem if sem else float("nan")
-            us = est / 100 * POOL_US
+            us4 = est / 100 * POOL_US_M4
+            us5 = est / 100 * POOL_US_M5
             print("  %-7s %3d  %+8.2f %7.2f  %+8.2f %7.2f  %+7.3f %6.3f "
-                  "%+7.2f  %+8.2f  %+7.3f"
-                  % (leg, k, fm, fsd, rm, rsd, est, sem, t, us,
-                     -us * SCORE_PER_US))
+                  "%+7.2f %+7.2f %+7.2f  %+7.3f"
+                  % (leg, k, fm, fsd, rm, rsd, est, sem, t, us4, us5,
+                     -us5 * SCORE_PER_US))
         print()
-    n = len(next(iter(data.values())))
-    print("sweeps = %d" % n)
+    print("sweeps = %d" % max(len(v) for v in data.values()))
 
 
 if __name__ == "__main__":
