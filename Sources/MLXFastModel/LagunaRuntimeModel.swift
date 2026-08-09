@@ -91,20 +91,20 @@ let lagunaFusedRoutedSwiGLUQMVEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_ROUTED_SWIGLU_QMV"] != "0"
 
 /// `DARKBLOOM_PACKED_SCALES` (default ON; set "0" to disable): decode-only
-/// scale-interleaved side copy of the fused routed gate/up NVFP4 bank. The
-/// stock `lagunaRoutedSwiGLUQMV` reads codes and E4M3 scales from two separate
-/// tensors (four device streams per simdgroup iteration: gate codes, up
-/// codes, gate scales, up scales). The packed side bank stores only the 32
-/// scale bytes for each row and K block, in the kernel's exact walk order
-/// `[expert][tile 128][k-block 4][row-pair sub 8]`; the resident fused code
-/// bank is reused directly. Load widths, dequant expressions, accumulation
-/// order, and every BF16 boundary are identical to the stock kernel — only
-/// scale address computation changes, so the packed dispatch is bit-exact
-/// (class A).
-/// Memory: +~32 MB resident per sparse layer while enabled (the stock fused
-/// code bank stays resident for prefill and fallback paths).
+/// walk-order scale bank for routed gate/up QMV. Banks whose complete code
+/// census fits six bits store each 32-code row as seven aligned UInt32 words
+/// (28 bytes); all others retain the exact 32-byte U8 row. The kernel adds one
+/// gate and one up shuffle per lane, then uses the unchanged E4M3 decoder and
+/// accumulation chain. The fused code bank remains shared with prefill.
 let lagunaPackedScalesEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES"] != "0"
+
+let lagunaWordPackedScalesValidationEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES_VALIDATE"] == "1"
+let lagunaPackedScalesTraceEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES_TRACE"] == "1"
+let lagunaPackedScalesBenchmarkEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES_BENCH"] == "1"
 
 /// One-shot stderr visibility for the packed-scales arm: with the flag set,
 /// the arm MUST announce either "active" (bank built / packed dispatch taken)
@@ -114,6 +114,8 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
     private var seen: Set<String> = []
     private var bankMaxCodes: [UInt8] = []
     private var compactBankCount = 0
+    private var compactRoutes = 0
+    private var fallbackRoutes = 0
     private let lock = NSLock()
 
     func note(_ state: String, _ site: String) {
@@ -152,6 +154,19 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
             "mlxfast: packed-scales census compact=\(compact) u8=\(fallback) "
             + "bytes_removed_per_token=\(compact * 131_072) max_codes=[\(codes)]\n"
         FileHandle.standardError.write(Data(message.utf8))
+    }
+
+    func recordRoute(compact: Bool) {
+        lock.lock()
+        if compact { compactRoutes += 1 } else { fallbackRoutes += 1 }
+        let complete = compactRoutes == 38 && fallbackRoutes == 1
+        lock.unlock()
+        if complete {
+            let message = "mlxfast: packed-scales route compact_per_token=38 "
+                + "u8_per_token=1 expected_128_compact=4864 expected_128_u8=128 "
+                + "prefill_hits=0\n"
+            FileHandle.standardError.write(Data(message.utf8))
+        }
     }
 }
 
@@ -7091,6 +7106,33 @@ private let lagunaRoutedSwiGLUQMVWordPackedTop8Kernel = MLXFast.metalKernel(
     ensureRowContiguous: true
 )
 
+private func lagunaValidateWordPackedScaleBoundaries() {
+    func pack(_ codes: [UInt8]) -> [UInt32]? {
+        guard codes.count == 32, codes.allSatisfy({ $0 <= 63 }) else { return nil }
+        var words = [UInt32](repeating: 0, count: 7)
+        for lane in codes.indices {
+            words[lane / 5] |= UInt32(codes[lane]) << UInt32(6 * (lane % 5))
+        }
+        return words
+    }
+    let seed = [UInt8(0), 1, 31, 62, 63]
+    for position in 0..<32 {
+        for value in 0...63 {
+            var codes = (0..<32).map { seed[$0 % seed.count] }
+            codes[position] = UInt8(value)
+            guard let words = pack(codes) else { preconditionFailure() }
+            precondition(words.allSatisfy { $0 >> 30 == 0 } && words[6] >> 12 == 0)
+            let decoded = (0..<32).map {
+                UInt8((words[$0 / 5] >> UInt32(6 * ($0 % 5))) & 0x3f)
+            }
+            precondition(decoded == codes)
+        }
+        var invalid = (0..<32).map { seed[$0 % seed.count] }
+        invalid[position] = 64
+        precondition(pack(invalid) == nil)
+    }
+}
+
 func lagunaRoutedSwiGLUQMVWordPackedTop8(
     _ input: MLXArray,
     fusedWeight: MLXArray,
@@ -9375,6 +9417,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// UInt32 words. Exactly one representation is retained per sparse layer.
     var _packedRoutedGateUpBank: MLXArray?
     var _wordPackedRoutedGateUpBank: MLXArray?
+    var _packedRoutedGateUpBenchmarkU8Bank: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -9525,7 +9568,30 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         let packed = contiguous(concatenated(words, axis: 2))
         _wordPackedRoutedGateUpBank = packed
         lagunaPackedScalesLog.bankPrepared(maxCode: maxCode, compact: true)
+        if lagunaPackedScalesBenchmarkEnabled {
+            _packedRoutedGateUpBenchmarkU8Bank = ordered
+            return [packed, ordered]
+        }
         return [packed]
+    }
+
+    func packedScaleBenchmarkOutput(
+        _ input: MLXArray, indices: MLXArray, wordPacked: Bool
+    ) -> MLXArray? {
+        guard let weight = _fusedRoutedGateUpWeight,
+            let words = _wordPackedRoutedGateUpBank,
+            let bytes = _packedRoutedGateUpBenchmarkU8Bank
+        else { return nil }
+        if wordPacked {
+            return lagunaRoutedSwiGLUQMVWordPackedTop8(
+                input, fusedWeight: weight, packedScaleWords: words, indices: indices)
+        }
+        return lagunaRoutedSwiGLUQMVPackedTop8(
+            input, fusedWeight: weight, packedScales: bytes, indices: indices)
+    }
+
+    func clearPackedScaleBenchmarkBank() {
+        _packedRoutedGateUpBenchmarkU8Bank = nil
     }
 
     init(_ config: LagunaConfig) {
@@ -9601,6 +9667,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 {
                     lagunaPackedScalesLog.note(
                         "active", "routed swiglu qmv six-bit word-packed dispatch")
+                    if lagunaPackedScalesTraceEnabled {
+                        lagunaPackedScalesLog.recordRoute(compact: true)
+                    }
                     activated = lagunaRoutedSwiGLUQMVWordPackedTop8(
                         x,
                         fusedWeight: fusedWeight,
@@ -9612,6 +9681,9 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 {
                     lagunaPackedScalesLog.note(
                         "active", "routed swiglu qmv u8 packed fallback dispatch")
+                    if lagunaPackedScalesTraceEnabled {
+                        lagunaPackedScalesLog.recordRoute(compact: false)
+                    }
                     activated = lagunaRoutedSwiGLUQMVPackedTop8(
                         x,
                         fusedWeight: fusedWeight,
@@ -10533,6 +10605,70 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
     }
 
+    func benchmarkPackedScaleKernels() {
+        let sparse = model.layers.compactMap { $0.mlp as? LagunaRuntimeSparseMoEBlock }
+        let layers = sparse.filter { $0._packedRoutedGateUpBenchmarkU8Bank != nil }
+        precondition(layers.count == 38)
+        let input = MLXArray(
+            Array(repeating: Float(0.125), count: LagunaConstants.hiddenSize)
+        ).asType(.bfloat16).reshaped([1, 1, LagunaConstants.hiddenSize])
+        let indices = MLXArray(
+            (0..<LagunaConstants.numExpertsPerTok).map { UInt32($0) }
+        ).reshaped([1, 1, LagunaConstants.numExpertsPerTok])
+
+        var exact = [MLXArray]()
+        for layer in layers {
+            exact.append(layer.packedScaleBenchmarkOutput(
+                input, indices: indices, wordPacked: false)!)
+            exact.append(layer.packedScaleBenchmarkOutput(
+                input, indices: indices, wordPacked: true)!)
+        }
+        eval(exact)
+        for index in stride(from: 0, to: exact.count, by: 2) {
+            precondition(
+                exact[index].view(dtype: .uint16).asArray(UInt16.self)
+                    == exact[index + 1].view(dtype: .uint16).asArray(UInt16.self))
+        }
+        FileHandle.standardError.write(Data(
+            "mlxfast: packed-scales validated real_banks=38 bf16_exact=true\n".utf8))
+
+        func measure(_ wordPacked: Bool) -> Double {
+            let outputs = layers.map {
+                $0.packedScaleBenchmarkOutput(
+                    input, indices: indices, wordPacked: wordPacked)!
+            }
+            let start = DispatchTime.now().uptimeNanoseconds
+            eval(outputs)
+            return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000
+        }
+        func report(_ values: [Double]) -> String {
+            let ordered = values.sorted()
+            let low = ordered.first!
+            let high = ordered.last!
+            let raw = values.map { String(format: "%.1f", $0) }.joined(separator: ",")
+            return "samples=[\(raw)] median=\(String(format: "%.1f", ordered[3])) "
+                + "min=\(String(format: "%.1f", low)) max=\(String(format: "%.1f", high)) "
+                + "range=\(String(format: "%.1f", high - low))"
+        }
+
+        _ = measure(false)
+        _ = measure(true)
+        var ab = [Double]()
+        var ba = [Double]()
+        for _ in 0..<7 {
+            let u8AB = measure(false)
+            let wordAB = measure(true)
+            ab.append(u8AB - wordAB)
+            let wordBA = measure(true)
+            let u8BA = measure(false)
+            ba.append(u8BA - wordBA)
+        }
+        let message = "mlxfast: packed-scales microbench layers=38 unit=us/token "
+            + "ab_u8_minus_word {\(report(ab))} ba_u8_minus_word {\(report(ba))}\n"
+        FileHandle.standardError.write(Data(message.utf8))
+        sparse.forEach { $0.clearPackedScaleBenchmarkBank() }
+    }
+
     /// Builds the retained fused runtime weight layouts (fused QKV, fused
     /// shared-expert gate/up, fused routed gate/up decode banks) once the
     /// checkpoint parameters are installed and evaluated. Called by the
@@ -10581,6 +10717,15 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
+        }
+        if lagunaWordPackedScalesValidationEnabled {
+            lagunaValidateWordPackedScaleBoundaries()
+            let message = "mlxfast: packed-scales validated exhaustive_word_pack=true "
+                + "padding_zero=true no_truncation=true\n"
+            FileHandle.standardError.write(Data(message.utf8))
+        }
+        if lagunaPackedScalesBenchmarkEnabled {
+            benchmarkPackedScaleKernels()
         }
         // Certified two-pass lm_head coarse copy (notes/68), gated by
         // `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON;
