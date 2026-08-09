@@ -8530,7 +8530,7 @@ constexpr uint rows_per_thread = 4;
 constexpr uint values_per_thread = 4;
 constexpr uint block_width = 128;
 constexpr uint blocks = in_vec_size / block_width;
-constexpr uint rows_per_group = 64;
+constexpr uint rows_per_group = 32;
 
 uint tile = threadgroup_position_in_grid.x;
 uint simd_group = simdgroup_index_in_threadgroup;
@@ -8605,8 +8605,8 @@ func lagunaDenseGateUpSwiGLU(
 
     return lagunaDenseGateUpSwiGLUKernel(
         [input, fusedWeight],
-        grid: ((LagunaConstants.denseIntermediateSize / 64) * 512, 1, 1),
-        threadGroup: (512, 1, 1),
+        grid: ((LagunaConstants.denseIntermediateSize / 32) * 256, 1, 1),
+        threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.denseIntermediateSize]],
         outputDTypes: [.bfloat16]
     )[0]
