@@ -1,20 +1,24 @@
 {
-  "nulls": [
-    "25e1f18e"
-  ],
-  "ladder": {},
-  "tg": 8,
   "corpus_bound_dec_pct": 0.2924,
   "corpus_bound_pre_pct": 0.2573,
   "in_flight": {
-    "null-2": "d11026c9-25c5-498c-936f-ed3db3335c30"
+    "ladder-K240": "99309c61-2b7e-4ce8-bb74-52bd3da8a03c"
+  },
+  "ladder": {
+    "99309c61": 240
   },
   "ladder_rungs": [
     240,
     800,
     1600
   ],
+  "nulls": [
+    "25e1f18e",
+    "d11026c9"
+  ],
+  "tg": 8,
   "wandb": {
-    "null-1": "3szqrztf"
+    "null-1": "3szqrztf",
+    "null-2": "0doaq0w0"
   }
 }
