@@ -96,6 +96,14 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
+private let lagunaRouterBroadcastReachability =
+    ProcessInfo.processInfo.environment["MLXFAST_ROUTER_BROADCAST_REACHABILITY"] == "1"
+
+private func lagunaTraceRouterBroadcastReachability(_ message: String) {
+    guard lagunaRouterBroadcastReachability else { return }
+    FileHandle.standardError.write(Data("mlxfast: router broadcast reachability: \(message)\n".utf8))
+}
+
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -10667,6 +10675,10 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
         routerKeys: MLXArray? = nil
     ) -> MLXArray {
         let (inds, weights) = gate(x, logits: routerLogits)
+        if x.dim(1) > 1 {
+            lagunaTraceRouterBroadcastReachability(
+                "phase=prefill selected=0 symbol=laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6")
+        }
         var y: MLXArray
         var routedAlreadyReduced = false
         var sortedTailInverseOrder: MLXArray?
@@ -10784,6 +10796,8 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 residual.dims(1, 1, LagunaConstants.hiddenSize)
             {
                 lagunaTrace("routed+shared down residual")
+                lagunaTraceRouterBroadcastReachability(
+                    "phase=decode selected=1 symbol=laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6")
                 return lagunaRoutedSharedDownResidual(
                     routedActivated: activated,
                     routedDownWeight: downWeight,

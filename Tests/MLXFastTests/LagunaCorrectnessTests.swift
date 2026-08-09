@@ -237,10 +237,13 @@ func lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() throws {
         environment["MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR"] ?? "0"
     ) ?? 0
 
+    let decodeTokenCount = Int(
+        environment["MLXFAST_LAGUNA_EQUIVALENCE_DECODE_TOKENS"] ?? "8"
+    ) ?? 8
     let report = try LagunaUpstreamEquivalence.compare(
         weightsPath: weightsPath,
         promptTokens: sourceCase.promptTokens,
-        decodeTokens: Array(sourceCase.expectedTokens.prefix(8))
+        decodeTokens: Array(sourceCase.expectedTokens.prefix(decodeTokenCount))
     )
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
