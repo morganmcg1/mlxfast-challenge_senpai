@@ -183,8 +183,41 @@ def main():
     return report(recs)
 
 
+def floors(recs, n_calls):
+    """Rig-specific resolvable floor, measured rather than assumed.
+
+    Slot "0b" is a byte-identical repeat of the baseline, so its paired
+    contrast against slot "0" is a pure null: its spread is this rig's sigma
+    for that estimator, and its half-width is the smallest effect the estimator
+    can resolve here. Rule 40 requires naming the estimator before any result,
+    so print the whole table up front.
+    """
+    print("\n=== resolvable floor from the null control (slot 0b - slot 0) "
+          "===", flush=True)
+    print(f"{'estimator':>34}  {'n':>2}  {'sigma us/step':>13}  "
+          f"{'+-95% us/step':>13}  {'null d':>9}", flush=True)
+    by_rep = {}
+    for r in recs:
+        by_rep.setdefault(r["rep"], {})[r["slot"]] = r
+    for key, name, scale in (("router_us_call", "per-kernel router label",
+                              n_calls),
+                             ("busy_sum_ms", "census absolute busy", 1000.0),
+                             ("busy_union_ms", "census union busy", 1000.0),
+                             ("wall_ms", "census wall", 1000.0),
+                             ("median_ms", "end-to-end median", 1000.0)):
+        diffs = [b["0b"][key] - b["0"][key] for b in by_rep.values()
+                 if "0b" in b and "0" in b and key in b["0b"] and key in b["0"]]
+        if len(diffs) < 2:
+            continue
+        sd = statistics.stdev(diffs) * scale
+        hw = t95(len(diffs) - 1) * sd / math.sqrt(len(diffs))
+        print(f"{name:>34}  {len(diffs):>2}  {sd:13.2f}  {hw:13.2f}  "
+              f"{statistics.mean(diffs) * scale:+9.2f}", flush=True)
+
+
 def report(recs):
     n = max((r.get("router_n_step") or 0) for r in recs) or 39.0
+    floors(recs, n)
     summarise(recs, "router_us_call",
               "router kernel us/call (SPLIT-inflated, relative only)",
               scale=n, unit="us")
