@@ -13,6 +13,15 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
+# Accept `KEY=VALUE` arguments as well as environment variables, because the
+# job runner passes an argv list and no environment.
+for kv in "$@"; do
+  case "$kv" in
+    [A-Z_]*=*) export "${kv?}" ;;
+    *) echo "unexpected argument $kv"; exit 2 ;;
+  esac
+done
+
 OUT="${OUT:?set OUT}"
 MODE="${MODE:-block}"
 SRC=Sources/MLXFastModel/LagunaRuntimeModel.swift
@@ -44,6 +53,13 @@ fi
 mkdir -p "$OUT"
 export DARKBLOOM_R97_RUNG_MAP="$(cd "$OUT" && pwd)/glue.bin"
 echo "rung map -> $DARKBLOOM_R97_RUNG_MAP"
+
+# NARROW_LOG=1 makes each process report which block-exponent kernels it
+# actually dispatched, which is how a silent mmap failure (every rung falling
+# back to the static default) is told apart from a working control word.
+if [ "${NARROW_LOG:-0}" = "1" ]; then
+  export DARKBLOOM_ATTN_SCALE_NARROW_LOG=1
+fi
 
 OUT="$OUT" P="$P" R="$R" S="$S" SCHEDULE="$SCHEDULE" \
   PLACEBO_EVERY="$PLACEBO_EVERY" WARMUP_RUNS="${WARMUP_RUNS:-1}" \
