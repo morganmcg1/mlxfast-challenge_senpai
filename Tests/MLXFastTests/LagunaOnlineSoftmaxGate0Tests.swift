@@ -159,7 +159,7 @@ func onlineSoftmaxIdentityRescaleGate0() {
                     print(
                         "GATE0 case=\(label) order=\(orderName) "
                             + "baseline_ns=\(totals.baseline) candidate_ns=\(totals.candidate) "
-                            + "speedup=\(String(format: \"%.6f\", totals.speedup))"
+                            + "speedup=\(String(format: "%.6f", totals.speedup))"
                     )
                 }
             }
@@ -170,13 +170,13 @@ func onlineSoftmaxIdentityRescaleGate0() {
     #expect(unchangedBranches > 0)
     #expect(growthBranches > 0)
     for family in Gate0AttentionFamily.allCases {
-        for orderName in orders.map(\.0) {
+        for orderName in orders.map({ $0.0 }) {
             let key = "\(family.rawValue)-\(orderName)"
             let values = aggregateSpeedups[key] ?? []
             let geometricMean = exp(values.map(log).reduce(0, +) / Double(values.count))
             print(
                 "GATE0 aggregate=\(key) cases=\(values.count) "
-                    + "geomean_speedup=\(String(format: \"%.6f\", geometricMean))"
+                    + "geomean_speedup=\(String(format: "%.6f", geometricMean))"
             )
             #expect(values.count == lengths.count * Gate0ScorePattern.allCases.count)
             #expect(geometricMean >= 1.01)
