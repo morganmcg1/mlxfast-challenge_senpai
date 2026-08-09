@@ -4619,13 +4619,13 @@ private func lagunaNormAffineQKVPrefetchSource(
 ) -> String {
     let metadataPointers = indexed
         ? """
-        const device ushort* mi = metadata_indices + out_row * in_vec_size_g +
+        const device ushort* mi = metadata_indices + safe_out_row * in_vec_size_g +
             simd_lid / scale_step_per_thread;
         """
         : """
-        const device bfloat* sc = weight_scales + out_row * in_vec_size_g +
+        const device bfloat* sc = weight_scales + safe_out_row * in_vec_size_g +
             simd_lid / scale_step_per_thread;
-        const device bfloat* bs = weight_biases + out_row * in_vec_size_g +
+        const device bfloat* bs = weight_biases + safe_out_row * in_vec_size_g +
             simd_lid / scale_step_per_thread;
         """
     let prefetchMetadata = indexed
@@ -4668,7 +4668,7 @@ private func lagunaNormAffineQKVPrefetchSource(
     constexpr float norm_eps = 1.0e-6f;
     constexpr uint values_per_thread = 8;       // pack_factor 4 * packs_per_thread 2
     constexpr uint block_size = 256;            // values_per_thread * SIMD_SIZE
-    constexpr uint results_per_simdgroup = 4;
+    constexpr uint results_per_simdgroup = 5;
     constexpr uint num_simdgroups = 2;
     constexpr uint group_size = 32;
     constexpr uint scale_step_per_thread = group_size / values_per_thread;
@@ -4689,16 +4689,19 @@ private func lagunaNormAffineQKVPrefetchSource(
     // k-loop's exact per-i order.
     uint out_row = tile * (num_simdgroups * results_per_simdgroup) +
         simd_gid * results_per_simdgroup;
+    uint valid_rows = out_row < out_vec_size
+        ? min(results_per_simdgroup, out_vec_size - out_row) : 0;
+    uint safe_out_row = min(out_row, out_vec_size - 1);
 
     const device uint8_t* ws = (const device uint8_t*)weight_codes +
-        out_row * axis_size + simd_lid * values_per_thread;
+        safe_out_row * axis_size + simd_lid * values_per_thread;
     \(metadataPointers)
 
     uint8_t pf_w[pf_depth][results_per_simdgroup][values_per_thread];
     float pf_s[pf_depth][results_per_simdgroup];
     float pf_b[pf_depth][results_per_simdgroup];
     for (uint d = 0; d < pf_depth; ++d) {
-        for (uint row = 0; row < results_per_simdgroup; ++row) {
+        for (uint row = 0; row < valid_rows; ++row) {
             const device uint8_t* wl = ws + d * block_size + row * axis_size;
             for (uint i = 0; i < values_per_thread; ++i) {
                 pf_w[d][row][i] = wl[i];
@@ -4741,7 +4744,8 @@ private func lagunaNormAffineQKVPrefetchSource(
     // --- affine_qmv_fast replica; first pf_depth blocks consume the
     // prefetched registers with the identical accumulation order ---
     thread float x_thread[values_per_thread];
-    thread float result[results_per_simdgroup] = {0.0f, 0.0f, 0.0f, 0.0f};
+    thread float result[results_per_simdgroup] = {
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
     uint column = simd_lid * values_per_thread;
     for (uint d = 0; d < pf_depth; ++d) {
@@ -4753,7 +4757,7 @@ private func lagunaNormAffineQKVPrefetchSource(
             sum += value;
             x_thread[i] = value;
         }
-        for (uint row = 0; row < results_per_simdgroup; ++row) {
+        for (uint row = 0; row < valid_rows; ++row) {
             float accum = 0.0f;
             for (uint i = 0; i < values_per_thread; ++i) {
                 accum += x_thread[i] * pf_w[d][row][i];
@@ -4774,7 +4778,7 @@ private func lagunaNormAffineQKVPrefetchSource(
             x_thread[i] = value;
         }
 
-        for (uint row = 0; row < results_per_simdgroup; ++row) {
+        for (uint row = 0; row < valid_rows; ++row) {
             const device uint8_t* wl = ws + row * axis_size;
             \(metadataLoad)
             float accum = 0.0f;
@@ -4789,7 +4793,7 @@ private func lagunaNormAffineQKVPrefetchSource(
         column += block_size;
     }
 
-    for (uint row = 0; row < results_per_simdgroup; ++row) {
+    for (uint row = 0; row < valid_rows; ++row) {
         result[row] = simd_sum(result[row]);
         if (simd_lid == 0) {
             projected[out_row + row] = bfloat(result[row]);
@@ -4799,8 +4803,8 @@ private func lagunaNormAffineQKVPrefetchSource(
 }
 
 /// One kernel per reachable `[Q; K; V; (G)]` row count: both head families,
-/// gate rows folded in or not. All four are multiples of 8, so `qmv`'s `fast`
-/// predicate holds and no tail threadgroup is ever dispatched.
+/// gate rows folded in or not. The five-row prefetch variant covers ten rows
+/// per threadgroup and bounds-checks its final partial tile.
 private let lagunaNormAffineQKVKernels: [Int: MLXFast.MLXFastKernel] = {
     var kernels: [Int: MLXFast.MLXFastKernel] = [:]
     let kvRows = 2 * LagunaConstants.numKeyValueHeads * LagunaConstants.headDim
@@ -4812,7 +4816,7 @@ private let lagunaNormAffineQKVKernels: [Int: MLXFast.MLXFastKernel] = {
             let pf = staged ? 0 : lagunaNormAffineQKVPrefetchDepth
             kernels[rows] = MLXFast.metalKernel(
                 name: pf > 0
-                    ? "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_pf\(pf)_v1"
+                    ? "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_pf\(pf)_v2"
                     : "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
                         + (staged ? "tg" : "inl") + "_v1",
                 inputNames: [
@@ -4842,7 +4846,7 @@ private let lagunaNormAffineQKVIndexedKernels: [Int: MLXFast.MLXFastKernel] = {
             if kernels[rows] != nil { continue }
             kernels[rows] = MLXFast.metalKernel(
                 name: "laguna_norm_affine_qkv_qmv_i8g32_r\(rows)_"
-                    + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_v1",
+                    + "pf\(lagunaNormAffineQKVPrefetchDepth)_idx_v2",
                 inputNames: [
                     "residual", "norm_weight", "weight_codes",
                     "metadata_indices", "metadata_lut",
@@ -4896,6 +4900,14 @@ func lagunaNormAffineQKV(
         return nil
     }
 
+    let rowsPerThreadgroup =
+        !lagunaNormAffineQKVStaged && lagunaNormAffineQKVPrefetchDepth > 0 ? 10 : 8
+    let grid = (
+        ((rows + rowsPerThreadgroup - 1) / rowsPerThreadgroup) * 64,
+        1,
+        1
+    )
+
     if let metadata = indexedMetadata,
         let indexedKernel = lagunaNormAffineQKVIndexedKernels[rows],
         metadata.indices.dtype == .uint16,
@@ -4906,7 +4918,7 @@ func lagunaNormAffineQKV(
     {
         return indexedKernel(
             [residual, normWeight, codes, metadata.indices, metadata.lut],
-            grid: ((rows / 8) * 64, 1, 1),
+            grid: grid,
             threadGroup: (64, 1, 1),
             outputShapes: [[1, 1, rows]],
             outputDTypes: [.bfloat16]
@@ -4915,7 +4927,7 @@ func lagunaNormAffineQKV(
 
     return kernel(
         [residual, normWeight, codes, scales, biases],
-        grid: ((rows / 8) * 64, 1, 1),
+        grid: grid,
         threadGroup: (64, 1, 1),
         outputShapes: [[1, 1, rows]],
         outputDTypes: [.bfloat16]
