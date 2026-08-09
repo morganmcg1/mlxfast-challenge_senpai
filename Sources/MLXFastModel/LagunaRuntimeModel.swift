@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import MLX
 import MLXFast
@@ -110,11 +111,15 @@ let lagunaSixBitPackedScalesValidationEnabled =
 let lagunaPackedScalesTraceEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES_TRACE"] == "1"
 
-/// One-shot stderr visibility used only by explicit trace and validation runs.
+/// Init-only interleaved U8 versus six-bit aggregate kernel timing.
+let lagunaPackedScalesBenchmarkEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_SCALES_BENCH"] == "1"
+
+/// One-shot stderr visibility used only by explicit diagnostic runs.
 final class LagunaPackedScalesLog: @unchecked Sendable {
     private var seen: Set<String> = []
-    private var compactDispatches = 0
-    private var fallbackDispatches = 0
+    private var compactGraphRoutes = 0
+    private var fallbackGraphRoutes = 0
     private let lock = NSLock()
 
     func note(_ state: String, _ site: String) {
@@ -127,22 +132,18 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
         }
     }
 
-    func recordDispatch(sixBit: Bool) {
+    func recordGraphRoute(sixBit: Bool) {
         lock.lock()
         if sixBit {
-            compactDispatches += 1
+            compactGraphRoutes += 1
         } else {
-            fallbackDispatches += 1
+            fallbackGraphRoutes += 1
         }
-        let complete = compactDispatches == fallbackDispatches * 38
-            && (fallbackDispatches == 1 || fallbackDispatches == 129)
-        let totals = complete
-            ? "tokens=\(fallbackDispatches) compact=\(compactDispatches) fallback=\(fallbackDispatches)"
-            : nil
+        let complete = compactGraphRoutes == 38 && fallbackGraphRoutes == 1
         lock.unlock()
-        if let totals {
+        if complete {
             FileHandle.standardError.write(
-                Data("mlxfast: packed-scales dispatch-count: \(totals)\n".utf8))
+                Data("mlxfast: packed-scales graph-route: compact-nodes=38 fallback-nodes=1\n".utf8))
         }
     }
 }
@@ -9398,6 +9399,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
     /// `[experts, 4096, 32]` uint8 bank.
     var _packedRoutedGateUpBank: MLXArray?
     var _packedRoutedGateUpSixBit = false
+    var _packedRoutedGateUpBenchmarkU8Bank: MLXArray?
 
     /// Builds and retains the fused routed gate/up NVFP4 banks from the
     /// loaded stock `SwitchGLU` submodules (reached through the public
@@ -9540,9 +9542,27 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 lagunaPackedScalesLog.note(
                     "validated", "layer \(layerIdx) six-bit scale round-trip")
             }
+            if lagunaPackedScalesBenchmarkEnabled {
+                let control = makePackedRoutedGateUpU8Bank(
+                    fusedScales: fusedScales, experts: experts, split: split)
+                _packedRoutedGateUpBenchmarkU8Bank = control
+                return [packed, control]
+            }
             return [packed]
         }
 
+        let packed = makePackedRoutedGateUpU8Bank(
+            fusedScales: fusedScales, experts: experts, split: split)
+        _packedRoutedGateUpBank = packed
+        _packedRoutedGateUpSixBit = false
+        return [packed]
+    }
+
+    func makePackedRoutedGateUpU8Bank(
+        fusedScales: MLXArray,
+        experts: Int,
+        split: Int
+    ) -> MLXArray {
         let rows = 2 * split
         let rowBlocks = fusedScales.reshaped([experts, rows * 4, 32])
         var order = [Int32]()
@@ -9557,10 +9577,29 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                 }
             }
         }
-        let packed = contiguous(take(rowBlocks, MLXArray(order), axis: 1))
-        _packedRoutedGateUpBank = packed
-        _packedRoutedGateUpSixBit = false
-        return [packed]
+        return contiguous(take(rowBlocks, MLXArray(order), axis: 1))
+    }
+
+    func packedScaleBenchmarkOutput(
+        _ input: MLXArray,
+        indices: MLXArray,
+        sixBit: Bool
+    ) -> MLXArray? {
+        guard _packedRoutedGateUpSixBit,
+            let fusedWeight = _fusedRoutedGateUpWeight,
+            let compactBank = _packedRoutedGateUpBank,
+            let controlBank = _packedRoutedGateUpBenchmarkU8Bank
+        else { return nil }
+        return lagunaRoutedSwiGLUQMVPackedTop8(
+            input,
+            fusedWeight: fusedWeight,
+            packedScales: sixBit ? compactBank : controlBank,
+            indices: indices,
+            sixBit: sixBit)
+    }
+
+    func clearPackedScaleBenchmarkBank() {
+        _packedRoutedGateUpBenchmarkU8Bank = nil
     }
 
     init(_ config: LagunaConfig, layerIdx: Int) {
@@ -9640,7 +9679,7 @@ final class LagunaRuntimeSparseMoEBlock: Module, UnaryLayer {
                         lagunaPackedScalesLog.note(
                             "active",
                             "layer \(layerIdx) routed swiglu qmv \(format)")
-                        lagunaPackedScalesLog.recordDispatch(
+                        lagunaPackedScalesLog.recordGraphRoute(
                             sixBit: _packedRoutedGateUpSixBit)
                     }
                     activated = lagunaRoutedSwiGLUQMVPackedTop8(
@@ -10565,6 +10604,60 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
     }
 
+    func benchmarkPackedScaleKernels() {
+        let sparseLayers = model.layers.compactMap {
+            $0.mlp as? LagunaRuntimeSparseMoEBlock
+        }
+        let layers = sparseLayers.filter {
+            $0._packedRoutedGateUpBenchmarkU8Bank != nil
+        }
+        precondition(layers.count == 38)
+        let input = MLXArray(
+            Array(repeating: Float(0.125), count: LagunaConstants.hiddenSize)
+        ).asType(.bfloat16).reshaped([1, 1, LagunaConstants.hiddenSize])
+        let indices = MLXArray(
+            (0..<LagunaConstants.numExpertsPerTok).map(UInt32.init)
+        ).reshaped([1, 1, LagunaConstants.numExpertsPerTok])
+
+        func measure(_ sixBit: Bool) -> Double {
+            let outputs = layers.compactMap {
+                $0.packedScaleBenchmarkOutput(
+                    input, indices: indices, sixBit: sixBit)
+            }
+            precondition(outputs.count == layers.count)
+            let start = DispatchTime.now().uptimeNanoseconds
+            eval(outputs)
+            return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000
+        }
+        func median(_ values: [Double]) -> Double {
+            values.sorted()[values.count / 2]
+        }
+        func render(_ values: [Double]) -> String {
+            values.map { String(format: "%.1f", $0) }.joined(separator: ",")
+        }
+
+        _ = measure(false)
+        _ = measure(true)
+        var ab = [Double]()
+        var ba = [Double]()
+        for _ in 0..<7 {
+            let u8AB = measure(false)
+            let sixAB = measure(true)
+            ab.append(u8AB - sixAB)
+            let sixBA = measure(true)
+            let u8BA = measure(false)
+            ba.append(u8BA - sixBA)
+        }
+        let message =
+            "mlxfast: packed-scales microbench: layers=38 unit=us/token "
+            + "ab-u8-minus-six=[\(render(ab))] median=\(String(format: "%.1f", median(ab))) "
+            + "ba-u8-minus-six=[\(render(ba))] median=\(String(format: "%.1f", median(ba)))\n"
+        FileHandle.standardError.write(Data(message.utf8))
+        for layer in sparseLayers {
+            layer.clearPackedScaleBenchmarkBank()
+        }
+    }
+
     /// Builds the retained fused runtime weight layouts (fused QKV, fused
     /// shared-expert gate/up, fused routed gate/up decode banks) once the
     /// checkpoint parameters are installed and evaluated. Called by the
@@ -10606,6 +10699,9 @@ public final class LagunaRuntimeModel: Module, LanguageModel {
         }
         if !fusedArrays.isEmpty {
             eval(fusedArrays)
+        }
+        if lagunaPackedScalesBenchmarkEnabled {
+            benchmarkPackedScaleKernels()
         }
         // Certified two-pass lm_head coarse copy (notes/68), gated by
         // `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON;
