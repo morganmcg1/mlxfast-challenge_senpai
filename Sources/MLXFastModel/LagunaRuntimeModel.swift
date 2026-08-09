@@ -7787,8 +7787,8 @@ constexpr uint scale_tile_bytes = 4 * scale_kblock_bytes;
 constexpr uint packed_expert_bytes = 128 * scale_tile_bytes;
 
 uint group = threadgroup_position_in_grid.x;
-uint expert_slot = group % routed_experts;
-uint tile = group / routed_experts;
+uint expert_slot = group / 256;
+uint tile = group % 256;
 uint simd_group = simdgroup_index_in_threadgroup;
 uint lane = thread_index_in_simdgroup;
 uint logical_row = tile * 2 + simd_group;
