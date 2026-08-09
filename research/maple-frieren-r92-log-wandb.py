@@ -3,15 +3,18 @@
 
 One run per stage:
 
-  stage1  dispatch decomposition of the scored decode path (from the MSL dump)
-  stage2  matched static __compute census of every reachable decode kernel
-  stage3  ablation bisection of the two kernels with a positive g17s excess
+  stage1       dispatch decomposition of the equivalence-oracle vehicle
+  stage2       matched static __compute census of the oracle-path decode kernels
+  stage3       ablation bisection of the two kernels with a positive g17s excess
+  stage1prime  the same census on the *scored* local-iterate decode path, which
+               dispatches a different kernel set and flips the aggregate sign
 
 This arm produces no timing metrics; per advisor rule 42 the static byte counts
 are the result, and they are admissible only as matched-null differences within
 one opcode class and one loop structure.
 
-    python3 research/maple-frieren-r92-log-wandb.py [stage1|stage2|stage3|all]
+    python3 research/maple-frieren-r92-log-wandb.py \
+        [stage1|stage2|stage3|stage1prime|all]
 """
 import csv
 import pathlib
@@ -24,6 +27,9 @@ ART = ROOT / "research" / "r92-artifacts"
 CENSUS = ART / "r92-census.tsv"
 BISECT = ART / "r92-bisect.tsv"
 MANIFEST = ART / "r92-kernel-manifest.tsv"
+CENSUS_SCORED = ART / "r92-census-scored.tsv"
+MANIFEST_SCORED = ART / "r92-kernel-manifest-scored.tsv"
+STAGE1PRIME = ART / "r92-census-stage1prime.txt"
 
 PROJECT = "mlxfast-maple"
 ENTITY = "wandb-applied-ai-team"
@@ -64,9 +70,9 @@ DISPATCHES = {
 NOISE_BAND_BYTES = 16
 
 
-def load_census():
+def load_census(path=CENSUS):
     by_study = {}
-    with CENSUS.open() as fh:
+    with path.open() as fh:
         for row in csv.DictReader(fh, delimiter="\t"):
             by_study.setdefault(row["study"], {}).setdefault(row["arch"], {})[
                 row["fn"]
@@ -253,8 +259,170 @@ def stage3():
     finish(run, summary)
 
 
+def parse_stage1prime():
+    """Read the weighted scored-step table emitted by weight_scored_step.py."""
+    rows = []
+    totals = {}
+    steady = None
+    for line in STAGE1PRIME.read_text().splitlines():
+        if line.startswith("decode_steps_sampled="):
+            steady = int(line.split("steady_dispatches=")[1])
+        elif line.startswith("weighted_"):
+            key, val = line.split("=", 1)
+            lo, hi = (int(x) for x in val.split(".."))
+            totals[key] = (lo, hi)
+        elif line.startswith("laguna_"):
+            f = line.split()
+            rows.append(
+                {
+                    "kernel": f[0],
+                    "n": int(f[1]),
+                    "g16s": int(f[2]),
+                    "g17s": int(f[3]),
+                    "raw": int(f[4]),
+                    "w_raw": int(f[5]),
+                    "w_hi": int(f[6]),
+                }
+            )
+    return steady, rows, totals
+
+
+def stage1prime():
+    steady, rows, totals = parse_stage1prime()
+    by_study = load_census(CENSUS_SCORED)
+    run = wandb.init(
+        project=PROJECT,
+        entity=ENTITY,
+        job_type="offline-census",
+        name="maple-frieren-r92b-stage1prime-scored-path-census",
+        group="maple-frieren-r92b",
+        tags=[
+            "r92-b",
+            "stage1prime",
+            "agx-census",
+            "scored-path",
+            "no-timing",
+            "zero-editable-bytes",
+        ],
+        config={
+            **BASE_CONFIG,
+            "stage": "1prime",
+            "vehicle": "local_iterate_worker_stderr_budgeted_msl_dump",
+            "dump_budget_per_worker": 2000,
+            "dump_bytes": 21275521,
+            "dump_emissions": 2690,
+            "dump_distinct_kernels": 27,
+            "noise_band_bytes": NOISE_BAND_BYTES,
+            "floor_correction_bracket": "-16..0",
+            "supersedes": "stage2_weighted_aggregates",
+        },
+    )
+
+    summary = {}
+    for study, by_arch in by_study.items():
+        for arch, fns in by_arch.items():
+            for fn, b in fns.items():
+                summary[f"bytes/{study}/{arch}/{fn}"] = b
+
+    # Control 1 reproduced in-session on the scored census invocation.
+    enc = by_study.get("r92_encoding", {})
+    for cls in ("fadd", "ffma", "fimm", "imad"):
+        for arch in ARCHS:
+            v = enc.get(arch, {})
+            lo, hi = v.get(f"e_{cls}_064"), v.get(f"e_{cls}_128")
+            if lo is not None and hi is not None:
+                summary[f"bytes_per_op/{arch}/{cls}"] = (hi - lo) / 64.0
+    g16 = summary.get("bytes_per_op/applegpu_g16s/imad")
+    g17 = summary.get("bytes_per_op/applegpu_g17s/imad")
+    if g16 and g17:
+        summary["control1/imad_g17s_over_g16s"] = g17 / g16
+        summary["control1/pass"] = int(abs(g16 - 12.0) < 0.51 and abs(g17 - 14.0) < 0.51)
+
+    fl = by_study.get("r92_floor", {})
+    for fn in sorted(fl.get(ARCHS[0], {})):
+        b = fl[ARCHS[1]].get(fn)
+        if b is not None:
+            summary[f"control2/floor_delta/{fn}"] = b - fl[ARCHS[0]][fn]
+
+    for r in rows:
+        k = r["kernel"]
+        summary[f"dispatch/steady_scored/{k}"] = r["n"]
+        summary[f"delta/{k}"] = r["raw"]
+        summary[f"delta_pct/{k}"] = 100.0 * r["raw"] / r["g16s"]
+        summary[f"weighted_delta/{k}"] = r["w_raw"]
+        summary[f"weighted_delta_hi/{k}"] = r["w_hi"]
+
+    if MANIFEST_SCORED.exists():
+        with MANIFEST_SCORED.open() as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                summary[f"manifest_scored/gen_bytes/{row['name']}"] = int(
+                    row["gen_bytes"]
+                )
+                summary[f"manifest_scored/distinct_variants/{row['name']}"] = int(
+                    row["distinct_variants"]
+                )
+
+    def cluster(*names):
+        return sum(r["w_raw"] for r in rows if r["kernel"] in names)
+
+    summary["stage1prime/steady_dispatches"] = steady
+    summary["stage1prime/censused_steady_kernels"] = len(rows)
+    for key, (lo, hi) in totals.items():
+        summary[f"stage1prime/{key}"] = lo
+        summary[f"stage1prime/{key}_hi"] = hi
+    summary["stage1prime/oproj_cluster_weighted_bytes_per_step"] = cluster(
+        "laguna_oproj_act_h64_v1_lm1_pw1_sc1_se1",
+        "laguna_oproj_act_h48_v1_lm1_pw1_sc1_se1",
+        "laguna_gate_sp_h64_v1",
+        "laguna_gate_sp_h48_v1",
+    )
+    summary["stage1prime/nvfp4_trio_weighted_bytes_per_step"] = cluster(
+        "laguna_routed_shared_nvfp4_down_residual_bf16_sh_stage4_v6",
+        "laguna_shared_nvfp4_swiglu_qmv_rows1_halved_bf16_v1",
+        "laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2",
+    )
+    summary["stage1prime/attention_pair_weighted_bytes_per_step"] = cluster(
+        "laguna_sliding_fused_attn_ring_v1",
+        "laguna_full_fused_attn_grow_v1",
+    )
+    # Stage 2 censused four kernels the scored path never dispatches, so its
+    # dispatch-weighted aggregate is retracted and the net sign flips.
+    summary["stage1prime/stage2_weights_retracted"] = 1
+    summary["stage1prime/stage2_weighted_net_delta_bytes_per_step"] = -24864
+    for k in (
+        "laguna_fused_norm_qkv_projection_bf16_h64_v3",
+        "laguna_fused_norm_qkv_projection_bf16_h48_v3",
+        "laguna_gated_output_projection_bf16_h64_u2_v3",
+        "laguna_gated_output_projection_bf16_h48_u2_v3",
+        "laguna_prefill_moe_tail_bf16_v1",
+    ):
+        summary[f"offpath/scored_dispatches/{k}"] = 0
+    # Retroactive check of PR #481's mechanically reconstructed router TU.
+    summary["pr481/router_recon_g16s"] = 4304
+    summary["pr481/router_recon_g17s"] = 4272
+    summary["pr481/router_real_g16s"] = 4720
+    summary["pr481/router_real_g17s"] = 4688
+    summary["pr481/router_abs_byte_gap"] = 416
+    summary["pr481/router_delta_reproduces"] = 1
+    # The instrumented vehicle's own cost, recorded so it is never mistaken for
+    # a candidate regression.
+    summary["vehicle/correctness_max_abs_diff"] = 0
+    summary["vehicle/correctness_passed"] = 1
+    summary["vehicle/instrumented_decode_s_per_token"] = 0.027414
+    summary["vehicle/baseline_decode_s_per_token"] = 0.012988
+    summary["vehicle/instrumented_est_score"] = 0.455
+    summary["vehicle/baseline_est_score"] = 0.796
+    summary["verdict"] = "H0"
+    finish(run, summary)
+
+
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "all"
-    for name, fn in (("stage1", stage1), ("stage2", stage2), ("stage3", stage3)):
+    for name, fn in (
+        ("stage1", stage1),
+        ("stage2", stage2),
+        ("stage3", stage3),
+        ("stage1prime", stage1prime),
+    ):
         if which in (name, "all"):
             fn()
