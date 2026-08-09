@@ -9219,6 +9219,8 @@ private func lagunaFusedSortedRoutedGateUp(
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
     let expandedX = MLX.expandedDimensions(x, axes: [-2, -3])
     let doSort = indices.size >= 64
+    let usePackedRHS = indices.size >= 4 * LagunaConstants.numExperts
+    var gateUpX = expandedX
     var idx = indices
     var gateUpIndices = indices
     var inverseOrder = MLXArray()
@@ -9226,8 +9228,14 @@ private func lagunaFusedSortedRoutedGateUp(
         let sorted = gatherSortIndices(indices)
         idx = sorted.sortedKeys
         inverseOrder = sorted.inverseOrder
-        gateUpIndices =
-            (idx.asType(.uint32) << 24) | sorted.rowOrder.asType(.uint32)
+        if usePackedRHS {
+            gateUpIndices = (
+                (idx.asType(.uint32) << 24) | sorted.rowOrder.asType(.uint32)
+            ).reshaped(indices.shape)
+        } else {
+            gateUpX = expandedX.flattened(start: 0, end: -3)[sorted.rowOrder]
+            gateUpIndices = idx
+        }
     }
     // Fused counterpart of SwitchGLU's separate-bank branch:
     //   xUp = upProj(x, idx, sortedIndices: doSort)
@@ -9240,8 +9248,8 @@ private func lagunaFusedSortedRoutedGateUp(
     // tile-interleaved `fusedWeight`/`fusedScales` bank instead of twice over
     // the separate banks is the fusion; every other argument matches the
     // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
-    let gateUp = MLX.gatherQuantizedMM(
-        expandedX,
+    let rawGateUp = MLX.gatherQuantizedMM(
+        gateUpX,
         fusedWeight,
         scales: fusedScales,
         biases: nil,
@@ -9252,6 +9260,9 @@ private func lagunaFusedSortedRoutedGateUp(
         mode: .nvfp4,
         sortedIndices: doSort
     )
+    let gateUp = usePackedRHS
+        ? rawGateUp.reshaped([-1, 1, rawGateUp.dim(-1)])
+        : rawGateUp
     let activated: MLXArray
     if lagunaExpertAlignedGatherEnabled {
         // The expert kernel writes rows with a physical stride of `split`

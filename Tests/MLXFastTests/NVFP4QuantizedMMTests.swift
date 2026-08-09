@@ -425,7 +425,7 @@ struct NVFP4QuantizedMMTests {
             packedWeight,
             scales: scales,
             biases: nil,
-            rhsIndices: packedIndices,
+            rhsIndices: packedIndices.reshaped([sourceRows, topK]),
             transpose: true,
             groupSize: 16,
             bits: 4,
@@ -433,7 +433,10 @@ struct NVFP4QuantizedMMTests {
             sortedIndices: true
         )
         let materializedValues = materialized.asArray(Float.self)
-        #expect(packed.asArray(Float.self) == materializedValues)
+        #expect(
+            packed.reshaped(materialized.shape).asArray(Float.self)
+                == materializedValues
+        )
 
         var corruptedIndices = packedValues
         #expect(corruptedIndices[0] & 0x00ff_ffff == 0)
@@ -443,14 +446,17 @@ struct NVFP4QuantizedMMTests {
             packedWeight,
             scales: scales,
             biases: nil,
-            rhsIndices: MLXArray(corruptedIndices, [sourceRows * topK]),
+            rhsIndices: MLXArray(corruptedIndices, [sourceRows, topK]),
             transpose: true,
             groupSize: 16,
             bits: 4,
             mode: .nvfp4,
             sortedIndices: true
         )
-        #expect(corrupted.asArray(Float.self) != materializedValues)
+        #expect(
+            corrupted.reshaped(materialized.shape).asArray(Float.self)
+                != materializedValues
+        )
 
         let scoredRows = 512
         let scoredRouteValues: [UInt32] = (0..<scoredRows).reduce(into: []) { values, row in
