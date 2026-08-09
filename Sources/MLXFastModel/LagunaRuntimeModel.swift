@@ -5444,13 +5444,10 @@ final class LagunaRuntimeAttention: Module {
                 let taggedWeight = fusedQKVWeight
                     .reshaped(1, queryDim + 2 * kvDim, 2048)
                     .transposed(0, 2, 1)
-                let flatQKV = matmul(normalizedInput, taggedWeight).flattened()
-                let queryCount = L * queryDim
-                let kvCount = L * kvDim
-                queries = flatQKV[0 ..< queryCount].reshaped(B, L, queryDim)
-                keys = flatQKV[queryCount ..< (queryCount + kvCount)].reshaped(B, L, kvDim)
-                values = flatQKV[(queryCount + kvCount) ..< (queryCount + 2 * kvCount)]
-                    .reshaped(B, L, kvDim)
+                let qkv = matmul(normalizedInput, taggedWeight)
+                queries = qkv[.ellipsis, 0 ..< queryDim]
+                keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
+                values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
             } else {
                 let qkv = matmul(normalizedInput, fusedQKVWeight.T)
                 queries = qkv[.ellipsis, 0 ..< queryDim]
