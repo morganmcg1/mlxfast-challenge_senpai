@@ -96,15 +96,6 @@ func lagunaTrace(_ site: @autoclosure () -> String) {
     lagunaTracedFusions.note(site())
 }
 
-private let lagunaPackedQKVGate0Trace =
-    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_QKV_GATE0_TRACE"] == "1"
-
-@inline(__always)
-func lagunaPackedQKVGate0Note(_ site: StaticString) {
-    guard lagunaPackedQKVGate0Trace else { return }
-    FileHandle.standardError.write(Data("mlxfast: packed-qkv-gate0: \(site)\n".utf8))
-}
-
 // MARK: - Runtime fusion feature flags
 
 // Each fusion below concatenates the OUTPUT ROWS of same-dtype projections
@@ -1422,15 +1413,10 @@ func lagunaSlidingQKNormRoPE(
 let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
-private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+let lagunaPackedQKVAttentionEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_PACKED_QKV_ATTENTION"] != "0"
+
+private let lagunaSlidingFusedAttentionSource = """
 constexpr uint head_dim = 128;
 constexpr uint window = 512;
 constexpr uint gqa = 8;
@@ -1716,8 +1702,9 @@ if (lane == 0) {
         pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
     }
 }
-""",
-    header: """
+"""
+
+private let lagunaSlidingFusedAttentionHeader = """
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -1765,7 +1752,38 @@ if (lane == 0) {
   } while (false)
 
 
-""",
+"""
+
+private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_fused_attn_ring_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaSlidingFusedAttentionSource,
+    header: lagunaSlidingFusedAttentionHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaSlidingPackedQKVFusedAttentionSource = """
+const device bfloat* raw_queries = raw_qkv;
+const device bfloat* raw_keys =
+    raw_qkv + \(LagunaConstants.slidingAttentionHeads * LagunaConstants.headDim);
+const device bfloat* raw_values = raw_keys +
+    \(LagunaConstants.numKeyValueHeads * LagunaConstants.headDim);
+""" + lagunaSlidingFusedAttentionSource
+
+private let lagunaSlidingPackedQKVFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_sliding_packed_qkv_fused_attn_ring_v1",
+    inputNames: [
+        "raw_qkv", "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaSlidingPackedQKVFusedAttentionSource,
+    header: lagunaSlidingFusedAttentionHeader,
     ensureRowContiguous: true
 )
 
@@ -1776,6 +1794,7 @@ func lagunaSlidingFusedAttention(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     rawValues: MLXArray,
+    packedQKV: MLXArray? = nil,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
@@ -1808,15 +1827,34 @@ func lagunaSlidingFusedAttention(
     lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
+    let grid = ((heads / 2) * 1024, 1, 1)
+    let outputShapes = [[1, heads, 1, LagunaConstants.headDim]]
+    if lagunaPackedQKVAttentionEnabled, let packedQKV {
+        let packedRows = (heads + 2 * kvHeads) * LagunaConstants.headDim
+        precondition(packedQKV.dtype == .bfloat16)
+        precondition(
+            packedQKV.dims(1, 1, packedRows)
+                || packedQKV.dims(1, 1, packedRows + heads))
+        return lagunaSlidingPackedQKVFusedAttentionKernel(
+            [
+                packedQKV, queryWeight, keyWeight, angles,
+                cacheKeys, cacheValues, params, scale,
+            ],
+            grid: grid,
+            threadGroup: (1024, 1, 1),
+            outputShapes: outputShapes,
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
     return lagunaSlidingFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        grid: ((heads / 2) * 1024, 1, 1),
+        grid: grid,
         threadGroup: (1024, 1, 1),
-        outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
+        outputShapes: outputShapes,
         outputDTypes: [.bfloat16]
     )[0]
 }
@@ -1871,15 +1909,7 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
-private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+private let lagunaFullFusedAttentionSource = """
 constexpr uint head_dim = 128;
 constexpr uint gqa = 6;
 constexpr int BN = 32;
@@ -2217,8 +2247,9 @@ if (lane == 0) {
         pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
     }
 }
-""",
-    header: """
+"""
+
+private let lagunaFullFusedAttentionHeader = """
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -2266,7 +2297,38 @@ if (lane == 0) {
   } while (false)
 
 
-""",
+"""
+
+private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_full_fused_attn_grow_v1",
+    inputNames: [
+        "raw_queries", "raw_keys", "raw_values",
+        "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaFullFusedAttentionSource,
+    header: lagunaFullFusedAttentionHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaFullPackedQKVFusedAttentionSource = """
+const device bfloat* raw_queries = raw_qkv;
+const device bfloat* raw_keys =
+    raw_qkv + \(LagunaConstants.fullAttentionHeads * LagunaConstants.headDim);
+const device bfloat* raw_values = raw_keys +
+    \(LagunaConstants.numKeyValueHeads * LagunaConstants.headDim);
+""" + lagunaFullFusedAttentionSource
+
+private let lagunaFullPackedQKVFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_full_packed_qkv_fused_attn_grow_v1",
+    inputNames: [
+        "raw_qkv", "query_weight", "key_weight", "angles",
+        "k_cache", "v_cache", "params", "scale_arr",
+    ],
+    outputNames: ["attended"],
+    source: lagunaFullPackedQKVFusedAttentionSource,
+    header: lagunaFullFusedAttentionHeader,
     ensureRowContiguous: true
 )
 
@@ -2277,6 +2339,7 @@ func lagunaFullFusedAttention(
     rawQueries: MLXArray,
     rawKeys: MLXArray,
     rawValues: MLXArray,
+    packedQKV: MLXArray? = nil,
     queryWeight: MLXArray,
     keyWeight: MLXArray,
     angles: MLXArray,
@@ -2310,15 +2373,34 @@ func lagunaFullFusedAttention(
     let params = MLXArray([
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
+    let grid = ((heads / 2) * 1024, 1, 1)
+    let outputShapes = [[1, heads, 1, LagunaConstants.headDim]]
+    if lagunaPackedQKVAttentionEnabled, let packedQKV {
+        let packedRows = (heads + 2 * kvHeads) * LagunaConstants.headDim
+        precondition(packedQKV.dtype == .bfloat16)
+        precondition(
+            packedQKV.dims(1, 1, packedRows)
+                || packedQKV.dims(1, 1, packedRows + heads))
+        return lagunaFullPackedQKVFusedAttentionKernel(
+            [
+                packedQKV, queryWeight, keyWeight, angles,
+                cacheKeys, cacheValues, params, scale,
+            ],
+            grid: grid,
+            threadGroup: (1024, 1, 1),
+            outputShapes: outputShapes,
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
     return lagunaFullFusedAttentionKernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        grid: ((heads / 2) * 1024, 1, 1),
+        grid: grid,
         threadGroup: (1024, 1, 1),
-        outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
+        outputShapes: outputShapes,
         outputDTypes: [.bfloat16]
     )[0]
 }
@@ -2331,12 +2413,13 @@ func lagunaWarmFullFusedAttentionKernel() {
     let headDim = LagunaConstants.headDim
     let heads = LagunaConstants.fullAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
-    let rawQueries = MLXArray.zeros(
-        [1, 1, heads * headDim], dtype: .bfloat16)
-    let rawKeys = MLXArray.zeros(
-        [1, 1, kvHeads * headDim], dtype: .bfloat16)
-    let rawValues = MLXArray.zeros(
-        [1, 1, kvHeads * headDim], dtype: .bfloat16)
+    let packedRows = (heads + 2 * kvHeads) * headDim
+    let rawQKV = MLXArray.zeros([1, 1, packedRows], dtype: .bfloat16)
+    let queryRows = heads * headDim
+    let kvRows = kvHeads * headDim
+    let rawQueries = rawQKV[.ellipsis, 0 ..< queryRows]
+    let rawKeys = rawQKV[.ellipsis, queryRows ..< (queryRows + kvRows)]
+    let rawValues = rawQKV[.ellipsis, (queryRows + kvRows) ..< packedRows]
     let queryWeight = MLXArray.ones([headDim], dtype: .bfloat16)
     let keyWeight = MLXArray.ones([headDim], dtype: .bfloat16)
     let angles = MLXArray.zeros(
@@ -2350,6 +2433,7 @@ func lagunaWarmFullFusedAttentionKernel() {
         rawQueries: rawQueries,
         rawKeys: rawKeys,
         rawValues: rawValues,
+        packedQKV: rawQKV,
         queryWeight: queryWeight,
         keyWeight: keyWeight,
         angles: angles,
@@ -5755,7 +5839,8 @@ final class LagunaRuntimeAttention: Module {
         var fusedNormQKV:
             (
                 queries: MLXArray, keys: MLXArray, values: MLXArray,
-                gateValues: MLXArray, gateActivated: Bool
+                packedQKV: MLXArray?, gateValues: MLXArray,
+                gateActivated: Bool
             )?
         if lagunaFusedQKVProjectionEnabled, _fusedQKVWeight == nil,
             B == 1, L == 1,
@@ -5830,7 +5915,6 @@ final class LagunaRuntimeAttention: Module {
                         bits: fusedAffine.bits,
                         mode: fusedAffine.mode
                     )
-                lagunaPackedQKVGate0Note("producer")
                 let queryDim = nHeads * headDim
                 let kvDim = nKVHeads * headDim
                 let gateStart = queryDim + 2 * kvDim
@@ -5900,18 +5984,26 @@ final class LagunaRuntimeAttention: Module {
                     qkv[.ellipsis, 0 ..< queryDim],
                     qkv[.ellipsis, queryDim ..< (queryDim + kvDim)],
                     qkv[.ellipsis, (queryDim + kvDim) ..< gateStart],
+                    qkv,
                     gateValues,
                     gateProjectionActivated || !deferGateActivation
                 )
-            } else {
-                fusedNormQKV = lagunaFusedNormQKVProjection(
-                    residual: input,
-                    normWeight: inputNorm.weight,
-                    queryWeight: wq.weight,
-                    keyWeight: wk.weight,
-                    valueWeight: wv.weight,
-                    gateWeight: gateProjection.weight,
-                    heads: nHeads
+            } else if let projected = lagunaFusedNormQKVProjection(
+                residual: input,
+                normWeight: inputNorm.weight,
+                queryWeight: wq.weight,
+                keyWeight: wk.weight,
+                valueWeight: wv.weight,
+                gateWeight: gateProjection.weight,
+                heads: nHeads
+            ) {
+                fusedNormQKV = (
+                    projected.queries,
+                    projected.keys,
+                    projected.values,
+                    nil,
+                    projected.gateValues,
+                    projected.gateActivated
                 )
             }
         }
@@ -6026,11 +6118,11 @@ final class LagunaRuntimeAttention: Module {
             // One dispatch replaces the QK-norm+RoPE kernel, both cache
             // slice-assign dispatches, and sdpa_vector; see the kernel doc.
             // The clock advance below mirrors updateInPlace(tokenCount: 1).
-            lagunaPackedQKVGate0Note("sliding")
             fusedAttended = lagunaSlidingFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
                 rawValues: values,
+                packedQKV: fusedNormQKV?.packedQKV,
                 queryWeight: qNorm.weight,
                 keyWeight: kNorm.weight,
                 angles: fusedAngles,
@@ -6053,11 +6145,11 @@ final class LagunaRuntimeAttention: Module {
             // the second decode step (the first step's growth concat stays
             // stock). The clock advance mirrors the stock single-token
             // update.
-            lagunaPackedQKVGate0Note("full")
             fusedAttended = lagunaFullFusedAttention(
                 rawQueries: queries,
                 rawKeys: keys,
                 rawValues: values,
+                packedQKV: fusedNormQKV?.packedQKV,
                 queryWeight: qNorm.weight,
                 keyWeight: kNorm.weight,
                 angles: fusedAngles,
