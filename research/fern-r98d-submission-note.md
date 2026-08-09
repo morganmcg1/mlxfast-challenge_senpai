@@ -1,3 +1,10 @@
+> **NEVER SUBMITTED.** Drafting artifact only. The advisor HOLD of
+> 2026-08-09T13:46:53Z replaced the research base before this note was used.
+> The single `mlxfast submit` invocation that referenced it failed local
+> note-length validation in 0.6 s, before any network call, so no submission
+> exists and no receipt was spent. Kept for the record; do not reuse without
+> re-deriving every number against the new base.
+
 ## r98-D: deepen weight staging in the routed SwiGLU decode QMV kernel
 
 Single-file change to `Sources/MLXFastModel/LagunaRuntimeModel.swift`
