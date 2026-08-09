@@ -308,6 +308,206 @@ the base it was written against no longer exists in the form it assumed.
 Full HOLD compliance and the requested occupancy numbers are in
 `research/maple-fern-r98d-occupancy-and-m4-record.md`.
 
+## 7. Revision `r99-e-rev1` — H_F probe
+
+### 7.0 Hypothesis under test
+
+**H_F**: the codegen tax maple-nezuko measured in the sliding-attention family is
+*family-specific*, not a general property of restructuring Metal source. If it is
+general, then any source restructuring of the routed gate/up QMV kernel pays a
+flat penalty regardless of how much extra work is staged. If it is
+family-specific, staging depth should move the cost *monotonically* — that is
+real ILP, and H_F is supported.
+
+Both outcomes are publishable. A flat penalty independent of staging depth
+falsifies H_F and generalises nezuko's finding; a monotone dose-response supports
+H_F and localises nezuko's finding to her kernel family.
+
+### 7.1 The instrument
+
+The scored `--local-iterate` loop cannot answer this: round 98-D showed its
+identical-code control spread on this M4 host is −49.9 µs/token, far larger than
+any plausible single-kernel effect. So this revision uses a **standalone paired
+GPU probe** that compiles two fully-resolved MSL sources and times the routed
+gate/up kernel directly.
+
+Three research-only files (not on the submitted surface):
+
+| file | role |
+|---|---|
+| `research/fern_r99_dump_header.sh` | dumps the compiler-resolved MSL string literals out of the runtime |
+| `research/fern_r99_qmv_variants.py` | emits fully-resolved, standalone-compilable `.metal` variants |
+| `research/fern_r99_qmv_probe.swift` | paired A/B timing harness (`xcrun swiftc -O … -o /tmp/fernqmv`) |
+
+**Why a dumper was needed.** nezuko's extractor cannot read this literal: the
+routed gate/up source contains four `\(…)` interpolations, so the on-disk text is
+not valid MSL. `fern_r99_dump_header.sh` runs a temporary `@testable` test that
+prints the *compiler-resolved* strings. Artifacts are committed under
+`research/artifacts/fern-r99/`:
+`shared_qmv_header.metal` (2547 B), `router_top8_prologue.metal` (1182 B),
+`row_scale_suffix.txt` = ` * 4194304.0f`, `routed_gateup_r1_enabled.txt` = `true`.
+That last file is the load-bearing one: it confirms from the runtime itself, not
+from reading the flag default, that the pipelined R1 arm is what actually ships.
+
+The generator resolves those interpolations
+(`\(lagunaScalePatchHeaderBytes)`→128, the router prelude, the row-scale suffix)
+and emits five variants, all of which compile clean under
+`xcrun -sdk macosx metal -c`:
+
+| variant | bytes | staged bytes | role |
+|---|---|---|---|
+| `depth1_shipped.metal` | 9561 | 16 | shipped rolling depth-1 prefetch — **common reference** |
+| `tmpl_s1.metal` | 9546 | 16 | chunked template, S=1 |
+| `tmpl_s2.metal` | 9546 | 32 | chunked template, S=2 |
+| `tmpl_s4.metal` | 9546 | 64 | chunked template, S=4 |
+| `stage4_cand.metal` | 9481 | 64 | the branch's actual rung-1 text |
+
+`tmpl_s1` vs `depth1_shipped` isolates **pure source restructuring at identical
+staged work** — that is the direct nezuko-tax probe. `tmpl_s1 → s2 → s4` is the
+**dose**. `tmpl_s4` vs `stage4_cand` is a template-fidelity check, not a dose step.
+
+All arms share one deterministic xorshift-filled buffer set (input bf16×2048,
+257 MiB fused weight, packed scales, 256 router keys, 8×4096 activation), so
+every arm sees identical NVFP4 codes, identical branch patterns and identical
+router winners. Timing follows nezuko's proven method: serial compute encoder,
+`reps` dispatches per command buffer, `(gpuEndTime − gpuStartTime)·1e6/reps`,
+with the lead arm alternated on odd rounds so slow drift cancels within a round.
+
+**The probe is ordering-enforcing by construction.** Invoked with one file it
+runs a null control only; a dose number cannot be printed until extra arguments
+are supplied. It was therefore impossible to see a candidate number before the
+null spread.
+
+### 7.2 Occupancy-matched dispatch derivation
+
+The shipped dispatch for `laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2`
+is **2048 threadgroups × 64 threads**, i.e. 2 simdgroups per threadgroup. On the
+ranked **M5 Max (40 GPU cores)** that is
+
+```
+2048 TG / 40 cores = 51.2 TG per core
+```
+
+This host is an **M4 Pro, `applegpu_g16s`, 20 GPU cores**. Reproducing the M5's
+*per-core* occupancy therefore requires
+
+```
+TG_m4 = 2048 × 20 / 40 = 1024
+```
+
+**TG = 1024 is the occupancy-matched operating point** and is the row the verdict
+is read from. Running the shipped TG = 2048 on this host would put 102.4 TG/core
+— double the ranked machine — which is a different residency regime.
+
+This is also a completely different regime from nezuko's arm: her kernel runs
+K = 16 threadgroups, i.e. **0.8 TG/core** on M5, where a core may hold a single
+threadgroup and register pressure translates directly into idle cores. At 51.2
+TG/core the scheduler has ~64× more threadgroups to hide latency with. That
+difference is the mechanistic reason H_F is worth testing rather than assuming
+nezuko's result transfers.
+
+The ladder spans 128 / 256 / 512 / 1024 / 2048 TG (6.4 → 102.4 TG/core) so the
+occupancy dependence of any effect is visible, not just its value at one point.
+
+### 7.3 Null control (run first, reported before any candidate number)
+
+Identical source in both slots. Device line from the probe:
+`Apple M4 Pro, applegpu_g16s, 20 GPU cores`.
+
+A first pass at 100 reps/round was too noisy to preregister against (TG = 512
+reference drifted 18.65 → 10.72 µs between passes, i.e. it had not warmed). Reps
+were raised to 500/round and the null re-run **twice**. That tuning was done
+against the null only — no candidate had been compiled into a timing run at that
+point — which is precisely what a null control is for. All three null passes are
+reported.
+
+**Null pass A** — 21 rounds × 100 dispatches (rejected as under-warmed, shown for
+completeness):
+
+| TG | TG/core | ref_min µs | d_mean | d_sd | spread |
+|---|---|---|---|---|---|
+| 128 | 6.4 | 6.55 | +0.139 | 0.626 | 2.84 |
+| 256 | 12.8 | 10.05 | +0.454 | 0.968 | 3.43 |
+| 512 | 25.6 | 18.65 | −0.192 | 0.802 | 2.72 |
+| 1024 | 51.2 | 20.97 | +0.133 | 0.619 | 2.23 |
+| 2048 | 102.4 | 36.44 | −0.185 | 0.280 | 1.01 |
+
+**Null pass B** — 21 rounds × 500 dispatches:
+
+| TG | TG/core | ref_min µs | d_mean | d_sd | d_min | d_max | spread |
+|---|---|---|---|---|---|---|---|
+| 128 | 6.4 | 4.57 | −0.376 | 1.731 | −7.92 | +0.40 | 8.31 |
+| 256 | 12.8 | 6.83 | −0.018 | 0.012 | −0.05 | +0.00 | 0.05 |
+| 512 | 25.6 | 10.72 | −0.086 | 0.059 | −0.25 | +0.03 | 0.28 |
+| 1024 | 51.2 | 21.49 | −0.016 | 0.151 | −0.30 | +0.30 | 0.60 |
+| 2048 | 102.4 | 34.22 | −0.035 | 0.122 | −0.24 | +0.36 | 0.60 |
+
+per-round deltas, TG=1024:
+`+0.23 −0.09 +0.03 −0.13 −0.15 +0.07 +0.02 +0.05 −0.04 +0.04 +0.30 −0.05 +0.01 −0.25 −0.11 −0.07 −0.30 +0.05 +0.25 −0.04 −0.14`
+
+per-round deltas, TG=2048:
+`−0.02 −0.03 +0.01 −0.24 −0.12 −0.04 −0.09 +0.05 −0.03 +0.03 +0.06 −0.10 −0.02 −0.06 −0.24 +0.03 −0.04 −0.04 −0.04 +0.36 −0.16`
+
+**Null pass C** — independent replicate, 21 rounds × 500 dispatches:
+
+| TG | TG/core | ref_min µs | d_mean | d_sd | d_min | d_max | spread |
+|---|---|---|---|---|---|---|---|
+| 128 | 6.4 | 4.57 | −0.396 | 1.567 | −7.07 | +0.31 | 7.37 |
+| 256 | 12.8 | 6.81 | +0.028 | 0.125 | −0.03 | +0.40 | 0.44 |
+| 512 | 25.6 | 10.69 | −0.069 | 0.064 | −0.19 | +0.04 | 0.24 |
+| 1024 | 51.2 | 21.38 | −0.030 | 0.141 | −0.33 | +0.19 | 0.52 |
+| 2048 | 102.4 | 33.99 | +0.131 | 0.592 | −0.19 | +2.54 | 2.72 |
+
+per-round deltas, TG=1024:
+`−0.08 −0.02 +0.00 −0.09 −0.11 −0.17 +0.10 +0.08 −0.04 −0.14 −0.33 +0.04 +0.17 +0.00 −0.18 −0.16 +0.06 +0.13 +0.19 +0.13 −0.22`
+
+per-round deltas, TG=2048:
+`−0.07 −0.11 −0.02 +0.05 −0.07 +0.01 −0.07 +0.05 +0.01 −0.19 −0.12 −0.01 +0.07 +0.10 −0.09 +0.91 +2.54 −0.03 −0.06 −0.08 −0.04`
+
+**Reading of the null.** With 500 reps/round the paired instrument is tight: the
+null mean is |d_mean| ≤ 0.13 µs everywhere above TG = 128, and ≤ 0.03 µs at the
+occupancy-matched TG = 1024 in both replicates. The `spread` statistic (max−min
+of 21 rounds) is not robust — it is set by one or two isolated rounds
+(TG = 128 round 1 is a −7.9 µs global warm-up transient; TG = 2048 pass C round
+17 is a single +2.54 µs excursion) — so it is a deliberately conservative bar.
+
+### 7.4 Preregistered detection threshold
+
+Per the brief, the threshold is **3× the measured null spread**, taken as the
+worst case across the two accepted 500-rep null replicates (B and C), per TG.
+nezuko's ±0.5 % is *not* reused.
+
+| TG | TG/core | null spread B | null spread C | worst-case | **threshold = 3× spread** | as % of ref |
+|---|---|---|---|---|---|---|
+| 128 | 6.4 | 8.31 | 7.37 | 8.31 | 24.93 µs | 545 % (unusable) |
+| 256 | 12.8 | 0.05 | 0.44 | 0.44 | **1.32 µs** | 19.4 % |
+| 512 | 25.6 | 0.28 | 0.24 | 0.28 | **0.84 µs** | 7.8 % |
+| **1024** | **51.2** | 0.60 | 0.52 | **0.60** | **1.80 µs** | **8.4 %** |
+| 2048 | 102.4 | 0.60 | 2.72 | 2.72 | 8.16 µs | 24 % |
+
+**Decision rule, fixed before any candidate was timed:**
+
+1. The verdict row is **TG = 1024** (occupancy-matched to the ranked M5).
+   Threshold **|d_mean| ≥ 1.80 µs/dispatch**.
+2. TG = 128 is **excluded from the verdict**: its null spread is 545 % of the
+   reference, so it has no detection power. It is still reported.
+3. A **monotone dose-response** across `tmpl_s1 → s2 → s4` that clears the
+   threshold at TG = 1024 with `d_mean < 0` supports **H_F** and licenses one
+   paired `--local-iterate` leg.
+4. A **flat penalty** — `tmpl_s1` already paying most of the cost, with `s2`/`s4`
+   adding little — falsifies **H_F** and generalises nezuko's codegen tax. No
+   receipt is spent.
+5. Anything under threshold is reported as **no detectable effect**, which is
+   itself informative: it bounds the codegen tax in this family at < 1.80 µs on a
+   ~21.4 µs kernel, i.e. **< 8.4 %**, versus the tax nezuko measured in hers.
+6. **Zero receipts unless rule 3 fires with the right sign.**
+
+Secondary statistic, reported for sensitivity only and **not** the gate: 3× the
+null `d_sd` at TG = 1024 is 3 × 0.151 = **0.45 µs**. Where the primary and
+secondary rules disagree, the primary (3× spread) governs and the disagreement is
+stated explicitly.
+
+
 ## Reply
 
 **1. Your occupancy request is answered, and it dissolves the confound for this
