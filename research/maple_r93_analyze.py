@@ -66,6 +66,26 @@ PATTERN_CEILING_GBPS = {"qkv": 236.6, "oproj": 236.6, "routed": 243.0}
 # Best read rate any pattern reached on this host: 64 MB sequential.
 SEQ_PEAK_GBPS = 262.5
 
+# Two-parameter DRAM model for one dispatch, fitted by OLS on the same host's
+# bytes-per-dispatch scaling table over its >=8 MB points (8/16/64 MB), which
+# bracket every dispatch shape below (6.5-10.8 MB). A single average "ceiling
+# GB/s" is size-dependent because it folds the fixed cost into the rate; this
+# model separates them and is the reason the per-pattern ceilings above appear
+# to be exceeded.
+DRAM_FIXED_US = 3.968
+DRAM_MARGINAL_GBPS = 266.3
+
+# (label, kernel-name prefix in the `off` arm, dispatches/step, weight bytes
+# per dispatch) for each distinct dispatch shape among the three kernels.
+DISPATCH_SHAPES = [
+    ("qkv h64", "decode_nvfp4_qkv_h64", 30, 10240 * (1024 + 32 + 1)),
+    ("qkv h48", "decode_nvfp4_qkv_h48", 10, 8192 * (1024 + 32 + 1)),
+    ("oproj h64", "oproj_act_h64", 30, 2048 * (4096 + 128 + 1)),
+    ("oproj h48", "oproj_act_h48", 10, 2048 * (3072 + 96 + 1)),
+    ("routed", "routed_nvfp4_swiglu_qmv_packed", 39,
+     8 * (1024 * 1024 + 65536)),
+]
+
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447,
        7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201, 12: 2.179,
        13: 2.160, 14: 2.145, 15: 2.131, 16: 2.120}
@@ -140,6 +160,38 @@ def main() -> int:
         print(f"{tag:>8} {us:8.1f} {net:8.1f} {mb:9.1f} {gbps:9.1f} "
               f"{ngbps:9.1f} {ceil:7.1f} {ngbps/ceil*100:6.1f}% "
               f"{ngbps/SEQ_PEAK_GBPS*100:6.1f}%")
+    print()
+
+    # ---- Per-dispatch two-parameter DRAM model --------------------------
+    # Sharper than an average-rate ceiling: each dispatch shape is compared
+    # with t = DRAM_FIXED_US + bytes / DRAM_MARGINAL_GBPS, a model with no ALU
+    # term at all. `net` removes the SPLIT=1 tax that the model never saw.
+    percall = defaultdict(list)
+    for r in base:
+        for row in r["raw_rows"]:
+            percall[row["kernel"]].append(row["us_per_call"])
+    print(f"per-dispatch vs DRAM model t = {DRAM_FIXED_US:.2f} us + "
+          f"bytes / {DRAM_MARGINAL_GBPS} GB/s")
+    print(f"{'shape':>11} {'MB':>7} {'model us':>9} {'raw us':>8} "
+          f"{'net us':>8} {'net/model':>10} {'residual us':>12}")
+    dispatch_rows = []
+    for label, prefix, count, nbytes in DISPATCH_SHAPES:
+        vals = [v for k, vs in percall.items() if k.startswith(prefix)
+                for v in vs]
+        if not vals:
+            continue
+        raw = sum(vals) / len(vals)
+        net = raw - SPLIT_TAX_US
+        model = DRAM_FIXED_US + nbytes / (DRAM_MARGINAL_GBPS * 1e9) * 1e6
+        print(f"{label:>11} {nbytes/1e6:7.2f} {model:9.2f} {raw:8.2f} "
+              f"{net:8.2f} {net/model:10.3f} {net-model:12.2f}")
+        dispatch_rows.append((label, count, nbytes, model, raw, net))
+    tot = sum(c * (n - m) for _, c, _, m, _, n in dispatch_rows)
+    fixed_pool = sum(c * DRAM_FIXED_US for _, c, _, _, _, _ in dispatch_rows)
+    print(f"  non-DRAM residual across all three kernels: {tot:+.0f} us/step")
+    print(f"  fixed per-dispatch pool at {DRAM_FIXED_US:.2f} us x "
+          f"{sum(c for _, c, _, _, _, _ in dispatch_rows)} dispatches: "
+          f"{fixed_pool:.0f} us/step")
     print()
 
     # ---- Ladder fits ----------------------------------------------------
