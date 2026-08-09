@@ -1,0 +1,6191 @@
+{
+  "candidate_kernel" : "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1_bf4_producer_route_v1",
+  "control_kernel" : "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1_bf4",
+  "cooling_policy" : "single quiet interleaved process; no arm-specific cooling",
+  "generic_kernel_family" : "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1_bf4",
+  "grid" : [
+    196704,
+    1,
+    1
+  ],
+  "launches_per_sample" : 4,
+  "samples" : [
+    {
+      "block" : 0,
+      "candidate_ns" : [
+        779417,
+        664917
+      ],
+      "control_ns" : [
+        761583,
+        817416
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 1,
+      "candidate_ns" : [
+        702583,
+        771125
+      ],
+      "control_ns" : [
+        774583,
+        686083
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 2,
+      "candidate_ns" : [
+        419959,
+        473625
+      ],
+      "control_ns" : [
+        429208,
+        435750
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 3,
+      "candidate_ns" : [
+        421084,
+        428541
+      ],
+      "control_ns" : [
+        430958,
+        423000
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 4,
+      "candidate_ns" : [
+        418875,
+        425583
+      ],
+      "control_ns" : [
+        432291,
+        720917
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 5,
+      "candidate_ns" : [
+        755583,
+        682292
+      ],
+      "control_ns" : [
+        730833,
+        762584
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 6,
+      "candidate_ns" : [
+        715417,
+        770125
+      ],
+      "control_ns" : [
+        701584,
+        642666
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 7,
+      "candidate_ns" : [
+        745334,
+        473833
+      ],
+      "control_ns" : [
+        754333,
+        433417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 8,
+      "candidate_ns" : [
+        442125,
+        430709
+      ],
+      "control_ns" : [
+        426917,
+        433209
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 9,
+      "candidate_ns" : [
+        422459,
+        454958
+      ],
+      "control_ns" : [
+        417583,
+        430625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 10,
+      "candidate_ns" : [
+        442250,
+        439417
+      ],
+      "control_ns" : [
+        415875,
+        440417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 11,
+      "candidate_ns" : [
+        433917,
+        440375
+      ],
+      "control_ns" : [
+        413791,
+        432000
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 12,
+      "candidate_ns" : [
+        443916,
+        424583
+      ],
+      "control_ns" : [
+        421417,
+        435042
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 13,
+      "candidate_ns" : [
+        430792,
+        427084
+      ],
+      "control_ns" : [
+        418000,
+        436708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 14,
+      "candidate_ns" : [
+        435709,
+        447625
+      ],
+      "control_ns" : [
+        443625,
+        437250
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 15,
+      "candidate_ns" : [
+        428875,
+        430250
+      ],
+      "control_ns" : [
+        422083,
+        425000
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 16,
+      "candidate_ns" : [
+        432959,
+        430125
+      ],
+      "control_ns" : [
+        417084,
+        443542
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 17,
+      "candidate_ns" : [
+        424250,
+        447834
+      ],
+      "control_ns" : [
+        445958,
+        473417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 18,
+      "candidate_ns" : [
+        437041,
+        439417
+      ],
+      "control_ns" : [
+        416958,
+        430625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 19,
+      "candidate_ns" : [
+        435333,
+        432208
+      ],
+      "control_ns" : [
+        410375,
+        428959
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 20,
+      "candidate_ns" : [
+        427667,
+        434125
+      ],
+      "control_ns" : [
+        420250,
+        447125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 21,
+      "candidate_ns" : [
+        435542,
+        436708
+      ],
+      "control_ns" : [
+        436375,
+        443834
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 22,
+      "candidate_ns" : [
+        439167,
+        436209
+      ],
+      "control_ns" : [
+        417166,
+        434708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 23,
+      "candidate_ns" : [
+        437708,
+        434084
+      ],
+      "control_ns" : [
+        420500,
+        432125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 24,
+      "candidate_ns" : [
+        440500,
+        427625
+      ],
+      "control_ns" : [
+        425000,
+        437125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 25,
+      "candidate_ns" : [
+        430125,
+        432958
+      ],
+      "control_ns" : [
+        418125,
+        447208
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 26,
+      "candidate_ns" : [
+        441375,
+        431459
+      ],
+      "control_ns" : [
+        426125,
+        435958
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 27,
+      "candidate_ns" : [
+        446833,
+        442792
+      ],
+      "control_ns" : [
+        419083,
+        433625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 28,
+      "candidate_ns" : [
+        449125,
+        438750
+      ],
+      "control_ns" : [
+        424625,
+        419625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 29,
+      "candidate_ns" : [
+        445792,
+        439417
+      ],
+      "control_ns" : [
+        417750,
+        449334
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 30,
+      "candidate_ns" : [
+        435458,
+        435708
+      ],
+      "control_ns" : [
+        442834,
+        420791
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 31,
+      "candidate_ns" : [
+        433750,
+        440750
+      ],
+      "control_ns" : [
+        446625,
+        422250
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 32,
+      "candidate_ns" : [
+        442625,
+        438041
+      ],
+      "control_ns" : [
+        448208,
+        439500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 33,
+      "candidate_ns" : [
+        510334,
+        475792
+      ],
+      "control_ns" : [
+        441250,
+        475542
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 34,
+      "candidate_ns" : [
+        435375,
+        426208
+      ],
+      "control_ns" : [
+        438625,
+        420750
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 35,
+      "candidate_ns" : [
+        438750,
+        436875
+      ],
+      "control_ns" : [
+        446875,
+        444500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 36,
+      "candidate_ns" : [
+        428209,
+        444417
+      ],
+      "control_ns" : [
+        448166,
+        449875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 37,
+      "candidate_ns" : [
+        449584,
+        445708
+      ],
+      "control_ns" : [
+        427500,
+        427916
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 38,
+      "candidate_ns" : [
+        448750,
+        438875
+      ],
+      "control_ns" : [
+        444042,
+        438042
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 39,
+      "candidate_ns" : [
+        434584,
+        436916
+      ],
+      "control_ns" : [
+        447708,
+        451708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 40,
+      "candidate_ns" : [
+        433875,
+        448291
+      ],
+      "control_ns" : [
+        435292,
+        444667
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 41,
+      "candidate_ns" : [
+        525416,
+        440875
+      ],
+      "control_ns" : [
+        455125,
+        470709
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 42,
+      "candidate_ns" : [
+        440667,
+        447542
+      ],
+      "control_ns" : [
+        449750,
+        434584
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 43,
+      "candidate_ns" : [
+        430042,
+        448208
+      ],
+      "control_ns" : [
+        427917,
+        444958
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 44,
+      "candidate_ns" : [
+        446750,
+        435000
+      ],
+      "control_ns" : [
+        425542,
+        420459
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 45,
+      "candidate_ns" : [
+        444208,
+        444958
+      ],
+      "control_ns" : [
+        436792,
+        427583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 46,
+      "candidate_ns" : [
+        446792,
+        441208
+      ],
+      "control_ns" : [
+        445291,
+        428750
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 47,
+      "candidate_ns" : [
+        440125,
+        435833
+      ],
+      "control_ns" : [
+        435542,
+        447334
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 48,
+      "candidate_ns" : [
+        454792,
+        443167
+      ],
+      "control_ns" : [
+        444084,
+        442292
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 49,
+      "candidate_ns" : [
+        446167,
+        452875
+      ],
+      "control_ns" : [
+        453708,
+        460708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 50,
+      "candidate_ns" : [
+        440083,
+        442959
+      ],
+      "control_ns" : [
+        450083,
+        453666
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 51,
+      "candidate_ns" : [
+        444041,
+        453500
+      ],
+      "control_ns" : [
+        441292,
+        434875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 52,
+      "candidate_ns" : [
+        442208,
+        448459
+      ],
+      "control_ns" : [
+        438333,
+        445458
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 53,
+      "candidate_ns" : [
+        439542,
+        456666
+      ],
+      "control_ns" : [
+        427000,
+        427583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 54,
+      "candidate_ns" : [
+        449125,
+        441583
+      ],
+      "control_ns" : [
+        445291,
+        447917
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 55,
+      "candidate_ns" : [
+        439959,
+        444250
+      ],
+      "control_ns" : [
+        452542,
+        451708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 56,
+      "candidate_ns" : [
+        441833,
+        460750
+      ],
+      "control_ns" : [
+        426792,
+        462250
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 57,
+      "candidate_ns" : [
+        441458,
+        462041
+      ],
+      "control_ns" : [
+        434708,
+        445041
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 58,
+      "candidate_ns" : [
+        445958,
+        437958
+      ],
+      "control_ns" : [
+        447084,
+        432375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 59,
+      "candidate_ns" : [
+        447750,
+        446541
+      ],
+      "control_ns" : [
+        427167,
+        443416
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 60,
+      "candidate_ns" : [
+        449125,
+        440167
+      ],
+      "control_ns" : [
+        448542,
+        442083
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 61,
+      "candidate_ns" : [
+        443584,
+        444833
+      ],
+      "control_ns" : [
+        444708,
+        444125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 62,
+      "candidate_ns" : [
+        450625,
+        443208
+      ],
+      "control_ns" : [
+        444667,
+        445958
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 63,
+      "candidate_ns" : [
+        449375,
+        459334
+      ],
+      "control_ns" : [
+        443208,
+        446750
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 64,
+      "candidate_ns" : [
+        439041,
+        441459
+      ],
+      "control_ns" : [
+        435250,
+        439041
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 65,
+      "candidate_ns" : [
+        454666,
+        436583
+      ],
+      "control_ns" : [
+        443834,
+        435625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 66,
+      "candidate_ns" : [
+        451584,
+        450125
+      ],
+      "control_ns" : [
+        439625,
+        437792
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 67,
+      "candidate_ns" : [
+        456583,
+        456500
+      ],
+      "control_ns" : [
+        446917,
+        451083
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 68,
+      "candidate_ns" : [
+        454750,
+        462000
+      ],
+      "control_ns" : [
+        441125,
+        452208
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 69,
+      "candidate_ns" : [
+        447333,
+        458209
+      ],
+      "control_ns" : [
+        455958,
+        456542
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 70,
+      "candidate_ns" : [
+        458583,
+        452000
+      ],
+      "control_ns" : [
+        455500,
+        450916
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 71,
+      "candidate_ns" : [
+        466750,
+        449917
+      ],
+      "control_ns" : [
+        457375,
+        444125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 72,
+      "candidate_ns" : [
+        443375,
+        477292
+      ],
+      "control_ns" : [
+        455625,
+        451083
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 73,
+      "candidate_ns" : [
+        452125,
+        454084
+      ],
+      "control_ns" : [
+        441250,
+        457917
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 74,
+      "candidate_ns" : [
+        454958,
+        457125
+      ],
+      "control_ns" : [
+        455916,
+        478292
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 75,
+      "candidate_ns" : [
+        450959,
+        466458
+      ],
+      "control_ns" : [
+        462250,
+        463375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 76,
+      "candidate_ns" : [
+        454334,
+        469041
+      ],
+      "control_ns" : [
+        451000,
+        456417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 77,
+      "candidate_ns" : [
+        470541,
+        449500
+      ],
+      "control_ns" : [
+        461416,
+        361125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 78,
+      "candidate_ns" : [
+        353208,
+        354958
+      ],
+      "control_ns" : [
+        356958,
+        359125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 79,
+      "candidate_ns" : [
+        358250,
+        353833
+      ],
+      "control_ns" : [
+        354916,
+        356209
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 80,
+      "candidate_ns" : [
+        391875,
+        532833
+      ],
+      "control_ns" : [
+        349458,
+        381833
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 81,
+      "candidate_ns" : [
+        362042,
+        355791
+      ],
+      "control_ns" : [
+        364625,
+        352083
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 82,
+      "candidate_ns" : [
+        353916,
+        360083
+      ],
+      "control_ns" : [
+        356875,
+        358209
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 83,
+      "candidate_ns" : [
+        360083,
+        349708
+      ],
+      "control_ns" : [
+        360875,
+        361708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 84,
+      "candidate_ns" : [
+        361459,
+        362625
+      ],
+      "control_ns" : [
+        362000,
+        360417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 85,
+      "candidate_ns" : [
+        354000,
+        361541
+      ],
+      "control_ns" : [
+        359125,
+        360375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 86,
+      "candidate_ns" : [
+        360459,
+        352333
+      ],
+      "control_ns" : [
+        346375,
+        355667
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 87,
+      "candidate_ns" : [
+        367209,
+        364250
+      ],
+      "control_ns" : [
+        351167,
+        359042
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 88,
+      "candidate_ns" : [
+        363875,
+        428167
+      ],
+      "control_ns" : [
+        365417,
+        334334
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 89,
+      "candidate_ns" : [
+        338292,
+        327666
+      ],
+      "control_ns" : [
+        339375,
+        372667
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 90,
+      "candidate_ns" : [
+        328625,
+        334083
+      ],
+      "control_ns" : [
+        327791,
+        341083
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 91,
+      "candidate_ns" : [
+        337833,
+        325417
+      ],
+      "control_ns" : [
+        337625,
+        335541
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 92,
+      "candidate_ns" : [
+        338208,
+        333791
+      ],
+      "control_ns" : [
+        339208,
+        333375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 93,
+      "candidate_ns" : [
+        327208,
+        338833
+      ],
+      "control_ns" : [
+        336125,
+        337583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 94,
+      "candidate_ns" : [
+        335667,
+        333875
+      ],
+      "control_ns" : [
+        333958,
+        319083
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 95,
+      "candidate_ns" : [
+        315791,
+        309750
+      ],
+      "control_ns" : [
+        320666,
+        316292
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 96,
+      "candidate_ns" : [
+        321250,
+        316459
+      ],
+      "control_ns" : [
+        315625,
+        309958
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 97,
+      "candidate_ns" : [
+        312208,
+        310875
+      ],
+      "control_ns" : [
+        312583,
+        312084
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 98,
+      "candidate_ns" : [
+        313209,
+        310416
+      ],
+      "control_ns" : [
+        307625,
+        314500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 99,
+      "candidate_ns" : [
+        313625,
+        312458
+      ],
+      "control_ns" : [
+        315166,
+        369417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 100,
+      "candidate_ns" : [
+        303750,
+        308958
+      ],
+      "control_ns" : [
+        299291,
+        302458
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 101,
+      "candidate_ns" : [
+        304791,
+        303042
+      ],
+      "control_ns" : [
+        287709,
+        305625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 102,
+      "candidate_ns" : [
+        303625,
+        297458
+      ],
+      "control_ns" : [
+        295959,
+        296167
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 103,
+      "candidate_ns" : [
+        306291,
+        305500
+      ],
+      "control_ns" : [
+        292583,
+        302542
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 104,
+      "candidate_ns" : [
+        307000,
+        302708
+      ],
+      "control_ns" : [
+        296375,
+        289083
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 105,
+      "candidate_ns" : [
+        292416,
+        289666
+      ],
+      "control_ns" : [
+        283708,
+        291833
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 106,
+      "candidate_ns" : [
+        287333,
+        290875
+      ],
+      "control_ns" : [
+        291584,
+        289583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 107,
+      "candidate_ns" : [
+        282333,
+        290375
+      ],
+      "control_ns" : [
+        291833,
+        291208
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 108,
+      "candidate_ns" : [
+        280334,
+        291750
+      ],
+      "control_ns" : [
+        290166,
+        289625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 109,
+      "candidate_ns" : [
+        282042,
+        282041
+      ],
+      "control_ns" : [
+        289625,
+        280625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 110,
+      "candidate_ns" : [
+        270958,
+        279042
+      ],
+      "control_ns" : [
+        282208,
+        278458
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 111,
+      "candidate_ns" : [
+        274000,
+        273917
+      ],
+      "control_ns" : [
+        278625,
+        258542
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 112,
+      "candidate_ns" : [
+        272541,
+        282500
+      ],
+      "control_ns" : [
+        279375,
+        274916
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 113,
+      "candidate_ns" : [
+        282208,
+        277834
+      ],
+      "control_ns" : [
+        285292,
+        279541
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 114,
+      "candidate_ns" : [
+        278375,
+        278209
+      ],
+      "control_ns" : [
+        278208,
+        277375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 115,
+      "candidate_ns" : [
+        278000,
+        277458
+      ],
+      "control_ns" : [
+        274459,
+        277625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 116,
+      "candidate_ns" : [
+        278167,
+        278625
+      ],
+      "control_ns" : [
+        270292,
+        262125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 117,
+      "candidate_ns" : [
+        259333,
+        260417
+      ],
+      "control_ns" : [
+        260917,
+        261625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 118,
+      "candidate_ns" : [
+        251708,
+        261042
+      ],
+      "control_ns" : [
+        261083,
+        260791
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 119,
+      "candidate_ns" : [
+        260708,
+        251333
+      ],
+      "control_ns" : [
+        260916,
+        261375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 120,
+      "candidate_ns" : [
+        262167,
+        260917
+      ],
+      "control_ns" : [
+        257042,
+        258959
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 121,
+      "candidate_ns" : [
+        259667,
+        260500
+      ],
+      "control_ns" : [
+        261042,
+        254667
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 122,
+      "candidate_ns" : [
+        259458,
+        260667
+      ],
+      "control_ns" : [
+        257291,
+        262167
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 123,
+      "candidate_ns" : [
+        262000,
+        253708
+      ],
+      "control_ns" : [
+        253958,
+        254708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 124,
+      "candidate_ns" : [
+        252625,
+        253375
+      ],
+      "control_ns" : [
+        275750,
+        251334
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 125,
+      "candidate_ns" : [
+        259792,
+        248959
+      ],
+      "control_ns" : [
+        255958,
+        255417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 126,
+      "candidate_ns" : [
+        258458,
+        247042
+      ],
+      "control_ns" : [
+        258459,
+        251167
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 127,
+      "candidate_ns" : [
+        259083,
+        256792
+      ],
+      "control_ns" : [
+        257042,
+        258333
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 128,
+      "candidate_ns" : [
+        254417,
+        258000
+      ],
+      "control_ns" : [
+        252084,
+        259542
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 129,
+      "candidate_ns" : [
+        247542,
+        259459
+      ],
+      "control_ns" : [
+        257958,
+        259792
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 130,
+      "candidate_ns" : [
+        256667,
+        251584
+      ],
+      "control_ns" : [
+        260750,
+        256459
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 131,
+      "candidate_ns" : [
+        256292,
+        253958
+      ],
+      "control_ns" : [
+        256916,
+        249916
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 132,
+      "candidate_ns" : [
+        254667,
+        258958
+      ],
+      "control_ns" : [
+        254083,
+        258667
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 133,
+      "candidate_ns" : [
+        253292,
+        252750
+      ],
+      "control_ns" : [
+        244834,
+        255583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 134,
+      "candidate_ns" : [
+        250583,
+        251916
+      ],
+      "control_ns" : [
+        258000,
+        257250
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 135,
+      "candidate_ns" : [
+        255291,
+        248250
+      ],
+      "control_ns" : [
+        248041,
+        257000
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 136,
+      "candidate_ns" : [
+        253708,
+        255708
+      ],
+      "control_ns" : [
+        328375,
+        255375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 137,
+      "candidate_ns" : [
+        256209,
+        243959
+      ],
+      "control_ns" : [
+        250083,
+        255583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 138,
+      "candidate_ns" : [
+        256334,
+        251125
+      ],
+      "control_ns" : [
+        244542,
+        257125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 139,
+      "candidate_ns" : [
+        250792,
+        255667
+      ],
+      "control_ns" : [
+        255334,
+        254917
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 140,
+      "candidate_ns" : [
+        256416,
+        246667
+      ],
+      "control_ns" : [
+        255500,
+        256833
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 141,
+      "candidate_ns" : [
+        257584,
+        253333
+      ],
+      "control_ns" : [
+        255167,
+        250458
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 142,
+      "candidate_ns" : [
+        256292,
+        252417
+      ],
+      "control_ns" : [
+        254292,
+        252916
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 143,
+      "candidate_ns" : [
+        256542,
+        249416
+      ],
+      "control_ns" : [
+        250292,
+        252666
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 144,
+      "candidate_ns" : [
+        249667,
+        256666
+      ],
+      "control_ns" : [
+        250916,
+        255792
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 145,
+      "candidate_ns" : [
+        249208,
+        251792
+      ],
+      "control_ns" : [
+        255333,
+        253500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 146,
+      "candidate_ns" : [
+        255250,
+        247250
+      ],
+      "control_ns" : [
+        256125,
+        255875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 147,
+      "candidate_ns" : [
+        255667,
+        256500
+      ],
+      "control_ns" : [
+        255750,
+        250208
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 148,
+      "candidate_ns" : [
+        256250,
+        254750
+      ],
+      "control_ns" : [
+        257209,
+        255500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 149,
+      "candidate_ns" : [
+        248375,
+        255125
+      ],
+      "control_ns" : [
+        324292,
+        251917
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 150,
+      "candidate_ns" : [
+        242833,
+        254709
+      ],
+      "control_ns" : [
+        266833,
+        255708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 151,
+      "candidate_ns" : [
+        256625,
+        246000
+      ],
+      "control_ns" : [
+        254292,
+        254875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 152,
+      "candidate_ns" : [
+        255291,
+        255959
+      ],
+      "control_ns" : [
+        253250,
+        252917
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 153,
+      "candidate_ns" : [
+        257083,
+        257042
+      ],
+      "control_ns" : [
+        255459,
+        257750
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 154,
+      "candidate_ns" : [
+        256667,
+        255959
+      ],
+      "control_ns" : [
+        255000,
+        255250
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 155,
+      "candidate_ns" : [
+        254666,
+        255625
+      ],
+      "control_ns" : [
+        247792,
+        254500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 156,
+      "candidate_ns" : [
+        249042,
+        253208
+      ],
+      "control_ns" : [
+        254375,
+        255000
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 157,
+      "candidate_ns" : [
+        257667,
+        245958
+      ],
+      "control_ns" : [
+        256625,
+        255458
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 158,
+      "candidate_ns" : [
+        255458,
+        256500
+      ],
+      "control_ns" : [
+        256208,
+        246833
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 159,
+      "candidate_ns" : [
+        255667,
+        255250
+      ],
+      "control_ns" : [
+        257416,
+        255584
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 160,
+      "candidate_ns" : [
+        258042,
+        246459
+      ],
+      "control_ns" : [
+        247417,
+        253417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 161,
+      "candidate_ns" : [
+        250042,
+        256000
+      ],
+      "control_ns" : [
+        256125,
+        256167
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 162,
+      "candidate_ns" : [
+        249125,
+        259625
+      ],
+      "control_ns" : [
+        270375,
+        261625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 163,
+      "candidate_ns" : [
+        256542,
+        252833
+      ],
+      "control_ns" : [
+        251958,
+        249958
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 164,
+      "candidate_ns" : [
+        258500,
+        254000
+      ],
+      "control_ns" : [
+        249750,
+        257500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 165,
+      "candidate_ns" : [
+        257625,
+        251625
+      ],
+      "control_ns" : [
+        253958,
+        255208
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 166,
+      "candidate_ns" : [
+        255500,
+        256666
+      ],
+      "control_ns" : [
+        256042,
+        255500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 167,
+      "candidate_ns" : [
+        250084,
+        258875
+      ],
+      "control_ns" : [
+        257625,
+        255875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 168,
+      "candidate_ns" : [
+        253500,
+        248750
+      ],
+      "control_ns" : [
+        256250,
+        255583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 169,
+      "candidate_ns" : [
+        256167,
+        256375
+      ],
+      "control_ns" : [
+        243667,
+        242417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 170,
+      "candidate_ns" : [
+        256084,
+        245125
+      ],
+      "control_ns" : [
+        258000,
+        255667
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 171,
+      "candidate_ns" : [
+        256000,
+        256708
+      ],
+      "control_ns" : [
+        246417,
+        256167
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 172,
+      "candidate_ns" : [
+        250958,
+        255959
+      ],
+      "control_ns" : [
+        254250,
+        255459
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 173,
+      "candidate_ns" : [
+        256500,
+        257417
+      ],
+      "control_ns" : [
+        255584,
+        255833
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 174,
+      "candidate_ns" : [
+        256333,
+        252541
+      ],
+      "control_ns" : [
+        256459,
+        252625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 175,
+      "candidate_ns" : [
+        246667,
+        257000
+      ],
+      "control_ns" : [
+        253666,
+        251167
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 176,
+      "candidate_ns" : [
+        252542,
+        258417
+      ],
+      "control_ns" : [
+        251750,
+        253417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 177,
+      "candidate_ns" : [
+        254125,
+        258208
+      ],
+      "control_ns" : [
+        253042,
+        256125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 178,
+      "candidate_ns" : [
+        252458,
+        252167
+      ],
+      "control_ns" : [
+        258041,
+        248917
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 179,
+      "candidate_ns" : [
+        258625,
+        250583
+      ],
+      "control_ns" : [
+        258042,
+        252250
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 180,
+      "candidate_ns" : [
+        255542,
+        256375
+      ],
+      "control_ns" : [
+        251458,
+        251042
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 181,
+      "candidate_ns" : [
+        255083,
+        257041
+      ],
+      "control_ns" : [
+        244208,
+        254500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 182,
+      "candidate_ns" : [
+        256416,
+        257500
+      ],
+      "control_ns" : [
+        252166,
+        255833
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 183,
+      "candidate_ns" : [
+        255125,
+        252416
+      ],
+      "control_ns" : [
+        256375,
+        254666
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 184,
+      "candidate_ns" : [
+        255208,
+        246167
+      ],
+      "control_ns" : [
+        258500,
+        252875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 185,
+      "candidate_ns" : [
+        257250,
+        257125
+      ],
+      "control_ns" : [
+        258084,
+        250583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 186,
+      "candidate_ns" : [
+        257541,
+        251500
+      ],
+      "control_ns" : [
+        251500,
+        250708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 187,
+      "candidate_ns" : [
+        249125,
+        256709
+      ],
+      "control_ns" : [
+        251500,
+        255834
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 188,
+      "candidate_ns" : [
+        243833,
+        252541
+      ],
+      "control_ns" : [
+        242042,
+        256000
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 189,
+      "candidate_ns" : [
+        245334,
+        250125
+      ],
+      "control_ns" : [
+        249042,
+        253375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 190,
+      "candidate_ns" : [
+        255250,
+        248500
+      ],
+      "control_ns" : [
+        251000,
+        245084
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 191,
+      "candidate_ns" : [
+        255250,
+        257750
+      ],
+      "control_ns" : [
+        250916,
+        246417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 192,
+      "candidate_ns" : [
+        257125,
+        258083
+      ],
+      "control_ns" : [
+        250667,
+        255667
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 193,
+      "candidate_ns" : [
+        255416,
+        258792
+      ],
+      "control_ns" : [
+        248750,
+        256250
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 194,
+      "candidate_ns" : [
+        248042,
+        255000
+      ],
+      "control_ns" : [
+        254000,
+        253542
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 195,
+      "candidate_ns" : [
+        245166,
+        252666
+      ],
+      "control_ns" : [
+        256458,
+        254625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 196,
+      "candidate_ns" : [
+        255458,
+        254792
+      ],
+      "control_ns" : [
+        257000,
+        255709
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 197,
+      "candidate_ns" : [
+        257042,
+        256375
+      ],
+      "control_ns" : [
+        249958,
+        248542
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 198,
+      "candidate_ns" : [
+        255708,
+        250458
+      ],
+      "control_ns" : [
+        251666,
+        254583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 199,
+      "candidate_ns" : [
+        249375,
+        257584
+      ],
+      "control_ns" : [
+        251041,
+        255458
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 200,
+      "candidate_ns" : [
+        253875,
+        251875
+      ],
+      "control_ns" : [
+        259959,
+        256666
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 201,
+      "candidate_ns" : [
+        254333,
+        245208
+      ],
+      "control_ns" : [
+        244167,
+        255875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 202,
+      "candidate_ns" : [
+        256500,
+        250833
+      ],
+      "control_ns" : [
+        256750,
+        253792
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 203,
+      "candidate_ns" : [
+        252875,
+        257458
+      ],
+      "control_ns" : [
+        252250,
+        250250
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 204,
+      "candidate_ns" : [
+        256750,
+        255292
+      ],
+      "control_ns" : [
+        251416,
+        255166
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 205,
+      "candidate_ns" : [
+        256542,
+        258542
+      ],
+      "control_ns" : [
+        244333,
+        255667
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 206,
+      "candidate_ns" : [
+        251459,
+        251583
+      ],
+      "control_ns" : [
+        257208,
+        256125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 207,
+      "candidate_ns" : [
+        252583,
+        241958
+      ],
+      "control_ns" : [
+        256208,
+        251792
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 208,
+      "candidate_ns" : [
+        256666,
+        258375
+      ],
+      "control_ns" : [
+        256250,
+        248834
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 209,
+      "candidate_ns" : [
+        256000,
+        250458
+      ],
+      "control_ns" : [
+        251292,
+        250084
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 210,
+      "candidate_ns" : [
+        254500,
+        251500
+      ],
+      "control_ns" : [
+        249583,
+        252666
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 211,
+      "candidate_ns" : [
+        246375,
+        250833
+      ],
+      "control_ns" : [
+        250083,
+        252750
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 212,
+      "candidate_ns" : [
+        256791,
+        253708
+      ],
+      "control_ns" : [
+        250583,
+        252500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 213,
+      "candidate_ns" : [
+        254375,
+        245833
+      ],
+      "control_ns" : [
+        249958,
+        254125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 214,
+      "candidate_ns" : [
+        255959,
+        244459
+      ],
+      "control_ns" : [
+        299792,
+        251375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 215,
+      "candidate_ns" : [
+        255000,
+        257750
+      ],
+      "control_ns" : [
+        258667,
+        254916
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 216,
+      "candidate_ns" : [
+        256375,
+        256666
+      ],
+      "control_ns" : [
+        245791,
+        254750
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 217,
+      "candidate_ns" : [
+        253792,
+        257959
+      ],
+      "control_ns" : [
+        257042,
+        254625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 218,
+      "candidate_ns" : [
+        259209,
+        253834
+      ],
+      "control_ns" : [
+        256291,
+        255125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 219,
+      "candidate_ns" : [
+        257500,
+        248209
+      ],
+      "control_ns" : [
+        258333,
+        252292
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 220,
+      "candidate_ns" : [
+        256250,
+        259750
+      ],
+      "control_ns" : [
+        251583,
+        244375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 221,
+      "candidate_ns" : [
+        255375,
+        245334
+      ],
+      "control_ns" : [
+        245292,
+        255333
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 222,
+      "candidate_ns" : [
+        255125,
+        257041
+      ],
+      "control_ns" : [
+        242542,
+        255500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 223,
+      "candidate_ns" : [
+        248041,
+        251334
+      ],
+      "control_ns" : [
+        256625,
+        255791
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 224,
+      "candidate_ns" : [
+        255291,
+        244000
+      ],
+      "control_ns" : [
+        258333,
+        255375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 225,
+      "candidate_ns" : [
+        256542,
+        252875
+      ],
+      "control_ns" : [
+        250250,
+        245833
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 226,
+      "candidate_ns" : [
+        254333,
+        256250
+      ],
+      "control_ns" : [
+        250542,
+        255500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 227,
+      "candidate_ns" : [
+        256542,
+        249625
+      ],
+      "control_ns" : [
+        276666,
+        253458
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 228,
+      "candidate_ns" : [
+        251709,
+        257292
+      ],
+      "control_ns" : [
+        256125,
+        253709
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 229,
+      "candidate_ns" : [
+        250291,
+        249375
+      ],
+      "control_ns" : [
+        257583,
+        256708
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 230,
+      "candidate_ns" : [
+        254875,
+        251291
+      ],
+      "control_ns" : [
+        248417,
+        254916
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 231,
+      "candidate_ns" : [
+        256083,
+        256833
+      ],
+      "control_ns" : [
+        252042,
+        252791
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 232,
+      "candidate_ns" : [
+        255959,
+        257291
+      ],
+      "control_ns" : [
+        250875,
+        255292
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 233,
+      "candidate_ns" : [
+        257292,
+        251667
+      ],
+      "control_ns" : [
+        250792,
+        255417
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 234,
+      "candidate_ns" : [
+        247291,
+        249459
+      ],
+      "control_ns" : [
+        257000,
+        254209
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 235,
+      "candidate_ns" : [
+        253334,
+        246417
+      ],
+      "control_ns" : [
+        257084,
+        254541
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 236,
+      "candidate_ns" : [
+        255959,
+        254250
+      ],
+      "control_ns" : [
+        252084,
+        246084
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 237,
+      "candidate_ns" : [
+        256000,
+        256208
+      ],
+      "control_ns" : [
+        257667,
+        244541
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 238,
+      "candidate_ns" : [
+        256833,
+        251750
+      ],
+      "control_ns" : [
+        248958,
+        253792
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 239,
+      "candidate_ns" : [
+        254167,
+        258083
+      ],
+      "control_ns" : [
+        239292,
+        256625
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 240,
+      "candidate_ns" : [
+        248459,
+        246208
+      ],
+      "control_ns" : [
+        292917,
+        254458
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 241,
+      "candidate_ns" : [
+        255042,
+        244917
+      ],
+      "control_ns" : [
+        249708,
+        255875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 242,
+      "candidate_ns" : [
+        255708,
+        252459
+      ],
+      "control_ns" : [
+        247500,
+        245875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 243,
+      "candidate_ns" : [
+        255417,
+        258459
+      ],
+      "control_ns" : [
+        250500,
+        255500
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 244,
+      "candidate_ns" : [
+        256708,
+        250875
+      ],
+      "control_ns" : [
+        249958,
+        255583
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 245,
+      "candidate_ns" : [
+        251750,
+        259042
+      ],
+      "control_ns" : [
+        255125,
+        255875
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 246,
+      "candidate_ns" : [
+        245209,
+        249792
+      ],
+      "control_ns" : [
+        256958,
+        255459
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 247,
+      "candidate_ns" : [
+        256167,
+        245667
+      ],
+      "control_ns" : [
+        244209,
+        256375
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 248,
+      "candidate_ns" : [
+        256833,
+        256041
+      ],
+      "control_ns" : [
+        258500,
+        248084
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 249,
+      "candidate_ns" : [
+        251833,
+        251083
+      ],
+      "control_ns" : [
+        247000,
+        255042
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 250,
+      "candidate_ns" : [
+        252417,
+        254333
+      ],
+      "control_ns" : [
+        246584,
+        253958
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 251,
+      "candidate_ns" : [
+        244500,
+        253042
+      ],
+      "control_ns" : [
+        246167,
+        250084
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 252,
+      "candidate_ns" : [
+        249000,
+        249125
+      ],
+      "control_ns" : [
+        252458,
+        250125
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 253,
+      "candidate_ns" : [
+        253708,
+        243042
+      ],
+      "control_ns" : [
+        337750,
+        252916
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 254,
+      "candidate_ns" : [
+        254584,
+        250250
+      ],
+      "control_ns" : [
+        249000,
+        248292
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 255,
+      "candidate_ns" : [
+        254834,
+        250750
+      ],
+      "control_ns" : [
+        257125,
+        251917
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 256,
+      "candidate_ns" : [
+        249083,
+        249000
+      ],
+      "control_ns" : [
+        247250,
+        255209
+      ],
+      "order" : "ABBA"
+    },
+    {
+      "block" : 0,
+      "candidate_ns" : [
+        254250,
+        255750
+      ],
+      "control_ns" : [
+        251000,
+        258000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 1,
+      "candidate_ns" : [
+        260250,
+        251709
+      ],
+      "control_ns" : [
+        256041,
+        249708
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 2,
+      "candidate_ns" : [
+        258667,
+        243791
+      ],
+      "control_ns" : [
+        255167,
+        257875
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 3,
+      "candidate_ns" : [
+        258209,
+        256125
+      ],
+      "control_ns" : [
+        255666,
+        247334
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 4,
+      "candidate_ns" : [
+        245666,
+        256833
+      ],
+      "control_ns" : [
+        255542,
+        252500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 5,
+      "candidate_ns" : [
+        258333,
+        254875
+      ],
+      "control_ns" : [
+        248709,
+        250042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 6,
+      "candidate_ns" : [
+        257625,
+        255417
+      ],
+      "control_ns" : [
+        249125,
+        248958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 7,
+      "candidate_ns" : [
+        258084,
+        254542
+      ],
+      "control_ns" : [
+        255125,
+        247750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 8,
+      "candidate_ns" : [
+        258500,
+        254166
+      ],
+      "control_ns" : [
+        255417,
+        258250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 9,
+      "candidate_ns" : [
+        304625,
+        256333
+      ],
+      "control_ns" : [
+        255333,
+        253417
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 10,
+      "candidate_ns" : [
+        245250,
+        256750
+      ],
+      "control_ns" : [
+        256500,
+        252625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 11,
+      "candidate_ns" : [
+        258375,
+        256125
+      ],
+      "control_ns" : [
+        247958,
+        252959
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 12,
+      "candidate_ns" : [
+        253000,
+        255000
+      ],
+      "control_ns" : [
+        255125,
+        243875
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 13,
+      "candidate_ns" : [
+        254917,
+        249500
+      ],
+      "control_ns" : [
+        255333,
+        257167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 14,
+      "candidate_ns" : [
+        252583,
+        243333
+      ],
+      "control_ns" : [
+        255666,
+        257666
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 15,
+      "candidate_ns" : [
+        259333,
+        255333
+      ],
+      "control_ns" : [
+        252084,
+        246750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 16,
+      "candidate_ns" : [
+        252792,
+        256083
+      ],
+      "control_ns" : [
+        257292,
+        257958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 17,
+      "candidate_ns" : [
+        255500,
+        255834
+      ],
+      "control_ns" : [
+        245750,
+        251583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 18,
+      "candidate_ns" : [
+        257875,
+        257542
+      ],
+      "control_ns" : [
+        256458,
+        249209
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 19,
+      "candidate_ns" : [
+        257833,
+        252666
+      ],
+      "control_ns" : [
+        254208,
+        247916
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 20,
+      "candidate_ns" : [
+        252708,
+        245042
+      ],
+      "control_ns" : [
+        256333,
+        252666
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 21,
+      "candidate_ns" : [
+        258833,
+        256000
+      ],
+      "control_ns" : [
+        256167,
+        257833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 22,
+      "candidate_ns" : [
+        268208,
+        256625
+      ],
+      "control_ns" : [
+        252250,
+        248583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 23,
+      "candidate_ns" : [
+        258084,
+        256208
+      ],
+      "control_ns" : [
+        245167,
+        255167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 24,
+      "candidate_ns" : [
+        253917,
+        255625
+      ],
+      "control_ns" : [
+        255542,
+        251125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 25,
+      "candidate_ns" : [
+        258209,
+        252375
+      ],
+      "control_ns" : [
+        255750,
+        254208
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 26,
+      "candidate_ns" : [
+        252417,
+        245000
+      ],
+      "control_ns" : [
+        255458,
+        257792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 27,
+      "candidate_ns" : [
+        251292,
+        256875
+      ],
+      "control_ns" : [
+        252708,
+        258500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 28,
+      "candidate_ns" : [
+        242834,
+        256792
+      ],
+      "control_ns" : [
+        255166,
+        257000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 29,
+      "candidate_ns" : [
+        259291,
+        255917
+      ],
+      "control_ns" : [
+        251750,
+        252625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 30,
+      "candidate_ns" : [
+        258834,
+        253167
+      ],
+      "control_ns" : [
+        254166,
+        242500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 31,
+      "candidate_ns" : [
+        258583,
+        252500
+      ],
+      "control_ns" : [
+        254750,
+        257958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 32,
+      "candidate_ns" : [
+        252500,
+        252750
+      ],
+      "control_ns" : [
+        252375,
+        251041
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 33,
+      "candidate_ns" : [
+        247833,
+        269667
+      ],
+      "control_ns" : [
+        256542,
+        249208
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 34,
+      "candidate_ns" : [
+        245583,
+        256541
+      ],
+      "control_ns" : [
+        250500,
+        257833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 35,
+      "candidate_ns" : [
+        269750,
+        254208
+      ],
+      "control_ns" : [
+        248000,
+        255625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 36,
+      "candidate_ns" : [
+        248125,
+        257041
+      ],
+      "control_ns" : [
+        255292,
+        249125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 37,
+      "candidate_ns" : [
+        256750,
+        250333
+      ],
+      "control_ns" : [
+        256209,
+        255958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 38,
+      "candidate_ns" : [
+        259375,
+        256375
+      ],
+      "control_ns" : [
+        254958,
+        258083
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 39,
+      "candidate_ns" : [
+        247792,
+        255958
+      ],
+      "control_ns" : [
+        252333,
+        257833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 40,
+      "candidate_ns" : [
+        249750,
+        254625
+      ],
+      "control_ns" : [
+        254333,
+        257750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 41,
+      "candidate_ns" : [
+        255125,
+        257000
+      ],
+      "control_ns" : [
+        246500,
+        255542
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 42,
+      "candidate_ns" : [
+        257417,
+        252500
+      ],
+      "control_ns" : [
+        255166,
+        245334
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 43,
+      "candidate_ns" : [
+        257375,
+        246125
+      ],
+      "control_ns" : [
+        255875,
+        257334
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 44,
+      "candidate_ns" : [
+        252083,
+        256500
+      ],
+      "control_ns" : [
+        256083,
+        255792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 45,
+      "candidate_ns" : [
+        254083,
+        255000
+      ],
+      "control_ns" : [
+        254167,
+        256250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 46,
+      "candidate_ns" : [
+        245875,
+        255458
+      ],
+      "control_ns" : [
+        247666,
+        251375
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 47,
+      "candidate_ns" : [
+        256959,
+        255833
+      ],
+      "control_ns" : [
+        248541,
+        257000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 48,
+      "candidate_ns" : [
+        259000,
+        256375
+      ],
+      "control_ns" : [
+        251458,
+        251542
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 49,
+      "candidate_ns" : [
+        257750,
+        249042
+      ],
+      "control_ns" : [
+        255750,
+        252375
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 50,
+      "candidate_ns" : [
+        252084,
+        254750
+      ],
+      "control_ns" : [
+        254583,
+        257709
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 51,
+      "candidate_ns" : [
+        249333,
+        256042
+      ],
+      "control_ns" : [
+        254542,
+        256458
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 52,
+      "candidate_ns" : [
+        258083,
+        255166
+      ],
+      "control_ns" : [
+        257458,
+        256667
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 53,
+      "candidate_ns" : [
+        255500,
+        255417
+      ],
+      "control_ns" : [
+        245417,
+        251500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 54,
+      "candidate_ns" : [
+        252625,
+        251375
+      ],
+      "control_ns" : [
+        254000,
+        240375
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 55,
+      "candidate_ns" : [
+        257917,
+        252833
+      ],
+      "control_ns" : [
+        255417,
+        257416
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 56,
+      "candidate_ns" : [
+        258667,
+        257083
+      ],
+      "control_ns" : [
+        255792,
+        247250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 57,
+      "candidate_ns" : [
+        245167,
+        256792
+      ],
+      "control_ns" : [
+        254542,
+        257000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 58,
+      "candidate_ns" : [
+        257042,
+        255541
+      ],
+      "control_ns" : [
+        252875,
+        257583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 59,
+      "candidate_ns" : [
+        252000,
+        256417
+      ],
+      "control_ns" : [
+        248709,
+        252834
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 60,
+      "candidate_ns" : [
+        257834,
+        256833
+      ],
+      "control_ns" : [
+        255500,
+        246042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 61,
+      "candidate_ns" : [
+        267250,
+        250416
+      ],
+      "control_ns" : [
+        252125,
+        254542
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 62,
+      "candidate_ns" : [
+        258666,
+        255833
+      ],
+      "control_ns" : [
+        254291,
+        258125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 63,
+      "candidate_ns" : [
+        244250,
+        256458
+      ],
+      "control_ns" : [
+        256917,
+        251500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 64,
+      "candidate_ns" : [
+        258167,
+        248125
+      ],
+      "control_ns" : [
+        245791,
+        250917
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 65,
+      "candidate_ns" : [
+        256500,
+        256333
+      ],
+      "control_ns" : [
+        256250,
+        254917
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 66,
+      "candidate_ns" : [
+        258208,
+        254417
+      ],
+      "control_ns" : [
+        254250,
+        242166
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 67,
+      "candidate_ns" : [
+        252083,
+        250875
+      ],
+      "control_ns" : [
+        255041,
+        254042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 68,
+      "candidate_ns" : [
+        250417,
+        253500
+      ],
+      "control_ns" : [
+        255458,
+        256833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 69,
+      "candidate_ns" : [
+        242208,
+        255083
+      ],
+      "control_ns" : [
+        255917,
+        251042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 70,
+      "candidate_ns" : [
+        251750,
+        256541
+      ],
+      "control_ns" : [
+        251958,
+        248625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 71,
+      "candidate_ns" : [
+        257584,
+        256541
+      ],
+      "control_ns" : [
+        253209,
+        244208
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 72,
+      "candidate_ns" : [
+        252666,
+        258750
+      ],
+      "control_ns" : [
+        257208,
+        256709
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 73,
+      "candidate_ns" : [
+        255250,
+        251041
+      ],
+      "control_ns" : [
+        252000,
+        252542
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 74,
+      "candidate_ns" : [
+        277208,
+        257583
+      ],
+      "control_ns" : [
+        254209,
+        257292
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 75,
+      "candidate_ns" : [
+        242500,
+        255083
+      ],
+      "control_ns" : [
+        255375,
+        257000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 76,
+      "candidate_ns" : [
+        257708,
+        246375
+      ],
+      "control_ns" : [
+        244834,
+        251417
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 77,
+      "candidate_ns" : [
+        255875,
+        255792
+      ],
+      "control_ns" : [
+        255584,
+        244083
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 78,
+      "candidate_ns" : [
+        257584,
+        248500
+      ],
+      "control_ns" : [
+        254000,
+        251541
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 79,
+      "candidate_ns" : [
+        250417,
+        256375
+      ],
+      "control_ns" : [
+        254125,
+        256833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 80,
+      "candidate_ns" : [
+        249333,
+        277083
+      ],
+      "control_ns" : [
+        258458,
+        296834
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 81,
+      "candidate_ns" : [
+        254750,
+        250875
+      ],
+      "control_ns" : [
+        260667,
+        261542
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 82,
+      "candidate_ns" : [
+        260167,
+        257125
+      ],
+      "control_ns" : [
+        258000,
+        257666
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 83,
+      "candidate_ns" : [
+        258542,
+        256584
+      ],
+      "control_ns" : [
+        246750,
+        244750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 84,
+      "candidate_ns" : [
+        257167,
+        257666
+      ],
+      "control_ns" : [
+        255834,
+        243291
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 85,
+      "candidate_ns" : [
+        258459,
+        250916
+      ],
+      "control_ns" : [
+        254958,
+        258458
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 86,
+      "candidate_ns" : [
+        252500,
+        255291
+      ],
+      "control_ns" : [
+        244834,
+        250667
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 87,
+      "candidate_ns" : [
+        250000,
+        256833
+      ],
+      "control_ns" : [
+        251167,
+        255875
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 88,
+      "candidate_ns" : [
+        258875,
+        256042
+      ],
+      "control_ns" : [
+        247791,
+        252208
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 89,
+      "candidate_ns" : [
+        257958,
+        256500
+      ],
+      "control_ns" : [
+        255625,
+        253541
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 90,
+      "candidate_ns" : [
+        251959,
+        257125
+      ],
+      "control_ns" : [
+        256375,
+        254583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 91,
+      "candidate_ns" : [
+        257209,
+        247000
+      ],
+      "control_ns" : [
+        256250,
+        257041
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 92,
+      "candidate_ns" : [
+        250708,
+        255959
+      ],
+      "control_ns" : [
+        254666,
+        251792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 93,
+      "candidate_ns" : [
+        248417,
+        252292
+      ],
+      "control_ns" : [
+        248958,
+        257791
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 94,
+      "candidate_ns" : [
+        257333,
+        257250
+      ],
+      "control_ns" : [
+        248750,
+        258167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 95,
+      "candidate_ns" : [
+        260250,
+        255375
+      ],
+      "control_ns" : [
+        255958,
+        257041
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 96,
+      "candidate_ns" : [
+        250750,
+        253375
+      ],
+      "control_ns" : [
+        254792,
+        249958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 97,
+      "candidate_ns" : [
+        257709,
+        244292
+      ],
+      "control_ns" : [
+        256291,
+        249958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 98,
+      "candidate_ns" : [
+        252417,
+        255250
+      ],
+      "control_ns" : [
+        255250,
+        257750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 99,
+      "candidate_ns" : [
+        244125,
+        247916
+      ],
+      "control_ns" : [
+        257125,
+        256833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 100,
+      "candidate_ns" : [
+        258250,
+        252750
+      ],
+      "control_ns" : [
+        259291,
+        242750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 101,
+      "candidate_ns" : [
+        256375,
+        253250
+      ],
+      "control_ns" : [
+        258208,
+        242625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 102,
+      "candidate_ns" : [
+        248167,
+        241417
+      ],
+      "control_ns" : [
+        253417,
+        244750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 103,
+      "candidate_ns" : [
+        255541,
+        249375
+      ],
+      "control_ns" : [
+        254750,
+        253542
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 104,
+      "candidate_ns" : [
+        243958,
+        254625
+      ],
+      "control_ns" : [
+        254917,
+        255125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 105,
+      "candidate_ns" : [
+        255417,
+        256833
+      ],
+      "control_ns" : [
+        249208,
+        254750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 106,
+      "candidate_ns" : [
+        260959,
+        254084
+      ],
+      "control_ns" : [
+        254292,
+        254416
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 107,
+      "candidate_ns" : [
+        256333,
+        256416
+      ],
+      "control_ns" : [
+        254166,
+        251916
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 108,
+      "candidate_ns" : [
+        249792,
+        238834
+      ],
+      "control_ns" : [
+        255083,
+        254000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 109,
+      "candidate_ns" : [
+        254417,
+        254791
+      ],
+      "control_ns" : [
+        254583,
+        254291
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 110,
+      "candidate_ns" : [
+        250208,
+        255625
+      ],
+      "control_ns" : [
+        254708,
+        254250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 111,
+      "candidate_ns" : [
+        254666,
+        255083
+      ],
+      "control_ns" : [
+        244917,
+        255584
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 112,
+      "candidate_ns" : [
+        255458,
+        255416
+      ],
+      "control_ns" : [
+        253584,
+        248334
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 113,
+      "candidate_ns" : [
+        266125,
+        246333
+      ],
+      "control_ns" : [
+        239792,
+        257709
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 114,
+      "candidate_ns" : [
+        252792,
+        254250
+      ],
+      "control_ns" : [
+        255042,
+        246625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 115,
+      "candidate_ns" : [
+        246959,
+        255333
+      ],
+      "control_ns" : [
+        251750,
+        249750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 116,
+      "candidate_ns" : [
+        255875,
+        255459
+      ],
+      "control_ns" : [
+        245875,
+        254125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 117,
+      "candidate_ns" : [
+        254292,
+        255292
+      ],
+      "control_ns" : [
+        251291,
+        252083
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 118,
+      "candidate_ns" : [
+        255083,
+        255959
+      ],
+      "control_ns" : [
+        255166,
+        241750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 119,
+      "candidate_ns" : [
+        255583,
+        246875
+      ],
+      "control_ns" : [
+        254417,
+        254375
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 120,
+      "candidate_ns" : [
+        255167,
+        256042
+      ],
+      "control_ns" : [
+        252291,
+        256375
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 121,
+      "candidate_ns" : [
+        247041,
+        255042
+      ],
+      "control_ns" : [
+        255917,
+        254250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 122,
+      "candidate_ns" : [
+        254958,
+        250083
+      ],
+      "control_ns" : [
+        244792,
+        254833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 123,
+      "candidate_ns" : [
+        255833,
+        254667
+      ],
+      "control_ns" : [
+        254834,
+        249750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 124,
+      "candidate_ns" : [
+        251708,
+        252625
+      ],
+      "control_ns" : [
+        255459,
+        248250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 125,
+      "candidate_ns" : [
+        255250,
+        246625
+      ],
+      "control_ns" : [
+        255375,
+        254209
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 126,
+      "candidate_ns" : [
+        340667,
+        250125
+      ],
+      "control_ns" : [
+        237250,
+        249125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 127,
+      "candidate_ns" : [
+        249750,
+        274083
+      ],
+      "control_ns" : [
+        248083,
+        287333
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 128,
+      "candidate_ns" : [
+        262750,
+        258667
+      ],
+      "control_ns" : [
+        253625,
+        257584
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 129,
+      "candidate_ns" : [
+        258000,
+        258416
+      ],
+      "control_ns" : [
+        256958,
+        242209
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 130,
+      "candidate_ns" : [
+        256542,
+        252792
+      ],
+      "control_ns" : [
+        256625,
+        257083
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 131,
+      "candidate_ns" : [
+        255875,
+        252083
+      ],
+      "control_ns" : [
+        254541,
+        253334
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 132,
+      "candidate_ns" : [
+        255333,
+        256542
+      ],
+      "control_ns" : [
+        257333,
+        252750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 133,
+      "candidate_ns" : [
+        254166,
+        255500
+      ],
+      "control_ns" : [
+        256500,
+        255000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 134,
+      "candidate_ns" : [
+        256667,
+        255625
+      ],
+      "control_ns" : [
+        245791,
+        256042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 135,
+      "candidate_ns" : [
+        256792,
+        255792
+      ],
+      "control_ns" : [
+        254750,
+        249459
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 136,
+      "candidate_ns" : [
+        257583,
+        258875
+      ],
+      "control_ns" : [
+        255708,
+        253625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 137,
+      "candidate_ns" : [
+        256834,
+        249667
+      ],
+      "control_ns" : [
+        255791,
+        256125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 138,
+      "candidate_ns" : [
+        254083,
+        257875
+      ],
+      "control_ns" : [
+        255250,
+        256416
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 139,
+      "candidate_ns" : [
+        251250,
+        241208
+      ],
+      "control_ns" : [
+        249375,
+        257792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 140,
+      "candidate_ns" : [
+        251583,
+        242875
+      ],
+      "control_ns" : [
+        254750,
+        251000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 141,
+      "candidate_ns" : [
+        254792,
+        245834
+      ],
+      "control_ns" : [
+        258750,
+        256250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 142,
+      "candidate_ns" : [
+        255125,
+        255709
+      ],
+      "control_ns" : [
+        252667,
+        254708
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 143,
+      "candidate_ns" : [
+        253166,
+        258042
+      ],
+      "control_ns" : [
+        258292,
+        254125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 144,
+      "candidate_ns" : [
+        246500,
+        252000
+      ],
+      "control_ns" : [
+        247625,
+        248250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 145,
+      "candidate_ns" : [
+        256750,
+        258125
+      ],
+      "control_ns" : [
+        246708,
+        255958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 146,
+      "candidate_ns" : [
+        256250,
+        252042
+      ],
+      "control_ns" : [
+        252959,
+        248500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 147,
+      "candidate_ns" : [
+        256250,
+        248375
+      ],
+      "control_ns" : [
+        257083,
+        254833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 148,
+      "candidate_ns" : [
+        258667,
+        258917
+      ],
+      "control_ns" : [
+        250334,
+        255625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 149,
+      "candidate_ns" : [
+        251959,
+        251583
+      ],
+      "control_ns" : [
+        258666,
+        248375
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 150,
+      "candidate_ns" : [
+        257042,
+        252542
+      ],
+      "control_ns" : [
+        244000,
+        256500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 151,
+      "candidate_ns" : [
+        255834,
+        258375
+      ],
+      "control_ns" : [
+        246000,
+        252709
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 152,
+      "candidate_ns" : [
+        253542,
+        254833
+      ],
+      "control_ns" : [
+        238834,
+        252250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 153,
+      "candidate_ns" : [
+        247083,
+        255958
+      ],
+      "control_ns" : [
+        254791,
+        252041
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 154,
+      "candidate_ns" : [
+        245542,
+        251917
+      ],
+      "control_ns" : [
+        256333,
+        254875
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 155,
+      "candidate_ns" : [
+        254542,
+        254791
+      ],
+      "control_ns" : [
+        253334,
+        255500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 156,
+      "candidate_ns" : [
+        256042,
+        256000
+      ],
+      "control_ns" : [
+        248083,
+        252708
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 157,
+      "candidate_ns" : [
+        255500,
+        258666
+      ],
+      "control_ns" : [
+        255959,
+        245500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 158,
+      "candidate_ns" : [
+        256375,
+        252042
+      ],
+      "control_ns" : [
+        256542,
+        254458
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 159,
+      "candidate_ns" : [
+        255250,
+        254917
+      ],
+      "control_ns" : [
+        256000,
+        255291
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 160,
+      "candidate_ns" : [
+        256000,
+        255625
+      ],
+      "control_ns" : [
+        255834,
+        254625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 161,
+      "candidate_ns" : [
+        252958,
+        256375
+      ],
+      "control_ns" : [
+        251750,
+        247917
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 162,
+      "candidate_ns" : [
+        256334,
+        255250
+      ],
+      "control_ns" : [
+        246167,
+        256208
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 163,
+      "candidate_ns" : [
+        256375,
+        257084
+      ],
+      "control_ns" : [
+        251958,
+        250458
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 164,
+      "candidate_ns" : [
+        254084,
+        251166
+      ],
+      "control_ns" : [
+        253709,
+        255667
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 165,
+      "candidate_ns" : [
+        271584,
+        262417
+      ],
+      "control_ns" : [
+        242542,
+        262000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 166,
+      "candidate_ns" : [
+        250875,
+        254583
+      ],
+      "control_ns" : [
+        255125,
+        254792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 167,
+      "candidate_ns" : [
+        254625,
+        257084
+      ],
+      "control_ns" : [
+        251625,
+        255083
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 168,
+      "candidate_ns" : [
+        256250,
+        256250
+      ],
+      "control_ns" : [
+        253791,
+        256708
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 169,
+      "candidate_ns" : [
+        255667,
+        256167
+      ],
+      "control_ns" : [
+        255792,
+        250541
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 170,
+      "candidate_ns" : [
+        248833,
+        244667
+      ],
+      "control_ns" : [
+        255917,
+        254583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 171,
+      "candidate_ns" : [
+        256500,
+        255666
+      ],
+      "control_ns" : [
+        255750,
+        254958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 172,
+      "candidate_ns" : [
+        248500,
+        254167
+      ],
+      "control_ns" : [
+        256292,
+        255125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 173,
+      "candidate_ns" : [
+        256875,
+        246042
+      ],
+      "control_ns" : [
+        252125,
+        248708
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 174,
+      "candidate_ns" : [
+        250875,
+        256250
+      ],
+      "control_ns" : [
+        252292,
+        251417
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 175,
+      "candidate_ns" : [
+        256292,
+        254708
+      ],
+      "control_ns" : [
+        251292,
+        241458
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 176,
+      "candidate_ns" : [
+        256666,
+        249583
+      ],
+      "control_ns" : [
+        255125,
+        254834
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 177,
+      "candidate_ns" : [
+        255625,
+        252958
+      ],
+      "control_ns" : [
+        255000,
+        254500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 178,
+      "candidate_ns" : [
+        251000,
+        244166
+      ],
+      "control_ns" : [
+        239792,
+        276917
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 179,
+      "candidate_ns" : [
+        267625,
+        254917
+      ],
+      "control_ns" : [
+        244792,
+        247167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 180,
+      "candidate_ns" : [
+        254625,
+        256333
+      ],
+      "control_ns" : [
+        254375,
+        248000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 181,
+      "candidate_ns" : [
+        255542,
+        248292
+      ],
+      "control_ns" : [
+        254709,
+        255042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 182,
+      "candidate_ns" : [
+        251292,
+        253583
+      ],
+      "control_ns" : [
+        255334,
+        254875
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 183,
+      "candidate_ns" : [
+        255584,
+        249375
+      ],
+      "control_ns" : [
+        255833,
+        255042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 184,
+      "candidate_ns" : [
+        247667,
+        254167
+      ],
+      "control_ns" : [
+        246041,
+        272625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 185,
+      "candidate_ns" : [
+        255917,
+        255916
+      ],
+      "control_ns" : [
+        242000,
+        251750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 186,
+      "candidate_ns" : [
+        255541,
+        256667
+      ],
+      "control_ns" : [
+        255750,
+        248042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 187,
+      "candidate_ns" : [
+        252875,
+        251709
+      ],
+      "control_ns" : [
+        252083,
+        256208
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 188,
+      "candidate_ns" : [
+        256042,
+        252125
+      ],
+      "control_ns" : [
+        252166,
+        255666
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 189,
+      "candidate_ns" : [
+        250459,
+        256791
+      ],
+      "control_ns" : [
+        255292,
+        254500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 190,
+      "candidate_ns" : [
+        247333,
+        255667
+      ],
+      "control_ns" : [
+        258667,
+        256125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 191,
+      "candidate_ns" : [
+        297958,
+        248084
+      ],
+      "control_ns" : [
+        239500,
+        255250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 192,
+      "candidate_ns" : [
+        258458,
+        255583
+      ],
+      "control_ns" : [
+        252834,
+        250292
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 193,
+      "candidate_ns" : [
+        258625,
+        246917
+      ],
+      "control_ns" : [
+        255500,
+        250833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 194,
+      "candidate_ns" : [
+        242042,
+        255542
+      ],
+      "control_ns" : [
+        257000,
+        252625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 195,
+      "candidate_ns" : [
+        246125,
+        249792
+      ],
+      "control_ns" : [
+        257875,
+        255500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 196,
+      "candidate_ns" : [
+        258416,
+        255166
+      ],
+      "control_ns" : [
+        242583,
+        250042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 197,
+      "candidate_ns" : [
+        252542,
+        257708
+      ],
+      "control_ns" : [
+        255125,
+        245709
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 198,
+      "candidate_ns" : [
+        258833,
+        244334
+      ],
+      "control_ns" : [
+        256292,
+        257792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 199,
+      "candidate_ns" : [
+        257250,
+        256375
+      ],
+      "control_ns" : [
+        249208,
+        258167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 200,
+      "candidate_ns" : [
+        245417,
+        256333
+      ],
+      "control_ns" : [
+        256583,
+        252541
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 201,
+      "candidate_ns" : [
+        258292,
+        253917
+      ],
+      "control_ns" : [
+        256250,
+        251167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 202,
+      "candidate_ns" : [
+        258917,
+        257875
+      ],
+      "control_ns" : [
+        249292,
+        249333
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 203,
+      "candidate_ns" : [
+        259042,
+        254291
+      ],
+      "control_ns" : [
+        253209,
+        245959
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 204,
+      "candidate_ns" : [
+        335292,
+        251542
+      ],
+      "control_ns" : [
+        242167,
+        258333
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 205,
+      "candidate_ns" : [
+        249291,
+        255708
+      ],
+      "control_ns" : [
+        254916,
+        249542
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 206,
+      "candidate_ns" : [
+        245459,
+        255667
+      ],
+      "control_ns" : [
+        255666,
+        255791
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 207,
+      "candidate_ns" : [
+        256166,
+        256667
+      ],
+      "control_ns" : [
+        248166,
+        254917
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 208,
+      "candidate_ns" : [
+        254709,
+        257583
+      ],
+      "control_ns" : [
+        255541,
+        248166
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 209,
+      "candidate_ns" : [
+        254917,
+        245292
+      ],
+      "control_ns" : [
+        255334,
+        255167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 210,
+      "candidate_ns" : [
+        256500,
+        252875
+      ],
+      "control_ns" : [
+        256791,
+        254042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 211,
+      "candidate_ns" : [
+        259542,
+        256000
+      ],
+      "control_ns" : [
+        255125,
+        255416
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 212,
+      "candidate_ns" : [
+        243500,
+        255000
+      ],
+      "control_ns" : [
+        255500,
+        255792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 213,
+      "candidate_ns" : [
+        256417,
+        255792
+      ],
+      "control_ns" : [
+        248084,
+        257167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 214,
+      "candidate_ns" : [
+        255417,
+        256250
+      ],
+      "control_ns" : [
+        255792,
+        250291
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 215,
+      "candidate_ns" : [
+        255583,
+        248333
+      ],
+      "control_ns" : [
+        256417,
+        255792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 216,
+      "candidate_ns" : [
+        257125,
+        255208
+      ],
+      "control_ns" : [
+        248208,
+        255792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 217,
+      "candidate_ns" : [
+        280125,
+        275750
+      ],
+      "control_ns" : [
+        244750,
+        257125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 218,
+      "candidate_ns" : [
+        252584,
+        253541
+      ],
+      "control_ns" : [
+        252750,
+        252792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 219,
+      "candidate_ns" : [
+        255375,
+        255417
+      ],
+      "control_ns" : [
+        248208,
+        248250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 220,
+      "candidate_ns" : [
+        257500,
+        252917
+      ],
+      "control_ns" : [
+        255708,
+        244875
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 221,
+      "candidate_ns" : [
+        266750,
+        251375
+      ],
+      "control_ns" : [
+        256000,
+        254958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 222,
+      "candidate_ns" : [
+        256583,
+        256250
+      ],
+      "control_ns" : [
+        254667,
+        255417
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 223,
+      "candidate_ns" : [
+        256292,
+        257291
+      ],
+      "control_ns" : [
+        255667,
+        255708
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 224,
+      "candidate_ns" : [
+        256375,
+        257166
+      ],
+      "control_ns" : [
+        257750,
+        250875
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 225,
+      "candidate_ns" : [
+        256709,
+        255708
+      ],
+      "control_ns" : [
+        248333,
+        257916
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 226,
+      "candidate_ns" : [
+        249500,
+        254750
+      ],
+      "control_ns" : [
+        248333,
+        245542
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 227,
+      "candidate_ns" : [
+        255708,
+        250291
+      ],
+      "control_ns" : [
+        255042,
+        254792
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 228,
+      "candidate_ns" : [
+        252791,
+        255542
+      ],
+      "control_ns" : [
+        253541,
+        254583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 229,
+      "candidate_ns" : [
+        250750,
+        245459
+      ],
+      "control_ns" : [
+        251750,
+        249750
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 230,
+      "candidate_ns" : [
+        279917,
+        251250
+      ],
+      "control_ns" : [
+        245084,
+        253416
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 231,
+      "candidate_ns" : [
+        264416,
+        253042
+      ],
+      "control_ns" : [
+        256000,
+        249583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 232,
+      "candidate_ns" : [
+        254208,
+        246750
+      ],
+      "control_ns" : [
+        254792,
+        253958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 233,
+      "candidate_ns" : [
+        257708,
+        254459
+      ],
+      "control_ns" : [
+        254916,
+        253458
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 234,
+      "candidate_ns" : [
+        253625,
+        256166
+      ],
+      "control_ns" : [
+        256541,
+        255417
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 235,
+      "candidate_ns" : [
+        251708,
+        254250
+      ],
+      "control_ns" : [
+        251750,
+        255208
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 236,
+      "candidate_ns" : [
+        253375,
+        254750
+      ],
+      "control_ns" : [
+        250292,
+        254625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 237,
+      "candidate_ns" : [
+        256500,
+        257334
+      ],
+      "control_ns" : [
+        253209,
+        245583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 238,
+      "candidate_ns" : [
+        256083,
+        249750
+      ],
+      "control_ns" : [
+        248458,
+        256000
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 239,
+      "candidate_ns" : [
+        255416,
+        255250
+      ],
+      "control_ns" : [
+        253500,
+        255583
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 240,
+      "candidate_ns" : [
+        243709,
+        255750
+      ],
+      "control_ns" : [
+        255000,
+        255625
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 241,
+      "candidate_ns" : [
+        250500,
+        256167
+      ],
+      "control_ns" : [
+        252875,
+        255166
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 242,
+      "candidate_ns" : [
+        255708,
+        256000
+      ],
+      "control_ns" : [
+        244250,
+        250167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 243,
+      "candidate_ns" : [
+        319166,
+        242167
+      ],
+      "control_ns" : [
+        242583,
+        259333
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 244,
+      "candidate_ns" : [
+        262500,
+        249208
+      ],
+      "control_ns" : [
+        249666,
+        247833
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 245,
+      "candidate_ns" : [
+        250750,
+        257708
+      ],
+      "control_ns" : [
+        252500,
+        249125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 246,
+      "candidate_ns" : [
+        244792,
+        253625
+      ],
+      "control_ns" : [
+        259500,
+        257042
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 247,
+      "candidate_ns" : [
+        256459,
+        258417
+      ],
+      "control_ns" : [
+        245958,
+        258250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 248,
+      "candidate_ns" : [
+        256834,
+        257750
+      ],
+      "control_ns" : [
+        257416,
+        245958
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 249,
+      "candidate_ns" : [
+        256209,
+        243459
+      ],
+      "control_ns" : [
+        251583,
+        255125
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 250,
+      "candidate_ns" : [
+        256292,
+        257708
+      ],
+      "control_ns" : [
+        246000,
+        256167
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 251,
+      "candidate_ns" : [
+        252667,
+        258209
+      ],
+      "control_ns" : [
+        258042,
+        255500
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 252,
+      "candidate_ns" : [
+        256208,
+        257916
+      ],
+      "control_ns" : [
+        244792,
+        256208
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 253,
+      "candidate_ns" : [
+        256459,
+        255541
+      ],
+      "control_ns" : [
+        244417,
+        254375
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 254,
+      "candidate_ns" : [
+        256375,
+        253375
+      ],
+      "control_ns" : [
+        258167,
+        252333
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 255,
+      "candidate_ns" : [
+        255208,
+        252125
+      ],
+      "control_ns" : [
+        258084,
+        255250
+      ],
+      "order" : "BAAB"
+    },
+    {
+      "block" : 256,
+      "candidate_ns" : [
+        310542,
+        261541
+      ],
+      "control_ns" : [
+        242667,
+        251917
+      ],
+      "order" : "BAAB"
+    }
+  ],
+  "schema_version" : 1,
+  "superblocks_per_order" : 257,
+  "threadgroup" : [
+    288,
+    1,
+    1
+  ],
+  "threadgroup_storage_bytes" : 54,
+  "warmup_samples_per_arm" : 16
+}

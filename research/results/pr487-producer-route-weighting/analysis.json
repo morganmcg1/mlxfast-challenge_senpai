@@ -1,0 +1,111 @@
+{
+  "bootstrap": {
+    "ci": 0.95,
+    "resamples": 50000,
+    "seed": 48720260809
+  },
+  "gate": {
+    "bootstrap_lower_strict_min": 1.002,
+    "median_min": 1.005
+  },
+  "method": "Each four-letter block speedup is mean(control batches) divided by mean(candidate batches); percentile bootstrap resamples whole blocks and reports the median.",
+  "order_median_difference": 0.0015490691057761241,
+  "orders": {
+    "ABBA": {
+      "block_speedup_mean": 0.9995479987331566,
+      "block_speedup_median": 0.9974052441803908,
+      "block_speedup_p05": 0.9600728425801,
+      "block_speedup_p95": 1.042474436491828,
+      "blocks": 257,
+      "bootstrap_median_ci95": [
+        0.9939257333587778,
+        0.9990307729585656
+      ],
+      "candidate_faster_block_fraction": 0.42023346303501946,
+      "candidate_per_launch_ns": {
+        "mean": 81740.88278210117,
+        "p50": 64630.25,
+        "p95": 114376.09999999999
+      },
+      "control_per_launch_ns": {
+        "mean": 81544.7859922179,
+        "p50": 64666.75,
+        "p95": 113885.9375
+      },
+      "first_half_median": 0.9939028040548514,
+      "second_half_median": 0.9998322378866767
+    },
+    "BAAB": {
+      "block_speedup_mean": 0.992472114957224,
+      "block_speedup_median": 0.9958561750746147,
+      "block_speedup_p05": 0.958645609105678,
+      "block_speedup_p95": 1.028915182752162,
+      "blocks": 257,
+      "bootstrap_median_ci95": [
+        0.9902995294272824,
+        0.9987627222489902
+      ],
+      "candidate_faster_block_fraction": 0.39299610894941633,
+      "candidate_per_launch_ns": {
+        "mean": 63806.64640077821,
+        "p50": 63864.625,
+        "p95": 65124.53749999999
+      },
+      "control_per_launch_ns": {
+        "mean": 63289.919260700386,
+        "p50": 63640.625,
+        "p95": 64520.8375
+      },
+      "first_half_median": 0.9964577893824609,
+      "second_half_median": 0.9947342026078235
+    }
+  },
+  "passed": false,
+  "pooled": {
+    "block_speedup_mean": 0.9960100568451903,
+    "block_speedup_median": 0.99652230512951,
+    "block_speedup_p05": 0.9593649501389948,
+    "block_speedup_p95": 1.0323005374278325,
+    "blocks": 514,
+    "bootstrap_median_ci95": [
+      0.9944772461766902,
+      0.9983477535731176
+    ],
+    "candidate_faster_block_fraction": 0.4066147859922179,
+    "candidate_per_launch_ns": {
+      "mean": 72773.76459143969,
+      "p50": 64062.5,
+      "p95": 112248.4375
+    },
+    "control_per_launch_ns": {
+      "mean": 72417.35262645915,
+      "p50": 63875.0,
+      "p95": 111725.57500000001
+    },
+    "first_half_median": 0.9974052441803908,
+    "second_half_median": 0.9958561750746147
+  },
+  "resource_evidence": {
+    "candidate_kernel": "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1_bf4_producer_route_v1",
+    "compiler": "Both distinct production JIT kernels compiled and executed in one process.",
+    "control_kernel": "laguna_routed_shared_nvfp4_down_residual_bf16_r3ceil_v1_bf4",
+    "grid": [
+      196704,
+      1,
+      1
+    ],
+    "threadgroup": [
+      288,
+      1,
+      1
+    ],
+    "threadgroup_storage_bytes": 54,
+    "unavailable": [
+      "register count",
+      "spill/scratch bytes",
+      "physical occupancy tier"
+    ]
+  },
+  "schema_version": 1,
+  "source": ".agent_tmp/pr487-producer-weighting-timing.json"
+}
