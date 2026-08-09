@@ -128,20 +128,21 @@ def arm_estimates(reps, stat: str):
 
 
 def nulls(reps, stat: str):
-    """arm -> (separation, [later - earlier per repetition])."""
-    out: dict[str, tuple[int, list[float]]] = {}
-    seps: dict[str, list[int]] = defaultdict(list)
-    vals: dict[str, list[float]] = defaultdict(list)
+    """(arm, separation) -> [later - earlier per repetition].
+
+    Kept per separation, never pooled: under the rotated palindrome an arm
+    visits several lags and drift grows with lag, so a pooled null would
+    average a quiet short lag against a noisy long one (doc S 1.12 A2).
+    """
+    vals: dict[tuple[str, int], list[float]] = defaultdict(list)
     for _, byarm in sorted(reps.items()):
         for arm, occ in byarm.items():
             if len(occ) < 2:
                 continue
             occ = sorted(occ)
-            vals[arm].append(occ[-1][1][stat] - occ[0][1][stat])
-            seps[arm].append(occ[-1][0] - occ[0][0])
-    for arm in vals:
-        out[arm] = (max(set(seps[arm]), key=seps[arm].count), vals[arm])
-    return out
+            vals[(arm, occ[-1][0] - occ[0][0])].append(
+                occ[-1][1][stat] - occ[0][1][stat])
+    return vals
 
 
 def band(p: dict[str, float]) -> float:
@@ -181,9 +182,9 @@ def main() -> None:
         print(f"  {'arm':>5} {'sep':>4} {'K':>3} {'mean':>9} {'95% hw':>9}"
               f" {'lo':>9} {'hi':>9}  sign +/-")
         null_out = {}
-        for arm, (sep, diffs) in sorted(nulls(reps, stat).items()):
+        for (arm, sep), diffs in sorted(nulls(reps, stat).items()):
             p = paired(diffs)
-            null_out[arm] = dict(p, separation=sep)
+            null_out[f"{arm}@sep{sep}"] = dict(p, separation=sep, arm=arm)
             print(f"  {arm:>5} {sep:>4} {p['k']:>3} {p['mean']:9.2f}"
                   f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
                   f"   {p['pos']}/{p['neg']}")
