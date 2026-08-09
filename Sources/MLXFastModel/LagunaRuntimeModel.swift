@@ -127,6 +127,98 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
 
 let lagunaPackedScalesLog = LagunaPackedScalesLog()
 
+final class LagunaOProjScaleCensus: @unchecked Sendable {
+    private let directory: URL?
+    private let lock = NSLock()
+
+    init() {
+        guard let root = ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_CENSUS_DIR"],
+            !root.isEmpty
+        else {
+            directory = nil
+            return
+        }
+        let processID = ProcessInfo.processInfo.processIdentifier
+        let processDirectory = URL(fileURLWithPath: root, isDirectory: true)
+            .appendingPathComponent("pid-\(processID)", isDirectory: true)
+        directory = processDirectory
+        try? FileManager.default.createDirectory(
+            at: processDirectory, withIntermediateDirectories: true)
+
+        let architecture = GPU.deviceInfo().architecture
+        let generation = Int(architecture.suffix(3).prefix(2)) ?? -1
+        let runtime: [String: Any] = [
+            "pid": processID,
+            "gpu_architecture": architecture,
+            "gpu_generation": generation,
+        ]
+        if let data = try? JSONSerialization.data(
+            withJSONObject: runtime, options: [.sortedKeys])
+        {
+            try? data.write(
+                to: processDirectory.appendingPathComponent("runtime.json"),
+                options: .atomic)
+        }
+    }
+
+    func recordScaleBank(layer: Int, scales: MLXArray) {
+        guard let directory else { return }
+        let data = Data(scales.asArray(UInt8.self))
+        let path = directory.appendingPathComponent(
+            String(format: "layer-%02d.bin", layer))
+        lock.lock()
+        defer { lock.unlock() }
+        try? data.write(to: path, options: .atomic)
+    }
+
+    func recordDispatch(
+        layer: Int,
+        heads: Int,
+        codes: MLXArray,
+        scales: MLXArray,
+        attentionOutput: MLXArray,
+        gate: MLXArray,
+        gateIsActivated: Bool
+    ) {
+        guard let directory else { return }
+        let prefix = gateIsActivated
+            ? "laguna_oproj_act_h\(heads)_v1"
+            : "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
+        let kernelLabel = prefix
+            + (lagunaNvfp4QmvSignCarryEnabled ? "_sc1" : "")
+            + (lagunaNvfp4QmvSeedElisionEnabled ? "_se1" : "")
+        let record: [String: Any] = [
+            "layer": layer,
+            "heads": heads,
+            "codes_shape": codes.shape,
+            "scales_shape": scales.shape,
+            "attention_output_shape": attentionOutput.shape,
+            "gate_shape": gate.shape,
+            "codes_dtype": "uint32",
+            "scales_dtype": "uint8",
+            "kernel_label": kernelLabel,
+            "gate_is_activated": gateIsActivated,
+        ]
+        guard var data = try? JSONSerialization.data(
+            withJSONObject: record, options: [.sortedKeys])
+        else { return }
+        data.append(0x0A)
+
+        let path = directory.appendingPathComponent("dispatch.jsonl")
+        lock.lock()
+        defer { lock.unlock() }
+        if !FileManager.default.fileExists(atPath: path.path) {
+            FileManager.default.createFile(atPath: path.path, contents: nil)
+        }
+        guard let handle = FileHandle(forWritingAtPath: path.path) else { return }
+        defer { try? handle.close() }
+        handle.seekToEndOfFile()
+        handle.write(data)
+    }
+}
+
+let lagunaOProjScaleCensus = LagunaOProjScaleCensus()
+
 /// Decode-only routed NVFP4 down-QMV plus BF16 router weighting, fixed-order
 /// expert reduction, and the Laguna 2.5 routed scale. The custom kernel emits
 /// one 2048-wide branch instead of materializing eight expert rows.
@@ -5052,6 +5144,12 @@ final class LagunaRuntimeAttention: Module {
                 scales: preparedWO.scales, biases: biases)
         }
         _nativeAffineOProj = preparedWO
+        if preparedWO.mode == .nvfp4, preparedWO.bits == 4,
+            preparedWO.groupSize == 16, preparedWO.scales.dtype == .uint8
+        {
+            lagunaOProjScaleCensus.recordScaleBank(
+                layer: layerIdx, scales: preparedWO.scales)
+        }
         return preparedWO.arrays
     }
 
@@ -5734,6 +5832,14 @@ final class LagunaRuntimeAttention: Module {
                         heads: nHeads,
                         gateIsActivated: true)
                 {
+                    lagunaOProjScaleCensus.recordDispatch(
+                        layer: layerIdx,
+                        heads: nHeads,
+                        codes: affineWO.packedCodes,
+                        scales: affineWO.scales,
+                        attentionOutput: output,
+                        gate: projectedGate,
+                        gateIsActivated: true)
                     return fusedProjection
                 }
                 if lagunaFusedGatedAffineOProjEnabled,
@@ -5748,6 +5854,14 @@ final class LagunaRuntimeAttention: Module {
                         scales: affineWO.scales,
                         heads: nHeads)
                 {
+                    lagunaOProjScaleCensus.recordDispatch(
+                        layer: layerIdx,
+                        heads: nHeads,
+                        codes: affineWO.packedCodes,
+                        scales: affineWO.scales,
+                        attentionOutput: output,
+                        gate: projectedGate,
+                        gateIsActivated: false)
                     return fusedProjection
                 }
                 // Raw logits + fused kernel: one dispatch reproduces the
