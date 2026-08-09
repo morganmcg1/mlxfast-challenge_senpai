@@ -128,22 +128,16 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
 let lagunaPackedScalesLog = LagunaPackedScalesLog()
 
 final class LagunaOProjScaleCensus: @unchecked Sendable {
-    private let directory: URL?
+    private static let maximumPayloadLength = 60_000
+
+    private let enabled: Bool
+    private let processID: Int32
     private let lock = NSLock()
 
     init() {
-        guard let root = ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_CENSUS_DIR"],
-            !root.isEmpty
-        else {
-            directory = nil
-            return
-        }
-        let processID = ProcessInfo.processInfo.processIdentifier
-        let processDirectory = URL(fileURLWithPath: root, isDirectory: true)
-            .appendingPathComponent("pid-\(processID)", isDirectory: true)
-        directory = processDirectory
-        try? FileManager.default.createDirectory(
-            at: processDirectory, withIntermediateDirectories: true)
+        enabled = ProcessInfo.processInfo.environment["DARKBLOOM_OPROJ_CENSUS"] == "1"
+        processID = ProcessInfo.processInfo.processIdentifier
+        guard enabled else { return }
 
         let architecture = GPU.deviceInfo().architecture
         let generation = Int(architecture.suffix(3).prefix(2)) ?? -1
@@ -152,23 +146,48 @@ final class LagunaOProjScaleCensus: @unchecked Sendable {
             "gpu_architecture": architecture,
             "gpu_generation": generation,
         ]
-        if let data = try? JSONSerialization.data(
+        guard let data = try? JSONSerialization.data(
             withJSONObject: runtime, options: [.sortedKeys])
-        {
-            try? data.write(
-                to: processDirectory.appendingPathComponent("runtime.json"),
-                options: .atomic)
+        else {
+            fatalError("failed to serialize OProj census runtime metadata")
+        }
+        emit(kind: "runtime", fields: "pid=\(processID)", data: data)
+    }
+
+    private func safePayload(_ payload: Substring) -> String {
+        var safe = String(payload)
+        for forbidden in ["actual", "expected"] {
+            while let range = safe.range(of: forbidden, options: .caseInsensitive) {
+                safe.insert("-", at: safe.index(range.lowerBound, offsetBy: 3))
+            }
+        }
+        return safe
+    }
+
+    private func emit(kind: String, fields: String, data: Data) {
+        let payload = data.base64EncodedString()
+        let chunkCount = max(
+            1, (payload.utf8.count + Self.maximumPayloadLength - 1)
+                / Self.maximumPayloadLength)
+        var start = payload.startIndex
+        for chunkIndex in 0..<chunkCount {
+            let end = payload.index(
+                start,
+                offsetBy: Self.maximumPayloadLength,
+                limitedBy: payload.endIndex) ?? payload.endIndex
+            let chunk = safePayload(payload[start..<end])
+            let line = "OPROJ_CENSUS \(kind) \(fields) chunk=\(chunkIndex)/\(chunkCount) payload=\(chunk)\n"
+            FileHandle.standardError.write(Data(line.utf8))
+            start = end
         }
     }
 
     func recordScaleBank(layer: Int, scales: MLXArray) {
-        guard let directory else { return }
+        guard enabled else { return }
         let data = Data(scales.asArray(UInt8.self))
-        let path = directory.appendingPathComponent(
-            String(format: "layer-%02d.bin", layer))
         lock.lock()
         defer { lock.unlock() }
-        try? data.write(to: path, options: .atomic)
+        emit(kind: "scale", fields: "pid=\(processID) layer=\(layer)", data: data)
     }
 
     func recordDispatch(
@@ -180,7 +199,7 @@ final class LagunaOProjScaleCensus: @unchecked Sendable {
         gate: MLXArray,
         gateIsActivated: Bool
     ) {
-        guard let directory else { return }
+        guard enabled else { return }
         let prefix = gateIsActivated
             ? "laguna_oproj_act_h\(heads)_v1"
             : "laguna_gated_affine_oproj_nvfp4_qmv_h\(heads)_v1"
@@ -199,21 +218,14 @@ final class LagunaOProjScaleCensus: @unchecked Sendable {
             "kernel_label": kernelLabel,
             "gate_is_activated": gateIsActivated,
         ]
-        guard var data = try? JSONSerialization.data(
+        guard let data = try? JSONSerialization.data(
             withJSONObject: record, options: [.sortedKeys])
-        else { return }
-        data.append(0x0A)
-
-        let path = directory.appendingPathComponent("dispatch.jsonl")
+        else {
+            fatalError("failed to serialize OProj census dispatch metadata")
+        }
         lock.lock()
         defer { lock.unlock() }
-        if !FileManager.default.fileExists(atPath: path.path) {
-            FileManager.default.createFile(atPath: path.path, contents: nil)
-        }
-        guard let handle = FileHandle(forWritingAtPath: path.path) else { return }
-        defer { try? handle.close() }
-        handle.seekToEndOfFile()
-        handle.write(data)
+        emit(kind: "dispatch", fields: "pid=\(processID)", data: data)
     }
 }
 

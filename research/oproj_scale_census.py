@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
+import base64
 import hashlib
 import json
 import math
 import platform
 import re
+import shutil
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -23,6 +25,11 @@ QKV_DELETION_BYTES = 6_225_920
 def parse_args():
     parser = argparse.ArgumentParser(description="Audit retained decode OProj NVFP4 scale banks")
     parser.add_argument("--raw-dir", type=Path, default=Path(".agent_tmp/oproj-scale-census-raw"))
+    parser.add_argument(
+        "--extract-stderr",
+        type=Path,
+        help="extract sandbox-safe OProj census frames from benchmark stderr and exit",
+    )
     parser.add_argument("--config", type=Path, default=Path("weights/config.json"))
     parser.add_argument("--output-json", type=Path, default=Path("research/oproj_scale_census.json"))
     parser.add_argument("--output-md", type=Path, default=Path("research/oproj_scale_census.md"))
@@ -40,6 +47,84 @@ def parse_args():
 
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def decode_frame_payload(payload):
+    return base64.b64decode(payload.replace("-", ""), validate=True)
+
+
+def extract_stderr(capture_path, raw_dir):
+    pattern = re.compile(
+        r"OPROJ_CENSUS (runtime|scale|dispatch) pid=(\d+)"
+        r"(?: layer=(\d+))? chunk=(\d+)/(\d+) payload=(\S+)$"
+    )
+    processes = {}
+    with capture_path.open(errors="strict") as capture:
+        for line_number, line in enumerate(capture, 1):
+            match = pattern.search(line.rstrip("\n"))
+            if not match:
+                continue
+            kind, pid_text, layer_text, chunk_text, count_text, payload = match.groups()
+            pid = int(pid_text)
+            layer = int(layer_text) if layer_text is not None else None
+            chunk = int(chunk_text)
+            count = int(count_text)
+            if chunk < 0 or count < 1 or chunk >= count:
+                raise RuntimeError(f"invalid census chunk at line {line_number}")
+            process = processes.setdefault(
+                pid, {"runtime": {}, "scale": {}, "dispatch": []}
+            )
+            if kind == "dispatch":
+                if layer is not None or chunk != 0 or count != 1:
+                    raise RuntimeError(f"invalid dispatch frame at line {line_number}")
+                process["dispatch"].append(decode_frame_payload(payload))
+                continue
+            key = layer if kind == "scale" else None
+            if kind == "scale" and (layer is None or not 0 <= layer < NUM_LAYERS):
+                raise RuntimeError(f"invalid scale layer at line {line_number}")
+            if kind == "runtime" and layer is not None:
+                raise RuntimeError(f"invalid runtime frame at line {line_number}")
+            chunks = process[kind].setdefault(key, {"count": count, "payloads": {}})
+            if chunks["count"] != count:
+                raise RuntimeError(f"inconsistent census chunk count at line {line_number}")
+            existing = chunks["payloads"].get(chunk)
+            if existing is not None and existing != payload:
+                raise RuntimeError(f"conflicting census chunk at line {line_number}")
+            chunks["payloads"][chunk] = payload
+
+    if raw_dir.exists():
+        shutil.rmtree(raw_dir)
+    raw_dir.mkdir(parents=True)
+    complete_processes = 0
+    for pid, process in processes.items():
+        process_dir = raw_dir / f"pid-{pid}"
+        process_dir.mkdir()
+        for key, chunks in process["runtime"].items():
+            payloads = chunks["payloads"]
+            if sorted(payloads) != list(range(chunks["count"])):
+                raise RuntimeError(f"incomplete runtime metadata for pid {pid}")
+            (process_dir / "runtime.json").write_bytes(
+                decode_frame_payload("".join(payloads[index] for index in sorted(payloads)))
+            )
+        for layer, chunks in process["scale"].items():
+            payloads = chunks["payloads"]
+            if sorted(payloads) != list(range(chunks["count"])):
+                raise RuntimeError(f"incomplete layer {layer} scale bank for pid {pid}")
+            (process_dir / f"layer-{layer:02d}.bin").write_bytes(
+                decode_frame_payload("".join(payloads[index] for index in sorted(payloads)))
+            )
+        if process["dispatch"]:
+            with (process_dir / "dispatch.jsonl").open("wb") as output:
+                for record in process["dispatch"]:
+                    output.write(record + b"\n")
+        if process["runtime"] and len(process["scale"]) == NUM_LAYERS and process["dispatch"]:
+            complete_processes += 1
+    if complete_processes < 1:
+        raise RuntimeError("stderr capture contained no complete OProj census process")
+    print(
+        f"extracted {complete_processes} complete OProj census process(es) "
+        f"from {capture_path} into {raw_dir}"
+    )
 
 
 def percentile(values, q):
@@ -702,6 +787,11 @@ def log_wandb(report, json_path, md_path, output_path):
 
 def main():
     args = parse_args()
+    if args.extract_stderr:
+        if args.wandb or args.wandb_only:
+            raise SystemExit("--extract-stderr cannot be combined with W&B upload")
+        extract_stderr(args.extract_stderr, args.raw_dir)
+        return
     if args.wandb and args.wandb_only:
         raise SystemExit("--wandb and --wandb-only are mutually exclusive")
     if args.wandb_only:
