@@ -334,6 +334,9 @@ adding it, and now nobody should.
 * `DARKBLOOM_FUSED_QKV` (§3b) and the H7 rescale skip (§3c) are dead.
 * The record-watch arithmetic in §8. Re-run `research/advisor_r104_record_watch.py`
   to *refresh* it; do not re-derive the pricing model by hand.
+* Env gates are frozen at first touch (§9). Do not propose flipping any
+  `DARKBLOOM_*` / `MLX_*` gate inside a live process, and do not re-audit the
+  binding scope by hand — re-run `research/advisor_r104_env_gate_scope.py`.
 
 ## 8. 🔴 The record is not winnable by luck — it is winnable only by ~1.4 % of `cs`
 
@@ -471,3 +474,102 @@ a calibrated receipt channel and a two-mechanism inventory (§4) that tells us
 
 Do not respond to this by spending receipts faster. Respond to it by making
 §8.2's 1.4 % real.
+
+## 9. 🔴 Env gates are frozen at first touch — "in-process flag flipping" is impossible
+
+**I put a false statement in frieren's #571 brief and I am retracting it here.**
+I wrote that the R3 router-prefetch mechanism could be A/B'd *in-process* with
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0`, buying "within-process σ ≈ 19.5 vs
+≈ 48 cross-process, ~2.5× tightening". The first half is wrong, so the second
+half does not apply.
+
+### 9.1 The measurement
+
+`research/advisor_r104_env_gate_scope.py` classifies every runtime env read in
+`Sources/` + `Vendor/` by *binding scope* — i.e. whether the value can still
+change after the first read:
+
+```
+total env-read sites found: 132
+  swift-global-let    111      <- frozen: Swift global `let`, lazily init'd once
+  cpp-static            6      <- frozen: function-local `static` + IIFE lambda
+  cpp-function-body     3      <- Vendor distributed/ring code only
+  unclassified         12      <- 10 in Vendor tests/server/jaccl; 2 in Sources
+distinct gates seen: 129
+```
+
+**117 of 132 sites (88.6 %) are provably frozen for the lifetime of the
+process.** The canonical shapes:
+
+```swift
+// Sources/MLXFastModel/LagunaRuntimeModel.swift:690
+let lagunaRouterWeightPrefetch: Int = {
+    guard let raw = ProcessInfo.processInfo.environment[
+              "DARKBLOOM_ROUTER_WEIGHT_PREFETCH"], ... }()
+```
+```cpp
+// Vendor/.../backend/metal/matmul.cpp:82
+static bool darkbloom_steel_prefill_tile() {
+  static bool enabled = []() { ... getenv(...) ... }();   // read once, ever
+  return enabled;
+}
+```
+
+The two `Sources/` sites the classifier could not bind
+(`LagunaRuntimeWeights.swift:381`, `:517`) were read by hand: both are
+**init-time** paths (a `setenv` defaulting block, and the one-shot kernel-cache
+warmup). Neither is a per-step read. The remaining 10 unclassified sites are
+Vendor test, server-CLI and `jaccl` distributed code that this benchmark never
+enters.
+
+⇒ **No `DARKBLOOM_*` or `MLX_*` gate can be flipped inside a live process.**
+`setenv` after first touch changes nothing. Every env-gate contrast is
+necessarily **one process per arm**.
+
+### 9.2 What survives, and it is better than what I claimed
+
+The codebase states the intended pattern itself, at
+`LagunaRuntimeWeights.swift:380`:
+
+> `// Explicit MLX_ values win; DARKBLOOM kill switch supports same-binary A/B.`
+
+**Same-binary**, not same-process. That is still a real and unexploited asset,
+because the correct comparison was never within-vs-cross *process* — it is:
+
+| channel | binary | process | removes | σ |
+|---|---|---|---|---|
+| σ_rebuild | different | different | nothing | the ladder's ≈ 48 µs/step |
+| **σ_launch** | **byte-identical** | different | compiler/codegen, JIT library set, link order, binary layout | **never measured by anyone** |
+| platform identical-code (§1) | rebuilt by grader | different | — | sd(T) = 12.079 µs/step on M5 |
+
+σ_launch is bounded above by σ_rebuild and below by nothing we know. The gap
+between them *is* the build-noise component, and it has never been separated.
+
+Note the tension the table exposes: **the platform's own repeated measurement of
+byte-identical `Sources/` achieves sd(T) = 12.079 µs/step (§1), while our local
+M4 harness is quoted at ≈ 48.** If that ≈ 48 is real, local measurement
+discipline — not the platform — is the binding constraint on every A/B we run,
+and it is costing us ~16× in legs (variance ratio). Measuring σ_launch is how we
+find out.
+
+### 9.3 Why this matters beyond one contrast
+
+There are **106 distinct `DARKBLOOM_*` gates** and 20 `MLX_*` gates in the tree.
+§3(b) showed one of them (`DARKBLOOM_FUSED_QKV`, default OFF) is a **+39.99 %
+decode regression** — these switches carry real, large, *already-written* code
+paths. §4 showed Mechanism B (the 4-deep sliding pipe) shipped with **no env
+guard and was never re-measured at all**. A calibrated same-binary channel turns
+"which of 126 switches matters" from a rebuild-bound question into a
+launch-bound one. §8.2 says we need +1.438 % of `cs`, and no single live lever
+reaches it; cheap ranking over a large dormant inventory is one of the few ways
+left to find another.
+
+**The instrument must be validated before it is believed.** A same-binary rig
+needs (a) an A/A null that does *not* reject, and (b) a positive control that
+*does*, with the right sign. Good positive controls here are kill switches on
+default-ON paths, whose fallback code is therefore maintained:
+`DARKBLOOM_FUSED_SLIDING_ATTN=0` (`LagunaRuntimeModel.swift:1504`, default ON,
+disables a ≈ 636 µs/step M4 kernel) and `DARKBLOOM_FUSED_FULL_ATTN=0`
+(`:2010`, default ON). `DARKBLOOM_FUSED_QKV=1` (`:113`, default OFF) is a
+second, with a known sign and a known ≈ +39.99 % magnitude.
+
