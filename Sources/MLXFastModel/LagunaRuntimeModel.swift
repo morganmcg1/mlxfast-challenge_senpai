@@ -4145,7 +4145,7 @@ struct NezukoR93ProbeSpec {
 
 let nezukoR93ProbeSpec: NezukoR93ProbeSpec? = {
     // senpai-r93-armc-spec: "" | "<target>:<kind>:<n>"
-    let raw = ""
+    let raw = "routed:fma:24"
     guard !raw.isEmpty else { return nil }
     let parts = raw.split(separator: ":").map(String.init)
     guard parts.count == 3, let n = Int(parts[2]), n >= 0, n <= 64,
@@ -9624,4 +9624,4 @@ func lagunaInjectLayerWork(layer: Int, isSingleTokenDecode: Bool) {
 // END M5 HARDWARE-CONSTANT INSTRUMENT
 // ============================================================================
 
-// senpai-r93-null-5
+// senpai-r93-probe-routed-fma-24

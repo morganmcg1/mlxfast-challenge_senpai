@@ -17,6 +17,7 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 NULL_SRC = os.path.join(HERE, "note-null-1.md")
 LADDER_SRC = os.path.join(HERE, "note-ladder.tmpl.md")
+PROBE_SRC = os.path.join(HERE, "note-probe.tmpl.md")
 
 
 def prior_table(prior) -> str:
@@ -66,9 +67,16 @@ def render_ladder(k: int, prior) -> str:
     return text
 
 
+def render_probe(n: int, prior) -> str:
+    text = open(PROBE_SRC).read()
+    text = text.replace("{{N}}", str(n))
+    text = text.replace("{{PRIOR}}", prior_table(prior))
+    return text
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("kind", choices=["null", "ladder"])
+    ap.add_argument("kind", choices=["null", "ladder", "probe"])
     ap.add_argument("value", type=int)
     ap.add_argument("--prior", default=None)
     ap.add_argument("--out", default=None)
@@ -78,6 +86,9 @@ def main() -> int:
     if args.kind == "null":
         text = render_null(args.value, prior)
         out = args.out or os.path.join(HERE, "note-null-%d.md" % args.value)
+    elif args.kind == "probe":
+        text = render_probe(args.value, prior)
+        out = args.out or os.path.join(HERE, "note-probe-routed-fma-%d.md" % args.value)
     else:
         text = render_ladder(args.value, prior)
         out = args.out or os.path.join(HERE, "note-ladder-K%d.md" % args.value)

@@ -15,7 +15,8 @@ SRC="Sources/MLXFastModel/LagunaRuntimeModel.swift"
 case "$KIND" in
   null)   MARKER="senpai-r93-null-${VALUE}"; NOTE="research/r93-runs/note-null-${VALUE}.md" ;;
   ladder) MARKER="senpai-r93-ladder-K${VALUE}"; NOTE="research/r93-runs/note-ladder-K${VALUE}.md" ;;
-  *) echo "usage: submit_replicate.sh {null|ladder} <value>"; exit 2 ;;
+  probe)  MARKER="senpai-r93-probe-routed-fma-${VALUE}"; NOTE="research/r93-runs/note-probe-routed-fma-${VALUE}.md" ;;
+  *) echo "usage: submit_replicate.sh {null|ladder|probe} <value>"; exit 2 ;;
 esac
 
 # The marker always occupies the last line of the file.

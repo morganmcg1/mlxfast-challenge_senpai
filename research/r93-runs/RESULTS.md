@@ -1140,3 +1140,143 @@ those figures is now pinned to +/- 4 % relative. The remaining budget is better
 spent on Arm B rungs, and on confirming the candidate-side decode sigma, than on
 grinding the sigma CI down with more nulls.
 
+
+## 10. Arm C — is the ranked M5 in the same bandwidth regime as M4 Pro?
+
+### 10.1 Why this arm exists, and why it nearly did not happen
+
+Round 93 produced two results that only matter together:
+
+- **Rule 55** (#498, W&B `mhhosz20`): the three dominant decode kernels are
+  bandwidth-bound **on M4 Pro**. Added bytes cost the full 227 - 240 GB/s
+  streaming rate, while added ALU costs only 3.5 - 16.5 % of its issue-limited
+  price. Spending arithmetic to remove bytes is therefore nearly free *on M4*.
+- Two in-flight experiments, **#512** (MoE router top-8 screen, -40.9 MB/step)
+  and **#513** (layer-0 dense block-exponent compaction, -100.7 MB/step), are
+  both built on exactly that trade.
+
+The unpriced risk is that rule 55 is an M4 statement. The M5 Max has roughly
+546 GB/s of peak bandwidth and the trio's implied working rate puts it near
+345 GB/s, i.e. about 63 % of peak rather than M4's 92 %. If M5 is *not*
+saturated, then it has spare bandwidth and *less* memory stall to hide
+arithmetic in - so the ALU that #512 and #513 spend would be charged at
+something much closer to full issue price, and both could lose on the ranked
+host while winning locally.
+
+The assignment made Arm C conditional, with an explicit drop rule: *if Arm A
+shows the channel is noisier than rule 48 predicts, drop Arm C.* **That
+condition fired.** Rule 48 budgets sigma(cand_dec) <= 0.2924 %; section 2
+measures 0.3386 % from the null arm and section 9.3 measures 0.4261 % from the
+corpus near-replicates. Both exceed the budget.
+
+I ran Arm C anyway, and the reason is worth stating explicitly. The drop rule is
+a proxy for "the channel cannot resolve this arm", and that proxy is only
+correct for a *small* arm. Section 3's resolvability table says a single receipt
+against the n = 5 null mean resolves about **0.9 %** of decode. The super-knee
+arm below is predicted to move decode by **+1.9 % under the M4 hypothesis and
++11 % under the issue-bound hypothesis** - the two hypotheses are ~6x apart and
+both sit above the floor. A noisy channel does not forbid a loud experiment; it
+forbids a quiet one. The right response to the drop rule here was to make the
+arm louder, not to abandon it.
+
+### 10.2 Porting the #498 probe: the env-var blocker and the fix
+
+`research/nezuko-r93-probes.patch` does not exist in this experiment's base. It
+lives on `maple-nezuko/r93-stall-structure-census` at
+`af96720db142387f3138d153f64c1c6777f261c0`, and is vendored here as
+`research/r93-runs/nezuko-r93-probes.patch`. It applies **cleanly** to
+BASE_SHA `17a4bad4` with a plain `git apply`, despite being cut against
+`ca920bbe`.
+
+The blocker is that the upstream probe is selected by
+`NEZUKO_R93_PROBE=<target>:<kind>:<n>`. **Environment variables do not reach the
+ranked host**, so on M5 the probe would silently be off in every arm and the
+whole ladder would read as a flat null - the same failure mode section 1.5
+already had to fix for Arm B. The port is the same one: the knob becomes a
+source constant inside the submitted file.
+
+```swift
+let nezukoR93ProbeSpec: NezukoR93ProbeSpec? = {
+    // senpai-r93-armc-spec: "" | "<target>:<kind>:<n>"
+    let raw = ""
+    ...
+```
+
+`research/r93-runs/set_probe.sh <spec>` rewrites that one literal and rebuilds
+the scored worker, exactly as `set_ladder.sh` does for the Arm B rung. With the
+empty spec the probe emits no kernel-name suffix, binds no probe pool and adds
+no statements, so the default state is byte-identical to base.
+
+Three properties of the upstream probe carry over unchanged, and they are what
+make the arm admissible:
+
+1. **Bit-exact addition (rule 45).** Every ladder terminates in a sink store
+   guarded by `if (nz_sum > 3.0e38f)`, which is never true at runtime. Nothing
+   the probe computes reaches a logit.
+2. **Name- and residency-matched control (rule 44).** Level `n = 0` *also*
+   changes the kernel name to `_pzfma0` and *also* binds the 128 MiB probe pool.
+   It is the correct control for level `n = 24`; the unmodified base is not,
+   because it differs by a pipeline object and a buffer binding as well.
+3. **One kernel-name suffix per arm (rule 33).** The suffix is a single
+   `_pz<kind><n>` token.
+
+Two limitations found during the port and worth recording:
+
+- The probe supports **one target at a time**. A combined three-kernel arm would
+  need new code. I used the single largest-headroom target, `routed` (16.5 % of
+  issue-limited on the float ladder, 50.1 % on the integer ladder), which is also
+  the largest decode-time consumer of the three.
+- The 128 MiB `uint32` pool is allocated for *every* kind, so the binding
+  signature is identical across kinds and levels. On the 128 GB ranked host that
+  is immaterial next to the 21.6 GB resident model.
+
+### 10.3 Arm design and what each outcome means
+
+Anchor numbers from #498 section 5.2, `routed` / `fma`, measured on M4 Pro:
+levels `0:1505  2:1509  4:1509  8:1535` us/step, OLS slope **3.8 us/n**
+(95 % CI +/- 1.8), against an issue-limited price of **22.8 us/n**. The ladder
+was never driven past `n = 8`, so the absorption knee is only known to be
+**>= 8**; the assignment's "300 % of knee" therefore lands at `n = 24`, which is
+what I used.
+
+| arm | spec | role |
+|---|---|---|
+| C0 | `""` | base; the section 2 nulls already supply it at n = 5 |
+| C2 | `routed:fma:24` | super-knee free-ALU load |
+| C0' | `routed:fma:0` | name- and residency-matched placement control, run only if C2 lands close to the M4 prediction |
+
+Predicted M5 decode deltas against the 4910.5 us null mean:
+
+| hypothesis | charge per n | delta at n = 24 | % of decode step |
+|---|---|---|---|
+| M5 behaves like M4 (rule 55 transfers) | 3.8 us | 91 us | **+1.86 %** |
+| M5 is issue- or latency-bound (rule 55 does **not** transfer) | 22.8 us | 547 us | **+11.1 %** |
+
+Read-out rule, fixed before the receipt:
+
+- **delta <= ~3 %** - M5 absorbs free ALU like M4 does. Rule 55 transfers, #512
+  and #513 are not exposed to a regime change, and the ALU-for-bytes trade is
+  live on the ranked host. The `routed:fma:0` control is then worth one more
+  receipt, because at that size the ~0.4 % placement cost of the pipeline object
+  and the pool binding is a fifth of the signal.
+- **delta >= ~6 %** - M5 charges arithmetic much closer to issue price. Rule 55
+  is an M4-only statement, ALU-for-bytes is **not** free on the ranked host, and
+  #512 / #513 need their ALU cost re-priced on M5 before either is trusted. The
+  placement control is unnecessary at that size.
+- **anything in between** - inconclusive in one receipt; report the interval
+  rather than a verdict.
+
+The two hypotheses are 6x apart, which is why one receipt is enough to separate
+them even at the 0.9 % floor this channel actually has.
+
+### 10.4 Local M4 anchor
+
+*(pending: `research/r93-runs/armc_local_sweep.sh` rebuilds the scored worker at
+`""`, `routed:fma:0` and `routed:fma:24`, free-runs 200 decode steps at each,
+and reports the token hash so bit-exactness and reachability are checked before
+a ranked slot is spent.)*
+
+### 10.5 M5 result
+
+*(pending)*
+
