@@ -29,6 +29,14 @@ OUT="${OUT:-/tmp/maple-r103a/rung1}"
 REPS="${REPS:-26}"
 STEPS="${STEPS:-250}"
 WARMUP_REPS="${WARMUP_REPS:-2}"
+# Rung 2 reuses this driver with PROFILE=1 SPLIT=1 against the hooked snapshots.
+# SPLIT=1 buys per-kernel attribution by putting one dispatch in each command
+# buffer, which inflates absolute GPU time; it is an arm-vs-arm relative
+# estimator only (rule 43), never an end-to-end magnitude.
+PROFILE="${PROFILE:-0}"
+SPLIT="${SPLIT:-0}"
+PROFILE_ARGS=""
+[ "${PROFILE}" = "1" ] && PROFILE_ARGS="--profile --profile-top 60"
 SLOTS=(oldA old new oldB)
 
 mkdir -p "${OUT}"
@@ -75,7 +83,9 @@ trap finish EXIT
 run_slot() {
   local tag="$1" arm="$2"
   DECODE_PROBE_WORKER="${SNAP}/${arm}/mlxfast-runtime-worker" \
-    python3 research/decode_probe.py --steps "${STEPS}" \
+  DARKBLOOM_GPU_PROFILE="${PROFILE}" \
+  DARKBLOOM_GPU_PROFILE_SPLIT="${SPLIT}" \
+    python3 research/decode_probe.py --steps "${STEPS}" ${PROFILE_ARGS} \
       --stderr "${OUT}/${tag}.err" \
       --dump-steps "${OUT}/${tag}.steps" \
       --dump-tokens "${OUT}/${tag}.tokens" \

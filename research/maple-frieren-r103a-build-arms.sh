@@ -18,13 +18,26 @@
 # before and after, and must round-trip to its HEAD value.
 #
 #   SNAP=/tmp/maple-r103a-snap bash research/maple-frieren-r103a-build-arms.sh
+#
+# Setting HOOK to a patch path applies it to *both* arms as a build-time input
+# and reverts it before every digest, giving profiled twins of the same two
+# binaries. Rung 2 uses HOOK=research/nezuko-pr158-gpuprof-hook.patch, which
+# touches only Vendor/.../metal/device.{cpp,h} — two files that are byte-
+# identical at OLD and at NEW, so the instrument is strictly common mode and
+# cannot itself create an arm difference.
+#
+#   SNAP=/tmp/maple-r103a-snap-prof OUT=/tmp/maple-r103a/rung2 \
+#     HOOK=research/nezuko-pr158-gpuprof-hook.patch PROV_NAME=rung2-build \
+#     bash research/maple-frieren-r103a-build-arms.sh
 set -uo pipefail
 
 OLD_SHA="${OLD_SHA:-30f752df}"
 SNAP="${SNAP:-/tmp/maple-r103a-snap}"
 OUT="${OUT:-/tmp/maple-r103a}"
+HOOK="${HOOK:-}"
+PROV_NAME="${PROV_NAME:-rung0-provenance}"
 mkdir -p "${OUT}" "${SNAP}"
-PROV="${OUT}/rung0-provenance.txt"
+PROV="${OUT}/${PROV_NAME}.txt"
 : >"${PROV}"
 
 log() { printf '%s\n' "$*" | tee -a "${PROV}"; }
@@ -48,13 +61,21 @@ log "digest_head=${DIGEST_HEAD}"
 log "host=$(sysctl -n machdep.cpu.brand_string) mem=$(sysctl -n hw.memsize)"
 
 build_worker() {
-  log "### building worker ($1)"
+  log "### building worker ($1)${HOOK:+ [hook: ${HOOK}]}"
+  if [ -n "${HOOK}" ]; then
+    git apply "${HOOK}" || { log "FAIL: hook did not apply at $1"; return 20; }
+  fi
   CLANG_MODULE_CACHE_PATH="${PWD}/.build-worker/clang-module-cache" \
     swift build -c release --force-resolved-versions \
       --scratch-path .build-worker --product mlxfast-runtime-worker \
       2>&1 | tail -20 | tee -a "${PROV}"
   local rc="${PIPESTATUS[0]}"
   git checkout -- Package.resolved 2>/dev/null || true
+  # The hook is a build-time input only; revert it immediately so every digest
+  # this script publishes describes the unhooked tree.
+  if [ -n "${HOOK}" ]; then
+    git apply -R "${HOOK}" || { log "FAIL: hook did not revert at $1"; return 21; }
+  fi
   return "${rc}"
 }
 
