@@ -1,0 +1,41 @@
+==========================================================================
+SECTION 10.10  M4 Pro segment-matched convexity (local, directional)
+==========================================================================
+source=research/r93-runs/armc-m4  warmup dropped=10 steps
+
+   n  rep  steps   median ms   trim5% ms
+   0   01    590      8.1944      8.1952
+   0   06    590      8.2043      8.2061
+   0   07    590      8.1969      8.1972
+  24   02    590      8.3781      8.3763
+  24   05    590      8.3714      8.3734
+  24   08    590      8.3692      8.3730
+  64   03    590      8.9505      8.9553
+  64   04    590      8.9591      8.9630
+
+   n  reps  mean of medians        sd     cv %
+   0     3           8.1985    0.0051   0.0624
+  24     3           8.3729    0.0046   0.0553
+  64     2           8.9548    0.0061   0.0683
+
+pooled within-level sd = 0.0051 ms on 5 df (0.0628 % of the n=0 step)
+
+   segment   d step ms  d step %   us/unit       se                 95% CI        t
+   0->24         0.1744    2.1271    7.2662   0.1752 [   6.8158,   7.7166]   41.478
+  24->64         0.5819    6.9496   14.5471   0.1175 [  14.2450,  14.8493]  123.790
+   0->64         0.7563    9.2245   11.8168   0.0734 [  11.6280,  12.0056]  160.890
+
+CONVEXITY TEST (M4 Pro)
+  slope(0->24)   = 7.2662 us/unit
+  slope(24->64)  = 14.5471 us/unit
+  delta slope    = +7.2809 us/unit  se 0.2508
+  t(5 df)      = +29.028   crit 2.571   CONVEX
+  95% CI         = [+6.6361, +7.9258]
+  slope ratio    = 2.00x
+
+M4 Pro vs M5, same segments, as a fraction of that machine's step
+   segment  M4 us/unit  M4 %/unit  M5 us/unit  M5 %/unit   M4/M5
+   0->24         7.2662     0.0886      1.1657     0.0237    6.23
+  24->64        14.5471     0.1774      8.0696     0.1643    1.80
+
+token-stream identity across 8 runs: 1 distinct stream(s) (bit-exact)

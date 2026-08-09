@@ -1,0 +1,27 @@
+0
+### proof build K=2400
++    "DARKBLOOM_INJECT_DECODE_EMPTY", 2400)
+-    "DARKBLOOM_INJECT_EMPTY_TG", 160)
++    "DARKBLOOM_INJECT_EMPTY_TG", 8)
+build rc=0
+Build of product 'mlxfast-runtime-worker' complete! (25.51s)
+2ad01385bfbd857358a7da1f0c804a49af3abd18381dd01dbcd3d3c9daae2573  .build-worker/release/mlxfast-runtime-worker
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=11.330 ms median=11.276 ms p10=11.109 ms p90=11.526 ms min=10.792 ms max=13.374 ms total=1.360 s
+### control build K=0
+patched DECODE_EMPTY=0 EMPTY_TG=160
+build rc=0
+Build of product 'mlxfast-runtime-worker' complete! (16.97s)
+53fae22493c8342d9c9f7d7f7149bacff50b4eddd6752e2f801ab3ffaeb0b65d  .build-worker/release/mlxfast-runtime-worker
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.249 ms median=8.199 ms p10=8.178 ms p90=8.257 ms min=8.150 ms max=12.913 ms total=0.990 s
+### target rung K=240
++    "DARKBLOOM_INJECT_DECODE_EMPTY", 240)
+-    "DARKBLOOM_INJECT_EMPTY_TG", 160)
++    "DARKBLOOM_INJECT_EMPTY_TG", 8)
+build rc=0
+Build of product 'mlxfast-runtime-worker' complete! (17.75s)
+d98dfe80a7ccf388996cb8a498aa49bdfdf975d128031f701a210a3911d24eb3  .build-worker/release/mlxfast-runtime-worker
+teacher-forced greedy tokens: 0 divergences (all match)
+decode steps=120 mean=8.176 ms median=8.136 ms p10=8.091 ms p90=8.265 ms min=8.067 ms max=9.404 ms total=0.981 s
+done 03:26:39Z

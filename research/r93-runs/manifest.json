@@ -1,0 +1,40 @@
+{
+  "corpus_bound_dec_pct": 0.2924,
+  "corpus_bound_pre_pct": 0.2573,
+  "ladder": {
+    "99309c61": 240,
+    "f8719c48": 800,
+    "b835a980": 60
+  },
+  "ladder_rungs": [
+    60,
+    240,
+    800
+  ],
+  "nulls": [
+    "25e1f18e",
+    "d11026c9",
+    "05dd8bbf",
+    "ab6a15a1",
+    "4fec8e2d"
+  ],
+  "tg": 8,
+  "probe": {
+    "ecd89cac": "routed:fma:24",
+    "ab3a2433": "routed:fma:64",
+    "a000a397": "routed:fma:0"
+  },
+  "wandb_runs": {
+    "null-1": "3szqrztf",
+    "null-2": "0doaq0w0",
+    "ladder-K240": "fpi2ynyl",
+    "null-3": "fvm3v67i",
+    "ladder-K800": "qaempae6",
+    "null-4": "0ecng8mc",
+    "ladder-K60": "xlaup9j4",
+    "null-5": "92snii58",
+    "probe-routed-fma-24": "59o0mk6y",
+    "probe-routed-fma-64": "fotwz1v2",
+    "probe-routed-fma-0": "8mhdbz67"
+  }
+}
