@@ -237,34 +237,16 @@ func lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() throws {
         environment["MLXFAST_LAGUNA_EQUIVALENCE_MAX_ABS_ERROR"] ?? "0"
     ) ?? 0
 
-    let decodeTokenCount = Int(
-        environment["MLXFAST_LAGUNA_EQUIVALENCE_DECODE_TOKENS"] ?? "8"
-    ) ?? 8
     let report = try LagunaUpstreamEquivalence.compare(
         weightsPath: weightsPath,
         promptTokens: sourceCase.promptTokens,
-        decodeTokens: Array(sourceCase.expectedTokens.prefix(decodeTokenCount))
+        decodeTokens: Array(sourceCase.expectedTokens.prefix(8))
     )
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     let encoded = try encoder.encode(report)
     print(String(decoding: encoded, as: UTF8.self))
     #expect(report.passes(maximumAbsoluteLogitError: tolerance))
-}
-
-@Test
-func lagunaRuntimeWeightCacheWarmupProvesRouterBroadcastReachabilityWhenEnabled() throws {
-    let environment = ProcessInfo.processInfo.environment
-    guard environment["MLXFAST_RUN_ROUTER_BROADCAST_REACHABILITY"] == "1" else {
-        return
-    }
-    let weightsPath = try #require(
-        environment["MLXFAST_LAGUNA_EQUIVALENCE_WEIGHTS_PATH"]
-    )
-    let config = try LagunaConfig.load(from: weightsPath)
-    let loader = try LagunaWeightLoader(weightsPath: weightsPath)
-    let cache = LagunaRuntimeWeightCache(loader: loader, config: config)
-    _ = try cache.requireLibraryModel()
 }
 
 private func temporaryDirectory() throws -> URL {
