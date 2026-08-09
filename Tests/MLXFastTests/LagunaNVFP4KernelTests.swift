@@ -492,10 +492,11 @@ func routedSharedDownRouterWeightBroadcastIsolatedTimingWhenEnabled() {
                 + "candidate_mad_ns=\(mad(candidate)) baseline_iqr_ns=\(baselineIQR) "
                 + "candidate_iqr_ns=\(candidateIQR)"
         )
+        let baselineRaw = baseline.map { String($0) }.joined(separator: ",")
+        let candidateRaw = candidate.map { String($0) }.joined(separator: ",")
         print(
-            "ROUTER_BROADCAST_ISOLATED_RAW order=\(order) baseline_ns=["
-                + baseline.map(String.init).joined(separator: ",") + "] candidate_ns=["
-                + candidate.map(String.init).joined(separator: ",") + "]"
+            "ROUTER_BROADCAST_ISOLATED_RAW order=\(order) "
+                + "baseline_ns=[\(baselineRaw)] candidate_ns=[\(candidateRaw)]"
         )
         return speedup
     }
