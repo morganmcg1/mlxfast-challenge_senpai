@@ -128,7 +128,8 @@
 
   Break-even against per-TG fixed cost `f` (launch + prologue + epilogue) as a
   fraction of the per-TG steady work `τ₀`. Makespan with `w` waves is
-  `w·(f + τ₀/S)`, so the split pays iff:
+  `w·(f + τ_slice)`, and the *naive* form assumes a perfectly divisible slice
+  `τ_slice = τ₀/S`, giving:
 
   - sliding, M5: `4(f + τ₀/5) < 1(f + τ₀)` ⇒ `3f < 0.2τ₀` ⇒ **`f/τ₀ < 6.67 %`**
   - sliding, M4: `8(f + τ₀/5) < 2(f + τ₀)` ⇒ `6f < 0.4τ₀` ⇒ **`f/τ₀ < 6.67 %`**
@@ -138,18 +139,83 @@
   🔑 **The threshold and the ideal gain are both host-invariant at S=5** — 20 %
   off the sliding pool and 40 % off the full pool on either machine. That is
   what makes this the rare kernel-geometry lever an M4 measurement can actually
-  decide. (These thresholds ignore the recombination pass, so treat them as
-  upper bounds and demand margin.) Ceiling if it pays, against the *modelled*
-  M5 pools (≈290 µs/step sliding, ≈100 µs/step full — both M4×ratio figures,
-  under reconstruction by #561): **58 + 40 = 98 µs/step ≈ 1.49 % of score** at
-  0.015228 %/µs-step. That clears the +30 µs/step slot bar by 3.3×, which is
-  why it earns a slot despite being the most invasive kernel change on the
-  board.
+  decide.
+
+  ⚠️ **Correction (advisor, round 102): the four thresholds above are optimistic
+  and must not be used as the gate.** They assume `τ_slice = τ₀/S`, which the
+  merged #539 4-deep ring pipeline forbids. The sliding kernel's main loop is
+  `int i = sg; for (; i + 3*BN < N; i += 4*BN)` (`LRM:1547-1548`) with `BN=32`
+  and 32 simdgroups ⇒ **the pipelined body consumes 128 positions per iteration
+  per TG**. `S=5` slices of `512/5 = 102.4` cannot use it at all; the reachable
+  integer split is the unequal `{128,128,128,64,64}`, whose makespan is
+  `4f + τ₀ > f + τ₀` — strictly worse at *any* `f`. The honest gate therefore
+  needs a **measured** slice cost. Define `ρ = τ_slice(≈102-position, tail-path)
+  / (τ₀/5) ≥ 1`. Then sliding requires `3f < (1 − 0.8ρ)τ₀` and full requires
+  `2f < (1 − 0.6ρ_full)τ₀`. Prior: `ρ ≈ 1.03–1.05` (the 4-deep ring bought only
+  ≈0.13 % ≈ 3 % of the sliding pool, so the pipeline's own advantage over the
+  scalar tail path is small), but **`ρ ≥ 1.25` kills the lever on arithmetic
+  alone, with no `f` measurement required**. Both `f` and `ρ` come out of the
+  same sweep. These thresholds still ignore the recombination pass, so treat
+  even the corrected form as an upper bound and demand margin.
+
+  Ceiling if it pays, against the *modelled* M5 pools (≈290 µs/step sliding,
+  ≈100 µs/step full — both M4×ratio figures, under reconstruction by #561):
+  **58 + 40 = 98 µs/step ≈ 1.49 % of score** at 0.015228 %/µs-step. That clears
+  the +30 µs/step slot bar by 3.3×, which is why it earns a slot despite being
+  the most invasive kernel change on the board.
 
   `f` has never been measured. It is measurable with **zero submitted bytes**
-  by sweeping the attention window `N ∈ {512, 256, 128, 104, 64}` at fixed
-  K=32 in `research/fern_r100_attn_probe.swift` and fitting `τ(N) = f + cN`;
-  the intercept *is* `f`. Rung 1 of R102-A is exactly that fit and nothing else.
+  in `research/fern_r100_attn_probe.swift`, which already does
+  `extractKernel(path, name:)` → `buildPipeline` (`:295-305`), by sweeping the
+  position count `N` at fixed K and fitting `τ(N) = f + cN`; the intercept *is*
+  `f`. Rung 1 of R102-A is exactly that fit and nothing else.
+
+  Two defects in the original R102-A brief, corrected on #566 (comment
+  `r102-a-fb-window-knob-defect-and-slice-granularity`):
+
+  1. **The N knob cannot be a `params[]` write.** The sliding kernel
+     `laguna_sliding_fused_attn_ring_v1` (`LRM:1416`) hard-codes
+     `constexpr int N = 512;` (`LRM:1434`) and its **only** `params[]` read is
+     `params[0]` (widx) — `params[2]` is dead there, so wiring a `FERN_WINDOW`
+     env var into `dParams[2]` is a silent no-op that yields a flat `τ(N)` and
+     a false NO-GO. N must be changed by **source-text substitution in the
+     extracted kernel body** before `buildPipeline`. `window = 512`
+     (`LRM:1426`) must be held **fixed** while N varies, or the KV footprint and
+     rotation stride shrink with N and manufacture an N-dependent confound; only
+     `requestedBytesPerDispatch` is recomputed from N. The full kernel
+     `laguna_full_fused_attn_grow_v1` (`LRM:1936`) is the clean arm: its
+     `int N = int(params[1])` (`LRM:1964`) is genuinely dynamic, no source edit
+     needed — but its `f/τ₀` is context-length dependent, so the sliding arm
+     cannot be inferred from it.
+  2. **Sweep points must respect the 128-position granularity.** Use
+     **N ∈ {512, 384, 256, 128}** (4-deep iteration counts 4/3/2/1, all 32
+     simdgroups uniformly loaded) as the *fit* inputs. `N = 104` is divergent
+     (only `sg < 8` enters the loop, and those read 24 positions past N) and
+     `N = 64` is tail-path-only; run both, but report them **separately** as the
+     `ρ` estimate, never as fit points.
+
+  Verified dispatch anchors (base `51e36805`, all in `LagunaRuntimeModel.swift`):
+  sliding `grid ((heads/2)*1024,1,1)`, `threadGroup (1024,1,1)` at `:1879-1880`
+  with heads 64 ⇒ **K=32**; full at `:2364-2365` with heads 48 ⇒ **K=24**. Both
+  K values in the fill table are read off the dispatch, not inferred. The
+  kernels differ in `gqa` (8 vs 6) and `rotary_pairs` (64 vs 32), so any probe
+  result must name which kernel it extracted.
+
+  New null **N-E (replicated prologue)**: both kernels gate RMSNorm + Q/K weight
+  application + RoPE + cache write behind `if (sg < 3)` (`LRM:1452`, `:1973`) —
+  3 of 32 simdgroups, with the other 29 idle. Under an S-way split this prologue
+  runs **S times** and sits entirely inside `f`, so it is a first-order term in
+  the gate, not a rounding error. The extracted-source probe captures it; a
+  partial-write-epilogue cross-check does not. The two designs therefore
+  estimate *different* `f`, and it is the extracted-source intercept that
+  governs the decision.
+
+  Occupancy assumption to confirm, not assume: the model above presumes **one
+  resident TG per core** at 1024 threads/TG. The probe already prints `tgMemB`
+  and `maxTotalThreadsPerThreadgroup` (`:311-315`). If two TGs co-reside, the
+  serial-wave makespan model *and* the "20 % of the sliding pool is on the
+  floor" claim both need rewriting before any rung-2 work is priced.
+
   Rung 2 (single-dispatch fused reduction, last-TG-in-group via a device atomic
   counter) is gated on the fit clearing the bar, must land in a **new file**
   under `Sources/MLXFastModel/` to dodge the 9,238 B LRM cap, and is **not
