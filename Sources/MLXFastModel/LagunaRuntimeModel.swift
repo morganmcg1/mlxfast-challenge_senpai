@@ -1848,6 +1848,9 @@ let lagunaParamsAtlasEnabled =
 let lagunaFusedFullAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_ATTN"] != "0"
 
+let lagunaFusedFullFirstGrowthEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_FULL_FIRST_GROWTH"] != "0"
+
 /// Diagnostic-only coupling control for the historical second whole-model
 /// constructor decode. Full-attention fusion no longer implies this rewarm;
 /// set the flag explicitly only when reproducing the retired bundled arm.
@@ -1861,6 +1864,59 @@ let lagunaFusedFullAttentionWholeModelWarmupEnabled =
 let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
+
+private let lagunaFullFirstGrowthKernel = MLXFast.metalKernel(
+    name: "laguna_full_first_growth_v1",
+    inputNames: ["old_keys", "old_values", "new_keys", "new_values"],
+    outputNames: ["grown_keys", "grown_values"],
+    source: """
+uint vec_idx = thread_position_in_grid.x;
+uint d = (vec_idx % 32) * 4;
+uint seq = (vec_idx / 32) % 768;
+uint head = vec_idx / (32 * 768);
+uint out_idx = vec_idx * 4;
+device vec<bfloat, 4>* out_k =
+    reinterpret_cast<device vec<bfloat, 4>*>(grown_keys + out_idx);
+device vec<bfloat, 4>* out_v =
+    reinterpret_cast<device vec<bfloat, 4>*>(grown_values + out_idx);
+if (seq < 512) {
+  ulong k_idx = head * old_keys_strides[1] + seq * old_keys_strides[2] + d;
+  ulong v_idx = head * old_values_strides[1] + seq * old_values_strides[2] + d;
+  *out_k = *reinterpret_cast<const device vec<bfloat, 4>*>(old_keys + k_idx);
+  *out_v = *reinterpret_cast<const device vec<bfloat, 4>*>(old_values + v_idx);
+} else if (seq == 512) {
+  uint row_idx = head * 128 + d;
+  *out_k = *reinterpret_cast<const device vec<bfloat, 4>*>(new_keys + row_idx);
+  *out_v = *reinterpret_cast<const device vec<bfloat, 4>*>(new_values + row_idx);
+} else {
+  *out_k = vec<bfloat, 4>(0);
+  *out_v = vec<bfloat, 4>(0);
+}
+""",
+    ensureRowContiguous: false
+)
+
+private func lagunaFullFirstGrowth(
+    oldKeys: MLXArray, oldValues: MLXArray,
+    newKeys: MLXArray, newValues: MLXArray
+) -> (MLXArray, MLXArray) {
+    let oldShape = [1, LagunaConstants.numKeyValueHeads, 512, LagunaConstants.headDim]
+    let newShape = [1, LagunaConstants.numKeyValueHeads, 1, LagunaConstants.headDim]
+    precondition(oldKeys.dtype == .bfloat16 && oldKeys.shape == oldShape)
+    precondition(oldValues.dtype == .bfloat16 && oldValues.shape == oldShape)
+    precondition(newKeys.dtype == .bfloat16 && newKeys.shape == newShape)
+    precondition(newValues.dtype == .bfloat16 && newValues.shape == newShape)
+    lagunaTrace("full first growth")
+    let shape = [1, LagunaConstants.numKeyValueHeads, 768, LagunaConstants.headDim]
+    let outputs = lagunaFullFirstGrowthKernel(
+        [oldKeys, oldValues, newKeys, newValues],
+        grid: (LagunaConstants.numKeyValueHeads * 768 * 32, 1, 1),
+        threadGroup: (256, 1, 1),
+        outputShapes: [shape, shape],
+        outputDTypes: [.bfloat16, .bfloat16]
+    )
+    return (outputs[0], outputs[1])
+}
 
 private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
     name: "laguna_full_fused_attn_grow_v1",
@@ -6126,8 +6182,45 @@ final class LagunaRuntimeAttention: Module {
             keys = applyRotaryPosition(rope, to: keys, cache: cache)
         }
 
+        var firstGrowthAttended: MLXArray?
+        if fusedAttended == nil,
+            lagunaFusedFullFirstGrowthEnabled,
+            !isSliding,
+            B == 1, L == 1,
+            nHeads == LagunaConstants.fullAttentionHeads,
+            nKVHeads == LagunaConstants.numKeyValueHeads,
+            headDim == LagunaConstants.headDim,
+            queries.dtype == .bfloat16,
+            queries.dims(1, nHeads, 1, headDim),
+            keys.dtype == .bfloat16,
+            keys.dims(1, nKVHeads, 1, headDim),
+            values.dtype == .bfloat16,
+            values.dims(1, nKVHeads, 1, headDim),
+            let simple = cache as? KVCacheSimple,
+            let growth = simple.fusedFirstGrowthPrepare()
+        {
+            let grown = lagunaFullFirstGrowth(
+                oldKeys: growth.keys,
+                oldValues: growth.values,
+                newKeys: keys,
+                newValues: values
+            )
+            let cached = simple.fusedFirstGrowthAdopt(
+                keys: grown.0,
+                values: grown.1
+            )
+            firstGrowthAttended = MLXFast.scaledDotProductAttention(
+                queries: queries,
+                keys: cached.0,
+                values: cached.1,
+                scale: scale,
+                mask: mask
+            )
+        }
+
         let attended =
             fusedAttended
+            ?? firstGrowthAttended
             ?? attentionWithCacheUpdate(
                 queries: queries,
                 keys: keys,
