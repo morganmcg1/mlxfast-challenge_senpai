@@ -4691,7 +4691,7 @@ private func lagunaNormAffineQKVPrefetchSource(
         simd_gid * results_per_simdgroup;
     uint valid_rows = out_row < out_vec_size
         ? min(results_per_simdgroup, out_vec_size - out_row) : 0;
-    uint safe_out_row = min(out_row, out_vec_size - 1);
+    uint safe_out_row = out_row < out_vec_size ? out_row : 0;
 
     const device uint8_t* ws = (const device uint8_t*)weight_codes +
         safe_out_row * axis_size + simd_lid * values_per_thread;
