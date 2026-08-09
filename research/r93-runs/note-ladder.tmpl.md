@@ -145,7 +145,12 @@ Local verification on the research host, before spending the official run:
 - teacher-forced greedy decode against the public golden reports zero
   divergences at every rung we tested, i.e. the extra dispatches are
   behaviour-neutral in fact and not merely by argument;
-- decode time rises with `K` and prefill does not.
+- the call site is demonstrably live: a variant of the same instrument that
+  reads memory instead of dispatching empty kernels moves local decode by about
+  a millisecond per step, and a large empty injection moves it by two, while the
+  matching prefill-side injection leaves decode alone. Small `K` moving decode
+  by nothing is therefore a real property of cheap dispatches on this host, not
+  a dead code path.
 
 M4 timings are directional only and are not offered as evidence for the M5
 slope; they exist to catch a broken rung before it costs an official run.
@@ -160,10 +165,21 @@ mlxfast submit --model "senpai" --note-file research/r93-runs/note-ladder-K{{K}}
 
 ## 8. Experiment design and what we read off the receipts
 
-Rungs `K ∈ {40, 120, 240}` plus the replicated `K = 0` rung supplied by Arm A's
+Rungs `K ∈ {240, 800, 1600}` plus the replicated `K = 0` rung supplied by Arm A's
 five nulls. From each receipt we record the **raw** candidate
 `decode_seconds_per_token` and `prefill_seconds_per_token` together with the
 same-session baseline timings, then regress candidate decode on `K`.
+
+The rung spacing is a deliberate correction to our original `{40, 120, 240}`
+plan. Local sweeps on the research host show that this instrument's marginal
+dispatch cost is *not* a constant: from `K = 0` to `K = 240` the added decode
+time is statistically indistinguishable from zero, while a much larger injection
+prices out around 1 µs per dispatch. A ladder confined to the flat region would
+have bought three receipts that all read "zero", which answers nothing. The
+chosen rungs bracket the transition instead: `K = 240` converts our measured
+noise floor into a hard upper bound on the cheap regime, and `800`/`1600` resolve
+the expensive regime and its slope. We report the M5 answer as whatever shape the
+receipts show, including "regime dependent" if that is the truth.
 
 Deliverables: the slope in µs per dispatch with a confidence interval; a
 linearity check from the per-segment slopes; the prefill control spread; and the
@@ -203,8 +219,9 @@ itself be informative and we would report it.
   moves real data costs more, so the fitted number is a floor on the value of
   removing a real dispatch, not a universal price.
 - Three rungs plus a replicated zero give a usable slope and a weak linearity
-  test. If the per-segment slopes disagree beyond the Arm A noise, we will report
-  a regime-dependent cost instead of a constant, and say so plainly.
+  test. Our own local evidence already predicts the per-segment slopes will
+  disagree, so "a regime-dependent cost" is the expected answer rather than a
+  fallback, and we will say so plainly if the M5 agrees.
 - Session ordering and thermal drift are not fully separable from `K` with this
   many points. The prefill control inside each receipt is our main defence
   against attributing drift to the treatment.
