@@ -1,7 +1,9 @@
 import Foundation
 import MLX
+import MLXFast
 import MLXLMCommon
 import MLXNN
+@testable import MLXFastModel
 import Testing
 
 @Test
@@ -219,6 +221,177 @@ func quantizedSwitchLinearForwardsNVFP4GatherSemanticsWhenRuntimeTestsAreEnabled
         tolerance: 1e-4,
         label: "QuantizedSwitchLinear"
     )
+}
+
+@Test
+func routedSharedDownRouterWeightBroadcastMatchesBaselineBitsWhenRuntimeTestsAreEnabled() throws {
+    guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
+        return
+    }
+
+    let candidateEpilogue = """
+        if (slot == 0) {
+            bfloat routed_total = bfloat(0);
+            for (uint routed_slot = 0;
+                 routed_slot < routed_experts;
+                 ++routed_slot) {
+                ushort route_weight_bits = lane == 0
+                    ? as_type<ushort>(bfloat(router_weights[routed_slot]))
+                    : ushort(0);
+                route_weight_bits =
+                    simd_broadcast(route_weight_bits, ushort(0));
+                if (lane < outputs_per_simd) {
+                    bfloat route_weight =
+                        as_type<bfloat>(route_weight_bits);
+                    bfloat product = bfloat(
+                        down_outputs[
+                            routed_slot * outputs_per_simd + lane
+                        ] * route_weight);
+                    routed_total = bfloat(product + routed_total);
+                }
+            }
+            if (lane < outputs_per_simd) {
+                bfloat routed = bfloat(
+                    routed_total * bfloat(2.5f));
+                bfloat shared =
+                    down_outputs[shared_slot * outputs_per_simd + lane];
+                bfloat r2 = bfloat(routed + shared);
+                output[first_row + lane] =
+                    bfloat(residual[first_row + lane] + r2);
+            }
+        }
+        """
+    let baselineEpilogue = """
+        if (slot == 0 && lane < outputs_per_simd) {
+            bfloat routed_total = bfloat(0);
+            for (uint routed_slot = 0;
+                 routed_slot < routed_experts;
+                 ++routed_slot) {
+                bfloat route_weight =
+                    bfloat(router_weights[routed_slot]);
+                bfloat product = bfloat(
+                    down_outputs[
+                        routed_slot * outputs_per_simd + lane
+                    ] * route_weight);
+                routed_total = bfloat(product + routed_total);
+            }
+            bfloat routed = bfloat(
+                routed_total * bfloat(2.5f));
+            bfloat shared =
+                down_outputs[shared_slot * outputs_per_simd + lane];
+            bfloat r2 = bfloat(routed + shared);
+            output[first_row + lane] =
+                bfloat(residual[first_row + lane] + r2);
+        }
+        """
+    let candidateSource = lagunaRoutedSharedDownResidualSource(
+        sharedHalved: true,
+        staged: true
+    )
+    try #require(candidateSource.components(separatedBy: candidateEpilogue).count == 2)
+    let baselineSource = candidateSource.replacingOccurrences(
+        of: candidateEpilogue,
+        with: baselineEpilogue
+    )
+
+    let inputNames = [
+        "routed_activated", "routed_down_weight", "routed_down_scales",
+        "indices", "router_weights", "shared_activated",
+        "shared_down_weight", "shared_down_scales", "residual",
+    ]
+    let candidateKernel = MLXFast.metalKernel(
+        name: "test_laguna_routed_shared_down_router_broadcast",
+        inputNames: inputNames,
+        outputNames: ["output"],
+        source: candidateSource,
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+    let baselineKernel = MLXFast.metalKernel(
+        name: "test_laguna_routed_shared_down_router_per_lane",
+        inputNames: inputNames,
+        outputNames: ["output"],
+        source: baselineSource,
+        header: lagunaSharedSwiGLUQMVHeader,
+        ensureRowContiguous: true
+    )
+
+    let routedValues = (0..<(8 * 512)).map { index in
+        Float((index % 31) - 15) / 32
+    }
+    let routedActivated = MLXArray(
+        routedValues,
+        [1, 1, 8, 1, 512]
+    ).asType(.bfloat16)
+    let routedPackedSeed = MLXArray(
+        (0..<256).map { expert in
+            UInt32((expert % 7) + 1) &* UInt32(0x1111_1111)
+        },
+        [256, 1, 1]
+    )
+    let routedDownWeight = contiguous(
+        broadcast(routedPackedSeed, to: [256, 2_048, 64])
+    )
+    let routedDownScales = MLXArray.full(
+        [128 + 256 * 2_048 * 16],
+        values: MLXArray(UInt8(0x38)),
+        dtype: .uint8
+    )
+    let indices = MLXArray(
+        [UInt32(0), 7, 42, 255, 3, 128, 17, 99],
+        [1, 1, 8]
+    )
+    let routerWeights = MLXArray(
+        [
+            UInt32(0x3f80_7fff), 0x3f80_8000,
+            0x3f80_8001, 0x3f81_7fff,
+            0xbf80_7fff, 0xbf80_8000,
+            0xbf80_8001, 0xbf81_8001,
+        ].map(Float.init(bitPattern:)),
+        [1, 1, 8]
+    )
+    let sharedValues = (0..<512).map { index in
+        Float((index % 23) - 11) / 32
+    }
+    let sharedActivated = MLXArray(
+        sharedValues,
+        [1, 1, 512]
+    ).asType(.bfloat16)
+    let sharedDownWeight = contiguous(
+        broadcast(MLXArray(UInt32(0x2222_2222)), to: [2_048, 64])
+    )
+    let sharedDownScales = MLXArray.full(
+        [128 + 2_048 * 16],
+        values: MLXArray(UInt8(0x38)),
+        dtype: .uint8
+    )
+    let residual = MLXArray(
+        (0..<2_048).map { index in Float((index % 19) - 9) / 16 },
+        [1, 1, 2_048]
+    ).asType(.bfloat16)
+    let inputs = [
+        routedActivated, routedDownWeight, routedDownScales,
+        indices, routerWeights, sharedActivated,
+        sharedDownWeight, sharedDownScales, residual,
+    ]
+
+    func run(_ kernel: MLXFast.MLXFastKernel) -> MLXArray {
+        kernel(
+            inputs,
+            grid: (2_048 / 4 * 288, 1, 1),
+            threadGroup: (288, 1, 1),
+            outputShapes: [[1, 1, 2_048]],
+            outputDTypes: [.bfloat16]
+        )[0]
+    }
+
+    let candidate = run(candidateKernel)
+    let baseline = run(baselineKernel)
+    eval(candidate, baseline)
+    let candidateBits = candidate.view(dtype: .uint16).asArray(UInt16.self)
+    let baselineBits = baseline.view(dtype: .uint16).asArray(UInt16.self)
+    #expect(candidateBits == baselineBits)
+    #expect(Array(candidateBits[2_044..<2_048]) == Array(baselineBits[2_044..<2_048]))
 }
 
 private func verifyActualRoutedGather(
