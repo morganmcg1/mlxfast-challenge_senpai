@@ -22,6 +22,7 @@ All `matmul.cpp` line numbers in this report are on the **clean base**
 | rule-83 archive disclosure | **this lever is PR #293**, already implemented and already merged-then-deleted (§6) |
 | new physical evidence | **the packing mechanism is real and worth 1.4613× on the incumbent geometry**, measured directly (§7) |
 | my own prior model | **refuted by my own measurement** (§7.4) |
+| local-timing hygiene | an identical-code local pair showed **+0.9 % "score"** on a lever that cannot execute here — quantified and disowned (§4.4) |
 
 Net: I did not spend a receipt (budget was zero). I produced (a) two
 corrections to the assignment's premises, (b) a shape census that kills one
@@ -372,7 +373,86 @@ this host —
 My run reproduces those numbers to every published digit, so no separate
 base-control run was spent.
 
-### 4.3 What the local gates can and cannot prove
+### 4.3 Scored-worker build and public golden gate
+
+`./benchmark.sh --local-iterate` on this branch, flag unset (i.e. the arms
+compiled in but the predicate returning 0):
+
+```
+passed_correctness      true
+max_abs_diff            0
+golden_hash             b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63
+harness_hash            5cfe4988ee50e92376db6bfc3e8abd61b5258d31b3424fb0d91958b87873d398
+weights_hash            aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d
+num_layers              40   peak_ram_gb 21
+prefill 0.001125 s/tok  decode 0.013027 s/tok   est score 0.792
+vs score.local-iterate.baseline.json:
+  prefill 0.001126 -> 0.001125 s/token (-0.1%)
+  decode  0.012946 -> 0.013027 s/token (+0.6%)
+```
+
+Two things to read carefully here, because both are easy to misreport:
+
+- `passed_prefill_speedup_floor` is **false** (`prefill_speedup 0.327`). That is
+  the M4 host measured against the *pinned* calibration baseline, which is an
+  M5 number; it is a host artifact, not a regression. The meaningful comparison
+  is the local baseline snapshot line above, and it is **−0.1 %** on prefill.
+- The `+0.6 %` decode delta is noise on a code path this branch does not touch
+  at all (§2.1: decode reaches zero dense steel GEMMs, and the flag is off).
+  I quote it as a **noise-floor estimate for this host** (≈0.6 % run-to-run on
+  decode s/tok), not as an effect.
+
+So the honest statement is: the branch builds under the scored worker, every
+checked golden token matches with `max_abs_diff = 0`, and the timing deltas are
+indistinguishable from host noise — exactly what a default-off patch must look
+like.
+
+### 4.4 Arm 1 forced on — the identical-code null, and a warning
+
+`DARKBLOOM_NAX_SKINNY_TILE=1 ./benchmark.sh --local-iterate`:
+
+```
+passed_correctness      true
+max_abs_diff            0
+golden_hash             b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63   (identical)
+error                   ""     first_failing_{case,layer,step} all null
+prefill 0.001110 s/tok  decode 0.012860 s/tok   est score 0.802
+vs score.local-iterate.baseline.json:
+  prefill 0.001126 -> 0.001110 s/token (-1.4%)
+  decode  0.012946 -> 0.012860 s/token (-0.7%)
+  est score 0.795 -> 0.802 (+0.9%)
+```
+
+**This "+0.9 %" is not a result. It is noise, and I am reporting it precisely
+because it is the trap.** On this host `is_nax_available()` is false (§5), so
+`steel_matmul_regular_axpby_nax` — the only function this patch edits — is
+never entered. Setting the flag cannot change one instruction that executes.
+The two runs in §4.3 and §4.4 are therefore a **rule-79 identical-code pair**,
+and everything between them is host noise:
+
+| axis | flag off (§4.3) | flag on (§4.4) | apparent Δ |
+|---|---|---|---|
+| prefill s/tok | 0.001125 | 0.001110 | **−1.3 %** |
+| decode s/tok | 0.013027 | 0.012860 | **−1.3 %** |
+| est score | 0.792 | 0.802 | **+1.3 %** |
+
+Two runs of provably identical machine code differ by 1.3 % on both axes. For
+scale, the ranked receipt's `cand_pre` sd is 0.5802 / 188.405 = **0.31 %**
+(§8.3). Local M4 `--local-iterate` is roughly **4× noisier than the instrument
+this lever must be measured on**, and a single local pair here would have
+"confirmed" a +0.9 % score win that is definitionally zero. This is the
+concrete, self-inflicted version of the campaign's bar-strictness rule: I ran
+the experiment that would have fooled me, and it did produce a plausible-looking
+win.
+
+Useful by-products: the flag path executes without crashing or perturbing
+anything on gen-16, correctness stays clean with `max_abs_diff = 0` and an
+unchanged `golden_hash`, and the decode axis moves by the same 1.3 % as prefill
+even though §2.1 proves decode cannot reach any dense steel GEMM — which is
+itself a clean internal check that the movement is common-mode host noise
+rather than anything this branch did.
+
+### 4.5 What the local gates can and cannot prove
 
 Because the patch is default-off **and** the patched function is unreachable on
 this host (§5), the local gates establish a **rule-79 identical-code null**:
@@ -712,7 +792,7 @@ reason the receipt cannot be replaced by arithmetic.
 | **N-A** | routing prediction wrong | **Not observed.** Derivation in §1 is static and complete; the assignment's own proposed lever (`DARKBLOOM_STEEL_PREFILL_TILE`) *was* mis-routed and is corrected in §1.4. |
 | **N-B** | grid as predicted but occupancy not the limiter | **Open, and now the only live risk.** §7 shows occupancy/packing *is* the limiter on M4 at this exact simdgroup total; whether M5's band contains 512 simdgroups is unresolved and needs the receipt. |
 | **N-C** | regroup hurts another captured shape | **Refuted (§2).** Exactly one prefill GEMM class satisfies the predicate; nothing else can be hurt. |
-| **N-D** | not bit-exact → halt | **Not triggered.** §3.4 argues bit-exactness by construction (identical `gemm_loop` instantiation), §4.1 confirms `SM/SN/SK/TM/TN` identical across all four geometries, §4.2 shows every checked token matching. |
+| **N-D** | not bit-exact → halt | **Not triggered.** §3.4 argues bit-exactness by construction (identical `gemm_loop` instantiation), §4.1 confirms `SM/SN/SK/TM/TN` identical across all four geometries, §4.2 shows every checked token matching, §4.3 shows `max_abs_diff = 0` against the public golden. |
 
 ---
 
@@ -720,9 +800,11 @@ reason the receipt cannot be replaced by arithmetic.
 
 - **No official submission.** Receipt budget was zero; §8 is a design, not a
   run.
-- **No local end-to-end timing arm for the regroup.** It would be scientific
-  theatre: the arms are unreachable on gen-16 hardware (§5) and the local
-  wk/wv dispatch is a different kernel family entirely.
+- **No local timing claim for the regroup.** I did run the flag-on arm end to
+  end (§4.4), but only as a correctness/inertness gate and as a deliberate
+  demonstration of the noise trap. The arms are unreachable on gen-16 (§5) and
+  the local wk/wv dispatch is a different kernel family entirely, so no local
+  second can be attributed to this lever and none is claimed.
 - **No `Sources/MLXFastModel/` edits.** That surface belongs to 104-A.
 - **No split-K tie flip** (`RESEARCH_IDEAS_steel-gemm-prefill.md:170-186`).
   It is not bit-exact and it is not this assignment.
@@ -763,8 +845,9 @@ done
 # equivalence oracle (expect the pre-existing 0.125 prefill near-tie, exit 1)
 research/run_upstream_equivalence.sh
 
-# scored-worker build + public golden gate
+# scored-worker build + public golden gate, flag off (§4.3) and arm 1 forced (§4.4)
 ./benchmark.sh --local-iterate
+DARKBLOOM_NAX_SKINNY_TILE=1 ./benchmark.sh --local-iterate
 ```
 
 Commits on `maple-fern/r104-wkwv-tile-regroup`:
