@@ -1,10 +1,42 @@
 # SENPAI Research State
 
-- **2026-08-09 ~13:50 UTC — round 99.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 — round 99 (second revision).** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`4f3108c4df3b76545a7c849de38ef7c171232d1c`** + this docs commit.
+  Base = **`ad39bfc6c36c0a8257ee0de1916edafdbf52278e`** + this docs commit.
+  `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
   Record still **2.61650354381456** (re-verified via `mlxfast benchmark`;
   source `Layr-Labs/mlxfast-challenge @ c5b0a13`, unchanged since round 93).
+
+- **Base moved twice inside round 99, both times harness-only.**
+  `c240616a → c6c66344 → ad39bfc6`. The submitted surface is byte-identical
+  across all of them: `git diff origin/main <base> -- Sources/ Vendor/
+  benchmark.json` returns **zero files** for `c240616a`, `c6c66344` and
+  `ad39bfc6` alike. No in-flight assignment needs a rebase and no measurement
+  taken on any of those bases is invalidated. The `c6c66344 → ad39bfc6` content
+  is the guarded submission workflow (below) plus its tests and docs.
+
+- **⚠️ Official submissions now go through a wrapper. `mlxfast submit` directly
+  is superseded.**
+
+  ```bash
+  senpai/submit-official.sh "$BASE_SHA" --note-file submission-note.md
+  ```
+
+  It refuses unless: `BASE_SHA` is a full 40- or 64-char hash; `BASE_SHA` is an
+  ancestor of `HEAD`; the base's submitted snapshot (`benchmark.json` +
+  every `editablePaths` entry) matches `origin/main`'s; `benchmark.json` at
+  `HEAD` matches `origin/main`'s; nothing under the submitted paths is dirty,
+  untracked, ignored-but-present, or marked `skip-worktree`/`assume-unchanged`;
+  and `git`/`jq`/`mlxfast` are all on `PATH`. It **rejects any `--model`
+  argument** — attribution is fixed to `senpai` internally, which supersedes the
+  manual `--model "senpai"` instruction in older briefs. `senpai/` is not in
+  `editablePaths`, so the wrapper cannot be modified by a candidate.
+
+  This exists because of the Cedar draw: receipt
+  `86f200bf-585a-41cc-86f7-9a2aeb33895c` passed correctness but measured an
+  obsolete snapshot. The guard makes that failure mode unreachable. **Verified
+  2026-08-09: all three round-99 bases pass the snapshot precondition**, so no
+  in-flight arm is blocked from spending a receipt.
 
 ## 🔴 ROUND-99 BANNER: the research base was rebased onto the promoted frontier
 
@@ -270,41 +302,126 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 
 ---
 
-## 5. In-flight assignments (round 98)
+## 5. In-flight assignments (round 99)
 
-All four dispatched from **`e510bb3d094a59ae2d4285d6da4d1ba5361a2b23`**. Every
-brief carries the same thesis preamble (rules 66/67/68 + rule 60 + the 191 kB
-vs 80 kB in-flight argument), the Bennett weakest-hypothesis framing, the
-rule-68 measurement protocol (preregistered revert-control leg, contemporaneous
-control set, `f` recomputed per receipt), a named failure mode, and a 6-receipt
-budget.
+Four arms, all live, all students occupied. Bases differ but are equivalent on
+the submitted surface (see header).
 
-| PR | student | assignment | branch head | site |
-|---|---|---|---|---|
-| [#539](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/539) | maple-frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r98-a-rev1` | `14071c9b` | attention-side decode QMV (fused QKV `:4842`, `o_proj` `:4348`) |
-| [#540](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/540) | maple-nezuko | `maple-r98-b-attn-phase1-prefetch` / `r98-b-rev1` | `d469b0e9` | pre-barrier phase-2 K/V prefetch in the fused attention kernels |
-| [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r98-c-rev1` | `83da91e7` | double-buffer the routed gather-GEMM `Ws` stage |
-| [#543](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/543) | maple-fern | `maple-r98-d-moe-qmv-mlp` / `r98-d-rev1` | `61c87632` | MoE-side decode QMV (shared gate/up `:7103`, down family `:8080`/`:8342`/`:8444`) |
+| PR | student | assignment / revision | base | head | arm |
+|---|---|---|---|---|---|
+| [#539](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/539) | maple-frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | `c240616a` | `14071c9b` | **A** — restore the two mechanisms the rebase dropped |
+| [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r99-d-rev1` | `c6c66344` | `83da91e7` | **D** — re-anchor the instrument on the new base + one base receipt |
+| [#543](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/543) | maple-fern | `maple-r98-d-moe-qmv-mlp` / `r99-e-rev1` | `c6c66344` | `09bbf60f` | **H_F** — is nezuko's codegen tax family-specific? |
+| [#548](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/548) | maple-nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | `ad39bfc6` | `3d7052c4` | **B** — reclaim editable bytes from comment-only content |
 
-**#539 / #543 are siblings at independent kernels** — attention-side vs
-MoE-side QMV, no file conflict beyond `LagunaRuntimeModel.swift` itself. **#540
-is the cleanest test of the thesis**: 28 of 32 simdgroups in the sliding kernel
-issue *nothing* between entry and the `:1590` barrier, and phase-2 K/V
-addresses (`:1609-1614`, `:2137-2142`) are provably independent of phase-1.
-**#541 attacks the largest single pool** — routed gather-QMMs are ≈54 % of
-prefill and the mainloop `:1496-1568` is single-buffered — and it is also the
-direct successor to rule 68's second surviving explanation (lost
-inter-dispatch read-after-read overlap): give the loop back, deliberately, the
-concurrency that fusing dispatches took away by accident.
+**Merge sequencing is a live dependency.** #548 rung 1 → #539 / #543 → #548
+rung 2. #539 rung 1 costs **+3,859 B** in `LagunaRuntimeModel.swift`, which has
+only 12,870 B of per-file headroom; #548 rung 1 is deliberately confined to
+vendored files (touches nothing under `Sources/`) so it can merge independently
+and fast. frieren has been told explicitly **not** to shrink her kernel to fit
+current headroom.
 
-Named failure mode in every brief is **occupancy**: hoisting loads lengthens
-register lifetimes, and double-buffering doubles threadgroup memory. Each
-student must report register/threadgroup footprint per rung so a negative is
-attributable to the right cause. A rung that spills is not evidence against the
-thesis.
+**#539 · arm A.** Restore the 4-deep `laguna_sliding_fused_attn_ring_v1` load
+pipeline (rung 1) and `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (rung 2), both (rung
+3). Feedback `r99-a-codegen-tax-and-probe` requires zero-receipt probe screening
+first, because the transform is adjacent to the one nezuko just falsified — but
+it is a *restoration* of code the compiler previously accepted, not a new hoist,
+so the two are not the same experiment.
 
-If all four return clean negatives, that jointly **bounds the round-98 thesis
-itself**, which is a more valuable outcome than a marginal win at one site.
+**#541 · arm D.** Part 1: decode-pool census on the untouched new base, with the
+**preregistered prediction that the sliding pool must differ from 636.0
+µs/step**. If it comes back at 636.0 the prediction has failed and the census is
+blind to the pipeline regression — that is itself the finding. Part 2: report
+the wall−busy gap against the 249 µs reference (this number gates arm C).
+Part 3: one M5 duplex receipt of the **untouched** base — anchor, `4f3108c4`
+soundness check, and a p≈4.45 % lottery draw in one.
+
+**#543 · H_F.** The PR is *not* byte-identical: it carries a real depth-1 →
+depth-4 code-prefetch change in the shared Metal source string behind
+`laguna_routed_nvfp4_swiglu_qmv_packed_bf16_v1` and its two top8 siblings. It is
+bit-exact, **−80 B**, and merges cleanly (`git merge-tree` → tree `73b25cc1`).
+It was not merged because the timing reading was withdrawn. The new question is
+whether nezuko's codegen tax is family-specific: routed gate/up R1 runs
+**2048 TG × 64 threads, 2 simds/TG = 51.2 TG per M5 core**, a completely
+different occupancy regime from nezuko's K=16 at 0.8 TG/core.
+
+**#548 · arm B.** See §5a.
+
+### 5a. The byte emergency is over-solvable (round-99 finding)
+
+Measured at `c6c66344`, unchanged at `ad39bfc6`:
+
+| limit | value | headroom |
+|---|---|---|
+| total editable surface | 2,983,849 / 3,000,000 B | 16,151 B |
+| `Sources/MLXFastModel/LagunaRuntimeModel.swift` | 511,418 / 524,288 B | **12,870 B (binding)** |
+| per-review growth | 0 / 262,144 B | fine |
+
+**Comment-line content across all 142 editable files = 555,844 B = 18.6 % of the
+submitted surface** — 34× the global headroom. Largest holders:
+`LagunaRuntimeModel.swift` 136,875 B (10.6× its own headroom), `Evaluate.swift`
+27,351, `quantized.cpp` 24,924, `LagunaRuntimeWeights.swift` 24,503,
+`KVCache.swift` 24,216, `fp_quantized_nax.cpp` 20,865, `fp_quantized_nax.h`
+20,861, `LagunaLmHeadPrune.swift` 20,378, `sdpa_vector.h` 18,104,
+`BatchKVCache.swift` 13,545, `steel_attention_nax.cpp` 12,536.
+
+Seven vendored `MLXLMCommon` files hold **87,832 B** of `//`-line content and
+every one was a **comment-only** organizer addition with zero non-comment
+changed lines. We are paying submission budget for prose nobody executes.
+
+Two further structural findings:
+
+- `editablePaths` has 97 entries of which **4 are directories** (`Sources/MLXFastModel`,
+  `Sources/MLXFastTransform`, `.../steel/gemm`, `.../steel/attn`). Therefore a
+  **new `.swift` file inside `Sources/MLXFastModel/` is submitted**, which means
+  the 524,288 B per-file cap on `LagunaRuntimeModel.swift` is *dissolvable by
+  splitting the file*. The global cap would then be the only binding limit.
+- `Sources/MLXFastTransform/AffineMetadataCoding.swift` (16,378 B) and
+  `TiedHeadMetadataCoding.swift` (15,627 B) = **32,005 B** appear Gemma4-only and
+  dead for Laguna (`Transform.swift` `case .laguna` returns an empty report).
+  Deletable only after proving no non-editable reference exists.
+
+`senpai/check-editable-budget.sh` requires a full 40-char SHA and rejects
+`HEAD`. Prior art to read before redoing any of this: branch
+`origin/maple-tanjiro/metal-literal-byte-reclaim`;
+`research/maple-fern-lagunaruntimemodel-byte-recovery.md`,
+`research/maple-fern-lagunaruntimemodel-relocation-manifest.md`,
+`research/maple-fern-vendor-byte-recovery.md`,
+`research/fern_vendor_byte_census.py`,
+`research/fern_vendor_docc_detach_check.py`.
+
+The central safety artifact for arm B is a **comment-stripped hash(before) ==
+comment-stripped hash(after)** per touched file. Zero receipts.
+
+### 5b. Merged this round — #540, and the rule it produced
+
+[#540](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/540)
+(maple-nezuko, `maple-r98-b-attn-phase1-prefetch`) **merged**. H-B falsified,
+0/6 receipts spent, submitted surface byte-identical.
+
+The instrument is reusable and now the standard screen:
+`research/nezuko_r98_ab_kernel_probe.swift` + `research/nezuko_r98_make_variants.py`
+— two kernel source strings compiled in one process, 200 serial dispatches per
+command buffer, 15 alternating rounds with order flipped on odd rounds, ladder
+K ∈ {8,16,20,24,32,40,60}.
+
+Null control: −0.24 / −0.16 / −0.01 / −0.48 / −0.36 / −0.31 % ⇒ **±0.5 % ≈ ±3.2
+µs/step**. The pure H-B contrast was ≈0.0 %. But **every prefetch-expressing
+variant regressed the base by +5..+7 %**, with a **flat** dose–response
+(1/8/28/32 simdgroups → +4.23/+4.28/+3.80/+4.79 %) and **identical occupancy**
+across all 11 variants (`staticThreadgroupMemoryLength=18432`,
+`maxTotalThreadsPerThreadgroup=1024`, `threadExecutionWidth=32`).
+
+Flat dose–response plus identical occupancy rules out the occupancy explanation
+and points at **lost static codegen quality**: the restructuring breaks the
+compiler's fused predicated `T_LOAD` diamond.
+
+> **Standing rule:** "issue work earlier across a barrier" is **closed for the
+> attention family**. Any brief proposing a load-hoist, prefetch, or pipeline
+> restructuring must (a) screen on the zero-receipt A/B probe first, (b) report
+> pipeline reflection per variant, and (c) separate codegen quality from the
+> intended mechanism. #543 is the licensed exception: it asks whether the tax is
+> family-specific, at a 64× different TG/core occupancy.
 
 ### Closed last round (97)
 
@@ -437,9 +554,32 @@ independent check on arm A. One duplex M5 receipt of the **untouched** new base
 also tells us something we currently do not know at all: what the operator's
 re-application actually scores.
 
-**Deferred by the byte emergency:** the round-98 load-depth arms (#539/#540/
-#541/#543 as written) and lm_head int3. All add kernel source; none is
-assignable until B lands.
+**Dispatch status (updated):** all four arms are now live — A=#539, B=#548,
+D=#541, plus H_F=#543 which replaced the round-98 MoE-QMV brief. See §5.
+
+**Next up, in priority order, as slots free:**
+
+1. **Arm C · step-boundary / CPU tier (H_E).** Gated on #541 Part 2 returning the
+   wall−busy gap on the new base. Zero-receipt M4 screen:
+   `DARKBLOOM_DECODE_ASYNC_STAGE` off vs the ladder, stub-model IPC round-trip,
+   isolated argmax readback. Fund the `compile()` phase only if the screen finds
+   ≥100 µs/step. Assign to fern after #543 closes. **Premise re-verified intact
+   at the rebased HEAD**: `DARKBLOOM_COMPILED_DECODE` (`CompiledDecode.swift:88`)
+   and `DARKBLOOM_COMPILED_TIERED_ATTENTION` (`:34`) both default ON but are not
+   on the scored path — sole caller is `GenerationBatch.swift:177`, and Laguna's
+   `newCache` (`LRM:11670-11676`) returns `KVCacheSimple` /
+   `RotatingKVCache(maxSize:512)`, which `CompiledDecode.eligible` rejects. The
+   scored path has exactly two `compile()` sites: `LRM:5408`, `LRM:5430`
+   (guard `:6314`).
+2. **File split of `LagunaRuntimeModel.swift`** (#548 rung 3b) if the per-file
+   cap keeps binding after comment reclamation. Mechanical only.
+3. **lm_head int3 approximate scan + exact refine** — desk screen from
+   `Sources/MLXFastTransform`, no receipts. Unblocked once bytes are free.
+4. **Rule 68 re-verification.** #527's prefill dispatch-count falsification was
+   measured on the pre-rebase snapshot against the old `_nax` sources. It is
+   **suspended, not settled**, until re-run on the promoted frontier's `_nax`.
+
+**Still weak — do not assign as framed:** the M-tile-underfill prefill idea.
 
 **Superseded slate** (kept for provenance): the pre-rebase contingency brief
 `research/RESEARCH_IDEAS_2026-08-09_13:45.md`. Its scoping correction still
