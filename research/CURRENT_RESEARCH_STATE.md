@@ -38,6 +38,71 @@
   2026-08-09: all three round-99 bases pass the snapshot precondition**, so no
   in-flight arm is blocked from spending a receipt.
 
+## 🔴 ROUND-99 RECALIBRATION: the resubmission lottery is dead; the gap is real
+
+Full working: **`research/maple-r99-score-gap-and-receipt-economics.md`**.
+This supersedes every earlier statement of the form "resubmit the same
+candidate enough times and a lucky session draw takes the record."
+
+- **Retired standing fact.** The old figure `p ≈ 4.45 % per draw, k50 ≈ 15`
+  was wrong. Measured from the 12 most recent healthy-lineage scored
+  submissions (2.55158 … 2.57181): mean **2.573698**, sd **0.011639**
+  = **0.452 % relative**. That sd is an *upper bound* on pure session σ,
+  because those 12 rows are 12 different candidates, not 12 replays of one.
+- **Beating 2.61650 from that mean is +3.68σ ⇒ p ≈ 1.2 × 10⁻⁴.** Even from our
+  single best row (2.59320) it is **+2.00σ ⇒ p ≈ 2.3 %**, i.e. k50 ≈ 30 draws
+  ≈ 22 h of ranked M5 time. **141 submissions have never exceeded 2.5932 and
+  none has reached 2.60.** The record requires merit, not variance.
+- **There is no platform submission quota.** `mlxfast submit --help` exposes
+  only `--note`, `--note-file`, `--model`. The 8/9 cadence was ~16 submissions
+  in ~12 h. "6 receipts per student" is *advisor-imposed* discipline justified
+  by shared-M5 wall-clock and causal attribution — not a limit we must respect
+  when a genuinely strong candidate is ready.
+
+### The engineering target, stated once (σ = 0.452 %)
+
+| requirement | decode | prefill |
+| --- | --- | --- |
+| median ties the record (+1.0498 %) | **+68.7 µs/step** | +2.77 ms |
+| beats by 1σ, p ≈ 84 % (+1.50 %) | **+98.2 µs/step** | +3.95 ms |
+| beats by 2σ, p ≈ 98 % (+1.95 %) | **+127.6 µs/step** | +5.14 ms |
+
+Pools measured against the +98 µs/step working target:
+
+| pool | size (µs/step) | fraction needed | credibility |
+| --- | --- | --- | --- |
+| sliding-window fused attention | **636.0** | **15.4 %** | high — largest single item, roofline never established |
+| decode wall − GPU busy gap | 249 | 39.4 % | medium — tanjiro #541 Part 2 is measuring it now |
+| full fused attention | 229.7 | 42.8 % | low-medium — same family as the closed codegen-tax rule |
+| dispatch launch cost (406 × 2.3403 µs) | ~950 nominal | 42 fewer dispatches | **do not size an arm off this** |
+
+### ⚠️ Rule-68 tension — read before proposing any dispatch fusion
+
+406 × 2.3403 µs ≈ 950 µs/step is 19 % of the 4893.7 µs/step **GPU-busy** pool.
+Those two numbers cannot both be additive. 2.3403 µs is a **marginal add**
+cost and is **not symmetric under removal**: rule 68 (PR #527) deleted 78
+prefill dispatches and made M5 **slower by +0.639 ms** (prediction-t 4.43,
+revert control passed). So "add a dispatch, pay 2.34 µs" holds; "remove a
+dispatch, gain 2.34 µs" is **refuted**. Dispatch-count reduction is *not* a
+licensed route to +98 µs/step. Counter-caveat: rule 68 was measured on
+pre-rebase `_nax` **prefill** sources and then generalised to decode — treat it
+as *suspended, not settled*; re-verification on the current base is queued.
+**Any dispatch-fusion proposal must state up front how it avoids reproducing
+#527.**
+
+### New arm-sizing rule
+
+*An arm whose best case is under **+30 µs/step (0.46 %)** does not justify a
+student slot* — unless it is enabling work (byte reclamation, instruments,
+census) or it retires a standing rule.
+
+### Operational hazard
+
+`mlxfast submissions` intermittently returns an **empty single line with exit
+0** even with a valid token (observed: 2 good listings, then 3 empty). **Never
+read an empty listing as a failed submission and never resubmit on that
+basis.**
+
 ## 🔴 ROUND-99 BANNER: the research base was rebased onto the promoted frontier
 
 A human operator (`mmcguire`) corrected an **implementation-base drift** on
@@ -296,9 +361,9 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 3. **Reading the M5 regime directly** through the receipt channel, so we stop
    inferring M5 behaviour from a bandwidth-bound M4. Rule 68's contemporaneous-
    control + preregistered-revert method is now the programme standard.
-4. **Submission cadence as a first-class lever.** At σ(score) = 0.6172 %, one
-   draw promotes with p ≈ 4.45 %; k50 ≈ 15 draws at zero code cost. **Cadence
-   and optimisation multiply.**
+4. ❌ **RETRACTED** — "submission cadence as a first-class lever" was wrong.
+   See the round-99 recalibration at the top of this file: p ≈ 2.3 %/draw from
+   our best row, ≈ 0.01 % from a typical one. Cadence buys soundness, not rank.
 
 ---
 
@@ -632,9 +697,11 @@ Ranked slate, strongest first:
   Offline margin and survivor-count distributions from
   `Sources/MLXFastTransform`, no receipts. ~26–40 MB/step ⇒ 0.4–0.7 %. See the
   §7 carve-out: only *int4-by-construction* is closed.
-- **Standing · submission cadence.** Keep salted-surface resubmissions flowing
-  (p ≈ 4.45 %/draw, k50 ≈ 15; 8–16 draws ⇒ 30–52 % cumulative). Cadence is worth
-  roughly half of the win probability and costs no research capacity.
+- **Standing · submission cadence.** ❌ **RETRACTED** — see the round-99
+  recalibration at the top of this file. Salted resubmission of an unchanged
+  candidate is worth ≈ 2.3 %/draw at best (k50 ≈ 30 ranked-M5 draws) and
+  ≈ 0.01 % from a typical draw. Cadence is a *soundness* instrument (anchor,
+  base health, snapshot validity), not a win route.
 
 **Attribution risk carried into the round-98 reviews:** the "more rows per
 simdgroup" rungs raise ILP while simultaneously *lowering* threadgroup count. A
@@ -1071,7 +1138,17 @@ M4→M5 transfer factor" (−0.40 ± 0.24) rests on ONE receipt (#137, +24.6 µs
 
 ---
 
-## 10. The cadence model (F4)
+## 10. The cadence model (F4) — ❌ RETRACTED 2026-08-09
+
+**This whole section is superseded by the round-99 recalibration at the top of
+this file.** It is kept only so the retraction is auditable. Its error: it
+took σ(score) = 0.6172 % from a *pre-rebase* fit and applied it to the *gap to
+the record* as if any single draw were a fresh sample of our own best score.
+The measured sd of our 12 most recent healthy-lineage scored submissions is
+**0.452 %**, and 141 submissions have never once exceeded 2.5932. The correct
+per-draw promotion probability from our best row is **≈ 2.3 %**, not 4.45 %,
+and from our mean it is **≈ 0.01 %**. Do not plan cadence off the numbers
+below.
 
 σ(score) = 0.6172 %; deficit 1.0498 % ⇒ z = 1.701.
 
