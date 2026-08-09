@@ -16,127 +16,237 @@ func lagunaExpertAlignedGatherRequiresNAXHardwareAndOS() {
     #expect(!lagunaNAXAvailable(architecture: "unknown", osSupportsNAX: true))
 }
 
+private enum H48PacketPattern: UInt32 {
+    case random = 1
+    case ties
+    case extremeFinite
+    case nonFiniteQuery
+    case nonFiniteKey
+    case nonFiniteValue
+}
+
+private struct H48PacketSnapshot: Equatable {
+    var outputBits: [UInt16]
+    var keyBits: [UInt16]
+    var valueBits: [UInt16]
+    let initialKeyBits: [UInt16]
+    let initialValueBits: [UInt16]
+    let rawValueBits: [UInt16]
+    let capacity: Int
+    let backingOffset: Int
+    let writeIdx: Int
+}
+
+private func h48ModerateBits(count: Int, seed: UInt32) -> [UInt16] {
+    var state = seed
+    return (0..<count).map { _ in
+        state = 1_664_525 &* state &+ 1_013_904_223
+        let sign = UInt16((state >> 31) << 15)
+        let exponent = UInt16(124 + ((state >> 8) % 7)) << 7
+        return sign | exponent | UInt16(state & 0x7f)
+    }
+}
+
+private func h48PacketInputs(
+    pattern: H48PacketPattern, seed: UInt32
+) -> (MLXArray, MLXArray, MLXArray, [UInt16], MLXArray, MLXArray, MLXArray, MLXArray) {
+    let headDim = LagunaConstants.headDim
+    let heads = LagunaConstants.fullAttentionHeads
+    let kvHeads = LagunaConstants.numKeyValueHeads
+    var queryBits = h48ModerateBits(count: heads * headDim, seed: seed)
+    var keyBits = h48ModerateBits(count: kvHeads * headDim, seed: seed &+ 1)
+    var valueBits = h48ModerateBits(count: kvHeads * headDim, seed: seed &+ 2)
+
+    switch pattern {
+    case .random:
+        break
+    case .ties:
+        queryBits = Array(repeating: 0, count: queryBits.count)
+    case .extremeFinite:
+        let extremes: [UInt16] = [0x7f7f, 0xff7f, 0x0080, 0x8080, 0x0001, 0x8001, 0, 0x8000]
+        for index in queryBits.indices {
+            queryBits[index] = extremes[index % extremes.count]
+        }
+        for index in keyBits.indices {
+            keyBits[index] = extremes[(index + 3) % extremes.count]
+        }
+        for index in valueBits.indices {
+            valueBits[index] = extremes[(index + 5) % extremes.count]
+        }
+    case .nonFiniteQuery:
+        queryBits.replaceSubrange(0..<3, with: [0x7f80, 0xff80, 0x7fc1])
+    case .nonFiniteKey:
+        keyBits.replaceSubrange(0..<3, with: [0x7f80, 0xff80, 0x7fc1])
+    case .nonFiniteValue:
+        valueBits.replaceSubrange(0..<3, with: [0x7f80, 0xff80, 0x7fc1])
+    }
+
+    let rawQueries = MLXArray(queryBits, [1, 1, queryBits.count]).view(dtype: .bfloat16)
+    let rawKeys = MLXArray(keyBits, [1, 1, keyBits.count]).view(dtype: .bfloat16)
+    let rawValues = MLXArray(valueBits, [1, 1, valueBits.count]).view(dtype: .bfloat16)
+    let queryWeight = MLXArray(
+        h48ModerateBits(count: headDim, seed: seed &+ 3), [headDim]
+    ).view(dtype: .bfloat16)
+    let keyWeight = MLXArray(
+        h48ModerateBits(count: headDim, seed: seed &+ 4), [headDim]
+    ).view(dtype: .bfloat16)
+    let angleValues = (0..<(headDim / 4)).map { cos(Float($0 + 1) / 64) }
+        + (0..<(headDim / 4)).map { sin(Float($0 + 1) / 64) }
+    let angles = MLXArray(angleValues, [1, 1, 1, headDim / 2])
+    let scale = MLXArray([pow(Float(headDim), -0.5)])
+    return (
+        rawQueries, rawKeys, rawValues, valueBits,
+        queryWeight, keyWeight, angles, scale
+    )
+}
+
+private func h48PacketSnapshot(
+    pattern: H48PacketPattern, length: Int, packetHeads: Int, seed: UInt32
+) -> H48PacketSnapshot {
+    let headDim = LagunaConstants.headDim
+    let kvHeads = LagunaConstants.numKeyValueHeads
+    let capacity = length <= 256 ? 256 : (length <= 512 ? 512 : 768)
+    let backingOffset = (1 + length % 3) * headDim
+    let viewCount = kvHeads * capacity * headDim
+    let backingCount = backingOffset + viewCount + 2 * headDim
+    var initialKeyBits = h48ModerateBits(count: backingCount, seed: seed &+ 5)
+    var initialValueBits = h48ModerateBits(count: backingCount, seed: seed &+ 6)
+    let writeIdx = length - 1
+    for kvHead in 0..<kvHeads {
+        let start = backingOffset + (kvHead * capacity + writeIdx) * headDim
+        let sentinel = repeatElement(UInt16(0x2a5a), count: headDim)
+        initialKeyBits.replaceSubrange(start..<(start + headDim), with: sentinel)
+        initialValueBits.replaceSubrange(start..<(start + headDim), with: sentinel)
+    }
+
+    let keyParent = MLXArray(initialKeyBits).view(dtype: .bfloat16)
+    let valueParent = MLXArray(initialValueBits).view(dtype: .bfloat16)
+    let cacheShape = [1, kvHeads, capacity, headDim]
+    let cacheKeys = asStrided(keyParent, cacheShape, offset: backingOffset)
+    let cacheValues = asStrided(valueParent, cacheShape, offset: backingOffset)
+    let inputs = h48PacketInputs(pattern: pattern, seed: seed)
+    eval(keyParent, valueParent)
+    let output = lagunaFullFusedAttention(
+        rawQueries: inputs.0,
+        rawKeys: inputs.1,
+        rawValues: inputs.2,
+        queryWeight: inputs.4,
+        keyWeight: inputs.5,
+        angles: inputs.6,
+        cacheKeys: cacheKeys,
+        cacheValues: cacheValues,
+        writeIdx: writeIdx,
+        scale: inputs.7,
+        packetHeads: packetHeads
+    )
+    eval(output)
+
+    return H48PacketSnapshot(
+        outputBits: output.view(dtype: .uint16).asArray(UInt16.self),
+        keyBits: keyParent.view(dtype: .uint16).asArray(UInt16.self),
+        valueBits: valueParent.view(dtype: .uint16).asArray(UInt16.self),
+        initialKeyBits: initialKeyBits,
+        initialValueBits: initialValueBits,
+        rawValueBits: inputs.3,
+        capacity: capacity,
+        backingOffset: backingOffset,
+        writeIdx: writeIdx
+    )
+}
+
+private func h48ValidatePacketMutation(_ snapshot: H48PacketSnapshot) {
+    let headDim = LagunaConstants.headDim
+    let heads = LagunaConstants.fullAttentionHeads
+    let kvHeads = LagunaConstants.numKeyValueHeads
+    let viewCount = kvHeads * snapshot.capacity * headDim
+    let changedKeys = snapshot.keyBits.indices.filter {
+        snapshot.keyBits[$0] != snapshot.initialKeyBits[$0]
+    }
+    let changedValues = snapshot.valueBits.indices.filter {
+        snapshot.valueBits[$0] != snapshot.initialValueBits[$0]
+    }
+    let isWrittenRow: (Int) -> Bool = { index in
+        let local = index - snapshot.backingOffset
+        guard local >= 0, local < viewCount else { return false }
+        return (local % (snapshot.capacity * headDim)) / headDim == snapshot.writeIdx
+    }
+
+    #expect(snapshot.outputBits.count == heads * headDim)
+    #expect(changedKeys.count == kvHeads * headDim)
+    #expect(changedValues.count == kvHeads * headDim)
+    #expect(changedKeys.allSatisfy(isWrittenRow))
+    #expect(changedValues.allSatisfy(isWrittenRow))
+    #expect((0..<kvHeads).allSatisfy { kvHead in
+        let start = snapshot.backingOffset
+            + (kvHead * snapshot.capacity + snapshot.writeIdx) * headDim
+        return Array(snapshot.valueBits[start..<(start + headDim)])
+            == Array(snapshot.rawValueBits[(kvHead * headDim)..<((kvHead + 1) * headDim)])
+    })
+}
+
 @Test
 func lagunaFullAttentionTriplePacketMatchesPairPacketBitExactlyWhenRuntimeTestsAreEnabled() {
     guard ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1" else {
         return
     }
 
-    let headDim = LagunaConstants.headDim
-    let heads = LagunaConstants.fullAttentionHeads
-    let kvHeads = LagunaConstants.numKeyValueHeads
-    let capacity = 640
-    let queryValues = (0..<(heads * headDim)).map {
-        Float(($0 * 17) % 127 - 63) / 64
+    let requestedLengths = [1, 31, 32, 33, 511, 512, 513, 514, 576, 640]
+    var positiveControlSnapshot: H48PacketSnapshot?
+    for length in requestedLengths {
+        let seed = UInt32(10_000 + length)
+        let pair = h48PacketSnapshot(
+            pattern: .random, length: length, packetHeads: 2, seed: seed)
+        let triple = h48PacketSnapshot(
+            pattern: .random, length: length, packetHeads: 3, seed: seed)
+        h48ValidatePacketMutation(pair)
+        h48ValidatePacketMutation(triple)
+        #expect(pair == triple)
+        positiveControlSnapshot = positiveControlSnapshot ?? triple
     }
-    let rawQueries = MLXArray(
-        queryValues, [1, 1, heads * headDim]
-    ).asType(.bfloat16)
-    let rawKeys = MLXArray.full(
-        [1, 1, kvHeads * headDim],
-        values: MLXArray(Float(1)),
-        dtype: .bfloat16
-    )
-    let rawValues = MLXArray.full(
-        [1, 1, kvHeads * headDim],
-        values: MLXArray(Float(0.125)),
-        dtype: .bfloat16
-    )
-    let queryWeight = MLXArray.ones([headDim], dtype: .bfloat16)
-    let keyWeight = MLXArray.ones([headDim], dtype: .bfloat16)
-    let angles = MLXArray(
-        Array(repeating: Float(1), count: headDim / 4)
-            + Array(repeating: Float(0), count: headDim / 4),
-        [1, 1, 1, headDim / 2]
-    )
-    let scale = MLXArray([pow(Float(headDim), -0.5)])
-    let keySentinel = MLXArray(Float(-0.25)).asType(.bfloat16)
-        .view(dtype: .uint16).item(UInt16.self)
-    let valueSentinel = MLXArray(Float(-0.375)).asType(.bfloat16)
-        .view(dtype: .uint16).item(UInt16.self)
 
-    for writeIdx in [1, 31, 32, 511, 512, 639] {
-        let pairKeys = MLXArray.full(
-            [1, kvHeads, capacity, headDim],
-            values: MLXArray(Float(-0.25)),
-            dtype: .bfloat16
-        )
-        let pairValues = MLXArray.full(
-            [1, kvHeads, capacity, headDim],
-            values: MLXArray(Float(-0.375)),
-            dtype: .bfloat16
-        )
-        let tripleKeys = MLXArray.full(
-            [1, kvHeads, capacity, headDim],
-            values: MLXArray(Float(-0.25)),
-            dtype: .bfloat16
-        )
-        let tripleValues = MLXArray.full(
-            [1, kvHeads, capacity, headDim],
-            values: MLXArray(Float(-0.375)),
-            dtype: .bfloat16
-        )
-        eval(pairKeys, pairValues, tripleKeys, tripleValues)
-
-        let pairOutput = lagunaFullFusedAttention(
-            rawQueries: rawQueries,
-            rawKeys: rawKeys,
-            rawValues: rawValues,
-            queryWeight: queryWeight,
-            keyWeight: keyWeight,
-            angles: angles,
-            cacheKeys: pairKeys,
-            cacheValues: pairValues,
-            writeIdx: writeIdx,
-            scale: scale,
-            packetHeads: 2
-        )
-        eval(pairOutput)
-        let tripleOutput = lagunaFullFusedAttention(
-            rawQueries: rawQueries,
-            rawKeys: rawKeys,
-            rawValues: rawValues,
-            queryWeight: queryWeight,
-            keyWeight: keyWeight,
-            angles: angles,
-            cacheKeys: tripleKeys,
-            cacheValues: tripleValues,
-            writeIdx: writeIdx,
-            scale: scale,
-            packetHeads: 3
-        )
-        eval(tripleOutput)
-
-        let pairOutputBits = pairOutput.view(dtype: .uint16).asArray(UInt16.self)
-        let tripleOutputBits = tripleOutput.view(dtype: .uint16).asArray(UInt16.self)
-        let pairKeyBits = pairKeys.view(dtype: .uint16).asArray(UInt16.self)
-        let tripleKeyBits = tripleKeys.view(dtype: .uint16).asArray(UInt16.self)
-        let pairValueBits = pairValues.view(dtype: .uint16).asArray(UInt16.self)
-        let tripleValueBits = tripleValues.view(dtype: .uint16).asArray(UInt16.self)
-
-        #expect(pairOutputBits == tripleOutputBits)
-        #expect(pairKeyBits == tripleKeyBits)
-        #expect(pairValueBits == tripleValueBits)
-
-        let changedKeyIndices = pairKeyBits.indices.filter {
-            pairKeyBits[$0] != keySentinel
+    for (pattern, lengths) in [
+        (H48PacketPattern.ties, [32, 33, 512, 513]),
+        (.extremeFinite, [33, 513, 640]),
+    ] {
+        for length in lengths {
+            let seed = pattern.rawValue &* 100_000 &+ UInt32(length)
+            let pair = h48PacketSnapshot(
+                pattern: pattern, length: length, packetHeads: 2, seed: seed)
+            let triple = h48PacketSnapshot(
+                pattern: pattern, length: length, packetHeads: 3, seed: seed)
+            h48ValidatePacketMutation(pair)
+            h48ValidatePacketMutation(triple)
+            #expect(pair == triple)
         }
-        let changedValueIndices = pairValueBits.indices.filter {
-            pairValueBits[$0] != valueSentinel
-        }
-        #expect(changedKeyIndices.count == kvHeads * headDim)
-        #expect(changedValueIndices.count == kvHeads * headDim)
-        #expect(changedKeyIndices.allSatisfy {
-            ($0 % (capacity * headDim)) / headDim == writeIdx
-        })
-        #expect(changedValueIndices.allSatisfy {
-            ($0 % (capacity * headDim)) / headDim == writeIdx
-        })
-
-        var corruptedOutputBits = tripleOutputBits
-        corruptedOutputBits[corruptedOutputBits.count / 2] ^= 1
-        #expect(pairOutputBits != corruptedOutputBits)
     }
+
+    for (pattern, length) in [
+        (H48PacketPattern.nonFiniteQuery, 33),
+        (.nonFiniteKey, 513),
+        (.nonFiniteValue, 640),
+    ] {
+        let seed = pattern.rawValue &* 100_000 &+ UInt32(length)
+        let pairA = h48PacketSnapshot(
+            pattern: pattern, length: length, packetHeads: 2, seed: seed)
+        let pairB = h48PacketSnapshot(
+            pattern: pattern, length: length, packetHeads: 2, seed: seed)
+        let triple = h48PacketSnapshot(
+            pattern: pattern, length: length, packetHeads: 3, seed: seed)
+        #expect(pairA == pairB)
+        #expect(pairA == triple)
+    }
+
+    let clean = positiveControlSnapshot!
+    var corruptedOutput = clean
+    corruptedOutput.outputBits[clean.outputBits.count / 2] ^= 1
+    #expect(clean != corruptedOutput)
+    var corruptedKeyGuard = clean
+    corruptedKeyGuard.keyBits[0] ^= 1
+    #expect(clean != corruptedKeyGuard)
+    var corruptedValueRow = clean
+    let valueRowIndex = clean.backingOffset + clean.writeIdx * LagunaConstants.headDim
+    corruptedValueRow.valueBits[valueRowIndex] ^= 1
+    #expect(clean != corruptedValueRow)
 }
 
 @Test
