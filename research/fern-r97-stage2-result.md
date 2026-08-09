@@ -338,7 +338,36 @@ was off for every timed run reported here.
 
 ## 8. Deviations from the preregistration
 
-<!-- DEVIATIONS -->
+The preregistration (`1e683e5`) was committed before the first timing datum and
+has not been edited. Everything below is recorded here instead.
+
+1. **The ALU audit came in above the preregistered op estimate.** §3c counts 280
+   added integer ops per thread per K-iteration for gate/up against a
+   preregistered "≈240", and 200 for down against "≈160" — 15-25% higher in
+   both planes. The preregistration understated the unpack cost.
+2. **The preregistration's cost model is refuted, not merely missed.** It priced
+   a removed byte at ~266 GB/s with zero ALU cost and flagged that as the
+   optimistic bound. The measured outcome is outside even a pessimistic reading
+   of that bound, and the two-parameter generalisation of it returns physically
+   impossible negative coefficients for both parameters (§2.4).
+3. **§3c originally proposed a screening rule and I withdrew it.** The audit was
+   written before timing and predicted that down (50.0 ops/byte) would be far
+   worse than gate/up (18.3). The measurement inverts that ordering, so §3c
+   records the refutation instead of promoting an ops-per-byte screen.
+4. **A placebo-analysis bug was found and fixed during analysis.** My decomposition
+   script initially keyed placebo cells on the *executed* rung. A placebo block
+   executes rung 0 on every step, so this collapsed every placebo block to one
+   level and reported `placebo_blocks = 0`. Keying on the *assigned* slot fixes
+   it; the fix is in the committed `research/fern_r97_decompose.py` and was made
+   before any conclusion was drawn from the placebo arm. The assigned estimator
+   `fern_r93_ladder.py` was never affected.
+5. **§3d is exploratory and was not preregistered.** It is a source-level audit
+   written after seeing the sign, and it is labelled as the leading hypothesis
+   rather than a demonstrated mechanism.
+6. **The assigned estimator's hinge model is reported but unused.** `fern_r93_ladder.py`
+   prints an `EXPLORATORY hinge` fit; it was motivated by an earlier smoke run,
+   is not preregistered here, and no conclusion in this document rests on it.
+7. **R2 was not attempted**, per the assignment scoping R97-A to R1 only.
 
 ## 9. Verdict against the go/no-go bar
 
