@@ -5,6 +5,13 @@ import Testing
 
 private let prefillGatedTransposeRuntimeTestsEnabled =
     ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_RUNTIME_TESTS"] == "1"
+private let prefillGatedTransposeBenchmarkEnabled =
+    ProcessInfo.processInfo.environment["MLXFAST_RUN_MLX_BENCHMARKS"] == "1"
+
+private enum GatedTransposeArm: String {
+    case stock
+    case candidate
+}
 
 @Suite(.serialized)
 struct LagunaPrefillGatedTransposeTests {
@@ -52,6 +59,108 @@ struct LagunaPrefillGatedTransposeTests {
             lagunaPrefillGatedTranspose(
                 attended: attended,
                 gate: zeros([1, 511, 48], dtype: .bfloat16)) == nil)
+    }
+
+    @Test
+    func isolatedLiveStrideTimingWinsInBothOrders() {
+        guard prefillGatedTransposeBenchmarkEnabled else { return }
+
+        let orders: [[GatedTransposeArm]] = [
+            [.stock, .candidate],
+            [.candidate, .stock],
+        ]
+        for heads in [48, 64] {
+            for (orderIndex, order) in orders.enumerated() {
+                let seed = UInt32(heads * 1_000 + orderIndex)
+                let (attended, gate) = makeTimingInputs(heads: heads, seed: seed)
+                var medians: [GatedTransposeArm: Double] = [:]
+                for arm in order {
+                    medians[arm] = measureTimingArm(
+                        arm, attended: attended, gate: gate, heads: heads)
+                }
+
+                let stockMilliseconds = medians[.stock]!
+                let candidateMilliseconds = medians[.candidate]!
+                let ratio = stockMilliseconds / candidateMilliseconds
+                let stockText = String(format: "%.6f", stockMilliseconds)
+                let candidateText = String(format: "%.6f", candidateMilliseconds)
+                let ratioText = String(format: "%.6f", ratio)
+                print(
+                    "isolated_gated_transpose heads=\(heads) "
+                        + "order=\(order[0].rawValue),\(order[1].rawValue) "
+                        + "stock_ms=\(stockText) candidate_ms=\(candidateText) "
+                        + "ratio=\(ratioText)")
+                #expect(ratio >= 1.002)
+            }
+        }
+    }
+
+    private func makeTimingInputs(heads: Int, seed: UInt32) -> (MLXArray, MLXArray) {
+        let headDim = 128
+        let attended = MLXArray(
+            randomFiniteBF16Bits(
+                count: 512 * heads * headDim,
+                seed: seed),
+            [1, 512, heads, headDim]
+        )
+        .view(dtype: .bfloat16)
+        .transposed(0, 2, 1, 3)
+        let gate = MLXArray(
+            randomFiniteBF16Bits(
+                count: 512 * heads,
+                seed: seed ^ 0xa5a5_a5a5),
+            [1, 512, heads]
+        )
+        .view(dtype: .bfloat16)
+        eval(attended, gate)
+        Stream.gpu.synchronize()
+        return (attended, gate)
+    }
+
+    private func measureTimingArm(
+        _ arm: GatedTransposeArm,
+        attended: MLXArray,
+        gate: MLXArray,
+        heads: Int
+    ) -> Double {
+        for _ in 0..<6 {
+            eval(makeTimingOutput(arm, attended: attended, gate: gate, heads: heads))
+        }
+        Stream.gpu.synchronize()
+
+        let iterations = 12
+        var samples = [Double]()
+        samples.reserveCapacity(11)
+        for _ in 0..<11 {
+            Stream.gpu.synchronize()
+            let start = ProcessInfo.processInfo.systemUptime
+            for _ in 0..<iterations {
+                eval(makeTimingOutput(arm, attended: attended, gate: gate, heads: heads))
+            }
+            Stream.gpu.synchronize()
+            let elapsed = ProcessInfo.processInfo.systemUptime - start
+            samples.append(elapsed * 1_000 / Double(iterations))
+        }
+        samples.sort()
+        return samples[samples.count / 2]
+    }
+
+    private func makeTimingOutput(
+        _ arm: GatedTransposeArm,
+        attended: MLXArray,
+        gate: MLXArray,
+        heads: Int
+    ) -> MLXArray {
+        switch arm {
+        case .stock:
+            return (attended.transposed(0, 2, 1, 3) * gate[.ellipsis, .newAxis])
+                .reshaped(1, 512, heads * 128)
+        case .candidate:
+            guard let output = lagunaPrefillGatedTranspose(attended: attended, gate: gate) else {
+                preconditionFailure("valid timing shape unexpectedly declined")
+            }
+            return output
+        }
     }
 
     private func checkExactBits(heads: Int, seed: UInt32) throws {
