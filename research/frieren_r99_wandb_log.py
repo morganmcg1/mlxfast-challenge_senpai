@@ -33,6 +33,21 @@ HEADLINE_K = 16
 # it by 2.8x. Its M5 column uses the M4->M5 ratio the sliding pool shows.
 POOLS = {"sliding": (POOL_US_M4, POOL_US_M5), "full": (229.7, 104.8)}
 
+# Provenance of each end-to-end block, keyed on its log basename so the
+# replicate index published here is derived from the files actually passed and
+# cannot drift from the write-up. Block A ran first; the re-run was to widen
+# the driver's jq projection (76c0f48), which changed reporting only.
+E2E_BLOCKS = {
+    "frieren-r99a-e2e-paired-rep2.log": {
+        "block": "A", "job": "e2c5423b-8919-4a99-8014-7a88d02b600d",
+        "started_utc": "2026-08-09T14:44", "ended_utc": "2026-08-09T15:14",
+        "wall_s": 1831, "driver_rev": "a8eda15"},
+    "frieren-r99a-e2e-paired.log": {
+        "block": "B", "job": "f55275e6-8a17-4347-82c3-d1249c1fcada",
+        "started_utc": "2026-08-09T15:25", "ended_utc": "2026-08-09T15:58",
+        "wall_s": 1998, "driver_rev": "76c0f48"},
+}
+
 # leg name -> (ring depth, float4 merge epilogue, submitted byte delta, kernel)
 VARIANTS = {
     "null": (2, False, 0, "sliding"),
@@ -96,8 +111,8 @@ def contrasts(data):
 E2E_RUN = re.compile(r"^@@RUN sweep=(\d+) slot=(\d+) arm=(\w+) exit=(\d+)")
 
 
-def parse_e2e(path):
-    """-> [{sweep, order, slot, arm, ...score json fields}]"""
+def parse_e2e(path, replicate=0):
+    """-> [{replicate, sweep, order, slot, arm, ...score json fields}]"""
     rows, order, pending = [], None, None
     with open_maybe_gz(path) as fh:
         for line in fh:
@@ -105,7 +120,8 @@ def parse_e2e(path):
                 order = line.split()[1]
             m = E2E_RUN.match(line)
             if m:
-                pending = {"sweep": int(m.group(1)), "slot": int(m.group(2)),
+                pending = {"replicate": replicate,
+                           "sweep": int(m.group(1)), "slot": int(m.group(2)),
                            "arm": m.group(3), "exit": int(m.group(4)),
                            "order": order}
                 continue
@@ -119,8 +135,8 @@ def parse_e2e(path):
     return rows
 
 
-def e2e_paired(rows):
-    """Order-corrected decode seconds/token, cand relative to base.
+def e2e_paired(rows, field="decode_spt"):
+    """Order-corrected seconds/token, cand relative to base.
 
     Each leg here is already signed as cand-vs-base via the arm label, so a
     FWD sweep (base in slot 1) measures effect+slot_bias and a REV sweep
@@ -128,13 +144,19 @@ def e2e_paired(rows):
     and the half-difference is the slot bias. This differs from the kernel
     probe, whose legs are raw slot2/slot1 ratios and therefore need
     (FWD-REV)/2 for the same quantity.
+
+    Sweeps from independent replications are pooled per arm order rather than
+    combined by inverse variance: with two sweeps per leg the per-run sem is
+    itself a two-point estimate, and weighting by it lets one lucky leg
+    dominate the answer.
     """
     by = {}
     for r in rows:
-        if r.get("decode_spt"):
-            by.setdefault((r["sweep"], r["order"]), {})[r["arm"]] = r["decode_spt"]
+        if r.get(field):
+            key = (r.get("replicate", 0), r["sweep"], r["order"])
+            by.setdefault(key, {})[r["arm"]] = r[field]
     legs = {"FWD": [], "REV": []}
-    for (_, order), arms in by.items():
+    for (_, _, order), arms in by.items():
         if "base" in arms and "cand" in arms:
             legs[order].append((arms["cand"] / arms["base"] - 1) * 100)
     if not legs["FWD"] or not legs["REV"]:
@@ -147,6 +169,26 @@ def e2e_paired(rows):
     return {"est_pct": est, "sem_pct": sem, "slot_bias_pct": slot_bias,
             "fwd_mean_pct": fm, "rev_mean_pct": rm, "fwd_n": fn, "rev_n": rn,
             "t": est / sem if sem else float("nan")}
+
+
+def e2e_correctness(rows):
+    """Golden-hash / exit census over every leg of every replication.
+
+    ``passed_correctness`` is absent from the first block's legs: the driver
+    only began emitting that field at 76c0f48, after that block had run. Those
+    legs are censused as ``missing`` rather than silently counted as passing.
+    """
+    hashes = sorted({r["golden_hash"] for r in rows if r.get("golden_hash")})
+    return {"runs": len(rows),
+            "distinct_golden_hashes": len(hashes),
+            "golden_hash": hashes[0] if len(hashes) == 1 else hashes,
+            "nonzero_exits": sum(1 for r in rows if r.get("exit")),
+            "failing_cases": sum(1 for r in rows
+                                 if r.get("first_failing_case") is not None),
+            "passed_correctness_true": sum(
+                1 for r in rows if r.get("passed_correctness") is True),
+            "passed_correctness_missing": sum(
+                1 for r in rows if r.get("passed_correctness") is None)}
 
 
 def init(name, job_type, config, notes=""):
@@ -178,12 +220,30 @@ COMMON = {
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--probe-log", required=True)
-    ap.add_argument("--e2e-log")
+    ap.add_argument("--e2e-log", action="append", default=[],
+                    help="repeat once per independent replication")
     ap.add_argument("--summary-only", action="store_true")
     args = ap.parse_args()
 
     ladder = contrasts(parse_probe(args.probe_log))
-    e2e = e2e_paired(parse_e2e(args.e2e_log)) if args.e2e_log else None
+    e2e_rows = [r for i, p in enumerate(args.e2e_log)
+                for r in parse_e2e(p, replicate=i)]
+    blocks = {i: dict(E2E_BLOCKS.get(os.path.basename(p), {}), log=p,
+                      replicate=i) for i, p in enumerate(args.e2e_log)}
+    for i, blk in blocks.items():
+        per = e2e_paired([r for r in e2e_rows if r["replicate"] == i])
+        if per:
+            blk.update({"est_pct": per["est_pct"], "sem_pct": per["sem_pct"],
+                        "t": per["t"], "slot_bias_pct": per["slot_bias_pct"]})
+    e2e = None
+    if e2e_rows:
+        e2e = dict(e2e_paired(e2e_rows),
+                   replications=len(args.e2e_log),
+                   blocks=list(blocks.values()),
+                   **{"prefill_" + k: v
+                      for k, v in e2e_paired(e2e_rows, "prefill_spt").items()},
+                   **{"correctness_" + k: v
+                      for k, v in e2e_correctness(e2e_rows).items()})
     ids = []
 
     if not args.summary_only:

@@ -9,6 +9,26 @@ Preregistration: [`research/frieren-r99-a-prereg.md`](frieren-r99-a-prereg.md),
 committed before any timing. Superseded r98-A record:
 [`research/frieren-r98-decode-qmv-result.md`](frieren-r98-decode-qmv-result.md).
 
+**Published evidence** — W&B `wandb-applied-ai-team/mlxfast-maple`, all runs
+`finished`, published by `research/frieren_r99_wandb_log.py` from the committed
+logs in `research/r99-logs/`:
+
+| run | id | contents |
+|---|---|---|
+| [`r99a-summary`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/jnluvgac) | `jnluvgac` | headline K=16, full ladder, e2e blocks, correctness census, verdict |
+| [`r99a-probe-null`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/xcoytqu6) | `xcoytqu6` | sign control, base vs base |
+| [`r99a-probe-d4`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/6js447q2) | `6js447q2` | rung 1a, ring depth 4 |
+| [`r99a-probe-epi`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ta0awx6e) | `ta0awx6e` | rung 1b, `float4` merge epilogue |
+| [`r99a-probe-d4epi`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/bz6rm411) | `bz6rm411` | rung 1c, **the shipped candidate** |
+| [`r99a-probe-d8`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/l42w7jq4) | `l42w7jq4` | rung 1e, depth-8 dose–response falsifier |
+| [`r99a-probe-full`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/vydaq7t1) | `vydaq7t1` | rung 1f, full-kernel epilogue, evidence only |
+
+Each probe run carries the threadgroup ladder as a step series keyed on `K`, so
+the occupancy dose–response in §4.2 is plottable rather than only tabulated.
+The primary metric is `kernel_paired_delta_pct_k16` = **−4.650** (`minimize`),
+the shipped `d4epi` contrast; `score_pct_is_upper_bound=true` records the §4.4
+caveat alongside it.
+
 ---
 
 ## 0. Answer to the question you actually asked
@@ -321,9 +341,10 @@ preregistered to be a null**, and reporting it as one is the point — it exists
 to catch a *catastrophe* (a build that is 5 % slower, a correctness failure, a
 kernel that never dispatches), not to price a fifth of a percent.
 
-Design: 4 sweeps × 2 arms, order alternating FWD (base→cand) / REV
+Design, per block: 4 sweeps × 2 arms, order alternating FWD (base→cand) / REV
 (cand→base) on decode seconds/token, which lets a slot-order bias be separated
-from the effect instead of contaminating it. Driver
+from the effect instead of contaminating it. Two such blocks were run, 16 legs
+in total; §5.2 gives their provenance. Driver
 `research/frieren_r99_e2e_paired.sh`; each leg is a full
 `./benchmark.sh --local-iterate` with the arm's `LagunaRuntimeModel.swift`
 checked out and rebuilt, so build differences are inside the contrast rather
@@ -356,7 +377,36 @@ the asymmetry between the two instruments written down in the docstring so the
 next person does not copy the estimator across again. The corrected reading
 below is less favourable to my own candidate than the buggy one was.
 
-### 5.2 Result
+### 5.2 Result, block B (15:25–15:58 UTC)
+
+Provenance first, because the block labels are not the order I analysed them in
+and I do not want that to look like cherry-picking. Two 4-sweep blocks were
+run:
+
+| block | job | window (UTC) | wall | log | driver revision |
+|---|---|---|---|---|---|
+| A | `e2c5423b` | 14:44–15:14 | 1831 s | `research/r99-logs/frieren-r99a-e2e-paired-rep2.log` | `a8eda15` |
+| B | `f55275e6` | 15:25–15:58 | 1998 s | `research/r99-logs/frieren-r99a-e2e-paired.log` | `76c0f48` |
+
+Block **A** ran first. I re-ran the driver as block **B** for an
+instrumentation reason and not a result-dependent one: A's `jq` projection did
+not select `score`, the baseline seconds/token, or `passed_correctness`, so I
+widened the projection (`76c0f48`; that diff only adds keys to the emitted
+JSON and touches no measurement step) and
+relaunched. No effect estimate had been computed from A at that point — the
+sign-convention bug in §5.1 was not even found until 16:02. I then analysed B,
+wrote §5.2 from it, and only afterwards recovered A's log from its job record
+and pooled the two. The `-rep2` suffix on A's filename is therefore a naming
+artefact of that recovery order, not a claim about when it ran.
+
+One caveat I owe you about block B: it ran while I was editing and committing
+in the same checkout. Every commit in that window (`76c0f48`, `c37a453`,
+`7a20ec4`, `ca858ea`, `24679f1`) touches only `research/`, never `Sources/`,
+so no arm's `LagunaRuntimeModel.swift` was disturbed mid-block and no variant
+leaked into history — but the host was not idle. If that mattered I would
+expect B to be the noisier block; it is in fact the tighter one (sem 0.180 vs
+0.464), so I see no evidence of contamination, only a reason not to claim a
+pristine window.
 
 | quantity | legs | value | sem | t |
 |---|---|---|---|---|
@@ -381,9 +431,52 @@ one. The slot bias is the largest term in the table (−0.26 %, slot 2 faster),
 which independently confirms the driver's design note that a fixed arm order on
 this host would have been untrustworthy.
 
+### 5.3 Block A, and the pooled reading
+
+Block A is an independent 4-sweep block with its own builds, its own thermal
+gate, and a disjoint 30-minute window. Measurement logic is identical to
+block B — the only difference between the two driver revisions is which fields
+`jq` copied out of `score.local-iterate.json` (§6.1).
+
+| | FWD legs | REV legs | **effect** | sem | t | slot bias |
+|---|---|---|---|---|---|---|
+| block B | +0.157, −0.544 | +0.412, +0.251 | **+0.069 %** | 0.180 | +0.38 | −0.263 % |
+| block A | +0.334, −1.254 | −0.663, +0.294 | **−0.322 %** | 0.464 | −0.69 | −0.138 % |
+| **pooled, 8 sweeps** | 4 legs, −0.327 % | 4 legs, +0.074 % | **−0.126 %** | 0.220 | **−0.58** | −0.200 % |
+
+**Both blocks are nulls, and they straddle zero.** That is the honest
+resolution of §5.2's wrong sign: the sign was noise, and the other block of the
+same experiment lands on the other side of zero. The pooled point estimate is
+−0.126 %, now the *predicted* direction, and the kernel-level prediction of
+−0.228 % sits **0.46 σ** from it (it was 1.65 σ from block B alone). The pooled
+95 % interval is `[−0.557 %, +0.304 %]`.
+
+I want to be equally plain that this is **not** a confirmation. A ±0.22 % ruler
+still cannot resolve a 0.23 % effect; doubling the sweeps bought only a 1.2×
+tightening and the interval still comfortably contains zero. What block A buys
+is the removal of a misleading artefact, not a positive result. The pricing in
+§4 is unchanged and still rests on §3.
+
+Two design notes. Pooling here is per-arm-order across all 8 sweeps rather than
+inverse-variance weighting of the two block-level means; with two sweeps per leg
+the block-level sem is itself a two-point estimate, and weighting by it hands
+the answer to whichever block got a lucky leg (it would report +0.018 % ± 0.168
+here, driven almost entirely by block B's coincidentally tight REV pair). The
+convention is written into `e2e_paired`'s docstring. And the slot bias
+reproduced in sign and rough size across both blocks (−0.263 %, −0.138 %), which
+is a real property of this host, not a fluke of one afternoon — a fixed arm
+order would have been the largest term in the answer.
+
+**A second null control, for free.** Neither mechanism touches prefill, so
+prefill is a negative control that should read zero. Pooled over the same 8
+sweeps it reads **+0.074 % ± 0.492 (t = +0.15)** — consistent with zero, and its
+spread calibrates this instrument's end-to-end noise floor independently of the
+decode axis.
+
 The load-bearing evidence for this experiment is §3, not §5. §5's job was to
-catch a catastrophe, and it caught none: no build failure, no dispatch failure,
-no correctness failure, and no 5 %-scale regression.
+catch a catastrophe, and across two independent blocks it caught none: no
+build failure, no dispatch failure, no correctness failure, and no 5 %-scale
+regression.
 
 ---
 
@@ -396,31 +489,53 @@ independent gates, reported separately.
 ### 6.1 Golden hash and drift, from the paired benchmark itself
 
 Every leg of the §5 benchmark is a full `--local-iterate` run, so the paired
-design doubles as a correctness replication: 8 independent runs, 4 per arm,
-each with its own build.
+design doubles as a correctness replication. Across both blocks that is **16
+independent runs, 8 per arm**, each with its own build.
 
-| sweep | order | arm | `passed_correctness` | golden hash (first 16) | first failing case / step |
-|---|---|---|---|---|---|
-| 1 | FWD | base | true | `b9509697c08a2cf3` | none |
-| 1 | FWD | cand | true | `b9509697c08a2cf3` | none |
-| 2 | REV | cand | true | `b9509697c08a2cf3` | none |
-| 2 | REV | base | true | `b9509697c08a2cf3` | none |
-| 3 | FWD | base | true | `b9509697c08a2cf3` | none |
-| 3 | FWD | cand | true | `b9509697c08a2cf3` | none |
-| 4 | REV | cand | true | `b9509697c08a2cf3` | none |
-| 4 | REV | base | true | `b9509697c08a2cf3` | none |
+| block | sweep | order | arm | `passed_correctness` | golden hash (first 16) | exit | first failing case / step |
+|---|---|---|---|---|---|---|---|
+| A | 1 | FWD | base | *not emitted* | `b9509697c08a2cf3` | 0 | none |
+| A | 1 | FWD | cand | *not emitted* | `b9509697c08a2cf3` | 0 | none |
+| A | 2 | REV | cand | *not emitted* | `b9509697c08a2cf3` | 0 | none |
+| A | 2 | REV | base | *not emitted* | `b9509697c08a2cf3` | 0 | none |
+| A | 3 | FWD | base | *not emitted* | `b9509697c08a2cf3` | 0 | none |
+| A | 3 | FWD | cand | *not emitted* | `b9509697c08a2cf3` | 0 | none |
+| A | 4 | REV | cand | *not emitted* | `b9509697c08a2cf3` | 0 | none |
+| A | 4 | REV | base | *not emitted* | `b9509697c08a2cf3` | 0 | none |
+| B | 1 | FWD | base | true | `b9509697c08a2cf3` | 0 | none |
+| B | 1 | FWD | cand | true | `b9509697c08a2cf3` | 0 | none |
+| B | 2 | REV | cand | true | `b9509697c08a2cf3` | 0 | none |
+| B | 2 | REV | base | true | `b9509697c08a2cf3` | 0 | none |
+| B | 3 | FWD | base | true | `b9509697c08a2cf3` | 0 | none |
+| B | 3 | FWD | cand | true | `b9509697c08a2cf3` | 0 | none |
+| B | 4 | REV | cand | true | `b9509697c08a2cf3` | 0 | none |
+| B | 4 | REV | base | true | `b9509697c08a2cf3` | 0 | none |
 
-**Exactly one distinct golden hash across both arms**
+Machine census over all 16 legs, from `e2e_correctness()` in
+`research/frieren_r99_wandb_log.py`: `runs=16`, `distinct_golden_hashes=1`,
+`nonzero_exits=0`, `failing_cases=0`, `passed_correctness_true=8`,
+`passed_correctness_missing=8`.
+
+The eight *missing* entries are an instrumentation gap on my side, not a gate
+that failed, and I would rather name it than round it away. The driver's `jq`
+projection did not select `.metrics.passed_correctness` until commit `76c0f48`,
+which landed after block A had already run. For those eight legs the surviving
+correctness evidence is the golden hash, the null `first_failing_case` /
+`first_failing_step`, and a zero exit from `--local-iterate` — which is the
+same tripwire, just read through three fields instead of four. Block B carries
+the explicit boolean on all eight legs.
+
+**Exactly one distinct golden hash across both arms and both blocks**
 (`b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63`), and the
-public 64-step drift tripwire reports no failing case and no failing step in any
-run. So on this host the candidate is not merely "close" to the base, it is
-token-identical on the checked outputs, replicated four times per arm across
-independent builds.
+public 64-step drift tripwire reports no failing case and no failing step in
+any of the 16 runs. So on this host the candidate is not merely "close" to the
+base, it is token-identical on the checked outputs, replicated eight times per
+arm across independent builds and two separate thermal windows.
 
 That is the strongest form of the claim I am entitled to make, and I want to be
 precise about its limit: it is evidence *on `applegpu_g16s`*. The epilogue
 re-associates a merge across a vector width, fast-math reassociation is a
-per-target codegen decision, and this model has known near-tie argmaxes. Four
+per-target codegen decision, and this model has known near-tie argmaxes. Eight
 clean M4 replications do not prove the M5 argmax lands the same way. That
 residual risk is exactly why §9 asks for the gate to be read rather than
 assumed, and why I would rather this mechanism ride into a real receipt than be
@@ -436,7 +551,41 @@ repairs the debug metallib placement, and refuses to call a zero-test
 invocation a pass — I read the reported test count, not just the exit status,
 because a filter that matches nothing exits 0.
 
-<!--CORRECTNESS-->
+**The gate fails, and it fails identically on the unchanged base.** On the
+shipped candidate the oracle reports a prefill-only `maximumAbsoluteLogitError`
+of `0.125` (`meanAbsoluteLogitError` `0.011933609`) against a `0.0` tolerance,
+so the test exits 1 — while the prefill argmax still agrees (`runtimeToken`
+`5991` = `upstreamToken` `5991`) and **all eight decode steps are exactly
+`0.0`**. The wrapper reported `1 test`, not zero, so the filter matched.
+
+AGENTS.md says to test the unchanged base before reading that as
+candidate-induced drift. `research/frieren_r99_equiv_control.sh` does the
+attribution properly, swapping each variant into the scored source and running
+the same oracle:
+
+| variant | `LagunaRuntimeModel.swift` bytes | status | max-abs logit error per case |
+|---|---|---|---|
+| `v_base` (unchanged) | 511,418 | 1 | `[0.125, 0, 0, 0, 0, 0, 0, 0, 0]` |
+| `v_d4` (ring only) | 515,504 | 1 | `[0.125, 0, 0, 0, 0, 0, 0, 0, 0]` |
+| `v_epi` (epilogue only) | 511,191 | 1 | `[0.125, 0, 0, 0, 0, 0, 0, 0, 0]` |
+| **`v_d4epi` (shipped)** | **515,277** | 1 | `[0.125, 0, 0, 0, 0, 0, 0, 0, 0]` |
+
+**All four signatures are identical**, and the candidate's JSON report is
+`cmp`-identical to the base's, byte for byte, all 1,642 of them
+(`research/r99-logs/frieren-r99a-equiv-{base,d4epi}.json`). The prefill drift is
+pre-existing non-M5 host drift that neither mechanism creates, moves, or
+worsens: on this oracle the candidate is numerically indistinguishable from the
+unchanged base. `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` was never set — I am
+reporting a failing exit code and explaining it, not suppressing it.
+
+Two limits I will not paper over. First, this shows *the drift is not mine*; it
+does not show the M5 gate passes, and on M5 the base presumably does pass, so
+the M5 run is the one that decides. Second, the ring-only and epilogue-only
+rows being identical to base means this oracle is **not sensitive enough** to
+separate the two mechanisms numerically — it bounds them at the same place
+rather than proving the epilogue is bit-exact. §9's precondition stands.
+
+Log: `research/r99-logs/frieren-r99a-equiv-control.log.gz`.
 
 ### 6.3 Package test suite
 
@@ -445,7 +594,21 @@ because a filter that matches nothing exits 0.
 graph is frozen and an unflagged invocation rewrites the lockfile, which would
 be an unreviewed change to a non-editable path.
 
-<!--SWIFTTEST-->
+**Passed: 457 tests in 6 suites, 0 failures, 15.4 s.**
+
+```
+✔ Suite RankedWorkflowIsolationTests passed after 5.250 seconds.
+✔ Suite DefaultTrackTests            passed after 5.250 seconds.
+✔ Suite ParentToolSandboxTests       passed after 5.097 seconds.
+✔ Suite NVFP4QuantizedMMTests        passed after 5.235 seconds.
+✔ Suite ShellGapRegressionTests      passed after 7.657 seconds.
+✔ Suite BenchmarkSafetyTests         passed after 14.364 seconds.
+✔ Test run with 457 tests in 6 suites passed after 15.435 seconds.
+```
+
+`NVFP4QuantizedMMTests` is the one that carries weight for this rung, since the
+sliding kernel consumes NVFP4 quantized projections. `git status` was clean
+afterwards, so `Package.resolved` was not rewritten.
 
 ---
 
@@ -518,8 +681,15 @@ current=2987708/3000000 headroom=12292 growth=3859/262144 files=142
 | total surface | 2,987,708 / 3,000,000 B (**12,292 B** spare) |
 | growth this review | 3,859 / 262,144 B |
 
-The binding constraint is the **whole-surface** 3,000,000 B cap, not the
-per-file cap. The numbers above are measured *with* rung 1c applied: the
+**Which cap actually binds depends on where the next bytes go**, and the two
+answers differ. This rung touches one file, and for further growth in
+`LagunaRuntimeModel.swift` the **per-file** cap is the tighter of the two:
+9,011 B spare against the surface's 12,292 B. The whole-surface cap is what
+binds a rung that adds bytes anywhere else. Both were also true at the base
+(12,870 B per-file against 16,151 B surface), so rung 1c did not flip which cap
+binds — it moved both down by about the same amount.
+
+The numbers above are measured *with* rung 1c applied: the
 surface was 2,983,849 B at `c240616a` with 16,151 B free, and rung 1c leaves
 **12,292 B**. So this rung spends **3,859 B = 31 % of the headroom that
 remains after it**, or 24 % of what was free before it. That is a real cost and
@@ -773,9 +943,11 @@ but rung 1c at +0.206 % plus a generous rung 2 still does not reach the
 Spending the session on an unscreenable rung that cannot clear the bar was the
 wrong trade; I spent it on the codegen control you asked for instead. If you
 want rung 2 measured, assign the probe binding first — I have listed it as
-follow-up 2. I would also want §4.26's closure explicitly reopened before
-anyone builds it, because right now rung 2 and rule §4.26 contradict each
-other and the assignment did not reconcile them.
+follow-up 2. I would also want that closure — `CURRENT_RESEARCH_STATE.md`
+§4.26, archived at `research/RESEARCH_ARCHIVE_through-round-91.md:5020`, not a
+section of this document — explicitly reopened before anyone builds it, because
+right now rung 2 and that rule contradict each other and the assignment did not
+reconcile them.
 
 ### `r99-a-submission-wrapper-and-byte-sequencing` — bytes and the wrapper
 
@@ -783,12 +955,14 @@ Byte pressure did not shape the kernel: I wrote the full restoration and then
 measured it. `senpai/check-editable-budget.sh c240616a…` gives
 `current=2987708/3000000 headroom=12292 growth=3859/262144 files=142`, with
 `LagunaRuntimeModel.swift` at 515,277 / 524,288 (9,011 B spare). §8 has the
-per-limit table. Note the binding limit **flipped**: at your base the per-file
-cap bound at 12,870 B; after +3,859 B the whole-surface cap binds at 8,433 B
-while the per-file cap still has 9,011 B. So nezuko's #548 reclamation matters
-to arm A only if it takes bytes out of the *surface*, not merely out of this
-file. It does, so sequencing after it is strictly better, but rung 1c does not
-require it.
+per-limit table. The binding limit did **not** move: for further growth in this
+file the per-file cap was the tighter of the two at your base (12,870 B against
+16,151 B of surface) and still is after +3,859 B (9,011 B against 12,292 B).
+So for a rung 2 that lands in `LagunaRuntimeModel.swift`, nezuko's #548
+reclamation helps arm A to the extent it takes bytes out of *this file*;
+reclaiming elsewhere on the surface raises the looser of the two limits and
+buys arm A nothing until a rung needs to grow a different file. Either way
+rung 1c does not require it.
 
 I did not use `senpai/submit-official.sh`, because I declined all six receipts.
 The wrapper's constraints are recorded here so the next person on this branch
