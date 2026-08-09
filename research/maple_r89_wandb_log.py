@@ -118,7 +118,7 @@ def main():
         "assignment_id": "maple-r89-a-router-weight-prefetch",
         "revision_id": "r89-a-rev1",
         "pr": 475,
-        "base_sha": "4dd8410f05605cb2730bc82c56f7529fd515ce97",
+        "base_sha": "3f430f6f17ac4bfbac5f47767ca78cb89d84a760",
         "brief_base_sha": "098cfe0b935b87912e537ae29e21fd6339bafca8",
         "scored_content_base": "3217f111142346e004f41fae611a8bede172a659",
         "host": "Apple M4 Pro applegpu_g16s 48GiB",
