@@ -5430,14 +5430,29 @@ final class LagunaRuntimeAttention: Module {
             // identical math to the three bias-free `Linear` calls
             // (`matmul(x, w.T)`). Each output row's K-loop is independent of
             // which rows share the dispatch, so every Q/K/V element is
-            // bit-exact; the slices are views and the reshapes below may
-            // copy, which does not change values.
+            // bit-exact.
             let qkv = matmul(normalizedInput, fusedQKVWeight.T)
             let queryDim = nHeads * headDim
             let kvDim = nKVHeads * headDim
-            queries = qkv[.ellipsis, 0 ..< queryDim]
-            keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
-            values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
+            let usesOutputMajorQKV =
+                B == 1 && L == 512 &&
+                normalizedInput.dtype == .bfloat16 && fusedQKVWeight.dtype == .bfloat16 &&
+                normalizedInput.shape == [1, 512, 2048] &&
+                fusedQKVWeight.shape == [queryDim + 2 * kvDim, 2048] &&
+                (queryDim == 6144 || queryDim == 8192) && kvDim == 1024
+            if usesOutputMajorQKV {
+                let flatQKV = qkv.flattened()
+                let queryCount = L * queryDim
+                let kvCount = L * kvDim
+                queries = flatQKV[0 ..< queryCount].reshaped(B, L, queryDim)
+                keys = flatQKV[queryCount ..< (queryCount + kvCount)].reshaped(B, L, kvDim)
+                values = flatQKV[(queryCount + kvCount) ..< (queryCount + 2 * kvCount)]
+                    .reshaped(B, L, kvDim)
+            } else {
+                queries = qkv[.ellipsis, 0 ..< queryDim]
+                keys = qkv[.ellipsis, queryDim ..< (queryDim + kvDim)]
+                values = qkv[.ellipsis, (queryDim + kvDim) ..< (queryDim + 2 * kvDim)]
+            }
         } else if let fused = fusedNormQKV {
             queries = fused.queries
             keys = fused.keys

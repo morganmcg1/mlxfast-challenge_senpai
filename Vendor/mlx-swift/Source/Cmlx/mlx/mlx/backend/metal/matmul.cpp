@@ -257,6 +257,12 @@ void steel_matmul_regular_axpby_nax(
   const bool align_M = (M % bm) == 0;
   const bool align_N = (N % bn) == 0;
   const bool align_K = (K % bk) == 0;
+  const bool output_major_qkv =
+      !CHECK_AB && !has_batch && batch_size_out == 1 && M == 512 &&
+      K == 2048 && (N == 8192 || N == 10240) && !transpose_a &&
+      transpose_b && a.dtype() == bfloat16 && b.dtype() == bfloat16 &&
+      out.dtype() == bfloat16 && lda == K && ldb == K && ldd == N &&
+      matrix_stride_out == static_cast<int64_t>(M) * N;
 
   metal::MTLFCList func_consts = {
       {&has_batch, MTL::DataType::DataTypeBool, 10},
@@ -265,6 +271,7 @@ void steel_matmul_regular_axpby_nax(
       {&align_M, MTL::DataType::DataTypeBool, 200},
       {&align_N, MTL::DataType::DataTypeBool, 201},
       {&align_K, MTL::DataType::DataTypeBool, 202},
+      {&output_major_qkv, MTL::DataType::DataTypeBool, 203},
   };
 
   // clang-format off
@@ -273,7 +280,8 @@ void steel_matmul_regular_axpby_nax(
         << "_do_axpby_" << (do_axpby ? 't' : 'n')
         << "_align_M_" << (align_M ? 't' : 'n')
         << "_align_N_" << (align_N ? 't' : 'n')
-        << "_align_K_" << (align_K ? 't' : 'n'); // clang-format on
+        << "_align_K_" << (align_K ? 't' : 'n')
+        << "_output_major_qkv_" << (output_major_qkv ? 't' : 'n'); // clang-format on
 
   std::string hash_name = kname.str();
 
@@ -423,6 +431,12 @@ void steel_matmul_regular_axpby(
   const bool align_M = (M % bm) == 0;
   const bool align_N = (N % bn) == 0;
   const bool align_K = (K % bk) == 0;
+  const bool output_major_qkv =
+      !CHECK_AB && !has_batch && batch_size_out == 1 && M == 512 &&
+      K == 2048 && (N == 8192 || N == 10240) && !transpose_a &&
+      transpose_b && a.dtype() == bfloat16 && b.dtype() == bfloat16 &&
+      out.dtype() == bfloat16 && lda == K && ldb == K && ldd == N &&
+      matrix_stride_out == static_cast<int64_t>(M) * N;
 
   metal::MTLFCList func_consts = {
       {&has_batch, MTL::DataType::DataTypeBool, 10},
@@ -431,6 +445,7 @@ void steel_matmul_regular_axpby(
       {&align_M, MTL::DataType::DataTypeBool, 200},
       {&align_N, MTL::DataType::DataTypeBool, 201},
       {&align_K, MTL::DataType::DataTypeBool, 202},
+      {&output_major_qkv, MTL::DataType::DataTypeBool, 203},
   };
 
   // clang-format off
@@ -439,7 +454,8 @@ void steel_matmul_regular_axpby(
         << "_do_axpby_" << (do_axpby ? 't' : 'n')
         << "_align_M_" << (align_M ? 't' : 'n')
         << "_align_N_" << (align_N ? 't' : 'n')
-        << "_align_K_" << (align_K ? 't' : 'n'); // clang-format on
+        << "_align_K_" << (align_K ? 't' : 'n')
+        << "_output_major_qkv_" << (output_major_qkv ? 't' : 'n'); // clang-format on
 
   std::string hash_name = kname.str();
 
