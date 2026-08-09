@@ -74,6 +74,19 @@ def load_census():
     return by_study
 
 
+def kernel_of(fn):
+    """Map an MLX mangled entry-point symbol back to its Laguna kernel name.
+
+    `census.sh` records `kernel_name()`, i.e. `custom_kernel_<name>_<dtype>...`,
+    so the dispatch table has to be keyed by containment rather than equality.
+    """
+    stem = fn[len("custom_kernel_"):] if fn.startswith("custom_kernel_") else fn
+    hits = [k for k in DISPATCHES if stem.startswith(k)]
+    if not hits:
+        raise KeyError(f"no dispatch-table kernel matches {fn}")
+    return max(hits, key=len)
+
+
 def finish(run, summary):
     run.summary.update(summary)
     run.finish()
@@ -178,10 +191,11 @@ def stage2():
         if b is None:
             continue
         d = b - a
-        n = DISPATCHES.get(fn, 0)
-        summary[f"delta/{fn}"] = d
-        summary[f"delta_pct/{fn}"] = 100.0 * d / a
-        summary[f"weighted_delta/{fn}"] = n * d
+        kernel = kernel_of(fn)
+        n = DISPATCHES[kernel]
+        summary[f"delta/{kernel}"] = d
+        summary[f"delta_pct/{kernel}"] = 100.0 * d / a
+        summary[f"weighted_delta/{kernel}"] = n * d
         weighted_all += n * d
         if d > NOISE_BAND_BYTES:
             n_pos += 1
