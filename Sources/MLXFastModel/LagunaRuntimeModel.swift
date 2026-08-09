@@ -1721,15 +1721,13 @@ let lagunaFusedFullAttentionKernelWarmupEnabled =
     ProcessInfo.processInfo.environment[
         "DARKBLOOM_FUSED_FULL_ATTN_KERNEL_WARMUP"] != "0"
 
-private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_full_fused_attn_grow_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+private let lagunaFullFusedAttentionInputNames = [
+    "raw_queries", "raw_keys", "raw_values",
+    "query_weight", "key_weight", "angles",
+    "k_cache", "v_cache", "params", "scale_arr",
+]
+
+private let lagunaFullFusedAttentionSource = """
         constexpr uint head_dim = 128;
         constexpr uint gqa = 6;
         constexpr int BN = 32;
@@ -2091,8 +2089,9 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
             }
         }
-        """,
-    header: """
+        """
+
+private let lagunaFullFusedAttentionHeader = """
         #define LAGUNA_RESCALE(dst, delta_expr)         \\
           do {                                          \\
             const float db_delta_ = (delta_expr);       \\
@@ -2152,7 +2151,28 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
         // (trailing newline required: the JIT concatenates the generated
         // [[kernel]] signature directly after this header string)
 
-        """,
+        """
+
+private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
+    name: "laguna_full_fused_attn_grow_v1",
+    inputNames: lagunaFullFusedAttentionInputNames,
+    outputNames: ["attended"],
+    source: lagunaFullFusedAttentionSource,
+    header: lagunaFullFusedAttentionHeader,
+    ensureRowContiguous: true
+)
+
+private let lagunaFullFusedAttentionControlKernel = MLXFast.metalKernel(
+    name: "laguna_full_fused_attn_grow_control_v1",
+    inputNames: lagunaFullFusedAttentionInputNames,
+    outputNames: ["attended"],
+    source: lagunaFullFusedAttentionSource
+        .replacingOccurrences(
+            of: "const bool owns_write_slot = uint(sg) == (widx & 31u);",
+            with: ""
+        )
+        .replacingOccurrences(of: "if (owns_write_slot) {", with: "if (true) {"),
+    header: lagunaFullFusedAttentionHeader,
     ensureRowContiguous: true
 )
 
@@ -2196,6 +2216,55 @@ func lagunaFullFusedAttention(
         UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
     ])
     return lagunaFullFusedAttentionKernel(
+        [
+            rawQueries, rawKeys, rawValues,
+            queryWeight, keyWeight, angles,
+            cacheKeys, cacheValues, params, scale,
+        ],
+        grid: ((heads / 2) * 1024, 1, 1),
+        threadGroup: (1024, 1, 1),
+        outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
+        outputDTypes: [.bfloat16]
+    )[0]
+}
+
+func lagunaFullFusedAttentionControl(
+    rawQueries: MLXArray,
+    rawKeys: MLXArray,
+    rawValues: MLXArray,
+    queryWeight: MLXArray,
+    keyWeight: MLXArray,
+    angles: MLXArray,
+    cacheKeys: MLXArray,
+    cacheValues: MLXArray,
+    writeIdx: Int,
+    scale: MLXArray
+) -> MLXArray {
+    let heads = LagunaConstants.fullAttentionHeads
+    let kvHeads = LagunaConstants.numKeyValueHeads
+    let capacity = cacheKeys.dim(2)
+    precondition(rawQueries.dtype == .bfloat16)
+    precondition(rawKeys.dtype == .bfloat16)
+    precondition(rawValues.dtype == .bfloat16)
+    precondition(rawQueries.shape == [1, 1, heads * LagunaConstants.headDim])
+    precondition(rawKeys.shape == [1, 1, kvHeads * LagunaConstants.headDim])
+    precondition(rawValues.shape == [1, 1, kvHeads * LagunaConstants.headDim])
+    precondition(queryWeight.shape == [LagunaConstants.headDim])
+    precondition(keyWeight.shape == [LagunaConstants.headDim])
+    precondition(angles.dtype == .float32)
+    precondition(angles.shape == [1, 1, 1, LagunaConstants.headDim / 2])
+    precondition(cacheKeys.dtype == .bfloat16)
+    precondition(
+        cacheKeys.shape == [1, kvHeads, capacity, LagunaConstants.headDim])
+    precondition(
+        cacheValues.shape == [1, kvHeads, capacity, LagunaConstants.headDim])
+    precondition(writeIdx >= 0 && writeIdx < capacity)
+    precondition(scale.dtype == .float32 && scale.size == 1)
+
+    let params = MLXArray([
+        UInt32(writeIdx), UInt32(writeIdx + 1), UInt32(capacity),
+    ])
+    return lagunaFullFusedAttentionControlKernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
