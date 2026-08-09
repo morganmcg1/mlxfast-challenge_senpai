@@ -16,6 +16,9 @@ import wandb
 from maple_r93_analyze import (
     ALU_OPS_PER_S,
     BYTES_PER_STEP,
+    DISPATCH_SHAPES,
+    DRAM_FIXED_US,
+    DRAM_MARGINAL_GBPS,
     GEOM,
     PATTERN_CEILING_GBPS,
     SEQ_PEAK_GBPS,
@@ -63,6 +66,23 @@ def main() -> int:
             round(ngbps / SEQ_PEAK_GBPS * 100, 1),
         ])
 
+    percall = defaultdict(list)
+    for r in base:
+        for row in r["raw_rows"]:
+            percall[row["kernel"]].append(row["us_per_call"])
+    disp_rows = []
+    for label, prefix, count, nbytes in DISPATCH_SHAPES:
+        vals = [v for k, vs in percall.items() if k.startswith(prefix)
+                for v in vs]
+        if not vals:
+            continue
+        raw = sum(vals) / len(vals)
+        net = raw - SPLIT_TAX_US
+        model = DRAM_FIXED_US + nbytes / (DRAM_MARGINAL_GBPS * 1e9) * 1e6
+        disp_rows.append([label, count, round(nbytes / 1e6, 2),
+                          round(model, 2), round(raw, 2), round(net, 2),
+                          round(net / model, 3), round(net - model, 2)])
+
     ladders = defaultdict(lambda: defaultdict(list))
     for arm, rs in by_arm.items():
         if ":" not in arm or "@" in arm:
@@ -71,6 +91,21 @@ def main() -> int:
         for r in rs:
             if tgt in r["rows"]:
                 ladders[(tgt, kind)][int(n)].append(r["rows"][tgt]["us_per_step"])
+
+    # Rule 44 evidence: every kind emits a distinct kernel name at level 0 with
+    # an identical body, so their spread is the name-only placement effect.
+    ctl_rows = []
+    for tgt in sorted(GEOM):
+        offv = [r["rows"][tgt]["us_per_step"] for r in base if tgt in r["rows"]]
+        cells = {"off": sum(offv) / len(offv)} if offv else {}
+        for kind in ("fma", "imad", "ld8", "ld16"):
+            v = ladders.get((tgt, kind), {}).get(0, [])
+            if v:
+                cells[kind] = sum(v) / len(v)
+        if len(cells) > 1:
+            ctl_rows.append([tgt] + [round(cells.get(k, float("nan")), 1)
+                                     for k in ("off", "fma", "imad", "ld8", "ld16")]
+                            + [round(max(cells.values()) - min(cells.values()), 2)])
 
     fit_rows = []
     for (tgt, kind) in sorted(ladders):
@@ -129,6 +164,15 @@ def main() -> int:
                      "raw_GB_s", "net_GB_s", "pattern_ceiling_GB_s",
                      "pct_pattern_ceiling", "pct_sequential_peak"],
             data=roof_rows),
+        "dispatch/dram_model": wandb.Table(
+            columns=["shape", "dispatches_per_step", "MB_per_dispatch",
+                     "model_us", "raw_us", "net_us", "net_over_model",
+                     "residual_us"],
+            data=disp_rows),
+        "controls/level0_placement": wandb.Table(
+            columns=["kernel", "off", "fma0", "imad0", "ld8_0", "ld16_0",
+                     "spread_us"],
+            data=ctl_rows),
         "ladders/fits": wandb.Table(
             columns=["kernel", "kind", "n_points", "levels", "slope_us_per_n",
                      "ci95_halfwidth", "work_per_n_M", "nominal_us_per_n",
@@ -138,7 +182,11 @@ def main() -> int:
 
     summary = {"probe/arms_total": len(arm_rows),
                "probe/non_bit_exact_arms":
-                   sum(1 for r in recs if r.get("divergences"))}
+                   sum(1 for r in recs if r.get("divergences")),
+               "dispatch/fixed_pool_us_per_step":
+                   round(sum(r[1] for r in disp_rows) * DRAM_FIXED_US, 1),
+               "dispatch/non_dram_residual_us_per_step":
+                   round(sum(r[1] * r[7] for r in disp_rows), 1)}
     for row in roof_rows:
         summary[f"roofline/{row[0]}/net_GB_s"] = row[5]
         summary[f"roofline/{row[0]}/pct_pattern_ceiling"] = row[7]
