@@ -1963,9 +1963,81 @@ would also make the block 8 slots per rep, ≈ 141 min, for a sub-mechanism spli
 of a leg that is itself below the decision-relevance bar. That is grinding, and
 fb3 forbids it. Recorded as a follow-up in § 6 instead.
 
+### 4.5a Two analysis amendments, fixed while rung 2 was running and before any rung-2 number was read
+
+Both were written into `research/maple-frieren-r103a-analyze-multi.py` in the
+same commit that adds this section — the child of `5bc8f13`, and the only commit
+on this branch that touches the analyzer after rung 1 — while job `e5822dad` was
+still executing. I had at that point seen no rung-2 statistic beyond the rep-0
+position-1 provenance line already disclosed in § 4.1's blinding log. Both are pre-specified rules, not
+selections made by looking at which answer they gave.
+
+**(i) The cycle-blocked estimator becomes primary when the rotation closes.**
+Writing out the rotation exposed a defect in the naive per-repetition analysis
+that § 4.5 had not accounted for. Within *one* repetition of `A B C C B A`, arm
+A sits at the exterior slot pair {1,6} and arm C at the interior pair {3,4}, and
+§ 4.4a measured the interior as ≈ +17 µs/step hotter. So a single repetition's
+C−A carries a deterministic position term of that size; the rotation cancels it
+only after one complete cycle of three repetitions. Left in place, that term
+does not bias the mean — the design is balanced and K = 21 is a multiple of 3 —
+but it inflates the residual and therefore every half-width, which is precisely
+the quantity fb2 said decides the round.
+
+The amendment groups repetitions into complete rotation cycles, averages the
+contrast within each cycle, and treats the cycle as the unit of replication.
+The position term cancels exactly rather than being carried as noise. The rule
+for which estimator is primary is fixed by the design and not by the width: the
+cycle-blocked one whenever at least two complete cycles exist for every pair,
+the per-repetition one otherwise. Both are always printed.
+
+**This also applies retroactively to rung 1, and I am not restating rung 1.**
+Rung 1's mirrored layout has two phases, so the same code blocks it into 12
+even/odd pairs. Re-running the amended analyzer on the rung-1 data gives the
+**identical point estimate −27.84 µs/step** with the half-width 9.15 → **8.80**
+and the interval [−36.99, −18.69] → [−36.68, −19.00]. The estimator was devised
+after rung 1 was unblinded, so it is not used to change rung 1's published
+verdict: § 4.3's numbers stand as preregistered and rung 1 remains OUTCOME 4
+(underpowered) because 8.80 is still above 8.00. I record the variant here only
+so that the rung-1 and rung-2 half-widths are not compared across two different
+estimators without the reader being told.
+
+Why the point estimate is unchanged is worth stating, because it is the check
+that the amendment is a variance reduction and not a different quantity: in
+rung 1 `old` and `new` both occupy the interior pair {2,3} and `oldA`/`oldB`
+both occupy the exterior pair {1,4}, so the contrast of interest was already
+position-matched. What the blocking removes there is only the residual
+even/odd asymmetry. In rung 2 the rotation makes every arm visit every position
+pair, so blocking removes the whole artefact.
+
+**(ii) The rule-79 null is additionally pooled across arms at fixed separation.**
+Nine null cells of 7 observations each is too thin to quote against a contrast:
+at n = 7 the half-width carries `t95 = 2.447`. Every cell at one separation is
+an identical-code within-repetition difference between the same mirrored slot
+pair, so under the design's own null they are exchangeable across arms and pool
+legitimately to n = 21 per separation. The per-arm cells are still printed —
+heterogeneity among them is itself diagnostic — but the pooled row is what the
+N-2 verdict should be read against. Note this makes N-2 *easier* to fire, i.e.
+it is conservative in the direction of downgrading my own contrasts.
+
+This second amendment also repairs the § 4.4c weakness the adversarial review
+found in rung 1: there the null lived only at the quiet exterior positions
+while the contrast lived at the noisy interior ones. In rung 2 the sep-1 null
+is measured at the interior pair {3,4} and the sep-5 null at the exterior pair
+{1,6}, so the null now spans the same variance regime as the contrasts instead
+of sampling only the favourable end of it.
+
+**(iii) Reconciliation is against rung 1, not internal.** `A→B + B→C = A→C`
+holds to floating point by construction of the estimator, so there is no
+internal additivity residual worth publishing; saying otherwise would dress an
+identity up as a check. The informative reconciliation is that rung 2 measures
+the same A→C contrast as rung 1 in a separate session under a different slot
+layout, and the analyzer now prints that two-sample comparison against the
+stored rung-1 value.
+
 ## § 5 Rung 2 — three-arm rotated block, decomposing A→C into A→B and B→C
 
-_Executing. Design and preregistered n in § 4.5; results here._
+_Executing. Design and preregistered n in § 4.5, analysis amendments in
+§ 4.5a; results here._
 
 ## § 6 Verdicts on N-1 … N-5
 

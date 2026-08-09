@@ -61,6 +61,11 @@ TRANSFER = {
     "proportional (x0.505)": 4141.540 / 8200.0,
     "bandwidth-ratio (x0.436)": 266.3 / 610.0,
 }
+
+# Rung 1's independent estimate of the same A->C contrast (median statistic,
+# K = 24 repetitions, 4-slot oldA/old/new/oldB layout, separate session):
+# mean and 95% half-width in us/step. Used only for a replication check.
+RUNG1_AC = (27.84, 9.15)
 R1 = 0.622
 # The two reference magnitudes this arm was sent to test, in M5 us/step of T.
 REF_M5 = {"A->B  'missing microseconds'": 20.149, "B->C  R3 (#558)": 0.0}
@@ -145,6 +150,38 @@ def nulls(reps, stat: str):
     return vals
 
 
+def layout(byarm) -> tuple:
+    """Canonical signature of one repetition's arm->slot-position assignment."""
+    return tuple(sorted((a, tuple(sorted(p for p, _ in occ)))
+                        for a, occ in byarm.items()))
+
+
+def cycles(reps):
+    """Group repetitions into complete rotation cycles.
+
+    Rung 1 measured a +17 us/step interior-versus-exterior position artefact
+    (doc S 4.4a). The rung-2 rotation cancels it only in aggregate: within one
+    repetition the arm sitting at the interior slot pair is biased hot relative
+    to the arm at the exterior pair, so a per-repetition contrast carries a
+    deterministic phase term with the period of the rotation. Averaging one
+    repetition of each phase removes that term exactly instead of leaving it in
+    the residual, where it would inflate every half-width.
+
+    Returns a list of lists of repetition indices, one complete cycle each, and
+    the list of leftover repetitions that could not be balanced.
+    """
+    byphase: dict[tuple, list[int]] = defaultdict(list)
+    for rep, byarm in sorted(reps.items()):
+        byphase[layout(byarm)].append(rep)
+    phases = sorted(byphase, key=lambda k: byphase[k][0])
+    if len(phases) < 2:
+        return [], sorted(reps)
+    n = min(len(byphase[p]) for p in phases)
+    blocks = [[byphase[p][i] for p in phases] for i in range(n)]
+    used = {r for b in blocks for r in b}
+    return blocks, sorted(set(reps) - used)
+
+
 def band(p: dict[str, float]) -> float:
     """Largest true effect this contrast is consistent with, in magnitude."""
     return max(abs(p["lo"]), abs(p["hi"]))
@@ -182,10 +219,27 @@ def main() -> None:
         print(f"  {'arm':>5} {'sep':>4} {'K':>3} {'mean':>9} {'95% hw':>9}"
               f" {'lo':>9} {'hi':>9}  sign +/-")
         null_out = {}
-        for (arm, sep), diffs in sorted(nulls(reps, stat).items()):
+        nv = nulls(reps, stat)
+        for (arm, sep), diffs in sorted(nv.items()):
             p = paired(diffs)
             null_out[f"{arm}@sep{sep}"] = dict(p, separation=sep, arm=arm)
             print(f"  {arm:>5} {sep:>4} {p['k']:>3} {p['mean']:9.2f}"
+                  f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
+                  f"   {p['pos']}/{p['neg']}")
+        # Every cell at one separation is an identical-code within-repetition
+        # difference between the same mirrored slot pair, so under the design's
+        # own null they are exchangeable across arms and pool legitimately.
+        # Each per-arm cell is small; pooling is what gives the rule-79 null
+        # enough power to be worth quoting against the contrasts.
+        bysep: dict[int, list[float]] = defaultdict(list)
+        for (arm, sep), diffs in nv.items():
+            bysep[sep].extend(diffs)
+        for sep, diffs in sorted(bysep.items()):
+            if len(diffs) < 2:
+                continue
+            p = paired(diffs)
+            null_out[f"pooled@sep{sep}"] = dict(p, separation=sep, arm="pooled")
+            print(f"  {'pool':>5} {sep:>4} {p['k']:>3} {p['mean']:9.2f}"
                   f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
                   f"   {p['pos']}/{p['neg']}")
         print("  (drift scales with separation; the palindrome cancels drift in")
@@ -204,14 +258,63 @@ def main() -> None:
             print(f"  {x:>4}->{y:<4} {p['k']:>3} {p['mean']:9.2f}"
                   f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
                   f" {b:9.2f}   {p['pos']}/{p['neg']}")
+
+        blocks, leftover = cycles(reps)
+        cyc_out = {}
+        if blocks:
+            print(f"\ncycle-blocked contrasts ({len(blocks)} complete rotation"
+                  f" cycles of {len(blocks[0])} reps"
+                  + (f"; {len(leftover)} rep(s) unbalanced and dropped:"
+                     f" {leftover}" if leftover else "") + "):")
+            print(f"  {'contrast':>10} {'K':>3} {'mean':>9} {'95% hw':>9}"
+                  f" {'lo':>9} {'hi':>9} {'excl>':>9}  sign +/-")
+            for x, y in itertools.combinations(arms, 2):
+                diffs = []
+                for blk in blocks:
+                    d = [est[r][y] - est[r][x] for r in blk
+                         if r in est and x in est[r] and y in est[r]]
+                    if len(d) == len(blk):
+                        diffs.append(statistics.mean(d))
+                if len(diffs) < 2:
+                    continue
+                p = paired(diffs)
+                b = band(p)
+                cyc_out[f"{x}->{y}"] = dict(p, excludes_above_m4=b,
+                                            excludes_above_m5_r1=b * R1)
+                print(f"  {x:>4}->{y:<4} {p['k']:>3} {p['mean']:9.2f}"
+                      f" {p['half_width']:9.2f} {p['lo']:9.2f} {p['hi']:9.2f}"
+                      f" {b:9.2f}   {p['pos']}/{p['neg']}")
+            print("  (identical point estimates to the rows above when the"
+                  " design is balanced; the")
+            print("   half-widths differ because the position artefact is"
+                  " removed from the residual.)")
+
         report["stats"][stat] = {"nulls": null_out, "contrasts": con_out,
+                                 "cycle_contrasts": cyc_out,
                                  "levels": {a: statistics.mean(
                                      [e[a] for e in est.values() if a in e])
                                      for a in arms}}
 
     # Everything below reads the primary statistic only (section 1.5a).
     est = arm_estimates(reps, "median")
-    prim = report["stats"]["median"]["contrasts"]
+    # Pre-specified before unblinding rung 2 (doc S 4.5a): when the rotation
+    # closes into at least two complete cycles the cycle-blocked estimator is
+    # primary, because it removes the measured position artefact from the
+    # residual rather than carrying it. Otherwise the per-repetition estimator
+    # is primary. The rule is fixed by the design, not chosen by the width.
+    cyc = report["stats"]["median"].get("cycle_contrasts") or {}
+    if len(cyc) == len(report["stats"]["median"]["contrasts"]) and cyc:
+        prim, prim_name = cyc, "cycle-blocked"
+        alt, alt_name = report["stats"]["median"]["contrasts"], "per-repetition"
+    else:
+        prim, prim_name = report["stats"]["median"]["contrasts"], "per-repetition"
+        alt, alt_name = cyc, "cycle-blocked"
+    report["primary_estimator"] = prim_name
+    print(f"\nprimary estimator: {prim_name}"
+          + (f"; secondary ({alt_name}) reported alongside" if alt else ""))
+    for name, p in sorted(alt.items()):
+        print(f"  [{alt_name}] {name}: {p['mean']:+.2f}"
+              f" [{p['lo']:+.2f}, {p['hi']:+.2f}] hw {p['half_width']:.2f}")
 
     print("\n########## exclusion bounds (primary statistic: median) ##########")
     print("Reporting discipline (advisor fb2): never 'neutral' without an X.")
@@ -236,6 +339,22 @@ def main() -> None:
               f" detect; the CI half-width {p['half_width']:.1f} overstates it)")
         print(f"      TOST vs the {TOST_MARGIN:.1f} M4 margin"
               f" (the retracted M5 claim on this host): {tost}")
+    # A->B + B->C = A->C holds to floating point by construction, so there is
+    # no internal additivity residual to report. The informative reconciliation
+    # is against rung 1, which measured the same A->C contrast in a separate
+    # session under a different slot layout.
+    if "A->C" in prim and RUNG1_AC is not None:
+        p = prim["A->C"]
+        m1, h1 = RUNG1_AC
+        se = math.hypot(p["half_width"] / t95(p["k"] - 1), h1 / t95(24 - 1))
+        d = p["mean"] - m1
+        print(f"\n  rung-1 replication of A->C: rung 1 {m1:+.2f} +/- {h1:.2f},"
+              f" rung 2 {p['mean']:+.2f} +/- {p['half_width']:.2f}")
+        print(f"      difference {d:+.2f} us/step, ~{abs(d) / se:.2f} sd of the"
+              f" difference (se {se:.2f}) -- "
+              + ("consistent" if abs(d) < 1.96 * se else
+                 "NOT consistent: the two sessions disagree"))
+
     # Three pairwise intervals at per-pair 95% give roughly 86% joint coverage,
     # so a single "no pair differs by more than X" claim needs an adjustment.
     bonf = max(p["half_width"] for p in prim.values()) * BONFERRONI_3
