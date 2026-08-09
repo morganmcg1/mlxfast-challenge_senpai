@@ -23,6 +23,35 @@ senpai/check-editable-budget.sh c6c66344d9848d95158edc31f31943aabe4de079
      growth=0/262144 files=142 (base=142)
 ```
 
+### 0.1 Divergence audit — the branch force-push is lossless
+
+Re-anchoring means the remote branch head `83da91e7` is **not** an ancestor of
+my local head, so publishing this result rewrites the remote branch. I audited
+what that discards before allowing it:
+
+```
+$ git diff --stat e510bb3d 83da91e7 -- Sources/ Vendor/ benchmark.json
+(empty)
+$ git log --oneline -2 83da91e7
+83da91e senpai assignment: maple-r98-c-prefill-loader-pipeline
+e510bb3 r98: close round-97 slate, add rule 68, set MLP thesis
+```
+
+`83da91e7` is the assignment stub commit on the old base and carries **zero**
+committed edits to the submitted surface. The r98-C double-buffer candidate
+never left the working tree — §"The working-tree patch itself" of
+`research/maple-tanjiro-r98-prefill-loader-pipeline.md` records it, and that
+note is carried forward (+571 lines relative to the remote head). The only
+tracked file present at `83da91e7` and absent locally is
+`Sources/MLXFastModel/LagunaRuntimeLayers.swift`, which the frontier itself
+folded back into `LagunaRuntimeModel.swift` between `e510bb3d` and `c6c66344`
+(−2597 / +2928 lines); it is base code, not my work. Nothing unique to the
+remote is lost.
+
+One consequence worth stating: because that file no longer exists on the
+frontier, the r98-C patch is not re-appliable as-is even if the advisor wanted
+it back. Any revival is a re-port, not a rebase.
+
 ---
 
 ## 1. Correction on the record: the `_nax` surface did NOT move
