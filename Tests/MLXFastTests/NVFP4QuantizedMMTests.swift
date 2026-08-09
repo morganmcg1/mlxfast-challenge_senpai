@@ -364,8 +364,9 @@ struct NVFP4QuantizedMMTests {
         let topK = 8
         let n = LagunaConstants.moeIntermediateSize
         let k = LagunaConstants.hiddenSize
-        let routeValues = (0..<sourceRows).flatMap { _ in
-            [UInt32(0), 0, 1, 1, 2, 2, 255, 255]
+        let routePattern: [UInt32] = [0, 0, 1, 1, 2, 2, 255, 255]
+        let routeValues: [UInt32] = (0..<sourceRows).reduce(into: []) { values, _ in
+            values.append(contentsOf: routePattern)
         }
         let routes = MLXArray(routeValues, [sourceRows, topK])
         let sorted = gatherSortIndices(routes)
@@ -437,8 +438,8 @@ struct NVFP4QuantizedMMTests {
         )
         #expect(corrupted.asArray(Float.self) != materializedValues)
 
-        let fallbackValues = (0..<15).flatMap { row in
-            [UInt32(255), 0, 2, 2, 1, 255, 0, UInt32(row % 4)]
+        let fallbackValues: [UInt32] = (0..<15).reduce(into: []) { values, row in
+            values.append(contentsOf: [255, 0, 2, 2, 1, 255, 0, UInt32(row % 4)])
         }
         let fallback = gatherSortIndices(MLXArray(fallbackValues, [15, topK]))
         let expectedOrder = fallbackValues.indices.sorted { lhs, rhs in
