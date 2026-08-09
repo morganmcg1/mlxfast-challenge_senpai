@@ -2757,6 +2757,11 @@ private let lagunaQKVSevenBitValidationEnabled =
 private let lagunaQKVScalesPerRow = LagunaConstants.hiddenSize / 16
 private let lagunaQKVPackedScalesPerRow = lagunaQKVScalesPerRow * 7 / 8
 
+private func lagunaQKVSevenBitDiagnostic(_ message: String) {
+    guard lagunaQKVSevenBitValidationEnabled else { return }
+    FileHandle.standardError.write(Data("mlxfast: qkv-seven-bit \(message)\n".utf8))
+}
+
 private final class LagunaQKVSevenBitLog: @unchecked Sendable {
     private var sites: Set<String> = []
     private var layers: Set<Int> = []
@@ -2769,7 +2774,7 @@ private final class LagunaQKVSevenBitLog: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard sites.insert(site).inserted else { return }
-        print("qkv-seven-bit \(message)")
+        lagunaQKVSevenBitDiagnostic(message)
     }
 
     func bank(layer: Int, heads: Int, rows: Int, minimum: UInt8, maximum: UInt8) {
@@ -2780,16 +2785,17 @@ private final class LagunaQKVSevenBitLog: @unchecked Sendable {
         let packed = rows * lagunaQKVPackedScalesPerRow
         originalBytes += original
         packedBytes += packed
-        print(
-            "qkv-seven-bit bank layer=\(layer) heads=\(heads) rows=\(rows) "
+        lagunaQKVSevenBitDiagnostic(
+            "bank layer=\(layer) heads=\(heads) rows=\(rows) "
                 + "min=\(minimum) max=\(maximum) originalDecodeBytes=\(original) "
                 + "packedDecodeBytes=\(packed) decodeSource=packed "
                 + "timedMaterialization=false u8Fallback=false")
         if layers.count == 40 {
-            print(
-                "qkv-seven-bit census banks=40 originalDecodeBytes=\(originalBytes) "
+            lagunaQKVSevenBitDiagnostic(
+                "census banks=40 originalDecodeBytes=\(originalBytes) "
                     + "packedDecodeBytes=\(packedBytes) "
-                    + "decodeBytesSaved=\(originalBytes - packedBytes)")
+                    + "decodeBytesSaved=\(originalBytes - packedBytes) "
+                    + "dispatchPolicy=packed-only u8Fallback=false")
         }
     }
 
@@ -2859,8 +2865,8 @@ private func lagunaPackQKVSevenBitScales(
     guard scales.dtype == .uint8,
         scales.shape == [rows, lagunaQKVScalesPerRow]
     else {
-        print(
-            "qkv-seven-bit packing rejected layer=\(layer) dtype=\(scales.dtype) "
+        lagunaQKVSevenBitDiagnostic(
+            "packing rejected layer=\(layer) dtype=\(scales.dtype) "
                 + "shape=\(scales.shape) expectedRows=\(rows)")
         return nil
     }
@@ -2868,18 +2874,19 @@ private func lagunaPackQKVSevenBitScales(
     guard values.count == rows * lagunaQKVScalesPerRow,
         let minimum = values.min(), let maximum = values.max()
     else {
-        print("qkv-seven-bit packing rejected layer=\(layer) values=\(values.count)")
+        lagunaQKVSevenBitDiagnostic(
+            "packing rejected layer=\(layer) values=\(values.count)")
         return nil
     }
     guard maximum < 128 else {
-        print(
-            "qkv-seven-bit packing rejected layer=\(layer) min=\(minimum) max=\(maximum)")
+        lagunaQKVSevenBitDiagnostic(
+            "packing rejected layer=\(layer) min=\(minimum) max=\(maximum)")
         return nil
     }
     guard let packed = lagunaPackSevenBitValues(values),
         packed.count == rows * lagunaQKVPackedScalesPerRow
     else {
-        print("qkv-seven-bit packing rejected layer=\(layer) packed-size")
+        lagunaQKVSevenBitDiagnostic("packing rejected layer=\(layer) packed-size")
         return nil
     }
     if lagunaQKVSevenBitValidationEnabled {
