@@ -65,7 +65,9 @@ for ((p = 0; p < P; p++)); do
   echo "=== process $p schedule=$sched worker=$worker $(date -u +%H:%M:%S) ==="
   DECODE_PROBE_WORKER="$worker" python3 research/fern_r93_nested_probe.py \
     --runs "$R" --steps "$S" --warmup-runs "$WARMUP_RUNS" \
-    --process-index "$p" --label "$sched|$(basename "$worker")" --schedule "$sched" \
+    --process-index "$p" \
+    --label "$sched|$(basename "$(dirname "$worker")")/$(basename "$worker")" \
+    --schedule "$sched" \
     --glue-map "$GLUE_MAP" \
     --stderr "$OUT/p$(printf '%02d' "$p").err" \
     --out "$OUT/p$(printf '%02d' "$p").json" || exit 1

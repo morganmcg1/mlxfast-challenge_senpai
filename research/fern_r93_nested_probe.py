@@ -180,7 +180,14 @@ def main() -> int:
             raise SystemExit("worker error: " + json.dumps(resp))
         return resp
 
-    hello = json.loads(proc.stdout.readline())
+    hello_line = proc.stdout.readline()
+    if not hello_line.strip():
+        proc.kill()
+        raise SystemExit(
+            f"worker {args.worker} never wrote its hello line "
+            f"(exit={proc.poll()}); check {args.stderr}. A staged binary needs "
+            "mlx.metallib and the resource bundles in its own directory.")
+    hello = json.loads(hello_line)
     load_seconds = time.perf_counter() - t_launch
     print(f"worker up in {load_seconds:.1f}s ok={hello.get('ok')}", flush=True)
 
