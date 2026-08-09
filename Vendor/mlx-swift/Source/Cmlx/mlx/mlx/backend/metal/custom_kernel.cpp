@@ -107,7 +107,7 @@ void CustomKernel::eval_gpu(
   auto tg_size = tx * ty * tz;
   auto max_tg_size = kernel->maxTotalThreadsPerThreadgroup();
   if (std::getenv("MLXFAST_PRINT_CUSTOM_PIPELINE_METADATA") != nullptr &&
-      name_.rfind("laguna_full_fused_attn_grow_v1", 0) == 0) {
+      name_.find("laguna_full_fused_attn_grow_v1") != std::string::npos) {
     static std::unordered_set<std::string> printed;
     if (printed.insert(name_).second) {
       std::cerr << "PIPELINE_METADATA name=" << name_
@@ -115,7 +115,8 @@ void CustomKernel::eval_gpu(
                 << " thread_execution_width=" << kernel->threadExecutionWidth()
                 << " static_tgm=" << kernel->staticThreadgroupMemoryLength()
                 << " dispatch_threads=" << tg_size
-                << " occupancy_by_threads=" << (max_tg_size / tg_size) << '\n';
+                << " occupancy_by_threads=" << (max_tg_size / tg_size)
+                << std::endl;
     }
   }
   if (tg_size > max_tg_size) {
