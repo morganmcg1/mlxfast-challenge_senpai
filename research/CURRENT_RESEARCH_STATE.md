@@ -253,27 +253,43 @@
   no longer exists, so the only claimant on new-file bytes is gone. The release
   valve is **#548 rung 2** — 130,149 B of LRM literal-aware comment pool across
   282 blocks, already prepared and unapplied. It rewrites the whole file, so it
-  must be assigned into a round where no other arm holds an LRM hunk. Note that
-  round-103 arm C (sliding pipeline depth) *does* hold an LRM hunk, so #548
-  rung 2 must wait for the round after, or be issued only if C returns NO-GO at
-  the static-compile gate.
+  must be assigned into a round where no other arm holds an LRM hunk. **No
+  round-103 arm holds an LRM hunk** (A, B and D are measurement-only; C touches
+  only `Vendor/`), so the window is open — but every round-103 arm needs a clean
+  tree to diff against, so #548 rung 2 should be issued at the *end* of round
+  103, not alongside it.
 
 - 🎯 **Round-103 slate (four arms, issued at base `10005c80`).** Priority is set
   by the headline: 16–19 µs/step of decode is missing and unnamed, and that is
   ~5× the next-largest quantified lever.
 
+  Arms A–C are the three disjoint halves of the missing-microseconds hunt:
+  **A measures where it went, B reads what changed in our code, C tests whether
+  the vendored carve did it.** D is the largest never-attacked pool.
+
   | arm | student | question | why now |
   |---|---|---|---|
-  | **A** | tanjiro | **Where did the 16–19 µs/step go?** Differential archaeology `30f752df` (Arm R tree) vs `10005c80`, on the **Sources/JIT side**: build both, dump the exact MSL text of every decode-dispatched kernel + a `DARKBLOOM_TRACE_FUSION=1` dispatch trace (order, counts, TG sizes, buffer shapes), diff **kernel-by-kernel**, price candidates with a paired ABBA per-kernel M4 census, reconcile the sum against the M5 residual. | Largest, best-quantified, and entirely un-searched. #558 proved a top-level-*declaration* diff is too coarse (it found only R3, 0.012 %). |
-  | **B** | nezuko | **Is `f720e9e7` emitted-code-neutral?** Restore the 176,468 B of vendored comment content verbatim, then check compiled-Metal / AGX-ISA identity against current. If the ISA differs, price it by ABBA. | `sdpa_vector.h`, `quantized.cpp`, `jit_kernels.cpp` and `matmul.cpp` embed Metal source **verbatim** into JIT text (rule 74), so "comment-only" is a hypothesis, not a fact. `f720e9e7` is in the composed receipt's tree but **not** in the control `c6c66344`, so the +12.14 µs/step recovery is net of this carve. Cheapest decisive probe on the board and cleanly disjoint from A. |
-  | **C** | frieren | **Deepen the sliding-attention software pipeline 4 → 6/8** to raise in-threadgroup memory-level parallelism. | #566 proved the attention kernels are latency-bound *inside* the threadgroup at 32–34 % of peak BW; more TGs is dead, more MLP per TG is the surviving direction. Precedent: r96-a 2→4-deep gave −3.0 % of kernel (−8.25 µs/step M4, ~12σ). #561 headroom on T3a is 214.96 µs ≈ 3.27 %. **Rule 82 is mandatory: static compile + ISA/register/spill check FIRST**, because this family showed a +5–7 % flat-dose codegen tax in #540. Reuse frieren's `research/run_frieren_r102_fixed_cost.sh` + `research/frieren_r102_fit.py` (rule 58). |
-  | **D** | fern | **QKV `_idx_v1` dormancy (Rider F).** `lagunaIndexedAffineMetadata` returns nil when the LUT exceeds 65,536 entries and the QKV bank is ≈196 k pairs, so the indexed-affine fast path never fires on QKV. | QKV decode traffic is 411.30 MB/step (corrected #561 byte audit) and the fast path is simply switched off. Independent of A/B/C. |
+  | **A** | frieren | **Is the 19 µs/step reproducible on M4, and which kernel owns it?** Build `30f752df` (Arm R tree) and `7861ceaa`; paired e2e ABBA decode first (does the gap exist off-M5 at all?); then an in-situ **per-kernel census at both revisions** on nezuko's ±0.43 µs/step position-matched rig, producing a per-kernel attribution table. | The headline is inferred from official receipts across different code. Nobody has ever put the two trees side by side on a GPU. Localisation to a kernel converts an unbounded diff-read into a bounded one. |
+  | **B** | tanjiro | **What changed in *our* code between Arm R and today?** Static differential on the **Sources/JIT side**: dump the exact MSL text of every decode-dispatched kernel + a `DARKBLOOM_TRACE_FUSION=1` dispatch trace (order, counts, TG sizes, buffer shapes) at both revisions and diff **kernel-by-kernel**. Rider: resolve the QKV `_idx_v1` / `_ns1` dormancy question from the same traced step. | #558 proved a top-level-*declaration* diff is too coarse — it found only R3, worth 0.012 %. Kernel text and dispatch order are the two surfaces nobody has diffed. Consumes A's table when it lands; does not block on it. |
+  | **C** | nezuko | **Is `f720e9e7` emitted-code-neutral?** Restore the 176,468 B of vendored comment content verbatim, then check compiled-Metal / AGX-ISA identity against current. If the ISA differs, price it by ABBA. | `sdpa_vector.h`, `quantized.cpp`, `jit_kernels.cpp` and `matmul.cpp` embed Metal source **verbatim** into JIT text (rule 74), so "comment-only" is a hypothesis, not a fact. `f720e9e7` is in the composed receipt's tree but **not** in the control `c6c66344`, so the +12.14 µs/step recovery is net of this carve. Cheapest decisive probe on the board. |
+  | **D** | fern | **Decode-step gap taxonomy (H_E / archive §11.1).** Zero-receipt M4 timeline capture separating (a) inter-dispatch gaps inside a command buffer, (b) the step-boundary bubble, (c) exposed small-kernel duration. Kill criterion: boundary gap < 30 µs **and** gap sum < 300 µs. | 249 µs/step of wall-minus-busy is the largest never-attacked pool on the board; the archive prices recovery of two thirds of a 150–400 µs bubble at **+1.8–4.8 % score**, honest floor ≈0.2 %. Every closure so far killed remedies for (a) only. fern already owns `research/fern_gap_*.{py,sh}`. |
 
-  Queued alternates, in order: **#548 rung 2** (bytes, 0 % score); the
-  **CPU/step-boundary tier** (249 µs/step of wall-minus-busy gap, never
-  attacked); splitting `LagunaRuntimeModel.swift` into multiple files to
-  dissolve the per-file cap permanently. **`lm_head` int3 is dead** — the
-  harness requires an exact token match.
+  ❌ **Dropped from this slate by a rule-83 grep, before it was assigned:
+  "deepen the sliding-attention pipeline 4 → 6/8".** The archive
+  (`RESEARCH_ARCHIVE_through-round-91.md:4896` and `:6135`, PR #103) already
+  measured the depth ladder: **depth 4 = −1.039 %, depth 8 = +0.485 %**, against
+  a byte-identical-`Sources/` noise floor of +0.73 %. Depth 8 was *slower*. The
+  same archive block diagnoses both kernels as **issue/latency-bound at ≈90 % of
+  their issue-rate floor with ~84 of ~104 FP slot-equivalents pinned by
+  bit-exactness** — so the binding term is instruction issue, not memory-level
+  parallelism, and adding pipeline stages adds instructions. This is the first
+  arm rule 83 has killed, and it cost one grep instead of one student-round.
+
+  Queued alternates, in order: **#548 rung 2** (bytes, 0 % score); dependent-stage
+  folding / emission reordering (archive slate item C, **gated** on fern's arm D
+  showing drain-domination); splitting `LagunaRuntimeModel.swift` into multiple
+  files to dissolve the per-file cap permanently. **`lm_head` int3 is dead** —
+  the harness requires an exact token match.
 
   ⚠️ **Cadence policy.** `a-github-name` draws 19 receipts/day (peak 39) against
   our 12/day, and has converted a *worse* best-`cs` (2.588362 vs our 2.590559)
