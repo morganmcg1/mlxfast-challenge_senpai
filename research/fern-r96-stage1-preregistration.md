@@ -215,3 +215,57 @@ arithmetic and name the design · rule 43/44 `nat` ABBA for magnitude, SPLIT=1 i
 attribution-only · rule 45 one token-stream hash across all timed slots · rule
 51 run the numerical oracle but do not trust it for dispatch · rule 56 blocked
 randomised ladder for ranking, `perrun` for absolute savings.
+
+---
+
+# Addendum A — registered BEFORE the extension measurement
+
+Written and committed after the §2 family was measured and **FAILED bar 4(a)**
+(best admissible variant `B=32, d=5, m=7`, design (a), saved 7.220 MB/step =
+0.1099 % score, against the 21.3 MB bar), and **before** any transposed or
+per-tensor statistic was computed. The §4 verdict for the §2 family is final and
+is not reopened: that family is closed as a negative.
+
+Root cause found in D1, which motivates the extension: `down_proj` has a mean
+exponent span of **25.3** over 32 consecutive weights *along its reduction axis*
+(vs 6.8 for `gate_proj`/`up_proj`), because that axis indexes the SwiGLU
+intermediate channels whose per-channel scale spread is large. The §2 family
+forces one `d` wide enough for `down_proj` onto all three tensors.
+
+## A.1 Extensions being registered
+
+- **E1 — base granularity along the output axis.** Same reconstruction, same
+  `p = 1 + d + m`, same escape designs (a)/(b)/(c), but the uint8 exponent base
+  is shared by `B` consecutive weights along the **output** axis at a fixed
+  reduction index, i.e. `base[i / B][j]`. Cost model is unchanged: one base byte
+  per `B` weights. Kernel addressing stays O(1) and aligned: a thread owning
+  output row `i` and 8 consecutive reduction indices `j..j+7` reads 8 contiguous
+  bytes `base[i/B][j..j+7]`, and that plane is `N/B` bytes total (512 KB at
+  `B=32`), small enough to be cache-resident rather than DRAM traffic, so E1's
+  accounted cost is an upper bound.
+- **E2 — per-tensor parameters.** `(B, d, m)` chosen independently per tensor.
+  Each tensor already owns separate planes, so this adds no plane, no index and
+  no branch to the hot loop; only three compile-time or buffer constants.
+
+## A.2 Bar for the extension — unchanged, applied to the sum over three tensors
+
+Bars 4(a) `saved_B >= 21,300,000`, 4(b) addressing, 4(c) specials, 4(d)
+round-trip are re-used verbatim. 4(c) is already satisfied by D1: zero exact
+zeros, zero subnormals, zero Inf/NaN, `trailing_zero_mantissa_bits = 0` in all
+three tensors, so `m = 7` is forced and no zero delta code is reserved
+(`span_max(d) = 2^d - 1`).
+
+Selection rule: maximise total `saved_B` over the three tensors under escape
+designs (a)/(b) only, tie-break as in §3.
+
+## A.3 Outcomes
+
+- **PASS:** the terminal result reports the §2 family as a negative and the E1/E2
+  variant as the priced, round-trip-verified design; Stage 2 proceeds only if the
+  stopping rule leaves room for a build plus a matched timing pair, otherwise the
+  written design plus D1-D5 is the terminal result.
+- **FAIL:** STOP. The whole lossless-block-exponent arm is closed as a negative
+  and priced, with the census as the artifact.
+
+No third extension will be registered in this session.
+
