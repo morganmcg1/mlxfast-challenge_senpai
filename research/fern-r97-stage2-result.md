@@ -107,7 +107,46 @@ differ by only 1.4x (293.6 vs 209.7 Mop) while their non-bandwidth penalties
 differ by roughly 15x. No scalar cost model in bytes and ops can fit that, which
 is why §3d goes looking at the loop structure instead.
 
-<!-- PERRUN -->
+### 2.5 Switching-free replication: the ladder is not a switching artefact
+
+The ladder changes rung between adjacent decode steps. That is what makes it
+sharp, but it also means every ladder delta is measured on a step whose
+predecessor ran a different kernel set. A second, independent session
+(`MODE=perrun`, `P=8 R=8 S=248`, `SCHEDULE=perrun:0,1,2`) holds the rung fixed
+for an entire `decode_begin` run and alternates only *between* runs, so it
+shares no per-step ordering artefact with the ladder at all. Adjacent runs
+inside one process are paired, and the bootstrap is clustered on process.
+
+| Contrast | Ladder (blocked randomised) | Per-run (switching-free) | Ladder inside per-run CI? | Signs agree? |
+|---|---|---|---|---|
+| S2a − base (K=40) | **+69.60** [+67.54, +71.58] | **+68.79** [+56.98, +75.78], se 4.97 | yes | yes |
+| S2b − base (K=80) | **+61.96** [+60.17, +63.74] | **+59.83** [+44.87, +69.49], se 6.62 | yes | yes |
+| down marginal (K=80 − K=40) | **−7.66** [−9.84, −5.39] | **−7.98** [−18.11, −0.87], se 4.52 | yes | yes |
+
+8 processes, 16 run-pairs per contrast, 1984 records per process.
+
+Three things follow.
+
+1. **No switching artefact.** All three ladder point estimates land inside the
+   corresponding per-run interval, and no sign disagrees. Per decision rule 56
+   the two instruments keep their separate jobs — the ladder is the ranking
+   instrument, the per-run arm the absolute-saving check — and I do **not**
+   average them. The rule's inconclusive branch (sign disagreement, or a ladder
+   estimate outside the per-run CI) did not trigger.
+2. **The per-run arm is ~5x wider, as designed.** It spends the same GPU time on
+   16 run-pairs instead of 3099 blocks, so it cannot resolve the sign of a small
+   effect. It does not need to: the effect here is large, and both arms exclude
+   zero on the same side. This is why the ladder, not the per-run arm, carries
+   the verdict.
+3. **The down plane's sign survives the harder test.** The down marginal is the
+   one genuinely small effect in the experiment, and it is the one most at risk
+   of being an ordering artefact of the ladder. The switching-free arm
+   reproduces it at −7.98 µs with an interval that still excludes zero. The
+   only plane that converted bytes into time did so under both instruments.
+
+Bit-exactness also replicates across sessions: all 8 per-run processes emit
+token-stream hash `082682744836a553` with 0 teacher-forced mismatches — the
+same hash as all 12 ladder processes, from a separately launched session.
 
 ## 3. Escape census, confirmed at load time
 
