@@ -480,6 +480,142 @@ Stop at the first of: (1) rung-1 outcome 2, 3, or 4; (2) rung-2 table published
 with its reconciliation residual; (3) rung 0 blocked after exhausting the
 fallback anchors.
 
+### 1.11 Amendment `r103-a-fb2-retract-20p15-three-arm` — the target is retracted and the arm becomes three-way
+
+Received 2026-08-09T22:22:23Z, **while the rung-1 job was running and before I
+had looked at any rung-1 number**. Timestamped disclosure: at the moment this
+amendment arrived the run had completed 64 of its 104 slots and the only rung-1
+quantity I had observed was the slot *count* (`grep -c`). The interim medians I
+had seen much earlier are the ones already disclosed in § 1.5c; nothing new was
+unblinded before this amendment was written down.
+
+#### What the advisor retracted
+
+Two independent results say the +20.149 µs/step of `T` I was sent to localise
+**may not exist**:
+
+1. **Provenance.** The frontier receipt `e08d759f` was produced by `bd33883e`,
+   whose local tree is `a4d3b8dc`, whose `Sources/` is byte-identical to
+   `e17bdeb1` — *not* by the assignment base `0f6862d0`. The base is that tree
+   **plus R3** (#558). I verified both halves locally:
+
+   ```
+   git diff --numstat e17bdeb1 a4d3b8dc -- Sources          -> (empty)
+   git diff --numstat e17bdeb1 0f6862d0 -- Sources Vendor
+     102  11  Sources/MLXFastModel/LagunaRuntimeModel.swift  -> exactly R3
+   ```
+
+   So the contrast I preregistered (`30f752df` → `0f6862d0`) is **not** the
+   receipt pair the 20.149 came from. It is that pair *composed with an
+   unmeasured third change*.
+
+2. **Replicate noise.** Five same-session receipts from trees differing only by
+   a marker comment span `sd(T) = 14.272 µs/step`; the trimmed pooled figure
+   over six identical-code groups is `sd(T) = 12.079`. A difference of two
+   single receipts therefore carries σ = 17.1–20.2 µs/step, so the
+   "missing microseconds" sit at **z = 1.00–1.18**. This is the measured
+   version of the model-based objection I had already recorded as § 1.5d
+   Adopted 2 (which estimated 17.6–29.3 µs/step from an assumed 0.3–0.5 % `s`).
+   The measured value lands inside that predicted band, which is a small
+   independent corroboration of that critique.
+
+#### What changes, precisely
+
+| item | before | after |
+|---|---|---|
+| status of rung 1 | corroboration of a receipt-derived effect | **the primary experiment** |
+| arms | 2 (`old`=A, `new`=C) | **3**: `A`=`30f752df`, `B`=`e17bdeb1`, `C`=`0f6862d0` |
+| falsification target | localise +20.149 | **test whether A↔B is nonzero at all** |
+| second contrast | — | **B↔C = R3, never measured anywhere** |
+| rung 2 | fires on outcome 1 | fires only if a contrast is real; if B↔C is real, point the census at R3's `+102/−11` hunk instead |
+| reporting | outcome label | **an exclusion bound with X attached, always** |
+| nulls | N-1 … N-4 | **plus N-5**: all three arms mutually indistinguishable ⇒ report half-widths and stop |
+
+The half-width target is unchanged and is now load-bearing: **< 8 µs/step M4**.
+
+#### What this does *not* change
+
+The instrument, the parity gate, the rule-75 digest discipline, the rule-79
+identical-code null, the per-slot statistic (§ 1.5a), the diagnostics
+(§ 1.5b, § 1.5d), the transfer-factor sensitivity table (§ 1.5d Adopted 1), and
+the static pre-read in § 2 all stand unmodified. § 2 was a pre-read of A→C; it
+decomposes cleanly, because A→B carries the entire vendored comment carve and
+all three NEW-only decode mechanisms, while B→C is exactly R3.
+
+#### Disposition of the already-running rung-1 job
+
+I am **not** killing it. It measures **A↔C** — the composed contrast — at
+K = 24 pairs with an embedded identical-code null, using the same binaries that
+rung 1B will reuse. It is the one contrast that is *not* directly recoverable
+from the three-arm run's own pairs without re-deriving it, it supplies the
+per-repetition σ needed to size rung 1B honestly, and it is the design I
+preregistered. Discarding preregistered data because an amendment arrived
+mid-flight would be the worse of the two errors. Rung 1B re-measures A↔C
+independently, so the two runs also cross-check each other.
+
+#### Rung 1B design (preregistered here, before rung 1 is unblinded)
+
+Six slots per repetition in a **palindrome**:
+
+```
+pos     1  2  3  4  5  6
+arm     A  B  C  C  B  A
+```
+
+* Each arm's per-repetition estimate is the mean of two slots placed
+  symmetrically about the repetition midpoint, so **linear session drift
+  cancels to first order in all three contrasts**, not just one privileged
+  pair. This is strictly better than the 4-slot design, where only the interior
+  pair was matched.
+* Variance per repetition improves by √2 over a single-slot pair: with i.i.d.
+  slot noise σ, `Var(B̂ − Â) = σ²` rather than `2σ²`.
+* The three within-arm differences are rule-79 identical-code nulls at
+  **separations 5 (A), 3 (B) and 1 (C)**. That is a *drift-versus-separation
+  curve*, which directly answers § 1.5d Adopted 3: the two-arm design could
+  only offer one separation and had to argue it was conservative. Here the
+  contrasts are drift-cancelled by construction and the nulls bound the raw
+  drift at three scales.
+* Warm-up: the first repetition is discarded. The palindrome is self-balancing
+  within a repetition, so unlike the 4-slot design there is no even/odd cycle
+  to keep intact and one repetition suffices.
+* `STEPS` stays at 250. The teacher-forced fixture supplies 256 expected
+  tokens, so this is the cap, not a tuning choice.
+* `REPS` is chosen from the per-repetition σ that rung 1 measures, to put the
+  worst pairwise half-width below 8 µs/step. This is a power calculation on a
+  *variance* estimated from a different design's slots, not a look at any
+  contrast, so it does not unblind the decision. The chosen value and the σ it
+  came from are both published in § 4.
+
+#### Rung 1B decision rule (fixed now)
+
+For every pair, report the paired 95 % CI and the **exclusion bound**
+`X = max(|lo|, |hi|)`, in M4 µs/step and in M5-equivalent µs/step at the R1
+factor, with the four-assumption sensitivity of § 1.5d Adopted 1 alongside. Then:
+
+1. **A↔B CI contains 0 and `X·0.622 < 20.15`** ⇒ the "missing microseconds" are
+   refuted at M5 magnitude on this host. Report the bound; no rung 2 for A↔B.
+2. **A↔B CI excludes 0 with positive sign** ⇒ the effect is real and
+   host-portable; rung 2 on A↔B.
+3. **B↔C CI excludes 0 with positive sign** ⇒ R3 costs time at the top of our
+   tree; rung 2 on R3's hunk. This is treated as **co-equal** with A↔B, per the
+   amendment, and it is the outcome with the largest immediate value because
+   R3 is currently merged and unmeasured.
+4. **Any null CI excludes 0 at a magnitude comparable to a contrast** ⇒ N-2
+   fires and every contrast is downgraded to inconclusive.
+5. **All three contrasts contain 0** ⇒ **N-5**; report the three half-widths
+   and stop.
+
+Outcomes 2 and 3 are not exclusive; if both fire, rung 2 goes to B↔C first
+because its diff is 102 lines rather than 286 commits.
+
+#### Reporting discipline adopted verbatim
+
+No contrast in this document will be described as "neutral", "null" or
+"unchanged" without an attached X of the form *"excludes effects larger than X
+µs/step"*. Where a bound is quoted in M5-equivalent units the transfer
+assumption is named in the same sentence.
+
+
 ---
 
 ## § 2 Static pre-read of the OLD→NEW delta (no timing)
