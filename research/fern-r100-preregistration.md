@@ -38,9 +38,12 @@ roofline_side   = ISSUE_BOUND if unique_GB_s < 0.40 * dram_peak_GB_s
 ```
 
 `dram_peak_GB_s` is printed by the probe. Documented constant for this host:
-**260.2 GB/s** measured on this M4 Pro by earlier programme work (STREAM-style
-read probe); Apple's specified LPDDR5X peak for M4 Pro is 273 GB/s. Both are
-printed so a reader can redo the division.
+**266.3 GB/s**, the measured sequential-read peak from PR #498 / rule 55
+(`research/CURRENT_RESEARCH_STATE.md:1312`, `t = 3.97 µs + bytes / 266.3 GB/s`;
+the same page notes 242.0 GB/s = 92.2 % of it was reached by a real kernel).
+Apple's specified LPDDR5X peak for M4 Pro is 273 GB/s. Both are printed so a
+reader can redo the division, and I use 266.3 rather than the spec number
+because it is the one this programme actually measured on this host.
 
 All per-dispatch byte counts are derived from (i) the probe's own buffer lengths
 and dispatch parameters and (ii) `constexpr` values **parsed out of the kernel
@@ -86,21 +89,45 @@ delta needs the pool time `P` of that kernel:
 predicted_step_delta = -0.14 * P
 ```
 
-Taking rule 70's routed-expert pool figure (≈600 µs/step for the routed expert
-work; the gate/up QMV kernel is a subset of it, so P <= ~600 µs) gives
-`predicted_step_delta >= -84 µs/step`. The in-situ instrument's own same-arm
-spread was **137.2 µs/tok**, i.e. **1.6× larger than the effect it was asked to
-resolve**. A single ABBA block therefore **could not have rejected the probe's
-prediction**, and the observed −25.5 µs is consistent both with −84 µs and with
-0.
+`P` for this exact kernel is already recorded, so I do not have to guess it.
+`research/maple-fern-decode-marginal-cost-ledger.md:435` gives, for
+`T2c_routed_qmv` = `laguna_routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2`
+over 39 layers:
 
-So I register now: **the 70× figure conflates a kernel-relative with a
-step-relative percentage, and the in-situ leg was underpowered.** The honest
-prior is that the probe *may* still be overstating (the direction of rule 71 is
-right) but the size of the overstatement is **not measured**. I will not treat
-−0.196 % as a point calibration target; I will treat
-`[-84 µs, 0]` as the in-situ-compatible band and ask which probe mode lands
-inside it.
+| quantity | value | which one is the right multiplier |
+|---|---|---|
+| census (sum of GPU kernel time) | **1569.8 µs/step** | upper bound; ignores that the pool overlaps other work |
+| marginal (measured duplicate-pass cost) | **1183.81 ± 8.44 µs/step** | correct multiplier for "does removing this work shorten the wall clock" |
+| chain-link efficiency `E` | **0.754** | ratio of the two |
+
+So the probe's −14 %, taken at face value, predicts
+
+```
+census-scaled : -0.14 * 1569.8   = -219.8 us/step
+marginal-scaled: -0.14 * 1183.81 = -165.7 us/step   <-- the one I will use
+```
+
+Against the 13103.1 µs/tok local-iterate base that is **−1.26 %**, not −14 %.
+The measured in-situ delta was −25.5 µs/tok (−0.196 %) with a same-arm base
+spread of **137.2 µs/tok**; treating that range as ≈4σ gives σ≈60 µs/tok per arm
+and SE(difference) ≈ 85 µs, so the measured 95 % interval is roughly
+**[−193, +142] µs/tok** — which **contains the probe's −165.7 µs prediction**.
+
+I therefore register now, before reading any new number:
+
+1. **The "≈70×" figure is 14 % ÷ 0.196 %, i.e. a kernel-relative percentage
+   divided by a step-relative percentage.** It is not a measured discrepancy.
+2. Converted onto the same axis, the probe over-predicted by at most
+   `165.7 / 25.5 ≈ 6.5×` in µs — and **the in-situ leg had no power to establish
+   even that**, because its own 95 % interval covers the prediction.
+3. Consequently I will not treat −0.196 % as a point calibration target. The
+   registered in-situ-compatible band is `[-193, +142] µs/tok`, i.e. any probe
+   mode whose pool-multiplied prediction is `>= -193 µs/step` is *consistent*
+   with #543's in-situ leg, and the resident-mode prediction (−165.7 µs) already
+   is. The discriminating question for P1.3 is therefore not "does defeat mode
+   explain the gap" but **"is the probe's verdict stable under residency at
+   all"** — a much better-posed question, and the one P1.2's null control can
+   actually answer.
 
 ### 3.2 Registered prediction for resident vs defeat
 
@@ -119,7 +146,7 @@ inside it.
 | outcome | what I will believe | how I would test it next |
 |---|---|---|
 | defeat collapses to `|d| <= 2 %` | Residency was the whole story. Every historical probe verdict on a byte-heavy kernel is a codegen measurement, not a performance prediction, and rule 71 should be strengthened to "resident-mode probe results on byte-heavy kernels are inadmissible as timing predictions". | Re-run one previously *accepted* probe verdict in defeat mode and check the sign/size against its receipt. |
-| defeat lands in `[−8 %, −1 %]` (my prediction) | Residency inflated the effect by the predicted factor, and the true kernel-relative effect times the pool is `~0.04 * P <= 24 µs/step` — below both σ(cand_dec)=14.4 µs and the 68.7 µs record bar. The #543 close stands, and the probe is usable **only** in defeat mode with an explicit pool multiplication. | Nothing further for #543. Adopt defeat mode as the default for all byte-heavy kernels. |
+| defeat lands in `[−8 %, −1 %]` (my prediction) | Residency inflated the effect by the predicted factor, and the true kernel-relative effect times the marginal pool is `~0.04 * 1183.81 = 47 µs/step` — below the 68.7 µs record bar, and only ≈0.36 % of a 13103 µs/tok step. The #543 close stands, and the probe is usable **only** in defeat mode with an explicit pool multiplication. | Nothing further for #543. Adopt defeat mode as the default for all byte-heavy kernels. |
 | defeat stays at ≈−14 % | Residency was **not** the story and my §7.10 explanation was right for the wrong reason. Then the candidates for the gap are, in the order I would believe them: (1) the in-situ leg was simply underpowered (see §3.1 — this is now my leading alternative, and it predicts the probe was *right*); (2) the in-situ swap did not actually reach the JIT kernel text that the probe compiled; (3) 39-layer serialization plus MLX per-dispatch host cost dilutes any kernel-internal win. | Test (1) directly: N ABBA blocks until the standard error is below 30 µs/tok, which from a 137.2 µs range (σ≈60 µs) needs ~2×(60/30)² ≈ 8 blocks. Test (2) by dumping the JIT'd MSL from the in-situ worker and diffing against `stage4_cand.metal`. |
 | defeat null control fails | Instrument broken. Report immediately; no verdict on anything else. | Bisect the rotation: rotate only reads, then only writes. |
 
