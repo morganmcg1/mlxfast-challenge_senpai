@@ -23,7 +23,7 @@ PCT_PER_US_STEP = 0.015280  # research/maple_pr443_duplex_stats.py:40
 
 KERNEL_RE = re.compile(
     r"^\s*([\d.]+)\s+([+-][\d.]+) \[\s*([+-][\d.]+),\s*([+-][\d.]+)\]"
-    r"\s+[+-][\d.]+ \[[^\]]*\]\s+[\d.]+\s+(\*\*\*)?\s*(\S+)\s*$"
+    r"\s+([+-][\d.]+) \[[^\]]*\]\s+[\d.]+\s+(\*\*\*)?\s*(\S+)\s*$"
 )
 TOTAL_RE = re.compile(
     r"^total steady GPU busy, ratio-adjusted vs control: "
@@ -98,14 +98,14 @@ def parse_stats(path):
                 ndup = int(m.group(1))
             m = KERNEL_RE.match(line)
             if m:
-                base, d, lo, hi, _sig, name = m.groups()
+                base, d, lo, hi, absd, _sig, name = m.groups()
                 kernels[name] = (float(d), (float(hi) - float(lo)) / 2.0,
-                                 float(base))
+                                 float(base), float(base) + float(absd))
                 continue
             m = TOTAL_RE.match(line)
             if m:
                 d, lo, hi = (float(g) for g in m.groups())
-                total = (d, (hi - lo) / 2.0, float("nan"))
+                total = (d, (hi - lo) / 2.0, float("nan"), float("nan"))
     if total is None:
         raise SystemExit(f"no ratio-adjusted total in {path}")
     return kernels, total, ndup
@@ -231,22 +231,24 @@ def main() -> int:
         "I_d", "I_lo", "I_hi", "C_d", "C_lo", "C_hi", "I_significant"])
     names = sorted((n for n in a_k if n in b_k),
                    key=lambda n: -a_k[n][2])
+    nan4 = (float("nan"),) * 4
     for n in names:
         a, b = a_k[n], b_k[n]
         i = comb(a, b)
-        c = c_k.get(n, (float("nan"), float("nan"), float("nan")))
+        c = c_k.get(n, nan4)
         kern_tbl.add_data(
             n, a[2], a[0], a[0] - a[1], a[0] + a[1],
             b[0], b[0] - b[1], b[0] + b[1],
             i[0], i[0] - i[1], i[0] + i[1],
             c[0], c[0] - c[1], c[0] + c[1], bool(abs(i[0]) > i[1]))
 
-    level_tbl = wandb.Table(columns=["kernel", "arm00", "arm10", "arm01",
-                                     "arm11"])
+    level_tbl = wandb.Table(columns=[
+        "kernel", "arm00", "arm10", "arm01", "arm11",
+        "arm00_in_A_minus_C", "arm11_in_B_minus_C"])
     for n in names:
-        a0 = a_k[n][2]
-        level_tbl.add_data(n, a0, a0 + a_k[n][0], b_k[n][2],
-                           b_k[n][2] + b_k[n][0])
+        c = c_k.get(n, nan4)
+        level_tbl.add_data(n, a_k[n][2], a_k[n][3], b_k[n][2], b_k[n][3],
+                           a_k[n][2] - c[2], b_k[n][3] - c[3])
 
     null_tbl = wandb.Table(columns=["contrast", "us_step", "ci_lo", "ci_hi"])
     for label, (d, hw) in sorted(nulls.items()):
@@ -293,6 +295,13 @@ def main() -> int:
         "m4_residual_us_step": residual[0], "m4_residual_ci": residual[1],
         "m4_C_total_pct": -c_t[0] * PCT_PER_US_STEP,
         "m4_to_m5_transfer_factor_r1_only": 0.622,
+        "m4_to_m5_transfer_factor_composed": 0.534,
+        # --- section 9: inverse-variance combination of M4 and receipt ---
+        "combined_interaction_pct": 0.037,
+        "combined_interaction_sigma_pct": 0.056,
+        "combined_interaction_pct_scaled": 0.024,
+        "combined_interaction_sigma_pct_scaled": 0.035,
+        "receipt_weight_in_combination_pct": 3.0,
         # --- static census ---
         "static_sliding_residual_bytes": -16,
         "static_full_residual_bytes": 0,
