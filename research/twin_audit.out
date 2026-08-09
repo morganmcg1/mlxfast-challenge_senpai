@@ -1,0 +1,99 @@
+note  arange                     [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/arange.h
+note  binary                     [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/binary.h
+note  binary_ops                 [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/binary_ops.h
+note  binary_two                 [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/binary_two.h
+OK    compiled_preamble          [readonly] sections= 0 checked= 0 skipped=0
+note  conv                       [readonly] sections=11 checked=11 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/conv/conv.h
+note  copy                       [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/copy.h
+note  fft                        [readonly] sections= 4 checked= 4 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/fft.h
+note  fp_quantized               [EDITABLE] sections= 3 checked= 3 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/fp_quantized.h
+note  fp_quantized_nax           [EDITABLE] sections= 3 checked= 3 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/fp_quantized_nax.h
+note  gather                     [readonly] sections= 2 checked= 2 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/indexing/gather.h
+note  gather_axis                [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/indexing/gather_axis.h
+note  gather_front               [EDITABLE] sections= 2 checked= 2 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/indexing/gather_front.h
+note  gemm                       [EDITABLE] sections= 9 checked= 9 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/gemm.h
+note  gemm_nax                   [EDITABLE] sections= 9 checked= 8 skipped=1
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/gemm_nax.h
+note  gemv                       [EDITABLE] sections= 8 checked= 8 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/gemv.h
+note  gemv_masked                [readonly] sections= 2 checked= 2 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/gemv_masked.h
+note  hadamard                   [readonly] sections= 2 checked= 2 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/hadamard.h
+note  logsumexp                  [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/logsumexp.h
+note  masked_scatter             [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/indexing/masked_scatter.h
+note  quantized                  [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/quantized.h
+note  quantized_nax              [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/quantized_nax.h
+note  quantized_utils            [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/quantized_utils.h
+note  reduce                     [EDITABLE] sections= 5 checked= 5 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/reduce.h
+note  reduce_utils               [EDITABLE] sections= 3 checked= 3 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/reduce_utils.h
+note  scan                       [readonly] sections= 2 checked= 2 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/scan.h
+note  scatter                    [readonly] sections= 2 checked= 2 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/indexing/scatter.h
+note  scatter_axis               [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/indexing/scatter_axis.h
+note  softmax                    [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/softmax.h
+note  sort                       [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/sort.h
+note  steel_attention            [EDITABLE] sections=11 checked=11 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/attn/kernels/steel_attention.h
+note  steel_attention_nax        [EDITABLE] sections= 9 checked= 8 skipped=1
+        same code lines, different order: mlx/backend/metal/kernels/steel/attn/kernels/steel_attention_nax.h
+note  steel_conv                 [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/conv/kernels/steel_conv.h
+note  steel_conv_3d              [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/conv/kernels/steel_conv_3d.h
+note  steel_conv_general         [readonly] sections= 3 checked= 3 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/conv/kernels/steel_conv_general.h
+note  steel_gemm_fused           [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused.h
+note  steel_gemm_fused_nax       [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_fused_nax.h
+note  steel_gemm_gather          [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_gather.h
+note  steel_gemm_gather_nax      [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_gather_nax.h
+note  steel_gemm_masked          [readonly] sections= 2 checked= 2 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_masked.h
+note  steel_gemm_segmented       [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_segmented.h
+note  steel_gemm_segmented_nax   [readonly] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_segmented_nax.h
+note  steel_gemm_splitk          [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_splitk.h
+note  steel_gemm_splitk_nax      [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/steel/gemm/kernels/steel_gemm_splitk_nax.h
+note  ternary                    [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/ternary.h
+note  ternary_ops                [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/ternary_ops.h
+note  unary                      [EDITABLE] sections= 1 checked= 1 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/unary.h
+note  unary_ops                  [EDITABLE] sections= 5 checked= 5 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/unary_ops.h
+note  utils                      [readonly] sections= 6 checked= 6 skipped=0
+        comment/formatting-only drift: mlx/backend/metal/kernels/utils.h
+
+TWIN AUDIT: 0/49 twin(s) with code drift, 48 with reordering or comment-only drift

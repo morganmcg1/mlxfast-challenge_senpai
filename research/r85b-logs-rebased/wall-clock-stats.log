@@ -1,0 +1,60 @@
+cbs-per-step observed in this session: [406, 406, 406, 406] (#457 used 406)
+
+loaded 24 runs, 199 steady steps each
+slot order: base cand cand2 cand2 cand base base cand cand2 cand2 cand base base cand cand2 cand2 cand base base cand cand2 cand2 cand base
+
+=== EFFECT  base vs cand (offset 0) ===
+  base level              9808.0 us/step
+  n duplexes              8
+  per-duplex SD           110.54 us/step
+  point estimate          -8.89 us/step (-0.0906%)
+  two-sided 95% CI        [-101.32, +83.54]
+  one-sided 95% UPPER     +65.17 us/step  (the neutrality-relevant bound)
+  vs margin delta=+5.00: NOT ESTABLISHED
+  delta_min(n=8) = (1.895+0.896)*110.54/sqrt(8) = 109.08 us/step
+    same SD at n=8   -> floor 109.08  |  one-sided halfwidth  74.06
+    same SD at n=16  -> floor  72.38  |  one-sided halfwidth  48.44
+    same SD at n=24  -> floor  58.03  |  one-sided halfwidth  38.67
+  95% CI on the SD itself [73.09, 224.97] us/step (x[0.66, 2.04])
+
+=== LOTTERY cand vs cand2 (offset 1) ===
+  base level              9799.0 us/step
+  n duplexes              8
+  per-duplex SD           87.19 us/step
+  point estimate          -15.76 us/step (-0.1608%)
+  two-sided 95% CI        [-88.67, +57.15]
+  one-sided 95% UPPER     +42.66 us/step  (the neutrality-relevant bound)
+  vs margin delta=+5.00: NOT ESTABLISHED
+  delta_min(n=8) = (1.895+0.896)*87.19/sqrt(8) = 86.04 us/step
+    same SD at n=8   -> floor  86.04  |  one-sided halfwidth  58.42
+    same SD at n=16  -> floor  57.09  |  one-sided halfwidth  38.21
+    same SD at n=24  -> floor  45.78  |  one-sided halfwidth  30.51
+  95% CI on the SD itself [57.65, 177.46] us/step (x[0.66, 2.04])
+
+=== NULL    cand2 vs cand2 (offset 0) ===
+  base level              9783.2 us/step
+  n duplexes              4
+  per-duplex SD           78.93 us/step
+  point estimate          -20.66 us/step (-0.2111%)
+  two-sided 95% CI        [-146.23, +104.92]
+  one-sided 95% UPPER     +72.21 us/step  (the neutrality-relevant bound)
+  vs margin delta=+5.00: NOT ESTABLISHED
+  delta_min(n=4) = (2.353+0.978)*78.93/sqrt(4) = 131.46 us/step
+    same SD at n=8   -> floor  77.88  |  one-sided halfwidth  52.88
+    same SD at n=16  -> floor  51.68  |  one-sided halfwidth  34.59
+    same SD at n=24  -> floor  41.44  |  one-sided halfwidth  27.61
+  95% CI on the SD itself [44.71, 294.15] us/step (x[0.57, 3.73])
+
+=== NULL    base vs base (offset 1) ===
+  base level              9808.0 us/step
+  n duplexes              3
+  per-duplex SD           155.35 us/step
+  point estimate          -42.57 us/step (-0.4341%)
+  two-sided 95% CI        [-428.51, +343.36]
+  one-sided 95% UPPER     +219.32 us/step  (the neutrality-relevant bound)
+  vs margin delta=+5.00: NOT ESTABLISHED
+  delta_min(n=3) = (2.920+1.061)*155.35/sqrt(3) = 357.05 us/step
+    same SD at n=8   -> floor 153.29  |  one-sided halfwidth 104.08
+    same SD at n=16  -> floor 101.71  |  one-sided halfwidth  68.08
+    same SD at n=24  -> floor  81.56  |  one-sided halfwidth  54.35
+  95% CI on the SD itself [71.85, 472.70] us/step (x[0.46, 3.04])

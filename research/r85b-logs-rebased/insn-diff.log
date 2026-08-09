@@ -1,0 +1,43 @@
+== _$s12MLXFastModel013LagunaRuntimeB5InnerCyAcA0C6ConfigVcfc
+   base 374 insns -> cand 375 insns
+   --- base
+   +++ cand
+   @@ -91,12 +91,13 @@
+    stur	x8, [x29, #-HEX]
+    mov	x0, x24
+    bl	HEX SYM
+    sub	x20, x29, #HEX
+    mov	x0, x22
+    bl	HEX SYM
+   +mov	x0, #HEX
+    bl	HEX SYM
+    mov	x25, x0
+    mov	x20, #HEX
+    add	x28, x20, #HEX
+    mov	x0, x25
+    mov	w1, #HEX
+
+== _$s12MLXFastModel25LagunaRuntimeDecoderLayerC_8layerIdxAcA0C6ConfigV_Sitcfc
+   base 183 insns -> cand 184 insns
+   --- base
+   +++ cand
+   @@ -57,12 +57,13 @@
+    orr	x1, x24, #HEX
+    mov	x0, #HEX
+    movk	x0, #HEX, lsl #IMM
+    bl	HEX SYM
+    str	x0, [x19, #HEX]
+    ldr	x23, [x19, #HEX]
+   +mov	x0, #HEX
+    bl	HEX SYM
+    mov	w1, #HEX
+    mov	w2, #HEX
+    bl	HEX SYM
+    mov	x20, x0
+    mov	x0, x23
+
+=== mnemonic-multiset comparison (operands ignored) ===
+MNEMONICS DIFFER  _$s12MLXFastModel013LagunaRuntimeB5InnerCyAcA0C6ConfigVcfc
+   only-in-cand mnemonics: ['mov']
+MNEMONICS DIFFER  _$s12MLXFastModel25LagunaRuntimeDecoderLayerC_8layerIdxAcA0C6ConfigV_Sitcfc
+   only-in-cand mnemonics: ['mov']

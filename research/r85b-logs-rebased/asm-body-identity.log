@@ -1,0 +1,58 @@
+
+############################################################
+# asm base vs cand :: needle=LagunaRuntime
+############################################################
+symbols disassembled: base=119 cand=119 (requested 119)
+  body-identical            : 116
+  identical modulo islands  : 1
+  body-DIFFERENT            : 2
+  present on one side only  : 0
+    [island] _$s12MLXFastModel16LagunaRuntimeMLPC14callAsFunctiony3MLX8MLXArrayCAGF
+    [DIFF] 374->375 insns  _$s12MLXFastModel013LagunaRuntimeB5InnerCyAcA0C6ConfigVcfc
+    [DIFF] 183->184 insns  _$s12MLXFastModel25LagunaRuntimeDecoderLayerC_8layerIdxAcA0C6ConfigV_Sitcfc
+# exit=1
+
+############################################################
+# asm cand vs cand2 :: needle=LagunaRuntime
+############################################################
+symbols disassembled: base=119 cand=119 (requested 119)
+  body-identical            : 119
+  identical modulo islands  : 0
+  body-DIFFERENT            : 0
+  present on one side only  : 0
+# exit=0
+
+############################################################
+# asm base vs cand :: needle=12MLXFastModel
+############################################################
+symbols disassembled: base=926 cand=926 (requested 926)
+  body-identical            : 917
+  identical modulo islands  : 2
+  body-DIFFERENT            : 3
+  present on one side only  : 8
+    [island] _$s12MLXFastModel12LagunaConfigVWOc
+    [island] _$s12MLXFastModel16LagunaRuntimeMLPC14callAsFunctiony3MLX8MLXArrayCAGF
+    [DIFF] 374->375 insns  _$s12MLXFastModel013LagunaRuntimeB5InnerCyAcA0C6ConfigVcfc
+    [DIFF] 20->11 insns  _$s12MLXFastModel24LagunaNativeAffineWeightVWOh
+    [DIFF] 183->184 insns  _$s12MLXFastModel25LagunaRuntimeDecoderLayerC_8layerIdxAcA0C6ConfigV_Sitcfc
+    [one-side] _$s12MLXFastModel30lagunaDecodeEmbeddingRoPEAtlas6tokens15embeddingWeight9fullAtlas07slidingL08position3MLX8MLXArrayC6hidden_AJ0K6
+    [one-side] _$s12MLXFastModel30lagunaDecodeEmbeddingRoPEAtlas<PRIV>6tokens15embeddingWeight9fullAtlas07slidingT08position3MLX8MLXArrayC6hidden
+    [one-side] _$s12MLXFastModel33makeLagunaAttentionGateProjection<PRIV>5heads7headDim3MLX8MLXArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi4
+    [one-side] _$s12MLXFastModel33makeLagunaAttentionGateProjection<PRIV>5heads7headDim3MLX8MLXArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi6
+    [one-side] _$s12MLXFastModel34lagunaRouterPrecomputedKeysEnabled<PRIV>_WZ
+    [one-side] _$s12MLXFastModel34lagunaRouterPrecomputedKeysEnabled_WZ
+    [one-side] _$s12MLXFastModel34lagunaTerminalPrefillFusionEnabled<PRIV>_WZ
+    [one-side] _$s12MLXFastModel34lagunaTerminalPrefillFusionEnabled_WZ
+# exit=1
+
+############################################################
+# asm cand vs cand2 :: needle=12MLXFastModel
+############################################################
+symbols disassembled: base=926 cand=926 (requested 926)
+  body-identical            : 926
+  identical modulo islands  : 0
+  body-DIFFERENT            : 0
+  present on one side only  : 0
+# exit=0
+
+########## asm done ##########

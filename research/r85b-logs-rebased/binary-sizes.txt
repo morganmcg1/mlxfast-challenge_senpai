@@ -1,0 +1,3 @@
+base size=49091816
+cand size=49092440
+cand2 size=49092440

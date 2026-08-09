@@ -1,0 +1,37 @@
+only-in-BASE (4):
+   [ 353 insns] _$s12MLXFastModel30lagunaDecodeEmbeddingRoPEAtlas<PRIV>6tokens15embeddingWeight9fullAtlas07slidingT08position3MLX8MLXArrayC6hidden_AK0S6AnglesAK0uZ0tSgAK_A3KSitF
+   [ 188 insns] _$s12MLXFastModel33makeLagunaAttentionGateProjection<PRIV>5heads7headDim3MLX8MLXArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi48pSi128_nTm
+   [  81 insns] _$s12MLXFastModel34lagunaRouterPrecomputedKeysEnabled<PRIV>_WZ
+   [  81 insns] _$s12MLXFastModel34lagunaTerminalPrefillFusionEnabled<PRIV>_WZ
+only-in-CAND (4):
+   [ 353 insns] _$s12MLXFastModel30lagunaDecodeEmbeddingRoPEAtlas6tokens15embeddingWeight9fullAtlas07slidingL08position3MLX8MLXArrayC6hidden_AJ0K6AnglesAJ0mR0tSgAJ_A3JSitF
+   [ 188 insns] _$s12MLXFastModel33makeLagunaAttentionGateProjection<PRIV>5heads7headDim3MLX8MLXArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi64pSi128_nTm
+   [  81 insns] _$s12MLXFastModel34lagunaRouterPrecomputedKeysEnabled_WZ
+   [  81 insns] _$s12MLXFastModel34lagunaTerminalPrefillFusionEnabled_WZ
+
+=== body-identical partners across the one-side sets ===
+base _$s12MLXFastModel30lagunaDecodeEmbeddingRoPEAtlas<PRIV>6tokens15embeddingWeight9fullAtlas07slidingT08position3MLX8MLXArrayC6hidden_AK0S6AnglesAK0uZ0tSgAK_A3KSitF
+     -> 1 partner(s)
+        _$s12MLXFastModel30lagunaDecodeEmbeddingRoPEAtlas6tokens15embeddingWeight9fullAtlas07slidingL08position3MLX8MLXArrayC6hidden_AJ0K6AnglesAJ0mR0tSgAJ_A3JSitF
+base _$s12MLXFastModel33makeLagunaAttentionGateProjection<PRIV>5heads7headDim3MLX8MLXArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi48pSi128_nTm
+     -> 1 partner(s)
+        _$s12MLXFastModel33makeLagunaAttentionGateProjection<PRIV>5heads7headDim3MLX8MLXArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi64pSi128_nTm
+base _$s12MLXFastModel34lagunaRouterPrecomputedKeysEnabled<PRIV>_WZ
+     -> 2 partner(s)
+        _$s12MLXFastModel34lagunaRouterPrecomputedKeysEnabled_WZ
+        _$s12MLXFastModel34lagunaTerminalPrefillFusionEnabled_WZ
+base _$s12MLXFastModel34lagunaTerminalPrefillFusionEnabled<PRIV>_WZ
+     -> 2 partner(s)
+        _$s12MLXFastModel34lagunaRouterPrecomputedKeysEnabled_WZ
+        _$s12MLXFastModel34lagunaTerminalPrefillFusionEnabled_WZ
+
+only-in-base symbols with no body-identical partner: 0
+exit=0
+--- base: 3 ---
+    XArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi48pSi128_n
+    rrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi48pSi128_nTm
+    XArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi64pSi128_n
+--- cand: 3 ---
+    XArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi48pSi128_n
+    XArrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi64pSi128_n
+    rrayCAH_A2HtYbcSi_SitFA2H_A2HtYbcfU_S2iTf3nnnpSi64pSi128_nTm
