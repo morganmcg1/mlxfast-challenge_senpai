@@ -2096,7 +2096,7 @@ template <
     int WM,
     int WN,
     bool transpose,
-    bool indexed_rhs>
+    bool indexed_rhs = false>
 [[kernel]] void fp_gather_qmm_rhs(
     const device T* x,
     const device uint32_t* w,
