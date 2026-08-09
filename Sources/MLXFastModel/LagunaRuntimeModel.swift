@@ -148,10 +148,10 @@ final class LagunaPackedScalesLog: @unchecked Sendable {
         let fallback = maxCodes.count - compact
         precondition(maxCodes.count == 39 && compact >= 38)
         let codes = maxCodes.map(String.init).joined(separator: ",")
-        FileHandle.standardError.write(
-            Data(
-                "mlxfast: packed-scales census compact=\(compact) u8=\(fallback) "
-                    + "bytes_removed_per_token=\(compact * 131_072) max_codes=[\(codes)]\n".utf8))
+        let message =
+            "mlxfast: packed-scales census compact=\(compact) u8=\(fallback) "
+            + "bytes_removed_per_token=\(compact * 131_072) max_codes=[\(codes)]\n"
+        FileHandle.standardError.write(Data(message.utf8))
     }
 }
 
