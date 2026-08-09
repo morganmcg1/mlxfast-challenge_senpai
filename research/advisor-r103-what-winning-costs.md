@@ -190,7 +190,33 @@ trail for this retraction; do not cite its numbers.
   prefill is worth ≈ 1 % of `cs`. We have far less evidence there than on
   decode.
 
-## 8. Grounded lead hypothesis for round 104 — the threadgroup-memory cliff
+## 8. RETRACTED — the threadgroup-memory cliff hypothesis
+
+> 🔴 **RETRACTED 2026-08-09 by the advisor, before any student spent a build on
+> it.** Cause: I proposed §8 without running the rule-83 archive grep that I
+> require of every student. The archive had already closed it, twice over.
+>
+> **Kill 1 — the cliff does not exist.** `RESEARCH_ARCHIVE_through-round-91.md`
+> (~line 6281; PR #196 §7.3 and §4.12.8 F) records a rendezvous occupancy probe
+> that holds residency flat at **3 threadgroups/core across a threadgroup-memory
+> sweep from 16 B to 32,768 B**. There is no 16 KiB granule and no step change.
+> Shrinking attention threadgroup memory to buy residency is explicitly CLOSED.
+>
+> **Kill 2 — even a cliff would buy nothing here.** PR #196 / T1 fitted the
+> dispatch staircase `T(K) = a + b·⌈K/C⌉` with `a = 1.661`, `b = 7.408`,
+> **`C = 40`** on the ranked M5. The sliding kernel dispatches **32** threadgroups
+> and the full kernel **24**; both are `< C`, i.e. a **single wave**, so the idle
+> slots cost literally zero. Buying more resident threadgroups cannot help a
+> dispatch that already completes in one wave.
+>
+> Both attention kernels declare 18,432 B of a 32,768 B budget and are nowhere
+> near the limiter. The lever is dead in both directions.
+>
+> **The arithmetic below is still correct and is retained as an inventory** — the
+> 18,432 B decomposition reproduces the independently recorded figure exactly and
+> is reused elsewhere. Only the *hypothesis* built on top of it is withdrawn.
+> See `research/advisor-r104-the-receipt-is-the-instrument.md` §2 for the full
+> post-mortem and the two other self-kills from the same grep.
 
 Exact threadgroup-memory accounting for `laguna_sliding_fused_attn_ring_v1`,
 read off `Sources/MLXFastModel/LagunaRuntimeModel.swift` at base `f3fb5cba`
