@@ -4,8 +4,9 @@ This is the operator runbook for research Macs. Research policy lives in
 `program.md`; the organizer contract lives in `AGENTS.md`.
 
 Never put credentials, passwords, or host secrets in the repository, logs, or
-result archives. An authorized campaign role may run `mlxfast submit` from a
-provisioned AWS host, but must never print or commit its submission credentials.
+result archives. An authorized campaign role may run
+`senpai/submit-official.sh "$BASE_SHA"` from a provisioned AWS host, but must
+never print or commit its submission credentials.
 
 ## Host contract
 
