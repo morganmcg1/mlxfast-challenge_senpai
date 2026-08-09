@@ -10,8 +10,14 @@
 #   D   defeat     N sweep, ladder 20/32/40, unique bytes held at ~100 MiB
 #   M3D defeat     work/byte-conserving split emulation at fixed slot spread
 #
-# Every invocation is its own NULL control: the probe builds the same kernel
-# twice and reports the paired base-vs-itself delta (null N-A).
+# All three use the probe's interleaved row sweep: one process, one pipeline per
+# N built up front, and every round visits the N points in rotating order. A
+# first attempt used one process per N and the resulting block-order drift
+# reached 14% with inconsistent sign, which an intercept fit cannot survive.
+#
+# Every invocation is also its own NULL control twice over: the probe builds the
+# same kernel twice and reports the paired base-vs-itself delta (null N-A), and
+# N=512 appears twice in each sweep list so the two columns must agree.
 
 set -u
 cd "$(dirname "$0")/.."
@@ -41,39 +47,33 @@ echo "(empty pgrep list above means no competing model-holding process)" \
 
 xcrun swiftc -O research/fern_r100_attn_probe.swift -o "$PROBE" || exit 1
 
-run() { # run <tag> <rows> <ladder> [extra env assignments...]
-  local tag=$1 rows=$2 ladder=$3
+run() { # run <tag> <sweep-rows> <ladder> [extra env assignments...]
+  local tag=$1 sweep=$2 ladder=$3
   shift 3
-  echo ">>> $tag  rows=$rows ladder=$ladder $*"
-  env FERN_ROWS="$rows" FERN_LADDER="$ladder" "$@" \
+  echo ">>> $tag  sweep=$sweep ladder=$ladder $*"
+  env FERN_ROWS_SWEEP="$sweep" FERN_LADDER="$ladder" "$@" \
     "$PROBE" "$SRC" >"$OUT/$tag.log" 2>&1 \
     || echo "!!! $tag FAILED"
 }
 
 # ---- Block R: resident, N sweep ------------------------------------------
-for N in 512 384 256 128 96; do
-  run "R_n$N" "$N" 20,32,40,64,128 FERN_DEFEAT_SLOTS=1 FERN_CACHE_COPIES=1
-done
+run R_sweep 512,384,256,128,96,512 20,32,40,64,128 \
+  FERN_DEFEAT_SLOTS=1 FERN_CACHE_COPIES=1
 
 # ---- Block D: SLC-defeat, N sweep, unique bytes held constant -------------
-# Slot stride pinned to 32 kv-heads (4 MiB) so address spread is identical at
-# every N; slot count scaled as 512/N so the DRAM working set stays ~100 MiB
-# and no point is allowed to fall back into the ~24 MiB SLC.
-for pair in "512 48" "384 64" "256 96" "128 192" "96 256"; do
-  set -- $pair
-  run "D_n$1" "$1" 20,32,40 \
-    FERN_STRIDE_KV=32 FERN_CACHE_COPIES=64 FERN_DEFEAT_SLOTS="$2"
-done
+# Slot stride pinned to 32 kv-heads (4 MiB) so the address spread per slot is
+# identical at every N; FERN_MATCH_BYTES scales the slot count as 512/N so the
+# DRAM working set stays ~100 MiB and no point falls back into the ~24 MiB SLC.
+run D_sweep 512,384,256,128,96,512 20,32,40 \
+  FERN_STRIDE_KV=32 FERN_CACHE_COPIES=64 FERN_DEFEAT_SLOTS=48 FERN_MATCH_BYTES=1
 
 # ---- Block M3D: split emulation under SLC defeat --------------------------
-# (K,N) = (32,512) (64,256) (128,128) conserve threadgroup-rows AND kv-head-rows,
-# so with a pinned stride and slot count all three read the same bytes from the
-# same address spread. Only the threadgroup count differs.
-for pair in "32 512" "64 256" "128 128"; do
-  set -- $pair
-  run "M3D_k$1" "$2" "$1" \
-    FERN_STRIDE_KV=32 FERN_CACHE_COPIES=12 FERN_DEFEAT_SLOTS=48
-done
+# The diagonal (K,N) = (32,512) (64,256) (128,128) conserves threadgroup-rows
+# AND kv-head-rows, so at a pinned stride and a fixed slot count all three read
+# the same bytes from the same address spread. Only the threadgroup count
+# differs. Byte matching is off here precisely so the diagonal stays matched.
+run M3D 512,256,128,512 32,64,128 \
+  FERN_STRIDE_KV=32 FERN_CACHE_COPIES=12 FERN_DEFEAT_SLOTS=48
 
 echo "=== rule 75 surface digest (post-timing) ===" | tee -a "$OUT/surface_digest.txt"
 digest | tee -a "$OUT/surface_digest.txt"

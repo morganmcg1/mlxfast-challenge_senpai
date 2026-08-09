@@ -76,6 +76,14 @@ let attnRows = intVal("FERN_ROWS", 512)
 /// Pins the defeat rotation stride to a fixed kv-head count so a K sweep does
 /// not silently change the address spread. 0 keeps the per-K default.
 let strideKVOverride = intVal("FERN_STRIDE_KV", 0)
+/// Row counts visited in rotating order inside one round. Non-empty selects the
+/// interleaved sweep, which is the only block whose across-N differences are
+/// free of block-order drift. Repeat a value to get a free within-round null.
+let sweepRows = intList("FERN_ROWS_SWEEP", [])
+/// In defeat mode the DRAM working set scales with rows, so a raw slot count
+/// would compare a 512-row point against a 4x smaller footprint. This holds
+/// bytes per round fixed by scaling slots as window/rows.
+let matchBytes = intVal("FERN_MATCH_BYTES", 0) != 0
 
 /// Measured M4-Pro DRAM read ceiling (rule 55): t = 3.97us + bytes/266.3GB/s.
 let dramPeakGBs = 266.3
@@ -134,7 +142,7 @@ struct ExtractedKernel {
     let sourceLines: Int
 }
 
-func extractKernel(_ path: String, name: String) -> ExtractedKernel {
+func extractKernel(_ path: String, name: String, rows: Int) -> ExtractedKernel {
     let lines = try! String(contentsOfFile: path, encoding: .utf8)
         .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     var decl = -1
@@ -145,7 +153,7 @@ func extractKernel(_ path: String, name: String) -> ExtractedKernel {
     precondition(decl >= 0, "kernel declaration `\(name)` not found in \(path)")
     let src = extractLiteral(lines, label: "source", from: decl)
     let hdr = extractLiteral(lines, label: "header", from: src.closeIndex)
-    let body = rewriteRowBound(src.text)
+    let body = rewriteRowBound(src.text, rows: rows)
     let count = body.split(separator: "\n", omittingEmptySubsequences: false).count
     return ExtractedKernel(
         name: name, header: hdr.text, body: body, sourceLines: count)
@@ -153,13 +161,13 @@ func extractKernel(_ path: String, name: String) -> ExtractedKernel {
 
 /// Substitutes the KV row-loop bound and nothing else. Fails loudly rather than
 /// silently timing an unmodified kernel if the declaration ever moves.
-func rewriteRowBound(_ body: String) -> String {
-    guard attnRows != 512 else { return body }
+func rewriteRowBound(_ body: String, rows: Int) -> String {
+    guard rows != 512 else { return body }
     let needle = "constexpr int N = 512;"
     let hits = body.components(separatedBy: needle).count - 1
     precondition(hits == 1, "expected exactly one `\(needle)`, found \(hits)")
     return body.replacingOccurrences(
-        of: needle, with: "constexpr int N = \(attnRows);")
+        of: needle, with: "constexpr int N = \(rows);")
 }
 
 func mlxSignature(_ name: String) -> String {
@@ -257,8 +265,8 @@ dScale.contents().bindMemory(to: Float.self, capacity: 1)[0] = 0.088_388_35
 /// Bytes of one kv-head's contiguous K (or V) window. Addressing stride is
 /// always the full window; only `kvHeadReadBytes` follows `attnRows`.
 let kvHeadBytes = cWindow * cDim * 2
-/// Bytes of one kv-head the row loop actually reads at this `attnRows`.
-let kvHeadReadBytes = min(attnRows, cWindow) * cDim * 2
+/// Bytes of one kv-head the row loop actually reads at this row count.
+func kvHeadReadBytes(_ rows: Int) -> Int { min(rows, cWindow) * cDim * 2 }
 
 /// `kv_head = head0 / gqa` and `head0 = 2 * tgpig.x`, so a K-threadgroup
 /// dispatch touches kv-heads `0 ..< ceil(2K/gqa)`.
@@ -272,12 +280,15 @@ func cacheSlotStride(_ k: Int) -> Int {
     max(strideKVOverride, distinctKVHeads(k)) * kvHeadBytes
 }
 
-/// Slots that actually fit the allocated cache buffer at this K.
-func effectiveSlots(_ k: Int) -> Int {
+/// Slots that actually fit the allocated cache buffer at this K. With
+/// `FERN_MATCH_BYTES` the request scales as window/rows so a short-row point
+/// streams the same distinct bytes per round as the full-window point.
+func effectiveSlots(_ k: Int, _ rows: Int) -> Int {
     let stride = cacheSlotStride(k)
     guard stride > 0 else { return 1 }
     let room = (dKCache.length - stride) / stride + 1
-    return max(1, min(defeatSlots, room))
+    let want = matchBytes ? defeatSlots * cWindow / max(min(rows, cWindow), 1) : defeatSlots
+    return max(1, min(want, room))
 }
 
 func bind(_ enc: MTLComputeCommandEncoder, k: Int, slot: Int) {
@@ -293,9 +304,9 @@ func bind(_ enc: MTLComputeCommandEncoder, k: Int, slot: Int) {
 }
 
 /// Device bytes one dispatch of `k` threadgroups asks for.
-func requestedBytesPerDispatch(_ k: Int) -> Int {
+func requestedBytesPerDispatch(_ k: Int, _ rows: Int) -> Int {
     let kv = distinctKVHeads(k)
-    let cacheReads = 2 * kv * kvHeadReadBytes
+    let cacheReads = 2 * kv * kvHeadReadBytes(rows)
     let rawQ = 2 * k * cDim * 2
     let rawKV = 2 * kv * cDim * 2
     let weights = 2 * cDim * 2
@@ -305,11 +316,11 @@ func requestedBytesPerDispatch(_ k: Int) -> Int {
 }
 
 /// Distinct bytes one round of `reps` dispatches touches, honouring rotation.
-func uniqueBytesPerRound(_ k: Int, reps: Int) -> Int {
-    let slots = min(effectiveSlots(k), reps)
-    let perSlot = 2 * distinctKVHeads(k) * kvHeadReadBytes
+func uniqueBytesPerRound(_ k: Int, reps: Int, _ rows: Int) -> Int {
+    let slots = min(effectiveSlots(k, rows), reps)
+    let perSlot = 2 * distinctKVHeads(k) * kvHeadReadBytes(rows)
     // Rotation only moves the two caches; every other binding is fixed.
-    let fixed = requestedBytesPerDispatch(k) - perSlot
+    let fixed = requestedBytesPerDispatch(k, rows) - perSlot
     return slots * perSlot + fixed
 }
 
@@ -330,9 +341,15 @@ func buildPipeline(_ k: ExtractedKernel) -> MTLComputePipelineState {
 
 let arms = [("BASE", baseArg), (isNull ? "NULL(BASE)" : "CAND", candArg)]
     .map { label, path -> (String, String, ExtractedKernel, MTLComputePipelineState) in
-        let k = extractKernel(path, name: kernelName)
+        let k = extractKernel(path, name: kernelName, rows: attnRows)
         return (label, path, k, buildPipeline(k))
     }
+
+/// One pipeline per entry of `FERN_ROWS_SWEEP`, all built from the base source
+/// before any timing so compilation never lands inside a measured round.
+let sweepPipes: [(rows: Int, pipe: MTLComputePipelineState)] = sweepRows.map {
+    ($0, buildPipeline(extractKernel(baseArg, name: kernelName, rows: $0)))
+}
 
 print("=== device ===")
 print("name                  \(device.name)")
@@ -341,6 +358,8 @@ print("gpu cores             \(cores)")
 print("kernel                \(kernelName)")
 print("attn rows N           \(attnRows)  (ring iters M = \(attnRows / 128))")
 print("stride kvheads        \(strideKVOverride == 0 ? "auto" : String(strideKVOverride))")
+print("rows sweep            \(sweepRows.isEmpty ? "off" : sweepRows.map(String.init).joined(separator: ","))")
+print("match bytes           \(matchBytes ? "on (slots scale as 512/N)" : "off")")
 print("mode                  \(isNull ? "NULL CONTROL (base vs itself)" : "A/B")")
 
 print("\n=== pipeline properties (register/occupancy gate) ===")
@@ -358,8 +377,10 @@ for (label, path, k, pipe) in arms {
 
 /// Serial dispatch type means the `reps` dispatches in one command buffer do
 /// not overlap, so GPU busy time over reps is the per-call cost.
-func perCallMicros(_ pipe: MTLComputePipelineState, k: Int, reps: Int) -> Double {
-    let slots = effectiveSlots(k)
+func perCallMicros(
+    _ pipe: MTLComputePipelineState, k: Int, reps: Int, rows: Int = attnRows
+) -> Double {
+    let slots = effectiveSlots(k, rows)
     let cb = queue.makeCommandBuffer()!
     let enc = cb.makeComputeCommandEncoder()!
     enc.setComputePipelineState(pipe)
@@ -391,8 +412,8 @@ print(
     "     K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime"
 )
 for k in ladder {
-    let uniq = uniqueBytesPerRound(k, reps: reps)
-    let req = requestedBytesPerDispatch(k) * reps
+    let uniq = uniqueBytesPerRound(k, reps: reps, attnRows)
+    let req = requestedBytesPerDispatch(k, attnRows) * reps
     var t = Double.greatestFiniteMagnitude
     for _ in 0..<3 { t = min(t, perCallMicros(arms[0].3, k: k, reps: reps)) }
     let roundSeconds = t * Double(reps) * 1e-6
@@ -412,7 +433,8 @@ for k in ladder {
         String(
             format:
                 "  %4d   %6.2f   %7d   %5d   %8.2f   %13.2f   %6.1f   %7.2f   %13.1f   %8.1f   %7@   %@",
-            k, Double(k) / Double(max(cores, 1)), distinctKVHeads(k), effectiveSlots(k),
+            k, Double(k) / Double(max(cores, 1)), distinctKVHeads(k),
+            effectiveSlots(k, attnRows),
             Double(uniq) / 1048576.0, Double(req) / 1048576.0,
             Double(req) / Double(uniq), t, achieved, pctPeak,
             (uniq <= slcEstimateBytes ? "yes" : "no") as NSString, regime as NSString))
@@ -474,4 +496,51 @@ for k in ladder {
             k, Double(k) / Double(max(cores, 1)), baseMin, candMin, mean, sd,
             deltas.max()! - deltas.min()!, t,
             100.0 * mean / (baseMin > 0 ? baseMin : 1)))
+}
+
+// MARK: - interleaved row sweep (R102-A rung 1)
+
+/// Separate blocks drift against each other by up to ~14% on this host, which
+/// is fatal for an intercept fit across N. Visiting every row point inside one
+/// round in rotating order puts each N at every phase of the drift, so the
+/// across-N differences the fit consumes are drift-free.
+if !sweepPipes.isEmpty {
+    for e in sweepPipes { _ = perCallMicros(e.pipe, k: 32, reps: 40, rows: e.rows) }
+    print(
+        "\n=== interleaved row sweep, \(rounds) rounds x \(sweepPipes.count) row points, "
+            + "\(reps) dispatches ===")
+    print("Round r visits point (j + r) mod n, so no N owns a fixed slot in the round.")
+    print("Repeat an N in FERN_ROWS_SWEEP to get a within-round null on that N.")
+    print("     K    idx      N    M   slots   min_us   med_us   mean_us   sd_us   spread")
+    var machine: [String] = []
+    for k in ladder {
+        var samples = [[Double]](repeating: [], count: sweepPipes.count)
+        for r in 0..<rounds {
+            for j in 0..<sweepPipes.count {
+                let idx = (j + r) % sweepPipes.count
+                let e = sweepPipes[idx]
+                samples[idx].append(perCallMicros(e.pipe, k: k, reps: reps, rows: e.rows))
+            }
+        }
+        for (idx, e) in sweepPipes.enumerated() {
+            let s = samples[idx].sorted()
+            let n = Double(s.count)
+            let mean = s.reduce(0, +) / n
+            let sd =
+                n > 1 ? (s.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / (n - 1)).squareRoot() : 0
+            let med = s[s.count / 2]
+            let slots = effectiveSlots(k, e.rows)
+            print(
+                String(
+                    format: "  %4d   %4d   %5d   %2d   %5d   %7.3f   %7.3f   %8.3f   %6.3f   %6.3f",
+                    k, idx, e.rows, e.rows / 128, slots, s[0], med, mean, sd, s[s.count - 1] - s[0]))
+            machine.append(
+                String(
+                    format:
+                        "SWEEP k=%d idx=%d N=%d M=%d slots=%d n=%d min=%.4f med=%.4f mean=%.4f sd=%.4f",
+                    k, idx, e.rows, e.rows / 128, slots, s.count, s[0], med, mean, sd))
+        }
+    }
+    print("\n=== machine-readable sweep ===")
+    for line in machine { print(line) }
 }
