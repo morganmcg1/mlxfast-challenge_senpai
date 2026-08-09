@@ -114,6 +114,30 @@ def main():
     for p, r in zip(pts, resid):
         print('     K=%-5d %-14s resid %+8.2f us' % (p['K'], p['name'], r))
 
+    kbar = st.mean(xs)
+    sxx = sum((k - kbar) ** 2 for k in xs)
+    print('   leverage h_ii (a point with h near 1 sets the slope by itself):')
+    for p in pts:
+        print('     K=%-5d %-14s h = %.3f'
+              % (p['K'], p['name'], 1.0 / len(xs) + (p['K'] - kbar) ** 2 / sxx))
+
+    print()
+    print('-' * 78)
+    print('1b. Robustness: refit after dropping the highest-leverage rung')
+    for drop in sorted({p['K'] for p in pts if p['K'] > 0}, reverse=True)[:1]:
+        sub = [p for p in pts if p['K'] != drop]
+        if len({p['K'] for p in sub}) >= 2:
+            a2, b2, se2, _, df2, _ = fit([p['K'] for p in sub],
+                                         [p['dec'] for p in sub])
+            t2 = t975(df2)
+            print('   without K=%d (n=%d, K<=%d): slope = %.4f us/dispatch'
+                  '  95%% CI [%.4f, %.4f]'
+                  % (drop, len(sub), max(p['K'] for p in sub), b2,
+                     b2 - t2 * se2, b2 + t2 * se2))
+            print('   full-range slope %.4f lies %s this interval.'
+                  % (b, 'INSIDE' if b2 - t2 * se2 <= b <= b2 + t2 * se2
+                     else 'OUTSIDE'))
+
     print()
     print('-' * 78)
     print('2. WLS, weights 1/mu^2 (multiplicative-noise model, section 9.5)')

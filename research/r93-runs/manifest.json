@@ -3,7 +3,8 @@
   "corpus_bound_pre_pct": 0.2573,
   "ladder": {
     "99309c61": 240,
-    "f8719c48": 800
+    "f8719c48": 800,
+    "b835a980": 60
   },
   "ladder_rungs": [
     60,
@@ -25,6 +26,7 @@
     "ladder-K800": "qaempae6"
   },
   "wandb_runs": {
-    "null-4": "0ecng8mc"
+    "null-4": "0ecng8mc",
+    "ladder-K60": "xlaup9j4"
   }
 }

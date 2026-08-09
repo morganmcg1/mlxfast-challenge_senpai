@@ -195,29 +195,50 @@ is `t(0.975, 2n-2) * se`, reported in both percent and microseconds per step.
 
 *(table for n = 4, 6, 8 pending)*
 
-## 4. Arm B — M5 microseconds per dispatch *(first rung landed)*
+## 4. Arm B — M5 microseconds per dispatch
 
-**The M4 free region does not exist on M5. The discriminator fired cleanly.**
+**The M4 free region does not exist on M5.** Seven receipts — four
+machine-code-identical K=0 nulls plus rungs at K=60, 240 and 800 — put the cost
+of one extra hazard-free decode dispatch on the ranked M5 at
 
-| quantity | value |
-|---|---|
-| null mean candidate decode (n=2) | 4912.670 us |
-| ladder-K240 candidate decode | 5506.517 us |
-| difference | **+593.85 us (+12.09 %)** |
-| implied cost | **2.474 us per dispatch** |
-| predicted by M4 shape | ~0 us (K=240 sits inside the M4 free region) |
-| predicted by historical M5 OLS (1.9823 us/disp) | +475.8 us |
-| null-to-null spread, same quantity | 37.1 us |
+> **2.339 us/dispatch, 95 % CI [2.264, 2.413]** (OLS, df=5, intercept
+> 4919.13 us, residual s = 20.98 us).
 
-The observed step is **16x the entire null-to-null spread** and about 23 sigma
-on the n=2 sigma estimate. There is no reading of this data in which K=240 is
-free on M5.
+| K | n | mean candidate decode (us) | marginal vs previous rung |
+|---|---|---|---|
+| 0 | 4 | 4910.501 (sd 16.627) | — |
+| 60 | 1 | 5077.024 | 2.775 us/disp |
+| 240 | 1 | 5506.517 | 2.386 us/disp |
+| 800 | 1 | 6780.945 | 2.276 us/disp |
+
+Three independent checks say the slope is real and is not an artifact of the fit:
+
+1. **It is not driven by the long rung.** K=800 carries leverage h = 0.925, so
+   the single-fit CI above is largely that one point's noise. Dropping it
+   entirely and refitting on K <= 240 gives **2.487 us/dispatch, CI [2.275,
+   2.700]** — which *contains* the full-range slope. The high-leverage point is
+   confirming the low rungs, not creating them.
+2. **Weighting is not load-bearing.** WLS with 1/mu^2 weights (the
+   multiplicative-noise model of section 9.5) gives 2.346, a +0.33 % shift.
+3. **The injection really is decode-only.** Prefill across the same seven
+   receipts moves by -0.083 us (-0.044 %), t = -0.325 on 5 df. This is an
+   internal control, not an assumption: the same receipts that show a 38 %
+   decode swing show no prefill effect.
+
+**Is it linear?** The segment marginals fall monotonically — 2.775, 2.386,
+2.276 — which hints that the *first* dispatches cost slightly more than later
+ones. The formal lack-of-fit test cannot resolve it (F(2,3) = 2.48 against a
+9.55 critical value), and with one replicated level it never will at this
+budget. So do not claim linearity. But note the direction: **the low-K marginal
+is the highest one**, and low-K is exactly where real work happens — a candidate
+removes tens of dispatches, not hundreds. Quoting the pooled 2.339 for a
+small-K change is therefore conservative.
 
 So the two machines disagree qualitatively, exactly as section 1.3 warned:
 
 - M4 Pro absorbs the first ~480 hazard-free dispatches at zero cost and only
   reaches ~2 us/dispatch beyond K~1600.
-- M5 charges ~2.5 us/dispatch from K=0 with no free region at all.
+- M5 charges 2.3-2.8 us/dispatch from K=0 with no free region at all.
 
 This is the mechanism from section 1.2 seen from the other side. The free
 region on M4 is CPU shadow: the injected GPU chain hides under the ~1 ms of
@@ -226,21 +247,20 @@ behind a faster CPU, and on that machine the shadow is not long enough to hide
 even 240 dispatches.
 
 **Practical consequence for the campaign:** on the ranked machine a saved GPU
-dispatch is worth ~2.5 us of decode time, and that is a *lower bound* because
+dispatch is worth ~2.34 us of decode time, and that is a *lower bound* because
 the injected kernels are hazard-free while a real removed dispatch usually also
-removes a fence wait. At a session baseline of ~13 830 us and a candidate of
-~4913 us, removing 100 real dispatches per token is worth roughly 0.25 ms/token,
-i.e. about 5 % of candidate decode. Dispatch-count reduction is therefore a
-first-class optimisation target on M5 even though local M4 iteration will
-report it as worthless.
+removes a fence wait. At a candidate decode of ~4919 us, removing 100 real
+dispatches per token is worth 234 us [226, 241], i.e. **4.8 % of candidate
+decode**. Dispatch-count reduction is therefore a first-class optimisation
+target on M5 even though local M4 iteration will report it as worthless.
 
-Our measured 2.474 us/dispatch is ~25 % above the 1.9823 us/dispatch OLS slope
-from the 2026-08-05 historical receipts. Both are the same order and both
-exclude a free region; the remaining rungs (K=800, K=1600) will say whether the
-current-tree M5 response is linear and will tighten the slope CI.
-
-Prefill control across the three receipts so far: 187.637 / 187.734 /
-187.888 us, a total spread of 0.13 %. The ladder moves decode only, as designed.
+The 2.339 us/dispatch measured here is ~18 % above the 1.9823 us/dispatch OLS
+slope from the 2026-08-05 historical receipts (section 1.3). Both are the same
+order and both exclude a free region. The gap is not surprising — the historical
+fit used three points from a different tree with no replicated level — but it is
+the right size to keep in mind as the uncertainty that matters. **Treat 2.3 us
+as the planning number and 2.0-2.5 us as its practical range**; the formal CI
+[2.264, 2.413] is narrower than the honest cross-tree spread.
 
 ### 4.1 Second design change: third rung moved from K=1600 down to K=60
 
@@ -263,8 +283,11 @@ K=1600 is therefore dropped and replaced by **K=60**. Reasoning:
 
 Final rung set: **K = 60, 240, 800** (plus K=0 from the nulls).
 
-*(K=800 and K=60 rungs, OLS slope with CI, and the formal linearity check are
-still pending.)*
+This turned out to be the single most valuable design change in the experiment.
+K=60 is what makes the robustness check in section 4 possible: without it,
+dropping the h=0.925 K=800 point would have left a two-level fit with no
+interior support, and the slope would have rested entirely on one receipt.
+With K=60 in hand, the K<=240 subfit stands on its own and agrees.
 
 ### 4.2 What the slope is worth: the decode dispatch census
 
@@ -326,23 +349,26 @@ Honest bounding caveats, all of which move the number *up*:
 - `compile(...)` call sites exist in the runtime but are unreachable at
   defaults, so none of them collapse the count.
 
-**Consequence.** At the K=240 slope of 2.474 us per hazard-free dispatch,
-404 x 2.474 us = **1.00 ms**, against a candidate decode of 4913 us per step:
+**Consequence.** At the fitted slope of 2.339 us per hazard-free dispatch
+(95 % CI [2.264, 2.413], section 4), 404 x 2.339 us = **945 us [915, 975]**,
+against a candidate decode of 4919 us per step:
 
-> roughly **20 % of ranked M5 decode time is per-dispatch fixed overhead**, not
-> arithmetic.
+> **19.2 % of ranked M5 decode time [18.6 %, 19.8 %] is per-dispatch fixed
+> overhead**, not arithmetic.
 
 Two qualifications that keep this from being oversold:
 
-1. 2.474 us prices a *hazard-free* dispatch (section 1.2's hazard test: the
+1. 2.339 us prices a *hazard-free* dispatch (section 1.2's hazard test: the
    injected kernels bind only their own control/prev/sink buffers, so MLX
    inserts no `MTLFence` between them). A real dispatch that participates in the
-   dependency graph costs at least this much, so 1.00 ms is a **lower bound** on
+   dependency graph costs at least this much, so 945 us is a **lower bound** on
    the fixed overhead, and removing one real dispatch should save **at least**
-   2.474 us.
-2. The slope is currently from a single rung pair. The K=800 and K=60 receipts
-   will give it a confidence interval; the 20 % figure should be restated with
-   that CI once they land.
+   2.34 us.
+2. The CI above is the formal interval from seven receipts in one tree. The
+   2026-08-05 historical ladder gave 1.98 us/dispatch (section 1.3), so the
+   honest cross-tree range is nearer 2.0-2.5 us, i.e. **17-20 % of decode**. The
+   qualitative claim — that a fifth of M5 decode is dispatch overhead — survives
+   the whole range; the second decimal place does not.
 
 Two related facts worth recording for whoever acts on this:
 
@@ -371,10 +397,10 @@ kernel restructure.
 | host | K=0 | marginal us/dispatch, low K | marginal us/dispatch, saturated |
 | --- | --- | --- | --- |
 | M4 Pro (local, 48 GB) | 8223 us | **~0** (K=0 to 480 is flat, even slightly negative) | 1.81 (K 800 to 2400), 2.29 (K 1200 to 2400) |
-| M5 Max (ranked) | 4913 us | **2.49** (K=0 to 240) | 2.28 (K=240 to 800) |
+| M5 Max (ranked) | 4911 us | **2.78** (K=0 to 60), 2.39 (K 60 to 240) | 2.28 (K=240 to 800) |
 
 The saturated marginal costs agree to within about 20 % (1.8-2.3 us on M4 Pro
-versus 2.3-2.5 us on M5 Max), which is unsurprising: both are per-dispatch
+versus 2.28 us on M5 Max), which is unsurprising: both are per-dispatch
 driver and encoder work, and neither host is doing any arithmetic in the
 injected kernel. What does **not** transfer is the *offset*:
 
@@ -531,7 +557,7 @@ steps. A `rejected` status with the reason "score did not improve current best"
 is the expected and correct outcome for a null or a deliberately slowed ladder
 rung; it is a ranking statement, not a correctness statement.
 
-## 8. Follow-up: what the 2.474 us actually buys, and what it does not
+## 8. Follow-up: what the 2.339 us actually buys, and what it does not
 
 Sections 4 and 4.2 establish a price and a count. This section audits what can
 actually be *removed*, done independently against the source at BASE_SHA. It is
@@ -540,7 +566,7 @@ by this experiment - it is the shortlist R93 exists to enable, not a result of
 R93.
 
 The most important thing here is the rejection list. The naive reading of
-"404 dispatches x 2.474 us = 1.00 ms" is that any fusion is free money. That
+"404 dispatches x 2.339 us = 0.95 ms" is that any fusion is free money. That
 reading is wrong, and the code already contains the counter-example.
 
 ### 8.1 Independent confirmation of the census
@@ -570,7 +596,7 @@ it default **ON** since the 2026-08-02 r=1 re-sweep. Doc rot, not a census error
    norm+QKV path is guarded to INT8 g32 (`:5839-5845`), which never fires at the
    default `lagunaNativeAffineNVFP4From=0`.
 
-   **This is the discipline the 2.474 us number needs.** Dispatch count is one
+   **This is the discipline the 2.339 us number needs.** Dispatch count is one
    axis; a fusion that duplicates work across threadgroups can lose on the other
    axis by more than it wins on this one. The price tag says how much a removed
    dispatch is *worth*, not that removing it is *cheap*.
@@ -609,16 +635,16 @@ it default **ON** since the 2026-08-02 r=1 re-sweep. Doc rot, not a census error
 
 ### 8.3 Surviving candidates, ranked
 
-Nominal us uses 2.474 us/dispatch and is an **average**, not a critical-path
+Nominal us uses 2.339 us/dispatch and is an **average**, not a critical-path
 marginal cost - see 8.4.
 
 | # | Idea | Saved | Nominal us | Risk | Size |
 |---|---|---|---|---|---|
-| A | Fold the per-head INT8-g32 gate QMV into the NVFP4 QKV dispatch, deferring softplus to the o_proj kernel | **40** | 99 (-2.0 %) | med (see caveat) | M |
-| B | Delete `lagunaDecodeRouterTop8`: the packed QMV already re-derives top-8 in-dispatch, so have it also emit (inds, weights) | **39** | 96 (-2.0 %) | med | S/M |
-| C | Merge the shared-expert gate/up QMV into the routed packed top-8 QMV | **39** | 96 (-2.0 %) | med | M |
-| D | Fold lm-head argmax stage-1 into the coarse kernel | 1 | 2.5 | low | S |
-| E | Fold the final RMSNorm into layer-39 down-residual or lm-head coarse | 1 | 2.5 | high | M |
+| A | Fold the per-head INT8-g32 gate QMV into the NVFP4 QKV dispatch, deferring softplus to the o_proj kernel | **40** | 94 (-1.9 %) | med (see caveat) | M |
+| B | Delete `lagunaDecodeRouterTop8`: the packed QMV already re-derives top-8 in-dispatch, so have it also emit (inds, weights) | **39** | 91 (-1.9 %) | med | S/M |
+| C | Merge the shared-expert gate/up QMV into the routed packed top-8 QMV | **39** | 91 (-1.9 %) | med | M |
+| D | Fold lm-head argmax stage-1 into the coarse kernel | 1 | 2.3 | low | S |
+| E | Fold the final RMSNorm into layer-39 down-residual or lm-head coarse | 1 | 2.3 | high | M |
 
 **A is the recommended first experiment.** Crucially it is *not* rejection 1 in
 disguise: it does not fuse the norm, because the gate consumes the same
@@ -661,11 +687,11 @@ loser. Unlike the norm+QKV fusion it carries no negative note, but the frontier
 notes should be checked for a defusion receipt before anyone spends a slot on it.
 
 B and C together take the MoE tail from 5 dispatches to 3: -78 per token,
-~193 us, ~3.9 % nominal.
+~182 us, ~3.7 % nominal.
 
 ### 8.4 The caveat that governs all of the above
 
-2.474 us is the **average** cost of a hazard-free injected dispatch. A real
+2.339 us is the **average** cost of a hazard-free injected dispatch. A real
 dispatch's marginal cost depends on where it sits in the schedule, and the tree
 contains precedent in both directions: two removed RoPE-probe dispatches were
 worth approximately zero in the old regime because they were off the critical
@@ -674,7 +700,7 @@ about -0.6 %, i.e. roughly 13 us per dispatch, under the current r=1 regime.
 
 So the honest statement of what R93 delivers is:
 
-> 2.474 us/dispatch is a **calibrated floor** for what a removed decode dispatch
+> 2.339 us/dispatch is a **calibrated floor** for what a removed decode dispatch
 > is worth on the ranked M5, and 404 is the count it applies to. Realised gains
 > should be expected anywhere from ~0.5x to ~2x nominal, and every candidate
 > above still needs its own fresh-baseline paired measurement.
