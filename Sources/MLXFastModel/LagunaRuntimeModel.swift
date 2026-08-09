@@ -9210,20 +9210,17 @@ private func lagunaFusedSortedRoutedGateUp(
     downProj: SwitchLinear,
     deferUnsort: Bool
 ) -> (output: MLXArray, inverseOrder: MLXArray?) {
-    // SwitchGLU: `var x = MLX.expandedDimensions(x, axes: [-2, -3])`
-    var sortedX = MLX.expandedDimensions(x, axes: [-2, -3])
-    // SwitchGLU: `let doSort = indices.size >= 64`. The call site already
-    // guards `indices.size >= 64` before calling in, so this is always true
-    // here; recomputed anyway so this function mirrors SwitchGLU verbatim
-    // and stays correct if that guard is ever loosened.
+    let expandedX = MLX.expandedDimensions(x, axes: [-2, -3])
     let doSort = indices.size >= 64
-    // SwitchGLU: `var idx = indices` / `var inverseOrder = MLXArray()`
     var idx = indices
+    var gateUpIndices = indices
     var inverseOrder = MLXArray()
-    // SwitchGLU: `if doSort { (x, idx, inverseOrder) = gatherSort(x: x, indices: indices) }`
-    //
     if doSort {
-        (sortedX, idx, inverseOrder) = gatherSort(x: sortedX, indices: indices)
+        let sorted = gatherSortIndices(indices)
+        idx = sorted.sortedKeys
+        inverseOrder = sorted.inverseOrder
+        gateUpIndices =
+            (idx.asType(.uint32) << 24) | sorted.rowOrder.asType(.uint32)
     }
     // Fused counterpart of SwitchGLU's separate-bank branch:
     //   xUp = upProj(x, idx, sortedIndices: doSort)
@@ -9237,11 +9234,11 @@ private func lagunaFusedSortedRoutedGateUp(
     // the separate banks is the fusion; every other argument matches the
     // stock call exactly (group 16, 4-bit, NVFP4, transpose, doSort).
     let gateUp = MLX.gatherQuantizedMM(
-        sortedX,
+        expandedX,
         fusedWeight,
         scales: fusedScales,
         biases: nil,
-        rhsIndices: idx,
+        rhsIndices: gateUpIndices,
         transpose: true,
         groupSize: 16,
         bits: 4,

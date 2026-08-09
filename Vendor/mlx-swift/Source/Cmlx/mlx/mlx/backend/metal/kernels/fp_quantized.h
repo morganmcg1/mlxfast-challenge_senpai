@@ -1983,6 +1983,111 @@ template <
 
 template <
     typename T,
+    short BROWS,
+    short BCOLS,
+    short dst_ld,
+    short tgp_size,
+    bool indexed_rhs,
+    short n_reads = (BCOLS * BROWS) / tgp_size,
+    short TCOLS = BCOLS / n_reads,
+    short TROWS = tgp_size / TCOLS>
+struct GatherBlockLoader {
+  STEEL_CONST short n_rows = (BROWS + TROWS - 1) / TROWS;
+  STEEL_CONST short vec_size = n_reads;
+
+  const device T* src;
+  const device uint32_t* indices;
+  const int src_ld;
+  const int row_base;
+  const short bi;
+  const short bj;
+  threadgroup T* dst;
+  int src_col;
+
+  struct ReadVector {
+    uint8_t v[sizeof(T) * vec_size];
+  };
+
+  METAL_FUNC GatherBlockLoader(
+      const device T* src_,
+      const device uint32_t* indices_,
+      const int src_ld_,
+      const int row_base_,
+      threadgroup T* dst_,
+      ushort simd_group_id [[simdgroup_index_in_threadgroup]],
+      ushort simd_lane_id [[thread_index_in_simdgroup]])
+      : src(src_),
+        indices(indices_),
+        src_ld(src_ld_),
+        row_base(row_base_),
+        bi((simd_group_id * SIMD_SIZE + simd_lane_id) / TCOLS),
+        bj(vec_size * ((simd_group_id * SIMD_SIZE + simd_lane_id) % TCOLS)),
+        dst(dst_ + bi * dst_ld + bj),
+        src_col(bj) {}
+
+  METAL_FUNC int source_row(const int sorted_row) const {
+    if constexpr (indexed_rhs) {
+      return int(indices[sorted_row] & 0x00ffffff);
+    }
+    return sorted_row;
+  }
+
+  METAL_FUNC void load_unsafe() const {
+    STEEL_PRAGMA_UNROLL
+    for (short i = 0; i < BROWS; i += TROWS) {
+      const int row = source_row(row_base + bi + i);
+      *((threadgroup ReadVector*)(&dst[i * dst_ld])) =
+          *((const device ReadVector*)(
+              &src[size_t(row) * src_ld + src_col]));
+    }
+  }
+
+  METAL_FUNC void load_safe(short2 src_tile_dim) const {
+    src_tile_dim -= short2(bj, bi);
+    if (src_tile_dim.x <= 0 || src_tile_dim.y <= 0) {
+      STEEL_PRAGMA_UNROLL
+      for (short i = 0; i < BROWS; i += TROWS) {
+        STEEL_PRAGMA_UNROLL
+        for (short j = 0; j < vec_size; ++j) {
+          dst[i * dst_ld + j] = T(0);
+        }
+      }
+      return;
+    }
+
+    bool valid[vec_size];
+    T values[vec_size];
+    STEEL_PRAGMA_UNROLL
+    for (short i = 0; i < BROWS; i += TROWS) {
+      const bool valid_row = i < src_tile_dim.y;
+      const int row = valid_row ? source_row(row_base + bi + i) : 0;
+      STEEL_PRAGMA_UNROLL
+      for (short j = 0; j < vec_size; ++j) {
+        valid[j] = valid_row && j < src_tile_dim.x;
+        values[j] = src[valid[j] ? size_t(row) * src_ld + src_col + j : 0];
+      }
+      STEEL_PRAGMA_UNROLL
+      for (short j = 0; j < vec_size; ++j) {
+        dst[i * dst_ld + j] = valid[j] ? values[j] : T(0);
+      }
+    }
+  }
+
+  METAL_FUNC void next() {
+    src_col += BCOLS;
+  }
+};
+
+template <bool indexed_rhs>
+METAL_FUNC uint32_t fp_route_expert(const uint32_t route) {
+  if constexpr (indexed_rhs) {
+    return route >> 24;
+  }
+  return route;
+}
+
+template <
+    typename T,
     int group_size,
     int bits,
     int BM,
@@ -1990,7 +2095,8 @@ template <
     int BK,
     int WM,
     int WN,
-    bool transpose>
+    bool transpose,
+    bool indexed_rhs>
 [[kernel]] void fp_gather_qmm_rhs(
     const device T* x,
     const device uint32_t* w,
@@ -2020,8 +2126,8 @@ template <
       transpose,
       BK_padded,
       transpose ? BK_padded : BN_padded>;
-  using loader_x_t =
-      mlx::steel::BlockLoader<T, BM, BK, BK_padded, 1, WM * WN * SIMD_SIZE>;
+  using loader_x_t = GatherBlockLoader<
+      T, BM, BK, BK_padded, WM * WN * SIMD_SIZE, indexed_rhs>;
   using loader_w_t = QuantizedBlockLoader<
       T,
       transpose ? BN : BK,
@@ -2058,9 +2164,8 @@ template <
   const short2 tile_w =
       transpose ? short2(k_remain, tgp_bn) : short2(tgp_bn, k_remain);
 
-  // Move x and output to the correct block
+  // Move output to the correct block
   auto wl = (const device uint8_t*)w;
-  x += y_row_long * K;
   y += y_row_long * N + y_col_long;
   wl += transpose ? y_col_long * K_w : y_col * bytes_per_pack / pack_factor;
   scales += transpose ? y_col_long * K_g : y_col / group_size;
@@ -2068,7 +2173,7 @@ template <
   // Do as many matmuls as necessary
   uint32_t index;
   short offset;
-  uint32_t index_next = indices[y_row];
+  uint32_t index_next = fp_route_expert<indexed_rhs>(indices[y_row]);
   short offset_next = 0;
   int n = 0;
   while (n < tgp_bm) {
@@ -2077,9 +2182,11 @@ template <
     index = index_next;
     offset_next = tgp_bm;
     for (; n < tgp_bm; n++) {
-      if (indices[y_row + n] != index) {
+      const uint32_t candidate =
+          fp_route_expert<indexed_rhs>(indices[y_row + n]);
+      if (candidate != index) {
         offset_next = n;
-        index_next = indices[y_row + n];
+        index_next = candidate;
         break;
       }
     }
@@ -2089,7 +2196,8 @@ template <
     thread mma_t mma_op(simd_group_id, simd_lane_id);
 
     // Prepare threadgroup loading operations
-    thread loader_x_t loader_x(x, K, Xs, simd_group_id, simd_lane_id);
+    thread loader_x_t loader_x(
+        x, indices, K, y_row, Xs, simd_group_id, simd_lane_id);
     thread loader_w_t loader_w(
         wl + index * stride_w,
         scales + index * stride_s,

@@ -186,23 +186,24 @@ private func routeCountingSortFused(
     return (outputs[0], outputs[1], outputs[2])
 }
 
-public func gatherSort(x: MLXArray, indices: MLXArray) -> (MLXArray, MLXArray, MLXArray) {
+public func gatherSortIndices(_ indices: MLXArray) -> (
+    rowOrder: MLXArray, sortedKeys: MLXArray, inverseOrder: MLXArray
+) {
     let m = indices.dim(-1)
     let indices = indices.flattened()
     if let fused = routeCountingSortFused(indices, m: m) {
-        return (
-            x.flattened(start: 0, end: -3)[fused.rowOrder],
-            fused.sortedKeys,
-            fused.inverseOrder
-        )
+        return fused
     }
     let order = argSort(indices)
-    let inverseOrder = argSort(order)
+    return (order.floorDivide(m), indices[order], argSort(order))
+}
 
+public func gatherSort(x: MLXArray, indices: MLXArray) -> (MLXArray, MLXArray, MLXArray) {
+    let sorted = gatherSortIndices(indices)
     return (
-        x.flattened(start: 0, end: -3)[order.floorDivide(m)],
-        indices[order],
-        inverseOrder
+        x.flattened(start: 0, end: -3)[sorted.rowOrder],
+        sorted.sortedKeys,
+        sorted.inverseOrder
     )
 }
 

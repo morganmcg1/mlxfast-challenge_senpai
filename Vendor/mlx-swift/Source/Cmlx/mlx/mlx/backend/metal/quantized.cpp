@@ -1614,7 +1614,8 @@ void gather_qmm_rhs_nax(
     int K,
     metal::Device& d,
     const Stream& s,
-    const std::string mode) {
+    const std::string mode,
+    bool indexed_rhs) {
   // Start by normalizing the indices
   array indices = ensure_row_contiguous(indices_, d, s);
 
@@ -1636,7 +1637,8 @@ void gather_qmm_rhs_nax(
   };
 
   // Normalize the input arrays
-  array x = broadcast_with_indices(x_);
+  array x = indexed_rhs ? ensure_row_contiguous(x_, d, s)
+                        : broadcast_with_indices(x_);
   array w = ensure_row_contiguous(w_, d, s);
   array scales = ensure_row_contiguous(scales_, d, s);
 
@@ -1666,9 +1668,10 @@ void gather_qmm_rhs_nax(
   // measured -4.0..-4.2% gate/up, -3.0..-5.8% down at kernel level
   // (notes/exp-gatherx.md). Default bm128=4 keeps wn==2: stock unchanged.
   const bool expert_aligned =
-      darkbloom_expert_aligned_gather() && mode != "affine" && transpose &&
-      group_size == 16 && bits == 4 && laguna_moe_shape && M >= 64 &&
-      align_N && align_K && bm == 64 && wm == 4 && (wn == 2 || wn == 1);
+      (darkbloom_expert_aligned_gather() || indexed_rhs) &&
+      mode != "affine" && transpose && group_size == 16 && bits == 4 &&
+      laguna_moe_shape && M >= 64 && align_N && align_K && bm == 64 &&
+      wm == 4 && (wn == 2 || wn == 1);
   std::string type_string = get_type_string(x.dtype());
   static const bool static_laguna_shapes =
       env::get_var("DARKBLOOM_STATIC_NVFP4_SHAPES", "") != "0";
@@ -1759,6 +1762,7 @@ void gather_qmm_rhs_nax(
                       ? "_gather_qmm_rhs_expert_nax_nt_"
                : (transpose ? "_gather_qmm_rhs_nax_nt_"
                             : "_gather_qmm_rhs_nax_nn_"))),
+      indexed_rhs ? "indexed_" : "",
       type_string,
       "_gs_",
       group_size,
@@ -1899,7 +1903,8 @@ void gather_qmm_rhs_nax(
         "bfloat",
         egroups,
         expert_widest,
-        expert_wideld);
+        expert_wideld,
+        indexed_rhs);
     kernel = get_qmm_nax_kernel(d, kname, template_def, mode);
   } else {
     kernel = get_gather_qmm_nax_kernel(
@@ -1965,6 +1970,12 @@ void gather_qmm_rhs(
     metal::Device& d,
     const Stream& s,
     const std::string mode) {
+  const bool indexed_rhs =
+      mode == "nvfp4" && transpose && group_size == 16 && bits == 4 &&
+      K == 2048 && N == 1024 && M >= 64 && !biases_.has_value() &&
+      indices_.dtype() == uint32 && indices_.size() == M &&
+      w_.ndim() == 3 && w_.shape(0) == 256 && x_.shape(-1) == K &&
+      (x_.size() / K) * 8 == M;
   if (metal::is_nax_available() && transpose &&
       (env::enable_tf32() || x_.dtype() != float32)) {
     return gather_qmm_rhs_nax(
@@ -1982,7 +1993,8 @@ void gather_qmm_rhs(
         /* int K = */ K,
         /* metal::Device& d = */ d,
         /* const Stream& s = */ s,
-        /* const std::string mode = */ mode);
+        /* const std::string mode = */ mode,
+        /* bool indexed_rhs = */ indexed_rhs);
   }
 
   // Start by normalizing the indices
@@ -2006,7 +2018,8 @@ void gather_qmm_rhs(
   };
 
   // Normalize the input arrays
-  array x = broadcast_with_indices(x_);
+  array x = indexed_rhs ? ensure_row_contiguous(x_, d, s)
+                        : broadcast_with_indices(x_);
   array w = ensure_row_contiguous(w_, d, s);
   array scales = ensure_row_contiguous(scales_, d, s);
 
@@ -2025,6 +2038,7 @@ void gather_qmm_rhs(
   concatenate(
       kname,
       mode + (transpose ? "_gather_qmm_rhs_nt_" : "_gather_qmm_rhs_nn_"),
+      indexed_rhs ? "indexed_" : "",
       type_string,
       "_gs_",
       group_size,

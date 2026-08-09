@@ -956,21 +956,36 @@ MTL::ComputePipelineState* get_gather_qmm_kernel(
     concatenate(
         kernel_source, metal::utils(), metal::quantized_utils(), metal::gemm());
     bool is_affine = mode == "affine";
+    auto template_def = is_affine
+        ? get_template_definition(
+              lib_name,
+              "affine_gather_qmm_rhs",
+              get_type_string(x.dtype()),
+              group_size,
+              bits,
+              bm,
+              bn,
+              bk,
+              wm,
+              wn,
+              transpose)
+        : get_template_definition(
+              lib_name,
+              "fp_gather_qmm_rhs",
+              get_type_string(x.dtype()),
+              group_size,
+              bits,
+              bm,
+              bn,
+              bk,
+              wm,
+              wn,
+              transpose,
+              kernel_name.find("_indexed_") != std::string::npos);
     concatenate(
         kernel_source,
         is_affine ? metal::quantized() : metal::fp_quantized(),
-        get_template_definition(
-            lib_name,
-            (is_affine ? "affine" : "fp") + std::string("_gather_qmm_rhs"),
-            get_type_string(x.dtype()),
-            group_size,
-            bits,
-            bm,
-            bn,
-            bk,
-            wm,
-            wn,
-            transpose));
+        template_def);
     return kernel_source;
   });
   return d.get_kernel(kernel_name, lib, hash_name, func_consts);
