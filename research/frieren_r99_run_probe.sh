@@ -7,9 +7,16 @@
 # the scored source is restored with `git checkout` after each one, so the
 # worktree is untouched when this exits.
 #
-# Usage: research/frieren_r99_run_probe.sh
+# Each contrast is run in both arm orders. The probe's first sweep showed a
+# base-vs-base null of about -1 %, so the CAND slot is not free of position
+# bias; (FWD - REV) / 2 cancels any bias common to the two orders. Within-run
+# paired t values are also far more confident than the between-sweep spread,
+# so the whole leg set is repeated and the sweep is the unit of replication.
+#
+# Usage: research/frieren_r99_run_probe.sh [sweeps]
 set -u
 
+SWEEPS=${1:-1}
 P=Sources/MLXFastModel/LagunaRuntimeModel.swift
 SLIDING=laguna_sliding_fused_attn_ring_v1
 FULL=laguna_full_fused_attn_grow_v1
@@ -39,19 +46,26 @@ git status --porcelain
 echo
 
 run() {
-  echo "================ LEG $1 : base=$2 cand=$3 kernel=${4:-$SLIDING}"
-  "$PROBE" "/tmp/v_$2.swift" "/tmp/v_$3.swift" "${4:-$SLIDING}"
-  echo "================ END LEG $1 (exit $?)"
-  echo
+  echo "@@LEG $1 $2"
+  "$PROBE" "/tmp/v_$3.swift" "/tmp/v_$4.swift" "${5:-$SLIDING}"
+  echo "@@END"
 }
 
-run 0-null    base base
-run 1-d4      base d4
-run 1b-epi    base epi
-run 1c-d4epi  base d4epi
-run 1d-sign   d4   base
-run 1e-d8     base d8
-run 1f-full   base epiboth "$FULL"
+for s in $(seq 1 "$SWEEPS"); do
+  echo "@@SWEEP $s"
+  run null  FWD base base
+  run d4    FWD base d4
+  run epi   FWD base epi
+  run d4epi FWD base d4epi
+  run d8    FWD base d8
+  run full  FWD base epiboth "$FULL"
+  run full  REV epiboth base "$FULL"
+  run d8    REV d8    base
+  run d4epi REV d4epi base
+  run epi   REV epi   base
+  run d4    REV d4    base
+  run null  REV base  base
+done
 
 echo "final worktree:"
 git status --porcelain
