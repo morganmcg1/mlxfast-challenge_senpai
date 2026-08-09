@@ -17,6 +17,24 @@ Base `aba31ba9e461c8a4f7a0ba7086b417f0868fcad9`.
 > aba31ba9e461c8a4f7a0ba7086b417f0868fcad9 HEAD -- Sources/ Vendor/
 > benchmark.json` is empty; every arm was built from a temporary snapshot
 > outside the worktree (§6.2).
+>
+> **W&B run:** `nydjf4sf` —
+> <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/nydjf4sf>
+> (project `wandb-applied-ai-team/mlxfast-maple`, name
+> `maple-tanjiro-r102b-composed-restoration-2x2`, job type
+> `paired-duplex-2x2`). It carries the six tables behind §5, §6, §8 and §10
+> (`arms`, `ir_census`, `kernel_interaction`, `kernel_levels`, `nulls`,
+> `record_probability`) plus the scalar summary. Regenerate it with
+>
+> ```bash
+> python3 research/artifacts/tanjiro-r102b/r102b_wandb.py \
+>   --dir research/artifacts/tanjiro-r102b \
+>   --base-sha aba31ba9e461c8a4f7a0ba7086b417f0868fcad9 \
+>   --cand-sha 4634345f45886a1d0233d7e1ad3066e6d0bfff15
+> ```
+>
+> The logged `cand-sha` is this paragraph's parent commit; the only later commit
+> is the one that adds this paragraph, which changes no data or analysis.
 
 ## 1. What was composed, and why it had never been measured
 
