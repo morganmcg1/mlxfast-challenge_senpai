@@ -354,6 +354,72 @@ originate in #558's env-var arm scaffolding, so some of this NEW-only content is
 research selection machinery rather than a changed default. Rung 2 must not
 attribute cost to an arm that the shipped default never selects.
 
+### 2.4 Kernel reachability on the M4 host (rule 77) — settled statically, before timing
+
+Rule 77 and `AGENTS.md` both warn that an M4 Pro reports Apple GPU generation 16
+and therefore does not select the `_nax` kernels the ranked M5 uses. If the
+NEW-only machinery were behind an architecture gate, an M4 null would be
+uninformative — it would only say "this host does not run the changed code".
+That had to be settled *before* the timing job, not after, so it could not be
+used to explain away an inconvenient result. It was, and the answer is clean:
+
+* **`LagunaRuntimeModel.swift` contains exactly one GPU-architecture branch**,
+  `lagunaExpertAlignedGatherEnabled` (`:253-265`), resting on the file's only
+  `GPU.deviceInfo()` call (`:262`) via `lagunaNAXAvailable` (`:242-247`,
+  `generation >= 17`). On this M4 Pro it evaluates **false**.
+* **Its every consumer is prefill-only.** `lagunaFusedSortedRoutedGateUp`
+  (`:10527`, arch use at `:10578`) is called under `x.dim(1) > 1` (`:10981`);
+  the packed-scale views (`:10753`, `:10766`) are consumed only in the
+  `x.dim(1) > 1` branch (`:10989-11009`). Nothing on the one-row decode path
+  changes as a function of architecture.
+* There is no `supportsFamily`, no `deviceName`, and no literal `_nax` test in
+  the file.
+
+So the three NEW-only mechanisms are all reached on this host with no env
+overrides:
+
+| mechanism | gate | on M4 decode? |
+|---|---|---|
+| 4-deep pipelined ring, `laguna_sliding_fused_attn_ring_v1` (`:1639`) | `DARKBLOOM_FUSED_SLIDING_ATTN != "0"` (default ON) + `B==1 && L==1` + `isSliding` + `nHeads==64` + `RotatingKVCache(maxSize:512)` with `offset >= 512` | **yes**, from decode step 1 |
+| router weight-prefetch peel + `armSuffix` | `DARKBLOOM_ROUTER_ROWS_PER_GROUP` (default 8) → `rowsPerThread==1`; `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (default 1) | **yes**, `_pf1` arm |
+| `DARKBLOOM_NVFP4_NIBBLE_SPLIT` nibble form (`:6653`, default 1) | env only | **yes** |
+
+Three consequences for how rung 1 may be read, all fixed before the data exists:
+
+1. **A null on M4 is informative.** It cannot be dismissed as "wrong kernel
+   family" for these mechanisms. It remains uninformative about anything
+   `_nax`, but § 2.1 and gate G0.5 already showed the AOT surface — where the
+   `_nax` variants live — is byte-identical across OLD and NEW, so no `_nax`
+   kernel *changed* in this range.
+2. **The prefill/decode asymmetry now has a named candidate.** The 4-deep ring
+   is guarded by `B == 1 && L == 1`; it is structurally unreachable during
+   prefill, and it applies to the 30 sliding layers only, not the 10 full-
+   attention layers (whose twin `laguna_full_fused_attn_grow_v1` `:2027` still
+   uses the 2-deep loop `:2168`). A decode-only regression alongside a prefill
+   *improvement* is exactly the shape this predicts. That is a hypothesis for
+   rung 2 to test, not a conclusion.
+3. **One candidate mechanism is downgraded before it is measured.**
+   `armSuffix` (`:1127`) is evaluated inside the eager kernel-table build at
+   `:1120-1146`, not per dispatch; the decode path does a dictionary lookup
+   `lagunaResidualRMSNormRouterKernels[rowsPerGroup * 8 + prefetch]!`
+   (`:1223-1224`). So "extra per-dispatch host cost from the variant
+   machinery" is not supported by the code and should not be offered as an
+   explanation. What the `[0, 1, 5]` map *does* add is a table of **21** kernels
+   where OLD (`30f752df:1038-1050`, keyed on `rowsPerGroup` alone) had **7**.
+   That is a construction cost, and because a Swift file-scope `let` is
+   initialised lazily on first access it is paid inside the process, not at
+   load. It is nonetheless unlikely to be the decode mechanism: the same table
+   is used by the terminal-prefill row (`:11268`), so first access precedes the
+   decode window — and prefill *improved* over this range. The § 1.5b step-0 and
+   first-128 diagnostics are what would show otherwise.
+
+Caveat kept: this is a static read of the gating, cross-checked against the OLD
+tree (`armSuffix`, `DARKBLOOM_ROUTER_WEIGHT_PREFETCH`, `pipe_kc`,
+`for (; i + 3 * BN < N;` all have zero occurrences at `30f752df`). It is not a
+runtime trace. The `--profile` hook (`research/nezuko-pr158-gpuprof-hook.patch`)
+is deliberately not applied to these snapshots, because applying it would edit
+the submitted surface of both arms and break the clean OLD/NEW contrast.
+
 ---
 
 ## § 3 Rung 0 — build and parity
