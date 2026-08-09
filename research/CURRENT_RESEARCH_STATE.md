@@ -1,21 +1,29 @@
 # SENPAI Research State
 
-- **2026-08-09 — round 100, mid-round.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 — round 100, late.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`2aa2f79228d59a3eeba3abc05ec96daa9e0b99a1`** (created by merging
-  tanjiro's #541 re-anchor census) + this docs commit.
+  Base = **`c22f1e47d7b6e5d4edfb759df65441caf5c1a3e3`** (created by merging
+  fern's #553 TG-doubling probe ladder, research-only) + this docs commit.
   `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
   Record still **2.61650354381456** (source `Layr-Labs/mlxfast-challenge @
   c5b0a13`, unchanged since round 93).
 
-- **Every base move inside rounds 99–100 has been docs/harness-only.**
-  `c240616a → c6c66344 → ad39bfc6 → c240616a → 92ee66ae → 4b631591 → d90f854d →
-  2aa2f79`. The submitted surface is byte-identical across all of them:
-  `git diff origin/main <base> -- Sources/ Vendor/ benchmark.json` returns
-  **zero files** at each. No in-flight assignment needs a rebase and no
-  measurement taken on any of those bases is invalidated. A
-  `research_base_changed` event on one of these moves therefore needs
-  `accept_result_on_current_base` at review time, not a rerun.
+- **Base-move ledger.** `c240616a → c6c66344 → ad39bfc6 → c240616a → 92ee66ae →
+  4b631591 → d90f854d → 2aa2f79 → fcd131a1 → 2e490fa3 → c22f1e47`. Every move up
+  to and including `fcd131a1` was docs/harness-only with a byte-identical
+  submitted surface, and `c22f1e47` is research-only again
+  (`git diff --name-only 2e490fa3 c22f1e47 -- Sources/ Vendor/ benchmark.json` is
+  empty). **`2e490fa3` remains the only base move of rounds 99–100 that touches
+  the submitted surface**: #548 rung 1 stripped comments from 26 vendored files
+  (+55 / −3,072 lines), and `git diff --name-only d90f854d 2e490fa3 -- Sources/
+  benchmark.json` is empty — the delta is entirely `Vendor/mlx-swift/**`. It is
+  semantics-free: every added line is comment-removal residue, `mlx.metallib` is
+  bit-identical (sha256 `8e8b18af…`, 158,502,072 B), and `--local-submit`
+  reported `max_abs_diff = 0`. When an arm whose `required_base_sha` predates
+  `2e490fa3` reaches review, its `accept_result_on_current_base` reason **must
+  name that vendored delta explicitly** rather than reciting "docs-only". That
+  applies to #539 (`c240616a`) and #555 (`2aa2f79`); #558 was created at
+  `2e490fa3` and only crosses the research-only `c22f1e47` move.
 
 - **Live board (round 100).**
 
@@ -24,12 +32,27 @@
   | #539 | frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | wip — eight-arm job complete, collecting; ring-vs-epilogue deconfound feedback posted |
   | #541 | tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r99-d-rev1` | ✅ **merged** → base `2aa2f79` |
   | #543 | fern | `maple-r98-d-moe-qmv-mlp` / `r99-e-rev1` | closed (banked negative) |
-  | #548 | nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | wip — byte reclamation |
-  | #553 | fern | `maple-r100-a-tg-doubling-probe-ladder` / `r100-a-rev1` | wip — probe validation + H2 ladder |
+  | #548 | nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | ✅ **merged** → base `2e490fa3`; **−176,468 B** |
+  | #553 | fern | `maple-r100-a-tg-doubling-probe-ladder` / `r100-a-rev1` | ✅ **merged** → base `c22f1e47`; H2 killed, probe harness banked |
   | #555 | tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | wip — epilogue re-port + lottery repricing |
+  | #558 | nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | 🆕 wip — R3 restoration, M5-relevant evidence |
 
-  Merge sequencing for byte headroom: #548 rung 1 → #539 → #548 rung 2.
-  Tanjiro's epilogue restore is byte-**negative** so it does not compete.
+- **🚨 The byte emergency moved, it did not end.** #548 rung 1 took the *total*
+  surface from 2,983,849 → **2,807,381 / 3,000,000 B**, i.e. headroom
+  16,151 → **192,619 B (11.9×)**. But rung 1 touched **only** vendored files:
+  `git diff --name-only ad39bfc6 2e490fa3 -- Sources/` returns **zero files**.
+  So the binding constraint — the 524,288 B **per-file** cap on
+  `Sources/MLXFastModel/LagunaRuntimeModel.swift` — is **unchanged at
+  511,418 B, leaving only 12,870 B**. All three restorations land in that one
+  file.
+
+  Restoration cost against that 12,870 B: **#555 epilogue −454 B → #539 rung-1
+  pipeline +4,086 B → #558 R3 +≈4,500 B** = net **+8,132 B**, leaving ≈4.7 kB
+  slack. That ordering is mandatory. **#548 rung 2** (LRM literal-aware comment
+  pool = **130,149 B across 282 blocks**, already prepared and unapplied) is the
+  release valve and should be assigned only *after* the three restorations land,
+  because applying it first would force every restoration to re-anchor against
+  a rewritten file.
 
 - **⚠️ Official submissions now go through a wrapper. `mlxfast submit` directly
   is superseded.**
@@ -536,8 +559,123 @@ with arm 0; `lagunaRouterPrefetchGroups` (`:875-880`) only peels when
 `rowsPerThread == 1`, and `DARKBLOOM_ROUTER_ROWS_PER_GROUP` still defaults to 8,
 so **the peel was live in the ranked default configuration**. Relayed to #539.
 
-### F. ⚠️ Open, cheap, and possibly expensive: is QKV `_idx_v1` silently dormant?
+**🆕 Premise verified line-by-line (round 100) and assigned as #558.** Both
+defaults confirmed in source: `lagunaRouterRowsPerGroup` = **8**
+(`e510bb3d:LRM:680-684`, identical at `HEAD:676-684`; accepted
+`[1,2,4,8,16,32,64]`) and `lagunaRouterWeightPrefetch` = **1**
+(`e510bb3d:LRM:697-705`; accepted `[0,1,2,3,4,5]`). `simdGroups = 512/32 = 16`;
+`rowsPerThread = rowsPerGroup >= 16 ? rowsPerGroup/16 : 1` ⇒ at the default 8,
+`rowsPerThread == 1` ⇒ `lagunaRouterPrefetchGroups(1, 1) = 1`. The
+"`rowsPerGroup == 64` makes it null by construction" remark in the old doc block
+is about a **non-default** control and is not a contradiction. HEAD *does* keep
+the four-deep block unroll (`HEAD:LRM:921-940`,
+`for (uint block = 0; block < router_blocks; block += 4)` over
+`vec<bfloat,4> rw[4]`); only the hoist above the reduction tail is gone.
+Restoration cost measured additively across five blocks
+(`old:686-705` 1,053 B; `:872-880` 434 B; `:936-955` 908 B; `:971-1002` 1,347 B;
+`:1122-1131` 535 B) = **4,277 B + ~200 B plumbing ≈ 4,500 B**.
 
+**⚠️ The prior behind this restoration is the weakest of the three.** The
++0.0628 % figure descends from `research/maple_r89_a_report.md` (PR #475), whose
+host block at `:11-14` is an **Apple M4 Pro, `applegpu_g16s`, 48 GiB** — the
+report itself says "not the ranked M5 Max", and at `:820-821` explicitly holds
+for an M5 measurement that was never taken. Its own self-caveats
+(`:3-9`, `:700-704`) call it "attribution-positive, end-to-end below floor",
+note the `nat`-census floor of ±13.3 µs/step is **1.9× the effect**, and record
+that the single significant `nat` number contradicts its own controls
+(depth-1 +18.5 vs depth-2 +0.00, non-monotone). The round-89 "154 µs/step
+ceiling" was retired inside the same document (`:316`: "the ceiling for this
+lever is therefore ~12.8 µs/step"). Replication in PR #488
+(`research/maple-nezuko-r92-barrier-hoist-generalization.md:347-349`) gives
+pf1−pf0 ≈ −5.7 µs/step, pf1−pf1c ≈ −10.7, but **that same study concluded H0 was
+favoured and that "the router kernel was close to special; the family should
+close."** W&B: A1=pf1 `dio6djt1`, A4/A5=pf1c `qmkav530`, A0 `vu8o8iet`, null
+`tdaj7nqj`, summary `lh0lp2nf`, #488 census `8g1u8efq` (entity
+`wandb-applied-ai-team`, project `mlxfast-maple`). **#558 is therefore framed as
+a decision, not a restoration order**: three preregistered null explanations
+with falsifiers, static codegen inspection first, and no end-to-end go/no-go
+bar. If the M5 evidence says the lever is dead on M5, shipping nothing is the
+correct outcome and buys back 4.5 kB of LRM headroom.
+
+### F. ✅ RESOLVED — the QKV byte floor was never violated (and QKV `_idx_v1` is unblocked)
+
+**The contradiction was two errors, not one, and neither survives.** A frontier
+desk study (2026-08-09) resolved it:
+
+1. **The byte number was 2.0 % high.** The naive "64 heads × 40 layers" head
+   count is wrong: layers 0, 4, …, 36 carry 48 q-heads, not 64
+   (`Sources/MLXFastModel/LagunaConfig.swift:17-26`). Correct geometry is
+   30 sliding × (64 + 2×8) × 128 + 10 full × (48 + 16) × 128 = **389,120
+   rows/step**. The live scored kernel is lane-major pairwise NVFP4
+   (`laguna_decode_nvfp4_qkv_h{64,48}_r1_v1_lm1_pw1_se1_sd1`; guards
+   `LRM:4857-4917`; pairwise default ON `LagunaRuntimeWeights.swift:718-720`) at
+   1024 codes + 32 pairwise nibbles + 1 base = **1,057 B/row** ⇒
+   389,120 × 1,057 = **411,299,840 B**, exactly the §3c census figure.
+   Cross-checked against PR #34's receipt block: same geometry at the older
+   stock 1,152 B/row encoding reproduces its 802.16 MB QKV+O figure
+   (`research/tanjiro-pr34-result.md:599`).
+
+2. **🚨 546 GB/s is the wrong constant, twice over — this is the important
+   finding.** It is not an M5 spec. It is a *measured M5 rate for a different
+   family* — routed-expert QMV — taken from PR #34's official receipt
+   differentials (`research/tanjiro-pr34-result.md:602`; provenance
+   `RESEARCH_STATE_ARCHIVE_through-round-21.md:117`). It coincides numerically
+   with the **M4 Max** DRAM spec (512-bit LPDDR5X-8533 = 546.1 GB/s), which is
+   how it got relabelled "M5 theoretical bandwidth". **The attention QKVO QMV
+   family itself measured 651.8 GB/s raw / 634.9 GB/s normalised on official
+   M5** (802.16 MB in 1.23070 ± 0.028 ms, same source `:599`).
+
+   ⇒ QKV floor = 411.3 MB / 651.8 GB/s = **631 µs** (648 µs at the normalised
+   rate). The "≈650 µs" pool figure sits **at** that floor, not below it. And
+   that figure was itself never an M5 measurement — it is an M4 T0b 1276 µs
+   scaled by the 0.51 wall ratio. The pool is byte-bound at 97–103 % of its own
+   measured rate.
+
+   Ranked resolutions: **(a) confirmed, high confidence**; **(b) confirmed**
+   (the 650 was an estimate); (c) true but small (−2.0 %); (d) minor —
+   ~10.8/8.7 MB per-layer banks with ~42 MB of other traffic between reuses vs
+   ~48 MB SLC ⇒ no cross-step residency, explains only the few-percent excess
+   over DRAM spec; (e) **rejected** — zero decode dispatch concurrency measured
+   (`research/maple-tanjiro-pr73…md:180-182`), and a score differential is
+   immune to counter-attribution error.
+
+**🆕 Rule 76 — never quote 546 GB/s as "the M5 roofline".** It is the measured
+*routed-QMV* rate. Per-family M5 rates now on record: routed-expert QMV
+546.2 raw / 577.7 normalised; attention QKVO QMV **651.8 raw / 634.9
+normalised**. No official M5 Max DRAM spec exists publicly (M5 base is
+153 GB/s); a plausible band is 614–700 GB/s. Every roofline claim must name the
+family whose rate it uses.
+
+**Two consequences that reorder the board.**
+
+- The old "1.7 GB/step ÷ 4893.7 µs ⇒ 352 GB/s ⇒ 64 % of roofline" framing is a
+  **wrong-denominator artifact**. 4893.7 µs is ranked wall *including* the
+  amortised seed prefill (752.2 µs/step, rule 58). Steady-state decode is
+  ≈4,141.5 µs ⇒ **≈433 GB/s** whole-step average against per-family rates of
+  546–652. The machine is far closer to saturated than we have been saying, and
+  the "63 % instruction-bound" characterisation of §3b needs re-derivation
+  per family rather than in aggregate.
+- **QKV byte reduction is licensed but nearly spent.** Codes are 96.9 % of QKV
+  bytes and locked at 4 bits — the only permitted attention re-quantisation is
+  INT8 g32, which *doubles* code bytes. Scales were already crushed 128 → 33
+  B/row by lane-major pairwise. What remains is escaped-row stock-scale reads
+  (≤ ~1 MB) plus nibble/base packing (≤ ~12 MB) ⇒ a realistic ceiling of
+  **13–20 µs ≈ 0.2–0.3 % score**. Below the 30 µs/step slot bar.
+- **The mispriced pool is the routed one.** 552.08 MB at 546.2 GB/s versus
+  attention's 651.8. Closing that *rate* gap alone is ≈164 µs ≈ **2.4 % score**,
+  and routed byte cuts price at 1.83 µs/MB versus attention's 1.53. This does
+  **not** reopen rule 70 for instruction-level work — the pool is still
+  DRAM-saturated *at its own rate* — but it does say the interesting question
+  is "why is the routed family 16 % slower per byte than the attention family?",
+  which is an access-pattern question (gathered expert banks vs 40 fixed
+  sequential banks), not an ALU question. **That is the strongest new decode
+  hypothesis on the board.**
+
+Open risk: PR #34's 651.8 rate was measured on the *stock* encoding; today's
+lane-major pairwise layout could differ by a few percent. One receipt
+differential would tighten it.
+
+The original §F rider stands and is now unblocked:
 `lagunaIndexedAffineMetadata` (`LRM:2829-2866`) returns `nil` when the distinct
 `(scale, bias)` pair LUT exceeds 65,536 (`guard lut.count < 65_536`, ~`:2856`).
 The dictionary guard at `:5304-5305` passes at defaults, but dispatch
@@ -555,21 +693,104 @@ when `lagunaLaneMajorNVFP4ScaleBank` returns nil at `:5616`) is ever taken, via
 
 - **H1 — killed** (§C). Do not re-derive.
 - **H3 — falsified and complete** (§D). No slot.
-- **H2 (merge-free TG doubling in attention) is promoted to the flagship decode
-  arm.** It is now the *only* structural decode direction with a quantified,
-  independently corroborated headroom (227 µs = 3.47 %, of which rule 67's
-  89.2 µs = 1.36 % is the conservative floor).
-- **New second priority: compute the QKV projection's byte floor** the same way
-  §A/§B did for the routed pool. QKV is ≈650 µs/step on M5 and we have never
-  asked whether it is byte-bound. Per layer QKV reads 2048×10240×0.5 = 10.5 MB
-  of codes; × 40 layers = 420 MB/step ⇒ a 546 GB/s floor of ~769 µs — which is
-  **larger than the measured pool**, so either the pool figure or the byte model
-  is wrong. Resolving that contradiction is a desk task worth doing before any
-  QKV arm is assigned.
+- **~~H2 (merge-free TG doubling in attention) is promoted to the flagship decode
+  arm~~ — KILLED by #553, see §H.** φ = 1.8008 against a viability bar of 1.05.
+  The 227 µs = 3.47 % attention slack is still real and still unclaimed; only
+  *this route to it* is dead. The one surviving descendant is **split-K with a
+  fused (zero-extra-dispatch) cross-slice reduction**, and it is gated behind a
+  per-TG fixed-cost measurement (§H) before it earns a slot.
+- **~~New second priority: compute the QKV projection's byte floor~~ — DONE,
+  see §F.** Answer: QKV reads 411.3 MB/step and is byte-bound at ~97–103 % of
+  the attention family's own measured M5 rate (651.8 GB/s). QKV byte work has a
+  ceiling of ≈0.2–0.3 % score and does **not** earn a slot. The desk task
+  instead produced rule 76 and a new flagship question: the routed family runs
+  16 % slower per byte than the attention family, worth ≈2.4 % if closed.
 - **H5 folds into §F** as a traced-step rider.
 - **H4/H6 unchanged.**
 
-### H. ⚠️ H2 CORRECTION — TG-doubling is probe-first, and my byte arithmetic was 8× wrong
+### H. ❌ H2 (TG doubling / Route A) is DEAD — settled by #553 (fern), MERGED
+
+**Outcome, round 100.** fern ran the preregistered E1 discriminator and the
+kill fired at the first rung: **φ = t(64 TG)/t(32 TG) = 1.8008 resident,
+1.8040 under residency defeat**, against a registered viability bar of φ ≤ 1.05
+and a registered kill of φ ≥ 1.5. Zero receipts spent, zero submitted bytes
+touched. TG cost is a **step function** with risers at exactly K = 20n+1 on the
+20-core test host, fitting `t ≈ 0.80 + 8.24·W` µs (W = wave index): the second
+wave is paid in full, not absorbed.
+
+**The decisive argument is host-independent and stronger than the measurement.**
+fern retracted their own registered prediction ("stepped φ ⇒ the M4 kill does
+not transfer, φ_M5 ≈ 1.0") and replaced it with fill arithmetic. With
+`Fill(K) = K / (C · ceil(K/C))`:
+
+`Fill(2K)/Fill(K) = 2·ceil(K/C)/ceil(2K/C)`, **which equals exactly 1 at K = 32
+for every core count C < 64.**
+
+M5 Max has 40 cores ⇒ `ceil(32/40) = 1`, `ceil(64/40) = 2`. Route A is
+**fill-neutral on M5**: it buys no occupancy and still pays a second wave. Its
+break-even is `τ₁ < 0.5·τ₂` on *both* hosts, unreachable because halving the
+q-heads halves the QK/AV arithmetic but leaves the K/V window read and the fixed
+per-TG cost intact. Route A needs C ≥ 64 to win anything. **I re-derived this
+algebra independently; it is correct.** E1b additionally showed riser positions
+flat across threadgroup memory 256 B → 32,768 B at both 1024 and 512 threads, so
+no tgmem trick rescues it.
+
+**Two rule changes and one repricing came out of this PR — see rules 71/77/78 in
+§8.** In particular the r99 QMV dose is repriced from 173 µs/step (2.643 %) to
+**21.6 µs/step (0.330 %, 31 % of the bar)** and is off the slate: the probe rung
+had been run at TG = 1024 while the shipped kernel needs TG = 2048 for full
+output coverage (1.59×), and the SLC-resident regime inflated the rest (5.02×).
+
+**Where the ladder *does* point (§7 of the report) — the one live descendant.**
+Sliding attention runs at Fill = 0.800 on M5 (32 TGs, 8 of 40 cores idle in its
+single wave); full attention at Fill = 0.600 (24 TGs). Finer *balanced*
+granularity — split-K/flash-decoding over the 512-position KV window with a
+cross-slice softmax reduction — reaches Fill 0.985 / 0.960 at 16 slices:
+
+| pool | M5 µs/step | Fill now | Fill @16 slices | recoverable | µs/step |
+| --- | --- | --- | --- | --- | --- |
+| sliding (30 layers, 32 TG) | ≈290 | 0.800 | 0.985 | 18.8 % | 54.5 |
+| full (10 layers, 24 TG) | ≈100 | 0.600 | 0.960 | 37.5 % | 37.5 |
+| both | ≈390 | | | | **92.0 (1.41 %)** |
+
+This independently reproduces **rule 67's** 0.1836 sliding starvation fraction
+(fern gets 0.188 from a completely different measurement) and finally supplies
+its *mechanism*: threadgroup-count versus core-count quantization.
+
+**But it is net-negative as specified.** A second dispatch per layer for the
+cross-slice combine costs 40 × 2.3403 = **93.6 µs/step against 92.0 µs of gross
+gain ⇒ net −1.6 µs/step.** So the question is binary and analytical:
+
+> Split-K over the KV window clears the bar **only** if the cross-slice
+> reduction adds **zero** dispatches (fused atomic-counter "last threadgroup
+> reduces", or a persistent final wave).
+
+⚠️ **My caveat on §7, to carry into any brief that picks this up.** Fern's own
+§6 argument against Route A is `τ₁ ≈ 0.5·compute + kv + fixed` — the per-TG
+fixed cost does *not* shrink when you subdivide. §7 then prices 16-way split-K
+purely as a Fill ratio, which implicitly assumes it does. A 16-slice split
+replicates the Q-side load, K RMSNorm, RoPE and epilogue scratch setup 16× per
+head-pair; only the KV window read actually divides. So **92.0 µs/step is an
+upper bound and probably a loose one**, and zero-extra-dispatch is *necessary
+but not sufficient*. Step one for whoever takes this is to measure the per-TG
+fixed-cost intercept on fern's own instrument (generalise the `t ≈ 0.80 + 8.24·W`
+fit across slice counts) — **before** the fused-reduction feasibility question.
+If the fixed cost is a large fraction of 8.24 µs/wave, split-K dies on
+arithmetic before atomics are reached. A 16-way partial-softmax recombination is
+also not bit-exact, so it needs a real drift argument against the equivalence
+oracle.
+
+**Also on record from #553:** the r99 in-situ reconciliation (corrected
+prediction 0.05–0.11 σ from centre, uncorrected 1.7–3.0 σ) rests on a wide
+interval [−193, +142] µs/tok. That is a **non-rejection, not a confirmation**.
+The load-bearing evidence for the 8.01× overstatement is the measured
+factorisation 1.59 × 5.02, not the agreement with r99. Cite it that way.
+
+---
+
+<details>
+<summary>Superseded H2 design notes (kept for the traffic arithmetic and the
+route-elimination survey, which remain correct)</summary>
 
 A frontier design review (2026-08-09) corrected three things in my H2 brief.
 All three make the arm *harder*, and none of them kills it.
@@ -647,6 +868,8 @@ Open audit items the review flagged as inference rather than receipt: the
 provenance and S-factor of the +18.36 % figure against the #528 / W&B `bgrx1ckq`
 receipt; `simd_sum` bit-exactness on Apple GPU generation 17 (verified only on
 gen 16); and M5 SLC size/behaviour.
+
+</details>
 
 ### I. #543 (fern, MoE-side QMV unrolling) — CLOSED, and it changed the rules
 
@@ -1130,23 +1353,47 @@ must cap its own submitted growth.
 
 ### 🆕 Round-100 queue, in priority order
 
-1. **R3 — restore `DARKBLOOM_ROUTER_WEIGHT_PREFETCH`** (+0.0628 %, ≈5.5–6 kB).
-   Gated behind #539 landing because both consume the same per-file headroom.
-   Provenance is settled: the organizer snapshot never had it and no authored
-   revert exists, so this is a reconciliation casualty, not a rejected idea.
-   HEAD's `rowsPerThread == 1` accumulate is character-for-character
-   `e510bb3d`'s `prefetch == 0` arm, and `lagunaRouterPrefetchGroups` peeled
-   only when `rowsPerThread == 1` with `DARKBLOOM_ROUTER_ROWS_PER_GROUP`
-   defaulting to 8 ⇒ **the peel was live in the ranked default config.**
+1. **~~R3 — restore `DARKBLOOM_ROUTER_WEIGHT_PREFETCH`~~ — ASSIGNED as #558
+   (nezuko).** (+0.0628 % claimed, ≤5,000 B hard cap.) Provenance is settled:
+   the organizer snapshot never had it and no authored revert exists, so this is
+   a reconciliation casualty, not a rejected idea. HEAD's `rowsPerThread == 1`
+   accumulate is character-for-character `e510bb3d`'s `prefetch == 0` arm, and
+   `lagunaRouterPrefetchGroups` peeled only when `rowsPerThread == 1` with
+   `DARKBLOOM_ROUTER_ROWS_PER_GROUP` defaulting to 8 ⇒ **the peel was live in
+   the ranked default config.** The brief carries an explicit *weak-prior*
+   warning: the only evidence is M4 Pro (`applegpu_g16s`, 20 cores), the effect
+   has never been measured on M5, and three preregistered null explanations
+   (regime/SLC, compiler-already-hoists, codegen tax) each have a named
+   falsifier. Merge order is still **#555 (−454 B) → #539 (+4,086 B) → #558**.
+
+1b. **🆕 Split-K attention with a fused cross-slice reduction** — the only
+   surviving descendant of H2. fern's §7 prices the Fill recovery at
+   54.5 (sliding) + 37.5 (full) = **92.0 µs/step = 1.41 %**, i.e. 134 % of the
+   68.7 µs/step resubmission bar — but that is a **gross upper bound**, because
+   a 16-way split replicates every per-TG fixed cost (Q-side load, K RMSNorm,
+   RoPE recompute, 16,896 B epilogue scratch) that the Fill model treats as
+   divisible. If the cross-slice combine costs one extra dispatch the arm is
+   **net −1.6 µs/step** (40 × 2.3403 µs). Sequence: (i) desk/probe measurement
+   of the per-TG fixed-cost intercept as a function of slice count, (ii) only if
+   the intercept leaves >30 µs/step, design the fused reduction (atomic-counter
+   "last threadgroup reduces", or a persistent final wave). Note the 16-way
+   partial-softmax recombination is **not** bit-exact, so it needs the full
+   equivalence gate, and the Fill effect is pure core-count so it must be
+   measured on M5.
 2. **H6 — prefill non-GEMM census.** `_nax` GEMM coverage is already complete
    (`use_nax` is unconditional for BF16 at `matmul.cpp:957-1026`), so the
    12.30 ms `steel_gemm_bf16` pool is an **M4 artifact** and prefill headroom
    must be looked for outside the GEMMs. Desk-first, then one census.
-3. **QKV byte-floor contradiction (desk, blocking).** Per-layer QKV codes
-   2048 × 10240 × 0.5 = 10.5 MB × 40 = 420 MB/step ⇒ a 769 µs floor at
-   546 GB/s, which *exceeds* the ≈650 µs pool we measured. One of the two is
-   wrong. **No QKV arm may be assigned until this is resolved.**
-4. **§F rider — is QKV `_idx_v1` silently dormant?** `lagunaIndexedAffineMetadata`
+3. **~~QKV byte-floor contradiction (desk, blocking)~~ — ✅ RESOLVED, see §F.**
+   Both inputs were wrong: the byte count was 2.0 % high (layers 0,4,…,36 carry
+   48 q-heads, not 64) and 546 GB/s is the *routed-expert* QMV rate, not a
+   roofline. Correct figures: **411.3 MB/step** at the attention family's own
+   measured **651.8 GB/s** ⇒ a **631 µs** floor against a ≈650 µs pool. QKV is
+   byte-bound at 97–103 %; remaining byte work is worth 13–20 µs ≈ 0.2–0.3 %,
+   below the bar. Produced **rule 76** and the flagship per-byte-rate-gap
+   question (§F, ≈2.4 % if closed).
+4. **~~§F rider — is QKV `_idx_v1` silently dormant?~~ — FOLDED INTO #558** as a
+   dormancy-trace rider. `lagunaIndexedAffineMetadata`
    (`LRM:2829-2866`) returns nil when the `(scale,bias)` LUT exceeds 65,536
    (`guard lut.count < 65_536`, ~`:2856`) and the QKV bank has ≈196 k candidate
    pairs. The dict guard `:5304-5305` passes but dispatch `:5368-5382` also
@@ -1749,6 +1996,17 @@ footprint, the achieved GB/s of each, and an argument that both sit on the same
 side of the roofline. fern's §7.10 is the template. A probe result that cannot
 make that argument is a codegen measurement, not a performance prediction.
 
+> **🆕 Rule 71 AMENDMENT (#553, adopted).** The one-line classifier
+> `unique_GB_s < 40 % of peak ⇒ ISSUE_BOUND` is **unsound and is withdrawn**. It
+> divides a small unique footprint by a heavily amplified wall, so it detects
+> *amplification*, not which side of the roofline you are on; it labelled a rung
+> running at 95 % of peak ISSUE_BOUND. Report **two independent columns**
+> instead: `regime` derived from `achieved_GB_s` (requested bytes ÷ wall, vs
+> peak), and `slc_fit` derived from capacity (unique footprint vs cache size).
+> The rest of rule 71 stands unchanged. Note also that #553 re-derived the
+> original ~70× as **8.01× = 1.59× (dispatch geometry) × 5.02× (residency)**,
+> the residual being the r99 rung's own unfaithfulness rather than SLC alone.
+
 **Rule 72 (method) — preregister the *explanation* for a possible null, not just
 the threshold.** fern wrote the SLC-residency explanation of a possible null
 before reading any in-situ number, which is why the null is informative rather
@@ -1763,6 +2021,42 @@ and absent at the new one is a **reversion to re-port**, not a design decision.
 A declaration-set diff alone is insufficient — it misses in-place body rewrites
 that keep the same interface, which is exactly how the r85-C float4 epilogue was
 lost for three rounds at a cost of ≈0.24 % of score.
+
+**Rule 74 (#548) — the embedded-header trap.**
+`Tests/MLXFastTests/NVFP4QuantizedMMTests.swift:42,55` assert that the bodies of
+`kernels/fp4.h` and `kernels/fp8.h` appear **verbatim** inside
+`mlx-generated/{fp_quantized,fp_quantized_nax,unary_ops}.cpp`. Any edit to one
+side that is not mirrored exactly breaks the build's test gate. Derive the
+do-not-touch set mechanically with
+`research/nezuko_embedded_header_check.py --exclusions BASE_SHA` (81 AOT
+sources); `mlx-generated/` is excluded from byte-reclamation entirely.
+
+**Rule 75 (#548) — digest the working set around every timed phase.** The
+controller re-checks-out the assignment branch on `student_assignment` delivery,
+so a run can silently time a different tree than the one you reasoned about.
+Hash the `Sources/` + `Vendor/` working set immediately before the build and
+again after the timed phase of every paired run, and publish both digests.
+
+**🆕 Rule 77 (#553) — a probe rung must reproduce the shipped kernel's dispatch
+geometry, or its dose is meaningless.** Threadgroup count and *output coverage*
+are part of the measurement, not tuning knobs. fern's r99 rung ran TG = 1024
+while `depth1_shipped.metal` (L156-168, L266: `output_width = 512`,
+`logical_row = (TG/8)·2 − 1`) needs TG = 2048 for full coverage; the equivalence
+write counts (4096 B @ 1024 vs 8192 B @ 2048) show half the output was never
+produced. Cost of the omission: a **1.59×** inflation that survived a full round
+and put a 2.6 %-of-score phantom on the slate. Every probe report must state
+threadgroup count, threads/threadgroup, and bytes written per rung, and assert
+they match the shipped dispatch.
+
+**🆕 Rule 78 (#553) — express a null-bias gate relative to the smallest dose it
+must protect, never as a bare `t`-statistic.** `t` has no upper bound as
+precision improves, so a bare `|t| < 3.0` clause is a gate that fails *harder*
+the better your instrument gets — and pairing it under `and` with a
+precision-free percentage clause guarantees failure on any well-built rig.
+#553's registered gate (`|d_mean| ≤ 0.5 %` **and** `|t| < 3.0`) failed at three
+rungs on a bias of −0.02…−0.04 µs, i.e. ≤ 0.53 % of reference against doses of
+9.2 % and 1.8 %. Standing replacement: **`|d%| ≤ 0.25 × |smallest reported
+dose|`**, stated with the dose it is protecting.
 
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the
@@ -1863,6 +2157,8 @@ Four-term score-variance decomposition:
 | [#502](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/502) | maple-frieren | rule 53/54 — there is no decode dispatch residue | `14e5bd34` |
 | [#540](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/540) | maple-nezuko | the zero-receipt A/B kernel probe; every prefetch variant regressed +5..+7 % at identical occupancy ⇒ lost static codegen quality | `c6c66344` |
 | [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | **the common-baseline score model** (validated 1185/1185) and the **three-reversion ledger**: adopting the promoted frontier cost 0.43–0.53 % of already-proven merit | `2aa2f79` |
+| [#548](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/548) | maple-nezuko | **−176,468 B** of vendored comment bytes (headroom 16,151 → 192,619 B, 11.9×), bit-identical `mlx.metallib`, `max_abs_diff = 0`; produced **rules 74 & 75** | `2e490fa3` |
+| [#553](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/553) | maple-fern | **killed H2** (φ = 1.8008 vs a 1.05 viability bar) and **self-refuted its own r99 headline**: the −14.6 % probe dose was overstated **8.01× = 1.59 × 5.02** (unfaithful dispatch geometry × SLC residency) ⇒ 21.6 µs/step, 0.330 %. Produced **rules 77 & 78** and the faithful-geometry / residency-defeat probe harness | `c22f1e47` |
 
 W&B: #497 [`grovhe29`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/grovhe29) ·
 [`ng13oh64`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ng13oh64) ·
