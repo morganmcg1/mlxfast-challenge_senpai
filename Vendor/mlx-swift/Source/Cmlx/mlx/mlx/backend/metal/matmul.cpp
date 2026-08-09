@@ -258,8 +258,8 @@ void steel_matmul_regular_axpby_nax(
   const bool align_N = (N % bn) == 0;
   const bool align_K = (K % bk) == 0;
   const bool output_major_qkv =
-      !CHECK_AB && !has_batch && batch_size_out == 1 && a.ndim() == 3 &&
-      b.ndim() == 2 && a.shape(0) == 1 && M == 512 && K == 2048 &&
+      !CHECK_AB && !has_batch && batch_size_out == 1 && a.ndim() == 2 &&
+      b.ndim() == 2 && M == 512 && K == 2048 &&
       (N == 8192 || N == 10240) && !transpose_a && transpose_b &&
       a.dtype() == bfloat16 && b.dtype() == bfloat16 &&
       out.dtype() == bfloat16 && lda == K && ldb == K && ldd == N &&
@@ -434,8 +434,8 @@ void steel_matmul_regular_axpby(
   const bool align_N = (N % bn) == 0;
   const bool align_K = (K % bk) == 0;
   const bool output_major_qkv =
-      !CHECK_AB && !has_batch && batch_size_out == 1 && a.ndim() == 3 &&
-      b.ndim() == 2 && a.shape(0) == 1 && M == 512 && K == 2048 &&
+      !CHECK_AB && !has_batch && batch_size_out == 1 && a.ndim() == 2 &&
+      b.ndim() == 2 && M == 512 && K == 2048 &&
       (N == 8192 || N == 10240) && !transpose_a && transpose_b &&
       a.dtype() == bfloat16 && b.dtype() == bfloat16 &&
       out.dtype() == bfloat16 && lda == K && ldb == K && ldd == N &&
