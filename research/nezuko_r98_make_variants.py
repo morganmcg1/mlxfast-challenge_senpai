@@ -326,6 +326,42 @@ def v7_rotated_pre_barrier_k_only(sliding):
     return rotate_loop(s)
 
 
+PROLOGUE_POST = (PRE_DECL
+                 + "T_LOAD_K(pre_k, pre_sub, pair_keys);\n"
+                 "T_LOAD_V(pre_v0, pre_v1, pre_v2, pre_v3, pre_sub,"
+                 " pair_values);\n")
+
+
+@variant
+def v9_extra_barrier_after_load(sliding):
+    """v5 plus a second barrier immediately after the prologue load.
+
+    Keeps the load in v5's position but makes its destination registers cross
+    a barrier, exactly as in v4. If v9 reproduces v4's regression then the cost
+    is the barrier waiting on the in-flight load, not the early issue.
+    """
+    s = hoist_pointers(sliding)
+    s = sub1(s, "\n" + BARRIER + "\nif ((head0 % gqa) == 0",
+             "\n" + BARRIER + PROLOGUE_POST + BARRIER
+             + "\nif ((head0 % gqa) == 0", "prologue insertion point")
+    return rotate_loop(s)
+
+
+@variant
+def v10_extra_barrier_before_load(sliding):
+    """v9's control: the same second barrier, placed before the load.
+
+    Same barrier count and instruction count as v9 with nothing crossing it, so
+    v9 minus v10 prices the crossing alone.
+    """
+    s = hoist_pointers(sliding)
+    s = sub1(s, "\n" + BARRIER + "\nif ((head0 % gqa) == 0",
+             "\n" + BARRIER + "if (widx < window) {\n" + BARRIER + "}\n"
+             + PROLOGUE_POST + "\nif ((head0 % gqa) == 0",
+             "prologue insertion point")
+    return rotate_loop(s)
+
+
 def main():
     base = pathlib.Path(sys.argv[1]).read_text()
     outdir = pathlib.Path(sys.argv[2])
