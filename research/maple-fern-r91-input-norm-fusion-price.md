@@ -11,10 +11,25 @@ in this file was measured on `3f430f6f` plus this branch's probe commits**.
 `research/` and `senpai/tools/agx-census-probe/` — so it cannot move a timing
 result here.
 
-Status: **stage 1 in progress** — numbers are filled in below as each stage
-lands. Nothing in this file is a shipping change; the whole stage-1/stage-2
-instrument is a research patch (`research/maple-fern-r91-stage1-probe.patch`)
-and `Sources/` is unmodified on the submitted branch unless stage 3 wins.
+Status: **terminal — the family is dead.** Stage 1 priced the fusion at
+**≤ 35.02 µs/step (95 % upper bound) ≈ 0.535 % score**, against the
+assignment's ~80 µs/step stopping bar and its ~193 µs/step model. Stages 2 and
+3 were therefore not run. `Sources/` is unmodified on the submitted branch; the
+instrument is preserved as `research/maple-fern-r91-stage1-probe.patch`.
+
+Three results here outlive this assignment:
+
+1. **The prize does not exist.** Adding a whole redundant input-RMSNorm plus a
+   glue op to every layer — 80 extra dispatches/step, +19.7 % dispatch count —
+   costs **+8.61 µs/step busy, CI [−17.71, +35.02]**, i.e. nothing. (Finding 4)
+2. **Deletion probes are unsound on this MoE model.** Stage 1a's arms decode a
+   *different token stream*, so they re-route to different experts. Its
+   −137 µs/step "ceiling" was routing contamination, not dispatch cost.
+   (Findings 3, 4)
+3. **Rule 41's 1.4064 µs/dispatch does not hold on this stream.** It
+   over-predicts the cost of 80 added dispatches by ~13×, and `gap` never
+   moves. Any NET arithmetic whose prize is "removed boundaries" is affected.
+   (Finding 6)
 
 ## Why this is a pricing experiment and not an implementation
 
@@ -194,7 +209,122 @@ chain, an independent test of finding 2.
 sign-balanced for `base|dupn` at offset 1, and n = 8 `max1|max1` nulls at
 offset 1.
 
-_(results to be filled in from `/tmp/maple-r91b/nat`)_
+#### Instrument receipts
+
+Rule 39 reachability, measured over all 32 timed slots (not just the
+pre-check), plus the bit-exactness receipt:
+
+| arm | dispatches/step | cbs/step | token-stream sha256 (16) |
+| --- | --- | --- | --- |
+| `base` | 406.0 | 45.0 | `a1ab08a6ea7ac45e` |
+| `max1` | 446.0 (+40 glue) | 45.0 | `a1ab08a6ea7ac45e` |
+| `dupn` | 486.0 (+40 glue +40 norm) | 45.0 | `a1ab08a6ea7ac45e` |
+
+All three arms emit **one** distinct token stream across all 32 slots, and it
+is the same stream `base` emits in stage 1a. The +40/+80 dispatch steps land
+exactly as designed, so MLX performed no CSE on the duplicated norm. `cbs/step`
+is 45.0 everywhere, which removes command-buffer repacking as a confound.
+
+Per-arm means (µs/step): `base` wall 8217.3 / busy 7970.0; `max1` wall 8258.7 /
+busy 8001.5; `dupn` wall 8232.2 / busy 7977.1. `busy_sum / busy_union = 1.0000`
+for every arm — these dispatches are serial, with no overlap to hide behind.
+
+#### Results
+
+| contrast | offset | n | metric | Δ µs/step | 95 % CI | SD | score % |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `max1 − base` | 0 | 8 | wall | +50.88 | [−21.10, +123.48] | 85.92 | +0.7774 |
+| | | | busy_sum | **+30.03** | [+7.04, +53.09] | 27.43 | +0.4589 |
+| | | | busy_union | +30.03 | [+7.04, +53.09] | 27.43 | +0.4589 |
+| | | | gap | +14.37 | [−30.81, +68.97] | 56.05 | — |
+| `dupn − max1` | 0 | 8 | wall | −16.76 | [−35.02, +1.54] | 21.91 | −0.2561 |
+| | | | busy_sum | **−25.87** | [−40.02, −11.68] | 17.00 | −0.3952 |
+| | | | busy_union | −25.87 | [−40.02, −11.68] | 17.00 | −0.3952 |
+| | | | gap | +9.66 | [−9.96, +30.91] | 23.49 | — |
+| `dupn − base` | 1 | 7 | wall | +16.09 | [−16.01, +48.31] | 34.71 | +0.2458 |
+| | | | busy_sum | **+8.61** | [−17.71, +35.02] | 28.47 | +0.1315 |
+| | | | busy_union | +8.61 | [−17.71, +35.02] | 28.47 | +0.1315 |
+| | | | gap | +7.14 | [−10.31, +25.86] | 18.99 | — |
+| `max1 − max1` NULL | 1 | 8 | wall | +25.04 | [−43.23, +93.87] | 81.73 | +0.3826 |
+| | | | busy_sum | +2.01 | [−9.20, +13.23] | 13.41 | +0.0307 |
+| | | | gap | +16.45 | [−33.68, +78.97] | 62.46 | — |
+
+The null is healthy on the busy axis: +2.01 µs/step with SD 13.41, consistent
+with the tabulated `nat` absolute-busy σ = 14.74. The wall axis is noisier here
+than the tabulated σ = 29.96 (SD 81.73), so **every conclusion below is taken
+on the busy axis**; wall is quoted only for direction.
+
+#### Finding 4 — the fusion prize is ≤ 35 µs/step, and stage 1a's 137 was contamination
+
+`dupn − base` adds one full redundant input-RMSNorm **and** one glue dispatch
+per layer — 80 extra dispatches/step, a +19.7 % increase in dispatch count —
+for **+8.61 µs/step busy, 95 % CI [−17.71, +35.02]**. That is statistically
+indistinguishable from zero.
+
+Both components of that sum are physically non-negative, so the sum bounds each
+part. The gross prize of removing the input-norm edge is therefore
+
+> **≤ 35.02 µs/step (95 % upper bound) ≈ 0.535 % score**, point estimate ≈ 8.6 µs/step ≈ 0.13 %.
+
+This is **5.5× smaller** than stage 1a's `skipr` estimate of −137.13 µs/step and
+**22× smaller** than the assignment's modelled 193 µs/step. The difference is
+now directly attributable, because stage 1a's arms were not bit-exact:
+
+| stage | arm | token-stream sha256 (16) | same as base? |
+| --- | --- | --- | --- |
+| 1a | `base` | `a1ab08a6ea7ac45e` | — |
+| 1a | `skipr` | `b2a3ca01c7e12a12` | **no** |
+| 1a | `skipc` | `d9bdecea7bfdc7bc` | **no** |
+| 1b | `max1`, `dupn` | `a1ab08a6ea7ac45e` | **yes** |
+
+`skipr` decodes a different token sequence, so it routes to a different set of
+experts and does a different amount of gather-GEMM work. Stage 1a finding 3
+already showed that two arms with *identical* dispatch and cbs counts can
+differ by 934 µs/step purely through routing. `skipr − base` = −137 µs/step is
+the same contamination at smaller magnitude, not the price of 40 norm
+dispatches. **The deletion-probe methodology is unsound on this MoE model and
+its stage 1a numbers should not be quoted as a ceiling.**
+
+#### Finding 5 — the decomposition is unreliable, but the bound is not
+
+Taken separately the two halves disagree with physics: `dupn − max1` adds 40
+real RMSNorm dispatches and *lowers* busy time by 25.87 µs/step, with a CI that
+excludes zero. Adding work cannot reduce GPU busy time directly, so this is a
+second-order artefact. The most plausible mechanism is MLX buffer donation:
+`max1` computes `maximum(y, y)`, whose single input is referenced twice, which
+blocks donating that buffer to the output; `dupn` computes `maximum(a, b)` from
+two singly-referenced buffers and can donate one. `max1`'s glue dispatch is
+then more expensive than `dupn`'s, which inflates `max1 − base` (+30.03) and
+depresses `dupn − max1` (−25.87) by roughly the same amount.
+
+Additivity confirms the two halves are self-consistent even so:
+`(max1 − base) + (dupn − max1) = +4.16` µs/step versus the directly measured
+`dupn − base = +8.61` µs/step — well inside the CI.
+
+The decision does not depend on resolving this. `max1` is only an intermediate;
+the quantity that bounds the fusion prize is the end-to-end `dupn − base`
+contrast, which involves no `maximum(x, x)` on either side of the comparison in
+a way that could inflate it — and any donation penalty in `dupn`'s glue
+dispatch makes the +8.61 an **over**-estimate of the norm cost, so the bound
+holds a fortiori.
+
+#### Finding 6 — rule 41's 1.4064 µs/dispatch does not apply to this stream
+
+Stage 1a finding 2 observed that the modelled ~56 µs/step boundary term did not
+appear. Stage 1b refutes the constant far more directly, on bit-exact arms:
+
+| prediction | rule 41 | measured (busy) | measured (gap) |
+| --- | --- | --- | --- |
+| +40 dispatches (`max1 − base`) | +56.3 µs/step | +30.03 [+7.04, +53.09] | +14.37 [−30.81, +68.97] |
+| +80 dispatches (`dupn − base`) | +112.5 µs/step | +8.61 [−17.71, +35.02] | +7.14 [−10.31, +25.86] |
+
+Rule 41 over-predicts by ~2× at 40 dispatches and by ~13× at 80, and `gap` —
+the axis a CPU-side encode cost would have to move — is statistically zero in
+every contrast. On a GPU-bound decode stream the encode of an extra dispatch is
+hidden behind GPU execution, so 1.4064 µs/dispatch should not be used in NET
+arithmetic for this workload without re-deriving it in the regime of interest.
+This is flagged for the advisor as a standing-rule problem; it affects any NET
+estimate whose prize is "removed boundaries".
 
 ### Stopping rule
 
@@ -202,22 +332,80 @@ The assignment's stopping rule is: if the measured ceiling is below
 ~80 µs/step, stop and write it up as a null — the family is dead and stage 2
 is not run.
 
+**The rule fires. Stage 1 is terminal and stages 2 and 3 are not run.**
+
+The ceiling is ≤ 35.02 µs/step at the 95 % upper bound, against a bar of
+~80 µs/step. The bound is on the *gross* prize: it assumes fusion removes the
+whole norm edge and adds nothing back. Every real shape adds work back —
+
+- shape (a) (pass a precomputed 1/RMS scalar, keep a separate reduce kernel)
+  keeps the reduce dispatch and so recovers only part of an already-tiny edge;
+- shape (b)+(a) (previous kernel emits partial sums-of-squares, QKV finishes
+  them in a prologue) adds a prologue to **R = 5,120** threadgroups per QKV
+  dispatch, which is the term that killed naive full fusion at −115 µs/step.
+
+so their NET is bounded above by a number that is already inside the noise
+floor of the instrument, before subtracting any give-back. There is no shape in
+this family whose NET can be shown positive with the available measurement
+precision, so spending the stage 2 ALU-injection ladder and the offline AGX
+census on it would be measuring give-back against a prize that does not exist.
+
 ## Stage 2 — ALU-injection ladder
 
-_(only if stage 1 clears ~80 µs/step)_
+**Not run.** Stage 1's ceiling (≤ 35 µs/step, 95 % UB) is below the ~80 µs/step
+stopping bar. See "Stopping rule" above.
 
 ## Stage 3 — implementation
 
-_(only if a shape has positive NET)_
+**Not run.** No shape in this family can have a positive NET at the measured
+ceiling.
+
+Accordingly no change ships in `Sources/`. The probe knob used to obtain these
+numbers is preserved as a re-appliable patch rather than as live scored code —
+see "Probe patch" below.
 
 ## Reproduction
 
+Both stages ran on the M4 Pro research host against
+`BASE_SHA=3f430f6f17ac4bfbac5f47767ca78cb89d84a760`. Re-apply the probe patch
+first (see below), then:
+
 ```bash
-# stage 1, nat regime (32 runs, ~35 min on the M4 Pro research host)
+# stage 1a — deletion arms (32 runs, ~25 min). Superseded; kept for provenance.
 env OUT=/tmp/maple-r91a REPS=4 STEPS=200 REGIMES=nat \
   bash research/maple_r91a_input_norm_ab.sh
 
-# stage 1, s1 regime for per-kernel attribution only
-env OUT=/tmp/maple-r91a REPS=2 STEPS=200 REGIMES=s1 \
+# stage 1b — bit-exact arms (32 runs, ~25 min). This is the result of record.
+env OUT=/tmp/maple-r91b REPS=4 STEPS=200 REGIMES=nat \
+  ORDER="base max1 max1 base dupn max1 max1 dupn" \
   bash research/maple_r91a_input_norm_ab.sh
+
+# stage 1b contrasts
+for spec in "base max1 0 base_max1_o0" "max1 dupn 0 max1_dupn_o0" \
+            "base dupn 1 base_dupn_o1" "max1 max1 1 max1_max1_o1"; do
+  set -- $spec
+  python3 research/maple_r88a_additivity.py --steps 200 --drop-first 1 \
+    --arms $1 $2 --offset $3 \
+    --json-out /tmp/maple-r91b/stats/$4.json /tmp/maple-r91b/nat/*.log
+done
+
+# bit-exactness receipt (must print 1)
+for f in /tmp/maple-r91b/nat/*.tokens; do shasum -a256 < "$f"; done \
+  | cut -d' ' -f1 | sort -u | wc -l
 ```
+
+## Probe patch
+
+Stage 1 is a pricing experiment with a null outcome, so nothing ships in
+`Sources/`. The probe knob that produced every number above is preserved as
+`research/maple-fern-r91-stage1-probe.patch`, whose header records the base SHA
+and the re-apply command. It adds `DARKBLOOM_R91_INPUT_NORM_PROBE` to
+`LagunaRuntimeModel.swift` with modes `0` base, `-1` skipr, `-2` skipc,
+`2` dupn, `3` max1.
+
+The `skipr`/`skipc` modes are **not** bit-exact and are research-only; they
+change the decoded token stream by construction, which is exactly what finding
+4 shows makes them unusable as a ceiling. The `dupn`/`max1` modes are bit-exact
+and are the ones that carry the result. Neither is proposed for the scored
+path, so no correctness gate was run against a shipping candidate — there is no
+shipping candidate.
