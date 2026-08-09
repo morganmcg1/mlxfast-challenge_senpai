@@ -187,3 +187,27 @@ for lab, kb in [("decode", "bl_dec"), ("prefill", "bl_pre")]:
         pub = t * pub_cv * math.sqrt(2.0 / n)
         print("      %-4d %8.4f%%          %8.4f%%          %5.1fx" % (n, raw, pub, pub / raw))
     print()
+
+print("=" * 78)
+print("6. SUBMISSION CADENCE: receipts needed to confirm a true decode win")
+print("=" * 78)
+Z_A, Z_B = 1.959964, 0.8416212  # 95% two-sided, 80% power
+c = CAND_CV["decode"]
+b = cv([x["bl_dec"] * 1e6 for x in r])
+pub_cv = math.sqrt(c * c + b * b)
+print("  sigma(raw candidate decode)   = %.4f%%" % c)
+print("  sigma(published decode su)    = %.4f%%" % pub_cv)
+print()
+print("  %-10s %-28s %-28s" % ("true delta", "vs an ESTABLISHED reference",
+                               "vs a FRESH 1-receipt reference"))
+print("  %-10s %-13s %-14s %-13s %-14s" % ("", "raw us", "published su", "raw us", "published su"))
+for d in (0.5, 1.0, 2.0, 4.0):
+    def need(sig, k):
+        return max(1, math.ceil(k * (Z_A + Z_B) ** 2 * sig * sig / (d * d)))
+    print("  %-10s %-13d %-14d %-13d %-14d"
+          % ("%.1f %%" % d, need(c, 1), need(pub_cv, 1), need(c, 2), need(pub_cv, 2)))
+print()
+print("  'established reference' = the frontier already has many receipts, so only")
+print("  the new candidate must be replicated. 'fresh' = both arms bought new.")
+print("  At ~21 min turnaround on a strictly serial channel, the right-hand")
+print("  columns are the real cost of a claim.")
