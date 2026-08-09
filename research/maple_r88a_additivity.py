@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from maple_pr443_duplex_stats import PCT_PER_US_STEP, t95  # noqa: E402
 from maple_r85_arm_stats import ci, contrast, select_duplexes  # noqa: E402
 
-SLOT_RE = re.compile(r"^(\d+)-rep(\d+)-([a-z_]+)\.log$")
+SLOT_RE = re.compile(r"^(\d+)-rep(\d+)-([a-z0-9_]+)\.log$")
 SUMMARY_RE = re.compile(
     r"^per steady step: wall=([\d.]+) ms gpu_busy_sum=([\d.]+) ms "
     r"gpu_busy_union=([\d.]+) ms gap=([-\d.]+) ms \([-\d.]+% of wall\) "
