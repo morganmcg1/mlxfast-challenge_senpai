@@ -64,12 +64,23 @@ TRANSFER = {
 R1 = 0.622
 # The two reference magnitudes this arm was sent to test, in M5 us/step of T.
 REF_M5 = {"A->B  'missing microseconds'": 20.149, "B->C  R3 (#558)": 0.0}
-STATS = ("median", "trimmed", "mean")
+# The median is primary because the host is not a clean room, but it is blind
+# to step 0 and to any sub-majority tail, and both are inside the official
+# 128-step mean. mean_first128 is the official analog and governs when it
+# disagrees in sign with the median (see doc S 1.12 A4).
+STATS = ("median", "trimmed", "mean", "mean_first128", "step0")
+QC_P99_RATIO = 1.30
+# The retracted M5 claim expressed on this host: 20.149 / 0.622.
+TOST_MARGIN = 32.4
+# z(1 - 0.05/6) / z(1 - 0.05/2) = 2.394 / 1.960, applied to the t half-width.
+BONFERRONI_3 = 1.2214
 
 
 def load(out: Path, warmup: int):
     """reps[rep][arm] = [(position, stats), ...], warm-up reps dropped."""
     reps: dict[int, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    dropped: list[str] = []
+    bad: set[int] = set()
     for line in (out / "index.tsv").read_text().splitlines()[1:]:
         rep_s, pos_s, arm, tag = line.split("\t")
         rep = int(rep_s)
@@ -77,11 +88,34 @@ def load(out: Path, warmup: int):
             continue
         p = out / f"{tag}.steps"
         if not p.exists() or not p.read_text().strip():
-            print(f"  WARNING: missing or empty {p.name}; rep {rep} dropped")
-            reps.pop(rep, None)
+            dropped.append(f"{tag} (missing or empty)")
+            bad.add(rep)
             continue
-        reps[rep][arm].append((int(pos_s), slot_stats(p)))
+        st = slot_stats(p)
+        why = qc_reject(out / f"{tag}.log", st)
+        if why:
+            dropped.append(f"{tag} ({why})")
+            bad.add(rep)
+            continue
+        reps[rep][arm].append((int(pos_s), st))
+    # A rejected slot invalidates its whole repetition: every contrast here is
+    # within-repetition, so a repetition missing one arm cannot contribute.
+    for rep in bad:
+        reps.pop(rep, None)
+    print(f"  QC: {len(dropped)} slot(s) rejected, {len(bad)} rep(s) voided"
+          + ("; " + ", ".join(dropped) if dropped else ""))
     return reps
+
+
+def qc_reject(log: Path, st: dict[str, float]) -> str:
+    """Pre-registered slot QC (doc S 1.12 A9). Empty string means keep."""
+    if log.exists():
+        for ln in log.read_text().splitlines():
+            if "divergences" in ln and not ln.split()[3].startswith("0"):
+                return ln.strip()
+    if st["p99"] > QC_P99_RATIO * st["median"]:
+        return f"p99/median={st['p99'] / st['median']:.3f}"
+    return ""
 
 
 def arm_estimates(reps, stat: str):
@@ -180,11 +214,51 @@ def main() -> None:
 
     print("\n########## exclusion bounds (primary statistic: median) ##########")
     print("Reporting discipline (advisor fb2): never 'neutral' without an X.")
+    print("Signed interval first; X is quoted only when the interval covers 0")
+    print("(doc S 1.12 A5: 'excludes > hi' is absurd for a non-null estimate).")
     for name, p in prim.items():
         b = p["excludes_above_m4"]
-        print(f"  {name}: 95% CI [{p['lo']:.2f}, {p['hi']:.2f}] us/step M4."
-              f"  Excludes |true effect| > {b:.1f} us/step M4"
-              f"  = {b * R1:.1f} us/step M5-equivalent at the R1 factor.")
+        se = p["half_width"] / t95(p["k"] - 1)
+        mde = (t95(p["k"] - 1) + 0.842) * se
+        covers0 = p["lo"] <= 0.0 <= p["hi"]
+        tost = "PASS" if b < TOST_MARGIN else "fail"
+        print(f"  {name}: 95% CI [{p['lo']:+.2f}, {p['hi']:+.2f}] us/step M4"
+              f"  (point {p['mean']:+.2f})")
+        if covers0:
+            print(f"      covers 0; excludes |true effect| > {b:.1f} M4"
+                  f" = {b * R1:.1f} M5-equivalent at the R1 factor")
+        else:
+            side = "positive" if p["lo"] > 0 else "negative"
+            print(f"      EXCLUDES 0 ({side}); this is an effect, not a null"
+                  f"  -- X is not the right summary here")
+        print(f"      80%-power MDE {mde:.1f} M4 (what it could reliably"
+              f" detect; the CI half-width {p['half_width']:.1f} overstates it)")
+        print(f"      TOST vs the {TOST_MARGIN:.1f} M4 margin"
+              f" (the retracted M5 claim on this host): {tost}")
+    # Three pairwise intervals at per-pair 95% give roughly 86% joint coverage,
+    # so a single "no pair differs by more than X" claim needs an adjustment.
+    bonf = max(p["half_width"] for p in prim.values()) * BONFERRONI_3
+    print(f"\n  joint (Bonferroni m=3, normal-quantile approximation):"
+          f" no pair differs by more than {bonf:.1f} us/step M4"
+          f" = {bonf * R1:.1f} M5-equivalent at the R1 factor")
+    # The median cannot see step 0 or any sub-majority tail, both of which the
+    # official 128-step mean scores. Where the two disagree in sign, the
+    # official analog is the one the score is made of (doc S 1.12 A4).
+    print("\n########## median vs official analog (mean_first128) ##########")
+    offi = report["stats"]["mean_first128"]["contrasts"]
+    for name, p in prim.items():
+        o = offi[name]
+        flag = ("DISAGREE -- official analog governs"
+                if p["mean"] * o["mean"] < 0 else "agree in sign")
+        print(f"  {name}: median {p['mean']:+8.2f} [{p['lo']:+.2f},"
+              f" {p['hi']:+.2f}]   official-analog {o['mean']:+8.2f}"
+              f" [{o['lo']:+.2f}, {o['hi']:+.2f}]   {flag}")
+    s0 = report["stats"]["step0"]["contrasts"]
+    print("  step-0 contrast, which enters official T at weight 1/128:")
+    for name, p in s0.items():
+        print(f"    {name}: {p['mean']:+9.1f} us [{p['lo']:+.1f},"
+              f" {p['hi']:+.1f}]  -> {p['mean'] / 128.0:+.2f} us/step of T")
+
     print("\n  M5-equivalent of the achieved half-width under four transfer")
     print("  assumptions (a scalar factor is only valid within one mechanism")
     print("  class; this is the sensitivity, not four estimates):")

@@ -65,6 +65,8 @@ def slot_stats(path: Path) -> dict[str, float]:
         # from the first one, so any one-time in-window cost is inside it.
         "mean_first128": statistics.mean(steps[:128]),
         "step0": steps[0],
+        "p90": sorted(steady)[int(0.90 * len(steady))],
+        "p99": sorted(steady)[int(0.99 * len(steady))],
         "n": len(steady),
         "sd": statistics.stdev(steady),
     }
