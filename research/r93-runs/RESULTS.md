@@ -704,7 +704,63 @@ the one-slow-session failure mode in which a genuinely good candidate is
 rejected by a single unlucky receipt. It also means the section 2 candidate-side
 sigma, a plain sd over a handful of points, should be read as an upper bound.
 
-### 9.5 What this did and did not replace
+### 9.5 Noise is multiplicative, and fast candidates are relatively noisier
+
+Section 9.1 measures the channel at the baseline's speed (13855 us decode) and
+sections 9.3 and 9.6 extrapolate toward ours (~4900 us). That is only legitimate
+if the noise is multiplicative. `research/r93-runs/hetero.py` checks it on
+near-replicate solver-day groups (candidate CV < 0.6 %, so residuals are noise
+rather than code change), binned by group mean:
+
+**Decode** (357 points)
+
+| group-mean band | n | residual sd | residual CV |
+|---|---|---|---|
+| 4912 - 5100 us | 89 | 21.745 us | **0.4358 %** |
+| 5100 - 5121 us | 89 | 13.529 us | 0.2648 % |
+| 5121 - 6877 us | 89 | 15.934 us | 0.3017 % |
+| 6877 - 11879 us | 90 | 32.451 us | 0.3819 % |
+
+The residual *sd* rises with the mean while the residual *CV* stays inside
+0.26-0.44 %, so decode noise is multiplicative and the CV does extrapolate.
+
+The first row is the more useful result. That band, 4912-5100 us, **is our
+regime**, and it is measured on 89 near-replicate points from other solvers.
+Its 0.4358 % agrees closely with the 0.4041 % I measured on my own
+machine-code-identical nulls, and both sit clearly above the baseline channel's
+0.2454 %.
+
+That settles a puzzle from section 2. My candidate-side decode sigma came out
+*above* the assignment's 0.2924 % corpus bound, which was surprising because a
+heterogeneous corpus bound should over-estimate. It is not a small-n artifact:
+**fast candidates really are relatively noisier than the slow pinned baseline**,
+by roughly 1.7x in CV. At 4900 us per token a larger share of the step is
+CPU-side dispatch and scheduling jitter, which averages out less well over 128
+steps than bulk GPU compute does. The practical reading is that as the frontier
+gets faster, its relative measurement noise gets *worse*, so cadence
+requirements tighten over the life of the campaign rather than relaxing.
+
+**Prefill** (281 points)
+
+| group-mean band | n | residual sd | residual CV |
+|---|---|---|---|
+| 187.8 - 191.0 us | 70 | 0.457 us | 0.2416 % |
+| 191.0 - 191.2 us | 70 | 0.305 us | 0.1595 % |
+| 191.2 - 195.4 us | 70 | 0.667 us | 0.3441 % |
+| 195.4 - 377.5 us | 71 | 0.977 us | 0.4039 % |
+
+Prefill tells the opposite story about the baseline, and it is decisive for
+section 9.3. A candidate near 190 us repeats to 0.16-0.24 % even with small code
+differences mixed in, and to 0.0643 % when the code is machine-code identical.
+The pinned baseline at 372 us repeats to only 1.9451 %. If the noise were purely
+a property of the machine, multiplicative scaling would predict similar CVs.
+It does not: **the baseline's prefill pass is specifically about 8x noisier in
+relative terms than a fast candidate's.** The prefill noise problem belongs to
+the baseline code path, not to the M5, and no improvement on our side can reduce
+it. That is why the published prefill speedup cannot be rescued by better
+candidate engineering and must simply not be used as a research statistic.
+
+### 9.6 What this did and did not replace
 
 It did not replace Arm A. The corpus baseline measures the channel under the
 *baseline's* code, which is roughly 2.8x slower at decode and 2x slower at
