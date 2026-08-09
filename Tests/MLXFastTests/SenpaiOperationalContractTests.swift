@@ -167,12 +167,27 @@ func senpaiOperationalGuidanceMatchesTheDeployedRankedPath() throws {
     ]
     for (path, guidance) in submissionGuides {
         #expect(
-            guidance.contains("--model \"senpai\""),
+            guidance.contains("submit-official.sh"),
             Comment(rawValue: path)
         )
         #expect(guidance.contains("explicit"), Comment(rawValue: path))
         #expect(guidance.contains("timeout"), Comment(rawValue: path))
     }
+
+    let submitter = try String(
+        contentsOfFile: "senpai/submit-official.sh",
+        encoding: .utf8
+    )
+    #expect(submitter.contains("exec mlxfast submit --model senpai"))
+    #expect(submitter.contains("git merge-base --is-ancestor"))
+    #expect(submitter.contains("refs/remotes/origin/main"))
+
+    let submitterTests = try runOperationalCommand(
+        "/usr/bin/python3",
+        ["senpai/test_submit_official.py"],
+        in: URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    )
+    #expect(submitterTests.status == 0, Comment(rawValue: submitterTests.output))
 }
 
 @Test
