@@ -115,6 +115,19 @@ CLI sources are byte-identical across the range). The full recipe, including
 three harness traps that cost an hour, is written up for reuse in
 [`research/r103-armr-build-notes.md`](r103-armr-build-notes.md).
 
+**Base fixity - this branch was deliberately not rebased.** The advisor branch
+moved three times while this study ran (`0f6862d0` -> `2be9f8a1` -> `de0fa89e`
+-> `f3fb5cba` -> `449d6744`), and fb4 instructed me not to follow it. I did not,
+and this branch is still based on `0f6862d0`. The reason is not just obedience:
+`f3fb5cba` is #575's comment strip, so rebasing would drag a **2,059-line,
+behaviour-free** diff in `LagunaRuntimeModel.swift` across my NEW arm and force
+a rebuild and re-dump of that arm to prove the corpus had not moved - pure cost
+for zero information. `f3fb5cba` and `449d6744` are **not** a fourth revision of
+the scored code; the intervals this report decomposes are complete as they
+stand. Verified: `git diff --shortstat 0f6862d0 449d6744` over the submitted
+surface is `1 file changed, 2059 insertions(+), 2059 deletions(-)`, all of it
+that one file.
+
 **MID is the right third point, and MID -> NEW is R3 in isolation.**
 `e17bdeb1` is the merge of PR #565; it is an ancestor of `0f6862d0`, and
 `git diff --numstat e17bdeb1 0f6862d0 -- Sources Vendor Package.swift
@@ -306,6 +319,26 @@ are not sample statistics.
 
 Artifacts: `research/r103b/artifacts/msl_new_vs_new_aa.txt`,
 `disp_new_vs_new_aa.txt`, `seq_new_vs_new_aa.txt`, `msl_sha256_new_aa.tsv`.
+
+**A cheaper instrument exists for the identity half of this job** (fb4, via
+nezuko #575). Rather than dumping and diffing a corpus, nezuko ran four
+*forced-clean* builds interleaved A/A/B/B (orig, cand, orig, cand) and compared
+the sha256 of `MLXFastModel.o`; all four matched
+`a241e0f9ab439dbe934c000d3db4758d9f4df6a3ea95364cd5e37554a2a5068d` at
+2,211,568 B, and the interleave is its own A/A control. Where the question is
+"is this change provably inert?", that object digest is strictly stronger than
+my corpus diff - it covers the whole compiled host object, not just the MSL
+text that happens to reach my hook, and it costs four builds instead of a
+patched runtime.
+
+It cannot, however, do the job this assignment asked for. A digest answers
+*whether* something changed; it cannot tell you *what* changed, name the two
+surviving kernels, or attribute them to intervals. The two instruments are
+complements: the digest is the identity gate, the corpus dump is the inventory.
+My analogue of nezuko's protection is the staleness guard in section 3 - the
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH` string count plus binary sha256 and size per
+tree - which is what proves each of the three arms really is the revision it
+claims to be rather than a stale rebuild.
 
 ### 5.2 The interval decomposition: B is OLD -> MID, A is MID -> NEW
 
@@ -894,7 +927,12 @@ method.
   and encode work: the fold also narrowed six symbols from `internal` to
   `private` and merged two files into one. That can change Swift specialisation.
   Its expected sign is *faster*, not slower, and 408 identical dispatches per
-  step leave little room, but it is not measured here.
+  step leave little room, but it is not measured here. **This is precisely the
+  gap nezuko's instrument closes** (section 5.1): a forced-clean `MLXFastModel.o`
+  sha256 comparison across the three revisions would either bound the host-side
+  channel to nothing or localise it, at a cost of six builds and zero receipts.
+  I did not run it because it was not this assignment's question and fb4 says to
+  stop; I flag it as the cheapest remaining tightening of this result.
 - **Trace truncation.** The last 4 dispatch rows are lost to an unflushed write
   at worker exit. Verified by `od -c`; it affects only the final partial decode
   step and no per-step conclusion.
@@ -917,10 +955,13 @@ Ordered by cost:
    replicates to clear the receipt noise floor (`sd(T)` ~ 12-14 us/step on
    byte-identical code) before a single-receipt difference means anything. If a
    properly replicated pair shows A recovering time, the fix is a one-line
-   default change (`lagunaRouterWeightPrefetch` default `1` -> `0`) - which costs
-   **negative** editable bytes and clears `LagunaRuntimeModel.swift`'s
-   5,052-byte headroom problem rather than adding to it. If it recovers nothing,
-   A is exonerated and B is the remaining suspect.
+   default change (`lagunaRouterWeightPrefetch` default `1` -> `0`), which costs
+   **negative** editable bytes. I originally sold that as relieving a
+   5,052-byte headroom crisis in `LagunaRuntimeModel.swift`; **per fb4 that
+   crisis no longer exists and I withdraw the byte argument** - see the capacity
+   correction below. The change is still worth preferring on simplicity grounds
+   (it deletes a branch rather than adding one), just not on budget grounds. If
+   it recovers nothing, A is exonerated and B is the remaining suspect.
 2. **If B is implicated**, revert the sliding-attention loop stride at
    `LagunaRuntimeModel.swift:1639` (`i += 4 * BN` -> `i += 2 * BN` plus the
    `_c`/`_d` temporaries). Worth pairing with the observation that PR #565 left
@@ -942,6 +983,53 @@ Ordered by cost:
    is what makes a landed kernel-text change re-testable a hundred commits later
    for the price of one measurement. That is cheap insurance worth making a
    convention.
+
+### 12.1 Capacity correction (fb4) - nothing binds any more
+
+My assignment brief warned that `LagunaRuntimeModel.swift` was nearly full, and
+I repeated that warning above. **fb4 is right that it is obsolete**, and I
+reproduced the current numbers from the advisor head rather than taking them on
+trust. Measured at `449d6744` against that revision's own `editablePaths`:
+
+| quantity | at my base `0f6862d0` | at advisor head `449d6744` | cap | free now |
+|---|---|---|---|---|
+| `LagunaRuntimeModel.swift` | 519,236 B | **384,245 B** | 524,288 B | **140,043 B** |
+| whole submitted surface (142 files) | - | **2,680,208 B** | 3,000,000 B | **319,792 B** |
+
+The LRM shrank by **134,991 B** when #575 (nezuko) stripped comments; the diff
+`0f6862d0..449d6744` over the submitted surface is `1 file changed, 2059
+insertions(+), 2059 deletions(-)`, all of it that one file. Two consequences I
+should not have missed:
+
+- No byte argument in this report carries weight any more. Any follow-up here
+  should be justified on time recovered, not on bytes freed.
+- `editablePaths` lists **directories**, not files, so a *new* file under
+  `Sources/MLXFastModel/` is submittable and gets its own 524,288-byte
+  allowance. The per-file cap was never the real constraint it looked like.
+
+### 12.2 What the changed objective does to these follow-ups (fb4)
+
+fb4 reports that `accepted` means the score beat the **global running maximum
+across all solvers** - no partial credit - and that with `sd(ln score)` =
+0.4595 % our honest `cs` of 2.583111 against the standing 2.616504 gives:
+
+| `cs` improvement | ~us/step | P(new record) |
+|---|---|---|
+| 0.00 % | 0 | 0.095 % |
+| 0.50 % | ~33 | 2.18 % |
+| 1.00 % | ~66 | 17.6 % |
+| 1.50 % | ~99 | 56.3 % |
+
+This is the number that should govern whether items 1-3 above are worth an M5
+slot, and it is not flattering to them. **Recovering the entire 20.149 us/step
+that motivated this assignment moves P(record) from 0.095 % to roughly 0.52 %**
+- it does not reach the 0.5 %-of-`cs` rung, let alone the ~66 us/step where
+work starts paying. So I am explicitly de-prioritising my own follow-ups:
+items 1-3 are worth doing only if they are free riders on a receipt the
+advisor was going to spend anyway, or if the `DARKBLOOM_ROUTER_WEIGHT_PREFETCH=0`
+pair is being run for a different reason. As standalone bets to chase a record
+they do not clear the bar. Item 4 (the restore-flag convention) is unaffected -
+it costs no receipts and pays off on every future kernel change.
 
 ## 13. Reproduction
 
@@ -1134,3 +1222,55 @@ count**. That number comes from counting rows in a trace, not from timing.
   bytes** - `git diff --stat 0f6862d0 -- Sources Vendor Package.swift
   Package.resolved benchmark.json` is empty. I did not implement either revert;
   the assignment asked for the mechanism, not the fix.
+
+### On fb4 (base moved / new objective) - acknowledged, and I am stopping
+
+fb4 landed at 22:42:54Z, about four minutes before I submitted, and I submitted
+without having read it. That is my error. Nothing in it changes a measured
+result, but it does correct one thing I asserted and it changes how the
+follow-ups should be weighted, so here is the reconciliation.
+
+- **I did not rebase, and I will not.** This branch is still on `0f6862d0`. I
+  have recorded the reasoning in section 2 under *Base fixity*: `f3fb5cba` is
+  #575's comment strip, so following the advisor branch would drag a 2,059-line
+  behaviour-free diff through my NEW arm and oblige me to rebuild and re-dump it
+  to prove the corpus had not moved. I confirmed the shape of that diff myself -
+  `1 file changed, 2059 insertions(+), 2059 deletions(-)`, all `LagunaRuntimeModel.swift`.
+  Agreed that `f3fb5cba`/`449d6744` are not a fourth revision.
+- **My capacity warning was wrong and I have corrected it (new section 12.1).**
+  I reproduced the numbers from the advisor head rather than restating yours:
+  `LagunaRuntimeModel.swift` is **384,245 / 524,288 B (140,043 B free)**, down
+  134,991 B from my base, and the whole 142-file surface is **2,680,208 /
+  3,000,000 B (319,792 B free)**. Nothing binds. I have withdrawn the "flipping
+  the prefetch default frees bytes" argument in section 12 item 1 - it survives
+  only as a simplicity argument. I have also recorded your point that
+  `editablePaths` lists directories, so a new file under `Sources/MLXFastModel/`
+  gets its own per-file allowance; that quietly removes a constraint I had been
+  designing around.
+- **nezuko's compiler-as-oracle result is now cited where it belongs
+  (section 5.1).** Four forced-clean interleaved builds, `MLXFastModel.o` sha256
+  `a241e0f9...5068d` at 2,211,568 B, four for four, with the A/A/B/B interleave
+  as its own control. I agree it is the stronger and cheaper *identity* gate,
+  and I have said so in the report rather than defending my instrument. The
+  division of labour I would propose: object digest for "did anything change",
+  corpus dump for "what changed and where". I have also flagged in section 11
+  that six forced-clean builds across my three revisions would close my one
+  genuinely open non-device threat - the host-side CPU/encode channel - for zero
+  receipts. I did not run it, because you said stop.
+- **The objective-function change is folded into section 12.2.** Given
+  `accepted` means beating the global running maximum with no partial credit,
+  and P(record) is 0.095 % at parity, 2.18 % at +0.5 % `cs` (~33 us/step) and
+  17.6 % at +1.0 % (~66 us/step), I have explicitly de-prioritised my own
+  follow-ups. Recovering the *entire* 20.149 us/step this assignment chased
+  moves P(record) to only ~0.52 %. Items 1-3 are worth doing only as free riders
+  on a receipt you were spending anyway; item 4, the restore-flag convention,
+  costs nothing and I would still argue for it.
+- **Rungs 1 and 2 landed, so I am stopping as instructed.** Rung 3 was already
+  withdrawn under fb3. I am not opening a fourth surface, not chasing ranking
+  refinement, and not asking for a receipt. The headline stands as the count:
+  **across ~250 commits and three revisions, 101 of 103 compiled kernels are
+  byte-identical and the per-decode-step dispatch delta is exactly zero; the
+  emitted code is essentially the same, and the short list of what is not is
+  the router prefetch (A) and the sliding-attention 4-way unroll (B).**
+  Capacity handed back.
+
