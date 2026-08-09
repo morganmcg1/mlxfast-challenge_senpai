@@ -1,16 +1,89 @@
 # SENPAI Research State
 
-- **2026-08-09 ~13:00 UTC — round 98.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 ~13:50 UTC — round 99.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`ea3f5dd6b29b42b9c7e86e06ee263b165e29e393`**
-  (#531 merged: rule-58 factor-4 refinement + program/Bennett sync).
-  Round-97 slate **fully resolved**: **#531 merged**, **#525 closed** (byte
-  model refuted, rule 66), **#528 closed** (dispatch tax dominates, rule 67),
-  **#527 closed** (prefill dispatch-count premise *falsified*, rule 68).
-  All four students idle → reassigned this round.
-  Record still **2.61650354381456** (re-verified via `mlxfast benchmark`);
-  our best common-baseline candidate 2.589321 ⇒ deficit **1.0498 %**.
-  Byte headroom at this base: `current=2899476/3000000`, **100,524 B free**.
+  Base = **`4f3108c4df3b76545a7c849de38ef7c171232d1c`** + this docs commit.
+  Record still **2.61650354381456** (re-verified via `mlxfast benchmark`;
+  source `Layr-Labs/mlxfast-challenge @ c5b0a13`, unchanged since round 93).
+
+## 🔴 ROUND-99 BANNER: the research base was rebased onto the promoted frontier
+
+A human operator (`mmcguire`) corrected an **implementation-base drift** on
+2026-08-09 ~13:40 UTC. Read this before touching anything else.
+
+- **PR #545** (`71818038`, "Sync promoted organizer frontier cc6ddc1") imported
+  the **exact** editable snapshot from organizer commit `c5b0a13c`, the source
+  of accepted submission `cc6ddc1` — i.e. the code behind the current record.
+  Validation in the PR body: *zero* diff against `c5b0a13` across
+  `editablePaths`, 457 Swift tests in 6 suites passed, AOT metallib rebuilt.
+- **`4f3108c4`** ("Move Maple research onto promoted frontier cc6ddc1") then
+  re-applied Maple's research on top.
+- Trigger: **Cedar receipt `86f200bf-585a-41cc-86f7-9a2aeb33895c`** (score
+  2.45305192) passed every official correctness gate but *was measured on an
+  obsolete fork snapshot*. Our submissions had been carrying a stale surface.
+
+**The scare is smaller than the diffstat suggests — but two things really did
+change.** Audited in-checkout (round-99 explore pass, e510bb3d → 4f3108c4):
+
+- `LagunaRuntimeLayers.swift` (2597 lines) was **deleted and merged into**
+  `LagunaRuntimeModel.swift`. Concatenating the old pair (12,157 lines) against
+  the new single file (12,002) leaves only **349 differing lines**. Top-level
+  declaration sets are identical except two removals; **zero** added.
+- **Metal kernel name literals: 64 names, byte-identical.** Zero gone, zero new.
+- **`DARKBLOOM_*` gates: 125 → 124.** No additions.
+- Every `MLXLMCommon` change (`Evaluate` +534, `KVCache` +254, `CompiledDecode`
+  +85, …) is **comment/doc-only — 0 non-comment changed lines.** It restores
+  full docs where our snapshot had `See notes/…` stubs. *That is where the byte
+  budget went.*
+- `MLXFastTransform/{AffineMetadataCoding,TiedHeadMetadataCoding}.swift` (+839
+  lines) are **Gemma4-only sidecar generators**; `Transform.swift` returns an
+  empty report for `case .laguna`. Not scored. More dead byte weight.
+
+**The two genuine behavioural regressions vs. our old base — both sitting
+directly on the round-98 memory-latency thesis:**
+
+1. **`laguna_sliding_fused_attn_ring_v1` lost half its load pipeline.** Old:
+   4-deep ring `for (; i + 3*BN < N; i += 4*BN)` with `pipe_kc/pipe_kd`,
+   `pipec_*`, `piped_*` stages. New: **2-deep** `for (; i + BN < N; i += 2*BN)`
+   with a `pair_planes = 2` split accumulator (`LRM:1548`, `:1640–1683`). This
+   is the largest single decode kernel pool we have (**636.0 µs/step**, 21.20 µs
+   × 30 sliding layers).
+2. **`DARKBLOOM_ROUTER_WEIGHT_PREFETCH` was removed** (default was `1`;
+   `e510bb3d:LRM:686,699`). `lagunaRouterWeightPrefetch` and
+   `lagunaRouterPrefetchGroups` are gone and the router source lost its
+   `prefetch:` arm.
+
+**Why this is an opportunity, not just damage.** On *common-baseline* merit our
+4-deep lineage scored **2.589321** against the record snapshot's **2.574594** —
+we were **0.57 % faster on merit** and lost only to a 4.4σ baseline fluke. The
+entire difference between the two lineages is 349 lines and the two mechanisms
+above. Restoring them is a cheap A/B against already-written, already-
+correctness-proven code. See §6a arm A.
+
+**⚠️ BYTE EMERGENCY — now the #1 programme constraint.**
+
+| limit | value | headroom |
+|---|---|---|
+| total editable surface | 2,983,849 / 3,000,000 | **16,151 B** |
+| `LagunaRuntimeModel.swift` per-file | 511,418 / 524,288 | **12,870 B** ← binding |
+| per-review growth | 0 / 262,144 | n/a |
+
+Headroom fell from 100,524 B to 16,151 B, and the per-file cap on the one file
+every decode arm must edit is tighter still. **No kernel-adding arm is
+assignable until headroom is reclaimed** (§6a arm B). Run
+`senpai/check-editable-budget.sh 4f3108c4df3b76545a7c849de38ef7c171232d1c`
+*and* `wc -c Sources/MLXFastModel/LagunaRuntimeModel.swift` before designing any
+experiment.
+
+**Everything measured before this commit is now provisional.** All prices, the
+dispatch ledger, and the prefill attribution were taken on the drifted snapshot.
+Because the kernel set is identical, most of it should carry — but it must be
+re-anchored (§6a arm D) before it is quoted as evidence again.
+
+**Round-98 status: all four arms (#539/#540/#541/#543) HELD**, feedback posted
+2026-08-09 ~13:50. No student had pushed. All six mechanisms their briefs
+targeted still exist at the new base — only the line anchors moved — so these
+are revisions, not necessarily closes.
 
 > This is a **living document**, not an archive. The full historical record
 > through round 91 is preserved verbatim at
@@ -295,11 +368,82 @@ must cap its own submitted growth.
 
 ## 6. Potential next research directions
 
-### 6a. Round-99 contingency slate (written 2026-08-09, before round 98 read out)
+### 6a. Round-99 slate — REWRITTEN after the base change
 
-Full brief: **`research/RESEARCH_IDEAS_2026-08-09_13:45.md`**. Commissioned as a
-frontier-agent contingency on the premise "all four round-98 arms return clean
-negatives — what is round 99?" Its central correction is a scoping one:
+The base move supersedes the contingency slate that was drafted an hour earlier.
+The four arms below are ordered by value. Arms A and B are new and both are
+consequences of the frontier rebase; C and D are the survivors of the earlier
+plan.
+
+**A · Restore the two dropped mechanisms (highest value, cheapest code).**
+The record lineage and our lineage differ by 349 lines and exactly two
+mechanisms, and our lineage was **0.57 % faster on common-baseline merit**. Both
+mechanisms are memory-latency mechanisms, which makes this simultaneously the
+cheapest available win *and* the strongest remaining test of the round-98
+thesis — with code that already exists in git and has already passed correctness
+on hundreds of receipts.
+- Rung 1: restore the **4-deep sliding-attention ring** from
+  `e510bb3d:LagunaRuntimeModel.swift` into `laguna_sliding_fused_attn_ring_v1`.
+- Rung 2: restore **`DARKBLOOM_ROUTER_WEIGHT_PREFETCH`** (+
+  `lagunaRouterWeightPrefetch`, `lagunaRouterPrefetchGroups`, the router
+  source's `prefetch:` arm).
+- Rung 3: both together.
+Predicted: the 636.0 µs/step sliding pool is the target; even a 5 % pool win is
+0.49 % of score. **Byte gate: rung 1 must fit in 12,870 B of per-file headroom
+in `LagunaRuntimeModel.swift`** — measure the restored hunk *before* building.
+Open question the arm must answer: was the frontier's 2-deep ring a deliberate
+improvement (they measured it faster on M5) or a reconciliation casualty? A
+clean negative is as valuable as a win, because it retires the load-depth thesis
+on the largest pool we have.
+
+**B · Reclaim editable-surface headroom (the enabling arm — blocks A, C, D).**
+16,151 B global / 12,870 B per-file is not a research budget. Reclaim it with
+provably behaviour-free deletions, in this order:
+1. Strip the comment-only doc restorations in the vendored `MLXLMCommon` files
+   (`Evaluate` +534, `KVCache` +254, `BatchKVCache` +109, `CompiledDecode` +85,
+   `CompilableRotatingKVCache` +61, `CompilableKVCache` +57,
+   `BaseConfiguration` +37 — **0 non-comment changed lines**, verified).
+   Estimated ≈60–70 KB.
+2. Delete the **Gemma4-only** sidecar generators
+   `MLXFastTransform/{AffineMetadataCoding,TiedHeadMetadataCoding}.swift` (+839
+   lines, ≈30 KB) if and only if `Transform.swift`'s `case .laguna` path and the
+   Swift suite survive without them. The submitted candidate must work without
+   supporting tests, so a test-only dependency is not a blocker — but *verify*.
+3. Split `LagunaRuntimeModel.swift` back into two files to restore per-file
+   headroom. Byte-neutral globally; purely relieves the 524,288 B cap.
+Acceptance: byte delta reported exactly, `swift test --force-resolved-versions`
+green, upstream-equivalence green, and a paired receipt showing **no** timing
+change. This arm buys capacity, not score — do not let it be judged on score.
+
+**C · Step-boundary / CPU tier (H_E) — zero-receipt M4 screen.** Unchanged and
+still untested: decompose the 249 µs wall−busy gap
+(`DARKBLOOM_DECODE_ASYNC_STAGE` off vs the ladder, stub-model IPC round-trip,
+isolated argmax readback). **Re-verified at the new base:**
+`DARKBLOOM_COMPILED_DECODE` (`CompiledDecode.swift:88`, default ON) and
+`DARKBLOOM_COMPILED_TIERED_ATTENTION` (`:34`, default ON) both pre-date the
+rebase and are still **not on the scored path** — their only caller is
+`GenerationBatch.swift:177`, and Laguna's `newCache`
+(`LagunaRuntimeModel.swift:11670–11676`) returns `KVCacheSimple` /
+`RotatingKVCache(maxSize:512)`, which `CompiledDecode.eligible` rejects. The
+scored path still has exactly **two** `compile()` sites (`LRM:5408`, `:5430`).
+So the largest coded-but-unused mechanism on the board survived the rebase
+intact. Costs no receipts and no bytes; run it in parallel with B.
+
+**D · Re-anchor the instrument.** Every price and the whole dispatch ledger were
+measured on the drifted snapshot. Rebuild `research/r94-artifacts/` on the new
+base and re-measure the decode kernel pools — the sliding-attention pool in
+particular *must* have changed with the 2-deep ring, which doubles as an
+independent check on arm A. One duplex M5 receipt of the **untouched** new base
+also tells us something we currently do not know at all: what the operator's
+re-application actually scores.
+
+**Deferred by the byte emergency:** the round-98 load-depth arms (#539/#540/
+#541/#543 as written) and lm_head int3. All add kernel source; none is
+assignable until B lands.
+
+**Superseded slate** (kept for provenance): the pre-rebase contingency brief
+`research/RESEARCH_IDEAS_2026-08-09_13:45.md`. Its scoping correction still
+stands and is quoted below.
 
 > Round 98 tests only the **narrowest** member of the memory-latency thesis
 > (in-kernel per-simdgroup ILP). Four negatives license the conclusion
