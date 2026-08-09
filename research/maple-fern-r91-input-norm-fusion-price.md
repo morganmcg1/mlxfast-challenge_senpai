@@ -52,7 +52,7 @@ the base except for the probe branch.
 | 7 | The same `normalized` row is also read by the gate path (`lagunaGateSoftplus`, `quantizedMM`, `gateProjection`), so the probe perturbs the gate input as well as QKV. It still removes exactly one dispatch per layer and adds none. | `:5816`, `:5823`, `:5832` |
 | 8 | The second `inputNorm(input)` site is `let normalizedInput: MLXArray? = fusedNormQKV == nil ? inputNorm(input) : nil`. At decode `fusedNormQKV` is always non-nil, so it is `nil` and no norm runs there; the retained BF16 QKV bank below it is `L > 1` only. | `:5878-5879`, `:5888` |
 | 9 | `inputNorm` is `MLXNN.RMSNorm` (`LagunaRuntimeLayers.swift:2303`, passed `:2335`) → `MLXFast.rmsNorm` → the AOT metallib kernel `rms_single_row` in `Vendor/mlx-swift/.../kernels/rms_norm.metal`. There is no custom standalone-norm kernel in the runtime. | as cited |
-| 10 | Empirical confirmation that the control reaches the scored path: dispatches/step measured per arm in the pre-check (see below). | `/tmp/maple-r91a/precheck/` |
+| 10 | Empirical confirmation that the control reaches the scored path: the pre-check measures `base` = **406.0 dispatches/step**, `skipr` = **366.0**, `skipc` = **366.0**. The delta is exactly **40**, one per decoder layer, matching fact 5. | `/tmp/maple-r91a/precheck/` |
 
 ## Stage 1 — the ceiling probe
 
