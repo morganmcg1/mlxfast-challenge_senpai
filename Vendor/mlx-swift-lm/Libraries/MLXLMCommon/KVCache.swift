@@ -416,26 +416,6 @@ public class KVCacheSimple: BaseKVCache, CustomDebugStringConvertible {
     /// is then an identity-value op.
     private var fusedAppendContiguized = false
 
-    public func fusedFirstGrowthPrepare() -> (keys: MLXArray, values: MLXArray)? {
-        guard step == 256, offset == 512,
-            let keys, let values,
-            keys.dim(2) == 512, values.dim(2) == 512
-        else { return nil }
-        return (keys, values)
-    }
-
-    public func fusedFirstGrowthAdopt(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
-        precondition(offset == 512 && keys.dim(2) == 768 && values.dim(2) == 768)
-        self.keys = keys
-        self.values = values
-        self.offset = 513
-        fusedAppendContiguized = true
-        return (
-            keys[.ellipsis, ..<self.offset, 0...],
-            values[.ellipsis, ..<self.offset, 0...]
-        )
-    }
-
     /// Append state for the fused decode attention kernel, or nil when the
     /// backing has no spare row (growth would be required — the stock path
     /// handles that step). `writeIdx` is the slot the stock single-token
