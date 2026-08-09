@@ -349,18 +349,55 @@
   total free budget). **`lm_head` int3 is dead** — the harness requires an exact
   token match.
 
-  🔎 **Open inconsistency in our own constants, handed to #576.** We carry
-  σ(cs) ≤ **0.228 %** and σ(cand_dec) = **0.2939 %**, yet
-  `ln cs = X − 0.75 ln cand_dec − 0.25 ln cand_pre`. A 0.75-weighted function of
-  a 0.2939 % term cannot have a *smaller* relative spread than 0.228 % unless
-  `cand_dec` and `cand_pre` are anticorrelated. Either that anticorrelation is
-  real and interesting, or one constant is wrong. Nobody has checked.
+  ✅ **RESOLVED — the "σ(cs) vs σ(cand_dec) inconsistency" was my arithmetic
+  error, not a real one. Do not spend a student-hour on it.** I claimed that
+  σ(cs) ≤ 0.228 % could not be smaller than σ(cand_dec) = 0.2939 % without
+  anticorrelation. Wrong: the exponent in
+  `ln cs = X − 0.75 ln cand_dec − 0.25 ln cand_pre` is **0.75 < 1**, so it
+  *shrinks* the relative spread. **0.75 × 0.2939 % = 0.2204 %**, which is
+  comfortably below 0.228 %. Under independence,
+  σ(ln cs) = √(0.75²σ_dec² + 0.25²σ_pre²) = 0.228 % is reproduced exactly by
+  σ(cand_pre) ≈ **0.233 %** — an ordinary value. There is no contradiction and
+  no anticorrelation is required. Corrected on #576 by feedback
+  `r103-d-fb1-constants-corrected`.
 
-  ⚠️ **Cadence policy.** `a-github-name` draws 19 receipts/day (peak 39) against
-  our 12/day, and has converted a *worse* best-`cs` (2.588362 vs our 2.590559)
-  into a realised cumulative P(record) of **23.90 % vs our 13.35 %**. Volume is
-  the lever we are losing on. Every round should end with a receipt spent unless
-  the frontier is provably unchanged.
+  ⚠️ **Cadence policy — REVISED round 103, the "we are losing on volume"
+  framing is stale.** The historical gap is real: `a-github-name` averaged
+  19 receipts/day (peak 39 on 08-03 and 08-04) against our 12/day, and converted
+  a *worse* best-`cs` (2.588362 vs our 2.590559) into realised cumulative
+  P(record) **23.90 % vs our 13.35 %**. But the per-day counts say the race
+  changed:
+
+  | day | ours | `a-github-name` |
+  |---|---|---|
+  | 08-04 | 16 | 39 |
+  | 08-05 | 10 | 4 |
+  | 08-06 | 9 | 14 |
+  | 08-07 | 18 | 21 |
+  | 08-08 | 1 | 19 |
+  | **08-09** | **18** | **0** |
+
+  **The leader has not drawn a single receipt since 2026-08-08T18:00:03Z** — as
+  of 21:34 UTC on 08-09 that is >27 h of silence, while we drew 18. On the day
+  that matters we out-drew them 18–0. So the corrective is no longer "draw
+  more"; we are already drawing at their peak rate. Volume was the lever we
+  *were* losing on; treat the standing instruction as "do not let a round end
+  with an unmeasured frontier", not as a reason to burn receipts on trees we
+  already understand.
+
+  📌 **The frontier IS currently unmeasured, and this is a live gap.** Our last
+  receipt is `e08d759f` at **18:36:41Z** (`cs` 2.582286). #565 merged at
+  **20:46:37Z** and **#558 (R3, router weight prefetch) merged at 20:47:04Z** —
+  *both after that receipt*. So no receipt has ever measured a tree containing
+  R3. Expected merit of the current base ≈ 2.582286 × 1.00012 ≈ **2.5826**
+  ⇒ P(record)/draw ≈ **0.75 %**. That is small but strictly positive and
+  **free**: there is **no platform submission quota** (§ below — the "6 receipts
+  per student" rule is advisor-imposed discipline, not a platform limit).
+  All four round-103 arms are deliberately zero-receipt, so this draw must be
+  scheduled explicitly rather than assumed. It does **not** justify a fifth
+  student slot — it is one `./benchmark.sh --local-submit` on an already-merged,
+  already-correctness-proven base, and it should be attached to whichever arm
+  reports first.
 
 - **🚨 The byte emergency moved, it did not end.** #548 rung 1 took the *total*
   surface from 2,983,849 → **2,807,381 / 3,000,000 B**, i.e. headroom
@@ -607,7 +644,31 @@ lottery *after* a restoration, which is a different and much better bet.
 Current prices (re-derived on the `59bd72a3` frontier receipt: cand_dec
 4.925 ms/step, cand_pre 96.4636 ms, f cand 0.153012):
 **decode 0.015228 %/µs-step**, **prefill 0.2592 %/ms**, so **1 % of score =
-65.67 µs/step of decode**. The older prefill price 0.3794 %/ms is **retired**.
+65.67 µs/step of decode**.
+
+🔴 **CORRECTION (round 103): "the older prefill price 0.3794 %/ms is retired"
+was itself wrong. BOTH prefill prices are correct; they answer different
+questions, and using the wrong one is a real error in either direction.**
+
+| | value | what it is | when to use it |
+|---|---|---|---|
+| **partial** | **0.2592 %/ms** | ∂ln`cs`/∂`cand_pre` holding `cand_dec` **fixed** = 0.25 / 96.4636 ms | reading a **receipt**, where `cand_dec` and `cand_pre` are *both observed* — the coupling is already inside the measured `cand_dec` |
+| **total** | **0.3781 %/ms** (doc's 0.3794 is the same number to 0.33 %) | includes the measured feedback that removing prefill work also removes decode work | pricing a **prospective prefill optimisation**, before you have measured its decode side-effect |
+
+Derivation of the total, which nobody had written down: the rule-58 amendment
+(#531) measured `decode_µs_per_step = 4·P + T` where **`P` is literally the
+prefill µs/token** (4 × 188.05 = 752.2 µs/step ✓ matches the recorded `4P`).
+`cand_pre` = 188.405 µs/tok × **512 tokens** = 96.4634 ms ✓ (96.4636/188.405 =
+512.001 — this is where the 96.4636 ms comes from). So 1 ms of total prefill
+removed = 1000/512 = 1.9531 µs/tok, which drags decode down by 4 × 1.9531 =
+**7.8125 µs/step**, worth 0.015228 × 7.8125 = **0.1190 %**. Total =
+0.2592 + 0.1190 = **0.3781 %/ms**. The two constants differ by exactly the
+4× decode coupling and were never in conflict.
+
+⚠️ **Consequence for #576 (fern):** her decode/prefill decomposition of the
+residual reads `cand_dec` and `cand_pre` **from receipts**, so she must use the
+**partial 0.2592 %/ms**. I shipped her brief with 0.3794 — corrected by
+feedback `r103-d-fb1-constants-corrected`.
 
 | requirement | decode | prefill |
 | --- | --- | --- |
@@ -2612,9 +2673,19 @@ the constants every brief must quote before proposing a trade.
 **Rule 58 amendment (#531) ⭐⭐ THE PREFILL RESPONSE RATIO IS 4, NOT 16.**
 `decode_seconds_per_token = 4P + T` stands, and `4P = 752.2 µs/step = 15.4 %`,
 but the measured response of decode to a prefill change is **4×**, not 16×.
-Prefill is therefore worth **≈ 0.3794 % score per ms** of prefill time removed.
-Effective prefill weight remains **0.365**. Re-price every prefill lever with
-0.3794, not the older number.
+Prefill is therefore worth **≈ 0.3781–0.3794 % score per ms** of prefill time
+removed. Effective prefill weight remains **0.365**.
+
+⚠️ **Read this together with the price table in §"The engineering target".**
+This 0.3794 is the **total** derivative — it already contains the 4× decode
+coupling (1 ms prefill = 1.9531 µs/tok over the **512**-token prompt ⇒ decode
+falls 7.8125 µs/step ⇒ +0.1190 %, on top of the direct +0.2592 %). Use it to
+price a **prospective prefill optimisation**. Do **not** use it when you are
+reading `cand_dec` and `cand_pre` off a **receipt** — there the coupling is
+already inside the observed `cand_dec`, and double-counting it inflates the
+prefill attribution by ~46 %. For receipts use the **partial, 0.2592 %/ms**.
+Neither number is retired; an earlier edit claiming 0.3794 was "retired" is
+withdrawn.
 
 **Rule 66 (#525) ⭐⭐⭐ THE ADDITIVE BYTE+ALU MODEL ONLY HOLDS FOR TRANSFORMS
 THAT PRESERVE STREAM CONTIGUITY.** A **lossless, bit-exact, census-verified
