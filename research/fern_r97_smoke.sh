@@ -25,6 +25,7 @@ run_state() {
       --label "smoke-$name" --schedule const:0 \
       --stderr "$OUT/$name.err" --out "$OUT/$name.json" || return 1
   grep -iE "block exponent|bexp|decline|certificate" "$OUT/$name.err" | sort | uniq -c
+  return 0
 }
 
 run_state stock 0 0 || exit 1
