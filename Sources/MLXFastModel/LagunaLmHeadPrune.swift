@@ -12,7 +12,7 @@ import MLXFast
 // and single-token decode with four dispatches:
 //
 //   1. COARSE (`lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel`): one fused
-//      GEMV over an init-time planar int5 copy of lm_head (1344 B/row) that
+//      GEMV over an init-time planar int5 copy of lm_head (1313 B/row) that
 //      emits each row's coarse logit c_i and a certified error bound delta_i.
 //      With d_i = sum_j |x_j| * (sd_g/2) >= sum_j |x_j| * |w_ij - what_ij|
 //      (flat half-cell) and m_i = sum_j |x_j| * |what_ij|, the certificate is
@@ -57,7 +57,7 @@ import MLXFast
 // (DARKBLOOM_LMHEAD_FUSED_REFINEMENT, DEFAULT ON). The int5 planes are
 // re-split so the nibble plane alone is a self-contained 2x-coarse code
 // (nibble = floor(q/2) + 8, bit plane = q - 2*floor(q/2)), which lets step 1
-// read 1088 B/row instead of 1344 B/row -- 25.7 MB less per decode step over
+// read 1057 B/row instead of 1313 B/row -- 25.7 MB less per decode step over
 // the 100352-row vocabulary. The dropped 256 B/row residual bit plane is then
 // re-read INSIDE the exact dispatch, for surviving four-row blocks only, to
 // restore the exact int5 value and the tighter half-cell bound before the BF16
@@ -100,8 +100,7 @@ let lagunaLmHeadFusedRefinementEnabled =
 private let lagunaTraceFusionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_TRACE_FUSION"] == "1"
 
-/// Kernel header: the bit-exact e8m0 group-scale decoder, inlinable and
-/// libm-free.
+/// Kernel header: bit-exact e8m0 decoding plus lossless row-delta unpacking.
 private let lagunaLmHeadPruneHeader = """
     // e8m0 decode, identical to fp8.h:70-77 (bits<<7 as bf16; bits==0 ->
     // 0x40 as bf16 = 2^-127). Exponent-bit construction, exact.
@@ -111,12 +110,16 @@ private let lagunaLmHeadPruneHeader = """
         }
         return as_type<float>(uint(b) << 23);
     }
+    static inline float laguna_e8m0_row_decode(uint base, uint pair, uint half) {
+        uint b = base + ((pair >> (4u * half)) & 15u);
+        return laguna_e8m0_decode(uint8_t(b));
+    }
     """
 
 /// The one-pass coarse kernel, used for prefill's already-sliced final row and
 /// as the same-binary decode control arm: 16 rows/threadgroup, one simdgroup
 /// per row, lane = 2 consecutive 32-element groups, fused coarse+delta
-/// outputs, 1344 B/row (nibble plane 1024 B + 1-bit plane 256 B + 64 scale
+/// outputs, 1313 B/row (nibble plane 1024 B + 1-bit plane 256 B + 33 scale
 /// bytes; 2048 elements x 5 bits = 1280 B of codes). All loads stay
 /// word-aligned: uint4 per lane-group from the nibble plane (16 B stride,
 /// 1024 B rows), one uint per lane-group from the 1-bit plane (4 B stride,
@@ -153,7 +156,7 @@ private let lagunaLmHeadPruneHeader = """
 /// float: exact. Accumulation depth is ~45 roundings/element-path, under
 /// the depth <= 96 budget assumed by gamma = 2^-15.
 private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v6",
+    name: "laguna_lmhead_int5_inline_coarse_ratio_bound_delta_bf16_v7",
     inputNames: ["x", "codes_lo", "codes_hi", "scales"],
     outputNames: ["coarse", "delta"],
     source: """
@@ -165,13 +168,15 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
 
         const device uint8_t* lorow = codes_lo + size_t(row) * 1024;
         const device uint8_t* hirow = codes_hi + size_t(row) * 256;
-        const device uint8_t* srow = scales + size_t(row) * 64;
+        const device uint8_t* srow = scales + size_t(row) * 33;
+        uint sbase = uint(srow[0]);
+        uint spair = uint(srow[1 + lane]);
 
         float c_acc = 0.0f;
         float d_acc = 0.0f;
         for (uint gg = 0; gg < 2; ++gg) {
             uint g = 2 * lane + gg;
-            float sd = laguna_e8m0_decode(srow[g]);
+            float sd = laguna_e8m0_row_decode(sbase, spair, gg);
             uint4 lo4 = ((const device uint4*)(lorow + g * 16))[0];
             uint hb = ((const device uint*)(hirow + g * 4))[0];
             const device ushort4* xrow = (const device ushort4*)(x + g * 32);
@@ -231,7 +236,7 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
 
 /// Level one of the three-level decode screen: the same 16-rows/threadgroup
 /// launch and lane partition as the one-pass kernel, but reading ONLY the
-/// nibble plane and the scale bytes -- 1088 B/row instead of 1344 B/row, i.e.
+/// nibble plane and the scale bytes -- 1057 B/row instead of 1313 B/row, i.e.
 /// 25.7 MB less per decode step across the 100352-row vocabulary.
 ///
 /// Certificate (the scale and code facts are the one-pass kernel's, unchanged):
@@ -251,7 +256,7 @@ private let lagunaLmHeadInt5CoarseRatioBoundDeltaBF16Kernel = MLXFast.metalKerne
 /// (q0 = 2H - 15.5 needs 6 significand bits), and sd*q0 multiplies a power of
 /// two by that value: exact.
 private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_int5_base_coarse_delta_bf16_v1",
+    name: "laguna_lmhead_int5_base_coarse_delta_bf16_v2",
     inputNames: ["x", "codes_base", "scales"],
     outputNames: ["coarse", "delta"],
     source: """
@@ -262,13 +267,15 @@ private let lagunaLmHeadInt5BaseCoarseKernel = MLXFast.metalKernel(
         uint lane = thread_index_in_simdgroup;
 
         const device uint8_t* crow = codes_base + size_t(row) * 1024;
-        const device uint8_t* srow = scales + size_t(row) * 64;
+        const device uint8_t* srow = scales + size_t(row) * 33;
+        uint sbase = uint(srow[0]);
+        uint spair = uint(srow[1 + lane]);
 
         float c_acc = 0.0f;
         float d_acc = 0.0f;
         for (uint gg = 0; gg < 2; ++gg) {
             uint g = 2 * lane + gg;
-            float sd = laguna_e8m0_decode(srow[g]);
+            float sd = laguna_e8m0_row_decode(sbase, spair, gg);
             uint4 c4 = ((const device uint4*)(crow + g * 16))[0];
             const device ushort4* xrow = (const device ushort4*)(x + g * 32);
             float cg = 0.0f;
@@ -620,7 +627,7 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
 ///
 /// A block that fails the base screen writes `bfloat(coarse[r])` and returns,
 /// exactly as before. A block that survives re-reads the 256 B residual bit
-/// plane and 64 B of scales for its live rows ONLY, adds
+/// plane and 33 B of scales for its live rows ONLY, adds
 /// `sum_g sd_g * sum_j x_j*(b_j - 0.5)` to the stored midpoint value, and
 /// re-screens against the tightened bound. Only rows surviving THAT read
 /// BF16 lm_head. Live blocks are rare (single digits per step), so the plane
@@ -647,7 +654,7 @@ private let lagunaLmHeadInlineExactDeltaBF16Kernel = MLXFast.metalKernel(
 /// The refined value is per-simdgroup scratch held by its owning lane, so no
 /// threadgroup storage or barrier is involved.
 private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
-    name: "laguna_lmhead_exact_fused_int5_sparse_refine_v1",
+    name: "laguna_lmhead_exact_fused_int5_sparse_refine_v2",
     inputNames: [
         "coarse", "delta", "thr", "lm_head", "x", "codes_bit", "scales",
     ],
@@ -692,11 +699,13 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
             }
             uint r = base + tm;
             const device uint8_t* hirow = codes_bit + size_t(r) * 256;
-            const device uint8_t* srow = scales + size_t(r) * 64;
+            const device uint8_t* srow = scales + size_t(r) * 33;
+            uint sbase = uint(srow[0]);
+            uint spair = uint(srow[1 + lane]);
             float correction = 0.0f;
             for (uint gg = 0; gg < 2; ++gg) {
                 uint g = 2 * lane + gg;
-                float sd = laguna_e8m0_decode(srow[g]);
+                float sd = laguna_e8m0_row_decode(sbase, spair, gg);
                 uint hb = ((const device uint*)(hirow + g * 4))[0];
                 const device ushort4* xrow =
                     (const device ushort4*)(x + g * 32);
@@ -812,13 +821,12 @@ private let lagunaLmHeadRefinedExactKernel = MLXFast.metalKernel(
 /// Built once (untimed init) by
 /// `LagunaRuntimeModel.prepareFusedRuntimeWeights` when
 /// `lagunaLmHeadPruneEnabled` (DARKBLOOM_LM_HEAD_PRUNE, default ON; set "0"
-/// to disable); ~135 MB additional resident memory.
+/// to disable); ~132 MB additional resident memory.
 final class LagunaLmHeadPruner {
     /// Planar int5 coarse copy: nibble plane [V, 1024] holding u >> 1, 1-bit
-    /// plane [V, 256] holding u & 1 (element j of each 32-element group at bit
-    /// j of the group's uint32 word), power-of-two group scale bytes [V, 64]
-    /// with e8m0 semantics. 1344 B/row, of which the nibble plane and the
-    /// scales (1088 B/row) are a self-contained 2x-coarse code.
+    /// plane [V, 256] holding u & 1, and e8m0 scale rows [V, 33] holding one
+    /// base plus 32 adjacent-group delta pairs. 1313 B/row, of which the
+    /// nibble plane and scales (1057 B/row) form a self-contained coarse code.
     let int5CodesLo: MLXArray
     let int5CodesHi: MLXArray
     let int5Scales: MLXArray
@@ -874,32 +882,41 @@ final class LagunaLmHeadPruner {
         // bump when mantissa >= 0.9375 * 2^23 (i.e. m >= 15.5/8).
         let bump = (mant .>= MLXArray(UInt32(0x78_0000))).asType(.int32)
         let sdByte = clip(biasedE - 3 + bump, min: 0, max: 255)
-        let scaleBytes = sdByte.asType(.uint8).asArray(UInt8.self)
-        var histogram = [Int](repeating: 0, count: 256)
-        var maxSpan = 0
-        var rowsAboveNibble = 0
         let groups = hidden / 32
-        for row in 0..<vocab {
-            let start = row * groups
-            var rowMin = UInt8.max
-            var rowMax = UInt8.min
-            for group in 0..<groups {
-                let value = scaleBytes[start + group]
-                if value < rowMin { rowMin = value }
-                if value > rowMax { rowMax = value }
-            }
-            let span = Int(rowMax) - Int(rowMin)
-            histogram[span] += 1
-            if span > maxSpan { maxSpan = span }
-            if span > 15 { rowsAboveNibble += 1 }
+        let scales = sdByte.asType(.uint8).reshaped([vocab, groups])
+        let rowBase = scales.min(axis: 1, keepDims: true)
+        let delta = contiguous(scales - rowBase)
+        let maxSpan = delta.max().asType(.int32).item(Int32.self)
+        guard maxSpan <= 15 else {
+            FileHandle.standardError.write(Data("mlxfast: e8m0 span \(maxSpan)>15; stock\n".utf8))
+            return nil
         }
-        let nonzeroHistogram = histogram.enumerated().compactMap { span, count in
-            count == 0 ? nil : "\(span):\(count)"
-        }.joined(separator: ",")
-        FileHandle.standardError.write(
-            Data(
-                "mlxfast: lm_head e8m0 census rows=\(vocab) bytes=\(scaleBytes.count) max_span=\(maxSpan) over15=\(rowsAboveNibble) histogram=\(nonzeroHistogram)\n"
-                    .utf8))
+        let delta16 = delta.view(dtype: .uint16)
+        let pairs = ((delta16 & MLXArray(UInt16(0x000F)))
+            | ((delta16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8)
+        let packedScales = contiguous(concatenated([rowBase, pairs], axis: 1))
+        let raw = scales.asArray(UInt8.self)
+        let packed = packedScales.asArray(UInt8.self)
+        var bad = 0
+        var first = 0
+        for i in raw.indices {
+            let group = i % groups
+            let pair = packed[(i / groups) * 33 + 1 + group / 2]
+            let offset = (group & 1) == 0 ? pair & 0x0F : pair >> 4
+            if UInt16(packed[(i / groups) * 33]) + UInt16(offset) != UInt16(raw[i]) {
+                if bad == 0 { first = i }
+                bad += 1
+            }
+        }
+        guard bad == 0 else {
+            FileHandle.standardError.write(Data(
+                "mlxfast: e8m0 proof bad=\(bad) first=\(first / groups):\(first % groups); stock\n".utf8))
+            return nil
+        }
+        if lagunaTraceFusionEnabled {
+            FileHandle.standardError.write(Data(
+                "mlxfast: e8m0 packed rows=\(vocab) bytes=\(packed.count) span=\(maxSpan) exact\n".utf8))
+        }
         let sd = which(
             sdByte .== 0,
             MLXArray(Float(bitPattern: 0x0040_0000)),  // 2^-127, e8m0 semantics
@@ -941,7 +958,7 @@ final class LagunaLmHeadPruner {
         let hi =
             ((nib16 & MLXArray(UInt16(0x000F)))
             | ((nib16 >> 4) & MLXArray(UInt16(0x00F0)))).asType(.uint8)
-        return (lo, hi, sdByte.asType(.uint8))
+        return (lo, hi, packedScales)
     }
 
     /// Pruned final-row lm_head: full [vocab] BF16 logits row, bit-identical to
@@ -960,7 +977,7 @@ final class LagunaLmHeadPruner {
         // `coarse` alone (no `delta` read), the exact-winner threshold that
         // absorbs the winning row's 4 KB GEMV, and the inline-mask exact pass.
         // With `refine` the first and last dispatch swap to the three-level
-        // form: the coarse pass reads 1088 B/row instead of 1344 B/row and the
+        // form: the coarse pass reads 1057 B/row instead of 1313 B/row and the
         // exact pass re-reads the residual bit plane for live blocks only.
         let coarseOut =
             refine
