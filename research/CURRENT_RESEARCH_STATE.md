@@ -70,8 +70,14 @@
   | #555 | tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | ✅ **merged** → base `3567695b`; R1 float4 epilogue, −454 B |
   | #558 | nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | wip — R3 restoration; rebase onto `a4d3b8dc` requested |
   | #561 | fern | `maple-r101-a-decode-pool-model-rebuild` / `r101-a-rev1` | wip — research-only pool-model rebuild, rule 70 adjudication |
-  | *(new)* | tanjiro | `maple-r102-b-composed-restoration-receipt` / `r102-b-rev1` | 🆕 wip — build + measure R1∘R2, **owns the M5 queue slot** |
-  | *(new)* | frieren | `maple-r102-a-splitk-decode-attention` / `r102-a-rev1` | 🆕 wip — split-K decode attention, rung 1 = zero-byte `f` measurement |
+  | #565 | tanjiro | `maple-r102-b-composed-restoration-receipt` / `r102-b-rev1` | 🆕 wip — build + measure R1∘R2, **owns the M5 queue slot** |
+  | #566 | frieren | `maple-r102-a-splitk-decode-attention` / `r102-a-rev1` | 🆕 wip — split-K decode attention, rung 1 = zero-byte `f` measurement |
+
+  **Round-102 byte allocation is deconflicted by construction:** #565 has a zero
+  `Sources/` delta, #566 rung 1 is zero-byte and its rung 2 is specified to land
+  in a *new file*, so the whole 9,238 B of LRM headroom belongs to #558.
+  **#565 holds the only submission slot**; #558 and #566 are explicitly barred
+  from spending a receipt this round.
 
 - **🚨 The byte emergency moved, it did not end.** #548 rung 1 took the *total*
   surface from 2,983,849 → **2,807,381 / 3,000,000 B**, i.e. headroom
