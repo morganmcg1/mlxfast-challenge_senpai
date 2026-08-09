@@ -274,6 +274,55 @@ all four. Bit-exactness is a construction property; a non-bit-exact arm is an
 implementation bug, not a physics result. This removes the usual dominant risk
 from an attention-kernel sweep.
 
+### 6.3 🔴 The compiler cannot collapse the depth dial — and we are not allowed to let it
+
+The dominant *silent* failure mode of an unroll sweep is that the compiler
+already unrolls the loop, so every arm compiles to the same machine code and the
+sweep measures pure noise while looking like a clean null. I checked whether
+that can happen here. It cannot, and the reason is worth recording because it
+also closes an adjacent lever before anyone spends a round on it.
+
+**Three facts, all verified at base `9527bb72`:**
+
+1. **No `#pragma unroll` anywhere in the sliding kernel.** The only unroll
+   pragmas in `LagunaRuntimeModel.swift` are at `:2560-2584`, `:2644-2668`,
+   `:2735-2774`, `:2825-2864`, `:3216-3224`, `:4387`, `:4771`, `:4947-4954` —
+   all in *other* kernels. The a→b→c→d pipelining in the k-loop is entirely
+   hand-written source replication.
+2. **The trip count is not statically provable.** `N` and `BN` are `constexpr`
+   (`:1526`, `:1522`), but the loop starts at `int i = sg` where
+   `sg = simdgroup_index_in_threadgroup` is a *runtime* value. The trip count is
+   4 only because `sg ≤ 31`, and the compiler has no such bound.
+3. **It has no such bound because the JIT wrapper does not give it one.**
+   `Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/common/metal_kernel.cpp:90`
+   emits a bare `[[kernel]] void <name>(` — **no
+   `max_total_threads_per_threadgroup` attribute**. Contrast the built-in steel
+   and gemv kernels, which all carry
+   `[[kernel, max_total_threads_per_threadgroup(WM*WN*32)]]`.
+
+⇒ **The hand-written depth is the only unrolling this kernel will ever get.**
+That validates the 104-A dial as a real ISA-level lever rather than a source-level
+fiction. It does *not* excuse assuming so: a compiled-artifact identity check
+across the four arms is cheap and must gate the receipt spend, because two arms
+that compile identically would burn the round's entire budget on noise.
+
+**The adjacent lever is structurally closed — do not chase it.** The obvious
+follow-on ("give the compiler the bound and let it unroll") is unavailable twice
+over:
+
+* `backend/common/metal_kernel.cpp` is **not in `editablePaths`** (97 entries;
+  none under `backend/common/`, only `backend/metal/**` and `mlx-generated/**`).
+* The signature is machine-generated around the user's `source` string, which
+  supplies only the *body*. There is no seam through which a kernel author can
+  inject an attribute into `[[kernel]] void <name>(`.
+
+Prior art check (rule 83): `max_total_threads_per_threadgroup` appears in
+`research/` only twice, both observational and on other kernels —
+`maple-fern-pr71-routed-qmv-bandwidth.md:323` notes its *absence* on the routed
+QMV kernel, and `maple-tanjiro-nax-skinny-tile.md:83-85` confirms it resolves as
+intended on the steel path. The archive has **zero** hits. Nobody has proposed
+adding it, and now nobody should.
+
 ## 7. Do not re-derive these
 
 * The receipt-power table in §1. It is measured, not modelled.
