@@ -1,0 +1,62 @@
+=== device ===
+name                  Apple M4 Pro
+architecture          applegpu_g16s
+gpu cores             20
+kernel                laguna_sliding_fused_attn_ring_v1
+attn rows N           512  (ring iters M = 4)
+stride kvheads        32
+rows sweep            512,256,96,512
+match bytes           off
+mode                  NULL CONTROL (base vs itself)
+
+=== pipeline properties (register/occupancy gate) ===
+  arm            srcLines   tgMemB   maxTotalThreads   execWidth   source
+  BASE       356    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+  NULL(BASE)       356    18432              1024          32   Sources/MLXFastModel/LagunaRuntimeModel.swift
+
+=== memory regime (P1.1) ===
+  defeat slots          48
+  cache copies          12
+  k_cache buffer        201326592 B
+  dram_peak_GB_s        266.3  (measured, rule 55)
+  slc_estimate_B        25165824  (M4-Pro-class, label only)
+     K  TG/core   kvheads   slots   uniq_MiB   req_MiB/round   amplif   base_us   achieved_GB_s   pct_peak   slc_fit   regime
+    24     1.20         6      48      72.03         3060.55     42.5     18.79            85.4       32.1   no   UNSATURATED
+    48     2.40        12      48     144.06         6119.14     42.5     26.98           118.9       44.7   no   PARTIAL
+
+=== absolute cost ladder, best of 21 rounds of 2000 dispatches (E1) ===
+phi(K) = t(2K)/t(K).  A threadgroup-doubling change pays only if phi < 2.
+t/K is the per-threadgroup cost: flat means work-limited, falling means
+the added threadgroups are absorbed by idle cores.
+     K  TG/core   base_us     t/K_us   phi(K)=t(2K)/t(K)
+    24     1.20     18.29     0.7623   1.3883
+    48     2.40     25.40     0.5291   -
+
+=== paired per-call cost, 21 alternating rounds of 2000 dispatches ===
+delta = second arm - base within a round, so drift cancels. neg = faster.
+     K  TG/core   base_min   cand_min    d_mean    d_sd   spread   t_paired        %
+    24     1.20      18.95      18.93    -0.019   0.053     0.19      -1.66    -0.101
+    48     2.40      24.41      24.37    -0.229   0.699     3.50      -1.51    -0.940
+
+=== interleaved row sweep, 21 rounds x 4 row points, 2000 dispatches ===
+Round r visits point (j + r) mod n, so no N owns a fixed slot in the round.
+Repeat an N in FERN_ROWS_SWEEP to get a within-round null on that N.
+     K    idx      N    M   slots   min_us   med_us   mean_us   sd_us   spread
+    24      0     512    4      48    18.882    19.002     19.004    0.044    0.178
+    24      1     256    2      48    10.322    10.340     10.341    0.012    0.051
+    24      2      96    0      48     3.746     3.761      3.761    0.009    0.044
+    24      3     512    4      48    18.968    19.023     19.020    0.026    0.098
+    48      0     512    4      48    26.992    27.072     27.070    0.037    0.130
+    48      1     256    2      48    17.493    17.975     17.946    0.121    0.584
+    48      2      96    0      48     5.048     5.058      5.057    0.005    0.015
+    48      3     512    4      48    27.035    27.103     27.102    0.029    0.117
+
+=== machine-readable sweep ===
+SWEEP k=24 idx=0 N=512 M=4 slots=48 n=21 min=18.8818 med=19.0022 mean=19.0044 sd=0.0437
+SWEEP k=24 idx=1 N=256 M=2 slots=48 n=21 min=10.3225 med=10.3401 mean=10.3411 sd=0.0116
+SWEEP k=24 idx=2 N=96 M=0 slots=48 n=21 min=3.7461 med=3.7610 mean=3.7608 sd=0.0086
+SWEEP k=24 idx=3 N=512 M=4 slots=48 n=21 min=18.9683 med=19.0235 mean=19.0200 sd=0.0258
+SWEEP k=48 idx=0 N=512 M=4 slots=48 n=21 min=26.9923 med=27.0715 mean=27.0700 sd=0.0366
+SWEEP k=48 idx=1 N=256 M=2 slots=48 n=21 min=17.4927 med=17.9752 mean=17.9463 sd=0.1213
+SWEEP k=48 idx=2 N=96 M=0 slots=48 n=21 min=5.0483 med=5.0584 mean=5.0570 sd=0.0050
+SWEEP k=48 idx=3 N=512 M=4 slots=48 n=21 min=27.0348 med=27.1027 mean=27.1016 sd=0.0288

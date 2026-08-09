@@ -84,6 +84,16 @@ let sweepRows = intList("FERN_ROWS_SWEEP", [])
 /// would compare a 512-row point against a 4x smaller footprint. This holds
 /// bytes per round fixed by scaling slots as window/rows.
 let matchBytes = intVal("FERN_MATCH_BYTES", 0) != 0
+/// The full-attention kernel reads its row count from `params[1]` at runtime,
+/// so its sweep needs no source edit at all. Selecting this mode disables the
+/// row-bound rewrite and delivers N through the parameter buffer instead.
+let paramRows = intVal("FERN_PARAM_ROWS", 0) != 0
+/// Query heads per kv head: 8 in the sliding kernel, 6 in the full one. Only
+/// the byte accounting and the defeat rotation stride depend on it.
+let cGQA = intVal("FERN_GQA", 8)
+/// KV positions one threadgroup consumes per main-loop iteration: 128 for the
+/// 4-deep sliding ring, 64 for the 2-deep full loop. Reported, not dispatched.
+let iterPositions = intVal("FERN_ITER_POSITIONS", 128)
 
 /// Measured M4-Pro DRAM read ceiling (rule 55): t = 3.97us + bytes/266.3GB/s.
 let dramPeakGBs = 266.3
@@ -162,7 +172,7 @@ func extractKernel(_ path: String, name: String, rows: Int) -> ExtractedKernel {
 /// Substitutes the KV row-loop bound and nothing else. Fails loudly rather than
 /// silently timing an unmodified kernel if the declaration ever moves.
 func rewriteRowBound(_ body: String, rows: Int) -> String {
-    guard rows != 512 else { return body }
+    guard !paramRows, rows != 512 else { return body }
     let needle = "constexpr int N = 512;"
     let hits = body.components(separatedBy: needle).count - 1
     precondition(hits == 1, "expected exactly one `\(needle)`, found \(hits)")
@@ -236,7 +246,6 @@ let cHeads = 512
 let cKV = 128
 let cDim = 128
 let cWindow = 512
-let cGQA = 8
 
 let dRawQ = makeBF16(cHeads * cDim)
 let dRawK = makeBF16(cKV * cDim)
@@ -347,31 +356,51 @@ let arms = [("BASE", baseArg), (isNull ? "NULL(BASE)" : "CAND", candArg)]
 
 /// One pipeline per entry of `FERN_ROWS_SWEEP`, all built from the base source
 /// before any timing so compilation never lands inside a measured round.
-let sweepPipes: [(rows: Int, pipe: MTLComputePipelineState)] = sweepRows.map {
-    ($0, buildPipeline(extractKernel(baseArg, name: kernelName, rows: $0)))
-}
+/// In `paramRows` mode every point runs the identical binary, so one pipeline
+/// is built and shared: N travels in `params[1]`, not in the source.
+let sweepPipes: [(rows: Int, pipe: MTLComputePipelineState)] = {
+    guard !paramRows else {
+        let shared = buildPipeline(
+            extractKernel(baseArg, name: kernelName, rows: 512))
+        return sweepRows.map { ($0, shared) }
+    }
+    return sweepRows.map {
+        ($0, buildPipeline(extractKernel(baseArg, name: kernelName, rows: $0)))
+    }
+}()
 
 print("=== device ===")
 print("name                  \(device.name)")
 print("architecture          \(device.architecture.name)")
 print("gpu cores             \(cores)")
 print("kernel                \(kernelName)")
-print("attn rows N           \(attnRows)  (ring iters M = \(attnRows / 128))")
+print("attn rows N           \(attnRows)  (main-loop iters M = \(attnRows / iterPositions))")
 print("stride kvheads        \(strideKVOverride == 0 ? "auto" : String(strideKVOverride))")
 print("rows sweep            \(sweepRows.isEmpty ? "off" : sweepRows.map(String.init).joined(separator: ","))")
 print("match bytes           \(matchBytes ? "on (slots scale as 512/N)" : "off")")
+print("param rows            \(paramRows ? "on (N via params[1], source unmodified)" : "off (source substitution)")")
+print("gqa q-heads/kv-head   \(cGQA)")
+print("iter positions        \(iterPositions)")
 print("mode                  \(isNull ? "NULL CONTROL (base vs itself)" : "A/B")")
 
 print("\n=== pipeline properties (register/occupancy gate) ===")
-print("  arm            srcLines   tgMemB   maxTotalThreads   execWidth   source")
+print("  arm            srcLines   tgMemB   maxTotalThreads   execWidth   tgMemCap   source")
 for (label, path, k, pipe) in arms {
     print(
         String(
-            format: "  %-12@   %7d   %6d   %15d   %9d   %@",
+            format: "  %-12@   %7d   %6d   %15d   %9d   %8d   %@",
             label as NSString, k.sourceLines, pipe.staticThreadgroupMemoryLength,
             pipe.maxTotalThreadsPerThreadgroup, pipe.threadExecutionWidth,
-            path as NSString))
+            device.maxThreadgroupMemoryLength, path as NSString))
 }
+// Resident threadgroups per core. The static tgMem bound is only an upper
+// limit; the binding constraint on this kernel is 1024 threads per group, and
+// the wave law fitted below (W = ceil(K/cores)) is the empirical measurement.
+let tgMemBound = arms[0].3.staticThreadgroupMemoryLength > 0
+    ? device.maxThreadgroupMemoryLength / arms[0].3.staticThreadgroupMemoryLength
+    : 0
+print("  resident TG/core: tgMem bound \(tgMemBound), threads/TG 1024;")
+print("  empirical value is the wave-law step period in the K ladder below.")
 
 // MARK: - timing
 
@@ -381,6 +410,10 @@ func perCallMicros(
     _ pipe: MTLComputePipelineState, k: Int, reps: Int, rows: Int = attnRows
 ) -> Double {
     let slots = effectiveSlots(k, rows)
+    if paramRows {
+        dParams.contents().bindMemory(to: UInt32.self, capacity: 3)[1] =
+            UInt32(rows)
+    }
     let cb = queue.makeCommandBuffer()!
     let enc = cb.makeComputeCommandEncoder()!
     enc.setComputePipelineState(pipe)
@@ -533,12 +566,12 @@ if !sweepPipes.isEmpty {
             print(
                 String(
                     format: "  %4d   %4d   %5d   %2d   %5d   %7.3f   %7.3f   %8.3f   %6.3f   %6.3f",
-                    k, idx, e.rows, e.rows / 128, slots, s[0], med, mean, sd, s[s.count - 1] - s[0]))
+                    k, idx, e.rows, e.rows / iterPositions, slots, s[0], med, mean, sd, s[s.count - 1] - s[0]))
             machine.append(
                 String(
                     format:
                         "SWEEP k=%d idx=%d N=%d M=%d slots=%d n=%d min=%.4f med=%.4f mean=%.4f sd=%.4f",
-                    k, idx, e.rows, e.rows / 128, slots, s.count, s[0], med, mean, sd))
+                    k, idx, e.rows, e.rows / iterPositions, slots, s.count, s[0], med, mean, sd))
         }
     }
     print("\n=== machine-readable sweep ===")

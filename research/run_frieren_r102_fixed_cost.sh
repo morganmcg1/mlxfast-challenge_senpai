@@ -49,7 +49,7 @@ xcrun swiftc -O research/fern_r100_attn_probe.swift -o "$PROBE" || exit 1
 
 # BLOCKS selects which measurement blocks run; the default is all of them.
 # Re-running a subset never clobbers the logs of a block that is not selected.
-BLOCKS=${BLOCKS:-R_sweep,D_sweep,M3D,F2,F2D}
+BLOCKS=${BLOCKS:-R_sweep,D_sweep,M3D,F2,F2D,FULL,FULLD}
 
 run() { # run <tag> <sweep-rows> <ladder> [extra env assignments...]
   local tag=$1 sweep=$2 ladder=$3
@@ -92,6 +92,21 @@ run F2  512,256,96,512 24,48 \
   FERN_DEFEAT_SLOTS=1 FERN_CACHE_COPIES=1
 run F2D 512,256,96,512 24,48 \
   FERN_STRIDE_KV=32 FERN_CACHE_COPIES=12 FERN_DEFEAT_SLOTS=48
+
+# ---- Block FULL/FULLD: the primary arm, real full-attention kernel --------
+# `laguna_full_fused_attn_grow_v1` reads its row bound from params[1], so N is
+# swept with the source byte-identical and one shared pipeline: geometry
+# fidelity is exact, not argued. Its main loop is 2-deep over BN=32, i.e. 64
+# positions per iteration, so N in {512,384,256,128,64} is 8/6/4/2/1 clean
+# iterations with no partial slice. There is no reachable M=0 point, so f comes
+# from the affine intercept of tau(N) rather than from a direct measurement.
+# K=24 is the production dispatch (48 heads / 2 per threadgroup); K=48 is the
+# S=2 threadgroup-count emulation on the byte-matched diagonal.
+FULL_ENV="FERN_KERNEL=laguna_full_fused_attn_grow_v1 FERN_PARAM_ROWS=1 FERN_GQA=6 FERN_ITER_POSITIONS=64"
+run FULL 512,384,256,128,64,512 24,48 $FULL_ENV \
+  FERN_DEFEAT_SLOTS=1 FERN_CACHE_COPIES=1
+run FULLD 512,384,256,128,64,512 24,48 $FULL_ENV \
+  FERN_STRIDE_KV=32 FERN_CACHE_COPIES=96 FERN_DEFEAT_SLOTS=48 FERN_MATCH_BYTES=1
 
 echo "=== rule 75 surface digest (post-timing) ===" | tee -a "$OUT/surface_digest.txt"
 digest | tee -a "$OUT/surface_digest.txt"
