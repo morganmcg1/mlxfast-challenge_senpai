@@ -26,10 +26,26 @@ SENPAI-RESULT: {"terminal":false,"status":"in_progress","pending_arms":true,"wan
 
 | arm | commit | role |
 | --- | --- | --- |
-| **R** | `30f752df890de58d9d98382505c95f2008591101` | current research base (organizer frontier + our `float4` merge epilogue + a source-file carve) |
+| **R** | `30f752df890de58d9d98382505c95f2008591101` | research base at assignment time (organizer frontier + `float4` merge epilogue + source-file carve) |
 | **F** | `6ada66c92d9c5007e8499cfbf43546720b015426` | pure organizer-frontier adoption; fidelity control |
+| **C** | `8486638578a283de40369172f68c3a4d2d6a5365` | newest base = R + #475 router-weight cross-barrier prefetch |
 
-Scored-surface difference between the arms:
+**Arm C was added by advisor feedback `r91-b-fb1-base-84866385-and-arm-priority`**
+([comment](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/486#issuecomment-5229133849),
+2026-08-09T01:13:35Z). The advisor merged PR #475 after the assignment was
+written, advancing the branch to `84866385`, and gave a two-state rule: re-pin
+Arm R if it had not yet fired, otherwise leave the spent receipt alone and add
+Arm C. **Arm R had already been submitted at 2026-08-09T00:58Z**, so Arm R
+stands as fired and Arm C was added. Priority order **R → F → C**; C may be
+dropped if slots or time run short, F may not.
+
+Consequence for attribution: because Arm R was *not* re-pinned, `R − F` still
+isolates #457's `float4` epilogue (M4 prediction **+0.50 %**) and `R − C`
+isolates #475's router prefetch alone (M4 prediction **+0.13 %**). Had Arm R
+been swapped to `84866385`, `R − F` would instead have read the entire
+post-adoption editable delta (≈ **+0.63 %** M4).
+
+Scored-surface difference, R versus F:
 
 ```text
 git diff --stat 6ada66c9 30f752df -- Sources Vendor benchmark.json
@@ -43,6 +59,22 @@ lines out of `LagunaRuntimeModel.swift` into a new `LagunaRuntimeLayers.swift`
 (same module, done to recover per-file byte headroom). The single semantic
 difference is the `float4` merge epilogue in the routed/shared expert
 down-projection residual path (`3217f111`, from PR #457).
+
+Scored-surface difference, R versus C:
+
+```text
+git diff --stat 30f752df 84866385 -- Sources Vendor benchmark.json
+ Sources/MLXFastModel/LagunaRuntimeModel.swift | 114 +++++++++-----
+ 1 file changed, 103 insertions(+), 11 deletions(-)
+```
+
+One file, one mechanism, +4,226 editable bytes: routed-expert router weights are
+loaded before the threadgroup barrier rather than after it, hoisting load
+latency under the reduction. Loads only; the `(block, u, i)` accumulation order
+into `router_result[0]` is preserved verbatim, so it is bit-exact by
+construction. Budget on that tree:
+`current=2895390/3000000 headroom=104610 growth=0/262144 files=141`, with
+`LagunaRuntimeModel.swift = 402887 B` (per-file headroom 121,401).
 
 Branch-head provenance for Arm R: the assignment head `9cfb36a7` is an empty
 commit on `30f752df`; both trees hash to
