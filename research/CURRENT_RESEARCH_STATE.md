@@ -67,16 +67,69 @@ candidate enough times and a lucky session draw takes the record."
 | beats by 1σ, p ≈ 84 % (+1.50 %) | **+98.2 µs/step** | +3.95 ms |
 | beats by 2σ, p ≈ 98 % (+1.95 %) | **+127.6 µs/step** | +5.14 ms |
 
-Pools measured against the +98 µs/step working target:
+Pools measured against the +98 µs/step working target. **⚠️ Use M5 pools. A
+first draft of this table used the M4 column of §12 and overstated decode
+attention by 2.2×; the frontier reviewer caught it.** §12 records sliding
+636.0 µs/step **M4** → **≈290 M5**, and full 229.7 **M4** → **≈100 M5**. Rule
+67's own 4.14× decomposition is built on that same 636.0/290 ratio, so the M5
+column is the internally consistent one.
 
-| pool | size (µs/step) | fraction needed | credibility |
+| pool (M5) | size (µs/step) | fraction of +98.2 needed | credibility |
 | --- | --- | --- | --- |
-| sliding-window fused attention | **636.0** | **15.4 %** | high — largest single item, roofline never established |
-| decode wall − GPU busy gap | 249 | 39.4 % | medium — tanjiro #541 Part 2 is measuring it now |
-| full fused attention | 229.7 | 42.8 % | low-medium — same family as the closed codegen-tax rule |
-| dispatch launch cost (406 × 2.3403 µs) | ~950 nominal | 42 fewer dispatches | **do not size an arm off this** |
+| routed-expert gather-QMV | ≈600 (est. from M4 T2c 1184) | 16.4 % | **highest — largest M5 pool, and byte-layout work on it is bit-exact by construction** |
+| QKV projection | ≈650 (est. from M4 T0b 1276) | 15.1 % | high pool, but no untested mechanism except the dormant `_idx_v1` |
+| both decode attention kernels | **≈390** (290 sliding + 100 full) | **25.2 %** | moderate — see the starvation ceiling below |
+| decode wall − GPU busy gap | 249 | 39.4 % | **provenance unresolved (M4 or M5)** — tanjiro #541 Part 2 settles it |
+| sliding attention alone | ≈290 | 33.9 % | moderate |
+| full attention alone | ≈100 | 98.2 % | **dead as a standalone arm** |
+| dispatch launch cost | — | — | **closed** — rules 53, 68 and #48 all refute it |
+
+### 🎯 The single best-quantified target on the board
+
+Rule 67 measured decode attention's **threadgroup-starvation ceiling** with a
+free-combine probe: **+18.36 % sliding** and **+36.04 % full**, matching the
+wave model within 1.5 pp. Priced on the M5 pools that is
+
+```
+0.1836 × 290  +  0.3604 × 100  =  53.2 + 36.0  =  89.2 µs/step  ≈  1.36 % score
+```
+
+**Eliminating decode-attention threadgroup starvation is worth ≈89 µs/step on
+its own — within a whisker of the +98.2 µs/step p≈84 % win target.** This is
+the largest *quantified, mechanism-identified* headroom we have anywhere.
+
+Rule 67 also recorded exactly why the last attempt failed, and it was not the
+mechanism: splitting the **N (position)** axis forces an online-softmax merge,
+which is not a sum, so partials must ship across a threadgroup boundary ⇒ +40
+dispatches/step ⇒ 93.6 µs of M5 cost that swallowed the whole gain. **The
+starvation is real and the ceiling is real; only that one implementation route
+is closed.** Any route that raises threadgroup count *without* a cross-TG
+softmax merge is unexplored — see H2 in the 14:45 idea set.
+
+Structural price of every such route, stated once: the 32 sliding TGs already
+share 8 KV heads 4 ways (unique K+V 62.9 MB/step, **requested 251.7 MB = 4×**).
+Doubling TG count by any axis except N doubles the **K** amplification 4× → 8×,
+i.e. **+31.5 MB/step of requested traffic**. The roofline says this is
+SLC-absorbed — measured time is 2.5× the DRAM floor, not the 4× that DRAM-resident
+re-reads would imply — but rule 66 warns that traffic structure can dominate.
+**Whether that +31.5 MB/step is free is the pivotal falsifiable question**, and
+it is answerable on nezuko's zero-receipt A/B probe before any receipt is spent.
 
 ### ⚠️ Rule-68 tension — read before proposing any dispatch fusion
+
+**Verdict after the frontier review: the dispatch-count axis is CLOSED, and
+the 950 µs/step figure is not merely uncertain, it is a category error.**
+Multiplying rule 65's *marginal-addition* cost by the dispatch count assumes
+every launch drains the pipe. Three independent items in our own record refute
+that: (a) **rule 53**'s bit-exact addition-probe ledger closes the launch pool
+to a **+0.3 µs residue** — launches overlap execution almost completely; (b)
+**rule 68 / #527** removed 78 prefill dispatches and got **+0.639 ms slower**;
+(c) **#48**'s 8× threadgroup collapse scored **−0.1488 %**. Under queue depth
+> 1, marginal cost × count is invalid (Little's law). The only live question
+left in this territory is the launch-vs-drain regime disambiguation already
+scoped as arm D. Do not open a dispatch-fusion arm.
+
+Retained working below for the audit trail:
 
 406 × 2.3403 µs ≈ 950 µs/step is 19 % of the 4893.7 µs/step **GPU-busy** pool.
 Those two numbers cannot both be additive. 2.3403 µs is a **marginal add**
@@ -442,9 +495,16 @@ Two further structural findings:
   the 524,288 B per-file cap on `LagunaRuntimeModel.swift` is *dissolvable by
   splitting the file*. The global cap would then be the only binding limit.
 - `Sources/MLXFastTransform/AffineMetadataCoding.swift` (16,378 B) and
-  `TiedHeadMetadataCoding.swift` (15,627 B) = **32,005 B** appear Gemma4-only and
-  dead for Laguna (`Transform.swift` `case .laguna` returns an empty report).
-  Deletable only after proving no non-editable reference exists.
+  `TiedHeadMetadataCoding.swift` (15,627 B) = **32,005 B** are Gemma4-only and
+  dead for Laguna. ✅ **Re-verified 2026-08-09, no open question remains** (see
+  rule 69): the only references anywhere in `Sources/`, `Vendor/` and `Tests/`
+  are the six inside `Transform.swift:238-266`, of which `:242/:249` sit in the
+  `.gemma4` arm and `:262/:266` are the `.laguna` empty-report arm. The runtime
+  `metadata_indices`/`metadata_lut` buffers come from
+  `lagunaIndexedAffineMetadata` (`LRM:2829-2870`), not from a sidecar. PR #288
+  already merged this exact deletion; the files returned via a frontier import.
+  Keep `TransformModelFamily.gemma4` and its `:496/:595/:634` arms — non-editable
+  `TransformTests.swift:129/143/162` needs them.
 
 `senpai/check-editable-budget.sh` requires a full 40-char SHA and rejects
 `HEAD`. Prior art to read before redoing any of this: branch
@@ -1093,6 +1153,29 @@ dispatch-count premise for prefill is dead on M5. Corollaries:
   prefill to −0.10 prediction-se of the control mean and decode to +0.08σ. That
   single step excluded drift, session artifact and mis-specified controls in one
   move. **Every timing arm should preregister a revert-control leg.**
+
+**Rule 69 (advisor self-inflicted, 2026-08-09) — A GREP HIT IS NOT A DATA
+DEPENDENCY. FOLLOW EVERY NAME TO ITS BINDING SITE.** I put a hold on #548
+claiming `Sources/MLXFastTransform/{AffineMetadataCoding,TiedHeadMetadataCoding}
+.swift` (32,005 B) were live, on the strength of `metadata_indices` /
+`metadata_lut` appearing at `LRM:3814/3825/3947/5098/5109/5122/5317`. Those are
+**Metal kernel argument names inside a Swift source-string literal**. The
+arrays are built in-process by `lagunaIndexedAffineMetadata(scales:biases:)`
+(`LRM:2829-2870`, gate `DARKBLOOM_AFFINE_METADATA_INDEXED` at `:2825`); no
+checkpoint sidecar is ever read. The offline coders are reachable only from
+`Transform.swift:238-253`'s `.gemma4` arm, and the `.laguna` arm (`:256-268`)
+emits empty reports by weight-contract. The hold was retracted within minutes
+and the deletion re-authorised. Operational form of the rule:
+- In this repo a huge fraction of Metal lives in Swift string literals, so
+  identifier greps cross the host/device boundary silently. Before calling a
+  symbol live, name the **producer of the buffer**, not the occurrence of the
+  token.
+- Keep the converse too: a symbol whose only caller sits behind an env-var gate
+  is **live** (dormant variants are queued research), and `Tests/` is not
+  editable, so check it before deleting a family enum case — `.gemma4` itself
+  must survive for `TransformTests.swift:129/143/162`.
+- Prior art beats fresh inference: PR #288 already merged this exact deletion.
+  Search `research/RESEARCH_ARCHIVE_*.md` before contradicting a merged result.
 
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the
