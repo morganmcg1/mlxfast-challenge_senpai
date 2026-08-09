@@ -38,7 +38,7 @@ DESCRIPTION = {
 K_PER_RUNG = 40
 
 
-def load_records(patterns):
+def load_records(patterns, drop_steps):
     files = []
     for pat in patterns:
         files.extend(sorted(glob.glob(pat)))
@@ -53,6 +53,8 @@ def load_records(patterns):
         for rec in doc["records"]:
             if rec.get("warmup_run") or rec.get("placebo"):
                 continue
+            if int(rec["step"]) < drop_steps:
+                continue
             per_rung.setdefault(int(rec["k"]) // K_PER_RUNG, []).append(
                 float(rec["us"]))
     return files, per_rung, sorted(hashes), mismatches
@@ -64,6 +66,9 @@ def main() -> int:
     ap.add_argument("--perrun", nargs="*", default=[])
     ap.add_argument("--records", nargs="*", default=[])
     ap.add_argument("--group", default="r97a-stage2")
+    ap.add_argument("--drop-steps", type=int, default=24,
+                    help="must match the analyser so the summary median and "
+                         "the ladder contrast describe the same steps")
     ap.add_argument("--notes", default="")
     ap.add_argument("--extra", default="{}", help="JSON dict merged into summary")
     args = ap.parse_args()
@@ -75,7 +80,7 @@ def main() -> int:
         with open(path) as fh:
             perrun.append(json.load(fh))
 
-    files, per_rung, hashes, mismatches = load_records(args.records)
+    files, per_rung, hashes, mismatches = load_records(args.records, args.drop_steps)
     extra = json.loads(args.extra)
 
     wandb_dir = os.environ.get("WANDB_DIR", "/tmp/r97/wandb")
