@@ -1,0 +1,188 @@
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+[0/1] Planning build
+[1/1] Compiling plugin CudaBuild
+[2/2] Compiling plugin GenerateManual
+[3/3] Compiling plugin GenerateDoccReference
+Building for debugging...
+[3/13] Write sources
+[3/13] Write swift-version--58304C5D6DBC2206.txt
+[5/45] Write sources
+[7/43] Compiling resident.cpp
+[8/43] Compiling scan.cpp
+[9/43] Compiling unary.cpp
+[10/43] Compiling softmax.cpp
+[10/43] Compiling rope.cpp
+[12/43] Compiling slicing.cpp
+[13/43] Compiling utils.cpp
+[14/43] Compiling sort.cpp
+[15/43] Compiling ternary.cpp
+[16/43] Compiling scaled_dot_product_attention.cpp
+[17/43] Compiling jit_kernels.cpp
+[18/43] Compiling matmul.cpp
+[19/43] Compiling quantized.cpp
+[20/43] Compiling fft.cpp
+[21/43] Compiling metal.cpp
+[22/43] Compiling fence.cpp
+[23/43] Compiling event.cpp
+[24/43] Compiling reduce.cpp
+[25/43] Compiling primitives.cpp
+[26/43] Compiling logsumexp.cpp
+[27/43] Compiling normalization.cpp
+[28/43] Compiling distributed.cpp
+[29/43] Compiling hadamard.cpp
+[30/43] Compiling eval.cpp
+[31/43] Compiling device_info.cpp
+[32/43] Compiling indexing.cpp
+[33/43] Compiling custom_kernel.cpp
+[34/43] Compiling device.cpp
+[35/43] Compiling allocator.cpp
+[36/45] Compiling copy.cpp
+[37/45] Compiling conv.cpp
+[38/45] Compiling compiled.cpp
+[39/45] Compiling binary.cpp
+[41/59] Compiling MLXLMCommon BaseConfiguration.swift
+[42/59] Compiling MLXLMCommon LanguageModel.swift
+[43/59] Compiling MLXLMCommon AttentionUtils.swift
+[44/59] Emitting module MLXLMCommon
+[45/59] Compiling MLXLMCommon CompilableRotatingKVCache.swift
+[46/59] Compiling MLXLMCommon CompiledDecode.swift
+[47/59] Compiling MLXLMCommon CompilableKVCache.swift
+[48/59] Compiling MLXLMCommon RoPEUtils.swift
+[49/59] Compiling MLXLMCommon RoPEApplication.swift
+[50/59] Compiling MLXLMCommon JSONDecodingTypes.swift
+[51/59] Compiling MLXLMCommon Evaluate.swift
+[52/59] Compiling MLXLMCommon KVCache.swift
+[53/59] Compiling MLXLMCommon DynamicSlice.swift
+[54/59] Compiling MLXLMCommon BatchKVCache.swift
+[55/60] Compiling MLXLMCommon SwitchLayers.swift
+[56/62] Compiling MLXLLM Laguna.swift
+[57/62] Emitting module MLXLLM
+[58/64] Compiling MLXFastModel LagunaRuntimeModel.swift
+/Users/ec2-user/.senpai/native/mlxfast-maple-20260804/roles/student-maple-nezuko/workspace/target/Sources/MLXFastModel/LagunaRuntimeModel.swift:10778:17: warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10776 |             // handed to the down projection instead of being issued again.
+10777 |             // Purely within this invocation; nothing survives it.
+10778 |             var mergedSharedActivated: MLXArray?
+      |                 `- warning: variable 'mergedSharedActivated' was never mutated; consider changing to 'let' constant
+10779 |             if lagunaFusedRoutedSwiGLUQMVEnabled,
+10780 |                 x.dtype == .bfloat16,
+[59/64] Emitting module MLXFastModel
+[60/69] Compiling MLXFastModel LagunaUpstreamEquivalence.swift
+[61/69] Compiling MLXFastModel MLXTensorBridge.swift
+[62/69] Compiling MLXFastModel LagunaLmHeadPrune.swift
+[63/69] Compiling MLXFastModel LagunaRuntimeWeights.swift
+[64/69] Compiling MLXFastModel RuntimeStartupMemoryPolicy.swift
+[65/79] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeCorrectness.swift
+[66/79] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeLocalIterate.swift
+[67/79] Compiling MLXFastRuntimeWorkerSupport LagunaRuntime.swift
+[68/79] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeBenchmark.swift
+[69/79] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeSupport.swift
+[70/79] Compiling MLXFastRuntimeWorkerSupport LagunaCorrectness.swift
+[71/79] Compiling MLXFastRuntimeWorkerSupport BenchmarkSupport.swift
+[72/79] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeCorrectnessCompare.swift
+[73/79] Emitting module MLXFastRuntimeWorkerSupport
+[74/79] Compiling MLXFastRuntimeWorkerSupport LagunaRuntimeWorker.swift
+[74/79] Write Objects.LinkFileList
+[76/93] Compiling MLXFastTests LagunaNVFP4KernelTests.swift
+[77/94] Compiling MLXFastTests MLXTensorBridgeTests.swift
+[78/94] Compiling MLXFastTests RuntimeStartupMemoryPolicyTests.swift
+[79/94] Compiling MLXFastTests NVFP4QuantizedMMTests.swift
+[80/94] Compiling MLXFastTests LagunaArtifactFixtureSupport.swift
+[81/94] Compiling MLXFastTests LagunaCorrectnessTests.swift
+[82/94] Compiling MLXFastTests TensorDataTests.swift
+[83/94] Compiling MLXFastTests NAXSplitKGEMMTests.swift
+[84/94] Compiling MLXFastTests LagunaArtifactContractTests.swift
+[85/94] Compiling MLXFastTests LagunaConfigTests.swift
+[86/94] Compiling MLXFastTests RuntimeWorkerSupportTests.swift
+[87/94] Compiling MLXFastTests TransformTests.swift
+[88/94] Compiling MLXFastTests DenseTensorStoreTests.swift
+[89/94] Emitting module MLXFastTests
+[90/94] Compiling MLXFastTests BenchmarkSupportTests.swift
+[90/94] Write Objects.LinkFileList
+[91/94] Linking mlxfast-runtime-worker
+[92/94] Applying mlxfast-runtime-worker
+[93/94] Linking mlxfast-challenge-devPackageTests
+Build complete! (28.98s)
+Test Suite 'Selected tests' started at 2026-08-09 19:40:36.911.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' started at 2026-08-09 19:40:36.911.
+Test Suite 'mlxfast-challenge-devPackageTests.xctest' passed at 2026-08-09 19:40:36.911.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-08-09 19:40:36.911.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1902
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() started.
+{
+  "decodeTokenCount" : 8,
+  "promptTokenCount" : 512,
+  "steps" : [
+    {
+      "label" : "prefill",
+      "maximumAbsoluteLogitError" : 0.125,
+      "meanAbsoluteLogitError" : 0.011933609,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-0",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-1",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    },
+    {
+      "label" : "decode-2",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-3",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-4",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    },
+    {
+      "label" : "decode-5",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 5991,
+      "upstreamToken" : 5991
+    },
+    {
+      "label" : "decode-6",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 509,
+      "upstreamToken" : 509
+    },
+    {
+      "label" : "decode-7",
+      "maximumAbsoluteLogitError" : 0,
+      "meanAbsoluteLogitError" : 0,
+      "runtimeToken" : 902,
+      "upstreamToken" : 902
+    }
+  ]
+}
+✘ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() recorded an issue at LagunaCorrectnessTests.swift:249:5: Expectation failed: (report → LagunaUpstreamEquivalenceReport(promptTokenCount: 512, decodeTokenCount: 8, steps: [MLXFastModel.LagunaUpstreamEquivalenceStep(label: "prefill", maximumAbsoluteLogitError: 0.125, meanAbsoluteLogitError: 0.011933609, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-0", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-1", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-2", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-3", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-4", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-5", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 5991, upstreamToken: 5991), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-6", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 509, upstreamToken: 509), MLXFastModel.LagunaUpstreamEquivalenceStep(label: "decode-7", maximumAbsoluteLogitError: 0.0, meanAbsoluteLogitError: 0.0, runtimeToken: 902, upstreamToken: 902)])).passes(maximumAbsoluteLogitError: tolerance → 0.0)
+✘ Test lagunaRuntimeMatchesVendoredUpstreamOnM5WhenEnabled() failed after 43.323 seconds with 1 issue.
+✘ Test run with 1 test in 0 suites failed after 43.323 seconds with 1 issue.
+EQUIVALENCE_EXACT_STEPS=8
+EQUIVALENCE_EXIT=1

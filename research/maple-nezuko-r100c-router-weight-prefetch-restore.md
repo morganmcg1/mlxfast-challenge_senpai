@@ -599,3 +599,107 @@ regression** — `--local-iterate` divides by the pinned M5 constant
 ≈ 0.00113. pf0 and pf1 prefill within 2 % of each other (0.0011236 vs
 0.0011108), and the same `false` appears on the unmodified base.
 
+
+## Step 5: upstream-equivalence oracle — the strongest bit-exactness evidence
+
+`research/maple-nezuko-r100c-equivalence-ab.sh /tmp/r100c-equiv 0 1`, run at
+head `5241d9a3ffa6deedb55861b2cd95bd268beb2155` through the trusted wrapper
+`research/run_upstream_equivalence.sh` (exact bare test filter, debug-metallib
+repair, zero-test invocations refused). One run per arm, with
+`DARKBLOOM_ROUTER_WEIGHT_PREFETCH` exported per leg.
+
+| arm | test count | `EQUIVALENCE_EXACT_STEPS` | `EQUIVALENCE_EXIT` |
+|---|---|---|---|
+| pf0 (`=0`) | `Test run with 1 test` | 8 | 1 |
+| pf1 (`=1`) | `Test run with 1 test` | 8 | 1 |
+
+**The oracle ran a real test in both arms** (1 test, not zero), so neither leg
+is a vacuous pass — and neither is being reported as a pass.
+
+### The decisive comparison is arm-vs-arm, and it is byte-identical
+
+Extracting the JSON `LagunaUpstreamEquivalenceReport` from each log:
+
+```text
+pf0.report.json  ==  pf1.report.json     69 lines, sha256 6b832aba0f6e3cca…
+```
+
+Both arms report, character for character:
+
+- `prefill`: `maximumAbsoluteLogitError 0.125`, `meanAbsoluteLogitError
+  0.011933609`, `runtimeToken 5991 == upstreamToken 5991`
+- `decode-0 … decode-7`: `maximumAbsoluteLogitError 0`, `meanAbsoluteLogitError
+  0`, every runtime token equal to its upstream token
+  (509, 902, 5991, 509, 902, 5991, 509, 902)
+
+**Hoisting the four `router_weight` loads above the RMS reduction tail changes
+no logit and no token.** That is the claim this experiment had to defend, and
+the oracle defends it at the tightest granularity available.
+
+### `EQUIVALENCE_EXIT=1` is pre-existing, and proven so from an archived base run
+
+The oracle applies **zero** tolerance to prefill. This M4 Pro cannot meet that
+against the BF16 upstream reference, because its batched NVFP4 prefill path is
+not the ranked `_nax` path. This is documented at
+`research/RESEARCH_ARCHIVE_through-round-91.md:4102` ("proven pre-existing"),
+`:5001`, and `research/RESEARCH_STATE_ARCHIVE_through-round-21.md:2301`
+(0.125 ≈ 1 bf16 ULP, reproduced by an unmodified build).
+
+I did not take that on trust. This repository still carries a full oracle log
+from an **unmodified base**, `research/r87a-runs/equivalence/base-3217f111.log`:
+
+```text
+diff base.report.json pf1.report.json   →  (no output)
+```
+
+The unmodified-base report is **byte-identical to mine**. So:
+
+```text
+BASE (3217f111, unmodified)  ==  pf0  ==  pf1
+```
+
+`EQUIVALENCE_EXIT=1` is a property of this host, not of this change. Under the
+`MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` doctrine in AGENTS.md — "if a non-M5 host
+disagrees with a public golden, test the unchanged base" — the unchanged base
+has exactly the same divergence, and I did not need the override to establish
+it. It is not set anywhere in this experiment.
+
+**Honest scope limit.** The oracle exercises shared paths; it says nothing
+about the `_nax` kernels the ranked M5 selects, which this host never reaches.
+It is a no-regression guard, and the arm-vs-arm identity is what carries the
+weight. The two supervised-job terminal states reporting `failed` / exit 1 for
+this step are exactly these two oracle runs.
+
+## Step 6: rule-74 embedded-twin check — PASS
+
+An AOT header whose body is snapshotted into an `mlx-generated/*.cpp` twin must
+never be edited without updating the twin in lockstep.
+
+`python3 research/nezuko_embedded_header_check.py 2e490fa3…` (check mode, not
+`--exclusions`):
+
+```text
+changed AOT sources: 0
+ share   base    now  path
+
+embedded-twin risk (share>=0.90 or lost exact containment): 0
+```
+
+Verdict: **PASS**, and vacuously so.
+
+Note for the record: `--exclusions BASE_SHA` is a *generator* mode — it prints
+the 81 do-not-touch AOT paths derived from the base, and that list is
+informational, not a failure list. Reading its output as failures would be a
+misread; the verdict mode above is the one that decides.
+
+The check is vacuous because the entire submitted surface of this experiment is
+one file:
+
+```text
+git diff --name-only 2e490fa3… HEAD -- Sources/ Vendor/
+Sources/MLXFastModel/LagunaRuntimeModel.swift
+```
+
+No vendor header, no `mlx-generated` twin, no `.metal` source, and no AOT
+kernel is touched, so no metallib rebuild is implied by this change.
+
