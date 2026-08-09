@@ -652,6 +652,7 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     }
 
     public override func update(keys: MLXArray, values: MLXArray) -> (MLXArray, MLXArray) {
+        invalidateFusedRing()
         let tokenCount = keys.dim(2)
         let result =
             if tokenCount == 1 {
@@ -681,18 +682,27 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
     /// each step and the slot writes would be lost); the prompt-retained
     /// values array in particular is a transposed view after prefill.
     private var fusedRingContiguized = false
+    private var fusedInterleavedKV: MLXArray?
+
+    private func invalidateFusedRing() {
+        fusedRingContiguized = false
+        fusedInterleavedKV = nil
+    }
 
     /// Steady-ring state for the fused decode attention kernel, or nil
     /// when the ring is not yet at capacity (shorter prompts, growth
     /// phase) or a `keep` prefix is configured. `writeIdx` is the slot the
     /// next single-token update would overwrite (after the wrap check).
     /// On first use this rebinds the backing arrays to `contiguous(...)`
-    /// copies — identical bytes, contiguous layout — so the fused kernel's
-    /// in-place slot writes persist across steps.
-    public func fusedRingPrepare() -> (keys: MLXArray, values: MLXArray, writeIdx: Int)? {
+    /// copies and derives a physical-order `[B,H,512,32,8]` K/V side cache.
+    public func fusedRingPrepare() -> (
+        keys: MLXArray, values: MLXArray, interleavedKV: MLXArray, writeIdx: Int
+    )? {
         guard keep == 0, let currentKeys = keys, let currentValues = values,
+            currentKeys.dtype == .bfloat16, currentValues.dtype == .bfloat16,
+            currentKeys.shape == currentValues.shape,
             currentKeys.dim(2) == maxCacheSize,
-            currentValues.dim(2) == maxCacheSize,
+            currentKeys.dim(3).isMultiple(of: 4),
             offset >= maxCacheSize
         else { return nil }
         if !fusedRingContiguized {
@@ -700,7 +710,14 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
             values = contiguous(currentValues)
             fusedRingContiguized = true
         }
-        return (keys!, values!, idx == maxCacheSize ? keep : idx)
+        if fusedInterleavedKV == nil {
+            let shape = keys!.shape
+            let chunkShape = [shape[0], shape[1], shape[2], shape[3] / 4, 4]
+            fusedInterleavedKV = contiguous(
+                concatenated(
+                    [keys!.reshaped(chunkShape), values!.reshaped(chunkShape)], axis: -1))
+        }
+        return (keys!, values!, fusedInterleavedKV!, idx == maxCacheSize ? keep : idx)
     }
 
     /// Advance the logical clock exactly as `updateInPlace(tokenCount: 1)`
@@ -727,6 +744,7 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
             guard newValue.count == 2 else {
                 fatalError("RotatingKVCache state must have exactly 2 arrays")
             }
+            invalidateFusedRing()
             self.keys = newValue[0]
             self.values = newValue[1]
             // Note: RotatingKVCache doesn't set offset from keys like KVCache does
@@ -757,6 +775,7 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
             guard let maxSizeVal = Int(newValue[1]) else {
                 fatalError("Failed to convert maxCacheSize '\(newValue[1])' to integer")
             }
+            invalidateFusedRing()
             self.keep = keepVal
             self.maxCacheSize = maxSizeVal
             self.step = stepVal
@@ -771,6 +790,7 @@ public class RotatingKVCache: BaseKVCache, CustomDebugStringConvertible {
 
     @discardableResult
     public override func trim(_ n: Int) -> Int {
+        invalidateFusedRing()
         let trimmed = min(offset, n)
         offset -= trimmed
         idx -= trimmed

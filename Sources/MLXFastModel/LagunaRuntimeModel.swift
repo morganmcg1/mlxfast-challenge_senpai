@@ -1233,11 +1233,11 @@ let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
 
 private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_v1",
+    name: "laguna_sliding_fused_attn_ring_v2",
     inputNames: [
         "raw_queries", "raw_keys", "raw_values",
         "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
+        "k_cache", "v_cache", "kv_cache", "params", "scale_arr",
     ],
     outputNames: ["attended"],
     source: """
@@ -1335,6 +1335,17 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 kc[i] = tg_k[i];
                 vc[i] = tg_v[i];
             }
+
+            const uint base = lane * 4;
+            const uint2 packed_k = as_type<uint2>(vec<bfloat, 4>(
+                tg_k[base], tg_k[base + 1], tg_k[base + 2], tg_k[base + 3]));
+            const uint2 packed_v = as_type<uint2>(vec<bfloat, 4>(
+                tg_v[base], tg_v[base + 1], tg_v[base + 2], tg_v[base + 3]));
+            device uint4* kvc = reinterpret_cast<device uint4*>(kv_cache) +
+                (size_t)kv_head * (window * (head_dim / 4)) +
+                (size_t)widx * (head_dim / 4);
+            kvc[lane] = uint4(
+                packed_k.x, packed_k.y, packed_v.x, packed_v.y);
         }
 
         // Phase 3: GQA-pair attention over the ring in slot order, textual
@@ -1351,8 +1362,13 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         const device bfloat* pair_values = v_cache +
             (size_t)kv_head * (window * head_dim) +
             (size_t)sg * head_dim + lane * v_per_thread;
+        const device uint4* pair_kv =
+            reinterpret_cast<const device uint4*>(kv_cache) +
+            (size_t)kv_head * (window * (head_dim / 4)) +
+            (size_t)sg * (head_dim / 4) + lane;
         const int inner_k_stride = BN * int(head_dim);
         const int inner_v_stride = BN * int(head_dim);
+        const int inner_kv_stride = BN * int(head_dim / 4);
 
         thread U pair_q0[qk_per_thread];
         thread U pair_q1[qk_per_thread];
@@ -1380,6 +1396,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
         for (; i + BN < N; i += 2 * BN) {
             const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
             const device bfloat* pipe_values_b = pair_values + inner_v_stride;
+            const device uint4* pipe_kv_b = pair_kv + inner_kv_stride;
             U pipe_ka[4];
             U pipe_kb[4];
             bfloat pipe_va0, pipe_va1, pipe_va2, pipe_va3;
@@ -1387,19 +1404,15 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             if (owns_write_slot) {
                 const bool sub_a = uint(i) == widx;
                 const bool sub_b = uint(i + BN) == widx;
-                T_LOAD_K(pipe_ka, sub_a, pair_keys);
-                T_LOAD_K(pipe_kb, sub_b, pipe_keys_b);
-                T_LOAD_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3, sub_a,
-                    pair_values);
-                T_LOAD_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3, sub_b,
-                    pipe_values_b);
+                T_LOAD_KV(pipe_ka, pipe_va0, pipe_va1, pipe_va2, pipe_va3,
+                    sub_a, pair_keys, pair_values, pair_kv);
+                T_LOAD_KV(pipe_kb, pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3,
+                    sub_b, pipe_keys_b, pipe_values_b, pipe_kv_b);
             } else {
-                T_LOAD_DEVICE_K(pipe_ka, pair_keys);
-                T_LOAD_DEVICE_K(pipe_kb, pipe_keys_b);
-                T_LOAD_DEVICE_V(pipe_va0, pipe_va1, pipe_va2, pipe_va3,
-                    pair_values);
-                T_LOAD_DEVICE_V(pipe_vb0, pipe_vb1, pipe_vb2, pipe_vb3,
-                    pipe_values_b);
+                T_LOAD_DEVICE_KV(pipe_ka, pipe_va0, pipe_va1, pipe_va2,
+                    pipe_va3, pair_keys, pair_values, pair_kv);
+                T_LOAD_DEVICE_KV(pipe_kb, pipe_vb0, pipe_vb1, pipe_vb2,
+                    pipe_vb3, pipe_keys_b, pipe_values_b, pipe_kv_b);
             }
 
             U pair_score0 = 0;
@@ -1476,6 +1489,7 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
 
             pair_keys += 2 * inner_k_stride;
             pair_values += 2 * inner_v_stride;
+            pair_kv += 2 * inner_kv_stride;
         }
 
         // Combine: promoted two-plane exchange, textual replica of the
@@ -1564,30 +1578,15 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             }                                           \\
           } while (false)
 
-        // K loads: 8-byte vec loads from the ring, or the threadgroup
-        // substitute for the just-written slot. Same elements, same order,
-        // same bfloat -> float conversion points as the scalar form.
         #define T_LOAD_DEVICE_K(dst, ptr)                          \\
           do {                                                     \\
             const vec<bfloat, 4> v_ =                              \\
                 *reinterpret_cast<const device vec<bfloat, 4>*>(   \\
                     ptr);                                          \\
-            dst[0] = v_.x;                                         \\
-            dst[1] = v_.y;                                         \\
-            dst[2] = v_.z;                                         \\
-            dst[3] = v_.w;                                         \\
-          } while (false)
-
-        #define T_LOAD_K(dst, substitute, ptr)                     \\
-          do {                                                     \\
-            if (substitute) {                                      \\
-              dst[0] = tg_k[lane * qk_per_thread + 0];             \\
-              dst[1] = tg_k[lane * qk_per_thread + 1];             \\
-              dst[2] = tg_k[lane * qk_per_thread + 2];             \\
-              dst[3] = tg_k[lane * qk_per_thread + 3];             \\
-            } else {                                               \\
-              T_LOAD_DEVICE_K(dst, ptr);                           \\
-            }                                                      \\
+            dst[0] = v_.x;                                        \\
+            dst[1] = v_.y;                                        \\
+            dst[2] = v_.z;                                        \\
+            dst[3] = v_.w;                                        \\
           } while (false)
 
         #define T_LOAD_DEVICE_V(d0, d1, d2, d3, ptr)               \\
@@ -1601,16 +1600,42 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
             d3 = v_.w;                                             \\
           } while (false)
 
-        #define T_LOAD_V(d0, d1, d2, d3, substitute, ptr)          \\
-          do {                                                     \\
-            if (substitute) {                                      \\
-              d0 = tg_v[lane * v_per_thread + 0];                  \\
-              d1 = tg_v[lane * v_per_thread + 1];                  \\
-              d2 = tg_v[lane * v_per_thread + 2];                  \\
-              d3 = tg_v[lane * v_per_thread + 3];                  \\
-            } else {                                               \\
-              T_LOAD_DEVICE_V(d0, d1, d2, d3, ptr);                \\
-            }                                                      \\
+        #define T_LOAD_DEVICE_KV(dst, d0, d1, d2, d3, kptr, vptr, kvptr) \\
+          do {                                                           \\
+            if (interleavedKV) {                                         \\
+              const uint4 packed_ = *(kvptr);                            \\
+              const vec<bfloat, 4> k_ =                                  \\
+                  as_type<vec<bfloat, 4>>(packed_.xy);                    \\
+              const vec<bfloat, 4> v_ =                                  \\
+                  as_type<vec<bfloat, 4>>(packed_.zw);                    \\
+              dst[0] = k_.x;                                             \\
+              dst[1] = k_.y;                                             \\
+              dst[2] = k_.z;                                             \\
+              dst[3] = k_.w;                                             \\
+              d0 = v_.x;                                                 \\
+              d1 = v_.y;                                                 \\
+              d2 = v_.z;                                                 \\
+              d3 = v_.w;                                                 \\
+            } else {                                                      \\
+              T_LOAD_DEVICE_K(dst, kptr);                                 \\
+              T_LOAD_DEVICE_V(d0, d1, d2, d3, vptr);                     \\
+            }                                                             \\
+          } while (false)
+
+        #define T_LOAD_KV(dst, d0, d1, d2, d3, substitute, kptr, vptr, kvptr) \\
+          do {                                                                 \\
+            if (substitute) {                                                  \\
+              dst[0] = tg_k[lane * qk_per_thread + 0];                         \\
+              dst[1] = tg_k[lane * qk_per_thread + 1];                         \\
+              dst[2] = tg_k[lane * qk_per_thread + 2];                         \\
+              dst[3] = tg_k[lane * qk_per_thread + 3];                         \\
+              d0 = tg_v[lane * v_per_thread + 0];                              \\
+              d1 = tg_v[lane * v_per_thread + 1];                              \\
+              d2 = tg_v[lane * v_per_thread + 2];                              \\
+              d3 = tg_v[lane * v_per_thread + 3];                              \\
+            } else {                                                            \\
+              T_LOAD_DEVICE_KV(dst, d0, d1, d2, d3, kptr, vptr, kvptr);        \\
+            }                                                                   \\
           } while (false)
 
         // (trailing newline required: the JIT concatenates the generated
@@ -1632,8 +1657,10 @@ func lagunaSlidingFusedAttention(
     angles: MLXArray,
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
+    cacheInterleavedKV: MLXArray,
     writeIdx: Int,
-    scale: MLXArray
+    scale: MLXArray,
+    interleavedKV: Bool = true
 ) -> MLXArray {
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -1649,10 +1676,16 @@ func lagunaSlidingFusedAttention(
     precondition(angles.dtype == .float32)
     precondition(angles.shape == [1, 1, 1, LagunaConstants.headDim])
     precondition(cacheKeys.dtype == .bfloat16)
+    precondition(cacheValues.dtype == .bfloat16)
+    precondition(cacheInterleavedKV.dtype == .bfloat16)
     precondition(
         cacheKeys.shape == [1, kvHeads, window, LagunaConstants.headDim])
     precondition(
         cacheValues.shape == [1, kvHeads, window, LagunaConstants.headDim])
+    precondition(
+        cacheInterleavedKV.shape == [
+            1, kvHeads, window, LagunaConstants.headDim / 4, 8,
+        ])
     precondition(writeIdx >= 0 && writeIdx < window)
     precondition(scale.dtype == .float32 && scale.size == 1)
 
@@ -1662,8 +1695,9 @@ func lagunaSlidingFusedAttention(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
-            cacheKeys, cacheValues, params, scale,
+            cacheKeys, cacheValues, cacheInterleavedKV, params, scale,
         ],
+        template: [("interleavedKV", interleavedKV)],
         grid: ((heads / 2) * 1024, 1, 1),
         threadGroup: (1024, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
@@ -5527,6 +5561,7 @@ final class LagunaRuntimeAttention: Module {
                 angles: fusedAngles,
                 cacheKeys: ring.keys,
                 cacheValues: ring.values,
+                cacheInterleavedKV: ring.interleavedKV,
                 writeIdx: ring.writeIdx,
                 scale: _fusedAttnScale
             )
