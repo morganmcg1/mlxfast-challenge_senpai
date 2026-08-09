@@ -83,6 +83,10 @@
    0.75 * sigma(cand_dec) alone = 0.1372%
    N-5 does not fire (threshold 20% relative)
 
+## 7b. measured corr(cand_dec, cand_pre) vs the 4P coupling
+   within-tree r = -0.230 (n=9, dof=6), corpus-wide r = +0.943 (n=1205)
+   4P share of cand_dec = 4*223.14/6830.4 = 0.131  -> predicted within-tree r = +0.152
+
 ## 8. rung-2 power: n per arm for a +-0.43 us/step 95% CI half-width
    half-width  0.43 us/step -> n =   3332 receipts/arm
    half-width  5.00 us/step -> n =     25 receipts/arm

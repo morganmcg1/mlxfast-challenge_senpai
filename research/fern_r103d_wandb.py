@@ -33,11 +33,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", default="research/artifacts/fern-r103d/rung1.json")
     ap.add_argument("--run-name", default="fern-r103d-residual-provenance-power")
+    ap.add_argument("--id", default=None, help="resume this run id instead of starting one")
     args = ap.parse_args()
     d = json.load(open(args.json))
 
     run = wandb.init(
         entity=ENTITY, project=PROJECT, name=args.run_name,
+        id=args.id, resume="allow" if args.id else None,
         job_type="receipt-corpus-analysis",
         tags=["r103-D", "maple-fern", "provenance", "power", "null-result",
               "no-gpu", "zero-receipts"],
@@ -92,6 +94,10 @@ def main():
         "null/N3_underpowered": int(d["N3_underpowered"]),
         "null/N4_noise_model_inconsistent": int(d["N4_noise_model_inconsistent"]),
         "null/N5_sigma_tension_is_bug": int(d["N5_sigma_tension_is_bug"]),
+        "coupling/corr_dec_pre_within_tree": d["corr_dec_pre_within_tree"],
+        "coupling/corr_dec_pre_corpus": d["corr_dec_pre_corpus"],
+        "coupling/corr_dec_pre_predicted_from_4P": d["corr_dec_pre_predicted_from_4P"],
+        "coupling/prefill_share_of_cand_dec": d["prefill_share_of_cand_dec"],
     })
     run.log(flat)
     run.summary.update(flat)

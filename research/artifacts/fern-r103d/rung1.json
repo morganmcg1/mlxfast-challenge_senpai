@@ -33,6 +33,10 @@
   "N3_underpowered": true,
   "N4_noise_model_inconsistent": false,
   "N5_sigma_tension_is_bug": false,
+  "corr_dec_pre_within_tree": -0.22982866900505847,
+  "corr_dec_pre_corpus": 0.9428868422482026,
+  "corr_dec_pre_predicted_from_4P": 0.15223818438415412,
+  "prefill_share_of_cand_dec": 0.13067493120412277,
   "trees": {
     "7ce1262d": {
       "label": "Arm R",

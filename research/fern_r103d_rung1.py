@@ -250,6 +250,28 @@ def main():
     print(f"   N-5 {'FIRES' if not (0.8 < obs/quad < 1.25) else 'does not fire'}"
           f" (threshold 20% relative)")
 
+    print("\n## 7b. measured corr(cand_dec, cand_pre) vs the 4P coupling")
+    wd, wp = [], []
+    for a in avail:
+        if len(a) < 2:
+            continue
+        ld = [math.log(short[s]["cd"]) for s in a]
+        lp = [math.log(short[s]["cp"]) for s in a]
+        wd += [v - st.mean(ld) for v in ld]
+        wp += [v - st.mean(lp) for v in lp]
+    r_within = st.correlation(wd, wp)
+    r_corpus = st.correlation([math.log(r["cd"]) for r in rows],
+                              [math.log(r["cp"]) for r in rows])
+    # cand_dec = 4*prefill_us_per_tok + T, so prefill carries share 4p/d of cand_dec
+    p_us = st.mean([r["cp"] for r in rows]) * 1e6
+    d_us_mean = st.mean([r["cd"] for r in rows]) * 1e6
+    share = 4 * p_us / d_us_mean
+    r_pred = share * sdp / sdc
+    print(f"   within-tree r = {r_within:+.3f} (n={len(wd)}, dof={DOF}), "
+          f"corpus-wide r = {r_corpus:+.3f} (n={len(rows)})")
+    print(f"   4P share of cand_dec = 4*{p_us:.2f}/{d_us_mean:.1f} = {share:.3f}"
+          f"  -> predicted within-tree r = {r_pred:+.3f}")
+
     print("\n## 8. rung-2 power: n per arm for a +-0.43 us/step 95% CI half-width")
     power = {}
     for target in (0.43, 5.0, 10.0, 19.0):
@@ -276,6 +298,8 @@ def main():
         N1_provenance_unverified=False, N2_ci_includes_zero=bool(lo < 0 < hi),
         N3_underpowered=True, N4_noise_model_inconsistent=False,
         N5_sigma_tension_is_bug=not (0.8 < obs / quad < 1.25),
+        corr_dec_pre_within_tree=r_within, corr_dec_pre_corpus=r_corpus,
+        corr_dec_pre_predicted_from_4P=r_pred, prefill_share_of_cand_dec=share,
         trees={r["id8"]: dict(label=VERIFIED[r["id8"]][0], commit=VERIFIED[r["id8"]][1],
                               cs=r["cs"], score=r["score"], cand_dec_us=r["cd"] * 1e6,
                               cand_pre_ms=r["cp"] * 1e3) for r in got.values()},

@@ -180,6 +180,24 @@ because the exponent is below 1. No anticorrelation is required. The residual
 cancellation, consistent with the archive's n=3 triplet finding, and it is not
 load-bearing. Neither of our reported σ values is a bug.
 
+The advisor asked for the measurement that closes this properly — σ(cand_pre)
+and corr(cand_dec, cand_pre) — instead of the algebra. Measured:
+
+| quantity | value |
+| --- | --- |
+| within-tree σ(cand_pre) | **0.213 %** (advisor's independence solve wanted ≈0.233 %) |
+| within-tree corr(cand_dec, cand_pre) | **−0.230** (n = 9, dof = 6, \|t\| = 0.58 → indistinguishable from 0) |
+| predicted from the 4P coupling alone | **+0.152** |
+| corpus-wide corr(cand_dec, cand_pre) | **+0.943** (n = 1,205) |
+
+So the two constants are mutually consistent, and the measured within-tree
+correlation is compatible with both zero and the +0.152 the `4P` term predicts —
+6 dof cannot separate them. The **+0.943 corpus-wide** figure is *not* evidence
+of noise coupling: it is between-tree quality (a slow tree is slow on both axes,
+and the corpus spans every solver, mean 6,830 µs/step decode vs our 4,894). The
+4P share is `4 × 223.1 / 6,830 = 0.131` corpus-wide and `4 × 188.0 / 4,894 =
+0.154` on our own trees. Nothing exotic is needed.
+
 **But the numbers in the assignment are the wrong ones for this question.** The
 quoted `σ(cand_dec) = 0.2939 %` and `σ(cs) ≤ 0.228 %` are **mixed-code**
 corpus-wide figures: they include real differences between different people's
