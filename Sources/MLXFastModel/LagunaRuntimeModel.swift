@@ -6108,11 +6108,17 @@ final class LagunaRuntimeAttention: Module {
                         )
                         compare("real-h64", output, gate)
 
-                        let randomAttentionValues = (0..<(nHeads * headDim)).map {
-                            Float((($0 * 11_035 + 12_345) & 0xffff) - 32_768) / 4096
+                        var randomAttentionValues: [Float] = []
+                        randomAttentionValues.reserveCapacity(nHeads * headDim)
+                        for index in 0..<(nHeads * headDim) {
+                            let bits = (index * 11_035 + 12_345) & 0xffff
+                            randomAttentionValues.append(Float(bits - 32_768) / 4096)
                         }
-                        let randomGateValues = (0..<nHeads).map {
-                            Float((($0 * 25_173 + 13_849) & 0xffff) - 32_768) / 8192
+                        var randomGateValues: [Float] = []
+                        randomGateValues.reserveCapacity(nHeads)
+                        for index in 0..<nHeads {
+                            let bits = (index * 25_173 + 13_849) & 0xffff
+                            randomGateValues.append(Float(bits - 32_768) / 8192)
                         }
                         let randomAttention = MLXArray(
                             randomAttentionValues, [1, 1, nHeads * headDim]
