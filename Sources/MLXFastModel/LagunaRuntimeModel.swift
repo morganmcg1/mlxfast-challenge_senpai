@@ -1551,18 +1551,10 @@ private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
                 attended + head0 * head_dim + sg * v_per_thread;
             device bfloat* pair_out1 =
                 attended + head1 * head_dim + sg * v_per_thread;
-            *reinterpret_cast<device vec<bfloat, 4>*>(pair_out0) =
-                vec<bfloat, 4>(
-                    static_cast<bfloat>(pair_o0[0]),
-                    static_cast<bfloat>(pair_o0[1]),
-                    static_cast<bfloat>(pair_o0[2]),
-                    static_cast<bfloat>(pair_o0[3]));
-            *reinterpret_cast<device vec<bfloat, 4>*>(pair_out1) =
-                vec<bfloat, 4>(
-                    static_cast<bfloat>(pair_o1[0]),
-                    static_cast<bfloat>(pair_o1[1]),
-                    static_cast<bfloat>(pair_o1[2]),
-                    static_cast<bfloat>(pair_o1[3]));
+            for (int p = 0; p < v_per_thread; ++p) {
+                pair_out0[p] = static_cast<bfloat>(pair_o0[p]);
+                pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
+            }
         }
         """,
     header: """
@@ -2084,18 +2076,10 @@ private let lagunaFullFusedAttentionKernel = MLXFast.metalKernel(
                 attended + head0 * head_dim + sg * v_per_thread;
             device bfloat* pair_out1 =
                 attended + head1 * head_dim + sg * v_per_thread;
-            *reinterpret_cast<device vec<bfloat, 4>*>(pair_out0) =
-                vec<bfloat, 4>(
-                    static_cast<bfloat>(pair_o0[0]),
-                    static_cast<bfloat>(pair_o0[1]),
-                    static_cast<bfloat>(pair_o0[2]),
-                    static_cast<bfloat>(pair_o0[3]));
-            *reinterpret_cast<device vec<bfloat, 4>*>(pair_out1) =
-                vec<bfloat, 4>(
-                    static_cast<bfloat>(pair_o1[0]),
-                    static_cast<bfloat>(pair_o1[1]),
-                    static_cast<bfloat>(pair_o1[2]),
-                    static_cast<bfloat>(pair_o1[3]));
+            for (int p = 0; p < v_per_thread; ++p) {
+                pair_out0[p] = static_cast<bfloat>(pair_o0[p]);
+                pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
+            }
         }
         """,
     header: """
