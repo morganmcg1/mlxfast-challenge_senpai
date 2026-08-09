@@ -253,6 +253,154 @@ Because the rejection is ranking-only and no hidden gate failed, the
 assignment's stop rule ("if Arm R fails a hidden gate, stop and report; do not
 fix, do not run F/C") is **not** triggered. Arms F and C proceed.
 
+### 2.2.3 Where the -1.377 % actually sits — and why it is not a code regression
+
+This section answers request **(a)** of feedback `5229210567` and directly
+contradicts the prefill hypothesis in it. It cost **zero ranked slots**.
+
+#### The decomposition the advisor asked for
+
+`score = D^0.75 x P^0.25`, so `dlog(score) = 0.75 dlog(D) + 0.25 dlog(P)`.
+Comparing Arm R's receipt with the leaderboard-best receipt
+`cc6ddc12-ecbd-4c07-beec-445060a21a62` (solver `a-github-name`, commit
+`c5b0a13c5cc032b485022db41bcd745792316714`, 2026-08-08T09:17:33Z), which is
+**fetchable through the same receipt API** and therefore exposes its own four
+fields:
+
+| axis | Arm R | best | rel. diff | weight | contribution to score gap |
+| --- | --- | --- | --- | --- | --- |
+| decode speedup | 2.8295538028013865 | 2.8409186226248193 | **-0.4000 %** | 0.75 | **-0.3002 %** |
+| prefill speedup | 1.9572487448440257 | 2.0441098195830034 | **-4.2504 %** | 0.25 | **-1.0800 %** |
+| total | | | | | **-1.3769 %** |
+
+Taken at face value this looks like a strong confirmation of the advisor's live
+hypothesis: **78 % of the gap is prefill**, and the carve did move 2,597 lines
+including the prefill router tournament kernel.
+
+#### But the raw timings say the opposite: our tree is faster on both axes
+
+The speedups above are *ratios* against a same-session pinned baseline. Reading
+the numerators and denominators separately reverses the conclusion:
+
+| quantity (s/token) | Arm R | best | who is faster |
+| --- | --- | --- | --- |
+| candidate decode | 0.0048937119140625 | 0.004930056640625 | **Arm R by 0.74 %** |
+| candidate prefill | 0.000188042724609375 | 0.000188158853515625 | **Arm R by 0.06 %** |
+| baseline decode | 0.01384702115625 | 0.014005887046875 | best's baseline 1.15 % slower |
+| baseline prefill | 0.00036804638671875 | 0.00038462174609375 | best's baseline 4.50 % slower |
+
+**Our candidate is faster than the record-holder's candidate on both scored
+axes.** The entire -1.377 % is produced by the denominator: the record receipt
+drew a slower pinned baseline, in the same session, on both axes.
+
+This falsifies the carve/prefill-regression hypothesis as an explanation for the
+gap. Prefill *candidate* work at our base is 0.06 % faster than at the frontier
+commit the record was set on — a wash, not a 5.5 % regression. There is no
+prefill regression to find.
+
+#### How large is the baseline draw as a noise source? (n = 1176)
+
+`GET /api/benchmarks/{id}/submissions` returns every solver's rows **including
+`officialMetrics`**. That is 1176 scored submissions spanning
+2026-07-24T07:24:49Z .. 2026-08-09T01:07:57Z, each carrying the pinned baseline
+its session actually drew. Pulled by `research/r91b-runs/baseline_drift.py` into
+`research/r91b-runs/baseline-drift.json`; analysed by
+`research/r91b-runs/score_sensitivity.py` (output saved as
+`research/r91b-runs/score-sensitivity.txt`).
+
+| pinned baseline | mean | sd | cv | min .. max | spread |
+| --- | --- | --- | --- | --- | --- |
+| decode s/tok | 0.013855009542 | 0.000034063080 | **0.246 %** | 0.013780735352 .. 0.014047242508 | 1.934 % |
+| prefill s/tok | 0.000372473193 | 0.000007243722 | **1.945 %** | 0.000362341797 .. 0.000396640869 | 9.466 % |
+
+Prefill's baseline is ~8x noisier than decode's in relative terms, which is why
+the gap decomposed as mostly-prefill even though no prefill code regressed.
+
+Percentile of each receipt's own baseline draw (higher = slower baseline = more
+favourable):
+
+| receipt | baseline decode pctile | baseline prefill pctile |
+| --- | --- | --- |
+| leaderboard best `cc6ddc12` | **99.7** | **95.3** |
+| Arm R `7ce1262d` | 48.3 | 46.9 |
+
+The record was set on a draw in the top 0.3 % of decode baselines and the top
+4.7 % of prefill baselines. Arm R drew the median on both.
+
+#### Counterfactual: hold our candidate fixed, vary only the baseline
+
+Re-scoring Arm R's **unchanged** candidate timings against all 1176 observed
+baseline draws (the score function is a deterministic closed form, so this is
+exact arithmetic, not a model):
+
+| statistic | value |
+| --- | --- |
+| mean | 2.5892315388 |
+| sd | 0.0139746241 = **0.540 % of score** |
+| min .. max | 2.5643543829 .. 2.6440457073 |
+| actual Arm R score | 2.5804768841 |
+| draws that would have beaten 2.61650354381456 | **32 / 1176 = 2.7 %** |
+
+Two swap tests, which agree in both directions:
+
+- Arm R's candidate at the **best receipt's** baseline draw = **2.6314704051**
+  (> 2.6165, i.e. it would hold the record).
+- The best candidate at **Arm R's** baseline draw = **2.5658000558**
+  (< 2.5805, i.e. below our score).
+
+Re-ranking the whole 1176-row leaderboard at a single common (mean) baseline:
+**Arm R is rank 2 / 1176**; the published best falls to **rank 47 / 1176**.
+
+#### Robustness
+
+1. **Common-mode check.** If a slow session made baseline *and* candidate slow
+   together, the paired ratio would partly cancel and the effect above would be
+   overstated. Measured across the 1176 rows:
+   `corr(baseline_decode, candidate_decode) = -0.101`,
+   `corr(baseline_prefill, candidate_prefill) = -0.104`. Both are slightly
+   **negative**, so there is no common-mode cancellation to rely on. The
+   independence assumption behind the counterfactual is supported, not merely
+   assumed.
+2. **Population correlation is the wrong test, and is reported only for
+   completeness.** `corr(published score, baseline_decode) = +0.130` and
+   `corr(published score, baseline_prefill) = +0.133` look weak, but across 1176
+   submissions from many solvers the candidate term varies far more than the
+   baseline term, so it swamps the correlation. The counterfactual above holds
+   the candidate fixed and is the correct instrument.
+3. **Stationarity.** Per-day mean baselines are flat across the window
+   (decode 0.013840 .. 0.013866, prefill 0.000370 .. 0.000375) and the
+   score-equivalent sd is 0.394 % .. 0.650 % on every one of the 16 days. There
+   is no drift or step change that would make cross-session comparison invalid
+   in some other way.
+4. **Recent-window restriction.** Restricting to 2026-08-06 or later (n = 132):
+   sd **0.576 %**, 6/132 = 4.5 % of draws beat the record, and the Arm R gap is
+   **2.42 sigma**. Over the full window the gap is **2.55 sigma**.
+
+#### What this means, stated conservatively
+
+- The -1.377 % is **~2.5 sigma of pure baseline-draw noise**, not 90 µs/step of
+  lost engineering. The advisor's "~2.01 % surprise" (0.63 % predicted gain plus
+  1.377 % measured loss) is consistent with a median draw versus a 99.7th
+  percentile draw, with no code regression required.
+- **Arm R does not falsify our post-adoption work.** On a like-for-like
+  baseline our candidate is the fastest thing on the board.
+- **The campaign's measurement bar has moved.** Baseline-induced sigma alone is
+  **0.540 %** of score, ~35 µs/step-equivalent. A +0.13 % lever (#475, ~8.5
+  µs/step) is **0.24 sigma** in a single receipt; separating it from zero at
+  2 sigma needs on the order of **69 receipts per arm**. Single-receipt ranked
+  comparison cannot resolve any lever this campaign currently works on. This
+  independently vindicates the advisor's cancellation of Arm C.
+- Beating the record is partly a **draw** problem, not only a speed problem:
+  our unchanged candidate already clears 2.6165 on 2.7 % of observed draws.
+
+**Honest limits.** (i) This isolates only the *baseline-induced* component of
+receipt-to-receipt variance, so total sigma is **at least** 0.540 %; the
+candidate side has its own unmeasured noise. (ii) n = 1 for each of our own
+arms; the 1176 draws are other receipts' baselines, not replicates of ours.
+(iii) The counterfactual assumes the candidate timing is independent of the
+baseline draw, which check 1 supports but does not prove. No error bar is
+claimed for `R - F` itself.
+
 ### 2.3 Arm F official submission
 
 #### 2.3.1 Arm F local preflight (M4 Pro)
@@ -318,6 +466,114 @@ nothing but one command. It was not a rejection of `senpai` as a model value, so
 no fallback was triggered.
 
 <!-- ARM_F_SECTION -->
+
+### 2.4 Correction: Arm F is NOT "the pure frontier"
+
+**I retract a claim I made.** The Arm F note body I uploaded with receipt
+`83fd2642-78f6-4e86-a9bf-5ed78fd72d9a` describes `6ada66c9` as
+
+> "the pure adoption commit — the point at which our tree was, by construction,
+> the organizer frontier and nothing else."
+
+That is **false as written**, and because the note is already attached to a
+spent receipt it cannot be edited. This section is the durable correction.
+Advisor feedback `5229239783` established the forensic; I reproduced its three
+load-bearing checks independently rather than adopting them on trust.
+
+#### The advisor's finding
+
+Expanding `benchmark.json`'s 97 `editablePaths` entries into 142 concrete files
+and diffing `c5b0a13c` (frontier) → `6ada66c9` (Arm F):
+
+- 131 byte-identical, 0 added, 2 deleted, 9 modified.
+- After stripping comments and normalising whitespace, **8 of the 9 modified
+  files are comment-only**; the sole executable-code divergence is
+  `Sources/MLXFastTransform/Transform.swift` (555 → 508 code lines).
+- The 2 deleted files are `Sources/MLXFastTransform/AffineMetadataCoding.swift`
+  and `Sources/MLXFastTransform/TiedHeadMetadataCoding.swift`.
+
+#### My independent verification
+
+| check | command | result |
+| --- | --- | --- |
+| the 2 sidecar files exist at the frontier and nowhere in our lineage | `git ls-tree -r --name-only` at `c5b0a13c`, `6ada66c9`, `30f752df`, `HEAD` | **2, 0, 0, 0** — confirmed |
+| the removed generator is `.gemma4`-gated | `git show c5b0a13c:…/Transform.swift` | confirmed: `switch modelFamily { case .gemma4: …writeProjectionSidecar/writeSidecar… case .laguna: …empty report… }` |
+| no runtime consumer of the sidecars | `git grep` over `Sources` + `Vendor` | at `c5b0a13c`: only the 2 definitions + the 2 call sites in `Transform.swift`. At `HEAD`: **zero hits** |
+| the scored forward pass is untouched by the import | `git rev-parse <rev>:Sources/MLXFastModel/LagunaRuntimeModel.swift` | blob `08b1470526a931185b8397301cf22071ecfe8898` at **both** `c5b0a13c` and `6ada66c9` |
+
+The `.laguna` branch at the frontier carries its own comment stating that
+`docs/laguna-weight-contract.md` forbids metadata sidecars under the Poolside v2
+contract and that "the runtime loads exactly the indexed checkpoint tensors."
+So on our family the deleted code provably produced an empty `weightMap` and
+`tensorByteCount: 0`.
+
+**Conclusion: the import is executable-code-faithful for Laguna.** The correct
+statement, which supersedes my note, is:
+
+> `6ada66c9` is byte-identical to the organizer frontier on every scored-path
+> editable file, and differs from it only by comment prose plus the removal of a
+> `.gemma4`-gated, zero-consumer offline sidecar generator that is inert on
+> `.laguna`.
+
+#### Closing the advisor's residual, empirically
+
+Feedback `5229239783` left one item open: does the weight loader glob every
+`.safetensors`, such that the frontier would load an unused tied-head shard?
+
+- The glob **does exist**: `Vendor/mlx-swift-lm/Libraries/MLXLMCommon/Load.swift:85`
+  enumerates the directory and takes every `pathExtension == "safetensors"`.
+- But it is moot, because the two receipts report the **same checkpoint**:
+
+| hash | best receipt `cc6ddc12` (frontier code) | Arm R `7ce1262d` |
+| --- | --- | --- |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` | **identical** |
+| `golden_hash` | `be7738fccd6a28807ae7d18c038cbbc9e1b05dab26b99b2f247358fdc67fcf71` | **identical** |
+| `num_layers` | 40 | 40 |
+| `peak_ram_gb` | 21 | 21 |
+
+Identical `weights_hash` means no differential shard was present on either run,
+so the hypothesised extra-load cost did not occur in either direction. The
+residual is closed empirically, not merely by argument. The advisor was right
+that its sign was wrong anyway.
+
+#### What this does to the interpretation branch
+
+The advisor's updated branch structure stands, but §2.2.3 changes which leg is
+live. With the import exonerated **and** the -1.377 % shown to be a
+baseline-draw artifact rather than a candidate regression, the "F ≈ 2.580"
+leg no longer implies a defect anywhere — it is the *expected* outcome if F
+simply draws a baseline near the median, exactly as R did.
+
+One measurement note that matters for reading F: `harness_hash` is **unique per
+submission** across all 1176 rows (n = 1 per distinct value; best `f9b5f986…`,
+Arm R `788888bd…`). It is not a harness-revision grouping key, so a differing
+`harness_hash` between R and F is expected and carries no information.
+
+### 2.5 Arm C — cancelled before submission; local M4 preflight retained
+
+Arm C (`8486638578a283de40369172f68c3a4d2d6a5365`, = Arm R + #475 router
+prefetch) was **cancelled by advisor feedback `5229210567`** and **no ranked
+slot was spent**. The local M4 preflight job had already been launched and
+finished naturally (`rc=0`, 2026-08-09T01:39:56Z) before the cancellation was
+read, so its artifacts are free evidence; the branch was restored cleanly.
+Artifacts: `research/r91b-runs/armC-local-submit.{log,metrics.json}`.
+
+| field | Arm R | Arm C |
+| --- | --- | --- |
+| `passed` / `passed_correctness` | `true` / `true` | `true` / `true` |
+| `checked_steps` | 1025 | 1025 |
+| `max_abs_diff` | 0 | 0 |
+| `decode_seconds_per_token` | 0.0089094636686217 | 0.008931554863147605 |
+| `prefill_seconds_per_token` | 0.001139123126953125 | 0.001138836181640625 |
+| local est. score | 1.0495958845108804 | 1.0477142251357716 |
+
+**M4 `C − R` = −0.1793 %.** #475's predicted **+0.13 %** does not replicate end
+to end on this M4 host; it reads slightly negative. This is n = 1 per arm with
+σ unmeasured, and it does **not** overturn #475's kernel-local result
+(−6.85 µs/step, 8/8 sign, p = 0.0039), which was measured with replication that
+this single preflight pair does not have. The honest reading is that the
+end-to-end conversion through `c = 1.247` is not confirmed here, and that a
+0.13 % effect is below what one unreplicated preflight pair can resolve.
 
 ## 3. Conclusion
 
