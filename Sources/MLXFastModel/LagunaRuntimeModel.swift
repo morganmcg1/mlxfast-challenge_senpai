@@ -1244,8 +1244,13 @@ func lagunaResidualRMSNormRouter(
 /// stderr pipe instead, which the parent drains and forwards line by line.
 let lagunaR92DumpRedirect: Bool = {
     guard ProcessInfo.processInfo.environment["DARKBLOOM_R92_DUMP_TO_STDERR"] == "1"
-    else { return false }
-    dup2(STDERR_FILENO, STDOUT_FILENO)
+    else {
+        fputs("R92CANARY global-forced env-off\n", stderr)
+        return false
+    }
+    let rc = dup2(STDERR_FILENO, STDOUT_FILENO)
+    fputs("R92CANARY global-forced dup2=\(rc) errno=\(errno)\n", stderr)
+    setvbuf(stdout, nil, _IOLBF, 0)
     return true
 }()
 
@@ -3484,6 +3489,7 @@ func lagunaFusedNormQKVProjection(
     queries: MLXArray, keys: MLXArray, values: MLXArray, gateValues: MLXArray,
     gateActivated: Bool
 )? {
+    _ = lagunaR92DumpRedirect
     guard let kernel = lagunaFusedQKVProjectionKernels[heads] else { return nil }
     let hidden = LagunaConstants.hiddenSize
     let queryRows = heads * LagunaConstants.headDim
