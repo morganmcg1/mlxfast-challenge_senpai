@@ -15,6 +15,7 @@ Every prediction in §6 of that file is scored HIT/MISS in §9 below.
 | A1 (submittable input-prefetch ladder) | **HARMFUL.** Best arm +26.47 µs/step kernel-local, worst +105.80. All three arms are regressions at 3–30× the rig floor. |
 | Shipped default | `DARKBLOOM_ROUTED_GATEUP_INPUT_PF=0`, verified byte-identical MSL to stock. **Nothing in this PR changes scored behaviour.** |
 | A2 (deliberately incorrect ceiling probe) | **−83.64 ± 2.96 µs/step** kernel-local, quoted at face value per rule 43. The SPLIT=1 census total was −69.71 ± 36.21 µs/step; the two bracket **≈+1.07% to +1.28% score**. No give-back discount is applied. **Confounded** — the probe also cuts ~22% of DRAM bytes, so this is a *loose* upper bound, not a target. See §5a. |
+| Correctness | **Clean.** `--local-iterate` at default: `passed=true`, `passed_correctness=true`, `max_abs_diff=0`, 130/130 checked steps, `golden_hash b9509697…` matching this host's known-good value, with `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` unset (§7b). Upstream-equivalence oracle byte-identical across candidate-default, candidate-`PF=1`, and a base-`3217f111` control (§7a). |
 | Merge recommendation | **Do not merge as a speedup.** Merge or close on the value of the negative result and the A2 bound; the knob itself is dead weight unless the advisor wants it retained for follow-up work. |
 
 Three things in this PR are worth more than the failed hypothesis:
@@ -415,9 +416,60 @@ name-verified, so the ladder probes — not the oracle — carry that claim.
 
 **Prereg C5 (M4 prefill artefact digit-identical to base): HIT.**
 
-### 7b. 64-step drift tripwire
+### 7b. Full harness gate — `./benchmark.sh --local-iterate`
 
-<!-- CORRECTNESS -->
+Run at the **default knob setting** (`DARKBLOOM_ROUTED_GATEUP_INPUT_PF` unset,
+i.e. mode `0`), with `MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT` **explicitly unset** via
+`env -u`. No local override of any kind was in effect: this is the unrelaxed
+gate.
+
+```
+env -u MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT ./benchmark.sh --local-iterate
+# job dd077977-8094-4aad-a6a5-3a19ba3804ef, exit 0, 257.5 s wall
+```
+
+| field | value |
+| --- | --- |
+| `passed` | **true** |
+| `passed_correctness` | **true** |
+| `max_abs_diff` | **0** |
+| `checked_steps` | **130** of 130 (`checked_tokens=130 decode_steps=128 repeats=1`) |
+| `first_failing_case` / `_layer` / `_step` | `null` / `null` / `null` |
+| `error` | `""` (empty) |
+| `golden_hash` | `b9509697c08a2cf3c2943a85f0b76e39c485c441794690fa76835b40a58d7a63` |
+| `weights_hash` | `aff994300573c5e8589563fc9ff57cdcfb1ef9b49e14898be290a75a6b294b3d` |
+| `harness_hash` | `a1fc0e0274710a8f24fc49d1c3a41d778a8965606c67719acd69929a9294bf6d` |
+| `num_layers` | 40 |
+| `peak_ram_gb` | 21 |
+| `score` (local estimate only) | 0.8004893781120298 |
+| `decode_seconds_per_token` | 0.012886406578125 |
+| `prefill_seconds_per_token` | 0.00111274601171875 |
+| `commit` | `098e6f3` |
+| `timestamp` | 2026-08-08T23:40:48Z |
+
+That `golden_hash` is character-for-character the value this host family has
+produced on every prior unmodified run I have receipts for
+(`research/pr270-logs/f1-iterate.{on,off}.json`,
+`research/maple-tanjiro-pr81-metal-byte-reclaim.md` §4.1). The tripwire is
+therefore matching a *known* golden, not merely self-consistent.
+
+**Do not read the `score`, `decode_speedup`, or `prefill_speedup` fields as
+evidence for anything.** `--local-iterate` divides by pinned M5 calibration
+constants, so on this M4 Pro the reported `prefill_speedup 0.33x` and the
+consequent `passed_prefill_speedup_floor: false` are host artefacts of the
+denominator. `research/pr270-logs/f1-iterate.off.json` — an unrelated,
+unmodified run on this same host family — records
+`prefill_speedup 0.3227638986245973`, `passed_prefill_speedup_floor: false`,
+and `passed: true`, i.e. exactly the same artefact with no candidate change
+present at all. It is not a candidate regression. The only rows I am claiming
+from this run are the correctness rows.
+
+Against the pinned local baseline file the harness prints
+`decode 0.013134 -> 0.012886 s/token (-1.9%)`. That comparison is **stale and
+not evidence**: the baseline file predates this base, and the run is a single
+unpaired sample against a cross-session reference, which the campaign rules and
+my own rig work (§2, cross-process σ ≈ 48 µs/step) both forbid treating as a
+measurement. The A1 verdict rests on the paired ladder in §4, not on this line.
 
 ## 8. Byte accounting
 
@@ -502,11 +554,18 @@ python3 research/tanjiro-r87a-stats.py research/r87a-runs/<block> \
 # MSL equivalence of the default path against stock
 bash research/tanjiro-r87a-verify-msl.sh
 
+# correctness: upstream-equivalence oracle (three arms, see 7a)
+bash research/run_upstream_equivalence.sh
+
+# correctness: full harness gate, no drift override (see 7b)
+env -u MLXFAST_LOCAL_ALLOW_GOLDEN_DRIFT ./benchmark.sh --local-iterate
+
 # W&B
 python3 research/tanjiro_r87a_wandb_log.py \
   --block control=research/r87a-runs/control.json \
   --block ladder=research/r87a-runs/ladder.json \
   --block ceiling=research/r87a-runs/ceiling.json \
+  --gate research/r87a-runs/gate/score.local-iterate.json \
   --verdict "..."
 ```
 
@@ -520,10 +579,17 @@ ladder : A0 | A0 PF1 PF2 PF3 PF3 PF2 PF1 A0 A0 PF1 PF2 PF3 PF3 PF2 PF1 A0 A0 PF1
 
 (the run left of the `|` is the discarded position-0 warm-up)
 
-**W&B record.** Run `d0ufnmht` —
-<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/d0ufnmht>
+**W&B record.** Canonical run `5fmnrvvy` —
+<https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/5fmnrvvy>
 (entity `wandb-applied-ai-team`, project `mlxfast-maple`). It carries the arm
-tables, per-kernel delta tables, and score conversion for all three blocks.
+tables, per-kernel delta tables, and score conversion for all three blocks,
+plus the `gate/*` correctness summary keys from §7b
+(`gate/passed_correctness`, `gate/max_abs_diff`, `gate/checked_steps`,
+`gate/golden_hash`, `gate/golden_drift_override = "unset"`).
+
+An earlier run `d0ufnmht` logged the same three blocks before the correctness
+evidence existed; it is superseded by `5fmnrvvy` and is retained only for
+provenance.
 
 ## 11. Suggested follow-ups (not implemented)
 

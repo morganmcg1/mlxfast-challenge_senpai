@@ -32,6 +32,8 @@ def main() -> int:
     ap.add_argument("--block", action="append", default=[],
                     metavar="NAME=PATH", help="stats --json report to ingest")
     ap.add_argument("--verdict", required=True)
+    ap.add_argument("--gate", metavar="PATH",
+                    help="score.local-iterate.json correctness receipt")
     ap.add_argument("--name", default="maple-tanjiro-r87a-routed-gateup-prefetch")
     ap.add_argument("--notes", default="")
     args = ap.parse_args()
@@ -114,6 +116,18 @@ def main() -> int:
                 -d["subtotal_touched_us"] * KERNEL_LOCAL_HAIRCUT * \
                 SCORE_PCT_PER_US_STEP
         run.log({f"{block}/per_kernel_delta": kern_tbl})
+
+    if args.gate:
+        with open(args.gate) as fh:
+            receipt = json.load(fh)
+        gate = receipt["metrics"]
+        for k in ("passed_correctness", "max_abs_diff", "checked_steps",
+                  "golden_hash", "weights_hash", "harness_hash",
+                  "decode_seconds_per_token", "prefill_seconds_per_token",
+                  "first_failing_step", "error"):
+            run.summary[f"gate/{k}"] = gate[k]
+        run.summary["gate/passed"] = receipt["passed"]
+        run.summary["gate/golden_drift_override"] = "unset"
 
     run.summary["verdict"] = args.verdict
     print(run.url)
