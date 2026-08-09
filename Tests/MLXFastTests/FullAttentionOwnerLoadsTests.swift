@@ -214,7 +214,7 @@ private func verifyParity(inputs: FullAttentionInputs) {
         #expect(keyMismatch == nil)
         #expect(valueMismatch == nil)
         print(
-            "FULL_OWNER_PARITY {\"write_idx\":\(writeIdx),\"output_mismatch\":\(outputMismatch.map { String($0) } ?? \"null\"),\"key_cache_mismatch\":\(keyMismatch.map { String($0) } ?? \"null\"),\"value_cache_mismatch\":\(valueMismatch.map { String($0) } ?? \"null\")}"
+            "FULL_OWNER_PARITY {\"write_idx\":\(writeIdx),\"output_mismatch\":\(outputMismatch.map { String($0) } ?? "null"),\"key_cache_mismatch\":\(keyMismatch.map { String($0) } ?? "null"),\"value_cache_mismatch\":\(valueMismatch.map { String($0) } ?? "null")}"
         )
     }
 }
