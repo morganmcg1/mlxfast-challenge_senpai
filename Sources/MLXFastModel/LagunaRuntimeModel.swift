@@ -1412,20 +1412,16 @@ func lagunaSlidingQKNormRoPE(
 /// barriers per sliding layer per decode step.
 let lagunaFusedSlidingAttentionEnabled =
     ProcessInfo.processInfo.environment["DARKBLOOM_FUSED_SLIDING_ATTN"] != "0"
+let lagunaSlidingAttention16SGEnabled =
+    ProcessInfo.processInfo.environment["DARKBLOOM_SLIDING_ATTN_16SG"] != "0"
 
-private let lagunaSlidingFusedAttentionKernel = MLXFast.metalKernel(
-    name: "laguna_sliding_fused_attn_ring_v1",
-    inputNames: [
-        "raw_queries", "raw_keys", "raw_values",
-        "query_weight", "key_weight", "angles",
-        "k_cache", "v_cache", "params", "scale_arr",
-    ],
-    outputNames: ["attended"],
-    source: """
+private let lagunaSlidingFusedAttentionSource = """
 constexpr uint head_dim = 128;
 constexpr uint window = 512;
 constexpr uint gqa = 8;
 constexpr int BN = 32;
+constexpr int physical_BN = LAGUNA_PHYSICAL_SIMDGROUPS;
+constexpr int owners = BN / physical_BN;
 constexpr int BD = 32;
 constexpr int BDP = BD + 1;
 constexpr int qk_per_thread = 4;
@@ -1514,12 +1510,6 @@ threadgroup U outputs[4 * BN * BDP];
 threadgroup U max_scores[2 * BN];
 threadgroup U sum_exp_scores[2 * BN];
 
-const device bfloat* pair_keys = k_cache +
-    (size_t)kv_head * (window * head_dim) +
-    (size_t)sg * head_dim + lane * qk_per_thread;
-const device bfloat* pair_values = v_cache +
-    (size_t)kv_head * (window * head_dim) +
-    (size_t)sg * head_dim + lane * v_per_thread;
 const int inner_k_stride = BN * int(head_dim);
 const int inner_v_stride = BN * int(head_dim);
 
@@ -1527,6 +1517,8 @@ thread U pair_q0[qk_per_thread];
 thread U pair_q1[qk_per_thread];
 thread U pair_o0[v_per_thread];
 thread U pair_o1[v_per_thread];
+thread U held_o0[2];
+thread U held_o1[2];
 
 for (int j = 0; j < qk_per_thread; ++j) {
     pair_q0[j] =
@@ -1534,18 +1526,28 @@ for (int j = 0; j < qk_per_thread; ++j) {
     pair_q1[j] =
         static_cast<U>(scale) * tg_q1[lane * qk_per_thread + j];
 }
-for (int j = 0; j < v_per_thread; ++j) {
-    pair_o0[j] = 0;
-    pair_o1[j] = 0;
-}
 
-U pair_max0 = metal::numeric_limits<U>::lowest();
-U pair_max1 = metal::numeric_limits<U>::lowest();
-U pair_sum0 = 0;
-U pair_sum1 = 0;
+for (int owner = 0; owner < owners; ++owner) {
+    uint logical_sg = sg + owner * physical_BN;
+    const device bfloat* pair_keys = k_cache +
+        (size_t)kv_head * (window * head_dim) +
+        (size_t)logical_sg * head_dim + lane * qk_per_thread;
+    const device bfloat* pair_values = v_cache +
+        (size_t)kv_head * (window * head_dim) +
+        (size_t)logical_sg * head_dim + lane * v_per_thread;
 
-int i = sg;
-for (; i + BN < N; i += 2 * BN) {
+    for (int j = 0; j < v_per_thread; ++j) {
+        pair_o0[j] = 0;
+        pair_o1[j] = 0;
+    }
+
+    U pair_max0 = metal::numeric_limits<U>::lowest();
+    U pair_max1 = metal::numeric_limits<U>::lowest();
+    U pair_sum0 = 0;
+    U pair_sum1 = 0;
+
+    int i = logical_sg;
+    for (; i + BN < N; i += 2 * BN) {
     const device bfloat* pipe_keys_b = pair_keys + inner_k_stride;
     const device bfloat* pipe_values_b = pair_values + inner_v_stride;
     const bool sub_a = uint(i) == widx;
@@ -1640,75 +1642,95 @@ for (; i + BN < N; i += 2 * BN) {
 constexpr int pair_planes = 2;
 constexpr int pair_plane_size = BN * BDP;
 if (lane == 0) {
-    max_scores[sg] = pair_max0;
-    max_scores[BN + sg] = pair_max1;
-    sum_exp_scores[sg] = pair_sum0;
-    sum_exp_scores[BN + sg] = pair_sum1;
+    max_scores[logical_sg] = pair_max0;
+    max_scores[BN + logical_sg] = pair_max1;
+    sum_exp_scores[logical_sg] = pair_sum0;
+    sum_exp_scores[BN + logical_sg] = pair_sum1;
 }
 for (int p = 0; p < pair_planes; ++p) {
-    outputs[p * pair_plane_size + lane * BDP + sg] = pair_o0[p];
+    outputs[p * pair_plane_size + lane * BDP + logical_sg] = pair_o0[p];
     outputs[
-        (pair_planes + p) * pair_plane_size + lane * BDP + sg] =
+        (pair_planes + p) * pair_plane_size + lane * BDP + logical_sg] =
         pair_o1[p];
+}
+if (owner + 1 < owners) {
+    held_o0[0] = pair_o0[2];
+    held_o0[1] = pair_o0[3];
+    held_o1[0] = pair_o1[2];
+    held_o1[1] = pair_o1[3];
+}
 }
 threadgroup_barrier(mem_flags::mem_threadgroup);
 
-pair_max0 = max_scores[lane];
-pair_max1 = max_scores[BN + lane];
+U pair_max0 = max_scores[lane];
+U pair_max1 = max_scores[BN + lane];
 U pair_global_max0 = simd_max(pair_max0);
 U pair_global_max1 = simd_max(pair_max1);
 U pair_global_factor0 = metal::fast::exp(pair_max0 - pair_global_max0);
 U pair_global_factor1 = metal::fast::exp(pair_max1 - pair_global_max1);
-pair_sum0 = simd_sum(sum_exp_scores[lane] * pair_global_factor0);
-pair_sum1 = simd_sum(sum_exp_scores[BN + lane] * pair_global_factor1);
+U pair_sum0 = simd_sum(sum_exp_scores[lane] * pair_global_factor0);
+U pair_sum1 = simd_sum(sum_exp_scores[BN + lane] * pair_global_factor1);
 
-for (int p = 0; p < pair_planes; ++p) {
-    U acc0 = simd_sum(
-        outputs[p * pair_plane_size + sg * BDP + lane] *
-        pair_global_factor0);
-    U acc1 = simd_sum(
-        outputs[
-            (pair_planes + p) * pair_plane_size + sg * BDP + lane] *
-        pair_global_factor1);
-    pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
-    pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
-}
-
-threadgroup_barrier(mem_flags::mem_threadgroup);
-for (int p = 0; p < pair_planes; ++p) {
-    outputs[p * pair_plane_size + lane * BDP + sg] =
-        pair_o0[pair_planes + p];
-    outputs[
-        (pair_planes + p) * pair_plane_size + lane * BDP + sg] =
-        pair_o1[pair_planes + p];
-}
-threadgroup_barrier(mem_flags::mem_threadgroup);
-for (int p = 0; p < pair_planes; ++p) {
-    U acc0 = simd_sum(
-        outputs[p * pair_plane_size + sg * BDP + lane] *
-        pair_global_factor0);
-    U acc1 = simd_sum(
-        outputs[
-            (pair_planes + p) * pair_plane_size + sg * BDP + lane] *
-        pair_global_factor1);
-    pair_o0[pair_planes + p] =
-        pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
-    pair_o1[pair_planes + p] =
-        pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
-}
-
-if (lane == 0) {
-    device bfloat* pair_out0 =
-        attended + head0 * head_dim + sg * v_per_thread;
-    device bfloat* pair_out1 =
-        attended + head1 * head_dim + sg * v_per_thread;
-    for (int p = 0; p < v_per_thread; ++p) {
-        pair_out0[p] = static_cast<bfloat>(pair_o0[p]);
-        pair_out1[p] = static_cast<bfloat>(pair_o1[p]);
+for (int owner = 0; owner < owners; ++owner) {
+    uint logical_sg = sg + owner * physical_BN;
+    for (int p = 0; p < pair_planes; ++p) {
+        U acc0 = simd_sum(
+            outputs[p * pair_plane_size + logical_sg * BDP + lane] *
+            pair_global_factor0);
+        U acc1 = simd_sum(
+            outputs[(pair_planes + p) * pair_plane_size +
+                logical_sg * BDP + lane] * pair_global_factor1);
+        pair_o0[p] = pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0);
+        pair_o1[p] = pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1);
+    }
+    if (lane == 0) {
+        device bfloat* out0 =
+            attended + head0 * head_dim + logical_sg * v_per_thread;
+        device bfloat* out1 =
+            attended + head1 * head_dim + logical_sg * v_per_thread;
+        out0[0] = static_cast<bfloat>(pair_o0[0]);
+        out0[1] = static_cast<bfloat>(pair_o0[1]);
+        out1[0] = static_cast<bfloat>(pair_o1[0]);
+        out1[1] = static_cast<bfloat>(pair_o1[1]);
     }
 }
-""",
-    header: """
+
+threadgroup_barrier(mem_flags::mem_threadgroup);
+for (int owner = 0; owner < owners; ++owner) {
+    uint logical_sg = sg + owner * physical_BN;
+    for (int p = 0; p < pair_planes; ++p) {
+        outputs[p * pair_plane_size + lane * BDP + logical_sg] =
+            owner + 1 == owners ? pair_o0[2 + p] : held_o0[p];
+        outputs[(pair_planes + p) * pair_plane_size +
+            lane * BDP + logical_sg] =
+            owner + 1 == owners ? pair_o1[2 + p] : held_o1[p];
+    }
+}
+threadgroup_barrier(mem_flags::mem_threadgroup);
+for (int owner = 0; owner < owners; ++owner) {
+    uint logical_sg = sg + owner * physical_BN;
+    for (int p = 0; p < pair_planes; ++p) {
+        U acc0 = simd_sum(
+            outputs[p * pair_plane_size + logical_sg * BDP + lane] *
+            pair_global_factor0);
+        U acc1 = simd_sum(
+            outputs[(pair_planes + p) * pair_plane_size +
+                logical_sg * BDP + lane] * pair_global_factor1);
+        if (lane == 0) {
+            device bfloat* out0 =
+                attended + head0 * head_dim + logical_sg * v_per_thread;
+            device bfloat* out1 =
+                attended + head1 * head_dim + logical_sg * v_per_thread;
+            out0[2 + p] = static_cast<bfloat>(
+                pair_sum0 == 0 ? acc0 : (acc0 / pair_sum0));
+            out1[2 + p] = static_cast<bfloat>(
+                pair_sum1 == 0 ? acc1 : (acc1 / pair_sum1));
+        }
+    }
+}
+"""
+
+private let lagunaSlidingFusedAttentionHeader = """
 #define LAGUNA_RESCALE(dst, delta_expr)         \\
   do {                                          \\
     const float db_delta_ = (delta_expr);       \\
@@ -1754,11 +1776,31 @@ if (lane == 0) {
       d3 = v_.w;                                           \\
     }                                                      \\
   } while (false)
+"""
 
+private func makeLagunaSlidingFusedAttentionKernel(
+    _ name: String, _ physicalSimdgroups: Int
+) -> MLXFast.MLXFastKernel {
+    MLXFast.metalKernel(
+        name: name,
+        inputNames: [
+            "raw_queries", "raw_keys", "raw_values",
+            "query_weight", "key_weight", "angles",
+            "k_cache", "v_cache", "params", "scale_arr",
+        ],
+        outputNames: ["attended"],
+        source: lagunaSlidingFusedAttentionSource,
+        header: "#define LAGUNA_PHYSICAL_SIMDGROUPS \(physicalSimdgroups)\n"
+            + lagunaSlidingFusedAttentionHeader,
+        ensureRowContiguous: true)
+}
 
-""",
-    ensureRowContiguous: true
-)
+private let lagunaSlidingFusedAttentionControlKernel =
+    makeLagunaSlidingFusedAttentionKernel(
+        "laguna_sliding_fused_attn_ring_v1", 32)
+private let lagunaSlidingFusedAttention16SGKernel =
+    makeLagunaSlidingFusedAttentionKernel(
+        "laguna_sliding_fused_attn_ring_16sg_v1", 16)
 
 /// Fused decode attention for a sliding layer in the steady ring regime.
 /// Returns `[1, heads, 1, headDim]` attended output; the caller advances the
@@ -1773,7 +1815,8 @@ func lagunaSlidingFusedAttention(
     cacheKeys: MLXArray,
     cacheValues: MLXArray,
     writeIdx: Int,
-    scale: MLXArray
+    scale: MLXArray,
+    use16PhysicalSimdgroups: Bool = lagunaSlidingAttention16SGEnabled
 ) -> MLXArray {
     let heads = LagunaConstants.slidingAttentionHeads
     let kvHeads = LagunaConstants.numKeyValueHeads
@@ -1799,14 +1842,18 @@ func lagunaSlidingFusedAttention(
     lagunaTrace("sliding fused attention")
     let params = lagunaParamsAtlasEnabled
         ? lagunaRingIdxAtlas[writeIdx] : MLXArray([UInt32(writeIdx)])
-    return lagunaSlidingFusedAttentionKernel(
+    let physicalSimdgroups = use16PhysicalSimdgroups ? 16 : 32
+    let kernel = use16PhysicalSimdgroups
+        ? lagunaSlidingFusedAttention16SGKernel
+        : lagunaSlidingFusedAttentionControlKernel
+    return kernel(
         [
             rawQueries, rawKeys, rawValues,
             queryWeight, keyWeight, angles,
             cacheKeys, cacheValues, params, scale,
         ],
-        grid: ((heads / 2) * 1024, 1, 1),
-        threadGroup: (1024, 1, 1),
+        grid: ((heads / 2) * physicalSimdgroups * 32, 1, 1),
+        threadGroup: (physicalSimdgroups * 32, 1, 1),
         outputShapes: [[1, heads, 1, LagunaConstants.headDim]],
         outputDTypes: [.bfloat16]
     )[0]
