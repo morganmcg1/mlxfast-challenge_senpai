@@ -1554,10 +1554,11 @@ result is *near zero* rather than whether it matches a specific M4 number.
 
 > **Superseded in part by section 10.8.** The n = 64 receipt fired the
 > pre-registered "M4 price after all" branch: the placement-free marginal price
-> on M5 is **8.07 us per injected op**, which contains the M4 anchor of 8.54.
-> The measurement below is unchanged and correct; the *interpretation* — "M5
-> absorbs free ALU" — does not survive as a general statement. Read section
-> 10.8 before using anything in this subsection.
+> on M5 above n = 24 is **8.07 us per injected op**. The measurement below is
+> unchanged and correct; the *interpretation* — "M5 absorbs free ALU" — does
+> not survive as a general statement, though sections 10.9 and 10.10 restore a
+> bounded, M5-specific version of it below n ~ 24. Read sections 10.8 to 10.10
+> before using anything in this subsection.
 
 Receipt `ecd89cac-b21e-4948-b619-5ac106c8fe48`, marker `senpai-r93-probe-routed-fma-24`,
 spec `routed:fma:24`, W&B [`59o0mk6y`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/59o0mk6y),
@@ -1721,7 +1722,10 @@ prices injected ALU with the placement term algebraically removed:
 before this receipt was requested, named +1.8 % for "live and linear at the
 n = 24 price", ~0 % for "inert", and **~+6.7 % for "M5 charges at the M4 per-fma
 price after all"**. The observed rung-to-rung shift is **+6.53 %**. The M4
-anchor of 8.54 us/op (section 10.4) lies inside the [6.65, 9.49] CI.
+anchor of 8.54 us/op (section 10.4) lies inside the [6.65, 9.49] CI. (That
+agreement is a coincidence of mismatched segments: section 10.10 remeasures M4
+over the same 24 -> 64 rungs and gets 14.55 us/op. The pre-registered branch
+still fires; the cross-machine equality it seemed to imply does not hold.)
 
 Two things follow immediately, and the second one is the arm's real result.
 
@@ -1779,7 +1783,9 @@ Expressed as a fraction of each machine's decode step:
 
 Injected ALU costs the **same absolute microseconds** on both machines, so on
 the 1.66x shorter M5 step it costs **1.57x more as a fraction**. Two caveats,
-both real:
+both real — and **both were subsequently resolved in section 10.10**, which
+re-measured M4 on the matched segments. The original text is kept for the
+record, with the resolution appended:
 
 - **The segments do not match.** M4 was measured over 0 -> 24 and M5 over
   24 -> 64. If M4 is also convex, its 24 -> 64 slope is larger and the ratio
@@ -1787,6 +1793,8 @@ both real:
   research/r93-runs/armc_local_sweep.sh 200 routed:fma:0 routed:fma:24
   routed:fma:64` on this host. It is listed as a follow-up rather than run
   because the local benchmark lock was held by the C0' receipt watcher.
+  → **Resolved (10.10): M4 is also convex, ratio 2.00x. On matched segments
+  M4 costs 14.55 us/unit above the knee against M5's 8.07.**
 - **The ladder is built to be throughput-limited, not latency-limited.**
   `nezukoR93LoopBody` emits four independent accumulator chains precisely so
   that it prices issue throughput. A throughput-limited addition costing the
@@ -1795,19 +1803,32 @@ both real:
   that the batch-1 routed gather-GEMM does not fill M5's extra cores, so the
   added work serializes on the same occupied subset, or that the added issue
   rate is clock- rather than core-limited. **This is flagged, not claimed.**
+  → **Withdrawn (10.10): there was no anomaly.** Above the knee the matched
+  M4/M5 ratio is 1.80x, close to the 2x core ratio. The apparent puzzle was
+  produced entirely by comparing a cheap M4 segment with an expensive M5 one.
+
+The row of this table that survives 10.10 is therefore the *above-knee* one,
+and its correct cross-machine reading is 14.55 us/unit on M4 Pro against
+8.07 us/unit on M5, not "the same absolute microseconds".
 
 #### Licensing statement (replaces 10.6; itself refined by 10.9)
 
-> **Read 10.9 first.** The C0' control has since measured the placement term at
-> +0.10 % (not significant), which selects reading (A). Everything below is
-> correct *for the 24 -> 64 segment*, but the sweeping form "M5 does not have a
-> wider free-ALU allowance than M4 Pro" is wrong: below n ~ 24 it does.
+> **Read 10.9 and 10.10 first.** The C0' control has since measured the
+> placement term at +0.10 % (not significant), which selects reading (A).
+> Everything below is correct *for the 24 -> 64 segment*, but the sweeping form
+> "M5 does not have a wider free-ALU allowance than M4 Pro" is wrong: below
+> n ~ 24 it does. The "same absolute microseconds" claim below is also wrong;
+> 10.10 measures the matched M4 segment at 14.55 us/unit.
 
-**Validated, and this is the useful half.** ALU cost transfers from M4 to M5 *in
-absolute microseconds* at the margin: 8.07 us/op [6.65, 9.49] against M4's 8.54.
-Rule 55's M4-only provenance is no longer a reason to distrust ALU-side pricing
-for the ranked host. That was the "single largest unpriced risk in the
-programme", and the answer is that the M4 evidence base is usable.
+**Validated, in weakened form.** ALU cost transfers from M4 to M5 at the margin
+*to within a core-count factor*: 8.07 us/op [6.65, 9.49] on M5 against the
+segment-matched M4 price of 14.55 us/op (10.10), a ratio of 1.80x on a 2x
+core-count difference. The comparison originally written here — against M4's
+8.54 us/op — used M4's cheap 0 -> 24 segment and understated the transfer
+factor. Rule 55's M4-only provenance is no longer a reason to distrust ALU-side
+pricing for the ranked host *above the knee*, provided the M4 number is scaled.
+That was the "single largest unpriced risk in the programme", and the answer is
+that the M4 evidence base is usable with a factor, not verbatim.
 
 **Withdrawn.** "Spending ALU to avoid DRAM traffic is not charged on M5." It is
 charged, at 8.07 us per unit of `n` — where one unit of `n` is 4 fma per K
@@ -1987,6 +2008,127 @@ evidence of drift.
 
 ---
 
+### 10.10 M4 Pro on the same segments: both machines are convex, and the core-count puzzle dissolves
+
+Section 10.8 compared M4's `0 -> 24` slope with M5's `24 -> 64` slope and
+flagged the mismatch as a real caveat. Closing it costs no submission slot, so
+it was closed locally: nine rebuild-and-time runs on this M4 Pro host, three
+replicates per level in `ABC CBA ABC` order to balance any session drift.
+
+```bash
+bash research/r93-runs/armc_local_sweep.sh 600 \
+  routed:fma:0 routed:fma:24 routed:fma:64 \
+  routed:fma:64 routed:fma:24 routed:fma:0 \
+  routed:fma:0 routed:fma:24 routed:fma:64
+python3 research/r93-runs/m4_convexity.py
+```
+
+Each run is a separate `set_probe.sh` rebuild and a separate worker process, so
+the replicate spread includes compile and process variation, not just
+within-process jitter. The statistic per replicate is the **median** of 600
+free-run steps after dropping 10 warm-up steps; one run contained a single
+120.9 ms step, and the median is immune to it. Directional only — the ranked M5
+still decides.
+
+**Design note, honestly.** The `n = 64` cell has two replicates, not three. The
+ninth build failed with `input file ... was modified during the build` because
+I ran `git checkout` on the scored file at 07:49:45Z while that build was
+compiling it. Operator error, not a measurement problem: the eight completed
+runs are unaffected and emit one bit-identical token stream. The imbalance is
+also *conservative* for the conclusion below. Mean time-order position is 4.67
+for `n = 0`, 5.0 for `n = 24` and 3.5 for `n = 64`, so if the host warmed over
+the session the `n = 64` level is biased low and the `24 -> 64` slope is
+understated. In fact no drift is visible at this precision: the three `n = 0`
+replicates, run first, sixth and seventh, read 8.1944, 8.2043 and 8.1969 ms.
+
+| n | replicates | mean of medians (ms) | sd (ms) | CV |
+|---|---|---|---|---|
+| 0 | 3 | 8.1985 | 0.0051 | 0.0624 % |
+| 24 | 3 | 8.3729 | 0.0046 | 0.0553 % |
+| 64 | 2 | 8.9548 | 0.0061 | 0.0683 % |
+
+Pooled within-level sd **0.0051 ms on 5 df = 0.0628 %** of the step. That is
+4.7x tighter than the official channel's 0.2939 % true-null decode CV
+(section 2.2), which is the whole reason a local host can resolve a slope the
+receipt channel cannot.
+
+#### M4 Pro is convex too
+
+| segment | delta step | slope | 95 % CI | t (5 df) |
+|---|---|---|---|---|
+| 0 -> 24 | +0.1744 ms = +2.127 % | **7.2662 us/unit** | [6.8158, 7.7166] | +41.5 |
+| 24 -> 64 | +0.5819 ms = +6.950 % | **14.5471 us/unit** | [14.2450, 14.8493] | +123.8 |
+| 0 -> 64 | +0.7563 ms = +9.225 % | 11.8168 us/unit | [11.6280, 12.0056] | +160.9 |
+
+Convexity, propagating the shared `n = 24` term exactly as in section 10.9:
+delta-slope **+7.2809 us/unit**, se 0.2508, **t = +29.0 on 5 df** (crit 2.571),
+95 % CI [+6.636, +7.926], slope ratio **2.00x**.
+
+So the shape is not unique to M5. What differs is the level.
+
+#### The two machines side by side, on matched segments
+
+| segment | M4 Pro us/unit | M4 Pro %/unit | M5 us/unit | M5 %/unit | M4/M5 |
+|---|---|---|---|---|---|
+| 0 -> 24 (below knee) | 7.2662 | 0.0886 % | 1.1657 | 0.0237 % | **6.23x** |
+| 24 -> 64 (above knee) | 14.5471 | 0.1774 % | 8.0696 | 0.1643 % | **1.80x** |
+| convexity ratio | 2.00x | | 6.92x | | |
+
+Two things follow, and they pull in opposite directions from what section 10.8
+guessed.
+
+**1. The core-count puzzle was an artefact of the segment mismatch.** Section
+10.8 observed that injected ALU cost the same absolute microseconds on both
+machines and flagged this as unexplained, since a throughput-limited addition
+on 40 cores should cost roughly half what it costs on 20. On matched segments
+the ratio above the knee is **1.80x**, which is close to the 2x GPU-core ratio
+and needs no special explanation. **Section 10.8's second caveat is withdrawn**:
+there was never an anomaly, only a comparison between a cheap M4 segment and an
+expensive M5 one.
+
+**2. The free region is genuinely an M5 property.** M4's low segment is not
+free — it is firmly non-zero at t = +41 and costs 0.0886 % of the M4 step per
+unit. M5's low segment is 0.0237 % and is not distinguishable from zero
+(t = +1.37, section 10.9). Below the knee M5 is **6.23x** cheaper than M4,
+three times more than core count explains; above the knee it is 1.80x cheaper,
+exactly what core count explains. Whatever hides the first ~24 units of injected
+work on M5 is not simply "more cores".
+
+This sharpens rather than overturns section 10.9. The corrected statement is:
+
+> Both machines price injected routed-gather ALU convexly. Above the knee both
+> are ALU-throughput-limited and the M4/M5 ratio tracks core count. Below the
+> knee M5 has a genuine free region that M4 Pro does not, and only M5's is wide
+> enough to spend.
+
+The operative budget in section 10.9 is unchanged, because it was derived from
+M5 receipts throughout. What changes is that the M4 number is **not** a safe
+proxy for M5 below the knee: quoting M4's 7.27 us/unit there would overprice an
+M5 transform by more than 6x.
+
+#### Caveats specific to this subsection
+
+- **M4 Pro, local, directional.** These are same-session repeated timings on a
+  20-core M4 Pro, not official receipts. They are usable here only because the
+  question — is the *shape* convex on M4 — is a within-host question. Every
+  cross-host number in the table above takes its M5 side from official
+  receipts.
+- **No matched M4 placement control.** This sweep has no `""` (probe absent)
+  arm. The earlier single-replicate anchor (section 10.4) read 8.2231 ms with
+  the probe off against 8.1494 ms at `n = 0`, suggesting -0.90 %; but the
+  `n = 0` level itself moved from 8.1494 to 8.1985 ms between the two sessions,
+  which is larger than the within-session sd. The M4 placement term is
+  therefore **unresolved**, and deliberately so: every M4 quantity used above is
+  a segment difference, in which placement cancels.
+- **One kernel, batch 1.** Unchanged from section 10.9. The routed gather-GEMM
+  site has no `_nax` variant, so M4 and M5 compile the same source; that is what
+  makes this particular cross-host comparison legitimate at all.
+
+Token streams: 8 runs, **1 distinct stream**, `sha256 f940f1b4a510...`,
+confirming the probe stays bit-exact at every level on this host as well.
+
+---
+
 ## 11. Wrap-up
 
 ### 11.1 Deliverables
@@ -2001,7 +2143,9 @@ evidence of drift.
 | 6 | Every submission logged to W&B | section 11.3 | done, 11 runs |
 
 Arm C (M5 regime ladder) was added by advisor revision and is reported in
-section 10. Its stopping rule did not fire (section 10.1), so it ran.
+section 10. Its stopping rule did not fire (section 10.1), so it ran. It spent
+3 of its <= 6 receipts; section 10.10 adds a free segment-matched M4 Pro
+control that consumed no channel budget.
 
 ### 11.2 Headline numbers
 
@@ -2016,11 +2160,13 @@ section 10. Its stopping rule did not fire (section 10.1), so it ran.
 | **M5 price of one extra decode dispatch** | **2.3403 us** (95 % CI [2.277, 2.404], n = 8, R^2 > 0.999) | section 4 |
 | Whole-token dispatch census priced at that slope | 945.5 us = **19.2 %** of decode | section 8.1 |
 | PR #137 M4 -> M5 transfer factor | **\|T\| < 0.5**, sign not resolved | section 6 |
-| **M5 price of one injected fma unit in the routed gather-GEMM, above the knee (n = 24 -> 64)** | **8.070 us/unit** (95 % CI [6.653, 9.486]) = 0.164 % of decode per unit - matches the M4 Pro price of 8.542 us/unit | section 10.8, 10.9 |
+| **M5 price of one injected fma unit in the routed gather-GEMM, above the knee (n = 24 -> 64)** | **8.070 us/unit** (95 % CI [6.653, 9.486]) = 0.164 % of decode per unit | section 10.8, 10.9 |
 | **Same price below the knee (n = 0 -> 24)** | **1.166 us/unit** (95 % CI [-1.195, +3.526]) = 0.024 % of decode per unit - **7x cheaper, not distinguishable from free** | section 10.9 |
 | **Convexity of the M5 ladder** | slope ratio **6.92x**, delta-slope +6.904 us/unit, se 1.191, **t = +5.80 on 4 df** (crit 2.776), segment CIs disjoint | section 10.9 |
 | Placement term (probe present at n = 0 vs probe absent) | +4.744 us = **+0.097 %**, t = +0.300 df 4, not significant | section 10.9 |
 | Operative free-ALU budget for a byte-for-ALU transform | ~96 extra fma per K iteration per thread for **0.57 % of decode** (95 % upper bound 1.72 %) | section 10.9 |
+| **M4 Pro on the matched segments** | also convex (ratio 2.00x, t = +29.0 on 5 df); **7.266 us/unit** below the knee and **14.547** above | section 10.10 |
+| **M4/M5 ratio, matched segments** | **1.80x above the knee** (tracks the 2x GPU-core ratio) but **6.23x below it** | section 10.10 |
 | Same price read as a single point at n = 24 against the null | 1.36 us (95 % CI [-0.46, +3.19]) - **superseded**, confounded with placement | section 10.5, 10.8 |
 
 ### 11.3 W&B runs
@@ -2079,8 +2225,10 @@ Section 10 tests whether that transfers to M5, which is the question the rule's
 M4-only provenance leaves open. The answer changed once the second rung landed.
 At n = 24 the injected ALU looked nearly free on M5 (+0.67 %, not significant);
 at n = 64 it is not free at all (+7.24 %, t = +22.5). The placement-free
-segment price above n = 24 is 8.07 us per injected fma unit, which is
-statistically indistinguishable from the M4 Pro price of 8.54 us.
+segment price above n = 24 is 8.07 us per injected fma unit. Section 10.10
+measures the *same* segment on M4 Pro and gets 14.55 us/unit, so M5 is 1.80x
+cheaper there -- close to the 2x GPU-core ratio, and not the near-equality that
+an earlier segment-mismatched comparison against 8.54 us suggested.
 
 The third receipt (C0', section 10.9) then settled the one remaining
 ambiguity: whether the cheap 0 -> 24 segment was a genuine free region or an
@@ -2091,7 +2239,12 @@ t = +5.80 on 4 df and disjoint segment confidence intervals.
 
 The net answer to rule 55 is therefore neither of the two simple readings.
 **M5 has a bounded free-ALU region in the routed gather-GEMM that M4 Pro does
-not appear to have, and above roughly n = 24 it pays M4's price.** For byte-for-ALU
+not have, and above roughly n = 24 it pays a normal core-count-scaled price.**
+Section 10.10 measures both segments on M4 Pro: the low segment is firmly
+non-zero there (7.27 us/unit, t = +41), while on M5 it is not distinguishable
+from zero (t = +1.37); the high segment differs by only 1.80x, which is close
+to the 2x GPU-core ratio. The free region is an M5 property, not a scaling
+artefact. For byte-for-ALU
 work that matters more than either extreme would: a transform may add on the
 order of 96 fma per K iteration per thread for about 0.57 % of decode
 (95 % upper bound 1.72 %), but a transform that overshoots the knee is charged
@@ -2099,7 +2252,9 @@ order of 96 fma per K iteration per thread for about 0.57 % of decode
 iteration, not just its byte saving.
 
 **Arm C as "the single largest unpriced risk in the programme".** Priced, at
-3 receipts. See sections 10.8 and 10.9 for the verdict.
+3 receipts. See sections 10.8 and 10.9 for the verdict, and section 10.10 for
+the segment-matched M4 Pro control that shows the free region is specific to
+M5.
 
 ### 11.5 Reproduction
 
@@ -2110,11 +2265,14 @@ network access and no GPU:
 python3 research/r93-runs/null_stats.py      # section 2 (Arm A)
 python3 research/r93-runs/ladder_fit.py      # sections 4, 6, 8.1 (Arm B)
 python3 research/r93-runs/probe_slope.py     # section 10 (Arm C)
+python3 research/r93-runs/m4_convexity.py research/r93-runs/armc-m4   # section 10.10
 python3 research/r93-runs/channel_noise.py research/r93-runs/receipts-latest.json
 python3 research/r93-runs/critique_checks.py research/r93-runs/receipts-latest.json
 ```
 
 `receipts/*.json` holds the eleven official receipts;
+`armc-m4/` holds the raw per-step and per-token dumps from the local M4 Pro
+sweep behind section 10.10 (`analysis.out` is the output committed above);
 `receipts-latest.json` is the 1185-point programme corpus used in section 9.
 `manifest.json` maps every marker to its submission id, source commit, probe
 spec, and W&B run.
