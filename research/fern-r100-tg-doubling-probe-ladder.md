@@ -3,7 +3,11 @@
 Student: maple-fern · PR #553 · branch `maple-fern/r100-tg-doubling-probe-ladder`
 Base: `d90f854d4687605880b0baf99e93b4a0b786100e` (`codex/mlxfast-maple-20260804-advisor`)
 Host: Apple M4 Pro, 20 GPU cores, `applegpu_g16s` (Apple GPU gen 16), macOS 26.5.2, 48 GiB
-Predictions registered before measurement: `research/fern-r100-preregistration.md`
+Preregistration: `research/fern-r100-preregistration.md`, committed at
+**`1e2ea6a1cbd097b79fe6e4881384420f102cc60d`** before any number was read, with a
+pool-pricing addendum at **`fcac367d9de12caa8b71da40f230fc5637d859e7`** (also
+pre-measurement: it replaces a guessed pool with the recorded `T2c_routed_qmv`
+census and marginal figures, and changes no threshold).
 
 ## Reply
 
@@ -78,23 +82,35 @@ risers stay at 21/41/61/81 for **every** threadgroup allocation from 256 B to
 threadgroup footprint — which the 6b Route A variant would have done — cannot
 raise concurrency. There is no occupancy lever here.
 
-**6. The constructive result.** The mechanism is threadgroup-count/core-count
-quantization, and the way to capture it is *finer, balanced* granularity rather
-than a 2× head split: splitting the 512-position KV window 16 ways gives 512
-threadgroups and `Fill = 0.985` on both hosts, i.e. it recovers
-`1 − 0.80/0.985 = 18.8 %` of the sliding-attention kernel time. On M5 that is
-**≈54.5 µs/step ⇒ 0.83 % score, 79 % of the bar**, before paying for the
-cross-slice softmax reduction. This independently reproduces rule 67's
+**6. The constructive result, and the one condition it lives or dies on.** The
+mechanism is threadgroup-count/core-count quantization, so the way to capture it
+is *finer, balanced* granularity rather than a 2× head split. Splitting the KV
+window 16 ways gives 512 sliding and 384 full threadgroups, raising `Fill` from
+0.800 → 0.985 (sliding) and 0.600 → 0.960 (full): **92.0 µs/step gross on M5 =
+1.41 % of score = 134 % of the bar.** This independently reproduces rule 67's
 starvation ceiling (its 0.1836 sliding-starvation fraction vs my 0.188) and
-supplies the missing mechanism and geometry for it. I did not implement it —
-flagging it as the follow-up that the ladder actually points at.
+supplies the mechanism and geometry rule 67 lacked.
+
+Then I applied the brief's own rule-67 objection to my own proposal, and it very
+nearly kills it: if the cross-slice softmax combine costs **one extra dispatch
+per layer**, that is 40 × 2.3403 = **93.6 µs/step against 92.0 µs/step of gain —
+net −1.6 µs/step.** So the honest claim is not "1.41 % available" but:
+
+> Split-K clears the bar **only** with a zero-extra-dispatch (fused)
+> cross-slice reduction. One extra dispatch per layer cancels it to within 2 %.
+
+That is at least a well-posed binary design question rather than a hope about
+hardware, and it should be settled on paper before anyone writes a kernel. It is
+also not bit-exact (a 16-way partial-softmax recombination reorders the sum), so
+it needs a drift argument against the equivalence oracle. I did not implement it.
 
 **Recommendation:** close Route A on this evidence; do not spend an assignment
 on the 6b threadgroup-memory variant either. Re-price the QMV template route at
-21.6 µs/step before considering it further. If the advisor wants the attention
-dispatch attacked, the split-K/flash-decoding geometry is the arm with a real
-ceiling, and it needs an M5 measurement because the payoff is entirely a
-core-count effect.
+21.6 µs/step before considering it further. Do **not** open a split-K assignment
+until the fused-reduction question is answered analytically — and if it cannot be
+fused, then my 0.188 agreement with rule 67 should be read as evidence that the
+attention starvation pool is permanently stranded rather than as a plan to
+capture it.
 
 Scope note: **no scored file was touched** (`git diff --stat` against base is
 confined to `research/`), submitted-surface growth is **0 bytes**, and
@@ -148,6 +164,27 @@ FERN_TGMEM_LIST=256,8192,16384,18432,32768 FERN_THREADS_LIST=1024,512,256,128 \
 
 Zero benchmark receipts, as assigned. No official submission.
 
+**Byte report** (evidence-contract item 6), before and after, against the full
+40-character base SHA:
+
+```
+$ senpai/check-editable-budget.sh d90f854d4687605880b0baf99e93b4a0b786100e
+editable budget OK: current=2983849/3000000 bytes headroom=16151 \
+  growth=0/262144 files=142 (base=142)
+```
+
+Identical before and after: **`growth=0`, `files=142` = `base=142`**. Every file
+this round lives under `research/`, which is not in `editablePaths`.
+`git diff --name-only <base>` returns no path outside `research/`.
+
+**`simd_sum` note** (evidence-contract item 5). E1 times the shipped kernel text
+unmodified in both arms, so no reduction-order claim is load-bearing anywhere in
+this round: the two arms are the same source and the four QMV variants are
+verified byte-identical at runtime rather than assumed. The one place it would
+matter is §7's proposed split-K reduction, which is *not* implemented here — and
+because that would change the combine tree, it needs its own bit-exactness
+argument on the ranked M5, not an inherited gen-16 result.
+
 ---
 
 ## 1. P1.1 — which side of the roofline the QMV probe lives on
@@ -186,6 +223,21 @@ winners `[39, 88, 99, 110, 114, 184, 216, 239]`):
 I deliberately keep `slc_fit` (capacity) and `regime` (bandwidth saturation) as
 separate columns, because the resident `TG=2048` row is the case where they
 disagree and that disagreement is the whole point.
+
+**A correction to rule 71's own wording, which is mine to make.** Rule 71 asks
+for `roofline_side = ISSUE_BOUND if unique_GB_s < ~40 % of DRAM peak`. The probe
+emits every rule-71 field (`unique_bytes_per_round`, `requested_bytes_per_round`,
+`amplification`, `achieved_GB_s`, `unique_GB_s`, plus `slc_fit`), and applying
+that literal criterion labels **every** rung `ISSUE_BOUND`, including the rung
+running at 95 % of DRAM peak — because `unique_GB_s` is only 0.2–0.5 GB/s once
+you divide an 8.51 MiB footprint by a 500×-amplified wall time. So the
+`unique_GB_s < 40 %` test does not detect the roofline side at all; it detects
+**amplification**, which is a different and also useful thing. I therefore
+report `regime` from `achieved_GB_s` (the actual roofline side) and `slc_fit`
+from capacity, and keep `unique_GB_s` as the amplification tell. Rule 71's
+requirement — state both footprints, both throughputs, and argue they sit on the
+same side — is met; its suggested one-line decision procedure is not sound and
+should be replaced by the two-column form used here.
 
 **Instrument bug found and fixed.** The regime block originally ran *before* the
 warm-up loops, so its `ref_us` was a cold measurement — 22.05 µs at `TG=128`
@@ -425,37 +477,92 @@ the 512-position KV window with a cross-slice softmax reduction:
 | **32 pairs × 16 slices** | **512** | **0.985** | 0.985 |
 
 At 16 slices the recoverable fraction is `1 − 0.80/0.985 = 18.8 %` of the
-sliding kernel. On M5 (sliding ≈ 290 µs/step) that is **≈54.5 µs/step ⇒ 0.83 %
-score, 79 % of the 68.7 µs/step bar**, before the reduction's own cost. Full
-attention (≈100 µs/step on M5) adds more.
+sliding kernel. Full attention starts worse and gains more: 24 threadgroups is
+`Fill = 0.600` on M5, and 24 × 16 = 384 threadgroups gives
+`Fill = 384/400 = 0.960`, a recoverable `1 − 0.600/0.960 = 37.5 %`.
 
-This independently reproduces rule 67's starvation ceiling — its sliding
+| pool | M5 µs/step | Fill now | Fill at 16 slices | recoverable | µs/step |
+| --- | --- | --- | --- | --- | --- |
+| sliding (30 layers, 32 TG) | ≈290 | 0.800 | 0.985 | 18.8 % | **54.5** |
+| full (10 layers, 24 TG) | ≈100 | 0.600 | 0.960 | 37.5 % | **37.5** |
+| both | ≈390 | | | | **92.0** |
+
+Gross, that is `92.0 × 0.015280 = 1.41 %` of score — **134 % of the 68.7 µs/step
+bar**. This independently reproduces rule 67's starvation ceiling (its sliding
 starvation fraction of 0.1836 against my 0.188, from a completely different
-measurement — and supplies what rule 67 lacked: the mechanism (threadgroup-count
-versus core-count quantization) and a concrete geometry that captures it. It
-also explains why the ceiling is real rather than a bookkeeping artifact.
+measurement) and supplies what rule 67 lacked: the mechanism
+(threadgroup-count versus core-count quantization) and a concrete geometry that
+captures it.
 
-Two caveats I would not hide from whoever picks this up. The payoff is entirely
-a core-count effect, so it must be measured on M5; on this 20-core host the
-same change scores `0.800 → 0.985` too, but for different riser positions, and a
-positive M4 result would be weak evidence. And 512 threadgroups × 18432 B of
-threadgroup memory is fine (allocation is per resident threadgroup, and E1b
-shows concurrency is 1/core regardless), but the reduction across 16 partial
-softmaxes per head-pair is the part that decides whether 0.83 % survives.
+**But I have to price the reduction against rule 67 too, and doing so makes the
+design requirement brutally narrow.** The brief closes N-split with "+40
+dispatches × 2.3403 µs = 93.6 µs swallows the 89 µs pool". That objection applies
+to this geometry unchanged if the cross-slice combine is a *second dispatch per
+layer*: 30 sliding + 10 full = 40 extra dispatches = **93.6 µs/step against my
+92.0 µs/step of gross gain**. Net **−1.6 µs/step**, i.e. dead to within 2 %.
 
-## 8. What I did not do
+So the arithmetic does not say "split-K is worth 1.41 %". It says:
 
-- No Route A implementation, and no timing of one. E1/E1b answer the question
-  the implementation was meant to answer, negatively and host-independently, so
-  building it would have spent an assignment to confirm a fill-neutral change.
-- No E2 uniqueness fold (`kv_head = (head0/gqa) % 8`). It was scoped as a
-  contingency on Route A being viable.
-- No split-K implementation. It is a real kernel change with a correctness
-  surface (partial-softmax reduction) and belongs in its own assignment with an
-  M5 measurement.
-- No benchmark receipts and no official submission, as assigned.
-- No scored file touched; `Sources/` is untouched, so #539 and #548 are
-  unaffected.
+> Split-K over the KV window clears the bar **only** if the cross-slice
+> reduction adds **zero** dispatches. One extra dispatch per layer cancels the
+> entire gain almost exactly.
+
+That is a much better-posed question than Route A ever was, because it is a
+single binary design question — fuse the combine into the same dispatch (an
+atomic-counter "last threadgroup reduces" pattern, or a persistent final wave)
+or abandon it — rather than a hope about hardware. Whoever picks it up should
+settle the fused-reduction feasibility *first*, on paper, before writing a
+kernel. If it cannot be fused, rule 67's ceiling is not merely conservative:
+it is unreachable by this route, and my 0.188 agreement with it becomes an
+explanation of why the pool is *permanently* stranded rather than a plan to
+capture it.
+
+Three further caveats. The payoff is entirely a core-count effect, so it must be
+measured on M5; on this 20-core host the same change also scores `0.800 → 0.985`
+but from different riser positions, so a positive M4 result would be weak
+evidence. 512 threadgroups × 18432 B is not a problem (allocation is per
+resident threadgroup, and E1b shows concurrency is 1/core regardless of
+footprint). And a 16-way partial-softmax recombination changes summation order,
+so it is not bit-exact against today's kernel — it needs a real drift argument
+against the equivalence oracle, not an assertion.
+
+## 8. Which stopping rule fired, and what I therefore did not do
+
+The brief's first stopping condition is **"E1 returns φ ≥ 1.5 (routes dead) —
+stop, report, zero receipts."** E1 returned **φ(32) = 1.8008 resident and 1.8040
+defeated**, both well past 1.5 and agreeing to three digits, so that condition
+fired at the first rung of Part 2 and I stopped there. E1b was added afterwards
+*not* to continue the ladder but to close the one loophole that could have
+invalidated the stop — namely that the kernel's 18432 B threadgroup footprint
+might be capping concurrency artificially, which is also the mechanism the 6b
+variant was betting on. It does not.
+
+Consequently:
+
+- **No E3, no E4, no Route A implementation.** The brief gates E4 on "E1 shows
+  absorption **and** E3 gives α ≥ ~10 %", and E1 showed the opposite of
+  absorption. Beyond the stopping rule, §6 shows the required break-even
+  `τ₁ < 0.5·τ₂` is identical on both hosts and unreachable, and that Route A is
+  fill-neutral for every core count below 64 — so E3's α could not have rescued
+  it at any value.
+- **No E2 uniqueness fold** (`kv_head = (head0/gqa) % 8`). E2 exists to separate
+  residency from request count at K = 64, a question that only matters if K = 64
+  is a candidate geometry. It is not. I did test the underlying premise more
+  directly: the whole E1 ladder was re-run under residency defeat and the
+  staircase did not move, which is the answer E2 was meant to supply.
+- **No split-K implementation.** Beyond it being a real kernel change with a
+  correctness surface, §7 shows it is net-negative unless the cross-slice combine
+  costs zero extra dispatches — so the next step is an analytical answer to the
+  fused-reduction question, not a kernel or an M5 receipt.
+- **No benchmark receipts and no official submission**, as assigned.
+- **No scored file touched**; `Sources/` is untouched, so #539 and #548 are
+  unaffected, and `research/run_upstream_equivalence.sh` is not applicable —
+  evidence-contract item 7 conditions it on "anything that touches numerics",
+  and nothing here does. Both probes read the kernel text out of
+  `LagunaRuntimeModel.swift` read-only and compile it in a separate process.
+  Within the probes, the bitwise output-equivalence gate is green: all four QMV
+  template variants are byte-identical to the reference at every rung, and E1's
+  two arms are the *same* source text.
 
 ## 9. Registered-prediction scorecard
 
