@@ -483,12 +483,12 @@ print(residencyHeader)
 
 let sliding = kernels[0]
 let planesHalved = sliding.body.replacingOccurrences(
-    of: "threadgroup U outputs[4 * BN * BDP];",
-    with: "threadgroup U outputs[2 * BN * BDP];")
+    of: "threadgroup float4 outputs4[BN * BDP];",
+    with: "threadgroup float4 outputs4[BN * BDP / 2];")
 precondition(planesHalved != sliding.body, "epilogue plane declaration not found")
 
 var realPipelines: [(String, MTLComputePipelineState)] = []
-for (label, body) in [("real 4 planes", sliding.body), ("real 2 planes", planesHalved)] {
+for (label, body) in [("real plane", sliding.body), ("real plane/2", planesHalved)] {
     let msl = preamble + sliding.header + "\n"
         + mlxSignature(sliding.name, extraBuffers: true) + realPrologue + body + "\n}\n"
     do {
