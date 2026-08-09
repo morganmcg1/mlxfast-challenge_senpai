@@ -385,3 +385,94 @@ exactly. The separation is instead carried by the local dispatch census, which
 attributes the copy removal directly. If R1 lands in the §6
 inconclusive-but-informative band, R3 repeats it before anything is promoted.
 
+## 11. Amendment 2 — R1 downgraded from a score bid to a calibration probe
+
+Filed **before** R1 is spent. This amendment retracts the §10.2 M5 point
+prediction of `-1.4 ms`. Two independent frontier code audits of the vendored
+MLX dispatch layer converged on the same refutation, and I accept it.
+
+### 11.1 Completed local evidence (M4, admissible for what it claims)
+
+4-rep paired ABBA, 8 arms, `research/r97-logs/ab.{1..4}.{off,on}.json`:
+
+| axis | paired delta | sem | reps favouring `on` |
+|---|---:|---:|---:|
+| prefill | **-11.216 ms** | 2.755 | 4/4 |
+| decode | **-0.1504 ms** | 0.0154 | 4/4 |
+
+Correctness green in all 8 arms: `max_abs_diff = 0`, single golden digest
+`b9509697c08a`. The effect survives order reversal — `on` wins from first
+position (reps 2, 4: `-8.10`, `-12.80`) and from second position (reps 1, 3:
+`-5.75`, `-18.21`) — so it is not a warm-up or drift artifact.
+
+Of the decode delta, `-11.216/128 = -0.088 ms` is the mechanical seed-prefill
+amortisation implied by `decode_spt = per_step + S/128`. The residual
+`-0.063 ms` is **not attributed** and I do not claim it.
+
+### 11.2 Why the M4 magnitude must not be extrapolated to M5
+
+The M4 gain is real but is produced by a mechanism that **does not exist on
+M5**. On M4 (gen 16) `Wk`/`Wv` at `(M=512, N=1024, K=2048)` fall into the
+non-`_nax` split-K branch (`matmul.cpp:960-966`), so each is two dispatches
+plus an internal accumulate barrier; fusion deletes 4 dispatches per layer and
+the split-K partial buffers entirely. The census measured exactly this:
+`steel_gemm_bf16` 392 -> 236 records, `MIXED:splitk_accum+splitk_nt` 310 -> 154.
+
+On M5 the split-K admission test (`matmul.cpp:988-990`) fails for `Wk`/`Wv` by
+an exact tie (`K > 2*max(M,N)` is `2048 > 2048` = false), so all three
+projections already take the same regular `_nax` kernel. Fusion there changes
+**zero** FLOPs, zero bytes and zero threadgroups: per sliding layer
+`512 + 64 + 64 = 640` threadgroups before and `640` after; per full layer
+`384 + 64 + 64 = 512` before and `512` after. Only the dispatch count drops.
+
+### 11.3 Retracted prediction and its replacement
+
+The `-1.4 ms` figure assumed `Wq`/`Wk`/`Wv` serialise, so that each dispatch
+pays its own partially-empty tail wave. They do not have to. MLX encodes into
+one encoder with `MTL::DispatchTypeConcurrent` (`device.cpp:547-548`) and
+inserts a barrier only on a real RAW/WAR/WAW hazard (`device.cpp:323-348`,
+`363-375`). Read-after-read is never checked, and the barrier resets the
+tracked set — so the RMSNorm that writes `A` costs **one** barrier before `Wq`,
+after which `Wk` and `Wv` are barrier-free and the hardware is free to overlap
+them. The tail-wave term is therefore unsupported by the code.
+
+**Replacement prediction: `-0.16 ms` (range `-0.05` to `-0.30 ms`)**, being
+~80 removed dispatches times the M5 per-dispatch encode cost measured in
+`research/r93-runs/RESULTS.md` — `1.9823 us` by OLS over the dispatch ladder
+(line 110) and `2.3403 us` by the independent Arm B estimate (line 389), giving
+`0.159` to `0.187 ms`. It is plausibly smaller still because prefill is
+GPU-bound and that cost is CPU-side.
+
+At `0.373 %` score per ms of prefill this is `+0.06 %`, versus `+0.52 %` under
+the retracted model. **This is below the §5 GO bar of 1.5 ms and below the
+§6 informative floor of 0.3 ms.** I am spending R1 anyway, and reclassifying
+it: R1 is no longer a bid to promote P2+P2b, it is a **calibration probe** for
+the one unknown that gates this entire arm and every future dispatch-count
+experiment on this track.
+
+### 11.4 Registered read-out thresholds for R1
+
+M5 paired prefill sigma is `0.1027 %` (`research/r93-runs/RESULTS.md` line 243,
+n=5 null candidate) on a candidate prefill of `187.872 us/token` = `96.19 ms`,
+i.e. sigma ~= `0.099 ms`. The predicted `0.16 ms` is therefore only ~`1.6
+sigma` on a single receipt: R1 can bound the effect but cannot on its own
+resolve it, which is why the thresholds below are coarse.
+
+| observed M5 prefill delta | reading | consequence |
+|---|---|---|
+| `<= -1.0 ms` (>= ~1 %) | dispatches serialise; tail-wave model was right | promote P2+P2b, and P3's occupancy premise is live |
+| `-0.3` to `-1.0 ms` | partial overlap | keep P2+P2b, repeat on R3 per §10.6 before promotion |
+| `> -0.3 ms` | overlap confirmed, encode cost hidden | **close the dispatch-count family**; do not spend further receipts on removing dispatches, and treat P3 strictly on its occupancy merits |
+| `> +0.3 ms` | unmodelled regression | revert, report negative |
+
+Correctness must be green and both `0.95` floors held in every case; a
+correctness failure voids the reading rather than producing one.
+
+### 11.5 Honest statement of expected value
+
+I expect R1 to land in the third row. I am spending the receipt because the
+change is bit-exact by construction, carries no floor risk, and is the cleanest
+available instrument for the serialisation question — not because I expect it
+to move the ranking. If it lands as expected, the correct outcome of this arm
+is a **negative result that closes a family**, and I will report it as such.
+
