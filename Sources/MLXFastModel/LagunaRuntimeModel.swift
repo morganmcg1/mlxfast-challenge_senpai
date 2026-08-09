@@ -7090,7 +7090,8 @@ func lagunaRoutedDownReduce(
         grid: ((LagunaConstants.hiddenSize / 4) * 256, 1, 1),
         threadGroup: (256, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
@@ -7297,7 +7298,8 @@ func lagunaRoutedSharedDownResidual(
         grid: (groups * 288, 1, 1),
         threadGroup: (288, 1, 1),
         outputShapes: [[1, 1, LagunaConstants.hiddenSize]],
-        outputDTypes: [.bfloat16]
+        outputDTypes: [.bfloat16],
+        verbose: true
     )[0]
 }
 
