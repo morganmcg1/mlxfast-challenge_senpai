@@ -105,7 +105,7 @@ unique KV. Every family sits at ~4.13 bits/weight **except two**:
 | routed experts (NVFP4) | 521,404,416 | 4.25 | 33.0 % |
 | Q/K/V codes + lane scales | 411,299,840 | 4.129 | 26.0 % |
 | o_proj codes + lane scales | 324,485,120 | 4.126 | 20.5 % |
-| lm_head int5 screen | ~109,800,000 | ~5 | 6.9 % |
+| lm_head level-1 screen | 109,183,000 | 8.5 (nibble+scales) | 6.9 % |
 | **layer-0 dense MLP (BF16)** | **100,663,296** | **16** | **6.4 %** |
 | shared experts (NVFP4) | 65,175,552 | 4.25 | 4.1 % |
 | **routers (BF16)** | **40,934,400** | **16** | **2.6 %** |
@@ -188,7 +188,43 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 
 ---
 
-## 5. In-flight assignments (round 97 → 98)
+## 5. In-flight assignments (round 98)
+
+All four dispatched from **`e510bb3d094a59ae2d4285d6da4d1ba5361a2b23`**. Every
+brief carries the same thesis preamble (rules 66/67/68 + rule 60 + the 191 kB
+vs 80 kB in-flight argument), the Bennett weakest-hypothesis framing, the
+rule-68 measurement protocol (preregistered revert-control leg, contemporaneous
+control set, `f` recomputed per receipt), a named failure mode, and a 6-receipt
+budget.
+
+| PR | student | assignment | branch head | site |
+|---|---|---|---|---|
+| [#539](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/539) | maple-frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r98-a-rev1` | `14071c9b` | attention-side decode QMV (fused QKV `:4842`, `o_proj` `:4348`) |
+| [#540](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/540) | maple-nezuko | `maple-r98-b-attn-phase1-prefetch` / `r98-b-rev1` | `d469b0e9` | pre-barrier phase-2 K/V prefetch in the fused attention kernels |
+| [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r98-c-rev1` | `83da91e7` | double-buffer the routed gather-GEMM `Ws` stage |
+| [#543](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/543) | maple-fern | `maple-r98-d-moe-qmv-mlp` / `r98-d-rev1` | `61c87632` | MoE-side decode QMV (shared gate/up `:7103`, down family `:8080`/`:8342`/`:8444`) |
+
+**#539 / #543 are siblings at independent kernels** — attention-side vs
+MoE-side QMV, no file conflict beyond `LagunaRuntimeModel.swift` itself. **#540
+is the cleanest test of the thesis**: 28 of 32 simdgroups in the sliding kernel
+issue *nothing* between entry and the `:1590` barrier, and phase-2 K/V
+addresses (`:1609-1614`, `:2137-2142`) are provably independent of phase-1.
+**#541 attacks the largest single pool** — routed gather-QMMs are ≈54 % of
+prefill and the mainloop `:1496-1568` is single-buffered — and it is also the
+direct successor to rule 68's second surviving explanation (lost
+inter-dispatch read-after-read overlap): give the loop back, deliberately, the
+concurrency that fusing dispatches took away by accident.
+
+Named failure mode in every brief is **occupancy**: hoisting loads lengthens
+register lifetimes, and double-buffering doubles threadgroup memory. Each
+student must report register/threadgroup footprint per rung so a negative is
+attributable to the right cause. A rung that spills is not evidence against the
+thesis.
+
+If all four return clean negatives, that jointly **bounds the round-98 thesis
+itself**, which is a more valuable outcome than a marginal win at one site.
+
+### Closed last round (97)
 
 | PR | student | assignment | head | state |
 |---|---|---|---|---|
@@ -196,8 +232,6 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 | [#527](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/527) | maple-tanjiro | `maple-r97-b-prefill-tg-count` | `4dcb068b` | **CLOSED** — falsification (rule 68) |
 | [#525](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/525) | maple-fern | `maple-r97-a-dense-mlp-stage2` | `c18557e6` | **CLOSED** — negative (rule 66) |
 | [#528](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/528) | maple-nezuko | `maple-r97-c-attn-two-stage-split` | `8a353369` | **CLOSED** — negative (rule 67) |
-
-**All four students are idle as of round 98.**
 
 **#527 — prefill threadgroup count (CLOSED, falsification, 0 B spent).** Branch
 diff vs base is **empty**: every mechanism was measured then reverted. 2 of 6
@@ -343,7 +377,12 @@ LM-head grid-concat fusion · ALU-side levers on M4 (#498 / rule 55) · a second
 `float4` epilogue plane (dominated by R1) · cross-TG dedup of phase-1 K
 RMSNorm+RoPE (+40 dispatches ⇒ net negative) · LM-head bounded-exact argmax
 (**already shipped**: `DARKBLOOM_LM_HEAD_PRUNE` is ON and decode reads only the
-109.8 MB int5 screen) · full INT8-g32 attention conversion (byte-floor negative)
+109.183 MB level-1 screen) · **re-quantizing the lm_head screen int5→int4**
+(dead by construction — the decode level-1 read is *already* a 4-bit nibble
+plane, `LagunaLmHeadPrune.swift:253-254`; true int4 storage would double `sd`
+and admit more surviving blocks into the exact BF16 GEMV for **zero** decode-byte
+win. Only int3, 832 B/row, or coarser scale groups would save bytes) ·
+full INT8-g32 attention conversion (byte-floor negative)
 · NVFP4 code-plane compaction · KV-cache dtype reduction · seed/warmup tricks ·
 **stream-fragmenting byte reductions of any size (#525 / rule 66)** ·
 **splitting decode attention across a threadgroup boundary to fix TG-count
