@@ -1,6 +1,7 @@
 import Foundation
 import MLX
 @testable import MLXFastModel
+import MLXLMCommon
 import Testing
 
 @Suite(.serialized)
@@ -352,6 +353,108 @@ struct NVFP4QuantizedMMTests {
             sortedIndices: true,
             salt: 71
         )
+    }
+
+    @Test
+    func nvfp4PackedRoutedPrefillMatchesMaterializedSortWhenRuntimeTestsAreEnabled() {
+        guard nvfp4RuntimeTestsEnabled else { return }
+        defer { Memory.clearCache() }
+
+        let sourceRows = 512
+        let topK = 8
+        let n = LagunaConstants.moeIntermediateSize
+        let k = LagunaConstants.hiddenSize
+        let routeValues = (0..<sourceRows).flatMap { _ in
+            [UInt32(0), 0, 1, 1, 2, 2, 255, 255]
+        }
+        let routes = MLXArray(routeValues, [sourceRows, topK])
+        let sorted = gatherSortIndices(routes)
+        let packedIndices =
+            (sorted.sortedKeys.asType(.uint32) << 24)
+            | sorted.rowOrder.asType(.uint32)
+
+        let expertWords = (0..<256).map { expert -> UInt32 in
+            let code = UInt32(expert % 15 + 1)
+            return (0..<8).reduce(UInt32(0)) { word, offset in
+                word | (code << (offset * 4))
+            }
+        }
+        let packedWeight = broadcast(
+            MLXArray(expertWords, [256, 1, 1]),
+            to: [256, n, k / 8]
+        )
+        let scales = broadcast(
+            MLXArray([UInt8(0x38)], [1, 1, 1]),
+            to: [256, n, k / 16]
+        )
+        let x = deterministicNVFP4Source(
+            shape: [sourceRows, 1, 1, k],
+            salt: 79
+        ).asType(.bfloat16)
+        let materializedX = x.flattened(start: 0, end: -3)[sorted.rowOrder]
+
+        let materialized = gatherQuantizedMM(
+            materializedX,
+            packedWeight,
+            scales: scales,
+            biases: nil,
+            rhsIndices: sorted.sortedKeys,
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4,
+            sortedIndices: true
+        )
+        let packed = gatherQuantizedMM(
+            x,
+            packedWeight,
+            scales: scales,
+            biases: nil,
+            rhsIndices: packedIndices,
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4,
+            sortedIndices: true
+        )
+        let materializedValues = materialized.asArray(Float.self)
+        #expect(packed.asArray(Float.self) == materializedValues)
+
+        var corruptedIndices = packedIndices.asArray(UInt32.self)
+        #expect(corruptedIndices[0] & 0x00ff_ffff == 0)
+        corruptedIndices[0] = (corruptedIndices[0] & 0xff00_0000) | 1
+        let corrupted = gatherQuantizedMM(
+            x,
+            packedWeight,
+            scales: scales,
+            biases: nil,
+            rhsIndices: MLXArray(corruptedIndices, [sourceRows * topK]),
+            transpose: true,
+            groupSize: 16,
+            bits: 4,
+            mode: .nvfp4,
+            sortedIndices: true
+        )
+        #expect(corrupted.asArray(Float.self) != materializedValues)
+
+        let fallbackValues = (0..<15).flatMap { row in
+            [UInt32(255), 0, 2, 2, 1, 255, 0, UInt32(row % 4)]
+        }
+        let fallback = gatherSortIndices(MLXArray(fallbackValues, [15, topK]))
+        let expectedOrder = fallbackValues.indices.sorted { lhs, rhs in
+            fallbackValues[lhs] == fallbackValues[rhs]
+                ? lhs < rhs
+                : fallbackValues[lhs] < fallbackValues[rhs]
+        }
+        let expectedKeys = expectedOrder.map { fallbackValues[$0] }
+        let expectedRows = expectedOrder.map { UInt32($0 / topK) }
+        var expectedInverse = [UInt32](repeating: 0, count: fallbackValues.count)
+        for (rank, index) in expectedOrder.enumerated() {
+            expectedInverse[index] = UInt32(rank)
+        }
+        #expect(fallback.sortedKeys.asArray(UInt32.self) == expectedKeys)
+        #expect(fallback.rowOrder.asArray(UInt32.self) == expectedRows)
+        #expect(fallback.inverseOrder.asArray(UInt32.self) == expectedInverse)
     }
 }
 
