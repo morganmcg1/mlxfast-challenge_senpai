@@ -60,12 +60,16 @@ build_worker() {
   return "${rc}"
 }
 
-cleanup() {
+revert_hook() {
   if [ "${HOOK_APPLIED}" = "1" ]; then
     echo "### reverting GPU-profile hook"
     git apply -R "${PATCH}" || echo "WARNING: hook revert failed"
     HOOK_APPLIED=0
   fi
+}
+
+cleanup() {
+  revert_hook
   local after
   after="$(tree_digest)"
   printf 'digest_after=%s\n' "${after}" | tee -a "${OUT}/provenance.txt"
@@ -80,6 +84,10 @@ git apply "${PATCH}" || exit 3
 HOOK_APPLIED=1
 build_worker "HEAD + gpuprof hook" || exit 4
 shasum -a 256 "${WORKER}" | tee "${OUT}/worker.sha256"
+
+# The hook is a build-time input only: the sweep runs the already-linked worker.
+# Revert now so the tree is clean for the ~30 min sweep instead of only at exit.
+revert_hook
 
 R89_SLOTS="${SLOTS}" python3 research/maple_r89_insitu.py \
   "${OUT}" "${REPS}" "${STEPS}" "${SPLIT}" 2>&1 | tee "${OUT}/sweep.log"

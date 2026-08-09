@@ -329,6 +329,97 @@ nothing to reverse and prints a cosmetic `WARNING: hook revert failed`; the
 integrity check that matters, `digest_after == digest_before`, still passes.
 
 The wrapper should revert the hook right after `build_worker` instead, keeping
-the tree clean for all but ~90 s. That edit is deliberately deferred until no
-census is running: bash reads a script incrementally by file offset, so editing
+the tree clean for all but ~90 s. That edit was deliberately deferred until no
+census was running: bash reads a script incrementally by file offset, so editing
 a running script in place can corrupt its execution.
+
+**Fixed after the census finished.** `revert_hook` is now a separate idempotent
+function called immediately after the worker sha is recorded, and `cleanup`
+merely calls it again as a safety net. Runs from that commit onward hold the
+Vendor edit for the build only and produce no cosmetic revert warning.
+
+## Step 4c: full census — the decisive measurement
+
+Job `9815a259-5ece-46a6-a2a7-2d0706bd7d19`, rc=0, 2166 s. Output
+`/tmp/r100c-census`, `head=8fed9f47f2c4a522a59d0af7f4bbdf223803a131`,
+worker sha `5e811560421340ae05f5b8d836240f216947734c7843686bce741be1ab04ef3b`,
+`REPS=12 STEPS=300 SPLIT=1`, slots `0,0b,1,5`, 48 records.
+
+Integrity: `digest_before == digest_after ==
+58ab3978081368580a26793700771b5254137676e8081d76f73d996545197527`; working tree
+clean afterwards; **0 divergences in all 48 records**. Three distinct kernels
+were confirmed present by name:
+`residual_rms_router_bf16_2048_rpg8_keys_v1`, `…_pf1`, `…_pf1c`.
+Slot order is ABBA-balanced (6 forward + 6 reversed reps; average position 2.5
+for every slot), so linear drift cannot alias onto a slot.
+
+### Per-kernel router µs/step, paired within-rep, ref = pf0
+
+| slot | level | paired d | 95% CI |
+| --- | --- | --- | --- |
+| pf0 (`0`) | 319.8417 | +0.0000 | — |
+| pf0b (`0`, null control) | 319.9000 | +0.0583 | [−0.3696, +0.4862] |
+| **pf1 (`1`)** | 313.5083 | **−6.3333** | **[−6.9302, −5.7365]** |
+| pf1c (`5`) | 319.8917 | +0.0500 | [−0.9761, +1.0761] |
+
+With ref = pf1c, pf1 d = **−6.44 µs/step** [−7.36, −5.51].
+
+### Sign test, per-rep differences (n=12)
+
+| contrast | mean | sd | negative | min | max |
+| --- | --- | --- | --- | --- | --- |
+| pf1 − pf0 | −6.333 | 0.939 | **12/12** | −8.20 | −4.30 |
+| pf1 − pf1c | −6.383 | 1.447 | **12/12** | −10.50 | −5.00 |
+| pf0b − pf0 (null) | +0.058 | 0.673 | 6/12 | — | — |
+| pf1c − pf0 | +0.050 | 1.615 | 7/12 | — | — |
+
+Two-sided sign test on 12/12 gives p = 2·2^-12 = 4.9e-4 for each pf1 contrast.
+The null control splits 6/12, exactly as an unbiased null should.
+
+### Floors at n=12, from the null control
+
+| estimator | null d | ±95% µs/step |
+| --- | --- | --- |
+| per-kernel router label | +0.13 | **±0.43** |
+| census absolute busy | +3.25 | ±6.50 |
+| census union busy | +3.08 | ±6.49 |
+| census wall | +0.83 | ±9.61 |
+| end-to-end median | +0.50 | ±8.48 |
+
+The effect is **14.7× the measured per-kernel floor**. Every coarse estimator
+still has a floor at or above the effect size.
+
+### Reading the coarse estimators correctly
+
+pf1 reads +4.83 (busy), +4.67 (union), +7.42 (wall), +4.42 (e2e median)
+µs/step — apparently *positive*. But the **byte-identical null control pf0b
+carries the same positive offset** (+3.25 / +3.08 / +0.83 / +0.50), and pf1c
+carries a larger one (+5.58 / +5.67 / +10.58 / +5.25). A shared positive shift
+on a control that cannot differ from its own reference is a reference/drift
+artifact of those estimators, not a pf1-specific regression. All of these CIs
+straddle zero. Per the reporting rule recorded above, these readings are
+**uninformative, not negative**. `gpu_busy_sum/union` is 1.0003 ± 0.0001
+(n=48), i.e. the router dispatch is effectively serial, so the absolute and
+union census variants are not independent evidence.
+
+### Verdict against the preregistered decision table
+
+The observed pattern is `pf1 < pf1c ≈ pf0` — the table's **ship** branch, in its
+strongest form: the placement control is statistically indistinguishable from
+the unhoisted baseline while the hoisted arm sits 14.7 floors below both. The
+mechanism is isolated to *hoisting the first four-load group above the RMS
+normalize barrier*; a character-identical peel emitted below the barrier buys
+nothing.
+
+**N-A (no effect) refuted** — 12/12, 14.7 floors.
+**N-B (compiler already hoists) refuted** — by the Step 1 AIR placement, and
+independently by `pf1c ≈ pf0` here.
+**N-C (codegen/occupancy tax) refuted** — identical pipeline stats in Step 1,
+and pf1 is the *fastest* arm, not the slowest.
+
+Per the amended M4 rule recorded before any number existed: the lever is
+**alive on M4; M5 status unknown**. This is a survival result handed to the
+advisor, not a win claim. This host reports Apple GPU generation 16 and never
+selects the ranked `_nax` kernels, so it can falsify but cannot confirm for the
+ranked M5.
+
