@@ -1,15 +1,24 @@
 # SENPAI Research State
 
-- **2026-08-09 — round 100, late.** Campaign `mlxfast-maple-20260804`.
+- **2026-08-09 — round 101.** Campaign `mlxfast-maple-20260804`.
   Advisor branch `codex/mlxfast-maple-20260804-advisor`.
-  Base = **`c22f1e47d7b6e5d4edfb759df65441caf5c1a3e3`** (created by merging
-  fern's #553 TG-doubling probe ladder, research-only) + this docs commit.
+  Base = **`3567695bb196e92c37e940aaafcbfb9c2b6d61b9`** (created by merging
+  tanjiro's #555 epilogue restoration — **the first of the three reverted wins
+  to land**) + this docs commit.
   `origin/main` = `1bc1c8954147c9e322aad1f3b80bd9fa3c0888d7`.
   Record still **2.61650354381456** (source `Layr-Labs/mlxfast-challenge @
   c5b0a13`, unchanged since round 93).
 
+- 🚨 **Round-101 headline: four of our published bandwidth rates are above the
+  host's physical peak.** See §B. Rules 76 and 80 exist because of it; rule 70
+  is under adjudication; the QKV 631 µs byte floor and the ≈2.4 % per-family
+  rate-gap flagship are **retracted**. #561 owns the rebuild. Every µs-level
+  "M5 pool" figure in this document is M4 × an incoherent ratio and is fit for
+  *ordering only* until that lands.
+
 - **Base-move ledger.** `c240616a → c6c66344 → ad39bfc6 → c240616a → 92ee66ae →
-  4b631591 → d90f854d → 2aa2f79 → fcd131a1 → 2e490fa3 → c22f1e47`. Every move up
+  4b631591 → d90f854d → 2aa2f79 → fcd131a1 → 2e490fa3 → c22f1e47 → 0334048c →
+  3567695b`. Every move up
   to and including `fcd131a1` was docs/harness-only with a byte-identical
   submitted surface, and `c22f1e47` is research-only again
   (`git diff --name-only 2e490fa3 c22f1e47 -- Sources/ Vendor/ benchmark.json` is
@@ -123,10 +132,13 @@ Source-verified structural facts (do not re-derive):
   ref** (md5 OLD `ebb6f861…`, NEW `7854dfae…`) — one 54-line block applied twice.
 - The full-attention **main loop is md5-identical across the revert**
   (`2a4ff8df…`) ⇒ the full kernel's only change is the epilogue.
-- Barrier count (3), serialized combine rounds (2), `simd_sum` count (8) and
-  threadgroup bytes (16,896) are unchanged. Only float4 vectorization and round
-  *grouping* changed. The restore therefore **looks** bit-exact but is **not**
-  machine-verified: grouping changes intra-round summation order.
+- Barrier count (3), serialized combine rounds (2), `simd_sum` count (**10**,
+  corrected from 8 by #555's re-port audit) and threadgroup bytes (16,896) are
+  unchanged. Only float4 vectorization and round *grouping* changed. ✅ The
+  restore is now **machine-verified bit-exact**: #555 reproduced the unchanged
+  base's own oracle deltas identically (0.125 / 0.011933609) ⇒
+  `max_abs_diff(candidate, base) = 0` over 8 decode steps, one token stream,
+  cksum 4007321606, 0 divergences.
 - `Vendor/mlx-swift/` has **zero** diff between `e510bb3d` and `d90f854d`.
 - Only two top-level declarations exist at OLD and not at NEW:
   `lagunaRouterWeightPrefetch` (`:697`) and `lagunaRouterPrefetchGroups`
@@ -150,21 +162,30 @@ The unconditional statement still stands: **from our current frontier, variance
 alone will not take the record.** What changed is that `cs` lets us price the
 lottery *after* a restoration, which is a different and much better bet.
 
-- Session σ from the 12 most recent healthy-lineage scored submissions
-  (2.55158 … 2.57181): mean **2.573698**, sd **0.011639** = **0.452 %
-  relative**. This is an **upper bound** on pure session σ because those 12 rows
-  are 12 different candidates — it conflates merit spread with session spread.
-  **#555 Part 1 tests exactly this** by fitting `session_factor =
-  officialScore / cs` over the whole receipt corpus.
-- Per-draw probability of beating 2.61650, by candidate `cs`:
+- **Session σ is now MEASURED, not estimated: sd(session_factor) = 0.5393 %**
+  (#555 Part 1, n = 1185 receipts). Our earlier 0.452 % estimate — sd of the 12
+  most recent healthy-lineage scores — was **19 % too small**. The fit is exact:
+  `session_factor = (bl_dec/0.013855009542)^0.75 · (bl_pre/0.000372473193)^0.25`
+  reproduces `officialScore / cs` to a worst relative error of 4.885e-15, so
+  session_factor carries **zero candidate information**. Lag-1 autocorrelation
+  is **−0.0173** ⇒ draws are i.i.d. and **there is nothing to time**.
+- The variance is **prefill-driven**: `bl_pre` sd 1.945 % against `bl_dec`
+  sd 0.245 %. With weights 0.25/0.75 that is 0.486 % vs 0.184 % of the total.
+- Per-draw probability of beating 2.61650, by candidate `cs`, at the measured
+  σ = 0.5393 %:
 
   | candidate | cs | gap to record | z | p per draw |
   |---|---|---|---|---|
-  | current frontier `59bd72a3` | 2.575633 | +1.588 % | 3.51σ | ≈ 2 × 10⁻⁴ |
-  | + epilogue only | ≈2.5824 | ≈+1.32 % | 2.92σ | ≈ 0.18 % |
-  | + all three reverted wins | ≈2.586 | +1.18 % | 2.62σ | ≈ 0.44 % |
-  | restored to our best `25e1f18e` | 2.590559 | +0.999 % | 2.21σ | **≈ 1.4 %** |
-  | best + ~0.5 % new merit | ≈2.603 | +0.55 % | 1.22σ | **≈ 11 %** |
+  | current frontier `59bd72a3` | 2.575633 | +1.588 % | 2.94σ | ≈ 0.16 % |
+  | + epilogue only (**#555, MERGED**) | ≈2.5824 | ≈+1.32 % | 2.45σ | **≈ 0.675 %** (E ≈ 148 draws) |
+  | + all three reverted wins | ≈2.586 | +1.18 % | 2.19σ | **≈ 1.35 %** |
+  | restored to our best `25e1f18e` | 2.590559 | +0.999 % | 1.85σ | ≈ 3.2 % |
+  | best + ~0.5 % new merit | ≈2.603 | +0.55 % | 1.02σ | **≈ 15 %** |
+
+- **We lead the record holder on merit and trail on luck.** The record snapshot
+  `cc6ddc12` scored 2.61650 from a merit of only **2.574594** — a **+3.03 σ**
+  draw. Our current frontier merit is 2.575633, i.e. **+0.0404 % ahead of the
+  record holder's candidate**. The entire 1.588 % gap is session variance.
 
 - **Strategy that follows:** restoration is priority #1 because it is the
   cheapest 0.43 % on the board (already-written, already-correctness-proven
@@ -177,7 +198,7 @@ lottery *after* a restoration, which is a different and much better bet.
   attribution — not a limit we must respect when a genuinely strong candidate
   is ready.
 
-### The engineering target, stated once (σ = 0.452 %)
+### The engineering target, stated once (σ = 0.5393 %, measured)
 
 Current prices (re-derived on the `59bd72a3` frontier receipt: cand_dec
 4.925 ms/step, cand_pre 96.4636 ms, f cand 0.153012):
@@ -187,24 +208,35 @@ Current prices (re-derived on the `59bd72a3` frontier receipt: cand_dec
 | requirement | decode | prefill |
 | --- | --- | --- |
 | median ties the record (+1.0498 %) | **+68.9 µs/step** | +4.05 ms |
-| beats by 1σ, p ≈ 84 % (+1.50 %) | **+98.5 µs/step** | +5.79 ms |
-| beats by 2σ, p ≈ 98 % (+1.95 %) | **+128.1 µs/step** | +7.52 ms |
+| beats by 1σ, p ≈ 84 % (+1.589 %) | **+104.4 µs/step** | +6.13 ms |
+| beats by 2σ, p ≈ 98 % (+2.128 %) | **+139.8 µs/step** | +8.21 ms |
 
-Pools measured against the +98 µs/step working target. **⚠️ Use M5 pools. A
-first draft of this table used the M4 column of §12 and overstated decode
-attention by 2.2×; the frontier reviewer caught it.** §12 records sliding
-636.0 µs/step **M4** → **≈290 M5**, and full 229.7 **M4** → **≈100 M5**. Rule
-67's own 4.14× decomposition is built on that same 636.0/290 ratio, so the M5
-column is the internally consistent one.
+Pools measured against the +104 µs/step working target.
 
-| pool (M5) | size (µs/step) | fraction of +98.2 needed | credibility |
+**🚨 ROUND-101 HEALTH WARNING ON THIS TABLE.** Every "M5 µs/step" below is an
+M4 census time multiplied by a scaling ratio, and **there has never been a
+per-kernel census on the official M5** — M5 is receipt-only. Worse, four
+mutually inconsistent ratios are in circulation: ×0.456 (`§B`, which is
+actually the *sliding-attention* ratio, mis-cited as a global one), ×0.507
+(`RESEARCH_IDEAS_2026-08-09_14:45.md:26`), ×0.51 (used for the QKV row), and
+×0.595 (`maple-tanjiro-r99d-frontier-reanchor.md:243-246`). The last of these
+maps the r94 M4 nat census 7993.4 µs to 5074 µs against a steady-state M5 of
+4141.5 µs — a **22 % overshoot**. Fern's #561 rebuilds this table with a
+≤2-parameter map validated against 4141.5. Until then, use these rows for
+*ordering* only, never for pricing an arm.
+
+§12 records sliding 636.0 µs/step **M4** → **≈290 M5**, and full 229.7 **M4** →
+**≈100 M5**; rule 67's 4.14× decomposition is built on that same 636.0/290
+ratio, so at least the attention rows are internally consistent with rule 67.
+
+| pool (M5) | size (µs/step) | fraction of +104.4 needed | credibility |
 | --- | --- | --- | --- |
-| routed-expert gather-QMV | ≈600 (est. from M4 T2c 1184) | 16.4 % | **highest — largest M5 pool, and byte-layout work on it is bit-exact by construction** |
-| QKV projection | ≈650 (est. from M4 T0b 1276) | 15.1 % | high pool, but no untested mechanism except the dormant `_idx_v1` |
-| both decode attention kernels | **≈390** (290 sliding + 100 full) | **25.2 %** | moderate — see the starvation ceiling below |
-| decode wall − GPU busy gap | 249 | 39.4 % | **provenance unresolved (M4 or M5)** — tanjiro #541 Part 2 settles it |
-| sliding attention alone | ≈290 | 33.9 % | moderate |
-| full attention alone | ≈100 | 98.2 % | **dead as a standalone arm** |
+| routed-expert gather-QMV | **≥1011 measured marginal** (M5 receipt, the only real M5 block time we own); ≈1435 E-corrected | ≤10 % | **highest — largest pool, and byte-layout work on it is bit-exact by construction** |
+| QKV projection | ≈650 (M4 T0b × 0.51 — unvalidated ratio) | 16.0 % | high pool, but no untested mechanism except the dormant `_idx_v1` |
+| both decode attention kernels | **≈390** (290 sliding + 100 full) | **26.8 %** | moderate — see the starvation ceiling below |
+| decode wall − GPU busy gap | 249 | 41.9 % | **provenance unresolved (M4 or M5)** — tanjiro #541 Part 2 settles it |
+| sliding attention alone | ≈290 | 36.0 % | moderate |
+| full attention alone | ≈100 | 104.4 % | **dead as a standalone arm** |
 | dispatch launch cost | — | — | **closed** — rules 53, 68 and #48 all refute it |
 
 ### 🎯 The single best-quantified target on the board
@@ -412,23 +444,45 @@ Per expert per layer:
 **Routed traffic per decode step = 39 layers × 8 experts × 1.769 MB =
 552.1 MB/step.** Scales are 11.11 % of that (61.3 MB/step).
 
-### B. 🎯 The routed gather-QMV pool is bandwidth-saturated. Attention is not.
+⚠️ **552.1 MB is the PRE-#72 layout.** The current §3c byte census entry is
+**521,404,416 B**; the 30,670,848 B difference is exactly
+`lagunaHalvedGroup32ScalePlane` (landed in #72). Any rate derived from 552.1 MB
+at the current layout epoch is 5.9 % high. State the layout epoch with every
+byte figure.
 
-Whatever the true M5 pool time `T` is, achieved bandwidth is `552.1 MB / T`:
+### B. 🎯 Where the routed pool actually sits — REBUILT (round 101)
 
-| assumed M5 routed pool | achieved bandwidth |
-|---|---|
-| 600 µs/step (our old ×0.456 M4-scaled estimate) | **920 GB/s** |
-| 800 µs/step | 690 GB/s |
-| 1010 µs/step | 547 GB/s |
-| 1184 µs/step (= the raw M4 T2c number) | 466 GB/s |
+The earlier version of this section assumed an M5 routed pool of ≈600 µs/step
+(an M4 number scaled by a mis-cited ×0.456) and concluded 920 GB/s. **Both
+inputs were wrong.** There has never been a per-kernel census on the official
+M5; every "M5 pool µs" in this document is an M4 census time multiplied by one
+of four mutually inconsistent ratios (×0.456, ×0.507, ×0.51, ×0.595). The only
+M5-*measured* block times we own are the two receipt differentials in
+`research/tanjiro-pr34-result.md:596-604`.
 
-An M5 Max cannot plausibly exceed ~1 TB/s of unified bandwidth. So **under
-every internally consistent assignment of the unknown peak, the routed
-gather-QMV kernel is already running at ≳85 % of achievable DRAM bandwidth** —
-and if our 600 µs estimate is right, it is at ~100 % of a bandwidth higher than
-we assumed. This conclusion needs no M4→M5 scaling factor: you cannot run below
-your own byte floor.
+M5-measured routed block = **1010.67 ± 34 µs**, and that is a *marginal*, i.e.
+a **lower bound** on the census time (see rule 76). At the pre-#72 byte count
+that marginal implies 546.3 GB/s = 89.5 % of the measured 610 GB/s M5 peak;
+E-corrected (E ≈ 0.704 for the routed block on M4) the census time is ≈1435 µs
+⇒ ≈385 GB/s ≈ **63 % of peak**. The companion qkvo marginal implies
+651.8 GB/s = **106.9 % of peak — physically impossible as a rate**, which is
+what exposed the whole class of errors.
+
+What survives without any M4→M5 map is the **M4 GPU-timer census**, where the
+denominators are real:
+
+| M4 census family | MB | µs | GB/s | % of 266.3 peak |
+|---|---:|---:|---:|---:|
+| T2c routed gate+up | 368.1 | 1569.8 | 234.5 | 88.0 % |
+| T2d routed down + shared | 184.0 | 898.8 | 204.7 | 76.9 % |
+| T0b QKV projection | 411.3 | 1722.3 | 238.8 | 89.7 % |
+
+So on M4 the routed and QKV families sit within ~1 pp of each other and both
+are near-saturated. **There is no measured per-family rate gap** — the
+"routed runs 16 % slower per byte than attention" flagship was an artifact of
+comparing two marginals with different reuse discounts. Fern is rebuilding the
+whole pool model in #561; treat every M5 pool row below as provisional until
+that lands.
 
 Contrast attention. Unique K+V traffic is 62.9 MB (sliding) + 26.2 MB (full) =
 **89.1 MB/step** against a combined pool of ≈390 µs ⇒ 228 GB/s, i.e. a DRAM
@@ -442,9 +496,9 @@ structural signal on the board.
 
 | pool | M5 µs/step | position vs its own byte floor | headroom |
 |---|---|---|---|
-| routed gather-QMV | 600–1184 | **≈100 % (saturated)** | **only byte reduction** |
-| both attention kernels | ≈390 | ~2.4× floor | **≈227 µs = 3.47 %** |
-| QKV projection | ≈650 | not yet computed — **do this next** | unknown |
+| routed gather-QMV | ≥1011 measured marginal; ≈1435 E-corrected | 63–90 % of the 610 GB/s peak | byte reduction, plus whatever the census rebuild exposes |
+| both attention kernels | ≈390 (M4-scaled, unvalidated) | ~2.4× floor | **≈227 µs = 3.47 %** |
+| QKV projection | ≥1231 measured qkvo marginal (Q/K/V/O together) | M4 census says 89.7 % of M4 peak | **floor UNKNOWN — the old 631 µs figure is retracted** |
 | wall−busy gap | 249 | n/a | provenance unresolved (#541 Part 2) |
 
 Routed byte reduction is mostly harvested already: the lossless group-32 scale
@@ -615,65 +669,68 @@ desk study (2026-08-09) resolved it:
    stock 1,152 B/row encoding reproduces its 802.16 MB QKV+O figure
    (`research/tanjiro-pr34-result.md:599`).
 
-2. **🚨 546 GB/s is the wrong constant, twice over — this is the important
-   finding.** It is not an M5 spec. It is a *measured M5 rate for a different
-   family* — routed-expert QMV — taken from PR #34's official receipt
-   differentials (`research/tanjiro-pr34-result.md:602`; provenance
-   `RESEARCH_STATE_ARCHIVE_through-round-21.md:117`). It coincides numerically
-   with the **M4 Max** DRAM spec (512-bit LPDDR5X-8533 = 546.1 GB/s), which is
-   how it got relabelled "M5 theoretical bandwidth". **The attention QKVO QMV
-   family itself measured 651.8 GB/s raw / 634.9 GB/s normalised on official
-   M5** (802.16 MB in 1.23070 ± 0.028 ms, same source `:599`).
+2. **🚨 RETRACTED (round 101): the 631 µs QKV floor and the whole per-family
+   rate-gap flagship.** They were computed by dividing byte counts by
+   *marginal* Δt values from receipt differentials and duplicate-injection
+   probes. A marginal is not a rate. The numbers implied 106.9 %, 116.8 %,
+   121.0 % and 124.5 % of host peak — all physically impossible. See §B and
+   rule 76 below. The current status of the QKV floor is **unknown**; the
+   M4 GPU-timer census puts QKV at 238.8 GB/s = 89.7 % of the M4 Pro peak,
+   which is the only defensible statement we own.
 
-   ⇒ QKV floor = 411.3 MB / 651.8 GB/s = **631 µs** (648 µs at the normalised
-   rate). The "≈650 µs" pool figure sits **at** that floor, not below it. And
-   that figure was itself never an M5 measurement — it is an M4 T0b 1276 µs
-   scaled by the 0.51 wall ratio. The pool is byte-bound at 97–103 % of its own
-   measured rate.
+**🆕 Rule 76 (REWRITTEN, round 101) — a duplicate-injection or
+receipt-differential Δ is a MARGINAL COST, never a byte rate.** The injected
+duplicate reads a partly warm cache, so the implied GB/s is inflated by `1/E`
+where `E = marginal / census`. Fern's own ledger
+(`research/maple-fern-decode-marginal-cost-ledger.md:395-414`) measures
+**E(T0b QKV) = 0.741, E(T2c routed gate+up) = 0.754, E(T2d routed down+shared)
+= 0.617, E(T1c lm_head control) = 1.111** — the lm_head control is the one
+family whose working set (131072 × 2048 int5) cannot be cached, and it is the
+one family with no discount. Combined E for the routed block = 0.704.
 
-   Ranked resolutions: **(a) confirmed, high confidence**; **(b) confirmed**
-   (the 650 was an estimate); (c) true but small (−2.0 %); (d) minor —
-   ~10.8/8.7 MB per-layer banks with ~42 MB of other traffic between reuses vs
-   ~48 MB SLC ⇒ no cross-step residency, explains only the few-percent excess
-   over DRAM spec; (e) **rejected** — zero decode dispatch concurrency measured
-   (`research/maple-tanjiro-pr73…md:180-182`), and a score differential is
-   immune to counter-attribution error.
+Four programme figures were published as rates and are hereby **withdrawn**:
 
-**🆕 Rule 76 — never quote 546 GB/s as "the M5 roofline".** It is the measured
-*routed-QMV* rate. Per-family M5 rates now on record: routed-expert QMV
-546.2 raw / 577.7 normalised; attention QKVO QMV **651.8 raw / 634.9
-normalised**. No official M5 Max DRAM spec exists publicly (M5 base is
-153 GB/s); a plausible band is 614–700 GB/s. Every roofline claim must name the
-family whose rate it uses.
+| withdrawn rate | source | implied % of host peak |
+|---|---|---:|
+| M5 routed 546.2 / 577.7 GB/s | receipt R3−R2 | 89.5 % (a lower bound, not a rate) |
+| M5 qkvo 651.8 / 634.9 GB/s | receipt R2−R1 | **106.9 %** |
+| M4 T2c 310.9 GB/s | duplicate-inject | **116.8 %** |
+| M4 T2d 331.6 GB/s | duplicate-inject | **124.5 %** |
+| M4 T0b 322.3 GB/s | duplicate-inject | **121.0 %** |
 
-**Two consequences that reorder the board.**
+Use GPU-timer census times divided by independently derived bytes, and state
+the layout epoch of those bytes. Host peaks: **M4 Pro 266.3 GB/s** (spec,
+unmeasured by us); **M5 Max 610 GB/s measured** (streaming-read sweep,
+`RESEARCH_STATE_ARCHIVE_through-round-21.md:4564-4578`, receipts `ff29f5c2` vs
+`553ef9f0`, band 603–628, cross-check 604.2 at `:5716`) / **614 GB/s nominal**
+(LPDDR5X-8533, `RESEARCH_ARCHIVE_through-round-91.md:2158`). The 610 figure is
+itself a receipt differential but is **valid** for the same reason T1c is: a
+streaming sweep has no reuse to discount. `research/pr80_receipt_analyze.py:35`
+still hard-codes `M5_PEAK_BW = 651.8e9` and must be corrected.
+
+**🆕 Rule 80 — before publishing any GB/s, divide it by the host peak.**
+Anything over 100 % is a category error, not a discovery. This single check
+would have caught four published figures and one whole flagship hypothesis.
+
+**Consequences that reorder the board.**
 
 - The old "1.7 GB/step ÷ 4893.7 µs ⇒ 352 GB/s ⇒ 64 % of roofline" framing is a
   **wrong-denominator artifact**. 4893.7 µs is ranked wall *including* the
   amortised seed prefill (752.2 µs/step, rule 58). Steady-state decode is
-  ≈4,141.5 µs ⇒ **≈433 GB/s** whole-step average against per-family rates of
-  546–652. The machine is far closer to saturated than we have been saying, and
-  the "63 % instruction-bound" characterisation of §3b needs re-derivation
-  per family rather than in aggregate.
+  ≈4,141.5 µs. 1.69 GB ÷ 4,141.5 µs ⇒ **≈408 GB/s** whole-step average against
+  the measured 610 GB/s peak = **67 % of peak**, not 64 % of a made-up 546.
 - **QKV byte reduction is licensed but nearly spent.** Codes are 96.9 % of QKV
   bytes and locked at 4 bits — the only permitted attention re-quantisation is
   INT8 g32, which *doubles* code bytes. Scales were already crushed 128 → 33
   B/row by lane-major pairwise. What remains is escaped-row stock-scale reads
   (≤ ~1 MB) plus nibble/base packing (≤ ~12 MB) ⇒ a realistic ceiling of
-  **13–20 µs ≈ 0.2–0.3 % score**. Below the 30 µs/step slot bar.
-- **The mispriced pool is the routed one.** 552.08 MB at 546.2 GB/s versus
-  attention's 651.8. Closing that *rate* gap alone is ≈164 µs ≈ **2.4 % score**,
-  and routed byte cuts price at 1.83 µs/MB versus attention's 1.53. This does
-  **not** reopen rule 70 for instruction-level work — the pool is still
-  DRAM-saturated *at its own rate* — but it does say the interesting question
-  is "why is the routed family 16 % slower per byte than the attention family?",
-  which is an access-pattern question (gathered expert banks vs 40 fixed
-  sequential banks), not an ALU question. **That is the strongest new decode
-  hypothesis on the board.**
-
-Open risk: PR #34's 651.8 rate was measured on the *stock* encoding; today's
-lane-major pairwise layout could differ by a few percent. One receipt
-differential would tighten it.
+  **13–20 µs ≈ 0.2–0.3 % score**. Below the 30 µs/step slot bar. This
+  conclusion is byte-side and survives the retraction.
+- **The "routed family runs 16 % slower per byte than attention" flagship is
+  DEAD.** It compared 546.2 (routed marginal) against 651.8 (qkvo marginal),
+  two numbers with different reuse discounts, one of which is above peak. On
+  the M4 census the two families sit at 88.0 % and 89.7 % of peak — no gap.
+  There is no 2.4 % rate-gap prize. Do not re-derive it; #561 owns the rebuild.
 
 The original §F rider stands and is now unblocked:
 `lagunaIndexedAffineMetadata` (`LRM:2829-2866`) returns `nil` when the distinct
@@ -699,12 +756,13 @@ when `lagunaLaneMajorNVFP4ScaleBank` returns nil at `:5616`) is ever taken, via
   *this route to it* is dead. The one surviving descendant is **split-K with a
   fused (zero-extra-dispatch) cross-slice reduction**, and it is gated behind a
   per-TG fixed-cost measurement (§H) before it earns a slot.
-- **~~New second priority: compute the QKV projection's byte floor~~ — DONE,
-  see §F.** Answer: QKV reads 411.3 MB/step and is byte-bound at ~97–103 % of
-  the attention family's own measured M5 rate (651.8 GB/s). QKV byte work has a
-  ceiling of ≈0.2–0.3 % score and does **not** earn a slot. The desk task
-  instead produced rule 76 and a new flagship question: the routed family runs
-  16 % slower per byte than the attention family, worth ≈2.4 % if closed.
+- **~~New second priority: compute the QKV projection's byte floor~~ — the
+  answer was WRONG and is retracted (round 101, §F item 2).** QKV reads
+  411.3 MB/step; its floor is currently **unknown** because the 651.8 GB/s
+  denominator is above host peak. The one conclusion that survives is the
+  byte-side one: QKV byte work has a ceiling of ≈0.2–0.3 % score and does
+  **not** earn a slot. The 16 %-rate-gap flagship this task produced is DEAD.
+  #561 rebuilds the pool model from GPU-timer census data.
 - **H5 folds into §F** as a traced-step rider.
 - **H4/H6 unchanged.**
 
@@ -963,7 +1021,7 @@ consecutive M5 failures. Relaying this needs a verified human message ID and no
 heuristic* fitted to the #110 ledger. It is **not** evidence about bandwidth or
 mechanism, and briefs must stop using it that way. Combining it with the decode
 price implies 0.015224/0.015280 ≈ 0.996 MB per µs/step ≈ **1 TB/s**, which is
-impossible on a 546 GB/s part. Rule 66 already explains why the ledger fit runs
+impossible on a 610 GB/s part. Rule 66 already explains why the ledger fit runs
 hot: the realised wins that produced it were contiguous-stream reductions that
 also removed load ops. Use it to *rank* byte-saving ideas; never cite it to
 argue that a change is bandwidth-bound.
@@ -1019,10 +1077,20 @@ fresh 0.1 % idea while a 0.24 % restore sits unshipped.
 
 | | M4 Pro (students' rig) | M5 Max (ranked) |
 |---|---|---|
-| achieved | 242 GB/s | ~345 GB/s (1.69 GB / 4894 µs) |
-| peak | ~266 GB/s | ~546 GB/s |
-| utilisation | **92 %** | **63 %** |
-| regime | **bandwidth-bound** | **instruction / latency-bound** |
+| achieved | 242 GB/s | **≈408 GB/s** (1.69 GB / 4141.5 µs steady) |
+| peak | ~266 GB/s (spec) | **610 GB/s (measured)** |
+| utilisation | **92 %** | **67 %** |
+| regime | **bandwidth-bound** | *classification under adjudication in #561* |
+
+⚠️ **Round-101 correction.** The old row read "~345 GB/s / ~546 GB/s / 63 %".
+Both numbers were wrong: 4894 µs is ranked *wall* including the amortised seed
+prefill (rule 58), and 546 GB/s was never a measured M5 peak — it was a routed
+marginal-cost rate (see §B and rule 76). At the correct steady-state denominator
+and the measured 610 GB/s peak, M5 runs at **67 %** of roofline, not 63 %. The
+gap to M4's 92 % is smaller than we have been claiming, and the "M5 is
+latency-bound, M4 is bandwidth-bound" dichotomy that this table bootstrapped is
+now **unproven** — #561 owns the verdict. Until it lands, treat every "M5 is
+instruction-bound" argument as a hypothesis, not a premise.
 
 A lever that removes bytes wins on both. A lever that removes instructions wins
 only on M5 and is **invisible on every student rig**. That is why the **M5
@@ -1104,7 +1172,7 @@ rules 63–65 say ALU is close to free below the ~96 fma/K-iter/thread knee, and
 the prefill audit says the routed gather-GEMM is **loader/LSU-bound with
 pipeline depth 1 and no double buffering**. Every one of those points the same
 way: M5 is not short of work capacity, it is short of **outstanding loads**.
-M5 needs ≈546 GB/s × ~350 ns ≈ **191 kB in flight** where M4 needed ~80 kB, and
+M5 needs ≈610 GB/s × ~350 ns ≈ **214 kB in flight** where M4 needed ~80 kB, and
 our kernels issue the same concurrency on both. That is the round-98 family,
 tested at three independent sites (decode QMV trio, decode attention phase 1,
 prefill routed gather-GEMM), plus one byte-axis outlier.
@@ -1133,29 +1201,30 @@ prefill routed gather-GEMM), plus one byte-axis outlier.
 
 ---
 
-## 5. In-flight assignments (round 99 → 100)
+## 5. In-flight assignments (round 101)
 
 | PR | student | assignment / revision | base | head | arm |
 |---|---|---|---|---|---|
 | [#539](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/539) | maple-frieren | `maple-r98-a-decode-attn-qmv-mlp` / `r99-a-rev1` | `c240616a` | `14071c9b` | **A** — restore the two mechanisms the rebase dropped. Eight-arm job COMPLETE; collecting the terminal result. **Do not alter the branch.** |
 | [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | `maple-r98-c-prefill-loader-pipeline` / `r99-d-rev1` | `c6c66344` | `d8ee3f67` | **D** — ✅ **MERGED** 2026-08-09 → base `2aa2f79`. Produced the common-baseline model and the three-reversion ledger. |
 | [#543](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/543) | maple-fern | `maple-r98-d-moe-qmv-mlp` / `r99-e-rev1` | `c6c66344` | `531a30e3` | **H_F** — ✅ **CLOSED** 2026-08-09, zero receipts spent. See §I; produced rules 70/71/72. |
-| [#548](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/548) | maple-nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | `ad39bfc6` | `3d7052c4` | **B** — reclaim editable bytes from comment-only content |
-| [#553](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/553) | maple-fern | `maple-r100-a-tg-doubling-probe-ladder` / `r100-a-rev1` | `d90f854d` | `e87c16f3` | **H2** — rule-71 probe validation + E1/E2/E3 TG-doubling discriminator ladder. Zero submitted bytes. |
-| [#555](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/555) | maple-tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | `2aa2f79` | new | **R1** — re-port the r85-C float4 merge epilogue (byte-negative) + price the lottery from the common-baseline model + fix four record defects. |
+| [#548](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/548) | maple-nezuko | `maple-r99-b-comment-byte-reclamation` / `r99-b-rev1` | `ad39bfc6` | `9cd774f3` | **B** — ✅ **MERGED** 2026-08-09. Rung 1 only; rung 2 (frees 130,149 B in LRM) still queued behind #539/#558. |
+| [#553](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/553) | maple-fern | `maple-r100-a-tg-doubling-probe-ladder` / `r100-a-rev1` | `d90f854d` | `b0dd31fe` | **H2** — ✅ **MERGED** 2026-08-09. Probe overstated by 8.01×; H2 dead; split-K descendant survives. Rules 77/78. |
+| [#555](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/555) | maple-tanjiro | `maple-r100-b-epilogue-report-and-session-factor` / `r100-b-rev1` | `2aa2f79` | `b68e8158` | **R1** — ✅ **MERGED** 2026-08-10 → base `3567695b`. Epilogue restored (−454 B, +0.2398 %); σ measured exactly; rule 79. |
+| [#558](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/558) | maple-nezuko | `maple-r100-c-router-weight-prefetch-restoration` / `r100-c-rev1` | `2e490fa3` | `54cd06a4` | **R3** — restore `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` (+4,277 B) + QKV `_idx_v1` dormancy trace rider. In progress. |
+| [#561](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/561) | maple-fern | `maple-r101-a-decode-pool-model-rebuild` / `r101-a-rev1` | `3567695b` | new | **M** — four published bandwidth rates exceed host peak. Rebuild the decode pool model, re-rank every target, rule on rule 70. Zero submitted bytes. |
 
-**All four students are engaged.** The queued arm behind them is **R3**, the
-`DARKBLOOM_ROUTER_WEIGHT_PREFETCH` restoration (≈5.5–6 kB), which is gated on
-frieren's #539 landing first because both touch the same file's headroom.
+**Three students engaged; tanjiro is IDLE** after #555 merged and is next in
+line for **H6** (the prefill non-GEMM census — see §6 item 2).
 
-**Merge sequencing is a live dependency.** #548 rung 1 → #539 → #548 rung 2.
-#539 rung 1 costs **+3,859 B** (the r96-a 4-deep ring is +4,086 B as measured
-by #541) in `LagunaRuntimeModel.swift`, which has only 12,870 B of per-file
-headroom; #548 rung 1 is deliberately confined to vendored files (touches
-nothing under `Sources/`) so it can merge independently and fast. frieren has
-been told explicitly **not** to shrink her kernel to fit current headroom.
-#555's epilogue restore is **−454 B** and therefore does not compete for
-headroom at all — it is the one restoration that can land in any order.
+**Merge sequencing for the `LagunaRuntimeModel.swift` per-file cap** (510,964 /
+524,288 B at base `3567695b` ⇒ **13,324 B headroom**):
+**#555 (−454 B) ✅ done → #539 (+4,086 B) → #558 (+≤5,000 B) → #548 rung 2**
+(which frees 130,149 B and dissolves the constraint). #561 is `research/`-only
+and does not compete.
+
+frieren has been told explicitly **not** to shrink her kernel to fit current
+headroom; #548 rung 2 exists precisely so she does not have to.
 
 **⚠️ #539 deconfound (feedback `r99-a-fb-ring-vs-epilogue-deconfound`).** The
 rebase reverted *three* mechanisms, not the two frieren was briefed on, and the
@@ -1384,14 +1453,19 @@ must cap its own submitted growth.
    (`use_nax` is unconditional for BF16 at `matmul.cpp:957-1026`), so the
    12.30 ms `steel_gemm_bf16` pool is an **M4 artifact** and prefill headroom
    must be looked for outside the GEMMs. Desk-first, then one census.
-3. **~~QKV byte-floor contradiction (desk, blocking)~~ — ✅ RESOLVED, see §F.**
-   Both inputs were wrong: the byte count was 2.0 % high (layers 0,4,…,36 carry
-   48 q-heads, not 64) and 546 GB/s is the *routed-expert* QMV rate, not a
-   roofline. Correct figures: **411.3 MB/step** at the attention family's own
-   measured **651.8 GB/s** ⇒ a **631 µs** floor against a ≈650 µs pool. QKV is
-   byte-bound at 97–103 %; remaining byte work is worth 13–20 µs ≈ 0.2–0.3 %,
-   below the bar. Produced **rule 76** and the flagship per-byte-rate-gap
-   question (§F, ≈2.4 % if closed).
+3. **QKV byte-floor contradiction — 🚨 RE-OPENED (round 101), assigned to #561.**
+   The round-99 "resolution" fixed one error and introduced another. The byte
+   count fix survives: **411.3 MB/step** (layers 0,4,…,36 carry 48 q-heads, not
+   64 — a 2.0 % correction). Everything downstream of it is **withdrawn**. The
+   "attention family's own measured 651.8 GB/s" is a *receipt-differential
+   marginal*, and 651.8 GB/s is **106.9 % of the measured 610 GB/s M5 peak** —
+   a physically impossible rate, so it cannot be a floor divisor. The **631 µs**
+   floor, the "byte-bound at 97–103 %" verdict, and the flagship ≈2.4 %
+   per-family rate-gap prize are all **retracted**. What survives independently:
+   the byte-side ceiling of 13–20 µs ≈ 0.2–0.3 % (priced off the decode
+   µs↔score conversion, not off any bandwidth figure), which is still below the
+   slot bar. **Rule 76 has been rewritten** to forbid the marginal→rate step
+   that produced this. See §B and §F.
 4. **~~§F rider — is QKV `_idx_v1` silently dormant?~~ — FOLDED INTO #558** as a
    dormancy-trace rider. `lagunaIndexedAffineMetadata`
    (`LRM:2829-2866`) returns nil when the `(scale,bias)` LUT exceeds 65,536
@@ -1517,6 +1591,14 @@ stands and is quoted below.
 > Three rivals survive untouched: dependency *drain* between dispatches (H_B),
 > CPU/step-boundary overhead (H_E), and an inflated bandwidth denominator (H_C,
 > M5's 546 GB/s is theoretical, M4's 266.3 is measured).
+
+⚠️ **Round-101 correction to H_C.** The parenthetical above is **backwards**.
+M5's **610 GB/s is the measured figure** (streaming-read sweep, receipts
+`ff29f5c2` vs `553ef9f0`, band 603–628, cross-check 604.2 — see §B); "546" was
+never a peak at all, it was a routed marginal-cost rate. M4's **266.3 GB/s is
+the vendor spec**, and no Senpai-run M4 streaming measurement exists (#561 P2
+owns it). H_C survives as a live rival, but with the denominators swapped: it is
+the *M4* side of the regime comparison that rests on an unmeasured number.
 
 Ranked slate, strongest first:
 
@@ -1979,8 +2061,22 @@ and the deletion re-authorised. Operational form of the rule:
   Search `research/RESEARCH_ARCHIVE_*.md` before contradicting a merged result.
 
 **Rule 70 — the routed-expert MoE decode pool is DRAM-bandwidth-saturated and
-CLOSED to instruction-level work** (#543, #525). 552.1 MB/step against a ≈600 µs
-pool. Unrolling, staging depth, wider code loads and scheduling changes in
+CLOSED to instruction-level work** (#543, #525).
+
+> **⚠️ STATUS, round 101: TRUE on M4, UNSUPPORTED on M5 — under adjudication in
+> #561.** The rule's *cited* support (552.1 MB/step against a ≈600 µs M5 pool)
+> is invalid: the 552.1 MB is the pre-#72 layout, the ≈600 µs was never
+> measured, and the derived 920 GB/s exceeds the 610 GB/s M5 peak. What
+> actually supports the rule is the **M4 GPU-timer census**: routed gate+up at
+> 88.0 % of M4 peak, routed down+shared at 76.9 %, versus QKV at 89.7 %. That
+> is a genuine near-saturation finding on M4 and nothing more. It is also why
+> the "routed is 16 % worse per byte" flagship is dead — there is no gap.
+> Keep the *operational* conclusion (do not assign another MoE-QMV codegen arm)
+> because it was independently confirmed by two negative experiments, #543 and
+> #525, not because of the arithmetic. Fern returns a TRUE/FALSE/UNSUPPORTED
+> verdict in #561.
+
+Unrolling, staging depth, wider code loads and scheduling changes in
 routed gate/up and in down+residual do not earn a slot. The only remaining lever
 is **bytes**, and the 61.3 MB/step of uint8 scales are already halved
 (`lagunaHalvedGroup32ScalePlane`, `LagunaRuntimeWeights.swift:1152`); the
@@ -2058,6 +2154,23 @@ rungs on a bias of −0.02…−0.04 µs, i.e. ≤ 0.53 % of reference against d
 9.2 % and 1.8 %. Standing replacement: **`|d%| ≤ 0.25 × |smallest reported
 dose|`**, stated with the dose it is protecting.
 
+**🆕 Rule 79 (#555) — every per-kernel census contrast must be published
+alongside a same-session identical-code null for the same kernel at the same
+slot positions.** A contrast the null reproduces is not a result. #555 ran
+cand↔cand (n=4) and base↔base (n=3) duplexes and caught a published line item:
+the `shared_…_rows1_halved_bf16_v1` **+1.55 µs/step give-back** attributed to
+the r85-C epilogue is a **slot-position artifact** — the real contrast is
+−0.20 µs/step [−2.03, +1.64] against a null of +1.52. That give-back is
+**retired from the r85-C signature**; stop attributing it. The three real
+contrasts survived the same test at nulls of −0.13, +0.30 and +0.03 µs/step.
+
+**🆕 Rule 80 (advisor, round 101) — before publishing any GB/s, divide it by the
+host peak.** >100 % is a category error, not a discovery. Four published
+programme figures (M5 qkvo 651.8; M4 injection 310.9 / 331.6 / 322.3) implied
+106.9–124.5 % of peak and stood unchallenged for dozens of rounds. Peaks to
+divide by: **M4 Pro 266.3 GB/s**, **M5 Max 610 GB/s measured / 614 nominal**.
+See rule 76 for why marginals inflate.
+
 **Process rule (#513).** Every assignment must state that *a student's
 registered go/no-go bar must be at least as strict as the suggested bar, or the
 loosening must be justified inside the preregistration itself.* #513's
@@ -2113,6 +2226,14 @@ of merit. The section below is kept only so the retraction is auditable. Its
 error: it
 took σ(score) = 0.6172 % from a *pre-rebase* fit and applied it to the *gap to
 the record* as if any single draw were a fresh sample of our own best score.
+
+⚠️ **Superseded by #555 Part 1 (round 101).** The session lottery is now
+measured directly and exactly: `session_factor` is a deterministic function of
+the two same-session baseline timings, and its sd over n = 1185 receipts is
+**0.5393 %** (i.i.d., lag-1 −0.0173, prefill-driven). Use that figure and the
+p-table at the top of this document. The 0.452 % below is a small-n estimate
+retained only to show what the retraction corrected.
+
 The measured sd of our 12 most recent healthy-lineage scored submissions is
 **0.452 %**, and 141 submissions have never once exceeded 2.5932. The correct
 per-draw promotion probability from our best row is **≈ 2.3 %**, not 4.45 %,
@@ -2148,7 +2269,7 @@ Four-term score-variance decomposition:
 
 ---
 
-## 11. Merged-result ledger, rounds 93–100
+## 11. Merged-result ledger, rounds 93–101
 
 | PR | student | headline | base after merge |
 |---|---|---|---|
@@ -2159,8 +2280,10 @@ Four-term score-variance decomposition:
 | [#541](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/541) | maple-tanjiro | **the common-baseline score model** (validated 1185/1185) and the **three-reversion ledger**: adopting the promoted frontier cost 0.43–0.53 % of already-proven merit | `2aa2f79` |
 | [#548](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/548) | maple-nezuko | **−176,468 B** of vendored comment bytes (headroom 16,151 → 192,619 B, 11.9×), bit-identical `mlx.metallib`, `max_abs_diff = 0`; produced **rules 74 & 75** | `2e490fa3` |
 | [#553](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/553) | maple-fern | **killed H2** (φ = 1.8008 vs a 1.05 viability bar) and **self-refuted its own r99 headline**: the −14.6 % probe dose was overstated **8.01× = 1.59 × 5.02** (unfaithful dispatch geometry × SLC residency) ⇒ 21.6 µs/step, 0.330 %. Produced **rules 77 & 78** and the faithful-geometry / residency-defeat probe harness | `c22f1e47` |
+| [#555](https://github.com/morganmcg1/mlxfast-challenge_senpai/pull/555) | maple-tanjiro | **restoration #1 of 3 landed**: the r85-C float4 merge epilogue, re-measured at **+0.2398 % [−0.0042,+0.4834]** and **−454 B** (byte-negative), bit-exact (`max_abs_diff = 0` vs the unchanged base). Also measured the session lottery **exactly** (`session_factor` closed form, worst rel err 4.885e-15, n = 1185, **sd = 0.5393 %**, i.i.d.), showed **we lead the record holder on merit by +0.0404 %** (`cc6ddc12` was a +3.03 σ draw), adopted the un-ratioed M4→M5 convention (**88.4 % closure**), and retired the `shared_…_rows1_halved_bf16_v1` +1.55 µs give-back as a slot-position artifact ⇒ **rule 79** | `3567695b` |
 
-W&B: #497 [`grovhe29`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/grovhe29) ·
+W&B: #555 [`p3bajkox`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/p3bajkox).
+#497 [`grovhe29`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/grovhe29) ·
 [`ng13oh64`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/ng13oh64) ·
 [`1v3hp1h5`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/1v3hp1h5).
 #498 [`mhhosz20`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/mhhosz20).
@@ -2169,6 +2292,13 @@ W&B: #497 [`grovhe29`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs
 ---
 
 ## 12. Decode attention reference (round-96 audit, verified in code)
+
+🚨 **LINE NUMBERS IN THIS SECTION ARE PRE-#555.** #555 merged a 46+/80− six-hunk
+edit to `LagunaRuntimeModel.swift` covering both attention kernels' epilogues.
+Every `LRM:` anchor at or below `:1400` is still valid; **every anchor above
+`:1400` must be re-derived against base `3567695b` before it is used in a
+brief.** Structural facts (threadgroup counts, threads/TG, gqa, cache classes,
+byte counts) are unaffected.
 
 Two hand-written Metal kernels, both **1024 threads / 32 simdgroups / 2 query
 heads per threadgroup**.
@@ -2192,7 +2322,8 @@ heads per threadgroup**.
   barrier; every threadgroup sharing a KV head redundantly recomputes that
   head's K RMSNorm+RoPE (4× sliding, 3× full).
 - Main loop is a hand-written **2-deep** software pipeline, `qk_per_thread = 4`,
-  8-byte `vec<bfloat,4>` loads, two `simd_sum` per slot, online softmax with an
+  8-byte `vec<bfloat,4>` loads, two `simd_sum` per slot (**10 per kernel call**
+  in total, counting the epilogue), online softmax with an
   alpha-skip. Each simdgroup visits 16 slots ⇒ ≈160 dependent ops, ILP = 2.
 - Epilogue: one `float4 outputs4[BN*BDP]` plane (BDP = 33), **three barriers**,
   **two serialized combine rounds**, final store by `lane == 0` only (32 of 1024
