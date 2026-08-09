@@ -108,18 +108,40 @@ def evaluate(x, absx, xnorm, absx_g, weight, what, halfcell, bias, group):
     rnorm = np.where(rnorm < np.sqrt((dw.astype(np.float64) ** 2).sum(axis=1)),
                      rnorm * (1 + 2 ** -8), rnorm)
     e2 = xnorm[:, None] * rnorm[None, :]
-    eta = (absx @ np.abs(what).T).astype(np.float64) * 2.0 ** -18
+    # covers the FP32 chunked accumulation of both the reference (exact w) and
+    # the screen kernel (what); 2^-17 over-bounds 2 * 21 * 2^-24
+    wmax = np.maximum(np.abs(weight), np.abs(what))
+    eta = (absx @ wmax.T).astype(np.float64) * 2.0 ** -17
 
     err = np.minimum(e1, e2) + eta
-    rho = bf16_ulp(np.abs(lhat) + err) * 0.5
-    eps = err + rho
+    # BF16 rounding is monotone, so the reference logit lies in the rounded
+    # interval; that is strictly tighter than the pre-registered +/- ulp/2 term.
+    llo = bf16_value(np.nextafter((lhat - err).astype(np.float32), -np.inf))
+    lhi = bf16_value(np.nextafter((lhat + err).astype(np.float32), np.inf))
+    eps = (lhi.astype(np.float64) - llo.astype(np.float64)) * 0.5
+    rho = np.maximum(eps - err, 0.0)
 
     b = bias.astype(np.float64)[None, :]
-    lo = sigmoid(lhat - eps) + b
-    hi = sigmoid(lhat + eps) + b
+    lo = sigmoid(llo.astype(np.float64)) + b
+    hi = sigmoid(lhi.astype(np.float64)) + b
     tau = np.partition(lo, -8, axis=1)[:, -8]
     ncand = (hi >= tau[:, None]).sum(axis=1)
-    return ncand, err, rho, eps
+    e1_wins = float((e1 < e2).mean())
+
+    # diagnostic: exact top-8/9 gap in `c` units against the certified halfwidth
+    lex = bf16_value((x @ weight.T).astype(np.float32)).astype(np.float64)
+    cex = sigmoid(lex) + b
+    s = np.sort(cex, axis=1)
+    gap = s[:, -8] - s[:, -9]
+    order = np.argsort(cex, axis=1)[:, -8:]
+    half = np.take_along_axis(hi - lo, order, axis=1).mean(axis=1)
+    # how loose the certified bound is versus the error the screen actually makes
+    real = np.abs(lhat - lex)
+    loose = err / np.maximum(real, 1e-12)
+    # what an oracle-tight bound would cost: realized halfwidth in `c` units
+    dc = np.abs(sigmoid(lex + real) - sigmoid(lex - real))
+    real_half = np.take_along_axis(dc, order, axis=1).mean(axis=1)
+    return ncand, err, rho, gap, half, e1_wins, loose, real_half
 
 
 def main() -> int:
@@ -139,8 +161,10 @@ def main() -> int:
     print(f"layers: {len(tags)} -> {tags[0]}..{tags[-1]}")
 
     groups = [32, 64, 128, 2048]
+    prereg_bits = (8, 6, 5, 4, 3)
+    diag_bits = (14, 12, 10)  # post-hoc: where certification would become feasible
     configs = [(s, b, g) for s in ("pot", "affine")
-               for b in (8, 6, 5, 4, 3) for g in groups]
+               for b in prereg_bits + diag_bits for g in groups]
 
     # ---------------------------------------------------------- stage 1 checks
     layers = {}
@@ -163,6 +187,21 @@ def main() -> int:
         print("VOID: pipeline validation failed the pre-registered gate")
         return 1
 
+    # config-independent property of the routing problem: the top-8/9 decision
+    # margin any certified screen has to resolve
+    margins = []
+    for tag, L in layers.items():
+        c = sigmoid(bf16_value((L["x"] @ L["weight"].T).astype(np.float32))
+                    .astype(np.float64)) + L["bias"].astype(np.float64)
+        s = np.sort(c, axis=1)
+        margins.append(s[:, -8] - s[:, -9])
+    margin = np.concatenate(margins)
+    margin_stats = dict(p01=float(np.percentile(margin, 1)),
+                        p10=float(np.percentile(margin, 10)),
+                        median=float(np.median(margin)))
+    print(f"top-8/9 margin: p01={margin_stats['p01']:.3e} "
+          f"p10={margin_stats['p10']:.3e} median={margin_stats['median']:.3e}")
+
     for tag, L in layers.items():
         x = L["x"]
         L["absx"] = np.abs(x)
@@ -172,46 +211,69 @@ def main() -> int:
 
     rows = []
     for scheme, bits, group in configs:
-        ncands, errs, rhos, epss = [], [], [], []
-        nets = []
+        ncands, errs, rhos, nets, resids, gaps, halfs, e1w = [], [], [], [], [], [], [], []
+        looses, rhalfs = [], []
         for tag, L in layers.items():
             what, halfcell, scale_bytes, escaped = quantize(
                 L["weight"], scheme, bits, group)
-            nc, err, rho, eps = evaluate(
+            nc, err, rho, gap, half, ew, loose, rhalf = evaluate(
                 L["x"], L["absx"], L["xnorm"], L["absx_g"],
                 L["weight"], what, halfcell, L["bias"], group)
             ncands.append(nc)
             errs.append(err.ravel()[::97])
             rhos.append(rho.ravel()[::97])
-            epss.append(eps.ravel()[::97])
+            gaps.append(gap)
+            halfs.append(half)
+            e1w.append(ew)
+            looses.append(loose.ravel()[::97])
+            rhalfs.append(rhalf)
             n_esc = int(escaped.sum())
             plane = (EXPERTS - n_esc) * (HID * bits // 8 + scale_bytes) \
                 + n_esc * HID * 2
-            nets.append(plane + 2 * EXPERTS + 4 * HID * nc.astype(np.float64))
+            base = plane + 2 * EXPERTS
+            nets.append(base + 4 * HID * nc.astype(np.float64))
+            # optimistic sensitivity: a candidate refetches only the bits the
+            # screen plane does not already carry (assumes an exact bit split)
+            resids.append(base + max(16 - bits, 0) * HID // 8 * nc.astype(np.float64))
         nc = np.concatenate(ncands)
         net = np.concatenate(nets)
+        netr = np.concatenate(resids)
         a = nc - 8
         err = np.concatenate(errs)
         rho = np.concatenate(rhos)
+        gap = np.concatenate(gaps)
+        half = np.concatenate(halfs)
         rows.append(dict(
             scheme=scheme, bits=bits, group=group,
+            diagnostic=bits not in prereg_bits,
             net_mean=float(net.mean()),
             net_frac=float(net.mean() / BASELINE_BYTES),
             saving_mb_step=float((BASELINE_BYTES - net.mean()) * 39 / 1e6),
+            net_resid_frac=float(netr.mean() / BASELINE_BYTES),
+            saving_resid_mb_step=float((BASELINE_BYTES - netr.mean()) * 39 / 1e6),
             a_mean=float(a.mean()), a_p99=float(np.percentile(a, 99)),
-            a_max=float(a.max()),
-            rho_share=float((rho / (err + rho)).mean()),
+            a_max=float(a.max()), a_frac_zero=float((a == 0).mean()),
+            rho_share=float((rho / np.maximum(err + rho, 1e-30)).mean()),
+            e1_wins_frac=float(np.mean(e1w)),
+            half_over_gap_median=float(np.median(half / np.maximum(gap, 1e-12))),
+            bound_looseness_median=float(np.median(np.concatenate(looses))),
+            real_half_over_gap_median=float(np.median(
+                np.concatenate(rhalfs) / np.maximum(gap, 1e-12))),
         ))
         r = rows[-1]
-        print(f"{scheme:6s} b={bits} G={group:4d} "
-              f"net={r['net_frac']*100:6.1f}%  save={r['saving_mb_step']:6.2f} MB/step "
-              f"A: mean={r['a_mean']:7.2f} p99={r['a_p99']:6.1f} max={r['a_max']:6.0f} "
-              f"rho_share={r['rho_share']:.3f}")
+        print(f"{'DIAG ' if r['diagnostic'] else '     '}"
+              f"{scheme:6s} b={bits:2d} G={group:4d} "
+              f"net={r['net_frac']*100:6.1f}%  save={r['saving_mb_step']:7.2f} MB/step "
+              f"A: mean={r['a_mean']:8.2f} p99={r['a_p99']:6.1f} max={r['a_max']:5.0f} "
+              f"zero={r['a_frac_zero']*100:5.1f}% rho={r['rho_share']:.3f} "
+              f"2eps/gap={r['half_over_gap_median']:.2e} "
+              f"loose={r['bound_looseness_median']:6.1f} "
+              f"real/gap={r['real_half_over_gap_median']:.2e}")
 
     # ------------------------------------------------------- pre-registered bar
     bar_net = 629146.0
-    ok = [r for r in rows
-          if r["net_mean"] <= bar_net and r["a_p99"] <= 16 and r["a_max"] <= 64]
+    ok = [r for r in rows if not r["diagnostic"]
+          and r["net_mean"] <= bar_net and r["a_p99"] <= 16 and r["a_max"] <= 64]
     ok.sort(key=lambda r: (-r["saving_mb_step"], r["bits"], -r["group"]))
     verdict = "GO" if ok else "NO-GO"
     print(f"\nVERDICT: {verdict}")
@@ -229,7 +291,8 @@ def main() -> int:
     with open(args.out, "w") as fh:
         json.dump(dict(verdict=verdict, bar_net_bytes=bar_net,
                        records_per_layer=args.records, layers=len(tags),
-                       validation_exact_frac=frac, rows=rows), fh, indent=2)
+                       validation_exact_frac=frac, margin=margin_stats,
+                       rows=rows), fh, indent=2)
     print(f"wrote {args.out}")
     return 0
 
