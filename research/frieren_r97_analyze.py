@@ -46,8 +46,8 @@ def load_runs(outdir):
             doc = json.load(fh)
         metrics = doc.get("metrics", doc)
         log = os.path.join(outdir, os.path.basename(path).replace(".score.json", ".log"))
-        prompt_tokens, decode_steps = harness_shape(log)
-        runs.append({
+        prompt_tokens, decode_steps, seed_s, mean_step_s = harness_shape(log)
+        run = {
             "idx": idx,
             "block": block,
             "rung": rung,
@@ -57,28 +57,55 @@ def load_runs(outdir):
             "passed": bool(metrics.get("passed_correctness")),
             "prompt_tokens": prompt_tokens,
             "decode_steps": decode_steps,
-        })
+            "seed_ms": seed_s * 1e3 if seed_s else None,
+            "mean_step_ms": mean_step_s * 1e3 if mean_step_s else None,
+        }
+        if seed_s and mean_step_s and decode_steps and prompt_tokens:
+            # What the decode metric would be if the seed forward were NOT
+            # inside the decode timer.
+            run["D_if_steps_only"] = mean_step_s * 1e6
+            # Seed cost implied by the published metric, and the same forward
+            # as seen by the prefill timer.
+            run["seed_implied_ms"] = (
+                run["D"] * decode_steps / 1e3 - mean_step_s * decode_steps * 1e3)
+            run["prefill_total_ms"] = run["P"] * prompt_tokens / 1e3
+        runs.append(run)
     return runs
 
 
-def harness_shape(logpath):
-    """Read the measured prompt length and decode-step count from the run log.
+NUM = r"([0-9]+\.?[0-9]*(?:[eE][-+]?[0-9]+)?)"
+SEED_RE = re.compile(r"decode seed prefill complete seconds=" + NUM)
+MEANSTEP_RE = re.compile(r"mean_step_seconds=" + NUM)
 
-    The prediction is `prompt_tokens / decode_steps`; reading it from the run
+
+def harness_shape(logpath):
+    """Read the run's own timer topology out of its progress log.
+
+    Returns prompt_tokens, decode_steps, the seed-forward seconds the harness
+    itself reports as "(charged to decode)", and the final step-only mean. The
+    prediction is `prompt_tokens / decode_steps`; reading it from the run
     rather than hardcoding 4 keeps the test honest if the local case differs.
+    The seed and step-only figures give a within-run decomposition of D that
+    needs no cross-run differencing at all.
     """
-    prompt_tokens = decode_steps = None
+    prompt_tokens = decode_steps = seed_seconds = mean_step_seconds = None
     if not os.path.exists(logpath):
-        return prompt_tokens, decode_steps
+        return prompt_tokens, decode_steps, seed_seconds, mean_step_seconds
     with open(logpath, errors="replace") as fh:
         for line in fh:
             if prompt_tokens is None and "prefill measured start prompt_tokens=" in line:
                 prompt_tokens = int(line.split("prompt_tokens=")[1].split()[0])
             if decode_steps is None and "decode measured start tokens=" in line:
                 decode_steps = int(line.split("decode measured start tokens=")[1].split()[0])
-            if prompt_tokens and decode_steps:
-                break
-    return prompt_tokens, decode_steps
+            if seed_seconds is None:
+                m = SEED_RE.search(line)
+                if m:
+                    seed_seconds = float(m.group(1))
+            m = MEANSTEP_RE.search(line)
+            if m:
+                # keep the last one: it is the mean over every decoded step
+                mean_step_seconds = float(m.group(1))
+    return prompt_tokens, decode_steps, seed_seconds, mean_step_seconds
 
 
 def paired_deltas(runs):
@@ -150,6 +177,23 @@ def main():
     for r in sorted(runs, key=lambda x: x["idx"]):
         print(f"{r['idx']:4d} {r['block']:4d} {r['rung']:5d} "
               f"{r['D']:11.1f} {r['P']:11.2f} {str(r['passed'])[:3]:>3}")
+
+    # Within-run decomposition. This needs no cross-run differencing, so host
+    # drift cancels exactly: every quantity comes from the same timed window.
+    decomp = [r for r in runs if r.get("seed_implied_ms")]
+    if decomp:
+        print(f"\nwithin-run decomposition (D*steps - meanstep*steps vs prefill window)")
+        print(f"{'idx':>4} {'rung':>5} {'seed logged':>12} {'seed implied':>13} "
+              f"{'prefill win':>12} {'implied/win':>12} {'D_stepsonly':>12} {'D/D_so':>7}")
+        for r in sorted(decomp, key=lambda x: x["idx"]):
+            print(f"{r['idx']:4d} {r['rung']:5d} {r['seed_ms']:12.1f} "
+                  f"{r['seed_implied_ms']:13.1f} {r['prefill_total_ms']:12.1f} "
+                  f"{r['seed_implied_ms']/r['prefill_total_ms']:12.3f} "
+                  f"{r['D_if_steps_only']:12.1f} "
+                  f"{r['D']/r['D_if_steps_only']:7.3f}")
+        rat = [r["seed_implied_ms"] / r["prefill_total_ms"] for r in decomp]
+        print(f"  implied-seed / prefill-window: mean={statistics.mean(rat):.3f}"
+              + (f" sd={statistics.stdev(rat):.3f}" if len(rat) > 1 else ""))
 
     print(f"\n{'rung':>5} {'n':>3} {'mean D':>10} {'mean P':>10} "
           f"{'dD':>9} {'dP':>8} {'ratio':>7}")
