@@ -4694,6 +4694,19 @@ private func lagunaDecodeNVFP4QKVR1SevenBit(
     )[0]
 }
 
+private func lagunaQKVSevenBitMedian(_ samples: [UInt64]) -> UInt64 {
+    samples.sorted()[samples.count / 2]
+}
+
+private func lagunaQKVSevenBitTiming(
+    _ operation: () -> MLXArray?
+) -> UInt64? {
+    let start = DispatchTime.now().uptimeNanoseconds
+    guard let output = operation() else { return nil }
+    eval(output)
+    return DispatchTime.now().uptimeNanoseconds - start
+}
+
 private func lagunaValidateQKVSevenBitKernel(
     bank: LagunaNativeAffineWeight, heads: Int
 ) -> Bool {
@@ -4717,7 +4730,50 @@ private func lagunaValidateQKVSevenBitKernel(
         "validation heads=\(heads) rows=\(rows) boundaries=0,\(rows - 1) "
             + "bitwise=\(passed)",
         site: "validation-\(heads)")
-    return passed
+    guard passed else { return false }
+
+    let iterations = 101
+    var u8Times = [UInt64]()
+    var sevenBitTimes = [UInt64]()
+    u8Times.reserveCapacity(iterations)
+    sevenBitTimes.reserveCapacity(iterations)
+    for iteration in 0 ..< iterations {
+        let u8Operation = {
+            lagunaDecodeNVFP4QKVR1U8(normalized: input, bank: bank, heads: heads)
+        }
+        let sevenBitOperation = {
+            lagunaDecodeNVFP4QKVR1SevenBit(normalized: input, bank: bank, heads: heads)
+        }
+        let pair: (UInt64?, UInt64?)
+        if iteration.isMultiple(of: 2) {
+            pair = (
+                lagunaQKVSevenBitTiming(u8Operation),
+                lagunaQKVSevenBitTiming(sevenBitOperation))
+        } else {
+            let sevenBitTime = lagunaQKVSevenBitTiming(sevenBitOperation)
+            pair = (lagunaQKVSevenBitTiming(u8Operation), sevenBitTime)
+        }
+        guard let u8Time = pair.0, let sevenBitTime = pair.1 else { return false }
+        u8Times.append(u8Time)
+        sevenBitTimes.append(sevenBitTime)
+    }
+    let u8Median = lagunaQKVSevenBitMedian(u8Times)
+    let sevenBitMedian = lagunaQKVSevenBitMedian(sevenBitTimes)
+    let u8MAD = lagunaQKVSevenBitMedian(u8Times.map { UInt64(abs(Int64($0) - Int64(u8Median))) })
+    let sevenBitMAD = lagunaQKVSevenBitMedian(
+        sevenBitTimes.map { UInt64(abs(Int64($0) - Int64(sevenBitMedian))) })
+    let ratio = Double(sevenBitMedian) / Double(u8Median)
+    let suffix = (lagunaTailNVFP4QKVSeedElisionEnabled ? "_se1" : "")
+        + (lagunaTailNVFP4QKVScaleDeferEnabled ? "_sd1" : "")
+    lagunaQKVSevenBitLog.note(
+        "timing heads=\(heads) iterations=\(iterations) ordering=ABBA "
+            + "u8Kernel=laguna_decode_nvfp4_qkv_h\(heads)_r1_v1\(suffix) "
+            + "sevenBitKernel=laguna_decode_nvfp4_qkv_h\(heads)_r1_s7_v1\(suffix) "
+            + "u8MedianNs=\(u8Median) u8MADNs=\(u8MAD) "
+            + "sevenBitMedianNs=\(sevenBitMedian) sevenBitMADNs=\(sevenBitMAD) "
+            + "ratio=\(ratio) deltaPercent=\((ratio - 1) * 100)",
+        site: "timing-\(heads)")
+    return true
 }
 
 private func lagunaDecodeNVFP4QKVR1(
