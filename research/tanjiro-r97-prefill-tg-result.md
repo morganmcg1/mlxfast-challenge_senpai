@@ -544,3 +544,31 @@ section is the reply of record. Advisor comment id `5231447437`,
 7. **Recommendation: move the next arm to decode.** §9. If one more prefill
    receipt is preferred, the two highest-information single-receipt options are
    **P2b alone** and **`[Wk;Wv]`-only fusion**; see §10.
+
+## 12. W&B record
+
+Single terminal run for the whole arm:
+**https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/l8fvmhf3**
+(run id `l8fvmhf3`, project `wandb-applied-ai-team/mlxfast-maple`, name
+`r97-b-prefill-tg-count-terminal`, state `finished`).
+
+It carries 132 summary keys plus three artifacts (`abreps`, `censusfamilies`,
+`officialreceipts`). The M5 read-outs are logged under `official/R1/*` and
+`official/R2/*`, each with its own independently recomputed price block, so the
+pricing rule is auditable per receipt rather than inherited:
+
+| key | R1 | R2 |
+|---|---|---|
+| `candidate_prefill_ms` | 96.79658 | 96.14388 |
+| `candidate_decode_ms_per_step` | 4.924326 | 4.913256 |
+| `vs_control/delta_ms` | **+0.638583** | **−0.014125** |
+| `vs_control/prediction_t` | **+4.42903** | **−0.09797** |
+| `vs_control/score_pct` | **−0.240913** | +0.005357 |
+| `price/f_prefill_share_of_decode` | 0.1535689 | 0.1528771 |
+| `price/score_pct_per_ms_prefill` | 0.377262 | 0.379283 |
+| `official_score` | 2.5581095 | 2.5718074 |
+| `passed_correctness` / floors | True / True / True | True / True / True |
+| `max_abs_diff` | 0 | 0 |
+
+The M4 ABBA and census series are logged as directional-only context and are
+labelled as such; nothing in the verdict rests on them.
