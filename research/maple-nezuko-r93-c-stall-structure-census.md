@@ -8,21 +8,57 @@ byte-identical to the assignment base (0 bytes changed).**
 
 ---
 
+## 0. Answer
+
+**All three kernels are DRAM-bandwidth-bound, each with four agreeing probes.**
+
+They run at 238–250 GB/s net of the SPLIT=1 dispatch tax, which is 91–95 % of
+this host's best measured sequential rate (262.5 GB/s) and 99–106 % of the
+access-pattern ceilings measured for their own patterns. Inserting float
+arithmetic into their inner loops costs 3.6 % (qkv), 14.7 % (oproj) and 19.0 %
+(routed) of its issue-limited price — they have idle issue slots. Inserting
+*bytes* costs full DRAM rate: 225–239 GB/s marginal. And at equal bytes,
+doubling the number of load instructions changes cost by only −0.6 % to +4.4 %,
+so cost tracks bytes and is blind to instruction count. That last measurement is
+the one that excludes memory-latency-bound and issue-bound simultaneously.
+
+**Consequence for the programme:** the 54 % of the busy pool these kernels hold
+is *not* 54 % of addressable time. At fixed bytes and fixed dispatch count the
+honest in-trio ceiling is ≈ 550 µs/step, ≈ 12 % of the trio and ≈ 6.4 % of the
+local busy pool (§8). Any future proposal for these kernels that does not reduce
+**bytes moved**, reduce **dispatch count**, or overlap the **wall−busy gap** has
+a ceiling near zero — including unrolling, register tuning, instruction
+selection, and cheaper dequantization math.
+
+**Not measured:** a controlled grid-scaling sweep (probe 2) could not be run —
+no env knob reaches these kernels' geometry and geometry is forbidden to ship —
+so occupancy-limited is excluded by inference rather than by a dedicated probe
+(§4, §10). A contention co-run is the sharpest missing test and should lead any
+follow-up.
+
+---
+
 ## 1. Question
 
 Three decode kernels hold 54.2 % of the 8528 µs/step GPU-busy pool:
 
 | kernel label | µs/step (assignment) | µs/step (this rig) | share |
 |---|---|---|---|
-| `decode_nvfp4_qkv_h64/h48_...` | 1702.9 | TBD | 20.0 % |
-| `oproj_act_h64/h48_...` | 1419.5 | TBD | 16.6 % |
-| `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | 1497.7 | TBD | 17.6 % |
+| `decode_nvfp4_qkv_h64/h48_...` | 1702.9 | 1704.0 | 20.0 % |
+| `oproj_act_h64/h48_...` | 1419.5 | 1421.2 | 16.6 % |
+| `routed_nvfp4_swiglu_qmv_packed_top8keys_r1_bf16_v2` | 1497.7 | 1498.6 | 17.6 % |
+
+This rig reproduces the assignment's per-kernel times to within 0.12 %, which is
+well inside the 3.34 µs/step per-label σ, so the census target is the same
+population the assignment measured.
 
 R92-A showed they carry no hoistable barrier. This round asks *what they are
 actually waiting on*: DRAM bandwidth, memory latency, instruction issue/ALU
 throughput, or occupancy.
 
-Calibration: 1.00 % decode = 48.94 µs/step; 0.015280 % score per µs/step.
+Calibration: 1.00 % decode = 48.94 µs/step; 0.015280 % score per µs/step. See
+the §3.4 clock caveat before converting any local µs/step in this report with
+that constant.
 
 ## 2. Method
 
@@ -125,6 +161,43 @@ Per step = 30 · 2048 · 4225 + 10 · 2048 · 3169 = **324.48 MB**, plus ≈ 0.7
 **Routed gate/up.** Per expert 1 048 576 code bytes + 65 536 scale bytes =
 1 114 112 B; 8 routed experts × 39 sparse layers = **347.60 MB**, plus ≈ 0.5 MB
 ⇒ **348.1 MB/step**.
+
+The nibble/base widths above are read directly off the shape assertions rather
+than inferred: `LagunaRuntimeModel.swift:5076-5083` requires
+`lane.nibbles.dims(rows, hidden / (lane.pairwise ? 64 : 32))` and
+`lane.bases.dims(rows)`, and `:4361-4362` set `nibDiv = pairwise ? 4 : 2` with
+`laneIdx = (simd_lid >> 1)`. So the pairwise arm really does store one nibble
+per *pair* of groups — K/64 B/row — and the non-pairwise routed arm K/32 B/row.
+The routed figure cross-checks: 2 097 152 values / 32 values-per-scale-byte =
+65 536, which is what the per-expert total uses.
+
+### 3.1b The fifth QKV buffer (`weight_scales`) is not a hidden byte term
+
+The QKV dispatch binds five buffers,
+`[normalized, bank.packedCodes, lane.nibbles, lane.bases, bank.scales]`
+(`:5090`), and `bank.scales` is the *stock* uint8 plane at `dims(rows, hidden/16)`
+= 128 B/row — a potential +12 % on the QKV byte count if it were read on the
+common path. It is not. In `lagunaDecodeNVFP4QKVLaneMajorSource` (`:4996-5013`)
+`weight_scales` is dereferenced only inside the `row_base == 0xFFu` *escape*
+branch; the packed branch touches only `scale_nibbles` and `scale_bases`. The
+two branches are exclusive, so a row costs either 32 B (packed) or 128 B
+(escaped) of scale traffic, and the buffer is bound unconditionally so the
+escape branch has a valid address.
+
+The escape rate is bounded by construction, not by assumption.
+`lagunaLaneMajorNVFP4ScaleBank` (`LagunaRuntimeWeights.swift:886-933`) escapes a
+row only when its scale span exceeds 15 or its two pairwise halves disagree, and
+the header comment at `:706-717` derives that the halves can disagree for at most
+**one group pair per `quantized()` call** — i.e. at most three fused-QKV rows and
+one `o_proj` row per layer. Against 10 240 QKV rows per layer that is ≤ 0.03 %.
+
+Independently of that derivation, the measurement itself caps the escape
+fraction *f*: QKV bytes/row would be 1057 + 96·*f*, and the observed net
+250.2 GB/s cannot exceed the 262.5 GB/s sequential ceiling, so *f* ≤ 0.54 even
+with no knowledge of the packer. The exact per-bank counts are printed by
+`DARKBLOOM_ATTN_SCALE_NARROW_LOG=1` (`LagunaRuntimeWeights.swift:939-940`); the
+measured value is reported in §3.1c. Either way this term is far too small to
+change the classification.
 
 ### 3.2 Achievable ceilings on this host
 
@@ -358,15 +431,121 @@ kernel. All three kernels have **four**.
 
 ## 8. Ranked candidate mechanisms with ceilings
 
-TBD
+The classification is the ranking: for all three kernels the only lever with a
+large ceiling is **moving fewer bytes**. Everything else is bounded by the
+−84 µs/step of aggregate non-DRAM residual the trio actually carries (§3.4).
+
+Ceilings below are quoted as **local µs/step against this rig's 8538 µs/step
+busy pool** (see the §3.4 clock caveat — do *not* convert them with the
+assignment's 48.94 µs/step-per-1 % constant, which belongs to a 4894 µs/step
+decode clock).
+
+| # | mechanism | ceiling (local µs/step) | basis | confidence |
+|---|---|---|---|---|
+| 1 | shave real bytes off the weight stream | **≈ 145** in-trio | codes are already 4-bit; only the 32 B/row nibble plane and 1 B base remain above a pure-code floor: (412.2 + 325.2 + 348.1) MB → 1057→1024, 4225→4096, 1 114 112→1 048 576 B ⇒ 1085.5 → 1041.6 MB/step at 240 GB/s ⇒ 183 µs; realistically ≈ 145 after the parts that cannot be removed | high that the *rate* holds; low that the bytes are removable |
+| 2 | fixed per-dispatch cost, pool-wide | **≈ 1610** gross, ≲ 800 recoverable | 3.97 µs model intercept × 406 dispatches/step; an empty serialized dispatch measures 0.87 µs (1×32) to 2.46 µs (160×256), so ≈ half is launch overhead that fusion cannot remove | medium |
+| 2a | — of which inside the trio | **472** gross, ≲ 240 recoverable | 3.97 µs × 119 trio dispatches = 5.5 % of the busy pool | medium |
+| 3 | close the achieved→sequential-peak gap | **≈ 331** | trio at 241.4 GB/s aggregate vs 262.5 GB/s sequential ⇒ 1085.5 MB at 262.5 = 4135 µs vs 4620 measured | low — the pattern ceilings (236.6 / 243.0 GB/s) say most of this gap is the access pattern, not slack |
+| 4 | the 1266 µs/step wall−busy gap | **≈ 1266** gross | wall 9804 µs vs busy 8538 µs per step; GPU idle between dispatches | medium-low — overlaps (2) and is partly host-side |
+| 5 | anything that trades bytes for ALU | **≈ 0**, likely negative | probe 3 says ALU is 81–96 % free, but probe 4 says every added byte costs full DRAM rate; a transform that spends ALU to *save* bytes is the only version of this with positive expected value, and it is mechanism (1) | high |
+| 6 | expert-locality / routing-affinity tricks | **≈ 0** | routed already runs at 99.2 % of its own measured gather pattern ceiling and 91.9 % of sequential peak; there is no locality left to exploit | high |
+| 7 | reducing write traffic | **≈ 0** | writes are ≈ 0.5–0.9 MB/step against 1085 MB of reads | high |
+
+**Double-counting warning.** (2), (3) and (4) overlap heavily. The 3.97 µs
+model intercept is *inside* the busy pool, so it is part of what makes the trio
+achieve 241 GB/s instead of 262 GB/s — i.e. mechanism (2a) and mechanism (3) are
+largely the same 300–470 µs seen two ways, and adding them would double-count.
+Mechanism (4) is measured *outside* the busy pool and is additive to (2a) but
+overlaps (2) pool-wide.
+
+**Honest in-trio ceiling.** At fixed bytes and fixed dispatch count, the trio
+has **≈ 550 µs/step** of theoretically addressable time (max of (2a)+(3)-style
+accounting, not the sum), i.e. ≈ 12 % of the trio's 4620 µs/step and ≈ 6.4 % of
+the local busy pool. That is the number a follow-up should be sized against; it
+is not 54 %.
+
+**What this rules out for future rounds.** Any proposal for these three kernels
+that does not reduce bytes moved, reduce dispatch count, or overlap the
+wall−busy gap has a ceiling near zero. Unrolling, register-pressure tuning,
+instruction selection, math-mode changes, and cheaper dequantization arithmetic
+all fall in that class — probe 3 already measured that the arithmetic they would
+remove is 81–96 % free. This is the round's most reusable negative.
 
 ## 9. The bandwidth-vs-issue contradiction
 
-TBD
+The contradiction the assignment names is: the trio looks *bandwidth-saturated*
+by roofline, yet earlier rounds found it *responsive to issue-side changes*.
+Probes 3 and 4 resolve it, and the resolution is not that one side was wrong.
+
+**Resolution: spare issue slots and saturated bytes coexist, and they are not
+in tension.** A kernel that is DRAM-bound spends most of its wall time waiting on
+memory returns. During that wait the SIMD issue pipe is idle, so arithmetic
+inserted into the shadow of an outstanding load is genuinely close to free —
+measured at 3.6 % (qkv), 14.7 % (oproj), 19.0 % (routed) of its issue-limited
+price (§5.2). That is *predicted* by bandwidth saturation, not a contradiction
+with it. The two statements "there is idle issue capacity" and "the memory pipe
+is full" are simultaneously true, and §6.2 is the measurement that separates
+them: at **equal bytes**, doubling the number of load instructions changes cost
+by −0.6 % / +0.8 % / +4.4 %. Cost tracks bytes and is blind to instruction
+count.
+
+So the correct reading of an issue-side win in an earlier round is that it
+removed *bytes* or *dispatches*, or that it moved work out of a region where
+the memory pipe happened to be starved — not that the kernel was issue-limited.
+The falsifiable prediction is: **a change that only removes ALU work from these
+three kernels will not measurably speed them up.** The observed free-ALU slopes
+put the ceiling for removing *all* the dequantization arithmetic at 3.6–19 % of
+its nominal cost.
+
+The residual asymmetry is worth noting: routed's 19.0 % is five times qkv's
+3.6 %, so routed has the least issue slack of the three and is the one kernel
+where an ALU reduction is not entirely futile. Its `imad` ladder (50.2 %) points
+the same way, though the integer normalizer is a known artefact (§5.2).
 
 ## 10. What remains unmeasured
 
-TBD
+Listed so a follow-up does not mistake an inference for a measurement.
+
+1. **A controlled grid-scaling sweep (probe 2) was not run.** §4 explains why:
+   no env knob reaches the trio's geometry and geometry is forbidden to ship
+   (#48, receipt `285f79fa`, −0.1488 %). The observational h64/h48 substitute is
+   confounded — it varies head count and `in_vec` together, and oproj's implied
+   298.8 GB/s exceeds the sequential peak, which proves the confound rather than
+   a result. **Occupancy-limited is therefore excluded by inference (§7), not by
+   a dedicated probe.**
+2. **No contention co-run.** The sharpest untried test of "bandwidth-saturated"
+   is a second concurrent stream of known size *S* on another queue: a truly
+   saturated kernel should slow by ≈ *S*/262.5 GB/s (additive), a
+   latency-limited one sub-additively. This would upgrade the classification
+   from strong-inferential to direct. It is one probe and should be first in any
+   follow-up.
+3. **The two-parameter DRAM refit (§3.4) is a same-host model, not a
+   first-principles one.** It dissolves the 105.7 % qkv anomaly, but it was
+   fitted on the *replay* size ladder and applied to *kernel* dispatches. It has
+   not been checked by (a) refitting the replay ladder with the intercept free
+   and reporting its CI, (b) testing the slope directly on a kernel at 2× and 4×
+   K, (c) inserting an SLC-busting stream between dispatches to see whether the
+   intercept is really fixed cost or partly cache residency, or (d) auditing
+   physical buffer lengths for padding. Until then the sub-100 % ratios in §3.4
+   should be read as "consistent with", not "proven".
+4. **The in-flight-bytes-per-lane table (§3.2) is size-confounded.** It was run
+   at 5.06 MB per pattern, where the 3.97 µs fixed term alone caps achievable
+   rate near 218 GB/s. Its absolute numbers therefore understate wide-access
+   rates; only its *shape* (8 B → 32 B is the big jump) is safe to use.
+5. **The escaped-row count is derived and bounded, not (yet) directly counted
+   at the byte level in the timed build.** §3.1b gives the code derivation
+   (≤ 3 QKV rows and 1 oproj row per layer), the measurement-side bound
+   (*f* ≤ 0.54), and the measured counts in §3.1c. The one thing not done is a
+   byte-level trace confirming the escape branch's 128 B/row actually reaches
+   DRAM rather than hitting cache.
+6. **Everything here is M4 Pro (`applegpu_g16s`, gen 16).** The `_nax` kernel
+   family the ranked M5 selects is unreachable locally. The *classification*
+   (bandwidth-bound) should transfer, since it rests on byte counts and a
+   memory-system ceiling rather than on issue width; the *numbers* (µs/step,
+   GB/s, and especially the 3.97 µs intercept) should not be assumed to.
+7. **Dispatch-count reduction was costed but not attempted.** Mechanism (2)'s
+   ≲ 800 µs/step is arithmetic from the model intercept and the empty-dispatch
+   floor, not a fusion experiment.
 
 ## 11. Reproduction
 
