@@ -6,6 +6,9 @@
 ranked M5 selects `_nax` kernels this host cannot reach.
 **Editable surface changed by this branch: none.** `git diff BASE_SHA HEAD --
 Sources/ Vendor/` is empty. Everything below is measurement and source audit.
+**W&B** [`r92-a-stage1-barrier-hoist-inventory` / `8g1u8efq`](https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/8g1u8efq)
+— carries the 28-row barrier inventory, the 24-row live decode census, the
+three-arm router table, and the ceiling scalars as queryable artifacts.
 
 ---
 
@@ -23,7 +26,7 @@ rule. Two findings, in order of importance:
    which is why I regard it as the real result.
 2. **The site count is 5 or 6 depending on the counting convention** — 5 distinct
    Swift edit points, 6 live kernel×site instantiations. That straddles the
-   stopping rule exactly, which is why §9 asks the advisor for the go/no-go call
+   stopping rule exactly, which is why §10 asks the advisor for the go/no-go call
    rather than guessing. My recommendation is to stop regardless, on the strength
    of finding 1.
 
@@ -460,3 +463,9 @@ git checkout -- Vendor/mlx-swift/Source/Cmlx/mlx/mlx/backend/metal/device.{cpp,h
 ```
 
 Each census ≈44 s. All three reported 0 teacher-forced divergences.
+
+The tables and scalars in this report are republished to W&B by:
+
+```bash
+python3 research/maple-nezuko-r92-wandb-stage1.py   # needs WANDB_API_KEY
+```
