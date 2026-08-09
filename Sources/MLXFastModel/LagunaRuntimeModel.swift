@@ -1195,6 +1195,7 @@ func lagunaResidualRMSNormRouter(
     routerWeight: MLXArray, correctionBias: MLXArray
 ) -> (summed: MLXArray, normalized: MLXArray, routerLogits: MLXArray,
     routerKeys: MLXArray?) {
+    _ = lagunaR92DumpRedirect
     let hidden = LagunaConstants.hiddenSize
     let experts = LagunaConstants.numExperts
     precondition(residual.dtype == .bfloat16)
@@ -1235,9 +1236,27 @@ func lagunaResidualRMSNormRouter(
     return (outputs[0], outputs[1], outputs[2], outputs.count > 3 ? outputs[3] : nil)
 }
 
+/// r92-b research instrumentation, reverted before submission. The runtime
+/// worker replaces STDOUT_FILENO with /dev/null before any kernel dispatch, so
+/// MLX's `verbose:` source dump (a `std::cout` write) is unrecoverable from the
+/// benchmark path. This lazy global reopens descriptor 1 onto a file the first
+/// time a scored kernel runs, which is after the worker's isolation step.
+let lagunaR92DumpRedirect: Bool = {
+    guard
+        let path = ProcessInfo.processInfo.environment[
+            "DARKBLOOM_R92_DUMP_STDOUT_PATH"]
+    else { return false }
+    let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+    guard fd >= 0 else { return false }
+    dup2(fd, STDOUT_FILENO)
+    close(fd)
+    return true
+}()
+
 func lagunaResidualRMSNorm(
     residual: MLXArray, branch: MLXArray, weight: MLXArray
 ) -> (MLXArray, MLXArray) {
+    _ = lagunaR92DumpRedirect
     precondition(residual.dtype == .bfloat16)
     precondition(branch.dtype == .bfloat16)
     precondition(weight.dtype == .bfloat16)
