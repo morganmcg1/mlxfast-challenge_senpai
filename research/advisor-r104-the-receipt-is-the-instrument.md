@@ -415,11 +415,24 @@ drought is exactly what that model predicts.
 `cs` improvement of order 1.4 %.** That is the number round 104's levers have
 to be sized against:
 
-| round-104 lever | modelled ceiling | vs the 1.438 % bar |
+| round-104 lever | modelled size | vs the 1.438 % bar |
 |---|---|---|
 | 104-A sliding-attention pipe depth (§5) | ≈ +0.77 % of score for a 10 % k-loop win | **short on its own** |
-| 104-B wk/wv steel tile regroup | 6.5–10.3 ms prefill @ 0.3781 %/ms = **+2.46 % … +3.89 %** | **clears it alone** |
+| 104-B wk/wv steel tile regroup (§4.15 cause 1) | central **3–6 ms** ⇒ +1.13 % … +2.27 %; ceiling ≈9.33 ms ⇒ +3.53 % | **can clear it — conditionally** |
 | 104-C prefill steel shape census (→ §11.8 H8, audit-only this round) | ~6 ms ⇒ +1.6 % *if* dense projections are below 52 TFLOP/s | clears it alone |
+
+⚠️ **Sizing discipline for the 104-B row.** Those numbers are the recoverable
+envelope for the **whole** prefill tail, not for wk/wv alone. Per the §4.15
+reconciliation carried in `advisor-r103-*`: §4.13's 12.30 ms and §4.15's 11.40 ms
+**overlap by ≈9.33 ms and must never be added**; cause 3 (2.5–3.0 ms of peak
+margin) is definitionally unrecoverable; and cause 4 is an *alternative
+attribution* of cause 1, not an additional pool. wk/wv at (512, 1024, 2048) is
+**one shape family inside that tail**. So 104-B is the only round-104 lever that
+can plausibly clear 1.438 % on its own, and whether it actually can is exactly
+what tanjiro's preregistered **N-B — "the tail deficit is diffuse, not
+concentrated"** decides. If the census returns diffuse, 104-B shrinks even with
+a perfect routing claim, and no round-104 lever clears the bar unaccompanied.
+Do not quote a wk/wv-specific millisecond figure until the census supplies one.
 
 This is the honest reason 104-B and 104-C are prefill work and 104-A is a
 measurement-grade dial: **the decode side does not have 1.4 % lying around, and
