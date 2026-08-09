@@ -5,10 +5,6 @@
 #include "mlx/backend/metal/utils.h"
 #include "mlx/fast_primitives.h"
 
-#include <cstdlib>
-#include <iostream>
-#include <unordered_set>
-
 namespace mlx::core::fast {
 
 struct CustomKernelCache {
@@ -106,19 +102,6 @@ void CustomKernel::eval_gpu(
   const auto [tx, ty, tz] = threadgroup_;
   auto tg_size = tx * ty * tz;
   auto max_tg_size = kernel->maxTotalThreadsPerThreadgroup();
-  if (std::getenv("MLXFAST_PRINT_CUSTOM_PIPELINE_METADATA") != nullptr &&
-      name_.find("laguna_full_fused_attn_grow_v1") != std::string::npos) {
-    static std::unordered_set<std::string> printed;
-    if (printed.insert(name_).second) {
-      std::cerr << "PIPELINE_METADATA name=" << name_
-                << " max_total_threads=" << max_tg_size
-                << " thread_execution_width=" << kernel->threadExecutionWidth()
-                << " static_tgm=" << kernel->staticThreadgroupMemoryLength()
-                << " dispatch_threads=" << tg_size
-                << " occupancy_by_threads=" << (max_tg_size / tg_size)
-                << std::endl;
-    }
-  }
   if (tg_size > max_tg_size) {
     std::ostringstream msg;
     msg << "Thread group size (" << tg_size << ") is greater than "
