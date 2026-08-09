@@ -4,6 +4,13 @@ PR #483 · assignment `maple-r91-a-input-norm-fusion-price` · revision
 `r91-a-rev1` · branch `maple-fern/r91-input-norm-fusion-price` ·
 base `3f430f6f17ac4bfbac5f47767ca78cb89d84a760`.
 
+The advisor branch moved to `30f752df` (merge of #481) while stage 1 was on the
+GPU. Per the advisor's instruction not to rebase mid-measurement, **every number
+in this file was measured on `3f430f6f` plus this branch's probe commits**.
+`30f752df` ships zero editable-path bytes — all 11 of its files land under
+`research/` and `senpai/tools/agx-census-probe/` — so it cannot move a timing
+result here.
+
 Status: **stage 1 in progress** — numbers are filled in below as each stage
 lands. Nothing in this file is a shipping change; the whole stage-1/stage-2
 instrument is a research patch (`research/maple-fern-r91-stage1-probe.patch`)
@@ -49,6 +56,7 @@ the base except for the probe branch.
 | 4 | The one-dispatch fused norm+QKV (`lagunaNormAffineQKV`) is gated on `mode == .affine, bits == 8, groupSize == 32`. On the shipped default configuration (`DARKBLOOM_NATIVE_AFFINE_NVFP4` on, `_FROM` = "0") **every** layer is NVFP4, so this guard declines on all 40 layers and `fusedQKV == nil`. | `:5747-5753`, flags at `:2869-2875` |
 | 5 | Therefore `inputNorm(input)` at the probe site executes once per layer per decode step — 40 dispatches/step. | `:5789-5799` |
 | 6 | Its consumer is `lagunaDecodeNVFP4QKVR1(normalized:bank:heads:)`. | `:5800-5803`, definition `:4823` |
+| 6b | That helper has **three** dispatch branches selecting a scale-plane encoding, and the one taken on the default configuration is the **lane-major** branch, whose body comes from `lagunaDecodeNVFP4QKVLaneMajorSource(pairwise:)` — *not* from `lagunaDecodeNVFP4QKVR1Source`. `DARKBLOOM_ATTN_SCALE_NARROW_QKV`, `_LANEMAJOR` and `_PAIRWISE_QKV` all default on (`!= "0"`), and the lane-major bank is populated at `:5596-5604`. Any stage-2 instrument placed in the stock or narrow generator would never execute. | branch `:4842-4858`, source `:4743-4800`, names `:4806-4809`, flags `LagunaRuntimeWeights.swift:677-678,693-694,718-719` |
 | 7 | The same `normalized` row is also read by the gate path (`lagunaGateSoftplus`, `quantizedMM`, `gateProjection`), so the probe perturbs the gate input as well as QKV. It still removes exactly one dispatch per layer and adds none. | `:5816`, `:5823`, `:5832` |
 | 8 | The second `inputNorm(input)` site is `let normalizedInput: MLXArray? = fusedNormQKV == nil ? inputNorm(input) : nil`. At decode `fusedNormQKV` is always non-nil, so it is `nil` and no norm runs there; the retained BF16 QKV bank below it is `L > 1` only. | `:5878-5879`, `:5888` |
 | 9 | `inputNorm` is `MLXNN.RMSNorm` (`LagunaRuntimeLayers.swift:2303`, passed `:2335`) → `MLXFast.rmsNorm` → the AOT metallib kernel `rms_single_row` in `Vendor/mlx-swift/.../kernels/rms_norm.metal`. There is no custom standalone-norm kernel in the runtime. | as cited |
