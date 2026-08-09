@@ -134,6 +134,17 @@ def main() -> int:
             round(nominal, 2), round(norm, 2), unit,
         ])
 
+    escape_rows = []
+    for path in paths:
+        try:
+            with open(f"{path}/escape.json") as fh:
+                escapes = json.load(fh)
+        except FileNotFoundError:
+            continue
+        for bank, e in sorted(escapes.items()):
+            escape_rows.append([bank, e["banks"], e["rows"], e["escaped"],
+                                round(e["escaped_pct"], 4)])
+
     run = wandb.init(
         entity="wandb-applied-ai-team",
         project="mlxfast-maple",
@@ -178,15 +189,27 @@ def main() -> int:
                      "ci95_halfwidth", "work_per_n_M", "nominal_us_per_n",
                      "normalized", "normalized_unit"],
             data=fit_rows),
+        "escape/pairwise_fast_path": wandb.Table(
+            columns=["bank", "banks", "rows", "escaped", "escaped_pct"],
+            data=escape_rows),
     })
 
+    trio_net_us = sum(r[2] for r in roof_rows)
+    trio_mb = sum(r[3] for r in roof_rows)
     summary = {"probe/arms_total": len(arm_rows),
                "probe/non_bit_exact_arms":
                    sum(1 for r in recs if r.get("divergences")),
                "dispatch/fixed_pool_us_per_step":
                    round(sum(r[1] for r in disp_rows) * DRAM_FIXED_US, 1),
                "dispatch/non_dram_residual_us_per_step":
-                   round(sum(r[1] * r[7] for r in disp_rows), 1)}
+                   round(sum(r[1] * r[7] for r in disp_rows), 1),
+               "roofline/trio/net_GB_s":
+                   round(trio_mb * 1e6 / (trio_net_us * 1e-6) / 1e9, 2),
+               "roofline/trio/net_us_per_step": round(trio_net_us, 1),
+               "roofline/trio/MB_per_step": round(trio_mb, 2),
+               "roofline/trio/pct_sequential_peak":
+                   round(100.0 * trio_mb * 1e6 / (trio_net_us * 1e-6) / 1e9
+                         / SEQ_PEAK_GBPS, 1)}
     for row in roof_rows:
         summary[f"roofline/{row[0]}/net_GB_s"] = row[5]
         summary[f"roofline/{row[0]}/pct_pattern_ceiling"] = row[7]

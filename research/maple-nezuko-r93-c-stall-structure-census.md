@@ -36,7 +36,9 @@ The honest optimistic in-trio ceiling is therefore **≈ 420 µs/step, ≈ 9 % o
 trio and ≈ 4.9 % of the local busy pool** (§8). Any future proposal for these
 kernels that does not reduce **bytes moved**, reduce **dispatch count**, or
 overlap the **wall−busy gap** has a ceiling near zero — including unrolling,
-register tuning, instruction selection, and cheaper dequantization math.
+register tuning, instruction selection, and cheaper dequantization math. The
+wall−busy gap is itself smaller than it looks: 1261 µs/step under SPLIT=1 but
+only **302 µs/step** in the `off@nosplit` control (§8).
 
 **Not measured:** a controlled grid-scaling sweep (probe 2) could not be run —
 no env knob reaches these kernels' geometry and geometry is forbidden to ship —
@@ -573,7 +575,7 @@ Two framing rules apply to every number in this section.
 | 2 | fixed per-dispatch cost, pool-wide | **≈ 1612** gross, ≲ 800 recoverable | 3.97 µs model intercept × 406 dispatches/step; an empty serialized dispatch measures 0.87 µs (1×32) to 2.46 µs (160×256), so roughly half the intercept is irreducible launch/teardown that survives any merge — only the part above that floor is addressable by issuing fewer, larger dispatches | medium |
 | 2a | — of which inside the trio | **472** gross, ≲ 240 recoverable | 3.97 µs × 119 trio dispatches = 5.5 % of the busy pool | medium |
 | 3 | close the achieved→sequential-peak gap | **≈ 350** | trio at 242.0 GB/s aggregate net of the SPLIT tax vs 262.5 GB/s sequential ⇒ 1085.5 MB at 262.5 = 4135 µs vs 4485.3 net measured | low — the pattern ceilings (236.6 / 243.0 GB/s) say most of this gap is the access pattern, not slack; and see the double-counting note below, where it is shown to be a subset of (2a) |
-| 4 | the 1261 µs/step wall−busy gap | **≈ 1261** gross | wall 9843 µs vs busy 8582 µs per step; GPU idle between dispatches | medium-low — overlaps (2) and is partly host-side |
+| 4 | the wall−busy gap | **≈ 302** gross | under SPLIT=1 the gap is 1261 µs/step (wall 9843 vs busy 8582), but that is mostly the serialization artefact itself: the **`off@nosplit` control measures wall 8242 vs busy 7940, a gap of only 302 µs/step**. Production has ≈ 302 µs/step of GPU idle to attack, not 1261 | medium — the nosplit number is a direct measurement, but it overlaps (2) and is partly host-side |
 | 5 | anything that trades bytes for ALU | **≈ 0**, likely negative | probe 3 says ALU is 83.5–96.5 % free, but probe 4 says every added byte costs full DRAM rate; a transform that spends ALU to *save* bytes is the only version of this with positive expected value, and it is mechanism (1) | high |
 | 6 | expert-locality / routing-affinity tricks | **≈ 0** | routed already runs at 98.6 % of its own measured gather pattern ceiling and 91.2 % of sequential peak; there is no locality left to exploit | high |
 | 7 | reducing write traffic | **≈ 0** | writes are ≈ 0.5–0.9 MB/step against 1085 MB of reads | high |
@@ -599,6 +601,14 @@ as most of mechanism (2a), re-expressed as a rate deficit. **Their union is
 Mechanism (1) is the one genuinely orthogonal item: it removes bytes rather than
 overhead.
 
+A second, sharper version of the same warning applies to mechanism (4). The
+1261 µs/step wall−busy gap that SPLIT=1 shows is **not** an opportunity: the
+`off@nosplit` control in the same census measures wall 8242 against busy 7940,
+so the real production idle gap is **302 µs/step**, four times smaller. Roughly
+960 µs/step of the apparent gap is the serialization the profiler itself
+imposes. Any follow-up that sizes an overlap or pipelining change against the
+SPLIT=1 number will over-promise by ≈ 4×.
+
 **Honest in-trio ceiling.** At **fixed bytes**, the trio has **≈ 472 µs/step**
 of gross addressable time (the union of (2a) and (3)), of which **≲ 240 µs/step
 is realistically recoverable** once the empty-dispatch floor is subtracted — and
@@ -614,8 +624,9 @@ recurring error this census was meant to settle.
 
 **What this rules out for future rounds.** Any proposal for these three kernels
 that does not reduce bytes moved, reduce dispatch count, or overlap the
-wall−busy gap has a ceiling near zero. Unrolling, register-pressure tuning,
-instruction selection, math-mode changes, and cheaper dequantization arithmetic
+wall−busy gap (only 302 µs/step unsplit) has a ceiling near zero. Unrolling,
+register-pressure tuning, instruction selection, math-mode changes, and cheaper
+dequantization arithmetic
 all fall in that class — probe 3 already measured that the arithmetic they would
 remove is 83.5–96.5 % free. This is the round's most reusable negative.
 
@@ -755,10 +766,38 @@ swift build -c release --force-resolved-versions \
     --scratch-path .build-worker --product mlxfast-runtime-worker
 git checkout -- Package.resolved
 python3 research/maple_r93_census.py /tmp/r93/main research/maple_r93_main.arms 80
+python3 research/maple_r93_escape_audit.py /tmp/r93/main   # writes escape.json
 python3 research/maple_r93_analyze.py /tmp/r93/main
 python3 research/maple_r93_wandb.py /tmp/r93/main
 ```
 
+The census takes ≈ 49 min for 70 arms (worker model load dominates at ≈ 44 s per
+arm); the escape audit takes ≈ 40 s and needs no GPU.
+
 ## 12. W&B
 
-TBD
+**Run `mhhosz20`** — <https://wandb.ai/wandb-applied-ai-team/mlxfast-maple/runs/mhhosz20>
+(`r93-c-stall-structure-census`, `job_type=diagnostic`, state `finished`).
+
+Tables logged:
+
+| key | rows | contents |
+|---|---|---|
+| `census/arms` | 70 | every arm × rep: busy, wall, per-kernel µs/step, divergence count |
+| `roofline/table` | 3 | probe 1: raw/net µs, MB/step, raw/net GB/s, % pattern ceiling, % sequential peak |
+| `dispatch/dram_model` | 5 | per-dispatch two-parameter DRAM model, net/model ratio, residual |
+| `controls/level0_placement` | 3 | Rule 44 name- and residency-matched level-0 controls with spread |
+| `ladders/fits` | 12 | probes 3 and 4: OLS slope, 95 % CI half-width, work per rung, normalized value |
+| `escape/pairwise_fast_path` | 2 | measured escaped-row counts and rates per weight bank |
+
+Key summary scalars: `roofline/trio/net_GB_s` **242.01**,
+`roofline/trio/net_us_per_step` 4485.3, `roofline/trio/MB_per_step` 1085.5,
+`roofline/trio/pct_sequential_peak` 92.2,
+`dispatch/fixed_pool_us_per_step` 472.2,
+`dispatch/non_dram_residual_us_per_step` −55.1,
+`split/off/busy_sum_ms` 8.5825, `split/off_nosplit/busy_sum_ms` 7.9395,
+`probe/arms_total` 70, `probe/non_bit_exact_arms` **0**.
+
+A partial 24-arm dry run from the same code is retained as `604khm00`
+(`r93-c-census-DRYRUN-partial-24arms`, tagged `dryrun`); it is superseded by
+`mhhosz20` and should not be used for any number in this report.
