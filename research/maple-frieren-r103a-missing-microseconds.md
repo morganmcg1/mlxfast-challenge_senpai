@@ -310,16 +310,43 @@ census, resolution ±0.43 µs/step/kernel. Not re-authored. Deliverable: one tab
 of µs/step at OLD and NEW, paired diff, 95 % CI, sign counts, sorted by |diff|,
 followed by the **reconciliation residual** `ΔT_e2e − Σ(per-kernel diffs)`.
 
+### 1.7a Rule-58 reuse assessment of the existing census scripts
+
+§ 1.7 promised "not re-authored". That promise turned out to be only half
+keepable, and the deviation is recorded here rather than discovered later.
+Three prior census scripts exist; each was read end to end before deciding.
+
+| script | what it actually is | reusable for OLD→NEW? |
+|---|---|---|
+| `research/maple-nezuko-r100c-census.sh` → `research/maple_r89_insitu.py` | The real #558 position-matched census. Applies `research/nezuko-pr158-gpuprof-hook.patch` to `Vendor/`, builds **one** worker, reverts the hook immediately after the build, then sweeps `DARKBLOOM_ROUTER_WEIGHT_PREFETCH` over slots `0,0b,1,5`. Position matching is real (`maple_r89_insitu.py:164-165`, `order = SLOTS if rep % 2 == 0 else reversed(SLOTS)`), so `pf1`/`pf0b` share position multiset {2,3}. Digest guard via `tree_digest()` + `trap cleanup EXIT`. Validated at REPS=12 STEPS=300, 2166 s. | **Harness: yes. Parser: no.** It is a *one-binary env-var* sweep; I need a *two-binary* contrast. And it regex-parses only the single `residual_rms_router\S*` row, discarding every other kernel — the opposite of the full table § 1.7 owes. |
+| `research/tanjiro-r99d-census.sh` | 16 lines, no build, no patch, 80 steps, single arm repeated. | **No.** No ABBA, no second arm. |
+| `research/tanjiro-r100b-census.sh` → `research/maple_r85c_epilogue_ab.sh` | Genuinely two-binary ABBA (`base cand cand base`, REPS=4 STEPS=200). | **No.** It builds each arm by checking out **only** `LagunaRuntimeModel.swift` at a revision. For OLD→NEW that breaks the build: NEW folded `LagunaRuntimeLayers.swift` into `LagunaRuntimeModel.swift` (§ 2.3), so restoring the OLD file alone leaves OLD's separate `LagunaRuntimeLayers.swift` duplicating symbols against it. |
+
+**Deviation, declared:** I reuse the r100c *harness shape* — the same hook, the
+same apply/build/revert/digest discipline, the same position-matched slot order —
+but the arms come from my rung-0 two-binary snapshots instead of an env-var
+sweep, and I write a new parser
+`research/maple-frieren-r103a-census.py` that keeps **every** kernel row plus
+the `... N more` tail row (recorded as `<tail beyond --profile-top>`) so the
+reconciliation residual in § 1.7 is actually computable. Reusing the r89 parser
+would have silently made the residual equal to "everything except the router",
+which would have prejudged N-3.
+
 ### 1.8 Preregistered nulls
 
-* **N-1 receipt noise.** The +19.405 µs/step M5 headline is a difference of two
-  single receipts. Verdict from the rung-1 null and from the known receipt
-  spread; if the M5 delta is inside receipt noise the whole target is a ghost.
+* **N-1 receipt noise.** The M5 headline — **+20.149 µs/step in `T`**, per
+  § 1.5c; the +19.405 figure this line originally carried was the `D` delta and
+  is superseded — is a difference of two single receipts. Verdict from the
+  rung-1 null and from the known receipt spread; if the M5 delta is inside
+  receipt noise the whole target is a ghost.
 * **N-2 thermal / session drift.** Verdict from the rule-79 identical-code null
   CI. If the null CI excludes 0 with magnitude comparable to the real contrast,
   drift contaminates and the real contrast is not trustworthy.
-* **N-3 diffuse.** If the rung-2 reconciliation residual exceeds 50 % of the
-  rung-1 e2e delta, the cause is diffuse rather than one kernel → hand to
+* **N-3 diffuse.** Thresholds are taken against the corrected M5 target of
+  **20.15 µs/step** (§ 1.5c), not against whatever rung 1 happens to measure:
+  a single kernel counts as *the* localised cost only above **5.04 µs/step**
+  (25 %), and an unexplained reconciliation residual above **10.1 µs/step**
+  (50 %) means the cause is diffuse rather than one kernel → hand to
   fern R103-D.
 * **N-4 the vendored comment carve** `f720e9e7` (176,468 B, nezuko's R103-C).
   Confirmed **inside** the OLD→NEW range (`f720e9e7` is an ancestor of NEW and
