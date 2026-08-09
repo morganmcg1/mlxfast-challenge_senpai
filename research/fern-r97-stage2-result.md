@@ -915,6 +915,36 @@ Apple Silicon generations turns a −0.814 conversion efficiency into +0.72, sin
 that requires the change to stop costing time and start saving it. I would not
 spend M5 time on this candidate.
 
+**Weakest sufficient hypothesis (post-hoc framing).** `senpai/program.md`
+gained a "weakest sufficient hypotheses" section on this branch after the
+measurements were taken, so this paragraph is interpretation added afterwards,
+not a preregistered claim. Applied here it separates two hypotheses that both
+fit the same three contrasts:
+
+- **Weak (broad extension, few commitments):** at decode on the layer-0 dense
+  shapes, a bit-exact transform that trades DRAM bytes for per-element integer
+  unpack work is not reliably profitable, and its outcome is dominated by
+  kernel-structural effects that neither bytes removed nor added op counts
+  predict. This commits to nothing about branches, escapes, occupancy, block
+  width, or GPU generation, and it already accounts for all three contrasts,
+  including the fact that the plane with *more* ops per byte removed (down,
+  50.0) is the one that won while gate/up (18.3) lost badly (§3c).
+- **Strong (narrow extension, extra commitments):** the specific penalty is the
+  `if (base == 0xFF)` escape branch's dependent-address chain. This is §9.2
+  item 4's *(speculation)* layer and is the only one that names a mechanism.
+
+The weak hypothesis is sufficient for the NO-GO and transfers to every future
+compaction proposal on this kernel family; the strong one buys a named fix but
+costs an unsupported commitment. That distinction is what makes §9.4 item 1 the
+first follow-up: its two readings fall on opposite sides of the split. A neutral
+`d=8` rung falsifies the weak hypothesis and leaves the strong one standing with
+a named, fixable cause; a still-slow `d=8` rung — which removes no bytes at all —
+confirms the weak one directly. §9.4 item 3 is the independent check on the same
+question, since memory-stall and issued-load counters say whether this kernel is
+memory- or issue-limited without relying on either story. Those two, not another
+byte-removal rung, are what should decide whether any further compaction here is
+worth a GPU hour.
+
 ### 9.4 Suggested follow-ups (not implemented)
 
 Listed in decreasing information-per-GPU-hour. None of these is in scope for
