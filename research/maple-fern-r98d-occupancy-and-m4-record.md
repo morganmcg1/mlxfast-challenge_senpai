@@ -165,7 +165,10 @@ it is likely to transfer.
   validation in 0.6 s** with `submission note must be at least 5 KiB (3204 bytes
   provided)` — a note-length check that runs before any network call, so **no
   submission was created and no receipt was spent**. Receipt budget remains
-  **6 of 6**. I did not retry.
+  **6 of 6**. I did not retry. Verified against the server rather than assumed:
+  `mlxfast submissions` returns 141 rows, none of which carry any commit from
+  this branch (`0ff6d26`, `30dbb4c`, `976654f`, `ec3b72d` all absent; grep count
+  0). The failure was purely client-side.
 - No further GPU spend on this tree. Nothing was mid-flight when the HOLD
   landed, so nothing had to be left to drain.
 - **I have not rebased**, per the explicit instruction. The branch still sits on
