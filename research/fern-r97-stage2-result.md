@@ -127,7 +127,16 @@ actually costs, not as a predictor.
 
 ## 5. Byte budget
 
-<!-- BUDGET -->
+`senpai/check-editable-budget.sh b78e7cdb80b5ae5f1cb1fdd39803322fb283ae5e`:
+
+| | current | headroom | growth | files |
+|---|---|---|---|---|
+| base | 2,899,476 | 100,524 | 0 | 141 |
+| this branch | 2,925,859 | 74,141 | **26,383** | 141 |
+
+Growth is 26,383 B against the assignment's 60,000 B cap and the contract's
+262,144 B per-review cap. No file was added or removed, and no submitted file
+approaches the 524,288 B per-file cap.
 
 ## 6. W&B evidence
 
@@ -135,7 +144,64 @@ actually costs, not as a predictor.
 
 ## 7. Reproduction
 
-<!-- REPRO -->
+All research tooling lives under `research/` and is not part of the submitted
+surface. The submitted surface is the three files in §1.
+
+Build the three-rung worker and run the blocked randomised ladder:
+
+```bash
+bash research/fern_r97_ladder_session.sh OUT=/tmp/r97/ladder MODE=block
+```
+
+`MODE=block` expands to `P=12 R=9 S=248 SCHEDULE=rand:0,1,2 PLACEBO_EVERY=8
+WARMUP_RUNS=1 GATE_C=40 SEED=97`. The driver applies
+`research/fern-r97-rung-ladder.patch` on top of the pristine-Sources commit
+`55edbc77b2441c6fa84d6930503c9cc7518b8ec8`, builds
+`mlxfast-runtime-worker` into `.build-worker`, restores the worktree, then
+delegates to `research/fern_r93_nested_session.sh`. Re-apply the patch by hand
+with:
+
+```bash
+git checkout 55edbc77b2441c6fa84d6930503c9cc7518b8ec8 -- \
+  Sources/MLXFastModel/LagunaRuntimeModel.swift
+git apply research/fern-r97-rung-ladder.patch
+```
+
+The patch replaces the bodies of `lagunaDenseBlockExponentGateUpActive()` and
+`...DownActive()` with a read of a shared `mmap` control word named by
+`DARKBLOOM_R97_RUNG_MAP`, so all three states are one binary and one process
+image. Gate/up is active at rung >= 1, down at rung >= 2. §3b is the evidence
+that the control word is genuinely read per step.
+
+The per-run companion reuses that binary:
+
+```bash
+bash research/fern_r97_ladder_session.sh OUT=/tmp/r97/perrun MODE=perrun \
+  SKIP_BUILD=1
+```
+
+Analysis:
+
+```bash
+python3 research/fern_r93_ladder.py '/tmp/r97/ladder/p*.json' \
+  --block 6 --drop-steps 24 --mad-mult 8 --bootstrap 4000 --seed 97 \
+  --json-out /tmp/r97/ladder/ladder.json
+python3 research/fern_r97_decompose.py '/tmp/r97/ladder/p*.json' \
+  --drop-steps 24 --bootstrap 4000 --seed 97 \
+  --json-out /tmp/r97/ladder/decompose.json
+python3 research/fern_r93_perrun.py '/tmp/r97/perrun/p*.json' \
+  --drop-steps 24 --bootstrap 4000 --seed 97 \
+  --json-out /tmp/r97/perrun/perrun.json
+```
+
+Smoke check of the three states plus the escape census (48 steps):
+
+```bash
+OUT=/tmp/r97/smoke STEPS=48 bash research/fern_r97_smoke.sh
+```
+
+`NARROW_LOG=1` turns on per-dispatch logging. It takes a lock per dispatch and
+was off for every timed run reported here.
 
 ## 8. Deviations from the preregistration
 
